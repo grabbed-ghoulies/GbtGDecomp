@@ -1,0 +1,50 @@
+# User-supplied game data (never commit)
+OriginalFiles/
+OriginalFiles/**
+*.iso
+*.xiso
+*.xbe
+*.xmv
+*.bnl
+*.xpr
+*.xwb
+*.xsb
+
+# Local extract / conversion cache
+game/
+extracted/
+cache/
+*.bnlunc
+
+# Ghidra (keep scripts, not project databases)
+ghidra_projects/
+*.gpr
+*.rep/
+*.lock
+
+# Build
+build/
+cmake-build-*/
+out/
+.vs/
+CMakeUserPresets.json
+
+# IDE
+.idea/
+*.user
+*.suo
+*.sdf
+*.opensdf
+*.VC.db
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Tool dumps
+dump/
+*.bmp
+*.wav
+*.obj
+*.png

@@ -1497,22 +1497,42 @@ Vec3 mul_mat(const Mat34& a, Vec3 p)
                 p.x * a.m[8] + p.y * a.m[9] + p.z * a.m[10] + a.m[11]};
 }
 
+float fn_152b30(float value)
+{
+    // Xbox 0x00152B30
+    // Square root. 0x00153450 seeds a reciprocal square root from
+    // ((0x7F000000 - bits) >> 1) + 0x1FC00000, multiplies by 1/sqrt(2) when
+    // bit 0x08000000 is clear, and takes two Newton steps. Two further steps
+    // and a multiply by the input turn that into the root. A non-positive
+    // input is returned unchanged.
+    if (!(value > 0.f))
+    {
+        return value;
+    }
+    const u32 bits = std::bit_cast<u32>(value);
+    float y = std::bit_cast<float>(((0x7F000000u - bits) >> 1) + 0x1FC00000u);
+    if ((bits & 0x08000000u) == 0u)
+    {
+        y *= std::bit_cast<float>(u32{0x3F3504F3u});
+    }
+    const float half = value * 0.5f;
+    y = (1.5f - half * y * y) * y;
+    y = (1.5f - half * y * y) * y;
+    y = (1.5f - half * y * y) * y;
+    y = (1.5f - half * y * y) * y;
+    return y * value;
+}
+
 float length3(Vec3 d)
 {
-    return std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+    return fn_152b30(d.x * d.x + d.y * d.y + d.z * d.z);
 }
 
 float dist_xz(float x, float z, float cx, float cz)
 {
-    // 0x00152B30. A non-positive sum of squares is returned as-is.
     const float dx = x - cx;
     const float dz = z - cz;
-    const float d2 = dx * dx + dz * dz;
-    if (!(d2 > 0.f))
-    {
-        return d2;
-    }
-    return std::sqrt(d2);
+    return fn_152b30(dx * dx + dz * dz);
 }
 
 Vec3 focus_world_pos(CamFocus& host)

@@ -5,6 +5,8 @@
 #include "gbtg/resource.hpp"
 
 #include <algorithm>
+#include <bit>
+#include <cmath>
 #include <filesystem>
 #include <iostream>
 #include <string>
@@ -253,6 +255,272 @@ float actor_curve(const CutsceneActor& actor, size_t index, float time, float du
     return sample_curve(actor.curves[index], time, duration);
 }
 
+// Body-camera block at +0x94. camera_apply (0x00025AE0) ticks it once a frame.
+// The object at camera+8 is the host read by 0x0001E770; those fields stay clear
+// until that object exists, which keeps the wash idle.
+struct CameraWash
+{
+    u16 sample = 0;      // +0x94
+    u16 sample_max = 0;  // +0x96
+    u8 state = 0;        // +0xA4
+    u8 level = 0;        // +0xA5, 0..128
+    u8 enabled = 0;      // +0xA6
+    u8 latch = 0;        // +0xA7
+    u8 blink = 0;        // +0xA8
+    u8 blink2 = 0;       // +0xA9
+    u8 blink2_on = 0;    // +0xAA
+    float blink_time = 0.f;   // +0xAC
+    float blink2_time = 0.f;  // +0xB0
+    float hold = 0.f;         // +0xB4
+    float fade = 0.f;         // +0xB8
+    float wave = 0.f;         // +0xBC
+    float wave_base = 0.f;    // +0xC0
+    float wave_mag = 0.f;     // +0xC4
+    float wave_phase = 0.f;   // +0xC8
+    float wave_span = 0.f;    // +0xCC
+    float wave_timer = 0.f;   // +0xD0
+    float wave_rate = 0.f;    // +0xD4
+    i32 host_block = 0;       // host+0x98C
+    float host_push = 0.f;    // host+0x978
+    u8 host_flag = 0;         // host+0x969
+    bool host_link = false;   // host+0x964
+    bool host_link_live = false; // [host+0x964]+0xB8
+};
+
+CameraWash g_camera_wash;
+
+constexpr float kWashExitRatio = std::bit_cast<float>(u32{0x3eaa7efau}); // 0.333
+constexpr float kWashPi = std::bit_cast<float>(u32{0x40490fdbu});
+
+float wash_ratio(const CameraWash& c)
+{
+    if (c.sample_max == 0)
+    {
+        return 1.f;
+    }
+    return float(c.sample) / float(c.sample_max);
+}
+
+void wash_set_rate(CameraWash& c)
+{
+    // Rate helper: sample / sample_max picks 4, 3, 2, or 1.
+    if (c.sample_max == 0)
+    {
+        c.wave_rate = 1.f;
+        return;
+    }
+    const float ratio = float(c.sample) / float(c.sample_max);
+    if (ratio < 0.25f)
+    {
+        c.wave_rate = 4.f;
+    }
+    else if (ratio < 0.5f)
+    {
+        c.wave_rate = 3.f;
+    }
+    else if (ratio < 0.75f)
+    {
+        c.wave_rate = 2.f;
+    }
+    else
+    {
+        c.wave_rate = 1.f;
+    }
+}
+
+bool wash_host_active(const CameraWash& c)
+{
+    // Host check. The caller's other flag is independent of this result.
+    if (c.host_block != 0)
+    {
+        return false;
+    }
+    if (!(c.host_push > 0.f || c.host_flag != 0))
+    {
+        return false;
+    }
+    if (!c.host_link || !c.host_link_live)
+    {
+        return true;
+    }
+    return false;
+}
+
+bool wash_countdown(float& t, float dt)
+{
+    // Step a timer down. True only on the frame it reaches 0.
+    if (t <= 0.f)
+    {
+        return false;
+    }
+    t -= dt;
+    if (t > 0.f)
+    {
+        return false;
+    }
+    t = 0.f;
+    return true;
+}
+
+u8 wash_level_byte(float v)
+{
+    // Clamp to [0, 128], then truncate toward zero into a byte.
+    if (v < 0.f)
+    {
+        v = 0.f;
+    }
+    else if (v > 128.f)
+    {
+        v = 128.f;
+    }
+    return static_cast<u8>(static_cast<int>(v));
+}
+
+void wash_blinks(CameraWash& c, float dt)
+{
+    if (c.sample == 0)
+    {
+        c.blink_time -= dt;
+        if (c.blink_time <= 0.f)
+        {
+            c.blink_time += 0.1f;
+            c.blink ^= 1;
+        }
+    }
+    if (c.blink2_on != 0)
+    {
+        c.blink2_time -= dt;
+        if (c.blink2_time <= 0.f)
+        {
+            c.blink2_time += 0.75f;
+            c.blink2 ^= 1;
+        }
+    }
+    else
+    {
+        c.blink2 = 0;
+    }
+}
+
+void wash_wave(CameraWash& c, float dt)
+{
+    if (c.sample == 0)
+    {
+        c.wave_base = 2.625f;
+        c.wave_mag = 0.f;
+    }
+    float timer = c.wave_timer - dt;
+    c.wave_timer = timer;
+    if (timer <= 0.f)
+    {
+        c.wave_timer = timer + (1.f / c.wave_rate);
+        c.wave_phase = c.wave_span;
+    }
+    if (c.wave_phase > 0.f)
+    {
+        const float angle = (c.wave_phase / c.wave_span) * kWashPi;
+        const float s = std::sin(angle);
+        c.wave = c.wave_base + (c.wave_base * c.wave_mag * s);
+    }
+    else
+    {
+        c.wave = c.wave_base;
+    }
+    c.wave_phase -= dt;
+    if (c.wave_phase < 0.f)
+    {
+        c.wave_phase = 0.f;
+    }
+}
+
+void fn_1dd00(CameraWash& c, float dt)
+{
+    // Xbox 0x0001DD00
+    if (c.enabled == 0)
+    {
+        return;
+    }
+    switch (c.state)
+    {
+    case 0:
+    {
+        bool start = false;
+        if (c.latch == 0)
+        {
+            if (c.hold > 0.f || wash_ratio(c) < 0.25f)
+            {
+                start = true;
+            }
+        }
+        if (wash_host_active(c) || start)
+        {
+            c.wave = 1.75f;
+            c.wave_base = 1.75f;
+            c.wave_mag = 0.5f;
+            c.wave_span = 0.2f;
+            c.wave_phase = 0.f;
+            c.wave_timer = 0.f;
+            c.state = 1;
+            c.fade = 0.4f;
+            c.level = 0;
+            c.blink = 1;
+            wash_set_rate(c);
+        }
+        break;
+    }
+    case 1:
+    {
+        wash_wave(c, dt);
+        wash_blinks(c, dt);
+        wash_set_rate(c);
+        float scaled = c.fade * 2.5f;
+        scaled *= 128.f;
+        c.level = wash_level_byte(128.f - scaled);
+        if (wash_countdown(c.fade, dt))
+        {
+            c.state = 2;
+        }
+        break;
+    }
+    case 2:
+    {
+        wash_wave(c, dt);
+        const float ratio = wash_ratio(c);
+        wash_countdown(c.hold, dt);
+        wash_blinks(c, dt);
+        wash_set_rate(c);
+        c.level = 0x80;
+        bool leave = c.latch != 0;
+        if (c.hold == 0.f && ratio > kWashExitRatio)
+        {
+            leave = true;
+        }
+        if (!wash_host_active(c) && leave)
+        {
+            c.state = 3;
+            c.fade = 0.5f;
+        }
+        break;
+    }
+    case 3:
+    {
+        wash_wave(c, dt);
+        wash_set_rate(c);
+        float scaled = c.fade * 2.f;
+        scaled *= 128.f;
+        c.level = wash_level_byte(scaled);
+        if (wash_countdown(c.fade, dt))
+        {
+            c.state = 0;
+            c.level = 0;
+        }
+        break;
+    }
+    default:
+        break;
+    }
+}
+
 } // namespace
 
 void load_scene_contents(Game& g, std::string_view name)
@@ -359,6 +627,8 @@ void cutscene_queue_start(Game& g)
 
 void cutscene_queue_tick(Game& g, float dt)
 {
+    // camera_apply 0x00025AE0 calls 0x0001DD00 on the body camera every frame.
+    fn_1dd00(g_camera_wash, dt);
     auto& q = g.cutscenes;
     if (!q.playing || q.items.empty())
     {

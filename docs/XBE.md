@@ -152,3 +152,9 @@ Body types in `.rdata`: `entityBodyPlayer`, `Human`, `Camera`, `Zombie`, `Vampir
 4. Kernel import thunk at `0x00202EA0` for XAPI / Nt / D3D.
 
 Named functions: [`docs/generated/ghidra_functions.txt`](generated/ghidra_functions.txt). Do not commit the Ghidra database. Headless scripts live in `tools/ghidra/ghidra_scripts/`.
+
+## Supervisor log
+
+| VA | Name | Notes |
+|----|------|-------|
+| `0x0001DD00` | `fn_1dd00` | scene |

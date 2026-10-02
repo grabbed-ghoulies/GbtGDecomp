@@ -516,6 +516,12 @@ void fn_1234b0(const char* name);
 // name at DAT_00510ed8 and clears the script slot at DAT_00430d08.
 void fn_11ead0();
 
+// cam_11c480 calls this after 0x0011EAD0. Allocates DAT_005462e4 (0x18):
+// an empty stride-0x18 pool at +0, an empty stride-0x100 pool at +8, and
+// zeros at +4, +0xc, +0x10, and the float at +0x14. 0x0010F1C0 then
+// copies each U:\ directory's SaveMeta.xbx Name into that wide pool.
+void fn_10d3b0();
+
 // cam_11c480 calls this after 0x0011B630. Each of the ten records at
 // DAT_0051254c (stride 0x90) stores 0xFFFF in the id at +0x8c. The cap
 // at DAT_00512520 becomes 0x14 and the cap at DAT_00512534 becomes 6.

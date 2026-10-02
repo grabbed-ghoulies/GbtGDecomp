@@ -158,3 +158,4 @@ Named functions: [`docs/generated/ghidra_functions.txt`](generated/ghidra_functi
 | VA | Name | Notes |
 |----|------|-------|
 | `0x0001DD00` | `fn_1dd00` | scene |
+| `0x00032AB0` | `present_32ab0` | present |

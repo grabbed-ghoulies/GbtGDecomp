@@ -15,6 +15,7 @@ constexpr int kXactStreamSlots = 6;
 constexpr int kXactStreamName = 0x80;
 constexpr int kXactBanks = 20;
 constexpr int kXactChannels = 16;
+constexpr int kXactChannelName = 0x82; // +0x02 through +0x83
 constexpr int kXactVoices = 48;
 
 constexpr const char* kXactSilence = "XACT_SILENCE";
@@ -39,8 +40,10 @@ struct XactBank
 
 struct XactChannel
 {
-    i16 voice = 0; // +0x00
+    i16 voice = 0; // +0x00. -1 means no voice.
+    char name[kXactChannelName] = {}; // +0x02
     int mode = 0;  // +0x84. 3 keeps the stream slot alive.
+    int owned = 0; // +0x88. Nonzero lets 0x00038C20 reap an idle voice.
 };
 
 struct XactVoice
@@ -54,6 +57,7 @@ XactBank g_xact_banks[kXactBanks];
 XactChannel g_xact_channels[kXactChannels];
 XactVoice g_xact_voices[kXactVoices];
 int g_xact_gate = 0;
+float g_xact_level = 0.f; // 0x004E0BCC. 0x00038C20 stores 1.0.
 
 void xact_copy_name(char* dst, const char* src)
 {
@@ -213,6 +217,44 @@ void xact_38640(float dt)
     }
 }
 
+void xact_38c20()
+{
+    // Xbox 0x00038C20. Sixteen channels at 0x004E030C, stride 0x8C.
+    // Drop a channel when it still has a voice, +0x88 is set, and that voice is idle
+    // (live is 0, or its state is outside 2, 3, 5, 6, 7). 0x00039690 then writes
+    // state 10 if live is 0. Playing states never reach that call from here.
+    for (XactChannel& channel : g_xact_channels)
+    {
+        const int voice_index = channel.voice;
+        if (voice_index == -1)
+        {
+            continue;
+        }
+        XactVoice* voice = nullptr;
+        bool idle = true;
+        if (voice_index >= 0 && voice_index < kXactVoices)
+        {
+            voice = &g_xact_voices[voice_index];
+            const int state = voice->state;
+            idle = voice->live == 0
+                || (state != 2 && state != 3 && state != 5 && state != 6 && state != 7);
+        }
+        if (!idle || channel.owned == 0)
+        {
+            continue;
+        }
+        channel.name[0] = '\0';
+        if (voice != nullptr && voice->live == 0)
+        {
+            voice->state = 10;
+        }
+        channel.voice = -1;
+        channel.mode = 0;
+        channel.owned = 0;
+    }
+    g_xact_level = 1.f;
+}
+
 } // namespace
 
 void audio_tick(Game& g, float dt)
@@ -222,6 +264,7 @@ void audio_tick(Game& g, float dt)
     // Xbox 0x000396F0 / 0x00038C20 XACT.
     (void)g;
     xact_38640(dt);
+    xact_38c20();
 }
 
 } // namespace gbtg

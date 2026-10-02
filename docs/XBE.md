@@ -174,3 +174,4 @@ Named functions: [`docs/generated/ghidra_functions.txt`](generated/ghidra_functi
 | `0x0015B780` | `audio_update` | audio |
 | `0x00025130` | `fn_25130` | scene |
 | `0x000FAD80` | `pad_buttons` | clock |
+| `0x00027960` | `fn_27960` | scene |

@@ -866,6 +866,83 @@ void fn_1fb40(CameraPulse& cam, float dt)
     }
 }
 
+// camera_apply (0x00025AE0) calls 0x00027960 with ESI = camera, after 0x0001FB40.
+// The step is the same host rate as the pulse (camera+8: +0x930 gates, else +0x92c)
+// times DAT_005096C0 * DAT_004312C4. +0x75c only clamps at 0. +0x758 runs while
+// +0x760 is set and, on the frame it hits 0, calls that object's vtable+0xC with
+// {5, 0}. +0x7e8 runs when +0x7e4 is set and +0x7e5 is clear. Hitting 0 sends
+// that same note to +0x7f0 (0x00013B240), then 0x0001F2F0(0x3f) drops every
+// pulse latch and may broadcast note 0x47, then clears +0x7e4.
+struct TimerNote
+{
+    void (*on_note)(TimerNote* self, i32 id, i32 param) = nullptr; // vtable +0xC
+};
+
+struct CameraTimers
+{
+    float at_758 = 0.f;
+    float at_75c = 0.f;
+    TimerNote* at_760 = nullptr;
+    u8 at_7e4 = 0;
+    u8 at_7e5 = 0;
+    float at_7e8 = 0.f;
+    TimerNote* at_7f0 = nullptr;
+};
+
+CameraTimers g_camera_timers;
+
+void note_five(TimerNote* obj)
+{
+    if (obj == nullptr || obj->on_note == nullptr)
+    {
+        return;
+    }
+    obj->on_note(obj, 5, 0);
+}
+
+void fn_27960(CameraTimers& cam, CameraPulse& pulse, float dt)
+{
+    // Xbox 0x00027960
+    const float step = pulse_rate(pulse) * sim_step(dt);
+    if (cam.at_75c > 0.f)
+    {
+        cam.at_75c -= step;
+        if (cam.at_75c <= 0.f)
+        {
+            cam.at_75c = 0.f;
+        }
+    }
+    if (cam.at_760 != nullptr && cam.at_758 > 0.f)
+    {
+        cam.at_758 -= step;
+        if (cam.at_758 <= 0.f)
+        {
+            cam.at_758 = 0.f;
+            note_five(cam.at_760);
+        }
+    }
+    if (cam.at_7e4 != 0 && cam.at_7e5 == 0 && cam.at_7e8 > 0.f)
+    {
+        cam.at_7e8 -= step;
+        if (cam.at_7e8 <= 0.f)
+        {
+            cam.at_7e8 = 0.f;
+            note_five(cam.at_7f0);
+            const int before = pulse_mask(pulse.counts);
+            for (u8& count : pulse.counts)
+            {
+                --count;
+            }
+            const int after = pulse_mask(pulse.counts);
+            if (before == 0x3f && after != before)
+            {
+                pulse_notify(pulse);
+            }
+            cam.at_7e4 = 0;
+        }
+    }
+}
+
 
 // Opcode 0xF of the script-action switch. 0x00020DC0 reaches this through
 // 0x00021220 (ESI = the action object) and 0x00021450 (ESI = command+0x58).
@@ -1349,7 +1426,8 @@ void cutscene_queue_start(Game& g)
 void cutscene_queue_tick(Game& g, float dt)
 {
     // camera_apply 0x00025AE0: 0x0001EEC0 when camera+0xfc != 0, then 0x0001EC20
-    // when camera+0x154 > 0, then 0x0001FB40, then 0x0001DD00, then 0x00025130.
+    // when camera+0x154 > 0, then 0x0001FB40, then 0x00027960, then 0x0001DD00,
+    // then 0x00025130.
     if (g_camera_channels.gate != 0)
     {
         fn_1eec0(g_camera_channels);
@@ -1359,6 +1437,7 @@ void cutscene_queue_tick(Game& g, float dt)
         fn_1ec20(g_camera_channels);
     }
     fn_1fb40(g_camera_pulse, dt);
+    fn_27960(g_camera_timers, g_camera_pulse, dt);
     fn_1dd00(g_camera_wash, dt);
     fn_25130(g_camera_pairs);
     script_action_opcode_f();

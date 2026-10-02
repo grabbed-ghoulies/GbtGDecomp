@@ -46,10 +46,27 @@ struct XactChannel
     int owned = 0; // +0x88. Nonzero lets 0x00038C20 reap an idle voice.
 };
 
+// Sound source created by 0x0015C320. 0x000396F0 reads the cue through voice+0x1C.
+struct XactSource
+{
+    int bound = 0;     // +0x28. Nonzero while an XACT cue is bound.
+    int cue_state = 0; // Cue state from 0x0015C990. 1 means still playing.
+    float position[3] = {};
+    float scale[3] = {};
+    int atten_mb = 0;
+    float volume = 0.f;
+    int applied = 0; // body+0x24. 0x0015C290 sets this after writing the curve.
+};
+
 struct XactVoice
 {
-    int state = 0; // +0x00
-    int live = 0;  // +0x20
+    int state = 0;    // +0x00
+    int stop = 0;     // +0x04. State 8 retires the source when this is nonzero.
+    int follow = 0;   // +0x0C. Nonzero: refresh world position from the listener.
+    float ahead = 0.f; // +0x14. Distance along listener matrix elements [7..9].
+    int tracked = 0;  // +0x18. State 6 updates the source only when this is 1.
+    XactSource* source = nullptr; // +0x1C
+    int live = 0;     // +0x20
 };
 
 XactStreamSlot g_xact_slots[kXactStreamSlots];
@@ -58,6 +75,32 @@ XactChannel g_xact_channels[kXactChannels];
 XactVoice g_xact_voices[kXactVoices];
 int g_xact_gate = 0;
 float g_xact_level = 0.f; // 0x004E0BCC. 0x00038C20 stores 1.0.
+
+// Xbox 0x00421A38. Nine {millibel, volume} pairs. 0x004E13A8 picks one.
+// Pair 0 is also the default tail of the 0x0015C290 call.
+struct XactCurve
+{
+    int atten_mb;
+    float volume;
+};
+
+constexpr XactCurve kXactCurve[] = {
+    {0, 0.f},
+    {-2800, 0.71f},
+    {-5000, 0.40f},
+    {-1800, 0.66f},
+    {-4400, 0.64f},
+    {-4000, 0.50f},
+    {-5000, 0.60f},
+    {-6000, 0.68f},
+    {-1200, 0.15f},
+};
+
+constexpr int kXactCurveCount = 9;
+
+int g_xact_curve = 0; // 0x004E13A8
+// DAT_005077a8. Position is [0..2], offset axis is [7..9]. 0x0003A040 consumes the same matrix.
+const float* g_xact_listener = nullptr;
 
 void xact_copy_name(char* dst, const char* src)
 {
@@ -255,14 +298,72 @@ void xact_38c20()
     g_xact_level = 1.f;
 }
 
+void xact_396f0()
+{
+    // Xbox 0x000396F0. Forty-eight voices at 0x004E0CE8, stride 0x24.
+    // State 6 with tracked == 1 refreshes the source. State 10, and state 8
+    // when stop is set, retire the source and clear the voice once the handle is gone.
+    for (XactVoice& voice : g_xact_voices)
+    {
+        const int state = voice.state;
+        if (state == 6)
+        {
+            if (voice.tracked != 1 || voice.source == nullptr)
+            {
+                continue;
+            }
+            XactSource& source = *voice.source;
+            // 0x0015C930 writes the constant vector at 0x0042A840.
+            source.scale[0] = 1.f;
+            source.scale[1] = 1.f;
+            source.scale[2] = 1.f;
+            const int curve = (g_xact_curve >= 0 && g_xact_curve < kXactCurveCount) ? g_xact_curve : 0;
+            // 0x0015C290: five leading zeros, the selected pair, then pair 0.
+            source.atten_mb = kXactCurve[curve].atten_mb;
+            source.volume = kXactCurve[curve].volume;
+            source.applied = 1;
+            if (voice.follow != 0 && g_xact_listener != nullptr)
+            {
+                const float* m = g_xact_listener;
+                const float dist = voice.ahead;
+                source.position[0] = m[7] * dist + m[0];
+                source.position[1] = m[8] * dist + m[1];
+                source.position[2] = m[9] * dist + m[2];
+            }
+            continue;
+        }
+        if (state == 8 && voice.stop == 0)
+        {
+            continue;
+        }
+        if (state != 8 && state != 10)
+        {
+            continue;
+        }
+        // 0x0015C9E0 audioSoundSourceDestroy. A cue still in state 1 stays bound.
+        // Otherwise the cue is stopped and the voice drops the source.
+        if (voice.source != nullptr && (voice.source->bound == 0 || voice.source->cue_state != 1))
+        {
+            voice.source->bound = 0;
+            delete voice.source;
+            voice.source = nullptr;
+        }
+        if (state != 0 && voice.source == nullptr)
+        {
+            voice.state = 0;
+        }
+    }
+}
+
 } // namespace
 
 void audio_tick(Game& g, float dt)
 {
     // Xbox 0x0015B780 audio(dt).
     // Xbox 0x0003A040 listener.
-    // Xbox 0x000396F0 / 0x00038C20 XACT.
+    // Frame order: 0x000396F0, 0x00038640, 0x00038C20.
     (void)g;
+    xact_396f0();
     xact_38640(dt);
     xact_38c20();
 }

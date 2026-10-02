@@ -8,10 +8,10 @@ import ghidra.app.script.GhidraScript;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Instruction;
 
-public class ExportBoot extends GhidraScript {
+public class ExportBoot extends GbtgScript {
     @Override
     public void run() throws Exception {
-        PrintWriter out = new PrintWriter(new FileWriter("E:/GhouliesPort/GbtGDecomp/cache/ghidra_boot.txt"), true);
+        PrintWriter out = new PrintWriter(new FileWriter(cacheFile("ghidra_boot.txt")), true);
         DecompInterface decomp = new DecompInterface();
         DecompileOptions options = new DecompileOptions();
         options.grabFromProgram(currentProgram);

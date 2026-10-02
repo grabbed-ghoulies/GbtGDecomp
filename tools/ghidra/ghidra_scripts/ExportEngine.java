@@ -23,14 +23,14 @@ import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolIterator;
 import ghidra.program.model.symbol.SymbolTable;
 
-public class ExportEngine extends GhidraScript {
+public class ExportEngine extends GbtgScript {
     private PrintWriter out;
     private DecompInterface decomp;
 
     @Override
     public void run() throws Exception {
-        String path = "E:/GhouliesPort/GbtGDecomp/cache/ghidra_engine.txt";
-        String mapPath = "E:/GhouliesPort/GbtGDecomp/docs/generated/ghidra_functions.txt";
+        String path = cacheFile("ghidra_engine.txt").getPath();
+        String mapPath = repoFile("docs/generated/ghidra_functions.txt").getPath();
         out = new PrintWriter(new FileWriter(path), true);
         PrintWriter map = new PrintWriter(new FileWriter(mapPath), true);
         try {

@@ -1,4 +1,4 @@
-#include "gbtg/clock.hpp"
+#include "gbtg/engine_internal.hpp"
 
 #include <algorithm>
 
@@ -103,6 +103,13 @@ void game_init_pump()
     {
         file_pump();
     } while (game_init_wait(0, &remain, &total) == kIoBusy);
+}
+
+void pad_tick(Game& g, const InputState& in)
+{
+    // Xbox 0x000FA3C0 / 0x000FAD80. Digital buttons arrive in InputState from the platform.
+    (void)g;
+    (void)in;
 }
 
 } // namespace gbtg

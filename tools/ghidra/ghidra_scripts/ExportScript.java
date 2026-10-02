@@ -13,13 +13,13 @@ import ghidra.program.model.symbol.Reference;
 import ghidra.program.model.symbol.ReferenceIterator;
 import ghidra.program.model.symbol.SourceType;
 
-public class ExportScript extends GhidraScript {
+public class ExportScript extends GbtgScript {
     private PrintWriter out;
     private DecompInterface decomp;
 
     @Override
     public void run() throws Exception {
-        out = new PrintWriter(new FileWriter("E:/GhouliesPort/GbtGDecomp/cache/ghidra_script.txt"), true);
+        out = new PrintWriter(new FileWriter(cacheFile("ghidra_script.txt")), true);
         decomp = new DecompInterface();
         DecompileOptions options = new DecompileOptions();
         options.grabFromProgram(currentProgram);

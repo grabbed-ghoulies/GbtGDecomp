@@ -10,13 +10,13 @@ import ghidra.app.script.GhidraScript;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Instruction;
 
-public class DumpCameraConsumers extends GhidraScript {
+public class DumpCameraConsumers extends GbtgScript {
     private PrintWriter out;
     private DecompInterface decomp;
 
     @Override
     public void run() throws Exception {
-        out = new PrintWriter(new FileWriter("E:/GhouliesPort/GbtGDecomp/cache/ghidra_cam_consumers.txt"), true);
+        out = new PrintWriter(new FileWriter(cacheFile("ghidra_cam_consumers.txt")), true);
         decomp = new DecompInterface();
         DecompileOptions options = new DecompileOptions();
         options.grabFromProgram(currentProgram);

@@ -14,14 +14,14 @@ import ghidra.program.model.mem.Memory;
 import ghidra.program.model.symbol.Reference;
 import ghidra.program.model.symbol.ReferenceIterator;
 
-public class ExportUi extends GhidraScript {
+public class ExportUi extends GbtgScript {
     private PrintWriter out;
     private DecompInterface decomp;
     private final HashSet<String> dumped = new HashSet<>();
 
     @Override
     public void run() throws Exception {
-        out = new PrintWriter(new FileWriter("E:/GhouliesPort/GbtGDecomp/cache/ghidra_ui.txt"), true);
+        out = new PrintWriter(new FileWriter(cacheFile("ghidra_ui.txt")), true);
         decomp = new DecompInterface();
         DecompileOptions options = new DecompileOptions();
         options.grabFromProgram(currentProgram);

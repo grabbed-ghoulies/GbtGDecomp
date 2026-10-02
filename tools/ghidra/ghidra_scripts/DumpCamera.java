@@ -17,13 +17,13 @@ import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolIterator;
 import ghidra.program.model.symbol.SymbolTable;
 
-public class DumpCamera extends GhidraScript {
+public class DumpCamera extends GbtgScript {
     private PrintWriter out;
     private DecompInterface decomp;
 
     @Override
     public void run() throws Exception {
-        out = new PrintWriter(new FileWriter("E:/GhouliesPort/GbtGDecomp/cache/ghidra_camera.txt"), true);
+        out = new PrintWriter(new FileWriter(cacheFile("ghidra_camera.txt")), true);
         try {
             out.println("format=" + currentProgram.getExecutableFormat());
             out.println("lang=" + currentProgram.getLanguageID());

@@ -1,0 +1,19 @@
+---
+description: Rules for unattended reconstruction agents working a queue task
+alwaysApply: true
+---
+
+# Decomp agents
+
+Reconstruction is behavior of retail `sceneorder`, checked by a build and `gbtg --headless`. It is not a byte match of the Xbox binary.
+
+When a task file under `queue/` is assigned:
+
+- Edit only the files named in that task. `src/engine/game.cpp` is the thin `frame_tick` caller and is not yours unless the task lists it.
+- Put `// Xbox 0x........` on each function you reconstruct. Match the address in the task.
+- Rewrite behavior in the existing engine style. Do not paste the Ghidra dump in as the implementation.
+- Allman braces, same as the rest of `src/engine/`.
+- Do not rename Ghidra symbols. Do not append `docs/XBE.md`. Do not commit. The supervisor does those after the build passes.
+- Do not stage `OriginalFiles/`, `*.xbe`, `*.bnl`, `*.iso`, or `ghidra_projects/`.
+- Read the decompile from `cache/ghidra_frontier/<VA>.txt` on the main checkout. `cache/` is not in a worktree.
+- Touch `queue/claimed/<VA>.heartbeat` on the main checkout while you work, and create `queue/claimed/<VA>.ready` when you stop.

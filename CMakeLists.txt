@@ -69,6 +69,9 @@ add_executable(gbtg
     src/engine/aid.cpp
     src/engine/entity.cpp
     src/engine/clock.cpp
+    src/engine/audio.cpp
+    src/engine/frontend.cpp
+    src/engine/scene.cpp
     src/engine/game.cpp
     src/engine/platform.cpp
 )

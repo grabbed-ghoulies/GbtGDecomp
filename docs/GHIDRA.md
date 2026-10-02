@@ -20,7 +20,7 @@ XBE sections are not contiguous in the file. A flat load puts every pointer on t
 
 ## Headless export
 
-Scripts in `tools/ghidra/ghidra_scripts/` run against the existing `ghidra_projects/GbtG` program `default.xbe.original` (import once in the GUI with **ghidra-xbe**). From this repo, using the in-tree Ghidra:
+Scripts in `tools/ghidra/ghidra_scripts/` run against the existing `ghidra_projects/GbtG` program `default.xbe.original` (import once in the GUI with **ghidra-xbe**). From this repo, using the in-tree Ghidra. Output paths follow the script file up to the repo root (override with `GBTG_ROOT`):
 
 ```text
 .\tools\ghidra\support\analyzeHeadless.bat ghidra_projects GbtG -process default.xbe.original -readOnly -noanalysis -scriptPath tools\ghidra\ghidra_scripts -postScript ExportEngine.java
@@ -30,9 +30,10 @@ Scripts in `tools/ghidra/ghidra_scripts/` run against the existing `ghidra_proje
 .\tools\ghidra\support\analyzeHeadless.bat ghidra_projects GbtG -process default.xbe.original -readOnly -noanalysis -scriptPath tools\ghidra\ghidra_scripts -postScript ExportScript.java
 .\tools\ghidra\support\analyzeHeadless.bat ghidra_projects GbtG -process default.xbe.original -readOnly -noanalysis -scriptPath tools\ghidra\ghidra_scripts -postScript ExportScriptLoad.java
 .\tools\ghidra\support\analyzeHeadless.bat ghidra_projects GbtG -process default.xbe.original -readOnly -noanalysis -scriptPath tools\ghidra\ghidra_scripts -postScript ExportCutscene.java
+.\tools\ghidra\support\analyzeHeadless.bat ghidra_projects GbtG -process default.xbe.original -readOnly -noanalysis -scriptPath tools\ghidra\ghidra_scripts -postScript ExportFrontier.java
 ```
 
-`ExportEngine.java` writes `docs/generated/ghidra_functions.txt` (addresses and names only) plus `cache/ghidra_engine.txt` (decompiles). Close Code Browser first, or the project may be locked.
+`ExportEngine.java` writes `docs/generated/ghidra_functions.txt` (addresses and names only) plus `cache/ghidra_engine.txt` (decompiles). `ExportFrontier.java` decompiles unnamed callees of named functions into `cache/ghidra_frontier/` and adds one task file per function under `queue/open/` when that address is not already queued. Close Code Browser first, or the project may be locked.
 
 When you rename a function in Ghidra, add a line to [`XBE.md`](XBE.md) and re-run `ExportEngine.java`.
 

@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
+#include <malloc.h>
 #include <span>
 
 namespace gbtg
@@ -362,6 +363,29 @@ void fn_41730(Actor& actor, const Vec3& point)
     }
     actor.position = point;
     actor.xform_valid = 0;
+}
+
+void* fn_f72d0(i32 size)
+{
+    // Xbox 0x000F72D0
+    // The size is the stack argument. DAT_00507808 selects the 0x30-byte record
+    // at DAT_00507810. A zero handle at +0x24 nulls that record and the load of
+    // +0x24 faults; 0x000663E0 releases that case on the process heap, so this
+    // allocates there too. 0x0014E872 takes (handle, 0, size+4). On a non-null
+    // block, 0x0014DED0's msize stores u16 0x1234 at msize-4 and the byte at
+    // record+0x20 at msize-2.
+    const i32 index = g_heap_current;
+    void* block = std::malloc(static_cast<size_t>(static_cast<u32>(size) + 4u));
+    if (block == nullptr)
+    {
+        return nullptr;
+    }
+    const size_t span = _msize(block);
+    u8* tag = static_cast<u8*>(block) + span - 4;
+    tag[0] = 0x34;
+    tag[1] = 0x12;
+    tag[2] = static_cast<u8>(g_heap_slots[index].id);
+    return block;
 }
 
 void fn_663e0(void* block)

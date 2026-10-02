@@ -221,6 +221,7 @@ Vec3 actor_world_euler(const Actor& actor);    // 0x00041820
 // Returns pitch, yaw, roll in xyz. EBX is that out-vector on Xbox.
 Vec3 fn_104040(const float m[12]); // 0x00104040
 void fn_41730(Actor& actor, const Vec3& point); // 0x00041730 EDI actor, ESI point
+void* fn_f72d0(i32 size);                      // 0x000F72D0 stack size, EAX = block
 void fn_663e0(void* block);                    // 0x000663E0 EAX = block
 void fn_73760(Entity& body);                   // 0x00073760 EAX = body
 void fn_fcd70(void* dest, const void* src);    // 0x000FCD70 EAX dest, ECX source, 0x54 bytes

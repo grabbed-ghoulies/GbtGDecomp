@@ -498,4 +498,10 @@ void fn_119160();
 // body count at DAT_00510578.
 void fn_11b630();
 
+// cam_11c480 calls this after 0x001234B0. Zeros the flag bytes held by
+// DAT_00506c74, the six counters at DAT_00506c78, and the word at
+// DAT_00506c90. 0x0011EB30 then copies DAT_00511b64 into the 128-byte
+// name at DAT_00510ed8 and clears the script slot at DAT_00430d08.
+void fn_11ead0();
+
 } // namespace gbtg

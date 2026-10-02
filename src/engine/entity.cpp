@@ -3372,4 +3372,105 @@ void fn_11b630()
     g_aid_body_count = 0;
 }
 
+namespace
+{
+
+// DAT_00506c74. 0x000F2B60 allocates 0xe bytes: kind 9, size 2, and the
+// byte pointer aimed at the inline payload. The two bytes are scene flags.
+struct SceneFlagBlock
+{
+    i32 kind = 0;      // +0
+    i32 size = 0;      // +4
+    u8* bytes = nullptr; // +8
+};
+
+SceneFlagBlock* g_scene_flags = nullptr; // DAT_00506c74
+
+i32 g_scene_time = 0;   // DAT_00506c78. Sum of the truncated float at DAT_004312d0.
+i32 g_scene_acc_7c = 0; // DAT_00506c7c
+i32 g_scene_acc_80 = 0; // DAT_00506c80
+i32 g_scene_acc_84 = 0; // DAT_00506c84
+i32 g_scene_acc_88 = 0; // DAT_00506c88
+i32 g_scene_acc_8c = 0; // DAT_00506c8c
+u16 g_scene_gate = 0;   // DAT_00506c90. Nonzero runs the update at 0x000F2C40.
+
+// DAT_00511b64. 0x000E270F stores the heap scene name here.
+const char* g_scene_name_src = nullptr;
+
+// DAT_00510ed8. 0x80 bytes, then the mode dword at DAT_00510f58.
+// 0x0012C2D0 passes this address to the script lookup.
+constexpr i32 kSceneNameBytes = 0x80;
+char g_scene_name[kSceneNameBytes]{};
+i32 g_scene_name_mode = 0; // DAT_00510f58
+
+// DAT_00430d08. Three dwords, then an 0x80-byte path at DAT_00430d14.
+// DAT_00430d94 sits immediately after that path.
+i32 g_script_id = 0;        // DAT_00430d08
+i32 g_script_state = 0;     // DAT_00430d0c
+i32 g_script_count = 0;     // DAT_00430d10
+char g_script_path[0x80]{}; // DAT_00430d14
+i32 g_script_busy = 0;      // DAT_00430d94. 0x0008F675 sets this to 1.
+i32 g_script_busy_next = 0; // DAT_00430d98
+
+// 'aid_' as a little-endian dword. 0x0011EB30 clears the name when it matches.
+constexpr u32 kAidPrefix = 0x5f646961u;
+static_assert(kAidPrefix == (static_cast<u32>('a') | (static_cast<u32>('i') << 8) |
+                             (static_cast<u32>('d') << 16) | (static_cast<u32>('_') << 24)));
+
+// 0x0011EB30. EAX is the source string. The stack dword is stored at
+// DAT_00510f58. A null source is left uncopied; Xbox would fault on it.
+void scene_copy_name(const char* src, i32 mode)
+{
+    // Xbox 0x0011EAD0
+    u32 head = 0;
+    std::memcpy(&head, g_scene_name, sizeof(head));
+    if (head == kAidPrefix)
+    {
+        g_scene_name[0] = '\0';
+    }
+    if (src != nullptr)
+    {
+        i32 i = 0;
+        while (i < kSceneNameBytes - 1 && src[i] != '\0')
+        {
+            g_scene_name[i] = src[i];
+            i += 1;
+        }
+        g_scene_name[i] = '\0';
+    }
+    g_script_id = 0;
+    g_script_state = 0;
+    g_script_count = 0;
+    g_script_path[0] = '\0';
+    if (g_script_busy == 0)
+    {
+        g_scene_acc_8c = 0;
+    }
+    g_script_busy = 0;
+    g_script_busy_next = 0;
+    g_scene_name_mode = mode;
+}
+
+} // namespace
+
+void fn_11ead0()
+{
+    // Xbox 0x0011EAD0
+    // rep stos of the byte count at flag+4 into the pointer at flag+8.
+    // 0x000F2B60 publishes that block; a missing one is left alone.
+    SceneFlagBlock* block = g_scene_flags;
+    if (block != nullptr && block->bytes != nullptr && block->size > 0)
+    {
+        std::memset(block->bytes, 0, static_cast<size_t>(block->size));
+    }
+    g_scene_gate = 0;
+    g_scene_time = 0;
+    g_scene_acc_7c = 0;
+    g_scene_acc_80 = 0;
+    g_scene_acc_84 = 0;
+    g_scene_acc_88 = 0;
+    g_scene_acc_8c = 0;
+    scene_copy_name(g_scene_name_src, 1);
+}
+
 } // namespace gbtg

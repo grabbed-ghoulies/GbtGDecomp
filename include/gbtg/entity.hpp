@@ -483,4 +483,9 @@ void fn_57d40();
 // colour, range, and cone angles.
 void fn_fd620();
 
+// cam_11c480 calls this after the light-volume reset. Plants the wind, rain,
+// and random-ambience globals, then samples the first delays from
+// aid_misc_ghoulies_audio_generalsettings.
+void fn_118470();
+
 } // namespace gbtg

@@ -2977,4 +2977,261 @@ void fn_fd620()
     g_light_running = 1;
 }
 
+namespace
+{
+
+// DAT_0054dd7c. Shared LCG. The float is the mantissa of 1.0, so the unit
+// value sits in [0, 1).
+u32 g_amb_rng = 0;
+
+u32 amb_lcg()
+{
+    // Xbox 0x00118470
+    g_amb_rng = g_amb_rng * 0x19660Du + 0x3C6EF35Fu;
+    return g_amb_rng;
+}
+
+float amb_rand01()
+{
+    // Xbox 0x00118470
+    const u32 bits = (amb_lcg() & 0x7fffffu) | 0x3f800000u;
+    return std::bit_cast<float>(bits) - 1.f;
+}
+
+// DAT_004df358. The 0x44-byte misc record
+// aid_misc_ghoulies_audio_generalsettings. Game init loads it before cam_11c480.
+struct AudioGeneralSettings
+{
+    float wind_lo = 12.f; // +0x1c
+    float wind_hi = 20.f; // +0x20
+    float step_lo = 80.f; // +0x24
+    float step_hi = 90.f; // +0x28
+    float span_lo = 1.f;  // +0x2c
+    float span_hi = 1.5f; // +0x30
+    i32 count_lo = 5;     // +0x34
+    i32 count_hi = 10;    // +0x38
+};
+
+constexpr AudioGeneralSettings kAudioGeneral{};
+
+static_assert(std::bit_cast<u32>(kAudioGeneral.wind_lo) == 0x41400000u);
+static_assert(std::bit_cast<u32>(kAudioGeneral.wind_hi) == 0x41a00000u);
+static_assert(std::bit_cast<u32>(kAudioGeneral.step_lo) == 0x42a00000u);
+static_assert(std::bit_cast<u32>(kAudioGeneral.step_hi) == 0x42b40000u);
+static_assert(std::bit_cast<u32>(kAudioGeneral.span_hi) == 0x3fc00000u);
+static_assert(std::bit_cast<u32>(120.f) == 0x42f00000u);
+static_assert(std::bit_cast<u32>(300.f) == 0x43960000u);
+static_assert(std::bit_cast<u32>(1.5f) == 0x3fc00000u);
+
+// Wind and rain bed at DAT_0050e7a0. The two words are voice indices into
+// the table at 0x004E0CE8 (stride 0x24). 0xFFFF means no voice.
+i32 g_amb_counter = 0;     // DAT_0050e7a0. cam_11c480 increments this after the call.
+i32 g_amb_hold = 0;        // DAT_0050e7a4
+i32 g_amb_armed = 0;       // DAT_0050e7a8
+float g_amb_wait = 0.f;    // DAT_0050e7ac
+float g_amb_wait_scale = 0.f; // DAT_0050e7b0. Pool float DAT_0032b400 (120).
+float g_amb_span = 0.f;    // DAT_0050e7b4. Pool float DAT_0032b180 (300).
+float g_amb_level = 0.f;   // DAT_0050e7b8
+float g_amb_blend = 0.f;   // DAT_0050e7bc
+float g_amb_fade = 0.f;    // DAT_0050e7c0
+float g_amb_pitch = 0.f;   // DAT_0050e7c4
+float g_amb_goal = 0.f;    // DAT_0050e7c8
+float g_amb_rate = 0.f;    // DAT_0050e7cc. Pool float DAT_0032b210 (1.5).
+i32 g_amb_gate = 0;        // DAT_0050e7d0
+u16 g_amb_rain = 0xFFFF;   // DAT_0050e7d4. XACT_SOUNDBANK_GENVIRONMENT_RAINEXTRA.
+u8 g_amb_rain_vol = 0;     // DAT_0050e7d6
+u16 g_amb_wind = 0xFFFF;   // DAT_0050e7d8. XACT_SOUNDBANK_GENVIRONMENT_WINDEXTRA.
+u8 g_amb_wind_vol = 0;     // DAT_0050e7da
+i32 g_amb_mark = 0;        // DAT_0050e7dc
+u16 g_amb_extra = 0xFFFF;  // DAT_0050e7e0
+float g_amb_extra_wait = 0.f; // DAT_0050e7e4
+i32 g_amb_extra_index = 0; // DAT_0050e7e8
+i32 g_amb_extra_prev = 0;  // DAT_0050e7ec
+Vec3 g_amb_extra_color{};  // DAT_0050e7f0
+
+float g_amb_step_wait = 0.f;  // DAT_0050e7fc
+float g_amb_step_timer = 0.f; // DAT_0050e800
+float g_amb_step_span = 0.f;  // DAT_0050e804
+i32 g_amb_step_left = 0;      // DAT_0050e808
+i32 g_amb_step_count = 0;     // DAT_0050e80c
+Vec3 g_amb_step_from{};       // DAT_0050e810
+Vec3 g_amb_step_to{};         // DAT_0050e81c
+Vec3 g_amb_step_now{};        // DAT_0050e828
+
+// Phase block. 0x001185E0 advances DAT_0050e968 under the two gates.
+i32 g_amb_count = 0;          // DAT_0050e930
+i32 g_amb_vary = 0;           // DAT_0050e944
+float g_amb_vary_scale = 0.f; // DAT_0050e948
+i32 g_amb_phase_on = 0;       // DAT_0050e950
+i32 g_amb_phase_gate = 0;     // DAT_0050e954
+float g_amb_phase_a = 0.f;    // DAT_0050e964
+float g_amb_phase = 0.f;      // DAT_0050e968
+float g_amb_phase_len = 0.f;  // DAT_0050e96c
+float g_amb_phase_jitter = 0.f; // DAT_0050e970. Pool float DAT_0032b268.
+float g_amb_phase_rate = 0.f; // DAT_0050e974
+u32 g_amb_phase_color = 0;    // DAT_0050e978. Dword at DAT_00314f4c.
+u8 g_amb_phase_mark = 0;      // DAT_0050e97c
+
+// 0x00118AE0 fills these from the loaded ambience. They stay zero until that
+// pass, so the copies below are zero and the RNG still advances.
+float g_amb_color_lo[3]{}; // DAT_0050ea04, +0x08, +0x0c
+float g_amb_color_hi[3]{}; // DAT_0050ea10, +0x14, +0x18
+Vec3 g_amb_palette[8]{};   // DAT_0050ea1c, stride 12
+
+// 0x00039690. A live voice in states 2..7 is moved toward stop. The voice
+// table is the XACT block, which this file does not hold. The init writes
+// 0xFFFF first, so the call is skipped.
+void amb_release(u16& handle)
+{
+    // Xbox 0x00118470
+    if (handle == 0xFFFF)
+    {
+        return;
+    }
+    handle = 0xFFFF;
+}
+
+// 0x00117980. One unit random times the 120 scale, then the bed floats drop
+// to zero. A live wind or rain voice is released and the word becomes 0xFFFF.
+void amb_reset_beds()
+{
+    // Xbox 0x00118470
+    g_amb_wait = amb_rand01() * g_amb_wait_scale;
+    g_amb_armed = 0;
+    g_amb_level = 0.f;
+    g_amb_pitch = 0.f;
+    g_amb_blend = 0.f;
+    g_amb_fade = 0.f;
+    g_amb_goal = 0.f;
+    amb_release(g_amb_wind);
+    amb_release(g_amb_rain);
+}
+
+// rand <= 0.5 keeps the low endpoint. COMISS of 0.5 against the unit random.
+float amb_endpoint(float lo, float hi)
+{
+    // Xbox 0x00118470
+    if (0.5f >= amb_rand01())
+    {
+        return lo;
+    }
+    return hi;
+}
+
+// 0x00118D10. ECX is the colour. trunc(rand * 3) picks the axis that is
+// lerped; the other two take one endpoint. EAX returns the byte at
+// DAT_0050ea00, which 0x00118290 ignores.
+void amb_pick_color(Vec3& out)
+{
+    // Xbox 0x00118470
+    const float* lo = g_amb_color_lo;
+    const float* hi = g_amb_color_hi;
+    const i32 choice = static_cast<i32>(amb_rand01() * 3.f);
+    if (choice == 0)
+    {
+        const float t = amb_rand01();
+        out.x = (hi[0] - lo[0]) * t + lo[0];
+        out.y = amb_endpoint(lo[1], hi[1]);
+        out.z = amb_endpoint(lo[2], hi[2]);
+    }
+    else if (choice == 1)
+    {
+        out.x = amb_endpoint(lo[0], hi[0]);
+        const float t = amb_rand01();
+        out.y = (hi[1] - lo[1]) * t + lo[1];
+        out.z = amb_endpoint(lo[2], hi[2]);
+    }
+    else if (choice == 2)
+    {
+        out.x = amb_endpoint(lo[0], hi[0]);
+        out.y = amb_endpoint(lo[1], hi[1]);
+        const float t = amb_rand01();
+        out.z = (hi[2] - lo[2]) * t + lo[2];
+    }
+}
+
+// 0x00117F20. Lerps the step delay, span, and count out of the general
+// settings, then copies two different palette rows (stride 12, eight rows).
+void amb_sample_step()
+{
+    // Xbox 0x00118470
+    const AudioGeneralSettings& settings = kAudioGeneral;
+    g_amb_step_wait = (settings.step_hi - settings.step_lo) * amb_rand01() + settings.step_lo;
+    const float span = (settings.span_hi - settings.span_lo) * amb_rand01() + settings.span_lo;
+    g_amb_step_span = span;
+    g_amb_step_timer = span;
+    const float count = static_cast<float>(settings.count_hi - settings.count_lo) * amb_rand01()
+        + static_cast<float>(settings.count_lo);
+    const i32 count_i = static_cast<i32>(count);
+    g_amb_step_count = count_i;
+    g_amb_step_left = count_i;
+    const i32 first = static_cast<i32>(amb_rand01() * 8.f);
+    i32 second = first;
+    do
+    {
+        second = static_cast<i32>(amb_rand01() * 8.f);
+    }
+    while (second == first);
+    g_amb_step_from = g_amb_palette[first];
+    g_amb_step_now = g_amb_palette[first];
+    g_amb_step_to = g_amb_palette[second];
+}
+
+// 0x00118290. Lerps the wind-extra delay, then draws a cue index in [3, 11)
+// that differs from the previous one. DAT_0050e7f0 is filled by 0x00118D10.
+// The voice word is cleared to 0xFFFF.
+void amb_sample_extra()
+{
+    // Xbox 0x00118470
+    const AudioGeneralSettings& settings = kAudioGeneral;
+    g_amb_extra_wait = (settings.wind_hi - settings.wind_lo) * amb_rand01() + settings.wind_lo;
+    const i32 previous = g_amb_extra_prev;
+    i32 index = previous;
+    do
+    {
+        index = static_cast<i32>(amb_rand01() * 8.f + 3.f);
+        g_amb_extra_index = index;
+    }
+    while (index == previous);
+    g_amb_extra_prev = index;
+    amb_pick_color(g_amb_extra_color);
+    amb_release(g_amb_extra);
+    g_amb_extra = 0xFFFF;
+}
+
+} // namespace
+
+void fn_118470()
+{
+    // Xbox 0x00118470
+    g_amb_wait_scale = 120.f;
+    g_amb_span = 300.f;
+    g_amb_rate = 1.5f;
+    g_amb_wind_vol = 0x7f;
+    g_amb_rain_vol = 0x7f;
+    g_amb_vary_scale = 0.f;
+    g_amb_phase = 0.f;
+    g_amb_phase_a = 0.f;
+    g_amb_counter = 0;
+    g_amb_hold = 0;
+    g_amb_mark = 0;
+    g_amb_gate = 0;
+    g_amb_wind = 0xFFFF;
+    g_amb_rain = 0xFFFF;
+    g_amb_count = 0;
+    g_amb_vary = 0;
+    g_amb_phase_on = 0;
+    g_amb_phase_gate = 0;
+    g_amb_phase_len = 1.f;
+    g_amb_phase_jitter = std::bit_cast<float>(0x3e99999au);
+    g_amb_phase_rate = 1.f;
+    g_amb_phase_color = 0xff000000u;
+    g_amb_phase_mark = 0;
+    g_amb_extra = 0xFFFF;
+    g_amb_extra_prev = -1;
+    amb_reset_beds();
+    amb_sample_step();
+    amb_sample_extra();
+}
+
 } // namespace gbtg

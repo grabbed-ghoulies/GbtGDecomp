@@ -2234,4 +2234,191 @@ i32 fn_1226c0(Vec3& kept, Vec3& candidate, u32 param, i32 kind, u32 mask)
     return 0;
 }
 
+namespace
+{
+
+// DAT_0050e240 holds four floor grids. The count is DAT_0050e250. The Y bands
+// are two floats at DAT_0050e254 and two at DAT_0050e25c. Origins are the
+// dwords at DAT_0050e264 and DAT_0050e26c.
+constexpr i32 kNavSlots = 4;
+constexpr i32 kNavBands = 2;
+constexpr float kNavBandPad = 2.f; // DAT_0032B110
+
+struct NavCell
+{
+    i16 bottom = 0; // record +2
+    i16 top = 0;    // record +0xe
+};
+
+struct NavGrid
+{
+    i32 width = 0; // +0
+    i32 depth = 0; // +4
+    i32 cell = 0;  // +8, divisor for world XZ
+    std::vector<NavCell> cells; // +0x10, stride 0x12, index width * z + x
+};
+
+NavGrid* g_nav_grids[kNavSlots]{};
+i32 g_nav_count = 0;
+float g_nav_min_y[kNavBands]{};
+float g_nav_max_y[kNavBands]{};
+i32 g_nav_origin_x = 0;
+i32 g_nav_origin_z = 0;
+
+// DAT_00314EB4, stride 8. The low float is the radius bump. Index is
+// class + state * 3, and only state 1..4 with class 1..3 are read.
+constexpr float kRadiusBump[16] = {
+    0.f, 0.f, 0.f, 0.f, 5.f, 5.f, 5.f, 0.f, 5.f, 0.f, 0.f, 5.f, 0.f, 0.f, 0.f, 0.f,
+};
+
+constexpr float kCellLift = 5.f;    // DAT_0032B184
+constexpr float kCellHeight = 10.f; // DAT_0032B10C
+constexpr float kCellRadius = 4.f;  // DAT_00434018
+
+// 0x00110BF0 called as (-1, 0). The -1 never matches a floor, so the cell
+// flag test is skipped. A Y inside [min, max + 2] returns that floor. Otherwise
+// the last floor whose min is strictly below the point wins, or 0 when none do.
+i32 nav_floor_index(const Vec3& point)
+{
+    i32 best = 0;
+    const i32 count = g_nav_count < kNavBands ? g_nav_count : kNavBands;
+    for (i32 i = 0; i < count; ++i)
+    {
+        if (point.y >= g_nav_min_y[i] && (g_nav_max_y[i] + kNavBandPad) >= point.y)
+        {
+            return i;
+        }
+        if (point.y > g_nav_min_y[i])
+        {
+            best = i;
+        }
+    }
+    return best;
+}
+
+// 0x00110EF0. EAX is the floor, EBX the point. A null grid or an XZ cell
+// outside the grid returns -1. Truncation matches cvttss2si.
+i32 nav_cell_index(i32 floor, const Vec3& point)
+{
+    if (floor < 0 || floor >= kNavSlots)
+    {
+        return -1;
+    }
+    const NavGrid* grid = g_nav_grids[floor];
+    if (grid == nullptr || grid->cell == 0)
+    {
+        return -1;
+    }
+    const i32 cx = (trunc_i32(point.x) - g_nav_origin_x) / grid->cell;
+    const i32 cz = (trunc_i32(point.z) - g_nav_origin_z) / grid->cell;
+    if (cx < 0 || cx >= grid->width || cz < 0 || cz >= grid->depth)
+    {
+        return -1;
+    }
+    return grid->width * cz + cx;
+}
+
+bool nav_cell(i32 floor, i32 index, NavCell& out)
+{
+    if (floor < 0 || floor >= kNavSlots)
+    {
+        return false;
+    }
+    const NavGrid* grid = g_nav_grids[floor];
+    if (grid == nullptr || index < 0 || static_cast<size_t>(index) >= grid->cells.size())
+    {
+        return false;
+    }
+    out = grid->cells[static_cast<size_t>(index)];
+    return true;
+}
+
+// 0x00145FF0. EDI is the case link, BX is the actor word at +6.
+i32 class_from_link(const EntityCaseLink& link, u16 key)
+{
+    if (link.classes.empty())
+    {
+        return 0;
+    }
+    for (const EntityClassSlot& slot : link.classes)
+    {
+        if (slot.key == key)
+        {
+            return slot.id;
+        }
+    }
+    return link.classes[0].id;
+}
+
+} // namespace
+
+void fn_13d2c0(const Vec3& point, const Actor* actor, EntityCylinderBound& out)
+{
+    // Xbox 0x0013D2C0
+    // EAX is the point. The actor is the first stack argument; null leaves the
+    // radius at 4. The second argument is the 0x20-byte cylinder. 0x00110BF0
+    // picks the floor and 0x00110EF0 the cell, twice. The short at cell+2 is
+    // the bottom. The short at cell+0xe minus that bottom is the height when
+    // the second lookup hits and the difference is >= 0. A miss, or a negative
+    // difference, uses point Y + 5 and height 10. The floats at +0x10 and +0x18
+    // stay 0. Radius is DAT_00434018 plus the DAT_00314EB4 bump for case state
+    // 1..4 and class 1..3, plus another 5 when bit 0 of bits byte +5 is set.
+    const i32 floor = nav_floor_index(point);
+    float bottom = point.y + kCellLift;
+    float height = kCellHeight;
+    const i32 cell = nav_cell_index(floor, point);
+    NavCell sample{};
+    if (cell >= 0 && nav_cell(floor, cell, sample))
+    {
+        const float y0 = static_cast<float>(sample.bottom);
+        float span = point.y - y0;
+        const i32 cell_b = nav_cell_index(floor, point);
+        NavCell sample_b{};
+        if (cell_b >= 0 && nav_cell(floor, cell_b, sample_b))
+        {
+            span = static_cast<float>(sample_b.top) - y0;
+        }
+        if (span >= 0.f)
+        {
+            bottom = y0;
+            height = span;
+        }
+    }
+
+    float bump = 0.f;
+    if (actor != nullptr && actor->euler_out != nullptr)
+    {
+        const ActorEulerOut& host = *actor->euler_out;
+        u8 state = 0;
+        i32 cls = 0;
+        if (host.case_link != nullptr)
+        {
+            state = host.case_link->state;
+            if (host.actor != nullptr)
+            {
+                cls = class_from_link(*host.case_link, host.actor->class_key);
+            }
+        }
+        if (state > 0 && state < 5 && cls > 0 && cls < 4)
+        {
+            bump = kRadiusBump[cls + static_cast<i32>(state) * 3];
+        }
+        if (host.bits != nullptr && host.bits->bytes != nullptr && (host.bits->bytes[5] & 1u) != 0)
+        {
+            bump += kCellLift;
+        }
+    }
+
+    out.kind = 4;
+    out.size = 0x20;
+    out.flag = 1;
+    out.x = point.x;
+    out.y = bottom;
+    out.z = point.z;
+    out.pad0 = 0.f;
+    out.height = height;
+    out.pad1 = 0.f;
+    out.radius = kCellRadius + bump;
+}
+
 } // namespace gbtg

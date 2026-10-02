@@ -34,16 +34,23 @@ struct ActorLink
     void* head = nullptr; // +0
 };
 
+struct EntityCaseLink;
+struct EntityBitBlock;
+
 // Object at actor+0x95c. +8 is the actor 0x00041820 reads. +0x72c receives that world euler.
+// +0x48 is the case link 0x0013D2C0 reads, and +0x15c is that function's bit block.
 struct ActorEulerOut
 {
     Actor* actor = nullptr; // +8
-    Vec3 position{};         // +0x18, world position written by 0x0002B430
-    Vec3 euler{};            // +0x72c
+    EntityCaseLink* case_link = nullptr; // +0x48
+    EntityBitBlock* bits = nullptr;      // +0x15c. Byte +5 bit 0 adds 5 to the cylinder radius.
+    Vec3 position{};                     // +0x18, world position written by 0x0002B430
+    Vec3 euler{};                        // +0x72c
 };
 
 struct Actor
 {
+    u16 class_key = 0; // Xbox actor+0x06. 0x00145FF0 matches this against the case-link slots.
     Vec3 position{}; // Xbox actor+0x08
     Vec3 euler{};    // Xbox actor+0x14 when the object stores euler (0x00041820 reads three floats)
     Quat quat{0.f, 0.f, 0.f, 1.f}; // cutscene camera writes xyzw at +0x14 (0x0004D8CE)
@@ -77,10 +84,21 @@ struct Message
     float hit_radius = 0.f;   // EDI+0x1C
 };
 
-// Object at body+0x48. Case selectors read the byte at +0x93d. A null link is state 0.
+// Slot at case-link+0x948, stride 0x10. +0 is the key, +4 is the class 0x00145FF0 returns.
+struct EntityClassSlot
+{
+    u16 key = 0;
+    u16 id = 0;
+};
+
+// Object at body+0x48 and at [actor+0x95c]+0x48. Case selectors read the byte at
+// +0x93d. A null link is state 0. 0x00145FF0 walks the slots: a matching key
+// returns that slot's class. An empty list returns 0. A miss returns the first
+// slot's class, the word at +0x94c.
 struct EntityCaseLink
 {
     u8 state = 0; // +0x93d
+    std::vector<EntityClassSlot> classes;
 };
 
 // Default Body method table. Xbox writes 24 dwords (0x60 bytes) through EAX.
@@ -410,6 +428,11 @@ i32 fn_120480(const Vec3& src, const Actor* actor, EntityCylinderBound* shapes, 
 // receives (null skips the origin subtract). XMM1 is the cylinder height and
 // the stack float is the radius. Bytes are 4, 0x20, 1.
 void fn_1203e0(const Vec3& src, Vec3& dest, const Actor* actor, float height, float radius);
+
+// EAX is the point. actor is the first stack argument (null skips the radius
+// bump). out is the cylinder: kind 4, size 0x20, flag 1. Y is the nav-cell
+// bottom, or the point Y plus 5 when that cell is missing.
+void fn_13d2c0(const Vec3& point, const Actor* actor, EntityCylinderBound& out);
 
 // EBX is the query cylinder and EDI the obstacle. The offset is added to the
 // query position. push is the horizontal correction (Y stays 0). Returns 1 when

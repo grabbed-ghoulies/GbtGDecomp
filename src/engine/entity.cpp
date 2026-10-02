@@ -365,6 +365,198 @@ void fn_41730(Actor& actor, const Vec3& point)
     actor.xform_valid = 0;
 }
 
+// 0x00103CB0 with EDI clear. Rotation is Ry(euler.y) * Rx(euler.x) * Rz(euler.z).
+// A scale component other than 1 multiplies that column. Translation is the position.
+static void pose_matrix(float m[12], const Vec3& pos, const Vec3& euler, const Vec3& scale)
+{
+    const float sx = std::sin(euler.x);
+    const float cx = std::cos(euler.x);
+    const float sy = std::sin(euler.y);
+    const float cy = std::cos(euler.y);
+    const float sz = std::sin(euler.z);
+    const float cz = std::cos(euler.z);
+
+    m[0] = sy * sx * sz + cz * cy;
+    m[1] = sy * sx * cz - sz * cy;
+    m[2] = sy * cx;
+    m[3] = pos.x;
+    m[4] = sz * cx;
+    m[5] = cz * cx;
+    m[6] = -sx;
+    m[7] = pos.y;
+    m[8] = sz * cy * sx - cz * sy;
+    m[9] = sz * sy + cz * cy * sx;
+    m[10] = cy * cx;
+    m[11] = pos.z;
+
+    if (scale.x != 1.f)
+    {
+        m[0] *= scale.x;
+        m[4] *= scale.x;
+        m[8] *= scale.x;
+    }
+    if (scale.y != 1.f)
+    {
+        m[1] *= scale.y;
+        m[5] *= scale.y;
+        m[9] *= scale.y;
+    }
+    if (scale.z != 1.f)
+    {
+        m[2] *= scale.z;
+        m[6] *= scale.z;
+        m[10] *= scale.z;
+    }
+}
+
+static void actor_local_pose(float out[12], const Actor& actor, const Vec3* position)
+{
+    const Vec3 pos = position != nullptr ? *position : actor.position;
+    const float s = actor.scale_200;
+    pose_matrix(out, pos, actor.euler, Vec3{s * actor.scale_x, s * actor.radius_y, s * actor.radius_xz});
+}
+
+// 0x001041B0. out = A * B. A matching destination is written through a temporary.
+static void mul_affine(float out[12], const float a[12], const float b[12])
+{
+    float tmp[12];
+    float* dest = out;
+    if (out == a || out == b)
+    {
+        dest = tmp;
+    }
+    for (int row = 0; row < 3; ++row)
+    {
+        const float ax = a[row * 4 + 0];
+        const float ay = a[row * 4 + 1];
+        const float az = a[row * 4 + 2];
+        const float aw = a[row * 4 + 3];
+        dest[row * 4 + 0] = ax * b[0] + ay * b[4] + az * b[8];
+        dest[row * 4 + 1] = ax * b[1] + ay * b[5] + az * b[9];
+        dest[row * 4 + 2] = ax * b[2] + ay * b[6] + az * b[10];
+        dest[row * 4 + 3] = ax * b[3] + ay * b[7] + az * b[11] + aw;
+    }
+    if (dest != out)
+    {
+        std::memcpy(out, tmp, sizeof(tmp));
+    }
+}
+
+// 0x00103AF0. EAX is the 3x4, the stack float is the column length.
+// A zero-length column is left alone.
+static void normalize_columns(float m[12], float target)
+{
+    for (int col = 0; col < 3; ++col)
+    {
+        const float x = m[col];
+        const float y = m[col + 4];
+        const float z = m[col + 8];
+        const float len2 = x * x + y * y + z * z;
+        float factor = 1.f;
+        if (len2 != 0.f)
+        {
+            const float inv = 1.f / std::sqrt(len2);
+            if (inv != 0.f)
+            {
+                factor = target * inv;
+            }
+        }
+        m[col] *= factor;
+        m[col + 4] *= factor;
+        m[col + 8] *= factor;
+    }
+}
+
+// 0x00104400. ECX is the source, the stack pointer is the destination.
+// A zero determinant leaves the destination unchanged.
+static void invert_affine(float dest[12], const float src[12])
+{
+    const float m00 = src[0];
+    const float m01 = src[1];
+    const float m02 = src[2];
+    const float tx = src[3];
+    const float m10 = src[4];
+    const float m11 = src[5];
+    const float m12 = src[6];
+    const float ty = src[7];
+    const float m20 = src[8];
+    const float m21 = src[9];
+    const float m22 = src[10];
+    const float tz = src[11];
+    const float det = m11 * m00 * m22 + m01 * m12 * m20 + m10 * m21 * m02 - m11 * m20 * m02 - m01 * m10 * m22 -
+                      m21 * m12 * m00;
+    if (det == 0.f)
+    {
+        return;
+    }
+    const float inv = 1.f / det;
+    float out[12];
+    out[0] = (m11 * m22 - m21 * m12) * inv;
+    out[1] = 0.f - (m01 * m22 - m21 * m02) * inv;
+    out[2] = (m01 * m12 - m11 * m02) * inv;
+    out[4] = 0.f - (m10 * m22 - m12 * m20) * inv;
+    out[5] = (m00 * m22 - m20 * m02) * inv;
+    out[6] = 0.f - (m12 * m00 - m10 * m02) * inv;
+    out[8] = (m10 * m21 - m11 * m20) * inv;
+    out[9] = 0.f - (m21 * m00 - m01 * m20) * inv;
+    out[10] = (m11 * m00 - m01 * m10) * inv;
+    out[3] = 0.f - (out[0] * tx + out[1] * ty + out[2] * tz);
+    out[7] = 0.f - (out[4] * tx + out[5] * ty + out[6] * tz);
+    out[11] = 0.f - (out[8] * tx + out[9] * ty + out[10] * tz);
+    std::memcpy(dest, out, sizeof(out));
+}
+
+// 0x0003B770. Parent set reads the mode byte at +1; otherwise the byte at +0.
+// Mode 1 copies the host world matrix at +0x2ac (0x0003B8B0). Modes 2 and 3
+// sample a bone (0x0003BAB0 / 0x00051E40); this actor has no skeleton, so
+// those modes keep the basis already stored. Bit 0 of +2 skips the normalize.
+// The inverse of the basis is written at +0x3c.
+static void refresh_bind(Actor& actor)
+{
+    ActorBind& bind = *actor.bind;
+    const u8 mode = bind.parent != nullptr ? bind.mode_parent : bind.mode_local;
+    Actor* host = bind.parent;
+    if (host == nullptr && actor.link != nullptr && actor.link->head != nullptr)
+    {
+        host = actor.link->owner;
+    }
+    if (mode == 1 && host != nullptr)
+    {
+        std::memcpy(bind.basis, host->xform, sizeof(bind.basis));
+        std::memcpy(bind.m, host->xform_inv, sizeof(bind.m));
+    }
+    if ((bind.flags & 1u) == 0u)
+    {
+        normalize_columns(bind.basis, 1.f);
+    }
+    invert_affine(bind.m, bind.basis);
+}
+
+void fn_40fb0(Actor& actor, float out[12], const Vec3* position)
+{
+    // Xbox 0x00040FB0
+    // EAX is the optional position. A live bind refreshes bind+0xc and stores
+    // basis * local pose. A dead bind is released and the local pose is stored
+    // on its own (0x000410E0). The pose is actor euler, position, and the
+    // scales at +0x200 * +0x30 / +0x34 / +0x38.
+    if (actor.bind != nullptr)
+    {
+        const bool parent_live = actor.bind->parent != nullptr;
+        const bool link_live = actor.link != nullptr && actor.link->head != nullptr;
+        if (parent_live || link_live)
+        {
+            float local[12];
+            actor_local_pose(local, actor, position);
+            refresh_bind(actor);
+            mul_affine(out, actor.bind->basis, local);
+            return;
+        }
+        fn_663e0(actor.bind);
+        actor.bind = nullptr;
+    }
+    actor_local_pose(out, actor, position);
+}
+
 void* fn_f72d0(i32 size)
 {
     // Xbox 0x000F72D0

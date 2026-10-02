@@ -21,17 +21,27 @@ enum class EntityKind
 
 struct Actor;
 
-// Record at actor+0x88. +8 is the parent. +0x3c is the 3x4 that 0x00041730 applies.
+// Record at actor+0x88. 0x6c bytes. +8 is the parent. +0xc is the basis
+// 0x00040FB0 multiplies. +0x3c is the inverse 0x00041730 applies.
+// +0 / +1 select how 0x0003B770 fills the basis (parent clear / parent set).
+// +2 bit 0 skips the column normalize. +4 is the bone record for modes 2 and 3.
 struct ActorBind
 {
+    u8 mode_local = 0;  // +0
+    u8 mode_parent = 0; // +1
+    u8 flags = 0;       // +2
+    void* bone = nullptr; // +4
     Actor* parent = nullptr; // +8. Non-null keeps the bind.
-    float m[12] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f}; // +0x3c
+    float basis[12] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f}; // +0xc
+    float m[12] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f};      // +0x3c
 };
 
 // Node pointed at by actor+0x918. The first dword keeps a bind whose parent is null.
+// Xbox recovers the owning actor as this pointer minus 0x918.
 struct ActorLink
 {
     void* head = nullptr; // +0
+    Actor* owner = nullptr;
 };
 
 struct EntityCaseLink;
@@ -58,10 +68,14 @@ struct Actor
     Actor* attach = nullptr;
     ActorBind* bind = nullptr; // Xbox actor+0x88
     i32 xform_valid = 0;       // Xbox actor+0x2a8. 0 means the matrix at +0x2ac is stale.
+    float xform[12] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f};     // +0x2ac
+    float xform_inv[12] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f}; // +0x2dc
     ActorLink* link = nullptr; // Xbox actor+0x918
     ActorEulerOut* euler_out = nullptr; // Xbox actor+0x95c
+    float scale_x = 0.f;   // +0x30, axis scale for 0x00040FB0
     float radius_y = 0.f;  // +0x34, scaled by body+0x884 in message 99
     float radius_xz = 0.f; // +0x38, scaled by body+0x888
+    float scale_200 = 0.f; // +0x200, multiplies the three axis scales
     Vec3 anchor{};         // +0x3c, copy of DAT_0050dd80
     Vec3 parked_pos{};     // +0xcc0
     Vec3 parked_euler{};   // +0xccc
@@ -239,6 +253,10 @@ Vec3 actor_world_euler(const Actor& actor);    // 0x00041820
 // Returns pitch, yaw, roll in xyz. EBX is that out-vector on Xbox.
 Vec3 fn_104040(const float m[12]); // 0x00104040
 void fn_41730(Actor& actor, const Vec3& point); // 0x00041730 EDI actor, ESI point
+
+// EAX is an optional position (null reads actor+0x08). out is the 3x4 at the
+// second stack argument.
+void fn_40fb0(Actor& actor, float out[12], const Vec3* position); // 0x00040FB0
 void* fn_f72d0(i32 size);                      // 0x000F72D0 stack size, EAX = block
 void fn_663e0(void* block);                    // 0x000663E0 EAX = block
 void fn_73760(Entity& body);                   // 0x00073760 EAX = body

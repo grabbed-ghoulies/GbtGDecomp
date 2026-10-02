@@ -99,6 +99,19 @@ void fn_41730(Actor& actor, const Vec3& point); // 0x00041730 EDI actor, ESI poi
 void fn_663e0(void* block);                    // 0x000663E0 EAX = block
 void fn_fcd70(void* dest, const void* src);    // 0x000FCD70 EAX dest, ECX source, 0x54 bytes
 
+// 0x28 bytes at +0x28 inside the 0x54-byte record 0x000FCD70 copies.
+// cam_72cb0 compares slot 0 (ECX) with slot 2 (EAX) when the slot index is 2.
+struct EntityMatchBlock
+{
+    u8 mark = 0; // +0. Both sides must be 0.
+    u8 pad[3]{};
+    float value[9]{}; // +4 through +0x24
+};
+
+// ECX is left, EAX is right. Returns 1 when both marks are 0 and every
+// left - right float sits in [-0.01, 0.01].
+i32 fn_10ae90(const EntityMatchBlock& left, const EntityMatchBlock& right); // 0x0010AE90
+
 void entity_body_camera_sizeof(u32 out_sizes[2]); // 0x00073170
 void entity_body_camera_tick(Entity& body);       // 0x000731F0
 void entity_body_camera_shutdown(Entity& body);   // 0x00073300

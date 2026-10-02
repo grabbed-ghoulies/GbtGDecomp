@@ -2,6 +2,7 @@
 
 #include <bit>
 #include <cmath>
+#include <cstddef>
 #include <cstdlib>
 #include <cstring>
 #include <span>
@@ -211,6 +212,34 @@ void fn_fcd70(void* dest, const void* src)
         return;
     }
     std::memcpy(dest, src, 0x54);
+}
+
+static_assert(sizeof(EntityMatchBlock) == 0x28);
+static_assert(offsetof(EntityMatchBlock, value) == 4);
+static_assert(std::bit_cast<u32>(0.01f) == 0x3C23D70Au);  // 0x0032B124
+static_assert(std::bit_cast<u32>(-0.01f) == 0xBC23D70Au); // 0x0032B270
+
+i32 fn_10ae90(const EntityMatchBlock& left, const EntityMatchBlock& right)
+{
+    // Xbox 0x0010AE90
+    // ECX is left and EAX is right. cam_72cb0 calls this with the slot index
+    // at 2, passing slot 0 + 0x28 and slot 2 + 0x28 of the 0x54-byte records
+    // copied by 0x000FCD70. Both bytes at +0 must be 0. Each of the nine floats
+    // at +4 must satisfy -0.01 <= left - right <= 0.01 (0x0032B270 / 0x0032B124).
+    // The bounds are inclusive. Any other case returns 0.
+    if (left.mark != 0 || right.mark != 0)
+    {
+        return 0;
+    }
+    for (int i = 0; i < 9; ++i)
+    {
+        const float diff = left.value[i] - right.value[i];
+        if (diff < -0.01f || diff > 0.01f)
+        {
+            return 0;
+        }
+    }
+    return 1;
 }
 
 void entity_body_camera_sizeof(u32 out_sizes[2])

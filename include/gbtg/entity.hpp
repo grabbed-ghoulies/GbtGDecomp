@@ -147,6 +147,15 @@ struct EntityWatch
     std::vector<void*> tokens; // +0x18, unique dword list
 };
 
+// Node at body+0x894. +0 / +4 are the doubly linked view list. The name
+// cam_func_48cf0 compares is the C string at Xbox +0x34.
+struct EntityCamNode
+{
+    EntityCamNode* prev = nullptr; // +0
+    EntityCamNode* next = nullptr; // +4
+    char name[0x21]{};             // +0x34
+};
+
 struct Entity
 {
     const EntityType* type = nullptr;
@@ -156,6 +165,7 @@ struct Entity
     Vec3 pose_euler{};    // Xbox body+0x8A8
     Quat pose_quat{0.f, 0.f, 0.f, 1.f};
     float pose_fov = 0.9f;
+    EntityCamNode cam{}; // Xbox body+0x894
     bool listed = false;
     EntityCaseLink* case_link = nullptr; // Xbox body+0x48
     // Message targets. A null child skips the vtable +0xC forward in 0x000253B0.
@@ -227,6 +237,13 @@ i32 fn_10ae90(const EntityMatchBlock& left, const EntityMatchBlock& right); // 0
 void entity_body_camera_sizeof(u32 out_sizes[2]); // 0x00073170
 void entity_body_camera_tick(Entity& body);       // 0x000731F0
 void entity_body_camera_shutdown(Entity& body);   // 0x00073300
+
+// Slot is the stack argument. name is EBX: the saved name, or the first
+// record's name at +0x34. Returns 1 when a list record matches.
+i32 cam_func_48cf0(i32 slot, const char* name); // 0x00048CF0
+
+// EAX is the camera record at body+0x894.
+void fn_48c70(EntityCamNode* node); // 0x00048C70
 bool entity_body_camera_message(Entity& body, const Message& msg); // 0x00073320, id 99
 
 // BanjoCam body passed to 0x00072BA0. Aim point is +0x2fc. +0x308 enables the look.

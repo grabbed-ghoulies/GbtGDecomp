@@ -445,7 +445,8 @@ void entity_body_camera_tick(Entity& body)
 
 void entity_body_camera_shutdown(Entity& body)
 {
-    // Xbox 0x00073300
+    // Xbox 0x00073300: unlink the record at body+0x894.
+    fn_48c70(&body.cam);
     body.listed = false;
 }
 
@@ -460,6 +461,124 @@ bool entity_body_camera_message(Entity& body, const Message& msg)
     body.position.y += msg.vec.y;
     body.position.z += msg.vec.z;
     return true;
+}
+
+namespace
+{
+
+// DAT_004e1680, stride 8. Slot 0 is the sentinel. The list head read by
+// 0x00048CF0 is anchor.next, at DAT_004e1684 + slot * 8.
+EntityCamNode g_cam_anchor[4]{};
+
+// DAT_004e16a0. The record currently bound in that slot.
+EntityCamNode* g_cam_active[4]{};
+
+// DAT_004e16b0, stride 0x21. Name copied from the bound record.
+char g_cam_saved_name[4][0x21]{};
+
+unsigned char cam_fold(unsigned char ch)
+{
+    if (ch > 0x20)
+    {
+        return static_cast<unsigned char>(ch & 0xDFu);
+    }
+    return ch;
+}
+
+// Case-fold used by 0x00048CF0: bytes above 0x20 lose bit 0x20.
+bool cam_name_match(const char* node_name, const char* want)
+{
+    for (;;)
+    {
+        const unsigned char folded_node = cam_fold(static_cast<unsigned char>(*node_name));
+        const unsigned char folded_want = cam_fold(static_cast<unsigned char>(*want));
+        if (folded_node != folded_want)
+        {
+            return false;
+        }
+        if (folded_node == 0)
+        {
+            return true;
+        }
+        ++node_name;
+        ++want;
+    }
+}
+
+void copy_cam_name(char* dest, const char* src)
+{
+    int i = 0;
+    while (i < 0x20 && src[i] != '\0')
+    {
+        dest[i] = src[i];
+        ++i;
+    }
+    dest[i] = '\0';
+}
+
+} // namespace
+
+i32 cam_func_48cf0(i32 slot, const char* name)
+{
+    // Xbox 0x00048CF0
+    // ESI walks the slot list from DAT_004e1684 through +4. EBX is the name.
+    // A match stores that record in DAT_004e16a0 and returns 1. A miss clears
+    // the slot and returns 0. The flag, pose, and fn_f57f0 writes that follow
+    // a hit are the rest of this address.
+    EntityCamNode* found = g_cam_anchor[slot].next;
+    while (found != nullptr && !cam_name_match(found->name, name))
+    {
+        found = found->next;
+    }
+    if (found == nullptr)
+    {
+        g_cam_active[slot] = nullptr;
+        return 0;
+    }
+    if (g_cam_active[slot] != nullptr)
+    {
+        copy_cam_name(g_cam_saved_name[slot], g_cam_active[slot]->name);
+    }
+    g_cam_active[slot] = found;
+    return 1;
+}
+
+void fn_48c70(EntityCamNode* node)
+{
+    // Xbox 0x00048C70
+    // EAX is the camera record at body+0x894. Unlink it from the view list.
+    // If it is the bound record in one of the four DAT_004e16a0 slots, try
+    // cam_func_48cf0 with the saved name at DAT_004e16b0. When that misses and
+    // the slot list at DAT_004e1684 is still live, bind the first record by
+    // its own name. An empty list clears the slot.
+    if (node->prev != nullptr)
+    {
+        node->prev->next = node->next;
+    }
+    if (node->next != nullptr)
+    {
+        node->next->prev = node->prev;
+    }
+    node->prev = nullptr;
+    node->next = nullptr;
+
+    for (i32 slot = 0; slot < 4; ++slot)
+    {
+        if (g_cam_active[slot] != node)
+        {
+            continue;
+        }
+        if (cam_func_48cf0(slot, g_cam_saved_name[slot]) == 0)
+        {
+            if (g_cam_anchor[slot].next != nullptr)
+            {
+                cam_func_48cf0(slot, g_cam_anchor[slot].next->name);
+                return;
+            }
+            g_cam_active[slot] = nullptr;
+        }
+        return;
+    }
 }
 
 namespace

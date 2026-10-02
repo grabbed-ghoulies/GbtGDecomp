@@ -389,20 +389,22 @@ void fn_f57f0(float focal, i32 aspect_slot, i32& fit_w, i32& fit_x, i32& fit_h, 
 
 constexpr i32 kMsgCameraTranslate = 99;
 
-// Shape node passed to 0x00055AA0. The bone id is the u16 at +8. +0x10 and +0x14
-// are added to the local point at +0x18 before 0x00056790.
+// Shape node passed to 0x00055AA0 and 0x00056720. The bone id is the u16 at +8.
+// Kind 1 (cylinder) adds +0x10 and +0x14 to the local point at +0x18.
+// Kind 0 (sphere) stores the local point in the three floats at +0x14, and
+// adds +0x10 to local x. Both samples go through 0x00056790.
 struct EntityShapeNode
 {
-    u8 kind = 0; // +0
+    u8 kind = 0; // +0. 0 sphere, 1 cylinder.
     u8 next = 0; // +1
     u16 pad_2 = 0;
     u32 mask = 0; // +4
     u16 bone = 0xFFFF; // +8. 0xFFFF skips the skeleton.
     u16 pad_a = 0;
     u32 pad_c = 0; // +0xC
-    float along_x = 0.f; // +0x10
-    float along_y = 0.f; // +0x14
-    Vec3 point{};        // +0x18
+    float along_x = 0.f; // +0x10. Added to local x for both kinds.
+    float along_y = 0.f; // +0x14. Cylinder half-extent. Sphere local-point x.
+    Vec3 point{};        // +0x18. Cylinder local point. Sphere uses y and z here.
 };
 
 // Pose passed as the third argument. packed is the dword at +4.
@@ -434,6 +436,12 @@ struct EntityCylinderBound
 // ESI is the record. world is the actor matrix (null skips it). pose is the
 // skeleton (null, or bone 0xFFFF, skips it).
 void fn_55aa0(const EntityShapeNode& node, const float* world, const EntityBonePose* pose,
+              EntityCylinderBound& out);
+
+// EDX is the shape node, ECX the pose, the stack argument the actor matrix, and
+// ESI the record. Kind 0: the sphere from 0x00056330 is stored as a cylinder
+// whose bottom is center.y minus the radius and whose height is twice the radius.
+void fn_56720(const EntityShapeNode& node, const float* world, const EntityBonePose* pose,
               EntityCylinderBound& out);
 
 // EAX is the source point. The actor is the first stack argument (null leaves the

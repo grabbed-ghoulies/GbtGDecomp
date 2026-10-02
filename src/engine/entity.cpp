@@ -1984,6 +1984,20 @@ Vec3 xform_point(const EntityShapeNode& node, const float* world, const EntityBo
     return p;
 }
 
+// 0x00056330. World position of the three floats at node+0x14. The radius is
+// the world length of that point after the float at +0x10 is added on local x.
+// Both samples use the node's bone, the same pose, and the same actor matrix.
+float sphere_metrics(const EntityShapeNode& node, const float* world, const EntityBonePose* pose,
+                    Vec3& center)
+{
+    Vec3 local;
+    std::memcpy(&local, reinterpret_cast<const char*>(&node) + 0x14, sizeof(local));
+    center = xform_point(node, world, pose, local);
+    local.x += node.along_x;
+    const Vec3 arm = xform_point(node, world, pose, local);
+    return length3(Vec3{center.x - arm.x, center.y - arm.y, center.z - arm.z});
+}
+
 } // namespace
 
 void fn_55aa0(const EntityShapeNode& node, const float* world, const EntityBonePose* pose,
@@ -2018,6 +2032,30 @@ void fn_55aa0(const EntityShapeNode& node, const float* world, const EntityBoneP
     out.height = hy - down;
     out.pad1 = 0.f;
     out.radius = reach;
+}
+
+void fn_56720(const EntityShapeNode& node, const float* world, const EntityBonePose* pose,
+              EntityCylinderBound& out)
+{
+    // Xbox 0x00056720
+    // EDX is the shape node, ECX the pose, the stack argument the actor matrix,
+    // and ESI the 0x20-byte record. 0x00056330 writes the sphere center and
+    // returns its radius. The record stores that sphere as a cylinder: y is
+    // the center minus the radius, the height is twice the radius, and the
+    // radius is stored unchanged. Bytes are 4, 0x20, 1. The floats at +0x10
+    // and +0x18 are cleared.
+    Vec3 center;
+    const float radius = sphere_metrics(node, world, pose, center);
+    out.kind = 4;
+    out.size = 0x20;
+    out.flag = 1;
+    out.x = center.x;
+    out.y = center.y - radius;
+    out.z = center.z;
+    out.pad0 = 0.f;
+    out.height = radius + radius;
+    out.pad1 = 0.f;
+    out.radius = radius;
 }
 
 namespace

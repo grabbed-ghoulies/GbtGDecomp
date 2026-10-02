@@ -1319,6 +1319,393 @@ void script_action_opcode_f()
     }
     fn_21c50(g_script_action.target, g_script_action.cmd, g_script_action.out, g_script_action.gate);
 }
+
+// Focus cylinder built by 0x000426F0. camera_apply (0x00025AE0) reaches it
+// through 0x00025C50 once the slot header at host+0x204 is live. Host is
+// camera+8. +0x2ac is the actor matrix. +0x8fc is the scratch record list.
+// DAT_0050DD80 is a BSS probe; the retail image leaves it at the origin, so an
+// attached read is the matrix translation.
+struct Mat34
+{
+    float m[12] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f};
+};
+
+struct CamShapeNode
+{
+    u8 kind = 0; // 0 sphere (local point +0x14), 1 cylinder (local point +0x18)
+    u32 mask = 0; // +4, tested against the caller's mask
+    u16 bone = 0xFFFF; // +8, 0xFFFF skips the skeleton
+    Vec3 point{};
+    float radius_x = 0.f; // cylinder node+0x10, added to local x
+    float half_y = 0.f;   // cylinder node+0x14, added to local y
+    CamShapeNode* next = nullptr;
+};
+
+struct CamSlotEntry
+{
+    i32 type = 0; // 4 shape list, 5 default scales
+    CamShapeNode* shape = nullptr; // type 4, first node (blob+8)
+    bool scale_live = false;       // type 5 pointer present
+    float height_scale = 0.f;      // +0x20
+    float radius_scale = 0.f;      // +0x24
+};
+
+struct CamSlotHeader
+{
+    std::vector<CamSlotEntry> entries;
+};
+
+struct CamBonePose
+{
+    u16 bone = 0xFFFF; // +8, bone id when this object is the radius source
+    float along_x = 0.f; // +0x10, sphere radius offset along local x
+    bool table_live = false; // +4
+    std::vector<Mat34> bones; // +0x10, stride 0x30, indexed by the shape bone
+};
+
+struct CamAttach
+{
+    bool child_live = false; // +8
+};
+
+struct CamLink
+{
+    bool live = false;
+};
+
+struct CamSlotObject
+{
+    CamSlotHeader* header = nullptr; // +0
+    CamBonePose* at_164 = nullptr;
+    CamBonePose* at_168 = nullptr;
+};
+
+struct CamBoundRec
+{
+    u8 kind = 0; // 1 sphere, 4 cylinder
+    float x = 0.f;
+    float y = 0.f;
+    float z = 0.f;
+    float radius = 0.f; // +0x10
+    float height = 0.f; // +0x14
+    float reach = 0.f;  // +0x1c, cylinder radius
+};
+
+struct CamBound
+{
+    u8 kind = 0; // 4
+    u8 size = 0; // 0x20
+    u8 flag = 0; // 1
+    float x = 0.f;
+    float y = 0.f;
+    float z = 0.f;
+    float pad0 = 0.f; // +0x10
+    float height = 0.f; // +0x14
+    float pad1 = 0.f; // +0x18
+    float radius = 0.f; // +0x1c
+};
+
+struct CamFocus
+{
+    Vec3 position{}; // +0x08
+    float scale_38 = 0.f; // +0x38
+    CamAttach* attach = nullptr; // +0x88
+    float scale_200 = 0.f; // +0x200
+    CamSlotObject* slots = nullptr; // +0x204
+    Mat34 world{}; // +0x2ac
+    CamLink* link = nullptr; // +0x918
+    std::vector<CamBoundRec> recs; // +0x8fc
+    u32 shape_mask = 0; // camera+0x88c, the mask 0x00025C50 passes with flag 0
+    CamBound bound{};
+};
+
+CamFocus g_cam_focus;
+Vec3 g_focus_probe{}; // DAT_0050DD80, DAT_0050DD84, DAT_0050DD88
+
+Vec3 mul_mat(const Mat34& a, Vec3 p)
+{
+    return Vec3{p.x * a.m[0] + p.y * a.m[1] + p.z * a.m[2] + a.m[3],
+                p.x * a.m[4] + p.y * a.m[5] + p.z * a.m[6] + a.m[7],
+                p.x * a.m[8] + p.y * a.m[9] + p.z * a.m[10] + a.m[11]};
+}
+
+float length3(Vec3 d)
+{
+    return std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+}
+
+float dist_xz(float x, float z, float cx, float cz)
+{
+    // 0x00152B30. A non-positive sum of squares is returned as-is.
+    const float dx = x - cx;
+    const float dz = z - cz;
+    const float d2 = dx * dx + dz * dz;
+    if (!(d2 > 0.f))
+    {
+        return d2;
+    }
+    return std::sqrt(d2);
+}
+
+Vec3 focus_world_pos(CamFocus& host)
+{
+    // 0x000412A0. Attached and live: matrix times the probe. A dead attach is
+    // released (0x000663E0) and the unattached path copies host+0x08.
+    if (host.attach != nullptr)
+    {
+        const bool child = host.attach->child_live;
+        const bool linked = host.link != nullptr && host.link->live;
+        if (child || linked)
+        {
+            return mul_mat(host.world, g_focus_probe);
+        }
+        host.attach = nullptr;
+    }
+    return host.position;
+}
+
+const CamShapeNode* find_typed(const CamFocus& host, i32 type, const CamSlotEntry** entry_out)
+{
+    if (entry_out != nullptr)
+    {
+        *entry_out = nullptr;
+    }
+    if (host.slots == nullptr || host.slots->header == nullptr)
+    {
+        return nullptr;
+    }
+    for (const CamSlotEntry& entry : host.slots->header->entries)
+    {
+        if (entry.type != type)
+        {
+            continue;
+        }
+        if (entry_out != nullptr)
+        {
+            *entry_out = &entry;
+        }
+        return entry.shape;
+    }
+    return nullptr;
+}
+
+float default_extent(const CamFocus& host, bool height)
+{
+    // 0x0003DB30 reads type-5 +0x24. 0x0003DB90 reads type-5 +0x20.
+    // Both scale by host+0x200 and host+0x38, then take the absolute value.
+    const CamSlotEntry* entry = nullptr;
+    find_typed(host, 5, &entry);
+    if (entry == nullptr || !entry->scale_live)
+    {
+        return 0.f;
+    }
+    const float scale = height ? entry->height_scale : entry->radius_scale;
+    return std::fabs(host.scale_200 * scale * host.scale_38);
+}
+
+const CamBonePose* focus_pose(const CamFocus& host)
+{
+    if (host.slots == nullptr)
+    {
+        return nullptr;
+    }
+    if (host.slots->at_168 != nullptr)
+    {
+        return host.slots->at_168;
+    }
+    return host.slots->at_164;
+}
+
+Vec3 xform_shape(u16 bone, const CamBonePose* pose, const Mat34& world, Vec3 local)
+{
+    // 0x00056790. Bone 0xFFFF copies the local point. Otherwise 0x000315F0
+    // indexes the pose table (stride 0x30). The actor matrix always follows.
+    Vec3 p = local;
+    if (bone != 0xFFFF && pose != nullptr && pose->table_live)
+    {
+        const i32 index = static_cast<i16>(bone);
+        if (index >= 0 && static_cast<size_t>(index) < pose->bones.size())
+        {
+            p = mul_mat(pose->bones[static_cast<size_t>(index)], p);
+        }
+    }
+    return mul_mat(world, p);
+}
+
+void push_sphere(CamFocus& host, const CamShapeNode& node, const CamBonePose* pose)
+{
+    // 0x00056330. World position of node+0x14, radius is the world length of
+    // the pose's +0x10 offset along local x. The radius point's bone id sits
+    // on the pose; the lookup object is the position just written, so the
+    // actor matrix is the transform that applies.
+    const Vec3 center = xform_shape(node.bone, pose, host.world, node.point);
+    Vec3 arm = node.point;
+    arm.x += pose != nullptr ? pose->along_x : 0.f;
+    const u16 arm_bone = pose != nullptr ? pose->bone : static_cast<u16>(0xFFFF);
+    const Vec3 arm_w = xform_shape(arm_bone, nullptr, host.world, arm);
+    CamBoundRec rec;
+    rec.kind = 1;
+    rec.x = center.x;
+    rec.y = center.y;
+    rec.z = center.z;
+    rec.radius = length3(Vec3{center.x - arm_w.x, center.y - arm_w.y, center.z - arm_w.z});
+    host.recs.push_back(rec);
+}
+
+void push_cylinder(CamFocus& host, const CamShapeNode& node, const CamBonePose* pose)
+{
+    // 0x00055AA0 / 0x00055B30. Point at node+0x18, radius from the local-x
+    // offset at node+0x10, half-extent from the local-y offset at node+0x14.
+    // The record stores the bottom and the full height.
+    const Vec3 base = xform_shape(node.bone, pose, host.world, node.point);
+    Vec3 along_x = node.point;
+    along_x.x += node.radius_x;
+    Vec3 along_y = node.point;
+    along_y.y += node.half_y;
+    const Vec3 wx = xform_shape(node.bone, pose, host.world, along_x);
+    const Vec3 wy = xform_shape(node.bone, pose, host.world, along_y);
+    const float reach = length3(Vec3{base.x - wx.x, base.y - wx.y, base.z - wx.z});
+    const float hy = length3(Vec3{base.x - wy.x, base.y - wy.y, base.z - wy.z});
+    CamBoundRec rec;
+    rec.kind = 4;
+    rec.x = base.x;
+    rec.y = base.y - hy;
+    rec.z = base.z;
+    rec.height = hy - (-hy);
+    rec.reach = reach;
+    host.recs.push_back(rec);
+}
+
+void write_bound(CamBound& out, float x, float y, float z, float height, float radius)
+{
+    out.kind = 4;
+    out.size = 0x20;
+    out.flag = 1;
+    out.x = x;
+    out.y = y;
+    out.z = z;
+    out.pad0 = 0.f;
+    out.height = height;
+    out.pad1 = 0.f;
+    out.radius = radius;
+}
+
+int fn_426f0(CamFocus& host, CamBound& out, u32 mask, i32 average)
+{
+    // Xbox 0x000426F0
+    const Vec3 probed = focus_world_pos(host);
+    const CamSlotEntry* shape_entry = nullptr;
+    find_typed(host, 4, &shape_entry);
+    if (shape_entry == nullptr || shape_entry->shape == nullptr)
+    {
+        write_bound(out, probed.x, probed.y, probed.z, default_extent(host, true), default_extent(host, false));
+        return 0;
+    }
+
+    const CamBonePose* pose = focus_pose(host);
+    host.recs.clear();
+    for (const CamShapeNode* node = shape_entry->shape; node != nullptr; node = node->next)
+    {
+        if ((node->mask & mask) == 0)
+        {
+            continue;
+        }
+        if (node->kind == 0)
+        {
+            push_sphere(host, *node, pose);
+        }
+        else if (node->kind == 1)
+        {
+            push_cylinder(host, *node, pose);
+        }
+    }
+    if (host.recs.empty())
+    {
+        return 0;
+    }
+
+    Vec3 center = probed;
+    if (average != 0)
+    {
+        float sx = 0.f;
+        float sy = 0.f;
+        float sz = 0.f;
+        for (const CamBoundRec& rec : host.recs)
+        {
+            sx += rec.x;
+            sz += rec.z;
+            if (rec.kind == 4)
+            {
+                sy += rec.y + rec.height;
+            }
+            else
+            {
+                sy += rec.y;
+            }
+        }
+        const float inv = 1.f / float(host.recs.size());
+        center = Vec3{sx * inv, sy * inv, sz * inv};
+    }
+    else
+    {
+        center = focus_world_pos(host);
+    }
+
+    float min_y = center.y;
+    float max_y = center.y;
+    float max_r = 0.f;
+    for (const CamBoundRec& rec : host.recs)
+    {
+        if (rec.kind == 1)
+        {
+            const float horiz = dist_xz(rec.x, rec.z, center.x, center.z) + rec.radius;
+            if (horiz > max_r)
+            {
+                max_r = horiz;
+            }
+            const float bottom = rec.y - rec.radius;
+            if (bottom <= min_y)
+            {
+                min_y = bottom;
+            }
+            const float top = rec.radius + rec.y;
+            if (max_y < top)
+            {
+                max_y = top;
+            }
+        }
+        else if (rec.kind == 4)
+        {
+            const float horiz = dist_xz(rec.x, rec.z, center.x, center.z) + rec.reach;
+            if (horiz > max_r)
+            {
+                max_r = horiz;
+            }
+            if (rec.y <= min_y)
+            {
+                min_y = rec.y;
+            }
+            const float top = rec.height + rec.y;
+            if (max_y < top)
+            {
+                max_y = top;
+            }
+        }
+    }
+    write_bound(out, center.x, min_y, center.z, max_y - min_y, max_r);
+    return int(host.recs.size());
+}
+
+void focus_bounds_tick()
+{
+    // 0x00025C50 calls fn_426f0 with camera+0x88c and flag 0 whenever the
+    // slot header is present. Flag 0 keeps the actor position as the center.
+    if (g_cam_focus.slots == nullptr || g_cam_focus.slots->header == nullptr)
+    {
+        return;
+    }
+    fn_426f0(g_cam_focus, g_cam_focus.bound, g_cam_focus.shape_mask, 0);
+}
 } // namespace
 
 void load_scene_contents(Game& g, std::string_view name)
@@ -1440,6 +1827,7 @@ void cutscene_queue_tick(Game& g, float dt)
     fn_27960(g_camera_timers, g_camera_pulse, dt);
     fn_1dd00(g_camera_wash, dt);
     fn_25130(g_camera_pairs);
+    focus_bounds_tick();
     script_action_opcode_f();
     auto& q = g.cutscenes;
     if (!q.playing || q.items.empty())

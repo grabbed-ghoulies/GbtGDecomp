@@ -840,6 +840,46 @@ void fn_1ea90(EntityChannelEase& cam, float dt)
     }
 }
 
+u32 fn_1fe00(const EntityMaskHost& host)
+{
+    // Xbox 0x0001FE00
+    // EAX is the camera. cam_72cb0 calls this and pushes the mask into 0x001226C0.
+    // The object at camera+8 holds the span at +0x980, the flag at +0x93c, and the
+    // mode at +0xcdc. A null span reads as code 0. Otherwise the u16 at
+    // data + index * stride is the code. When the span's +6 equals +2, or the
+    // element base is null, retail loads that u16 from address 0 and faults.
+    // Code 0x15 keeps 0xC4000. Mode 2, or a nonzero +0x93c, clears bit 0x4000.
+    // Modes 1, 4, and 5 clear bit 0x40000. Mode 3 clears bit 0x80000.
+    // Any other mode keeps 0xC4000. The jump table's mode-2 slot is that full
+    // mask, and mode 2 has already returned above.
+    constexpr u32 kMask = 0xC4000u;
+    u16 code = 0;
+    if (host.span != nullptr && host.span->end != host.span->mark && host.span->data != nullptr)
+    {
+        const size_t offset = size_t(host.span->index) * size_t(host.span->stride);
+        std::memcpy(&code, host.span->data + offset, sizeof(code));
+    }
+    if (code != 0x15)
+    {
+        if (host.mode == 2 || host.flag != 0)
+        {
+            return kMask & ~0x4000u;
+        }
+        switch (host.mode)
+        {
+        case 1:
+        case 4:
+        case 5:
+            return kMask & ~0x40000u;
+        case 3:
+            return kMask & ~0x80000u;
+        default:
+            break;
+        }
+    }
+    return kMask;
+}
+
 namespace
 {
 

@@ -229,6 +229,29 @@ struct EntityChannelEase
 // EDX is the camera. 0x00072AC0 calls this when +0x154 > 0.
 void fn_1ea90(EntityChannelEase& cam, float dt);
 
+// Header at host+0x980 (the object at camera+8). Stride is the element size in bytes.
+// The element is data + index * stride, and its first u16 is the code compared with 0x15.
+// When end equals mark, retail loads that u16 from address 0 and faults.
+struct EntityMaskSpan
+{
+    u16 stride = 0; // +0
+    u16 mark = 0;   // +2
+    u16 index = 0;  // +4
+    u16 end = 0;    // +6
+    const u8* data = nullptr; // +8
+};
+
+// Object at camera+8 read by 0x0001FE00. cam_72cb0 pushes the mask into 0x001226C0.
+struct EntityMaskHost
+{
+    i32 flag = 0; // +0x93c. Nonzero clears bit 0x4000, the same mask as mode 2.
+    EntityMaskSpan* span = nullptr; // +0x980
+    i16 mode = 0; // +0xcdc
+};
+
+// EAX is the camera. Returns 0xC4000, or that mask with bit 0x4000, 0x40000, or 0x80000 cleared.
+u32 fn_1fe00(const EntityMaskHost& host);
+
 // Focal is the caller float (camera +0x24, or the display record +0x34). -1 selects the table.
 // aspect_slot is EDI (camera +0x30). fit_h / fit_y are the Xbox ECX / EAX outs from 0x000F5760.
 // fit_w / fit_x are the 0x000F56C0 outs. fov_deg, pixel_aspect, and focal_px are the three floats.

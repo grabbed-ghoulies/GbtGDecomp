@@ -281,13 +281,21 @@ float wrap_half_turn(float angle)
     return wrapped;
 }
 
-// 0x00105E20. Yaw is atan2(x, z). Pitch is atan2(-y, horizontal length).
-// An axis quieter than 2e-7 is treated as zero, so a dead XZ writes yaw 0
-// and a dead Y with no horizontal length writes pitch 0.
-void look_yaw_pitch(float x, float y, float z, float& yaw, float& pitch)
+} // namespace
+
+i32 fn_105e20(float x, float y, float z, float& yaw, float& pitch)
 {
+    // Xbox 0x00105E20
+    // EAX is the direction. The first out is yaw = atan2(x, z). The second is
+    // pitch = atan2(-y, horizontal length), where that length is sqrt(x^2+z^2)
+    // and stays 0 when both axes are quiet. 0x00152BB0 is the absolute value
+    // and 0x001530E0 is atan2. A component no larger than 2e-7 (0x0032B27C)
+    // counts as zero. A dead XZ forces yaw to 0 and the result to 0. A dead Y
+    // together with that zero length forces pitch to 0 and returns 0. A live
+    // XZ returns 1 after both angles are written.
     const bool xz = std::fabs(x) > kLookEps || std::fabs(z) > kLookEps;
     float horiz = 0.f;
+    i32 live = 1;
     if (xz)
     {
         horiz = std::sqrt(x * x + z * z);
@@ -296,18 +304,16 @@ void look_yaw_pitch(float x, float y, float z, float& yaw, float& pitch)
     else
     {
         yaw = 0.f;
+        live = 0;
     }
-    if (std::fabs(y) > kLookEps || std::fabs(horiz) > kLookEps)
-    {
-        pitch = std::atan2(-y, horiz);
-    }
-    else
+    if (std::fabs(y) <= kLookEps && std::fabs(horiz) <= kLookEps)
     {
         pitch = 0.f;
+        return 0;
     }
+    pitch = std::atan2(-y, horiz);
+    return live;
 }
-
-} // namespace
 
 void fn_72ba0(EntityLookAt& cam)
 {
@@ -336,7 +342,7 @@ void fn_72ba0(EntityLookAt& cam)
     }
     float yaw = 0.f;
     float pitch = 0.f;
-    look_yaw_pitch(cam.aim.x - world.x, cam.aim.y + lift - world.y, cam.aim.z - world.z, yaw, pitch);
+    fn_105e20(cam.aim.x - world.x, cam.aim.y + lift - world.y, cam.aim.z - world.z, yaw, pitch);
     cam.actor->euler.x = wrap_half_turn(-(pitch + kPitchBiasDeg * kDeg2Rad));
     cam.actor->euler.y = wrap_half_turn(yaw + kPi);
     cam.actor->euler.z = wrap_half_turn(cam.roll);

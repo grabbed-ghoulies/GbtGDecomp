@@ -114,6 +114,10 @@ struct EntityLookAt
     float roll = 0.f;        // +0x8f4
 };
 
+// EAX is the direction (x, y, z). Writes yaw, then pitch. Returns 0 when XZ is
+// quieter than 2e-7; pitch is still written.
+i32 fn_105e20(float x, float y, float z, float& yaw, float& pitch); // 0x00105E20
+
 void fn_72ba0(EntityLookAt& cam); // 0x00072BA0
 
 // Channel keys on the camera (ESI for 0x0001D850, EAX for 0x0001EDE0).

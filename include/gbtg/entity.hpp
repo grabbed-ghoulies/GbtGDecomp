@@ -34,6 +34,13 @@ struct ActorLink
     void* head = nullptr; // +0
 };
 
+// Object at actor+0x95c. +8 is the actor 0x00041820 reads. +0x72c receives that world euler.
+struct ActorEulerOut
+{
+    Actor* actor = nullptr; // +8
+    Vec3 euler{};            // +0x72c
+};
+
 struct Actor
 {
     Vec3 position{}; // Xbox actor+0x08
@@ -44,6 +51,7 @@ struct Actor
     ActorBind* bind = nullptr; // Xbox actor+0x88
     i32 xform_valid = 0;       // Xbox actor+0x2a8. 0 means the matrix at +0x2ac is stale.
     ActorLink* link = nullptr; // Xbox actor+0x918
+    ActorEulerOut* euler_out = nullptr; // Xbox actor+0x95c
 };
 
 struct Entity;
@@ -90,6 +98,18 @@ void entity_body_camera_sizeof(u32 out_sizes[2]); // 0x00073170
 void entity_body_camera_tick(Entity& body);       // 0x000731F0
 void entity_body_camera_shutdown(Entity& body);   // 0x00073300
 bool entity_body_camera_message(Entity& body, const Message& msg); // 0x00073320, id 99
+
+// BanjoCam body passed to 0x00072BA0. Aim point is +0x2fc. +0x308 enables the look.
+// Roll is the float at +0x8f4, copied into the actor euler's Z.
+struct EntityLookAt
+{
+    Actor* actor = nullptr; // +8
+    Vec3 aim{};              // +0x2fc
+    u8 enabled = 0;          // +0x308
+    float roll = 0.f;        // +0x8f4
+};
+
+void fn_72ba0(EntityLookAt& cam); // 0x00072BA0
 
 // Channel keys on the camera (ESI for 0x0001D850, EAX for 0x0001EDE0).
 // Two slots at +0xe4, stride 0x0c.

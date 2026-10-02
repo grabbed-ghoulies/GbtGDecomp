@@ -182,6 +182,100 @@ bool entity_body_camera_message(Entity& body, const Message& msg)
 namespace
 {
 
+// DAT_00545AEC. Profile 4 leaves the aim height alone; every other value adds 6.
+i32 g_look_profile = 0;
+
+constexpr float kLookEps = std::bit_cast<float>(0x3456BF95u);  // 0x0032B27C, 2e-7
+constexpr float kDeg2Rad = std::bit_cast<float>(0x3C8EFA35u);  // 0x0032B0FC
+constexpr float kPitchBiasDeg = std::bit_cast<float>(0xC0000000u); // DAT_0043401C, -2
+constexpr float kAimLift = std::bit_cast<float>(0x40C00000u);  // DAT_00434020, 6
+constexpr float kPi = std::bit_cast<float>(0x40490FDBu);       // 0x0032B148
+constexpr float kTwoPi = std::bit_cast<float>(0x40C90FDBu);    // 0x0032B298
+
+// 0x00105AA0. fmod into one turn, then fold into [-pi, pi).
+float wrap_half_turn(float angle)
+{
+    float wrapped = std::fmod(angle, kTwoPi);
+    if (wrapped < -kPi)
+    {
+        wrapped += kTwoPi;
+    }
+    if (wrapped >= kPi)
+    {
+        wrapped -= kTwoPi;
+    }
+    return wrapped;
+}
+
+// 0x00105E20. Yaw is atan2(x, z). Pitch is atan2(-y, horizontal length).
+// An axis quieter than 2e-7 is treated as zero, so a dead XZ writes yaw 0
+// and a dead Y with no horizontal length writes pitch 0.
+void look_yaw_pitch(float x, float y, float z, float& yaw, float& pitch)
+{
+    const bool xz = std::fabs(x) > kLookEps || std::fabs(z) > kLookEps;
+    float horiz = 0.f;
+    if (xz)
+    {
+        horiz = std::sqrt(x * x + z * z);
+        yaw = std::atan2(x, z);
+    }
+    else
+    {
+        yaw = 0.f;
+    }
+    if (std::fabs(y) > kLookEps || std::fabs(horiz) > kLookEps)
+    {
+        pitch = std::atan2(-y, horiz);
+    }
+    else
+    {
+        pitch = 0.f;
+    }
+}
+
+} // namespace
+
+void fn_72ba0(EntityLookAt& cam)
+{
+    // Xbox 0x00072BA0
+    // ESI is the actor at camera+8. 0x000412A0 always writes its world position.
+    // A zero byte at +0x308 returns after that. Otherwise the aim point at +0x2fc
+    // is subtracted from that position. DAT_00545AEC == 4 adds nothing to aim Y;
+    // any other profile adds 6 (DAT_00434020). 0x00105E20 turns the delta into
+    // yaw and pitch. Actor euler at +0x14 becomes
+    // (-(pitch - 2 degrees), yaw + pi, camera+0x8f4), each wrapped by 0x00105AA0.
+    // Actor+0x2a8 is cleared. World euler of the actor at [actor+0x95c]+8 is
+    // stored at that object +0x72c. A null actor or a null +0x95c faults on Xbox.
+    if (cam.actor == nullptr)
+    {
+        return;
+    }
+    const Vec3 world = actor_world_position(*cam.actor);
+    if (cam.enabled == 0)
+    {
+        return;
+    }
+    float lift = kAimLift;
+    if (g_look_profile == 4)
+    {
+        lift = 0.f;
+    }
+    float yaw = 0.f;
+    float pitch = 0.f;
+    look_yaw_pitch(cam.aim.x - world.x, cam.aim.y + lift - world.y, cam.aim.z - world.z, yaw, pitch);
+    cam.actor->euler.x = wrap_half_turn(-(pitch + kPitchBiasDeg * kDeg2Rad));
+    cam.actor->euler.y = wrap_half_turn(yaw + kPi);
+    cam.actor->euler.z = wrap_half_turn(cam.roll);
+    cam.actor->xform_valid = 0;
+    if (cam.actor->euler_out != nullptr && cam.actor->euler_out->actor != nullptr)
+    {
+        cam.actor->euler_out->euler = actor_world_euler(*cam.actor->euler_out->actor);
+    }
+}
+
+namespace
+{
+
 // DAT_004312dc / DAT_004312c4. Freeze above 0 zeros the step (BanjoCam).
 float g_sim_freeze = 0.f;
 float g_sim_scale = 1.f;

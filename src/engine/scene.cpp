@@ -1429,17 +1429,46 @@ struct CamLocator
     float z = 0.f;
 };
 
+// camera+0x15c. +8 points at a byte block; +7 bit 0 keeps the stored follow cylinder.
+struct CamGateBlock
+{
+    u8 bytes[8] = {};
+};
+
+struct CamGate
+{
+    CamGateBlock* at_8 = nullptr;
+};
+
+// host+0x8f8. Two cylinders (0x20 each) and the point 0x00025C50 posts through 0x0012B160.
+struct CamFollow
+{
+    u8 mark = 0; // +0x19
+    CamBound at_1c{}; // +0x1c
+    CamBound at_3c{}; // +0x3c
+    Vec3 at_5c{}; // +0x5c
+};
+
 struct CamFocus
 {
     Vec3 position{}; // +0x08
+    float at_34 = 0.f; // +0x34, height factor of the follow cylinder
     float scale_38 = 0.f; // +0x38
+    Vec3 at_3c{}; // +0x3c, copied to the follow packet +0x5c
     CamAttach* attach = nullptr; // +0x88
     float scale_200 = 0.f; // +0x200
     CamSlotObject* slots = nullptr; // +0x204
     CamAnchor* anchors = nullptr; // +0x1f8, next link of the header at +0x1f4
     Mat34 world{}; // +0x2ac
+    CamFollow* follow = nullptr; // +0x8f8
     CamLink* link = nullptr; // +0x918
     std::vector<CamBoundRec> recs; // +0x8fc
+    u32 at_cec = 0; // +0xcec, low byte stored at packet +0x19
+    Vec3 nudge_704{}; // camera+0x704, added to the stored follow position
+    float mul_884 = 0.f; // camera+0x884
+    float mul_888 = 0.f; // camera+0x888
+    u32 mask_890 = 0; // camera+0x890, shape mask for the averaged bound
+    CamGate* gate_15c = nullptr; // camera+0x15c
     u32 shape_mask = 0; // camera+0x88c, the mask 0x00025C50 passes with flag 0
     CamBound bound{};
 };
@@ -1845,13 +1874,64 @@ void fn_11be40(CamAnchor& node)
     }
 }
 
+void fn_12b160(CamFollow& self, const CamBound& primary, const CamBound* secondary, const Vec3& point, u8 mark)
+{
+    // Xbox 0x0012B160
+    // ESI is host+0x8f8. 0x0010AA60 copies 0x20 bytes to +0x1c from the first
+    // stack argument, then to +0x3c from EBX. A null EBX repeats the first
+    // source. EDI's three floats land at +0x5c. The stack byte lands at +0x19.
+    self.at_1c = primary;
+    if (secondary != nullptr)
+    {
+        self.at_3c = *secondary;
+    }
+    else
+    {
+        self.at_3c = primary;
+    }
+    self.at_5c = point;
+    self.mark = mark;
+}
+
+bool follow_shift_set(const CamFocus& host)
+{
+    // camera+0x15c -> +8 -> byte +7. Bit 0 keeps the stored follow cylinder.
+    if (host.gate_15c == nullptr || host.gate_15c->at_8 == nullptr)
+    {
+        return false;
+    }
+    return (host.gate_15c->at_8->bytes[7] & 1u) != 0;
+}
+
 void focus_bounds_tick()
 {
     // 0x00025C50 calls fn_426f0 with camera+0x88c and flag 0 whenever the
     // slot header is present. Flag 0 keeps the actor position as the center.
+    // When host+0x8f8 is set, the follow look-at packets go out through
+    // fn_12b160 first. Bit 0 of the gate shifts the stored cylinder; otherwise
+    // the primary cylinder is fn_426f0 with camera+0x890 and the average flag.
     if (g_cam_focus.slots == nullptr || g_cam_focus.slots->header == nullptr)
     {
         return;
+    }
+    if (g_cam_focus.follow != nullptr)
+    {
+        CamFollow& follow = *g_cam_focus.follow;
+        const Vec3 world = focus_world_pos(g_cam_focus);
+        CamBound actor{};
+        write_bound(actor, world.x, world.y, world.z, g_cam_focus.at_34 * g_cam_focus.mul_884,
+                    g_cam_focus.scale_38 * g_cam_focus.mul_888);
+        CamBound primary{};
+        if (follow_shift_set(g_cam_focus))
+        {
+            write_bound(primary, follow.at_1c.x + g_cam_focus.nudge_704.x, follow.at_1c.y + g_cam_focus.nudge_704.y,
+                        follow.at_1c.z + g_cam_focus.nudge_704.z, follow.at_1c.height, follow.at_1c.radius);
+        }
+        else
+        {
+            fn_426f0(g_cam_focus, primary, g_cam_focus.mask_890, 1);
+        }
+        fn_12b160(follow, primary, &actor, g_cam_focus.at_3c, static_cast<u8>(g_cam_focus.at_cec));
     }
     fn_426f0(g_cam_focus, g_cam_focus.bound, g_cam_focus.shape_mask, 0);
 }

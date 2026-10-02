@@ -488,4 +488,9 @@ void fn_fd620();
 // aid_misc_ghoulies_audio_generalsettings.
 void fn_118470();
 
+// cam_11c480 calls this after the text-page reset. Creates the 4096x1
+// A8R8G8B8 lookup, fills each texel from its index nibbles, swizzles that
+// row, and clears the eight records at DAT_0050eaa0 plus the count.
+void fn_119160();
+
 } // namespace gbtg

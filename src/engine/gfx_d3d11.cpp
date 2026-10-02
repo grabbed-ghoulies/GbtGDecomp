@@ -1191,21 +1191,197 @@ void present_33480()
     }
 }
 
-} // namespace
-
-void gfx_end_frame()
+// Movie node on the DAT_0050E0B8 list. 0x00107420 reads it from ESI.
+// +4 is the next link, +8 the clip, +0x28 the open-failed latch, +0x34 the enable.
+struct PresentMovie
 {
-    // Present 0x00033480, then 0x00032AB0, then the swap (0x00033A90 on Xbox).
-    present_33480();
-    present_32ab0();
+    PresentMovie* next = nullptr;
+    void* clip = nullptr;
+    int failed = 0;
+    int enabled = 0;
+};
+
+// One of the four camera slots at DAT_004E16A0. 0x000489E0 returns 0 when the slot is null.
+struct PresentCamera
+{
+    int marker = 0;
+};
+
+// Overlay record. 0x00106CD0 walks 0x0050DD90 through 0x0050DFB0, stride 0x88 (four records).
+struct PresentOverlay
+{
+    void* object = nullptr; // +0
+    u8 kind = 0;             // +4, indexes the callback table at 0x00545DC0
+};
+
+// Clear and movie gates. BSS, so a fresh boot leaves every pointer clear.
+struct PresentFrame
+{
+    int post_pass = 0;    // DAT_00512AF0, first dword of the 0x2C post table
+    int cover = 0;        // DAT_004DEA50, mirrors scene+0x93C
+    int clear_mode = 0;   // DAT_0054632C, nonzero forces the target clear
+    int movie_lock_a = 0; // DAT_004E5CD8
+    int movie_lock_b = 0; // DAT_004E5CDC
+    PresentMovie* movies = nullptr;
+    PresentCamera* cameras[4] = {};
+    PresentOverlay overlays[4] = {};
+    void (*swap_notify)(int phase) = nullptr; // DAT_0043427C
+};
+
+PresentFrame present_frame;
+
+// Xbox 0x00033A90
+// Xbox clear masks: ZBUFFER is 1, STENCIL is 2, TARGET is 0xF0.
+// Boot (both retain gates clear) uses 0xF3. A post pass or cover keeps the color target
+// unless clear_mode is set.
+u32 present_clear_flags()
+{
+    u32 flags = 3;
+    if ((present_frame.post_pass == 0 && present_frame.cover == 0) || present_frame.clear_mode != 0)
+    {
+        flags = 0xf3;
+    }
+    return flags;
+}
+
+// Xbox 0x00033A90
+// 0x00107420. Opening the clip is Bink (0x001A6010) and stays in that library.
+void present_movie_tick(PresentMovie* node)
+{
+    if (node->enabled == 0 || node->failed != 0)
+    {
+        return;
+    }
+    if (node->clip == nullptr)
+    {
+        return;
+    }
+}
+
+// Xbox 0x00033A90
+void present_movies()
+{
+    if (present_frame.movie_lock_a != 0 || present_frame.movie_lock_b != 0)
+    {
+        return;
+    }
+    for (PresentMovie* node = present_frame.movies; node != nullptr; node = node->next)
+    {
+        present_movie_tick(node);
+    }
+}
+
+// Xbox 0x00033A90
+// 0x00106CD0. A null object skips the record.
+void present_overlays()
+{
+    for (const PresentOverlay& overlay : present_frame.overlays)
+    {
+        if (overlay.object == nullptr)
+        {
+            continue;
+        }
+    }
+}
+
+// Xbox 0x00033A90
+// 0x00033A20. Each non-null slot is bound by 0x000489E0 and drawn by 0x00011C240.
+void present_cameras()
+{
+    for (PresentCamera* camera : present_frame.cameras)
+    {
+        if (camera == nullptr)
+        {
+            continue;
+        }
+    }
+}
+
+// Xbox 0x00033A90
+// DAT_0033A5B8 is the full backbuffer: origin 0, retail 640x480, z 0..1.
+void present_set_viewport()
+{
     if (!g.ok)
     {
         return;
     }
-    if (g.swap)
+    D3D11_VIEWPORT vp{};
+    vp.Width = float(g.cfg.width);
+    vp.Height = float(g.cfg.height);
+    vp.MinDepth = 0.f;
+    vp.MaxDepth = 1.f;
+    g.context->RSSetViewports(1, &vp);
+}
+
+// Xbox 0x00033A90
+// 0x00154A20: D3DDevice_Clear(0, nullptr, flags, DAT_00434264, 1.0f, 0).
+// Z (1) and stencil (2) clear here. The target mask 0xF0 stays off this call so the
+// scene drawn earlier in the frame is still in the color target for the swap.
+void present_clear(u32 flags)
+{
+    if (!g.ok)
+    {
+        return;
+    }
+    UINT bits = 0;
+    if ((flags & 0x1u) != 0)
+    {
+        bits |= D3D11_CLEAR_DEPTH;
+    }
+    if ((flags & 0x2u) != 0)
+    {
+        bits |= D3D11_CLEAR_STENCIL;
+    }
+    if (bits != 0)
+    {
+        g.context->ClearDepthStencilView(g.dsv.Get(), bits, 1.f, 0);
+    }
+}
+
+// Xbox 0x00033A90
+// 0x00154A40. Notify 0, D3DDevice_Swap(0), notify 1.
+void present_swap()
+{
+    if (present_frame.swap_notify != nullptr)
+    {
+        present_frame.swap_notify(0);
+    }
+    if (g.ok && g.swap)
     {
         g.swap->Present(1, 0);
     }
+    if (present_frame.swap_notify != nullptr)
+    {
+        present_frame.swap_notify(1);
+    }
+}
+
+// Xbox 0x00033A90
+void present_33a90()
+{
+    const u32 flags = present_clear_flags();
+    present_set_viewport();
+    present_clear(flags);
+    // 0x0005E110 installs the frame render states.
+    // 0x000F9780 retires the deferred span at DAT_005079E0.
+    // 0x00036180 submits the draw span at DAT_004DF240 and resets it.
+    present_movies();
+    present_overlays();
+    present_cameras();
+    // 0x000F6F70 restores the HUD viewport from DAT_005096E8 / DAT_005096EA.
+    // 0x00066080 draws the sprite span at DAT_00504960.
+    present_swap();
+    present_movies();
+}
+
+} // namespace
+
+void gfx_end_frame()
+{
+    // Present 0x00033480, then 0x00032AB0, then 0x00033A90 (clear and swap).
+    present_33480();
+    present_32ab0();
+    present_33a90();
 }
 
 bool gfx_readback(RgbaImage& out)

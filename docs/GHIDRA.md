@@ -18,15 +18,23 @@ XBE sections are not contiguous in the file. A flat load puts every pointer on t
 3. Analyze with default analyzers plus **Xbox** symbol recovery if offered.
 4. Optional: parse public nxdk/`xbox.h` types (**File → Parse C Source**) — never commit XDK headers.
 
-## Headless helper
+## Headless export
 
-`tools/ghidra/ExportGbtg.java` prints AID-like strings and xrefs. From a Ghidra install:
+Scripts in `tools/ghidra/ghidra_scripts/` run against the existing `ghidra_projects/GbtG` program `default.xbe.original` (import once in the GUI with **ghidra-xbe**). From this repo, using the in-tree Ghidra:
 
 ```text
-analyzeHeadless <projectDir> GbtG -import "<game-dir>/default.xbe" -processor x86:LE:32:default -postScript ExportGbtg.java
+.\tools\ghidra\support\analyzeHeadless.bat ghidra_projects GbtG -process default.xbe.original -readOnly -noanalysis -scriptPath tools\ghidra\ghidra_scripts -postScript ExportEngine.java
+.\tools\ghidra\support\analyzeHeadless.bat ghidra_projects GbtG -process default.xbe.original -readOnly -noanalysis -scriptPath tools\ghidra\ghidra_scripts -postScript ExportWinMain.java
+.\tools\ghidra\support\analyzeHeadless.bat ghidra_projects GbtG -process default.xbe.original -readOnly -noanalysis -scriptPath tools\ghidra\ghidra_scripts -postScript ExportGameLoop.java
+.\tools\ghidra\support\analyzeHeadless.bat ghidra_projects GbtG -process default.xbe.original -readOnly -noanalysis -scriptPath tools\ghidra\ghidra_scripts -postScript ExportNext.java
+.\tools\ghidra\support\analyzeHeadless.bat ghidra_projects GbtG -process default.xbe.original -readOnly -noanalysis -scriptPath tools\ghidra\ghidra_scripts -postScript ExportScript.java
+.\tools\ghidra\support\analyzeHeadless.bat ghidra_projects GbtG -process default.xbe.original -readOnly -noanalysis -scriptPath tools\ghidra\ghidra_scripts -postScript ExportScriptLoad.java
+.\tools\ghidra\support\analyzeHeadless.bat ghidra_projects GbtG -process default.xbe.original -readOnly -noanalysis -scriptPath tools\ghidra\ghidra_scripts -postScript ExportCutscene.java
 ```
 
-Use ghidra-xbe so the import is not a raw binary. If headless cannot load XBE, import once in the GUI, then run scripts on the existing program.
+`ExportEngine.java` writes `docs/generated/ghidra_functions.txt` (addresses and names only) plus `cache/ghidra_engine.txt` (decompiles). Close Code Browser first, or the project may be locked.
+
+When you rename a function in Ghidra, add a line to [`XBE.md`](XBE.md) and re-run `ExportEngine.java`.
 
 ## Oracle
 

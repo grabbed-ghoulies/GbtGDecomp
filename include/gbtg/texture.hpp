@@ -2,9 +2,11 @@
 
 #include "gbtg/types.hpp"
 
-namespace gbtg {
+namespace gbtg
+{
 
-enum class XboxFormat : u32 {
+enum class XboxFormat : u32
+{
     L8 = 0x00,
     AL8 = 0x01,
     A1R5G5B5 = 0x02,
@@ -24,7 +26,8 @@ enum class XboxFormat : u32 {
     LinX8R8G8B8 = 0x1E,
 };
 
-struct TextureHeader {
+struct TextureHeader
+{
     XboxFormat format{};
     u32 header_size = 0;
     u16 width = 0;
@@ -37,10 +40,11 @@ struct TextureHeader {
     u32 data_size = 0;
 };
 
-struct RgbaImage {
+struct RgbaImage
+{
     int width = 0;
     int height = 0;
-    std::vector<u8> bgra;  // 4 bytes per pixel, BGRA
+    std::vector<u8> bgra; // 4 bytes per pixel, BGRA
 };
 
 bool parse_texture_header(std::span<const u8> cpu, TextureHeader& out);
@@ -48,4 +52,4 @@ RgbaImage decode_xbox_texture(const TextureHeader& hdr, std::span<const u8> gpu)
 void write_bmp(const std::filesystem::path& path, const RgbaImage& img);
 const char* xbox_format_name(XboxFormat f);
 
-}  // namespace gbtg
+} // namespace gbtg

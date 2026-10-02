@@ -2,9 +2,11 @@
 
 #include "gbtg/types.hpp"
 
-namespace gbtg {
+namespace gbtg
+{
 
-enum class ResourceType : u32 {
+enum class ResourceType : u32
+{
     Texture = 1,
     Anim = 2,
     Unknown3 = 3,
@@ -36,12 +38,14 @@ constexpr u32 kResourceMagic = 0x48E58836u;
 
 const char* resource_type_name(ResourceType type);
 
-struct ChunkRef {
+struct ChunkRef
+{
     u32 offset = 0;
     u32 size = 0;
 };
 
-struct ResourceHeader {
+struct ResourceHeader
+{
     ResourceType type{};
     u32 unknown = 0;
     u32 magic = 0;
@@ -50,21 +54,23 @@ struct ResourceHeader {
     ChunkRef resource_chunk;
 };
 
-struct ResourceSubchunk {
+struct ResourceSubchunk
+{
     u32 offset = 0;
     u32 size = 0;
 };
 
 bool parse_resource_header(std::span<const u8> bytes, ResourceHeader& out);
 
-struct LooseResource {
+struct LooseResource
+{
     ResourceHeader header;
     std::vector<ResourceSubchunk> gpu_chunks;
-    std::span<const u8> cpu;  // file chunk
-    std::span<const u8> gpu;  // resource payload
+    std::span<const u8> cpu; // file chunk
+    std::span<const u8> gpu; // resource payload
     std::vector<u8> owned;
 };
 
 LooseResource parse_loose_resource(std::vector<u8> bytes);
 
-}  // namespace gbtg
+} // namespace gbtg

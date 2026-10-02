@@ -2,9 +2,11 @@
 
 #include "gbtg/types.hpp"
 
-namespace gbtg {
+namespace gbtg
+{
 
-struct XbeSection {
+struct XbeSection
+{
     std::string name;
     u32 flags = 0;
     u32 virt_addr = 0;
@@ -13,12 +15,14 @@ struct XbeSection {
     u32 raw_size = 0;
 };
 
-struct XbeLibrary {
+struct XbeLibrary
+{
     std::string name;
     u16 major = 0, minor = 0, build = 0, qfe = 0;
 };
 
-struct XbeInfo {
+struct XbeInfo
+{
     std::filesystem::path path;
     u32 base = 0;
     u32 entry_decoded = 0;
@@ -35,4 +39,7 @@ struct XbeInfo {
 
 XbeInfo parse_xbe(const std::filesystem::path& path);
 
-}  // namespace gbtg
+// Overlay FPS fly cam on BanjoCam body pose (+0x89c); freeze sim dt while flying.
+void apply_preview_freecam(const std::filesystem::path& xbe_path);
+
+} // namespace gbtg

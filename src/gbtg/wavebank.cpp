@@ -3,26 +3,32 @@
 #include <algorithm>
 #include <cstring>
 
-namespace gbtg {
-namespace {
+namespace gbtg
+{
+namespace
+{
 
-struct Region {
+struct Region
+{
     u32 offset = 0;
     u32 length = 0;
 };
 
-void decode_mini_format(u32 fmt, WaveEntry& e) {
+void decode_mini_format(u32 fmt, WaveEntry& e)
+{
     e.codec = fmt & 0x3;
     e.channels = ((fmt >> 2) & 0x7) + 1;
     e.samples_per_sec = (fmt >> 5) & 0x3FFFF;
     e.bits = ((fmt >> 31) & 1) ? 16 : 8;
 }
 
-}  // namespace
+} // namespace
 
-WaveBank parse_wavebank(const std::filesystem::path& path, int max_pcm_entries) {
+WaveBank parse_wavebank(const std::filesystem::path& path, int max_pcm_entries)
+{
     auto bytes = read_file(path);
-    if (bytes.size() < 40 || std::memcmp(bytes.data(), "WBND", 4) != 0) {
+    if (bytes.size() < 40 || std::memcmp(bytes.data(), "WBND", 4) != 0)
+    {
         throw Error("not a WBND file");
     }
     WaveBank bank;
@@ -35,9 +41,11 @@ WaveBank parse_wavebank(const std::filesystem::path& path, int max_pcm_entries) 
     const size_t seg0 = xbox_v3 ? 8 : 12;
     const int nseg = xbox_v3 ? 4 : 5;
     Region segs[5]{};
-    for (int i = 0; i < nseg; ++i) {
+    for (int i = 0; i < nseg; ++i)
+    {
         const size_t o = seg0 + size_t(i) * 8;
-        if (o + 8 > bytes.size()) {
+        if (o + 8 > bytes.size())
+        {
             break;
         }
         segs[i].offset = read_u32(bytes, o);
@@ -49,7 +57,8 @@ WaveBank parse_wavebank(const std::filesystem::path& path, int max_pcm_entries) 
     const Region names = xbox_v3 ? Region{} : segs[3];
     const Region& wave = xbox_v3 ? segs[3] : segs[4];
 
-    if (bd.offset + 8 > bytes.size()) {
+    if (bd.offset + 8 > bytes.size())
+    {
         return bank;
     }
     const u32 flags = read_u32(bytes, bd.offset);
@@ -57,54 +66,66 @@ WaveBank parse_wavebank(const std::filesystem::path& path, int max_pcm_entries) 
     const size_t name_field = xbox_v3 ? 16 : 64;
     u32 meta_elem = 24;
     u32 name_elem = 0;
-    if (bd.offset + 8 + name_field + 8 <= bytes.size() && bd.length >= 8 + name_field + 8) {
+    if (bd.offset + 8 + name_field + 8 <= bytes.size() && bd.length >= 8 + name_field + 8)
+    {
         meta_elem = read_u32(bytes, bd.offset + 8 + name_field);
         name_elem = read_u32(bytes, bd.offset + 8 + name_field + 4);
     }
     (void)flags;
-    if (entry_count == 0 || entry_count > 100000) {
+    if (entry_count == 0 || entry_count > 100000)
+    {
         return bank;
     }
 
     size_t entry_size = meta_elem ? meta_elem : 24;
-    if (meta.length && entry_count) {
+    if (meta.length && entry_count)
+    {
         const size_t from_seg = meta.length / entry_count;
-        if (from_seg >= 4) {
+        if (from_seg >= 4)
+        {
             entry_size = from_seg;
         }
     }
 
     bank.entries.reserve(entry_count);
     int pcm_copied = 0;
-    for (u32 i = 0; i < entry_count; ++i) {
+    for (u32 i = 0; i < entry_count; ++i)
+    {
         WaveEntry e;
         const size_t off = size_t(meta.offset) + size_t(i) * entry_size;
-        if (off + 16 > bytes.size()) {
+        if (off + 16 > bytes.size())
+        {
             break;
         }
-        if (entry_size >= 24) {
+        if (entry_size >= 24)
+        {
             const u32 flags_dur = read_u32(bytes, off);
             e.flags = flags_dur & 0xF;
             e.duration = flags_dur >> 4;
             decode_mini_format(read_u32(bytes, off + 4), e);
             e.play_offset = read_u32(bytes, off + 8);
             e.play_length = read_u32(bytes, off + 12);
-        } else if (entry_size >= 4) {
+        }
+        else if (entry_size >= 4)
+        {
             // compact: offset/alignment packed; skip PCM
             e.name = "wave_" + std::to_string(i);
         }
-        if (names.length && name_elem && names.offset + i * name_elem + 1 <= bytes.size()) {
+        if (names.length && name_elem && names.offset + i * name_elem + 1 <= bytes.size())
+        {
             char n[65]{};
-            const size_t nlen = std::min<size_t>(64, std::min<size_t>(name_elem, bytes.size() - (names.offset + i * name_elem)));
+            const size_t nlen =
+                std::min<size_t>(64, std::min<size_t>(name_elem, bytes.size() - (names.offset + i * name_elem)));
             std::memcpy(n, bytes.data() + names.offset + i * name_elem, nlen);
             e.name = n;
         }
-        if (e.name.empty() || e.name[0] < 32) {
+        if (e.name.empty() || e.name[0] < 32)
+        {
             e.name = "wave_" + std::to_string(i);
         }
         if (max_pcm_entries > 0 && pcm_copied < max_pcm_entries && e.codec == 0 && e.play_length &&
-            e.play_length <= 4 * 1024 * 1024 &&
-            size_t(wave.offset) + e.play_offset + e.play_length <= bytes.size()) {
+            e.play_length <= 4 * 1024 * 1024 && size_t(wave.offset) + e.play_offset + e.play_length <= bytes.size())
+        {
             e.pcm.assign(bytes.begin() + wave.offset + e.play_offset,
                          bytes.begin() + wave.offset + e.play_offset + e.play_length);
             ++pcm_copied;
@@ -114,8 +135,10 @@ WaveBank parse_wavebank(const std::filesystem::path& path, int max_pcm_entries) 
     return bank;
 }
 
-void write_wav(const std::filesystem::path& path, const WaveEntry& e) {
-    if (e.pcm.empty()) {
+void write_wav(const std::filesystem::path& path, const WaveEntry& e)
+{
+    if (e.pcm.empty())
+    {
         throw Error("no PCM for " + e.name);
     }
     const u16 channels = u16(e.channels ? e.channels : 1);
@@ -144,4 +167,4 @@ void write_wav(const std::filesystem::path& path, const WaveEntry& e) {
     write_file(path, wav);
 }
 
-}  // namespace gbtg
+} // namespace gbtg

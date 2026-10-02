@@ -4,37 +4,47 @@
 #include <cmath>
 #include <cstring>
 
-namespace gbtg {
-namespace {
+namespace gbtg
+{
+namespace
+{
 
 // Original Xbox NV2A Morton (Z-order) swizzle, not Xbox 360 XG tiling.
-std::vector<u8> unswizzle_nv2a(std::span<const u8> src, u32 w, u32 h, u32 bpp) {
+std::vector<u8> unswizzle_nv2a(std::span<const u8> src, u32 w, u32 h, u32 bpp)
+{
     u32 mask_x = 0, mask_y = 0, bit = 1, mask_bit = 1;
-    for (;;) {
+    for (;;)
+    {
         bool done = true;
-        if (bit < w) {
+        if (bit < w)
+        {
             mask_x |= mask_bit;
             mask_bit <<= 1;
             done = false;
         }
-        if (bit < h) {
+        if (bit < h)
+        {
             mask_y |= mask_bit;
             mask_bit <<= 1;
             done = false;
         }
         bit <<= 1;
-        if (done) {
+        if (done)
+        {
             break;
         }
     }
     std::vector<u8> dst(size_t(w) * h * bpp);
     u32 off_y = 0;
-    for (u32 y = 0; y < h; ++y) {
+    for (u32 y = 0; y < h; ++y)
+    {
         u32 off_x = 0;
-        for (u32 x = 0; x < w; ++x) {
+        for (u32 x = 0; x < w; ++x)
+        {
             const u32 so = (off_y + off_x) * bpp;
             const u32 doff = (y * w + x) * bpp;
-            if (so + bpp <= src.size() && doff + bpp <= dst.size()) {
+            if (so + bpp <= src.size() && doff + bpp <= dst.size())
+            {
                 std::memcpy(dst.data() + doff, src.data() + so, bpp);
             }
             off_x = (off_x - mask_x) & mask_x;
@@ -44,27 +54,32 @@ std::vector<u8> unswizzle_nv2a(std::span<const u8> src, u32 w, u32 h, u32 bpp) {
     return dst;
 }
 
-void decode_rgb565(u16 c, u8& r, u8& g, u8& b) {
+void decode_rgb565(u16 c, u8& r, u8& g, u8& b)
+{
     r = u8(((c >> 11) & 31) * 255 / 31);
     g = u8(((c >> 5) & 63) * 255 / 63);
     b = u8((c & 31) * 255 / 31);
 }
 
-void decode_dxt1_block(const u8 block[8], u8 out[16 * 4], bool dxt1_alpha) {
+void decode_dxt1_block(const u8 block[8], u8 out[16 * 4], bool dxt1_alpha)
+{
     const u16 c0 = u16(block[0] | (block[1] << 8));
     const u16 c1 = u16(block[2] | (block[3] << 8));
     u8 r[4], g[4], b[4], a[4];
     decode_rgb565(c0, r[0], g[0], b[0]);
     decode_rgb565(c1, r[1], g[1], b[1]);
     a[0] = a[1] = a[2] = a[3] = 255;
-    if (c0 > c1 || !dxt1_alpha) {
+    if (c0 > c1 || !dxt1_alpha)
+    {
         r[2] = u8((2 * r[0] + r[1]) / 3);
         g[2] = u8((2 * g[0] + g[1]) / 3);
         b[2] = u8((2 * b[0] + b[1]) / 3);
         r[3] = u8((r[0] + 2 * r[1]) / 3);
         g[3] = u8((g[0] + 2 * g[1]) / 3);
         b[3] = u8((b[0] + 2 * b[1]) / 3);
-    } else {
+    }
+    else
+    {
         r[2] = u8((r[0] + r[1]) / 2);
         g[2] = u8((g[0] + g[1]) / 2);
         b[2] = u8((b[0] + b[1]) / 2);
@@ -72,7 +87,8 @@ void decode_dxt1_block(const u8 block[8], u8 out[16 * 4], bool dxt1_alpha) {
         a[3] = 0;
     }
     u32 idx = u32(block[4]) | (u32(block[5]) << 8) | (u32(block[6]) << 16) | (u32(block[7]) << 24);
-    for (int i = 0; i < 16; ++i) {
+    for (int i = 0; i < 16; ++i)
+    {
         const u32 sel = (idx >> (i * 2)) & 3;
         out[i * 4 + 0] = b[sel];
         out[i * 4 + 1] = g[sel];
@@ -81,38 +97,49 @@ void decode_dxt1_block(const u8 block[8], u8 out[16 * 4], bool dxt1_alpha) {
     }
 }
 
-void decode_dxt3_alpha(const u8 block[8], u8 alpha[16]) {
-    for (int i = 0; i < 16; ++i) {
+void decode_dxt3_alpha(const u8 block[8], u8 alpha[16])
+{
+    for (int i = 0; i < 16; ++i)
+    {
         const u8 n = (block[i / 2] >> ((i & 1) * 4)) & 0xF;
         alpha[i] = u8(n * 17);
     }
 }
 
-void decode_dxt5_alpha(const u8 block[8], u8 alpha[16]) {
+void decode_dxt5_alpha(const u8 block[8], u8 alpha[16])
+{
     u8 a[8];
     a[0] = block[0];
     a[1] = block[1];
-    if (a[0] > a[1]) {
-        for (int i = 1; i <= 6; ++i) {
+    if (a[0] > a[1])
+    {
+        for (int i = 1; i <= 6; ++i)
+        {
             a[i + 1] = u8(((7 - i) * a[0] + i * a[1]) / 7);
         }
-    } else {
-        for (int i = 1; i <= 4; ++i) {
+    }
+    else
+    {
+        for (int i = 1; i <= 4; ++i)
+        {
             a[i + 1] = u8(((5 - i) * a[0] + i * a[1]) / 5);
         }
         a[6] = 0;
         a[7] = 255;
     }
     u64 bits = 0;
-    for (int i = 0; i < 6; ++i) {
+    for (int i = 0; i < 6; ++i)
+    {
         bits |= u64(block[2 + i]) << (8 * i);
     }
-    for (int i = 0; i < 16; ++i) {
+    for (int i = 0; i < 16; ++i)
+    {
         alpha[i] = a[(bits >> (i * 3)) & 7];
     }
 }
 
-RgbaImage decode_dxt(std::span<const u8> src, int w, int h, XboxFormat fmt, bool swizzled) {
+RgbaImage decode_dxt(std::span<const u8> src, int w, int h, XboxFormat fmt, bool swizzled)
+{
     const int bw = (w + 3) / 4;
     const int bh = (h + 3) / 4;
     const bool is_dxt1 = fmt == XboxFormat::DXT1;
@@ -120,7 +147,8 @@ RgbaImage decode_dxt(std::span<const u8> src, int w, int h, XboxFormat fmt, bool
     std::vector<u8> linear;
     const u8* blocks = src.data();
     size_t src_size = src.size();
-    if (swizzled) {
+    if (swizzled)
+    {
         linear = unswizzle_nv2a(src, u32(bw), u32(bh), u32(block_bytes));
         blocks = linear.data();
         src_size = linear.size();
@@ -129,29 +157,40 @@ RgbaImage decode_dxt(std::span<const u8> src, int w, int h, XboxFormat fmt, bool
     img.width = w;
     img.height = h;
     img.bgra.assign(size_t(w) * h * 4, 0);
-    for (int by = 0; by < bh; ++by) {
-        for (int bx = 0; bx < bw; ++bx) {
+    for (int by = 0; by < bh; ++by)
+    {
+        for (int bx = 0; bx < bw; ++bx)
+        {
             const size_t off = size_t(by * bw + bx) * block_bytes;
-            if (off + block_bytes > src_size) {
+            if (off + block_bytes > src_size)
+            {
                 continue;
             }
             u8 color[16 * 4];
             u8 alpha[16];
             std::memset(alpha, 255, 16);
-            if (is_dxt1) {
+            if (is_dxt1)
+            {
                 decode_dxt1_block(blocks + off, color, true);
-            } else if (fmt == XboxFormat::DXT3) {
+            }
+            else if (fmt == XboxFormat::DXT3)
+            {
                 decode_dxt3_alpha(blocks + off, alpha);
                 decode_dxt1_block(blocks + off + 8, color, false);
-            } else {
+            }
+            else
+            {
                 decode_dxt5_alpha(blocks + off, alpha);
                 decode_dxt1_block(blocks + off + 8, color, false);
             }
-            for (int py = 0; py < 4; ++py) {
-                for (int px = 0; px < 4; ++px) {
+            for (int py = 0; py < 4; ++py)
+            {
+                for (int px = 0; px < 4; ++px)
+                {
                     const int x = bx * 4 + px;
                     const int y = by * 4 + py;
-                    if (x >= w || y >= h) {
+                    if (x >= w || y >= h)
+                    {
                         continue;
                     }
                     const int si = py * 4 + px;
@@ -167,10 +206,12 @@ RgbaImage decode_dxt(std::span<const u8> src, int w, int h, XboxFormat fmt, bool
     return img;
 }
 
-RgbaImage decode_argb8888(std::span<const u8> src, int w, int h, bool swizzled) {
+RgbaImage decode_argb8888(std::span<const u8> src, int w, int h, bool swizzled)
+{
     std::vector<u8> linear;
     std::span<const u8> pix = src;
-    if (swizzled) {
+    if (swizzled)
+    {
         linear = unswizzle_nv2a(src, u32(w), u32(h), 4);
         pix = linear;
     }
@@ -183,10 +224,12 @@ RgbaImage decode_argb8888(std::span<const u8> src, int w, int h, bool swizzled) 
     return img;
 }
 
-}  // namespace
+} // namespace
 
-bool parse_texture_header(std::span<const u8> cpu, TextureHeader& out) {
-    if (cpu.size() < 28) {
+bool parse_texture_header(std::span<const u8> cpu, TextureHeader& out)
+{
+    if (cpu.size() < 28)
+    {
         return false;
     }
     out.format = static_cast<XboxFormat>(read_u32(cpu, 0));
@@ -202,41 +245,55 @@ bool parse_texture_header(std::span<const u8> cpu, TextureHeader& out) {
     return out.header_size == 28 && out.width > 0 && out.height > 0;
 }
 
-const char* xbox_format_name(XboxFormat f) {
-    switch (f) {
-        case XboxFormat::DXT1: return "DXT1";
-        case XboxFormat::DXT3: return "DXT3";
-        case XboxFormat::DXT5: return "DXT5";
-        case XboxFormat::A8R8G8B8: return "A8R8G8B8";
-        case XboxFormat::X8R8G8B8: return "X8R8G8B8";
-        case XboxFormat::LinA8R8G8B8: return "LIN_A8R8G8B8";
-        case XboxFormat::LinX8R8G8B8: return "LIN_X8R8G8B8";
-        default: return "other";
+const char* xbox_format_name(XboxFormat f)
+{
+    switch (f)
+    {
+    case XboxFormat::DXT1:
+        return "DXT1";
+    case XboxFormat::DXT3:
+        return "DXT3";
+    case XboxFormat::DXT5:
+        return "DXT5";
+    case XboxFormat::A8R8G8B8:
+        return "A8R8G8B8";
+    case XboxFormat::X8R8G8B8:
+        return "X8R8G8B8";
+    case XboxFormat::LinA8R8G8B8:
+        return "LIN_A8R8G8B8";
+    case XboxFormat::LinX8R8G8B8:
+        return "LIN_X8R8G8B8";
+    default:
+        return "other";
     }
 }
 
-RgbaImage decode_xbox_texture(const TextureHeader& hdr, std::span<const u8> gpu) {
-    if (hdr.texture_offset > gpu.size()) {
+RgbaImage decode_xbox_texture(const TextureHeader& hdr, std::span<const u8> gpu)
+{
+    if (hdr.texture_offset > gpu.size())
+    {
         throw Error("texture offset out of range");
     }
     auto payload = gpu.subspan(hdr.texture_offset, std::min<size_t>(hdr.data_size, gpu.size() - hdr.texture_offset));
-    switch (hdr.format) {
-        case XboxFormat::DXT1:
-        case XboxFormat::DXT3:
-        case XboxFormat::DXT5:
-            return decode_dxt(payload, hdr.width, hdr.height, hdr.format, false);
-        case XboxFormat::A8R8G8B8:
-        case XboxFormat::X8R8G8B8:
-            return decode_argb8888(payload, hdr.width, hdr.height, true);
-        case XboxFormat::LinA8R8G8B8:
-        case XboxFormat::LinX8R8G8B8:
-            return decode_argb8888(payload, hdr.width, hdr.height, false);
-        default:
-            throw Error(std::string("unsupported texture format ") + xbox_format_name(hdr.format));
+    switch (hdr.format)
+    {
+    case XboxFormat::DXT1:
+    case XboxFormat::DXT3:
+    case XboxFormat::DXT5:
+        return decode_dxt(payload, hdr.width, hdr.height, hdr.format, false);
+    case XboxFormat::A8R8G8B8:
+    case XboxFormat::X8R8G8B8:
+        return decode_argb8888(payload, hdr.width, hdr.height, true);
+    case XboxFormat::LinA8R8G8B8:
+    case XboxFormat::LinX8R8G8B8:
+        return decode_argb8888(payload, hdr.width, hdr.height, false);
+    default:
+        throw Error(std::string("unsupported texture format ") + xbox_format_name(hdr.format));
     }
 }
 
-void write_bmp(const std::filesystem::path& path, const RgbaImage& img) {
+void write_bmp(const std::filesystem::path& path, const RgbaImage& img)
+{
     const u32 row_stride = u32((img.width * 3 + 3) & ~3);
     const u32 pixel_bytes = row_stride * u32(img.height);
     std::vector<u8> bmp(54 + pixel_bytes, 0);
@@ -255,10 +312,12 @@ void write_bmp(const std::filesystem::path& path, const RgbaImage& img) {
     std::memcpy(bmp.data() + 26, &planes, 2);
     std::memcpy(bmp.data() + 28, &bpp, 2);
     std::memcpy(bmp.data() + 34, &pixel_bytes, 4);
-    for (int y = 0; y < img.height; ++y) {
+    for (int y = 0; y < img.height; ++y)
+    {
         u8* dst = bmp.data() + 54 + size_t(img.height - 1 - y) * row_stride;
         const u8* src = img.bgra.data() + size_t(y) * img.width * 4;
-        for (int x = 0; x < img.width; ++x) {
+        for (int x = 0; x < img.width; ++x)
+        {
             dst[x * 3 + 0] = src[x * 4 + 0];
             dst[x * 3 + 1] = src[x * 4 + 1];
             dst[x * 3 + 2] = src[x * 4 + 2];
@@ -267,4 +326,4 @@ void write_bmp(const std::filesystem::path& path, const RgbaImage& img) {
     write_file(path, bmp);
 }
 
-}  // namespace gbtg
+} // namespace gbtg

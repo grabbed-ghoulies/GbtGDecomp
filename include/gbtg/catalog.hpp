@@ -3,19 +3,22 @@
 #include "gbtg/types.hpp"
 #include "gbtg/xbe.hpp"
 
-namespace gbtg {
+namespace gbtg
+{
 
-struct CatalogFile {
+struct CatalogFile
+{
     std::string relative;
     u64 size = 0;
     std::string magic;
     std::string kind;
     u32 aid_hash = 0;
-    std::string aid_name;  // resolved if known
+    std::string aid_name; // resolved if known
     std::string sha256;
 };
 
-struct Catalog {
+struct Catalog
+{
     std::filesystem::path game_dir;
     std::vector<CatalogFile> files;
     std::vector<std::string> unresolved_hashes;
@@ -24,11 +27,12 @@ struct Catalog {
     int mismatched = 0;
 };
 
-struct CatalogOptions {
+struct CatalogOptions
+{
     bool compute_sha = true;
-    std::filesystem::path manifest;  // retail_files.txt
+    std::filesystem::path manifest; // retail_files.txt
 };
 
 Catalog build_catalog(const std::filesystem::path& game_dir, const CatalogOptions& opt = {});
 
-}  // namespace gbtg
+} // namespace gbtg

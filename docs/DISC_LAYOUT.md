@@ -20,6 +20,8 @@ Hashed filenames are 8 lowercase hex digits: Rare AID hash of names such as `aid
 
 `.bnl` files are zlib-compressed scene packs, not “script only”. A playcam bundle holds models, animations, actor goals, and the scene script.
 
+Retail boot order is `aid_aidlist_ghoulies_sceneorder_game` inside `common.bnl` (attract → game select → books → playcams).
+
 ## Kiosk (ignore)
 
 | Path | Role |
@@ -28,9 +30,3 @@ Hashed filenames are 8 lowercase hex digits: Rare AID hash of names such as `aid
 | `cdxmedia/` | CDX UI (`cdx.inx`, `cdx.xpr`, `cdx.xwb`, `cdx.xsb`, font) |
 | `Videos/*.xmv` | Promo trailers (Kameo, PGR2, …) |
 | `Other PNGs/` | CDX menu thumbnails |
-
-## First scene used by the engine slice
-
-1. `bundles/common.bnl`
-2. `bundles/aid_script/ghoulies_chapter1_scene1_2playcam.bnl`
-3. `bundles/aid_objparams/ghoulies_actor_player_boy.bnl`

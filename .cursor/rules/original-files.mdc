@@ -1,0 +1,27 @@
+---
+description: OriginalFiles edit protocol
+alwaysApply: true
+---
+
+# OriginalFiles
+
+`OriginalFiles/` is the user's retail disc dump. Never stage, commit, or distribute it (or `*.iso`, `*.xbe`, `*.bnl`, `*.original` payloads).
+
+## Editing OriginalFiles
+
+Before the first change to any file under `OriginalFiles/`:
+
+1. Copy the untouched file beside itself with a `.original` suffix (`default.xbe` → `default.xbe.original`).
+2. List the edit in `docs/ORIGINAL_FILES.md`: path, why, what changed, how to restore.
+
+Do not put that markdown inside `OriginalFiles/`. ISO packing must skip `*.original` (use `tools/xemu/build_iso.ps1`, which stages into `cache/xemu_root/`).
+
+```text
+# BAD — mutate the dump with no backup
+Copy-Item scene.bnl scene.bnl.bak
+# GOOD
+if (-not (Test-Path scene.bnl.original)) { Copy-Item scene.bnl scene.bnl.original }
+# then document in docs/ORIGINAL_FILES.md
+```
+
+xemu is a runtime oracle for reconstructed functions (which BNL opens, which AID is requested). See `docs/XEMU.md`.

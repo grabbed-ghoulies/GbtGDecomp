@@ -57,9 +57,56 @@ Xbox formats used here include DXT1 (`0x0C`), DXT2/3 (`0x0E`), DXT4/5 (`0x0F`), 
 
 CPU blob: 32-byte header (`tail_offset`, `tail_count`) then a tail of `{u32 type, u32 offset}`. Type 0 is the main scene graph; type 7 lists embedded texture headers.
 
-Named nodes (16-byte tags) sit after a 36-byte scene-graph header. `ndPushBuffer` / `ndBGPushBuffer` then store `u32 count`, `u32 this_ptr` (header address), `u32 prim` (5 = triangle list, 6 = strip, 7 = fan), then `count` `uint16` indices. Vertex sections with info-type `0x09` are `float3` positions (12 bytes); type `0x0D` is `float2` UVs.
+Named nodes sit in a `HeaderItem` tree (40-byte records, child/sibling links) walked from model base `+64+52`, matching [project-grabbed](https://github.com/x1nixmzeng/project-grabbed). Payload offsets are relative to model `+64`.
+
+`ndPushBuffer` / `ndBGPushBuffer` (`un_other6 == 1`) store `u32 count`, `u32 this_ptr` (header address), `u32 prim` (5 = triangle list, 6 = strip, 7 = fan), then `count` `uint16` indices. Vertex sections with info-type `0x09` are `float3` positions; type `0x0D`/`0x0E`/`0x0F` are `float2` UV sets.
+
+`ndShaderParam2` binds samplers via a texture-reference table plus named slots. **`colour0`** is the diffuse albedo. On environments **`colour1`** is often a baked lighting atlas (use as lightmap when `RARE_lightmap*` is absent) — do not treat it as a second diffuse that overwrites `colour0`. The PC present multiplies that atlas with `MODULATE2X` (0.5 in the texture is neutral). `colour2`/`colour3` are detail layers; when `colour0` is empty or a near-black base (RGB sum under about 80 while `colour2` is much brighter), promote `colour2` to the visible albedo. `RARE_celmap0` is a 256×2 cel ramp (body tone, highlight band, then black), sampled with the Lambert term of the type `0x0A` normal. It is not a diffuse map. `RARE_lightmap0` / `RARE_lightmap-1` are lightmaps (skip soft radial cookies). Indices are into the model's embedded texture list — the same path for actors and environments.
 
 GPU vertex/index bytes live in BNL chunk 2 / the loose resource chunk.
+
+## Cutscenes (type 7)
+
+CPU blob header (little-endian):
+
+```text
+u16 keyframes        // typically duration ≈ keyframes / 30
+u8  flag             // 1 in attract clips
+u8  tracks           // camera / actor channels (3–12 on attract)
+f32 duration         // seconds; authoritative clip length
+u32 table offsets…   // relocatable; +8 points at the camera record
+```
+
+Camera list entries are 8 bytes: `u32 name_offset`, `u32 channel_offset` (`0x4E0F6`). Each channel is
+
+```text
+u16 keyframes
+u16 pad
+f32 duration
+u32 data_offset      // relative to the channel table; 0x4F700 adds that table address
+```
+
+`0x514C0` samples `floor(time / duration * count)` and lerps to the next key. Channels 0..2 are position (`0x4F770`). Channels 3..6 are a quaternion xyzw (`0x4F8C0` → `0x51590`). Channel 7 is the scalar written to the camera at +0x24 (35 on attract clips).
+
+Embedded NUL-terminated AIDs: `aid_camera_*`, `aid_model_*`, `aid_anim_*`. Type 8 is cutscene events. Attract plays the type-14 `scenecontrol` aidlist in order (`gbtg::CutsceneQueue`) and writes the sampled pose onto `entityBodyCamera`.
+
+## Scripts (type 24)
+
+CPU blob is a **relocatable** record, not a bytecode stream yet reconstructed as a VM.
+
+```text
+u32 root_offset          // often 0x0C; add blob base at load
+…pointer-sized fields…   // u32 values that land inside the blob are offsets
+char aid_* / labels[]    // NUL-terminated names, typically 128-byte slots
+```
+
+Attract `aid_script_ghoulies_attractsequence_final1` (304 bytes) points at `aid_model_editors_introbackground` and `aid_objparams_ghoulies_scenecontrol_attract1`. The matching type-14 aidlist in the same BNL lists the attract cutscenes. Chapter `*_setup` scripts in `common.bnl` are 20-byte headers (chapter index, no names). Playcam scripts are larger and also embed `objTag_*`, event titles, ghouly boxes, and cutscene AIDs.
+
+`gbtg::parse_scene_script` collects header words plus ASCII / `aid_*` strings. Condition/action opcodes are still Xbox-side (`scriptConditionId_*` in the XBE).
+
+## Aidlists (type 14)
+
+CPU blob is a packed array of **128-byte** NUL-padded AID name strings. `aid_aidlist_ghoulies_sceneorder_game` is the boot scene list (attract → game select → books → playcams). `save_bundle` inflates, edits, and zlib-deflates a BNL.
 
 ## Loctext
 

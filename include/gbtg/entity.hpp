@@ -1,0 +1,76 @@
+#pragma once
+
+#include "gbtg/types.hpp"
+
+#include <string>
+#include <vector>
+
+namespace gbtg
+{
+
+// Rare entity split recovered from XBE type names: Body / Mind / Strategy.
+// Types are C vtables filled by static ctors that call entity_type_fill_defaults (0x0001DA60)
+// then overwrite slots. entityBodyCamera_ctor (0x00073190) is the first reconstructed example.
+
+enum class EntityKind
+{
+    Body,
+    Mind,
+    Strategy,
+};
+
+struct Actor
+{
+    Vec3 position{}; // Xbox actor+0x08
+    Vec3 euler{};    // Xbox actor+0x14 when the object stores euler (0x00041820 reads three floats)
+    Quat quat{0.f, 0.f, 0.f, 1.f}; // cutscene camera writes xyzw at +0x14 (0x0004D8CE)
+    float fov = 0.9f;              // cutscene camera +0x24
+    Actor* attach = nullptr;
+};
+
+struct Entity;
+struct Message
+{
+    i32 id = 0;
+    Vec3 vec{};
+};
+
+struct EntityType
+{
+    const char* name = "";
+    EntityKind kind = EntityKind::Body;
+    u32 xbox_desc_va = 0;
+    u32 xbox_size = 0;
+    u32 xbox_extra = 0;
+    void (*tick)(Entity& e) = nullptr;
+    void (*shutdown)(Entity& e) = nullptr;
+    bool (*handle_message)(Entity& e, const Message& msg) = nullptr;
+};
+
+struct Entity
+{
+    const EntityType* type = nullptr;
+    Actor* actor = nullptr;
+    Vec3 position{};     // Xbox body+0x18 (camera translate msg)
+    Vec3 pose_position{}; // Xbox body+0x89C — world pos copied each tick
+    Vec3 pose_euler{};    // Xbox body+0x8A8
+    Quat pose_quat{0.f, 0.f, 0.f, 1.f};
+    float pose_fov = 0.9f;
+    bool listed = false;
+};
+
+const EntityType* find_entity_type(std::string_view name);
+std::vector<const EntityType*> all_entity_types();
+void register_entity_types();
+
+Vec3 actor_world_position(const Actor& actor); // 0x000412A0
+Vec3 actor_world_euler(const Actor& actor);    // 0x00041820
+
+void entity_body_camera_sizeof(u32 out_sizes[2]); // 0x00073170
+void entity_body_camera_tick(Entity& body);       // 0x000731F0
+void entity_body_camera_shutdown(Entity& body);   // 0x00073300
+bool entity_body_camera_message(Entity& body, const Message& msg); // 0x00073320, id 99
+
+constexpr i32 kMsgCameraTranslate = 99;
+
+} // namespace gbtg

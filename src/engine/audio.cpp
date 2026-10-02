@@ -1,5 +1,6 @@
 #include "gbtg/engine_internal.hpp"
 
+#include <chrono>
 #include <cstring>
 
 namespace gbtg
@@ -113,6 +114,59 @@ struct XactListener
 };
 
 XactListener g_xact_ear;
+
+// Xbox 0x004D9780 / 0x004D97EC / 0x004D9968. Engine stays null until audio init.
+// Ready is 1 only after that init; CommitDeferredSettings runs only then.
+void* g_xact_engine = nullptr;
+int g_xact_ready = 0;
+unsigned g_xact_ms = 0;
+int g_xact_prepared = 0; // 0x004D9B70. Inc when a cue is prepared, dec on stop.
+
+// Notification objects. Banks at 0x004D9808 (match +0x18, cues at +0x28).
+// Waves at 0x004D97D8 (match +0x20). Cue id is +0x24.
+struct XactCueInst
+{
+    XactCueInst* next = nullptr; // +0x04
+    int id = 0;                  // +0x24
+    int state = 0;               // +0x28. 0 start, 1 stop, 2 marker, 3 other.
+    void (*notify)(XactCueInst* cue, int state) = nullptr; // +0x2C
+    int marker = 0;              // +0x30
+    int flags = 0;               // +0x34. Bit 1 drops later notes that are not stop.
+    int seen = 0;                // +0x38. Bits 0, 1, 2, 3: start, stop, marker, other.
+};
+
+struct XactEngineBank
+{
+    XactEngineBank* next = nullptr; // +0x04
+    int key = 0;                    // +0x18
+    XactCueInst* cues = nullptr;    // +0x28
+};
+
+struct XactEngineWave
+{
+    XactEngineWave* next = nullptr; // +0x04
+    int key = 0;                    // +0x20
+    int state = 0;                  // +0x34. 7 when a type-3 note has no cue.
+    void (*notify)(XactEngineWave* wave, int state) = nullptr; // +0x38
+    int flags = 0;                  // +0x54. Bit 0x80 means that type-3 note already landed.
+};
+
+XactEngineBank* g_xact_sbanks = nullptr; // 0x004D9808
+XactEngineWave* g_xact_waves = nullptr;  // 0x004D97D8
+
+// Stand-in for IXACTEngine::GetNotification. The retail call fills one record
+// per success; HRESULT nonzero ends the pump.
+struct XactNote
+{
+    unsigned type = 0; // word at +0x00. 0 start, 1 stop, 2 marker, 3 other.
+    int key = 0;       // +0x04. Bank +0x18 and wave +0x20.
+    int cue_key = 0;   // +0x0C. Cue +0x24.
+    int marker = 0;    // +0x18. Stored on the cue for a marker note.
+};
+
+constexpr int kXactNoteQueue = 32;
+XactNote g_xact_notes[kXactNoteQueue];
+int g_xact_note_count = 0;
 
 // Xbox 0x00421C70. Passed to SetVelocity every listener update.
 constexpr float kListenerVelocity[3] = {0.f, 1.f, 0.f};
@@ -401,13 +455,232 @@ void audio_listener()
     g_xact_ear.top[2] = top_z;
 }
 
+unsigned xact_milliseconds()
+{
+    // Xbox 0x0015B780
+    // XAPILIB::GetTickCount. KeTickCount in milliseconds, low 32 bits.
+    const auto now = std::chrono::steady_clock::now().time_since_epoch();
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now);
+    return static_cast<unsigned>(ms.count());
+}
+
+XactEngineBank* xact_find_engine_bank(int key)
+{
+    // Xbox 0x0015B780
+    // 0x0015CD70. First bank on 0x004D9808 whose +0x18 matches.
+    for (XactEngineBank* bank = g_xact_sbanks; bank != nullptr; bank = bank->next)
+    {
+        if (bank->key == key)
+        {
+            return bank;
+        }
+    }
+    return nullptr;
+}
+
+XactCueInst* xact_find_cue(XactEngineBank* bank, int cue_key)
+{
+    // Xbox 0x0015B780
+    // 0x0015CD90. Cue list at bank+0x28, match +0x24.
+    if (bank == nullptr)
+    {
+        return nullptr;
+    }
+    for (XactCueInst* cue = bank->cues; cue != nullptr; cue = cue->next)
+    {
+        if (cue->id == cue_key)
+        {
+            return cue;
+        }
+    }
+    return nullptr;
+}
+
+XactEngineWave* xact_find_engine_wave(int key)
+{
+    // Xbox 0x0015B780
+    // 0x0015D040. First wave on 0x004D97D8 whose +0x20 matches.
+    for (XactEngineWave* wave = g_xact_waves; wave != nullptr; wave = wave->next)
+    {
+        if (wave->key == key)
+        {
+            return wave;
+        }
+    }
+    return nullptr;
+}
+
+void xact_note_callback(XactCueInst* cue, XactEngineWave* wave)
+{
+    // Xbox 0x0015B780
+    // Cue callback at +0x2C wins. A cue with no callback falls through to the wave.
+    if (cue != nullptr && cue->notify != nullptr)
+    {
+        cue->notify(cue, cue->state);
+        return;
+    }
+    if (wave != nullptr && wave->notify != nullptr)
+    {
+        wave->notify(wave, wave->state);
+    }
+}
+
+void xact_apply_note(const XactNote& note)
+{
+    // Xbox 0x0015B780
+    // Body of 0x0015D1E0 for one notification.
+    XactEngineBank* bank = xact_find_engine_bank(note.key);
+    XactEngineWave* wave = xact_find_engine_wave(note.key);
+    XactCueInst* cue = nullptr;
+    if (bank != nullptr)
+    {
+        cue = xact_find_cue(bank, note.cue_key);
+        if (cue == nullptr)
+        {
+            return;
+        }
+        if ((cue->flags & 2) != 0 && note.type != 1)
+        {
+            return;
+        }
+    }
+
+    if (note.type > 3)
+    {
+        xact_note_callback(cue, wave);
+        return;
+    }
+
+    if (note.type == 0)
+    {
+        if (cue == nullptr || (cue->seen & 1) != 0)
+        {
+            return;
+        }
+        cue->seen |= 1;
+        cue->state = 0;
+    }
+    else if (note.type == 1)
+    {
+        if (cue == nullptr || (cue->seen & 2) != 0)
+        {
+            return;
+        }
+        const int old_bit1 = (cue->flags >> 1) & 1;
+        const int handle = cue->id;
+        cue->flags |= 2;
+        cue->seen |= 2;
+        cue->state = 1;
+        cue->id = 0;
+        // IXACTSoundBank stop (0x001BC885): bank key, -1, flags 2, cue handle.
+        // A handle of 0, or bit 1 already set on +0x34, skips the release.
+        if (handle != 0 && old_bit1 == 0 && bank != nullptr)
+        {
+            --g_xact_prepared;
+        }
+    }
+    else if (note.type == 2)
+    {
+        if (cue == nullptr || (cue->seen & 4) != 0)
+        {
+            return;
+        }
+        cue->state = 2;
+        cue->marker = note.marker;
+        cue->seen |= 4;
+    }
+    else if (cue != nullptr)
+    {
+        if ((cue->seen & 8) != 0)
+        {
+            return;
+        }
+        cue->seen |= 8;
+        cue->state = 3;
+    }
+    else if (wave == nullptr || (wave->flags & 0x80) != 0)
+    {
+        return;
+    }
+    else
+    {
+        wave->flags |= 0x80;
+        wave->state = 7;
+    }
+    xact_note_callback(cue, wave);
+}
+
+bool xact_take_note(XactNote& out)
+{
+    // Xbox 0x0015B780
+    // One IXACTEngine::GetNotification record. Failure ends 0x0015D1E0.
+    if (g_xact_note_count <= 0)
+    {
+        return false;
+    }
+    out = g_xact_notes[0];
+    for (int i = 1; i < g_xact_note_count; ++i)
+    {
+        g_xact_notes[i - 1] = g_xact_notes[i];
+    }
+    --g_xact_note_count;
+    return true;
+}
+
+void xact_dispatch_notifications()
+{
+    // Xbox 0x0015B780
+    // 0x0015D1E0. GetNotification(engine, 0, &note) until the call fails.
+    if (g_xact_engine == nullptr)
+    {
+        return;
+    }
+    XactNote note;
+    while (xact_take_note(note))
+    {
+        xact_apply_note(note);
+    }
+}
+
+void xact_commit_deferred()
+{
+    // Xbox 0x0015B780
+    // IXACTEngine::CommitDeferredSettings(0x004D9780). Null engine returns.
+    if (g_xact_engine == nullptr)
+    {
+        return;
+    }
+}
+
+void xact_engine_dowork()
+{
+    // Xbox 0x0015B780
+    // XACTEngineDoWork. Null engine returns.
+    if (g_xact_engine == nullptr)
+    {
+        return;
+    }
+}
+
+void audio_update()
+{
+    // Xbox 0x0015B780
+    g_xact_ms = xact_milliseconds();
+    if (g_xact_ready == 1)
+    {
+        xact_commit_deferred();
+    }
+    xact_dispatch_notifications();
+    xact_engine_dowork();
+}
+
 } // namespace
 
 void audio_tick(Game& g, float dt)
 {
-    // Xbox 0x0015B780 audio(dt).
-    // Frame order: 0x0003A040, 0x000396F0, 0x00038640, 0x00038C20.
+    // Xbox 0x0015B780, then 0x0003A040, 0x000396F0, 0x00038640, 0x00038C20.
     (void)g;
+    audio_update();
     audio_listener();
     xact_396f0();
     xact_38640(dt);

@@ -1,5 +1,7 @@
 #include "gbtg/entity.hpp"
 
+#include <cstdlib>
+
 namespace gbtg
 {
 namespace
@@ -31,6 +33,39 @@ void add_named(const char* name, EntityKind kind)
     g_types.push_back(t);
 }
 
+constexpr i32 kHeapSlotCount = 4;
+
+struct HeapSlot
+{
+    u32 id = 0;             // record + 0x20
+    void* handle = nullptr; // record + 0x24 (DAT_00507834 for slot 0)
+};
+
+// DAT_00507810 stride 0x30. g_heap_current is DAT_00507808.
+HeapSlot g_heap_slots[kHeapSlotCount];
+i32 g_heap_current = 0;
+
+i32 heap_index_for(void* block)
+{
+    // FUN_000f7100. EDI is the block. Four handles at DAT_00507834, stride 0x30.
+    // msize (0x0014DED0) failure forces the footer byte to 0xFF, which cannot
+    // match a heap id. The allocator at 0x000F72D0 writes that id at msize-2.
+    // No match returns 3.
+    for (i32 i = 0; i < kHeapSlotCount; ++i)
+    {
+        if (g_heap_slots[i].handle == nullptr || block == nullptr)
+        {
+            continue;
+        }
+        const u32 tag = 0xFFu;
+        if (tag == g_heap_slots[i].id)
+        {
+            return i;
+        }
+    }
+    return 3;
+}
+
 } // namespace
 
 Vec3 actor_world_position(const Actor& actor)
@@ -54,6 +89,23 @@ Vec3 actor_world_euler(const Actor& actor)
     }
     const Vec3 e = actor.attach->euler;
     return Vec3{actor.euler.x + e.x, actor.euler.y + e.y, actor.euler.z + e.z};
+}
+
+void fn_663e0(void* block)
+{
+    // Xbox 0x000663E0
+    // EAX is the block. The owning slot is selected, DAT_00507808 is switched
+    // to that index for HeapFree(handle, 0, block), then the previous index
+    // is restored. A null slot faults on Xbox; the process heap releases it.
+    const i32 index = heap_index_for(block);
+    const i32 saved = g_heap_current;
+    const void* handle = g_heap_slots[index].handle;
+    g_heap_current = index;
+    if (handle != nullptr || block != nullptr)
+    {
+        std::free(block);
+    }
+    g_heap_current = saved;
 }
 
 void entity_body_camera_sizeof(u32 out_sizes[2])

@@ -168,3 +168,4 @@ Named functions: [`docs/generated/ghidra_functions.txt`](generated/ghidra_functi
 | `0x000396F0` | `xact_396f0` | audio |
 | `0x0001FB40` | `fn_1fb40` | scene |
 | `0x0003A040` | `audio_listener` | audio |
+| `0x000663E0` | `fn_663e0` | entity |

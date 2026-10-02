@@ -171,6 +171,42 @@ struct RawPort
 RawPort g_raw[kPadPorts];
 PadSlot g_pads[kPadPorts + 1];
 
+// Commands at 0x00507D40, stride 0x10, one per port. Magnitudes are floats.
+// 0x000FAD80 reads +0x00 and +0x04, and submits when the dword at +0x0C is set.
+constexpr float kRumbleScale = 0.01f;
+
+struct RumbleSlot
+{
+    float left = 0.f;
+    float right = 0.f;
+    i32 gate = 0;
+    i32 active = 0;
+};
+
+static_assert(sizeof(RumbleSlot) == 0x10);
+
+// Device records at 0x00434910, stride 0x14. Boot 0x000FAD20 calls 0x001558F0(1)
+// before the first frame, so the ports are present when this pass runs.
+struct RumbleDevice
+{
+    u8 enabled = 1;
+    u8 attached = 0;
+    u8 motors_on = 0;
+    u8 pad3 = 0;
+    u8 armed = 0;
+    u8 port = 0;
+    u16 pad6 = 0;
+    float left = 0.f;
+    float right = 0.f;
+    float extra = 0.f;
+};
+
+static_assert(sizeof(RumbleDevice) == 0x14);
+static_assert(offsetof(RumbleDevice, left) == 8);
+
+RumbleSlot g_rumble[kPadPorts];
+RumbleDevice g_rumble_dev[kPadPorts];
+
 // Xbox 0x000FA4F0. ±9800 is zero; ±32700 is ±1.
 float stick_axis(i32 raw)
 {
@@ -350,12 +386,41 @@ void pad_process(float dt, const InputState& in)
     update_holds(merged);
 }
 
+// Xbox 0x000FAD80
+void pad_buttons()
+{
+    // 0x00155960 drops the sample when the port is disabled. The third argument
+    // is 0, which arms the device. Both motors at 0 clear motors_on.
+    for (int port = 0; port < kPadPorts; ++port)
+    {
+        const RumbleSlot& slot = g_rumble[port];
+        if (slot.active == 0)
+        {
+            continue;
+        }
+        RumbleDevice& dev = g_rumble_dev[port];
+        if (dev.enabled == 0)
+        {
+            continue;
+        }
+        const float left = slot.left * kRumbleScale;
+        const float right = slot.right * kRumbleScale;
+        dev.port = u8(port);
+        dev.motors_on = (left == 0.f && right == 0.f) ? 0 : 1;
+        dev.armed = 1;
+        dev.left = left;
+        dev.right = right;
+        dev.extra = 0.f;
+    }
+}
+
 } // namespace
 
 void pad_tick(Game& g, const InputState& in)
 {
-    // Xbox 0x000FA3C0. 0x000FAD80 rumble is the following pass over these slots.
+    // Xbox 0x000FA3C0, then rumble submit 0x000FAD80.
     pad_process(g.clock.dt, in);
+    pad_buttons();
 }
 
 } // namespace gbtg

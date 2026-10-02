@@ -99,8 +99,23 @@ constexpr XactCurve kXactCurve[] = {
 constexpr int kXactCurveCount = 9;
 
 int g_xact_curve = 0; // 0x004E13A8
-// DAT_005077a8. Position is [0..2], offset axis is [7..9]. 0x0003A040 consumes the same matrix.
+// DAT_005077a8. Position is [0..2], quaternion xyzw is [3..6], forward is [7..9].
 const float* g_xact_listener = nullptr;
+float g_xact_distance = 1.f; // 0x004D97F0. Audio init stores 1.0; SetPosition scales by it.
+
+// Values passed to the XACT listener. 0x0015BCB0 / 0x0015B7F0 / 0x0015B840.
+struct XactListener
+{
+    float position[3] = {};
+    float velocity[3] = {};
+    float front[3] = {};
+    float top[3] = {};
+};
+
+XactListener g_xact_ear;
+
+// Xbox 0x00421C70. Passed to SetVelocity every listener update.
+constexpr float kListenerVelocity[3] = {0.f, 1.f, 0.f};
 
 void xact_copy_name(char* dst, const char* src)
 {
@@ -355,14 +370,45 @@ void xact_396f0()
     }
 }
 
+void audio_listener()
+{
+    // Xbox 0x0003A040. Front is the matrix axis. Top is quaternion [3..6] applied to (0, -1, 0).
+    if (g_xact_listener == nullptr)
+    {
+        return;
+    }
+    const float* m = g_xact_listener;
+    const float qx = m[3];
+    const float qy = m[4];
+    const float qz = m[5];
+    const float qw = m[6];
+    const float top_x = 2.f * (qz * qw - qy * qx);
+    const float top_y = qx * qx + qz * qz - qy * qy - qw * qw;
+    const float top_z = -2.f * (qw * qx + qy * qz);
+
+    const float scale = g_xact_distance;
+    g_xact_ear.position[0] = m[0] * scale;
+    g_xact_ear.position[1] = m[1] * scale;
+    g_xact_ear.position[2] = m[2] * scale;
+    g_xact_ear.velocity[0] = kListenerVelocity[0];
+    g_xact_ear.velocity[1] = kListenerVelocity[1];
+    g_xact_ear.velocity[2] = kListenerVelocity[2];
+    g_xact_ear.front[0] = m[7];
+    g_xact_ear.front[1] = m[8];
+    g_xact_ear.front[2] = m[9];
+    g_xact_ear.top[0] = top_x;
+    g_xact_ear.top[1] = top_y;
+    g_xact_ear.top[2] = top_z;
+}
+
 } // namespace
 
 void audio_tick(Game& g, float dt)
 {
     // Xbox 0x0015B780 audio(dt).
-    // Xbox 0x0003A040 listener.
-    // Frame order: 0x000396F0, 0x00038640, 0x00038C20.
+    // Frame order: 0x0003A040, 0x000396F0, 0x00038640, 0x00038C20.
     (void)g;
+    audio_listener();
     xact_396f0();
     xact_38640(dt);
     xact_38c20();

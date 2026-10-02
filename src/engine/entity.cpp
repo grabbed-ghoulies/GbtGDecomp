@@ -291,6 +291,74 @@ void fn_1d850(EntityChannelAnim& anim, float dt)
     }
 }
 
+void fn_1ea90(EntityChannelEase& cam, float dt)
+{
+    // Xbox 0x0001EA90
+    // EDX is the camera. 0x00072AC0 calls this when +0x154 > 0, then 0x0001D850
+    // when +0xfc is set. Each row's target is cleared, then the bank at
+    // +0x100 + index*8 (index from +0x158) copies its value onto the first row
+    // with the same id. The value at +4 then moves toward that target by at
+    // most host_rate * DAT_005096C0 * DAT_004312C4 * 0.75 (0x0032B2AC).
+    // DAT_004312DC > 0 zeros the scale; host+0x930 > 0 zeros the rate. A zero
+    // step leaves the value in place. A step past the gap snaps to the target.
+    // The target is cleared again. A bank id with no row faults on Xbox.
+    for (EntityChannelRow& row : cam.rows)
+    {
+        row.target = 0.f;
+    }
+    if (cam.bank >= 0 && cam.bank < 10)
+    {
+        for (const EntityChannelPair& pair : cam.banks[cam.bank])
+        {
+            for (EntityChannelRow& row : cam.rows)
+            {
+                if (row.id == pair.id)
+                {
+                    row.target = pair.value;
+                    break;
+                }
+            }
+        }
+    }
+    float scale = 0.f;
+    if (!(g_sim_freeze > 0.f))
+    {
+        scale = dt * g_sim_scale;
+    }
+    float rate = 0.f;
+    if (!(cam.host_gate > 0.f))
+    {
+        rate = cam.host_rate;
+    }
+    float step = rate * scale;
+    if (!cam.rows.empty())
+    {
+        step *= 0.75f;
+    }
+    for (EntityChannelRow& row : cam.rows)
+    {
+        const float delta = row.target - row.value;
+        float next = row.value;
+        if (step != 0.f)
+        {
+            if (step > std::fabs(delta))
+            {
+                next = row.target;
+            }
+            else if (delta >= 0.f)
+            {
+                next = row.value + step;
+            }
+            else
+            {
+                next = row.value - step;
+            }
+        }
+        row.value = next;
+        row.target = 0.f;
+    }
+}
+
 void register_entity_types()
 {
     if (!g_types.empty())

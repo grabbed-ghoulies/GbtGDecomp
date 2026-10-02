@@ -94,6 +94,33 @@ struct EntityChannelAnim
 // dt is DAT_005096C0. DAT_004312DC > 0 yields a zero step; otherwise dt * DAT_004312C4.
 void fn_1d850(EntityChannelAnim& anim, float dt);
 
+// Pair at camera+0x100 + bank*8. Ten banks occupy +0x100..+0x14c.
+struct EntityChannelPair
+{
+    i32 id = 0;
+    float value = 0.f;
+};
+
+// Row at camera+0x150, stride 0x0c. count is +0x154. bank index is +0x158.
+struct EntityChannelRow
+{
+    i32 id = 0;
+    float value = 0.f;  // +4
+    float target = 0.f; // +8, filled from the selected bank then eased
+};
+
+struct EntityChannelEase
+{
+    std::vector<EntityChannelPair> banks[10]{};
+    i32 bank = 0; // +0x158. Writers store 0, 4, 6, 7, 8, and 9.
+    std::vector<EntityChannelRow> rows;
+    float host_rate = 0.f; // camera+8 +0x92c
+    float host_gate = 0.f; // camera+8 +0x930. Above 0 forces the rate to 0.
+};
+
+// EDX is the camera. 0x00072AC0 calls this when +0x154 > 0.
+void fn_1ea90(EntityChannelEase& cam, float dt);
+
 constexpr i32 kMsgCameraTranslate = 99;
 
 } // namespace gbtg

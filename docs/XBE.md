@@ -191,3 +191,4 @@ Named functions: [`docs/generated/ghidra_functions.txt`](generated/ghidra_functi
 | `0x0010AE90` | `fn_10ae90` | entity |
 | `0x0001DA60` | `fn_1da60` | entity |
 | `0x0001FE00` | `fn_1fe00` | entity |
+| `0x000253B0` | `fn_253b0` | entity |

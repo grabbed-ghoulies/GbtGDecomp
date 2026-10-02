@@ -60,12 +60,7 @@ void body_shutdown(Entity&)
     // object at +0x5c. This body does not keep those records.
 }
 
-bool body_message(Entity&, const Message&)
-{
-    // 0x000253B0. Forwards the message to the children at +0x744 and +0x314,
-    // each through vtable +0xC. Neither child is installed.
-    return false;
-}
+bool body_message(Entity& body, const Message& msg);
 
 void body_relay(Entity&, const Message&)
 {
@@ -493,6 +488,395 @@ float wrap_half_turn(float angle)
         wrapped -= kTwoPi;
     }
     return wrapped;
+}
+
+// DAT_0050dd80. Three BSS floats. Message 9 copies them onto the actor and the body.
+Vec3 g_anchor{};
+
+// DAT_00511188 indexes DAT_005111AC. Message 99 writes the contact and does not bump the index.
+i32 g_contact_slot = 0;
+Vec3 g_contact_points[64]{};
+
+// DAT_00511AA4. Nodes are walked through vtable +0xC when a latch mask leaves 0x3F.
+struct LatchNode
+{
+    void (*handle_message)(LatchNode& self, const Message& msg) = nullptr;
+    LatchNode* next = nullptr;
+};
+
+LatchNode* g_latch_list = nullptr;
+
+constexpr float kHitEps = std::bit_cast<float>(0x3727C5ACu); // 0x0032B230, 1e-5
+constexpr float kHitPad = std::bit_cast<float>(0x3C23D70Au); // 0x0032B124, 0.01
+
+// Xbox 0x000253B0
+void forward_child(EntityChild* child, const Message& msg)
+{
+    if (child == nullptr || child->handle_message == nullptr)
+    {
+        return;
+    }
+    child->handle_message(*child, msg);
+}
+
+// Xbox 0x000253B0
+u32 latch_mask(const Entity& body)
+{
+    u32 mask = 0;
+    for (int i = 0; i < 6; ++i)
+    {
+        if (body.latch[i] != 0)
+        {
+            mask |= 1u << i;
+        }
+    }
+    return mask;
+}
+
+// Xbox 0x000253B0
+void broadcast_latch(Actor* actor)
+{
+    Message note;
+    note.id = 0x47;
+    note.arg = actor;
+    for (LatchNode* node = g_latch_list; node != nullptr; node = node->next)
+    {
+        if (node->handle_message != nullptr)
+        {
+            node->handle_message(*node, note);
+        }
+    }
+}
+
+// Xbox 0x000253B0
+// 0x0001FC40 increments the six counts at +0x260. 0x0001FD20 decrements them.
+// Both read the mask first (0x0001F7A0). Leaving 0x3F broadcasts note 0x47
+// with the actor as the payload, through the list at DAT_00511AA4.
+void adjust_latches(Entity& body, int step)
+{
+    const u32 before = latch_mask(body);
+    for (u8& count : body.latch)
+    {
+        if (step > 0)
+        {
+            ++count;
+        }
+        else
+        {
+            --count;
+        }
+    }
+    const u32 after = latch_mask(body);
+    if (before == 0x3Fu && after != before)
+    {
+        broadcast_latch(body.actor);
+    }
+}
+
+// Xbox 0x000253B0
+// 0x000275E0. Frees the children at +0x314 and +0x744 (0x001075C0), then
+// clears +0x740 and the word at +0x748.
+void release_children(Entity& body)
+{
+    body.child_314 = nullptr;
+    body.child_744 = nullptr;
+    body.slot_740 = 0;
+    body.mark_748 = 0;
+}
+
+// Xbox 0x000253B0
+void clear_bit(Entity& body, int bit)
+{
+    if (body.bits == nullptr || body.bits->bytes == nullptr)
+    {
+        return;
+    }
+    const int index = bit >> 3;
+    const u8 mask = static_cast<u8>(1u << (bit & 7));
+    body.bits->bytes[index] = static_cast<u8>(body.bits->bytes[index] & static_cast<u8>(~mask));
+}
+
+// Xbox 0x000253B0
+// 0x0013F720. A missing live pointer returns. A missing gate calls 0x0013EDD0
+// and returns. Otherwise the dword is inserted once into the list at +0x18.
+void watch_insert(EntityWatch& watch, void* token)
+{
+    if (watch.live == nullptr)
+    {
+        return;
+    }
+    if (watch.gate == nullptr)
+    {
+        return;
+    }
+    for (void* item : watch.tokens)
+    {
+        if (item == token)
+        {
+            return;
+        }
+    }
+    watch.tokens.push_back(token);
+}
+
+// Xbox 0x000253B0
+// 0x000277E0. Vtable +0x20 must return a non-zero word, and +0x73c must be set,
+// before 0x00027510 and 0x000276A0. The default pick returns 0.
+void release_parked(Entity& body)
+{
+    if (body.type == nullptr || body.type->methods.pick_actor == nullptr)
+    {
+        return;
+    }
+    if (body.type->methods.pick_actor(body, 0) == 0 || body.record_73c == nullptr)
+    {
+        return;
+    }
+}
+
+// Xbox 0x000253B0
+// Message 99. The input delta is zero. 0x00120760 keeps the body when its Y
+// sits in the slab and its XZ is inside the combined radius, then 0x00120250
+// scales the horizontal separation out to that radius. A hit adds the
+// correction to body+0x18 and stores the midpoint at DAT_005111AC.
+bool push_out(Entity& body, const Message& msg)
+{
+    if (body.actor == nullptr)
+    {
+        return false;
+    }
+    const float px = body.position.x;
+    const float py = body.position.y;
+    const float pz = body.position.z;
+    const float height = body.actor->radius_y * body.scale_884;
+    const float reach = body.actor->radius_xz * body.scale_888;
+    const float slab_top = msg.hit_center.y + msg.hit_extent_y;
+    if (py > slab_top || msg.hit_center.y > height + py)
+    {
+        return false;
+    }
+    const float combined = msg.hit_radius + reach;
+    float dx = px - msg.hit_center.x;
+    float dz = pz - msg.hit_center.z;
+    float dist = std::sqrt(dx * dx + dz * dz);
+    if (dist < kHitEps)
+    {
+        dx = 1.f;
+        dz = 0.f;
+        dist = combined - kHitPad;
+    }
+    if (combined <= dist)
+    {
+        return false;
+    }
+    const float len2 = dx * dx + dz * dz;
+    if (len2 != 0.f)
+    {
+        const float scale = combined / std::sqrt(len2);
+        dx *= scale;
+        dz *= scale;
+    }
+    body.position.x = msg.hit_center.x + dx;
+    body.position.z = msg.hit_center.z + dz;
+
+    const float mid_y = msg.hit_extent_y * 0.5f + msg.hit_center.y;
+    const float sample_y = py + height * 0.5f;
+    const i32 slot = g_contact_slot & 63;
+    g_contact_points[slot].x = (px - msg.hit_center.x) * 0.5f + msg.hit_center.x;
+    g_contact_points[slot].y = (sample_y - mid_y) * 0.5f + mid_y;
+    g_contact_points[slot].z = (pz - msg.hit_center.z) * 0.5f + msg.hit_center.z;
+    return true;
+}
+
+// Xbox 0x000253B0
+// 0x0001B4C0 / 0x0001B570 when message 0x7C names the actor. Clears +0x10,
+// bit 2 of bit-byte 4, and +0x288 while the case link is set, and clears
+// +0x14 while +0x4c is set. The link objects themselves stay.
+void detach_actor(Entity& body)
+{
+    if (body.case_link != nullptr)
+    {
+        body.link_10 = nullptr;
+        if (body.bits != nullptr && body.bits->bytes != nullptr)
+        {
+            body.bits->bytes[4] = static_cast<u8>(body.bits->bytes[4] & 0xFBu);
+        }
+        body.mark_288 = 0;
+    }
+    if (body.link_4c != nullptr)
+    {
+        body.link_14 = nullptr;
+    }
+}
+
+// Xbox 0x000253B0
+// Default body message. Children at +0x744 and +0x314 are forwarded through
+// vtable +0xC first. Ids from 6 through 0x7C are in the jump table; every
+// other id, and the table slots with no body, return. Message 7 enters
+// 0x0001A8F0 (a second switch on the word at [payload+0xC] - 2). Message 6
+// and 0x7B notify through 0x0001F890 / 0x0001F850 when +0x2c8 has a link.
+// Message 0x23 samples the actor into +0x18 and +0x72c (0x000257C0).
+bool body_message(Entity& body, const Message& msg)
+{
+    forward_child(body.child_744, msg);
+    forward_child(body.child_314, msg);
+    Actor* actor = body.actor;
+    void* token = msg.arg;
+
+    switch (msg.id)
+    {
+    case 6:
+        // 0x0001F890. +0x2c8 and its link at +0x10 must both be set before
+        // 0x0013EBE0 appends the payload. That list is not installed.
+        return true;
+    case 7:
+        // 0x0001A8F0 switches on the word at [message+0xC]+0xC, minus 2.
+        return true;
+    case 9:
+        release_children(body);
+        if (actor == nullptr)
+        {
+            return true;
+        }
+        actor->anchor = g_anchor;
+        body.anchor = g_anchor;
+        adjust_latches(body, 1);
+        return true;
+    case 10:
+        if (actor == nullptr)
+        {
+            return true;
+        }
+        if (actor->parked_gate <= 0)
+        {
+            release_parked(body);
+        }
+        adjust_latches(body, -1);
+        return true;
+    case 0x14:
+        if (body.note_760 == token)
+        {
+            body.note_760 = nullptr;
+            body.timer_758 = 0.f;
+        }
+        if (body.note_7f0 == token)
+        {
+            body.note_7f0 = nullptr;
+            body.timer_7e8 = 0.f;
+        }
+        return true;
+    case 0x23:
+        if (actor == nullptr)
+        {
+            return true;
+        }
+        body.position = actor_world_position(*actor);
+        body.world_euler = actor_world_euler(*actor);
+        if ((actor->intro_flags & 2u) != 0)
+        {
+            // 0x0001D780. Bit 2 of 0x00042500 arms the world query. No query object.
+        }
+        return true;
+    case 0x47:
+        if (body.watch != nullptr)
+        {
+            watch_insert(*body.watch, token);
+        }
+        return true;
+    case 0x4b:
+        if (actor == nullptr)
+        {
+            return true;
+        }
+        fn_41730(*actor, actor->parked_pos);
+        if (actor->euler_out != nullptr && actor->euler_out->actor != nullptr)
+        {
+            actor->euler_out->position = actor_world_position(*actor->euler_out->actor);
+        }
+        actor->euler.x = wrap_half_turn(actor->parked_euler.x);
+        actor->euler.y = wrap_half_turn(actor->parked_euler.y);
+        actor->euler.z = wrap_half_turn(actor->parked_euler.z);
+        actor->xform_valid = 0;
+        if (actor->euler_out != nullptr && actor->euler_out->actor != nullptr)
+        {
+            actor->euler_out->euler = actor_world_euler(*actor->euler_out->actor);
+        }
+        body.motion_6b = 0;
+        body.motion_6a = 0;
+        body.anim_94 = body.anim_96;
+        clear_bit(body, 0x1b);
+        if (body.mark_74a != 0 && body.record_73c != nullptr)
+        {
+            // 0x00027650. 0x00027510 must accept +0x73c, then 0x000276A0.
+        }
+        return true;
+    case 0x4e:
+        body.slot_70 = msg.arg_i;
+        return true;
+    case 0x4f:
+        body.mark_87e = msg.arg_byte;
+        body.mark_880 = 2;
+        return true;
+    case 99:
+        push_out(body, msg);
+        return true;
+    case 0x7b:
+        // 0x0001F850. Same link as message 6, and 0x00042500 of the payload
+        // must include 0x142, before 0x0013EBE0.
+        return true;
+    case 0x7c:
+        if (body.link_10 == token)
+        {
+            body.link_10 = nullptr;
+        }
+        if (body.link_14 == token)
+        {
+            body.link_14 = nullptr;
+        }
+        if (token == static_cast<void*>(actor))
+        {
+            detach_actor(body);
+        }
+        else
+        {
+            if (static_cast<void*>(body.case_link) == token)
+            {
+                body.case_link = nullptr;
+            }
+            if (body.link_4c == token)
+            {
+                body.link_4c = nullptr;
+            }
+        }
+        if (body.link_50 == token)
+        {
+            body.link_50 = nullptr;
+            body.link_54 = nullptr;
+        }
+        if (body.watch != nullptr)
+        {
+            watch_insert(*body.watch, token);
+        }
+        if (body.link_274 == token)
+        {
+            body.link_274 = nullptr;
+        }
+        if (body.link_270 == token)
+        {
+            body.link_270 = nullptr;
+        }
+        if (body.link_718 == token)
+        {
+            body.link_718 = nullptr;
+        }
+        if (token == static_cast<void*>(actor))
+        {
+            release_children(body);
+        }
+        return true;
+    default:
+        return false;
+    }
 }
 
 } // namespace

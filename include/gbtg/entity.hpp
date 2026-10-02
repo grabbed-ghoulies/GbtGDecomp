@@ -38,6 +38,7 @@ struct ActorLink
 struct ActorEulerOut
 {
     Actor* actor = nullptr; // +8
+    Vec3 position{};         // +0x18, world position written by 0x0002B430
     Vec3 euler{};            // +0x72c
 };
 
@@ -52,6 +53,13 @@ struct Actor
     i32 xform_valid = 0;       // Xbox actor+0x2a8. 0 means the matrix at +0x2ac is stale.
     ActorLink* link = nullptr; // Xbox actor+0x918
     ActorEulerOut* euler_out = nullptr; // Xbox actor+0x95c
+    float radius_y = 0.f;  // +0x34, scaled by body+0x884 in message 99
+    float radius_xz = 0.f; // +0x38, scaled by body+0x888
+    Vec3 anchor{};         // +0x3c, copy of DAT_0050dd80
+    Vec3 parked_pos{};     // +0xcc0
+    Vec3 parked_euler{};   // +0xccc
+    i32 parked_gate = 0;   // +0xcd8
+    u32 intro_flags = 0;   // 0x00042500. Bit 2 arms the query in message 0x23.
 };
 
 struct Entity;
@@ -59,6 +67,14 @@ struct Message
 {
     i32 id = 0;
     Vec3 vec{};
+    // Xbox payload dword at +4 when the message carries a pointer or an integer.
+    // Id 99's circle is separate: on Xbox those floats share this same payload.
+    void* arg = nullptr;
+    i32 arg_i = 0;
+    u8 arg_byte = 0;
+    Vec3 hit_center{};   // EDI+4 / +8 / +0xC from the payload (message +8 / +0xC / +0x10)
+    float hit_extent_y = 0.f; // EDI+0x14
+    float hit_radius = 0.f;   // EDI+0x1C
 };
 
 // Object at body+0x48. Case selectors read the byte at +0x93d. A null link is state 0.
@@ -110,6 +126,27 @@ struct EntityType
     EntityMethods methods{};
 };
 
+// Object at body+0x744 and body+0x314. 0x000253B0 calls vtable +0xC with the message.
+struct EntityChild
+{
+    void (*handle_message)(EntityChild& self, const Message& msg) = nullptr;
+};
+
+// Bit bytes at [body+0x15c]+8. 0x0001F030 clears one bit by index.
+struct EntityBitBlock
+{
+    u8* bytes = nullptr; // +8
+};
+
+// Object at body+0x2c8. Message 0x47 inserts arg when live and gate are both set.
+struct EntityWatch
+{
+    void* live = nullptr; // +8
+    void* link = nullptr; // +0x10, required by message 6
+    void* gate = nullptr; // +0x14
+    std::vector<void*> tokens; // +0x18, unique dword list
+};
+
 struct Entity
 {
     const EntityType* type = nullptr;
@@ -121,6 +158,40 @@ struct Entity
     float pose_fov = 0.9f;
     bool listed = false;
     EntityCaseLink* case_link = nullptr; // Xbox body+0x48
+    // Message targets. A null child skips the vtable +0xC forward in 0x000253B0.
+    EntityChild* child_744 = nullptr; // +0x744
+    EntityChild* child_314 = nullptr; // +0x314
+    void* link_10 = nullptr;  // +0x10
+    void* link_14 = nullptr;  // +0x14
+    void* link_4c = nullptr;  // +0x4c
+    void* link_50 = nullptr;  // +0x50
+    void* link_54 = nullptr;  // +0x54
+    void* link_270 = nullptr; // +0x270
+    void* link_274 = nullptr; // +0x274
+    void* link_718 = nullptr; // +0x718
+    void* note_760 = nullptr; // +0x760
+    void* note_7f0 = nullptr; // +0x7f0
+    void* record_73c = nullptr; // +0x73c, gate for 0x00027510
+    EntityWatch* watch = nullptr; // +0x2c8
+    EntityBitBlock* bits = nullptr; // +0x15c, bytes at +8
+    u8 motion_6a = 0; // +0x6a
+    u8 motion_6b = 0; // +0x6b
+    u8 mark_288 = 0;  // +0x288
+    u8 mark_87e = 0;  // +0x87e
+    u16 anim_94 = 0;  // +0x94
+    u16 anim_96 = 0;  // +0x96
+    u16 mark_748 = 0; // +0x748
+    u16 mark_74a = 0; // +0x74a
+    u16 mark_880 = 0; // +0x880
+    i32 slot_70 = 0;  // +0x70
+    i32 slot_740 = 0; // +0x740
+    float timer_758 = 0.f; // +0x758
+    float timer_7e8 = 0.f; // +0x7e8
+    float scale_884 = 0.f; // +0x884
+    float scale_888 = 0.f; // +0x888
+    Vec3 anchor{};      // +0x318
+    Vec3 world_euler{}; // +0x72c
+    u8 latch[6]{};      // +0x260 .. +0x265
 };
 
 const EntityType* find_entity_type(std::string_view name);

@@ -3439,8 +3439,16 @@ i32 g_scene_acc_88 = 0; // DAT_00506c88
 i32 g_scene_acc_8c = 0; // DAT_00506c8c
 u16 g_scene_gate = 0;   // DAT_00506c90. Nonzero runs the update at 0x000F2C40.
 
-// DAT_00511b64. 0x000E270F stores the heap scene name here.
+// DAT_00511b64. 0x000E270F stores a heap scene name here. 0x001234B0 stores
+// the C string 0x00035E90 writes from the loaded aid (record +8).
 const char* g_scene_name_src = nullptr;
+
+// DAT_00511b68. Called with &DAT_00511b64 before that pointer is replaced.
+using SceneNameRelease = void (*)(const char** slot);
+SceneNameRelease g_scene_name_release = nullptr;
+
+// DAT_004dd8fc. 0x00032700 stores the code 0x001234B0 passes (2).
+i32 g_asset_fault_code = 0;
 
 // DAT_00510ed8. 0x80 bytes, then the mode dword at DAT_00510f58.
 // 0x0012C2D0 passes this address to the script lookup.
@@ -3496,7 +3504,70 @@ void scene_copy_name(const char* src, i32 mode)
     g_scene_name_mode = mode;
 }
 
+// 0x00035940. EBX is the held pointer. 0x00035C00 drops one ref on the aid
+// whose record+8 matches it. The aid directory is not in this file, so the
+// ref walk has nothing to find and the slot is cleared.
+void scene_release_aid(const char** slot)
+{
+    // Xbox 0x001234B0
+    if (slot == nullptr)
+    {
+        return;
+    }
+    *slot = nullptr;
+}
+
+// 0x00032700. Stores the code at DAT_004dd8fc. DAT_004dd8f8 is BSS, so retail
+// then spins and does not reach the stores after the call. The port records
+// the code and returns so the hold is still published.
+void scene_report_missing(i32 code)
+{
+    // Xbox 0x001234B0
+    g_asset_fault_code = code;
+}
+
+// 0x00035E90. The name is the first stack argument. The out slot is the
+// saved ECX, and a hit writes record+8 (a C string). DAT_004df250,
+// DAT_004df244, and DAT_004df248 are not open here, so the slot stays null.
+const char* scene_lookup_aid(const char* name)
+{
+    // Xbox 0x001234B0
+    (void)name;
+    return nullptr;
+}
+
 } // namespace
+
+void fn_1234b0(const char* name)
+{
+    // Xbox 0x001234B0
+    if (g_scene_name_release != nullptr && g_scene_name_src != nullptr)
+    {
+        g_scene_name_release(&g_scene_name_src);
+    }
+
+    // Xbox reads the first dword with no null test. A null name misses the
+    // 'aid_' check instead of faulting.
+    u32 head = 0;
+    if (name != nullptr)
+    {
+        std::memcpy(&head, name, sizeof(head));
+    }
+    if (head != kAidPrefix)
+    {
+        g_scene_name_src = nullptr;
+        g_scene_name_release = &scene_release_aid;
+        return;
+    }
+
+    const char* resolved = scene_lookup_aid(name);
+    if (resolved == nullptr)
+    {
+        scene_report_missing(2);
+    }
+    g_scene_name_src = resolved;
+    g_scene_name_release = &scene_release_aid;
+}
 
 void fn_11ead0()
 {

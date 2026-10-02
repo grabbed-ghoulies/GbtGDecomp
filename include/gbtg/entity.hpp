@@ -503,6 +503,13 @@ void fn_1233c0();
 // body count at DAT_00510578.
 void fn_11b630();
 
+// cam_11c480 calls this after 0x00119160. EAX is the aid name
+// (DAT_00430cf8). When DAT_00511b68 and DAT_00511b64 are both set, the
+// callback releases that hold. A first dword other than 'aid_' clears
+// the pointer and installs 0x00035940. Otherwise 0x00035E90 writes the
+// resolved name, and a null result calls 0x00032700 with 2.
+void fn_1234b0(const char* name);
+
 // cam_11c480 calls this after 0x001234B0. Zeros the flag bytes held by
 // DAT_00506c74, the six counters at DAT_00506c78, and the word at
 // DAT_00506c90. 0x0011EB30 then copies DAT_00511b64 into the 128-byte

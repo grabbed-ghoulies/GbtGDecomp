@@ -724,6 +724,7 @@ void fn_1eec0(CameraChannels& cam)
 // rate is host+0x92c. Those host fields stay 0 until that object is filled in.
 float g_sim_freeze = 0.f; // DAT_004312dc
 float g_sim_scale = 1.f;  // DAT_004312c4
+float g_sim_dt = 0.f;      // DAT_005096c0
 
 constexpr float kPulseBlend = std::bit_cast<float>(u32{0x3f7d70a4u}); // 0.99
 constexpr i32 kPulseNoteId = 0x47;
@@ -1343,11 +1344,12 @@ struct CamShapeNode
 
 struct CamSlotEntry
 {
-    i32 type = 0; // 4 shape list, 5 default scales
+    i32 type = 0; // 4 shape list, 5 default scales, 9 bone byte
     CamShapeNode* shape = nullptr; // type 4, first node (blob+8)
     bool scale_live = false;       // type 5 pointer present
     float height_scale = 0.f;      // +0x20
     float radius_scale = 0.f;      // +0x24
+    const u8* bone_byte = nullptr; // type 9, second dword; byte 0 is the id
 };
 
 struct CamSlotHeader
@@ -1449,18 +1451,72 @@ struct CamFollow
     Vec3 at_5c{}; // +0x5c
 };
 
+// [[bind+0x58]+0]. +0x14 is the sample, +0x10c the other end, +0x1c the direction.
+// +0x2a == 1 arms the end-of-travel note.
+struct CamBlend
+{
+    float value = 0.f;    // +0x14
+    float dir = 0.f;      // +0x1c
+    u8 mark = 0;          // +0x2a
+    float previous = 0.f; // +0x10c
+};
+
+struct CamBlendRef
+{
+    CamBlend* blend = nullptr;
+};
+
+// host+0x50. A null +0x58 faults on Xbox when the bind itself is live.
+struct CamBind
+{
+    CamBlendRef* at_58 = nullptr;
+};
+
+// Bytes at picker+0x11 and picker+0x13.
+struct CamPicker
+{
+    u8 count = 0;    // +0x11
+    u8 selected = 0; // +0x13
+};
+
+// Node embedded at object+0x908. prev non-null means the object is already linked.
+struct RetireNode
+{
+    RetireNode* prev = nullptr;
+    RetireNode* next = nullptr;
+};
+
 struct CamFocus
 {
     Vec3 position{}; // +0x08
+    float extent_30 = 0.f; // +0x30
     float at_34 = 0.f; // +0x34, height factor of the follow cylinder
     float scale_38 = 0.f; // +0x38
     Vec3 at_3c{}; // +0x3c, copied to the follow packet +0x5c
+    CamBind* bind = nullptr; // +0x50
     CamAttach* attach = nullptr; // +0x88
     float scale_200 = 0.f; // +0x200
     CamSlotObject* slots = nullptr; // +0x204
     CamAnchor* anchors = nullptr; // +0x1f8, next link of the header at +0x1f4
+    Vec3 ease{}; // +0x318
+    Vec3 ease_to{}; // +0x324
     Mat34 world{}; // +0x2ac
     CamFollow* follow = nullptr; // +0x8f8
+    RetireNode retire{}; // +0x908
+    CamFocus* release_next = nullptr; // +0x91c
+    CamFocus* release_child = nullptr; // +0x920
+    float accum = 0.f; // +0x924
+    i32 accum_n = 0; // +0x928
+    float host_rate = 0.f; // +0x92c
+    float host_gate = 0.f; // +0x930
+    i32 pulse_on = 0; // +0x934
+    i32 pulse_left = 0; // +0x938
+    float pulse = 0.f; // +0x93c
+    CamPicker* picker = nullptr; // +0x940
+    u32 marker = 0; // +0x944
+    u32 in_range = 0; // +0x948
+    float marker_kick = 0.f; // +0x94c
+    float range = 0.f; // +0x950
     CamLink* link = nullptr; // +0x918
     std::vector<CamBoundRec> recs; // +0x8fc
     u32 at_cec = 0; // +0xcec, low byte stored at packet +0x19
@@ -1471,6 +1527,7 @@ struct CamFocus
     CamGate* gate_15c = nullptr; // camera+0x15c
     u32 shape_mask = 0; // camera+0x88c, the mask 0x00025C50 passes with flag 0
     CamBound bound{};
+    void (*on_note)(CamFocus* self, i32 id) = nullptr; // vtable +0xC
 };
 
 // Node allocated by 0x0011C0B0 (0x38 bytes) and linked at host+0x1f8.
@@ -1891,6 +1948,399 @@ void fn_11be40(CamAnchor& node)
             return;
         }
         anchor_bone_point(host, node.index, g_focus_probe, node.out);
+    }
+}
+
+// DAT_00509B74. Nonzero eases +0x318 toward +0x324; zero snaps.
+i32 g_ease_live = 0;
+// DAT_0050E768. Nonzero skips the +0x930 decay inside the base update.
+i32 g_block_decay = 0;
+// Byte at [DAT_0051248C]+0x30F144. Zero skips that same decay.
+u8 g_decay_arm = 0;
+// DAT_00511B40. Null, and the retail sentinel 0x93C, both leave the marker clear.
+// The live byte is [[[actor+0x20]+0x15C]+8]+5; bit 4 is the marker.
+struct ActorMark
+{
+    u8 byte = 0;
+};
+ActorMark* g_actor_mark = nullptr;
+// DAT_005077A8. XYZ at [0], [1], [2]. A null pointer faults on Xbox.
+const float* g_listener_pos = nullptr;
+// DAT_0042742C, copied into the tint block while the host is inside its range.
+u32 g_tint_src = 0x800000ffu;
+// DAT_00504450 / 54 / 58, then DAT_0050446C / 70 / 74.
+struct RangeTint
+{
+    u32 c0 = 0;
+    u32 c1 = 0;
+    u32 c2 = 0;
+    float n0 = 0.f;
+    float n1 = 0.f;
+    i32 flag = 0;
+};
+RangeTint g_range_tint;
+// DAT_004E1C5C. 0x000703A0 writes the flag then the world position.
+struct AidHit
+{
+    u32 flags = 0;
+    Vec3 pos{};
+};
+AidHit g_aid_hit;
+// DAT_00511B38. Each node is an object+0x934 link; next is at +4.
+struct RangeLink
+{
+    RangeLink* next = nullptr;
+    CamFocus* host = nullptr;
+    void (*on_note)(CamFocus* self, i32 id) = nullptr;
+};
+RangeLink* g_range_links = nullptr;
+// Head standing in for DAT_00511B54. 0x0003ED70 appends host+0x908 here.
+RetireNode g_retire_head;
+
+constexpr float kSixPi = std::bit_cast<float>(0x4196cbe4u);
+constexpr float kSpan = std::bit_cast<float>(0x3f733333u); // 0.95
+constexpr float kThird = std::bit_cast<float>(0x3eaaaaabu);
+constexpr float kEaseStep = std::bit_cast<float>(0x3dcccccdu); // 0.1
+constexpr float kKick = std::bit_cast<float>(0x3e4ccccdu); // 0.2
+
+CamBlend* host_blend(const CamFocus& host)
+{
+    if (host.bind == nullptr || host.bind->at_58 == nullptr)
+    {
+        return nullptr;
+    }
+    return host.bind->at_58->blend;
+}
+
+int slot_bone(const CamSlotObject* slots)
+{
+    // 0x00052FC0 with a zero word. First type-9 entry, then the byte at its blob.
+    // 0xFF and a missing entry become -1.
+    if (slots == nullptr || slots->header == nullptr)
+    {
+        return -1;
+    }
+    for (const CamSlotEntry& entry : slots->header->entries)
+    {
+        if (entry.type != 9)
+        {
+            continue;
+        }
+        if (entry.bone_byte == nullptr)
+        {
+            return -1;
+        }
+        if (entry.bone_byte[0] == 0xFF)
+        {
+            return -1;
+        }
+        return int(entry.bone_byte[0]);
+    }
+    return -1;
+}
+
+float host_range(const CamFocus& host)
+{
+    // 0x00070410. Trace of the bone matrix times the mean of +0x30/+0x34/+0x38,
+    // each scaled by +0x200 and by 1/3. A missing pose faults on Xbox.
+    const CamBonePose* pose = nullptr;
+    if (host.slots != nullptr)
+    {
+        pose = host.slots->at_168 != nullptr ? host.slots->at_168 : host.slots->at_164;
+    }
+    const Mat34* mat = pose_bone(pose, slot_bone(host.slots));
+    if (mat == nullptr)
+    {
+        return 0.f;
+    }
+    const float s30 = host.extent_30 * host.scale_200;
+    const float s34 = host.at_34 * host.scale_200;
+    const float s38 = host.scale_38 * host.scale_200;
+    const float trace = mat->m[10] + mat->m[5] + mat->m[0];
+    return (trace * kThird) * ((s38 + s34 + s30) * kThird);
+}
+
+void host_base(CamFocus& host)
+{
+    // 0x000420D0. This override calls the base slot first.
+    // 0x00030BA0 and 0x00030C70 run only when +0x50 is live, and 0x0003CD00
+    // walks +0x1B8. Both stay idle while those pointers are null. The list at
+    // +0x1D8 is the same. 0x00165A00 runs when slot+0x29C is live.
+    for (CamAnchor* node = host.anchors; node != nullptr; node = node->next)
+    {
+        fn_11be40(*node);
+    }
+    if (g_ease_live != 0)
+    {
+        host.ease.x = host.ease.x + (host.ease_to.x - host.ease.x) * kEaseStep;
+        host.ease.y = host.ease.y + (host.ease_to.y - host.ease.y) * kEaseStep;
+        host.ease.z = host.ease.z + (host.ease_to.z - host.ease.z) * kEaseStep;
+    }
+    else
+    {
+        host.ease = host.ease_to;
+    }
+    const float step = sim_step(g_sim_dt);
+    if (g_block_decay == 0 && g_decay_arm != 0 && host.host_gate > 0.f)
+    {
+        host.host_gate -= step;
+        if (host.host_gate <= 0.f)
+        {
+            host.host_gate = 0.f;
+        }
+    }
+    float rate = 0.f;
+    if (!(host.host_gate > 0.f))
+    {
+        rate = host.host_rate;
+    }
+    host.accum += rate * step;
+    host.accum_n += 1;
+}
+
+u8 index_byte(float scaled)
+{
+    // 0x001673D8 (__ftol). The caller keeps the low 8 bits.
+    if (!std::isfinite(scaled))
+    {
+        return 0;
+    }
+    const float chopped = std::trunc(scaled);
+    if (chopped >= 2147483647.f || chopped <= -2147483648.f)
+    {
+        return 0;
+    }
+    return static_cast<u8>(static_cast<i32>(chopped));
+}
+
+void pick_index(CamFocus& host, float sample)
+{
+    if (host.picker == nullptr)
+    {
+        return;
+    }
+    const float wave = std::fabs(std::sin(sample * kSixPi));
+    const float scaled = wave * (float(host.picker->count) - 1.f);
+    const u8 idx = index_byte(scaled);
+    if (idx < host.picker->count)
+    {
+        host.picker->selected = idx;
+    }
+}
+
+bool span_crossed(float hi, float lo)
+{
+    if (hi <= lo)
+    {
+        return (lo <= kSpan) || (hi > kSpan);
+    }
+    return (lo <= kSpan) && (hi > kSpan);
+}
+
+bool at_travel_end(const CamBlend& blend)
+{
+    if (blend.dir < 0.f)
+    {
+        return blend.value <= 0.f;
+    }
+    return blend.value >= 1.f;
+}
+
+void retire_host(CamFocus& host)
+{
+    // 0x0003ED70 links +0x908 onto DAT_00511B58 when that dword is still null,
+    // then 0x0003CBB0 / 0x0003E850 / 0x0003C700. The link is what blocks a repeat.
+    if (host.retire.prev != nullptr)
+    {
+        return;
+    }
+    RetireNode* tail = &g_retire_head;
+    while (tail->next != nullptr)
+    {
+        tail = tail->next;
+    }
+    tail->next = &host.retire;
+    host.retire.prev = tail;
+    host.retire.next = nullptr;
+}
+
+void release_tree(CamFocus* node)
+{
+    // 0x00112D10. Child at +8, next at +4, object is the link minus 0x918.
+    while (node != nullptr)
+    {
+        if (node->release_child != nullptr)
+        {
+            release_tree(node->release_child);
+        }
+        CamFocus* next = node->release_next;
+        if (node->retire.prev == nullptr)
+        {
+            if (node->on_note != nullptr)
+            {
+                node->on_note(node, 0x80);
+            }
+            if (node->retire.prev == nullptr)
+            {
+                retire_host(*node);
+            }
+        }
+        node = next;
+    }
+}
+
+void release_host(CamFocus& host)
+{
+    // 0x00112CC0.
+    if (host.release_child != nullptr)
+    {
+        release_tree(host.release_child);
+    }
+    if (host.retire.prev != nullptr)
+    {
+        return;
+    }
+    if (host.on_note != nullptr)
+    {
+        host.on_note(&host, 0x80);
+    }
+    if (host.retire.prev != nullptr)
+    {
+        return;
+    }
+    retire_host(host);
+}
+
+void post_cross(CamFocus& host)
+{
+    // 0x000703A0. World position lands in DAT_004E1C60 and the flag becomes 1.
+    // 0x00053170 continues only when +0x954 starts with "aid_".
+    g_aid_hit.flags = 0;
+    g_aid_hit.pos = focus_world_pos(host);
+    g_aid_hit.flags = 1;
+}
+
+void notify_range(const Vec3& pos, float radius)
+{
+    // 0x00122D80. Squared test is strict. Note id is 0x5B through vtable+0xC.
+    const float limit = radius * radius;
+    for (RangeLink* link = g_range_links; link != nullptr; link = link->next)
+    {
+        if (link->host == nullptr)
+        {
+            continue;
+        }
+        const Vec3 at = focus_world_pos(*link->host);
+        const float dx = at.x - pos.x;
+        const float dy = at.y - pos.y;
+        const float dz = at.z - pos.z;
+        if (limit > dx * dx + dy * dy + dz * dz && link->on_note != nullptr)
+        {
+            link->on_note(link->host, 0x5b);
+        }
+    }
+}
+
+void fn_70006(CamFocus& host)
+{
+    // Xbox 0x00070006
+    // Retail entry is 0x0006FF90 (vtable slot +0x10, over 0x000420D0). Ghidra
+    // split the body at the fsub that scales the picker index. ESI is the host
+    // passed on the stack. 0x000412A0 writes the world position used for the
+    // range test against DAT_005077A8.
+    host_base(host);
+    // A live bind with a null +0x58 faults on Xbox before the picker.
+    if (host.bind != nullptr && host.bind->at_58 == nullptr)
+    {
+        return;
+    }
+
+    float sample = 0.f;
+    if (host.bind != nullptr && host.bind->at_58->blend != nullptr)
+    {
+        sample = host.bind->at_58->blend->value;
+    }
+    pick_index(host, sample);
+
+    if (host.pulse_on != 0)
+    {
+        float rate = 0.f;
+        if (!(host.host_gate > 0.f))
+        {
+            rate = host.host_rate;
+        }
+        host.pulse -= rate * sim_step(g_sim_dt);
+        if (host.pulse <= 0.f)
+        {
+            host.pulse += 0.5f;
+            host.pulse_left -= 1;
+            if (host.pulse_left == 0)
+            {
+                host.pulse_on = 0;
+            }
+        }
+    }
+
+    const u32 previous = host.marker;
+    u32 bit = 0;
+    if (g_actor_mark != nullptr)
+    {
+        bit = (u32(g_actor_mark->byte) >> 4) & 1u;
+    }
+    host.marker = bit;
+    if (bit != 0 && previous == 0)
+    {
+        host.marker_kick = kKick;
+    }
+
+    host.range = host_range(host);
+    const Vec3 world = focus_world_pos(host);
+    u32 inside = 0;
+    if (g_listener_pos != nullptr)
+    {
+        const Vec3 d{world.x - g_listener_pos[0], world.y - g_listener_pos[1], world.z - g_listener_pos[2]};
+        inside = length3(d) <= host.range ? 1u : 0u;
+    }
+    host.in_range = inside;
+    if (inside != 0)
+    {
+        g_range_tint.c0 = g_tint_src;
+        g_range_tint.c1 = g_tint_src;
+        g_range_tint.c2 = g_tint_src;
+        g_range_tint.n0 = -1.f;
+        g_range_tint.n1 = -1.f;
+        g_range_tint.flag = 1;
+    }
+    notify_range(world, host.range);
+
+    CamBlend* blend = host_blend(host);
+    if (host.bind != nullptr && host.bind->at_58 != nullptr && blend != nullptr && blend->value != blend->previous)
+    {
+        float hi = blend->value;
+        float lo = blend->previous;
+        if (blend->dir < 0.f)
+        {
+            hi = blend->previous;
+            lo = blend->value;
+        }
+        if (span_crossed(hi, lo))
+        {
+            post_cross(host);
+        }
+    }
+
+    if (host.bind == nullptr)
+    {
+        release_host(host);
+        return;
+    }
+    if (host.bind->at_58 == nullptr)
+    {
+        return;
+    }
+    if (blend == nullptr || (blend->mark == 1 && at_travel_end(*blend)))
+    {
+        release_host(host);
     }
 }
 

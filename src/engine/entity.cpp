@@ -3,6 +3,7 @@
 #include <bit>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <span>
 
 namespace gbtg
@@ -137,6 +138,19 @@ void fn_663e0(void* block)
         std::free(block);
     }
     g_heap_current = saved;
+}
+
+void fn_fcd70(void* dest, const void* src)
+{
+    // Xbox 0x000FCD70
+    // EAX is the destination and ECX is the source. Copies 0x54 bytes forward.
+    // Equal pointers return without a write. 0x000FCCC0 appends records of this
+    // size, and other callers plant the block at object +0x1cc and +0xc48.
+    if (dest == src)
+    {
+        return;
+    }
+    std::memcpy(dest, src, 0x54);
 }
 
 void entity_body_camera_sizeof(u32 out_sizes[2])

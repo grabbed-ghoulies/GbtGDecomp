@@ -93,6 +93,7 @@ Vec3 actor_world_position(const Actor& actor); // 0x000412A0
 Vec3 actor_world_euler(const Actor& actor);    // 0x00041820
 void fn_41730(Actor& actor, const Vec3& point); // 0x00041730 EDI actor, ESI point
 void fn_663e0(void* block);                    // 0x000663E0 EAX = block
+void fn_fcd70(void* dest, const void* src);    // 0x000FCD70 EAX dest, ECX source, 0x54 bytes
 
 void entity_body_camera_sizeof(u32 out_sizes[2]); // 0x00073170
 void entity_body_camera_tick(Entity& body);       // 0x000731F0

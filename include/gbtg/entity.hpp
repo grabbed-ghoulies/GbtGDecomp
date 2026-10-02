@@ -478,4 +478,9 @@ i32 fn_1226c0(Vec3& kept, Vec3& candidate, u32 param, i32 kind, u32 mask);
 // loaded icon. DAT_004e60c0 becomes IconMIN (0x36).
 void fn_57d40();
 
+// cam_11c480 calls this once the script tables are clear. Zeros the 40
+// light-volume slots, allocates the 16x16 grid, and plants the default
+// colour, range, and cone angles.
+void fn_fd620();
+
 } // namespace gbtg

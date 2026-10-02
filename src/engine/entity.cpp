@@ -659,8 +659,23 @@ float wrap_half_turn(float angle)
 Vec3 g_anchor{};
 
 // DAT_00511188 indexes DAT_005111AC. Message 99 writes the contact and does not bump the index.
+// 0x00120480 stores the hitting object at DAT_0051118C[index], then bumps the index.
+// Eight pointers fit before DAT_005111AC; further stores spill into that array on Xbox.
 i32 g_contact_slot = 0;
 Vec3 g_contact_points[64]{};
+
+// Object walked from DAT_00511B04. Retail stores the link at object+0x110 (prev)
+// and +0x114 (next); the head value is the first link, and the walk follows +4.
+// The push is vtable +0x34. The port keeps the object and its next pointer together.
+struct ShapeProbe
+{
+    i32 (*push)(ShapeProbe& self, const Actor* actor, const Vec3* query, EntityCylinderBound& merged,
+                EntityCylinderBound* shapes, i32 count, Vec3& out) = nullptr;
+    ShapeProbe* next = nullptr;
+};
+
+ShapeProbe* g_contact_owners[64]{};
+ShapeProbe* g_shape_probes = nullptr;
 
 // DAT_00511AA4. Nodes are walked through vtable +0xC when a latch mask leaves 0x3F.
 struct LatchNode
@@ -1816,15 +1831,128 @@ void fn_55aa0(const EntityShapeNode& node, const float* world, const EntityBoneP
 namespace
 {
 
-// 0x00120480. The record is the one-element cylinder array, and query is the
-// point minus the actor origin (null when no actor was passed). DAT_00511B04
-// has no shapes, so vtable +0x34 never runs and the push is zero.
-Vec3 sum_cylinder_push(const EntityCylinderBound&, const Vec3*)
+// Xbox 0x001202C0. ECX is the cylinder array, EAX the count, EBX the source
+// point, EDI the merged record. XZ stays on the source. Y runs from the lower
+// of the source and every cylinder bottom to the higher of the source and every
+// top. The radius is the largest horizontal reach (distance to a center plus
+// that cylinder's radius). An empty array is a zero-height, zero-radius record.
+EntityCylinderBound merge_cylinders(const Vec3& src, const EntityCylinderBound* shapes, i32 count)
 {
-    return {};
+    float min_y = src.y;
+    float max_top = src.y;
+    float reach = 0.f;
+    if (shapes != nullptr && count > 0)
+    {
+        for (i32 i = 0; i < count; ++i)
+        {
+            const EntityCylinderBound& cyl = shapes[i];
+            const float dx = cyl.x - src.x;
+            const float dz = cyl.z - src.z;
+            const float dist = std::sqrt(dx * dx + dz * dz) + cyl.radius;
+            if (dist > reach)
+            {
+                reach = dist;
+            }
+            if (cyl.y <= min_y)
+            {
+                min_y = cyl.y;
+            }
+            const float top = cyl.y + cyl.height;
+            if (max_top < top)
+            {
+                max_top = top;
+            }
+        }
+    }
+    EntityCylinderBound out{};
+    out.kind = 4;
+    out.size = 0x20;
+    out.flag = 1;
+    out.x = src.x;
+    out.y = min_y;
+    out.z = src.z;
+    out.pad0 = 0.f;
+    out.height = max_top - min_y;
+    out.pad1 = 0.f;
+    out.radius = reach;
+    return out;
+}
+
+// Xbox 0x00120D10. ECX is the push, EAX the count, EDI the cylinder array, and
+// the stack argument is the merged record. Each cylinder's position, and the
+// merged record's position, gain the push. Radius and height stay put.
+void shift_cylinders(EntityCylinderBound* shapes, i32 count, EntityCylinderBound& merged, const Vec3& push)
+{
+    if (shapes != nullptr && count > 0)
+    {
+        for (i32 i = 0; i < count; ++i)
+        {
+            shapes[i].x += push.x;
+            shapes[i].y += push.y;
+            shapes[i].z += push.z;
+        }
+    }
+    merged.x += push.x;
+    merged.y += push.y;
+    merged.z += push.z;
 }
 
 } // namespace
+
+i32 fn_120480(const Vec3& src, const Actor* actor, EntityCylinderBound* shapes, i32 count, Vec3& push_out)
+{
+    // Xbox 0x00120480
+    // EAX is the source. Stack args are the actor, the cylinder array, the count,
+    // and the summed push. DAT_00511188 is cleared, then 0x001202C0 merges the
+    // array into one cylinder around the source. A null actor leaves the query
+    // null; otherwise the query is source minus actor_world_position, and that
+    // origin is still in the push slot when vtable +0x34 is entered. Each node
+    // on DAT_00511B04 (object+0x110, next at +4) is called with the actor, the
+    // query, the merged cylinder, the array, the count, and the push slot.
+    // A hit stores the object at DAT_0051118C[index], bumps the index, adds the
+    // push through 0x00120D10, and accumulates it. The return is 1 after any hit.
+    g_contact_slot = 0;
+    EntityCylinderBound merged = merge_cylinders(src, shapes, count);
+
+    Vec3 origin{};
+    Vec3 query_storage{};
+    const Vec3* query = nullptr;
+    if (actor != nullptr)
+    {
+        origin = actor_world_position(*actor);
+        query_storage = Vec3{src.x - origin.x, src.y - origin.y, src.z - origin.z};
+        query = &query_storage;
+    }
+
+    push_out.x = 0.f;
+    push_out.y = 0.f;
+    push_out.z = 0.f;
+    i32 hit = 0;
+    for (ShapeProbe* probe = g_shape_probes; probe != nullptr; probe = probe->next)
+    {
+        if (probe->push == nullptr)
+        {
+            continue;
+        }
+        Vec3 delta = origin;
+        const i32 ok = probe->push(*probe, actor, query, merged, shapes, count, delta);
+        if (ok == 0)
+        {
+            continue;
+        }
+        if (g_contact_slot >= 0 && g_contact_slot < 64)
+        {
+            g_contact_owners[g_contact_slot] = probe;
+        }
+        g_contact_slot += 1;
+        shift_cylinders(shapes, count, merged, delta);
+        push_out.x += delta.x;
+        push_out.y += delta.y;
+        push_out.z += delta.z;
+        hit = 1;
+    }
+    return hit;
+}
 
 void fn_1203e0(const Vec3& src, Vec3& dest, const Actor* actor, float height, float radius)
 {
@@ -1832,11 +1960,8 @@ void fn_1203e0(const Vec3& src, Vec3& dest, const Actor* actor, float height, fl
     // ESI is the source point and EDI is the destination. EDX is the actor
     // passed to 0x00120480. XMM1 is the cylinder height; the stack float is
     // the radius. The record is kind 4, size 0x20, flag 1, centered on ESI,
-    // with the floats at +0x10 and +0x18 cleared. 0x00120480 clears
-    // DAT_00511188, and when the actor is set it queries source minus
-    // actor_world_position. It then sums one push per hit on DAT_00511B04.
-    // Nothing is linked there, so the push is zero and the destination is
-    // the source.
+    // with the floats at +0x10 and +0x18 cleared. 0x00120480 sums one push per
+    // hit; the destination is the source plus that sum.
     EntityCylinderBound bound{};
     bound.kind = 4;
     bound.size = 0x20;
@@ -1849,18 +1974,8 @@ void fn_1203e0(const Vec3& src, Vec3& dest, const Actor* actor, float height, fl
     bound.pad1 = 0.f;
     bound.radius = radius;
 
-    g_contact_slot = 0;
     Vec3 push{};
-    if (actor != nullptr)
-    {
-        const Vec3 origin = actor_world_position(*actor);
-        const Vec3 query{src.x - origin.x, src.y - origin.y, src.z - origin.z};
-        push = sum_cylinder_push(bound, &query);
-    }
-    else
-    {
-        push = sum_cylinder_push(bound, nullptr);
-    }
+    fn_120480(src, actor, &bound, 1, push);
     dest.x = src.x + push.x;
     dest.y = src.y + push.y;
     dest.z = src.z + push.z;

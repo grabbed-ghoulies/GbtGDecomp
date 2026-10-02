@@ -400,6 +400,12 @@ struct EntityCylinderBound
 void fn_55aa0(const EntityShapeNode& node, const float* world, const EntityBonePose* pose,
               EntityCylinderBound& out);
 
+// EAX is the source point. The actor is the first stack argument (null leaves the
+// query null). shapes/count are the cylinder array 0x001202C0 merges, and push_out
+// receives the sum of each hit. Returns 1 when any probe on DAT_00511B04 hits.
+i32 fn_120480(const Vec3& src, const Actor* actor, EntityCylinderBound* shapes, i32 count,
+              Vec3& push_out);
+
 // ESI is the source point, EDI the destination. EDX is the actor 0x00120480
 // receives (null skips the origin subtract). XMM1 is the cylinder height and
 // the stack float is the radius. Bytes are 4, 0x20, 1.

@@ -203,3 +203,4 @@ Named functions: [`docs/generated/ghidra_functions.txt`](generated/ghidra_functi
 | `0x0013D2C0` | `fn_13d2c0` | entity |
 | `0x00040FB0` | `fn_40fb0` | entity |
 | `0x00056720` | `fn_56720` | entity |
+| `0x00057D40` | `fn_57d40` | entity |

@@ -473,4 +473,9 @@ i32 fn_120760(const EntityCylinderBound& query, const EntityCylinderBound& obsta
 // segment. A near miss copies the candidate onto EBX and returns 0.
 i32 fn_1226c0(Vec3& kept, Vec3& candidate, u32 param, i32 kind, u32 mask);
 
+// Clears the text-page cursor and the markup gates, builds the 92 wide token
+// names (0x00056DF0), resets the sprite slots (0x00057400), and drops the
+// loaded icon. DAT_004e60c0 becomes IconMIN (0x36).
+void fn_57d40();
+
 } // namespace gbtg

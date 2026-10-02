@@ -400,4 +400,9 @@ struct EntityCylinderBound
 void fn_55aa0(const EntityShapeNode& node, const float* world, const EntityBonePose* pose,
               EntityCylinderBound& out);
 
+// ESI is the source point, EDI the destination. EDX is the actor 0x00120480
+// receives (null skips the origin subtract). XMM1 is the cylinder height and
+// the stack float is the radius. Bytes are 4, 0x20, 1.
+void fn_1203e0(const Vec3& src, Vec3& dest, const Actor* actor, float height, float radius);
+
 } // namespace gbtg

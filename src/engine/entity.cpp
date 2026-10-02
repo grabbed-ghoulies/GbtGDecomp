@@ -1813,4 +1813,57 @@ void fn_55aa0(const EntityShapeNode& node, const float* world, const EntityBoneP
     out.radius = reach;
 }
 
+namespace
+{
+
+// 0x00120480. The record is the one-element cylinder array, and query is the
+// point minus the actor origin (null when no actor was passed). DAT_00511B04
+// has no shapes, so vtable +0x34 never runs and the push is zero.
+Vec3 sum_cylinder_push(const EntityCylinderBound&, const Vec3*)
+{
+    return {};
+}
+
+} // namespace
+
+void fn_1203e0(const Vec3& src, Vec3& dest, const Actor* actor, float height, float radius)
+{
+    // Xbox 0x001203E0
+    // ESI is the source point and EDI is the destination. EDX is the actor
+    // passed to 0x00120480. XMM1 is the cylinder height; the stack float is
+    // the radius. The record is kind 4, size 0x20, flag 1, centered on ESI,
+    // with the floats at +0x10 and +0x18 cleared. 0x00120480 clears
+    // DAT_00511188, and when the actor is set it queries source minus
+    // actor_world_position. It then sums one push per hit on DAT_00511B04.
+    // Nothing is linked there, so the push is zero and the destination is
+    // the source.
+    EntityCylinderBound bound{};
+    bound.kind = 4;
+    bound.size = 0x20;
+    bound.flag = 1;
+    bound.x = src.x;
+    bound.y = src.y;
+    bound.z = src.z;
+    bound.pad0 = 0.f;
+    bound.height = height;
+    bound.pad1 = 0.f;
+    bound.radius = radius;
+
+    g_contact_slot = 0;
+    Vec3 push{};
+    if (actor != nullptr)
+    {
+        const Vec3 origin = actor_world_position(*actor);
+        const Vec3 query{src.x - origin.x, src.y - origin.y, src.z - origin.z};
+        push = sum_cylinder_push(bound, &query);
+    }
+    else
+    {
+        push = sum_cylinder_push(bound, nullptr);
+    }
+    dest.x = src.x + push.x;
+    dest.y = src.y + push.y;
+    dest.z = src.z + push.z;
+}
+
 } // namespace gbtg

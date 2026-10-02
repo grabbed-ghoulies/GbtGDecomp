@@ -176,3 +176,4 @@ Named functions: [`docs/generated/ghidra_functions.txt`](generated/ghidra_functi
 | `0x000FAD80` | `pad_buttons` | clock |
 | `0x00027960` | `fn_27960` | scene |
 | `0x000426F0` | `fn_426f0` | scene |
+| `0x0011BE40` | `fn_11be40` | scene |

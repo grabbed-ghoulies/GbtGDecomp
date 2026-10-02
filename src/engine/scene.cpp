@@ -1373,11 +1373,23 @@ struct CamLink
     bool live = false;
 };
 
+// [slot+0x1bc]+0x24. Each record is 0x20 bytes; the translation sits at +0x10.
+struct CamMarker
+{
+    Vec3 point{};
+};
+
+struct CamMarkerBank
+{
+    std::vector<CamMarker> items;
+};
+
 struct CamSlotObject
 {
     CamSlotHeader* header = nullptr; // +0
     CamBonePose* at_164 = nullptr;
     CamBonePose* at_168 = nullptr;
+    CamMarkerBank* markers = nullptr; // +0x1bc
 };
 
 struct CamBoundRec
@@ -1405,6 +1417,18 @@ struct CamBound
     float radius = 0.f; // +0x1c
 };
 
+struct CamAnchor;
+
+// Locator record (stride 0x34, word 0 == 3). Mode 0 reads the bone at +2 and
+// the position stored at +0x10 / +0x20 / +0x30.
+struct CamLocator
+{
+    i16 bone = -1;
+    float x = 0.f;
+    float y = 0.f;
+    float z = 0.f;
+};
+
 struct CamFocus
 {
     Vec3 position{}; // +0x08
@@ -1412,11 +1436,26 @@ struct CamFocus
     CamAttach* attach = nullptr; // +0x88
     float scale_200 = 0.f; // +0x200
     CamSlotObject* slots = nullptr; // +0x204
+    CamAnchor* anchors = nullptr; // +0x1f8, next link of the header at +0x1f4
     Mat34 world{}; // +0x2ac
     CamLink* link = nullptr; // +0x918
     std::vector<CamBoundRec> recs; // +0x8fc
     u32 shape_mask = 0; // camera+0x88c, the mask 0x00025C50 passes with flag 0
     CamBound bound{};
+};
+
+// Node allocated by 0x0011C0B0 (0x38 bytes) and linked at host+0x1f8.
+// +0x14 selects the update. +0x18 is a locator pointer in mode 0 and a bone
+// index in modes 1 and 2. +0x1c is the local point. +0x28 is the world point.
+struct CamAnchor
+{
+    CamAnchor* next = nullptr; // +4
+    CamFocus* host = nullptr;  // +0x10
+    i32 mode = 0;              // +0x14
+    CamLocator* locator = nullptr;
+    u16 index = 0xFFFF; // +0x18
+    Vec3 local{};       // +0x1c
+    Vec3 out{};         // +0x28
 };
 
 CamFocus g_cam_focus;
@@ -1696,6 +1735,116 @@ int fn_426f0(CamFocus& host, CamBound& out, u32 mask, i32 average)
     return int(host.recs.size());
 }
 
+Mat34 mul_affine(const Mat34& a, const Mat34& b)
+{
+    // 0x001041B0. 3x4 affine product, out = A * B.
+    Mat34 o;
+    for (int row = 0; row < 3; ++row)
+    {
+        const float ax = a.m[row * 4 + 0];
+        const float ay = a.m[row * 4 + 1];
+        const float az = a.m[row * 4 + 2];
+        const float aw = a.m[row * 4 + 3];
+        o.m[row * 4 + 0] = ax * b.m[0] + ay * b.m[4] + az * b.m[8];
+        o.m[row * 4 + 1] = ax * b.m[1] + ay * b.m[5] + az * b.m[9];
+        o.m[row * 4 + 2] = ax * b.m[2] + ay * b.m[6] + az * b.m[10];
+        o.m[row * 4 + 3] = ax * b.m[3] + ay * b.m[7] + az * b.m[11] + aw;
+    }
+    return o;
+}
+
+const Mat34* pose_bone(const CamBonePose* pose, i32 index)
+{
+    // 0x00031530. +4 set: packed matrices at +0x10, stride 0x30.
+    // +4 clear packs a column-major 4x4 (stride 0x40) into that same shape.
+    // The port keeps the packed table, so a clear flag has no bone.
+    if (pose == nullptr || !pose->table_live || index < 0)
+    {
+        return nullptr;
+    }
+    const size_t slot = static_cast<size_t>(index);
+    if (slot >= pose->bones.size())
+    {
+        return nullptr;
+    }
+    return &pose->bones[slot];
+}
+
+bool anchor_bone_point(const CamFocus& host, u16 index, Vec3 probe, Vec3& out)
+{
+    // 0x0003AEB0. Marker translation (stride 0x20 at [slot+0x1bc]+0x24)
+    // becomes T. Bone matrix is 0x00031530 on the same index. Result is
+    // (world * bone * T) * probe. Probe is DAT_0050DD80. Writes when the
+    // marker record is present.
+    if (host.slots == nullptr || host.slots->markers == nullptr)
+    {
+        return false;
+    }
+    const std::vector<CamMarker>& items = host.slots->markers->items;
+    if (static_cast<size_t>(index) >= items.size())
+    {
+        return false;
+    }
+    Mat34 bone{};
+    if (const Mat34* found = pose_bone(focus_pose(host), static_cast<i32>(index)))
+    {
+        bone = *found;
+    }
+    Mat34 trans{};
+    trans.m[3] = items[index].point.x;
+    trans.m[7] = items[index].point.y;
+    trans.m[11] = items[index].point.z;
+    const Mat34 placed = mul_affine(mul_affine(host.world, bone), trans);
+    out = mul_mat(placed, probe);
+    return true;
+}
+
+void fn_11be40(CamAnchor& node)
+{
+    // Xbox 0x0011BE40
+    // EDX is the anchor. Mode +0x14:
+    //   0: locator position, optional bone, then the actor matrix (0x00051CE0)
+    //   1: bone/marker probe into +0x28 (0x0003AEB0, EBX = DAT_0050DD80)
+    //   2: index 0xFFFF maps +0x1c by the actor matrix (0x000415F0);
+    //      any other index takes the mode-1 probe path
+    if (node.host == nullptr)
+    {
+        return;
+    }
+    CamFocus& host = *node.host;
+    if (node.mode == 0)
+    {
+        if (node.locator == nullptr)
+        {
+            return;
+        }
+        Vec3 p{node.locator->x, node.locator->y, node.locator->z};
+        if (node.locator->bone >= 0)
+        {
+            if (const Mat34* bone = pose_bone(focus_pose(host), node.locator->bone))
+            {
+                p = mul_mat(*bone, p);
+            }
+        }
+        node.out = mul_mat(host.world, p);
+        return;
+    }
+    if (node.mode == 1)
+    {
+        anchor_bone_point(host, node.index, g_focus_probe, node.out);
+        return;
+    }
+    if (node.mode == 2)
+    {
+        if (node.index == 0xFFFF)
+        {
+            node.out = mul_mat(host.world, node.local);
+            return;
+        }
+        anchor_bone_point(host, node.index, g_focus_probe, node.out);
+    }
+}
+
 void focus_bounds_tick()
 {
     // 0x00025C50 calls fn_426f0 with camera+0x88c and flag 0 whenever the
@@ -1813,7 +1962,8 @@ void cutscene_queue_start(Game& g)
 void cutscene_queue_tick(Game& g, float dt)
 {
     // camera_apply 0x00025AE0: 0x0001EEC0 when camera+0xfc != 0, then 0x0001EC20
-    // when camera+0x154 > 0, then 0x0001FB40, then 0x00027960, then 0x0001DD00,
+    // when camera+0x154 > 0, then 0x00025190 (host+0x1f8 anchors through
+    // 0x0011BE40), then 0x0001FB40, then 0x00027960, then 0x0001DD00,
     // then 0x00025130.
     if (g_camera_channels.gate != 0)
     {
@@ -1822,6 +1972,10 @@ void cutscene_queue_tick(Game& g, float dt)
     if (!g_camera_channels.items.empty())
     {
         fn_1ec20(g_camera_channels);
+    }
+    for (CamAnchor* node = g_cam_focus.anchors; node != nullptr; node = node->next)
+    {
+        fn_11be40(*node);
     }
     fn_1fb40(g_camera_pulse, dt);
     fn_27960(g_camera_timers, g_camera_pulse, dt);

@@ -867,7 +867,6 @@ struct ShapeProbe
 };
 
 ShapeProbe* g_contact_owners[64]{};
-ShapeProbe* g_shape_probes = nullptr;
 
 // DAT_00511AA4. Nodes are walked through vtable +0xC when a latch mask leaves 0x3F.
 struct LatchNode
@@ -876,7 +875,45 @@ struct LatchNode
     LatchNode* next = nullptr;
 };
 
-LatchNode* g_latch_list = nullptr;
+struct SegmentProbe;
+
+// Intrusive head. Retail prev is +0 and the first node is +4. Walks follow +4.
+struct ListHead
+{
+    void* prev = nullptr;
+    void* next = nullptr;
+};
+
+// DAT_00511AA0 through DAT_00511B58. cam_11c480's first call (0x001233C0) zeros
+// this whole block. The eight bins at DAT_00511AA8 take the 0xC-byte records
+// that start at object+0x124. Segment nodes sit at object+0x1e0, shape probes
+// at object+0x110, and the later heads hang off +0x900, +0x918, +0x934, +0x93c,
+// +0x944, +0x94c, and +0x908. DAT_00511B18 is the first node 0x00123020 walks.
+struct WorldLists
+{
+    LatchNode* latch_prev = nullptr; // DAT_00511AA0
+    LatchNode* latch = nullptr;      // DAT_00511AA4
+    ListHead bins[8]{};              // DAT_00511AA8
+    ListHead anchor{};               // DAT_00511AE8. Next is DAT_00511AEC.
+    SegmentProbe* segment_prev = nullptr; // DAT_00511AF0
+    SegmentProbe* segment = nullptr;      // DAT_00511AF4
+    ListHead wide{};                      // DAT_00511AF8. Node is object+0x1e8.
+    ShapeProbe* shape_prev = nullptr;     // DAT_00511B00
+    ShapeProbe* shape = nullptr;          // DAT_00511B04
+    ListHead view{};                      // DAT_00511B08. Node is object+0x900.
+    ListHead actor_link{};                // DAT_00511B10. Node is object+0x918.
+    void* release = nullptr;              // DAT_00511B18
+    ListHead body_a{};                    // DAT_00511B1C. Node is object+0x934.
+    ListHead body_b{};                    // DAT_00511B24. Node is object+0x934.
+    ListHead body_c{};                    // DAT_00511B2C. Node is object+0x934.
+    ListHead mark{};                      // DAT_00511B34
+    ListHead case_head{};                 // DAT_00511B3C. Node is object+0x93c.
+    ListHead alt{};                       // DAT_00511B44. Node is object+0x944.
+    ListHead slot{};                      // DAT_00511B4C. Node is object+0x94c.
+    ListHead child{};                     // DAT_00511B54. Node is object+0x908.
+};
+
+WorldLists g_world{};
 
 constexpr float kHitEps = std::bit_cast<float>(0x3727C5ACu); // 0x0032B230, 1e-5
 constexpr float kHitPad = std::bit_cast<float>(0x3C23D70Au); // 0x0032B124, 0.01
@@ -911,7 +948,7 @@ void broadcast_latch(Actor* actor)
     Message note;
     note.id = 0x47;
     note.arg = actor;
-    for (LatchNode* node = g_latch_list; node != nullptr; node = node->next)
+    for (LatchNode* node = g_world.latch; node != nullptr; node = node->next)
     {
         if (node->handle_message != nullptr)
         {
@@ -2158,7 +2195,7 @@ i32 fn_120480(const Vec3& src, const Actor* actor, EntityCylinderBound* shapes, 
     push_out.y = 0.f;
     push_out.z = 0.f;
     i32 hit = 0;
-    for (ShapeProbe* probe = g_shape_probes; probe != nullptr; probe = probe->next)
+    for (ShapeProbe* probe = g_world.shape; probe != nullptr; probe = probe->next)
     {
         if (probe->push == nullptr)
         {
@@ -2311,7 +2348,6 @@ struct SegmentSlot
 
 i32 g_segment_count = 0;
 SegmentSlot g_segment_slots[kSegmentSlots]{};
-SegmentProbe* g_segment_probes = nullptr;
 
 void bind_segment_pool(SegmentPool& pool, u8* block, i32 block_size, i32 used)
 {
@@ -2433,7 +2469,7 @@ i32 fn_1226c0(Vec3& kept, Vec3& candidate, u32 param, i32 kind, u32 mask)
 
         SegmentProbe* found = nullptr;
         i32 hit = 0;
-        for (SegmentProbe* probe = g_segment_probes; probe != nullptr; probe = probe->next)
+        for (SegmentProbe* probe = g_world.segment; probe != nullptr; probe = probe->next)
         {
             if (probe->query == nullptr)
             {
@@ -3352,6 +3388,15 @@ void release_aid_record(AidRecord* node)
 }
 
 } // namespace
+
+void fn_1233c0()
+{
+    // Xbox 0x001233C0
+    // cam_11c480 calls this before the aid-list release. Every head from
+    // DAT_00511AA0 through DAT_00511B58 is stored as zero. The nodes stay
+    // allocated; later walks no longer find them.
+    g_world = {};
+}
 
 void fn_11b630()
 {

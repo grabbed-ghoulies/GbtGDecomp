@@ -1018,11 +1018,185 @@ void present_32ab0()
     }
 }
 
+// Object at the front of a DAT_0050E0E8 record. That span's stride is 0x50.
+// DAT_0050E0EC is the record count; phase 1 reads record count-1.
+struct PresentSlot
+{
+    int kind = 0;               // +0
+    void* child = nullptr;      // +4
+    int state = 0;              // +8, read by 0x00107CE0
+    PresentSlot* ports[4] = {}; // +8 when kind is 4 (0x00107AA0)
+    u16 show = 0;               // flag word 0x001083F0 masks with 0x10
+    u16 hide = 0;
+};
+
+// DAT_004DEA34 cluster. fs_init (0x00033980) stores phase 4 and clears the pointers.
+struct PresentInsert
+{
+    int phase = 4;                 // DAT_004DEA34
+    int force = 0;                 // DAT_004DEA38
+    int hold = 0;                  // DAT_004DEA24, nonzero skips the span poll
+    u32 pad_mask = 0;              // DAT_0032E3B4, returned by 0x001554C0(0)
+    u32 pad_filter = 0;            // DAT_0050E0F8
+    u16 block_show = 0;            // words at 0x00507C98, kind 3 of 0x001083F0
+    u16 block_hide = 0;
+    PresentLoad* cursor = nullptr; // *DAT_004DEA2C, +4 / +8
+    PresentSlot* actor = nullptr;  // DAT_004DEA28
+    PresentSlot** records = nullptr;
+    int record_count = 0; // (end - begin) / stride
+    int record_index = 0; // DAT_0050E0EC
+};
+
+PresentInsert present_insert;
+
+// Xbox 0x00033480
+// 0x00107CE0. Idle when the pad word's 0x10<<state bit is clear.
+bool present_port_idle(const PresentSlot& slot)
+{
+    if (slot.state < 0 || slot.state > 3)
+    {
+        return true;
+    }
+    const u32 bit = 0x10u << slot.state;
+    return (present_insert.pad_mask & bit) == 0;
+}
+
+// Xbox 0x00033480
+// 0x001082B0. Zero lets phase 1 tail-call 0x000337B0 with phase 2.
+bool present_slot_busy(const PresentSlot& slot)
+{
+    if (slot.kind == 2)
+    {
+        return (present_insert.pad_mask & present_insert.pad_filter) != 0;
+    }
+    if (slot.kind == 3)
+    {
+        return present_insert.pad_mask != 0;
+    }
+    if (slot.kind == 4)
+    {
+        for (const PresentSlot* port : slot.ports)
+        {
+            if (port != nullptr && port->child != nullptr && present_port_idle(*port))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+    if (slot.kind == 5)
+    {
+        return !present_port_idle(slot);
+    }
+    return false;
+}
+
+// Xbox 0x00033480
+// 0x001083F0(actor, 0x10). Show bit set and hide bit clear.
+bool present_flags_ready(u16 show, u16 hide)
+{
+    return (show & 0x10) != 0 && (hide & 0x10) == 0;
+}
+
+// Xbox 0x00033480
+bool present_actor_ready(const PresentSlot* actor)
+{
+    if (actor == nullptr || actor->kind < 1 || actor->kind > 5)
+    {
+        return false;
+    }
+    if (actor->kind == 3)
+    {
+        return present_flags_ready(present_insert.block_show, present_insert.block_hide);
+    }
+    if (actor->kind == 4)
+    {
+        for (const PresentSlot* port : actor->ports)
+        {
+            if (port != nullptr && port->state != -1 && present_flags_ready(port->show, port->hide))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+    return present_flags_ready(actor->show, actor->hide);
+}
+
+// Xbox 0x00033480
+// 0x000337B0. EAX is the phase being entered. Leaving phase 3 drops the cursor.
+void present_insert_set_phase(int next)
+{
+    if (next == present_insert.phase)
+    {
+        return;
+    }
+    if (present_insert.phase == 3)
+    {
+        present_insert.cursor = nullptr;
+        if (present_insert.actor != nullptr && present_insert.actor->child != nullptr)
+        {
+            present_insert.actor = nullptr;
+        }
+    }
+    present_insert.phase = next;
+}
+
+// Xbox 0x00033480
+void present_33480()
+{
+    switch (present_insert.phase)
+    {
+    case 1:
+        if (present_insert.force != 0)
+        {
+            present_insert.force = 0;
+            present_insert_set_phase(2);
+            return;
+        }
+        if (present_insert.hold == 0 && present_insert.record_count != 0 && present_insert.records != nullptr &&
+            present_insert.record_index > 0)
+        {
+            PresentSlot* slot = present_insert.records[present_insert.record_index - 1];
+            if (slot != nullptr && slot->child != nullptr && !present_slot_busy(*slot))
+            {
+                present_insert_set_phase(2);
+                return;
+            }
+        }
+        break;
+    case 2:
+        // 0x00109470(DAT_004DEA28) refreshes the span record, then 0x001083F0(actor, 0x10).
+        if (present_actor_ready(present_insert.actor))
+        {
+            present_insert_set_phase(3);
+            return;
+        }
+        break;
+    case 3:
+        if (present_insert.cursor != nullptr && present_insert.cursor->total <= present_insert.cursor->done)
+        {
+            present_insert_set_phase(1);
+            return;
+        }
+        break;
+    case 4:
+        if (present_insert.pad_mask != 0)
+        {
+            present_insert.phase = 1;
+        }
+        break;
+    default:
+        break;
+    }
+}
+
 } // namespace
 
 void gfx_end_frame()
 {
-    // Present 0x00032AB0 runs before the swap (0x00033A90 on Xbox).
+    // Present 0x00033480, then 0x00032AB0, then the swap (0x00033A90 on Xbox).
+    present_33480();
     present_32ab0();
     if (!g.ok)
     {

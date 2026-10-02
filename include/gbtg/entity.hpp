@@ -493,4 +493,9 @@ void fn_118470();
 // row, and clears the eight records at DAT_0050eaa0 plus the count.
 void fn_119160();
 
+// cam_11c480 calls this after 0x001233C0. Releases every aid record on
+// DAT_00510574 through 0x000F4EE0, then zeros both list heads and the
+// body count at DAT_00510578.
+void fn_11b630();
+
 } // namespace gbtg

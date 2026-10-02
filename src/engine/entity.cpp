@@ -3289,4 +3289,87 @@ void fn_119160()
     g_lookup_count = 0;
 }
 
+namespace
+{
+
+// Intrusive link. 0x000F3C30 appends EDX to the head in EAX. The head object
+// is only these two pointers; records that hang off it are larger.
+struct AidLink
+{
+    AidLink* prev = nullptr; // +0
+    AidLink* next = nullptr; // +4
+};
+
+// 0x124-byte aid record allocated by 0x000F4E50 when the name is 'aid_'.
+// 0x000F4EE0 reads the link and the four blocks, then frees the record.
+struct AidRecord
+{
+    AidLink link;
+    void* block[4]{}; // Xbox +8, +0xc, +0x10, +0x14
+};
+
+// DAT_00510568. 0x00028640 links the object at body+0xb98 here.
+AidLink g_side_list{};
+// DAT_00510570. DAT_00510574 is the first aid record.
+AidLink g_aid_list{};
+// DAT_00510578. 0x00028830 increments this when the word at body+0xcdc is 1.
+i32 g_aid_body_count = 0;
+
+// 0x000F37B0. EBX is the block. The pointer at +0 is freed, then the block.
+void release_aid_block(void* block)
+{
+    // Xbox 0x0011B630
+    void* inner = *static_cast<void**>(block);
+    fn_663e0(inner);
+    fn_663e0(block);
+}
+
+// 0x000F4EE0. EAX is the record. A null prev skips the unlink; the four
+// blocks are still released and the record is freed.
+void release_aid_record(AidRecord* node)
+{
+    // Xbox 0x0011B630
+    if (node->link.prev != nullptr)
+    {
+        node->link.prev->next = node->link.next;
+        if (node->link.next != nullptr)
+        {
+            node->link.next->prev = node->link.prev;
+        }
+        node->link.prev = nullptr;
+        node->link.next = nullptr;
+    }
+    for (i32 i = 0; i < 4; ++i)
+    {
+        void* block = node->block[i];
+        if (block != nullptr)
+        {
+            release_aid_block(block);
+        }
+        node->block[i] = nullptr;
+    }
+    fn_663e0(node);
+}
+
+} // namespace
+
+void fn_11b630()
+{
+    // Xbox 0x0011B630
+    // The next pointer is taken before 0x000F4EE0, which unlinks and frees
+    // the record. The side list at DAT_00510568 is cleared without a walk.
+    AidLink* link = g_aid_list.next;
+    while (link != nullptr)
+    {
+        AidLink* next = link->next;
+        release_aid_record(reinterpret_cast<AidRecord*>(link));
+        link = next;
+    }
+    g_aid_list.prev = nullptr;
+    g_aid_list.next = nullptr;
+    g_side_list.prev = nullptr;
+    g_side_list.next = nullptr;
+    g_aid_body_count = 0;
+}
+
 } // namespace gbtg

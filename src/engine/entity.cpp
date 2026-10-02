@@ -95,6 +95,66 @@ Vec3 actor_world_euler(const Actor& actor)
     return Vec3{actor.euler.x + e.x, actor.euler.y + e.y, actor.euler.z + e.z};
 }
 
+Vec3 fn_104040(const float m[12])
+{
+    // Xbox 0x00104040
+    // Copies the 12 floats, then 0x00103AF0 (EAX = copy, arg = 1) normalizes
+    // each column of the 3x3. A zero-length column is left as it is. Pitch is
+    // asin(-row1.z), saturated to +/- pi/2 (0x0032B140 / 0x0032B13C). Yaw is
+    // atan2(row0.z, row2.z), or atan2(row0.y, row2.y) when those two are 0.
+    // Roll is atan2(row1.x, row1.y), or 0 when both are 0. 0x00152E90 is asin
+    // and 0x001530E0 is atan2. The three angles are written through EBX.
+    float a[12];
+    std::memcpy(a, m, sizeof(a));
+    for (int col = 0; col < 3; ++col)
+    {
+        const float x = a[col];
+        const float y = a[col + 4];
+        const float z = a[col + 8];
+        const float len2 = x * x + y * y + z * z;
+        if (len2 != 0.f)
+        {
+            const float inv = 1.f / std::sqrt(len2);
+            a[col] = x * inv;
+            a[col + 4] = y * inv;
+            a[col + 8] = z * inv;
+        }
+    }
+
+    constexpr float kHalfPi = std::bit_cast<float>(0x3FC90FDBu);
+    constexpr float kNegHalfPi = std::bit_cast<float>(0xBFC90FDBu);
+    const float pitch_arg = 0.f - a[6];
+    float pitch = kHalfPi;
+    if (pitch_arg < 1.f)
+    {
+        if (-1.f < pitch_arg)
+        {
+            pitch = std::asin(pitch_arg);
+        }
+        else
+        {
+            pitch = kNegHalfPi;
+        }
+    }
+
+    float yaw = 0.f;
+    if (a[2] == 0.f && a[10] == 0.f)
+    {
+        yaw = std::atan2(a[1], a[9]);
+    }
+    else
+    {
+        yaw = std::atan2(a[2], a[10]);
+    }
+
+    float roll = 0.f;
+    if (a[4] != 0.f || a[5] != 0.f)
+    {
+        roll = std::atan2(a[4], a[5]);
+    }
+    return Vec3{pitch, yaw, roll};
+}
+
 void fn_41730(Actor& actor, const Vec3& point)
 {
     // Xbox 0x00041730

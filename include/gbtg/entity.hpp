@@ -91,6 +91,10 @@ void register_entity_types();
 
 Vec3 actor_world_position(const Actor& actor); // 0x000412A0
 Vec3 actor_world_euler(const Actor& actor);    // 0x00041820
+
+// 3x4 row-major (12 floats). 0x00041820 passes the block at bind+0xc.
+// Returns pitch, yaw, roll in xyz. EBX is that out-vector on Xbox.
+Vec3 fn_104040(const float m[12]); // 0x00104040
 void fn_41730(Actor& actor, const Vec3& point); // 0x00041730 EDI actor, ESI point
 void fn_663e0(void* block);                    // 0x000663E0 EAX = block
 void fn_fcd70(void* dest, const void* src);    // 0x000FCD70 EAX dest, ECX source, 0x54 bytes

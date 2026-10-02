@@ -521,9 +521,11 @@ void fn_1dd00(CameraWash& c, float dt)
     }
 }
 
-// Body-camera channels at +0x150 (count +0x154). camera_apply calls 0x0001EC20
-// when that count is greater than 0. Host is camera+8: +0x50 is the bind list
-// walked by 0x00030B40, +0x204 is the slot table (float* at +0x1cc).
+// Body-camera channels at +0x150 (count +0x154). camera_apply (0x00025AE0)
+// calls 0x0001EEC0 when gate (+0xfc) is set, then 0x0001EC20 when the count
+// is greater than 0. Host is camera+8: +0x50 is the bind list walked by
+// 0x00030B40, +0x204 is the slot table (float* at +0x1cc, indexed by channel id).
+// +0xe8 and +0xf4 are the two blend floats written into slot 0 by 0x0001EEC0.
 struct CamChannel
 {
     i32 id = 0;        // +0
@@ -539,8 +541,9 @@ struct CamBindRow
 struct CameraChannels
 {
     std::vector<CamChannel> items;
-    u8 mark[2] = {};  // +0xec and +0xf8
-    i32 gate = 0;     // +0xfc
+    float blend[2] = {}; // +0xe8 and +0xf4
+    u8 mark[2] = {};     // +0xec and +0xf8
+    i32 gate = 0;        // +0xfc
     bool binds_live = false;
     std::vector<CamBindRow> binds;
     bool slots_live = false;
@@ -638,6 +641,26 @@ void fn_1ec20(CameraChannels& cam)
         {
             *slot = ch.value;
         }
+    }
+}
+
+void fn_1eec0(CameraChannels& cam)
+{
+    // Xbox 0x0001EEC0
+    // EDI is the camera. Skip when the bind list is live and channel 0 is bound.
+    // Otherwise write blend[0] (+0xe8) then blend[1] (+0xf4) through the channel-0
+    // slot (slot table +0x1cc). Both stores use that same pointer, so blend[1] remains.
+    if (cam.binds_live && channel_bound(cam, 0))
+    {
+        return;
+    }
+    if (float* slot = channel_slot(cam, 0))
+    {
+        *slot = cam.blend[0];
+    }
+    if (float* slot = channel_slot(cam, 0))
+    {
+        *slot = cam.blend[1];
     }
 }
 
@@ -747,7 +770,12 @@ void cutscene_queue_start(Game& g)
 
 void cutscene_queue_tick(Game& g, float dt)
 {
-    // camera_apply 0x00025AE0 calls 0x0001EC20 when camera+0x154 > 0, then 0x0001DD00.
+    // camera_apply 0x00025AE0: 0x0001EEC0 when camera+0xfc != 0, then 0x0001EC20
+    // when camera+0x154 > 0, then 0x0001DD00.
+    if (g_camera_channels.gate != 0)
+    {
+        fn_1eec0(g_camera_channels);
+    }
     if (!g_camera_channels.items.empty())
     {
         fn_1ec20(g_camera_channels);

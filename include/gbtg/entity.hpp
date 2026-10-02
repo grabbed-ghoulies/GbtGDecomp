@@ -72,11 +72,14 @@ void entity_body_camera_tick(Entity& body);       // 0x000731F0
 void entity_body_camera_shutdown(Entity& body);   // 0x00073300
 bool entity_body_camera_message(Entity& body, const Message& msg); // 0x00073320, id 99
 
-// Channel keys on the camera (ESI for 0x0001D850). Two slots at +0xe4, stride 0x0c.
-// value is the float this stepper writes; mark is the byte at +8.
+// Channel keys on the camera (ESI for 0x0001D850, EAX for 0x0001EDE0).
+// Two slots at +0xe4, stride 0x0c.
+// value is the fade duration 0x0001D850 writes at +0. blend is the float at +4.
+// mark is the byte at +8.
 struct EntityChannelKey
 {
     float value = 0.f;
+    float blend = 0.f;
     u8 mark = 0;
 };
 
@@ -93,6 +96,9 @@ struct EntityChannelAnim
 
 // dt is DAT_005096C0. DAT_004312DC > 0 yields a zero step; otherwise dt * DAT_004312C4.
 void fn_1d850(EntityChannelAnim& anim, float dt);
+
+// EAX is the camera. 0x00072AC0 jumps here after 0x0001D850 when +0xfc is set.
+void fn_1ede0(EntityChannelAnim& anim, float dt);
 
 // Pair at camera+0x100 + bank*8. Ten banks occupy +0x100..+0x14c.
 struct EntityChannelPair

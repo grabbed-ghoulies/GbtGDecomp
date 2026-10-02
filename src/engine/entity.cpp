@@ -291,6 +291,71 @@ void fn_1d850(EntityChannelAnim& anim, float dt)
     }
 }
 
+void fn_1ede0(EntityChannelAnim& anim, float dt)
+{
+    // Xbox 0x0001EDE0
+    // EAX is the camera. 0x00072AC0 jumps here after 0x0001D850 when +0xfc is set.
+    // The step is host+0x92c (0 when host+0x930 > 0) times DAT_005096C0 * DAT_004312C4,
+    // or 0 when DAT_004312DC > 0. Each slot at +0xe4 (stride 0x0c) reads the mark at +8
+    // and moves the blend at +4 by step/value:
+    //   1 rises to 1, then the mark becomes 2
+    //   2 becomes 3 and holds the blend for that frame
+    //   3 and 4 fall to 0, then the mark becomes 0
+    //   5 rises to 1, then the mark becomes 0
+    // Any other mark leaves the blend stored as it was.
+    float scale = 0.f;
+    if (!(g_sim_freeze > 0.f))
+    {
+        scale = dt * g_sim_scale;
+    }
+    float rate = 0.f;
+    if (!(anim.host_gate > 0.f))
+    {
+        rate = anim.host_rate;
+    }
+    const float step = rate * scale;
+    for (EntityChannelKey& key : anim.keys)
+    {
+        float blend = key.blend;
+        switch (key.mark)
+        {
+        case 1:
+            blend = blend + step / key.value;
+            if (blend > 1.f)
+            {
+                key.mark = 2;
+                blend = 1.f;
+            }
+            key.blend = blend;
+            break;
+        case 2:
+            key.mark = 3;
+            break;
+        case 3:
+        case 4:
+            blend = blend - step / key.value;
+            if (blend < 0.f)
+            {
+                blend = 0.f;
+                key.mark = 0;
+            }
+            key.blend = blend;
+            break;
+        case 5:
+            blend = blend + step / key.value;
+            if (blend > 1.f)
+            {
+                key.mark = 0;
+                blend = 1.f;
+            }
+            key.blend = blend;
+            break;
+        default:
+            break;
+        }
+    }
+}
+
 void fn_1ea90(EntityChannelEase& cam, float dt)
 {
     // Xbox 0x0001EA90

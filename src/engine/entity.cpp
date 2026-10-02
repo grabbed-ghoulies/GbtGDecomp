@@ -1,6 +1,9 @@
 #include "gbtg/entity.hpp"
 
+#include <bit>
+#include <cmath>
 #include <cstdlib>
+#include <span>
 
 namespace gbtg
 {
@@ -146,6 +149,146 @@ bool entity_body_camera_message(Entity& body, const Message& msg)
     body.position.y += msg.vec.y;
     body.position.z += msg.vec.z;
     return true;
+}
+
+namespace
+{
+
+// DAT_004312dc / DAT_004312c4. Freeze above 0 zeros the step (BanjoCam).
+float g_sim_freeze = 0.f;
+float g_sim_scale = 1.f;
+
+struct ChannelKey
+{
+    float duration;
+    float value;
+    u32 channel; // 2 marks the row past the last live key
+};
+
+// Rows at 0x00338F64, 0x00338F88, 0x00338EE0, 0x00338EA4. Stride is three dwords.
+constexpr ChannelKey kKeys0[] = {
+    {0.f, 0.1f, 0},
+    {0.034f, 0.1f, 1},
+    {0.f, 0.f, 2},
+};
+constexpr ChannelKey kKeys1[] = {
+    {0.f, 0.1f, 0},
+    {0.034f, 0.1f, 1},
+    {2.f, 0.f, 2},
+};
+constexpr ChannelKey kKeys2[] = {
+    {2.f, 0.1f, 0},  {0.034f, 0.1f, 1}, {5.f, 0.06f, 0}, {0.034f, 0.06f, 1},
+    {0.2f, 0.09f, 0}, {0.034f, 0.09f, 1}, {1.f, 0.1f, 0}, {0.034f, 0.1f, 1},
+    {5.f, 0.1f, 0},  {0.034f, 0.1f, 1}, {2.f, 0.f, 2},
+};
+constexpr ChannelKey kKeys3[] = {
+    {0.3f, 0.1f, 0},
+    {0.034f, 0.1f, 1},
+    {0.3f, 0.1f, 0},
+    {0.034f, 0.1f, 1},
+    {2.f, 0.f, 2},
+};
+
+static_assert(std::bit_cast<u32>(0.034f) == 0x3D0B4396u);
+static_assert(std::bit_cast<u32>(0.06f) == 0x3D75C28Fu);
+static_assert(std::bit_cast<u32>(0.09f) == 0x3DB851ECu);
+static_assert(std::bit_cast<u32>(0.1f) == 0x3DCCCCCDu);
+static_assert(std::bit_cast<u32>(0.2f) == 0x3E4CCCCDu);
+static_assert(std::bit_cast<u32>(0.3f) == 0x3E99999Au);
+
+std::span<const ChannelKey> keys_for(u8 mode)
+{
+    switch (mode)
+    {
+    case 0:
+        return kKeys0;
+    case 1:
+        return kKeys1;
+    case 2:
+        return kKeys2;
+    case 3:
+        return kKeys3;
+    default:
+        return {};
+    }
+}
+
+} // namespace
+
+void fn_1d850(EntityChannelAnim& anim, float dt)
+{
+    // Xbox 0x0001D850
+    // ESI is the camera. Called from the type slot at 0x00072AC0 when +0xfc is set.
+    // Phase 1 returns. Otherwise the step is host+0x92c (0 when host+0x930 > 0)
+    // times DAT_005096C0 * DAT_004312C4, or 0 when DAT_004312DC > 0.
+    // Each expiry writes the live key's value into +0xe4 + channel*0xc, sets the
+    // mark byte at +8, and loads the following key's duration into +0x8c.
+    // Channel 2 on that following key ends the row: mode 0 latches phase 1,
+    // mode 1 restarts on the mode-2 row, and any other mode restarts at index 0.
+    if (anim.phase == 1)
+    {
+        return;
+    }
+    float span = 0.f;
+    if (!(g_sim_freeze > 0.f))
+    {
+        span = dt * g_sim_scale;
+    }
+    float rate = 0.f;
+    if (!(anim.host_gate > 0.f))
+    {
+        rate = anim.host_rate;
+    }
+    float remain = rate * span;
+    while (remain > 0.f)
+    {
+        anim.timer -= remain;
+        if (anim.timer > 0.f)
+        {
+            return;
+        }
+        remain = std::fabs(anim.timer);
+        const std::span<const ChannelKey> keys = keys_for(anim.mode);
+        if (keys.empty() || static_cast<size_t>(anim.index) + 1u >= keys.size())
+        {
+            return;
+        }
+        const ChannelKey& cur = keys[anim.index];
+        const ChannelKey& next = keys[anim.index + 1u];
+        if (cur.channel < 2)
+        {
+            anim.keys[cur.channel].mark = 1;
+            anim.keys[cur.channel].value = cur.value;
+        }
+        anim.timer = next.duration;
+        if (next.channel == 2)
+        {
+            if (anim.mode == 0)
+            {
+                anim.phase = 1;
+                // The mode-0 terminal duration is 0. A positive overshoot would
+                // subtract from that 0 and select this same key again.
+                if (!(anim.timer > 0.f))
+                {
+                    return;
+                }
+            }
+            else
+            {
+                anim.index = 0;
+                if (anim.mode == 1)
+                {
+                    anim.mode = 2;
+                    anim.timer = kKeys2[0].duration;
+                    anim.phase = 2;
+                }
+            }
+        }
+        else
+        {
+            anim.index = static_cast<u8>(anim.index + 1u);
+        }
+    }
 }
 
 void register_entity_types()

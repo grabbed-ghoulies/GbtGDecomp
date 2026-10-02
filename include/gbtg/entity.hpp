@@ -72,6 +72,28 @@ void entity_body_camera_tick(Entity& body);       // 0x000731F0
 void entity_body_camera_shutdown(Entity& body);   // 0x00073300
 bool entity_body_camera_message(Entity& body, const Message& msg); // 0x00073320, id 99
 
+// Channel keys on the camera (ESI for 0x0001D850). Two slots at +0xe4, stride 0x0c.
+// value is the float this stepper writes; mark is the byte at +8.
+struct EntityChannelKey
+{
+    float value = 0.f;
+    u8 mark = 0;
+};
+
+struct EntityChannelAnim
+{
+    float timer = 0.f;     // +0x8c
+    u8 mode = 0;           // +0x90
+    u8 index = 0;          // +0x91
+    u8 phase = 0;          // +0x92. 1 idles the stepper.
+    float host_rate = 0.f; // camera+8 +0x92c
+    float host_gate = 0.f; // camera+8 +0x930. Above 0 forces the rate to 0.
+    EntityChannelKey keys[2]{};
+};
+
+// dt is DAT_005096C0. DAT_004312DC > 0 yields a zero step; otherwise dt * DAT_004312C4.
+void fn_1d850(EntityChannelAnim& anim, float dt);
+
 constexpr i32 kMsgCameraTranslate = 99;
 
 } // namespace gbtg

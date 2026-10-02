@@ -166,6 +166,12 @@ struct EntityChannelEase
 // EDX is the camera. 0x00072AC0 calls this when +0x154 > 0.
 void fn_1ea90(EntityChannelEase& cam, float dt);
 
+// Focal is the caller float (camera +0x24, or the display record +0x34). -1 selects the table.
+// aspect_slot is EDI (camera +0x30). fit_h / fit_y are the Xbox ECX / EAX outs from 0x000F5760.
+// fit_w / fit_x are the 0x000F56C0 outs. fov_deg, pixel_aspect, and focal_px are the three floats.
+void fn_f57f0(float focal, i32 aspect_slot, i32& fit_w, i32& fit_x, i32& fit_h, i32& fit_y, float& fov_deg,
+              float& pixel_aspect, float& focal_px);
+
 constexpr i32 kMsgCameraTranslate = 99;
 
 } // namespace gbtg

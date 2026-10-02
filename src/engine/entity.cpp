@@ -546,6 +546,152 @@ void fn_1ea90(EntityChannelEase& cam, float dt)
     }
 }
 
+namespace
+{
+
+// DAT_005077F8. Row of the triple table at 0x0042A460. 0 is 4:3, 1 is 16:9, 2 is 2.35.
+i32 g_aspect_preset = 0;
+// DAT_00509704. Zero scales the chosen aspect by 1.1 (0x0032B1A0). Any other byte leaves it.
+u8 g_aspect_exact = 0;
+
+// DAT_005077A8. 0x000F5900 points this at the display record and copies the viewport
+// (DAT_005096E8 / DAT_005096EA) into the size fields. A null pointer faults on Xbox.
+struct DisplayView
+{
+    i32 aspect_mode = 0; // +0x3c. 3 selects g_aspect_preset.
+    i32 origin_x = 0;    // +0x48
+    i32 origin_y = 0;    // +0x4c
+    i32 width = 0;       // +0x50
+    i32 height = 0;      // +0x54
+};
+
+DisplayView g_display{};
+DisplayView* g_display_view = &g_display;
+
+// 0x0042A460 stride 0x0c: aspect, sensor height, default focal. Index 3 is the sentinel row.
+struct AspectTriple
+{
+    float aspect;
+    float sensor;
+    float focal;
+};
+
+constexpr AspectTriple kAspectTable[] = {
+    {std::bit_cast<float>(0x3FAAAAABu), std::bit_cast<float>(0x4178B780u), std::bit_cast<float>(0x416EE3E8u)},
+    {std::bit_cast<float>(0x3FE38E39u), std::bit_cast<float>(0x41C00625u), std::bit_cast<float>(0x41B86FF5u)},
+    {std::bit_cast<float>(0x40166666u), std::bit_cast<float>(0x41C00625u), std::bit_cast<float>(0x41B86FF5u)},
+    {0.f, 0.f, 0.f},
+};
+
+constexpr float kAspectPad = std::bit_cast<float>(0x3F8CCCCDu); // 0x0032B1A0, 1.1
+constexpr float kFovScale = std::bit_cast<float>(0x42E52EE0u);  // 0x0032B360, 360/pi
+constexpr float kHalfRad = std::bit_cast<float>(0x3C0EFA35u);   // 0x0032B358, pi/360
+constexpr float kNegOne = std::bit_cast<float>(0xBF800000u);    // 0x0032B120
+
+const AspectTriple& aspect_triple(i32 index)
+{
+    if (index < 0 || index >= 4)
+    {
+        return kAspectTable[3];
+    }
+    return kAspectTable[index];
+}
+
+float chosen_aspect(i32 slot)
+{
+    i32 index = slot;
+    if (slot == 3)
+    {
+        index = g_aspect_preset;
+    }
+    float aspect = aspect_triple(index).aspect;
+    if (g_aspect_exact == 0)
+    {
+        aspect *= kAspectPad;
+    }
+    return aspect;
+}
+
+// cvttss2si. Out of range and NaN become the indefinite integer.
+i32 trunc_i32(float v)
+{
+    if (!(v >= -2147483648.f && v < 2147483648.f))
+    {
+        return static_cast<i32>(0x80000000u);
+    }
+    return static_cast<i32>(v);
+}
+
+// 0x000F5760. ECX is the aspect slot, ESI and the stack pointer receive the span and the origin.
+void fit_vertical(i32 slot, i32& span, i32& pos)
+{
+    const float ref = aspect_triple(g_aspect_preset).aspect;
+    const float selected = chosen_aspect(slot);
+    const i32 limit = g_display_view->height;
+    span = trunc_i32(static_cast<float>(limit) * (ref / selected));
+    if (span > limit)
+    {
+        span = limit;
+    }
+    const i32 remain = static_cast<i32>(static_cast<u32>(limit) - static_cast<u32>(span));
+    pos = trunc_i32(static_cast<float>(remain) * 0.5f + static_cast<float>(g_display_view->origin_y));
+}
+
+// 0x000F56C0. Same slot. The span is the wide axis and the second out is its centered origin.
+void fit_horizontal(i32 slot, i32& span, i32& pos)
+{
+    const float ref = aspect_triple(g_aspect_preset).aspect;
+    const float selected = chosen_aspect(slot);
+    const i32 limit = g_display_view->width;
+    span = trunc_i32(static_cast<float>(limit) * (selected / ref));
+    if (span > limit)
+    {
+        span = limit;
+    }
+    const i32 remain = static_cast<i32>(static_cast<u32>(limit) - static_cast<u32>(span));
+    pos = trunc_i32(static_cast<float>(remain) * 0.5f + static_cast<float>(g_display_view->origin_x));
+}
+
+} // namespace
+
+void fn_f57f0(float focal, i32 aspect_slot, i32& fit_w, i32& fit_x, i32& fit_h, i32& fit_y, float& fov_deg,
+              float& pixel_aspect, float& focal_px)
+{
+    // Xbox 0x000F57F0
+    // EDI is the aspect slot. ECX receives the fitted height and EAX its centered y.
+    // The stack receives the fitted width and its x, the vertical FOV in degrees,
+    // the pixel aspect, and the focal length in pixels. 0x000F5760 runs first, then
+    // 0x000F56C0. The sensor row is display +0x3c (3 means DAT_005077F8). A focal of
+    // -1 uses the table focal for EDI the same way. FOV is
+    // 2 * atan(sensor / (2 * focal)) degrees. The pixel focal is (height / 2) *
+    // cot(half of that angle): sin is 0x00153320, cos is 0x00153230, atan is
+    // 0x00152780. Pixel aspect divides width/height by the preset row's aspect.
+    fit_vertical(aspect_slot, fit_h, fit_y);
+    fit_horizontal(aspect_slot, fit_w, fit_x);
+
+    i32 sensor_slot = g_display_view->aspect_mode;
+    if (sensor_slot == 3)
+    {
+        sensor_slot = g_aspect_preset;
+    }
+    float used = focal;
+    if (used == kNegOne)
+    {
+        i32 focal_slot = aspect_slot;
+        if (focal_slot == 3)
+        {
+            focal_slot = g_aspect_preset;
+        }
+        used = aspect_triple(focal_slot).focal;
+    }
+    fov_deg = std::atan(aspect_triple(sensor_slot).sensor / (used * 2.f)) * kFovScale;
+    const float half = fov_deg * kHalfRad;
+    const float height = static_cast<float>(g_display_view->height);
+    const float width = static_cast<float>(g_display_view->width);
+    focal_px = (height * std::cos(half) / std::sin(half)) * 0.5f;
+    pixel_aspect = (width / height) / aspect_triple(g_aspect_preset).aspect;
+}
+
 void register_entity_types()
 {
     if (!g_types.empty())

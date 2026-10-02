@@ -381,6 +381,28 @@ void fn_663e0(void* block)
     g_heap_current = saved;
 }
 
+void fn_73760(Entity& body)
+{
+    // Xbox 0x00073760
+    // EAX is the body. 0x000734B0 tails here after it has released the pointers
+    // at +0x89c and +0x8a0. The six slots are cleared from +0x910 down to +0x8ac.
+    // 0x00073A90 hands back successive 0x30-byte slices of one allocation, so the
+    // lowest live pointer is the base. That base goes through 0x000663E0.
+    void* base = nullptr;
+    for (i32 i = 5; i >= 0; --i)
+    {
+        if (body.block_8ac[i] != nullptr)
+        {
+            base = body.block_8ac[i];
+            body.block_8ac[i] = nullptr;
+        }
+    }
+    if (base != nullptr)
+    {
+        fn_663e0(base);
+    }
+}
+
 void fn_fcd70(void* dest, const void* src)
 {
     // Xbox 0x000FCD70

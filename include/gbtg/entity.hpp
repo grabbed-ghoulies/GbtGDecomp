@@ -202,6 +202,9 @@ struct Entity
     Vec3 anchor{};      // +0x318
     Vec3 world_euler{}; // +0x72c
     u8 latch[6]{};      // +0x260 .. +0x265
+    // +0x8ac, +0x8c0, +0x8d4, +0x8e8, +0x8fc, +0x910. 0x00073A90 plants
+    // 0x30-byte slices of one heap block. Index 0 is the base when it is live.
+    void* block_8ac[6]{};
 };
 
 const EntityType* find_entity_type(std::string_view name);
@@ -219,6 +222,7 @@ Vec3 actor_world_euler(const Actor& actor);    // 0x00041820
 Vec3 fn_104040(const float m[12]); // 0x00104040
 void fn_41730(Actor& actor, const Vec3& point); // 0x00041730 EDI actor, ESI point
 void fn_663e0(void* block);                    // 0x000663E0 EAX = block
+void fn_73760(Entity& body);                   // 0x00073760 EAX = body
 void fn_fcd70(void* dest, const void* src);    // 0x000FCD70 EAX dest, ECX source, 0x54 bytes
 
 // 0x28 bytes at +0x28 inside the 0x54-byte record 0x000FCD70 copies.

@@ -1981,4 +1981,61 @@ void fn_1203e0(const Vec3& src, Vec3& dest, const Actor* actor, float height, fl
     dest.z = src.z + push.z;
 }
 
+i32 fn_120760(const EntityCylinderBound& query, const EntityCylinderBound& obstacle, const Vec3& offset,
+              Vec3& push)
+{
+    // Xbox 0x00120760
+    // EBX is the query cylinder, EDI the obstacle, and the two stack arguments are
+    // the offset and the push. The query point is the cylinder position plus the
+    // offset. A miss on the vertical slabs, or an XZ distance at or beyond the
+    // summed radius, returns 0. 0x00152B30 is the horizontal length. Under 1e-5
+    // the X separation becomes 1 and the length becomes the summed radius minus
+    // 0.01. 0x00120250 then scales that (dx, 0, dz) vector out to the summed
+    // radius when its length is not zero. The push is the scaled point minus the
+    // query point, with Y cleared. The contact midpoint is stored at
+    // DAT_005111AC[DAT_00511188] and the index is left alone.
+    const float point_x = offset.x + query.x;
+    const float point_y = query.y + offset.y;
+    const float point_z = query.z + offset.z;
+    if (point_y > obstacle.y + obstacle.height || obstacle.y > point_y + query.height)
+    {
+        return 0;
+    }
+
+    const float combined = obstacle.radius + query.radius;
+    float dx = point_x - obstacle.x;
+    float dz = point_z - obstacle.z;
+    float dist = std::sqrt(dx * dx + dz * dz);
+    if (dist < kHitEps)
+    {
+        dx = 1.f;
+        dist = combined - kHitPad;
+    }
+    if (combined <= dist)
+    {
+        return 0;
+    }
+
+    const float len2 = dx * dx + dz * dz;
+    if (len2 != 0.f)
+    {
+        const float scale = combined / std::sqrt(len2);
+        dx *= scale;
+        dz *= scale;
+    }
+    push.x = (obstacle.x + dx) - point_x;
+    push.y = 0.f;
+    push.z = (obstacle.z + dz) - point_z;
+
+    if (g_contact_slot >= 0 && g_contact_slot < 64)
+    {
+        const float mid_y = obstacle.height * 0.5f + obstacle.y;
+        const float sample_y = offset.y + query.height * 0.5f + query.y;
+        g_contact_points[g_contact_slot].x = (point_x - obstacle.x) * 0.5f + obstacle.x;
+        g_contact_points[g_contact_slot].y = (sample_y - mid_y) * 0.5f + mid_y;
+        g_contact_points[g_contact_slot].z = (point_z - obstacle.z) * 0.5f + obstacle.z;
+    }
+    return 1;
+}
+
 } // namespace gbtg

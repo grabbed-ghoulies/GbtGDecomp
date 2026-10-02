@@ -411,4 +411,10 @@ i32 fn_120480(const Vec3& src, const Actor* actor, EntityCylinderBound* shapes, 
 // the stack float is the radius. Bytes are 4, 0x20, 1.
 void fn_1203e0(const Vec3& src, Vec3& dest, const Actor* actor, float height, float radius);
 
+// EBX is the query cylinder and EDI the obstacle. The offset is added to the
+// query position. push is the horizontal correction (Y stays 0). Returns 1 when
+// the vertical slabs overlap and the XZ gap is inside the summed radius.
+i32 fn_120760(const EntityCylinderBound& query, const EntityCylinderBound& obstacle, const Vec3& offset,
+              Vec3& push);
+
 } // namespace gbtg

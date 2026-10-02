@@ -516,4 +516,11 @@ void fn_1234b0(const char* name);
 // name at DAT_00510ed8 and clears the script slot at DAT_00430d08.
 void fn_11ead0();
 
+// cam_11c480 calls this after 0x00129F30. Each of the twenty slots at
+// DAT_00512140 (stride 0x18) drops its voice key through 0x001319C0 when
+// DAT_00545abc is set, then the slot is cleared. The four spawn pointers
+// at DAT_00512324 are zeroed for the count at DAT_00512320, and that
+// count becomes 0. The parallel times at DAT_00512334 stay as they are.
+void fn_123b30();
+
 } // namespace gbtg

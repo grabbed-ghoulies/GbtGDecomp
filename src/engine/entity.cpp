@@ -14,17 +14,197 @@ namespace
 
 std::vector<EntityType> g_types;
 
-void stub_tick(Entity&)
+u8 case_state(const Entity& body)
 {
+    if (body.case_link == nullptr)
+    {
+        return 0;
+    }
+    return body.case_link->state;
 }
 
-void stub_shutdown(Entity&)
+// State 1 is classified by 0x00145FF0. No class word is stored here, so that
+// case misses the same way state > 4 does.
+i32 id_by_state(const Entity& body, i32 state0, i32 state2, i32 state3, i32 state4)
 {
+    switch (case_state(body))
+    {
+    case 0:
+        return state0;
+    case 2:
+        return state2;
+    case 3:
+        return state3;
+    case 4:
+        return state4;
+    default:
+        return 0;
+    }
 }
 
-bool stub_message(Entity&, const Message&)
+void body_query_size(u32 out[2])
 {
+    // 0x0001DA30. Default slot 0. Camera ctors replace this with 0x00073170.
+    out[0] = 0x894;
+    out[1] = 0x7C8;
+}
+
+void body_tick(Entity&)
+{
+    // 0x00024C50. Default tick. Publishes the actor at +0x1b0 and samples pose.
+}
+
+void body_shutdown(Entity&)
+{
+    // 0x00024F70. Releases the record at +0x64 through 0x000663E0, then the
+    // object at +0x5c. This body does not keep those records.
+}
+
+bool body_message(Entity&, const Message&)
+{
+    // 0x000253B0. Forwards the message to the children at +0x744 and +0x314,
+    // each through vtable +0xC. Neither child is installed.
     return false;
+}
+
+void body_relay(Entity&, const Message&)
+{
+    // 0x00025EC0. Forwards to the same two children through vtable +0x10.
+}
+
+void body_step_channels(Entity&)
+{
+    // 0x00072AC0. Child at +0x314 is called through vtable +0x14. Count at
+    // +0x154 selects 0x0001EA90. A set +0xfc runs 0x0001D850 and tails to
+    // 0x0001EDE0. The channel block is not on this body.
+}
+
+void body_apply(Entity&)
+{
+    // 0x00025AE0 camera_apply. +0xfc selects 0x0001EEC0, +0x154 selects
+    // 0x0001EC20, then 0x00025190 and 0x00025C50. Scene tick owns those calls.
+}
+
+i32 body_gate()
+{
+    // 0x000CFFD0. Default slot 7. Returns 1. Camera ctors replace it.
+    return 1;
+}
+
+i32 body_pick_actor(const Entity&, i32 fallback)
+{
+    // 0x00026950. Closes to the caller word unless actor+0x958, its byte +0x20,
+    // body+0x73c, and 0x00027510 all accept.
+    return fallback;
+}
+
+i32 body_pick_gated(const Entity&)
+{
+    // 0x000269C0. State ids 0xB6, 0xBC, 0xBD, 0xBB, 0xB8, 0xBA, 0xB9. Body+0x73c
+    // and 0x00027510 must accept. No record returns 0.
+    return 0;
+}
+
+i32 body_link_idle(const Entity& body)
+{
+    // 0x00026A70. Null link or state 0 returns 0x112. Any other state returns 0.
+    if (body.case_link == nullptr || body.case_link->state == 0)
+    {
+        return 0x112;
+    }
+    return 0;
+}
+
+i32 body_pick_actor_b(const Entity&, i32 fallback)
+{
+    // 0x00026A90. Same gate as 0x00026950, after 0x00027140 instead of 0x00027060.
+    return fallback;
+}
+
+i32 body_pick_direct(const Entity& body)
+{
+    // 0x00026B00. State 0/2/3/4 are 0x118/0x119/0x11B/0x11A.
+    return id_by_state(body, 0x118, 0x119, 0x11B, 0x11A);
+}
+
+i32 body_pick_direct_b(const Entity& body)
+{
+    // 0x00026BB0. State 0/2/3/4 are 0x33/0x34/0x36/0x35.
+    return id_by_state(body, 0x33, 0x34, 0x36, 0x35);
+}
+
+i32 body_pick_gated_b(const Entity&)
+{
+    // 0x00026DE0. State ids 0x1C, 0x22, 0x23, 0x21, 0x1D, 0x1F, 0x1E, then the
+    // +0x73c gate. No record returns 0.
+    return 0;
+}
+
+i32 body_pick_gated_c(const Entity&)
+{
+    // 0x00026EC0. State ids 0x2D, 0x31, 0x32, 0x30, 0x2E, 0x2F, then the gate.
+    return 0;
+}
+
+i32 body_pick_gated_d(const Entity&)
+{
+    // 0x00026F90. State ids 0xE4, 0xE9, 0xEA, 0xE8, 0xE5, 0xE7, 0xE6, then the gate.
+    return 0;
+}
+
+i32 body_pick_direct_c(const Entity& body)
+{
+    // 0x00027220. State 0/2/3/4 are 0x70/0x71/0x73/0x72.
+    return id_by_state(body, 0x70, 0x71, 0x73, 0x72);
+}
+
+i32 body_pick_range(const Entity& body)
+{
+    // 0x000272D0. State 4 returns 0xD7. State 1 asks 0x001460C0 and adds 4 when
+    // that call is non-zero (0xDA); a zero result stays 0xD6. Every other state
+    // returns 0xD6.
+    if (case_state(body) == 4)
+    {
+        return 0xD7;
+    }
+    return 0xD6;
+}
+
+i32 body_fixed_id()
+{
+    // 0x00027500. Always 0xA9 in AX.
+    return 0xA9;
+}
+
+i32 body_pick_direct_d(const Entity& body)
+{
+    // 0x00027320. State 0/2/3/4 are 0x56/0x57/0x59/0x58.
+    return id_by_state(body, 0x56, 0x57, 0x59, 0x58);
+}
+
+i32 body_pick_direct_e(const Entity& body)
+{
+    // 0x000273D0. State 0/2/3/4 are 0x41/0x42/0x44/0x43.
+    return id_by_state(body, 0x41, 0x42, 0x44, 0x43);
+}
+
+i32 body_pick_direct_f(const Entity& body)
+{
+    // 0x00027480. States 0, 2, and 4 return 0x15. State 3 returns 0x16.
+    // State 1 classifies: class 1 is 0x15, class 2 is 0x18, class 3 is 0x17.
+    return id_by_state(body, 0x15, 0x15, 0x16, 0x15);
+}
+
+i32 body_pick_near(const Entity& body)
+{
+    // 0x00026C60. Reads the case byte on its object. State 3 returns 0xDC.
+    // States 1 and 2 compare world positions (0x000412A0) and can return
+    // 0xC3..0xC9. Any other state returns 0.
+    if (case_state(body) == 3)
+    {
+        return 0xDC;
+    }
+    return 0;
 }
 
 void add_named(const char* name, EntityKind kind)
@@ -32,9 +212,14 @@ void add_named(const char* name, EntityKind kind)
     EntityType t;
     t.name = name;
     t.kind = kind;
-    t.tick = stub_tick;
-    t.shutdown = stub_shutdown;
-    t.handle_message = stub_message;
+    fn_1da60(t.methods);
+    t.tick = t.methods.tick;
+    t.shutdown = t.methods.shutdown;
+    t.handle_message = t.methods.handle_message;
+    u32 sizes[2] = {};
+    t.methods.query_size(sizes);
+    t.xbox_size = sizes[0];
+    t.xbox_extra = sizes[1];
     g_types.push_back(t);
 }
 
@@ -801,6 +986,38 @@ void fn_f57f0(float focal, i32 aspect_slot, i32& fit_w, i32& fit_x, i32& fit_h, 
     pixel_aspect = (width / height) / aspect_triple(g_aspect_preset).aspect;
 }
 
+void fn_1da60(EntityMethods& methods)
+{
+    // Xbox 0x0001DA60
+    // EAX is the type descriptor. Writes the 24 default Body methods. A static
+    // ctor then overwrites the slots it owns. Slot 0 reports size 0x894 and
+    // extra 0x7C8. Slot 6 is camera apply 0x00025AE0. Slot 7 returns 1.
+    methods.query_size = body_query_size;
+    methods.tick = body_tick;
+    methods.shutdown = body_shutdown;
+    methods.handle_message = body_message;
+    methods.relay_message = body_relay;
+    methods.step_channels = body_step_channels;
+    methods.apply = body_apply;
+    methods.gate = body_gate;
+    methods.pick_actor = body_pick_actor;
+    methods.pick_gated = body_pick_gated;
+    methods.link_idle = body_link_idle;
+    methods.pick_actor_b = body_pick_actor_b;
+    methods.pick_direct = body_pick_direct;
+    methods.pick_direct_b = body_pick_direct_b;
+    methods.pick_gated_b = body_pick_gated_b;
+    methods.pick_gated_c = body_pick_gated_c;
+    methods.pick_gated_d = body_pick_gated_d;
+    methods.pick_direct_c = body_pick_direct_c;
+    methods.pick_range = body_pick_range;
+    methods.fixed_id = body_fixed_id;
+    methods.pick_direct_d = body_pick_direct_d;
+    methods.pick_direct_e = body_pick_direct_e;
+    methods.pick_direct_f = body_pick_direct_f;
+    methods.pick_near = body_pick_near;
+}
+
 void register_entity_types()
 {
     if (!g_types.empty())
@@ -809,16 +1026,27 @@ void register_entity_types()
     }
     g_types.reserve(64);
 
-    // Xbox 0x00073190 entityBodyCamera_ctor: fill defaults at 0x1DA60, then overwrite slots.
+    // Xbox 0x00073190 entityBodyCamera_ctor: fill defaults, then overwrite.
+    // +0x00..+0x0C become the camera size, tick, shutdown, and message.
+    // +0x10 and +0x14 stay 0x00025EC0 and 0x00072AC0.
+    // Retail then stores 0x00072B10 at +0x18 and 0x00072CB0 at +0x1C. Those
+    // two replacements are not ported, so the default apply and gate remain.
     EntityType camera;
     camera.name = "entityBodyCamera";
     camera.kind = EntityKind::Body;
     camera.xbox_desc_va = 0x00504F80;
-    camera.xbox_size = 0x914;
-    camera.xbox_extra = 0x7C8;
-    camera.tick = entity_body_camera_tick;
-    camera.shutdown = entity_body_camera_shutdown;
-    camera.handle_message = entity_body_camera_message;
+    fn_1da60(camera.methods);
+    camera.methods.query_size = entity_body_camera_sizeof;
+    camera.methods.tick = entity_body_camera_tick;
+    camera.methods.shutdown = entity_body_camera_shutdown;
+    camera.methods.handle_message = entity_body_camera_message;
+    camera.tick = camera.methods.tick;
+    camera.shutdown = camera.methods.shutdown;
+    camera.handle_message = camera.methods.handle_message;
+    u32 sizes[2] = {};
+    camera.methods.query_size(sizes);
+    camera.xbox_size = sizes[0];
+    camera.xbox_extra = sizes[1];
     g_types.push_back(camera);
 
     const char* bodies[] = {"entityBodyPlayer", "entityBodyHuman", "entityBodyZombie", "entityBodyVampire",

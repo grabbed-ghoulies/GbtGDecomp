@@ -9,7 +9,7 @@ namespace gbtg
 {
 
 // Rare entity split recovered from XBE type names: Body / Mind / Strategy.
-// Types are C vtables filled by static ctors that call entity_type_fill_defaults (0x0001DA60)
+// Types are C vtables filled by static ctors that call fn_1da60 (0x0001DA60)
 // then overwrite slots. entityBodyCamera_ctor (0x00073190) is the first reconstructed example.
 
 enum class EntityKind
@@ -61,6 +61,42 @@ struct Message
     Vec3 vec{};
 };
 
+// Object at body+0x48. Case selectors read the byte at +0x93d. A null link is state 0.
+struct EntityCaseLink
+{
+    u8 state = 0; // +0x93d
+};
+
+// Default Body method table. Xbox writes 24 dwords (0x60 bytes) through EAX.
+// Offsets are the descriptor slots. A type ctor overwrites the ones it owns.
+struct EntityMethods
+{
+    void (*query_size)(u32 out[2]) = nullptr; // +0x00
+    void (*tick)(Entity& body) = nullptr; // +0x04
+    void (*shutdown)(Entity& body) = nullptr; // +0x08
+    bool (*handle_message)(Entity& body, const Message& msg) = nullptr; // +0x0C
+    void (*relay_message)(Entity& body, const Message& msg) = nullptr; // +0x10
+    void (*step_channels)(Entity& body) = nullptr; // +0x14
+    void (*apply)(Entity& body) = nullptr; // +0x18
+    i32 (*gate)() = nullptr; // +0x1C
+    i32 (*pick_actor)(const Entity& body, i32 fallback) = nullptr; // +0x20
+    i32 (*pick_gated)(const Entity& body) = nullptr; // +0x24
+    i32 (*link_idle)(const Entity& body) = nullptr; // +0x28
+    i32 (*pick_actor_b)(const Entity& body, i32 fallback) = nullptr; // +0x2C
+    i32 (*pick_direct)(const Entity& body) = nullptr; // +0x30
+    i32 (*pick_direct_b)(const Entity& body) = nullptr; // +0x34
+    i32 (*pick_gated_b)(const Entity& body) = nullptr; // +0x38
+    i32 (*pick_gated_c)(const Entity& body) = nullptr; // +0x3C
+    i32 (*pick_gated_d)(const Entity& body) = nullptr; // +0x40
+    i32 (*pick_direct_c)(const Entity& body) = nullptr; // +0x44
+    i32 (*pick_range)(const Entity& body) = nullptr; // +0x48
+    i32 (*fixed_id)() = nullptr; // +0x4C
+    i32 (*pick_direct_d)(const Entity& body) = nullptr; // +0x50
+    i32 (*pick_direct_e)(const Entity& body) = nullptr; // +0x54
+    i32 (*pick_direct_f)(const Entity& body) = nullptr; // +0x58
+    i32 (*pick_near)(const Entity& body) = nullptr; // +0x5C
+};
+
 struct EntityType
 {
     const char* name = "";
@@ -71,6 +107,7 @@ struct EntityType
     void (*tick)(Entity& e) = nullptr;
     void (*shutdown)(Entity& e) = nullptr;
     bool (*handle_message)(Entity& e, const Message& msg) = nullptr;
+    EntityMethods methods{};
 };
 
 struct Entity
@@ -83,11 +120,15 @@ struct Entity
     Quat pose_quat{0.f, 0.f, 0.f, 1.f};
     float pose_fov = 0.9f;
     bool listed = false;
+    EntityCaseLink* case_link = nullptr; // Xbox body+0x48
 };
 
 const EntityType* find_entity_type(std::string_view name);
 std::vector<const EntityType*> all_entity_types();
 void register_entity_types();
+
+// EAX is the type descriptor. Writes the 24 default Body methods.
+void fn_1da60(EntityMethods& methods);
 
 Vec3 actor_world_position(const Actor& actor); // 0x000412A0
 Vec3 actor_world_euler(const Actor& actor);    // 0x00041820

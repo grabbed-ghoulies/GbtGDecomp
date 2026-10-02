@@ -348,4 +348,51 @@ void fn_f57f0(float focal, i32 aspect_slot, i32& fit_w, i32& fit_x, i32& fit_h, 
 
 constexpr i32 kMsgCameraTranslate = 99;
 
+// Shape node passed to 0x00055AA0. The bone id is the u16 at +8. +0x10 and +0x14
+// are added to the local point at +0x18 before 0x00056790.
+struct EntityShapeNode
+{
+    u8 kind = 0; // +0
+    u8 next = 0; // +1
+    u16 pad_2 = 0;
+    u32 mask = 0; // +4
+    u16 bone = 0xFFFF; // +8. 0xFFFF skips the skeleton.
+    u16 pad_a = 0;
+    u32 pad_c = 0; // +0xC
+    float along_x = 0.f; // +0x10
+    float along_y = 0.f; // +0x14
+    Vec3 point{};        // +0x18
+};
+
+// Pose passed as the third argument. packed is the dword at +4.
+// Non-zero: bone matrices are 3x4, stride 0x30, stored from +0x10.
+// Zero: bone matrices are 4x4, stride 0x40, and 0x000315F0 transposes
+// the first three columns into that multiply. mats holds the floats at +0x10.
+struct EntityBonePose
+{
+    u32 tag = 0;
+    u32 packed = 0;
+    std::vector<float> mats;
+};
+
+// ESI for 0x00055AA0. 0x20 bytes. Y is the bottom; height is the full extent.
+struct EntityCylinderBound
+{
+    u8 kind = 0; // 4
+    u8 size = 0; // 0x20
+    u8 flag = 0; // 1
+    float x = 0.f;
+    float y = 0.f;
+    float z = 0.f;
+    float pad0 = 0.f; // +0x10
+    float height = 0.f; // +0x14
+    float pad1 = 0.f; // +0x18
+    float radius = 0.f; // +0x1C
+};
+
+// ESI is the record. world is the actor matrix (null skips it). pose is the
+// skeleton (null, or bone 0xFFFF, skips it).
+void fn_55aa0(const EntityShapeNode& node, const float* world, const EntityBonePose* pose,
+              EntityCylinderBound& out);
+
 } // namespace gbtg

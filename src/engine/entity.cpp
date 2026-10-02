@@ -1645,4 +1645,126 @@ std::vector<const EntityType*> all_entity_types()
     return out;
 }
 
+static_assert(offsetof(EntityShapeNode, bone) == 8);
+static_assert(offsetof(EntityShapeNode, along_x) == 0x10);
+static_assert(offsetof(EntityShapeNode, along_y) == 0x14);
+static_assert(offsetof(EntityShapeNode, point) == 0x18);
+static_assert(offsetof(EntityCylinderBound, x) == 4);
+static_assert(offsetof(EntityCylinderBound, height) == 0x14);
+static_assert(offsetof(EntityCylinderBound, radius) == 0x1C);
+static_assert(sizeof(EntityCylinderBound) == 0x20);
+
+namespace
+{
+
+Vec3 mul_row(const float m[12], const Vec3& p)
+{
+    return Vec3{
+        m[0] * p.x + m[1] * p.y + m[2] * p.z + m[3],
+        m[4] * p.x + m[5] * p.y + m[6] * p.z + m[7],
+        m[8] * p.x + m[9] * p.y + m[10] * p.z + m[11],
+    };
+}
+
+float length3(const Vec3& d)
+{
+    return std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+}
+
+// 0x000315F0. A packed table returns the 3x4 at +0x10 + index * 0x30.
+// A clear +4 transposes the 4x4 at +0x10 + index * 0x40 into that layout.
+bool bone_matrix(const EntityBonePose& pose, i16 bone, float out[12])
+{
+    const i32 index = bone;
+    if (index < 0)
+    {
+        return false;
+    }
+    if (pose.packed != 0)
+    {
+        const size_t base = static_cast<size_t>(index) * 12u;
+        if (base + 12u > pose.mats.size())
+        {
+            return false;
+        }
+        std::memcpy(out, pose.mats.data() + base, sizeof(float) * 12u);
+        return true;
+    }
+    const size_t base = static_cast<size_t>(index) * 16u;
+    if (base + 16u > pose.mats.size())
+    {
+        return false;
+    }
+    const float* s = pose.mats.data() + base;
+    out[0] = s[0];
+    out[1] = s[4];
+    out[2] = s[8];
+    out[3] = s[12];
+    out[4] = s[1];
+    out[5] = s[5];
+    out[6] = s[9];
+    out[7] = s[13];
+    out[8] = s[2];
+    out[9] = s[6];
+    out[10] = s[10];
+    out[11] = s[14];
+    return true;
+}
+
+Vec3 xform_point(const EntityShapeNode& node, const float* world, const EntityBonePose* pose, Vec3 local)
+{
+    // 0x00056790. Bone 0xFFFF copies the local point. Otherwise the pose
+    // matrix is applied first. A null world matrix skips the actor multiply.
+    Vec3 p = local;
+    if (node.bone != 0xFFFF && pose != nullptr)
+    {
+        float bone_m[12];
+        if (bone_matrix(*pose, static_cast<i16>(node.bone), bone_m))
+        {
+            p = mul_row(bone_m, p);
+        }
+    }
+    if (world != nullptr)
+    {
+        p = mul_row(world, p);
+    }
+    return p;
+}
+
+} // namespace
+
+void fn_55aa0(const EntityShapeNode& node, const float* world, const EntityBonePose* pose,
+              EntityCylinderBound& out)
+{
+    // Xbox 0x00055AA0
+    // ESI is the 0x20-byte record. 0x00055B30 transforms the point at node+0x18,
+    // that point plus the float at +0x10 on local x, and that point plus the
+    // float at +0x14 on local y. The radius is the world length of the x
+    // offset. The y offset's length is stored positive and negated; the record
+    // y is the world point plus the negated length, and the height is the
+    // positive length minus that negated length. Bytes are 4, 0x20, 1. The
+    // floats at +0x10 and +0x18 are cleared. 0x00103BE0 transforms node+0x24
+    // into a scratch this record does not read.
+    const Vec3 base = xform_point(node, world, pose, node.point);
+    Vec3 along_x = node.point;
+    along_x.x += node.along_x;
+    Vec3 along_y = node.point;
+    along_y.y += node.along_y;
+    const Vec3 world_x = xform_point(node, world, pose, along_x);
+    const Vec3 world_y = xform_point(node, world, pose, along_y);
+    const float reach = length3(Vec3{base.x - world_x.x, base.y - world_x.y, base.z - world_x.z});
+    const float hy = length3(Vec3{base.x - world_y.x, base.y - world_y.y, base.z - world_y.z});
+    const float down = -hy;
+    out.kind = 4;
+    out.size = 0x20;
+    out.flag = 1;
+    out.x = base.x;
+    out.y = base.y + down;
+    out.z = base.z;
+    out.pad0 = 0.f;
+    out.height = hy - down;
+    out.pad1 = 0.f;
+    out.radius = reach;
+}
+
 } // namespace gbtg

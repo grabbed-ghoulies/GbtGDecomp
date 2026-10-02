@@ -516,6 +516,13 @@ void fn_1234b0(const char* name);
 // name at DAT_00510ed8 and clears the script slot at DAT_00430d08.
 void fn_11ead0();
 
+// cam_11c480 calls this after 0x0011B630. Each of the ten records at
+// DAT_0051254c (stride 0x90) stores 0xFFFF in the id at +0x8c. The cap
+// at DAT_00512520 becomes 0x14 and the cap at DAT_00512534 becomes 6.
+// The lists inside those two stride-0x14 bins, the names in the records,
+// and the count at DAT_00512548 stay as they are.
+void fn_129f30();
+
 // cam_11c480 calls this after 0x00129F30. Each of the twenty slots at
 // DAT_00512140 (stride 0x18) drops its voice key through 0x001319C0 when
 // DAT_00545abc is set, then the slot is cleared. The four spawn pointers

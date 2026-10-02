@@ -3691,4 +3691,55 @@ void fn_123b30()
     g_effect_spawn_count = 0;
 }
 
+namespace
+{
+
+// DAT_00512520. Two bins, stride 0x14, ending at DAT_00512548.
+// +0 is the cap 0x0012A7D0 subtracts from one list length before it
+// walks the list at +0x10. The four list heads are left in place.
+struct IdBin
+{
+    i32 cap = 0;
+    u32 list_4 = 0;
+    u32 list_8 = 0;
+    u32 list_c = 0;
+    u32 list_10 = 0;
+};
+
+static_assert(sizeof(IdBin) == 0x14);
+static_assert(offsetof(IdBin, list_10) == 0x10);
+
+constexpr i32 kIdBinCount = 2;
+IdBin g_id_bins[kIdBinCount]{};
+
+// DAT_0051254c. Ten records, stride 0x90, so the id words run from
+// DAT_005125d8 and stop before DAT_00512b78. +0x8c is the id 0x0012A1E0
+// stores from 0x00039830. 0xFFFF means that slot has none. The name at
+// +0 and the live count at DAT_00512548 are not part of this reset.
+struct IdRecord
+{
+    u8 head[0x8C]{};
+    u16 id = 0;
+    u8 tail[2]{};
+};
+
+static_assert(offsetof(IdRecord, id) == 0x8C);
+static_assert(sizeof(IdRecord) == 0x90);
+
+constexpr i32 kIdRecordCount = 10;
+IdRecord g_id_records[kIdRecordCount]{};
+
+} // namespace
+
+void fn_129f30()
+{
+    // Xbox 0x00129F30
+    for (IdRecord& record : g_id_records)
+    {
+        record.id = 0xFFFF;
+    }
+    g_id_bins[0].cap = 0x14;
+    g_id_bins[1].cap = 6;
+}
+
 } // namespace gbtg

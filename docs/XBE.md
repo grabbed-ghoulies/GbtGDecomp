@@ -166,3 +166,4 @@ Named functions: [`docs/generated/ghidra_functions.txt`](generated/ghidra_functi
 | `0x0001EEC0` | `fn_1eec0` | scene |
 | `0x00033A90` | `present_33a90` | present |
 | `0x000396F0` | `xact_396f0` | audio |
+| `0x0001FB40` | `fn_1fb40` | scene |

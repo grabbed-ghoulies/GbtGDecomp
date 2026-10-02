@@ -664,6 +664,155 @@ void fn_1eec0(CameraChannels& cam)
     }
 }
 
+// camera_apply (0x00025AE0) calls 0x0001FB40 with ESI = camera, after the
+// channel pass and before the wash. DAT_004312dc > 0 freezes the step
+// (BanjoCam). Otherwise the step is DAT_005096C0 * DAT_004312C4 (dt * scale).
+// Host is camera+8. Its +0x930 > 0 forces the decay rate to 0; otherwise the
+// rate is host+0x92c. Those host fields stay 0 until that object is filled in.
+float g_sim_freeze = 0.f; // DAT_004312dc
+float g_sim_scale = 1.f;  // DAT_004312c4
+
+constexpr float kPulseBlend = std::bit_cast<float>(u32{0x3f7d70a4u}); // 0.99
+constexpr i32 kPulseNoteId = 0x47;
+
+struct CameraPulse
+{
+    i32 marker = 0;        // +0x164
+    float primary = 0.f;   // +0x168
+    float blend = 0.f;     // +0x16c
+    float secondary = 0.f; // +0x174
+    float latch = 0.f;     // +0x25c
+    u8 counts[6] = {};     // +0x260 .. +0x265
+    float host_rate = 0.f; // host+0x92c
+    float host_gate = 0.f; // host+0x930
+    void* host = nullptr;  // camera+8, payload of note 0x47
+};
+
+// DAT_00511AA4. The node sits at object+0x900; next is object+0x904.
+// vtable+0xC receives (object, {id 0x47, host}).
+struct PulseNode
+{
+    void (*handle)(PulseNode* self, i32 id, void* host) = nullptr;
+    PulseNode* next = nullptr;
+};
+
+CameraPulse g_camera_pulse;
+PulseNode* g_pulse_nodes = nullptr;
+
+float sim_step(float dt)
+{
+    if (g_sim_freeze > 0.f)
+    {
+        return 0.f;
+    }
+    return dt * g_sim_scale;
+}
+
+float pulse_rate(const CameraPulse& cam)
+{
+    if (cam.host_gate > 0.f)
+    {
+        return 0.f;
+    }
+    return cam.host_rate;
+}
+
+int pulse_mask(const u8 counts[6])
+{
+    // 0x0001F7A0. Bit i is set when byte +0x260+i is nonzero.
+    int mask = 0;
+    if (counts[0] != 0)
+    {
+        mask += 1;
+    }
+    if (counts[1] != 0)
+    {
+        mask += 2;
+    }
+    if (counts[2] != 0)
+    {
+        mask += 4;
+    }
+    if (counts[3] != 0)
+    {
+        mask += 8;
+    }
+    if (counts[4] != 0)
+    {
+        mask += 0x10;
+    }
+    if (counts[5] != 0)
+    {
+        mask += 0x20;
+    }
+    return mask;
+}
+
+void pulse_notify(CameraPulse& cam)
+{
+    PulseNode* node = g_pulse_nodes;
+    while (node != nullptr)
+    {
+        PulseNode* next = node->next;
+        if (node->handle != nullptr)
+        {
+            node->handle(node, kPulseNoteId, cam.host);
+        }
+        node = next;
+    }
+}
+
+void fn_1f600(CameraPulse& cam, float dt)
+{
+    // Xbox 0x0001F600
+    // Decay +0x25c. On the frame it hits 0, decrement the six latches.
+    // If they were all live and one or more lands on 0, broadcast note 0x47.
+    if (!(cam.latch > 0.f))
+    {
+        return;
+    }
+    cam.latch -= pulse_rate(cam) * sim_step(dt);
+    if (cam.latch > 0.f)
+    {
+        return;
+    }
+    cam.latch = 0.f;
+    const int before = pulse_mask(cam.counts);
+    for (u8& count : cam.counts)
+    {
+        --count;
+    }
+    const int after = pulse_mask(cam.counts);
+    if (before == 0x3f && after != before)
+    {
+        pulse_notify(cam);
+    }
+}
+
+void fn_1fb40(CameraPulse& cam, float dt)
+{
+    // Xbox 0x0001FB40
+    fn_1f600(cam, dt);
+    if (cam.primary > 0.f)
+    {
+        cam.primary -= pulse_rate(cam) * sim_step(dt);
+        if (cam.primary <= 0.f)
+        {
+            cam.primary = 0.f;
+            cam.marker = 0;
+            cam.blend = kPulseBlend;
+        }
+    }
+    if (cam.secondary > 0.f)
+    {
+        cam.secondary -= pulse_rate(cam) * sim_step(dt);
+        if (cam.secondary <= 0.f)
+        {
+            cam.secondary = 0.f;
+        }
+    }
+}
+
 } // namespace
 
 void load_scene_contents(Game& g, std::string_view name)
@@ -771,7 +920,7 @@ void cutscene_queue_start(Game& g)
 void cutscene_queue_tick(Game& g, float dt)
 {
     // camera_apply 0x00025AE0: 0x0001EEC0 when camera+0xfc != 0, then 0x0001EC20
-    // when camera+0x154 > 0, then 0x0001DD00.
+    // when camera+0x154 > 0, then 0x0001FB40, then 0x0001DD00.
     if (g_camera_channels.gate != 0)
     {
         fn_1eec0(g_camera_channels);
@@ -780,6 +929,7 @@ void cutscene_queue_tick(Game& g, float dt)
     {
         fn_1ec20(g_camera_channels);
     }
+    fn_1fb40(g_camera_pulse, dt);
     fn_1dd00(g_camera_wash, dt);
     auto& q = g.cutscenes;
     if (!q.playing || q.items.empty())

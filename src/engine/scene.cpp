@@ -521,6 +521,59 @@ void fn_1dd00(CameraWash& c, float dt)
     }
 }
 
+// camera_apply (0x00025AE0) calls 0x00025130 after the wash. camera+0x2d0
+// gates it. camera+0x2d1 selects the bit pair and camera+0x2d2 is the value
+// passed in AL. Host is camera+8. 0x000F96F0 stores that pair at +0x294 on
+// the objects at host+0x204 and host+0x310, and caches the value per index
+// in DAT_005078D8. Both objects stay null until that host is filled in.
+struct CamPairObject
+{
+    u8 pairs[64] = {}; // +0x294, two bits per index
+};
+
+struct CameraPairs
+{
+    u8 enabled = 0; // +0x2d0
+    u8 index = 0;   // +0x2d1
+    u8 value = 0;   // +0x2d2
+    CamPairObject* at_204 = nullptr;
+    CamPairObject* at_310 = nullptr;
+};
+
+CameraPairs g_camera_pairs;
+u32 g_pair_cache[256] = {}; // DAT_005078D8
+
+void fn_25130(CameraPairs& cam)
+{
+    // Xbox 0x00025130
+    // 0x000F96F0 packs AL into the pair selected by the stack byte.
+    if (cam.enabled == 0)
+    {
+        return;
+    }
+    CamPairObject* slots[2] = {cam.at_204, cam.at_310};
+    for (CamPairObject* slot : slots)
+    {
+        if (slot == nullptr)
+        {
+            continue;
+        }
+        const int pair = int(cam.index) * 2;
+        const int byte_index = pair >> 3;
+        const int shift = pair & 7;
+        if (g_pair_cache[cam.index] != cam.value)
+        {
+            g_pair_cache[cam.index] = cam.value;
+        }
+        const u8 mask = static_cast<u8>(3u << shift);
+        const u8 packed = static_cast<u8>(cam.value << shift);
+        u8 cur = slot->pairs[byte_index];
+        cur = static_cast<u8>(cur & static_cast<u8>(~mask));
+        cur = static_cast<u8>(cur | packed);
+        slot->pairs[byte_index] = cur;
+    }
+}
+
 // Body-camera channels at +0x150 (count +0x154). camera_apply (0x00025AE0)
 // calls 0x0001EEC0 when gate (+0xfc) is set, then 0x0001EC20 when the count
 // is greater than 0. Host is camera+8: +0x50 is the bind list walked by
@@ -1296,7 +1349,7 @@ void cutscene_queue_start(Game& g)
 void cutscene_queue_tick(Game& g, float dt)
 {
     // camera_apply 0x00025AE0: 0x0001EEC0 when camera+0xfc != 0, then 0x0001EC20
-    // when camera+0x154 > 0, then 0x0001FB40, then 0x0001DD00.
+    // when camera+0x154 > 0, then 0x0001FB40, then 0x0001DD00, then 0x00025130.
     if (g_camera_channels.gate != 0)
     {
         fn_1eec0(g_camera_channels);
@@ -1307,6 +1360,7 @@ void cutscene_queue_tick(Game& g, float dt)
     }
     fn_1fb40(g_camera_pulse, dt);
     fn_1dd00(g_camera_wash, dt);
+    fn_25130(g_camera_pairs);
     script_action_opcode_f();
     auto& q = g.cutscenes;
     if (!q.playing || q.items.empty())

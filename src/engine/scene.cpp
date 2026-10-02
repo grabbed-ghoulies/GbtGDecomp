@@ -521,6 +521,126 @@ void fn_1dd00(CameraWash& c, float dt)
     }
 }
 
+// Body-camera channels at +0x150 (count +0x154). camera_apply calls 0x0001EC20
+// when that count is greater than 0. Host is camera+8: +0x50 is the bind list
+// walked by 0x00030B40, +0x204 is the slot table (float* at +0x1cc).
+struct CamChannel
+{
+    i32 id = 0;        // +0
+    float value = 0.f; // +4
+};
+
+struct CamBindRow
+{
+    bool live = false;      // +0 -> +0 -> +0x20 all present
+    std::vector<i32> words; // dword array at +0x20, indexed by channel id
+};
+
+struct CameraChannels
+{
+    std::vector<CamChannel> items;
+    u8 mark[2] = {};  // +0xec and +0xf8
+    i32 gate = 0;     // +0xfc
+    bool binds_live = false;
+    std::vector<CamBindRow> binds;
+    bool slots_live = false;
+    std::vector<float*> slots;
+};
+
+CameraChannels g_camera_channels;
+
+bool channel_bound(const CameraChannels& cam, i32 id)
+{
+    // 0x00030B40. EAX is host+0x50. A row of stride 0x28 is bound when the
+    // pointer chain reaches +0x20 and the dword at id*4 is nonzero.
+    if (id < 0)
+    {
+        return false;
+    }
+    const size_t index = static_cast<size_t>(id);
+    for (const CamBindRow& row : cam.binds)
+    {
+        if (!row.live)
+        {
+            continue;
+        }
+        if (index < row.words.size() && row.words[index] != 0)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+float* channel_slot(CameraChannels& cam, i32 id)
+{
+    if (!cam.slots_live || id < 0)
+    {
+        return nullptr;
+    }
+    const size_t index = static_cast<size_t>(id);
+    if (index >= cam.slots.size())
+    {
+        return nullptr;
+    }
+    return cam.slots[index];
+}
+
+void fn_1ec20(CameraChannels& cam)
+{
+    // Xbox 0x0001EC20
+    bool pull = false;
+    if (!cam.items.empty() && cam.binds_live)
+    {
+        for (const CamChannel& ch : cam.items)
+        {
+            if (channel_bound(cam, ch.id))
+            {
+                pull = true;
+                break;
+            }
+        }
+    }
+    for (CamChannel& ch : cam.items)
+    {
+        float* slot = channel_slot(cam, ch.id);
+        if (pull)
+        {
+            ch.value = slot ? *slot : 0.f;
+            continue;
+        }
+        if (ch.id == 0 && cam.gate != 0)
+        {
+            bool marked = false;
+            for (u8 flag : cam.mark)
+            {
+                if (flag != 0)
+                {
+                    marked = true;
+                    break;
+                }
+            }
+            if (marked)
+            {
+                float cur = slot ? *slot : 0.f;
+                if (cur <= ch.value)
+                {
+                    cur = ch.value;
+                }
+                if (slot)
+                {
+                    *slot = cur;
+                }
+                continue;
+            }
+        }
+        if (slot)
+        {
+            *slot = ch.value;
+        }
+    }
+}
+
 } // namespace
 
 void load_scene_contents(Game& g, std::string_view name)
@@ -627,7 +747,11 @@ void cutscene_queue_start(Game& g)
 
 void cutscene_queue_tick(Game& g, float dt)
 {
-    // camera_apply 0x00025AE0 calls 0x0001DD00 on the body camera every frame.
+    // camera_apply 0x00025AE0 calls 0x0001EC20 when camera+0x154 > 0, then 0x0001DD00.
+    if (!g_camera_channels.items.empty())
+    {
+        fn_1ec20(g_camera_channels);
+    }
     fn_1dd00(g_camera_wash, dt);
     auto& q = g.cutscenes;
     if (!q.playing || q.items.empty())

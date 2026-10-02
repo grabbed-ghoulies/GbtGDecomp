@@ -19,6 +19,21 @@ enum class EntityKind
     Strategy,
 };
 
+struct Actor;
+
+// Record at actor+0x88. +8 is the parent. +0x3c is the 3x4 that 0x00041730 applies.
+struct ActorBind
+{
+    Actor* parent = nullptr; // +8. Non-null keeps the bind.
+    float m[12] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f}; // +0x3c
+};
+
+// Node pointed at by actor+0x918. The first dword keeps a bind whose parent is null.
+struct ActorLink
+{
+    void* head = nullptr; // +0
+};
+
 struct Actor
 {
     Vec3 position{}; // Xbox actor+0x08
@@ -26,6 +41,9 @@ struct Actor
     Quat quat{0.f, 0.f, 0.f, 1.f}; // cutscene camera writes xyzw at +0x14 (0x0004D8CE)
     float fov = 0.9f;              // cutscene camera +0x24
     Actor* attach = nullptr;
+    ActorBind* bind = nullptr; // Xbox actor+0x88
+    i32 xform_valid = 0;       // Xbox actor+0x2a8. 0 means the matrix at +0x2ac is stale.
+    ActorLink* link = nullptr; // Xbox actor+0x918
 };
 
 struct Entity;
@@ -65,6 +83,7 @@ void register_entity_types();
 
 Vec3 actor_world_position(const Actor& actor); // 0x000412A0
 Vec3 actor_world_euler(const Actor& actor);    // 0x00041820
+void fn_41730(Actor& actor, const Vec3& point); // 0x00041730 EDI actor, ESI point
 void fn_663e0(void* block);                    // 0x000663E0 EAX = block
 
 void entity_body_camera_sizeof(u32 out_sizes[2]); // 0x00073170

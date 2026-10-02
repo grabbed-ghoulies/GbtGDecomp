@@ -94,6 +94,34 @@ Vec3 actor_world_euler(const Actor& actor)
     return Vec3{actor.euler.x + e.x, actor.euler.y + e.y, actor.euler.z + e.z};
 }
 
+void fn_41730(Actor& actor, const Vec3& point)
+{
+    // Xbox 0x00041730
+    // EDI is the actor and ESI is the source point. A bind at +0x88 whose
+    // parent (+8) is set, or whose actor+0x918 link has a non-zero head,
+    // multiplies the point by the 3x4 at bind+0x3c and writes actor+0x08.
+    // A dead bind is released through 0x000663E0 and the point is copied.
+    // Both paths clear the matrix stamp at actor+0x2a8.
+    if (actor.bind != nullptr)
+    {
+        const bool parent_live = actor.bind->parent != nullptr;
+        const bool link_live = actor.link != nullptr && actor.link->head != nullptr;
+        if (parent_live || link_live)
+        {
+            const float* m = actor.bind->m;
+            actor.position.x = m[0] * point.x + m[1] * point.y + m[2] * point.z + m[3];
+            actor.position.y = m[4] * point.x + m[5] * point.y + m[6] * point.z + m[7];
+            actor.position.z = m[8] * point.x + m[9] * point.y + m[10] * point.z + m[11];
+            actor.xform_valid = 0;
+            return;
+        }
+        fn_663e0(actor.bind);
+        actor.bind = nullptr;
+    }
+    actor.position = point;
+    actor.xform_valid = 0;
+}
+
 void fn_663e0(void* block)
 {
     // Xbox 0x000663E0

@@ -2038,4 +2038,200 @@ i32 fn_120760(const EntityCylinderBound& query, const EntityCylinderBound& obsta
     return 1;
 }
 
+namespace
+{
+
+// DAT_00511A18. 0x001226C0 clears this, then 0x00122C10 indexes the pair array
+// with it. A hit stores the object at DAT_00511A1C + index*8 and increments it.
+// The pool pointer sits in the next dword (DAT_00511A20 for index 0).
+// Pairs run from DAT_00511A1C up to the list head at DAT_00511AF4.
+constexpr i32 kSegmentSlots = (0x511AF4 - 0x511A1C) / 8;
+constexpr u16 kSegmentStride = 0x54;
+constexpr u16 kSegmentGrow = 10;
+constexpr i32 kSegmentPoolBytes = 0x358; // 0x10 header + 0x54 * 10
+
+// Link walked from DAT_00511AF4. Retail stores the link at object+0x1e0 and the
+// next pointer at +0x1e4. The query is vtable +0x20. The port keeps them together.
+struct SegmentProbe
+{
+    i32 (*query)(SegmentProbe& self, Vec3& candidate, Vec3& kept, u32 param, i32 kind, u32 mask,
+                 u8* record) = nullptr;
+    SegmentProbe* next = nullptr;
+};
+
+// Header of the 0x54-byte record pool. begin is the first record (block+0x10).
+// 0x00072CB0 copies that record with 0x000FCD70 after a hit.
+struct SegmentPool
+{
+    u16 stride = 0;
+    u16 grow = 0;
+    u8* begin = nullptr;
+    u8* cursor = nullptr;
+    u8* limit = nullptr;
+    u8* block = nullptr;
+    i32 block_size = 0;
+    bool live = false;
+};
+
+struct SegmentSlot
+{
+    SegmentProbe* object = nullptr;
+    SegmentPool pool{};
+};
+
+i32 g_segment_count = 0;
+SegmentSlot g_segment_slots[kSegmentSlots]{};
+SegmentProbe* g_segment_probes = nullptr;
+
+void bind_segment_pool(SegmentPool& pool, u8* block, i32 block_size, i32 used)
+{
+    pool.block = block;
+    pool.block_size = block_size;
+    pool.stride = kSegmentStride;
+    pool.grow = kSegmentGrow;
+    std::memcpy(block, &pool.stride, sizeof(pool.stride));
+    std::memcpy(block + 2, &pool.grow, sizeof(pool.grow));
+    pool.begin = block + 0x10;
+    const i32 stride = static_cast<i32>(pool.stride);
+    pool.cursor = pool.begin + static_cast<ptrdiff_t>(stride) * used;
+    const i32 capacity = (block_size - 0x10) / stride;
+    pool.limit = pool.begin + static_cast<ptrdiff_t>(stride) * capacity;
+}
+
+// Xbox 0x000662A0. EAX is the pool. used = (cursor - begin) / stride.
+// The new count is used plus the u16 at +2. 0x000F73A0 reallocates, begin
+// becomes the new header+0x10, and the cursor stays on the same record.
+void grow_segment_pool(SegmentPool& pool)
+{
+    const i32 stride = pool.stride == 0 ? 1 : static_cast<i32>(pool.stride);
+    i32 used = 0;
+    if (pool.begin != nullptr && pool.cursor != nullptr && pool.cursor >= pool.begin)
+    {
+        used = static_cast<i32>(pool.cursor - pool.begin) / stride;
+    }
+    const i32 new_count = used + static_cast<i32>(pool.grow);
+    const i32 new_bytes = stride * new_count + 0x10;
+    u8* fresh = static_cast<u8*>(fn_f72d0(new_bytes));
+    if (fresh == nullptr)
+    {
+        return;
+    }
+    if (pool.block != nullptr && pool.block_size > 0)
+    {
+        const i32 copy = pool.block_size < new_bytes ? pool.block_size : new_bytes;
+        std::memcpy(fresh, pool.block, static_cast<size_t>(copy));
+        fn_663e0(pool.block);
+    }
+    bind_segment_pool(pool, fresh, new_bytes, used);
+}
+
+// Xbox 0x00122C10. The index is DAT_00511A18. A missing pool is one 0x358-byte
+// block: stride 0x54 and ten records. An existing pool rewinds its cursor.
+SegmentPool* prepare_segment_pool()
+{
+    const i32 index = g_segment_count;
+    if (index < 0 || index >= kSegmentSlots)
+    {
+        return nullptr;
+    }
+    SegmentPool& pool = g_segment_slots[index].pool;
+    if (!pool.live)
+    {
+        u8* block = static_cast<u8*>(fn_f72d0(kSegmentPoolBytes));
+        if (block == nullptr)
+        {
+            return nullptr;
+        }
+        bind_segment_pool(pool, block, kSegmentPoolBytes, 0);
+        pool.live = true;
+    }
+    else
+    {
+        pool.cursor = pool.begin;
+    }
+    return &pool;
+}
+
+u8* bump_segment_record(SegmentPool& pool)
+{
+    if (pool.cursor == pool.limit)
+    {
+        grow_segment_pool(pool);
+    }
+    if (pool.cursor == nullptr || pool.limit == nullptr || pool.cursor >= pool.limit)
+    {
+        return nullptr;
+    }
+    u8* record = pool.cursor;
+    pool.cursor = record + pool.stride;
+    record[0x26] = 0;
+    return record;
+}
+
+} // namespace
+
+i32 fn_1226c0(Vec3& kept, Vec3& candidate, u32 param, i32 kind, u32 mask)
+{
+    // Xbox 0x001226C0
+    // EBX is the point that a move under 2e-7 (DAT_0032B27C) overwrites with the
+    // candidate. The four stack dwords are the candidate, an opaque param, a kind
+    // (4 or 0xC), and a mask. DAT_00511A18 is cleared first. A longer move asks
+    // 0x00122C10 for the record pool, bumps one 0x54-byte record, and clears the
+    // byte at +0x26. Each node on DAT_00511AF4 (object+0x1e0, next at +4) is
+    // called through vtable +0x20 with the candidate, EBX, param, kind, mask, and
+    // that record. The last node that returns non-zero is stored at
+    // DAT_00511A1C[count] and the count is incremented. The return is 1 when any
+    // node hit. The first record stays at pool begin for 0x000FCD70.
+    g_segment_count = 0;
+    const float dx = candidate.x - kept.x;
+    const float dy = candidate.y - kept.y;
+    const float dz = candidate.z - kept.z;
+    const float dist2 = dz * dz + dy * dy + dx * dx;
+    // comiss / jb: the long path runs when the epsilon is below dist2, including NaN.
+    if (!(dist2 <= kLookEps))
+    {
+        SegmentPool* pool = prepare_segment_pool();
+        if (pool == nullptr)
+        {
+            return 0;
+        }
+        u8* record = bump_segment_record(*pool);
+        if (record == nullptr)
+        {
+            return 0;
+        }
+
+        SegmentProbe* found = nullptr;
+        i32 hit = 0;
+        for (SegmentProbe* probe = g_segment_probes; probe != nullptr; probe = probe->next)
+        {
+            if (probe->query == nullptr)
+            {
+                continue;
+            }
+            const i32 ok = probe->query(*probe, candidate, kept, param, kind, mask, record);
+            if (ok != 0)
+            {
+                found = probe;
+                hit = 1;
+            }
+        }
+        if (found != nullptr)
+        {
+            const i32 slot = g_segment_count;
+            if (slot >= 0 && slot < kSegmentSlots)
+            {
+                g_segment_slots[slot].object = found;
+            }
+            g_segment_count = slot + 1;
+        }
+        return hit;
+    }
+
+    kept.x = candidate.x;
+    kept.y = candidate.y;
+    kept.z = candidate.z;
+    return 0;
+}
+
 } // namespace gbtg

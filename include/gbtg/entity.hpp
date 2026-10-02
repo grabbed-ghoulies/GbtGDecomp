@@ -417,4 +417,11 @@ void fn_1203e0(const Vec3& src, Vec3& dest, const Actor* actor, float height, fl
 i32 fn_120760(const EntityCylinderBound& query, const EntityCylinderBound& obstacle, const Vec3& offset,
               Vec3& push);
 
+// EBX is the point replaced when the candidate sits within 2e-7. The first stack
+// argument is that candidate. param, kind, and mask are the next three dwords.
+// Camera callers pass the bits of the float at DAT_004274B8, kind 4, and the
+// mask from 0x0001FE00. Returns 1 when a node on DAT_00511AF4 accepts the
+// segment. A near miss copies the candidate onto EBX and returns 0.
+i32 fn_1226c0(Vec3& kept, Vec3& candidate, u32 param, i32 kind, u32 mask);
+
 } // namespace gbtg

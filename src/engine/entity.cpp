@@ -1358,6 +1358,8 @@ struct PadBitPort
     float axis_ly = 0.f; // +0x128 DAT_004343c0
     float axis_rx = 0.f; // +0x12c DAT_004343c4
     float axis_ry = 0.f; // +0x130 DAT_004343c8
+    u8 face_a = 0;       // +0x134 DAT_004343cc
+    u8 face_b = 0;       // +0x135 DAT_004343cd
     u8 face_x = 0;       // +0x136 DAT_004343ce
     u8 face_y = 0;       // +0x137 DAT_004343cf
     u8 black = 0;        // +0x138 DAT_004343d0
@@ -1365,6 +1367,12 @@ struct PadBitPort
     u8 trigger_l = 0;    // +0x13a DAT_004343d2
     u8 trigger_r = 0;    // +0x13b DAT_004343d3
 };
+
+static_assert(offsetof(PadBitPort, face_a) == 0x134);
+static_assert(offsetof(PadBitPort, face_b) == 0x135);
+static_assert(offsetof(PadBitPort, face_x) == 0x136);
+static_assert(offsetof(PadBitPort, trigger_r) == 0x13b);
+static_assert(sizeof(PadBitPort) == 0x13c);
 
 PadBitPort g_pad_bits[kPadBitPorts];
 
@@ -1379,6 +1387,10 @@ void (*g_pad_analog_hook)(i32 port, i32 mask, u8* a, u8* b) = nullptr;
 
 // 0x00154A70 compares the analog byte with this threshold. At or above counts as down.
 constexpr u8 kAnalogPress = 0x1e;
+
+// A and B in the button word. 0x001555B0 passes the analog bytes as a pair.
+constexpr u32 kFaceABit = 0x100;
+constexpr u32 kFaceBBit = 0x200;
 
 // X and Y in the button word. 0x001555B0 passes the analog bytes as a pair.
 constexpr u32 kFaceXBit = 0x400;
@@ -1565,6 +1577,29 @@ void fn_154e50(i32 port, u8 left, u8 right)
     slot.trigger_r = right;
     apply_analog_bit(slot, left, kTriggerLeftBit);
     apply_analog_bit(slot, right, kTriggerRightBit);
+}
+
+void fn_154f00(i32 port, u8 face_a, u8 face_b)
+{
+    // Xbox 0x00154F00
+    // 0x001555B0 passes the A and B analog bytes from the gamepad (+2 and +3).
+    // When DAT_0043428c is set it rewrites those bytes first (retail points
+    // it at 0x00155400) and the mask is 0x0300. The bytes land at +0x134 and
+    // +0x135. 0x00154A70 then tests each against 30: A is bit 0x0100 and B is
+    // bit 0x0200.
+    if (g_pad_analog_hook != nullptr)
+    {
+        g_pad_analog_hook(port, 0x300, &face_a, &face_b);
+    }
+    if (port < 0 || port >= kPadBitPorts)
+    {
+        return;
+    }
+    PadBitPort& slot = g_pad_bits[port];
+    slot.face_a = face_a;
+    slot.face_b = face_b;
+    apply_analog_bit(slot, face_a, kFaceABit);
+    apply_analog_bit(slot, face_b, kFaceBBit);
 }
 
 void fn_154f80(i32 port, u8 face_x, u8 face_y)

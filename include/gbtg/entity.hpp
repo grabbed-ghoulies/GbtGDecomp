@@ -327,6 +327,13 @@ void fn_154d70(i32 port, i32 x, i32 y); // 0x00154D70
 // the button word, and pulses the edge words at +0x08 and +0x0c.
 void fn_154e50(i32 port, u8 left, u8 right); // 0x00154E50
 
+// Port is the index 0x001555B0 passes with the A and B analog face bytes
+// (gamepad+2 and gamepad+3). DAT_0043428c may rewrite those bytes (mask
+// 0x0300). They are stored at +0x134 and +0x135. Each byte at or above 30
+// sets bit 0x0100 or 0x0200 in the button word, and pulses the edge words
+// at +0x08 and +0x0c.
+void fn_154f00(i32 port, u8 face_a, u8 face_b); // 0x00154F00
+
 // Port is the index 0x001555B0 passes with the X and Y analog face bytes
 // (gamepad+4 and gamepad+5). DAT_0043428c may rewrite those bytes (mask
 // 0x0C00). They are stored at +0x136 and +0x137. Each byte at or above 30

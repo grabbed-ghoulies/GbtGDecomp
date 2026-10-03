@@ -3888,6 +3888,27 @@ u32 fn_14cdb7(XapiCalcSigContext* ctx, u8* signature)
     return 0;
 }
 
+std::uintptr_t fn_14ce19()
+{
+    // Xbox 0x0014CE19
+    // XCalculateSignatureBeginEx (0x0014CEB4) for flag 2. XMemAlloc(0x7C,
+    // 0x24830000). Failure stores last-error 8 and returns -1. The flags dword
+    // is 2 and the key pointer is null. XcSHAInit fills the 0x74-byte SHA
+    // context. No signature-key block is mixed in. 0x0014CE4F updates that
+    // SHA and 0x0014CE69 finishes it.
+    auto* ctx = new (std::nothrow) XapiCalcSigContext;
+    if (ctx == nullptr)
+    {
+        g_xapi_last_error = 8;
+        return static_cast<std::uintptr_t>(-1);
+    }
+
+    ctx->key = nullptr;
+    ctx->flags = 2;
+    xapi_sha_init(ctx->sha);
+    return reinterpret_cast<std::uintptr_t>(ctx);
+}
+
 bool fn_14d217(const char* path, const void* security)
 {
     // Xbox 0x0014D217

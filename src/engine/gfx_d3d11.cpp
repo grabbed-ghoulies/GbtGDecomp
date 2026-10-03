@@ -217,8 +217,10 @@ Vec3 normalize(Vec3 v)
 Mat4 look_at(const Vec3& eye, const Vec3& at, const Vec3& up)
 {
     const Vec3 z = normalize(Vec3{at.x - eye.x, at.y - eye.y, at.z - eye.z});
-    const Vec3 x = normalize(cross(up, z));
-    const Vec3 y = cross(z, x);
+    // The cutscene basis is aimed with local -Z, but cross(up, z) paints the
+    // attract shot as a horizontal mirror (cover text reads backwards).
+    const Vec3 x = normalize(cross(z, up));
+    const Vec3 y = cross(x, z);
     Mat4 m{};
     m.m[0] = x.x;
     m.m[1] = y.x;

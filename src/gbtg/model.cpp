@@ -141,48 +141,11 @@ std::vector<VertStream> parse_vertex_streams(std::span<const u8> cpu, std::span<
         }
         normal_streams.emplace_back(n, std::move(normals));
     }
-    // Rigid skin: type 0. Stride 8 (book, crone) or 16 (arm, skull, candle, ghoulies).
-    // The record dword at +4 is 1. The first float is the Xbox constant slot (24, 27, 30, ...).
+    // Attract actors store positions in model space (the banjo arm is a hand). The
+    // type-0 float4 that sits beside the position stream is not a bone index: its
+    // values are around +/-80, and reading them as shader slots 24, 27, 30 scatters
+    // vertices onto random joints. ndRigidSkinIdx is the palette, not this stream.
     std::vector<std::pair<u32, std::vector<u16>>> bone_streams;
-    for (size_t off = 0; off + 24 <= cpu.size(); ++off)
-    {
-        const u32 packed = read_u32(cpu, off);
-        const u8 info_size = u8(packed & 0xFF);
-        const u8 info_type = u8((packed >> 8) & 0xFF);
-        if (info_type != 0x00 || (info_size != 8 && info_size != 16) || read_u32(cpu, off + 4) != 1)
-        {
-            continue;
-        }
-        const u32 goff = read_u32(cpu, off + 16);
-        const u32 gsz = read_u32(cpu, off + 20);
-        if (!gsz || gsz % info_size != 0 || goff + gsz > gpu.size())
-        {
-            continue;
-        }
-        const u32 n = gsz / info_size;
-        if (n > 200000)
-        {
-            continue;
-        }
-        std::vector<u16> bones(n);
-        bool slots = false;
-        for (u32 v = 0; v < n; ++v)
-        {
-            const int slot = int(std::lround(read_f32(gpu, goff + v * info_size)));
-            int bone = 0;
-            if (slot >= 24 && ((slot - 24) % 3) == 0)
-            {
-                bone = (slot - 24) / 3;
-                slots = true;
-            }
-            bones[v] = u16(bone);
-        }
-        if (!slots)
-        {
-            continue;
-        }
-        bone_streams.emplace_back(n, std::move(bones));
-    }
     auto uv0 = parse_uv_attrib(cpu, gpu, 0x0D);
     auto uv1 = parse_uv_attrib(cpu, gpu, 0x0E);
     auto uv2 = parse_uv_attrib(cpu, gpu, 0x0F);

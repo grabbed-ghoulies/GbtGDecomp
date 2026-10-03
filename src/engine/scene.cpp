@@ -2556,6 +2556,123 @@ void* fn_14aaba(u32 bytes, u32 lowest, u32 highest, u32 alignment, u32 protect)
     return block;
 }
 
+// Retail image at base 0x10000. Count is the dword at 0x0001011C. The header
+// array pointer is the dword at 0x00010120. Each record is 0x38 bytes and the
+// name is the C string at +0x14. Virtual address sits at +4 and virtual size
+// at +8, which 0x0014AF9B and 0x0014AFDA read from the handle.
+struct XbeSectionRecord
+{
+    u32 flags;
+    u32 virtual_address;
+    u32 virtual_size;
+    u32 raw_address;
+    u32 raw_size;
+    const char* name;
+};
+
+const XbeSectionRecord g_xbe_sections[] = {
+    {0x16, 0x11000, 0x160020, 0x1000, 0x160020, ".text"},
+    {0x7, 0x171020, 0x135d8, 0x162000, 0xfd2c, "D3D"},
+    {0x7, 0x184600, 0xe40, 0x172000, 0xe3c, "D3DX"},
+    {0x7, 0x185440, 0x20598, 0x173000, 0x1f91c, "XGRPH"},
+    {0x26, 0x1a59e0, 0xd3ac, 0x193000, 0xd3ac, "BINK"},
+    {0x36, 0x1b2da0, 0x1175, 0x1a1000, 0x1174, "BINK32"},
+    {0x36, 0x1b3f20, 0x1489, 0x1a3000, 0x1488, "BINK32A"},
+    {0x36, 0x1b53c0, 0x123c, 0x1a5000, 0x123c, "BINK16"},
+    {0x36, 0x1b6600, 0x14c0, 0x1a7000, 0x14c0, "BINK4444"},
+    {0x36, 0x1b7ac0, 0x10b4, 0x1a9000, 0x10b4, "BINK5551"},
+    {0x36, 0x1b8b80, 0xcac, 0x1ab000, 0xcac, "BINKYUY2"},
+    {0x36, 0x1b9840, 0x9c, 0x1ac000, 0x9c, "BINKYUY2"},
+    {0x36, 0x1b98e0, 0xb8, 0x1ad000, 0xb8, "BINKYUY2"},
+    {0x36, 0x1b99a0, 0x88, 0x1ae000, 0x88, "BINKYUY2"},
+    {0x36, 0x1b9a40, 0x130, 0x1af000, 0x130, "BINK16MX"},
+    {0x16, 0x1b9b80, 0x558, 0x1b0000, 0x558, "BINK16X2"},
+    {0x6, 0x1ba0e0, 0x1f8, 0x1b1000, 0x1f8, "BINK16M"},
+    {0x6, 0x1ba2e0, 0x1bc, 0x1b2000, 0x1bc, "BINK32MX"},
+    {0x6, 0x1ba4a0, 0x58c, 0x1b3000, 0x58c, "BINK32X2"},
+    {0x6, 0x1baa40, 0x14c, 0x1b4000, 0x14c, "BINK32M"},
+    {0x7, 0x1baba0, 0xac30, 0x1b5000, 0xabdc, "XACTENG"},
+    {0x7, 0x1c57e0, 0x1e534, 0x1c0000, 0x1e2cc, "DSOUND"},
+    {0x7, 0x1e3d20, 0x1907c, 0x1df000, 0x1907c, "WMADEC"},
+    {0x7, 0x1fcda0, 0x60fc, 0x1f9000, 0x60fc, "XPP"},
+    {0x6, 0x202ea0, 0x129958, 0x200000, 0x129948, ".rdata"},
+    {0x7, 0x32c800, 0x222fc0, 0x32a000, 0x107a14, ".data"},
+    {0x7, 0x54f7c0, 0xf5e0, 0x432000, 0xf5d4, "BINKDATA"},
+    {0x26, 0x55eda0, 0x7180, 0x442000, 0x716c, "DOLBY"},
+    {0x38, 0x565f20, 0x4800, 0x44d000, 0x4800, "$$XTIMAGE"},
+    {0x38, 0x56a720, 0x4800, 0x452000, 0x4800, "$$XSIMAGE"},
+    {0x3a, 0x56ef20, 0x28be, 0x44a000, 0x28be, "dirtydisk_bitmap"},
+    {0x38, 0x5717e0, 0x7a0, 0x457000, 0x7a0, ".XTLID"},
+};
+
+void xapi_init_ansi(u16& length, const char*& buffer, const char* src)
+{
+    buffer = src;
+    if (src == nullptr)
+    {
+        length = 0;
+        return;
+    }
+    length = static_cast<u16>(std::strlen(src));
+}
+
+bool xapi_equal_ansi_ci(const char* left, u16 left_len, const char* right, u16 right_len)
+{
+    // RtlEqualString with CaseInSensitive set. Lengths must match. a-z folds
+    // the way RtlUpperChar does; every other byte compares as itself.
+    if (left_len != right_len)
+    {
+        return false;
+    }
+    for (u16 i = 0; i < left_len; ++i)
+    {
+        u8 a = static_cast<u8>(left[i]);
+        u8 b = static_cast<u8>(right[i]);
+        if (a >= 'a' && a <= 'z')
+        {
+            a = static_cast<u8>(a - 0x20);
+        }
+        if (b >= 'a' && b <= 'z')
+        {
+            b = static_cast<u8>(b - 0x20);
+        }
+        if (a != b)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::uintptr_t fn_14af34(const char* name)
+{
+    // Xbox 0x0014AF34
+    // XGetSectionHandleA. stdcall. RtlInitAnsiString (thunk 0x00202EE8) on
+    // the argument, then walk section headers. Each name is RtlInitAnsiString
+    // from header+0x14 and RtlEqualString (thunk 0x00202EE4) with the case
+    // flag set. The first hit returns that header. The end test is unsigned
+    // below the header base plus count*0x38, so a miss falls out, stores
+    // last-error 0x490 (ERROR_NOT_FOUND) via 0x0014B00C, and returns
+    // 0xFFFFFFFF. A hit leaves last-error alone. 0x0003277C asks for
+    // dirtydisk_bitmap. 0x00150ADD asks for $$XTINFO (absent), $$XTIMAGE,
+    // and $$XSIMAGE.
+    u16 want_len = 0;
+    const char* want = nullptr;
+    xapi_init_ansi(want_len, want, name);
+    for (const XbeSectionRecord& section : g_xbe_sections)
+    {
+        u16 have_len = 0;
+        const char* have = nullptr;
+        xapi_init_ansi(have_len, have, section.name);
+        if (xapi_equal_ansi_ci(want, want_len, have, have_len))
+        {
+            return reinterpret_cast<std::uintptr_t>(&section);
+        }
+    }
+    g_xapi_last_error = 0x490;
+    return static_cast<std::uintptr_t>(-1);
+}
+
 // DAT_0032CA50, indexed by the low byte of a UTF-16 unit. Bit 0x100000 is
 // uppercase, 0x80000 lowercase, 0x40000 a digit, 0x20000 a symbol. The high
 // bit marks everything else. '.' shares '-'s weight, 0x92 shares 0x91, and

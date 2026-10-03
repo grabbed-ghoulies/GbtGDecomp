@@ -3139,6 +3139,41 @@ bool fn_14b22f(std::uintptr_t find_handle, void* find_data)
     return false;
 }
 
+void fn_14c2d5(const u16* name, char* dest, int remaining)
+{
+    // Xbox 0x0014C2D5
+    // XCreateSaveGame (0x0014C70F) appends this to the copied root path. Each
+    // UTF-16 unit updates hash = (hash * 0x10000 + unit) mod (2^48 - 59) until
+    // a zero unit. The 48-bit value is written as twelve uppercase hex digits,
+    // low nibble at dest[11], then a NUL at dest[12]. 0x0014C2C1 adds 0x37 when
+    // the nibble is greater than 9 and 0x30 otherwise. The third argument is
+    // the caller's leftover path budget (0xF7 minus the root length) and is
+    // left unread.
+    (void)remaining;
+    constexpr u64 kMod = 0xFFFFFFFFFFC5ull;
+    u64 hash = 0;
+    while (*name != 0)
+    {
+        hash = (hash * 0x10000ull + *name) % kMod;
+        ++name;
+    }
+
+    for (int index = 11; index >= 0; --index)
+    {
+        const u32 nibble = static_cast<u32>(hash) & 0xFu;
+        if (static_cast<i32>(nibble) > 9)
+        {
+            dest[index] = static_cast<char>(nibble + 0x37);
+        }
+        else
+        {
+            dest[index] = static_cast<char>(nibble + 0x30);
+        }
+        hash >>= 4;
+    }
+    dest[12] = '\0';
+}
+
 bool fn_14d217(const char* path, const void* security)
 {
     // Xbox 0x0014D217

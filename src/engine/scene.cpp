@@ -3323,6 +3323,186 @@ int fn_14c532(u8* find_data, const char* root, int root_len)
     return result;
 }
 
+u32 fn_14c633(const char* path, const u16* expected)
+{
+    // Xbox 0x0014C633
+    // XCreateSaveGame (0x0014C70F) calls this with the hashed directory plus
+    // "\\SaveMeta.xbx" and the wide save name. 0x0014D08C opens that path
+    // GENERIC_READ|SYNCHRONIZE, share none, OPEN_ALWAYS, FILE_ATTRIBUTE_SYSTEM.
+    // A failed open returns GetLastError. 0x0014C367 seeks to the start and
+    // requires a 2-byte read; a FEFF word also passes. 0x0014C3AF then reads
+    // L"Name" the same way 0x0014C532 does: the first hit whose next wchar is
+    // '=' wins, including one inside L"TitleName=", and any other hit is
+    // dropped through the next CR LF. The value is clipped to 0x7F wchars.
+    // 0x00166E99 compares it with the caller's name. A match returns 0. A
+    // short read, a missing Name, or a different name returns 0x491
+    // (ERROR_NO_MATCH) after CloseHandle. OPEN_ALWAYS leaves an empty file
+    // behind when the parent exists and the meta file does not.
+    if (path == nullptr || path[0] == '\0')
+    {
+        g_xapi_last_error = 123;
+        return g_xapi_last_error;
+    }
+
+    const std::filesystem::path fs_path(path);
+    std::error_code ec;
+    if (std::filesystem::is_directory(fs_path, ec))
+    {
+        const char last = path[std::strlen(path) - 1];
+        g_xapi_last_error = last == '\\' ? 3u : 5u;
+        return g_xapi_last_error;
+    }
+    if (ec && ec != std::errc::no_such_file_or_directory)
+    {
+        if (ec == std::errc::permission_denied)
+        {
+            g_xapi_last_error = 5;
+        }
+        else if (ec == std::errc::invalid_argument)
+        {
+            g_xapi_last_error = 123;
+        }
+        else if (ec.value() != 0)
+        {
+            g_xapi_last_error = static_cast<u32>(ec.value());
+        }
+        else
+        {
+            g_xapi_last_error = 3;
+        }
+        return g_xapi_last_error;
+    }
+
+    ec.clear();
+    const bool present = std::filesystem::is_regular_file(fs_path, ec);
+    if (!present)
+    {
+        if (ec && ec != std::errc::no_such_file_or_directory)
+        {
+            g_xapi_last_error = ec == std::errc::permission_denied ? 5u : 3u;
+            return g_xapi_last_error;
+        }
+        const auto parent = fs_path.parent_path();
+        std::error_code parent_ec;
+        if (!parent.empty() && !std::filesystem::is_directory(parent, parent_ec))
+        {
+            g_xapi_last_error = 3;
+            return g_xapi_last_error;
+        }
+        std::ofstream created(fs_path, std::ios::binary | std::ios::trunc);
+        if (!created)
+        {
+            g_xapi_last_error = 5;
+            return g_xapi_last_error;
+        }
+        g_xapi_last_error = 0;
+    }
+    else
+    {
+        g_xapi_last_error = 0xB7;
+    }
+
+    std::ifstream in(fs_path, std::ios::binary);
+    if (!in)
+    {
+        g_xapi_last_error = 5;
+        return g_xapi_last_error;
+    }
+    const std::string bytes(std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{});
+
+    unsigned char probe[2] = {};
+    if (!bytes.empty())
+    {
+        probe[0] = static_cast<unsigned char>(bytes[0]);
+    }
+    if (bytes.size() >= 2)
+    {
+        probe[1] = static_cast<unsigned char>(bytes[1]);
+    }
+    const u16 word = static_cast<u16>(probe[0] | (static_cast<unsigned>(probe[1]) << 8));
+    if (bytes.size() < 2 && word != 0xFEFFu)
+    {
+        return 0x491;
+    }
+
+    std::u16string text;
+    for (size_t i = 2; i + 1 < bytes.size(); i += 2)
+    {
+        text.push_back(static_cast<char16_t>(static_cast<unsigned char>(bytes[i]) |
+                                              (static_cast<unsigned>(static_cast<unsigned char>(bytes[i + 1])) << 8)));
+    }
+
+    u16 found[0x80];
+    found[0] = 0;
+    bool matched_key = false;
+    size_t line = 0;
+    while (line < text.size())
+    {
+        size_t crlf = line;
+        bool broke = false;
+        while (crlf + 1 < text.size())
+        {
+            if (text[crlf] == u'\r' && text[crlf + 1] == u'\n')
+            {
+                broke = true;
+                break;
+            }
+            ++crlf;
+        }
+        if (!broke)
+        {
+            break;
+        }
+
+        for (size_t at = line; at + 4 <= crlf; ++at)
+        {
+            if (text[at] != u'N' || text[at + 1] != u'a' || text[at + 2] != u'm' || text[at + 3] != u'e')
+            {
+                continue;
+            }
+            if (text[at + 4] == u'=')
+            {
+                const size_t value = at + 5;
+                size_t count = crlf - value;
+                if (count > 0x7F)
+                {
+                    count = 0x7F;
+                }
+                for (size_t n = 0; n < count; ++n)
+                {
+                    found[n] = static_cast<u16>(text[value + n]);
+                }
+                found[count] = 0;
+                matched_key = true;
+            }
+            break;
+        }
+        if (matched_key)
+        {
+            break;
+        }
+        line = crlf + 2;
+    }
+
+    if (!matched_key || expected == nullptr)
+    {
+        return 0x491;
+    }
+
+    const u16* left = found;
+    const u16* right = expected;
+    while (*left != 0 && *left == *right)
+    {
+        ++left;
+        ++right;
+    }
+    if (*left != *right)
+    {
+        return 0x491;
+    }
+    return 0;
+}
+
 bool fn_14d217(const char* path, const void* security)
 {
     // Xbox 0x0014D217

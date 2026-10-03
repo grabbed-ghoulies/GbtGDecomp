@@ -8490,6 +8490,35 @@ void fn_16e770(double* result, const char* text)
     store(value);
 }
 
+void fn_16e79d(float* result, const char* text)
+{
+    // Xbox 0x0016E79D
+    // _atoflt. cdecl, same 45-byte frame as _atodbl (0x0016E770): a 12-byte
+    // _LDBL12 and an end pointer. __strgtold12 (0x0016E7CA) is called with
+    // mult12, scale, decpt, and implicit_E all zero. _ld12tof (0x0016E75A)
+    // pushes the float descriptor at 0x00338320 and _ld12cvt (0x0016E5EC)
+    // writes an IEEE float. Both returns are discarded.
+    //
+    // That descriptor is max exponent 128, min exponent -127, 24 mantissa
+    // bits, pack shift 8, width 32, bias 127. An unbiased exponent above
+    // 127 is a signed infinity. Below -151 the result is a signed zero.
+    // Exponents from -151 through -127 are subnormals. The sign lives in
+    // bit 15 of the word at offset 0xA of the _LDBL12.
+    //
+    // __fassign (0x0016B1FE) calls this when the size flag is zero. The
+    // string is already on the stack; the result pointer is the flag slot,
+    // and those four bytes are copied to the caller's pointer. A nonzero
+    // flag calls _atodbl and copies eight bytes.
+    //
+    // Digit scanning, the 25-digit cutoff, and the 5200 exponent clamp are
+    // __strgtold12, shared with _atodbl. The host narrows that double to
+    // the 24-bit mantissa _ld12tof stores.
+    double parsed = 0.0;
+    fn_16e770(&parsed, text);
+    const float value = static_cast<float>(parsed);
+    std::memcpy(result, &value, sizeof(value));
+}
+
 void* fn_14aaba(u32 bytes, u32 lowest, u32 highest, u32 alignment, u32 protect)
 {
     // Xbox 0x0014AABA

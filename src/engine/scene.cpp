@@ -15081,6 +15081,21 @@ int fn_16f18d(void* lp, u32 ucb)
 #endif
 }
 
+int fn_16f1a8(const void* lpfn)
+{
+    // Xbox 0x0016F1A8
+    // _ValidateExecute. cdecl; the caller pops the address.
+    // ESI is set to 1, then XAPILIB::IsBadCodePtr (0x0014A90E) is called.
+    // That thunk probes one byte with IsBadReadPtr (0x0014A840) and returns
+    // stdcall. A nonzero result clears ESI, and EAX returns that flag: 1
+    // when the byte can be read, 0 when it cannot. A null pointer fails.
+    // BuildCatchObject (0x0016BC55) probes the copy function at
+    // CatchableType+0x18 and treats 0 as __inconsistency. The filter at
+    // 0x0016C22C probes the routine at DAT_004DD2C4 and returns 0 when the
+    // probe fails.
+    return fn_16f172(lpfn, 1);
+}
+
 void load_scene_contents(Game& g, std::string_view name)
 {
     script_set_default_name(g);

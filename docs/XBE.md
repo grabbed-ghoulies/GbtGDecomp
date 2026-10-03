@@ -264,3 +264,4 @@ Named functions: [`docs/generated/ghidra_functions.txt`](generated/ghidra_functi
 | `0x00019140` | `fn_19140` | entity |
 | `0x00165F0E` | `fn_165f0e` | scene |
 | `0x00154F00` | `fn_154f00` | entity |
+| `0x0016619A` | `fn_16619a` | scene |

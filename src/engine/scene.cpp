@@ -9,6 +9,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstddef>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -2645,6 +2646,69 @@ void fn_165f0e()
     {
         g_crt_locks[0xe].cs->unlock();
     }
+}
+
+// _iob at 0x00337CF8. Twenty FILE records, 0x20 bytes each. _unlock_file
+// treats a pointer as one of these when it is between that base and
+// 0x00337F58, the address of the last record.
+constexpr u32 kCrtIobCount = 20;
+
+struct CrtFile
+{
+    u8 bytes[0x20];
+};
+
+static_assert(sizeof(CrtFile) == 0x20);
+
+// A stream allocated past _iob is a _FILEX: the FILE bytes, then the
+// critical section _unlock_file passes to RtlLeaveCriticalSection.
+struct CrtFileX
+{
+    CrtFile file;
+    std::recursive_mutex lock;
+};
+
+static_assert(offsetof(CrtFileX, lock) == 0x20);
+
+CrtFile g_crt_iob[kCrtIobCount];
+
+void fn_16619a(void* stream)
+{
+    // Xbox 0x0016619A
+    // Shared unlock body for fclose (0x00166151). The scope table at
+    // 0x00209100 points the __finally at 0x00166197, which loads the
+    // FILE* from [ebp+8] into ESI and falls through to this address.
+    // The success path at 0x00166190 calls here after _fclose_lk with
+    // ESI already holding that pointer. The eight bytes push ESI, call
+    // _unlock_file (0x001689C2), pop the cdecl argument, and return.
+    //
+    // _unlock_file compares the pointer with _iob and with 0x00337F58.
+    // Inside that span the lock number is (byte delta >> 5) + 0x10
+    // (_STREAM_LOCKS). _unlock (0x0016810F) then leaves the critical
+    // section stored in _locktable[index] at 0x00337AB0. Outside the
+    // span it calls RtlLeaveCriticalSection (kernel ordinal 294, thunk
+    // 0x00202EA4) on the critical section at FILE+0x20. A null ESI
+    // would take that path at address 0x20; the port returns instead
+    // of faulting.
+    if (stream == nullptr)
+    {
+        return;
+    }
+
+    const auto addr = reinterpret_cast<std::uintptr_t>(stream);
+    const auto base = reinterpret_cast<std::uintptr_t>(&g_crt_iob[0]);
+    const auto last = reinterpret_cast<std::uintptr_t>(&g_crt_iob[kCrtIobCount - 1]);
+    if (addr >= base && addr <= last)
+    {
+        const u32 index = static_cast<u32>((addr - base) >> 5) + 0x10u;
+        if (g_crt_locks[index].cs != nullptr)
+        {
+            g_crt_locks[index].cs->unlock();
+        }
+        return;
+    }
+
+    reinterpret_cast<CrtFileX*>(stream)->lock.unlock();
 }
 
 int fn_16afdd()

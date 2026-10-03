@@ -2067,4 +2067,23 @@ void fn_177220(volatile u32* mmio)
     }
 }
 
+int fn_1782c0(float value)
+{
+    // Xbox 0x001782C0
+    // stdcall, ret 4. Nine bytes: cvttss2si eax, dword ptr [esp+4].
+    // D3D_CommonSetMultiSampleModeAndScale (0x00171F40) calls it four
+    // times. Each site adds the 0.5 at DAT_0032B0F4 and stores the x87
+    // result before the call, so truncation rounds a positive value
+    // half away from zero. The first two results are sample counts
+    // clamped to the surface size. The third indexes the dword table
+    // at 0x0017F99C (stored at device+0x964). The fourth is clamped
+    // to 0x1FF by the caller and written as the data dword of method
+    // 0x40380.
+    //
+    // Values outside the signed 32-bit range, and NaNs, come back as
+    // the indefinite integer 0x80000000. In-range values truncate
+    // toward zero.
+    return _mm_cvttss_si32(_mm_set_ss(value));
+}
+
 } // namespace gbtg

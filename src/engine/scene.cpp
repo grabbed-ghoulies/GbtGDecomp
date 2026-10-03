@@ -2632,6 +2632,21 @@ std::recursive_mutex g_xthread_notify_cs;
 CrtModuleTls g_crt_module_tls;
 u32 g_crt_tls_index = 0;
 
+void fn_165f0e()
+{
+    // Xbox 0x00165F0E
+    // Unwind funclet for type_info::~type_info (0x00165ED1). The state-0
+    // entry at 0x002090F8 points here, and the destructor calls it on the
+    // success path after setting the EH state to -1. The body pushes 0xE
+    // (_TYPEINFO_LOCK) and calls _unlock (0x0016810F), then pops the cdecl
+    // argument. _unlock leaves the critical section in _locktable[0xE]
+    // (image 0x00337AB0). The kernel thunk is the dword at 0x00202EA4.
+    if (g_crt_locks[0xe].cs != nullptr)
+    {
+        g_crt_locks[0xe].cs->unlock();
+    }
+}
+
 int fn_16afdd()
 {
     // Xbox 0x0016AFDD

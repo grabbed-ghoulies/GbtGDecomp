@@ -2781,6 +2781,14 @@ std::recursive_mutex g_xthread_notify_cs;
 CrtModuleTls g_crt_module_tls;
 u32 g_crt_tls_index = 0;
 
+// 0x0054DD64. BSS, so the image dword is 0. A thread whose TlsData is null
+// keeps its _tiddata pointer here instead of in the module TLS block.
+void* g_crt_ptd_nontls = nullptr;
+
+// Host stand-in for the dword at KTHREAD+0x28 (TlsData), read through
+// fs:[0x28]. The game thread has TLS, so this stays non-null.
+void* g_kthread_tls_data = &g_crt_module_tls;
+
 // 0x0054DD60. BSS, so the image value is 0. 1 is __SYSTEM_HEAP and 3 is
 // __V6_HEAP. Nothing in the image stores this dword; the compares still read it.
 int g_crt_active_heap = 0;
@@ -2908,24 +2916,31 @@ void fn_1681b8()
     }
 }
 
-int* fn_168af5()
+CrtTidData* fn_16ae40()
 {
-    // Xbox 0x00168AF5
-    // _errno. Nine bytes: call _getptd (0x0016AE40), add eax, 8, ret.
-    // The dword at _tiddata+8 is _terrno. __mtinitlocknum stores ENOMEM
-    // (0xC) through this pointer.
+    // Xbox 0x0016AE40
+    // _getptd. The IRQL byte at fs:[0x24] above 1 is KeBugCheck(10). The
+    // host thread stays at passive level, so that check does not fire.
+    // fs:[0x28] is the current KTHREAD. A zero dword at KTHREAD+0x28
+    // (TlsData) selects the global pointer at 0x0054DD64. Otherwise the
+    // slot is fs:[4][__tls_index] + 0xC: fs:[4] is the thread TLS array
+    // and __tls_index is the dword at 0x00434234. This port keeps that
+    // slot in g_crt_module_tls.ptd. The game thread has TLS, so it takes
+    // that path.
     //
-    // _getptd bugchecks with code 10 when the IRQL byte at fs:[0x24] is
-    // above 1. The host stays at passive level. A thread whose
-    // KTHREAD+0x28 (fs:[0x28]) is zero uses the global at 0x0054DD64.
-    // The game thread reads fs:[4][__tls_index] + 0xC, which this port
-    // keeps in g_crt_module_tls.ptd. A null slot is calloc of 0x88 bytes
-    // (0x00168012). A failed allocation is _amsg_exit (0x00168B7A) with
-    // 0x10 and does not return. The new block is stored in the slot,
-    // +0x54 receives the static exception table 0x00338280, +0x14 receives
-    // 1 (_holdrand), +4 receives 0xFFFFFFFF, and +0 receives the thread id
+    // A null slot is calloc of 0x88 bytes (0x00168012). A failed
+    // allocation is _amsg_exit (0x00168B7A) with 0x10 (_RT_THREAD) and
+    // does not return. The new block is stored in the slot, +0x54
+    // receives the static exception table 0x00338280, +0x14 receives 1
+    // (_holdrand), +4 receives 0xFFFFFFFF, and +0 receives the thread id
     // from GetCurrentThreadId (0x0014BC53).
-    CrtTidData* ptd = static_cast<CrtTidData*>(g_crt_module_tls.ptd);
+    void** slot = &g_crt_ptd_nontls;
+    if (g_kthread_tls_data != nullptr)
+    {
+        slot = &g_crt_module_tls.ptd;
+    }
+
+    CrtTidData* ptd = static_cast<CrtTidData*>(*slot);
     if (ptd == nullptr)
     {
         ptd = static_cast<CrtTidData*>(std::calloc(1, sizeof(CrtTidData)));
@@ -2933,7 +2948,7 @@ int* fn_168af5()
         {
             std::exit(0xFF);
         }
-        g_crt_module_tls.ptd = ptd;
+        *slot = ptd;
         auto* raw = reinterpret_cast<u8*>(ptd);
         *reinterpret_cast<u32*>(raw + 0x54) = 0x00338280u;
         *reinterpret_cast<u32*>(raw + 0x14) = 1u;
@@ -2945,6 +2960,16 @@ int* fn_168af5()
         ptd->thandle = 0xffffffffu;
         ptd->tid = tid;
     }
+    return ptd;
+}
+
+int* fn_168af5()
+{
+    // Xbox 0x00168AF5
+    // _errno. Nine bytes: call _getptd (0x0016AE40), add eax, 8, ret.
+    // The dword at _tiddata+8 is _terrno. __mtinitlocknum stores ENOMEM
+    // (0xC) through this pointer.
+    CrtTidData* ptd = fn_16ae40();
     return reinterpret_cast<int*>(reinterpret_cast<u8*>(ptd) + 8);
 }
 

@@ -217,73 +217,6 @@ void decode_vec(Streams& st, int flag, float scale, float def, float frac, Vec3&
     out.z = cur[2] + (nxt[2] - cur[2]) * frac;
 }
 
-bool invert4(const Mat& m, Mat& out)
-{
-    const float* a = m.m;
-    float inv[16];
-    inv[0] = a[5] * a[10] * a[15] - a[5] * a[11] * a[14] - a[9] * a[6] * a[15] + a[9] * a[7] * a[14] +
-             a[13] * a[6] * a[11] - a[13] * a[7] * a[10];
-    inv[4] = -a[4] * a[10] * a[15] + a[4] * a[11] * a[14] + a[8] * a[6] * a[15] - a[8] * a[7] * a[14] -
-             a[12] * a[6] * a[11] + a[12] * a[7] * a[10];
-    inv[8] = a[4] * a[9] * a[15] - a[4] * a[11] * a[13] - a[8] * a[5] * a[15] + a[8] * a[7] * a[13] +
-             a[12] * a[5] * a[11] - a[12] * a[7] * a[9];
-    inv[12] = -a[4] * a[9] * a[14] + a[4] * a[10] * a[13] + a[8] * a[5] * a[14] - a[8] * a[6] * a[13] -
-              a[12] * a[5] * a[10] + a[12] * a[6] * a[9];
-    inv[1] = -a[1] * a[10] * a[15] + a[1] * a[11] * a[14] + a[9] * a[2] * a[15] - a[9] * a[3] * a[14] -
-             a[13] * a[2] * a[11] + a[13] * a[3] * a[10];
-    inv[5] = a[0] * a[10] * a[15] - a[0] * a[11] * a[14] - a[8] * a[2] * a[15] + a[8] * a[3] * a[14] +
-             a[12] * a[2] * a[11] - a[12] * a[3] * a[10];
-    inv[9] = -a[0] * a[9] * a[15] + a[0] * a[11] * a[13] + a[8] * a[1] * a[15] - a[8] * a[3] * a[13] -
-             a[12] * a[1] * a[11] + a[12] * a[3] * a[9];
-    inv[13] = a[0] * a[9] * a[14] - a[0] * a[10] * a[13] - a[8] * a[1] * a[14] + a[8] * a[2] * a[13] +
-              a[12] * a[1] * a[10] - a[12] * a[2] * a[9];
-    inv[2] = a[1] * a[6] * a[15] - a[1] * a[7] * a[14] - a[5] * a[2] * a[15] + a[5] * a[3] * a[14] +
-             a[13] * a[2] * a[7] - a[13] * a[3] * a[6];
-    inv[6] = -a[0] * a[6] * a[15] + a[0] * a[7] * a[14] + a[4] * a[2] * a[15] - a[4] * a[3] * a[14] -
-             a[12] * a[2] * a[7] + a[12] * a[3] * a[6];
-    inv[10] = a[0] * a[5] * a[15] - a[0] * a[7] * a[13] - a[4] * a[1] * a[15] + a[4] * a[3] * a[13] +
-              a[12] * a[1] * a[7] - a[12] * a[3] * a[5];
-    inv[14] = -a[0] * a[5] * a[14] + a[0] * a[6] * a[13] + a[4] * a[1] * a[14] - a[4] * a[2] * a[13] -
-              a[12] * a[1] * a[6] + a[12] * a[2] * a[5];
-    inv[3] = -a[1] * a[6] * a[11] + a[1] * a[7] * a[10] + a[5] * a[2] * a[11] - a[5] * a[3] * a[10] -
-             a[9] * a[2] * a[7] + a[9] * a[3] * a[6];
-    inv[7] = a[0] * a[6] * a[11] - a[0] * a[7] * a[10] - a[4] * a[2] * a[11] + a[4] * a[3] * a[10] +
-             a[8] * a[2] * a[7] - a[8] * a[3] * a[6];
-    inv[11] = -a[0] * a[5] * a[11] + a[0] * a[7] * a[9] + a[4] * a[1] * a[11] - a[4] * a[3] * a[9] -
-              a[8] * a[1] * a[7] + a[8] * a[3] * a[5];
-    inv[15] = a[0] * a[5] * a[10] - a[0] * a[6] * a[9] - a[4] * a[1] * a[10] + a[4] * a[2] * a[9] +
-              a[8] * a[1] * a[6] - a[8] * a[2] * a[5];
-    float det = a[0] * inv[0] + a[1] * inv[4] + a[2] * inv[8] + a[3] * inv[12];
-    if (det > -1e-8f && det < 1e-8f)
-    {
-        return false;
-    }
-    det = 1.f / det;
-    for (int i = 0; i < 16; ++i)
-    {
-        out.m[i] = inv[i] * det;
-    }
-    return true;
-}
-
-std::vector<Mat> pose_world(const std::vector<Joint>& joints, const std::vector<JointPose>& pose, int n,
-                            const std::vector<int>& joint_order)
-{
-    std::vector<Mat> world(size_t(n), ident());
-    for (int i : joint_order)
-    {
-        const JointPose& jp = pose[size_t(i)];
-        Vec3 t = joints[size_t(i)].local;
-        t.x += jp.translation.x;
-        t.y += jp.translation.y;
-        t.z += jp.translation.z;
-        Mat local = from_pose(jp.rotation, t, jp.scale);
-        const int p = joints[size_t(i)].parent;
-        world[size_t(i)] = (p >= 0 && p < n) ? mul(world[size_t(p)], local) : local;
-    }
-    return world;
-}
-
 } // namespace
 
 std::vector<JointPose> sample_mina(std::span<const u8> mina, float time_norm, bool loop)
@@ -422,8 +355,10 @@ std::vector<JointPose> sample_mina(std::span<const u8> mina, float time_norm, bo
     return poses;
 }
 
-void skin_matrices(const std::vector<Joint>& joints, const std::vector<JointPose>& pose, float* out, int max_joints,
-                   const std::vector<JointPose>* bind)
+// Xbox 0x0002FAC0 builds each slot as parent * local (0x001041B0). Xbox 0x0002F720
+// then subtracts the joint's bind point through that rotation. Rigid vertices read
+// one slot; the draw remaps ndRigidSkinIdx onto these joints.
+void skin_matrices(const std::vector<Joint>& joints, const std::vector<JointPose>& pose, float* out, int max_joints)
 {
     const int n = int(std::min(joints.size(), pose.size()));
     const int count = std::min(n, max_joints);
@@ -431,52 +366,38 @@ void skin_matrices(const std::vector<Joint>& joints, const std::vector<JointPose
     {
         return;
     }
-    std::vector<int> depth(size_t(n), 0);
-    for (int i = 0; i < n; ++i)
-    {
-        int d = 0;
-        int p = joints[size_t(i)].parent;
-        int guard = 0;
-        while (p >= 0 && p < n && guard++ < n)
-        {
-            ++d;
-            p = joints[size_t(p)].parent;
-        }
-        depth[size_t(i)] = d;
-    }
-    std::vector<int> joint_order(static_cast<size_t>(n));
-    for (int i = 0; i < n; ++i)
-    {
-        joint_order[size_t(i)] = i;
-    }
-    std::sort(joint_order.begin(), joint_order.end(), [&](int a, int b) { return depth[size_t(a)] < depth[size_t(b)]; });
-
-    const std::vector<Mat> world = pose_world(joints, pose, n, joint_order);
-    const bool use_bind = bind && int(bind->size()) >= n;
-    std::vector<Mat> bind_world;
-    if (use_bind)
-    {
-        bind_world = pose_world(joints, *bind, n, joint_order);
-    }
+    std::vector<Mat> palette(size_t(count), ident());
     for (int i = 0; i < count; ++i)
     {
-        Mat skin = world[size_t(i)];
-        if (use_bind)
+        const JointPose& jp = pose[size_t(i)];
+        const Vec3 t{joints[size_t(i)].local.x + jp.translation.x, joints[size_t(i)].local.y + jp.translation.y,
+                     joints[size_t(i)].local.z + jp.translation.z};
+        Mat local = ident();
+        if (jp.rotation.w == 1.f)
         {
-            Mat inv;
-            if (invert4(bind_world[size_t(i)], inv))
-            {
-                skin = mul(world[size_t(i)], inv);
-            }
+            local.m[0] = jp.scale.x;
+            local.m[5] = jp.scale.y;
+            local.m[10] = jp.scale.z;
+            local.m[12] = t.x;
+            local.m[13] = t.y;
+            local.m[14] = t.z;
         }
         else
         {
-            Mat bind_t = ident();
-            bind_t.m[12] = -joints[size_t(i)].world.x;
-            bind_t.m[13] = -joints[size_t(i)].world.y;
-            bind_t.m[14] = -joints[size_t(i)].world.z;
-            skin = mul(world[size_t(i)], bind_t);
+            local = from_pose(jp.rotation, t, jp.scale);
         }
+        const int p = joints[size_t(i)].parent;
+        palette[size_t(i)] = (p >= 0 && p < i) ? mul(palette[size_t(p)], local) : local;
+    }
+    for (int i = 0; i < count; ++i)
+    {
+        Mat skin = palette[size_t(i)];
+        const float bx = joints[size_t(i)].world.x;
+        const float by = joints[size_t(i)].world.y;
+        const float bz = joints[size_t(i)].world.z;
+        skin.m[12] -= skin.m[0] * bx + skin.m[4] * by + skin.m[8] * bz;
+        skin.m[13] -= skin.m[1] * bx + skin.m[5] * by + skin.m[9] * bz;
+        skin.m[14] -= skin.m[2] * bx + skin.m[6] * by + skin.m[10] * bz;
         std::memcpy(out + size_t(i) * 16, skin.m, sizeof(skin.m));
     }
 }

@@ -15541,12 +15541,11 @@ void draw_cutscene_props(Game& g)
         if (!actor.mina.empty() && !prop.mesh.joints.empty() && !prop.mesh.bones.empty() && cut.duration > 0.f)
         {
             const auto pose = sample_mina(actor.mina, q.time / cut.duration);
-            const auto bind = sample_mina(actor.mina, 0.f);
             const int n = int(std::min(pose.size(), std::min(prop.mesh.joints.size(), size_t(128))));
             float bones[128 * 16]{};
             if (n > 0)
             {
-                skin_matrices(prop.mesh.joints, pose, bones, n, bind.size() >= size_t(n) ? &bind : nullptr);
+                skin_matrices(prop.mesh.joints, pose, bones, n);
                 gfx_set_bones(bones, n);
             }
             else

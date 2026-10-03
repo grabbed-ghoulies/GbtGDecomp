@@ -21,7 +21,7 @@ struct Submesh
     u8 lightmap_uv = 1;
 };
 
-// Skeleton joint. local/world are the bind translations. parent is inferred from those.
+// Skeleton joint. local/world are the bind translations. parent is the u16 link at record +4.
 struct Joint
 {
     Vec3 local;

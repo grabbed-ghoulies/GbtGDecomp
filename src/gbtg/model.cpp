@@ -272,24 +272,28 @@ void parse_skeleton(std::span<const u8> cpu, Mesh& mesh)
         j.world = Vec3{read_f32(cpu, rec + 20), read_f32(cpu, rec + 24), read_f32(cpu, rec + 28)};
         j.parent = -1;
     }
+    // The dword at +4 is two u16 links. When the low word is this joint, the parent
+    // is the joint whose high word points here. Otherwise the low word is the parent.
+    std::vector<u16> link_lo;
+    std::vector<u16> link_hi;
+    link_lo.resize(size_t(best_n));
+    link_hi.resize(size_t(best_n));
     for (int i = 0; i < best_n; ++i)
     {
-        const Joint& child = mesh.joints[size_t(i)];
-        for (int p = 0; p < best_n; ++p)
+        const size_t rec = best + size_t(i) * 32;
+        link_lo[size_t(i)] = read_u16(cpu, rec + 4);
+        link_hi[size_t(i)] = read_u16(cpu, rec + 6);
+        if (link_lo[size_t(i)] != u16(i) && int(link_lo[size_t(i)]) < best_n)
         {
-            if (p == i)
-            {
-                continue;
-            }
-            const Joint& parent = mesh.joints[size_t(p)];
-            const float dx = parent.world.x + child.local.x - child.world.x;
-            const float dy = parent.world.y + child.local.y - child.world.y;
-            const float dz = parent.world.z + child.local.z - child.world.z;
-            if (dx * dx + dy * dy + dz * dz < 1e-4f)
-            {
-                mesh.joints[size_t(i)].parent = p;
-                break;
-            }
+            mesh.joints[size_t(i)].parent = int(link_lo[size_t(i)]);
+        }
+    }
+    for (int i = 0; i < best_n; ++i)
+    {
+        const int child = int(link_hi[size_t(i)]);
+        if (child >= 0 && child < best_n && link_lo[size_t(child)] == u16(child))
+        {
+            mesh.joints[size_t(child)].parent = i;
         }
     }
 }

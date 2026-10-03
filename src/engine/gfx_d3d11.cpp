@@ -49,11 +49,12 @@ struct GpuCB
     float light_uv = 1.f;
     float use_light = 0.f;
     float use_cel = 0.f;
-    // World-space key light. The vertex-shader constant that supplies this has not
-    // been lifted yet; +Y is the stand-in.
-    float light_x = 0.f;
+    // FUN_0005e380 vertex constant 100. The draw passes a packed colour and the
+    // function stores each byte times 1/255 (the float at 0x32b154). White until
+    // a material colour is threaded through.
+    float light_x = 1.f;
     float light_y = 1.f;
-    float light_z = 0.f;
+    float light_z = 1.f;
     float skin = 0.f; // light_dir.w: rigid skin palette is active
 };
 
@@ -458,7 +459,7 @@ bool gfx_init(const GfxConfig& cfg)
 cbuffer Camera : register(b0) {
     float4x4 mvp;
     float4 uv_sel;   // x = albedo uv set, y = light uv set, z = lightmap, w = cel ramp
-    float4 light_dir; // xyz world key light, w = rigid skin on
+    float4 light_dir; // xyz draw colour (0x5e380), w = rigid skin on
 };
 cbuffer Bones : register(b1) {
     float4x4 joints[128];
@@ -490,14 +491,15 @@ float4 ps_main(VSOut i) : SV_Target {
     float4 albedo = g_tex.Sample(g_samp, uv_a);
     float3 light = 1.0;
     if (uv_sel.w > 0.5 && dot(i.nrm, i.nrm) > 1e-8) {
-        // Book RARE_celmap0 (256x2) runs dark to bright along U. Lit faces take the bright end.
+        // RARE_celmap0 is a ramp along U. The mesh constant is a colour, not a
+        // direction; the ramp coordinate is the world-up component of the normal
+        // (the unit +Y FUN_0013e520 stores as the LookAt up).
         float3 n = normalize(i.nrm);
-        float3 l = normalize(light_dir.xyz);
-        float u = saturate(0.5 + 0.5 * dot(n, l));
-        light = g_light.Sample(g_light_samp, float2(u, 0.25)).rgb;
+        float u = saturate(0.5 + 0.5 * n.y);
+        light = g_light.Sample(g_light_samp, float2(u, 0.25)).rgb * light_dir.xyz;
     } else if (uv_sel.z > 0.5) {
-        // Xbox D3D8 lightmaps are commonly MODULATE2X: 0.5 in the texture is neutral.
-        light = g_light.Sample(g_light_samp, uv_l).rgb * 2.0;
+        // FUN_000644f0 stores D3DTOP_MODULATE (4) at the stage colour ops.
+        light = g_light.Sample(g_light_samp, uv_l).rgb * light_dir.xyz;
     }
     return float4(albedo.rgb * light, albedo.a);
 }

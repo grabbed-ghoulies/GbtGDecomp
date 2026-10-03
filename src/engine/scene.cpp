@@ -3503,6 +3503,38 @@ u32 fn_14c633(const char* path, const u16* expected)
     return 0;
 }
 
+void fn_14c6b3(const char* path)
+{
+    // Xbox 0x0014C6B3
+    // 0x0014D08C opens the path with GENERIC_READ|GENERIC_WRITE, share
+    // read|write, a null security descriptor, OPEN_EXISTING, and
+    // FILE_FLAG_BACKUP_SEMANTICS, so the handle may be a directory. A handle
+    // other than -1 zeros 0x28 bytes of FILE_BASIC_INFORMATION, stores
+    // KeQuerySystemTime at +0x10 (LastWriteTime), and calls NtSetInformationFile
+    // with class 4. Creation, access, change, and FileAttributes stay 0, which
+    // leaves those fields unchanged. CloseHandle follows. A failed open returns
+    // immediately; 0x0014D08C has already stored the Win32 error.
+    if (path == nullptr || path[0] == '\0')
+    {
+        g_xapi_last_error = 123;
+        return;
+    }
+
+    const std::filesystem::path fs_path(path);
+    std::error_code ec;
+    if (!std::filesystem::exists(fs_path, ec) || ec)
+    {
+        if (!ec)
+        {
+            ec = std::make_error_code(std::errc::no_such_file_or_directory);
+        }
+        xapi_set_dir_open_error(fs_path, ec);
+        return;
+    }
+
+    std::filesystem::last_write_time(fs_path, std::filesystem::file_time_type::clock::now(), ec);
+}
+
 bool fn_14d217(const char* path, const void* security)
 {
     // Xbox 0x0014D217

@@ -2405,6 +2405,81 @@ void focus_bounds_tick()
     }
     fn_426f0(g_cam_focus, g_cam_focus.bound, g_cam_focus.shape_mask, 0);
 }
+
+int fn_14aaed(const u16* src, int cch, u8* dst, int cb)
+{
+    // Xbox 0x0014AAED
+    // WideCharToMultiByte for code page 65001. A cch of -1 counts through the
+    // NUL (0x00166ECB) and includes it. Bytes that fit are stored. A nonzero
+    // cb shorter than the encoded size returns 0; 0x0014B00C would record
+    // last-error 0x7A.
+    if (cch == -1)
+    {
+        int length = 0;
+        while (src[length] != 0)
+        {
+            ++length;
+        }
+        cch = length + 1;
+    }
+
+    int count = 0;
+    while (cch > 0)
+    {
+        const u16 unit = *src;
+        ++src;
+        --cch;
+
+        if (unit < 0x80)
+        {
+            ++count;
+            if (count <= cb && dst != nullptr)
+            {
+                *dst = static_cast<u8>(unit);
+                ++dst;
+            }
+            continue;
+        }
+
+        if (unit < 0x800)
+        {
+            ++count;
+            if (count <= cb && dst != nullptr)
+            {
+                *dst = static_cast<u8>(0xc0 | ((unit >> 6) & 0x1f));
+                ++dst;
+            }
+        }
+        else
+        {
+            ++count;
+            if (count <= cb && dst != nullptr)
+            {
+                *dst = static_cast<u8>(0xe0 | ((unit >> 12) & 0x0f));
+                ++dst;
+            }
+            ++count;
+            if (count <= cb && dst != nullptr)
+            {
+                *dst = static_cast<u8>(0x80 | ((unit >> 6) & 0x3f));
+                ++dst;
+            }
+        }
+
+        ++count;
+        if (count <= cb && dst != nullptr)
+        {
+            *dst = static_cast<u8>(0x80 | (unit & 0x3f));
+            ++dst;
+        }
+    }
+
+    if (cb != 0 && cb < count)
+    {
+        return 0;
+    }
+    return count;
+}
 } // namespace
 
 void load_scene_contents(Game& g, std::string_view name)

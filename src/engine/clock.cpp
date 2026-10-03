@@ -463,4 +463,47 @@ void fn_16810f(int locknum)
     cs->unlock();
 }
 
+namespace
+{
+
+// _tiddata from _getptd (0x0016AE40). Retail calloc is 0x88 bytes.
+// _curexception is +0x78, _curcontext is +0x7C, _ProcessingThrow is +0x80.
+struct CrtTidBlock
+{
+    u8 prefix[0x80];
+    i32 processing_throw;
+    u8 tail[4];
+};
+
+static_assert(offsetof(CrtTidBlock, processing_throw) == 0x80);
+static_assert(sizeof(CrtTidBlock) == 0x88);
+
+CrtTidBlock g_crt_tid{};
+
+CrtTidBlock* crt_getptd()
+{
+    return &g_crt_tid;
+}
+
+} // namespace
+
+void fn_16ba2f()
+{
+    // Xbox 0x0016BA2F
+    // Outlined from __FrameUnwindToState (0x0016B97C). That routine
+    // increments _ProcessingThrow before the unwind __try, sets the try
+    // level to -1, then calls here. _getptd (0x0016AE40) returns the
+    // 0x88-byte _tiddata. The int at +0x80 is decremented only when it
+    // is greater than zero, and the decrement goes through a second
+    // _getptd. The filter at 0x0016B95E zeroes this dword before
+    // terminate (0x0016C177) when exception code 0xE06D7363 escapes an
+    // unwind action, so a non-positive count must stay put.
+    CrtTidBlock* ptd = crt_getptd();
+    if (ptd->processing_throw > 0)
+    {
+        ptd = crt_getptd();
+        --ptd->processing_throw;
+    }
+}
+
 } // namespace gbtg

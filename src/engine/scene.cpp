@@ -4801,6 +4801,34 @@ void fn_16d7e1(int fh)
     fn_168c8e(fh);
 }
 
+void fn_16dc45()
+{
+    // Xbox 0x0016DC45
+    // Shared unlock tail of _lock_fhandle (0x0016DBAE). __SEH_prolog
+    // (0x00166D58) is entered with local size 8 and the scope table at
+    // 0x00209E98: one entry, enclosing level -1, a null filter, and the
+    // handler at 0x0016DC42. That handler loads the descriptor from
+    // [ebp+8] into EDI and falls through to this address. The success
+    // path at 0x0016DC13 sets the try level at [ebp-4] to -1 and calls
+    // here. EDI already holds the descriptor, and these nine bytes do
+    // not read it: push 10 (_LOCKTAB_LOCK), call _unlock (0x0016810F),
+    // pop the cdecl argument, and return.
+    //
+    // _unlock leaves the critical section in _locktable[10] (image
+    // 0x00337AB0). The kernel thunk is the dword at 0x00202EA4.
+    // _local_unwind2 (0x00167062) runs the handler when
+    // InitializeCriticalSectionAndSpinCount (0x0016D9F8) returns 0.
+    // _lock_fhandle then returns 0 and leaves the file-handle section
+    // unentered. After this return on the success path, _lock_fhandle
+    // enters the section at record+0xC through RtlEnterCriticalSection
+    // (thunk 0x00202EA0). A section __mtinitlocks has not created is
+    // left alone; retail would fault on the null pointer.
+    if (g_crt_locks[10].cs != nullptr)
+    {
+        g_crt_locks[10].cs->unlock();
+    }
+}
+
 int fn_16d9f8(std::recursive_mutex* section, u32 spin_count);
 
 int fn_16dea6(u32 fh)

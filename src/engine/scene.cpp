@@ -2619,6 +2619,229 @@ int fn_16b050(int c)
     return c + 0x20;
 }
 
+char* fn_16b308(double* value, char* buffer, int ndec, int caps)
+{
+    // Xbox 0x0016B308
+    // _cftoe. __cfltcvt (0x0016B4EC) calls here for 'e' and 'E', passing the
+    // double pointer, the output buffer, the precision, and the caps flag
+    // (nonzero writes 'E'). The return is that buffer pointer.
+    //
+    // _fltout (0x0016F027) turns the double into a _strflt on the stack: the
+    // sign dword is '-' or ' ' (0x20), the decpt dword is the exponent plus
+    // one, and the mantissa pointer aims at a 24-byte digit buffer. _dtold
+    // (0x0016EF6D) drops the sign of a zero, so -0.0 prints as a positive
+    // zero. $I10_OUTPUT (0x0016F945) is asked for 17 digits. A zero mantissa
+    // is the single character '0' and decpt 0. An exponent of 0x7FFF selects
+    // the image strings at 0x00209EEC..0x00209EFC: "1#INF", "1#IND",
+    // "1#QNAN", or "1#SNAN", with decpt 1. The quiet bit distinguishes a
+    // QNAN from an SNAN, and the negative quiet NaN with a zero payload is
+    // "1#IND".
+    //
+    // _fptostr (0x0016EEEE) writes precision + 1 digits one byte in from a
+    // slot that already accounts for a minus and, when precision is positive,
+    // the decimal point. It plants a leading '0', copies digits (padding
+    // '0' past the end of the mantissa), and rounds when the next character
+    // is at least '5', carrying through '9'. A carry into that leading '0'
+    // increments decpt and keeps the extra digit. Otherwise the guard byte
+    // is shifted off. The stored mantissa pointer is left on the first
+    // character; the zero test below still sees it.
+    //
+    // 0x0016B25F then lays the text out. This call passes 0 for its format
+    // byte, so the %g shift is skipped. A minus is stored, a positive
+    // precision pulls the first digit forward and writes the decimal point
+    // from 0x0033818C ('.'), and "e+000" from 0x00209B9C is copied at
+    // digit_end. A nonzero caps flag replaces 'e' with 'E'. A mantissa that
+    // still starts with '0' leaves the exponent at "+000". Any other value
+    // writes decpt - 1, three digits, with '-' over the '+' when the power
+    // is negative.
+
+    char mantissa[24];
+    int sign = ' ';
+    int decpt = 0;
+    std::uint64_t bits = 0;
+    std::memcpy(&bits, value, sizeof(bits));
+    const std::uint64_t frac = bits & 0x000fffffffffffffull;
+    const unsigned exp_bits = static_cast<unsigned>((bits >> 52) & 0x7ffu);
+
+    if (exp_bits == 0 && frac == 0)
+    {
+        mantissa[0] = '0';
+        mantissa[1] = '\0';
+    }
+    else if (exp_bits == 0x7ffu)
+    {
+        sign = ((bits >> 63) != 0) ? '-' : ' ';
+        decpt = 1;
+        const char* token = "1#QNAN";
+        if (frac == 0)
+        {
+            token = "1#INF";
+        }
+        else if ((frac & 0x0008000000000000ull) == 0)
+        {
+            token = "1#SNAN";
+        }
+        else if ((bits >> 63) != 0 && frac == 0x0008000000000000ull)
+        {
+            token = "1#IND";
+        }
+        int i = 0;
+        while (token[i] != '\0')
+        {
+            mantissa[i] = token[i];
+            i += 1;
+        }
+        mantissa[i] = '\0';
+    }
+    else
+    {
+        sign = ((bits >> 63) != 0) ? '-' : ' ';
+        const std::uint64_t mag_bits = bits & 0x7fffffffffffffffull;
+        const double mag = std::bit_cast<double>(mag_bits);
+        char scratch[40];
+        const auto converted = std::to_chars(scratch, scratch + sizeof(scratch), mag, std::chars_format::scientific, 16);
+        const char* cursor = scratch;
+        int count = 0;
+        int power = 0;
+        if (converted.ec == std::errc{})
+        {
+            if (*cursor == '+' || *cursor == '-')
+            {
+                cursor += 1;
+            }
+            if (*cursor >= '0' && *cursor <= '9')
+            {
+                mantissa[count] = *cursor;
+                count += 1;
+                cursor += 1;
+            }
+            if (*cursor == '.')
+            {
+                cursor += 1;
+            }
+            while (*cursor >= '0' && *cursor <= '9' && count < 17)
+            {
+                mantissa[count] = *cursor;
+                count += 1;
+                cursor += 1;
+            }
+            if (*cursor == 'e' || *cursor == 'E')
+            {
+                power = std::atoi(cursor + 1);
+            }
+        }
+        if (count == 0)
+        {
+            mantissa[0] = '0';
+            count = 1;
+            power = 0;
+        }
+        mantissa[count] = '\0';
+        decpt = power + 1;
+    }
+
+    const char* man = mantissa;
+    char* placed = buffer + (ndec > 0 ? 1 : 0) + (sign == '-' ? 1 : 0);
+    placed[0] = '0';
+    char* out = placed + 1;
+    if (ndec + 1 > 0)
+    {
+        int remaining = ndec + 1;
+        while (remaining != 0)
+        {
+            char digit = '0';
+            if (*man != '\0')
+            {
+                digit = *man;
+                man += 1;
+            }
+            *out = digit;
+            out += 1;
+            remaining -= 1;
+        }
+    }
+    *out = '\0';
+    if (ndec + 1 >= 0 && *man >= '5')
+    {
+        char* round = out;
+        while (true)
+        {
+            round -= 1;
+            if (*round == '9')
+            {
+                *round = '0';
+                continue;
+            }
+            *round = static_cast<char>(*round + 1);
+            break;
+        }
+    }
+    if (placed[0] == '1')
+    {
+        decpt += 1;
+    }
+    else
+    {
+        char* src = placed + 1;
+        char* dst = placed;
+        while (true)
+        {
+            const char ch = *src;
+            src += 1;
+            *dst = ch;
+            dst += 1;
+            if (ch == '\0')
+            {
+                break;
+            }
+        }
+    }
+
+    char* text = buffer;
+    if (sign == '-')
+    {
+        *text = '-';
+        text += 1;
+    }
+    if (ndec > 0)
+    {
+        char* dot = text + 1;
+        *text = *dot;
+        *dot = '.';
+        text = dot;
+    }
+    char* exp_at = text + ndec + 1;
+    std::memcpy(exp_at, "e+000", 6);
+    if (caps != 0)
+    {
+        *exp_at = 'E';
+    }
+    exp_at += 1;
+    if (mantissa[0] != '0')
+    {
+        int power = decpt - 1;
+        if (power < 0)
+        {
+            power = -power;
+            *exp_at = '-';
+        }
+        exp_at += 1;
+        if (power >= 100)
+        {
+            *exp_at = static_cast<char>(*exp_at + power / 100);
+            power %= 100;
+        }
+        exp_at += 1;
+        if (power >= 10)
+        {
+            *exp_at = static_cast<char>(*exp_at + power / 10);
+            power %= 10;
+        }
+        exp_at[1] = static_cast<char>(exp_at[1] + power);
+    }
+    return buffer;
+}
+
 // Xbox 0x00337A70. __NLG_Destination. The image signature is the C++ EH
 // magic 0x19930520. The next three dwords are zero until __NLG_Notify1
 // writes them. Nothing in the image reads the record back.

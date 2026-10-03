@@ -6055,6 +6055,17 @@ bool g_xapi_launch_page_set = false;
 // NtQuerySymbolicLinkObject failure uses "\\Device\\Cdrom0".
 char g_xapi_d_target[0x208] = "\\Device\\Cdrom0";
 
+// \??\U: and \??\T: targets filled by 0x00150CC6. Empty means the link has
+// not been created. A second IoCreateSymbolicLink returns
+// STATUS_OBJECT_NAME_COLLISION.
+char g_xapi_u_target[0x168] = {};
+char g_xapi_t_target[0x168] = {};
+
+// TitleMeta.xbx bytes 0x00150992 would write for T: when $$XTINFO is absent.
+// Size is the wchar count times two, with no trailing NUL.
+u8 g_xapi_title_meta[0x11C] = {};
+u32 g_xapi_title_meta_size = 0;
+
 u32 fn_15028c(const char* path, const void* launch_data, u32 flags, u32 launch_type)
 {
     // Xbox 0x0015028C
@@ -7032,6 +7043,199 @@ int fn_1508ab(std::uintptr_t section, char* path, int capacity, const char* leaf
     nt_close(handle);
     return static_cast<int>(status);
 #endif
+}
+
+// OBJECT_STRING in .data. Length is mutable: 0x00150992 decrements it when
+// the mapped directory already ends in a backslash.
+struct XapiLetterString
+{
+    u16 length;
+    u16 maximum_length;
+    const char* buffer;
+};
+
+static_assert(sizeof("\\??\\U:") - 1 == 6);
+static_assert(sizeof("\\Device\\Harddisk0\\partition1\\UDATA") - 1 == 0x22);
+static_assert(sizeof("\\??\\T:") - 1 == 6);
+static_assert(sizeof("\\Device\\Harddisk0\\partition1\\TDATA") - 1 == 0x22);
+
+XapiLetterString g_xapi_u_drive{6, 7, "\\??\\U:"};
+XapiLetterString g_xapi_u_data{0x22, 0x23, "\\Device\\Harddisk0\\partition1\\UDATA"};
+XapiLetterString g_xapi_t_drive{6, 7, "\\??\\T:"};
+XapiLetterString g_xapi_t_data{0x22, 0x23, "\\Device\\Harddisk0\\partition1\\TDATA"};
+
+int xapi_map_letter_to_directory(XapiLetterString* drive, XapiLetterString* dir, const char* leaf, int create_directory,
+                                 const u16* title_name, int set_time)
+{
+    // Body of XapiMapLetterToDirectory (0x00150992) for the two calls from
+    // 0x00150CC6. Both pass create_directory 1 and set_time 0. Retail opens
+    // the directory OBJECT_STRING with NtCreateFile FILE_OPEN_IF, access
+    // FILE_LIST_DIRECTORY|SYNCHRONIZE, share read|write, and options
+    // FILE_DIRECTORY_FILE|FILE_SYNCHRONOUS_IO_NONALERT|FILE_OPEN_FOR_BACKUP_INTENT.
+    // STATUS_NOT_A_DIRECTORY (0xC0000103) is treated as success. The leaf is
+    // joined with a backslash and created the same way, disposition
+    // FILE_OPEN_IF when create_directory is set and FILE_OPEN otherwise,
+    // access 0x120117. A null title name stops there. Otherwise
+    // XGetSectionHandleA looks up $$XTINFO, $$XTIMAGE, and $$XSIMAGE. A
+    // missing $$XTINFO with an empty title skips TitleMeta.xbx; any other
+    // case creates it and, when EndOfFile is 0, writes the section or the
+    // generated wide string. 0x001508AB then writes \TitleImage.xbx and
+    // \SaveImage.xbx. IoCreateSymbolicLink (thunk 0x00202F78) points the
+    // drive OBJECT_STRING at that directory. The port does not open
+    // \Device\Harddisk0, so the host volume stays intact. The link target
+    // is stored the same way \??\D: is. A slot that is already filled
+    // returns STATUS_OBJECT_NAME_COLLISION.
+    (void)create_directory;
+    (void)set_time;
+    constexpr int kCollision = static_cast<int>(0xC0000035u);
+    constexpr int kNameTooLong = static_cast<int>(0xC0000106u);
+
+    if (drive == nullptr || dir == nullptr || drive->buffer == nullptr || dir->buffer == nullptr || leaf == nullptr)
+    {
+        return static_cast<int>(0xC000000Du);
+    }
+
+    char path[0x168];
+    size_t n = 0;
+    while (n + 1 < sizeof(path) && dir->buffer[n] != '\0')
+    {
+        path[n] = dir->buffer[n];
+        ++n;
+    }
+    path[n] = '\0';
+
+    u16 len = dir->length;
+    if (len == 0 || len >= sizeof(path))
+    {
+        return kNameTooLong;
+    }
+    if (path[len - 1] != '\\')
+    {
+        path[len] = '\\';
+    }
+    else
+    {
+        dir->length = static_cast<u16>(len - 1);
+        len = dir->length;
+    }
+
+    size_t at = static_cast<size_t>(len) + 1u;
+    for (const char* src = leaf; *src != '\0'; ++src)
+    {
+        if (at + 1 >= sizeof(path))
+        {
+            return kNameTooLong;
+        }
+        path[at++] = *src;
+    }
+    if (at >= sizeof(path))
+    {
+        return kNameTooLong;
+    }
+    path[at] = '\0';
+
+    if (title_name != nullptr)
+    {
+        const std::uintptr_t xtinfo = fn_14af34("$$XTINFO");
+        const std::uintptr_t xtimage = fn_14af34("$$XTIMAGE");
+        const std::uintptr_t xsimage = fn_14af34("$$XSIMAGE");
+        const bool empty_title = title_name[0] == 0;
+        // $$XTINFO present: retail writes that section into TitleMeta.xbx.
+        // Missing, with a title: _snwprintf of L"%lc%ls%lc%ls%ls" (BOM,
+        // L"TitleName", '=', the title, L"\r\n") into 0x8E wchars.
+        if (xtinfo == static_cast<std::uintptr_t>(-1) && !empty_title)
+        {
+            u16 units[0x8E];
+            int count = 0;
+            auto push_unit = [&](u16 unit)
+            {
+                if (count < 0x8E)
+                {
+                    units[count] = unit;
+                    ++count;
+                }
+            };
+            push_unit(0xFEFFu);
+            const char key[] = "TitleName";
+            for (const char* src = key; *src != '\0'; ++src)
+            {
+                push_unit(static_cast<u8>(*src));
+            }
+            push_unit(static_cast<u16>('='));
+            for (const u16* src = title_name; *src != 0; ++src)
+            {
+                push_unit(*src);
+            }
+            push_unit(static_cast<u16>('\r'));
+            push_unit(static_cast<u16>('\n'));
+            const u32 bytes = static_cast<u32>(count) * 2u;
+            if (bytes <= sizeof(g_xapi_title_meta))
+            {
+                std::memcpy(g_xapi_title_meta, units, bytes);
+                if (bytes < sizeof(g_xapi_title_meta))
+                {
+                    std::memset(g_xapi_title_meta + bytes, 0, sizeof(g_xapi_title_meta) - bytes);
+                }
+                g_xapi_title_meta_size = bytes;
+            }
+        }
+        (void)xtimage;
+        (void)xsimage;
+    }
+
+    char* slot = nullptr;
+    if (drive->length >= 5 && drive->buffer[4] == 'U')
+    {
+        slot = g_xapi_u_target;
+    }
+    else if (drive->length >= 5 && drive->buffer[4] == 'T')
+    {
+        slot = g_xapi_t_target;
+    }
+    if (slot == nullptr)
+    {
+        return static_cast<int>(0xC000000Du);
+    }
+    if (slot[0] != '\0')
+    {
+        return kCollision;
+    }
+
+    size_t i = 0;
+    while (i + 1 < sizeof(g_xapi_u_target) && path[i] != '\0')
+    {
+        slot[i] = path[i];
+        ++i;
+    }
+    slot[i] = '\0';
+    return 0;
+}
+
+int fn_150cc6(u32 title_id, const u16* title_name)
+{
+    // Xbox 0x00150CC6
+    // stdcall, ret 8. 0x001510E1 passes the certificate TitleID at +8 and
+    // the TitleName pointer at +0xC. _sprintf (0x001661F9) writes "%08lx"
+    // into 12 bytes. XapiMapLetterToDirectory maps \??\U: onto
+    // \Device\Harddisk0\partition1\UDATA\<id> with a null title name. A
+    // negative status is returned as-is. Otherwise the same call maps
+    // \??\T: onto \Device\Harddisk0\partition1\TDATA\<id> and passes the
+    // title name. That second status is the result. 0x001510E6 treats a
+    // negative status other than STATUS_DISK_FULL as a dash boot.
+    char leaf[12];
+    for (int i = 0; i < 8; ++i)
+    {
+        const u32 nib = (title_id >> ((7 - i) * 4)) & 0xFu;
+        leaf[i] = static_cast<char>(nib < 10u ? '0' + nib : 'a' + (nib - 10u));
+    }
+    leaf[8] = '\0';
+
+    const int status = xapi_map_letter_to_directory(&g_xapi_u_drive, &g_xapi_u_data, leaf, 1, nullptr, 0);
+    if (status < 0)
+    {
+        return status;
+    }
+    return xapi_map_letter_to_directory(&g_xapi_t_drive, &g_xapi_t_data, leaf, 1, title_name, 0);
 }
 
 int fn_15118e(const XapiAnsiString* name, u32 bytes_per_cluster)

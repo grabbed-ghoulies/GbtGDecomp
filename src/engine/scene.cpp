@@ -3552,14 +3552,20 @@ struct XThreadNotify
 
 // Per-thread CRT block. Retail calloc is 0x88 bytes. +0x00 is the thread id,
 // +0x04 is the thread handle, +0x14 is _holdrand, +0x54 is _pxcptacttab.
+// _curexception is the dword at +0x78, _curcontext is +0x7C, and the
+// frame-info chain is +0x84. Those image slots are 32-bit. The host
+// pointers follow the 0x88-byte block.
 struct CrtTidData
 {
     u32 tid;
     u32 thandle;
     u8 rest[0x80];
+    void* curexception;
+    void* curcontext;
+    void* frame_chain;
 };
 
-static_assert(sizeof(CrtTidData) == 0x88);
+static_assert(offsetof(CrtTidData, curexception) == 0x88);
 
 struct CrtModuleTls
 {
@@ -3738,7 +3744,8 @@ CrtTidData* fn_16ae40()
     // slot in g_crt_module_tls.ptd. The game thread has TLS, so it takes
     // that path.
     //
-    // A null slot is calloc of 0x88 bytes (0x00168012). A failed
+    // A null slot is calloc of the host block (retail 0x88 bytes,
+    // 0x00168012). A failed
     // allocation is _amsg_exit (0x00168B7A) with 0x10 (_RT_THREAD) and
     // does not return. The new block is stored in the slot, +0x54
     // receives the static exception table 0x00338280, +0x14 receives 1
@@ -3771,6 +3778,414 @@ CrtTidData* fn_16ae40()
         ptd->tid = tid;
     }
     return ptd;
+}
+
+// Catch frame pushed by _CreateFrameInfo (0x001678B8). Retail is two dwords:
+// the exception object, then the previous chain head.
+struct CrtFrameInfo
+{
+    void* object;
+    CrtFrameInfo* next;
+};
+
+// ThrowInfo as CallCatchBlock reads it. The unwind function is the pointer
+// at +4. Retail passes that pointer to the thiscall thunk at 0x001675FB.
+struct CrtThrowLite
+{
+    u32 attributes;
+    void (*dtor)(void* self);
+};
+
+// Exception record. Retail object is +0x18 and ThrowInfo is +0x1C. Host
+// pointers follow the same field order with natural alignment.
+struct CrtExceptRec
+{
+    u32 code;
+    u32 flags;
+    void* next;
+    void* address;
+    u32 nparams;
+    u32 magic;
+    void* object;
+    CrtThrowLite* throw_info;
+};
+
+// EHRegistrationNode. state is the dword at +8. CallCatchBlock also reads
+// and writes the dword immediately before the node.
+struct CrtEhNode
+{
+    void* next;
+    void* handler;
+    i32 state;
+};
+
+// Unwind map slot. Retail is 8 bytes: toState, then the action.
+struct CrtUnwindSlot
+{
+    i32 to_state;
+    void (*action)(void* registration);
+};
+
+// Try block. Retail stride is 20 bytes: tryLow, tryHigh, catchHigh,
+// nCatches, handler array.
+struct CrtTrySlot
+{
+    i32 try_low;
+    i32 try_high;
+    i32 catch_high;
+    i32 n_catches;
+    void* handlers;
+};
+
+// FuncInfo fields CallCatchBlock uses. maxState is +4, the unwind map is
+// +8, nTryBlocks is +0xC, and the try map is +0x10 in the image.
+struct CrtFuncRec
+{
+    u32 magic;
+    i32 max_state;
+    const CrtUnwindSlot* unwind;
+    i32 n_try_blocks;
+    const CrtTrySlot* tries;
+};
+
+void crt_link_frame(CrtFrameInfo* frame, void* object)
+{
+    // _CreateFrameInfo (0x001678B8). The object is stored, the chain head
+    // at _tiddata+0x84 becomes the next pointer, and that head becomes
+    // this frame. Each link is a separate _getptd.
+    frame->object = object;
+    CrtTidData* ptd = fn_16ae40();
+    frame->next = static_cast<CrtFrameInfo*>(ptd->frame_chain);
+    ptd = fn_16ae40();
+    ptd->frame_chain = frame;
+}
+
+void crt_unlink_frame(CrtFrameInfo* frame)
+{
+    // _FindAndUnlinkFrame (0x00167901). A frame that is the chain head is
+    // replaced by its next pointer. Otherwise the chain is walked until
+    // the previous node's next pointer is this frame. A missing frame is
+    // __inconsistency (0x0016C1B3).
+    CrtTidData* ptd = fn_16ae40();
+    if (ptd->frame_chain == frame)
+    {
+        ptd = fn_16ae40();
+        ptd->frame_chain = frame->next;
+        return;
+    }
+
+    ptd = fn_16ae40();
+    auto* prev = static_cast<CrtFrameInfo*>(ptd->frame_chain);
+    while (prev != nullptr && prev->next != nullptr)
+    {
+        if (prev->next == frame)
+        {
+            prev->next = frame->next;
+            return;
+        }
+        prev = prev->next;
+    }
+    std::terminate();
+}
+
+int crt_exception_object_to_destroy(void* object)
+{
+    // _IsExceptionObjectToBeDestroyed (0x001678E0). Walks the chain at
+    // _tiddata+0x84. A frame whose object matches returns 0. The end of
+    // the chain returns 1.
+    CrtTidData* ptd = fn_16ae40();
+    auto* frame = static_cast<CrtFrameInfo*>(ptd->frame_chain);
+    while (frame != nullptr)
+    {
+        if (frame->object == object)
+        {
+            return 0;
+        }
+        frame = frame->next;
+    }
+    return 1;
+}
+
+int crt_dtor_throw_fails()
+{
+    // 0x001670CA. Returns 1 when fs:[0] is the registration __local_unwind2
+    // (0x00167062) installs, whose handler is 0x00167040, and the trylevel
+    // dword of the node saved on that frame equals the -2 cookie at
+    // frame+8. The port does not install that registration, so the result
+    // stays 0. ___DestructExceptionObject's filter (0x0016BA7E) returns
+    // that byte: 0 continues the search, and 1 enters terminate.
+    return 0;
+}
+
+void crt_destruct_except(CrtExceptRec* except)
+{
+    // Body of ___DestructExceptionObject (0x0016BA4A) for the call from
+    // the CallCatchBlock finally. A null record or a null ThrowInfo
+    // returns. A null unwind function at ThrowInfo+4 returns. Otherwise
+    // the function runs on the exception object. The second argument is
+    // 0x001670CA.
+    if (except == nullptr || except->throw_info == nullptr || except->throw_info->dtor == nullptr)
+    {
+        return;
+    }
+    const int fail = crt_dtor_throw_fails();
+    try
+    {
+        except->throw_info->dtor(except->object);
+    }
+    catch (...)
+    {
+        if (fail != 0)
+        {
+            std::terminate();
+        }
+        throw;
+    }
+}
+
+i32* crt_processing_throw(CrtTidData* ptd)
+{
+    return reinterpret_cast<i32*>(reinterpret_cast<u8*>(ptd) + 0x80);
+}
+
+void crt_unwind_rethrow(CrtEhNode* rn, CrtFuncRec* info)
+{
+    // Except handler at 0x0016BB76, then __FrameUnwindToState (0x0016B97C).
+    // The state is the dword at registration+8. The first try whose
+    // tryHigh is below that state and whose catchHigh covers it selects
+    // unwindMap[tryHigh+1].toState. No match unwinds to the current
+    // state. The dispatcher argument is null. _ProcessingThrow at
+    // _tiddata+0x80 is incremented for the walk. A state below 0, a
+    // missing unwind map, or a state past maxState is __inconsistency.
+    // An action runs after the state dword is updated. An exception from
+    // an action clears _ProcessingThrow and terminates (0x0016C177).
+    // 0x0016BA2F then decrements a positive count.
+    if (rn == nullptr || info == nullptr)
+    {
+        std::terminate();
+    }
+
+    i32 target = rn->state;
+    if (info->n_try_blocks > 0)
+    {
+        if (info->tries == nullptr)
+        {
+            std::terminate();
+        }
+        for (i32 i = 0; i < info->n_try_blocks; i += 1)
+        {
+            const CrtTrySlot& entry = info->tries[i];
+            if (target <= entry.try_high || target > entry.catch_high)
+            {
+                continue;
+            }
+            const i32 index = entry.try_high + 1;
+            if (info->unwind == nullptr || index < 0 || index >= info->max_state)
+            {
+                std::terminate();
+            }
+            target = info->unwind[index].to_state;
+            break;
+        }
+    }
+
+    CrtTidData* ptd = fn_16ae40();
+    ++(*crt_processing_throw(ptd));
+    i32 state = rn->state;
+    while (state != target)
+    {
+        if (state <= -1 || info->unwind == nullptr || state >= info->max_state)
+        {
+            std::terminate();
+        }
+        const CrtUnwindSlot& entry = info->unwind[state];
+        const i32 next = entry.to_state;
+        if (entry.action != nullptr)
+        {
+            rn->state = next;
+            try
+            {
+                entry.action(rn);
+            }
+            catch (...)
+            {
+                *crt_processing_throw(fn_16ae40()) = 0;
+                std::terminate();
+            }
+        }
+        state = next;
+    }
+    ptd = fn_16ae40();
+    if (*crt_processing_throw(ptd) > 0)
+    {
+        ptd = fn_16ae40();
+        --(*crt_processing_throw(ptd));
+    }
+    if (state != target)
+    {
+        std::terminate();
+    }
+    rn->state = state;
+}
+
+void crt_catch_cleanup(
+    CrtExceptRec* except,
+    CrtEhNode* rn,
+    i32 saved_before,
+    CrtFrameInfo* frame,
+    void* saved_ex,
+    void* saved_ctx,
+    void* continuation)
+{
+    // Finally at 0x0016BBF1. Restores the dword before the registration
+    // node, unlinks the frame, then writes the saved _curexception and
+    // _curcontext back through two _getptd calls. A C++ exception
+    // (0xE06D7363, three parameters, magic 0x19930520) with a non-null
+    // continuation destroys its object when 0x001678E0 returns 1.
+    // [ebp-0x48] is cleared on entry to CallCatchBlock and is not stored
+    // again, so that compare does not skip the destroy.
+    reinterpret_cast<i32*>(rn)[-1] = saved_before;
+    crt_unlink_frame(frame);
+    CrtTidData* ptd = fn_16ae40();
+    ptd->curexception = saved_ex;
+    ptd = fn_16ae40();
+    ptd->curcontext = saved_ctx;
+    if (except == nullptr)
+    {
+        return;
+    }
+    if (except->code != 0xE06D7363u || except->nparams != 3 || except->magic != 0x19930520u)
+    {
+        return;
+    }
+    if (continuation == nullptr)
+    {
+        return;
+    }
+    if (crt_exception_object_to_destroy(except->object) == 0)
+    {
+        return;
+    }
+    crt_destruct_except(except);
+}
+
+#if defined(_WIN32)
+int crt_rethrow_filter(void* pointers)
+{
+    // Filter at 0x0016BB33. Returns 1 (EXCEPTION_EXECUTE_HANDLER) only for
+    // a C++ exception whose ThrowInfo pointer is null. Every other record
+    // returns 0 (EXCEPTION_CONTINUE_SEARCH). The image reads the record
+    // from the exception pointers at [ebp-0x14]: code at +0, parameter
+    // count at +0x10, magic at +0x14, ThrowInfo at +0x1C. The host record
+    // uses the same fields; a 64-bit pointer moves the parameter count to
+    // +0x18 and the information array to +0x20.
+    if (pointers == nullptr)
+    {
+        return 0;
+    }
+    void* record = *static_cast<void**>(pointers);
+    if (record == nullptr)
+    {
+        return 0;
+    }
+    auto* bytes = static_cast<u8*>(record);
+    const u32 code = *reinterpret_cast<u32*>(bytes);
+    constexpr u32 kParams = sizeof(void*) == 8 ? 0x18u : 0x10u;
+    constexpr u32 kInfo = sizeof(void*) == 8 ? 0x20u : 0x14u;
+    const u32 nparams = *reinterpret_cast<u32*>(bytes + kParams);
+    const auto* info = reinterpret_cast<const std::uintptr_t*>(bytes + kInfo);
+    if (code != 0xE06D7363u || nparams != 3 || info[0] != 0x19930520u || info[2] != 0)
+    {
+        return 0;
+    }
+    return 1;
+}
+#endif
+
+void* fn_16baae(
+    void* handler,
+    void* except_record,
+    void* registration,
+    void* context,
+    void* func_info,
+    int catch_depth,
+    u32 nlg_code)
+{
+    // Xbox 0x0016BAAE
+    // CallCatchBlock. The funclet arrives in ECX. The stack arguments, in
+    // order, are the exception record, the registration node, the context,
+    // FuncInfo, the catch depth, and the NLG code. __SEH_prolog
+    // (0x00166D58) is entered with local size 0x40 and the scope table at
+    // 0x00209C10. Level 0 is the __finally at 0x0016BBEB. Level 1 is the
+    // __except with filter 0x0016BB33 and handler 0x0016BB76.
+    //
+    // The dword before the registration node is saved. The thrown object
+    // at exception+0x18 is pushed on the frame-info chain. _curexception
+    // and _curcontext are saved and replaced for the funclet.
+    // __CallCatchBlock2 (0x0016794D) calls _CallSettingFrame (0x0016C1E0)
+    // with the funclet, the registration node, and the NLG code, and
+    // returns the continuation. Catch depth is the argument before the
+    // NLG code. The continuation slot is first written with the funclet,
+    // so an exception that leaves the inner try still sees that pointer.
+    // A rethrow accepted by the filter unwinds and stores a null
+    // continuation. A null funclet is left uncalled.
+    (void)catch_depth;
+    (void)nlg_code;
+
+    auto* except = static_cast<CrtExceptRec*>(except_record);
+    auto* rn = static_cast<CrtEhNode*>(registration);
+    auto* info = static_cast<CrtFuncRec*>(func_info);
+    i32 saved_before = reinterpret_cast<i32*>(rn)[-1];
+    CrtFrameInfo frame{};
+    crt_link_frame(&frame, except->object);
+
+    CrtTidData* ptd = fn_16ae40();
+    void* saved_ex = ptd->curexception;
+    ptd = fn_16ae40();
+    void* saved_ctx = ptd->curcontext;
+    ptd = fn_16ae40();
+    ptd->curexception = except_record;
+    ptd = fn_16ae40();
+    ptd->curcontext = context;
+
+    void* volatile continuation = handler;
+#if defined(_WIN32)
+    __try
+    {
+        __try
+        {
+            if (handler != nullptr)
+            {
+                continuation = reinterpret_cast<void* (*)()>(handler)();
+            }
+        }
+        __except (crt_rethrow_filter(GetExceptionInformation()))
+        {
+            crt_unwind_rethrow(rn, info);
+            continuation = nullptr;
+        }
+    }
+    __finally
+    {
+        crt_catch_cleanup(except, rn, saved_before, &frame, saved_ex, saved_ctx, continuation);
+    }
+#else
+    (void)info;
+    try
+    {
+        if (handler != nullptr)
+        {
+            continuation = reinterpret_cast<void* (*)()>(handler)();
+        }
+    }
+    catch (...)
+    {
+        crt_catch_cleanup(except, rn, saved_before, &frame, saved_ex, saved_ctx, continuation);
+        throw;
+    }
+    crt_catch_cleanup(except, rn, saved_before, &frame, saved_ex, saved_ctx, continuation);
+#endif
+    return continuation;
 }
 
 int* fn_168af5()

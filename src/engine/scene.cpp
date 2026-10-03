@@ -3193,6 +3193,374 @@ int fn_150833(const XapiAnsiString* name, int bytes_per_cluster)
     return kStatusNotSupported;
 #endif
 }
+
+int fn_15118e(const XapiAnsiString* name, u32 bytes_per_cluster)
+{
+    // Xbox 0x0015118E
+    // FATX format for XMountUtilityDrive (0x0014BFCF) and 0x0014C0D4.
+    // stdcall, two arguments, returns 1 or 0. 0x0014BFCF passes
+    // \Device\Harddisk0\Partition%d\ and 0x0014C0D4 passes \??\Z:, both
+    // with cluster size 0x4000 << (XBE init flags >> 30).
+    // NtOpenFile takes the OBJECT_STRING in param_1, a null root,
+    // OBJ_CASE_INSENSITIVE, FILE_READ_DATA|FILE_WRITE_DATA|SYNCHRONIZE,
+    // share 0, and FILE_NO_INTERMEDIATE_BUFFERING|FILE_SYNCHRONOUS_IO_ALERT.
+    // IOCTL_DISK_GET_DRIVE_GEOMETRY (0x70000) supplies bytes per sector.
+    // bsf of that size is the shift that turns the cluster size into
+    // sectors-per-cluster. IOCTL_DISK_GET_PARTITION_INFO (0x74004) supplies
+    // the partition length. The sector size rounds up to a page, and the
+    // cluster size is raised to that page. The header is max(0x1000, page).
+    // Cluster slots are (length / cluster size) + 1. Counts below 0xFFF0 use
+    // 16-bit FAT entries; otherwise 4-byte entries. The FAT byte count rounds
+    // up to a page. The volume has to hold the header, that FAT, and one
+    // cluster, or SetLastError(0x70) and return 0.
+    // One page is filled with 0xFF, then the FATX superblock: magic
+    // 0x58544146, volume id from the low dword of KeQuerySystemTime, sectors
+    // per cluster in the low byte, root cluster 1, and a zero word at +0x10.
+    // That page is written at offset 0 and the header tail is zero. The FAT
+    // is written next, starting at the header offset: 16-bit media 0xFFF8
+    // and 0xFFFF, or 32-bit 0xFFFFFFF8 and 0xFFFFFFFF, then zeros. One
+    // cluster of 0xFF follows for the root directory. XMemFree, then
+    // FSCTL_DISMOUNT_VOLUME (0x90020), NtClose. A failed write still
+    // dismounts. Success returns 1. Other failures go through
+    // XapiSetLastNTError, including 0xC000009A when the page allocation fails.
+    // The port opens read-only and shared, builds those pages, and does not
+    // call NtWriteFile or dismount. A host disk stays intact. When the layout
+    // fits, last-error is 5 and the result is 0.
+    constexpr long kStatusInvalidParameter = static_cast<long>(0xC000000Du);
+    constexpr long kStatusAccessDenied = static_cast<long>(0xC0000022u);
+    constexpr long kStatusInsufficient = static_cast<long>(0xC000009Au);
+    constexpr long kStatusNotSupported = static_cast<long>(0xC00000BBu);
+
+    auto set_last_nt = [](void* ntdll, long status)
+    {
+        using RtlFn = unsigned long(__stdcall*)(long);
+        RtlFn rtl = nullptr;
+        void* proc = ntdll != nullptr ? GetProcAddress(ntdll, "RtlNtStatusToDosError") : nullptr;
+        std::memcpy(&rtl, &proc, sizeof(rtl));
+        if (rtl != nullptr)
+        {
+            g_xapi_last_error = rtl(status);
+        }
+        else
+        {
+            g_xapi_last_error = 0x1F;
+        }
+    };
+
+    if (name == nullptr || (name->length > 0 && name->buffer == nullptr))
+    {
+        g_xapi_last_error = 0x57;
+        return 0;
+    }
+
+#if !defined(_WIN32)
+    (void)bytes_per_cluster;
+    (void)kStatusInvalidParameter;
+    (void)kStatusAccessDenied;
+    (void)kStatusInsufficient;
+    (void)kStatusNotSupported;
+    g_xapi_last_error = 50;
+    return 0;
+#else
+    struct UnicodeString
+    {
+        u16 length;
+        u16 maximum_length;
+        wchar_t* buffer;
+    };
+    struct ObjectAttributes
+    {
+        unsigned long length;
+        void* root_directory;
+        UnicodeString* object_name;
+        unsigned long attributes;
+        void* security_descriptor;
+        void* security_quality_of_service;
+    };
+    struct IoStatusBlock
+    {
+        void* pointer;
+        std::uintptr_t information;
+    };
+    using NtOpenFileFn = long(__stdcall*)(void** handle, unsigned long access, ObjectAttributes* attributes,
+                                          IoStatusBlock* io, unsigned long share, unsigned long options);
+    using NtDeviceIoControlFileFn = long(__stdcall*)(void* handle, void* event, void* apc, void* apc_ctx,
+                                                     IoStatusBlock* io, unsigned long code, void* in_buf,
+                                                     unsigned long in_len, void* out_buf, unsigned long out_len);
+    using NtWriteFileFn = long(__stdcall*)(void* handle, void* event, void* apc, void* apc_ctx, IoStatusBlock* io,
+                                           void* buffer, unsigned long length, std::int64_t* offset, unsigned long* key);
+    using NtFsControlFileFn = long(__stdcall*)(void* handle, void* event, void* apc, void* apc_ctx, IoStatusBlock* io,
+                                               unsigned long code, void* in_buf, unsigned long in_len, void* out_buf,
+                                               unsigned long out_len);
+    using NtCloseFn = long(__stdcall*)(void* handle);
+    using VirtualAllocFn = void*(__stdcall*)(void* addr, std::uintptr_t size, unsigned long type, unsigned long protect);
+    using VirtualFreeFn = int(__stdcall*)(void* addr, std::uintptr_t size, unsigned long type);
+    using GetTimeFn = void(__stdcall*)(u32* file_time);
+
+    void* ntdll = GetModuleHandleA("ntdll.dll");
+    void* kernel = GetModuleHandleA("kernel32.dll");
+    if (ntdll == nullptr || kernel == nullptr)
+    {
+        set_last_nt(ntdll, kStatusNotSupported);
+        return 0;
+    }
+
+    NtOpenFileFn nt_open = nullptr;
+    NtDeviceIoControlFileFn nt_ioctl = nullptr;
+    NtWriteFileFn nt_write = nullptr;
+    NtFsControlFileFn nt_fsctl = nullptr;
+    NtCloseFn nt_close = nullptr;
+    VirtualAllocFn virtual_alloc = nullptr;
+    VirtualFreeFn virtual_free = nullptr;
+    GetTimeFn get_time = nullptr;
+    void* open_proc = GetProcAddress(ntdll, "NtOpenFile");
+    void* ioctl_proc = GetProcAddress(ntdll, "NtDeviceIoControlFile");
+    void* write_proc = GetProcAddress(ntdll, "NtWriteFile");
+    void* fsctl_proc = GetProcAddress(ntdll, "NtFsControlFile");
+    void* close_proc = GetProcAddress(ntdll, "NtClose");
+    void* alloc_proc = GetProcAddress(kernel, "VirtualAlloc");
+    void* free_proc = GetProcAddress(kernel, "VirtualFree");
+    void* time_proc = GetProcAddress(kernel, "GetSystemTimeAsFileTime");
+    std::memcpy(&nt_open, &open_proc, sizeof(nt_open));
+    std::memcpy(&nt_ioctl, &ioctl_proc, sizeof(nt_ioctl));
+    std::memcpy(&nt_write, &write_proc, sizeof(nt_write));
+    std::memcpy(&nt_fsctl, &fsctl_proc, sizeof(nt_fsctl));
+    std::memcpy(&nt_close, &close_proc, sizeof(nt_close));
+    std::memcpy(&virtual_alloc, &alloc_proc, sizeof(virtual_alloc));
+    std::memcpy(&virtual_free, &free_proc, sizeof(virtual_free));
+    std::memcpy(&get_time, &time_proc, sizeof(get_time));
+    if (nt_open == nullptr || nt_ioctl == nullptr || nt_write == nullptr || nt_fsctl == nullptr || nt_close == nullptr ||
+        virtual_alloc == nullptr || virtual_free == nullptr)
+    {
+        set_last_nt(ntdll, kStatusNotSupported);
+        return 0;
+    }
+
+    std::wstring wide(static_cast<size_t>(name->length), L'\0');
+    for (u16 i = 0; i < name->length; ++i)
+    {
+        wide[i] = static_cast<unsigned char>(name->buffer[i]);
+    }
+    const auto wide_bytes = static_cast<size_t>(wide.size()) * sizeof(wchar_t);
+    if (wide_bytes > 0xFFFFu)
+    {
+        set_last_nt(ntdll, static_cast<long>(0xC0000106));
+        return 0;
+    }
+
+    UnicodeString unicode{};
+    unicode.length = static_cast<u16>(wide_bytes);
+    unicode.maximum_length = unicode.length;
+    unicode.buffer = wide.empty() ? nullptr : wide.data();
+
+    ObjectAttributes attributes{};
+    attributes.length = sizeof(attributes);
+    attributes.object_name = &unicode;
+    attributes.attributes = 0x40;
+
+    // Retail asks for read|write and share 0. The port opens read-only and
+    // shared so a \Device\Harddisk or \??\Z: name cannot lock or rewrite a
+    // host volume. commit_fatx stays clear for that reason.
+    const bool commit_fatx = false;
+    IoStatusBlock io{};
+    void* handle = nullptr;
+    long status = nt_open(&handle, 0x100001u, &attributes, &io, 3u, 0x18u);
+    if (status < 0)
+    {
+        set_last_nt(ntdll, status);
+        return 0;
+    }
+
+    auto close_handle = [&]()
+    {
+        if (handle != nullptr)
+        {
+            nt_close(handle);
+            handle = nullptr;
+        }
+    };
+
+    u8 geometry[0x18]{};
+    status = nt_ioctl(handle, nullptr, nullptr, nullptr, &io, 0x70000u, nullptr, 0, geometry, 0x18u);
+    if (status < 0)
+    {
+        close_handle();
+        set_last_nt(ntdll, status);
+        return 0;
+    }
+
+    u32 bytes_per_sector = 0;
+    std::memcpy(&bytes_per_sector, geometry + 0x14, sizeof(bytes_per_sector));
+    if (bytes_per_sector == 0)
+    {
+        close_handle();
+        set_last_nt(ntdll, kStatusInvalidParameter);
+        return 0;
+    }
+
+    const u32 sector_shift = static_cast<u32>(std::countr_zero(bytes_per_sector)) & 0x1Fu;
+    u8 part_info[0x20]{};
+    status = nt_ioctl(handle, nullptr, nullptr, nullptr, &io, 0x74004u, nullptr, 0, part_info, 0x20u);
+    if (status < 0)
+    {
+        close_handle();
+        set_last_nt(ntdll, status);
+        return 0;
+    }
+
+    const u32 chunk = (bytes_per_sector + 0xFFFu) & 0xFFFFF000u;
+    if (chunk == 0 || (bytes_per_cluster != 0 && (bytes_per_cluster % chunk) != 0 && bytes_per_cluster > chunk))
+    {
+        // A span that is not a multiple of the page never reaches zero in
+        // the retail write loop. Reject it instead of spinning.
+        close_handle();
+        set_last_nt(ntdll, kStatusInvalidParameter);
+        return 0;
+    }
+    if (bytes_per_cluster < chunk)
+    {
+        bytes_per_cluster = chunk;
+    }
+    if (bytes_per_cluster == 0 || (bytes_per_cluster % chunk) != 0)
+    {
+        close_handle();
+        set_last_nt(ntdll, kStatusInvalidParameter);
+        return 0;
+    }
+
+    const u32 header = chunk > 0x1000u ? chunk : 0x1000u;
+    u64 part_len = 0;
+    std::memcpy(&part_len, part_info + 8, sizeof(part_len));
+    const u32 part_high = static_cast<u32>(part_len >> 32);
+    const u32 part_low = static_cast<u32>(part_len);
+    if (part_high == 0 && header >= part_low)
+    {
+        close_handle();
+        g_xapi_last_error = 0x70;
+        return 0;
+    }
+
+    const u32 count = static_cast<u32>(part_len / bytes_per_cluster) + 1u;
+    const bool fat16 = count < 0xFFF0u;
+    const u32 fat_bytes = fat16 ? count * 2u : count * 4u;
+    const u32 fat_aligned = (fat_bytes + chunk - 1u) & ~(chunk - 1u);
+    const u64 need = static_cast<u64>(header) + fat_aligned + bytes_per_cluster;
+    if (part_len < need)
+    {
+        close_handle();
+        g_xapi_last_error = 0x70;
+        return 0;
+    }
+
+    u8* page = static_cast<u8*>(virtual_alloc(nullptr, chunk, 0x3000u, 0x04u));
+    if (page == nullptr)
+    {
+        close_handle();
+        set_last_nt(ntdll, kStatusInsufficient);
+        return 0;
+    }
+
+    auto write_page = [&](u64 offset, u32 length) -> long
+    {
+        if (!commit_fatx)
+        {
+            (void)offset;
+            (void)length;
+            return kStatusAccessDenied;
+        }
+        std::int64_t byte_offset = static_cast<std::int64_t>(offset);
+        return nt_write(handle, nullptr, nullptr, nullptr, &io, page, length, &byte_offset, nullptr);
+    };
+
+    auto fail_write = [&](long write_status) -> int
+    {
+        virtual_free(page, 0, 0x8000u);
+        page = nullptr;
+        if (commit_fatx)
+        {
+            nt_fsctl(handle, nullptr, nullptr, nullptr, &io, 0x90020u, nullptr, 0, nullptr, 0);
+        }
+        close_handle();
+        set_last_nt(ntdll, write_status);
+        return 0;
+    };
+
+    std::memset(page, 0xFF, chunk);
+    u32* words = reinterpret_cast<u32*>(page);
+    words[0] = 0x58544146u;
+    u32 volume_id = 0;
+    if (get_time != nullptr)
+    {
+        u32 file_time[2]{};
+        get_time(file_time);
+        volume_id = file_time[0];
+    }
+    words[1] = volume_id;
+    words[2] = (bytes_per_cluster >> sector_shift) & 0xFFu;
+    words[3] = 1;
+    reinterpret_cast<u16*>(page)[8] = 0;
+
+    u64 offset = 0;
+    for (u32 left = header; left != 0; left -= chunk)
+    {
+        status = write_page(offset, chunk);
+        if (status < 0)
+        {
+            return fail_write(status);
+        }
+        std::memset(page, 0, chunk);
+        offset += chunk;
+    }
+
+    offset = header;
+    std::memset(page, 0, chunk);
+    if (fat16)
+    {
+        reinterpret_cast<u16*>(page)[0] = 0xFFF8;
+        reinterpret_cast<u16*>(page)[1] = 0xFFFF;
+    }
+    else
+    {
+        words[0] = 0xFFFFFFF8u;
+        words[1] = 0xFFFFFFFFu;
+    }
+    for (u32 left = fat_aligned; left != 0; left -= chunk)
+    {
+        status = write_page(offset, chunk);
+        if (status < 0)
+        {
+            return fail_write(status);
+        }
+        words[0] = 0;
+        words[1] = 0;
+        offset += chunk;
+    }
+
+    std::memset(page, 0xFF, chunk);
+    for (u32 left = bytes_per_cluster; left != 0; left -= chunk)
+    {
+        status = write_page(offset, chunk);
+        if (status < 0)
+        {
+            return fail_write(status);
+        }
+        offset += chunk;
+    }
+
+    virtual_free(page, 0, 0x8000u);
+    if (commit_fatx)
+    {
+        nt_fsctl(handle, nullptr, nullptr, nullptr, &io, 0x90020u, nullptr, 0, nullptr, 0);
+    }
+    close_handle();
+    if (!commit_fatx)
+    {
+        set_last_nt(ntdll, kStatusAccessDenied);
+        return 0;
+    }
+    return 1;
+#endif
+}
 } // namespace
 
 void load_scene_contents(Game& g, std::string_view name)

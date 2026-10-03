@@ -3909,6 +3909,16 @@ std::uintptr_t fn_14ce19()
     return reinterpret_cast<std::uintptr_t>(ctx);
 }
 
+u32 fn_14ce4f(XapiCalcSigContext* ctx, const u8* data, u32 size)
+{
+    // Xbox 0x0014CE4F
+    // XCalculateSignatureUpdate. XcSHAUpdate feeds the caller's bytes into
+    // the SHA context that sits 8 bytes into the block from 0x0014CD37 or
+    // 0x0014CE19. Always returns 0.
+    xapi_sha_update(ctx->sha, data, size);
+    return 0;
+}
+
 bool fn_14d217(const char* path, const void* security)
 {
     // Xbox 0x0014D217

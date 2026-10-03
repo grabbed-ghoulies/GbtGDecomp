@@ -7186,6 +7186,271 @@ int fn_16d9f8(std::recursive_mutex* section, u32 spin_count)
 #endif
 }
 
+void fn_16e770(double* result, const char* text)
+{
+    // Xbox 0x0016E770
+    // _atodbl. cdecl. __fassign (0x0016B1FE) calls this when its size flag
+    // is nonzero, then copies the eight bytes into the caller's pointer.
+    // The frame holds a 12-byte _LDBL12 and an end pointer. __strgtold12
+    // (0x0016E7CA) is called with mult12, scale, decpt, and implicit_E all
+    // zero. _ld12tod (0x0016E744) pushes the double descriptor at
+    // 0x00338308 and _ld12cvt (0x0016E5EC) writes the IEEE double. Both
+    // returns are discarded; __fassign overwrites EAX.
+    //
+    // Whitespace is 0x20, 0x09, 0x0A, and 0x0D. An optional sign comes
+    // next, then digits, one decimal point (the byte at 0x0033818C, '.'),
+    // and an optional e/E/d/D exponent. No significant digits store a
+    // signed zero, so "-" and "-0" are negative zero. At most 25 digits
+    // are kept. A 25th digit drops back to 24, and when digit 23 is at
+    // least 5 that digit is bumped. The parsed exponent clamps at 5201.
+    // Above 5200 the double is a signed infinity; below -5200 it is a
+    // signed zero. __mb_cur_max above 1 classifies digits with _isctype
+    // (0x0016AE1F) and mask 4; otherwise the low byte of _pctype.
+
+    auto digit_byte = [](unsigned char c) -> bool
+    {
+        if (g_crt_mb_cur_max > 1)
+        {
+            return fn_16ae1f(static_cast<int>(c), 4u) != 0;
+        }
+        return (static_cast<unsigned>(static_cast<u8>(g_crt_pctype[c])) & 4u) != 0;
+    };
+
+    auto store = [&](double value)
+    {
+        std::memcpy(result, &value, sizeof(value));
+    };
+
+    const char* p = text;
+    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')
+    {
+        ++p;
+    }
+
+    bool negative = false;
+    if (*p == '+' || *p == '-')
+    {
+        negative = *p == '-';
+        ++p;
+        const unsigned char next = static_cast<unsigned char>(*p);
+        if (next != '.' && !digit_byte(next))
+        {
+            store(negative ? -0.0 : 0.0);
+            return;
+        }
+    }
+
+    unsigned char digits[25]{};
+    int ndigits = 0;
+    int exp_adj = 0;
+    bool saw = false;
+
+    auto bump = [&](int delta)
+    {
+        if (delta > 0)
+        {
+            if (exp_adj < 20000)
+            {
+                exp_adj += 1;
+            }
+        }
+        else if (exp_adj > -20000)
+        {
+            exp_adj -= 1;
+        }
+    };
+
+    while (digit_byte(static_cast<unsigned char>(*p)) && *p == '0')
+    {
+        saw = true;
+        ++p;
+    }
+    while (digit_byte(static_cast<unsigned char>(*p)))
+    {
+        saw = true;
+        if (ndigits < 25)
+        {
+            digits[ndigits] = static_cast<unsigned char>(*p - '0');
+            ndigits += 1;
+        }
+        else
+        {
+            bump(1);
+        }
+        ++p;
+    }
+
+    if (*p == '.')
+    {
+        ++p;
+        if (!saw && !digit_byte(static_cast<unsigned char>(*p)))
+        {
+            store(negative ? -0.0 : 0.0);
+            return;
+        }
+        if (ndigits == 0)
+        {
+            while (*p == '0')
+            {
+                saw = true;
+                bump(-1);
+                ++p;
+            }
+        }
+        while (digit_byte(static_cast<unsigned char>(*p)))
+        {
+            saw = true;
+            if (ndigits < 25)
+            {
+                digits[ndigits] = static_cast<unsigned char>(*p - '0');
+                ndigits += 1;
+                bump(-1);
+            }
+            ++p;
+        }
+    }
+
+    int exp_mag = 0;
+    bool exp_neg = false;
+    bool saw_exp = false;
+    const unsigned char exp_ch = static_cast<unsigned char>(*p);
+    if (saw && (exp_ch == 'e' || exp_ch == 'E' || exp_ch == 'd' || exp_ch == 'D'))
+    {
+        const char* exp_mark = p;
+        ++p;
+        if (*p == '+' || *p == '-')
+        {
+            exp_neg = *p == '-';
+            ++p;
+        }
+        if (!digit_byte(static_cast<unsigned char>(*p)))
+        {
+            p = exp_mark;
+        }
+        else
+        {
+            saw_exp = true;
+            while (*p == '0')
+            {
+                ++p;
+            }
+            while (digit_byte(static_cast<unsigned char>(*p)))
+            {
+                if (exp_mag <= 5200)
+                {
+                    exp_mag = exp_mag * 10 + (*p - '0');
+                    if (exp_mag > 5200)
+                    {
+                        exp_mag = 5201;
+                    }
+                }
+                ++p;
+            }
+        }
+    }
+
+    if (!saw || ndigits == 0)
+    {
+        store(negative ? -0.0 : 0.0);
+        return;
+    }
+
+    if (ndigits > 24)
+    {
+        if (digits[23] >= 5)
+        {
+            digits[23] = static_cast<unsigned char>(digits[23] + 1);
+        }
+        ndigits = 24;
+        bump(1);
+    }
+    while (ndigits > 0 && digits[ndigits - 1] == 0)
+    {
+        ndigits -= 1;
+        bump(1);
+    }
+    if (ndigits == 0)
+    {
+        store(negative ? -0.0 : 0.0);
+        return;
+    }
+
+    int carry = 0;
+    for (int i = ndigits - 1; i >= 0; --i)
+    {
+        const int sum = digits[i] + carry;
+        digits[i] = static_cast<unsigned char>(sum % 10);
+        carry = sum / 10;
+    }
+    if (carry != 0)
+    {
+        exp_adj += ndigits;
+        digits[0] = 1;
+        ndigits = 1;
+    }
+
+    int exp10 = exp_adj;
+    if (saw_exp)
+    {
+        exp10 += exp_neg ? -exp_mag : exp_mag;
+    }
+
+    double value = 0.0;
+    if (exp10 > 5200)
+    {
+        value = std::bit_cast<double>(0x7ff0000000000000ull);
+    }
+    else if (exp10 < -5200)
+    {
+        value = 0.0;
+    }
+    else
+    {
+        char buf[64];
+        int n = 0;
+        for (int i = 0; i < ndigits; ++i)
+        {
+            buf[n] = static_cast<char>('0' + digits[i]);
+            n += 1;
+        }
+        if (exp10 != 0)
+        {
+            buf[n] = 'e';
+            n += 1;
+            int power = exp10;
+            if (power < 0)
+            {
+                buf[n] = '-';
+                n += 1;
+                power = -power;
+            }
+            char rev[8];
+            int rn = 0;
+            do
+            {
+                rev[rn] = static_cast<char>('0' + power % 10);
+                rn += 1;
+                power /= 10;
+            } while (power != 0);
+            while (rn != 0)
+            {
+                rn -= 1;
+                buf[n] = rev[rn];
+                n += 1;
+            }
+        }
+        buf[n] = '\0';
+        const int saved_errno = errno;
+        value = std::strtod(buf, nullptr);
+        errno = saved_errno;
+    }
+    if (negative)
+    {
+        value = -value;
+    }
+    store(value);
+}
+
 void* fn_14aaba(u32 bytes, u32 lowest, u32 highest, u32 alignment, u32 protect)
 {
     // Xbox 0x0014AABA

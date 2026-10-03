@@ -20,7 +20,12 @@
 #include <string>
 #include <unordered_map>
 
+#if !defined(_WIN32)
+#include <cfenv>
+#endif
+
 #if defined(_WIN32)
+#include <float.h>
 #include <malloc.h>
 extern "C"
 {
@@ -2459,6 +2464,49 @@ int fn_166ecb(const u16* text)
         ++cursor;
     } while (unit != 0);
     return static_cast<int>(cursor - text) - 1;
+}
+
+// Xbox 0x003381A0. The image points every slot at _fptrap (0x0016F08C),
+// which exits with code 2. _fpmath overwrites the six dwords.
+u32 g_cfltcvt_tab[6] = {
+    0x0016F08Cu, 0x0016F08Cu, 0x0016F08Cu, 0x0016F08Cu, 0x0016F08Cu, 0x0016F08Cu,
+};
+
+void fn_1673c1(int set_precision)
+{
+    // Xbox 0x001673C1
+    // _fpmath. _cinit (0x001516D4) calls the pointer at 0x00337A88, which
+    // holds this address, before the __xi and __xc initializer walks.
+    // 0x00167389 writes the six converter slots:
+    //   [0] and [5] __cfltcvt   0x0016B4EC
+    //   [1]         __cropzeros 0x0016B199
+    //   [2]         __fassign   0x0016B1FE
+    //   [3]         __forcdecpt 0x0016B141
+    //   [4]         __positive  0x0016B1E4
+    // A nonzero argument calls 0x00169774: __controlfp(0x10000, 0x30000),
+    // mask _MCW_PC and value _PC_53 (53-bit mantissa). The compare reads the
+    // dword above the return address. From _cinit that dword is the caller's
+    // return address, so the precision change runs. Both paths execute fnclex.
+    g_cfltcvt_tab[0] = 0x0016B4ECu;
+    g_cfltcvt_tab[1] = 0x0016B199u;
+    g_cfltcvt_tab[2] = 0x0016B1FEu;
+    g_cfltcvt_tab[3] = 0x0016B141u;
+    g_cfltcvt_tab[4] = 0x0016B1E4u;
+    g_cfltcvt_tab[5] = 0x0016B4ECu;
+    if (set_precision != 0)
+    {
+#if defined(_WIN32)
+        unsigned int previous = 0;
+        (void)_controlfp_s(&previous, _PC_53, _MCW_PC);
+#else
+        // Host IEEE doubles already round to a 53-bit mantissa.
+#endif
+    }
+#if defined(_WIN32)
+    (void)_clearfp();
+#else
+    std::feclearexcept(FE_ALL_EXCEPT);
+#endif
 }
 
 int fn_14aaed(const u16* src, int cch, u8* dst, int cb)

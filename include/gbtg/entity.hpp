@@ -348,6 +348,15 @@ void fn_154f80(i32 port, u8 face_x, u8 face_y); // 0x00154F80
 // at +0x08 and +0x0c.
 void fn_155000(i32 port, u8 black, u8 white); // 0x00155000
 
+// Port is the index cam_155624 passes. bits is the rising edge of the button
+// word, (current ^ previous) & current. mask is the bits to update; retail
+// pushes 0xFF. The probe is the low 16 bits of a walking mask, so bits 16..31
+// never match. A mask bit clear in bits clears pressed at +0x08. A mask bit
+// set in bits sets pressed, sets the button word at +0x00, and clears released
+// at +0x0c. The tail at 0x00154B00 then stores 0 or 0xFF in the face and
+// black/white bytes from button bits 0x100 through 0x2000.
+void fn_1550a0(i32 port, u32 bits, u32 mask); // 0x001550A0
+
 // Port is EDI. packet is ESI, the 0x16-byte gamepad cam_155624 walks from
 // DAT_004348B4. A non-zero byte sends that port through 0x00155260.
 u8 fn_19140(i32 port, const void* packet); // 0x00019140

@@ -31,6 +31,7 @@ extern "C"
 {
     __declspec(dllimport) void* __stdcall GetModuleHandleA(const char* name);
     __declspec(dllimport) void* __stdcall GetProcAddress(void* module, const char* name);
+    __declspec(dllimport) unsigned long __stdcall GetCurrentThreadId();
     __declspec(dllimport) void __stdcall RaiseException(unsigned long code, unsigned long flags, unsigned long count,
                                                         const std::uintptr_t* arguments);
 }
@@ -2507,6 +2508,162 @@ void fn_1673c1(int set_precision)
 #else
     std::feclearexcept(FE_ALL_EXCEPT);
 #endif
+}
+
+// Image _locktable at 0x00337AB0. Thirty-six entries, eight bytes each:
+// critical-section pointer, then kind. Kind 1 is a static lock.
+constexpr u32 kCrtLockKind[0x24] = {
+    1, 1, 0, 1, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+};
+
+struct CrtLockSlot
+{
+    std::recursive_mutex* cs = nullptr;
+    u32 kind = 0;
+};
+
+// Xbox XTHREAD_NOTIFICATION is a LIST_ENTRY plus the routine. The list head
+// at 0x0032C9E0 is an empty list (Flink and Blink point at the head). The
+// node _mtinit registers lives at 0x004DD288; the routine dword is +8.
+struct XThreadNotify
+{
+    XThreadNotify* flink = nullptr;
+    XThreadNotify* blink = nullptr;
+    u32 routine = 0;
+};
+
+// Per-thread CRT block. Retail calloc is 0x88 bytes. +0x00 is the thread id,
+// +0x04 is the thread handle, +0x14 is _holdrand, +0x54 is _pxcptacttab.
+struct CrtTidData
+{
+    u32 tid;
+    u32 thandle;
+    u8 rest[0x80];
+};
+
+static_assert(sizeof(CrtTidData) == 0x88);
+
+struct CrtModuleTls
+{
+    // Xbox stores the _tiddata pointer at offset 0xC of the 0x90-byte TLS
+    // block (TLS directory SizeOfZeroFill, AddressOfIndex 0x00434234).
+    void* ptd = nullptr;
+};
+
+CrtLockSlot g_crt_locks[0x24];
+std::unique_ptr<std::recursive_mutex> g_crt_lock_mu[0x24];
+XThreadNotify g_xthread_notify_head;
+XThreadNotify g_crt_thread_notify;
+std::recursive_mutex g_xthread_notify_cs;
+CrtModuleTls g_crt_module_tls;
+u32 g_crt_tls_index = 0;
+
+int fn_16afdd()
+{
+    // Xbox 0x0016AFDD
+    // _mtinit. Pointer at 0x0032C804, in the __xi_a..__xi_z span
+    // (0x0032C800..0x0032C80C). Startup 0x0014FAC1 calls 0x0015172C, which
+    // walks that span, then _cinit at 0x001516D4, then WinMain. The walker
+    // ignores the return. This function returns 0 on every path that returns.
+    //
+    // __mtinitlocks (0x0016809D) walks the 36 descriptors. Kind 1 stores a
+    // critical section from the pool at 0x004DD0D8 (0x1C bytes each) and
+    // calls 0x0016D9F8 with spin count 0xFA0. Any other kind is left alone.
+    // A failed init clears that descriptor's pointer and returns 0. Success
+    // returns 1. The port uses a host recursive mutex in place of the Xbox
+    // RTL_CRITICAL_SECTION; the spin count is not a host parameter.
+    //
+    // Failure calls 0x001680E6, which walks 0x00337AB0 up to 0x00337BD0 and
+    // deletes a critical section only when the pointer is set and the kind
+    // is not 1. Kind-1 sections created before the failure stay in place.
+    //
+    // Success calloc's 0x88 bytes (0x00168012) and stores the pointer at
+    // fs:[4][__tls_index] + 0xC. fs:[4] is the thread TLS array. __tls_index
+    // is the dword at 0x00434234, zero in the image until the loader writes
+    // it. A null block writes 0x00338280 through address 0x54 and 1 through
+    // address 0x14 (_pxcptacttab and _holdrand with a null base), then faults
+    // on the thread-handle store. The port does not write low memory and
+    // returns 0 instead of faulting.
+    //
+    // A live block gets GetCurrentThreadId (0x0014BC53, fs:[0x28] + 0x12C)
+    // in the first dword and 0xFFFFFFFF in the second. 0x004DD290 becomes
+    // 0x0016EEC4, and XRegisterThreadNotifyRoutine (0x0014BAC8) inserts
+    // 0x004DD288 at the tail of the list headed by 0x0032C9E0 while holding
+    // the critical section at 0x0032C9C4. 0x0016EEC4 is the notify routine:
+    // a nonzero argument calls [0x00337A8C] when that pointer is set, and a
+    // zero argument calls [0x00337A90] when set, then _freeptd(0) at
+    // 0x0016AF8B. Both image pointers are 0x00167388, which is a ret.
+    for (u32 i = 0; i < 0x24; ++i)
+    {
+        g_crt_locks[i].kind = kCrtLockKind[i];
+    }
+
+    int locks_ok = 1;
+    for (u32 i = 0; i < 0x24; ++i)
+    {
+        if (g_crt_locks[i].kind != 1)
+        {
+            continue;
+        }
+        try
+        {
+            g_crt_lock_mu[i] = std::make_unique<std::recursive_mutex>();
+            g_crt_locks[i].cs = g_crt_lock_mu[i].get();
+        }
+        catch (...)
+        {
+            g_crt_locks[i].cs = nullptr;
+            locks_ok = 0;
+            break;
+        }
+    }
+
+    if (locks_ok == 0)
+    {
+        for (CrtLockSlot& slot : g_crt_locks)
+        {
+            if (slot.cs != nullptr && slot.kind != 1)
+            {
+                slot.cs = nullptr;
+            }
+        }
+        return 0;
+    }
+
+    CrtTidData* ptd = static_cast<CrtTidData*>(std::calloc(1, sizeof(CrtTidData)));
+    if (g_crt_tls_index == 0)
+    {
+        g_crt_module_tls.ptd = ptd;
+    }
+    if (ptd == nullptr)
+    {
+        return 0;
+    }
+
+#if defined(_WIN32)
+    const u32 tid = static_cast<u32>(GetCurrentThreadId());
+#else
+    const u32 tid = 1;
+#endif
+    ptd->thandle |= 0xffffffffu;
+    ptd->tid = tid;
+
+    g_crt_thread_notify.routine = 0x0016EEC4u;
+    {
+        std::lock_guard<std::recursive_mutex> hold(g_xthread_notify_cs);
+        if (g_xthread_notify_head.flink == nullptr)
+        {
+            g_xthread_notify_head.flink = &g_xthread_notify_head;
+            g_xthread_notify_head.blink = &g_xthread_notify_head;
+        }
+        XThreadNotify* head = &g_xthread_notify_head;
+        XThreadNotify* prev = head->blink;
+        g_crt_thread_notify.flink = head;
+        g_crt_thread_notify.blink = prev;
+        prev->flink = &g_crt_thread_notify;
+        head->blink = &g_crt_thread_notify;
+    }
+    return 0;
 }
 
 int fn_14aaed(const u16* src, int cch, u8* dst, int cb)

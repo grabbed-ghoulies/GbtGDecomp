@@ -7238,6 +7238,64 @@ int fn_150cc6(u32 title_id, const u16* title_name)
     return xapi_map_letter_to_directory(&g_xapi_t_drive, &g_xapi_t_data, leaf, 1, title_name, 0);
 }
 
+int fn_150e37()
+{
+    // Xbox 0x00150E37
+    // cdecl. 0x00151068 calls this after 0x0014E44E. A negative status is
+    // passed to 0x00150D1B as (1, 0, 0). A non-negative status continues
+    // startup.
+    // [0x00010118] is the certificate. The dword at +0 is the header size.
+    // Above 0x1D8, SecurityFlags is the dword at +0x1D8; otherwise it is 0.
+    // Only bit 0 is kept. AllowedMedia at +0x9C is masked with 0xFFFFFF, and
+    // bit 0 replaces that mask with 2 (DVD_X2). Any other media returns 0.
+    // The retail certificate size is 0x1EC, SecurityFlags is 3, and
+    // AllowedMedia is 2, so the DVD path runs with bit 0 set.
+    // NtOpenFile (thunk 0x00202F00, ordinal 202) opens the OBJECT_STRING at
+    // 0x0032CEE0 ("\Device\CdRom0"): null root, OBJ_CASE_INSENSITIVE,
+    // GENERIC_READ|SYNCHRONIZE (0x80100000), FILE_SHARE_READ, and
+    // FILE_SYNCHRONOUS_IO_NONALERT (0x20). A negative open status is the
+    // result, with no close.
+    // The 0x2C-byte pass-through is zeroed, then length 0x2C, DataIn 1,
+    // transfer length 0x1C, and a 0x1C-byte data buffer. The CDB is mode
+    // sense 0x5A, page 0x3E, allocation length 0x001C. NtDeviceIoControlFile
+    // (thunk 0x00202F28, ordinal 196) sends IOCTL 0x4D014 with that input
+    // and a null output. A negative status closes and returns. Byte 0x0B of
+    // the page must be 1, or the status is STATUS_UNRECOGNIZED_MEDIA
+    // (0xC0000014). Bytes 0x0A and 0x0C must both be nonzero, or the status
+    // is STATUS_UNSUCCESSFUL (0xC0000001). Those page failures retry through
+    // five attempts.
+    // When that status is non-negative and SecurityFlags bit 0 is set, a
+    // second pass-through uses transfer length 0x664 and CDB
+    // AD 00 FF 02 FD FF FE 00 06 64 00 C0. The same IOCTL fills the buffer.
+    // 0x00150D80 checks those 0x664 bytes. A negative result from that call
+    // retries up to five times. An IOCTL failure does not. NtClose (thunk
+    // 0x00202EF4, ordinal 187) follows a successful open and its status is
+    // dropped. The IOCTL or 0x00150D80 status is the result.
+    // The host has no Xbox DVD challenge response. Returning a negative
+    // status would make 0x00151068 leave through 0x00150D1B. A genuine disc
+    // returns 0, and so does the port.
+    constexpr u32 kCertificateSize = 0x1ECu;
+    constexpr u32 kSecurityFlags = 3u;
+    constexpr u32 kAllowedMedia = 2u;
+
+    u32 security_flags = 0;
+    if (kCertificateSize > 0x1D8u)
+    {
+        security_flags = kSecurityFlags;
+    }
+    security_flags &= 1u;
+    u32 media = kAllowedMedia & 0x00FFFFFFu;
+    if (security_flags != 0u)
+    {
+        media = 2u;
+    }
+    if (media != 2u)
+    {
+        return 0;
+    }
+    return 0;
+}
+
 int fn_15118e(const XapiAnsiString* name, u32 bytes_per_cluster)
 {
     // Xbox 0x0015118E

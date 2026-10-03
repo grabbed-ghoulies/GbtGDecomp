@@ -2890,6 +2890,46 @@ void fn_1681b8()
     }
 }
 
+int* fn_168af5()
+{
+    // Xbox 0x00168AF5
+    // _errno. Nine bytes: call _getptd (0x0016AE40), add eax, 8, ret.
+    // The dword at _tiddata+8 is _terrno. __mtinitlocknum stores ENOMEM
+    // (0xC) through this pointer.
+    //
+    // _getptd bugchecks with code 10 when the IRQL byte at fs:[0x24] is
+    // above 1. The host stays at passive level. A thread whose
+    // KTHREAD+0x28 (fs:[0x28]) is zero uses the global at 0x0054DD64.
+    // The game thread reads fs:[4][__tls_index] + 0xC, which this port
+    // keeps in g_crt_module_tls.ptd. A null slot is calloc of 0x88 bytes
+    // (0x00168012). A failed allocation is _amsg_exit (0x00168B7A) with
+    // 0x10 and does not return. The new block is stored in the slot,
+    // +0x54 receives the static exception table 0x00338280, +0x14 receives
+    // 1 (_holdrand), +4 receives 0xFFFFFFFF, and +0 receives the thread id
+    // from GetCurrentThreadId (0x0014BC53).
+    CrtTidData* ptd = static_cast<CrtTidData*>(g_crt_module_tls.ptd);
+    if (ptd == nullptr)
+    {
+        ptd = static_cast<CrtTidData*>(std::calloc(1, sizeof(CrtTidData)));
+        if (ptd == nullptr)
+        {
+            std::exit(0xFF);
+        }
+        g_crt_module_tls.ptd = ptd;
+        auto* raw = reinterpret_cast<u8*>(ptd);
+        *reinterpret_cast<u32*>(raw + 0x54) = 0x00338280u;
+        *reinterpret_cast<u32*>(raw + 0x14) = 1u;
+#if defined(_WIN32)
+        const u32 tid = static_cast<u32>(GetCurrentThreadId());
+#else
+        const u32 tid = 1;
+#endif
+        ptd->thandle = 0xffffffffu;
+        ptd->tid = tid;
+    }
+    return reinterpret_cast<int*>(reinterpret_cast<u8*>(ptd) + 8);
+}
+
 int crt_mtinitlocknum(int locknum)
 {
     // __mtinitlocknum at 0x00168121. Scope table 0x00209190, prolog
@@ -2923,7 +2963,7 @@ int crt_mtinitlocknum(int locknum)
     }
     catch (...)
     {
-        errno = 12;
+        *fn_168af5() = 12;
         return 0;
     }
 

@@ -49,6 +49,8 @@ extern "C"
     __declspec(dllimport) unsigned long __stdcall GetLastError();
     __declspec(dllimport) int __stdcall ReadFile(void* handle, void* buffer, unsigned long bytes, unsigned long* read,
                                                  void* overlapped);
+    __declspec(dllimport) int __stdcall WriteFile(void* handle, const void* buffer, unsigned long bytes,
+                                                  unsigned long* written, void* overlapped);
     __declspec(dllimport) unsigned long __stdcall SetFilePointer(void* handle, long distance, long* high,
                                                                  unsigned long method);
     __declspec(dllimport) int __stdcall IsBadReadPtr(const void* lp, std::uintptr_t ucb);
@@ -4827,6 +4829,167 @@ void fn_16dc45()
     {
         g_crt_locks[10].cs->unlock();
     }
+}
+
+bool crt_write_file(std::intptr_t handle, const void* buffer, u32 bytes, u32* wrote, u32* doserr)
+{
+    // WriteFile at 0x0014B490. Nonzero is success. Zero keeps GetLastError
+    // (0x0014AFE4). The transferred count is stored either way; _write_lk
+    // reads it only after a nonzero return.
+#if defined(_WIN32)
+    unsigned long n = 0;
+    const int ok = WriteFile(reinterpret_cast<void*>(handle), buffer, bytes, &n, nullptr);
+    *wrote = static_cast<u32>(n);
+    if (ok != 0)
+    {
+        return true;
+    }
+    *doserr = static_cast<u32>(GetLastError());
+    return false;
+#else
+    (void)handle;
+    (void)buffer;
+    (void)doserr;
+    *wrote = bytes;
+    return true;
+#endif
+}
+
+int fn_16dc70(u32 fh, const char* buf, u32 count)
+{
+    // Xbox 0x0016DC70
+    // _write_lk. cdecl. The caller pops the descriptor, the buffer, and the
+    // byte count. This body does not lock the descriptor; the locked _write
+    // calls here with that lock already held.
+    //
+    // A count of 0 returns 0. The record is __pioinfo[fd >> 5] at
+    // 0x0054DC60, slot (fd & 0x1F), stride 0x28. The OS handle is at +0 and
+    // osfile is at +4. A null __pioinfo slot is reported as EBADF; retail
+    // would fault on that address.
+    //
+    // FAPPEND (bit 0x20) calls _lseeki64_lk (0x0016F270) with offset halves
+    // 0 and 0 and FILE_END (2). The 64-bit result is ignored, including a
+    // failure that has already stored errno. Both halves are zero, so
+    // _lseek_lk (0x0016D466) leaves the pointer at the same place and clears
+    // FEOFLAG on success.
+    //
+    // FTEXT (bit 0x80) copies the buffer through a 1028-byte stack slot.
+    // Each LF is counted and preceded by CR. The copy stops once the
+    // translated count reaches 0x400, so one last LF can land at 0x401.
+    // Each chunk is WriteFile (0x0014B490). A zero return stores
+    // GetLastError and stops. A short write, or a chunk that consumes the
+    // rest of the input, stops as well. A full chunk with bytes remaining
+    // translates another chunk.
+    //
+    // Any other osfile writes the caller's buffer in one WriteFile. Success
+    // stores a zero DOS code and the transferred count. Failure stores
+    // GetLastError and leaves the count at zero.
+    //
+    // A nonzero transferred total returns that total minus the LF count.
+    // A zero total with DOS code 5 (ERROR_ACCESS_DENIED) stores EBADF (9)
+    // through _errno (0x00168AF5) and 5 through __doserrno (0x00168AFE),
+    // then returns -1. Any other DOS code goes through __dosmaperr
+    // (0x00168B07) and returns -1. A zero total and a zero DOS code returns
+    // 0 when FDEV (bit 0x40) is set and the first buffer byte is CTRL-Z
+    // (0x1A). Otherwise errno becomes ENOSPC (0x1C), _doserrno becomes 0,
+    // and the return is -1.
+    if (count == 0)
+    {
+        return 0;
+    }
+
+    CrtIoInfo* info = crt_ioinfo_checked(fh);
+    if (info == nullptr)
+    {
+        *fn_168af5() = 9;
+        return -1;
+    }
+
+    if ((info->osfile & 0x20u) != 0)
+    {
+        fn_16d466(fh, 0, 2u);
+    }
+
+    int written_total = 0;
+    int lfcount = 0;
+    u32 doserr = 0;
+
+    if ((info->osfile & 0x80u) == 0)
+    {
+        u32 wrote = 0;
+        if (crt_write_file(info->osfhnd, buf, count, &wrote, &doserr))
+        {
+            doserr = 0;
+            written_total = static_cast<int>(wrote);
+        }
+    }
+    else
+    {
+        const char* src = buf;
+        char lfbuf[1028];
+        while (static_cast<u32>(src - buf) < count)
+        {
+            char* out = lfbuf;
+            int filled = 0;
+            u32 consumed = static_cast<u32>(src - buf);
+            do
+            {
+                if (consumed >= count)
+                {
+                    break;
+                }
+                const char ch = *src;
+                src += 1;
+                consumed += 1u;
+                if (ch == '\n')
+                {
+                    lfcount += 1;
+                    *out = '\r';
+                    out += 1;
+                    filled += 1;
+                }
+                *out = ch;
+                out += 1;
+                filled += 1;
+            } while (filled < 0x400);
+
+            const int chunk = static_cast<int>(out - lfbuf);
+            u32 wrote = 0;
+            if (!crt_write_file(info->osfhnd, lfbuf, static_cast<u32>(chunk), &wrote, &doserr))
+            {
+                break;
+            }
+            written_total += static_cast<int>(wrote);
+            doserr = 0;
+            if (static_cast<int>(wrote) < chunk || static_cast<u32>(src - buf) >= count)
+            {
+                break;
+            }
+        }
+    }
+
+    if (written_total != 0)
+    {
+        return written_total - lfcount;
+    }
+    if (doserr != 0)
+    {
+        if (doserr == 5u)
+        {
+            *fn_168af5() = 9;
+            *fn_168afe() = 5u;
+            return -1;
+        }
+        crt_dosmaperr(doserr);
+        return -1;
+    }
+    if ((info->osfile & 0x40u) != 0 && *buf == '\x1a')
+    {
+        return 0;
+    }
+    *fn_168af5() = 0x1c;
+    *fn_168afe() = 0;
+    return -1;
 }
 
 int fn_16d9f8(std::recursive_mutex* section, u32 spin_count);

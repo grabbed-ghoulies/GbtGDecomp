@@ -56,6 +56,11 @@ struct GpuCB
     float light_y = 1.f;
     float light_z = 1.f;
     float skin = 0.f; // light_dir.w: rigid skin palette is active
+    // FUN_0005e0c0. x = ALPHATESTENABLE, y = ALPHAREF (0..255), z = ALPHAFUNC.
+    float alpha_test = 0.f;
+    float alpha_ref = 0.f;
+    float alpha_func = 0.f;
+    float alpha_pad = 0.f;
 };
 
 struct DrawRange
@@ -113,6 +118,12 @@ struct GfxD3D11
     ComPtr<ID3D11ShaderResourceView> white;
     std::unordered_map<const Mesh*, GpuMesh> meshes;
     std::unordered_map<const RgbaImage*, ComPtr<ID3D11ShaderResourceView>> sprites;
+    // Device shadow at 0x00181B70. BSS until a render-state setter writes it.
+    // 0x0005E110 is the pass that stores D3DCMP_GREATER (0x204) at DAT_00181c58.
+    int rs_alpha_func = 0;  // DAT_00181c58, D3DRS_ALPHAFUNC (index 0x3A)
+    int rs_alpha_blend = 0; // DAT_00181c5c, D3DRS_ALPHABLENDENABLE (index 0x3B)
+    int rs_alpha_test = 0;  // DAT_00181c60, D3DRS_ALPHATESTENABLE (index 0x3C)
+    int rs_alpha_ref = 0;   // DAT_00181c64, D3DRS_ALPHAREF (index 0x3D)
 };
 
 GfxD3D11 g;
@@ -388,6 +399,31 @@ bool create_targets(int width, int height)
     return SUCCEEDED(g.device->CreateRenderTargetView(g.color.Get(), nullptr, g.rtv.GetAddressOf()));
 }
 
+void store_alpha_rs(GpuCB& cb)
+{
+    cb.alpha_test = g.rs_alpha_test != 0 ? 1.f : 0.f;
+    cb.alpha_ref = float(g.rs_alpha_ref);
+    cb.alpha_func = float(g.rs_alpha_func);
+}
+
+// Xbox 0x0005E0C0
+// Three D3DDevice_SetRenderState_Simple pushes, each followed by the device shadow:
+//   0x40300 = 1  D3DRS_ALPHATESTENABLE
+//   0x40340 = 5  D3DRS_ALPHAREF
+//   0x40304 = 1  D3DRS_ALPHABLENDENABLE
+// Alpha blend factors stay at the device default (SRCALPHA / INVSRCALPHA). ALPHAFUNC is not written.
+void fn_5e0c0()
+{
+    g.rs_alpha_test = 1;
+    g.rs_alpha_ref = 5;
+    g.rs_alpha_blend = 1;
+    if (!g.ok)
+    {
+        return;
+    }
+    g.context->OMSetBlendState(g.blend_alpha.Get(), nullptr, 0xFFFFFFFFu);
+}
+
 } // namespace
 
 bool gfx_init(const GfxConfig& cfg)
@@ -460,6 +496,7 @@ cbuffer Camera : register(b0) {
     float4x4 mvp;
     float4 uv_sel;   // x = albedo uv set, y = light uv set, z = lightmap, w = cel ramp
     float4 light_dir; // xyz draw colour (0x5e380), w = rigid skin on
+    float4 alpha_rs; // x = ALPHATESTENABLE, y = ALPHAREF, z = ALPHAFUNC (0x0005E0C0)
 };
 cbuffer Bones : register(b1) {
     float4x4 joints[128];
@@ -501,7 +538,24 @@ float4 ps_main(VSOut i) : SV_Target {
         // FUN_000644f0 stores D3DTOP_MODULATE (4) at the stage colour ops.
         light = g_light.Sample(g_light_samp, uv_l).rgb * light_dir.xyz;
     }
-    return float4(albedo.rgb * light, albedo.a);
+    float4 color = float4(albedo.rgb * light, albedo.a);
+    // D3DRS_ALPHATESTENABLE / ALPHAREF from 0x0005E0C0. ALPHAFUNC stays at the
+    // shadow (0 until programmed). 0x200..0x207 are the Xbox D3DCMP values.
+    if (alpha_rs.x > 0.5 && alpha_rs.z >= 512.0) {
+        float a = round(color.a * 255.0);
+        float refv = alpha_rs.y;
+        float f = alpha_rs.z;
+        bool keep = true;
+        if (f < 512.5) keep = false;
+        else if (f < 513.5) keep = a < refv;
+        else if (f < 514.5) keep = a == refv;
+        else if (f < 515.5) keep = a <= refv;
+        else if (f < 516.5) keep = a > refv;
+        else if (f < 517.5) keep = a != refv;
+        else if (f < 518.5) keep = a >= refv;
+        if (!keep) discard;
+    }
+    return color;
 }
 )";
     ComPtr<ID3DBlob> vs_blob;
@@ -758,6 +812,12 @@ void gfx_draw_mesh(const Mesh& mesh, Vec3 origin, Vec3 scale)
     {
         return;
     }
+    // 0x0005E0C0 leaves ALPHABLENDENABLE set. begin_frame installs opaque; a later
+    // call of that setter has to win for the draws that follow it.
+    if (g.rs_alpha_blend != 0)
+    {
+        g.context->OMSetBlendState(g.blend_alpha.Get(), nullptr, 0xFFFFFFFFu);
+    }
     D3D11_MAPPED_SUBRESOURCE mapped{};
     const UINT stride = sizeof(GpuVert);
     const UINT offset = 0;
@@ -791,6 +851,7 @@ void gfx_draw_mesh(const Mesh& mesh, Vec3 origin, Vec3 scale)
             cb.use_light = range.use_light;
             cb.use_cel = range.use_cel;
             cb.skin = g.skin ? 1.f : 0.f;
+            store_alpha_rs(cb);
             std::memcpy(mapped.pData, &cb, sizeof(cb));
             g.context->Unmap(g.cb.Get(), 0);
         }
@@ -888,6 +949,7 @@ void gfx_draw_sprite(const RgbaImage& image, const GfxRect& rect)
     {
         GpuCB cb;
         std::memcpy(cb.mvp, identity.m, sizeof(cb.mvp));
+        store_alpha_rs(cb);
         std::memcpy(mapped.pData, &cb, sizeof(cb));
         g.context->Unmap(g.cb.Get(), 0);
     }

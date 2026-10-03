@@ -3045,6 +3045,15 @@ int* fn_168af5()
     return reinterpret_cast<int*>(reinterpret_cast<u8*>(ptd) + 8);
 }
 
+u32* fn_168afe()
+{
+    // Xbox 0x00168AFE
+    // __doserrno. Nine bytes: call _getptd (0x0016AE40), add eax, 0xC, ret.
+    // The dword at _tiddata+0xC is _tdoserrno.
+    CrtTidData* ptd = fn_16ae40();
+    return reinterpret_cast<u32*>(reinterpret_cast<u8*>(ptd) + 0xc);
+}
+
 int crt_mtinitlocknum(int locknum)
 {
     // __mtinitlocknum at 0x00168121. Scope table 0x00209190, prolog

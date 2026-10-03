@@ -1855,4 +1855,173 @@ void fn_176f80(D3dPushGetCache* device)
     device->cached_ref = ref;
 }
 
+struct D3dTimeSlot
+{
+    u32 serial = 0;
+    u32 put = 0;
+};
+
+// Fields read by 0x001771A0 on the device at DAT_00181E08. slots is the
+// inline table at +0x60: 64 records of {serial, put}, indexed by
+// (serial >> 1) & 0x3f. history is the older ring 0x001770A0 walks
+// once a serial has fallen off that table.
+struct D3dPushGetState
+{
+    u32 put = 0;                          // +0x00
+    u32 push_start = 0;                   // +0x24
+    u32 push_end = 0;                     // +0x28
+    u32 fence = 0;                        // +0x2c
+    const u32* counter = nullptr;         // +0x30
+    u32 hist_index = 0;                   // +0x34
+    u32 hist_mask = 0;                    // +0x38
+    u32 wrap = 0;                         // +0x40
+    const D3dTimeSlot* history = nullptr; // +0x44
+    D3dTimeSlot slots[64]{};              // +0x60
+    const u32* reg_file = nullptr;        // +0x930
+    const u32* notifier = nullptr;        // +0x1c10
+};
+
+namespace
+{
+
+u32 wrapped_put(u32 recorded, u32 put, u32 wrap)
+{
+    if (recorded <= put)
+    {
+        recorded += wrap;
+    }
+    return recorded;
+}
+
+// True when every slot after index, up to but not including end, still
+// sits at or ahead of index's put. This is the test 0x001770A0 runs
+// before it returns a slot. mask is 0x3f for the inline table.
+bool later_puts_hold(
+    const D3dTimeSlot* table, u32 index, u32 end, u32 mask, u32 put, u32 wrap)
+{
+    const u32 baseline = wrapped_put(table[index].put, put, wrap);
+    u32 next = (index + 1u) & mask;
+    while (next != end)
+    {
+        if (wrapped_put(table[next].put, put, wrap) < baseline)
+        {
+            return false;
+        }
+        next = (next + 1u) & mask;
+    }
+    return true;
+}
+
+const D3dTimeSlot* inline_time_slot(const D3dPushGetState* device, u32 index)
+{
+    const u32 newest = (device->fence >> 1) & 0x3fu;
+    if (!later_puts_hold(device->slots, index, newest, 0x3fu, device->put, device->wrap))
+    {
+        return nullptr;
+    }
+    return &device->slots[index];
+}
+
+// 0x001770A0. eax is the serial 0x001771A0 passes (counter + 2). Retail
+// loads the device from DAT_00181E08; the port uses the caller's device.
+// A gap of 0x80 is one lap of the 64-slot table (serials step by 2).
+// Inside that window the inline slot is (serial >> 1) & 0x3f. Beyond it,
+// the history ring is walked from hist_index + 1 until a record is at
+// least as new as the query. The head record being older than the query
+// drops back to the inline slot for the fence itself. The compare against
+// -1 in the retail index is unreachable after the 0x3f mask. A null
+// history cannot be walked; the port returns no slot.
+const D3dTimeSlot* push_time_slot(const D3dPushGetState* device, u32 query)
+{
+    const u32 fence = device->fence;
+    const u32 gap = fence - query;
+    if (gap > 0x80u)
+    {
+        if (device->history == nullptr)
+        {
+            return nullptr;
+        }
+        const u32 head = device->hist_index;
+        if ((fence - device->history[head].serial) > gap)
+        {
+            return inline_time_slot(device, (fence >> 1) & 0x3fu);
+        }
+        const u32 mask = device->hist_mask;
+        u32 index = head;
+        do
+        {
+            index = (index + 1u) & mask;
+        }
+        while ((fence - device->history[index].serial) > gap);
+
+        const u32 stop = (head + 1u) & mask;
+        if (!later_puts_hold(device->history, index, stop, mask, device->put, device->wrap))
+        {
+            return nullptr;
+        }
+        return &device->history[index];
+    }
+    return inline_time_slot(device, (query >> 1) & 0x3fu);
+}
+
+} // namespace
+
+u32 fn_1771a0(const D3dPushGetState* device, int wait)
+{
+    // Xbox 0x001771A0
+    // stdcall, ret 8. D3D_BlockOnTime (0x00177450) is the caller. The
+    // first argument is the device at DAT_00181E08. The second is
+    // nonzero only on the call after the fence kick: spin until the low
+    // five bits of the GPU reference at reg_file+0x400b10 match the
+    // counter pointed to by device+0x30. 0x001773A0 encodes that
+    // reference as (put << 5) | (serial & 0x1f).
+    //
+    // notifier+0x44 is the hardware GET. ORing 0x80000000 is the
+    // push-buffer address. While it sits in [device+0x24, device+0x28)
+    // that address is the result.
+    //
+    // Outside the ring, *counter + 2 == the fence at device+0x2c means
+    // the GPU has retired the last kick 0x001773A0 recorded (the fence
+    // is already two ahead of that serial). The result is the put
+    // pointer at device+0. Otherwise 0x001770A0 looks up the slot for
+    // *counter + 2 and the result is the put stored at slot+4. A miss
+    // returns put + 4. A null device, counter, or notifier would fault
+    // on Xbox; the port returns 0. So does a wait with no register file.
+    if (device == nullptr || device->counter == nullptr || device->notifier == nullptr)
+    {
+        return 0;
+    }
+
+    const volatile u32* counter = device->counter;
+    if (wait != 0)
+    {
+        if (device->reg_file == nullptr)
+        {
+            return 0;
+        }
+        const volatile u32* reference = device->reg_file + (0x400b10u / 4u);
+        do
+        {
+        }
+        while (((*counter ^ *reference) & 0x1fu) != 0u);
+    }
+
+    const u32 get = device->notifier[0x44 / 4] | 0x80000000u;
+    if (get < device->push_start || device->push_end <= get)
+    {
+        const u32 seen = *counter;
+        if (seen + 2u == device->fence)
+        {
+            return device->put;
+        }
+        const D3dTimeSlot* slot = push_time_slot(device, seen + 2u);
+        if (slot != nullptr)
+        {
+            return slot->put;
+        }
+        return device->put + 4u;
+    }
+    return get;
+}
+
 } // namespace gbtg

@@ -4232,6 +4232,587 @@ bool fn_14d283(const char* path)
     return false;
 }
 
+// DAT_0032CA00, DAT_0032CA04, DAT_0032CA0C, DAT_0032CA08. Retail .data defaults
+// for a zeroed RTL_HEAP_PARAMETERS block.
+constexpr u32 kHeapSegmentReserve = 0x100000;
+constexpr u32 kHeapSegmentCommit = 0x2000;
+constexpr u32 kHeapDecommitFree = 0x1000;
+constexpr u32 kHeapDecommitTotal = 0x10000;
+
+// DAT_0054951D bit 3 inserts the 0x60c debug tail. DAT_0054951E bit 5 ORs
+// 0x80 into the create flags. The retail image leaves both bytes zero.
+u8 g_heap_nt_flag_1d = 0;
+u8 g_heap_nt_flag_1e = 0;
+
+#if defined(_WIN32)
+struct HeapVm
+{
+    void*(__stdcall* alloc)(void* address, std::uintptr_t size, unsigned long type, unsigned long protect);
+    int(__stdcall* free)(void* address, std::uintptr_t size, unsigned long type);
+    std::uintptr_t(__stdcall* query)(const void* address, void* buffer, std::uintptr_t length);
+};
+
+struct HeapMemInfo
+{
+    void* base;
+    void* allocation_base;
+    unsigned long allocation_protect;
+#if defined(_WIN64)
+    unsigned short partition_id;
+    unsigned short pad;
+#endif
+    std::uintptr_t region_size;
+    unsigned long state;
+    unsigned long protect;
+    unsigned long type;
+};
+
+u32 heap_get_u32(u32 addr)
+{
+    u32 value = 0;
+    std::memcpy(&value, reinterpret_cast<const void*>(static_cast<std::uintptr_t>(addr)), 4);
+    return value;
+}
+
+void heap_set_u32(u32 addr, u32 value)
+{
+    std::memcpy(reinterpret_cast<void*>(static_cast<std::uintptr_t>(addr)), &value, 4);
+}
+
+u16 heap_get_u16(u32 addr)
+{
+    u16 value = 0;
+    std::memcpy(&value, reinterpret_cast<const void*>(static_cast<std::uintptr_t>(addr)), 2);
+    return value;
+}
+
+void heap_set_u16(u32 addr, u16 value)
+{
+    std::memcpy(reinterpret_cast<void*>(static_cast<std::uintptr_t>(addr)), &value, 2);
+}
+
+u8* heap_at(u32 addr)
+{
+    return reinterpret_cast<u8*>(static_cast<std::uintptr_t>(addr));
+}
+
+u32 heap_page_span(u32 end, u32 start)
+{
+    const i32 bytes = static_cast<i32>(end - start);
+    return static_cast<u32>(bytes / static_cast<i32>(0x1000));
+}
+
+HeapVm heap_vm()
+{
+    HeapVm vm{};
+    void* kernel = GetModuleHandleA("kernel32.dll");
+    if (kernel == nullptr)
+    {
+        return vm;
+    }
+    void* alloc_proc = GetProcAddress(kernel, "VirtualAlloc");
+    void* free_proc = GetProcAddress(kernel, "VirtualFree");
+    void* query_proc = GetProcAddress(kernel, "VirtualQuery");
+    std::memcpy(&vm.alloc, &alloc_proc, sizeof(vm.alloc));
+    std::memcpy(&vm.free, &free_proc, sizeof(vm.free));
+    std::memcpy(&vm.query, &query_proc, sizeof(vm.query));
+    return vm;
+}
+
+void* heap_reserve(HeapVm vm, u32 bytes)
+{
+    constexpr u32 kStep = 0x1000000;
+    for (u32 hint = 0x20000000u; hint < 0x70000000u; hint += kStep)
+    {
+        if (static_cast<u64>(hint) + bytes > 0x100000000ull)
+        {
+            break;
+        }
+        void* block = vm.alloc(reinterpret_cast<void*>(static_cast<std::uintptr_t>(hint)), bytes, 0x2000u, 4u);
+        if (block != nullptr)
+        {
+            return block;
+        }
+    }
+    return nullptr;
+}
+
+// 0x0014D9BC. Link `units` of free 16-byte granules at `entry`. Sizes below
+// 0x80 take the dedicated list at heap+0x180 and set the bitmap at heap+0x160.
+// Larger sizes walk the list at heap+0x180 in ascending size order. A run
+// above 0xff00 is split; 0xff01 keeps a 0x11-granule tail instead of a
+// one-granule fragment. Bit 0x10 on the entry suppresses the following
+// entry's previous-size store.
+void heap_add_free(u32 heap_addr, u32 entry, u32 units)
+{
+    const u8 index = heap_at(entry)[4];
+    const u8 saved_flags = heap_at(entry)[5];
+    u16 previous = heap_get_u16(entry + 2);
+    heap_set_u32(heap_addr + 0x30, heap_get_u32(heap_addr + 0x30) + units);
+
+    const u32 segment = heap_get_u32(heap_addr + static_cast<u32>(index) * 4u + 0x60u);
+    const u32 limit = segment == 0 ? 0u : heap_get_u32(segment + 0x2c);
+
+    if (units == 0)
+    {
+        return;
+    }
+
+    while (units != 0)
+    {
+        u32 chunk = units;
+        u8 flags = saved_flags;
+        if (units > 0xff00u)
+        {
+            chunk = 0xff00u;
+            if (units == 0xff01u)
+            {
+                chunk = 0xfeF0u;
+            }
+            flags = 0;
+        }
+        flags = static_cast<u8>(flags & 0xf8u);
+        heap_set_u16(entry + 2, previous);
+        heap_at(entry)[4] = index;
+        heap_at(entry)[5] = flags;
+        heap_set_u16(entry, static_cast<u16>(chunk));
+
+        u32 before = 0;
+        if (chunk >= 0x80u)
+        {
+            const u32 head = heap_addr + 0x180u;
+            before = heap_get_u32(head);
+            while (before != head)
+            {
+                if (static_cast<u16>(chunk) <= heap_get_u16(before - 8u))
+                {
+                    break;
+                }
+                before = heap_get_u32(before);
+            }
+        }
+        else
+        {
+            before = heap_addr + 0x180u + chunk * 8u;
+            if (heap_get_u32(before) == before)
+            {
+                u8* map = heap_at(heap_addr + 0x160u + (chunk >> 3));
+                *map = static_cast<u8>(*map | static_cast<u8>(1u << (chunk & 7u)));
+            }
+        }
+
+        const u32 blink = heap_get_u32(before + 4u);
+        heap_set_u32(entry + 8u, before);
+        heap_set_u32(entry + 0xcu, blink);
+        heap_set_u32(blink, entry + 8u);
+        heap_set_u32(before + 4u, entry + 8u);
+
+        units -= chunk;
+        entry += chunk << 4;
+        previous = static_cast<u16>(chunk);
+        if (limit != 0 && entry >= limit)
+        {
+            return;
+        }
+    }
+
+    if ((saved_flags & 0x10u) == 0)
+    {
+        heap_set_u16(entry + 2u, previous);
+    }
+}
+
+// 0x0014DEFF for the first segment. `segment` sits on the 16-byte header
+// boundary. The segment signature is 0xFFEEFFEE. Granules past the segment
+// header through the committed end become one free entry via 0x0014D9BC.
+// Uncommitted pages are recorded on a descriptor popped from heap+0x4c.
+// A commit that cannot cover the segment header returns false.
+bool heap_init_segment(HeapVm vm, u32 heap_addr, u32 segment, u32 commit_base, u32 commit_end, u32 reserve_end,
+                       u32 user_flag)
+{
+    const u32 first = (segment + 0x57u) & ~0xfu;
+    const u32 header_units = (first - segment) >> 4;
+    if (first + 0x10u >= commit_end)
+    {
+        if (first + 0x10u >= reserve_end)
+        {
+            return false;
+        }
+        u32 extra = first - commit_end + 0x10u;
+        extra = (extra + 0xfffu) & ~0xfffu;
+        if (vm.alloc(heap_at(commit_end), extra, 0x1000u, 4u) == nullptr)
+        {
+            return false;
+        }
+        commit_end += extra;
+    }
+
+    const u32 reserve_pages = heap_page_span(reserve_end, commit_base);
+    const u32 uncommitted_pages = heap_page_span(reserve_end, commit_end);
+    const u16 heap_units = heap_addr == commit_base ? heap_get_u16(heap_addr) : 0;
+
+    heap_set_u16(segment, static_cast<u16>(header_units));
+    heap_set_u16(segment + 2u, heap_units);
+    heap_at(segment)[4] = 0;
+    heap_at(segment)[5] = 1;
+    heap_set_u32(segment + 0x10u, 0xffeeffeeu);
+    heap_set_u32(segment + 0x14u, user_flag);
+    heap_set_u32(segment + 0x18u, heap_addr);
+    heap_set_u32(segment + 0x20u, commit_base);
+    heap_set_u32(segment + 0x24u, reserve_pages);
+    heap_set_u32(segment + 0x28u, first);
+    heap_set_u32(segment + 0x2cu, commit_base + (reserve_pages << 12));
+    heap_at(segment)[5] = 1;
+    heap_set_u32(segment + 0x30u, uncommitted_pages);
+
+    if (uncommitted_pages != 0)
+    {
+        const u32 node = heap_get_u32(heap_addr + 0x4cu);
+        if (node != 0)
+        {
+            heap_set_u32(heap_addr + 0x4cu, heap_get_u32(node));
+            const u32 bytes = uncommitted_pages << 12;
+            heap_set_u32(node + 4u, commit_end);
+            heap_set_u32(node + 8u, bytes);
+            heap_set_u32(node, heap_get_u32(segment + 0x38u));
+            heap_set_u32(segment + 0x38u, node);
+            heap_set_u32(segment + 0x34u, heap_get_u32(segment + 0x34u) + 1u);
+            if (bytes >= heap_get_u32(segment + 0x1cu))
+            {
+                heap_set_u32(segment + 0x1cu, bytes);
+            }
+        }
+    }
+
+    heap_set_u32(heap_addr + 0x60u, segment);
+    heap_at(first)[5] = 0x10;
+    heap_set_u32(segment + 0x40u, first);
+    heap_set_u16(first + 2u, heap_get_u16(segment));
+    heap_at(first)[4] = 0;
+    const i32 free_bytes = static_cast<i32>(commit_end - first);
+    const u32 free_units = static_cast<u32>(free_bytes >> 4);
+    heap_add_free(heap_addr, first, free_units);
+    return true;
+}
+#endif
+
+void* fn_14e44e(u32 flags, void* heap_base, u32 reserve_size, u32 commit_size, void* lock, const void* parameters)
+{
+    // Xbox 0x0014E44E
+    // RtlCreateHeap, stdcall, six arguments. 0x0014D311 (HeapCreate) ORs
+    // the caller flags with 0x1000, forces HEAP_GROWABLE when the commit is
+    // 0, and passes a null base and lock. 0x0015105A creates the process
+    // heap with flags 2, reserve from XBE+0x134 (0x100000), commit from
+    // XBE+0x138 (0x1000), and a zeroed 0x30-byte parameter block.
+    // A parameter pointer is copied only when its first dword is 0x30. A
+    // fault on that copy returns null. Zero fields take the .data defaults.
+    // Commit and reserve round up to pages; a zero commit becomes 0x1000
+    // and a zero reserve becomes 0x40000, or the commit rounded to 64KB
+    // when the commit was already non-zero. HEAP_NO_SERIALIZE with a lock
+    // returns null. A null lock embeds a critical section and grows the
+    // header from 0x590 to 0x5ac. A caller lock sets flag 0x80000000.
+    // A null base reserves then commits. A caller base with a commit
+    // routine uses InitialCommit and InitialReserve and refuses
+    // HEAP_GROWABLE. Otherwise the base has to be the start of a region
+    // that is not free. The header signature is 0xEEFFEEFF. Eight
+    // 16-byte descriptor nodes chain from +0x4c, 128 free lists sit at
+    // +0x180, and the lock pointer is +0x580. 0x0014DEFF then builds
+    // segment 0 and the first free entry. Failure of that step returns
+    // null and leaves a reservation in place. The port keeps the image in
+    // the low 4GB so the 32-bit links stay intact.
+#if !defined(_WIN32)
+    (void)flags;
+    (void)heap_base;
+    (void)reserve_size;
+    (void)commit_size;
+    (void)lock;
+    (void)parameters;
+    return nullptr;
+#else
+#if defined(_WIN64)
+    static_assert(sizeof(HeapMemInfo) == 48u);
+#else
+    static_assert(sizeof(HeapMemInfo) == 28u);
+#endif
+
+    HeapVm vm = heap_vm();
+    if (vm.alloc == nullptr || vm.free == nullptr || vm.query == nullptr)
+    {
+        return nullptr;
+    }
+
+    u32 segment_reserve = 0;
+    u32 segment_commit = 0;
+    u32 decommit_free = 0;
+    u32 decommit_total = 0;
+    u32 maximum_allocation = 0;
+    u32 virtual_threshold = 0;
+    u32 initial_commit = 0;
+    u32 initial_reserve = 0;
+    u32 commit_routine = 0;
+    if (parameters != nullptr)
+    {
+        u32 length = 0;
+        std::memcpy(&length, parameters, 4);
+        if (length == 0x30u)
+        {
+            u8 raw[0x30]{};
+            std::memcpy(raw, parameters, 0x30);
+            std::memcpy(&segment_reserve, raw + 0x04, 4);
+            std::memcpy(&segment_commit, raw + 0x08, 4);
+            std::memcpy(&decommit_free, raw + 0x0c, 4);
+            std::memcpy(&decommit_total, raw + 0x10, 4);
+            std::memcpy(&maximum_allocation, raw + 0x14, 4);
+            std::memcpy(&virtual_threshold, raw + 0x18, 4);
+            std::memcpy(&initial_commit, raw + 0x1c, 4);
+            std::memcpy(&initial_reserve, raw + 0x20, 4);
+            std::memcpy(&commit_routine, raw + 0x24, 4);
+        }
+    }
+
+    if ((g_heap_nt_flag_1e & 0x20u) != 0)
+    {
+        flags |= 0x80u;
+    }
+    if (segment_reserve == 0)
+    {
+        segment_reserve = kHeapSegmentReserve;
+    }
+    if (segment_commit == 0)
+    {
+        segment_commit = kHeapSegmentCommit;
+    }
+    if (decommit_free == 0)
+    {
+        decommit_free = kHeapDecommitFree;
+    }
+    if (decommit_total == 0)
+    {
+        decommit_total = kHeapDecommitTotal;
+    }
+    if (maximum_allocation == 0)
+    {
+        maximum_allocation = 0x7ffdefffu;
+    }
+    if (virtual_threshold == 0 || virtual_threshold > 0xff000u)
+    {
+        virtual_threshold = 0xff000u;
+    }
+
+    if (commit_size == 0)
+    {
+        commit_size = 0x1000u;
+        if (reserve_size == 0)
+        {
+            reserve_size = 0x40000u;
+        }
+        else
+        {
+            reserve_size = (reserve_size + 0xfffu) & 0xfffff000u;
+        }
+    }
+    else
+    {
+        commit_size = (commit_size + 0xfffu) & 0xfffff000u;
+        if (reserve_size == 0)
+        {
+            reserve_size = (commit_size + 0xffffu) & 0xffff0000u;
+        }
+        else
+        {
+            reserve_size = (reserve_size + 0xfffu) & 0xfffff000u;
+        }
+    }
+
+    u32 header_bytes = 0x590u;
+    bool embed_lock = false;
+    if ((flags & 1u) == 0)
+    {
+        if (lock == nullptr)
+        {
+            header_bytes = 0x5acu;
+            embed_lock = true;
+        }
+        else
+        {
+            flags |= 0x80000000u;
+            if (reinterpret_cast<std::uintptr_t>(lock) > 0xffffffffu)
+            {
+                return nullptr;
+            }
+        }
+    }
+    else if (lock != nullptr)
+    {
+        return nullptr;
+    }
+
+    const bool caller_base = heap_base != nullptr;
+    u32 base_addr = 0;
+    u32 commit_base = 0;
+    u32 commit_end = 0;
+    u32 user_flag = 0;
+    if (!caller_base)
+    {
+        if (commit_routine != 0)
+        {
+            return nullptr;
+        }
+        void* reserved = heap_reserve(vm, reserve_size);
+        if (reserved == nullptr)
+        {
+            return nullptr;
+        }
+        base_addr = static_cast<u32>(reinterpret_cast<std::uintptr_t>(reserved));
+        commit_base = base_addr;
+        commit_end = base_addr;
+        user_flag = 0;
+    }
+    else
+    {
+        if (reinterpret_cast<std::uintptr_t>(heap_base) > 0xffffffffu)
+        {
+            return nullptr;
+        }
+        base_addr = static_cast<u32>(reinterpret_cast<std::uintptr_t>(heap_base));
+        if (commit_routine != 0)
+        {
+            if (initial_commit == 0 || initial_reserve == 0 || initial_reserve < initial_commit || (flags & 2u) != 0)
+            {
+                return nullptr;
+            }
+            if (static_cast<u64>(base_addr) + initial_reserve > 0x100000000ull)
+            {
+                return nullptr;
+            }
+            std::memset(heap_base, 0, 0x1000);
+            commit_base = base_addr;
+            commit_end = base_addr + initial_commit;
+            reserve_size = initial_reserve;
+            user_flag = 1;
+        }
+        else
+        {
+            HeapMemInfo info{};
+            if (vm.query(heap_base, &info, sizeof(info)) == 0 || info.base != heap_base || info.state == 0x10000u)
+            {
+                return nullptr;
+            }
+            if (info.region_size > 0xffffffffu)
+            {
+                return nullptr;
+            }
+            commit_base = base_addr;
+            if (info.state == 0x1000u)
+            {
+                const u32 region = static_cast<u32>(info.region_size);
+                if (static_cast<u64>(base_addr) + region > 0x100000000ull)
+                {
+                    return nullptr;
+                }
+                std::memset(heap_base, 0, 0x1000);
+                commit_size = region;
+                commit_end = base_addr + region;
+                reserve_size = region;
+                HeapMemInfo next{};
+                if (vm.query(heap_at(commit_end), &next, sizeof(next)) != 0 && next.state == 0x2000u &&
+                    next.region_size <= 0xffffffffu &&
+                    static_cast<u64>(next.region_size) + region <= 0xffffffffull)
+                {
+                    reserve_size = static_cast<u32>(next.region_size) + region;
+                }
+            }
+            else
+            {
+                commit_size = 0x1000u;
+                commit_end = base_addr;
+            }
+            user_flag = 1;
+        }
+    }
+
+    if (commit_end == commit_base)
+    {
+        if (commit_size == 0)
+        {
+            commit_size = 0x1000u;
+        }
+        if (vm.alloc(heap_at(commit_base), commit_size, 0x1000u, 4u) == nullptr)
+        {
+            if (caller_base)
+            {
+                return nullptr;
+            }
+            vm.free(heap_at(base_addr), 0, 0x8000u);
+            return nullptr;
+        }
+        commit_end = commit_base + commit_size;
+    }
+
+    u32 chain = base_addr + 0x4cu;
+    u32 node = (base_addr + 0x597u) & ~7u;
+    for (int count = 8; count != 0; --count)
+    {
+        heap_set_u32(chain, node);
+        chain = node;
+        node += 0x10u;
+    }
+    heap_set_u32(chain, 0);
+    u32 tail = node;
+    u32 span = header_bytes + 0x80u;
+    if ((g_heap_nt_flag_1d & 8u) != 0)
+    {
+        const u32 aligned = (tail + 7u) & ~7u;
+        heap_set_u32(base_addr + 0x17cu, aligned);
+        span += 0x60cu;
+        tail = aligned + 0x60cu;
+    }
+    span = (span + 0xfu) & ~0xfu;
+    heap_set_u16(base_addr, static_cast<u16>(span >> 4));
+    heap_at(base_addr)[5] = 1;
+    heap_set_u32(base_addr + 0x10u, 0xeeffeeffu);
+    heap_set_u32(base_addr + 0x14u, flags);
+    heap_set_u32(base_addr + 0x18u, flags & 0x6001007du);
+    heap_set_u16(base_addr + 0x170u, static_cast<u16>(heap_get_u16(base_addr + 0x170u) | 0xffffu));
+    heap_set_u16(base_addr + 0x3au, static_cast<u16>(tail - base_addr));
+    heap_set_u32(base_addr + 0x3cu, 0);
+    for (u32 list = 0; list < 0x80u; ++list)
+    {
+        const u32 head = base_addr + 0x180u + list * 8u;
+        heap_set_u32(head, head);
+        heap_set_u32(head + 4u, head);
+    }
+    heap_set_u32(base_addr + 0x5cu, base_addr + 0x58u);
+    heap_set_u32(base_addr + 0x58u, base_addr + 0x58u);
+
+    u32 lock_addr = lock == nullptr ? 0u : static_cast<u32>(reinterpret_cast<std::uintptr_t>(lock));
+    if (embed_lock)
+    {
+        heap_set_u32(tail + 4u, 0xffffffffu);
+        lock_addr = tail;
+    }
+    heap_set_u32(base_addr + 0x580u, lock_addr);
+
+    const u32 reserve_end = commit_base + reserve_size;
+    if (!heap_init_segment(vm, base_addr, base_addr + span, commit_base, commit_end, reserve_end, user_flag))
+    {
+        return nullptr;
+    }
+
+    heap_set_u16(base_addr + 0x38u, 0);
+    heap_set_u32(base_addr + 0x20u, segment_reserve);
+    heap_set_u32(base_addr + 0x24u, segment_commit);
+    heap_set_u32(base_addr + 0x28u, decommit_free >> 4);
+    heap_set_u32(base_addr + 0x2cu, decommit_total >> 4);
+    heap_set_u32(base_addr + 0x34u, maximum_allocation);
+    heap_set_u32(base_addr + 0x1cu, (virtual_threshold + 0xfu) >> 4);
+    heap_set_u32(base_addr + 0x584u, commit_routine);
+    heap_set_u32(base_addr + 0x50u, 0x1fu);
+    heap_set_u32(base_addr + 0x54u, 0xfffffff0u);
+    return heap_at(base_addr);
+#endif
+}
+
 u32 fn_15028c(const char* path, const void* launch_data, u32 flags, u32 launch_type)
 {
     // Xbox 0x0015028C

@@ -15563,4 +15563,208 @@ void draw_cutscene_props(Game& g)
     gfx_set_bones(nullptr, 0);
 }
 
+namespace
+{
+
+// Transform programs from the D3D section. Each instruction is four dwords.
+// 0x0017FC28 is used while DAT_00181CE4 is 0. 0x0017FB78 is used when that
+// global is set and device flag bit 1 is set. 0x0017FAB8 is the other set.
+constexpr u32 k_d3d_xform_mode0[] = {
+    0x00000000u, 0x0020001Bu, 0x0836106Cu, 0x2F100FF8u, 0x00000000u, 0x0420061Bu, 0x083613FCu, 0x5011F818u,
+    0x00000000u, 0x002008FFu, 0x0836106Cu, 0x2070F828u, 0x00000000u, 0x0240081Bu, 0x1436186Cu, 0x2F20F824u,
+    0x00000000u, 0x0060201Bu, 0x2436106Cu, 0x3070F800u, 0x00000000u, 0x00200200u, 0x0836106Cu, 0x2070F830u,
+    0x00000000u, 0x00200E1Bu, 0x0836106Cu, 0x2070F838u, 0x00000000u, 0x0020101Bu, 0x0836106Cu, 0x2070F840u,
+    0x00000000u, 0x0020121Bu, 0x0836106Cu, 0x2070F848u, 0x00000000u, 0x0020141Bu, 0x0836106Cu, 0x2070F850u,
+    0x00000000u, 0x0020161Bu, 0x0836106Cu, 0x2070F858u, 0x00000000u, 0x0020181Bu, 0x0836106Cu, 0x2070F861u,
+};
+constexpr u32 k_d3d_xform_flag[] = {
+    0x00000000u, 0x022000AAu, 0x0836086Cu, 0x201FF828u, 0x00000000u, 0x0020081Bu, 0x0836106Cu, 0x2070F820u,
+    0x00000000u, 0x0420061Bu, 0x083613FCu, 0x5011F818u, 0x00000000u, 0x00200E1Bu, 0x0836106Cu, 0x2070F838u,
+    0x00000000u, 0x0240021Bu, 0x14361800u, 0x2F20F834u, 0x00000000u, 0x0060201Bu, 0x2436106Cu, 0x3070F800u,
+    0x00000000u, 0x0020101Bu, 0x0836106Cu, 0x2070F840u, 0x00000000u, 0x0020121Bu, 0x0836106Cu, 0x2070F848u,
+    0x00000000u, 0x0020141Bu, 0x0836106Cu, 0x2070F850u, 0x00000000u, 0x0020161Bu, 0x0836106Cu, 0x2070F858u,
+    0x00000000u, 0x0020181Bu, 0x0836106Cu, 0x2070F861u,
+};
+constexpr u32 k_d3d_xform_main[] = {
+    0x00000000u, 0x0020001Bu, 0x0836106Cu, 0x2F100FF8u, 0x00000000u, 0x0420061Bu, 0x083613FCu, 0x5011F818u,
+    0x00000000u, 0x0400001Bu, 0x083613FCu, 0x2070F82Cu, 0x00000000u, 0x0240081Bu, 0x1436186Cu, 0x2F20F824u,
+    0x00000000u, 0x0060201Bu, 0x2436106Cu, 0x3070F800u, 0x00000000u, 0x00200200u, 0x0836106Cu, 0x2070F830u,
+    0x00000000u, 0x00200E1Bu, 0x0836106Cu, 0x2070F838u, 0x00000000u, 0x0020101Bu, 0x0836106Cu, 0x2070F840u,
+    0x00000000u, 0x0020121Bu, 0x0836106Cu, 0x2070F848u, 0x00000000u, 0x0020141Bu, 0x0836106Cu, 0x2070F850u,
+    0x00000000u, 0x0020161Bu, 0x0836106Cu, 0x2070F858u, 0x00000000u, 0x0020181Bu, 0x0836106Cu, 0x2070F861u,
+};
+
+// DAT_00181E08. BeginStateBig reads this device, not the fastcall argument.
+struct D3dScreenDevice
+{
+    u32* cursor = nullptr; // +0
+    u32* fence = nullptr;  // +4
+    u32 flags = 0;         // +8
+    u8* active = nullptr;  // +0x790. Byte +4 bit 1 allows the upload.
+    float span_x = 0.f;    // +0x940
+    float span_y = 0.f;    // +0x944
+    float scale_x = 0.f;   // +0x958
+    float scale_y = 0.f;   // +0x95c
+    float origin_x = 0.f;  // +0xee8
+    float origin_y = 0.f;  // +0xeec
+    std::vector<u32> push;
+    u32 cursor_index = 0;
+    u32 fence_index = 0;
+};
+
+D3dScreenDevice* g_d3d_device = nullptr;
+i32 g_d3d_program_mode = 0;   // DAT_00181CE4
+i32 g_d3d_sample_mode = 0;    // DAT_00181DAC
+i32 g_d3d_multisample_aa = 0; // DAT_00181DD0, D3DRS_MULTISAMPLEANTIALIAS
+
+void d3d_bind_cursor(D3dScreenDevice& device)
+{
+    if (device.push.empty())
+    {
+        device.cursor = nullptr;
+        device.fence = nullptr;
+        return;
+    }
+    device.cursor = device.push.data() + device.cursor_index;
+    device.fence = device.push.data() + device.fence_index;
+}
+
+u32* d3d_begin_state_big(u32 count)
+{
+    // Slice of 0x00177710 used by 0x00173900. The cursor must sit `count`
+    // dwords before the fence plus 0x200 bytes. A miss grows through
+    // 0x001775C0. DAT_001845AC starts at 0, so the grown size is
+    // count*4+0x204. A null global device has nothing to write into.
+    D3dScreenDevice* device = g_d3d_device;
+    if (device == nullptr)
+    {
+        return nullptr;
+    }
+    const u32 end_byte = device->cursor_index * 4u + count * 4u;
+    const u32 fence_limit = device->fence_index * 4u + 0x200u;
+    if (end_byte >= fence_limit)
+    {
+        u32 bytes = count * 4u + 0x204u;
+        const u32 have = device->fence_index * 4u;
+        if (bytes < have)
+        {
+            bytes = have;
+        }
+        device->fence_index = (bytes + 3u) / 4u;
+    }
+    const u32 need = device->cursor_index + count;
+    if (device->push.size() < need || device->push.size() < device->fence_index)
+    {
+        device->push.resize(std::max(need, device->fence_index));
+    }
+    d3d_bind_cursor(*device);
+    return device->cursor;
+}
+
+void fn_173900(D3dScreenDevice* device)
+{
+    // Xbox 0x00173900
+    // Fastcall. Reloads the screen-space transform program and constants 0
+    // and 1. D3D_CommonSetMultiSampleModeAndScale (0x00171F40) calls it
+    // after writing the multisample scales, the sample-mode setter at
+    // 0x001722A0 calls it when mode 2 is entered or left, and the viewport
+    // origin store at 0x00175060 calls it after writing +0xee8 / +0xeec.
+    //
+    // Byte +4 bit 1 on the record at +0x790 must be set. A null record
+    // would fault on Xbox; the port returns.
+    //
+    // DAT_00181CE4 == 0 selects the 48-dword program at 0x0017FC28.
+    // Otherwise flag bit 1 selects the 44-dword program at 0x0017FB78,
+    // and a clear bit selects the 48-dword program at 0x0017FAB8.
+    //
+    // D3DDevice_BeginStateBig reserves program_dwords+0x1E. The packet is
+    // SET_TRANSFORM_CONSTANT_LOAD (0x41EA4) of index 0, SET_TRANSFORM_CONSTANT
+    // (0x200B80) of eight dwords, SET_TRANSFORM_PROGRAM_LOAD (0x41E9C) of
+    // slot 0, then 0x00172F90 which prefixes each run of at most 0x20
+    // program dwords with (count<<18)|0xB00 (SET_TRANSFORM_PROGRAM).
+    // The cursor stored at device+0 becomes the end of that copy.
+    //
+    // Constant 0 is scale_x, scale_y, span_y, and either span_y*span_x
+    // when DAT_00181DAC is 2 or 1.0. Constant 1 is the viewport origin
+    // with a 0.5 bias subtracted when flag bit 0x8000 is set and
+    // D3DRS_MULTISAMPLEANTIALIAS is nonzero, then two zeros.
+    if (device == nullptr || device->active == nullptr || (device->active[4] & 2u) == 0)
+    {
+        return;
+    }
+
+    const u32* program = k_d3d_xform_mode0;
+    u32 program_words = static_cast<u32>(sizeof(k_d3d_xform_mode0) / sizeof(k_d3d_xform_mode0[0]));
+    if (g_d3d_program_mode != 0)
+    {
+        if ((device->flags & 2u) != 0)
+        {
+            program = k_d3d_xform_flag;
+            program_words = static_cast<u32>(sizeof(k_d3d_xform_flag) / sizeof(k_d3d_xform_flag[0]));
+        }
+        else
+        {
+            program = k_d3d_xform_main;
+            program_words = static_cast<u32>(sizeof(k_d3d_xform_main) / sizeof(k_d3d_xform_main[0]));
+        }
+    }
+
+    u32* packet = d3d_begin_state_big(program_words + 0x1eu);
+    if (packet == nullptr)
+    {
+        return;
+    }
+
+    float scale = 1.f;
+    if (g_d3d_sample_mode == 2)
+    {
+        scale = device->span_y * device->span_x;
+    }
+    float bias = 0.f;
+    if ((device->flags & 0x8000u) != 0 && g_d3d_multisample_aa != 0)
+    {
+        bias = 0.5f;
+    }
+
+    packet[0] = 0x41ea4u;
+    packet[1] = 0;
+    packet[2] = 0x200b80u;
+    packet[3] = std::bit_cast<u32>(device->scale_x);
+    packet[4] = std::bit_cast<u32>(device->scale_y);
+    packet[5] = std::bit_cast<u32>(device->span_y);
+    packet[6] = std::bit_cast<u32>(scale);
+    packet[7] = std::bit_cast<u32>(device->origin_x - bias);
+    packet[8] = std::bit_cast<u32>(device->origin_y - bias);
+    packet[9] = 0;
+    packet[10] = 0;
+    packet[11] = 0x41e9cu;
+    packet[12] = 0;
+
+    u32* dest = packet + 0x0d;
+    const u32* src = program;
+    u32 left = program_words;
+    while (left != 0)
+    {
+        u32 n = left;
+        if (n > 0x20u)
+        {
+            n = 0x20u;
+        }
+        *dest = (n << 18) | 0xB00u;
+        std::memcpy(dest + 1, src, n * sizeof(u32));
+        src += n;
+        dest += n + 1;
+        left -= n;
+    }
+
+    if (g_d3d_device != nullptr)
+    {
+        g_d3d_device->cursor_index = static_cast<u32>(dest - g_d3d_device->push.data());
+        d3d_bind_cursor(*g_d3d_device);
+        device->cursor = g_d3d_device->cursor;
+    }
+}
+
+} // namespace
+
 } // namespace gbtg

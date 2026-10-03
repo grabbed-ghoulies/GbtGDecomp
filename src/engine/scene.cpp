@@ -3535,6 +3535,216 @@ void fn_14c6b3(const char* path)
     std::filesystem::last_write_time(fs_path, std::filesystem::file_time_type::clock::now(), ec);
 }
 
+// XcSHA context, 0x74 bytes. count[0] is the high half of the byte length
+// and count[1] the low half.
+struct XapiShaContext
+{
+    u32 unknown[6];
+    u32 state[5];
+    u32 count[2];
+    u8 buffer[64];
+};
+
+static_assert(sizeof(XapiShaContext) == 0x74);
+
+struct XapiCalcSigContext
+{
+    u32 flags;
+    const u8* key;
+    XapiShaContext sha;
+};
+
+void xapi_sha_block(u32 state[5], const u8 block[64])
+{
+    u32 w[80];
+    for (int i = 0; i < 16; ++i)
+    {
+        w[i] = (static_cast<u32>(block[i * 4]) << 24) | (static_cast<u32>(block[i * 4 + 1]) << 16) |
+               (static_cast<u32>(block[i * 4 + 2]) << 8) | static_cast<u32>(block[i * 4 + 3]);
+    }
+    for (int i = 16; i < 80; ++i)
+    {
+        w[i] = std::rotl(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
+    }
+
+    u32 a = state[0];
+    u32 b = state[1];
+    u32 c = state[2];
+    u32 d = state[3];
+    u32 e = state[4];
+    for (int i = 0; i < 80; ++i)
+    {
+        u32 f = 0;
+        u32 k = 0;
+        if (i < 20)
+        {
+            f = (b & c) | (~b & d);
+            k = 0x5A827999u;
+        }
+        else if (i < 40)
+        {
+            f = b ^ c ^ d;
+            k = 0x6ED9EBA1u;
+        }
+        else if (i < 60)
+        {
+            f = (b & c) | (b & d) | (c & d);
+            k = 0x8F1BBCDCu;
+        }
+        else
+        {
+            f = b ^ c ^ d;
+            k = 0xCA62C1D6u;
+        }
+        const u32 temp = std::rotl(a, 5) + f + e + k + w[i];
+        e = d;
+        d = c;
+        c = std::rotl(b, 30);
+        b = a;
+        a = temp;
+    }
+    state[0] += a;
+    state[1] += b;
+    state[2] += c;
+    state[3] += d;
+    state[4] += e;
+}
+
+void xapi_sha_init(XapiShaContext& ctx)
+{
+    std::memset(&ctx, 0, sizeof(ctx));
+    ctx.state[0] = 0x67452301u;
+    ctx.state[1] = 0xEFCDAB89u;
+    ctx.state[2] = 0x98BADCFEu;
+    ctx.state[3] = 0x10325476u;
+    ctx.state[4] = 0xC3D2E1F0u;
+}
+
+void xapi_sha_update(XapiShaContext& ctx, const u8* data, u32 size)
+{
+    u32 filled = ctx.count[1] & 63u;
+    const u32 low = ctx.count[1];
+    ctx.count[1] = low + size;
+    if (ctx.count[1] < size)
+    {
+        ctx.count[0] += 1;
+    }
+    ctx.count[0] += size >> 29;
+
+    if (filled + size < 64u)
+    {
+        std::memcpy(ctx.buffer + filled, data, size);
+        return;
+    }
+
+    while (filled + size >= 64u)
+    {
+        const u32 take = 64u - filled;
+        std::memcpy(ctx.buffer + filled, data, take);
+        data += take;
+        size -= take;
+        xapi_sha_block(ctx.state, ctx.buffer);
+        filled = 0;
+    }
+    if (size != 0)
+    {
+        std::memcpy(ctx.buffer + filled, data, size);
+    }
+}
+
+// Retail certificate TitleID is 0x4D530053. AlternateTitleIDs are all zero.
+// XboxSignatureKey is the 16-byte kernel export for this title. The sixteen
+// XboxAlternateSignatureKeys follow it; a scan that finishes at index 16
+// reads one key past that export.
+constexpr u32 kCalcSigTitleId = 0x4D530053u;
+constexpr u32 kCalcSigAlternateTitleIds[16] = {};
+constexpr u8 kXboxSignatureKey[16] = {
+    0x26, 0x18, 0xC5, 0x08, 0x88, 0x8E, 0x75, 0xB9, 0x36, 0x3E, 0x23, 0xDA, 0x8F, 0xE0, 0x2D, 0x37};
+constexpr u8 kXboxAlternateSignatureKeys[17][16] = {
+    {0xD9, 0x0D, 0xBF, 0xE7, 0x68, 0x73, 0x41, 0xBF, 0xBC, 0x9A, 0xD8, 0x89, 0xB6, 0x3E, 0xBF, 0x7B},
+    {0x4C, 0x3F, 0x43, 0x3A, 0x19, 0x27, 0x8C, 0x19, 0x5E, 0x12, 0x08, 0x1E, 0xF7, 0x40, 0xC9, 0xE3},
+    {0xA5, 0x77, 0xD7, 0xC9, 0x17, 0x18, 0xAC, 0x79, 0xEB, 0xBB, 0x22, 0xED, 0xF7, 0xEA, 0xFC, 0xB3},
+    {0xBE, 0x2F, 0x42, 0x2A, 0x8A, 0xD9, 0x8A, 0xE0, 0x2B, 0xB5, 0x67, 0x0A, 0x87, 0xE4, 0x23, 0x0A},
+    {0x65, 0x56, 0x61, 0x54, 0x63, 0x62, 0x23, 0x23, 0x7C, 0x42, 0x65, 0xC8, 0x43, 0x8C, 0x02, 0x61},
+    {0xB3, 0xEB, 0xDC, 0xB3, 0x1A, 0x19, 0xEE, 0xD6, 0x86, 0xCE, 0x2C, 0x84, 0xF5, 0x03, 0x26, 0x50},
+    {0xA7, 0xBB, 0x8B, 0x34, 0x72, 0xC0, 0x5C, 0x72, 0x61, 0x0B, 0x5B, 0x7B, 0x20, 0xCC, 0x20, 0x81},
+    {0x43, 0xBE, 0xB4, 0x77, 0xF3, 0xC8, 0xEB, 0xE5, 0x0B, 0xCA, 0x04, 0x61, 0x93, 0xF7, 0x2A, 0x1C},
+    {0x4A, 0x94, 0x4D, 0x0A, 0x4A, 0x65, 0x54, 0x38, 0xEE, 0x3C, 0x8E, 0x64, 0xD5, 0xFD, 0xA3, 0xBE},
+    {0xEF, 0xA5, 0x62, 0xC5, 0x2D, 0x48, 0x63, 0xE2, 0x92, 0x05, 0xEE, 0x58, 0x78, 0xD1, 0xE6, 0x40},
+    {0x13, 0x2E, 0x78, 0x97, 0x61, 0x9E, 0x07, 0x79, 0x92, 0x9B, 0xDA, 0x3A, 0x56, 0x75, 0x83, 0xE7},
+    {0x01, 0x30, 0xDA, 0x18, 0x70, 0x09, 0x59, 0x27, 0x34, 0x96, 0xB4, 0xF4, 0x92, 0x48, 0x60, 0xE0},
+    {0xC3, 0xED, 0xA2, 0xB3, 0xA1, 0x45, 0xF7, 0x17, 0x01, 0x8F, 0x34, 0xBC, 0xCA, 0x66, 0xF0, 0x25},
+    {0x6B, 0xC6, 0xC8, 0x47, 0xB2, 0x19, 0xBC, 0xFC, 0xD7, 0xAD, 0x7C, 0xCA, 0xB4, 0x2F, 0xCA, 0x15},
+    {0x0A, 0x6E, 0xA0, 0xA9, 0x97, 0x13, 0x68, 0x1C, 0x2A, 0xDC, 0xA4, 0x5F, 0x3B, 0x05, 0x91, 0xB3},
+    {0x3F, 0x77, 0x3A, 0x8D, 0x9A, 0x0D, 0xB3, 0x7A, 0xA9, 0x99, 0xBB, 0x1E, 0x51, 0x55, 0xFD, 0xC8},
+    {}};
+
+std::uintptr_t fn_14cd37(u32 flags, u32 title_id)
+{
+    // Xbox 0x0014CD37
+    // XCalculateSignatureBeginEx (0x0014CEB4) calls this for flags 0 and 1.
+    // XMemAlloc(0x7C, 0x24830000). Failure stores last-error 8 and returns
+    // -1. The flags occupy the first dword. Certificate TitleID at
+    // [0x00010118]+8 selects XboxSignatureKey (thunk 0x00202F9C). Any other
+    // id walks AlternateTitleIDs at certificate +0x5C, sixteen dwords. A zero
+    // id stores last-error 5 and returns -1. A hit, or a walk that ends below
+    // index 0x40, selects XboxAlternateSignatureKeys (thunk 0x00202FA0) plus
+    // index * 16. The key pointer is stored at the next dword. 0x0014CBE9
+    // copies 0x10 key bytes into a 0x40 block, XORs each dword with
+    // 0x36363636, then XcSHAInit and XcSHAUpdate of that block fill the
+    // 0x74-byte SHA context. The port releases the block when the id is
+    // rejected.
+    auto* ctx = new (std::nothrow) XapiCalcSigContext;
+    if (ctx == nullptr)
+    {
+        g_xapi_last_error = 8;
+        return static_cast<std::uintptr_t>(-1);
+    }
+
+    ctx->flags = flags;
+    const u8* key = kXboxSignatureKey;
+    if (title_id != kCalcSigTitleId)
+    {
+        u32 index = 0;
+        while (index < 0x10)
+        {
+            const u32 alt = kCalcSigAlternateTitleIds[index];
+            if (alt == 0)
+            {
+                delete ctx;
+                g_xapi_last_error = 5;
+                return static_cast<std::uintptr_t>(-1);
+            }
+            if (title_id == alt)
+            {
+                break;
+            }
+            ++index;
+        }
+        if (index >= 0x40)
+        {
+            delete ctx;
+            g_xapi_last_error = 5;
+            return static_cast<std::uintptr_t>(-1);
+        }
+        key = kXboxAlternateSignatureKeys[index];
+    }
+
+    ctx->key = key;
+    u8 block[64] = {};
+    std::memcpy(block, key, 0x10);
+    for (int i = 0; i < 16; ++i)
+    {
+        u32 word = 0;
+        std::memcpy(&word, block + i * 4, 4);
+        word ^= 0x36363636u;
+        std::memcpy(block + i * 4, &word, 4);
+    }
+    xapi_sha_init(ctx->sha);
+    xapi_sha_update(ctx->sha, block, 0x40);
+    return reinterpret_cast<std::uintptr_t>(ctx);
+}
+
 bool fn_14d217(const char* path, const void* security)
 {
     // Xbox 0x0014D217

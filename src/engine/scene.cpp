@@ -2426,6 +2426,25 @@ void focus_bounds_tick()
     fn_426f0(g_cam_focus, g_cam_focus.bound, g_cam_focus.shape_mask, 0);
 }
 
+u16* fn_1660e9(u16* dest, const u16* src)
+{
+    // Xbox 0x001660E9
+    // libc wcscpy, cdecl. Each 16-bit unit is stored, then both pointers
+    // advance, until the unit just stored is zero. The destination pointer
+    // is the return value. The SEH wrapper at 0x0014A961 pushes the source
+    // and destination, then pops both after this returns.
+    u16* out = dest;
+    u16 unit = 0;
+    do
+    {
+        unit = *src;
+        *out = unit;
+        ++out;
+        ++src;
+    } while (unit != 0);
+    return dest;
+}
+
 int fn_14aaed(const u16* src, int cch, u8* dst, int cb)
 {
     // Xbox 0x0014AAED

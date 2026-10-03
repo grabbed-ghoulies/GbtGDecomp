@@ -7296,6 +7296,17 @@ int fn_150e37()
     return 0;
 }
 
+int fn_151000(const XapiAnsiString* name)
+{
+    // Xbox 0x00151000
+    // stdcall, ret 4. 0x00151084 passes the OBJECT_STRING at 0x0032CEE8
+    // (\Device\Harddisk0\partition1\) when XBE init-flag bit 3 is clear.
+    // 0x00150833 checks that volume's cluster size against 0x4000. A
+    // negative status, including STATUS_UNRECOGNIZED_VOLUME, sends startup
+    // through 0x00150D1B.
+    return fn_150833(name, 0x4000);
+}
+
 int fn_15118e(const XapiAnsiString* name, u32 bytes_per_cluster)
 {
     // Xbox 0x0015118E

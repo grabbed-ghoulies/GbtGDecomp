@@ -1697,4 +1697,22 @@ float* fn_151e64(float* out, const float* left, const float* right)
     return out;
 }
 
+float* fn_151f62(float* out, const float* m)
+{
+    // Xbox 0x00151F62
+    // 4x4 transpose, row-major. out[col][row] = m[row][col].
+    // Every input element is loaded before the first store, so out may
+    // alias m. Returns out.
+    float a[16];
+    std::memcpy(a, m, sizeof(a));
+    for (int row = 0; row < 4; ++row)
+    {
+        for (int col = 0; col < 4; ++col)
+        {
+            out[col * 4 + row] = a[row * 4 + col];
+        }
+    }
+    return out;
+}
+
 } // namespace gbtg

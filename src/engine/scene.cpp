@@ -16187,6 +16187,43 @@ void fn_172ee0(u32* shader, u32 slot)
     }
 }
 
+u32* fn_172f90(u32* dest, const u32* src, u32 count)
+{
+    // Xbox 0x00172F90
+    // stdcall (ret 0xC). Writes `count` dwords from src as
+    // SET_TRANSFORM_PROGRAM packets and returns the cursor after them.
+    // 0x00173900 is the only caller. It passes the push-buffer cursor
+    // after SET_TRANSFORM_PROGRAM_LOAD of slot 0, then stores the end
+    // at device+0. A null dest would fault on Xbox; the port returns it.
+    //
+    // Each packet holds at most 0x20 payload dwords. The header is
+    // (n << 18) | 0xB00, then those n dwords. The walk is a do-while, so
+    // a zero count still writes one header of 0xB00 and does not read src.
+    if (dest == nullptr)
+    {
+        return dest;
+    }
+
+    do
+    {
+        u32 n = count;
+        if (n > 0x1fu)
+        {
+            n = 0x20u;
+        }
+        *dest = (n << 18) | 0xB00u;
+        if (n != 0u)
+        {
+            std::memcpy(dest + 1, src, static_cast<size_t>(n) * sizeof(u32));
+            src += n;
+        }
+        count -= n;
+        dest += n + 1u;
+    }
+    while (count != 0u);
+    return dest;
+}
+
 void fn_173900(D3dScreenDevice* device)
 {
     // Xbox 0x00173900
@@ -16266,22 +16303,7 @@ void fn_173900(D3dScreenDevice* device)
     packet[11] = 0x41e9cu;
     packet[12] = 0;
 
-    u32* dest = packet + 0x0d;
-    const u32* src = program;
-    u32 left = program_words;
-    while (left != 0)
-    {
-        u32 n = left;
-        if (n > 0x20u)
-        {
-            n = 0x20u;
-        }
-        *dest = (n << 18) | 0xB00u;
-        std::memcpy(dest + 1, src, n * sizeof(u32));
-        src += n;
-        dest += n + 1;
-        left -= n;
-    }
+    u32* dest = fn_172f90(packet + 0x0d, program, program_words);
 
     if (g_d3d_device != nullptr)
     {

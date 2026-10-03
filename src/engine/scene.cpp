@@ -2675,6 +2675,46 @@ void fn_16d805()
     }
 }
 
+void fn_16805f()
+{
+    // Xbox 0x0016805F
+    // __report_gsfailure. __security_check_cookie (0x0016808F) compares ECX
+    // with __security_cookie at 0x00337AAC. A mismatch jumps here from
+    // 0x00168098. Nothing else calls this address. __SEH_prolog (0x00166D58)
+    // is entered with local size 8 and the scope table at 0x00209180:
+    // enclosing level -1, filter 0x0016807C, handler 0x00168080. The filter
+    // returns 1 (EXCEPTION_EXECUTE_HANDLER). The handler reloads ESP from
+    // [ebp-0x18] and falls through.
+    //
+    // The try calls __security_error_handler (0x0016D85F) with
+    // _SECERR_BUFFER_OVERRUN (1) and a null data pointer. The image hook at
+    // 0x004DD2D0 is zero, so that callee writes the buffer-overrun text and
+    // then calls _exit (0x0016985C) with status 3. It does not return. An
+    // exception is swallowed here, the try level is set to -1, and _exit(3)
+    // runs anyway. _exit pushes 0 then 1 into doexit (0x00169798), which
+    // does not return when the return-to-caller argument is 0. The int 3
+    // after that call is the noreturn trap. Status 3 is what this frame
+    // pushes. The host exit skips atexit handlers, matching that _exit.
+    // The filter accepts every exception (return value 1). The report is
+    // 0x0016D85F and is not this body; both paths end in the same exit.
+#if defined(_WIN32)
+    __try
+    {
+    }
+    __except (1)
+    {
+    }
+#else
+    try
+    {
+    }
+    catch (...)
+    {
+    }
+#endif
+    std::_Exit(3);
+}
+
 // Image _locktable at 0x00337AB0. Thirty-six entries, eight bytes each:
 // critical-section pointer, then kind. Kind 1 is a static lock.
 constexpr u32 kCrtLockKind[0x24] = {

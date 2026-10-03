@@ -1690,6 +1690,48 @@ void fn_1550a0(i32 port, u32 bits, u32 mask)
     slot.white = ((slot.down & kWhiteBit) != 0) ? u8{0xff} : u8{0};
 }
 
+void fn_155110(i32 port, u32 bits, u32 mask)
+{
+    // Xbox 0x00155110
+    // cam_155624 calls this after 0x001550A0 with the port, the falling edge
+    // of the button word ((current ^ previous) & previous), and 0xFF. The
+    // probe is the walking mask itself, so bits 16..31 match when the mask
+    // has them. A mask bit that is clear in the edge clears released (+0x0c).
+    // A mask bit that is set ors released, clears the button word (+0x00),
+    // and clears pressed (+0x08). Control then jumps to 0x00154B00, which
+    // writes 0 or 0xFF into the face and black/white bytes from button bits
+    // 0x100, 0x200, 0x400, 0x800, 0x1000, and 0x2000.
+    if (port < 0 || port >= kPadBitPorts)
+    {
+        return;
+    }
+    PadBitPort& slot = g_pad_bits[port];
+    u32 probe = 1u;
+    for (int remaining = 0x20; remaining != 0; --remaining)
+    {
+        if ((mask & probe) != 0)
+        {
+            if ((bits & probe) == 0)
+            {
+                slot.released &= ~probe;
+            }
+            else
+            {
+                slot.released |= probe;
+                slot.down &= ~probe;
+                slot.pressed &= ~probe;
+            }
+        }
+        probe <<= 1;
+    }
+    slot.face_a = ((slot.down & kFaceABit) != 0) ? u8{0xff} : u8{0};
+    slot.face_b = ((slot.down & kFaceBBit) != 0) ? u8{0xff} : u8{0};
+    slot.face_x = ((slot.down & kFaceXBit) != 0) ? u8{0xff} : u8{0};
+    slot.face_y = ((slot.down & kFaceYBit) != 0) ? u8{0xff} : u8{0};
+    slot.black = ((slot.down & kBlackBit) != 0) ? u8{0xff} : u8{0};
+    slot.white = ((slot.down & kWhiteBit) != 0) ? u8{0xff} : u8{0};
+}
+
 u8 fn_19140(i32 port, const void* packet)
 {
     // Xbox 0x00019140

@@ -4992,6 +4992,29 @@ int fn_16dc70(u32 fh, const char* buf, u32 count)
     return -1;
 }
 
+void fn_16de82(int fh)
+{
+    // Xbox 0x0016DE82
+    // Shared unlock tail for _write (0x0016DDFB). __SEH_prolog (0x00166D58)
+    // is entered with local size 0x0C and the scope table at 0x00209EA8:
+    // one entry, enclosing level -1, a null filter, and the handler at
+    // 0x0016DE7F. That handler loads the descriptor from [ebp+8] into EBX
+    // and falls through to this address. After _lock_fhandle (0x0016DBAE)
+    // the try level at [ebp-4] is 0. The join at 0x0016DE71, after
+    // _write_lk (0x0016DC70) or the second FOPEN failure, sets that level
+    // to -1 and calls here. EBX already holds the descriptor. The eight
+    // bytes push EBX, call _unlock_fhandle (0x0016DC4E), pop the cdecl
+    // argument, and return.
+    //
+    // _unlock_fhandle arithmetic-shifts the descriptor by 5 and reads
+    // __pioinfo at 0x0054DC60. The record is (descriptor & 0x1F), stride
+    // 0x28. RtlLeaveCriticalSection (kernel ordinal 294, thunk 0x00202EA4)
+    // takes the critical section at record+0xC. A null __pioinfo slot, or a
+    // section _lock_fhandle has not created, is left alone; retail would
+    // fault on that address.
+    fn_168c8e(fh);
+}
+
 int fn_16d9f8(std::recursive_mutex* section, u32 spin_count);
 
 int fn_16dea6(u32 fh)

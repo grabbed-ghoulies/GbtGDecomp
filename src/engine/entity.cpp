@@ -1732,6 +1732,46 @@ void fn_155110(i32 port, u32 bits, u32 mask)
     slot.white = ((slot.down & kWhiteBit) != 0) ? u8{0xff} : u8{0};
 }
 
+void fn_155260(i32 port)
+{
+    // Xbox 0x00155260
+    // cam_155624 calls this when 0x00019140 returns non-zero, and when that
+    // port's bit is clear. The button words at +0x00 through +0x10 become 0.
+    // Each of the 32 hold timers at +0x14 is stored as 1. The repeat timers
+    // at +0x94 are left unchanged.
+    // Thumb words, the four stick axes, and the eight analog bytes become 0.
+    if (port < 0 || port >= kPadBitPorts)
+    {
+        return;
+    }
+    PadBitPort& slot = g_pad_bits[port];
+    slot.down = 0;
+    slot.down_prev = 0;
+    slot.pressed = 0;
+    slot.released = 0;
+    slot.pulse = 0;
+    for (int bit_index = 0; bit_index < kPadBitCount; ++bit_index)
+    {
+        slot.hold[bit_index] = 1.f;
+    }
+    slot.thumb_lx = 0;
+    slot.thumb_ly = 0;
+    slot.thumb_rx = 0;
+    slot.thumb_ry = 0;
+    slot.axis_lx = 0.f;
+    slot.axis_ly = 0.f;
+    slot.axis_rx = 0.f;
+    slot.axis_ry = 0.f;
+    slot.face_a = 0;
+    slot.face_b = 0;
+    slot.face_x = 0;
+    slot.face_y = 0;
+    slot.black = 0;
+    slot.white = 0;
+    slot.trigger_l = 0;
+    slot.trigger_r = 0;
+}
+
 u8 fn_19140(i32 port, const void* packet)
 {
     // Xbox 0x00019140

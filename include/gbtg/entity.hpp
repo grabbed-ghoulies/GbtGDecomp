@@ -366,6 +366,12 @@ void fn_1550a0(i32 port, u32 bits, u32 mask); // 0x001550A0
 // the face and black/white bytes from button bits 0x100 through 0x2000.
 void fn_155110(i32 port, u32 bits, u32 mask); // 0x00155110
 
+// Port is the index cam_155624 passes when 0x00019140 returns non-zero, and
+// when that port's bit is clear. Button words at +0x00 through +0x10 become
+// 0. Each hold timer at +0x14 is stored as 1. Repeat timers at +0x94 stay as
+// they were. Thumb words, stick axes, and the eight analog bytes become 0.
+void fn_155260(i32 port); // 0x00155260
+
 // Port is EDI. packet is ESI, the 0x16-byte gamepad cam_155624 walks from
 // DAT_004348B4. A non-zero byte sends that port through 0x00155260.
 u8 fn_19140(i32 port, const void* packet); // 0x00019140

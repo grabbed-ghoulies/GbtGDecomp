@@ -15942,19 +15942,40 @@ void fn_172720(u32* dest, const u32* src, int count)
 // at FVF bit 16: 0 is two floats, 1 is three, 2 is four, 3 is one.
 constexpr u32 k_fvf_tex_components[4] = {2u, 3u, 4u, 1u};
 
-// One vertex-shader input register. type is the D3DVSDT code at +0.
-// byte_offset, at +0xc, is the vertex byte offset of the next register.
+// DAT_0017FA34. Bytes in one component, indexed by the low nibble of a
+// D3DVSDT code: 0 color, 1 normalized short, 2 float, 4 packed byte,
+// 5 short, 6 packed normal. Indices 8..15 are the bytes that follow the
+// eight-byte table in the image.
+constexpr u8 k_d3d_vsdt_bytes[16] = {
+    0x01, 0x02, 0x04, 0x00, 0x01, 0x02, 0x04, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x00, 0x00, 0x03,
+};
+
+// DAT_0017FA3C. Component count, indexed by the high nibble. Nibble 7 is
+// FLOAT2H and counts as three floats. Indices 8..15 spill into the 1.0f
+// constant at 0x0017FA48.
+constexpr u8 k_d3d_vsdt_count[16] = {
+    0x00, 0x01, 0x02, 0x03, 0x04, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3f,
+};
+
+// One vertex-shader input register. type at +0 is the D3DVSDT code.
+// source at +4 is 0 for a stream load, 1 for a tessellated normal, and 2
+// for a tessellated UV. tess_in at +5 is the tessellator input register.
+// stream at +8 and byte_offset at +0xc belong to the next register.
 struct D3dFvfElement
 {
     u32 type;
-    u32 unused4;
-    u32 unused8;
+    u8 source;
+    u8 tess_in;
+    u16 unused6;
+    u32 stream;
     u32 byte_offset;
 };
 
 // Parsed FVF declaration. 0x001739F0 keeps one at 0x00184478.
 // element[0] is +0x1c. Sixteen registers are typed; further texture
-// coordinates continue the same 0x10 stride.
+// coordinates continue the same 0x10 stride. Register 0's stream index
+// and vertex byte offset live at +0x14 and +0x18, the same slots each
+// element keeps for the following register.
 struct D3dFvfDecl
 {
     u32 unused0;
@@ -15962,14 +15983,20 @@ struct D3dFvfDecl
     u32 unused8;
     u32 unusedc;
     u32 tex_mask; // +0x10
-    u32 unused14;
-    u32 unused18;
+    u32 reg0_stream; // +0x14
+    u32 reg0_offset; // +0x18
     D3dFvfElement element[24];
 };
 
 static_assert(offsetof(D3dFvfDecl, flags) == 4);
 static_assert(offsetof(D3dFvfDecl, tex_mask) == 0x10);
+static_assert(offsetof(D3dFvfDecl, reg0_stream) == 0x14);
+static_assert(offsetof(D3dFvfDecl, reg0_offset) == 0x18);
 static_assert(offsetof(D3dFvfDecl, element) == 0x1c);
+static_assert(offsetof(D3dFvfElement, source) == 4);
+static_assert(offsetof(D3dFvfElement, tess_in) == 5);
+static_assert(offsetof(D3dFvfElement, stream) == 8);
+static_assert(offsetof(D3dFvfElement, byte_offset) == 0xc);
 static_assert(sizeof(D3dFvfElement) == 0x10);
 
 void fn_172da0(D3dFvfDecl* decl, u32 fvf)
@@ -16222,6 +16249,161 @@ u32* fn_172f90(u32* dest, const u32* src, u32 count)
     }
     while (count != 0u);
     return dest;
+}
+
+void fn_173000(D3dFvfDecl* decl, const u32* tokens, int fixed_function)
+{
+    // Xbox 0x00173000
+    // stdcall (ret 0xC). Walks a D3DVSD token stream into the declaration
+    // registers. D3DDevice_CreateVertexShader (0x001732A0) calls it with
+    // the new shader object, the declaration, and 1 when the shader
+    // function pointer is null. A null declaration or token pointer would
+    // fault on Xbox; the port returns. A register of 24 or more would
+    // write past this declaration; the port skips that store.
+    //
+    // The top three bits select the token. 0 is NOP. 0x20000000 selects
+    // the stream (low nibble) and resets the byte cursor. 0x40000000 with
+    // bit 28 set skips: the count is bits 19:16, in dwords unless bit 27
+    // is set, when the count is already in bytes. Bit 28 clear loads the
+    // register in bits 4:0. Bits 23:16 are the D3DVSDT code, stored as the
+    // register type. The stream index and byte cursor are stored in the
+    // previous register (register 0 uses +0x14 and +0x18). The source byte
+    // becomes 0.
+    //
+    // 0x60000000 is a tessellator token. The output register's stream and
+    // offset are cleared, its type becomes 2, and byte +5 receives the
+    // input register in bits 23:20. Bit 28 clear writes source 1 (normal)
+    // and bit 28 set writes source 2 (UV).
+    //
+    // 0x80000000 is a constant-memory token. Bits 28:25 count 4-dword
+    // vectors, and those dwords are skipped. Any other kind, including
+    // D3DVSD_END (0xFFFFFFFF), returns.
+    //
+    // When fixed_function is set, registers 9..12 OR a component count
+    // into +0x10. The count is the type's high nibble, except 7 becomes 4
+    // (FLOAT2H) and type 0x16 becomes 3 (NORMPACKED3). The shift is
+    // (register * 8 - 72), masked to five bits the way x86 shl masks its
+    // count. Registers 3, 4, 7, and 8 set flag bits 0x400, 0x800, 0x1000,
+    // and 0x2000. The cursor then grows by
+    // DAT_0017FA3C[type >> 4] * DAT_0017FA34[type & 0xF].
+    if (decl == nullptr || tokens == nullptr)
+    {
+        return;
+    }
+
+    u32 stream = 0;
+    u32 cursor = 0;
+    for (;;)
+    {
+        const u32 token = *tokens;
+        ++tokens;
+        const u32 kind = token & 0xe0000000u;
+        if (kind > 0x60000000u)
+        {
+            if (kind != 0x80000000u)
+            {
+                return;
+            }
+            const u32 vectors = (token >> 0x19) & 0xfu;
+            tokens += static_cast<size_t>(vectors) * 4u;
+            continue;
+        }
+        if (kind == 0x60000000u)
+        {
+            const u32 reg = token & 0x1fu;
+            if (reg < 24u)
+            {
+                if (reg == 0u)
+                {
+                    decl->reg0_stream = 0;
+                    decl->reg0_offset = 0;
+                }
+                else
+                {
+                    decl->element[reg - 1u].stream = 0;
+                    decl->element[reg - 1u].byte_offset = 0;
+                }
+                decl->element[reg].type = 2u;
+                decl->element[reg].tess_in = static_cast<u8>((token >> 0x14) & 0xfu);
+                decl->element[reg].source = (token & 0x10000000u) == 0u ? 1u : 2u;
+            }
+            continue;
+        }
+        if (kind == 0u)
+        {
+            continue;
+        }
+        if (kind == 0x20000000u)
+        {
+            stream = token & 0xfu;
+            cursor = 0;
+            continue;
+        }
+
+        if ((token & 0x10000000u) != 0u)
+        {
+            u32 skip = (token >> 16) & 0xfu;
+            if ((token & 0x08000000u) == 0u)
+            {
+                skip <<= 2;
+            }
+            cursor += skip;
+            continue;
+        }
+
+        const u32 type = (token >> 16) & 0xffu;
+        const u32 reg = token & 0x1fu;
+        if (reg < 24u)
+        {
+            if (reg == 0u)
+            {
+                decl->reg0_stream = stream;
+                decl->reg0_offset = cursor;
+            }
+            else
+            {
+                decl->element[reg - 1u].stream = stream;
+                decl->element[reg - 1u].byte_offset = cursor;
+            }
+            decl->element[reg].type = type;
+            decl->element[reg].source = 0;
+        }
+        if (fixed_function != 0)
+        {
+            if (reg >= 9u && reg <= 0xcu)
+            {
+                u32 comps = (type >> 4) & 0xfu;
+                if (comps == 7u)
+                {
+                    comps = 4u;
+                }
+                else if (type == 0x16u)
+                {
+                    comps = 3u;
+                }
+                const u32 shift = (reg * 8u - 0x48u) & 31u;
+                decl->tex_mask |= comps << shift;
+            }
+            if (reg == 3u)
+            {
+                decl->flags |= 0x400u;
+            }
+            else if (reg == 4u)
+            {
+                decl->flags |= 0x800u;
+            }
+            else if (reg == 7u)
+            {
+                decl->flags |= 0x1000u;
+            }
+            else if (reg == 8u)
+            {
+                decl->flags |= 0x2000u;
+            }
+        }
+        cursor += static_cast<u32>(k_d3d_vsdt_count[(type >> 4) & 0xfu]) *
+                   static_cast<u32>(k_d3d_vsdt_bytes[type & 0xfu]);
+    }
 }
 
 void fn_173900(D3dScreenDevice* device)

@@ -15111,38 +15111,43 @@ double crt_math_scale_overflow(double value)
     return value;
 }
 
-double fn_170523(CrtMathCall& call)
+double fn_17052a(CrtMathCall& call)
 {
-    // Xbox 0x00170523
-    // Seven-byte entry: and byte ptr [ebp-0x2C8], 0xFE. It clears bit 0 of
-    // the dispatch flag and falls into 0x0017052A. Bit 0 set means the
-    // operands were already stored in the exception record; clearing it
-    // forces the copy from the wrapper's stack args at [ebp+8] and, for a
-    // binary op, [ebp+0x10]. The unary wrappers at 0x00170671 and the
-    // two-argument wrapper at 0x001704DB call this entry. 0x00170460 and
-    // 0x0017049E call 0x0017052A instead, after setting bit 0.
+    // Xbox 0x0017052A
+    // Math-wrapper epilogue. The caller's EBP is still the wrapper frame
+    // and the result is in ST0. 0x00170523 clears flags bit 0 and falls in.
+    // 0x00170460 and 0x0017049E call this entry with bit 0 already set.
     //
-    // 0x004DD0D0 nonzero restores the control word saved at [ebp-0xA4] and
-    // returns ST0 unchanged. Otherwise ST0 is stored as a double and the
-    // status byte at [ebp-0x90] selects the record:
+    // 0x004DD0D0 nonzero loads the control word saved at [ebp-0xA4] and
+    // returns ST0 unchanged (0x00170582). Otherwise ST0 is stored as a
+    // double at [ebp-0x2D0] and the status byte at [ebp-0x90] selects the
+    // record:
     //   0     inexact check
     //   -1    overflow when the double's exponent field is 0x7FF0, else
     //         the inexact check
     //   -2    underflow when that field is 0, overflow when it is 0x7FF0,
     //         else the inexact check
     //   else  the byte, sign-extended, is the exception type
-    // A second test for 0 after the -1/-2 compares is unreachable.
+    // A second test for 0 after the -1/-2 compares restores the control
+    // word and returns. Status 0 already took the inexact check, so that
+    // test is unreachable.
     //
     // The inexact check reports type 8 only when control-word bit 5 is
-    // clear (precision unmasked) and status-word bit 5 is set. Overflow
-    // (type 3) scales ST0 by 2^-1536. Underflow (type 4) scales by 2^1536.
-    // The record is type, name at descriptor+1, the copied operands, and
-    // the scaled ST0. _87except (0x0016F095) is called with the opcode at
-    // descriptor+0x0E, that record, and the saved control word. ST0 is
+    // clear (precision unmasked) and status-word bit 5 is set. Any other
+    // inexact outcome loads the saved control word and returns ST0.
+    // Overflow (type 3) scales ST0 by 2^-1536. Underflow (type 4) scales
+    // by 2^1536. The exponent field is the top word of the stored double,
+    // masked with 0x7FF0.
+    //
+    // The record at [ebp-0x8E] is type, name at descriptor+1, the operands,
+    // and the scaled ST0. Flags bit 0 clear copies the operands from
+    // [ebp+8] and, when descriptor+0x0D is not 1, from [ebp+0x10]. Bit 0
+    // set keeps the slots the caller already wrote; this port holds those
+    // in arg1 and arg2. _87except (0x0016F095) is called with the opcode
+    // at descriptor+0x0E, that record, and the saved control word. ST0 is
     // reloaded from the record's retval, then the control word is loaded
-    // again. _87except already reloads it; the port leaves that restore
-    // to fn_16f095.
-    call.flags = static_cast<u8>(call.flags & 0xFEu);
+    // again at 0x00170582. _87except already reloads it; the port leaves
+    // that restore to fn_16f095.
     if (g_crt_fp_skip_epilogue != 0)
     {
         crt_restore_x87_cw(call.cw);
@@ -15200,7 +15205,7 @@ double fn_170523(CrtMathCall& call)
     exc.type = type;
     exc.name = call.desc->name;
     exc.arg1 = call.arg1;
-    if (call.desc->unary != 1)
+    if ((call.flags & 1u) != 0 || call.desc->unary != 1)
     {
         exc.arg2 = call.arg2;
     }
@@ -15210,6 +15215,19 @@ double fn_170523(CrtMathCall& call)
     fn_16f095(opcode, &exc, &cw);
     call.result = exc.retval;
     return call.result;
+}
+
+double fn_170523(CrtMathCall& call)
+{
+    // Xbox 0x00170523
+    // Seven-byte entry: and byte ptr [ebp-0x2C8], 0xFE. It clears bit 0 of
+    // the dispatch flag and falls into 0x0017052A. Bit 0 set means the
+    // operands were already stored in the exception record; clearing it
+    // forces the copy from the wrapper's stack args at [ebp+8] and, for a
+    // binary op, [ebp+0x10]. The unary wrappers at 0x00170671 and the
+    // two-argument wrapper at 0x001704DB call this entry.
+    call.flags = static_cast<u8>(call.flags & 0xFEu);
+    return fn_17052a(call);
 }
 
 void fn_16f266(void* stream)

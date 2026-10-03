@@ -2873,6 +2873,23 @@ void fn_1681c1(int locknum)
     g_crt_locks[locknum].cs->lock();
 }
 
+void fn_1681b8()
+{
+    // Xbox 0x001681B8
+    // __finally of __mtinitlocknum (0x00168121). The scope table at
+    // 0x00209190 points here. The nine bytes push 10 (_LOCKTAB_LOCK),
+    // call _unlock (0x0016810F), pop the cdecl argument, and return.
+    // _unlock leaves the critical section in _locktable[10] (image
+    // 0x00337AB0). The kernel thunk is the dword at 0x00202EA4.
+    // _local_unwind2 (0x00167062) runs this handler when
+    // InitializeCriticalSection (0x0016D9F8) fails. The success path at
+    // 0x001681AA calls it after the try level at [ebp-4] is set to -1.
+    if (g_crt_locks[10].cs != nullptr)
+    {
+        g_crt_locks[10].cs->unlock();
+    }
+}
+
 int crt_mtinitlocknum(int locknum)
 {
     // __mtinitlocknum at 0x00168121. Scope table 0x00209190, prolog
@@ -2927,10 +2944,7 @@ int crt_mtinitlocknum(int locknum)
     {
         pcs.reset();
     }
-    if (g_crt_locks[10].cs != nullptr)
-    {
-        g_crt_locks[10].cs->unlock();
-    }
+    fn_1681b8();
     return 1;
 }
 

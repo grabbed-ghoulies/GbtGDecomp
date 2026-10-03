@@ -45,6 +45,7 @@ extern "C"
     __declspec(dllimport) void __stdcall RaiseException(unsigned long code, unsigned long flags, unsigned long count,
                                                         const std::uintptr_t* arguments);
     __declspec(dllimport) int __stdcall CloseHandle(void* handle);
+    __declspec(dllimport) int __stdcall FlushFileBuffers(void* handle);
     __declspec(dllimport) unsigned long __stdcall GetLastError();
 }
 #endif
@@ -3301,8 +3302,9 @@ u32* fn_168afe()
 // __pioinfo[0]. Handles start at -1, pipech is 10, and the dword at +8 is 0.
 // The first three records are then marked FOPEN|FDEV|FTEXT (0xC1) for stdin,
 // stdout, and stderr. The port keeps that order and stores a host handle, so
-// the record is wider than 0x28. _lock_fhandle (0x0016DBAE) creates the
-// section; until then the pointer stays null.
+// the record is wider than 0x28. _lock_fhandle (0x0016DBAE) treats the dword
+// at +8 as an init count: zero creates the section and increments it. Until
+// then the pointer stays null. cs_owner keeps the section for the process.
 struct CrtIoInfo
 {
     std::intptr_t osfhnd = -1;
@@ -3310,6 +3312,7 @@ struct CrtIoInfo
     u8 pipech = 10;
     u32 field8 = 0;
     std::recursive_mutex* cs = nullptr;
+    std::unique_ptr<std::recursive_mutex> cs_owner;
 };
 
 constexpr u32 kCrtIoArrayCount = 64;
@@ -3536,6 +3539,130 @@ void fn_168c8e(int fh)
     lock->unlock();
 }
 
+int fn_16d9f8(std::recursive_mutex* section, u32 spin_count);
+
+int fn_16dea6(u32 fh)
+{
+    // Xbox 0x0016DEA6
+    // _commit. cdecl. __SEH_prolog (0x00166D58) is entered with local size
+    // 0x0C and the scope table at 0x00209EB8: one entry, enclosing level -1,
+    // a null filter, and the handler at 0x0016DF41. __SEH_epilog (0x00166D93)
+    // returns the value left in EAX.
+    //
+    // A descriptor greater than or equal to _nhandle (0x0054DC40), or one
+    // whose osfile byte lacks FOPEN (bit 0), stores EBADF (9) through
+    // _errno (0x00168AF5) and returns -1. _doserrno is left alone. The
+    // record is __pioinfo[fd >> 5] at 0x0054DC60, slot (fd & 0x1F), stride
+    // 0x28, osfile at +4. A null __pioinfo slot is the same EBADF return;
+    // retail would fault on that address.
+    //
+    // Otherwise _lock_fhandle (0x0016DBAE) is called and its return is
+    // discarded. That callee creates the critical section at record+0xC
+    // when the dword at +8 is still zero: it takes _LOCKTAB_LOCK (10),
+    // calls InitializeCriticalSectionAndSpinCount (0x0016D9F8) with spin
+    // 0xFA0, increments the dword, and _unlocks lock 10. A failed init
+    // unwinds lock 10 and returns 0 without entering the section. A live
+    // section is entered with RtlEnterCriticalSection (thunk 0x00202EA0).
+    // The try level at [ebp-4] is then 0.
+    //
+    // FOPEN is tested again. If it is clear, errno becomes 9 and the result
+    // at [ebp-0x1c] becomes -1. If it is set, __get_osfhandle (0x0016DB6D)
+    // supplies the OS handle to FlushFileBuffers (0x0014B884, stdcall ret 4).
+    // A nonzero return stores 0. A zero return stores GetLastError
+    // (0x0014AFE4). A zero code leaves the result 0 and does not touch
+    // errno. Any other code is stored through __doserrno (0x00168AFE), errno
+    // becomes 9, and the result becomes -1. __dosmaperr is not used.
+    //
+    // The success path stores try level -1 and calls 0x0016DF44. The unwind
+    // handler at 0x0016DF41 reloads the descriptor from [ebp+8] into EBX and
+    // falls through to that address. Both push the descriptor and call
+    // _unlock_fhandle (0x0016DC4E). A section this call did not create is
+    // left alone.
+    CrtIoInfo* info = crt_ioinfo_checked(fh);
+    if (info == nullptr || (info->osfile & 1u) == 0)
+    {
+        *fn_168af5() = 9;
+        return -1;
+    }
+
+    if (info->field8 == 0)
+    {
+        fn_1681c1(10);
+        if (info->field8 == 0)
+        {
+            bool created = false;
+            try
+            {
+                info->cs_owner = std::make_unique<std::recursive_mutex>();
+                created = fn_16d9f8(info->cs_owner.get(), 0xFA0) != 0;
+            }
+            catch (...)
+            {
+                created = false;
+            }
+            if (!created)
+            {
+                info->cs_owner.reset();
+                info->cs = nullptr;
+                fn_1681b8();
+            }
+            else
+            {
+                info->cs = info->cs_owner.get();
+                info->field8 += 1u;
+                fn_1681b8();
+                info->cs->lock();
+            }
+        }
+        else if (info->cs != nullptr)
+        {
+            fn_1681b8();
+            info->cs->lock();
+        }
+        else
+        {
+            fn_1681b8();
+        }
+    }
+    else if (info->cs != nullptr)
+    {
+        info->cs->lock();
+    }
+
+    int result = -1;
+    if ((info->osfile & 1u) != 0)
+    {
+        const std::intptr_t handle = crt_get_osfhandle(fh);
+        u32 dos = 0;
+#if defined(_WIN32)
+        if (FlushFileBuffers(reinterpret_cast<void*>(handle)) == 0)
+        {
+            dos = static_cast<u32>(GetLastError());
+        }
+#else
+        (void)handle;
+#endif
+        if (dos == 0)
+        {
+            result = 0;
+        }
+        else
+        {
+            *fn_168afe() = dos;
+            *fn_168af5() = 9;
+            result = -1;
+        }
+    }
+    else
+    {
+        *fn_168af5() = 9;
+        result = -1;
+    }
+
+    fn_168c8e(static_cast<int>(fh));
+    return result;
+}
+
 void fn_168e08(int index)
 {
     // Xbox 0x00168E08
@@ -3602,8 +3729,6 @@ void fn_168e34()
         g_crt_locks[1].cs->unlock();
     }
 }
-
-int fn_16d9f8(std::recursive_mutex* section, u32 spin_count);
 
 int crt_mtinitlocknum(int locknum)
 {

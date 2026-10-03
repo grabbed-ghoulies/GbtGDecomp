@@ -47,6 +47,8 @@ extern "C"
     __declspec(dllimport) int __stdcall CloseHandle(void* handle);
     __declspec(dllimport) int __stdcall FlushFileBuffers(void* handle);
     __declspec(dllimport) unsigned long __stdcall GetLastError();
+    __declspec(dllimport) unsigned long __stdcall SetFilePointer(void* handle, long distance, long* high,
+                                                                 unsigned long method);
 }
 #endif
 
@@ -4359,6 +4361,70 @@ std::intptr_t crt_get_osfhandle(u32 fh)
         return -1;
     }
     return info->osfhnd;
+}
+
+int fn_16d466(u32 fh, int offset, u32 method)
+{
+    // Xbox 0x0016D466
+    // _lseek_lk. cdecl. The caller pops the descriptor, the signed byte
+    // offset, and the origin. FILE_BEGIN, FILE_CURRENT, and FILE_END are
+    // the same values as SEEK_SET, SEEK_CUR, and SEEK_END. This body does
+    // not lock the descriptor; the locked _lseek calls here with that lock
+    // already held.
+    //
+    // __get_osfhandle (0x0016DB6D) supplies the OS handle. A handle of -1
+    // stores EBADF (9) through _errno (0x00168AF5) and returns -1.
+    // _doserrno stays as __get_osfhandle left it. An open slot whose stored
+    // handle is already -1 takes this path too.
+    //
+    // Otherwise XAPILIB::SetFilePointer is called with a null high distance.
+    // A return other than -1 stores a zero DOS code. A return of -1 stores
+    // GetLastError (0x0014AFE4). A zero code, including a file position of
+    // 0xFFFFFFFF with NO_ERROR, clears FEOFLAG (bit 1) and returns that
+    // position. The osfile byte is __pioinfo[fd >> 5] at 0x0054DC60, slot
+    // (fd & 0x1F), stride 0x28, offset +4, masked with 0xFD. A null
+    // __pioinfo slot is left unwritten; retail would fault on that address.
+    //
+    // Any other DOS code goes through __dosmaperr (0x00168B07) and the
+    // return is -1. errno is not cleared on success.
+    const std::intptr_t handle = crt_get_osfhandle(fh);
+    if (handle == -1)
+    {
+        *fn_168af5() = 9;
+        return -1;
+    }
+
+    int position = -1;
+    u32 doserr = 0;
+#if defined(_WIN32)
+    const unsigned long moved =
+        SetFilePointer(reinterpret_cast<void*>(handle), static_cast<long>(offset), nullptr, method);
+    position = static_cast<int>(moved);
+    if (moved == 0xffffffffu)
+    {
+        doserr = GetLastError();
+    }
+#else
+    (void)handle;
+    (void)offset;
+    (void)method;
+    position = 0;
+#endif
+
+    if (doserr == 0)
+    {
+        CrtIoInfo* info = crt_ioinfo_checked(fh);
+        if (info != nullptr)
+        {
+            info->osfile = static_cast<u8>(info->osfile & 0xfdu);
+        }
+    }
+    else
+    {
+        crt_dosmaperr(doserr);
+        position = -1;
+    }
+    return position;
 }
 
 void crt_free_osfhnd(u32 fh)

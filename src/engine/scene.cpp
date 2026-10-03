@@ -4114,6 +4114,279 @@ u32 fn_14ce69(XapiCalcSigContext* ctx, u8* signature)
     return 0;
 }
 
+// Host stand-in for the kernel handle NtCreateFile returns. CloseHandle is a
+// separate call; until then the stream stays open and delete-on-close waits.
+struct XapiFileHandle
+{
+    std::filesystem::path path;
+    bool directory = false;
+    bool delete_on_close = false;
+    std::unique_ptr<std::fstream> stream;
+};
+
+std::uintptr_t fn_14d08c(const char* name, u32 access, u32 share, const void* security, u32 disposition, u32 flags,
+                         const void* template_file)
+{
+    // Xbox 0x0014D08C
+    // CreateFileA. The security pointer and template handle are unused.
+    // Disposition 1..5 becomes FILE_CREATE, FILE_OVERWRITE_IF, FILE_OPEN,
+    // FILE_OPEN_IF, or FILE_OVERWRITE. TRUNCATE_EXISTING also requires
+    // GENERIC_WRITE (0x40000000); any other disposition stores
+    // XapiSetLastNTError(STATUS_INVALID_PARAMETER) and returns -1.
+    // RtlInitAnsiString records whether the 16-bit length ends in '\\'.
+    // NtCreateFile uses ObDosDevicesDirectory (0xFFFFFFFD),
+    // OBJ_CASE_INSENSITIVE, access | SYNCHRONIZE | FILE_READ_ATTRIBUTES,
+    // attributes flags & 0x7FA7, the caller's share mode, and create options
+    // folded from the Win32 flags: write-through, overlapped (drops
+    // FILE_SYNCHRONOUS_IO_NONALERT), no-buffering, random, sequential,
+    // delete-on-close (also ORs DELETE into the access), and backup
+    // semantics (FILE_OPEN_FOR_BACKUP_INTENT, and not FILE_NON_DIRECTORY_FILE).
+    // Success returns the handle. CREATE_ALWAYS plus FILE_OVERWRITTEN, or
+    // OPEN_ALWAYS plus FILE_OPENED, stores 0xB7; every other success stores 0.
+    // STATUS_OBJECT_NAME_COLLISION stores 0x50. STATUS_FILE_IS_A_DIRECTORY
+    // stores 3 when the name ends in '\\' and 5 otherwise. Other failures
+    // keep the Win32 code from XapiSetLastNTError.
+    // The port opens a host path. Share mode is not enforced. A directory
+    // opened with FILE_FLAG_BACKUP_SEMANTICS yields a handle with no stream.
+    (void)share;
+    (void)security;
+    (void)template_file;
+
+    constexpr u32 kGenericWrite = 0x40000000u;
+    constexpr u32 kFileCreate = 2;
+    constexpr u32 kFileOverwriteIf = 5;
+    constexpr u32 kFileOpen = 1;
+    constexpr u32 kFileOpenIf = 3;
+    constexpr u32 kFileOverwrite = 4;
+    constexpr u32 kFileOpened = 1;
+    constexpr u32 kFileCreated = 2;
+    constexpr u32 kFileOverwritten = 3;
+
+    u32 nt_disposition = 0;
+    if (disposition == 1)
+    {
+        nt_disposition = kFileCreate;
+    }
+    else if (disposition == 2)
+    {
+        nt_disposition = kFileOverwriteIf;
+    }
+    else if (disposition == 3)
+    {
+        nt_disposition = kFileOpen;
+    }
+    else if (disposition == 4)
+    {
+        nt_disposition = kFileOpenIf;
+    }
+    else if (disposition == 5 && (access & kGenericWrite) != 0)
+    {
+        nt_disposition = kFileOverwrite;
+    }
+    else
+    {
+        g_xapi_last_error = 0x57;
+        return static_cast<std::uintptr_t>(-1);
+    }
+
+    if (name == nullptr)
+    {
+        g_xapi_last_error = 123;
+        return static_cast<std::uintptr_t>(-1);
+    }
+
+    const u16 ansi_length = static_cast<u16>(std::strlen(name));
+    const bool ends_with_slash = ansi_length >= 2 && name[ansi_length - 1] == '\\';
+    if (ansi_length == 0)
+    {
+        g_xapi_last_error = 123;
+        return static_cast<std::uintptr_t>(-1);
+    }
+
+    const bool backup = (flags & 0x02000000u) != 0;
+    const bool delete_on_close = (flags & 0x04000000u) != 0;
+    const u32 attributes = flags & 0x7FA7u;
+    const bool want_write = (access & kGenericWrite) != 0 || (access & 0x2u) != 0 || (access & 0x4u) != 0;
+    const bool truncate = nt_disposition == kFileOverwrite || nt_disposition == kFileOverwriteIf;
+
+    const std::filesystem::path fs_path(name);
+    std::error_code ec;
+    const bool exists = std::filesystem::exists(fs_path, ec);
+    if (ec && ec != std::errc::no_such_file_or_directory)
+    {
+        if (ec == std::errc::permission_denied)
+        {
+            g_xapi_last_error = 5;
+        }
+        else if (ec == std::errc::invalid_argument)
+        {
+            g_xapi_last_error = 123;
+        }
+        else if (ec.value() != 0)
+        {
+            g_xapi_last_error = static_cast<u32>(ec.value());
+        }
+        else
+        {
+            g_xapi_last_error = 3;
+        }
+        return static_cast<std::uintptr_t>(-1);
+    }
+
+    bool is_directory = false;
+    if (exists)
+    {
+        ec.clear();
+        is_directory = std::filesystem::is_directory(fs_path, ec);
+        if (ec)
+        {
+            g_xapi_last_error = 5;
+            return static_cast<std::uintptr_t>(-1);
+        }
+    }
+
+    auto parent_is_directory = [](const std::filesystem::path& path)
+    {
+        const auto parent = path.parent_path();
+        if (parent.empty())
+        {
+            return true;
+        }
+        std::error_code parent_ec;
+        return std::filesystem::is_directory(parent, parent_ec) && !parent_ec;
+    };
+
+    auto missing_error = [&]()
+    {
+        std::filesystem::path leaf = fs_path;
+        if (leaf.filename().empty())
+        {
+            leaf = leaf.parent_path();
+        }
+        const auto parent = leaf.parent_path();
+        std::error_code parent_ec;
+        if (!parent.empty() && !std::filesystem::exists(parent, parent_ec))
+        {
+            g_xapi_last_error = 3;
+        }
+        else if (ends_with_slash || nt_disposition == kFileCreate || nt_disposition == kFileOpenIf ||
+                 nt_disposition == kFileOverwriteIf)
+        {
+            g_xapi_last_error = 3;
+        }
+        else
+        {
+            g_xapi_last_error = 2;
+        }
+    };
+
+    if (is_directory && nt_disposition == kFileCreate)
+    {
+        g_xapi_last_error = 0x50;
+        return static_cast<std::uintptr_t>(-1);
+    }
+    if (is_directory && !backup)
+    {
+        g_xapi_last_error = ends_with_slash ? 3u : 5u;
+        return static_cast<std::uintptr_t>(-1);
+    }
+    if (is_directory && (nt_disposition == kFileOverwrite || nt_disposition == kFileOverwriteIf))
+    {
+        g_xapi_last_error = ends_with_slash ? 3u : 5u;
+        return static_cast<std::uintptr_t>(-1);
+    }
+
+    if (!exists)
+    {
+        if (nt_disposition == kFileOpen || nt_disposition == kFileOverwrite || ends_with_slash ||
+            !parent_is_directory(fs_path))
+        {
+            missing_error();
+            return static_cast<std::uintptr_t>(-1);
+        }
+    }
+
+    if (exists && !is_directory && nt_disposition == kFileCreate)
+    {
+        g_xapi_last_error = 0x50;
+        return static_cast<std::uintptr_t>(-1);
+    }
+
+    const bool creating = !exists;
+    if (exists && !is_directory && (truncate || want_write))
+    {
+        std::error_code perm_ec;
+        const auto perms = std::filesystem::status(fs_path, perm_ec).permissions();
+        if (!perm_ec && (perms & std::filesystem::perms::owner_write) == std::filesystem::perms::none)
+        {
+            g_xapi_last_error = 5;
+            return static_cast<std::uintptr_t>(-1);
+        }
+    }
+
+    auto* handle = new (std::nothrow) XapiFileHandle;
+    if (handle == nullptr)
+    {
+        g_xapi_last_error = 8;
+        return static_cast<std::uintptr_t>(-1);
+    }
+    handle->path = fs_path;
+    handle->directory = is_directory;
+    handle->delete_on_close = delete_on_close;
+
+    u32 information = kFileOpened;
+    if (!is_directory)
+    {
+        if (truncate || creating)
+        {
+            std::ofstream created(fs_path, std::ios::binary | std::ios::trunc);
+            if (!created)
+            {
+                delete handle;
+                g_xapi_last_error = 5;
+                return static_cast<std::uintptr_t>(-1);
+            }
+            information = creating ? kFileCreated : kFileOverwritten;
+        }
+
+        auto mode = std::ios::binary | std::ios::in;
+        if (want_write || truncate)
+        {
+            mode |= std::ios::out;
+        }
+
+        handle->stream = std::make_unique<std::fstream>(fs_path, mode);
+        if (!handle->stream->is_open())
+        {
+            delete handle;
+            if (creating)
+            {
+                std::error_code remove_ec;
+                std::filesystem::remove(fs_path, remove_ec);
+            }
+            g_xapi_last_error = 5;
+            return static_cast<std::uintptr_t>(-1);
+        }
+
+        if ((creating || disposition == 2) && (attributes & 1u) != 0)
+        {
+            std::error_code perm_ec;
+            std::filesystem::permissions(fs_path, std::filesystem::perms::owner_write,
+                                         std::filesystem::perm_options::remove, perm_ec);
+        }
+    }
+
+    if ((disposition == 2 && information == kFileOverwritten) || (disposition == 4 && information == kFileOpened))
+    {
+        g_xapi_last_error = 0xB7;
+    }
+    else
+    {
+        g_xapi_last_error = 0;
+    }
+    return reinterpret_cast<std::uintptr_t>(handle);
+}
+
 bool fn_14d217(const char* path, const void* security)
 {
     // Xbox 0x0014D217

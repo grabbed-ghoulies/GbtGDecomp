@@ -43,6 +43,11 @@ u16 ru16(std::span<const u8> b, size_t o)
     return v;
 }
 
+i16 rs16(std::span<const u8> b, size_t o)
+{
+    return static_cast<i16>(ru16(b, o));
+}
+
 float rf32(std::span<const u8> b, size_t o)
 {
     float v = 0.f;
@@ -93,36 +98,6 @@ std::vector<SoundEvent> g_events;
 size_t g_clip = static_cast<size_t>(-1);
 std::string g_clip_name;
 
-bool packed_table(std::span<const u8> blob, u16 n)
-{
-    const u32 off = ru32(blob, 12);
-    if (n == 0 || size_t(off) + size_t(n) * 4 > blob.size())
-    {
-        return false;
-    }
-    for (u16 i = 0; i < n && i < 2; ++i)
-    {
-        const u32 p = ru32(blob, off + i * 4);
-        const u32 flags = p & 0xFF;
-        const u32 body = p >> 8;
-        if (flags < 1 || flags > 3 || body >= blob.size())
-        {
-            return false;
-        }
-    }
-    if (n >= 2)
-    {
-        const u32 a = ru32(blob, off) >> 8;
-        const u32 b = ru32(blob, off + 4) >> 8;
-        const u32 span = b - a;
-        if (b <= a || (span != 24 && span != 52 && span != 72))
-        {
-            return false;
-        }
-    }
-    return true;
-}
-
 std::vector<std::string> device_names(std::span<const u8> blob)
 {
     std::vector<std::string> names;
@@ -149,126 +124,153 @@ std::vector<std::string> device_names(std::span<const u8> blob)
     return names;
 }
 
-std::vector<WaveChoice> choices_at(std::span<const u8> blob, size_t pos, const std::vector<std::string>& devs)
+void push_wave(std::vector<WaveChoice>& out, std::span<const u8> blob, size_t o, const std::vector<std::string>& devs)
 {
-    std::vector<WaveChoice> out;
-    if (pos + 4 > blob.size())
+    if (o + 8 > blob.size())
     {
-        return out;
+        return;
     }
-    const u16 count = ru16(blob, pos);
-    if (count == 0 || count > 16 || pos + 4 + size_t(count) * 8 > blob.size())
+    const i16 wave = rs16(blob, o);
+    const i16 bank = rs16(blob, o + 2);
+    if (wave < 0 || bank < 0 || size_t(bank) >= devs.size())
     {
-        return out;
+        return;
     }
-    for (u16 i = 0; i < count; ++i)
+    WaveChoice c;
+    c.bank = devs[size_t(bank)];
+    c.index = static_cast<u16>(wave);
+    c.weight_lo = ru16(blob, o + 4);
+    c.weight_hi = ru16(blob, o + 6);
+    if (c.weight_lo == 0 && c.weight_hi == 0)
     {
-        const size_t e = pos + 4 + size_t(i) * 8;
-        const u16 bank = ru16(blob, e + 2);
-        if (bank >= devs.size())
-        {
-            continue;
-        }
-        WaveChoice c;
-        c.bank = devs[bank];
-        c.index = ru16(blob, e);
-        c.weight_lo = ru16(blob, e + 4);
-        c.weight_hi = ru16(blob, e + 6);
-        out.push_back(c);
+        c.weight_hi = 10000;
     }
-    return out;
+    out.push_back(c);
 }
 
-std::vector<WaveChoice> from_sound_body(std::span<const u8> blob, size_t body, u32 flags, size_t size,
-                                        const std::vector<std::string>& devs)
+void push_variation_table(std::vector<WaveChoice>& out, std::span<const u8> blob, size_t jump,
+                          const std::vector<std::string>& devs)
 {
-    std::vector<WaveChoice> out;
-    if (flags == 1)
+    if (jump >= blob.size())
     {
-        if (body + 12 > blob.size())
+        return;
+    }
+    const u8 count = blob[jump];
+    if (count == 0 || count > 32)
+    {
+        return;
+    }
+    for (u8 i = 0; i < count; ++i)
+    {
+        push_wave(out, blob, jump + 4 + size_t(i) * 8, devs);
+    }
+}
+
+void waves_from_entry(std::vector<WaveChoice>& out, std::span<const u8> blob, i16 entry, u16 simple_count,
+                      const std::vector<std::string>& devs)
+{
+    const size_t base = 0x38 + size_t(simple_count) * 0x14 + size_t(entry) * 0x14;
+    if (entry < 0 || base + 0x14 > blob.size())
+    {
+        return;
+    }
+    const u8 flags = blob[base + 0x0b];
+    if ((flags & 0x10) != 0)
+    {
+        push_variation_table(out, blob, ru32(blob, base), devs);
+        return;
+    }
+    if ((flags & 0x08) != 0)
+    {
+        push_wave(out, blob, base, devs);
+        return;
+    }
+    const size_t jump = ru32(blob, base);
+    if (jump >= blob.size())
+    {
+        return;
+    }
+    const u8 sound_count = blob[jump];
+    if (sound_count > 16 || jump + 5 > blob.size())
+    {
+        return;
+    }
+    size_t sound = ru32(blob, jump + 1) & 0x00FFFFFFu;
+    for (u8 i = 0; i < sound_count; ++i)
+    {
+        if (sound + 8 > blob.size())
         {
-            return out;
+            break;
         }
-        const u16 mode = ru16(blob, body + 4);
-        if ((mode & 0xFF00) == 0)
+        const u8 kind = blob[sound];
+        const u8 size = blob[sound + 4];
+        if (kind == 0 || kind == 1)
         {
-            if (!devs.empty())
+            const u8 sub = blob[sound + 5];
+            if (sub == 0x00 || sub == 0x40)
             {
-                WaveChoice c;
-                c.bank = devs[0];
-                c.index = ru16(blob, body + 8);
-                out.push_back(c);
+                push_wave(out, blob, sound + 8, devs);
             }
-            return out;
+            else if (sub == 0x04 || sub == 0x44)
+            {
+                push_variation_table(out, blob, ru32(blob, sound + 8), devs);
+            }
         }
-        return choices_at(blob, ru32(blob, body + 8), devs);
+        sound += 8u + size;
     }
-    if (size >= 4 && body + size <= blob.size() && !devs.empty())
-    {
-        const u16 bank = ru16(blob, body + size - 2);
-        if (bank < devs.size())
-        {
-            WaveChoice c;
-            c.bank = devs[bank];
-            c.index = ru16(blob, body + size - 4);
-            out.push_back(c);
-        }
-    }
-    return out;
 }
 
 std::vector<WaveChoice> cue_waves(std::span<const u8> blob, u16 cue_index, const std::vector<std::string>& devs)
 {
-    const u16 n = ru16(blob, 26);
-    if (cue_index >= n || size_t(56) + (size_t(cue_index) + 1) * 20 > blob.size())
+    // Xbox sound banks are XACT 1.2 (tool version 11). A cue index record at 0x38
+    // names a 20-byte cue entry, and that entry names the wave. The bytes at the
+    // end of a later sound are a different cue.
+    if (blob.size() < 0x38 || ru16(blob, 4) != 11)
     {
         return {};
     }
-    const u32 sound = ru32(blob, 56 + size_t(cue_index) * 20) >> 16;
-    if (sound >= n)
+    const u16 simple_count = ru16(blob, 0x1e);
+    const u16 entry_count = ru16(blob, 0x1c);
+    if (cue_index >= simple_count)
     {
         return {};
     }
-    if (packed_table(blob, n))
+    const size_t rec = 0x38 + size_t(cue_index) * 0x14;
+    if (rec + 0x14 > blob.size())
     {
-        const u32 off = ru32(blob, 12);
-        const u32 packed = ru32(blob, off + sound * 4);
-        const size_t body = packed >> 8;
-        const u32 flags = packed & 0xFF;
-        size_t nxt = blob.size();
-        if (sound + 1 < n)
+        return {};
+    }
+    std::vector<WaveChoice> out;
+    const i16 entry = rs16(blob, rec + 2);
+    if (entry < 0)
+    {
+        const size_t jump = ru32(blob, rec + 8);
+        if (jump >= blob.size())
         {
-            nxt = ru32(blob, off + (sound + 1) * 4) >> 8;
+            return {};
         }
-        if (nxt > body)
+        const u8 count = blob[jump];
+        for (u8 i = 0; i < count && i < 32; ++i)
         {
-            return from_sound_body(blob, body, flags, nxt - body, devs);
+            const size_t o = jump + 4 + size_t(i) * 8;
+            if (o + 2 > blob.size())
+            {
+                break;
+            }
+            const i16 alt = rs16(blob, o);
+            if (alt >= 0 && size_t(alt) < entry_count)
+            {
+                waves_from_entry(out, blob, alt, simple_count, devs);
+            }
         }
+        return out;
+    }
+    if (size_t(entry) >= entry_count)
+    {
         return {};
     }
-    const size_t base = 56 + size_t(n) * 20;
-    if (base + size_t(sound) * 20 + 4 > blob.size())
-    {
-        return {};
-    }
-    const u32 v = ru32(blob, base + size_t(sound) * 20);
-    if (v > 64)
-    {
-        auto grouped = choices_at(blob, v, devs);
-        if (!grouped.empty())
-        {
-            return grouped;
-        }
-    }
-    const u16 bank = static_cast<u16>(v >> 16);
-    if (bank < devs.size())
-    {
-        WaveChoice c;
-        c.bank = devs[bank];
-        c.index = static_cast<u16>(v & 0xFFFF);
-        return {c};
-    }
-    return {};
+    waves_from_entry(out, blob, entry, simple_count, devs);
+    return out;
 }
 
 void index_wavebanks(const std::filesystem::path& game_dir)

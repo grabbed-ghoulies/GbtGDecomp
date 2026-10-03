@@ -7,10 +7,19 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <iostream>
 #include <string>
+
+#if defined(_WIN32)
+extern "C"
+{
+    __declspec(dllimport) void* __stdcall GetModuleHandleA(const char* name);
+    __declspec(dllimport) void* __stdcall GetProcAddress(void* module, const char* name);
+}
+#endif
 
 namespace gbtg
 {
@@ -3053,6 +3062,136 @@ u32 fn_15028c(const char* path, const void* launch_data, u32 flags, u32 launch_t
     }
     fill_page(expanded.c_str(), nullptr, tail);
     return 0;
+}
+
+// OBJECT_STRING / ANSI_STRING. Length is the byte count of the object name.
+struct XapiAnsiString
+{
+    u16 length;
+    u16 maximum_length;
+    const char* buffer;
+};
+
+int fn_150833(const XapiAnsiString* name, int bytes_per_cluster)
+{
+    // Xbox 0x00150833
+    // NtOpenFile with a null root, OBJ_CASE_INSENSITIVE, FILE_READ_DATA|SYNCHRONIZE,
+    // share read|write, and FILE_DIRECTORY_FILE|FILE_SYNCHRONOUS_IO_NONALERT|
+    // FILE_OPEN_FOR_FREE_SPACE_QUERY. NtQueryVolumeInformationFile then reads
+    // FileFsSizeInformation (class 3, 24 bytes) and NtClose drops the handle.
+    // When that query succeeds and sectors-per-allocation-unit times bytes-per-sector
+    // is not bytes_per_cluster, the status becomes STATUS_UNRECOGNIZED_VOLUME
+    // (0xC000014F). 0x00151000 asks for 0x4000. 0x0014BFCF asks for
+    // 0x4000 << (XBE init flags >> 30) on \Device\Harddisk0\Partition%d\.
+    constexpr int kStatusInvalidParameter = static_cast<int>(0xC000000Du);
+    constexpr int kStatusNotSupported = static_cast<int>(0xC00000BBu);
+
+    if (name == nullptr || (name->length > 0 && name->buffer == nullptr))
+    {
+        return kStatusInvalidParameter;
+    }
+
+#if defined(_WIN32)
+    struct UnicodeString
+    {
+        u16 length;
+        u16 maximum_length;
+        wchar_t* buffer;
+    };
+    struct ObjectAttributes
+    {
+        unsigned long length;
+        void* root_directory;
+        UnicodeString* object_name;
+        unsigned long attributes;
+        void* security_descriptor;
+        void* security_quality_of_service;
+    };
+    struct IoStatusBlock
+    {
+        void* pointer;
+        std::uintptr_t information;
+    };
+    struct FsSizeInformation
+    {
+        std::int64_t total_allocation_units;
+        std::int64_t available_allocation_units;
+        unsigned long sectors_per_allocation_unit;
+        unsigned long bytes_per_sector;
+    };
+    using NtOpenFileFn = long(__stdcall*)(void** handle, unsigned long access, ObjectAttributes* attributes,
+                                          IoStatusBlock* io, unsigned long share, unsigned long options);
+    using NtQueryVolumeInformationFileFn = long(__stdcall*)(void* handle, IoStatusBlock* io, void* info,
+                                                            unsigned long length, unsigned long info_class);
+    using NtCloseFn = long(__stdcall*)(void* handle);
+
+    static_assert(sizeof(FsSizeInformation) == 0x18);
+
+    void* ntdll = GetModuleHandleA("ntdll.dll");
+    if (ntdll == nullptr)
+    {
+        return kStatusNotSupported;
+    }
+    NtOpenFileFn nt_open = nullptr;
+    NtQueryVolumeInformationFileFn nt_query = nullptr;
+    NtCloseFn nt_close = nullptr;
+    void* open_proc = GetProcAddress(ntdll, "NtOpenFile");
+    void* query_proc = GetProcAddress(ntdll, "NtQueryVolumeInformationFile");
+    void* close_proc = GetProcAddress(ntdll, "NtClose");
+    std::memcpy(&nt_open, &open_proc, sizeof(nt_open));
+    std::memcpy(&nt_query, &query_proc, sizeof(nt_query));
+    std::memcpy(&nt_close, &close_proc, sizeof(nt_close));
+    if (nt_open == nullptr || nt_query == nullptr || nt_close == nullptr)
+    {
+        return kStatusNotSupported;
+    }
+
+    std::wstring wide(static_cast<size_t>(name->length), L'\0');
+    for (u16 i = 0; i < name->length; ++i)
+    {
+        wide[i] = static_cast<unsigned char>(name->buffer[i]);
+    }
+    const auto wide_bytes = static_cast<size_t>(wide.size()) * sizeof(wchar_t);
+    if (wide_bytes > 0xFFFFu)
+    {
+        return static_cast<int>(0xC0000106); // STATUS_NAME_TOO_LONG
+    }
+
+    UnicodeString unicode{};
+    unicode.length = static_cast<u16>(wide_bytes);
+    unicode.maximum_length = unicode.length;
+    unicode.buffer = wide.empty() ? nullptr : wide.data();
+
+    ObjectAttributes attributes{};
+    attributes.length = sizeof(attributes);
+    attributes.object_name = &unicode;
+    attributes.attributes = 0x40; // OBJ_CASE_INSENSITIVE
+
+    IoStatusBlock io{};
+    void* handle = nullptr;
+    long status = nt_open(&handle, 0x100001u, &attributes, &io, 3u, 0x800021u);
+    if (status < 0)
+    {
+        return static_cast<int>(status);
+    }
+
+    FsSizeInformation info{};
+    status = nt_query(handle, &io, &info, 0x18u, 3u);
+    nt_close(handle);
+    if (status >= 0)
+    {
+        const u32 cluster = static_cast<u32>(info.sectors_per_allocation_unit) *
+                            static_cast<u32>(info.bytes_per_sector);
+        if (std::bit_cast<int>(cluster) != bytes_per_cluster)
+        {
+            status = static_cast<int>(0xC000014Fu);
+        }
+    }
+    return static_cast<int>(status);
+#else
+    (void)bytes_per_cluster;
+    return kStatusNotSupported;
+#endif
 }
 } // namespace
 

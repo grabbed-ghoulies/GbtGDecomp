@@ -15039,6 +15039,30 @@ void fn_16f095(int opcode, CrtMathError* exc, u16* cw_ptr)
         *fn_168af5() = 0x22;
     }
 }
+
+void fn_16f266(void* stream)
+{
+    // Xbox 0x0016F266
+    // __finally of ungetc (0x0016F22B). __SEH_prolog (0x00166D58) is entered
+    // with local size 0x0C and the scope table at 0x00209ED8: one entry,
+    // enclosing level -1, a null filter, and this handler. ungetc pushes
+    // the FILE* at [ebp+0xc] and calls _lock_file (0x00168970), stores try
+    // level 0 at [ebp-4], then calls _ungetc_lk (0x0016F1BF) with the
+    // character at [ebp+8] and that FILE*. The success path at 0x0016F258
+    // sets the try level to -1 and calls here. _local_unwind2 (0x00167062)
+    // runs the same handler. The ten bytes push [ebp+0xc], call _unlock_file
+    // (0x001689C2), pop the cdecl argument, and return.
+    //
+    // _unlock_file compares the pointer with _iob and with 0x00337F58.
+    // Inside that span the lock number is (byte delta >> 5) + 0x10
+    // (_STREAM_LOCKS). _unlock (0x0016810F) then leaves the critical
+    // section stored in _locktable[index] at 0x00337AB0. Outside the
+    // span it calls RtlLeaveCriticalSection (kernel ordinal 294, thunk
+    // 0x00202EA4) on the critical section at FILE+0x20. A null pointer
+    // would take that path at address 0x20; the port returns instead
+    // of faulting.
+    fn_16619a(stream);
+}
 } // namespace
 
 int fn_16f172(const void* lp, u32 ucb)

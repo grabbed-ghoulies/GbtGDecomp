@@ -31,6 +31,7 @@
 #endif
 
 #if defined(_WIN32)
+#include <excpt.h>
 #include <float.h>
 #include <malloc.h>
 extern "C"
@@ -3072,6 +3073,10 @@ struct CrtModuleTls
 
 CrtLockSlot g_crt_locks[0x24];
 std::unique_ptr<std::recursive_mutex> g_crt_lock_mu[0x24];
+
+// 0x004DD2D4. BSS, so the image dword is 0. 0x0016D9F8 writes 0x0016D9E8
+// here when the slot is still null. The target is stdcall and returns BOOL.
+int (*g_crt_crit_init)(std::recursive_mutex* section, u32 spin_count) = nullptr;
 XThreadNotify g_xthread_notify_head;
 XThreadNotify g_crt_thread_notify;
 std::recursive_mutex g_xthread_notify_cs;
@@ -3598,6 +3603,8 @@ void fn_168e34()
     }
 }
 
+int fn_16d9f8(std::recursive_mutex* section, u32 spin_count);
+
 int crt_mtinitlocknum(int locknum)
 {
     // __mtinitlocknum at 0x00168121. Scope table 0x00209190, prolog
@@ -3616,9 +3623,9 @@ int crt_mtinitlocknum(int locknum)
     // 0x0016D9F8 initializes the section with spin count 0xFA0. A zero
     // return frees the block, stores ENOMEM, and _local_unwind2 (0x00167062)
     // runs the finally at 0x001681B8, which is _unlock (0x0016810F) of lock
-    // 10. The host constructor either throws before the table lock or
-    // succeeds; the spin count is not a host parameter. The finally still
-    // leaves lock 10. Success returns 1.
+    // 10. The host constructor runs before that call. The finally still
+    // leaves lock 10. Index 10 is stored without taking the table lock, so
+    // a failed init on that index does not unlock. Success returns 1.
     if (g_crt_locks[locknum].cs != nullptr)
     {
         return 1;
@@ -3637,6 +3644,11 @@ int crt_mtinitlocknum(int locknum)
 
     if (locknum == 10)
     {
+        if (fn_16d9f8(pcs.get(), 0xFA0) == 0)
+        {
+            *fn_168af5() = 12;
+            return 0;
+        }
         g_crt_lock_mu[10] = std::move(pcs);
         g_crt_locks[10].cs = g_crt_lock_mu[10].get();
         return 1;
@@ -3645,6 +3657,13 @@ int crt_mtinitlocknum(int locknum)
     fn_1681c1(10);
     if (g_crt_locks[locknum].cs == nullptr)
     {
+        if (fn_16d9f8(pcs.get(), 0xFA0) == 0)
+        {
+            pcs.reset();
+            *fn_168af5() = 12;
+            fn_1681b8();
+            return 0;
+        }
         g_crt_lock_mu[locknum] = std::move(pcs);
         g_crt_locks[locknum].cs = g_crt_lock_mu[locknum].get();
     }
@@ -6741,7 +6760,8 @@ int fn_16afdd()
     // calls 0x0016D9F8 with spin count 0xFA0. Any other kind is left alone.
     // A failed init clears that descriptor's pointer and returns 0. Success
     // returns 1. The port uses a host recursive mutex in place of the Xbox
-    // RTL_CRITICAL_SECTION; the spin count is not a host parameter.
+    // RTL_CRITICAL_SECTION. The spin count is passed through; the default
+    // target ignores it. A zero return from that call clears the pointer.
     //
     // Failure calls 0x001680E6, which walks 0x00337AB0 up to 0x00337BD0 and
     // deletes a critical section only when the pointer is set and the kind
@@ -6782,6 +6802,13 @@ int fn_16afdd()
         }
         catch (...)
         {
+            g_crt_locks[i].cs = nullptr;
+            locks_ok = 0;
+            break;
+        }
+        if (fn_16d9f8(g_crt_locks[i].cs, 0xFA0) == 0)
+        {
+            g_crt_lock_mu[i].reset();
             g_crt_locks[i].cs = nullptr;
             locks_ok = 0;
             break;
@@ -6910,6 +6937,79 @@ int fn_14aaed(const u16* src, int cch, u8* dst, int cb)
 // 0x0014AFE4 reads this slot. XCreateSaveGame (0x0014C70F) treats 0xB7 as
 // "the directory is already there".
 u32 g_xapi_last_error = 0;
+
+int fn_16d9e8(std::recursive_mutex* section, u32 spin_count)
+{
+    // Xbox 0x0016D9E8
+    // stdcall, ret 8. Pushes the critical section and calls
+    // RtlInitializeCriticalSection (kernel ordinal 291, thunk 0x00202FC0).
+    // The spin count is left for that epilogue. EAX is 1 when the call
+    // returns. The host mutex is already constructed. A null section is the
+    // access fault that kernel call would raise. That status is not
+    // 0xC0000017, so the caller returns 0 and leaves the last-error slot.
+    (void)spin_count;
+    if (section == nullptr)
+    {
+#if defined(_WIN32)
+        RaiseException(0xC0000005u, 0, 0, nullptr);
+#else
+        throw static_cast<unsigned long>(0xC0000005u);
+#endif
+    }
+    return 1;
+}
+
+int fn_16d9f8(std::recursive_mutex* section, u32 spin_count)
+{
+    // Xbox 0x0016D9F8
+    // cdecl. The callers pop both arguments. __SEH_prolog (0x00166D58) is
+    // entered with local size 0x10 and the scope table at 0x00209E78:
+    // enclosing level -1, filter 0x0016DA2C, handler 0x0016DA3A.
+    //
+    // 0x004DD2D4 starts at 0. A null pointer is replaced with 0x0016D9E8.
+    // The try level at [ebp-4] is then 0, and both arguments are passed to
+    // that target. Its EAX is the success return. The filter returns 1, so
+    // every exception runs the handler. The handler reloads ESP from
+    // [ebp-0x18]. Exception code 0xC0000017 (STATUS_NO_MEMORY) stores 8
+    // through 0x0014B00C. Every exception returns 0. __SEH_epilog
+    // (0x00166D93) leaves EAX unchanged.
+    if (g_crt_crit_init == nullptr)
+    {
+        g_crt_crit_init = fn_16d9e8;
+    }
+
+#if defined(_WIN32)
+    __try
+    {
+        return g_crt_crit_init(section, spin_count);
+    }
+    __except (1)
+    {
+        if (GetExceptionCode() == 0xC0000017u)
+        {
+            g_xapi_last_error = 8;
+        }
+        return 0;
+    }
+#else
+    try
+    {
+        return g_crt_crit_init(section, spin_count);
+    }
+    catch (unsigned long code)
+    {
+        if (code == 0xC0000017u)
+        {
+            g_xapi_last_error = 8;
+        }
+        return 0;
+    }
+    catch (...)
+    {
+        return 0;
+    }
+#endif
+}
 
 void* fn_14aaba(u32 bytes, u32 lowest, u32 highest, u32 alignment, u32 protect)
 {

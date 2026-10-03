@@ -14245,6 +14245,351 @@ int fn_15162f(const char* path, void* root)
     }
     return xapi_fs_ntstatus(fs_path, ec);
 }
+
+// 0x00338278. The image dword is 0x2694. Nothing stores this address.
+// _87except skips _matherr while the dword is nonzero. The pow entries at
+// 0x00170460 and 0x0017049E take the same test.
+u32 g_crt_fp_skip_matherr = 0x2694u;
+
+struct CrtMathError
+{
+    int type;
+    char* name;
+    double arg1;
+    double arg2;
+    double retval;
+};
+
+void crt_restore_x87_cw(u32 raw)
+{
+    // __ctrlfp (0x00168809) with mask 0xFFFF. fnstcw / fldcw on the raw
+    // control word. The host control word uses the _controlfp layout.
+#if defined(_WIN32)
+    u32 value = 0;
+    if ((raw & 0x01u) != 0)
+    {
+        value |= _EM_INVALID;
+    }
+    if ((raw & 0x02u) != 0)
+    {
+        value |= _EM_DENORMAL;
+    }
+    if ((raw & 0x04u) != 0)
+    {
+        value |= _EM_ZERODIVIDE;
+    }
+    if ((raw & 0x08u) != 0)
+    {
+        value |= _EM_OVERFLOW;
+    }
+    if ((raw & 0x10u) != 0)
+    {
+        value |= _EM_UNDERFLOW;
+    }
+    if ((raw & 0x20u) != 0)
+    {
+        value |= _EM_INEXACT;
+    }
+    switch (raw & 0xC00u)
+    {
+    case 0x400u:
+        value |= _RC_DOWN;
+        break;
+    case 0x800u:
+        value |= _RC_UP;
+        break;
+    case 0xC00u:
+        value |= _RC_CHOP;
+        break;
+    default:
+        value |= _RC_NEAR;
+        break;
+    }
+    switch (raw & 0x300u)
+    {
+    case 0x000u:
+        value |= _PC_24;
+        break;
+    case 0x200u:
+        value |= _PC_53;
+        break;
+    default:
+        value |= _PC_64;
+        break;
+    }
+    unsigned int previous = 0;
+    (void)_controlfp_s(&previous, value, _MCW_EM | _MCW_RC | _MCW_PC);
+#else
+    int round = FE_TONEAREST;
+    switch (raw & 0xC00u)
+    {
+    case 0x400u:
+        round = FE_DOWNWARD;
+        break;
+    case 0x800u:
+        round = FE_UPWARD;
+        break;
+    case 0xC00u:
+        round = FE_TOWARDZERO;
+        break;
+    default:
+        break;
+    }
+    std::fesetround(round);
+#endif
+}
+
+int crt_math_exc_handled(u32 flags, double* retval, u32 cw)
+{
+    // _handle_exc (0x00168493). Software flag bits, not the x87 status
+    // layout: 1 overflow, 2 underflow, 4 zero-divide, 8 invalid, 0x10
+    // inexact. A masked primary exception is retired and the rest of the
+    // primary tests are skipped. Inexact is then retired when precision
+    // is masked (control-word bit 5). The return is 1 only when every
+    // raised bit was masked. 0x0016882D plants the sticky x87 status bit;
+    // ported callers do not read that word.
+    u32 remain = flags & 0x1fu;
+    bool primary = false;
+    if ((flags & 8u) != 0)
+    {
+        if ((cw & 1u) != 0)
+        {
+            remain &= ~8u;
+            primary = true;
+        }
+    }
+    if (!primary && (flags & 4u) != 0)
+    {
+        if ((cw & 4u) != 0)
+        {
+            remain &= ~4u;
+            primary = true;
+        }
+    }
+    if (!primary && (flags & 1u) != 0)
+    {
+        if ((cw & 8u) != 0)
+        {
+            const double positive_inf = std::bit_cast<double>(0x7FF0000000000000ULL);
+            const double max_finite = std::bit_cast<double>(0x7FEFFFFFFFFFFFFFULL);
+            const bool positive = *retval > 0.0;
+            double adjusted = *retval;
+            switch (cw & 0xC00u)
+            {
+            case 0x400u:
+                adjusted = positive ? max_finite : -positive_inf;
+                break;
+            case 0x800u:
+                adjusted = positive ? positive_inf : -max_finite;
+                break;
+            case 0xC00u:
+                adjusted = positive ? max_finite : -max_finite;
+                break;
+            case 0x000u:
+                adjusted = positive ? positive_inf : -positive_inf;
+                break;
+            default:
+                break;
+            }
+            *retval = adjusted;
+            remain &= ~1u;
+            primary = true;
+        }
+    }
+    if (!primary && (flags & 2u) != 0)
+    {
+        if ((cw & 0x10u) != 0)
+        {
+            // The math routine hands over a value scaled by 2^1536 so the
+            // 80-bit interim did not underflow. Scale it back. Below
+            // 2^-1074 the result is a signed zero. From there up to the
+            // smallest normal the mantissa is shifted, discarding low bits.
+            if (*retval == 0.0)
+            {
+                remain &= ~2u;
+            }
+            else
+            {
+                const bool neg = std::signbit(*retval);
+                int exp = 0;
+                const double mant = std::frexp(*retval, &exp);
+                exp -= 1536;
+                if (exp < -1074)
+                {
+                    *retval = neg ? -0.0 : 0.0;
+                }
+                else if (exp >= -1021)
+                {
+                    double scaled = std::ldexp(std::fabs(mant), exp);
+                    if (neg)
+                    {
+                        scaled = -scaled;
+                    }
+                    *retval = scaled;
+                }
+                else
+                {
+                    u64 bits = std::bit_cast<u64>(std::fabs(mant));
+                    bits &= 0x000fffffffffffffULL;
+                    bits |= 0x0010000000000000ULL;
+                    int shift = -1021 - exp;
+                    while (shift > 0)
+                    {
+                        bits >>= 1u;
+                        shift -= 1;
+                    }
+                    double scaled = std::bit_cast<double>(bits);
+                    if (neg)
+                    {
+                        scaled = -scaled;
+                    }
+                    *retval = scaled;
+                }
+                remain &= ~2u;
+            }
+            primary = true;
+        }
+    }
+    if ((flags & 0x10u) != 0 && (cw & 0x20u) != 0)
+    {
+        remain &= ~0x10u;
+    }
+    return remain == 0 ? 1 : 0;
+}
+
+void fn_16f095(int opcode, CrtMathError* exc, u16* cw_ptr)
+{
+    // Xbox 0x0016F095
+    // _87except. The unary dispatcher at 0x0016B723 and the binary one at
+    // 0x0016B70C build a struct _exception (type, name, arg1, arg2, retval)
+    // and call here with the operation code in the first argument, that
+    // record, and the caller's x87 control word. Codes 0x10, 0x16, and 0x1D
+    // are atan2, fmod, and pow: two operands. The other codes are unary.
+    //
+    // Type 1 (_DOMAIN) and 5 (_TLOSS) raise invalid (8). Type 2 (_SING)
+    // raises zero-divide (4). Type 3 (_OVERFLOW) raises overflow|inexact
+    // (0x11). Type 4 (_UNDERFLOW) raises underflow|inexact (0x12). Type 8
+    // is the inexact report from the dispatcher epilogue and raises 0x10.
+    // Type 7 is the pow special case: the type is rewritten to _DOMAIN and
+    // the IEEE handler is skipped. Any other type skips it as well.
+    //
+    // _handle_exc (0x00168493) retires masked bits and, for overflow and
+    // underflow, rewrites retval. A zero return calls _raise_exc
+    // (0x001681EF), which raises the Win32 float status (invalid 0xC0000090,
+    // zero-divide 0xC000008E, overflow 0xC0000091, underflow 0xC0000093,
+    // inexact 0xC000008F) with one argument, the IEEE record. The later
+    // status overwrites the earlier one, so invalid wins over zero-divide,
+    // then overflow, underflow, and inexact.
+    //
+    // __ctrlfp (0x00168809) then reloads the saved control word. Type 8,
+    // or a nonzero dword at 0x00338278, skips _matherr (0x0016DA59). That
+    // body returns 0, and a nonzero return would skip the errno store.
+    // 0x00168680 stores EDOM (0x21) for type 1 and ERANGE (0x22) for types
+    // 2 and 3, through _errno (0x00168AF5).
+    const u32 saved_cw = static_cast<u32>(*cw_ptr);
+    u32 flags = 0;
+    bool report = true;
+    switch (exc->type)
+    {
+    case 1:
+    case 5:
+        flags = 8u;
+        break;
+    case 2:
+        flags = 4u;
+        break;
+    case 3:
+        flags = 0x11u;
+        break;
+    case 4:
+        flags = 0x12u;
+        break;
+    case 7:
+        exc->type = 1;
+        report = false;
+        break;
+    case 8:
+        flags = 0x10u;
+        break;
+    default:
+        report = false;
+        break;
+    }
+
+    if (report)
+    {
+        if (crt_math_exc_handled(flags, &exc->retval, saved_cw) == 0)
+        {
+            alignas(8) u8 record[0x80] = {};
+            u32* operand2_flags = reinterpret_cast<u32*>(record + 0x40);
+            if (opcode == 0x10 || opcode == 0x16 || opcode == 0x1d)
+            {
+                std::memcpy(record + 0x30, &exc->arg2, sizeof(exc->arg2));
+                *operand2_flags = (*operand2_flags & 0xffffffe3u) | 3u;
+            }
+            else
+            {
+                *operand2_flags &= 0xfffffffeu;
+            }
+
+            u32 cause = 0;
+            u32 code = 0;
+            if ((flags & 0x10u) != 0)
+            {
+                cause |= 1u;
+                code = 0xC000008Fu;
+            }
+            if ((flags & 2u) != 0)
+            {
+                cause |= 2u;
+                code = 0xC0000093u;
+            }
+            if ((flags & 1u) != 0)
+            {
+                cause |= 4u;
+                code = 0xC0000091u;
+            }
+            if ((flags & 4u) != 0)
+            {
+                cause |= 8u;
+                code = 0xC000008Eu;
+            }
+            if ((flags & 8u) != 0)
+            {
+                cause |= 0x10u;
+                code = 0xC0000090u;
+            }
+            std::memcpy(record + 4, &cause, sizeof(cause));
+#if defined(_WIN32)
+            std::uintptr_t info = reinterpret_cast<std::uintptr_t>(record);
+            RaiseException(code, 0, 1, &info);
+#else
+            (void)code;
+#endif
+        }
+    }
+
+    crt_restore_x87_cw(saved_cw);
+
+    if (exc->type != 8 && g_crt_fp_skip_matherr == 0)
+    {
+        // 0x0016DA59 returns 0, so control falls through to the errno store.
+        const int matherr_result = 0;
+        if (matherr_result != 0)
+        {
+            return;
+        }
+    }
+
+    if (exc->type == 1)
+    {
+        *fn_168af5() = 0x21;
+    }
+    else if (exc->type > 1 && exc->type <= 3)
+    {
+        *fn_168af5() = 0x22;
+    }
+}
 } // namespace
 
 void load_scene_contents(Game& g, std::string_view name)

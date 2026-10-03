@@ -2506,6 +2506,23 @@ const u16* g_crt_pctype = kCrtCtype;
 // single-byte path. A signed compare greater than 1 uses _isctype.
 int g_crt_mb_cur_max = 1;
 
+int fn_16ae1f(int c, unsigned mask)
+{
+    // Xbox 0x0016AE1F
+    // _isctype. cdecl; the caller pops both arguments. isspace (0x00168883)
+    // and the scanf classifiers call here when __mb_cur_max is above 1.
+    // (unsigned)(c + 1) above 0x100 returns 0, so the accepted values are
+    // -1..255. The ushort at 0x00209786, immediately before _pctype, is 0,
+    // so EOF still returns 0. Every other accepted value returns the ctype
+    // word masked with the caller's bits.
+    if (static_cast<unsigned>(c) + 1u > 0x100u)
+    {
+        return 0;
+    }
+    const u16 entry = (c < 0) ? static_cast<u16>(0) : g_crt_pctype[c];
+    return static_cast<int>(entry & mask);
+}
+
 int fn_168883(u32 c)
 {
     // Xbox 0x00168883
@@ -2523,7 +2540,7 @@ int fn_168883(u32 c)
     }
     if (g_crt_mb_cur_max > 1)
     {
-        return static_cast<int>(g_crt_pctype[c] & 8u);
+        return fn_16ae1f(static_cast<int>(c), 8u);
     }
     return static_cast<int>(static_cast<u8>(g_crt_pctype[c]) & 8u);
 }
@@ -5248,7 +5265,7 @@ int fn_16a17c(void* stream, const char16_t* format, std::va_list argptr)
         const unsigned byte = unit & 0xffu;
         if (g_crt_mb_cur_max > 1)
         {
-            return (g_crt_pctype[byte] & mask) != 0;
+            return fn_16ae1f(static_cast<int>(byte), mask) != 0;
         }
         return (static_cast<unsigned>(static_cast<u8>(g_crt_pctype[byte])) & mask) != 0;
     };

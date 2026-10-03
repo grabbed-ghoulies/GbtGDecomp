@@ -341,6 +341,10 @@ void fn_154f80(i32 port, u8 face_x, u8 face_y); // 0x00154F80
 // at +0x08 and +0x0c.
 void fn_155000(i32 port, u8 black, u8 white); // 0x00155000
 
+// Port is EDI. packet is ESI, the 0x16-byte gamepad cam_155624 walks from
+// DAT_004348B4. A non-zero byte sends that port through 0x00155260.
+u8 fn_19140(i32 port, const void* packet); // 0x00019140
+
 // EAX is the direction (x, y, z). Writes yaw, then pitch. Returns 0 when XZ is
 // quieter than 2e-7; pitch is still written.
 i32 fn_105e20(float x, float y, float z, float& yaw, float& pitch); // 0x00105E20

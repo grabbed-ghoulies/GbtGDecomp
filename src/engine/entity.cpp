@@ -1613,6 +1613,20 @@ void fn_155000(i32 port, u8 black, u8 white)
     apply_analog_bit(slot, white, kWhiteBit);
 }
 
+u8 fn_19140(i32 port, const void* packet)
+{
+    // Xbox 0x00019140
+    // cam_155624 calls this after the port bit in DAT_0032E3B4 is set. EDI is
+    // the port. ESI is the 0x16-byte gamepad (buttons at +0, analog bytes at
+    // +2, thumbs at +0x0A) in the four-port table at DAT_004348B4. A non-zero
+    // AL takes the same path as a clear bit: 0x00155260 clears that port's
+    // 0x13c record. Retail is xor al, al; ret, so both arguments stay unread
+    // and AL is 0. The stick and button writers then run for that port.
+    (void)port;
+    (void)packet;
+    return 0;
+}
+
 i32 fn_105e20(float x, float y, float z, float& yaw, float& pitch)
 {
     // Xbox 0x00105E20

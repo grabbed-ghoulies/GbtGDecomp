@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <cerrno>
+#include <charconv>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -5141,6 +5142,948 @@ int fn_16993d(void* stream, const char16_t* format, std::va_list argptr)
         }
     }
     return charsout;
+}
+
+int fn_16a17c(void* stream, const char16_t* format, std::va_list argptr)
+{
+    // Xbox 0x0016A17C
+    // _winput. swscanf (0x00166A72) builds a string FILE and calls here:
+    // ptr and base point at the wchar buffer, cnt is wcslen (0x00166ECB)
+    // times two, flag is 0x49 (_IOREAD|_IOMYBUF|_IOSTRG). The return is the
+    // number of assigned fields, or -1 when the stream is at EOF and no
+    // conversion and no suppressed field has matched. %n stores the wide
+    // count and does not add to that total.
+    //
+    // The host FILE matches _woutput: ptr, cnt, base, flag, then the handle
+    // fields. A string stream (flag 0x40) reads a wchar and subtracts 2 from
+    // cnt. A negative cnt is WEOF; retail would call _filwbuf (0x0016F419).
+    // Pushback is _ungetwc_nolock (0x0016E1A5) through the helper at
+    // 0x0016A14E, which ignores WEOF. On a string stream the previous wchar
+    // has to equal the pushed character. A byte stream with room reads one
+    // byte. __mb_cur_max is 1 and the C ctype table has no lead bytes, so
+    // that byte is the wchar. A full byte buffer returns WEOF instead of
+    // calling _filbuf (0x00168A14).
+    //
+    // Whitespace in the format skips wchar whitespace via iswctype
+    // (0x00166BF9) and _pwctype at 0x0020998A. Bytes at or above 0x100, and
+    // WEOF, are not whitespace. 0x09..0x0D, 0x20, and 0xA0 are. %s stops on
+    // 0x09..0x0D and 0x20 only. Digits and hex use _pctype (0x00338180), the
+    // low byte when __mb_cur_max is at most 1, otherwise the whole word.
+    //
+    // %I64 selects the 64-bit store and %I32 is a 32-bit no-op. %I immediately
+    // before d, i, o, x, or X is ignored. A bare %I is %i. %n with I64 stores
+    // the zeroed 64-bit accumulator. Other integers store a short when the
+    // size count is 0 ('h') and an int otherwise. %p forces that count back
+    // to 1 and reads hex without a 0x prefix. %i and %x accept 0x. A leading
+    // 0 on %i selects octal. %c, %s, and %[ write wchars when the size count
+    // is positive. %C and %S with no size are bytes, expanded with wctomb
+    // (0x0016DF8A): one byte, or -1 and errno EILSEQ (42) above 0xFF.
+    //
+    // Floats (%e, %f, %g and the capitals) build a wchar image and call
+    // __fassign, the slot _fpmath writes at 0x003381A8 (g_cfltcvt_tab[2]).
+    // While that slot is still _fptrap (0x0016F08C) the process exits with
+    // code 2. A size count of 1 ('f', the default) stores a float. Any other
+    // count stores a double. The decimal point is the C-locale '.' from
+    // mbtowc (0x0016E07A) of the byte at 0x0033818C. A scanset bitmap is
+    // 0x2000 bytes. Retail alloca-probes that (0x00166F70) and mallocs
+    // (0x00167F1C) if the probe raises; this frees the block on the way out.
+    // A ']' missing before the format terminator ends the scan.
+
+    struct ScanFile
+    {
+        char* ptr;
+        int cnt;
+        char* base;
+        int flag;
+        int file;
+        int charbuf;
+        int bufsiz;
+        char* tmpfname;
+    };
+
+    // Xbox 0x0020998A. _pwctype. iswctype (0x00166BF9) indexes this for a
+    // unit below 0x100. WEOF and every unit from 0x100 up yield zero.
+    static constexpr u16 kWctype[256] = {
+        0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0068, 0x0028, 0x0028, 0x0028, 0x0028, 0x0020, 0x0020,
+        0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020,
+        0x0048, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010,
+        0x0084, 0x0084, 0x0084, 0x0084, 0x0084, 0x0084, 0x0084, 0x0084, 0x0084, 0x0084, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010,
+        0x0010, 0x0081, 0x0081, 0x0081, 0x0081, 0x0081, 0x0081, 0x0001, 0x0001, 0x0001, 0x0001, 0x0001, 0x0001, 0x0001, 0x0001, 0x0001,
+        0x0001, 0x0001, 0x0001, 0x0001, 0x0001, 0x0001, 0x0001, 0x0001, 0x0001, 0x0001, 0x0001, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010,
+        0x0010, 0x0082, 0x0082, 0x0082, 0x0082, 0x0082, 0x0082, 0x0002, 0x0002, 0x0002, 0x0002, 0x0002, 0x0002, 0x0002, 0x0002, 0x0002,
+        0x0002, 0x0002, 0x0002, 0x0002, 0x0002, 0x0002, 0x0002, 0x0002, 0x0002, 0x0002, 0x0002, 0x0010, 0x0010, 0x0010, 0x0010, 0x0020,
+        0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020,
+        0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020, 0x0020,
+        0x0048, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010,
+        0x0010, 0x0010, 0x0014, 0x0014, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0014, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010, 0x0010,
+        0x0001, 0x0001, 0x0001, 0x0001, 0x0001, 0x0001, 0x0001, 0x0001, 0x0001, 0x0001, 0x0001, 0x0001, 0x0001, 0x0001, 0x0001, 0x0001,
+        0x0001, 0x0001, 0x0001, 0x0001, 0x0001, 0x0001, 0x0001, 0x0010, 0x0001, 0x0001, 0x0001, 0x0001, 0x0001, 0x0001, 0x0001, 0x0002,
+        0x0002, 0x0002, 0x0002, 0x0002, 0x0002, 0x0002, 0x0002, 0x0002, 0x0002, 0x0002, 0x0002, 0x0002, 0x0002, 0x0002, 0x0002, 0x0002,
+        0x0002, 0x0002, 0x0002, 0x0002, 0x0002, 0x0002, 0x0002, 0x0010, 0x0002, 0x0002, 0x0002, 0x0002, 0x0002, 0x0002, 0x0002, 0x0002,
+    };
+
+    auto* file = static_cast<ScanFile*>(stream);
+    const char16_t* fmt = format;
+    int charcount = 0;
+    int assigned = 0;
+    unsigned char matched = 0;
+    unsigned ch = 0;
+    unsigned char* scan = nullptr;
+
+    auto is_wspace = [&](unsigned unit) -> bool
+    {
+        if (unit >= 0x100u)
+        {
+            return false;
+        }
+        return (kWctype[unit] & 8u) != 0;
+    };
+
+    auto narrow_class = [&](unsigned unit, unsigned mask) -> bool
+    {
+        if ((unit & 0xff00u) != 0)
+        {
+            return false;
+        }
+        const unsigned byte = unit & 0xffu;
+        if (g_crt_mb_cur_max > 1)
+        {
+            return (g_crt_pctype[byte] & mask) != 0;
+        }
+        return (static_cast<unsigned>(static_cast<u8>(g_crt_pctype[byte])) & mask) != 0;
+    };
+
+    auto hex_adjust = [&](unsigned unit) -> unsigned
+    {
+        if ((unit & 0xff00u) == 0 && narrow_class(unit, 4u))
+        {
+            return unit;
+        }
+        if (unit < 0x100u && (kWctype[unit] & 2u) != 0)
+        {
+            return unit - 0x27u;
+        }
+        return unit - 7u;
+    };
+
+    auto get_unit = [&]() -> unsigned
+    {
+        if ((file->flag & 0x40) != 0)
+        {
+            file->cnt -= 2;
+            if (file->cnt < 0)
+            {
+                return 0xffffu;
+            }
+            const auto unit = *reinterpret_cast<char16_t*>(file->ptr);
+            file->ptr += 2;
+            return unit;
+        }
+        file->cnt -= 1;
+        if (file->cnt < 0)
+        {
+            return 0xffffu;
+        }
+        const auto byte = static_cast<unsigned char>(*file->ptr);
+        file->ptr += 1;
+        return byte;
+    };
+
+    auto unget_unit = [&](unsigned unit)
+    {
+        if ((unit & 0xffffu) == 0xffffu)
+        {
+            return;
+        }
+        const int flags = file->flag;
+        if ((flags & 1) == 0 && ((flags & 0x80) == 0 || (flags & 2) != 0))
+        {
+            return;
+        }
+        if (file->base == nullptr)
+        {
+            return;
+        }
+        if ((flags & 0x40) != 0)
+        {
+            if (file->ptr < file->base + 2)
+            {
+                if (file->cnt != 0 || file->bufsiz < 2)
+                {
+                    return;
+                }
+                file->ptr = file->base + 2;
+            }
+            file->ptr -= 2;
+            if (*reinterpret_cast<char16_t*>(file->ptr) != static_cast<char16_t>(unit))
+            {
+                file->ptr += 2;
+                return;
+            }
+            file->cnt += 2;
+            file->flag = (file->flag & ~0x10) | 1;
+            return;
+        }
+        if (file->ptr <= file->base)
+        {
+            return;
+        }
+        file->ptr -= 1;
+        *file->ptr = static_cast<char>(unit);
+        file->cnt += 1;
+        file->flag = (file->flag & ~0x10) | 1;
+    };
+
+    auto skip_white = [&]() -> unsigned
+    {
+        unsigned next = 0;
+        do
+        {
+            charcount += 1;
+            next = get_unit();
+        } while (is_wspace(next));
+        return next;
+    };
+
+    auto wctomb_byte = [&](char* dest, unsigned unit) -> int
+    {
+        if (dest == nullptr)
+        {
+            return 0;
+        }
+        if (unit > 0xffu)
+        {
+            errno = 42;
+            return -1;
+        }
+        *dest = static_cast<char>(unit);
+        return 1;
+    };
+
+    auto assign_float = [&](int kind, void* dest, const char16_t* text)
+    {
+        if (g_cfltcvt_tab[2] == 0x0016F08Cu)
+        {
+            std::exit(2);
+        }
+        char narrow[360];
+        int length = 0;
+        while (text[length] != 0 && length < 358)
+        {
+            narrow[length] = static_cast<char>(text[length] & 0xff);
+            length += 1;
+        }
+        narrow[length] = 0;
+        if (kind == 0)
+        {
+            float value = 0.0f;
+            std::from_chars(narrow, narrow + length, value);
+            *static_cast<float*>(dest) = value;
+        }
+        else
+        {
+            double value = 0.0;
+            std::from_chars(narrow, narrow + length, value);
+            *static_cast<double*>(dest) = value;
+        }
+    };
+
+    std::va_list args;
+    va_copy(args, argptr);
+
+    auto finish_field = [&]() -> bool
+    {
+        matched = static_cast<unsigned char>(matched + 1);
+        fmt += 1;
+        if ((ch & 0xffffu) == 0xffffu && (*fmt != '%' || fmt[1] != 'n'))
+        {
+            return false;
+        }
+        return true;
+    };
+
+    while (*fmt != 0)
+    {
+        if (is_wspace(*fmt))
+        {
+            charcount -= 1;
+            ch = skip_white();
+            unget_unit(ch);
+            do
+            {
+                fmt += 1;
+            } while (is_wspace(*fmt));
+            continue;
+        }
+
+        if (*fmt != '%')
+        {
+            charcount += 1;
+            ch = get_unit();
+            const char16_t literal = *fmt;
+            fmt += 1;
+            if (literal != static_cast<char16_t>(ch))
+            {
+                unget_unit(ch);
+                break;
+            }
+            if ((ch & 0xffffu) == 0xffffu && (*fmt != '%' || fmt[1] != 'n'))
+            {
+                break;
+            }
+            continue;
+        }
+
+        int width = 0;
+        int widthset = 0;
+        signed char suppress = 0;
+        signed char size_count = 1;
+        signed char wide_count = 0;
+        int i64 = 0;
+        bool spec_done = false;
+        while (!spec_done)
+        {
+            fmt += 1;
+            const unsigned unit = *fmt;
+            if ((unit & 0xff00u) == 0 && narrow_class(unit, 4u))
+            {
+                widthset += 1;
+                width = static_cast<int>(unit - 0x30u) + width * 10;
+                continue;
+            }
+            if (unit == 'N' || unit == 'F')
+            {
+                continue;
+            }
+            if (unit == '*')
+            {
+                suppress = static_cast<signed char>(suppress + 1);
+                continue;
+            }
+            if (unit == 'I')
+            {
+                const char16_t next = fmt[1];
+                if (next == '6' && fmt[2] == '4')
+                {
+                    i64 += 1;
+                    fmt += 2;
+                    continue;
+                }
+                if (next == '3' && fmt[2] == '2')
+                {
+                    fmt += 2;
+                    continue;
+                }
+                if (next == 'd' || next == 'i' || next == 'o' || next == 'x' || next == 'X')
+                {
+                    continue;
+                }
+                spec_done = true;
+                continue;
+            }
+            if (unit == 'L')
+            {
+                size_count = static_cast<signed char>(size_count + 1);
+                continue;
+            }
+            if (unit == 'h')
+            {
+                size_count = static_cast<signed char>(size_count - 1);
+                wide_count = static_cast<signed char>(wide_count - 1);
+                continue;
+            }
+            if (unit == 'l')
+            {
+                size_count = static_cast<signed char>(size_count + 1);
+                wide_count = static_cast<signed char>(wide_count + 1);
+                continue;
+            }
+            if (unit == 'w')
+            {
+                wide_count = static_cast<signed char>(wide_count + 1);
+                continue;
+            }
+            spec_done = true;
+        }
+
+        if (wide_count == 0)
+        {
+            if (*fmt == 'S' || *fmt == 'C')
+            {
+                wide_count = -1;
+            }
+            else
+            {
+                wide_count = 1;
+            }
+        }
+
+        const unsigned spec = static_cast<unsigned>(*fmt) | 0x20u;
+        if (spec != 'n')
+        {
+            if (spec == 'c' || spec == '{')
+            {
+                charcount += 1;
+                ch = get_unit();
+            }
+            else
+            {
+                ch = skip_white();
+            }
+        }
+        if (widthset != 0 && width == 0)
+        {
+            unget_unit(ch);
+            break;
+        }
+
+        const bool is_float = spec == 'e' || spec == 'f' || spec == 'g';
+        const bool is_int = spec == 'd' || spec == 'i' || spec == 'o' || spec == 'u' || spec == 'x' || spec == 'p';
+        if (spec == 'n')
+        {
+            if (suppress == 0)
+            {
+                void* dest = va_arg(args, void*);
+                if (i64 != 0)
+                {
+                    *reinterpret_cast<std::uint64_t*>(dest) = 0;
+                }
+                else if (size_count != 0)
+                {
+                    *reinterpret_cast<int*>(dest) = charcount;
+                }
+                else
+                {
+                    *reinterpret_cast<u16*>(dest) = static_cast<u16>(charcount);
+                }
+            }
+            if (!finish_field())
+            {
+                break;
+            }
+            continue;
+        }
+
+        if (is_int)
+        {
+            int started = 0;
+            bool done = false;
+            signed char negative = 0;
+            u32 bits = 0;
+            std::uint64_t wide_bits = 0;
+            const bool radix_prefix = spec == 'x' || spec == 'i';
+            unsigned number_spec = spec;
+            if (spec == 'p')
+            {
+                size_count = 1;
+            }
+            if (spec == 'i')
+            {
+                number_spec = 'd';
+            }
+            if (ch == '-' || ch == '+')
+            {
+                if (ch == '-')
+                {
+                    negative = 1;
+                }
+                width -= 1;
+                if (width == 0 && widthset != 0)
+                {
+                    done = true;
+                }
+                else
+                {
+                    charcount += 1;
+                    ch = get_unit();
+                }
+            }
+            if (radix_prefix && ch == '0')
+            {
+                charcount += 1;
+                ch = get_unit();
+                if (ch == 'x' || ch == 'X')
+                {
+                    charcount += 1;
+                    ch = get_unit();
+                    if (widthset != 0)
+                    {
+                        width -= 2;
+                        if (width < 1)
+                        {
+                            done = true;
+                        }
+                    }
+                    number_spec = 'x';
+                }
+                else
+                {
+                    started = 1;
+                    if (number_spec == 'x')
+                    {
+                        charcount -= 1;
+                        unget_unit(ch);
+                        ch = '0';
+                    }
+                    else
+                    {
+                        if (widthset != 0)
+                        {
+                            width -= 1;
+                            if (width == 0)
+                            {
+                                done = true;
+                            }
+                        }
+                        number_spec = 'o';
+                    }
+                }
+            }
+            while (!done)
+            {
+                const bool hex = number_spec == 'x' || number_spec == 'p';
+                bool take = false;
+                if (hex)
+                {
+                    if (narrow_class(ch, 0x80u))
+                    {
+                        if (i64 != 0)
+                        {
+                            wide_bits <<= 4;
+                        }
+                        else
+                        {
+                            bits <<= 4;
+                        }
+                        ch = hex_adjust(ch);
+                        take = true;
+                    }
+                }
+                else if (narrow_class(ch, 4u))
+                {
+                    if (number_spec == 'o')
+                    {
+                        if (ch < 0x38u)
+                        {
+                            if (i64 != 0)
+                            {
+                                wide_bits <<= 3;
+                            }
+                            else
+                            {
+                                bits <<= 3;
+                            }
+                            take = true;
+                        }
+                    }
+                    else
+                    {
+                        if (i64 != 0)
+                        {
+                            wide_bits *= 10u;
+                        }
+                        else
+                        {
+                            bits *= 10u;
+                        }
+                        take = true;
+                    }
+                }
+                if (!take)
+                {
+                    done = true;
+                    charcount -= 1;
+                    unget_unit(ch);
+                    break;
+                }
+                started += 1;
+                const unsigned digit = (ch & 0xffffu) - 0x30u;
+                if (i64 != 0)
+                {
+                    wide_bits += digit;
+                }
+                else
+                {
+                    bits += digit;
+                }
+                if (widthset != 0)
+                {
+                    width -= 1;
+                    if (width == 0)
+                    {
+                        done = true;
+                        break;
+                    }
+                }
+                charcount += 1;
+                ch = get_unit();
+            }
+            if (number_spec == 0x46u)
+            {
+                started = 0;
+            }
+            if (started == 0)
+            {
+                break;
+            }
+            if (negative != 0)
+            {
+                if (i64 != 0)
+                {
+                    wide_bits = static_cast<std::uint64_t>(-static_cast<std::int64_t>(wide_bits));
+                }
+                else
+                {
+                    bits = static_cast<u32>(-static_cast<int>(bits));
+                }
+            }
+            if (suppress == 0)
+            {
+                void* dest = va_arg(args, void*);
+                assigned += 1;
+                if (i64 != 0)
+                {
+                    *reinterpret_cast<std::uint64_t*>(dest) = wide_bits;
+                }
+                else if (size_count != 0)
+                {
+                    *reinterpret_cast<u32*>(dest) = bits;
+                }
+                else
+                {
+                    *reinterpret_cast<u16*>(dest) = static_cast<u16>(bits);
+                }
+            }
+            if (!finish_field())
+            {
+                break;
+            }
+            continue;
+        }
+
+        if (is_float)
+        {
+            int started = 0;
+            int float_len = 0;
+            char16_t float_buf[352];
+            if (ch == '-' || ch == '+')
+            {
+                if (ch == '-')
+                {
+                    float_buf[float_len] = '-';
+                    float_len += 1;
+                }
+                width -= 1;
+                charcount += 1;
+                ch = get_unit();
+            }
+            if (widthset == 0 || width > 0x15d)
+            {
+                width = 0x15d;
+            }
+            auto take_digits = [&]()
+            {
+                while ((ch & 0xff00u) == 0 && narrow_class(ch, 4u))
+                {
+                    const int before = width;
+                    width -= 1;
+                    if (before == 0)
+                    {
+                        break;
+                    }
+                    started += 1;
+                    float_buf[float_len] = static_cast<char16_t>(ch);
+                    float_len += 1;
+                    charcount += 1;
+                    ch = get_unit();
+                }
+            };
+            take_digits();
+            char16_t decimal = 0;
+            if (g_crt_mb_cur_max != 0)
+            {
+                decimal = '.';
+            }
+            if (ch == static_cast<unsigned>(decimal))
+            {
+                const int before = width;
+                width -= 1;
+                if (before != 0)
+                {
+                    charcount += 1;
+                    ch = get_unit();
+                    float_buf[float_len] = decimal;
+                    float_len += 1;
+                    take_digits();
+                }
+            }
+            if (started != 0 && (ch == 'e' || ch == 'E'))
+            {
+                const int before = width;
+                width -= 1;
+                if (before != 0)
+                {
+                    float_buf[float_len] = 'e';
+                    float_len += 1;
+                    charcount += 1;
+                    ch = get_unit();
+                    if (ch == '-' || ch == '+')
+                    {
+                        const unsigned sign = ch;
+                        const int sign_before = width;
+                        width -= 1;
+                        if (sign_before != 0)
+                        {
+                            if (sign == '-')
+                            {
+                                float_buf[float_len] = '-';
+                                float_len += 1;
+                            }
+                            charcount += 1;
+                            ch = get_unit();
+                        }
+                        else
+                        {
+                            width = 0;
+                            if (sign == '-')
+                            {
+                                float_buf[float_len] = '-';
+                                float_len += 1;
+                            }
+                        }
+                    }
+                    take_digits();
+                }
+            }
+            charcount -= 1;
+            unget_unit(ch);
+            if (started == 0)
+            {
+                break;
+            }
+            if (suppress != 0)
+            {
+                if (!finish_field())
+                {
+                    break;
+                }
+                continue;
+            }
+            assigned += 1;
+            float_buf[float_len] = 0;
+            const int bytes = float_len * 2 + 2;
+            void* block = std::malloc(static_cast<std::size_t>(bytes));
+            if (block == nullptr)
+            {
+                break;
+            }
+            std::memcpy(block, float_buf, static_cast<std::size_t>(bytes));
+            void* dest = va_arg(args, void*);
+            assign_float(static_cast<int>(size_count) - 1, dest, static_cast<char16_t*>(block));
+            fn_167f2e(block);
+            if (!finish_field())
+            {
+                break;
+            }
+            continue;
+        }
+
+        if (spec == 'c' || spec == 's' || spec == '{')
+        {
+            signed char wide_out = 0;
+            unsigned char invert = 0;
+            if (spec == 'c' && widthset == 0)
+            {
+                widthset = 1;
+                width += 1;
+            }
+            if (wide_count > 0)
+            {
+                wide_out = 1;
+            }
+            if (spec == '{')
+            {
+                if (scan == nullptr)
+                {
+                    scan = static_cast<unsigned char*>(std::malloc(0x2000));
+                    if (scan == nullptr)
+                    {
+                        break;
+                    }
+                }
+                std::memset(scan, 0, 0x2000);
+                const char16_t* cursor = fmt + 1;
+                unsigned prev = 0;
+                if (*cursor == '^')
+                {
+                    invert = 0xff;
+                    cursor += 1;
+                }
+                if (*cursor == ']')
+                {
+                    prev = ']';
+                    scan[0x5du >> 3] = static_cast<unsigned char>(scan[0x5du >> 3] | (1u << (0x5du & 7u)));
+                    cursor += 1;
+                }
+                bool closed = false;
+                while (*cursor != 0)
+                {
+                    const unsigned cur = *cursor;
+                    if (cur == ']')
+                    {
+                        closed = true;
+                        break;
+                    }
+                    cursor += 1;
+                    if (cur == '-' && prev != 0 && *cursor != ']' && *cursor != 0)
+                    {
+                        const unsigned end = *cursor;
+                        cursor += 1;
+                        unsigned low = prev;
+                        unsigned high = end;
+                        if (low > high)
+                        {
+                            const unsigned swap = low;
+                            low = high;
+                            high = swap;
+                        }
+                        for (unsigned unit = low;; unit += 1)
+                        {
+                            scan[unit >> 3] = static_cast<unsigned char>(scan[unit >> 3] | (1u << (unit & 7u)));
+                            if (unit == high)
+                            {
+                                break;
+                            }
+                        }
+                        prev = 0;
+                        continue;
+                    }
+                    prev = cur;
+                    scan[cur >> 3] = static_cast<unsigned char>(scan[cur >> 3] | (1u << (cur & 7u)));
+                }
+                if (!closed)
+                {
+                    break;
+                }
+                fmt = cursor;
+            }
+
+            char* write = nullptr;
+            char* mark = nullptr;
+            if (suppress == 0)
+            {
+                write = static_cast<char*>(va_arg(args, void*));
+            }
+            mark = write;
+            charcount -= 1;
+            unget_unit(ch);
+            while (true)
+            {
+                if (widthset != 0)
+                {
+                    const int before = width;
+                    width -= 1;
+                    if (before == 0)
+                    {
+                        break;
+                    }
+                }
+                charcount += 1;
+                ch = get_unit();
+                if ((ch & 0xffffu) == 0xffffu)
+                {
+                    charcount -= 1;
+                    unget_unit(ch);
+                    break;
+                }
+                if (spec != 'c')
+                {
+                    if (spec == 's')
+                    {
+                        if ((ch >= 9u && ch <= 0x0du) || ch == 0x20u)
+                        {
+                            charcount -= 1;
+                            unget_unit(ch);
+                            break;
+                        }
+                    }
+                    else
+                    {
+                        const unsigned bit = 1u << (ch & 7u);
+                        const int table_byte = static_cast<signed char>(scan[ch >> 3]);
+                        const int flipped = table_byte ^ static_cast<signed char>(invert);
+                        if ((flipped & static_cast<int>(bit)) == 0)
+                        {
+                            charcount -= 1;
+                            unget_unit(ch);
+                            break;
+                        }
+                    }
+                }
+                if (suppress != 0)
+                {
+                    mark += 2;
+                    continue;
+                }
+                if (wide_out == 0)
+                {
+                    const int produced = wctomb_byte(write, ch);
+                    write += produced;
+                }
+                else
+                {
+                    *reinterpret_cast<char16_t*>(write) = static_cast<char16_t>(ch);
+                    write += 2;
+                }
+            }
+            if (write == mark)
+            {
+                break;
+            }
+            if (suppress == 0)
+            {
+                assigned += 1;
+                if (spec != 'c')
+                {
+                    if (wide_out == 0)
+                    {
+                        *write = 0;
+                    }
+                    else
+                    {
+                        *reinterpret_cast<char16_t*>(write) = 0;
+                    }
+                }
+            }
+            if (!finish_field())
+            {
+                break;
+            }
+            continue;
+        }
+
+        if (*fmt != static_cast<char16_t>(ch))
+        {
+            unget_unit(ch);
+            break;
+        }
+        matched = static_cast<unsigned char>(matched - 1);
+        if (!finish_field())
+        {
+            break;
+        }
+    }
+
+    if (scan != nullptr)
+    {
+        fn_167f2e(scan);
+    }
+    va_end(args);
+    if ((ch & 0xffffu) == 0xffffu && assigned == 0 && matched == 0)
+    {
+        return -1;
+    }
+    return assigned;
 }
 
 int fn_16afdd()

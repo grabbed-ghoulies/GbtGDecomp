@@ -4689,6 +4689,213 @@ int fn_15118e(const XapiAnsiString* name, u32 bytes_per_cluster)
     return 1;
 #endif
 }
+
+int xapi_fs_ntstatus(const std::filesystem::path& opened, const std::error_code& ec)
+{
+    constexpr int kNameNotFound = static_cast<int>(0xC0000034u);
+    constexpr int kPathNotFound = static_cast<int>(0xC000003Au);
+    constexpr int kNotDirectory = static_cast<int>(0xC0000103u);
+    constexpr int kAccessDenied = static_cast<int>(0xC0000022u);
+    constexpr int kDirNotEmpty = static_cast<int>(0xC0000101u);
+    constexpr int kInvalid = static_cast<int>(0xC000000Du);
+    constexpr int kUnsuccessful = static_cast<int>(0xC0000001u);
+
+    if (!ec)
+    {
+        return 0;
+    }
+    if (ec == std::errc::no_such_file_or_directory || ec.value() == 2 || ec.value() == 3)
+    {
+        std::filesystem::path leaf = opened;
+        if (leaf.filename().empty())
+        {
+            leaf = leaf.parent_path();
+        }
+        std::error_code parent_ec;
+        const auto parent = leaf.parent_path();
+        if (!parent.empty() && !std::filesystem::exists(parent, parent_ec))
+        {
+            return kPathNotFound;
+        }
+        return kNameNotFound;
+    }
+    if (ec == std::errc::not_a_directory || ec.value() == 267)
+    {
+        return kNotDirectory;
+    }
+    if (ec == std::errc::permission_denied || ec.value() == 5)
+    {
+        return kAccessDenied;
+    }
+    if (ec == std::errc::directory_not_empty || ec.value() == 145)
+    {
+        return kDirNotEmpty;
+    }
+    if (ec == std::errc::invalid_argument || ec.value() == 123)
+    {
+        return kInvalid;
+    }
+    return kUnsuccessful;
+}
+
+int xapi_delete_file_entry(const std::filesystem::path& path)
+{
+    // 0x001514B2 file arm. FILE_ATTRIBUTE_READONLY (bit 0) is cleared with
+    // NtSetInformationFile class 4 before FileDispositionInformation. The
+    // attribute dword keeps bits 0x3126 and sets FILE_ATTRIBUTE_NORMAL.
+    // A failed attribute write skips the delete and returns that status.
+    std::error_code ec;
+    const auto perms = std::filesystem::status(path, ec).permissions();
+    if (ec)
+    {
+        return xapi_fs_ntstatus(path, ec);
+    }
+    if (perms != std::filesystem::perms::unknown &&
+        (perms & std::filesystem::perms::owner_write) == std::filesystem::perms::none)
+    {
+        std::filesystem::permissions(path, perms | std::filesystem::perms::owner_write, ec);
+        if (ec)
+        {
+            return static_cast<int>(0xC0000022u);
+        }
+    }
+
+    ec.clear();
+    if (!std::filesystem::remove(path, ec) || ec)
+    {
+        if (!ec)
+        {
+            return static_cast<int>(0xC0000034u);
+        }
+        return xapi_fs_ntstatus(path, ec);
+    }
+    return 0;
+}
+
+int xapi_delete_directory_tree(const std::filesystem::path& dir)
+{
+    // 0x001514B2. NtQueryDirectoryFile on the open directory, class 1
+    // (FileDirectoryInformation), 0x146 bytes, one entry, a null pattern,
+    // restart on the first call. Each name is opened under that directory.
+    // A directory (attribute bit 0x10) is walked by calling this again.
+    // A file with the readonly bit is given FILE_ATTRIBUTE_NORMAL first.
+    // FileDispositionInformation then deletes the child. The first failure
+    // closes the child and returns without deleting this directory.
+    // STATUS_NO_MORE_FILES (0x80000006) or STATUS_NO_SUCH_FILE (0xC000000F)
+    // ends the scan. This directory is then marked normal (readonly
+    // stripped; that status is ignored) and deleted. The disposition
+    // status is the result.
+    std::error_code ec;
+    std::filesystem::directory_iterator it(dir, ec);
+    if (ec)
+    {
+        return xapi_fs_ntstatus(dir, ec);
+    }
+
+    const std::filesystem::directory_iterator end;
+    while (it != end)
+    {
+        const std::filesystem::path child = it->path();
+        const std::filesystem::path name = child.filename();
+        std::error_code type_ec;
+        const auto sym = it->symlink_status(type_ec);
+        const bool child_dir = !type_ec && std::filesystem::is_directory(sym);
+        std::error_code step_ec;
+        it.increment(step_ec);
+
+        if (name != "." && name != "..")
+        {
+            int status = 0;
+            if (type_ec)
+            {
+                status = xapi_fs_ntstatus(child, type_ec);
+            }
+            else if (child_dir)
+            {
+                status = xapi_delete_directory_tree(child);
+            }
+            else
+            {
+                status = xapi_delete_file_entry(child);
+            }
+            if (status < 0)
+            {
+                return status;
+            }
+        }
+        if (step_ec)
+        {
+            return xapi_fs_ntstatus(dir, step_ec);
+        }
+    }
+    it = std::filesystem::directory_iterator();
+
+    const auto perms = std::filesystem::status(dir, ec).permissions();
+    if (!ec && perms != std::filesystem::perms::unknown &&
+        (perms & std::filesystem::perms::owner_write) == std::filesystem::perms::none)
+    {
+        std::filesystem::permissions(dir, perms | std::filesystem::perms::owner_write, ec);
+    }
+    ec.clear();
+    if (!std::filesystem::remove(dir, ec) || ec)
+    {
+        if (!ec)
+        {
+            return static_cast<int>(0xC0000034u);
+        }
+        return xapi_fs_ntstatus(dir, ec);
+    }
+    return 0;
+}
+
+int fn_15162f(const char* path, void* root)
+{
+    // Xbox 0x0015162F
+    // Called from 0x0014C972 when the save name in SaveMeta.xbx matches.
+    // RtlInitAnsiString on the path, then NtOpenFile with that ANSI string,
+    // RootDirectory = param_2, OBJ_CASE_INSENSITIVE, access
+    // FILE_LIST_DIRECTORY|FILE_WRITE_ATTRIBUTES|DELETE|SYNCHRONIZE (0x110101),
+    // share read|write, and FILE_DIRECTORY_FILE|FILE_SYNCHRONOUS_IO_NONALERT|
+    // FILE_OPEN_FOR_BACKUP_INTENT (0x4021). Success hands the handle and a
+    // 0x148-byte directory buffer to 0x001514B2, then NtClose. The NTSTATUS
+    // is returned as-is; the caller maps it with RtlNtStatusToDosError.
+    // A null root is an absolute path. The port has no NT directory-handle
+    // table, so a non-null root is STATUS_INVALID_HANDLE. A null or empty
+    // name is STATUS_OBJECT_NAME_INVALID. A file is STATUS_NOT_A_DIRECTORY
+    // and is left in place.
+    constexpr int kInvalidHandle = static_cast<int>(0xC0000008u);
+    constexpr int kNameInvalid = static_cast<int>(0xC0000033u);
+    constexpr int kNotDirectory = static_cast<int>(0xC0000103u);
+
+    if (root != nullptr)
+    {
+        return kInvalidHandle;
+    }
+    if (path == nullptr || path[0] == '\0')
+    {
+        return kNameInvalid;
+    }
+
+    const std::filesystem::path fs_path(path);
+    std::error_code ec;
+    if (std::filesystem::is_directory(fs_path, ec))
+    {
+        return xapi_delete_directory_tree(fs_path);
+    }
+    if (!ec)
+    {
+        std::error_code exists_ec;
+        if (std::filesystem::exists(fs_path, exists_ec) && !exists_ec)
+        {
+            return kNotDirectory;
+        }
+    }
+    if (!ec)
+    {
+        ec = std::make_error_code(std::errc::no_such_file_or_directory);
+    }
+    return xapi_fs_ntstatus(fs_path, ec);
+}
 } // namespace
 
 void load_scene_contents(Game& g, std::string_view name)

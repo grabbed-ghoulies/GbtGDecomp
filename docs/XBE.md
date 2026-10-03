@@ -243,3 +243,4 @@ Named functions: [`docs/generated/ghidra_functions.txt`](generated/ghidra_functi
 | `0x0014E872` | `fn_14e872` | scene |
 | `0x0014EFED` | `fn_14efed` | scene |
 | `0x0015040D` | `fn_15040d` | scene |
+| `0x0015059A` | `fn_15059a` | scene |

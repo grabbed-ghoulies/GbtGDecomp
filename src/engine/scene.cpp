@@ -6572,6 +6572,28 @@ u32 fn_15040d()
     return 0;
 }
 
+std::int64_t* fn_15059a(std::int64_t* timeout, u32 milliseconds)
+{
+    // Xbox 0x0015059A
+    // stdcall. Milliseconds become a relative NT timeout: an unsigned
+    // 32x32 multiply by 10000 (100-nanosecond units per millisecond) stored
+    // as a two's-complement 64-bit negation. 0xFFFFFFFF is an infinite wait:
+    // the buffer is left untouched and the result is null, which the kernel
+    // treats as no timeout. 0x001506C1 passes the pointer as the timeout of
+    // NtWaitForSingleObjectEx (thunk 0x00202FDC, ordinal 234) with wait mode
+    // 1. 0x00150705 does the same for NtWaitForMultipleObjectsEx (thunk
+    // 0x00202FE0, ordinal 235). 0x00150785 passes it to KeDelayExecutionThread
+    // (thunk 0x00202FE4, ordinal 99) and, when the result is null, substitutes
+    // a local interval of 0x8000000000000000.
+    if (milliseconds == 0xFFFFFFFFu)
+    {
+        return nullptr;
+    }
+    const u64 ticks = static_cast<u64>(milliseconds) * 10000u;
+    *timeout = -static_cast<std::int64_t>(ticks);
+    return timeout;
+}
+
 // OBJECT_STRING / ANSI_STRING. Length is the byte count of the object name.
 struct XapiAnsiString
 {

@@ -1756,4 +1756,46 @@ u32* fn_171bb0(u32 device_780, u32* packet)
     return packet;
 }
 
+u32 fn_176ee0(const u32* device, const u32* record, u32 gpu_position)
+{
+    // Xbox 0x00176EE0
+    // Fastcall, ret 4. D3D_BlockOnTime (0x00177450) is the caller. ecx is
+    // the device at DAT_00181E08, edx is an 8-byte time slot from the
+    // table at device+0x60 (the pointer 0x001770A0 returns), and the
+    // stack argument is the GPU position from 0x001771A0. eax is the
+    // byte distance. A null device or record would fault on Xbox; the
+    // port returns 0.
+    //
+    // device+0 is the push-buffer put pointer. device+0x40 is the wrap
+    // bias 0x001775C0 stores as put-base when the ring wraps. A position
+    // at or below put belongs to the generation after that wrap, so the
+    // bias is added before the subtract. The slot's recorded put lives
+    // at slot+4 (written by 0x001773A0). The result is how far that
+    // address sits ahead of the GPU. BlockOnTime compares it with
+    // 0x2000. A negative difference means the GPU has already passed
+    // the address, and the function returns 0.
+    if (device == nullptr || record == nullptr)
+    {
+        return 0;
+    }
+
+    const u32 put = device[0];
+    const u32 wrap = device[0x10];
+    u32 recorded = record[1];
+    if (gpu_position <= put)
+    {
+        gpu_position += wrap;
+    }
+    if (recorded <= put)
+    {
+        recorded += wrap;
+    }
+    const u32 distance = recorded - gpu_position;
+    if (static_cast<i32>(distance) < 0)
+    {
+        return 0;
+    }
+    return distance;
+}
+
 } // namespace gbtg

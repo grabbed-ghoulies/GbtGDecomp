@@ -6046,6 +6046,15 @@ bool fn_14efed(void* heap, u32 flags, void* block)
 #endif
 }
 
+// Kernel LaunchDataPage (thunk 0x00202EDC, ordinal 164). 0x0015028C publishes
+// the 0x1000-byte page. 0x0015040D reads it on the next entry.
+u8 g_xapi_launch_page[0x1000] = {};
+bool g_xapi_launch_page_set = false;
+
+// \??\D: target. OBJECT_STRING at 0x0032CED8 is "\\??\\D:" (length 6).
+// NtQuerySymbolicLinkObject failure uses "\\Device\\Cdrom0".
+char g_xapi_d_target[0x208] = "\\Device\\Cdrom0";
+
 u32 fn_15028c(const char* path, const void* launch_data, u32 flags, u32 launch_type)
 {
     // Xbox 0x0015028C
@@ -6062,11 +6071,10 @@ u32 fn_15028c(const char* path, const void* launch_data, u32 flags, u32 launch_t
     // except for a D:\ launch with no launch data. The expanded path has
     // to fit in 0x168 bytes. Success calls the object at fs:[0x20]+0x250
     // vfunc +0x14 with (2, 0), then HalReturnToFirmware(2). Any other
-    // path returns 0x57. The port keeps the page and returns
+    //     path returns 0x57. The port keeps the page for 0x0015040D and returns
     // RtlNtStatusToDosError(0).
     constexpr u32 kTitleId = 0x4D530053u;
     constexpr char kCdrom[] = "\\Device\\Cdrom0";
-    static u8 launch_page[0x1000];
 
     const u32 stored_type = launch_data != nullptr ? launch_type : 0xFFFFFFFFu;
 
@@ -6088,12 +6096,12 @@ u32 fn_15028c(const char* path, const void* launch_data, u32 flags, u32 launch_t
 
     auto fill_page = [&](const char* image, const char* prefix, const char* alt_tail)
     {
-        std::memset(launch_page, 0, sizeof(launch_page));
-        std::memcpy(launch_page + 0, &stored_type, 4);
-        std::memcpy(launch_page + 4, &kTitleId, 4);
+        std::memset(g_xapi_launch_page, 0, sizeof(g_xapi_launch_page));
+        std::memcpy(g_xapi_launch_page + 0, &stored_type, 4);
+        std::memcpy(g_xapi_launch_page + 4, &kTitleId, 4);
         if (image != nullptr)
         {
-            char* dest = reinterpret_cast<char*>(launch_page + 8);
+            char* dest = reinterpret_cast<char*>(g_xapi_launch_page + 8);
             if (prefix != nullptr)
             {
                 const int n = copy_n(dest, prefix, 0x207);
@@ -6107,7 +6115,7 @@ u32 fn_15028c(const char* path, const void* launch_data, u32 flags, u32 launch_t
         }
         if (stored_type != 0xFFFFFFFFu && launch_data != nullptr)
         {
-            std::memcpy(launch_page + 0x400, launch_data, 0xC00);
+            std::memcpy(g_xapi_launch_page + 0x400, launch_data, 0xC00);
         }
         if (alt_tail != nullptr)
         {
@@ -6115,7 +6123,7 @@ u32 fn_15028c(const char* path, const void* launch_data, u32 flags, u32 launch_t
             const int n2 = static_cast<int>(std::strlen(alt_tail));
             if (n2 + (n1 + 1) + 8 < 0x1EC)
             {
-                u8* rec = launch_page + 0x214;
+                u8* rec = g_xapi_launch_page + 0x214;
                 const u16 n1_nul = static_cast<u16>(n1 + 1);
                 rec[0] = 1;
                 rec[1] = 0;
@@ -6125,12 +6133,13 @@ u32 fn_15028c(const char* path, const void* launch_data, u32 flags, u32 launch_t
                 if (stored_type == 0xFFFFFFFFu)
                 {
                     const u32 zero = 0;
-                    std::memcpy(launch_page, &zero, 4);
+                    std::memcpy(g_xapi_launch_page, &zero, 4);
                 }
                 std::memcpy(rec + 8, kCdrom, static_cast<size_t>(n1) + 1);
                 std::memcpy(rec + 8 + n1 + 1, alt_tail, static_cast<size_t>(n2) + 1);
             }
         }
+        g_xapi_launch_page_set = true;
     };
 
     if (path == nullptr)
@@ -6177,6 +6186,389 @@ u32 fn_15028c(const char* path, const void* launch_data, u32 flags, u32 launch_t
         return 0x57;
     }
     fill_page(expanded.c_str(), nullptr, tail);
+    return 0;
+}
+
+bool xapi_user_leaf_path(char* dst, int cap, const char* leaf)
+{
+    // 0x0014FE7D. _snprintf(dst, cap, "t:\\$u\\%s", leaf). A negative count
+    // stores last-error 0x7A and returns false.
+    const char prefix[] = "t:\\$u\\";
+    int n = 0;
+    for (const char* s = prefix; *s != '\0'; ++s)
+    {
+        if (n + 1 >= cap)
+        {
+            return false;
+        }
+        dst[n++] = *s;
+    }
+    if (leaf != nullptr)
+    {
+        for (const char* s = leaf; *s != '\0'; ++s)
+        {
+            if (n + 1 >= cap)
+            {
+                return false;
+            }
+            dst[n++] = *s;
+        }
+    }
+    if (n >= cap)
+    {
+        return false;
+    }
+    dst[n] = '\0';
+    return true;
+}
+
+bool xapi_read_capped(const char* path, std::string& out, size_t cap)
+{
+    std::ifstream in(path, std::ios::binary);
+    if (!in)
+    {
+        return false;
+    }
+    out.clear();
+    char buf[4096];
+    while (in)
+    {
+        in.read(buf, sizeof(buf));
+        const std::streamsize n = in.gcount();
+        if (n <= 0)
+        {
+            break;
+        }
+        if (out.size() + static_cast<size_t>(n) > cap)
+        {
+            return false;
+        }
+        out.append(buf, static_cast<size_t>(n));
+    }
+    return static_cast<bool>(in) || in.eof();
+}
+
+void xapi_hmac_sha1(const u8* key, u32 key_len, const u8* data, u32 size, u8 out[20])
+{
+    XapiShaContext ctx;
+    xapi_hmac_begin(ctx, key, key_len);
+    if (data != nullptr && size != 0)
+    {
+        xapi_sha_update(ctx, data, size);
+    }
+    xapi_hmac_final(ctx, key, key_len, out);
+}
+
+int xapi_cached_xbe_status(const char* leaf, u32 title_id, u32 version)
+{
+    // Body of 0x0015010A, called as (leaf, title id, certificate version, 0).
+    // The fourth argument is unused. Builds t:\$u\contentmeta.xbx (0x0014FE7D
+    // / "t:\\$u\\%s") and opens it GENERIC_READ, share read, OPEN_EXISTING.
+    // 0x00151982 reads the header: magic 0x46534358 ('XSCF') at +0x14, size at
+    // +0x18 capped to 0x88. With the check flag set it HMACs XboxHDKey over the
+    // title id (0x0015187E, XcHMAC) and that key over the header from +0x14,
+    // plus any bytes past 0x88, and compares the digest to the first 0x14
+    // bytes. Flag bit 0 at +0x20 has to be set. The dword at +0x38 has to be
+    // 0x44. That many bytes are read from the file offset at +0x34. XcSHAInit /
+    // Update / Final (ordinals 335, 336, 337) of those bytes must match the
+    // 20 bytes at +0x3C. The first dword is a count of 1..16 versions; the
+    // certificate version has to be one of them. 0x0014FEC7 then opens
+    // t:\$u\<leaf>, reads 0x178 bytes of XBE header, seeks to
+    // CertificateAddress - BaseAddress, reads 0x1D0 certificate bytes, and the
+    // title id at +8 has to match. Failure returns 0x8007000D. Success returns 0.
+    constexpr int kFail = static_cast<int>(0x8007000Du);
+    constexpr u32 kMagic = 0x46534358u;
+
+    char meta_path[0x104];
+    if (!xapi_user_leaf_path(meta_path, 0x104, "contentmeta.xbx"))
+    {
+        return kFail;
+    }
+
+    std::string meta;
+    if (!xapi_read_capped(meta_path, meta, 0x100000) || meta.size() < 0x1Cu)
+    {
+        return kFail;
+    }
+
+    u32 hdr_size = 0;
+    std::memcpy(&hdr_size, meta.data() + 0x18, 4);
+    if (hdr_size < 0x1Cu)
+    {
+        return kFail;
+    }
+    const u32 covered = hdr_size < 0x88u ? hdr_size : 0x88u;
+    if (meta.size() < covered)
+    {
+        return kFail;
+    }
+
+    u8 header[0x88] = {};
+    std::memcpy(header, meta.data(), covered);
+    u32 magic = 0;
+    std::memcpy(&magic, header + 0x14, 4);
+    if (magic != kMagic)
+    {
+        return kFail;
+    }
+
+    u8 content_key[20];
+    u8 title_bytes[4];
+    std::memcpy(title_bytes, &title_id, 4);
+    xapi_hmac_sha1(kXboxHDKey, 0x10, title_bytes, 4, content_key);
+
+    XapiShaContext ctx;
+    xapi_hmac_begin(ctx, content_key, 0x14);
+    xapi_sha_update(ctx, header + 0x14, covered - 0x14u);
+    if (hdr_size > 0x88u)
+    {
+        if (meta.size() < hdr_size)
+        {
+            return kFail;
+        }
+        xapi_sha_update(ctx, reinterpret_cast<const u8*>(meta.data() + 0x88), hdr_size - 0x88u);
+    }
+    u8 digest[20];
+    xapi_hmac_final(ctx, content_key, 0x14, digest);
+    if (std::memcmp(digest, header, 20) != 0)
+    {
+        return kFail;
+    }
+    if ((header[0x20] & 1u) == 0)
+    {
+        return kFail;
+    }
+
+    u32 payload_off = 0;
+    u32 payload_size = 0;
+    std::memcpy(&payload_off, header + 0x34, 4);
+    std::memcpy(&payload_size, header + 0x38, 4);
+    if (payload_size != 0x44u)
+    {
+        return kFail;
+    }
+    if (static_cast<u64>(payload_off) + payload_size > meta.size())
+    {
+        return kFail;
+    }
+
+    const u8* payload = reinterpret_cast<const u8*>(meta.data() + payload_off);
+    xapi_sha_init(ctx);
+    xapi_sha_update(ctx, payload, 0x44);
+    u8 payload_digest[20];
+    xapi_sha_final(ctx, payload_digest);
+    if (std::memcmp(payload_digest, header + 0x3C, 20) != 0)
+    {
+        return kFail;
+    }
+
+    u32 count = 0;
+    std::memcpy(&count, payload, 4);
+    if (count == 0 || count > 0x10u)
+    {
+        return kFail;
+    }
+    bool found_version = false;
+    for (u32 i = 0; i < count; ++i)
+    {
+        u32 entry = 0;
+        std::memcpy(&entry, payload + 4u + i * 4u, 4);
+        if (entry == version)
+        {
+            found_version = true;
+            break;
+        }
+    }
+    if (!found_version)
+    {
+        return kFail;
+    }
+
+    char image_path[0x104];
+    if (leaf == nullptr || !xapi_user_leaf_path(image_path, 0x104, leaf))
+    {
+        return kFail;
+    }
+
+    std::ifstream image(image_path, std::ios::binary);
+    if (!image)
+    {
+        return kFail;
+    }
+    u8 xbe_header[0x178];
+    image.read(reinterpret_cast<char*>(xbe_header), sizeof(xbe_header));
+    if (image.gcount() != static_cast<std::streamsize>(sizeof(xbe_header)))
+    {
+        return kFail;
+    }
+    u32 image_base = 0;
+    u32 cert_addr = 0;
+    std::memcpy(&image_base, xbe_header + 0x104, 4);
+    std::memcpy(&cert_addr, xbe_header + 0x118, 4);
+    if (cert_addr < image_base)
+    {
+        return kFail;
+    }
+    image.seekg(static_cast<std::streamoff>(cert_addr - image_base), std::ios::beg);
+    u8 certificate[0x1D0];
+    image.read(reinterpret_cast<char*>(certificate), sizeof(certificate));
+    if (image.gcount() != static_cast<std::streamsize>(sizeof(certificate)))
+    {
+        return kFail;
+    }
+    u32 image_title = 0;
+    std::memcpy(&image_title, certificate + 8, 4);
+    if (image_title != title_id)
+    {
+        return kFail;
+    }
+    return 0;
+}
+
+u32 fn_15040d()
+{
+    // Xbox 0x0015040D
+    // Runs after the 0x1050-byte stack probe (0x00166F70). Certificate TitleID
+    // 0xFFFE0000 returns 0. Otherwise 0x0014FF93 reads LaunchDataPage. Bit 0
+    // at page+0x214 selects the device path at +0x21C and the type dword at
+    // +0x218, and the call returns 1. With the bit clear the type is the dword
+    // at the start of the page and the call returns 0. A type other than
+    // 0xFFFFFFFF copies 0xC00 bytes from page+0x400. A null page leaves the
+    // type at 0xFFFFFFFF. When that call returns 0, 0x0014FFF7 queries the
+    // \??\D: symbolic link into a 0x168 buffer, or copies "\\Device\\Cdrom0"
+    // when the query fails.
+    // XeImageFileName (thunk 0x00202FC8, ordinal 326) is an OBJECT_STRING.
+    // When its length is greater than the directory string, _strnicmp of that
+    // prefix has to be 0. The bytes after the prefix and one separator are
+    // the leaf. _snprintf of "%s%s" / "t:\\$u\\" / leaf into 0x168 bytes
+    // returns 0 from this function when the count is negative. 0x0015010A
+    // then checks that leaf against the certificate title id and version. A
+    // non-negative status calls 0x0015028C with the t:\$u path, the launch
+    // data pointer (null when the type is 0xFFFFFFFF), flags 0, and that type.
+    // Retail success reboots inside 0x0015028C. When 0x0014FF93 returned
+    // non-zero, IoDeleteSymbolicLink and IoCreateSymbolicLink (ordinals 69
+    // and 67) retarget \??\D: at the directory string. The port stores that
+    // target. Always returns 0.
+    constexpr u32 kUnsetTitleId = 0xFFFE0000u;
+    constexpr u32 kCertificateVersion = 2u;
+    constexpr char kXeImageFileName[] = "\\Device\\CdRom0\\default.xbe";
+    constexpr u16 kXeImageFileNameLength = static_cast<u16>(sizeof(kXeImageFileName) - 1u);
+    constexpr char kCdromFallback[] = "\\Device\\Cdrom0";
+
+    const u32 title_id = kCalcSigTitleId;
+    if (title_id == kUnsetTitleId)
+    {
+        return 0;
+    }
+
+    u32 launch_type = 0xFFFFFFFFu;
+    bool from_launch = false;
+    char dir[0x400];
+    dir[0] = '\0';
+    u8 launch_data[0xC00];
+    bool have_data = false;
+
+    if (g_xapi_launch_page_set)
+    {
+        if ((g_xapi_launch_page[0x214] & 1u) != 0)
+        {
+            std::memcpy(&launch_type, g_xapi_launch_page + 0x218, 4);
+            const char* page_path = reinterpret_cast<const char*>(g_xapi_launch_page + 0x21C);
+            size_t n = 0;
+            while (n + 1 < sizeof(dir) && page_path[n] != '\0')
+            {
+                dir[n] = page_path[n];
+                ++n;
+            }
+            dir[n] = '\0';
+            from_launch = true;
+        }
+        else
+        {
+            std::memcpy(&launch_type, g_xapi_launch_page, 4);
+        }
+        if (launch_type != 0xFFFFFFFFu)
+        {
+            std::memcpy(launch_data, g_xapi_launch_page + 0x400, 0xC00);
+            have_data = true;
+        }
+    }
+
+    if (!from_launch)
+    {
+        const char* src = g_xapi_d_target[0] != '\0' ? g_xapi_d_target : kCdromFallback;
+        size_t n = 0;
+        while (n + 1 < 0x168 && src[n] != '\0')
+        {
+            dir[n] = src[n];
+            ++n;
+        }
+        dir[n] = '\0';
+    }
+
+    const size_t dir_len = std::strlen(dir);
+    if (kXeImageFileNameLength > dir_len)
+    {
+        bool prefix = true;
+        for (size_t i = 0; i < dir_len; ++i)
+        {
+            unsigned char a = static_cast<unsigned char>(kXeImageFileName[i]);
+            unsigned char b = static_cast<unsigned char>(dir[i]);
+            if (a >= 'A' && a <= 'Z')
+            {
+                a = static_cast<unsigned char>(a + 32);
+            }
+            if (b >= 'A' && b <= 'Z')
+            {
+                b = static_cast<unsigned char>(b + 32);
+            }
+            if (a != b)
+            {
+                prefix = false;
+                break;
+            }
+        }
+        if (prefix)
+        {
+            const u32 skip = static_cast<u32>(dir_len) + 1u;
+            const u32 count = kXeImageFileNameLength - skip;
+            char leaf[0x168];
+            if (count < sizeof(leaf))
+            {
+                if (count != 0)
+                {
+                    std::memcpy(leaf, kXeImageFileName + skip, count);
+                }
+                leaf[count] = '\0';
+
+                char launch_path[0x168];
+                if (!xapi_user_leaf_path(launch_path, 0x168, leaf))
+                {
+                    return 0;
+                }
+                if (xapi_cached_xbe_status(leaf, title_id, kCertificateVersion) >= 0)
+                {
+                    const void* data = nullptr;
+                    if (launch_type != 0xFFFFFFFFu && have_data)
+                    {
+                        data = launch_data;
+                    }
+                    fn_15028c(launch_path, data, 0, launch_type);
+                }
+            }
+        }
+    }
+
+    if (from_launch)
+    {
+        size_t n = 0;
+        while (n + 1 < sizeof(g_xapi_d_target) && dir[n] != '\0')
+        {
+            g_xapi_d_target[n] = dir[n];
+            ++n;
+        }
+        g_xapi_d_target[n] = '\0';
+    }
     return 0;
 }
 

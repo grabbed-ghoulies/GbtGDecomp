@@ -3057,17 +3057,20 @@ u32* fn_168afe()
 }
 
 // One lowio record. Retail stride is 0x28: a 32-bit OS handle, osfile at +4,
-// pipech at +5, and a dword at +8. _ioinit (0x0016D401) allocates 32 of
-// them and stores the pointer in __pioinfo[0]. Handles start at -1, pipech
-// is 10, and the dword at +8 is 0. The first three records are then marked
-// FOPEN|FDEV|FTEXT (0xC1) for stdin, stdout, and stderr. The port keeps
-// that order and stores a host handle, so the record is wider than 0x28.
+// pipech at +5, a dword at +8, and the critical section at +0xC.
+// _ioinit (0x0016D401) allocates 32 of them and stores the pointer in
+// __pioinfo[0]. Handles start at -1, pipech is 10, and the dword at +8 is 0.
+// The first three records are then marked FOPEN|FDEV|FTEXT (0xC1) for stdin,
+// stdout, and stderr. The port keeps that order and stores a host handle, so
+// the record is wider than 0x28. _lock_fhandle (0x0016DBAE) creates the
+// section; until then the pointer stays null.
 struct CrtIoInfo
 {
     std::intptr_t osfhnd = -1;
     u8 osfile = 0;
     u8 pipech = 10;
     u32 field8 = 0;
+    std::recursive_mutex* cs = nullptr;
 };
 
 constexpr u32 kCrtIoArrayCount = 64;
@@ -3257,6 +3260,41 @@ int fn_168b96(u32 fh)
     }
     crt_dosmaperr(doserr);
     return -1;
+}
+
+void fn_168c8e(int fh)
+{
+    // Xbox 0x00168C8E
+    // Shared unlock body for __close (0x00168C17). The scope table at
+    // 0x00209258 has one entry: enclosing level -1, a null filter, and the
+    // handler at 0x00168C8B. That handler loads the descriptor from [ebp+8]
+    // into EBX and falls through to this address. The success path at
+    // 0x00168C81 calls here after _close_lk (0x00168B96) with EBX already
+    // holding that descriptor. The eight bytes push EBX, call
+    // _unlock_fhandle (0x0016DC4E), pop the cdecl argument, and return.
+    //
+    // _unlock_fhandle arithmetic-shifts the descriptor by 5 and reads
+    // __pioinfo at 0x0054DC60. The record is (descriptor & 0x1F), stride
+    // 0x28. RtlLeaveCriticalSection (kernel ordinal 294, thunk 0x00202EA4)
+    // takes the critical section at record+0xC. A null __pioinfo slot, or a
+    // section _lock_fhandle has not created, is left alone; retail would
+    // fault on that address.
+    const int block_index = fh >> 5;
+    if (block_index < 0 || static_cast<u32>(block_index) >= kCrtIoArrayCount)
+    {
+        return;
+    }
+    CrtIoInfo* block = g_crt_pioinfo[block_index];
+    if (block == nullptr)
+    {
+        return;
+    }
+    std::recursive_mutex* lock = block[fh & 0x1f].cs;
+    if (lock == nullptr)
+    {
+        return;
+    }
+    lock->unlock();
 }
 
 int crt_mtinitlocknum(int locknum)

@@ -111,6 +111,8 @@ struct GfxD3D11
     ComPtr<ID3D11SamplerState> light_sampler;
     ComPtr<ID3D11RasterizerState> rast;
     ComPtr<ID3D11DepthStencilState> depth_state;
+    ComPtr<ID3D11DepthStencilState> depth_lequal;
+    ComPtr<ID3D11DepthStencilState> depth_lequal_ro;
     ComPtr<ID3D11DepthStencilState> depth_off;
     ComPtr<ID3D11BlendState> blend_opaque;
     ComPtr<ID3D11BlendState> blend_alpha;
@@ -118,12 +120,33 @@ struct GfxD3D11
     ComPtr<ID3D11ShaderResourceView> white;
     std::unordered_map<const Mesh*, GpuMesh> meshes;
     std::unordered_map<const RgbaImage*, ComPtr<ID3D11ShaderResourceView>> sprites;
-    // Device shadow at 0x00181B70. BSS until a render-state setter writes it.
-    // 0x0005E110 is the pass that stores D3DCMP_GREATER (0x204) at DAT_00181c58.
+    // Device shadow at 0x00181B70 (index * 4). BSS until a render-state setter writes it.
+    u32 rs_dirty = 0;        // DAT_00181968
+    int rs_zfunc = 0;        // DAT_00181c54, D3DRS_ZFUNC (index 0x39)
     int rs_alpha_func = 0;  // DAT_00181c58, D3DRS_ALPHAFUNC (index 0x3A)
     int rs_alpha_blend = 0; // DAT_00181c5c, D3DRS_ALPHABLENDENABLE (index 0x3B)
     int rs_alpha_test = 0;  // DAT_00181c60, D3DRS_ALPHATESTENABLE (index 0x3C)
     int rs_alpha_ref = 0;   // DAT_00181c64, D3DRS_ALPHAREF (index 0x3D)
+    int rs_src_blend = 0;   // DAT_00181c68, D3DRS_SRCBLEND (index 0x3E)
+    int rs_dest_blend = 0;  // DAT_00181c6c, D3DRS_DESTBLEND (index 0x3F)
+    int rs_zwrite = 0;      // DAT_00181c70, D3DRS_ZWRITEENABLE (index 0x40)
+    int rs_dither = 0;      // DAT_00181c74, D3DRS_DITHERENABLE (index 0x41)
+    int rs_color_write = 0; // DAT_00181c7c, D3DRS_COLORWRITEENABLE (index 0x43)
+    int rs_blend_op = 0;    // DAT_00181c98, D3DRS_BLENDOP (index 0x4A)
+    int rs_cull = 0;        // DAT_00181dbc, CullMode argument
+    int rs_zenable = 0;     // DAT_00181dac, ZEnable argument (0 off, 1 Z, 2 W)
+    int rs_dxt1_noise = 0;  // DAT_00181dec
+    int rs_state_60 = 0;    // DAT_00181cf0, index 0x60, dirty bit 0x2000
+    int rs_state_66 = 0;    // DAT_00181d08, index 0x66, dirty bit 0x1200
+    // Stage 0 lives at DAT_00181970, stride 0x80. The 0x0005E110 loop anchors on ALPHAOP.
+    struct StageRs
+    {
+        int mag_filter = 0; // +0x0C D3DTSS_MAGFILTER
+        int min_filter = 0; // +0x10 D3DTSS_MINFILTER
+        int color_op = 0;   // +0x30 D3DTSS_COLOROP
+        int alpha_op = 0;   // +0x40 D3DTSS_ALPHAOP
+    };
+    StageRs stages[4]{};
 };
 
 GfxD3D11 g;
@@ -424,6 +447,97 @@ void fn_5e0c0()
     g.context->OMSetBlendState(g.blend_alpha.Get(), nullptr, 0xFFFFFFFFu);
 }
 
+// ZFUNC stays at the LESS default until 0x0005E110 stores D3DCMP_LESSEQUAL (0x203).
+void bind_depth_shadow()
+{
+    if (!g.ok)
+    {
+        return;
+    }
+    ID3D11DepthStencilState* state = g.depth_state.Get();
+    if (g.rs_zfunc == 0x203)
+    {
+        if (g.rs_zenable == 0)
+        {
+            state = g.depth_off.Get();
+        }
+        else if (g.rs_zwrite != 0)
+        {
+            state = g.depth_lequal.Get();
+        }
+        else
+        {
+            state = g.depth_lequal_ro.Get();
+        }
+    }
+    g.context->OMSetDepthStencilState(state, 0);
+}
+
+// Xbox 0x0005E110
+// Installs the frame device state. Simple pushes are (method, value) then the shadow dword.
+//   Dxt1NoiseEnable(0)                    DAT_00181dec = 0, dirty |= 0x2000
+//   index 0x60                            DAT_00181cf0 = 1
+//   0x40310 = 0     D3DRS_DITHERENABLE    DAT_00181c74 = 0
+//   CullMode(0)                           DAT_00181dbc = 0
+//   0x40350 = 0x8006 D3DBLENDOP_ADD       DAT_00181c98
+//   0x40344 = 0x302  D3DBLEND_SRCALPHA    DAT_00181c68
+//   0x40348 = 0x303  D3DBLEND_INVSRCALPHA DAT_00181c6c
+//   0x40304 = 1      ALPHABLENDENABLE     DAT_00181c5c
+//   0x4033c = 0x204  D3DCMP_GREATER       DAT_00181c58
+//   index 0x66                            DAT_00181d08 = 0, dirty |= 0x1200
+//   0x40358 = 0x01010101 COLORWRITEENABLE DAT_00181c7c
+//   0x40354 = 0x203  D3DCMP_LESSEQUAL     DAT_00181c54 ZFUNC
+//   0x4035c = 1      ZWRITEENABLE         DAT_00181c70
+//   ZEnable(1)                            DAT_00181dac = 1
+// Four stages at DAT_001819B0 stride 0x80: unbound texture, linear mag/min,
+// colour and alpha op D3DTOP_DISABLE, dirty |= (1 << stage) | 0x800.
+// Then vertex-shader input, sixteen stream sources, pixel shader, and vertex shader are cleared.
+void fn_5e110()
+{
+    g.rs_dxt1_noise = 0;
+    g.rs_dirty |= 0x2000u;
+    g.rs_state_60 = 1;
+    g.rs_dither = 0;
+    g.rs_cull = 0;
+    g.rs_blend_op = 0x8006;
+    g.rs_src_blend = 0x302;
+    g.rs_dest_blend = 0x303;
+    g.rs_alpha_blend = 1;
+    g.rs_alpha_func = 0x204;
+    g.rs_dirty |= 0x1200u;
+    g.rs_state_66 = 0;
+    g.rs_color_write = 0x01010101;
+    g.rs_zfunc = 0x203;
+    g.rs_zwrite = 1;
+    g.rs_zenable = 1;
+    for (int stage = 0; stage < 4; ++stage)
+    {
+        GfxD3D11::StageRs& slot = g.stages[stage];
+        slot.mag_filter = 2;
+        slot.min_filter = 2;
+        slot.color_op = 1;
+        slot.alpha_op = 1;
+        g.rs_dirty |= (1u << stage) | 0x800u;
+    }
+    if (!g.ok)
+    {
+        return;
+    }
+    g.context->RSSetState(g.rast.Get());
+    g.context->OMSetBlendState(g.blend_alpha.Get(), nullptr, 0xFFFFFFFFu);
+    bind_depth_shadow();
+    ID3D11ShaderResourceView* srvs[2] = {};
+    g.context->PSSetShaderResources(0, 2, srvs);
+    ID3D11Buffer* streams[16] = {};
+    UINT strides[16] = {};
+    UINT offsets[16] = {};
+    g.context->IASetVertexBuffers(0, 16, streams, strides, offsets);
+    g.context->IASetIndexBuffer(nullptr, DXGI_FORMAT_UNKNOWN, 0);
+    g.context->IASetInputLayout(nullptr);
+    g.context->VSSetShader(nullptr, nullptr, 0);
+    g.context->PSSetShader(nullptr, nullptr, 0);
+}
+
 } // namespace
 
 bool gfx_init(const GfxConfig& cfg)
@@ -604,8 +718,11 @@ float4 ps_main(VSOut i) : SV_Target {
     ds.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
     ds.DepthFunc = D3D11_COMPARISON_LESS;
     g.device->CreateDepthStencilState(&ds, g.depth_state.GetAddressOf());
-    ds.DepthEnable = FALSE;
+    ds.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
+    g.device->CreateDepthStencilState(&ds, g.depth_lequal.GetAddressOf());
     ds.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+    g.device->CreateDepthStencilState(&ds, g.depth_lequal_ro.GetAddressOf());
+    ds.DepthEnable = FALSE;
     g.device->CreateDepthStencilState(&ds, g.depth_off.GetAddressOf());
 
     D3D11_BLEND_DESC blend{};
@@ -635,7 +752,7 @@ float4 ps_main(VSOut i) : SV_Target {
         ShowWindow(g.hwnd, SW_SHOW);
     }
     g.ok = g.vs && g.ps && g.layout && g.cb && g.bone_cb && g.white && g.rtv && g.dsv && g.ui_vb && g.blend_alpha &&
-           g.depth_off;
+           g.depth_off && g.depth_lequal && g.depth_lequal_ro;
     if (!g.ok)
     {
         std::cerr << "d3d11: pipeline incomplete\n";
@@ -654,6 +771,8 @@ void gfx_shutdown()
     g.blend_alpha.Reset();
     g.blend_opaque.Reset();
     g.depth_off.Reset();
+    g.depth_lequal_ro.Reset();
+    g.depth_lequal.Reset();
     g.depth_state.Reset();
     g.rast.Reset();
     g.sampler.Reset();
@@ -719,7 +838,7 @@ void gfx_begin_frame()
     vp.MaxDepth = 1.f;
     g.context->RSSetViewports(1, &vp);
     g.context->RSSetState(g.rast.Get());
-    g.context->OMSetDepthStencilState(g.depth_state.Get(), 0);
+    bind_depth_shadow();
     g.context->OMSetBlendState(g.blend_opaque.Get(), nullptr, 0xFFFFFFFFu);
     g.context->IASetInputLayout(g.layout.Get());
     g.context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -1426,7 +1545,7 @@ void present_33a90()
     const u32 flags = present_clear_flags();
     present_set_viewport();
     present_clear(flags);
-    // 0x0005E110 installs the frame render states.
+    fn_5e110();
     // 0x000F9780 retires the deferred span at DAT_005079E0.
     // 0x00036180 submits the draw span at DAT_004DF240 and resets it.
     present_movies();

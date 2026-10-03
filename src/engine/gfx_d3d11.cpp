@@ -1798,4 +1798,61 @@ u32 fn_176ee0(const u32* device, const u32* record, u32 gpu_position)
     return distance;
 }
 
+// Fields this routine reads and writes on the device at DAT_00181E08.
+// reg_file and notifier are host pointers to the objects stored at
+// device+0x930 and device+0x1c10.
+struct D3dPushGetCache
+{
+    u32 push_start = 0;          // device+0x24
+    u32 push_end = 0;            // device+0x28
+    u32 cached_get = 0;          // device+0x58
+    u32 cached_ref = 0;          // device+0x5c
+    const u32* reg_file = nullptr;  // device+0x930
+    const u32* notifier = nullptr;  // device+0x1c10
+};
+
+void fn_176f80(D3dPushGetCache* device)
+{
+    // Xbox 0x00176F80
+    // Fastcall. ecx is the D3D device. 0x001775C0 calls it when flag bit
+    // 0x4 at device+8 is clear, before deciding whether the push buffer
+    // has to wrap. A null device, register file, or notifier would fault
+    // on Xbox; the port returns.
+    //
+    // notifier+0x44 is the hardware GET. ORing 0x80000000 is the same
+    // push-buffer address 0x001771A0 returns while it sits in
+    // [device+0x24, device+0x28). reg_file+0x400b10 is the reference
+    // 0x001773A0 encodes as (put << 5) | (serial & 0x1f) and the GPU
+    // writes back. 0x001771A0 spins until its low five bits match the
+    // counter at device+0x30.
+    //
+    // Inside the ring, +0x58 caches that GET and +0x5c caches the
+    // reference. Outside it, an unchanged reference leaves both words
+    // alone. The retail path still stores them back: it reloads +0x58
+    // and writes that value, then writes the reference over +0x5c.
+    // A reference that did change is turned back into an address with
+    // (reference >> 5) | 0x80000000, restoring the GPU bit the encode
+    // shifted out.
+    if (device == nullptr || device->reg_file == nullptr || device->notifier == nullptr)
+    {
+        return;
+    }
+
+    const u32 ref = device->reg_file[0x400b10 / 4];
+    u32 get = device->notifier[0x44 / 4] | 0x80000000u;
+    if (get < device->push_start || device->push_end <= get)
+    {
+        if (ref == device->cached_ref)
+        {
+            const u32 keep = device->cached_get;
+            device->cached_get = keep;
+            device->cached_ref = ref;
+            return;
+        }
+        get = (ref >> 5) | 0x80000000u;
+    }
+    device->cached_get = get;
+    device->cached_ref = ref;
+}
+
 } // namespace gbtg

@@ -15601,6 +15601,7 @@ struct D3dScreenDevice
     u32* fence = nullptr;  // +4
     u32 flags = 0;         // +8
     u8* active = nullptr;  // +0x790. Byte +4 bit 1 allows the upload.
+    u8* depth = nullptr;   // +0x19f8. Byte +0xD is the surface D3DFORMAT.
     float proj_clip = 0.f; // +0x938. Projection factor for sample mode 2.
     float span_x = 0.f;    // +0x940
     float span_y = 0.f;    // +0x944
@@ -15628,6 +15629,7 @@ D3dScreenDevice* g_d3d_device = nullptr;
 i32 g_d3d_program_mode = 0;   // DAT_00181CE4
 i32 g_d3d_sample_mode = 0;    // DAT_00181DAC
 i32 g_d3d_multisample_aa = 0; // DAT_00181DD0, D3DRS_MULTISAMPLEANTIALIAS
+i32 g_d3d_yuv_enable = 0;     // DAT_00181DF0, D3DRS_YUVENABLE
 
 void d3d_bind_cursor(D3dScreenDevice& device)
 {
@@ -15830,6 +15832,51 @@ u32* fn_171c20(D3dScreenDevice* device, u32* packet)
     packet[1] = d3d_float_bits(clip_min);
     packet[2] = d3d_float_bits(clip_max);
     return packet + 3;
+}
+
+u32* fn_171e10(D3dScreenDevice* device, u32* packet)
+{
+    // Xbox 0x00171E10
+    // Fastcall. Writes one NV097_SET_CONTROL0 word (0x40290: method 0x290,
+    // count 1) and returns the cursor after it. Callers pass the device in
+    // ecx and the cursor in edx, then store eax at device+0. A null device
+    // or cursor would fault on Xbox; the port leaves the cursor alone.
+    //
+    // The data dword starts at 0x100001. Nonzero D3DRS_YUVENABLE
+    // (DAT_00181DF0) replaces that with 0x10100001 (bit 24). Sample mode 2
+    // (DAT_00181DAC) sets bit 0x10000. A depth surface at +0x19f8 whose
+    // format byte +0xD is a float Z format sets bit 0x1000: 0x2B F24S8,
+    // 0x2D F16, 0x2F LIN_F24S8, 0x31 LIN_F16.
+    //
+    // The sample-mode setter at 0x001722A0 calls this when mode 2 is entered
+    // or left, then 0x00171C20. The YUV setter at 0x00172430 stores its
+    // argument at DAT_00181DF0 first. Render-target setup at 0x00174335
+    // calls it with the device in ecx.
+    if (device == nullptr || packet == nullptr)
+    {
+        return packet;
+    }
+
+    u32 control = 0x100001u;
+    if (g_d3d_yuv_enable != 0)
+    {
+        control = 0x10100001u;
+    }
+    if (g_d3d_sample_mode == 2)
+    {
+        control |= 0x10000u;
+    }
+    if (device->depth != nullptr)
+    {
+        const u8 format = device->depth[0x0d];
+        if (format == 0x2bu || format == 0x2du || format == 0x2fu || format == 0x31u)
+        {
+            control |= 0x1000u;
+        }
+    }
+    packet[0] = 0x40290u;
+    packet[1] = control;
+    return packet + 2;
 }
 
 void fn_173900(D3dScreenDevice* device)

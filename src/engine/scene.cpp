@@ -6,11 +6,13 @@
 
 #include <algorithm>
 #include <bit>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <iostream>
+#include <new>
 #include <string>
 
 #if defined(_WIN32)
@@ -2805,6 +2807,284 @@ int fn_14fcf4(u32 flags, const u8* left, int left_count, const u8* right, int ri
         --left_count;
         --right_count;
     }
+}
+
+// Cursor left by fn_14b122. It already sits on the entry after the one
+// copied into WIN32_FIND_DATA. Retail FindNextFile (0x0014B22F) calls
+// NtQueryDirectoryFile with a null pattern, so later entries are not filtered.
+struct XapiFindCursor
+{
+    std::filesystem::directory_iterator cursor;
+};
+
+bool xapi_find_match(const char* pattern, size_t pattern_len, const char* name, size_t name_len)
+{
+    auto fold = [](unsigned char c) -> unsigned char
+    {
+        if (c >= 'a' && c <= 'z')
+        {
+            return static_cast<unsigned char>(c - 0x20);
+        }
+        return c;
+    };
+
+    size_t pi = 0;
+    size_t ni = 0;
+    size_t star_p = static_cast<size_t>(-1);
+    size_t star_n = 0;
+    while (ni < name_len)
+    {
+        if (pi < pattern_len &&
+            (pattern[pi] == '?' || fold(static_cast<unsigned char>(pattern[pi])) == fold(static_cast<unsigned char>(name[ni]))))
+        {
+            ++pi;
+            ++ni;
+            continue;
+        }
+        if (pi < pattern_len && pattern[pi] == '*')
+        {
+            star_p = pi;
+            ++pi;
+            star_n = ni;
+            continue;
+        }
+        if (star_p != static_cast<size_t>(-1))
+        {
+            pi = star_p + 1;
+            ++star_n;
+            ni = star_n;
+            continue;
+        }
+        return false;
+    }
+    while (pi < pattern_len && pattern[pi] == '*')
+    {
+        ++pi;
+    }
+    return pi == pattern_len;
+}
+
+std::string xapi_narrow_filename(const std::filesystem::path& path)
+{
+    const std::wstring wide = path.filename().wstring();
+    std::string name;
+    name.reserve(wide.size());
+    for (wchar_t unit : wide)
+    {
+        if (static_cast<std::uint32_t>(unit) <= 0xFFu)
+        {
+            name.push_back(static_cast<char>(static_cast<unsigned char>(unit)));
+        }
+        else
+        {
+            name.push_back('?');
+        }
+    }
+    return name;
+}
+
+u64 xapi_host_file_time(const std::filesystem::path& path)
+{
+    std::error_code ec;
+    const auto stamp = std::filesystem::last_write_time(path, ec);
+    if (ec)
+    {
+        return 0;
+    }
+    const auto sys = std::chrono::clock_cast<std::chrono::system_clock>(stamp);
+    const auto unix_ticks = std::chrono::duration_cast<std::chrono::duration<std::int64_t, std::ratio<1, 10000000>>>(
+                                sys.time_since_epoch())
+                                .count();
+    const std::int64_t file_time = unix_ticks + 116444736000000000LL;
+    if (file_time < 0)
+    {
+        return 0;
+    }
+    return static_cast<u64>(file_time);
+}
+
+void xapi_set_dir_open_error(const std::filesystem::path& opened, const std::error_code& ec)
+{
+    if (ec == std::errc::no_such_file_or_directory)
+    {
+        std::filesystem::path leaf = opened;
+        if (leaf.filename().empty())
+        {
+            leaf = leaf.parent_path();
+        }
+        std::error_code parent_ec;
+        const auto parent = leaf.parent_path();
+        if (!parent.empty() && !std::filesystem::exists(parent, parent_ec))
+        {
+            g_xapi_last_error = 3;
+        }
+        else
+        {
+            g_xapi_last_error = 2;
+        }
+        return;
+    }
+    if (ec == std::errc::not_a_directory || ec.value() == 267)
+    {
+        g_xapi_last_error = 267;
+        return;
+    }
+    if (ec == std::errc::permission_denied)
+    {
+        g_xapi_last_error = 5;
+        return;
+    }
+    if (ec == std::errc::invalid_argument)
+    {
+        g_xapi_last_error = 0x57;
+        return;
+    }
+    if (ec.value() != 0)
+    {
+        g_xapi_last_error = static_cast<u32>(ec.value());
+        return;
+    }
+    g_xapi_last_error = 2;
+}
+
+void xapi_fill_find_data(u8* dst, const std::filesystem::directory_entry& entry, const std::string& name)
+{
+    // 0x0014B0B6. Attributes from FILE_DIRECTORY_INFORMATION+0x38 land at +0.
+    // Creation, access, and write FILETIMEs follow; the port stores the host
+    // last-write time in all three. EndOfFile high/low land at +0x1C/+0x20.
+    // The ANSI name is copied to +0x2C and NUL-terminated. The first byte of
+    // cAlternateFileName (+0x130) is cleared. Reserved slots at +0x24 and
+    // +0x28 are left alone.
+    u32 attr = 0x20;
+    std::error_code ec;
+    if (entry.is_directory(ec) && !ec)
+    {
+        attr = 0x10;
+    }
+    ec.clear();
+    const auto perms = entry.status(ec).permissions();
+    if (!ec && (perms & std::filesystem::perms::owner_write) == std::filesystem::perms::none)
+    {
+        attr |= 0x1u;
+    }
+    std::memcpy(dst + 0x00, &attr, 4);
+
+    const u64 stamp = xapi_host_file_time(entry.path());
+    const u32 stamp_lo = static_cast<u32>(stamp);
+    const u32 stamp_hi = static_cast<u32>(stamp >> 32);
+    std::memcpy(dst + 0x04, &stamp_lo, 4);
+    std::memcpy(dst + 0x08, &stamp_hi, 4);
+    std::memcpy(dst + 0x0C, &stamp_lo, 4);
+    std::memcpy(dst + 0x10, &stamp_hi, 4);
+    std::memcpy(dst + 0x14, &stamp_lo, 4);
+    std::memcpy(dst + 0x18, &stamp_hi, 4);
+
+    u32 size_lo = 0;
+    u32 size_hi = 0;
+    if ((attr & 0x10u) == 0)
+    {
+        ec.clear();
+        const auto bytes = entry.file_size(ec);
+        if (!ec)
+        {
+            size_lo = static_cast<u32>(bytes);
+            size_hi = static_cast<u32>(bytes >> 32);
+        }
+    }
+    std::memcpy(dst + 0x1C, &size_hi, 4);
+    std::memcpy(dst + 0x20, &size_lo, 4);
+
+    const size_t count = std::min(name.size(), size_t(259));
+    if (count != 0)
+    {
+        std::memcpy(dst + 0x2C, name.data(), count);
+    }
+    dst[0x2C + count] = 0;
+    dst[0x130] = 0;
+}
+
+std::uintptr_t fn_14b122(const char* path, void* find_data)
+{
+    // Xbox 0x0014B122
+    // FindFirstFileA. RtlInitAnsiString, then walk back to the last backslash.
+    // The head, including that slash, is the NtOpenFile object name under
+    // ObDosDevicesDirectory (0xFFFFFFFD) with OBJ_CASE_INSENSITIVE,
+    // FILE_LIST_DIRECTORY|SYNCHRONIZE, share read|write, and
+    // FILE_DIRECTORY_FILE|FILE_SYNCHRONOUS_IO_NONALERT|FILE_OPEN_FOR_BACKUP_INTENT.
+    // The tail is the NtQueryDirectoryFile pattern (FileDirectoryInformation,
+    // class 1, 0x148 bytes). A tail of "*.*" is passed with length 0 so every
+    // name matches. No backslash, or an empty tail, stores last-error 0x57
+    // and returns 0xFFFFFFFF. The first hit is copied by 0x0014B0B6 and the
+    // directory handle is returned. A failed query closes the handle. Other
+    // failures go through XapiSetLastNTError: 2 when the leaf or the match is
+    // missing, 3 when a parent is missing, 267 when the path is not a directory.
+    if (path == nullptr)
+    {
+        g_xapi_last_error = 0x57;
+        return static_cast<std::uintptr_t>(-1);
+    }
+
+    const size_t length = std::strlen(path);
+    size_t split = length;
+    while (split != 0 && path[split - 1] != '\\')
+    {
+        --split;
+    }
+    const size_t tail = length - split;
+    if (split == 0 || tail == 0)
+    {
+        g_xapi_last_error = 0x57;
+        return static_cast<std::uintptr_t>(-1);
+    }
+
+    const bool match_all = tail == 3 && path[split] == '*' && path[split + 1] == '.' && path[split + 2] == '*';
+    const std::string pattern(path + split, tail);
+    const std::filesystem::path dir(std::string(path, split));
+
+    std::error_code ec;
+    std::filesystem::directory_iterator it(dir, ec);
+    if (ec)
+    {
+        xapi_set_dir_open_error(dir, ec);
+        return static_cast<std::uintptr_t>(-1);
+    }
+
+    const std::filesystem::directory_iterator end;
+    while (it != end)
+    {
+        const std::string name = xapi_narrow_filename(it->path());
+        if (match_all || xapi_find_match(pattern.data(), pattern.size(), name.data(), name.size()))
+        {
+            if (find_data != nullptr)
+            {
+                xapi_fill_find_data(static_cast<u8*>(find_data), *it, name);
+            }
+            std::error_code step_ec;
+            it.increment(step_ec);
+            if (step_ec)
+            {
+                it = std::filesystem::directory_iterator();
+            }
+            auto* state = new (std::nothrow) XapiFindCursor;
+            if (state == nullptr)
+            {
+                g_xapi_last_error = 0x5AA;
+                return static_cast<std::uintptr_t>(-1);
+            }
+            state->cursor = std::move(it);
+            return reinterpret_cast<std::uintptr_t>(state);
+        }
+
+        it.increment(ec);
+        if (ec)
+        {
+            xapi_set_dir_open_error(dir, ec);
+            return static_cast<std::uintptr_t>(-1);
+        }
+    }
+
+    g_xapi_last_error = 2;
+    return static_cast<std::uintptr_t>(-1);
 }
 
 bool fn_14d217(const char* path, const void* security)

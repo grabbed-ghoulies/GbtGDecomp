@@ -15601,12 +15601,24 @@ struct D3dScreenDevice
     u32* fence = nullptr;  // +4
     u32 flags = 0;         // +8
     u8* active = nullptr;  // +0x790. Byte +4 bit 1 allows the upload.
+    float proj_clip = 0.f; // +0x938. Projection factor for sample mode 2.
     float span_x = 0.f;    // +0x940
     float span_y = 0.f;    // +0x944
     float scale_x = 0.f;   // +0x958
     float scale_y = 0.f;   // +0x95c
+    i32 view_x = 0;        // +0xed0
+    i32 view_y = 0;        // +0xed4
+    i32 view_w = 0;        // +0xed8
+    i32 view_h = 0;        // +0xedc
+    float min_z = 0.f;     // +0xee0
+    float max_z = 0.f;     // +0xee4
     float origin_x = 0.f;  // +0xee8
     float origin_y = 0.f;  // +0xeec
+    float clip_min_screen = 0.f; // +0x1bf8
+    float clip_max_screen = 0.f; // +0x1bfc
+    float clip_min_view = 0.f;   // +0x1c00
+    float clip_max_view = 0.f;   // +0x1c04
+    u8 clip_lock = 0;            // +0x1c08. Bit 0 keeps the screen pair, bit 1 the viewport pair.
     std::vector<u32> push;
     u32 cursor_index = 0;
     u32 fence_index = 0;
@@ -15659,6 +15671,165 @@ u32* d3d_begin_state_big(u32 count)
     }
     d3d_bind_cursor(*device);
     return device->cursor;
+}
+
+float d3d_u32_float(i32 bits)
+{
+    return static_cast<float>(static_cast<u32>(bits));
+}
+
+u32 d3d_float_bits(float value)
+{
+    return std::bit_cast<u32>(value);
+}
+
+void d3d_bias_multisample(float& x, float& y, u32 flags)
+{
+    if ((flags & 0x8000u) != 0 && g_d3d_multisample_aa != 0)
+    {
+        x -= 0.5f;
+        y -= 0.5f;
+    }
+}
+
+void fn_1710e0(float* offset, float* scale)
+{
+    // Xbox 0x001710E0
+    // stdcall (ret 8). Only caller is 0x00171C20. Ghidra names the call
+    // D3DDevice_GetViewportOffsetAndScale; the body reads DAT_00181E08,
+    // not the fastcall device. A null global would fault on Xbox.
+    //
+    // Corner is view_x/view_y converted as unsigned pixels, times the
+    // multisample scales, plus the viewport origin. Flag bit 0x8000 and
+    // a nonzero D3DRS_MULTISAMPLEANTIALIAS subtract 0.5 from both axes.
+    // Width and height become half extents (height is negated). Offset is
+    // the biased corner plus those extents, with z = min_z * span_y.
+    // Scale is (half width, negated half height, (max_z-min_z)*span_y, 0).
+    if (offset == nullptr || scale == nullptr)
+    {
+        return;
+    }
+    if (g_d3d_device == nullptr)
+    {
+        offset[0] = offset[1] = offset[2] = offset[3] = 0.f;
+        scale[0] = scale[1] = scale[2] = scale[3] = 0.f;
+        return;
+    }
+    const D3dScreenDevice& device = *g_d3d_device;
+    float x = d3d_u32_float(device.view_x) * device.scale_x + device.origin_x;
+    float y = d3d_u32_float(device.view_y) * device.scale_y + device.origin_y;
+    d3d_bias_multisample(x, y, device.flags);
+    const float half_w = d3d_u32_float(device.view_w) * device.scale_x * 0.5f;
+    const float half_h = d3d_u32_float(device.view_h) * device.scale_y * -0.5f;
+    offset[0] = x + half_w;
+    offset[1] = y - half_h;
+    offset[2] = device.min_z * device.span_y;
+    offset[3] = 0.f;
+    scale[0] = half_w;
+    scale[1] = half_h;
+    scale[2] = (device.max_z - device.min_z) * device.span_y;
+    scale[3] = 0.f;
+}
+
+void d3d_store_sample_clip(float& clip_min, float& clip_max, const D3dScreenDevice& device)
+{
+    clip_max = device.span_y;
+    clip_min = (device.span_x * device.proj_clip) * device.span_y;
+}
+
+u32* fn_171c20(D3dScreenDevice* device, u32* packet)
+{
+    // Xbox 0x00171C20
+    // Fastcall. Writes the viewport push-buffer words and returns the
+    // cursor after them. Callers pass the device in ecx and the cursor
+    // in edx, then store eax back at device+0. A null active record
+    // would fault on Xbox; the port leaves the cursor alone.
+    //
+    // Byte +4 of the record at +0x790 selects the packet. Bits 0x12 clear
+    // emits SET_VIEWPORT_OFFSET (0x100A20, four floats) of the unsigned
+    // pixel corner (view_x, view_y) times scale plus origin, z and w zero,
+    // with the same 0.5 bias as 0x001710E0. Either bit set calls 0x001710E0
+    // on DAT_00181E08 and, unless flag bit 0x200 is set, emits that offset
+    // plus SET_VIEWPORT_SCALE (0x100AF0, four floats).
+    //
+    // Both paths then emit SET_CLIP_MIN/SET_CLIP_MAX (0x00080394, two
+    // floats). Bit 0 of +0x1c08 keeps the screen pair at +0x1bf8/+0x1bfc.
+    // Bit 1 keeps the viewport pair at +0x1c00/+0x1c04. Otherwise sample
+    // mode 2 stores (span_x * proj_clip * span_y, span_y). The screen path
+    // otherwise stores (min_z * span_y, max_z * span_y). The viewport path
+    // otherwise stores (0, span_y).
+    if (device == nullptr || packet == nullptr || device->active == nullptr)
+    {
+        return packet;
+    }
+
+    float clip_min = 0.f;
+    float clip_max = 0.f;
+    if ((device->active[4] & 0x12) == 0)
+    {
+        float x = d3d_u32_float(device->view_x) * device->scale_x + device->origin_x;
+        float y = d3d_u32_float(device->view_y) * device->scale_y + device->origin_y;
+        d3d_bias_multisample(x, y, device->flags);
+        packet[0] = 0x100a20u;
+        packet[1] = d3d_float_bits(x);
+        packet[2] = d3d_float_bits(y);
+        packet[3] = 0;
+        packet[4] = 0;
+        packet += 5;
+        if ((device->clip_lock & 1u) == 0)
+        {
+            if (g_d3d_sample_mode == 2)
+            {
+                d3d_store_sample_clip(device->clip_min_screen, device->clip_max_screen, *device);
+            }
+            else
+            {
+                device->clip_min_screen = device->min_z * device->span_y;
+                device->clip_max_screen = device->max_z * device->span_y;
+            }
+        }
+        clip_min = device->clip_min_screen;
+        clip_max = device->clip_max_screen;
+    }
+    else
+    {
+        float offset[4]{};
+        float scale[4]{};
+        fn_1710e0(offset, scale);
+        if ((device->flags & 0x200u) == 0)
+        {
+            packet[0] = 0x100a20u;
+            packet[1] = d3d_float_bits(offset[0]);
+            packet[2] = d3d_float_bits(offset[1]);
+            packet[3] = d3d_float_bits(offset[2]);
+            packet[4] = d3d_float_bits(offset[3]);
+            packet[5] = 0x100af0u;
+            packet[6] = d3d_float_bits(scale[0]);
+            packet[7] = d3d_float_bits(scale[1]);
+            packet[8] = d3d_float_bits(scale[2]);
+            packet[9] = d3d_float_bits(scale[3]);
+            packet += 10;
+        }
+        if ((device->clip_lock & 2u) == 0)
+        {
+            if (g_d3d_sample_mode == 2)
+            {
+                d3d_store_sample_clip(device->clip_min_view, device->clip_max_view, *device);
+            }
+            else
+            {
+                device->clip_min_view = 0.f;
+                device->clip_max_view = device->span_y;
+            }
+        }
+        clip_min = device->clip_min_view;
+        clip_max = device->clip_max_view;
+    }
+
+    packet[0] = 0x00080394u;
+    packet[1] = d3d_float_bits(clip_min);
+    packet[2] = d3d_float_bits(clip_max);
+    return packet + 3;
 }
 
 void fn_173900(D3dScreenDevice* device)

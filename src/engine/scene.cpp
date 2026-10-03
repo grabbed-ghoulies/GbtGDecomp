@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstddef>
+#include <cerrno>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -2715,6 +2716,95 @@ void fn_16619a(void* stream)
     reinterpret_cast<CrtFileX*>(stream)->lock.unlock();
 }
 
+int crt_mtinitlocknum(int locknum);
+
+void fn_1681c1(int locknum)
+{
+    // Xbox 0x001681C1
+    // _lock. The slot is the 8-byte record at 0x00337AB0 + index*8. A null
+    // critical-section pointer calls __mtinitlocknum (0x00168121). A zero
+    // return calls _amsg_exit (0x00168B7A) with 0x11 (_RT_LOCK): the banner
+    // at 0x00169894, the runtime message at 0x00169868, then the pointer at
+    // 0x003380E0 (0x0016985C) which pushes 1,0 into 0x00169798. That path
+    // does not come back. Otherwise RtlEnterCriticalSection (kernel ordinal
+    // 277, thunk 0x00202EA0) takes the section stored in the slot. An index
+    // outside the 36 slots walks off the table; the port returns.
+    if (locknum < 0 || static_cast<u32>(locknum) >= 0x24u)
+    {
+        return;
+    }
+
+    if (g_crt_locks[locknum].cs == nullptr)
+    {
+        if (crt_mtinitlocknum(locknum) == 0)
+        {
+            std::exit(0xFF);
+        }
+    }
+    g_crt_locks[locknum].cs->lock();
+}
+
+int crt_mtinitlocknum(int locknum)
+{
+    // __mtinitlocknum at 0x00168121. Scope table 0x00209190, prolog
+    // 0x00166D58. A live pointer returns 1. Otherwise 0x00167F1C allocates
+    // 0x1C bytes. A null block stores ENOMEM (0xC) through 0x00168AF5
+    // (per-thread data + 8) and returns 0. The host mutex stands in for
+    // that block; a failed allocation is the same zero return.
+    //
+    // The try level at [ebp-4] is 0 while _lock holds _LOCKTAB_LOCK (10).
+    // Kind 1 at that index is created by __mtinitlocks. When this index is
+    // 10 and the pointer is still null, the section is stored and the
+    // caller enters it. Taking _lock(10) from inside that init would call
+    // back here before the pointer is stored. A section that appeared while
+    // the table lock was held is freed (0x00167F2E) and the new one is kept.
+    //
+    // 0x0016D9F8 initializes the section with spin count 0xFA0. A zero
+    // return frees the block, stores ENOMEM, and _local_unwind2 (0x00167062)
+    // runs the finally at 0x001681B8, which is _unlock (0x0016810F) of lock
+    // 10. The host constructor either throws before the table lock or
+    // succeeds; the spin count is not a host parameter. The finally still
+    // leaves lock 10. Success returns 1.
+    if (g_crt_locks[locknum].cs != nullptr)
+    {
+        return 1;
+    }
+
+    std::unique_ptr<std::recursive_mutex> pcs;
+    try
+    {
+        pcs = std::make_unique<std::recursive_mutex>();
+    }
+    catch (...)
+    {
+        errno = 12;
+        return 0;
+    }
+
+    if (locknum == 10)
+    {
+        g_crt_lock_mu[10] = std::move(pcs);
+        g_crt_locks[10].cs = g_crt_lock_mu[10].get();
+        return 1;
+    }
+
+    fn_1681c1(10);
+    if (g_crt_locks[locknum].cs == nullptr)
+    {
+        g_crt_lock_mu[locknum] = std::move(pcs);
+        g_crt_locks[locknum].cs = g_crt_lock_mu[locknum].get();
+    }
+    else
+    {
+        pcs.reset();
+    }
+    if (g_crt_locks[10].cs != nullptr)
+    {
+        g_crt_locks[10].cs->unlock();
+    }
+    return 1;
+}
+
 void fn_167f2e(void* block)
 {
     // Xbox 0x00167F2E
@@ -2743,13 +2833,7 @@ void fn_167f2e(void* block)
 
     if (g_crt_active_heap == 3)
     {
-        if (g_crt_locks[4].cs == nullptr)
-        {
-            g_crt_lock_mu[4] = std::make_unique<std::recursive_mutex>();
-            g_crt_locks[4].cs = g_crt_lock_mu[4].get();
-            g_crt_locks[4].kind = 1;
-        }
-        g_crt_locks[4].cs->lock();
+        fn_1681c1(4);
         g_crt_locks[4].cs->unlock();
     }
 

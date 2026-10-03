@@ -49,6 +49,7 @@ extern "C"
     __declspec(dllimport) unsigned long __stdcall GetLastError();
     __declspec(dllimport) unsigned long __stdcall SetFilePointer(void* handle, long distance, long* high,
                                                                  unsigned long method);
+    __declspec(dllimport) int __stdcall IsBadReadPtr(const void* lp, std::uintptr_t ucb);
 }
 #endif
 
@@ -14591,6 +14592,26 @@ void fn_16f095(int opcode, CrtMathError* exc, u16* cw_ptr)
     }
 }
 } // namespace
+
+int fn_16f172(const void* lp, u32 ucb)
+{
+    // Xbox 0x0016F172
+    // _ValidateRead. cdecl; the caller pops the address and the byte count.
+    // ESI is set to 1, then XAPILIB::IsBadReadPtr (0x0014A840) is called.
+    // A nonzero result clears ESI, and EAX returns that flag: 1 when the
+    // range can be read, 0 when it cannot. A zero count is readable.
+    // FindHandler (0x0016BEF6) probes one byte of a rethrown exception and
+    // treats 0 as __inconsistency.
+#if defined(_WIN32)
+    return IsBadReadPtr(lp, ucb) == 0 ? 1 : 0;
+#else
+    if (ucb == 0)
+    {
+        return 1;
+    }
+    return lp != nullptr ? 1 : 0;
+#endif
+}
 
 void load_scene_contents(Game& g, std::string_view name)
 {

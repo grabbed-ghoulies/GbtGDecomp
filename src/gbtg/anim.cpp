@@ -148,18 +148,78 @@ Mat ident()
     return o;
 }
 
+// Row-major 3x4 of the same affine transform the palette stores column-major.
+void to_affine(float m[12], const Mat& src)
+{
+    m[0] = src.m[0];
+    m[1] = src.m[4];
+    m[2] = src.m[8];
+    m[3] = src.m[12];
+    m[4] = src.m[1];
+    m[5] = src.m[5];
+    m[6] = src.m[9];
+    m[7] = src.m[13];
+    m[8] = src.m[2];
+    m[9] = src.m[6];
+    m[10] = src.m[10];
+    m[11] = src.m[14];
+}
+
+Mat from_affine(const float m[12])
+{
+    Mat o = ident();
+    o.m[0] = m[0];
+    o.m[1] = m[4];
+    o.m[2] = m[8];
+    o.m[4] = m[1];
+    o.m[5] = m[5];
+    o.m[6] = m[9];
+    o.m[8] = m[2];
+    o.m[9] = m[6];
+    o.m[10] = m[10];
+    o.m[12] = m[3];
+    o.m[13] = m[7];
+    o.m[14] = m[11];
+    return o;
+}
+
+// Xbox 0x001041B0
+// out = a * b. Apply b first. A destination that aliases either input is written
+// through a temporary, then copied back as twelve floats.
+void fn_1041b0(float out[12], const float a[12], const float b[12])
+{
+    float tmp[12];
+    float* dest = out;
+    if (out == a || out == b)
+    {
+        dest = tmp;
+    }
+    for (int row = 0; row < 3; ++row)
+    {
+        const float ax = a[row * 4 + 0];
+        const float ay = a[row * 4 + 1];
+        const float az = a[row * 4 + 2];
+        const float aw = a[row * 4 + 3];
+        dest[row * 4 + 0] = ax * b[0] + ay * b[4] + az * b[8];
+        dest[row * 4 + 1] = ax * b[1] + ay * b[5] + az * b[9];
+        dest[row * 4 + 2] = ax * b[2] + ay * b[6] + az * b[10];
+        dest[row * 4 + 3] = ax * b[3] + ay * b[7] + az * b[11] + aw;
+    }
+    if (dest != out)
+    {
+        std::memcpy(out, tmp, sizeof(tmp));
+    }
+}
+
 Mat mul(const Mat& a, const Mat& b)
 {
-    Mat o;
-    for (int c = 0; c < 4; ++c)
-    {
-        for (int r = 0; r < 4; ++r)
-        {
-            o.m[c * 4 + r] = a.m[0 * 4 + r] * b.m[c * 4 + 0] + a.m[1 * 4 + r] * b.m[c * 4 + 1] +
-                             a.m[2 * 4 + r] * b.m[c * 4 + 2] + a.m[3 * 4 + r] * b.m[c * 4 + 3];
-        }
-    }
-    return o;
+    float ar[12];
+    float br[12];
+    float out[12];
+    to_affine(ar, a);
+    to_affine(br, b);
+    fn_1041b0(out, ar, br);
+    return from_affine(out);
 }
 
 Mat from_pose(Quat q, Vec3 t, Vec3 s)

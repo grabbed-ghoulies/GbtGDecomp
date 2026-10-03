@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -2891,6 +2892,51 @@ int crt_mtinitlocknum(int locknum)
         g_crt_locks[10].cs->unlock();
     }
     return 1;
+}
+
+void fn_167bde(void* ptr, u32 element_size, int constructed, void (*dtor)(void*), int success)
+{
+    // Xbox 0x00167BDE
+    // Finally of __ehvec_ctor (0x00167B94). The scope table at 0x00209140
+    // has one entry: enclosing level -1, a null filter, and this handler.
+    // __SEH_prolog (0x00166D58) is entered with local size 0x10. This body
+    // builds no frame, so EBP stays the constructor iterator's.
+    // [ebp-0x20] is the success flag, [ebp-0x1c] is how many constructors
+    // have returned, [ebp+8] is the element pointer, [ebp+0xc] is the
+    // stride, and [ebp+0x18] is the destructor. The iterator stores 0 in
+    // the flag and the count, sets the try level at [ebp-4] to 0, and
+    // constructs [ebp+0x10] elements through the thiscall at [ebp+0x14].
+    // After a constructor returns, the pointer advances by the stride and
+    // the count increments. A throw leaves both as they were: the pointer
+    // addresses the element that failed, and the count is the number
+    // already built. The success path at 0x00167BC6 stores 1, sets the try
+    // level to -1, and calls here. The compare is jne, so a nonzero flag
+    // returns. A zero flag pushes the destructor, the count, the stride,
+    // and the pointer, then calls __ArrayUnwind (0x00167BF6, stdcall,
+    // ret 0x10). That callee decrements the count and stops once the
+    // result is negative, subtracts the stride, and calls the destructor
+    // with ECX on that element. A C++ exception (0xE06D7363) from a
+    // destructor takes the filter at 0x00167C25 into terminate
+    // (0x0016C177). Any other exception code returns 0 from the filter.
+    if (success != 0)
+    {
+        return;
+    }
+
+    auto* cursor = static_cast<char*>(ptr);
+    while (constructed > 0)
+    {
+        --constructed;
+        cursor -= element_size;
+        try
+        {
+            dtor(cursor);
+        }
+        catch (...)
+        {
+            std::terminate();
+        }
+    }
 }
 
 void fn_167f2e(void* block)

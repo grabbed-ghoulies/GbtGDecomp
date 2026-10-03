@@ -70,6 +70,7 @@ add_executable(gbtg
     src/engine/entity.cpp
     src/engine/clock.cpp
     src/engine/audio.cpp
+    src/engine/pcm_out.cpp
     src/engine/frontend.cpp
     src/engine/scene.cpp
     src/engine/game.cpp
@@ -85,7 +86,7 @@ set(GBTG_GFX "${_gbtg_gfx_default}" CACHE STRING "Graphics backend: null or d3d1
 if(GBTG_GFX STREQUAL "d3d11")
     target_sources(gbtg PRIVATE src/engine/gfx_d3d11.cpp)
     target_compile_definitions(gbtg PRIVATE GBTG_GFX_D3D11)
-    target_link_libraries(gbtg PRIVATE d3d11 dxgi d3dcompiler user32)
+    target_link_libraries(gbtg PRIVATE d3d11 dxgi d3dcompiler user32 xaudio2 ole32)
 else()
     target_sources(gbtg PRIVATE src/engine/gfx_null.cpp)
     target_compile_definitions(gbtg PRIVATE GBTG_GFX_NULL)

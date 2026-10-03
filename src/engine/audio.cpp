@@ -685,6 +685,7 @@ void audio_tick(Game& g, float dt)
     xact_396f0();
     xact_38640(dt);
     xact_38c20();
+    pcm_cutscene_sync(g);
 }
 
 } // namespace gbtg

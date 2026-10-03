@@ -1,0 +1,686 @@
+#include "gbtg/engine_internal.hpp"
+
+#include "gbtg/bundle.hpp"
+
+#include <algorithm>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <map>
+#include <string>
+#include <vector>
+
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <objbase.h>
+#include <xaudio2.h>
+#endif
+
+namespace gbtg
+{
+namespace
+{
+
+u32 ru32(std::span<const u8> b, size_t o)
+{
+    u32 v = 0;
+    if (o + 4 <= b.size())
+    {
+        std::memcpy(&v, b.data() + o, 4);
+    }
+    return v;
+}
+
+u16 ru16(std::span<const u8> b, size_t o)
+{
+    u16 v = 0;
+    if (o + 2 <= b.size())
+    {
+        std::memcpy(&v, b.data() + o, 2);
+    }
+    return v;
+}
+
+float rf32(std::span<const u8> b, size_t o)
+{
+    float v = 0.f;
+    if (o + 4 <= b.size())
+    {
+        std::memcpy(&v, b.data() + o, 4);
+    }
+    return v;
+}
+
+struct WaveChoice
+{
+    std::string bank; // WBND internal name, e.g. Gharddrive1
+    u16 index = 0;
+    u16 weight_lo = 0;
+    u16 weight_hi = 10000;
+};
+
+struct SoundEvent
+{
+    float time = 0.f;
+    std::string cue; // XACT_SOUNDBANK_...
+    bool fired = false;
+};
+
+#if defined(_WIN32)
+
+struct WaveFile
+{
+    std::filesystem::path path;
+    u32 count = 0;
+};
+
+struct PcmVoice
+{
+    IXAudio2SourceVoice* voice = nullptr;
+    std::vector<u8> pcm;
+};
+
+IXAudio2* g_xa = nullptr;
+IXAudio2MasteringVoice* g_master = nullptr;
+std::vector<PcmVoice> g_voices;
+bool g_device_failed = false;
+bool g_catalog_ready = false;
+std::map<std::string, WaveFile> g_wavefiles;                 // WBND name -> file
+std::map<std::string, std::vector<WaveChoice>> g_cues;      // full cue string -> variations
+std::vector<SoundEvent> g_events;
+size_t g_clip = static_cast<size_t>(-1);
+std::string g_clip_name;
+
+bool packed_table(std::span<const u8> blob, u16 n)
+{
+    const u32 off = ru32(blob, 12);
+    if (n == 0 || size_t(off) + size_t(n) * 4 > blob.size())
+    {
+        return false;
+    }
+    for (u16 i = 0; i < n && i < 2; ++i)
+    {
+        const u32 p = ru32(blob, off + i * 4);
+        const u32 flags = p & 0xFF;
+        const u32 body = p >> 8;
+        if (flags < 1 || flags > 3 || body >= blob.size())
+        {
+            return false;
+        }
+    }
+    if (n >= 2)
+    {
+        const u32 a = ru32(blob, off) >> 8;
+        const u32 b = ru32(blob, off + 4) >> 8;
+        const u32 span = b - a;
+        if (b <= a || (span != 24 && span != 52 && span != 72))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::vector<std::string> device_names(std::span<const u8> blob)
+{
+    std::vector<std::string> names;
+    const u32 d0 = ru32(blob, 8);
+    size_t p = d0;
+    while (p + 16 <= blob.size())
+    {
+        size_t n = 0;
+        while (n < 16 && blob[p + n] != 0)
+        {
+            if (blob[p + n] < 32 || blob[p + n] >= 127)
+            {
+                return names;
+            }
+            ++n;
+        }
+        if (n == 0)
+        {
+            break;
+        }
+        names.emplace_back(reinterpret_cast<const char*>(blob.data() + p), n);
+        p += 16;
+    }
+    return names;
+}
+
+std::vector<WaveChoice> choices_at(std::span<const u8> blob, size_t pos, const std::vector<std::string>& devs)
+{
+    std::vector<WaveChoice> out;
+    if (pos + 4 > blob.size())
+    {
+        return out;
+    }
+    const u16 count = ru16(blob, pos);
+    if (count == 0 || count > 16 || pos + 4 + size_t(count) * 8 > blob.size())
+    {
+        return out;
+    }
+    for (u16 i = 0; i < count; ++i)
+    {
+        const size_t e = pos + 4 + size_t(i) * 8;
+        const u16 bank = ru16(blob, e + 2);
+        if (bank >= devs.size())
+        {
+            continue;
+        }
+        WaveChoice c;
+        c.bank = devs[bank];
+        c.index = ru16(blob, e);
+        c.weight_lo = ru16(blob, e + 4);
+        c.weight_hi = ru16(blob, e + 6);
+        out.push_back(c);
+    }
+    return out;
+}
+
+std::vector<WaveChoice> from_sound_body(std::span<const u8> blob, size_t body, u32 flags, size_t size,
+                                        const std::vector<std::string>& devs)
+{
+    std::vector<WaveChoice> out;
+    if (flags == 1)
+    {
+        if (body + 12 > blob.size())
+        {
+            return out;
+        }
+        const u16 mode = ru16(blob, body + 4);
+        if ((mode & 0xFF00) == 0)
+        {
+            if (!devs.empty())
+            {
+                WaveChoice c;
+                c.bank = devs[0];
+                c.index = ru16(blob, body + 8);
+                out.push_back(c);
+            }
+            return out;
+        }
+        return choices_at(blob, ru32(blob, body + 8), devs);
+    }
+    if (size >= 4 && body + size <= blob.size() && !devs.empty())
+    {
+        const u16 bank = ru16(blob, body + size - 2);
+        if (bank < devs.size())
+        {
+            WaveChoice c;
+            c.bank = devs[bank];
+            c.index = ru16(blob, body + size - 4);
+            out.push_back(c);
+        }
+    }
+    return out;
+}
+
+std::vector<WaveChoice> cue_waves(std::span<const u8> blob, u16 cue_index, const std::vector<std::string>& devs)
+{
+    const u16 n = ru16(blob, 26);
+    if (cue_index >= n || size_t(56) + (size_t(cue_index) + 1) * 20 > blob.size())
+    {
+        return {};
+    }
+    const u32 sound = ru32(blob, 56 + size_t(cue_index) * 20) >> 16;
+    if (sound >= n)
+    {
+        return {};
+    }
+    if (packed_table(blob, n))
+    {
+        const u32 off = ru32(blob, 12);
+        const u32 packed = ru32(blob, off + sound * 4);
+        const size_t body = packed >> 8;
+        const u32 flags = packed & 0xFF;
+        size_t nxt = blob.size();
+        if (sound + 1 < n)
+        {
+            nxt = ru32(blob, off + (sound + 1) * 4) >> 8;
+        }
+        if (nxt > body)
+        {
+            return from_sound_body(blob, body, flags, nxt - body, devs);
+        }
+        return {};
+    }
+    const size_t base = 56 + size_t(n) * 20;
+    if (base + size_t(sound) * 20 + 4 > blob.size())
+    {
+        return {};
+    }
+    const u32 v = ru32(blob, base + size_t(sound) * 20);
+    if (v > 64)
+    {
+        auto grouped = choices_at(blob, v, devs);
+        if (!grouped.empty())
+        {
+            return grouped;
+        }
+    }
+    const u16 bank = static_cast<u16>(v >> 16);
+    if (bank < devs.size())
+    {
+        WaveChoice c;
+        c.bank = devs[bank];
+        c.index = static_cast<u16>(v & 0xFFFF);
+        return {c};
+    }
+    return {};
+}
+
+void index_wavebanks(const std::filesystem::path& game_dir)
+{
+    const auto dir = game_dir / "xwavebank";
+    std::error_code ec;
+    for (const auto& ent : std::filesystem::directory_iterator(dir, ec))
+    {
+        std::ifstream in(ent.path(), std::ios::binary);
+        u8 hdr[16]{};
+        in.read(reinterpret_cast<char*>(hdr), 16);
+        if (!in || std::memcmp(hdr, "WBND", 4) != 0)
+        {
+            continue;
+        }
+        const u32 bd = ru32(hdr, 8);
+        in.seekg(bd + 4);
+        u8 countb[4]{};
+        in.read(reinterpret_cast<char*>(countb), 4);
+        char nameb[16]{};
+        in.read(nameb, 16);
+        if (!in)
+        {
+            continue;
+        }
+        WaveFile wf;
+        wf.path = ent.path();
+        std::memcpy(&wf.count, countb, 4);
+        const std::string name(nameb, strnlen(nameb, 16));
+        if (!name.empty())
+        {
+            g_wavefiles[name] = wf;
+        }
+    }
+}
+
+void build_catalog(const Game& g)
+{
+    if (g_catalog_ready)
+    {
+        return;
+    }
+    g_catalog_ready = true;
+    index_wavebanks(g.aids.game_dir);
+
+    std::map<std::string, std::vector<std::string>> cue_names;
+    const BundleEntry* list = find_entry(g.aids.common, "aid_xcuelist_ghoulies_default");
+    if (!list)
+    {
+        std::cout << "audio missing cue list\n";
+        return;
+    }
+    std::string text(reinterpret_cast<const char*>(list->cpu.data()), list->cpu.size());
+    size_t line = 0;
+    while (line < text.size())
+    {
+        size_t end = text.find('\n', line);
+        if (end == std::string::npos)
+        {
+            end = text.size();
+        }
+        std::string row = text.substr(line, end - line);
+        if (!row.empty() && row.back() == '\r')
+        {
+            row.pop_back();
+        }
+        const size_t tab = row.find('\t');
+        if (tab != std::string::npos)
+        {
+            std::string bank = row.substr(0, tab);
+            std::string cue = row.substr(tab + 1);
+            for (char& c : bank)
+            {
+                if (c >= 'a' && c <= 'z')
+                {
+                    c = static_cast<char>(c - 32);
+                }
+            }
+            for (char& c : cue)
+            {
+                if (c >= 'a' && c <= 'z')
+                {
+                    c = static_cast<char>(c - 32);
+                }
+            }
+            cue_names[bank].push_back(cue);
+        }
+        line = end + 1;
+    }
+
+    std::vector<std::string> banks_by_length;
+    for (const auto& e : g.aids.common.entries)
+    {
+        if (e.type != ResourceType::XSoundbank || e.cpu.size() < 64 || std::memcmp(e.cpu.data(), "SDBK", 4) != 0)
+        {
+            continue;
+        }
+        size_t n = 0;
+        while (40 + n < e.cpu.size() && e.cpu[40 + n] != 0)
+        {
+            ++n;
+        }
+        std::string bank(reinterpret_cast<const char*>(e.cpu.data() + 40), n);
+        for (char& c : bank)
+        {
+            if (c >= 'a' && c <= 'z')
+            {
+                c = static_cast<char>(c - 32);
+            }
+        }
+        const auto found = cue_names.find(bank);
+        if (found == cue_names.end())
+        {
+            continue;
+        }
+        const auto devs = device_names(e.cpu);
+        const auto& names = found->second;
+        for (u16 i = 0; i < names.size(); ++i)
+        {
+            auto waves = cue_waves(e.cpu, i, devs);
+            if (waves.empty())
+            {
+                continue;
+            }
+            g_cues["XACT_SOUNDBANK_" + bank + "_" + names[i]] = std::move(waves);
+        }
+        banks_by_length.push_back(bank);
+    }
+    std::cout << "audio cues " << g_cues.size() << " wavebanks " << g_wavefiles.size() << "\n";
+    (void)banks_by_length;
+}
+
+bool ensure_device()
+{
+    if (g_xa)
+    {
+        return true;
+    }
+    if (g_device_failed)
+    {
+        return false;
+    }
+    const HRESULT co = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    if (FAILED(co) && co != RPC_E_CHANGED_MODE)
+    {
+        g_device_failed = true;
+        std::cout << "audio CoInitializeEx failed\n";
+        return false;
+    }
+    if (FAILED(XAudio2Create(&g_xa, 0, XAUDIO2_DEFAULT_PROCESSOR)) || FAILED(g_xa->CreateMasteringVoice(&g_master)))
+    {
+        g_device_failed = true;
+        std::cout << "audio XAudio2Create failed\n";
+        return false;
+    }
+    return true;
+}
+
+void reap_voices()
+{
+    for (size_t i = 0; i < g_voices.size();)
+    {
+        XAUDIO2_VOICE_STATE state{};
+        g_voices[i].voice->GetState(&state);
+        const bool done = state.BuffersQueued == 0;
+        if (done || g_voices.size() > 24)
+        {
+            g_voices[i].voice->Stop(0);
+            g_voices[i].voice->DestroyVoice();
+            g_voices.erase(g_voices.begin() + static_cast<std::ptrdiff_t>(i));
+            if (!done)
+            {
+                continue;
+            }
+            continue;
+        }
+        ++i;
+    }
+}
+
+void stop_all()
+{
+    for (auto& v : g_voices)
+    {
+        v.voice->Stop(0);
+        v.voice->FlushSourceBuffers();
+        v.voice->DestroyVoice();
+    }
+    g_voices.clear();
+}
+
+bool load_wave(const WaveChoice& choice, std::vector<u8>& pcm, WAVEFORMATEX& fmt)
+{
+    const auto found = g_wavefiles.find(choice.bank);
+    if (found == g_wavefiles.end() || choice.index >= found->second.count)
+    {
+        return false;
+    }
+    std::ifstream in(found->second.path, std::ios::binary);
+    u8 hdr[48]{};
+    in.read(reinterpret_cast<char*>(hdr), 40);
+    if (!in)
+    {
+        return false;
+    }
+    const u32 meta_off = ru32(hdr, 16);
+    const u32 meta_len = ru32(hdr, 20);
+    const u32 wave_off = ru32(hdr, 32);
+    const u32 count = found->second.count;
+    if (count == 0 || meta_len / count < 16)
+    {
+        return false;
+    }
+    const u32 entry = meta_len / count;
+    std::vector<u8> rec(entry);
+    in.seekg(size_t(meta_off) + size_t(choice.index) * entry);
+    in.read(reinterpret_cast<char*>(rec.data()), entry);
+    if (!in)
+    {
+        return false;
+    }
+    const u32 mini = ru32(rec, 4);
+    const u32 play_off = ru32(rec, 8);
+    const u32 play_len = ru32(rec, 12);
+    if (play_len == 0 || play_len > 48 * 1024 * 1024)
+    {
+        return false;
+    }
+    // These WBND headers store the channel count in the 3-bit field. Adding 1
+    // (the later XNA layout) plays the stereo music bed as 3 channels, 1.5x fast.
+    int channels = int((mini >> 2) & 7);
+    const int rate = int((mini >> 5) & 0x3FFFF);
+    const int bits = (mini & 0x80000000u) ? 16 : 8;
+    const int bpf = bits / 8;
+    if (channels < 1)
+    {
+        channels = 1;
+    }
+    if (rate < 8000 || bpf == 0)
+    {
+        return false;
+    }
+    if (play_len % (channels * bpf) != 0)
+    {
+        const int alt = int((mini >> 2) & 7) + 1;
+        if (alt > 0 && play_len % (alt * bpf) == 0)
+        {
+            channels = alt;
+        }
+    }
+    pcm.resize(play_len);
+    in.seekg(size_t(wave_off) + play_off);
+    in.read(reinterpret_cast<char*>(pcm.data()), play_len);
+    if (!in)
+    {
+        pcm.clear();
+        return false;
+    }
+    fmt = {};
+    fmt.wFormatTag = WAVE_FORMAT_PCM;
+    fmt.nChannels = WORD(channels);
+    fmt.nSamplesPerSec = DWORD(rate);
+    fmt.wBitsPerSample = WORD(bits);
+    fmt.nBlockAlign = WORD(channels * bpf);
+    fmt.nAvgBytesPerSec = fmt.nSamplesPerSec * fmt.nBlockAlign;
+    return true;
+}
+
+void play_choice(const std::string& cue, const WaveChoice& choice)
+{
+    if (!ensure_device())
+    {
+        return;
+    }
+    reap_voices();
+    PcmVoice slot;
+    WAVEFORMATEX fmt{};
+    if (!load_wave(choice, slot.pcm, fmt))
+    {
+        std::cout << "audio skip " << cue << " " << choice.bank << "[" << choice.index << "]\n";
+        return;
+    }
+    if (FAILED(g_xa->CreateSourceVoice(&slot.voice, &fmt)))
+    {
+        std::cout << "audio voice failed " << cue << "\n";
+        return;
+    }
+    slot.voice->SetVolume(1.f);
+    XAUDIO2_BUFFER buf{};
+    buf.AudioBytes = UINT32(slot.pcm.size());
+    buf.pAudioData = slot.pcm.data();
+    buf.Flags = XAUDIO2_END_OF_STREAM;
+    if (FAILED(slot.voice->SubmitSourceBuffer(&buf)))
+    {
+        slot.voice->DestroyVoice();
+        return;
+    }
+    slot.voice->Start(0);
+    std::cout << "audio cue " << cue << " " << choice.bank << "[" << choice.index << "]\n";
+    g_voices.push_back(std::move(slot));
+}
+
+const WaveChoice* pick_choice(const std::vector<WaveChoice>& waves, u32 frame)
+{
+    if (waves.empty())
+    {
+        return nullptr;
+    }
+    const u16 needle = static_cast<u16>(frame % 10000);
+    for (const auto& w : waves)
+    {
+        if (needle >= w.weight_lo && needle <= w.weight_hi)
+        {
+            return &w;
+        }
+    }
+    return &waves[0];
+}
+
+void collect_events(const Game& g, const Cutscene& clip)
+{
+    g_events.clear();
+    if (!g.scene_bundle)
+    {
+        return;
+    }
+    std::string prefix = clip.name;
+    const std::string from = "aid_cutscene_";
+    if (prefix.rfind(from, 0) == 0)
+    {
+        prefix.replace(0, from.size(), "aid_cutsceneevents_");
+    }
+    for (const auto& e : g.scene_bundle->entries)
+    {
+        if (e.type != ResourceType::CutsceneEvents || e.name.rfind(prefix, 0) != 0)
+        {
+            continue;
+        }
+        size_t pos = 0;
+        while (pos + 16 <= e.cpu.size())
+        {
+            const u32 size = ru32(e.cpu, pos);
+            if (size < 16 || pos + size > e.cpu.size())
+            {
+                break;
+            }
+            const char* s = reinterpret_cast<const char*>(e.cpu.data() + pos + 16);
+            const size_t room = size - 16;
+            size_t n = 0;
+            while (n < room && s[n] != 0)
+            {
+                ++n;
+            }
+            if (n > 14 && std::memcmp(s, "XACT_SOUNDBANK_", 15) == 0)
+            {
+                SoundEvent ev;
+                ev.time = rf32(e.cpu, pos + 4);
+                ev.cue.assign(s, n);
+                g_events.push_back(ev);
+            }
+            pos += size;
+        }
+    }
+    std::cout << "audio events " << g_events.size() << " " << clip.name << "\n";
+}
+
+#endif
+
+} // namespace
+
+void pcm_cutscene_sync(const Game& g)
+{
+#if defined(_WIN32)
+    build_catalog(g);
+    if (!g.cutscenes.playing || g.cutscenes.index >= g.cutscenes.items.size())
+    {
+        if (!g_voices.empty())
+        {
+            stop_all();
+        }
+        g_clip = static_cast<size_t>(-1);
+        return;
+    }
+    const Cutscene& clip = g.cutscenes.items[g.cutscenes.index];
+    if (g.cutscenes.index != g_clip || clip.name != g_clip_name)
+    {
+        stop_all();
+        g_clip = g.cutscenes.index;
+        g_clip_name = clip.name;
+        collect_events(g, clip);
+    }
+    for (auto& ev : g_events)
+    {
+        if (ev.fired || ev.time > g.cutscenes.time)
+        {
+            continue;
+        }
+        ev.fired = true;
+        const auto found = g_cues.find(ev.cue);
+        if (found == g_cues.end())
+        {
+            std::cout << "audio unmapped " << ev.cue << "\n";
+            continue;
+        }
+        if (const WaveChoice* choice = pick_choice(found->second, g.frame))
+        {
+            play_choice(ev.cue, *choice);
+        }
+    }
+#else
+    (void)g;
+#endif
+}
+
+} // namespace gbtg

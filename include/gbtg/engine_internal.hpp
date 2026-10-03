@@ -13,10 +13,12 @@ inline constexpr const char* kSceneOrder = "aid_aidlist_ghoulies_sceneorder_game
 void load_ui(Game& g);
 void begin_frontend(Game& g);
 void load_scene_contents(Game& g, std::string_view name);
+void scene_order_leave_attract(Game& g); // 0x0012C5D0: skip the attract reel for the next sceneorder script
 void gameselect_tick(Game& g, const InputState& in);
 void draw_ui(const Game& g);
 void draw_cutscene_props(Game& g);
 void pad_tick(Game& g, const InputState& in); // Xbox 0x000FA3C0 / 0x000FAD80
 void audio_tick(Game& g, float dt);           // Xbox 0x0015B780 and the XACT calls
+void pcm_cutscene_sync(const Game& g);
 
 } // namespace gbtg

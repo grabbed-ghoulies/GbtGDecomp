@@ -131,7 +131,8 @@ void log_cutscene_end(const Game& g)
 void load_cutscene_reel(Game& g)
 {
     g.cutscenes = {};
-    g.cutscenes.loop = true;
+    // Attract entries are one pass of sceneorder. A later script (gameselect) may loop.
+    g.cutscenes.loop = g.scene_name.find("attract") == std::string::npos;
     for (const auto& list_name : g.script_aidlists)
     {
         const BundleEntry* list = find_aid(g, list_name);
@@ -14348,6 +14349,38 @@ void cutscene_queue_start(Game& g)
     log_cutscene_begin(g);
 }
 
+void scene_order_go(Game& g, size_t index)
+{
+    // Xbox 0x0012C2D0 returns the sceneorder slot. 0x0012C5D0 loads that script.
+    if (index >= g.scene_order.size())
+    {
+        return;
+    }
+    g.scene_index = index;
+    std::cout << "scene order [" << index << "] " << g.scene_order[index] << "\n";
+    load_scene_contents(g, g.scene_order[index]);
+    cutscene_queue_start(g);
+}
+
+void scene_order_advance(Game& g)
+{
+    // Xbox 0x0012C2D0. The finished script's slot is followed by the next sceneorder name.
+    scene_order_go(g, g.scene_index + 1);
+}
+
+void scene_order_leave_attract(Game& g)
+{
+    // Xbox 0x0012C5D0. A during attract skips the remaining attractsequence entries.
+    for (size_t i = g.scene_index + 1; i < g.scene_order.size(); ++i)
+    {
+        if (g.scene_order[i].find("attract") == std::string::npos)
+        {
+            scene_order_go(g, i);
+            return;
+        }
+    }
+}
+
 void cutscene_queue_tick(Game& g, float dt)
 {
     // camera_apply 0x00025AE0: 0x0001EEC0 when camera+0xfc != 0, then 0x0001EC20
@@ -14391,6 +14424,10 @@ void cutscene_queue_tick(Game& g, float dt)
             {
                 q.playing = false;
                 q.time = 0.f;
+                if (g.scene_name.find("attract") != std::string::npos)
+                {
+                    scene_order_advance(g);
+                }
                 return;
             }
             std::cout << "cutscene reel loop\n";

@@ -29,6 +29,7 @@ struct Game
     AidStore aids;
     Clock clock;
     std::vector<std::string> scene_order;
+    size_t scene_index = 0; // Slot chosen by 0x0012C2D0. Boot starts at 0.
     std::string scene_name; // DAT_00512494; 0x001287F0 defaults to "There is no script for this scene!"
     const Bundle* scene_bundle = nullptr;
     SceneScript scene_script;

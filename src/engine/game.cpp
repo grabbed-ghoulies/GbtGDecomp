@@ -79,6 +79,7 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
                 }
                 std::cout << "scene select [" << index << "] " << scene_order[index] << "\n";
             }
+            scene_index = index;
             load_scene_contents(*this, scene_order[index]);
         }
     }

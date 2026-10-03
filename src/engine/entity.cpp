@@ -1305,6 +1305,28 @@ float fn_152bb0(float value)
     return 0.f - value;
 }
 
+float fn_1534c0(float value)
+{
+    // Xbox 0x001534C0
+    // Reciprocal square root. 0x00153450 seeds from
+    // ((0x7F000000 - bits) >> 1) + 0x1FC00000, multiplies by 1/sqrt(2) when
+    // bit 0x08000000 is clear, and takes two Newton steps. Two further steps
+    // refine that estimate. Every input, including zero and negatives, runs
+    // the same steps.
+    const u32 bits = std::bit_cast<u32>(value);
+    float y = std::bit_cast<float>(((0x7F000000u - bits) >> 1) + 0x1FC00000u);
+    if ((bits & 0x08000000u) == 0u)
+    {
+        y *= std::bit_cast<float>(u32{0x3F3504F3u});
+    }
+    const float half = value * 0.5f;
+    y = (1.5f - half * y * y) * y;
+    y = (1.5f - half * y * y) * y;
+    y = (1.5f - half * y * y) * y;
+    y = (1.5f - half * y * y) * y;
+    return y;
+}
+
 i32 fn_105e20(float x, float y, float z, float& yaw, float& pitch)
 {
     // Xbox 0x00105E20

@@ -300,6 +300,10 @@ struct EntityLookAt
 // Absolute value. A non-negative input is returned unchanged.
 float fn_152bb0(float value); // 0x00152BB0
 
+// Reciprocal square root. 0x00153450 seeds the estimate and takes two Newton
+// steps; this takes two more and returns the estimate.
+float fn_1534c0(float value); // 0x001534C0
+
 // EAX is the direction (x, y, z). Writes yaw, then pitch. Returns 0 when XZ is
 // quieter than 2e-7; pitch is still written.
 i32 fn_105e20(float x, float y, float z, float& yaw, float& pitch); // 0x00105E20

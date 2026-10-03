@@ -2545,6 +2545,36 @@ int fn_168883(u32 c)
     return static_cast<int>(static_cast<u8>(g_crt_pctype[c]) & 8u);
 }
 
+int fn_16b050(int c)
+{
+    // Xbox 0x0016B050
+    // tolower. cdecl; the caller pops the character. The compare with
+    // __mb_cur_max is signed (cmp 1 / jle). At 1 or below, the low byte of
+    // _pctype[c] is masked with _UPPER (1). Above 1, _isctype (0x0016AE1F)
+    // is called with that same mask. A nonzero result returns c + 0x20;
+    // zero returns c. The image __mb_cur_max is 1, so the table path runs.
+    // There is no range check: the address is _pctype + c * 2. _stricmp
+    // (0x00166EE1) and _strnicmp (0x00167213) zero-extend each source byte.
+    // __forcdecpt (0x0016B141) sign-extends one byte and compares the result
+    // with 'e' (0x65). A value outside 0..255 would walk off the table; the
+    // port returns it unchanged. EOF (-1) is that case, and the ushort just
+    // before _pctype is 0, so retail also returns it unchanged.
+    unsigned upper = 0;
+    if (g_crt_mb_cur_max > 1)
+    {
+        upper = static_cast<unsigned>(fn_16ae1f(c, 1u));
+    }
+    else if (static_cast<unsigned>(c) < 256u)
+    {
+        upper = static_cast<unsigned>(static_cast<u8>(g_crt_pctype[c]) & 1u);
+    }
+    if (upper == 0)
+    {
+        return c;
+    }
+    return c + 0x20;
+}
+
 // Xbox 0x00337A70. __NLG_Destination. The image signature is the C++ EH
 // magic 0x19930520. The next three dwords are zero until __NLG_Notify1
 // writes them. Nothing in the image reads the record back.

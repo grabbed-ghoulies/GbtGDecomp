@@ -2445,6 +2445,22 @@ u16* fn_1660e9(u16* dest, const u16* src)
     return dest;
 }
 
+int fn_166ecb(const u16* text)
+{
+    // Xbox 0x00166ECB
+    // libc wcslen, cdecl. Each 16-bit unit is read, then the pointer
+    // advances, until the unit just read is zero. The walked span includes
+    // that terminator, so the returned count is one less.
+    const u16* cursor = text;
+    u16 unit = 0;
+    do
+    {
+        unit = *cursor;
+        ++cursor;
+    } while (unit != 0);
+    return static_cast<int>(cursor - text) - 1;
+}
+
 int fn_14aaed(const u16* src, int cch, u8* dst, int cb)
 {
     // Xbox 0x0014AAED
@@ -2454,12 +2470,7 @@ int fn_14aaed(const u16* src, int cch, u8* dst, int cb)
     // last-error 0x7A.
     if (cch == -1)
     {
-        int length = 0;
-        while (src[length] != 0)
-        {
-            ++length;
-        }
-        cch = length + 1;
+        cch = fn_166ecb(src) + 1;
     }
 
     int count = 0;

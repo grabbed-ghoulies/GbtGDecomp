@@ -1671,4 +1671,30 @@ bool gfx_readback(RgbaImage& out)
     return true;
 }
 
+float* fn_151e64(float* out, const float* left, const float* right)
+{
+    // Xbox 0x00151E64
+    // 4x4 product, out = left * right, row-major. Output row r is
+    // left[r][0] * right.row0 + left[r][1] * right.row1
+    // + left[r][2] * right.row2 + left[r][3] * right.row3.
+    // Every input element is loaded before the first store, so out may
+    // alias left or right. Returns out.
+    float a[16];
+    float b[16];
+    std::memcpy(a, left, sizeof(a));
+    std::memcpy(b, right, sizeof(b));
+    for (int row = 0; row < 4; ++row)
+    {
+        const float x = a[row * 4 + 0];
+        const float y = a[row * 4 + 1];
+        const float z = a[row * 4 + 2];
+        const float w = a[row * 4 + 3];
+        out[row * 4 + 0] = x * b[0] + y * b[4] + z * b[8] + w * b[12];
+        out[row * 4 + 1] = x * b[1] + y * b[5] + z * b[9] + w * b[13];
+        out[row * 4 + 2] = x * b[2] + y * b[6] + z * b[10] + w * b[14];
+        out[row * 4 + 3] = x * b[3] + y * b[7] + z * b[11] + w * b[15];
+    }
+    return out;
+}
+
 } // namespace gbtg

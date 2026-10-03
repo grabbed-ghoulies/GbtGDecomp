@@ -2480,6 +2480,61 @@ int fn_14aaed(const u16* src, int cch, u8* dst, int cb)
     }
     return count;
 }
+
+// Win32 code stored by 0x0014B00C. 0x0014B03A maps the NTSTATUS, and
+// 0x0014AFE4 reads this slot. XCreateSaveGame (0x0014C70F) treats 0xB7 as
+// "the directory is already there".
+u32 g_xapi_last_error = 0;
+
+bool fn_14d217(const char* path, const void* security)
+{
+    // Xbox 0x0014D217
+    // CreateDirectoryA for XCreateSaveGame. The security pointer is unused.
+    // RtlInitAnsiString, then NtCreateFile on ObDosDevicesDirectory
+    // (0xFFFFFFFD) with OBJ_CASE_INSENSITIVE, FILE_LIST_DIRECTORY|SYNCHRONIZE,
+    // FILE_ATTRIBUTE_NORMAL, share read|write, FILE_CREATE, and
+    // FILE_DIRECTORY_FILE|FILE_SYNCHRONOUS_IO_NONALERT|FILE_OPEN_FOR_BACKUP_INTENT.
+    // Success closes the handle. Failure stores the Win32 error: 0xB7 when
+    // the name is taken, 3 when a parent is missing.
+    (void)security;
+    if (path == nullptr || path[0] == '\0')
+    {
+        g_xapi_last_error = 123;
+        return false;
+    }
+
+    std::error_code ec;
+    if (std::filesystem::create_directory(std::filesystem::path(path), ec))
+    {
+        return true;
+    }
+
+    if (!ec || ec == std::errc::file_exists)
+    {
+        g_xapi_last_error = 0xB7;
+    }
+    else if (ec == std::errc::no_such_file_or_directory)
+    {
+        g_xapi_last_error = 3;
+    }
+    else if (ec == std::errc::permission_denied)
+    {
+        g_xapi_last_error = 5;
+    }
+    else if (ec == std::errc::invalid_argument)
+    {
+        g_xapi_last_error = 123;
+    }
+    else if (ec.value() != 0)
+    {
+        g_xapi_last_error = static_cast<u32>(ec.value());
+    }
+    else
+    {
+        g_xapi_last_error = 0xB7;
+    }
+    return false;
+}
 } // namespace
 
 void load_scene_contents(Game& g, std::string_view name)

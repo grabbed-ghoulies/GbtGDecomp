@@ -47,6 +47,8 @@ extern "C"
     __declspec(dllimport) int __stdcall CloseHandle(void* handle);
     __declspec(dllimport) int __stdcall FlushFileBuffers(void* handle);
     __declspec(dllimport) unsigned long __stdcall GetLastError();
+    __declspec(dllimport) int __stdcall ReadFile(void* handle, void* buffer, unsigned long bytes, unsigned long* read,
+                                                 void* overlapped);
     __declspec(dllimport) unsigned long __stdcall SetFilePointer(void* handle, long distance, long* high,
                                                                  unsigned long method);
     __declspec(dllimport) int __stdcall IsBadReadPtr(const void* lp, std::uintptr_t ucb);
@@ -4579,6 +4581,203 @@ void fn_16d55f(int fh)
     // section _lock_fhandle has not created, is left alone; retail would
     // fault on that address.
     fn_168c8e(fh);
+}
+
+bool crt_read_file(std::intptr_t handle, void* buffer, u32 bytes, u32* got, u32* doserr)
+{
+    // ReadFile at 0x0014B3A3. Nonzero is success. Zero keeps GetLastError
+    // (0x0014AFE4). The transferred count is reported either way.
+#if defined(_WIN32)
+    unsigned long n = 0;
+    const int ok = ReadFile(reinterpret_cast<void*>(handle), buffer, bytes, &n, nullptr);
+    *got = static_cast<u32>(n);
+    if (ok != 0)
+    {
+        return true;
+    }
+    *doserr = static_cast<u32>(GetLastError());
+    return false;
+#else
+    (void)handle;
+    (void)buffer;
+    (void)bytes;
+    (void)doserr;
+    *got = 0;
+    return true;
+#endif
+}
+
+int fn_16d583(u32 fh, char* buf, u32 count)
+{
+    // Xbox 0x0016D583
+    // _read_lk. cdecl. The caller pops the descriptor, the buffer, and the
+    // byte count. This body does not lock the descriptor; the locked _read
+    // calls here with that lock already held.
+    //
+    // A count of 0 returns 0. The record is __pioinfo[fd >> 5] at
+    // 0x0054DC60, slot (fd & 0x1F), stride 0x28. osfile is at +4 and the
+    // pipe lookahead is at +5. FEOFLAG (bit 1) returns 0 without reading.
+    // A null __pioinfo slot is the same zero return; retail would fault on
+    // that address.
+    //
+    // FPIPE or FDEV (0x48) with a lookahead other than LF (10) stores that
+    // byte at the front of the buffer, decrements the count, sets the
+    // lookahead back to LF, and reads the rest one byte later.
+    //
+    // XAPILIB::ReadFile uses the OS handle at record+0. A zero return takes
+    // GetLastError. Code 5 stores EBADF (9) through _errno (0x00168AF5) and
+    // 5 through __doserrno (0x00168AFE), then returns -1. Code 0x6D
+    // (ERROR_BROKEN_PIPE) returns 0 and leaves errno alone. Any other code
+    // goes through __dosmaperr (0x00168B07) and returns -1.
+    //
+    // A successful read that is not FTEXT (bit 0x80) returns the lookahead
+    // byte plus the OS count. FTEXT then sets FCRLF (bit 2) when the OS
+    // count is nonzero and the first buffer byte is LF, and clears it
+    // otherwise. That test uses the original buffer, so a consumed
+    // lookahead is what gets tested.
+    //
+    // The buffer is then scanned in place. CR LF becomes LF. A lone CR
+    // stays CR. CTRL-Z (0x1A) stops the scan and is not copied. Unless
+    // FDEV (bit 0x40) is set, CTRL-Z also sets FEOFLAG. A CR that is the
+    // last buffered byte reads one more OS byte. A failed peek, or a peek
+    // of zero bytes, stores the CR. On a pipe or device, LF replaces the
+    // CR and any other byte is saved as the lookahead after the CR. On a
+    // disk file, LF at the start of an otherwise empty result is stored
+    // and consumed. Any other peek is pushed back with _lseek_lk
+    // (0x0016D466) by -1 from the current position; LF is dropped with the
+    // CR, and any other byte leaves the CR in the buffer.
+    if (count == 0)
+    {
+        return 0;
+    }
+
+    CrtIoInfo* info = crt_ioinfo_checked(fh);
+    if (info == nullptr || (info->osfile & 2u) != 0)
+    {
+        return 0;
+    }
+
+    char* read_at = buf;
+    u32 carried = 0;
+    if ((info->osfile & 0x48u) != 0 && info->pipech != 10)
+    {
+        count -= 1u;
+        *buf = static_cast<char>(info->pipech);
+        read_at = buf + 1;
+        carried = 1u;
+        info->pipech = 10;
+    }
+
+    u32 os_read = 0;
+    u32 doserr = 0;
+    if (!crt_read_file(info->osfhnd, read_at, count, &os_read, &doserr))
+    {
+        if (doserr == 5u)
+        {
+            *fn_168af5() = 9;
+            *fn_168afe() = 5u;
+            return -1;
+        }
+        if (doserr == 0x6du)
+        {
+            return 0;
+        }
+        crt_dosmaperr(doserr);
+        return -1;
+    }
+
+    const u32 total = carried + os_read;
+    if ((info->osfile & 0x80u) == 0)
+    {
+        return static_cast<int>(total);
+    }
+
+    if (os_read != 0 && *buf == '\n')
+    {
+        info->osfile = static_cast<u8>(info->osfile | 4u);
+    }
+    else
+    {
+        info->osfile = static_cast<u8>(info->osfile & 0xfbu);
+    }
+
+    char* src = buf;
+    char* dst = buf;
+    char* end = buf + total;
+    while (src < end)
+    {
+        const char ch = *src;
+        if (ch == '\x1a')
+        {
+            if ((info->osfile & 0x40u) == 0)
+            {
+                info->osfile = static_cast<u8>(info->osfile | 2u);
+            }
+            break;
+        }
+        if (ch != '\r')
+        {
+            *dst = ch;
+            dst += 1;
+            src += 1;
+            continue;
+        }
+        if (src < end - 1)
+        {
+            if (src[1] == '\n')
+            {
+                src += 2;
+                *dst = '\n';
+            }
+            else
+            {
+                src += 1;
+                *dst = '\r';
+            }
+            dst += 1;
+            continue;
+        }
+
+        src += 1;
+        char peek = 0;
+        u32 peek_n = 0;
+        u32 peek_err = 0;
+        const bool peek_ok = crt_read_file(info->osfhnd, &peek, 1u, &peek_n, &peek_err);
+        if ((!peek_ok && peek_err != 0) || peek_n == 0)
+        {
+            *dst = '\r';
+            dst += 1;
+            continue;
+        }
+        if ((info->osfile & 0x48u) != 0)
+        {
+            if (peek == '\n')
+            {
+                *dst = '\n';
+            }
+            else
+            {
+                *dst = '\r';
+                info->pipech = static_cast<u8>(static_cast<unsigned char>(peek));
+            }
+            dst += 1;
+            continue;
+        }
+        if (dst == buf && peek == '\n')
+        {
+            *dst = '\n';
+            dst += 1;
+            continue;
+        }
+
+        fn_16d466(fh, -1, 1u);
+        if (peek != '\n')
+        {
+            *dst = '\r';
+            dst += 1;
+        }
+    }
+    return static_cast<int>(dst - buf);
 }
 
 int fn_16d9f8(std::recursive_mutex* section, u32 spin_count);

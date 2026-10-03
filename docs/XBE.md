@@ -333,3 +333,4 @@ Named functions: [`docs/generated/ghidra_functions.txt`](generated/ghidra_functi
 | `0x001041B0` | `fn_1041b0` | anim |
 | `0x00176F10` | `fn_176f10` | scene |
 | `0x0005E110` | `fn_5e110` | gfx |
+| `0x0005E2A0` | `fn_5e2a0` | gfx |

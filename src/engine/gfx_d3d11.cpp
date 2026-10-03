@@ -138,13 +138,25 @@ struct GfxD3D11
     int rs_dxt1_noise = 0;  // DAT_00181dec
     int rs_state_60 = 0;    // DAT_00181cf0, index 0x60, dirty bit 0x2000
     int rs_state_66 = 0;    // DAT_00181d08, index 0x66, dirty bit 0x1200
+    int vertex_shader = 0;  // D3DDevice_SetVertexShader argument. 2 = D3DFVF_XYZ.
     // Stage 0 lives at DAT_00181970, stride 0x80. The 0x0005E110 loop anchors on ALPHAOP.
+    // Ghidra names the stage base D3D_g_DeferredTextureState; it is ADDRESSU.
     struct StageRs
     {
-        int mag_filter = 0; // +0x0C D3DTSS_MAGFILTER
-        int min_filter = 0; // +0x10 D3DTSS_MINFILTER
-        int color_op = 0;   // +0x30 D3DTSS_COLOROP
-        int alpha_op = 0;   // +0x40 D3DTSS_ALPHAOP
+        int address_u = 0;      // +0x00 D3DTSS_ADDRESSU
+        int address_v = 0;      // +0x04 D3DTSS_ADDRESSV
+        int mag_filter = 0;     // +0x0C D3DTSS_MAGFILTER
+        int min_filter = 0;     // +0x10 D3DTSS_MINFILTER
+        int mip_filter = 0;     // +0x14 D3DTSS_MIPFILTER
+        int max_mip_level = 0;  // +0x1C D3DTSS_MAXMIPLEVEL
+        int color_op = 0;       // +0x30 D3DTSS_COLOROP
+        int color_arg1 = 0;     // +0x38 D3DTSS_COLORARG1
+        int color_arg2 = 0;     // +0x3C D3DTSS_COLORARG2
+        int alpha_op = 0;       // +0x40 D3DTSS_ALPHAOP
+        int alpha_arg1 = 0;     // +0x48 D3DTSS_ALPHAARG1
+        int alpha_arg2 = 0;     // +0x4C D3DTSS_ALPHAARG2
+        int tex_transform = 0;  // +0x54 D3DTSS_TEXTURETRANSFORMFLAGS
+        int texcoord_index = 0; // +0x70 D3DTSS_TEXCOORDINDEX
     };
     StageRs stages[4]{};
 };
@@ -534,8 +546,49 @@ void fn_5e110()
     g.context->IASetVertexBuffers(0, 16, streams, strides, offsets);
     g.context->IASetIndexBuffer(nullptr, DXGI_FORMAT_UNKNOWN, 0);
     g.context->IASetInputLayout(nullptr);
+    g.vertex_shader = 0;
     g.context->VSSetShader(nullptr, nullptr, 0);
     g.context->PSSetShader(nullptr, nullptr, 0);
+}
+
+// Xbox 0x0005E2A0
+// Stage 0 combiner becomes diffuse * texture. The game writes the D3D shadow, then
+// SetTextureState_TexCoordIndex(0, 0) and SetVertexShader(2) (D3DFVF_XYZ).
+//   COLOROP / ALPHAOP = 4           D3DTOP_MODULATE
+//   COLORARG2 / ALPHAARG2 = 2       D3DTA_TEXTURE
+//   ADDRESSU / ADDRESSV = 3         D3DTADDRESS_CLAMP  (ADDRESSU is D3D_g_DeferredTextureState)
+//   MAXMIPLEVEL = 0
+//   MINFILTER / MAGFILTER / MIPFILTER = 2   D3DTEXF_LINEAR
+//   dirty |= 0xC01                  stage 0 plus bits 0x400 and 0x800
+//   TEXTURETRANSFORMFLAGS = 0
+//   TEXCOORDINDEX = 0
+//   COLORARG1 / ALPHAARG1 = 0       D3DTA_DIFFUSE
+//   dirty |= 0x800
+void fn_5e2a0()
+{
+    GfxD3D11::StageRs& slot = g.stages[0];
+    slot.color_op = 4;
+    slot.alpha_op = 4;
+    slot.color_arg2 = 2;
+    slot.alpha_arg2 = 2;
+    slot.address_u = 3;
+    slot.address_v = 3;
+    slot.max_mip_level = 0;
+    slot.min_filter = 2;
+    slot.mag_filter = 2;
+    slot.mip_filter = 2;
+    g.rs_dirty |= 0xc01u;
+    slot.tex_transform = 0;
+    slot.texcoord_index = 0;
+    slot.color_arg1 = 0;
+    g.rs_dirty |= 0x800u;
+    slot.alpha_arg1 = 0;
+    g.vertex_shader = 2;
+    if (!g.ok)
+    {
+        return;
+    }
+    g.context->PSSetSamplers(0, 1, g.light_sampler.GetAddressOf());
 }
 
 } // namespace

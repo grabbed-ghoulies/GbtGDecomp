@@ -2633,6 +2633,10 @@ std::recursive_mutex g_xthread_notify_cs;
 CrtModuleTls g_crt_module_tls;
 u32 g_crt_tls_index = 0;
 
+// 0x0054DD60. BSS, so the image value is 0. 1 is __SYSTEM_HEAP and 3 is
+// __V6_HEAP. Nothing in the image stores this dword; the compares still read it.
+int g_crt_active_heap = 0;
+
 void fn_165f0e()
 {
     // Xbox 0x00165F0E
@@ -2709,6 +2713,47 @@ void fn_16619a(void* stream)
     }
 
     reinterpret_cast<CrtFileX*>(stream)->lock.unlock();
+}
+
+void fn_167f2e(void* block)
+{
+    // Xbox 0x00167F2E
+    // free. The printf helpers at 0x00168FED and 0x0016993D release a
+    // temporary buffer here, and _fcloseall (0x0016DAB4) releases FILE
+    // records past the first twenty. A null block returns before the heap
+    // check. __SEH_prolog (0x00166D58) builds the frame from the scope table
+    // at 0x00209170; __SEH_epilog (0x00166D93) tears it down.
+    //
+    // When __active_heap is __V6_HEAP (3), _lock (0x001681C1) takes
+    // _HEAP_LOCK (4). A missing critical section is the __mtinitlocknum path
+    // inside _lock; kind 1 matches the descriptor table. The __try stores 0
+    // and returns the EH state to -1. The __finally at 0x00167F7B clears ESI
+    // on the unwind entry, and both that entry and the direct call at
+    // 0x00167F7D fall into _unlock (0x0016810F). The stored 0 fails the
+    // compare, so the early-out is not taken.
+    //
+    // That fall-through and every other heap kind push the block and flags
+    // 0, call 0x0014D377 (EAX becomes _crtheap at 0x00549520), push the
+    // handle, and call the HeapFree wrapper at 0x0014D360. The host releases
+    // the block with the process heap, as 0x000663E0 does.
+    if (block == nullptr)
+    {
+        return;
+    }
+
+    if (g_crt_active_heap == 3)
+    {
+        if (g_crt_locks[4].cs == nullptr)
+        {
+            g_crt_lock_mu[4] = std::make_unique<std::recursive_mutex>();
+            g_crt_locks[4].cs = g_crt_lock_mu[4].get();
+            g_crt_locks[4].kind = 1;
+        }
+        g_crt_locks[4].cs->lock();
+        g_crt_locks[4].cs->unlock();
+    }
+
+    std::free(block);
 }
 
 int fn_16afdd()

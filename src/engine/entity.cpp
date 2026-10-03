@@ -1360,6 +1360,8 @@ struct PadBitPort
     float axis_ry = 0.f; // +0x130 DAT_004343c8
     u8 face_x = 0;       // +0x136 DAT_004343ce
     u8 face_y = 0;       // +0x137 DAT_004343cf
+    u8 black = 0;        // +0x138 DAT_004343d0
+    u8 white = 0;        // +0x139 DAT_004343d1
     u8 trigger_l = 0;    // +0x13a DAT_004343d2
     u8 trigger_r = 0;    // +0x13b DAT_004343d3
 };
@@ -1385,6 +1387,10 @@ constexpr u32 kFaceYBit = 0x800;
 // Left and right triggers in the button word. cam_155624 passes them as a pair.
 constexpr u32 kTriggerLeftBit = 0x4000;
 constexpr u32 kTriggerRightBit = 0x8000;
+
+// Black and white in the button word. 0x001555B0 passes the analog bytes as a pair.
+constexpr u32 kBlackBit = 0x1000;
+constexpr u32 kWhiteBit = 0x2000;
 
 // DAT_00203A8C. Full scale after the left-stick hook is ±74.
 constexpr float kLeftThumbScale = 1.f / 74.f;
@@ -1582,6 +1588,29 @@ void fn_154f80(i32 port, u8 face_x, u8 face_y)
     slot.face_y = face_y;
     apply_analog_bit(slot, face_x, kFaceXBit);
     apply_analog_bit(slot, face_y, kFaceYBit);
+}
+
+void fn_155000(i32 port, u8 black, u8 white)
+{
+    // Xbox 0x00155000
+    // 0x001555B0 passes the black and white analog bytes from the gamepad
+    // (+6 and +7). When DAT_0043428c is set it rewrites those bytes first
+    // (retail points it at 0x00155400) and the mask is 0x3000. The bytes land
+    // at +0x138 and +0x139. 0x00154A70 then tests each against 30: black is
+    // bit 0x1000 and white is bit 0x2000.
+    if (g_pad_analog_hook != nullptr)
+    {
+        g_pad_analog_hook(port, 0x3000, &black, &white);
+    }
+    if (port < 0 || port >= kPadBitPorts)
+    {
+        return;
+    }
+    PadBitPort& slot = g_pad_bits[port];
+    slot.black = black;
+    slot.white = white;
+    apply_analog_bit(slot, black, kBlackBit);
+    apply_analog_bit(slot, white, kWhiteBit);
 }
 
 i32 fn_105e20(float x, float y, float z, float& yaw, float& pitch)

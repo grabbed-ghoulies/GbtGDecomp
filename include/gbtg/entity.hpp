@@ -334,6 +334,13 @@ void fn_154e50(i32 port, u8 left, u8 right); // 0x00154E50
 // at +0x08 and +0x0c.
 void fn_154f80(i32 port, u8 face_x, u8 face_y); // 0x00154F80
 
+// Port is the index 0x001555B0 passes with the black and white analog bytes
+// (gamepad+6 and gamepad+7). DAT_0043428c may rewrite those bytes (mask
+// 0x3000). They are stored at +0x138 and +0x139. Each byte at or above 30
+// sets bit 0x1000 or 0x2000 in the button word, and pulses the edge words
+// at +0x08 and +0x0c.
+void fn_155000(i32 port, u8 black, u8 white); // 0x00155000
+
 // EAX is the direction (x, y, z). Writes yaw, then pitch. Returns 0 when XZ is
 // quieter than 2e-7; pitch is still written.
 i32 fn_105e20(float x, float y, float z, float& yaw, float& pitch); // 0x00105E20

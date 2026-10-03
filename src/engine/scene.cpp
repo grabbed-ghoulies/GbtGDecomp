@@ -9,6 +9,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -17,6 +18,7 @@
 #include <string>
 
 #if defined(_WIN32)
+#include <malloc.h>
 extern "C"
 {
     __declspec(dllimport) void* __stdcall GetModuleHandleA(const char* name);
@@ -2498,6 +2500,61 @@ int fn_14aaed(const u16* src, int cch, u8* dst, int cb)
 // 0x0014AFE4 reads this slot. XCreateSaveGame (0x0014C70F) treats 0xB7 as
 // "the directory is already there".
 u32 g_xapi_last_error = 0;
+
+void* fn_14aaba(u32 bytes, u32 lowest, u32 highest, u32 alignment, u32 protect)
+{
+    // Xbox 0x0014AABA
+    // stdcall. The five arguments pass through to MmAllocateContiguousMemoryEx
+    // (kernel ordinal 166, thunk 0x00202EA8). XMemAllocDefault (0x0014F90F)
+    // calls this when the attribute alignment nibble is 1: size, lowest 0,
+    // highest 0x00FFFFFF, alignment 0x1000, and a protect dword from
+    // DAT_0032CA10 (0x02, 0x204, 0x04, 0x404). A null result stores last-error
+    // 8 (ERROR_NOT_ENOUGH_MEMORY). A pointer leaves that slot unchanged.
+    // The kernel returns the virtual address of physically contiguous pages
+    // that fit in [lowest, highest]. Alignment below a page becomes a page.
+    // The port allocates one aligned host block of the page-rounded size.
+    // Protect stays a host default. Release the pointer with _aligned_free
+    // (ordinal 171, MmFreeContiguousMemory).
+    (void)protect;
+
+    if (bytes == 0 || highest < lowest)
+    {
+        g_xapi_last_error = 8;
+        return nullptr;
+    }
+
+    u32 align = alignment;
+    if (align < 0x1000)
+    {
+        align = 0x1000;
+    }
+    if ((align & (align - 1u)) != 0)
+    {
+        g_xapi_last_error = 8;
+        return nullptr;
+    }
+
+    const u64 span_end = highest;
+    const u64 start = (static_cast<u64>(lowest) + align - 1u) & ~(static_cast<u64>(align) - 1u);
+    const u64 rounded = (static_cast<u64>(bytes) + align - 1u) & ~(static_cast<u64>(align) - 1u);
+    if (start > span_end || rounded > span_end - start + 1u)
+    {
+        g_xapi_last_error = 8;
+        return nullptr;
+    }
+
+    void* block = nullptr;
+#if defined(_WIN32)
+    block = _aligned_malloc(static_cast<size_t>(rounded), align);
+#else
+    block = std::aligned_alloc(align, static_cast<size_t>(rounded));
+#endif
+    if (block == nullptr)
+    {
+        g_xapi_last_error = 8;
+    }
+    return block;
+}
 
 // DAT_0032CA50, indexed by the low byte of a UTF-16 unit. Bit 0x100000 is
 // uppercase, 0x80000 lowercase, 0x40000 a digit, 0x20000 a symbol. The high

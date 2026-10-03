@@ -16406,6 +16406,87 @@ void fn_173000(D3dFvfDecl* decl, const u32* tokens, int fixed_function)
     }
 }
 
+u32 fn_1731a0(const u32* tokens, u32* dest)
+{
+    // Xbox 0x001731A0
+    // stdcall (ret 8). Turns D3DVSD_CONST tokens into transform-constant
+    // packets and returns how many dwords that is. D3DDevice_CreateVertexShader
+    // (0x001732A0) calls it twice: first with a null dest, then shifts the
+    // count by 2 to size the shader object; later it writes the packets
+    // immediately after the program image that 0x00172F90 left at
+    // shader+0x114. A null token pointer would fault on Xbox; the port
+    // returns 0. A null dest is the size query and still walks the stream.
+    //
+    // Tokens run until D3DVSD_END (0xFFFFFFFF). A constant-memory token has
+    // top bits 0x80000000. Bits 28:25 are the vector count and the low byte
+    // is the constant index. Any other token, including NOP, is one dword
+    // and does not change the index.
+    //
+    // The index starts at 0xDEADBEEF, so the first constant always emits
+    // SET_TRANSFORM_CONSTANT_LOAD (0x41EA4) plus that index. A later token
+    // emits the load only when its index is not the previous token's index
+    // plus one. The stored index is the token's own index, not the index
+    // after its vectors.
+    //
+    // Each run is a do-while of at most eight vectors. The header is
+    // (n << 20) | 0xB80, SET_TRANSFORM_CONSTANT of n*4 dwords, then those
+    // dwords. A count of zero still writes one 0xB80 header and reads no
+    // payload. The dword count includes every header and payload dword.
+    if (tokens == nullptr)
+    {
+        return 0;
+    }
+
+    u32 token = *tokens;
+    ++tokens;
+    u32 written = 0;
+    u32 prev = 0xdeadbeefu;
+    while (token != 0xffffffffu)
+    {
+        if ((token & 0xe0000000u) == 0x80000000u)
+        {
+            u32 count = (token >> 0x19) & 0xfu;
+            const u32 address = token & 0xffu;
+            if (address != prev + 1u)
+            {
+                if (dest != nullptr)
+                {
+                    dest[0] = 0x41ea4u;
+                    dest[1] = address;
+                    dest += 2;
+                }
+                written += 2u;
+            }
+            prev = address;
+            do
+            {
+                u32 chunk = count;
+                if (chunk >= 8u)
+                {
+                    chunk = 8u;
+                }
+                const u32 dwords = chunk * 4u;
+                if (dest != nullptr)
+                {
+                    dest[0] = (chunk << 20) | 0xb80u;
+                    if (dwords != 0u)
+                    {
+                        std::memcpy(dest + 1, tokens, static_cast<size_t>(dwords) * sizeof(u32));
+                    }
+                    dest += 1u + dwords;
+                }
+                tokens += dwords;
+                written += dwords + 1u;
+                count -= chunk;
+            }
+            while (count != 0u);
+        }
+        token = *tokens;
+        ++tokens;
+    }
+    return written;
+}
+
 void fn_173900(D3dScreenDevice* device)
 {
     // Xbox 0x00173900

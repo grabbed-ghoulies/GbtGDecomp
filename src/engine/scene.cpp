@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <cstring>
 #include <filesystem>
 #include <iostream>
 #include <string>
@@ -2918,6 +2919,140 @@ bool fn_14d283(const char* path)
         g_xapi_last_error = 145;
     }
     return false;
+}
+
+u32 fn_15028c(const char* path, const void* launch_data, u32 flags, u32 launch_type)
+{
+    // Xbox 0x0015028C
+    // Body of XLaunchNewImageA (0x0014AD66). A null path reboots through
+    // 0x0014AEED with launch type 1 when launch data is present and
+    // 0xFFFFFFFF when it is absent. D:\ and d:\ keep the tail and join it
+    // to the \??\D: target with a semicolon. T:\$u\ and t:\$U\ expand to
+    // \Device\Harddisk0\Partition1\TDATA\%08x\$u\. Y:\ and y:\ expand to
+    // \Device\Harddisk0\Partition2\ when flags bit 1 is set. 0x0014ADA8
+    // fills the 0x1000 launch page (title id from the XBE certificate,
+    // launch type, path at +8, and 0xC00 bytes of launch data at +0x400
+    // when the type is not 0xFFFFFFFF). 0x00150089 writes the D: target
+    // and the path tail at +0x214, and turns a type of 0xFFFFFFFF into 0,
+    // except for a D:\ launch with no launch data. The expanded path has
+    // to fit in 0x168 bytes. Success calls the object at fs:[0x20]+0x250
+    // vfunc +0x14 with (2, 0), then HalReturnToFirmware(2). Any other
+    // path returns 0x57. The port keeps the page and returns
+    // RtlNtStatusToDosError(0).
+    constexpr u32 kTitleId = 0x4D530053u;
+    constexpr char kCdrom[] = "\\Device\\Cdrom0";
+    static u8 launch_page[0x1000];
+
+    const u32 stored_type = launch_data != nullptr ? launch_type : 0xFFFFFFFFu;
+
+    auto copy_n = [](char* dst, const char* src, int cch) -> int
+    {
+        if (cch <= 0)
+        {
+            return 0;
+        }
+        int i = 0;
+        while (i < cch - 1 && src[i] != '\0')
+        {
+            dst[i] = src[i];
+            ++i;
+        }
+        dst[i] = '\0';
+        return i;
+    };
+
+    auto fill_page = [&](const char* image, const char* prefix, const char* alt_tail)
+    {
+        std::memset(launch_page, 0, sizeof(launch_page));
+        std::memcpy(launch_page + 0, &stored_type, 4);
+        std::memcpy(launch_page + 4, &kTitleId, 4);
+        if (image != nullptr)
+        {
+            char* dest = reinterpret_cast<char*>(launch_page + 8);
+            if (prefix != nullptr)
+            {
+                const int n = copy_n(dest, prefix, 0x207);
+                dest[n] = ';';
+                copy_n(dest + n + 1, image, 0x208 - (n + 1));
+            }
+            else
+            {
+                copy_n(dest, image, 0x208);
+            }
+        }
+        if (stored_type != 0xFFFFFFFFu && launch_data != nullptr)
+        {
+            std::memcpy(launch_page + 0x400, launch_data, 0xC00);
+        }
+        if (alt_tail != nullptr)
+        {
+            const int n1 = static_cast<int>(std::strlen(kCdrom));
+            const int n2 = static_cast<int>(std::strlen(alt_tail));
+            if (n2 + (n1 + 1) + 8 < 0x1EC)
+            {
+                u8* rec = launch_page + 0x214;
+                const u16 n1_nul = static_cast<u16>(n1 + 1);
+                rec[0] = 1;
+                rec[1] = 0;
+                rec[2] = static_cast<u8>(n1_nul & 0xFF);
+                rec[3] = static_cast<u8>(n1_nul >> 8);
+                std::memcpy(rec + 4, &stored_type, 4);
+                if (stored_type == 0xFFFFFFFFu)
+                {
+                    const u32 zero = 0;
+                    std::memcpy(launch_page, &zero, 4);
+                }
+                std::memcpy(rec + 8, kCdrom, static_cast<size_t>(n1) + 1);
+                std::memcpy(rec + 8 + n1 + 1, alt_tail, static_cast<size_t>(n2) + 1);
+            }
+        }
+    };
+
+    if (path == nullptr)
+    {
+        fill_page(nullptr, nullptr, nullptr);
+        return 0;
+    }
+
+    const char c0 = path[0];
+    if ((c0 == 'D' || c0 == 'd') && path[1] == ':' && path[2] == '\\')
+    {
+        const char* tail = path + 3;
+        fill_page(tail, kCdrom, launch_data != nullptr ? tail : nullptr);
+        return 0;
+    }
+
+    std::string expanded;
+    const char* tail = nullptr;
+    if ((c0 == 'T' || c0 == 't') && path[1] == ':' && path[2] == '\\' && path[3] == '$' &&
+        (path[4] == 'U' || path[4] == 'u') && path[5] == '\\')
+    {
+        char hex[9];
+        for (int i = 0; i < 8; ++i)
+        {
+            const u32 nib = (kTitleId >> ((7 - i) * 4)) & 0xFu;
+            hex[i] = static_cast<char>(nib < 10u ? '0' + nib : 'a' + (nib - 10u));
+        }
+        hex[8] = '\0';
+        tail = path + 6;
+        expanded = std::string("\\Device\\Harddisk0\\Partition1\\TDATA\\") + hex + "\\$u\\" + tail;
+    }
+    else if ((flags & 2u) != 0 && (c0 == 'Y' || c0 == 'y') && path[1] == ':' && path[2] == '\\')
+    {
+        tail = path + 3;
+        expanded = std::string("\\Device\\Harddisk0\\Partition2\\") + tail;
+    }
+    else
+    {
+        return 0x57;
+    }
+
+    if (expanded.size() >= 0x168)
+    {
+        return 0x57;
+    }
+    fill_page(expanded.c_str(), nullptr, tail);
+    return 0;
 }
 } // namespace
 

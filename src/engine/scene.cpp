@@ -3652,6 +3652,32 @@ void xapi_sha_update(XapiShaContext& ctx, const u8* data, u32 size)
     }
 }
 
+void xapi_sha_final(XapiShaContext& ctx, u8* out)
+{
+    const u64 bits = (static_cast<u64>(ctx.count[0]) << 32 | ctx.count[1]) << 3;
+    u8 tail[72];
+    u32 n = 0;
+    tail[n++] = 0x80;
+    const u32 mod = (ctx.count[1] + 1u) & 63u;
+    const u32 zeros = (56u - mod) & 63u;
+    for (u32 i = 0; i < zeros; ++i)
+    {
+        tail[n++] = 0;
+    }
+    for (int i = 0; i < 8; ++i)
+    {
+        tail[n++] = static_cast<u8>(bits >> ((7 - i) * 8));
+    }
+    xapi_sha_update(ctx, tail, n);
+    for (int i = 0; i < 5; ++i)
+    {
+        out[i * 4] = static_cast<u8>(ctx.state[i] >> 24);
+        out[i * 4 + 1] = static_cast<u8>(ctx.state[i] >> 16);
+        out[i * 4 + 2] = static_cast<u8>(ctx.state[i] >> 8);
+        out[i * 4 + 3] = static_cast<u8>(ctx.state[i]);
+    }
+}
+
 // Retail certificate TitleID is 0x4D530053. AlternateTitleIDs are all zero.
 // XboxSignatureKey is the 16-byte kernel export for this title. The sixteen
 // XboxAlternateSignatureKeys follow it; a scan that finishes at index 16
@@ -3743,6 +3769,123 @@ std::uintptr_t fn_14cd37(u32 flags, u32 title_id)
     xapi_sha_init(ctx->sha);
     xapi_sha_update(ctx->sha, block, 0x40);
     return reinterpret_cast<std::uintptr_t>(ctx);
+}
+
+// Kernel XboxHDKey (thunk 0x00202F98, ordinal 323). Per console, not stored
+// in the XBE. All zeros sends 0x0014CCC2 through ExQueryNonVolatileSetting.
+constexpr u8 kXboxHDKey[16] = {};
+
+void xapi_hmac_begin(XapiShaContext& ctx, const u8* key, u32 key_len)
+{
+    // Xbox 0x0014CBE9. Cap the key at 0x40, zero-pad, XOR each dword with
+    // 0x36363636, then XcSHAInit and XcSHAUpdate of that block.
+    if (key_len > 0x40)
+    {
+        key_len = 0x40;
+    }
+    u8 block[64] = {};
+    if (key != nullptr && key_len != 0)
+    {
+        std::memcpy(block, key, key_len);
+    }
+    for (int i = 0; i < 16; ++i)
+    {
+        u32 word = 0;
+        std::memcpy(&word, block + i * 4, 4);
+        word ^= 0x36363636u;
+        std::memcpy(block + i * 4, &word, 4);
+    }
+    xapi_sha_init(ctx);
+    xapi_sha_update(ctx, block, 0x40);
+}
+
+void xapi_hmac_final(XapiShaContext& ctx, const u8* key, u32 key_len, u8* out)
+{
+    // Xbox 0x0014CC50. Cap the key at 0x40, zero-pad, XOR each dword with
+    // 0x5C5C5C5C. XcSHAFinal writes the inner digest into the 20 bytes that
+    // follow that block. XcSHAInit, then one XcSHAUpdate of those 0x54 bytes,
+    // then XcSHAFinal into out.
+    if (key_len > 0x40)
+    {
+        key_len = 0x40;
+    }
+    u8 block[0x54] = {};
+    if (key != nullptr && key_len != 0)
+    {
+        std::memcpy(block, key, key_len);
+    }
+    for (int i = 0; i < 16; ++i)
+    {
+        u32 word = 0;
+        std::memcpy(&word, block + i * 4, 4);
+        word ^= 0x5C5C5C5Cu;
+        std::memcpy(block + i * 4, &word, 4);
+    }
+    xapi_sha_final(ctx, block + 0x40);
+    xapi_sha_init(ctx);
+    xapi_sha_update(ctx, block, 0x54);
+    xapi_sha_final(ctx, out);
+}
+
+int xapi_signature_nonroamable(XapiCalcSigContext& ctx, const u8* old_sig, u8* out)
+{
+    // Xbox 0x0014CCC2. OR the 16 XboxHDKey bytes. Any nonzero byte is the
+    // HMAC key. All zeros calls ExQueryNonVolatileSetting(0xFFFF, type,
+    // 256-byte image, result length) and uses the 16 bytes at image+0x36.
+    // The status is ignored. The inner SHA is restarted on the signature
+    // context (0x0014CBE9), updated with the 20-byte roamable digest, then
+    // finished by 0x0014CC50 into out. Always returns 1.
+    const u8* key = kXboxHDKey;
+    u8 image[0x100] = {};
+    bool any = false;
+    for (u8 byte : kXboxHDKey)
+    {
+        if (byte != 0)
+        {
+            any = true;
+            break;
+        }
+    }
+    if (!any)
+    {
+        key = image + 0x36;
+    }
+    xapi_hmac_begin(ctx.sha, key, 0x10);
+    xapi_sha_update(ctx.sha, old_sig, 0x14);
+    xapi_hmac_final(ctx.sha, key, 0x10, out);
+    return 1;
+}
+
+u32 fn_14cdb7(XapiCalcSigContext* ctx, u8* signature)
+{
+    // Xbox 0x0014CDB7
+    // XCalculateSignatureEnd for flags 0 and 1 (dispatcher 0x0014CF57).
+    // A null signature skips the digest and still frees the context. Otherwise
+    // 0x0014CC50 writes the 20-byte HMAC. Flag bit 0 (non-roamable) lands that
+    // digest in a 20-byte stack buffer and 0x0014CCC2 HMACs it with XboxHDKey
+    // into the caller's buffer. XMemFree uses tag 0x24830000. A zero from
+    // 0x0014CCC2 returns GetLastError; that helper returns 1.
+    int ok = 1;
+    if (signature != nullptr)
+    {
+        u8 local[20];
+        u8* dest = signature;
+        if ((ctx->flags & 1u) != 0)
+        {
+            dest = local;
+        }
+        xapi_hmac_final(ctx->sha, ctx->key, 0x10, dest);
+        if ((ctx->flags & 1u) != 0)
+        {
+            ok = xapi_signature_nonroamable(*ctx, local, signature);
+        }
+    }
+    delete ctx;
+    if (ok == 0)
+    {
+        return g_xapi_last_error;
+    }
+    return 0;
 }
 
 bool fn_14d217(const char* path, const void* security)

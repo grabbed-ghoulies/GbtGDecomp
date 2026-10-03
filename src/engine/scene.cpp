@@ -14700,6 +14700,12 @@ int fn_15162f(const char* path, void* root)
 // 0x00170460 and 0x0017049E take the same test.
 u32 g_crt_fp_skip_matherr = 0x2694u;
 
+// 0x004DD0D0. BSS, image value 0. Nothing in the image writes this address.
+// The math epilogues compare it and, when it is nonzero, restore the saved
+// x87 control word without building an exception record. Sites: 0x00167548,
+// 0x001675AC, 0x00167D37, 0x00167D54, 0x0017052A, 0x00170726, 0x0017078C.
+u32 g_crt_fp_skip_epilogue = 0;
+
 struct CrtMathError
 {
     int type;
@@ -14707,6 +14713,34 @@ struct CrtMathError
     double arg1;
     double arg2;
     double retval;
+};
+
+// EDX descriptor saved at [ebp-0x94]. Byte 0 is the name length. The C string
+// starts at +1 and is padded to 12 bytes. +0x0D is 1 for a unary operation
+// (sinh, cosh, tanh, exp). +0x0E is the opcode passed to _87except.
+struct CrtMathDesc
+{
+    u8 name_len;
+    char name[12];
+    u8 unary;
+    u8 opcode;
+};
+
+static_assert(offsetof(CrtMathDesc, unary) == 0x0D);
+static_assert(offsetof(CrtMathDesc, opcode) == 0x0E);
+
+// Caller's frame. 0x00170523 and the fall-through at 0x0017052A never build
+// their own EBP; both are called with the math wrapper's frame still in EBP
+// and the result in ST0.
+struct CrtMathCall
+{
+    u8 flags;
+    u16 cw;
+    u8 status;
+    CrtMathDesc* desc;
+    double arg1;
+    double arg2;
+    double result;
 };
 
 void crt_restore_x87_cw(u32 raw)
@@ -15038,6 +15072,144 @@ void fn_16f095(int opcode, CrtMathError* exc, u16* cw_ptr)
     {
         *fn_168af5() = 0x22;
     }
+}
+
+bool crt_fpu_inexact()
+{
+    // fnstsw bit 5 (precision). The host status word uses a different layout.
+#if defined(_WIN32)
+    return (_statusfp() & _SW_INEXACT) != 0;
+#else
+    return std::fetestexcept(FE_INEXACT) != 0;
+#endif
+}
+
+double crt_math_scale_underflow(double value)
+{
+    // fscale by +1536.0 (0x0020A244). A result still below the smallest
+    // normal is multiplied by +0.0 (0x0020A254), which keeps the sign.
+    value = std::ldexp(value, 1536);
+    const double min_normal = std::bit_cast<double>(0x0010000000000000ULL);
+    if (std::fabs(value) < min_normal)
+    {
+        value *= 0.0;
+    }
+    return value;
+}
+
+double crt_math_scale_overflow(double value)
+{
+    // fscale by -1536.0 (0x0020A23C). A result still above the largest
+    // finite double is multiplied by +infinity (0x0020A24C).
+    value = std::ldexp(value, -1536);
+    const double max_finite = std::bit_cast<double>(0x7FEFFFFFFFFFFFFFULL);
+    if (std::fabs(value) > max_finite)
+    {
+        const double positive_inf = std::bit_cast<double>(0x7FF0000000000000ULL);
+        value *= positive_inf;
+    }
+    return value;
+}
+
+double fn_170523(CrtMathCall& call)
+{
+    // Xbox 0x00170523
+    // Seven-byte entry: and byte ptr [ebp-0x2C8], 0xFE. It clears bit 0 of
+    // the dispatch flag and falls into 0x0017052A. Bit 0 set means the
+    // operands were already stored in the exception record; clearing it
+    // forces the copy from the wrapper's stack args at [ebp+8] and, for a
+    // binary op, [ebp+0x10]. The unary wrappers at 0x00170671 and the
+    // two-argument wrapper at 0x001704DB call this entry. 0x00170460 and
+    // 0x0017049E call 0x0017052A instead, after setting bit 0.
+    //
+    // 0x004DD0D0 nonzero restores the control word saved at [ebp-0xA4] and
+    // returns ST0 unchanged. Otherwise ST0 is stored as a double and the
+    // status byte at [ebp-0x90] selects the record:
+    //   0     inexact check
+    //   -1    overflow when the double's exponent field is 0x7FF0, else
+    //         the inexact check
+    //   -2    underflow when that field is 0, overflow when it is 0x7FF0,
+    //         else the inexact check
+    //   else  the byte, sign-extended, is the exception type
+    // A second test for 0 after the -1/-2 compares is unreachable.
+    //
+    // The inexact check reports type 8 only when control-word bit 5 is
+    // clear (precision unmasked) and status-word bit 5 is set. Overflow
+    // (type 3) scales ST0 by 2^-1536. Underflow (type 4) scales by 2^1536.
+    // The record is type, name at descriptor+1, the copied operands, and
+    // the scaled ST0. _87except (0x0016F095) is called with the opcode at
+    // descriptor+0x0E, that record, and the saved control word. ST0 is
+    // reloaded from the record's retval, then the control word is loaded
+    // again. _87except already reloads it; the port leaves that restore
+    // to fn_16f095.
+    call.flags = static_cast<u8>(call.flags & 0xFEu);
+    if (g_crt_fp_skip_epilogue != 0)
+    {
+        crt_restore_x87_cw(call.cw);
+        return call.result;
+    }
+
+    const u64 bits = std::bit_cast<u64>(call.result);
+    const u16 exponent = static_cast<u16>((bits >> 48) & 0x7FF0u);
+    const int status = static_cast<int>(static_cast<std::int8_t>(call.status));
+
+    int type = 0;
+    bool report = false;
+    double value = call.result;
+    if (status == -1)
+    {
+        if (exponent == 0x7FF0u)
+        {
+            type = 3;
+            value = crt_math_scale_overflow(value);
+            report = true;
+        }
+    }
+    else if (status == -2)
+    {
+        if (exponent == 0)
+        {
+            type = 4;
+            value = crt_math_scale_underflow(value);
+            report = true;
+        }
+        else if (exponent == 0x7FF0u)
+        {
+            type = 3;
+            value = crt_math_scale_overflow(value);
+            report = true;
+        }
+    }
+    else if (status != 0)
+    {
+        type = status;
+        report = true;
+    }
+
+    if (!report)
+    {
+        if ((call.cw & 0x20u) != 0 || !crt_fpu_inexact())
+        {
+            crt_restore_x87_cw(call.cw);
+            return call.result;
+        }
+        type = 8;
+    }
+
+    CrtMathError exc{};
+    exc.type = type;
+    exc.name = call.desc->name;
+    exc.arg1 = call.arg1;
+    if (call.desc->unary != 1)
+    {
+        exc.arg2 = call.arg2;
+    }
+    exc.retval = value;
+    u16 cw = call.cw;
+    const int opcode = static_cast<int>(static_cast<std::int8_t>(call.desc->opcode));
+    fn_16f095(opcode, &exc, &cw);
+    call.result = exc.retval;
+    return call.result;
 }
 
 void fn_16f266(void* stream)

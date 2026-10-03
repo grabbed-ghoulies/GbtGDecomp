@@ -15929,6 +15929,142 @@ void fn_172720(u32* dest, const u32* src, int count)
     }
 }
 
+// DAT_0017FCE8. Each texture coordinate's size is a two-bit field starting
+// at FVF bit 16: 0 is two floats, 1 is three, 2 is four, 3 is one.
+constexpr u32 k_fvf_tex_components[4] = {2u, 3u, 4u, 1u};
+
+// One vertex-shader input register. type is the D3DVSDT code at +0.
+// byte_offset, at +0xc, is the vertex byte offset of the next register.
+struct D3dFvfElement
+{
+    u32 type;
+    u32 unused4;
+    u32 unused8;
+    u32 byte_offset;
+};
+
+// Parsed FVF declaration. 0x001739F0 keeps one at 0x00184478.
+// element[0] is +0x1c. Sixteen registers are typed; further texture
+// coordinates continue the same 0x10 stride.
+struct D3dFvfDecl
+{
+    u32 unused0;
+    u32 flags; // +4
+    u32 unused8;
+    u32 unusedc;
+    u32 tex_mask; // +0x10
+    u32 unused14;
+    u32 unused18;
+    D3dFvfElement element[24];
+};
+
+static_assert(offsetof(D3dFvfDecl, flags) == 4);
+static_assert(offsetof(D3dFvfDecl, tex_mask) == 0x10);
+static_assert(offsetof(D3dFvfDecl, element) == 0x1c);
+static_assert(sizeof(D3dFvfElement) == 0x10);
+
+void fn_172da0(D3dFvfDecl* decl, u32 fvf)
+{
+    // Xbox 0x00172DA0
+    // stdcall (ret 8). Expands an FVF into the declaration registers.
+    // 0x001739F0 is the only caller: when the shader argument's low bit
+    // is clear it passes the declaration at 0x00184478 and that FVF.
+    // A null declaration would fault on Xbox; the port returns.
+    //
+    // +4 and +0x10 are cleared. The type dword of registers 0..15 is set
+    // to 2. Every other dword is left as the caller left it.
+    //
+    // FVF & 0xE selects the position. 4 is XYZRHW: register 0 becomes
+    // 0x42 (FLOAT4), the vertex is 16 bytes, and flag bit 1 is set. Any
+    // other nonzero code is XYZ: register 0 becomes 0x32 (FLOAT3) and the
+    // vertex is 12 bytes. Codes of 6 and up are XYZBn. The weight count
+    // is ((code - 6) >> 1) + 1, stored in register 1 as (count << 4) | 2,
+    // with byte offset 12 at register 0's +0xc. The running size becomes
+    // count * 4 + 12.
+    //
+    // Bit 0x10 adds a normal at register 2 (FLOAT3, 12 bytes). Bit 0x40
+    // adds diffuse at register 3 (0x40, D3DCOLOR, 4 bytes) and sets flag
+    // 0x400. Bit 0x80 adds specular at register 4 (D3DCOLOR, 4 bytes) and
+    // sets flag 0x800. Each attribute's vertex offset is the size
+    // accumulated before it, written at the previous register's +0xc.
+    //
+    // Bits 11:8 are the texture-coordinate count. Coordinate i consumes
+    // the next two bits from FVF bit 16, maps them through DAT_0017FCE8,
+    // and writes register 9+i as (components << 4) | 2. The running size
+    // grows by components * 4. +0x10 ORs components << (i * 8). The shift
+    // is masked to five bits, matching x86 shl.
+    if (decl == nullptr)
+    {
+        return;
+    }
+
+    decl->flags = 0;
+    decl->tex_mask = 0;
+    for (int reg = 0; reg < 16; ++reg)
+    {
+        decl->element[reg].type = 2;
+    }
+
+    const u32 position = fvf & 0xeu;
+    u32 cursor = 0;
+    if (position == 4u)
+    {
+        decl->flags |= 2u;
+        decl->element[0].type = 0x42u;
+        cursor = 0x10u;
+    }
+    else if (position != 0u)
+    {
+        decl->element[0].type = 0x32u;
+        cursor = 0xcu;
+        if (position >= 6u)
+        {
+            const u32 weights = ((position - 6u) >> 1) + 1u;
+            decl->element[0].byte_offset = 0xcu;
+            decl->element[1].type = (weights << 4) | 2u;
+            cursor = weights * 4u + 0xcu;
+        }
+    }
+
+    if ((fvf & 0x10u) != 0u)
+    {
+        decl->element[1].byte_offset = cursor;
+        decl->element[2].type = 0x32u;
+        cursor += 0xcu;
+    }
+    if ((fvf & 0x40u) != 0u)
+    {
+        decl->element[2].byte_offset = cursor;
+        decl->element[3].type = 0x40u;
+        decl->flags |= 0x400u;
+        cursor += 4u;
+    }
+    if ((fvf & 0x80u) != 0u)
+    {
+        decl->element[3].byte_offset = cursor;
+        decl->element[4].type = 0x40u;
+        decl->flags |= 0x800u;
+        cursor += 4u;
+    }
+
+    u32 tex_count = (fvf >> 8) & 0xfu;
+    u32 tex_fmt = fvf >> 16;
+    u32 shift = 0;
+    u32 reg = 9;
+    while (tex_count != 0u)
+    {
+        const u32 comps = k_fvf_tex_components[tex_fmt & 3u];
+        decl->element[reg].type = (comps << 4) | 2u;
+        decl->element[reg - 1u].byte_offset = cursor;
+        cursor += comps * 4u;
+        decl->tex_mask |= comps << (shift & 31u);
+        tex_fmt >>= 2;
+        shift += 8u;
+        --tex_count;
+        ++reg;
+    }
+}
+
 void fn_173900(D3dScreenDevice* device)
 {
     // Xbox 0x00173900

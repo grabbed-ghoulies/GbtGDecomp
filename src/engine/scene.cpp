@@ -2810,11 +2810,13 @@ int fn_14fcf4(u32 flags, const u8* left, int left_count, const u8* right, int ri
 }
 
 // Cursor left by fn_14b122. It already sits on the entry after the one
-// copied into WIN32_FIND_DATA. Retail FindNextFile (0x0014B22F) calls
-// NtQueryDirectoryFile with a null pattern, so later entries are not filtered.
+// copied into WIN32_FIND_DATA. FindNextFile passes a null name, and the
+// kernel keeps the mask captured by the first query. "*.*" is match-all.
 struct XapiFindCursor
 {
     std::filesystem::directory_iterator cursor;
+    std::string pattern;
+    bool match_all = false;
 };
 
 bool xapi_find_match(const char* pattern, size_t pattern_len, const char* name, size_t name_len)
@@ -3072,6 +3074,8 @@ std::uintptr_t fn_14b122(const char* path, void* find_data)
                 return static_cast<std::uintptr_t>(-1);
             }
             state->cursor = std::move(it);
+            state->pattern = pattern;
+            state->match_all = match_all;
             return reinterpret_cast<std::uintptr_t>(state);
         }
 
@@ -3085,6 +3089,54 @@ std::uintptr_t fn_14b122(const char* path, void* find_data)
 
     g_xapi_last_error = 2;
     return static_cast<std::uintptr_t>(-1);
+}
+
+bool fn_14b22f(std::uintptr_t find_handle, void* find_data)
+{
+    // Xbox 0x0014B22F
+    // FindNextFileA. NtQueryDirectoryFile on the handle from FindFirstFileA,
+    // FileDirectoryInformation, class 1, 0x148 bytes, a null name, and
+    // RestartScan false. The null name does not replace the mask from the
+    // first query. A hit is copied by 0x0014B0B6. Failure stores the Win32
+    // error through XapiSetLastNTError: 18 when the scan is exhausted, 6 for
+    // a bad handle. The handle stays open.
+    if (find_handle == 0 || find_handle == static_cast<std::uintptr_t>(-1))
+    {
+        g_xapi_last_error = 6;
+        return false;
+    }
+
+    auto* state = reinterpret_cast<XapiFindCursor*>(find_handle);
+    const std::filesystem::directory_iterator end;
+    while (state->cursor != end)
+    {
+        const std::string name = xapi_narrow_filename(state->cursor->path());
+        const bool hit = state->match_all ||
+            xapi_find_match(state->pattern.data(), state->pattern.size(), name.data(), name.size());
+        if (hit && find_data != nullptr)
+        {
+            xapi_fill_find_data(static_cast<u8*>(find_data), *state->cursor, name);
+        }
+
+        std::error_code ec;
+        state->cursor.increment(ec);
+        if (ec)
+        {
+            state->cursor = std::filesystem::directory_iterator();
+        }
+        if (hit)
+        {
+            return true;
+        }
+        if (ec)
+        {
+            g_xapi_last_error = 18;
+            return false;
+        }
+    }
+
+    g_xapi_last_error = 18;
+    return false;
 }
 
 bool fn_14d217(const char* path, const void* security)

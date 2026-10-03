@@ -15879,6 +15879,56 @@ u32* fn_171e10(D3dScreenDevice* device, u32* packet)
     return packet + 2;
 }
 
+void fn_172720(u32* dest, const u32* src, int count)
+{
+    // Xbox 0x00172720
+    // stdcall (ret 0xC). Copies `count` dwords from src to dest, low to high.
+    // 0x001727B0 is the only caller. It takes this path when the push-buffer
+    // run is at least 0x80 dwords, the dword at device+0xc44 is 1, and the
+    // offset formed from device+0xbc0 is 0. Shorter runs there use rep movsd.
+    //
+    // The prefix length is ((-dest) & 0x1F) >> 2, the dwords until dest is
+    // 32-byte aligned. A count greater than that prefix is a rep movsd of
+    // the prefix, then 16-dword chunks, then a rep movsd tail. Each chunk
+    // is movq into all eight MMX registers and movntq back out, with
+    // prefetchnta at src+0x40 and src+0x60, so the chunk is read before it
+    // is written. A count that does not exceed the prefix is one rep movsd.
+    // EMMS runs before the return.
+    if (count <= 0)
+    {
+        return;
+    }
+
+    const unsigned raw = static_cast<unsigned>(-static_cast<int>(reinterpret_cast<std::uintptr_t>(dest)));
+    const int align = static_cast<int>((raw & 0x1Fu) >> 2);
+    int left = count;
+    if (align < left)
+    {
+        left -= align;
+        for (int n = align; n != 0; --n)
+        {
+            *dest = *src;
+            ++dest;
+            ++src;
+        }
+        while (left >= 0x10)
+        {
+            u32 chunk[16];
+            std::memcpy(chunk, src, sizeof(chunk));
+            std::memcpy(dest, chunk, sizeof(chunk));
+            dest += 16;
+            src += 16;
+            left -= 0x10;
+        }
+    }
+    for (; left != 0; --left)
+    {
+        *dest = *src;
+        ++dest;
+        ++src;
+    }
+}
+
 void fn_173900(D3dScreenDevice* device)
 {
     // Xbox 0x00173900

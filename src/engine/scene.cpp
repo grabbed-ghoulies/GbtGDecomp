@@ -43,6 +43,8 @@ extern "C"
     __declspec(dllimport) int __stdcall QueryPerformanceCounter(void* counter);
     __declspec(dllimport) void __stdcall RaiseException(unsigned long code, unsigned long flags, unsigned long count,
                                                         const std::uintptr_t* arguments);
+    __declspec(dllimport) int __stdcall CloseHandle(void* handle);
+    __declspec(dllimport) unsigned long __stdcall GetLastError();
 }
 #endif
 
@@ -3052,6 +3054,209 @@ u32* fn_168afe()
     // The dword at _tiddata+0xC is _tdoserrno.
     CrtTidData* ptd = fn_16ae40();
     return reinterpret_cast<u32*>(reinterpret_cast<u8*>(ptd) + 0xc);
+}
+
+// One lowio record. Retail stride is 0x28: a 32-bit OS handle, osfile at +4,
+// pipech at +5, and a dword at +8. _ioinit (0x0016D401) allocates 32 of
+// them and stores the pointer in __pioinfo[0]. Handles start at -1, pipech
+// is 10, and the dword at +8 is 0. The first three records are then marked
+// FOPEN|FDEV|FTEXT (0xC1) for stdin, stdout, and stderr. The port keeps
+// that order and stores a host handle, so the record is wider than 0x28.
+struct CrtIoInfo
+{
+    std::intptr_t osfhnd = -1;
+    u8 osfile = 0;
+    u8 pipech = 10;
+    u32 field8 = 0;
+};
+
+constexpr u32 kCrtIoArrayCount = 64;
+constexpr u32 kCrtIoPerArray = 32;
+
+CrtIoInfo g_crt_ioinfo0[kCrtIoPerArray] = {
+    {-1, 0xC1, 10, 0},
+    {-1, 0xC1, 10, 0},
+    {-1, 0xC1, 10, 0},
+};
+
+// 0x0054DC60. Sixty-four pointers. Only the first is filled by _ioinit.
+CrtIoInfo* g_crt_pioinfo[kCrtIoArrayCount] = {g_crt_ioinfo0};
+
+// 0x0054DC40. _nhandle. _ioinit stores 32.
+u32 g_crt_nhandle = kCrtIoPerArray;
+
+// Image pairs at 0x00337F78. __dosmaperr walks all 45. Win32 code 6 appears
+// twice; the first hit (EBADF, 9) wins.
+struct CrtDosMap
+{
+    u32 dos;
+    int err;
+};
+
+constexpr CrtDosMap kCrtDoserrMap[45] = {
+    {1, 22},    {2, 2},     {3, 2},     {4, 24},    {5, 13},    {6, 9},     {7, 12},   {8, 12},
+    {9, 12},    {10, 7},    {11, 8},    {12, 22},   {13, 22},   {15, 2},    {16, 13},  {17, 18},
+    {18, 2},    {33, 13},   {53, 2},    {65, 13},   {67, 2},    {80, 17},   {82, 13},  {83, 13},
+    {87, 22},   {89, 11},   {108, 13},  {109, 32},  {112, 28},  {114, 9},   {6, 22},   {128, 10},
+    {129, 10},  {130, 9},   {131, 22},  {132, 13},  {145, 41},  {158, 13},  {161, 2},  {164, 11},
+    {167, 13},  {183, 17},  {206, 2},   {215, 11},  {1816, 12},
+};
+
+void crt_dosmaperr(u32 code)
+{
+    // __dosmaperr at 0x00168B07. _doserrno is stored first. A table hit
+    // writes that errno. Codes 0x13 through 0x24 are EACCES (13). Codes
+    // 0xBC through 0xCA are ENOEXEC (8). Every other code is EINVAL (22).
+    *fn_168afe() = code;
+    for (const CrtDosMap& entry : kCrtDoserrMap)
+    {
+        if (entry.dos == code)
+        {
+            *fn_168af5() = entry.err;
+            return;
+        }
+    }
+    if (code >= 0x13u && code <= 0x24u)
+    {
+        *fn_168af5() = 13;
+        return;
+    }
+    if (code >= 0xBCu && code <= 0xCAu)
+    {
+        *fn_168af5() = 8;
+        return;
+    }
+    *fn_168af5() = 22;
+}
+
+CrtIoInfo* crt_ioinfo_checked(u32 fh)
+{
+    if (fh >= g_crt_nhandle)
+    {
+        return nullptr;
+    }
+    const int block_index = static_cast<int>(fh) >> 5;
+    if (block_index < 0 || static_cast<u32>(block_index) >= kCrtIoArrayCount)
+    {
+        return nullptr;
+    }
+    CrtIoInfo* block = g_crt_pioinfo[block_index];
+    if (block == nullptr)
+    {
+        return nullptr;
+    }
+    return &block[fh & 0x1fu];
+}
+
+std::intptr_t crt_get_osfhandle(u32 fh)
+{
+    // __get_osfhandle at 0x0016DB6D. A descriptor outside _nhandle, or one
+    // whose osfile lacks FOPEN, stores EBADF (9), clears _doserrno, and
+    // returns -1. Otherwise the OS handle is returned, including -1.
+    CrtIoInfo* info = crt_ioinfo_checked(fh);
+    if (info == nullptr || (info->osfile & 1u) == 0)
+    {
+        *fn_168af5() = 9;
+        *fn_168afe() = 0;
+        return -1;
+    }
+    return info->osfhnd;
+}
+
+void crt_free_osfhnd(u32 fh)
+{
+    // _free_osfhnd at 0x0016DB24. An open slot whose handle is not -1 stores
+    // -1. Every other slot stores EBADF and clears _doserrno. The return
+    // value is unused by _close_lk.
+    CrtIoInfo* info = crt_ioinfo_checked(fh);
+    if (info != nullptr && (info->osfile & 1u) != 0 && info->osfhnd != -1)
+    {
+        info->osfhnd = -1;
+        return;
+    }
+    *fn_168af5() = 9;
+    *fn_168afe() = 0;
+}
+
+bool crt_close_os_handle(std::intptr_t handle, u32* doserr)
+{
+    // CloseHandle at 0x0014B785. Nonzero is success. Zero keeps GetLastError
+    // (0x0014AFE4) for __dosmaperr.
+#if defined(_WIN32)
+    if (CloseHandle(reinterpret_cast<void*>(handle)) != 0)
+    {
+        return true;
+    }
+    *doserr = static_cast<u32>(GetLastError());
+    return false;
+#else
+    (void)handle;
+    (void)doserr;
+    return true;
+#endif
+}
+
+int fn_168b96(u32 fh)
+{
+    // Xbox 0x00168B96
+    // _close_lk. __close (0x00168C17) calls here with the file lock already
+    // held. cdecl; the caller pops the descriptor. Zero is success. Minus
+    // one is an OS failure.
+    //
+    // A handle of -1 from __get_osfhandle skips CloseHandle. Descriptors 1
+    // and 2 also skip it when stdout and stderr share one OS handle, so
+    // closing one standard stream leaves that console handle open. Any
+    // other handle is closed. A failed CloseHandle keeps GetLastError.
+    //
+    // _free_osfhnd runs either way, then the osfile byte is cleared. The
+    // index is the arithmetic shift of the descriptor by 5, and the byte
+    // sits at offset 4 of record (fd & 0x1F). A null __pioinfo slot is
+    // left unwritten; retail would fault on that address.
+    //
+    // A zero DOS code returns 0. Any other code goes through __dosmaperr
+    // and the return is -1.
+    std::intptr_t handle = crt_get_osfhandle(fh);
+    u32 doserr = 0;
+    if (handle != -1)
+    {
+        bool skip_close = false;
+        if (fh == 1u || fh == 2u)
+        {
+            const std::intptr_t stderr_handle = crt_get_osfhandle(2u);
+            const std::intptr_t stdout_handle = crt_get_osfhandle(1u);
+            if (stdout_handle == stderr_handle)
+            {
+                skip_close = true;
+            }
+        }
+        if (!skip_close)
+        {
+            handle = crt_get_osfhandle(fh);
+            if (crt_close_os_handle(handle, &doserr))
+            {
+                doserr = 0;
+            }
+        }
+    }
+
+    crt_free_osfhnd(fh);
+
+    const int block_index = static_cast<int>(fh) >> 5;
+    if (block_index >= 0 && static_cast<u32>(block_index) < kCrtIoArrayCount)
+    {
+        CrtIoInfo* block = g_crt_pioinfo[block_index];
+        if (block != nullptr)
+        {
+            block[fh & 0x1fu].osfile = 0;
+        }
+    }
+
+    if (doserr == 0)
+    {
+        return 0;
+    }
+    crt_dosmaperr(doserr);
+    return -1;
 }
 
 int crt_mtinitlocknum(int locknum)

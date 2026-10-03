@@ -2939,6 +2939,52 @@ void fn_167bde(void* ptr, u32 element_size, int constructed, void (*dtor)(void*)
     }
 }
 
+void fn_167c9c(void* ptr, u32 element_size, int count, void (*dtor)(void*), int success)
+{
+    // Xbox 0x00167C9C
+    // Finally of __ehvec_dtor (0x00167C54). The scope table at 0x00209160
+    // has one entry: enclosing level -1, a null filter, and this handler.
+    // __SEH_prolog (0x00166D58) is entered with local size 0x0C. This body
+    // builds no frame, so EBP stays the destructor iterator's.
+    // [ebp-0x1c] is the success flag, [ebp+8] is the element pointer,
+    // [ebp+0xc] is the stride, [ebp+0x10] is the count, and [ebp+0x14] is
+    // the destructor. The iterator stores 0 in the flag, multiplies the
+    // stride by the count, and adds that product to the pointer so it sits
+    // just past the last element. It sets the try level at [ebp-4] to 0,
+    // then decrements the count. A negative result leaves the loop.
+    // Otherwise it subtracts the stride and calls the destructor with ECX
+    // on that element. A throw leaves the pointer on the element that
+    // failed and the count already decremented for it. The success path at
+    // 0x00167C84 stores 1, sets the try level to -1, and calls here. The
+    // compare is jne, so a nonzero flag returns. A zero flag pushes the
+    // destructor, the count, the stride, and the pointer, then calls
+    // __ArrayUnwind (0x00167BF6, stdcall, ret 0x10). That callee decrements
+    // the count and stops once the result is negative, subtracts the stride,
+    // and calls the destructor with ECX on that element. A C++ exception
+    // (0xE06D7363) from a destructor takes the filter at 0x00167C25 into
+    // terminate (0x0016C177). Any other exception code returns 0 from the
+    // filter.
+    if (success != 0)
+    {
+        return;
+    }
+
+    auto* cursor = static_cast<char*>(ptr);
+    while (count > 0)
+    {
+        --count;
+        cursor -= element_size;
+        try
+        {
+            dtor(cursor);
+        }
+        catch (...)
+        {
+            std::terminate();
+        }
+    }
+}
+
 void fn_167f2e(void* block)
 {
     // Xbox 0x00167F2E

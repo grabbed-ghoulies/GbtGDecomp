@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <new>
 #include <string>
@@ -3172,6 +3173,154 @@ void fn_14c2d5(const u16* name, char* dest, int remaining)
         hash >>= 4;
     }
     dest[12] = '\0';
+}
+
+int fn_14c532(u8* find_data, const char* root, int root_len)
+{
+    // Xbox 0x0014C532
+    // XFindFirstSaveGame (0x0014CA42) and XFindNextSaveGame (0x0014CB4C)
+    // call this for each directory entry. Bit 0x10 of the WIN32_FIND_DATA
+    // attributes at +0 selects directories. The root is copied to
+    // szSaveGameDirectory at +0x140 and cFileName at +0x2C is appended at
+    // the caller's root length. A joined length below 0x103 stores a
+    // trailing backslash. A joined length below 0xF7 then appends
+    // "\\SaveMeta.xbx" and 0x0014D08C opens it with GENERIC_READ,
+    // FILE_SHARE_READ, OPEN_EXISTING, and FILE_ATTRIBUTE_NORMAL.
+    // 0x0014C367 seeks to the start and requires a 2-byte read; a FEFF
+    // word also passes. 0x0014C3AF reads the rest as UTF-16. The first
+    // L"Name" wins only when the next wchar is '='; a hit inside
+    // L"TitleName=" therefore supplies the value. Any other hit is
+    // discarded through the next CR LF. The value is copied to the wide
+    // name at +0x244, clipped to 0x7F wchars plus a NUL. The path is then
+    // cut back to the trailing backslash. A miss returns 0 so the walk
+    // continues.
+    u32 attr = 0;
+    std::memcpy(&attr, find_data, 4);
+    if ((attr & 0x10u) == 0)
+    {
+        return 0;
+    }
+
+    const char* file_name = reinterpret_cast<const char*>(find_data + 0x2C);
+    int name_len = 0;
+    while (file_name[name_len] != '\0')
+    {
+        ++name_len;
+    }
+
+    char* dir = reinterpret_cast<char*>(find_data + 0x140);
+    {
+        int i = 0;
+        char unit = 0;
+        do
+        {
+            unit = root[i];
+            dir[i] = unit;
+            ++i;
+        } while (unit != '\0');
+    }
+    {
+        int i = 0;
+        char unit = 0;
+        do
+        {
+            unit = file_name[i];
+            dir[root_len + i] = unit;
+            ++i;
+        } while (unit != '\0');
+    }
+
+    const int combined = name_len + root_len;
+    if (combined < 0x103)
+    {
+        dir[combined] = '\\';
+        dir[combined + 1] = '\0';
+    }
+
+    int result = 0;
+    if (combined < 0xF7)
+    {
+        const char meta[] = "\\SaveMeta.xbx";
+        int i = 0;
+        char unit = 0;
+        do
+        {
+            unit = meta[i];
+            dir[combined + i] = unit;
+            ++i;
+        } while (unit != '\0');
+
+        std::ifstream in(std::filesystem::path(dir), std::ios::binary);
+        if (in)
+        {
+            unsigned char probe[2] = {};
+            in.read(reinterpret_cast<char*>(probe), 2);
+            const std::streamsize got = in.gcount();
+            const u16 word = static_cast<u16>(probe[0] | (static_cast<unsigned>(probe[1]) << 8));
+            if (got == 2 || word == 0xFEFFu)
+            {
+                in.clear();
+                std::u16string text;
+                unsigned char pair[2];
+                while (in.read(reinterpret_cast<char*>(pair), 2))
+                {
+                    text.push_back(static_cast<char16_t>(pair[0] | (static_cast<unsigned>(pair[1]) << 8)));
+                }
+
+                u16* dest = reinterpret_cast<u16*>(find_data + 0x244);
+                size_t line = 0;
+                while (line < text.size())
+                {
+                    size_t crlf = line;
+                    bool broke = false;
+                    while (crlf + 1 < text.size())
+                    {
+                        if (text[crlf] == u'\r' && text[crlf + 1] == u'\n')
+                        {
+                            broke = true;
+                            break;
+                        }
+                        ++crlf;
+                    }
+                    if (!broke)
+                    {
+                        break;
+                    }
+
+                    for (size_t at = line; at + 4 <= crlf; ++at)
+                    {
+                        if (text[at] != u'N' || text[at + 1] != u'a' || text[at + 2] != u'm' || text[at + 3] != u'e')
+                        {
+                            continue;
+                        }
+                        if (text[at + 4] == u'=')
+                        {
+                            const size_t value = at + 5;
+                            size_t count = crlf - value;
+                            if (count > 0x7F)
+                            {
+                                count = 0x7F;
+                            }
+                            for (size_t n = 0; n < count; ++n)
+                            {
+                                dest[n] = static_cast<u16>(text[value + n]);
+                            }
+                            dest[count] = 0;
+                            result = 1;
+                        }
+                        break;
+                    }
+                    if (result != 0)
+                    {
+                        break;
+                    }
+                    line = crlf + 2;
+                }
+            }
+        }
+        dir[combined + 1] = '\0';
+    }
+    return result;
 }
 
 bool fn_14d217(const char* path, const void* security)

@@ -315,6 +315,12 @@ void fn_154ba0(float dt); // 0x00154BA0
 // and +0x128.
 void fn_154c90(i32 port, i32 x, i32 y); // 0x00154C90
 
+// Port is the index 0x001555B0 passes with the signed thumb RX and RY words.
+// DAT_00434280 may rewrite those integers. They are stored at +0x11c and
+// +0x120. Each times 1/59, then clamped to [-1, 1], is written at +0x12c
+// and +0x130.
+void fn_154d70(i32 port, i32 x, i32 y); // 0x00154D70
+
 // EAX is the direction (x, y, z). Writes yaw, then pitch. Returns 0 when XZ is
 // quieter than 2e-7; pitch is still written.
 i32 fn_105e20(float x, float y, float z, float& yaw, float& pitch); // 0x00105E20

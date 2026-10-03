@@ -1348,10 +1348,14 @@ struct PadBitPort
     u32 pulse = 0;     // +0x10 DAT_004342A8
     float hold[kPadBitCount]{};
     float repeat[kPadBitCount]{};
-    i32 thumb_lx = 0;   // +0x114 DAT_004343ac
-    i32 thumb_ly = 0;   // +0x118 DAT_004343b0
+    i32 thumb_lx = 0;    // +0x114 DAT_004343ac
+    i32 thumb_ly = 0;    // +0x118 DAT_004343b0
+    i32 thumb_rx = 0;    // +0x11c DAT_004343b4
+    i32 thumb_ry = 0;    // +0x120 DAT_004343b8
     float axis_lx = 0.f; // +0x124 DAT_004343bc
     float axis_ly = 0.f; // +0x128 DAT_004343c0
+    float axis_rx = 0.f; // +0x12c DAT_004343c4
+    float axis_ry = 0.f; // +0x130 DAT_004343c8
 };
 
 PadBitPort g_pad_bits[kPadBitPorts];
@@ -1359,8 +1363,14 @@ PadBitPort g_pad_bits[kPadBitPorts];
 // DAT_00434284. 0x00155470 installs 0x00155360. Null leaves x and y unchanged.
 void (*g_pad_left_hook)(i32 port, i32* x, i32* y) = nullptr;
 
+// DAT_00434280. 0x00155470 installs 0x001553B0. Null leaves x and y unchanged.
+void (*g_pad_right_hook)(i32 port, i32* x, i32* y) = nullptr;
+
 // DAT_00203A8C. Full scale after the left-stick hook is ±74.
 constexpr float kLeftThumbScale = 1.f / 74.f;
+
+// DAT_00203A90. Full scale after the right-stick hook is ±59.
+constexpr float kRightThumbScale = 1.f / 59.f;
 
 float clamp_thumb(float value)
 {
@@ -1450,6 +1460,29 @@ void fn_154c90(i32 port, i32 x, i32 y)
     slot.thumb_ly = y;
     slot.axis_lx = clamp_thumb(float(x) * kLeftThumbScale);
     slot.axis_ly = clamp_thumb(float(y) * kLeftThumbScale);
+}
+
+void fn_154d70(i32 port, i32 x, i32 y)
+{
+    // Xbox 0x00154D70
+    // 0x001555B0 sign-extends the thumb RX and RY words and passes the port.
+    // When DAT_00434280 is set it rewrites those integers first (retail points
+    // it at 0x001553B0). The integers land at +0x11c and +0x120. Each is
+    // multiplied by DAT_00203A90 (1/59) and clamped to [-1, 1] into +0x12c and
+    // +0x130. A Y below -1 stores -1 and returns; that store matches the clamp.
+    if (g_pad_right_hook != nullptr)
+    {
+        g_pad_right_hook(port, &x, &y);
+    }
+    if (port < 0 || port >= kPadBitPorts)
+    {
+        return;
+    }
+    PadBitPort& slot = g_pad_bits[port];
+    slot.thumb_rx = x;
+    slot.thumb_ry = y;
+    slot.axis_rx = clamp_thumb(float(x) * kRightThumbScale);
+    slot.axis_ry = clamp_thumb(float(y) * kRightThumbScale);
 }
 
 i32 fn_105e20(float x, float y, float z, float& yaw, float& pitch)

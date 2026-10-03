@@ -16575,6 +16575,34 @@ void fn_173900(D3dScreenDevice* device)
     }
 }
 
+void fn_176f10(u32* dest, u32 header, const u32* matrix)
+{
+    // Xbox 0x00176F10
+    // stdcall (ret 0xC). Writes a 17-dword push-buffer packet. The first
+    // dword is the method header. The next sixteen are the row-major 4x4
+    // transposed, one source column per output row. Callers advance the
+    // cursor by 0x44 themselves. A null dest or matrix would fault on Xbox.
+    //
+    // The header is (4 << 20) | method, sixteen floats of one matrix.
+    // 0x001737A0 stores the constant 4x4 at 0x0017FA48 under 0x400840,
+    // 0x400880, 0x4008C0, and 0x400900. 0x00174BC0 stores its two matrix
+    // arguments under 0x400480 and 0x400680. The constant upload at
+    // 0x001797A0 stores (device+0xdd0) * (device+0xc50) under 0x400480.
+    // When DAT_00181D94 is zero, 0x400680 receives that product times the
+    // matrix at device+0x970; otherwise it receives device+0x970. The
+    // same upload then stores (device+0xe10), (device+0xe50), and
+    // (device+0xe90), each times (device+0xc50), under 0x4004C0, 0x400500,
+    // and 0x400540.
+    dest[0] = header;
+    for (int col = 0; col < 4; ++col)
+    {
+        for (int row = 0; row < 4; ++row)
+        {
+            dest[1 + col * 4 + row] = matrix[row * 4 + col];
+        }
+    }
+}
+
 void fn_177af0(float* out, const float* left, const float* right)
 {
     // Xbox 0x00177AF0

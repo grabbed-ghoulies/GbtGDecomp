@@ -3919,6 +3919,22 @@ u32 fn_14ce4f(XapiCalcSigContext* ctx, const u8* data, u32 size)
     return 0;
 }
 
+u32 fn_14ce69(XapiCalcSigContext* ctx, u8* signature)
+{
+    // Xbox 0x0014CE69
+    // XCalculateSignatureEnd for flag 2 (dispatcher 0x0014CF57). A null
+    // signature skips the digest and still frees the context. Otherwise
+    // XcSHAFinal writes the 20-byte SHA-1 into the caller's buffer from the
+    // context started by 0x0014CE19. XMemFree uses tag 0x24830000. Always
+    // returns 0.
+    if (signature != nullptr)
+    {
+        xapi_sha_final(ctx->sha, signature);
+    }
+    delete ctx;
+    return 0;
+}
+
 bool fn_14d217(const char* path, const void* security)
 {
     // Xbox 0x0014D217

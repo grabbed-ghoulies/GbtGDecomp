@@ -321,6 +321,12 @@ void fn_154c90(i32 port, i32 x, i32 y); // 0x00154C90
 // and +0x130.
 void fn_154d70(i32 port, i32 x, i32 y); // 0x00154D70
 
+// Port is the index cam_155624 passes with the left and right trigger bytes.
+// DAT_0043428c may rewrite those bytes (mask 0xC000). They are stored at
+// +0x13a and +0x13b. Each byte at or above 30 sets bit 0x4000 or 0x8000 in
+// the button word, and pulses the edge words at +0x08 and +0x0c.
+void fn_154e50(i32 port, u8 left, u8 right); // 0x00154E50
+
 // EAX is the direction (x, y, z). Writes yaw, then pitch. Returns 0 when XZ is
 // quieter than 2e-7; pitch is still written.
 i32 fn_105e20(float x, float y, float z, float& yaw, float& pitch); // 0x00105E20

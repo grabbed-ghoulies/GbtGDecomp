@@ -1345,6 +1345,8 @@ struct PadBitPort
 {
     u32 down = 0;      // +0x00 DAT_00434298
     u32 down_prev = 0; // +0x04 DAT_0043429C
+    u32 pressed = 0;   // +0x08 DAT_004342A0. Set on the frame a bit goes down.
+    u32 released = 0;  // +0x0C DAT_004342A4. Set on the frame a bit goes up.
     u32 pulse = 0;     // +0x10 DAT_004342A8
     float hold[kPadBitCount]{};
     float repeat[kPadBitCount]{};
@@ -1356,6 +1358,8 @@ struct PadBitPort
     float axis_ly = 0.f; // +0x128 DAT_004343c0
     float axis_rx = 0.f; // +0x12c DAT_004343c4
     float axis_ry = 0.f; // +0x130 DAT_004343c8
+    u8 trigger_l = 0;    // +0x13a DAT_004343d2
+    u8 trigger_r = 0;    // +0x13b DAT_004343d3
 };
 
 PadBitPort g_pad_bits[kPadBitPorts];
@@ -1365,6 +1369,16 @@ void (*g_pad_left_hook)(i32 port, i32* x, i32* y) = nullptr;
 
 // DAT_00434280. 0x00155470 installs 0x001553B0. Null leaves x and y unchanged.
 void (*g_pad_right_hook)(i32 port, i32* x, i32* y) = nullptr;
+
+// DAT_0043428c. 0x00155470 installs 0x00155400. Null leaves the bytes unchanged.
+void (*g_pad_analog_hook)(i32 port, i32 mask, u8* a, u8* b) = nullptr;
+
+// 0x00154A70 compares the analog byte with this threshold. At or above counts as down.
+constexpr u8 kAnalogPress = 0x1e;
+
+// Left and right triggers in the button word. cam_155624 passes them as a pair.
+constexpr u32 kTriggerLeftBit = 0x4000;
+constexpr u32 kTriggerRightBit = 0x8000;
 
 // DAT_00203A8C. Full scale after the left-stick hook is ±74.
 constexpr float kLeftThumbScale = 1.f / 74.f;
@@ -1383,6 +1397,39 @@ float clamp_thumb(float value)
         return 1.f;
     }
     return value;
+}
+
+// 0x00154A70. EAX is the port, DL the analog byte, ECX the bit, and the stack
+// byte is the threshold. A byte at or above the threshold holds the bit in
+// +0x00. The frame it rises against +0x04 sets +0x08 and clears +0x0c. A byte
+// under the threshold clears the bit. The frame it falls sets +0x0c and
+// clears +0x08. Holding either state clears the edge that is not firing.
+void apply_analog_bit(PadBitPort& slot, u8 level, u32 mask)
+{
+    if (level >= kAnalogPress)
+    {
+        if ((slot.down_prev & mask) != 0)
+        {
+            slot.pressed &= ~mask;
+        }
+        else
+        {
+            slot.pressed |= mask;
+        }
+        slot.down |= mask;
+        slot.released &= ~mask;
+        return;
+    }
+    if ((slot.down_prev & mask) != 0)
+    {
+        slot.released |= mask;
+    }
+    else
+    {
+        slot.released &= ~mask;
+    }
+    slot.down &= ~mask;
+    slot.pressed &= ~mask;
 }
 
 } // namespace
@@ -1483,6 +1530,29 @@ void fn_154d70(i32 port, i32 x, i32 y)
     slot.thumb_ry = y;
     slot.axis_rx = clamp_thumb(float(x) * kRightThumbScale);
     slot.axis_ry = clamp_thumb(float(y) * kRightThumbScale);
+}
+
+void fn_154e50(i32 port, u8 left, u8 right)
+{
+    // Xbox 0x00154E50
+    // cam_155624 passes the left and right trigger bytes from the gamepad.
+    // When DAT_0043428c is set it rewrites those bytes first (retail points
+    // it at 0x00155400) and the mask is 0xC000. The bytes land at +0x13a and
+    // +0x13b. 0x00154A70 then tests each against 30: left is bit 0x4000 and
+    // right is bit 0x8000.
+    if (g_pad_analog_hook != nullptr)
+    {
+        g_pad_analog_hook(port, 0xc000, &left, &right);
+    }
+    if (port < 0 || port >= kPadBitPorts)
+    {
+        return;
+    }
+    PadBitPort& slot = g_pad_bits[port];
+    slot.trigger_l = left;
+    slot.trigger_r = right;
+    apply_analog_bit(slot, left, kTriggerLeftBit);
+    apply_analog_bit(slot, right, kTriggerRightBit);
 }
 
 i32 fn_105e20(float x, float y, float z, float& yaw, float& pitch)

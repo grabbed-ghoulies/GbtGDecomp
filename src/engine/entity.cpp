@@ -1385,6 +1385,60 @@ void (*g_pad_right_hook)(i32 port, i32* x, i32* y) = nullptr;
 // DAT_0043428c. 0x00155470 installs 0x00155400. Null leaves the bytes unchanged.
 void (*g_pad_analog_hook)(i32 port, i32 mask, u8* a, u8* b) = nullptr;
 
+// DAT_00434910, stride 0x14. One slot per port. 0x001557B0 decays +0x10.
+struct RumbleSlot
+{
+    u8 enabled = 0; // +0x00
+    u8 open = 0;    // +0x01
+    u8 active = 0;  // +0x02 DAT_00434912
+    u8 idle = 0;    // +0x03
+    u8 armed = 0;   // +0x04 DAT_00434914
+    u8 port = 0;    // +0x05 DAT_00434915
+    u8 pad_06 = 0;
+    u8 pad_07 = 0;
+    float left = 0.f;  // +0x08 DAT_00434918
+    float right = 0.f; // +0x0C DAT_0043491C
+    float timer = 0.f; // +0x10 DAT_00434920
+};
+
+static_assert(offsetof(RumbleSlot, active) == 0x02);
+static_assert(offsetof(RumbleSlot, armed) == 0x04);
+static_assert(offsetof(RumbleSlot, port) == 0x05);
+static_assert(offsetof(RumbleSlot, left) == 0x08);
+static_assert(offsetof(RumbleSlot, right) == 0x0c);
+static_assert(offsetof(RumbleSlot, timer) == 0x10);
+static_assert(sizeof(RumbleSlot) == 0x14);
+
+RumbleSlot g_rumble[kPadBitPorts];
+
+// DAT_00203A98. Scales a motor float into the 16-bit feedback word.
+constexpr double kRumbleFullScale = 65535.0;
+
+// Xbox packet stride. PadFeedback's tail alignment is not part of the record.
+constexpr int kPadFeedbackStride = 0x46;
+
+static_assert(offsetof(PadFeedback, status) == 0x00);
+static_assert(offsetof(PadFeedback, event) == 0x04);
+static_assert(offsetof(PadFeedback, left) == 0x42);
+static_assert(offsetof(PadFeedback, right) == 0x44);
+
+// 0x001673D8 (__ftol) of left/right * DAT_00203A98. The word keeps the low 16
+// bits. A non-finite product, or one outside a signed 32-bit chop, stores 0.
+u16 rumble_word(float level)
+{
+    const double scaled = static_cast<double>(level) * kRumbleFullScale;
+    if (!std::isfinite(scaled))
+    {
+        return 0;
+    }
+    const double chopped = std::trunc(scaled);
+    if (chopped >= 2147483648.0 || chopped < -2147483648.0)
+    {
+        return 0;
+    }
+    return static_cast<u16>(static_cast<i32>(chopped));
+}
+
 // 0x00154A70 compares the analog byte with this threshold. At or above counts as down.
 constexpr u8 kAnalogPress = 0x1e;
 
@@ -1770,6 +1824,45 @@ void fn_155260(i32 port)
     slot.white = 0;
     slot.trigger_l = 0;
     slot.trigger_r = 0;
+}
+
+void fn_1557b0(PadFeedback* feedback, float dt)
+{
+    // Xbox 0x001557B0
+    // cam_155624 calls this after 0x00154BA0 with the feedback base
+    // DAT_00434788 and the frame step. Each of the four slots at DAT_00434910
+    // whose timer is not zero loses dt. The decremented value is what stays in
+    // the timer, so a result below zero keeps falling on later frames. When
+    // that result is at or below zero, the active byte and both motor floats
+    // become zero. An exact zero timer is left unchanged. A NaN timer stays
+    // NaN and the motor floats keep their values.
+    // The write loop then runs for every slot. Status and event at +0 and +4
+    // become 0. Each motor float is multiplied by DAT_00203A98 (65535) and
+    // chopped through 0x001673D8 into the words at +0x42 and +0x44. Packets
+    // are 0x46 bytes apart.
+    for (RumbleSlot& slot : g_rumble)
+    {
+        if (slot.timer != 0.f)
+        {
+            slot.timer -= dt;
+            if (slot.timer <= 0.f)
+            {
+                slot.active = 0;
+                slot.left = 0.f;
+                slot.right = 0.f;
+            }
+        }
+    }
+    auto* bytes = reinterpret_cast<u8*>(feedback);
+    for (const RumbleSlot& slot : g_rumble)
+    {
+        PadFeedback& packet = *reinterpret_cast<PadFeedback*>(bytes);
+        packet.status = 0;
+        packet.event = 0;
+        packet.left = rumble_word(slot.left);
+        packet.right = rumble_word(slot.right);
+        bytes += kPadFeedbackStride;
+    }
 }
 
 u8 fn_19140(i32 port, const void* packet)

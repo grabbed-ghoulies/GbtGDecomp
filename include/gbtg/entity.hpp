@@ -372,6 +372,27 @@ void fn_155110(i32 port, u32 bits, u32 mask); // 0x00155110
 // they were. Thumb words, stick axes, and the eight analog bytes become 0.
 void fn_155260(i32 port); // 0x00155260
 
+// XINPUT_FEEDBACK. cam_155624 passes the four packets at DAT_00434788.
+// Xbox steps them by 0x46. +0 and +4 are the status and event dwords.
+// +0x42 and +0x44 are the left and right motor words.
+struct PadFeedback
+{
+    u32 status = 0; // +0
+    u32 event = 0;  // +4
+    u8 reserved[0x3a]{};
+    u16 left = 0;  // +0x42
+    u16 right = 0; // +0x44
+};
+
+// feedback is the packet cam_155624 passes (DAT_00434788). dt is the same
+// frame step it passes to 0x00154BA0. Four slots at DAT_00434910, stride
+// 0x14. A timer at +0x10 that is not zero loses dt. A result at or below
+// zero clears the byte at +0x02 and the motor floats at +0x08 and +0x0c.
+// Each packet then stores 0 at +0 and +4. The motor floats times
+// DAT_00203A98 (65535), chopped by 0x001673D8, land in the words at +0x42
+// and +0x44.
+void fn_1557b0(PadFeedback* feedback, float dt); // 0x001557B0
+
 // Port is EDI. packet is ESI, the 0x16-byte gamepad cam_155624 walks from
 // DAT_004348B4. A non-zero byte sends that port through 0x00155260.
 u8 fn_19140(i32 port, const void* packet); // 0x00019140

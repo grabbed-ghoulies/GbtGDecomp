@@ -3552,9 +3552,9 @@ struct XThreadNotify
 
 // Per-thread CRT block. Retail calloc is 0x88 bytes. +0x00 is the thread id,
 // +0x04 is the thread handle, +0x14 is _holdrand, +0x54 is _pxcptacttab.
-// _curexception is the dword at +0x78, _curcontext is +0x7C, and the
-// frame-info chain is +0x84. Those image slots are 32-bit. The host
-// pointers follow the 0x88-byte block.
+// The terminate pointer is the dword at +0x68. _curexception is the dword
+// at +0x78, _curcontext is +0x7C, and the frame-info chain is +0x84. Those
+// image slots are 32-bit. The host pointers follow the 0x88-byte block.
 struct CrtTidData
 {
     u32 tid;
@@ -3563,6 +3563,7 @@ struct CrtTidData
     void* curexception;
     void* curcontext;
     void* frame_chain;
+    void (*terminate_fn)();
 };
 
 static_assert(offsetof(CrtTidData, curexception) == 0x88);
@@ -3780,6 +3781,47 @@ CrtTidData* fn_16ae40()
     return ptd;
 }
 
+[[noreturn]] void fn_16c177()
+{
+    // Xbox 0x0016C177
+    // terminate. __SEH_prolog (0x00166D58) is entered with local size 8 and
+    // the scope table at 0x00209C38: enclosing level -1, filter 0x0016C19C,
+    // handler 0x0016C1A0. _getptd (0x0016AE40) returns _tiddata. A null
+    // dword at +0x68 jumps to the bugcheck. Otherwise the try level at
+    // [ebp-4] is set to 0, a second _getptd loads that slot, and the
+    // pointer is called. The filter is xor eax,eax / inc eax / ret, so it
+    // returns 1 and every exception is swallowed. The handler reloads ESP
+    // from [ebp-0x18]. A normal return skips that reload with a short jump.
+    // Both paths then set the try level to -1, push 0xC0000144, and call
+    // KeBugCheck through the dword at 0x00203040 (kernel ordinal 0x5F).
+    // The int 3 is the noreturn trap. The host pointer lives past the
+    // 0x88-byte image, and abort matches a bugcheck that does not return.
+    CrtTidData* ptd = fn_16ae40();
+    if (ptd->terminate_fn != nullptr)
+    {
+#if defined(_WIN32)
+        __try
+        {
+            ptd = fn_16ae40();
+            ptd->terminate_fn();
+        }
+        __except (1)
+        {
+        }
+#else
+        try
+        {
+            ptd = fn_16ae40();
+            ptd->terminate_fn();
+        }
+        catch (...)
+        {
+        }
+#endif
+    }
+    std::abort();
+}
+
 // Catch frame pushed by _CreateFrameInfo (0x001678B8). Retail is two dwords:
 // the exception object, then the previous chain head.
 struct CrtFrameInfo
@@ -3937,7 +3979,7 @@ void crt_destruct_except(CrtExceptRec* except)
     {
         if (fail != 0)
         {
-            std::terminate();
+            fn_16c177();
         }
         throw;
     }
@@ -4010,7 +4052,7 @@ void crt_unwind_rethrow(CrtEhNode* rn, CrtFuncRec* info)
             catch (...)
             {
                 *crt_processing_throw(fn_16ae40()) = 0;
-                std::terminate();
+                fn_16c177();
             }
         }
         state = next;
@@ -4845,7 +4887,7 @@ void fn_167bde(void* ptr, u32 element_size, int constructed, void (*dtor)(void*)
         }
         catch (...)
         {
-            std::terminate();
+            fn_16c177();
         }
     }
 }
@@ -4891,7 +4933,7 @@ void fn_167c9c(void* ptr, u32 element_size, int count, void (*dtor)(void*), int 
         }
         catch (...)
         {
-            std::terminate();
+            fn_16c177();
         }
     }
 }

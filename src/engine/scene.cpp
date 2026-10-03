@@ -6724,6 +6724,316 @@ int fn_150833(const XapiAnsiString* name, int bytes_per_cluster)
 #endif
 }
 
+int fn_1508ab(std::uintptr_t section, char* path, int capacity, const char* leaf)
+{
+    // Xbox 0x001508AB
+    // stdcall. lstrcpynA (0x0014ACB2) appends leaf at the NUL of path. The
+    // count is capacity minus strlen(path). RtlInitAnsiString (thunk
+    // 0x00202EE8) then NtCreateFile (thunk 0x00202F88): null root,
+    // OBJ_CASE_INSENSITIVE, GENERIC_WRITE|SYNCHRONIZE (0x40100000),
+    // FILE_ATTRIBUTE_SYSTEM, FILE_SHARE_READ, FILE_OPEN_IF, and
+    // FILE_WRITE_THROUGH|FILE_SYNCHRONOUS_IO_NONALERT (0x22). The byte at the
+    // append point is cleared after that call returns.
+    // STATUS_OBJECT_NAME_COLLISION (0xC0000035) becomes 0. There is no handle
+    // to close on that path. Any other success calls NtQueryInformationFile
+    // (thunk 0x00202F18) for FileNetworkOpenInformation (class 0x22, 0x38
+    // bytes). When that succeeds and EndOfFile is 0, XLoadSectionByHandle
+    // (0x0014AF9B, XeLoadSection thunk 0x00202EEC) and XGetSectionSize
+    // (0x0014AFDA, the dword at handle+8) feed NtWriteFile (thunk 0x00202F14)
+    // at a null offset. XFreeSectionByHandle (0x0014AFBC, XeUnloadSection
+    // thunk 0x00202EF0) follows. NtClose (thunk 0x00202EF4) always runs after
+    // a successful create. The NTSTATUS is the result. A failed section load
+    // stores last-error through 0x0014B03A and leaves the query status in
+    // place. 0x00150C73 passes the $$XTIMAGE handle, a 0x104-byte directory,
+    // and \TitleImage.xbx. 0x00150C96 does the same for $$XSIMAGE and
+    // \SaveImage.xbx.
+    // The host create also asks for FILE_READ_ATTRIBUTES. Without it the
+    // size query is STATUS_ACCESS_DENIED and the write never runs. XeLoadSection
+    // reads the section raw bytes from default.xbe. The directory is --game-dir
+    // when that flag is present, otherwise OriginalFiles. The buffer is
+    // zero-padded out to the virtual size. Dropping that buffer is the unload.
+    constexpr int kNotSupported = static_cast<int>(0xC00000BBu);
+    constexpr int kInvalidParameter = static_cast<int>(0xC000000Du);
+    constexpr long kNameCollision = static_cast<long>(0xC0000035u);
+
+    if (path == nullptr)
+    {
+        return kInvalidParameter;
+    }
+
+    const size_t length = std::strlen(path);
+    char* const append_at = path + length;
+    const int room = capacity - static_cast<int>(length);
+    if (room > 0 && leaf != nullptr)
+    {
+        int left = room;
+        const char* src = leaf;
+        char* dst = append_at;
+        while (left > 1 && *src != '\0')
+        {
+            *dst = *src;
+            ++dst;
+            ++src;
+            --left;
+        }
+        if (left > 0)
+        {
+            *dst = '\0';
+        }
+    }
+
+    struct AppendGuard
+    {
+        char* at;
+        ~AppendGuard()
+        {
+            if (at != nullptr)
+            {
+                *at = '\0';
+            }
+        }
+    } guard{append_at};
+
+#if !defined(_WIN32)
+    (void)section;
+    return kNotSupported;
+#else
+    struct UnicodeString
+    {
+        u16 length;
+        u16 maximum_length;
+        wchar_t* buffer;
+    };
+    struct ObjectAttributes
+    {
+        unsigned long length;
+        void* root_directory;
+        UnicodeString* object_name;
+        unsigned long attributes;
+        void* security_descriptor;
+        void* security_quality_of_service;
+    };
+    struct IoStatusBlock
+    {
+        void* pointer;
+        std::uintptr_t information;
+    };
+    using NtCreateFileFn = long(__stdcall*)(void** handle, unsigned long access, ObjectAttributes* attributes,
+                                            IoStatusBlock* io, std::int64_t* allocation, unsigned long file_attributes,
+                                            unsigned long share, unsigned long disposition, unsigned long options,
+                                            void* ea, unsigned long ea_length);
+    using NtQueryInformationFileFn = long(__stdcall*)(void* handle, IoStatusBlock* io, void* info, unsigned long length,
+                                                      unsigned long info_class);
+    using NtWriteFileFn = long(__stdcall*)(void* handle, void* event, void* apc, void* apc_ctx, IoStatusBlock* io,
+                                           void* buffer, unsigned long length, std::int64_t* offset, unsigned long* key);
+    using NtCloseFn = long(__stdcall*)(void* handle);
+    using RtlNtStatusToDosErrorFn = unsigned long(__stdcall*)(long status);
+    using GetCommandLineAFn = char*(__stdcall*)();
+
+    void* ntdll = GetModuleHandleA("ntdll.dll");
+    void* kernel = GetModuleHandleA("kernel32.dll");
+    if (ntdll == nullptr || kernel == nullptr)
+    {
+        return kNotSupported;
+    }
+
+    NtCreateFileFn nt_create = nullptr;
+    NtQueryInformationFileFn nt_query = nullptr;
+    NtWriteFileFn nt_write = nullptr;
+    NtCloseFn nt_close = nullptr;
+    RtlNtStatusToDosErrorFn rtl_dos = nullptr;
+    GetCommandLineAFn command_line = nullptr;
+    void* create_proc = GetProcAddress(ntdll, "NtCreateFile");
+    void* query_proc = GetProcAddress(ntdll, "NtQueryInformationFile");
+    void* write_proc = GetProcAddress(ntdll, "NtWriteFile");
+    void* close_proc = GetProcAddress(ntdll, "NtClose");
+    void* rtl_proc = GetProcAddress(ntdll, "RtlNtStatusToDosError");
+    void* cmd_proc = GetProcAddress(kernel, "GetCommandLineA");
+    std::memcpy(&nt_create, &create_proc, sizeof(nt_create));
+    std::memcpy(&nt_query, &query_proc, sizeof(nt_query));
+    std::memcpy(&nt_write, &write_proc, sizeof(nt_write));
+    std::memcpy(&nt_close, &close_proc, sizeof(nt_close));
+    std::memcpy(&rtl_dos, &rtl_proc, sizeof(rtl_dos));
+    std::memcpy(&command_line, &cmd_proc, sizeof(command_line));
+    if (nt_create == nullptr || nt_query == nullptr || nt_write == nullptr || nt_close == nullptr)
+    {
+        return kNotSupported;
+    }
+
+    auto set_last = [&](long code)
+    {
+        if (rtl_dos != nullptr)
+        {
+            g_xapi_last_error = rtl_dos(code);
+        }
+        else
+        {
+            g_xapi_last_error = 0x1F;
+        }
+    };
+
+    const size_t full_len = std::strlen(path);
+    std::wstring wide(full_len, L'\0');
+    for (size_t i = 0; i < full_len; ++i)
+    {
+        wide[i] = static_cast<unsigned char>(path[i]);
+    }
+    const auto wide_bytes = wide.size() * sizeof(wchar_t);
+    if (wide_bytes > 0xFFFFu)
+    {
+        return static_cast<int>(0xC0000106);
+    }
+
+    UnicodeString unicode{};
+    unicode.length = static_cast<u16>(wide_bytes);
+    unicode.maximum_length = unicode.length;
+    unicode.buffer = wide.empty() ? nullptr : wide.data();
+
+    ObjectAttributes attributes{};
+    attributes.length = sizeof(attributes);
+    attributes.object_name = &unicode;
+    attributes.attributes = 0x40;
+
+    IoStatusBlock io{};
+    void* handle = nullptr;
+    // 0x80 is FILE_READ_ATTRIBUTES, so FileNetworkOpenInformation can succeed
+    // on the host. Retail passes 0x40100000 alone.
+    long status = nt_create(&handle, 0x40100080u, &attributes, &io, nullptr, 4u, 1u, 3u, 0x22u, nullptr, 0u);
+    if (status < 0)
+    {
+        if (status == kNameCollision)
+        {
+            return 0;
+        }
+        return static_cast<int>(status);
+    }
+
+    u8 info[0x38]{};
+    status = nt_query(handle, &io, info, 0x38u, 0x22u);
+    if (status >= 0)
+    {
+        u32 eof_lo = 0;
+        u32 eof_hi = 0;
+        std::memcpy(&eof_lo, info + 0x28, sizeof(eof_lo));
+        std::memcpy(&eof_hi, info + 0x2C, sizeof(eof_hi));
+        if (eof_lo == 0 && eof_hi == 0)
+        {
+            const XbeSectionRecord* rec = nullptr;
+            if (section != 0 && section != static_cast<std::uintptr_t>(-1))
+            {
+                const auto* candidate = reinterpret_cast<const XbeSectionRecord*>(section);
+                for (const XbeSectionRecord& item : g_xbe_sections)
+                {
+                    if (&item == candidate)
+                    {
+                        rec = candidate;
+                        break;
+                    }
+                }
+            }
+
+            const void* loaded = nullptr;
+            unsigned long write_size = 0;
+            std::unique_ptr<u8[]> image;
+            if (rec == nullptr)
+            {
+                set_last(static_cast<long>(0xC0000008u));
+            }
+            else if (rec->virtual_size == 0)
+            {
+                static const u8 empty = 0;
+                loaded = &empty;
+            }
+            else
+            {
+                image.reset(new (std::nothrow) u8[rec->virtual_size]());
+                if (image == nullptr)
+                {
+                    set_last(static_cast<long>(0xC000009Au));
+                }
+                else
+                {
+                    std::filesystem::path game_dir{"OriginalFiles"};
+                    if (command_line != nullptr)
+                    {
+                        const char* cmd = command_line();
+                        const char* flag = cmd != nullptr ? std::strstr(cmd, "--game-dir") : nullptr;
+                        if (flag != nullptr)
+                        {
+                            flag += std::strlen("--game-dir");
+                            while (*flag == ' ' || *flag == '\t')
+                            {
+                                ++flag;
+                            }
+                            if (*flag == '"')
+                            {
+                                ++flag;
+                                const char* end = std::strchr(flag, '"');
+                                if (end != nullptr && end != flag)
+                                {
+                                    game_dir = std::filesystem::path(std::string(flag, end));
+                                }
+                            }
+                            else if (*flag != '\0')
+                            {
+                                const char* end = flag;
+                                while (*end != '\0' && *end != ' ' && *end != '\t')
+                                {
+                                    ++end;
+                                }
+                                if (end != flag)
+                                {
+                                    game_dir = std::filesystem::path(std::string(flag, end));
+                                }
+                            }
+                        }
+                    }
+
+                    const u32 copy = rec->raw_size < rec->virtual_size ? rec->raw_size : rec->virtual_size;
+                    std::ifstream in(game_dir / "default.xbe", std::ios::binary);
+                    bool read_ok = static_cast<bool>(in);
+                    if (read_ok && copy != 0)
+                    {
+                        in.seekg(0, std::ios::end);
+                        const auto file_end = in.tellg();
+                        const auto need = static_cast<std::streamoff>(rec->raw_address) + static_cast<std::streamoff>(copy);
+                        if (file_end < 0 || file_end < need)
+                        {
+                            read_ok = false;
+                        }
+                        else
+                        {
+                            in.seekg(static_cast<std::streamoff>(rec->raw_address), std::ios::beg);
+                            in.read(reinterpret_cast<char*>(image.get()), static_cast<std::streamsize>(copy));
+                            read_ok = in.gcount() == static_cast<std::streamsize>(copy);
+                        }
+                    }
+                    if (!read_ok)
+                    {
+                        set_last(static_cast<long>(0xC0000034u));
+                        image.reset();
+                    }
+                    else
+                    {
+                        loaded = image.get();
+                        write_size = rec->virtual_size;
+                    }
+                }
+            }
+
+            if (loaded != nullptr)
+            {
+                status = nt_write(handle, nullptr, nullptr, nullptr, &io, const_cast<void*>(loaded), write_size, nullptr,
+                                  nullptr);
+            }
+        }
+    }
+
+    nt_close(handle);
+    return static_cast<int>(status);
+#endif
+}
+
 int fn_15118e(const XapiAnsiString* name, u32 bytes_per_cluster)
 {
     // Xbox 0x0015118E

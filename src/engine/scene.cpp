@@ -2985,6 +2985,28 @@ void fn_167c9c(void* ptr, u32 element_size, int count, void (*dtor)(void*), int 
     }
 }
 
+void* fn_167ec9(u32 size)
+{
+    // Xbox 0x00167EC9
+    // _heap_alloc. The caller is _nh_malloc_base (0x00167EF0), which malloc
+    // (0x00167F1C) calls with _newmode. A zero request becomes one byte.
+    // __active_heap (0x0054DD60) is __SYSTEM_HEAP when it equals 1. Any other
+    // value, including the BSS zero, rounds the count up to a multiple of
+    // 16. The two pushes are the HeapAlloc size and flags. 0x0014D377 is the
+    // six-byte load of _crtheap (0x00549520) and does not consume them.
+    // 0x0014E872 is HeapAlloc(heap, 0, size) and returns the block in EAX
+    // after its stdcall cleanup. The host allocator matches free (0x00167F2E).
+    if (size == 0)
+    {
+        size = 1;
+    }
+    if (g_crt_active_heap != 1)
+    {
+        size = (size + 0xfu) & 0xfffffff0u;
+    }
+    return std::malloc(size);
+}
+
 void fn_167f2e(void* block)
 {
     // Xbox 0x00167F2E

@@ -1922,17 +1922,27 @@ const D3dTimeSlot* inline_time_slot(const D3dPushGetState* device, u32 index)
     return &device->slots[index];
 }
 
-// 0x001770A0. eax is the serial 0x001771A0 passes (counter + 2). Retail
-// loads the device from DAT_00181E08; the port uses the caller's device.
-// A gap of 0x80 is one lap of the 64-slot table (serials step by 2).
-// Inside that window the inline slot is (serial >> 1) & 0x3f. Beyond it,
-// the history ring is walked from hist_index + 1 until a record is at
-// least as new as the query. The head record being older than the query
-// drops back to the inline slot for the fence itself. The compare against
-// -1 in the retail index is unreachable after the 0x3f mask. A null
-// history cannot be walked; the port returns no slot.
-const D3dTimeSlot* push_time_slot(const D3dPushGetState* device, u32 query)
+} // namespace
+
+const D3dTimeSlot* fn_1770a0(const D3dPushGetState* device, u32 query)
 {
+    // Xbox 0x001770A0
+    // eax is the serial 0x001771A0 passes (counter + 2). Retail loads the
+    // device from DAT_00181E08; the port uses the caller's device. A null
+    // device would fault on Xbox; the port returns no slot.
+    //
+    // A gap of 0x80 is one lap of the 64-slot table (serials step by 2).
+    // Inside that window the inline slot is (serial >> 1) & 0x3f. Beyond
+    // it, the history ring is walked from hist_index + 1 until a record
+    // is at least as new as the query. The head record being older than
+    // the query drops back to the inline slot for the fence itself. The
+    // compare against -1 in the retail index is unreachable after the
+    // 0x3f mask. A null history cannot be walked; the port returns no slot.
+    if (device == nullptr)
+    {
+        return nullptr;
+    }
+
     const u32 fence = device->fence;
     const u32 gap = fence - query;
     if (gap > 0x80u)
@@ -1963,8 +1973,6 @@ const D3dTimeSlot* push_time_slot(const D3dPushGetState* device, u32 query)
     }
     return inline_time_slot(device, (query >> 1) & 0x3fu);
 }
-
-} // namespace
 
 u32 fn_1771a0(const D3dPushGetState* device, int wait)
 {
@@ -2014,7 +2022,7 @@ u32 fn_1771a0(const D3dPushGetState* device, int wait)
         {
             return device->put;
         }
-        const D3dTimeSlot* slot = push_time_slot(device, seen + 2u);
+        const D3dTimeSlot* slot = fn_1770a0(device, seen + 2u);
         if (slot != nullptr)
         {
             return slot->put;

@@ -15595,6 +15595,10 @@ constexpr u32 k_d3d_xform_main[] = {
 };
 
 // DAT_00181E08. BeginStateBig reads this device, not the fastcall argument.
+// Vertex-shader constant file is 192 registers. Program cache is 136 slots.
+constexpr u32 k_d3d_vs_const_regs = 192u;
+constexpr u32 k_d3d_vs_program_slots = 136u;
+
 struct D3dScreenDevice
 {
     u32* cursor = nullptr; // +0
@@ -15620,12 +15624,17 @@ struct D3dScreenDevice
     float clip_min_view = 0.f;   // +0x1c00
     float clip_max_view = 0.f;   // +0x1c04
     u8 clip_lock = 0;            // +0x1c08. Bit 0 keeps the screen pair, bit 1 the viewport pair.
+    // +0x1098. 136 instruction slots, four dwords each. The next device
+    // dword is +0x1918. 0x00172EE0 writes here; 0x00176080 reads the head.
+    u32 program[k_d3d_vs_program_slots * 4u]{};
     std::vector<u32> push;
     u32 cursor_index = 0;
     u32 fence_index = 0;
 };
 
 D3dScreenDevice* g_d3d_device = nullptr;
+// DAT_00180d50. Four dwords per register. 192 * 16 ends at 0x00181950.
+u32 g_d3d_vs_constants[k_d3d_vs_const_regs * 4u]{};
 i32 g_d3d_program_mode = 0;   // DAT_00181CE4
 i32 g_d3d_sample_mode = 0;    // DAT_00181DAC
 i32 g_d3d_multisample_aa = 0; // DAT_00181DD0, D3DRS_MULTISAMPLEANTIALIAS
@@ -16062,6 +16071,119 @@ void fn_172da0(D3dFvfDecl* decl, u32 fvf)
         shift += 8u;
         --tex_count;
         ++reg;
+    }
+}
+
+void fn_172ee0(u32* shader, u32 slot)
+{
+    // Xbox 0x00172EE0
+    // stdcall (ret 8). Shadows a vertex-shader token stream into the
+    // constant file and the transform-program cache. 0x001736A0 is the
+    // only caller. It passes the shader (its handle minus one) and the
+    // program slot, and only when device flag bit 0x10 is clear. A null
+    // shader would fault on Xbox; the port returns.
+    //
+    // Tokens start at shader+0x114. A token is (count << 18) | method,
+    // then count payload dwords. The word after each payload is the next
+    // token, and a zero word ends the walk. The token under the cursor
+    // is consumed even when its count is 0.
+    //
+    // Count 1 retargets the constant cursor and does not read the method.
+    // The cursor becomes DAT_00180d50 + payload[0] * 16. It starts at the
+    // shader object. Method 0xB00 (SET_TRANSFORM_PROGRAM) copies its
+    // payload to device+0x1098 + slot * 16 and advances that cursor. Any
+    // other method copies its payload to the constant cursor and advances
+    // it. 0x00176080 later pushes the first eight program dwords back out
+    // through 0x001738C0.
+    //
+    // A null device would fault on a 0xB00 copy; the port skips program
+    // copies. A constant index of 192 or more would leave DAT_00180d50,
+    // and a slot of 136 or more would leave the program cache; the port
+    // keeps the previous constant cursor and drops program words that
+    // do not fit.
+    if (shader == nullptr)
+    {
+        return;
+    }
+
+    u32* token = shader + 0x45;
+    u32* constants = shader;
+    bool constants_in_file = false;
+    u32* program = nullptr;
+    u32 program_left = 0;
+    if (g_d3d_device != nullptr && slot < k_d3d_vs_program_slots)
+    {
+        program = g_d3d_device->program + static_cast<size_t>(slot) * 4u;
+        program_left = (k_d3d_vs_program_slots - slot) * 4u;
+    }
+
+    for (;;)
+    {
+        const u32 header = *token;
+        const u32 count = header >> 18;
+        const u32* data = token + 1;
+        if (count == 1u)
+        {
+            const u32 index = data[0];
+            if (index < k_d3d_vs_const_regs)
+            {
+                constants = g_d3d_vs_constants + static_cast<size_t>(index) * 4u;
+                constants_in_file = true;
+            }
+        }
+        else if ((header & 0xffffu) == 0xb00u)
+        {
+            if (program != nullptr && count != 0u)
+            {
+                u32 n = count;
+                if (n > program_left)
+                {
+                    n = program_left;
+                }
+                if (n != 0u)
+                {
+                    std::memcpy(program, data, static_cast<size_t>(n) * sizeof(u32));
+                    program += n;
+                    program_left -= n;
+                }
+                if (n != count)
+                {
+                    program = nullptr;
+                    program_left = 0;
+                }
+            }
+        }
+        else if (count != 0u && constants != nullptr)
+        {
+            u32 n = count;
+            if (constants_in_file)
+            {
+                const u32* file_end = g_d3d_vs_constants + k_d3d_vs_const_regs * 4u;
+                const u32 room = static_cast<u32>(file_end - constants);
+                if (n > room)
+                {
+                    n = room;
+                }
+            }
+            if (n != 0u)
+            {
+                std::memcpy(constants, data, static_cast<size_t>(n) * sizeof(u32));
+            }
+            if (n == count)
+            {
+                constants += count;
+            }
+            else
+            {
+                constants = nullptr;
+                constants_in_file = false;
+            }
+        }
+        token += 1u + count;
+        if (*token == 0u)
+        {
+            break;
+        }
     }
 }
 

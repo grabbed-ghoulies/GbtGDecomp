@@ -1340,6 +1340,7 @@ float g_pad_hold_delay = 1.f;
 float g_pad_repeat_gate = 0.f;
 
 // One port of the 0x13c packet. hold[32] is +0x14. repeat[32] is +0x94.
+// Thumb words sit past the repeat timers. +0x11c / +0x120 are the right stick.
 struct PadBitPort
 {
     u32 down = 0;      // +0x00 DAT_00434298
@@ -1347,9 +1348,32 @@ struct PadBitPort
     u32 pulse = 0;     // +0x10 DAT_004342A8
     float hold[kPadBitCount]{};
     float repeat[kPadBitCount]{};
+    i32 thumb_lx = 0;   // +0x114 DAT_004343ac
+    i32 thumb_ly = 0;   // +0x118 DAT_004343b0
+    float axis_lx = 0.f; // +0x124 DAT_004343bc
+    float axis_ly = 0.f; // +0x128 DAT_004343c0
 };
 
 PadBitPort g_pad_bits[kPadBitPorts];
+
+// DAT_00434284. 0x00155470 installs 0x00155360. Null leaves x and y unchanged.
+void (*g_pad_left_hook)(i32 port, i32* x, i32* y) = nullptr;
+
+// DAT_00203A8C. Full scale after the left-stick hook is ±74.
+constexpr float kLeftThumbScale = 1.f / 74.f;
+
+float clamp_thumb(float value)
+{
+    if (value < -1.f)
+    {
+        return -1.f;
+    }
+    if (value > 1.f)
+    {
+        return 1.f;
+    }
+    return value;
+}
 
 } // namespace
 
@@ -1403,6 +1427,29 @@ void fn_154ba0(float dt)
         }
         port.down_prev = port.down;
     }
+}
+
+void fn_154c90(i32 port, i32 x, i32 y)
+{
+    // Xbox 0x00154C90
+    // 0x001555B0 sign-extends the thumb LX and LY words and passes the port.
+    // When DAT_00434284 is set it rewrites those integers first (retail points
+    // it at 0x00155360). The integers land at +0x114 and +0x118. Each is
+    // multiplied by 1/74 and clamped to [-1, 1] into +0x124 and +0x128. A Y
+    // below -1 stores -1 and returns; that store matches the clamp.
+    if (g_pad_left_hook != nullptr)
+    {
+        g_pad_left_hook(port, &x, &y);
+    }
+    if (port < 0 || port >= kPadBitPorts)
+    {
+        return;
+    }
+    PadBitPort& slot = g_pad_bits[port];
+    slot.thumb_lx = x;
+    slot.thumb_ly = y;
+    slot.axis_lx = clamp_thumb(float(x) * kLeftThumbScale);
+    slot.axis_ly = clamp_thumb(float(y) * kLeftThumbScale);
 }
 
 i32 fn_105e20(float x, float y, float z, float& yaw, float& pitch)

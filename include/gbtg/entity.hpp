@@ -309,6 +309,12 @@ float fn_1534c0(float value); // 0x001534C0
 // the mask at +0x10 and repeats from the timer at +0x94 against DAT_00434290.
 void fn_154ba0(float dt); // 0x00154BA0
 
+// Port is the index 0x001555B0 passes with the signed thumb LX and LY words.
+// DAT_00434284 may rewrite those integers. They are stored at +0x114 and
+// +0x118. Each times 1/74, then clamped to [-1, 1], is written at +0x124
+// and +0x128.
+void fn_154c90(i32 port, i32 x, i32 y); // 0x00154C90
+
 // EAX is the direction (x, y, z). Writes yaw, then pitch. Returns 0 when XZ is
 // quieter than 2e-7; pitch is still written.
 i32 fn_105e20(float x, float y, float z, float& yaw, float& pitch); // 0x00105E20

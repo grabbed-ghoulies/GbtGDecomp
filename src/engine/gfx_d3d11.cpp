@@ -157,6 +157,8 @@ struct GfxD3D11
         int alpha_arg2 = 0;     // +0x4C D3DTSS_ALPHAARG2
         int tex_transform = 0;  // +0x54 D3DTSS_TEXTURETRANSFORMFLAGS
         int texcoord_index = 0; // +0x70 D3DTSS_TEXCOORDINDEX
+        // +0x58. D3DTSS_BUMPENVMAT00, MAT01, MAT10, MAT11, BUMPENVLSCALE, BUMPENVLOFFSET.
+        u32 bump[6]{};
     };
     StageRs stages[4]{};
 };
@@ -1713,6 +1715,45 @@ float* fn_151f62(float* out, const float* m)
         }
     }
     return out;
+}
+
+u32* fn_171bb0(u32 device_780, u32* packet)
+{
+    // Xbox 0x00171BB0
+    // Fastcall. ecx is the D3D device, edx the push cursor. The dword at
+    // device+0x780 is the texture installed by 0x00175370 (zero when unbound).
+    // eax comes back as the cursor after the writes. A null cursor would
+    // fault on Xbox; the port leaves it alone.
+    //
+    // Three packets, seven dwords each. The method word starts at 0x00181B68
+    // and steps by 0x40 while it is <= 0x00181BE8, so the headers are
+    // 0x00181B68, 0x00181BA8, 0x00181BE8. Each is count 6 at the NV097 bump-env
+    // block (SET_TEXTURE_SET_BUMP_ENV_MAT, SCALE, OFFSET) for hardware stages
+    // 1, 2, and 3.
+    //
+    // The six data dwords are the deferred stage shadow at DAT_001819C8
+    // (DAT_00181970 + 0x58), stride 0x80. device+0x780 == 0 reads stages 0..2.
+    // Any other value reads stages 1..3. The method headers do not move with
+    // that select.
+    if (packet == nullptr)
+    {
+        return packet;
+    }
+
+    const int stage = device_780 != 0u ? 1 : 0;
+    u32 method = 0x00181B68u;
+    for (int i = 0; i < 3; ++i)
+    {
+        const u32* bump = g.stages[stage + i].bump;
+        packet[0] = method;
+        for (int word = 0; word < 6; ++word)
+        {
+            packet[1 + word] = bump[word];
+        }
+        packet += 7;
+        method += 0x40u;
+    }
+    return packet;
 }
 
 } // namespace gbtg

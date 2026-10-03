@@ -32,6 +32,9 @@ extern "C"
     __declspec(dllimport) void* __stdcall GetModuleHandleA(const char* name);
     __declspec(dllimport) void* __stdcall GetProcAddress(void* module, const char* name);
     __declspec(dllimport) unsigned long __stdcall GetCurrentThreadId();
+    __declspec(dllimport) void __stdcall GetSystemTimeAsFileTime(void* time);
+    __declspec(dllimport) unsigned long __stdcall GetTickCount();
+    __declspec(dllimport) int __stdcall QueryPerformanceCounter(void* counter);
     __declspec(dllimport) void __stdcall RaiseException(unsigned long code, unsigned long flags, unsigned long count,
                                                         const std::uintptr_t* arguments);
 }
@@ -2508,6 +2511,77 @@ void fn_1673c1(int set_precision)
 #else
     std::feclearexcept(FE_ALL_EXCEPT);
 #endif
+}
+
+// 0x00337AAC. __security_cookie. The image value is DEFAULT_SECURITY_COOKIE.
+u32 g_security_cookie = 0xBB40E64Eu;
+
+void fn_16d805()
+{
+    // Xbox 0x0016D805
+    // __security_init_cookie. The pointer sits at 0x0032C814, the first slot
+    // of the __xc_a..__xc_z span (null at 0x0032C810, null at 0x0032C834).
+    // _cinit walks that span. Nothing calls this address directly.
+    // A cookie other than 0 or 0xBB40E64E is left alone. Otherwise the mix is
+    // the high and low dwords of GetSystemTimeAsFileTime (0x0014BC60),
+    // GetCurrentThreadId (0x0014BC53), GetTickCount (0x0014B956), and both
+    // dwords of QueryPerformanceCounter (0x0014C29C). A zero mix is stored
+    // back as 0xBB40E64E.
+    constexpr u32 kDefaultCookie = 0xBB40E64Eu;
+    if (g_security_cookie != 0 && g_security_cookie != kDefaultCookie)
+    {
+        return;
+    }
+
+    u32 time_low = 0;
+    u32 time_high = 0;
+    u32 thread_id = 0;
+    u32 tick = 0;
+    u32 perf_low = 0;
+    u32 perf_high = 0;
+
+#if defined(_WIN32)
+    struct FileTime
+    {
+        u32 low;
+        u32 high;
+    };
+    struct PerfCount
+    {
+        u32 low;
+        u32 high;
+    };
+    FileTime file_time{};
+    PerfCount counter{};
+    GetSystemTimeAsFileTime(&file_time);
+    time_low = file_time.low;
+    time_high = file_time.high;
+    thread_id = static_cast<u32>(GetCurrentThreadId());
+    tick = static_cast<u32>(GetTickCount());
+    QueryPerformanceCounter(&counter);
+    perf_low = counter.low;
+    perf_high = counter.high;
+#else
+    using FileTicks = std::chrono::duration<std::uint64_t, std::ratio<1, 10000000>>;
+    const std::uint64_t file_time =
+        std::chrono::duration_cast<FileTicks>(std::chrono::system_clock::now().time_since_epoch()).count() +
+        116444736000000000ull;
+    time_low = static_cast<u32>(file_time);
+    time_high = static_cast<u32>(file_time >> 32);
+    thread_id = 1;
+    tick = static_cast<u32>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now().time_since_epoch())
+                                .count());
+    const std::uint64_t perf = static_cast<std::uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
+    perf_low = static_cast<u32>(perf);
+    perf_high = static_cast<u32>(perf >> 32);
+#endif
+
+    g_security_cookie = time_high ^ time_low ^ thread_id ^ tick ^ perf_high ^ perf_low;
+    if (g_security_cookie == 0)
+    {
+        g_security_cookie = kDefaultCookie;
+    }
 }
 
 // Image _locktable at 0x00337AB0. Thirty-six entries, eight bytes each:

@@ -50,6 +50,7 @@ extern "C"
     __declspec(dllimport) unsigned long __stdcall SetFilePointer(void* handle, long distance, long* high,
                                                                  unsigned long method);
     __declspec(dllimport) int __stdcall IsBadReadPtr(const void* lp, std::uintptr_t ucb);
+    __declspec(dllimport) int __stdcall IsBadWritePtr(void* lp, std::uintptr_t ucb);
 }
 #endif
 
@@ -14604,6 +14605,26 @@ int fn_16f172(const void* lp, u32 ucb)
     // treats 0 as __inconsistency.
 #if defined(_WIN32)
     return IsBadReadPtr(lp, ucb) == 0 ? 1 : 0;
+#else
+    if (ucb == 0)
+    {
+        return 1;
+    }
+    return lp != nullptr ? 1 : 0;
+#endif
+}
+
+int fn_16f18d(void* lp, u32 ucb)
+{
+    // Xbox 0x0016F18D
+    // _ValidateWrite. cdecl; the caller pops the address and the byte count.
+    // ESI is set to 1, then XAPILIB::IsBadWritePtr (0x0014A8A5) is called.
+    // A nonzero result clears ESI, and EAX returns that flag: 1 when the
+    // range can be written, 0 when it cannot. A zero count is writable.
+    // BuildCatchObject (0x0016BC55) probes one byte of the catch slot and
+    // treats 0 as __inconsistency.
+#if defined(_WIN32)
+    return IsBadWritePtr(lp, ucb) == 0 ? 1 : 0;
 #else
     if (ucb == 0)
     {

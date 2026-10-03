@@ -2906,6 +2906,17 @@ static_assert(offsetof(CrtFileX, lock) == 0x20);
 
 CrtFile g_crt_iob[kCrtIobCount];
 
+// 0x0054DD78. BSS, so the image value is 0. _nstream. 0x001688B3 raises a
+// zero to 0x200 and a smaller value up to 0x14, then allocates that many
+// FILE* slots. This body does not read the count; the port uses it so an
+// index cannot walk off __piob.
+u32 g_crt_nstream = 0;
+
+// 0x0054DD74. BSS, so the image pointer is null. __piob. 0x001688B3 points
+// the first twenty entries at _iob. The unlock body indexes it with the
+// stream number left in ESI.
+CrtFile** g_crt_piob = nullptr;
+
 void fn_16619a(void* stream)
 {
     // Xbox 0x0016619A
@@ -3295,6 +3306,51 @@ void fn_168c8e(int fh)
         return;
     }
     lock->unlock();
+}
+
+void fn_168e08(int index)
+{
+    // Xbox 0x00168E08
+    // Shared unlock body of flsall (0x00168D68). The scope table at
+    // 0x00209268 has two entries. The inner one (enclosing level 0, a null
+    // filter) is the handler at 0x00168E03: it clears EDI and reloads the
+    // stream index from [ebp-0x20] into ESI, then falls through to this
+    // address. The success path at 0x00168DFB calls here after the try
+    // level at [ebp-4] is stored as 0, with ESI already holding that index.
+    // The seventeen bytes load __piob (0x0054DD74), push __piob[index] and
+    // the index, call _unlock_file2 (0x001689F1), pop both cdecl arguments,
+    // and return.
+    //
+    // _unlock_file2 compares the index with 0x14 (_IOB_ENTRIES). The
+    // compare is signed jge. Below that it adds 0x10 (_STREAM_LOCKS) and
+    // calls _unlock (0x0016810F), which leaves the critical section in
+    // _locktable (image 0x00337AB0). The kernel thunk is the dword at
+    // 0x00202EA4. An index of 0x14 or more calls RtlLeaveCriticalSection
+    // on the critical section at FILE+0x20. A null __piob, an index
+    // outside the allocated table, or a null FILE on the FILEX path would
+    // fault; the port returns. A stream lock __mtinit has not created is
+    // left alone.
+    if (g_crt_piob == nullptr || index < 0 || static_cast<u32>(index) >= g_crt_nstream)
+    {
+        return;
+    }
+
+    CrtFile* stream = g_crt_piob[index];
+    if (index < 0x14)
+    {
+        const u32 locknum = static_cast<u32>(index) + 0x10u;
+        if (g_crt_locks[locknum].cs != nullptr)
+        {
+            g_crt_locks[locknum].cs->unlock();
+        }
+        return;
+    }
+
+    if (stream == nullptr)
+    {
+        return;
+    }
+    reinterpret_cast<CrtFileX*>(stream)->lock.unlock();
 }
 
 int crt_mtinitlocknum(int locknum)

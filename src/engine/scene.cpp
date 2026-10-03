@@ -4108,6 +4108,1041 @@ int fn_168fed(void* stream, const char* format, std::va_list argptr)
     return charsout;
 }
 
+int fn_16993d(void* stream, const char16_t* format, std::va_list argptr)
+{
+    // Xbox 0x0016993D
+    // _woutput. The wide printf family builds a FILE and calls here.
+    // 0x00166A03 and 0x00166FB1 are the swprintf / vswprintf bodies: flag
+    // 0x42 (_IOWRT|_IOSTRG), cnt 0x7FFFFFFF, ptr and base on the caller's
+    // buffer. 0x001671A5 is _snwprintf: cnt is the character count times
+    // two, because each unit occupies two bytes. The return is the number
+    // of wide characters accepted, or -1 after a failed write. A null or
+    // empty format returns 0. Retail faults on a null format; the port
+    // returns 0.
+    //
+    // The walk is the same table as _output (0x00168FED), at 0x00209280.
+    // A unit from 0x20 through 0x78 takes its class from the low nibble of
+    // the byte at 0x00209260 plus the unit. Every other unit is class 0.
+    // The next state is the high nibble of the byte at class * 8 + state.
+    // States are literal, conversion, flag, width, dot, precision, size,
+    // and type. The jump table is at 0x0016A0E1.
+    //
+    // Flag bits match _output: '+' 0x1, ' ' 0x2, '-' 0x4, '0' 0x8, 'l' 0x10,
+    // 'h' 0x20, signed 0x40, '#' 0x80, negative 0x100, forced octal 0x200,
+    // 'w' 0x800, and 'I64' 0x8000. %C and %S set the short bit when no size
+    // is set yet, so they are the narrow forms. %c and %s stay wide. %hc
+    // and %hs are narrow. %I64 and %I32 consume the two digits. %I
+    // immediately before d, i, o, u, x, or X is ignored. Any other unit
+    // after %I is written as a literal and the state returns to literal.
+    //
+    // Literals go through write_char (0x001698B6). write_multi_char
+    // (0x001698DB) pads. write_string (0x00169900) copies wide units. A
+    // stream whose flag has 0x40 and whose base is null only advances the
+    // count. Any other string stream calls _fputwc (0x0016DFB5), which
+    // subtracts 2 from cnt and stores the unit. A negative cnt sets flag
+    // bit 0x20 and returns 0xFFFF, and the count becomes -1. A stream that
+    // is not a string takes the text-mode path: the default ioinfo at
+    // 0x00338250 has FTEXT set, so the unit is expanded with wctomb
+    // (0x0016DF8A) and each byte is stored with cnt dropping by 1. A real
+    // file flush is _flsbuf (0x00168E46) or _flswbuf (0x0016F2F1). The port
+    // reports that same failure when the buffer is full.
+    //
+    // Narrow text (integers, floats, %hs, %hc, a null %Z) is expanded with
+    // mbtowc (0x0016E07A). With __mb_cur_max at 1 that turns one byte into
+    // one unit and returns 1, or 0 for a zero byte. %Z reads a counted
+    // record: the word at +0 is the byte length, and the pointer at +4 is
+    // the buffer. A null record prints "(null)" from 0x002092DC. The wide
+    // null string is the UTF-16 text at 0x002092E4. The 'w' flag halves the
+    // counted length and leaves those units wide.
+    //
+    // Floats take a double and call the slots _fpmath fills at 0x003381A0
+    // (__cfltcvt), 0x003381AC (__forcdecpt), and 0x003381A4 (__cropzeros).
+    // While a slot is still _fptrap (0x0016F08C) the process exits with
+    // code 2. Precision above 0xA3 mallocs (0x00167F1C) precision + 0x15D
+    // bytes and this function frees that block (0x00167F2E).
+    //
+    // The host va_list is the Xbox argument cursor. Each promoted integer
+    // or pointer is one argument. A double or an I64 value is one 8-byte
+    // argument. %p prints a host pointer in uppercase hex, at least eight
+    // digits. On Xbox the pointer is 32 bits, so eight digits are the whole
+    // value. %n stores the wide count.
+
+    struct OutputFile
+    {
+        char* ptr;
+        int cnt;
+        char* base;
+        int flag;
+        int file;
+        int charbuf;
+        int bufsiz;
+        char* tmpfname;
+    };
+
+    static constexpr unsigned char kLookup[] = {
+        0x06, 0x00, 0x00, 0x06, 0x00, 0x01, 0x00, 0x00, 0x10, 0x00, 0x03, 0x06, 0x00, 0x06, 0x02, 0x10,
+        0x04, 0x45, 0x45, 0x45, 0x05, 0x05, 0x05, 0x05, 0x05, 0x35, 0x30, 0x00, 0x50, 0x00, 0x00, 0x00,
+        0x00, 0x20, 0x28, 0x38, 0x50, 0x58, 0x07, 0x08, 0x00, 0x37, 0x30, 0x30, 0x57, 0x50, 0x07, 0x00,
+        0x00, 0x20, 0x20, 0x08, 0x00, 0x00, 0x00, 0x00, 0x08, 0x60, 0x68, 0x60, 0x60, 0x60, 0x60, 0x00,
+        0x00, 0x70, 0x70, 0x78, 0x78, 0x78, 0x78, 0x08, 0x07, 0x08, 0x00, 0x00, 0x07, 0x00, 0x08, 0x08,
+        0x08, 0x00, 0x00, 0x08, 0x00, 0x08, 0x00, 0x07, 0x08,
+    };
+    static_assert(sizeof(kLookup) == 89);
+
+    constexpr int kSign = 0x1;
+    constexpr int kBlank = 0x2;
+    constexpr int kLeft = 0x4;
+    constexpr int kZero = 0x8;
+    constexpr int kLong = 0x10;
+    constexpr int kShort = 0x20;
+    constexpr int kSigned = 0x40;
+    constexpr int kAlt = 0x80;
+    constexpr int kNeg = 0x100;
+    constexpr int kOctal = 0x200;
+    constexpr int kWide = 0x800;
+    constexpr int kI64 = 0x8000;
+    constexpr u32 kFptrap = 0x0016F08Cu;
+
+    static constexpr char kNullText[] = "(null)";
+    static constexpr char16_t kNullWide[] = {'(', 'n', 'u', 'l', 'l', ')', 0};
+
+    auto* out = static_cast<OutputFile*>(stream);
+    int charsout = 0;
+    int state = 0;
+    int flags = 0;
+    int precision = -1;
+    int width = 0;
+    int prefix_len = 0;
+    int text_len = 0;
+    int no_output = 0;
+    int wide_text = 0;
+    int capexp = 0;
+    int hex_shift = 0;
+    int radix = 10;
+    char16_t prefix[2] = {};
+    const char* narrow = "";
+    const char16_t* wide = kNullWide;
+    char* heap = nullptr;
+    char stack_buf[0x200];
+    char digits[513];
+    char16_t wchar_buf[2] = {};
+    u32 lo = 0;
+    u32 hi = 0;
+
+    auto wctomb_byte = [&](char* dest, int wchar) -> int
+    {
+        if (g_crt_mb_cur_max <= 1)
+        {
+            if (wchar < 0 || wchar > 0xff)
+            {
+                errno = 42;
+                return -1;
+            }
+            dest[0] = static_cast<char>(wchar);
+            return 1;
+        }
+        errno = 42;
+        return -1;
+    };
+
+    auto mbtowc_unit = [&](char16_t* dest, const char* src) -> int
+    {
+        if (src == nullptr || g_crt_mb_cur_max == 0)
+        {
+            return 0;
+        }
+        const unsigned char byte = static_cast<unsigned char>(*src);
+        if (byte == 0)
+        {
+            if (dest != nullptr)
+            {
+                *dest = 0;
+            }
+            return 0;
+        }
+        if (dest != nullptr)
+        {
+            *dest = static_cast<char16_t>(byte);
+        }
+        return 1;
+    };
+
+    auto write_wchar = [&](unsigned unit)
+    {
+        const auto code = static_cast<std::uint16_t>(unit);
+        if ((out->flag & 0x40) != 0 && out->base == nullptr)
+        {
+            charsout += 1;
+            return;
+        }
+
+        auto fail = [&]()
+        {
+            charsout = -1;
+        };
+
+        if ((out->flag & 0x40) == 0)
+        {
+            char bytes[8];
+            const int produced = wctomb_byte(bytes, static_cast<int>(code));
+            if (produced < 0)
+            {
+                fail();
+                return;
+            }
+            for (int i = 0; i < produced; i += 1)
+            {
+                out->cnt -= 1;
+                if (out->cnt < 0)
+                {
+                    out->flag |= 0x20;
+                    fail();
+                    return;
+                }
+                *out->ptr = bytes[i];
+                out->ptr += 1;
+            }
+            if (code == 0xffffu)
+            {
+                fail();
+                return;
+            }
+            charsout += 1;
+            return;
+        }
+
+        out->cnt -= 2;
+        if (out->cnt < 0)
+        {
+            out->flag |= 0x20;
+            fail();
+            return;
+        }
+        std::memcpy(out->ptr, &code, sizeof(code));
+        out->ptr += static_cast<int>(sizeof(code));
+        if (code == 0xffffu)
+        {
+            fail();
+            return;
+        }
+        charsout += 1;
+    };
+
+    auto write_multi = [&](unsigned unit, int count)
+    {
+        while (count > 0)
+        {
+            count -= 1;
+            write_wchar(unit);
+            if (charsout == -1)
+            {
+                break;
+            }
+        }
+    };
+
+    auto write_wchars = [&](const char16_t* units, int count)
+    {
+        if ((out->flag & 0x40) != 0 && out->base == nullptr)
+        {
+            charsout += count;
+            return;
+        }
+        while (count > 0)
+        {
+            count -= 1;
+            const unsigned unit = static_cast<unsigned>(*units);
+            units += 1;
+            write_wchar(unit);
+            if (charsout == -1)
+            {
+                break;
+            }
+        }
+    };
+
+    auto force_decimal = [](char* s)
+    {
+        char* p = s;
+        while (*p != '\0')
+        {
+            if (*p == '.')
+            {
+                return;
+            }
+            if (*p == 'e' || *p == 'E')
+            {
+                break;
+            }
+            p += 1;
+        }
+        char* end = p;
+        while (*end != '\0')
+        {
+            end += 1;
+        }
+        while (end >= p)
+        {
+            *(end + 1) = *end;
+            end -= 1;
+        }
+        *p = '.';
+    };
+
+    auto crop_zeros = [](char* s)
+    {
+        char* p = s;
+        while (*p != '\0' && *p != '.')
+        {
+            p += 1;
+        }
+        if (*p == '\0')
+        {
+            return;
+        }
+        while (*p != '\0' && *p != 'e' && *p != 'E')
+        {
+            p += 1;
+        }
+        char* stop = p;
+        if (p > s)
+        {
+            p -= 1;
+        }
+        while (p > s && *p == '0')
+        {
+            p -= 1;
+        }
+        if (*p == '.' && p > s)
+        {
+            p -= 1;
+        }
+        p += 1;
+        while (*stop != '\0')
+        {
+            *p = *stop;
+            p += 1;
+            stop += 1;
+        }
+        *p = '\0';
+    };
+
+    auto pad_exponent = [](char* s, int buf_size)
+    {
+        char* mark = std::strchr(s, 'e');
+        if (mark == nullptr)
+        {
+            mark = std::strchr(s, 'E');
+        }
+        if (mark == nullptr || (mark[1] != '+' && mark[1] != '-'))
+        {
+            return;
+        }
+        char* digits_at = mark + 2;
+        int count = 0;
+        while (digits_at[count] >= '0' && digits_at[count] <= '9')
+        {
+            count += 1;
+        }
+        if (count == 0 || count >= 3)
+        {
+            return;
+        }
+        const int need = 3 - count;
+        const int used = static_cast<int>(std::strlen(s));
+        if (used + need + 1 > buf_size)
+        {
+            return;
+        }
+        char* end = digits_at + count;
+        while (*end != '\0')
+        {
+            end += 1;
+        }
+        while (end >= digits_at)
+        {
+            *(end + need) = *end;
+            end -= 1;
+        }
+        for (int i = 0; i < need; i += 1)
+        {
+            digits_at[i] = '0';
+        }
+    };
+
+    auto format_float = [&](char* buffer, int buf_size, char fmt, double value)
+    {
+        if (g_cfltcvt_tab[0] == kFptrap)
+        {
+            std::exit(2);
+        }
+        if (!std::isfinite(value))
+        {
+            const char* token = "1.#QNAN";
+            if (std::isnan(value))
+            {
+                token = std::signbit(value) ? "-1.#IND" : "1.#QNAN";
+            }
+            else
+            {
+                token = std::signbit(value) ? "-1.#INF" : "1.#INF";
+            }
+            std::snprintf(buffer, static_cast<std::size_t>(buf_size), "%s", token);
+            return;
+        }
+
+        const bool upper = capexp != 0;
+        if (fmt == 'e')
+        {
+            std::snprintf(buffer, static_cast<std::size_t>(buf_size), upper ? "%.*E" : "%.*e", precision, value);
+        }
+        else if (fmt == 'f')
+        {
+            std::snprintf(buffer, static_cast<std::size_t>(buf_size), "%.*f", precision, value);
+        }
+        else
+        {
+            bool scientific = false;
+            int exponent = 0;
+            if (value != 0.0)
+            {
+                char probe[64];
+                std::snprintf(probe, sizeof(probe), "%.*e", precision - 1, value);
+                const char* mark = std::strchr(probe, 'e');
+                if (mark == nullptr)
+                {
+                    mark = std::strchr(probe, 'E');
+                }
+                if (mark != nullptr)
+                {
+                    exponent = std::atoi(mark + 1);
+                }
+                scientific = exponent < -4 || exponent >= precision;
+            }
+            if (scientific)
+            {
+                std::snprintf(buffer, static_cast<std::size_t>(buf_size), upper ? "%.*E" : "%.*e", precision - 1, value);
+            }
+            else
+            {
+                int frac = precision - exponent - 1;
+                if (frac < 0)
+                {
+                    frac = 0;
+                }
+                std::snprintf(buffer, static_cast<std::size_t>(buf_size), "%.*f", frac, value);
+            }
+        }
+        pad_exponent(buffer, buf_size);
+    };
+
+    auto write_number = [&](bool as_i64)
+    {
+        if ((flags & kSigned) != 0 && static_cast<std::int32_t>(hi) < 0)
+        {
+            unsigned long long mag = (static_cast<unsigned long long>(hi) << 32) | lo;
+            mag = 0ull - mag;
+            lo = static_cast<u32>(mag);
+            hi = static_cast<u32>(mag >> 32);
+            flags |= kNeg;
+        }
+        if (!as_i64)
+        {
+            hi = 0;
+        }
+        if (precision < 0)
+        {
+            precision = 1;
+        }
+        else
+        {
+            flags &= ~kZero;
+            if (precision > 0x200)
+            {
+                precision = 0x200;
+            }
+        }
+        if (lo == 0 && hi == 0)
+        {
+            prefix_len = 0;
+        }
+
+        char* place = digits + 512;
+        while (true)
+        {
+            const int prec = precision;
+            precision -= 1;
+            if (prec < 1 && lo == 0 && hi == 0)
+            {
+                break;
+            }
+            const unsigned long long value = (static_cast<unsigned long long>(hi) << 32) | lo;
+            const unsigned long long quot = value / static_cast<unsigned>(radix);
+            const unsigned rem = static_cast<unsigned>(value % static_cast<unsigned>(radix));
+            lo = static_cast<u32>(quot);
+            hi = static_cast<u32>(quot >> 32);
+            int digit = static_cast<int>(rem) + 0x30;
+            if (digit > 0x39)
+            {
+                digit += hex_shift;
+            }
+            *place = static_cast<char>(digit);
+            place -= 1;
+        }
+        text_len = static_cast<int>((digits + 512) - place);
+        narrow = place + 1;
+        wide_text = 0;
+        if ((flags & kOctal) != 0 && (text_len == 0 || narrow[0] != '0'))
+        {
+            *place = '0';
+            narrow = place;
+            text_len += 1;
+        }
+    };
+
+    auto load_integer = [&]()
+    {
+        if ((flags & kI64) != 0)
+        {
+            unsigned long long bits = 0;
+            if ((flags & kSigned) != 0)
+            {
+                bits = static_cast<unsigned long long>(va_arg(argptr, long long));
+            }
+            else
+            {
+                bits = va_arg(argptr, unsigned long long);
+            }
+            lo = static_cast<u32>(bits);
+            hi = static_cast<u32>(bits >> 32);
+            return;
+        }
+        if ((flags & kShort) != 0)
+        {
+            const int value = va_arg(argptr, int);
+            if ((flags & kSigned) != 0)
+            {
+                const auto narrow_bits = static_cast<std::int16_t>(value);
+                lo = static_cast<u32>(static_cast<std::int32_t>(narrow_bits));
+                hi = narrow_bits < 0 ? 0xffffffffu : 0u;
+            }
+            else
+            {
+                lo = static_cast<u32>(static_cast<std::uint16_t>(value));
+                hi = 0;
+            }
+            return;
+        }
+        if ((flags & kSigned) != 0)
+        {
+            const int value = va_arg(argptr, int);
+            lo = static_cast<u32>(value);
+            hi = value < 0 ? 0xffffffffu : 0u;
+            return;
+        }
+        lo = va_arg(argptr, unsigned int);
+        hi = 0;
+    };
+
+    auto set_hex_prefix = [&]()
+    {
+        if ((flags & kAlt) == 0)
+        {
+            return;
+        }
+        prefix[0] = static_cast<char16_t>(0x30);
+        prefix[1] = static_cast<char16_t>(hex_shift + 0x51);
+        prefix_len = 2;
+    };
+
+    auto emit = [&]()
+    {
+        if (no_output != 0)
+        {
+            return;
+        }
+        if ((flags & kSigned) != 0)
+        {
+            char16_t sign = 0;
+            if ((flags & kNeg) != 0)
+            {
+                sign = static_cast<char16_t>(0x2d);
+            }
+            else if ((flags & kSign) != 0)
+            {
+                sign = static_cast<char16_t>(0x2b);
+            }
+            else if ((flags & kBlank) != 0)
+            {
+                sign = static_cast<char16_t>(0x20);
+            }
+            if (sign != 0)
+            {
+                prefix[0] = sign;
+                prefix_len = 1;
+            }
+        }
+
+        const int pad = width - prefix_len - text_len;
+        if ((flags & (kLeft | kZero)) == 0)
+        {
+            write_multi(0x20, pad);
+        }
+        write_wchars(prefix, prefix_len);
+        if ((flags & kZero) != 0 && (flags & kLeft) == 0)
+        {
+            write_multi(0x30, pad);
+        }
+        if (wide_text == 0 && text_len > 0)
+        {
+            const char* bytes = narrow;
+            int left = text_len;
+            while (left > 0)
+            {
+                left -= 1;
+                char16_t unit = 0;
+                const int produced = mbtowc_unit(&unit, bytes);
+                if (produced < 1)
+                {
+                    break;
+                }
+                write_wchar(static_cast<unsigned>(unit));
+                bytes += produced;
+                if (charsout == -1)
+                {
+                    break;
+                }
+            }
+        }
+        else
+        {
+            write_wchars(wide, text_len);
+        }
+        if ((flags & kLeft) != 0)
+        {
+            write_multi(0x20, pad);
+        }
+    };
+
+    auto counted_length = [](const char* s) -> int
+    {
+        const char* start = s;
+        while (*s != '\0')
+        {
+            s += 1;
+        }
+        return static_cast<int>(s - start);
+    };
+
+    if (format == nullptr || *format == 0)
+    {
+        return charsout;
+    }
+
+    char16_t ch = *format;
+    for (;;)
+    {
+        format += 1;
+        if (charsout < 0)
+        {
+            return charsout;
+        }
+
+        int cls = 0;
+        if (ch >= 0x20 && ch <= 0x78)
+        {
+            cls = static_cast<signed char>(kLookup[ch - 0x20]) & 0x0f;
+        }
+        const int slot = cls * 8 + state;
+        state = static_cast<signed char>(kLookup[slot]) >> 4;
+        if (static_cast<unsigned>(state) <= 7u)
+        {
+            switch (state)
+            {
+            case 0:
+                wide_text = 1;
+                write_wchar(static_cast<unsigned>(ch));
+                break;
+            case 1:
+                precision = -1;
+                capexp = 0;
+                no_output = 0;
+                width = 0;
+                prefix_len = 0;
+                flags = 0;
+                wide_text = 0;
+                break;
+            case 2:
+                if (ch == 0x20)
+                {
+                    flags |= kBlank;
+                }
+                else if (ch == '#')
+                {
+                    flags |= kAlt;
+                }
+                else if (ch == '+')
+                {
+                    flags |= kSign;
+                }
+                else if (ch == '-')
+                {
+                    flags |= kLeft;
+                }
+                else if (ch == '0')
+                {
+                    flags |= kZero;
+                }
+                break;
+            case 3:
+                if (ch == '*')
+                {
+                    const int value = va_arg(argptr, int);
+                    if (value < 0)
+                    {
+                        flags |= kLeft;
+                        width = static_cast<int>(0u - static_cast<unsigned>(value));
+                    }
+                    else
+                    {
+                        width = value;
+                    }
+                }
+                else
+                {
+                    width = static_cast<int>(static_cast<unsigned>(ch) + static_cast<unsigned>(width) * 10u - 0x30u);
+                }
+                break;
+            case 4:
+                precision = 0;
+                break;
+            case 5:
+                if (ch == '*')
+                {
+                    const int value = va_arg(argptr, int);
+                    precision = value < 0 ? -1 : value;
+                }
+                else
+                {
+                    precision = static_cast<int>(static_cast<unsigned>(ch) + static_cast<unsigned>(precision) * 10u - 0x30u);
+                }
+                break;
+            case 6:
+                if (ch == 'I')
+                {
+                    const char16_t n0 = *format;
+                    char16_t n1 = 0;
+                    if (n0 != 0)
+                    {
+                        n1 = format[1];
+                    }
+                    if (n0 == '6' && n1 == '4')
+                    {
+                        format += 2;
+                        flags |= kI64;
+                    }
+                    else if (n0 == '3' && n1 == '2')
+                    {
+                        format += 2;
+                        flags &= ~kI64;
+                    }
+                    else if (n0 != 'd' && n0 != 'i' && n0 != 'o' && n0 != 'u' && n0 != 'x' && n0 != 'X')
+                    {
+                        state = 0;
+                        wide_text = 1;
+                        write_wchar(static_cast<unsigned>(ch));
+                    }
+                }
+                else if (ch == 'h')
+                {
+                    flags |= kShort;
+                }
+                else if (ch == 'l')
+                {
+                    flags |= kLong;
+                }
+                else if (ch == 'w')
+                {
+                    flags |= kWide;
+                }
+                break;
+            case 7:
+                if (ch == 'E' || ch == 'G')
+                {
+                    capexp = 1;
+                    ch = static_cast<char16_t>(ch + 0x20);
+                }
+                if (ch == 'C' || ch == 'S')
+                {
+                    if ((flags & (kWide | kShort | kLong)) == 0)
+                    {
+                        flags |= kShort;
+                    }
+                }
+
+                if (ch == 'd' || ch == 'i')
+                {
+                    flags |= kSigned;
+                    radix = 10;
+                    load_integer();
+                    write_number((flags & kI64) != 0);
+                    emit();
+                }
+                else if (ch == 'u')
+                {
+                    radix = 10;
+                    load_integer();
+                    write_number((flags & kI64) != 0);
+                    emit();
+                }
+                else if (ch == 'o')
+                {
+                    radix = 8;
+                    if ((flags & kAlt) != 0)
+                    {
+                        flags |= kOctal;
+                    }
+                    load_integer();
+                    write_number((flags & kI64) != 0);
+                    emit();
+                }
+                else if (ch == 'x' || ch == 'X' || ch == 'p')
+                {
+                    hex_shift = ch == 'x' ? 0x27 : 7;
+                    radix = 16;
+                    set_hex_prefix();
+                    if (ch == 'p')
+                    {
+                        const auto bits = reinterpret_cast<std::uintptr_t>(va_arg(argptr, void*));
+                        lo = static_cast<u32>(bits);
+                        hi = static_cast<u32>(bits >> 32);
+                        precision = 8;
+                        write_number(true);
+                    }
+                    else
+                    {
+                        load_integer();
+                        write_number((flags & kI64) != 0);
+                    }
+                    emit();
+                }
+                else if (ch == 'e' || ch == 'f' || ch == 'g')
+                {
+                    flags |= kSigned;
+                    char* buffer = stack_buf;
+                    int buf_size = 0x200;
+                    if (precision < 0)
+                    {
+                        precision = 6;
+                    }
+                    else if (precision == 0)
+                    {
+                        if (ch == 'g')
+                        {
+                            precision = 1;
+                        }
+                    }
+                    else
+                    {
+                        if (precision > 0x200)
+                        {
+                            precision = 0x200;
+                        }
+                        if (precision > 0xa3)
+                        {
+                            heap = static_cast<char*>(std::malloc(static_cast<std::size_t>(precision) + 0x15du));
+                            if (heap != nullptr)
+                            {
+                                buffer = heap;
+                                buf_size = precision + 0x15d;
+                            }
+                            else
+                            {
+                                precision = 0xa3;
+                            }
+                        }
+                    }
+                    narrow = buffer;
+                    wide_text = 0;
+                    const double value = va_arg(argptr, double);
+                    format_float(buffer, buf_size, static_cast<char>(ch), value);
+                    if ((flags & kAlt) != 0 && precision == 0)
+                    {
+                        if (g_cfltcvt_tab[3] == kFptrap)
+                        {
+                            std::exit(2);
+                        }
+                        force_decimal(buffer);
+                    }
+                    if (ch == 'g' && (flags & kAlt) == 0)
+                    {
+                        if (g_cfltcvt_tab[1] == kFptrap)
+                        {
+                            std::exit(2);
+                        }
+                        crop_zeros(buffer);
+                    }
+                    if (buffer[0] == '-')
+                    {
+                        flags |= kNeg;
+                        narrow = buffer + 1;
+                    }
+                    else
+                    {
+                        narrow = buffer;
+                    }
+                    text_len = counted_length(narrow);
+                    emit();
+                }
+                else if (ch == 'c' || ch == 'C')
+                {
+                    const int value = va_arg(argptr, int);
+                    const unsigned unit = static_cast<unsigned>(value) & 0xffffu;
+                    wide_text = 1;
+                    wide = wchar_buf;
+                    text_len = 1;
+                    if ((flags & kShort) == 0)
+                    {
+                        wchar_buf[0] = static_cast<char16_t>(unit);
+                    }
+                    else
+                    {
+                        char bytes[2];
+                        bytes[0] = static_cast<char>(unit);
+                        bytes[1] = 0;
+                        const int produced = mbtowc_unit(wchar_buf, bytes);
+                        if (produced < 0)
+                        {
+                            no_output = 1;
+                        }
+                    }
+                    emit();
+                }
+                else if (ch == 's' || ch == 'S')
+                {
+                    int limit = precision == -1 ? 0x7fffffff : precision;
+                    if ((flags & kShort) == 0)
+                    {
+                        char16_t* units = va_arg(argptr, char16_t*);
+                        if (units == nullptr)
+                        {
+                            units = const_cast<char16_t*>(kNullWide);
+                        }
+                        char16_t* start = units;
+                        while (limit != 0)
+                        {
+                            limit -= 1;
+                            if (*units == 0)
+                            {
+                                break;
+                            }
+                            units += 1;
+                        }
+                        wide = start;
+                        text_len = static_cast<int>(units - start);
+                        wide_text = 1;
+                    }
+                    else
+                    {
+                        char* str = va_arg(argptr, char*);
+                        if (str == nullptr)
+                        {
+                            str = const_cast<char*>(kNullText);
+                        }
+                        narrow = str;
+                        wide_text = 0;
+                        text_len = 0;
+                        if (limit > 0)
+                        {
+                            const unsigned char* cursor = reinterpret_cast<const unsigned char*>(str);
+                            while (text_len < limit)
+                            {
+                                const unsigned char byte = *cursor;
+                                if (byte == 0)
+                                {
+                                    break;
+                                }
+                                if ((g_crt_pctype[byte] & 0x8000u) != 0)
+                                {
+                                    cursor += 1;
+                                }
+                                cursor += 1;
+                                text_len += 1;
+                            }
+                        }
+                    }
+                    emit();
+                }
+                else if (ch == 'Z')
+                {
+                    const auto* block = static_cast<const char*>(va_arg(argptr, void*));
+                    const char* buffer = nullptr;
+                    if (block != nullptr)
+                    {
+                        std::memcpy(&buffer, block + 4, sizeof(buffer));
+                    }
+                    if (block == nullptr || buffer == nullptr)
+                    {
+                        narrow = kNullText;
+                        text_len = counted_length(narrow);
+                        wide_text = 0;
+                    }
+                    else
+                    {
+                        std::int16_t raw = 0;
+                        std::memcpy(&raw, block, sizeof(raw));
+                        text_len = raw;
+                        if ((flags & kWide) != 0)
+                        {
+                            text_len /= 2;
+                            wide = reinterpret_cast<const char16_t*>(buffer);
+                            wide_text = 1;
+                        }
+                        else
+                        {
+                            narrow = buffer;
+                            wide_text = 0;
+                        }
+                    }
+                    emit();
+                }
+                else if (ch == 'n')
+                {
+                    void* dest = va_arg(argptr, void*);
+                    if ((flags & kShort) != 0)
+                    {
+                        *static_cast<std::uint16_t*>(dest) = static_cast<std::uint16_t>(charsout);
+                    }
+                    else
+                    {
+                        *static_cast<int*>(dest) = charsout;
+                    }
+                    no_output = 1;
+                }
+                else
+                {
+                    emit();
+                }
+                if (heap != nullptr)
+                {
+                    fn_167f2e(heap);
+                    heap = nullptr;
+                }
+                break;
+            default:
+                break;
+            }
+        }
+
+        ch = *format;
+        if (ch == 0)
+        {
+            break;
+        }
+    }
+    return charsout;
+}
+
 int fn_16afdd()
 {
     // Xbox 0x0016AFDD

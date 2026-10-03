@@ -15765,6 +15765,33 @@ void fn_173900(D3dScreenDevice* device)
     }
 }
 
+void fn_177af0(float* out, const float* left, const float* right)
+{
+    // Xbox 0x00177AF0
+    // stdcall (ret 0xC). SSE 4x4 product, out = left * right, row-major.
+    // Output row r is left[r][0]*right.row0 + left[r][1]*right.row1
+    // + left[r][2]*right.row2 + left[r][3]*right.row3.
+    // D3D_UpdateProjectionViewportTransform (0x00171210) stores
+    // (device+0xc90) * viewport at device+0x970. The constant upload at
+    // 0x001797A0 calls the same product. Both matrices are read before
+    // the first store, so out may alias left or right.
+    float a[16];
+    float b[16];
+    std::memcpy(a, left, sizeof(a));
+    std::memcpy(b, right, sizeof(b));
+    for (int row = 0; row < 4; ++row)
+    {
+        const float x = a[row * 4 + 0];
+        const float y = a[row * 4 + 1];
+        const float z = a[row * 4 + 2];
+        const float w = a[row * 4 + 3];
+        out[row * 4 + 0] = x * b[0] + y * b[4] + z * b[8] + w * b[12];
+        out[row * 4 + 1] = x * b[1] + y * b[5] + z * b[9] + w * b[13];
+        out[row * 4 + 2] = x * b[2] + y * b[6] + z * b[10] + w * b[14];
+        out[row * 4 + 3] = x * b[3] + y * b[7] + z * b[11] + w * b[15];
+    }
+}
+
 } // namespace
 
 } // namespace gbtg

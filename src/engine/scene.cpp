@@ -7675,6 +7675,83 @@ int fn_15118e(const XapiAnsiString* name, u32 bytes_per_cluster)
 #endif
 }
 
+// 0x00549508. Bit 0 of XC_MISC (config value 0x11). The timer DPC at
+// 0x00151AA3 powers off only when this is nonzero.
+u32 g_xapi_auto_power_enabled = 0;
+// 0x0054950C. Set when XQueryValue of that config value fails.
+u32 g_xapi_auto_power_failed = 0;
+// KeSetTimer due time for the notification timer at 0x005494E0.
+std::int64_t g_xapi_auto_power_due = 0;
+// HalInitiateShutdown requested by the DPC. The host stays up.
+u32 g_xapi_auto_power_shutdown = 0;
+void (*g_xapi_auto_power_dpc)() = nullptr;
+
+void fn_151aa3()
+{
+    // Xbox 0x00151AA3
+    // KDPC for the auto power-down timer, stdcall, ret 0x10. The four
+    // arguments are unused. A nonzero dword at 0x00549508 calls
+    // HalInitiateShutdown (thunk 0x00203008, ordinal 360), which asks the
+    // SMC to power off. The port records that request and keeps running.
+    if (g_xapi_auto_power_enabled != 0)
+    {
+        g_xapi_auto_power_shutdown = 1;
+    }
+}
+
+void fn_151a88()
+{
+    // Xbox 0x00151A88
+    // XAutoPowerDownResetTimer. KeSetTimer (thunk 0x00203004, ordinal 149)
+    // on the timer at 0x005494E0, with the DPC at 0x005494C0. The due time
+    // immediate is 0xFFFFFFCDB5659000: a relative interval of 216000000000
+    // units of 100 nanoseconds, which is 6 hours. 0x0015059A builds that
+    // same two's-complement timeout from 21600000 milliseconds.
+    std::int64_t due = 0;
+    fn_15059a(&due, 6u * 60u * 60u * 1000u);
+    g_xapi_auto_power_due = due;
+}
+
+void fn_151ab5()
+{
+    // Xbox 0x00151AB5
+    // Called from 0x0015102E during XAPI startup, before the process heap.
+    // KeInitializeDpc (thunk 0x00202FAC, ordinal 107) binds 0x005494C0 to
+    // 0x00151AA3 with a null context. KeInitializeTimerEx (thunk 0x00202F48,
+    // ordinal 113) makes 0x005494E0 a notification timer (type 0). Both
+    // 0x00549508 and 0x0054950C are cleared.
+    // XboxHardwareInfo (thunk 0x00202FF0, ordinal 322) is one byte of flags.
+    // Bit 3 skips the config read. Retail leaves that bit clear, so
+    // XQueryValue (0x00150811) runs: ExQueryNonVolatileSetting (ordinal 24)
+    // for value 0x11 (XC_MISC), four bytes, then RtlNtStatusToDosError
+    // (ordinal 301). A zero DOS error stores the value masked with 1 into
+    // 0x00549508. Any other error stores 1 into 0x0054950C. 0x00151A88 then
+    // arms the six-hour timer. The host has no EEPROM, so the query fails
+    // and auto power-down stays off.
+    g_xapi_auto_power_dpc = &fn_151aa3;
+    g_xapi_auto_power_enabled = 0;
+    g_xapi_auto_power_failed = 0;
+
+    constexpr u32 kHardwareFlags = 0;
+    if ((kHardwareFlags & 8u) == 0u)
+    {
+        u32 misc = 0;
+        // No EEPROM image. ExQueryNonVolatileSetting does not succeed, and
+        // the DOS error from that status is nonzero (ERROR_NOT_SUPPORTED).
+        const int query_status = 50;
+        if (query_status == 0)
+        {
+            g_xapi_auto_power_enabled = misc & 1u;
+        }
+        else
+        {
+            g_xapi_auto_power_failed = 1;
+        }
+    }
+
+    fn_151a88();
+}
+
 int xapi_fs_ntstatus(const std::filesystem::path& opened, const std::error_code& ec)
 {
     constexpr int kNameNotFound = static_cast<int>(0xC0000034u);

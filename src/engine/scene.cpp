@@ -2486,6 +2486,180 @@ int fn_14aaed(const u16* src, int cch, u8* dst, int cb)
 // "the directory is already there".
 u32 g_xapi_last_error = 0;
 
+// DAT_0032CA50, indexed by the low byte of a UTF-16 unit. Bit 0x100000 is
+// uppercase, 0x80000 lowercase, 0x40000 a digit, 0x20000 a symbol. The high
+// bit marks everything else. '.' shares '-'s weight, 0x92 shares 0x91, and
+// 0xF6 shares 0xF5.
+u32 xapi_char_weight(u8 unit)
+{
+    if (unit == 0x2E)
+    {
+        return 0x0002002Du;
+    }
+    if (unit == 0x92)
+    {
+        return 0x80000091u;
+    }
+    if (unit == 0xF6)
+    {
+        return 0x000800F5u;
+    }
+    if (unit < 0x20 || (unit >= 0x7F && unit <= 0xA0))
+    {
+        return 0x80000000u | unit;
+    }
+    if (unit >= '0' && unit <= '9')
+    {
+        return 0x00040000u | unit;
+    }
+    if ((unit >= 'A' && unit <= 'Z') || (unit >= 0xC0 && unit <= 0xD6) || (unit >= 0xD8 && unit <= 0xDF))
+    {
+        return 0x00100000u | unit;
+    }
+    if ((unit >= 'a' && unit <= 'z') || (unit >= 0xE0 && unit <= 0xF5) || unit >= 0xF8)
+    {
+        return 0x00080000u | unit;
+    }
+    return 0x00020000u | unit;
+}
+
+int fn_14fb5b(u32 flags, const u16* left, int left_count, const u16* right, int right_count)
+{
+    // Xbox 0x0014FB5B
+    // Wide compare used by lstrcmpW (0x0014A91C) with flags 0 and counts -1.
+    // Bit 0 folds uppercase (weight bit 0x100000) to byte+0x20 with the
+    // lowercase bit. Bit 2 drops symbol weights (0x20000), one side at a time.
+    // Bit 0x1000 compares weight bit 0x10000 in the primary pass. With that
+    // bit clear, those units are skipped and the difference is resolved from
+    // DAT_0032CA20 when both sides end. A count of -1 walks to NUL. Running
+    // out of an explicit count before NUL returns 3 if the left count hits 0
+    // first and 1 if the right count does. A null pointer or a count below
+    // -1 stores last-error 0x57 and returns 0. 1, 2, and 3 are less, equal,
+    // and greater.
+    if (left == nullptr || right == nullptr || left_count < -1 || right_count < -1)
+    {
+        g_xapi_last_error = 0x57;
+        return 0;
+    }
+
+    const bool ignore_case = (flags & 1u) != 0;
+    const bool ignore_symbols = (flags & 4u) != 0;
+    const bool word_sort = (flags & 0x1000u) == 0;
+    // DAT_0032CA20. Index 0 is equal. 5 and 11 are greater; 7 and 10 are less.
+    static constexpr int kTie[12] = {2, 0, 0, 0, 0, 3, 0, 1, 0, 0, 1, 3};
+    u32 tie = 0;
+
+    for (;;)
+    {
+        if (left_count == 0 || right_count == 0)
+        {
+            if (left_count == 0 && right_count == 0)
+            {
+                return kTie[tie];
+            }
+            return left_count == 0 ? 3 : 1;
+        }
+
+        if (*left == 0)
+        {
+            if (*right != 0)
+            {
+                return 1;
+            }
+            return kTie[tie];
+        }
+        if (*right == 0)
+        {
+            return 3;
+        }
+
+        const u8 left_byte = static_cast<u8>(*left);
+        const u8 right_byte = static_cast<u8>(*right);
+        u32 left_w = xapi_char_weight(left_byte);
+        u32 right_w = xapi_char_weight(right_byte);
+
+        if (word_sort && (left_w & 0x10000u) != 0)
+        {
+            if ((right_w & 0x10000u) == 0)
+            {
+                if (tie == 0)
+                {
+                    tie = 4;
+                }
+                tie |= 1u;
+                ++left;
+                --left_count;
+                continue;
+            }
+            if (left_w < right_w)
+            {
+                tie = 7;
+            }
+            else if (right_w < left_w)
+            {
+                tie = 11;
+            }
+            ++left;
+            ++right;
+            --left_count;
+            --right_count;
+            continue;
+        }
+        if (word_sort && (right_w & 0x10000u) != 0)
+        {
+            if (tie == 0)
+            {
+                tie = 8;
+            }
+            tie |= 2u;
+            ++right;
+            --right_count;
+            continue;
+        }
+
+        if (ignore_symbols)
+        {
+            if ((left_w & 0x20000u) != 0)
+            {
+                ++left;
+                --left_count;
+                continue;
+            }
+            if ((right_w & 0x20000u) != 0)
+            {
+                ++right;
+                --right_count;
+                continue;
+            }
+        }
+
+        if (ignore_case)
+        {
+            if ((left_w & 0x100000u) != 0)
+            {
+                left_w = (static_cast<u32>(left_byte) + 0x20u) | 0x80000u;
+            }
+            if ((right_w & 0x100000u) != 0)
+            {
+                right_w = (static_cast<u32>(right_byte) + 0x20u) | 0x80000u;
+            }
+        }
+
+        if (left_w < right_w)
+        {
+            return 1;
+        }
+        if (right_w < left_w)
+        {
+            return 3;
+        }
+        ++left;
+        ++right;
+        --left_count;
+        --right_count;
+    }
+}
+
 bool fn_14d217(const char* path, const void* security)
 {
     // Xbox 0x0014D217

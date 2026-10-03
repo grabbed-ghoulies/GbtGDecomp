@@ -7,6 +7,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <intrin.h>
 
 #include <d3d11.h>
 #include <d3dcompiler.h>
@@ -2030,6 +2031,40 @@ u32 fn_1771a0(const D3dPushGetState* device, int wait)
         return device->put + 4u;
     }
     return get;
+}
+
+void fn_177220(volatile u32* mmio)
+{
+    // Xbox 0x00177220
+    // No arguments. Retail loads the device from DAT_00181E08 and the
+    // NV2A register base at device+0x1c18. That pointer is RegisterBase
+    // for AvSendTVEncoderOption (kernel ordinal 2) and AvSetDisplayMode
+    // (ordinal 3). The port takes the base. A null base would fault on
+    // Xbox; the port returns.
+    //
+    // sfence drains the CPU write-combining buffer. The dword at
+    // base+0x100410 is NV_PFB_WBC: PFB is the block at 0x100000 and the
+    // register itself is 0x410. ORing bit 16 requests NV_PFB_WBC_FLUSH.
+    // The memory controller clears that bit once the framebuffer write
+    // buffer has drained, and the function spins until the read says so.
+    //
+    // 0x00177450 calls this after writing NV097_WAIT_FOR_IDLE (method
+    // word 0x40110) and NV097_NO_OPERATION (0x40100) into the push
+    // buffer. 0x00177280 and 0x00177330 run the same poke before
+    // publishing PUT at notifier+0x40. 0x0017C158 and 0x0017C176 call
+    // it after the copy at 0x00176D60.
+    if (mmio == nullptr)
+    {
+        return;
+    }
+
+    _mm_sfence();
+    volatile u32* wbc = mmio + (0x100410u / 4u);
+    const u32 latched = *wbc | 0x10000u;
+    *wbc = latched;
+    while ((*wbc & 0x10000u) != 0u)
+    {
+    }
 }
 
 } // namespace gbtg

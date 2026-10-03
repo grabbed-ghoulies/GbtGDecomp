@@ -2535,6 +2535,79 @@ bool fn_14d217(const char* path, const void* security)
     }
     return false;
 }
+
+bool fn_14d283(const char* path)
+{
+    // Xbox 0x0014D283
+    // RemoveDirectoryA. RtlInitAnsiString, then NtOpenFile on
+    // ObDosDevicesDirectory (0xFFFFFFFD) with OBJ_CASE_INSENSITIVE,
+    // DELETE|SYNCHRONIZE, share read|write|delete, and
+    // FILE_DIRECTORY_FILE|FILE_SYNCHRONOUS_IO_NONALERT|FILE_OPEN_FOR_BACKUP_INTENT.
+    // Success writes FileDispositionInformation (delete) and NtClose. Failure
+    // stores the Win32 error: 145 when the directory is not empty, 267 when
+    // the path is not a directory, 2 when the name is missing, 3 when a parent
+    // is missing.
+    if (path == nullptr || path[0] == '\0')
+    {
+        g_xapi_last_error = 123;
+        return false;
+    }
+
+    std::error_code ec;
+    const std::filesystem::path fs_path(path);
+    if (std::filesystem::is_directory(fs_path, ec))
+    {
+        ec.clear();
+        if (std::filesystem::remove(fs_path, ec))
+        {
+            return true;
+        }
+    }
+    else if (!ec)
+    {
+        std::error_code exists_ec;
+        if (std::filesystem::exists(fs_path, exists_ec))
+        {
+            g_xapi_last_error = 267;
+            return false;
+        }
+    }
+
+    if (!ec || ec == std::errc::no_such_file_or_directory)
+    {
+        std::error_code parent_ec;
+        const auto parent = fs_path.parent_path();
+        if (!parent.empty() && !std::filesystem::exists(parent, parent_ec))
+        {
+            g_xapi_last_error = 3;
+        }
+        else
+        {
+            g_xapi_last_error = 2;
+        }
+    }
+    else if (ec == std::errc::directory_not_empty)
+    {
+        g_xapi_last_error = 145;
+    }
+    else if (ec == std::errc::permission_denied)
+    {
+        g_xapi_last_error = 5;
+    }
+    else if (ec == std::errc::invalid_argument)
+    {
+        g_xapi_last_error = 123;
+    }
+    else if (ec.value() != 0)
+    {
+        g_xapi_last_error = static_cast<u32>(ec.value());
+    }
+    else
+    {
+        g_xapi_last_error = 145;
+    }
+    return false;
+}
 } // namespace
 
 void load_scene_contents(Game& g, std::string_view name)

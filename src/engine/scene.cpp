@@ -3663,6 +3663,100 @@ int fn_16dea6(u32 fh)
     return result;
 }
 
+u32 fn_16dfb5(u32 unit, void* stream)
+{
+    // Xbox 0x0016DFB5
+    // _fputwc_nolock. cdecl. The only caller is write_char in _woutput
+    // (0x001698B6): it pushes the FILE and the unit, then compares AX with
+    // 0xFFFF. A match stores -1 in the character count. Anything else
+    // increments that count. A string whose base is null never reaches here.
+    //
+    // The host FILE matches _woutput: ptr, cnt, base, flag, then the
+    // descriptor. The low flag byte is tested for _IOSTRG (0x40). A string
+    // stream skips the text check. Any other stream reads osfile. A
+    // descriptor of -1 uses the dummy ioinfo at 0x00338250, whose image
+    // bytes are osfhnd -1, osfile 0x80, and pipech 10. Any other descriptor
+    // is __pioinfo[fd >> 5] at 0x0054DC60, slot (fd & 0x1F), stride 0x28,
+    // osfile at +4. Bit 0x80 is FTEXT. A null __pioinfo slot is left with a
+    // clear osfile; retail would fault on that address.
+    //
+    // FTEXT calls wctomb (0x0016DF8A) with an 8-byte buffer. That callee
+    // reads the low 16 bits. A unit above 0xFF stores EILSEQ (0x2A) through
+    // _errno (0x00168AF5) and returns -1; this function stores 0x2A again
+    // and returns WEOF. A unit that fits is one byte. cnt drops by 1. A
+    // negative cnt is _flsbuf (0x00168E46): a string stream, or a stream
+    // that is not open for write, sets _IOERR (flag 0x20) and returns EOF.
+    // The low half of that EOF is WEOF, which is what write_char tests.
+    // The text path then returns the unit masked to 16 bits.
+    //
+    // A string stream, or a stream whose osfile lacks FTEXT, drops cnt by 2
+    // and stores the low 16 bits at ptr. A negative cnt is _flswbuf
+    // (0x0016F2F1), which sets _IOERR and returns WEOF for a string stream
+    // and for a stream that is not open for write. The port has no file
+    // flush, so a full buffer takes that same WEOF. A store that fits
+    // returns the original unit.
+
+    struct StreamFile
+    {
+        char* ptr;
+        int cnt;
+        char* base;
+        int flag;
+        int file;
+        int charbuf;
+        int bufsiz;
+        char* tmpfname;
+    };
+
+    auto* file = static_cast<StreamFile*>(stream);
+    if ((static_cast<unsigned char>(file->flag) & 0x40) == 0)
+    {
+        u8 osfile = 0;
+        if (file->file == -1)
+        {
+            osfile = 0x80;
+        }
+        else
+        {
+            CrtIoInfo* info = crt_ioinfo_checked(static_cast<u32>(file->file));
+            if (info != nullptr)
+            {
+                osfile = info->osfile;
+            }
+        }
+        if ((osfile & 0x80) != 0)
+        {
+            const u16 wc = static_cast<u16>(unit);
+            if (wc > 0xffu)
+            {
+                *fn_168af5() = 0x2a;
+                return 0xffffu;
+            }
+
+            file->cnt -= 1;
+            if (file->cnt < 0)
+            {
+                file->flag |= 0x20;
+                return 0xffffu;
+            }
+            *file->ptr = static_cast<char>(wc);
+            file->ptr += 1;
+            return unit & 0xffffu;
+        }
+    }
+
+    file->cnt -= 2;
+    if (file->cnt < 0)
+    {
+        file->flag |= 0x20;
+        return 0xffffu;
+    }
+    const auto wide = static_cast<std::uint16_t>(unit);
+    std::memcpy(file->ptr, &wide, sizeof(wide));
+    file->ptr += 2;
+    return unit;
+}
+
 void fn_168e08(int index)
 {
     // Xbox 0x00168E08
@@ -5088,53 +5182,9 @@ int fn_16993d(void* stream, const char16_t* format, std::va_list argptr)
             return;
         }
 
-        auto fail = [&]()
+        if ((fn_16dfb5(code, out) & 0xffffu) == 0xffffu)
         {
             charsout = -1;
-        };
-
-        if ((out->flag & 0x40) == 0)
-        {
-            char bytes[8];
-            const int produced = wctomb_byte(bytes, static_cast<int>(code));
-            if (produced < 0)
-            {
-                fail();
-                return;
-            }
-            for (int i = 0; i < produced; i += 1)
-            {
-                out->cnt -= 1;
-                if (out->cnt < 0)
-                {
-                    out->flag |= 0x20;
-                    fail();
-                    return;
-                }
-                *out->ptr = bytes[i];
-                out->ptr += 1;
-            }
-            if (code == 0xffffu)
-            {
-                fail();
-                return;
-            }
-            charsout += 1;
-            return;
-        }
-
-        out->cnt -= 2;
-        if (out->cnt < 0)
-        {
-            out->flag |= 0x20;
-            fail();
-            return;
-        }
-        std::memcpy(out->ptr, &code, sizeof(code));
-        out->ptr += static_cast<int>(sizeof(code));
-        if (code == 0xffffu)
-        {
-            fail();
             return;
         }
         charsout += 1;

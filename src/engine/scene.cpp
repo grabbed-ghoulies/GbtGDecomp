@@ -2519,6 +2519,10 @@ const u16* g_crt_pctype = kCrtCtype;
 // single-byte path. A signed compare greater than 1 uses _isctype.
 int g_crt_mb_cur_max = 1;
 
+// Xbox 0x0033818C. C-locale decimal point. The image byte is '.'. _winput
+// widens it with mbtowc (0x0016E07A).
+char g_crt_decimal_point = '.';
+
 // Xbox 0x0020998A. C-locale _pwctype words for units 0..255. The low byte
 // uses the same bits as _pctype. Units 0x80..0xFF are classified here; the
 // narrow table leaves those words zero. 0x09..0x0D, 0x20, and 0xA0 have
@@ -5233,6 +5237,40 @@ u32 fn_16dfb5(u32 unit, void* stream)
     return unit;
 }
 
+int fn_16e07a(char16_t* dest, const char* src, int count)
+{
+    // Xbox 0x0016E07A
+    // mbtowc. cdecl; the caller pops the three arguments. This body is the
+    // single-byte form. A null source or a zero count returns 0 and leaves
+    // the destination alone. A zero byte stores 0 when the destination is
+    // non-null and returns 0. Any other byte is zero-extended into that
+    // word and returns 1. A null destination skips the store and still
+    // returns 1 for a nonzero byte. The count is tested only against zero,
+    // so a lead-byte caller that passes 2 still converts one byte. The
+    // return is 0 or 1.
+    //
+    // _woutput (0x0016993D) passes __mb_cur_max. 0x00169C84 widens the %hc
+    // byte, and 0x0016A068 walks narrow text one byte at a time. _winput
+    // (0x0016A17C) at 0x0016A4E1 widens the decimal byte at 0x0033818C.
+    if (src != nullptr && count != 0)
+    {
+        const unsigned char byte = static_cast<unsigned char>(*src);
+        if (byte != 0)
+        {
+            if (dest != nullptr)
+            {
+                *dest = static_cast<char16_t>(byte);
+            }
+            return 1;
+        }
+        if (dest != nullptr)
+        {
+            *dest = 0;
+        }
+    }
+    return 0;
+}
+
 void fn_168e08(int index)
 {
     // Xbox 0x00168E08
@@ -6627,28 +6665,6 @@ int fn_16993d(void* stream, const char16_t* format, std::va_list argptr)
         return -1;
     };
 
-    auto mbtowc_unit = [&](char16_t* dest, const char* src) -> int
-    {
-        if (src == nullptr || g_crt_mb_cur_max == 0)
-        {
-            return 0;
-        }
-        const unsigned char byte = static_cast<unsigned char>(*src);
-        if (byte == 0)
-        {
-            if (dest != nullptr)
-            {
-                *dest = 0;
-            }
-            return 0;
-        }
-        if (dest != nullptr)
-        {
-            *dest = static_cast<char16_t>(byte);
-        }
-        return 1;
-    };
-
     auto write_wchar = [&](unsigned unit)
     {
         const auto code = static_cast<std::uint16_t>(unit);
@@ -7039,7 +7055,7 @@ int fn_16993d(void* stream, const char16_t* format, std::va_list argptr)
             {
                 left -= 1;
                 char16_t unit = 0;
-                const int produced = mbtowc_unit(&unit, bytes);
+                const int produced = fn_16e07a(&unit, bytes, g_crt_mb_cur_max);
                 if (produced < 1)
                 {
                     break;
@@ -7348,7 +7364,7 @@ int fn_16993d(void* stream, const char16_t* format, std::va_list argptr)
                         char bytes[2];
                         bytes[0] = static_cast<char>(unit);
                         bytes[1] = 0;
-                        const int produced = mbtowc_unit(wchar_buf, bytes);
+                        const int produced = fn_16e07a(wchar_buf, bytes, g_crt_mb_cur_max);
                         if (produced < 0)
                         {
                             no_output = 1;
@@ -8112,10 +8128,7 @@ int fn_16a17c(void* stream, const char16_t* format, std::va_list argptr)
             };
             take_digits();
             char16_t decimal = 0;
-            if (g_crt_mb_cur_max != 0)
-            {
-                decimal = '.';
-            }
+            fn_16e07a(&decimal, &g_crt_decimal_point, g_crt_mb_cur_max);
             if (ch == static_cast<unsigned>(decimal))
             {
                 const int before = width;

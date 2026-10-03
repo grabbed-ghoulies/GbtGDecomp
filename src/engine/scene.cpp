@@ -4574,11 +4574,128 @@ void heap_unlink_free(u32 heap_addr, u32 entry)
     }
 }
 
+// 0x0014D717 paints a free block whose flags include 0x04 with 0xFEEEFEEE
+// from entry+0x18. Flag 0x02 shortens that run by four bytes.
+void heap_paint_free(u32 entry)
+{
+    const u8 flags = heap_at(entry)[5];
+    if ((flags & 4u) == 0)
+    {
+        return;
+    }
+    const u32 block_bytes = static_cast<u32>(heap_get_u16(entry)) << 4;
+    if (block_bytes <= 0x18u)
+    {
+        return;
+    }
+    u32 bytes = block_bytes - 0x18u;
+    if ((flags & 2u) != 0 && bytes > 4u)
+    {
+        bytes -= 4u;
+    }
+    u32 at = entry + 0x18u;
+    const u32 end = at + (bytes & ~3u);
+    while (at < end)
+    {
+        heap_set_u32(at, 0xfeeefeeeu);
+        at += 4u;
+    }
+}
+
+// Unlink a free entry, paint it when flag 0x04 is set, and drop its size
+// from heap+0x30.
+void heap_detach_free(u32 heap_addr, u32 entry)
+{
+    const u16 units = heap_get_u16(entry);
+    heap_paint_free(entry);
+    heap_unlink_free(heap_addr, entry);
+    heap_set_u32(heap_addr + 0x30u, heap_get_u32(heap_addr + 0x30u) - units);
+}
+
+// 0x0014D717. Absorb adjacent free entries into `entry` while the combined
+// size stays at or below 0xff00 granules. `*units_io` is the running size.
+// `remove` unlinks `entry` itself first; RtlFreeHeap passes false because
+// the block is still busy. The returned entry may sit in front of the
+// original. Flag 0x10 is the only flag kept, and it updates segment+0x40.
+u32 heap_coalesce(u32 heap_addr, u32 entry, u32* units_io, bool remove)
+{
+    u32 units = *units_io;
+    const u32 prev_bytes = static_cast<u32>(heap_get_u16(entry + 2u)) << 4;
+    const u32 prev = entry - prev_bytes;
+    if (prev != entry && (heap_at(prev)[5] & 1u) == 0)
+    {
+        const u32 combined = static_cast<u32>(heap_get_u16(prev)) + units;
+        if (combined <= 0xff00u)
+        {
+            if (remove)
+            {
+                heap_detach_free(heap_addr, entry);
+                remove = false;
+            }
+            const u8 last = static_cast<u8>(heap_at(entry)[5] & 0x10u);
+            const u16 prev_units = heap_get_u16(prev);
+            heap_detach_free(heap_addr, prev);
+            heap_at(prev)[5] = last;
+            if ((last & 0x10u) != 0)
+            {
+                const u32 segment = heap_get_u32(heap_addr + static_cast<u32>(heap_at(prev)[4]) * 4u + 0x60u);
+                if (segment != 0)
+                {
+                    heap_set_u32(segment + 0x40u, prev);
+                }
+            }
+            units += prev_units;
+            *units_io = units;
+            heap_set_u16(prev, static_cast<u16>(units));
+            if ((heap_at(prev)[5] & 0x10u) == 0)
+            {
+                heap_set_u16(prev + (units << 4) + 2u, static_cast<u16>(units));
+            }
+            entry = prev;
+        }
+    }
+
+    if ((heap_at(entry)[5] & 0x10u) == 0)
+    {
+        const u32 next = entry + (units << 4);
+        if ((heap_at(next)[5] & 1u) == 0)
+        {
+            const u32 combined = static_cast<u32>(heap_get_u16(next)) + units;
+            if (combined <= 0xff00u)
+            {
+                if (remove)
+                {
+                    heap_detach_free(heap_addr, entry);
+                }
+                const u8 last = static_cast<u8>(heap_at(next)[5] & 0x10u);
+                const u16 next_units = heap_get_u16(next);
+                heap_at(entry)[5] = last;
+                if ((last & 0x10u) != 0)
+                {
+                    const u32 segment = heap_get_u32(heap_addr + static_cast<u32>(heap_at(entry)[4]) * 4u + 0x60u);
+                    if (segment != 0)
+                    {
+                        heap_set_u32(segment + 0x40u, entry);
+                    }
+                }
+                heap_detach_free(heap_addr, next);
+                units += next_units;
+                *units_io = units;
+                heap_set_u16(entry, static_cast<u16>(units));
+                if ((heap_at(entry)[5] & 0x10u) == 0)
+                {
+                    heap_set_u16(entry + (units << 4) + 2u, static_cast<u16>(units));
+                }
+            }
+        }
+    }
+    return entry;
+}
+
 // Insert a free entry that already has its size, flags, and segment index.
 // Sizes below 0x80 use the dedicated list and set the bitmap when the list
-// was empty. Larger sizes walk heap+0x180 in ascending order. heap+0x30
-// gains the size.
-void heap_link_free_entry(u32 heap_addr, u32 entry)
+// was empty. Larger sizes walk heap+0x180 in ascending order.
+void heap_insert_free(u32 heap_addr, u32 entry)
 {
     const u16 units = heap_get_u16(entry);
     u32 before = 0;
@@ -4610,6 +4727,13 @@ void heap_link_free_entry(u32 heap_addr, u32 entry)
     heap_set_u32(entry + 0xcu, blink);
     heap_set_u32(blink, entry + 8u);
     heap_set_u32(before + 4u, entry + 8u);
+}
+
+// heap_insert_free, then heap+0x30 gains the entry size.
+void heap_link_free_entry(u32 heap_addr, u32 entry)
+{
+    heap_insert_free(heap_addr, entry);
+    const u16 units = heap_get_u16(entry);
     heap_set_u32(heap_addr + 0x30u, heap_get_u32(heap_addr + 0x30u) + units);
 }
 
@@ -4621,6 +4745,251 @@ void heap_release_uc_node(u32 segment, u32 node)
     heap_set_u32(heap_addr + 0x4cu, node);
     heap_set_u32(node + 4u, 0);
     heap_set_u32(node + 8u, 0);
+}
+
+// 0x0014D3B8. Pop an uncommitted-range node for `segment`. An empty list at
+// heap+0x4c commits another page of the zone at heap+0x48, or reserves a
+// fresh 64KB zone and commits its first page. Descriptors are 0x10 bytes
+// and start at zone+0x10.
+u32 heap_ucr_pop(HeapVm vm, u32 segment)
+{
+    const u32 heap_addr = heap_get_u32(segment + 0x18u);
+    if (heap_get_u32(heap_addr + 0x4cu) == 0)
+    {
+        u32 zone = heap_get_u32(heap_addr + 0x48u);
+        u32 desc = 0;
+        if (zone != 0 && heap_get_u32(zone + 8u) != heap_get_u32(zone + 4u))
+        {
+            const u32 addr = zone + heap_get_u32(zone + 8u);
+            if (vm.alloc == nullptr || vm.alloc(heap_at(addr), 0x1000u, 0x1000u, 4u) == nullptr)
+            {
+                return 0;
+            }
+            heap_set_u32(zone + 8u, heap_get_u32(zone + 8u) + 0x1000u);
+            desc = addr;
+        }
+        else
+        {
+            void* reserved = heap_reserve(vm, 0x10000u);
+            if (reserved == nullptr)
+            {
+                return 0;
+            }
+            zone = static_cast<u32>(reinterpret_cast<std::uintptr_t>(reserved));
+            if (vm.alloc == nullptr || vm.alloc(heap_at(zone), 0x1000u, 0x1000u, 4u) == nullptr)
+            {
+                if (vm.free != nullptr)
+                {
+                    vm.free(heap_at(zone), 0, 0x8000u);
+                }
+                return 0;
+            }
+            heap_set_u32(zone, heap_get_u32(heap_addr + 0x48u));
+            heap_set_u32(heap_addr + 0x48u, zone);
+            heap_set_u32(zone + 4u, 0x10000u);
+            heap_set_u32(zone + 8u, 0x1000u);
+            desc = zone + 0x10u;
+        }
+        const u32 end = zone + heap_get_u32(zone + 8u);
+        u32 tail = heap_addr + 0x4cu;
+        for (; desc < end; desc += 0x10u)
+        {
+            heap_set_u32(tail, desc);
+            tail = desc;
+        }
+        heap_set_u32(tail, 0);
+    }
+    const u32 node = heap_get_u32(heap_addr + 0x4cu);
+    if (node == 0)
+    {
+        return 0;
+    }
+    heap_set_u32(heap_addr + 0x4cu, heap_get_u32(node));
+    return node;
+}
+
+// 0x0014D4F9. Record `size` bytes of uncommitted memory at `address` on
+// segment+0x38, coalescing with a neighbor that touches either edge.
+// segment+0x34 counts the nodes. segment+0x1c tracks the largest run.
+void heap_insert_ucr(HeapVm vm, u32 segment, u32 address, u32 size)
+{
+    u32 slot = segment + 0x38u;
+    for (;;)
+    {
+        const u32 node = heap_get_u32(slot);
+        if (node == 0)
+        {
+            break;
+        }
+        const u32 node_at = heap_get_u32(node + 4u);
+        if (node_at > address)
+        {
+            if (address + size == node_at)
+            {
+                const u32 grown = heap_get_u32(node + 8u) + size;
+                heap_set_u32(node + 8u, grown);
+                heap_set_u32(node + 4u, address);
+                if (grown > heap_get_u32(segment + 0x1cu))
+                {
+                    heap_set_u32(segment + 0x1cu, grown);
+                }
+                return;
+            }
+            break;
+        }
+        const u32 node_end = node_at + heap_get_u32(node + 8u);
+        if (node_end == address)
+        {
+            size += heap_get_u32(node + 8u);
+            address = node_at;
+            heap_set_u32(slot, heap_get_u32(node));
+            heap_release_uc_node(segment, node);
+            heap_set_u32(segment + 0x34u, heap_get_u32(segment + 0x34u) - 1u);
+            if (size > heap_get_u32(segment + 0x1cu))
+            {
+                heap_set_u32(segment + 0x1cu, size);
+            }
+            continue;
+        }
+        slot = node;
+    }
+
+    const u32 fresh = heap_ucr_pop(vm, segment);
+    if (fresh == 0)
+    {
+        return;
+    }
+    heap_set_u32(fresh + 4u, address);
+    heap_set_u32(fresh + 8u, size);
+    heap_set_u32(fresh, heap_get_u32(slot));
+    heap_set_u32(slot, fresh);
+    heap_set_u32(segment + 0x34u, heap_get_u32(segment + 0x34u) + 1u);
+    if (size >= heap_get_u32(segment + 0x1cu))
+    {
+        heap_set_u32(segment + 0x1cu, size);
+    }
+}
+
+// 0x0014E1A4. Decommit the page-aligned middle of a free run. A one-granule
+// edge keeps the whole page (0x101 granules). A commit routine at heap+0x584
+// skips the decommit and returns the run through 0x0014D9BC, as does a
+// failed release. The committed prefix and suffix go back on the free lists.
+// Prefix sizes are already counted in heap+0x30; suffix sizes are counted
+// by the list insert.
+void heap_decommit(HeapVm vm, u32 heap_addr, u32 entry, u32 units)
+{
+    if (heap_get_u32(heap_addr + 0x584u) != 0)
+    {
+        heap_add_free(heap_addr, entry, units);
+        return;
+    }
+
+    u32 behind = 0;
+    const u32 segment = heap_get_u32(heap_addr + static_cast<u32>(heap_at(entry)[4]) * 4u + 0x60u);
+    if (segment == 0)
+    {
+        heap_add_free(heap_addr, entry, units);
+        return;
+    }
+    u32 page_start = (entry + 0xfffu) & ~0xfffu;
+    u32 prefix = (page_start - entry) >> 4;
+    if (static_cast<u16>(prefix) == 1u)
+    {
+        page_start += 0x1000u;
+        prefix = 0x101u;
+    }
+    else
+    {
+        const u16 prev_units = heap_get_u16(entry + 2u);
+        if (prev_units != 0 && page_start == entry)
+        {
+            behind = entry - (static_cast<u32>(prev_units) << 4);
+        }
+    }
+
+    const u32 block_end = entry + (units << 4);
+    u32 page_end = block_end & ~0xfffu;
+    u32 suffix = (block_end - page_end) >> 4;
+    u32 follower = 0;
+    if (static_cast<u16>(suffix) == 1u)
+    {
+        page_end -= 0x1000u;
+        suffix = 0x101u;
+    }
+    else if (static_cast<u16>(suffix) == 0 && (heap_at(entry)[5] & 0x10u) == 0)
+    {
+        follower = block_end;
+    }
+
+    const u32 suffix_units = static_cast<u32>(static_cast<u16>(suffix));
+    const u32 suffix_bytes = suffix_units << 4;
+    const u32 suffix_at = block_end - suffix_bytes;
+    u32 hole = 0;
+    if (page_end > page_start)
+    {
+        hole = page_end - page_start;
+    }
+    if (hole == 0 || vm.free == nullptr)
+    {
+        heap_add_free(heap_addr, entry, units);
+        return;
+    }
+
+    const u32 node = heap_ucr_pop(vm, segment);
+    if (node == 0)
+    {
+        heap_add_free(heap_addr, entry, units);
+        return;
+    }
+    const int released = vm.free(heap_at(page_start), hole, 0x4000u);
+    heap_release_uc_node(segment, node);
+    if (released == 0)
+    {
+        heap_add_free(heap_addr, entry, units);
+        return;
+    }
+
+    heap_insert_ucr(vm, segment, page_start, hole);
+    heap_set_u32(segment + 0x30u, heap_get_u32(segment + 0x30u) + (hole >> 12));
+
+    if (static_cast<u16>(prefix) != 0)
+    {
+        const u32 prefix_units = static_cast<u32>(static_cast<u16>(prefix));
+        heap_at(entry)[5] = 0x10;
+        heap_set_u16(entry, static_cast<u16>(prefix));
+        heap_set_u32(heap_addr + 0x30u, heap_get_u32(heap_addr + 0x30u) + prefix_units);
+        heap_set_u32(segment + 0x40u, entry);
+        heap_at(entry)[5] = static_cast<u8>(heap_at(entry)[5] & 0xf8u);
+        heap_insert_free(heap_addr, entry);
+    }
+    else if (behind != 0)
+    {
+        heap_at(behind)[5] = static_cast<u8>(heap_at(behind)[5] | 0x10u);
+        heap_set_u32(segment + 0x40u, behind);
+    }
+    else
+    {
+        const u32 last = heap_get_u32(segment + 0x40u);
+        if (last >= page_start && last < page_start + hole)
+        {
+            heap_set_u32(segment + 0x40u, heap_get_u32(segment + 0x28u));
+        }
+    }
+
+    if (static_cast<u16>(suffix) != 0)
+    {
+        heap_set_u16(suffix_at + 2u, 0);
+        heap_at(suffix_at)[4] = heap_at(segment)[4];
+        heap_at(suffix_at)[5] = 0;
+        heap_set_u16(suffix_at, static_cast<u16>(suffix));
+        heap_set_u16(suffix_at + suffix_bytes + 2u, static_cast<u16>(suffix));
+        heap_at(suffix_at)[5] = static_cast<u8>(heap_at(suffix_at)[5] & 0xf8u);
+        heap_link_free_entry(heap_addr, suffix_at);
+    }
+    else if (follower != 0)
+    {
+        heap_set_u16(follower + 2u, 0);
+    }
 }
 
 void* heap_reserve_hint(HeapVm vm, u32 bytes, bool top_down)
@@ -5588,6 +5957,92 @@ void* fn_14e872(void* heap, u32 flags, u32 size)
         RaiseException(0xC0000017u, 0, 1, &info);
     }
     return nullptr;
+#endif
+}
+
+bool fn_14efed(void* heap, u32 flags, void* block)
+{
+    // Xbox 0x0014EFED
+    // RtlFreeHeap. A null block returns true. The force-flags at heap+0x18
+    // are OR'd into the caller's flags for the lock test. HEAP_NO_SERIALIZE
+    // skips the lock at heap+0x580. The header is the user pointer minus
+    // 0x10. Flag bit 3 is a virtual allocation: unlink the node at user-0x30
+    // from heap+0x58, drop the lock, and MEM_RELEASE the region. Any other
+    // block is coalesced with free neighbors by 0x0014D717 (the block is
+    // still busy, so the remove flag is 0). Sizes below 0x80 join that
+    // dedicated list and set the bitmap at heap+0x160. Larger sizes join
+    // the ordered list at heap+0x180 when the size is below heap+0x28 or
+    // the free total plus this size stays below heap+0x2c. Sizes above
+    // 0xff00 go through 0x0014D9BC. Anything else is decommitted by
+    // 0x0014E1A4. 0x0014F1CE drops the lock on the way out. The
+    // fs:[0x20]+0x250 free notify is absent here. The port keeps addresses
+    // in the low 4GB and uses a host mutex in place of the Xbox critical
+    // section.
+#if !defined(_WIN32)
+    (void)heap;
+    (void)flags;
+    return block == nullptr;
+#else
+    if (block == nullptr)
+    {
+        return true;
+    }
+    if (heap == nullptr || reinterpret_cast<std::uintptr_t>(heap) > 0xffffffffu ||
+        reinterpret_cast<std::uintptr_t>(block) > 0xffffffffu)
+    {
+        return false;
+    }
+
+    const u32 heap_addr = static_cast<u32>(reinterpret_cast<std::uintptr_t>(heap));
+    const u32 user = static_cast<u32>(reinterpret_cast<std::uintptr_t>(block));
+    flags |= heap_get_u32(heap_addr + 0x18u);
+    HeapSerialize lock(heap_addr, flags);
+
+    const u32 header = user - 0x10u;
+    if ((heap_at(header)[5] & 8u) != 0)
+    {
+        const u32 base = header - 0x20u;
+        const u32 flink = heap_get_u32(base);
+        const u32 blink = heap_get_u32(base + 4u);
+        heap_set_u32(blink, flink);
+        heap_set_u32(flink + 4u, blink);
+        lock.unlock();
+        HeapVm vm = heap_vm();
+        if (vm.free == nullptr || vm.free(heap_at(base), 0, 0x8000u) == 0)
+        {
+            return false;
+        }
+        return true;
+    }
+
+    HeapVm vm = heap_vm();
+    u32 units = heap_get_u16(header);
+    const u32 entry = heap_coalesce(heap_addr, header, &units, false);
+    if (units < 0x80u)
+    {
+        heap_at(entry)[5] = static_cast<u8>(heap_at(entry)[5] & 0x10u);
+        heap_set_u16(entry, static_cast<u16>(units));
+        heap_link_free_entry(heap_addr, entry);
+    }
+    else if (units < heap_get_u32(heap_addr + 0x28u) ||
+             heap_get_u32(heap_addr + 0x30u) + units < heap_get_u32(heap_addr + 0x2cu))
+    {
+        if (units <= 0xff00u)
+        {
+            heap_at(entry)[5] = static_cast<u8>(heap_at(entry)[5] & 0x10u);
+            heap_set_u16(entry, static_cast<u16>(units));
+            heap_link_free_entry(heap_addr, entry);
+        }
+        else
+        {
+            heap_add_free(heap_addr, entry, units);
+        }
+    }
+    else
+    {
+        heap_decommit(vm, heap_addr, entry, units);
+    }
+    return true;
 #endif
 }
 

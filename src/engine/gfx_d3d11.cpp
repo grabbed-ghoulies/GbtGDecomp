@@ -2086,4 +2086,79 @@ int fn_1782c0(float value)
     return _mm_cvttss_si32(_mm_set_ss(value));
 }
 
+// Xbox 0x001799A0
+// Deferred commit used by CDevice_SetStateVB (0x00179A20) and D3DDevice_Begin
+// (0x00172D10). The device argument is D3D_g_pDevice (DAT_00181E08); the
+// shadow it reads is g. DAT_00181968 is g.rs_dirty.
+//
+// Bits are tested in this order. Only 0x0017DBD0 replaces the flag word the
+// later tests see:
+//   0x100     D3D_LazySetPointParams (0x001783E0), point scale DAT_00181D40
+//   0x800     0x0017DBD0(device, flags)
+//   0x4000    0x00178550(device)
+//   0xF       0x001788D0(device, flags), one bit per texture stage
+//   0x2000    0x00178AC0(device), including rs_state_60 at DAT_00181CF0
+//   0x400     0x00178CA0(device)
+//   0xFF1000  0x00179450(device, flags), reads rs_state_66
+//   0x200     0x001797A0(device, flags), reads rs_state_66
+//
+// 0x0017DBD0 returns the flags unchanged when device+0x780 is set. Otherwise
+// a combiner stage whose colour op is 25 or 26 (D3DTOP_MULTIPLYADD /
+// D3DTOP_LERP) sets device+8 bit 0x10000, and the return ORs 0x400F. Colour
+// op 1 (D3DTOP_DISABLE) ends the walk before the following stages. 0x400F is
+// outside the mask stored below, so it only pulls the 0x4000 and stage
+// commits into this same pass. The port has no pixel-shader handle at
+// device+0x780, so the walk runs.
+//
+// Bits 0x10, 0x20, 0x40, 0x40000000 and 0x80000000 stay dirty.
+void fn_1799a0()
+{
+    u32 flags = g.rs_dirty;
+    if ((flags & 0x100u) != 0u)
+    {
+        // 0x001783E0 writes the point-sprite constants. No draw reads them yet.
+    }
+    if ((flags & 0x800u) != 0u)
+    {
+        for (int stage = 0; stage < 4; ++stage)
+        {
+            const int op = g.stages[stage].color_op;
+            if (stage > 0 && op == 1)
+            {
+                break;
+            }
+            if (op == 25 || op == 26)
+            {
+                flags |= 0x400fu;
+                break;
+            }
+        }
+    }
+    if ((flags & 0x4000u) != 0u)
+    {
+        // 0x00178550. Skipped on Xbox when device+0x780 is set.
+    }
+    if ((flags & 0xfu) != 0u)
+    {
+        // 0x001788D0 packs stages at DAT_00181970, stride 0x80.
+    }
+    if ((flags & 0x2000u) != 0u)
+    {
+        // 0x00178AC0.
+    }
+    if ((flags & 0x400u) != 0u)
+    {
+        // 0x00178CA0.
+    }
+    if ((flags & 0xff1000u) != 0u)
+    {
+        // 0x00179450.
+    }
+    if ((flags & 0x200u) != 0u)
+    {
+        // 0x001797A0.
+    }
+    g.rs_dirty = flags & 0xc0000070u;
+}
+
 } // namespace gbtg

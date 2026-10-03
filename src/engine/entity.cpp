@@ -1327,6 +1327,84 @@ float fn_1534c0(float value)
     return y;
 }
 
+namespace
+{
+
+constexpr int kPadBitPorts = 4;
+constexpr int kPadBitCount = 32;
+
+// DAT_00434288. 0x00155470 copies DAT_0032B0F8 (1) before the first poll.
+float g_pad_hold_delay = 1.f;
+
+// DAT_00434290. 0x00155470 stores 0. The repeat timer pulses at this level.
+float g_pad_repeat_gate = 0.f;
+
+// One port of the 0x13c packet. hold[32] is +0x14. repeat[32] is +0x94.
+struct PadBitPort
+{
+    u32 down = 0;      // +0x00 DAT_00434298
+    u32 down_prev = 0; // +0x04 DAT_0043429C
+    u32 pulse = 0;     // +0x10 DAT_004342A8
+    float hold[kPadBitCount]{};
+    float repeat[kPadBitCount]{};
+};
+
+PadBitPort g_pad_bits[kPadBitPorts];
+
+} // namespace
+
+void fn_154ba0(float dt)
+{
+    // Xbox 0x00154BA0
+    // 0x001555B0 calls this after it has written each port's button word.
+    // A clear bit stores 0 in that hold timer and clears the pulse bit. A set
+    // bit adds dt to the hold timer. While the hold is still under
+    // DAT_00434288 the pulse bit stays as it was. The frame the hold reaches
+    // that delay sets the pulse bit and stores 0 in the repeat timer. After
+    // that, each call adds dt to the repeat timer. Under DAT_00434290 the
+    // pulse bit clears. At that gate the pulse bit sets and the repeat timer
+    // subtracts DAT_00434288. The button word is then copied to +0x04. A clear
+    // bit leaves its repeat timer unchanged.
+    const float delay = g_pad_hold_delay;
+    const float gate = g_pad_repeat_gate;
+    for (PadBitPort& port : g_pad_bits)
+    {
+        for (int bit_index = 0; bit_index < kPadBitCount; ++bit_index)
+        {
+            const u32 bit = 1u << bit_index;
+            if ((port.down & bit) == 0)
+            {
+                port.hold[bit_index] = 0.f;
+                port.pulse &= ~bit;
+                continue;
+            }
+            const float previous = port.hold[bit_index];
+            const float held = previous + dt;
+            port.hold[bit_index] = held;
+            if (held < delay)
+            {
+                continue;
+            }
+            if (previous < delay)
+            {
+                port.pulse |= bit;
+                port.repeat[bit_index] = 0.f;
+                continue;
+            }
+            const float next = port.repeat[bit_index] + dt;
+            port.repeat[bit_index] = next;
+            if (next < gate)
+            {
+                port.pulse &= ~bit;
+                continue;
+            }
+            port.pulse |= bit;
+            port.repeat[bit_index] = next - delay;
+        }
+        port.down_prev = port.down;
+    }
+}
+
 i32 fn_105e20(float x, float y, float z, float& yaw, float& pitch)
 {
     // Xbox 0x00105E20

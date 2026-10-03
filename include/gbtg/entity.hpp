@@ -304,6 +304,11 @@ float fn_152bb0(float value); // 0x00152BB0
 // steps; this takes two more and returns the estimate.
 float fn_1534c0(float value); // 0x001534C0
 
+// dt is the frame step 0x001555B0 passes (DAT_005096C0). Four ports at
+// DAT_00434298, stride 0x13c. A held bit times until DAT_00434288, then pulses
+// the mask at +0x10 and repeats from the timer at +0x94 against DAT_00434290.
+void fn_154ba0(float dt); // 0x00154BA0
+
 // EAX is the direction (x, y, z). Writes yaw, then pitch. Returns 0 when XZ is
 // quieter than 2e-7; pitch is still written.
 i32 fn_105e20(float x, float y, float z, float& yaw, float& pitch); // 0x00105E20

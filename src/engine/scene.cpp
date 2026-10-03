@@ -3353,6 +3353,28 @@ void fn_168e08(int index)
     reinterpret_cast<CrtFileX*>(stream)->lock.unlock();
 }
 
+void fn_168e34()
+{
+    // Xbox 0x00168E34
+    // Outer __finally of flsall (0x00168D68). The scope table at
+    // 0x00209268 has two entries. This one (enclosing level -1, a null
+    // filter) is the handler. The inner entry (enclosing level 0, a null
+    // filter) is the handler at 0x00168E03, which falls into fn_168e08.
+    // flsall pushes 1 (_IOB_SCAN_LOCK) and calls _lock (0x001681C1)
+    // before the __piob scan, stores try level 0 at [ebp-4], and on the
+    // success path at 0x00168E19 sets that level to -1 and calls here.
+    // _local_unwind2 (0x00167062) runs the same handler. The nine bytes
+    // push 1, call _unlock (0x0016810F), pop the cdecl argument, and
+    // return. _unlock leaves the critical section in _locktable[1]
+    // (image 0x00337AB0). The kernel thunk is the dword at 0x00202EA4.
+    // A section __mtinitlocks has not created is left alone; retail
+    // would fault on the null pointer.
+    if (g_crt_locks[1].cs != nullptr)
+    {
+        g_crt_locks[1].cs->unlock();
+    }
+}
+
 int crt_mtinitlocknum(int locknum)
 {
     // __mtinitlocknum at 0x00168121. Scope table 0x00209190, prolog

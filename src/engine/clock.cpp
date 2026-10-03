@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <mutex>
 
 namespace gbtg
 {
@@ -421,6 +422,45 @@ void pad_tick(Game& g, const InputState& in)
     // Xbox 0x000FA3C0, then rumble submit 0x000FAD80.
     pad_process(g.clock.dt, in);
     pad_buttons();
+}
+
+namespace
+{
+
+// Image _locktable at 0x00337AB0. Thirty-six records, eight bytes each:
+// critical-section pointer, then kind. Ghidra types the pointer as the
+// element, so _unlock's index is locknum * 2.
+constexpr u32 kCrtLockCount = 0x24;
+
+struct CrtLockSlot
+{
+    std::recursive_mutex* cs = nullptr;
+    u32 kind = 0;
+};
+
+CrtLockSlot g_locktable[kCrtLockCount];
+
+} // namespace
+
+void fn_16810f(int locknum)
+{
+    // Xbox 0x0016810F
+    // _unlock. Loads the critical-section pointer at 0x00337AB0 + locknum*8
+    // and calls RtlLeaveCriticalSection (kernel ordinal 294, thunk
+    // 0x00202EA4). The callee is stdcall and pops its argument; the caller
+    // of _unlock pops the cdecl lock number. An index outside the 36 slots
+    // walks off the table; the port returns. A null pointer is the retail
+    // fault; the port returns.
+    if (locknum < 0 || static_cast<u32>(locknum) >= kCrtLockCount)
+    {
+        return;
+    }
+    std::recursive_mutex* cs = g_locktable[locknum].cs;
+    if (cs == nullptr)
+    {
+        return;
+    }
+    cs->unlock();
 }
 
 } // namespace gbtg

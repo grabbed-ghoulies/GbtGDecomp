@@ -286,3 +286,4 @@ Named functions: [`docs/generated/ghidra_functions.txt`](generated/ghidra_functi
 | `0x0016AE40` | `fn_16ae40` | scene |
 | `0x0016B050` | `fn_16b050` | scene |
 | `0x00166BF9` | `fn_166bf9` | scene |
+| `0x0016810F` | `fn_16810f` | clock |

@@ -1293,6 +1293,18 @@ bool body_message(Entity& body, const Message& msg)
 
 } // namespace
 
+float fn_152bb0(float value)
+{
+    // Xbox 0x00152BB0
+    // Absolute value. Non-negative inputs, including zero, are returned as
+    // stored. A negative input is returned as 0 - value.
+    if (0.f <= value)
+    {
+        return value;
+    }
+    return 0.f - value;
+}
+
 i32 fn_105e20(float x, float y, float z, float& yaw, float& pitch)
 {
     // Xbox 0x00105E20
@@ -1303,7 +1315,7 @@ i32 fn_105e20(float x, float y, float z, float& yaw, float& pitch)
     // counts as zero. A dead XZ forces yaw to 0 and the result to 0. A dead Y
     // together with that zero length forces pitch to 0 and returns 0. A live
     // XZ returns 1 after both angles are written.
-    const bool xz = std::fabs(x) > kLookEps || std::fabs(z) > kLookEps;
+    const bool xz = fn_152bb0(x) > kLookEps || fn_152bb0(z) > kLookEps;
     float horiz = 0.f;
     i32 live = 1;
     if (xz)
@@ -1316,7 +1328,7 @@ i32 fn_105e20(float x, float y, float z, float& yaw, float& pitch)
         yaw = 0.f;
         live = 0;
     }
-    if (std::fabs(y) <= kLookEps && std::fabs(horiz) <= kLookEps)
+    if (fn_152bb0(y) <= kLookEps && fn_152bb0(horiz) <= kLookEps)
     {
         pitch = 0.f;
         return 0;

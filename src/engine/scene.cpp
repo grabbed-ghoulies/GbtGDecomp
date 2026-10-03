@@ -2526,6 +2526,40 @@ int fn_168883(u32 c)
     return static_cast<int>(static_cast<u8>(g_crt_pctype[c]) & 8u);
 }
 
+// Xbox 0x00337A70. __NLG_Destination. The image signature is the C++ EH
+// magic 0x19930520. The next three dwords are zero until __NLG_Notify1
+// writes them. Nothing in the image reads the record back.
+struct NlgDestination
+{
+    u32 sig;
+    u32 destination;
+    u32 code;
+    u32 frame;
+};
+
+static_assert(sizeof(NlgDestination) == 0x10);
+
+NlgDestination g_nlg_destination = {0x19930520u, 0, 0, 0};
+
+void fn_1670f6(u32 destination, const u32* frame)
+{
+    // Xbox 0x001670F6
+    // __NLG_Notify1. stdcall, ret 4. _except_handler3 (0x00166DAC) and
+    // __local_unwind2 (0x00167062) call here before transferring to a
+    // scope handler. The stack cookie (1 when a filter accepts, 0x101
+    // when a scopetable entry has no filter) is popped and not read.
+    // Incoming EAX is the handler. This body does not build a frame, so
+    // EBP is the caller's and the dword at [EBP+8] is that frame's first
+    // argument. _except_handler3 sets EBP to the registration node + 0x10
+    // before its own call and before __local_unwind2, which leaves EBP
+    // alone. EBX and ECX are saved across the three stores. The entry
+    // at 0x001670ED (__NLG_Notify) is the same stores with ECX already
+    // holding the code; _CallSettingFrame (0x0016C1E0) uses that entry.
+    g_nlg_destination.destination = destination;
+    g_nlg_destination.code = frame[2];
+    g_nlg_destination.frame = static_cast<u32>(reinterpret_cast<std::uintptr_t>(frame));
+}
+
 // Xbox 0x003381A0. The image points every slot at _fptrap (0x0016F08C),
 // which exits with code 2. _fpmath overwrites the six dwords.
 u32 g_cfltcvt_tab[6] = {

@@ -995,6 +995,11 @@ void gfx_set_camera(const Vec3& position, const Quat& orientation, float fov_y)
     g.mvp = mul(perspective(fov_y, aspect, 0.1f, 2000.f), look_at(position, at, up));
 }
 
+void gfx_release_mesh(const Mesh& mesh)
+{
+    g.meshes.erase(&mesh);
+}
+
 void gfx_draw_mesh(const Mesh& mesh, Vec3 origin, Vec3 scale)
 {
     if (!g.ok)

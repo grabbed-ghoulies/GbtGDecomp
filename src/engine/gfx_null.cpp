@@ -38,6 +38,10 @@ void gfx_set_bones(const float*, int)
 {
 }
 
+void gfx_release_mesh(const Mesh&)
+{
+}
+
 void gfx_draw_mesh(const Mesh&, Vec3, Vec3)
 {
 }

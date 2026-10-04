@@ -148,8 +148,10 @@ std::vector<VertStream> parse_vertex_streams(std::span<const u8> cpu, std::span<
     // Type 0 is the shader's v4. FUN_00157b90 writes matrix i at constant
     // 0x78 + i*3. The rigid shader ARLs v4.x. The blended shader (the one that
     // MADs a second matrix) ARLs v4.x then v4.y, and scales the rows by v5.xy.
-    // The file stores 24 + 3*slot. Books are stride 8 (one slot, weight 1).
-    // The banjo arm is stride 16 (slot, second slot, 0, 0) with type 0x08 weights.
+    // The file stores 24 + 3*slot. Stride 8 is two floats (slot, second slot).
+    // Stride 16 is the same pair followed by two zeros. A second slot of 0 is
+    // rigid, which is every book vertex. The crone's blended vertices are the
+    // stride-8 pair.
     auto slot_of = [](float raw, u16& slot) -> bool
     {
         if (!(raw == raw) || raw < 24.f || raw > 24.f + 126.f * 3.f)
@@ -204,14 +206,14 @@ std::vector<VertStream> parse_vertex_streams(std::span<const u8> cpu, std::span<
                 slots_ok = false;
                 break;
             }
-            if (info_size == 16)
+            // Both strides store the second palette slot in the next float.
+            // 0 is the rigid case (books). A non-zero value that is not
+            // 24 + 3*slot is not this attribute.
+            const float second = read_f32(gpu, rec + 4);
+            if (second != 0.f && !slot_of(second, stream.slot2[v]))
             {
-                const float second = read_f32(gpu, rec + 4);
-                if (second != 0.f && !slot_of(second, stream.slot2[v]))
-                {
-                    slots_ok = false;
-                    break;
-                }
+                slots_ok = false;
+                break;
             }
         }
         if (slots_ok)

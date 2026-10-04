@@ -60,6 +60,25 @@ extern "C"
 
 namespace gbtg
 {
+
+void release_models(Game& g)
+{
+    for (const Mesh& mesh : g.models)
+    {
+        gfx_release_mesh(mesh);
+    }
+}
+
+void release_props(Game& g)
+{
+    // The prop vector keeps its storage, so the next clip's meshes come back
+    // at these addresses. The draw cache must not keep the previous clip.
+    for (const Game::CutsceneProp& prop : g.cutscene_props)
+    {
+        gfx_release_mesh(prop.mesh);
+    }
+}
+
 namespace
 {
 
@@ -185,6 +204,7 @@ void load_cutscene_reel(Game& g)
 
 void load_scene_models(Game& g)
 {
+    release_models(g);
     g.models.clear();
     for (const auto& aid : g.scene_script.aids)
     {
@@ -252,6 +272,7 @@ void sync_cutscene_props(Game& g)
     const auto& q = g.cutscenes;
     if (!q.playing || q.items.empty() || !g.scene_bundle)
     {
+        release_props(g);
         g.cutscene_props.clear();
         g.cutscene_props_index = static_cast<size_t>(-1);
         return;
@@ -261,6 +282,7 @@ void sync_cutscene_props(Game& g)
         return;
     }
     g.cutscene_props_index = q.index;
+    release_props(g);
     g.cutscene_props.clear();
     const Cutscene& cut = q.items[q.index];
     std::cout << "title actors " << cut.actors.size() << "\n";
@@ -15387,6 +15409,8 @@ void script_set_default_name(Game& g)
     g.scene_script = {};
     g.script_aidlists.clear();
     g.cutscenes = {};
+    release_models(g);
+    release_props(g);
     g.models.clear();
     g.cutscene_props.clear();
     g.cutscene_props_index = static_cast<size_t>(-1);

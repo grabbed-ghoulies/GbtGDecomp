@@ -16535,6 +16535,72 @@ int fn_132fa0(const ScriptCond& rec)
     return 0;
 }
 
+// Xbox 0x00132FF0. Opcode 25 in the table at 0x00314330. Walks DAT_0050E4DC
+// until a node whose dword at +8 is 0xB9. An empty list returns whether the
+// int at record+0xC is at or below 0. A null next before that type is found
+// returns whether that int is below 1. The address of the type dword is
+// tested against 0. The word at record+8 below 2, or equal to the word four
+// bytes after that dword, adds one. Next is the pointer four bytes before
+// the type dword. A null next joins the end test. Otherwise it walks next
+// until a node has the same dword at +8, returning the end test if the walk
+// ends. The address of that dword is tested again. The end test returns
+// whether the int at record+0xC is at or below the count.
+int fn_132ff0(const ScriptCond& rec)
+{
+    int count = 0;
+    LiveScript* node = g_live_scripts;
+    if (node != nullptr)
+    {
+        while (node->type != 0xb9u)
+        {
+            node = node->next;
+            if (node == nullptr)
+            {
+                if (static_cast<i32>(cond_u32(rec, 0xc)) < 1)
+                {
+                    return 1;
+                }
+                return 0;
+            }
+        }
+        if (reinterpret_cast<std::uintptr_t>(node) + offsetof(LiveScript, type) != 0)
+        {
+            const u16 key = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+            do
+            {
+                if (key < 2 || node->word_c == key)
+                {
+                    count = count + 1;
+                }
+                LiveScript* cursor = node->next;
+                const u32 saved = node->type;
+                if (cursor == nullptr)
+                {
+                    break;
+                }
+                while (cursor->type != saved)
+                {
+                    cursor = cursor->next;
+                    if (cursor == nullptr)
+                    {
+                        if (static_cast<i32>(cond_u32(rec, 0xc)) <= count)
+                        {
+                            return 1;
+                        }
+                        return 0;
+                    }
+                }
+                node = cursor;
+            } while (reinterpret_cast<std::uintptr_t>(node) + offsetof(LiveScript, type) != 0);
+        }
+    }
+    if (static_cast<i32>(cond_u32(rec, 0xc)) <= count)
+    {
+        return 1;
+    }
+    return 0;
+}
+
 // Xbox 0x00124BE0. A zero keeps the record. Any other value queues the link
 // at +4. A return of exactly 1 also removes the record and the slot that
 // slides down is evaluated next. Opcode 0 is 0x00132650. Opcode 1 is
@@ -16545,8 +16611,8 @@ int fn_132fa0(const ScriptCond& rec)
 // 0x00132BC0. Opcode 14 is 0x00132BF0. Opcode 15 is 0x00132D00. Opcode 16 is
 // 0x00132C70. Opcode 17 is 0x00132AB0. Opcode 18 is 0x00132DB0. Opcode 19 is
 // 0x00132E00. Opcode 20 is 0x00132E90. Opcode 21 is 0x00132ED0. Opcode 22 is
-// 0x00132F00. Opcode 23 is 0x00132F30. Opcode 24 is 0x00132FA0. Opcode 26 is
-// 0x00132B50. Other opcodes are not evaluated until their functions are translated.
+// 0x00132F00. Opcode 23 is 0x00132F30. Opcode 24 is 0x00132FA0. Opcode 25 is
+// 0x00132FF0. Opcode 26 is 0x00132B50.
 void fn_124be0(Game& g)
 {
     size_t i = 0;
@@ -16654,6 +16720,10 @@ void fn_124be0(Game& g)
         else if (opcode == 24)
         {
             fired = fn_132fa0(rec);
+        }
+        else if (opcode == 25)
+        {
+            fired = fn_132ff0(rec);
         }
         else if (opcode == 26)
         {

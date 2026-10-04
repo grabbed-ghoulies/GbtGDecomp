@@ -16419,6 +16419,44 @@ int fn_132e00(ScriptCond& rec)
     return 0;
 }
 
+// DAT_00510570. +0 is followed until null. +4 of that last node is the chain
+// counted below. A null +0 leaves the node as this head, so +4 is DAT_00510574.
+struct AidChain
+{
+    AidChain* at_0 = nullptr;
+    AidChain* at_4 = nullptr;
+};
+AidChain g_aid_chain{};
+
+// Xbox 0x00132E90. Opcode 20 in the table at 0x00314330. The record is not
+// read. Walks the pointer at DAT_00510570 through the dword at +0 until null,
+// keeping the previous node (the address of DAT_00510570 when that pointer
+// is null). The dword at +4 of that node is then walked through +4, counting
+// nodes. A nonzero count returns 0. An empty walk returns 1.
+int fn_132e90()
+{
+    AidChain* tail = &g_aid_chain;
+    for (AidChain* node = g_aid_chain.at_0; node != nullptr; node = node->at_0)
+    {
+        tail = node;
+    }
+    AidChain* chain = tail->at_4;
+    i32 count = 0;
+    if (chain != nullptr)
+    {
+        do
+        {
+            chain = chain->at_4;
+            count = count + 1;
+        } while (chain != nullptr);
+        if (count != 0)
+        {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 // Xbox 0x00124BE0. A zero keeps the record. Any other value queues the link
 // at +4. A return of exactly 1 also removes the record and the slot that
 // slides down is evaluated next. Opcode 0 is 0x00132650. Opcode 1 is
@@ -16428,8 +16466,8 @@ int fn_132e00(ScriptCond& rec)
 // 0x00132A30. Opcode 11 is 0x00132A00. Opcode 12 is 0x00132A60. Opcode 13 is
 // 0x00132BC0. Opcode 14 is 0x00132BF0. Opcode 15 is 0x00132D00. Opcode 16 is
 // 0x00132C70. Opcode 17 is 0x00132AB0. Opcode 18 is 0x00132DB0. Opcode 19 is
-// 0x00132E00. Opcode 26 is 0x00132B50. Other opcodes are not evaluated until
-// their functions are translated.
+// 0x00132E00. Opcode 20 is 0x00132E90. Opcode 26 is 0x00132B50. Other opcodes
+// are not evaluated until their functions are translated.
 void fn_124be0(Game& g)
 {
     size_t i = 0;
@@ -16517,6 +16555,10 @@ void fn_124be0(Game& g)
         else if (opcode == 19)
         {
             fired = fn_132e00(rec);
+        }
+        else if (opcode == 20)
+        {
+            fired = fn_132e90();
         }
         else if (opcode == 26)
         {

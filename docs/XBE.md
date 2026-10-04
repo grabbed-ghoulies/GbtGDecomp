@@ -373,3 +373,4 @@ Named functions: [`docs/generated/ghidra_functions.txt`](generated/ghidra_functi
 | `0x00132940` | `fn_132940` | scene |
 | `0x001329A0` | `fn_1329a0` | scene |
 | `0x00132A00` | `fn_132a00` | scene |
+| `0x00132A30` | `fn_132a30` | scene |

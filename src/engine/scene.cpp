@@ -15717,10 +15717,11 @@ int fn_132720(const ScriptCond& rec)
 // DAT_004E1C34. 0x001327A0 compares this dword with 0x80000000.
 u32 g_4e1c34 = 0;
 
-// Dwords 0x0012AE40 reads. The first is 0x00512C6C. Six fields sit 0xF4
-// apart and the row stride is 0x5B8. Category n is 0x3A24 bytes later.
-// 0x0012AF10 walks seven categories, so the last read is category 6.
-constexpr u32 kStat512c6c = 0x00512C6Cu;
+// Dwords 0x0012AE40 reads. The block starts at DAT_00512B78. The first
+// dword that function reads is 0x00512C6C, one 0xF4 slot later. Six fields
+// sit 0xF4 apart and the row stride is 0x5B8. Category n is 0x3A24 bytes
+// later. 0x0012AF10 walks seven categories, so the last read is category 6.
+constexpr u32 kStat512c6c = 0x00512B78u;
 constexpr u32 kStat512c6cLast = 0x0051303Cu + 6u * 0x3A24u + 9u * 0x5B8u + 0xF4u;
 i32 g_stat_512c6c[(kStat512c6cLast + 4u - kStat512c6c) / 4u]{};
 
@@ -15954,13 +15955,31 @@ int fn_132a00(const ScriptCond& rec)
     return 0;
 }
 
+// Xbox 0x00132A30. Opcode 10 in the table at 0x00314330. The word at
+// record+0xC is shifted left by 2. That dword of DAT_00512B78 is compared
+// with the int at record+8. A smaller count returns 0. Otherwise the float
+// at record+0x10 is ucomiss'd with the 0 at 0x0032B100. Equal, and not a
+// NaN, returns 1. Every other path returns 0.
+int fn_132a30(const ScriptCond& rec)
+{
+    const u16 index = u16(rec.raw[0xc]) | (u16(rec.raw[0xd]) << 8);
+    const u32 scaled = u32(index) * 4u;
+    const i32 count = stat_512c6c(0x00512B78u + scaled);
+    if (static_cast<i32>(cond_u32(rec, 8)) <= count && cond_f32(rec, 0x10) == 0.f)
+    {
+        return 1;
+    }
+    return 0;
+}
+
 // Xbox 0x00124BE0. A zero keeps the record. Any other value queues the link
 // at +4. A return of exactly 1 also removes the record and the slot that
 // slides down is evaluated next. Opcode 0 is 0x00132650. Opcode 1 is
 // 0x00132680. Opcode 2 is 0x001326D0. Opcode 3 is 0x00132720. Opcode 4 is
 // 0x001327A0. Opcode 5 is 0x00132800. Opcode 6 is 0x00132840. Opcode 7 is
-// 0x001328D0. Opcode 8 is 0x00132940. Opcode 9 is 0x001329A0. Opcode 11 is
-// 0x00132A00. Other opcodes are not evaluated until their functions are translated.
+// 0x001328D0. Opcode 8 is 0x00132940. Opcode 9 is 0x001329A0. Opcode 10 is
+// 0x00132A30. Opcode 11 is 0x00132A00. Other opcodes are not evaluated until
+// their functions are translated.
 void fn_124be0(Game& g)
 {
     size_t i = 0;
@@ -16008,6 +16027,10 @@ void fn_124be0(Game& g)
         else if (opcode == 9)
         {
             fired = fn_1329a0(rec);
+        }
+        else if (opcode == 10)
+        {
+            fired = fn_132a30(rec);
         }
         else if (opcode == 11)
         {

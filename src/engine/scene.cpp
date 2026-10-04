@@ -15972,14 +15972,39 @@ int fn_132a30(const ScriptCond& rec)
     return 0;
 }
 
+// Xbox 0x00132A60. Opcode 12 in the table at 0x00314330. A nonzero word at
+// record+8 walks DAT_00511AA4. Next is the pointer at node+4. The short at
+// node-0x704 (object+0x1FC) matching that word returns 0. Otherwise the
+// float at record+0xC is ucomiss'd with the 0 at 0x0032B100. Equal, and
+// not a NaN, returns 1. Every other path returns 0.
+int fn_132a60(const ScriptCond& rec)
+{
+    const u16 want = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+    if (want != 0)
+    {
+        for (PulseNode* node = g_pulse_nodes; node != nullptr; node = node->next)
+        {
+            if (node->word_1fc == want)
+            {
+                return 0;
+            }
+        }
+    }
+    if (cond_f32(rec, 0xc) == 0.f)
+    {
+        return 1;
+    }
+    return 0;
+}
+
 // Xbox 0x00124BE0. A zero keeps the record. Any other value queues the link
 // at +4. A return of exactly 1 also removes the record and the slot that
 // slides down is evaluated next. Opcode 0 is 0x00132650. Opcode 1 is
 // 0x00132680. Opcode 2 is 0x001326D0. Opcode 3 is 0x00132720. Opcode 4 is
 // 0x001327A0. Opcode 5 is 0x00132800. Opcode 6 is 0x00132840. Opcode 7 is
 // 0x001328D0. Opcode 8 is 0x00132940. Opcode 9 is 0x001329A0. Opcode 10 is
-// 0x00132A30. Opcode 11 is 0x00132A00. Other opcodes are not evaluated until
-// their functions are translated.
+// 0x00132A30. Opcode 11 is 0x00132A00. Opcode 12 is 0x00132A60. Other opcodes
+// are not evaluated until their functions are translated.
 void fn_124be0(Game& g)
 {
     size_t i = 0;
@@ -16035,6 +16060,10 @@ void fn_124be0(Game& g)
         else if (opcode == 11)
         {
             fired = fn_132a00(rec);
+        }
+        else if (opcode == 12)
+        {
+            fired = fn_132a60(rec);
         }
         if (fired == 0)
         {

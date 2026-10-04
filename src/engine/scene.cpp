@@ -16226,6 +16226,120 @@ int fn_124fc0(Game& g, const ScriptNode& node, int param_2)
     return 2;
 }
 
+// Names at 0x004232AC. 0x000FBFB0 is called with count 9.
+const char* const kChallengeId[9] = {
+    "challengeId_Attacks",
+    "challengeId_Buttons",
+    "challengeId_Challenge21",
+    "challengeId_Damage",
+    "challengeId_Health",
+    "challengeId_Kills",
+    "challengeId_KillsBOB",
+    "challengeId_Survive",
+    "challengeId_Time",
+};
+
+// Xbox 0x001251E0. Handler 5. The dword at node+4 is the type. Type 0x7A
+// calls 0x000FBFB0 with the cstring at node+8 and passes that index to
+// 0x0004A100. Type 0x7B calls 0x0004A240. The other listed types build the
+// record 0x0004ADD0 reads through EAX: opcode at +0, a word or dword at +8,
+// and for type 0x80 the dword at node+0x48 at +0xC. Type 0x7C stores opcode
+// 0x10 and float 0. Type 0x7D stores opcode 0x11 and the float at node+8.
+// Type 0x7F returns 2 when 0x001077B0 of the cstring at node+8 is 0; otherwise
+// opcode 9 and a second call, and the word is AX. Types 0x7E (opcode 5) and
+// 0x82 (opcode 4) share that word store. Type 0x80 stores opcode 0xA. Type
+// 0x81 stores opcode 0x12. Type 0x83 stores opcode 0xB and the dword at
+// node+8. Type 0x84 stores opcode 0xC. Type 0x85 stores opcode 0. Type 0x86
+// stores opcode 3. 0x0004A100, 0x0004A240, and 0x0004ADD0 are not translated,
+// so those calls are not made. Any other type returns 3. A handled type
+// returns 2.
+int fn_1251e0(Game& g, const ScriptNode& node)
+{
+    struct Arg
+    {
+        u32 opcode = 0;
+        u32 at_8 = 0;
+        u32 at_c = 0;
+    };
+    Arg arg{};
+    switch (node.type)
+    {
+    case 0x7a:
+    {
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        const i32 found = fn_fbfb0(9, kChallengeId, key.c_str());
+        (void)found;
+        return 2;
+    }
+    case 0x7b:
+        return 2;
+    case 0x7c:
+        arg.opcode = 0x10;
+        arg.at_8 = 0;
+        (void)arg;
+        return 2;
+    case 0x7d:
+        arg.opcode = 0x11;
+        arg.at_8 = node_u32(g.scene_script, node, 8);
+        (void)arg;
+        return 2;
+    case 0x7e:
+        arg.opcode = 5;
+        break;
+    case 0x7f:
+    {
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        if (static_cast<u16>(fn_1077b0(key.c_str())) == 0)
+        {
+            return 2;
+        }
+        arg.opcode = 9;
+        arg.at_8 = u32(static_cast<u16>(fn_1077b0(key.c_str())));
+        (void)arg;
+        return 2;
+    }
+    case 0x80:
+    {
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        arg.opcode = 0xA;
+        arg.at_8 = u32(static_cast<u16>(fn_1077b0(key.c_str())));
+        arg.at_c = node_u32(g.scene_script, node, 0x48);
+        (void)arg;
+        return 2;
+    }
+    case 0x81:
+        arg.opcode = 0x12;
+        (void)arg;
+        return 2;
+    case 0x82:
+        arg.opcode = 4;
+        break;
+    case 0x83:
+        arg.opcode = 0xB;
+        arg.at_8 = node_u32(g.scene_script, node, 8);
+        (void)arg;
+        return 2;
+    case 0x84:
+        arg.opcode = 0xC;
+        (void)arg;
+        return 2;
+    case 0x85:
+        arg.opcode = 0;
+        (void)arg;
+        return 2;
+    case 0x86:
+        arg.opcode = 3;
+        (void)arg;
+        return 2;
+    default:
+        return 3;
+    }
+    const std::string key = node_cstr(g.scene_script, node, 8);
+    arg.at_8 = u32(static_cast<u16>(fn_1077b0(key.c_str())));
+    (void)arg;
+    return 2;
+}
+
 // Xbox 0x00125450. One node of the action walk. Type 0x3C stops the walk.
 // The listed types copy a condition and tell the runner to advance. Every
 // other type stops the walk. The word filled by 0x001077B0 is left 0.
@@ -16301,8 +16415,9 @@ int fn_125450(Game& g, const ScriptNode& node)
 
 // Xbox 0x00128A00. Walks fired file offsets. Handler 1 is 0x00124CC0.
 // Handler 2 is 0x00124E50. Handler 3 is 0x00124F30. Handler 4 is 0x00124FC0.
-// Handler 6 is 0x00125450. The other handlers are not translated. The flag
-// passed to handler 4 is nonzero when DAT_0050E4DC has a node whose dword
+// Handler 5 is 0x001251E0. Handler 6 is 0x00125450. The other handlers are
+// not translated. The flag passed to handler 4 is nonzero when DAT_0050E4DC
+// has a node whose dword
 // at +8 is 0x7D. A node type none of them covers stops the walk and leaves
 // the fired id in place. Return 1 stops on a type-0x3C node. Return 0 means
 // the cursor left the blob, or stopped on an untranslated node, and the
@@ -16337,6 +16452,10 @@ int fn_128a00(Game& g, u32 offset)
         if (handler == 3)
         {
             handler = fn_124fc0(g, *node, param_2);
+        }
+        if (handler == 3)
+        {
+            handler = fn_1251e0(g, *node);
         }
         if (handler == 3)
         {

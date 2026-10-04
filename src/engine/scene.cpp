@@ -1567,6 +1567,8 @@ struct CamFocus
     CamAttach* attach = nullptr; // +0x88
     float scale_200 = 0.f; // +0x200
     CamSlotObject* slots = nullptr; // +0x204
+    CamPairObject* pair_204 = nullptr; // +0x204, byte pairs at +0x294
+    CamPairObject* pair_310 = nullptr; // +0x310
     CamAnchor* anchors = nullptr; // +0x1f8, next link of the header at +0x1f4
     Vec3 ease{}; // +0x318
     Vec3 ease_to{}; // +0x324
@@ -1590,6 +1592,8 @@ struct CamFocus
     CamLink* link = nullptr; // +0x918
     std::vector<CamBoundRec> recs; // +0x8fc
     u32 at_cec = 0; // +0xcec, low byte stored at packet +0x19
+    u16 tag_6 = 0; // +6
+    u16 word_cdc = 0; // +0xcdc, link+0x3a8, compared with 2
     Vec3 nudge_704{}; // camera+0x704, added to the stored follow position
     float mul_884 = 0.f; // camera+0x884
     float mul_888 = 0.f; // camera+0x888
@@ -2025,6 +2029,8 @@ void fn_11be40(CamAnchor& node)
 i32 g_ease_live = 0;
 // DAT_0050E768. Nonzero skips the +0x930 decay inside the base update.
 i32 g_block_decay = 0;
+// DAT_0050E764. 0x00117400 counts the other mask bit beside DAT_0050E768.
+i32 g_count_e764 = 0;
 // Byte at [DAT_0051248C]+0x30F144. Zero skips that same decay.
 u8 g_decay_arm = 0;
 // DAT_00511B40. Null, and the retail sentinel 0x93C, both leave the marker clear.
@@ -15519,6 +15525,476 @@ void fn_124be0(Game& g)
     (void)g;
 }
 
+u8 node_u8(const SceneScript& script, const ScriptNode& node, u32 rel)
+{
+    if (rel >= node.size || node.offset + rel >= script.bytes.size())
+    {
+        return 0;
+    }
+    return script.bytes[node.offset + rel];
+}
+
+std::string node_cstr(const SceneScript& script, const ScriptNode& node, u32 rel)
+{
+    if (rel >= node.size || node.offset + rel >= script.bytes.size())
+    {
+        return {};
+    }
+    const size_t begin = node.offset + rel;
+    const size_t end = std::min(script.bytes.size(), static_cast<size_t>(node.offset + node.size));
+    size_t at = begin;
+    while (at < end && script.bytes[at] != 0)
+    {
+        ++at;
+    }
+    return std::string(reinterpret_cast<const char*>(script.bytes.data() + begin), at - begin);
+}
+
+// Names at 0x0042A854. Count passed to 0x000FBFB0 is 0xE9.
+const char* const kObjTagActor[0xE9] = {
+    "objTag_Actor",
+    "objTag_Actor_Baron",
+    "objTag_Actor_BaronPlane",
+    "objTag_Actor_Boy",
+    "objTag_Actor_Butler",
+    "objTag_Actor_Cameron",
+    "objTag_Actor_Chicken",
+    "objTag_Actor_Cook",
+    "objTag_Actor_CookPlayable",
+    "objTag_Actor_Doll",
+    "objTag_Actor_Fiddler",
+    "objTag_Actor_GhoulieGirl",
+    "objTag_Actor_GiantHand",
+    "objTag_Actor_Girl",
+    "objTag_Actor_GrimReaper",
+    "objTag_Actor_HauntedChair",
+    "objTag_Actor_HauntedCoat",
+    "objTag_Actor_HauntedDoor",
+    "objTag_Actor_HauntedDoorRound",
+    "objTag_Actor_HauntedPicture",
+    "objTag_Actor_HauntedTV",
+    "objTag_Actor_Hunchback",
+    "objTag_Actor_Imp",
+    "objTag_Actor_ImpChallenge",
+    "objTag_Actor_ImpFire",
+    "objTag_Actor_ImpFlying",
+    "objTag_Actor_ImpNinja",
+    "objTag_Actor_ImpNinjaBig",
+    "objTag_Actor_ImpRoger",
+    "objTag_Actor_JessieClyde",
+    "objTag_Actor_Medusa",
+    "objTag_Actor_MiniCooper",
+    "objTag_Actor_MrsMop",
+    "objTag_Actor_Mummy",
+    "objTag_Actor_MummyCursed",
+    "objTag_Actor_Pirate",
+    "objTag_Actor_PirateLeader",
+    "objTag_Actor_PrisonerChestChap",
+    "objTag_Actor_PrisonerDoggyGirl",
+    "objTag_Actor_PrisonerFilmReel",
+    "objTag_Actor_PrisonerFridgeLady",
+    "objTag_Actor_PrisonerFridgeLadyFat",
+    "objTag_Actor_PrisonerLaundryLad",
+    "objTag_Actor_PrisonerPlatterLad",
+    "objTag_Actor_PrisonerSarco",
+    "objTag_Actor_PrisonerSaunaGirl",
+    "objTag_Actor_PrisonerSerpentYouth",
+    "objTag_Actor_PrisonerThornGirl",
+    "objTag_Actor_Ribs",
+    "objTag_Actor_RibsFNPC",
+    "objTag_Actor_RibsKey",
+    "objTag_Actor_Skeleton",
+    "objTag_Actor_SkeletonMaid",
+    "objTag_Actor_Spider",
+    "objTag_Actor_UglyGirl",
+    "objTag_Actor_Vampire",
+    "objTag_Actor_VampireChicken",
+    "objTag_Actor_Warlock",
+    "objTag_Actor_Worm",
+    "objTag_Actor_Zombie",
+    "objTag_Actor_zzz",
+    "objTag_Avatar",
+    "objTag_Avatar_DizzyBat",
+    "objTag_Avatar_Fx_AnimEmitter",
+    "objTag_Avatar_Fx_BurnUp",
+    "objTag_Avatar_Fx_Explode",
+    "objTag_Avatar_Fx_MotionBlur",
+    "objTag_Avatar_HatstandBase",
+    "objTag_Avatar_StandardLampBase",
+    "objTag_Background",
+    "objTag_BgBreakKey",
+    "objTag_Body",
+    "objTag_Body_Camera",
+    "objTag_Body_Human",
+    "objTag_Body_JessieClyde",
+    "objTag_Body_Player",
+    "objTag_Body_Vampire",
+    "objTag_Body_Zombie",
+    "objTag_Camera",
+    "objTag_FxCustom_DustUp",
+    "objTag_FxCustom_Electric",
+    "objTag_FxCustom_FadeOut",
+    "objTag_FxCustom_FadeToGrey",
+    "objTag_FxCustom_Fire",
+    "objTag_FxCustom_MutateHalo",
+    "objTag_FxCustom_SolidFadeIn",
+    "objTag_Mind",
+    "objTag_Mind_Cameraman",
+    "objTag_Mind_Cinema",
+    "objTag_Mind_Human",
+    "objTag_Mind_Player",
+    "objTag_Misc_AnimDelete",
+    "objTag_Misc_AnimatedLight",
+    "objTag_Misc_ButtonBat",
+    "objTag_Misc_ChickenEgg",
+    "objTag_Misc_Furnace",
+    "objTag_Misc_GhoulyKey",
+    "objTag_Misc_KnockDownSphere",
+    "objTag_Misc_MummyCursedSlabTop",
+    "objTag_Misc_Prop",
+    "objTag_Misc_SSSDoor",
+    "objTag_Misc_SSSDropper",
+    "objTag_Misc_Scare",
+    "objTag_Misc_ScareFigure",
+    "objTag_Misc_SpiderWeb",
+    "objTag_Misc_SuperScaryShock",
+    "objTag_Move",
+    "objTag_Powerup",
+    "objTag_SceneControl",
+    "objTag_Spawn",
+    "objTag_State",
+    "objTag_Strategy",
+    "objTag_Strategy_Director",
+    "objTag_Strategy_HauntedCoat",
+    "objTag_Strategy_HauntedDoor",
+    "objTag_Strategy_Human",
+    "objTag_Strategy_Player",
+    "objTag_Weapon",
+    "objTag_Weapon_Anchor",
+    "objTag_Weapon_Ankh",
+    "objTag_Weapon_Anvil",
+    "objTag_Weapon_Bandage",
+    "objTag_Weapon_BaronCane",
+    "objTag_Weapon_Barrel",
+    "objTag_Weapon_Bathtub",
+    "objTag_Weapon_Bellows",
+    "objTag_Weapon_Blunderbuss",
+    "objTag_Weapon_Book",
+    "objTag_Weapon_Bottle",
+    "objTag_Weapon_BottleContainer",
+    "objTag_Weapon_Broom",
+    "objTag_Weapon_Burger",
+    "objTag_Weapon_BurgerContainer",
+    "objTag_Weapon_Cake",
+    "objTag_Weapon_Candle",
+    "objTag_Weapon_Candlestick",
+    "objTag_Weapon_Chair",
+    "objTag_Weapon_ChessBoard",
+    "objTag_Weapon_ChestOfDrawers",
+    "objTag_Weapon_ChristmasPudding",
+    "objTag_Weapon_CoalScuttle",
+    "objTag_Weapon_CookingPot",
+    "objTag_Weapon_Crate",
+    "objTag_Weapon_Crate2",
+    "objTag_Weapon_Crutches",
+    "objTag_Weapon_Cue",
+    "objTag_Weapon_Cymbal",
+    "objTag_Weapon_Drum",
+    "objTag_Weapon_Dustbin",
+    "objTag_Weapon_Dustpan",
+    "objTag_Weapon_Egg",
+    "objTag_Weapon_EggContainer",
+    "objTag_Weapon_FeatherDuster",
+    "objTag_Weapon_FeedingTrough",
+    "objTag_Weapon_Figurine",
+    "objTag_Weapon_FilmReel",
+    "objTag_Weapon_FireBall",
+    "objTag_Weapon_FireExtinguisher",
+    "objTag_Weapon_FishingRod",
+    "objTag_Weapon_FlourBag",
+    "objTag_Weapon_FrenchStick",
+    "objTag_Weapon_FruitBowl",
+    "objTag_Weapon_FryingPan",
+    "objTag_Weapon_Garlic",
+    "objTag_Weapon_GiantScissors",
+    "objTag_Weapon_GlassPane",
+    "objTag_Weapon_Gnome",
+    "objTag_Weapon_Gramophone",
+    "objTag_Weapon_Guitar",
+    "objTag_Weapon_HandSaw",
+    "objTag_Weapon_HatStand",
+    "objTag_Weapon_IroningBoard",
+    "objTag_Weapon_JointOfMeat",
+    "objTag_Weapon_LaboratoryBed",
+    "objTag_Weapon_Ladder",
+    "objTag_Weapon_LargePlate",
+    "objTag_Weapon_LaundryBasket",
+    "objTag_Weapon_Mailbox",
+    "objTag_Weapon_Mirror",
+    "objTag_Weapon_MummyCurse",
+    "objTag_Weapon_Oar",
+    "objTag_Weapon_OilDrum",
+    "objTag_Weapon_PaintBall",
+    "objTag_Weapon_PaintCan",
+    "objTag_Weapon_PaintCanContainer",
+    "objTag_Weapon_Painting",
+    "objTag_Weapon_PicnicTable",
+    "objTag_Weapon_PirateChest",
+    "objTag_Weapon_PirateRum",
+    "objTag_Weapon_PirateSword",
+    "objTag_Weapon_Pitchfork",
+    "objTag_Weapon_Plank",
+    "objTag_Weapon_PlantPot",
+    "objTag_Weapon_PopCan",
+    "objTag_Weapon_PopCanGun",
+    "objTag_Weapon_Pot",
+    "objTag_Weapon_PotContainer",
+    "objTag_Weapon_Pumpkin",
+    "objTag_Weapon_Rake",
+    "objTag_Weapon_RollingPin",
+    "objTag_Weapon_SilverServiceTray",
+    "objTag_Weapon_Skip",
+    "objTag_Weapon_SmallTree",
+    "objTag_Weapon_SnookerTable",
+    "objTag_Weapon_Sofa",
+    "objTag_Weapon_SofaButler",
+    "objTag_Weapon_Spade",
+    "objTag_Weapon_Speaker",
+    "objTag_Weapon_SpecialPot",
+    "objTag_Weapon_SpiderSpitBall",
+    "objTag_Weapon_StandardLamp",
+    "objTag_Weapon_Stool",
+    "objTag_Weapon_SwordFish",
+    "objTag_Weapon_Syringe",
+    "objTag_Weapon_SyringeContainer",
+    "objTag_Weapon_Table",
+    "objTag_Weapon_TableLamp",
+    "objTag_Weapon_Television",
+    "objTag_Weapon_ToiletBrush",
+    "objTag_Weapon_ToiletRoll",
+    "objTag_Weapon_ToiletRollContainer",
+    "objTag_Weapon_ToyBox",
+    "objTag_Weapon_TreeStump",
+    "objTag_Weapon_Trophy",
+    "objTag_Weapon_Trunk",
+    "objTag_Weapon_Umbrella",
+    "objTag_Weapon_Vase",
+    "objTag_Weapon_WarlockBolt",
+    "objTag_Weapon_WashingPowder",
+    "objTag_Weapon_WaterPistol",
+    "objTag_Weapon_Welly",
+    "objTag_Weapon_Wheelbarrow",
+    "objTag_Weapon_ZombieArm",
+};
+
+// Xbox 0x000FBFB0. Binary search. High starts at count-1. A miss returns -1.
+int fn_fbfb0(i32 count, const char* const* table, const char* key)
+{
+    i32 high = count - 1;
+    i32 low = 0;
+    if (high < 0)
+    {
+        return -1;
+    }
+    const u8* want = reinterpret_cast<const u8*>(key);
+    while (low <= high)
+    {
+        const i32 mid = (low + high) >> 1;
+        const u8* row = reinterpret_cast<const u8*>(table[mid]);
+        u8 tc = row[0];
+        u8 kc = want[0];
+        if (tc == kc)
+        {
+            i32 i = 0;
+            for (;;)
+            {
+                const u8 prev = row[i];
+                i += 1;
+                if (prev == 0)
+                {
+                    return mid;
+                }
+                tc = row[i];
+                kc = want[i];
+                if (tc != kc)
+                {
+                    break;
+                }
+            }
+        }
+        const i32 diff = i32(tc) - i32(kc);
+        if (diff < 0)
+        {
+            low = mid + 1;
+        }
+        else if (diff > 0)
+        {
+            high = mid - 1;
+        }
+        else
+        {
+            return mid;
+        }
+    }
+    return -1;
+}
+
+// Xbox 0x000F96F0. AL is the value. The stack byte selects the pair at +0x294.
+void fn_f96f0(CamPairObject* obj, u8 index, u8 value)
+{
+    const int pair = int(index) * 2;
+    const int byte_index = pair >> 3;
+    const int shift = pair & 7;
+    if (g_pair_cache[index] != value)
+    {
+        g_pair_cache[index] = value;
+    }
+    const u8 mask = static_cast<u8>(3u << shift);
+    const u8 packed = static_cast<u8>(value << shift);
+    u8 cur = obj->pairs[byte_index];
+    cur = static_cast<u8>(cur & static_cast<u8>(~mask));
+    cur = static_cast<u8>(cur | packed);
+    obj->pairs[byte_index] = cur;
+}
+
+// Xbox 0x00117400. Bit 0 of the mask drives DAT_0050E764. Bit 1 drives
+// DAT_0050E768. A rising edge (counter becomes 1) and a falling edge
+// (counter becomes 0) walk DAT_00511B38. Note 0x26 when the flag is set,
+// 0x27 when it is clear. Vtable +0xC runs when the word at link+0x3a8
+// equals 2, or the dword at object+0x93c is nonzero, only for the bit-1
+// edge. The other objects get the bit-0 edge.
+void fn_117400(u32 mask, i32 flag)
+{
+    const u8 bits = static_cast<u8>(mask);
+    i32 edge0 = 0;
+    i32 edge1 = 0;
+    if (flag != 0)
+    {
+        if ((bits & 1u) != 0)
+        {
+            g_count_e764 -= 1;
+            if (g_count_e764 == 0)
+            {
+                edge0 = 1;
+            }
+        }
+        if ((bits & 2u) != 0)
+        {
+            g_block_decay -= 1;
+            if (g_block_decay == 0)
+            {
+                edge1 = 1;
+            }
+        }
+    }
+    else
+    {
+        if ((bits & 1u) != 0)
+        {
+            g_count_e764 += 1;
+            if (g_count_e764 == 1)
+            {
+                edge0 = 1;
+            }
+        }
+        if ((bits & 2u) != 0)
+        {
+            g_block_decay += 1;
+            if (g_block_decay == 1)
+            {
+                edge1 = 1;
+            }
+        }
+    }
+    const i32 edge[2] = {edge0, edge1};
+    for (i32 edi = 0; edi < 2; ++edi)
+    {
+        if (edge[edi] == 0)
+        {
+            continue;
+        }
+        const i32 note = flag != 0 ? 0x26 : 0x27;
+        for (RangeLink* link = g_range_links; link != nullptr; link = link->next)
+        {
+            CamFocus* obj = link->host;
+            if (obj == nullptr)
+            {
+                continue;
+            }
+            i32 match = 0;
+            if (obj->word_cdc == 2 || std::bit_cast<u32>(obj->pulse) != 0)
+            {
+                match = 1;
+            }
+            if (match != edi || obj->on_note == nullptr)
+            {
+                continue;
+            }
+            obj->on_note(obj, note);
+        }
+    }
+}
+
+// Xbox 0x00124CC0. Handler 1. Type 0x12 calls 0x00117400. Type 0x90 retires
+// the actor whose short at +6 matches the tag. Type 0x9F packs the byte at
+// +0x4C into the pair selected by the byte at +0x48. Any other type returns 3.
+int fn_124cc0(Game& g, const ScriptNode& node)
+{
+    const u32 type = node.type;
+    if (type == 0x12)
+    {
+        const u32 word = node_u32(g.scene_script, node, 8);
+        fn_117400(0xffff, word != 0 ? 1 : 0);
+    }
+    else if (type == 0x90)
+    {
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        const i32 found = fn_fbfb0(0xe9, kObjTagActor, key.c_str());
+        const u16 id = found == -1 ? u16{0} : static_cast<u16>(found + 1);
+        for (RangeLink* link = g_range_links; link != nullptr; link = link->next)
+        {
+            CamFocus* obj = link->host;
+            if (obj == nullptr || obj->tag_6 != id)
+            {
+                continue;
+            }
+            // 0x00112D10 on the child at +0x920, then vtable +0xC with 0x80
+            // and 0x0003ED70 while +0x908 is still null.
+            release_host(*obj);
+        }
+    }
+    else
+    {
+        if (type != 0x9f)
+        {
+            return 3;
+        }
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        const i32 found = fn_fbfb0(0xe9, kObjTagActor, key.c_str());
+        const u16 id = found == -1 ? u16{0} : static_cast<u16>(found + 1);
+        const u8 index = node_u8(g.scene_script, node, 0x48);
+        const u8 value = node_u8(g.scene_script, node, 0x4c);
+        for (RangeLink* link = g_range_links; link != nullptr; link = link->next)
+        {
+            CamFocus* obj = link->host;
+            if (obj == nullptr || obj->tag_6 != id)
+            {
+                continue;
+            }
+            if (obj->pair_204 != nullptr)
+            {
+                fn_f96f0(obj->pair_204, index, value);
+            }
+            if (obj->pair_310 != nullptr)
+            {
+                fn_f96f0(obj->pair_310, index, value);
+            }
+        }
+    }
+    return 2;
+}
+
+
 // Xbox 0x00125450. One node of the action walk. Type 0x3C stops the walk.
 // The listed types copy a condition and tell the runner to advance. Every
 // other type stops the walk. The word filled by 0x001077B0 is left 0
@@ -15593,11 +16069,11 @@ int fn_125450(Game& g, const ScriptNode& node)
     return 2;
 }
 
-// Xbox 0x00128A00. Walks fired file offsets. Handler 6 is 0x00125450.
-// The other sixteen handlers are not translated. A node type that handler
-// does not cover stops the walk and leaves the fired id in place. Return 1
-// stops on a type-0x3C node. Return 0 means the cursor left the blob, or
-// stopped on an untranslated node, and the drain keeps that fired id.
+// Xbox 0x00128A00. Walks fired file offsets. Handler 1 is 0x00124CC0.
+// Handler 6 is 0x00125450. The other handlers are not translated. A node
+// type none of them covers stops the walk and leaves the fired id in place.
+// Return 1 stops on a type-0x3C node. Return 0 means the cursor left the
+// blob, or stopped on an untranslated node, and the drain keeps that fired id.
 int fn_128a00(Game& g, u32 offset)
 {
     for (int step = 0; step < 256; ++step)
@@ -15607,7 +16083,11 @@ int fn_128a00(Game& g, u32 offset)
         {
             return 0;
         }
-        const int handler = fn_125450(g, *node);
+        int handler = fn_124cc0(g, *node);
+        if (handler == 3)
+        {
+            handler = fn_125450(g, *node);
+        }
         if (handler == 1)
         {
             return 1;

@@ -363,6 +363,40 @@ void pad_poll(float dt, const InputState& in)
     {
         pad.buttons = u16(pad.buttons | 0x0200);
     }
+    if (in.start)
+    {
+        pad.buttons = u16(pad.buttons | 0x0010);
+    }
+}
+
+// Xbox 0x001083F0, kind 3. The mask is new when it is set at +0x38 and clear at +0x74.
+bool pad_edge(const PadSlot& slot, u16 mask)
+{
+    return (slot.cur.buttons & mask) != 0 && (slot.prev.buttons & mask) == 0;
+}
+
+// Xbox 0x00107F50. The port whose new edge matches a bit of the mask, or -1.
+int pad_edge_port(u16 mask)
+{
+    if (mask == 0)
+    {
+        return -1;
+    }
+    for (u16 bit = 1; bit != 0 && bit <= 0x8000; bit = u16(bit << 1))
+    {
+        if ((mask & bit) == 0)
+        {
+            continue;
+        }
+        for (int port = 0; port < kPadPorts; ++port)
+        {
+            if (pad_edge(g_pads[port], bit))
+            {
+                return port;
+            }
+        }
+    }
+    return -1;
 }
 
 void shift_sample(PadSlot& slot)
@@ -424,6 +458,30 @@ void pad_tick(Game& g, const InputState& in)
     // Xbox 0x000FA3C0, then rumble submit 0x000FAD80.
     pad_process(g.clock.dt, in);
     pad_buttons();
+}
+
+bool attract_confirm_pressed()
+{
+    // Xbox 0x001431B0. The banner pad object is kind 3, the merged sample at 0x00507C98.
+    // A is 0x0100 and Start is 0x0010. Both new at once returns 0. Either one alone
+    // is confirmed by 0x00107F50 when a port has that new edge.
+    constexpr u16 kA = 0x0100;
+    constexpr u16 kStart = 0x0010;
+    const bool a = pad_edge(g_pads[kPadPorts], kA);
+    const bool start = pad_edge(g_pads[kPadPorts], kStart);
+    if (a && start)
+    {
+        return false;
+    }
+    if (a)
+    {
+        return pad_edge_port(kA) != -1;
+    }
+    if (start)
+    {
+        return pad_edge_port(kStart) != -1;
+    }
+    return false;
 }
 
 namespace

@@ -19,8 +19,9 @@ struct InputState
     bool down = false;  // D-pad down.
     bool left = false;  // D-pad left. Virtual keyboard column.
     bool right = false; // D-pad right.
-    bool accept = false; // A. Empty game slot opens the virtual keyboard.
-    bool back = false;  // B. Game-select returns to the attract reel.
+    bool accept = false; // A (0x0100). Empty game slot opens the virtual keyboard.
+    bool back = false;   // B. Game-select returns to the attract reel.
+    bool start = false;  // Start (0x0010). Attract banner accepts this or A, not both.
 };
 
 // Xbox WinMain 0x00032390: gfx_init, fs_init, game_init, then forever frame_tick 0x00033B50.
@@ -56,12 +57,21 @@ struct Game
     bool running = true;
     float time = 0.f;
     u32 frame = 0;
-    // Widget mode from the table at 0x0030A000 (stride 0x18).
-    // Boot 0x000E5A80 stores 1 in DAT_00429BC0. 0x000E5B27 uses that when the
-    // attract stream is idle, which is slot select. 4 is the naming keyboard.
-    // 3 is the occupied-slot contents screen (0x000E02D0).
-    // 6 is the play row (0x000D5880). A on contents state 1 enters it (0x000D94FD).
-    int frontend_mode = 0;
+    // Widget vtable from 0x0030A000, stride 0x18. -1 is no frontend widget.
+    // 0 is the attract banner (entitySceneControlAttract). 1 is slot select,
+    // installed by entitySceneControlGameSelect. 4 is the naming keyboard.
+    // 3 is occupied-slot contents (0x000E02D0). 6 is the play row (0x000D5880).
+    int frontend_mode = -1;
+    // DAT_00429BC0. Boot 0x000E5A80 stores 1. 0x000E5AE0 installs modes[this]
+    // once stream 2 is idle. 0x000DD740 writes 1 again.
+    int frontend_pending = 1;
+    // Attract banner widget+0x294. 0x00080C10 calls 0x00080CB0 only while this is clear.
+    bool attract_banner_latched = false;
+    // Scene record at DAT_00510E58. +0x80 is the script 0x0011EB30 copies in.
+    // +0x104 is the phase. +0x110 blocks 0x0011E4C0 until the load finishes.
+    char requested_script[0x80]{};
+    int script_phase = 0;
+    bool script_hold = false;
     // Contents rows. 0 is Play, the row whose accept switches to mode 6.
     int contents_row = 0;
     // frontendGameSlotSelectBasic (0x000DF9A0). Index is menu+0xB2C. Empty slots until a save exists.

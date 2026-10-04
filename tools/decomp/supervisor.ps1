@@ -97,7 +97,24 @@ function Move-Task($Task, [string]$Folder) {
 function Get-TaskFiles([string]$Folder) {
     $dir = Join-Path $Queue $Folder
     if (-not (Test-Path $dir)) { return @() }
-    return @(Get-ChildItem -LiteralPath $dir -Filter "*.md" | Sort-Object Name)
+    # Prompt files are also *.md. Only the 8-digit VA tasks are work items.
+    return @(Get-ChildItem -LiteralPath $dir -Filter "*.md" |
+        Where-Object { $_.Name -match '^[0-9A-Fa-f]{8}\.md$' } |
+        Sort-Object Name)
+}
+
+# Git arguments are a single array so flags such as -D and -b are not treated as
+# PowerShell parameters (-D would bind to -Dir and git would try to cd into the branch name).
+function Invoke-GitAt([string]$Dir, [string[]]$GitArgs) {
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $output = & git -C $Dir @GitArgs 2>&1
+    $code = $LASTEXITCODE
+    $ErrorActionPreference = $prev
+    if ($output) {
+        $output | ForEach-Object { Write-Host $_ }
+    }
+    $global:LASTEXITCODE = $code
 }
 
 function Test-Unblocked($Task) {
@@ -135,8 +152,8 @@ function Get-ClaimStamp($Task) {
 function Remove-TaskWorktree([string]$Key) {
     if (-not $Key) { return }
     $path = Join-Path $WtRoot $Key
-    & git -C $Repo worktree remove --force $path 2>$null
-    & git -C $Repo branch -D "decomp/task-$Key" 2>$null
+    Invoke-GitAt $Repo @("worktree", "remove", "--force", $path)
+    Invoke-GitAt $Repo @("branch", "-D", "decomp/task-$Key")
 }
 
 function Invoke-FailTask($Task, [string]$Message) {
@@ -226,15 +243,15 @@ function Test-BaseCommit {
 }
 
 function Ensure-AutoWorktree {
-    & git -C $Repo rev-parse --verify --quiet decomp/auto 2>$null | Out-Null
+    Invoke-GitAt $Repo @("rev-parse", "--verify", "--quiet", "decomp/auto")
     if ($LASTEXITCODE -ne 0) {
-        & git -C $Repo branch decomp/auto HEAD
+        Invoke-GitAt $Repo @("branch", "decomp/auto", "HEAD")
         if ($LASTEXITCODE -ne 0) { throw "could not create decomp/auto" }
     }
     New-Item -ItemType Directory -Force -Path $WtRoot | Out-Null
     $auto = Join-Path $WtRoot "auto"
     if (-not (Test-Path (Join-Path $auto ".git"))) {
-        & git -C $Repo worktree add $auto decomp/auto
+        Invoke-GitAt $Repo @("worktree", "add", $auto, "decomp/auto")
         if ($LASTEXITCODE -ne 0) { throw "could not add decomp/auto worktree" }
     }
     return $auto
@@ -244,14 +261,16 @@ function New-TaskWorktree($Task) {
     $key = Get-VaKey $Task.Fields["va"]
     $branch = "decomp/task-$key"
     $path = Join-Path $WtRoot $key
-    & git -C $Repo rev-parse --verify --quiet $branch 2>$null | Out-Null
+    Invoke-GitAt $Repo @("rev-parse", "--verify", "--quiet", $branch)
     if ($LASTEXITCODE -eq 0) {
-        & git -C $Repo worktree remove --force $path 2>$null
-        & git -C $Repo branch -D $branch
+        Invoke-GitAt $Repo @("worktree", "remove", "--force", $path)
+        Invoke-GitAt $Repo @("branch", "-D", $branch)
         if ($LASTEXITCODE -ne 0) { throw "could not replace branch $branch" }
     }
-    & git -C $Repo worktree add -b $branch $path decomp/auto
-    if ($LASTEXITCODE -ne 0) { throw "could not add worktree $path" }
+    if (-not (Test-Path (Join-Path $path ".git"))) {
+        Invoke-GitAt $Repo @("worktree", "add", "-b", $branch, $path, "decomp/auto")
+        if ($LASTEXITCODE -ne 0) { throw "could not add worktree $path" }
+    }
     return $path
 }
 
@@ -277,11 +296,15 @@ Game directory for a manual run: $GameDir
 Pass it as --game-dir. Do not stage OriginalFiles, xbe, bnl, or iso files.
 
 Rules:
-- Behavior reconstruction, not a paste of the Ghidra listing.
+- Translate the decompile at the dump path. Same branches, compares, and offsets.
+- If a branch is not in the dump, do not write it. Do not paste the listing in as the implementation.
+- A host boundary is only a call the dump makes: file IO, D3D, XInput, heap, or thread TLS. Return what the dump tests.
+- An untranslated callee blocks the task. Do not stub it.
 - Allman braces, matching src/engine.
 - Comment each function you add with // Xbox $va
 - Do not edit files that are not listed above.
 - Do not append docs/XBE.md. Do not commit.
+- gbtg --headless exiting 0 is a crash check. It does not accept the function.
 - Touch this heartbeat when you start and when you finish: $hb
 - When you stop, create this empty file: $ready
 "@
@@ -411,32 +434,32 @@ function Invoke-VerifyTask($Task) {
     $name = $Task.Fields["name"]
     $dirtySource = @((Get-DirtyPaths $wt) | Where-Object { $_ -ne "TASK.md" })
     if ($dirtySource.Count -gt 0) {
-        & git -C $wt add -- $allowed
+        Invoke-GitAt $wt (@("add", "--") + @($allowed))
         if ($LASTEXITCODE -ne 0) {
             Invoke-FailTask $Task "git add failed"
             return
         }
-        & git -C $wt commit -m "reconstruct $name at $va"
+        Invoke-GitAt $wt @("commit", "-m", "reconstruct $name at $va")
         if ($LASTEXITCODE -ne 0) {
-            & git -C $wt reset
+            Invoke-GitAt $wt @("reset")
             Invoke-FailTask $Task "git commit failed"
             return
         }
     }
-    & git -C $auto cherry-pick "decomp/auto..decomp/task-$key"
+    Invoke-GitAt $auto @("cherry-pick", "decomp/auto..decomp/task-$key")
     if ($LASTEXITCODE -ne 0) {
-        & git -C $auto cherry-pick --abort 2>$null
+        Invoke-GitAt $auto @("cherry-pick", "--abort")
         Invoke-FailTask $Task "cherry-pick onto decomp/auto failed"
         return
     }
     Add-XbeLine $auto $Task
-    & git -C $auto add -- docs/XBE.md
-    & git -C $auto commit --amend --no-edit
+    Invoke-GitAt $auto @("add", "--", "docs/XBE.md")
+    Invoke-GitAt $auto @("commit", "--amend", "--no-edit")
     if ($LASTEXITCODE -ne 0) {
-        & git -C $auto commit -m "note $name at $va"
+        Invoke-GitAt $auto @("commit", "-m", "note $name at $va")
     }
-    & git -C $Repo worktree remove --force $wt
-    & git -C $Repo branch -d "decomp/task-$key"
+    Invoke-GitAt $Repo @("worktree", "remove", "--force", $wt)
+    Invoke-GitAt $Repo @("branch", "-d", "decomp/task-$key")
     Remove-Item -LiteralPath (Join-Path $Queue "claimed\$key.heartbeat") -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath (Join-Path $Queue "claimed\$key.ready") -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath (Join-Path $Queue "claimed\$key.prompt.md") -ErrorAction SilentlyContinue
@@ -456,6 +479,30 @@ function Invoke-VerifyReady {
     }
 }
 
+function Start-AgentWorker([string]$Workspace) {
+    # Get-Command resolves `agent` to agent.ps1. Start-Process cannot CreateProcess a script
+    # (-NoNewWindow forces UseShellExecute off), which surfaces as "%1 is not a valid Win32 application".
+    $agent = Get-Command agent -ErrorAction SilentlyContinue
+    if (-not $agent) { return $null }
+    $prompt = "Follow TASK.md in this workspace. Create the ready file when you stop."
+    $tail = "--print --force --workspace `"$Workspace`" `"$prompt`""
+    $source = $agent.Source
+    $ext = [System.IO.Path]::GetExtension($source).ToLowerInvariant()
+    if ($ext -eq ".ps1") {
+        $exe = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+        $arg = "-NoProfile -ExecutionPolicy Bypass -File `"$source`" $tail"
+    }
+    elseif ($ext -eq ".cmd" -or $ext -eq ".bat") {
+        $exe = Join-Path $env:SystemRoot "System32\cmd.exe"
+        $arg = "/c `"$source`" $tail"
+    }
+    else {
+        $exe = $source
+        $arg = $tail
+    }
+    return Start-Process -FilePath $exe -ArgumentList $arg -PassThru -NoNewWindow
+}
+
 function Invoke-Agents {
     $agent = Get-Command agent -ErrorAction SilentlyContinue
     $jobs = @()
@@ -471,9 +518,13 @@ function Invoke-Agents {
             continue
         }
         Write-Host "agent $key"
-        $arg = "--print --force --workspace `"$wt`" `"Follow TASK.md in this workspace. Create the ready file when you stop.`""
-        $jobs += Start-Process -FilePath $agent.Source -ArgumentList $arg -PassThru -NoNewWindow
-        $jobs[-1] | Add-Member -NotePropertyName TaskKey -NotePropertyValue $key
+        $proc = Start-AgentWorker $wt
+        if (-not $proc) {
+            Write-Host "agent $key failed to start"
+            continue
+        }
+        $proc | Add-Member -NotePropertyName TaskKey -NotePropertyValue $key
+        $jobs += $proc
     }
     if (-not $agent) { return $false }
     $launched = @()

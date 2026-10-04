@@ -18,6 +18,8 @@ class GloopyFont
   public:
     bool load(const std::filesystem::path& path);
     int cell() const { return cell_; }
+    // CPU dword +0x10. 0x000809C0 filds it and subtracts it, times 1.125, from the HUD anchor.
+    int drop() const { return drop_; }
     int frame(float time) const;
     int rest_frame() const { return frame_count_ > 0 ? frame_count_ - 1 : 0; }
     // Space (0x20) uses the advance of 'l' (FUN_000607f0). Other missing codes advance by cell().
@@ -40,6 +42,7 @@ class GloopyFont
 
     int first_ = 0;
     int cell_ = 32;
+    int drop_ = 32;
     int frame_count_ = 1;
     float frame_rate_ = 25.f;
     std::vector<Glyph> glyphs_;

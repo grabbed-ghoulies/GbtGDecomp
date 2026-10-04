@@ -1,6 +1,8 @@
 # Reconstruction queue
 
-Local agents reconstruct Xbox functions one at a time. The supervisor in [`tools/decomp/supervisor.ps1`](../tools/decomp/supervisor.ps1) claims work, and a task is kept only after `gbtg` builds and `gbtg --headless --frames 1` exits 0.
+Local agents translate Xbox functions one at a time from `cache/ghidra_frontier/<VA>.txt`. The same branches, compares, and offsets are required. A host boundary is only a call the dump makes (file IO, D3D, XInput, heap, thread TLS) and it returns what the dump tests. A missing callee is listed in `blocked_by` and is not stubbed. A branch the dump does not have is not written.
+
+The supervisor in [`tools/decomp/supervisor.ps1`](../tools/decomp/supervisor.ps1) claims work after `gbtg` builds and `gbtg --headless --frames 1` exits 0. That exit code is a crash check. It does not accept the function.
 
 Cloud agents cannot do this. `OriginalFiles/`, `ghidra_projects/`, and `cache/` are not in git.
 

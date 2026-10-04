@@ -15332,6 +15332,335 @@ int fn_16f1a8(const void* lpfn)
     return fn_16f172(lpfn, 1);
 }
 
+// Condition opcodes are the index into the 27-entry table at 0x00314258.
+// The paired size is what 0x00124C80 copies into the stride-0x20 record.
+struct ScriptCond
+{
+    u8 raw[0x20]{};
+};
+
+constexpr u32 kScriptCondSize[27] = {
+    0x10, 0x10, 0x08, 0x10, 0x18, 0x14, 0x10, 0x0C, 0x0C, 0x0C, 0x14, 0x14, 0x10, 0x10,
+    0x10, 0x14, 0x10, 0x1C, 0x10, 0x20, 0x08, 0x08, 0x08, 0x10, 0x10, 0x10, 0x0C,
+};
+
+constexpr const char* kScriptCondName[27] = {
+    "scriptConditionId_TimeOut",
+    "scriptConditionId_NumberGhouliesAlive",
+    "scriptConditionId_ScareSourceProximity",
+    "scriptConditionId_ObjectPickedUp",
+    "scriptConditionId_NumberGhouliesKilled",
+    "scriptConditionId_NumberOfKnockdowns",
+    "scriptConditionId_PlayerApproachesDoor",
+    "scriptConditionId_HauntedObjectActivated",
+    "scriptConditionId_PlayerEntersRegion",
+    "scriptConditionId_PlayerLeavesRegion",
+    "scriptConditionId_SpecificGhouliesKilled",
+    "scriptConditionId_SpecificGhouliesAlive",
+    "scriptConditionId_ObjectByMarkerRemoved",
+    "scriptConditionId_PlayerDeflectionContact",
+    "scriptConditionId_PlayerHitGhouly",
+    "scriptConditionId_GhoulyTriggered",
+    "scriptConditionId_GhoulyExistsInScene",
+    "scriptConditionId_ObjectByMarkerBroken",
+    "scriptConditionId_ActorHasNoEnergy",
+    "scriptConditionId_EveryNthKill",
+    "scriptConditionId_NoGhoulySpawnsActive",
+    "scriptConditionId_IsChallenge21Active",
+    "scriptConditionId_IsChallenge21NotActive",
+    "scriptConditionId_GhoulyEntersRegion",
+    "scriptConditionId_GhoulyHasEnergyLEQ",
+    "scriptConditionId_GhoulySignal",
+    "scriptConditionId_ObjectByMarkerNotBroken",
+};
+
+std::vector<ScriptCond> g_script_conds;
+std::vector<u32> g_script_fired;
+
+u32 cond_u32(const ScriptCond& rec, u32 at)
+{
+    return u32(rec.raw[at]) | (u32(rec.raw[at + 1]) << 8) | (u32(rec.raw[at + 2]) << 16) | (u32(rec.raw[at + 3]) << 24);
+}
+
+void cond_put_u32(ScriptCond& rec, u32 at, u32 v)
+{
+    rec.raw[at] = u8(v);
+    rec.raw[at + 1] = u8(v >> 8);
+    rec.raw[at + 2] = u8(v >> 16);
+    rec.raw[at + 3] = u8(v >> 24);
+}
+
+float cond_f32(const ScriptCond& rec, u32 at)
+{
+    const u32 bits = cond_u32(rec, at);
+    float v = 0.f;
+    std::memcpy(&v, &bits, 4);
+    return v;
+}
+
+void cond_put_f32(ScriptCond& rec, u32 at, float v)
+{
+    u32 bits = 0;
+    std::memcpy(&bits, &v, 4);
+    cond_put_u32(rec, at, bits);
+}
+
+u32 node_u32(const SceneScript& script, const ScriptNode& node, u32 rel)
+{
+    if (rel + 4 > node.size || node.offset + rel + 4 > script.bytes.size())
+    {
+        return 0;
+    }
+    return read_u32(script.bytes, node.offset + rel);
+}
+
+const ScriptNode* script_node_at(const SceneScript& script, u32 offset)
+{
+    for (const ScriptNode& node : script.nodes)
+    {
+        if (node.offset == offset)
+        {
+            return &node;
+        }
+    }
+    return nullptr;
+}
+
+const char* script_condition_name(u32 opcode)
+{
+    if (opcode >= 27)
+    {
+        return "scriptConditionId_Unknown";
+    }
+    return kScriptCondName[opcode];
+}
+
+void log_script_nodes(const SceneScript& script)
+{
+    const std::ios_base::fmtflags saved = std::cout.flags();
+    for (const ScriptNode& node : script.nodes)
+    {
+        std::cout << "  node +0x" << std::hex << node.offset << " size 0x" << node.size << " type 0x" << node.type;
+        if (!node.text.empty())
+        {
+            std::cout << " " << node.text;
+        }
+        std::cout << "\n";
+    }
+    std::cout.flags(saved);
+}
+
+void script_vm_reset()
+{
+    g_script_conds.clear();
+    g_script_fired.clear();
+}
+
+// Xbox 0x00124C80. Grows DAT_0051234C by the 0x20 stride and copies `size` bytes.
+void fn_124c80(const ScriptCond& src, u32 size, u32 opcode)
+{
+    ScriptCond rec{};
+    if (size > sizeof(rec.raw))
+    {
+        size = u32(sizeof(rec.raw));
+    }
+    if (size != 0)
+    {
+        std::memcpy(rec.raw, src.raw, size);
+    }
+    const std::ios_base::fmtflags saved = std::cout.flags();
+    std::cout << "script condition opcode " << opcode << " " << script_condition_name(opcode) << " size 0x" << std::hex
+              << size << " link +0x" << cond_u32(rec, 4) << "\n";
+    std::cout.flags(saved);
+    g_script_conds.push_back(rec);
+}
+
+// Xbox 0x00132650. ucomiss of the float at +8 against 0. Equal, and not a
+// NaN, returns 1 so the eval pass fires the link and drops the record.
+int fn_132650(const ScriptCond& rec)
+{
+    const float left = cond_f32(rec, 8);
+    if (left == 0.f)
+    {
+        return 1;
+    }
+    return 0;
+}
+
+// Xbox 0x00124BE0. A zero keeps the record. Any other value queues the link
+// at +4. A return of exactly 1 also removes the record and the slot that
+// slides down is evaluated next. Opcode 0 is 0x00132650. Other opcodes are
+// not evaluated until their functions are translated.
+void fn_124be0(Game& g)
+{
+    size_t i = 0;
+    while (i < g_script_conds.size())
+    {
+        ScriptCond& rec = g_script_conds[i];
+        const u32 opcode = cond_u32(rec, 0);
+        int fired = 0;
+        if (opcode == 0)
+        {
+            fired = fn_132650(rec);
+        }
+        if (fired == 0)
+        {
+            ++i;
+            continue;
+        }
+        g_script_fired.push_back(cond_u32(rec, 4));
+        if (fired == 1)
+        {
+            g_script_conds.erase(g_script_conds.begin() + static_cast<std::ptrdiff_t>(i));
+            continue;
+        }
+        ++i;
+    }
+    (void)g;
+}
+
+// Xbox 0x00125450. One node of the action walk. Type 0x3C stops the walk.
+// The listed types copy a condition and tell the runner to advance. Every
+// other type stops the walk. The word filled by 0x001077B0 is left 0
+// until that function is translated.
+int fn_125450(Game& g, const ScriptNode& node)
+{
+    u32 opcode = 0;
+    bool as_float = false;
+    bool word_then_far = false;
+    bool payload_at_8 = false;
+    switch (node.type)
+    {
+    case 0x3C:
+        return 1;
+    case 0x3D:
+        opcode = 0;
+        as_float = true;
+        break;
+    case 0x3E:
+        opcode = 1;
+        payload_at_8 = true;
+        break;
+    case 0x40:
+        opcode = 3;
+        word_then_far = true;
+        break;
+    case 0x47:
+        opcode = 8;
+        payload_at_8 = true;
+        break;
+    case 0x48:
+        opcode = 9;
+        payload_at_8 = true;
+        break;
+    case 0x94:
+        opcode = 23;
+        word_then_far = true;
+        break;
+    case 0x95:
+        opcode = 24;
+        word_then_far = true;
+        break;
+    case 0x99:
+        opcode = 25;
+        word_then_far = true;
+        break;
+    default:
+        return 3;
+    }
+    ScriptCond rec{};
+    cond_put_u32(rec, 0, opcode);
+    cond_put_u32(rec, 4, node.link);
+    if (as_float)
+    {
+        const i32 ticks = i32(node_u32(g.scene_script, node, 8));
+        cond_put_f32(rec, 8, float(ticks));
+        cond_put_u32(rec, 0xC, node_u32(g.scene_script, node, 0xC));
+    }
+    else if (word_then_far)
+    {
+        cond_put_u32(rec, 0xC, node_u32(g.scene_script, node, 0x48));
+    }
+    else if (payload_at_8)
+    {
+        cond_put_u32(rec, 8, node_u32(g.scene_script, node, 8));
+        if (kScriptCondSize[opcode] > 0xC)
+        {
+            cond_put_u32(rec, 0xC, node_u32(g.scene_script, node, 0xC));
+        }
+    }
+    fn_124c80(rec, kScriptCondSize[opcode], opcode);
+    return 2;
+}
+
+// Xbox 0x00128A00. Walks fired file offsets. Handler 6 is 0x00125450.
+// The other sixteen handlers are not translated. A node type that handler
+// does not cover stops the walk and leaves the fired id in place. Return 1
+// stops on a type-0x3C node. Return 0 means the cursor left the blob, or
+// stopped on an untranslated node, and the drain keeps that fired id.
+int fn_128a00(Game& g, u32 offset)
+{
+    for (int step = 0; step < 256; ++step)
+    {
+        const ScriptNode* node = script_node_at(g.scene_script, offset);
+        if (node == nullptr || node->size == 0)
+        {
+            return 0;
+        }
+        const int handler = fn_125450(g, *node);
+        if (handler == 1)
+        {
+            return 1;
+        }
+        if (handler != 2)
+        {
+            return 0;
+        }
+        offset = node->link;
+    }
+    return 0;
+}
+
+// Xbox 0x001288C0. Walks the fired ids from the back. A zero from 0x00128A00
+// stops and leaves the remaining entries in place.
+void fn_1288c0(Game& g)
+{
+    for (size_t i = g_script_fired.size(); i > 0;)
+    {
+        --i;
+        const int ran = fn_128a00(g, g_script_fired[i]);
+        if (ran == 0)
+        {
+            return;
+        }
+        g_script_fired.erase(g_script_fired.begin() + static_cast<std::ptrdiff_t>(i));
+    }
+}
+
+// Xbox 0x0004B440. The loaded blob base is pushed twice on retail; one file
+// offset is the same cursor. 0x001288C0 then walks it. 0x00128A00 does not
+// copy an aid_script into the 0x0011EB30 request buffer.
+void script_vm_bind(Game& g)
+{
+    script_vm_reset();
+    if (g.scene_script.nodes.empty())
+    {
+        return;
+    }
+    g_script_fired.push_back(g.scene_script.nodes.front().offset);
+    fn_1288c0(g);
+}
+
+// Xbox 0x00117100, then the eval at 0x00117140. 0x00133070 is not translated,
+// so a timeout record is not stepped. DAT_0050E794 is left clear so the eval
+// pass runs. Opcodes other than 0 are not evaluated.
+void script_vm_tick(Game& g, float dt)
+{
+    (void)dt;
+    fn_124be0(g);
+    fn_1288c0(g);
+}
+
 void load_scene_contents(Game& g, std::string_view name)
 {
     script_set_default_name(g);
@@ -15360,8 +15689,11 @@ void load_scene_contents(Game& g, std::string_view name)
             {
                 g.scene_script = parse_scene_script(e->cpu, e->name);
                 std::cout << "  script " << e->name << " bytes " << e->cpu.size()
-                          << " root=" << g.scene_script.root_offset << " aids " << g.scene_script.aids.size() << "\n";
+                          << " root=" << g.scene_script.root_offset << " aids " << g.scene_script.aids.size()
+                          << " nodes " << g.scene_script.nodes.size() << "\n";
+                log_script_nodes(g.scene_script);
                 log_script_refs(g, g.scene_script);
+                script_vm_bind(g);
             }
             for (const auto* e : entries_of_type(*g.scene_bundle, ResourceType::AidList))
             {
@@ -15405,6 +15737,7 @@ void load_scene_contents(Game& g, std::string_view name)
 void script_set_default_name(Game& g)
 {
     // Xbox 0x001287F0: copy default into DAT_00512494 and zero script globals.
+    script_vm_reset();
     g.scene_name = kNoScript;
     g.scene_script = {};
     g.script_aidlists.clear();
@@ -15420,6 +15753,8 @@ void script_set_default_name(Game& g)
 void script_set_name(Game& g, std::string_view name)
 {
     // Xbox 0x00128AB0: EAX = C string, copies into DAT_00512494.
+    // The condition list belongs to the script that was bound, so a new name drops it.
+    script_vm_reset();
     g.scene_name = std::string(name);
 }
 
@@ -15449,23 +15784,65 @@ void scene_order_go(Game& g, size_t index)
     cutscene_queue_start(g);
 }
 
-void scene_order_advance(Game& g)
+void script_load(Game& g, std::string_view name)
 {
-    // Xbox 0x0012C2D0. The finished script's slot is followed by the next sceneorder name.
-    scene_order_go(g, g.scene_index + 1);
-}
-
-void scene_order_leave_attract(Game& g)
-{
-    // Xbox 0x0012C5D0. A during attract skips the remaining attractsequence entries.
-    for (size_t i = g.scene_index + 1; i < g.scene_order.size(); ++i)
+    // Xbox 0x0012C5D0. 0x0012C2D0 looks the requested aid up in the directory
+    // at 0x0042AC80 (0x00116220, stride 0x90) and loads that scene. A name that
+    // is not on the boot list is still a script: the directory is every aid_script.
+    if (name.empty())
     {
-        if (g.scene_order[i].find("attract") == std::string::npos)
+        return;
+    }
+    for (size_t i = 0; i < g.scene_order.size(); ++i)
+    {
+        if (g.scene_order[i] == name)
         {
             scene_order_go(g, i);
             return;
         }
     }
+    std::cout << "script " << std::string(name) << "\n";
+    load_scene_contents(g, name);
+    cutscene_queue_start(g);
+}
+
+void script_request(Game& g, std::string_view name)
+{
+    // Xbox 0x0011EB30. EAX is the source string. It is copied to scene+0x80
+    // (DAT_00510ED8) and the mode argument is stored at DAT_00510F58.
+    // Loading waits for 0x0011E4C0.
+    if (std::memcmp(g.requested_script, "aid_", 4) == 0)
+    {
+        g.requested_script[0] = '\0';
+    }
+    size_t i = 0;
+    while (i + 1 < sizeof(g.requested_script) && i < name.size())
+    {
+        g.requested_script[i] = name[i];
+        ++i;
+    }
+    g.requested_script[i] = '\0';
+    // The mode argument is stored at DAT_00510F58. Nothing in the binary reads it.
+}
+
+void script_pump(Game& g)
+{
+    // Xbox 0x0011E4C0 is not translated. frame_tick calls it with EAX = DAT_00510E58.
+    // The aid_ name at scene+0x80 stays queued. This does not load the script
+    // and does not mark the stream finished.
+    (void)g;
+}
+
+void scene_order_advance(Game& g)
+{
+    // Xbox 0x0012C5D0 via 0x0008F5F6. The finished script is followed by the next
+    // sceneorder name, loaded by the same path as a requested script.
+    const size_t next = g.scene_index + 1;
+    if (next >= g.scene_order.size())
+    {
+        return;
+    }
+    script_load(g, g.scene_order[next]);
 }
 
 void cutscene_queue_tick(Game& g, float dt)

@@ -1,18 +1,24 @@
 #include "gbtg/engine_internal.hpp"
 #include "gbtg/font.hpp"
 #include "gbtg/gfx.hpp"
+#include "gbtg/loctext.hpp"
 #include "gbtg/resource.hpp"
 #include "gbtg/texture.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <filesystem>
 #include <iostream>
+#include <map>
 #include <string>
+#include <vector>
 
 namespace gbtg
 {
 namespace
 {
+
+std::u16string gameselect_string(const Game& g, std::string_view key);
 
 RgbaImage image_from_entry(const BundleEntry& entry)
 {
@@ -45,80 +51,41 @@ const Game::UiImage* find_ui(const Game& g, std::string_view key)
     return nullptr;
 }
 
-void load_menu_textures(Game& g)
+bool scene_control_is(const Game& g, std::string_view suffix)
 {
-    if (find_ui(g, "gameselect_emptyslotbackground"))
+    // The scene script names one objparams. The type table at 0x0030DB50
+    // registers that object: scenecontrol_gameselect is entitySceneControlGameSelect.
+    constexpr std::string_view kPrefix = "aid_objparams_ghoulies_scenecontrol_";
+    for (const auto& aid : g.scene_script.aids)
     {
-        return;
-    }
-    // Mode 1 binds these aids by name (0x000DD756). They live in the gameselect bundle.
-    constexpr std::string_view kMenu = "aid_script_ghoulies_gameselect_gameselect";
-    const auto rel = aid_to_bundle_rel(kMenu);
-    if (!rel || !std::filesystem::exists(g.aids.bundle_path(*rel)))
-    {
-        return;
-    }
-    const Bundle& bundle = g.aids.load_bundle_rel(*rel);
-    for (const auto* entry : entries_of_type(bundle, ResourceType::Texture))
-    {
-        try
+        if (aid.starts_with(kPrefix) && aid.substr(kPrefix.size()) == suffix)
         {
-            Game::UiImage image;
-            image.name = entry->name;
-            image.image = image_from_entry(*entry);
-            g.ui.push_back(std::move(image));
-        }
-        catch (const std::exception& ex)
-        {
-            std::cout << "  ui fail " << entry->name << ": " << ex.what() << "\n";
+            return true;
         }
     }
-    std::cout << "  menu textures " << g.ui.size() << "\n";
+    return false;
 }
 
-GfxRect ui_letterbox()
+bool scene_control_starts(const Game& g, std::string_view suffix)
 {
-    int width = 0;
-    int height = 0;
-    gfx_size(width, height);
-    if (width <= 0 || height <= 0)
+    constexpr std::string_view kPrefix = "aid_objparams_ghoulies_scenecontrol_";
+    for (const auto& aid : g.scene_script.aids)
     {
-        width = 960;
-        height = 540;
+        if (aid.starts_with(kPrefix) && aid.substr(kPrefix.size()).starts_with(suffix))
+        {
+            return true;
+        }
     }
-    const float frame = 640.f / 480.f;
-    const float window = float(width) / float(height);
-    GfxRect board;
-    if (window > frame)
-    {
-        board.h = 1.f;
-        board.w = frame / window;
-        board.x = (1.f - board.w) * 0.5f;
-    }
-    else
-    {
-        board.w = 1.f;
-        board.h = window / frame;
-        board.y = (1.f - board.h) * 0.5f;
-    }
-    return board;
+    return false;
 }
 
-GfxRect ui_place(const GfxRect& board, float x, float y, float w, float h)
+// Xbox 0x0005CA60
+// Submits the quad 0x0005E380 pushes. x,y is the top-left in the 640x480 HUD.
+void draw_sprite(const Game::UiImage* image, float x, float y, float w, float h)
 {
-    GfxRect rect;
-    rect.x = board.x + board.w * (x / 640.f);
-    rect.y = board.y + board.h * (y / 480.f);
-    rect.w = board.w * (w / 640.f);
-    rect.h = board.h * (h / 480.f);
-    return rect;
-}
-
-void draw_sprite(const Game::UiImage* image, const GfxRect& rect)
-{
-    if (image)
+    if (image != nullptr)
     {
-        gfx_draw_sprite(image->image, rect);
+        gfx_sprite_submit(image->image, x, y, w, h);
     }
 }
 
@@ -564,7 +531,7 @@ constexpr SlotPlate kSlots[3] = {
     {"gameselect_threeframe", 510.f, 200.f, 0.16f, 0.16f, 0.25f, 0.25f},
 };
 
-void draw_plate(const Game& g, const GfxRect& board, int index, bool selected)
+void draw_plate(const Game& g, int index, bool selected)
 {
     const SlotPlate& slot = kSlots[index];
     // 0x000DEB20. Empty uses the slot's oneframe/twoframe/threeframe.
@@ -573,11 +540,13 @@ void draw_plate(const Game& g, const GfxRect& board, int index, bool selected)
     const float nx = selected ? slot.hot_x : slot.rest_x;
     const float ny = selected ? slot.hot_y : slot.rest_y;
     const float bias = selected ? kHotBias : kRestBias;
+    // 0x000DE070 truncates the box, then places the quad at center - box/2.
+    // The drawn size stays norm * {640,480}. The bias only shifts that center.
     const int box_w = int(nx * kFrameW + bias);
     const int box_h = int(ny * kFrameH + bias);
     const float left = slot.center_x - float(box_w / 2);
     const float top = slot.center_y - float(box_h / 2);
-    draw_sprite(find_ui(g, texture), ui_place(board, left, top, nx * kFrameW, ny * kFrameH));
+    draw_sprite(find_ui(g, texture), left, top, nx * kFrameW, ny * kFrameH);
     if (!selected)
     {
         return;
@@ -588,9 +557,9 @@ void draw_plate(const Game& g, const GfxRect& board, int index, bool selected)
     const float aw = up ? float(up->image.width) : 128.f;
     const float ah = up ? float(up->image.height) : 32.f;
     const float ax = slot.center_x - aw * 0.5f;
-    draw_sprite(up, ui_place(board, ax, top - ah, aw, ah));
+    draw_sprite(up, ax, top - ah, aw, ah);
     const float dh = down ? float(down->image.height) : ah;
-    draw_sprite(down, ui_place(board, ax, top + ny * kFrameH, aw, dh));
+    draw_sprite(down, ax, top + ny * kFrameH, aw, dh);
 }
 
 std::u16string key_label(const Game& g, u32 code)
@@ -640,13 +609,12 @@ const GloopyFont& gloopy_font(const Game& g)
     return font;
 }
 
-void draw_glyphs(const GfxRect& board, const GloopyFont& font, std::u16string_view text, float pen_x, float pen_y,
-                 float scale, int frame)
+// Xbox 0x0005E9F0
+// 0x00051760 advances by x1-x0. 0x000608D0 shifts the cell left by x0 so texel x0
+// sits on the pen. 0x0005CA60 centers the quad, and the half-cell bias here cancels
+// that, leaving the top-left at (pen - x0*scale, pen_y). A zero scale returns.
+void draw_glyphs(const GloopyFont& font, std::u16string_view text, float pen_x, float pen_y, float scale, int frame)
 {
-    // FUN_00051760 advances by x1-x0. FUN_000608d0 shifts the full cell left by x0
-    // so texel x0 sits on the pen. The cell is the texture (32), not the ink box.
-    // FUN_0005CA60 builds the quad around the center, and the half-cell bias in
-    // FUN_0005E9F0 cancels that, leaving the top-left at (pen - x0*scale, pen_y).
     if (font.cell() <= 0 || scale == 0.f)
     {
         return;
@@ -658,13 +626,28 @@ void draw_glyphs(const GfxRect& board, const GloopyFont& font, std::u16string_vi
         if (const RgbaImage* glyph = font.image(ch, frame))
         {
             const float bx = float(font.bearing(ch)) * scale;
-            gfx_draw_sprite(*glyph, ui_place(board, x - bx, pen_y, em, em));
+            gfx_sprite_submit(*glyph, x - bx, pen_y, em, em);
         }
         x += float(font.advance(ch)) * scale;
     }
 }
 
-void draw_keyboard(const Game& g, const GfxRect& board)
+void draw_centered_line(const GloopyFont& font, std::u16string_view text, float anchor_x, float pen_y, float scale,
+                        int frame)
+{
+    if (text.empty() || font.cell() <= 0 || scale == 0.f)
+    {
+        return;
+    }
+    float width = 0.f;
+    for (char16_t ch : text)
+    {
+        width += float(font.advance(ch)) * scale;
+    }
+    draw_glyphs(font, text, anchor_x - width * 0.5f, pen_y, scale, frame);
+}
+
+void draw_keyboard(const Game& g)
 {
     if (!g.naming)
     {
@@ -687,11 +670,11 @@ void draw_keyboard(const Game& g, const GfxRect& board)
             const bool hot = r == g.kb_row && c == g.kb_col;
             if (code == 0x22B2 && left)
             {
-                draw_sprite(left, ui_place(board, left_px, top, float(left->image.width), float(left->image.height)));
+                draw_sprite(left, left_px, top, float(left->image.width), float(left->image.height));
             }
             else if (code == 0x22B3 && right)
             {
-                draw_sprite(right, ui_place(board, left_px, top, float(right->image.width), float(right->image.height)));
+                draw_sprite(right, left_px, top, float(right->image.width), float(right->image.height));
             }
             else
             {
@@ -701,13 +684,13 @@ void draw_keyboard(const Game& g, const GfxRect& board)
                 // +0xC0/+0xC4 is left on the clock (frame -1, byte +0x13 stays 0xFF).
                 const int frame = hot ? font.frame(g.time) : font.rest_frame();
                 // FUN_00016EF0 submits sx = sy = 0.65 (DAT_0032B1EC).
-                draw_glyphs(board, font, key_label(g, code), left_px, top, 0.65f, frame);
+                draw_glyphs(font, key_label(g, code), left_px, top, 0.65f, frame);
             }
             if (hot && caret)
             {
                 const float cw = std::min(w, float(caret->image.width));
                 const float ch = 8.f;
-                draw_sprite(caret, ui_place(board, left_px + (w - cw) * 0.5f, top + 42.f - ch, cw, ch));
+                draw_sprite(caret, left_px + (w - cw) * 0.5f, top + 42.f - ch, cw, ch);
             }
             x += w;
             if (c == 0)
@@ -726,31 +709,36 @@ void draw_keyboard(const Game& g, const GfxRect& board)
     {
         if (i == g.kb_caret && caret)
         {
-            draw_sprite(caret, ui_place(board, name_x, 54.f, float(caret->image.width) * 0.45f, name_em));
+            draw_sprite(caret, name_x, 54.f, float(caret->image.width) * 0.45f, name_em);
         }
         if (const RgbaImage* glyph = font.image(g.kb_text[i], frame))
         {
             const float bx = float(font.bearing(g.kb_text[i])) * name_scale;
-            gfx_draw_sprite(*glyph, ui_place(board, name_x - bx, 54.f, name_em, name_em));
+            gfx_sprite_submit(*glyph, name_x - bx, 54.f, name_em, name_em);
         }
         name_x += float(font.advance(g.kb_text[i])) * name_scale;
     }
     if (g.kb_caret >= g.kb_len && caret)
     {
-        draw_sprite(caret, ui_place(board, name_x, 54.f, float(caret->image.width) * 0.45f, name_em));
+        draw_sprite(caret, name_x, 54.f, float(caret->image.width) * 0.45f, name_em);
     }
 }
 
-void draw_contents(const Game& g, const GfxRect& board)
+void draw_contents(const Game& g)
 {
-    // Chapter plate stays on the slot center from 0x00429048. The accept row is Play
-    // (mode 6). Delete and Game Options are the other contents actions.
-    draw_sprite(find_ui(g, "gameselect_emptyslotbackground"), board);
-    draw_plate(g, board, g.slot, true);
+    // Chapter plate stays on the slot center from 0x00429048. The rows are the
+    // gameslotcontents keys: playgame, features, challenges.
+    draw_sprite(find_ui(g, "gameselect_emptyslotbackground"), 0.f, 0.f, kFrameW, kFrameH);
+    draw_plate(g, g.slot, true);
     const GloopyFont& font = gloopy_font(g);
     const int frame = font.rest_frame();
     const float scale = 0.65f;
-    static constexpr char16_t const* kRows[3] = {u"Play", u"Delete", u"GAME OPTIONS"};
+    // 0x000DA0B5 / the contents keys. Play, Features, Bonus Challenges.
+    const std::u16string rows_text[3] = {
+        gameselect_string(g, "gameslotcontents_playgame"),
+        gameselect_string(g, "gameslotcontents_features"),
+        gameselect_string(g, "gameslotcontents_challenges"),
+    };
     const int rows = g.frontend_mode == 6 ? 1 : 3;
     const float top = 300.f;
     const float step = 36.f;
@@ -764,14 +752,252 @@ void draw_contents(const Game& g, const GfxRect& board)
         {
             const Game::UiImage* arrow = find_ui(g, "gameselect_bigarrowup");
             const float ah = arrow ? float(arrow->image.height) : 32.f;
-            draw_sprite(arrow, ui_place(board, pen_x - 36.f, y, ah, ah * 0.5f));
+            draw_sprite(arrow, pen_x - 36.f, y, ah, ah * 0.5f);
         }
-        draw_glyphs(board, font, kRows[i], pen_x, y, scale, glyph);
+        draw_glyphs(font, rows_text[i], pen_x, y, scale, glyph);
     }
     if (g.slot_name_len[g.slot] > 0)
     {
-        draw_glyphs(board, font, std::u16string_view(g.slot_name[g.slot], size_t(g.slot_name_len[g.slot])), pen_x,
-                    48.f, scale, frame);
+        draw_glyphs(font, std::u16string_view(g.slot_name[g.slot], size_t(g.slot_name_len[g.slot])), pen_x, 48.f,
+                    scale, frame);
+    }
+}
+
+std::u16string utf8_to_u16(std::string_view utf8)
+{
+    std::u16string out;
+    for (size_t i = 0; i < utf8.size();)
+    {
+        const unsigned char c = static_cast<unsigned char>(utf8[i]);
+        char32_t cp = c;
+        size_t n = 1;
+        if (c >= 0xF0 && i + 3 < utf8.size())
+        {
+            cp = (char32_t(c & 0x07) << 18) | (char32_t(utf8[i + 1] & 0x3F) << 12) |
+                 (char32_t(utf8[i + 2] & 0x3F) << 6) | char32_t(utf8[i + 3] & 0x3F);
+            n = 4;
+        }
+        else if (c >= 0xE0 && i + 2 < utf8.size())
+        {
+            cp = (char32_t(c & 0x0F) << 12) | (char32_t(utf8[i + 1] & 0x3F) << 6) | char32_t(utf8[i + 2] & 0x3F);
+            n = 3;
+        }
+        else if (c >= 0xC0 && i + 1 < utf8.size())
+        {
+            cp = (char32_t(c & 0x1F) << 6) | char32_t(utf8[i + 1] & 0x3F);
+            n = 2;
+        }
+        if (cp > 0xFFFF)
+        {
+            cp -= 0x10000;
+            out.push_back(char16_t(0xD800 + (cp >> 10)));
+            out.push_back(char16_t(0xDC00 + (cp & 0x3FF)));
+        }
+        else
+        {
+            out.push_back(char16_t(cp));
+        }
+        i += n;
+    }
+    return out;
+}
+
+// aid_loctext_ghoulies_gameselect_gameselecttext. 0x000FF120 joins "gameselect__" + key.
+std::u16string gameselect_string(const Game& g, std::string_view key)
+{
+    static std::map<std::string, std::u16string> table;
+    static bool loaded = false;
+    if (!loaded)
+    {
+        loaded = true;
+        const auto path = g.aids.game_dir / "loctext" / "english" / "04d74e34";
+        if (std::filesystem::exists(path))
+        {
+            try
+            {
+                const LocTable parsed = parse_loctext(read_file(path), path.filename().string());
+                for (const auto& [k, v] : parsed.keys_to_utf8)
+                {
+                    table.emplace(k, utf8_to_u16(v));
+                }
+            }
+            catch (const std::exception& ex)
+            {
+                std::cerr << "gameselect loctext " << ex.what() << "\n";
+            }
+        }
+    }
+    std::string full = "gameselect__";
+    full.append(key);
+    const auto it = table.find(full);
+    if (it == table.end())
+    {
+        return {};
+    }
+    return it->second;
+}
+
+// Xbox 0x000DFD70 writes gameslotselection_instructions ("Choose A Game").
+// 0x000FC190 on 640x480 stores DAT_00509730 = 320 and DAT_00509734 = 240.
+// The title anchor is that point plus DAT_00428FB4 (0) and DAT_00428FB8 (50).
+// The same case places the prompt bar at DAT_0050974C - DAT_0032B1F4 (443.5 - 16).
+void draw_slot_select_copy(const Game& g)
+{
+    const GloopyFont& font = gloopy_font(g);
+    const int frame = font.rest_frame();
+    constexpr float kScale = 1.f;
+    draw_centered_line(font, gameselect_string(g, "gameslotselection_instructions"), 320.f, 290.f, kScale, frame);
+
+    const std::u16string move = gameselect_string(g, "gameslotselection_moveprompt");
+    const std::u16string select = gameselect_string(g, "gameslotselection_selectprompt");
+    const std::u16string back = gameselect_string(g, "gameslotselection_backtoattract");
+    std::u16string prompts;
+    for (const std::u16string* part : {&move, &select, &back})
+    {
+        if (part->empty())
+        {
+            continue;
+        }
+        if (!prompts.empty())
+        {
+            prompts += u"    ";
+        }
+        prompts += *part;
+    }
+    draw_centered_line(font, prompts, 320.f, 427.5f, kScale, frame);
+}
+
+// Xbox 0x000FF120 builds "%s__%s" from the two cstrings at 0x00323EE4 / 0x00323EEC.
+std::u16string attract_start_banner(const Game& g)
+{
+    static std::u16string text;
+    static bool loaded = false;
+    if (loaded)
+    {
+        return text;
+    }
+    loaded = true;
+    // aid_loctext_ghoulies_attract_attracttext
+    const auto path = g.aids.game_dir / "loctext" / "english" / "0bbbe8e4";
+    if (!std::filesystem::exists(path))
+    {
+        return text;
+    }
+    try
+    {
+        const LocTable table = parse_loctext(read_file(path), path.filename().string());
+        const auto it = table.keys_to_utf8.find("attract__StartBanner");
+        if (it != table.keys_to_utf8.end())
+        {
+            text = utf8_to_u16(it->second);
+        }
+    }
+    catch (const std::exception& ex)
+    {
+        std::cerr << "start banner loctext " << ex.what() << "\n";
+    }
+    return text;
+}
+
+// 0x0005F6E2. Delay is (rng_float in [1, 2) - 1) * DAT_0032B104.
+float banner_delay(unsigned& seed)
+{
+    seed = seed * 0x19660Du + 0x3C6EF35Fu;
+    const float unit = std::bit_cast<float>((seed & 0x7fffffu) | 0x3f800000u);
+    return (unit - 1.f) * 0.25f;
+}
+
+// Xbox 0x00060070. The text pool's step at +0x20 is 0.5 (0x0005F40A, DAT_0032B0F4).
+// Life is the 4.0 passed by 0x000809C0. edi (widget+0x121C) is 0, so a spent life
+// returns frame 0. Otherwise one forward pass, the last frame, then one pass back.
+int banner_glyph_frame(float age, float delay, int count)
+{
+    constexpr float kLife = 4.f;
+    constexpr float kStep = 0.5f;
+    constexpr float kEps = 0.001f;
+    if (count <= 1)
+    {
+        return 0;
+    }
+    const float t = age - delay;
+    if (t < 0.f)
+    {
+        return 0;
+    }
+    const float remaining = kLife - t;
+    if (remaining <= kEps)
+    {
+        return 0;
+    }
+    if (remaining >= kLife - kStep)
+    {
+        return int(t * float(count) / kStep) % count;
+    }
+    if (kStep < remaining)
+    {
+        return count - 1;
+    }
+    return int(remaining * float(count) / kStep) % count;
+}
+
+// Xbox 0x00080A30 creates the attract banner. 0x000809C0 places the widget:
+// x = DAT_00509730 (0x000FC190, width/2), y = DAT_0050972C - font[+0x10] * DAT_0032B5B4.
+// param_8 = 1, so 0x0005EF40 draws from anchor_x - measured_width/2.
+// 0x00080C10 counts DAT_0032B284 (7s) and builds the widget again.
+void draw_start_banner(const Game& g)
+{
+    if (g.scene_name.find("attract") == std::string::npos)
+    {
+        return;
+    }
+    const std::u16string text = attract_start_banner(g);
+    if (text.empty())
+    {
+        return;
+    }
+    const GloopyFont& font = gloopy_font(g);
+    const float scale = 1.125f;
+    const float inset = std::min(kFrameH * 0.85f, kFrameH * 0.90f);
+    const float anchor_y = kFrameH - (kFrameH - inset) * 0.5f;
+    const float pen_y = anchor_y - float(font.drop()) * scale;
+    float width = 0.f;
+    for (char16_t ch : text)
+    {
+        width += float(font.advance(ch)) * scale;
+    }
+    const float pen_x = kFrameW * 0.5f - width * 0.5f;
+
+    constexpr float kPeriod = 7.f;
+    struct BannerAnim
+    {
+        float born = -1.f;
+        unsigned seed = 1;
+        std::vector<float> delay;
+    };
+    static BannerAnim anim;
+    if (anim.born < 0.f || g.time - anim.born >= kPeriod || anim.delay.size() != text.size())
+    {
+        anim.born = g.time;
+        anim.delay.resize(text.size());
+        for (float& delay : anim.delay)
+        {
+            delay = banner_delay(anim.seed);
+        }
+    }
+    const float age = g.time - anim.born;
+    const int count = font.rest_frame() + 1;
+    const float em = float(font.cell()) * scale;
+    float x = pen_x;
+    for (size_t i = 0; i < text.size(); ++i)
+    {
+        const char16_t ch = text[i];
+        const int frame = banner_glyph_frame(age, anim.delay[i], count);
+        if (const RgbaImage* glyph = font.image(ch, frame))
+        {
+            const float bx = float(font.bearing(ch)) * scale;
+            gfx_sprite_submit(*glyph, x - bx, pen_y, em, em);
+        }
+        x += float(font.advance(ch)) * scale;
     }
 }
 
@@ -780,7 +1006,9 @@ void draw_contents(const Game& g, const GfxRect& board)
 void load_ui(Game& g)
 {
     g.ui.clear();
-    if (!g.scene_bundle || g.scene_name.find("gameselect") == std::string::npos)
+    // 0x000DD740 resolves these aids with 0x00035E90. They are files in the
+    // scene bundle the gameselect scene control just opened, not a name test.
+    if (!g.scene_bundle || !scene_control_is(g, "gameselect"))
     {
         return;
     }
@@ -803,25 +1031,29 @@ void load_ui(Game& g)
 
 void begin_frontend(Game& g)
 {
-    // 0x000E5AE0. Stream id 2 idle (0x00039D50 returns 0) jumps to 0x000E5B27:
-    // widget vtable = mode[DAT_00429BC0]. Boot 0x000E5A80 set that mode to 1.
-    // Attract is the title: the cutscene actor tracks (Rare book, studio book, logo book).
-    // Slot select is mode 1. It stays down until A, so the books are the picture.
-    if (g.scene_name.find("attract") != std::string::npos)
+    // entitySceneControlAttract (registrar 0x00080970). The banner is that object,
+    // built because the script names aid_objparams_ghoulies_scenecontrol_attract*.
+    if (scene_control_starts(g, "attract"))
     {
         g.frontend_mode = 0;
         g.naming = false;
+        // A new attract script builds a new banner, so +0x294 starts clear.
+        g.attract_banner_latched = false;
         std::cout << "title attract\n";
         return;
     }
-    if (g.scene_name.find("gameselect") == std::string::npos)
+    // entitySceneControlGameSelect init 0x00083660. It calls 0x000E5AE0, which
+    // installs modes[DAT_00429BC0] when stream id 2 is idle (0x00039D50 returns 0).
+    // Boot 0x000E5A80 stored 1, and 0x000DD740 stores 1 again: slot select.
+    // A scene with no frontend scene-control leaves the widget down.
+    if (!scene_control_is(g, "gameselect"))
     {
-        g.frontend_mode = 0;
+        g.frontend_mode = -1;
         g.naming = false;
         return;
     }
-    load_menu_textures(g);
-    g.frontend_mode = 1;
+    g.frontend_pending = 1;
+    g.frontend_mode = g.frontend_pending;
     g.naming = false;
     std::cout << "frontend mode 1 slot select\n";
 }
@@ -831,11 +1063,14 @@ void gameselect_tick(Game& g, const InputState& in)
     if (g.frontend_mode == 0)
     {
         g.naming = false;
-        // Title plays until A. 0x0012C5D0 then loads the next sceneorder script
-        // (gameselect), instead of drawing the slot widget over the attract books.
-        if (in.accept && !g.slot_accept && g.scene_name.find("attract") != std::string::npos)
+        // 0x00080C10 calls 0x00080CB0 while the banner dword at +0x294 is 0.
+        // 0x001431B0 accepts a new A or Start, not both. 0x0011EB30 then requests
+        // the gameselect script copied from 0x00322B8C.
+        if (!g.attract_banner_latched && attract_confirm_pressed())
         {
-            scene_order_leave_attract(g);
+            g.attract_banner_latched = true;
+            // 0x00322B8C. 0x0011EB30 queues it. frame_tick's 0x0011E4C0 loads it.
+            script_request(g, "aid_script_ghoulies_gameselect_gameselect");
         }
     }
     else if (g.frontend_mode == 4)
@@ -896,13 +1131,12 @@ void gameselect_tick(Game& g, const InputState& in)
                 std::cout << "frontend mode 3 slot contents\n";
             }
         }
-        // 0x000E05D0 copies aid_script_ghoulies_gameselect_backtoattract and asks for that script.
-        // That bundle is not in this dump; the attract reel is scene_order[0], which is where the prompt returns.
-        if (in.back && !g.slot_back && !g.scene_order.empty())
+        // 0x000E05D0 copies aid_script_ghoulies_gameselect_backtoattract from 0x00324F30
+        // into 0x0050E458, then 0x0011EAD0 requests that name.
+        if (in.back && !g.slot_back)
         {
             g.naming = false;
-            load_scene_contents(g, g.scene_order[0]);
-            cutscene_queue_start(g);
+            script_request(g, "aid_script_ghoulies_gameselect_backtoattract");
         }
     }
     else if (g.frontend_mode == 3)
@@ -945,13 +1179,12 @@ void gameselect_tick(Game& g, const InputState& in)
         {
             g.frontend_mode = 3;
         }
-        else if (in.accept && !g.slot_accept && g.scene_order.size() > 3)
+        else if (in.accept && !g.slot_accept)
         {
+            // 0x000E8520 copies aid_script_ghoulies_chapter1_scene0_1book from 0x00325500.
             std::cout << "play\n";
-            g.frontend_mode = 0;
             g.naming = false;
-            load_scene_contents(g, g.scene_order[3]);
-            cutscene_queue_start(g);
+            script_request(g, "aid_script_ghoulies_chapter1_scene0_1book");
         }
     }
     g.slot_down = in.down;
@@ -964,27 +1197,36 @@ void gameselect_tick(Game& g, const InputState& in)
 
 void draw_ui(const Game& g)
 {
+    gfx_sprite_clear();
+    if (g.frontend_mode < 0)
+    {
+        return;
+    }
     if (g.frontend_mode == 0)
     {
+        draw_start_banner(g);
         return;
     }
-    const GfxRect board = ui_letterbox();
     if (g.frontend_mode == 3 || g.frontend_mode == 6)
     {
-        draw_contents(g, board);
+        draw_contents(g);
         return;
     }
-    // FUN_000df140: an empty slot's backdrop is emptyslotbackground, scaled to the 640x480 frame.
-    draw_sprite(find_ui(g, "gameselect_emptyslotbackground"), board);
+    // 0x000DF140: an empty slot's backdrop is emptyslotbackground, scaled to the 640x480 frame.
+    draw_sprite(find_ui(g, "gameselect_emptyslotbackground"), 0.f, 0.f, kFrameW, kFrameH);
     for (int i = 0; i < 3; ++i)
     {
         if (i != g.slot)
         {
-            draw_plate(g, board, i, false);
+            draw_plate(g, i, false);
         }
     }
-    draw_plate(g, board, g.slot, true);
-    draw_keyboard(g, board);
+    draw_plate(g, g.slot, true);
+    if (g.frontend_mode == 1)
+    {
+        draw_slot_select_copy(g);
+    }
+    draw_keyboard(g);
 }
 
 } // namespace gbtg

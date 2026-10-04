@@ -2451,8 +2451,8 @@ void register_entity_types()
     // Xbox 0x00073190 entityBodyCamera_ctor: fill defaults, then overwrite.
     // +0x00..+0x0C become the camera size, tick, shutdown, and message.
     // +0x10 and +0x14 stay 0x00025EC0 and 0x00072AC0.
-    // Retail then stores 0x00072B10 at +0x18 and 0x00072CB0 at +0x1C. Those
-    // two replacements are not ported, so the default apply and gate remain.
+    // Retail stores 0x00072B10 at +0x18 and 0x00072CB0 at +0x1C. Those
+    // functions are not translated, so the slots stay empty.
     EntityType camera;
     camera.name = "entityBodyCamera";
     camera.kind = EntityKind::Body;
@@ -2462,6 +2462,8 @@ void register_entity_types()
     camera.methods.tick = entity_body_camera_tick;
     camera.methods.shutdown = entity_body_camera_shutdown;
     camera.methods.handle_message = entity_body_camera_message;
+    camera.methods.apply = nullptr;
+    camera.methods.gate = nullptr;
     camera.tick = camera.methods.tick;
     camera.shutdown = camera.methods.shutdown;
     camera.handle_message = camera.methods.handle_message;

@@ -90,6 +90,11 @@ int run_platform(Game& game, const PlatformConfig& cfg)
         {
             in.back = true;
         }
+        // Start is its own bit. Enter stays A so the two are never down together.
+        if (GetAsyncKeyState(VK_SPACE) & 0x8000)
+        {
+            in.start = true;
+        }
 #endif
 #if defined(GBTG_WITH_SDL)
         if (win)
@@ -130,6 +135,10 @@ int run_platform(Game& game, const PlatformConfig& cfg)
             if (keys[SDL_SCANCODE_BACKSPACE] || keys[SDL_SCANCODE_B])
             {
                 in.back = true;
+            }
+            if (keys[SDL_SCANCODE_SPACE])
+            {
+                in.start = true;
             }
         }
 #endif

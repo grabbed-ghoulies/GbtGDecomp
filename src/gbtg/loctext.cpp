@@ -124,10 +124,12 @@ LocTable parse_loctext(std::span<const u8> file_bytes, std::string name)
     {
         return table;
     }
+    // Head2 is the runtime stride-6 table 0x00162A30 searches: string id, then
+    // a wchar offset from the string blob. The id is not the string's index.
     struct Head2
     {
-        u16 len;
-        u32 id;
+        u16 id;
+        u32 wchar_off;
     };
     std::vector<Head2> h2(nstr);
     for (u32 i = 0; i < nstr; ++i)
@@ -136,71 +138,86 @@ LocTable parse_loctext(std::span<const u8> file_bytes, std::string name)
         {
             return table;
         }
-        h2[i].len = read_u16(chunk, off);
-        h2[i].id = read_u32(chunk, off + 2);
+        h2[i].id = read_u16(chunk, off);
+        h2[i].wchar_off = read_u32(chunk, off + 2);
         off += 6;
     }
     if (off + 6 <= chunk.size())
     {
-        off += 6; // extra head
+        off += 6;
     }
-    std::vector<std::string> values;
-    values.reserve(nstr);
-    for (u32 i = 0; i < nstr; ++i)
+    const size_t blob = off;
+    for (u32 i = 0; i < nstr && off < chunk.size(); ++i)
     {
-        values.push_back(utf16le_to_utf8(read_wcstring(chunk, off)));
+        read_wcstring(chunk, off);
     }
     if (off + 2 <= chunk.size())
     {
-        read_wcstring(chunk, off); // extra
+        read_wcstring(chunk, off);
     }
 
     if (off + 8 > chunk.size())
     {
         return table;
     }
-    off += 4; // chunk3 size
+    off += 4;
     const u32 nkeys = read_u32(chunk, off);
     off += 4;
-    if (nkeys != nstr || nkeys > 20000)
+    if (nkeys > 20000)
     {
-        // still try to read min
+        return table;
     }
-    const u32 n = std::min(nstr, nkeys);
-    struct Head3
+    // Each key record is (string id, hash, offset into the key blob). Records are
+    // sorted by hash, so the offset is what joins a key to its string id.
+    struct KeyRec
     {
-        u16 unknown;
-        u16 index;
-        u32 unknown2;
+        u16 string_id;
+        u32 key_off;
     };
-    std::vector<Head3> h3(n);
-    for (u32 i = 0; i < n; ++i)
+    std::vector<KeyRec> recs(nkeys);
+    for (u32 i = 0; i < nkeys; ++i)
     {
         if (off + 8 > chunk.size())
         {
             return table;
         }
-        h3[i].unknown = read_u16(chunk, off);
-        h3[i].index = read_u16(chunk, off + 2);
-        h3[i].unknown2 = read_u32(chunk, off + 4);
+        recs[i].string_id = read_u16(chunk, off);
+        recs[i].key_off = read_u32(chunk, off + 4);
         off += 8;
     }
-    std::vector<std::string> keys(n);
-    for (u32 i = 0; i < n; ++i)
+    const size_t keybase = off;
+    for (const KeyRec& rec : recs)
     {
-        keys[i] = read_cstring(chunk, off);
-    }
-    for (u32 i = 0; i < n; ++i)
-    {
-        u16 idx = h3[i].index;
-        if (idx >= 1 && idx <= values.size())
+        if (size_t(rec.key_off) >= chunk.size() - keybase)
         {
-            table.keys_to_utf8[keys[i]] = values[idx - 1];
+            continue;
         }
-        else if (i < values.size())
+        size_t key_at = keybase + rec.key_off;
+        const std::string key = read_cstring(chunk, key_at);
+        if (key.empty())
         {
-            table.keys_to_utf8[keys[i]] = values[i];
+            continue;
         }
+        const u32 wchar_off = [&]() -> u32 {
+            for (const Head2& h : h2)
+            {
+                if (h.id == rec.string_id)
+                {
+                    return h.wchar_off;
+                }
+            }
+            return 0xffffffffu;
+        }();
+        if (wchar_off == 0xffffffffu)
+        {
+            continue;
+        }
+        size_t str_at = blob + size_t(wchar_off) * 2;
+        if (str_at >= chunk.size())
+        {
+            continue;
+        }
+        table.keys_to_utf8[key] = utf16le_to_utf8(read_wcstring(chunk, str_at));
     }
     return table;
 }

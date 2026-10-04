@@ -1054,23 +1054,6 @@ bool is_lightmap_tex(const TexStats& s)
     return (s.black > 0.15f && s.corners < 50.f) || (s.black > 0.40f);
 }
 
-bool is_cookie_tex(const TexStats& s)
-{
-    // Soft radial glow / spotlight cookie: black frame, bright center.
-    return s.black > 0.75f && s.center > s.corners * 3.f + 40.f;
-}
-
-bool is_dead_albedo(const TexStats& s)
-{
-    return s.mean < 20.f || s.black > 0.90f;
-}
-
-bool looks_like_light_layer(const TexStats& s)
-{
-    // Baked lighting atlases: lots of black, bright hotspots, low chroma.
-    return s.black > 0.25f && s.contrast > 8.f && s.chroma < 25.f;
-}
-
 bool is_illustration_tex(const RgbaImage& t, const TexStats& s)
 {
     if (is_ramp_tex(t) || is_lightmap_tex(s))
@@ -1238,18 +1221,12 @@ Mesh parse_model(const BundleEntry& entry)
     {
         stats[i] = analyze_tex(mesh.textures[i]);
     }
-    // Resolve layered env materials: colour0 can be a near-black base while
-    // colour2 holds the visible surface and colour1 holds baked lighting.
     for (auto& sm : mesh.submeshes)
     {
         auto valid_surface = [&](i32 i) -> bool
         {
             return i >= 0 && size_t(i) < mesh.textures.size() && !mesh.textures[i].bgra.empty() &&
                    mesh.textures[i].width > 4 && mesh.textures[i].height > 4;
-        };
-        auto alive = [&](i32 i) -> bool
-        {
-            return valid_surface(i) && !is_dead_albedo(stats[size_t(i)]);
         };
 
         if (!valid_surface(sm.texture))
@@ -1270,40 +1247,9 @@ Mesh parse_model(const BundleEntry& entry)
             sm.celmap = -1;
         }
 
-        // Promote a living colour2/colour1 when colour0 is empty or near-black.
-        // Some env bases sit just above the dead-albedo cutoff while colour2 holds the surface.
-        const bool dark_base = sm.texture >= 0 && stats[size_t(sm.texture)].mean < 80.f;
-        const bool detail_is_surface =
-            sm.texture >= 0 && alive(sm.detail) && stats[size_t(sm.detail)].mean > stats[size_t(sm.texture)].mean * 2.5f;
-        if (sm.texture < 0 || (sm.texture >= 0 && is_dead_albedo(stats[size_t(sm.texture)])) ||
-            (dark_base && detail_is_surface))
-        {
-            if (alive(sm.detail))
-            {
-                sm.texture = sm.detail;
-                sm.detail = -1;
-            }
-            else if (alive(sm.layer1) && !looks_like_light_layer(stats[size_t(sm.layer1)]))
-            {
-                sm.texture = sm.layer1;
-                sm.layer1 = -1;
-            }
-            else if (sm.texture >= 0 && is_dead_albedo(stats[size_t(sm.texture)]))
-            {
-                sm.texture = -1;
-            }
-        }
-
-        // colour1 often carries the baked light atlas when RARE_lightmap is absent.
-        if (sm.lightmap < 0 && sm.layer1 >= 0 && looks_like_light_layer(stats[size_t(sm.layer1)]))
-        {
-            sm.lightmap = sm.layer1;
-            sm.layer1 = -1;
-        }
-
         if (sm.lightmap >= 0 && size_t(sm.lightmap) < mesh.textures.size())
         {
-            if (mesh.textures[sm.lightmap].bgra.empty() || is_cookie_tex(stats[size_t(sm.lightmap)]))
+            if (mesh.textures[sm.lightmap].bgra.empty())
             {
                 sm.lightmap = -1;
             }

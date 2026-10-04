@@ -14,7 +14,47 @@ import ghidra.program.model.mem.Memory;
 import ghidra.program.model.symbol.Reference;
 import ghidra.program.model.symbol.ReferenceIterator;
 
-public class ExportUi extends GbtgScript {
+public class ExportUi extends GhidraScript {
+
+    protected java.io.File repoRoot() {
+        String env = System.getenv("GBTG_ROOT");
+        if (env != null && env.trim().length() > 0) {
+            return new java.io.File(env.trim());
+        }
+        java.io.File dir = sourceFile == null ? null : new java.io.File(sourceFile.getAbsolutePath()).getParentFile();
+        for (int i = 0; i < 8 && dir != null; i++) {
+            if (new java.io.File(dir, "CMakeLists.txt").isFile() && new java.io.File(dir, "src").isDirectory()) {
+                return dir;
+            }
+            dir = dir.getParentFile();
+        }
+        dir = new java.io.File(System.getProperty("user.dir"));
+        for (int i = 0; i < 8 && dir != null; i++) {
+            if (new java.io.File(dir, "CMakeLists.txt").isFile() && new java.io.File(dir, "src").isDirectory()) {
+                return dir;
+            }
+            dir = dir.getParentFile();
+        }
+        throw new IllegalStateException("GbtG repo root not found. Set GBTG_ROOT.");
+    }
+
+    protected java.io.File cacheFile(String name) {
+        java.io.File cache = new java.io.File(repoRoot(), "cache");
+        if (!cache.isDirectory() && !cache.mkdirs()) {
+            throw new IllegalStateException("could not create " + cache.getAbsolutePath());
+        }
+        return new java.io.File(cache, name);
+    }
+
+    protected java.io.File repoFile(String relative) {
+        java.io.File file = new java.io.File(repoRoot(), relative.replace('/', java.io.File.separatorChar));
+        java.io.File parent = file.getParentFile();
+        if (parent != null && !parent.isDirectory() && !parent.mkdirs()) {
+            throw new IllegalStateException("could not create " + parent.getAbsolutePath());
+        }
+        return file;
+    }
+
     private PrintWriter out;
     private DecompInterface decomp;
     private final HashSet<String> dumped = new HashSet<>();
@@ -30,8 +70,28 @@ public class ExportUi extends GbtgScript {
         decomp.openProgram(currentProgram);
         try {
             dumped.clear();
+            dumpString("StartBanner");
+            listingRange(0x80af0L, 0x80b80L);
+            dump(0x80afdL);
+            dump(0xff121L);
             dump(0x58c30L);
             dump(0x5f5c0L);
+            dump(0x66080L);
+            dump(0x662a0L);
+            dump(0x5ca60L);
+            dump(0x5e9f0L);
+            dump(0xde070L);
+            dump(0xdeb20L);
+            dump(0xdf140L);
+            dump(0xde540L);
+            dump(0x65f90L);
+            dump(0x5e380L);
+            dump(0x5e570L);
+            dump(0x5e770L);
+            dump(0x5cdc0L);
+            xrefsTo(0x504960L);
+            listingRange(0x662a0L, 0x66300L);
+            listingRange(0xde040L, 0xde0c0L);
         } finally {
             decomp.dispose();
             out.close();

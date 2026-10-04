@@ -2074,6 +2074,16 @@ struct RangeLink
     void (*on_note)(CamFocus* self, i32 id) = nullptr;
 };
 RangeLink* g_range_links = nullptr;
+// DAT_00511B20. First node of the DAT_00511B1C list. The node is object+0x934
+// and the next pointer is at +4. link-0x730 is the pair at object+0x204.
+// link-0x624 is the pair at object+0x310.
+struct BodyLink
+{
+    BodyLink* next = nullptr;
+    CamPairObject* pair_204 = nullptr;
+    CamPairObject* pair_310 = nullptr;
+};
+BodyLink* g_body_links = nullptr;
 // Head standing in for DAT_00511B54. 0x0003ED70 appends host+0x908 here.
 RetireNode g_retire_head;
 
@@ -15387,6 +15397,16 @@ constexpr const char* kScriptCondName[27] = {
 std::vector<ScriptCond> g_script_conds;
 std::vector<u32> g_script_fired;
 
+// DAT_0050E4DC. 0x00116810 allocates the 0x214-byte node. +4 is next. +8 is
+// the type 0x00128A00 compares with 0x7D before it calls the handlers.
+struct LiveScript
+{
+    LiveScript* prev = nullptr;
+    LiveScript* next = nullptr;
+    u32 type = 0;
+};
+LiveScript* g_live_scripts = nullptr;
+
 // DAT_0050E568. Handler 2 writes this block. 0x0050E570 and 0x0050E660 are
 // the bases of the scaled stores. 0x001077B0 returns at most 0xE9, which is
 // the last index those stores reach.
@@ -16156,6 +16176,56 @@ int fn_124f30(Game& g, const ScriptNode& node)
     return 2;
 }
 
+// DAT_00512350. Records are 8 bytes. DAT_00512370 is the count, 0x20 bytes
+// above the base, so four records sit in front of it. 0x00125070 drains the
+// count. The port keeps the record that count indexes.
+struct PairSlot
+{
+    u32 at_8 = 0;
+    u32 at_c = 0;
+};
+std::vector<PairSlot> g_pair_slots;
+i32 g_pair_slot_count = 0;
+
+// Xbox 0x00124FC0. Handler 4. The dword at node+4 must be 0x98. Any other
+// type returns 3. The second argument is the flag 0x00128A00 passes: nonzero
+// when a DAT_0050E4DC node has 0x7D at +8. Zero stores the dword at node+8
+// at DAT_00512350 + DAT_00512370*8, the dword at node+0xC in the next dword,
+// then increments DAT_00512370. Nonzero walks DAT_00511B20. The byte at
+// node+8 selects the pair. The byte at node+0xC is the value in AL for
+// 0x000F96F0. The object is the dword at link-0x730, then the dword at
+// link-0x624. A null object skips that call. Both paths return 2.
+int fn_124fc0(Game& g, const ScriptNode& node, int param_2)
+{
+    if (node.type != 0x98)
+    {
+        return 3;
+    }
+    if (param_2 != 0)
+    {
+        const u8 index = node_u8(g.scene_script, node, 8);
+        const u8 value = node_u8(g.scene_script, node, 0xC);
+        for (BodyLink* link = g_body_links; link != nullptr; link = link->next)
+        {
+            if (link->pair_204 != nullptr)
+            {
+                fn_f96f0(link->pair_204, index, value);
+            }
+            if (link->pair_310 != nullptr)
+            {
+                fn_f96f0(link->pair_310, index, value);
+            }
+        }
+        return 2;
+    }
+    const size_t slot = size_t(g_pair_slot_count);
+    g_pair_slots.resize(slot + 1);
+    g_pair_slots[slot].at_8 = node_u32(g.scene_script, node, 8);
+    g_pair_slots[slot].at_c = node_u32(g.scene_script, node, 0xC);
+    g_pair_slot_count = g_pair_slot_count + 1;
+    return 2;
+}
+
 // Xbox 0x00125450. One node of the action walk. Type 0x3C stops the walk.
 // The listed types copy a condition and tell the runner to advance. Every
 // other type stops the walk. The word filled by 0x001077B0 is left 0.
@@ -16230,13 +16300,24 @@ int fn_125450(Game& g, const ScriptNode& node)
 }
 
 // Xbox 0x00128A00. Walks fired file offsets. Handler 1 is 0x00124CC0.
-// Handler 2 is 0x00124E50. Handler 3 is 0x00124F30. Handler 6 is 0x00125450.
-// The other handlers are not translated. A node type none of them covers
-// stops the walk and leaves the fired id in place.
-// Return 1 stops on a type-0x3C node. Return 0 means the cursor left the
-// blob, or stopped on an untranslated node, and the drain keeps that fired id.
+// Handler 2 is 0x00124E50. Handler 3 is 0x00124F30. Handler 4 is 0x00124FC0.
+// Handler 6 is 0x00125450. The other handlers are not translated. The flag
+// passed to handler 4 is nonzero when DAT_0050E4DC has a node whose dword
+// at +8 is 0x7D. A node type none of them covers stops the walk and leaves
+// the fired id in place. Return 1 stops on a type-0x3C node. Return 0 means
+// the cursor left the blob, or stopped on an untranslated node, and the
+// drain keeps that fired id.
 int fn_128a00(Game& g, u32 offset)
 {
+    int param_2 = 0;
+    for (LiveScript* live = g_live_scripts; live != nullptr; live = live->next)
+    {
+        if (live->type == 0x7d)
+        {
+            param_2 = 1;
+            break;
+        }
+    }
     for (int step = 0; step < 256; ++step)
     {
         const ScriptNode* node = script_node_at(g.scene_script, offset);
@@ -16252,6 +16333,10 @@ int fn_128a00(Game& g, u32 offset)
         if (handler == 3)
         {
             handler = fn_124f30(g, *node);
+        }
+        if (handler == 3)
+        {
+            handler = fn_124fc0(g, *node, param_2);
         }
         if (handler == 3)
         {

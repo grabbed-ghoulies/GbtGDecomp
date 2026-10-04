@@ -153,10 +153,12 @@ struct GfxD3D11
     {
         int address_u = 0;      // +0x00 D3DTSS_ADDRESSU
         int address_v = 0;      // +0x04 D3DTSS_ADDRESSV
+        int address_w = 0;      // +0x08 D3DTSS_ADDRESSW
         int mag_filter = 0;     // +0x0C D3DTSS_MAGFILTER
         int min_filter = 0;     // +0x10 D3DTSS_MINFILTER
         int mip_filter = 0;     // +0x14 D3DTSS_MIPFILTER
         int max_mip_level = 0;  // +0x1C D3DTSS_MAXMIPLEVEL
+        u32 color_sign = 0;     // +0x28 D3DTSS_COLORSIGN
         int color_op = 0;       // +0x30 D3DTSS_COLOROP
         int color_arg1 = 0;     // +0x38 D3DTSS_COLORARG1
         int color_arg2 = 0;     // +0x3C D3DTSS_COLORARG2
@@ -169,6 +171,19 @@ struct GfxD3D11
         u32 bump[6]{};
     };
     StageRs stages[4]{};
+    // D3DDevice_SetTexture writes device+stage*4+0xf78. The handle is the one
+    // this bind passed. Nothing here substitutes a different texture.
+    u32 stage_texture[4]{};
+    // SetPixelShaderConstant shadow at device+0x8e0. Four floats per register.
+    float ps_const[256 * 4]{};
+    // Vertex-constant file. SetVertexShaderConstant1/4 copy to (register << 4) + 0x00180D50.
+    float vs_const[256 * 4]{};
+    u8 vs_src_4d9680[0x40]{}; // DAT_004D9680
+    u8 vs_src_4d9710[0x40]{}; // DAT_004D9710
+    u32 texture_override = 0; // DAT_004D9764
+    const int* texture_by_id = nullptr; // DAT_004D976C
+    void (*stage_bind)(int handle, u32 stage) = nullptr; // DAT_004D9754
+    void (*material_cb)(int* material) = nullptr; // DAT_004D9750
 };
 
 GfxD3D11 g;
@@ -610,6 +625,215 @@ void fn_5e2a0()
         return;
     }
     g.context->PSSetSamplers(0, 1, g.light_sampler.GetAddressOf());
+}
+
+const u8* as_u8(int bits)
+{
+    return reinterpret_cast<const u8*>(static_cast<uintptr_t>(static_cast<u32>(bits)));
+}
+
+// Xbox 0x0015AD20
+// Material bind. param_1 is the shader-param object (dword fields). param_2 is
+// the draw table: dword 0 is the 0x44-stride constant rows, dword 4 is the
+// per-stage texture handles.
+//
+// Pixel constants (count at +0x14) are the bytes at param_1[0], register 0
+// first, each byte times the float at 0x0032B154 (0x3B808081).
+// Stages (count at +0x0c) are 0x1c records at param_1[2]. The shadow is
+// DAT_00181970, stride 0x80. Each stage ORs 1<<stage into DAT_00181968.
+// Bump-env types 0x16, 0x17, 0x19, 0x18 land at +0x58, +0x5C, +0x64, +0x60.
+//
+// SetVertexShaderConstant1/4 take the register in ecx and the source in edx.
+// The decompiler dropped those operands. Constant1 is *(param_1+0x34)+0x60
+// from the four floats at 0x00336120. Constant4's source select is the
+// compares at 0x0015AF61, then the register is that dword + 0x60.
+//
+// Byte +0x18 == 0 clears ALPHATESTENABLE. Any other value sets it, stores
+// D3DCMP_GREATER (0x204) as ALPHAFUNC, and stores the byte as ALPHAREF.
+// 0x0015ABB0 is not translated, so a stage whose record byte +7 is set does
+// not receive a texture.
+void fn_15ad20(int* param_1, int param_2)
+{
+    float byte_scale = 0.f;
+    const u32 scale_bits = 0x3B808081u;
+    std::memcpy(&byte_scale, &scale_bits, sizeof(byte_scale));
+    // DAT_00336120. SetVertexShaderConstant1 copies these four floats.
+    const float vs_one[4] = {0.5f, 0.5f, 1.f, 1.f};
+
+    u32 index = 0;
+    if (param_1[5] != 0)
+    {
+        const u8* colors = as_u8(param_1[0]);
+        do
+        {
+            const u8* px = colors + index * 4u;
+            g.ps_const[index * 4u + 0] = float(px[0]) * byte_scale;
+            g.ps_const[index * 4u + 1] = float(px[1]) * byte_scale;
+            g.ps_const[index * 4u + 2] = float(px[2]) * byte_scale;
+            g.ps_const[index * 4u + 3] = float(px[3]) * byte_scale;
+            index = index + 1;
+        } while (index < static_cast<u32>(param_1[5]));
+    }
+
+    index = 0;
+    if (param_1[3] != 0)
+    {
+        u32 rec_off = 0;
+        do
+        {
+            const u8* rec = as_u8(param_1[2]) + rec_off;
+            GfxD3D11::StageRs& slot = g.stages[index];
+            const u32 bit = 1u << (index & 0x1fu);
+            slot.address_u = rec[4];
+            g.rs_dirty |= bit;
+            slot.address_v = rec[5];
+            g.rs_dirty |= bit;
+            slot.address_w = rec[6];
+            slot.max_mip_level = 0;
+            slot.min_filter = 2;
+            slot.mip_filter = 2;
+            g.rs_dirty |= bit;
+            slot.mag_filter = 2;
+            if (*reinterpret_cast<const i16*>(rec + 0x0a) == 0)
+            {
+                g.rs_dirty |= bit;
+                slot.color_sign = 0;
+                if (*reinterpret_cast<const i16*>(rec + 0x08) >= 0)
+                {
+                    u32 bits = 0;
+                    std::memcpy(&bits, rec + 0x0c, 4);
+                    slot.bump[0] = bits;
+                    std::memcpy(&bits, rec + 0x10, 4);
+                    slot.bump[1] = bits;
+                    std::memcpy(&bits, rec + 0x14, 4);
+                    slot.bump[3] = bits;
+                    std::memcpy(&bits, rec + 0x18, 4);
+                    slot.bump[2] = bits;
+                }
+            }
+            else
+            {
+                g.rs_dirty |= bit;
+                slot.color_sign = 0xf0000000u;
+            }
+            if (rec[7] == 0)
+            {
+                const u8* mat = reinterpret_cast<const u8*>(param_1);
+                if (static_cast<u32>(param_1[0x10]) == index && mat[0x1b] != 0 && g.texture_override != 0)
+                {
+                    g.stage_texture[index] = g.texture_override;
+                    const u32 vs_reg = static_cast<u32>(param_1[0x0d]) + 0x60u;
+                    std::memcpy(g.vs_const + vs_reg * 4u, vs_one, sizeof(vs_one));
+                }
+                else
+                {
+                    const i32 id = *reinterpret_cast<const i32*>(rec);
+                    if (id != -1)
+                    {
+                        const u8* draw = as_u8(param_2);
+                        int table_bits = 0;
+                        std::memcpy(&table_bits, draw + 4, 4);
+                        const int* table = reinterpret_cast<const int*>(as_u8(table_bits));
+                        int handle = table[index];
+                        if (handle == 0)
+                        {
+                            handle = g.texture_by_id[id];
+                        }
+                        g.stage_bind(handle, index);
+                    }
+                }
+            }
+            else
+            {
+                // 0x0015ABB0 is not translated. It would write the texture
+                // pointer SetTexture binds. This stage does not get another one.
+            }
+            index = index + 1;
+            rec_off = rec_off + 0x1c;
+        } while (index < static_cast<u32>(param_1[3]));
+    }
+
+    index = 0;
+    if (param_1[4] != 0)
+    {
+        u32 row = 0;
+        u32 block = 0;
+        do
+        {
+            const void* src;
+            u32 vs_reg;
+            if (param_2 != 0)
+            {
+                const u8* draw = as_u8(param_2);
+                int rows_bits = 0;
+                std::memcpy(&rows_bits, draw, 4);
+                const u8* rows = as_u8(rows_bits);
+                if (rows[row + 0x40] != 0)
+                {
+                    const u8* constants = as_u8(param_1[1]);
+                    vs_reg = *reinterpret_cast<const u32*>(constants + block + 0x40);
+                    src = rows + row;
+                }
+                else
+                {
+                    const u8* rec = as_u8(param_1[1]) + block;
+                    const u32 kind = *reinterpret_cast<const u32*>(rec + 0x44);
+                    vs_reg = *reinterpret_cast<const u32*>(rec + 0x40);
+                    if (kind == 1)
+                    {
+                        src = g.vs_src_4d9710;
+                    }
+                    else if (kind == 2)
+                    {
+                        src = g.vs_src_4d9680;
+                    }
+                    else
+                    {
+                        src = rec;
+                    }
+                }
+            }
+            else
+            {
+                const u8* rec = as_u8(param_1[1]) + block;
+                const u32 kind = *reinterpret_cast<const u32*>(rec + 0x44);
+                vs_reg = *reinterpret_cast<const u32*>(rec + 0x40);
+                if (kind == 1)
+                {
+                    src = g.vs_src_4d9710;
+                }
+                else if (kind == 2)
+                {
+                    src = g.vs_src_4d9680;
+                }
+                else
+                {
+                    src = rec;
+                }
+            }
+            vs_reg = vs_reg + 0x60u;
+            std::memcpy(g.vs_const + vs_reg * 4u, src, 0x40);
+            index = index + 1;
+            row = row + 0x44;
+            block = block + 0x48;
+        } while (index < static_cast<u32>(param_1[4]));
+    }
+
+    const u8* mat = reinterpret_cast<const u8*>(param_1);
+    if (mat[0x18] == 0)
+    {
+        g.rs_alpha_test = 0;
+    }
+    else
+    {
+        g.rs_alpha_test = 1;
+        g.rs_alpha_func = 0x204;
+        g.rs_alpha_ref = mat[0x18];
+    }
+    if (g.material_cb != nullptr)
+    {
+        g.material_cb(param_1);
+    }
 }
 
 } // namespace

@@ -344,3 +344,4 @@ Named functions: [`docs/generated/ghidra_functions.txt`](generated/ghidra_functi
 | `0x00177220` | `fn_177220` | gfx |
 | `0x001782C0` | `fn_1782c0` | gfx |
 | `0x001799A0` | `fn_1799a0` | gfx |
+| `0x0015AD20` | `fn_15ad20` | present |

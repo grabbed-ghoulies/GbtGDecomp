@@ -16144,6 +16144,34 @@ int fn_132bc0(const ScriptCond& rec)
     return 0;
 }
 
+// Xbox 0x00132BF0. Opcode 14 in the table at 0x00314330. The word at
+// record+8 at or below 1 sums the dwords at DAT_0051696C, DAT_005172F4,
+// DAT_0051AD18, and DAT_0051A390. A larger word is shifted left by 2 and
+// those four dwords are read at that offset. A nonzero sum ucomiss the
+// float at record+0xC with the 0 at 0x0032B100. Equal, and not a NaN,
+// returns 1. Every other path returns 0.
+int fn_132bf0(const ScriptCond& rec)
+{
+    const u16 index = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+    i32 sum = 0;
+    if (index <= 1)
+    {
+        sum = stat_512c6c(0x0051696Cu) + stat_512c6c(0x005172F4u) + stat_512c6c(0x0051AD18u) +
+              stat_512c6c(0x0051A390u);
+    }
+    else
+    {
+        const u32 scaled = u32(index) * 4u;
+        sum = stat_512c6c(0x0051AD18u + scaled) + stat_512c6c(0x0051A390u + scaled) +
+              stat_512c6c(0x005172F4u + scaled) + stat_512c6c(0x0051696Cu + scaled);
+    }
+    if (sum != 0 && cond_f32(rec, 0xc) == 0.f)
+    {
+        return 1;
+    }
+    return 0;
+}
+
 // Xbox 0x00124BE0. A zero keeps the record. Any other value queues the link
 // at +4. A return of exactly 1 also removes the record and the slot that
 // slides down is evaluated next. Opcode 0 is 0x00132650. Opcode 1 is
@@ -16151,8 +16179,8 @@ int fn_132bc0(const ScriptCond& rec)
 // 0x001327A0. Opcode 5 is 0x00132800. Opcode 6 is 0x00132840. Opcode 7 is
 // 0x001328D0. Opcode 8 is 0x00132940. Opcode 9 is 0x001329A0. Opcode 10 is
 // 0x00132A30. Opcode 11 is 0x00132A00. Opcode 12 is 0x00132A60. Opcode 13 is
-// 0x00132BC0. Opcode 17 is 0x00132AB0. Opcode 26 is 0x00132B50. Other opcodes
-// are not evaluated until their functions are translated.
+// 0x00132BC0. Opcode 14 is 0x00132BF0. Opcode 17 is 0x00132AB0. Opcode 26 is
+// 0x00132B50. Other opcodes are not evaluated until their functions are translated.
 void fn_124be0(Game& g)
 {
     size_t i = 0;
@@ -16216,6 +16244,10 @@ void fn_124be0(Game& g)
         else if (opcode == 13)
         {
             fired = fn_132bc0(rec);
+        }
+        else if (opcode == 14)
+        {
+            fired = fn_132bf0(rec);
         }
         else if (opcode == 17)
         {

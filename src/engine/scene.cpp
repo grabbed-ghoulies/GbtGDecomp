@@ -15826,12 +15826,67 @@ int fn_132840(const ScriptCond&)
     return 0;
 }
 
+// Xbox 0x001328D0. Opcode 7 in the table at 0x00314330. Walks DAT_0050E4DC
+// until a node whose dword at +8 is 0xB4. An empty list returns 0. The
+// address of that dword is tested against 0. A zero word at record+8, or a
+// word four bytes after that dword matching the word at record+8, passes
+// the node (that address minus 8) to 0x000E9210 and returns 1. A miss takes
+// next, and returns 0 when that pointer is 0. Otherwise it walks next until
+// a node has the same dword at +8, returning 0 if the walk ends. The
+// address of that dword is tested again. Every other path returns 0.
+int fn_1328d0(const ScriptCond& rec)
+{
+    LiveScript* node = g_live_scripts;
+    for (;;)
+    {
+        if (node == nullptr)
+        {
+            return 0;
+        }
+        if (node->type == 0xb4u)
+        {
+            break;
+        }
+        node = node->next;
+    }
+    if (reinterpret_cast<std::uintptr_t>(node) + offsetof(LiveScript, type) == 0)
+    {
+        return 0;
+    }
+    const u16 want = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+    do
+    {
+        if (want == 0 || node->word_c == want)
+        {
+            fn_e9210(node);
+            return 1;
+        }
+        LiveScript* cursor = node->next;
+        const u32 saved = node->type;
+        if (cursor == nullptr)
+        {
+            return 0;
+        }
+        while (cursor->type != saved)
+        {
+            cursor = cursor->next;
+            if (cursor == nullptr)
+            {
+                return 0;
+            }
+        }
+        node = cursor;
+    } while (reinterpret_cast<std::uintptr_t>(node) + offsetof(LiveScript, type) != 0);
+    return 0;
+}
+
 // Xbox 0x00124BE0. A zero keeps the record. Any other value queues the link
 // at +4. A return of exactly 1 also removes the record and the slot that
 // slides down is evaluated next. Opcode 0 is 0x00132650. Opcode 1 is
 // 0x00132680. Opcode 2 is 0x001326D0. Opcode 3 is 0x00132720. Opcode 4 is
-// 0x001327A0. Opcode 5 is 0x00132800. Opcode 6 is 0x00132840. Other opcodes
-// are not evaluated until their functions are translated.
+// 0x001327A0. Opcode 5 is 0x00132800. Opcode 6 is 0x00132840. Opcode 7 is
+// 0x001328D0. Other opcodes are not evaluated until their functions are
+// translated.
 void fn_124be0(Game& g)
 {
     size_t i = 0;
@@ -15867,6 +15922,10 @@ void fn_124be0(Game& g)
         else if (opcode == 6)
         {
             fired = fn_132840(rec);
+        }
+        else if (opcode == 7)
+        {
+            fired = fn_1328d0(rec);
         }
         if (fired == 0)
         {

@@ -16413,12 +16413,143 @@ int fn_125450(Game& g, const ScriptNode& node)
     return 2;
 }
 
+// DAT_00512378. Type 0x29 sets this after 0x00117400. The clear is the
+// 0x0005B780 hit, which is not translated.
+i32 g_flag_2378 = 0;
+
+// DAT_0051237C. Records are 4 bytes: the word at node+8, then the word at
+// node+0xC. DAT_005123AC is the count, 0x30 bytes above the base, so twelve
+// records sit in front of it. The port keeps the record that count indexes.
+struct TagPair
+{
+    u16 at_8 = 0;
+    u16 at_c = 0;
+};
+std::vector<TagPair> g_tag_pairs;
+i32 g_tag_pair_count = 0;
+
+// DAT_005123B0. Records are 8 bytes. DAT_00512410 is the count, 0x60 bytes
+// above the base. The word is at +0 and the dword is at +4.
+struct QueuedTag
+{
+    u16 at_8 = 0;
+    u32 at_c = 0;
+};
+std::vector<QueuedTag> g_queued_tags;
+i32 g_queued_tag_count = 0;
+
+// Xbox 0x001259B0. Handler 7. The dword at node+4 is the type. Type 0x4F
+// with a zero second argument stores the word at node+8 and the dword at
+// node+0xC at DAT_005123B0 + DAT_00512410*8, then increments DAT_00512410.
+// A nonzero second argument calls 0x001117E0. EAX is the word at node+8 and
+// EBX is the dword at node+0xC. Type 0x56 builds a message whose first dword
+// is 0x67 and whose second dword is the word at node+8, then calls
+// 0x00122F70 with that message in EDI. Type 0x29 with a nonzero second
+// argument and a zero third argument reads DAT_00512378. Zero calls
+// 0x000532E0 on the node and passes its return, the word at node+8 in EAX,
+// the word at node+0xC, and the dword at node+0x14 to 0x0005B540. The dword
+// at node+0x10 then selects the return: zero returns 2, nonzero calls
+// 0x00117400(0xffff, 0), sets DAT_00512378, and returns 0. Nonzero calls
+// 0x0005B780 with the word at node+8 in SI. A miss compares 8 with the dword
+// at node+0xC. A hit compares the written word. A match calls
+// 0x00117400(0xffff, 1), clears DAT_00512378, and returns 2. The other path
+// stores those two words in the 4-byte record at DAT_0051237C and grows
+// DAT_005123AC when the index has reached the count. 0x001117E0, 0x00122F70,
+// 0x000532E0, 0x0005B540, and 0x0005B780 are not translated, so those calls
+// are not made. The 0x0005B780 match is not taken. Any other type returns 3.
+// A handled store returns 2.
+int fn_1259b0(Game& g, const ScriptNode& node, int param_2, int param_3)
+{
+    const u32 type = node.type;
+    if (type != 0x29)
+    {
+        if (type == 0x4f)
+        {
+            if (param_2 == 0)
+            {
+                const size_t slot = size_t(g_queued_tag_count);
+                g_queued_tags.resize(slot + 1);
+                g_queued_tags[slot].at_8 = node_u16(g.scene_script, node, 8);
+                g_queued_tags[slot].at_c = node_u32(g.scene_script, node, 0xC);
+                g_queued_tag_count = g_queued_tag_count + 1;
+                return 2;
+            }
+            const u16 word = node_u16(g.scene_script, node, 8);
+            const u32 ebx = node_u32(g.scene_script, node, 0xC);
+            (void)word;
+            (void)ebx;
+            return 2;
+        }
+        if (type == 0x56)
+        {
+            const u32 message_0 = 0x67;
+            const u32 message_1 = u32(node_u16(g.scene_script, node, 8));
+            (void)message_0;
+            (void)message_1;
+            return 2;
+        }
+        return 3;
+    }
+    if ((param_2 != 0) && (param_3 == 0))
+    {
+        if (g_flag_2378 == 0)
+        {
+            const u16 ax = node_u16(g.scene_script, node, 8);
+            const u16 arg_c = node_u16(g.scene_script, node, 0xC);
+            const u32 arg_14 = node_u32(g.scene_script, node, 0x14);
+            (void)ax;
+            (void)arg_c;
+            (void)arg_14;
+            if (node_u32(g.scene_script, node, 0x10) == 0)
+            {
+                return 2;
+            }
+            fn_117400(0xffff, 0);
+            g_flag_2378 = 1;
+        }
+        else
+        {
+            const u16 key = node_u16(g.scene_script, node, 8);
+            const u32 expect = node_u32(g.scene_script, node, 0xC);
+            (void)key;
+            (void)expect;
+        }
+        return 0;
+    }
+    i32 index = 0;
+    if (0 < g_tag_pair_count)
+    {
+        const u32 key = node_u32(g.scene_script, node, 8);
+        do
+        {
+            if (u32(g_tag_pairs[size_t(index)].at_8) == key)
+            {
+                break;
+            }
+            index = index + 1;
+        } while (index < g_tag_pair_count);
+    }
+    if (size_t(g_tag_pairs.size()) <= size_t(index))
+    {
+        g_tag_pairs.resize(size_t(index) + 1);
+    }
+    g_tag_pairs[size_t(index)].at_8 = node_u16(g.scene_script, node, 8);
+    g_tag_pairs[size_t(index)].at_c = node_u16(g.scene_script, node, 0xC);
+    if (g_tag_pair_count <= index)
+    {
+        g_tag_pair_count = g_tag_pair_count + 1;
+    }
+    return 2;
+}
+
 // Xbox 0x00128A00. Walks fired file offsets. Handler 1 is 0x00124CC0.
 // Handler 2 is 0x00124E50. Handler 3 is 0x00124F30. Handler 4 is 0x00124FC0.
-// Handler 5 is 0x001251E0. Handler 6 is 0x00125450. The other handlers are
-// not translated. The flag passed to handler 4 is nonzero when DAT_0050E4DC
-// has a node whose dword
-// at +8 is 0x7D. A node type none of them covers stops the walk and leaves
+// Handler 5 is 0x001251E0. Handler 6 is 0x00125450. Handler 7 is 0x001259B0.
+// The other handlers are not translated. The flag passed to handler 4 is
+// nonzero when DAT_0050E4DC has a node whose dword at +8 is 0x7D. Handler 7
+// receives that same flag. Its third argument is 0: 0x00128A00 clears EDI
+// whenever that flag is set, and the handler only reads the third argument
+// on that path. A node type none of them covers stops the walk and leaves
 // the fired id in place. Return 1 stops on a type-0x3C node. Return 0 means
 // the cursor left the blob, or stopped on an untranslated node, and the
 // drain keeps that fired id.
@@ -16460,6 +16591,10 @@ int fn_128a00(Game& g, u32 offset)
         if (handler == 3)
         {
             handler = fn_125450(g, *node);
+        }
+        if (handler == 3)
+        {
+            handler = fn_1259b0(g, *node, param_2, 0);
         }
         if (handler == 1)
         {

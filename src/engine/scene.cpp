@@ -15447,6 +15447,9 @@ struct LiveScript
     u32 type = 0;
     // Xbox +0xC. 0x00132720 compares this word with the word at record+8.
     u16 word_c = 0;
+    // Xbox +0x14. 0x001168F0 compares this word with DX. The type dword is
+    // at +8, so the compare is the word at that address +0xC.
+    u16 word_14 = 0;
 };
 static_assert(offsetof(LiveScript, word_c) == offsetof(LiveScript, type) + 4);
 LiveScript g_live_anchor{};
@@ -16072,15 +16075,84 @@ int fn_132b50(const ScriptCond& rec)
     return 0;
 }
 
+// Xbox 0x001168F0. EAX starts at DAT_0050E4DC. An empty list returns 0.
+// Walks next at +4 until a node whose dword at +8 is 0xB6. The address of
+// that dword is tested against 0. DX at or below 1 returns 1. Otherwise the
+// word at that address +0xC (node+0x14) is compared with DX. A match returns
+// 1. A miss takes next, and returns 0 when that pointer is 0. Otherwise it
+// walks next until a node has the same dword at +8, returning 0 if the walk
+// ends. The address of that dword is tested again. Every other path returns 0.
+int fn_1168f0(u16 key)
+{
+    LiveScript* node = g_live_scripts;
+    for (;;)
+    {
+        if (node == nullptr)
+        {
+            return 0;
+        }
+        if (node->type == 0xb6u)
+        {
+            break;
+        }
+        node = node->next;
+    }
+    if (reinterpret_cast<std::uintptr_t>(node) + offsetof(LiveScript, type) == 0)
+    {
+        return 0;
+    }
+    if (key <= 1)
+    {
+        return 1;
+    }
+    do
+    {
+        if (node->word_14 == key)
+        {
+            return 1;
+        }
+        LiveScript* cursor = node->next;
+        const u32 saved = node->type;
+        if (cursor == nullptr)
+        {
+            return 0;
+        }
+        while (cursor->type != saved)
+        {
+            cursor = cursor->next;
+            if (cursor == nullptr)
+            {
+                return 0;
+            }
+        }
+        node = cursor;
+    } while (reinterpret_cast<std::uintptr_t>(node) + offsetof(LiveScript, type) != 0);
+    return 0;
+}
+
+// Xbox 0x00132BC0. Opcode 13 in the table at 0x00314330. The word at
+// record+8 is DX for 0x001168F0. A nonzero return ucomiss the float at
+// record+0xC with the 0 at 0x0032B100. Equal, and not a NaN, returns 1.
+// Every other path returns 0.
+int fn_132bc0(const ScriptCond& rec)
+{
+    const u16 key = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+    if (fn_1168f0(key) != 0 && cond_f32(rec, 0xc) == 0.f)
+    {
+        return 1;
+    }
+    return 0;
+}
+
 // Xbox 0x00124BE0. A zero keeps the record. Any other value queues the link
 // at +4. A return of exactly 1 also removes the record and the slot that
 // slides down is evaluated next. Opcode 0 is 0x00132650. Opcode 1 is
 // 0x00132680. Opcode 2 is 0x001326D0. Opcode 3 is 0x00132720. Opcode 4 is
 // 0x001327A0. Opcode 5 is 0x00132800. Opcode 6 is 0x00132840. Opcode 7 is
 // 0x001328D0. Opcode 8 is 0x00132940. Opcode 9 is 0x001329A0. Opcode 10 is
-// 0x00132A30. Opcode 11 is 0x00132A00. Opcode 12 is 0x00132A60. Opcode 17 is
-// 0x00132AB0. Opcode 26 is 0x00132B50. Other opcodes are not evaluated until
-// their functions are translated.
+// 0x00132A30. Opcode 11 is 0x00132A00. Opcode 12 is 0x00132A60. Opcode 13 is
+// 0x00132BC0. Opcode 17 is 0x00132AB0. Opcode 26 is 0x00132B50. Other opcodes
+// are not evaluated until their functions are translated.
 void fn_124be0(Game& g)
 {
     size_t i = 0;
@@ -16140,6 +16212,10 @@ void fn_124be0(Game& g)
         else if (opcode == 12)
         {
             fired = fn_132a60(rec);
+        }
+        else if (opcode == 13)
+        {
+            fired = fn_132bc0(rec);
         }
         else if (opcode == 17)
         {

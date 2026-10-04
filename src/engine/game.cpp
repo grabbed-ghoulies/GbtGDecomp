@@ -116,6 +116,9 @@ void frame_tick(Game& g, float dt, const InputState& in)
     gameselect_tick(g, in);
     // 0x00033C47. A pending aid_script (title Start, back, play, boot) loads here.
     script_pump(g);
+    // 0x0011E927. The condition list is updated after the pump, so a request
+    // issued by a fired action waits until the next frame.
+    script_vm_tick(g, g.clock.dt);
     audio_tick(g, g.clock.dt); // 0x0015B780, 0x0003A040, 0x000396F0, 0x00038640, 0x00038C20
     cutscene_queue_tick(g, g.clock.dt);
     for (auto& e : g.entities)

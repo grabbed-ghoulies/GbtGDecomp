@@ -92,17 +92,21 @@ Embedded NUL-terminated AIDs: `aid_camera_*`, `aid_model_*`, `aid_anim_*`. Type 
 
 ## Scripts (type 24)
 
-CPU blob is a **relocatable** record, not a bytecode stream yet reconstructed as a VM.
+CPU blob is a packed list of nodes. The binder adds the first dword to the node address, which lands on the next node.
 
 ```text
-u32 root_offset          // often 0x0C; add blob base at load
-…pointer-sized fields…   // u32 values that land inside the blob are offsets
-char aid_* / labels[]    // NUL-terminated names, typically 128-byte slots
+u32 size                 // includes this header; next node is at this + size
+u32 type
+u8  payload[size - 8]    // C strings sit in the payload (model aids, titles, tags)
 ```
 
-Attract `aid_script_ghoulies_attractsequence_final1` (304 bytes) points at `aid_model_editors_introbackground` and `aid_objparams_ghoulies_scenecontrol_attract1`. The matching type-14 aidlist in the same BNL lists the attract cutscenes. Chapter `*_setup` scripts in `common.bnl` are 20-byte headers (chapter index, no names). Playcam scripts are larger and also embed `objTag_*`, event titles, ghouly boxes, and cutscene AIDs.
+A type of 0, size 8, ends the blob. Chapter `*_setup` scripts in `common.bnl` are one type-6 node (chapter index in the payload) plus that terminator.
 
-`gbtg::parse_scene_script` collects header words plus ASCII / `aid_*` strings. Condition/action opcodes are still Xbox-side (`scriptConditionId_*` in the XBE).
+Attract `aid_script_ghoulies_attractsequence_final1` (304 bytes) is five nodes: type 5, type `0x4C`, type 1 `aid_model_editors_introbackground`, type 2 `aid_objparams_ghoulies_scenecontrol_attract1`, then the terminator. The matching type-14 aidlist in the same BNL lists the attract cutscenes.
+
+Playcam scripts are the same packing with more types: `0x0A` region name, `0x0E` event title, `0x13` cutscene, `0x18`/`0x29` body, `0x2A` ghouly box, `0x3D` timeout, `0x3C` end of an action block, `0x9F` actor tag.
+
+`gbtg::parse_scene_script` keeps those nodes plus the ASCII / `aid_*` strings. Loading a script walks the nodes (`0x00128A00`). Type `0x3C` stops the walk. Types `0x3D`, `0x3E`, `0x40`, `0x47`, `0x48`, `0x94`, `0x95`, and `0x99` copy a condition into the runtime list (`0x00124C80`). Opcode 0 is `scriptConditionId_TimeOut`. The other 26 names live in the table at `0x00314258`. The frame tick (`0x00117100`) updates that list and runs whatever fired.
 
 ## Aidlists (type 14)
 

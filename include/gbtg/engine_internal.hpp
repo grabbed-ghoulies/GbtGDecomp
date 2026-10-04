@@ -16,6 +16,9 @@ void load_scene_contents(Game& g, std::string_view name);
 void scene_order_go(Game& g, size_t index);
 void script_request(Game& g, std::string_view name); // 0x0011EB30: queue an aid_script. The pump loads it.
 void script_pump(Game& g);                          // 0x0011E4C0: frame_tick loads any pending script
+void script_vm_reset();                             // Clears the condition list and the fired-id list.
+void script_vm_bind(Game& g);                       // 0x0004B440: walk the loaded script from its first node.
+void script_vm_tick(Game& g, float dt);             // 0x00117100: update, eval, then drain fired ids.
 void gameselect_tick(Game& g, const InputState& in);
 bool attract_confirm_pressed(); // 0x001431B0: new A or Start on the merged pad, not both
 void draw_ui(const Game& g);

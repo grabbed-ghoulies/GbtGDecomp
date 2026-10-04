@@ -1,5 +1,6 @@
 #include "gbtg/anim.hpp"
 #include "gbtg/engine_internal.hpp"
+#include "gbtg/entity.hpp"
 #include "gbtg/gfx.hpp"
 #include "gbtg/model.hpp"
 #include "gbtg/resource.hpp"
@@ -1597,6 +1598,7 @@ struct CamFocus
     std::vector<CamBoundRec> recs; // +0x8fc
     u32 at_cec = 0; // +0xcec, low byte stored at packet +0x19
     u16 tag_6 = 0; // +6
+    u16 word_1fc = 0; // +0x1FC, compared with the dword at node+0x48
     u16 word_cdc = 0; // +0xcdc, link+0x3a8, compared with 2
     Vec3 nudge_704{}; // camera+0x704, added to the stored follow position
     float mul_884 = 0.f; // camera+0x884
@@ -2084,6 +2086,26 @@ struct BodyLink
     CamPairObject* pair_310 = nullptr;
 };
 BodyLink* g_body_links = nullptr;
+// DAT_00511B48. Next of the DAT_00511B44 head. The node is object+0x944 and
+// the next pointer is at +4. object+6 is the actor class key. The byte at
+// object+0x969 is node+0x25. The word at object+0x990 is node+0x4c. The
+// pointer at object+0x958 is node+0x14.
+struct AltSlot
+{
+    void* target = nullptr; // +8, vtable object
+    void* flag_10 = nullptr; // +0x10
+    void (*on_message)(void* self, const u32* msg) = nullptr; // vtable +0xC
+};
+struct AltLink
+{
+    AltLink* next = nullptr;
+    Actor* actor = nullptr;
+    u8 byte_969 = 0;
+    u16 word_990 = 0;
+    AltSlot* slot = nullptr;
+    void (*on_message)(Actor* self, const u32* msg) = nullptr; // object vtable +0xC
+};
+AltLink* g_alt_links = nullptr;
 // Head standing in for DAT_00511B54. 0x0003ED70 appends host+0x908 here.
 RetireNode g_retire_head;
 
@@ -16442,6 +16464,10 @@ i32 g_queued_tag_count = 0;
 // then stores 0 when DAT_005064D8 is 3.
 i32 g_flag_2414 = 0;
 
+// DAT_00512418. Type 0x2a stores 1 after a live dword at node+0x10c, and
+// stores 0 when 0x001412F0 returns nonzero.
+i32 g_flag_2418 = 0;
+
 // DAT_005064D8. Type 0x18 compares this with 3. 0x000D0530 would store 0.
 i32 g_flag_64d8 = 0;
 
@@ -16831,12 +16857,230 @@ int fn_1269d0(Game& g, const ScriptNode& node)
     return 2;
 }
 
+// Xbox 0x00126A10. Handler 10. The dword at node+4 is the type. The byte map
+// at 0x00126D94 covers types 0x2A through 0x97. Any other type, and the holes
+// in that range, return 3.
+//
+// Type 0x2A tests DAT_00512418. Zero would call 0x0013E8D0 with EBX = node+8,
+// EDX = the dword at node+0x88, and node+0x8c on the stack. That call is not
+// translated. A zero dword at node+0x10c returns 2. Any other value stores 1
+// and returns 0. Nonzero would call 0x001412F0. That call is not translated,
+// so its nonzero return is not taken and this path returns 0.
+//
+// Type 0x2B would call 0x000F4E50 with EAX = node+8. That call is not
+// translated. The case returns 2.
+//
+// Type 0x51 calls 0x001077B0 with EAX = node+8. It walks DAT_00511B38. A
+// matching word at object+6, and a zero dword at node+0x48 or that dword
+// equal to the word at object+0x1FC, calls vtable +0xC with message id 1.
+// An empty list returns 2. A finished walk returns 2.
+//
+// Type 0x58 builds a message whose first dword is 0x65. 0x0002B710 would
+// fill the low word of the second dword. That call is not translated, so
+// the word stays 0. 0x001077B0 runs with EAX = node+8. 0x00122D40 would
+// take that tag in EDI and the message in EBX. That call is not translated.
+// The case returns 2.
+//
+// Type 0x5C stores message id 0x36, calls 0x001077B0 with EAX = node+8, and
+// would pass that tag in EDI with the message in EBX to 0x00122D40. That
+// call is not translated. The case returns 2.
+//
+// Type 0x5E calls 0x001077B0 with EAX = node+8 and the dword at node+0x4c
+// on the stack. XMM0 is the float at node+0x48. 0x000F4930 would take the
+// tag, that dword, and XMM0. That call is not translated. The case returns 2.
+//
+// Type 0x6B calls 0x001077B0 with EAX = node+8 and walks DAT_00511B48. A tag
+// below 2, or a word at object+6 equal to the tag, stores the byte at
+// node+0x48 into object+0x969. A live pointer at object+0x958 whose pointer
+// at +0x10 is live would call 0x00029C80 with EAX = that pointer, ECX = the
+// slot, and EDX = 1. That call is not translated, so a zero return is not
+// taken and the vtable call that would clear +0x10 is not made. An empty
+// list returns 2. A finished walk returns 2.
+//
+// Type 0x70 calls 0x001077B0 with EAX = node+8. ESI would be that tag, XMM1
+// the float at node+0x48, and XMM2 the float at node+0x4c, for 0x0010F6C0.
+// That call is not translated. The case returns 2.
+//
+// Type 0x78 calls 0x001077B0 with EAX = node+8 and walks DAT_00511B48. A tag
+// below 2, or a word at object+6 equal to the tag, would call 0x00019660
+// with EAX = the object and the dword at node+0x48 on the stack. That call
+// is not translated. An empty list returns 2. A finished walk returns 2.
+//
+// Type 0x97 calls 0x001077B0 with EAX = node+8 and walks DAT_00511B48. A tag
+// below 2, or a word at object+6 equal to the tag, would call 0x00028210.
+// That call is not translated. The word at object+0x990 is cleared. The
+// message id is 0x4D and the dword at node+0x48 follows it. 0x000412A0
+// writes the world position and 0x00041820 writes the world euler. Vtable
+// +0xC receives that message. An empty list returns 2. A finished walk
+// returns 2.
+int fn_126a10(Game& g, const ScriptNode& node)
+{
+    switch (node.type)
+    {
+    case 0x2a:
+        if (g_flag_2418 == 0)
+        {
+            const std::string name = node_cstr(g.scene_script, node, 8);
+            const u32 key = node_u32(g.scene_script, node, 0x88);
+            const std::string extra = node_cstr(g.scene_script, node, 0x8c);
+            (void)name;
+            (void)key;
+            (void)extra;
+            if (node_u32(g.scene_script, node, 0x10c) == 0)
+            {
+                return 2;
+            }
+            g_flag_2418 = 1;
+        }
+        return 0;
+    case 0x2b:
+    {
+        const std::string name = node_cstr(g.scene_script, node, 8);
+        (void)name;
+        return 2;
+    }
+    case 0x51:
+    {
+        const u16 tag = static_cast<u16>(fn_1077b0(node_cstr(g.scene_script, node, 8).c_str()));
+        const u32 mark = node_u32(g.scene_script, node, 0x48);
+        for (RangeLink* link = g_range_links; link != nullptr; link = link->next)
+        {
+            CamFocus* obj = link->host;
+            if (obj == nullptr || obj->tag_6 != tag)
+            {
+                continue;
+            }
+            if (mark != 0 && mark != u32(obj->word_1fc))
+            {
+                continue;
+            }
+            i32 message = 1;
+            if (obj->on_note != nullptr)
+            {
+                obj->on_note(obj, message);
+            }
+        }
+        return 2;
+    }
+    case 0x58:
+    {
+        const u32 message_0 = 0x65;
+        const u32 message_1 = 0;
+        const u16 tag = static_cast<u16>(fn_1077b0(node_cstr(g.scene_script, node, 8).c_str()));
+        (void)message_0;
+        (void)message_1;
+        (void)tag;
+        return 2;
+    }
+    case 0x5c:
+    {
+        const u32 message = 0x36;
+        const u16 tag = static_cast<u16>(fn_1077b0(node_cstr(g.scene_script, node, 8).c_str()));
+        (void)message;
+        (void)tag;
+        return 2;
+    }
+    case 0x5e:
+    {
+        const u32 arg = node_u32(g.scene_script, node, 0x4c);
+        const u16 tag = static_cast<u16>(fn_1077b0(node_cstr(g.scene_script, node, 8).c_str()));
+        const float value = std::bit_cast<float>(node_u32(g.scene_script, node, 0x48));
+        (void)arg;
+        (void)tag;
+        (void)value;
+        return 2;
+    }
+    case 0x6b:
+    {
+        const u16 tag = static_cast<u16>(fn_1077b0(node_cstr(g.scene_script, node, 8).c_str()));
+        const u8 stored = node_u8(g.scene_script, node, 0x48);
+        for (AltLink* link = g_alt_links; link != nullptr; link = link->next)
+        {
+            if (link->actor == nullptr)
+            {
+                continue;
+            }
+            if (tag < 2 || link->actor->class_key == tag)
+            {
+                link->byte_969 = stored;
+                if (link->slot != nullptr && link->slot->flag_10 != nullptr)
+                {
+                    // 0x00029C80 is not translated. A zero return is not taken.
+                }
+            }
+        }
+        return 2;
+    }
+    case 0x70:
+    {
+        const u16 tag = static_cast<u16>(fn_1077b0(node_cstr(g.scene_script, node, 8).c_str()));
+        const float xmm1 = std::bit_cast<float>(node_u32(g.scene_script, node, 0x48));
+        const float xmm2 = std::bit_cast<float>(node_u32(g.scene_script, node, 0x4c));
+        (void)tag;
+        (void)xmm1;
+        (void)xmm2;
+        return 2;
+    }
+    case 0x78:
+    {
+        const u16 tag = static_cast<u16>(fn_1077b0(node_cstr(g.scene_script, node, 8).c_str()));
+        const u32 arg = node_u32(g.scene_script, node, 0x48);
+        for (AltLink* link = g_alt_links; link != nullptr; link = link->next)
+        {
+            if (link->actor == nullptr)
+            {
+                continue;
+            }
+            if (tag < 2 || link->actor->class_key == tag)
+            {
+                (void)arg;
+            }
+        }
+        return 2;
+    }
+    case 0x97:
+    {
+        const u16 tag = static_cast<u16>(fn_1077b0(node_cstr(g.scene_script, node, 8).c_str()));
+        for (AltLink* link = g_alt_links; link != nullptr; link = link->next)
+        {
+            if (link->actor == nullptr)
+            {
+                continue;
+            }
+            if (tag >= 2 && link->actor->class_key != tag)
+            {
+                continue;
+            }
+            link->word_990 = 0;
+            u32 msg[9]{};
+            msg[0] = 0x4d;
+            msg[1] = node_u32(g.scene_script, node, 0x48);
+            const Vec3 pos = actor_world_position(*link->actor);
+            const Vec3 euler = actor_world_euler(*link->actor);
+            msg[2] = std::bit_cast<u32>(pos.x);
+            msg[3] = std::bit_cast<u32>(pos.y);
+            msg[4] = std::bit_cast<u32>(pos.z);
+            msg[5] = std::bit_cast<u32>(euler.x);
+            msg[6] = std::bit_cast<u32>(euler.y);
+            msg[7] = std::bit_cast<u32>(euler.z);
+            if (link->on_message != nullptr)
+            {
+                link->on_message(link->actor, msg);
+            }
+        }
+        return 2;
+    }
+    default:
+        return 3;
+    }
+}
+
 // Xbox 0x00128A00. Walks fired file offsets. Handler 1 is 0x00124CC0.
 // Handler 2 is 0x00124E50. Handler 3 is 0x00124F30. Handler 4 is 0x00124FC0.
 // Handler 5 is 0x001251E0. Handler 6 is 0x00125450. Handler 7 is 0x001259B0.
-// Handler 8 is 0x00126140. Handler 9 is 0x001269D0. The other handlers are
-// not translated. The flag passed to handler 4 is nonzero when DAT_0050E4DC
-// has a node whose dword at +8 is 0x7D. Handler 7 receives that same flag.
+// Handler 8 is 0x00126140. Handler 9 is 0x001269D0. Handler 10 is 0x00126A10.
+// The other handlers are not translated. The flag passed to handler 4 is nonzero
+// when DAT_0050E4DC has a node whose dword at +8 is 0x7D. Handler 7 receives that same flag.
 // Its third argument is 0: 0x00128A00 clears EDI whenever that flag is set,
 // and the handler only reads the third argument on that path. Handler 8
 // receives that same third argument. A node type none of them covers stops
@@ -16894,6 +17138,10 @@ int fn_128a00(Game& g, u32 offset)
         if (handler == 3)
         {
             handler = fn_1269d0(g, *node);
+        }
+        if (handler == 3)
+        {
+            handler = fn_126a10(g, *node);
         }
         if (handler == 1)
         {

@@ -2089,13 +2089,19 @@ BodyLink* g_body_links = nullptr;
 // DAT_00511B48. Next of the DAT_00511B44 head. The node is object+0x944 and
 // the next pointer is at +4. object+6 is the actor class key. The byte at
 // object+0x969 is node+0x25. The word at object+0x990 is node+0x4c. The
-// pointer at object+0x958 is node+0x14.
+// pointer at object+0x958 is node+0x14. The pointer at object+0x95c is
+// node+0x18. The word at that object's +0x94 is the count 0x00132680 reads.
 struct AltSlot
 {
     void* target = nullptr; // +8, vtable object
     void* flag_10 = nullptr; // +0x10
     u32 at_6c = 0; // +0x6c. Handler 15 type 0x8 stores the dword at node+0x48.
     void (*on_message)(void* self, const u32* msg) = nullptr; // vtable +0xC
+};
+// Object at node+0x18 (actor+0x95c).
+struct AltAt18
+{
+    u16 word_94 = 0; // +0x94
 };
 struct AltLink
 {
@@ -2104,6 +2110,7 @@ struct AltLink
     u8 byte_969 = 0;
     u16 word_990 = 0;
     AltSlot* slot = nullptr;
+    AltAt18* at_18 = nullptr; // node+0x18
     void (*on_message)(Actor* self, const u32* msg) = nullptr; // object vtable +0xC
 };
 AltLink* g_alt_links = nullptr;
@@ -15554,10 +15561,31 @@ int fn_132650(const ScriptCond& rec)
     return 0;
 }
 
+// Xbox 0x00132680. Opcode 1 in the table at 0x00314330. Walks DAT_00511B48.
+// Each node whose word at [node+0x18]+0x94 is nonzero adds one. A count at
+// or below the int at record+8, and a ucomiss of the float at record+0xc
+// against 0 that is equal and not a NaN, returns 1.
+int fn_132680(const ScriptCond& rec)
+{
+    int count = 0;
+    for (AltLink* link = g_alt_links; link != nullptr; link = link->next)
+    {
+        if (link->at_18->word_94 != 0)
+        {
+            count = count + 1;
+        }
+    }
+    if (count <= static_cast<i32>(cond_u32(rec, 8)) && cond_f32(rec, 0xc) == 0.f)
+    {
+        return 1;
+    }
+    return 0;
+}
+
 // Xbox 0x00124BE0. A zero keeps the record. Any other value queues the link
 // at +4. A return of exactly 1 also removes the record and the slot that
-// slides down is evaluated next. Opcode 0 is 0x00132650. Other opcodes are
-// not evaluated until their functions are translated.
+// slides down is evaluated next. Opcode 0 is 0x00132650. Opcode 1 is
+// 0x00132680. Other opcodes are not evaluated until their functions are translated.
 void fn_124be0(Game& g)
 {
     size_t i = 0;
@@ -15569,6 +15597,10 @@ void fn_124be0(Game& g)
         if (opcode == 0)
         {
             fired = fn_132650(rec);
+        }
+        else if (opcode == 1)
+        {
+            fired = fn_132680(rec);
         }
         if (fired == 0)
         {

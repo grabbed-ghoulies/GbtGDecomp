@@ -2081,11 +2081,18 @@ struct AidHit
 };
 AidHit g_aid_hit;
 // DAT_00511B38. Each node is an object+0x934 link; next is at +4.
+// Object at node+0x28 (object+0x95C). The word at +0x94 is the energy
+// 0x00132DB0 tests.
+struct RangeAt28
+{
+    u16 word_94 = 0; // +0x94
+};
 struct RangeLink
 {
     RangeLink* next = nullptr;
     CamFocus* host = nullptr;
     void (*on_note)(CamFocus* self, i32 id) = nullptr;
+    RangeAt28* at_28 = nullptr; // node+0x28
 };
 RangeLink* g_range_links = nullptr;
 // DAT_00511B20. First node of the DAT_00511B1C list. The node is object+0x934
@@ -16334,6 +16341,32 @@ int fn_132d00(const ScriptCond& rec)
     return 0;
 }
 
+// Xbox 0x00132DB0. Opcode 18 in the table at 0x00314330. DAT_00511B38 null
+// skips the walk. Next is the pointer at node+4. The short at node-0x92e
+// (object+6) matching the word at record+8, and a nonzero word at
+// [node+0x28]+0x94, returns 0. Otherwise the float at record+0xC is
+// ucomiss'd with the 0 at 0x0032B100. Equal, and not a NaN, returns 1.
+// Every other path returns 0.
+int fn_132db0(const ScriptCond& rec)
+{
+    if (g_range_links != nullptr)
+    {
+        const u16 want = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+        for (RangeLink* link = g_range_links; link != nullptr; link = link->next)
+        {
+            if (link->host->tag_6 == want && link->at_28->word_94 != 0)
+            {
+                return 0;
+            }
+        }
+    }
+    if (cond_f32(rec, 0xc) != 0.f)
+    {
+        return 0;
+    }
+    return 1;
+}
+
 // Xbox 0x00124BE0. A zero keeps the record. Any other value queues the link
 // at +4. A return of exactly 1 also removes the record and the slot that
 // slides down is evaluated next. Opcode 0 is 0x00132650. Opcode 1 is
@@ -16342,8 +16375,8 @@ int fn_132d00(const ScriptCond& rec)
 // 0x001328D0. Opcode 8 is 0x00132940. Opcode 9 is 0x001329A0. Opcode 10 is
 // 0x00132A30. Opcode 11 is 0x00132A00. Opcode 12 is 0x00132A60. Opcode 13 is
 // 0x00132BC0. Opcode 14 is 0x00132BF0. Opcode 15 is 0x00132D00. Opcode 16 is
-// 0x00132C70. Opcode 17 is 0x00132AB0. Opcode 26 is 0x00132B50. Other opcodes
-// are not evaluated until their functions are translated.
+// 0x00132C70. Opcode 17 is 0x00132AB0. Opcode 18 is 0x00132DB0. Opcode 26 is
+// 0x00132B50. Other opcodes are not evaluated until their functions are translated.
 void fn_124be0(Game& g)
 {
     size_t i = 0;
@@ -16423,6 +16456,10 @@ void fn_124be0(Game& g)
         else if (opcode == 17)
         {
             fired = fn_132ab0(rec);
+        }
+        else if (opcode == 18)
+        {
+            fired = fn_132db0(rec);
         }
         else if (opcode == 26)
         {

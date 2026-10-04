@@ -20,6 +20,7 @@ enum class EntityKind
 };
 
 struct Actor;
+struct EntityMaskSpan;
 
 // Record at actor+0x88. 0x6c bytes. +8 is the parent. +0xc is the basis
 // 0x00040FB0 multiplies. +0x3c is the inverse 0x00041730 applies.
@@ -81,6 +82,9 @@ struct Actor
     Vec3 parked_euler{};   // +0xccc
     i32 parked_gate = 0;   // +0xcd8
     u32 intro_flags = 0;   // 0x00042500. Bit 2 arms the query in message 0x23.
+    i32 mask_flag = 0;                 // +0x93c. Nonzero makes 0x0001FE00 clear bit 0x4000.
+    EntityMaskSpan* mask_span = nullptr; // +0x980
+    i16 mask_mode = 0;                 // +0xcdc
 };
 
 struct Entity;
@@ -126,7 +130,7 @@ struct EntityMethods
     void (*relay_message)(Entity& body, const Message& msg) = nullptr; // +0x10
     void (*step_channels)(Entity& body) = nullptr; // +0x14
     void (*apply)(Entity& body) = nullptr; // +0x18
-    i32 (*gate)() = nullptr; // +0x1C
+    bool (*gate)(Entity& body) = nullptr; // +0x1C. Default returns 1. Camera stores 0x00072CB0.
     i32 (*pick_actor)(const Entity& body, i32 fallback) = nullptr; // +0x20
     i32 (*pick_gated)(const Entity& body) = nullptr; // +0x24
     i32 (*link_idle)(const Entity& body) = nullptr; // +0x28
@@ -219,6 +223,8 @@ struct Entity
     void* record_73c = nullptr; // +0x73c, gate for 0x00027510
     EntityWatch* watch = nullptr; // +0x2c8
     EntityBitBlock* bits = nullptr; // +0x15c, bytes at +8
+    // +0x1cc. 0x00072CB0 copies each accepted 0x54-byte slide record here.
+    u8 record_1cc[0x54]{};
     u8 motion_6a = 0; // +0x6a
     u8 motion_6b = 0; // +0x6b
     u8 mark_288 = 0;  // +0x288
@@ -240,6 +246,8 @@ struct Entity
     // +0x8ac, +0x8c0, +0x8d4, +0x8e8, +0x8fc, +0x910. 0x00073A90 plants
     // 0x30-byte slices of one heap block. Index 0 is the base when it is live.
     void* block_8ac[6]{};
+    // +0x910 as a float. 0x00072CB0 compares the previous separation, then stores the new dot.
+    float separation_910 = 0.f;
 };
 
 const EntityType* find_entity_type(std::string_view name);
@@ -408,6 +416,9 @@ void fn_72ba0(EntityLookAt& cam); // 0x00072BA0
 
 // entityBodyCamera method +0x18. Looks, copies the actor world pose to +0x89c, then applies.
 void fn_72b10(Entity& body); // 0x00072B10
+
+// entityBodyCamera method +0x1C.
+bool fn_72cb0(Entity& body); // 0x00072CB0
 
 // Channel keys on the camera (ESI for 0x0001D850, EAX for 0x0001EDE0).
 // Two slots at +0xe4, stride 0x0c.

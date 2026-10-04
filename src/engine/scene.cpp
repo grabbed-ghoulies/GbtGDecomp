@@ -17279,6 +17279,20 @@ int fn_126e10(Game& g, const ScriptNode& node, int param_2)
 char g_name_e4e0[0x80]{};
 i32 g_flag_e560 = 0;
 
+// DAT_00512470. Type 0x13 sets this when the dword at node+0x88 is nonzero.
+// Type 0x16 sets it when the dword at node+0x8C is nonzero. Type 0x53 sets it
+// on the first visit.
+i32 g_flag_2470 = 0;
+// DAT_00512474. Type 0x14 reads this. 0x000582A0 is not translated, so the
+// store of 1 on that nonzero return is not made.
+i32 g_flag_2474 = 0;
+// DAT_0051248C. Type 0x13 compares this dword with 3 and would pass that
+// flag twice to 0x0004EDA0. The byte at [DAT_0051248C]+0x30F144 is g_decay_arm.
+i32 g_state_248c = 0;
+// DAT_004EE1EC. Type 0x14 returns 0 while this is nonzero. The text writer
+// in entity.cpp stores 0.
+i32 g_draw_e1ec = 0;
+
 // Xbox 0x00127340. Handler 12. The dword at node+4 is the type. The byte map
 // at 0x00127458 covers types 0x3A through 0x8D. Any other type, and the holes
 // in that range, return 3. Every handled type returns 2. The second and third
@@ -17356,15 +17370,204 @@ int fn_127340(Game& g, const ScriptNode& node)
     return 2;
 }
 
+// Xbox 0x001274B0. Handler 13. The dword at node+4 is the type. The byte map
+// at 0x00127A2C covers types 0x13 through 0x9C. Slots are 0x13, 0x14, 0x15,
+// 0x16, 0x53, 0x9B, and 0x9C. Any other type returns 3. The second argument
+// from 0x00128A00 is unused. The third argument is the value that walk passes.
+//
+// Type 0x13 with a nonzero third argument returns 2. Zero with DAT_00512470
+// clear would call 0x00087830. A return of 2 copies
+// "aid_model_ghoulies_actor_boy" and "aid_model_ghoulies_actor_girl" into
+// 0x80-byte buffers and calls 0x0004E610 with EAX and ESI on those buffers.
+// That call is not translated, so the copy is not made. 0x0004EDA0 would
+// then take node+8 and two copies of (DAT_0051248C == 3). That call is not
+// translated. A nonzero dword at node+0x88 stores 1, calls 0x00117400 with
+// 0xFFFF when node+0x8C is zero and with 2 otherwise, then would call
+// 0x000F2BB0 with ECX = 1. A zero return, or a nonzero return from
+// 0x00049D10, would call 0x00127AC0. Those three calls are not translated,
+// so 0x00127AC0 is not called. The case returns 0. A zero dword at node+0x88
+// returns 2. Nonzero DAT_00512470 would call 0x0004EFE0 and 0x000532E0 with
+// ECX = the node. A zero from 0x0004EFE0 returns 0 when DAT_00512478 is zero
+// or when 0x00127B10 returns zero. A zero from 0x000532E0 clears
+// DAT_00512470, calls 0x0004ECE0, calls 0x00117400 with the same mask and
+// flag 1, calls 0x000583A0 when DAT_004EE1EC is nonzero, and calls
+// 0x00127B50 and returns 2 when DAT_00512478 is nonzero. Those calls are
+// not translated, so the zero returns are not taken and this path returns 2.
+//
+// Type 0x14 with a nonzero third argument returns 2. Nonzero DAT_00512474
+// returns 0 while DAT_004EE1EC is nonzero. Otherwise it calls
+// 0x00117400(0xFFFF, 1), clears DAT_00512474, and returns 2. Zero calls
+// 0x001077B0 with EAX = node+8. A tag above 1 would call 0x001291A0(tag, 0).
+// A zero return would return 2. That call is not translated, so the return
+// is not taken. A nonzero dword at node+0x8C would call 0x00049D10. A
+// nonzero return would return 2. That call is not translated, so the return
+// is not taken. A nonzero dword at node+0x90 tests bit 0x8000000 of
+// DAT_0050EA9C when node+0x94 is 0, and bit 0x10000000 when node+0x94 is 1.
+// A set bit returns 2. Any other node+0x94 skips the test. 0x000FBF90 would
+// take EAX = node+0x48. A nonzero return would build "%s%d" at DAT_00508EB8
+// through 0x001661F9 when node+0x88 is nonzero, calling 0x0001BB60 with
+// ECX = that dword + 1, EDX = 1, and ESI = 0x0054DD7C. 0x000582A0 would
+// then take ECX = that buffer, or node+0x48 when node+0x88 is zero, and a
+// stack 0. A nonzero return calls 0x00117400(0xFFFF, 0), stores 1, and ORs
+// the same DAT_0050EA9C bit. node+0x94 equal to 1 returns 0 after the OR.
+// The other path returns 0 as well. 0x000FBF90, 0x0001BB60, and 0x000582A0
+// are not translated, so that block is not entered and the case returns 2.
+//
+// Type 0x15 would call 0x00106D50 with the byte at node+0x88, the dword at
+// node+0x8C, and 1. EDI is node+8. 0x00106DD0 then takes DL = that byte.
+// Neither call is translated. The case returns 2.
+//
+// Type 0x16 with a nonzero third argument returns 2. Nonzero DAT_00512470
+// would call 0x0004EFE0. A zero return returns 0. A nonzero return clears
+// the flag, calls 0x0004ECE0, and returns 2. That call is not translated,
+// so the nonzero return is not taken and this path returns 0. A zero flag
+// with a nonzero dword at node+0x8C stores 1 and returns 0. Otherwise the
+// case returns 2.
+//
+// Type 0x53 with a nonzero third argument returns 2. Zero with DAT_00512470
+// clear would call 0x0004EDA0(node+8, 0, 1) and pass that return with
+// "aid_model_ghoulies_cutscene_reliccandle" to 0x0004EA50. A zero return
+// stores 0 at DAT_00512480. A nonzero return calls 0x00107720 with EAX =
+// "aid_objparams_ghoulies_scenecontrol_candle", stores the model at +8,
+// stores 0x00107520 at DAT_00512480, and calls 0x000663E0 on that block.
+// 0x0011F1C0(0xC, 1) would then run. A nonzero AX calls 0x0011F260,
+// 0x0011F2A0, 0x00100DF0(pi), 0x0004EF20, and 0x0004EF80. Those calls are
+// not translated, so DAT_00512480 is not stored. The flag is set and the
+// case returns 0. Nonzero DAT_00512470 would call 0x0004EFE0. A zero return
+// returns 0. A nonzero return calls 0x000532E0 with ECX = the node. A
+// nonzero return from that call returns 2. Zero clears the flag, calls
+// 0x0004ECE0 and 0x00127FF0, and returns 2 when DAT_00512480 is zero.
+// Otherwise it calls 0x00116140, clears DAT_00512480, and returns 2.
+// 0x0004EFE0 is not translated, so its nonzero return is not taken and this
+// path returns 0.
+//
+// Type 0x9B calls 0x000FB120 with 1.0, EAX = node+8, and ECX = a stack
+// vector. Type 0x9C calls 0x000493D0 with EDX = node+8 and EAX = that
+// vector. DAT_00511B40 null, or the sentinel 0x93C, zeros the vector.
+// Any other pointer calls 0x000412A0 with ESI = that pointer minus 0x93C
+// and EDI = the vector. 0x000FB120 and 0x000493D0 are not translated, and
+// the port's 0x000412A0 does not take this ESI/EDI pair, so those calls
+// are not made. Both cases return 2.
+int fn_1274b0(Game& g, const ScriptNode& node, int param_3)
+{
+    switch (node.type)
+    {
+    case 0x13:
+        if (param_3 == 0)
+        {
+            if (g_flag_2470 == 0)
+            {
+                const i32 same = g_state_248c == 3 ? 1 : 0;
+                (void)same;
+                if (node_u32(g.scene_script, node, 0x88) != 0)
+                {
+                    g_flag_2470 = 1;
+                    const u32 mask = node_u32(g.scene_script, node, 0x8c) == 0 ? 0xffffu : 2u;
+                    fn_117400(mask, 0);
+                    return 0;
+                }
+            }
+        }
+        return 2;
+    case 0x14:
+        if (param_3 != 0)
+        {
+            return 2;
+        }
+        if (g_flag_2474 != 0)
+        {
+            if (g_draw_e1ec != 0)
+            {
+                return 0;
+            }
+            fn_117400(0xffff, 1);
+            g_flag_2474 = 0;
+            return 2;
+        }
+        {
+            const std::string key = node_cstr(g.scene_script, node, 8);
+            const u16 tag = static_cast<u16>(fn_1077b0(key.c_str()));
+            if (tag > 1)
+            {
+                // 0x001291A0 is not translated.
+            }
+        }
+        if (node_u32(g.scene_script, node, 0x8c) != 0)
+        {
+            // 0x00049D10 is not translated.
+        }
+        if (node_u32(g.scene_script, node, 0x90) != 0)
+        {
+            const u32 kind = node_u32(g.scene_script, node, 0x94);
+            if (kind == 0)
+            {
+                if ((g_flags_ea9c & 0x8000000u) != 0)
+                {
+                    return 2;
+                }
+            }
+            else if (kind == 1)
+            {
+                if ((g_flags_ea9c & 0x10000000u) != 0)
+                {
+                    return 2;
+                }
+            }
+        }
+        return 2;
+    case 0x15:
+    {
+        const u8 index = node_u8(g.scene_script, node, 0x88);
+        const u32 word = node_u32(g.scene_script, node, 0x8c);
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        (void)index;
+        (void)word;
+        (void)key;
+        return 2;
+    }
+    case 0x16:
+        if (param_3 == 0)
+        {
+            if (g_flag_2470 != 0)
+            {
+                return 0;
+            }
+            if (node_u32(g.scene_script, node, 0x8c) != 0)
+            {
+                g_flag_2470 = 1;
+                return 0;
+            }
+        }
+        return 2;
+    case 0x53:
+        if (param_3 == 0)
+        {
+            if (g_flag_2470 == 0)
+            {
+                g_flag_2470 = 1;
+            }
+            return 0;
+        }
+        return 2;
+    case 0x9b:
+        return 2;
+    case 0x9c:
+        return 2;
+    default:
+        return 3;
+    }
+}
+
 // Xbox 0x00128A00. Walks fired file offsets. Handler 1 is 0x00124CC0.
 // Handler 2 is 0x00124E50. Handler 3 is 0x00124F30. Handler 4 is 0x00124FC0.
 // Handler 5 is 0x001251E0. Handler 6 is 0x00125450. Handler 7 is 0x001259B0.
 // Handler 8 is 0x00126140. Handler 9 is 0x001269D0. Handler 10 is 0x00126A10.
-// Handler 11 is 0x00126E10. Handler 12 is 0x00127340. The other handlers are not translated. The flag passed to handler 4 is nonzero
+// Handler 11 is 0x00126E10. Handler 12 is 0x00127340. Handler 13 is 0x001274B0.
+// The other handlers are not translated. The flag passed to handler 4 is nonzero
 // when DAT_0050E4DC has a node whose dword at +8 is 0x7D. Handler 7 receives that same flag.
 // Its third argument is 0: 0x00128A00 clears EDI whenever that flag is set,
 // and the handler only reads the third argument on that path. Handler 8
-// receives that same third argument. A node type none of them covers stops
+// receives that same third argument. Handler 13 receives it as well. A node type none of them covers stops
 // the walk and leaves the
 // fired id in place. Return 1 stops on a type-0x3C node. Return 0 means
 // the cursor left the blob, or stopped on an untranslated node, and the
@@ -17431,6 +17634,10 @@ int fn_128a00(Game& g, u32 offset)
         if (handler == 3)
         {
             handler = fn_127340(g, *node);
+        }
+        if (handler == 3)
+        {
+            handler = fn_1274b0(g, *node, 0);
         }
         if (handler == 1)
         {

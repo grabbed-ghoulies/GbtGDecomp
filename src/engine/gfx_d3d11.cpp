@@ -1193,6 +1193,11 @@ void gfx_draw_sprite(const RgbaImage& image, const GfxRect& rect)
 
     const UINT stride = sizeof(GpuVert);
     const UINT offset = 0;
+    // 0x0005E110 clears the shaders before this draw. Put the UI pipeline back.
+    g.context->IASetInputLayout(g.layout.Get());
+    g.context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    g.context->VSSetShader(g.vs.Get(), nullptr, 0);
+    g.context->PSSetShader(g.ps.Get(), nullptr, 0);
     g.context->IASetVertexBuffers(0, 1, g.ui_vb.GetAddressOf(), &stride, &offset);
     g.context->OMSetDepthStencilState(g.depth_off.Get(), 0);
     g.context->OMSetBlendState(g.blend_alpha.Get(), nullptr, 0xFFFFFFFFu);
@@ -1657,6 +1662,104 @@ void present_swap()
     }
 }
 
+// Quad 0x0005E380 / 0x0005E770 push. x,y is the top-left in the 640x480 HUD.
+struct HudQuad
+{
+    const RgbaImage* image = nullptr;
+    float x = 0.f;
+    float y = 0.f;
+    float w = 0.f;
+    float h = 0.f;
+    float u0 = 0.f;
+    float v0 = 0.f;
+    float u1 = 1.f;
+    float v1 = 1.f;
+};
+
+// 0x000662A0 grows by the u16 at pool+2 when the cursor meets the limit.
+u16 hud_extra = 16;
+std::vector<HudQuad> hud_quads;
+
+// DAT_00504960. 0x00066080 walks begin (+4) up to the cursor (+8), stride 0x18.
+// 0x00065F90 writes the flag at +0x14. No submitter fills this list yet.
+struct DepthProbe
+{
+    float x = 0.f;
+    float y = 0.f;
+    float z = 0.f;
+    float depth = 0.f;
+    float reach = 0.f;
+    float flag = 0.f;
+};
+static_assert(sizeof(DepthProbe) == 0x18, "DAT_00504960 stride");
+
+std::vector<DepthProbe> depth_probes;
+
+// Xbox 0x000F6F70
+// DAT_005096E8 / DAT_005096EA are the HUD width and height, 640x480.
+void present_hud_viewport()
+{
+    if (!g.ok || g.cfg.width <= 0 || g.cfg.height <= 0)
+    {
+        return;
+    }
+    const float frame = 640.f / 480.f;
+    const float window = float(g.cfg.width) / float(g.cfg.height);
+    D3D11_VIEWPORT vp{};
+    vp.MaxDepth = 1.f;
+    if (window > frame)
+    {
+        vp.Height = float(g.cfg.height);
+        vp.Width = vp.Height * frame;
+        vp.TopLeftX = (float(g.cfg.width) - vp.Width) * 0.5f;
+    }
+    else
+    {
+        vp.Width = float(g.cfg.width);
+        vp.Height = vp.Width / frame;
+        vp.TopLeftY = (float(g.cfg.height) - vp.Height) * 0.5f;
+    }
+    g.context->RSSetViewports(1, &vp);
+}
+
+// Quads submitted through 0x0005CA60, drawn in the HUD viewport.
+void present_hud_sprites()
+{
+    present_hud_viewport();
+    for (const HudQuad& quad : hud_quads)
+    {
+        if (quad.image == nullptr || quad.w == 0.f || quad.h == 0.f)
+        {
+            continue;
+        }
+        GfxRect rect;
+        rect.x = quad.x / 640.f;
+        rect.y = quad.y / 480.f;
+        rect.w = quad.w / 640.f;
+        rect.h = quad.h / 480.f;
+        rect.u0 = quad.u0;
+        rect.v0 = quad.v0;
+        rect.u1 = quad.u1;
+        rect.v1 = quad.v1;
+        gfx_draw_sprite(*quad.image, rect);
+    }
+}
+
+// Xbox 0x00066080
+// An empty cursor matches begin, which is the boot state, so the pass returns.
+void present_sprite_span()
+{
+    if (depth_probes.empty())
+    {
+        return;
+    }
+    for (DepthProbe& probe : depth_probes)
+    {
+        // 0x00065F90 clears the flag, then samples the depth surface when one is locked.
+        probe.flag = 0.f;
+    }
+}
+
 // Xbox 0x00033A90
 void present_33a90()
 {
@@ -1670,12 +1773,43 @@ void present_33a90()
     present_overlays();
     present_cameras();
     // 0x000F6F70 restores the HUD viewport from DAT_005096E8 / DAT_005096EA.
-    // 0x00066080 draws the sprite span at DAT_00504960.
+    present_hud_sprites();
+    // 0x00066080 walks the 0x18 depth list at DAT_00504960.
+    present_sprite_span();
     present_swap();
     present_movies();
 }
 
 } // namespace
+
+void gfx_sprite_clear()
+{
+    hud_quads.clear();
+}
+
+void gfx_sprite_submit(const RgbaImage& image, float x, float y, float w, float h, float u0, float v0, float u1, float v1)
+{
+    if (image.bgra.empty() || image.width <= 0 || image.height <= 0 || w == 0.f || h == 0.f)
+    {
+        return;
+    }
+    // 0x000662A0. The old pool pointer is the argument, so the live quads stay.
+    if (hud_quads.size() == hud_quads.capacity())
+    {
+        hud_quads.reserve(hud_quads.size() + hud_extra);
+    }
+    HudQuad quad;
+    quad.image = &image;
+    quad.x = x;
+    quad.y = y;
+    quad.w = w;
+    quad.h = h;
+    quad.u0 = u0;
+    quad.v0 = v0;
+    quad.u1 = u1;
+    quad.v1 = v1;
+    hud_quads.push_back(quad);
+}
 
 void gfx_end_frame()
 {

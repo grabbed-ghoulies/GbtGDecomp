@@ -70,8 +70,28 @@ public class ExportUi extends GhidraScript {
         decomp.openProgram(currentProgram);
         try {
             dumped.clear();
+            dumpString("StartBanner");
+            listingRange(0x80af0L, 0x80b80L);
+            dump(0x80afdL);
+            dump(0xff121L);
             dump(0x58c30L);
             dump(0x5f5c0L);
+            dump(0x66080L);
+            dump(0x662a0L);
+            dump(0x5ca60L);
+            dump(0x5e9f0L);
+            dump(0xde070L);
+            dump(0xdeb20L);
+            dump(0xdf140L);
+            dump(0xde540L);
+            dump(0x65f90L);
+            dump(0x5e380L);
+            dump(0x5e570L);
+            dump(0x5e770L);
+            dump(0x5cdc0L);
+            xrefsTo(0x504960L);
+            listingRange(0x662a0L, 0x66300L);
+            listingRange(0xde040L, 0xde0c0L);
         } finally {
             decomp.dispose();
             out.close();

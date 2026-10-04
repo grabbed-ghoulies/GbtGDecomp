@@ -49,6 +49,7 @@ bool GloopyFont::load(const std::filesystem::path& path)
     {
         cell_ = 32;
     }
+    drop_ = int(read_u32(cpu, 0x10));
     const int count = last - first_ + 1;
     if (count <= 0 || count > 4096 || size_t(0x18 + count * 0x18) > cpu.size())
     {

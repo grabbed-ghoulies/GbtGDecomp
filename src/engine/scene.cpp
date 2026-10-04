@@ -15706,11 +15706,85 @@ int fn_132720(const ScriptCond& rec)
     return 0;
 }
 
+// DAT_004E1C34. 0x001327A0 compares this dword with 0x80000000.
+u32 g_4e1c34 = 0;
+
+// Dwords 0x0012AE40 reads. The first is 0x00512C6C. Six fields sit 0xF4
+// apart and the row stride is 0x5B8. Category n is 0x3A24 bytes later.
+// 0x0012AF10 walks seven categories, so the last read is category 6.
+constexpr u32 kStat512c6c = 0x00512C6Cu;
+constexpr u32 kStat512c6cLast = 0x0051303Cu + 6u * 0x3A24u + 9u * 0x5B8u + 0xF4u;
+i32 g_stat_512c6c[(kStat512c6cLast + 4u - kStat512c6c) / 4u]{};
+
+i32& stat_512c6c(u32 addr)
+{
+    return g_stat_512c6c[(addr - kStat512c6c) / 4u];
+}
+
+// Xbox 0x0012AE40. ECX is the category. The caller clears it. ECX is
+// multiplied by 0x3A24 and 0x0051303C is added. Ten rows each add the
+// dwords at -0x3D0, -0x2DC, -0x1E8, -0xF4, +0xF4, and +0, then the cursor
+// advances by 0x5B8.
+int fn_12ae40(i32 category)
+{
+    i32 sum = 0;
+    u32 cursor = 0x0051303Cu + static_cast<u32>(category) * 0x3A24u;
+    i32 rows = 10;
+    do
+    {
+        const i32 edi = stat_512c6c(cursor - 0x2dcu);
+        i32 esi = stat_512c6c(cursor - 0x3d0u);
+        esi += edi;
+        esi += stat_512c6c(cursor - 0x1e8u);
+        esi += stat_512c6c(cursor - 0xf4u);
+        esi += stat_512c6c(cursor + 0xf4u);
+        esi += stat_512c6c(cursor);
+        sum += esi;
+        cursor += 0x5b8u;
+        rows -= 1;
+    } while (rows != 0);
+    return sum;
+}
+
+// Xbox 0x001327A0. Opcode 4 in the table at 0x00314330. 0x0012AE40 is
+// compared with the int at record+8. A smaller count returns 0. A zero
+// dword at +0x10 stores 1 there and stores whether DAT_004E1C34 is below
+// 0x80000000 at +0x14. A zero at +0x14 then ucomiss the float at +0xC
+// with the 0 at 0x0032B100 and returns 0 when they differ or either is
+// NaN. A nonzero +0x14 returns 0 while DAT_004E1C34 stays below
+// 0x80000000. Every other path returns 1.
+int fn_1327a0(ScriptCond& rec)
+{
+    const i32 count = fn_12ae40(0);
+    if (count < static_cast<i32>(cond_u32(rec, 8)))
+    {
+        return 0;
+    }
+    if (static_cast<i32>(cond_u32(rec, 0x10)) == 0)
+    {
+        const u32 below = g_4e1c34 < 0x80000000u ? 1u : 0u;
+        cond_put_u32(rec, 0x10, 1u);
+        cond_put_u32(rec, 0x14, below);
+    }
+    if (static_cast<i32>(cond_u32(rec, 0x14)) == 0)
+    {
+        if (cond_f32(rec, 0xc) != 0.f)
+        {
+            return 0;
+        }
+    }
+    else if (g_4e1c34 < 0x80000000u)
+    {
+        return 0;
+    }
+    return 1;
+}
+
 // Xbox 0x00124BE0. A zero keeps the record. Any other value queues the link
 // at +4. A return of exactly 1 also removes the record and the slot that
 // slides down is evaluated next. Opcode 0 is 0x00132650. Opcode 1 is
-// 0x00132680. Opcode 2 is 0x001326D0. Opcode 3 is 0x00132720. Other opcodes
-// are not evaluated until their functions are translated.
+// 0x00132680. Opcode 2 is 0x001326D0. Opcode 3 is 0x00132720. Opcode 4 is
+// 0x001327A0. Other opcodes are not evaluated until their functions are translated.
 void fn_124be0(Game& g)
 {
     size_t i = 0;
@@ -15734,6 +15808,10 @@ void fn_124be0(Game& g)
         else if (opcode == 3)
         {
             fired = fn_132720(rec);
+        }
+        else if (opcode == 4)
+        {
+            fired = fn_1327a0(rec);
         }
         if (fired == 0)
         {

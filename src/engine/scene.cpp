@@ -15437,7 +15437,10 @@ struct LiveScript
     LiveScript* prev = nullptr;
     LiveScript* next = nullptr;
     u32 type = 0;
+    // Xbox +0xC. 0x00132720 compares this word with the word at record+8.
+    u16 word_c = 0;
 };
+static_assert(offsetof(LiveScript, word_c) == offsetof(LiveScript, type) + 4);
 LiveScript g_live_anchor{};
 LiveScript*& g_live_scripts = g_live_anchor.next;
 
@@ -15644,11 +15647,70 @@ int fn_1326d0(const ScriptCond&)
     return 1;
 }
 
+// Xbox 0x00132720. Opcode 3 in the table at 0x00314330. Walks DAT_0050E4DC
+// until a node whose dword at +8 is 0xAD. An empty list returns 0. The
+// address of that dword is tested against 0. The word four bytes after it
+// is compared with the word at record+8. A miss takes next, and returns 0
+// when that pointer is 0. Otherwise it walks next until a node has the same
+// dword at +8, returning 0 if the walk ends. The address of that dword is
+// tested again. A hit ucomiss the float at record+0xC with the 0 at
+// 0x0032B100. Equal, and not a NaN, passes the node (that address minus 8)
+// to 0x000E9210 and returns 1. Every other path returns 0.
+int fn_132720(const ScriptCond& rec)
+{
+    LiveScript* node = g_live_scripts;
+    for (;;)
+    {
+        if (node == nullptr)
+        {
+            return 0;
+        }
+        if (node->type == 0xadu)
+        {
+            break;
+        }
+        node = node->next;
+    }
+    if (reinterpret_cast<std::uintptr_t>(node) + offsetof(LiveScript, type) == 0)
+    {
+        return 0;
+    }
+    const u16 want = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+    do
+    {
+        if (node->word_c == want)
+        {
+            if (cond_f32(rec, 0xc) != 0.f)
+            {
+                return 0;
+            }
+            fn_e9210(node);
+            return 1;
+        }
+        LiveScript* cursor = node->next;
+        const u32 saved = node->type;
+        if (cursor == nullptr)
+        {
+            return 0;
+        }
+        while (cursor->type != saved)
+        {
+            cursor = cursor->next;
+            if (cursor == nullptr)
+            {
+                return 0;
+            }
+        }
+        node = cursor;
+    } while (reinterpret_cast<std::uintptr_t>(node) + offsetof(LiveScript, type) != 0);
+    return 0;
+}
+
 // Xbox 0x00124BE0. A zero keeps the record. Any other value queues the link
 // at +4. A return of exactly 1 also removes the record and the slot that
 // slides down is evaluated next. Opcode 0 is 0x00132650. Opcode 1 is
-// 0x00132680. Opcode 2 is 0x001326D0. Other opcodes are not evaluated until
-// their functions are translated.
+// 0x00132680. Opcode 2 is 0x001326D0. Opcode 3 is 0x00132720. Other opcodes
+// are not evaluated until their functions are translated.
 void fn_124be0(Game& g)
 {
     size_t i = 0;
@@ -15668,6 +15730,10 @@ void fn_124be0(Game& g)
         else if (opcode == 2)
         {
             fired = fn_1326d0(rec);
+        }
+        else if (opcode == 3)
+        {
+            fired = fn_132720(rec);
         }
         if (fired == 0)
         {

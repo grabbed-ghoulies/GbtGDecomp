@@ -365,3 +365,4 @@ Named functions: [`docs/generated/ghidra_functions.txt`](generated/ghidra_functi
 | `0x00128BC0` | `fn_128bc0` | scene |
 | `0x00132680` | `fn_132680` | scene |
 | `0x001326D0` | `fn_1326d0` | scene |
+| `0x00132720` | `fn_132720` | scene |

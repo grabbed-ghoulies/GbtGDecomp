@@ -5,13 +5,18 @@ alwaysApply: true
 
 # Decomp agents
 
-Reconstruction is behavior of retail `sceneorder`, checked by a build and `gbtg --headless`. It is not a byte match of the Xbox binary.
+A function is a translation of `cache/ghidra_frontier/<VA>.txt`: the same branches, compares, and offsets. Host types are fine. A branch the dump does not have is not.
+
+A host boundary is allowed only when the dump calls it: file IO, D3D, XInput, heap, or thread TLS. It returns what the dump tests.
+
+Anything else is missing. A missing callee is not given a return value. `gbtg --headless` is a crash check. It does not accept the function.
 
 When a task file under `queue/` is assigned:
 
 - Edit only the files named in that task. `src/engine/game.cpp` is the thin `frame_tick` caller and is not yours unless the task lists it.
-- Put `// Xbox 0x........` on each function you reconstruct. Match the address in the task.
-- Rewrite behavior in the existing engine style. Do not paste the Ghidra dump in as the implementation.
+- Put `// Xbox 0x........` on each function you translate. Match the address in the task.
+- Translate the dump. Do not paste it in as the implementation. If a branch is not in the dump, do not write it.
+- An untranslated callee blocks the task. Do not stub it.
 - Allman braces, same as the rest of `src/engine/`.
 - Do not rename Ghidra symbols. Do not append `docs/XBE.md`. Do not commit. The supervisor does those after the build passes.
 - Do not stage `OriginalFiles/`, `*.xbe`, `*.bnl`, `*.iso`, or `ghidra_projects/`.

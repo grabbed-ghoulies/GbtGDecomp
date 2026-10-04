@@ -126,7 +126,6 @@ struct GfxD3D11
     ComPtr<ID3D11BlendState> blend_opaque;
     ComPtr<ID3D11BlendState> blend_alpha;
     ComPtr<ID3D11Buffer> ui_vb;
-    ComPtr<ID3D11ShaderResourceView> white;
     std::unordered_map<const Mesh*, GpuMesh> meshes;
     std::unordered_map<const RgbaImage*, ComPtr<ID3D11ShaderResourceView>> sprites;
     // Device shadow at 0x00181B70 (index * 4). BSS until a render-state setter writes it.
@@ -373,7 +372,6 @@ bool upload_mesh(const Mesh& mesh, GpuMesh& gpu)
     if (mesh.submeshes.empty())
     {
         DrawRange range;
-        range.srv = g.white;
         range.start = 0;
         range.count = u32(mesh.indices.size());
         gpu.ranges.push_back(std::move(range));
@@ -393,10 +391,6 @@ bool upload_mesh(const Mesh& mesh, GpuMesh& gpu)
         if (sub.texture >= 0 && size_t(sub.texture) < textures.size() && textures[size_t(sub.texture)])
         {
             range.srv = textures[size_t(sub.texture)];
-        }
-        else
-        {
-            range.srv = g.white;
         }
         if (sub.celmap >= 0 && size_t(sub.celmap) < textures.size() && textures[size_t(sub.celmap)])
         {
@@ -722,9 +716,12 @@ VSOut vs_main(VSIn i) {
 float4 ps_main(VSOut i) : SV_Target {
     float2 uv_a = uv_sel.x < 0.5 ? i.uv0 : i.uv1;
     float2 uv_l = uv_sel.y < 0.5 ? i.uv0 : i.uv1;
-    float4 albedo = g_tex.Sample(g_samp, uv_a);
-    // 0x0015AD20 register 0. Untextured draws have a white stand-in, so the
-    // constant is the colour. Textured draws with a white constant stay put.
+    // alpha_rs.w is 1 only when register 0 has a bound texture. Unbound does not sample.
+    float4 albedo = float4(1.0, 1.0, 1.0, 1.0);
+    if (alpha_rs.w > 0.5) {
+        albedo = g_tex.Sample(g_samp, uv_a);
+    }
+    // 0x0015AD20 register 0. With no texture, the draw colour is the constant.
     float3 light = light_dir.xyz;
     if (uv_sel.w > 0.5 && dot(i.nrm, i.nrm) > 1e-8) {
         // RARE_celmap0 is a ramp along U. The mesh constant is a colour, not a
@@ -830,14 +827,11 @@ float4 ps_main(VSOut i) : SV_Target {
     ui_bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
     g.device->CreateBuffer(&ui_bd, nullptr, g.ui_vb.GetAddressOf());
 
-    const u8 white_px[4] = {255, 255, 255, 255};
-    g.white = upload_bgra(white_px, 1, 1);
-
     if (g.hwnd)
     {
         ShowWindow(g.hwnd, SW_SHOW);
     }
-    g.ok = g.vs && g.ps && g.layout && g.cb && g.bone_cb && g.white && g.rtv && g.dsv && g.ui_vb && g.blend_alpha &&
+    g.ok = g.vs && g.ps && g.layout && g.cb && g.bone_cb && g.rtv && g.dsv && g.ui_vb && g.blend_alpha &&
            g.depth_off && g.depth_lequal && g.depth_lequal_ro;
     if (!g.ok)
     {
@@ -852,7 +846,6 @@ void gfx_shutdown()
 {
     g.meshes.clear();
     g.sprites.clear();
-    g.white.Reset();
     g.ui_vb.Reset();
     g.blend_alpha.Reset();
     g.blend_opaque.Reset();
@@ -1058,13 +1051,14 @@ void gfx_draw_mesh(const Mesh& mesh, Vec3 origin, Vec3 scale)
             std::memcpy(cb.mvp, draw_mvp.m, sizeof(cb.mvp));
             cb.albedo_uv = range.albedo_uv;
             cb.light_uv = range.light_uv;
-            cb.use_light = range.use_light;
-            cb.use_cel = range.use_cel;
+            cb.use_light = range.light ? range.use_light : 0.f;
+            cb.use_cel = range.light ? range.use_cel : 0.f;
             cb.skin = g.skin ? 1.f : 0.f;
             cb.light_x = range.color_r;
             cb.light_y = range.color_g;
             cb.light_z = range.color_b;
             store_alpha_rs(cb);
+            cb.alpha_pad = range.srv ? 1.f : 0.f;
             // 0x0015AD20 writes the alpha shadow for this material. Byte +24 == 0
             // clears ALPHATESTENABLE. Any other byte is D3DCMP_GREATER (0x204).
             if (range.alpha_ref > 0.f)
@@ -1123,8 +1117,7 @@ void gfx_draw_mesh(const Mesh& mesh, Vec3 origin, Vec3 scale)
                 g.context->Unmap(g.bone_cb.Get(), 0);
             }
         }
-        ID3D11ShaderResourceView* srvs[2] = {range.srv ? range.srv.Get() : g.white.Get(),
-                                             range.light ? range.light.Get() : g.white.Get()};
+        ID3D11ShaderResourceView* srvs[2] = {range.srv.Get(), range.light.Get()};
         g.context->PSSetShaderResources(0, 2, srvs);
         g.context->DrawIndexed(range.count, range.start, 0);
         tris += range.count / 3;
@@ -1187,6 +1180,7 @@ void gfx_draw_sprite(const RgbaImage& image, const GfxRect& rect)
         GpuCB cb;
         std::memcpy(cb.mvp, identity.m, sizeof(cb.mvp));
         store_alpha_rs(cb);
+        cb.alpha_pad = 1.f;
         std::memcpy(mapped.pData, &cb, sizeof(cb));
         g.context->Unmap(g.cb.Get(), 0);
     }
@@ -1201,7 +1195,8 @@ void gfx_draw_sprite(const RgbaImage& image, const GfxRect& rect)
     g.context->IASetVertexBuffers(0, 1, g.ui_vb.GetAddressOf(), &stride, &offset);
     g.context->OMSetDepthStencilState(g.depth_off.Get(), 0);
     g.context->OMSetBlendState(g.blend_alpha.Get(), nullptr, 0xFFFFFFFFu);
-    ID3D11ShaderResourceView* srvs[2] = {it->second.Get(), g.white.Get()};
+    ID3D11ShaderResourceView* unbound = nullptr;
+    ID3D11ShaderResourceView* srvs[2] = {it->second.Get(), unbound};
     g.context->PSSetShaderResources(0, 2, srvs);
     g.context->Draw(6, 0);
 }

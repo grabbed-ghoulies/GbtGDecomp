@@ -33,10 +33,10 @@ Scripts in `tools/ghidra/ghidra_scripts/` run against the existing `ghidra_proje
 .\tools\ghidra\support\analyzeHeadless.bat ghidra_projects GbtG -process default.xbe.original -readOnly -noanalysis -scriptPath tools\ghidra\ghidra_scripts -postScript ExportFrontier.java
 ```
 
-`ExportEngine.java` writes `docs/generated/ghidra_functions.txt` (addresses and names only) plus `cache/ghidra_engine.txt` (decompiles). `ExportFrontier.java` decompiles unnamed callees of named functions into `cache/ghidra_frontier/` and adds one task file per function under `queue/open/` when that address is not already queued. Close Code Browser first, or the project may be locked.
+`ExportEngine.java` writes `docs/generated/ghidra_functions.txt` (addresses and names only) plus `cache/ghidra_engine.txt` (decompiles). `ExportFrontier.java` decompiles the script-handler, stream, camera, and texture-stage seeds into `cache/ghidra_frontier/` and adds one task file per unnamed callee under `queue/open/` when that address is not already queued. `dump-only` skips the enqueue. Close Code Browser first, or the project may be locked.
 
 When you rename a function in Ghidra, add a line to [`XBE.md`](XBE.md) and re-run `ExportEngine.java`.
 
 ## Oracle
 
-Run the same disc in **xemu** (LLE) or Cxbx-Reloaded (HLE). When reconstructing a function (file open, bundle load, actor spawn), compare side effects: which BNL is opened, which AID hash is requested, what D3D draw shows. The PC engine should match behavior, not bytes.
+Run the same disc in **xemu** (LLE) or Cxbx-Reloaded (HLE) when you want a side-effect check: which BNL is opened, which AID hash is requested, what D3D draw shows. The spec for a function is its decompile. The PC engine keeps that function's branches and offsets. A host boundary (file IO, D3D, XInput, heap, thread TLS) is only a call the dump makes, and it returns what the dump tests. `gbtg --headless` is a crash check. It does not accept the function.

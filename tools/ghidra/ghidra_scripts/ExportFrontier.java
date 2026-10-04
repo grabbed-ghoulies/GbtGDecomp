@@ -58,10 +58,24 @@ public class ExportFrontier extends GhidraScript {
     }
 
     private static final int kNewTaskCap = 12;
-    // Skin palette and the mesh colour/texture-stage setup. The next tasks are
-    // their callees, not every named function in the program.
-    private static final long[] kSkinSeeds = {0x0002FAC0L, 0x0002F720L};
-    private static final long[] kLightSeeds = {0x000644F0L, 0x0005E380L};
+    // Script handlers, stream states, camera vtable slots, and texture-stage
+    // setup. Refill walks these, not the skin and light callees.
+    private static final long[] kSeeds = {
+        0x00128A00L, 0x00117100L, 0x00124BE0L, 0x00133070L, 0x0011E4C0L, 0x0011E6A0L, 0x00072B10L, 0x00072CB0L,
+        0x0015AD20L
+    };
+    private static final String[] kSeedOwners = {
+        "scene", "scene", "scene", "scene", "scene", "scene", "entity", "entity", "present"
+    };
+    // Pointer-table targets of those seeds. Dumped for the queue. Not walk seeds.
+    private static final long[] kTableDumps = {
+        0x00128BC0L, 0x00124CC0L, 0x00124E50L, 0x00124F30L, 0x00124FC0L, 0x001251E0L, 0x001259B0L, 0x00126140L,
+        0x001269D0L, 0x00126A10L, 0x00126E10L, 0x00127340L, 0x001274B0L, 0x00127BC0L, 0x00128050L, 0x00128770L,
+        0x00132680L, 0x001326D0L, 0x00132720L, 0x001327A0L, 0x00132800L, 0x00132840L, 0x001328D0L, 0x00132940L,
+        0x001329A0L, 0x00132A30L, 0x00132A00L, 0x00132A60L, 0x00132BC0L, 0x00132BF0L, 0x00132D00L, 0x00132C70L,
+        0x00132AB0L, 0x00132DB0L, 0x00132E00L, 0x00132E90L, 0x00132ED0L, 0x00132F00L, 0x00132F30L, 0x00132FA0L,
+        0x00132FF0L, 0x00132B50L, 0x00133070L
+    };
     private DecompInterface decomp;
 
     @Override
@@ -79,13 +93,25 @@ public class ExportFrontier extends GhidraScript {
         decomp.openProgram(currentProgram);
         int refreshed = 0;
         int created = 0;
+        boolean dumpOnly = false;
+        String[] args = getScriptArgs();
+        if (args != null) {
+            for (String arg : args) {
+                if ("dump-only".equals(arg)) {
+                    dumpOnly = true;
+                }
+            }
+        }
         try {
             refreshed = refreshQueuedDumps(frontier);
-            created = enqueueCallees(frontier, queued);
+            dumpSeeds(frontier);
+            if (!dumpOnly) {
+                created = enqueueCallees(frontier, queued);
+            }
         } finally {
             decomp.dispose();
         }
-        println("frontier refreshed=" + refreshed + " created=" + created);
+        println("frontier refreshed=" + refreshed + " created=" + created + (dumpOnly ? " dump-only" : ""));
     }
 
     private int refreshQueuedDumps(File frontier) throws Exception {
@@ -113,6 +139,35 @@ public class ExportFrontier extends GhidraScript {
         return n;
     }
 
+    private void dumpOne(File frontier, long va) throws Exception {
+        String key = String.format(Locale.ROOT, "%08X", va);
+        Function fn = getFunctionAt(toAddr(va));
+        if (fn == null) {
+            fn = getFunctionContaining(toAddr(va));
+            if (fn != null && fn.getEntryPoint().getOffset() != va) {
+                fn = null;
+            }
+        }
+        if (fn == null) {
+            try {
+                disassemble(toAddr(va));
+                fn = createFunction(toAddr(va), null);
+            } catch (Exception e) {
+                println("no function at 0x" + key + ": " + e.getMessage());
+            }
+        }
+        writeDump(frontier, key, fn);
+    }
+
+    private void dumpSeeds(File frontier) throws Exception {
+        for (long va : kSeeds) {
+            dumpOne(frontier, va);
+        }
+        for (long va : kTableDumps) {
+            dumpOne(frontier, va);
+        }
+    }
+
     private void pushSeed(ArrayDeque<Function> walk, ArrayDeque<String> owners, Set<String> seen, long va,
             String owner) {
         Function fn = getFunctionAt(toAddr(va));
@@ -135,11 +190,8 @@ public class ExportFrontier extends GhidraScript {
         ArrayDeque<Function> walk = new ArrayDeque<Function>();
         ArrayDeque<String> owners = new ArrayDeque<String>();
         HashSet<String> seen = new HashSet<String>();
-        for (long va : kSkinSeeds) {
-            pushSeed(walk, owners, seen, va, "anim");
-        }
-        for (long va : kLightSeeds) {
-            pushSeed(walk, owners, seen, va, "gfx");
+        for (int i = 0; i < kSeeds.length; i++) {
+            pushSeed(walk, owners, seen, kSeeds[i], kSeedOwners[i]);
         }
         while (!walk.isEmpty() && created < kNewTaskCap) {
             Function caller = walk.removeFirst();
@@ -171,7 +223,7 @@ public class ExportFrontier extends GhidraScript {
                     continue;
                 }
                 writeDump(frontier, key, callee);
-                writeTask(key, va, "fn_" + Long.toHexString(va), owner, caller, callee);
+                writeTask(key, va, "fn_" + Long.toHexString(va), owner, caller, callee, queued);
                 queued.add(key);
                 created++;
             }
@@ -196,16 +248,46 @@ public class ExportFrontier extends GhidraScript {
             } else {
                 w.println("decompile failed: " + (res == null ? "null" : res.getErrorMessage()));
             }
+            w.println("callees:");
+            if (fn != null) {
+                Set<Function> called = fn.getCalledFunctions(monitor);
+                if (called != null) {
+                    for (Function sub : called) {
+                        if (sub == null) {
+                            continue;
+                        }
+                        long subVa = sub.getEntryPoint().getOffset();
+                        w.println("0x" + String.format(Locale.ROOT, "%08X", subVa) + " " + sub.getName());
+                    }
+                }
+            }
         } finally {
             w.close();
         }
     }
 
-    private void writeTask(String key, long va, String name, String owner, Function caller, Function callee)
-            throws Exception {
+    private void writeTask(String key, long va, String name, String owner, Function caller, Function callee,
+            Set<String> queued) throws Exception {
         File md = new File(queueDir("open"), key + ".md");
         PrintWriter w = new PrintWriter(new FileWriter(md), true);
         try {
+            StringBuilder blocked = new StringBuilder();
+            Set<Function> subs = callee.getCalledFunctions(monitor);
+            if (subs != null) {
+                for (Function sub : subs) {
+                    if (sub == null || sub.isExternal() || sub.isThunk()) {
+                        continue;
+                    }
+                    String subKey = String.format(Locale.ROOT, "%08X", sub.getEntryPoint().getOffset());
+                    if (!queued.contains(subKey)) {
+                        continue;
+                    }
+                    if (blocked.length() > 0) {
+                        blocked.append(' ');
+                    }
+                    blocked.append(subKey);
+                }
+            }
             w.println("---");
             w.println("va: 0x" + key);
             w.println("name: " + name);
@@ -213,7 +295,7 @@ public class ExportFrontier extends GhidraScript {
             w.println("status: open");
             w.println("retries: 0");
             w.println("exclusive: false");
-            w.println("blocked_by:");
+            w.println("blocked_by: " + blocked);
             w.println("decompile: cache/ghidra_frontier/" + key + ".txt");
             w.println("files: " + filesFor(owner));
             w.println("claimed:");
@@ -226,7 +308,6 @@ public class ExportFrontier extends GhidraScript {
             w.println("Callees:");
             w.println();
             int n = 0;
-            Set<Function> subs = callee.getCalledFunctions(monitor);
             if (subs != null) {
                 for (Function sub : subs) {
                     if (n++ >= 16) {
@@ -238,7 +319,9 @@ public class ExportFrontier extends GhidraScript {
                 }
             }
             w.println();
-            w.println("Reconstruct the behavior in the files listed above.");
+            w.println("Translate the decompile at cache/ghidra_frontier/" + key + ".txt.");
+            w.println("Same branches, compares, and offsets. If a branch is not in the dump, do not write it.");
+            w.println("An untranslated callee blocks this task. Do not stub it.");
             w.println("Leave a `// Xbox 0x" + key + "` comment on each function you add.");
             w.println("Do not edit any other file. Do not append docs/XBE.md. Do not commit.");
         } finally {

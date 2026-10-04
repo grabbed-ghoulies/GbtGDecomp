@@ -80,7 +80,7 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
                 std::cout << "scene select [" << index << "] " << scene_order[index] << "\n";
             }
             scene_index = index;
-            // 0x0011EB30. The first frame_tick pump (0x0011E4C0) loads it, same as any later script.
+            // 0x0011EB30 queues the aid. 0x0011E4C0 is not translated, so the pump does not load it.
             script_request(*this, scene_order[index]);
         }
     }
@@ -92,7 +92,7 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
 
     game_init_pump();
     std::cout << "game_init: io idle\n";
-    // Boot has no frame yet. The same pump frame_tick runs loads the queued script.
+    // 0x0011E4C0 is not translated. The queued name stays queued.
     script_pump(*this);
     if (scene_name == kNoScript)
     {
@@ -114,7 +114,7 @@ void frame_tick(Game& g, float dt, const InputState& in)
     }
     pad_tick(g, in); // 0x000FA3C0 / 0x000FAD80
     gameselect_tick(g, in);
-    // 0x00033C47. A pending aid_script (title Start, back, play, boot) loads here.
+    // 0x00033C47. 0x0011E4C0 is not translated, so a pending aid_script stays queued.
     script_pump(g);
     // 0x0011E927. The condition list is updated after the pump, so a request
     // issued by a fired action waits until the next frame.

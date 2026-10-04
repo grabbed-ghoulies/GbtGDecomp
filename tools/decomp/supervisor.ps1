@@ -296,11 +296,15 @@ Game directory for a manual run: $GameDir
 Pass it as --game-dir. Do not stage OriginalFiles, xbe, bnl, or iso files.
 
 Rules:
-- Behavior reconstruction, not a paste of the Ghidra listing.
+- Translate the decompile at the dump path. Same branches, compares, and offsets.
+- If a branch is not in the dump, do not write it. Do not paste the listing in as the implementation.
+- A host boundary is only a call the dump makes: file IO, D3D, XInput, heap, or thread TLS. Return what the dump tests.
+- An untranslated callee blocks the task. Do not stub it.
 - Allman braces, matching src/engine.
 - Comment each function you add with // Xbox $va
 - Do not edit files that are not listed above.
 - Do not append docs/XBE.md. Do not commit.
+- gbtg --headless exiting 0 is a crash check. It does not accept the function.
 - Touch this heartbeat when you start and when you finish: $hb
 - When you stop, create this empty file: $ready
 "@

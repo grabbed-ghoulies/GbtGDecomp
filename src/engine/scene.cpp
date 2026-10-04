@@ -15376,7 +15376,6 @@ constexpr const char* kScriptCondName[27] = {
 
 std::vector<ScriptCond> g_script_conds;
 std::vector<u32> g_script_fired;
-bool g_script_cond_logged[27]{};
 
 u32 cond_u32(const ScriptCond& rec, u32 at)
 {
@@ -15455,10 +15454,6 @@ void script_vm_reset()
 {
     g_script_conds.clear();
     g_script_fired.clear();
-    for (bool& logged : g_script_cond_logged)
-    {
-        logged = false;
-    }
 }
 
 // Xbox 0x00124C80. Grows DAT_0051234C by the 0x20 stride and copies `size` bytes.
@@ -15480,23 +15475,6 @@ void fn_124c80(const ScriptCond& src, u32 size, u32 opcode)
     g_script_conds.push_back(rec);
 }
 
-// Xbox 0x00133070. The retail countdown is gated on BSS clocks that are zero
-// in the image, so a loaded timeout would never move. This subtracts the
-// frame step and clamps at zero.
-void fn_133070(ScriptCond& rec, float dt)
-{
-    float left = cond_f32(rec, 8);
-    if (left > 0.f && dt > 0.f)
-    {
-        left -= dt;
-        if (left < 0.f)
-        {
-            left = 0.f;
-        }
-        cond_put_f32(rec, 8, left);
-    }
-}
-
 // Xbox 0x00132650. ucomiss of the float at +8 against 0. Equal, and not a
 // NaN, returns 1 so the eval pass fires the link and drops the record.
 int fn_132650(const ScriptCond& rec)
@@ -15509,19 +15487,10 @@ int fn_132650(const ScriptCond& rec)
     return 0;
 }
 
-int cond_eval_stub(u32 opcode)
-{
-    if (opcode < 27 && !g_script_cond_logged[opcode])
-    {
-        g_script_cond_logged[opcode] = true;
-        std::cout << "script condition pending " << script_condition_name(opcode) << "\n";
-    }
-    return 0;
-}
-
 // Xbox 0x00124BE0. A zero keeps the record. Any other value queues the link
 // at +4. A return of exactly 1 also removes the record and the slot that
-// slides down is evaluated next.
+// slides down is evaluated next. Opcode 0 is 0x00132650. Other opcodes are
+// not evaluated until their functions are translated.
 void fn_124be0(Game& g)
 {
     size_t i = 0;
@@ -15533,10 +15502,6 @@ void fn_124be0(Game& g)
         if (opcode == 0)
         {
             fired = fn_132650(rec);
-        }
-        else if (opcode < 27)
-        {
-            fired = cond_eval_stub(opcode);
         }
         if (fired == 0)
         {
@@ -15556,8 +15521,8 @@ void fn_124be0(Game& g)
 
 // Xbox 0x00125450. One node of the action walk. Type 0x3C stops the walk.
 // The listed types copy a condition and tell the runner to advance. Every
-// other type declines so a later handler, or the runner itself, can move on.
-// The word filled by 0x001077B0 is left 0.
+// other type stops the walk. The word filled by 0x001077B0 is left 0
+// until that function is translated.
 int fn_125450(Game& g, const ScriptNode& node)
 {
     u32 opcode = 0;
@@ -15628,11 +15593,11 @@ int fn_125450(Game& g, const ScriptNode& node)
     return 2;
 }
 
-// Xbox 0x00128A00. Walks fired file offsets. Handler 6 is 0x00125450. The
-// other sixteen handlers are not ported and decline, which is the same
-// advance the runner takes when every handler returns 3. Return 1 stops on
-// a type-0x3C node. Return 0 means the cursor left the blob, and the drain
-// keeps that fired id.
+// Xbox 0x00128A00. Walks fired file offsets. Handler 6 is 0x00125450.
+// The other sixteen handlers are not translated. A node type that handler
+// does not cover stops the walk and leaves the fired id in place. Return 1
+// stops on a type-0x3C node. Return 0 means the cursor left the blob, or
+// stopped on an untranslated node, and the drain keeps that fired id.
 int fn_128a00(Game& g, u32 offset)
 {
     for (int step = 0; step < 256; ++step)
@@ -15646,6 +15611,10 @@ int fn_128a00(Game& g, u32 offset)
         if (handler == 1)
         {
             return 1;
+        }
+        if (handler != 2)
+        {
+            return 0;
         }
         offset = node->link;
     }
@@ -15682,17 +15651,12 @@ void script_vm_bind(Game& g)
     fn_1288c0(g);
 }
 
-// Xbox 0x00117100, then the eval at 0x00117140. Update handlers other than
-// TimeOut are silent. DAT_0050E794 is left clear so the eval pass runs.
+// Xbox 0x00117100, then the eval at 0x00117140. 0x00133070 is not translated,
+// so a timeout record is not stepped. DAT_0050E794 is left clear so the eval
+// pass runs. Opcodes other than 0 are not evaluated.
 void script_vm_tick(Game& g, float dt)
 {
-    for (ScriptCond& rec : g_script_conds)
-    {
-        if (cond_u32(rec, 0) == 0)
-        {
-            fn_133070(rec, dt);
-        }
-    }
+    (void)dt;
     fn_124be0(g);
     fn_1288c0(g);
 }
@@ -15863,26 +15827,10 @@ void script_request(Game& g, std::string_view name)
 
 void script_pump(Game& g)
 {
-    // Xbox 0x0011E4C0, called from frame_tick at 0x00033C47 with EAX = DAT_00510E58.
-    // +0x110 clear and an aid_ name at +0x80 enters state 3 (0x0011E6A0, ebx = 3),
-    // then 0x0012C5D0 loads that script. Any aid_script uses this path.
-    if (g.script_hold)
-    {
-        return;
-    }
-    if (std::memcmp(g.requested_script, "aid_", 4) != 0)
-    {
-        return;
-    }
-    g.script_hold = true;
-    g.script_phase = 3;
-    char name[sizeof(g.requested_script)];
-    std::memcpy(name, g.requested_script, sizeof(name));
-    g.requested_script[0] = '\0';
-    script_load(g, name);
-    // The load is synchronous. Retail clears +0x110 when the stream reaches
-    // state 2 (0x0011E5C3).
-    g.script_hold = false;
+    // Xbox 0x0011E4C0 is not translated. frame_tick calls it with EAX = DAT_00510E58.
+    // The aid_ name at scene+0x80 stays queued. This does not load the script
+    // and does not mark the stream finished.
+    (void)g;
 }
 
 void scene_order_advance(Game& g)

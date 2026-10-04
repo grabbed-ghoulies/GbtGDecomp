@@ -16516,6 +16516,25 @@ int fn_132f30(const ScriptCond& rec)
     return 0;
 }
 
+// Xbox 0x00132FA0. Opcode 24 in the table at 0x00314330. Walks DAT_00511B48.
+// A null node returns 0. The word at record+8 below 2, or equal to the word
+// at node-0x93E (actor+6), and the word at [node+0x18]+0x94 zero-extended
+// then compared as a signed int at or below the int at record+0xC, returns 1.
+// Next is the pointer at node+4. Every other path returns 0.
+int fn_132fa0(const ScriptCond& rec)
+{
+    for (AltLink* link = g_alt_links; link != nullptr; link = link->next)
+    {
+        const u16 key = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+        if ((key < 2 || link->actor->class_key == key) &&
+            static_cast<i32>(u32(link->at_18->word_94)) <= static_cast<i32>(cond_u32(rec, 0xc)))
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 // Xbox 0x00124BE0. A zero keeps the record. Any other value queues the link
 // at +4. A return of exactly 1 also removes the record and the slot that
 // slides down is evaluated next. Opcode 0 is 0x00132650. Opcode 1 is
@@ -16526,8 +16545,8 @@ int fn_132f30(const ScriptCond& rec)
 // 0x00132BC0. Opcode 14 is 0x00132BF0. Opcode 15 is 0x00132D00. Opcode 16 is
 // 0x00132C70. Opcode 17 is 0x00132AB0. Opcode 18 is 0x00132DB0. Opcode 19 is
 // 0x00132E00. Opcode 20 is 0x00132E90. Opcode 21 is 0x00132ED0. Opcode 22 is
-// 0x00132F00. Opcode 23 is 0x00132F30. Opcode 26 is 0x00132B50. Other opcodes
-// are not evaluated until their functions are translated.
+// 0x00132F00. Opcode 23 is 0x00132F30. Opcode 24 is 0x00132FA0. Opcode 26 is
+// 0x00132B50. Other opcodes are not evaluated until their functions are translated.
 void fn_124be0(Game& g)
 {
     size_t i = 0;
@@ -16631,6 +16650,10 @@ void fn_124be0(Game& g)
         else if (opcode == 23)
         {
             fired = fn_132f30(rec);
+        }
+        else if (opcode == 24)
+        {
+            fired = fn_132fa0(rec);
         }
         else if (opcode == 26)
         {

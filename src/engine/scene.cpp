@@ -15429,13 +15429,17 @@ std::vector<u32> g_script_fired;
 
 // DAT_0050E4DC. 0x00116810 allocates the 0x214-byte node. +4 is next. +8 is
 // the type 0x00128A00 compares with 0x7D before it calls the handlers.
+// DAT_0050E4D8 is the anchor immediately before that head. 0x00116810 stores
+// the anchor as the first node's prev, so 0x000E9210's store at prev+4 writes
+// the new head.
 struct LiveScript
 {
     LiveScript* prev = nullptr;
     LiveScript* next = nullptr;
     u32 type = 0;
 };
-LiveScript* g_live_scripts = nullptr;
+LiveScript g_live_anchor{};
+LiveScript*& g_live_scripts = g_live_anchor.next;
 
 // DAT_0050E568. Handler 2 writes this block. 0x0050E570 and 0x0050E660 are
 // the bases of the scaled stores. 0x001077B0 returns at most 0xE9, which is
@@ -15582,10 +15586,69 @@ int fn_132680(const ScriptCond& rec)
     return 0;
 }
 
+// Xbox 0x000E9210. EAX is the DAT_0050E4DC node. A non-null prev stores next
+// at prev+4. A non-null next stores prev at next+0. Both links are then
+// cleared. The tail matches 0x000663E0: 0x000F7100 selects the heap and
+// 0x0014D360 frees the node.
+void fn_e9210(LiveScript* node)
+{
+    LiveScript* prev = node->prev;
+    if (prev != nullptr)
+    {
+        prev->next = node->next;
+    }
+    if (node->next != nullptr)
+    {
+        node->next->prev = prev;
+    }
+    node->prev = nullptr;
+    node->next = nullptr;
+    fn_663e0(node);
+}
+
+// Xbox 0x001326D0. Opcode 2 in the table at 0x00314330. The record is not
+// read. Walks DAT_0050E4DC. An empty list, or no node whose dword at +8 is
+// 0xB8, returns 0. Xbox then adds 8 and returns 0 when that address is 0.
+// Otherwise the walk restarts at the head. The next pointer is taken before
+// 0x000E9210, and every node with 0xB8 at +8 is passed there. The walk
+// returns 1.
+int fn_1326d0(const ScriptCond&)
+{
+    LiveScript* found = g_live_scripts;
+    for (;;)
+    {
+        if (found == nullptr)
+        {
+            return 0;
+        }
+        if (found->type == 0xb8u)
+        {
+            break;
+        }
+        found = found->next;
+    }
+    if (reinterpret_cast<std::uintptr_t>(found) + offsetof(LiveScript, type) == 0)
+    {
+        return 0;
+    }
+    LiveScript* cursor = g_live_scripts;
+    do
+    {
+        LiveScript* next = cursor->next;
+        if (cursor->type == 0xb8u)
+        {
+            fn_e9210(cursor);
+        }
+        cursor = next;
+    } while (cursor != nullptr);
+    return 1;
+}
+
 // Xbox 0x00124BE0. A zero keeps the record. Any other value queues the link
 // at +4. A return of exactly 1 also removes the record and the slot that
 // slides down is evaluated next. Opcode 0 is 0x00132650. Opcode 1 is
-// 0x00132680. Other opcodes are not evaluated until their functions are translated.
+// 0x00132680. Opcode 2 is 0x001326D0. Other opcodes are not evaluated until
+// their functions are translated.
 void fn_124be0(Game& g)
 {
     size_t i = 0;
@@ -15601,6 +15664,10 @@ void fn_124be0(Game& g)
         else if (opcode == 1)
         {
             fired = fn_132680(rec);
+        }
+        else if (opcode == 2)
+        {
+            fired = fn_1326d0(rec);
         }
         if (fired == 0)
         {

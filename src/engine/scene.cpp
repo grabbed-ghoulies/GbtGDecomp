@@ -16367,6 +16367,58 @@ int fn_132db0(const ScriptCond& rec)
     return 1;
 }
 
+// Xbox 0x00132E00. Opcode 19 in the table at 0x00314330. A zero word at
+// record+0xC calls 0x0012AE40 with ECX cleared. Any other word loads the
+// dword at DAT_00512B78 indexed by that word. While the int at record+0x18
+// is below that count, it is incremented. A zero remainder from the signed
+// division by the int at record+8 copies the dword at record+0x10 onto
+// record+0x14 when the int at record+0x1C is zero, then increments that
+// int. A nonzero int at record+0x1C whose float at record+0x14 ucomiss
+// equals the 0 at 0x0032B100, and is not a NaN, decrements the int. A
+// remaining nonzero value copies record+0x10 onto record+0x14 again and
+// returns 2. Every other path returns 0.
+int fn_132e00(ScriptCond& rec)
+{
+    i32 count = 0;
+    const u16 category = u16(rec.raw[0xc]) | (u16(rec.raw[0xd]) << 8);
+    if (category == 0)
+    {
+        count = fn_12ae40(0);
+    }
+    else
+    {
+        count = stat_512c6c(0x00512B78u + u32(category) * 4u);
+    }
+    if (static_cast<i32>(cond_u32(rec, 0x18)) < count)
+    {
+        do
+        {
+            const i32 next = static_cast<i32>(cond_u32(rec, 0x18)) + 1;
+            cond_put_u32(rec, 0x18, static_cast<u32>(next));
+            if (next % static_cast<i32>(cond_u32(rec, 8)) == 0)
+            {
+                const i32 pending = static_cast<i32>(cond_u32(rec, 0x1c));
+                if (pending == 0)
+                {
+                    cond_put_u32(rec, 0x14, cond_u32(rec, 0x10));
+                }
+                cond_put_u32(rec, 0x1c, static_cast<u32>(pending + 1));
+            }
+        } while (static_cast<i32>(cond_u32(rec, 0x18)) < count);
+    }
+    if (static_cast<i32>(cond_u32(rec, 0x1c)) != 0 && cond_f32(rec, 0x14) == 0.f)
+    {
+        const i32 left = static_cast<i32>(cond_u32(rec, 0x1c)) - 1;
+        cond_put_u32(rec, 0x1c, static_cast<u32>(left));
+        if (left != 0)
+        {
+            cond_put_u32(rec, 0x14, cond_u32(rec, 0x10));
+        }
+        return 2;
+    }
+    return 0;
+}
+
 // Xbox 0x00124BE0. A zero keeps the record. Any other value queues the link
 // at +4. A return of exactly 1 also removes the record and the slot that
 // slides down is evaluated next. Opcode 0 is 0x00132650. Opcode 1 is
@@ -16375,8 +16427,9 @@ int fn_132db0(const ScriptCond& rec)
 // 0x001328D0. Opcode 8 is 0x00132940. Opcode 9 is 0x001329A0. Opcode 10 is
 // 0x00132A30. Opcode 11 is 0x00132A00. Opcode 12 is 0x00132A60. Opcode 13 is
 // 0x00132BC0. Opcode 14 is 0x00132BF0. Opcode 15 is 0x00132D00. Opcode 16 is
-// 0x00132C70. Opcode 17 is 0x00132AB0. Opcode 18 is 0x00132DB0. Opcode 26 is
-// 0x00132B50. Other opcodes are not evaluated until their functions are translated.
+// 0x00132C70. Opcode 17 is 0x00132AB0. Opcode 18 is 0x00132DB0. Opcode 19 is
+// 0x00132E00. Opcode 26 is 0x00132B50. Other opcodes are not evaluated until
+// their functions are translated.
 void fn_124be0(Game& g)
 {
     size_t i = 0;
@@ -16460,6 +16513,10 @@ void fn_124be0(Game& g)
         else if (opcode == 18)
         {
             fired = fn_132db0(rec);
+        }
+        else if (opcode == 19)
+        {
+            fired = fn_132e00(rec);
         }
         else if (opcode == 26)
         {

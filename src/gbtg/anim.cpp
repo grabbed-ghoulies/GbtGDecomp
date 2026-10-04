@@ -462,4 +462,80 @@ void skin_matrices(const std::vector<Joint>& joints, const std::vector<JointPose
     }
 }
 
+namespace
+{
+
+bool invert_affine(const float* m, float* out)
+{
+    const float a = m[0], b = m[4], c = m[8];
+    const float d = m[1], e = m[5], f = m[9];
+    const float g = m[2], h = m[6], i = m[10];
+    const float det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+    if (std::fabs(det) < 1e-8f)
+    {
+        return false;
+    }
+    const float inv = 1.f / det;
+    out[0] = (e * i - f * h) * inv;
+    out[1] = (f * g - d * i) * inv;
+    out[2] = (d * h - e * g) * inv;
+    out[4] = (c * h - b * i) * inv;
+    out[5] = (a * i - c * g) * inv;
+    out[6] = (b * g - a * h) * inv;
+    out[8] = (b * f - c * e) * inv;
+    out[9] = (c * d - a * f) * inv;
+    out[10] = (a * e - b * d) * inv;
+    out[3] = out[7] = out[11] = 0.f;
+    out[15] = 1.f;
+    const float tx = m[12], ty = m[13], tz = m[14];
+    out[12] = -(out[0] * tx + out[4] * ty + out[8] * tz);
+    out[13] = -(out[1] * tx + out[5] * ty + out[9] * tz);
+    out[14] = -(out[2] * tx + out[6] * ty + out[10] * tz);
+    return true;
+}
+
+void bake_pivot(float* m, Vec3 delta)
+{
+    const float rx = m[0] * delta.x + m[4] * delta.y + m[8] * delta.z;
+    const float ry = m[1] * delta.x + m[5] * delta.y + m[9] * delta.z;
+    const float rz = m[2] * delta.x + m[6] * delta.y + m[10] * delta.z;
+    m[12] += delta.x - rx;
+    m[13] += delta.y - ry;
+    m[14] += delta.z - rz;
+}
+
+} // namespace
+
+void skin_draw_matrices(const std::vector<Joint>& joints, const std::vector<JointPose>& rest,
+                        const std::vector<JointPose>& pose, Vec3 delta, float* out, int max_joints)
+{
+    const int n = int(std::min(joints.size(), std::min(rest.size(), pose.size())));
+    const int count = std::min(n, max_joints);
+    if (!out || count <= 0)
+    {
+        return;
+    }
+    std::vector<float> rest_m(size_t(count) * 16);
+    std::vector<float> pose_m(size_t(count) * 16);
+    skin_matrices(joints, rest, rest_m.data(), count);
+    skin_matrices(joints, pose, pose_m.data(), count);
+    for (int i = 0; i < count; ++i)
+    {
+        float* dest = out + size_t(i) * 16;
+        float inv[16];
+        if (!invert_affine(rest_m.data() + size_t(i) * 16, inv))
+        {
+            std::memcpy(dest, ident().m, sizeof(float) * 16);
+            continue;
+        }
+        Mat anim;
+        Mat base;
+        std::memcpy(anim.m, pose_m.data() + size_t(i) * 16, sizeof(anim.m));
+        std::memcpy(base.m, inv, sizeof(base.m));
+        const Mat skin = mul(anim, base);
+        std::memcpy(dest, skin.m, sizeof(skin.m));
+        bake_pivot(dest, delta);
+    }
+}
+
 } // namespace gbtg

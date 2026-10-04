@@ -15540,11 +15540,14 @@ void draw_cutscene_props(Game& g)
                          actor_curve(actor, 5, q.time, cut.duration, 1.f)};
         if (!actor.mina.empty() && !prop.mesh.joints.empty() && !prop.mesh.bones.empty() && cut.duration > 0.f)
         {
-            const auto pose = sample_mina(actor.mina, q.time / cut.duration);
-            const int n = int(std::min(pose.size(), std::min(prop.mesh.joints.size(), size_t(128))));
+            const float norm = q.time / cut.duration;
+            const auto pose = sample_mina(actor.mina, norm);
+            const int n = int(std::min(pose.size(), std::min(prop.mesh.joints.size(), size_t(127))));
             float bones[128 * 16]{};
             if (n > 0)
             {
+                // Xbox 0x0002FAC0. The slot-to-joint bind is ndMtxArray (0x155E60),
+                // applied when the mesh uploads the palette.
                 skin_matrices(prop.mesh.joints, pose, bones, n);
                 gfx_set_bones(bones, n);
             }

@@ -21,6 +21,9 @@ struct VertStream
     std::vector<Vec2> uv1;
     std::vector<Vec2> uv2;
     std::vector<u16> bones;
+    std::vector<u16> bone2;
+    std::vector<float> weight0;
+    std::vector<float> weight1;
 };
 
 std::vector<std::pair<u32, std::vector<Vec2>>> parse_uv_attrib(std::span<const u8> cpu, std::span<const u8> gpu,
@@ -141,11 +144,129 @@ std::vector<VertStream> parse_vertex_streams(std::span<const u8> cpu, std::span<
         }
         normal_streams.emplace_back(n, std::move(normals));
     }
-    // Attract actors store positions in model space (the banjo arm is a hand). The
-    // type-0 float4 that sits beside the position stream is not a bone index: its
-    // values are around +/-80, and reading them as shader slots 24, 27, 30 scatters
-    // vertices onto random joints. ndRigidSkinIdx is the palette, not this stream.
-    std::vector<std::pair<u32, std::vector<u16>>> bone_streams;
+    // Type 0 is the shader's v4. FUN_00157b90 writes matrix i at constant
+    // 0x78 + i*3. The rigid shader ARLs v4.x. The blended shader (the one that
+    // MADs a second matrix) ARLs v4.x then v4.y, and scales the rows by v5.xy.
+    // The file stores 24 + 3*slot. Books are stride 8 (one slot, weight 1).
+    // The banjo arm is stride 16 (slot, second slot, 0, 0) with type 0x08 weights.
+    auto slot_of = [](float raw, u16& slot) -> bool
+    {
+        if (!(raw == raw) || raw < 24.f || raw > 24.f + 126.f * 3.f)
+        {
+            return false;
+        }
+        const int constant = int(raw);
+        if (raw != float(constant) || (constant - 24) % 3 != 0)
+        {
+            return false;
+        }
+        slot = u16((constant - 24) / 3);
+        return true;
+    };
+    struct BoneStream
+    {
+        u32 n = 0;
+        std::vector<u16> slots;
+        std::vector<u16> slot2;
+    };
+    std::vector<BoneStream> bone_streams;
+    for (size_t off = 0; off + 24 <= cpu.size(); ++off)
+    {
+        const u32 packed = read_u32(cpu, off);
+        const u8 info_size = u8(packed & 0xFF);
+        const u8 info_type = u8((packed >> 8) & 0xFF);
+        if (info_type != 0x00 || (info_size != 8 && info_size != 16) || read_u32(cpu, off + 4) != 1)
+        {
+            continue;
+        }
+        const u32 goff = read_u32(cpu, off + 16);
+        const u32 gsz = read_u32(cpu, off + 20);
+        if (!gsz || gsz % info_size != 0 || goff > gpu.size() || goff + gsz > gpu.size())
+        {
+            continue;
+        }
+        const u32 n = gsz / info_size;
+        if (n < 3 || n > 200000)
+        {
+            continue;
+        }
+        BoneStream stream;
+        stream.n = n;
+        stream.slots.resize(n);
+        stream.slot2.assign(n, 0);
+        bool slots_ok = true;
+        for (u32 v = 0; v < n; ++v)
+        {
+            const size_t rec = goff + size_t(v) * info_size;
+            if (!slot_of(read_f32(gpu, rec), stream.slots[v]))
+            {
+                slots_ok = false;
+                break;
+            }
+            if (info_size == 16)
+            {
+                const float second = read_f32(gpu, rec + 4);
+                if (second != 0.f && !slot_of(second, stream.slot2[v]))
+                {
+                    slots_ok = false;
+                    break;
+                }
+            }
+        }
+        if (slots_ok)
+        {
+            bone_streams.push_back(std::move(stream));
+        }
+    }
+    struct WeightStream
+    {
+        u32 n = 0;
+        std::vector<float> w0;
+        std::vector<float> w1;
+    };
+    std::vector<WeightStream> weight_streams;
+    for (size_t off = 0; off + 24 <= cpu.size(); ++off)
+    {
+        const u32 packed = read_u32(cpu, off);
+        const u8 info_size = u8(packed & 0xFF);
+        const u8 info_type = u8((packed >> 8) & 0xFF);
+        if (info_type != 0x08 || (info_size != 8 && info_size != 16) || read_u32(cpu, off + 4) != 1)
+        {
+            continue;
+        }
+        const u32 goff = read_u32(cpu, off + 16);
+        const u32 gsz = read_u32(cpu, off + 20);
+        if (!gsz || gsz % info_size != 0 || goff > gpu.size() || goff + gsz > gpu.size())
+        {
+            continue;
+        }
+        const u32 n = gsz / info_size;
+        if (n < 3 || n > 200000)
+        {
+            continue;
+        }
+        WeightStream stream;
+        stream.n = n;
+        stream.w0.resize(n);
+        stream.w1.resize(n);
+        bool ok = true;
+        for (u32 v = 0; v < n; ++v)
+        {
+            const float a = read_f32(gpu, goff + size_t(v) * info_size);
+            const float b = read_f32(gpu, goff + size_t(v) * info_size + 4);
+            if (!(a == a) || !(b == b) || a < -0.01f || b < -0.01f || a > 1.01f || b > 1.01f)
+            {
+                ok = false;
+                break;
+            }
+            stream.w0[v] = a;
+            stream.w1[v] = b;
+        }
+        if (ok)
+        {
+            weight_streams.push_back(std::move(stream));
+        }
+    }
     auto uv0 = parse_uv_attrib(cpu, gpu, 0x0D);
     auto uv1 = parse_uv_attrib(cpu, gpu, 0x0E);
     auto uv2 = parse_uv_attrib(cpu, gpu, 0x0F);
@@ -189,10 +310,21 @@ std::vector<VertStream> parse_vertex_streams(std::span<const u8> cpu, std::span<
         }
         for (auto& bone : bone_streams)
         {
-            if (bone.first == s.n && s.bones.empty())
+            if (bone.n == s.n && s.bones.empty())
             {
-                s.bones = std::move(bone.second);
-                bone.first = 0;
+                s.bones = std::move(bone.slots);
+                s.bone2 = std::move(bone.slot2);
+                bone.n = 0;
+                break;
+            }
+        }
+        for (auto& wt : weight_streams)
+        {
+            if (wt.n == s.n && s.weight0.empty())
+            {
+                s.weight0 = std::move(wt.w0);
+                s.weight1 = std::move(wt.w1);
+                wt.n = 0;
                 break;
             }
         }
@@ -202,62 +334,72 @@ std::vector<VertStream> parse_vertex_streams(std::span<const u8> cpu, std::span<
 
 void parse_skeleton(std::span<const u8> cpu, Mesh& mesh)
 {
-    constexpr u32 kTag = 0xCD01FFFF;
-    size_t best = 0;
-    int best_n = 0;
-    for (size_t off = 0; off + 32 <= cpu.size(); off += 4)
-    {
-        if (read_u32(cpu, off) != kTag)
-        {
-            continue;
-        }
-        int n = 0;
-        while (off + size_t(n) * 32 + 32 <= cpu.size() && read_u32(cpu, off + size_t(n) * 32) == kTag && n < 256)
-        {
-            ++n;
-        }
-        if (n > best_n)
-        {
-            best_n = n;
-            best = off;
-        }
-    }
-    if (best_n < 2)
+    // Xbox FUN_00156280 finds ndSkeleton by HeaderItem type. The type id is the
+    // index of "ndSkeleton" in the 0x54-byte name table (type 2). FUN_00030c70
+    // then reads the joint count from the node at +0x20 and the joint array from
+    // the node at +0x24. Both are file offsets relative to model+64 until load
+    // relocates them. Each joint is 0x20 bytes. FUN_0002fac0 uses the first u16
+    // as the parent (0xFFFF selects DAT_0042a7c0, the identity) and the floats
+    // at +4 and +16 as the local and bind translations.
+    constexpr u32 kNodeBase = 64;
+    constexpr u16 kNdSkeleton = 2;
+    if (cpu.size() < 128)
     {
         return;
     }
-    mesh.joints.resize(size_t(best_n));
-    for (int i = 0; i < best_n; ++i)
+    std::vector<u32> stack{52};
+    std::vector<u8> seen(cpu.size() / 4 + 1, 0);
+    while (!stack.empty())
     {
-        const size_t rec = best + size_t(i) * 32;
-        Joint& j = mesh.joints[size_t(i)];
-        j.local = Vec3{read_f32(cpu, rec + 8), read_f32(cpu, rec + 12), read_f32(cpu, rec + 16)};
-        j.world = Vec3{read_f32(cpu, rec + 20), read_f32(cpu, rec + 24), read_f32(cpu, rec + 28)};
-        j.parent = -1;
-    }
-    // The dword at +4 is two u16 links. When the low word is this joint, the parent
-    // is the joint whose high word points here. Otherwise the low word is the parent.
-    std::vector<u16> link_lo;
-    std::vector<u16> link_hi;
-    link_lo.resize(size_t(best_n));
-    link_hi.resize(size_t(best_n));
-    for (int i = 0; i < best_n; ++i)
-    {
-        const size_t rec = best + size_t(i) * 32;
-        link_lo[size_t(i)] = read_u16(cpu, rec + 4);
-        link_hi[size_t(i)] = read_u16(cpu, rec + 6);
-        if (link_lo[size_t(i)] != u16(i) && int(link_lo[size_t(i)]) < best_n)
+        const u32 rel = stack.back();
+        stack.pop_back();
+        if (rel == 0 || size_t(rel) / 4 >= seen.size() || seen[rel / 4])
         {
-            mesh.joints[size_t(i)].parent = int(link_lo[size_t(i)]);
+            continue;
         }
-    }
-    for (int i = 0; i < best_n; ++i)
-    {
-        const int child = int(link_hi[size_t(i)]);
-        if (child >= 0 && child < best_n && link_lo[size_t(child)] == u16(child))
+        seen[rel / 4] = 1;
+        const size_t pos = size_t(rel) + kNodeBase;
+        if (pos + 40 > cpu.size())
         {
-            mesh.joints[size_t(child)].parent = i;
+            continue;
         }
+        const u16 type = read_u16(cpu, pos + 4);
+        const u32 child = read_u32(cpu, pos + 20);
+        const u32 sibling = read_u32(cpu, pos + 24);
+        if (child)
+        {
+            stack.push_back(child);
+        }
+        if (sibling)
+        {
+            stack.push_back(sibling);
+        }
+        if (type != kNdSkeleton)
+        {
+            continue;
+        }
+        const u32 count = read_u32(cpu, pos + 32);
+        const u32 data = read_u32(cpu, pos + 36);
+        if (count < 2 || count > 256)
+        {
+            continue;
+        }
+        const size_t base = size_t(kNodeBase) + data;
+        if (base + size_t(count) * 32 > cpu.size())
+        {
+            continue;
+        }
+        mesh.joints.resize(count);
+        for (u32 i = 0; i < count; ++i)
+        {
+            const size_t rec = base + size_t(i) * 32;
+            Joint& j = mesh.joints[i];
+            const u16 parent = read_u16(cpu, rec);
+            j.parent = parent == 0xFFFF ? -1 : int(parent);
+            j.local = Vec3{read_f32(cpu, rec + 4), read_f32(cpu, rec + 8), read_f32(cpu, rec + 12)};
+            j.world = Vec3{read_f32(cpu, rec + 16), read_f32(cpu, rec + 20), read_f32(cpu, rec + 24)};
+        }
+        return;
     }
 }
 
@@ -356,6 +498,7 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
         u32 next_child = 0;
         u32 next_sibling = 0;
         u32 un_other6 = 0;
+        u32 count = 0; // header +36. ndRigidSkinIdx stores the palette length here.
     };
 
     auto read_item = [&](u32 rel) -> HeaderItem
@@ -371,6 +514,7 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
         hi.next_child = read_u32(cpu, pos + 20);
         hi.next_sibling = read_u32(cpu, pos + 24);
         hi.un_other6 = read_u32(cpu, pos + 32);
+        hi.count = read_u32(cpu, pos + 36);
         return hi;
     };
 
@@ -593,16 +737,40 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
         {
             active = parse_param(hi.un_other6);
         }
+        else if (hi.type == 12)
+        {
+            // ndMtxArray. 0x155E60 walks 8-byte records. Flag +5 bit 1 selects the
+            // skeleton joint in the u16 at +0; bit 0 selects the byte at +6.
+            // 0x157B90 then indexes this table with the ndRigidSkinIdx byte.
+            mesh.mtx_joints.clear();
+            const size_t p = size_t(kNodeBase) + hi.un_other6;
+            if (hi.count > 0 && hi.count <= 256 && p + size_t(hi.count) * 8 <= cpu.size())
+            {
+                mesh.mtx_joints.resize(hi.count);
+                for (u32 i = 0; i < hi.count; ++i)
+                {
+                    const size_t rec = p + size_t(i) * 8;
+                    const u8 flag = cpu[rec + 5];
+                    mesh.mtx_joints[i] = (flag & 2) ? read_u16(cpu, rec) : u16(cpu[rec + 6]);
+                }
+            }
+        }
         else if (hi.type == 11)
         {
+            // 0x157B90 uploads palette[i] at constant 0x78 + i*3. The byte count is
+            // header +36. The gap to the next window over-reads the last palette.
             active_skin.clear();
-            const auto it = std::lower_bound(skin_offs.begin(), skin_offs.end(), hi.un_other6);
-            u32 len = 16;
-            if (it != skin_offs.end() && std::next(it) != skin_offs.end() && *std::next(it) > *it)
+            u32 len = hi.count;
+            if (len == 0 || len > 64)
             {
-                len = *std::next(it) - *it;
+                const auto it = std::lower_bound(skin_offs.begin(), skin_offs.end(), hi.un_other6);
+                len = 16;
+                if (it != skin_offs.end() && std::next(it) != skin_offs.end() && *std::next(it) > *it)
+                {
+                    len = *std::next(it) - *it;
+                }
+                len = std::min(len, 64u);
             }
-            len = std::min(len, 64u);
             const size_t p = size_t(kNodeBase) + hi.un_other6;
             if (p < cpu.size())
             {
@@ -943,9 +1111,21 @@ Mesh parse_model(const BundleEntry& entry)
         if (any_bones)
         {
             mesh.bones.resize(mesh.positions.size(), 0);
+            mesh.bone2.resize(mesh.positions.size(), 0);
+            mesh.weight0.resize(mesh.positions.size(), 1.f);
+            mesh.weight1.resize(mesh.positions.size(), 0.f);
             for (size_t i = 0; i < s.bones.size(); ++i)
             {
                 mesh.bones[bases.back() + i] = s.bones[i];
+            }
+            for (size_t i = 0; i < s.bone2.size(); ++i)
+            {
+                mesh.bone2[bases.back() + i] = s.bone2[i];
+            }
+            for (size_t i = 0; i < s.weight0.size(); ++i)
+            {
+                mesh.weight0[bases.back() + i] = s.weight0[i];
+                mesh.weight1[bases.back() + i] = s.weight1[i];
             }
         }
     }

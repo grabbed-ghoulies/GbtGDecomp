@@ -41,6 +41,9 @@ struct GpuVert
     float u1, v1;
     float nx, ny, nz;
     float bone = 0.f;
+    float bone2 = 0.f;
+    float w0 = 1.f;
+    float w1 = 0.f;
 };
 
 struct GpuCB
@@ -326,6 +329,15 @@ bool upload_mesh(const Mesh& mesh, GpuMesh& gpu)
         if (i < mesh.bones.size())
         {
             verts[i].bone = float(mesh.bones[i]);
+        }
+        if (i < mesh.bone2.size())
+        {
+            verts[i].bone2 = float(mesh.bone2[i]);
+        }
+        if (i < mesh.weight0.size() && i < mesh.weight1.size())
+        {
+            verts[i].w0 = mesh.weight0[i];
+            verts[i].w1 = mesh.weight1[i];
         }
     }
     D3D11_BUFFER_DESC bd{};
@@ -677,16 +689,19 @@ Texture2D g_tex : register(t0);
 Texture2D g_light : register(t1);
 SamplerState g_samp : register(s0);
 SamplerState g_light_samp : register(s1);
-struct VSIn { float3 pos : POSITION; float2 uv0 : TEXCOORD0; float2 uv1 : TEXCOORD1; float3 nrm : NORMAL; float bone : TEXCOORD2; };
+struct VSIn { float3 pos : POSITION; float2 uv0 : TEXCOORD0; float2 uv1 : TEXCOORD1; float3 nrm : NORMAL; float2 bone : TEXCOORD2; float2 wt : TEXCOORD3; };
 struct VSOut { float4 pos : SV_Position; float2 uv0 : TEXCOORD0; float2 uv1 : TEXCOORD1; float3 nrm : TEXCOORD2; };
 VSOut vs_main(VSIn i) {
     VSOut o;
     float3 p = i.pos;
     float3 nrm = i.nrm;
     if (light_dir.w > 0.5) {
-        int bi = clamp((int)i.bone, 0, 127);
-        p = mul(joints[bi], float4(i.pos, 1)).xyz;
-        nrm = mul(joints[bi], float4(i.nrm, 0)).xyz;
+        // Blended skin shader: R2 = c[v4.x] * v5.x; MAD c[v4.y] * v5.y; DP4.
+        // Weight (1, 0) is the rigid path, so one-bone meshes stay on bone.x.
+        int b0 = clamp((int)i.bone.x, 0, 127);
+        int b1 = clamp((int)i.bone.y, 0, 127);
+        p = mul(joints[b0], float4(i.pos, 1)).xyz * i.wt.x + mul(joints[b1], float4(i.pos, 1)).xyz * i.wt.y;
+        nrm = mul(joints[b0], float4(i.nrm, 0)).xyz * i.wt.x + mul(joints[b1], float4(i.nrm, 0)).xyz * i.wt.y;
     }
     o.pos = mul(mvp, float4(p, 1));
     o.uv0 = i.uv0;
@@ -744,9 +759,10 @@ float4 ps_main(VSOut i) : SV_Target {
         {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0},
         {"TEXCOORD", 1, DXGI_FORMAT_R32G32_FLOAT, 0, 20, D3D11_INPUT_PER_VERTEX_DATA, 0},
         {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 28, D3D11_INPUT_PER_VERTEX_DATA, 0},
-        {"TEXCOORD", 2, DXGI_FORMAT_R32_FLOAT, 0, 40, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 2, DXGI_FORMAT_R32G32_FLOAT, 0, 40, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 3, DXGI_FORMAT_R32G32_FLOAT, 0, 48, D3D11_INPUT_PER_VERTEX_DATA, 0},
     };
-    g.device->CreateInputLayout(layout, 5, vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), g.layout.GetAddressOf());
+    g.device->CreateInputLayout(layout, 6, vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), g.layout.GetAddressOf());
 
     D3D11_BUFFER_DESC cbd{};
     cbd.ByteWidth = sizeof(GpuCB);
@@ -1046,7 +1062,17 @@ void gfx_draw_mesh(const Mesh& mesh, Vec3 origin, Vec3 scale)
                 const int slots = std::min(int(range.skin.size()), GfxD3D11::kMaxBones);
                 for (int i = 0; i < slots; ++i)
                 {
-                    const int joint = int(range.skin[size_t(i)]);
+                    int joint = int(range.skin[size_t(i)]);
+                    // 0x157B90 indexes the pool 0x155E60 just published. The byte is
+                    // an ndMtxArray record, and that record names the skeleton joint.
+                    if (!mesh.mtx_joints.empty())
+                    {
+                        if (joint < 0 || size_t(joint) >= mesh.mtx_joints.size())
+                        {
+                            continue;
+                        }
+                        joint = int(mesh.mtx_joints[size_t(joint)]);
+                    }
                     if (joint >= 0 && joint < GfxD3D11::kMaxBones)
                     {
                         std::memcpy(palette + i * 16, g.bones + joint * 16, sizeof(float) * 16);

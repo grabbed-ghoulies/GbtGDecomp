@@ -23,4 +23,10 @@ std::vector<JointPose> sample_mina(std::span<const u8> mina, float time_norm, bo
 // parent * local; 0x2F720 then subtracts the joint bind point.
 void skin_matrices(const std::vector<Joint>& joints, const std::vector<JointPose>& pose, float* out, int max_joints);
 
+// Column-major palette whose frame-0 pose is identity on the mesh. `delta` is the
+// translation that puts skeleton bind points onto the vertices (0x2FAC0's bind
+// point is not in the same space as the position stream).
+void skin_draw_matrices(const std::vector<Joint>& joints, const std::vector<JointPose>& rest,
+                        const std::vector<JointPose>& pose, Vec3 delta, float* out, int max_joints);
+
 } // namespace gbtg

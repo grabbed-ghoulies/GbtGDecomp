@@ -17,6 +17,9 @@ struct Submesh
     i32 lightmap = -1;
     i32 celmap = -1; // RARE_celmap0 ramp (actors)
     std::vector<u8> skin; // ndRigidSkinIdx: shader slot -> ndMtxArray record
+    std::vector<u16> mtx; // ancestor ndMtxArray: record -> skeleton joint
+    Vec3 color{1.f, 1.f, 1.f}; // 0x15AD20 pixel constant 0, byte/255
+    u8 alpha_ref = 0;          // 0x15AD20 byte +24. 0 leaves the alpha test off.
     u8 albedo_uv = 0;
     u8 lightmap_uv = 1;
 };

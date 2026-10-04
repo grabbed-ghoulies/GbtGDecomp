@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstring>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace gbtg
@@ -520,10 +521,26 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
 
     auto stream_at = [&](size_t pb_off) -> size_t
     {
+        // 0x157880 keeps the base vertex buffer. A later buffer with the same
+        // vertex count is a blend target and is swapped in only while its
+        // weight wins. Pushes stay on the base buffer.
         size_t found = 0;
         for (size_t i = 0; i < streams.size(); ++i)
         {
-            if (streams[i].cpu_off <= pb_off)
+            if (streams[i].cpu_off > pb_off)
+            {
+                continue;
+            }
+            bool target = false;
+            for (size_t j = 0; j < i; ++j)
+            {
+                if (streams[j].n == streams[i].n)
+                {
+                    target = true;
+                    break;
+                }
+            }
+            if (!target)
             {
                 found = i;
             }
@@ -552,6 +569,8 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
         i32 detail = -1;
         i32 lightmap = -1;
         i32 celmap = -1;
+        Vec3 color{1.f, 1.f, 1.f};
+        u8 alpha_ref = 0;
     };
 
     // ndShaderParam2 material tables (project-grabbed read_shaderParam2).
@@ -571,6 +590,20 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
         const u32 tex_count = read_u32(cpu, data + 12);
         const u32 name_off = read_u32(cpu, data + 36);
         const u32 name_count = read_u32(cpu, data + 40);
+        // Xbox 0x0015AD20. The count at +20 is how many RGBA bytes at +0 are
+        // uploaded, register 0 first, each byte times 1/255. Byte +24 is the
+        // alpha-test ref: 0 turns the test off, any other value is D3DCMP_GREATER.
+        const u32 col_off = read_u32(cpu, data);
+        const u32 col_count = read_u32(cpu, data + 20);
+        if (col_count > 0 && col_count <= 8)
+        {
+            const size_t p = size_t(kNodeBase) + col_off;
+            if (p + 3 < cpu.size())
+            {
+                mat.color = Vec3{cpu[p] / 255.f, cpu[p + 1] / 255.f, cpu[p + 2] / 255.f};
+            }
+        }
+        mat.alpha_ref = cpu[data + 24];
         if (tex_count == 0 || tex_count > 64 || name_count > 64 || !tex_off)
         {
             return mat;
@@ -630,7 +663,8 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
         return mat;
     };
 
-    auto emit_push = [&](size_t tag, const ActiveMaterial& mat, const std::vector<u8>& skin)
+    auto emit_push = [&](size_t tag, const ActiveMaterial& mat, const std::vector<u8>& skin,
+                         const std::vector<u16>& mtx)
     {
         if (tag + 28 > cpu.size())
         {
@@ -671,6 +705,9 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
         sm.lightmap = mat.lightmap;
         sm.celmap = mat.celmap;
         sm.skin = skin;
+        sm.mtx = mtx;
+        sm.color = mat.color;
+        sm.alpha_ref = mat.alpha_ref;
         mesh.submeshes.push_back(sm);
     };
 
@@ -709,6 +746,66 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
 
     ActiveMaterial active;
     std::vector<u8> active_skin;
+    std::unordered_map<u32, u32> parent_of;
+    {
+        struct Link
+        {
+            u32 rel;
+            u32 parent;
+        };
+        std::vector<Link> links{{52, 0}};
+        std::vector<u8> link_seen(cpu.size() / 4 + 1, 0);
+        while (!links.empty())
+        {
+            const Link link = links.back();
+            links.pop_back();
+            if (link.rel == 0 || size_t(link.rel) / 4 >= link_seen.size() || link_seen[link.rel / 4])
+            {
+                continue;
+            }
+            link_seen[link.rel / 4] = 1;
+            parent_of[link.rel] = link.parent;
+            const HeaderItem hi = read_item(link.rel);
+            if (hi.next_sibling)
+            {
+                links.push_back({hi.next_sibling, link.parent});
+            }
+            if (hi.next_child)
+            {
+                links.push_back({hi.next_child, link.rel});
+            }
+        }
+    }
+    auto mtx_at = [&](u32 rel) -> std::vector<u16>
+    {
+        for (u32 n = rel; n != 0;)
+        {
+            const HeaderItem hi = read_item(n);
+            if (hi.type == 12)
+            {
+                std::vector<u16> joints;
+                const size_t p = size_t(kNodeBase) + hi.un_other6;
+                if (hi.count > 0 && hi.count <= 256 && p + size_t(hi.count) * 8 <= cpu.size())
+                {
+                    joints.resize(hi.count);
+                    for (u32 i = 0; i < hi.count; ++i)
+                    {
+                        const size_t rec = p + size_t(i) * 8;
+                        const u8 flag = cpu[rec + 5];
+                        joints[i] = (flag & 2) ? read_u16(cpu, rec) : u16(cpu[rec + 6]);
+                    }
+                }
+                return joints;
+            }
+            const auto it = parent_of.find(n);
+            if (it == parent_of.end())
+            {
+                break;
+            }
+            n = it->second;
+        }
+        return {};
+    };
     std::vector<u32> stack{52}; // sizeof(UnknownStruct2) — project-grabbed tree root
     std::vector<u8> seen(cpu.size() / 4 + 1, 0);
     while (!stack.empty())
@@ -784,7 +881,7 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
             if (hi.un_other6 == 1)
             {
                 const size_t tag = size_t(kNodeBase) + hi.offset;
-                emit_push(tag, active, active_skin);
+                emit_push(tag, active, active_skin, mtx_at(rel));
             }
         }
     }

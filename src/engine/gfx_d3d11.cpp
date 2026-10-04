@@ -77,7 +77,12 @@ struct DrawRange
     float light_uv = 1.f;
     float use_light = 0.f;
     float use_cel = 0.f;
+    float color_r = 1.f;
+    float color_g = 1.f;
+    float color_b = 1.f;
+    float alpha_ref = 0.f;
     std::vector<u8> skin;
+    std::vector<u16> mtx;
 };
 
 struct GpuMesh
@@ -403,7 +408,12 @@ bool upload_mesh(const Mesh& mesh, GpuMesh& gpu)
             range.light = textures[size_t(sub.lightmap)];
             range.use_light = 1.f;
         }
+        range.color_r = sub.color.x;
+        range.color_g = sub.color.y;
+        range.color_b = sub.color.z;
+        range.alpha_ref = float(sub.alpha_ref);
         range.skin = sub.skin;
+        range.mtx = sub.mtx;
         gpu.ranges.push_back(std::move(range));
     }
     return !gpu.ranges.empty();
@@ -713,7 +723,9 @@ float4 ps_main(VSOut i) : SV_Target {
     float2 uv_a = uv_sel.x < 0.5 ? i.uv0 : i.uv1;
     float2 uv_l = uv_sel.y < 0.5 ? i.uv0 : i.uv1;
     float4 albedo = g_tex.Sample(g_samp, uv_a);
-    float3 light = 1.0;
+    // 0x0015AD20 register 0. Untextured draws have a white stand-in, so the
+    // constant is the colour. Textured draws with a white constant stay put.
+    float3 light = light_dir.xyz;
     if (uv_sel.w > 0.5 && dot(i.nrm, i.nrm) > 1e-8) {
         // RARE_celmap0 is a ramp along U. The mesh constant is a colour, not a
         // direction; the ramp coordinate is the world-up component of the normal
@@ -1044,7 +1056,23 @@ void gfx_draw_mesh(const Mesh& mesh, Vec3 origin, Vec3 scale)
             cb.use_light = range.use_light;
             cb.use_cel = range.use_cel;
             cb.skin = g.skin ? 1.f : 0.f;
+            cb.light_x = range.color_r;
+            cb.light_y = range.color_g;
+            cb.light_z = range.color_b;
             store_alpha_rs(cb);
+            // 0x0015AD20 writes the alpha shadow for this material. Byte +24 == 0
+            // clears ALPHATESTENABLE. Any other byte is D3DCMP_GREATER (0x204).
+            if (range.alpha_ref > 0.f)
+            {
+                cb.alpha_test = 1.f;
+                cb.alpha_ref = range.alpha_ref;
+                cb.alpha_func = 516.f;
+            }
+            else
+            {
+                cb.alpha_test = 0.f;
+                cb.alpha_func = 0.f;
+            }
             std::memcpy(mapped.pData, &cb, sizeof(cb));
             g.context->Unmap(g.cb.Get(), 0);
         }
@@ -1064,14 +1092,15 @@ void gfx_draw_mesh(const Mesh& mesh, Vec3 origin, Vec3 scale)
                 {
                     int joint = int(range.skin[size_t(i)]);
                     // 0x157B90 indexes the pool 0x155E60 just published. The byte is
-                    // an ndMtxArray record, and that record names the skeleton joint.
-                    if (!mesh.mtx_joints.empty())
+                    // that submesh's ancestor ndMtxArray record, which names the joint.
+                    const std::vector<u16>& mtx = !range.mtx.empty() ? range.mtx : mesh.mtx_joints;
+                    if (!mtx.empty())
                     {
-                        if (joint < 0 || size_t(joint) >= mesh.mtx_joints.size())
+                        if (joint < 0 || size_t(joint) >= mtx.size())
                         {
                             continue;
                         }
-                        joint = int(mesh.mtx_joints[size_t(joint)]);
+                        joint = int(mtx[size_t(joint)]);
                     }
                     if (joint >= 0 && joint < GfxD3D11::kMaxBones)
                     {

@@ -1598,6 +1598,10 @@ struct CamFocus
     std::vector<CamBoundRec> recs; // +0x8fc
     u32 at_cec = 0; // +0xcec, low byte stored at packet +0x19
     u16 tag_6 = 0; // +6
+    // +0x980. DAT_00511B38 is the link at object+0x934, so this is node+0x4c.
+    EntityMaskSpan* span_980 = nullptr;
+    i32 at_984 = 0; // +0x984, node+0x50
+    i32 at_98c = 0; // +0x98c, node+0x58
     u16 word_1fc = 0; // +0x1FC, compared with the dword at node+0x48
     u16 word_cdc = 0; // +0xcdc, link+0x3a8, compared with 2
     Vec3 nudge_704{}; // camera+0x704, added to the stored follow position
@@ -16172,6 +16176,62 @@ int fn_132bf0(const ScriptCond& rec)
     return 0;
 }
 
+// Xbox 0x00132C70. Opcode 16 in the table at 0x00314330. DAT_00511B38 null
+// returns 0. Next is the pointer at node+4. The short at node-0x92e
+// (object+6) must match the word at record+8. The pointer at node+0x4c
+// (object+0x980) null falls through to the float test. A ushort at span+6
+// equal to the ushort at span+2 yields a null element, and any other pair
+// is data + index * stride. A nonzero first short, and a zero dword at
+// node+0x50, returns 0 when the dword at node+0x58 is 0 and skips the float
+// test when it is not. A null element is still loaded, which faults on Xbox.
+// Every other matching node ucomiss the float at record+0xC with the 0 at
+// 0x0032B100. Equal, and not a NaN, stores 1. The walk returns that value.
+int fn_132c70(const ScriptCond& rec)
+{
+    int result = 0;
+    if (g_range_links == nullptr)
+    {
+        return 0;
+    }
+    const u16 want = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+    for (RangeLink* link = g_range_links; link != nullptr; link = link->next)
+    {
+        CamFocus* obj = link->host;
+        if (obj->tag_6 != want)
+        {
+            continue;
+        }
+        EntityMaskSpan* span = obj->span_980;
+        if (span != nullptr)
+        {
+            const u16* elem;
+            if (span->end == span->mark)
+            {
+                elem = nullptr;
+            }
+            else
+            {
+                const std::uintptr_t base = reinterpret_cast<std::uintptr_t>(span->data);
+                const std::uintptr_t at = base + std::uintptr_t(span->index) * std::uintptr_t(span->stride);
+                elem = reinterpret_cast<const u16*>(at);
+            }
+            if (*elem != 0 && obj->at_984 == 0)
+            {
+                if (obj->at_98c == 0)
+                {
+                    return 0;
+                }
+                continue;
+            }
+        }
+        if (cond_f32(rec, 0xc) == 0.f)
+        {
+            result = 1;
+        }
+    }
+    return result;
+}
+
 // Xbox 0x00124BE0. A zero keeps the record. Any other value queues the link
 // at +4. A return of exactly 1 also removes the record and the slot that
 // slides down is evaluated next. Opcode 0 is 0x00132650. Opcode 1 is
@@ -16179,8 +16239,9 @@ int fn_132bf0(const ScriptCond& rec)
 // 0x001327A0. Opcode 5 is 0x00132800. Opcode 6 is 0x00132840. Opcode 7 is
 // 0x001328D0. Opcode 8 is 0x00132940. Opcode 9 is 0x001329A0. Opcode 10 is
 // 0x00132A30. Opcode 11 is 0x00132A00. Opcode 12 is 0x00132A60. Opcode 13 is
-// 0x00132BC0. Opcode 14 is 0x00132BF0. Opcode 17 is 0x00132AB0. Opcode 26 is
-// 0x00132B50. Other opcodes are not evaluated until their functions are translated.
+// 0x00132BC0. Opcode 14 is 0x00132BF0. Opcode 16 is 0x00132C70. Opcode 17 is
+// 0x00132AB0. Opcode 26 is 0x00132B50. Other opcodes are not evaluated until
+// their functions are translated.
 void fn_124be0(Game& g)
 {
     size_t i = 0;
@@ -16248,6 +16309,10 @@ void fn_124be0(Game& g)
         else if (opcode == 14)
         {
             fired = fn_132bf0(rec);
+        }
+        else if (opcode == 16)
+        {
+            fired = fn_132c70(rec);
         }
         else if (opcode == 17)
         {

@@ -15899,13 +15899,31 @@ int fn_132940(const ScriptCond& rec)
     return 0;
 }
 
+// Xbox 0x001329A0. Opcode 9 in the table at 0x00314330. The dword at
+// record+8 is loaded first. DAT_00511B40 null, or equal to the sentinel
+// 0x93C, returns 1. Otherwise 0x000412A0 writes that actor's world position
+// and 0x00124860 takes the dword at record+8. A zero return from that call
+// returns 1. 0x00124860 is not translated, so that return is not taken.
+int fn_1329a0(const ScriptCond& rec)
+{
+    const u32 region = cond_u32(rec, 8);
+    if (g_actor_mark != nullptr && reinterpret_cast<std::uintptr_t>(g_actor_mark) != 0x93cu)
+    {
+        const Vec3 world = actor_world_position(*g_actor_mark->actor);
+        (void)world;
+        (void)region;
+        return 0;
+    }
+    return 1;
+}
+
 // Xbox 0x00124BE0. A zero keeps the record. Any other value queues the link
 // at +4. A return of exactly 1 also removes the record and the slot that
 // slides down is evaluated next. Opcode 0 is 0x00132650. Opcode 1 is
 // 0x00132680. Opcode 2 is 0x001326D0. Opcode 3 is 0x00132720. Opcode 4 is
 // 0x001327A0. Opcode 5 is 0x00132800. Opcode 6 is 0x00132840. Opcode 7 is
-// 0x001328D0. Opcode 8 is 0x00132940. Other opcodes are not evaluated until
-// their functions are translated.
+// 0x001328D0. Opcode 8 is 0x00132940. Opcode 9 is 0x001329A0. Other opcodes
+// are not evaluated until their functions are translated.
 void fn_124be0(Game& g)
 {
     size_t i = 0;
@@ -15949,6 +15967,10 @@ void fn_124be0(Game& g)
         else if (opcode == 8)
         {
             fired = fn_132940(rec);
+        }
+        else if (opcode == 9)
+        {
+            fired = fn_1329a0(rec);
         }
         if (fired == 0)
         {

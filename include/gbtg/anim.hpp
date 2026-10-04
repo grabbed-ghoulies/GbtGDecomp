@@ -18,10 +18,15 @@ struct JointPose
 // `loop` is player+0x2A == 0. Cutscene init (0x31AC0 from 0x2D8E0) stores 1, so playback clamps.
 std::vector<JointPose> sample_mina(std::span<const u8> mina, float time_norm, bool loop = false);
 
-// Column-major 4x4 skin matrices, one per joint. Rigid vertices are in the
-// authored model pose. `bind` is that pose (cutscene frame 0). The matrix is
-// anim_world * inverse(bind_world), which is identity on the authored frame.
-void skin_matrices(const std::vector<Joint>& joints, const std::vector<JointPose>& pose, float* out, int max_joints,
-                   const std::vector<JointPose>* bind = nullptr);
+// Column-major 4x4 skin palette, one matrix per joint (Xbox stores the same
+// transform as a 3x4). Rigid vertices index one slot. 0x2FAC0 concatenates
+// parent * local; 0x2F720 then subtracts the joint bind point.
+void skin_matrices(const std::vector<Joint>& joints, const std::vector<JointPose>& pose, float* out, int max_joints);
+
+// Column-major palette whose frame-0 pose is identity on the mesh. `delta` is the
+// translation that puts skeleton bind points onto the vertices (0x2FAC0's bind
+// point is not in the same space as the position stream).
+void skin_draw_matrices(const std::vector<Joint>& joints, const std::vector<JointPose>& rest,
+                        const std::vector<JointPose>& pose, Vec3 delta, float* out, int max_joints);
 
 } // namespace gbtg

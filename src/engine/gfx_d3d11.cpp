@@ -7,6 +7,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <intrin.h>
 
 #include <d3d11.h>
 #include <d3dcompiler.h>
@@ -40,6 +41,9 @@ struct GpuVert
     float u1, v1;
     float nx, ny, nz;
     float bone = 0.f;
+    float bone2 = 0.f;
+    float w0 = 1.f;
+    float w1 = 0.f;
 };
 
 struct GpuCB
@@ -49,12 +53,18 @@ struct GpuCB
     float light_uv = 1.f;
     float use_light = 0.f;
     float use_cel = 0.f;
-    // World-space key light. The vertex-shader constant that supplies this has not
-    // been lifted yet; +Y is the stand-in.
-    float light_x = 0.f;
+    // FUN_0005e380 vertex constant 100. The draw passes a packed colour and the
+    // function stores each byte times 1/255 (the float at 0x32b154). White until
+    // a material colour is threaded through.
+    float light_x = 1.f;
     float light_y = 1.f;
-    float light_z = 0.f;
+    float light_z = 1.f;
     float skin = 0.f; // light_dir.w: rigid skin palette is active
+    // FUN_0005e0c0. x = ALPHATESTENABLE, y = ALPHAREF (0..255), z = ALPHAFUNC.
+    float alpha_test = 0.f;
+    float alpha_ref = 0.f;
+    float alpha_func = 0.f;
+    float alpha_pad = 0.f;
 };
 
 struct DrawRange
@@ -67,7 +77,12 @@ struct DrawRange
     float light_uv = 1.f;
     float use_light = 0.f;
     float use_cel = 0.f;
+    float color_r = 1.f;
+    float color_g = 1.f;
+    float color_b = 1.f;
+    float alpha_ref = 0.f;
     std::vector<u8> skin;
+    std::vector<u16> mtx;
 };
 
 struct GpuMesh
@@ -105,6 +120,8 @@ struct GfxD3D11
     ComPtr<ID3D11SamplerState> light_sampler;
     ComPtr<ID3D11RasterizerState> rast;
     ComPtr<ID3D11DepthStencilState> depth_state;
+    ComPtr<ID3D11DepthStencilState> depth_lequal;
+    ComPtr<ID3D11DepthStencilState> depth_lequal_ro;
     ComPtr<ID3D11DepthStencilState> depth_off;
     ComPtr<ID3D11BlendState> blend_opaque;
     ComPtr<ID3D11BlendState> blend_alpha;
@@ -112,6 +129,47 @@ struct GfxD3D11
     ComPtr<ID3D11ShaderResourceView> white;
     std::unordered_map<const Mesh*, GpuMesh> meshes;
     std::unordered_map<const RgbaImage*, ComPtr<ID3D11ShaderResourceView>> sprites;
+    // Device shadow at 0x00181B70 (index * 4). BSS until a render-state setter writes it.
+    u32 rs_dirty = 0;        // DAT_00181968
+    int rs_zfunc = 0;        // DAT_00181c54, D3DRS_ZFUNC (index 0x39)
+    int rs_alpha_func = 0;  // DAT_00181c58, D3DRS_ALPHAFUNC (index 0x3A)
+    int rs_alpha_blend = 0; // DAT_00181c5c, D3DRS_ALPHABLENDENABLE (index 0x3B)
+    int rs_alpha_test = 0;  // DAT_00181c60, D3DRS_ALPHATESTENABLE (index 0x3C)
+    int rs_alpha_ref = 0;   // DAT_00181c64, D3DRS_ALPHAREF (index 0x3D)
+    int rs_src_blend = 0;   // DAT_00181c68, D3DRS_SRCBLEND (index 0x3E)
+    int rs_dest_blend = 0;  // DAT_00181c6c, D3DRS_DESTBLEND (index 0x3F)
+    int rs_zwrite = 0;      // DAT_00181c70, D3DRS_ZWRITEENABLE (index 0x40)
+    int rs_dither = 0;      // DAT_00181c74, D3DRS_DITHERENABLE (index 0x41)
+    int rs_color_write = 0; // DAT_00181c7c, D3DRS_COLORWRITEENABLE (index 0x43)
+    int rs_blend_op = 0;    // DAT_00181c98, D3DRS_BLENDOP (index 0x4A)
+    int rs_cull = 0;        // DAT_00181dbc, CullMode argument
+    int rs_zenable = 0;     // DAT_00181dac, ZEnable argument (0 off, 1 Z, 2 W)
+    int rs_dxt1_noise = 0;  // DAT_00181dec
+    int rs_state_60 = 0;    // DAT_00181cf0, index 0x60, dirty bit 0x2000
+    int rs_state_66 = 0;    // DAT_00181d08, index 0x66, dirty bit 0x1200
+    int vertex_shader = 0;  // D3DDevice_SetVertexShader argument. 2 = D3DFVF_XYZ.
+    // Stage 0 lives at DAT_00181970, stride 0x80. The 0x0005E110 loop anchors on ALPHAOP.
+    // Ghidra names the stage base D3D_g_DeferredTextureState; it is ADDRESSU.
+    struct StageRs
+    {
+        int address_u = 0;      // +0x00 D3DTSS_ADDRESSU
+        int address_v = 0;      // +0x04 D3DTSS_ADDRESSV
+        int mag_filter = 0;     // +0x0C D3DTSS_MAGFILTER
+        int min_filter = 0;     // +0x10 D3DTSS_MINFILTER
+        int mip_filter = 0;     // +0x14 D3DTSS_MIPFILTER
+        int max_mip_level = 0;  // +0x1C D3DTSS_MAXMIPLEVEL
+        int color_op = 0;       // +0x30 D3DTSS_COLOROP
+        int color_arg1 = 0;     // +0x38 D3DTSS_COLORARG1
+        int color_arg2 = 0;     // +0x3C D3DTSS_COLORARG2
+        int alpha_op = 0;       // +0x40 D3DTSS_ALPHAOP
+        int alpha_arg1 = 0;     // +0x48 D3DTSS_ALPHAARG1
+        int alpha_arg2 = 0;     // +0x4C D3DTSS_ALPHAARG2
+        int tex_transform = 0;  // +0x54 D3DTSS_TEXTURETRANSFORMFLAGS
+        int texcoord_index = 0; // +0x70 D3DTSS_TEXCOORDINDEX
+        // +0x58. D3DTSS_BUMPENVMAT00, MAT01, MAT10, MAT11, BUMPENVLSCALE, BUMPENVLOFFSET.
+        u32 bump[6]{};
+    };
+    StageRs stages[4]{};
 };
 
 GfxD3D11 g;
@@ -167,8 +225,10 @@ Vec3 normalize(Vec3 v)
 Mat4 look_at(const Vec3& eye, const Vec3& at, const Vec3& up)
 {
     const Vec3 z = normalize(Vec3{at.x - eye.x, at.y - eye.y, at.z - eye.z});
-    const Vec3 x = normalize(cross(up, z));
-    const Vec3 y = cross(z, x);
+    // The cutscene basis is aimed with local -Z, but cross(up, z) paints the
+    // attract shot as a horizontal mirror (cover text reads backwards).
+    const Vec3 x = normalize(cross(z, up));
+    const Vec3 y = cross(x, z);
     Mat4 m{};
     m.m[0] = x.x;
     m.m[1] = y.x;
@@ -275,6 +335,15 @@ bool upload_mesh(const Mesh& mesh, GpuMesh& gpu)
         {
             verts[i].bone = float(mesh.bones[i]);
         }
+        if (i < mesh.bone2.size())
+        {
+            verts[i].bone2 = float(mesh.bone2[i]);
+        }
+        if (i < mesh.weight0.size() && i < mesh.weight1.size())
+        {
+            verts[i].w0 = mesh.weight0[i];
+            verts[i].w1 = mesh.weight1[i];
+        }
     }
     D3D11_BUFFER_DESC bd{};
     bd.ByteWidth = u32(verts.size() * sizeof(GpuVert));
@@ -339,7 +408,12 @@ bool upload_mesh(const Mesh& mesh, GpuMesh& gpu)
             range.light = textures[size_t(sub.lightmap)];
             range.use_light = 1.f;
         }
+        range.color_r = sub.color.x;
+        range.color_g = sub.color.y;
+        range.color_b = sub.color.z;
+        range.alpha_ref = float(sub.alpha_ref);
         range.skin = sub.skin;
+        range.mtx = sub.mtx;
         gpu.ranges.push_back(std::move(range));
     }
     return !gpu.ranges.empty();
@@ -385,6 +459,163 @@ bool create_targets(int width, int height)
         return false;
     }
     return SUCCEEDED(g.device->CreateRenderTargetView(g.color.Get(), nullptr, g.rtv.GetAddressOf()));
+}
+
+void store_alpha_rs(GpuCB& cb)
+{
+    cb.alpha_test = g.rs_alpha_test != 0 ? 1.f : 0.f;
+    cb.alpha_ref = float(g.rs_alpha_ref);
+    cb.alpha_func = float(g.rs_alpha_func);
+}
+
+// Xbox 0x0005E0C0
+// Three D3DDevice_SetRenderState_Simple pushes, each followed by the device shadow:
+//   0x40300 = 1  D3DRS_ALPHATESTENABLE
+//   0x40340 = 5  D3DRS_ALPHAREF
+//   0x40304 = 1  D3DRS_ALPHABLENDENABLE
+// Alpha blend factors stay at the device default (SRCALPHA / INVSRCALPHA). ALPHAFUNC is not written.
+void fn_5e0c0()
+{
+    g.rs_alpha_test = 1;
+    g.rs_alpha_ref = 5;
+    g.rs_alpha_blend = 1;
+    if (!g.ok)
+    {
+        return;
+    }
+    g.context->OMSetBlendState(g.blend_alpha.Get(), nullptr, 0xFFFFFFFFu);
+}
+
+// ZFUNC stays at the LESS default until 0x0005E110 stores D3DCMP_LESSEQUAL (0x203).
+void bind_depth_shadow()
+{
+    if (!g.ok)
+    {
+        return;
+    }
+    ID3D11DepthStencilState* state = g.depth_state.Get();
+    if (g.rs_zfunc == 0x203)
+    {
+        if (g.rs_zenable == 0)
+        {
+            state = g.depth_off.Get();
+        }
+        else if (g.rs_zwrite != 0)
+        {
+            state = g.depth_lequal.Get();
+        }
+        else
+        {
+            state = g.depth_lequal_ro.Get();
+        }
+    }
+    g.context->OMSetDepthStencilState(state, 0);
+}
+
+// Xbox 0x0005E110
+// Installs the frame device state. Simple pushes are (method, value) then the shadow dword.
+//   Dxt1NoiseEnable(0)                    DAT_00181dec = 0, dirty |= 0x2000
+//   index 0x60                            DAT_00181cf0 = 1
+//   0x40310 = 0     D3DRS_DITHERENABLE    DAT_00181c74 = 0
+//   CullMode(0)                           DAT_00181dbc = 0
+//   0x40350 = 0x8006 D3DBLENDOP_ADD       DAT_00181c98
+//   0x40344 = 0x302  D3DBLEND_SRCALPHA    DAT_00181c68
+//   0x40348 = 0x303  D3DBLEND_INVSRCALPHA DAT_00181c6c
+//   0x40304 = 1      ALPHABLENDENABLE     DAT_00181c5c
+//   0x4033c = 0x204  D3DCMP_GREATER       DAT_00181c58
+//   index 0x66                            DAT_00181d08 = 0, dirty |= 0x1200
+//   0x40358 = 0x01010101 COLORWRITEENABLE DAT_00181c7c
+//   0x40354 = 0x203  D3DCMP_LESSEQUAL     DAT_00181c54 ZFUNC
+//   0x4035c = 1      ZWRITEENABLE         DAT_00181c70
+//   ZEnable(1)                            DAT_00181dac = 1
+// Four stages at DAT_001819B0 stride 0x80: unbound texture, linear mag/min,
+// colour and alpha op D3DTOP_DISABLE, dirty |= (1 << stage) | 0x800.
+// Then vertex-shader input, sixteen stream sources, pixel shader, and vertex shader are cleared.
+void fn_5e110()
+{
+    g.rs_dxt1_noise = 0;
+    g.rs_dirty |= 0x2000u;
+    g.rs_state_60 = 1;
+    g.rs_dither = 0;
+    g.rs_cull = 0;
+    g.rs_blend_op = 0x8006;
+    g.rs_src_blend = 0x302;
+    g.rs_dest_blend = 0x303;
+    g.rs_alpha_blend = 1;
+    g.rs_alpha_func = 0x204;
+    g.rs_dirty |= 0x1200u;
+    g.rs_state_66 = 0;
+    g.rs_color_write = 0x01010101;
+    g.rs_zfunc = 0x203;
+    g.rs_zwrite = 1;
+    g.rs_zenable = 1;
+    for (int stage = 0; stage < 4; ++stage)
+    {
+        GfxD3D11::StageRs& slot = g.stages[stage];
+        slot.mag_filter = 2;
+        slot.min_filter = 2;
+        slot.color_op = 1;
+        slot.alpha_op = 1;
+        g.rs_dirty |= (1u << stage) | 0x800u;
+    }
+    if (!g.ok)
+    {
+        return;
+    }
+    g.context->RSSetState(g.rast.Get());
+    g.context->OMSetBlendState(g.blend_alpha.Get(), nullptr, 0xFFFFFFFFu);
+    bind_depth_shadow();
+    ID3D11ShaderResourceView* srvs[2] = {};
+    g.context->PSSetShaderResources(0, 2, srvs);
+    ID3D11Buffer* streams[16] = {};
+    UINT strides[16] = {};
+    UINT offsets[16] = {};
+    g.context->IASetVertexBuffers(0, 16, streams, strides, offsets);
+    g.context->IASetIndexBuffer(nullptr, DXGI_FORMAT_UNKNOWN, 0);
+    g.context->IASetInputLayout(nullptr);
+    g.vertex_shader = 0;
+    g.context->VSSetShader(nullptr, nullptr, 0);
+    g.context->PSSetShader(nullptr, nullptr, 0);
+}
+
+// Xbox 0x0005E2A0
+// Stage 0 combiner becomes diffuse * texture. The game writes the D3D shadow, then
+// SetTextureState_TexCoordIndex(0, 0) and SetVertexShader(2) (D3DFVF_XYZ).
+//   COLOROP / ALPHAOP = 4           D3DTOP_MODULATE
+//   COLORARG2 / ALPHAARG2 = 2       D3DTA_TEXTURE
+//   ADDRESSU / ADDRESSV = 3         D3DTADDRESS_CLAMP  (ADDRESSU is D3D_g_DeferredTextureState)
+//   MAXMIPLEVEL = 0
+//   MINFILTER / MAGFILTER / MIPFILTER = 2   D3DTEXF_LINEAR
+//   dirty |= 0xC01                  stage 0 plus bits 0x400 and 0x800
+//   TEXTURETRANSFORMFLAGS = 0
+//   TEXCOORDINDEX = 0
+//   COLORARG1 / ALPHAARG1 = 0       D3DTA_DIFFUSE
+//   dirty |= 0x800
+void fn_5e2a0()
+{
+    GfxD3D11::StageRs& slot = g.stages[0];
+    slot.color_op = 4;
+    slot.alpha_op = 4;
+    slot.color_arg2 = 2;
+    slot.alpha_arg2 = 2;
+    slot.address_u = 3;
+    slot.address_v = 3;
+    slot.max_mip_level = 0;
+    slot.min_filter = 2;
+    slot.mag_filter = 2;
+    slot.mip_filter = 2;
+    g.rs_dirty |= 0xc01u;
+    slot.tex_transform = 0;
+    slot.texcoord_index = 0;
+    slot.color_arg1 = 0;
+    g.rs_dirty |= 0x800u;
+    slot.alpha_arg1 = 0;
+    g.vertex_shader = 2;
+    if (!g.ok)
+    {
+        return;
+    }
+    g.context->PSSetSamplers(0, 1, g.light_sampler.GetAddressOf());
 }
 
 } // namespace
@@ -458,7 +689,8 @@ bool gfx_init(const GfxConfig& cfg)
 cbuffer Camera : register(b0) {
     float4x4 mvp;
     float4 uv_sel;   // x = albedo uv set, y = light uv set, z = lightmap, w = cel ramp
-    float4 light_dir; // xyz world key light, w = rigid skin on
+    float4 light_dir; // xyz draw colour (0x5e380), w = rigid skin on
+    float4 alpha_rs; // x = ALPHATESTENABLE, y = ALPHAREF, z = ALPHAFUNC (0x0005E0C0)
 };
 cbuffer Bones : register(b1) {
     float4x4 joints[128];
@@ -467,16 +699,19 @@ Texture2D g_tex : register(t0);
 Texture2D g_light : register(t1);
 SamplerState g_samp : register(s0);
 SamplerState g_light_samp : register(s1);
-struct VSIn { float3 pos : POSITION; float2 uv0 : TEXCOORD0; float2 uv1 : TEXCOORD1; float3 nrm : NORMAL; float bone : TEXCOORD2; };
+struct VSIn { float3 pos : POSITION; float2 uv0 : TEXCOORD0; float2 uv1 : TEXCOORD1; float3 nrm : NORMAL; float2 bone : TEXCOORD2; float2 wt : TEXCOORD3; };
 struct VSOut { float4 pos : SV_Position; float2 uv0 : TEXCOORD0; float2 uv1 : TEXCOORD1; float3 nrm : TEXCOORD2; };
 VSOut vs_main(VSIn i) {
     VSOut o;
     float3 p = i.pos;
     float3 nrm = i.nrm;
     if (light_dir.w > 0.5) {
-        int bi = clamp((int)i.bone, 0, 127);
-        p = mul(joints[bi], float4(i.pos, 1)).xyz;
-        nrm = mul(joints[bi], float4(i.nrm, 0)).xyz;
+        // Blended skin shader: R2 = c[v4.x] * v5.x; MAD c[v4.y] * v5.y; DP4.
+        // Weight (1, 0) is the rigid path, so one-bone meshes stay on bone.x.
+        int b0 = clamp((int)i.bone.x, 0, 127);
+        int b1 = clamp((int)i.bone.y, 0, 127);
+        p = mul(joints[b0], float4(i.pos, 1)).xyz * i.wt.x + mul(joints[b1], float4(i.pos, 1)).xyz * i.wt.y;
+        nrm = mul(joints[b0], float4(i.nrm, 0)).xyz * i.wt.x + mul(joints[b1], float4(i.nrm, 0)).xyz * i.wt.y;
     }
     o.pos = mul(mvp, float4(p, 1));
     o.uv0 = i.uv0;
@@ -488,18 +723,38 @@ float4 ps_main(VSOut i) : SV_Target {
     float2 uv_a = uv_sel.x < 0.5 ? i.uv0 : i.uv1;
     float2 uv_l = uv_sel.y < 0.5 ? i.uv0 : i.uv1;
     float4 albedo = g_tex.Sample(g_samp, uv_a);
-    float3 light = 1.0;
+    // 0x0015AD20 register 0. Untextured draws have a white stand-in, so the
+    // constant is the colour. Textured draws with a white constant stay put.
+    float3 light = light_dir.xyz;
     if (uv_sel.w > 0.5 && dot(i.nrm, i.nrm) > 1e-8) {
-        // Book RARE_celmap0 (256x2) runs dark to bright along U. Lit faces take the bright end.
+        // RARE_celmap0 is a ramp along U. The mesh constant is a colour, not a
+        // direction; the ramp coordinate is the world-up component of the normal
+        // (the unit +Y FUN_0013e520 stores as the LookAt up).
         float3 n = normalize(i.nrm);
-        float3 l = normalize(light_dir.xyz);
-        float u = saturate(0.5 + 0.5 * dot(n, l));
-        light = g_light.Sample(g_light_samp, float2(u, 0.25)).rgb;
+        float u = saturate(0.5 + 0.5 * n.y);
+        light = g_light.Sample(g_light_samp, float2(u, 0.25)).rgb * light_dir.xyz;
     } else if (uv_sel.z > 0.5) {
-        // Xbox D3D8 lightmaps are commonly MODULATE2X: 0.5 in the texture is neutral.
-        light = g_light.Sample(g_light_samp, uv_l).rgb * 2.0;
+        // FUN_000644f0 stores D3DTOP_MODULATE (4) at the stage colour ops.
+        light = g_light.Sample(g_light_samp, uv_l).rgb * light_dir.xyz;
     }
-    return float4(albedo.rgb * light, albedo.a);
+    float4 color = float4(albedo.rgb * light, albedo.a);
+    // D3DRS_ALPHATESTENABLE / ALPHAREF from 0x0005E0C0. ALPHAFUNC stays at the
+    // shadow (0 until programmed). 0x200..0x207 are the Xbox D3DCMP values.
+    if (alpha_rs.x > 0.5 && alpha_rs.z >= 512.0) {
+        float a = round(color.a * 255.0);
+        float refv = alpha_rs.y;
+        float f = alpha_rs.z;
+        bool keep = true;
+        if (f < 512.5) keep = false;
+        else if (f < 513.5) keep = a < refv;
+        else if (f < 514.5) keep = a == refv;
+        else if (f < 515.5) keep = a <= refv;
+        else if (f < 516.5) keep = a > refv;
+        else if (f < 517.5) keep = a != refv;
+        else if (f < 518.5) keep = a >= refv;
+        if (!keep) discard;
+    }
+    return color;
 }
 )";
     ComPtr<ID3DBlob> vs_blob;
@@ -516,9 +771,10 @@ float4 ps_main(VSOut i) : SV_Target {
         {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0},
         {"TEXCOORD", 1, DXGI_FORMAT_R32G32_FLOAT, 0, 20, D3D11_INPUT_PER_VERTEX_DATA, 0},
         {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 28, D3D11_INPUT_PER_VERTEX_DATA, 0},
-        {"TEXCOORD", 2, DXGI_FORMAT_R32_FLOAT, 0, 40, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 2, DXGI_FORMAT_R32G32_FLOAT, 0, 40, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 3, DXGI_FORMAT_R32G32_FLOAT, 0, 48, D3D11_INPUT_PER_VERTEX_DATA, 0},
     };
-    g.device->CreateInputLayout(layout, 5, vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), g.layout.GetAddressOf());
+    g.device->CreateInputLayout(layout, 6, vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), g.layout.GetAddressOf());
 
     D3D11_BUFFER_DESC cbd{};
     cbd.ByteWidth = sizeof(GpuCB);
@@ -548,8 +804,11 @@ float4 ps_main(VSOut i) : SV_Target {
     ds.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
     ds.DepthFunc = D3D11_COMPARISON_LESS;
     g.device->CreateDepthStencilState(&ds, g.depth_state.GetAddressOf());
-    ds.DepthEnable = FALSE;
+    ds.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
+    g.device->CreateDepthStencilState(&ds, g.depth_lequal.GetAddressOf());
     ds.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+    g.device->CreateDepthStencilState(&ds, g.depth_lequal_ro.GetAddressOf());
+    ds.DepthEnable = FALSE;
     g.device->CreateDepthStencilState(&ds, g.depth_off.GetAddressOf());
 
     D3D11_BLEND_DESC blend{};
@@ -579,7 +838,7 @@ float4 ps_main(VSOut i) : SV_Target {
         ShowWindow(g.hwnd, SW_SHOW);
     }
     g.ok = g.vs && g.ps && g.layout && g.cb && g.bone_cb && g.white && g.rtv && g.dsv && g.ui_vb && g.blend_alpha &&
-           g.depth_off;
+           g.depth_off && g.depth_lequal && g.depth_lequal_ro;
     if (!g.ok)
     {
         std::cerr << "d3d11: pipeline incomplete\n";
@@ -598,6 +857,8 @@ void gfx_shutdown()
     g.blend_alpha.Reset();
     g.blend_opaque.Reset();
     g.depth_off.Reset();
+    g.depth_lequal_ro.Reset();
+    g.depth_lequal.Reset();
     g.depth_state.Reset();
     g.rast.Reset();
     g.sampler.Reset();
@@ -663,7 +924,7 @@ void gfx_begin_frame()
     vp.MaxDepth = 1.f;
     g.context->RSSetViewports(1, &vp);
     g.context->RSSetState(g.rast.Get());
-    g.context->OMSetDepthStencilState(g.depth_state.Get(), 0);
+    bind_depth_shadow();
     g.context->OMSetBlendState(g.blend_opaque.Get(), nullptr, 0xFFFFFFFFu);
     g.context->IASetInputLayout(g.layout.Get());
     g.context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -734,6 +995,11 @@ void gfx_set_camera(const Vec3& position, const Quat& orientation, float fov_y)
     g.mvp = mul(perspective(fov_y, aspect, 0.1f, 2000.f), look_at(position, at, up));
 }
 
+void gfx_release_mesh(const Mesh& mesh)
+{
+    g.meshes.erase(&mesh);
+}
+
 void gfx_draw_mesh(const Mesh& mesh, Vec3 origin, Vec3 scale)
 {
     if (!g.ok)
@@ -755,6 +1021,12 @@ void gfx_draw_mesh(const Mesh& mesh, Vec3 origin, Vec3 scale)
     if (!gpu.vb)
     {
         return;
+    }
+    // 0x0005E0C0 leaves ALPHABLENDENABLE set. begin_frame installs opaque; a later
+    // call of that setter has to win for the draws that follow it.
+    if (g.rs_alpha_blend != 0)
+    {
+        g.context->OMSetBlendState(g.blend_alpha.Get(), nullptr, 0xFFFFFFFFu);
     }
     D3D11_MAPPED_SUBRESOURCE mapped{};
     const UINT stride = sizeof(GpuVert);
@@ -789,6 +1061,23 @@ void gfx_draw_mesh(const Mesh& mesh, Vec3 origin, Vec3 scale)
             cb.use_light = range.use_light;
             cb.use_cel = range.use_cel;
             cb.skin = g.skin ? 1.f : 0.f;
+            cb.light_x = range.color_r;
+            cb.light_y = range.color_g;
+            cb.light_z = range.color_b;
+            store_alpha_rs(cb);
+            // 0x0015AD20 writes the alpha shadow for this material. Byte +24 == 0
+            // clears ALPHATESTENABLE. Any other byte is D3DCMP_GREATER (0x204).
+            if (range.alpha_ref > 0.f)
+            {
+                cb.alpha_test = 1.f;
+                cb.alpha_ref = range.alpha_ref;
+                cb.alpha_func = 516.f;
+            }
+            else
+            {
+                cb.alpha_test = 0.f;
+                cb.alpha_func = 0.f;
+            }
             std::memcpy(mapped.pData, &cb, sizeof(cb));
             g.context->Unmap(g.cb.Get(), 0);
         }
@@ -806,7 +1095,18 @@ void gfx_draw_mesh(const Mesh& mesh, Vec3 origin, Vec3 scale)
                 const int slots = std::min(int(range.skin.size()), GfxD3D11::kMaxBones);
                 for (int i = 0; i < slots; ++i)
                 {
-                    const int joint = int(range.skin[size_t(i)]);
+                    int joint = int(range.skin[size_t(i)]);
+                    // 0x157B90 indexes the pool 0x155E60 just published. The byte is
+                    // that submesh's ancestor ndMtxArray record, which names the joint.
+                    const std::vector<u16>& mtx = !range.mtx.empty() ? range.mtx : mesh.mtx_joints;
+                    if (!mtx.empty())
+                    {
+                        if (joint < 0 || size_t(joint) >= mtx.size())
+                        {
+                            continue;
+                        }
+                        joint = int(mtx[size_t(joint)]);
+                    }
                     if (joint >= 0 && joint < GfxD3D11::kMaxBones)
                     {
                         std::memcpy(palette + i * 16, g.bones + joint * 16, sizeof(float) * 16);
@@ -886,6 +1186,7 @@ void gfx_draw_sprite(const RgbaImage& image, const GfxRect& rect)
     {
         GpuCB cb;
         std::memcpy(cb.mvp, identity.m, sizeof(cb.mvp));
+        store_alpha_rs(cb);
         std::memcpy(mapped.pData, &cb, sizeof(cb));
         g.context->Unmap(g.cb.Get(), 0);
     }
@@ -900,16 +1201,488 @@ void gfx_draw_sprite(const RgbaImage& image, const GfxRect& rect)
     g.context->Draw(6, 0);
 }
 
-void gfx_end_frame()
+namespace
+{
+
+// DAT_004DE9AC. The present step advances this job by DAT_005096C0.
+struct PresentFade
+{
+    float elapsed = 0.f;  // +0x2C
+    float previous = 0.f; // +0x30
+    float duration = 0.f; // +0x34
+    float step = 0.f;     // +0x38
+    int paused = 0;       // +0x158
+};
+
+// DAT_004DE9A0. +0x94C is the gate the phase machine tests.
+struct PresentScene
+{
+    int marker = 0;
+};
+
+// *DAT_004DEA10. Cursor at +4, limit at +8.
+struct PresentLoad
+{
+    u32 done = 0;
+    u32 total = 0;
+    u32 streaming = 0; // an entry whose stream byte at +0x11 is still above 1
+};
+
+// BSS counterparts of the load/fade globals. fs_init stores phase 0; the pointers stay clear
+// until a load is installed, which is the retail boot state.
+struct PresentGate
+{
+    PresentFade* fade = nullptr;   // DAT_004DE9AC
+    PresentScene* scene = nullptr; // DAT_004DE9A0
+    void* widget = nullptr;        // DAT_004DE99C
+    PresentLoad* load = nullptr;   // *DAT_004DEA10
+    u32 id_a = 0;                  // DAT_004DEA14
+    u32 id_b = 0;                  // DAT_004DEA18
+    int phase = 0;                 // DAT_004DD900
+    float dt = 1.f / 60.f;         // DAT_005096C0
+};
+
+PresentGate present_gate;
+
+// Xbox 0x00032AB0
+// 0x0005FFA0: 1 when `id` is still streaming inside the load span.
+bool present_load_id_busy(const PresentLoad* load, u32 id)
+{
+    (void)id;
+    if (load == nullptr || load->done >= load->total)
+    {
+        return false;
+    }
+    return load->streaming != 0;
+}
+
+// Xbox 0x00032AB0
+void present_32ab0()
+{
+    PresentFade* fade = present_gate.fade;
+    if (fade != nullptr)
+    {
+        if (fade->duration <= fade->elapsed)
+        {
+            // 0x0004E4A0(0, 0, 0). Elapsed becomes duration * 0 and the step clears.
+            const float old = fade->elapsed;
+            fade->elapsed = 0.f;
+            fade->previous = old;
+            fade->step = 0.f;
+        }
+        // 0x0004DA50(dt). ESI is the fade system at 0x004DE9B0.
+        if (fade->paused == 0)
+        {
+            const float dt = present_gate.dt;
+            fade->previous = fade->elapsed;
+            fade->elapsed += dt;
+            fade->step = dt;
+            if (fade->elapsed > fade->duration)
+            {
+                fade->elapsed = fade->duration;
+            }
+            if (fade->elapsed < 0.f)
+            {
+                fade->elapsed = 0.f;
+            }
+        }
+    }
+
+    PresentScene* scene = present_gate.scene;
+    if (scene != nullptr && present_gate.phase > 0 && present_gate.phase < 4 && present_gate.widget != nullptr)
+    {
+        // 0x00142460 ticks the load widget. EDI is the scene.
+        (void)scene;
+    }
+    scene = present_gate.scene;
+
+    if (present_gate.phase == 1)
+    {
+        if (scene != nullptr)
+        {
+            if (!present_load_id_busy(present_gate.load, present_gate.id_a) &&
+                !present_load_id_busy(present_gate.load, present_gate.id_b) && scene->marker != 0)
+            {
+                present_gate.phase = 2;
+            }
+        }
+    }
+    else if (present_gate.phase == 3 && present_gate.load != nullptr &&
+             present_gate.load->total <= present_gate.load->done && scene != nullptr && scene->marker == 0)
+    {
+        // Tail call 0x00032BA0 with phase 4. Leaving phase 3 drops the load set.
+        present_gate.load = nullptr;
+        present_gate.scene = nullptr;
+        present_gate.fade = nullptr;
+        present_gate.widget = nullptr;
+        present_gate.phase = 4;
+    }
+}
+
+// Object at the front of a DAT_0050E0E8 record. That span's stride is 0x50.
+// DAT_0050E0EC is the record count; phase 1 reads record count-1.
+struct PresentSlot
+{
+    int kind = 0;               // +0
+    void* child = nullptr;      // +4
+    int state = 0;              // +8, read by 0x00107CE0
+    PresentSlot* ports[4] = {}; // +8 when kind is 4 (0x00107AA0)
+    u16 show = 0;               // flag word 0x001083F0 masks with 0x10
+    u16 hide = 0;
+};
+
+// DAT_004DEA34 cluster. fs_init (0x00033980) stores phase 4 and clears the pointers.
+struct PresentInsert
+{
+    int phase = 4;                 // DAT_004DEA34
+    int force = 0;                 // DAT_004DEA38
+    int hold = 0;                  // DAT_004DEA24, nonzero skips the span poll
+    u32 pad_mask = 0;              // DAT_0032E3B4, returned by 0x001554C0(0)
+    u32 pad_filter = 0;            // DAT_0050E0F8
+    u16 block_show = 0;            // words at 0x00507C98, kind 3 of 0x001083F0
+    u16 block_hide = 0;
+    PresentLoad* cursor = nullptr; // *DAT_004DEA2C, +4 / +8
+    PresentSlot* actor = nullptr;  // DAT_004DEA28
+    PresentSlot** records = nullptr;
+    int record_count = 0; // (end - begin) / stride
+    int record_index = 0; // DAT_0050E0EC
+};
+
+PresentInsert present_insert;
+
+// Xbox 0x00033480
+// 0x00107CE0. Idle when the pad word's 0x10<<state bit is clear.
+bool present_port_idle(const PresentSlot& slot)
+{
+    if (slot.state < 0 || slot.state > 3)
+    {
+        return true;
+    }
+    const u32 bit = 0x10u << slot.state;
+    return (present_insert.pad_mask & bit) == 0;
+}
+
+// Xbox 0x00033480
+// 0x001082B0. Zero lets phase 1 tail-call 0x000337B0 with phase 2.
+bool present_slot_busy(const PresentSlot& slot)
+{
+    if (slot.kind == 2)
+    {
+        return (present_insert.pad_mask & present_insert.pad_filter) != 0;
+    }
+    if (slot.kind == 3)
+    {
+        return present_insert.pad_mask != 0;
+    }
+    if (slot.kind == 4)
+    {
+        for (const PresentSlot* port : slot.ports)
+        {
+            if (port != nullptr && port->child != nullptr && present_port_idle(*port))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+    if (slot.kind == 5)
+    {
+        return !present_port_idle(slot);
+    }
+    return false;
+}
+
+// Xbox 0x00033480
+// 0x001083F0(actor, 0x10). Show bit set and hide bit clear.
+bool present_flags_ready(u16 show, u16 hide)
+{
+    return (show & 0x10) != 0 && (hide & 0x10) == 0;
+}
+
+// Xbox 0x00033480
+bool present_actor_ready(const PresentSlot* actor)
+{
+    if (actor == nullptr || actor->kind < 1 || actor->kind > 5)
+    {
+        return false;
+    }
+    if (actor->kind == 3)
+    {
+        return present_flags_ready(present_insert.block_show, present_insert.block_hide);
+    }
+    if (actor->kind == 4)
+    {
+        for (const PresentSlot* port : actor->ports)
+        {
+            if (port != nullptr && port->state != -1 && present_flags_ready(port->show, port->hide))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+    return present_flags_ready(actor->show, actor->hide);
+}
+
+// Xbox 0x00033480
+// 0x000337B0. EAX is the phase being entered. Leaving phase 3 drops the cursor.
+void present_insert_set_phase(int next)
+{
+    if (next == present_insert.phase)
+    {
+        return;
+    }
+    if (present_insert.phase == 3)
+    {
+        present_insert.cursor = nullptr;
+        if (present_insert.actor != nullptr && present_insert.actor->child != nullptr)
+        {
+            present_insert.actor = nullptr;
+        }
+    }
+    present_insert.phase = next;
+}
+
+// Xbox 0x00033480
+void present_33480()
+{
+    switch (present_insert.phase)
+    {
+    case 1:
+        if (present_insert.force != 0)
+        {
+            present_insert.force = 0;
+            present_insert_set_phase(2);
+            return;
+        }
+        if (present_insert.hold == 0 && present_insert.record_count != 0 && present_insert.records != nullptr &&
+            present_insert.record_index > 0)
+        {
+            PresentSlot* slot = present_insert.records[present_insert.record_index - 1];
+            if (slot != nullptr && slot->child != nullptr && !present_slot_busy(*slot))
+            {
+                present_insert_set_phase(2);
+                return;
+            }
+        }
+        break;
+    case 2:
+        // 0x00109470(DAT_004DEA28) refreshes the span record, then 0x001083F0(actor, 0x10).
+        if (present_actor_ready(present_insert.actor))
+        {
+            present_insert_set_phase(3);
+            return;
+        }
+        break;
+    case 3:
+        if (present_insert.cursor != nullptr && present_insert.cursor->total <= present_insert.cursor->done)
+        {
+            present_insert_set_phase(1);
+            return;
+        }
+        break;
+    case 4:
+        if (present_insert.pad_mask != 0)
+        {
+            present_insert.phase = 1;
+        }
+        break;
+    default:
+        break;
+    }
+}
+
+// Movie node on the DAT_0050E0B8 list. 0x00107420 reads it from ESI.
+// +4 is the next link, +8 the clip, +0x28 the open-failed latch, +0x34 the enable.
+struct PresentMovie
+{
+    PresentMovie* next = nullptr;
+    void* clip = nullptr;
+    int failed = 0;
+    int enabled = 0;
+};
+
+// One of the four camera slots at DAT_004E16A0. 0x000489E0 returns 0 when the slot is null.
+struct PresentCamera
+{
+    int marker = 0;
+};
+
+// Overlay record. 0x00106CD0 walks 0x0050DD90 through 0x0050DFB0, stride 0x88 (four records).
+struct PresentOverlay
+{
+    void* object = nullptr; // +0
+    u8 kind = 0;             // +4, indexes the callback table at 0x00545DC0
+};
+
+// Clear and movie gates. BSS, so a fresh boot leaves every pointer clear.
+struct PresentFrame
+{
+    int post_pass = 0;    // DAT_00512AF0, first dword of the 0x2C post table
+    int cover = 0;        // DAT_004DEA50, mirrors scene+0x93C
+    int clear_mode = 0;   // DAT_0054632C, nonzero forces the target clear
+    int movie_lock_a = 0; // DAT_004E5CD8
+    int movie_lock_b = 0; // DAT_004E5CDC
+    PresentMovie* movies = nullptr;
+    PresentCamera* cameras[4] = {};
+    PresentOverlay overlays[4] = {};
+    void (*swap_notify)(int phase) = nullptr; // DAT_0043427C
+};
+
+PresentFrame present_frame;
+
+// Xbox 0x00033A90
+// Xbox clear masks: ZBUFFER is 1, STENCIL is 2, TARGET is 0xF0.
+// Boot (both retain gates clear) uses 0xF3. A post pass or cover keeps the color target
+// unless clear_mode is set.
+u32 present_clear_flags()
+{
+    u32 flags = 3;
+    if ((present_frame.post_pass == 0 && present_frame.cover == 0) || present_frame.clear_mode != 0)
+    {
+        flags = 0xf3;
+    }
+    return flags;
+}
+
+// Xbox 0x00033A90
+// 0x00107420. Opening the clip is Bink (0x001A6010) and stays in that library.
+void present_movie_tick(PresentMovie* node)
+{
+    if (node->enabled == 0 || node->failed != 0)
+    {
+        return;
+    }
+    if (node->clip == nullptr)
+    {
+        return;
+    }
+}
+
+// Xbox 0x00033A90
+void present_movies()
+{
+    if (present_frame.movie_lock_a != 0 || present_frame.movie_lock_b != 0)
+    {
+        return;
+    }
+    for (PresentMovie* node = present_frame.movies; node != nullptr; node = node->next)
+    {
+        present_movie_tick(node);
+    }
+}
+
+// Xbox 0x00033A90
+// 0x00106CD0. A null object skips the record.
+void present_overlays()
+{
+    for (const PresentOverlay& overlay : present_frame.overlays)
+    {
+        if (overlay.object == nullptr)
+        {
+            continue;
+        }
+    }
+}
+
+// Xbox 0x00033A90
+// 0x00033A20. Each non-null slot is bound by 0x000489E0 and drawn by 0x00011C240.
+void present_cameras()
+{
+    for (PresentCamera* camera : present_frame.cameras)
+    {
+        if (camera == nullptr)
+        {
+            continue;
+        }
+    }
+}
+
+// Xbox 0x00033A90
+// DAT_0033A5B8 is the full backbuffer: origin 0, retail 640x480, z 0..1.
+void present_set_viewport()
 {
     if (!g.ok)
     {
         return;
     }
-    if (g.swap)
+    D3D11_VIEWPORT vp{};
+    vp.Width = float(g.cfg.width);
+    vp.Height = float(g.cfg.height);
+    vp.MinDepth = 0.f;
+    vp.MaxDepth = 1.f;
+    g.context->RSSetViewports(1, &vp);
+}
+
+// Xbox 0x00033A90
+// 0x00154A20: D3DDevice_Clear(0, nullptr, flags, DAT_00434264, 1.0f, 0).
+// Z (1) and stencil (2) clear here. The target mask 0xF0 stays off this call so the
+// scene drawn earlier in the frame is still in the color target for the swap.
+void present_clear(u32 flags)
+{
+    if (!g.ok)
+    {
+        return;
+    }
+    UINT bits = 0;
+    if ((flags & 0x1u) != 0)
+    {
+        bits |= D3D11_CLEAR_DEPTH;
+    }
+    if ((flags & 0x2u) != 0)
+    {
+        bits |= D3D11_CLEAR_STENCIL;
+    }
+    if (bits != 0)
+    {
+        g.context->ClearDepthStencilView(g.dsv.Get(), bits, 1.f, 0);
+    }
+}
+
+// Xbox 0x00033A90
+// 0x00154A40. Notify 0, D3DDevice_Swap(0), notify 1.
+void present_swap()
+{
+    if (present_frame.swap_notify != nullptr)
+    {
+        present_frame.swap_notify(0);
+    }
+    if (g.ok && g.swap)
     {
         g.swap->Present(1, 0);
     }
+    if (present_frame.swap_notify != nullptr)
+    {
+        present_frame.swap_notify(1);
+    }
+}
+
+// Xbox 0x00033A90
+void present_33a90()
+{
+    const u32 flags = present_clear_flags();
+    present_set_viewport();
+    present_clear(flags);
+    fn_5e110();
+    // 0x000F9780 retires the deferred span at DAT_005079E0.
+    // 0x00036180 submits the draw span at DAT_004DF240 and resets it.
+    present_movies();
+    present_overlays();
+    present_cameras();
+    // 0x000F6F70 restores the HUD viewport from DAT_005096E8 / DAT_005096EA.
+    // 0x00066080 draws the sprite span at DAT_00504960.
+    present_swap();
+    present_movies();
+}
+
+} // namespace
+
+void gfx_end_frame()
+{
+    // Present 0x00033480, then 0x00032AB0, then 0x00033A90 (clear and swap).
+    present_33480();
+    present_32ab0();
+    present_33a90();
 }
 
 bool gfx_readback(RgbaImage& out)
@@ -961,6 +1734,493 @@ bool gfx_readback(RgbaImage& out)
     }
     g.context->Unmap(staging.Get(), 0);
     return true;
+}
+
+float* fn_151e64(float* out, const float* left, const float* right)
+{
+    // Xbox 0x00151E64
+    // 4x4 product, out = left * right, row-major. Output row r is
+    // left[r][0] * right.row0 + left[r][1] * right.row1
+    // + left[r][2] * right.row2 + left[r][3] * right.row3.
+    // Every input element is loaded before the first store, so out may
+    // alias left or right. Returns out.
+    float a[16];
+    float b[16];
+    std::memcpy(a, left, sizeof(a));
+    std::memcpy(b, right, sizeof(b));
+    for (int row = 0; row < 4; ++row)
+    {
+        const float x = a[row * 4 + 0];
+        const float y = a[row * 4 + 1];
+        const float z = a[row * 4 + 2];
+        const float w = a[row * 4 + 3];
+        out[row * 4 + 0] = x * b[0] + y * b[4] + z * b[8] + w * b[12];
+        out[row * 4 + 1] = x * b[1] + y * b[5] + z * b[9] + w * b[13];
+        out[row * 4 + 2] = x * b[2] + y * b[6] + z * b[10] + w * b[14];
+        out[row * 4 + 3] = x * b[3] + y * b[7] + z * b[11] + w * b[15];
+    }
+    return out;
+}
+
+float* fn_151f62(float* out, const float* m)
+{
+    // Xbox 0x00151F62
+    // 4x4 transpose, row-major. out[col][row] = m[row][col].
+    // Every input element is loaded before the first store, so out may
+    // alias m. Returns out.
+    float a[16];
+    std::memcpy(a, m, sizeof(a));
+    for (int row = 0; row < 4; ++row)
+    {
+        for (int col = 0; col < 4; ++col)
+        {
+            out[col * 4 + row] = a[row * 4 + col];
+        }
+    }
+    return out;
+}
+
+u32* fn_171bb0(u32 device_780, u32* packet)
+{
+    // Xbox 0x00171BB0
+    // Fastcall. ecx is the D3D device, edx the push cursor. The dword at
+    // device+0x780 is the texture installed by 0x00175370 (zero when unbound).
+    // eax comes back as the cursor after the writes. A null cursor would
+    // fault on Xbox; the port leaves it alone.
+    //
+    // Three packets, seven dwords each. The method word starts at 0x00181B68
+    // and steps by 0x40 while it is <= 0x00181BE8, so the headers are
+    // 0x00181B68, 0x00181BA8, 0x00181BE8. Each is count 6 at the NV097 bump-env
+    // block (SET_TEXTURE_SET_BUMP_ENV_MAT, SCALE, OFFSET) for hardware stages
+    // 1, 2, and 3.
+    //
+    // The six data dwords are the deferred stage shadow at DAT_001819C8
+    // (DAT_00181970 + 0x58), stride 0x80. device+0x780 == 0 reads stages 0..2.
+    // Any other value reads stages 1..3. The method headers do not move with
+    // that select.
+    if (packet == nullptr)
+    {
+        return packet;
+    }
+
+    const int stage = device_780 != 0u ? 1 : 0;
+    u32 method = 0x00181B68u;
+    for (int i = 0; i < 3; ++i)
+    {
+        const u32* bump = g.stages[stage + i].bump;
+        packet[0] = method;
+        for (int word = 0; word < 6; ++word)
+        {
+            packet[1 + word] = bump[word];
+        }
+        packet += 7;
+        method += 0x40u;
+    }
+    return packet;
+}
+
+u32 fn_176ee0(const u32* device, const u32* record, u32 gpu_position)
+{
+    // Xbox 0x00176EE0
+    // Fastcall, ret 4. D3D_BlockOnTime (0x00177450) is the caller. ecx is
+    // the device at DAT_00181E08, edx is an 8-byte time slot from the
+    // table at device+0x60 (the pointer 0x001770A0 returns), and the
+    // stack argument is the GPU position from 0x001771A0. eax is the
+    // byte distance. A null device or record would fault on Xbox; the
+    // port returns 0.
+    //
+    // device+0 is the push-buffer put pointer. device+0x40 is the wrap
+    // bias 0x001775C0 stores as put-base when the ring wraps. A position
+    // at or below put belongs to the generation after that wrap, so the
+    // bias is added before the subtract. The slot's recorded put lives
+    // at slot+4 (written by 0x001773A0). The result is how far that
+    // address sits ahead of the GPU. BlockOnTime compares it with
+    // 0x2000. A negative difference means the GPU has already passed
+    // the address, and the function returns 0.
+    if (device == nullptr || record == nullptr)
+    {
+        return 0;
+    }
+
+    const u32 put = device[0];
+    const u32 wrap = device[0x10];
+    u32 recorded = record[1];
+    if (gpu_position <= put)
+    {
+        gpu_position += wrap;
+    }
+    if (recorded <= put)
+    {
+        recorded += wrap;
+    }
+    const u32 distance = recorded - gpu_position;
+    if (static_cast<i32>(distance) < 0)
+    {
+        return 0;
+    }
+    return distance;
+}
+
+// Fields this routine reads and writes on the device at DAT_00181E08.
+// reg_file and notifier are host pointers to the objects stored at
+// device+0x930 and device+0x1c10.
+struct D3dPushGetCache
+{
+    u32 push_start = 0;          // device+0x24
+    u32 push_end = 0;            // device+0x28
+    u32 cached_get = 0;          // device+0x58
+    u32 cached_ref = 0;          // device+0x5c
+    const u32* reg_file = nullptr;  // device+0x930
+    const u32* notifier = nullptr;  // device+0x1c10
+};
+
+void fn_176f80(D3dPushGetCache* device)
+{
+    // Xbox 0x00176F80
+    // Fastcall. ecx is the D3D device. 0x001775C0 calls it when flag bit
+    // 0x4 at device+8 is clear, before deciding whether the push buffer
+    // has to wrap. A null device, register file, or notifier would fault
+    // on Xbox; the port returns.
+    //
+    // notifier+0x44 is the hardware GET. ORing 0x80000000 is the same
+    // push-buffer address 0x001771A0 returns while it sits in
+    // [device+0x24, device+0x28). reg_file+0x400b10 is the reference
+    // 0x001773A0 encodes as (put << 5) | (serial & 0x1f) and the GPU
+    // writes back. 0x001771A0 spins until its low five bits match the
+    // counter at device+0x30.
+    //
+    // Inside the ring, +0x58 caches that GET and +0x5c caches the
+    // reference. Outside it, an unchanged reference leaves both words
+    // alone. The retail path still stores them back: it reloads +0x58
+    // and writes that value, then writes the reference over +0x5c.
+    // A reference that did change is turned back into an address with
+    // (reference >> 5) | 0x80000000, restoring the GPU bit the encode
+    // shifted out.
+    if (device == nullptr || device->reg_file == nullptr || device->notifier == nullptr)
+    {
+        return;
+    }
+
+    const u32 ref = device->reg_file[0x400b10 / 4];
+    u32 get = device->notifier[0x44 / 4] | 0x80000000u;
+    if (get < device->push_start || device->push_end <= get)
+    {
+        if (ref == device->cached_ref)
+        {
+            const u32 keep = device->cached_get;
+            device->cached_get = keep;
+            device->cached_ref = ref;
+            return;
+        }
+        get = (ref >> 5) | 0x80000000u;
+    }
+    device->cached_get = get;
+    device->cached_ref = ref;
+}
+
+struct D3dTimeSlot
+{
+    u32 serial = 0;
+    u32 put = 0;
+};
+
+// Fields read by 0x001771A0 on the device at DAT_00181E08. slots is the
+// inline table at +0x60: 64 records of {serial, put}, indexed by
+// (serial >> 1) & 0x3f. history is the older ring 0x001770A0 walks
+// once a serial has fallen off that table.
+struct D3dPushGetState
+{
+    u32 put = 0;                          // +0x00
+    u32 push_start = 0;                   // +0x24
+    u32 push_end = 0;                     // +0x28
+    u32 fence = 0;                        // +0x2c
+    const u32* counter = nullptr;         // +0x30
+    u32 hist_index = 0;                   // +0x34
+    u32 hist_mask = 0;                    // +0x38
+    u32 wrap = 0;                         // +0x40
+    const D3dTimeSlot* history = nullptr; // +0x44
+    D3dTimeSlot slots[64]{};              // +0x60
+    const u32* reg_file = nullptr;        // +0x930
+    const u32* notifier = nullptr;        // +0x1c10
+};
+
+namespace
+{
+
+u32 wrapped_put(u32 recorded, u32 put, u32 wrap)
+{
+    if (recorded <= put)
+    {
+        recorded += wrap;
+    }
+    return recorded;
+}
+
+// True when every slot after index, up to but not including end, still
+// sits at or ahead of index's put. This is the test 0x001770A0 runs
+// before it returns a slot. mask is 0x3f for the inline table.
+bool later_puts_hold(
+    const D3dTimeSlot* table, u32 index, u32 end, u32 mask, u32 put, u32 wrap)
+{
+    const u32 baseline = wrapped_put(table[index].put, put, wrap);
+    u32 next = (index + 1u) & mask;
+    while (next != end)
+    {
+        if (wrapped_put(table[next].put, put, wrap) < baseline)
+        {
+            return false;
+        }
+        next = (next + 1u) & mask;
+    }
+    return true;
+}
+
+const D3dTimeSlot* inline_time_slot(const D3dPushGetState* device, u32 index)
+{
+    const u32 newest = (device->fence >> 1) & 0x3fu;
+    if (!later_puts_hold(device->slots, index, newest, 0x3fu, device->put, device->wrap))
+    {
+        return nullptr;
+    }
+    return &device->slots[index];
+}
+
+} // namespace
+
+const D3dTimeSlot* fn_1770a0(const D3dPushGetState* device, u32 query)
+{
+    // Xbox 0x001770A0
+    // eax is the serial 0x001771A0 passes (counter + 2). Retail loads the
+    // device from DAT_00181E08; the port uses the caller's device. A null
+    // device would fault on Xbox; the port returns no slot.
+    //
+    // A gap of 0x80 is one lap of the 64-slot table (serials step by 2).
+    // Inside that window the inline slot is (serial >> 1) & 0x3f. Beyond
+    // it, the history ring is walked from hist_index + 1 until a record
+    // is at least as new as the query. The head record being older than
+    // the query drops back to the inline slot for the fence itself. The
+    // compare against -1 in the retail index is unreachable after the
+    // 0x3f mask. A null history cannot be walked; the port returns no slot.
+    if (device == nullptr)
+    {
+        return nullptr;
+    }
+
+    const u32 fence = device->fence;
+    const u32 gap = fence - query;
+    if (gap > 0x80u)
+    {
+        if (device->history == nullptr)
+        {
+            return nullptr;
+        }
+        const u32 head = device->hist_index;
+        if ((fence - device->history[head].serial) > gap)
+        {
+            return inline_time_slot(device, (fence >> 1) & 0x3fu);
+        }
+        const u32 mask = device->hist_mask;
+        u32 index = head;
+        do
+        {
+            index = (index + 1u) & mask;
+        }
+        while ((fence - device->history[index].serial) > gap);
+
+        const u32 stop = (head + 1u) & mask;
+        if (!later_puts_hold(device->history, index, stop, mask, device->put, device->wrap))
+        {
+            return nullptr;
+        }
+        return &device->history[index];
+    }
+    return inline_time_slot(device, (query >> 1) & 0x3fu);
+}
+
+u32 fn_1771a0(const D3dPushGetState* device, int wait)
+{
+    // Xbox 0x001771A0
+    // stdcall, ret 8. D3D_BlockOnTime (0x00177450) is the caller. The
+    // first argument is the device at DAT_00181E08. The second is
+    // nonzero only on the call after the fence kick: spin until the low
+    // five bits of the GPU reference at reg_file+0x400b10 match the
+    // counter pointed to by device+0x30. 0x001773A0 encodes that
+    // reference as (put << 5) | (serial & 0x1f).
+    //
+    // notifier+0x44 is the hardware GET. ORing 0x80000000 is the
+    // push-buffer address. While it sits in [device+0x24, device+0x28)
+    // that address is the result.
+    //
+    // Outside the ring, *counter + 2 == the fence at device+0x2c means
+    // the GPU has retired the last kick 0x001773A0 recorded (the fence
+    // is already two ahead of that serial). The result is the put
+    // pointer at device+0. Otherwise 0x001770A0 looks up the slot for
+    // *counter + 2 and the result is the put stored at slot+4. A miss
+    // returns put + 4. A null device, counter, or notifier would fault
+    // on Xbox; the port returns 0. So does a wait with no register file.
+    if (device == nullptr || device->counter == nullptr || device->notifier == nullptr)
+    {
+        return 0;
+    }
+
+    const volatile u32* counter = device->counter;
+    if (wait != 0)
+    {
+        if (device->reg_file == nullptr)
+        {
+            return 0;
+        }
+        const volatile u32* reference = device->reg_file + (0x400b10u / 4u);
+        do
+        {
+        }
+        while (((*counter ^ *reference) & 0x1fu) != 0u);
+    }
+
+    const u32 get = device->notifier[0x44 / 4] | 0x80000000u;
+    if (get < device->push_start || device->push_end <= get)
+    {
+        const u32 seen = *counter;
+        if (seen + 2u == device->fence)
+        {
+            return device->put;
+        }
+        const D3dTimeSlot* slot = fn_1770a0(device, seen + 2u);
+        if (slot != nullptr)
+        {
+            return slot->put;
+        }
+        return device->put + 4u;
+    }
+    return get;
+}
+
+void fn_177220(volatile u32* mmio)
+{
+    // Xbox 0x00177220
+    // No arguments. Retail loads the device from DAT_00181E08 and the
+    // NV2A register base at device+0x1c18. That pointer is RegisterBase
+    // for AvSendTVEncoderOption (kernel ordinal 2) and AvSetDisplayMode
+    // (ordinal 3). The port takes the base. A null base would fault on
+    // Xbox; the port returns.
+    //
+    // sfence drains the CPU write-combining buffer. The dword at
+    // base+0x100410 is NV_PFB_WBC: PFB is the block at 0x100000 and the
+    // register itself is 0x410. ORing bit 16 requests NV_PFB_WBC_FLUSH.
+    // The memory controller clears that bit once the framebuffer write
+    // buffer has drained, and the function spins until the read says so.
+    //
+    // 0x00177450 calls this after writing NV097_WAIT_FOR_IDLE (method
+    // word 0x40110) and NV097_NO_OPERATION (0x40100) into the push
+    // buffer. 0x00177280 and 0x00177330 run the same poke before
+    // publishing PUT at notifier+0x40. 0x0017C158 and 0x0017C176 call
+    // it after the copy at 0x00176D60.
+    if (mmio == nullptr)
+    {
+        return;
+    }
+
+    _mm_sfence();
+    volatile u32* wbc = mmio + (0x100410u / 4u);
+    const u32 latched = *wbc | 0x10000u;
+    *wbc = latched;
+    while ((*wbc & 0x10000u) != 0u)
+    {
+    }
+}
+
+int fn_1782c0(float value)
+{
+    // Xbox 0x001782C0
+    // stdcall, ret 4. Nine bytes: cvttss2si eax, dword ptr [esp+4].
+    // D3D_CommonSetMultiSampleModeAndScale (0x00171F40) calls it four
+    // times. Each site adds the 0.5 at DAT_0032B0F4 and stores the x87
+    // result before the call, so truncation rounds a positive value
+    // half away from zero. The first two results are sample counts
+    // clamped to the surface size. The third indexes the dword table
+    // at 0x0017F99C (stored at device+0x964). The fourth is clamped
+    // to 0x1FF by the caller and written as the data dword of method
+    // 0x40380.
+    //
+    // Values outside the signed 32-bit range, and NaNs, come back as
+    // the indefinite integer 0x80000000. In-range values truncate
+    // toward zero.
+    return _mm_cvttss_si32(_mm_set_ss(value));
+}
+
+// Xbox 0x001799A0
+// Deferred commit used by CDevice_SetStateVB (0x00179A20) and D3DDevice_Begin
+// (0x00172D10). The device argument is D3D_g_pDevice (DAT_00181E08); the
+// shadow it reads is g. DAT_00181968 is g.rs_dirty.
+//
+// Bits are tested in this order. Only 0x0017DBD0 replaces the flag word the
+// later tests see:
+//   0x100     D3D_LazySetPointParams (0x001783E0), point scale DAT_00181D40
+//   0x800     0x0017DBD0(device, flags)
+//   0x4000    0x00178550(device)
+//   0xF       0x001788D0(device, flags), one bit per texture stage
+//   0x2000    0x00178AC0(device), including rs_state_60 at DAT_00181CF0
+//   0x400     0x00178CA0(device)
+//   0xFF1000  0x00179450(device, flags), reads rs_state_66
+//   0x200     0x001797A0(device, flags), reads rs_state_66
+//
+// 0x0017DBD0 returns the flags unchanged when device+0x780 is set. Otherwise
+// a combiner stage whose colour op is 25 or 26 (D3DTOP_MULTIPLYADD /
+// D3DTOP_LERP) sets device+8 bit 0x10000, and the return ORs 0x400F. Colour
+// op 1 (D3DTOP_DISABLE) ends the walk before the following stages. 0x400F is
+// outside the mask stored below, so it only pulls the 0x4000 and stage
+// commits into this same pass. The port has no pixel-shader handle at
+// device+0x780, so the walk runs.
+//
+// Bits 0x10, 0x20, 0x40, 0x40000000 and 0x80000000 stay dirty.
+void fn_1799a0()
+{
+    u32 flags = g.rs_dirty;
+    if ((flags & 0x100u) != 0u)
+    {
+        // 0x001783E0 writes the point-sprite constants. No draw reads them yet.
+    }
+    if ((flags & 0x800u) != 0u)
+    {
+        for (int stage = 0; stage < 4; ++stage)
+        {
+            const int op = g.stages[stage].color_op;
+            if (stage > 0 && op == 1)
+            {
+                break;
+            }
+            if (op == 25 || op == 26)
+            {
+                flags |= 0x400fu;
+                break;
+            }
+        }
+    }
+    if ((flags & 0x4000u) != 0u)
+    {
+        // 0x00178550. Skipped on Xbox when device+0x780 is set.
+    }
+    if ((flags & 0xfu) != 0u)
+    {
+        // 0x001788D0 packs stages at DAT_00181970, stride 0x80.
+    }
+    if ((flags & 0x2000u) != 0u)
+    {
+        // 0x00178AC0.
+    }
+    if ((flags & 0x400u) != 0u)
+    {
+        // 0x00178CA0.
+    }
+    if ((flags & 0xff1000u) != 0u)
+    {
+        // 0x00179450.
+    }
+    if ((flags & 0x200u) != 0u)
+    {
+        // 0x001797A0.
+    }
+    g.rs_dirty = flags & 0xc0000070u;
 }
 
 } // namespace gbtg

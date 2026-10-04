@@ -831,12 +831,11 @@ void gameselect_tick(Game& g, const InputState& in)
     if (g.frontend_mode == 0)
     {
         g.naming = false;
-        // Title plays until A. That opens slot select on top of the same scene.
+        // Title plays until A. 0x0012C5D0 then loads the next sceneorder script
+        // (gameselect), instead of drawing the slot widget over the attract books.
         if (in.accept && !g.slot_accept && g.scene_name.find("attract") != std::string::npos)
         {
-            load_menu_textures(g);
-            g.frontend_mode = 1;
-            std::cout << "frontend mode 1 slot select\n";
+            scene_order_leave_attract(g);
         }
     }
     else if (g.frontend_mode == 4)

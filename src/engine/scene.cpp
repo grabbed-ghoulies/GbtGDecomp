@@ -15449,23 +15449,81 @@ void scene_order_go(Game& g, size_t index)
     cutscene_queue_start(g);
 }
 
-void scene_order_advance(Game& g)
+void script_load(Game& g, std::string_view name)
 {
-    // Xbox 0x0012C2D0. The finished script's slot is followed by the next sceneorder name.
-    scene_order_go(g, g.scene_index + 1);
-}
-
-void scene_order_leave_attract(Game& g)
-{
-    // Xbox 0x0012C5D0. A during attract skips the remaining attractsequence entries.
-    for (size_t i = g.scene_index + 1; i < g.scene_order.size(); ++i)
+    // Xbox 0x0012C5D0. 0x0012C2D0 looks the requested aid up in the directory
+    // at 0x0042AC80 (0x00116220, stride 0x90) and loads that scene. A name that
+    // is not on the boot list is still a script: the directory is every aid_script.
+    if (name.empty())
     {
-        if (g.scene_order[i].find("attract") == std::string::npos)
+        return;
+    }
+    for (size_t i = 0; i < g.scene_order.size(); ++i)
+    {
+        if (g.scene_order[i] == name)
         {
             scene_order_go(g, i);
             return;
         }
     }
+    std::cout << "script " << std::string(name) << "\n";
+    load_scene_contents(g, name);
+    cutscene_queue_start(g);
+}
+
+void script_request(Game& g, std::string_view name)
+{
+    // Xbox 0x0011EB30. EAX is the source string. It is copied to scene+0x80
+    // (DAT_00510ED8) and the mode argument is stored at DAT_00510F58.
+    // Loading waits for 0x0011E4C0.
+    if (std::memcmp(g.requested_script, "aid_", 4) == 0)
+    {
+        g.requested_script[0] = '\0';
+    }
+    size_t i = 0;
+    while (i + 1 < sizeof(g.requested_script) && i < name.size())
+    {
+        g.requested_script[i] = name[i];
+        ++i;
+    }
+    g.requested_script[i] = '\0';
+    // The mode argument is stored at DAT_00510F58. Nothing in the binary reads it.
+}
+
+void script_pump(Game& g)
+{
+    // Xbox 0x0011E4C0, called from frame_tick at 0x00033C47 with EAX = DAT_00510E58.
+    // +0x110 clear and an aid_ name at +0x80 enters state 3 (0x0011E6A0, ebx = 3),
+    // then 0x0012C5D0 loads that script. Any aid_script uses this path.
+    if (g.script_hold)
+    {
+        return;
+    }
+    if (std::memcmp(g.requested_script, "aid_", 4) != 0)
+    {
+        return;
+    }
+    g.script_hold = true;
+    g.script_phase = 3;
+    char name[sizeof(g.requested_script)];
+    std::memcpy(name, g.requested_script, sizeof(name));
+    g.requested_script[0] = '\0';
+    script_load(g, name);
+    // The load is synchronous. Retail clears +0x110 when the stream reaches
+    // state 2 (0x0011E5C3).
+    g.script_hold = false;
+}
+
+void scene_order_advance(Game& g)
+{
+    // Xbox 0x0012C5D0 via 0x0008F5F6. The finished script is followed by the next
+    // sceneorder name, loaded by the same path as a requested script.
+    const size_t next = g.scene_index + 1;
+    if (next >= g.scene_order.size())
+    {
+        return;
+    }
+    script_load(g, g.scene_order[next]);
 }
 
 void cutscene_queue_tick(Game& g, float dt)

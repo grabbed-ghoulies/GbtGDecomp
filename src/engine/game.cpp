@@ -80,13 +80,9 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
                 std::cout << "scene select [" << index << "] " << scene_order[index] << "\n";
             }
             scene_index = index;
-            load_scene_contents(*this, scene_order[index]);
+            // 0x0011EB30. The first frame_tick pump (0x0011E4C0) loads it, same as any later script.
+            script_request(*this, scene_order[index]);
         }
-    }
-
-    if (scene_name == kNoScript)
-    {
-        std::cout << kNoScript << "\n";
     }
 
     actors.reserve(16);
@@ -96,7 +92,12 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
 
     game_init_pump();
     std::cout << "game_init: io idle\n";
-    cutscene_queue_start(*this);
+    // Boot has no frame yet. The same pump frame_tick runs loads the queued script.
+    script_pump(*this);
+    if (scene_name == kNoScript)
+    {
+        std::cout << kNoScript << "\n";
+    }
 }
 
 void frame_tick(Game& g, float dt, const InputState& in)
@@ -113,6 +114,8 @@ void frame_tick(Game& g, float dt, const InputState& in)
     }
     pad_tick(g, in); // 0x000FA3C0 / 0x000FAD80
     gameselect_tick(g, in);
+    // 0x00033C47. A pending aid_script (title Start, back, play, boot) loads here.
+    script_pump(g);
     audio_tick(g, g.clock.dt); // 0x0015B780, 0x0003A040, 0x000396F0, 0x00038640, 0x00038C20
     cutscene_queue_tick(g, g.clock.dt);
     for (auto& e : g.entities)

@@ -13,8 +13,11 @@ inline constexpr const char* kSceneOrder = "aid_aidlist_ghoulies_sceneorder_game
 void load_ui(Game& g);
 void begin_frontend(Game& g);
 void load_scene_contents(Game& g, std::string_view name);
-void scene_order_leave_attract(Game& g); // 0x0012C5D0: skip the attract reel for the next sceneorder script
+void scene_order_go(Game& g, size_t index);
+void script_request(Game& g, std::string_view name); // 0x0011EB30: queue an aid_script. The pump loads it.
+void script_pump(Game& g);                          // 0x0011E4C0: frame_tick loads any pending script
 void gameselect_tick(Game& g, const InputState& in);
+bool attract_confirm_pressed(); // 0x001431B0: new A or Start on the merged pad, not both
 void draw_ui(const Game& g);
 void draw_cutscene_props(Game& g);
 void pad_tick(Game& g, const InputState& in); // Xbox 0x000FA3C0 / 0x000FAD80

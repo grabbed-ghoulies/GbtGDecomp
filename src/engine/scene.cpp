@@ -813,11 +813,15 @@ struct CameraPulse
 };
 
 // DAT_00511AA4. The node sits at object+0x900; next is object+0x904.
-// vtable+0xC receives (object, {id 0x47, host}).
+// vtable+0xC receives (object, message). Note 0x47 passes {id, host}.
+// 0x00122CA0 and 0x00124F30 pass a pointer to the message id.
 struct PulseNode
 {
     void (*handle)(PulseNode* self, i32 id, void* host) = nullptr;
     PulseNode* next = nullptr;
+    u16 tag_6 = 0; // object+6
+    u16 word_1fc = 0; // object+0x1FC
+    void (*on_message)(PulseNode* self, const i32* msg) = nullptr; // vtable +0xC
 };
 
 CameraPulse g_camera_pulse;
@@ -15548,6 +15552,15 @@ u8 node_u8(const SceneScript& script, const ScriptNode& node, u32 rel)
     return script.bytes[node.offset + rel];
 }
 
+u16 node_u16(const SceneScript& script, const ScriptNode& node, u32 rel)
+{
+    if (rel + 2 > node.size || node.offset + rel + 2 > script.bytes.size())
+    {
+        return 0;
+    }
+    return read_u16(script.bytes, node.offset + rel);
+}
+
 std::string node_cstr(const SceneScript& script, const ScriptNode& node, u32 rel)
 {
     if (rel >= node.size || node.offset + rel >= script.bytes.size())
@@ -16067,6 +16080,82 @@ int fn_124e50(Game& g, const ScriptNode& node)
     }
 }
 
+// Xbox 0x00122CA0. Walks DAT_00511AA4. The link is object+0x900 and the next
+// pointer is at +4, so the port follows PulseNode::next. EDI is compared with
+// the word at object+6. Each match calls vtable +0xC with EBX, the message.
+// An empty slot is skipped.
+void fn_122ca0(u16 tag, const i32* message)
+{
+    PulseNode* node = g_pulse_nodes;
+    while (node != nullptr)
+    {
+        PulseNode* next = node->next;
+        if (node->tag_6 == tag && node->on_message != nullptr)
+        {
+            node->on_message(node, message);
+        }
+        node = next;
+    }
+}
+
+// Xbox 0x00129ED0. DX is compared with the word at object+0x1FC. A zero DX
+// returns null without walking. The list is DAT_00511AA4. The first match
+// returns that object. A miss returns null.
+PulseNode* fn_129ed0(u16 key)
+{
+    if (key == 0)
+    {
+        return nullptr;
+    }
+    for (PulseNode* node = g_pulse_nodes; node != nullptr; node = node->next)
+    {
+        if (node->word_1fc == key)
+        {
+            return node;
+        }
+    }
+    return nullptr;
+}
+
+// Xbox 0x00124F30. Handler 3. Type 0x5D searches the cstring at node+8 in the
+// actor tags. A miss calls 0x00122CA0 with tag 0. A hit calls it with the
+// 1-based index, zero-extended from 16 bits. Both pass a message id of 1.
+// Type 0x71 loads the word at node+8 into DX for 0x00129ED0. A hit calls
+// vtable +0xC with a message id of 0x13. Any other type returns 3.
+int fn_124f30(Game& g, const ScriptNode& node)
+{
+    if (node.type == 0x5d)
+    {
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        i32 message = 1;
+        const i32 found = fn_fbfb0(0xe9, kObjTagActor, key.c_str());
+        if (found == -1)
+        {
+            fn_122ca0(0, &message);
+            return 2;
+        }
+        fn_122ca0(static_cast<u16>(found + 1), &message);
+    }
+    else
+    {
+        if (node.type != 0x71)
+        {
+            return 3;
+        }
+        PulseNode* obj = fn_129ed0(node_u16(g.scene_script, node, 8));
+        if (obj != nullptr)
+        {
+            i32 message = 0x13;
+            if (obj->on_message != nullptr)
+            {
+                obj->on_message(obj, &message);
+            }
+            return 2;
+        }
+    }
+    return 2;
+}
+
 // Xbox 0x00125450. One node of the action walk. Type 0x3C stops the walk.
 // The listed types copy a condition and tell the runner to advance. Every
 // other type stops the walk. The word filled by 0x001077B0 is left 0.
@@ -16141,9 +16230,9 @@ int fn_125450(Game& g, const ScriptNode& node)
 }
 
 // Xbox 0x00128A00. Walks fired file offsets. Handler 1 is 0x00124CC0.
-// Handler 2 is 0x00124E50. Handler 6 is 0x00125450. The other handlers are
-// not translated. A node type none of them covers stops the walk and leaves
-// the fired id in place.
+// Handler 2 is 0x00124E50. Handler 3 is 0x00124F30. Handler 6 is 0x00125450.
+// The other handlers are not translated. A node type none of them covers
+// stops the walk and leaves the fired id in place.
 // Return 1 stops on a type-0x3C node. Return 0 means the cursor left the
 // blob, or stopped on an untranslated node, and the drain keeps that fired id.
 int fn_128a00(Game& g, u32 offset)
@@ -16159,6 +16248,10 @@ int fn_128a00(Game& g, u32 offset)
         if (handler == 3)
         {
             handler = fn_124e50(g, *node);
+        }
+        if (handler == 3)
+        {
+            handler = fn_124f30(g, *node);
         }
         if (handler == 3)
         {

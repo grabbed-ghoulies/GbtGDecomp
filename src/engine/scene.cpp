@@ -16813,15 +16813,34 @@ int fn_126140(Game& g, const ScriptNode& node, int param_2, int param_3)
     }
 }
 
+// Xbox 0x001269D0. Handler 9. The dword at node+4 is the type. Type 0x49 ORs
+// the dword at node+8 into DAT_0050EA9C and returns 2. Type 0x4A clears those
+// bits and returns 2. Any other type returns 3.
+int fn_1269d0(Game& g, const ScriptNode& node)
+{
+    if (node.type == 0x49)
+    {
+        g_flags_ea9c = g_flags_ea9c | node_u32(g.scene_script, node, 8);
+        return 2;
+    }
+    if (node.type != 0x4a)
+    {
+        return 3;
+    }
+    g_flags_ea9c = g_flags_ea9c & ~node_u32(g.scene_script, node, 8);
+    return 2;
+}
+
 // Xbox 0x00128A00. Walks fired file offsets. Handler 1 is 0x00124CC0.
 // Handler 2 is 0x00124E50. Handler 3 is 0x00124F30. Handler 4 is 0x00124FC0.
 // Handler 5 is 0x001251E0. Handler 6 is 0x00125450. Handler 7 is 0x001259B0.
-// Handler 8 is 0x00126140. The other handlers are not translated. The flag
-// passed to handler 4 is nonzero when DAT_0050E4DC has a node whose dword
-// at +8 is 0x7D. Handler 7 receives that same flag. Its third argument is
-// 0: 0x00128A00 clears EDI whenever that flag is set, and the handler only
-// reads the third argument on that path. Handler 8 receives that same third
-// argument. A node type none of them covers stops the walk and leaves the
+// Handler 8 is 0x00126140. Handler 9 is 0x001269D0. The other handlers are
+// not translated. The flag passed to handler 4 is nonzero when DAT_0050E4DC
+// has a node whose dword at +8 is 0x7D. Handler 7 receives that same flag.
+// Its third argument is 0: 0x00128A00 clears EDI whenever that flag is set,
+// and the handler only reads the third argument on that path. Handler 8
+// receives that same third argument. A node type none of them covers stops
+// the walk and leaves the
 // fired id in place. Return 1 stops on a type-0x3C node. Return 0 means
 // the cursor left the blob, or stopped on an untranslated node, and the
 // drain keeps that fired id.
@@ -16871,6 +16890,10 @@ int fn_128a00(Game& g, u32 offset)
         if (handler == 3)
         {
             handler = fn_126140(g, *node, param_2, 0);
+        }
+        if (handler == 3)
+        {
+            handler = fn_1269d0(g, *node);
         }
         if (handler == 1)
         {

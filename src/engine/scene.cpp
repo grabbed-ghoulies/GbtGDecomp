@@ -16438,6 +16438,24 @@ struct QueuedTag
 std::vector<QueuedTag> g_queued_tags;
 i32 g_queued_tag_count = 0;
 
+// DAT_00512414. The next dword after DAT_00512410. Type 0x18 stores 1 here,
+// then stores 0 when DAT_005064D8 is 3.
+i32 g_flag_2414 = 0;
+
+// DAT_005064D8. Type 0x18 compares this with 3. 0x000D0530 would store 0.
+i32 g_flag_64d8 = 0;
+
+// DAT_0050EA9C. Type 0x1A tests bit 0x10 of the low byte.
+u32 g_flags_ea9c = 0;
+
+// DAT_00506540. Type 0x54 stores the floats at node+8, +0xC, +0x10, and +0x14,
+// then the dword at node+0x18 into DAT_00506550.
+float g_script_6540 = 0.f;
+float g_script_6544 = 0.f;
+float g_script_6548 = 0.f;
+float g_script_654c = 0.f;
+u32 g_script_6550 = 0;
+
 // Xbox 0x001259B0. Handler 7. The dword at node+4 is the type. Type 0x4F
 // with a zero second argument stores the word at node+8 and the dword at
 // node+0xC at DAT_005123B0 + DAT_00512410*8, then increments DAT_00512410.
@@ -16542,15 +16560,269 @@ int fn_1259b0(Game& g, const ScriptNode& node, int param_2, int param_3)
     return 2;
 }
 
+// Xbox 0x00126140. Handler 8. The dword at node+4 is the type. The table
+// covers types 0x17 through 0x88. Any other type, and the holes in that
+// range, return 3.
+//
+// Type 0x17 returns 0 when the third argument is nonzero. Zero tests the
+// dword at node+0x10. Nonzero would call 0x000D0530. The word at node+8,
+// the dword at node+0xC, and ESI = node+0x14 would then go to 0x000D0550,
+// and the case returns 2. Those two calls are not translated.
+//
+// Type 0x18 tests DAT_00512414. Zero would call 0x000D0680, stores 1, and
+// returns 0. Nonzero compares DAT_005064D8 with 3. Equal stores 0 and
+// returns 2. Otherwise it returns 0. 0x000D0680 is not translated.
+//
+// Type 0x54 copies five fields into DAT_00506540 and returns 2.
+//
+// Every other handled type would build a stack message and pass it to
+// 0x000D05D0 in EDI. The header calls 0x00125C80, 0x00125CC0, 0x00125D00,
+// 0x00125D40, 0x00125D80, 0x00125DC0, 0x00125E00, 0x00125E40, 0x00125E80,
+// 0x00125EC0, 0x00125F00, 0x00125F40, 0x00125F80, 0x00125FC0, 0x00126000,
+// 0x00126040, 0x00126080, 0x001260C0, and 0x00126100 are not translated, and
+// neither is 0x000D05D0, so those calls are not made. 0x001077B0 runs where
+// the dump calls it: EAX is the cstring at the listed node offset.
+// 0x0001BB60, 0x00126940, and 0x00116C50 are not translated, so no index is
+// invented and those calls are not made. A handled type returns 2. Type
+// 0x1A returns 2 before 0x000D05D0 when bit 0x10 of DAT_0050EA9C is set.
+// The second argument is unused.
+int fn_126140(Game& g, const ScriptNode& node, int param_2, int param_3)
+{
+    (void)param_2;
+    auto push_named = [&](u32 gate, u32 key_at, u16* words, u32& count)
+    {
+        if (node_u32(g.scene_script, node, gate) != 0)
+        {
+            const std::string key = node_cstr(g.scene_script, node, key_at);
+            words[count] = static_cast<u16>(fn_1077b0(key.c_str()));
+            count = count + 1;
+        }
+    };
+    switch (node.type)
+    {
+    case 0x17:
+        if (param_3 != 0)
+        {
+            return 0;
+        }
+        if (node_u32(g.scene_script, node, 0x10) != 0)
+        {
+            // 0x000D0530 is not translated.
+        }
+        {
+            const u16 ax = node_u16(g.scene_script, node, 8);
+            const u32 arg = node_u32(g.scene_script, node, 0xC);
+            (void)ax;
+            (void)arg;
+        }
+        return 2;
+    case 0x18:
+        if (g_flag_2414 == 0)
+        {
+            g_flag_2414 = 1;
+            return 0;
+        }
+        if (g_flag_64d8 == 3)
+        {
+            g_flag_2414 = 0;
+            return 2;
+        }
+        return 0;
+    case 0x19:
+        // 0x00125C80, XMM0 = 1.5 (0x0032B210). 0x000D05D0 is not translated.
+        return 2;
+    case 0x1a:
+    {
+        const float value = std::bit_cast<float>(node_u32(g.scene_script, node, 8));
+        (void)value;
+        if ((g_flags_ea9c & 0x10u) != 0)
+        {
+            return 2;
+        }
+        return 2;
+    }
+    case 0x1b:
+        // 0x00125CC0, XMM0 = 0. 0x000D05D0 is not translated.
+        return 2;
+    case 0x1c:
+    {
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        const u16 word = static_cast<u16>(fn_1077b0(key.c_str()));
+        const u32 absent = node_u32(g.scene_script, node, 0x48) == 0 ? 1u : 0u;
+        (void)word;
+        (void)absent;
+        return 2;
+    }
+    case 0x1d:
+    {
+        const u32 lo = node_u32(g.scene_script, node, 8);
+        const u32 hi = node_u32(g.scene_script, node, 0xC) + 1u;
+        (void)lo;
+        (void)hi;
+        const std::string key = node_cstr(g.scene_script, node, 0x10);
+        const u16 word = static_cast<u16>(fn_1077b0(key.c_str()));
+        (void)word;
+        return 2;
+    }
+    case 0x1e:
+    {
+        const float value = std::bit_cast<float>(node_u32(g.scene_script, node, 8));
+        (void)value;
+        return 2;
+    }
+    case 0x1f:
+        // 0x00126040, XMM0 = 2.0 (0x0032B110). 0x000D05D0 is not translated.
+        return 2;
+    case 0x20:
+    {
+        const u32 word = u32(node_u16(g.scene_script, node, 8));
+        (void)word;
+        return 2;
+    }
+    case 0x21:
+    {
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        const u16 word = static_cast<u16>(fn_1077b0(key.c_str()));
+        const u32 slot = 0xffffffffu;
+        (void)word;
+        (void)slot;
+        return 2;
+    }
+    case 0x22:
+    {
+        const u32 slot = 0xffffffffu;
+        (void)slot;
+        return 2;
+    }
+    case 0x23:
+        // 0x00125EC0, XMM0 = 1.5. 0x000D05D0 is not translated.
+        return 2;
+    case 0x25:
+    {
+        u16 words[5]{};
+        u32 count = 0;
+        const u16 header = 0;
+        push_named(0x48, 8, words, count);
+        push_named(0x8c, 0x4c, words, count);
+        push_named(0xd0, 0x90, words, count);
+        push_named(0x114, 0xd4, words, count);
+        push_named(0x158, 0x118, words, count);
+        (void)header;
+        (void)words;
+        (void)count;
+        return 2;
+    }
+    case 0x26:
+        // 0x00125F40, XMM0 = 1.5. 0x000D05D0 is not translated.
+        return 2;
+    case 0x27:
+    {
+        const u32 value = node_u32(g.scene_script, node, 8);
+        (void)value;
+        return 2;
+    }
+    case 0x28:
+        // 0x00125F80, XMM0 = 1.5. 0x000D05D0 is not translated.
+        return 2;
+    case 0x50:
+    {
+        u16 words[5]{};
+        u32 count = 0;
+        push_named(0x48, 8, words, count);
+        push_named(0x8c, 0x4c, words, count);
+        push_named(0xd0, 0x90, words, count);
+        push_named(0x114, 0xd4, words, count);
+        push_named(0x158, 0x118, words, count);
+        if (node_u32(g.scene_script, node, 0x15c) != 0)
+        {
+            // 0x00126940(0) is not translated. EDI would be the chosen word.
+        }
+        (void)words;
+        (void)count;
+        return 2;
+    }
+    case 0x54:
+        g_script_6540 = std::bit_cast<float>(node_u32(g.scene_script, node, 8));
+        g_script_6544 = std::bit_cast<float>(node_u32(g.scene_script, node, 0xC));
+        g_script_6548 = std::bit_cast<float>(node_u32(g.scene_script, node, 0x10));
+        g_script_654c = std::bit_cast<float>(node_u32(g.scene_script, node, 0x14));
+        g_script_6550 = node_u32(g.scene_script, node, 0x18);
+        return 2;
+    case 0x5f:
+    {
+        const u32 lo = node_u32(g.scene_script, node, 8);
+        const u32 hi = node_u32(g.scene_script, node, 0xC) + 1u;
+        (void)lo;
+        (void)hi;
+        return 2;
+    }
+    case 0x87:
+        // 0x001260C0, XMM0 = 1.5. 0x000D05D0 is not translated.
+        return 2;
+    case 0x88:
+    {
+        u16 words[5]{};
+        u32 payloads[5]{};
+        u32 count = 0;
+        if (node_u32(g.scene_script, node, 0x4c) != 0)
+        {
+            const std::string key = node_cstr(g.scene_script, node, 8);
+            words[count] = static_cast<u16>(fn_1077b0(key.c_str()));
+            payloads[count] = node_u32(g.scene_script, node, 0x48);
+            count = count + 1;
+        }
+        if (node_u32(g.scene_script, node, 0x94) != 0)
+        {
+            const std::string key = node_cstr(g.scene_script, node, 0x50);
+            words[count] = static_cast<u16>(fn_1077b0(key.c_str()));
+            payloads[count] = node_u32(g.scene_script, node, 0x90);
+            count = count + 1;
+        }
+        if (node_u32(g.scene_script, node, 0xdc) != 0)
+        {
+            const std::string key = node_cstr(g.scene_script, node, 0x98);
+            words[count] = static_cast<u16>(fn_1077b0(key.c_str()));
+            payloads[count] = node_u32(g.scene_script, node, 0xd8);
+            count = count + 1;
+        }
+        if (node_u32(g.scene_script, node, 0x124) != 0)
+        {
+            const std::string key = node_cstr(g.scene_script, node, 0xe0);
+            words[count] = static_cast<u16>(fn_1077b0(key.c_str()));
+            payloads[count] = node_u32(g.scene_script, node, 0x120);
+            count = count + 1;
+        }
+        if (node_u32(g.scene_script, node, 0x16c) != 0)
+        {
+            const std::string key = node_cstr(g.scene_script, node, 0x128);
+            words[count] = static_cast<u16>(fn_1077b0(key.c_str()));
+            payloads[count] = node_u32(g.scene_script, node, 0x168);
+            count = count + 1;
+        }
+        if (node_u32(g.scene_script, node, 0x170) != 0)
+        {
+            // 0x00126940(0) is not translated. EDI would be the chosen word.
+        }
+        (void)words;
+        (void)payloads;
+        (void)count;
+        return 2;
+    }
+    default:
+        return 3;
+    }
+}
+
 // Xbox 0x00128A00. Walks fired file offsets. Handler 1 is 0x00124CC0.
 // Handler 2 is 0x00124E50. Handler 3 is 0x00124F30. Handler 4 is 0x00124FC0.
 // Handler 5 is 0x001251E0. Handler 6 is 0x00125450. Handler 7 is 0x001259B0.
-// The other handlers are not translated. The flag passed to handler 4 is
-// nonzero when DAT_0050E4DC has a node whose dword at +8 is 0x7D. Handler 7
-// receives that same flag. Its third argument is 0: 0x00128A00 clears EDI
-// whenever that flag is set, and the handler only reads the third argument
-// on that path. A node type none of them covers stops the walk and leaves
-// the fired id in place. Return 1 stops on a type-0x3C node. Return 0 means
+// Handler 8 is 0x00126140. The other handlers are not translated. The flag
+// passed to handler 4 is nonzero when DAT_0050E4DC has a node whose dword
+// at +8 is 0x7D. Handler 7 receives that same flag. Its third argument is
+// 0: 0x00128A00 clears EDI whenever that flag is set, and the handler only
+// reads the third argument on that path. Handler 8 receives that same third
+// argument. A node type none of them covers stops the walk and leaves the
+// fired id in place. Return 1 stops on a type-0x3C node. Return 0 means
 // the cursor left the blob, or stopped on an untranslated node, and the
 // drain keeps that fired id.
 int fn_128a00(Game& g, u32 offset)
@@ -16595,6 +16867,10 @@ int fn_128a00(Game& g, u32 offset)
         if (handler == 3)
         {
             handler = fn_1259b0(g, *node, param_2, 0);
+        }
+        if (handler == 3)
+        {
+            handler = fn_126140(g, *node, param_2, 0);
         }
         if (handler == 1)
         {

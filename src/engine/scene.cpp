@@ -2039,11 +2039,19 @@ i32 g_block_decay = 0;
 i32 g_count_e764 = 0;
 // Byte at [DAT_0051248C]+0x30F144. Zero skips that same decay.
 u8 g_decay_arm = 0;
-// DAT_00511B40. Null, and the retail sentinel 0x93C, both leave the marker clear.
-// The live byte is [[[actor+0x20]+0x15C]+8]+5; bit 4 is the marker.
+// DAT_00511B40. The stored address is object+0x93C. Null, and the retail
+// sentinel 0x93C, both leave the marker clear. The live byte is
+// [[[actor+0x95C]+0x15C]+8]+5; bit 4 is the marker 0x000700B2 reads.
+// 0x00132840 reads the word at [actor+0x95C]+0x94, which is node+0x20.
+struct ActorMarkWord
+{
+    u16 word_94 = 0; // +0x94
+};
 struct ActorMark
 {
     u8 byte = 0;
+    Actor* actor = nullptr; // node - 0x93C. ESI for 0x000412A0.
+    ActorMarkWord* at_20 = nullptr; // node+0x20, actor+0x95C
 };
 ActorMark* g_actor_mark = nullptr;
 // DAT_005077A8. XYZ at [0], [1], [2]. A null pointer faults on Xbox.
@@ -15798,12 +15806,32 @@ int fn_132800(const ScriptCond& rec)
     return 0;
 }
 
+// Xbox 0x00132840. Opcode 6 in the table at 0x00314330. DAT_00511B40 null,
+// or equal to the sentinel 0x93C, returns 0. The word at node+0x20 + 0x94
+// must be nonzero. 0x000412A0 then writes that actor's world position.
+// 0x0005BEC0 takes the word at record+8, that position, and the address of
+// the stack slot that held the record. A nonzero return comiss the float
+// at record+0xC with the 0 at 0x0032B100. Below or equal, including
+// unordered, replaces it with the 50 at 0x0032B1E0. A second comiss returns
+// 1 only when that limit is above the float 0x0005BEC0 stored. 0x0005BEC0
+// is not translated, so its nonzero return is not taken.
+int fn_132840(const ScriptCond&)
+{
+    if (g_actor_mark != nullptr && reinterpret_cast<std::uintptr_t>(g_actor_mark) != 0x93cu &&
+        g_actor_mark->at_20->word_94 != 0)
+    {
+        const Vec3 world = actor_world_position(*g_actor_mark->actor);
+        (void)world;
+    }
+    return 0;
+}
+
 // Xbox 0x00124BE0. A zero keeps the record. Any other value queues the link
 // at +4. A return of exactly 1 also removes the record and the slot that
 // slides down is evaluated next. Opcode 0 is 0x00132650. Opcode 1 is
 // 0x00132680. Opcode 2 is 0x001326D0. Opcode 3 is 0x00132720. Opcode 4 is
-// 0x001327A0. Opcode 5 is 0x00132800. Other opcodes are not evaluated until
-// their functions are translated.
+// 0x001327A0. Opcode 5 is 0x00132800. Opcode 6 is 0x00132840. Other opcodes
+// are not evaluated until their functions are translated.
 void fn_124be0(Game& g)
 {
     size_t i = 0;
@@ -15835,6 +15863,10 @@ void fn_124be0(Game& g)
         else if (opcode == 5)
         {
             fired = fn_132800(rec);
+        }
+        else if (opcode == 6)
+        {
+            fired = fn_132840(rec);
         }
         if (fired == 0)
         {

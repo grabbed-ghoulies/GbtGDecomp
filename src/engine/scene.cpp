@@ -15997,14 +15997,56 @@ int fn_132a60(const ScriptCond& rec)
     return 0;
 }
 
+// Xbox 0x00132AB0. Opcode 17 in the table at 0x00314330. A nonzero word at
+// record+8 walks DAT_00511AA4. Next is the pointer at node+4. The short at
+// node-0x704 (object+0x1FC) matching that word selects the object at
+// node-0x900. A zero word or a miss leaves the object null. vtable +0xC is
+// called with that object and a two-dword message, 0x20 then 0. The callee
+// writes the second dword. A zero dword at record+0x14 stores 1 there and
+// stores that second dword at record+0x18. A zero at record+0x10, or a
+// dword at record+0x18 other than 1, and a nonzero second dword, and a
+// ucomiss of the float at record+0xC with the 0 at 0x0032B100 that is equal
+// and not a NaN, returns 1. Every other path returns 0.
+int fn_132ab0(ScriptCond& rec)
+{
+    const u16 want = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+    PulseNode* obj = nullptr;
+    if (want != 0)
+    {
+        for (PulseNode* node = g_pulse_nodes; node != nullptr; node = node->next)
+        {
+            if (node->word_1fc == want)
+            {
+                obj = node;
+                break;
+            }
+        }
+    }
+    i32 message[2];
+    message[0] = 0x20;
+    message[1] = 0;
+    reinterpret_cast<void (*)(PulseNode*, i32*)>(obj->on_message)(obj, message);
+    if (static_cast<i32>(cond_u32(rec, 0x14)) == 0)
+    {
+        cond_put_u32(rec, 0x14, 1u);
+        cond_put_u32(rec, 0x18, static_cast<u32>(message[1]));
+    }
+    if ((static_cast<i32>(cond_u32(rec, 0x10)) == 0 || static_cast<i32>(cond_u32(rec, 0x18)) != 1) &&
+        message[1] != 0 && cond_f32(rec, 0xc) == 0.f)
+    {
+        return 1;
+    }
+    return 0;
+}
+
 // Xbox 0x00124BE0. A zero keeps the record. Any other value queues the link
 // at +4. A return of exactly 1 also removes the record and the slot that
 // slides down is evaluated next. Opcode 0 is 0x00132650. Opcode 1 is
 // 0x00132680. Opcode 2 is 0x001326D0. Opcode 3 is 0x00132720. Opcode 4 is
 // 0x001327A0. Opcode 5 is 0x00132800. Opcode 6 is 0x00132840. Opcode 7 is
 // 0x001328D0. Opcode 8 is 0x00132940. Opcode 9 is 0x001329A0. Opcode 10 is
-// 0x00132A30. Opcode 11 is 0x00132A00. Opcode 12 is 0x00132A60. Other opcodes
-// are not evaluated until their functions are translated.
+// 0x00132A30. Opcode 11 is 0x00132A00. Opcode 12 is 0x00132A60. Opcode 17 is
+// 0x00132AB0. Other opcodes are not evaluated until their functions are translated.
 void fn_124be0(Game& g)
 {
     size_t i = 0;
@@ -16064,6 +16106,10 @@ void fn_124be0(Game& g)
         else if (opcode == 12)
         {
             fired = fn_132a60(rec);
+        }
+        else if (opcode == 17)
+        {
+            fired = fn_132ab0(rec);
         }
         if (fired == 0)
         {

@@ -16468,6 +16468,25 @@ i32 g_flag_2414 = 0;
 // stores 0 when 0x001412F0 returns nonzero.
 i32 g_flag_2418 = 0;
 
+// DAT_00512420. Records are 4 bytes: the byte at node+8, then the word at
+// node+0xC. DAT_00512440 is the count, 0x20 bytes above the base, so eight
+// records sit in front of it. Type 0x67 with a zero second argument appends
+// one record. The port keeps the record that count indexes.
+struct GateRec2420
+{
+    u8 at_8 = 0;
+    u16 at_c = 0;
+};
+std::vector<GateRec2420> g_gate_2420;
+i32 g_gate_2440 = 0;
+
+// DAT_00512448. DAT_00512444 is the count, the dword immediately before this
+// base. DAT_0051245C begins 0x14 bytes above the base, so five dwords sit in
+// front of it. Type 0x9E stores the dword at node+8. 0x000F29A0 is not
+// translated, so the parallel dword at DAT_0051245C is not stored.
+std::vector<u32> g_mark_2448;
+i32 g_mark_2444 = 0;
+
 // DAT_005064D8. Type 0x18 compares this with 3. 0x000D0530 would store 0.
 i32 g_flag_64d8 = 0;
 
@@ -17075,11 +17094,192 @@ int fn_126a10(Game& g, const ScriptNode& node)
     }
 }
 
+// Xbox 0x00126E10. Handler 11. The dword at node+4 is the type. The byte map
+// at 0x001271F0 covers types 0x4D through 0x9E. Any other type, and the holes
+// in that range, return 3. Every handled type returns 2. The second argument
+// is the flag 0x00128A00 passes: nonzero when a DAT_0050E4DC node has 0x7D
+// at +8.
+//
+// Type 0x4D loads the word at node+8 into DX for 0x00129ED0. A hit would call
+// 0x00041820 and 0x000412A0 with ESI set to that object, add the float at
+// node+0x8C times 0.017453292 (0x0032B0FC) to the second euler float, then
+// call 0x00112C50 and 0x00112CC0. 0x00112C50 is not translated. The port's
+// pulse object does not carry +0x08, +0x14, +0x38, or +0x88, so the two
+// camera writes are not applied to it and 0x00112CC0 is not called.
+//
+// Type 0x4E multiplies the float at node+0x10 by 0.01 (0x0032B124). 0x00019200
+// would take that product in XMM1 and ECX = 0x0054DD7C. That call is not
+// translated, so its nonzero return is not taken and 0x001400A0 is not called.
+//
+// Type 0x60 loads the word at node+8 into DX for 0x00129ED0. A hit would call
+// 0x00112CC0 with ESI set to that object. That call is not made.
+//
+// Type 0x62 would call 0x0011F1C0(0x13, 1). A nonzero AX walks the records at
+// DAT_0051108C+8, comparing the word at record+6 with AX and the dword at
+// record+0x28 with the dword at node+8. A hit would call 0x0013D250. A miss
+// calls 0x0011F1C0(0x13, 0) and stops when AX matches the first return or AX
+// is 0. 0x0011F1C0 is not translated, so the walk is not entered.
+//
+// Type 0x67 with a zero second argument stores the byte at node+8 and the
+// word at node+0xC into DAT_00512420 and increments DAT_00512440. Nonzero
+// with a zero dword at node+0xC would call 0x0012C8A0 with the byte at node+8
+// and 0x0012C950. Any other dword would call 0x0012C8A0 with 0x0012C930, then
+// 0x00122CE0 with EDI pointing at message id 0x4A. Those calls are not
+// translated.
+//
+// Type 0x6E would call 0x001249B0 with EDI = the dword at node+8 and EAX = 8.
+// That call is not translated.
+//
+// Type 0x73 would call 0x001400D0. CX is the word at node+8. The nine stack
+// words are node+0xC through node+0x2C. That call is not translated.
+//
+// Type 0x74 would call 0x00115F40 with EDI pointing at message id 1. That
+// call is not translated.
+//
+// Type 0x8E would call 0x001189D0. XMM0 is the float at node+0xC, ECX is the
+// dword at node+8, EAX points at node+0x1C, and the stack dwords are node+0x10,
+// node+0x14, and node+0x18. That call is not translated.
+//
+// Type 0x9D would call 0x00049D10. A zero return loads the dword at node+8
+// into ECX for 0x000F2A20. A nonzero return from that call increments
+// DAT_00506C84 and calls 0x0012D7E0 with EDI = 1 and that count on the stack.
+// 0x00049D10 and 0x000F2A20 are not translated, so the increment is not made.
+//
+// Type 0x9E with a nonzero dword at node+0x10 stores the dword at node+8 at
+// DAT_00512448 + DAT_00512444*4. 0x000F29A0 would take ECX = that dword and
+// its EAX would be stored at DAT_0051245C. That call is not translated, so
+// the parallel dword is not stored. DAT_00512444 is then incremented. A
+// nonzero dword at node+0xC would call 0x000F29D0. Zero would call 0x000F29F0.
+// Both take ECX = the dword at node+8. Neither call is translated.
+int fn_126e10(Game& g, const ScriptNode& node, int param_2)
+{
+    switch (node.type)
+    {
+    case 0x4d:
+    {
+        PulseNode* obj = fn_129ed0(node_u16(g.scene_script, node, 8));
+        if (obj != nullptr)
+        {
+            const float extra = std::bit_cast<float>(node_u32(g.scene_script, node, 0x8c)) *
+                                std::bit_cast<float>(u32{0x3c8efa35u});
+            (void)extra;
+        }
+        return 2;
+    }
+    case 0x4e:
+    {
+        const float gate = std::bit_cast<float>(node_u32(g.scene_script, node, 0x10)) *
+                           std::bit_cast<float>(u32{0x3c23d70au});
+        (void)gate;
+        return 2;
+    }
+    case 0x60:
+    {
+        PulseNode* obj = fn_129ed0(node_u16(g.scene_script, node, 8));
+        if (obj != nullptr)
+        {
+            // 0x00112CC0 is not translated onto this object.
+        }
+        return 2;
+    }
+    case 0x62:
+        return 2;
+    case 0x67:
+        if (param_2 == 0)
+        {
+            const size_t slot = size_t(g_gate_2440);
+            g_gate_2420.resize(slot + 1);
+            g_gate_2420[slot].at_8 = node_u8(g.scene_script, node, 8);
+            g_gate_2420[slot].at_c = node_u16(g.scene_script, node, 0xc);
+            g_gate_2440 = g_gate_2440 + 1;
+            return 2;
+        }
+        if (node_u32(g.scene_script, node, 0xc) == 0)
+        {
+            const u8 index = node_u8(g.scene_script, node, 8);
+            (void)index;
+            return 2;
+        }
+        {
+            const u8 index = node_u8(g.scene_script, node, 8);
+            (void)index;
+        }
+        return 2;
+    case 0x6e:
+    {
+        const u32 key = node_u32(g.scene_script, node, 8);
+        (void)key;
+        return 2;
+    }
+    case 0x73:
+    {
+        const u16 at_8 = node_u16(g.scene_script, node, 8);
+        const u16 at_c = node_u16(g.scene_script, node, 0xc);
+        const u16 at_10 = node_u16(g.scene_script, node, 0x10);
+        const u16 at_14 = node_u16(g.scene_script, node, 0x14);
+        const u16 at_18 = node_u16(g.scene_script, node, 0x18);
+        const u16 at_1c = node_u16(g.scene_script, node, 0x1c);
+        const u16 at_20 = node_u16(g.scene_script, node, 0x20);
+        const u16 at_24 = node_u16(g.scene_script, node, 0x24);
+        const u16 at_28 = node_u16(g.scene_script, node, 0x28);
+        const u16 at_2c = node_u16(g.scene_script, node, 0x2c);
+        (void)at_8;
+        (void)at_c;
+        (void)at_10;
+        (void)at_14;
+        (void)at_18;
+        (void)at_1c;
+        (void)at_20;
+        (void)at_24;
+        (void)at_28;
+        (void)at_2c;
+        return 2;
+    }
+    case 0x74:
+        return 2;
+    case 0x8e:
+    {
+        const float xmm0 = std::bit_cast<float>(node_u32(g.scene_script, node, 0xc));
+        const u32 ecx = node_u32(g.scene_script, node, 8);
+        const u32 at_10 = node_u32(g.scene_script, node, 0x10);
+        const u32 at_14 = node_u32(g.scene_script, node, 0x14);
+        const u32 at_18 = node_u32(g.scene_script, node, 0x18);
+        (void)xmm0;
+        (void)ecx;
+        (void)at_10;
+        (void)at_14;
+        (void)at_18;
+        return 2;
+    }
+    case 0x9d:
+        return 2;
+    case 0x9e:
+    {
+        if (node_u32(g.scene_script, node, 0x10) != 0)
+        {
+            const size_t slot = size_t(g_mark_2444);
+            g_mark_2448.resize(slot + 1);
+            g_mark_2448[slot] = node_u32(g.scene_script, node, 8);
+            g_mark_2444 = g_mark_2444 + 1;
+        }
+        const u32 key = node_u32(g.scene_script, node, 8);
+        (void)key;
+        if (node_u32(g.scene_script, node, 0xc) != 0)
+        {
+            return 2;
+        }
+        return 2;
+    }
+    default:
+        return 3;
+    }
+}
+
 // Xbox 0x00128A00. Walks fired file offsets. Handler 1 is 0x00124CC0.
 // Handler 2 is 0x00124E50. Handler 3 is 0x00124F30. Handler 4 is 0x00124FC0.
 // Handler 5 is 0x001251E0. Handler 6 is 0x00125450. Handler 7 is 0x001259B0.
 // Handler 8 is 0x00126140. Handler 9 is 0x001269D0. Handler 10 is 0x00126A10.
-// The other handlers are not translated. The flag passed to handler 4 is nonzero
+// Handler 11 is 0x00126E10. The other handlers are not translated. The flag passed to handler 4 is nonzero
 // when DAT_0050E4DC has a node whose dword at +8 is 0x7D. Handler 7 receives that same flag.
 // Its third argument is 0: 0x00128A00 clears EDI whenever that flag is set,
 // and the handler only reads the third argument on that path. Handler 8
@@ -17142,6 +17342,10 @@ int fn_128a00(Game& g, u32 offset)
         if (handler == 3)
         {
             handler = fn_126a10(g, *node);
+        }
+        if (handler == 3)
+        {
+            handler = fn_126e10(g, *node, param_2);
         }
         if (handler == 1)
         {

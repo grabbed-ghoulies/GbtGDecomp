@@ -18089,22 +18089,157 @@ int fn_128770(Game& g, const ScriptNode& node)
     return 2;
 }
 
-// Xbox 0x00128A00. Walks fired file offsets. Handler 1 is 0x00124CC0.
+// DAT_00512514. 0x00128AB0 stores 1 when the dword it kept at DAT_0051248C is 0.
+// Type 0xF reads it. script_set_name does not write this dword.
+i32 g_gate_2514 = 0;
+// DAT_00512518. Type 0xF stores 0, then 1 when DAT_0051251C is already 0.
+i32 g_gate_2518 = 0;
+// DAT_0051251C. Types 0xF and 0x10 decrement it. Type 0x11 increments it.
+i32 g_gate_251c = 0;
+// DAT_0050E798 and DAT_0050E79C. Type 0x69 copies node+8 and node+0xC.
+u32 g_script_e798 = 0;
+u32 g_script_e79c = 0;
+
+// Xbox 0x00128BC0. Handler 0 of the table at 0x00312650. The dword at node+4
+// is the type. The byte map at 0x00128D24 covers types 0 through 0x69. Slot 7
+// of the table at 0x00128D04 returns 3, and every type in that range other
+// than 0, 0xD, 0xE, 0xF, 0x10, 0x11, and 0x69 uses it. A type above 0x69
+// returns 3. The second argument is the flag 0x00128A00 passes. The third
+// argument is the value that walk passes.
+//
+// Type 0 returns 1.
+//
+// Type 0xD calls 0x00053170 with the address of node+8 and a stack 0. That
+// call compares the first dword with "aid_". It is not translated. The case
+// returns 2.
+//
+// Type 0xE calls 0x00123B00. The dword at node+0x90 equal to 1 takes the
+// following call when that return is nonzero. Equal to 2 takes it when the
+// return is zero. A nonzero dword at node+0x94 calls 0x00049D10 and takes
+// the same call when that return is nonzero. 0x00123B00 and 0x00049D10 are
+// not translated, so those nonzero returns are not taken. The zero return
+// of 0x00123B00 with node+0x90 equal to 2 would call 0x000532B0 with ECX set
+// to the node cursor and EDX set to 0xF, then return 2. 0x000532B0 is not
+// translated, so the cursor stays put and the case returns 2.
+// Any other node+0x90 calls 0x00128AB0. EAX is the cstring at node+0x10, ECX
+// is the dword at node+8, and EDX is the dword at node+0xC. A nonzero third
+// argument with a zero dword at node+8 returns 0. A zero second argument and
+// a zero third argument return 0. Otherwise the case returns 2.
+//
+// Type 0xF stores 0 at DAT_00512518. A zero DAT_00512514 returns 2. A zero
+// DAT_0051251C stores 1 at DAT_00512518 and returns 0. Any other count
+// decrements DAT_0051251C and returns 2.
+//
+// Type 0x10 with a nonzero third argument returns 2. A zero third argument
+// returns 0 when DAT_0051251C is 0, and otherwise decrements it and returns 2.
+//
+// Type 0x11 with a zero third argument increments DAT_0051251C and returns 2.
+// A nonzero third argument returns 2.
+//
+// Type 0x69 stores the dword at node+0xC into DAT_0050E79C and the dword at
+// node+8 into DAT_0050E798, then returns 2.
+int fn_128bc0(Game& g, const ScriptNode& node, int param_2, int param_3)
+{
+    switch (node.type)
+    {
+    case 0:
+        return 1;
+    case 0xd:
+    {
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        (void)key;
+        return 2;
+    }
+    case 0xe:
+    {
+        const u32 mode = node_u32(g.scene_script, node, 0x90);
+        if (mode == 1)
+        {
+            // 0x00123B00 is not translated, so its nonzero return is not taken.
+        }
+        else if (mode == 2)
+        {
+            // 0x000532B0 is not translated, so the cursor is not advanced.
+            return 2;
+        }
+        if (node_u32(g.scene_script, node, 0x94) != 0)
+        {
+            // 0x00049D10 is not translated, so its nonzero return is not taken.
+        }
+        const u32 at_8 = node_u32(g.scene_script, node, 8);
+        const u32 at_c = node_u32(g.scene_script, node, 0xc);
+        (void)at_c;
+        script_set_name(g, node_cstr(g.scene_script, node, 0x10));
+        if (param_3 != 0 && at_8 == 0)
+        {
+            return 0;
+        }
+        if (param_2 == 0 && param_3 == 0)
+        {
+            return 0;
+        }
+        return 2;
+    }
+    case 0xf:
+        g_gate_2518 = 0;
+        if (g_gate_2514 != 0)
+        {
+            if (g_gate_251c == 0)
+            {
+                g_gate_2518 = 1;
+                return 0;
+            }
+            g_gate_251c = g_gate_251c - 1;
+            return 2;
+        }
+        return 2;
+    case 0x10:
+        if (param_3 == 0)
+        {
+            if (g_gate_251c == 0)
+            {
+                return 0;
+            }
+            g_gate_251c = g_gate_251c - 1;
+            return 2;
+        }
+        return 2;
+    case 0x11:
+        if (param_3 == 0)
+        {
+            g_gate_251c = g_gate_251c + 1;
+            return 2;
+        }
+        return 2;
+    case 0x69:
+        g_script_e79c = node_u32(g.scene_script, node, 0xc);
+        g_script_e798 = node_u32(g.scene_script, node, 8);
+        return 2;
+    default:
+        return 3;
+    }
+}
+
+// Xbox 0x00128A00. Walks fired file offsets. Handler 0 is 0x00128BC0.
+// Handler 1 is 0x00124CC0.
 // Handler 2 is 0x00124E50. Handler 3 is 0x00124F30. Handler 4 is 0x00124FC0.
 // Handler 5 is 0x001251E0. Handler 6 is 0x00125450. Handler 7 is 0x001259B0.
 // Handler 8 is 0x00126140. Handler 9 is 0x001269D0. Handler 10 is 0x00126A10.
 // Handler 11 is 0x00126E10. Handler 12 is 0x00127340. Handler 13 is 0x001274B0.
 // Handler 14 is 0x00127BC0. Handler 15 is 0x00128050. Handler 16 is 0x00128770.
-// The table slot at 0x00312650 (0x00128BC0) is not translated. The flag passed to handler 4 is nonzero
-// when DAT_0050E4DC has a node whose dword at +8 is 0x7D. Handler 7 receives that same flag.
+// Handler 0 is the first slot of the table at 0x00312650. The flag passed to handler 4 is nonzero
+// when DAT_0050E4DC has a node whose dword at +8 is 0x7D. Handler 0 receives that same flag.
+// Handler 7 receives that same flag.
 // Its third argument is 0: 0x00128A00 clears EDI whenever that flag is set,
-// and the handler only reads the third argument on that path. Handler 8
+// and the handler only reads the third argument on that path. Handler 0
+// receives that same third argument. Handler 8
 // receives that same third argument. Handler 13 receives it as well. Handler 14
 // receives that same second argument and that same third argument. Handler 15
 // receives that same second argument and that same third argument. Handler 16
 // reads only the node. A node type none of them covers stops
 // the walk and leaves the
-// fired id in place. Return 1 stops on a type-0x3C node. Return 0 means
+// fired id in place. Return 1 stops on a type-0 node from handler 0, and on a
+// type-0x3C node. Return 0 means
 // the cursor left the blob, or stopped on an untranslated node, and the
 // drain keeps that fired id.
 int fn_128a00(Game& g, u32 offset)
@@ -18125,7 +18260,11 @@ int fn_128a00(Game& g, u32 offset)
         {
             return 0;
         }
-        int handler = fn_124cc0(g, *node);
+        int handler = fn_128bc0(g, *node, param_2, 0);
+        if (handler == 3)
+        {
+            handler = fn_124cc0(g, *node);
+        }
         if (handler == 3)
         {
             handler = fn_124e50(g, *node);

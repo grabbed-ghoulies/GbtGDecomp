@@ -195,6 +195,9 @@ struct Entity
     Vec3 position{};     // Xbox body+0x18 (camera translate msg)
     Vec3 pose_position{}; // Xbox body+0x89C — world pos copied each tick
     Vec3 pose_euler{};    // Xbox body+0x8A8
+    Vec3 aim{};           // Xbox body+0x2FC. 0x00072BA0 subtracts the world position from this point.
+    u8 look_enabled = 0;  // Xbox body+0x308. 0x00072BA0 reads this byte.
+    float roll = 0.f;     // Xbox body+0x8F4. 0x00072BA0 copies it into actor euler Z.
     Quat pose_quat{0.f, 0.f, 0.f, 1.f};
     float pose_fov = 0.9f;
     EntityCamNode cam{}; // Xbox body+0x894
@@ -402,6 +405,9 @@ u8 fn_19140(i32 port, const void* packet); // 0x00019140
 i32 fn_105e20(float x, float y, float z, float& yaw, float& pitch); // 0x00105E20
 
 void fn_72ba0(EntityLookAt& cam); // 0x00072BA0
+
+// entityBodyCamera method +0x18. Looks, copies the actor world pose to +0x89c, then applies.
+void fn_72b10(Entity& body); // 0x00072B10
 
 // Channel keys on the camera (ESI for 0x0001D850, EAX for 0x0001EDE0).
 // Two slots at +0xe4, stride 0x0c.

@@ -1949,6 +1949,25 @@ void fn_72ba0(EntityLookAt& cam)
     }
 }
 
+void fn_72b10(Entity& body)
+{
+    // Xbox 0x00072B10
+    // entityBodyCamera method +0x18. EBX is the camera. 0x00072BA0 runs on that
+    // same object: aim at +0x2fc, enable byte at +0x308, roll at +0x8f4.
+    // ESI is the actor at +8. 0x000412A0 writes its world position through EDI
+    // and those three floats land at +0x89c. 0x00041820 writes the world euler
+    // and those three floats land at +0x8a8. 0x00025AE0 then applies the camera.
+    EntityLookAt look;
+    look.actor = body.actor;
+    look.aim = body.aim;
+    look.enabled = body.look_enabled;
+    look.roll = body.roll;
+    fn_72ba0(look);
+    body.pose_position = actor_world_position(*body.actor);
+    body.pose_euler = actor_world_euler(*body.actor);
+    body_apply(body);
+}
+
 namespace
 {
 
@@ -2451,8 +2470,7 @@ void register_entity_types()
     // Xbox 0x00073190 entityBodyCamera_ctor: fill defaults, then overwrite.
     // +0x00..+0x0C become the camera size, tick, shutdown, and message.
     // +0x10 and +0x14 stay 0x00025EC0 and 0x00072AC0.
-    // Retail stores 0x00072B10 at +0x18 and 0x00072CB0 at +0x1C. Those
-    // functions are not translated, so the slots stay empty.
+    // Retail stores 0x00072B10 at +0x18. 0x00072CB0 at +0x1C is not translated.
     EntityType camera;
     camera.name = "entityBodyCamera";
     camera.kind = EntityKind::Body;
@@ -2462,7 +2480,7 @@ void register_entity_types()
     camera.methods.tick = entity_body_camera_tick;
     camera.methods.shutdown = entity_body_camera_shutdown;
     camera.methods.handle_message = entity_body_camera_message;
-    camera.methods.apply = nullptr;
+    camera.methods.apply = fn_72b10;
     camera.methods.gate = nullptr;
     camera.tick = camera.methods.tick;
     camera.shutdown = camera.methods.shutdown;

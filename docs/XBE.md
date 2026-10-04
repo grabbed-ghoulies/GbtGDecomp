@@ -345,3 +345,4 @@ Named functions: [`docs/generated/ghidra_functions.txt`](generated/ghidra_functi
 | `0x001782C0` | `fn_1782c0` | gfx |
 | `0x001799A0` | `fn_1799a0` | gfx |
 | `0x0015AD20` | `fn_15ad20` | present |
+| `0x00072B10` | `fn_72b10` | entity |

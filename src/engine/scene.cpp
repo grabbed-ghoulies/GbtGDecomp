@@ -16039,6 +16039,39 @@ int fn_132ab0(ScriptCond& rec)
     return 0;
 }
 
+// Xbox 0x00132B50. Opcode 26 in the table at 0x00314330. A nonzero word at
+// record+8 walks DAT_00511AA4. Next is the pointer at node+4. The short at
+// node-0x704 (object+0x1FC) matching that word selects the object at
+// node-0x900. A zero word or a miss leaves the object null. vtable +0xC is
+// called with that object and a two-dword message, 0x20 then 0. The callee
+// writes the second dword. That dword equal to 0 returns 1. Any other value
+// returns 0.
+int fn_132b50(const ScriptCond& rec)
+{
+    const u16 want = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+    PulseNode* obj = nullptr;
+    if (want != 0)
+    {
+        for (PulseNode* node = g_pulse_nodes; node != nullptr; node = node->next)
+        {
+            if (node->word_1fc == want)
+            {
+                obj = node;
+                break;
+            }
+        }
+    }
+    i32 message[2];
+    message[0] = 0x20;
+    message[1] = 0;
+    reinterpret_cast<void (*)(PulseNode*, i32*)>(obj->on_message)(obj, message);
+    if (message[1] == 0)
+    {
+        return 1;
+    }
+    return 0;
+}
+
 // Xbox 0x00124BE0. A zero keeps the record. Any other value queues the link
 // at +4. A return of exactly 1 also removes the record and the slot that
 // slides down is evaluated next. Opcode 0 is 0x00132650. Opcode 1 is
@@ -16046,7 +16079,8 @@ int fn_132ab0(ScriptCond& rec)
 // 0x001327A0. Opcode 5 is 0x00132800. Opcode 6 is 0x00132840. Opcode 7 is
 // 0x001328D0. Opcode 8 is 0x00132940. Opcode 9 is 0x001329A0. Opcode 10 is
 // 0x00132A30. Opcode 11 is 0x00132A00. Opcode 12 is 0x00132A60. Opcode 17 is
-// 0x00132AB0. Other opcodes are not evaluated until their functions are translated.
+// 0x00132AB0. Opcode 26 is 0x00132B50. Other opcodes are not evaluated until
+// their functions are translated.
 void fn_124be0(Game& g)
 {
     size_t i = 0;
@@ -16110,6 +16144,10 @@ void fn_124be0(Game& g)
         else if (opcode == 17)
         {
             fired = fn_132ab0(rec);
+        }
+        else if (opcode == 26)
+        {
+            fired = fn_132b50(rec);
         }
         if (fired == 0)
         {

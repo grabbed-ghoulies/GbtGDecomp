@@ -17275,11 +17275,92 @@ int fn_126e10(Game& g, const ScriptNode& node, int param_2)
     }
 }
 
+// DAT_0050E4E0. Name bytes, 0x80 long. The next dword is DAT_0050E560.
+char g_name_e4e0[0x80]{};
+i32 g_flag_e560 = 0;
+
+// Xbox 0x00127340. Handler 12. The dword at node+4 is the type. The byte map
+// at 0x00127458 covers types 0x3A through 0x8D. Any other type, and the holes
+// in that range, return 3. Every handled type returns 2. The second and third
+// arguments from 0x00128A00 are unused.
+//
+// Type 0x3A would call 0x00116D20. ESI is node+8 and the stack dword is 3.
+// That call is not translated.
+//
+// Type 0x3B tests the byte at DAT_0050E4E0. Zero falls through and returns 2.
+// Nonzero would call 0x00038460 with that address. The dword at bank+0x88 is
+// decremented. A result less than 1, with a bank id other than 0x12 and a
+// nonzero return from 0x00038590, would call 0x00038360. 0x00038260 then
+// takes the bank in EAX and the id is stored as 0. 0x00038590, 0x00038360,
+// and 0x00038260 are not translated, and the bank object from 0x00038460 is
+// not visible here, so those stores are not made. The byte at DAT_0050E4E0
+// is then cleared.
+//
+// Type 0x45 tests DAT_0050E560. Nonzero falls through and returns 2. Zero
+// would call 0x00116C90, stores 1, and returns 2. That call is not translated.
+//
+// Type 0x55 calls 0x001077B0 with EAX = the cstring at node+8. ECX would be
+// that return for 0x00116C50. That call is not translated.
+//
+// Type 0x57 would call 0x00116D20. ESI is node+8 and the stack dword is 2.
+// That call is not translated.
+//
+// Type 0x8D would call 0x00038720. EAX is node+8 and the stack dword is 6.
+// That call is not translated. The case falls through and returns 2.
+int fn_127340(Game& g, const ScriptNode& node)
+{
+    switch (node.type)
+    {
+    case 0x3a:
+    {
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        (void)key;
+        return 2;
+    }
+    case 0x3b:
+        if (g_name_e4e0[0] != 0)
+        {
+            g_name_e4e0[0] = 0;
+            return 2;
+        }
+        break;
+    case 0x45:
+        if (g_flag_e560 == 0)
+        {
+            g_flag_e560 = 1;
+            return 2;
+        }
+        break;
+    case 0x55:
+    {
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        const u32 tag = fn_1077b0(key.c_str());
+        (void)tag;
+        return 2;
+    }
+    case 0x57:
+    {
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        (void)key;
+        return 2;
+    }
+    case 0x8d:
+    {
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        (void)key;
+        break;
+    }
+    default:
+        return 3;
+    }
+    return 2;
+}
+
 // Xbox 0x00128A00. Walks fired file offsets. Handler 1 is 0x00124CC0.
 // Handler 2 is 0x00124E50. Handler 3 is 0x00124F30. Handler 4 is 0x00124FC0.
 // Handler 5 is 0x001251E0. Handler 6 is 0x00125450. Handler 7 is 0x001259B0.
 // Handler 8 is 0x00126140. Handler 9 is 0x001269D0. Handler 10 is 0x00126A10.
-// Handler 11 is 0x00126E10. The other handlers are not translated. The flag passed to handler 4 is nonzero
+// Handler 11 is 0x00126E10. Handler 12 is 0x00127340. The other handlers are not translated. The flag passed to handler 4 is nonzero
 // when DAT_0050E4DC has a node whose dword at +8 is 0x7D. Handler 7 receives that same flag.
 // Its third argument is 0: 0x00128A00 clears EDI whenever that flag is set,
 // and the handler only reads the third argument on that path. Handler 8
@@ -17346,6 +17427,10 @@ int fn_128a00(Game& g, u32 offset)
         if (handler == 3)
         {
             handler = fn_126e10(g, *node, param_2);
+        }
+        if (handler == 3)
+        {
+            handler = fn_127340(g, *node);
         }
         if (handler == 1)
         {

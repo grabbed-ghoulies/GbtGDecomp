@@ -19527,12 +19527,47 @@ void script_vm_bind(Game& g)
     fn_1288c0(g);
 }
 
-// Xbox 0x00117100, then the eval at 0x00117140. 0x00133070 is not translated,
-// so a timeout record is not stepped. DAT_0050E794 is left clear so the eval
-// pass runs. Opcodes other than 0 are not evaluated.
+// Xbox 0x00133070. Opcode 0 in the update table at 0x00314334. The int at
+// +0xC, or a clear DAT_0050E768 while the byte at [DAT_0051248C]+0x30F144
+// is set, subtracts a step from the float at +8. DAT_004312DC above 0 makes
+// that step 0. Otherwise the step is DAT_005096C0 * DAT_004312C4. A result
+// at or below 0 is stored as 0.
+void fn_133070(ScriptCond& rec)
+{
+    if (cond_u32(rec, 0xc) != 0 || (g_block_decay == 0 && g_decay_arm != 0))
+    {
+        float step = 0.f;
+        if (g_sim_freeze <= 0.f)
+        {
+            step = g_sim_dt * g_sim_scale;
+        }
+        const float left = cond_f32(rec, 8);
+        if (0.f < left)
+        {
+            float next = left - step;
+            cond_put_f32(rec, 8, next);
+            if (next <= 0.f)
+            {
+                cond_put_f32(rec, 8, 0.f);
+            }
+        }
+    }
+}
+
+// Xbox 0x00117100, then the eval at 0x00117140. The update walk calls the
+// table at 0x00314334. Opcode 0 is 0x00133070. The other updates are not
+// translated, so those records are not stepped. DAT_0050E794 is left clear
+// so the eval pass runs.
 void script_vm_tick(Game& g, float dt)
 {
     (void)dt;
+    for (ScriptCond& rec : g_script_conds)
+    {
+        if (cond_u32(rec, 0) == 0)
+        {
+            fn_133070(rec);
+        }
+    }
     fn_124be0(g);
     fn_1288c0(g);
 }

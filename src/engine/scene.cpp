@@ -18047,18 +18047,62 @@ int fn_128050(Game& g, const ScriptNode& node, int param_2, int param_3)
     }
 }
 
+// Xbox 0x00128770. Handler 16. The dword at node+4 is the type. Type 0x39
+// loads the dword at node+8 into EDI and calls 0x0012D050. That call walks
+// DAT_00511B28, the first node of DAT_00511B24. A zero EDI calls 0x00147860
+// on each object. A nonzero EDI decrements the dword at object+0xAD0 and
+// calls 0x0003EEB0 when that counter hits 0. 0x0012D050 is not translated.
+// The case returns 2.
+//
+// Type 0x59 stores 1 in the incoming argument slot, then calls 0x000FBFB0
+// with count 0xE9, the names at 0x0042A854, and the cstring at node+8. A miss
+// zeros EDI. A hit increments the index and zero-extends it into EDI. Both
+// paths point EBX at that slot and call 0x00122FA0. That call walks
+// DAT_00511B28, compares DI with the word at object+6, and calls vtable +0xC
+// with EBX on a match. 0x00122FA0 is not translated. Both paths return 2.
+// Any other type returns 3.
+int fn_128770(Game& g, const ScriptNode& node)
+{
+    if (node.type == 0x39)
+    {
+        const u32 flag = node_u32(g.scene_script, node, 8);
+        (void)flag;
+        return 2;
+    }
+    if (node.type != 0x59)
+    {
+        return 3;
+    }
+    const i32 message = 1;
+    const std::string key = node_cstr(g.scene_script, node, 8);
+    const i32 found = fn_fbfb0(0xe9, kObjTagActor, key.c_str());
+    if (found == -1)
+    {
+        const u16 tag = 0;
+        (void)tag;
+        (void)message;
+        return 2;
+    }
+    const u16 tag = static_cast<u16>(found + 1);
+    (void)tag;
+    (void)message;
+    return 2;
+}
+
 // Xbox 0x00128A00. Walks fired file offsets. Handler 1 is 0x00124CC0.
 // Handler 2 is 0x00124E50. Handler 3 is 0x00124F30. Handler 4 is 0x00124FC0.
 // Handler 5 is 0x001251E0. Handler 6 is 0x00125450. Handler 7 is 0x001259B0.
 // Handler 8 is 0x00126140. Handler 9 is 0x001269D0. Handler 10 is 0x00126A10.
 // Handler 11 is 0x00126E10. Handler 12 is 0x00127340. Handler 13 is 0x001274B0.
-// Handler 14 is 0x00127BC0. Handler 15 is 0x00128050. The other handlers are not translated. The flag passed to handler 4 is nonzero
+// Handler 14 is 0x00127BC0. Handler 15 is 0x00128050. Handler 16 is 0x00128770.
+// The table slot at 0x00312650 (0x00128BC0) is not translated. The flag passed to handler 4 is nonzero
 // when DAT_0050E4DC has a node whose dword at +8 is 0x7D. Handler 7 receives that same flag.
 // Its third argument is 0: 0x00128A00 clears EDI whenever that flag is set,
 // and the handler only reads the third argument on that path. Handler 8
 // receives that same third argument. Handler 13 receives it as well. Handler 14
 // receives that same second argument and that same third argument. Handler 15
-// receives that same second argument and that same third argument. A node type none of them covers stops
+// receives that same second argument and that same third argument. Handler 16
+// reads only the node. A node type none of them covers stops
 // the walk and leaves the
 // fired id in place. Return 1 stops on a type-0x3C node. Return 0 means
 // the cursor left the blob, or stopped on an untranslated node, and the
@@ -18137,6 +18181,10 @@ int fn_128a00(Game& g, u32 offset)
         if (handler == 3)
         {
             handler = fn_128050(g, *node, param_2, 0);
+        }
+        if (handler == 3)
+        {
+            handler = fn_128770(g, *node);
         }
         if (handler == 1)
         {

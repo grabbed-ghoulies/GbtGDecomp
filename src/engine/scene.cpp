@@ -15383,6 +15383,20 @@ constexpr const char* kScriptCondName[27] = {
 std::vector<ScriptCond> g_script_conds;
 std::vector<u32> g_script_fired;
 
+// DAT_0050E568. Handler 2 writes this block. 0x0050E570 and 0x0050E660 are
+// the bases of the scaled stores. 0x001077B0 returns at most 0xE9, which is
+// the last index those stores reach.
+constexpr u32 kSceneWordBase = 0x0050E568u;
+constexpr u32 kSceneWordCount = ((0x0050E660u + 0xEAu * 4u) - kSceneWordBase) / 4u;
+static_assert((0x0050E758u - kSceneWordBase) / 4u < kSceneWordCount);
+static_assert((0x0050E660u + 0xE9u * 4u - kSceneWordBase) / 4u < kSceneWordCount);
+u32 g_scene_words[kSceneWordCount]{};
+
+u32& scene_word(u32 addr)
+{
+    return g_scene_words[(addr - kSceneWordBase) / 4u];
+}
+
 u32 cond_u32(const ScriptCond& rec, u32 at)
 {
     return u32(rec.raw[at]) | (u32(rec.raw[at + 1]) << 8) | (u32(rec.raw[at + 2]) << 16) | (u32(rec.raw[at + 3]) << 24);
@@ -15994,11 +16008,68 @@ int fn_124cc0(Game& g, const ScriptNode& node)
     return 2;
 }
 
+// Xbox 0x001077B0. The cstring arrives in EAX. 0x000FBFB0 searches the actor
+// tags. A miss returns 0. A hit returns the 1-based index, zero-extended
+// from 16 bits.
+u32 fn_1077b0(const char* key)
+{
+    const i32 found = fn_fbfb0(0xe9, kObjTagActor, key);
+    if (found == -1)
+    {
+        return 0;
+    }
+    return u32(u16(found + 1));
+}
+
+// Xbox 0x00124E50. Handler 2. Types 0x32 through 0x38 store the dword at
+// node+8 and return 2. Types 0x34 and 0x36 scale by 0x001077B0. That call
+// passes the cstring at node+0xC in EAX. Type 0x37 stores the float at
+// node+8 times 0.01 (0x0032B124). Any other type returns 3.
+int fn_124e50(Game& g, const ScriptNode& node)
+{
+    const u32 word = node_u32(g.scene_script, node, 8);
+    switch (node.type)
+    {
+    case 0x32:
+        scene_word(0x0050E568u) = word;
+        return 2;
+    case 0x33:
+        scene_word(0x0050E56Cu) = word;
+        return 2;
+    case 0x34:
+    {
+        const std::string key = node_cstr(g.scene_script, node, 0xC);
+        const u32 slot = fn_1077b0(key.c_str()) & 0xffffu;
+        scene_word(0x0050E570u + slot * 4u) = word;
+        return 2;
+    }
+    case 0x35:
+        scene_word(0x0050E570u) = word;
+        return 2;
+    case 0x36:
+    {
+        const std::string key = node_cstr(g.scene_script, node, 0xC);
+        const u32 slot = fn_1077b0(key.c_str()) & 0xffffu;
+        scene_word(0x0050E660u + slot * 4u) = word;
+        return 2;
+    }
+    case 0x37:
+    {
+        const float scaled = std::bit_cast<float>(word) * 0.01f;
+        scene_word(0x0050E754u) = std::bit_cast<u32>(scaled);
+        return 2;
+    }
+    case 0x38:
+        scene_word(0x0050E758u) = word;
+        return 2;
+    default:
+        return 3;
+    }
+}
 
 // Xbox 0x00125450. One node of the action walk. Type 0x3C stops the walk.
 // The listed types copy a condition and tell the runner to advance. Every
-// other type stops the walk. The word filled by 0x001077B0 is left 0
-// until that function is translated.
+// other type stops the walk. The word filled by 0x001077B0 is left 0.
 int fn_125450(Game& g, const ScriptNode& node)
 {
     u32 opcode = 0;
@@ -16070,8 +16141,9 @@ int fn_125450(Game& g, const ScriptNode& node)
 }
 
 // Xbox 0x00128A00. Walks fired file offsets. Handler 1 is 0x00124CC0.
-// Handler 6 is 0x00125450. The other handlers are not translated. A node
-// type none of them covers stops the walk and leaves the fired id in place.
+// Handler 2 is 0x00124E50. Handler 6 is 0x00125450. The other handlers are
+// not translated. A node type none of them covers stops the walk and leaves
+// the fired id in place.
 // Return 1 stops on a type-0x3C node. Return 0 means the cursor left the
 // blob, or stopped on an untranslated node, and the drain keeps that fired id.
 int fn_128a00(Game& g, u32 offset)
@@ -16084,6 +16156,10 @@ int fn_128a00(Game& g, u32 offset)
             return 0;
         }
         int handler = fn_124cc0(g, *node);
+        if (handler == 3)
+        {
+            handler = fn_124e50(g, *node);
+        }
         if (handler == 3)
         {
             handler = fn_125450(g, *node);

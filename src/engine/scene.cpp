@@ -16483,6 +16483,18 @@ int fn_132ed0()
     return 1;
 }
 
+// Xbox 0x00132F00. Opcode 22 in the table at 0x00314330. The record is not
+// read. Bit 0x8 of the byte at [DAT_00506c74+8] and bit 0x200000 of
+// DAT_0050EA9C both clear returns 1. Either set returns 0.
+int fn_132f00()
+{
+    if ((*g_scene_flags->bytes & 8) == 0 && (g_flags_ea9c & 0x200000u) == 0)
+    {
+        return 1;
+    }
+    return 0;
+}
+
 // Xbox 0x00124BE0. A zero keeps the record. Any other value queues the link
 // at +4. A return of exactly 1 also removes the record and the slot that
 // slides down is evaluated next. Opcode 0 is 0x00132650. Opcode 1 is
@@ -16492,8 +16504,9 @@ int fn_132ed0()
 // 0x00132A30. Opcode 11 is 0x00132A00. Opcode 12 is 0x00132A60. Opcode 13 is
 // 0x00132BC0. Opcode 14 is 0x00132BF0. Opcode 15 is 0x00132D00. Opcode 16 is
 // 0x00132C70. Opcode 17 is 0x00132AB0. Opcode 18 is 0x00132DB0. Opcode 19 is
-// 0x00132E00. Opcode 20 is 0x00132E90. Opcode 21 is 0x00132ED0. Opcode 26 is
-// 0x00132B50. Other opcodes are not evaluated until their functions are translated.
+// 0x00132E00. Opcode 20 is 0x00132E90. Opcode 21 is 0x00132ED0. Opcode 22 is
+// 0x00132F00. Opcode 26 is 0x00132B50. Other opcodes are not evaluated until
+// their functions are translated.
 void fn_124be0(Game& g)
 {
     size_t i = 0;
@@ -16589,6 +16602,10 @@ void fn_124be0(Game& g)
         else if (opcode == 21)
         {
             fired = fn_132ed0();
+        }
+        else if (opcode == 22)
+        {
+            fired = fn_132f00();
         }
         else if (opcode == 26)
         {

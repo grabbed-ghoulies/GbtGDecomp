@@ -16495,6 +16495,27 @@ int fn_132f00()
     return 0;
 }
 
+// Xbox 0x00132F30. Opcode 23 in the table at 0x00314330. Walks DAT_00511B48.
+// A null node returns 0. The word at record+8 below 2, or equal to the word
+// at node-0x93E (actor+6), calls 0x000412A0 with ESI = node-0x944 and EDI
+// pointing at a 12-byte stack slot. 0x00124860 then takes the dword at
+// record+0xC. A nonzero return returns 1. Next is the pointer at node+4.
+// 0x00124860 is not translated, so its nonzero return is not taken.
+int fn_132f30(const ScriptCond& rec)
+{
+    for (AltLink* link = g_alt_links; link != nullptr; link = link->next)
+    {
+        const u16 key = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+        if (key < 2 || link->actor->class_key == key)
+        {
+            const Vec3 world = actor_world_position(*link->actor);
+            (void)world;
+            (void)cond_u32(rec, 0xc);
+        }
+    }
+    return 0;
+}
+
 // Xbox 0x00124BE0. A zero keeps the record. Any other value queues the link
 // at +4. A return of exactly 1 also removes the record and the slot that
 // slides down is evaluated next. Opcode 0 is 0x00132650. Opcode 1 is
@@ -16505,8 +16526,8 @@ int fn_132f00()
 // 0x00132BC0. Opcode 14 is 0x00132BF0. Opcode 15 is 0x00132D00. Opcode 16 is
 // 0x00132C70. Opcode 17 is 0x00132AB0. Opcode 18 is 0x00132DB0. Opcode 19 is
 // 0x00132E00. Opcode 20 is 0x00132E90. Opcode 21 is 0x00132ED0. Opcode 22 is
-// 0x00132F00. Opcode 26 is 0x00132B50. Other opcodes are not evaluated until
-// their functions are translated.
+// 0x00132F00. Opcode 23 is 0x00132F30. Opcode 26 is 0x00132B50. Other opcodes
+// are not evaluated until their functions are translated.
 void fn_124be0(Game& g)
 {
     size_t i = 0;
@@ -16606,6 +16627,10 @@ void fn_124be0(Game& g)
         else if (opcode == 22)
         {
             fired = fn_132f00();
+        }
+        else if (opcode == 23)
+        {
+            fired = fn_132f30(rec);
         }
         else if (opcode == 26)
         {

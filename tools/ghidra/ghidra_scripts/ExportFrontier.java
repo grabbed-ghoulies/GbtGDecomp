@@ -4,17 +4,64 @@
 import java.io.File;
 import java.io.FileWriter;
 import java.io.PrintWriter;
+import java.util.ArrayDeque;
+import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
 import java.util.TreeSet;
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileOptions;
 import ghidra.app.decompiler.DecompileResults;
+import ghidra.app.script.GhidraScript;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionIterator;
 
-public class ExportFrontier extends GbtgScript {
+public class ExportFrontier extends GhidraScript {
+
+    protected java.io.File repoRoot() {
+        String env = System.getenv("GBTG_ROOT");
+        if (env != null && env.trim().length() > 0) {
+            return new java.io.File(env.trim());
+        }
+        java.io.File dir = sourceFile == null ? null : new java.io.File(sourceFile.getAbsolutePath()).getParentFile();
+        for (int i = 0; i < 8 && dir != null; i++) {
+            if (new java.io.File(dir, "CMakeLists.txt").isFile() && new java.io.File(dir, "src").isDirectory()) {
+                return dir;
+            }
+            dir = dir.getParentFile();
+        }
+        dir = new java.io.File(System.getProperty("user.dir"));
+        for (int i = 0; i < 8 && dir != null; i++) {
+            if (new java.io.File(dir, "CMakeLists.txt").isFile() && new java.io.File(dir, "src").isDirectory()) {
+                return dir;
+            }
+            dir = dir.getParentFile();
+        }
+        throw new IllegalStateException("GbtG repo root not found. Set GBTG_ROOT.");
+    }
+
+    protected java.io.File cacheFile(String name) {
+        java.io.File cache = new java.io.File(repoRoot(), "cache");
+        if (!cache.isDirectory() && !cache.mkdirs()) {
+            throw new IllegalStateException("could not create " + cache.getAbsolutePath());
+        }
+        return new java.io.File(cache, name);
+    }
+
+    protected java.io.File repoFile(String relative) {
+        java.io.File file = new java.io.File(repoRoot(), relative.replace('/', java.io.File.separatorChar));
+        java.io.File parent = file.getParentFile();
+        if (parent != null && !parent.isDirectory() && !parent.mkdirs()) {
+            throw new IllegalStateException("could not create " + parent.getAbsolutePath());
+        }
+        return file;
+    }
+
     private static final int kNewTaskCap = 12;
+    // Skin palette and the mesh colour/texture-stage setup. The next tasks are
+    // their callees, not every named function in the program.
+    private static final long[] kSkinSeeds = {0x0002FAC0L, 0x0002F720L};
+    private static final long[] kLightSeeds = {0x000644F0L, 0x0005E380L};
     private DecompInterface decomp;
 
     @Override
@@ -33,7 +80,7 @@ public class ExportFrontier extends GbtgScript {
         int refreshed = 0;
         int created = 0;
         try {
-            refreshed = refreshOpenDumps(frontier);
+            refreshed = refreshQueuedDumps(frontier);
             created = enqueueCallees(frontier, queued);
         } finally {
             decomp.dispose();
@@ -41,35 +88,62 @@ public class ExportFrontier extends GbtgScript {
         println("frontier refreshed=" + refreshed + " created=" + created);
     }
 
-    private int refreshOpenDumps(File frontier) throws Exception {
-        File open = queueDir("open");
-        File[] files = open.listFiles();
-        if (files == null) {
-            return 0;
-        }
+    private int refreshQueuedDumps(File frontier) throws Exception {
         int n = 0;
-        for (File md : files) {
-            String key = keyOf(md);
-            if (key == null) {
+        for (String folder : new String[] {"open", "claimed"}) {
+            File dir = queueDir(folder);
+            File[] files = dir.listFiles();
+            if (files == null) {
                 continue;
             }
-            long va = Long.parseLong(key, 16);
-            Function fn = getFunctionAt(toAddr(va));
-            writeDump(frontier, key, fn);
-            n++;
+            for (File md : files) {
+                String key = keyOf(md);
+                if (key == null) {
+                    continue;
+                }
+                long va = Long.parseLong(key, 16);
+                Function fn = getFunctionAt(toAddr(va));
+                if (fn == null) {
+                    fn = getFunctionContaining(toAddr(va));
+                }
+                writeDump(frontier, key, fn);
+                n++;
+            }
         }
         return n;
     }
 
+    private void pushSeed(ArrayDeque<Function> walk, ArrayDeque<String> owners, Set<String> seen, long va,
+            String owner) {
+        Function fn = getFunctionAt(toAddr(va));
+        if (fn == null) {
+            fn = getFunctionContaining(toAddr(va));
+        }
+        if (fn == null) {
+            return;
+        }
+        String key = String.format(Locale.ROOT, "%08X", fn.getEntryPoint().getOffset());
+        if (!seen.add(key)) {
+            return;
+        }
+        walk.addLast(fn);
+        owners.addLast(owner);
+    }
+
     private int enqueueCallees(File frontier, Set<String> queued) throws Exception {
         int created = 0;
-        FunctionIterator it = currentProgram.getFunctionManager().getFunctions(true);
-        while (it.hasNext() && created < kNewTaskCap) {
-            Function caller = it.next();
-            String callerName = caller.getName();
-            if (callerName.startsWith("FUN_") || callerName.startsWith("thunk_FUN_")) {
-                continue;
-            }
+        ArrayDeque<Function> walk = new ArrayDeque<Function>();
+        ArrayDeque<String> owners = new ArrayDeque<String>();
+        HashSet<String> seen = new HashSet<String>();
+        for (long va : kSkinSeeds) {
+            pushSeed(walk, owners, seen, va, "anim");
+        }
+        for (long va : kLightSeeds) {
+            pushSeed(walk, owners, seen, va, "gfx");
+        }
+        while (!walk.isEmpty() && created < kNewTaskCap) {
+            Function caller = walk.removeFirst();
+            String owner = owners.removeFirst();
             Set<Function> called = caller.getCalledFunctions(monitor);
             if (called == null) {
                 continue;
@@ -81,16 +155,21 @@ public class ExportFrontier extends GbtgScript {
                 if (callee == null || callee.isExternal() || callee.isThunk()) {
                     continue;
                 }
-                String name = callee.getName();
-                if (!name.startsWith("FUN_") && !name.startsWith("thunk_FUN_")) {
-                    continue;
-                }
                 long va = callee.getEntryPoint().getOffset();
                 String key = String.format(Locale.ROOT, "%08X", va);
+                if (!seen.add(key)) {
+                    continue;
+                }
+                String name = callee.getName();
+                boolean unnamed = name.startsWith("FUN_") || name.startsWith("thunk_FUN_");
+                if (!unnamed) {
+                    walk.addLast(callee);
+                    owners.addLast(owner);
+                    continue;
+                }
                 if (queued.contains(key)) {
                     continue;
                 }
-                String owner = ownerFor(callerName, va);
                 writeDump(frontier, key, callee);
                 writeTask(key, va, "fn_" + Long.toHexString(va), owner, caller, callee);
                 queued.add(key);
@@ -245,7 +324,7 @@ public class ExportFrontier extends GbtgScript {
                 || n.contains("fs_") || n.contains("winmain") || n.contains("frame")) {
             return "clock";
         }
-        return "scene";
+        return "anim";
     }
 
     private static String filesFor(String owner) {
@@ -264,9 +343,12 @@ public class ExportFrontier extends GbtgScript {
         if ("audio".equals(owner)) {
             return "src/engine/audio.cpp";
         }
-        if ("present".equals(owner)) {
-            return "src/engine/gfx_d3d11.cpp; src/engine/gfx_null.cpp";
+        if ("present".equals(owner) || "gfx".equals(owner)) {
+            return "src/engine/gfx_d3d11.cpp";
         }
-        return "src/gbtg";
+        if ("anim".equals(owner)) {
+            return "src/gbtg/anim.cpp";
+        }
+        return "src/gbtg/anim.cpp";
     }
 }

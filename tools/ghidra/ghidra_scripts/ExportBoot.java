@@ -8,7 +8,47 @@ import ghidra.app.script.GhidraScript;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Instruction;
 
-public class ExportBoot extends GbtgScript {
+public class ExportBoot extends GhidraScript {
+
+    protected java.io.File repoRoot() {
+        String env = System.getenv("GBTG_ROOT");
+        if (env != null && env.trim().length() > 0) {
+            return new java.io.File(env.trim());
+        }
+        java.io.File dir = sourceFile == null ? null : new java.io.File(sourceFile.getAbsolutePath()).getParentFile();
+        for (int i = 0; i < 8 && dir != null; i++) {
+            if (new java.io.File(dir, "CMakeLists.txt").isFile() && new java.io.File(dir, "src").isDirectory()) {
+                return dir;
+            }
+            dir = dir.getParentFile();
+        }
+        dir = new java.io.File(System.getProperty("user.dir"));
+        for (int i = 0; i < 8 && dir != null; i++) {
+            if (new java.io.File(dir, "CMakeLists.txt").isFile() && new java.io.File(dir, "src").isDirectory()) {
+                return dir;
+            }
+            dir = dir.getParentFile();
+        }
+        throw new IllegalStateException("GbtG repo root not found. Set GBTG_ROOT.");
+    }
+
+    protected java.io.File cacheFile(String name) {
+        java.io.File cache = new java.io.File(repoRoot(), "cache");
+        if (!cache.isDirectory() && !cache.mkdirs()) {
+            throw new IllegalStateException("could not create " + cache.getAbsolutePath());
+        }
+        return new java.io.File(cache, name);
+    }
+
+    protected java.io.File repoFile(String relative) {
+        java.io.File file = new java.io.File(repoRoot(), relative.replace('/', java.io.File.separatorChar));
+        java.io.File parent = file.getParentFile();
+        if (parent != null && !parent.isDirectory() && !parent.mkdirs()) {
+            throw new IllegalStateException("could not create " + parent.getAbsolutePath());
+        }
+        return file;
+    }
+
     @Override
     public void run() throws Exception {
         PrintWriter out = new PrintWriter(new FileWriter(cacheFile("ghidra_boot.txt")), true);

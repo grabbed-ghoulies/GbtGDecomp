@@ -19,7 +19,7 @@ public class GbtgScript extends GhidraScript {
         if (env != null && env.trim().length() > 0) {
             return new File(env.trim());
         }
-        File fromScript = findRepo(sourceFile == null ? null : sourceFile.getAbsoluteFile().getParentFile());
+        File fromScript = findRepo(sourceFile == null ? null : new java.io.File(sourceFile.getAbsolutePath()).getParentFile());
         if (fromScript != null) {
             return fromScript;
         }

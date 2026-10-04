@@ -17558,16 +17558,158 @@ int fn_1274b0(Game& g, const ScriptNode& node, int param_3)
     }
 }
 
+// DAT_00430d08. Types 0x46 and 0xA6 store 0 when the second argument is zero.
+// The same path stores a zero byte at DAT_00430d14. 0x0011EB30 clears both
+// from entity.cpp; that copy is private to that file.
+i32 g_flag_30d08 = 0;
+u8 g_byte_30d14 = 0;
+
+// Xbox 0x00127BC0. Handler 14. The dword at node+4 is the type. The byte map
+// at 0x00127F6C covers types 0x2C through 0xA6. Slot 14 of the table at
+// 0x00127F30 returns 3, and the holes in that range use it. A type outside
+// the range returns 3 as well. The second argument is the flag 0x00128A00
+// passes. The third argument is the value that walk passes.
+//
+// Type 0x2C with a nonzero third argument returns 2. Zero calls 0x001292D0.
+// A null return returns 2. A live object loads the dword at object+0x95C
+// into EAX, calls 0x0001B810 with two stack zeros, calls 0x00112CC0, and
+// returns 2. 0x001292D0 is not translated, so the live path is not entered.
+//
+// Type 0x2D with a nonzero third argument returns 2. Zero would call
+// 0x00127FF0 and return 2. That call is not translated.
+//
+// Type 0x2E calls 0x001292D0. A null return returns 2. A live object tests
+// the dword at node+8. Zero calls 0x00042090. Nonzero calls 0x000420B0.
+// EAX is the object and ECX is that dword. Both return 2. 0x001292D0 is not
+// translated, so neither call is made.
+//
+// Type 0x2F calls 0x001292D0. A null return returns 2. A live object passes
+// the stack slot at frame+0x1C to 0x00049DB0 in EAX, stores 7 in the next
+// dword, and calls vtable +0xC with that slot. That call is not translated.
+//
+// Type 0x30 calls 0x001292D0. A null return returns 2. A live object calls
+// vtable +0xC with message id 0x32 and a second dword of 0.
+//
+// Type 0x31 with a zero second argument calls 0x00123AD0. EAX is node+8 and
+// ECX is 0. That call is not translated. A nonzero second argument calls
+// 0x001292D0. A null return returns 2. A live object calls 0x0013A720 with
+// EAX = node+8, ECX = the object, and a stack 1, then returns 2.
+//
+// Type 0x46 with a zero second argument stores 0 at DAT_00430d08 and a zero
+// byte at DAT_00430d14, then returns 2. Nonzero calls 0x001292D0. A null
+// return returns 2. A live object is pushed for 0x0013A7C0, then 0x0012ECC0
+// runs, and the case returns 2. Those calls are not translated.
+//
+// Type 0x6F calls 0x001292D0. A null return returns 0. A live object calls
+// 0x00028360 with ESI set to that object. AX 0 returns 2. A nonzero AX
+// returns 2 when the dword at object+0x984 is nonzero, and 0 when that
+// dword is 0. 0x001292D0 is not translated, so the live path is not entered
+// and the case returns 0.
+//
+// Type 0x76 calls 0x001292D0. A null return returns 2. A live object calls
+// vtable +0xC with message id 0x42 and a second dword of 1.
+//
+// Type 0x77 is that same call with a second dword of 0.
+//
+// Type 0x91 calls 0x001292D0. A null return returns 2. A live object calls
+// 0x00128DF0 with the object, two zeros, the address of the node pointer,
+// 0x4240, and 0. vtable +0xC then takes message id 0x37 and three zero
+// dwords. A nonzero return from 0x00128DF0 would call 0x000412A0 with ESI
+// set to that return and EDI aimed at the first zero. Those calls are not
+// translated.
+//
+// Type 0x96 calls 0x001292D0. A null return returns 2. A live object calls
+// 0x0011F1C0 with EAX = 0 and stack words 2, 1. A zero AX returns 2. Nonzero
+// compares the word at record+0x28 from 0x0011EF20 with the dword at node+8.
+// A miss calls 0x0011F1C0 with EAX = the previous AX and stack words 2, 0,
+// and returns 2 when that AX is 0. A hit calls 0x0002B430 with EAX = the
+// object and ECX = record+0xC, then 0x0002B560 with ECX = record+0x18.
+// 0x001292D0 is not translated, so the walk is not entered. The case
+// returns 2.
+//
+// Type 0xA0 calls 0x001292D0. A null return returns 2. A live object stores
+// 0x2C over the first argument and calls vtable +0xC with that address.
+//
+// Type 0xA6 with a zero second argument takes the same DAT_00430d08 store as
+// type 0x46. Nonzero calls 0x001292D0. A null return returns 2. A live object
+// is pushed for 0x0013A860. A zero return returns 2. Nonzero calls 0x0012ECC0
+// and returns 2. Those calls are not translated.
+int fn_127bc0(Game& g, const ScriptNode& node, int param_2, int param_3)
+{
+    switch (node.type)
+    {
+    case 0x2c:
+        if (param_3 == 0)
+        {
+            // 0x001292D0 is not translated, so object+0x95C is not loaded.
+            return 2;
+        }
+        return 2;
+    case 0x2d:
+        if (param_3 == 0)
+        {
+            // 0x00127FF0 is not translated.
+            return 2;
+        }
+        return 2;
+    case 0x2e:
+        return 2;
+    case 0x2f:
+        return 2;
+    case 0x30:
+        return 2;
+    case 0x31:
+        if (param_2 == 0)
+        {
+            const u32 at_8 = node_u32(g.scene_script, node, 8);
+            (void)at_8;
+            return 2;
+        }
+        return 2;
+    case 0x46:
+        if (param_2 == 0)
+        {
+            g_flag_30d08 = 0;
+            g_byte_30d14 = 0;
+            return 2;
+        }
+        return 2;
+    case 0x6f:
+        return 0;
+    case 0x76:
+        return 2;
+    case 0x77:
+        return 2;
+    case 0x91:
+        return 2;
+    case 0x96:
+        return 2;
+    case 0xa0:
+        return 2;
+    case 0xa6:
+        if (param_2 == 0)
+        {
+            g_flag_30d08 = 0;
+            g_byte_30d14 = 0;
+            return 2;
+        }
+        return 2;
+    default:
+        return 3;
+    }
+}
+
 // Xbox 0x00128A00. Walks fired file offsets. Handler 1 is 0x00124CC0.
 // Handler 2 is 0x00124E50. Handler 3 is 0x00124F30. Handler 4 is 0x00124FC0.
 // Handler 5 is 0x001251E0. Handler 6 is 0x00125450. Handler 7 is 0x001259B0.
 // Handler 8 is 0x00126140. Handler 9 is 0x001269D0. Handler 10 is 0x00126A10.
 // Handler 11 is 0x00126E10. Handler 12 is 0x00127340. Handler 13 is 0x001274B0.
-// The other handlers are not translated. The flag passed to handler 4 is nonzero
+// Handler 14 is 0x00127BC0. The other handlers are not translated. The flag passed to handler 4 is nonzero
 // when DAT_0050E4DC has a node whose dword at +8 is 0x7D. Handler 7 receives that same flag.
 // Its third argument is 0: 0x00128A00 clears EDI whenever that flag is set,
 // and the handler only reads the third argument on that path. Handler 8
-// receives that same third argument. Handler 13 receives it as well. A node type none of them covers stops
+// receives that same third argument. Handler 13 receives it as well. Handler 14
+// receives that same second argument and that same third argument. A node type none of them covers stops
 // the walk and leaves the
 // fired id in place. Return 1 stops on a type-0x3C node. Return 0 means
 // the cursor left the blob, or stopped on an untranslated node, and the
@@ -17638,6 +17780,10 @@ int fn_128a00(Game& g, u32 offset)
         if (handler == 3)
         {
             handler = fn_1274b0(g, *node, 0);
+        }
+        if (handler == 3)
+        {
+            handler = fn_127bc0(g, *node, param_2, 0);
         }
         if (handler == 1)
         {

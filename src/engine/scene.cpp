@@ -15917,13 +15917,50 @@ int fn_1329a0(const ScriptCond& rec)
     return 1;
 }
 
+// Xbox 0x00129240. EAX starts at 0. DAT_00511B48 null returns 0. A zero DX
+// skips the class compare. A nonzero DX requires the word at node-0x93E
+// (object+6, the actor class key) to match. The word at [node+0x18]+0x94
+// nonzero adds one. Next is the pointer at node+4.
+int fn_129240(u16 key)
+{
+    int count = 0;
+    for (AltLink* link = g_alt_links; link != nullptr; link = link->next)
+    {
+        if (key != 0 && link->actor->class_key != key)
+        {
+            continue;
+        }
+        if (link->at_18->word_94 != 0)
+        {
+            count = count + 1;
+        }
+    }
+    return count;
+}
+
+// Xbox 0x00132A00. Opcode 11 in the table at 0x00314330. The word at
+// record+0xC is DX for 0x00129240. That count at or below the int at
+// record+8, and a ucomiss of the float at record+0x10 against the 0 at
+// 0x0032B100 that is equal and not a NaN, returns 1. Every other path
+// returns 0.
+int fn_132a00(const ScriptCond& rec)
+{
+    const u16 key = u16(rec.raw[0xc]) | (u16(rec.raw[0xd]) << 8);
+    const int count = fn_129240(key);
+    if (count <= static_cast<i32>(cond_u32(rec, 8)) && cond_f32(rec, 0x10) == 0.f)
+    {
+        return 1;
+    }
+    return 0;
+}
+
 // Xbox 0x00124BE0. A zero keeps the record. Any other value queues the link
 // at +4. A return of exactly 1 also removes the record and the slot that
 // slides down is evaluated next. Opcode 0 is 0x00132650. Opcode 1 is
 // 0x00132680. Opcode 2 is 0x001326D0. Opcode 3 is 0x00132720. Opcode 4 is
 // 0x001327A0. Opcode 5 is 0x00132800. Opcode 6 is 0x00132840. Opcode 7 is
-// 0x001328D0. Opcode 8 is 0x00132940. Opcode 9 is 0x001329A0. Other opcodes
-// are not evaluated until their functions are translated.
+// 0x001328D0. Opcode 8 is 0x00132940. Opcode 9 is 0x001329A0. Opcode 11 is
+// 0x00132A00. Other opcodes are not evaluated until their functions are translated.
 void fn_124be0(Game& g)
 {
     size_t i = 0;
@@ -15971,6 +16008,10 @@ void fn_124be0(Game& g)
         else if (opcode == 9)
         {
             fired = fn_1329a0(rec);
+        }
+        else if (opcode == 11)
+        {
+            fired = fn_132a00(rec);
         }
         if (fired == 0)
         {

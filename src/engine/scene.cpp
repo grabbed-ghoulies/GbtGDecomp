@@ -19736,6 +19736,65 @@ void script_request(Game& g, std::string_view name)
     // The mode argument is stored at DAT_00510F58. Nothing in the binary reads it.
 }
 
+// DAT_004DEDA8. 0x00033CF0 allocates the header. The u16 at +0 is the stride.
+// +2 is the grow count. +4 is begin and +8 is end.
+struct Pool4deda8
+{
+    u16 stride = 0;
+    u16 grow = 0;
+    u8* begin = nullptr;
+    u8* end = nullptr;
+};
+
+Pool4deda8* g_4deda8 = nullptr; // DAT_004DEDA8
+i32 g_4deda4 = 0;               // DAT_004DEDA4
+i32 g_4ded9c = 0;               // DAT_004DED9C
+i32 g_4deda0 = 0;               // DAT_004DEDA0
+i32 g_4dedac = 0;               // DAT_004DEDAC
+
+// Xbox 0x000341E0. When DAT_004DEDA4 is nonzero, walk the pool from end
+// backward by 0x2c. The dword at record+0x28 (end - 4 before the step) is
+// compared with 0. Zero would call 0x000348D0 with EBX = the record and
+// 0x00034110 with ESI = the record, then reload DAT_004DEDA8. Those calls
+// are not translated, so they are not made. The flag is then cleared.
+// When DAT_004DEDAC is 0 and DAT_004DEDA0 < DAT_004DED9C,
+// walk from begin while the cursor is below end and the dword at +0x24 is
+// nonzero, stepping by the stride u16. The slot where +0x24 is 0, or 0 when
+// the walk finishes, would be ESI for 0x00034290. A nonzero return would
+// call 0x00034370 with that return on the stack and EAX = ESI. 0x00034290
+// is not translated, so that return is not taken. The function returns
+// DAT_004DEDAC.
+int fn_341e0()
+{
+    Pool4deda8* pool = g_4deda8;
+    if (g_4deda4 != 0)
+    {
+        const std::uintptr_t begin = reinterpret_cast<std::uintptr_t>(pool->begin);
+        std::uintptr_t end = reinterpret_cast<std::uintptr_t>(pool->end);
+        while (begin <= end - 0x2c)
+        {
+            const std::uintptr_t record = end - 0x2c;
+            const i32 at_28 = *reinterpret_cast<const i32*>(record + 0x28);
+            end = record;
+            if (at_28 == 0)
+            {
+                pool = g_4deda8;
+            }
+        }
+        g_4deda4 = 0;
+    }
+    if (g_4dedac == 0 && g_4deda0 < g_4ded9c)
+    {
+        std::uintptr_t cursor = reinterpret_cast<std::uintptr_t>(pool->begin);
+        const std::uintptr_t end = reinterpret_cast<std::uintptr_t>(pool->end);
+        while (cursor < end && *reinterpret_cast<const i32*>(cursor + 0x24) != 0)
+        {
+            cursor = cursor + pool->stride;
+        }
+    }
+    return g_4dedac;
+}
+
 void script_pump(Game& g)
 {
     // Xbox 0x0011E4C0 is not translated. frame_tick calls it with EAX = DAT_00510E58.

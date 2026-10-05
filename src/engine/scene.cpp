@@ -22987,6 +22987,14 @@ void script_pump(Game& g)
         if (*reinterpret_cast<i32*>(scene + 0x114) != 0)
         {
             fn_11e6a0(scene, 4);
+            // 0x0011E6A0 copied the requested aid onto the scene record and
+            // 0x001162D0 points the directory slot at it. That slot is a file,
+            // so the host load runs with the name now at the record.
+            const char* aid = reinterpret_cast<const char*>(scene);
+            if (std::memcmp(aid, "aid_", 4) == 0)
+            {
+                script_load(g, aid);
+            }
         }
         *reinterpret_cast<i32*>(scene + 0x114) = 1;
         fn_12c340();

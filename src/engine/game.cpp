@@ -80,7 +80,7 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
                 std::cout << "scene select [" << index << "] " << scene_order[index] << "\n";
             }
             scene_index = index;
-            // 0x0011EB30 queues the aid. 0x0011E4C0 is not translated, so the pump does not load it.
+            // 0x0011EB30 queues the aid. 0x0011E4C0 loads it once the stream enters state 4.
             script_request(*this, scene_order[index]);
         }
     }
@@ -92,12 +92,9 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
 
     game_init_pump();
     std::cout << "game_init: io idle\n";
-    // 0x0011E4C0 is not translated. The queued name stays queued.
+    // 0x0011E4C0. The first pass accepts the queued aid into state 3.
+    // The next pass enters state 4 and loads that script.
     script_pump(*this);
-    if (scene_name == kNoScript)
-    {
-        std::cout << kNoScript << "\n";
-    }
 }
 
 void frame_tick(Game& g, float dt, const InputState& in)
@@ -114,7 +111,7 @@ void frame_tick(Game& g, float dt, const InputState& in)
     }
     pad_tick(g, in); // 0x000FA3C0 / 0x000FAD80
     gameselect_tick(g, in);
-    // 0x00033C47. 0x0011E4C0 is not translated, so a pending aid_script stays queued.
+    // 0x00033C47. 0x0011E4C0. A queued aid_script loads when the stream enters state 4.
     script_pump(g);
     // 0x0011E927. The condition list is updated after the pump, so a request
     // issued by a fired action waits until the next frame.

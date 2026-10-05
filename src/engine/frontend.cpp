@@ -1069,7 +1069,7 @@ void gameselect_tick(Game& g, const InputState& in)
         if (!g.attract_banner_latched && attract_confirm_pressed())
         {
             g.attract_banner_latched = true;
-            // 0x00322B8C. 0x0011EB30 queues it. frame_tick's 0x0011E4C0 loads it.
+            // 0x00322B8C. 0x0011EB30 queues it. The next 0x0011E4C0 that enters state 4 loads it.
             script_request(g, "aid_script_ghoulies_gameselect_gameselect");
         }
     }

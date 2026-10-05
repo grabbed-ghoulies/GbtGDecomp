@@ -22341,7 +22341,7 @@ static_assert(offsetof(OverlayRec50dd90, at_4) == 4);
 static_assert(offsetof(OverlayRec50dd90, state) == 5);
 static_assert(offsetof(OverlayRec50dd90, object) == 0x88);
 
-// DAT_0050DD8C. 0x00106E90 stores 3.
+// DAT_0050DD8C. 0x00106E90 stores 3. 0x00106EC0 stores 2.
 i32 g_50dd8c = 0;
 // DAT_0050DD90. Four overlay records.
 OverlayRec50dd90 g_50dd90[4] = {};
@@ -22367,6 +22367,29 @@ void fn_106e90()
     }
     while (rec < g_50dd90 + 4);
     g_50dd8c = 3;
+}
+
+// Xbox 0x00106EC0
+// Starts at the state byte (0x0050DD95) and steps 0x88 while that address
+// is below 0x0050DFB5. A record whose object is set and whose state is 3
+// increments the int at object+0x18 and stores 2 in the state. The dword
+// at DAT_0050DD8C becomes 2.
+void fn_106ec0()
+{
+    // Xbox 0x00106EC0
+    OverlayRec50dd90* rec = g_50dd90;
+    do
+    {
+        if (rec->object != nullptr && rec->state == 3)
+        {
+            i32* count = reinterpret_cast<i32*>(static_cast<u8*>(rec->object) + 0x18);
+            *count = *count + 1;
+            rec->state = 2;
+        }
+        rec = rec + 1;
+    }
+    while (rec < g_50dd90 + 4);
+    g_50dd8c = 2;
 }
 
 } // namespace gbtg

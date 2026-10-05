@@ -22270,11 +22270,58 @@ void fn_12c340()
     }
 }
 
+// Xbox 0x0012C4E0
+// The handler dword at slot+0 selects the 0x18-byte record at DAT_003129AC.
+// The call is the pointer at +8 (DAT_003129B4) with &DAT_00546328. The image
+// slots are 0x001628B0, 0x0012B5A0, 0x0012C1A0, and 0x001628B0. Those handlers
+// are not translated. EAX is then DAT_0054937C for 0x00048C70.
+// Phase 0 increments DAT_00510CEC and DAT_004DEA24. Phase 1 clears
+// DAT_00510F80. Phase 3 clears DAT_00510F7C. Any other phase falls through.
+// DAT_00510CEC and DAT_004DEA24 decrement. Bit 0x100 of DAT_0050EA9C clears.
+// DAT_0054632C becomes 0. A nonzero DAT_0054634C would call 0x0005F460. That
+// call is not translated. Bit 0x2000 then clears and the pointer becomes 0.
+// DAT_004DEA24 decrements again.
+void fn_12c4e0()
+{
+    // Xbox 0x0012C4E0
+    const i32 byte_off = g_546328 * 0x110;
+    const u8* row = reinterpret_cast<const u8*>(kTransition31478) + byte_off;
+    const i32 handler = *reinterpret_cast<const i32*>(row);
+    // Handler at DAT_003129B4 + handler * 0x18 is not translated.
+    // The argument is &DAT_00546328.
+    (void)handler;
+    fn_48c70(reinterpret_cast<EntityCamNode*>(&g_54937c));
+    if (g_54632c == 0)
+    {
+        g_510cec = g_510cec + 1;
+        g_4dea24 = g_4dea24 + 1;
+    }
+    else if (g_54632c == 1)
+    {
+        g_510f80 = 0;
+    }
+    else if (g_54632c == 3)
+    {
+        g_510f7c = 0;
+    }
+    g_510cec = g_510cec - 1;
+    g_4dea24 = g_4dea24 - 1;
+    g_flags_ea9c = g_flags_ea9c & 0xfffffeffu;
+    g_54632c = 0;
+    if (g_54634c != nullptr)
+    {
+        // 0x0005F460 is not translated. EBX is DAT_0054634C.
+        g_flags_ea9c = g_flags_ea9c & 0xffffdfffu;
+        g_54634c = nullptr;
+    }
+    g_4dea24 = g_4dea24 - 1;
+}
+
 // Xbox 0x0012C5D0
-// A nonzero DAT_0054632C would call 0x0012C4E0 before the phase test. That
-// call is not translated. Phase 0 increments DAT_00510CEC and DAT_004DEA24
-// and ORs 0x100 into DAT_0050EA9C. Phase 1 clears DAT_00510F80. Phase 3
-// clears DAT_00510F7C. Any other phase falls through. DAT_0054632C becomes 1.
+// A nonzero DAT_0054632C calls 0x0012C4E0 before the phase test. Phase 0
+// increments DAT_00510CEC and DAT_004DEA24 and ORs 0x100 into DAT_0050EA9C.
+// Phase 1 clears DAT_00510F80. Phase 3 clears DAT_00510F7C. Any other phase
+// falls through. DAT_0054632C becomes 1.
 //
 // 0x0012C2D0 is not translated. ESI would be DAT_0054633C and EDI DAT_00546338.
 // EAX would replace DAT_00546328. That return is not stored. The slot already
@@ -22301,7 +22348,7 @@ void fn_12c5d0()
     // Xbox 0x0012C5D0
     if (g_54632c != 0)
     {
-        // 0x0012C4E0 is not translated.
+        fn_12c4e0();
     }
     if (g_54632c == 0)
     {

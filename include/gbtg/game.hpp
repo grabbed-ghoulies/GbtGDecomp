@@ -20,8 +20,11 @@ struct InputState
     bool left = false;  // D-pad left. Virtual keyboard column.
     bool right = false; // D-pad right.
     bool accept = false; // A (0x0100). Empty game slot opens the virtual keyboard.
-    bool back = false;   // B. Game-select returns to the attract reel.
+    bool back = false;   // B (0x0200). Game-select returns to the attract reel.
     bool start = false;  // Start (0x0010). Attract banner accepts this or A, not both.
+    bool page = false;   // X (0x0400). Keyboard code 5 cycles the page.
+    bool caret_left = false;  // Left trigger, bit 0x4000. Keyboard code 9.
+    bool caret_right = false; // Right trigger, bit 0x8000. Keyboard code 10.
 };
 
 // Xbox WinMain 0x00032390: gfx_init, fs_init, game_init, then forever frame_tick 0x00033B50.
@@ -60,7 +63,8 @@ struct Game
     // Widget vtable from 0x0030A000, stride 0x18. -1 is no frontend widget.
     // 0 is the attract banner (entitySceneControlAttract). 1 is slot select,
     // installed by entitySceneControlGameSelect. 4 is the naming keyboard.
-    // 3 is occupied-slot contents (0x000E02D0). 6 is the play row (0x000D5880).
+    // 3 is occupied-slot contents (0x000E02D0). Its own mode byte is separate
+    // and is switched by 0x000DA580.
     int frontend_mode = -1;
     // DAT_00429BC0. Boot 0x000E5A80 stores 1. 0x000E5AE0 installs modes[this]
     // once stream 2 is idle. 0x000DD740 writes 1 again.
@@ -72,7 +76,7 @@ struct Game
     char requested_script[0x80]{};
     int script_phase = 0;
     bool script_hold = false;
-    // Contents rows. 0 is Play, the row whose accept switches to mode 6.
+    // Contents plates. 0x000DB450 wraps this. 0 Play, 1 Features, 2 Challenges.
     int contents_row = 0;
     // frontendGameSlotSelectBasic (0x000DF9A0). Index is menu+0xB2C. Empty slots until a save exists.
     int slot = 0;
@@ -83,6 +87,10 @@ struct Game
     bool slot_right = false;
     bool slot_accept = false;
     bool slot_back = false;
+    bool slot_start = false;
+    bool slot_page = false;
+    bool slot_caret_left = false;
+    bool slot_caret_right = false;
     // Virtual keyboard (0x00011870). Empty slots have no name, so A opens this instead of loading.
     bool naming = false;
     int kb_page = 0; // +0xBC. 0 alphabet, 1 symbols, 2 accents.

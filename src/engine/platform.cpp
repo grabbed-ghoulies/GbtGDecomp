@@ -96,6 +96,20 @@ int run_platform(Game& game, const PlatformConfig& cfg)
         {
             in.start = true;
         }
+        // 0x00014C10. X is bit 0x0400 (keyboard code 5). '[' and ']' stand in for
+        // the trigger bits 0x4000 and 0x8000 (codes 9 and 10).
+        if (GetAsyncKeyState('X') & 0x8000)
+        {
+            in.page = true;
+        }
+        if (GetAsyncKeyState(VK_OEM_4) & 0x8000)
+        {
+            in.caret_left = true;
+        }
+        if (GetAsyncKeyState(VK_OEM_6) & 0x8000)
+        {
+            in.caret_right = true;
+        }
         // 0x001555B0 polls XInput into the four ports. The host keyboard above
         // fills the same button word, so a connected pad fills those bits too.
         for (DWORD port = 0; port < 4; ++port)
@@ -134,6 +148,19 @@ int run_platform(Game& game, const PlatformConfig& cfg)
             if ((buttons & XINPUT_GAMEPAD_START) != 0)
             {
                 in.start = true;
+            }
+            if ((buttons & XINPUT_GAMEPAD_X) != 0)
+            {
+                in.page = true;
+            }
+            // 0x00154E50 sets bit 0x4000 / 0x8000 when the trigger byte is at least 30.
+            if (pad.bLeftTrigger >= 30)
+            {
+                in.caret_left = true;
+            }
+            if (pad.bRightTrigger >= 30)
+            {
+                in.caret_right = true;
             }
         }
 #endif
@@ -180,6 +207,18 @@ int run_platform(Game& game, const PlatformConfig& cfg)
             if (keys[SDL_SCANCODE_SPACE])
             {
                 in.start = true;
+            }
+            if (keys[SDL_SCANCODE_X])
+            {
+                in.page = true;
+            }
+            if (keys[SDL_SCANCODE_LEFTBRACKET])
+            {
+                in.caret_left = true;
+            }
+            if (keys[SDL_SCANCODE_RIGHTBRACKET])
+            {
+                in.caret_right = true;
             }
         }
 #endif

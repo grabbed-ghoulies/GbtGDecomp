@@ -1,3 +1,4 @@
+#include "gbtg/bundle.hpp"
 #include "gbtg/engine_internal.hpp"
 #include "gbtg/font.hpp"
 #include "gbtg/gfx.hpp"
@@ -7,6 +8,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cmath>
 #include <filesystem>
 #include <iostream>
 #include <map>
@@ -19,6 +21,11 @@ namespace
 {
 
 std::u16string gameselect_string(const Game& g, std::string_view key);
+std::u16string default_new_game_name(const Game& g);
+float text_width(const GloopyFont& font, std::u16string_view text, float scale);
+int& keyboard_anim_gen();
+int keyboard_glyph_frame(const Game& g, int page, int row, int col, const std::u16string& label, size_t index);
+int keyboard_name_frame(const Game& g, const std::u16string& name, size_t index);
 
 RgbaImage image_from_entry(const BundleEntry& entry)
 {
@@ -152,7 +159,10 @@ void kb_clamp_col(Game& g)
 
 void kb_open(Game& g)
 {
-    // 0x000E02D0 empty slot: object +0x94 = 4 (gameslotnaming).
+    // 0x000E02D0 empty slot: object +0x94 = 4. 0x000DCEC0 loads
+    // supportsavedgame__defaultnewgamename into the naming widget. 0x000110D0
+    // copies that into the keyboard, and 0x00011870 stores its length at +0xA8,
+    // which is the caret.
     g.frontend_mode = 4;
     g.naming = true;
     g.kb_page = 0;
@@ -161,11 +171,18 @@ void kb_open(Game& g)
     g.kb_saved = 1;
     g.kb_shift = false;
     g.kb_caps = false;
-    g.kb_len = g.slot_name_len[g.slot];
+    const std::u16string name = default_new_game_name(g);
+    g.kb_len = int(name.size());
+    if (g.kb_len > 64)
+    {
+        g.kb_len = 64;
+    }
     g.kb_caret = g.kb_len;
+    // 0x00015A10 and 0x00016EF0 build new text widgets here, so the morph restarts.
+    ++keyboard_anim_gen();
     for (int i = 0; i < 64; ++i)
     {
-        g.kb_text[i] = i < g.kb_len ? g.slot_name[g.slot][i] : 0;
+        g.kb_text[i] = i < g.kb_len ? name[size_t(i)] : 0;
     }
 }
 
@@ -423,7 +440,7 @@ void kb_activate(Game& g)
     }
     if (code < 0x10000)
     {
-        if (g.kb_len >= 63)
+        if (g.kb_len >= 64)
         {
             return;
         }
@@ -549,33 +566,43 @@ void draw_plate(const Game& g, int index, bool selected)
 
 std::u16string key_label(const Game& g, u32 code)
 {
-    // FUN_00011150 writes the loctext key from the table at 0x338D78.
-    // 0x10004 +0x28 Alphabet, 0x10005 +0x2C Symbols, 0x10006 +0x30 Accents, 0x10007 +0x34 Done.
-    // Letters follow FUN_000176E0 (shift / caps).
+    // 0x00011150. The wide string is the loctext pointer at [0x00338DCC + offset].
+    // 0x20 Space, 0x10000 Backspace, 0x10002 Shift, 0x10003 Capslock,
+    // 0x10004 Alphabet, 0x10005 Symbols, 0x10006 Accents, 0x10007 Done.
+    const char* key = nullptr;
     switch (code)
     {
     case 0x10007:
-        return u"DONE";
+        key = "virtualkeyboard_Done";
+        break;
     case 0x10006:
-        return u"ACCENTS";
+        key = "virtualkeyboard_Accents";
+        break;
     case 0x10005:
-        return u"SYMBOLS";
+        key = "virtualkeyboard_Symbols";
+        break;
     case 0x10004:
-        return u"ALPHABET";
+        key = "virtualkeyboard_Alphabet";
+        break;
     case 0x10003:
-        return u"CAPS LOCK";
+        key = "virtualkeyboard_Capslock";
+        break;
     case 0x10002:
-        return u"SHIFT";
+        key = "virtualkeyboard_Shift";
+        break;
     case 0x10000:
-        return u"BACKSPACE";
+        key = "virtualkeyboard_Backspace";
+        break;
     case 0x20:
-        return u"SPACE";
+        key = "virtualkeyboard_Space";
+        break;
     case 0x22B2:
     case 0x22B3:
         return {};
     default:
         return std::u16string(1, kb_insert_char(g, code));
     }
+    return gameselect_string(g, key);
 }
 
 const GloopyFont& gloopy_font(const Game& g)
@@ -632,6 +659,161 @@ void draw_centered_line(const GloopyFont& font, std::u16string_view text, float 
     draw_glyphs(font, text, anchor_x - width * 0.5f, pen_y, scale, frame);
 }
 
+// 0x00061360 fills a rounded rect. The colour dword is rebuilt as
+// A from the top byte and R,G,B from the low three bytes in memory order
+// (0x80069764 draws R=0x64 G=0x97 B=0x06 A=0x80). Corner radius is height * 0.25,
+// truncated. The image is cached: the HUD keeps the pointer until present.
+const RgbaImage& rounded_fill(int w, int h, u32 color)
+{
+    struct Key
+    {
+        int w;
+        int h;
+        u32 color;
+        bool operator<(const Key& other) const
+        {
+            if (w != other.w)
+            {
+                return w < other.w;
+            }
+            if (h != other.h)
+            {
+                return h < other.h;
+            }
+            return color < other.color;
+        }
+    };
+    static std::map<Key, RgbaImage> cache;
+    const Key key{w, h, color};
+    const auto found = cache.find(key);
+    if (found != cache.end())
+    {
+        return found->second;
+    }
+    RgbaImage image;
+    image.width = w;
+    image.height = h;
+    image.bgra.assign(size_t(w * h * 4), 0);
+    const u8 a = u8(color >> 24);
+    const u8 b = u8(color >> 16);
+    const u8 g = u8(color >> 8);
+    const u8 r = u8(color);
+    const float radius = float(int(float(h) * 0.25f));
+    const float cx = float(w) * 0.5f;
+    const float cy = float(h) * 0.5f;
+    for (int y = 0; y < h; ++y)
+    {
+        for (int x = 0; x < w; ++x)
+        {
+            const float px = float(x) + 0.5f;
+            const float py = float(y) + 0.5f;
+            float dx = std::fabs(px - cx) - (cx - radius);
+            float dy = std::fabs(py - cy) - (cy - radius);
+            const float ax = std::max(dx, 0.f);
+            const float ay = std::max(dy, 0.f);
+            const float sdf = std::sqrt(ax * ax + ay * ay) + std::min(std::max(dx, dy), 0.f) - radius;
+            const float coverage = std::clamp(0.5f - sdf, 0.f, 1.f);
+            if (coverage <= 0.f)
+            {
+                continue;
+            }
+            const size_t i = size_t((y * w + x) * 4);
+            image.bgra[i] = b;
+            image.bgra[i + 1] = g;
+            image.bgra[i + 2] = r;
+            image.bgra[i + 3] = u8(float(a) * coverage);
+        }
+    }
+    return cache.emplace(key, std::move(image)).first->second;
+}
+
+// 0x00016FC0. x,y are the text pen; the button sits 5px up and left (DAT_0032B184)
+// and is textWidth + 10 by cell*0.65 + 10 (DAT_0032B10C). 0xFFFF0000 is not drawn.
+void draw_key_button(float pen_x, float pen_y, float text_w, float em, u32 color)
+{
+    if (color == 0xFFFF0000u)
+    {
+        return;
+    }
+    const float bw = text_w + 10.f;
+    const float bh = em + 10.f;
+    const int iw = std::max(1, int(std::lround(bw)));
+    const int ih = std::max(1, int(std::lround(bh)));
+    gfx_sprite_submit(rounded_fill(iw, ih, color), pen_x - 5.f, pen_y - 5.f, float(iw), float(ih));
+}
+
+// 0x00017210 chooses the button colour before 0x00016FC0.
+// Default DAT_0020AE6C, hot key DAT_0020AE68. Shift (+0x10) and Caps (+0xC)
+// use the hot colour on pages 0 and 2. Page 1 draws both of those keys with
+// DAT_0020AE78. The hot key wins after that test.
+u32 key_fill(const Game& g, u32 code, bool hot)
+{
+    constexpr u32 kFill = 0x80069764u;
+    constexpr u32 kHot = 0xC43EF7B6u;
+    constexpr u32 kGray = 0x80808080u;
+    u32 color = kFill;
+    if (code == 0x10002 || code == 0x10003)
+    {
+        const bool latched = code == 0x10002 ? g.kb_shift : g.kb_caps;
+        if (g.kb_page == 1)
+        {
+            color = kGray;
+        }
+        else if (latched && (g.kb_page == 0 || g.kb_page == 2))
+        {
+            color = kHot;
+        }
+    }
+    if (hot)
+    {
+        color = kHot;
+    }
+    return color;
+}
+
+// Icon index is the dword at VirtualKeyboardMenu+0x40, stride 0x48.
+// 0x000142D74 shifts that index by 7 and adds 0x003150D0.
+const RgbaImage* joypad_icon(const Game& g, int code)
+{
+    static const char* kNames[] = {
+        "aid_texture_joypad_buttons_a",
+        "aid_texture_joypad_buttons_b",
+        "aid_texture_joypad_buttons_x",
+        "aid_texture_joypad_buttons_y",
+        "aid_texture_joypad_buttons_black",
+        "aid_texture_joypad_buttons_white",
+        "aid_texture_joypad_sticks_xboxsticksmaller",
+        "aid_texture_joypad_buttons_dpad",
+        "aid_texture_joypad_triggers_both",
+    };
+    static RgbaImage images[9];
+    static bool tried[9] = {};
+    if (code < 0 || code >= 9)
+    {
+        return nullptr;
+    }
+    if (!tried[code])
+    {
+        tried[code] = true;
+        if (const BundleEntry* entry = find_entry(g.aids.common, kNames[code]))
+        {
+            try
+            {
+                images[code] = image_from_entry(*entry);
+            }
+            catch (const std::exception& ex)
+            {
+                std::cerr << kNames[code] << " " << ex.what() << "\n";
+            }
+        }
+    }
+    if (images[code].bgra.empty())
+    {
+        return nullptr;
+    }
+    return &images[code];
+}
+
 void draw_keyboard(const Game& g)
 {
     if (!g.naming)
@@ -639,73 +821,172 @@ void draw_keyboard(const Game& g)
         return;
     }
     const GloopyFont& font = gloopy_font(g);
+    if (font.cell() <= 0)
+    {
+        return;
+    }
     const Game::UiImage* caret = find_ui(g, "virtkb_caret");
     const Game::UiImage* left = find_ui(g, "virtkb_arrowleft");
     const Game::UiImage* right = find_ui(g, "virtkb_arrowright");
+    const int frame = font.rest_frame();
+    constexpr float kLabel = 0.65f;
+    constexpr float kName = 1.45f;
+    const float em = float(font.cell()) * kLabel;
+    const float name_em = float(font.cell()) * kName;
+
+    // 0x00017210. Bar colour DAT_0020AE70. x=122, y=46. Width is
+    // [keyboard+0x114] + 16, and +0x114 is screen width - 260. Height is
+    // cell*1.45 + 16. Both extents are truncated before the fill.
+    const int bar_w = int((kFrameW - 260.f) + 16.f);
+    const int bar_h = int(name_em + 16.f);
+    gfx_sprite_submit(rounded_fill(bar_w, bar_h, 0x40069764u), 122.f, 46.f, float(bar_w), float(bar_h));
+
+    // 0x00015A10. Pen (130, 54), scale 1.45, eax=1. 0x00060070 morphs, then holds
+    // the last frame. Insert calls 0x00015A10 again, which starts a new widget.
+    // 0x000174D0 / 0x00015010 centres virtkb_caret on that string at the same scale.
+    const std::u16string name(g.kb_text, g.kb_text + g.kb_len);
+    float name_x = 130.f;
+    float caret_x = 130.f;
+    for (int i = 0; i < g.kb_len; ++i)
+    {
+        if (i == g.kb_caret)
+        {
+            caret_x = name_x;
+        }
+        const int name_frame = keyboard_name_frame(g, name, size_t(i));
+        if (const RgbaImage* glyph = font.image(g.kb_text[i], name_frame))
+        {
+            const float bx = float(font.bearing(g.kb_text[i])) * kName;
+            gfx_sprite_submit(*glyph, name_x - bx, 54.f, name_em, name_em);
+        }
+        name_x += float(font.advance(g.kb_text[i])) * kName;
+    }
+    if (g.kb_caret >= g.kb_len)
+    {
+        caret_x = name_x;
+    }
+    if (caret != nullptr)
+    {
+        const float cw = float(caret->image.width) * kName;
+        const float ch = float(caret->image.height) * kName;
+        const float cy = 54.f + name_em * 0.5f;
+        draw_sprite(caret, caret_x - cw * 0.5f, cy - ch * 0.5f, cw, ch);
+    }
+
     for (int r = 0; r < kKbRows; ++r)
     {
         const KbRow& row = kKb[g.kb_page][r];
         float x = 0.f;
         for (int c = 0; c < row.count; ++c)
         {
-            const float w = float(row.keys[c].width);
-            const float left_px = 64.f + x;
-            const float top = 135.f + float(r) * 42.f;
+            const float slot = float(row.keys[c].width);
+            const float pen_x = 64.f + x;
+            const float pen_y = 135.f + float(r) * 42.f;
             const u32 code = row.keys[c].code;
             const bool hot = r == g.kb_row && c == g.kb_col;
-            if (code == 0x22B2 && left)
+            const std::u16string label = key_label(g, code);
+            // 0x00016360 falls through to the key code. A missing glyph, which
+            // is what the arrow codes are, advances by the cell, so the button
+            // is square. Letters and words use the measured string.
+            const float measured = label.empty() ? float(font.advance(code)) * kLabel : text_width(font, label, kLabel);
+            draw_key_button(pen_x, pen_y, measured, em, key_fill(g, code, hot));
+            if (!label.empty())
             {
-                draw_sprite(left, left_px, top, float(left->image.width), float(left->image.height));
+                // 0x00016EF0 submits eax=1, so 0x00060070 plays the morph and
+                // then holds the last frame. The highlight does not put it back
+                // on the texture clock.
+                float gx = pen_x;
+                for (size_t i = 0; i < label.size(); ++i)
+                {
+                    const char16_t ch = label[i];
+                    const int glyph_frame = keyboard_glyph_frame(g, g.kb_page, r, c, label, i);
+                    if (const RgbaImage* glyph = font.image(ch, glyph_frame))
+                    {
+                        const float bx = float(font.bearing(ch)) * kLabel;
+                        gfx_sprite_submit(*glyph, gx - bx, pen_y, em, em);
+                    }
+                    gx += float(font.advance(ch)) * kLabel;
+                }
             }
-            else if (code == 0x22B3 && right)
+            // 0x00015A60 / 0x00015B50. Centre is half the measured width across
+            // and half an em down. 0x0005CA60 then centres the texture, scale 1.
+            if (code == 0x22B2 || code == 0x22B3)
             {
-                draw_sprite(right, left_px, top, float(right->image.width), float(right->image.height));
+                const Game::UiImage* arrow = code == 0x22B2 ? left : right;
+                if (arrow != nullptr)
+                {
+                    const float aw = float(arrow->image.width);
+                    const float ah = float(arrow->image.height);
+                    const float cx = pen_x + measured * 0.5f;
+                    const float cy = pen_y + em * 0.5f;
+                    draw_sprite(arrow, cx - aw * 0.5f, cy - ah * 0.5f, aw, ah);
+                }
             }
-            else
-            {
-                // FUN_00016EF0 submits every label with eax=1. FUN_00060070 then
-                // settles on tile_count-1, and FUN_0005CA60 pins that index into
-                // texture+0x13 so FUN_00053550's clock stays off. The key at
-                // +0xC0/+0xC4 is left on the clock (frame -1, byte +0x13 stays 0xFF).
-                const int frame = hot ? font.frame(g.time) : font.rest_frame();
-                // FUN_00016EF0 submits sx = sy = 0.65 (DAT_0032B1EC).
-                draw_glyphs(font, key_label(g, code), left_px, top, 0.65f, frame);
-            }
-            if (hot && caret)
-            {
-                const float cw = std::min(w, float(caret->image.width));
-                const float ch = 8.f;
-                draw_sprite(caret, left_px + (w - cw) * 0.5f, top + 42.f - ch, cw, ch);
-            }
-            x += w;
+            x += slot;
             if (c == 0)
             {
                 x += 4.f;
             }
         }
     }
-    // 0x00015A10 submits the name with eax=1, so FUN_00060070 holds the last frame.
-    // Pen is (130, 54), scale 1.45 (DAT_0032B538). 0x000174D0 sits the caret on that string.
-    float name_x = 130.f;
-    const int frame = font.rest_frame();
-    const float name_scale = 1.45f;
-    const float name_em = float(font.cell()) * name_scale;
-    for (int i = 0; i < g.kb_len; ++i)
+
+    // VirtualKeyboardMenu, built by 0x00014AB0. On 640x480 the anchor is
+    // (DAT_00509740 + 100, DAT_0050974C - 16) = (160.5, 415.5). Rows step by
+    // DAT_0032B620 (-28.8). 0x0001428F0's width is the widest string plus
+    // cell*0.65 + 20, and that opens the second column.
+    // Codes: 0 A select, 1 B exit, 2 X change mode, 7 d-pad move, 8 triggers caret.
+    // Face buttons stay in the left column, d-pad and triggers in the right,
+    // lowest code on the anchor and the rest stacked upward.
+    struct Prompt
     {
-        if (i == g.kb_caret && caret)
-        {
-            draw_sprite(caret, name_x, 54.f, float(caret->image.width) * 0.45f, name_em);
-        }
-        if (const RgbaImage* glyph = font.image(g.kb_text[i], frame))
-        {
-            const float bx = float(font.bearing(g.kb_text[i])) * name_scale;
-            gfx_sprite_submit(*glyph, name_x - bx, 54.f, name_em, name_em);
-        }
-        name_x += float(font.advance(g.kb_text[i])) * name_scale;
+        int code;
+        const char* key;
+    };
+    constexpr Prompt kPrompts[] = {
+        {0, "virtualkeyboard_select"},
+        {7, "virtualkeyboard_move"},
+        {1, "virtualkeyboard_exit"},
+        {8, "virtualkeyboard_movecaret"},
+        {2, "virtualkeyboard_changemode"},
+    };
+    constexpr float kPrompt = 0.65f;
+    constexpr float kAnchorX = 160.5f;
+    constexpr float kAnchorY = 415.5f;
+    constexpr float kRowStep = -28.8f;
+    float widest = 0.f;
+    for (const Prompt& prompt : kPrompts)
+    {
+        widest = std::max(widest, text_width(font, gameselect_string(g, prompt.key), kPrompt));
     }
-    if (g.kb_caret >= g.kb_len && caret)
+    const float column = widest + float(font.cell()) * kPrompt + 20.f;
+    const float prompt_em = float(font.cell()) * kPrompt;
+    int left_row = 0;
+    int right_row = 0;
+    // Stable order is by icon code, not the file order of the five records.
+    int order[5] = {0, 1, 2, 3, 4};
+    std::sort(order, order + 5, [&](int a, int b) { return kPrompts[a].code < kPrompts[b].code; });
+    for (int index : order)
     {
-        draw_sprite(caret, name_x, 54.f, float(caret->image.width) * 0.45f, name_em);
+        const Prompt& prompt = kPrompts[index];
+        const std::u16string part = gameselect_string(g, prompt.key);
+        if (part.empty())
+        {
+            continue;
+        }
+        const bool right = prompt.code >= 7;
+        const int row = right ? right_row++ : left_row++;
+        const float text_x = kAnchorX + (right ? column : 0.f);
+        const float mid_y = kAnchorY + float(row) * kRowStep;
+        const float text_y = mid_y - prompt_em * 0.5f;
+        if (const RgbaImage* icon = joypad_icon(g, prompt.code))
+        {
+            // DAT_0032B264 (0.7) is stored on the prompt child at +0x18.
+            constexpr float kIcon = 0.7f;
+            const float iw = float(icon->width) * kIcon;
+            const float ih = float(icon->height) * kIcon;
+            gfx_sprite_submit(*icon, text_x - iw - 4.f, mid_y - ih * 0.5f, iw, ih);
+        }
+        draw_glyphs(font, part, text_x, text_y, kPrompt, frame);
     }
 }
 
@@ -783,6 +1064,38 @@ std::u16string gameselect_string(const Game& g, std::string_view key)
         return {};
     }
     return it->second;
+}
+
+// 0x000DCFC0. 0x000FF0A0 loads supportsavedgame__defaultnewgamename from
+// aid_loctext_ghoulies_savedgame. A failed lookup copies the wide "ERROR"
+// at 0x0032AEE8.
+std::u16string default_new_game_name(const Game& g)
+{
+    static std::u16string name;
+    static bool loaded = false;
+    if (!loaded)
+    {
+        loaded = true;
+        name = u"ERROR";
+        const auto path = g.aids.game_dir / "loctext" / "english" / "070611e5";
+        if (std::filesystem::exists(path))
+        {
+            try
+            {
+                const LocTable parsed = parse_loctext(read_file(path), path.filename().string());
+                const auto it = parsed.keys_to_utf8.find("supportsavedgame__defaultnewgamename");
+                if (it != parsed.keys_to_utf8.end())
+                {
+                    name = utf8_to_u16(it->second);
+                }
+            }
+            catch (const std::exception& ex)
+            {
+                std::cerr << "savedgame loctext " << ex.what() << "\n";
+            }
+        }
+    }
+    return name;
 }
 
 float text_width(const GloopyFont& font, std::u16string_view text, float scale)
@@ -906,6 +1219,64 @@ int goo_frame(const GooLine& line, size_t index, float now, int count)
     return goo_glyph_frame(remaining, kLife, kStep, count, 25, true);
 }
 
+int& keyboard_anim_gen()
+{
+    static int gen = 0;
+    return gen;
+}
+
+// One widget per key, born when the keyboard opens (0x00016EF0) or when
+// 0x00015D60 rebuilds a letter after shift or caps changes the label.
+int keyboard_glyph_frame(const Game& g, int page, int row, int col, const std::u16string& label, size_t index)
+{
+    struct Slot
+    {
+        int gen = -1;
+        GooLine line;
+    };
+    static int primed = -1;
+    static Slot slots[kKbPages][kKbRows][12];
+    if (primed != keyboard_anim_gen())
+    {
+        primed = keyboard_anim_gen();
+        for (int p = 0; p < kKbPages; ++p)
+        {
+            for (int r = 0; r < kKbRows; ++r)
+            {
+                for (int c = 0; c < kKb[p][r].count && c < 12; ++c)
+                {
+                    arm_goo(slots[p][r][c].line, key_label(g, kKb[p][r].keys[c].code), g.time, -1);
+                    slots[p][r][c].gen = primed;
+                }
+            }
+        }
+    }
+    if (page < 0 || page >= kKbPages || row < 0 || row >= kKbRows || col < 0 || col >= 12)
+    {
+        return 0;
+    }
+    Slot& slot = slots[page][row][col];
+    if (slot.line.text != label)
+    {
+        arm_goo(slot.line, label, g.time, -1);
+        slot.gen = primed;
+    }
+    return goo_frame(slot.line, index, g.time, gloopy_font(g).rest_frame() + 1);
+}
+
+// 0x00015A10 replaces the name widget. A caret move does not.
+int keyboard_name_frame(const Game& g, const std::u16string& name, size_t index)
+{
+    static int gen = -1;
+    static GooLine line;
+    if (gen != keyboard_anim_gen() || line.text != name)
+    {
+        arm_goo(line, name, g.time, -1);
+        gen = keyboard_anim_gen();
+    }
+    return goo_frame(line, index, g.time, gloopy_font(g).rest_frame() + 1);
+}
+
 void draw_goo_line(const GloopyFont& font, const GooLine& line, float pen_x, float pen_y, float scale, float now,
                    bool center)
 {
@@ -942,7 +1313,22 @@ void draw_goo_line(const GloopyFont& font, const GooLine& line, float pen_x, flo
 // lerps only the highlighted plate toward the hot norm. The save name sits at
 // screen center + (0, -185) = (320, 55), scale 1.8. The highlighted row's
 // loctext is the wide string at slot+4, placed at (320, 278), scale 1.4.
-// 0x000DA040's chapter line is the buffer at +0xA78, anchor (320, 330), scale 0.75.
+// The chapter line is the buffer at +0xA78, anchor (320, 330), scale 0.75.
+// 0x000D8CD0 copies "Progress not set" from 0x00324CB4 into that buffer.
+// 0x000DA040 overwrites it only after 0x00010DB10 copies a script id out of the
+// save list. 0x0004B4D0 matches aid_script_ghoulies_chapter, the chapter number
+// is the dword at [index*4 + 0x002FE698], and 0x00011EC70 supplies the scene
+// number (a 0 is replaced with 1). Those two counts are formatted with the
+// wide "%s %d" at 0x00324C50 onto gameslotcontents_chapter and
+// gameslotcontents_scene, then joined with the wide "%s%s : %s" at 0x00324C3C
+// and the scene name from 0x00011ED80. No save list means no id is copied, so
+// no chapter number is written and the buffer stays the init literal.
+std::u16string contents_progress_line()
+{
+    constexpr char16_t kLiteral[] = u"Progress not set";
+    return std::u16string(kLiteral);
+}
+
 void draw_contents(const Game& g)
 {
     struct Plate
@@ -982,7 +1368,7 @@ void draw_contents(const Game& g)
         name.assign(g.slot_name[g.slot], g.slot_name[g.slot] + g.slot_name_len[g.slot]);
     }
     const std::u16string label = gameselect_string(g, shown.label);
-    const std::u16string chapter = gameselect_string(g, "gameslotcontents_chapter");
+    const std::u16string chapter = contents_progress_line();
     static int last_row = -2;
     static GooLine name_line;
     static GooLine label_line;
@@ -1004,16 +1390,29 @@ void draw_contents(const Game& g)
     draw_goo_line(font, label_line, 320.f, 278.f, 1.4f, g.time, true);
     draw_goo_line(font, chapter_line, 320.f, 330.f, 0.75f, g.time, true);
 
-    const char* prompt_keys[3] = {
-        "gameslotcontents_moveprompt",
+    // 0x000DAA37 calls 0x000142180 with the prompt set for the highlighted row.
+    // 0x0001428F0 walks that set in record order, stride 0x48.
+    // Play (0x003069F0): select, move, back, info.
+    // +0xF24 == 3 would select 0x00306D00 instead, which has no select entry.
+    // 0x000DA040 leaves +0xF24 at 2 when 0x00010DC60 finds no save record.
+    // Features (0x00307010) and Challenges (0x00307320): select, move, back.
+    const char* prompt_keys[4] = {
         "gameslotcontents_selectprompt",
+        "gameslotcontents_moveprompt",
         "gameslotcontents_backprompt",
+        nullptr,
     };
-    static GooLine prompts[3];
+    int prompt_count = 3;
+    if (hot == 0)
+    {
+        prompt_keys[3] = "gameslotcontents_infoprompt";
+        prompt_count = 4;
+    }
+    static GooLine prompts[4];
     constexpr float kPromptScale = 0.75f;
     constexpr float kPromptGap = 32.f;
     float x = 76.5f;
-    for (int i = 0; i < 3; ++i)
+    for (int i = 0; i < prompt_count; ++i)
     {
         const std::u16string part = gameselect_string(g, prompt_keys[i]);
         if (prompts[i].text != part)
@@ -1315,7 +1714,10 @@ void gameselect_tick(Game& g, const InputState& in)
     }
     else if (g.frontend_mode == 4)
     {
-        // 0x00015090. B cancels (codes 3 and 4 call 0x000DD550). D-pad moves. A activates.
+        // 0x00014C10 then 0x00015090. A and Start (codes 1 and 2) activate the
+        // key. B (codes 3 and 4) calls 0x000DD550, which leaves for slot select.
+        // X (code 5) cycles the page. Triggers (codes 9 and 10) move the caret.
+        // D-pad codes 11-14 move the highlight.
         if (in.back && !g.slot_back)
         {
             g.frontend_mode = 1;
@@ -1339,7 +1741,31 @@ void gameselect_tick(Game& g, const InputState& in)
             {
                 kb_move(g, 0, 1);
             }
-            if (in.accept && !g.slot_accept)
+            if (in.caret_left && !g.slot_caret_left && g.kb_caret > 0)
+            {
+                --g.kb_caret;
+            }
+            if (in.caret_right && !g.slot_caret_right && g.kb_caret < g.kb_len)
+            {
+                ++g.kb_caret;
+            }
+            if (in.page && !g.slot_page)
+            {
+                if (g.kb_page == 0)
+                {
+                    g.kb_page = 1;
+                }
+                else if (g.kb_page == 1)
+                {
+                    g.kb_page = 2;
+                }
+                else
+                {
+                    g.kb_page = 0;
+                }
+                kb_clamp_col(g);
+            }
+            if ((in.accept && !g.slot_accept) || (in.start && !g.slot_start))
             {
                 kb_activate(g);
             }
@@ -1381,8 +1807,12 @@ void gameselect_tick(Game& g, const InputState& in)
     }
     else if (g.frontend_mode == 3)
     {
-        // 0x000D9450. State 1 accept (0x000D94FD) pushes 6 into 0x000DA580, the play row.
-        // B leaves the contents widget for slot select.
+        // 0x000D9450 ticks the prompt widget. Move is 0x000DB450: direction 8
+        // increments the row, direction 4 decrements it, then 0x000DA580 mode 6
+        // swaps the prompt set through 0x000142180. 0x000D9D10, once the plate
+        // zoom reaches 1, pushes mode 2 (Play), 5 (Features), or 4 (Challenges).
+        // Those bodies place the row label and, for mode 2, the chapter buffer.
+        // None of them request a script.
         if (in.down && !g.slot_down)
         {
             g.contents_row = (g.contents_row + 1) % 3;
@@ -1391,40 +1821,13 @@ void gameselect_tick(Game& g, const InputState& in)
         {
             g.contents_row = (g.contents_row + 2) % 3;
         }
-        if (in.accept && !g.slot_accept)
-        {
-            if (g.contents_row == 0)
-            {
-                g.frontend_mode = 6;
-                std::cout << "frontend mode 6 play\n";
-            }
-            else if (g.contents_row == 1)
-            {
-                g.slot_status[g.slot] = 0;
-                g.slot_name_len[g.slot] = 0;
-                g.frontend_mode = 1;
-                std::cout << "slot " << g.slot << " deleted\n";
-            }
-        }
+        // Select callbacks: Play 0x000DB570 pushes widget mode 7, Features
+        // 0x000DB6D0 sets the scene object to mode-table index 8, Challenges
+        // 0x000DB670 sets index 6. No aid is requested, and the slot is not cleared.
+        // Back is 0x000DB510, which sets the scene object to mode-table index 1.
         if (in.back && !g.slot_back)
         {
             g.frontend_mode = 1;
-        }
-    }
-    else if (g.frontend_mode == 6)
-    {
-        // Play row (0x000D6410 / 0x000D67F0). A starts the saved game at chapter 1.
-        // B returns to the contents rows.
-        if (in.back && !g.slot_back)
-        {
-            g.frontend_mode = 3;
-        }
-        else if (in.accept && !g.slot_accept)
-        {
-            // 0x000E8520 copies aid_script_ghoulies_chapter1_scene0_1book from 0x00325500.
-            std::cout << "play\n";
-            g.naming = false;
-            script_request(g, "aid_script_ghoulies_chapter1_scene0_1book");
         }
     }
     g.slot_down = in.down;
@@ -1433,6 +1836,10 @@ void gameselect_tick(Game& g, const InputState& in)
     g.slot_right = in.right;
     g.slot_accept = in.accept;
     g.slot_back = in.back;
+    g.slot_start = in.start;
+    g.slot_page = in.page;
+    g.slot_caret_left = in.caret_left;
+    g.slot_caret_right = in.caret_right;
 }
 
 void draw_ui(const Game& g)
@@ -1447,13 +1854,20 @@ void draw_ui(const Game& g)
         draw_start_banner(g);
         return;
     }
-    if (g.frontend_mode == 3 || g.frontend_mode == 6)
+    if (g.frontend_mode == 3)
     {
         draw_contents(g);
         return;
     }
     // 0x000DF140: an empty slot's backdrop is emptyslotbackground, scaled to the 640x480 frame.
     draw_sprite(find_ui(g, "gameselect_emptyslotbackground"), 0.f, 0.f, kFrameW, kFrameH);
+    // Naming is mode-table index 4. Its draw is 0x000DD170, which draws the
+    // keyboard object and not the three slot plates.
+    if (g.frontend_mode == 4)
+    {
+        draw_keyboard(g);
+        return;
+    }
     for (int i = 0; i < 3; ++i)
     {
         if (i != g.slot)

@@ -2050,6 +2050,7 @@ u8 g_decay_arm = 0;
 struct ActorMarkWord
 {
     u16 word_94 = 0; // +0x94
+    i32 int_258 = 0; // +0x258. 0x00140E30 requires this int to be 0.
 };
 struct ActorMark
 {
@@ -19039,6 +19040,20 @@ u32 g_tune_34014 = 0;
 u32 g_tune_34010 = 0;
 u32 g_tune_3402c = 0;
 u32 g_tune_34030 = 0;
+// DAT_00545D20 and DAT_00545D24. 0x00140E30 clears both when the word at
+// node+0x20 + 0x94 is 0. A live 0x001248D0(1, 0, 0) would set the first to 1.
+// A live 0x001248D0(8, 0, 0) would set the second to 1.
+i32 g_flag_5d20 = 0;
+i32 g_flag_5d24 = 0;
+// DAT_00545D28. Nonzero holds the previous tune indexes in the four words
+// below. 0x00140E30 clears it after restoring those indexes.
+i32 g_flag_5d28 = 0;
+// DAT_00545D2C, DAT_00545D30, DAT_00545D34, DAT_00545D38. Saved copies of
+// DAT_00545AEC, DAT_00545AF0, DAT_00545AF4, and DAT_00545AF8.
+u32 g_tune_5d2c = 0;
+u32 g_tune_5d30 = 0;
+u32 g_tune_5d34 = 0;
+u32 g_tune_5d38 = 0;
 // DAT_00512134, DAT_00512138, DAT_00512104. Type 0x64.
 u32 g_color_2134 = 0;
 u32 g_flag_2138 = 0;
@@ -22195,6 +22210,77 @@ void fn_12c770()
     // Handler at DAT_003129BC + handler * 0x18 is not translated.
     // The argument is &DAT_00546328.
     (void)handler;
+}
+
+// Xbox 0x00140E30. DAT_00511B40 null, or equal to the sentinel 0x93C, returns.
+// A zero word at node+0x20 + 0x94 clears DAT_00545D20 and DAT_00545D24 and
+// returns. The int at node+0x39C below 1, and the int at [node+0x20]+0x258
+// equal to 0, calls 0x000412A0. The int at node+0x39C is read again. Below 1,
+// 0x001248D0(1, 0, 0) would run. A nonzero return, while DAT_00545D20 is 0,
+// builds message id 0xB0. A nonzero word at the returned node+10 would call
+// 0x0011F2E0 and store that word in the next dword. 0x00116810 would then
+// run, and DAT_00545D20 becomes 1. 0x001248D0 is not translated, so that
+// nonzero return is not taken and DAT_00545D20 is cleared. The other side of
+// the compare clears it as well.
+//
+// 0x001248D0(8, 0, 0) would then run. A zero return clears DAT_00545D24. A
+// nonzero return, while DAT_00545D24 is 0, builds message id 0xB1. A nonzero
+// word at node+10 would call 0x0011F2E0 and vtable +0xC on the actor
+// (node-0x93C) with that message. 0x00124970 would then run, and DAT_00545D24
+// becomes 1. Those calls are not translated, so the nonzero return is not
+// taken and DAT_00545D24 is cleared.
+//
+// 0x001248D0(0x10, 0, 0) would then run. A null return calls 0x0013D610. A
+// nonzero return from that call would call 0x000412A0 and 0x001248D0 again.
+// A still-null pointer, with DAT_00545D28 nonzero, writes the saved indexes
+// back through 0x00314DE8, 0x00314DFC, 0x00314E10, 0x00314E28, and
+// 0x00314E38, then clears DAT_00545D28. 0x0013D610 is not translated, so its
+// nonzero return is not taken. A live pointer from 0x001248D0 would copy
+// the four indexes when DAT_00545D28 is 0, then the dwords at +0xC, +0x10,
+// +0x14, and +0x18 when the dword at +0 differs from DAT_00545D28. That
+// nonzero return is not taken.
+void fn_140e30()
+{
+    // Xbox 0x00140E30
+    if (g_actor_mark == nullptr ||
+        reinterpret_cast<std::uintptr_t>(g_actor_mark) == 0x93cu)
+    {
+        return;
+    }
+    if (g_actor_mark->at_20->word_94 == 0)
+    {
+        g_flag_5d20 = 0;
+        g_flag_5d24 = 0;
+        return;
+    }
+    Actor* actor = g_actor_mark->actor;
+    if (actor->parked_gate < 1 && g_actor_mark->at_20->int_258 == 0)
+    {
+        const Vec3 world = actor_world_position(*actor);
+        (void)world;
+        if (actor->parked_gate < 1)
+        {
+            // 0x001248D0(1, 0, 0) is not translated. A nonzero return is not taken.
+        }
+        g_flag_5d20 = 0;
+        // 0x001248D0(8, 0, 0) is not translated. A nonzero return is not taken.
+        g_flag_5d24 = 0;
+    }
+    // 0x001248D0(0x10, 0, 0) is not translated. A nonzero return is not taken.
+    // 0x0013D610 is not translated. A nonzero return is not taken.
+    if (g_flag_5d28 != 0)
+    {
+        g_tune_34008 = script_tune(0x00314de8u, g_tune_5d2c);
+        g_tune_34014 = script_tune(0x00314dfcu, g_tune_5d2c);
+        g_tune_5aec = g_tune_5d2c;
+        g_tune_34010 = script_tune(0x00314e10u, g_tune_5d30);
+        g_tune_5af0 = g_tune_5d30;
+        g_tune_3402c = script_tune(0x00314e28u, g_tune_5d34);
+        g_tune_5af4 = g_tune_5d34;
+        g_tune_34030 = script_tune(0x00314e38u, g_tune_5d38);
+        g_tune_5af8 = g_tune_5d38;
+        g_flag_5d28 = 0;
+    }
 }
 
 } // namespace gbtg

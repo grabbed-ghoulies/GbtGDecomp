@@ -106,13 +106,26 @@ function Get-TaskFiles([string]$Folder) {
 # Git arguments are a single array so flags such as -D and -b are not treated as
 # PowerShell parameters (-D would bind to -Dir and git would try to cd into the branch name).
 function Invoke-GitAt([string]$Dir, [string[]]$GitArgs) {
-    $prev = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-    $output = & git -C $Dir @GitArgs 2>&1
-    $code = $LASTEXITCODE
-    $ErrorActionPreference = $prev
-    if ($output) {
-        $output | ForEach-Object { Write-Host $_ }
+    # Git checkout progress is a flood of carriage returns. Merging that stderr
+    # into the PowerShell pipeline fills the pipe and the supervisor waits forever.
+    $outFile = Join-Path $env:TEMP ("gbtg-git-out-" + [guid]::NewGuid().ToString("n") + ".txt")
+    $errFile = Join-Path $env:TEMP ("gbtg-git-err-" + [guid]::NewGuid().ToString("n") + ".txt")
+    # Start-Process joins an argument array with spaces and does not quote them,
+    # so "reconstruct fn_72b10 at 0x00072B10" was split into pathspecs and commit failed.
+    $argList = ((@("-C", $Dir) + $GitArgs) | ForEach-Object {
+        if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ }
+    }) -join " "
+    $proc = Start-Process -FilePath "git" -ArgumentList $argList -Wait -PassThru -WindowStyle Hidden `
+        -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+    $code = $proc.ExitCode
+    $text = @()
+    if (Test-Path $outFile) { $text += @(Get-Content -LiteralPath $outFile -ErrorAction SilentlyContinue) }
+    if (Test-Path $errFile) { $text += @(Get-Content -LiteralPath $errFile -ErrorAction SilentlyContinue) }
+    Remove-Item -LiteralPath $outFile, $errFile -ErrorAction SilentlyContinue
+    foreach ($line in $text) {
+        if (-not $line) { continue }
+        if ($line -like "Updating files:*") { continue }
+        Write-Host $line
     }
     $global:LASTEXITCODE = $code
 }
@@ -183,6 +196,11 @@ function Invoke-Reap {
         $task = Read-Task $file.FullName
         $key = Get-VaKey $task.Fields["va"]
         if (Test-Path (Join-Path $Queue "claimed\$key.ready")) { continue }
+        $wt = Join-Path $WtRoot $key
+        if (-not (Test-Path (Join-Path $wt "TASK.md"))) {
+            Invoke-FailTask $task "worktree missing at $wt"
+            continue
+        }
         $age = (Get-Date).ToUniversalTime() - (Get-ClaimStamp $task)
         if ($age.TotalMinutes -ge $StaleMinutes) {
             Invoke-FailTask $task "stale claim returned after $StaleMinutes minutes"

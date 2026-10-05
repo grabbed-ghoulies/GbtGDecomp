@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <map>
@@ -644,6 +645,23 @@ const GloopyFont& gloopy_font(const Game& g)
         if (!font.load(path))
         {
             std::cerr << "gloopy font failed " << path.string() << "\n";
+        }
+    }
+    return font;
+}
+
+// Font table slot 1. 0x000605A0(1) selects aid_font_localisation_dialog_english_dialogfont.
+const GloopyFont& dialog_font(const Game& g)
+{
+    static GloopyFont font;
+    static bool loaded = false;
+    if (!loaded)
+    {
+        loaded = true;
+        const auto path = g.aids.game_dir / "font" / "02d54854";
+        if (!font.load(path))
+        {
+            std::cerr << "dialog font failed " << path.string() << "\n";
         }
     }
     return font;
@@ -1603,6 +1621,238 @@ int banner_glyph_frame(float age, float delay, int count)
     return int(remaining * float(count) / kStep) % count;
 }
 
+// 0x0004CE26, type 0x15. The name at +0x10 is joined as "dialogs__<name>"
+// (0x000FF0A0) and looked up in aid_loctext_ghoulies_dialog_dialogs.
+struct MoveCaption
+{
+    float start = 0.f;
+    float seconds = 1.f;
+    float scale = 1.5f;
+    std::u16string text;
+};
+
+int g_caption_hold = -1;
+float g_caption_left = 0.f;
+
+void reset_caption_hold()
+{
+    g_caption_hold = -1;
+    g_caption_left = 0.f;
+}
+
+float tag_number(std::string_view tag)
+{
+    const size_t sp = tag.find(' ');
+    if (sp == std::string_view::npos || sp + 1 >= tag.size())
+    {
+        return 0.f;
+    }
+    return std::strtof(std::string(tag.substr(sp + 1)).c_str(), nullptr);
+}
+
+void parse_dialog_line(std::string_view raw, MoveCaption& cap)
+{
+    std::string visible;
+    size_t i = 0;
+    while (i < raw.size())
+    {
+        if (raw[i] != '{')
+        {
+            visible.push_back(raw[i]);
+            ++i;
+            continue;
+        }
+        const size_t end = raw.find('}', i + 1);
+        if (end == std::string_view::npos)
+        {
+            break;
+        }
+        const std::string_view tag = raw.substr(i + 1, end - (i + 1));
+        if (tag.rfind("settime", 0) == 0)
+        {
+            const float seconds = tag_number(tag);
+            if (seconds > 0.f)
+            {
+                cap.seconds = seconds;
+            }
+        }
+        else if (tag.rfind("scale ", 0) == 0 || tag == "scale")
+        {
+            const float scale = tag_number(tag);
+            if (scale > 0.f)
+            {
+                cap.scale = scale;
+            }
+        }
+        i = end + 1;
+    }
+    cap.text = utf8_to_u16(visible);
+}
+
+const LocTable& dialog_loctext(const Game& g)
+{
+    static LocTable table;
+    static bool loaded = false;
+    if (loaded)
+    {
+        return table;
+    }
+    loaded = true;
+    // aid_loctext_ghoulies_dialog_dialogs
+    const auto path = g.aids.game_dir / "loctext" / "english" / "0c50e153";
+    if (!std::filesystem::exists(path))
+    {
+        return table;
+    }
+    try
+    {
+        table = parse_loctext(read_file(path), path.filename().string());
+    }
+    catch (const std::exception& ex)
+    {
+        std::cerr << "dialog loctext " << ex.what() << "\n";
+    }
+    return table;
+}
+
+std::string event_cstring(std::span<const u8> rec, size_t at)
+{
+    if (at >= rec.size())
+    {
+        return {};
+    }
+    size_t n = at;
+    while (n < rec.size() && rec[n] != 0)
+    {
+        ++n;
+    }
+    return std::string(reinterpret_cast<const char*>(rec.data() + at), n - at);
+}
+
+const std::vector<MoveCaption>& move_captions(const Game& g)
+{
+    static std::string clip;
+    static std::vector<MoveCaption> lines;
+    if (!g.cutscenes.playing || g.cutscenes.index >= g.cutscenes.items.size() || g.scene_bundle == nullptr)
+    {
+        clip.clear();
+        lines.clear();
+        reset_caption_hold();
+        return lines;
+    }
+    const std::string& name = g.cutscenes.items[g.cutscenes.index].name;
+    if (name == clip)
+    {
+        return lines;
+    }
+    clip = name;
+    lines.clear();
+    reset_caption_hold();
+    std::string prefix = name;
+    const std::string from = "aid_cutscene_";
+    if (prefix.rfind(from, 0) == 0)
+    {
+        prefix.replace(0, from.size(), "aid_cutsceneevents_");
+    }
+    const LocTable& table = dialog_loctext(g);
+    for (const auto& e : g.scene_bundle->entries)
+    {
+        if (e.type != ResourceType::CutsceneEvents || e.name.rfind(prefix, 0) != 0)
+        {
+            continue;
+        }
+        if (e.name.size() > prefix.size() && e.name[prefix.size()] != '_')
+        {
+            continue;
+        }
+        size_t pos = 0;
+        while (pos + 16 <= e.cpu.size())
+        {
+            const u32 size = read_u32(e.cpu, pos);
+            if (size < 16 || pos + size > e.cpu.size())
+            {
+                break;
+            }
+            const auto rec = e.cpu.subspan(pos, size);
+            const u32 type = read_u32(rec, 0x0c) & 0xffff;
+            if (type == 0x15 && rec.size() > 0x10)
+            {
+                const std::string key = "dialogs__" + event_cstring(rec, 0x10);
+                const auto it = table.keys_to_utf8.find(key);
+                if (it != table.keys_to_utf8.end())
+                {
+                    MoveCaption cap;
+                    cap.start = read_f32(rec, 4);
+                    parse_dialog_line(it->second, cap);
+                    if (!cap.text.empty())
+                    {
+                        lines.push_back(std::move(cap));
+                    }
+                }
+            }
+            pos += size;
+        }
+    }
+    return lines;
+}
+
+// Xbox 0x00058C30. {centre} is 0x0005704A: DAT_0042495C = 1, no line break.
+// The {settime} hold is state 2, so the fade at DAT_004EE204 is 1.
+// 0x00058C50: dialog cell 64 leaves the compensation at 1 (0x32B0F8). {scale}
+// replaces the 0.6 default (0x000570C2), so 0x42493C is the tag (1.5).
+// 0x0005CA60 stores texture * that scale * 0.5 (0x32B0F4) as the matrix scale.
+// 0x000596DB doubles only the first English glyph and 0x0005972E lifts it by
+// DAT_00424914 (37.5) * scale_y. 0x000597C8 restores the un-doubled scale.
+// One line at 0x00058E57 cancels to pen_y = height/2. 0x0005A670 centres it.
+// The corners at 0x42514C/0x425154 are -1 and 1, so cancelling the 0.5 would
+// draw 96px letters (192px on the first). That filled the page. The quad kept
+// here is the half the matrix stores.
+void draw_dialog_caption(const GloopyFont& font, std::u16string_view text, float scale)
+{
+    if (text.empty() || font.cell() <= 0 || scale == 0.f)
+    {
+        return;
+    }
+    constexpr float kMatrixHalf = 0.5f;
+    constexpr float kFirst = 2.f;
+    constexpr float kLift = 37.5f;
+    constexpr float kLinePad = 1.1f;
+    const float draw = scale * kMatrixHalf;
+    const float line_h = float(font.drop()) * scale * kLinePad;
+    const float pen_y = (kFrameH - line_h) * 0.5f + line_h * 0.5f;
+    const float big = draw * kFirst;
+    float width = float(font.advance(text.front())) * big;
+    for (size_t i = 1; i < text.size(); ++i)
+    {
+        width += float(font.advance(text[i])) * draw;
+    }
+    float x = (kFrameW - width) * 0.5f;
+    const int frame = font.rest_frame();
+    if (const RgbaImage* glyph = font.image(text.front(), frame))
+    {
+        const float em = float(font.cell()) * big;
+        const float bx = float(font.bearing(text.front())) * big;
+        gfx_sprite_submit(*glyph, x - bx, pen_y - kLift * draw, em, em);
+    }
+    x += float(font.advance(text.front())) * big;
+    draw_glyphs(font, text.substr(1), x, pen_y, draw, frame);
+}
+
+void draw_move_captions(const Game& g)
+{
+    if (g_caption_left <= 0.f || g_caption_hold < 0)
+    {
+        return;
+    }
+    const std::vector<MoveCaption>& lines = move_captions(g);
+    if (size_t(g_caption_hold) >= lines.size())
+    {
+        return;
+    }
+    const MoveCaption& cap = lines[size_t(g_caption_hold)];
+    draw_dialog_caption(dialog_font(g), cap.text, cap.scale);
+}
+
 // Xbox 0x00080A30 creates the attract banner. 0x000809C0 places the widget:
 // x = DAT_00509730 (0x000FC190, width/2), y = DAT_0050972C - font[+0x10] * DAT_0032B5B4.
 // param_8 = 1, so 0x0005EF40 draws from anchor_x - measured_width/2.
@@ -1665,6 +1915,45 @@ void draw_start_banner(const Game& g)
 }
 
 } // namespace
+
+float attract_caption_dt(const Game& g, float dt)
+{
+    // 0x000117400 increments the pause counters while a dialog line is showing,
+    // and 0x0004EBD0 stops the attract clock for that hold. {settime} is the hold.
+    if (g.frontend_mode != 0)
+    {
+        return dt;
+    }
+    const std::vector<MoveCaption>& lines = move_captions(g);
+    if (g_caption_left > 0.f)
+    {
+        g_caption_left -= dt;
+        if (g_caption_left > 0.f)
+        {
+            return 0.f;
+        }
+        g_caption_left = 0.f;
+        return dt;
+    }
+    const float time = g.cutscenes.time;
+    for (int i = g_caption_hold + 1; i < int(lines.size()); ++i)
+    {
+        const float start = lines[size_t(i)].start;
+        if (time < start && time + dt >= start)
+        {
+            g_caption_hold = i;
+            g_caption_left = lines[size_t(i)].seconds;
+            return start - time;
+        }
+        if (time >= start)
+        {
+            g_caption_hold = i;
+            g_caption_left = lines[size_t(i)].seconds;
+            return 0.f;
+        }
+    }
+    return dt;
+}
 
 void load_ui(Game& g)
 {
@@ -1890,6 +2179,7 @@ void draw_ui(const Game& g)
     if (g.frontend_mode == 0)
     {
         draw_start_banner(g);
+        draw_move_captions(g);
         return;
     }
     if (g.frontend_mode == 3)

@@ -24,6 +24,8 @@ void script_vm_tick(Game& g, float dt);             // 0x00117100: update, eval,
 void gameselect_tick(Game& g, const InputState& in);
 bool attract_confirm_pressed(); // 0x001431B0: new A or Start on the merged pad, not both
 void draw_ui(const Game& g);
+// 0x000117400 pauses the attract clock while a type-0x15 line is up.
+float attract_caption_dt(const Game& g, float dt);
 void draw_cutscene_props(Game& g);
 void pad_tick(Game& g, const InputState& in); // Xbox 0x000FA3C0 / 0x000FAD80
 void audio_tick(Game& g, float dt);           // Xbox 0x0015B780 and the XACT calls

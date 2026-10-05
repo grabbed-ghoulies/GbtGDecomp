@@ -20165,7 +20165,7 @@ void cutscene_queue_tick(Game& g, float dt)
         movie_sync_cutscene(g);
         return;
     }
-    q.time += dt;
+    q.time += attract_caption_dt(g, dt);
     int guard = 0;
     while (q.playing && q.items[q.index].duration > 0.f && q.time >= q.items[q.index].duration && guard < 64)
     {
@@ -20232,18 +20232,18 @@ void draw_cutscene_props(Game& g)
         const Vec3 scale{actor_curve(actor, 3, q.time, cut.duration, 1.f),
                          actor_curve(actor, 4, q.time, cut.duration, 1.f),
                          actor_curve(actor, 5, q.time, cut.duration, 1.f)};
+        float bones[128 * 16]{};
         if (!actor.mina.empty() && !prop.mesh.joints.empty() && !prop.mesh.bones.empty() && cut.duration > 0.f)
         {
             const float norm = q.time / cut.duration;
             const auto pose = sample_mina(actor.mina, norm);
-            const int n = int(std::min(pose.size(), std::min(prop.mesh.joints.size(), size_t(127))));
-            float bones[128 * 16]{};
-            if (n > 0)
+            const int bone_n = int(std::min(pose.size(), std::min(prop.mesh.joints.size(), size_t(127))));
+            if (bone_n > 0)
             {
                 // Xbox 0x0002FAC0. The slot-to-joint bind is ndMtxArray (0x155E60),
                 // applied when the mesh uploads the palette.
-                skin_matrices(prop.mesh.joints, pose, bones, n);
-                gfx_set_bones(bones, n);
+                skin_matrices(prop.mesh.joints, pose, bones, bone_n);
+                gfx_set_bones(bones, bone_n);
             }
             else
             {

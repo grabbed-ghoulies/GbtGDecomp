@@ -7,10 +7,10 @@ namespace gbtg
 namespace
 {
 
-RgbaImage decode_frame(std::span<const u8> pixels, int w, int h)
+RgbaImage decode_frame(std::span<const u8> pixels, int w, int h, u32 format)
 {
     TextureHeader hdr;
-    hdr.format = XboxFormat::DXT3;
+    hdr.format = static_cast<XboxFormat>(format);
     hdr.header_size = 28;
     hdr.width = u16(w);
     hdr.height = u16(h);
@@ -73,6 +73,7 @@ bool GloopyFont::load(const std::filesystem::path& path)
         {
             continue;
         }
+        const u32 format = read_u32(cpu, tex_off);
         const int tw = int(read_u16(cpu, tex_off + 8));
         const int th = int(read_u16(cpu, tex_off + 10));
         const int rate = int(cpu[tex_off + 16]);
@@ -94,7 +95,7 @@ bool GloopyFont::load(const std::filesystem::path& path)
             {
                 continue;
             }
-            glyph.frames[size_t(f)] = decode_frame(std::span<const u8>(pixels + off, data_size), tw, th);
+            glyph.frames[size_t(f)] = decode_frame(std::span<const u8>(pixels + off, data_size), tw, th, format);
         }
     }
     return !glyphs_.empty();

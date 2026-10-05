@@ -22096,6 +22096,107 @@ struct ViewNode54937c
 ViewNode54937c g_4e1680{};
 ViewNode54937c g_54937c{};
 
+// DAT_00507DF4. 0x0011CE40 stores 0.
+i32 g_507df4 = 0;
+// DAT_00510CE8. Nonzero clears bit 0x20 of DAT_0050EA9C, then stores 0.
+i32 g_510ce8 = 0;
+// DAT_00510E40. Nonzero is EBX for 0x00035C00, then stores 0.
+void* g_510e40 = nullptr;
+// DAT_00510E34. Nonzero decrements DAT_004DEA24, then stores 0.
+i32 g_510e34 = 0;
+
+// Xbox 0x0011CE40
+// DAT_00510CF4 other than 1 copies the unsigned count at [*DAT_00510CF8]+4
+// onto +8. ESI is DAT_00510E30 for 0x00142AA0. EAX is 1 for 0x0011D490.
+// Those calls are not translated.
+// EAX is &DAT_00510E18 and ECX is &DAT_00510E0C for 0x00118AE0. That call
+// is not translated.
+// DAT_004EE1EC nonzero would call 0x000584D0 with a stack 0. That call is
+// not translated. DAT_004E173C decrements. DAT_00507DF4 becomes 0.
+// A nonzero DAT_00510E24 is EAX for 0x00048860, then the pointer becomes 0.
+// That call is not translated.
+// A nonzero DAT_00510CE8 clears bit 0x20 of DAT_0050EA9C and stores 0.
+// A nonzero dword at [DAT_00510CFC]+4 would call 0x001093C0. That call is
+// not translated. The dword at [DAT_00510CFC]+0 selects 0x00107DD0 for 1,
+// 2, and 3, 0x00107960 for 4, and 0x00107B60 for 5. EAX is DAT_00510CFC.
+// Those calls are not translated. DAT_00510CFC then becomes 0.
+// A nonzero DAT_00510E40 is EBX for 0x00035C00, then the pointer becomes 0.
+// That call is not translated.
+// A nonzero DAT_00510E34 decrements DAT_004DEA24 and stores 0.
+// 0x00038460 would take XACT_SOUNDBANK_GSTREAMSDITTIES_PAUSE. The dword at
+// bank+0x88 decrements. A result at or below 0, with a bank id other than
+// 0x12 and a nonzero return from 0x00038590, would call 0x00038360 with
+// that return in EAX. 0x00038260 then takes the bank in EAX and the id is
+// stored as 0. Those four calls are not visible here, so those stores are
+// not made. The tail jumps to 0x00038110. XMM0 is DAT_0032B0F8 (1.0).
+void fn_11ce40()
+{
+    // Xbox 0x0011CE40
+    if (g_510cf4 != 1)
+    {
+        u8* obj = *g_510cf8;
+        const u32 count = *reinterpret_cast<u32*>(obj + 4);
+        *reinterpret_cast<u32*>(obj + 8) = count;
+        // 0x00142AA0 is not translated. ESI is DAT_00510E30.
+        // 0x0011D490 is not translated. EAX is 1.
+    }
+    // 0x00118AE0 is not translated. EAX is &DAT_00510E18. ECX is &DAT_00510E0C.
+    if (g_4ee1ec != 0)
+    {
+        // 0x000584D0 is not translated. The stack argument is 0.
+    }
+    g_4e173c = g_4e173c - 1;
+    g_507df4 = 0;
+    if (g_510e24 != nullptr)
+    {
+        // 0x00048860 is not translated. EAX is DAT_00510E24.
+        g_510e24 = nullptr;
+    }
+    if (g_510ce8 != 0)
+    {
+        g_flags_ea9c = g_flags_ea9c & 0xffffffdfu;
+        g_510ce8 = 0;
+    }
+    u8* rec = static_cast<u8*>(g_510cfc);
+    if (*reinterpret_cast<i32*>(rec + 4) != 0)
+    {
+        // 0x001093C0 is not translated.
+    }
+    rec = static_cast<u8*>(g_510cfc);
+    switch (*reinterpret_cast<i32*>(rec))
+    {
+    case 1:
+        // 0x00107DD0 is not translated. EAX is DAT_00510CFC.
+        break;
+    case 2:
+        // 0x00107DD0 is not translated. EAX is DAT_00510CFC.
+        break;
+    case 3:
+        // 0x00107DD0 is not translated. EAX is DAT_00510CFC.
+        break;
+    case 4:
+        // 0x00107960 is not translated. EAX is DAT_00510CFC.
+        break;
+    case 5:
+        // 0x00107B60 is not translated. EAX is DAT_00510CFC.
+        break;
+    }
+    g_510cfc = nullptr;
+    if (g_510e40 != nullptr)
+    {
+        // 0x00035C00 is not translated. EBX is DAT_00510E40.
+        g_510e40 = nullptr;
+    }
+    if (g_510e34 != 0)
+    {
+        g_4dea24 = g_4dea24 - 1;
+        g_510e34 = 0;
+    }
+    // 0x00038460, 0x00038590, 0x00038360, and 0x00038260 are not visible
+    // here. The name is XACT_SOUNDBANK_GSTREAMSDITTIES_PAUSE.
+    fn_38110(1.f);
+}
+
 // Xbox 0x0012C340. 0x0011E4C0 calls this. Phases 1, 2, and 3, a nonzero dword
 // at DAT_00431584, a live DAT_0054634C, and the unsigned count at object+8 at
 // or under the count at object+4, would call 0x0005F580 then 0x0005F550.

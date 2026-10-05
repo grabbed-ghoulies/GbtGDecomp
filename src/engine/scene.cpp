@@ -21898,36 +21898,41 @@ void fn_11e7f0(Game& g, u8* scene)
 }
 
 // Image at DAT_00431478. Stride 0x110. +0 indexes the 0x18-byte records at
-// DAT_003129AC. +0x10C is the gate this tick tests. The eighteenth record is
-// the sentinel whose index is -1.
+// DAT_003129AC. +4 is the aid string 0x0012C5D0 compares with 'aid_'.
+// +0x104 is the dword copied into DAT_00546330. +0x10C is the gate
+// 0x0012C340 tests. The eighteenth record is the sentinel whose index is -1.
 struct TransitionSlot31478
 {
     i32 handler = 0; // +0
-    u8 pad[0x108]{};
+    char aid[0x100]{}; // +4
+    u32 at_104 = 0; // +0x104
+    i32 at_108 = 0; // +0x108
     i32 at_10c = 0; // +0x10C
 };
 static_assert(sizeof(TransitionSlot31478) == 0x110);
+static_assert(offsetof(TransitionSlot31478, aid) == 4);
+static_assert(offsetof(TransitionSlot31478, at_104) == 0x104);
 static_assert(offsetof(TransitionSlot31478, at_10c) == 0x10c);
 
 constexpr TransitionSlot31478 kTransition31478[] = {
-    {0, {}, 1},
-    {1, {}, 0},
-    {1, {}, 0},
-    {1, {}, 0},
-    {1, {}, 0},
-    {1, {}, 0},
-    {1, {}, 0},
-    {1, {}, 0},
-    {1, {}, 0},
-    {1, {}, 0},
-    {1, {}, 0},
-    {1, {}, 0},
-    {1, {}, 0},
-    {1, {}, 0},
-    {1, {}, 0},
-    {2, {}, 1},
-    {3, {}, 1},
-    {-1, {}, 0},
+    {0, {}, 0, 0, 1},
+    {1, {}, 0, 0, 0},
+    {1, {}, 0, 0, 0},
+    {1, "aid_texture_ghoulies_transition_chaptertitles_chapter1", 0, 0, 0},
+    {1, "aid_texture_ghoulies_transition_chaptertitles_chapter2", 0, 0, 0},
+    {1, "aid_texture_ghoulies_transition_chaptertitles_chapter3", 0, 0, 0},
+    {1, "aid_texture_ghoulies_transition_chaptertitles_chapter4", 0, 0, 0},
+    {1, "aid_texture_ghoulies_transition_chaptertitles_chapter5", 0, 0, 0},
+    {1, {}, 0, 0, 0},
+    {1, {}, 0, 0, 0},
+    {1, {}, 0, 0, 0},
+    {1, {}, 0, 0, 0},
+    {1, {}, 0, 0, 0},
+    {1, "aid_texture_ghoulies_unlockableart_whereitbegan", 0, 0, 0},
+    {1, "aid_texture_ghoulies_unlockableart_whereitbegan", 0, 0, 0},
+    {2, "aid_texture_ghoulies_transition_blood_down", 0x3fc00000u, 0, 1},
+    {3, {}, 0x3e4ccccdu, 0, 1},
+    {-1, {}, 0, 0, 0},
 };
 static_assert(sizeof(kTransition31478) / sizeof(kTransition31478[0]) == 18);
 
@@ -21947,6 +21952,32 @@ i32 g_50484c = 0;
 // DAT_005096E8 and DAT_005096EA. HUD width and height, zero-extended to float.
 u16 g_5096e8 = 0;
 u16 g_5096ea = 0;
+// DAT_00510CEC. Counted up when DAT_0054632C is 0 on entry to 0x0012C5D0.
+i32 g_510cec = 0;
+// DAT_004DEA24. Counted with that gate, and once more on the way out.
+// gfx keeps the same address as present_insert.hold.
+i32 g_4dea24 = 0;
+// DAT_00510F80. Cleared when the phase is 1.
+i32 g_510f80 = 0;
+// DAT_00510F7C. Cleared when the phase is 3.
+i32 g_510f7c = 0;
+// DAT_00546330 and DAT_00546334. Both receive the dword at slot+0x104.
+u32 g_546330 = 0;
+u32 g_546334 = 0;
+// DAT_00546340. Address of slot+4 when that dword is 'aid_', otherwise null.
+const char* g_546340 = nullptr;
+
+// DAT_0054937C. Xbox +0 is prev and +4 is next. Xbox +0x34 is the name at
+// DAT_005493B0. DAT_004E1680 is the slot-0 sentinel. entity.cpp keeps the
+// live list private, so the splice walks the copy held here.
+struct ViewNode54937c
+{
+    ViewNode54937c* prev = nullptr;
+    ViewNode54937c* next = nullptr;
+    char name[0x21]{};
+};
+ViewNode54937c g_4e1680{};
+ViewNode54937c g_54937c{};
 
 // Xbox 0x0012C340. 0x0011E4C0 calls this. Phases 1, 2, and 3, a nonzero dword
 // at DAT_00431584, a live DAT_0054634C, and the unsigned count at object+8 at
@@ -22019,6 +22050,98 @@ void fn_12c340()
         (void)handler;
         return;
     }
+}
+
+// Xbox 0x0012C5D0
+// A nonzero DAT_0054632C would call 0x0012C4E0 before the phase test. That
+// call is not translated. Phase 0 increments DAT_00510CEC and DAT_004DEA24
+// and ORs 0x100 into DAT_0050EA9C. Phase 1 clears DAT_00510F80. Phase 3
+// clears DAT_00510F7C. Any other phase falls through. DAT_0054632C becomes 1.
+//
+// 0x0012C2D0 is not translated. ESI would be DAT_0054633C and EDI DAT_00546338.
+// EAX would replace DAT_00546328. That return is not stored. The slot already
+// in DAT_00546328 is scaled by 0x110. The dword at +0x104 is copied to
+// DAT_00546334 and DAT_00546330. DAT_00546344 becomes 0. DAT_00546348 becomes
+// 0xf. DAT_00546340 is the address of slot+4 when that dword is 'aid_'
+// (0x5f646961), and null when it is not.
+//
+// 0x000496C0 is not translated. EDX would be this node, EAX the string
+// "transition", and CL 0. That call would copy the name to +0x34. The node
+// is inserted after the slot-0 record whose prev is null. A null DAT_004E16A0
+// would then call cam_func_48cf0 with slot 0 and that name. The name is
+// written by 0x000496C0, and entity.cpp keeps the live slot, so that call is
+// not made. 0x00048F10 is not translated. 0x0005F390 is not translated: the
+// stack is 0, 1, 0x80 and ESI is DAT_0054634C. 0x000FF0A0 is not translated:
+// the stack is aid_loctext_ghoulies_gameselect_gameselecttext, "gameselect",
+// "loading", and DAT_00546350.
+//
+// The handler dword at slot+0 selects the 0x18-byte record at DAT_003129AC.
+// The call is the pointer at +0xC (DAT_003129B8) with &DAT_00546328. Those
+// handlers are not translated. DAT_004DEA24 increments on the way out.
+void fn_12c5d0()
+{
+    // Xbox 0x0012C5D0
+    if (g_54632c != 0)
+    {
+        // 0x0012C4E0 is not translated.
+    }
+    if (g_54632c == 0)
+    {
+        g_510cec = g_510cec + 1;
+        g_4dea24 = g_4dea24 + 1;
+        g_flags_ea9c = g_flags_ea9c | 0x100u;
+    }
+    else if (g_54632c == 1)
+    {
+        g_510f80 = 0;
+    }
+    else if (g_54632c == 3)
+    {
+        g_510f7c = 0;
+    }
+    g_54632c = 1;
+    // 0x0012C2D0 is not translated. EAX is not stored at DAT_00546328.
+    const i32 byte_off = g_546328 * 0x110;
+    const u8* row = reinterpret_cast<const u8*>(kTransition31478) + byte_off;
+    const u32 bits = *reinterpret_cast<const u32*>(row + 0x104);
+    g_546334 = bits;
+    g_546330 = bits;
+    g_546344 = 0;
+    g_546348 = 0xf;
+    const u32 marker = *reinterpret_cast<const u32*>(row + 4);
+    const char* aid = reinterpret_cast<const char*>(row + 4);
+    if (marker != kAidPrefixEd8)
+    {
+        aid = nullptr;
+    }
+    g_546340 = aid;
+    // 0x000496C0 is not translated. EDX is this node, EAX is "transition", CL is 0.
+    ViewNode54937c* cursor = &g_4e1680;
+    if (cursor->prev != nullptr)
+    {
+        do
+        {
+            cursor = cursor->prev;
+        } while (cursor->prev != nullptr);
+    }
+    ViewNode54937c* saved = cursor->next;
+    cursor->next = &g_54937c;
+    g_54937c.prev = cursor;
+    g_54937c.next = saved;
+    if (saved != nullptr)
+    {
+        saved->prev = &g_54937c;
+    }
+    // A null DAT_004E16A0 would call cam_func_48cf0(0, name). The name is
+    // written by 0x000496C0, which is not translated, so that call is not made.
+    // 0x00048F10 is not translated.
+    // 0x0005F390 is not translated. ESI is DAT_0054634C. The stack is 0, 1, 0x80.
+    // 0x000FF0A0 is not translated.
+    const i32 handler = *reinterpret_cast<const i32*>(row);
+    // Handler at DAT_003129B8 + handler * 0x18 is not translated.
+    // The argument is &DAT_00546328.
+    (void)handler;
+    g_4dea24 = g_4dea24 + 1;
 }
 
 } // namespace gbtg

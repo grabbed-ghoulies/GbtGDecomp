@@ -153,10 +153,12 @@ struct GfxD3D11
     {
         int address_u = 0;      // +0x00 D3DTSS_ADDRESSU
         int address_v = 0;      // +0x04 D3DTSS_ADDRESSV
+        int address_w = 0;      // +0x08 D3DTSS_ADDRESSW
         int mag_filter = 0;     // +0x0C D3DTSS_MAGFILTER
         int min_filter = 0;     // +0x10 D3DTSS_MINFILTER
         int mip_filter = 0;     // +0x14 D3DTSS_MIPFILTER
         int max_mip_level = 0;  // +0x1C D3DTSS_MAXMIPLEVEL
+        u32 color_sign = 0;     // +0x28 D3DTSS_COLORSIGN
         int color_op = 0;       // +0x30 D3DTSS_COLOROP
         int color_arg1 = 0;     // +0x38 D3DTSS_COLORARG1
         int color_arg2 = 0;     // +0x3C D3DTSS_COLORARG2
@@ -169,6 +171,25 @@ struct GfxD3D11
         u32 bump[6]{};
     };
     StageRs stages[4]{};
+    // D3DDevice_SetTexture writes device+stage*4+0xf78. The handle is the one
+    // this bind passed. Nothing here substitutes a different texture.
+    u32 stage_texture[4]{};
+    // SetPixelShaderConstant shadow at device+0x8e0. Four floats per register.
+    float ps_const[256 * 4]{};
+    // Vertex-constant file. SetVertexShaderConstant1/4 copy to (register << 4) + 0x00180D50.
+    float vs_const[256 * 4]{};
+    u8 vs_src_4d9680[0x40]{}; // DAT_004D9680
+    u8 vs_src_4d9710[0x40]{}; // DAT_004D9710
+    u32 texture_override = 0; // DAT_004D9764
+    const int* texture_by_id = nullptr; // DAT_004D976C
+    void (*stage_bind)(int handle, u32 stage) = nullptr; // DAT_004D9754
+    void (*material_cb)(int* material) = nullptr; // DAT_004D9750
+    // DAT_004d9644. 0x00159AC0 reads the link dword at +4. BSS, so it starts empty.
+    u8 tex_list_4d9644[8]{};
+    // DAT_0054d950. (id, out) when the list walk finds no node.
+    int (*tex_lookup_cb)(int id, int* out) = nullptr;
+    // DAT_004d9770. The id 0x0015AD20 passes into 0x0015ABB0.
+    int tex_lookup_id = 0;
 };
 
 GfxD3D11 g;
@@ -610,6 +631,263 @@ void fn_5e2a0()
         return;
     }
     g.context->PSSetSamplers(0, 1, g.light_sampler.GetAddressOf());
+}
+
+const u8* as_u8(int bits)
+{
+    return reinterpret_cast<const u8*>(static_cast<uintptr_t>(static_cast<u32>(bits)));
+}
+
+u8* as_u8_mut(int bits)
+{
+    return reinterpret_cast<u8*>(static_cast<uintptr_t>(static_cast<u32>(bits)));
+}
+
+// Xbox 0x00159AC0
+// *out = *(node + 4). The list link used by 0x0015ABB0.
+void fn_159ac0(const u8* node, int* out)
+{
+    std::memcpy(out, node + 4, 4);
+}
+
+// Xbox 0x0015ABB0
+// Walks the list headed at DAT_004d9644. A node whose dword at +0xc4 equals
+// param_1 stores 1 at +0x68 and writes node+0xc8 through param_2.
+//
+// DAT_0054d950, when it is not null, is called as (param_1, param_2). The
+// decompiler dropped the second operand of the recursive call: add esp, 4
+// leaves param_2 under the return value, so the call is
+// fn_15abb0(result, param_2).
+void fn_15abb0(int param_1, int* param_2)
+{
+    int local_4 = 0;
+    fn_159ac0(g.tex_list_4d9644, &local_4);
+    while (local_4 != 0)
+    {
+        u8* node = as_u8_mut(local_4);
+        int key = 0;
+        std::memcpy(&key, node + 0xc4, 4);
+        if (key == param_1)
+        {
+            const int one = 1;
+            std::memcpy(node + 0x68, &one, 4);
+            *param_2 = local_4 + 0xc8;
+            return;
+        }
+        fn_159ac0(node, &local_4);
+    }
+    if (g.tex_lookup_cb != nullptr)
+    {
+        const int found = g.tex_lookup_cb(param_1, param_2);
+        fn_15abb0(found, param_2);
+        return;
+    }
+    *param_2 = 0;
+}
+
+// Xbox 0x0015AD20
+// Material bind. param_1 is the shader-param object (dword fields). param_2 is
+// the draw table: dword 0 is the 0x44-stride constant rows, dword 4 is the
+// per-stage texture handles.
+//
+// Pixel constants (count at +0x14) are the bytes at param_1[0], register 0
+// first, each byte times the float at 0x0032B154 (0x3B808081).
+// Stages (count at +0x0c) are 0x1c records at param_1[2]. The shadow is
+// DAT_00181970, stride 0x80. Each stage ORs 1<<stage into DAT_00181968.
+// Bump-env types 0x16, 0x17, 0x19, 0x18 land at +0x58, +0x5C, +0x64, +0x60.
+//
+// SetVertexShaderConstant1/4 take the register in ecx and the source in edx.
+// The decompiler dropped those operands. Constant1 is *(param_1+0x34)+0x60
+// from the four floats at 0x00336120. Constant4's source select is the
+// compares at 0x0015AF61, then the register is that dword + 0x60.
+//
+// Byte +0x18 == 0 clears ALPHATESTENABLE. Any other value sets it, stores
+// D3DCMP_GREATER (0x204) as ALPHAFUNC, and stores the byte as ALPHAREF.
+// Record byte +7 set calls 0x0015ABB0(DAT_004d9770) and SetTexture binds
+// the pointer that call stores.
+void fn_15ad20(int* param_1, int param_2)
+{
+    float byte_scale = 0.f;
+    const u32 scale_bits = 0x3B808081u;
+    std::memcpy(&byte_scale, &scale_bits, sizeof(byte_scale));
+    // DAT_00336120. SetVertexShaderConstant1 copies these four floats.
+    const float vs_one[4] = {0.5f, 0.5f, 1.f, 1.f};
+
+    u32 index = 0;
+    if (param_1[5] != 0)
+    {
+        const u8* colors = as_u8(param_1[0]);
+        do
+        {
+            const u8* px = colors + index * 4u;
+            g.ps_const[index * 4u + 0] = float(px[0]) * byte_scale;
+            g.ps_const[index * 4u + 1] = float(px[1]) * byte_scale;
+            g.ps_const[index * 4u + 2] = float(px[2]) * byte_scale;
+            g.ps_const[index * 4u + 3] = float(px[3]) * byte_scale;
+            index = index + 1;
+        } while (index < static_cast<u32>(param_1[5]));
+    }
+
+    index = 0;
+    if (param_1[3] != 0)
+    {
+        u32 rec_off = 0;
+        do
+        {
+            const u8* rec = as_u8(param_1[2]) + rec_off;
+            GfxD3D11::StageRs& slot = g.stages[index];
+            const u32 bit = 1u << (index & 0x1fu);
+            slot.address_u = rec[4];
+            g.rs_dirty |= bit;
+            slot.address_v = rec[5];
+            g.rs_dirty |= bit;
+            slot.address_w = rec[6];
+            slot.max_mip_level = 0;
+            slot.min_filter = 2;
+            slot.mip_filter = 2;
+            g.rs_dirty |= bit;
+            slot.mag_filter = 2;
+            if (*reinterpret_cast<const i16*>(rec + 0x0a) == 0)
+            {
+                g.rs_dirty |= bit;
+                slot.color_sign = 0;
+                if (*reinterpret_cast<const i16*>(rec + 0x08) >= 0)
+                {
+                    u32 bits = 0;
+                    std::memcpy(&bits, rec + 0x0c, 4);
+                    slot.bump[0] = bits;
+                    std::memcpy(&bits, rec + 0x10, 4);
+                    slot.bump[1] = bits;
+                    std::memcpy(&bits, rec + 0x14, 4);
+                    slot.bump[3] = bits;
+                    std::memcpy(&bits, rec + 0x18, 4);
+                    slot.bump[2] = bits;
+                }
+            }
+            else
+            {
+                g.rs_dirty |= bit;
+                slot.color_sign = 0xf0000000u;
+            }
+            if (rec[7] == 0)
+            {
+                const u8* mat = reinterpret_cast<const u8*>(param_1);
+                if (static_cast<u32>(param_1[0x10]) == index && mat[0x1b] != 0 && g.texture_override != 0)
+                {
+                    g.stage_texture[index] = g.texture_override;
+                    const u32 vs_reg = static_cast<u32>(param_1[0x0d]) + 0x60u;
+                    std::memcpy(g.vs_const + vs_reg * 4u, vs_one, sizeof(vs_one));
+                }
+                else
+                {
+                    const i32 id = *reinterpret_cast<const i32*>(rec);
+                    if (id != -1)
+                    {
+                        const u8* draw = as_u8(param_2);
+                        int table_bits = 0;
+                        std::memcpy(&table_bits, draw + 4, 4);
+                        const int* table = reinterpret_cast<const int*>(as_u8(table_bits));
+                        int handle = table[index];
+                        if (handle == 0)
+                        {
+                            handle = g.texture_by_id[id];
+                        }
+                        g.stage_bind(handle, index);
+                    }
+                }
+            }
+            else
+            {
+                int texture = 0;
+                fn_15abb0(g.tex_lookup_id, &texture);
+                g.stage_texture[index] = static_cast<u32>(texture);
+            }
+            index = index + 1;
+            rec_off = rec_off + 0x1c;
+        } while (index < static_cast<u32>(param_1[3]));
+    }
+
+    index = 0;
+    if (param_1[4] != 0)
+    {
+        u32 row = 0;
+        u32 block = 0;
+        do
+        {
+            const void* src;
+            u32 vs_reg;
+            if (param_2 != 0)
+            {
+                const u8* draw = as_u8(param_2);
+                int rows_bits = 0;
+                std::memcpy(&rows_bits, draw, 4);
+                const u8* rows = as_u8(rows_bits);
+                if (rows[row + 0x40] != 0)
+                {
+                    const u8* constants = as_u8(param_1[1]);
+                    vs_reg = *reinterpret_cast<const u32*>(constants + block + 0x40);
+                    src = rows + row;
+                }
+                else
+                {
+                    const u8* rec = as_u8(param_1[1]) + block;
+                    const u32 kind = *reinterpret_cast<const u32*>(rec + 0x44);
+                    vs_reg = *reinterpret_cast<const u32*>(rec + 0x40);
+                    if (kind == 1)
+                    {
+                        src = g.vs_src_4d9710;
+                    }
+                    else if (kind == 2)
+                    {
+                        src = g.vs_src_4d9680;
+                    }
+                    else
+                    {
+                        src = rec;
+                    }
+                }
+            }
+            else
+            {
+                const u8* rec = as_u8(param_1[1]) + block;
+                const u32 kind = *reinterpret_cast<const u32*>(rec + 0x44);
+                vs_reg = *reinterpret_cast<const u32*>(rec + 0x40);
+                if (kind == 1)
+                {
+                    src = g.vs_src_4d9710;
+                }
+                else if (kind == 2)
+                {
+                    src = g.vs_src_4d9680;
+                }
+                else
+                {
+                    src = rec;
+                }
+            }
+            vs_reg = vs_reg + 0x60u;
+            std::memcpy(g.vs_const + vs_reg * 4u, src, 0x40);
+            index = index + 1;
+            row = row + 0x44;
+            block = block + 0x48;
+        } while (index < static_cast<u32>(param_1[4]));
+    }
+
+    const u8* mat = reinterpret_cast<const u8*>(param_1);
+    if (mat[0x18] == 0)
+    {
+        g.rs_alpha_test = 0;
+    }
+    else
+    {
+        g.rs_alpha_test = 1;
+        g.rs_alpha_func = 0x204;
+        g.rs_alpha_ref = mat[0x18];
+    }
+    if (g.material_cb != nullptr)
+    {
+        g.material_cb(param_1);
+    }
 }
 
 } // namespace
@@ -1946,6 +2224,104 @@ u32* fn_171bb0(u32 device_780, u32* packet)
         method += 0x40u;
     }
     return packet;
+}
+
+// DAT_001845a4. BSS list of side records. D3D_DestroyResource (0x00175890)
+// passes the resource pointer; a match is the dword at record+4.
+struct D3dResourceRecord
+{
+    D3dResourceRecord* next = nullptr; // Xbox +0
+    int key = 0;                       // Xbox +4
+    u8 flags = 0;                      // Xbox +0x1C
+    void* object = nullptr;            // Xbox +0x20
+};
+
+static D3dResourceRecord* resource_records_1845a4 = nullptr;
+
+void fn_175840(int param_1)
+{
+    // Xbox 0x00175840
+    // stdcall, ret 4. D3D_DestroyResource calls this with the resource in
+    // EDI before it frees that resource. The previous-link starts at the
+    // head. A record whose key equals param_1 is unlinked by storing its
+    // next into that link. Bit 0 of the flag byte at +0x1C calls vtable+8
+    // on the object at +0x20 (one argument, the object; the callee pops
+    // it). XMemFree then takes the record with tag 0x24800000. The walk
+    // continues at the pointer just written, so consecutive matches are
+    // removed. A miss makes the record itself the previous link, which is
+    // its next dword, and steps to that next. A null cursor ends the walk.
+    D3dResourceRecord** link = &resource_records_1845a4;
+    D3dResourceRecord* node = resource_records_1845a4;
+    while (node != nullptr)
+    {
+        if (node->key == param_1)
+        {
+            *link = node->next;
+            if ((node->flags & 1) != 0)
+            {
+                void* object = node->object;
+                void** vtable = *reinterpret_cast<void***>(object);
+                using ReleaseFn = void (__stdcall*)(void*);
+                ReleaseFn release = reinterpret_cast<ReleaseFn>(vtable[2]);
+                release(object);
+            }
+            D3dResourceRecord* dead = node;
+            node = *link;
+            delete dead;
+        }
+        else
+        {
+            link = &node->next;
+            node = node->next;
+        }
+    }
+}
+
+// D3D resource Common word. A surface also stores its parent at Xbox +0x14.
+// That parent is a resource, so its first word is Common as well.
+// 0x00175930 reads those two words and nothing else.
+struct D3dResourceRef
+{
+    u32 common = 0;                    // Xbox +0
+    D3dResourceRef* parent = nullptr;  // Xbox +0x14
+};
+
+u32 fn_175930(const D3dResourceRef* resource)
+{
+    // Xbox 0x00175930
+    // stdcall, ret 4. 0x00177780 calls this while D3D_DestroyResource
+    // (0x00175890) retires a resource. eax is 1 when an internal
+    // reference is still outstanding; the caller then blocks on the fence
+    // at device+0x2c through 0x00177450. eax is 0 when none is outstanding.
+    // A null resource would fault on Xbox.
+    //
+    // resource+0 is the D3D Common word. Bits 0x780000 are the internal
+    // refcount. Non-zero returns 1 and does not read the parent.
+    //
+    // Bits 0x70000 are the type. A surface is 0x50000. Only a surface
+    // continues, and only when the parent at +0x14 is non-null and that
+    // parent's Common word has a non-zero internal refcount. Any other
+    // type, a null parent, or a parent whose internal refcount is zero
+    // returns 0.
+    const u32 common = resource->common;
+    if ((common & 0x780000u) != 0u)
+    {
+        return 1u;
+    }
+    if ((common & 0x70000u) != 0x50000u)
+    {
+        return 0u;
+    }
+    const D3dResourceRef* parent = resource->parent;
+    if (parent == nullptr)
+    {
+        return 0u;
+    }
+    if ((parent->common & 0x780000u) == 0u)
+    {
+        return 0u;
+    }
+    return 1u;
 }
 
 u32 fn_176ee0(const u32* device, const u32* record, u32 gpu_position)

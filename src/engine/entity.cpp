@@ -84,10 +84,10 @@ void body_apply(Entity&)
     // 0x0001EC20, then 0x00025190 and 0x00025C50. Scene tick owns those calls.
 }
 
-i32 body_gate()
+bool body_gate(Entity&)
 {
     // 0x000CFFD0. Default slot 7. Returns 1. Camera ctors replace it.
-    return 1;
+    return true;
 }
 
 i32 body_pick_actor(const Entity&, i32 fallback)
@@ -1949,6 +1949,25 @@ void fn_72ba0(EntityLookAt& cam)
     }
 }
 
+void fn_72b10(Entity& body)
+{
+    // Xbox 0x00072B10
+    // entityBodyCamera method +0x18. EBX is the camera. 0x00072BA0 runs on that
+    // same object: aim at +0x2fc, enable byte at +0x308, roll at +0x8f4.
+    // ESI is the actor at +8. 0x000412A0 writes its world position through EDI
+    // and those three floats land at +0x89c. 0x00041820 writes the world euler
+    // and those three floats land at +0x8a8. 0x00025AE0 then applies the camera.
+    EntityLookAt look;
+    look.actor = body.actor;
+    look.aim = body.aim;
+    look.enabled = body.look_enabled;
+    look.roll = body.roll;
+    fn_72ba0(look);
+    body.pose_position = actor_world_position(*body.actor);
+    body.pose_euler = actor_world_euler(*body.actor);
+    body_apply(body);
+}
+
 namespace
 {
 
@@ -2451,8 +2470,7 @@ void register_entity_types()
     // Xbox 0x00073190 entityBodyCamera_ctor: fill defaults, then overwrite.
     // +0x00..+0x0C become the camera size, tick, shutdown, and message.
     // +0x10 and +0x14 stay 0x00025EC0 and 0x00072AC0.
-    // Retail stores 0x00072B10 at +0x18 and 0x00072CB0 at +0x1C. Those
-    // functions are not translated, so the slots stay empty.
+    // Retail stores 0x00072B10 at +0x18 and 0x00072CB0 at +0x1C.
     EntityType camera;
     camera.name = "entityBodyCamera";
     camera.kind = EntityKind::Body;
@@ -2462,8 +2480,8 @@ void register_entity_types()
     camera.methods.tick = entity_body_camera_tick;
     camera.methods.shutdown = entity_body_camera_shutdown;
     camera.methods.handle_message = entity_body_camera_message;
-    camera.methods.apply = nullptr;
-    camera.methods.gate = nullptr;
+    camera.methods.apply = fn_72b10;
+    camera.methods.gate = fn_72cb0;
     camera.tick = camera.methods.tick;
     camera.shutdown = camera.methods.shutdown;
     camera.handle_message = camera.methods.handle_message;
@@ -3089,6 +3107,224 @@ i32 fn_1226c0(Vec3& kept, Vec3& candidate, u32 param, i32 kind, u32 mask)
     kept.y = candidate.y;
     kept.z = candidate.z;
     return 0;
+}
+
+namespace
+{
+
+// 0x54-byte slide record. The normal 0x00072CB0 steps is at +0xC.
+// The 0x28-byte match block 0x0010AE90 compares is at +0x28.
+struct SlideRecord
+{
+    u8 prefix[0x0c]{};
+    float x = 0.f; // +0xC
+    float y = 0.f; // +0x10
+    float z = 0.f; // +0x14
+    u8 gap[0x10]{};
+    EntityMatchBlock match{}; // +0x28
+    u8 tail[4]{};
+};
+
+static_assert(sizeof(SlideRecord) == 0x54);
+static_assert(offsetof(SlideRecord, x) == 0x0c);
+static_assert(offsetof(SlideRecord, match) == 0x28);
+static_assert(std::bit_cast<u32>(0.05f) == 0x3D4CCCCDu); // 0x0032B250
+static_assert(std::bit_cast<u32>(3.f) == 0x40400000u);   // DAT_004274B8
+
+// DAT_004274C8. This function is the only reader. The retail image holds 1,
+// which skips the probes and leaves the gate set. Zero runs three probes.
+i32 g_slide_skip = 1;
+
+// DAT_004274B8. Opaque param pushed into 0x001226C0. The retail image holds 3.
+float g_slide_param = 3.f;
+
+constexpr float kSlideFloor = 0.05f; // 0x0032B250
+constexpr i32 kSlideSlots = 5;
+
+} // namespace
+
+bool fn_72cb0(Entity& body)
+{
+    // Xbox 0x00072CB0
+    // entityBodyCamera method +0x1C. EAX on entry is the camera. The actor is
+    // camera+8. Bit 0x20 of the byte at [camera+0x15c]+8+2 is saved, and bit
+    // 0x20 of the byte at +1 is cleared. 0x000412A0 writes the actor world
+    // position; that point is the segment candidate for every probe.
+    // DAT_004274C8 == 0 runs the loop three times and starts the gate clear.
+    // Any other value skips the loop and starts the gate set, with the slide
+    // point copied from camera+0x18.
+    // Each pass stores that slide point, calls 0x0001FE00, and asks 0x001226C0
+    // (kind 4, param DAT_004274B8) whether the segment from the slide point to
+    // the world position hits. A miss sets the gate. The first miss returns
+    // through 0x00041730. A later miss folds the separation at camera+0x910.
+    // A hit copies pool begin (DAT_00511A20 + 4) into slot index*0x54 through
+    // 0x000FCD70, then copies that slot onto camera+0x1cc. Slot 2, when
+    // 0x0010AE90 says slot 0 + 0x28 matches slot 2 + 0x28, adds slot 1's normal
+    // at +0xC, normalizes with 0x001534C0 when the length is not zero, extends
+    // the loop to five passes, and sets bit 0x20 at byte +1. Slot 0, when
+    // 0x00152BB0 of the Y at +0x10 is below 1, zeros that Y and normalizes the
+    // XZ. The push is the negated dot of the normal with
+    // (slide - world) - (snapshot - world). A push below 0.05 (0x0032B250)
+    // becomes 0.05. The slide point then advances by normal * push.
+    // The fold stores (snapshot - world) · (camera+0x18 - world) at +0x910.
+    // A negative dot, or a previous +0x910 that is negative, clears the gate.
+    // A set gate writes bit 0x20 of byte +2 from the hit flag, plants the
+    // snapshot through 0x00041730, and 0x000412A0 writes the world position of
+    // [actor+0x95c]+8 into that object +0x18. A clear gate restores the saved
+    // bit 0x20 and returns 0. A null actor, bit block, or euler out faults.
+    Actor& actor = *body.actor;
+    u8* flags = body.bits->bytes;
+    const u32 saved = (static_cast<u32>(flags[2]) & 0x20u) >> 5;
+    flags[1] = static_cast<u8>(flags[1] & 0xdf);
+    Vec3 world = actor_world_position(actor);
+
+    Vec3 slide = body.position;
+    Vec3 snap = slide;
+    bool seen = false;
+    bool passed = false;
+    i32 limit = 3;
+    if (g_slide_skip == 0)
+    {
+        passed = false;
+        limit = 3;
+    }
+    else
+    {
+        passed = true;
+        limit = 0;
+        snap = slide;
+    }
+
+    bool fold = false;
+    if (limit > 0)
+    {
+        SlideRecord slots[kSlideSlots]{};
+        bool stopped = false;
+        i32 index = 0;
+        do
+        {
+            snap = slide;
+            EntityMaskHost host;
+            host.flag = actor.mask_flag;
+            host.span = actor.mask_span;
+            host.mode = actor.mask_mode;
+            const u32 mask = fn_1fe00(host);
+            const u32 param = std::bit_cast<u32>(g_slide_param);
+            const i32 hit = fn_1226c0(snap, world, param, 4, mask);
+            if (hit == 0)
+            {
+                passed = true;
+                if (seen)
+                {
+                    fold = true;
+                }
+                stopped = true;
+                break;
+            }
+
+            fn_fcd70(&slots[index], g_segment_slots[0].pool.begin);
+            seen = true;
+            if (index == 2 && fn_10ae90(slots[0].match, slots[2].match) != 0)
+            {
+                slots[2].x = slots[2].x + slots[1].x;
+                slots[2].y = slots[2].y + slots[1].y;
+                slots[2].z = slots[2].z + slots[1].z;
+                const float len2 = slots[2].x * slots[2].x + slots[2].y * slots[2].y + slots[2].z * slots[2].z;
+                if (len2 != 0.f)
+                {
+                    const float scale = fn_1534c0(len2);
+                    slots[2].x = scale * slots[2].x;
+                    slots[2].y = scale * slots[2].y;
+                    slots[2].z = scale * slots[2].z;
+                }
+                limit = 5;
+                flags = body.bits->bytes;
+                flags[1] = static_cast<u8>(flags[1] | 0x20);
+            }
+            fn_fcd70(body.record_1cc, &slots[index]);
+            if (index == 0)
+            {
+                const float abs_y = fn_152bb0(slots[0].y);
+                if (abs_y < 1.f)
+                {
+                    slots[0].y = 0.f;
+                    const float len2 = slots[0].x * slots[0].x + 0.f + slots[0].z * slots[0].z;
+                    if (len2 != 0.f)
+                    {
+                        const float scale = fn_1534c0(len2);
+                        slots[0].x = scale * slots[0].x;
+                        slots[0].y = scale * slots[0].y;
+                        slots[0].z = scale * slots[0].z;
+                    }
+                }
+            }
+
+            const float along =
+                slots[index].x * ((slide.x - world.x) - (snap.x - world.x)) +
+                ((slide.z - world.z) - (snap.z - world.z)) * slots[index].z +
+                ((slide.y - world.y) - (snap.y - world.y)) * slots[index].y;
+            float push = 0.f - along;
+            if (push < kSlideFloor)
+            {
+                push = kSlideFloor;
+                slide.x = slots[index].x * push + slide.x;
+                slide.y = push * slots[index].y + slide.y;
+                slide.z = push * slots[index].z + slide.z;
+            }
+            else if (!(0.f > push))
+            {
+                slide.x = slots[index].x * push + slide.x;
+                slide.y = push * slots[index].y + slide.y;
+                slide.z = push * slots[index].z + slide.z;
+            }
+            index = index + 1;
+        } while (index < limit);
+
+        if (!stopped && passed)
+        {
+            fold = true;
+        }
+    }
+
+    if (fold)
+    {
+        seen = true;
+        const float sep = (snap.z - world.z) * (body.position.z - world.z) +
+                          (snap.y - world.y) * (body.position.y - world.y) +
+                          (body.position.x - world.x) * (snap.x - world.x);
+        const float prior = body.separation_910;
+        if (sep < 0.f || (prior <= 0.f && prior != 0.f))
+        {
+            passed = false;
+        }
+        body.separation_910 = sep;
+    }
+
+    if (passed)
+    {
+        flags = body.bits->bytes;
+        if (seen)
+        {
+            flags[2] = static_cast<u8>(flags[2] | 0x20);
+        }
+        else
+        {
+            flags[2] = static_cast<u8>(flags[2] & 0xdf);
+        }
+        fn_41730(actor, snap);
+        ActorEulerOut& euler_out = *actor.euler_out;
+        euler_out.position = actor_world_position(*euler_out.actor);
+        return passed;
+    }
+
+    flags = body.bits->bytes;
+    if (saved == 0)
+    {
+        flags[2] = static_cast<u8>(flags[2] & 0xdf);
+        return false;
+    }
+    flags[2] = static_cast<u8>(flags[2] | 0x20);
+    return false;
 }
 
 namespace

@@ -1,5 +1,6 @@
 #include "gbtg/anim.hpp"
 #include "gbtg/engine_internal.hpp"
+#include "gbtg/entity.hpp"
 #include "gbtg/gfx.hpp"
 #include "gbtg/model.hpp"
 #include "gbtg/resource.hpp"
@@ -813,11 +814,15 @@ struct CameraPulse
 };
 
 // DAT_00511AA4. The node sits at object+0x900; next is object+0x904.
-// vtable+0xC receives (object, {id 0x47, host}).
+// vtable+0xC receives (object, message). Note 0x47 passes {id, host}.
+// 0x00122CA0 and 0x00124F30 pass a pointer to the message id.
 struct PulseNode
 {
     void (*handle)(PulseNode* self, i32 id, void* host) = nullptr;
     PulseNode* next = nullptr;
+    u16 tag_6 = 0; // object+6
+    u16 word_1fc = 0; // object+0x1FC
+    void (*on_message)(PulseNode* self, const i32* msg) = nullptr; // vtable +0xC
 };
 
 CameraPulse g_camera_pulse;
@@ -1567,6 +1572,8 @@ struct CamFocus
     CamAttach* attach = nullptr; // +0x88
     float scale_200 = 0.f; // +0x200
     CamSlotObject* slots = nullptr; // +0x204
+    CamPairObject* pair_204 = nullptr; // +0x204, byte pairs at +0x294
+    CamPairObject* pair_310 = nullptr; // +0x310
     CamAnchor* anchors = nullptr; // +0x1f8, next link of the header at +0x1f4
     Vec3 ease{}; // +0x318
     Vec3 ease_to{}; // +0x324
@@ -1590,6 +1597,13 @@ struct CamFocus
     CamLink* link = nullptr; // +0x918
     std::vector<CamBoundRec> recs; // +0x8fc
     u32 at_cec = 0; // +0xcec, low byte stored at packet +0x19
+    u16 tag_6 = 0; // +6
+    // +0x980. DAT_00511B38 is the link at object+0x934, so this is node+0x4c.
+    EntityMaskSpan* span_980 = nullptr;
+    i32 at_984 = 0; // +0x984, node+0x50
+    i32 at_98c = 0; // +0x98c, node+0x58
+    u16 word_1fc = 0; // +0x1FC, compared with the dword at node+0x48
+    u16 word_cdc = 0; // +0xcdc, link+0x3a8, compared with 2
     Vec3 nudge_704{}; // camera+0x704, added to the stored follow position
     float mul_884 = 0.f; // camera+0x884
     float mul_888 = 0.f; // camera+0x888
@@ -2025,13 +2039,24 @@ void fn_11be40(CamAnchor& node)
 i32 g_ease_live = 0;
 // DAT_0050E768. Nonzero skips the +0x930 decay inside the base update.
 i32 g_block_decay = 0;
+// DAT_0050E764. 0x00117400 counts the other mask bit beside DAT_0050E768.
+i32 g_count_e764 = 0;
 // Byte at [DAT_0051248C]+0x30F144. Zero skips that same decay.
 u8 g_decay_arm = 0;
-// DAT_00511B40. Null, and the retail sentinel 0x93C, both leave the marker clear.
-// The live byte is [[[actor+0x20]+0x15C]+8]+5; bit 4 is the marker.
+// DAT_00511B40. The stored address is object+0x93C. Null, and the retail
+// sentinel 0x93C, both leave the marker clear. The live byte is
+// [[[actor+0x95C]+0x15C]+8]+5; bit 4 is the marker 0x000700B2 reads.
+// 0x00132840 reads the word at [actor+0x95C]+0x94, which is node+0x20.
+struct ActorMarkWord
+{
+    u16 word_94 = 0; // +0x94
+    i32 int_258 = 0; // +0x258. 0x00140E30 requires this int to be 0.
+};
 struct ActorMark
 {
     u8 byte = 0;
+    Actor* actor = nullptr; // node - 0x93C. ESI for 0x000412A0.
+    ActorMarkWord* at_20 = nullptr; // node+0x20, actor+0x95C
 };
 ActorMark* g_actor_mark = nullptr;
 // DAT_005077A8. XYZ at [0], [1], [2]. A null pointer faults on Xbox.
@@ -2057,13 +2082,58 @@ struct AidHit
 };
 AidHit g_aid_hit;
 // DAT_00511B38. Each node is an object+0x934 link; next is at +4.
+// Object at node+0x28 (object+0x95C). The word at +0x94 is the energy
+// 0x00132DB0 tests.
+struct RangeAt28
+{
+    u16 word_94 = 0; // +0x94
+};
 struct RangeLink
 {
     RangeLink* next = nullptr;
     CamFocus* host = nullptr;
     void (*on_note)(CamFocus* self, i32 id) = nullptr;
+    RangeAt28* at_28 = nullptr; // node+0x28
 };
 RangeLink* g_range_links = nullptr;
+// DAT_00511B20. First node of the DAT_00511B1C list. The node is object+0x934
+// and the next pointer is at +4. link-0x730 is the pair at object+0x204.
+// link-0x624 is the pair at object+0x310.
+struct BodyLink
+{
+    BodyLink* next = nullptr;
+    CamPairObject* pair_204 = nullptr;
+    CamPairObject* pair_310 = nullptr;
+};
+BodyLink* g_body_links = nullptr;
+// DAT_00511B48. Next of the DAT_00511B44 head. The node is object+0x944 and
+// the next pointer is at +4. object+6 is the actor class key. The byte at
+// object+0x969 is node+0x25. The word at object+0x990 is node+0x4c. The
+// pointer at object+0x958 is node+0x14. The pointer at object+0x95c is
+// node+0x18. The word at that object's +0x94 is the count 0x00132680 reads.
+struct AltSlot
+{
+    void* target = nullptr; // +8, vtable object
+    void* flag_10 = nullptr; // +0x10
+    u32 at_6c = 0; // +0x6c. Handler 15 type 0x8 stores the dword at node+0x48.
+    void (*on_message)(void* self, const u32* msg) = nullptr; // vtable +0xC
+};
+// Object at node+0x18 (actor+0x95c).
+struct AltAt18
+{
+    u16 word_94 = 0; // +0x94
+};
+struct AltLink
+{
+    AltLink* next = nullptr;
+    Actor* actor = nullptr;
+    u8 byte_969 = 0;
+    u16 word_990 = 0;
+    AltSlot* slot = nullptr;
+    AltAt18* at_18 = nullptr; // node+0x18
+    void (*on_message)(Actor* self, const u32* msg) = nullptr; // object vtable +0xC
+};
+AltLink* g_alt_links = nullptr;
 // Head standing in for DAT_00511B54. 0x0003ED70 appends host+0x908 here.
 RetireNode g_retire_head;
 
@@ -15377,6 +15447,46 @@ constexpr const char* kScriptCondName[27] = {
 std::vector<ScriptCond> g_script_conds;
 std::vector<u32> g_script_fired;
 
+// DAT_0050E4DC. 0x00116810 allocates the 0x214-byte node. +4 is next. +8 is
+// the type 0x00128A00 compares with 0x7D before it calls the handlers.
+// DAT_0050E4D8 is the anchor immediately before that head. 0x00116810 stores
+// the anchor as the first node's prev, so 0x000E9210's store at prev+4 writes
+// the new head.
+struct LiveScript
+{
+    LiveScript* prev = nullptr;
+    LiveScript* next = nullptr;
+    u32 type = 0;
+    // Xbox +0xC. 0x00132720 compares this word with the word at record+8.
+    u16 word_c = 0;
+    // Xbox +0x10. 0x00132D00 reads this dword: mode 1 copies it, mode 2
+    // stores whether it is zero. The type dword is at +8, so this is the
+    // dword at that address +8.
+    u32 dword_10 = 0;
+    // Xbox +0x14. 0x001168F0 compares this word with DX. The type dword is
+    // at +8, so the compare is the word at that address +0xC.
+    u16 word_14 = 0;
+};
+static_assert(offsetof(LiveScript, word_c) == offsetof(LiveScript, type) + 4);
+static_assert(offsetof(LiveScript, dword_10) == offsetof(LiveScript, type) + 8);
+static_assert(offsetof(LiveScript, word_14) == offsetof(LiveScript, type) + 0xc);
+LiveScript g_live_anchor{};
+LiveScript*& g_live_scripts = g_live_anchor.next;
+
+// DAT_0050E568. Handler 2 writes this block. 0x0050E570 and 0x0050E660 are
+// the bases of the scaled stores. 0x001077B0 returns at most 0xE9, which is
+// the last index those stores reach.
+constexpr u32 kSceneWordBase = 0x0050E568u;
+constexpr u32 kSceneWordCount = ((0x0050E660u + 0xEAu * 4u) - kSceneWordBase) / 4u;
+static_assert((0x0050E758u - kSceneWordBase) / 4u < kSceneWordCount);
+static_assert((0x0050E660u + 0xE9u * 4u - kSceneWordBase) / 4u < kSceneWordCount);
+u32 g_scene_words[kSceneWordCount]{};
+
+u32& scene_word(u32 addr)
+{
+    return g_scene_words[(addr - kSceneWordBase) / 4u];
+}
+
 u32 cond_u32(const ScriptCond& rec, u32 at)
 {
     return u32(rec.raw[at]) | (u32(rec.raw[at + 1]) << 8) | (u32(rec.raw[at + 2]) << 16) | (u32(rec.raw[at + 3]) << 24);
@@ -15487,10 +15597,1023 @@ int fn_132650(const ScriptCond& rec)
     return 0;
 }
 
+// Xbox 0x00132680. Opcode 1 in the table at 0x00314330. Walks DAT_00511B48.
+// Each node whose word at [node+0x18]+0x94 is nonzero adds one. A count at
+// or below the int at record+8, and a ucomiss of the float at record+0xc
+// against 0 that is equal and not a NaN, returns 1.
+int fn_132680(const ScriptCond& rec)
+{
+    int count = 0;
+    for (AltLink* link = g_alt_links; link != nullptr; link = link->next)
+    {
+        if (link->at_18->word_94 != 0)
+        {
+            count = count + 1;
+        }
+    }
+    if (count <= static_cast<i32>(cond_u32(rec, 8)) && cond_f32(rec, 0xc) == 0.f)
+    {
+        return 1;
+    }
+    return 0;
+}
+
+// Xbox 0x000E9210. EAX is the DAT_0050E4DC node. A non-null prev stores next
+// at prev+4. A non-null next stores prev at next+0. Both links are then
+// cleared. The tail matches 0x000663E0: 0x000F7100 selects the heap and
+// 0x0014D360 frees the node.
+void fn_e9210(LiveScript* node)
+{
+    LiveScript* prev = node->prev;
+    if (prev != nullptr)
+    {
+        prev->next = node->next;
+    }
+    if (node->next != nullptr)
+    {
+        node->next->prev = prev;
+    }
+    node->prev = nullptr;
+    node->next = nullptr;
+    fn_663e0(node);
+}
+
+// Xbox 0x001326D0. Opcode 2 in the table at 0x00314330. The record is not
+// read. Walks DAT_0050E4DC. An empty list, or no node whose dword at +8 is
+// 0xB8, returns 0. Xbox then adds 8 and returns 0 when that address is 0.
+// Otherwise the walk restarts at the head. The next pointer is taken before
+// 0x000E9210, and every node with 0xB8 at +8 is passed there. The walk
+// returns 1.
+int fn_1326d0(const ScriptCond&)
+{
+    LiveScript* found = g_live_scripts;
+    for (;;)
+    {
+        if (found == nullptr)
+        {
+            return 0;
+        }
+        if (found->type == 0xb8u)
+        {
+            break;
+        }
+        found = found->next;
+    }
+    if (reinterpret_cast<std::uintptr_t>(found) + offsetof(LiveScript, type) == 0)
+    {
+        return 0;
+    }
+    LiveScript* cursor = g_live_scripts;
+    do
+    {
+        LiveScript* next = cursor->next;
+        if (cursor->type == 0xb8u)
+        {
+            fn_e9210(cursor);
+        }
+        cursor = next;
+    } while (cursor != nullptr);
+    return 1;
+}
+
+// Xbox 0x00132720. Opcode 3 in the table at 0x00314330. Walks DAT_0050E4DC
+// until a node whose dword at +8 is 0xAD. An empty list returns 0. The
+// address of that dword is tested against 0. The word four bytes after it
+// is compared with the word at record+8. A miss takes next, and returns 0
+// when that pointer is 0. Otherwise it walks next until a node has the same
+// dword at +8, returning 0 if the walk ends. The address of that dword is
+// tested again. A hit ucomiss the float at record+0xC with the 0 at
+// 0x0032B100. Equal, and not a NaN, passes the node (that address minus 8)
+// to 0x000E9210 and returns 1. Every other path returns 0.
+int fn_132720(const ScriptCond& rec)
+{
+    LiveScript* node = g_live_scripts;
+    for (;;)
+    {
+        if (node == nullptr)
+        {
+            return 0;
+        }
+        if (node->type == 0xadu)
+        {
+            break;
+        }
+        node = node->next;
+    }
+    if (reinterpret_cast<std::uintptr_t>(node) + offsetof(LiveScript, type) == 0)
+    {
+        return 0;
+    }
+    const u16 want = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+    do
+    {
+        if (node->word_c == want)
+        {
+            if (cond_f32(rec, 0xc) != 0.f)
+            {
+                return 0;
+            }
+            fn_e9210(node);
+            return 1;
+        }
+        LiveScript* cursor = node->next;
+        const u32 saved = node->type;
+        if (cursor == nullptr)
+        {
+            return 0;
+        }
+        while (cursor->type != saved)
+        {
+            cursor = cursor->next;
+            if (cursor == nullptr)
+            {
+                return 0;
+            }
+        }
+        node = cursor;
+    } while (reinterpret_cast<std::uintptr_t>(node) + offsetof(LiveScript, type) != 0);
+    return 0;
+}
+
+// DAT_004E1C34. 0x001327A0 compares this dword with 0x80000000.
+u32 g_4e1c34 = 0;
+
+// Dwords 0x0012AE40 reads. The block starts at DAT_00512B78. The first
+// dword that function reads is 0x00512C6C, one 0xF4 slot later. Six fields
+// sit 0xF4 apart and the row stride is 0x5B8. Category n is 0x3A24 bytes
+// later. 0x0012AF10 walks seven categories, so the last read is category 6.
+constexpr u32 kStat512c6c = 0x00512B78u;
+constexpr u32 kStat512c6cLast = 0x0051303Cu + 6u * 0x3A24u + 9u * 0x5B8u + 0xF4u;
+i32 g_stat_512c6c[(kStat512c6cLast + 4u - kStat512c6c) / 4u]{};
+
+i32& stat_512c6c(u32 addr)
+{
+    return g_stat_512c6c[(addr - kStat512c6c) / 4u];
+}
+
+// Xbox 0x0012AE40. ECX is the category. The caller clears it. ECX is
+// multiplied by 0x3A24 and 0x0051303C is added. Ten rows each add the
+// dwords at -0x3D0, -0x2DC, -0x1E8, -0xF4, +0xF4, and +0, then the cursor
+// advances by 0x5B8.
+int fn_12ae40(i32 category)
+{
+    i32 sum = 0;
+    u32 cursor = 0x0051303Cu + static_cast<u32>(category) * 0x3A24u;
+    i32 rows = 10;
+    do
+    {
+        const i32 edi = stat_512c6c(cursor - 0x2dcu);
+        i32 esi = stat_512c6c(cursor - 0x3d0u);
+        esi += edi;
+        esi += stat_512c6c(cursor - 0x1e8u);
+        esi += stat_512c6c(cursor - 0xf4u);
+        esi += stat_512c6c(cursor + 0xf4u);
+        esi += stat_512c6c(cursor);
+        sum += esi;
+        cursor += 0x5b8u;
+        rows -= 1;
+    } while (rows != 0);
+    return sum;
+}
+
+// Xbox 0x001327A0. Opcode 4 in the table at 0x00314330. 0x0012AE40 is
+// compared with the int at record+8. A smaller count returns 0. A zero
+// dword at +0x10 stores 1 there and stores whether DAT_004E1C34 is below
+// 0x80000000 at +0x14. A zero at +0x14 then ucomiss the float at +0xC
+// with the 0 at 0x0032B100 and returns 0 when they differ or either is
+// NaN. A nonzero +0x14 returns 0 while DAT_004E1C34 stays below
+// 0x80000000. Every other path returns 1.
+int fn_1327a0(ScriptCond& rec)
+{
+    const i32 count = fn_12ae40(0);
+    if (count < static_cast<i32>(cond_u32(rec, 8)))
+    {
+        return 0;
+    }
+    if (static_cast<i32>(cond_u32(rec, 0x10)) == 0)
+    {
+        const u32 below = g_4e1c34 < 0x80000000u ? 1u : 0u;
+        cond_put_u32(rec, 0x10, 1u);
+        cond_put_u32(rec, 0x14, below);
+    }
+    if (static_cast<i32>(cond_u32(rec, 0x14)) == 0)
+    {
+        if (cond_f32(rec, 0xc) != 0.f)
+        {
+            return 0;
+        }
+    }
+    else if (g_4e1c34 < 0x80000000u)
+    {
+        return 0;
+    }
+    return 1;
+}
+
+// Xbox 0x00132800. Opcode 5 in the table at 0x00314330. The word at
+// record+0xC is shifted left by 2. Those dwords of DAT_005172F4 and
+// DAT_0051696C are added and compared with the int at record+8. A smaller
+// sum returns 0. Otherwise the float at record+0x10 is ucomiss'd with the
+// 0 at 0x0032B100. Equal, and not a NaN, returns 1. Every other path
+// returns 0.
+int fn_132800(const ScriptCond& rec)
+{
+    const u16 index = u16(rec.raw[0xc]) | (u16(rec.raw[0xd]) << 8);
+    const u32 scaled = u32(index) * 4u;
+    const i32 sum = stat_512c6c(0x005172F4u + scaled) + stat_512c6c(0x0051696Cu + scaled);
+    if (static_cast<i32>(cond_u32(rec, 8)) <= sum && cond_f32(rec, 0x10) == 0.f)
+    {
+        return 1;
+    }
+    return 0;
+}
+
+// Xbox 0x00132840. Opcode 6 in the table at 0x00314330. DAT_00511B40 null,
+// or equal to the sentinel 0x93C, returns 0. The word at node+0x20 + 0x94
+// must be nonzero. 0x000412A0 then writes that actor's world position.
+// 0x0005BEC0 takes the word at record+8, that position, and the address of
+// the stack slot that held the record. A nonzero return comiss the float
+// at record+0xC with the 0 at 0x0032B100. Below or equal, including
+// unordered, replaces it with the 50 at 0x0032B1E0. A second comiss returns
+// 1 only when that limit is above the float 0x0005BEC0 stored. 0x0005BEC0
+// is not translated, so its nonzero return is not taken.
+int fn_132840(const ScriptCond&)
+{
+    if (g_actor_mark != nullptr && reinterpret_cast<std::uintptr_t>(g_actor_mark) != 0x93cu &&
+        g_actor_mark->at_20->word_94 != 0)
+    {
+        const Vec3 world = actor_world_position(*g_actor_mark->actor);
+        (void)world;
+    }
+    return 0;
+}
+
+// Xbox 0x001328D0. Opcode 7 in the table at 0x00314330. Walks DAT_0050E4DC
+// until a node whose dword at +8 is 0xB4. An empty list returns 0. The
+// address of that dword is tested against 0. A zero word at record+8, or a
+// word four bytes after that dword matching the word at record+8, passes
+// the node (that address minus 8) to 0x000E9210 and returns 1. A miss takes
+// next, and returns 0 when that pointer is 0. Otherwise it walks next until
+// a node has the same dword at +8, returning 0 if the walk ends. The
+// address of that dword is tested again. Every other path returns 0.
+int fn_1328d0(const ScriptCond& rec)
+{
+    LiveScript* node = g_live_scripts;
+    for (;;)
+    {
+        if (node == nullptr)
+        {
+            return 0;
+        }
+        if (node->type == 0xb4u)
+        {
+            break;
+        }
+        node = node->next;
+    }
+    if (reinterpret_cast<std::uintptr_t>(node) + offsetof(LiveScript, type) == 0)
+    {
+        return 0;
+    }
+    const u16 want = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+    do
+    {
+        if (want == 0 || node->word_c == want)
+        {
+            fn_e9210(node);
+            return 1;
+        }
+        LiveScript* cursor = node->next;
+        const u32 saved = node->type;
+        if (cursor == nullptr)
+        {
+            return 0;
+        }
+        while (cursor->type != saved)
+        {
+            cursor = cursor->next;
+            if (cursor == nullptr)
+            {
+                return 0;
+            }
+        }
+        node = cursor;
+    } while (reinterpret_cast<std::uintptr_t>(node) + offsetof(LiveScript, type) != 0);
+    return 0;
+}
+
+// Xbox 0x00132940. Opcode 8 in the table at 0x00314330. The dword at
+// record+8 is loaded first. DAT_00511B40 null, or equal to the sentinel
+// 0x93C, returns 0. The word at node+0x20 + 0x94 must be nonzero.
+// 0x000412A0 then writes that actor's world position. 0x00124860 takes the
+// dword at record+8 and its return is this function's return. 0x00124860
+// is not translated, so that return is not taken.
+int fn_132940(const ScriptCond& rec)
+{
+    const u32 region = cond_u32(rec, 8);
+    if (g_actor_mark != nullptr && reinterpret_cast<std::uintptr_t>(g_actor_mark) != 0x93cu &&
+        g_actor_mark->at_20->word_94 != 0)
+    {
+        const Vec3 world = actor_world_position(*g_actor_mark->actor);
+        (void)world;
+        (void)region;
+    }
+    return 0;
+}
+
+// Xbox 0x001329A0. Opcode 9 in the table at 0x00314330. The dword at
+// record+8 is loaded first. DAT_00511B40 null, or equal to the sentinel
+// 0x93C, returns 1. Otherwise 0x000412A0 writes that actor's world position
+// and 0x00124860 takes the dword at record+8. A zero return from that call
+// returns 1. 0x00124860 is not translated, so that return is not taken.
+int fn_1329a0(const ScriptCond& rec)
+{
+    const u32 region = cond_u32(rec, 8);
+    if (g_actor_mark != nullptr && reinterpret_cast<std::uintptr_t>(g_actor_mark) != 0x93cu)
+    {
+        const Vec3 world = actor_world_position(*g_actor_mark->actor);
+        (void)world;
+        (void)region;
+        return 0;
+    }
+    return 1;
+}
+
+// Xbox 0x00129240. EAX starts at 0. DAT_00511B48 null returns 0. A zero DX
+// skips the class compare. A nonzero DX requires the word at node-0x93E
+// (object+6, the actor class key) to match. The word at [node+0x18]+0x94
+// nonzero adds one. Next is the pointer at node+4.
+int fn_129240(u16 key)
+{
+    int count = 0;
+    for (AltLink* link = g_alt_links; link != nullptr; link = link->next)
+    {
+        if (key != 0 && link->actor->class_key != key)
+        {
+            continue;
+        }
+        if (link->at_18->word_94 != 0)
+        {
+            count = count + 1;
+        }
+    }
+    return count;
+}
+
+// Xbox 0x00132A00. Opcode 11 in the table at 0x00314330. The word at
+// record+0xC is DX for 0x00129240. That count at or below the int at
+// record+8, and a ucomiss of the float at record+0x10 against the 0 at
+// 0x0032B100 that is equal and not a NaN, returns 1. Every other path
+// returns 0.
+int fn_132a00(const ScriptCond& rec)
+{
+    const u16 key = u16(rec.raw[0xc]) | (u16(rec.raw[0xd]) << 8);
+    const int count = fn_129240(key);
+    if (count <= static_cast<i32>(cond_u32(rec, 8)) && cond_f32(rec, 0x10) == 0.f)
+    {
+        return 1;
+    }
+    return 0;
+}
+
+// Xbox 0x00132A30. Opcode 10 in the table at 0x00314330. The word at
+// record+0xC is shifted left by 2. That dword of DAT_00512B78 is compared
+// with the int at record+8. A smaller count returns 0. Otherwise the float
+// at record+0x10 is ucomiss'd with the 0 at 0x0032B100. Equal, and not a
+// NaN, returns 1. Every other path returns 0.
+int fn_132a30(const ScriptCond& rec)
+{
+    const u16 index = u16(rec.raw[0xc]) | (u16(rec.raw[0xd]) << 8);
+    const u32 scaled = u32(index) * 4u;
+    const i32 count = stat_512c6c(0x00512B78u + scaled);
+    if (static_cast<i32>(cond_u32(rec, 8)) <= count && cond_f32(rec, 0x10) == 0.f)
+    {
+        return 1;
+    }
+    return 0;
+}
+
+// Xbox 0x00132A60. Opcode 12 in the table at 0x00314330. A nonzero word at
+// record+8 walks DAT_00511AA4. Next is the pointer at node+4. The short at
+// node-0x704 (object+0x1FC) matching that word returns 0. Otherwise the
+// float at record+0xC is ucomiss'd with the 0 at 0x0032B100. Equal, and
+// not a NaN, returns 1. Every other path returns 0.
+int fn_132a60(const ScriptCond& rec)
+{
+    const u16 want = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+    if (want != 0)
+    {
+        for (PulseNode* node = g_pulse_nodes; node != nullptr; node = node->next)
+        {
+            if (node->word_1fc == want)
+            {
+                return 0;
+            }
+        }
+    }
+    if (cond_f32(rec, 0xc) == 0.f)
+    {
+        return 1;
+    }
+    return 0;
+}
+
+// Xbox 0x00132AB0. Opcode 17 in the table at 0x00314330. A nonzero word at
+// record+8 walks DAT_00511AA4. Next is the pointer at node+4. The short at
+// node-0x704 (object+0x1FC) matching that word selects the object at
+// node-0x900. A zero word or a miss leaves the object null. vtable +0xC is
+// called with that object and a two-dword message, 0x20 then 0. The callee
+// writes the second dword. A zero dword at record+0x14 stores 1 there and
+// stores that second dword at record+0x18. A zero at record+0x10, or a
+// dword at record+0x18 other than 1, and a nonzero second dword, and a
+// ucomiss of the float at record+0xC with the 0 at 0x0032B100 that is equal
+// and not a NaN, returns 1. Every other path returns 0.
+int fn_132ab0(ScriptCond& rec)
+{
+    const u16 want = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+    PulseNode* obj = nullptr;
+    if (want != 0)
+    {
+        for (PulseNode* node = g_pulse_nodes; node != nullptr; node = node->next)
+        {
+            if (node->word_1fc == want)
+            {
+                obj = node;
+                break;
+            }
+        }
+    }
+    i32 message[2];
+    message[0] = 0x20;
+    message[1] = 0;
+    reinterpret_cast<void (*)(PulseNode*, i32*)>(obj->on_message)(obj, message);
+    if (static_cast<i32>(cond_u32(rec, 0x14)) == 0)
+    {
+        cond_put_u32(rec, 0x14, 1u);
+        cond_put_u32(rec, 0x18, static_cast<u32>(message[1]));
+    }
+    if ((static_cast<i32>(cond_u32(rec, 0x10)) == 0 || static_cast<i32>(cond_u32(rec, 0x18)) != 1) &&
+        message[1] != 0 && cond_f32(rec, 0xc) == 0.f)
+    {
+        return 1;
+    }
+    return 0;
+}
+
+// Xbox 0x00132B50. Opcode 26 in the table at 0x00314330. A nonzero word at
+// record+8 walks DAT_00511AA4. Next is the pointer at node+4. The short at
+// node-0x704 (object+0x1FC) matching that word selects the object at
+// node-0x900. A zero word or a miss leaves the object null. vtable +0xC is
+// called with that object and a two-dword message, 0x20 then 0. The callee
+// writes the second dword. That dword equal to 0 returns 1. Any other value
+// returns 0.
+int fn_132b50(const ScriptCond& rec)
+{
+    const u16 want = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+    PulseNode* obj = nullptr;
+    if (want != 0)
+    {
+        for (PulseNode* node = g_pulse_nodes; node != nullptr; node = node->next)
+        {
+            if (node->word_1fc == want)
+            {
+                obj = node;
+                break;
+            }
+        }
+    }
+    i32 message[2];
+    message[0] = 0x20;
+    message[1] = 0;
+    reinterpret_cast<void (*)(PulseNode*, i32*)>(obj->on_message)(obj, message);
+    if (message[1] == 0)
+    {
+        return 1;
+    }
+    return 0;
+}
+
+// Xbox 0x001168F0. EAX starts at DAT_0050E4DC. An empty list returns 0.
+// Walks next at +4 until a node whose dword at +8 is 0xB6. The address of
+// that dword is tested against 0. DX at or below 1 returns 1. Otherwise the
+// word at that address +0xC (node+0x14) is compared with DX. A match returns
+// 1. A miss takes next, and returns 0 when that pointer is 0. Otherwise it
+// walks next until a node has the same dword at +8, returning 0 if the walk
+// ends. The address of that dword is tested again. Every other path returns 0.
+int fn_1168f0(u16 key)
+{
+    LiveScript* node = g_live_scripts;
+    for (;;)
+    {
+        if (node == nullptr)
+        {
+            return 0;
+        }
+        if (node->type == 0xb6u)
+        {
+            break;
+        }
+        node = node->next;
+    }
+    if (reinterpret_cast<std::uintptr_t>(node) + offsetof(LiveScript, type) == 0)
+    {
+        return 0;
+    }
+    if (key <= 1)
+    {
+        return 1;
+    }
+    do
+    {
+        if (node->word_14 == key)
+        {
+            return 1;
+        }
+        LiveScript* cursor = node->next;
+        const u32 saved = node->type;
+        if (cursor == nullptr)
+        {
+            return 0;
+        }
+        while (cursor->type != saved)
+        {
+            cursor = cursor->next;
+            if (cursor == nullptr)
+            {
+                return 0;
+            }
+        }
+        node = cursor;
+    } while (reinterpret_cast<std::uintptr_t>(node) + offsetof(LiveScript, type) != 0);
+    return 0;
+}
+
+// Xbox 0x00132BC0. Opcode 13 in the table at 0x00314330. The word at
+// record+8 is DX for 0x001168F0. A nonzero return ucomiss the float at
+// record+0xC with the 0 at 0x0032B100. Equal, and not a NaN, returns 1.
+// Every other path returns 0.
+int fn_132bc0(const ScriptCond& rec)
+{
+    const u16 key = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+    if (fn_1168f0(key) != 0 && cond_f32(rec, 0xc) == 0.f)
+    {
+        return 1;
+    }
+    return 0;
+}
+
+// Xbox 0x00132BF0. Opcode 14 in the table at 0x00314330. The word at
+// record+8 at or below 1 sums the dwords at DAT_0051696C, DAT_005172F4,
+// DAT_0051AD18, and DAT_0051A390. A larger word is shifted left by 2 and
+// those four dwords are read at that offset. A nonzero sum ucomiss the
+// float at record+0xC with the 0 at 0x0032B100. Equal, and not a NaN,
+// returns 1. Every other path returns 0.
+int fn_132bf0(const ScriptCond& rec)
+{
+    const u16 index = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+    i32 sum = 0;
+    if (index <= 1)
+    {
+        sum = stat_512c6c(0x0051696Cu) + stat_512c6c(0x005172F4u) + stat_512c6c(0x0051AD18u) +
+              stat_512c6c(0x0051A390u);
+    }
+    else
+    {
+        const u32 scaled = u32(index) * 4u;
+        sum = stat_512c6c(0x0051AD18u + scaled) + stat_512c6c(0x0051A390u + scaled) +
+              stat_512c6c(0x005172F4u + scaled) + stat_512c6c(0x0051696Cu + scaled);
+    }
+    if (sum != 0 && cond_f32(rec, 0xc) == 0.f)
+    {
+        return 1;
+    }
+    return 0;
+}
+
+// Xbox 0x00132C70. Opcode 16 in the table at 0x00314330. DAT_00511B38 null
+// returns 0. Next is the pointer at node+4. The short at node-0x92e
+// (object+6) must match the word at record+8. The pointer at node+0x4c
+// (object+0x980) null falls through to the float test. A ushort at span+6
+// equal to the ushort at span+2 yields a null element, and any other pair
+// is data + index * stride. A nonzero first short, and a zero dword at
+// node+0x50, returns 0 when the dword at node+0x58 is 0 and skips the float
+// test when it is not. A null element is still loaded, which faults on Xbox.
+// Every other matching node ucomiss the float at record+0xC with the 0 at
+// 0x0032B100. Equal, and not a NaN, stores 1. The walk returns that value.
+int fn_132c70(const ScriptCond& rec)
+{
+    int result = 0;
+    if (g_range_links == nullptr)
+    {
+        return 0;
+    }
+    const u16 want = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+    for (RangeLink* link = g_range_links; link != nullptr; link = link->next)
+    {
+        CamFocus* obj = link->host;
+        if (obj->tag_6 != want)
+        {
+            continue;
+        }
+        EntityMaskSpan* span = obj->span_980;
+        if (span != nullptr)
+        {
+            const u16* elem;
+            if (span->end == span->mark)
+            {
+                elem = nullptr;
+            }
+            else
+            {
+                const std::uintptr_t base = reinterpret_cast<std::uintptr_t>(span->data);
+                const std::uintptr_t at = base + std::uintptr_t(span->index) * std::uintptr_t(span->stride);
+                elem = reinterpret_cast<const u16*>(at);
+            }
+            if (*elem != 0 && obj->at_984 == 0)
+            {
+                if (obj->at_98c == 0)
+                {
+                    return 0;
+                }
+                continue;
+            }
+        }
+        if (cond_f32(rec, 0xc) == 0.f)
+        {
+            result = 1;
+        }
+    }
+    return result;
+}
+
+// Xbox 0x00132D00. Opcode 15 in the table at 0x00314330. The word at
+// record+8 is kept when 1 is below it, and cleared otherwise. Walks
+// DAT_0050E4DC until a node whose dword at +8 is 0xB7. An empty list returns
+// 0. The address of that dword is tested against 0. A zero kept word, or a
+// word four bytes after that dword matching the kept word, reads the int at
+// record+0xC. Zero, or any value other than 1 or 2, takes the float test.
+// 1 copies the dword at that address +8 (node+0x10). 2 stores whether that
+// dword is zero. A nonzero copy takes the float test. A miss takes next, and
+// joins the end test when that pointer is 0. Otherwise it walks next until a
+// node has the same dword at +8, joining the end test if the walk ends. The
+// address of that dword is tested again. The end test takes the float path
+// when the copied value is still nonzero. The float at record+0x10 is
+// ucomiss'd with the 0 at 0x0032B100. Equal, and not a NaN, returns 1.
+// Every other path returns 0.
+int fn_132d00(const ScriptCond& rec)
+{
+    u32 state = 0;
+    const u16 raw = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+    const u16 key = 1 < raw ? raw : u16(0);
+    LiveScript* node = g_live_scripts;
+    for (;;)
+    {
+        if (node == nullptr)
+        {
+            return 0;
+        }
+        if (node->type == 0xb7u)
+        {
+            break;
+        }
+        node = node->next;
+    }
+    if (reinterpret_cast<std::uintptr_t>(node) + offsetof(LiveScript, type) == 0)
+    {
+        return 0;
+    }
+    int matched = 0;
+    do
+    {
+        if (key == 0 || node->word_c == key)
+        {
+            const i32 mode = static_cast<i32>(cond_u32(rec, 0xc));
+            if (mode == 0)
+            {
+                matched = 1;
+                break;
+            }
+            if (mode == 1)
+            {
+                state = node->dword_10;
+            }
+            else
+            {
+                if (mode != 2)
+                {
+                    matched = 1;
+                    break;
+                }
+                state = node->dword_10 == 0 ? 1u : 0u;
+            }
+            if (state != 0)
+            {
+                matched = 1;
+                break;
+            }
+        }
+        LiveScript* cursor = node->next;
+        const u32 saved = node->type;
+        if (cursor == nullptr)
+        {
+            break;
+        }
+        while (cursor->type != saved)
+        {
+            cursor = cursor->next;
+            if (cursor == nullptr)
+            {
+                break;
+            }
+        }
+        if (cursor == nullptr)
+        {
+            break;
+        }
+        node = cursor;
+    } while (reinterpret_cast<std::uintptr_t>(node) + offsetof(LiveScript, type) != 0);
+    if (matched != 0 || state != 0)
+    {
+        if (cond_f32(rec, 0x10) == 0.f)
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// Xbox 0x00132DB0. Opcode 18 in the table at 0x00314330. DAT_00511B38 null
+// skips the walk. Next is the pointer at node+4. The short at node-0x92e
+// (object+6) matching the word at record+8, and a nonzero word at
+// [node+0x28]+0x94, returns 0. Otherwise the float at record+0xC is
+// ucomiss'd with the 0 at 0x0032B100. Equal, and not a NaN, returns 1.
+// Every other path returns 0.
+int fn_132db0(const ScriptCond& rec)
+{
+    if (g_range_links != nullptr)
+    {
+        const u16 want = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+        for (RangeLink* link = g_range_links; link != nullptr; link = link->next)
+        {
+            if (link->host->tag_6 == want && link->at_28->word_94 != 0)
+            {
+                return 0;
+            }
+        }
+    }
+    if (cond_f32(rec, 0xc) != 0.f)
+    {
+        return 0;
+    }
+    return 1;
+}
+
+// Xbox 0x00132E00. Opcode 19 in the table at 0x00314330. A zero word at
+// record+0xC calls 0x0012AE40 with ECX cleared. Any other word loads the
+// dword at DAT_00512B78 indexed by that word. While the int at record+0x18
+// is below that count, it is incremented. A zero remainder from the signed
+// division by the int at record+8 copies the dword at record+0x10 onto
+// record+0x14 when the int at record+0x1C is zero, then increments that
+// int. A nonzero int at record+0x1C whose float at record+0x14 ucomiss
+// equals the 0 at 0x0032B100, and is not a NaN, decrements the int. A
+// remaining nonzero value copies record+0x10 onto record+0x14 again and
+// returns 2. Every other path returns 0.
+int fn_132e00(ScriptCond& rec)
+{
+    i32 count = 0;
+    const u16 category = u16(rec.raw[0xc]) | (u16(rec.raw[0xd]) << 8);
+    if (category == 0)
+    {
+        count = fn_12ae40(0);
+    }
+    else
+    {
+        count = stat_512c6c(0x00512B78u + u32(category) * 4u);
+    }
+    if (static_cast<i32>(cond_u32(rec, 0x18)) < count)
+    {
+        do
+        {
+            const i32 next = static_cast<i32>(cond_u32(rec, 0x18)) + 1;
+            cond_put_u32(rec, 0x18, static_cast<u32>(next));
+            if (next % static_cast<i32>(cond_u32(rec, 8)) == 0)
+            {
+                const i32 pending = static_cast<i32>(cond_u32(rec, 0x1c));
+                if (pending == 0)
+                {
+                    cond_put_u32(rec, 0x14, cond_u32(rec, 0x10));
+                }
+                cond_put_u32(rec, 0x1c, static_cast<u32>(pending + 1));
+            }
+        } while (static_cast<i32>(cond_u32(rec, 0x18)) < count);
+    }
+    if (static_cast<i32>(cond_u32(rec, 0x1c)) != 0 && cond_f32(rec, 0x14) == 0.f)
+    {
+        const i32 left = static_cast<i32>(cond_u32(rec, 0x1c)) - 1;
+        cond_put_u32(rec, 0x1c, static_cast<u32>(left));
+        if (left != 0)
+        {
+            cond_put_u32(rec, 0x14, cond_u32(rec, 0x10));
+        }
+        return 2;
+    }
+    return 0;
+}
+
+// DAT_00510570. +0 is followed until null. +4 of that last node is the chain
+// counted below. A null +0 leaves the node as this head, so +4 is DAT_00510574.
+struct AidChain
+{
+    AidChain* at_0 = nullptr;
+    AidChain* at_4 = nullptr;
+};
+AidChain g_aid_chain{};
+
+// Xbox 0x00132E90. Opcode 20 in the table at 0x00314330. The record is not
+// read. Walks the pointer at DAT_00510570 through the dword at +0 until null,
+// keeping the previous node (the address of DAT_00510570 when that pointer
+// is null). The dword at +4 of that node is then walked through +4, counting
+// nodes. A nonzero count returns 0. An empty walk returns 1.
+int fn_132e90()
+{
+    AidChain* tail = &g_aid_chain;
+    for (AidChain* node = g_aid_chain.at_0; node != nullptr; node = node->at_0)
+    {
+        tail = node;
+    }
+    AidChain* chain = tail->at_4;
+    i32 count = 0;
+    if (chain != nullptr)
+    {
+        do
+        {
+            chain = chain->at_4;
+            count = count + 1;
+        } while (chain != nullptr);
+        if (count != 0)
+        {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+// DAT_00506c74. +8 is the flag-byte pointer. 0x00132ED0 tests bit 0x8 of the
+// first byte. The payload is the two bytes 0x000F2B60 publishes.
+struct SceneFlagBlock
+{
+    i32 kind = 0; // +0
+    i32 size = 0; // +4
+    u8* bytes = nullptr; // +8
+};
+u8 g_scene_flag_bytes[2]{};
+SceneFlagBlock g_scene_flag_block{0, 0, g_scene_flag_bytes};
+SceneFlagBlock* g_scene_flags = &g_scene_flag_block;
+
+extern u32 g_flags_ea9c; // DAT_0050EA9C
+
+// Xbox 0x00132ED0. Opcode 21 in the table at 0x00314330. The record is not
+// read. Bit 0x8 of the byte at [DAT_00506c74+8], or bit 0x200000 of
+// DAT_0050EA9C, returns 1. Both clear returns 0.
+int fn_132ed0()
+{
+    if ((*g_scene_flags->bytes & 8) == 0 && (g_flags_ea9c & 0x200000u) == 0)
+    {
+        return 0;
+    }
+    return 1;
+}
+
+// Xbox 0x00132F00. Opcode 22 in the table at 0x00314330. The record is not
+// read. Bit 0x8 of the byte at [DAT_00506c74+8] and bit 0x200000 of
+// DAT_0050EA9C both clear returns 1. Either set returns 0.
+int fn_132f00()
+{
+    if ((*g_scene_flags->bytes & 8) == 0 && (g_flags_ea9c & 0x200000u) == 0)
+    {
+        return 1;
+    }
+    return 0;
+}
+
+// Xbox 0x00132F30. Opcode 23 in the table at 0x00314330. Walks DAT_00511B48.
+// A null node returns 0. The word at record+8 below 2, or equal to the word
+// at node-0x93E (actor+6), calls 0x000412A0 with ESI = node-0x944 and EDI
+// pointing at a 12-byte stack slot. 0x00124860 then takes the dword at
+// record+0xC. A nonzero return returns 1. Next is the pointer at node+4.
+// 0x00124860 is not translated, so its nonzero return is not taken.
+int fn_132f30(const ScriptCond& rec)
+{
+    for (AltLink* link = g_alt_links; link != nullptr; link = link->next)
+    {
+        const u16 key = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+        if (key < 2 || link->actor->class_key == key)
+        {
+            const Vec3 world = actor_world_position(*link->actor);
+            (void)world;
+            (void)cond_u32(rec, 0xc);
+        }
+    }
+    return 0;
+}
+
+// Xbox 0x00132FA0. Opcode 24 in the table at 0x00314330. Walks DAT_00511B48.
+// A null node returns 0. The word at record+8 below 2, or equal to the word
+// at node-0x93E (actor+6), and the word at [node+0x18]+0x94 zero-extended
+// then compared as a signed int at or below the int at record+0xC, returns 1.
+// Next is the pointer at node+4. Every other path returns 0.
+int fn_132fa0(const ScriptCond& rec)
+{
+    for (AltLink* link = g_alt_links; link != nullptr; link = link->next)
+    {
+        const u16 key = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+        if ((key < 2 || link->actor->class_key == key) &&
+            static_cast<i32>(u32(link->at_18->word_94)) <= static_cast<i32>(cond_u32(rec, 0xc)))
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// Xbox 0x00132FF0. Opcode 25 in the table at 0x00314330. Walks DAT_0050E4DC
+// until a node whose dword at +8 is 0xB9. An empty list returns whether the
+// int at record+0xC is at or below 0. A null next before that type is found
+// returns whether that int is below 1. The address of the type dword is
+// tested against 0. The word at record+8 below 2, or equal to the word four
+// bytes after that dword, adds one. Next is the pointer four bytes before
+// the type dword. A null next joins the end test. Otherwise it walks next
+// until a node has the same dword at +8, returning the end test if the walk
+// ends. The address of that dword is tested again. The end test returns
+// whether the int at record+0xC is at or below the count.
+int fn_132ff0(const ScriptCond& rec)
+{
+    int count = 0;
+    LiveScript* node = g_live_scripts;
+    if (node != nullptr)
+    {
+        while (node->type != 0xb9u)
+        {
+            node = node->next;
+            if (node == nullptr)
+            {
+                if (static_cast<i32>(cond_u32(rec, 0xc)) < 1)
+                {
+                    return 1;
+                }
+                return 0;
+            }
+        }
+        if (reinterpret_cast<std::uintptr_t>(node) + offsetof(LiveScript, type) != 0)
+        {
+            const u16 key = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+            do
+            {
+                if (key < 2 || node->word_c == key)
+                {
+                    count = count + 1;
+                }
+                LiveScript* cursor = node->next;
+                const u32 saved = node->type;
+                if (cursor == nullptr)
+                {
+                    break;
+                }
+                while (cursor->type != saved)
+                {
+                    cursor = cursor->next;
+                    if (cursor == nullptr)
+                    {
+                        if (static_cast<i32>(cond_u32(rec, 0xc)) <= count)
+                        {
+                            return 1;
+                        }
+                        return 0;
+                    }
+                }
+                node = cursor;
+            } while (reinterpret_cast<std::uintptr_t>(node) + offsetof(LiveScript, type) != 0);
+        }
+    }
+    if (static_cast<i32>(cond_u32(rec, 0xc)) <= count)
+    {
+        return 1;
+    }
+    return 0;
+}
+
 // Xbox 0x00124BE0. A zero keeps the record. Any other value queues the link
 // at +4. A return of exactly 1 also removes the record and the slot that
-// slides down is evaluated next. Opcode 0 is 0x00132650. Other opcodes are
-// not evaluated until their functions are translated.
+// slides down is evaluated next. Opcode 0 is 0x00132650. Opcode 1 is
+// 0x00132680. Opcode 2 is 0x001326D0. Opcode 3 is 0x00132720. Opcode 4 is
+// 0x001327A0. Opcode 5 is 0x00132800. Opcode 6 is 0x00132840. Opcode 7 is
+// 0x001328D0. Opcode 8 is 0x00132940. Opcode 9 is 0x001329A0. Opcode 10 is
+// 0x00132A30. Opcode 11 is 0x00132A00. Opcode 12 is 0x00132A60. Opcode 13 is
+// 0x00132BC0. Opcode 14 is 0x00132BF0. Opcode 15 is 0x00132D00. Opcode 16 is
+// 0x00132C70. Opcode 17 is 0x00132AB0. Opcode 18 is 0x00132DB0. Opcode 19 is
+// 0x00132E00. Opcode 20 is 0x00132E90. Opcode 21 is 0x00132ED0. Opcode 22 is
+// 0x00132F00. Opcode 23 is 0x00132F30. Opcode 24 is 0x00132FA0. Opcode 25 is
+// 0x00132FF0. Opcode 26 is 0x00132B50.
 void fn_124be0(Game& g)
 {
     size_t i = 0;
@@ -15502,6 +16625,110 @@ void fn_124be0(Game& g)
         if (opcode == 0)
         {
             fired = fn_132650(rec);
+        }
+        else if (opcode == 1)
+        {
+            fired = fn_132680(rec);
+        }
+        else if (opcode == 2)
+        {
+            fired = fn_1326d0(rec);
+        }
+        else if (opcode == 3)
+        {
+            fired = fn_132720(rec);
+        }
+        else if (opcode == 4)
+        {
+            fired = fn_1327a0(rec);
+        }
+        else if (opcode == 5)
+        {
+            fired = fn_132800(rec);
+        }
+        else if (opcode == 6)
+        {
+            fired = fn_132840(rec);
+        }
+        else if (opcode == 7)
+        {
+            fired = fn_1328d0(rec);
+        }
+        else if (opcode == 8)
+        {
+            fired = fn_132940(rec);
+        }
+        else if (opcode == 9)
+        {
+            fired = fn_1329a0(rec);
+        }
+        else if (opcode == 10)
+        {
+            fired = fn_132a30(rec);
+        }
+        else if (opcode == 11)
+        {
+            fired = fn_132a00(rec);
+        }
+        else if (opcode == 12)
+        {
+            fired = fn_132a60(rec);
+        }
+        else if (opcode == 13)
+        {
+            fired = fn_132bc0(rec);
+        }
+        else if (opcode == 14)
+        {
+            fired = fn_132bf0(rec);
+        }
+        else if (opcode == 15)
+        {
+            fired = fn_132d00(rec);
+        }
+        else if (opcode == 16)
+        {
+            fired = fn_132c70(rec);
+        }
+        else if (opcode == 17)
+        {
+            fired = fn_132ab0(rec);
+        }
+        else if (opcode == 18)
+        {
+            fired = fn_132db0(rec);
+        }
+        else if (opcode == 19)
+        {
+            fired = fn_132e00(rec);
+        }
+        else if (opcode == 20)
+        {
+            fired = fn_132e90();
+        }
+        else if (opcode == 21)
+        {
+            fired = fn_132ed0();
+        }
+        else if (opcode == 22)
+        {
+            fired = fn_132f00();
+        }
+        else if (opcode == 23)
+        {
+            fired = fn_132f30(rec);
+        }
+        else if (opcode == 24)
+        {
+            fired = fn_132fa0(rec);
+        }
+        else if (opcode == 25)
+        {
+            fired = fn_132ff0(rec);
+        }
+        else if (opcode == 26)
+        {
+            fired = fn_132b50(rec);
         }
         if (fired == 0)
         {
@@ -15519,10 +16746,932 @@ void fn_124be0(Game& g)
     (void)g;
 }
 
+u8 node_u8(const SceneScript& script, const ScriptNode& node, u32 rel)
+{
+    if (rel >= node.size || node.offset + rel >= script.bytes.size())
+    {
+        return 0;
+    }
+    return script.bytes[node.offset + rel];
+}
+
+u16 node_u16(const SceneScript& script, const ScriptNode& node, u32 rel)
+{
+    if (rel + 2 > node.size || node.offset + rel + 2 > script.bytes.size())
+    {
+        return 0;
+    }
+    return read_u16(script.bytes, node.offset + rel);
+}
+
+std::string node_cstr(const SceneScript& script, const ScriptNode& node, u32 rel)
+{
+    if (rel >= node.size || node.offset + rel >= script.bytes.size())
+    {
+        return {};
+    }
+    const size_t begin = node.offset + rel;
+    const size_t end = std::min(script.bytes.size(), static_cast<size_t>(node.offset + node.size));
+    size_t at = begin;
+    while (at < end && script.bytes[at] != 0)
+    {
+        ++at;
+    }
+    return std::string(reinterpret_cast<const char*>(script.bytes.data() + begin), at - begin);
+}
+
+// Names at 0x0042A854. Count passed to 0x000FBFB0 is 0xE9.
+const char* const kObjTagActor[0xE9] = {
+    "objTag_Actor",
+    "objTag_Actor_Baron",
+    "objTag_Actor_BaronPlane",
+    "objTag_Actor_Boy",
+    "objTag_Actor_Butler",
+    "objTag_Actor_Cameron",
+    "objTag_Actor_Chicken",
+    "objTag_Actor_Cook",
+    "objTag_Actor_CookPlayable",
+    "objTag_Actor_Doll",
+    "objTag_Actor_Fiddler",
+    "objTag_Actor_GhoulieGirl",
+    "objTag_Actor_GiantHand",
+    "objTag_Actor_Girl",
+    "objTag_Actor_GrimReaper",
+    "objTag_Actor_HauntedChair",
+    "objTag_Actor_HauntedCoat",
+    "objTag_Actor_HauntedDoor",
+    "objTag_Actor_HauntedDoorRound",
+    "objTag_Actor_HauntedPicture",
+    "objTag_Actor_HauntedTV",
+    "objTag_Actor_Hunchback",
+    "objTag_Actor_Imp",
+    "objTag_Actor_ImpChallenge",
+    "objTag_Actor_ImpFire",
+    "objTag_Actor_ImpFlying",
+    "objTag_Actor_ImpNinja",
+    "objTag_Actor_ImpNinjaBig",
+    "objTag_Actor_ImpRoger",
+    "objTag_Actor_JessieClyde",
+    "objTag_Actor_Medusa",
+    "objTag_Actor_MiniCooper",
+    "objTag_Actor_MrsMop",
+    "objTag_Actor_Mummy",
+    "objTag_Actor_MummyCursed",
+    "objTag_Actor_Pirate",
+    "objTag_Actor_PirateLeader",
+    "objTag_Actor_PrisonerChestChap",
+    "objTag_Actor_PrisonerDoggyGirl",
+    "objTag_Actor_PrisonerFilmReel",
+    "objTag_Actor_PrisonerFridgeLady",
+    "objTag_Actor_PrisonerFridgeLadyFat",
+    "objTag_Actor_PrisonerLaundryLad",
+    "objTag_Actor_PrisonerPlatterLad",
+    "objTag_Actor_PrisonerSarco",
+    "objTag_Actor_PrisonerSaunaGirl",
+    "objTag_Actor_PrisonerSerpentYouth",
+    "objTag_Actor_PrisonerThornGirl",
+    "objTag_Actor_Ribs",
+    "objTag_Actor_RibsFNPC",
+    "objTag_Actor_RibsKey",
+    "objTag_Actor_Skeleton",
+    "objTag_Actor_SkeletonMaid",
+    "objTag_Actor_Spider",
+    "objTag_Actor_UglyGirl",
+    "objTag_Actor_Vampire",
+    "objTag_Actor_VampireChicken",
+    "objTag_Actor_Warlock",
+    "objTag_Actor_Worm",
+    "objTag_Actor_Zombie",
+    "objTag_Actor_zzz",
+    "objTag_Avatar",
+    "objTag_Avatar_DizzyBat",
+    "objTag_Avatar_Fx_AnimEmitter",
+    "objTag_Avatar_Fx_BurnUp",
+    "objTag_Avatar_Fx_Explode",
+    "objTag_Avatar_Fx_MotionBlur",
+    "objTag_Avatar_HatstandBase",
+    "objTag_Avatar_StandardLampBase",
+    "objTag_Background",
+    "objTag_BgBreakKey",
+    "objTag_Body",
+    "objTag_Body_Camera",
+    "objTag_Body_Human",
+    "objTag_Body_JessieClyde",
+    "objTag_Body_Player",
+    "objTag_Body_Vampire",
+    "objTag_Body_Zombie",
+    "objTag_Camera",
+    "objTag_FxCustom_DustUp",
+    "objTag_FxCustom_Electric",
+    "objTag_FxCustom_FadeOut",
+    "objTag_FxCustom_FadeToGrey",
+    "objTag_FxCustom_Fire",
+    "objTag_FxCustom_MutateHalo",
+    "objTag_FxCustom_SolidFadeIn",
+    "objTag_Mind",
+    "objTag_Mind_Cameraman",
+    "objTag_Mind_Cinema",
+    "objTag_Mind_Human",
+    "objTag_Mind_Player",
+    "objTag_Misc_AnimDelete",
+    "objTag_Misc_AnimatedLight",
+    "objTag_Misc_ButtonBat",
+    "objTag_Misc_ChickenEgg",
+    "objTag_Misc_Furnace",
+    "objTag_Misc_GhoulyKey",
+    "objTag_Misc_KnockDownSphere",
+    "objTag_Misc_MummyCursedSlabTop",
+    "objTag_Misc_Prop",
+    "objTag_Misc_SSSDoor",
+    "objTag_Misc_SSSDropper",
+    "objTag_Misc_Scare",
+    "objTag_Misc_ScareFigure",
+    "objTag_Misc_SpiderWeb",
+    "objTag_Misc_SuperScaryShock",
+    "objTag_Move",
+    "objTag_Powerup",
+    "objTag_SceneControl",
+    "objTag_Spawn",
+    "objTag_State",
+    "objTag_Strategy",
+    "objTag_Strategy_Director",
+    "objTag_Strategy_HauntedCoat",
+    "objTag_Strategy_HauntedDoor",
+    "objTag_Strategy_Human",
+    "objTag_Strategy_Player",
+    "objTag_Weapon",
+    "objTag_Weapon_Anchor",
+    "objTag_Weapon_Ankh",
+    "objTag_Weapon_Anvil",
+    "objTag_Weapon_Bandage",
+    "objTag_Weapon_BaronCane",
+    "objTag_Weapon_Barrel",
+    "objTag_Weapon_Bathtub",
+    "objTag_Weapon_Bellows",
+    "objTag_Weapon_Blunderbuss",
+    "objTag_Weapon_Book",
+    "objTag_Weapon_Bottle",
+    "objTag_Weapon_BottleContainer",
+    "objTag_Weapon_Broom",
+    "objTag_Weapon_Burger",
+    "objTag_Weapon_BurgerContainer",
+    "objTag_Weapon_Cake",
+    "objTag_Weapon_Candle",
+    "objTag_Weapon_Candlestick",
+    "objTag_Weapon_Chair",
+    "objTag_Weapon_ChessBoard",
+    "objTag_Weapon_ChestOfDrawers",
+    "objTag_Weapon_ChristmasPudding",
+    "objTag_Weapon_CoalScuttle",
+    "objTag_Weapon_CookingPot",
+    "objTag_Weapon_Crate",
+    "objTag_Weapon_Crate2",
+    "objTag_Weapon_Crutches",
+    "objTag_Weapon_Cue",
+    "objTag_Weapon_Cymbal",
+    "objTag_Weapon_Drum",
+    "objTag_Weapon_Dustbin",
+    "objTag_Weapon_Dustpan",
+    "objTag_Weapon_Egg",
+    "objTag_Weapon_EggContainer",
+    "objTag_Weapon_FeatherDuster",
+    "objTag_Weapon_FeedingTrough",
+    "objTag_Weapon_Figurine",
+    "objTag_Weapon_FilmReel",
+    "objTag_Weapon_FireBall",
+    "objTag_Weapon_FireExtinguisher",
+    "objTag_Weapon_FishingRod",
+    "objTag_Weapon_FlourBag",
+    "objTag_Weapon_FrenchStick",
+    "objTag_Weapon_FruitBowl",
+    "objTag_Weapon_FryingPan",
+    "objTag_Weapon_Garlic",
+    "objTag_Weapon_GiantScissors",
+    "objTag_Weapon_GlassPane",
+    "objTag_Weapon_Gnome",
+    "objTag_Weapon_Gramophone",
+    "objTag_Weapon_Guitar",
+    "objTag_Weapon_HandSaw",
+    "objTag_Weapon_HatStand",
+    "objTag_Weapon_IroningBoard",
+    "objTag_Weapon_JointOfMeat",
+    "objTag_Weapon_LaboratoryBed",
+    "objTag_Weapon_Ladder",
+    "objTag_Weapon_LargePlate",
+    "objTag_Weapon_LaundryBasket",
+    "objTag_Weapon_Mailbox",
+    "objTag_Weapon_Mirror",
+    "objTag_Weapon_MummyCurse",
+    "objTag_Weapon_Oar",
+    "objTag_Weapon_OilDrum",
+    "objTag_Weapon_PaintBall",
+    "objTag_Weapon_PaintCan",
+    "objTag_Weapon_PaintCanContainer",
+    "objTag_Weapon_Painting",
+    "objTag_Weapon_PicnicTable",
+    "objTag_Weapon_PirateChest",
+    "objTag_Weapon_PirateRum",
+    "objTag_Weapon_PirateSword",
+    "objTag_Weapon_Pitchfork",
+    "objTag_Weapon_Plank",
+    "objTag_Weapon_PlantPot",
+    "objTag_Weapon_PopCan",
+    "objTag_Weapon_PopCanGun",
+    "objTag_Weapon_Pot",
+    "objTag_Weapon_PotContainer",
+    "objTag_Weapon_Pumpkin",
+    "objTag_Weapon_Rake",
+    "objTag_Weapon_RollingPin",
+    "objTag_Weapon_SilverServiceTray",
+    "objTag_Weapon_Skip",
+    "objTag_Weapon_SmallTree",
+    "objTag_Weapon_SnookerTable",
+    "objTag_Weapon_Sofa",
+    "objTag_Weapon_SofaButler",
+    "objTag_Weapon_Spade",
+    "objTag_Weapon_Speaker",
+    "objTag_Weapon_SpecialPot",
+    "objTag_Weapon_SpiderSpitBall",
+    "objTag_Weapon_StandardLamp",
+    "objTag_Weapon_Stool",
+    "objTag_Weapon_SwordFish",
+    "objTag_Weapon_Syringe",
+    "objTag_Weapon_SyringeContainer",
+    "objTag_Weapon_Table",
+    "objTag_Weapon_TableLamp",
+    "objTag_Weapon_Television",
+    "objTag_Weapon_ToiletBrush",
+    "objTag_Weapon_ToiletRoll",
+    "objTag_Weapon_ToiletRollContainer",
+    "objTag_Weapon_ToyBox",
+    "objTag_Weapon_TreeStump",
+    "objTag_Weapon_Trophy",
+    "objTag_Weapon_Trunk",
+    "objTag_Weapon_Umbrella",
+    "objTag_Weapon_Vase",
+    "objTag_Weapon_WarlockBolt",
+    "objTag_Weapon_WashingPowder",
+    "objTag_Weapon_WaterPistol",
+    "objTag_Weapon_Welly",
+    "objTag_Weapon_Wheelbarrow",
+    "objTag_Weapon_ZombieArm",
+};
+
+// Xbox 0x000FBFB0. Binary search. High starts at count-1. A miss returns -1.
+int fn_fbfb0(i32 count, const char* const* table, const char* key)
+{
+    i32 high = count - 1;
+    i32 low = 0;
+    if (high < 0)
+    {
+        return -1;
+    }
+    const u8* want = reinterpret_cast<const u8*>(key);
+    while (low <= high)
+    {
+        const i32 mid = (low + high) >> 1;
+        const u8* row = reinterpret_cast<const u8*>(table[mid]);
+        u8 tc = row[0];
+        u8 kc = want[0];
+        if (tc == kc)
+        {
+            i32 i = 0;
+            for (;;)
+            {
+                const u8 prev = row[i];
+                i += 1;
+                if (prev == 0)
+                {
+                    return mid;
+                }
+                tc = row[i];
+                kc = want[i];
+                if (tc != kc)
+                {
+                    break;
+                }
+            }
+        }
+        const i32 diff = i32(tc) - i32(kc);
+        if (diff < 0)
+        {
+            low = mid + 1;
+        }
+        else if (diff > 0)
+        {
+            high = mid - 1;
+        }
+        else
+        {
+            return mid;
+        }
+    }
+    return -1;
+}
+
+// Xbox 0x000F96F0. AL is the value. The stack byte selects the pair at +0x294.
+void fn_f96f0(CamPairObject* obj, u8 index, u8 value)
+{
+    const int pair = int(index) * 2;
+    const int byte_index = pair >> 3;
+    const int shift = pair & 7;
+    if (g_pair_cache[index] != value)
+    {
+        g_pair_cache[index] = value;
+    }
+    const u8 mask = static_cast<u8>(3u << shift);
+    const u8 packed = static_cast<u8>(value << shift);
+    u8 cur = obj->pairs[byte_index];
+    cur = static_cast<u8>(cur & static_cast<u8>(~mask));
+    cur = static_cast<u8>(cur | packed);
+    obj->pairs[byte_index] = cur;
+}
+
+// Xbox 0x00117400. Bit 0 of the mask drives DAT_0050E764. Bit 1 drives
+// DAT_0050E768. A rising edge (counter becomes 1) and a falling edge
+// (counter becomes 0) walk DAT_00511B38. Note 0x26 when the flag is set,
+// 0x27 when it is clear. Vtable +0xC runs when the word at link+0x3a8
+// equals 2, or the dword at object+0x93c is nonzero, only for the bit-1
+// edge. The other objects get the bit-0 edge.
+void fn_117400(u32 mask, i32 flag)
+{
+    const u8 bits = static_cast<u8>(mask);
+    i32 edge0 = 0;
+    i32 edge1 = 0;
+    if (flag != 0)
+    {
+        if ((bits & 1u) != 0)
+        {
+            g_count_e764 -= 1;
+            if (g_count_e764 == 0)
+            {
+                edge0 = 1;
+            }
+        }
+        if ((bits & 2u) != 0)
+        {
+            g_block_decay -= 1;
+            if (g_block_decay == 0)
+            {
+                edge1 = 1;
+            }
+        }
+    }
+    else
+    {
+        if ((bits & 1u) != 0)
+        {
+            g_count_e764 += 1;
+            if (g_count_e764 == 1)
+            {
+                edge0 = 1;
+            }
+        }
+        if ((bits & 2u) != 0)
+        {
+            g_block_decay += 1;
+            if (g_block_decay == 1)
+            {
+                edge1 = 1;
+            }
+        }
+    }
+    const i32 edge[2] = {edge0, edge1};
+    for (i32 edi = 0; edi < 2; ++edi)
+    {
+        if (edge[edi] == 0)
+        {
+            continue;
+        }
+        const i32 note = flag != 0 ? 0x26 : 0x27;
+        for (RangeLink* link = g_range_links; link != nullptr; link = link->next)
+        {
+            CamFocus* obj = link->host;
+            if (obj == nullptr)
+            {
+                continue;
+            }
+            i32 match = 0;
+            if (obj->word_cdc == 2 || std::bit_cast<u32>(obj->pulse) != 0)
+            {
+                match = 1;
+            }
+            if (match != edi || obj->on_note == nullptr)
+            {
+                continue;
+            }
+            obj->on_note(obj, note);
+        }
+    }
+}
+
+// Xbox 0x00124CC0. Handler 1. Type 0x12 calls 0x00117400. Type 0x90 retires
+// the actor whose short at +6 matches the tag. Type 0x9F packs the byte at
+// +0x4C into the pair selected by the byte at +0x48. Any other type returns 3.
+int fn_124cc0(Game& g, const ScriptNode& node)
+{
+    const u32 type = node.type;
+    if (type == 0x12)
+    {
+        const u32 word = node_u32(g.scene_script, node, 8);
+        fn_117400(0xffff, word != 0 ? 1 : 0);
+    }
+    else if (type == 0x90)
+    {
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        const i32 found = fn_fbfb0(0xe9, kObjTagActor, key.c_str());
+        const u16 id = found == -1 ? u16{0} : static_cast<u16>(found + 1);
+        for (RangeLink* link = g_range_links; link != nullptr; link = link->next)
+        {
+            CamFocus* obj = link->host;
+            if (obj == nullptr || obj->tag_6 != id)
+            {
+                continue;
+            }
+            // 0x00112D10 on the child at +0x920, then vtable +0xC with 0x80
+            // and 0x0003ED70 while +0x908 is still null.
+            release_host(*obj);
+        }
+    }
+    else
+    {
+        if (type != 0x9f)
+        {
+            return 3;
+        }
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        const i32 found = fn_fbfb0(0xe9, kObjTagActor, key.c_str());
+        const u16 id = found == -1 ? u16{0} : static_cast<u16>(found + 1);
+        const u8 index = node_u8(g.scene_script, node, 0x48);
+        const u8 value = node_u8(g.scene_script, node, 0x4c);
+        for (RangeLink* link = g_range_links; link != nullptr; link = link->next)
+        {
+            CamFocus* obj = link->host;
+            if (obj == nullptr || obj->tag_6 != id)
+            {
+                continue;
+            }
+            if (obj->pair_204 != nullptr)
+            {
+                fn_f96f0(obj->pair_204, index, value);
+            }
+            if (obj->pair_310 != nullptr)
+            {
+                fn_f96f0(obj->pair_310, index, value);
+            }
+        }
+    }
+    return 2;
+}
+
+// Xbox 0x001077B0. The cstring arrives in EAX. 0x000FBFB0 searches the actor
+// tags. A miss returns 0. A hit returns the 1-based index, zero-extended
+// from 16 bits.
+u32 fn_1077b0(const char* key)
+{
+    const i32 found = fn_fbfb0(0xe9, kObjTagActor, key);
+    if (found == -1)
+    {
+        return 0;
+    }
+    return u32(u16(found + 1));
+}
+
+// DAT_0050E0E8. The global holds the span. +0 is the stride word and +2 is
+// the word beside it. +4 is the first record and +8 is the end. Each record
+// is 0x50 bytes. +0 of a record is the key the walk matches.
+// +0x48 selects the refresh. +0x4C stores the frame from DAT_004DEA58.
+struct SceneSpanRecord
+{
+    void* key = nullptr;
+    u8 gap[0x48 - sizeof(void*)]{};
+    i32 selector = 0;
+    u32 frame = 0;
+};
+static_assert(offsetof(SceneSpanRecord, selector) == 0x48);
+static_assert(offsetof(SceneSpanRecord, frame) == 0x4c);
+static_assert(sizeof(SceneSpanRecord) == 0x50);
+
+struct SceneSpan
+{
+    u16 stride = 0;
+    u16 word_2 = 0;
+    SceneSpanRecord* begin = nullptr;
+    SceneSpanRecord* end = nullptr;
+};
+
+// 0x00033274 allocates this pool with stride 0x50. 0x00109470 walks from
+// begin to end and reads the matched record. One zero-key record is the
+// slot that read uses when the object kind selects a null key.
+SceneSpanRecord g_refresh_record{};
+SceneSpan g_refresh_span{0x50, 0, &g_refresh_record, &g_refresh_record + 1};
+SceneSpan* g_span_50e0e8 = &g_refresh_span;
+
+// First dword of the object scene+0x230 points at. Kind 0 is the default
+// key in 0x00109470.
+i32 g_refresh_kind = 0;
+
+// DAT_004DEA58. clock.hpp names this Clock::frame.
+u32 g_4dea58 = 0;
+
+// Xbox 0x00109470. EAX is the object. The dword at +0 minus 1 selects the
+// key and the refresh. Values 0 through 3 (kinds 1 through 4) use the
+// object as the key. Value 4 (kind 5) uses the pointer at +0xB8. Every
+// other value uses a null key. The span is walked at stride 0x50 until
+// record+0 matches. A miss leaves the record null.
+//
+// Values 1, 2, and 4 keep the object for the frame test. Value 0, value 3,
+// and every other value use a null pointer there. The body runs when that
+// pointer differs from the key, or record+0x4C differs from DAT_004DEA58.
+// Both equal returns. The frame is the value read at entry.
+//
+// A zero selector calls 0x00107E20 for values 0 and 1, 0x001079D0 for
+// value 3, and 0x00107B90 for value 4. A nonzero selector calls 0x001078A0
+// for value 0, 0x00107EC0 for value 1, and 0x00107C30 for value 4. Value 4
+// passes the object in EDI. 0x00107E20, 0x001079D0, 0x00107B90, 0x001078A0,
+// 0x00107EC0, and 0x00107C30 are not translated, so those calls are not
+// made. The body stores DAT_004DEA58 at record+0x4C. Values 0, 1, and 4
+// return from the call site. Value 2, and value 3 when the selector is
+// nonzero, fall through to that store.
+void fn_109470(void* object)
+{
+    const u32 frame = g_4dea58;
+    const i32 select = *reinterpret_cast<i32*>(object) - 1;
+    void* key = nullptr;
+    switch (select)
+    {
+    case 0:
+    case 1:
+    case 2:
+    case 3:
+        key = object;
+        break;
+    case 4:
+        key = *reinterpret_cast<void**>(static_cast<u8*>(object) + 0xb8);
+        break;
+    default:
+        key = nullptr;
+        break;
+    }
+
+    SceneSpan* span = g_span_50e0e8;
+    SceneSpanRecord* record = nullptr;
+    for (SceneSpanRecord* cursor = span->begin; cursor < span->end; cursor = cursor + 1)
+    {
+        if (cursor->key == key)
+        {
+            record = cursor;
+            break;
+        }
+    }
+
+    void* kept = nullptr;
+    switch (select)
+    {
+    case 1:
+    case 2:
+    case 4:
+        kept = object;
+        break;
+    default:
+        kept = nullptr;
+        break;
+    }
+
+    if (kept != key || record->frame != frame)
+    {
+        if (record->selector == 0)
+        {
+            switch (select)
+            {
+            case 0:
+                // 0x00107E20. EAX is the object.
+                record->frame = frame;
+                return;
+            case 1:
+                // 0x00107E20. EAX is the object.
+                record->frame = frame;
+                return;
+            case 3:
+                // 0x001079D0. EAX is the object.
+                break;
+            case 4:
+                // 0x00107B90. EAX is the object.
+                record->frame = frame;
+                return;
+            }
+        }
+        else
+        {
+            switch (select)
+            {
+            case 0:
+                // 0x001078A0. EAX is the object.
+                record->frame = frame;
+                return;
+            case 1:
+                // 0x00107EC0. EAX is the object.
+                record->frame = frame;
+                return;
+            case 4:
+                // 0x00107C30. EDI is the object.
+                record->frame = frame;
+                return;
+            }
+        }
+        record->frame = frame;
+    }
+}
+
+// Xbox 0x00124E50. Handler 2. Types 0x32 through 0x38 store the dword at
+// node+8 and return 2. Types 0x34 and 0x36 scale by 0x001077B0. That call
+// passes the cstring at node+0xC in EAX. Type 0x37 stores the float at
+// node+8 times 0.01 (0x0032B124). Any other type returns 3.
+int fn_124e50(Game& g, const ScriptNode& node)
+{
+    const u32 word = node_u32(g.scene_script, node, 8);
+    switch (node.type)
+    {
+    case 0x32:
+        scene_word(0x0050E568u) = word;
+        return 2;
+    case 0x33:
+        scene_word(0x0050E56Cu) = word;
+        return 2;
+    case 0x34:
+    {
+        const std::string key = node_cstr(g.scene_script, node, 0xC);
+        const u32 slot = fn_1077b0(key.c_str()) & 0xffffu;
+        scene_word(0x0050E570u + slot * 4u) = word;
+        return 2;
+    }
+    case 0x35:
+        scene_word(0x0050E570u) = word;
+        return 2;
+    case 0x36:
+    {
+        const std::string key = node_cstr(g.scene_script, node, 0xC);
+        const u32 slot = fn_1077b0(key.c_str()) & 0xffffu;
+        scene_word(0x0050E660u + slot * 4u) = word;
+        return 2;
+    }
+    case 0x37:
+    {
+        const float scaled = std::bit_cast<float>(word) * 0.01f;
+        scene_word(0x0050E754u) = std::bit_cast<u32>(scaled);
+        return 2;
+    }
+    case 0x38:
+        scene_word(0x0050E758u) = word;
+        return 2;
+    default:
+        return 3;
+    }
+}
+
+// Xbox 0x00122CA0. Walks DAT_00511AA4. The link is object+0x900 and the next
+// pointer is at +4, so the port follows PulseNode::next. EDI is compared with
+// the word at object+6. Each match calls vtable +0xC with EBX, the message.
+// An empty slot is skipped.
+void fn_122ca0(u16 tag, const i32* message)
+{
+    PulseNode* node = g_pulse_nodes;
+    while (node != nullptr)
+    {
+        PulseNode* next = node->next;
+        if (node->tag_6 == tag && node->on_message != nullptr)
+        {
+            node->on_message(node, message);
+        }
+        node = next;
+    }
+}
+
+// Xbox 0x00129ED0. DX is compared with the word at object+0x1FC. A zero DX
+// returns null without walking. The list is DAT_00511AA4. The first match
+// returns that object. A miss returns null.
+PulseNode* fn_129ed0(u16 key)
+{
+    if (key == 0)
+    {
+        return nullptr;
+    }
+    for (PulseNode* node = g_pulse_nodes; node != nullptr; node = node->next)
+    {
+        if (node->word_1fc == key)
+        {
+            return node;
+        }
+    }
+    return nullptr;
+}
+
+// Xbox 0x00124F30. Handler 3. Type 0x5D searches the cstring at node+8 in the
+// actor tags. A miss calls 0x00122CA0 with tag 0. A hit calls it with the
+// 1-based index, zero-extended from 16 bits. Both pass a message id of 1.
+// Type 0x71 loads the word at node+8 into DX for 0x00129ED0. A hit calls
+// vtable +0xC with a message id of 0x13. Any other type returns 3.
+int fn_124f30(Game& g, const ScriptNode& node)
+{
+    if (node.type == 0x5d)
+    {
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        i32 message = 1;
+        const i32 found = fn_fbfb0(0xe9, kObjTagActor, key.c_str());
+        if (found == -1)
+        {
+            fn_122ca0(0, &message);
+            return 2;
+        }
+        fn_122ca0(static_cast<u16>(found + 1), &message);
+    }
+    else
+    {
+        if (node.type != 0x71)
+        {
+            return 3;
+        }
+        PulseNode* obj = fn_129ed0(node_u16(g.scene_script, node, 8));
+        if (obj != nullptr)
+        {
+            i32 message = 0x13;
+            if (obj->on_message != nullptr)
+            {
+                obj->on_message(obj, &message);
+            }
+            return 2;
+        }
+    }
+    return 2;
+}
+
+// DAT_00512350. Records are 8 bytes. DAT_00512370 is the count, 0x20 bytes
+// above the base, so four records sit in front of it. 0x00125070 drains the
+// count. The port keeps the record that count indexes.
+struct PairSlot
+{
+    u32 at_8 = 0;
+    u32 at_c = 0;
+};
+std::vector<PairSlot> g_pair_slots;
+i32 g_pair_slot_count = 0;
+
+// Xbox 0x00124FC0. Handler 4. The dword at node+4 must be 0x98. Any other
+// type returns 3. The second argument is the flag 0x00128A00 passes: nonzero
+// when a DAT_0050E4DC node has 0x7D at +8. Zero stores the dword at node+8
+// at DAT_00512350 + DAT_00512370*8, the dword at node+0xC in the next dword,
+// then increments DAT_00512370. Nonzero walks DAT_00511B20. The byte at
+// node+8 selects the pair. The byte at node+0xC is the value in AL for
+// 0x000F96F0. The object is the dword at link-0x730, then the dword at
+// link-0x624. A null object skips that call. Both paths return 2.
+int fn_124fc0(Game& g, const ScriptNode& node, int param_2)
+{
+    if (node.type != 0x98)
+    {
+        return 3;
+    }
+    if (param_2 != 0)
+    {
+        const u8 index = node_u8(g.scene_script, node, 8);
+        const u8 value = node_u8(g.scene_script, node, 0xC);
+        for (BodyLink* link = g_body_links; link != nullptr; link = link->next)
+        {
+            if (link->pair_204 != nullptr)
+            {
+                fn_f96f0(link->pair_204, index, value);
+            }
+            if (link->pair_310 != nullptr)
+            {
+                fn_f96f0(link->pair_310, index, value);
+            }
+        }
+        return 2;
+    }
+    const size_t slot = size_t(g_pair_slot_count);
+    g_pair_slots.resize(slot + 1);
+    g_pair_slots[slot].at_8 = node_u32(g.scene_script, node, 8);
+    g_pair_slots[slot].at_c = node_u32(g.scene_script, node, 0xC);
+    g_pair_slot_count = g_pair_slot_count + 1;
+    return 2;
+}
+
+// Names at 0x004232AC. 0x000FBFB0 is called with count 9.
+const char* const kChallengeId[9] = {
+    "challengeId_Attacks",
+    "challengeId_Buttons",
+    "challengeId_Challenge21",
+    "challengeId_Damage",
+    "challengeId_Health",
+    "challengeId_Kills",
+    "challengeId_KillsBOB",
+    "challengeId_Survive",
+    "challengeId_Time",
+};
+
+// Xbox 0x001251E0. Handler 5. The dword at node+4 is the type. Type 0x7A
+// calls 0x000FBFB0 with the cstring at node+8 and passes that index to
+// 0x0004A100. Type 0x7B calls 0x0004A240. The other listed types build the
+// record 0x0004ADD0 reads through EAX: opcode at +0, a word or dword at +8,
+// and for type 0x80 the dword at node+0x48 at +0xC. Type 0x7C stores opcode
+// 0x10 and float 0. Type 0x7D stores opcode 0x11 and the float at node+8.
+// Type 0x7F returns 2 when 0x001077B0 of the cstring at node+8 is 0; otherwise
+// opcode 9 and a second call, and the word is AX. Types 0x7E (opcode 5) and
+// 0x82 (opcode 4) share that word store. Type 0x80 stores opcode 0xA. Type
+// 0x81 stores opcode 0x12. Type 0x83 stores opcode 0xB and the dword at
+// node+8. Type 0x84 stores opcode 0xC. Type 0x85 stores opcode 0. Type 0x86
+// stores opcode 3. 0x0004A100, 0x0004A240, and 0x0004ADD0 are not translated,
+// so those calls are not made. Any other type returns 3. A handled type
+// returns 2.
+int fn_1251e0(Game& g, const ScriptNode& node)
+{
+    struct Arg
+    {
+        u32 opcode = 0;
+        u32 at_8 = 0;
+        u32 at_c = 0;
+    };
+    Arg arg{};
+    switch (node.type)
+    {
+    case 0x7a:
+    {
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        const i32 found = fn_fbfb0(9, kChallengeId, key.c_str());
+        (void)found;
+        return 2;
+    }
+    case 0x7b:
+        return 2;
+    case 0x7c:
+        arg.opcode = 0x10;
+        arg.at_8 = 0;
+        (void)arg;
+        return 2;
+    case 0x7d:
+        arg.opcode = 0x11;
+        arg.at_8 = node_u32(g.scene_script, node, 8);
+        (void)arg;
+        return 2;
+    case 0x7e:
+        arg.opcode = 5;
+        break;
+    case 0x7f:
+    {
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        if (static_cast<u16>(fn_1077b0(key.c_str())) == 0)
+        {
+            return 2;
+        }
+        arg.opcode = 9;
+        arg.at_8 = u32(static_cast<u16>(fn_1077b0(key.c_str())));
+        (void)arg;
+        return 2;
+    }
+    case 0x80:
+    {
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        arg.opcode = 0xA;
+        arg.at_8 = u32(static_cast<u16>(fn_1077b0(key.c_str())));
+        arg.at_c = node_u32(g.scene_script, node, 0x48);
+        (void)arg;
+        return 2;
+    }
+    case 0x81:
+        arg.opcode = 0x12;
+        (void)arg;
+        return 2;
+    case 0x82:
+        arg.opcode = 4;
+        break;
+    case 0x83:
+        arg.opcode = 0xB;
+        arg.at_8 = node_u32(g.scene_script, node, 8);
+        (void)arg;
+        return 2;
+    case 0x84:
+        arg.opcode = 0xC;
+        (void)arg;
+        return 2;
+    case 0x85:
+        arg.opcode = 0;
+        (void)arg;
+        return 2;
+    case 0x86:
+        arg.opcode = 3;
+        (void)arg;
+        return 2;
+    default:
+        return 3;
+    }
+    const std::string key = node_cstr(g.scene_script, node, 8);
+    arg.at_8 = u32(static_cast<u16>(fn_1077b0(key.c_str())));
+    (void)arg;
+    return 2;
+}
+
 // Xbox 0x00125450. One node of the action walk. Type 0x3C stops the walk.
 // The listed types copy a condition and tell the runner to advance. Every
-// other type stops the walk. The word filled by 0x001077B0 is left 0
-// until that function is translated.
+// other type stops the walk. The word filled by 0x001077B0 is left 0.
 int fn_125450(Game& g, const ScriptNode& node)
 {
     u32 opcode = 0;
@@ -15593,13 +17742,1845 @@ int fn_125450(Game& g, const ScriptNode& node)
     return 2;
 }
 
-// Xbox 0x00128A00. Walks fired file offsets. Handler 6 is 0x00125450.
-// The other sixteen handlers are not translated. A node type that handler
-// does not cover stops the walk and leaves the fired id in place. Return 1
-// stops on a type-0x3C node. Return 0 means the cursor left the blob, or
-// stopped on an untranslated node, and the drain keeps that fired id.
+// DAT_00512378. Type 0x29 sets this after 0x00117400. The clear is the
+// 0x0005B780 hit, which is not translated.
+i32 g_flag_2378 = 0;
+
+// DAT_0051237C. Records are 4 bytes: the word at node+8, then the word at
+// node+0xC. DAT_005123AC is the count, 0x30 bytes above the base, so twelve
+// records sit in front of it. The port keeps the record that count indexes.
+struct TagPair
+{
+    u16 at_8 = 0;
+    u16 at_c = 0;
+};
+std::vector<TagPair> g_tag_pairs;
+i32 g_tag_pair_count = 0;
+
+// DAT_005123B0. Records are 8 bytes. DAT_00512410 is the count, 0x60 bytes
+// above the base. The word is at +0 and the dword is at +4.
+struct QueuedTag
+{
+    u16 at_8 = 0;
+    u32 at_c = 0;
+};
+std::vector<QueuedTag> g_queued_tags;
+i32 g_queued_tag_count = 0;
+
+// DAT_00512414. The next dword after DAT_00512410. Type 0x18 stores 1 here,
+// then stores 0 when DAT_005064D8 is 3.
+i32 g_flag_2414 = 0;
+
+// DAT_00512418. Type 0x2a stores 1 after a live dword at node+0x10c, and
+// stores 0 when 0x001412F0 returns nonzero.
+i32 g_flag_2418 = 0;
+
+// DAT_00512420. Records are 4 bytes: the byte at node+8, then the word at
+// node+0xC. DAT_00512440 is the count, 0x20 bytes above the base, so eight
+// records sit in front of it. Type 0x67 with a zero second argument appends
+// one record. The port keeps the record that count indexes.
+struct GateRec2420
+{
+    u8 at_8 = 0;
+    u16 at_c = 0;
+};
+std::vector<GateRec2420> g_gate_2420;
+i32 g_gate_2440 = 0;
+
+// DAT_00512448. DAT_00512444 is the count, the dword immediately before this
+// base. DAT_0051245C begins 0x14 bytes above the base, so five dwords sit in
+// front of it. Type 0x9E stores the dword at node+8. 0x000F29A0 is not
+// translated, so the parallel dword at DAT_0051245C is not stored.
+std::vector<u32> g_mark_2448;
+i32 g_mark_2444 = 0;
+
+// DAT_005064D8. Type 0x18 compares this with 3. 0x000D0530 would store 0.
+i32 g_flag_64d8 = 0;
+
+// DAT_0050EA9C. Type 0x1A tests bit 0x10 of the low byte.
+u32 g_flags_ea9c = 0;
+
+// DAT_00506540. Type 0x54 stores the floats at node+8, +0xC, +0x10, and +0x14,
+// then the dword at node+0x18 into DAT_00506550.
+float g_script_6540 = 0.f;
+float g_script_6544 = 0.f;
+float g_script_6548 = 0.f;
+float g_script_654c = 0.f;
+u32 g_script_6550 = 0;
+
+// Xbox 0x001259B0. Handler 7. The dword at node+4 is the type. Type 0x4F
+// with a zero second argument stores the word at node+8 and the dword at
+// node+0xC at DAT_005123B0 + DAT_00512410*8, then increments DAT_00512410.
+// A nonzero second argument calls 0x001117E0. EAX is the word at node+8 and
+// EBX is the dword at node+0xC. Type 0x56 builds a message whose first dword
+// is 0x67 and whose second dword is the word at node+8, then calls
+// 0x00122F70 with that message in EDI. Type 0x29 with a nonzero second
+// argument and a zero third argument reads DAT_00512378. Zero calls
+// 0x000532E0 on the node and passes its return, the word at node+8 in EAX,
+// the word at node+0xC, and the dword at node+0x14 to 0x0005B540. The dword
+// at node+0x10 then selects the return: zero returns 2, nonzero calls
+// 0x00117400(0xffff, 0), sets DAT_00512378, and returns 0. Nonzero calls
+// 0x0005B780 with the word at node+8 in SI. A miss compares 8 with the dword
+// at node+0xC. A hit compares the written word. A match calls
+// 0x00117400(0xffff, 1), clears DAT_00512378, and returns 2. The other path
+// stores those two words in the 4-byte record at DAT_0051237C and grows
+// DAT_005123AC when the index has reached the count. 0x001117E0, 0x00122F70,
+// 0x000532E0, 0x0005B540, and 0x0005B780 are not translated, so those calls
+// are not made. The 0x0005B780 match is not taken. Any other type returns 3.
+// A handled store returns 2.
+int fn_1259b0(Game& g, const ScriptNode& node, int param_2, int param_3)
+{
+    const u32 type = node.type;
+    if (type != 0x29)
+    {
+        if (type == 0x4f)
+        {
+            if (param_2 == 0)
+            {
+                const size_t slot = size_t(g_queued_tag_count);
+                g_queued_tags.resize(slot + 1);
+                g_queued_tags[slot].at_8 = node_u16(g.scene_script, node, 8);
+                g_queued_tags[slot].at_c = node_u32(g.scene_script, node, 0xC);
+                g_queued_tag_count = g_queued_tag_count + 1;
+                return 2;
+            }
+            const u16 word = node_u16(g.scene_script, node, 8);
+            const u32 ebx = node_u32(g.scene_script, node, 0xC);
+            (void)word;
+            (void)ebx;
+            return 2;
+        }
+        if (type == 0x56)
+        {
+            const u32 message_0 = 0x67;
+            const u32 message_1 = u32(node_u16(g.scene_script, node, 8));
+            (void)message_0;
+            (void)message_1;
+            return 2;
+        }
+        return 3;
+    }
+    if ((param_2 != 0) && (param_3 == 0))
+    {
+        if (g_flag_2378 == 0)
+        {
+            const u16 ax = node_u16(g.scene_script, node, 8);
+            const u16 arg_c = node_u16(g.scene_script, node, 0xC);
+            const u32 arg_14 = node_u32(g.scene_script, node, 0x14);
+            (void)ax;
+            (void)arg_c;
+            (void)arg_14;
+            if (node_u32(g.scene_script, node, 0x10) == 0)
+            {
+                return 2;
+            }
+            fn_117400(0xffff, 0);
+            g_flag_2378 = 1;
+        }
+        else
+        {
+            const u16 key = node_u16(g.scene_script, node, 8);
+            const u32 expect = node_u32(g.scene_script, node, 0xC);
+            (void)key;
+            (void)expect;
+        }
+        return 0;
+    }
+    i32 index = 0;
+    if (0 < g_tag_pair_count)
+    {
+        const u32 key = node_u32(g.scene_script, node, 8);
+        do
+        {
+            if (u32(g_tag_pairs[size_t(index)].at_8) == key)
+            {
+                break;
+            }
+            index = index + 1;
+        } while (index < g_tag_pair_count);
+    }
+    if (size_t(g_tag_pairs.size()) <= size_t(index))
+    {
+        g_tag_pairs.resize(size_t(index) + 1);
+    }
+    g_tag_pairs[size_t(index)].at_8 = node_u16(g.scene_script, node, 8);
+    g_tag_pairs[size_t(index)].at_c = node_u16(g.scene_script, node, 0xC);
+    if (g_tag_pair_count <= index)
+    {
+        g_tag_pair_count = g_tag_pair_count + 1;
+    }
+    return 2;
+}
+
+// Xbox 0x00126140. Handler 8. The dword at node+4 is the type. The table
+// covers types 0x17 through 0x88. Any other type, and the holes in that
+// range, return 3.
+//
+// Type 0x17 returns 0 when the third argument is nonzero. Zero tests the
+// dword at node+0x10. Nonzero would call 0x000D0530. The word at node+8,
+// the dword at node+0xC, and ESI = node+0x14 would then go to 0x000D0550,
+// and the case returns 2. Those two calls are not translated.
+//
+// Type 0x18 tests DAT_00512414. Zero would call 0x000D0680, stores 1, and
+// returns 0. Nonzero compares DAT_005064D8 with 3. Equal stores 0 and
+// returns 2. Otherwise it returns 0. 0x000D0680 is not translated.
+//
+// Type 0x54 copies five fields into DAT_00506540 and returns 2.
+//
+// Every other handled type would build a stack message and pass it to
+// 0x000D05D0 in EDI. The header calls 0x00125C80, 0x00125CC0, 0x00125D00,
+// 0x00125D40, 0x00125D80, 0x00125DC0, 0x00125E00, 0x00125E40, 0x00125E80,
+// 0x00125EC0, 0x00125F00, 0x00125F40, 0x00125F80, 0x00125FC0, 0x00126000,
+// 0x00126040, 0x00126080, 0x001260C0, and 0x00126100 are not translated, and
+// neither is 0x000D05D0, so those calls are not made. 0x001077B0 runs where
+// the dump calls it: EAX is the cstring at the listed node offset.
+// 0x0001BB60, 0x00126940, and 0x00116C50 are not translated, so no index is
+// invented and those calls are not made. A handled type returns 2. Type
+// 0x1A returns 2 before 0x000D05D0 when bit 0x10 of DAT_0050EA9C is set.
+// The second argument is unused.
+int fn_126140(Game& g, const ScriptNode& node, int param_2, int param_3)
+{
+    (void)param_2;
+    auto push_named = [&](u32 gate, u32 key_at, u16* words, u32& count)
+    {
+        if (node_u32(g.scene_script, node, gate) != 0)
+        {
+            const std::string key = node_cstr(g.scene_script, node, key_at);
+            words[count] = static_cast<u16>(fn_1077b0(key.c_str()));
+            count = count + 1;
+        }
+    };
+    switch (node.type)
+    {
+    case 0x17:
+        if (param_3 != 0)
+        {
+            return 0;
+        }
+        if (node_u32(g.scene_script, node, 0x10) != 0)
+        {
+            // 0x000D0530 is not translated.
+        }
+        {
+            const u16 ax = node_u16(g.scene_script, node, 8);
+            const u32 arg = node_u32(g.scene_script, node, 0xC);
+            (void)ax;
+            (void)arg;
+        }
+        return 2;
+    case 0x18:
+        if (g_flag_2414 == 0)
+        {
+            g_flag_2414 = 1;
+            return 0;
+        }
+        if (g_flag_64d8 == 3)
+        {
+            g_flag_2414 = 0;
+            return 2;
+        }
+        return 0;
+    case 0x19:
+        // 0x00125C80, XMM0 = 1.5 (0x0032B210). 0x000D05D0 is not translated.
+        return 2;
+    case 0x1a:
+    {
+        const float value = std::bit_cast<float>(node_u32(g.scene_script, node, 8));
+        (void)value;
+        if ((g_flags_ea9c & 0x10u) != 0)
+        {
+            return 2;
+        }
+        return 2;
+    }
+    case 0x1b:
+        // 0x00125CC0, XMM0 = 0. 0x000D05D0 is not translated.
+        return 2;
+    case 0x1c:
+    {
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        const u16 word = static_cast<u16>(fn_1077b0(key.c_str()));
+        const u32 absent = node_u32(g.scene_script, node, 0x48) == 0 ? 1u : 0u;
+        (void)word;
+        (void)absent;
+        return 2;
+    }
+    case 0x1d:
+    {
+        const u32 lo = node_u32(g.scene_script, node, 8);
+        const u32 hi = node_u32(g.scene_script, node, 0xC) + 1u;
+        (void)lo;
+        (void)hi;
+        const std::string key = node_cstr(g.scene_script, node, 0x10);
+        const u16 word = static_cast<u16>(fn_1077b0(key.c_str()));
+        (void)word;
+        return 2;
+    }
+    case 0x1e:
+    {
+        const float value = std::bit_cast<float>(node_u32(g.scene_script, node, 8));
+        (void)value;
+        return 2;
+    }
+    case 0x1f:
+        // 0x00126040, XMM0 = 2.0 (0x0032B110). 0x000D05D0 is not translated.
+        return 2;
+    case 0x20:
+    {
+        const u32 word = u32(node_u16(g.scene_script, node, 8));
+        (void)word;
+        return 2;
+    }
+    case 0x21:
+    {
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        const u16 word = static_cast<u16>(fn_1077b0(key.c_str()));
+        const u32 slot = 0xffffffffu;
+        (void)word;
+        (void)slot;
+        return 2;
+    }
+    case 0x22:
+    {
+        const u32 slot = 0xffffffffu;
+        (void)slot;
+        return 2;
+    }
+    case 0x23:
+        // 0x00125EC0, XMM0 = 1.5. 0x000D05D0 is not translated.
+        return 2;
+    case 0x25:
+    {
+        u16 words[5]{};
+        u32 count = 0;
+        const u16 header = 0;
+        push_named(0x48, 8, words, count);
+        push_named(0x8c, 0x4c, words, count);
+        push_named(0xd0, 0x90, words, count);
+        push_named(0x114, 0xd4, words, count);
+        push_named(0x158, 0x118, words, count);
+        (void)header;
+        (void)words;
+        (void)count;
+        return 2;
+    }
+    case 0x26:
+        // 0x00125F40, XMM0 = 1.5. 0x000D05D0 is not translated.
+        return 2;
+    case 0x27:
+    {
+        const u32 value = node_u32(g.scene_script, node, 8);
+        (void)value;
+        return 2;
+    }
+    case 0x28:
+        // 0x00125F80, XMM0 = 1.5. 0x000D05D0 is not translated.
+        return 2;
+    case 0x50:
+    {
+        u16 words[5]{};
+        u32 count = 0;
+        push_named(0x48, 8, words, count);
+        push_named(0x8c, 0x4c, words, count);
+        push_named(0xd0, 0x90, words, count);
+        push_named(0x114, 0xd4, words, count);
+        push_named(0x158, 0x118, words, count);
+        if (node_u32(g.scene_script, node, 0x15c) != 0)
+        {
+            // 0x00126940(0) is not translated. EDI would be the chosen word.
+        }
+        (void)words;
+        (void)count;
+        return 2;
+    }
+    case 0x54:
+        g_script_6540 = std::bit_cast<float>(node_u32(g.scene_script, node, 8));
+        g_script_6544 = std::bit_cast<float>(node_u32(g.scene_script, node, 0xC));
+        g_script_6548 = std::bit_cast<float>(node_u32(g.scene_script, node, 0x10));
+        g_script_654c = std::bit_cast<float>(node_u32(g.scene_script, node, 0x14));
+        g_script_6550 = node_u32(g.scene_script, node, 0x18);
+        return 2;
+    case 0x5f:
+    {
+        const u32 lo = node_u32(g.scene_script, node, 8);
+        const u32 hi = node_u32(g.scene_script, node, 0xC) + 1u;
+        (void)lo;
+        (void)hi;
+        return 2;
+    }
+    case 0x87:
+        // 0x001260C0, XMM0 = 1.5. 0x000D05D0 is not translated.
+        return 2;
+    case 0x88:
+    {
+        u16 words[5]{};
+        u32 payloads[5]{};
+        u32 count = 0;
+        if (node_u32(g.scene_script, node, 0x4c) != 0)
+        {
+            const std::string key = node_cstr(g.scene_script, node, 8);
+            words[count] = static_cast<u16>(fn_1077b0(key.c_str()));
+            payloads[count] = node_u32(g.scene_script, node, 0x48);
+            count = count + 1;
+        }
+        if (node_u32(g.scene_script, node, 0x94) != 0)
+        {
+            const std::string key = node_cstr(g.scene_script, node, 0x50);
+            words[count] = static_cast<u16>(fn_1077b0(key.c_str()));
+            payloads[count] = node_u32(g.scene_script, node, 0x90);
+            count = count + 1;
+        }
+        if (node_u32(g.scene_script, node, 0xdc) != 0)
+        {
+            const std::string key = node_cstr(g.scene_script, node, 0x98);
+            words[count] = static_cast<u16>(fn_1077b0(key.c_str()));
+            payloads[count] = node_u32(g.scene_script, node, 0xd8);
+            count = count + 1;
+        }
+        if (node_u32(g.scene_script, node, 0x124) != 0)
+        {
+            const std::string key = node_cstr(g.scene_script, node, 0xe0);
+            words[count] = static_cast<u16>(fn_1077b0(key.c_str()));
+            payloads[count] = node_u32(g.scene_script, node, 0x120);
+            count = count + 1;
+        }
+        if (node_u32(g.scene_script, node, 0x16c) != 0)
+        {
+            const std::string key = node_cstr(g.scene_script, node, 0x128);
+            words[count] = static_cast<u16>(fn_1077b0(key.c_str()));
+            payloads[count] = node_u32(g.scene_script, node, 0x168);
+            count = count + 1;
+        }
+        if (node_u32(g.scene_script, node, 0x170) != 0)
+        {
+            // 0x00126940(0) is not translated. EDI would be the chosen word.
+        }
+        (void)words;
+        (void)payloads;
+        (void)count;
+        return 2;
+    }
+    default:
+        return 3;
+    }
+}
+
+// Xbox 0x001269D0. Handler 9. The dword at node+4 is the type. Type 0x49 ORs
+// the dword at node+8 into DAT_0050EA9C and returns 2. Type 0x4A clears those
+// bits and returns 2. Any other type returns 3.
+int fn_1269d0(Game& g, const ScriptNode& node)
+{
+    if (node.type == 0x49)
+    {
+        g_flags_ea9c = g_flags_ea9c | node_u32(g.scene_script, node, 8);
+        return 2;
+    }
+    if (node.type != 0x4a)
+    {
+        return 3;
+    }
+    g_flags_ea9c = g_flags_ea9c & ~node_u32(g.scene_script, node, 8);
+    return 2;
+}
+
+// Xbox 0x00126A10. Handler 10. The dword at node+4 is the type. The byte map
+// at 0x00126D94 covers types 0x2A through 0x97. Any other type, and the holes
+// in that range, return 3.
+//
+// Type 0x2A tests DAT_00512418. Zero would call 0x0013E8D0 with EBX = node+8,
+// EDX = the dword at node+0x88, and node+0x8c on the stack. That call is not
+// translated. A zero dword at node+0x10c returns 2. Any other value stores 1
+// and returns 0. Nonzero would call 0x001412F0. That call is not translated,
+// so its nonzero return is not taken and this path returns 0.
+//
+// Type 0x2B would call 0x000F4E50 with EAX = node+8. That call is not
+// translated. The case returns 2.
+//
+// Type 0x51 calls 0x001077B0 with EAX = node+8. It walks DAT_00511B38. A
+// matching word at object+6, and a zero dword at node+0x48 or that dword
+// equal to the word at object+0x1FC, calls vtable +0xC with message id 1.
+// An empty list returns 2. A finished walk returns 2.
+//
+// Type 0x58 builds a message whose first dword is 0x65. 0x0002B710 would
+// fill the low word of the second dword. That call is not translated, so
+// the word stays 0. 0x001077B0 runs with EAX = node+8. 0x00122D40 would
+// take that tag in EDI and the message in EBX. That call is not translated.
+// The case returns 2.
+//
+// Type 0x5C stores message id 0x36, calls 0x001077B0 with EAX = node+8, and
+// would pass that tag in EDI with the message in EBX to 0x00122D40. That
+// call is not translated. The case returns 2.
+//
+// Type 0x5E calls 0x001077B0 with EAX = node+8 and the dword at node+0x4c
+// on the stack. XMM0 is the float at node+0x48. 0x000F4930 would take the
+// tag, that dword, and XMM0. That call is not translated. The case returns 2.
+//
+// Type 0x6B calls 0x001077B0 with EAX = node+8 and walks DAT_00511B48. A tag
+// below 2, or a word at object+6 equal to the tag, stores the byte at
+// node+0x48 into object+0x969. A live pointer at object+0x958 whose pointer
+// at +0x10 is live would call 0x00029C80 with EAX = that pointer, ECX = the
+// slot, and EDX = 1. That call is not translated, so a zero return is not
+// taken and the vtable call that would clear +0x10 is not made. An empty
+// list returns 2. A finished walk returns 2.
+//
+// Type 0x70 calls 0x001077B0 with EAX = node+8. ESI would be that tag, XMM1
+// the float at node+0x48, and XMM2 the float at node+0x4c, for 0x0010F6C0.
+// That call is not translated. The case returns 2.
+//
+// Type 0x78 calls 0x001077B0 with EAX = node+8 and walks DAT_00511B48. A tag
+// below 2, or a word at object+6 equal to the tag, would call 0x00019660
+// with EAX = the object and the dword at node+0x48 on the stack. That call
+// is not translated. An empty list returns 2. A finished walk returns 2.
+//
+// Type 0x97 calls 0x001077B0 with EAX = node+8 and walks DAT_00511B48. A tag
+// below 2, or a word at object+6 equal to the tag, would call 0x00028210.
+// That call is not translated. The word at object+0x990 is cleared. The
+// message id is 0x4D and the dword at node+0x48 follows it. 0x000412A0
+// writes the world position and 0x00041820 writes the world euler. Vtable
+// +0xC receives that message. An empty list returns 2. A finished walk
+// returns 2.
+int fn_126a10(Game& g, const ScriptNode& node)
+{
+    switch (node.type)
+    {
+    case 0x2a:
+        if (g_flag_2418 == 0)
+        {
+            const std::string name = node_cstr(g.scene_script, node, 8);
+            const u32 key = node_u32(g.scene_script, node, 0x88);
+            const std::string extra = node_cstr(g.scene_script, node, 0x8c);
+            (void)name;
+            (void)key;
+            (void)extra;
+            if (node_u32(g.scene_script, node, 0x10c) == 0)
+            {
+                return 2;
+            }
+            g_flag_2418 = 1;
+        }
+        return 0;
+    case 0x2b:
+    {
+        const std::string name = node_cstr(g.scene_script, node, 8);
+        (void)name;
+        return 2;
+    }
+    case 0x51:
+    {
+        const u16 tag = static_cast<u16>(fn_1077b0(node_cstr(g.scene_script, node, 8).c_str()));
+        const u32 mark = node_u32(g.scene_script, node, 0x48);
+        for (RangeLink* link = g_range_links; link != nullptr; link = link->next)
+        {
+            CamFocus* obj = link->host;
+            if (obj == nullptr || obj->tag_6 != tag)
+            {
+                continue;
+            }
+            if (mark != 0 && mark != u32(obj->word_1fc))
+            {
+                continue;
+            }
+            i32 message = 1;
+            if (obj->on_note != nullptr)
+            {
+                obj->on_note(obj, message);
+            }
+        }
+        return 2;
+    }
+    case 0x58:
+    {
+        const u32 message_0 = 0x65;
+        const u32 message_1 = 0;
+        const u16 tag = static_cast<u16>(fn_1077b0(node_cstr(g.scene_script, node, 8).c_str()));
+        (void)message_0;
+        (void)message_1;
+        (void)tag;
+        return 2;
+    }
+    case 0x5c:
+    {
+        const u32 message = 0x36;
+        const u16 tag = static_cast<u16>(fn_1077b0(node_cstr(g.scene_script, node, 8).c_str()));
+        (void)message;
+        (void)tag;
+        return 2;
+    }
+    case 0x5e:
+    {
+        const u32 arg = node_u32(g.scene_script, node, 0x4c);
+        const u16 tag = static_cast<u16>(fn_1077b0(node_cstr(g.scene_script, node, 8).c_str()));
+        const float value = std::bit_cast<float>(node_u32(g.scene_script, node, 0x48));
+        (void)arg;
+        (void)tag;
+        (void)value;
+        return 2;
+    }
+    case 0x6b:
+    {
+        const u16 tag = static_cast<u16>(fn_1077b0(node_cstr(g.scene_script, node, 8).c_str()));
+        const u8 stored = node_u8(g.scene_script, node, 0x48);
+        for (AltLink* link = g_alt_links; link != nullptr; link = link->next)
+        {
+            if (link->actor == nullptr)
+            {
+                continue;
+            }
+            if (tag < 2 || link->actor->class_key == tag)
+            {
+                link->byte_969 = stored;
+                if (link->slot != nullptr && link->slot->flag_10 != nullptr)
+                {
+                    // 0x00029C80 is not translated. A zero return is not taken.
+                }
+            }
+        }
+        return 2;
+    }
+    case 0x70:
+    {
+        const u16 tag = static_cast<u16>(fn_1077b0(node_cstr(g.scene_script, node, 8).c_str()));
+        const float xmm1 = std::bit_cast<float>(node_u32(g.scene_script, node, 0x48));
+        const float xmm2 = std::bit_cast<float>(node_u32(g.scene_script, node, 0x4c));
+        (void)tag;
+        (void)xmm1;
+        (void)xmm2;
+        return 2;
+    }
+    case 0x78:
+    {
+        const u16 tag = static_cast<u16>(fn_1077b0(node_cstr(g.scene_script, node, 8).c_str()));
+        const u32 arg = node_u32(g.scene_script, node, 0x48);
+        for (AltLink* link = g_alt_links; link != nullptr; link = link->next)
+        {
+            if (link->actor == nullptr)
+            {
+                continue;
+            }
+            if (tag < 2 || link->actor->class_key == tag)
+            {
+                (void)arg;
+            }
+        }
+        return 2;
+    }
+    case 0x97:
+    {
+        const u16 tag = static_cast<u16>(fn_1077b0(node_cstr(g.scene_script, node, 8).c_str()));
+        for (AltLink* link = g_alt_links; link != nullptr; link = link->next)
+        {
+            if (link->actor == nullptr)
+            {
+                continue;
+            }
+            if (tag >= 2 && link->actor->class_key != tag)
+            {
+                continue;
+            }
+            link->word_990 = 0;
+            u32 msg[9]{};
+            msg[0] = 0x4d;
+            msg[1] = node_u32(g.scene_script, node, 0x48);
+            const Vec3 pos = actor_world_position(*link->actor);
+            const Vec3 euler = actor_world_euler(*link->actor);
+            msg[2] = std::bit_cast<u32>(pos.x);
+            msg[3] = std::bit_cast<u32>(pos.y);
+            msg[4] = std::bit_cast<u32>(pos.z);
+            msg[5] = std::bit_cast<u32>(euler.x);
+            msg[6] = std::bit_cast<u32>(euler.y);
+            msg[7] = std::bit_cast<u32>(euler.z);
+            if (link->on_message != nullptr)
+            {
+                link->on_message(link->actor, msg);
+            }
+        }
+        return 2;
+    }
+    default:
+        return 3;
+    }
+}
+
+// Xbox 0x00126E10. Handler 11. The dword at node+4 is the type. The byte map
+// at 0x001271F0 covers types 0x4D through 0x9E. Any other type, and the holes
+// in that range, return 3. Every handled type returns 2. The second argument
+// is the flag 0x00128A00 passes: nonzero when a DAT_0050E4DC node has 0x7D
+// at +8.
+//
+// Type 0x4D loads the word at node+8 into DX for 0x00129ED0. A hit would call
+// 0x00041820 and 0x000412A0 with ESI set to that object, add the float at
+// node+0x8C times 0.017453292 (0x0032B0FC) to the second euler float, then
+// call 0x00112C50 and 0x00112CC0. 0x00112C50 is not translated. The port's
+// pulse object does not carry +0x08, +0x14, +0x38, or +0x88, so the two
+// camera writes are not applied to it and 0x00112CC0 is not called.
+//
+// Type 0x4E multiplies the float at node+0x10 by 0.01 (0x0032B124). 0x00019200
+// would take that product in XMM1 and ECX = 0x0054DD7C. That call is not
+// translated, so its nonzero return is not taken and 0x001400A0 is not called.
+//
+// Type 0x60 loads the word at node+8 into DX for 0x00129ED0. A hit would call
+// 0x00112CC0 with ESI set to that object. That call is not made.
+//
+// Type 0x62 would call 0x0011F1C0(0x13, 1). A nonzero AX walks the records at
+// DAT_0051108C+8, comparing the word at record+6 with AX and the dword at
+// record+0x28 with the dword at node+8. A hit would call 0x0013D250. A miss
+// calls 0x0011F1C0(0x13, 0) and stops when AX matches the first return or AX
+// is 0. 0x0011F1C0 is not translated, so the walk is not entered.
+//
+// Type 0x67 with a zero second argument stores the byte at node+8 and the
+// word at node+0xC into DAT_00512420 and increments DAT_00512440. Nonzero
+// with a zero dword at node+0xC would call 0x0012C8A0 with the byte at node+8
+// and 0x0012C950. Any other dword would call 0x0012C8A0 with 0x0012C930, then
+// 0x00122CE0 with EDI pointing at message id 0x4A. Those calls are not
+// translated.
+//
+// Type 0x6E would call 0x001249B0 with EDI = the dword at node+8 and EAX = 8.
+// That call is not translated.
+//
+// Type 0x73 would call 0x001400D0. CX is the word at node+8. The nine stack
+// words are node+0xC through node+0x2C. That call is not translated.
+//
+// Type 0x74 would call 0x00115F40 with EDI pointing at message id 1. That
+// call is not translated.
+//
+// Type 0x8E would call 0x001189D0. XMM0 is the float at node+0xC, ECX is the
+// dword at node+8, EAX points at node+0x1C, and the stack dwords are node+0x10,
+// node+0x14, and node+0x18. That call is not translated.
+//
+// Type 0x9D would call 0x00049D10. A zero return loads the dword at node+8
+// into ECX for 0x000F2A20. A nonzero return from that call increments
+// DAT_00506C84 and calls 0x0012D7E0 with EDI = 1 and that count on the stack.
+// 0x00049D10 and 0x000F2A20 are not translated, so the increment is not made.
+//
+// Type 0x9E with a nonzero dword at node+0x10 stores the dword at node+8 at
+// DAT_00512448 + DAT_00512444*4. 0x000F29A0 would take ECX = that dword and
+// its EAX would be stored at DAT_0051245C. That call is not translated, so
+// the parallel dword is not stored. DAT_00512444 is then incremented. A
+// nonzero dword at node+0xC would call 0x000F29D0. Zero would call 0x000F29F0.
+// Both take ECX = the dword at node+8. Neither call is translated.
+int fn_126e10(Game& g, const ScriptNode& node, int param_2)
+{
+    switch (node.type)
+    {
+    case 0x4d:
+    {
+        PulseNode* obj = fn_129ed0(node_u16(g.scene_script, node, 8));
+        if (obj != nullptr)
+        {
+            const float extra = std::bit_cast<float>(node_u32(g.scene_script, node, 0x8c)) *
+                                std::bit_cast<float>(u32{0x3c8efa35u});
+            (void)extra;
+        }
+        return 2;
+    }
+    case 0x4e:
+    {
+        const float gate = std::bit_cast<float>(node_u32(g.scene_script, node, 0x10)) *
+                           std::bit_cast<float>(u32{0x3c23d70au});
+        (void)gate;
+        return 2;
+    }
+    case 0x60:
+    {
+        PulseNode* obj = fn_129ed0(node_u16(g.scene_script, node, 8));
+        if (obj != nullptr)
+        {
+            // 0x00112CC0 is not translated onto this object.
+        }
+        return 2;
+    }
+    case 0x62:
+        return 2;
+    case 0x67:
+        if (param_2 == 0)
+        {
+            const size_t slot = size_t(g_gate_2440);
+            g_gate_2420.resize(slot + 1);
+            g_gate_2420[slot].at_8 = node_u8(g.scene_script, node, 8);
+            g_gate_2420[slot].at_c = node_u16(g.scene_script, node, 0xc);
+            g_gate_2440 = g_gate_2440 + 1;
+            return 2;
+        }
+        if (node_u32(g.scene_script, node, 0xc) == 0)
+        {
+            const u8 index = node_u8(g.scene_script, node, 8);
+            (void)index;
+            return 2;
+        }
+        {
+            const u8 index = node_u8(g.scene_script, node, 8);
+            (void)index;
+        }
+        return 2;
+    case 0x6e:
+    {
+        const u32 key = node_u32(g.scene_script, node, 8);
+        (void)key;
+        return 2;
+    }
+    case 0x73:
+    {
+        const u16 at_8 = node_u16(g.scene_script, node, 8);
+        const u16 at_c = node_u16(g.scene_script, node, 0xc);
+        const u16 at_10 = node_u16(g.scene_script, node, 0x10);
+        const u16 at_14 = node_u16(g.scene_script, node, 0x14);
+        const u16 at_18 = node_u16(g.scene_script, node, 0x18);
+        const u16 at_1c = node_u16(g.scene_script, node, 0x1c);
+        const u16 at_20 = node_u16(g.scene_script, node, 0x20);
+        const u16 at_24 = node_u16(g.scene_script, node, 0x24);
+        const u16 at_28 = node_u16(g.scene_script, node, 0x28);
+        const u16 at_2c = node_u16(g.scene_script, node, 0x2c);
+        (void)at_8;
+        (void)at_c;
+        (void)at_10;
+        (void)at_14;
+        (void)at_18;
+        (void)at_1c;
+        (void)at_20;
+        (void)at_24;
+        (void)at_28;
+        (void)at_2c;
+        return 2;
+    }
+    case 0x74:
+        return 2;
+    case 0x8e:
+    {
+        const float xmm0 = std::bit_cast<float>(node_u32(g.scene_script, node, 0xc));
+        const u32 ecx = node_u32(g.scene_script, node, 8);
+        const u32 at_10 = node_u32(g.scene_script, node, 0x10);
+        const u32 at_14 = node_u32(g.scene_script, node, 0x14);
+        const u32 at_18 = node_u32(g.scene_script, node, 0x18);
+        (void)xmm0;
+        (void)ecx;
+        (void)at_10;
+        (void)at_14;
+        (void)at_18;
+        return 2;
+    }
+    case 0x9d:
+        return 2;
+    case 0x9e:
+    {
+        if (node_u32(g.scene_script, node, 0x10) != 0)
+        {
+            const size_t slot = size_t(g_mark_2444);
+            g_mark_2448.resize(slot + 1);
+            g_mark_2448[slot] = node_u32(g.scene_script, node, 8);
+            g_mark_2444 = g_mark_2444 + 1;
+        }
+        const u32 key = node_u32(g.scene_script, node, 8);
+        (void)key;
+        if (node_u32(g.scene_script, node, 0xc) != 0)
+        {
+            return 2;
+        }
+        return 2;
+    }
+    default:
+        return 3;
+    }
+}
+
+// DAT_0050E4E0. Name bytes, 0x80 long. The next dword is DAT_0050E560.
+char g_name_e4e0[0x80]{};
+i32 g_flag_e560 = 0;
+
+// DAT_00512470. Type 0x13 sets this when the dword at node+0x88 is nonzero.
+// Type 0x16 sets it when the dword at node+0x8C is nonzero. Type 0x53 sets it
+// on the first visit.
+i32 g_flag_2470 = 0;
+// DAT_00512474. Type 0x14 reads this. 0x000582A0 is not translated, so the
+// store of 1 on that nonzero return is not made.
+i32 g_flag_2474 = 0;
+// DAT_0051248C. Type 0x13 compares this dword with 3 and would pass that
+// flag twice to 0x0004EDA0. The byte at [DAT_0051248C]+0x30F144 is g_decay_arm.
+i32 g_state_248c = 0;
+// DAT_004EE1EC. Type 0x14 returns 0 while this is nonzero. The text writer
+// in entity.cpp stores 0.
+i32 g_draw_e1ec = 0;
+
+// Xbox 0x00127340. Handler 12. The dword at node+4 is the type. The byte map
+// at 0x00127458 covers types 0x3A through 0x8D. Any other type, and the holes
+// in that range, return 3. Every handled type returns 2. The second and third
+// arguments from 0x00128A00 are unused.
+//
+// Type 0x3A would call 0x00116D20. ESI is node+8 and the stack dword is 3.
+// That call is not translated.
+//
+// Type 0x3B tests the byte at DAT_0050E4E0. Zero falls through and returns 2.
+// Nonzero would call 0x00038460 with that address. The dword at bank+0x88 is
+// decremented. A result less than 1, with a bank id other than 0x12 and a
+// nonzero return from 0x00038590, would call 0x00038360. 0x00038260 then
+// takes the bank in EAX and the id is stored as 0. 0x00038590, 0x00038360,
+// and 0x00038260 are not translated, and the bank object from 0x00038460 is
+// not visible here, so those stores are not made. The byte at DAT_0050E4E0
+// is then cleared.
+//
+// Type 0x45 tests DAT_0050E560. Nonzero falls through and returns 2. Zero
+// would call 0x00116C90, stores 1, and returns 2. That call is not translated.
+//
+// Type 0x55 calls 0x001077B0 with EAX = the cstring at node+8. ECX would be
+// that return for 0x00116C50. That call is not translated.
+//
+// Type 0x57 would call 0x00116D20. ESI is node+8 and the stack dword is 2.
+// That call is not translated.
+//
+// Type 0x8D would call 0x00038720. EAX is node+8 and the stack dword is 6.
+// That call is not translated. The case falls through and returns 2.
+int fn_127340(Game& g, const ScriptNode& node)
+{
+    switch (node.type)
+    {
+    case 0x3a:
+    {
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        (void)key;
+        return 2;
+    }
+    case 0x3b:
+        if (g_name_e4e0[0] != 0)
+        {
+            g_name_e4e0[0] = 0;
+            return 2;
+        }
+        break;
+    case 0x45:
+        if (g_flag_e560 == 0)
+        {
+            g_flag_e560 = 1;
+            return 2;
+        }
+        break;
+    case 0x55:
+    {
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        const u32 tag = fn_1077b0(key.c_str());
+        (void)tag;
+        return 2;
+    }
+    case 0x57:
+    {
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        (void)key;
+        return 2;
+    }
+    case 0x8d:
+    {
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        (void)key;
+        break;
+    }
+    default:
+        return 3;
+    }
+    return 2;
+}
+
+// Xbox 0x001274B0. Handler 13. The dword at node+4 is the type. The byte map
+// at 0x00127A2C covers types 0x13 through 0x9C. Slots are 0x13, 0x14, 0x15,
+// 0x16, 0x53, 0x9B, and 0x9C. Any other type returns 3. The second argument
+// from 0x00128A00 is unused. The third argument is the value that walk passes.
+//
+// Type 0x13 with a nonzero third argument returns 2. Zero with DAT_00512470
+// clear would call 0x00087830. A return of 2 copies
+// "aid_model_ghoulies_actor_boy" and "aid_model_ghoulies_actor_girl" into
+// 0x80-byte buffers and calls 0x0004E610 with EAX and ESI on those buffers.
+// That call is not translated, so the copy is not made. 0x0004EDA0 would
+// then take node+8 and two copies of (DAT_0051248C == 3). That call is not
+// translated. A nonzero dword at node+0x88 stores 1, calls 0x00117400 with
+// 0xFFFF when node+0x8C is zero and with 2 otherwise, then would call
+// 0x000F2BB0 with ECX = 1. A zero return, or a nonzero return from
+// 0x00049D10, would call 0x00127AC0. Those three calls are not translated,
+// so 0x00127AC0 is not called. The case returns 0. A zero dword at node+0x88
+// returns 2. Nonzero DAT_00512470 would call 0x0004EFE0 and 0x000532E0 with
+// ECX = the node. A zero from 0x0004EFE0 returns 0 when DAT_00512478 is zero
+// or when 0x00127B10 returns zero. A zero from 0x000532E0 clears
+// DAT_00512470, calls 0x0004ECE0, calls 0x00117400 with the same mask and
+// flag 1, calls 0x000583A0 when DAT_004EE1EC is nonzero, and calls
+// 0x00127B50 and returns 2 when DAT_00512478 is nonzero. Those calls are
+// not translated, so the zero returns are not taken and this path returns 2.
+//
+// Type 0x14 with a nonzero third argument returns 2. Nonzero DAT_00512474
+// returns 0 while DAT_004EE1EC is nonzero. Otherwise it calls
+// 0x00117400(0xFFFF, 1), clears DAT_00512474, and returns 2. Zero calls
+// 0x001077B0 with EAX = node+8. A tag above 1 would call 0x001291A0(tag, 0).
+// A zero return would return 2. That call is not translated, so the return
+// is not taken. A nonzero dword at node+0x8C would call 0x00049D10. A
+// nonzero return would return 2. That call is not translated, so the return
+// is not taken. A nonzero dword at node+0x90 tests bit 0x8000000 of
+// DAT_0050EA9C when node+0x94 is 0, and bit 0x10000000 when node+0x94 is 1.
+// A set bit returns 2. Any other node+0x94 skips the test. 0x000FBF90 would
+// take EAX = node+0x48. A nonzero return would build "%s%d" at DAT_00508EB8
+// through 0x001661F9 when node+0x88 is nonzero, calling 0x0001BB60 with
+// ECX = that dword + 1, EDX = 1, and ESI = 0x0054DD7C. 0x000582A0 would
+// then take ECX = that buffer, or node+0x48 when node+0x88 is zero, and a
+// stack 0. A nonzero return calls 0x00117400(0xFFFF, 0), stores 1, and ORs
+// the same DAT_0050EA9C bit. node+0x94 equal to 1 returns 0 after the OR.
+// The other path returns 0 as well. 0x000FBF90, 0x0001BB60, and 0x000582A0
+// are not translated, so that block is not entered and the case returns 2.
+//
+// Type 0x15 would call 0x00106D50 with the byte at node+0x88, the dword at
+// node+0x8C, and 1. EDI is node+8. 0x00106DD0 then takes DL = that byte.
+// Neither call is translated. The case returns 2.
+//
+// Type 0x16 with a nonzero third argument returns 2. Nonzero DAT_00512470
+// would call 0x0004EFE0. A zero return returns 0. A nonzero return clears
+// the flag, calls 0x0004ECE0, and returns 2. That call is not translated,
+// so the nonzero return is not taken and this path returns 0. A zero flag
+// with a nonzero dword at node+0x8C stores 1 and returns 0. Otherwise the
+// case returns 2.
+//
+// Type 0x53 with a nonzero third argument returns 2. Zero with DAT_00512470
+// clear would call 0x0004EDA0(node+8, 0, 1) and pass that return with
+// "aid_model_ghoulies_cutscene_reliccandle" to 0x0004EA50. A zero return
+// stores 0 at DAT_00512480. A nonzero return calls 0x00107720 with EAX =
+// "aid_objparams_ghoulies_scenecontrol_candle", stores the model at +8,
+// stores 0x00107520 at DAT_00512480, and calls 0x000663E0 on that block.
+// 0x0011F1C0(0xC, 1) would then run. A nonzero AX calls 0x0011F260,
+// 0x0011F2A0, 0x00100DF0(pi), 0x0004EF20, and 0x0004EF80. Those calls are
+// not translated, so DAT_00512480 is not stored. The flag is set and the
+// case returns 0. Nonzero DAT_00512470 would call 0x0004EFE0. A zero return
+// returns 0. A nonzero return calls 0x000532E0 with ECX = the node. A
+// nonzero return from that call returns 2. Zero clears the flag, calls
+// 0x0004ECE0 and 0x00127FF0, and returns 2 when DAT_00512480 is zero.
+// Otherwise it calls 0x00116140, clears DAT_00512480, and returns 2.
+// 0x0004EFE0 is not translated, so its nonzero return is not taken and this
+// path returns 0.
+//
+// Type 0x9B calls 0x000FB120 with 1.0, EAX = node+8, and ECX = a stack
+// vector. Type 0x9C calls 0x000493D0 with EDX = node+8 and EAX = that
+// vector. DAT_00511B40 null, or the sentinel 0x93C, zeros the vector.
+// Any other pointer calls 0x000412A0 with ESI = that pointer minus 0x93C
+// and EDI = the vector. 0x000FB120 and 0x000493D0 are not translated, and
+// the port's 0x000412A0 does not take this ESI/EDI pair, so those calls
+// are not made. Both cases return 2.
+int fn_1274b0(Game& g, const ScriptNode& node, int param_3)
+{
+    switch (node.type)
+    {
+    case 0x13:
+        if (param_3 == 0)
+        {
+            if (g_flag_2470 == 0)
+            {
+                const i32 same = g_state_248c == 3 ? 1 : 0;
+                (void)same;
+                if (node_u32(g.scene_script, node, 0x88) != 0)
+                {
+                    g_flag_2470 = 1;
+                    const u32 mask = node_u32(g.scene_script, node, 0x8c) == 0 ? 0xffffu : 2u;
+                    fn_117400(mask, 0);
+                    return 0;
+                }
+            }
+        }
+        return 2;
+    case 0x14:
+        if (param_3 != 0)
+        {
+            return 2;
+        }
+        if (g_flag_2474 != 0)
+        {
+            if (g_draw_e1ec != 0)
+            {
+                return 0;
+            }
+            fn_117400(0xffff, 1);
+            g_flag_2474 = 0;
+            return 2;
+        }
+        {
+            const std::string key = node_cstr(g.scene_script, node, 8);
+            const u16 tag = static_cast<u16>(fn_1077b0(key.c_str()));
+            if (tag > 1)
+            {
+                // 0x001291A0 is not translated.
+            }
+        }
+        if (node_u32(g.scene_script, node, 0x8c) != 0)
+        {
+            // 0x00049D10 is not translated.
+        }
+        if (node_u32(g.scene_script, node, 0x90) != 0)
+        {
+            const u32 kind = node_u32(g.scene_script, node, 0x94);
+            if (kind == 0)
+            {
+                if ((g_flags_ea9c & 0x8000000u) != 0)
+                {
+                    return 2;
+                }
+            }
+            else if (kind == 1)
+            {
+                if ((g_flags_ea9c & 0x10000000u) != 0)
+                {
+                    return 2;
+                }
+            }
+        }
+        return 2;
+    case 0x15:
+    {
+        const u8 index = node_u8(g.scene_script, node, 0x88);
+        const u32 word = node_u32(g.scene_script, node, 0x8c);
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        (void)index;
+        (void)word;
+        (void)key;
+        return 2;
+    }
+    case 0x16:
+        if (param_3 == 0)
+        {
+            if (g_flag_2470 != 0)
+            {
+                return 0;
+            }
+            if (node_u32(g.scene_script, node, 0x8c) != 0)
+            {
+                g_flag_2470 = 1;
+                return 0;
+            }
+        }
+        return 2;
+    case 0x53:
+        if (param_3 == 0)
+        {
+            if (g_flag_2470 == 0)
+            {
+                g_flag_2470 = 1;
+            }
+            return 0;
+        }
+        return 2;
+    case 0x9b:
+        return 2;
+    case 0x9c:
+        return 2;
+    default:
+        return 3;
+    }
+}
+
+// DAT_00430d08. Types 0x46 and 0xA6 store 0 when the second argument is zero.
+// The same path stores a zero byte at DAT_00430d14. 0x0011EB30 clears both
+// from entity.cpp; that copy is private to that file.
+i32 g_flag_30d08 = 0;
+u8 g_byte_30d14 = 0;
+
+// Xbox 0x00127BC0. Handler 14. The dword at node+4 is the type. The byte map
+// at 0x00127F6C covers types 0x2C through 0xA6. Slot 14 of the table at
+// 0x00127F30 returns 3, and the holes in that range use it. A type outside
+// the range returns 3 as well. The second argument is the flag 0x00128A00
+// passes. The third argument is the value that walk passes.
+//
+// Type 0x2C with a nonzero third argument returns 2. Zero calls 0x001292D0.
+// A null return returns 2. A live object loads the dword at object+0x95C
+// into EAX, calls 0x0001B810 with two stack zeros, calls 0x00112CC0, and
+// returns 2. 0x001292D0 is not translated, so the live path is not entered.
+//
+// Type 0x2D with a nonzero third argument returns 2. Zero would call
+// 0x00127FF0 and return 2. That call is not translated.
+//
+// Type 0x2E calls 0x001292D0. A null return returns 2. A live object tests
+// the dword at node+8. Zero calls 0x00042090. Nonzero calls 0x000420B0.
+// EAX is the object and ECX is that dword. Both return 2. 0x001292D0 is not
+// translated, so neither call is made.
+//
+// Type 0x2F calls 0x001292D0. A null return returns 2. A live object passes
+// the stack slot at frame+0x1C to 0x00049DB0 in EAX, stores 7 in the next
+// dword, and calls vtable +0xC with that slot. That call is not translated.
+//
+// Type 0x30 calls 0x001292D0. A null return returns 2. A live object calls
+// vtable +0xC with message id 0x32 and a second dword of 0.
+//
+// Type 0x31 with a zero second argument calls 0x00123AD0. EAX is node+8 and
+// ECX is 0. That call is not translated. A nonzero second argument calls
+// 0x001292D0. A null return returns 2. A live object calls 0x0013A720 with
+// EAX = node+8, ECX = the object, and a stack 1, then returns 2.
+//
+// Type 0x46 with a zero second argument stores 0 at DAT_00430d08 and a zero
+// byte at DAT_00430d14, then returns 2. Nonzero calls 0x001292D0. A null
+// return returns 2. A live object is pushed for 0x0013A7C0, then 0x0012ECC0
+// runs, and the case returns 2. Those calls are not translated.
+//
+// Type 0x6F calls 0x001292D0. A null return returns 0. A live object calls
+// 0x00028360 with ESI set to that object. AX 0 returns 2. A nonzero AX
+// returns 2 when the dword at object+0x984 is nonzero, and 0 when that
+// dword is 0. 0x001292D0 is not translated, so the live path is not entered
+// and the case returns 0.
+//
+// Type 0x76 calls 0x001292D0. A null return returns 2. A live object calls
+// vtable +0xC with message id 0x42 and a second dword of 1.
+//
+// Type 0x77 is that same call with a second dword of 0.
+//
+// Type 0x91 calls 0x001292D0. A null return returns 2. A live object calls
+// 0x00128DF0 with the object, two zeros, the address of the node pointer,
+// 0x4240, and 0. vtable +0xC then takes message id 0x37 and three zero
+// dwords. A nonzero return from 0x00128DF0 would call 0x000412A0 with ESI
+// set to that return and EDI aimed at the first zero. Those calls are not
+// translated.
+//
+// Type 0x96 calls 0x001292D0. A null return returns 2. A live object calls
+// 0x0011F1C0 with EAX = 0 and stack words 2, 1. A zero AX returns 2. Nonzero
+// compares the word at record+0x28 from 0x0011EF20 with the dword at node+8.
+// A miss calls 0x0011F1C0 with EAX = the previous AX and stack words 2, 0,
+// and returns 2 when that AX is 0. A hit calls 0x0002B430 with EAX = the
+// object and ECX = record+0xC, then 0x0002B560 with ECX = record+0x18.
+// 0x001292D0 is not translated, so the walk is not entered. The case
+// returns 2.
+//
+// Type 0xA0 calls 0x001292D0. A null return returns 2. A live object stores
+// 0x2C over the first argument and calls vtable +0xC with that address.
+//
+// Type 0xA6 with a zero second argument takes the same DAT_00430d08 store as
+// type 0x46. Nonzero calls 0x001292D0. A null return returns 2. A live object
+// is pushed for 0x0013A860. A zero return returns 2. Nonzero calls 0x0012ECC0
+// and returns 2. Those calls are not translated.
+int fn_127bc0(Game& g, const ScriptNode& node, int param_2, int param_3)
+{
+    switch (node.type)
+    {
+    case 0x2c:
+        if (param_3 == 0)
+        {
+            // 0x001292D0 is not translated, so object+0x95C is not loaded.
+            return 2;
+        }
+        return 2;
+    case 0x2d:
+        if (param_3 == 0)
+        {
+            // 0x00127FF0 is not translated.
+            return 2;
+        }
+        return 2;
+    case 0x2e:
+        return 2;
+    case 0x2f:
+        return 2;
+    case 0x30:
+        return 2;
+    case 0x31:
+        if (param_2 == 0)
+        {
+            const u32 at_8 = node_u32(g.scene_script, node, 8);
+            (void)at_8;
+            return 2;
+        }
+        return 2;
+    case 0x46:
+        if (param_2 == 0)
+        {
+            g_flag_30d08 = 0;
+            g_byte_30d14 = 0;
+            return 2;
+        }
+        return 2;
+    case 0x6f:
+        return 0;
+    case 0x76:
+        return 2;
+    case 0x77:
+        return 2;
+    case 0x91:
+        return 2;
+    case 0x96:
+        return 2;
+    case 0xa0:
+        return 2;
+    case 0xa6:
+        if (param_2 == 0)
+        {
+            g_flag_30d08 = 0;
+            g_byte_30d14 = 0;
+            return 2;
+        }
+        return 2;
+    default:
+        return 3;
+    }
+}
+
+// DAT_0050EA98. Type 0x4 stores the dword at node+8.
+u32 g_flag_ea98 = 0;
+// DAT_00427958. Type 0x6 stores the dword at node+8.
+u32 g_flag_27958 = 0;
+// DAT_00430D10. Type 0x7 stores the dword at node+8. entity.cpp keeps a
+// private copy of this address.
+i32 g_script_30d10 = 0;
+// DAT_00507E78. Type 0xA clears the first word before 0x000FF0A0.
+u16 g_loc_7e78 = 0;
+// Image at 0x00314DE8. Type 0x61 indexes it from four bases. The aid_ string
+// at 0x00314E50 is the end of the numeric image.
+constexpr u32 kTuneDe8 = 0x00314de8u;
+constexpr u32 kScriptTune[] = {
+    0x40a00000u, 0x41a00000u, 0x41f00000u, 0x42200000u, 0x00000000u,
+    0x40e00000u, 0x41700000u, 0x41c80000u, 0x420c0000u, 0x00000000u,
+    0x0000002du, 0x00000028u, 0x00000023u, 0x0000001eu, 0x00000019u,
+    0x0000003cu, 0x00000000u, 0x3d4ccccdu, 0x3dcccccdu, 0x3e4ccccdu,
+    0xbf800000u, 0x00000000u, 0x3d4ccccdu, 0x3dcccccdu, 0x3e4ccccdu,
+    0x00000000u,
+};
+
+u32 script_tune(u32 base, u32 index)
+{
+    const u32 slot = (base - kTuneDe8) / 4u + index;
+    if (slot >= std::size(kScriptTune))
+    {
+        return 0;
+    }
+    return kScriptTune[slot];
+}
+
+// DAT_00545AEC, DAT_00545AF0, DAT_00545AF4, DAT_00545AF8. Type 0x61 stores
+// the four indexes. The looked-up words land at DAT_00434008, DAT_00434014,
+// DAT_00434010, DAT_0043402C, and DAT_00434030.
+u32 g_tune_5aec = 0;
+u32 g_tune_5af0 = 0;
+u32 g_tune_5af4 = 0;
+u32 g_tune_5af8 = 0;
+u32 g_tune_34008 = 0;
+u32 g_tune_34014 = 0;
+u32 g_tune_34010 = 0;
+u32 g_tune_3402c = 0;
+u32 g_tune_34030 = 0;
+// DAT_00545D20 and DAT_00545D24. 0x00140E30 clears both when the word at
+// node+0x20 + 0x94 is 0. A live 0x001248D0(1, 0, 0) would set the first to 1.
+// A live 0x001248D0(8, 0, 0) would set the second to 1.
+i32 g_flag_5d20 = 0;
+i32 g_flag_5d24 = 0;
+// DAT_00545D28. Nonzero holds the previous tune indexes in the four words
+// below. 0x00140E30 clears it after restoring those indexes.
+i32 g_flag_5d28 = 0;
+// DAT_00545D2C, DAT_00545D30, DAT_00545D34, DAT_00545D38. Saved copies of
+// DAT_00545AEC, DAT_00545AF0, DAT_00545AF4, and DAT_00545AF8.
+u32 g_tune_5d2c = 0;
+u32 g_tune_5d30 = 0;
+u32 g_tune_5d34 = 0;
+u32 g_tune_5d38 = 0;
+// DAT_00512134, DAT_00512138, DAT_00512104. Type 0x64.
+u32 g_color_2134 = 0;
+u32 g_flag_2138 = 0;
+u32 g_flag_2104 = 0;
+// DAT_0050E1B4. DAT_0050E1B0 is the count, 4 bytes in front of the words.
+// The next dword is DAT_0050E1C4.
+std::vector<u16> g_tags_e1b4;
+i32 g_tag_e1b0 = 0;
+// DAT_00506C60. Type 0x89 stores node+8 * 60 + 0.99.
+float g_script_6c60 = 0.f;
+// DAT_00509B74 and DAT_00509B70. Type 0x8A. entity.cpp keeps private copies
+// for the light pass.
+i32 g_script_9b74 = 0;
+i32 g_script_9b70 = 0;
+// DAT_005110B4. Type 0xA2 stores 1 when node+8 is 0.
+u32 g_flag_10b4 = 0;
+// DAT_0050EF1C. Type 0xA4 stores 1 when node+8 is nonzero.
+u32 g_flag_ef1c = 0;
+// DAT_00510650. Type 0xA5 stores 1 when node+8 is nonzero.
+u32 g_flag_0650 = 0;
+
+// Xbox 0x00128050. Handler 15. The dword at node+4 is the type. The byte map
+// at 0x001286BC covers types 0x1 through 0xA5. Any other type, and the holes
+// in that range, return 3. The second argument is the flag 0x00128A00 passes.
+// The third argument is the value that walk passes. A handled type returns 2.
+//
+// Type 0x1 would call 0x0011C890 with EAX = node+8. That call is not translated.
+//
+// Type 0x2 with a zero second argument would call 0x0011C950 with EDX = node+8.
+// A nonzero second argument would call 0x00107720 with EAX = node+8. A zero
+// return falls through and returns 2. A nonzero return would call 0x00107520
+// with that block, then 0x000663E0 on it. 0x0011C950, 0x00107720, and
+// 0x00107520 are not translated, so the nonzero return is not taken.
+//
+// Type 0x4 stores the dword at node+8 into DAT_0050EA98.
+// Types 0x5 and 0xC return 2.
+// Type 0x6 stores the dword at node+8 into DAT_00427958.
+// Type 0x7 stores the dword at node+8 into DAT_00430D10.
+//
+// Type 0x8 calls 0x001077B0 with EAX = node+8. 0x0010F690 would take that tag
+// in ECX and the dword at node+0x48 on the stack. That call is not translated.
+// The walk of DAT_00511B48 still runs. A word at object+6 equal to the tag,
+// and a live pointer at object+0x958, stores the dword at node+0x48 into
+// that pointer +0x6C. An empty list returns 2. A finished walk returns 2.
+//
+// Type 0x9 calls 0x001077B0 with EAX = node+8. 0x0010F660 would take that tag
+// in ECX and the float at node+0x48 in XMM0. The message is id 0x4E and that
+// same float. 0x00122D40 would take the tag in EDI and the message in EBX.
+// Those two calls are not translated.
+//
+// Type 0xA clears the word at DAT_00507E78, then would call 0x000FF0A0 with
+// "aid_loctext_ghoulies_script_scenenames", "scenenames", node+8, and that
+// word. A zero return returns 2. A nonzero return would call 0x000FBE10 on
+// the word. A nonzero return from that call returns 2. Zero, with a nonzero
+// dword at node+0x48 and a zero third argument, draws when DAT_00512484 is
+// live. A null DAT_00512484 would call 0x0005F390(0, 0, 0x5E4), step
+// DAT_0054DD7C, and store 2.5, 0.5, and the new seed at +0x14, +0x18, and
+// +0x1C. 0x0005F550, 0x000606D0, and 0x0005F580 would then run, and
+// 0x0011DCF0 runs on the way out. 0x000FF0A0 is not translated, so its
+// nonzero return is not taken and that block is not entered.
+//
+// Type 0xB would call 0x00123AD0. ECX is the byte at node+8 and EAX is node+9.
+// Type 0x4B would call 0x000FD780 with ESI = node+8.
+// Type 0x4C would call 0x0003A1F0 with ESI = the dword at node+8.
+// Type 0x52 would call 0x0012AA50 with node+8 on the stack.
+// Those calls are not translated.
+//
+// Type 0x61 stores four indexes and the words they select from 0x00314DE8,
+// 0x00314DFC, 0x00314E10, 0x00314E28, and 0x00314E38. The second float uses
+// the index at node+8, the same index as the first.
+//
+// Type 0x64 packs the bytes at node+0x28, node+0x2C, and node+0x30 into
+// DAT_00512134. DAT_00512138 is 1 when the dword at node+8 is nonzero.
+// DAT_00512104 copies that dword. 0x001236D0 would take the packed bytes at
+// node+0xC, node+0x10, node+0x14, and node+0x18 twice, then the dwords at
+// node+0x1C, node+0x20, and node+0x24. XMM0 is the float at node+0x1C.
+// That call is not translated.
+//
+// Type 0x6D calls 0x001077B0 with EAX = node+8 and stores the word at
+// DAT_0050E1B4 + DAT_0050E1B0*2, then increments the count.
+//
+// Type 0x79 would call 0x00114050. ECX is the dword at node+8. BL is 2 when
+// that dword is 0 and 1 otherwise. That call is not translated.
+//
+// Type 0x89 stores the float at node+8 times 60 plus 0.99 into DAT_00506C60.
+// 0x000F27C0 would then run with EAX = 1. That call is not translated.
+//
+// Type 0x8A with a nonzero dword at node+8 stores 0 at DAT_00509B74 and 1 at
+// DAT_00509B70. Zero stores 1 and 0.
+//
+// Type 0x8F builds the vector (0, 1, 0) and the float at node+8 times
+// 0.0055555557 times pi. 0x001047E0 would take that vector and that angle.
+// The cross product that follows reads the matrix that call writes, and
+// 0x000FE160 would take the result. Neither call is translated, so the
+// product is not formed.
+//
+// Type 0x9A would call 0x000F2740. Type 0xA1 would call 0x000FEA90 with EAX =
+// the dword at node+8. Those calls are not translated.
+//
+// Type 0xA2 stores 1 at DAT_005110B4 when the dword at node+8 is 0.
+// Type 0xA4 stores 1 at DAT_0050EF1C when that dword is nonzero.
+// Type 0xA5 stores 1 at DAT_00510650 when that dword is nonzero.
+int fn_128050(Game& g, const ScriptNode& node, int param_2, int param_3)
+{
+    switch (node.type)
+    {
+    case 1:
+    {
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        (void)key;
+        return 2;
+    }
+    case 2:
+        if (param_2 == 0)
+        {
+            const std::string key = node_cstr(g.scene_script, node, 8);
+            (void)key;
+            return 2;
+        }
+        {
+            const std::string key = node_cstr(g.scene_script, node, 8);
+            (void)key;
+        }
+        return 2;
+    case 4:
+        g_flag_ea98 = node_u32(g.scene_script, node, 8);
+        return 2;
+    case 5:
+    case 0xc:
+        return 2;
+    case 6:
+        g_flag_27958 = node_u32(g.scene_script, node, 8);
+        return 2;
+    case 7:
+        g_script_30d10 = i32(node_u32(g.scene_script, node, 8));
+        return 2;
+    case 8:
+    {
+        const u16 tag = static_cast<u16>(fn_1077b0(node_cstr(g.scene_script, node, 8).c_str()));
+        const u32 stored = node_u32(g.scene_script, node, 0x48);
+        for (AltLink* link = g_alt_links; link != nullptr; link = link->next)
+        {
+            if (link->actor == nullptr || link->actor->class_key != tag)
+            {
+                continue;
+            }
+            if (link->slot == nullptr)
+            {
+                continue;
+            }
+            link->slot->at_6c = stored;
+        }
+        return 2;
+    }
+    case 9:
+    {
+        const u16 tag = static_cast<u16>(fn_1077b0(node_cstr(g.scene_script, node, 8).c_str()));
+        const float value = std::bit_cast<float>(node_u32(g.scene_script, node, 0x48));
+        const u32 message_0 = 0x4e;
+        (void)tag;
+        (void)value;
+        (void)message_0;
+        return 2;
+    }
+    case 0xa:
+    {
+        g_loc_7e78 = 0;
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        (void)key;
+        (void)param_3;
+        return 2;
+    }
+    case 0xb:
+    {
+        const u8 index = node_u8(g.scene_script, node, 8);
+        const std::string key = node_cstr(g.scene_script, node, 9);
+        (void)index;
+        (void)key;
+        return 2;
+    }
+    case 0x4b:
+    {
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        (void)key;
+        return 2;
+    }
+    case 0x4c:
+    {
+        const u32 key = node_u32(g.scene_script, node, 8);
+        (void)key;
+        return 2;
+    }
+    case 0x52:
+    {
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        (void)key;
+        return 2;
+    }
+    case 0x61:
+    {
+        const u32 at_8 = node_u32(g.scene_script, node, 8);
+        const u32 at_c = node_u32(g.scene_script, node, 0xc);
+        const u32 at_10 = node_u32(g.scene_script, node, 0x10);
+        const u32 at_14 = node_u32(g.scene_script, node, 0x14);
+        g_tune_34008 = script_tune(0x00314de8u, at_8);
+        g_tune_5aec = at_8;
+        g_tune_5af0 = at_c;
+        g_tune_34014 = script_tune(0x00314dfcu, at_8);
+        g_tune_5af4 = at_10;
+        g_tune_3402c = script_tune(0x00314e28u, at_10);
+        g_tune_5af8 = at_14;
+        g_tune_34010 = script_tune(0x00314e10u, at_c);
+        g_tune_34030 = script_tune(0x00314e38u, at_14);
+        return 2;
+    }
+    case 0x64:
+    {
+        const u32 color = u32(node_u8(g.scene_script, node, 0xc)) |
+                          (u32(node_u8(g.scene_script, node, 0x10)) << 8) |
+                          (u32(node_u8(g.scene_script, node, 0x14)) << 16) |
+                          (u32(node_u8(g.scene_script, node, 0x18)) << 24);
+        g_color_2134 = u32(node_u8(g.scene_script, node, 0x28)) |
+                       (u32(node_u8(g.scene_script, node, 0x2c)) << 8) |
+                       (u32(node_u8(g.scene_script, node, 0x30)) << 16);
+        const u32 at_8 = node_u32(g.scene_script, node, 8);
+        g_flag_2138 = at_8 != 0 ? 1u : 0u;
+        g_flag_2104 = at_8;
+        const u32 at_1c = node_u32(g.scene_script, node, 0x1c);
+        const u32 at_20 = node_u32(g.scene_script, node, 0x20);
+        const u32 at_24 = node_u32(g.scene_script, node, 0x24);
+        const float xmm0 = std::bit_cast<float>(at_1c);
+        (void)color;
+        (void)at_20;
+        (void)at_24;
+        (void)xmm0;
+        return 2;
+    }
+    case 0x6d:
+    {
+        const u16 tag = static_cast<u16>(fn_1077b0(node_cstr(g.scene_script, node, 8).c_str()));
+        const size_t slot = size_t(g_tag_e1b0);
+        g_tags_e1b4.resize(slot + 1);
+        g_tags_e1b4[slot] = tag;
+        g_tag_e1b0 = g_tag_e1b0 + 1;
+        return 2;
+    }
+    case 0x79:
+    {
+        const u32 at_8 = node_u32(g.scene_script, node, 8);
+        const u8 bl = at_8 == 0 ? u8{2} : u8{1};
+        (void)bl;
+        return 2;
+    }
+    case 0x89:
+    {
+        const float value = std::bit_cast<float>(node_u32(g.scene_script, node, 8));
+        g_script_6c60 = value * std::bit_cast<float>(0x42700000u) + std::bit_cast<float>(0x3f7d70a4u);
+        return 2;
+    }
+    case 0x8a:
+        if (node_u32(g.scene_script, node, 8) != 0)
+        {
+            g_script_9b74 = 0;
+            g_script_9b70 = 1;
+            return 2;
+        }
+        g_script_9b74 = 1;
+        g_script_9b70 = 0;
+        return 2;
+    case 0x8f:
+    {
+        const float x = 0.f;
+        const float y = std::bit_cast<float>(0x3f800000u);
+        const float z = 0.f;
+        const float angle = std::bit_cast<float>(node_u32(g.scene_script, node, 8)) *
+                            std::bit_cast<float>(0x3bb60b61u) * std::bit_cast<float>(0x40490fdbu);
+        (void)x;
+        (void)y;
+        (void)z;
+        (void)angle;
+        return 2;
+    }
+    case 0x9a:
+        return 2;
+    case 0xa1:
+    {
+        const u32 key = node_u32(g.scene_script, node, 8);
+        (void)key;
+        return 2;
+    }
+    case 0xa2:
+        g_flag_10b4 = node_u32(g.scene_script, node, 8) == 0 ? 1u : 0u;
+        return 2;
+    case 0xa4:
+        g_flag_ef1c = node_u32(g.scene_script, node, 8) != 0 ? 1u : 0u;
+        return 2;
+    case 0xa5:
+        g_flag_0650 = node_u32(g.scene_script, node, 8) != 0 ? 1u : 0u;
+        return 2;
+    default:
+        return 3;
+    }
+}
+
+// Xbox 0x00128770. Handler 16. The dword at node+4 is the type. Type 0x39
+// loads the dword at node+8 into EDI and calls 0x0012D050. That call walks
+// DAT_00511B28, the first node of DAT_00511B24. A zero EDI calls 0x00147860
+// on each object. A nonzero EDI decrements the dword at object+0xAD0 and
+// calls 0x0003EEB0 when that counter hits 0. 0x0012D050 is not translated.
+// The case returns 2.
+//
+// Type 0x59 stores 1 in the incoming argument slot, then calls 0x000FBFB0
+// with count 0xE9, the names at 0x0042A854, and the cstring at node+8. A miss
+// zeros EDI. A hit increments the index and zero-extends it into EDI. Both
+// paths point EBX at that slot and call 0x00122FA0. That call walks
+// DAT_00511B28, compares DI with the word at object+6, and calls vtable +0xC
+// with EBX on a match. 0x00122FA0 is not translated. Both paths return 2.
+// Any other type returns 3.
+int fn_128770(Game& g, const ScriptNode& node)
+{
+    if (node.type == 0x39)
+    {
+        const u32 flag = node_u32(g.scene_script, node, 8);
+        (void)flag;
+        return 2;
+    }
+    if (node.type != 0x59)
+    {
+        return 3;
+    }
+    const i32 message = 1;
+    const std::string key = node_cstr(g.scene_script, node, 8);
+    const i32 found = fn_fbfb0(0xe9, kObjTagActor, key.c_str());
+    if (found == -1)
+    {
+        const u16 tag = 0;
+        (void)tag;
+        (void)message;
+        return 2;
+    }
+    const u16 tag = static_cast<u16>(found + 1);
+    (void)tag;
+    (void)message;
+    return 2;
+}
+
+// DAT_00512514. 0x00128AB0 stores 1 when the dword it kept at DAT_0051248C is 0.
+// Type 0xF reads it. script_set_name does not write this dword.
+i32 g_gate_2514 = 0;
+// DAT_00512518. Type 0xF stores 0, then 1 when DAT_0051251C is already 0.
+i32 g_gate_2518 = 0;
+// DAT_0051251C. Types 0xF and 0x10 decrement it. Type 0x11 increments it.
+i32 g_gate_251c = 0;
+// DAT_0050E798 and DAT_0050E79C. Type 0x69 copies node+8 and node+0xC.
+u32 g_script_e798 = 0;
+u32 g_script_e79c = 0;
+// DAT_0050E788. 0x00117140 sets it when 0x001288C0 empties a nonempty fired list.
+i32 g_script_e788 = 0;
+// DAT_0050E78C. Nonzero takes the fade at DAT_0050E790. 0x00116E00 clears it.
+i32 g_script_e78c = 0;
+// DAT_0050E790. The fade subtracts DAT_005096C0 * DAT_004312C4 while this is above 0.
+float g_script_e790 = 0.f;
+// DAT_0050E794. Nonzero skips the condition walk. The latch path increments it.
+i32 g_script_e794 = 0;
+
+// Xbox 0x00128BC0. Handler 0 of the table at 0x00312650. The dword at node+4
+// is the type. The byte map at 0x00128D24 covers types 0 through 0x69. Slot 7
+// of the table at 0x00128D04 returns 3, and every type in that range other
+// than 0, 0xD, 0xE, 0xF, 0x10, 0x11, and 0x69 uses it. A type above 0x69
+// returns 3. The second argument is the flag 0x00128A00 passes. The third
+// argument is the value that walk passes.
+//
+// Type 0 returns 1.
+//
+// Type 0xD calls 0x00053170 with the address of node+8 and a stack 0. That
+// call compares the first dword with "aid_". It is not translated. The case
+// returns 2.
+//
+// Type 0xE calls 0x00123B00. The dword at node+0x90 equal to 1 takes the
+// following call when that return is nonzero. Equal to 2 takes it when the
+// return is zero. A nonzero dword at node+0x94 calls 0x00049D10 and takes
+// the same call when that return is nonzero. 0x00123B00 and 0x00049D10 are
+// not translated, so those nonzero returns are not taken. The zero return
+// of 0x00123B00 with node+0x90 equal to 2 would call 0x000532B0 with ECX set
+// to the node cursor and EDX set to 0xF, then return 2. 0x000532B0 is not
+// translated, so the cursor stays put and the case returns 2.
+// Any other node+0x90 calls 0x00128AB0. EAX is the cstring at node+0x10, ECX
+// is the dword at node+8, and EDX is the dword at node+0xC. A nonzero third
+// argument with a zero dword at node+8 returns 0. A zero second argument and
+// a zero third argument return 0. Otherwise the case returns 2.
+//
+// Type 0xF stores 0 at DAT_00512518. A zero DAT_00512514 returns 2. A zero
+// DAT_0051251C stores 1 at DAT_00512518 and returns 0. Any other count
+// decrements DAT_0051251C and returns 2.
+//
+// Type 0x10 with a nonzero third argument returns 2. A zero third argument
+// returns 0 when DAT_0051251C is 0, and otherwise decrements it and returns 2.
+//
+// Type 0x11 with a zero third argument increments DAT_0051251C and returns 2.
+// A nonzero third argument returns 2.
+//
+// Type 0x69 stores the dword at node+0xC into DAT_0050E79C and the dword at
+// node+8 into DAT_0050E798, then returns 2.
+int fn_128bc0(Game& g, const ScriptNode& node, int param_2, int param_3)
+{
+    switch (node.type)
+    {
+    case 0:
+        return 1;
+    case 0xd:
+    {
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        (void)key;
+        return 2;
+    }
+    case 0xe:
+    {
+        const u32 mode = node_u32(g.scene_script, node, 0x90);
+        if (mode == 1)
+        {
+            // 0x00123B00 is not translated, so its nonzero return is not taken.
+        }
+        else if (mode == 2)
+        {
+            // 0x000532B0 is not translated, so the cursor is not advanced.
+            return 2;
+        }
+        if (node_u32(g.scene_script, node, 0x94) != 0)
+        {
+            // 0x00049D10 is not translated, so its nonzero return is not taken.
+        }
+        const u32 at_8 = node_u32(g.scene_script, node, 8);
+        const u32 at_c = node_u32(g.scene_script, node, 0xc);
+        (void)at_c;
+        script_set_name(g, node_cstr(g.scene_script, node, 0x10));
+        if (param_3 != 0 && at_8 == 0)
+        {
+            return 0;
+        }
+        if (param_2 == 0 && param_3 == 0)
+        {
+            return 0;
+        }
+        return 2;
+    }
+    case 0xf:
+        g_gate_2518 = 0;
+        if (g_gate_2514 != 0)
+        {
+            if (g_gate_251c == 0)
+            {
+                g_gate_2518 = 1;
+                return 0;
+            }
+            g_gate_251c = g_gate_251c - 1;
+            return 2;
+        }
+        return 2;
+    case 0x10:
+        if (param_3 == 0)
+        {
+            if (g_gate_251c == 0)
+            {
+                return 0;
+            }
+            g_gate_251c = g_gate_251c - 1;
+            return 2;
+        }
+        return 2;
+    case 0x11:
+        if (param_3 == 0)
+        {
+            g_gate_251c = g_gate_251c + 1;
+            return 2;
+        }
+        return 2;
+    case 0x69:
+        g_script_e79c = node_u32(g.scene_script, node, 0xc);
+        g_script_e798 = node_u32(g.scene_script, node, 8);
+        return 2;
+    default:
+        return 3;
+    }
+}
+
+// Xbox 0x00128A00. Walks fired file offsets. Handler 0 is 0x00128BC0.
+// Handler 1 is 0x00124CC0.
+// Handler 2 is 0x00124E50. Handler 3 is 0x00124F30. Handler 4 is 0x00124FC0.
+// Handler 5 is 0x001251E0. Handler 6 is 0x00125450. Handler 7 is 0x001259B0.
+// Handler 8 is 0x00126140. Handler 9 is 0x001269D0. Handler 10 is 0x00126A10.
+// Handler 11 is 0x00126E10. Handler 12 is 0x00127340. Handler 13 is 0x001274B0.
+// Handler 14 is 0x00127BC0. Handler 15 is 0x00128050. Handler 16 is 0x00128770.
+// Handler 0 is the first slot of the table at 0x00312650. The flag passed to handler 4 is nonzero
+// when DAT_0050E4DC has a node whose dword at +8 is 0x7D. Handler 0 receives that same flag.
+// Handler 7 receives that same flag.
+// Its third argument is 0: 0x00128A00 clears EDI whenever that flag is set,
+// and the handler only reads the third argument on that path. Handler 0
+// receives that same third argument. Handler 8
+// receives that same third argument. Handler 13 receives it as well. Handler 14
+// receives that same second argument and that same third argument. Handler 15
+// receives that same second argument and that same third argument. Handler 16
+// reads only the node. A node type none of them covers stops
+// the walk and leaves the
+// fired id in place. Return 1 stops on a type-0 node from handler 0, and on a
+// type-0x3C node. Return 0 means
+// the cursor left the blob, or stopped on an untranslated node, and the
+// drain keeps that fired id.
 int fn_128a00(Game& g, u32 offset)
 {
+    int param_2 = 0;
+    for (LiveScript* live = g_live_scripts; live != nullptr; live = live->next)
+    {
+        if (live->type == 0x7d)
+        {
+            param_2 = 1;
+            break;
+        }
+    }
     for (int step = 0; step < 256; ++step)
     {
         const ScriptNode* node = script_node_at(g.scene_script, offset);
@@ -15607,7 +19588,71 @@ int fn_128a00(Game& g, u32 offset)
         {
             return 0;
         }
-        const int handler = fn_125450(g, *node);
+        int handler = fn_128bc0(g, *node, param_2, 0);
+        if (handler == 3)
+        {
+            handler = fn_124cc0(g, *node);
+        }
+        if (handler == 3)
+        {
+            handler = fn_124e50(g, *node);
+        }
+        if (handler == 3)
+        {
+            handler = fn_124f30(g, *node);
+        }
+        if (handler == 3)
+        {
+            handler = fn_124fc0(g, *node, param_2);
+        }
+        if (handler == 3)
+        {
+            handler = fn_1251e0(g, *node);
+        }
+        if (handler == 3)
+        {
+            handler = fn_125450(g, *node);
+        }
+        if (handler == 3)
+        {
+            handler = fn_1259b0(g, *node, param_2, 0);
+        }
+        if (handler == 3)
+        {
+            handler = fn_126140(g, *node, param_2, 0);
+        }
+        if (handler == 3)
+        {
+            handler = fn_1269d0(g, *node);
+        }
+        if (handler == 3)
+        {
+            handler = fn_126a10(g, *node);
+        }
+        if (handler == 3)
+        {
+            handler = fn_126e10(g, *node, param_2);
+        }
+        if (handler == 3)
+        {
+            handler = fn_127340(g, *node);
+        }
+        if (handler == 3)
+        {
+            handler = fn_1274b0(g, *node, 0);
+        }
+        if (handler == 3)
+        {
+            handler = fn_127bc0(g, *node, param_2, 0);
+        }
+        if (handler == 3)
+        {
+            handler = fn_128050(g, *node, param_2, 0);
+        }
+        if (handler == 3)
+        {
+            handler = fn_128770(g, *node);
+        }
         if (handler == 1)
         {
             return 1;
@@ -15651,14 +19696,165 @@ void script_vm_bind(Game& g)
     fn_1288c0(g);
 }
 
-// Xbox 0x00117100, then the eval at 0x00117140. 0x00133070 is not translated,
-// so a timeout record is not stepped. DAT_0050E794 is left clear so the eval
-// pass runs. Opcodes other than 0 are not evaluated.
+// Xbox 0x00133070. Opcode 0 in the update table at 0x00314334. The int at
+// +0xC, or a clear DAT_0050E768 while the byte at [DAT_0051248C]+0x30F144
+// is set, subtracts a step from the float at +8. DAT_004312DC above 0 makes
+// that step 0. Otherwise the step is DAT_005096C0 * DAT_004312C4. A result
+// at or below 0 is stored as 0.
+void fn_133070(ScriptCond& rec)
+{
+    if (cond_u32(rec, 0xc) != 0 || (g_block_decay == 0 && g_decay_arm != 0))
+    {
+        float step = 0.f;
+        if (g_sim_freeze <= 0.f)
+        {
+            step = g_sim_dt * g_sim_scale;
+        }
+        const float left = cond_f32(rec, 8);
+        if (0.f < left)
+        {
+            float next = left - step;
+            cond_put_f32(rec, 8, next);
+            if (next <= 0.f)
+            {
+                cond_put_f32(rec, 8, 0.f);
+            }
+        }
+    }
+}
+
+// Xbox 0x00117140. DAT_0050E78C clear runs the latch. A nonzero DAT_0050E79C
+// would call 0x00128D90 with EAX = DAT_0050E760, EBX = DAT_0050E798, and
+// EDI = DAT_0050E79C, then stores 0 at DAT_0050E79C. 0x00128D90 is not
+// translated, so that call is not made. The store still runs.
+// DAT_0050E794 clear calls 0x00124BE0 and 0x001288C0. 0x001288C0 returns 1
+// when the fired list was nonempty and the walk left it empty. That sets
+// DAT_0050E788 and joins the latch. Any other return falls through, and a
+// clear DAT_0050E788 returns. The latch calls 0x00035960 with EAX =
+// 0x00511B64, EBX = 0x00510E58, and a stack 1. A nonzero return with
+// DAT_0050E784 clear calls 0x0011EB30 with that return in EAX and a stack 1,
+// then stores 0 at DAT_0050E790. A nonzero DAT_0050E784 and a live
+// DAT_00511B40 other than the sentinel 0x93C reads [actor+0x95C]+0x48, stores
+// 1 at +0x9A4, calls 0x0001B6B0 with EAX = actor+0x95C, calls 0x00049DB0 on
+// the stack message, copies DAT_0050E76C through DAT_0050E780, and calls
+// vtable +0xC with message id 8. DAT_0050E790 then becomes 1. 0x00035960 is
+// not translated, so its nonzero return is not taken and those calls are not
+// made. The latch stores 1 at DAT_0050E78C and increments DAT_0050E794.
+// A set DAT_0050E78C fades DAT_0050E790. DAT_004312DC above 0 makes the step
+// 0. Otherwise the step is DAT_005096C0 * DAT_004312C4. A result at or below
+// 0 is stored as 0, then 0x00035960 and 0x0011EB30 would run with stack 1.
+// Those calls are not made.
+void fn_117140(Game& g)
+{
+    // Xbox 0x00117140
+    if (g_script_e78c == 0)
+    {
+        if (g_script_e79c != 0)
+        {
+            // 0x00128D90 is not translated, so it is not called.
+            g_script_e79c = 0;
+        }
+        bool latched = false;
+        if (g_script_e794 == 0)
+        {
+            fn_124be0(g);
+            const size_t fired_before = g_script_fired.size();
+            fn_1288c0(g);
+            if (fired_before != 0 && g_script_fired.empty())
+            {
+                g_script_e788 = 1;
+                latched = true;
+            }
+        }
+        if (!latched && g_script_e788 == 0)
+        {
+            return;
+        }
+        g_script_e78c = 1;
+        g_script_e794 = g_script_e794 + 1;
+        return;
+    }
+
+    float step = 0.f;
+    if (g_sim_freeze <= 0.f)
+    {
+        step = g_sim_dt * g_sim_scale;
+    }
+    if (0.f < g_script_e790)
+    {
+        g_script_e790 = g_script_e790 - step;
+        if (g_script_e790 <= 0.f)
+        {
+            g_script_e790 = 0.f;
+        }
+    }
+}
+
+// DAT_00509b20 through DAT_00509b2c. entity.cpp keeps a private copy of this tint.
+float g_509b20 = 0.f;
+float g_509b24 = 0.f;
+float g_509b28 = 0.f;
+float g_509b2c = 0.f;
+float g_509b4c = 0.f; // DAT_00509b4c
+float g_509b50 = 0.f; // DAT_00509b50. Pool float DAT_0032b160.
+float g_509b54 = 0.f; // DAT_00509b54. Pool float DAT_0032b15c.
+i32 g_509b58 = 0;     // DAT_00509b58
+i32 g_509b70 = 0;     // DAT_00509b70
+i32 g_509b74 = 0;     // DAT_00509b74
+i32 g_5462fc = 0;     // DAT_005462FC
+i32 g_545d1c = 0;     // DAT_00545D1C
+i32 g_545cc8 = 0;     // DAT_00545CC8
+
+// Xbox 0x0011CAC0. Writes 1.0 (0x3f800000) to DAT_00509b2c, DAT_00509b20,
+// DAT_00509b24, DAT_00509b28, and DAT_00509b4c. DAT_00509b50 becomes
+// 0x3eb2b8c3. DAT_005462FC becomes 1. DAT_00509b54 becomes 0x3f32b8c3.
+// DAT_00509b58 becomes 1. DAT_00509b70 becomes 0. DAT_00509b74 becomes 1.
+// 0x000FAEE0, 0x0013CBD0, 0x00116E00, and 0x00124420 are not translated, so
+// those calls are not made. DAT_00545D1C and DAT_00545CC8 are cleared after
+// the 0x000FAEE0 call.
+void fn_11cac0()
+{
+    // Xbox 0x0011CAC0
+    g_509b2c = 1.f;
+    g_509b20 = 1.f;
+    g_509b24 = 1.f;
+    g_509b28 = 1.f;
+    g_509b4c = 1.f;
+    g_509b50 = std::bit_cast<float>(0x3eb2b8c3u);
+    g_5462fc = 1;
+    g_509b54 = std::bit_cast<float>(0x3f32b8c3u);
+    g_509b58 = 1;
+    g_509b70 = 0;
+    g_509b74 = 1;
+    // 0x000FAEE0 is not translated.
+    g_545d1c = 0;
+    g_545cc8 = 0;
+    // 0x0013CBD0, 0x00116E00, and 0x00124420 are not translated.
+}
+
+// Xbox 0x0011CB60. ECX is 0x00510E58 for 0x00117000. 0x00117000, 0x0011CBD0,
+// and 0x0011B670 are not translated, so those calls are not made. The last
+// call is 0x00117140.
+void fn_11cb60(Game& g)
+{
+    // Xbox 0x0011CB60
+    fn_117140(g);
+}
+
+// Xbox 0x00117100, then the eval at 0x00117140. The update walk calls the
+// table at 0x00314334. Opcode 0 is 0x00133070. The other updates are not
+// translated, so those records are not stepped.
 void script_vm_tick(Game& g, float dt)
 {
     (void)dt;
-    fn_124be0(g);
-    fn_1288c0(g);
+    for (ScriptCond& rec : g_script_conds)
+    {
+        if (cond_u32(rec, 0) == 0)
+        {
+            fn_133070(rec);
+        }
+    }
+    fn_117140(g);
 }
 
 void load_scene_contents(Game& g, std::string_view name)
@@ -15806,31 +20002,124 @@ void script_load(Game& g, std::string_view name)
     cutscene_queue_start(g);
 }
 
+// DAT_00510ED8. Defined with the scene record. script_request copies into it.
+extern char (&g_510ed8)[0x80];
+
 void script_request(Game& g, std::string_view name)
 {
     // Xbox 0x0011EB30. EAX is the source string. It is copied to scene+0x80
     // (DAT_00510ED8) and the mode argument is stored at DAT_00510F58.
     // Loading waits for 0x0011E4C0.
-    if (std::memcmp(g.requested_script, "aid_", 4) == 0)
+    (void)g;
+    if (std::memcmp(g_510ed8, "aid_", 4) == 0)
     {
-        g.requested_script[0] = '\0';
+        g_510ed8[0] = '\0';
     }
     size_t i = 0;
-    while (i + 1 < sizeof(g.requested_script) && i < name.size())
+    while (i + 1 < sizeof(g_510ed8) && i < name.size())
     {
-        g.requested_script[i] = name[i];
+        g_510ed8[i] = name[i];
         ++i;
     }
-    g.requested_script[i] = '\0';
-    // The mode argument is stored at DAT_00510F58. Nothing in the binary reads it.
+    g_510ed8[i] = '\0';
+    // 0x0011EB30 also stores its mode argument at DAT_00510F58. This copy writes the name.
 }
 
-void script_pump(Game& g)
+// Header in front of the records. Xbox stores begin, cursor, and limit as
+// addresses in the 12 bytes before +0x10. Those dwords are byte offsets from
+// the block here, so the records stay at +0x10.
+struct Pool662a0
 {
-    // Xbox 0x0011E4C0 is not translated. frame_tick calls it with EAX = DAT_00510E58.
-    // The aid_ name at scene+0x80 stays queued. This does not load the script
-    // and does not mark the stream finished.
-    (void)g;
+    u16 stride = 0;
+    u16 grow = 0;
+    u32 begin = 0;
+    u32 cursor = 0;
+    u32 limit = 0;
+};
+static_assert(sizeof(Pool662a0) == 0x10);
+static_assert(offsetof(Pool662a0, begin) == 4);
+static_assert(offsetof(Pool662a0, cursor) == 8);
+static_assert(offsetof(Pool662a0, limit) == 0xc);
+
+// Xbox 0x000662A0
+// EAX is the pool block. used = (cursor - begin) / stride. The new count is
+// used plus the u16 at +2. 0x000F73A0 reallocates EAX to stride * count + 0x10
+// and adds the 4-byte tag 0x000F72D0 keeps. begin is the new block + 0x10,
+// cursor stays on the same record, and limit is begin + stride * count.
+u8* fn_662a0(u8* block)
+{
+    Pool662a0* pool = reinterpret_cast<Pool662a0*>(block);
+    const i32 stride = static_cast<i32>(pool->stride);
+    const i32 used = (static_cast<i32>(pool->cursor) - static_cast<i32>(pool->begin)) / stride;
+    const i32 count = static_cast<i32>(pool->grow) + used;
+    const u32 bytes = static_cast<u32>(stride) * static_cast<u32>(count) + 0x10u;
+    u8* fresh = static_cast<u8*>(std::realloc(block, static_cast<std::size_t>(bytes) + 4u));
+    Pool662a0* grown = reinterpret_cast<Pool662a0*>(fresh);
+    const i32 grown_stride = static_cast<i32>(grown->stride);
+    const u32 base = 0x10u;
+    grown->cursor = base + static_cast<u32>(grown_stride) * static_cast<u32>(used);
+    grown->begin = base;
+    grown->limit = base + static_cast<u32>(grown_stride) * static_cast<u32>(count);
+    return fresh;
+}
+
+// DAT_004DEDA8. 0x00033CF0 allocates the header. The u16 at +0 is the stride.
+// +2 is the grow count. +4 is begin and +8 is end.
+struct Pool4deda8
+{
+    u16 stride = 0;
+    u16 grow = 0;
+    u8* begin = nullptr;
+    u8* end = nullptr;
+};
+
+Pool4deda8* g_4deda8 = nullptr; // DAT_004DEDA8
+i32 g_4deda4 = 0;               // DAT_004DEDA4
+i32 g_4ded9c = 0;               // DAT_004DED9C
+i32 g_4deda0 = 0;               // DAT_004DEDA0
+i32 g_4dedac = 0;               // DAT_004DEDAC
+
+// Xbox 0x000341E0. When DAT_004DEDA4 is nonzero, walk the pool from end
+// backward by 0x2c. The dword at record+0x28 (end - 4 before the step) is
+// compared with 0. Zero would call 0x000348D0 with EBX = the record and
+// 0x00034110 with ESI = the record, then reload DAT_004DEDA8. Those calls
+// are not translated, so they are not made. The flag is then cleared.
+// When DAT_004DEDAC is 0 and DAT_004DEDA0 < DAT_004DED9C,
+// walk from begin while the cursor is below end and the dword at +0x24 is
+// nonzero, stepping by the stride u16. The slot where +0x24 is 0, or 0 when
+// the walk finishes, would be ESI for 0x00034290. A nonzero return would
+// call 0x00034370 with that return on the stack and EAX = ESI. 0x00034290
+// is not translated, so that return is not taken. The function returns
+// DAT_004DEDAC.
+int fn_341e0()
+{
+    Pool4deda8* pool = g_4deda8;
+    if (g_4deda4 != 0)
+    {
+        const std::uintptr_t begin = reinterpret_cast<std::uintptr_t>(pool->begin);
+        std::uintptr_t end = reinterpret_cast<std::uintptr_t>(pool->end);
+        while (begin <= end - 0x2c)
+        {
+            const std::uintptr_t record = end - 0x2c;
+            const i32 at_28 = *reinterpret_cast<const i32*>(record + 0x28);
+            end = record;
+            if (at_28 == 0)
+            {
+                pool = g_4deda8;
+            }
+        }
+        g_4deda4 = 0;
+    }
+    if (g_4dedac == 0 && g_4deda0 < g_4ded9c)
+    {
+        std::uintptr_t cursor = reinterpret_cast<std::uintptr_t>(pool->begin);
+        const std::uintptr_t end = reinterpret_cast<std::uintptr_t>(pool->end);
+        while (cursor < end && *reinterpret_cast<const i32*>(cursor + 0x24) != 0)
+        {
+            cursor = cursor + pool->stride;
+        }
+    }
+    return g_4dedac;
 }
 
 void scene_order_advance(Game& g)
@@ -17034,6 +21323,1710 @@ void fn_177af0(float* out, const float* left, const float* right)
     }
 }
 
+void fn_f71f0(void* dest, const void* src, u32 count)
+{
+    // Xbox 0x000F71F0
+    // EAX is the destination, ECX the source, and EDX the byte count.
+    // A zero count or equal pointers returns. Both pointers 8-byte aligned
+    // and a count above 7 copies two dwords per pass and drops the count by
+    // 8. Both pointers 4-byte aligned and a count above 3 then copies one
+    // dword per pass. A leftover count is copied one byte forward. The gap
+    // for that tail is source minus destination, taken once.
+    // 0x00124BE0 passes the DAT_0051234C stride in EDX and end minus that
+    // stride in ECX, so the last record is written onto the slot in EAX.
+    if (count != 0 && dest != src)
+    {
+        u8* out = static_cast<u8*>(dest);
+        const u8* in = static_cast<const u8*>(src);
+        if ((reinterpret_cast<std::uintptr_t>(out) & 7u) == 0 &&
+            (reinterpret_cast<std::uintptr_t>(in) & 7u) == 0 && 7u < count)
+        {
+            u32 chunks = count >> 3;
+            do
+            {
+                const u32 first = *reinterpret_cast<const u32*>(in);
+                const u32 second = *reinterpret_cast<const u32*>(in + 4);
+                *reinterpret_cast<u32*>(out) = first;
+                *reinterpret_cast<u32*>(out + 4) = second;
+                out = out + 8;
+                in = in + 8;
+                count = count - 8;
+                chunks = chunks - 1;
+            }
+            while (chunks != 0);
+        }
+        if ((reinterpret_cast<std::uintptr_t>(out) & 3u) == 0 &&
+            (reinterpret_cast<std::uintptr_t>(in) & 3u) == 0 && 3u < count)
+        {
+            u32 chunks = count >> 2;
+            do
+            {
+                const u32 word = *reinterpret_cast<const u32*>(in);
+                *reinterpret_cast<u32*>(out) = word;
+                out = out + 4;
+                in = in + 4;
+                count = count - 4;
+                chunks = chunks - 1;
+            }
+            while (chunks != 0);
+        }
+        if (count != 0)
+        {
+            const std::ptrdiff_t gap = in - out;
+            do
+            {
+                *out = *(out + gap);
+                out = out + 1;
+                count = count - 1;
+            }
+            while (count != 0);
+        }
+    }
+}
+
 } // namespace
+
+// DAT_00510CF4. Phase this tick switches on. 3 and 8 are the settled steps.
+i32 g_510cf4 = 0;
+// DAT_00510CFC. Nonzero is the object 0x00109470 takes in EAX.
+void* g_510cfc = nullptr;
+// DAT_00510E30. A zero dword at +0x94C clears the pointer after 0x00142070.
+u8* g_510e30 = nullptr;
+// DAT_00510CF8. Points at the object whose +4 and +8 are the unsigned counts.
+u8** g_510cf8 = nullptr;
+// DAT_00510E24. +0 indexes the stride-0x124 table at DAT_0042217C. +8 and
+// +0x10 are flags. +0x24 is the clock (+0x2C over +0x34). +0x94 is the slot.
+u8* g_510e24 = nullptr;
+// DAT_00510E28. Phase 6 selects one of cases 1 through 7.
+i32 g_510e28 = 0;
+// DAT_004EE1EC. entity.cpp keeps a private copy. Nonzero skips phases 4 and 5.
+i32 g_4ee1ec = 0;
+// DAT_00506C90. entity.cpp keeps a private copy. Zero takes 0x0011EAD0.
+u16 g_506c90 = 0;
+// DAT_00429BC0, then the wide buffer at DAT_00429BC4 (0x100 bytes, next
+// symbol DAT_00429CC4).
+i32 g_429bc0 = 0;
+u16 g_429bc4[0x80]{};
+// DAT_004E19B4. Wide source of that copy. 0x80 bytes, next symbol DAT_004E1A34.
+u16 g_4e19b4[0x40]{};
+// DAT_00510E58. +0x80 is DAT_00510ED8. +0x100 is DAT_00510F58.
+// +0x108 is DAT_00510F60. +0x124 is DAT_00510F7C. +0x128 is DAT_00510F80.
+// The Xbox dword at +0x230 is the object 0x00109470 takes in EAX.
+// DAT_0051108C (g_51108c) is the next symbol, kept separate. The host
+// pointer at +0x230 is wider than that Xbox dword.
+alignas(void*) u8 g_510e58[0x230 + sizeof(void*)]{};
+// DAT_00510ED8. 0x80-byte aid. entity.cpp keeps a private copy of 0x0011EB30.
+char (&g_510ed8)[0x80] = *reinterpret_cast<char(*)[0x80]>(g_510e58 + 0x80);
+// DAT_00510F58. Mode dword stored by that copy. Scene record +0x100.
+i32& g_510f58 = *reinterpret_cast<i32*>(g_510e58 + 0x100);
+
+struct BindScene230
+{
+    BindScene230()
+    {
+        *reinterpret_cast<i32**>(g_510e58 + 0x230) = &g_refresh_kind;
+    }
+};
+BindScene230 g_bind_scene_230{};
+// DAT_00430D0C. Cleared with DAT_00430D08 and DAT_00430D10.
+i32 g_script_30d0c = 0;
+// DAT_00430D94. Nonzero skips the clear of DAT_00506C8C, then becomes 0.
+i32 g_script_30d94 = 0;
+// DAT_00430D98. Cleared with DAT_00430D94.
+i32 g_script_30d98 = 0;
+// DAT_00506C8C. Cleared when DAT_00430D94 was 0 on entry to the copy.
+i32 g_506c8c = 0;
+
+// Image at DAT_0042217C. Stride 0x124. +0 and +4 are the progress gates.
+// +8 is the slot when the ratio is at or under +0. +0xC is the slot when
+// the ratio is over +4. Indices 0 through 14 are the rows in the image.
+struct ProgressRow42217c
+{
+    u32 low = 0;
+    u32 high = 0;
+    i32 low_slot = 0;
+    i32 high_slot = 0;
+    u8 pad[0x114]{};
+};
+static_assert(sizeof(ProgressRow42217c) == 0x124);
+static_assert(offsetof(ProgressRow42217c, high) == 4);
+static_assert(offsetof(ProgressRow42217c, low_slot) == 8);
+static_assert(offsetof(ProgressRow42217c, high_slot) == 0xc);
+
+constexpr ProgressRow42217c kProgress42217c[] = {
+    {0x3f1eb852u, 0x3f547ae1u, 1, 2},
+    {0x3ebd70a4u, 0x3ed1eb85u, 2, 1},
+    {0x3ebbc01au, 0x3f547ae1u, 0, 2},
+    {0x3efae148u, 0x00000000u, 0, 0},
+    {0x3efae148u, 0x00000000u, 0, 0},
+    {0x3efae148u, 0x00000000u, 0, 0},
+    {0x3efae148u, 0x00000000u, 0, 0},
+    {0x3efae148u, 0x00000000u, 0, 0},
+    {0x3efae148u, 0x00000000u, 0, 0},
+    {0x3efae148u, 0x00000000u, 0, 0},
+    {0x3efae148u, 0x00000000u, 0, 0},
+    {0x3efae148u, 0x00000000u, 0, 0},
+    {0x3efae148u, 0x00000000u, 0, 0},
+    {0x3efae148u, 0x00000000u, 2, 2},
+    {0x3ecccccdu, 0x00000000u, 2, 2},
+};
+
+// 'aid_' as a little-endian dword. 0x0011EB30 clears the name when it matches.
+constexpr u32 kAidPrefixEd8 = 0x5f646961u;
+
+// DAT_00322B8C. 10 dwords and one word: the aid plus its NUL.
+constexpr char kGameselectAid[] = "aid_script_ghoulies_gameselect_gameselect";
+static_assert(sizeof(kGameselectAid) == 42);
+
+// Clock at player+0x24. The ratio is the float at +0x2C over the float at +0x34.
+static float progress_ratio(const u8* player)
+{
+    const u8* clock = *reinterpret_cast<u8* const*>(player + 0x24);
+    const float num = *reinterpret_cast<const float*>(clock + 0x2c);
+    const float den = *reinterpret_cast<const float*>(clock + 0x34);
+    return num / den;
+}
+
+// Shared tail at 0x0011D020. DAT_00510CF4 becomes 3. 0x00048940 is not
+// translated: the stack dword is 0x3DFBE76D and ECX is DAT_00510E24.
+// A zero dword at +8 would call 0x0004E640 with EAX = 1 and EDI = the
+// clock at +0x24. That call is not translated. +8 is then stored as 1.
+static void enter_phase_three()
+{
+    g_510cf4 = 3;
+    i32* flag = reinterpret_cast<i32*>(g_510e24 + 8);
+    if (*flag == 0)
+    {
+        *flag = 1;
+    }
+}
+
+// 0x0014A961. The SEH wrapper around 0x001660E9. Each 16-bit unit is stored,
+// then both pointers advance, until the unit just stored is zero.
+static u16* copy_wide_14a961(u16* dest, const u16* src)
+{
+    u16* out = dest;
+    u16 unit = 0;
+    do
+    {
+        unit = *src;
+        *out = unit;
+        ++out;
+        ++src;
+    } while (unit != 0);
+    return dest;
+}
+
+// 0x0011EB30. EAX is the source aid. The stack dword is the mode. A first
+// dword of 'aid_' clears the lead byte, then the source is copied through
+// its NUL. DAT_00430D08, DAT_00430D0C, DAT_00430D10, and the byte at
+// DAT_00430D14 become 0. A zero DAT_00430D94 also clears DAT_00506C8C.
+// DAT_00430D94 and DAT_00430D98 become 0. The mode lands at DAT_00510F58.
+// entity.cpp keeps a private copy of these addresses.
+static void request_scene_aid(const char* src, i32 mode)
+{
+    u32 head = 0;
+    std::memcpy(&head, g_510ed8, sizeof(head));
+    if (head == kAidPrefixEd8)
+    {
+        g_510ed8[0] = 0;
+    }
+    char* dest = g_510ed8;
+    for (;;)
+    {
+        const char unit = *src;
+        *dest = unit;
+        ++src;
+        ++dest;
+        if (unit == 0)
+        {
+            break;
+        }
+    }
+    g_flag_30d08 = 0;
+    g_script_30d0c = 0;
+    g_script_30d10 = 0;
+    g_byte_30d14 = 0;
+    if (g_script_30d94 == 0)
+    {
+        g_506c8c = 0;
+    }
+    g_script_30d94 = 0;
+    g_script_30d98 = 0;
+    g_510f58 = mode;
+}
+
+// Xbox 0x0011CFB0
+// Phase 2 through 9 would call 0x00057E60. A nonzero DAT_00510CFC calls
+// 0x00109470 with that pointer in EAX. The first switch then steps the
+// phase. Phases 2 and 9 compare the clock ratio with 0.123 (DAT_0032B6CC,
+// 0x3DFBE76D) and 0.815 (DAT_0032B634, 0x3F50A3D7). At or under the gate
+// stays. Over it, and phases 4 and 5 when DAT_004EE1EC is 0, enter phase 3.
+// Phase 6 copies aid_script_ghoulies_gameselect_gameselect into an 0x80
+// stack buffer and switches on DAT_00510E28. Phase 7 enters phase 8 and
+// ORs 0x2200 into DAT_0050EA9C. The second switch calls 0x00142460 for
+// phases 1, 2, 6, 7, and 9 when DAT_00510E30 is set (EAX is 0), for phase
+// 8 when that pointer is set (EAX is DAT_00510CFC), and for phase 3
+// (EAX is DAT_00510CFC, or 0 when that pointer is clear). 0x00142460,
+// 0x0011DEA0, 0x001083F0, and 0x0011DEE0 are not translated, so their
+// returns are not taken. Phases 2 through 7, and phase 9, then mark a
+// slot from the DAT_0042217C row and would call 0x000483E0.
+void fn_11cfb0()
+{
+    i32 phase = g_510cf4;
+    if (1 < phase && phase < 10)
+    {
+        // 0x00057E60 is not translated.
+    }
+    if (g_510cfc != nullptr)
+    {
+        fn_109470(g_510cfc);
+    }
+
+    phase = g_510cf4;
+    switch (phase)
+    {
+    case 1:
+        if (g_510e30 != nullptr && *reinterpret_cast<i32*>(g_510e30 + 0x94c) == 0)
+        {
+            // 0x00142070 is not translated. EAX is DAT_00510E30.
+            g_510e30 = nullptr;
+        }
+        if (g_510cf8 != nullptr)
+        {
+            const u8* obj = *g_510cf8;
+            const u32 at_4 = *reinterpret_cast<const u32*>(obj + 4);
+            const u32 at_8 = *reinterpret_cast<const u32*>(obj + 8);
+            if (at_8 <= at_4)
+            {
+                // 0x0005F460 is not translated. EAX is the object at [DAT_00510CF8].
+                g_510cf8 = nullptr;
+            }
+        }
+        break;
+    case 2:
+        if (g_510e24 != nullptr)
+        {
+            const float ratio = progress_ratio(g_510e24);
+            const float gate = std::bit_cast<float>(0x3dfbe76du);
+            if (ratio < gate || ratio == gate)
+            {
+                break;
+            }
+        }
+        if (phase != 3)
+        {
+            enter_phase_three();
+        }
+        break;
+    case 3:
+    case 8:
+        break;
+    case 4:
+    case 5:
+        if (g_4ee1ec != 0 || phase == 3)
+        {
+            break;
+        }
+        enter_phase_three();
+        break;
+    case 6:
+        if (g_510e24 == nullptr || *reinterpret_cast<i32*>(g_510e24 + 0x10) != 0)
+        {
+            char aid[0x80];
+            std::memcpy(aid, kGameselectAid, sizeof(kGameselectAid));
+            std::memset(aid + sizeof(kGameselectAid), 0, sizeof(aid) - sizeof(kGameselectAid));
+            switch (g_510e28)
+            {
+            case 1:
+                // 0x0011D490 is not translated. EAX is 1.
+                break;
+            case 2:
+                // 0x000F2780 is not translated.
+                if (g_506c90 == 0)
+                {
+                    fn_11ead0();
+                }
+                else
+                {
+                    g_429bc0 = 3;
+                    copy_wide_14a961(g_429bc4, g_4e19b4);
+                    request_scene_aid(aid, 1);
+                }
+                break;
+            case 3:
+                // 0x0004A310 is not translated. 0x000F2780 is not translated.
+                break;
+            case 4:
+                // 0x000F2780 is not translated.
+                g_429bc0 = 6;
+                copy_wide_14a961(g_429bc4, g_4e19b4);
+                request_scene_aid(aid, 1);
+                break;
+            case 5:
+                g_429bc0 = 10;
+                copy_wide_14a961(g_429bc4, g_4e19b4);
+                request_scene_aid(aid, 1);
+                break;
+            case 6:
+                g_429bc0 = 0xb;
+                copy_wide_14a961(g_429bc4, g_4e19b4);
+                request_scene_aid(aid, 1);
+                break;
+            case 7:
+                // 0x000F2780 is not translated.
+                g_429bc0 = 9;
+                copy_wide_14a961(g_429bc4, g_4e19b4);
+                request_scene_aid(aid, 1);
+                break;
+            }
+        }
+        break;
+    case 7:
+        if ((g_510e24 == nullptr || *reinterpret_cast<i32*>(g_510e24 + 0x10) != 0) && phase != 8)
+        {
+            g_510cf4 = 8;
+            // 0x0011DD10 is not translated. EAX is 0xB.
+            g_flags_ea9c = g_flags_ea9c | 0x2200u;
+        }
+        break;
+    case 9:
+        if (g_510e24 != nullptr)
+        {
+            const float ratio = progress_ratio(g_510e24);
+            const float gate = std::bit_cast<float>(0x3f50a3d7u);
+            if (ratio < gate || ratio == gate)
+            {
+                break;
+            }
+        }
+        if (phase != 3)
+        {
+            enter_phase_three();
+        }
+        break;
+    default:
+        break;
+    }
+
+    phase = g_510cf4;
+    if (phase >= 1 && phase <= 9)
+    {
+        switch (phase)
+        {
+        case 1:
+        case 2:
+        case 6:
+        case 7:
+        case 9:
+            if (g_510e30 != nullptr)
+            {
+                // 0x00142460 is not translated. EAX is 0.
+            }
+            break;
+        case 3:
+            if (g_510cfc != nullptr)
+            {
+                // 0x00142460 is not translated. EAX is DAT_00510CFC.
+                // A zero return would call 0x0011DEA0. A nonzero return
+                // from that would call 0x001083F0 with EAX = DAT_00510CFC
+                // and a stack 0x10. A nonzero return from that would call
+                // 0x0011DEE0. Those returns are not taken.
+            }
+            else
+            {
+                // 0x00142460 is not translated. EAX is 0. DAT_00510E30 is
+                // not tested on this path.
+            }
+            break;
+        case 8:
+            if (g_510e30 != nullptr)
+            {
+                // 0x00142460 is not translated. EAX is DAT_00510CFC.
+            }
+            break;
+        default:
+            break;
+        }
+    }
+
+    phase = g_510cf4;
+    if (phase < 2)
+    {
+        return;
+    }
+    if (7 < phase && phase != 9)
+    {
+        return;
+    }
+    if (g_510e24 == nullptr)
+    {
+        return;
+    }
+
+    u8* player = g_510e24;
+    const i32 index = *reinterpret_cast<const i32*>(player);
+    const u8* row = reinterpret_cast<const u8*>(kProgress42217c) +
+                    static_cast<std::ptrdiff_t>(index) * 0x124;
+    const u8* clock = *reinterpret_cast<u8* const*>(player + 0x24);
+    const float num = *reinterpret_cast<const float*>(clock + 0x2c);
+    const float den = *reinterpret_cast<const float*>(clock + 0x34);
+    const float ratio = num / den;
+    const float gate_low = std::bit_cast<float>(*reinterpret_cast<const u32*>(row + 0));
+    if (ratio < gate_low || ratio == gate_low)
+    {
+        const i32 slot = *reinterpret_cast<const i32*>(row + 8);
+        if (slot != -1)
+        {
+            *reinterpret_cast<i32*>(player + 0x94 + static_cast<std::ptrdiff_t>(slot) * 16) = 1;
+        }
+    }
+    else
+    {
+        const float num_again = *reinterpret_cast<const float*>(clock + 0x2c);
+        const float den_again = *reinterpret_cast<const float*>(clock + 0x34);
+        const float ratio_again = num_again / den_again;
+        const float gate_high = std::bit_cast<float>(*reinterpret_cast<const u32*>(row + 4));
+        if (ratio_again < gate_high || ratio_again == gate_high)
+        {
+            // At or under the high gate. The slot at +0xC stays clear.
+        }
+        else
+        {
+            const i32 slot = *reinterpret_cast<const i32*>(row + 0xc);
+            if (slot != -1)
+            {
+                *reinterpret_cast<i32*>(player + 0x94 + static_cast<std::ptrdiff_t>(slot) * 16) = 1;
+            }
+        }
+    }
+    // 0x000483E0 is not translated. EAX and the stack dword are DAT_00510E24.
+}
+
+// DAT_004E02E8. Cleared when the counter at scene+0x22C lands on 2.
+// audio.cpp keeps a private copy of this address.
+i32 g_4e02e8 = 0;
+// DAT_00506604. 0x0011E4C0 stores 0 when 0x000341E0 returns 0.
+i32 g_506604 = 0;
+// DAT_004312E4. Fractional part after the 300x step is truncated into
+// DAT_004312E0.
+float g_4312e4 = 0.f;
+i32 g_4312e0 = 0;
+// DAT_00545B38. 3 would call 0x0013FFD0.
+i32 g_545b38 = 0;
+// DAT_00506E28. 1 would call 0x000F4A00 before the tick list is read.
+i32 g_506e28 = 0;
+// DAT_0050E438. The global names the link at object+8. Next is the pointer
+// at +4. vtable +0x10 is called with the object. The port keeps the method
+// and the next pointer on the node the global names.
+struct SceneTickNode
+{
+    void (*tick)(SceneTickNode* self) = nullptr;
+    SceneTickNode* next = nullptr;
+};
+SceneTickNode* g_50e438 = nullptr;
+// DAT_00510580. Nonzero, with DAT_00510650 clear, drifts the two floats.
+i32 g_510580 = 0;
+// DAT_00510648 and DAT_0051064C.
+float g_510648 = 0.f;
+float g_51064c = 0.f;
+// DAT_0050E0EC. One-based index into the span at DAT_0050E0E8.
+i32 g_50e0ec = 0;
+// DAT_004219EC, DAT_004219F4, DAT_00421A0C, DAT_00421A14, DAT_00421A1C.
+// Image dwords. 0x00038110 loads each as the first argument of 0x0015C1C0.
+i32 g_4219ec = 0;
+i32 g_4219f4 = 1;
+i32 g_421a0c = 5;
+i32 g_421a14 = 6;
+i32 g_421a1c = 2;
+
+// Xbox 0x00038110. XMM0 is multiplied by DAT_0032B1F0 (127) and saved.
+// Before each call the saved product is clamped to [0, 127] and truncated
+// with cvttss2si. Above 127 stores 127. Below 0 stores 0. A NaN fails both
+// compares, and cvttss2si yields the indefinite integer. The five calls pass
+// DAT_004219EC, DAT_004219F4, DAT_00421A0C, DAT_00421A14, and DAT_00421A1C.
+// 0x0015C1C0 is not translated, so those calls are not made.
+void fn_38110(float level)
+{
+    // Xbox 0x00038110
+    const float scaled = level * 127.f;
+    auto take = [scaled](i32 category)
+    {
+        float clamped = scaled;
+        if (127.f < scaled)
+        {
+            clamped = 127.f;
+        }
+        else if (scaled < 0.f)
+        {
+            clamped = 0.f;
+        }
+        i32 bits = static_cast<i32>(0x80000000u);
+        if (clamped >= -2147483648.f && clamped < 2147483648.f)
+        {
+            bits = static_cast<i32>(clamped);
+        }
+        // 0x0015C1C0 is not translated. The arguments are category and bits.
+        (void)category;
+        (void)bits;
+    };
+    take(g_4219ec);
+    take(g_4219f4);
+    take(g_421a0c);
+    take(g_421a14);
+    take(g_421a1c);
+}
+
+// DAT_004E173C. 0x0011CE10 increments it. The image leaves it at 0.
+i32 g_4e173c = 0;
+
+// Xbox 0x0011CE10
+// EAX is 2 for 0x0011D490. That call is not translated.
+// 0x00038910 takes the name at 0x0030F898,
+// XACT_SOUNDBANK_GSTREAMSDITTIES_PAUSE, and a stack 0x10.
+// xact_acquire in audio.cpp is that body. It is not visible here, so
+// the call is not made. XMM0 is 0 for 0x00038110. DAT_004E173C increments.
+void fn_11ce10()
+{
+    // Xbox 0x0011CE10
+    // 0x0011D490 is not translated. EAX is 2.
+    // 0x00038910. Name is XACT_SOUNDBANK_GSTREAMSDITTIES_PAUSE, id is 0x10.
+    fn_38110(0.f);
+    g_4e173c = g_4e173c + 1;
+}
+
+// Xbox 0x0011E7F0. ECX is the scene record (DAT_00510E58 when 0x0011E4C0
+// calls). A nonzero dword at +0x22C is decremented and stored. Landing on 2
+// clears DAT_004E02E8. The float passed to 0x00038110 is
+// clamp(1 - counter * 0.5, 0, 1), from DAT_0032B0F8 and DAT_0032B0F4.
+//
+// DAT_004312DC above 0 subtracts DAT_005096C0 * DAT_004312C4 and stores 0
+// when the result is at or below 0. That product, times 300 (DAT_0032B180),
+// is added to DAT_004312E4. The truncated integer lands at DAT_004312E0 and
+// the fraction stays at DAT_004312E4.
+//
+// 0x0004EBD0, 0x0005AA90, and 0x00057E60 are not translated. DAT_00545B38
+// equal to 3 would call 0x0013FFD0. That call is not translated. 0x00117140
+// runs, then 0x000D0300 and 0x00049DE0 would run. Those two are not
+// translated. 0x00117140 runs again. DAT_00506E28 equal to 1 would call
+// 0x000F4A00 before DAT_0050E438 is loaded. That call is not translated.
+// The list walk saves the next link, then calls vtable +0x10.
+//
+// 0x00123020 would take DAT_00511B18 on the stack. 0x00122FE0, 0x001128A0,
+// and 0x0011B670 are not translated. 0x00117100 then runs, including its
+// tail into 0x00117140. 0x000F4560 and 0x0013FD60 are not translated.
+//
+// DAT_004312DC above 0 leaves the step at 0. Otherwise the step is
+// DAT_005096C0 * DAT_004312C4, capped at DAT_0032B150 when that product is
+// greater. The stack float for 0x00115BB0 is the step times DAT_0032B6E0.
+// 0x00115BB0 and 0x001162F0 are not translated.
+//
+// DAT_00510580 nonzero and DAT_00510650 clear adds DAT_0032B314 to
+// DAT_00510648 and DAT_0051064C, then would call 0x0011B7F0. That call is
+// not translated. 0x0012AA70, 0x001185E0, 0x000FDDA0, and 0x000FD5C0 are
+// not translated.
+//
+// A nonzero record count in DAT_0050E0E8, and a nonzero dword at
+// (DAT_0050E0EC - 1) * stride + begin, would call 0x001083F0 with that
+// dword in EAX and 0x10 on the stack. 0x001083F0 is not translated, so its
+// return is not taken. A nonzero return with DAT_00510CEC clear would store
+// 6 at DAT_00510F60, or 1 when DAT_00510CE8 is nonzero.
+void fn_11e7f0(Game& g, u8* scene)
+{
+    // Xbox 0x0011E7F0
+    i32 counter = *reinterpret_cast<i32*>(scene + 0x22c);
+    if (counter != 0)
+    {
+        counter = counter - 1;
+        *reinterpret_cast<i32*>(scene + 0x22c) = counter;
+        if (counter == 2)
+        {
+            g_4e02e8 = 0;
+        }
+        float faded = 1.f - static_cast<float>(counter) * 0.5f;
+        if (faded < 0.f)
+        {
+            faded = 0.f;
+        }
+        else if (1.f < faded)
+        {
+            faded = 1.f;
+        }
+        fn_38110(faded);
+    }
+
+    const float scaled = g_sim_dt * g_sim_scale;
+    if (0.f < g_sim_freeze)
+    {
+        g_sim_freeze = g_sim_freeze - scaled;
+        if (g_sim_freeze <= 0.f)
+        {
+            g_sim_freeze = 0.f;
+        }
+    }
+    g_4312e4 = scaled * 300.f + g_4312e4;
+    g_4312e0 = static_cast<i32>(g_4312e4);
+    g_4312e4 = g_4312e4 - static_cast<float>(g_4312e0);
+
+    // 0x0004EBD0, 0x0005AA90, and 0x00057E60 are not translated.
+    if (g_545b38 == 3)
+    {
+        // 0x0013FFD0 is not translated.
+    }
+    fn_117140(g);
+    // 0x000D0300 and 0x00049DE0 are not translated.
+    fn_117140(g);
+    if (g_506e28 == 1)
+    {
+        // 0x000F4A00 is not translated. DAT_0050E438 is loaded after it.
+    }
+    SceneTickNode* node = g_50e438;
+    while (node != nullptr)
+    {
+        SceneTickNode* next = node->next;
+        node->tick(node);
+        node = next;
+    }
+    // 0x00123020 is not translated. The stack dword is DAT_00511B18.
+    // 0x00122FE0, 0x001128A0, and 0x0011B670 are not translated.
+    script_vm_tick(g, 0.f);
+    // 0x000F4560 and 0x0013FD60 are not translated.
+
+    float step = 0.f;
+    if (g_sim_freeze <= 0.f)
+    {
+        step = g_sim_dt * g_sim_scale;
+        const float cap = std::bit_cast<float>(0x3c888889u);
+        if (cap < step)
+        {
+            step = cap;
+        }
+    }
+    const float paced = step * std::bit_cast<float>(0x40e66666u);
+    // 0x00115BB0 is not translated. The stack float is paced.
+    // 0x001162F0 is not translated.
+    (void)paced;
+
+    if (g_510580 != 0 && g_flag_0650 == 0)
+    {
+        const float drift = std::bit_cast<float>(0x3b03126fu);
+        g_510648 = g_510648 + drift;
+        g_51064c = g_51064c + drift;
+        // 0x0011B7F0 is not translated.
+    }
+    // 0x0012AA70, 0x001185E0, 0x000FDDA0, and 0x000FD5C0 are not translated.
+
+    SceneSpan* span = g_span_50e0e8;
+    const i32 delta = static_cast<i32>(
+        reinterpret_cast<const u8*>(span->end) - reinterpret_cast<const u8*>(span->begin));
+    const i32 count = delta / static_cast<i32>(span->stride);
+    if (count != 0)
+    {
+        const i32 slot = g_50e0ec - 1;
+        const i32 byte_off = slot * static_cast<i32>(span->stride);
+        const u8* record = reinterpret_cast<const u8*>(span->begin) + byte_off;
+        const i32 word = *reinterpret_cast<const i32*>(record);
+        if (word != 0)
+        {
+            // 0x001083F0 is not translated. EAX is word and the stack dword
+            // is 0x10. A nonzero return is not taken, so DAT_00510F60 is
+            // not written from DAT_00510CEC and DAT_00510CE8.
+            (void)word;
+        }
+    }
+}
+
+// Image at DAT_00431478. Stride 0x110. +0 indexes the 0x18-byte records at
+// DAT_003129AC. +4 is the aid string 0x0012C5D0 compares with 'aid_'.
+// +0x104 is the dword copied into DAT_00546330. +0x10C is the gate
+// 0x0012C340 tests. The eighteenth record is the sentinel whose index is -1.
+struct TransitionSlot31478
+{
+    i32 handler = 0; // +0
+    char aid[0x100]{}; // +4
+    u32 at_104 = 0; // +0x104
+    i32 at_108 = 0; // +0x108
+    i32 at_10c = 0; // +0x10C
+};
+static_assert(sizeof(TransitionSlot31478) == 0x110);
+static_assert(offsetof(TransitionSlot31478, aid) == 4);
+static_assert(offsetof(TransitionSlot31478, at_104) == 0x104);
+static_assert(offsetof(TransitionSlot31478, at_10c) == 0x10c);
+
+constexpr TransitionSlot31478 kTransition31478[] = {
+    {0, {}, 0, 0, 1},
+    {1, {}, 0, 0, 0},
+    {1, {}, 0, 0, 0},
+    {1, "aid_texture_ghoulies_transition_chaptertitles_chapter1", 0, 0, 0},
+    {1, "aid_texture_ghoulies_transition_chaptertitles_chapter2", 0, 0, 0},
+    {1, "aid_texture_ghoulies_transition_chaptertitles_chapter3", 0, 0, 0},
+    {1, "aid_texture_ghoulies_transition_chaptertitles_chapter4", 0, 0, 0},
+    {1, "aid_texture_ghoulies_transition_chaptertitles_chapter5", 0, 0, 0},
+    {1, {}, 0, 0, 0},
+    {1, {}, 0, 0, 0},
+    {1, {}, 0, 0, 0},
+    {1, {}, 0, 0, 0},
+    {1, {}, 0, 0, 0},
+    {1, "aid_texture_ghoulies_unlockableart_whereitbegan", 0, 0, 0},
+    {1, "aid_texture_ghoulies_unlockableart_whereitbegan", 0, 0, 0},
+    {2, "aid_texture_ghoulies_transition_blood_down", 0x3fc00000u, 0, 1},
+    {3, {}, 0x3e4ccccdu, 0, 1},
+    {-1, {}, 0, 0, 0},
+};
+static_assert(sizeof(kTransition31478) / sizeof(kTransition31478[0]) == 18);
+
+// DAT_00546328. Scene-order slot. Its address is the handler argument.
+i32 g_546328 = 0;
+// DAT_0054632C. 1 runs the countdown and the handler. 3 runs the handler.
+// A nonzero value is the clear gate.
+i32 g_54632c = 0;
+// DAT_00546344. Steps while DAT_0050484C is above 0, and while this is not.
+i32 g_546344 = 0;
+// DAT_00546348. Nonzero counts down. Landing on 0 ORs 0x2000 into DAT_0050EA9C.
+i32 g_546348 = 0;
+// DAT_0054634C. The object at [this] holds the unsigned counts at +4 and +8.
+u8** g_54634c = nullptr;
+// DAT_0050484C. Incremented when it is below 1 and DAT_00546344 is above 0.
+i32 g_50484c = 0;
+// DAT_005096E8 and DAT_005096EA. HUD width and height, zero-extended to float.
+u16 g_5096e8 = 0;
+u16 g_5096ea = 0;
+// DAT_0050E7A0. Counted when the scene state leaves or enters 1 or 2.
+// entity.cpp keeps a private copy as g_amb_counter.
+i32 g_50e7a0 = 0;
+// DAT_00510CEC. Counted up when DAT_0054632C is 0 on entry to 0x0012C5D0.
+i32 g_510cec = 0;
+// DAT_004DEA24. Counted with that gate, and once more on the way out.
+// gfx keeps the same address as present_insert.hold.
+i32 g_4dea24 = 0;
+// DAT_00510F80. Scene record +0x128. Cleared when the phase is 1.
+i32& g_510f80 = *reinterpret_cast<i32*>(g_510e58 + 0x128);
+// DAT_00510F7C. Scene record +0x124. Cleared when the phase is 3.
+i32& g_510f7c = *reinterpret_cast<i32*>(g_510e58 + 0x124);
+// DAT_00546330 and DAT_00546334. Both receive the dword at slot+0x104.
+u32 g_546330 = 0;
+u32 g_546334 = 0;
+// DAT_00546340. Address of slot+4 when that dword is 'aid_', otherwise null.
+const char* g_546340 = nullptr;
+
+// DAT_0054937C. Xbox +0 is prev and +4 is next. Xbox +0x34 is the name at
+// DAT_005493B0. DAT_004E1680 is the slot-0 sentinel. entity.cpp keeps the
+// live list private, so the splice walks the copy held here.
+struct ViewNode54937c
+{
+    ViewNode54937c* prev = nullptr;
+    ViewNode54937c* next = nullptr;
+    char name[0x21]{};
+};
+ViewNode54937c g_4e1680{};
+ViewNode54937c g_54937c{};
+
+// DAT_00507DF4. 0x0011CE40 stores 0.
+i32 g_507df4 = 0;
+// DAT_00510CE8. Nonzero clears bit 0x20 of DAT_0050EA9C, then stores 0.
+i32 g_510ce8 = 0;
+// DAT_00510E40. Nonzero is EBX for 0x00035C00, then stores 0.
+void* g_510e40 = nullptr;
+// DAT_00510E34. Nonzero decrements DAT_004DEA24, then stores 0.
+i32 g_510e34 = 0;
+
+// Xbox 0x0011CE40
+// DAT_00510CF4 other than 1 copies the unsigned count at [*DAT_00510CF8]+4
+// onto +8. ESI is DAT_00510E30 for 0x00142AA0. EAX is 1 for 0x0011D490.
+// Those calls are not translated.
+// EAX is &DAT_00510E18 and ECX is &DAT_00510E0C for 0x00118AE0. That call
+// is not translated.
+// DAT_004EE1EC nonzero would call 0x000584D0 with a stack 0. That call is
+// not translated. DAT_004E173C decrements. DAT_00507DF4 becomes 0.
+// A nonzero DAT_00510E24 is EAX for 0x00048860, then the pointer becomes 0.
+// That call is not translated.
+// A nonzero DAT_00510CE8 clears bit 0x20 of DAT_0050EA9C and stores 0.
+// A nonzero dword at [DAT_00510CFC]+4 would call 0x001093C0. That call is
+// not translated. The dword at [DAT_00510CFC]+0 selects 0x00107DD0 for 1,
+// 2, and 3, 0x00107960 for 4, and 0x00107B60 for 5. EAX is DAT_00510CFC.
+// Those calls are not translated. DAT_00510CFC then becomes 0.
+// A nonzero DAT_00510E40 is EBX for 0x00035C00, then the pointer becomes 0.
+// That call is not translated.
+// A nonzero DAT_00510E34 decrements DAT_004DEA24 and stores 0.
+// 0x00038460 would take XACT_SOUNDBANK_GSTREAMSDITTIES_PAUSE. The dword at
+// bank+0x88 decrements. A result at or below 0, with a bank id other than
+// 0x12 and a nonzero return from 0x00038590, would call 0x00038360 with
+// that return in EAX. 0x00038260 then takes the bank in EAX and the id is
+// stored as 0. Those four calls are not visible here, so those stores are
+// not made. The tail jumps to 0x00038110. XMM0 is DAT_0032B0F8 (1.0).
+void fn_11ce40()
+{
+    // Xbox 0x0011CE40
+    if (g_510cf4 != 1)
+    {
+        u8* obj = *g_510cf8;
+        const u32 count = *reinterpret_cast<u32*>(obj + 4);
+        *reinterpret_cast<u32*>(obj + 8) = count;
+        // 0x00142AA0 is not translated. ESI is DAT_00510E30.
+        // 0x0011D490 is not translated. EAX is 1.
+    }
+    // 0x00118AE0 is not translated. EAX is &DAT_00510E18. ECX is &DAT_00510E0C.
+    if (g_4ee1ec != 0)
+    {
+        // 0x000584D0 is not translated. The stack argument is 0.
+    }
+    g_4e173c = g_4e173c - 1;
+    g_507df4 = 0;
+    if (g_510e24 != nullptr)
+    {
+        // 0x00048860 is not translated. EAX is DAT_00510E24.
+        g_510e24 = nullptr;
+    }
+    if (g_510ce8 != 0)
+    {
+        g_flags_ea9c = g_flags_ea9c & 0xffffffdfu;
+        g_510ce8 = 0;
+    }
+    u8* rec = static_cast<u8*>(g_510cfc);
+    if (*reinterpret_cast<i32*>(rec + 4) != 0)
+    {
+        // 0x001093C0 is not translated.
+    }
+    rec = static_cast<u8*>(g_510cfc);
+    switch (*reinterpret_cast<i32*>(rec))
+    {
+    case 1:
+        // 0x00107DD0 is not translated. EAX is DAT_00510CFC.
+        break;
+    case 2:
+        // 0x00107DD0 is not translated. EAX is DAT_00510CFC.
+        break;
+    case 3:
+        // 0x00107DD0 is not translated. EAX is DAT_00510CFC.
+        break;
+    case 4:
+        // 0x00107960 is not translated. EAX is DAT_00510CFC.
+        break;
+    case 5:
+        // 0x00107B60 is not translated. EAX is DAT_00510CFC.
+        break;
+    }
+    g_510cfc = nullptr;
+    if (g_510e40 != nullptr)
+    {
+        // 0x00035C00 is not translated. EBX is DAT_00510E40.
+        g_510e40 = nullptr;
+    }
+    if (g_510e34 != 0)
+    {
+        g_4dea24 = g_4dea24 - 1;
+        g_510e34 = 0;
+    }
+    // 0x00038460, 0x00038590, 0x00038360, and 0x00038260 are not visible
+    // here. The name is XACT_SOUNDBANK_GSTREAMSDITTIES_PAUSE.
+    fn_38110(1.f);
+}
+
+// Xbox 0x0012C340. 0x0011E4C0 calls this. Phases 1, 2, and 3, a nonzero dword
+// at DAT_00431584, a live DAT_0054634C, and the unsigned count at object+8 at
+// or under the count at object+4, would call 0x0005F580 then 0x0005F550.
+// 0x0005F580 takes DAT_0054634C, &DAT_00546350, the width at DAT_005096E8
+// times 0.5 (DAT_0032B0F4), the height at DAT_005096EA times 0.8
+// (DAT_0032B244, 0x3F4CCCCD), then 1.5, 1.5, 1.5, and 0. EAX is 1.
+// 0x0005F550 takes 0.5 (0x3F000000). Those two calls are not translated.
+//
+// Phase 1 decrements DAT_00546348 when it is nonzero, and ORs 0x2000 into
+// DAT_0050EA9C when the result is 0. DAT_0050484C below 1 with DAT_00546344
+// above 0 increments DAT_0050484C. Otherwise DAT_00546344 increments.
+// Phases 1 and 3 call DAT_003129AC + handler * 0x18 with &DAT_00546328.
+// The handler is the dword at DAT_00431478. The image slots are 0x0012BC80,
+// 0x0012B370, 0x0012BDD0, and 0x0012BDD0. Those calls are not translated.
+void fn_12c340()
+{
+    // Xbox 0x0012C340
+    if (0 < g_54632c && g_54632c < 4)
+    {
+        const i32 byte_off = g_546328 * 0x110;
+        const u8* row = reinterpret_cast<const u8*>(kTransition31478) + byte_off;
+        if (*reinterpret_cast<const i32*>(row + 0x10c) != 0 && g_54634c != nullptr)
+        {
+            const u8* obj = *g_54634c;
+            const u32 at_4 = *reinterpret_cast<const u32*>(obj + 4);
+            const u32 at_8 = *reinterpret_cast<const u32*>(obj + 8);
+            if (at_8 <= at_4)
+            {
+                const float x = static_cast<float>(g_5096e8) * std::bit_cast<float>(0x3f000000u);
+                const float y = static_cast<float>(g_5096ea) * std::bit_cast<float>(0x3f4ccccdu);
+                // 0x0005F580 and 0x0005F550 are not translated.
+                (void)x;
+                (void)y;
+            }
+        }
+    }
+    if (g_54632c == 1)
+    {
+        if (g_546348 != 0)
+        {
+            g_546348 = g_546348 - 1;
+            if (g_546348 == 0)
+            {
+                g_flags_ea9c = g_flags_ea9c | 0x2000u;
+            }
+        }
+        if (g_50484c < 1 && 0 < g_546344)
+        {
+            g_50484c = g_50484c + 1;
+        }
+        else
+        {
+            g_546344 = g_546344 + 1;
+        }
+        const i32 byte_off = g_546328 * 0x110;
+        const u8* row = reinterpret_cast<const u8*>(kTransition31478) + byte_off;
+        const i32 handler = *reinterpret_cast<const i32*>(row);
+        // Handler at DAT_003129AC + handler * 0x18 is not translated.
+        // The argument is &DAT_00546328.
+        (void)handler;
+    }
+    else if (g_54632c == 3)
+    {
+        const i32 byte_off = g_546328 * 0x110;
+        const u8* row = reinterpret_cast<const u8*>(kTransition31478) + byte_off;
+        const i32 handler = *reinterpret_cast<const i32*>(row);
+        // Handler at DAT_003129AC + handler * 0x18 is not translated.
+        // The argument is &DAT_00546328.
+        (void)handler;
+        return;
+    }
+}
+
+// Xbox 0x0012C4E0
+// The handler dword at slot+0 selects the 0x18-byte record at DAT_003129AC.
+// The call is the pointer at +8 (DAT_003129B4) with &DAT_00546328. The image
+// slots are 0x001628B0, 0x0012B5A0, 0x0012C1A0, and 0x001628B0. Those handlers
+// are not translated. EAX is then DAT_0054937C for 0x00048C70.
+// Phase 0 increments DAT_00510CEC and DAT_004DEA24. Phase 1 clears
+// DAT_00510F80. Phase 3 clears DAT_00510F7C. Any other phase falls through.
+// DAT_00510CEC and DAT_004DEA24 decrement. Bit 0x100 of DAT_0050EA9C clears.
+// DAT_0054632C becomes 0. A nonzero DAT_0054634C would call 0x0005F460. That
+// call is not translated. Bit 0x2000 then clears and the pointer becomes 0.
+// DAT_004DEA24 decrements again.
+void fn_12c4e0()
+{
+    // Xbox 0x0012C4E0
+    const i32 byte_off = g_546328 * 0x110;
+    const u8* row = reinterpret_cast<const u8*>(kTransition31478) + byte_off;
+    const i32 handler = *reinterpret_cast<const i32*>(row);
+    // Handler at DAT_003129B4 + handler * 0x18 is not translated.
+    // The argument is &DAT_00546328.
+    (void)handler;
+    fn_48c70(reinterpret_cast<EntityCamNode*>(&g_54937c));
+    if (g_54632c == 0)
+    {
+        g_510cec = g_510cec + 1;
+        g_4dea24 = g_4dea24 + 1;
+    }
+    else if (g_54632c == 1)
+    {
+        g_510f80 = 0;
+    }
+    else if (g_54632c == 3)
+    {
+        g_510f7c = 0;
+    }
+    g_510cec = g_510cec - 1;
+    g_4dea24 = g_4dea24 - 1;
+    g_flags_ea9c = g_flags_ea9c & 0xfffffeffu;
+    g_54632c = 0;
+    if (g_54634c != nullptr)
+    {
+        // 0x0005F460 is not translated. EBX is DAT_0054634C.
+        g_flags_ea9c = g_flags_ea9c & 0xffffdfffu;
+        g_54634c = nullptr;
+    }
+    g_4dea24 = g_4dea24 - 1;
+}
+
+// Xbox 0x0012C5D0
+// A nonzero DAT_0054632C calls 0x0012C4E0 before the phase test. Phase 0
+// increments DAT_00510CEC and DAT_004DEA24 and ORs 0x100 into DAT_0050EA9C.
+// Phase 1 clears DAT_00510F80. Phase 3 clears DAT_00510F7C. Any other phase
+// falls through. DAT_0054632C becomes 1.
+//
+// 0x0012C2D0 is not translated. ESI would be DAT_0054633C and EDI DAT_00546338.
+// EAX would replace DAT_00546328. That return is not stored. The slot already
+// in DAT_00546328 is scaled by 0x110. The dword at +0x104 is copied to
+// DAT_00546334 and DAT_00546330. DAT_00546344 becomes 0. DAT_00546348 becomes
+// 0xf. DAT_00546340 is the address of slot+4 when that dword is 'aid_'
+// (0x5f646961), and null when it is not.
+//
+// 0x000496C0 is not translated. EDX would be this node, EAX the string
+// "transition", and CL 0. That call would copy the name to +0x34. The node
+// is inserted after the slot-0 record whose prev is null. A null DAT_004E16A0
+// would then call cam_func_48cf0 with slot 0 and that name. The name is
+// written by 0x000496C0, and entity.cpp keeps the live slot, so that call is
+// not made. 0x00048F10 is not translated. 0x0005F390 is not translated: the
+// stack is 0, 1, 0x80 and ESI is DAT_0054634C. 0x000FF0A0 is not translated:
+// the stack is aid_loctext_ghoulies_gameselect_gameselecttext, "gameselect",
+// "loading", and DAT_00546350.
+//
+// The handler dword at slot+0 selects the 0x18-byte record at DAT_003129AC.
+// The call is the pointer at +0xC (DAT_003129B8) with &DAT_00546328. Those
+// handlers are not translated. DAT_004DEA24 increments on the way out.
+void fn_12c5d0()
+{
+    // Xbox 0x0012C5D0
+    if (g_54632c != 0)
+    {
+        fn_12c4e0();
+    }
+    if (g_54632c == 0)
+    {
+        g_510cec = g_510cec + 1;
+        g_4dea24 = g_4dea24 + 1;
+        g_flags_ea9c = g_flags_ea9c | 0x100u;
+    }
+    else if (g_54632c == 1)
+    {
+        g_510f80 = 0;
+    }
+    else if (g_54632c == 3)
+    {
+        g_510f7c = 0;
+    }
+    g_54632c = 1;
+    // 0x0012C2D0 is not translated. EAX is not stored at DAT_00546328.
+    const i32 byte_off = g_546328 * 0x110;
+    const u8* row = reinterpret_cast<const u8*>(kTransition31478) + byte_off;
+    const u32 bits = *reinterpret_cast<const u32*>(row + 0x104);
+    g_546334 = bits;
+    g_546330 = bits;
+    g_546344 = 0;
+    g_546348 = 0xf;
+    const u32 marker = *reinterpret_cast<const u32*>(row + 4);
+    const char* aid = reinterpret_cast<const char*>(row + 4);
+    if (marker != kAidPrefixEd8)
+    {
+        aid = nullptr;
+    }
+    g_546340 = aid;
+    // 0x000496C0 is not translated. EDX is this node, EAX is "transition", CL is 0.
+    ViewNode54937c* cursor = &g_4e1680;
+    if (cursor->prev != nullptr)
+    {
+        do
+        {
+            cursor = cursor->prev;
+        } while (cursor->prev != nullptr);
+    }
+    ViewNode54937c* saved = cursor->next;
+    cursor->next = &g_54937c;
+    g_54937c.prev = cursor;
+    g_54937c.next = saved;
+    if (saved != nullptr)
+    {
+        saved->prev = &g_54937c;
+    }
+    // A null DAT_004E16A0 would call cam_func_48cf0(0, name). The name is
+    // written by 0x000496C0, which is not translated, so that call is not made.
+    // 0x00048F10 is not translated.
+    // 0x0005F390 is not translated. ESI is DAT_0054634C. The stack is 0, 1, 0x80.
+    // 0x000FF0A0 is not translated.
+    const i32 handler = *reinterpret_cast<const i32*>(row);
+    // Handler at DAT_003129B8 + handler * 0x18 is not translated.
+    // The argument is &DAT_00546328.
+    (void)handler;
+    g_4dea24 = g_4dea24 + 1;
+}
+
+// Xbox 0x0012C770
+// Phase 0 increments DAT_00510CEC and DAT_004DEA24 and ORs 0x100 into
+// DAT_0050EA9C. Phase 1 clears DAT_00510F80. Phase 3 clears DAT_00510F7C.
+// Any other phase falls through. The slot in DAT_00546328 is scaled by 0x110.
+// The dword at +0x104 is copied to DAT_00546330, then DAT_0054632C becomes 3.
+// DAT_0050484C decrements when it is above 0. DAT_00546340 is the address of
+// slot+0x84 when that dword is 'aid_' (0x5f646961), and null when it is not.
+// DAT_00546334 then receives DAT_00546330.
+//
+// The handler dword at slot+0 selects the 0x18-byte record at DAT_003129AC.
+// The call is the pointer at +0x10 (DAT_003129BC) with &DAT_00546328. The
+// image slots are 0x0012BD50, 0x0012B790, 0x0012C270, and 0x001628B0. Those
+// handlers are not translated.
+void fn_12c770()
+{
+    // Xbox 0x0012C770
+    if (g_54632c == 0)
+    {
+        g_510cec = g_510cec + 1;
+        g_4dea24 = g_4dea24 + 1;
+        g_flags_ea9c = g_flags_ea9c | 0x100u;
+    }
+    else if (g_54632c == 1)
+    {
+        g_510f80 = 0;
+    }
+    else if (g_54632c == 3)
+    {
+        g_510f7c = 0;
+    }
+    const i32 byte_off = g_546328 * 0x110;
+    const u8* row = reinterpret_cast<const u8*>(kTransition31478) + byte_off;
+    const u32 bits = *reinterpret_cast<const u32*>(row + 0x104);
+    g_546330 = bits;
+    g_54632c = 3;
+    if (0 < g_50484c)
+    {
+        g_50484c = g_50484c - 1;
+    }
+    const u32 marker = *reinterpret_cast<const u32*>(row + 0x84);
+    const char* aid = reinterpret_cast<const char*>(row + 0x84);
+    if (marker != kAidPrefixEd8)
+    {
+        aid = nullptr;
+    }
+    g_546340 = aid;
+    g_546334 = g_546330;
+    const i32 handler = *reinterpret_cast<const i32*>(row);
+    // Handler at DAT_003129BC + handler * 0x18 is not translated.
+    // The argument is &DAT_00546328.
+    (void)handler;
+}
+
+// Xbox 0x00140E30. DAT_00511B40 null, or equal to the sentinel 0x93C, returns.
+// A zero word at node+0x20 + 0x94 clears DAT_00545D20 and DAT_00545D24 and
+// returns. The int at node+0x39C below 1, and the int at [node+0x20]+0x258
+// equal to 0, calls 0x000412A0. The int at node+0x39C is read again. Below 1,
+// 0x001248D0(1, 0, 0) would run. A nonzero return, while DAT_00545D20 is 0,
+// builds message id 0xB0. A nonzero word at the returned node+10 would call
+// 0x0011F2E0 and store that word in the next dword. 0x00116810 would then
+// run, and DAT_00545D20 becomes 1. 0x001248D0 is not translated, so that
+// nonzero return is not taken and DAT_00545D20 is cleared. The other side of
+// the compare clears it as well.
+//
+// 0x001248D0(8, 0, 0) would then run. A zero return clears DAT_00545D24. A
+// nonzero return, while DAT_00545D24 is 0, builds message id 0xB1. A nonzero
+// word at node+10 would call 0x0011F2E0 and vtable +0xC on the actor
+// (node-0x93C) with that message. 0x00124970 would then run, and DAT_00545D24
+// becomes 1. Those calls are not translated, so the nonzero return is not
+// taken and DAT_00545D24 is cleared.
+//
+// 0x001248D0(0x10, 0, 0) would then run. A null return calls 0x0013D610. A
+// nonzero return from that call would call 0x000412A0 and 0x001248D0 again.
+// A still-null pointer, with DAT_00545D28 nonzero, writes the saved indexes
+// back through 0x00314DE8, 0x00314DFC, 0x00314E10, 0x00314E28, and
+// 0x00314E38, then clears DAT_00545D28. 0x0013D610 is not translated, so its
+// nonzero return is not taken. A live pointer from 0x001248D0 would copy
+// the four indexes when DAT_00545D28 is 0, then the dwords at +0xC, +0x10,
+// +0x14, and +0x18 when the dword at +0 differs from DAT_00545D28. That
+// nonzero return is not taken.
+void fn_140e30()
+{
+    // Xbox 0x00140E30
+    if (g_actor_mark == nullptr ||
+        reinterpret_cast<std::uintptr_t>(g_actor_mark) == 0x93cu)
+    {
+        return;
+    }
+    if (g_actor_mark->at_20->word_94 == 0)
+    {
+        g_flag_5d20 = 0;
+        g_flag_5d24 = 0;
+        return;
+    }
+    Actor* actor = g_actor_mark->actor;
+    if (actor->parked_gate < 1 && g_actor_mark->at_20->int_258 == 0)
+    {
+        const Vec3 world = actor_world_position(*actor);
+        (void)world;
+        if (actor->parked_gate < 1)
+        {
+            // 0x001248D0(1, 0, 0) is not translated. A nonzero return is not taken.
+        }
+        g_flag_5d20 = 0;
+        // 0x001248D0(8, 0, 0) is not translated. A nonzero return is not taken.
+        g_flag_5d24 = 0;
+    }
+    // 0x001248D0(0x10, 0, 0) is not translated. A nonzero return is not taken.
+    // 0x0013D610 is not translated. A nonzero return is not taken.
+    if (g_flag_5d28 != 0)
+    {
+        g_tune_34008 = script_tune(0x00314de8u, g_tune_5d2c);
+        g_tune_34014 = script_tune(0x00314dfcu, g_tune_5d2c);
+        g_tune_5aec = g_tune_5d2c;
+        g_tune_34010 = script_tune(0x00314e10u, g_tune_5d30);
+        g_tune_5af0 = g_tune_5d30;
+        g_tune_3402c = script_tune(0x00314e28u, g_tune_5d34);
+        g_tune_5af4 = g_tune_5d34;
+        g_tune_34030 = script_tune(0x00314e38u, g_tune_5d38);
+        g_tune_5af8 = g_tune_5d38;
+        g_flag_5d28 = 0;
+    }
+}
+
+// Overlay records at 0x0050DD90. Four records, Xbox stride 0x88, end
+// 0x0050DFB0. The dword at +0 is the object. The byte at +4 is untouched
+// here. The byte at +5 is the state. The host object follows the 0x88-byte
+// image so +5 stays at +5. DAT_0050DD8C is the dword at 0x0050DD8C.
+struct OverlayRec50dd90
+{
+    u32 at_0 = 0;
+    u8 at_4 = 0;
+    u8 state = 0;
+    u8 tail[0x82]{};
+    void* object = nullptr;
+};
+static_assert(offsetof(OverlayRec50dd90, at_4) == 4);
+static_assert(offsetof(OverlayRec50dd90, state) == 5);
+static_assert(offsetof(OverlayRec50dd90, object) == 0x88);
+
+// DAT_0050DD8C. 0x00106E90 stores 3. 0x00106EC0 stores 2.
+i32 g_50dd8c = 0;
+// DAT_0050DD90. Four overlay records.
+OverlayRec50dd90 g_50dd90[4] = {};
+
+// Xbox 0x00106E90
+// Starts at the state byte (0x0050DD95) and steps 0x88 while that address
+// is below 0x0050DFB5. A record whose object is set and whose state is 2
+// decrements the int at object+0x18 and stores 3 in the state. The dword
+// at DAT_0050DD8C becomes 3.
+void fn_106e90()
+{
+    // Xbox 0x00106E90
+    OverlayRec50dd90* rec = g_50dd90;
+    do
+    {
+        if (rec->object != nullptr && rec->state == 2)
+        {
+            i32* count = reinterpret_cast<i32*>(static_cast<u8*>(rec->object) + 0x18);
+            *count = *count - 1;
+            rec->state = 3;
+        }
+        rec = rec + 1;
+    }
+    while (rec < g_50dd90 + 4);
+    g_50dd8c = 3;
+}
+
+// Xbox 0x00106EC0
+// Starts at the state byte (0x0050DD95) and steps 0x88 while that address
+// is below 0x0050DFB5. A record whose object is set and whose state is 3
+// increments the int at object+0x18 and stores 2 in the state. The dword
+// at DAT_0050DD8C becomes 2.
+void fn_106ec0()
+{
+    // Xbox 0x00106EC0
+    OverlayRec50dd90* rec = g_50dd90;
+    do
+    {
+        if (rec->object != nullptr && rec->state == 3)
+        {
+            i32* count = reinterpret_cast<i32*>(static_cast<u8*>(rec->object) + 0x18);
+            *count = *count + 1;
+            rec->state = 2;
+        }
+        rec = rec + 1;
+    }
+    while (rec < g_50dd90 + 4);
+    g_50dd8c = 2;
+}
+
+// Xbox 0x001162D0
+// EAX is DAT_00510E58. 0x00116220 is not translated, so its index is not
+// scaled by 0x90 and added to the directory at 0x0042AC80. That pointer
+// is not stored at DAT_005462E8.
+void fn_1162d0()
+{
+    // Xbox 0x001162D0
+}
+
+// DAT_0051065C. 0x0011C5A0 holds 1 across the teardown, then stores 0.
+i32 g_51065c = 0;
+// DAT_0050D770, +4, +8, +0xC, and the count at DAT_0050D780.
+// entity.cpp keeps a private copy of this table.
+void* g_50d770 = nullptr;
+void* g_50d774 = nullptr;
+void* g_50d778 = nullptr;
+void* g_50d77c = nullptr;
+i32 g_50d780 = 0;
+// DAT_00510584. 0x001759F0 is the D3D resource release.
+void* g_510584 = nullptr;
+// DAT_0050EA00 and DAT_0050EA01 are bytes. The floats are DAT_0050EA04,
+// +0x08, +0x0C, +0x10, +0x14, +0x18, then DAT_0050EA7C through DAT_0050EA90.
+// DAT_0050EA94 is a dword. entity.cpp keeps the colour floats.
+u8 g_50ea00 = 0;
+u8 g_50ea01 = 0;
+float g_50ea04 = 0.f;
+float g_50ea08 = 0.f;
+float g_50ea0c = 0.f;
+float g_50ea10 = 0.f;
+float g_50ea14 = 0.f;
+float g_50ea18 = 0.f;
+float g_50ea7c = 0.f;
+float g_50ea80 = 0.f;
+float g_50ea84 = 0.f;
+float g_50ea88 = 0.f;
+float g_50ea8c = 0.f;
+float g_50ea90 = 0.f;
+i32 g_50ea94 = 0;
+i32 g_50ea98 = 0; // DAT_0050EA98
+i32 g_504330 = 0; // DAT_00504330
+// DAT_00512344 is the block 0x000663E0 releases. DAT_00512348 is cleared with it.
+void* g_512344 = nullptr;
+i32 g_512348 = 0;
+i32 g_545d20 = 0; // DAT_00545D20
+i32 g_545d28 = 0; // DAT_00545D28
+i32 g_50e148 = 0; // DAT_0050E148
+i32 g_50e16c = 0; // DAT_0050E16C
+i32 g_50e1b0 = 0; // DAT_0050E1B0
+i32 g_50e1c4 = 0; // DAT_0050E1C4
+i32 g_50e228 = 0; // DAT_0050E228
+i32 g_545b3c = 0; // DAT_00545B3C
+u8 g_545b44 = 0;  // DAT_00545B44
+u8 g_545bc4 = 0;  // DAT_00545BC4
+i32 g_4dea5c = 0; // DAT_004DEA5C
+// DAT_0051108C is the block 0x000663E0 releases.
+void* g_51108c = nullptr;
+float g_4312cc = 0.f; // DAT_004312CC
+float g_4312d0 = 0.f; // DAT_004312D0
+i32 g_4312d4 = 0;     // DAT_004312D4
+i32 g_4312d8 = 0;     // DAT_004312D8
+i32 g_511a10 = 0;     // DAT_00511A10
+// Object pointer at +0 of each DAT_0050EAA0 record. Stride 0x2C, eight
+// records. DAT_0050EC00 is the count. entity.cpp keeps a private copy.
+void* g_50eaa0 = nullptr;
+void* g_50eacc = nullptr;
+void* g_50eaf8 = nullptr;
+void* g_50eb24 = nullptr;
+void* g_50eb50 = nullptr;
+void* g_50eb7c = nullptr;
+void* g_50eba8 = nullptr;
+void* g_50ebd4 = nullptr;
+i32 g_50ec00 = 0;
+
+// Xbox 0x0011C5A0
+// ESI is the scene record. The dword at +0x118 is cleared. DAT_0051065C is
+// 1 for the body and 0 on the way out.
+//
+// DAT_004EE1EC nonzero would call 0x000584D0 with a stack 0. That call is
+// not translated. 0x0004ECE0, 0x00049EF0, and 0x0005B1E0 are not translated.
+// 0x00115F00 is not translated. 0x00122C70 is not translated: EDI points at
+// a stack dword holding 0x80. 0x001232D0, 0x001222A0, 0x00110AB0, 0x001143A0,
+// 0x00123640, 0x001199F0, and 0x0011F610 are not translated.
+//
+// A nonzero DAT_00510584 is the argument of 0x001759F0, the D3D resource
+// release. No D3D8 object is bound to that pointer, so the call is not made
+// and the pointer is cleared. DAT_00510580 is cleared. 0x001133B0 is not
+// translated. 0x000FD710 is not translated.
+//
+// Bit 8 of DAT_0050EA9C is written back as 0x100 after the dword is cleared.
+// DAT_0050EA98 is cleared. 0x000ED450 is not translated. 0x00129F70 is not
+// translated. 0x0003A1F0 is not translated: ESI is 0xD. 0x00118560 is not
+// translated.
+//
+// A nonzero DAT_00512344 is released through 0x000663E0. DAT_00512348 is
+// cleared. DAT_00545D20 becomes 1. 0x000F44B0 is not translated. 0x0012A9B0
+// is not translated. 0x00123B30 runs. 0x001163D0 and 0x00132100 are not
+// translated. 0x000FAE40 is not translated. 0x0011B630 runs. A nonzero
+// DAT_0051108C is released through 0x000663E0. 0x00117330 is not translated.
+// 0x001272B0 is not translated: EAX is 1 when DAT_00430D0C is 1, and 0
+// otherwise.
+//
+// DAT_004312C4 becomes 1, the dword at DAT_0032B0F8. 0x00048F10, 0x00057DC0,
+// 0x0011CD90, and 0x00106E30 are not translated. 0x0011AEA0 is not translated.
+// 0x00173F30 is D3D_KickOffAndWaitForIdle. 0x001593D0 and 0x000F97F0 are not
+// translated. 0x00035D30 is not translated, so its return is not taken and
+// the two 0x00036180 calls in that loop are not made. 0x00034880 is not
+// translated.
+void fn_11c5a0(u8* scene)
+{
+    // Xbox 0x0011C5A0
+    g_51065c = 1;
+    if (g_4ee1ec != 0)
+    {
+        // 0x000584D0 is not translated. The stack argument is 0.
+    }
+    // 0x0004ECE0, 0x00049EF0, and 0x0005B1E0 are not translated.
+    g_50d780 = 0;
+    g_50d770 = nullptr;
+    g_50d774 = nullptr;
+    g_50d778 = nullptr;
+    g_50d77c = nullptr;
+    // 0x00115F00 is not translated.
+    // 0x00122C70 is not translated. EDI points at a stack dword holding 0x80.
+    // 0x001232D0, 0x001222A0, 0x00110AB0, 0x001143A0, 0x00123640, 0x001199F0,
+    // and 0x0011F610 are not translated.
+    if (g_510584 != nullptr)
+    {
+        // 0x001759F0 D3DResource_Release. The argument is DAT_00510584.
+        g_510584 = nullptr;
+    }
+    g_510580 = 0;
+    // 0x001133B0 is not translated.
+    g_50ea00 = 0;
+    g_50ea01 = 0;
+    g_50ea0c = 0.f;
+    g_50ea08 = 0.f;
+    g_50ea04 = 0.f;
+    g_50ea18 = 0.f;
+    g_50ea14 = 0.f;
+    g_50ea10 = 0.f;
+    g_50ea84 = 0.f;
+    g_50ea80 = 0.f;
+    g_50ea7c = 0.f;
+    g_50ea90 = 0.f;
+    g_50ea8c = 0.f;
+    g_50ea88 = 0.f;
+    g_50ea94 = 0;
+    // 0x000FD710 is not translated.
+    const u32 kept = (g_flags_ea9c >> 8) & 1u;
+    g_50ea98 = 0;
+    g_flags_ea9c = 0;
+    if (kept != 0)
+    {
+        g_flags_ea9c = 0x100u;
+    }
+    *reinterpret_cast<i32*>(scene + 0x118) = 0;
+    // 0x000ED450 is not translated.
+    g_504330 = 0;
+    // 0x00129F70 is not translated.
+    // 0x0003A1F0 is not translated. ESI is 0xD.
+    // 0x00118560 is not translated.
+    if (g_512344 != nullptr)
+    {
+        fn_663e0(g_512344);
+        g_512344 = nullptr;
+    }
+    g_512348 = 0;
+    g_545d20 = 1;
+    g_545d28 = 0;
+    g_50e148 = 0;
+    g_50e16c = 0;
+    g_50e1b0 = 0;
+    g_50e1c4 = 0;
+    g_50e228 = 0;
+    // 0x000F44B0 is not translated.
+    g_545b38 = 0;
+    g_545b3c = 0;
+    g_545b44 = 0;
+    g_545bc4 = 0;
+    // 0x0012A9B0 is not translated.
+    fn_123b30();
+    // 0x001163D0 and 0x00132100 are not translated.
+    g_4dea5c = 0;
+    // 0x000FAE40 is not translated.
+    fn_11b630();
+    if (g_51108c != nullptr)
+    {
+        fn_663e0(g_51108c);
+        g_51108c = nullptr;
+    }
+    // 0x00117330 is not translated.
+    // 0x001272B0 is not translated. EAX is 1 when DAT_00430D0C is 1, else 0.
+    const i32 arg_1272b0 = g_script_30d0c == 1 ? 1 : 0;
+    (void)arg_1272b0;
+    g_4312cc = 0.f;
+    g_4312d0 = 0.f;
+    g_4312d8 = 0;
+    g_4312d4 = 0;
+    g_sim_scale = 1.f;
+    // 0x00048F10, 0x00057DC0, 0x0011CD90, and 0x00106E30 are not translated.
+    g_511a10 = 0;
+    // 0x0011AEA0 is not translated.
+    g_50eaa0 = nullptr;
+    g_50eacc = nullptr;
+    g_50eaf8 = nullptr;
+    g_50eb24 = nullptr;
+    g_50eb50 = nullptr;
+    g_50eb7c = nullptr;
+    g_50eba8 = nullptr;
+    g_50ebd4 = nullptr;
+    g_50ec00 = 0;
+    // 0x00173F30 D3D_KickOffAndWaitForIdle.
+    // 0x001593D0 and 0x000F97F0 are not translated.
+    // 0x00035D30 is not translated, so its return is not taken.
+    // 0x00036180 is not translated. 0x00034880 is not translated.
+    g_51065c = 0;
+}
+
+// Xbox 0x0011E6A0
+// ESI is the scene record. EBX is the state being entered. Equal values
+// return. Leaving 1 or 2 increments DAT_0050E7A0 and calls 0x00106E90.
+// Leaving 4 decrements DAT_00510CEC and DAT_004DEA24. Leaving 5 calls
+// 0x0012C4E0. Leaving 6 calls 0x0011CE40. Leaving 3 does nothing.
+//
+// Entering 1 or 2 decrements DAT_0050E7A0, stores 0 when the result is
+// below 0, calls 0x00106EC0, stores EBX at +0x104, and returns. Entering 3
+// stores 1 at +0x110 and 0 at +0x120 and +0x114, stores EBX, and returns.
+// Entering 6 calls 0x0011CE10, stores EBX, and returns. Entering 4 calls
+// 0x0011C5A0 with ESI, increments DAT_00510CEC and DAT_004DEA24, copies the
+// C string at +0x80 onto +0, clears the byte at +0x80, calls 0x001162D0,
+// stores 4 at +0x22C, calls 0x00038110 with XMM0 cleared, calls 0x0011CAC0,
+// and stores 1 at +0x120. That path, state 5, and every other entry store
+// EBX at +0x104.
+void fn_11e6a0(u8* scene, i32 next)
+{
+    // Xbox 0x0011E6A0
+    const i32 state = *reinterpret_cast<i32*>(scene + 0x104);
+    if (state != next)
+    {
+        switch (state)
+        {
+        case 1:
+        case 2:
+            g_50e7a0 = g_50e7a0 + 1;
+            fn_106e90();
+            break;
+        case 4:
+            g_510cec = g_510cec + -1;
+            g_4dea24 = g_4dea24 + -1;
+            break;
+        case 5:
+            fn_12c4e0();
+            break;
+        case 6:
+            fn_11ce40();
+            break;
+        }
+        switch (next)
+        {
+        case 1:
+        case 2:
+            g_50e7a0 = g_50e7a0 + -1;
+            if (g_50e7a0 < 0)
+            {
+                g_50e7a0 = 0;
+            }
+            fn_106ec0();
+            *reinterpret_cast<i32*>(scene + 0x104) = next;
+            return;
+        case 3:
+            *reinterpret_cast<i32*>(scene + 0x110) = 1;
+            *reinterpret_cast<i32*>(scene + 0x120) = 0;
+            *reinterpret_cast<i32*>(scene + 0x114) = 0;
+            *reinterpret_cast<i32*>(scene + 0x104) = next;
+            return;
+        case 4:
+            fn_11c5a0(scene);
+            g_510cec = g_510cec + 1;
+            g_4dea24 = g_4dea24 + 1;
+            {
+                char* pending = reinterpret_cast<char*>(scene + 0x80);
+                char* cursor = pending;
+                char unit = 0;
+                do
+                {
+                    unit = *cursor;
+                    *(cursor - 0x80) = unit;
+                    cursor = cursor + 1;
+                }
+                while (unit != '\0');
+                *pending = '\0';
+            }
+            fn_1162d0();
+            *reinterpret_cast<i32*>(scene + 0x22c) = 4;
+            fn_38110(0.f);
+            fn_11cac0();
+            *reinterpret_cast<i32*>(scene + 0x120) = 1;
+            break;
+        case 6:
+            fn_11ce10();
+            *reinterpret_cast<i32*>(scene + 0x104) = next;
+            return;
+        }
+        *reinterpret_cast<i32*>(scene + 0x104) = next;
+    }
+}
+
+// Xbox 0x0011E4C0
+// EAX is DAT_00510E58. ESI keeps that record. frame_tick passes that address.
+// A clear dword at +0x110 and 'aid_' (0x5f646961) at +0x80 calls 0x0011E6A0
+// with EBX = 3. DAT_0054632C other than 1 and other than 2 then calls
+// 0x0012C5D0. +0x104 is copied to +0x10C. When +0x108 differs from +0x104,
+// +0x110 is clear, and DAT_00510CE8 is clear, 0x0011E6A0 runs with EBX
+// equal to the dword at +0x108.
+// EAX for 0x00109470 is the pointer at +0x230. 0x0011CFB0 follows.
+// The switch is the dword at +0x104.
+// State 2 stores 0 at DAT_00510F60, which is the dword at +0x108, calls
+// 0x0011E7F0 with ECX = the record, then 0x0012C340.
+// State 3 calls 0x0011E6A0 with EBX = 4 when +0x114 is nonzero, stores 1
+// at +0x114, then 0x0012C340.
+// State 4 stores 1 at DAT_004E02E8. A zero from 0x000341E0 stores 0 at
+// DAT_00506604, and DAT_0054632C equal to 2 calls 0x0012C770, clears +0x110,
+// calls 0x0011CB60, stores 5 at DAT_00510F60, then 0x0012C340.
+// State 5 with DAT_0054632C clear stores the dword at +0x100 into
+// DAT_00510F60 and calls 0x0012C340. A nonzero DAT_0054632C with
+// DAT_00510F7C clear joins the epilogue. Otherwise state 5 falls into
+// state 1. State 1 calls 0x0011E7F0 with ECX = the record.
+// Every other state, and the paths that do not return above, call 0x0012C340.
+void script_pump(Game& g)
+{
+    // Xbox 0x0011E4C0
+    u8* scene = g_510e58;
+    if (*reinterpret_cast<i32*>(scene + 0x110) == 0 &&
+        *reinterpret_cast<u32*>(scene + 0x80) == kAidPrefixEd8)
+    {
+        fn_11e6a0(scene, 3);
+        if (g_54632c != 1 && g_54632c != 2)
+        {
+            fn_12c5d0();
+        }
+    }
+    const i32 state = *reinterpret_cast<i32*>(scene + 0x104);
+    const i32 queued = *reinterpret_cast<i32*>(scene + 0x108);
+    *reinterpret_cast<i32*>(scene + 0x10c) = state;
+    if (queued != state && *reinterpret_cast<i32*>(scene + 0x110) == 0 && g_510ce8 == 0)
+    {
+        fn_11e6a0(scene, queued);
+    }
+    void* object = *reinterpret_cast<void**>(scene + 0x230);
+    fn_109470(object);
+    fn_11cfb0();
+    switch (*reinterpret_cast<i32*>(scene + 0x104))
+    {
+    case 2:
+        *reinterpret_cast<i32*>(scene + 0x108) = 0;
+        fn_11e7f0(g, scene);
+        fn_12c340();
+        return;
+    case 3:
+        if (*reinterpret_cast<i32*>(scene + 0x114) != 0)
+        {
+            fn_11e6a0(scene, 4);
+        }
+        *reinterpret_cast<i32*>(scene + 0x114) = 1;
+        fn_12c340();
+        return;
+    case 4:
+        g_4e02e8 = 1;
+        if (fn_341e0() == 0)
+        {
+            g_506604 = 0;
+            if (g_54632c == 2)
+            {
+                fn_12c770();
+                *reinterpret_cast<i32*>(scene + 0x110) = 0;
+                fn_11cb60(g);
+                *reinterpret_cast<i32*>(scene + 0x108) = 5;
+                fn_12c340();
+                return;
+            }
+        }
+        break;
+    case 5:
+        if (g_54632c == 0)
+        {
+            *reinterpret_cast<i32*>(scene + 0x108) = *reinterpret_cast<i32*>(scene + 0x100);
+            fn_12c340();
+            return;
+        }
+        if (g_510f7c == 0)
+        {
+            break;
+        }
+        fn_11e7f0(g, scene);
+        break;
+    case 1:
+        fn_11e7f0(g, scene);
+        break;
+    default:
+        break;
+    }
+    fn_12c340();
+}
 
 } // namespace gbtg

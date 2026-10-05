@@ -22392,4 +22392,13 @@ void fn_106ec0()
     g_50dd8c = 2;
 }
 
+// Xbox 0x001162D0
+// EAX is DAT_00510E58. 0x00116220 is not translated, so its index is not
+// scaled by 0x90 and added to the directory at 0x0042AC80. That pointer
+// is not stored at DAT_005462E8.
+void fn_1162d0()
+{
+    // Xbox 0x001162D0
+}
+
 } // namespace gbtg

@@ -408,3 +408,4 @@ Named functions: [`docs/generated/ghidra_functions.txt`](generated/ghidra_functi
 | `0x00175840` | `fn_175840` | present |
 | `0x00106EC0` | `fn_106ec0` | scene |
 | `0x00175930` | `fn_175930` | present |
+| `0x001162D0` | `fn_1162d0` | scene |

@@ -22401,4 +22401,213 @@ void fn_1162d0()
     // Xbox 0x001162D0
 }
 
+// DAT_0051065C. 0x0011C5A0 holds 1 across the teardown, then stores 0.
+i32 g_51065c = 0;
+// DAT_0050D770, +4, +8, +0xC, and the count at DAT_0050D780.
+// entity.cpp keeps a private copy of this table.
+void* g_50d770 = nullptr;
+void* g_50d774 = nullptr;
+void* g_50d778 = nullptr;
+void* g_50d77c = nullptr;
+i32 g_50d780 = 0;
+// DAT_00510584. 0x001759F0 is the D3D resource release.
+void* g_510584 = nullptr;
+// DAT_0050EA00 and DAT_0050EA01 are bytes. The floats are DAT_0050EA04,
+// +0x08, +0x0C, +0x10, +0x14, +0x18, then DAT_0050EA7C through DAT_0050EA90.
+// DAT_0050EA94 is a dword. entity.cpp keeps the colour floats.
+u8 g_50ea00 = 0;
+u8 g_50ea01 = 0;
+float g_50ea04 = 0.f;
+float g_50ea08 = 0.f;
+float g_50ea0c = 0.f;
+float g_50ea10 = 0.f;
+float g_50ea14 = 0.f;
+float g_50ea18 = 0.f;
+float g_50ea7c = 0.f;
+float g_50ea80 = 0.f;
+float g_50ea84 = 0.f;
+float g_50ea88 = 0.f;
+float g_50ea8c = 0.f;
+float g_50ea90 = 0.f;
+i32 g_50ea94 = 0;
+i32 g_50ea98 = 0; // DAT_0050EA98
+i32 g_504330 = 0; // DAT_00504330
+// DAT_00512344 is the block 0x000663E0 releases. DAT_00512348 is cleared with it.
+void* g_512344 = nullptr;
+i32 g_512348 = 0;
+i32 g_545d20 = 0; // DAT_00545D20
+i32 g_545d28 = 0; // DAT_00545D28
+i32 g_50e148 = 0; // DAT_0050E148
+i32 g_50e16c = 0; // DAT_0050E16C
+i32 g_50e1b0 = 0; // DAT_0050E1B0
+i32 g_50e1c4 = 0; // DAT_0050E1C4
+i32 g_50e228 = 0; // DAT_0050E228
+i32 g_545b3c = 0; // DAT_00545B3C
+u8 g_545b44 = 0;  // DAT_00545B44
+u8 g_545bc4 = 0;  // DAT_00545BC4
+i32 g_4dea5c = 0; // DAT_004DEA5C
+// DAT_0051108C is the block 0x000663E0 releases.
+void* g_51108c = nullptr;
+float g_4312cc = 0.f; // DAT_004312CC
+float g_4312d0 = 0.f; // DAT_004312D0
+i32 g_4312d4 = 0;     // DAT_004312D4
+i32 g_4312d8 = 0;     // DAT_004312D8
+i32 g_511a10 = 0;     // DAT_00511A10
+// Object pointer at +0 of each DAT_0050EAA0 record. Stride 0x2C, eight
+// records. DAT_0050EC00 is the count. entity.cpp keeps a private copy.
+void* g_50eaa0 = nullptr;
+void* g_50eacc = nullptr;
+void* g_50eaf8 = nullptr;
+void* g_50eb24 = nullptr;
+void* g_50eb50 = nullptr;
+void* g_50eb7c = nullptr;
+void* g_50eba8 = nullptr;
+void* g_50ebd4 = nullptr;
+i32 g_50ec00 = 0;
+
+// Xbox 0x0011C5A0
+// ESI is the scene record. The dword at +0x118 is cleared. DAT_0051065C is
+// 1 for the body and 0 on the way out.
+//
+// DAT_004EE1EC nonzero would call 0x000584D0 with a stack 0. That call is
+// not translated. 0x0004ECE0, 0x00049EF0, and 0x0005B1E0 are not translated.
+// 0x00115F00 is not translated. 0x00122C70 is not translated: EDI points at
+// a stack dword holding 0x80. 0x001232D0, 0x001222A0, 0x00110AB0, 0x001143A0,
+// 0x00123640, 0x001199F0, and 0x0011F610 are not translated.
+//
+// A nonzero DAT_00510584 is the argument of 0x001759F0, the D3D resource
+// release. No D3D8 object is bound to that pointer, so the call is not made
+// and the pointer is cleared. DAT_00510580 is cleared. 0x001133B0 is not
+// translated. 0x000FD710 is not translated.
+//
+// Bit 8 of DAT_0050EA9C is written back as 0x100 after the dword is cleared.
+// DAT_0050EA98 is cleared. 0x000ED450 is not translated. 0x00129F70 is not
+// translated. 0x0003A1F0 is not translated: ESI is 0xD. 0x00118560 is not
+// translated.
+//
+// A nonzero DAT_00512344 is released through 0x000663E0. DAT_00512348 is
+// cleared. DAT_00545D20 becomes 1. 0x000F44B0 is not translated. 0x0012A9B0
+// is not translated. 0x00123B30 runs. 0x001163D0 and 0x00132100 are not
+// translated. 0x000FAE40 is not translated. 0x0011B630 runs. A nonzero
+// DAT_0051108C is released through 0x000663E0. 0x00117330 is not translated.
+// 0x001272B0 is not translated: EAX is 1 when DAT_00430D0C is 1, and 0
+// otherwise.
+//
+// DAT_004312C4 becomes 1, the dword at DAT_0032B0F8. 0x00048F10, 0x00057DC0,
+// 0x0011CD90, and 0x00106E30 are not translated. 0x0011AEA0 is not translated.
+// 0x00173F30 is D3D_KickOffAndWaitForIdle. 0x001593D0 and 0x000F97F0 are not
+// translated. 0x00035D30 is not translated, so its return is not taken and
+// the two 0x00036180 calls in that loop are not made. 0x00034880 is not
+// translated.
+void fn_11c5a0(u8* scene)
+{
+    // Xbox 0x0011C5A0
+    g_51065c = 1;
+    if (g_4ee1ec != 0)
+    {
+        // 0x000584D0 is not translated. The stack argument is 0.
+    }
+    // 0x0004ECE0, 0x00049EF0, and 0x0005B1E0 are not translated.
+    g_50d780 = 0;
+    g_50d770 = nullptr;
+    g_50d774 = nullptr;
+    g_50d778 = nullptr;
+    g_50d77c = nullptr;
+    // 0x00115F00 is not translated.
+    // 0x00122C70 is not translated. EDI points at a stack dword holding 0x80.
+    // 0x001232D0, 0x001222A0, 0x00110AB0, 0x001143A0, 0x00123640, 0x001199F0,
+    // and 0x0011F610 are not translated.
+    if (g_510584 != nullptr)
+    {
+        // 0x001759F0 D3DResource_Release. The argument is DAT_00510584.
+        g_510584 = nullptr;
+    }
+    g_510580 = 0;
+    // 0x001133B0 is not translated.
+    g_50ea00 = 0;
+    g_50ea01 = 0;
+    g_50ea0c = 0.f;
+    g_50ea08 = 0.f;
+    g_50ea04 = 0.f;
+    g_50ea18 = 0.f;
+    g_50ea14 = 0.f;
+    g_50ea10 = 0.f;
+    g_50ea84 = 0.f;
+    g_50ea80 = 0.f;
+    g_50ea7c = 0.f;
+    g_50ea90 = 0.f;
+    g_50ea8c = 0.f;
+    g_50ea88 = 0.f;
+    g_50ea94 = 0;
+    // 0x000FD710 is not translated.
+    const u32 kept = (g_flags_ea9c >> 8) & 1u;
+    g_50ea98 = 0;
+    g_flags_ea9c = 0;
+    if (kept != 0)
+    {
+        g_flags_ea9c = 0x100u;
+    }
+    *reinterpret_cast<i32*>(scene + 0x118) = 0;
+    // 0x000ED450 is not translated.
+    g_504330 = 0;
+    // 0x00129F70 is not translated.
+    // 0x0003A1F0 is not translated. ESI is 0xD.
+    // 0x00118560 is not translated.
+    if (g_512344 != nullptr)
+    {
+        fn_663e0(g_512344);
+        g_512344 = nullptr;
+    }
+    g_512348 = 0;
+    g_545d20 = 1;
+    g_545d28 = 0;
+    g_50e148 = 0;
+    g_50e16c = 0;
+    g_50e1b0 = 0;
+    g_50e1c4 = 0;
+    g_50e228 = 0;
+    // 0x000F44B0 is not translated.
+    g_545b38 = 0;
+    g_545b3c = 0;
+    g_545b44 = 0;
+    g_545bc4 = 0;
+    // 0x0012A9B0 is not translated.
+    fn_123b30();
+    // 0x001163D0 and 0x00132100 are not translated.
+    g_4dea5c = 0;
+    // 0x000FAE40 is not translated.
+    fn_11b630();
+    if (g_51108c != nullptr)
+    {
+        fn_663e0(g_51108c);
+        g_51108c = nullptr;
+    }
+    // 0x00117330 is not translated.
+    // 0x001272B0 is not translated. EAX is 1 when DAT_00430D0C is 1, else 0.
+    const i32 arg_1272b0 = g_script_30d0c == 1 ? 1 : 0;
+    (void)arg_1272b0;
+    g_4312cc = 0.f;
+    g_4312d0 = 0.f;
+    g_4312d8 = 0;
+    g_4312d4 = 0;
+    g_sim_scale = 1.f;
+    // 0x00048F10, 0x00057DC0, 0x0011CD90, and 0x00106E30 are not translated.
+    g_511a10 = 0;
+    // 0x0011AEA0 is not translated.
+    g_50eaa0 = nullptr;
+    g_50eacc = nullptr;
+    g_50eaf8 = nullptr;
+    g_50eb24 = nullptr;
+    g_50eb50 = nullptr;
+    g_50eb7c = nullptr;
+    g_50eba8 = nullptr;
+    g_50ebd4 = nullptr;
+    g_50ec00 = 0;
+    // 0x00173F30 D3D_KickOffAndWaitForIdle.
+    // 0x001593D0 and 0x000F97F0 are not translated.
+    // 0x00035D30 is not translated, so its return is not taken.
+    // 0x00036180 is not translated. 0x00034880 is not translated.
+    g_51065c = 0;
+}
+
 } // namespace gbtg

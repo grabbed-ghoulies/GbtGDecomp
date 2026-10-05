@@ -17236,8 +17236,9 @@ u32 fn_1077b0(const char* key)
     return u32(u16(found + 1));
 }
 
-// DAT_0050E0E8. The global holds the span. +4 is the first record and +8 is
-// the end. Each record is 0x50 bytes. +0 is the key the walk matches.
+// DAT_0050E0E8. The global holds the span. +0 is the stride word and +2 is
+// the word beside it. +4 is the first record and +8 is the end. Each record
+// is 0x50 bytes. +0 of a record is the key the walk matches.
 // +0x48 selects the refresh. +0x4C stores the frame from DAT_004DEA58.
 struct SceneSpanRecord
 {
@@ -17252,7 +17253,8 @@ static_assert(sizeof(SceneSpanRecord) == 0x50);
 
 struct SceneSpan
 {
-    void* at_0 = nullptr;
+    u16 stride = 0;
+    u16 word_2 = 0;
     SceneSpanRecord* begin = nullptr;
     SceneSpanRecord* end = nullptr;
 };
@@ -21722,6 +21724,177 @@ void fn_11cfb0()
         }
     }
     // 0x000483E0 is not translated. EAX and the stack dword are DAT_00510E24.
+}
+
+// DAT_004E02E8. Cleared when the counter at scene+0x22C lands on 2.
+// audio.cpp keeps a private copy of this address.
+i32 g_4e02e8 = 0;
+// DAT_004312E4. Fractional part after the 300x step is truncated into
+// DAT_004312E0.
+float g_4312e4 = 0.f;
+i32 g_4312e0 = 0;
+// DAT_00545B38. 3 would call 0x0013FFD0.
+i32 g_545b38 = 0;
+// DAT_00506E28. 1 would call 0x000F4A00 before the tick list is read.
+i32 g_506e28 = 0;
+// DAT_0050E438. The global names the link at object+8. Next is the pointer
+// at +4. vtable +0x10 is called with the object. The port keeps the method
+// and the next pointer on the node the global names.
+struct SceneTickNode
+{
+    void (*tick)(SceneTickNode* self) = nullptr;
+    SceneTickNode* next = nullptr;
+};
+SceneTickNode* g_50e438 = nullptr;
+// DAT_00510580. Nonzero, with DAT_00510650 clear, drifts the two floats.
+i32 g_510580 = 0;
+// DAT_00510648 and DAT_0051064C.
+float g_510648 = 0.f;
+float g_51064c = 0.f;
+// DAT_0050E0EC. One-based index into the span at DAT_0050E0E8.
+i32 g_50e0ec = 0;
+
+// Xbox 0x0011E7F0. ECX is the scene record (DAT_00510E58 when 0x0011E4C0
+// calls). A nonzero dword at +0x22C is decremented and stored. Landing on 2
+// clears DAT_004E02E8. The float passed to 0x00038110 is
+// clamp(1 - counter * 0.5, 0, 1), from DAT_0032B0F8 and DAT_0032B0F4.
+// 0x00038110 is not translated, so that call is not made.
+//
+// DAT_004312DC above 0 subtracts DAT_005096C0 * DAT_004312C4 and stores 0
+// when the result is at or below 0. That product, times 300 (DAT_0032B180),
+// is added to DAT_004312E4. The truncated integer lands at DAT_004312E0 and
+// the fraction stays at DAT_004312E4.
+//
+// 0x0004EBD0, 0x0005AA90, and 0x00057E60 are not translated. DAT_00545B38
+// equal to 3 would call 0x0013FFD0. That call is not translated. 0x00117140
+// runs, then 0x000D0300 and 0x00049DE0 would run. Those two are not
+// translated. 0x00117140 runs again. DAT_00506E28 equal to 1 would call
+// 0x000F4A00 before DAT_0050E438 is loaded. That call is not translated.
+// The list walk saves the next link, then calls vtable +0x10.
+//
+// 0x00123020 would take DAT_00511B18 on the stack. 0x00122FE0, 0x001128A0,
+// and 0x0011B670 are not translated. 0x00117100 then runs, including its
+// tail into 0x00117140. 0x000F4560 and 0x0013FD60 are not translated.
+//
+// DAT_004312DC above 0 leaves the step at 0. Otherwise the step is
+// DAT_005096C0 * DAT_004312C4, capped at DAT_0032B150 when that product is
+// greater. The stack float for 0x00115BB0 is the step times DAT_0032B6E0.
+// 0x00115BB0 and 0x001162F0 are not translated.
+//
+// DAT_00510580 nonzero and DAT_00510650 clear adds DAT_0032B314 to
+// DAT_00510648 and DAT_0051064C, then would call 0x0011B7F0. That call is
+// not translated. 0x0012AA70, 0x001185E0, 0x000FDDA0, and 0x000FD5C0 are
+// not translated.
+//
+// A nonzero record count in DAT_0050E0E8, and a nonzero dword at
+// (DAT_0050E0EC - 1) * stride + begin, would call 0x001083F0 with that
+// dword in EAX and 0x10 on the stack. 0x001083F0 is not translated, so its
+// return is not taken. A nonzero return with DAT_00510CEC clear would store
+// 6 at DAT_00510F60, or 1 when DAT_00510CE8 is nonzero.
+void fn_11e7f0(Game& g, u8* scene)
+{
+    // Xbox 0x0011E7F0
+    i32 counter = *reinterpret_cast<i32*>(scene + 0x22c);
+    if (counter != 0)
+    {
+        counter = counter - 1;
+        *reinterpret_cast<i32*>(scene + 0x22c) = counter;
+        if (counter == 2)
+        {
+            g_4e02e8 = 0;
+        }
+        float faded = 1.f - static_cast<float>(counter) * 0.5f;
+        if (faded < 0.f)
+        {
+            faded = 0.f;
+        }
+        else if (1.f < faded)
+        {
+            faded = 1.f;
+        }
+        // 0x00038110 is not translated. XMM0 is faded.
+        (void)faded;
+    }
+
+    const float scaled = g_sim_dt * g_sim_scale;
+    if (0.f < g_sim_freeze)
+    {
+        g_sim_freeze = g_sim_freeze - scaled;
+        if (g_sim_freeze <= 0.f)
+        {
+            g_sim_freeze = 0.f;
+        }
+    }
+    g_4312e4 = scaled * 300.f + g_4312e4;
+    g_4312e0 = static_cast<i32>(g_4312e4);
+    g_4312e4 = g_4312e4 - static_cast<float>(g_4312e0);
+
+    // 0x0004EBD0, 0x0005AA90, and 0x00057E60 are not translated.
+    if (g_545b38 == 3)
+    {
+        // 0x0013FFD0 is not translated.
+    }
+    fn_117140(g);
+    // 0x000D0300 and 0x00049DE0 are not translated.
+    fn_117140(g);
+    if (g_506e28 == 1)
+    {
+        // 0x000F4A00 is not translated. DAT_0050E438 is loaded after it.
+    }
+    SceneTickNode* node = g_50e438;
+    while (node != nullptr)
+    {
+        SceneTickNode* next = node->next;
+        node->tick(node);
+        node = next;
+    }
+    // 0x00123020 is not translated. The stack dword is DAT_00511B18.
+    // 0x00122FE0, 0x001128A0, and 0x0011B670 are not translated.
+    script_vm_tick(g, 0.f);
+    // 0x000F4560 and 0x0013FD60 are not translated.
+
+    float step = 0.f;
+    if (g_sim_freeze <= 0.f)
+    {
+        step = g_sim_dt * g_sim_scale;
+        const float cap = std::bit_cast<float>(0x3c888889u);
+        if (cap < step)
+        {
+            step = cap;
+        }
+    }
+    const float paced = step * std::bit_cast<float>(0x40e66666u);
+    // 0x00115BB0 is not translated. The stack float is paced.
+    // 0x001162F0 is not translated.
+    (void)paced;
+
+    if (g_510580 != 0 && g_flag_0650 == 0)
+    {
+        const float drift = std::bit_cast<float>(0x3b03126fu);
+        g_510648 = g_510648 + drift;
+        g_51064c = g_51064c + drift;
+        // 0x0011B7F0 is not translated.
+    }
+    // 0x0012AA70, 0x001185E0, 0x000FDDA0, and 0x000FD5C0 are not translated.
+
+    SceneSpan* span = g_span_50e0e8;
+    const i32 delta = static_cast<i32>(
+        reinterpret_cast<const u8*>(span->end) - reinterpret_cast<const u8*>(span->begin));
+    const i32 count = delta / static_cast<i32>(span->stride);
+    if (count != 0)
+    {
+        const i32 slot = g_50e0ec - 1;
+        const i32 byte_off = slot * static_cast<i32>(span->stride);
+        const u8* record = reinterpret_cast<const u8*>(span->begin) + byte_off;
+        const i32 word = *reinterpret_cast<const i32*>(record);
+        if (word != 0)
+        {
+            // 0x001083F0 is not translated. EAX is word and the stack dword
+            // is 0x10. A nonzero return is not taken, so DAT_00510F60 is
+            // not written from DAT_00510CEC and DAT_00510CE8.
+            (void)word;
+        }
+    }
 }
 
 } // namespace gbtg

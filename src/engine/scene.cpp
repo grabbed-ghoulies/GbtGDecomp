@@ -19393,6 +19393,14 @@ i32 g_gate_251c = 0;
 // DAT_0050E798 and DAT_0050E79C. Type 0x69 copies node+8 and node+0xC.
 u32 g_script_e798 = 0;
 u32 g_script_e79c = 0;
+// DAT_0050E788. 0x00117140 sets it when 0x001288C0 empties a nonempty fired list.
+i32 g_script_e788 = 0;
+// DAT_0050E78C. Nonzero takes the fade at DAT_0050E790. 0x00116E00 clears it.
+i32 g_script_e78c = 0;
+// DAT_0050E790. The fade subtracts DAT_005096C0 * DAT_004312C4 while this is above 0.
+float g_script_e790 = 0.f;
+// DAT_0050E794. Nonzero skips the condition walk. The latch path increments it.
+i32 g_script_e794 = 0;
 
 // Xbox 0x00128BC0. Handler 0 of the table at 0x00312650. The dword at node+4
 // is the type. The byte map at 0x00128D24 covers types 0 through 0x69. Slot 7
@@ -19689,10 +19697,76 @@ void fn_133070(ScriptCond& rec)
     }
 }
 
+// Xbox 0x00117140. DAT_0050E78C clear runs the latch. A nonzero DAT_0050E79C
+// would call 0x00128D90 with EAX = DAT_0050E760, EBX = DAT_0050E798, and
+// EDI = DAT_0050E79C, then stores 0 at DAT_0050E79C. 0x00128D90 is not
+// translated, so that call is not made. The store still runs.
+// DAT_0050E794 clear calls 0x00124BE0 and 0x001288C0. 0x001288C0 returns 1
+// when the fired list was nonempty and the walk left it empty. That sets
+// DAT_0050E788 and joins the latch. Any other return falls through, and a
+// clear DAT_0050E788 returns. The latch calls 0x00035960 with EAX =
+// 0x00511B64, EBX = 0x00510E58, and a stack 1. A nonzero return with
+// DAT_0050E784 clear calls 0x0011EB30 with that return in EAX and a stack 1,
+// then stores 0 at DAT_0050E790. A nonzero DAT_0050E784 and a live
+// DAT_00511B40 other than the sentinel 0x93C reads [actor+0x95C]+0x48, stores
+// 1 at +0x9A4, calls 0x0001B6B0 with EAX = actor+0x95C, calls 0x00049DB0 on
+// the stack message, copies DAT_0050E76C through DAT_0050E780, and calls
+// vtable +0xC with message id 8. DAT_0050E790 then becomes 1. 0x00035960 is
+// not translated, so its nonzero return is not taken and those calls are not
+// made. The latch stores 1 at DAT_0050E78C and increments DAT_0050E794.
+// A set DAT_0050E78C fades DAT_0050E790. DAT_004312DC above 0 makes the step
+// 0. Otherwise the step is DAT_005096C0 * DAT_004312C4. A result at or below
+// 0 is stored as 0, then 0x00035960 and 0x0011EB30 would run with stack 1.
+// Those calls are not made.
+void fn_117140(Game& g)
+{
+    // Xbox 0x00117140
+    if (g_script_e78c == 0)
+    {
+        if (g_script_e79c != 0)
+        {
+            // 0x00128D90 is not translated, so it is not called.
+            g_script_e79c = 0;
+        }
+        bool latched = false;
+        if (g_script_e794 == 0)
+        {
+            fn_124be0(g);
+            const size_t fired_before = g_script_fired.size();
+            fn_1288c0(g);
+            if (fired_before != 0 && g_script_fired.empty())
+            {
+                g_script_e788 = 1;
+                latched = true;
+            }
+        }
+        if (!latched && g_script_e788 == 0)
+        {
+            return;
+        }
+        g_script_e78c = 1;
+        g_script_e794 = g_script_e794 + 1;
+        return;
+    }
+
+    float step = 0.f;
+    if (g_sim_freeze <= 0.f)
+    {
+        step = g_sim_dt * g_sim_scale;
+    }
+    if (0.f < g_script_e790)
+    {
+        g_script_e790 = g_script_e790 - step;
+        if (g_script_e790 <= 0.f)
+        {
+            g_script_e790 = 0.f;
+        }
+    }
+}
+
 // Xbox 0x00117100, then the eval at 0x00117140. The update walk calls the
 // table at 0x00314334. Opcode 0 is 0x00133070. The other updates are not
-// translated, so those records are not stepped. DAT_0050E794 is left clear
-// so the eval pass runs.
+// translated, so those records are not stepped.
 void script_vm_tick(Game& g, float dt)
 {
     (void)dt;
@@ -19703,8 +19777,7 @@ void script_vm_tick(Game& g, float dt)
             fn_133070(rec);
         }
     }
-    fn_124be0(g);
-    fn_1288c0(g);
+    fn_117140(g);
 }
 
 void load_scene_contents(Game& g, std::string_view name)

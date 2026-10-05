@@ -17260,7 +17260,16 @@ struct SceneSpan
     SceneSpanRecord* end = nullptr;
 };
 
-SceneSpan* g_span_50e0e8 = nullptr;
+// 0x00033274 allocates this pool with stride 0x50. 0x00109470 walks from
+// begin to end and reads the matched record. One zero-key record is the
+// slot that read uses when the object kind selects a null key.
+SceneSpanRecord g_refresh_record{};
+SceneSpan g_refresh_span{0x50, 0, &g_refresh_record, &g_refresh_record + 1};
+SceneSpan* g_span_50e0e8 = &g_refresh_span;
+
+// First dword of the object scene+0x230 points at. Kind 0 is the default
+// key in 0x00109470.
+i32 g_refresh_kind = 0;
 
 // DAT_004DEA58. clock.hpp names this Clock::frame.
 u32 g_4dea58 = 0;
@@ -19993,23 +20002,27 @@ void script_load(Game& g, std::string_view name)
     cutscene_queue_start(g);
 }
 
+// DAT_00510ED8. Defined with the scene record. script_request copies into it.
+extern char (&g_510ed8)[0x80];
+
 void script_request(Game& g, std::string_view name)
 {
     // Xbox 0x0011EB30. EAX is the source string. It is copied to scene+0x80
     // (DAT_00510ED8) and the mode argument is stored at DAT_00510F58.
     // Loading waits for 0x0011E4C0.
-    if (std::memcmp(g.requested_script, "aid_", 4) == 0)
+    (void)g;
+    if (std::memcmp(g_510ed8, "aid_", 4) == 0)
     {
-        g.requested_script[0] = '\0';
+        g_510ed8[0] = '\0';
     }
     size_t i = 0;
-    while (i + 1 < sizeof(g.requested_script) && i < name.size())
+    while (i + 1 < sizeof(g_510ed8) && i < name.size())
     {
-        g.requested_script[i] = name[i];
+        g_510ed8[i] = name[i];
         ++i;
     }
-    g.requested_script[i] = '\0';
-    // The mode argument is stored at DAT_00510F58. Nothing in the binary reads it.
+    g_510ed8[i] = '\0';
+    // 0x0011EB30 also stores its mode argument at DAT_00510F58. This copy writes the name.
 }
 
 // Header in front of the records. Xbox stores begin, cursor, and limit as
@@ -20107,14 +20120,6 @@ int fn_341e0()
         }
     }
     return g_4dedac;
-}
-
-void script_pump(Game& g)
-{
-    // Xbox 0x0011E4C0 is not translated. frame_tick calls it with EAX = DAT_00510E58.
-    // The aid_ name at scene+0x80 stays queued. This does not load the script
-    // and does not mark the stream finished.
-    (void)g;
 }
 
 void scene_order_advance(Game& g)
@@ -21404,10 +21409,25 @@ i32 g_429bc0 = 0;
 u16 g_429bc4[0x80]{};
 // DAT_004E19B4. Wide source of that copy. 0x80 bytes, next symbol DAT_004E1A34.
 u16 g_4e19b4[0x40]{};
+// DAT_00510E58. +0x80 is DAT_00510ED8. +0x100 is DAT_00510F58.
+// +0x108 is DAT_00510F60. +0x124 is DAT_00510F7C. +0x128 is DAT_00510F80.
+// The Xbox dword at +0x230 is the object 0x00109470 takes in EAX.
+// DAT_0051108C (g_51108c) is the next symbol, kept separate. The host
+// pointer at +0x230 is wider than that Xbox dword.
+alignas(void*) u8 g_510e58[0x230 + sizeof(void*)]{};
 // DAT_00510ED8. 0x80-byte aid. entity.cpp keeps a private copy of 0x0011EB30.
-char g_510ed8[0x80]{};
-// DAT_00510F58. Mode dword stored by that copy.
-i32 g_510f58 = 0;
+char (&g_510ed8)[0x80] = *reinterpret_cast<char(*)[0x80]>(g_510e58 + 0x80);
+// DAT_00510F58. Mode dword stored by that copy. Scene record +0x100.
+i32& g_510f58 = *reinterpret_cast<i32*>(g_510e58 + 0x100);
+
+struct BindScene230
+{
+    BindScene230()
+    {
+        *reinterpret_cast<i32**>(g_510e58 + 0x230) = &g_refresh_kind;
+    }
+};
+BindScene230 g_bind_scene_230{};
 // DAT_00430D0C. Cleared with DAT_00430D08 and DAT_00430D10.
 i32 g_script_30d0c = 0;
 // DAT_00430D94. Nonzero skips the clear of DAT_00506C8C, then becomes 0.
@@ -21786,6 +21806,8 @@ void fn_11cfb0()
 // DAT_004E02E8. Cleared when the counter at scene+0x22C lands on 2.
 // audio.cpp keeps a private copy of this address.
 i32 g_4e02e8 = 0;
+// DAT_00506604. 0x0011E4C0 stores 0 when 0x000341E0 returns 0.
+i32 g_506604 = 0;
 // DAT_004312E4. Fractional part after the 300x step is truncated into
 // DAT_004312E0.
 float g_4312e4 = 0.f;
@@ -22077,10 +22099,10 @@ i32 g_510cec = 0;
 // DAT_004DEA24. Counted with that gate, and once more on the way out.
 // gfx keeps the same address as present_insert.hold.
 i32 g_4dea24 = 0;
-// DAT_00510F80. Cleared when the phase is 1.
-i32 g_510f80 = 0;
-// DAT_00510F7C. Cleared when the phase is 3.
-i32 g_510f7c = 0;
+// DAT_00510F80. Scene record +0x128. Cleared when the phase is 1.
+i32& g_510f80 = *reinterpret_cast<i32*>(g_510e58 + 0x128);
+// DAT_00510F7C. Scene record +0x124. Cleared when the phase is 3.
+i32& g_510f7c = *reinterpret_cast<i32*>(g_510e58 + 0x124);
 // DAT_00546330 and DAT_00546334. Both receive the dword at slot+0x104.
 u32 g_546330 = 0;
 u32 g_546334 = 0;
@@ -22908,6 +22930,103 @@ void fn_11e6a0(u8* scene, i32 next)
         }
         *reinterpret_cast<i32*>(scene + 0x104) = next;
     }
+}
+
+// Xbox 0x0011E4C0
+// EAX is DAT_00510E58. ESI keeps that record. frame_tick passes that address.
+// A clear dword at +0x110 and 'aid_' (0x5f646961) at +0x80 calls 0x0011E6A0
+// with EBX = 3. DAT_0054632C other than 1 and other than 2 then calls
+// 0x0012C5D0. +0x104 is copied to +0x10C. When +0x108 differs from +0x104,
+// +0x110 is clear, and DAT_00510CE8 is clear, 0x0011E6A0 runs with EBX
+// equal to the dword at +0x108.
+// EAX for 0x00109470 is the pointer at +0x230. 0x0011CFB0 follows.
+// The switch is the dword at +0x104.
+// State 2 stores 0 at DAT_00510F60, which is the dword at +0x108, calls
+// 0x0011E7F0 with ECX = the record, then 0x0012C340.
+// State 3 calls 0x0011E6A0 with EBX = 4 when +0x114 is nonzero, stores 1
+// at +0x114, then 0x0012C340.
+// State 4 stores 1 at DAT_004E02E8. A zero from 0x000341E0 stores 0 at
+// DAT_00506604, and DAT_0054632C equal to 2 calls 0x0012C770, clears +0x110,
+// calls 0x0011CB60, stores 5 at DAT_00510F60, then 0x0012C340.
+// State 5 with DAT_0054632C clear stores the dword at +0x100 into
+// DAT_00510F60 and calls 0x0012C340. A nonzero DAT_0054632C with
+// DAT_00510F7C clear joins the epilogue. Otherwise state 5 falls into
+// state 1. State 1 calls 0x0011E7F0 with ECX = the record.
+// Every other state, and the paths that do not return above, call 0x0012C340.
+void script_pump(Game& g)
+{
+    // Xbox 0x0011E4C0
+    u8* scene = g_510e58;
+    if (*reinterpret_cast<i32*>(scene + 0x110) == 0 &&
+        *reinterpret_cast<u32*>(scene + 0x80) == kAidPrefixEd8)
+    {
+        fn_11e6a0(scene, 3);
+        if (g_54632c != 1 && g_54632c != 2)
+        {
+            fn_12c5d0();
+        }
+    }
+    const i32 state = *reinterpret_cast<i32*>(scene + 0x104);
+    const i32 queued = *reinterpret_cast<i32*>(scene + 0x108);
+    *reinterpret_cast<i32*>(scene + 0x10c) = state;
+    if (queued != state && *reinterpret_cast<i32*>(scene + 0x110) == 0 && g_510ce8 == 0)
+    {
+        fn_11e6a0(scene, queued);
+    }
+    void* object = *reinterpret_cast<void**>(scene + 0x230);
+    fn_109470(object);
+    fn_11cfb0();
+    switch (*reinterpret_cast<i32*>(scene + 0x104))
+    {
+    case 2:
+        *reinterpret_cast<i32*>(scene + 0x108) = 0;
+        fn_11e7f0(g, scene);
+        fn_12c340();
+        return;
+    case 3:
+        if (*reinterpret_cast<i32*>(scene + 0x114) != 0)
+        {
+            fn_11e6a0(scene, 4);
+        }
+        *reinterpret_cast<i32*>(scene + 0x114) = 1;
+        fn_12c340();
+        return;
+    case 4:
+        g_4e02e8 = 1;
+        if (fn_341e0() == 0)
+        {
+            g_506604 = 0;
+            if (g_54632c == 2)
+            {
+                fn_12c770();
+                *reinterpret_cast<i32*>(scene + 0x110) = 0;
+                fn_11cb60(g);
+                *reinterpret_cast<i32*>(scene + 0x108) = 5;
+                fn_12c340();
+                return;
+            }
+        }
+        break;
+    case 5:
+        if (g_54632c == 0)
+        {
+            *reinterpret_cast<i32*>(scene + 0x108) = *reinterpret_cast<i32*>(scene + 0x100);
+            fn_12c340();
+            return;
+        }
+        if (g_510f7c == 0)
+        {
+            break;
+        }
+        fn_11e7f0(g, scene);
+        break;
+    case 1:
+        fn_11e7f0(g, scene);
+        break;
+    default:
+        break;
+    }
+    fn_12c340();
 }
 
 } // namespace gbtg

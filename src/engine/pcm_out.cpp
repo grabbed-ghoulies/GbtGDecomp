@@ -85,11 +85,13 @@ struct PcmVoice
 {
     IXAudio2SourceVoice* voice = nullptr;
     std::vector<u8> pcm;
+    std::string cue;
 };
 
 IXAudio2* g_xa = nullptr;
 IXAudio2MasteringVoice* g_master = nullptr;
 std::vector<PcmVoice> g_voices;
+std::vector<PcmVoice> g_bed;
 bool g_device_failed = false;
 bool g_catalog_ready = false;
 std::map<std::string, WaveFile> g_wavefiles;                 // WBND name -> file
@@ -209,7 +211,25 @@ void waves_from_entry(std::vector<WaveChoice>& out, std::span<const u8> blob, i1
             const u8 sub = blob[sound + 5];
             if (sub == 0x00 || sub == 0x40)
             {
-                push_wave(out, blob, sound + 8, devs);
+                // A 4-byte payload is the wave index and the device index.
+                // The next bytes belong to the following record.
+                if (size == 4)
+                {
+                    const i16 wave = rs16(blob, sound + 8);
+                    const i16 bank = rs16(blob, sound + 10);
+                    if (wave >= 0 && bank >= 0 && size_t(bank) < devs.size())
+                    {
+                        WaveChoice c;
+                        c.bank = devs[size_t(bank)];
+                        c.index = static_cast<u16>(wave);
+                        c.weight_hi = 10000;
+                        out.push_back(std::move(c));
+                    }
+                }
+                else
+                {
+                    push_wave(out, blob, sound + 8, devs);
+                }
             }
             else if (sub == 0x04 || sub == 0x44)
             {
@@ -539,7 +559,7 @@ bool load_wave(const WaveChoice& choice, std::vector<u8>& pcm, WAVEFORMATEX& fmt
     return true;
 }
 
-void play_choice(const std::string& cue, const WaveChoice& choice)
+void play_choice(const std::string& cue, const WaveChoice& choice, bool loop = false, bool bed = false)
 {
     if (!ensure_device())
     {
@@ -563,14 +583,25 @@ void play_choice(const std::string& cue, const WaveChoice& choice)
     buf.AudioBytes = UINT32(slot.pcm.size());
     buf.pAudioData = slot.pcm.data();
     buf.Flags = XAUDIO2_END_OF_STREAM;
+    buf.LoopCount = loop ? XAUDIO2_LOOP_INFINITE : 0;
     if (FAILED(slot.voice->SubmitSourceBuffer(&buf)))
     {
         slot.voice->DestroyVoice();
         return;
     }
     slot.voice->Start(0);
+    slot.cue = cue;
     std::cout << "audio cue " << cue << " " << choice.bank << "[" << choice.index << "]\n";
-    g_voices.push_back(std::move(slot));
+    // Cutscene sync stops g_voices whenever no clip is playing. A cue the
+    // frontend acquired has to live on the bed or that stop deletes it.
+    if (bed || loop)
+    {
+        g_bed.push_back(std::move(slot));
+    }
+    else
+    {
+        g_voices.push_back(std::move(slot));
+    }
 }
 
 const WaveChoice* pick_choice(const std::vector<WaveChoice>& waves, u32 frame)
@@ -682,6 +713,61 @@ void pcm_cutscene_sync(const Game& g)
     }
 #else
     (void)g;
+#endif
+}
+
+void pcm_play_cue(const Game& g, const char* cue, bool loop)
+{
+#if defined(_WIN32)
+    if (cue == nullptr || cue[0] == 0)
+    {
+        return;
+    }
+    for (const PcmVoice& bed : g_bed)
+    {
+        if (bed.cue == cue)
+        {
+            return;
+        }
+    }
+    build_catalog(g);
+    const auto found = g_cues.find(cue);
+    if (found == g_cues.end())
+    {
+        std::cout << "audio unmapped " << cue << "\n";
+        return;
+    }
+    if (const WaveChoice* choice = pick_choice(found->second, g.frame))
+    {
+        play_choice(cue, *choice, loop, true);
+    }
+#else
+    (void)g;
+    (void)cue;
+    (void)loop;
+#endif
+}
+
+void pcm_stop_cue(const char* cue)
+{
+#if defined(_WIN32)
+    if (cue == nullptr)
+    {
+        return;
+    }
+    for (size_t i = 0; i < g_bed.size();)
+    {
+        if (g_bed[i].cue != cue)
+        {
+            ++i;
+            continue;
+        }
+        g_bed[i].voice->Stop(0);
+        g_bed[i].voice->DestroyVoice();
+        g_bed.erase(g_bed.begin() + static_cast<std::ptrdiff_t>(i));
+    }
+#else
+    (void)cue;
 #endif
 }
 

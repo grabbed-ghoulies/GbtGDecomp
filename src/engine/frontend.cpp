@@ -503,12 +503,14 @@ void kb_activate(Game& g)
     }
 }
 
-// One row of the slot table in .data. Names start at VA 0x429048, stride 0x124.
-// FUN_000de7b0 (t = 0) writes center (x, y) into the widget at +0x428 / +0x42C.
-// FUN_000df9a0 case 6 and FUN_000de540 write the box at +0x510 / +0x514:
-//   rest      = norm * {640,480} + DAT_00428FBC (12)
-//   highlight = 0.25 * {640,480} + DAT_00428FC0 (20)
-// The draw at 0x000DE070 places the quad at center - box/2. Scale * texture size is norm * {640,480}.
+// One row of the slot table at 0x0042902C, stride 0x124.
+// Init copies the center into the widget at +0x428 / +0x42C.
+// 0x000DF9A0 case 6 writes the sprite scale at +0x434 / +0x438:
+//   screen * rest_norm / texture_size
+// and the hit box at +0x510 / +0x514: rest_norm * {640,480} + DAT_00428FBC (12).
+// 0x000DE540 lerps the selected slot from that rest scale to the 0.25 hot scale.
+// 0x0005CA60 then centers a quad of texture_size * scale on +0x428. The box is
+// only the argument to 0x00061360.
 struct SlotPlate
 {
     const char* texture;
@@ -522,8 +524,6 @@ struct SlotPlate
 
 constexpr float kFrameW = 640.f;
 constexpr float kFrameH = 480.f;
-constexpr float kRestBias = 12.f;
-constexpr float kHotBias = 20.f;
 
 constexpr SlotPlate kSlots[3] = {
     {"gameselect_oneframe", 130.f, 200.f, 0.16f, 0.16f, 0.25f, 0.25f},
@@ -539,27 +539,12 @@ void draw_plate(const Game& g, int index, bool selected)
     const char* texture = g.slot_status[index] == 4 ? "gameselect_chapter1" : slot.texture;
     const float nx = selected ? slot.hot_x : slot.rest_x;
     const float ny = selected ? slot.hot_y : slot.rest_y;
-    const float bias = selected ? kHotBias : kRestBias;
-    // 0x000DE070 truncates the box, then places the quad at center - box/2.
-    // The drawn size stays norm * {640,480}. The bias only shifts that center.
-    const int box_w = int(nx * kFrameW + bias);
-    const int box_h = int(ny * kFrameH + bias);
-    const float left = slot.center_x - float(box_w / 2);
-    const float top = slot.center_y - float(box_h / 2);
-    draw_sprite(find_ui(g, texture), left, top, nx * kFrameW, ny * kFrameH);
-    if (!selected)
-    {
-        return;
-    }
-    // FUN_001439c0 hangs bigarrowup / bigarrowdown on the selected slot widget.
-    const Game::UiImage* up = find_ui(g, "gameselect_bigarrowup");
-    const Game::UiImage* down = find_ui(g, "gameselect_bigarrowdown");
-    const float aw = up ? float(up->image.width) : 128.f;
-    const float ah = up ? float(up->image.height) : 32.f;
-    const float ax = slot.center_x - aw * 0.5f;
-    draw_sprite(up, ax, top - ah, aw, ah);
-    const float dh = down ? float(down->image.height) : ah;
-    draw_sprite(down, ax, top + ny * kFrameH, aw, dh);
+    // 0x0005CA60. On-screen size is texture pixels * scale, and scale is
+    // (norm * screen) / texture pixels, so the quad is norm * {640,480}
+    // centered on the table center.
+    const float w = nx * kFrameW;
+    const float h = ny * kFrameH;
+    draw_sprite(find_ui(g, texture), slot.center_x - w * 0.5f, slot.center_y - h * 0.5f, w, h);
 }
 
 std::u16string key_label(const Game& g, u32 code)
@@ -724,44 +709,7 @@ void draw_keyboard(const Game& g)
     }
 }
 
-void draw_contents(const Game& g)
-{
-    // Chapter plate stays on the slot center from 0x00429048. The rows are the
-    // gameslotcontents keys: playgame, features, challenges.
-    draw_sprite(find_ui(g, "gameselect_emptyslotbackground"), 0.f, 0.f, kFrameW, kFrameH);
-    draw_plate(g, g.slot, true);
-    const GloopyFont& font = gloopy_font(g);
-    const int frame = font.rest_frame();
-    const float scale = 0.65f;
-    // 0x000DA0B5 / the contents keys. Play, Features, Bonus Challenges.
-    const std::u16string rows_text[3] = {
-        gameselect_string(g, "gameslotcontents_playgame"),
-        gameselect_string(g, "gameslotcontents_features"),
-        gameselect_string(g, "gameslotcontents_challenges"),
-    };
-    const int rows = g.frontend_mode == 6 ? 1 : 3;
-    const float top = 300.f;
-    const float step = 36.f;
-    const float pen_x = 48.f;
-    for (int i = 0; i < rows; ++i)
-    {
-        const bool hot = g.frontend_mode == 6 || i == g.contents_row;
-        const int glyph = hot ? font.frame(g.time) : frame;
-        const float y = top + float(i) * step;
-        if (hot)
-        {
-            const Game::UiImage* arrow = find_ui(g, "gameselect_bigarrowup");
-            const float ah = arrow ? float(arrow->image.height) : 32.f;
-            draw_sprite(arrow, pen_x - 36.f, y, ah, ah * 0.5f);
-        }
-        draw_glyphs(font, rows_text[i], pen_x, y, scale, glyph);
-    }
-    if (g.slot_name_len[g.slot] > 0)
-    {
-        draw_glyphs(font, std::u16string_view(g.slot_name[g.slot], size_t(g.slot_name_len[g.slot])), pen_x, 48.f,
-                    scale, frame);
-    }
-}
+void draw_contents(const Game& g);
 
 std::u16string utf8_to_u16(std::string_view utf8)
 {
@@ -837,34 +785,317 @@ std::u16string gameselect_string(const Game& g, std::string_view key)
     return it->second;
 }
 
-// Xbox 0x000DFD70 writes gameslotselection_instructions ("Choose A Game").
-// 0x000FC190 on 640x480 stores DAT_00509730 = 320 and DAT_00509734 = 240.
-// The title anchor is that point plus DAT_00428FB4 (0) and DAT_00428FB8 (50).
-// The same case places the prompt bar at DAT_0050974C - DAT_0032B1F4 (443.5 - 16).
-void draw_slot_select_copy(const Game& g)
+float text_width(const GloopyFont& font, std::u16string_view text, float scale)
 {
-    const GloopyFont& font = gloopy_font(g);
-    const int frame = font.rest_frame();
-    constexpr float kScale = 1.f;
-    draw_centered_line(font, gameselect_string(g, "gameslotselection_instructions"), 320.f, 290.f, kScale, frame);
-
-    const std::u16string move = gameselect_string(g, "gameslotselection_moveprompt");
-    const std::u16string select = gameselect_string(g, "gameslotselection_selectprompt");
-    const std::u16string back = gameselect_string(g, "gameslotselection_backtoattract");
-    std::u16string prompts;
-    for (const std::u16string* part : {&move, &select, &back})
+    float width = 0.f;
+    for (char16_t ch : text)
     {
-        if (part->empty())
+        width += float(font.advance(ch)) * scale;
+    }
+    return width;
+}
+
+float banner_delay(unsigned& seed);
+
+// Xbox 0x00060070. 0x0005FC30 calls it once the glyph delay at +0x204 has
+// counted down. remaining is the life copy at +0x400, which starts at the
+// life 0x0005F5C0 stored and then counts down. sticky is widget+0x121C.
+// Gameselect passes EAX = 1 into 0x0005F5C0, so that flag is set and the
+// life is 60 (0x42700000) instead of the caller's 1.0. The pool step at
+// +0x20 is DAT_0032B0F4 (0.5). Glyph frame count is texture byte +0x11.
+int goo_glyph_frame(float remaining, float life, float step, int count, int rate, bool sticky)
+{
+    constexpr float kEps = 0.001f;
+    if (count <= 1)
+    {
+        return 0;
+    }
+    if (!sticky && kEps > remaining)
+    {
+        return 0;
+    }
+    if (life == 0.f)
+    {
+        return count - 1;
+    }
+    if (!(step > 0.f))
+    {
+        step = rate > 0 ? float(count) / float(rate) : 0.f;
+    }
+    const auto wrapped = [count](float ticks) {
+        const int q = static_cast<int>(ticks);
+        int frame = count == 0 ? 0 : q % count;
+        if (frame < 0)
+        {
+            frame += count;
+        }
+        return frame;
+    };
+    if (remaining < life - step)
+    {
+        if (step < remaining || sticky)
+        {
+            return count - 1;
+        }
+        if (step == 0.f)
+        {
+            return 0;
+        }
+        const float span = (1.f / step) * float(count);
+        if (span == 0.f)
+        {
+            return 0;
+        }
+        return wrapped(span * remaining);
+    }
+    if (step == 0.f)
+    {
+        return 0;
+    }
+    const float span = (1.f / step) * float(count);
+    if (span == 0.f)
+    {
+        return 0;
+    }
+    return wrapped((life - remaining) * span);
+}
+
+// One 0x0005F5C0 widget. Delays are the pool's DAT_0054DD7C sequence.
+struct GooLine
+{
+    float born = -1.f;
+    int slot = -2;
+    std::u16string text;
+    std::vector<float> delay;
+};
+
+unsigned& goo_seed()
+{
+    static unsigned seed = 0;
+    return seed;
+}
+
+void arm_goo(GooLine& line, const std::u16string& text, float now, int slot)
+{
+    line.text = text;
+    line.born = now;
+    line.slot = slot;
+    line.delay.assign(text.size(), 0.f);
+    unsigned& seed = goo_seed();
+    for (float& delay : line.delay)
+    {
+        delay = banner_delay(seed);
+    }
+}
+
+int goo_frame(const GooLine& line, size_t index, float now, int count)
+{
+    constexpr float kLife = 60.f;
+    constexpr float kStep = 0.5f;
+    const float age = now - line.born;
+    const float delay = index < line.delay.size() ? line.delay[index] : 0.f;
+    if (age < delay)
+    {
+        return 0;
+    }
+    float remaining = kLife - (age - delay);
+    if (remaining < 0.f)
+    {
+        remaining = 0.f;
+    }
+    return goo_glyph_frame(remaining, kLife, kStep, count, 25, true);
+}
+
+void draw_goo_line(const GloopyFont& font, const GooLine& line, float pen_x, float pen_y, float scale, float now,
+                   bool center)
+{
+    if (line.text.empty() || font.cell() <= 0 || scale == 0.f)
+    {
+        return;
+    }
+    const int count = font.rest_frame() + 1;
+    float x = pen_x;
+    if (center)
+    {
+        x -= text_width(font, line.text, scale) * 0.5f;
+    }
+    const float em = float(font.cell()) * scale;
+    for (size_t i = 0; i < line.text.size(); ++i)
+    {
+        const char16_t ch = line.text[i];
+        const int frame = goo_frame(line, i, now, count);
+        if (const RgbaImage* glyph = font.image(ch, frame))
+        {
+            const float bx = float(font.bearing(ch)) * scale;
+            gfx_sprite_submit(*glyph, x - bx, pen_y, em, em);
+        }
+        x += float(font.advance(ch)) * scale;
+    }
+}
+
+// Contents widget, mode-table index 3. 0x000E02D0 sets the scene object's +0x94
+// to 3 when the chosen slot's status is 2, 3, or 4, and that index's draw is
+// 0x000D9640. 0x000D8B10 walks three records of 0x104 from 0x00428D04 and the
+// layout table at 0x00306994 (stride 0x1C): centers (130, 200), (320, 200),
+// (510, 200), rest norm 0.16, hot norm 0.25. The background at +0xC88 is the
+// highlighted row's texture, centered, scaled up to the frame. 0x000D9D10
+// lerps only the highlighted plate toward the hot norm. The save name sits at
+// screen center + (0, -185) = (320, 55), scale 1.8. The highlighted row's
+// loctext is the wide string at slot+4, placed at (320, 278), scale 1.4.
+// 0x000DA040's chapter line is the buffer at +0xA78, anchor (320, 330), scale 0.75.
+void draw_contents(const Game& g)
+{
+    struct Plate
+    {
+        const char* texture;
+        const char* label;
+        float center_x;
+    };
+    constexpr Plate kPlates[3] = {
+        {"gameselect_house", "gameslotcontents_playgame", 130.f},
+        {"gameselect_zombieclapframe", "gameslotcontents_features", 320.f},
+        {"gameselect_skellyscratchheadframe", "gameslotcontents_challenges", 510.f},
+    };
+    const int hot = g.contents_row >= 0 && g.contents_row < 3 ? g.contents_row : 0;
+    const Plate& shown = kPlates[hot];
+    draw_sprite(find_ui(g, shown.texture), 0.f, 0.f, kFrameW, kFrameH);
+    for (int i = 0; i < 3; ++i)
+    {
+        if (i == hot)
         {
             continue;
         }
-        if (!prompts.empty())
-        {
-            prompts += u"    ";
-        }
-        prompts += *part;
+        const float w = 0.16f * kFrameW;
+        const float h = 0.16f * kFrameH;
+        draw_sprite(find_ui(g, kPlates[i].texture), kPlates[i].center_x - w * 0.5f, 200.f - h * 0.5f, w, h);
     }
-    draw_centered_line(font, prompts, 320.f, 427.5f, kScale, frame);
+    {
+        const float w = 0.25f * kFrameW;
+        const float h = 0.25f * kFrameH;
+        draw_sprite(find_ui(g, shown.texture), shown.center_x - w * 0.5f, 200.f - h * 0.5f, w, h);
+    }
+
+    const GloopyFont& font = gloopy_font(g);
+    std::u16string name;
+    if (g.slot_name_len[g.slot] > 0)
+    {
+        name.assign(g.slot_name[g.slot], g.slot_name[g.slot] + g.slot_name_len[g.slot]);
+    }
+    const std::u16string label = gameselect_string(g, shown.label);
+    const std::u16string chapter = gameselect_string(g, "gameslotcontents_chapter");
+    static int last_row = -2;
+    static GooLine name_line;
+    static GooLine label_line;
+    static GooLine chapter_line;
+    if (name_line.slot != g.slot || name_line.text != name)
+    {
+        arm_goo(name_line, name, g.time, g.slot);
+    }
+    if (last_row != hot || label_line.text != label)
+    {
+        arm_goo(label_line, label, g.time, hot);
+    }
+    if (chapter_line.text != chapter)
+    {
+        arm_goo(chapter_line, chapter, g.time, -1);
+    }
+    last_row = hot;
+    draw_goo_line(font, name_line, 320.f, 55.f, 1.8f, g.time, true);
+    draw_goo_line(font, label_line, 320.f, 278.f, 1.4f, g.time, true);
+    draw_goo_line(font, chapter_line, 320.f, 330.f, 0.75f, g.time, true);
+
+    const char* prompt_keys[3] = {
+        "gameslotcontents_moveprompt",
+        "gameslotcontents_selectprompt",
+        "gameslotcontents_backprompt",
+    };
+    static GooLine prompts[3];
+    constexpr float kPromptScale = 0.75f;
+    constexpr float kPromptGap = 32.f;
+    float x = 76.5f;
+    for (int i = 0; i < 3; ++i)
+    {
+        const std::u16string part = gameselect_string(g, prompt_keys[i]);
+        if (prompts[i].text != part)
+        {
+            arm_goo(prompts[i], part, g.time, -1);
+        }
+        if (part.empty())
+        {
+            continue;
+        }
+        draw_goo_line(font, prompts[i], x, 415.5f, kPromptScale, g.time, false);
+        x += text_width(font, part, kPromptScale) + kPromptGap;
+    }
+}
+
+// 0x000DF9A0 while the widget mode is 6 places the selected slot's wide name
+// through 0x0005F5C0. The anchor is the per-slot point init wrote at +0x418:
+// screen center plus DAT_00428FA8 (0) and DAT_00428FAC (-185). Scale is
+// DAT_00428FA4 (1.8). param_8 = 1, so the line is centered on that point.
+// The title is the same call with DAT_00428FB0 (1) at center + (0, 50).
+// The prompt bar's y is DAT_0050974C - 16. On 640x480, 0x000FC190 stores
+// that edge at 431.5, and the three prompt strings use DAT_00429024 (0.75).
+void draw_slot_select_copy(const Game& g)
+{
+    const GloopyFont& font = gloopy_font(g);
+    std::u16string name;
+    if (g.slot_name_len[g.slot] > 0)
+    {
+        name.assign(g.slot_name[g.slot], g.slot_name[g.slot] + g.slot_name_len[g.slot]);
+    }
+    else
+    {
+        name = gameselect_string(g, "emptyslotname");
+    }
+
+    // 0x000DF9A0 builds these widgets again on the way into mode 6, including
+    // each time the slot changes. The title and the prompt bar stay put.
+    static int last_mode = -2;
+    const bool entered = last_mode != 1;
+    last_mode = g.frontend_mode;
+
+    static GooLine slot_name;
+    static GooLine title;
+    static GooLine prompts[3];
+    if (entered || slot_name.slot != g.slot || slot_name.text != name)
+    {
+        arm_goo(slot_name, name, g.time, g.slot);
+    }
+    const std::u16string title_text = gameselect_string(g, "gameslotselection_instructions");
+    if (entered || title.text != title_text)
+    {
+        arm_goo(title, title_text, g.time, -1);
+    }
+    const char* prompt_keys[3] = {
+        "gameslotselection_moveprompt",
+        "gameslotselection_selectprompt",
+        "gameslotselection_backtoattract",
+    };
+    for (int i = 0; i < 3; ++i)
+    {
+        const std::u16string part = gameselect_string(g, prompt_keys[i]);
+        if (entered || prompts[i].text != part)
+        {
+            arm_goo(prompts[i], part, g.time, -1);
+        }
+    }
+
+    draw_goo_line(font, slot_name, 320.f, 55.f, 1.8f, g.time, true);
+    draw_goo_line(font, title, 320.f, 290.f, 1.f, g.time, true);
+
+    constexpr float kPromptScale = 0.75f;
+    constexpr float kPromptGap = 32.f;
+    float x = 76.5f;
+    for (const GooLine& part : prompts)
+    {
+        if (part.text.empty())
+        {
+            continue;
+        }
+        draw_goo_line(font, part, x, 415.5f, kPromptScale, g.time, false);
+        x += text_width(font, part.text, kPromptScale) + kPromptGap;
+    }
 }
 
 // Xbox 0x000FF120 builds "%s__%s" from the two cstrings at 0x00323EE4 / 0x00323EEC.
@@ -1029,12 +1260,19 @@ void load_ui(Game& g)
     std::cout << "  ui textures " << g.ui.size() << "\n";
 }
 
+// 0x000E5B40, from 0x000DF9A0 case 1 when the slot widget opens. EAX is this
+// cue and the id on the stack is 1. 0x00038910 acquires it; 0x000382C0 then
+// binds a channel and 0x00038DA0 sets that voice playing. The cue-list row is
+// Gstreamsditties / pause: device 3 (Gdvd8), wave 0.
+constexpr const char* kSlotOpen = "XACT_SOUNDBANK_GSTREAMSDITTIES_PAUSE";
+
 void begin_frontend(Game& g)
 {
     // entitySceneControlAttract (registrar 0x00080970). The banner is that object,
     // built because the script names aid_objparams_ghoulies_scenecontrol_attract*.
     if (scene_control_starts(g, "attract"))
     {
+        pcm_stop_cue(kSlotOpen);
         g.frontend_mode = 0;
         g.naming = false;
         // A new attract script builds a new banner, so +0x294 starts clear.
@@ -1048,6 +1286,7 @@ void begin_frontend(Game& g)
     // A scene with no frontend scene-control leaves the widget down.
     if (!scene_control_is(g, "gameselect"))
     {
+        pcm_stop_cue(kSlotOpen);
         g.frontend_mode = -1;
         g.naming = false;
         return;
@@ -1055,6 +1294,7 @@ void begin_frontend(Game& g)
     g.frontend_pending = 1;
     g.frontend_mode = g.frontend_pending;
     g.naming = false;
+    pcm_play_cue(g, kSlotOpen, true);
     std::cout << "frontend mode 1 slot select\n";
 }
 

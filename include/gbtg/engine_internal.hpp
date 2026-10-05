@@ -26,5 +26,8 @@ void draw_cutscene_props(Game& g);
 void pad_tick(Game& g, const InputState& in); // Xbox 0x000FA3C0 / 0x000FAD80
 void audio_tick(Game& g, float dt);           // Xbox 0x0015B780 and the XACT calls
 void pcm_cutscene_sync(const Game& g);
+// Cue-list name, the same key build_catalog stores. loop keeps the voice up.
+void pcm_play_cue(const Game& g, const char* cue, bool loop);
+void pcm_stop_cue(const char* cue);
 
 } // namespace gbtg

@@ -17236,6 +17236,141 @@ u32 fn_1077b0(const char* key)
     return u32(u16(found + 1));
 }
 
+// DAT_0050E0E8. The global holds the span. +4 is the first record and +8 is
+// the end. Each record is 0x50 bytes. +0 is the key the walk matches.
+// +0x48 selects the refresh. +0x4C stores the frame from DAT_004DEA58.
+struct SceneSpanRecord
+{
+    void* key = nullptr;
+    u8 gap[0x48 - sizeof(void*)]{};
+    i32 selector = 0;
+    u32 frame = 0;
+};
+static_assert(offsetof(SceneSpanRecord, selector) == 0x48);
+static_assert(offsetof(SceneSpanRecord, frame) == 0x4c);
+static_assert(sizeof(SceneSpanRecord) == 0x50);
+
+struct SceneSpan
+{
+    void* at_0 = nullptr;
+    SceneSpanRecord* begin = nullptr;
+    SceneSpanRecord* end = nullptr;
+};
+
+SceneSpan* g_span_50e0e8 = nullptr;
+
+// DAT_004DEA58. clock.hpp names this Clock::frame.
+u32 g_4dea58 = 0;
+
+// Xbox 0x00109470. EAX is the object. The dword at +0 minus 1 selects the
+// key and the refresh. Values 0 through 3 (kinds 1 through 4) use the
+// object as the key. Value 4 (kind 5) uses the pointer at +0xB8. Every
+// other value uses a null key. The span is walked at stride 0x50 until
+// record+0 matches. A miss leaves the record null.
+//
+// Values 1, 2, and 4 keep the object for the frame test. Value 0, value 3,
+// and every other value use a null pointer there. The body runs when that
+// pointer differs from the key, or record+0x4C differs from DAT_004DEA58.
+// Both equal returns. The frame is the value read at entry.
+//
+// A zero selector calls 0x00107E20 for values 0 and 1, 0x001079D0 for
+// value 3, and 0x00107B90 for value 4. A nonzero selector calls 0x001078A0
+// for value 0, 0x00107EC0 for value 1, and 0x00107C30 for value 4. Value 4
+// passes the object in EDI. 0x00107E20, 0x001079D0, 0x00107B90, 0x001078A0,
+// 0x00107EC0, and 0x00107C30 are not translated, so those calls are not
+// made. The body stores DAT_004DEA58 at record+0x4C. Values 0, 1, and 4
+// return from the call site. Value 2, and value 3 when the selector is
+// nonzero, fall through to that store.
+void fn_109470(void* object)
+{
+    const u32 frame = g_4dea58;
+    const i32 select = *reinterpret_cast<i32*>(object) - 1;
+    void* key = nullptr;
+    switch (select)
+    {
+    case 0:
+    case 1:
+    case 2:
+    case 3:
+        key = object;
+        break;
+    case 4:
+        key = *reinterpret_cast<void**>(static_cast<u8*>(object) + 0xb8);
+        break;
+    default:
+        key = nullptr;
+        break;
+    }
+
+    SceneSpan* span = g_span_50e0e8;
+    SceneSpanRecord* record = nullptr;
+    for (SceneSpanRecord* cursor = span->begin; cursor < span->end; cursor = cursor + 1)
+    {
+        if (cursor->key == key)
+        {
+            record = cursor;
+            break;
+        }
+    }
+
+    void* kept = nullptr;
+    switch (select)
+    {
+    case 1:
+    case 2:
+    case 4:
+        kept = object;
+        break;
+    default:
+        kept = nullptr;
+        break;
+    }
+
+    if (kept != key || record->frame != frame)
+    {
+        if (record->selector == 0)
+        {
+            switch (select)
+            {
+            case 0:
+                // 0x00107E20. EAX is the object.
+                record->frame = frame;
+                return;
+            case 1:
+                // 0x00107E20. EAX is the object.
+                record->frame = frame;
+                return;
+            case 3:
+                // 0x001079D0. EAX is the object.
+                break;
+            case 4:
+                // 0x00107B90. EAX is the object.
+                record->frame = frame;
+                return;
+            }
+        }
+        else
+        {
+            switch (select)
+            {
+            case 0:
+                // 0x001078A0. EAX is the object.
+                record->frame = frame;
+                return;
+            case 1:
+                // 0x00107EC0. EAX is the object.
+                record->frame = frame;
+                return;
+            case 4:
+                // 0x00107C30. EDI is the object.
+                record->frame = frame;
+                return;
+            }
+        }
+        record->frame = frame;
+    }
+}
+
 // Xbox 0x00124E50. Handler 2. Types 0x32 through 0x38 store the dword at
 // node+8 and return 2. Types 0x34 and 0x36 scale by 0x001077B0. That call
 // passes the cstring at node+0xC in EAX. Type 0x37 stores the float at

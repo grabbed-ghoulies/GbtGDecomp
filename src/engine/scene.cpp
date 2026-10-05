@@ -21322,4 +21322,406 @@ void fn_f71f0(void* dest, const void* src, u32 count)
 
 } // namespace
 
+// DAT_00510CF4. Phase this tick switches on. 3 and 8 are the settled steps.
+i32 g_510cf4 = 0;
+// DAT_00510CFC. Nonzero is the object 0x00109470 takes in EAX.
+void* g_510cfc = nullptr;
+// DAT_00510E30. A zero dword at +0x94C clears the pointer after 0x00142070.
+u8* g_510e30 = nullptr;
+// DAT_00510CF8. Points at the object whose +4 and +8 are the unsigned counts.
+u8** g_510cf8 = nullptr;
+// DAT_00510E24. +0 indexes the stride-0x124 table at DAT_0042217C. +8 and
+// +0x10 are flags. +0x24 is the clock (+0x2C over +0x34). +0x94 is the slot.
+u8* g_510e24 = nullptr;
+// DAT_00510E28. Phase 6 selects one of cases 1 through 7.
+i32 g_510e28 = 0;
+// DAT_004EE1EC. entity.cpp keeps a private copy. Nonzero skips phases 4 and 5.
+i32 g_4ee1ec = 0;
+// DAT_00506C90. entity.cpp keeps a private copy. Zero takes 0x0011EAD0.
+u16 g_506c90 = 0;
+// DAT_00429BC0, then the wide buffer at DAT_00429BC4 (0x100 bytes, next
+// symbol DAT_00429CC4).
+i32 g_429bc0 = 0;
+u16 g_429bc4[0x80]{};
+// DAT_004E19B4. Wide source of that copy. 0x80 bytes, next symbol DAT_004E1A34.
+u16 g_4e19b4[0x40]{};
+// DAT_00510ED8. 0x80-byte aid. entity.cpp keeps a private copy of 0x0011EB30.
+char g_510ed8[0x80]{};
+// DAT_00510F58. Mode dword stored by that copy.
+i32 g_510f58 = 0;
+// DAT_00430D0C. Cleared with DAT_00430D08 and DAT_00430D10.
+i32 g_script_30d0c = 0;
+// DAT_00430D94. Nonzero skips the clear of DAT_00506C8C, then becomes 0.
+i32 g_script_30d94 = 0;
+// DAT_00430D98. Cleared with DAT_00430D94.
+i32 g_script_30d98 = 0;
+// DAT_00506C8C. Cleared when DAT_00430D94 was 0 on entry to the copy.
+i32 g_506c8c = 0;
+
+// Image at DAT_0042217C. Stride 0x124. +0 and +4 are the progress gates.
+// +8 is the slot when the ratio is at or under +0. +0xC is the slot when
+// the ratio is over +4. Indices 0 through 14 are the rows in the image.
+struct ProgressRow42217c
+{
+    u32 low = 0;
+    u32 high = 0;
+    i32 low_slot = 0;
+    i32 high_slot = 0;
+    u8 pad[0x114]{};
+};
+static_assert(sizeof(ProgressRow42217c) == 0x124);
+static_assert(offsetof(ProgressRow42217c, high) == 4);
+static_assert(offsetof(ProgressRow42217c, low_slot) == 8);
+static_assert(offsetof(ProgressRow42217c, high_slot) == 0xc);
+
+constexpr ProgressRow42217c kProgress42217c[] = {
+    {0x3f1eb852u, 0x3f547ae1u, 1, 2},
+    {0x3ebd70a4u, 0x3ed1eb85u, 2, 1},
+    {0x3ebbc01au, 0x3f547ae1u, 0, 2},
+    {0x3efae148u, 0x00000000u, 0, 0},
+    {0x3efae148u, 0x00000000u, 0, 0},
+    {0x3efae148u, 0x00000000u, 0, 0},
+    {0x3efae148u, 0x00000000u, 0, 0},
+    {0x3efae148u, 0x00000000u, 0, 0},
+    {0x3efae148u, 0x00000000u, 0, 0},
+    {0x3efae148u, 0x00000000u, 0, 0},
+    {0x3efae148u, 0x00000000u, 0, 0},
+    {0x3efae148u, 0x00000000u, 0, 0},
+    {0x3efae148u, 0x00000000u, 0, 0},
+    {0x3efae148u, 0x00000000u, 2, 2},
+    {0x3ecccccdu, 0x00000000u, 2, 2},
+};
+
+// 'aid_' as a little-endian dword. 0x0011EB30 clears the name when it matches.
+constexpr u32 kAidPrefixEd8 = 0x5f646961u;
+
+// DAT_00322B8C. 10 dwords and one word: the aid plus its NUL.
+constexpr char kGameselectAid[] = "aid_script_ghoulies_gameselect_gameselect";
+static_assert(sizeof(kGameselectAid) == 42);
+
+// Clock at player+0x24. The ratio is the float at +0x2C over the float at +0x34.
+static float progress_ratio(const u8* player)
+{
+    const u8* clock = *reinterpret_cast<u8* const*>(player + 0x24);
+    const float num = *reinterpret_cast<const float*>(clock + 0x2c);
+    const float den = *reinterpret_cast<const float*>(clock + 0x34);
+    return num / den;
+}
+
+// Shared tail at 0x0011D020. DAT_00510CF4 becomes 3. 0x00048940 is not
+// translated: the stack dword is 0x3DFBE76D and ECX is DAT_00510E24.
+// A zero dword at +8 would call 0x0004E640 with EAX = 1 and EDI = the
+// clock at +0x24. That call is not translated. +8 is then stored as 1.
+static void enter_phase_three()
+{
+    g_510cf4 = 3;
+    i32* flag = reinterpret_cast<i32*>(g_510e24 + 8);
+    if (*flag == 0)
+    {
+        *flag = 1;
+    }
+}
+
+// 0x0014A961. The SEH wrapper around 0x001660E9. Each 16-bit unit is stored,
+// then both pointers advance, until the unit just stored is zero.
+static u16* copy_wide_14a961(u16* dest, const u16* src)
+{
+    u16* out = dest;
+    u16 unit = 0;
+    do
+    {
+        unit = *src;
+        *out = unit;
+        ++out;
+        ++src;
+    } while (unit != 0);
+    return dest;
+}
+
+// 0x0011EB30. EAX is the source aid. The stack dword is the mode. A first
+// dword of 'aid_' clears the lead byte, then the source is copied through
+// its NUL. DAT_00430D08, DAT_00430D0C, DAT_00430D10, and the byte at
+// DAT_00430D14 become 0. A zero DAT_00430D94 also clears DAT_00506C8C.
+// DAT_00430D94 and DAT_00430D98 become 0. The mode lands at DAT_00510F58.
+// entity.cpp keeps a private copy of these addresses.
+static void request_scene_aid(const char* src, i32 mode)
+{
+    u32 head = 0;
+    std::memcpy(&head, g_510ed8, sizeof(head));
+    if (head == kAidPrefixEd8)
+    {
+        g_510ed8[0] = 0;
+    }
+    char* dest = g_510ed8;
+    for (;;)
+    {
+        const char unit = *src;
+        *dest = unit;
+        ++src;
+        ++dest;
+        if (unit == 0)
+        {
+            break;
+        }
+    }
+    g_flag_30d08 = 0;
+    g_script_30d0c = 0;
+    g_script_30d10 = 0;
+    g_byte_30d14 = 0;
+    if (g_script_30d94 == 0)
+    {
+        g_506c8c = 0;
+    }
+    g_script_30d94 = 0;
+    g_script_30d98 = 0;
+    g_510f58 = mode;
+}
+
+// Xbox 0x0011CFB0
+// Phase 2 through 9 would call 0x00057E60. A nonzero DAT_00510CFC calls
+// 0x00109470 with that pointer in EAX. The first switch then steps the
+// phase. Phases 2 and 9 compare the clock ratio with 0.123 (DAT_0032B6CC,
+// 0x3DFBE76D) and 0.815 (DAT_0032B634, 0x3F50A3D7). At or under the gate
+// stays. Over it, and phases 4 and 5 when DAT_004EE1EC is 0, enter phase 3.
+// Phase 6 copies aid_script_ghoulies_gameselect_gameselect into an 0x80
+// stack buffer and switches on DAT_00510E28. Phase 7 enters phase 8 and
+// ORs 0x2200 into DAT_0050EA9C. The second switch calls 0x00142460 for
+// phases 1, 2, 6, 7, and 9 when DAT_00510E30 is set (EAX is 0), for phase
+// 8 when that pointer is set (EAX is DAT_00510CFC), and for phase 3
+// (EAX is DAT_00510CFC, or 0 when that pointer is clear). 0x00142460,
+// 0x0011DEA0, 0x001083F0, and 0x0011DEE0 are not translated, so their
+// returns are not taken. Phases 2 through 7, and phase 9, then mark a
+// slot from the DAT_0042217C row and would call 0x000483E0.
+void fn_11cfb0()
+{
+    i32 phase = g_510cf4;
+    if (1 < phase && phase < 10)
+    {
+        // 0x00057E60 is not translated.
+    }
+    if (g_510cfc != nullptr)
+    {
+        fn_109470(g_510cfc);
+    }
+
+    phase = g_510cf4;
+    switch (phase)
+    {
+    case 1:
+        if (g_510e30 != nullptr && *reinterpret_cast<i32*>(g_510e30 + 0x94c) == 0)
+        {
+            // 0x00142070 is not translated. EAX is DAT_00510E30.
+            g_510e30 = nullptr;
+        }
+        if (g_510cf8 != nullptr)
+        {
+            const u8* obj = *g_510cf8;
+            const u32 at_4 = *reinterpret_cast<const u32*>(obj + 4);
+            const u32 at_8 = *reinterpret_cast<const u32*>(obj + 8);
+            if (at_8 <= at_4)
+            {
+                // 0x0005F460 is not translated. EAX is the object at [DAT_00510CF8].
+                g_510cf8 = nullptr;
+            }
+        }
+        break;
+    case 2:
+        if (g_510e24 != nullptr)
+        {
+            const float ratio = progress_ratio(g_510e24);
+            const float gate = std::bit_cast<float>(0x3dfbe76du);
+            if (ratio < gate || ratio == gate)
+            {
+                break;
+            }
+        }
+        if (phase != 3)
+        {
+            enter_phase_three();
+        }
+        break;
+    case 3:
+    case 8:
+        break;
+    case 4:
+    case 5:
+        if (g_4ee1ec != 0 || phase == 3)
+        {
+            break;
+        }
+        enter_phase_three();
+        break;
+    case 6:
+        if (g_510e24 == nullptr || *reinterpret_cast<i32*>(g_510e24 + 0x10) != 0)
+        {
+            char aid[0x80];
+            std::memcpy(aid, kGameselectAid, sizeof(kGameselectAid));
+            std::memset(aid + sizeof(kGameselectAid), 0, sizeof(aid) - sizeof(kGameselectAid));
+            switch (g_510e28)
+            {
+            case 1:
+                // 0x0011D490 is not translated. EAX is 1.
+                break;
+            case 2:
+                // 0x000F2780 is not translated.
+                if (g_506c90 == 0)
+                {
+                    fn_11ead0();
+                }
+                else
+                {
+                    g_429bc0 = 3;
+                    copy_wide_14a961(g_429bc4, g_4e19b4);
+                    request_scene_aid(aid, 1);
+                }
+                break;
+            case 3:
+                // 0x0004A310 is not translated. 0x000F2780 is not translated.
+                break;
+            case 4:
+                // 0x000F2780 is not translated.
+                g_429bc0 = 6;
+                copy_wide_14a961(g_429bc4, g_4e19b4);
+                request_scene_aid(aid, 1);
+                break;
+            case 5:
+                g_429bc0 = 10;
+                copy_wide_14a961(g_429bc4, g_4e19b4);
+                request_scene_aid(aid, 1);
+                break;
+            case 6:
+                g_429bc0 = 0xb;
+                copy_wide_14a961(g_429bc4, g_4e19b4);
+                request_scene_aid(aid, 1);
+                break;
+            case 7:
+                // 0x000F2780 is not translated.
+                g_429bc0 = 9;
+                copy_wide_14a961(g_429bc4, g_4e19b4);
+                request_scene_aid(aid, 1);
+                break;
+            }
+        }
+        break;
+    case 7:
+        if ((g_510e24 == nullptr || *reinterpret_cast<i32*>(g_510e24 + 0x10) != 0) && phase != 8)
+        {
+            g_510cf4 = 8;
+            // 0x0011DD10 is not translated. EAX is 0xB.
+            g_flags_ea9c = g_flags_ea9c | 0x2200u;
+        }
+        break;
+    case 9:
+        if (g_510e24 != nullptr)
+        {
+            const float ratio = progress_ratio(g_510e24);
+            const float gate = std::bit_cast<float>(0x3f50a3d7u);
+            if (ratio < gate || ratio == gate)
+            {
+                break;
+            }
+        }
+        if (phase != 3)
+        {
+            enter_phase_three();
+        }
+        break;
+    default:
+        break;
+    }
+
+    phase = g_510cf4;
+    if (phase >= 1 && phase <= 9)
+    {
+        switch (phase)
+        {
+        case 1:
+        case 2:
+        case 6:
+        case 7:
+        case 9:
+            if (g_510e30 != nullptr)
+            {
+                // 0x00142460 is not translated. EAX is 0.
+            }
+            break;
+        case 3:
+            if (g_510cfc != nullptr)
+            {
+                // 0x00142460 is not translated. EAX is DAT_00510CFC.
+                // A zero return would call 0x0011DEA0. A nonzero return
+                // from that would call 0x001083F0 with EAX = DAT_00510CFC
+                // and a stack 0x10. A nonzero return from that would call
+                // 0x0011DEE0. Those returns are not taken.
+            }
+            else
+            {
+                // 0x00142460 is not translated. EAX is 0. DAT_00510E30 is
+                // not tested on this path.
+            }
+            break;
+        case 8:
+            if (g_510e30 != nullptr)
+            {
+                // 0x00142460 is not translated. EAX is DAT_00510CFC.
+            }
+            break;
+        default:
+            break;
+        }
+    }
+
+    phase = g_510cf4;
+    if (phase < 2)
+    {
+        return;
+    }
+    if (7 < phase && phase != 9)
+    {
+        return;
+    }
+    if (g_510e24 == nullptr)
+    {
+        return;
+    }
+
+    u8* player = g_510e24;
+    const i32 index = *reinterpret_cast<const i32*>(player);
+    const u8* row = reinterpret_cast<const u8*>(kProgress42217c) +
+                    static_cast<std::ptrdiff_t>(index) * 0x124;
+    const u8* clock = *reinterpret_cast<u8* const*>(player + 0x24);
+    const float num = *reinterpret_cast<const float*>(clock + 0x2c);
+    const float den = *reinterpret_cast<const float*>(clock + 0x34);
+    const float ratio = num / den;
+    const float gate_low = std::bit_cast<float>(*reinterpret_cast<const u32*>(row + 0));
+    if (ratio < gate_low || ratio == gate_low)
+    {
+        const i32 slot = *reinterpret_cast<const i32*>(row + 8);
+        if (slot != -1)
+        {
+            *reinterpret_cast<i32*>(player + 0x94 + static_cast<std::ptrdiff_t>(slot) * 16) = 1;
+        }
+    }
+    else
+    {
+        const float num_again = *reinterpret_cast<const float*>(clock + 0x2c);
+        const float den_again = *reinterpret_cast<const float*>(clock + 0x34);
+        const float ratio_again = num_again / den_again;
+        const float gate_high = std::bit_cast<float>(*reinterpret_cast<const u32*>(row + 4));
+        if (ratio_again < gate_high || ratio_again == gate_high)
+        {
+            // At or under the high gate. The slot at +0xC stays clear.
+        }
+        else
+        {
+            const i32 slot = *reinterpret_cast<const i32*>(row + 0xc);
+            if (slot != -1)
+            {
+                *reinterpret_cast<i32*>(player + 0x94 + static_cast<std::ptrdiff_t>(slot) * 16) = 1;
+            }
+        }
+    }
+    // 0x000483E0 is not translated. EAX and the stack dword are DAT_00510E24.
+}
+
 } // namespace gbtg

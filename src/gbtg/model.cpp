@@ -965,6 +965,13 @@ void parse_embedded_textures(std::span<const u8> cpu, std::span<const u8> gpu, s
             catch (...)
             {
             }
+            // Byte +0xE of the texture. 0x000527C0 registers it when the byte is in 1..0x27.
+            // decode_xbox_texture replaces the image, so the slot is stored after that.
+            const u8 slot = u8((hdr.flags >> 16) & 0xff);
+            if (slot >= 1 && slot <= 0x27)
+            {
+                mesh.textures[t].movie_slot = slot;
+            }
         }
     }
 }

@@ -22,7 +22,7 @@ MSVC RTTI (`.?AV`) is almost absent — only `std::exception` family. Game types
 |------|------|
 | `.text` | Game + engine code (~1.4 MB) |
 | `D3D` / `D3DX` / `XGRPH` | Xbox D3D8 / graphics helpers |
-| `BINK*` / `BINKDATA` | RAD Bink (do not reimplement in-tree) |
+| `BINK*` / `BINKDATA` | RAD Bink. Not translated. The PC build calls FFmpeg at these entry points |
 | `XACTENG` / `DSOUND` / `WMADEC` / `DOLBY` | Audio |
 | `XPP` | XAPI |
 | `.rdata` / `.data` | AID strings, tables, globals |
@@ -124,6 +124,21 @@ Addresses are Xbox virtual. Names are from Code Browser / headless export. Recon
 | `0x00128AB0` | `script_set_name` | `EAX` = C string; copies into `DAT_00512494`. |
 | `0x001289A0` | `script_clear` | Restores the default name, clears script heap. |
 | `0x001234B0` | `aidlist_load` | `EAX` = name; requires little-endian `"aid_"` (`0x5F646961`); `0x35E90` resolves the resource. |
+
+### Movies
+
+`DAT_0050E0B8` is the clip list. `0x00033B50` walks it once; `0x00033A90` walks it twice. Calls at `0x001A59E0` and above are the `BINK` section and are not translated. The PC build calls FFmpeg there.
+
+| VA | Name | Notes |
+|----|------|--------|
+| `0x00106EF0` | movie path | `root + movie\ + %08x`. Returns the path. PAL suffix is unused while `DAT_005096E0` / `DAT_005096E4` are clear. |
+| `0x00107030` | movie open | `fastcall` path, node. Sync (`flags & 0x10` clear) is `BinkOpen` then `BinkSetVolume` (`0x001A7B70`, track 0, `0x4000`). Otherwise the file lands at `+0x30` and `+0x34` is set. |
+| `0x001071A0` | movie alloc | `0x3C` node. Bit 1 starts play, bit 2 loops, bit 8 selects alpha open flags, bit 4 selects the file path. Links `DAT_0050E0B8`. |
+| `0x001072B0` | movie free | `BinkClose` (`0x001A84F0`), unlink, heap free. |
+| `0x00107360` | movie blit | `BinkCopyToBuffer` (`0x001A7D00`) into a locked texture. |
+| `0x00107420` | movie tick | Open if needed, `BinkWait` (`0x001A7870`), then `BinkDoFrame` (`0x001A7D40`) and `BinkNextFrame` (`0x001A8350`) while `+0x18` is set. |
+| `0x000E01B0` | gameselect open | Flags `0x14`. Empty slots `0x004290C8`, chapters `0x0042941C`. |
+| `0x000E87F0` | contents open | Mode 3, flags `6`. |
 
 ### Entities
 

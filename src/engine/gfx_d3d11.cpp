@@ -3,6 +3,7 @@
 #endif
 
 #include "gbtg/gfx.hpp"
+#include "gbtg/movie.hpp"
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -71,6 +72,8 @@ struct DrawRange
 {
     ComPtr<ID3D11ShaderResourceView> srv;
     ComPtr<ID3D11ShaderResourceView> light;
+    i32 tex_index = -1;
+    i32 light_index = -1;
     u32 start = 0;
     u32 count = 0;
     float albedo_uv = 0.f;
@@ -90,6 +93,8 @@ struct GpuMesh
     ComPtr<ID3D11Buffer> vb;
     ComPtr<ID3D11Buffer> ib;
     std::vector<DrawRange> ranges;
+    std::vector<ComPtr<ID3D11ShaderResourceView>> tex_srv;
+    std::vector<u32> tex_serial;
 };
 
 struct GfxD3D11
@@ -127,7 +132,12 @@ struct GfxD3D11
     ComPtr<ID3D11BlendState> blend_alpha;
     ComPtr<ID3D11Buffer> ui_vb;
     std::unordered_map<const Mesh*, GpuMesh> meshes;
-    std::unordered_map<const RgbaImage*, ComPtr<ID3D11ShaderResourceView>> sprites;
+    struct SpriteGpu
+    {
+        ComPtr<ID3D11ShaderResourceView> srv;
+        u32 serial = 0;
+    };
+    std::unordered_map<const RgbaImage*, SpriteGpu> sprites;
     // Device shadow at 0x00181B70 (index * 4). BSS until a render-state setter writes it.
     u32 rs_dirty = 0;        // DAT_00181968
     int rs_zfunc = 0;        // DAT_00181c54, D3DRS_ZFUNC (index 0x39)
@@ -383,11 +393,14 @@ bool upload_mesh(const Mesh& mesh, GpuMesh& gpu)
         return false;
     }
 
-    std::vector<ComPtr<ID3D11ShaderResourceView>> textures;
-    textures.reserve(mesh.textures.size());
+    gpu.tex_srv.clear();
+    gpu.tex_serial.clear();
+    gpu.tex_srv.reserve(mesh.textures.size());
+    gpu.tex_serial.reserve(mesh.textures.size());
     for (const auto& img : mesh.textures)
     {
-        textures.push_back(upload_bgra(img.bgra.data(), img.width, img.height));
+        gpu.tex_srv.push_back(upload_bgra(img.bgra.data(), img.width, img.height));
+        gpu.tex_serial.push_back(img.serial);
     }
 
     if (mesh.submeshes.empty())
@@ -409,18 +422,21 @@ bool upload_mesh(const Mesh& mesh, GpuMesh& gpu)
         range.count = sub.index_count;
         range.albedo_uv = float(sub.albedo_uv);
         range.light_uv = float(sub.lightmap_uv);
-        if (sub.texture >= 0 && size_t(sub.texture) < textures.size() && textures[size_t(sub.texture)])
+        if (sub.texture >= 0 && size_t(sub.texture) < gpu.tex_srv.size() && gpu.tex_srv[size_t(sub.texture)])
         {
-            range.srv = textures[size_t(sub.texture)];
+            range.tex_index = sub.texture;
+            range.srv = gpu.tex_srv[size_t(sub.texture)];
         }
-        if (sub.celmap >= 0 && size_t(sub.celmap) < textures.size() && textures[size_t(sub.celmap)])
+        if (sub.celmap >= 0 && size_t(sub.celmap) < gpu.tex_srv.size() && gpu.tex_srv[size_t(sub.celmap)])
         {
-            range.light = textures[size_t(sub.celmap)];
+            range.light_index = sub.celmap;
+            range.light = gpu.tex_srv[size_t(sub.celmap)];
             range.use_cel = 1.f;
         }
-        else if (sub.lightmap >= 0 && size_t(sub.lightmap) < textures.size() && textures[size_t(sub.lightmap)])
+        else if (sub.lightmap >= 0 && size_t(sub.lightmap) < gpu.tex_srv.size() && gpu.tex_srv[size_t(sub.lightmap)])
         {
-            range.light = textures[size_t(sub.lightmap)];
+            range.light_index = sub.lightmap;
+            range.light = gpu.tex_srv[size_t(sub.lightmap)];
             range.use_light = 1.f;
         }
         range.color_r = sub.color.x;
@@ -890,6 +906,40 @@ void fn_15ad20(int* param_1, int param_2)
     }
 }
 
+void refresh_mesh_textures(const Mesh& mesh, GpuMesh& gpu)
+{
+    if (gpu.tex_serial.size() != mesh.textures.size() || gpu.tex_srv.size() != mesh.textures.size())
+    {
+        return;
+    }
+    bool changed = false;
+    for (size_t i = 0; i < mesh.textures.size(); ++i)
+    {
+        if (gpu.tex_serial[i] == mesh.textures[i].serial)
+        {
+            continue;
+        }
+        gpu.tex_srv[i] = upload_bgra(mesh.textures[i].bgra.data(), mesh.textures[i].width, mesh.textures[i].height);
+        gpu.tex_serial[i] = mesh.textures[i].serial;
+        changed = true;
+    }
+    if (!changed)
+    {
+        return;
+    }
+    for (DrawRange& range : gpu.ranges)
+    {
+        if (range.tex_index >= 0 && size_t(range.tex_index) < gpu.tex_srv.size())
+        {
+            range.srv = gpu.tex_srv[size_t(range.tex_index)];
+        }
+        if (range.light_index >= 0 && size_t(range.light_index) < gpu.tex_srv.size())
+        {
+            range.light = gpu.tex_srv[size_t(range.light_index)];
+        }
+    }
+}
+
 } // namespace
 
 bool gfx_init(const GfxConfig& cfg)
@@ -1289,6 +1339,7 @@ void gfx_draw_mesh(const Mesh& mesh, Vec3 origin, Vec3 scale)
         it = g.meshes.emplace(&mesh, std::move(gpu)).first;
     }
     GpuMesh& gpu = it->second;
+    refresh_mesh_textures(mesh, gpu);
     if (!gpu.vb)
     {
         return;
@@ -1321,8 +1372,18 @@ void gfx_draw_mesh(const Mesh& mesh, Vec3 origin, Vec3 scale)
     }
     u32 tris = 0;
     u32 lit = 0;
+    // A move still is coplanar with the movie and later in the mesh, so it hides the clip.
+    // The playing movie is drawn in the second pass and wins the depth test.
+    for (int pass = 0; pass < 2; ++pass)
+    {
     for (const auto& range : gpu.ranges)
     {
+        const bool front = range.tex_index >= 0 && size_t(range.tex_index) < mesh.textures.size() &&
+                           mesh.textures[size_t(range.tex_index)].movie_front;
+        if (front != (pass == 1))
+        {
+            continue;
+        }
         if (SUCCEEDED(g.context->Map(g.cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
         {
             GpuCB cb;
@@ -1404,6 +1465,7 @@ void gfx_draw_mesh(const Mesh& mesh, Vec3 origin, Vec3 scale)
             lit += range.count / 3;
         }
     }
+    }
     if (!g.logged_draw)
     {
         std::cout << "d3d11 draw " << mesh.name << " tris " << tris << " lit " << lit << "\n";
@@ -1424,12 +1486,14 @@ void gfx_draw_sprite(const RgbaImage& image, const GfxRect& rect)
         return;
     }
     auto it = g.sprites.find(&image);
-    if (it == g.sprites.end())
+    if (it == g.sprites.end() || it->second.serial != image.serial)
     {
-        auto srv = upload_bgra(image.bgra.data(), image.width, image.height);
-        it = g.sprites.emplace(&image, std::move(srv)).first;
+        GfxD3D11::SpriteGpu gpu;
+        gpu.srv = upload_bgra(image.bgra.data(), image.width, image.height);
+        gpu.serial = image.serial;
+        it = g.sprites.insert_or_assign(&image, std::move(gpu)).first;
     }
-    if (!it->second)
+    if (!it->second.srv)
     {
         return;
     }
@@ -1474,7 +1538,7 @@ void gfx_draw_sprite(const RgbaImage& image, const GfxRect& rect)
     g.context->OMSetDepthStencilState(g.depth_off.Get(), 0);
     g.context->OMSetBlendState(g.blend_alpha.Get(), nullptr, 0xFFFFFFFFu);
     ID3D11ShaderResourceView* unbound = nullptr;
-    ID3D11ShaderResourceView* srvs[2] = {it->second.Get(), unbound};
+    ID3D11ShaderResourceView* srvs[2] = {it->second.srv.Get(), unbound};
     g.context->PSSetShaderResources(0, 2, srvs);
     g.context->Draw(6, 0);
 }
@@ -1824,30 +1888,14 @@ u32 present_clear_flags()
 }
 
 // Xbox 0x00033A90
-// 0x00107420. Opening the clip is Bink (0x001A6010) and stays in that library.
-void present_movie_tick(PresentMovie* node)
-{
-    if (node->enabled == 0 || node->failed != 0)
-    {
-        return;
-    }
-    if (node->clip == nullptr)
-    {
-        return;
-    }
-}
-
-// Xbox 0x00033A90
+// 0x00107420 walks DAT_0050E0B8. The open and decode calls land in BINK and run in movie.cpp.
 void present_movies()
 {
     if (present_frame.movie_lock_a != 0 || present_frame.movie_lock_b != 0)
     {
         return;
     }
-    for (PresentMovie* node = present_frame.movies; node != nullptr; node = node->next)
-    {
-        present_movie_tick(node);
-    }
+    movie_present();
 }
 
 // Xbox 0x00033A90

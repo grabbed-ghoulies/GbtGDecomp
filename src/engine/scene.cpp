@@ -3,6 +3,7 @@
 #include "gbtg/entity.hpp"
 #include "gbtg/gfx.hpp"
 #include "gbtg/model.hpp"
+#include "gbtg/movie.hpp"
 #include "gbtg/resource.hpp"
 
 #include <algorithm>
@@ -20161,6 +20162,7 @@ void cutscene_queue_tick(Game& g, float dt)
     auto& q = g.cutscenes;
     if (!q.playing || q.items.empty())
     {
+        movie_sync_cutscene(g);
         return;
     }
     q.time += dt;
@@ -20181,6 +20183,7 @@ void cutscene_queue_tick(Game& g, float dt)
                 {
                     scene_order_advance(g);
                 }
+                movie_sync_cutscene(g);
                 return;
             }
             std::cout << "cutscene reel loop\n";
@@ -20204,6 +20207,7 @@ void cutscene_queue_tick(Game& g, float dt)
             g.camera->actor->fov = fov;
         }
     }
+    movie_sync_cutscene(g);
 }
 
 void draw_cutscene_props(Game& g)
@@ -20215,7 +20219,7 @@ void draw_cutscene_props(Game& g)
         return;
     }
     const Cutscene& cut = q.items[q.index];
-    for (const auto& prop : g.cutscene_props)
+    for (auto& prop : g.cutscene_props)
     {
         if (prop.actor >= cut.actors.size())
         {
@@ -20250,6 +20254,7 @@ void draw_cutscene_props(Game& g)
         {
             gfx_set_bones(nullptr, 0);
         }
+        movie_apply(prop.mesh);
         gfx_draw_mesh(prop.mesh, origin, scale);
     }
     gfx_set_bones(nullptr, 0);

@@ -1,5 +1,6 @@
 #include "gbtg/engine_internal.hpp"
 #include "gbtg/gfx.hpp"
+#include "gbtg/movie.hpp"
 
 #include <algorithm>
 #include <iostream>
@@ -31,6 +32,8 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
     register_entity_types();
     clock_init(clock);
     aids.open(game_dir);
+    movie_set_root(game_dir);
+    movie_boot_probe();
     std::cout << "fs_init: " << aids.game_dir.string() << " common.bnl entries " << aids.common.entries.size() << "\n";
     std::cout << "clock " << clock_fps(clock) << " Hz dt=" << clock.dt << "\n";
     std::cout << "entity types " << all_entity_types().size() << "\n";
@@ -126,6 +129,9 @@ void frame_tick(Game& g, float dt, const InputState& in)
         }
     }
     file_pump(); // 0x000E9E60
+    // 0x00033B50 walks DAT_0050E0B8 before present. Present walks it twice more.
+    movie_advance_time(g.clock.dt);
+    movie_present();
     // Present 0x00033480 / 0x00032AB0 / 0x00033A90. The PC backend draws the scene models
     // with the body camera; Xbox D3D8 would issue the original calls here.
     if (g.camera)

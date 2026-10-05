@@ -12,14 +12,14 @@ GbtGDecomp is original software written from reverse-engineering a legally obtai
 
 - Any file from the Xbox disc (`default.xbe`, `.bnl`, hashed assets, audio, Bink movies, promo trailers)
 - Microsoft Xbox Development Kit headers or libraries
-- RAD Game Tools Bink SDK or decoder
+- RAD Game Tools Bink SDK, or a translation of the XBE `BINK` sections
 - Copies of third-party reverse-engineering trees that have no license
 
 End users must supply their own retail files. Tools accept `--game-dir` (an extracted disc folder). ISO extraction is a later convenience, not a distribution channel.
 
 ## Bink movies
 
-In-game cutscenes in `movie/` are Bink (`BIKi`). Do not add a Bink runtime to this tree. Convert locally if you need PC playback (for example with a tool you already own), or skip movies until a local transcoder is wired into the extractor.
+In-game clips in `movie/` are Bink (`BIKi`). `gbtg.exe` decodes them with FFmpeg's LGPL Bink decoder, fetched at build time and copied beside the executable. The RAD SDK stays out of the tree, and the XBE `BINK*` sections are not translated. FFmpeg's license is LGPL; the shared libraries next to `gbtg.exe` are that build.
 
 ## Third-party research
 

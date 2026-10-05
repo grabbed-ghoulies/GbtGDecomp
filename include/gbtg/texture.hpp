@@ -45,6 +45,12 @@ struct RgbaImage
     int width = 0;
     int height = 0;
     std::vector<u8> bgra; // 4 bytes per pixel, BGRA
+    u32 serial = 0;       // bumps when the pixels change, so a cached upload is replaced
+    // Texture header flags >> 16. Nonzero marks the surface 0x000527C0 registers for BinkCopyToBuffer.
+    u8 movie_slot = 0;
+    u32 movie_seen = 0;
+    bool movie_front = false;   // draw this surface after a coplanar still that covers it
+    std::vector<u8> movie_base; // pixels before a movie replaced them
 };
 
 bool parse_texture_header(std::span<const u8> cpu, TextureHeader& out);

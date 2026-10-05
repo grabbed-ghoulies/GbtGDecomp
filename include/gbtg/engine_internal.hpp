@@ -2,6 +2,8 @@
 
 #include "gbtg/game.hpp"
 
+#include <vector>
+
 namespace gbtg
 {
 
@@ -29,5 +31,7 @@ void pcm_cutscene_sync(const Game& g);
 // Cue-list name, the same key build_catalog stores. loop keeps the voice up.
 void pcm_play_cue(const Game& g, const char* cue, bool loop);
 void pcm_stop_cue(const char* cue);
+// S16 interleaved PCM. The buffer is copied. loop keeps the voice on the bed list.
+void pcm_play_pcm(const char* cue, const std::vector<u8>& pcm, int rate, int channels, bool loop, float volume);
 
 } // namespace gbtg

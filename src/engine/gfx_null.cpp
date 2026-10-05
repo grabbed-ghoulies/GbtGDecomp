@@ -1,4 +1,5 @@
 #include "gbtg/gfx.hpp"
+#include "gbtg/movie.hpp"
 
 #include <vector>
 
@@ -403,30 +404,14 @@ u32 present_clear_flags()
 }
 
 // Xbox 0x00033A90
-// 0x00107420. Opening the clip is Bink (0x001A6010) and stays in that library.
-void present_movie_tick(PresentMovie* node)
-{
-    if (node->enabled == 0 || node->failed != 0)
-    {
-        return;
-    }
-    if (node->clip == nullptr)
-    {
-        return;
-    }
-}
-
-// Xbox 0x00033A90
+// 0x00107420 walks DAT_0050E0B8. The null backend keeps the lock test and does not draw.
 void present_movies()
 {
     if (present_frame.movie_lock_a != 0 || present_frame.movie_lock_b != 0)
     {
         return;
     }
-    for (PresentMovie* node = present_frame.movies; node != nullptr; node = node->next)
-    {
-        present_movie_tick(node);
-    }
+    movie_present();
 }
 
 // Xbox 0x00033A90

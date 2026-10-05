@@ -748,6 +748,55 @@ void pcm_play_cue(const Game& g, const char* cue, bool loop)
 #endif
 }
 
+void pcm_play_pcm(const char* cue, const std::vector<u8>& pcm, int rate, int channels, bool loop, float volume)
+{
+#if defined(_WIN32)
+    if (cue == nullptr || pcm.empty() || rate < 8000 || channels < 1 || channels > 2)
+    {
+        return;
+    }
+    pcm_stop_cue(cue);
+    if (!ensure_device())
+    {
+        return;
+    }
+    PcmVoice slot;
+    slot.pcm = pcm;
+    slot.cue = cue;
+    WAVEFORMATEX fmt{};
+    fmt.wFormatTag = WAVE_FORMAT_PCM;
+    fmt.nChannels = WORD(channels);
+    fmt.nSamplesPerSec = DWORD(rate);
+    fmt.wBitsPerSample = 16;
+    fmt.nBlockAlign = WORD(channels * 2);
+    fmt.nAvgBytesPerSec = fmt.nSamplesPerSec * fmt.nBlockAlign;
+    if (FAILED(g_xa->CreateSourceVoice(&slot.voice, &fmt)))
+    {
+        return;
+    }
+    slot.voice->SetVolume(volume);
+    XAUDIO2_BUFFER buf{};
+    buf.AudioBytes = UINT32(slot.pcm.size());
+    buf.pAudioData = slot.pcm.data();
+    buf.Flags = XAUDIO2_END_OF_STREAM;
+    buf.LoopCount = loop ? XAUDIO2_LOOP_INFINITE : 0;
+    if (FAILED(slot.voice->SubmitSourceBuffer(&buf)))
+    {
+        slot.voice->DestroyVoice();
+        return;
+    }
+    slot.voice->Start(0);
+    g_bed.push_back(std::move(slot));
+#else
+    (void)cue;
+    (void)pcm;
+    (void)rate;
+    (void)channels;
+    (void)loop;
+    (void)volume;
+#endif
+}
+
 void pcm_stop_cue(const char* cue)
 {
 #if defined(_WIN32)

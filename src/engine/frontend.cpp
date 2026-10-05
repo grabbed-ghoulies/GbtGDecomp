@@ -3,6 +3,7 @@
 #include "gbtg/font.hpp"
 #include "gbtg/gfx.hpp"
 #include "gbtg/loctext.hpp"
+#include "gbtg/movie.hpp"
 #include "gbtg/resource.hpp"
 #include "gbtg/texture.hpp"
 
@@ -548,6 +549,33 @@ constexpr SlotPlate kSlots[3] = {
     {"gameselect_threeframe", 510.f, 200.f, 0.16f, 0.16f, 0.25f, 0.25f},
 };
 
+const char* slot_movie(const Game& g, int index)
+{
+    // 0x000E01B0 fills DAT_00506598 with the empty-slot movies and DAT_005065A4 with chapters.
+    if (g.slot_status[index] == 4)
+    {
+        return "aid_movie_ghoulies_gameselect_chapter1";
+    }
+    static const char* kEmpty[3] = {
+        "aid_movie_ghoulies_gameselect_emptyslots_one",
+        "aid_movie_ghoulies_gameselect_emptyslots_two",
+        "aid_movie_ghoulies_gameselect_emptyslots_three",
+    };
+    return kEmpty[index];
+}
+
+void draw_movie_or_plate(const Game& g, const char* movie, const char* texture, float x, float y, float w, float h)
+{
+    // 0x000E62F0 / 0x000D9640 bump +0x18 while it is below 1, then 0x00107360 copies the frame.
+    movie_note_visible(movie);
+    if (const RgbaImage* frame = movie_image(movie))
+    {
+        gfx_sprite_submit(*frame, x, y, w, h);
+        return;
+    }
+    draw_sprite(find_ui(g, texture), x, y, w, h);
+}
+
 void draw_plate(const Game& g, int index, bool selected)
 {
     const SlotPlate& slot = kSlots[index];
@@ -561,7 +589,7 @@ void draw_plate(const Game& g, int index, bool selected)
     // centered on the table center.
     const float w = nx * kFrameW;
     const float h = ny * kFrameH;
-    draw_sprite(find_ui(g, texture), slot.center_x - w * 0.5f, slot.center_y - h * 0.5f, w, h);
+    draw_movie_or_plate(g, slot_movie(g, index), texture, slot.center_x - w * 0.5f, slot.center_y - h * 0.5f, w, h);
 }
 
 std::u16string key_label(const Game& g, u32 code)
@@ -1344,7 +1372,12 @@ void draw_contents(const Game& g)
     };
     const int hot = g.contents_row >= 0 && g.contents_row < 3 ? g.contents_row : 0;
     const Plate& shown = kPlates[hot];
-    draw_sprite(find_ui(g, shown.texture), 0.f, 0.f, kFrameW, kFrameH);
+    static const char* kMovies[3] = {
+        "aid_movie_ghoulies_gameselect_house",
+        "aid_movie_ghoulies_gameselect_zombieclap",
+        "aid_movie_ghoulies_gameselect_skellyscratchhead",
+    };
+    draw_movie_or_plate(g, kMovies[hot], shown.texture, 0.f, 0.f, kFrameW, kFrameH);
     for (int i = 0; i < 3; ++i)
     {
         if (i == hot)
@@ -1353,12 +1386,12 @@ void draw_contents(const Game& g)
         }
         const float w = 0.16f * kFrameW;
         const float h = 0.16f * kFrameH;
-        draw_sprite(find_ui(g, kPlates[i].texture), kPlates[i].center_x - w * 0.5f, 200.f - h * 0.5f, w, h);
+        draw_movie_or_plate(g, kMovies[i], kPlates[i].texture, kPlates[i].center_x - w * 0.5f, 200.f - h * 0.5f, w, h);
     }
     {
         const float w = 0.25f * kFrameW;
         const float h = 0.25f * kFrameH;
-        draw_sprite(find_ui(g, shown.texture), shown.center_x - w * 0.5f, 200.f - h * 0.5f, w, h);
+        draw_movie_or_plate(g, kMovies[hot], shown.texture, shown.center_x - w * 0.5f, 200.f - h * 0.5f, w, h);
     }
 
     const GloopyFont& font = gloopy_font(g);
@@ -1667,6 +1700,7 @@ constexpr const char* kSlotOpen = "XACT_SOUNDBANK_GSTREAMSDITTIES_PAUSE";
 
 void begin_frontend(Game& g)
 {
+    movie_reset();
     // entitySceneControlAttract (registrar 0x00080970). The banner is that object,
     // built because the script names aid_objparams_ghoulies_scenecontrol_attract*.
     if (scene_control_starts(g, "attract"))
@@ -1693,6 +1727,8 @@ void begin_frontend(Game& g)
     g.frontend_pending = 1;
     g.frontend_mode = g.frontend_pending;
     g.naming = false;
+    // 0x000DD774 calls 0x000E01B0 while the slot widget is installed.
+    movie_open_gameselect();
     pcm_play_cue(g, kSlotOpen, true);
     std::cout << "frontend mode 1 slot select\n";
 }
@@ -1794,6 +1830,8 @@ void gameselect_tick(Game& g, const InputState& in)
                 g.frontend_mode = 3;
                 g.contents_row = 0;
                 g.naming = false;
+                // 0x000E87F0 mode 3 opens the contents clip with flags 6.
+                movie_open_contents();
                 std::cout << "frontend mode 3 slot contents\n";
             }
         }

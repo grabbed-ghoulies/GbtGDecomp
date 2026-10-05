@@ -75,6 +75,7 @@ add_executable(gbtg
     src/engine/scene.cpp
     src/engine/game.cpp
     src/engine/platform.cpp
+    src/engine/movie.cpp
 )
 target_link_libraries(gbtg PRIVATE gbtg_lib)
 if(WIN32)
@@ -94,6 +95,49 @@ endif()
 if(GBTG_WITH_SDL)
     target_compile_definitions(gbtg PRIVATE GBTG_WITH_SDL)
     target_link_libraries(gbtg PRIVATE SDL3::SDL3)
+endif()
+
+# LGPL FFmpeg supplies the Bink decoder. The RAD SDK is not linked. DLLs are copied
+# next to gbtg.exe so running the exe does not need a separate install.
+if(WIN32)
+    set(GBTG_FFMPEG_URL "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip")
+    if(EXISTS "${CMAKE_SOURCE_DIR}/cache/ffmpeg-lgpl.zip")
+        set(GBTG_FFMPEG_URL "${CMAKE_SOURCE_DIR}/cache/ffmpeg-lgpl.zip")
+    endif()
+    FetchContent_Declare(
+        ffmpeg_lgpl
+        URL "${GBTG_FFMPEG_URL}"
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_MakeAvailable(ffmpeg_lgpl)
+    file(GLOB_RECURSE GBTG_FFMPEG_LIBS "${ffmpeg_lgpl_SOURCE_DIR}/*.lib")
+    set(GBTG_FFMPEG_AVCODEC "")
+    foreach(lib ${GBTG_FFMPEG_LIBS})
+        if(lib MATCHES "avcodec\\.lib$")
+            set(GBTG_FFMPEG_AVCODEC "${lib}")
+            break()
+        endif()
+    endforeach()
+    if(GBTG_FFMPEG_AVCODEC STREQUAL "")
+        message(FATAL_ERROR "FFmpeg avcodec.lib was not found under ${ffmpeg_lgpl_SOURCE_DIR}")
+    endif()
+    cmake_path(GET GBTG_FFMPEG_AVCODEC PARENT_PATH GBTG_FFMPEG_LIBDIR)
+    cmake_path(GET GBTG_FFMPEG_LIBDIR PARENT_PATH GBTG_FFMPEG_ROOT)
+    target_include_directories(gbtg PRIVATE "${GBTG_FFMPEG_ROOT}/include")
+    target_compile_definitions(gbtg PRIVATE GBTG_HAS_FFMPEG)
+    target_link_libraries(gbtg PRIVATE
+        "${GBTG_FFMPEG_LIBDIR}/avformat.lib"
+        "${GBTG_FFMPEG_LIBDIR}/avcodec.lib"
+        "${GBTG_FFMPEG_LIBDIR}/swscale.lib"
+        "${GBTG_FFMPEG_LIBDIR}/swresample.lib"
+        "${GBTG_FFMPEG_LIBDIR}/avutil.lib"
+    )
+    file(GLOB GBTG_FFMPEG_DLLS "${GBTG_FFMPEG_ROOT}/bin/*.dll")
+    foreach(dll ${GBTG_FFMPEG_DLLS})
+        add_custom_command(TARGET gbtg POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${dll}" "$<TARGET_FILE_DIR:gbtg>"
+        )
+    endforeach()
 endif()
 
 if(MSVC)

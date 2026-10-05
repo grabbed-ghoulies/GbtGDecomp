@@ -11,7 +11,7 @@ This repository does **not** contain, and will never distribute:
 - Xbox executables (`.xbe`)
 - Disc images (`.iso` / `.xiso`)
 - Bundles, textures, audio, movies, or any other original assets
-- Microsoft XDK headers or RAD Bink
+- Microsoft XDK headers or the RAD Bink SDK
 
 Put a retail dump in a local folder and point the tools at it.
 
@@ -45,7 +45,7 @@ Checksums for a known retail layout live in [`manifests/retail_files.json`](mani
 
 | Target | Role |
 |--------|------|
-| `gbtg` | Reconstructed engine: `WinMain` / `frame_tick`, attract cutscenes, camera, game-select UI plates. PC present is DirectX 11 behind `gfx_*` |
+| `gbtg` | Reconstructed engine: `WinMain` / `frame_tick`, attract cutscenes, camera, game-select UI plates, `movie/` Bink playback. PC present is DirectX 11 behind `gfx_*` |
 | `gbtg-catalog` | Classify files, resolve AID hashes, verify the manifest |
 | `gbtg-dump` | Unpack BNL bundles; dump textures, models, loctext, wavebanks |
 
@@ -53,7 +53,7 @@ Ghidra names and recovered VAs: [`docs/XBE.md`](docs/XBE.md), [`docs/GHIDRA.md`]
 
 ## Build
 
-Requirements: CMake 3.20+, a C++20 compiler (MSVC 2022 recommended on Windows). zlib is fetched at configure time.
+Requirements: CMake 3.20+, a C++20 compiler (MSVC 2022 recommended on Windows). zlib is fetched at configure time. On Windows the same configure step fetches an LGPL FFmpeg build and copies its DLLs next to `gbtg.exe`, which is what decodes `movie/` BIKi files. The run command is unchanged.
 
 ```text
 cmake -B build

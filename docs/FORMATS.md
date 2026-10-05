@@ -130,4 +130,4 @@ Pairs are joined by the index in the ASCII table.
 
 ## Movies
 
-`movie/` files are Bink (`BIKi`). This project only identifies them. Convert locally; do not add a Bink decoder.
+`movie/` files are Bink (`BIKi`). `gbtg.exe` opens them from `--game-dir` and decodes them in-process. The build links LGPL FFmpeg for that decoder. There is no conversion step, and the RAD Bink SDK is not part of this tree.

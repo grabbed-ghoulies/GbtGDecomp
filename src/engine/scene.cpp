@@ -21897,4 +21897,128 @@ void fn_11e7f0(Game& g, u8* scene)
     }
 }
 
+// Image at DAT_00431478. Stride 0x110. +0 indexes the 0x18-byte records at
+// DAT_003129AC. +0x10C is the gate this tick tests. The eighteenth record is
+// the sentinel whose index is -1.
+struct TransitionSlot31478
+{
+    i32 handler = 0; // +0
+    u8 pad[0x108]{};
+    i32 at_10c = 0; // +0x10C
+};
+static_assert(sizeof(TransitionSlot31478) == 0x110);
+static_assert(offsetof(TransitionSlot31478, at_10c) == 0x10c);
+
+constexpr TransitionSlot31478 kTransition31478[] = {
+    {0, {}, 1},
+    {1, {}, 0},
+    {1, {}, 0},
+    {1, {}, 0},
+    {1, {}, 0},
+    {1, {}, 0},
+    {1, {}, 0},
+    {1, {}, 0},
+    {1, {}, 0},
+    {1, {}, 0},
+    {1, {}, 0},
+    {1, {}, 0},
+    {1, {}, 0},
+    {1, {}, 0},
+    {1, {}, 0},
+    {2, {}, 1},
+    {3, {}, 1},
+    {-1, {}, 0},
+};
+static_assert(sizeof(kTransition31478) / sizeof(kTransition31478[0]) == 18);
+
+// DAT_00546328. Scene-order slot. Its address is the handler argument.
+i32 g_546328 = 0;
+// DAT_0054632C. 1 runs the countdown and the handler. 3 runs the handler.
+// A nonzero value is the clear gate.
+i32 g_54632c = 0;
+// DAT_00546344. Steps while DAT_0050484C is above 0, and while this is not.
+i32 g_546344 = 0;
+// DAT_00546348. Nonzero counts down. Landing on 0 ORs 0x2000 into DAT_0050EA9C.
+i32 g_546348 = 0;
+// DAT_0054634C. The object at [this] holds the unsigned counts at +4 and +8.
+u8** g_54634c = nullptr;
+// DAT_0050484C. Incremented when it is below 1 and DAT_00546344 is above 0.
+i32 g_50484c = 0;
+// DAT_005096E8 and DAT_005096EA. HUD width and height, zero-extended to float.
+u16 g_5096e8 = 0;
+u16 g_5096ea = 0;
+
+// Xbox 0x0012C340. 0x0011E4C0 calls this. Phases 1, 2, and 3, a nonzero dword
+// at DAT_00431584, a live DAT_0054634C, and the unsigned count at object+8 at
+// or under the count at object+4, would call 0x0005F580 then 0x0005F550.
+// 0x0005F580 takes DAT_0054634C, &DAT_00546350, the width at DAT_005096E8
+// times 0.5 (DAT_0032B0F4), the height at DAT_005096EA times 0.8
+// (DAT_0032B244, 0x3F4CCCCD), then 1.5, 1.5, 1.5, and 0. EAX is 1.
+// 0x0005F550 takes 0.5 (0x3F000000). Those two calls are not translated.
+//
+// Phase 1 decrements DAT_00546348 when it is nonzero, and ORs 0x2000 into
+// DAT_0050EA9C when the result is 0. DAT_0050484C below 1 with DAT_00546344
+// above 0 increments DAT_0050484C. Otherwise DAT_00546344 increments.
+// Phases 1 and 3 call DAT_003129AC + handler * 0x18 with &DAT_00546328.
+// The handler is the dword at DAT_00431478. The image slots are 0x0012BC80,
+// 0x0012B370, 0x0012BDD0, and 0x0012BDD0. Those calls are not translated.
+void fn_12c340()
+{
+    // Xbox 0x0012C340
+    if (0 < g_54632c && g_54632c < 4)
+    {
+        const i32 byte_off = g_546328 * 0x110;
+        const u8* row = reinterpret_cast<const u8*>(kTransition31478) + byte_off;
+        if (*reinterpret_cast<const i32*>(row + 0x10c) != 0 && g_54634c != nullptr)
+        {
+            const u8* obj = *g_54634c;
+            const u32 at_4 = *reinterpret_cast<const u32*>(obj + 4);
+            const u32 at_8 = *reinterpret_cast<const u32*>(obj + 8);
+            if (at_8 <= at_4)
+            {
+                const float x = static_cast<float>(g_5096e8) * std::bit_cast<float>(0x3f000000u);
+                const float y = static_cast<float>(g_5096ea) * std::bit_cast<float>(0x3f4ccccdu);
+                // 0x0005F580 and 0x0005F550 are not translated.
+                (void)x;
+                (void)y;
+            }
+        }
+    }
+    if (g_54632c == 1)
+    {
+        if (g_546348 != 0)
+        {
+            g_546348 = g_546348 - 1;
+            if (g_546348 == 0)
+            {
+                g_flags_ea9c = g_flags_ea9c | 0x2000u;
+            }
+        }
+        if (g_50484c < 1 && 0 < g_546344)
+        {
+            g_50484c = g_50484c + 1;
+        }
+        else
+        {
+            g_546344 = g_546344 + 1;
+        }
+        const i32 byte_off = g_546328 * 0x110;
+        const u8* row = reinterpret_cast<const u8*>(kTransition31478) + byte_off;
+        const i32 handler = *reinterpret_cast<const i32*>(row);
+        // Handler at DAT_003129AC + handler * 0x18 is not translated.
+        // The argument is &DAT_00546328.
+        (void)handler;
+    }
+    else if (g_54632c == 3)
+    {
+        const i32 byte_off = g_546328 * 0x110;
+        const u8* row = reinterpret_cast<const u8*>(kTransition31478) + byte_off;
+        const i32 handler = *reinterpret_cast<const i32*>(row);
+        // Handler at DAT_003129AC + handler * 0x18 is not translated.
+        // The argument is &DAT_00546328.
+        (void)handler;
+        return;
+    }
+}
+
 } // namespace gbtg

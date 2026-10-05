@@ -2277,6 +2277,53 @@ void fn_175840(int param_1)
     }
 }
 
+// D3D resource Common word. A surface also stores its parent at Xbox +0x14.
+// That parent is a resource, so its first word is Common as well.
+// 0x00175930 reads those two words and nothing else.
+struct D3dResourceRef
+{
+    u32 common = 0;                    // Xbox +0
+    D3dResourceRef* parent = nullptr;  // Xbox +0x14
+};
+
+u32 fn_175930(const D3dResourceRef* resource)
+{
+    // Xbox 0x00175930
+    // stdcall, ret 4. 0x00177780 calls this while D3D_DestroyResource
+    // (0x00175890) retires a resource. eax is 1 when an internal
+    // reference is still outstanding; the caller then blocks on the fence
+    // at device+0x2c through 0x00177450. eax is 0 when none is outstanding.
+    // A null resource would fault on Xbox.
+    //
+    // resource+0 is the D3D Common word. Bits 0x780000 are the internal
+    // refcount. Non-zero returns 1 and does not read the parent.
+    //
+    // Bits 0x70000 are the type. A surface is 0x50000. Only a surface
+    // continues, and only when the parent at +0x14 is non-null and that
+    // parent's Common word has a non-zero internal refcount. Any other
+    // type, a null parent, or a parent whose internal refcount is zero
+    // returns 0.
+    const u32 common = resource->common;
+    if ((common & 0x780000u) != 0u)
+    {
+        return 1u;
+    }
+    if ((common & 0x70000u) != 0x50000u)
+    {
+        return 0u;
+    }
+    const D3dResourceRef* parent = resource->parent;
+    if (parent == nullptr)
+    {
+        return 0u;
+    }
+    if ((parent->common & 0x780000u) == 0u)
+    {
+        return 0u;
+    }
+    return 1u;
+}
+
 u32 fn_176ee0(const u32* device, const u32* record, u32 gpu_position)
 {
     // Xbox 0x00176EE0

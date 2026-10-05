@@ -22144,4 +22144,57 @@ void fn_12c5d0()
     g_4dea24 = g_4dea24 + 1;
 }
 
+// Xbox 0x0012C770
+// Phase 0 increments DAT_00510CEC and DAT_004DEA24 and ORs 0x100 into
+// DAT_0050EA9C. Phase 1 clears DAT_00510F80. Phase 3 clears DAT_00510F7C.
+// Any other phase falls through. The slot in DAT_00546328 is scaled by 0x110.
+// The dword at +0x104 is copied to DAT_00546330, then DAT_0054632C becomes 3.
+// DAT_0050484C decrements when it is above 0. DAT_00546340 is the address of
+// slot+0x84 when that dword is 'aid_' (0x5f646961), and null when it is not.
+// DAT_00546334 then receives DAT_00546330.
+//
+// The handler dword at slot+0 selects the 0x18-byte record at DAT_003129AC.
+// The call is the pointer at +0x10 (DAT_003129BC) with &DAT_00546328. The
+// image slots are 0x0012BD50, 0x0012B790, 0x0012C270, and 0x001628B0. Those
+// handlers are not translated.
+void fn_12c770()
+{
+    // Xbox 0x0012C770
+    if (g_54632c == 0)
+    {
+        g_510cec = g_510cec + 1;
+        g_4dea24 = g_4dea24 + 1;
+        g_flags_ea9c = g_flags_ea9c | 0x100u;
+    }
+    else if (g_54632c == 1)
+    {
+        g_510f80 = 0;
+    }
+    else if (g_54632c == 3)
+    {
+        g_510f7c = 0;
+    }
+    const i32 byte_off = g_546328 * 0x110;
+    const u8* row = reinterpret_cast<const u8*>(kTransition31478) + byte_off;
+    const u32 bits = *reinterpret_cast<const u32*>(row + 0x104);
+    g_546330 = bits;
+    g_54632c = 3;
+    if (0 < g_50484c)
+    {
+        g_50484c = g_50484c - 1;
+    }
+    const u32 marker = *reinterpret_cast<const u32*>(row + 0x84);
+    const char* aid = reinterpret_cast<const char*>(row + 0x84);
+    if (marker != kAidPrefixEd8)
+    {
+        aid = nullptr;
+    }
+    g_546340 = aid;
+    g_546334 = g_546330;
+    const i32 handler = *reinterpret_cast<const i32*>(row);
+    // Handler at DAT_003129BC + handler * 0x18 is not translated.
+    // The argument is &DAT_00546328.
+    (void)handler;
+}
+
 } // namespace gbtg

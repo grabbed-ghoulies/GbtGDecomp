@@ -2226,6 +2226,57 @@ u32* fn_171bb0(u32 device_780, u32* packet)
     return packet;
 }
 
+// DAT_001845a4. BSS list of side records. D3D_DestroyResource (0x00175890)
+// passes the resource pointer; a match is the dword at record+4.
+struct D3dResourceRecord
+{
+    D3dResourceRecord* next = nullptr; // Xbox +0
+    int key = 0;                       // Xbox +4
+    u8 flags = 0;                      // Xbox +0x1C
+    void* object = nullptr;            // Xbox +0x20
+};
+
+static D3dResourceRecord* resource_records_1845a4 = nullptr;
+
+void fn_175840(int param_1)
+{
+    // Xbox 0x00175840
+    // stdcall, ret 4. D3D_DestroyResource calls this with the resource in
+    // EDI before it frees that resource. The previous-link starts at the
+    // head. A record whose key equals param_1 is unlinked by storing its
+    // next into that link. Bit 0 of the flag byte at +0x1C calls vtable+8
+    // on the object at +0x20 (one argument, the object; the callee pops
+    // it). XMemFree then takes the record with tag 0x24800000. The walk
+    // continues at the pointer just written, so consecutive matches are
+    // removed. A miss makes the record itself the previous link, which is
+    // its next dword, and steps to that next. A null cursor ends the walk.
+    D3dResourceRecord** link = &resource_records_1845a4;
+    D3dResourceRecord* node = resource_records_1845a4;
+    while (node != nullptr)
+    {
+        if (node->key == param_1)
+        {
+            *link = node->next;
+            if ((node->flags & 1) != 0)
+            {
+                void* object = node->object;
+                void** vtable = *reinterpret_cast<void***>(object);
+                using ReleaseFn = void (__stdcall*)(void*);
+                ReleaseFn release = reinterpret_cast<ReleaseFn>(vtable[2]);
+                release(object);
+            }
+            D3dResourceRecord* dead = node;
+            node = *link;
+            delete dead;
+        }
+        else
+        {
+            link = &node->next;
+            node = node->next;
+        }
+    }
+}
+
 u32 fn_176ee0(const u32* device, const u32* record, u32 gpu_position)
 {
     // Xbox 0x00176EE0

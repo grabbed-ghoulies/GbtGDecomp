@@ -86,7 +86,7 @@ set(GBTG_GFX "${_gbtg_gfx_default}" CACHE STRING "Graphics backend: null or d3d1
 if(GBTG_GFX STREQUAL "d3d11")
     target_sources(gbtg PRIVATE src/engine/gfx_d3d11.cpp)
     target_compile_definitions(gbtg PRIVATE GBTG_GFX_D3D11)
-    target_link_libraries(gbtg PRIVATE d3d11 dxgi d3dcompiler user32 xaudio2 ole32)
+    target_link_libraries(gbtg PRIVATE d3d11 dxgi d3dcompiler user32 xinput xaudio2 ole32)
 else()
     target_sources(gbtg PRIVATE src/engine/gfx_null.cpp)
     target_compile_definitions(gbtg PRIVATE GBTG_GFX_NULL)

@@ -22995,6 +22995,12 @@ void script_pump(Game& g)
             {
                 script_load(g, aid);
             }
+            // The file 0x001162D0 records is in. +0x110 is the hold 0x0011E4C0
+            // tests before it accepts the next aid. Retail clears it from state
+            // 4 once the transition phase is 2. That store belongs to the
+            // handler this load was waiting on, and the handler is not
+            // translated. The host read has returned, so the hold is clear.
+            *reinterpret_cast<i32*>(scene + 0x110) = 0;
         }
         *reinterpret_cast<i32*>(scene + 0x114) = 1;
         fn_12c340();

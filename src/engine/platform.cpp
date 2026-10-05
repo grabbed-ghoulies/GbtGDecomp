@@ -10,6 +10,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include <xinput.h>
 #endif
 
 #if defined(GBTG_WITH_SDL)
@@ -94,6 +95,46 @@ int run_platform(Game& game, const PlatformConfig& cfg)
         if (GetAsyncKeyState(VK_SPACE) & 0x8000)
         {
             in.start = true;
+        }
+        // 0x001555B0 polls XInput into the four ports. The host keyboard above
+        // fills the same button word, so a connected pad fills those bits too.
+        for (DWORD port = 0; port < 4; ++port)
+        {
+            XINPUT_STATE state{};
+            if (XInputGetState(port, &state) != 0)
+            {
+                continue;
+            }
+            const XINPUT_GAMEPAD& pad = state.Gamepad;
+            const WORD buttons = pad.wButtons;
+            if ((buttons & XINPUT_GAMEPAD_DPAD_UP) != 0 || pad.sThumbLY > 16000)
+            {
+                in.up = true;
+            }
+            if ((buttons & XINPUT_GAMEPAD_DPAD_DOWN) != 0 || pad.sThumbLY < -16000)
+            {
+                in.down = true;
+            }
+            if ((buttons & XINPUT_GAMEPAD_DPAD_LEFT) != 0 || pad.sThumbLX < -16000)
+            {
+                in.left = true;
+            }
+            if ((buttons & XINPUT_GAMEPAD_DPAD_RIGHT) != 0 || pad.sThumbLX > 16000)
+            {
+                in.right = true;
+            }
+            if ((buttons & XINPUT_GAMEPAD_A) != 0)
+            {
+                in.accept = true;
+            }
+            if ((buttons & XINPUT_GAMEPAD_B) != 0)
+            {
+                in.back = true;
+            }
+            if ((buttons & XINPUT_GAMEPAD_START) != 0)
+            {
+                in.start = true;
+            }
         }
 #endif
 #if defined(GBTG_WITH_SDL)

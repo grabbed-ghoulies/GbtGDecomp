@@ -22325,4 +22325,48 @@ void fn_140e30()
     }
 }
 
+// Overlay records at 0x0050DD90. Four records, Xbox stride 0x88, end
+// 0x0050DFB0. The dword at +0 is the object. The byte at +4 is untouched
+// here. The byte at +5 is the state. The host object follows the 0x88-byte
+// image so +5 stays at +5. DAT_0050DD8C is the dword at 0x0050DD8C.
+struct OverlayRec50dd90
+{
+    u32 at_0 = 0;
+    u8 at_4 = 0;
+    u8 state = 0;
+    u8 tail[0x82]{};
+    void* object = nullptr;
+};
+static_assert(offsetof(OverlayRec50dd90, at_4) == 4);
+static_assert(offsetof(OverlayRec50dd90, state) == 5);
+static_assert(offsetof(OverlayRec50dd90, object) == 0x88);
+
+// DAT_0050DD8C. 0x00106E90 stores 3.
+i32 g_50dd8c = 0;
+// DAT_0050DD90. Four overlay records.
+OverlayRec50dd90 g_50dd90[4] = {};
+
+// Xbox 0x00106E90
+// Starts at the state byte (0x0050DD95) and steps 0x88 while that address
+// is below 0x0050DFB5. A record whose object is set and whose state is 2
+// decrements the int at object+0x18 and stores 3 in the state. The dword
+// at DAT_0050DD8C becomes 3.
+void fn_106e90()
+{
+    // Xbox 0x00106E90
+    OverlayRec50dd90* rec = g_50dd90;
+    do
+    {
+        if (rec->object != nullptr && rec->state == 2)
+        {
+            i32* count = reinterpret_cast<i32*>(static_cast<u8*>(rec->object) + 0x18);
+            *count = *count - 1;
+            rec->state = 3;
+        }
+        rec = rec + 1;
+    }
+    while (rec < g_50dd90 + 4);
+    g_50dd8c = 3;
+}
+
 } // namespace gbtg

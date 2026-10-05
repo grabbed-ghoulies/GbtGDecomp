@@ -22069,6 +22069,9 @@ i32 g_50484c = 0;
 // DAT_005096E8 and DAT_005096EA. HUD width and height, zero-extended to float.
 u16 g_5096e8 = 0;
 u16 g_5096ea = 0;
+// DAT_0050E7A0. Counted when the scene state leaves or enters 1 or 2.
+// entity.cpp keeps a private copy as g_amb_counter.
+i32 g_50e7a0 = 0;
 // DAT_00510CEC. Counted up when DAT_0054632C is 0 on entry to 0x0012C5D0.
 i32 g_510cec = 0;
 // DAT_004DEA24. Counted with that gate, and once more on the way out.
@@ -22816,6 +22819,95 @@ void fn_11c5a0(u8* scene)
     // 0x00035D30 is not translated, so its return is not taken.
     // 0x00036180 is not translated. 0x00034880 is not translated.
     g_51065c = 0;
+}
+
+// Xbox 0x0011E6A0
+// ESI is the scene record. EBX is the state being entered. Equal values
+// return. Leaving 1 or 2 increments DAT_0050E7A0 and calls 0x00106E90.
+// Leaving 4 decrements DAT_00510CEC and DAT_004DEA24. Leaving 5 calls
+// 0x0012C4E0. Leaving 6 calls 0x0011CE40. Leaving 3 does nothing.
+//
+// Entering 1 or 2 decrements DAT_0050E7A0, stores 0 when the result is
+// below 0, calls 0x00106EC0, stores EBX at +0x104, and returns. Entering 3
+// stores 1 at +0x110 and 0 at +0x120 and +0x114, stores EBX, and returns.
+// Entering 6 calls 0x0011CE10, stores EBX, and returns. Entering 4 calls
+// 0x0011C5A0 with ESI, increments DAT_00510CEC and DAT_004DEA24, copies the
+// C string at +0x80 onto +0, clears the byte at +0x80, calls 0x001162D0,
+// stores 4 at +0x22C, calls 0x00038110 with XMM0 cleared, calls 0x0011CAC0,
+// and stores 1 at +0x120. That path, state 5, and every other entry store
+// EBX at +0x104.
+void fn_11e6a0(u8* scene, i32 next)
+{
+    // Xbox 0x0011E6A0
+    const i32 state = *reinterpret_cast<i32*>(scene + 0x104);
+    if (state != next)
+    {
+        switch (state)
+        {
+        case 1:
+        case 2:
+            g_50e7a0 = g_50e7a0 + 1;
+            fn_106e90();
+            break;
+        case 4:
+            g_510cec = g_510cec + -1;
+            g_4dea24 = g_4dea24 + -1;
+            break;
+        case 5:
+            fn_12c4e0();
+            break;
+        case 6:
+            fn_11ce40();
+            break;
+        }
+        switch (next)
+        {
+        case 1:
+        case 2:
+            g_50e7a0 = g_50e7a0 + -1;
+            if (g_50e7a0 < 0)
+            {
+                g_50e7a0 = 0;
+            }
+            fn_106ec0();
+            *reinterpret_cast<i32*>(scene + 0x104) = next;
+            return;
+        case 3:
+            *reinterpret_cast<i32*>(scene + 0x110) = 1;
+            *reinterpret_cast<i32*>(scene + 0x120) = 0;
+            *reinterpret_cast<i32*>(scene + 0x114) = 0;
+            *reinterpret_cast<i32*>(scene + 0x104) = next;
+            return;
+        case 4:
+            fn_11c5a0(scene);
+            g_510cec = g_510cec + 1;
+            g_4dea24 = g_4dea24 + 1;
+            {
+                char* pending = reinterpret_cast<char*>(scene + 0x80);
+                char* cursor = pending;
+                char unit = 0;
+                do
+                {
+                    unit = *cursor;
+                    *(cursor - 0x80) = unit;
+                    cursor = cursor + 1;
+                }
+                while (unit != '\0');
+                *pending = '\0';
+            }
+            fn_1162d0();
+            *reinterpret_cast<i32*>(scene + 0x22c) = 4;
+            fn_38110(0.f);
+            fn_11cac0();
+            *reinterpret_cast<i32*>(scene + 0x120) = 1;
+            break;
+        case 6:
+            fn_11ce10();
+            *reinterpret_cast<i32*>(scene + 0x104) = next;
+            return;
+        }
+        *reinterpret_cast<i32*>(scene + 0x104) = next;
+    }
 }
 
 } // namespace gbtg

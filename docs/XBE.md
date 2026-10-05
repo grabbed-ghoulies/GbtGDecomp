@@ -402,3 +402,4 @@ Named functions: [`docs/generated/ghidra_functions.txt`](generated/ghidra_functi
 | `0x0012C5D0` | `fn_12c5d0` | scene |
 | `0x0012C770` | `fn_12c770` | scene |
 | `0x00140E30` | `fn_140e30` | scene |
+| `0x00038110` | `fn_38110` | scene |

@@ -21768,12 +21768,55 @@ float g_510648 = 0.f;
 float g_51064c = 0.f;
 // DAT_0050E0EC. One-based index into the span at DAT_0050E0E8.
 i32 g_50e0ec = 0;
+// DAT_004219EC, DAT_004219F4, DAT_00421A0C, DAT_00421A14, DAT_00421A1C.
+// Image dwords. 0x00038110 loads each as the first argument of 0x0015C1C0.
+i32 g_4219ec = 0;
+i32 g_4219f4 = 1;
+i32 g_421a0c = 5;
+i32 g_421a14 = 6;
+i32 g_421a1c = 2;
+
+// Xbox 0x00038110. XMM0 is multiplied by DAT_0032B1F0 (127) and saved.
+// Before each call the saved product is clamped to [0, 127] and truncated
+// with cvttss2si. Above 127 stores 127. Below 0 stores 0. A NaN fails both
+// compares, and cvttss2si yields the indefinite integer. The five calls pass
+// DAT_004219EC, DAT_004219F4, DAT_00421A0C, DAT_00421A14, and DAT_00421A1C.
+// 0x0015C1C0 is not translated, so those calls are not made.
+void fn_38110(float level)
+{
+    // Xbox 0x00038110
+    const float scaled = level * 127.f;
+    auto take = [scaled](i32 category)
+    {
+        float clamped = scaled;
+        if (127.f < scaled)
+        {
+            clamped = 127.f;
+        }
+        else if (scaled < 0.f)
+        {
+            clamped = 0.f;
+        }
+        i32 bits = static_cast<i32>(0x80000000u);
+        if (clamped >= -2147483648.f && clamped < 2147483648.f)
+        {
+            bits = static_cast<i32>(clamped);
+        }
+        // 0x0015C1C0 is not translated. The arguments are category and bits.
+        (void)category;
+        (void)bits;
+    };
+    take(g_4219ec);
+    take(g_4219f4);
+    take(g_421a0c);
+    take(g_421a14);
+    take(g_421a1c);
+}
 
 // Xbox 0x0011E7F0. ECX is the scene record (DAT_00510E58 when 0x0011E4C0
 // calls). A nonzero dword at +0x22C is decremented and stored. Landing on 2
 // clears DAT_004E02E8. The float passed to 0x00038110 is
 // clamp(1 - counter * 0.5, 0, 1), from DAT_0032B0F8 and DAT_0032B0F4.
-// 0x00038110 is not translated, so that call is not made.
 //
 // DAT_004312DC above 0 subtracts DAT_005096C0 * DAT_004312C4 and stores 0
 // when the result is at or below 0. That product, times 300 (DAT_0032B180),
@@ -21827,8 +21870,7 @@ void fn_11e7f0(Game& g, u8* scene)
         {
             faded = 1.f;
         }
-        // 0x00038110 is not translated. XMM0 is faded.
-        (void)faded;
+        fn_38110(faded);
     }
 
     const float scaled = g_sim_dt * g_sim_scale;

@@ -184,6 +184,12 @@ struct GfxD3D11
     const int* texture_by_id = nullptr; // DAT_004D976C
     void (*stage_bind)(int handle, u32 stage) = nullptr; // DAT_004D9754
     void (*material_cb)(int* material) = nullptr; // DAT_004D9750
+    // DAT_004d9644. 0x00159AC0 reads the link dword at +4. BSS, so it starts empty.
+    u8 tex_list_4d9644[8]{};
+    // DAT_0054d950. (id, out) when the list walk finds no node.
+    int (*tex_lookup_cb)(int id, int* out) = nullptr;
+    // DAT_004d9770. The id 0x0015AD20 passes into 0x0015ABB0.
+    int tex_lookup_id = 0;
 };
 
 GfxD3D11 g;
@@ -632,6 +638,53 @@ const u8* as_u8(int bits)
     return reinterpret_cast<const u8*>(static_cast<uintptr_t>(static_cast<u32>(bits)));
 }
 
+u8* as_u8_mut(int bits)
+{
+    return reinterpret_cast<u8*>(static_cast<uintptr_t>(static_cast<u32>(bits)));
+}
+
+// Xbox 0x00159AC0
+// *out = *(node + 4). The list link used by 0x0015ABB0.
+void fn_159ac0(const u8* node, int* out)
+{
+    std::memcpy(out, node + 4, 4);
+}
+
+// Xbox 0x0015ABB0
+// Walks the list headed at DAT_004d9644. A node whose dword at +0xc4 equals
+// param_1 stores 1 at +0x68 and writes node+0xc8 through param_2.
+//
+// DAT_0054d950, when it is not null, is called as (param_1, param_2). The
+// decompiler dropped the second operand of the recursive call: add esp, 4
+// leaves param_2 under the return value, so the call is
+// fn_15abb0(result, param_2).
+void fn_15abb0(int param_1, int* param_2)
+{
+    int local_4 = 0;
+    fn_159ac0(g.tex_list_4d9644, &local_4);
+    while (local_4 != 0)
+    {
+        u8* node = as_u8_mut(local_4);
+        int key = 0;
+        std::memcpy(&key, node + 0xc4, 4);
+        if (key == param_1)
+        {
+            const int one = 1;
+            std::memcpy(node + 0x68, &one, 4);
+            *param_2 = local_4 + 0xc8;
+            return;
+        }
+        fn_159ac0(node, &local_4);
+    }
+    if (g.tex_lookup_cb != nullptr)
+    {
+        const int found = g.tex_lookup_cb(param_1, param_2);
+        fn_15abb0(found, param_2);
+        return;
+    }
+    *param_2 = 0;
+}
+
 // Xbox 0x0015AD20
 // Material bind. param_1 is the shader-param object (dword fields). param_2 is
 // the draw table: dword 0 is the 0x44-stride constant rows, dword 4 is the
@@ -650,8 +703,8 @@ const u8* as_u8(int bits)
 //
 // Byte +0x18 == 0 clears ALPHATESTENABLE. Any other value sets it, stores
 // D3DCMP_GREATER (0x204) as ALPHAFUNC, and stores the byte as ALPHAREF.
-// 0x0015ABB0 is not translated, so a stage whose record byte +7 is set does
-// not receive a texture.
+// Record byte +7 set calls 0x0015ABB0(DAT_004d9770) and SetTexture binds
+// the pointer that call stores.
 void fn_15ad20(int* param_1, int param_2)
 {
     float byte_scale = 0.f;
@@ -745,8 +798,9 @@ void fn_15ad20(int* param_1, int param_2)
             }
             else
             {
-                // 0x0015ABB0 is not translated. It would write the texture
-                // pointer SetTexture binds. This stage does not get another one.
+                int texture = 0;
+                fn_15abb0(g.tex_lookup_id, &texture);
+                g.stage_texture[index] = static_cast<u32>(texture);
             }
             index = index + 1;
             rec_off = rec_off + 0x1c;

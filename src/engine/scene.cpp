@@ -21855,6 +21855,24 @@ void fn_38110(float level)
     take(g_421a1c);
 }
 
+// DAT_004E173C. 0x0011CE10 increments it. The image leaves it at 0.
+i32 g_4e173c = 0;
+
+// Xbox 0x0011CE10
+// EAX is 2 for 0x0011D490. That call is not translated.
+// 0x00038910 takes the name at 0x0030F898,
+// XACT_SOUNDBANK_GSTREAMSDITTIES_PAUSE, and a stack 0x10.
+// xact_acquire in audio.cpp is that body. It is not visible here, so
+// the call is not made. XMM0 is 0 for 0x00038110. DAT_004E173C increments.
+void fn_11ce10()
+{
+    // Xbox 0x0011CE10
+    // 0x0011D490 is not translated. EAX is 2.
+    // 0x00038910. Name is XACT_SOUNDBANK_GSTREAMSDITTIES_PAUSE, id is 0x10.
+    fn_38110(0.f);
+    g_4e173c = g_4e173c + 1;
+}
+
 // Xbox 0x0011E7F0. ECX is the scene record (DAT_00510E58 when 0x0011E4C0
 // calls). A nonzero dword at +0x22C is decremented and stored. Landing on 2
 // clears DAT_004E02E8. The float passed to 0x00038110 is

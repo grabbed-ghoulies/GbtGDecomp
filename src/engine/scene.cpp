@@ -19736,6 +19736,44 @@ void script_request(Game& g, std::string_view name)
     // The mode argument is stored at DAT_00510F58. Nothing in the binary reads it.
 }
 
+// Header in front of the records. Xbox stores begin, cursor, and limit as
+// addresses in the 12 bytes before +0x10. Those dwords are byte offsets from
+// the block here, so the records stay at +0x10.
+struct Pool662a0
+{
+    u16 stride = 0;
+    u16 grow = 0;
+    u32 begin = 0;
+    u32 cursor = 0;
+    u32 limit = 0;
+};
+static_assert(sizeof(Pool662a0) == 0x10);
+static_assert(offsetof(Pool662a0, begin) == 4);
+static_assert(offsetof(Pool662a0, cursor) == 8);
+static_assert(offsetof(Pool662a0, limit) == 0xc);
+
+// Xbox 0x000662A0
+// EAX is the pool block. used = (cursor - begin) / stride. The new count is
+// used plus the u16 at +2. 0x000F73A0 reallocates EAX to stride * count + 0x10
+// and adds the 4-byte tag 0x000F72D0 keeps. begin is the new block + 0x10,
+// cursor stays on the same record, and limit is begin + stride * count.
+u8* fn_662a0(u8* block)
+{
+    Pool662a0* pool = reinterpret_cast<Pool662a0*>(block);
+    const i32 stride = static_cast<i32>(pool->stride);
+    const i32 used = (static_cast<i32>(pool->cursor) - static_cast<i32>(pool->begin)) / stride;
+    const i32 count = static_cast<i32>(pool->grow) + used;
+    const u32 bytes = static_cast<u32>(stride) * static_cast<u32>(count) + 0x10u;
+    u8* fresh = static_cast<u8*>(std::realloc(block, static_cast<std::size_t>(bytes) + 4u));
+    Pool662a0* grown = reinterpret_cast<Pool662a0*>(fresh);
+    const i32 grown_stride = static_cast<i32>(grown->stride);
+    const u32 base = 0x10u;
+    grown->cursor = base + static_cast<u32>(grown_stride) * static_cast<u32>(used);
+    grown->begin = base;
+    grown->limit = base + static_cast<u32>(grown_stride) * static_cast<u32>(count);
+    return fresh;
+}
+
 // DAT_004DEDA8. 0x00033CF0 allocates the header. The u16 at +0 is the stride.
 // +2 is the grow count. +4 is begin and +8 is end.
 struct Pool4deda8

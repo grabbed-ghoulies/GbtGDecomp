@@ -19764,6 +19764,15 @@ void fn_117140(Game& g)
     }
 }
 
+// Xbox 0x0011CB60. ECX is 0x00510E58 for 0x00117000. 0x00117000, 0x0011CBD0,
+// and 0x0011B670 are not translated, so those calls are not made. The last
+// call is 0x00117140.
+void fn_11cb60(Game& g)
+{
+    // Xbox 0x0011CB60
+    fn_117140(g);
+}
+
 // Xbox 0x00117100, then the eval at 0x00117140. The update walk calls the
 // table at 0x00314334. Opcode 0 is 0x00133070. The other updates are not
 // translated, so those records are not stepped.

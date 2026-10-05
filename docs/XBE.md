@@ -395,3 +395,4 @@ Named functions: [`docs/generated/ghidra_functions.txt`](generated/ghidra_functi
 | `0x000F71F0` | `fn_f71f0` | scene |
 | `0x00109470` | `fn_109470` | scene |
 | `0x00117140` | `fn_117140` | scene |
+| `0x0011CB60` | `fn_11cb60` | scene |

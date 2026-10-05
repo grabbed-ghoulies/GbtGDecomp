@@ -29,6 +29,8 @@ int run_platform(Game& game, const PlatformConfig& cfg)
     }
 
     GfxConfig gfx_cfg;
+    gfx_cfg.width = cfg.width;
+    gfx_cfg.height = cfg.height;
     gfx_cfg.visible = !cfg.headless && cfg.screenshot.empty();
     const bool gfx_ok = gfx_init(gfx_cfg);
     std::cout << "gfx: " << (gfx_ok ? gfx_backend_name() : "unavailable") << (gfx_has_window() ? " window" : " offscreen")
@@ -51,7 +53,7 @@ int run_platform(Game& game, const PlatformConfig& cfg)
             gfx_shutdown();
             return 1;
         }
-        win = SDL_CreateWindow("GbtGDecomp", 640, 360, 0);
+        win = SDL_CreateWindow("GbtGDecomp", cfg.width, cfg.height, 0);
     }
 #endif
 

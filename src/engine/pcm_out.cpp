@@ -90,6 +90,7 @@ struct PcmVoice
 
 IXAudio2* g_xa = nullptr;
 IXAudio2MasteringVoice* g_master = nullptr;
+float g_master_volume = 1.f;
 std::vector<PcmVoice> g_voices;
 std::vector<PcmVoice> g_bed;
 bool g_device_failed = false;
@@ -446,6 +447,7 @@ bool ensure_device()
         std::cout << "audio XAudio2Create failed\n";
         return false;
     }
+    g_master->SetVolume(g_master_volume);
     return true;
 }
 
@@ -793,6 +795,27 @@ void pcm_play_pcm(const char* cue, const std::vector<u8>& pcm, int rate, int cha
     (void)rate;
     (void)channels;
     (void)loop;
+    (void)volume;
+#endif
+}
+
+void pcm_set_master_volume(float volume)
+{
+#if defined(_WIN32)
+    if (volume < 0.f)
+    {
+        volume = 0.f;
+    }
+    else if (volume > 1.f)
+    {
+        volume = 1.f;
+    }
+    g_master_volume = volume;
+    if (g_master)
+    {
+        g_master->SetVolume(g_master_volume);
+    }
+#else
     (void)volume;
 #endif
 }

@@ -66,6 +66,7 @@ target_link_libraries(gbtg-xemu-patch PRIVATE gbtg_lib)
 
 add_executable(gbtg
     src/engine/main.cpp
+    src/engine/host_config.cpp
     src/engine/aid.cpp
     src/engine/entity.cpp
     src/engine/clock.cpp

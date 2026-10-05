@@ -1,4 +1,6 @@
+#include "gbtg/engine_internal.hpp"
 #include "gbtg/game.hpp"
+#include "gbtg/host_config.hpp"
 #include "gbtg/platform.hpp"
 
 #include <iostream>
@@ -55,7 +57,12 @@ int main(int argc, char** argv)
         cfg.frames = int_arg(argc, argv, "--frames", 0);
         cfg.screenshot = arg(argc, argv, "--screenshot");
         cfg.scene = arg(argc, argv, "--scene").string();
-        std::cout << "GbtGDecomp  game-dir=" << cfg.game_dir.string() << "\n";
+        const gbtg::HostConfig host = gbtg::load_host_config(argc > 0 ? argv[0] : "");
+        cfg.width = host.width;
+        cfg.height = host.height;
+        gbtg::pcm_set_master_volume(static_cast<float>(host.master_volume) / 100.f);
+        std::cout << "GbtGDecomp  game-dir=" << cfg.game_dir.string() << "  " << cfg.width << "x" << cfg.height
+                  << "  volume=" << host.master_volume << "\n";
         gbtg::Game game;
         game.init(cfg.game_dir, cfg.scene);
         return gbtg::run_platform(game, cfg);

@@ -64,6 +64,13 @@ target_link_libraries(gbtg-dump PRIVATE gbtg_lib)
 add_executable(gbtg-model-check src/tools/model_check_main.cpp)
 target_link_libraries(gbtg-model-check PRIVATE gbtg_lib)
 
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(gbtg-model-tests tests/model_tests.cpp)
+    target_link_libraries(gbtg-model-tests PRIVATE gbtg_lib)
+    add_test(NAME model-render-inputs COMMAND gbtg-model-tests)
+endif()
+
 add_executable(gbtg-xemu-patch src/tools/xemu_patch_main.cpp)
 target_link_libraries(gbtg-xemu-patch PRIVATE gbtg_lib)
 

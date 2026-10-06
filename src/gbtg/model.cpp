@@ -18,13 +18,20 @@ struct VertStream
     u32 n = 0;
     std::vector<Vec3> positions;
     std::vector<Vec3> normals;
+    std::vector<u32> diffuse;
+    std::vector<u32> specular;
     std::vector<Vec2> uvs;
     std::vector<Vec2> uv1;
     std::vector<Vec2> uv2;
+    std::vector<Vec2> uv3;
     std::vector<u16> bones;
     std::vector<u16> bone2;
+    std::vector<u16> bone3;
+    std::vector<u16> bone4;
     std::vector<float> weight0;
     std::vector<float> weight1;
+    std::vector<float> weight2;
+    std::vector<float> weight3;
     std::vector<u8> attribute_types;
     std::vector<std::string> issues;
 };
@@ -103,8 +110,9 @@ std::vector<VertStream> parse_vertex_streams(std::span<const u8> cpu, std::span<
                 throw Error("vertex attribute size/range mismatch");
             }
             const bool supported = ((attr == 9 || attr == 10) && stride == 12) ||
-                (attr >= 13 && attr <= 15 && stride == 8) ||
-                ((attr == 0 || attr == 8) && (stride == 8 || stride == 16));
+                ((attr == 11 || attr == 12) && stride == 4) ||
+                (attr >= 13 && attr <= 16 && stride == 8) ||
+                ((attr == 0 || attr == 8) && (stride == 4 || stride == 8 || stride == 16));
             if (!supported && (attr < 27 || attr > 34))
             {
                 stream.issues.push_back("untranslated vertex attribute " + std::to_string(attr) +
@@ -118,22 +126,33 @@ std::vector<VertStream> parse_vertex_streams(std::span<const u8> cpu, std::span<
                     const Vec3 value{read_f32(gpu, q), read_f32(gpu, q + 4), read_f32(gpu, q + 8)};
                     (attr == 9 ? stream.positions : stream.normals).push_back(value);
                 }
-                else if (attr >= 13 && attr <= 15 && stride == 8)
+                else if (attr >= 13 && attr <= 16 && stride == 8)
                 {
-                    auto& uv = attr == 13 ? stream.uvs : (attr == 14 ? stream.uv1 : stream.uv2);
+                    auto& uv = attr == 13 ? stream.uvs : (attr == 14 ? stream.uv1 :
+                        (attr == 15 ? stream.uv2 : stream.uv3));
                     uv.push_back(Vec2{read_f32(gpu, q), read_f32(gpu, q + 4)});
                 }
-                else if (attr == 0 && (stride == 8 || stride == 16))
+                else if ((attr == 11 || attr == 12) && stride == 4)
+                {
+                    (attr == 11 ? stream.diffuse : stream.specular).push_back(read_u32(gpu, q));
+                }
+                else if (attr == 0 && (stride == 4 || stride == 8 || stride == 16))
                 {
                     const float first = read_f32(gpu, q);
-                    const float second = read_f32(gpu, q + 4);
+                    const float second = stride >= 8 ? read_f32(gpu, q + 4) : 0.f;
                     stream.bones.push_back(u16((first - 24.f) / 3.f));
                     stream.bone2.push_back(second == 0.f ? 0 : u16((second - 24.f) / 3.f));
+                    const float third = stride == 16 ? read_f32(gpu, q + 8) : 0.f;
+                    const float fourth = stride == 16 ? read_f32(gpu, q + 12) : 0.f;
+                    stream.bone3.push_back(third == 0.f ? 0 : u16((third - 24.f) / 3.f));
+                    stream.bone4.push_back(fourth == 0.f ? 0 : u16((fourth - 24.f) / 3.f));
                 }
-                else if (attr == 8 && (stride == 8 || stride == 16))
+                else if (attr == 8 && (stride == 4 || stride == 8 || stride == 16))
                 {
                     stream.weight0.push_back(read_f32(gpu, q));
-                    stream.weight1.push_back(read_f32(gpu, q + 4));
+                    stream.weight1.push_back(stride >= 8 ? read_f32(gpu, q + 4) : 0.f);
+                    stream.weight2.push_back(stride == 16 ? read_f32(gpu, q + 8) : 0.f);
+                    stream.weight3.push_back(stride == 16 ? read_f32(gpu, q + 12) : 0.f);
                 }
             }
         }
@@ -351,6 +370,10 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
     };
     std::array<u32, 60> active_pixel_shader{};
     bool has_pixel_shader = false;
+    i32 render_mode = -1;
+    std::array<u8, 2> colour_source{255, 255};
+    u8 skin_weight_mask = 0;
+    bool uses_skin_palette = false;
     std::array<u8, 4> stage_uv{};
     bool direct_uv = false;
 
@@ -509,6 +532,10 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
         sm.direct_uv = direct_uv;
         sm.pixel_shader = active_pixel_shader;
         sm.has_pixel_shader = has_pixel_shader;
+        sm.render_mode = render_mode;
+        sm.colour_source = colour_source;
+        sm.skin_weight_mask = skin_weight_mask;
+        sm.uses_skin_palette = uses_skin_palette;
         if (has_pixel_shader)
         {
             // CreatePixelShader's mappings select the constants subsequently
@@ -657,6 +684,8 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
             has_pixel_shader = false;
             if (wrapper + 12 <= cpu.size())
             {
+                // Xbox 0x00157CE0 / 0x0015B5E0 selects render states from wrapper[0].
+                render_mode = i32(read_u32(cpu, wrapper));
                 const size_t definition = size_t(kNodeBase) + read_u32(cpu, wrapper + 4);
                 if (read_u32(cpu, wrapper + 8) == 240 && definition + 240 <= cpu.size())
                 {
@@ -675,6 +704,9 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
             const size_t node = size_t(kNodeBase) + rel;
             direct_uv = false;
             stage_uv.fill(255);
+            colour_source.fill(255);
+            skin_weight_mask = 0;
+            uses_skin_palette = false;
             if (node + 104 <= cpu.size())
             {
                 const size_t si = active_stream;
@@ -720,14 +752,50 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
                             const u32 w1 = read_u32(cpu, q + 4);
                             const u32 w2 = read_u32(cpu, q + 8);
                             const u32 w3 = read_u32(cpu, q + 12);
+                            const u32 mac = (w1 >> 21) & 15;
+                            // Operand arity: ADD consumes A,C; ILU consumes C.
+                            constexpr u8 operands[14] = {0, 1, 3, 5, 7, 3, 3, 3, 3, 3, 3, 3, 3, 1};
+                            const u8 used = (mac < 14 ? operands[mac] : 0) | (((w1 >> 25) & 7) ? 4 : 0);
+                            const u8 input_attr = registers[(w1 >> 9) & 15];
+                            if (input_attr == 0 || input_attr == 8)
+                            {
+                                const u32 mux[3] = {(w2 >> 26) & 3, (w2 >> 11) & 3, (w3 >> 28) & 3};
+                                const u32 swizzle[3] = {w1 & 255, (w2 >> 17) & 255, (w2 >> 2) & 255};
+                                for (u32 operand = 0; operand < 3; ++operand)
+                                {
+                                    if ((used & (1 << operand)) && mux[operand] == 2)
+                                    {
+                                        if (input_attr == 0)
+                                        {
+                                            uses_skin_palette = true;
+                                            continue;
+                                        }
+                                        for (u32 component = 0; component < 4; ++component)
+                                        {
+                                            skin_weight_mask |= u8(1 << ((swizzle[operand] >> (component * 2)) & 3));
+                                        }
+                                    }
+                                }
+                            }
                             const u32 output = (w3 >> 3) & 255;
-                            if (output >= 9 && output <= 12 && ((w3 >> 12) & 15) != 0)
+                            if ((w3 & 0x800) != 0 && (output == 3 || output == 4) && (w3 & 0xf000) != 0)
+                            {
+                                colour_source[output - 3] = 255;
+                                const u8 attr = registers[(w1 >> 9) & 15];
+                                if ((w3 & 0xf000) == 0xf000 && ((w1 >> 21) & 15) == 1 &&
+                                    ((w2 >> 26) & 3) == 2 && (w1 & 0x1ff) == 0x1b &&
+                                    (w3 & 4) == 0 && (attr == 11 || attr == 12))
+                                {
+                                    colour_source[output - 3] = attr - 11;
+                                }
+                            }
+                            if ((w3 & 0x800) != 0 && output >= 9 && output <= 12 && ((w3 >> 12) & 15) != 0)
                             {
                                 const u8 attr = registers[(w1 >> 9) & 15];
                                 // Full xy MOV from an input register is a direct UV binding.
                                 if (((w1 >> 21) & 15) == 1 && ((w2 >> 26) & 3) == 2 &&
                                     (w1 & 0x1f0) == 0x10 && (w3 & 0xc000) == 0xc000 &&
-                                    (w3 & 4) == 0 && attr >= 13 && attr <= 15)
+                                    (w3 & 4) == 0 && attr >= 13 && attr <= 16)
                                 {
                                     stage_uv[output - 9] = attr - 13;
                                 }
@@ -925,6 +993,16 @@ Mesh parse_model(const BundleEntry& entry)
         bases.push_back(u32(mesh.positions.size()));
         mesh.positions.insert(mesh.positions.end(), s.positions.begin(), s.positions.end());
         mesh.normals.resize(mesh.positions.size());
+        mesh.diffuse.resize(mesh.positions.size(), 0xffffffff);
+        mesh.specular.resize(mesh.positions.size(), 0);
+        for (size_t i = 0; i < s.diffuse.size(); ++i)
+        {
+            mesh.diffuse[bases.back() + i] = s.diffuse[i];
+        }
+        for (size_t i = 0; i < s.specular.size(); ++i)
+        {
+            mesh.specular[bases.back() + i] = s.specular[i];
+        }
         for (size_t i = 0; i < s.normals.size(); ++i)
         {
             mesh.normals[bases.back() + i] = s.normals[i];
@@ -932,6 +1010,7 @@ Mesh parse_model(const BundleEntry& entry)
         mesh.uvs.resize(mesh.positions.size());
         mesh.uv1.resize(mesh.positions.size());
         mesh.uv2.resize(mesh.positions.size());
+        mesh.uv3.resize(mesh.positions.size());
         for (size_t i = 0; i < s.uvs.size(); ++i)
         {
             mesh.uvs[bases.back() + i] = s.uvs[i];
@@ -944,12 +1023,20 @@ Mesh parse_model(const BundleEntry& entry)
         {
             mesh.uv2[bases.back() + i] = s.uv2[i];
         }
+        for (size_t i = 0; i < s.uv3.size(); ++i)
+        {
+            mesh.uv3[bases.back() + i] = s.uv3[i];
+        }
         if (any_bones)
         {
             mesh.bones.resize(mesh.positions.size(), 0);
             mesh.bone2.resize(mesh.positions.size(), 0);
+            mesh.bone3.resize(mesh.positions.size(), 0);
+            mesh.bone4.resize(mesh.positions.size(), 0);
             mesh.weight0.resize(mesh.positions.size(), 1.f);
             mesh.weight1.resize(mesh.positions.size(), 0.f);
+            mesh.weight2.resize(mesh.positions.size(), 0.f);
+            mesh.weight3.resize(mesh.positions.size(), 0.f);
             for (size_t i = 0; i < s.bones.size(); ++i)
             {
                 mesh.bones[bases.back() + i] = s.bones[i];
@@ -957,11 +1044,15 @@ Mesh parse_model(const BundleEntry& entry)
             for (size_t i = 0; i < s.bone2.size(); ++i)
             {
                 mesh.bone2[bases.back() + i] = s.bone2[i];
+                mesh.bone3[bases.back() + i] = s.bone3[i];
+                mesh.bone4[bases.back() + i] = s.bone4[i];
             }
             for (size_t i = 0; i < s.weight0.size(); ++i)
             {
                 mesh.weight0[bases.back() + i] = s.weight0[i];
                 mesh.weight1[bases.back() + i] = s.weight1[i];
+                mesh.weight2[bases.back() + i] = s.weight2[i];
+                mesh.weight3[bases.back() + i] = s.weight3[i];
             }
         }
     }

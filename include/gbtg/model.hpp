@@ -29,6 +29,10 @@ struct Submesh
     std::array<u32, 60> pixel_shader{};
     bool has_pixel_shader = false;
     bool direct_uv = false;
+    i32 render_mode = -1; // 0 opaque, 1 alpha/read-only depth, 2 alpha/depth write, 3 additive
+    std::array<u8, 2> colour_source{255, 255}; // declared direct MOV to oD0/oD1
+    u8 skin_weight_mask = 0; // zero: rigid shader does not read the weight stream
+    bool uses_skin_palette = false;
 };
 
 // Skeleton joint from ndSkeleton. parent is the u16 at record +0 (0xFFFF is the root).
@@ -45,16 +49,23 @@ struct Mesh
     std::string name;
     std::vector<Vec3> positions;
     std::vector<Vec3> normals; // type 0x0A, same count as positions when the mesh is lit
+    std::vector<u32> diffuse; // descriptor type 11, packed D3DCOLOR (ARGB)
+    std::vector<u32> specular; // descriptor type 12
     std::vector<u16> bones;    // v4.x palette slot. Shader 1 ARLs this, then the slot at bone2.
     std::vector<u16> bone2;    // v4.y. Unused slots stay 0.
+    std::vector<u16> bone3;
+    std::vector<u16> bone4;
     std::vector<float> weight0; // v5.x. Shader 1 scales the first matrix row by this.
     std::vector<float> weight1; // v5.y. Rigid vertices are 0.
+    std::vector<float> weight2;
+    std::vector<float> weight3;
     Vec3 skin_delta;           // added to joint bind points to land the skeleton on the vertices
     std::vector<Joint> joints;
     std::vector<u16> mtx_joints; // ndMtxArray record -> skeleton joint (0x155E60)
     std::vector<Vec2> uvs;
     std::vector<Vec2> uv1;
     std::vector<Vec2> uv2;
+    std::vector<Vec2> uv3;
     std::vector<u32> indices; // triangle list; concatenated buffers may exceed 65535 vertices
     std::vector<Submesh> submeshes;
     std::vector<RgbaImage> textures;

@@ -52,6 +52,11 @@ struct GpuVert
     float bone2 = 0.f;
     float w0 = 1.f;
     float w1 = 0.f;
+    u32 diffuse = 0xffffffff;
+    u32 specular = 0;
+    float u3 = 0.f, v3 = 0.f;
+    float bone3 = 0.f, bone4 = 0.f;
+    float w2 = 0.f, w3 = 0.f;
 };
 
 struct GpuCB
@@ -74,7 +79,12 @@ struct GpuCB
     float alpha_func = 0.f;
     float alpha_pad = 0.f;
     std::array<float, 4> tint{1.f, 1.f, 1.f, 1.f};
+    std::array<float, 4> skin_mask{1.f, 1.f, 0.f, 0.f};
 };
+
+static_assert(sizeof(GpuVert) == 96 && offsetof(GpuVert, diffuse) == 64 &&
+              offsetof(GpuVert, u3) == 72 && offsetof(GpuVert, bone3) == 80 && offsetof(GpuVert, w2) == 88);
+static_assert(sizeof(GpuCB) == 144 && offsetof(GpuCB, skin_mask) == 128);
 
 struct DrawRange
 {
@@ -93,6 +103,9 @@ struct DrawRange
     float color_b = 1.f;
     float alpha_ref = 0.f;
     std::vector<u8> skin;
+    i32 render_mode = -1;
+    u8 skin_weight_mask = 0;
+    bool uses_skin_palette = false;
     std::vector<u16> mtx;
     ComPtr<ID3D11Buffer> material_cb;
     std::array<i32, 4> stages{-1, -1, -1, -1};
@@ -143,6 +156,8 @@ struct GfxD3D11
     ComPtr<ID3D11DepthStencilState> depth_off;
     ComPtr<ID3D11BlendState> blend_opaque;
     ComPtr<ID3D11BlendState> blend_alpha;
+    ComPtr<ID3D11BlendState> blend_additive;
+    ComPtr<ID3D11BlendState> blend_model_alpha;
     ComPtr<ID3D11Buffer> ui_vb;
     std::unordered_map<const Mesh*, GpuMesh> meshes;
     struct SpriteGpu
@@ -385,6 +400,19 @@ bool upload_mesh(const Mesh& mesh, GpuMesh& gpu)
         verts[i].x = mesh.positions[i].x;
         verts[i].y = mesh.positions[i].y;
         verts[i].z = mesh.positions[i].z;
+        // D3DCOLOR bytes are BGRA; the D3D11 input format reads RGBA bytes.
+        auto rgba = [](u32 argb)
+        {
+            return (argb & 0xff00ff00u) | ((argb >> 16) & 255u) | ((argb & 255u) << 16);
+        };
+        if (i < mesh.diffuse.size())
+        {
+            verts[i].diffuse = rgba(mesh.diffuse[i]);
+        }
+        if (i < mesh.specular.size())
+        {
+            verts[i].specular = rgba(mesh.specular[i]);
+        }
         if (i < mesh.uvs.size())
         {
             verts[i].u0 = mesh.uvs[i].u;
@@ -406,6 +434,11 @@ bool upload_mesh(const Mesh& mesh, GpuMesh& gpu)
             verts[i].u2 = mesh.uv2[i].u;
             verts[i].v2 = mesh.uv2[i].v;
         }
+        if (i < mesh.uv3.size())
+        {
+            verts[i].u3 = mesh.uv3[i].u;
+            verts[i].v3 = mesh.uv3[i].v;
+        }
         if (i < mesh.bones.size())
         {
             verts[i].bone = float(mesh.bones[i]);
@@ -418,6 +451,16 @@ bool upload_mesh(const Mesh& mesh, GpuMesh& gpu)
         {
             verts[i].w0 = mesh.weight0[i];
             verts[i].w1 = mesh.weight1[i];
+        }
+        if (i < mesh.bone3.size() && i < mesh.bone4.size())
+        {
+            verts[i].bone3 = float(mesh.bone3[i]);
+            verts[i].bone4 = float(mesh.bone4[i]);
+        }
+        if (i < mesh.weight2.size() && i < mesh.weight3.size())
+        {
+            verts[i].w2 = mesh.weight2[i];
+            verts[i].w3 = mesh.weight3[i];
         }
     }
     D3D11_BUFFER_DESC bd{};
@@ -490,8 +533,11 @@ bool upload_mesh(const Mesh& mesh, GpuMesh& gpu)
             {
                 std::array<u32, 60> words;
                 std::array<u32, 4> uv;
+                std::array<u32, 4> control;
             };
-            MaterialConstants constants{sub.pixel_shader, {sub.stage_uv[0], sub.stage_uv[1], sub.stage_uv[2], sub.stage_uv[3]}};
+            MaterialConstants constants{sub.pixel_shader,
+                {sub.stage_uv[0], sub.stage_uv[1], sub.stage_uv[2], sub.stage_uv[3]},
+                {sub.colour_source[0], sub.colour_source[1], 0, 0}};
             D3D11_BUFFER_DESC desc{};
             desc.ByteWidth = sizeof(constants);
             desc.Usage = D3D11_USAGE_IMMUTABLE;
@@ -522,6 +568,9 @@ bool upload_mesh(const Mesh& mesh, GpuMesh& gpu)
         range.color_g = sub.color.y;
         range.color_b = sub.color.z;
         range.alpha_ref = float(sub.alpha_ref);
+        range.render_mode = sub.render_mode;
+        range.skin_weight_mask = sub.skin_weight_mask;
+        range.uses_skin_palette = sub.uses_skin_palette;
         range.skin = sub.skin;
         range.mtx = sub.mtx;
         gpu.ranges.push_back(std::move(range));
@@ -1093,6 +1142,7 @@ cbuffer Camera : register(b0) {
     float4 light_dir; // xyz draw colour (0x5e380), w = rigid skin on
     float4 alpha_rs; // x = ALPHATESTENABLE, y = ALPHAREF, z = ALPHAFUNC (0x0005E0C0)
     float4 tint;
+    float4 skin_mask;
 };
 cbuffer Bones : register(b1) {
     float4x4 joints[128];
@@ -1101,8 +1151,8 @@ Texture2D g_tex : register(t0);
 Texture2D g_light : register(t1);
 SamplerState g_samp : register(s0);
 SamplerState g_light_samp : register(s1);
-struct VSIn { float3 pos : POSITION; float2 uv0 : TEXCOORD0; float2 uv1 : TEXCOORD1; float3 nrm : NORMAL; float2 bone : TEXCOORD2; float2 wt : TEXCOORD3; float2 uv2 : TEXCOORD4; };
-struct VSOut { float4 pos : SV_Position; float2 uv0 : TEXCOORD0; float2 uv1 : TEXCOORD1; float3 nrm : TEXCOORD2; float2 uv2 : TEXCOORD3; };
+struct VSIn { float3 pos : POSITION; float2 uv0 : TEXCOORD0; float2 uv1 : TEXCOORD1; float3 nrm : NORMAL; float2 bone : TEXCOORD2; float2 wt : TEXCOORD3; float2 uv2 : TEXCOORD4; float4 diffuse : COLOR0; float4 specular : COLOR1; float2 uv3 : TEXCOORD5; float2 extra_bone : TEXCOORD6; float2 extra_wt : TEXCOORD7; };
+struct VSOut { float4 pos : SV_Position; float2 uv0 : TEXCOORD0; float2 uv1 : TEXCOORD1; float3 nrm : TEXCOORD2; float2 uv2 : TEXCOORD3; float4 diffuse : COLOR0; float4 specular : COLOR1; float2 uv3 : TEXCOORD4; };
 VSOut vs_main(VSIn i) {
     VSOut o;
     float3 p = i.pos;
@@ -1112,14 +1162,26 @@ VSOut vs_main(VSIn i) {
         // Weight (1, 0) is the rigid path, so one-bone meshes stay on bone.x.
         int b0 = clamp((int)i.bone.x, 0, 127);
         int b1 = clamp((int)i.bone.y, 0, 127);
-        p = mul(joints[b0], float4(i.pos, 1)).xyz * i.wt.x + mul(joints[b1], float4(i.pos, 1)).xyz * i.wt.y;
-        nrm = mul(joints[b0], float4(i.nrm, 0)).xyz * i.wt.x + mul(joints[b1], float4(i.nrm, 0)).xyz * i.wt.y;
+        int b2 = clamp((int)i.extra_bone.x, 0, 127);
+        int b3 = clamp((int)i.extra_bone.y, 0, 127);
+        float4 wt = float4(i.wt, i.extra_wt) * skin_mask;
+        if (dot(skin_mask, skin_mask) == 0)
+        {
+            wt = float4(1, 0, 0, 0);
+        }
+        p = mul(joints[b0], float4(i.pos, 1)).xyz * wt.x + mul(joints[b1], float4(i.pos, 1)).xyz * wt.y
+          + mul(joints[b2], float4(i.pos, 1)).xyz * wt.z + mul(joints[b3], float4(i.pos, 1)).xyz * wt.w;
+        nrm = mul(joints[b0], float4(i.nrm, 0)).xyz * wt.x + mul(joints[b1], float4(i.nrm, 0)).xyz * wt.y
+            + mul(joints[b2], float4(i.nrm, 0)).xyz * wt.z + mul(joints[b3], float4(i.nrm, 0)).xyz * wt.w;
     }
     o.pos = mul(mvp, float4(p, 1));
     o.uv0 = i.uv0;
     o.uv1 = i.uv1;
     o.uv2 = i.uv2;
+    o.uv3 = i.uv3;
     o.nrm = nrm;
+    o.diffuse = i.diffuse;
+    o.specular = i.specular;
     return o;
 }
 float4 ps_main(VSOut i) : SV_Target {
@@ -1170,6 +1232,7 @@ cbuffer Material : register(b2)
 {
     uint4 ps_words[15];
     uint4 ps_uv;
+    uint4 ps_control;
 };
 Texture2D stage_tex[4] : register(t0);
 SamplerState stage_samp[4] : register(s0);
@@ -1254,7 +1317,7 @@ float4 output_map(float4 value, uint output)
 float2 stage_coord(VSOut i, uint stage)
 {
     uint uv = ps_uv[stage];
-    return uv == 0 ? i.uv0 : (uv == 1 ? i.uv1 : i.uv2);
+    return uv == 0 ? i.uv0 : (uv == 1 ? i.uv1 : (uv == 2 ? i.uv2 : i.uv3));
 }
 float4 ps_model(VSOut i) : SV_Target
 {
@@ -1267,6 +1330,14 @@ float4 ps_model(VSOut i) : SV_Target
     // The shared host vertex path supplies the current draw colour. Dynamic
     // Xbox lighting splices are tracked as a separate unresolved vertex path.
     regs[4] = float4(light_dir.xyz, 1);
+    if (ps_control.x < 2)
+    {
+        regs[4] = ps_control.x == 0 ? i.diffuse : i.specular;
+    }
+    if (ps_control.y < 2)
+    {
+        regs[5] = ps_control.y == 0 ? i.diffuse : i.specular;
+    }
     if ((ps_word(54) & 31) == 1)
     {
         regs[8] = stage_tex[0].Sample(stage_samp[0], stage_coord(i, 0));
@@ -1393,8 +1464,13 @@ float4 ps_model(VSOut i) : SV_Target
         {"TEXCOORD", 2, DXGI_FORMAT_R32G32_FLOAT, 0, 48, D3D11_INPUT_PER_VERTEX_DATA, 0},
         {"TEXCOORD", 3, DXGI_FORMAT_R32G32_FLOAT, 0, 56, D3D11_INPUT_PER_VERTEX_DATA, 0},
         {"TEXCOORD", 4, DXGI_FORMAT_R32G32_FLOAT, 0, 40, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"COLOR", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, 64, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"COLOR", 1, DXGI_FORMAT_R8G8B8A8_UNORM, 0, 68, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 5, DXGI_FORMAT_R32G32_FLOAT, 0, 72, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 6, DXGI_FORMAT_R32G32_FLOAT, 0, 80, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 7, DXGI_FORMAT_R32G32_FLOAT, 0, 88, D3D11_INPUT_PER_VERTEX_DATA, 0},
     };
-    g.device->CreateInputLayout(layout, 7, vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), g.layout.GetAddressOf());
+    g.device->CreateInputLayout(layout, UINT(std::size(layout)), vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), g.layout.GetAddressOf());
 
     D3D11_BUFFER_DESC cbd{};
     cbd.ByteWidth = sizeof(GpuCB);
@@ -1442,6 +1518,13 @@ float4 ps_model(VSOut i) : SV_Target
     blend.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
     blend.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
     g.device->CreateBlendState(&blend, g.blend_alpha.GetAddressOf());
+    blend.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_SRC_ALPHA;
+    g.device->CreateBlendState(&blend, g.blend_model_alpha.GetAddressOf());
+    // Xbox 0x0015B580: SRCALPHA + ONE, including the alpha channel.
+    blend.RenderTarget[0].DestBlend = D3D11_BLEND_ONE;
+    blend.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_SRC_ALPHA;
+    blend.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ONE;
+    g.device->CreateBlendState(&blend, g.blend_additive.GetAddressOf());
 
     D3D11_BUFFER_DESC ui_bd{};
     ui_bd.ByteWidth = u32(6 * sizeof(GpuVert));
@@ -1455,7 +1538,7 @@ float4 ps_model(VSOut i) : SV_Target
         ShowWindow(g.hwnd, SW_SHOW);
     }
     g.ok = g.vs && g.ps && g.layout && g.cb && g.bone_cb && g.rtv && g.dsv && g.ui_vb && g.blend_alpha &&
-           g.depth_off && g.depth_lequal && g.depth_lequal_ro;
+           g.depth_off && g.depth_lequal && g.depth_lequal_ro && g.blend_model_alpha && g.blend_additive;
     if (!g.ok)
     {
         std::cerr << "d3d11: pipeline incomplete\n";
@@ -1482,6 +1565,8 @@ void gfx_shutdown()
     g.sprites.clear();
     g.ui_vb.Reset();
     g.blend_alpha.Reset();
+    g.blend_additive.Reset();
+    g.blend_model_alpha.Reset();
     g.blend_opaque.Reset();
     g.depth_off.Reset();
     g.depth_lequal_ro.Reset();
@@ -1801,7 +1886,11 @@ void gfx_draw_mesh(const Mesh& mesh, Vec3 origin, Vec3 scale)
             cb.light_uv = range.light_uv;
             cb.use_light = range.light ? range.use_light : 0.f;
             cb.use_cel = range.light ? range.use_cel : 0.f;
-            cb.skin = g.skin ? 1.f : 0.f;
+            cb.skin = g.skin && range.uses_skin_palette ? 1.f : 0.f;
+            for (u32 influence = 0; influence < 4; ++influence)
+            {
+                cb.skin_mask[influence] = (range.skin_weight_mask & (1 << influence)) ? 1.f : 0.f;
+            }
             cb.light_x = range.color_r;
             cb.light_y = range.color_g;
             cb.light_z = range.color_b;
@@ -1901,6 +1990,18 @@ void gfx_draw_mesh(const Mesh& mesh, Vec3 origin, Vec3 scale)
             g.context->PSSetShaderResources(0, 2, srvs);
             ID3D11SamplerState* samplers[2]{g.sampler.Get(), g.light_sampler.Get()};
             g.context->PSSetSamplers(0, 2, samplers);
+        }
+        // Xbox 0x0015B5E0 dispatches 0/1/2/3 to 0x0015B380/4B0/3F0/580.
+        if (range.render_mode >= 0 && range.render_mode <= 3)
+        {
+            ID3D11BlendState* blend = range.render_mode == 0 ? g.blend_opaque.Get() :
+                (range.render_mode == 3 ? g.blend_additive.Get() : g.blend_model_alpha.Get());
+            g.context->OMSetBlendState(blend, nullptr, 0xffffffffu);
+            if (pass == 0)
+            {
+                const bool depth_write = range.render_mode == 0 || range.render_mode == 2;
+                g.context->OMSetDepthStencilState(depth_write ? g.depth_lequal.Get() : g.depth_lequal_ro.Get(), 0);
+            }
         }
         g.context->DrawIndexed(range.count, range.start, 0);
 

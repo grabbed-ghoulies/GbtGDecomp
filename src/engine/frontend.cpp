@@ -1793,6 +1793,7 @@ struct MoveCaption
     // 0x000589F0 stores DAT_0032B248 (0.6). {scale} replaces it (0x000570C2).
     float scale = 0.6f;
     bool head = true;
+    bool pause_audio = true;
     // Type 0x15 record +0xD0. 0x0004C4F0 plays it when the hold ends.
     std::string next_cue;
     std::string motif;
@@ -2033,6 +2034,9 @@ const std::vector<MoveCaption>& move_captions(const Game& g)
                 if (it != table.keys_to_utf8.end())
                 {
                     MoveCaption cap;
+                    // Attract bypasses the global pause in 0x000584D0.
+                    // The event's own cutscene wait (0x0004E640) still applies.
+                    cap.pause_audio = !scene_control_starts(g, "attract");
                     cap.start = read_f32(rec, 4);
                     // Xbox 0x0004CE26 / 0x0004D510: motif at +0x50,
                     // background byte at +0x150. 0x0004C4F0 releases it.
@@ -2435,7 +2439,10 @@ void arm_caption(const Game& g, const MoveCaption& cap)
     g_dialogue_fade = 0.f;
     const bool button = !cap.pages.empty() && cap.pages[0].button;
     g_caption_wait = button;
-    pcm_dialog_hold(true);
+    if (cap.pause_audio)
+    {
+        pcm_dialog_hold(true);
+    }
     if (!cap.motif.empty())
     {
         g_dialogue_motif = cap.motif;
@@ -2462,8 +2469,9 @@ void caption_accept(const Game& g)
 
 float attract_caption_dt(const Game& g, float dt)
 {
-    // 0x000117400 increments the pause counters while a dialog line is showing,
-    // and 0x0004EBD0 stops the attract clock for that hold. {settime} is the hold.
+    // Xbox 0x0004C850 -> 0x0004E640 pauses the event's cutscene at +0x158.
+    // 0x0004DA50 releases it only after dialogue mode returns to zero.
+    // This wait also applies to title captions; their audio keeps playing.
     // Book scenes leave the menu widget down (mode -1) and still show type 0x15.
     if (g.frontend_mode > 0)
     {

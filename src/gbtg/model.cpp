@@ -778,13 +778,20 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
                                 }
                             }
                             const u32 output = (w3 >> 3) & 255;
+                            // The shared output port selects MAC A or ILU C with
+                            // OUT_MUX. Retail background programs pair DP3 with
+                            // an ILU MOV of a UV input in the same instruction.
+                            const bool ilu_output = (w3 & 4) != 0;
+                            const bool direct_input = ilu_output
+                                ? (((w1 >> 25) & 7) == 1 && ((w3 >> 28) & 3) == 2 && (w2 & 0x400) == 0)
+                                : (mac == 1 && ((w2 >> 26) & 3) == 2 && (w1 & 0x100) == 0);
+                            const u32 output_swizzle = ilu_output ? ((w2 >> 2) & 255) : (w1 & 255);
                             if ((w3 & 0x800) != 0 && (output == 3 || output == 4) && (w3 & 0xf000) != 0)
                             {
                                 colour_source[output - 3] = 255;
                                 const u8 attr = registers[(w1 >> 9) & 15];
-                                if ((w3 & 0xf000) == 0xf000 && ((w1 >> 21) & 15) == 1 &&
-                                    ((w2 >> 26) & 3) == 2 && (w1 & 0x1ff) == 0x1b &&
-                                    (w3 & 4) == 0 && (attr == 11 || attr == 12))
+                                if ((w3 & 0xf000) == 0xf000 && direct_input && output_swizzle == 0x1b &&
+                                    (attr == 11 || attr == 12))
                                 {
                                     colour_source[output - 3] = attr - 11;
                                 }
@@ -793,9 +800,8 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
                             {
                                 const u8 attr = registers[(w1 >> 9) & 15];
                                 // Full xy MOV from an input register is a direct UV binding.
-                                if (((w1 >> 21) & 15) == 1 && ((w2 >> 26) & 3) == 2 &&
-                                    (w1 & 0x1f0) == 0x10 && (w3 & 0xc000) == 0xc000 &&
-                                    (w3 & 4) == 0 && attr >= 13 && attr <= 16)
+                                if (direct_input && (output_swizzle & 0xf0) == 0x10 &&
+                                    (w3 & 0xc000) == 0xc000 && attr >= 13 && attr <= 16)
                                 {
                                     stage_uv[output - 9] = attr - 13;
                                 }

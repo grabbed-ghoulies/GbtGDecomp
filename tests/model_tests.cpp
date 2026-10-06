@@ -148,6 +148,14 @@ int main()
         const auto fourth_uv_mesh = fourth_uv.parse();
         require(fourth_uv_mesh.uv3[2].v == 0.6f && fourth_uv_mesh.submeshes[0].stage_uv[0] == 3 &&
                 fourth_uv_mesh.submeshes[0].direct_uv, "fourth UV descriptor was not bound to the declared texture output");
+        // Retail corridor: MAC DP3 and ILU MOV v3 share the output port.
+        word(fourth_uv.cpu, 1560 + 64 + 8, (5u << 21) | (1u << 25) | (3u << 9));
+        word(fourth_uv.cpu, 1560 + 64 + 12, 0x1bu << 2);
+        word(fourth_uv.cpu, 1560 + 64 + 16, 0x2000f84d);
+        require(fourth_uv.parse().submeshes[0].direct_uv && fourth_uv.parse().submeshes[0].stage_uv[0] == 3,
+                "paired ILU MOV texture output was mistaken for the MAC result");
+        word(fourth_uv.cpu, 1560 + 64 + 12, (0x1bu << 2) | 0x400);
+        require(!fourth_uv.parse().submeshes[0].direct_uv, "negated ILU UV output was accepted as a direct binding");
         Fixture constant_write(0);
         word(constant_write.cpu, 1560 + 64 + 16, 0x0000f019);
         require(constant_write.parse().submeshes[0].colour_source[0] == 255,

@@ -74,6 +74,7 @@ struct SoundEvent
     bool fired = false;
     bool stopped = false;
     bool stream = false; // 0x0004D4C0. Starting this cue stops the previous one.
+    bool dialog = false; // Type 0x15. 0x0004C4F0 plays this when the dialog hold ends.
 };
 
 #if defined(_WIN32)
@@ -89,6 +90,7 @@ struct PcmVoice
     IXAudio2SourceVoice* voice = nullptr;
     std::vector<u8> pcm;
     std::string cue;
+    bool held = false; // Stopped by the dialog hold. Start resumes the buffer.
 };
 
 IXAudio2* g_xa = nullptr;
@@ -736,6 +738,9 @@ void collect_events(const Game& g, const Cutscene& clip)
                     ev.time = rf32(rec, 4);
                     ev.cue = cue;
                     ev.stream = true;
+                    // The callback 0x0004C4F0 runs when 0x0004E640 drops the hold,
+                    // which is when the dialog mode returns to 0. Not at this time.
+                    ev.dialog = true;
                     g_events.push_back(std::move(ev));
                 }
                 pos += size;
@@ -762,16 +767,124 @@ void collect_events(const Game& g, const Cutscene& clip)
 
 } // namespace
 
+#if defined(_WIN32)
+bool g_dialog_held = false;
+
+void hold_voice(PcmVoice& slot, bool hold)
+{
+    if (slot.voice == nullptr)
+    {
+        return;
+    }
+    if (hold)
+    {
+        if (slot.held)
+        {
+            return;
+        }
+        XAUDIO2_VOICE_STATE state{};
+        slot.voice->GetState(&state);
+        if (state.BuffersQueued == 0)
+        {
+            return;
+        }
+        slot.voice->Stop(0);
+        slot.held = true;
+        return;
+    }
+    if (!slot.held)
+    {
+        return;
+    }
+    slot.held = false;
+    slot.voice->Start(0);
+}
+
+void fire_stream(const Game& g, SoundEvent& ev)
+{
+    ev.fired = true;
+    if (ev.stream && !g_stream_cue.empty() && g_stream_cue != ev.cue)
+    {
+        stop_named(g_stream_cue, true);
+    }
+    const auto found = g_cues.find(ev.cue);
+    if (found == g_cues.end())
+    {
+        std::cout << "audio unmapped " << ev.cue << "\n";
+        if (ev.stream)
+        {
+            g_stream_cue = ev.cue;
+        }
+        return;
+    }
+    if (const WaveChoice* choice = pick_choice(found->second, g.frame))
+    {
+        play_choice(ev.cue, *choice);
+    }
+    if (ev.stream)
+    {
+        g_stream_cue = ev.cue;
+    }
+    (void)g;
+}
+#endif
+
+void pcm_dialog_hold(bool hold)
+{
+#if defined(_WIN32)
+    if (hold == g_dialog_held)
+    {
+        return;
+    }
+    g_dialog_held = hold;
+    for (PcmVoice& slot : g_voices)
+    {
+        hold_voice(slot, hold);
+    }
+    for (PcmVoice& slot : g_bed)
+    {
+        hold_voice(slot, hold);
+    }
+#else
+    (void)hold;
+#endif
+}
+
+void pcm_dialog_advance(const Game& g, const char* cue)
+{
+#if defined(_WIN32)
+    pcm_dialog_hold(false);
+    if (cue == nullptr || cue[0] == '\0')
+    {
+        return;
+    }
+    build_catalog(g);
+    for (SoundEvent& ev : g_events)
+    {
+        if (!ev.dialog || ev.fired || ev.cue != cue)
+        {
+            continue;
+        }
+        fire_stream(g, ev);
+        return;
+    }
+#else
+    (void)g;
+    (void)cue;
+#endif
+}
+
 void pcm_cutscene_sync(const Game& g)
 {
 #if defined(_WIN32)
     build_catalog(g);
     if (!g.cutscenes.playing || g.cutscenes.index >= g.cutscenes.items.size())
     {
-        if (!g_voices.empty())
+        if (!g_voices.empty() || g_dialog_held)
         {
             stop_all();
         }
+        g_dialog_held = false;
         g_clip = static_cast<size_t>(-1);
         g_stream_cue.clear();
         return;
@@ -780,39 +893,18 @@ void pcm_cutscene_sync(const Game& g)
     if (g.cutscenes.index != g_clip || clip.name != g_clip_name)
     {
         stop_all();
+        g_dialog_held = false;
         g_clip = g.cutscenes.index;
         g_clip_name = clip.name;
         collect_events(g, clip);
     }
     for (auto& ev : g_events)
     {
-        if (ev.fired || ev.time > g.cutscenes.time)
+        if (ev.fired || ev.dialog || ev.time > g.cutscenes.time)
         {
             continue;
         }
-        ev.fired = true;
-        if (ev.stream && !g_stream_cue.empty() && g_stream_cue != ev.cue)
-        {
-            stop_named(g_stream_cue, true);
-        }
-        const auto found = g_cues.find(ev.cue);
-        if (found == g_cues.end())
-        {
-            std::cout << "audio unmapped " << ev.cue << "\n";
-            if (ev.stream)
-            {
-                g_stream_cue = ev.cue;
-            }
-            continue;
-        }
-        if (const WaveChoice* choice = pick_choice(found->second, g.frame))
-        {
-            play_choice(ev.cue, *choice);
-        }
-        if (ev.stream)
-        {
-            g_stream_cue = ev.cue;
-        }
+        fire_stream(g, ev);
     }
     for (auto& ev : g_events)
     {

@@ -665,21 +665,13 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
         return mat;
     };
 
-    auto emit_push = [&](size_t tag, const ActiveMaterial& mat, const std::vector<u8>& skin,
-                         const std::vector<u16>& mtx)
+    auto emit_indexed = [&](size_t tag, size_t idx_off, u32 count, u32 prim, const ActiveMaterial& mat,
+                            const std::vector<u8>& skin, const std::vector<u16>& mtx)
     {
-        if (tag + 28 > cpu.size())
+        if (prim != 5 && prim != 6 && prim != 7)
         {
             return;
         }
-        const u32 count = read_u32(cpu, tag + 16);
-        const u32 this_ptr = read_u32(cpu, tag + 20);
-        const u32 prim = read_u32(cpu, tag + 24);
-        if (this_ptr != tag - 36 || (prim != 5 && prim != 6 && prim != 7))
-        {
-            return;
-        }
-        const size_t idx_off = tag + 28;
         if (count < 3 || count >= 500000 || idx_off + count * 2 > cpu.size())
         {
             return;
@@ -711,6 +703,26 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
         sm.color = mat.color;
         sm.alpha_ref = mat.alpha_ref;
         mesh.submeshes.push_back(sm);
+    };
+
+    // Xbox 0x00158160 relocates the index-pointer array, primitive array,
+    // and count array. 0x001582A0 draws every section, not only count == 1.
+    auto emit_push = [&](size_t tag, u32 sections, const ActiveMaterial& mat,
+                         const std::vector<u8>& skin, const std::vector<u16>& mtx)
+    {
+        const size_t counts = tag + 16;
+        const size_t pointers = counts + size_t(sections) * 4;
+        const size_t primitives = pointers + size_t(sections) * 4;
+        if (primitives > cpu.size() || size_t(sections) * 4 > cpu.size() - primitives)
+        {
+            throw Error("ndPushBuffer section arrays out of range");
+        }
+        for (u32 i = 0; i < sections; ++i)
+        {
+            const size_t index_offset = size_t(kNodeBase) + read_u32(cpu, pointers + size_t(i) * 4);
+            emit_indexed(tag, index_offset, read_u32(cpu, counts + size_t(i) * 4),
+                         read_u32(cpu, primitives + size_t(i) * 4), mat, skin, mtx);
+        }
     };
 
     // ndRigidSkinIdx (type 11). un_other6 is a byte remap, relative to model+64.
@@ -879,11 +891,12 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
         }
         else if (hi.type == kNdPushBuffer || hi.type == kNdBGPushBuffer)
         {
-            // un_other6 == 1: single strip/list immediately after the tag.
-            if (hi.un_other6 == 1)
+            // header +32 is the section count. +36 selects a hardware push
+            // resource; zero selects the three arrays consumed by 0x1582A0.
+            if (hi.count == 0)
             {
                 const size_t tag = size_t(kNodeBase) + hi.offset;
-                emit_push(tag, active, active_skin, mtx_at(rel));
+                emit_push(tag, hi.un_other6, active, active_skin, mtx_at(rel));
             }
         }
     }

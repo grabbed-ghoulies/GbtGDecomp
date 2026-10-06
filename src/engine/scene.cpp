@@ -20186,6 +20186,93 @@ void scene_order_advance(Game& g)
     script_load(g, g.scene_order[next]);
 }
 
+// Xbox 0x0004F0B0, called by 0x0004C850 event type 0x16.
+// The asset belongs to the current cutscene's event stream, not its actor list.
+void cutscene_camera_events(Game& g)
+{
+    auto& q = g.cutscenes;
+    const auto& clip = q.items.at(q.index);
+    if (q.camera_event_clip != clip.name || q.time < q.camera_event_time)
+    {
+        q.camera_event_clip = clip.name;
+        q.camera_events.clear();
+        q.camera_event_index = 0;
+        std::string prefix = clip.name;
+        prefix.replace(0, std::string("aid_cutscene_").size(), "aid_cutsceneevents_");
+        if (g.scene_bundle)
+        {
+            for (const auto& entry : g.scene_bundle->entries)
+            {
+                if (entry.type != ResourceType::CutsceneEvents ||
+                    (entry.name != prefix && entry.name.rfind(prefix + "_", 0) != 0))
+                {
+                    continue;
+                }
+                size_t offset = 0;
+                while (offset + 16 <= entry.cpu.size())
+                {
+                    const u32 size = read_u32(entry.cpu, offset);
+                    if (size < 16 || size > entry.cpu.size() - offset)
+                    {
+                        throw Error("cutscene camera event record out of range");
+                    }
+                    if ((read_u32(entry.cpu, offset + 12) & 0xffffu) == 0x16u)
+                    {
+                        const auto record = entry.cpu.subspan(offset, size);
+                        const auto name_bytes = record.subspan(16);
+                        const auto end = std::find(name_bytes.begin(), name_bytes.end(), u8{0});
+                        const std::string name(reinterpret_cast<const char*>(name_bytes.data()),
+                                               size_t(end - name_bytes.begin()));
+                        q.camera_events.push_back({read_f32(record, 4), name});
+                    }
+                    offset += size;
+                }
+            }
+        }
+        std::stable_sort(q.camera_events.begin(), q.camera_events.end(),
+                         [](const auto& a, const auto& b)
+                         {
+                             return a.time < b.time;
+                         });
+    }
+    q.camera_event_time = q.time;
+    while (q.camera_event_index < q.camera_events.size() &&
+           q.camera_events[q.camera_event_index].time <= q.time)
+    {
+        const auto& event = q.camera_events[q.camera_event_index++];
+        const auto* entry = find_aid(g, event.aid);
+        if (entry == nullptr)
+        {
+            throw Error("missing cutscene camera asset: " + event.aid);
+        }
+        q.camera_wobble = parse_cutscene(entry->cpu, entry->name);
+        q.camera_wobble_time = q.camera_wobble.duration;
+    }
+}
+
+// Xbox 0x0004F110. 0x0004EBD0 calls this after 0x0004DA50, including
+// frames when the story's +0x158 pause count prevents its clock advancing.
+Vec3 cutscene_camera_wobble(CutsceneQueue& q, float dt)
+{
+    if (q.camera_wobble.name.empty())
+    {
+        return {};
+    }
+    q.camera_wobble_time += dt;
+    if (q.camera_wobble.duration <= q.camera_wobble_time)
+    {
+        q.camera_wobble_time -= q.camera_wobble.duration;
+    }
+    Vec3 offset;
+    Quat orientation;
+    float fov;
+    if (!sample_cutscene_camera(q.camera_wobble, q.camera_wobble_time, offset, orientation, fov))
+    {
+        throw Error("cutscene wobble asset has no camera channels");
+    }
+    return offset;
+}
+
 void cutscene_queue_tick(Game& g, float dt)
 {
     // camera_apply 0x00025AE0: 0x0001EEC0 when camera+0xfc != 0, then 0x0001EC20
@@ -20246,6 +20333,8 @@ void cutscene_queue_tick(Game& g, float dt)
         }
         log_cutscene_begin(g);
     }
+    cutscene_camera_events(g);
+    const Vec3 wobble = cutscene_camera_wobble(q, dt);
     if (g.camera && g.camera->actor)
     {
         Vec3 pos;
@@ -20253,7 +20342,7 @@ void cutscene_queue_tick(Game& g, float dt)
         float fov = 0.9f;
         if (sample_cutscene_camera(q.items[q.index], q.time, pos, orient, fov))
         {
-            g.camera->actor->position = pos;
+            g.camera->actor->position = Vec3{pos.x + wobble.x, pos.y + wobble.y, pos.z + wobble.z};
             g.camera->actor->quat = orient;
             g.camera->actor->fov = fov;
         }
@@ -20264,6 +20353,7 @@ void cutscene_queue_tick(Game& g, float dt)
 void draw_cutscene_props(Game& g)
 {
     sync_cutscene_props(g);
+    prepare_dialogue_texture(g);
     const auto& q = g.cutscenes;
     if (!q.playing || q.index >= q.items.size())
     {

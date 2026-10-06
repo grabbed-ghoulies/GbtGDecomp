@@ -48,11 +48,22 @@ struct Cutscene
 
 struct CutsceneQueue
 {
+    struct CameraEvent
+    {
+        float time = 0.f;
+        std::string aid;
+    };
     std::vector<Cutscene> items;
     size_t index = 0;
     float time = 0.f;
     bool loop = true;
     bool playing = false;
+    std::string camera_event_clip;
+    std::vector<CameraEvent> camera_events;
+    size_t camera_event_index = 0;
+    float camera_event_time = -1.f;
+    Cutscene camera_wobble;
+    float camera_wobble_time = 0.f;
 };
 
 Cutscene parse_cutscene(std::span<const u8> cpu, std::string_view name = {});

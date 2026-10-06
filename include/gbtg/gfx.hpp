@@ -28,6 +28,16 @@ void gfx_pump(bool& quit);
 void gfx_begin_frame();
 // `orientation` rotates local -Z (forward) and +Y (up) into the world. fov_y is radians.
 void gfx_set_camera(const Vec3& position, const Quat& orientation, float fov_y);
+// Dialogue cameras use the retail 640x480 projection independently of the host window.
+void gfx_set_dialog_camera(const Vec3& position, const Quat& orientation, float fov_y);
+void gfx_clear_dialog_background();
+// Xbox 0x000629D0 / 0x00062A90: render into the dynamic texture selected by
+// 0x001417A0, then restore the story target and camera.
+void gfx_begin_dialog_texture(u8 slot, int width, int height);
+void gfx_end_dialog_texture();
+void gfx_release_dialog_texture();
+// Xbox 0x000F9250: UI orthographic mesh, with model Y inverted and Z = -50.
+void gfx_draw_screen_mesh(const Mesh& mesh, float x, float y, float scale);
 // Column-major 4x4 joint matrices for the next skinned draws. count 0 clears skinning.
 void gfx_set_bones(const float* column_major, int count);
 // origin/scale place a cutscene actor. Zero origin and unit scale draw the mesh as stored.
@@ -47,6 +57,7 @@ struct GfxRect
     float v0 = 0.f;
     float u1 = 1.f;
     float v1 = 1.f;
+    std::array<float, 4> color{1.f, 1.f, 1.f, 1.f};
 };
 
 void gfx_draw_sprite(const RgbaImage& image, const GfxRect& rect);
@@ -55,7 +66,8 @@ void gfx_draw_sprite(const RgbaImage& image, const GfxRect& rect);
 // 0x0005E380 pushes a quad; present_33a90 draws the list before the swap.
 void gfx_sprite_clear();
 void gfx_sprite_submit(const RgbaImage& image, float x, float y, float w, float h, float u0 = 0.f, float v0 = 0.f,
-                       float u1 = 1.f, float v1 = 1.f);
+                       float u1 = 1.f, float v1 = 1.f,
+                       std::array<float, 4> color = {1.f, 1.f, 1.f, 1.f});
 
 void gfx_size(int& width, int& height);
 void gfx_end_frame();

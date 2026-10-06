@@ -73,6 +73,7 @@ add_executable(gbtg
     src/engine/audio.cpp
     src/engine/pcm_out.cpp
     src/engine/frontend.cpp
+    src/engine/dialogue.cpp
     src/engine/scene.cpp
     src/engine/game.cpp
     src/engine/platform.cpp

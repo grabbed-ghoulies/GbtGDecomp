@@ -33,6 +33,8 @@ namespace gbtg
 {
 namespace
 {
+void present_hud_viewport();
+void present_hud_sprites();
 
 struct Mat4
 {
@@ -70,6 +72,7 @@ struct GpuCB
     float alpha_ref = 0.f;
     float alpha_func = 0.f;
     float alpha_pad = 0.f;
+    std::array<float, 4> tint{1.f, 1.f, 1.f, 1.f};
 };
 
 struct DrawRange
@@ -207,6 +210,22 @@ struct GfxD3D11
 };
 
 GfxD3D11 g;
+
+struct DialogRenderTarget
+{
+    u8 slot = 0;
+    int width = 0;
+    int height = 0;
+    bool rendering = false;
+    Mat4 saved_camera{};
+    D3D11_VIEWPORT saved_viewport{};
+    ComPtr<ID3D11Texture2D> color;
+    ComPtr<ID3D11RenderTargetView> rtv;
+    ComPtr<ID3D11ShaderResourceView> srv;
+    ComPtr<ID3D11Texture2D> depth;
+    ComPtr<ID3D11DepthStencilView> dsv;
+};
+DialogRenderTarget dialog_target;
 
 LRESULT CALLBACK gfx_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
@@ -1028,6 +1047,7 @@ cbuffer Camera : register(b0) {
     float4 uv_sel;   // x = albedo uv set, y = light uv set, z = lightmap, w = cel ramp
     float4 light_dir; // xyz draw colour (0x5e380), w = rigid skin on
     float4 alpha_rs; // x = ALPHATESTENABLE, y = ALPHAREF, z = ALPHAFUNC (0x0005E0C0)
+    float4 tint;
 };
 cbuffer Bones : register(b1) {
     float4x4 joints[128];
@@ -1077,7 +1097,7 @@ float4 ps_main(VSOut i) : SV_Target {
         // FUN_000644f0 stores D3DTOP_MODULATE (4) at the stage colour ops.
         light = g_light.Sample(g_light_samp, uv_l).rgb * light_dir.xyz;
     }
-    float4 color = float4(albedo.rgb * light, albedo.a);
+    float4 color = float4(albedo.rgb * light, albedo.a) * tint;
     // D3DRS_ALPHATESTENABLE / ALPHAREF from 0x0005E0C0. ALPHAFUNC stays at the
     // shadow (0 until programmed). 0x200..0x207 are the Xbox D3DCMP values.
     if (alpha_rs.x > 0.5 && alpha_rs.z >= 512.0) {
@@ -1193,6 +1213,7 @@ float4 ps_main(VSOut i) : SV_Target {
 
 void gfx_shutdown()
 {
+    gfx_release_dialog_texture();
 #if defined(GBTG_DEBUG_UI)
     debug_ui_shutdown();
 #endif
@@ -1336,13 +1357,116 @@ void gfx_set_camera(const Vec3& position, const Quat& orientation, float fov_y)
     const Vec3 forward = quat_rotate(orientation, Vec3{0.f, 0.f, -1.f});
     const Vec3 up = quat_rotate(orientation, Vec3{0.f, 1.f, 0.f});
     const Vec3 at{position.x + forward.x, position.y + forward.y, position.z + forward.z};
-    const float aspect = float(g.cfg.width) / float(g.cfg.height > 0 ? g.cfg.height : 1);
+    // Xbox 0x000F5FD0: mode-0 projection uses the retail aspect table
+    // and its 1.1 pixel-aspect multiplier. Fit the host viewport separately.
+    present_hud_viewport();
+    const float aspect = (640.f / 480.f) * 1.1f;
     g.mvp = mul(perspective(fov_y, aspect, 0.1f, 2000.f), look_at(position, at, up));
 }
 
 void gfx_release_mesh(const Mesh& mesh)
 {
     g.meshes.erase(&mesh);
+}
+
+void gfx_set_dialog_camera(const Vec3& position, const Quat& orientation, float fov_y)
+{
+    present_hud_viewport();
+    const Vec3 forward = quat_rotate(orientation, Vec3{0.f, 0.f, -1.f});
+    const Vec3 up = quat_rotate(orientation, Vec3{0.f, 1.f, 0.f});
+    const Vec3 at{position.x + forward.x, position.y + forward.y, position.z + forward.z};
+    // Xbox 0x000F5FD0 multiplies mode-0 aspect by DAT_0032B1A0 (1.1).
+    g.mvp = mul(perspective(fov_y, (640.f / 480.f) * 1.1f, 0.1f, 2000.f), look_at(position, at, up));
+}
+
+// Xbox 0x00058150 calls D3DDevice_Clear(0xF3) for a background dialogue.
+void gfx_clear_dialog_background()
+{
+    const float black[4] = {0.f, 0.f, 0.f, 1.f};
+    g.context->ClearRenderTargetView(dialog_target.rendering ? dialog_target.rtv.Get() : g.rtv.Get(), black);
+    g.context->ClearDepthStencilView(dialog_target.rendering ? dialog_target.dsv.Get() : g.dsv.Get(),
+                                   D3D11_CLEAR_DEPTH, 1.f, 0);
+}
+
+void gfx_begin_dialog_texture(u8 slot, int width, int height)
+{
+    if (!g.ok)
+    {
+        return;
+    }
+    if (dialog_target.slot != slot || dialog_target.width != width || dialog_target.height != height)
+    {
+        dialog_target = DialogRenderTarget{};
+        dialog_target.slot = slot;
+        dialog_target.width = width;
+        dialog_target.height = height;
+        D3D11_TEXTURE2D_DESC desc{};
+        desc.Width = UINT(width);
+        desc.Height = UINT(height);
+        desc.MipLevels = 1;
+        desc.ArraySize = 1;
+        desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+        if (FAILED(g.device->CreateTexture2D(&desc, nullptr, dialog_target.color.GetAddressOf())) ||
+            FAILED(g.device->CreateRenderTargetView(dialog_target.color.Get(), nullptr, dialog_target.rtv.GetAddressOf())) ||
+            FAILED(g.device->CreateShaderResourceView(dialog_target.color.Get(), nullptr, dialog_target.srv.GetAddressOf())))
+        {
+            throw Error("dialogue render target creation failed");
+        }
+        desc.Format = DXGI_FORMAT_D32_FLOAT;
+        desc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+        if (FAILED(g.device->CreateTexture2D(&desc, nullptr, dialog_target.depth.GetAddressOf())) ||
+            FAILED(g.device->CreateDepthStencilView(dialog_target.depth.Get(), nullptr, dialog_target.dsv.GetAddressOf())))
+        {
+            throw Error("dialogue depth target creation failed");
+        }
+    }
+    dialog_target.saved_camera = g.mvp;
+    gfx_sprite_clear();
+    UINT viewports = 1;
+    g.context->RSGetViewports(&viewports, &dialog_target.saved_viewport);
+    ID3D11ShaderResourceView* unbound[2]{};
+    g.context->PSSetShaderResources(0, 2, unbound);
+    g.context->OMSetRenderTargets(1, dialog_target.rtv.GetAddressOf(), dialog_target.dsv.Get());
+    dialog_target.rendering = true;
+}
+
+void gfx_end_dialog_texture()
+{
+    if (!g.ok)
+    {
+        return;
+    }
+    present_hud_sprites();
+    gfx_sprite_clear();
+    g.context->OMSetRenderTargets(1, g.rtv.GetAddressOf(), g.dsv.Get());
+    g.context->RSSetViewports(1, &dialog_target.saved_viewport);
+    g.mvp = dialog_target.saved_camera;
+    dialog_target.rendering = false;
+}
+
+void gfx_release_dialog_texture()
+{
+    dialog_target = DialogRenderTarget{};
+}
+
+// Xbox 0x000F9250. The D3D boundary consumes the UI projection from 0x000F6260.
+void gfx_draw_screen_mesh(const Mesh& mesh, float x, float y, float scale)
+{
+    present_hud_viewport();
+    const Mat4 saved = g.mvp;
+    Mat4 ortho{};
+    ortho.m[0] = 2.f / 640.f;
+    ortho.m[5] = -2.f / 480.f;
+    ortho.m[10] = -1.f / 100.f;
+    ortho.m[12] = -1.f;
+    ortho.m[13] = 1.f;
+    ortho.m[15] = 1.f;
+    g.mvp = ortho;
+    g.context->ClearDepthStencilView(g.dsv.Get(), D3D11_CLEAR_DEPTH, 1.f, 0);
+    gfx_draw_mesh(mesh, Vec3{x, y, -50.f}, Vec3{scale, -scale, scale});
+    g.mvp = saved;
 }
 
 void gfx_draw_mesh(const Mesh& mesh, Vec3 origin, Vec3 scale)
@@ -1481,6 +1605,12 @@ void gfx_draw_mesh(const Mesh& mesh, Vec3 origin, Vec3 scale)
             }
         }
         ID3D11ShaderResourceView* srvs[2] = {range.srv.Get(), range.light.Get()};
+        if (!dialog_target.rendering && dialog_target.srv && range.tex_index >= 0 &&
+            size_t(range.tex_index) < mesh.textures.size() &&
+            mesh.textures[size_t(range.tex_index)].movie_slot == dialog_target.slot)
+        {
+            srvs[0] = dialog_target.srv.Get();
+        }
         g.context->PSSetShaderResources(0, 2, srvs);
         g.context->DrawIndexed(range.count, range.start, 0);
         tris += range.count / 3;
@@ -1547,6 +1677,7 @@ void gfx_draw_sprite(const RgbaImage& image, const GfxRect& rect)
         std::memcpy(cb.mvp, identity.m, sizeof(cb.mvp));
         store_alpha_rs(cb);
         cb.alpha_pad = 1.f;
+        cb.tint = rect.color;
         std::memcpy(mapped.pData, &cb, sizeof(cb));
         g.context->Unmap(g.cb.Get(), 0);
     }
@@ -2023,6 +2154,7 @@ struct HudQuad
     float v0 = 0.f;
     float u1 = 1.f;
     float v1 = 1.f;
+    std::array<float, 4> color{1.f, 1.f, 1.f, 1.f};
 };
 
 // 0x000662A0 grows by the u16 at pool+2 when the cursor meets the limit.
@@ -2056,6 +2188,13 @@ void present_hud_viewport()
     const float window = float(g.cfg.width) / float(g.cfg.height);
     D3D11_VIEWPORT vp{};
     vp.MaxDepth = 1.f;
+    if (dialog_target.rendering)
+    {
+        vp.Width = float(dialog_target.width);
+        vp.Height = float(dialog_target.height);
+        g.context->RSSetViewports(1, &vp);
+        return;
+    }
     if (window > frame)
     {
         vp.Height = float(g.cfg.height);
@@ -2090,6 +2229,7 @@ void present_hud_sprites()
         rect.v0 = quad.v0;
         rect.u1 = quad.u1;
         rect.v1 = quad.v1;
+        rect.color = quad.color;
         gfx_draw_sprite(*quad.image, rect);
     }
 }
@@ -2136,7 +2276,8 @@ void gfx_sprite_clear()
     hud_quads.clear();
 }
 
-void gfx_sprite_submit(const RgbaImage& image, float x, float y, float w, float h, float u0, float v0, float u1, float v1)
+void gfx_sprite_submit(const RgbaImage& image, float x, float y, float w, float h, float u0, float v0, float u1, float v1,
+                       std::array<float, 4> color)
 {
     if (image.bgra.empty() || image.width <= 0 || image.height <= 0 || w == 0.f || h == 0.f)
     {
@@ -2157,6 +2298,7 @@ void gfx_sprite_submit(const RgbaImage& image, float x, float y, float w, float 
     quad.v0 = v0;
     quad.u1 = u1;
     quad.v1 = v1;
+    quad.color = color;
     hud_quads.push_back(quad);
 }
 

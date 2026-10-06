@@ -841,10 +841,8 @@ void pcm_dialog_hold(bool hold)
     {
         hold_voice(slot, hold);
     }
-    for (PcmVoice& slot : g_bed)
-    {
-        hold_voice(slot, hold);
-    }
+    // Xbox 0x0004E640 holds the cutscene's handles. Frontend/music voices
+    // belong to separate owners and continue while the dialogue clock runs.
 #else
     (void)hold;
 #endif

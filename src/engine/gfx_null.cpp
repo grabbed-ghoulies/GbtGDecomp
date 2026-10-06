@@ -37,6 +37,30 @@ void gfx_set_camera(const Vec3&, const Quat&, float)
 {
 }
 
+void gfx_set_dialog_camera(const Vec3&, const Quat&, float)
+{
+}
+
+void gfx_clear_dialog_background()
+{
+}
+
+void gfx_begin_dialog_texture(u8, int, int)
+{
+}
+
+void gfx_end_dialog_texture()
+{
+}
+
+void gfx_release_dialog_texture()
+{
+}
+
+void gfx_draw_screen_mesh(const Mesh&, float, float, float)
+{
+}
+
 void gfx_set_bones(const float*, int)
 {
 }
@@ -566,7 +590,8 @@ void gfx_sprite_clear()
     hud_quads.clear();
 }
 
-void gfx_sprite_submit(const RgbaImage& image, float x, float y, float w, float h, float u0, float v0, float u1, float v1)
+void gfx_sprite_submit(const RgbaImage& image, float x, float y, float w, float h, float u0, float v0, float u1, float v1,
+                       std::array<float, 4>)
 {
     if (image.bgra.empty() || image.width <= 0 || image.height <= 0 || w == 0.f || h == 0.f)
     {

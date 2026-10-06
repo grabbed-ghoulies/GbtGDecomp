@@ -360,8 +360,9 @@ bool sample_cutscene_camera(const Cutscene& cut, float time, Vec3& position, Qua
         const float raw = sample_channel(cut.camera[7], time);
         if (std::isfinite(raw) && raw > 0.f)
         {
-            // Attract clips store 35. Values above a full turn are degrees; smaller ones are already radians.
-            fov_y = raw > 6.2831853f ? raw * 0.017453292f : raw;
+              // Xbox 0x000F57F0: channel 7 is focal length. The mode-0
+              // display sensor is DAT_0042A464, not a degrees/radians tag.
+              fov_y = 2.f * std::atan(15.5448f / (raw * 2.f));
         }
     }
     return true;

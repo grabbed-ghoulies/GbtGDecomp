@@ -1,4 +1,5 @@
 #include "gbtg/bundle.hpp"
+#include "gbtg/dialogue.hpp"
 #include "gbtg/engine_internal.hpp"
 #include "gbtg/font.hpp"
 #include "gbtg/gfx.hpp"
@@ -1781,6 +1782,7 @@ struct DialogPage
 {
     std::u16string text;
     std::string speaker;
+    std::string cue;
     bool button = true;
 };
 
@@ -1793,6 +1795,8 @@ struct MoveCaption
     bool head = true;
     // Type 0x15 record +0xD0. 0x0004C4F0 plays it when the hold ends.
     std::string next_cue;
+    std::string motif;
+    u8 target = 0;
     std::vector<DialogPage> pages;
 };
 
@@ -1800,9 +1804,22 @@ int g_caption_hold = -1;
 int g_caption_page = 0;
 float g_caption_left = 0.f;
 bool g_caption_wait = false;
+DialogueScreen g_dialogue_screen;
+int g_dialogue_mode = 0;
+float g_dialogue_timer = 0.f;
+float g_dialogue_fade = 0.f;
+std::string g_dialogue_motif;
 
 void reset_caption_hold()
 {
+    g_dialogue_screen.close();
+    g_dialogue_mode = 0;
+    pcm_dialog_hold(false);
+    if (!g_dialogue_motif.empty())
+    {
+        pcm_stop_cue(g_dialogue_motif.c_str());
+        g_dialogue_motif.clear();
+    }
     g_caption_hold = -1;
     g_caption_page = 0;
     g_caption_left = 0.f;
@@ -1843,8 +1860,10 @@ void parse_dialog_line(std::string_view raw, MoveCaption& cap)
 {
     std::string visible;
     std::string speaker;
+    std::string cue;
     bool show_button = true;
-    auto flush = [&]() {
+    auto flush = [&]()
+    {
         if (visible.empty())
         {
             return;
@@ -1852,6 +1871,7 @@ void parse_dialog_line(std::string_view raw, MoveCaption& cap)
         DialogPage page;
         page.text = utf8_to_u16(visible);
         page.speaker = speaker;
+        page.cue = cue;
         page.button = show_button;
         cap.pages.push_back(std::move(page));
         visible.clear();
@@ -1890,6 +1910,12 @@ void parse_dialog_line(std::string_view raw, MoveCaption& cap)
         else if (tag == "page")
         {
             flush();
+        }
+        else if (tag.rfind("sfx ", 0) == 0)
+        {
+            // Xbox 0x00057B00 builds the XACT cue name; 0x00057D10 plays it
+            // on entry to mode 2, rather than while measuring the text.
+            cue = "XACT_SOUNDBANK_" + std::string(tag.substr(4));
         }
         else if (tag == "linek" || tag == "linel" || tag == "linec" || tag == "liner")
         {
@@ -2008,6 +2034,14 @@ const std::vector<MoveCaption>& move_captions(const Game& g)
                 {
                     MoveCaption cap;
                     cap.start = read_f32(rec, 4);
+                    // Xbox 0x0004CE26 / 0x0004D510: motif at +0x50,
+                    // background byte at +0x150. 0x0004C4F0 releases it.
+                    cap.motif = event_cstring(rec, 0x50);
+                    if (cap.motif == "XACT_SOUNDBANK_GMISC_NOSOUND")
+                    {
+                        cap.motif.clear();
+                    }
+                    cap.target = rec.size() > 0x150 ? rec[0x150] : 0;
                     if (rec.size() > 0xd0)
                     {
                         const std::string cue = event_cstring(rec, 0xd0);
@@ -2029,20 +2063,12 @@ const std::vector<MoveCaption>& move_captions(const Game& g)
     return lines;
 }
 
-// Xbox 0x00058C30. {centre} is 0x0005704A: DAT_0042495C = 1, no line break.
-// The {settime} hold is state 2, so the fade at DAT_004EE204 is 1.
-// 0x00058C50: dialog cell 64 leaves the compensation at 1 (0x32B0F8). {scale}
-// replaces the 0.6 default (0x000570C2), so 0x42493C is the tag (1.5).
-// 0x0005CA60 stores texture * that scale * 0.5 (0x32B0F4) as the matrix scale.
-// 0x000596DB doubles only the first English glyph and 0x0005972E lifts it by
-// DAT_00424914 (37.5) * scale_y. 0x000597C8 restores the un-doubled scale.
-// One line at 0x00058E57 cancels to pen_y = height/2. 0x0005A670 centres it.
-// The corners at 0x42514C/0x425154 are -1 and 1, so cancelling the 0.5 would
-// draw 96px letters (192px on the first). That filled the page. The quad kept
-// here is the half the matrix stores.
-void draw_dialog_caption(const GloopyFont& font, std::u16string_view text, float scale, const RgbaImage* button)
+// Xbox 0x00058C30. 0x00059880 measures the line count at +0x0C. The quad's
+// -1/+1 corners cancel the half-size matrix in 0x0005CA60. 0x00060980 adds
+// two pixels of spacing, and 0x0005E9F0 draws the five-pixel shadow first.
+void draw_dialog_caption(const GloopyFont& font, std::u16string_view text, float scale)
 {
-    if (text.empty() || font.cell() <= 0 || scale == 0.f)
+    if (text.empty() || font.cell() <= 0 || scale == 0.f || g_dialogue_fade == 0.f)
     {
         return;
     }
@@ -2066,61 +2092,63 @@ void draw_dialog_caption(const GloopyFont& font, std::u16string_view text, float
     {
         return;
     }
-    constexpr float kMatrixHalf = 0.5f;
     constexpr float kFirst = 2.f;
     constexpr float kLift = 37.5f;
-    const float draw = scale * kMatrixHalf;
-    // 0x00058D1C: line step is the font drop times the scale. The block height
-    // at +0xc is 0, so 0x00058E83 puts the first line on the vertical centre.
-    // Later lines add that step (0x00059205) and sit below it.
-    const float line_h = float(font.drop()) * scale;
-    const float pen_y = kFrameH * 0.5f;
+    // 0x58C30 scales both the font state and the centred draw matrix.
+    const float draw = scale * g_dialogue_fade * g_dialogue_fade;
+    const float spacing = 2.f * g_dialogue_fade;
+    const float line_h = float(font.drop()) * draw * 1.1f;
+    const float pen_y = (kFrameH - float(rows.size()) * line_h) * 0.5f + line_h * 0.5f;
     const int frame = font.rest_frame();
-    float last_right = kFrameW * 0.5f;
-    float last_y = pen_y;
     for (size_t row = 0; row < rows.size(); ++row)
     {
         const std::u16string_view line = rows[row];
         const float y = pen_y + line_h * float(row);
-        // 0x000596DB. Bit 1 is set on a line, so the first glyph uses the
-        // doubled scale at DAT_00424910 (2) and 0x0005972E lifts it.
-        const float big = draw * kFirst;
-        float width = float(font.advance(line.front())) * big;
+        // 0x000596DB consumes the first-letter flag. 0x00057043 ({linek})
+        // sets the line-break/alignment flags without re-arming that flag.
+        const float big = row == 0 ? draw * kFirst : draw;
+        float width = float(font.advance(line.front())) * big + spacing;
         for (size_t i = 1; i < line.size(); ++i)
         {
-            width += float(font.advance(line[i])) * draw;
+            width += float(font.advance(line[i])) * draw + spacing;
         }
         float x = (kFrameW - width) * 0.5f;
-        if (const RgbaImage* glyph = font.image(line.front(), frame))
+        for (size_t i = 0; i < line.size(); ++i)
         {
-            const float em = float(font.cell()) * big;
-            const float bx = float(font.bearing(line.front())) * big;
-            gfx_sprite_submit(*glyph, x - bx, y - kLift * draw, em, em);
+            const float size = i == 0 ? big : draw;
+            const float gy = row == 0 && i == 0 ? y - kLift * draw : y;
+            if (const RgbaImage* glyph = font.image(line[i], frame))
+            {
+                const float em = float(font.cell()) * size;
+                const float gx = x - float(font.bearing(line[i])) * size;
+                const float shadow = 5.f * g_dialogue_fade * g_dialogue_fade;
+                gfx_sprite_submit(*glyph, gx + shadow, gy + shadow, em, em, 0.f, 0.f, 1.f, 1.f,
+                                  {0.f, 0.f, 0.f, 128.f / 255.f});
+                gfx_sprite_submit(*glyph, gx, gy, em, em, 0.f, 0.f, 1.f, 1.f,
+                                  {1.f, 1.f, 1.f, 1.f});
+            }
+            x += float(font.advance(line[i])) * size + spacing;
         }
-        x += float(font.advance(line.front())) * big;
-        draw_glyphs(font, line.substr(1), x, y, draw, frame);
-        last_right = (kFrameW + width) * 0.5f;
-        last_y = y;
-    }
-    if (button != nullptr && button->width > 0 && button->height > 0)
-    {
-        const float em = float(font.cell()) * draw;
-        gfx_sprite_submit(*button, last_right + 8.f, last_y, em, em);
     }
 }
 
 // 0x000576D0 builds aid_texture_ghoulies_scoreboard_dialogheads_<token>
 // (format at 0x00323588) and 0x000575F0 draws it. The position constants are
 // DAT_0032B564 (320) and DAT_0032B2F0 (80). 0x0005CA60 centres the quad.
-const RgbaImage* dialog_head(const Game& g, const std::string& speaker)
+struct DialogHeadFrames
 {
-    static std::map<std::string, RgbaImage> cache;
+    std::vector<RgbaImage> frames;
+};
+
+const DialogHeadFrames& dialog_head_frames(const Game& g, const std::string& speaker)
+{
+    static std::map<std::string, DialogHeadFrames> cache;
     const auto found = cache.find(speaker);
     if (found != cache.end())
     {
-        return found->second.bgra.empty() ? nullptr : &found->second;
+        return found->second;
     }
-    RgbaImage image;
+    DialogHeadFrames result;
     const std::string name = "aid_texture_ghoulies_scoreboard_dialogheads_" + speaker;
     const auto path = g.aids.game_dir / "demand" / aid_hash_hex(aid_hash(name));
     if (std::filesystem::exists(path))
@@ -2140,21 +2168,102 @@ const RgbaImage* dialog_head(const Game& g, const std::string& speaker)
                         gpu = file.gpu.subspan(chunk.offset, chunk.size);
                     }
                 }
-                image = decode_xbox_texture(hdr, gpu);
+                // 0x00057792 reads the frame count at texture+0x11. Each
+                // frame occupies data_size bytes, as in the font textures.
+                const size_t count = hdr.tile_count;
+                for (size_t frame = 0; frame < count; ++frame)
+                {
+                    const size_t offset = size_t(hdr.texture_offset) + frame * hdr.data_size;
+                    if (offset > gpu.size() || hdr.data_size > gpu.size() - offset)
+                    {
+                        throw Error("dialog head frame out of range");
+                    }
+                    TextureHeader tile = hdr;
+                    tile.texture_offset = 0;
+                    result.frames.push_back(decode_xbox_texture(tile, gpu.subspan(offset, hdr.data_size)));
+                }
             }
         }
         catch (const std::exception& ex)
         {
+            result.frames.clear();
             std::cerr << name << " " << ex.what() << "\n";
         }
     }
-    const auto [it, _] = cache.emplace(speaker, std::move(image));
-    return it->second.bgra.empty() ? nullptr : &it->second;
+    return cache.emplace(speaker, std::move(result)).first->second;
 }
 
-void draw_move_captions(const Game& g)
+struct DialogHeadAnimation
 {
-    if (g_caption_hold < 0 || (g_caption_left <= 0.f && !g_caption_wait))
+    std::string speaker;
+    unsigned seed = 0;
+    int state = 0;
+    int frame = 0;
+    float remaining = 0.f;
+    u32 tick = static_cast<u32>(-1);
+};
+DialogHeadAnimation g_dialog_head_animation;
+
+const RgbaImage* dialog_head(const Game& g, const std::string& speaker)
+{
+    const auto& frames = dialog_head_frames(g, speaker).frames;
+    if (frames.empty())
+    {
+        return nullptr;
+    }
+    auto& anim = g_dialog_head_animation;
+    if (anim.speaker != speaker)
+    {
+        anim.speaker = speaker;
+        anim.state = 0;
+        anim.frame = 0;
+        anim.remaining = 0.f;
+    }
+    if (anim.tick != g.frame)
+    {
+        anim.tick = g.frame;
+        // 0x00057450: probabilistic blink, then a 0.1-second forward
+        // pass and a 0.1-second reverse pass. This uses the executable's
+        // LCG formula with a host-local seed; shared RNG state is not ported.
+        const int last = int(frames.size()) - 1;
+        if (anim.state == 0)
+        {
+            anim.seed = anim.seed * 0x19660Du + 0x3C6EF35Fu;
+            const float random = std::bit_cast<float>((anim.seed & 0x7fffffu) | 0x3f800000u) - 1.f;
+            if (random <= 0.01f)
+            {
+                anim.state = 1;
+                anim.remaining = 0.1f;
+            }
+        }
+        else
+        {
+            const float fraction = anim.remaining * 10.f;
+            anim.frame = int((anim.state == 1 ? 1.f - fraction : fraction) * float(last));
+            anim.remaining -= g.clock.dt;
+            if (anim.remaining <= 0.f)
+            {
+                if (anim.state == 1)
+                {
+                    anim.state = 2;
+                    anim.remaining = 0.1f;
+                    anim.frame = last;
+                }
+                else
+                {
+                    anim.state = 0;
+                    anim.remaining = 0.f;
+                    anim.frame = 0;
+                }
+            }
+        }
+    }
+    return &frames[size_t(std::clamp(anim.frame, 0, int(frames.size()) - 1))];
+}
+
+void draw_move_captions(const Game& g, bool texture_pass = false)
+{
+    if (g_caption_hold < 0 || g_dialogue_mode == 0)
     {
         return;
     }
@@ -2170,21 +2279,41 @@ void draw_move_captions(const Game& g)
     }
     const int page = std::clamp(g_caption_page, 0, int(cap.pages.size()) - 1);
     const DialogPage& shown = cap.pages[size_t(page)];
-    if (cap.head && !shown.speaker.empty())
+    const float widget_scale = 1.5f * (g_dialogue_mode == 3 ? 0.f : g_dialogue_fade);
+    const bool content = cap.target == 0 || texture_pass;
+    if (content)
+    {
+        g_dialogue_screen.draw(cap.target != 0, !texture_pass && shown.button, widget_scale);
+    }
+    if (content && cap.head && !shown.speaker.empty())
     {
         if (const RgbaImage* head = dialog_head(g, shown.speaker))
         {
-            const float w = float(head->width);
-            const float h = float(head->height);
-            gfx_sprite_submit(*head, 320.f - w * 0.5f, 80.f - h * 0.5f, w, h);
+            const float w = float(head->width) * g_dialogue_fade;
+            const float h = float(head->height) * g_dialogue_fade;
+            gfx_sprite_submit(*head, 320.f - w * 0.5f, 80.f - h * 0.5f, w, h,
+                              0.f, 0.f, 1.f, 1.f);
         }
     }
     const RgbaImage* button = nullptr;
-    if (shown.button && g_caption_wait)
+    if (!texture_pass && shown.button && widget_scale >= 0.001f)
     {
+        if (cap.target != 0)
+        {
+            g_dialogue_screen.draw_button(widget_scale);
+        }
         button = joypad_icon(g, 0);
     }
-    draw_dialog_caption(dialog_font(g), shown.text, cap.scale, button);
+    if (content)
+    {
+        draw_dialog_caption(dialog_font(g), shown.text, cap.scale);
+    }
+    if (button != nullptr)
+    {
+        const float w = float(button->width) * widget_scale;
+        const float h = float(button->height) * widget_scale;
+        gfx_sprite_submit(*button, 320.f - w * 0.5f, dialogue_button_y - h * 0.5f, w, h);
+    }
 }
 
 // Xbox 0x00080A30 creates the attract banner. 0x000809C0 places the widget:
@@ -2250,33 +2379,73 @@ void draw_start_banner(const Game& g)
 
 } // namespace
 
+// Xbox 0x00058150. Background dialogues render to the texture selected by
+// 0x001417A0 before the book samples it; target 0 uses the normal HUD pass.
+void prepare_dialogue_texture(const Game& g)
+{
+    if (g_dialogue_mode == 0 || g_caption_hold < 0)
+    {
+        return;
+    }
+    const auto& lines = move_captions(g);
+    const u8 slot = lines.at(size_t(g_caption_hold)).target;
+    if (slot == 0)
+    {
+        return;
+    }
+    const RgbaImage* target = nullptr;
+    for (const auto& prop : g.cutscene_props)
+    {
+        for (const auto& texture : prop.mesh.textures)
+        {
+            if (texture.movie_slot == slot)
+            {
+                target = &texture;
+            }
+        }
+    }
+    for (const auto& mesh : g.models)
+    {
+        for (const auto& texture : mesh.textures)
+        {
+            if (texture.movie_slot == slot)
+            {
+                target = &texture;
+            }
+        }
+    }
+    if (target == nullptr)
+    {
+        throw Error("dialogue dynamic texture slot missing: " + std::to_string(slot));
+    }
+    gfx_begin_dialog_texture(slot, target->width, target->height);
+    draw_move_captions(g, true);
+    gfx_end_dialog_texture();
+}
+
 void arm_caption(const Game& g, const MoveCaption& cap)
 {
     g_caption_page = 0;
     g_caption_left = 0.f;
     g_caption_wait = false;
-    if (cap.seconds > 0.f)
-    {
-        g_caption_left = cap.seconds;
-        // 0x0004E640(1) pauses the voices already playing.
-        pcm_dialog_hold(true);
-        return;
-    }
+    g_dialogue_screen.open(g);
+    // Xbox 0x000584D0, mode 1. Mode 2 begins after the 0.3-second fade.
+    g_dialogue_mode = 1;
+    g_dialogue_timer = 0.3f;
+    g_dialogue_fade = 0.f;
     const bool button = !cap.pages.empty() && cap.pages[0].button;
-    // 0x000584D0 opens the dialog widget and 0x00117400 holds the clock.
-    // A line with no {settime} stays up until A. Headless has no button.
-    if (button && gfx_has_window())
+    g_caption_wait = button;
+    pcm_dialog_hold(true);
+    if (!cap.motif.empty())
     {
-        g_caption_wait = true;
-        pcm_dialog_hold(true);
-        return;
+        g_dialogue_motif = cap.motif;
+        pcm_play_cue(g, g_dialogue_motif.c_str(), true);
     }
-    pcm_dialog_advance(g, cap.next_cue.c_str());
 }
 
 void caption_accept(const Game& g)
 {
-    if (!g_caption_wait)
+    if (!g_caption_wait || g_dialogue_mode != 2)
     {
         return;
     }
@@ -2286,15 +2455,9 @@ void caption_accept(const Game& g)
         g_caption_wait = false;
         return;
     }
-    const MoveCaption& cap = lines[size_t(g_caption_hold)];
-    if (g_caption_page + 1 < int(cap.pages.size()))
-    {
-        ++g_caption_page;
-        return;
-    }
-    g_caption_wait = false;
-    // 0x000584D0(0) drops the hold. 0x0004E640 then calls 0x0004C4F0.
-    pcm_dialog_advance(g, cap.next_cue.c_str());
+    // Xbox 0x00058B80 / 0x00057E60: A requests mode 3, not immediate close.
+    g_dialogue_mode = 3;
+    g_dialogue_timer = 0.3f;
 }
 
 float attract_caption_dt(const Game& g, float dt)
@@ -2307,23 +2470,73 @@ float attract_caption_dt(const Game& g, float dt)
         return dt;
     }
     const std::vector<MoveCaption>& lines = move_captions(g);
-    if (g_caption_wait)
+    if (g_dialogue_mode != 0)
     {
+        // Xbox 0x00057E60. The detached page advances during every hold.
+        g_dialogue_screen.tick(dt);
+        const MoveCaption& cap = lines.at(size_t(g_caption_hold));
+        switch (g_dialogue_mode)
+        {
+        case 1:
+            g_dialogue_fade = std::clamp((g_dialogue_timer - 0.3f) * -3.333333f, 0.f, 1.f);
+            g_dialogue_timer -= dt;
+            if (g_dialogue_timer <= 0.f)
+            {
+                g_dialogue_mode = 2;
+                g_dialogue_fade = 1.f;
+                g_caption_left = cap.seconds > 0.f ? cap.seconds : 0.1f;
+                const auto& shown = cap.pages.at(size_t(g_caption_page));
+                g_caption_wait = shown.button;
+                if (cap.head && !shown.cue.empty())
+                {
+                    pcm_play_cue(g, shown.cue.c_str(), false);
+                }
+            }
+            break;
+        case 2:
+            if (!g_caption_wait)
+            {
+                g_caption_left -= dt;
+                if (g_caption_left <= 0.f)
+                {
+                    g_dialogue_mode = 3;
+                    g_dialogue_timer = 0.3f;
+                }
+            }
+            break;
+        case 3:
+            g_dialogue_fade = std::clamp(1.f - (g_dialogue_timer - 0.3f) * -3.333333f, 0.f, 1.f);
+            g_dialogue_timer -= dt;
+            if (g_dialogue_timer <= 0.f)
+            {
+                // Xbox 0x00058AE0: parse the next page or enter mode 4.
+                if (g_caption_page + 1 < int(cap.pages.size()))
+                {
+                    ++g_caption_page;
+                    g_dialogue_mode = 1;
+                    g_dialogue_timer = 0.3f;
+                    g_dialogue_fade = 0.f;
+                }
+                else
+                {
+                    g_dialogue_mode = 4;
+                }
+            }
+            break;
+        case 4:
+            g_dialogue_mode = 0;
+            g_caption_wait = false;
+            g_caption_left = 0.f;
+            g_dialogue_screen.close();
+            if (!g_dialogue_motif.empty())
+            {
+                pcm_stop_cue(g_dialogue_motif.c_str());
+                g_dialogue_motif.clear();
+            }
+            pcm_dialog_advance(g, cap.next_cue.c_str());
+            break;
+        }
         return 0.f;
-    }
-    if (g_caption_left > 0.f)
-    {
-        g_caption_left -= dt;
-        if (g_caption_left > 0.f)
-        {
-            return 0.f;
-        }
-        g_caption_left = 0.f;
-        if (g_caption_hold >= 0 && size_t(g_caption_hold) < lines.size())
-        {
-            pcm_dialog_advance(g, lines[size_t(g_caption_hold)].next_cue.c_str());
-        }
-        return dt;
     }
     const float time = g.cutscenes.time;
     for (int i = g_caption_hold + 1; i < int(lines.size()); ++i)

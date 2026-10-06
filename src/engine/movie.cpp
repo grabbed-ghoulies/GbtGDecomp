@@ -326,12 +326,18 @@ bool clip_decode(MovieClip* clip)
             av_frame_unref(clip->frame);
             return false;
         }
+        const int pitch = w * 4;
+        const size_t need = size_t(pitch) * size_t(h);
+        // libswscale writes one 32-byte vector past the last row when the width
+        // is not a multiple of 16. 439- and 440-wide Bink pages do that. The extra
+        // bytes stay in this allocation, then the image is trimmed back to the frame.
+        clip->image.bgra.resize(need + 64);
+        u8* dst = clip->image.bgra.data();
+        const int dst_stride[4] = {pitch, 0, 0, 0};
+        sws_scale(clip->scale, clip->frame->data, clip->frame->linesize, 0, h, &dst, dst_stride);
         clip->image.width = w;
         clip->image.height = h;
-        clip->image.bgra.resize(size_t(w) * size_t(h) * 4);
-        u8* dst = clip->image.bgra.data();
-        const int pitch = w * 4;
-        sws_scale(clip->scale, clip->frame->data, clip->frame->linesize, 0, h, &dst, &pitch);
+        clip->image.bgra.resize(need);
         // yuv420p has no plane. swscale leaves alpha at 0, and an alpha-tested page discards the picture.
         const int fmt = clip->frame->format;
         const bool has_alpha = fmt == AV_PIX_FMT_YUVA420P || fmt == AV_PIX_FMT_YUVA422P || fmt == AV_PIX_FMT_YUVA444P;

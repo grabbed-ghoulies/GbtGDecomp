@@ -5,6 +5,10 @@
 #include "gbtg/gfx.hpp"
 #include "gbtg/movie.hpp"
 
+#if defined(GBTG_DEBUG_UI)
+#include "gbtg/debug_ui.hpp"
+#endif
+
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
@@ -206,6 +210,17 @@ GfxD3D11 g;
 
 LRESULT CALLBACK gfx_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
+#if defined(GBTG_DEBUG_UI)
+    if (debug_ui_wndproc(hwnd, msg, wp, lp))
+    {
+        return 0;
+    }
+    // Escape quits the process. While the menu bar is open it stays with ImGui.
+    if (debug_ui_menu_open() && msg == WM_KEYDOWN && wp == VK_ESCAPE)
+    {
+        return 0;
+    }
+#endif
     if (msg == WM_CLOSE || (msg == WM_KEYDOWN && wp == VK_ESCAPE))
     {
         g.quit = true;
@@ -1167,11 +1182,20 @@ float4 ps_main(VSOut i) : SV_Target {
         gfx_shutdown();
         return false;
     }
+#if defined(GBTG_DEBUG_UI)
+    if (g.hwnd && g.swap && g.device && g.context)
+    {
+        debug_ui_init(g.hwnd, g.device.Get(), g.context.Get());
+    }
+#endif
     return true;
 }
 
 void gfx_shutdown()
 {
+#if defined(GBTG_DEBUG_UI)
+    debug_ui_shutdown();
+#endif
     g.meshes.clear();
     g.sprites.clear();
     g.ui_vb.Reset();
@@ -1975,6 +1999,10 @@ void present_swap()
     }
     if (g.ok && g.swap)
     {
+#if defined(GBTG_DEBUG_UI)
+        g.context->OMSetRenderTargets(1, g.rtv.GetAddressOf(), nullptr);
+        debug_ui_draw();
+#endif
         g.swap->Present(1, 0);
     }
     if (present_frame.swap_notify != nullptr)

@@ -89,6 +89,48 @@ if(GBTG_GFX STREQUAL "d3d11")
     target_sources(gbtg PRIVATE src/engine/gfx_d3d11.cpp)
     target_compile_definitions(gbtg PRIVATE GBTG_GFX_D3D11)
     target_link_libraries(gbtg PRIVATE d3d11 dxgi d3dcompiler user32 xinput xaudio2 ole32)
+
+    # Dear ImGui is compiled into Debug gbtg only. Release, RelWithDebInfo, and the
+    # null backend never see GBTG_DEBUG_UI. Populate skips add_subdirectory: upstream
+    # has no library target that includes the Win32 and D3D11 backends.
+    FetchContent_Declare(
+        imgui
+        GIT_REPOSITORY https://github.com/ocornut/imgui.git
+        GIT_TAG v1.92.9b
+        GIT_SHALLOW TRUE
+    )
+    # CMP0169 wants MakeAvailable, which add_subdirectory's a CMakeLists.txt this
+    # tag does not have. Populate only downloads the sources we compile ourselves.
+    if(POLICY CMP0169)
+        cmake_policy(PUSH)
+        cmake_policy(SET CMP0169 OLD)
+    endif()
+    FetchContent_GetProperties(imgui)
+    if(NOT imgui_POPULATED)
+        FetchContent_Populate(imgui)
+    endif()
+    if(POLICY CMP0169)
+        cmake_policy(POP)
+    endif()
+    set(GBTG_IMGUI_SOURCES
+        "${imgui_SOURCE_DIR}/imgui.cpp"
+        "${imgui_SOURCE_DIR}/imgui_draw.cpp"
+        "${imgui_SOURCE_DIR}/imgui_tables.cpp"
+        "${imgui_SOURCE_DIR}/imgui_widgets.cpp"
+        "${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp"
+        "${imgui_SOURCE_DIR}/backends/imgui_impl_dx11.cpp"
+        "${CMAKE_SOURCE_DIR}/src/engine/debug_ui.cpp"
+    )
+    target_sources(gbtg PRIVATE "$<$<CONFIG:Debug>:${GBTG_IMGUI_SOURCES}>")
+    target_compile_definitions(gbtg PRIVATE
+        $<$<CONFIG:Debug>:GBTG_DEBUG_UI>
+        $<$<CONFIG:Debug>:IMGUI_IMPL_WIN32_DISABLE_GAMEPAD>
+    )
+    target_include_directories(gbtg PRIVATE
+        $<$<CONFIG:Debug>:${imgui_SOURCE_DIR}>
+        $<$<CONFIG:Debug>:${imgui_SOURCE_DIR}/backends>
+    )
+    target_link_libraries(gbtg PRIVATE $<$<CONFIG:Debug>:imm32>)
 else()
     target_sources(gbtg PRIVATE src/engine/gfx_null.cpp)
     target_compile_definitions(gbtg PRIVATE GBTG_GFX_NULL)

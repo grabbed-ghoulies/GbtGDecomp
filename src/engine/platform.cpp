@@ -2,6 +2,10 @@
 #include "gbtg/platform.hpp"
 #include "gbtg/texture.hpp"
 
+#if defined(GBTG_DEBUG_UI)
+#include "gbtg/debug_ui.hpp"
+#endif
+
 #include <chrono>
 #include <iostream>
 
@@ -69,6 +73,26 @@ int run_platform(Game& game, const PlatformConfig& cfg)
         }
 #if defined(_WIN32)
         // Xbox pad is read in frame_tick. On PC the host copies the keyboard into that same pad state.
+#if defined(GBTG_DEBUG_UI)
+        // F8 and F12 never enter InputState. While the menu bar is open, keyboard
+        // mappings stay clear so the scene list can use those keys.
+        static bool f8_down = false;
+        static bool f12_down = false;
+        const bool f8 = (GetAsyncKeyState(VK_F8) & 0x8000) != 0;
+        const bool f12 = (GetAsyncKeyState(VK_F12) & 0x8000) != 0;
+        if (f8 && !f8_down)
+        {
+            debug_ui_toggle_menu();
+        }
+        if (f12 && !f12_down)
+        {
+            debug_ui_toggle_overlay();
+        }
+        f8_down = f8;
+        f12_down = f12;
+        if (!debug_ui_menu_open())
+        {
+#endif
         if (GetAsyncKeyState(VK_UP) & 0x8000)
         {
             in.up = true;
@@ -112,6 +136,9 @@ int run_platform(Game& game, const PlatformConfig& cfg)
         {
             in.caret_right = true;
         }
+#if defined(GBTG_DEBUG_UI)
+        }
+#endif
         // 0x001555B0 polls XInput into the four ports. The host keyboard above
         // fills the same button word, so a connected pad fills those bits too.
         for (DWORD port = 0; port < 4; ++port)
@@ -233,6 +260,9 @@ int run_platform(Game& game, const PlatformConfig& cfg)
         }
         gfx_begin_frame();
         game.tick(dt, in);
+#if defined(GBTG_DEBUG_UI)
+        debug_ui_build(game, dt);
+#endif
         gfx_end_frame();
         if (remaining > 0 && --remaining == 0)
         {

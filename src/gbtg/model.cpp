@@ -25,311 +25,121 @@ struct VertStream
     std::vector<u16> bone2;
     std::vector<float> weight0;
     std::vector<float> weight1;
+    std::vector<u8> attribute_types;
+    std::vector<std::string> issues;
 };
 
-std::vector<std::pair<u32, std::vector<Vec2>>> parse_uv_attrib(std::span<const u8> cpu, std::span<const u8> gpu,
-                                                               u8 type)
-{
-    std::vector<std::pair<u32, std::vector<Vec2>>> uv_streams;
-    for (size_t off = 0; off + 24 <= cpu.size(); ++off)
-    {
-        const u32 packed = read_u32(cpu, off);
-        const u8 info_size = u8(packed & 0xFF);
-        const u8 info_type = u8((packed >> 8) & 0xFF);
-        if (info_type != type || info_size != 8)
-        {
-            continue;
-        }
-        const u32 goff = read_u32(cpu, off + 16);
-        const u32 gsz = read_u32(cpu, off + 20);
-        if (!gsz || gsz % 8 != 0 || goff + gsz > gpu.size())
-        {
-            continue;
-        }
-        const u32 n = gsz / 8;
-        if (n > 200000)
-        {
-            continue;
-        }
-        std::vector<Vec2> uvs(n);
-        for (u32 v = 0; v < n; ++v)
-        {
-            uvs[v].u = read_f32(gpu, goff + v * 8 + 0);
-            uvs[v].v = read_f32(gpu, goff + v * 8 + 4);
-        }
-        uv_streams.emplace_back(n, std::move(uvs));
-    }
-    return uv_streams;
-}
-
+// Xbox 0x00158430 publishes the descriptors of ndVertexBuffer (type 19).
+// Xbox 0x00157A50 dispatches ndBlendShape (types 9 and 23); 0x00157880
+// publishes its primary descriptor array. Morph target evaluation remains separate.
+// Attribute ownership comes from those arrays, never from a byte-pattern scan.
 std::vector<VertStream> parse_vertex_streams(std::span<const u8> cpu, std::span<const u8> gpu)
 {
     std::vector<VertStream> streams;
-    if (cpu.size() < 24)
+    std::vector<u32> pending{52};
+    std::vector<u32> visited;
+    while (!pending.empty())
     {
-        return streams;
-    }
-    for (size_t off = 0; off + 24 <= cpu.size(); ++off)
-    {
-        const u32 packed = read_u32(cpu, off);
-        const u8 info_size = u8(packed & 0xFF);
-        const u8 info_type = u8((packed >> 8) & 0xFF);
-        if (info_type != 0x09 || info_size != 12)
+        const u32 rel = pending.back();
+        pending.pop_back();
+        const size_t node = size_t(rel) + 64;
+        if (!rel || node + 40 > cpu.size() || std::find(visited.begin(), visited.end(), rel) != visited.end())
         {
             continue;
         }
-        const u32 goff = read_u32(cpu, off + 16);
-        const u32 gsz = read_u32(cpu, off + 20);
-        if (gsz < 12 || gsz % 12 != 0 || goff > gpu.size() || goff + gsz > gpu.size())
+        visited.push_back(rel);
+        pending.push_back(read_u32(cpu, node + 24));
+        pending.push_back(read_u32(cpu, node + 20));
+        const u16 type = read_u16(cpu, node + 4);
+        size_t buffer = node;
+        if (type == 9 || type == 23)
         {
-            continue;
-        }
-        const u32 n = gsz / 12;
-        if (n < 3 || n > 200000)
-        {
-            continue;
-        }
-        VertStream s;
-        s.cpu_off = off;
-        s.n = n;
-        s.positions.resize(n);
-        Vec3 bmin{1e9f, 1e9f, 1e9f};
-        Vec3 bmax{-1e9f, -1e9f, -1e9f};
-        for (u32 v = 0; v < n; ++v)
-        {
-            Vec3 p{read_f32(gpu, goff + v * 12 + 0), read_f32(gpu, goff + v * 12 + 4),
-                   read_f32(gpu, goff + v * 12 + 8)};
-            s.positions[v] = p;
-            bmin.x = std::min(bmin.x, p.x);
-            bmin.y = std::min(bmin.y, p.y);
-            bmin.z = std::min(bmin.z, p.z);
-            bmax.x = std::max(bmax.x, p.x);
-            bmax.y = std::max(bmax.y, p.y);
-            bmax.z = std::max(bmax.z, p.z);
-        }
-        const float extent = std::max({bmax.x - bmin.x, bmax.y - bmin.y, bmax.z - bmin.z});
-        // Blendshape deltas sit in extra 0x09 streams with a near-zero bbox.
-        if (extent < 2.5f)
-        {
-            continue;
-        }
-        streams.push_back(std::move(s));
-    }
-    // Unit normals are type 0x0A, 12 bytes, one stream per vertex count.
-    std::vector<std::pair<u32, std::vector<Vec3>>> normal_streams;
-    for (size_t off = 0; off + 24 <= cpu.size(); ++off)
-    {
-        const u32 packed = read_u32(cpu, off);
-        const u8 info_size = u8(packed & 0xFF);
-        const u8 info_type = u8((packed >> 8) & 0xFF);
-        if (info_type != 0x0A || info_size != 12)
-        {
-            continue;
-        }
-        const u32 goff = read_u32(cpu, off + 16);
-        const u32 gsz = read_u32(cpu, off + 20);
-        if (!gsz || gsz % 12 != 0 || goff + gsz > gpu.size())
-        {
-            continue;
-        }
-        const u32 n = gsz / 12;
-        if (n > 200000)
-        {
-            continue;
-        }
-        std::vector<Vec3> normals(n);
-        for (u32 v = 0; v < n; ++v)
-        {
-            normals[v] = Vec3{read_f32(gpu, goff + v * 12 + 0), read_f32(gpu, goff + v * 12 + 4),
-                              read_f32(gpu, goff + v * 12 + 8)};
-        }
-        normal_streams.emplace_back(n, std::move(normals));
-    }
-    // Type 0 is the shader's v4. FUN_00157b90 writes matrix i at constant
-    // 0x78 + i*3. The rigid shader ARLs v4.x. The blended shader (the one that
-    // MADs a second matrix) ARLs v4.x then v4.y, and scales the rows by v5.xy.
-    // The file stores 24 + 3*slot. Stride 8 is two floats (slot, second slot).
-    // Stride 16 is the same pair followed by two zeros. A second slot of 0 is
-    // rigid, which is every book vertex. The crone's blended vertices are the
-    // stride-8 pair.
-    auto slot_of = [](float raw, u16& slot) -> bool
-    {
-        if (!(raw == raw) || raw < 24.f || raw > 24.f + 126.f * 3.f)
-        {
-            return false;
-        }
-        const int constant = int(raw);
-        if (raw != float(constant) || (constant - 24) % 3 != 0)
-        {
-            return false;
-        }
-        slot = u16((constant - 24) / 3);
-        return true;
-    };
-    struct BoneStream
-    {
-        u32 n = 0;
-        std::vector<u16> slots;
-        std::vector<u16> slot2;
-    };
-    std::vector<BoneStream> bone_streams;
-    for (size_t off = 0; off + 24 <= cpu.size(); ++off)
-    {
-        const u32 packed = read_u32(cpu, off);
-        const u8 info_size = u8(packed & 0xFF);
-        const u8 info_type = u8((packed >> 8) & 0xFF);
-        if (info_type != 0x00 || (info_size != 8 && info_size != 16) || read_u32(cpu, off + 4) != 1)
-        {
-            continue;
-        }
-        const u32 goff = read_u32(cpu, off + 16);
-        const u32 gsz = read_u32(cpu, off + 20);
-        if (!gsz || gsz % info_size != 0 || goff > gpu.size() || goff + gsz > gpu.size())
-        {
-            continue;
-        }
-        const u32 n = gsz / info_size;
-        if (n < 3 || n > 200000)
-        {
-            continue;
-        }
-        BoneStream stream;
-        stream.n = n;
-        stream.slots.resize(n);
-        stream.slot2.assign(n, 0);
-        bool slots_ok = true;
-        for (u32 v = 0; v < n; ++v)
-        {
-            const size_t rec = goff + size_t(v) * info_size;
-            if (!slot_of(read_f32(gpu, rec), stream.slots[v]))
+            const size_t list = 64 + size_t(read_u32(cpu, node + 32));
+            if (list + 4 > cpu.size() || read_u16(cpu, node + 36) == 0)
             {
-                slots_ok = false;
-                break;
+                throw Error("ndBlendShape primary buffer out of range");
             }
-            // Both strides store the second palette slot in the next float.
-            // 0 is the rigid case (books). A non-zero value that is not
-            // 24 + 3*slot is not this attribute.
-            const float second = read_f32(gpu, rec + 4);
-            if (second != 0.f && !slot_of(second, stream.slot2[v]))
+            buffer = 64 + size_t(read_u32(cpu, list));
+        }
+        else if (type != 19)
+        {
+            continue;
+        }
+        if (buffer + 40 > cpu.size())
+        {
+            throw Error("vertex buffer header out of range");
+        }
+        const size_t attributes = 64 + size_t(read_u32(cpu, buffer + 32));
+        const u32 count = read_u32(cpu, buffer + 36);
+        if (attributes > cpu.size() || size_t(count) > (cpu.size() - attributes) / 24)
+        {
+            throw Error("vertex descriptor array out of range");
+        }
+        VertStream stream;
+        stream.cpu_off = node;
+        for (u32 k = 0; k < count; ++k)
+        {
+            const size_t d = attributes + size_t(k) * 24;
+            stream.attribute_types.push_back(cpu[d + 1]);
+            if (cpu[d + 1] == 9 && cpu[d] != 0)
             {
-                slots_ok = false;
-                break;
+                stream.n = read_u32(cpu, d + 20) / cpu[d];
             }
         }
-        if (slots_ok)
+        for (u32 k = 0; k < count; ++k)
         {
-            bone_streams.push_back(std::move(stream));
-        }
-    }
-    struct WeightStream
-    {
-        u32 n = 0;
-        std::vector<float> w0;
-        std::vector<float> w1;
-    };
-    std::vector<WeightStream> weight_streams;
-    for (size_t off = 0; off + 24 <= cpu.size(); ++off)
-    {
-        const u32 packed = read_u32(cpu, off);
-        const u8 info_size = u8(packed & 0xFF);
-        const u8 info_type = u8((packed >> 8) & 0xFF);
-        if (info_type != 0x08 || (info_size != 8 && info_size != 16) || read_u32(cpu, off + 4) != 1)
-        {
-            continue;
-        }
-        const u32 goff = read_u32(cpu, off + 16);
-        const u32 gsz = read_u32(cpu, off + 20);
-        if (!gsz || gsz % info_size != 0 || goff > gpu.size() || goff + gsz > gpu.size())
-        {
-            continue;
-        }
-        const u32 n = gsz / info_size;
-        if (n < 3 || n > 200000)
-        {
-            continue;
-        }
-        WeightStream stream;
-        stream.n = n;
-        stream.w0.resize(n);
-        stream.w1.resize(n);
-        bool ok = true;
-        for (u32 v = 0; v < n; ++v)
-        {
-            const float a = read_f32(gpu, goff + size_t(v) * info_size);
-            const float b = read_f32(gpu, goff + size_t(v) * info_size + 4);
-            if (!(a == a) || !(b == b) || a < -0.01f || b < -0.01f || a > 1.01f || b > 1.01f)
+            const size_t d = attributes + size_t(k) * 24;
+            const u8 stride = cpu[d];
+            const u8 attr = cpu[d + 1];
+            const size_t offset = read_u32(cpu, d + 16);
+            const size_t bytes = read_u32(cpu, d + 20);
+            if (!bytes)
             {
-                ok = false;
-                break;
+                continue;
             }
-            stream.w0[v] = a;
-            stream.w1[v] = b;
-        }
-        if (ok)
-        {
-            weight_streams.push_back(std::move(stream));
-        }
-    }
-    auto uv0 = parse_uv_attrib(cpu, gpu, 0x0D);
-    auto uv1 = parse_uv_attrib(cpu, gpu, 0x0E);
-    auto uv2 = parse_uv_attrib(cpu, gpu, 0x0F);
-    for (auto& s : streams)
-    {
-        for (auto& uv : uv0)
-        {
-            if (uv.first == s.n && s.uvs.empty())
+            if (!stride || bytes % stride || offset > gpu.size() || bytes > gpu.size() - offset ||
+                bytes / stride != stream.n)
             {
-                s.uvs = std::move(uv.second);
-                uv.first = 0;
-                break;
+                throw Error("vertex attribute size/range mismatch");
+            }
+            const bool supported = ((attr == 9 || attr == 10) && stride == 12) ||
+                (attr >= 13 && attr <= 15 && stride == 8) ||
+                ((attr == 0 || attr == 8) && (stride == 8 || stride == 16));
+            if (!supported && (attr < 27 || attr > 34))
+            {
+                stream.issues.push_back("untranslated vertex attribute " + std::to_string(attr) +
+                                        " stride " + std::to_string(stride));
+            }
+            for (u32 v = 0; v < stream.n; ++v)
+            {
+                const size_t q = offset + size_t(v) * stride;
+                if ((attr == 9 || attr == 10) && stride == 12)
+                {
+                    const Vec3 value{read_f32(gpu, q), read_f32(gpu, q + 4), read_f32(gpu, q + 8)};
+                    (attr == 9 ? stream.positions : stream.normals).push_back(value);
+                }
+                else if (attr >= 13 && attr <= 15 && stride == 8)
+                {
+                    auto& uv = attr == 13 ? stream.uvs : (attr == 14 ? stream.uv1 : stream.uv2);
+                    uv.push_back(Vec2{read_f32(gpu, q), read_f32(gpu, q + 4)});
+                }
+                else if (attr == 0 && (stride == 8 || stride == 16))
+                {
+                    const float first = read_f32(gpu, q);
+                    const float second = read_f32(gpu, q + 4);
+                    stream.bones.push_back(u16((first - 24.f) / 3.f));
+                    stream.bone2.push_back(second == 0.f ? 0 : u16((second - 24.f) / 3.f));
+                }
+                else if (attr == 8 && (stride == 8 || stride == 16))
+                {
+                    stream.weight0.push_back(read_f32(gpu, q));
+                    stream.weight1.push_back(read_f32(gpu, q + 4));
+                }
             }
         }
-        for (auto& uv : uv1)
+        if (!stream.positions.empty())
         {
-            if (uv.first == s.n && s.uv1.empty())
-            {
-                s.uv1 = std::move(uv.second);
-                uv.first = 0;
-                break;
-            }
-        }
-        for (auto& nrm : normal_streams)
-        {
-            if (nrm.first == s.n && s.normals.empty())
-            {
-                s.normals = std::move(nrm.second);
-                nrm.first = 0;
-                break;
-            }
-        }
-        for (auto& uv : uv2)
-        {
-            if (uv.first == s.n && s.uv2.empty())
-            {
-                s.uv2 = std::move(uv.second);
-                uv.first = 0;
-                break;
-            }
-        }
-        for (auto& bone : bone_streams)
-        {
-            if (bone.n == s.n && s.bones.empty())
-            {
-                s.bones = std::move(bone.slots);
-                s.bone2 = std::move(bone.slot2);
-                bone.n = 0;
-                break;
-            }
-        }
-        for (auto& wt : weight_streams)
-        {
-            if (wt.n == s.n && s.weight0.empty())
-            {
-                s.weight0 = std::move(wt.w0);
-                s.weight1 = std::move(wt.w1);
-                wt.n = 0;
-                break;
-            }
+            streams.push_back(std::move(stream));
         }
     }
     return streams;
@@ -406,12 +216,6 @@ void parse_skeleton(std::span<const u8> cpu, Mesh& mesh)
     }
 }
 
-float dist2(Vec3 a, Vec3 b)
-{
-    const float dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
-    return dx * dx + dy * dy + dz * dz;
-}
-
 void emit_indices(Mesh& mesh, const std::vector<u16>& idx, u32 prim, u32 base, u32 stream_n)
 {
     auto push = [&](u16 a, u16 b, u16 c)
@@ -422,34 +226,23 @@ void emit_indices(Mesh& mesh, const std::vector<u16>& idx, u32 prim, u32 base, u
         }
         if (a >= stream_n || b >= stream_n || c >= stream_n)
         {
-            return;
+            throw Error("model index outside declared vertex stream");
         }
         const u32 ia = base + a, ib = base + b, ic = base + c;
         if (ia >= mesh.positions.size() || ib >= mesh.positions.size() || ic >= mesh.positions.size())
         {
-            return;
+            throw Error("model index outside concatenated vertex buffer");
         }
-        const Vec3 pa = mesh.positions[ia], pb = mesh.positions[ib], pc = mesh.positions[ic];
-        const Vec3 ab{pb.x - pa.x, pb.y - pa.y, pb.z - pa.z};
-        const Vec3 ac{pc.x - pa.x, pc.y - pa.y, pc.z - pa.z};
-        const Vec3 cr{ab.y * ac.z - ab.z * ac.y, ab.z * ac.x - ab.x * ac.z, ab.x * ac.y - ab.y * ac.x};
-        const float cross2 = cr.x * cr.x + cr.y * cr.y + cr.z * cr.z;
-        const float longest2 = std::max({dist2(pa, pb), dist2(pb, pc), dist2(pc, pa)});
-        const float min_height = 0.005f * longest2;
-        if (cross2 < 1e-12f || (longest2 > 1e-8f && cross2 < min_height * min_height))
-        {
-            return;
-        }
-        mesh.indices.push_back(u16(ia));
-        mesh.indices.push_back(u16(ib));
-        mesh.indices.push_back(u16(ic));
+        mesh.indices.push_back(ia);
+        mesh.indices.push_back(ib);
+        mesh.indices.push_back(ic);
     };
     if (idx.size() < 3)
     {
         return;
     }
-    // NV097_SET_BEGIN_END: 5=triangles, 6=strip, 7=fan. Unknown → strip unless count%3==0.
-    if (prim == 5 || (prim != 6 && prim != 7 && idx.size() % 3 == 0))
+    // NV097_SET_BEGIN_END: 5=triangles, 6=strip, 7=fan.
+    if (prim == 5)
     {
         for (size_t i = 0; i + 2 < idx.size(); i += 3)
         {
@@ -463,6 +256,11 @@ void emit_indices(Mesh& mesh, const std::vector<u16>& idx, u32 prim, u32 base, u
         {
             push(idx[0], idx[i], idx[i + 1]);
         }
+        return;
+    }
+    if (prim != 6)
+    {
+        mesh.issues.push_back("unsupported primitive " + std::to_string(prim));
         return;
     }
     for (size_t i = 0; i + 2 < idx.size(); ++i)
@@ -521,34 +319,7 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
         return hi;
     };
 
-    auto stream_at = [&](size_t pb_off) -> size_t
-    {
-        // 0x157880 keeps the base vertex buffer. A later buffer with the same
-        // vertex count is a blend target and is swapped in only while its
-        // weight wins. Pushes stay on the base buffer.
-        size_t found = 0;
-        for (size_t i = 0; i < streams.size(); ++i)
-        {
-            if (streams[i].cpu_off > pb_off)
-            {
-                continue;
-            }
-            bool target = false;
-            for (size_t j = 0; j < i; ++j)
-            {
-                if (streams[j].n == streams[i].n)
-                {
-                    target = true;
-                    break;
-                }
-            }
-            if (!target)
-            {
-                found = i;
-            }
-        }
-        return found;
-    };
+    size_t active_stream = 0;
 
     auto read_cstring = [&](size_t abs_off) -> std::string
     {
@@ -573,7 +344,15 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
         i32 celmap = -1;
         Vec3 color{1.f, 1.f, 1.f};
         u8 alpha_ref = 0;
+        std::array<i32, 4> stages{-1, -1, -1, -1};
+        std::array<u8, 4> address_u{1, 1, 1, 1};
+        std::array<u8, 4> address_v{1, 1, 1, 1};
+        std::vector<u32> constants;
     };
+    std::array<u32, 60> active_pixel_shader{};
+    bool has_pixel_shader = false;
+    std::array<u8, 4> stage_uv{};
+    bool direct_uv = false;
 
     // ndShaderParam2 material tables (project-grabbed read_shaderParam2).
     auto parse_param = [&](u32 un_other6) -> ActiveMaterial
@@ -604,6 +383,16 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
             {
                 mat.color = Vec3{cpu[p] / 255.f, cpu[p + 1] / 255.f, cpu[p + 2] / 255.f};
             }
+            if (p + size_t(col_count) * 4 <= cpu.size())
+            {
+                for (u32 i = 0; i < col_count; ++i)
+                {
+                    // Material bytes are RGBA; shader literals are ARGB.
+                    const size_t q = p + size_t(i) * 4;
+                    mat.constants.push_back((u32(cpu[q + 3]) << 24) | (u32(cpu[q]) << 16) |
+                                            (u32(cpu[q + 1]) << 8) | cpu[q + 2]);
+                }
+            }
         }
         mat.alpha_ref = cpu[data + 24];
         if (tex_count == 0 || tex_count > 64 || name_count > 64 || !tex_off)
@@ -615,11 +404,17 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
         for (u32 m = 0; m < tex_count; ++m)
         {
             const size_t p = size_t(kNodeBase) + tex_off + size_t(m) * 28;
-            if (p + 4 > cpu.size())
+            if (p + 28 > cpu.size())
             {
                 return {};
             }
             refs.push_back(i32(read_u32(cpu, p)));
+            if (m < 4)
+            {
+                mat.stages[m] = refs.back();
+                mat.address_u[m] = cpu[p + 4];
+                mat.address_v[m] = cpu[p + 5];
+            }
         }
         for (u32 m = 0; m < name_count; ++m)
         {
@@ -670,9 +465,14 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
     {
         if (prim != 5 && prim != 6 && prim != 7)
         {
+            mesh.issues.push_back("unsupported primitive " + std::to_string(prim));
             return;
         }
-        if (count < 3 || count >= 500000 || idx_off + count * 2 > cpu.size())
+        if (idx_off > cpu.size() || size_t(count) > (cpu.size() - idx_off) / 2)
+        {
+            throw Error("model index array out of range");
+        }
+        if (count < 3)
         {
             return;
         }
@@ -682,7 +482,7 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
         {
             idx.push_back(read_u16(cpu, idx_off + k * 2));
         }
-        const size_t si = stream_at(tag);
+        const size_t si = active_stream;
         const size_t start = mesh.indices.size();
         emit_indices(mesh, idx, prim, bases[si], streams[si].n);
         const u32 added = u32(mesh.indices.size() - start);
@@ -702,6 +502,31 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
         sm.mtx = mtx;
         sm.color = mat.color;
         sm.alpha_ref = mat.alpha_ref;
+        sm.stages = mat.stages;
+        sm.address_u = mat.address_u;
+        sm.address_v = mat.address_v;
+        sm.stage_uv = stage_uv;
+        sm.direct_uv = direct_uv;
+        sm.pixel_shader = active_pixel_shader;
+        sm.has_pixel_shader = has_pixel_shader;
+        if (has_pixel_shader)
+        {
+            // CreatePixelShader's mappings select the constants subsequently
+            // written by Xbox 0x0015AD20, independently of sampler names.
+            for (u32 i = 0; i < 8; ++i)
+            {
+                const u32 c0 = (sm.pixel_shader[57] >> (i * 4)) & 15;
+                const u32 c1 = (sm.pixel_shader[58] >> (i * 4)) & 15;
+                if (c0 < mat.constants.size())
+                {
+                    sm.pixel_shader[10 + i] = mat.constants[c0];
+                }
+                if (c1 < mat.constants.size())
+                {
+                    sm.pixel_shader[18 + i] = mat.constants[c1];
+                }
+            }
+        }
         mesh.submeshes.push_back(sm);
     };
 
@@ -724,39 +549,6 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
                          read_u32(cpu, primitives + size_t(i) * 4), mat, skin, mtx);
         }
     };
-
-    // ndRigidSkinIdx (type 11). un_other6 is a byte remap, relative to model+64.
-    // Consecutive nodes are windows into one stream, so the length is the gap to the next window.
-    std::vector<u32> skin_offs;
-    {
-        std::vector<u32> scan{52};
-        std::vector<u8> scan_seen(cpu.size() / 4 + 1, 0);
-        while (!scan.empty())
-        {
-            const u32 rel = scan.back();
-            scan.pop_back();
-            if (rel == 0 || size_t(rel) / 4 >= scan_seen.size() || scan_seen[rel / 4])
-            {
-                continue;
-            }
-            scan_seen[rel / 4] = 1;
-            const HeaderItem hi = read_item(rel);
-            if (hi.next_sibling)
-            {
-                scan.push_back(hi.next_sibling);
-            }
-            if (hi.next_child)
-            {
-                scan.push_back(hi.next_child);
-            }
-            if (hi.type == 11)
-            {
-                skin_offs.push_back(hi.un_other6);
-            }
-        }
-        std::sort(skin_offs.begin(), skin_offs.end());
-        skin_offs.erase(std::unique(skin_offs.begin(), skin_offs.end()), skin_offs.end());
-    }
 
     ActiveMaterial active;
     std::vector<u8> active_skin;
@@ -844,7 +636,121 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
         {
             stack.push_back(hi.next_child);
         }
-        if (hi.type == kNdShaderParam2)
+        if (hi.type == 19 || hi.type == 9 || hi.type == 23)
+        {
+            if ((hi.type == 9 || hi.type == 23) && read_u16(cpu, size_t(kNodeBase) + rel + 36) > 1)
+            {
+                mesh.issues.push_back("blendshape primary buffer loaded; animated targets require translation");
+            }
+            for (size_t i = 0; i < streams.size(); ++i)
+            {
+                if (streams[i].cpu_off == size_t(kNodeBase) + rel)
+                {
+                    active_stream = i;
+                    break;
+                }
+            }
+        }
+        else if (hi.type == 17)
+        {
+            const size_t wrapper = size_t(kNodeBase) + hi.un_other6;
+            has_pixel_shader = false;
+            if (wrapper + 12 <= cpu.size())
+            {
+                const size_t definition = size_t(kNodeBase) + read_u32(cpu, wrapper + 4);
+                if (read_u32(cpu, wrapper + 8) == 240 && definition + 240 <= cpu.size())
+                {
+                    for (size_t i = 0; i < active_pixel_shader.size(); ++i)
+                    {
+                        active_pixel_shader[i] = read_u32(cpu, definition + i * 4);
+                    }
+                    has_pixel_shader = true;
+                }
+            }
+        }
+        else if (hi.type == 21)
+        {
+            // Xbox 0x00158510 binds each stream through the descriptor indices
+            // at +32. Xbox 0x001584A0 reads declaration +80 and program +84.
+            const size_t node = size_t(kNodeBase) + rel;
+            direct_uv = false;
+            stage_uv.fill(255);
+            if (node + 104 <= cpu.size())
+            {
+                const size_t si = active_stream;
+                const auto& attributes = streams[si].attribute_types;
+                const size_t bindings = size_t(kNodeBase) + hi.un_other6;
+                std::array<u8, 16> registers{};
+                registers.fill(255);
+                u32 stream = 0;
+                size_t decl = size_t(kNodeBase) + read_u32(cpu, node + 80);
+                while (decl + 4 <= cpu.size())
+                {
+                    const u32 token = read_u32(cpu, decl);
+                    decl += 4;
+                    if (token == 0xffffffff)
+                    {
+                        break;
+                    }
+                    const u32 kind = token >> 29;
+                    if (kind == 1)
+                    {
+                        stream = token & 15;
+                    }
+                    else if (kind == 2 && (token & 0x10000000) == 0 && stream < hi.count &&
+                             bindings + size_t(stream) * 4 + 4 <= cpu.size())
+                    {
+                        const u32 descriptor = read_u32(cpu, bindings + size_t(stream) * 4);
+                        if (descriptor < attributes.size() && (token & 31) < registers.size())
+                        {
+                            registers[token & 31] = attributes[descriptor];
+                        }
+                    }
+                }
+                const size_t program = size_t(kNodeBase) + read_u32(cpu, node + 84);
+                if (program + 4 <= cpu.size())
+                {
+                    const u32 header = read_u32(cpu, program);
+                    const u32 instructions = header >> 16;
+                    if ((header & 0xffff) == 0x2078 && program + 4 + size_t(instructions) * 16 <= cpu.size())
+                    {
+                        for (u32 i = 0; i < instructions; ++i)
+                        {
+                            const size_t q = program + 4 + size_t(i) * 16;
+                            const u32 w1 = read_u32(cpu, q + 4);
+                            const u32 w2 = read_u32(cpu, q + 8);
+                            const u32 w3 = read_u32(cpu, q + 12);
+                            const u32 output = (w3 >> 3) & 255;
+                            if (output >= 9 && output <= 12 && ((w3 >> 12) & 15) != 0)
+                            {
+                                const u8 attr = registers[(w1 >> 9) & 15];
+                                // Full xy MOV from an input register is a direct UV binding.
+                                if (((w1 >> 21) & 15) == 1 && ((w2 >> 26) & 3) == 2 &&
+                                    (w1 & 0x1f0) == 0x10 && (w3 & 0xc000) == 0xc000 &&
+                                    (w3 & 4) == 0 && attr >= 13 && attr <= 15)
+                                {
+                                    stage_uv[output - 9] = attr - 13;
+                                }
+                                else
+                                {
+                                    stage_uv[output - 9] = 255;
+                                }
+                            }
+                        }
+                        direct_uv = has_pixel_shader;
+                        for (u32 i = 0; i < 4; ++i)
+                        {
+                            const u32 mode = (active_pixel_shader[54] >> (i * 5)) & 31;
+                            if (mode != 0 && (mode != 1 || stage_uv[i] == 255))
+                            {
+                                direct_uv = false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        else if (hi.type == kNdShaderParam2)
         {
             active = parse_param(hi.un_other6);
         }
@@ -871,23 +777,13 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
             // 0x157B90 uploads palette[i] at constant 0x78 + i*3. The byte count is
             // header +36. The gap to the next window over-reads the last palette.
             active_skin.clear();
-            u32 len = hi.count;
-            if (len == 0 || len > 64)
-            {
-                const auto it = std::lower_bound(skin_offs.begin(), skin_offs.end(), hi.un_other6);
-                len = 16;
-                if (it != skin_offs.end() && std::next(it) != skin_offs.end() && *std::next(it) > *it)
-                {
-                    len = *std::next(it) - *it;
-                }
-                len = std::min(len, 64u);
-            }
+            const size_t len = hi.count;
             const size_t p = size_t(kNodeBase) + hi.un_other6;
-            if (p < cpu.size())
+            if (p > cpu.size() || len > cpu.size() - p)
             {
-                len = std::min(len, u32(cpu.size() - p));
-                active_skin.assign(cpu.begin() + p, cpu.begin() + p + len);
+                throw Error("skin palette out of range");
             }
+            active_skin.assign(cpu.begin() + p, cpu.begin() + p + len);
         }
         else if (hi.type == kNdPushBuffer || hi.type == kNdBGPushBuffer)
         {
@@ -897,6 +793,10 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
             {
                 const size_t tag = size_t(kNodeBase) + hi.offset;
                 emit_push(tag, hi.un_other6, active, active_skin, mtx_at(rel));
+            }
+            else
+            {
+                mesh.issues.push_back("hardware push buffer requires translation");
             }
         }
     }
@@ -975,8 +875,9 @@ void parse_embedded_textures(std::span<const u8> cpu, std::span<const u8> gpu, s
             {
                 mesh.textures[t] = decode_xbox_texture(hdr, gpu);
             }
-            catch (...)
+            catch (const std::exception& ex)
             {
+                mesh.issues.push_back("texture " + std::to_string(t) + ": " + ex.what());
             }
             // Byte +0xE of the texture. 0x000527C0 registers it when the byte is in 1..0x27.
             // decode_xbox_texture replaces the image, so the slot is stored after that.
@@ -984,174 +885,6 @@ void parse_embedded_textures(std::span<const u8> cpu, std::span<const u8> gpu, s
             if (slot >= 1 && slot <= 0x27)
             {
                 mesh.textures[t].movie_slot = slot;
-            }
-        }
-    }
-}
-
-struct TexStats
-{
-    float mean = 0;
-    float black = 0;
-    float chroma = 0;
-    float contrast = 0;
-    float center = 0;
-    float corners = 0;
-    float wrap = 0;
-};
-
-TexStats analyze_tex(const RgbaImage& t)
-{
-    TexStats s;
-    if (t.bgra.empty() || t.width <= 0 || t.height <= 0)
-    {
-        return s;
-    }
-    const int stepx = std::max(1, t.width / 32);
-    const int stepy = std::max(1, t.height / 32);
-    long chroma = 0, contrast = 0, lum_sum = 0;
-    int n = 0, cn = 0, black = 0;
-    for (int y = 0; y < t.height; y += stepy)
-    {
-        for (int x = 0; x < t.width; x += stepx)
-        {
-            const u8* p = t.bgra.data() + (size_t(y) * t.width + x) * 4;
-            const int lum = int(p[0]) + int(p[1]) + int(p[2]);
-            lum_sum += lum;
-            chroma += std::abs(int(p[2]) - p[1]) + std::abs(int(p[1]) - p[0]) + std::abs(int(p[0]) - p[2]);
-            ++n;
-            if (lum < 24)
-            {
-                ++black;
-            }
-            if (x + stepx < t.width)
-            {
-                const u8* q = t.bgra.data() + (size_t(y) * t.width + x + stepx) * 4;
-                contrast += std::abs(int(p[0]) - q[0]) + std::abs(int(p[1]) - q[1]) + std::abs(int(p[2]) - q[2]);
-                ++cn;
-            }
-        }
-    }
-    auto sample = [&](int x, int y)
-    {
-        const u8* p = t.bgra.data() + (size_t(y) * t.width + x) * 4;
-        return float(int(p[0]) + int(p[1]) + int(p[2]));
-    };
-    s.mean = n ? float(lum_sum) / float(n) : 0.f;
-    s.black = n ? float(black) / float(n) : 1.f;
-    s.chroma = n ? float(chroma) / float(n) : 0.f;
-    s.contrast = cn ? float(contrast) / float(cn) : 0.f;
-    s.center = sample(t.width / 2, t.height / 2);
-    s.corners =
-        0.25f * (sample(0, 0) + sample(t.width - 1, 0) + sample(0, t.height - 1) + sample(t.width - 1, t.height - 1));
-    long wrap = 0;
-    int wn = 0;
-    for (int y = 0; y < t.height; y += stepy)
-    {
-        const u8* l = t.bgra.data() + (size_t(y) * t.width) * 4;
-        const u8* r = t.bgra.data() + (size_t(y) * t.width + (t.width - 1)) * 4;
-        wrap += std::abs(int(l[0]) - r[0]) + std::abs(int(l[1]) - r[1]) + std::abs(int(l[2]) - r[2]);
-        ++wn;
-    }
-    for (int x = 0; x < t.width; x += stepx)
-    {
-        const u8* a = t.bgra.data() + x * 4;
-        const u8* b = t.bgra.data() + (size_t(t.height - 1) * t.width + x) * 4;
-        wrap += std::abs(int(a[0]) - b[0]) + std::abs(int(a[1]) - b[1]) + std::abs(int(a[2]) - b[2]);
-        ++wn;
-    }
-    s.wrap = wn ? float(wrap) / float(wn) : 0.f;
-    return s;
-}
-
-bool is_ramp_tex(const RgbaImage& t)
-{
-    return t.bgra.empty() || t.width <= 4 || t.height <= 4;
-}
-
-bool is_lightmap_tex(const TexStats& s)
-{
-    return (s.black > 0.15f && s.corners < 50.f) || (s.black > 0.40f);
-}
-
-bool is_illustration_tex(const RgbaImage& t, const TexStats& s)
-{
-    if (is_ramp_tex(t) || is_lightmap_tex(s))
-    {
-        return false;
-    }
-    return s.chroma >= 48.f && std::min(t.width, t.height) >= 64;
-}
-
-bool is_unique_atlas(const RgbaImage& t, const TexStats& s)
-{
-    if (is_ramp_tex(t) || is_lightmap_tex(s) || is_illustration_tex(t, s))
-    {
-        return false;
-    }
-    if (t.width >= 512 && t.height >= 512)
-    {
-        return true;
-    }
-    return std::min(t.width, t.height) >= 256 && s.wrap > 40.f;
-}
-
-float submesh_uv_span(const Mesh& mesh, const Submesh& sm, const std::vector<Vec2>& uvs)
-{
-    if (uvs.empty() || sm.index_count < 3)
-    {
-        return 0.f;
-    }
-    float umin = 1e9f, umax = -1e9f, vmin = 1e9f, vmax = -1e9f;
-    int n = 0;
-    const size_t end = size_t(sm.first_index) + sm.index_count;
-    for (size_t i = sm.first_index; i < end && i < mesh.indices.size(); ++i)
-    {
-        const u16 vi = mesh.indices[i];
-        if (vi >= uvs.size())
-        {
-            continue;
-        }
-        umin = std::min(umin, uvs[vi].u);
-        umax = std::max(umax, uvs[vi].u);
-        vmin = std::min(vmin, uvs[vi].v);
-        vmax = std::max(vmax, uvs[vi].v);
-        ++n;
-    }
-    return n ? (umax - umin) + (vmax - vmin) : 0.f;
-}
-
-void choose_uv_channels(Mesh& mesh, const std::vector<TexStats>& stats)
-{
-    const bool actor = mesh.name.find("actor") != std::string::npos;
-    for (auto& sm : mesh.submeshes)
-    {
-        const float s0 = submesh_uv_span(mesh, sm, mesh.uvs);
-        const float s1 = submesh_uv_span(mesh, sm, mesh.uv1);
-        // Actors keep diffuse on UV0. Env tiling surfaces often store diffuse in UV1.
-        if (!actor && s1 > s0 * 1.15f && s1 > 1.15f)
-        {
-            sm.albedo_uv = 1;
-            sm.lightmap_uv = 0;
-        }
-        else
-        {
-            sm.albedo_uv = 0;
-            sm.lightmap_uv = (s1 > 0.05f) ? 1 : 0;
-        }
-        if (sm.lightmap >= 0 && sm.lightmap_uv == sm.albedo_uv)
-        {
-            sm.lightmap = -1;
-        }
-        if (sm.texture >= 0 && size_t(sm.texture) < stats.size() &&
-            sm.texture < i32(mesh.textures.size()) &&
-            (is_illustration_tex(mesh.textures[sm.texture], stats[sm.texture]) ||
-             is_unique_atlas(mesh.textures[sm.texture], stats[sm.texture])))
-        {
-            sm.albedo_uv = 0;
-            if (sm.lightmap_uv == 0)
-            {
-                sm.lightmap = -1;
             }
         }
     }
@@ -1179,6 +912,7 @@ Mesh parse_model(const BundleEntry& entry)
     bool any_bones = false;
     for (const auto& s : streams)
     {
+        mesh.issues.insert(mesh.issues.end(), s.issues.begin(), s.issues.end());
         if (!s.bones.empty())
         {
             any_bones = true;
@@ -1236,17 +970,11 @@ Mesh parse_model(const BundleEntry& entry)
     std::vector<i32> tex_chunks;
     parse_embedded_textures(entry.cpu, entry.gpu, entry.gpu_chunks, mesh, tex_chunks);
     (void)tex_chunks;
-    std::vector<TexStats> stats(mesh.textures.size());
-    for (size_t i = 0; i < mesh.textures.size(); ++i)
-    {
-        stats[i] = analyze_tex(mesh.textures[i]);
-    }
     for (auto& sm : mesh.submeshes)
     {
         auto valid_surface = [&](i32 i) -> bool
         {
-            return i >= 0 && size_t(i) < mesh.textures.size() && !mesh.textures[i].bgra.empty() &&
-                   mesh.textures[i].width > 4 && mesh.textures[i].height > 4;
+            return i >= 0 && size_t(i) < mesh.textures.size() && !mesh.textures[i].bgra.empty();
         };
 
         if (!valid_surface(sm.texture))
@@ -1283,16 +1011,6 @@ Mesh parse_model(const BundleEntry& entry)
         if (sm.detail >= 0 && sm.detail == sm.texture)
         {
             sm.detail = -1;
-        }
-    }
-    choose_uv_channels(mesh, stats);
-    if (mesh.indices.empty() && mesh.positions.size() >= 3)
-    {
-        const size_t n = (mesh.positions.size() / 3) * 3;
-        mesh.indices.resize(n);
-        for (size_t i = 0; i < n; ++i)
-        {
-            mesh.indices[i] = static_cast<u16>(i);
         }
     }
     return mesh;

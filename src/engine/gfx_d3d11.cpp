@@ -47,6 +47,7 @@ struct GpuVert
     float u0, v0;
     float u1, v1;
     float nx, ny, nz;
+    float u2 = 0.f, v2 = 0.f;
     float bone = 0.f;
     float bone2 = 0.f;
     float w0 = 1.f;
@@ -93,6 +94,10 @@ struct DrawRange
     float alpha_ref = 0.f;
     std::vector<u8> skin;
     std::vector<u16> mtx;
+    ComPtr<ID3D11Buffer> material_cb;
+    std::array<i32, 4> stages{-1, -1, -1, -1};
+    std::array<ComPtr<ID3D11SamplerState>, 4> samplers;
+
 };
 
 struct GpuMesh
@@ -122,6 +127,7 @@ struct GfxD3D11
     ComPtr<ID3D11DepthStencilView> dsv;
     ComPtr<ID3D11VertexShader> vs;
     ComPtr<ID3D11PixelShader> ps;
+    ComPtr<ID3D11PixelShader> model_ps;
     ComPtr<ID3D11InputLayout> layout;
     ComPtr<ID3D11Buffer> cb;
     ComPtr<ID3D11Buffer> bone_cb;
@@ -395,6 +401,11 @@ bool upload_mesh(const Mesh& mesh, GpuMesh& gpu)
             verts[i].ny = mesh.normals[i].y;
             verts[i].nz = mesh.normals[i].z;
         }
+        if (i < mesh.uv2.size())
+        {
+            verts[i].u2 = mesh.uv2[i].u;
+            verts[i].v2 = mesh.uv2[i].v;
+        }
         if (i < mesh.bones.size())
         {
             verts[i].bone = float(mesh.bones[i]);
@@ -419,7 +430,7 @@ bool upload_mesh(const Mesh& mesh, GpuMesh& gpu)
     {
         return false;
     }
-    bd.ByteWidth = u32(mesh.indices.size() * sizeof(u16));
+    bd.ByteWidth = u32(mesh.indices.size() * sizeof(u32));
     bd.BindFlags = D3D11_BIND_INDEX_BUFFER;
     sd.pSysMem = mesh.indices.data();
     if (FAILED(g.device->CreateBuffer(&bd, &sd, gpu.ib.GetAddressOf())))
@@ -472,6 +483,40 @@ bool upload_mesh(const Mesh& mesh, GpuMesh& gpu)
             range.light_index = sub.lightmap;
             range.light = gpu.tex_srv[size_t(sub.lightmap)];
             range.use_light = 1.f;
+        }
+        if (sub.has_pixel_shader && sub.direct_uv)
+        {
+            struct MaterialConstants
+            {
+                std::array<u32, 60> words;
+                std::array<u32, 4> uv;
+            };
+            MaterialConstants constants{sub.pixel_shader, {sub.stage_uv[0], sub.stage_uv[1], sub.stage_uv[2], sub.stage_uv[3]}};
+            D3D11_BUFFER_DESC desc{};
+            desc.ByteWidth = sizeof(constants);
+            desc.Usage = D3D11_USAGE_IMMUTABLE;
+            desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+            D3D11_SUBRESOURCE_DATA data{};
+            data.pSysMem = &constants;
+            if (FAILED(g.device->CreateBuffer(&desc, &data, range.material_cb.GetAddressOf())))
+            {
+                return false;
+            }
+            range.stages = sub.stages;
+            for (size_t stage = 0; stage < 4; ++stage)
+            {
+                D3D11_SAMPLER_DESC sampler{};
+                sampler.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+                sampler.AddressU = D3D11_TEXTURE_ADDRESS_MODE(sub.address_u[stage]);
+                sampler.AddressV = D3D11_TEXTURE_ADDRESS_MODE(sub.address_v[stage]);
+                sampler.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+                sampler.MaxLOD = D3D11_FLOAT32_MAX;
+                sampler.ComparisonFunc = D3D11_COMPARISON_NEVER;
+                if (FAILED(g.device->CreateSamplerState(&sampler, range.samplers[stage].GetAddressOf())))
+                {
+                    return false;
+                }
+            }
         }
         range.color_r = sub.color.x;
         range.color_g = sub.color.y;
@@ -1056,8 +1101,8 @@ Texture2D g_tex : register(t0);
 Texture2D g_light : register(t1);
 SamplerState g_samp : register(s0);
 SamplerState g_light_samp : register(s1);
-struct VSIn { float3 pos : POSITION; float2 uv0 : TEXCOORD0; float2 uv1 : TEXCOORD1; float3 nrm : NORMAL; float2 bone : TEXCOORD2; float2 wt : TEXCOORD3; };
-struct VSOut { float4 pos : SV_Position; float2 uv0 : TEXCOORD0; float2 uv1 : TEXCOORD1; float3 nrm : TEXCOORD2; };
+struct VSIn { float3 pos : POSITION; float2 uv0 : TEXCOORD0; float2 uv1 : TEXCOORD1; float3 nrm : NORMAL; float2 bone : TEXCOORD2; float2 wt : TEXCOORD3; float2 uv2 : TEXCOORD4; };
+struct VSOut { float4 pos : SV_Position; float2 uv0 : TEXCOORD0; float2 uv1 : TEXCOORD1; float3 nrm : TEXCOORD2; float2 uv2 : TEXCOORD3; };
 VSOut vs_main(VSIn i) {
     VSOut o;
     float3 p = i.pos;
@@ -1073,6 +1118,7 @@ VSOut vs_main(VSIn i) {
     o.pos = mul(mvp, float4(p, 1));
     o.uv0 = i.uv0;
     o.uv1 = i.uv1;
+    o.uv2 = i.uv2;
     o.nrm = nrm;
     return o;
 }
@@ -1117,6 +1163,219 @@ float4 ps_main(VSOut i) : SV_Target {
     return color;
 }
 )";
+    const std::string model_hlsl = std::string(hlsl) + R"(
+// NV2A register-combiner fields in the 240-byte shader definition. This
+// interprets the asset's operations; sampler names do not prescribe blending.
+cbuffer Material : register(b2)
+{
+    uint4 ps_words[15];
+    uint4 ps_uv;
+};
+Texture2D stage_tex[4] : register(t0);
+SamplerState stage_samp[4] : register(s0);
+uint ps_word(uint n)
+{
+    return ps_words[n / 4][n % 4];
+}
+float4 argb(uint x)
+{
+    return float4((x >> 16) & 255, (x >> 8) & 255, x & 255, x >> 24) / 255.0;
+}
+float4 ps_constant(uint stage, bool second)
+{
+    uint control = ps_word(53);
+    uint unique = second ? 65536 : 4096;
+    uint n = (control & unique) != 0 ? stage : 0;
+    return argb(ps_word((second ? 18 : 10) + n));
+}
+float4 comb_input(uint input, float4 regs[16], float4 c0, float4 c1)
+{
+    uint reg = input & 15;
+    float4 value = reg == 1 ? c0 : (reg == 2 ? c1 : regs[reg]);
+    uint mapping = input >> 5;
+    if (mapping == 0)
+    {
+        return max(value, 0);
+    }
+    if (mapping == 1)
+    {
+        return 1 - max(value, 0);
+    }
+    if (mapping == 2)
+    {
+        return 2 * max(value, 0) - 1;
+    }
+    if (mapping == 3)
+    {
+        return 1 - 2 * max(value, 0);
+    }
+    if (mapping == 4)
+    {
+        return max(value, 0) - 0.5;
+    }
+    if (mapping == 5)
+    {
+        return 0.5 - max(value, 0);
+    }
+    return mapping == 6 ? value : -value;
+}
+float3 rgb_input(uint input, float4 regs[16], float4 c0, float4 c1)
+{
+    float4 value = comb_input(input, regs, c0, c1);
+    return (input & 16) != 0 ? value.aaa : value.rgb;
+}
+float alpha_input(uint input, float4 regs[16], float4 c0, float4 c1)
+{
+    float4 value = comb_input(input, regs, c0, c1);
+    return (input & 16) != 0 ? value.a : value.b;
+}
+float4 output_map(float4 value, uint output)
+{
+    uint mapping = (output >> 15) & 7;
+    if ((mapping & 1) != 0)
+    {
+        value -= 0.5;
+    }
+    uint shift = mapping >> 1;
+    if (shift == 1)
+    {
+        value *= 2;
+    }
+    else if (shift == 2)
+    {
+        value *= 4;
+    }
+    else if (shift == 3)
+    {
+        value *= 0.5;
+    }
+    return clamp(value, -1, 1);
+}
+float2 stage_coord(VSOut i, uint stage)
+{
+    uint uv = ps_uv[stage];
+    return uv == 0 ? i.uv0 : (uv == 1 ? i.uv1 : i.uv2);
+}
+float4 ps_model(VSOut i) : SV_Target
+{
+    float4 regs[16];
+    [unroll]
+    for (uint n = 0; n < 16; ++n)
+    {
+        regs[n] = 0;
+    }
+    // The shared host vertex path supplies the current draw colour. Dynamic
+    // Xbox lighting splices are tracked as a separate unresolved vertex path.
+    regs[4] = float4(light_dir.xyz, 1);
+    if ((ps_word(54) & 31) == 1)
+    {
+        regs[8] = stage_tex[0].Sample(stage_samp[0], stage_coord(i, 0));
+    }
+    if (((ps_word(54) >> 5) & 31) == 1)
+    {
+        regs[9] = stage_tex[1].Sample(stage_samp[1], stage_coord(i, 1));
+    }
+    if (((ps_word(54) >> 10) & 31) == 1)
+    {
+        regs[10] = stage_tex[2].Sample(stage_samp[2], stage_coord(i, 2));
+    }
+    if (((ps_word(54) >> 15) & 31) == 1)
+    {
+        regs[11] = stage_tex[3].Sample(stage_samp[3], stage_coord(i, 3));
+    }
+    regs[12].a = regs[8].a;
+    uint count = min(ps_word(53) & 255, 8);
+    [loop]
+    for (uint stage = 0; stage < count; ++stage)
+    {
+        float4 c0 = ps_constant(stage, false);
+        float4 c1 = ps_constant(stage, true);
+        uint rgb = ps_word(34 + stage);
+        uint alpha = ps_word(stage);
+        uint ro = ps_word(45 + stage);
+        uint ao = ps_word(26 + stage);
+        float3 a = rgb_input(rgb >> 24, regs, c0, c1);
+        float3 b = rgb_input((rgb >> 16) & 255, regs, c0, c1);
+        float3 c = rgb_input((rgb >> 8) & 255, regs, c0, c1);
+        float3 d = rgb_input(rgb & 255, regs, c0, c1);
+        float3 ab = (ro & 8192) != 0 ? dot(a, b).xxx : a * b;
+        float3 cd = (ro & 4096) != 0 ? dot(c, d).xxx : c * d;
+        float aa = alpha_input(alpha >> 24, regs, c0, c1) * alpha_input((alpha >> 16) & 255, regs, c0, c1);
+        float ac = alpha_input((alpha >> 8) & 255, regs, c0, c1) * alpha_input(alpha & 255, regs, c0, c1);
+        bool select_cd = (ps_word(53) & 256) != 0 ? regs[12].a >= 0.5 : (((uint)round(saturate(regs[12].a) * 255)) & 1) != 0;
+        float3 sum = (ro & 16384) != 0 ? (select_cd ? cd : ab) : ab + cd;
+        float asum = (ao & 16384) != 0 ? (select_cd ? ac : aa) : aa + ac;
+        float4 pab = output_map(float4(ab, aa), ro);
+        float4 pcd = output_map(float4(cd, ac), ro);
+        float3 psum = output_map(float4(sum, 0), ro).rgb;
+        float aab = output_map(float4(aa, aa, aa, aa), ao).a;
+        float acd = output_map(float4(ac, ac, ac, ac), ao).a;
+        float as = output_map(float4(asum, asum, asum, asum), ao).a;
+        if ((ro & 15) != 0)
+        {
+            regs[ro & 15].rgb = pcd.rgb;
+        }
+        if (((ro >> 4) & 15) != 0)
+        {
+            regs[(ro >> 4) & 15].rgb = pab.rgb;
+        }
+        if (((ro >> 8) & 15) != 0)
+        {
+            regs[(ro >> 8) & 15].rgb = psum;
+        }
+        if ((ro & 262144) != 0 && (ro & 15) != 0)
+        {
+            regs[ro & 15].a = pcd.b;
+        }
+        if ((ro & 524288) != 0 && ((ro >> 4) & 15) != 0)
+        {
+            regs[(ro >> 4) & 15].a = pab.b;
+        }
+        if ((ao & 15) != 0)
+        {
+            regs[ao & 15].a = acd;
+        }
+        if (((ao >> 4) & 15) != 0)
+        {
+            regs[(ao >> 4) & 15].a = aab;
+        }
+        if (((ao >> 8) & 15) != 0)
+        {
+            regs[(ao >> 8) & 15].a = as;
+        }
+    }
+    float4 color = regs[12];
+    uint final0 = ps_word(8);
+    uint final1 = ps_word(9);
+    if (final0 != 0 || final1 != 0)
+    {
+        uint flags = final1 & 255;
+        float3 v1 = (flags & 64) != 0 ? 1 - regs[5].rgb : regs[5].rgb;
+        float3 r0 = (flags & 32) != 0 ? 1 - regs[12].rgb : regs[12].rgb;
+        regs[14] = float4((flags & 128) != 0 ? saturate(v1 + r0) : v1 + r0, 0);
+        float4 c0 = argb(ps_word(43));
+        float4 c1 = argb(ps_word(44));
+        regs[15] = float4(rgb_input(final1 >> 24, regs, c0, c1) * rgb_input((final1 >> 16) & 255, regs, c0, c1), 0);
+        float3 a = rgb_input(final0 >> 24, regs, c0, c1);
+        color.rgb = a * rgb_input((final0 >> 16) & 255, regs, c0, c1) + (1 - a) * rgb_input((final0 >> 8) & 255, regs, c0, c1) + rgb_input(final0 & 255, regs, c0, c1);
+        color.a = alpha_input((final1 >> 8) & 255, regs, c0, c1);
+    }
+    color = saturate(color) * tint;
+    if (alpha_rs.x > 0.5 && alpha_rs.z == 516 && round(color.a * 255) <= alpha_rs.y)
+    {
+        discard;
+    }
+    return color;
+}
+
+)";
+    ComPtr<ID3DBlob> model_blob;
+    if (!compile_shader(model_hlsl.c_str(), "ps_model", "ps_4_0", model_blob))
+    {
+        gfx_shutdown();
+        return false;
+    }
+    g.device->CreatePixelShader(model_blob->GetBufferPointer(), model_blob->GetBufferSize(), nullptr, g.model_ps.GetAddressOf());
     ComPtr<ID3DBlob> vs_blob;
     ComPtr<ID3DBlob> ps_blob;
     if (!compile_shader(hlsl, "vs_main", "vs_4_0", vs_blob) || !compile_shader(hlsl, "ps_main", "ps_4_0", ps_blob))
@@ -1131,10 +1390,11 @@ float4 ps_main(VSOut i) : SV_Target {
         {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0},
         {"TEXCOORD", 1, DXGI_FORMAT_R32G32_FLOAT, 0, 20, D3D11_INPUT_PER_VERTEX_DATA, 0},
         {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 28, D3D11_INPUT_PER_VERTEX_DATA, 0},
-        {"TEXCOORD", 2, DXGI_FORMAT_R32G32_FLOAT, 0, 40, D3D11_INPUT_PER_VERTEX_DATA, 0},
-        {"TEXCOORD", 3, DXGI_FORMAT_R32G32_FLOAT, 0, 48, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 2, DXGI_FORMAT_R32G32_FLOAT, 0, 48, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 3, DXGI_FORMAT_R32G32_FLOAT, 0, 56, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 4, DXGI_FORMAT_R32G32_FLOAT, 0, 40, D3D11_INPUT_PER_VERTEX_DATA, 0},
     };
-    g.device->CreateInputLayout(layout, 6, vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), g.layout.GetAddressOf());
+    g.device->CreateInputLayout(layout, 7, vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), g.layout.GetAddressOf());
 
     D3D11_BUFFER_DESC cbd{};
     cbd.ByteWidth = sizeof(GpuCB);
@@ -1218,6 +1478,7 @@ void gfx_shutdown()
     debug_ui_shutdown();
 #endif
     g.meshes.clear();
+    g.model_ps.Reset();
     g.sprites.clear();
     g.ui_vb.Reset();
     g.blend_alpha.Reset();
@@ -1502,7 +1763,7 @@ void gfx_draw_mesh(const Mesh& mesh, Vec3 origin, Vec3 scale)
     const UINT stride = sizeof(GpuVert);
     const UINT offset = 0;
     g.context->IASetVertexBuffers(0, 1, gpu.vb.GetAddressOf(), &stride, &offset);
-    g.context->IASetIndexBuffer(gpu.ib.Get(), DXGI_FORMAT_R16_UINT, 0);
+    g.context->IASetIndexBuffer(gpu.ib.Get(), DXGI_FORMAT_R32_UINT, 0);
     const bool placed = origin.x != 0.f || origin.y != 0.f || origin.z != 0.f || scale.x != 1.f ||
                         scale.y != 1.f || scale.z != 1.f;
     Mat4 draw_mvp = g.mvp;
@@ -1611,8 +1872,38 @@ void gfx_draw_mesh(const Mesh& mesh, Vec3 origin, Vec3 scale)
         {
             srvs[0] = dialog_target.srv.Get();
         }
-        g.context->PSSetShaderResources(0, 2, srvs);
+        if (range.material_cb)
+        {
+            ID3D11ShaderResourceView* stages[4]{};
+            ID3D11SamplerState* samplers[4]{};
+            for (size_t stage = 0; stage < 4; ++stage)
+            {
+                const i32 texture = range.stages[stage];
+                if (texture >= 0 && size_t(texture) < gpu.tex_srv.size())
+                {
+                    stages[stage] = gpu.tex_srv[size_t(texture)].Get();
+                }
+                samplers[stage] = range.samplers[stage].Get();
+            }
+            if (dialog_target.srv && range.stages[0] == range.tex_index && srvs[0] != range.srv.Get())
+            {
+                stages[0] = srvs[0];
+            }
+            ID3D11Buffer* material = range.material_cb.Get();
+            g.context->PSSetConstantBuffers(2, 1, &material);
+            g.context->PSSetShader(g.model_ps.Get(), nullptr, 0);
+            g.context->PSSetShaderResources(0, 4, stages);
+            g.context->PSSetSamplers(0, 4, samplers);
+        }
+        else
+        {
+            g.context->PSSetShader(g.ps.Get(), nullptr, 0);
+            g.context->PSSetShaderResources(0, 2, srvs);
+            ID3D11SamplerState* samplers[2]{g.sampler.Get(), g.light_sampler.Get()};
+            g.context->PSSetSamplers(0, 2, samplers);
+        }
         g.context->DrawIndexed(range.count, range.start, 0);
+
         tris += range.count / 3;
         if (range.use_light > 0.f || range.use_cel > 0.f)
         {

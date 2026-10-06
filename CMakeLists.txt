@@ -61,6 +61,9 @@ target_link_libraries(gbtg-catalog PRIVATE gbtg_lib)
 add_executable(gbtg-dump src/tools/dump_main.cpp)
 target_link_libraries(gbtg-dump PRIVATE gbtg_lib)
 
+add_executable(gbtg-model-check src/tools/model_check_main.cpp)
+target_link_libraries(gbtg-model-check PRIVATE gbtg_lib)
+
 add_executable(gbtg-xemu-patch src/tools/xemu_patch_main.cpp)
 target_link_libraries(gbtg-xemu-patch PRIVATE gbtg_lib)
 

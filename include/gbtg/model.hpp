@@ -22,6 +22,13 @@ struct Submesh
     u8 alpha_ref = 0;          // 0x15AD20 byte +24. 0 leaves the alpha test off.
     u8 albedo_uv = 0;
     u8 lightmap_uv = 1;
+    std::array<i32, 4> stages{-1, -1, -1, -1};
+    std::array<u8, 4> stage_uv{0, 1, 0, 0};
+    std::array<u8, 4> address_u{1, 1, 1, 1};
+    std::array<u8, 4> address_v{1, 1, 1, 1};
+    std::array<u32, 60> pixel_shader{};
+    bool has_pixel_shader = false;
+    bool direct_uv = false;
 };
 
 // Skeleton joint from ndSkeleton. parent is the u16 at record +0 (0xFFFF is the root).
@@ -48,9 +55,10 @@ struct Mesh
     std::vector<Vec2> uvs;
     std::vector<Vec2> uv1;
     std::vector<Vec2> uv2;
-    std::vector<u16> indices; // triangle list
+    std::vector<u32> indices; // triangle list; concatenated buffers may exceed 65535 vertices
     std::vector<Submesh> submeshes;
     std::vector<RgbaImage> textures;
+    std::vector<std::string> issues; // missing rendering paths; never substitute invented geometry
 };
 
 Mesh parse_model(const BundleEntry& entry);

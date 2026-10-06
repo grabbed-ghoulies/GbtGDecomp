@@ -69,8 +69,11 @@ struct WaveChoice
 struct SoundEvent
 {
     float time = 0.f;
-    std::string cue; // XACT_SOUNDBANK_...
+    float stop = 0.f; // type 0x0C window end. 0 leaves the voice to finish.
+    std::string cue;  // XACT_SOUNDBANK_...
     bool fired = false;
+    bool stopped = false;
+    bool stream = false; // 0x0004D4C0. Starting this cue stops the previous one.
 };
 
 #if defined(_WIN32)
@@ -100,6 +103,61 @@ std::map<std::string, std::vector<WaveChoice>> g_cues;      // full cue string -
 std::vector<SoundEvent> g_events;
 size_t g_clip = static_cast<size_t>(-1);
 std::string g_clip_name;
+// Name copied to the stream object +0x86 by 0x0004D4C0.
+std::string g_stream_cue;
+
+constexpr const char* kNoSound = "XACT_SOUNDBANK_GMISC_NOSOUND";
+
+std::string event_name(std::span<const u8> rec, size_t at)
+{
+    if (at >= rec.size())
+    {
+        return {};
+    }
+    size_t n = 0;
+    while (at + n < rec.size() && rec[at + n] != 0)
+    {
+        ++n;
+    }
+    return std::string(reinterpret_cast<const char*>(rec.data() + at), n);
+}
+
+bool is_xact_cue(const std::string& name)
+{
+    return name.rfind("XACT_SOUNDBANK_", 0) == 0;
+}
+
+void release_voice(PcmVoice& slot)
+{
+    if (slot.voice == nullptr)
+    {
+        return;
+    }
+    slot.voice->Stop(0);
+    slot.voice->FlushSourceBuffers();
+    slot.voice->DestroyVoice();
+    slot.voice = nullptr;
+}
+
+// 0x00038780 finds the bank slot by name and releases it. `all` is the stream
+// replace. A type 0x0C window stops the one voice that window started.
+void stop_named(const std::string& cue, bool all)
+{
+    for (size_t i = 0; i < g_voices.size();)
+    {
+        if (g_voices[i].cue != cue)
+        {
+            ++i;
+            continue;
+        }
+        release_voice(g_voices[i]);
+        g_voices.erase(g_voices.begin() + static_cast<std::ptrdiff_t>(i));
+        if (!all)
+        {
+            return;
+        }
+    }
+}
 
 std::vector<std::string> device_names(std::span<const u8> blob)
 {
@@ -477,11 +535,10 @@ void stop_all()
 {
     for (auto& v : g_voices)
     {
-        v.voice->Stop(0);
-        v.voice->FlushSourceBuffers();
-        v.voice->DestroyVoice();
+        release_voice(v);
     }
     g_voices.clear();
+    g_stream_cue.clear();
 }
 
 bool load_wave(const WaveChoice& choice, std::vector<u8>& pcm, WAVEFORMATEX& fmt)
@@ -650,19 +707,50 @@ void collect_events(const Game& g, const Cutscene& clip)
             {
                 break;
             }
-            const char* s = reinterpret_cast<const char*>(e.cpu.data() + pos + 16);
-            const size_t room = size - 16;
-            size_t n = 0;
-            while (n < room && s[n] != 0)
+            const auto rec = e.cpu.subspan(pos, size);
+            const u32 type = ru32(rec, 0x0c) & 0xffff;
+            // Type 0x0C. 0x0004C3B0 plays the name at +0x14. 0x0004C4A0 stops that
+            // voice when the window ends.
+            if (type == 0x0c && rec.size() > 0x14)
             {
-                ++n;
+                const std::string cue = event_name(rec, 0x14);
+                if (is_xact_cue(cue))
+                {
+                    SoundEvent ev;
+                    ev.time = rf32(rec, 4);
+                    ev.stop = rf32(rec, 8);
+                    ev.cue = cue;
+                    g_events.push_back(std::move(ev));
+                }
+                pos += size;
+                continue;
             }
-            if (n > 14 && std::memcmp(s, "XACT_SOUNDBANK_", 15) == 0)
+            // Type 0x15. 0x0004C4F0 plays the name at +0xD0 through 0x0004D4C0,
+            // unless that name is XACT_SOUNDBANK_GMISC_NOSOUND.
+            if (type == 0x15 && rec.size() > 0xd0)
+            {
+                const std::string cue = event_name(rec, 0xd0);
+                if (is_xact_cue(cue) && cue != kNoSound)
+                {
+                    SoundEvent ev;
+                    ev.time = rf32(rec, 4);
+                    ev.cue = cue;
+                    ev.stream = true;
+                    g_events.push_back(std::move(ev));
+                }
+                pos += size;
+                continue;
+            }
+            const std::string cue = event_name(rec, 0x10);
+            if (is_xact_cue(cue))
             {
                 SoundEvent ev;
-                ev.time = rf32(e.cpu, pos + 4);
-                ev.cue.assign(s, n);
-                g_events.push_back(ev);
+                ev.time = rf32(rec, 4);
+                ev.cue = cue;
+                // Type 0x0A. 0x0004D4C0 starts this name and remembers it so the
+                // next streamed cue can stop it.
+                ev.stream = type == 0x0a;
+                g_events.push_back(std::move(ev));
             }
             pos += size;
         }
@@ -685,6 +773,7 @@ void pcm_cutscene_sync(const Game& g)
             stop_all();
         }
         g_clip = static_cast<size_t>(-1);
+        g_stream_cue.clear();
         return;
     }
     const Cutscene& clip = g.cutscenes.items[g.cutscenes.index];
@@ -702,16 +791,37 @@ void pcm_cutscene_sync(const Game& g)
             continue;
         }
         ev.fired = true;
+        if (ev.stream && !g_stream_cue.empty() && g_stream_cue != ev.cue)
+        {
+            stop_named(g_stream_cue, true);
+        }
         const auto found = g_cues.find(ev.cue);
         if (found == g_cues.end())
         {
             std::cout << "audio unmapped " << ev.cue << "\n";
+            if (ev.stream)
+            {
+                g_stream_cue = ev.cue;
+            }
             continue;
         }
         if (const WaveChoice* choice = pick_choice(found->second, g.frame))
         {
             play_choice(ev.cue, *choice);
         }
+        if (ev.stream)
+        {
+            g_stream_cue = ev.cue;
+        }
+    }
+    for (auto& ev : g_events)
+    {
+        if (!ev.fired || ev.stopped || ev.stop <= ev.time || g.cutscenes.time < ev.stop)
+        {
+            continue;
+        }
+        ev.stopped = true;
+        stop_named(ev.cue, false);
     }
 #else
     (void)g;

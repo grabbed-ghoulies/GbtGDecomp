@@ -409,6 +409,152 @@ void kb_move(Game& g, int dcol, int drow)
     }
 }
 
+// 0x000357D0. EAX and EDX are the two names. 1 when both start with 'aid_' and
+// the rest matches after AND 0xDF, or when neither starts with 'aid_'.
+bool aid_name_match(std::string_view a, std::string_view b)
+{
+    auto aid_head = [](std::string_view s)
+    {
+        return s.size() >= 4 &&
+            static_cast<unsigned char>(s[0]) == 'a' &&
+            static_cast<unsigned char>(s[1]) == 'i' &&
+            static_cast<unsigned char>(s[2]) == 'd' &&
+            static_cast<unsigned char>(s[3]) == '_';
+    };
+    const bool a_aid = aid_head(a);
+    const bool b_aid = aid_head(b);
+    if (!a_aid)
+    {
+        return !b_aid;
+    }
+    if (!b_aid)
+    {
+        return false;
+    }
+    size_t i = 4;
+    for (;;)
+    {
+        const unsigned char ca = (i < a.size() ? static_cast<unsigned char>(a[i]) : 0) & 0xDF;
+        const unsigned char cb = (i < b.size() ? static_cast<unsigned char>(b[i]) : 0) & 0xDF;
+        if (ca != cb)
+        {
+            return false;
+        }
+        if (ca == 0)
+        {
+            return true;
+        }
+        ++i;
+    }
+}
+
+bool aid_slot(std::string_view name)
+{
+    return name.size() >= 4 &&
+        static_cast<unsigned char>(name[0]) == 'a' &&
+        static_cast<unsigned char>(name[1]) == 'i' &&
+        static_cast<unsigned char>(name[2]) == 'd' &&
+        static_cast<unsigned char>(name[3]) == '_';
+}
+
+// 0x00035960. The list is the packed aid names at *DAT_00511B64 (sceneorder).
+// EBX is the key. The stack flag is 1 from 0x00010E9D0. A match whose next
+// slot starts with 'aid_' returns that next name. The je at 0x000359BA lands
+// on the epilogue, so the lea of the next slot is the return value.
+const char* sceneorder_lookup(const Game& g, const char* key, int flag)
+{
+    if (g.scene_order.empty())
+    {
+        return nullptr;
+    }
+    if (key == nullptr)
+    {
+        return g.scene_order[0].c_str();
+    }
+    size_t i = 0;
+    for (;;)
+    {
+        const bool next_aid = i + 1 < g.scene_order.size() && aid_slot(g.scene_order[i + 1]);
+        if (aid_name_match(g.scene_order[i], key))
+        {
+            if (next_aid)
+            {
+                return g.scene_order[i + 1].c_str();
+            }
+            if (flag == 0)
+            {
+                return nullptr;
+            }
+            return g.scene_order[0].c_str();
+        }
+        if (!next_aid)
+        {
+            return nullptr;
+        }
+        ++i;
+    }
+}
+
+// 0x00010E9D0. The new save's script id is the 0x00035960 result for
+// aid_script_ghoulies_gameselect_gameselect (0x00322B8C).
+void store_new_game_script(Game& g)
+{
+    const char* script = sceneorder_lookup(g, "aid_script_ghoulies_gameselect_gameselect", 1);
+    char* dest = g.slot_script[g.slot];
+    if (script == nullptr)
+    {
+        dest[0] = '\0';
+        return;
+    }
+    size_t i = 0;
+    while (script[i] != '\0' && i + 1 < sizeof(g.slot_script[g.slot]))
+    {
+        dest[i] = script[i];
+        ++i;
+    }
+    dest[i] = '\0';
+}
+
+bool wide_name_equal(const char16_t* a, const char16_t* b)
+{
+    // 0x0014A91C. lstrcmpW.
+    for (;;)
+    {
+        if (*a != *b)
+        {
+            return false;
+        }
+        if (*a == 0)
+        {
+            return true;
+        }
+        ++a;
+        ++b;
+    }
+}
+
+// 0x0010DB10. Walk the save list for the wide name and copy blob+0x102.
+// A miss leaves the caller's buffer unwritten.
+const char* save_script(const Game& g)
+{
+    if (g.slot_name[g.slot][0] == 0)
+    {
+        return nullptr;
+    }
+    for (int i = 0; i < 3; ++i)
+    {
+        if (g.slot_script[i][0] == '\0')
+        {
+            continue;
+        }
+        if (wide_name_equal(g.slot_name[i], g.slot_name[g.slot]))
+        {
+            return g.slot_script[i];
+        }
+    }
+    return nullptr;
+}
+
 char16_t kb_insert_char(const Game& g, u32 code)
 {
     // Keys are stored as the uppercase / symbol code. Shift (cleared after one insert) or caps
@@ -517,6 +663,11 @@ void kb_activate(Game& g)
                 g.slot_name[g.slot][i] = g.kb_text[i];
             }
             g.slot_status[g.slot] = 4;
+            // 0x00010D430's success path calls 0x00010E9D0 before 0x000DD270.
+            // 0x00010E9D0 stores 0x00035960's return at blob+0x102. The key is
+            // aid_script_ghoulies_gameselect_gameselect (0x00322B8C). On the retail
+            // sceneorder that return is the following aid, chapter1_scene0_1book.
+            store_new_game_script(g);
             std::cout << "slot " << g.slot << " named (" << g.kb_len << " chars)\n";
         }
     }
@@ -2148,10 +2299,24 @@ void gameselect_tick(Game& g, const InputState& in)
         {
             g.contents_row = (g.contents_row + 2) % 3;
         }
-        // Select callbacks: Play 0x000DB570 pushes widget mode 7, Features
-        // 0x000DB6D0 sets the scene object to mode-table index 8, Challenges
-        // 0x000DB670 sets index 6. No aid is requested, and the slot is not cleared.
-        // Back is 0x000DB510, which sets the scene object to mode-table index 1.
+        // Play is 0x000DB570: it copies the slot name, calls 0x00083B10 with 1,
+        // then 0x000DA580 with mode 7. Stream 2 is idle, so 0x00083B10 arms the
+        // play state and the scene-control tick runs 0x00083C70, which
+        // 0x0011EB30-requests the script 0x0010DB10 copied from the save.
+        // Features 0x000DB6D0 and Challenges 0x000DB670 are separate callbacks.
+        // Back is 0x000DB510, which returns to slot select.
+        // Select record code 0 uses button word 0x110: A (0x0100) or Start (0x0010).
+        // 0x001083F0 accepts either edge.
+        if (((in.accept && !g.slot_accept) || (in.start && !g.slot_start)) && g.contents_row == 0)
+        {
+            const char* script = save_script(g);
+            if (script != nullptr)
+            {
+                g.frontend_mode = 7;
+                std::cout << "play " << script << "\n";
+                script_request(g, script);
+            }
+        }
         if (in.back && !g.slot_back)
         {
             g.frontend_mode = 1;
@@ -2182,8 +2347,11 @@ void draw_ui(const Game& g)
         draw_move_captions(g);
         return;
     }
-    if (g.frontend_mode == 3)
+    if (g.frontend_mode == 3 || g.frontend_mode == 7)
     {
+        // Mode 7 is the widget 0x000DA580 stores from Play. Its draw is 0x000D5300.
+        // Until that body is translated, the contents plates stay up for the
+        // frame before 0x0011EB30's load replaces the scene.
         draw_contents(g);
         return;
     }

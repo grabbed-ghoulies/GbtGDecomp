@@ -101,6 +101,8 @@ struct Game
     bool kb_caps = false;
     char16_t slot_name[3][64] = {};
     int slot_name_len[3] = {};
+    // Save blob +0x102. 0x00010E9D0 copies the 0x00035960 result here when the name is committed.
+    char slot_script[3][0x80] = {};
     char16_t kb_text[64] = {};
     int kb_len = 0;
     int kb_caret = 0;

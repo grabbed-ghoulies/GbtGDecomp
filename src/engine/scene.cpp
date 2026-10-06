@@ -63,6 +63,10 @@ extern "C"
 namespace gbtg
 {
 
+// Set by script node type 0x13. 0x0004EDA0 passes node+8 to 0x0004EB20, which
+// 0x0004D680 instances. load_cutscene_reel picks the name up after that walk.
+std::string g_script_cutscene_pending;
+
 void release_models(Game& g)
 {
     for (const Mesh& mesh : g.models)
@@ -201,6 +205,46 @@ void load_cutscene_reel(Game& g)
             std::cout << "  [" << i << "] " << c.duration << "s curves=" << c.camera.size() << " " << c.name << "\n";
         }
         break;
+    }
+    // No aidlist reel. The chapter script names its cutscene on a type 0x13
+    // node (0x0004EDA0 / node+8). The title node in front of it returns 0, so
+    // that walk does not reach the node. The aid is already on the script.
+    if (g.cutscenes.items.empty())
+    {
+        const std::string pending = g_script_cutscene_pending;
+        g_script_cutscene_pending.clear();
+        const std::string* name = pending.empty() ? nullptr : &pending;
+        std::string from_script;
+        if (name == nullptr)
+        {
+            for (const std::string& aid : g.scene_script.aids)
+            {
+                if (aid.starts_with("aid_cutscene_"))
+                {
+                    from_script = aid;
+                    break;
+                }
+            }
+            if (!from_script.empty())
+            {
+                name = &from_script;
+            }
+        }
+        if (name != nullptr)
+        {
+            const BundleEntry* entry = find_aid(g, *name);
+            if (entry != nullptr && entry->type == ResourceType::Cutscene)
+            {
+                Cutscene clip = parse_cutscene(entry->cpu, entry->name);
+                std::cout << "script cutscene " << clip.name << " " << clip.duration << "s\n";
+                g.cutscenes.items.push_back(std::move(clip));
+                g.cutscenes.loop = false;
+            }
+        }
+    }
+    else
+    {
+        g_script_cutscene_pending.clear();
     }
 }
 
@@ -15565,6 +15609,7 @@ void script_vm_reset()
 {
     g_script_conds.clear();
     g_script_fired.clear();
+    g_script_cutscene_pending.clear();
 }
 
 // Xbox 0x00124C80. Grows DAT_0051234C by the 0x20 stride and copies `size` bytes.
@@ -18763,18 +18808,24 @@ int fn_1274b0(Game& g, const ScriptNode& node, int param_3)
     case 0x13:
         if (param_3 == 0)
         {
-            if (g_flag_2470 == 0)
+        if (g_flag_2470 == 0)
+        {
+            const i32 same = g_state_248c == 3 ? 1 : 0;
+            (void)same;
+            // 0x0004EDA0(node+8). The call is the cutscene named by this node.
+            const std::string cut = node_cstr(g.scene_script, node, 8);
+            if (cut.starts_with("aid_cutscene_"))
             {
-                const i32 same = g_state_248c == 3 ? 1 : 0;
-                (void)same;
-                if (node_u32(g.scene_script, node, 0x88) != 0)
-                {
-                    g_flag_2470 = 1;
-                    const u32 mask = node_u32(g.scene_script, node, 0x8c) == 0 ? 0xffffu : 2u;
-                    fn_117400(mask, 0);
-                    return 0;
-                }
+                g_script_cutscene_pending = cut;
             }
+            if (node_u32(g.scene_script, node, 0x88) != 0)
+            {
+                g_flag_2470 = 1;
+                const u32 mask = node_u32(g.scene_script, node, 0x8c) == 0 ? 0xffffu : 2u;
+                fn_117400(mask, 0);
+                return 0;
+            }
+        }
         }
         return 2;
     case 0x14:

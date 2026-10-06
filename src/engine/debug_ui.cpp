@@ -25,7 +25,10 @@ namespace
 bool g_ready = false;
 bool g_menu = false;
 bool g_overlay = true;
-char g_filter[128]{};
+bool g_scenes = false;
+bool g_cutscenes = false;
+char g_scene_filter[128]{};
+char g_cutscene_filter[128]{};
 
 // Half a second at 60 Hz. The overlay shows the mean so a single hitch does not rewrite the text.
 constexpr int kFrameAvg = 30;
@@ -75,12 +78,12 @@ FrameAvg g_avg;
 void draw_scene_loader(Game& game)
 {
     ImGui::SetNextWindowSize(ImVec2(480.f, 420.f), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("Scenes"))
+    if (!ImGui::Begin("Scenes", &g_scenes))
     {
         ImGui::End();
         return;
     }
-    ImGui::InputText("Filter", g_filter, sizeof(g_filter));
+    ImGui::InputText("Filter", g_scene_filter, sizeof(g_scene_filter));
     ImGui::BeginChild("list", ImVec2(0.f, 0.f), ImGuiChildFlags_Borders);
     if (game.scene_order.empty())
     {
@@ -89,7 +92,7 @@ void draw_scene_loader(Game& game)
     for (size_t i = 0; i < game.scene_order.size(); ++i)
     {
         const std::string& name = game.scene_order[i];
-        if (g_filter[0] != '\0' && name.find(g_filter) == std::string::npos)
+        if (g_scene_filter[0] != '\0' && name.find(g_scene_filter) == std::string::npos)
         {
             continue;
         }
@@ -98,6 +101,42 @@ void draw_scene_loader(Game& game)
         if (ImGui::Selectable(name.c_str(), current))
         {
             script_request(game, name);
+        }
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+    ImGui::End();
+}
+
+void draw_cutscene_loader(Game& game)
+{
+    ImGui::SetNextWindowSize(ImVec2(480.f, 420.f), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Cutscenes", &g_cutscenes))
+    {
+        ImGui::End();
+        return;
+    }
+    ImGui::InputText("Filter", g_cutscene_filter, sizeof(g_cutscene_filter));
+    ImGui::BeginChild("list", ImVec2(0.f, 0.f), ImGuiChildFlags_Borders);
+    const CutsceneQueue& queue = game.cutscenes;
+    if (queue.items.empty())
+    {
+        ImGui::TextUnformatted("No cutscenes");
+    }
+    for (size_t i = 0; i < queue.items.size(); ++i)
+    {
+        const std::string& name = queue.items[i].name;
+        if (g_cutscene_filter[0] != '\0' && name.find(g_cutscene_filter) == std::string::npos)
+        {
+            continue;
+        }
+        ImGui::PushID(static_cast<int>(i));
+        const bool current = queue.playing && queue.index == i;
+        if (ImGui::Selectable(name.c_str(), current))
+        {
+            game.cutscenes.index = i;
+            game.cutscenes.time = 0.f;
+            game.cutscenes.playing = true;
         }
         ImGui::PopID();
     }
@@ -214,15 +253,24 @@ void debug_ui_build(Game& game, float host_dt)
     {
         if (ImGui::BeginMainMenuBar())
         {
-            ImGui::TextUnformatted("Scenes");
-            ImGui::Separator();
-            if (!game.scene_name.empty())
+            if (ImGui::Button("Scenes"))
             {
-                ImGui::TextUnformatted(game.scene_name.c_str());
+                g_scenes = !g_scenes;
+            }
+            if (ImGui::Button("Cutscenes"))
+            {
+                g_cutscenes = !g_cutscenes;
             }
             ImGui::EndMainMenuBar();
         }
-        draw_scene_loader(game);
+        if (g_scenes)
+        {
+            draw_scene_loader(game);
+        }
+        if (g_cutscenes)
+        {
+            draw_cutscene_loader(game);
+        }
     }
     if (g_overlay)
     {

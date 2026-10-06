@@ -73,6 +73,10 @@ void gfx_draw_mesh(const Mesh&, Vec3, Vec3)
 {
 }
 
+void gfx_release_sprite(const RgbaImage&)
+{
+}
+
 void gfx_draw_sprite(const RgbaImage&, const GfxRect&)
 {
 }

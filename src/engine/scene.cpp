@@ -5,6 +5,7 @@
 #include "gbtg/model.hpp"
 #include "gbtg/movie.hpp"
 #include "gbtg/resource.hpp"
+#include "transition_data.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -97,7 +98,12 @@ const BundleEntry* find_aid(const Game& g, std::string_view name)
             return e;
         }
     }
-    return find_entry(g.aids.common, name);
+    if (const BundleEntry* entry = find_entry(g.aids.common, name))
+    {
+        return entry;
+    }
+    const auto found = g.aids.demand_entries.find(std::string(name));
+    return found == g.aids.demand_entries.end() ? nullptr : &found->second;
 }
 
 void log_script_refs(Game& g, const SceneScript& script)
@@ -15511,12 +15517,56 @@ struct LiveScript
     // Xbox +0x14. 0x001168F0 compares this word with DX. The type dword is
     // at +8, so the compare is the word at that address +0xC.
     u16 word_14 = 0;
+    std::array<u8, 0x200> message{};
+    float timestamp = 0.f; // Xbox +0x210
 };
 static_assert(offsetof(LiveScript, word_c) == offsetof(LiveScript, type) + 4);
 static_assert(offsetof(LiveScript, dword_10) == offsetof(LiveScript, type) + 8);
 static_assert(offsetof(LiveScript, word_14) == offsetof(LiveScript, type) + 0xc);
 LiveScript g_live_anchor{};
 LiveScript*& g_live_scripts = g_live_anchor.next;
+
+// Xbox 0x00116950. These event IDs are the accepting arms of the message
+// filter; scene startup (0x0011CBD0) submits 0x7D directly.
+bool fn_116950(u32 type)
+{
+    switch (type)
+    {
+    case 0x7d:
+    case 0x81:
+    case 0xad:
+    case 0xae:
+    case 0xb4:
+    case 0xb5:
+    case 0xb7:
+    case 0xb8:
+    case 0xb9:
+        return true;
+    default:
+        throw Error("untranslated script message filter: " + std::to_string(type));
+    }
+}
+
+// Xbox 0x00116810. Heap allocation is the 0x000F72D0 boundary; the linked
+// insertion and message copy retain the original ownership and ordering.
+void fn_116810(Game& g, std::span<const u8> message)
+{
+    const u32 type = read_u32(message, 0);
+    if (fn_116950(type))
+    {
+        auto* live = new LiveScript{};
+        LiveScript* tail = &g_live_anchor;
+        while (tail->next != nullptr)
+        {
+            tail = tail->next;
+        }
+        tail->next = live;
+        live->prev = tail;
+        std::copy(message.begin(), message.end(), live->message.begin());
+        live->type = type;
+        live->timestamp = g.time;
+    }
+}
 
 // DAT_0050E568. Handler 2 writes this block. 0x0050E570 and 0x0050E660 are
 // the bases of the scaled stores. 0x001077B0 returns at most 0xE9, which is
@@ -18642,9 +18692,45 @@ i32 g_flag_2474 = 0;
 // DAT_0051248C. Type 0x13 compares this dword with 3 and would pass that
 // flag twice to 0x0004EDA0. The byte at [DAT_0051248C]+0x30F144 is g_decay_arm.
 i32 g_state_248c = 0;
+i32 g_state_2490 = 0;
 // DAT_004EE1EC. Type 0x14 returns 0 while this is nonzero. The text writer
 // in entity.cpp stores 0.
 i32 g_draw_e1ec = 0;
+
+// Xbox 0x0004EFE0.
+bool fn_4efe0(const Game& g)
+{
+    return !g.cutscenes.items.empty() && g.cutscenes.index < g.cutscenes.items.size() &&
+           g.cutscenes.items[g.cutscenes.index].duration <= g.cutscenes.time;
+}
+
+// Xbox 0x000532E0. A final cutscene followed by the end gate keeps its
+// instance alive for the scene transition; other cutscenes release it.
+bool fn_532e0(const SceneScript& script, const ScriptNode& current)
+{
+    if (current.type != 0)
+    {
+        const ScriptNode* next = script_node_at(script, current.link);
+        if (next == nullptr)
+        {
+            throw Error("script end test outside resource");
+        }
+        if (next->type != 0)
+        {
+            if (next->type != 0xf)
+            {
+                return false;
+            }
+            const ScriptNode* end = script_node_at(script, next->link);
+            if (end == nullptr)
+            {
+                throw Error("script end gate outside resource");
+            }
+            return end->type == 0;
+        }
+    }
+    return true;
+}
 
 // Xbox 0x00127340. Handler 12. The dword at node+4 is the type. The byte map
 // at 0x00127458 covers types 0x3A through 0x8D. Any other type, and the holes
@@ -18728,24 +18814,9 @@ int fn_127340(Game& g, const ScriptNode& node)
 // 0x16, 0x53, 0x9B, and 0x9C. Any other type returns 3. The second argument
 // from 0x00128A00 is unused. The third argument is the value that walk passes.
 //
-// Type 0x13 with a nonzero third argument returns 2. Zero with DAT_00512470
-// clear would call 0x00087830. A return of 2 copies
-// "aid_model_ghoulies_actor_boy" and "aid_model_ghoulies_actor_girl" into
-// 0x80-byte buffers and calls 0x0004E610 with EAX and ESI on those buffers.
-// That call is not translated, so the copy is not made. 0x0004EDA0 would
-// then take node+8 and two copies of (DAT_0051248C == 3). That call is not
-// translated. A nonzero dword at node+0x88 stores 1, calls 0x00117400 with
-// 0xFFFF when node+0x8C is zero and with 2 otherwise, then would call
-// 0x000F2BB0 with ECX = 1. A zero return, or a nonzero return from
-// 0x00049D10, would call 0x00127AC0. Those three calls are not translated,
-// so 0x00127AC0 is not called. The case returns 0. A zero dword at node+0x88
-// returns 2. Nonzero DAT_00512470 would call 0x0004EFE0 and 0x000532E0 with
-// ECX = the node. A zero from 0x0004EFE0 returns 0 when DAT_00512478 is zero
-// or when 0x00127B10 returns zero. A zero from 0x000532E0 clears
-// DAT_00512470, calls 0x0004ECE0, calls 0x00117400 with the same mask and
-// flag 1, calls 0x000583A0 when DAT_004EE1EC is nonzero, and calls
-// 0x00127B50 and returns 2 when DAT_00512478 is nonzero. Those calls are
-// not translated, so the zero returns are not taken and this path returns 2.
+// Type 0x13 starts the named cutscene and waits for its instance to finish.
+// A terminal cutscene keeps the instance alive through the scene transition.
+// The optional skip widget is still owned by the untranslated UI path.
 //
 // Type 0x14 with a nonzero third argument returns 2. Nonzero DAT_00512474
 // returns 0 while DAT_004EE1EC is nonzero. Otherwise it calls
@@ -18808,24 +18879,37 @@ int fn_1274b0(Game& g, const ScriptNode& node, int param_3)
     case 0x13:
         if (param_3 == 0)
         {
-        if (g_flag_2470 == 0)
-        {
-            const i32 same = g_state_248c == 3 ? 1 : 0;
-            (void)same;
-            // 0x0004EDA0(node+8). The call is the cutscene named by this node.
-            const std::string cut = node_cstr(g.scene_script, node, 8);
-            if (cut.starts_with("aid_cutscene_"))
+            if (g_flag_2470 == 0)
             {
-                g_script_cutscene_pending = cut;
+                const i32 same = g_state_248c == 3 ? 1 : 0;
+                (void)same;
+                // 0x0004EDA0(node+8). The call is the cutscene named by this node.
+                const std::string cut = node_cstr(g.scene_script, node, 8);
+                if (cut.starts_with("aid_cutscene_"))
+                {
+                    g_script_cutscene_pending = cut;
+                }
+                if (node_u32(g.scene_script, node, 0x88) != 0)
+                {
+                    g_flag_2470 = 1;
+                    const u32 mask = node_u32(g.scene_script, node, 0x8c) == 0 ? 0xffffu : 2u;
+                    fn_117400(mask, 0);
+                    return 0;
+                }
             }
-            if (node_u32(g.scene_script, node, 0x88) != 0)
+            else
             {
-                g_flag_2470 = 1;
-                const u32 mask = node_u32(g.scene_script, node, 0x8c) == 0 ? 0xffffu : 2u;
-                fn_117400(mask, 0);
-                return 0;
+                if (!fn_4efe0(g))
+                {
+                    return 0;
+                }
+                if (!fn_532e0(g.scene_script, node))
+                {
+                    g_flag_2470 = 0;
+                    g.cutscenes = {};
+                    fn_117400(node_u32(g.scene_script, node, 0x8c) == 0 ? 0xffffu : 2u, 1);
+                }
             }
-        }
         }
         return 2;
     case 0x14:
@@ -19479,6 +19563,84 @@ i32 g_script_e78c = 0;
 float g_script_e790 = 0.f;
 // DAT_0050E794. Nonzero skips the condition walk. The latch path increments it.
 i32 g_script_e794 = 0;
+bool g_scene_script_started = false;
+extern i32 g_script_30d0c;
+static void request_scene_aid(const char* src, i32 mode);
+
+// Xbox 0x00049D10.
+bool fn_49d10()
+{
+    return (*g_scene_flags->bytes & 8) != 0 || (g_flags_ea9c & 0x200000u) != 0;
+}
+
+// Xbox 0x00123B00.
+bool fn_123b00()
+{
+    return g_script_30d0c == 1 || fn_49d10();
+}
+
+// Xbox 0x0012AF10. Seven counters, each followed by 60 counters and a
+// 60-by-61 matrix. This is the statistics block passed in EAX.
+std::array<u32, 7 * 0xe89> g_script_statistics{};
+i32 g_545978 = 0;
+i32 g_545980 = 0;
+i32 g_5064d8 = 0;
+void fn_12af10(std::span<u32> statistics)
+{
+    for (int group = 0; group < 7; ++group)
+    {
+        const size_t base = size_t(group) * 0xe89;
+        for (int row = 0; row < 60; ++row)
+        {
+            const size_t at = base + 61 + size_t(row) * 61;
+            std::fill_n(statistics.begin() + at + 1, 60, 0u);
+            statistics[at] = 0;
+        }
+        std::fill_n(statistics.begin() + base + 1, 60, 0u);
+        statistics[base] = 0;
+    }
+    g_545978 = 0;
+}
+
+// Xbox 0x00128AB0.
+void fn_128ab0(Game& g, std::string_view title, i32 mode, i32 id)
+{
+    if (mode != g_state_248c || id != g_state_2490)
+    {
+        constexpr std::array<u8, 4> decay{1, 0, 1, 0}; // DAT_0030F144
+        const u8 old_decay = decay.at(size_t(g_state_248c));
+        const u8 new_decay = decay.at(size_t(mode));
+        g_state_248c = mode;
+        g_state_2490 = id;
+        g.scene_name = title;
+        g_gate_2514 = mode == 0;
+        g_gate_2518 = 0;
+        g_gate_251c = 0;
+        g_script_conds.clear();
+        for (u32 type : {0xb7u, 0xb6u})
+        {
+            for (LiveScript* live = g_live_scripts; live != nullptr;)
+            {
+                LiveScript* next = live->next;
+                if (live->type == type)
+                {
+                    fn_e9210(live);
+                }
+                live = next;
+            }
+        }
+        if (g_5064d8 != 3)
+        {
+            fn_12af10(g_script_statistics);
+            g_545980 = 0;
+        }
+        g_decay_arm = new_decay;
+        if (old_decay != new_decay)
+        {
+            fn_117400(0xffff, new_decay);
+        }
+    }
+}
 
 // Xbox 0x00128BC0. Handler 0 of the table at 0x00312650. The dword at node+4
 // is the type. The byte map at 0x00128D24 covers types 0 through 0x69. Slot 7
@@ -19518,7 +19680,29 @@ i32 g_script_e794 = 0;
 //
 // Type 0x69 stores the dword at node+0xC into DAT_0050E79C and the dword at
 // node+8 into DAT_0050E798, then returns 2.
-int fn_128bc0(Game& g, const ScriptNode& node, int param_2, int param_3)
+// Xbox 0x000532B0.
+bool fn_532b0(const SceneScript& script, u32& cursor, u32 type)
+{
+    for (;;)
+    {
+        const ScriptNode* node = script_node_at(script, cursor);
+        if (node == nullptr)
+        {
+            throw Error("script search cursor outside resource");
+        }
+        if (node->type == type)
+        {
+            return true;
+        }
+        if (node->type == 0)
+        {
+            return false;
+        }
+        cursor = node->link;
+    }
+}
+
+int fn_128bc0(Game& g, const ScriptNode& node, u32& cursor, int param_2, int param_3)
 {
     switch (node.type)
     {
@@ -19533,23 +19717,16 @@ int fn_128bc0(Game& g, const ScriptNode& node, int param_2, int param_3)
     case 0xe:
     {
         const u32 mode = node_u32(g.scene_script, node, 0x90);
-        if (mode == 1)
+        const bool alternate = fn_123b00();
+        if ((mode == 1 && alternate) || (mode == 2 && !alternate) ||
+            (node_u32(g.scene_script, node, 0x94) != 0 && fn_49d10()))
         {
-            // 0x00123B00 is not translated, so its nonzero return is not taken.
-        }
-        else if (mode == 2)
-        {
-            // 0x000532B0 is not translated, so the cursor is not advanced.
+            fn_532b0(g.scene_script, cursor, 0xf);
             return 2;
-        }
-        if (node_u32(g.scene_script, node, 0x94) != 0)
-        {
-            // 0x00049D10 is not translated, so its nonzero return is not taken.
         }
         const u32 at_8 = node_u32(g.scene_script, node, 8);
         const u32 at_c = node_u32(g.scene_script, node, 0xc);
-        (void)at_c;
-        script_set_name(g, node_cstr(g.scene_script, node, 0x10));
+        fn_128ab0(g, node_cstr(g.scene_script, node, 0x10), i32(at_8), i32(at_c));
         if (param_3 != 0 && at_8 == 0)
         {
             return 0;
@@ -19622,7 +19799,7 @@ int fn_128bc0(Game& g, const ScriptNode& node, int param_2, int param_3)
 // type-0x3C node. Return 0 means
 // the cursor left the blob, or stopped on an untranslated node, and the
 // drain keeps that fired id.
-int fn_128a00(Game& g, u32 offset)
+int fn_128a00(Game& g, u32& offset)
 {
     int param_2 = 0;
     for (LiveScript* live = g_live_scripts; live != nullptr; live = live->next)
@@ -19633,6 +19810,7 @@ int fn_128a00(Game& g, u32 offset)
             break;
         }
     }
+    const int param_3 = param_2 == 0 && fn_123b00() ? 1 : 0;
     for (int step = 0; step < 256; ++step)
     {
         const ScriptNode* node = script_node_at(g.scene_script, offset);
@@ -19640,7 +19818,7 @@ int fn_128a00(Game& g, u32 offset)
         {
             return 0;
         }
-        int handler = fn_128bc0(g, *node, param_2, 0);
+        int handler = fn_128bc0(g, *node, offset, param_2, param_3);
         if (handler == 3)
         {
             handler = fn_124cc0(g, *node);
@@ -19667,11 +19845,11 @@ int fn_128a00(Game& g, u32 offset)
         }
         if (handler == 3)
         {
-            handler = fn_1259b0(g, *node, param_2, 0);
+            handler = fn_1259b0(g, *node, param_2, param_3);
         }
         if (handler == 3)
         {
-            handler = fn_126140(g, *node, param_2, 0);
+            handler = fn_126140(g, *node, param_2, param_3);
         }
         if (handler == 3)
         {
@@ -19691,15 +19869,15 @@ int fn_128a00(Game& g, u32 offset)
         }
         if (handler == 3)
         {
-            handler = fn_1274b0(g, *node, 0);
+            handler = fn_1274b0(g, *node, param_3);
         }
         if (handler == 3)
         {
-            handler = fn_127bc0(g, *node, param_2, 0);
+            handler = fn_127bc0(g, *node, param_2, param_3);
         }
         if (handler == 3)
         {
-            handler = fn_128050(g, *node, param_2, 0);
+            handler = fn_128050(g, *node, param_2, param_3);
         }
         if (handler == 3)
         {
@@ -19713,7 +19891,12 @@ int fn_128a00(Game& g, u32 offset)
         {
             return 0;
         }
-        offset = node->link;
+        const ScriptNode* current = script_node_at(g.scene_script, offset);
+        if (current == nullptr)
+        {
+            throw Error("script handler cursor outside resource");
+        }
+        offset = current->link;
     }
     return 0;
 }
@@ -19731,19 +19914,69 @@ void fn_1288c0(Game& g)
             return;
         }
         g_script_fired.erase(g_script_fired.begin() + static_cast<std::ptrdiff_t>(i));
+        if (g_script_e79c != 0)
+        {
+            break;
+        }
     }
 }
 
-// Xbox 0x0004B440. The loaded blob base is pushed twice on retail; one file
-// offset is the same cursor. 0x001288C0 then walks it. 0x00128A00 does not
-// copy an aid_script into the 0x0011EB30 request buffer.
+// Xbox 0x0004B370. Chapter scripts share the setup script for their chapter.
+std::string fn_4b370(std::string_view name)
+{
+    constexpr std::string_view prefix = "aid_script_ghoulies_chapter";
+    if (!name.starts_with(prefix))
+    {
+        return {};
+    }
+    const size_t end = name.find('_', prefix.size());
+    return std::string(name.substr(0, end)) + "_setup";
+}
+
+// Xbox 0x0004B440. Run the setup resource on the same fired-script VM.
+void fn_4b440(Game& g, std::string_view name)
+{
+    const std::string setup = fn_4b370(name);
+    if (setup.empty())
+    {
+        return;
+    }
+    const BundleEntry* entry = g.aids.load_aid(setup);
+    if (entry == nullptr)
+    {
+        throw Error("chapter setup resource missing: " + setup);
+    }
+    SceneScript scene = std::move(g.scene_script);
+    g.scene_script = parse_scene_script(entry->cpu, setup);
+    g_script_fired.push_back(g.scene_script.nodes.front().offset);
+    fn_1288c0(g);
+    if (!g_script_fired.empty())
+    {
+        throw Error("chapter setup script did not drain: " + setup);
+    }
+    g.scene_script = std::move(scene);
+}
+
 void script_vm_bind(Game& g)
 {
     script_vm_reset();
+    g_scene_script_started = false;
+    g_script_e788 = 0;
+    g_script_e78c = 0;
+    g_script_e794 = 0;
+    g_script_e798 = 4;
+    g_script_e79c = 0;
+    g_flag_2470 = 0;
+    g_flag_2474 = 0;
+    while (g_live_scripts != nullptr)
+    {
+        fn_e9210(g_live_scripts);
+    }
     if (g.scene_script.nodes.empty())
     {
         return;
     }
+    fn_4b440(g, g.scene_script.name);
     g_script_fired.push_back(g.scene_script.nodes.front().offset);
     fn_1288c0(g);
 }
@@ -19775,27 +20008,52 @@ void fn_133070(ScriptCond& rec)
     }
 }
 
-// Xbox 0x00117140. DAT_0050E78C clear runs the latch. A nonzero DAT_0050E79C
-// would call 0x00128D90 with EAX = DAT_0050E760, EBX = DAT_0050E798, and
-// EDI = DAT_0050E79C, then stores 0 at DAT_0050E79C. 0x00128D90 is not
-// translated, so that call is not made. The store still runs.
-// DAT_0050E794 clear calls 0x00124BE0 and 0x001288C0. 0x001288C0 returns 1
-// when the fired list was nonempty and the walk left it empty. That sets
-// DAT_0050E788 and joins the latch. Any other return falls through, and a
-// clear DAT_0050E788 returns. The latch calls 0x00035960 with EAX =
-// 0x00511B64, EBX = 0x00510E58, and a stack 1. A nonzero return with
-// DAT_0050E784 clear calls 0x0011EB30 with that return in EAX and a stack 1,
-// then stores 0 at DAT_0050E790. A nonzero DAT_0050E784 and a live
-// DAT_00511B40 other than the sentinel 0x93C reads [actor+0x95C]+0x48, stores
-// 1 at +0x9A4, calls 0x0001B6B0 with EAX = actor+0x95C, calls 0x00049DB0 on
-// the stack message, copies DAT_0050E76C through DAT_0050E780, and calls
-// vtable +0xC with message id 8. DAT_0050E790 then becomes 1. 0x00035960 is
-// not translated, so its nonzero return is not taken and those calls are not
-// made. The latch stores 1 at DAT_0050E78C and increments DAT_0050E794.
-// A set DAT_0050E78C fades DAT_0050E790. DAT_004312DC above 0 makes the step
-// 0. Otherwise the step is DAT_005096C0 * DAT_004312C4. A result at or below
-// 0 is stored as 0, then 0x00035960 and 0x0011EB30 would run with stack 1.
-// Those calls are not made.
+// Xbox 0x00128D90. Resume the scene's fired cursor at the matching title.
+void fn_128d90(Game& g, i32 mode, i32 id)
+{
+    u32 offset = g.scene_script.nodes.front().offset;
+    const ScriptNode* node = script_node_at(g.scene_script, offset);
+    while (node != nullptr && node->type != 0)
+    {
+        if (node->type == 0xe && i32(node_u32(g.scene_script, *node, 8)) == mode &&
+            i32(node_u32(g.scene_script, *node, 0xc)) == id)
+        {
+            g_script_fired.at(0) = offset;
+            return;
+        }
+        offset = node->link;
+        node = script_node_at(g.scene_script, offset);
+    }
+}
+
+bool transition_aid_equal(std::string_view a, std::string_view b);
+
+// Xbox 0x00035960. The host vector owns the retail array of 0x80-byte AIDs.
+const std::string* fn_35960(const std::vector<std::string>& list, std::string_view current, i32 wrap)
+{
+    if (list.empty())
+    {
+        return nullptr;
+    }
+    if (current.empty())
+    {
+        return &list.front();
+    }
+    for (size_t i = 0; i < list.size(); ++i)
+    {
+        if (transition_aid_equal(list[i], current))
+        {
+            if (i + 1 == list.size())
+            {
+                return wrap == 0 ? nullptr : &list.front();
+            }
+            return &list[i + 1];
+        }
+    }
+    return nullptr;
+}
+
+// Xbox 0x00117140. Drain the scene script, then request the next scene AID.
 void fn_117140(Game& g)
 {
     // Xbox 0x00117140
@@ -19803,7 +20061,7 @@ void fn_117140(Game& g)
     {
         if (g_script_e79c != 0)
         {
-            // 0x00128D90 is not translated, so it is not called.
+            fn_128d90(g, g_script_e798, g_script_e79c);
             g_script_e79c = 0;
         }
         bool latched = false;
@@ -19821,6 +20079,13 @@ void fn_117140(Game& g)
         if (!latched && g_script_e788 == 0)
         {
             return;
+        }
+        // Xbox 0x00035960: use the current scene AID, rather than the title
+        // written by type 0xE. The scene-order list wraps when its flag is 1.
+        if (const std::string* next = fn_35960(g.scene_order, g.scene_script.name, 1))
+        {
+            request_scene_aid(next->c_str(), 1);
+            g_script_e790 = 0.f;
         }
         g_script_e78c = 1;
         g_script_e794 = g_script_e794 + 1;
@@ -19884,12 +20149,16 @@ void fn_11cac0()
     // 0x0013CBD0, 0x00116E00, and 0x00124420 are not translated.
 }
 
-// Xbox 0x0011CB60. ECX is 0x00510E58 for 0x00117000. 0x00117000, 0x0011CBD0,
-// and 0x0011B670 are not translated, so those calls are not made. The last
-// call is 0x00117140.
+// Xbox 0x0011CB60. Start the loaded scene and run its script latch.
 void fn_11cb60(Game& g)
 {
     // Xbox 0x0011CB60
+    // 0x0011CBD0 sends the scene-start message directly to 0x00116810,
+    // before its entity broadcasts. This wakes the title action.
+    const std::array<u8, 4> start{0x7d, 0, 0, 0};
+    fn_116810(g, start);
+    g_scene_script_started = true;
+    cutscene_queue_start(g);
     fn_117140(g);
 }
 
@@ -19986,6 +20255,11 @@ void script_set_default_name(Game& g)
 {
     // Xbox 0x001287F0: copy default into DAT_00512494 and zero script globals.
     script_vm_reset();
+    g_state_248c = 0;
+    g_state_2490 = 0;
+    g_gate_251c = 0;
+    g_flag_2470 = 0;
+    g_flag_2474 = 0;
     g.scene_name = kNoScript;
     g.scene_script = {};
     g.script_aidlists.clear();
@@ -20001,14 +20275,20 @@ void script_set_default_name(Game& g)
 void script_set_name(Game& g, std::string_view name)
 {
     // Xbox 0x00128AB0: EAX = C string, copies into DAT_00512494.
-    // The condition list belongs to the script that was bound, so a new name drops it.
-    script_vm_reset();
+    // Retail clears the condition pool at DAT_0051234C, not the fired cursor
+    // pool at DAT_00512488. A type-0xE action names the scene while its fired
+    // record is still being walked; clearing that record loses its resume point.
+    g_script_conds.clear();
     g.scene_name = std::string(name);
 }
 
 void cutscene_queue_start(Game& g)
 {
     auto& q = g.cutscenes;
+    if (!g_scene_script_started)
+    {
+        return;
+    }
     if (q.items.empty())
     {
         return;
@@ -20183,7 +20463,7 @@ void scene_order_advance(Game& g)
     {
         return;
     }
-    script_load(g, g.scene_order[next]);
+    request_scene_aid(g.scene_order[next].c_str(), 1);
 }
 
 // Xbox 0x0004F0B0, called by 0x0004C850 event type 0x16.
@@ -20316,7 +20596,7 @@ void cutscene_queue_tick(Game& g, float dt)
             if (!q.loop)
             {
                 q.playing = false;
-                q.time = 0.f;
+                q.time = q.items[q.index].duration;
                 if (g.scene_name.find("attract") != std::string::npos)
                 {
                     scene_order_advance(g);
@@ -22189,7 +22469,8 @@ void fn_11e7f0(Game& g, u8* scene)
 struct TransitionSlot31478
 {
     i32 handler = 0; // +0
-    char aid[0x100]{}; // +4
+    char aid[0x80]{}; // +4
+    char closing_aid[0x80]{}; // +0x84
     u32 at_104 = 0; // +0x104
     i32 at_108 = 0; // +0x108
     i32 at_10c = 0; // +0x10C
@@ -22200,24 +22481,24 @@ static_assert(offsetof(TransitionSlot31478, at_104) == 0x104);
 static_assert(offsetof(TransitionSlot31478, at_10c) == 0x10c);
 
 constexpr TransitionSlot31478 kTransition31478[] = {
-    {0, {}, 0, 0, 1},
-    {1, {}, 0, 0, 0},
-    {1, {}, 0, 0, 0},
-    {1, "aid_texture_ghoulies_transition_chaptertitles_chapter1", 0, 0, 0},
-    {1, "aid_texture_ghoulies_transition_chaptertitles_chapter2", 0, 0, 0},
-    {1, "aid_texture_ghoulies_transition_chaptertitles_chapter3", 0, 0, 0},
-    {1, "aid_texture_ghoulies_transition_chaptertitles_chapter4", 0, 0, 0},
-    {1, "aid_texture_ghoulies_transition_chaptertitles_chapter5", 0, 0, 0},
-    {1, {}, 0, 0, 0},
-    {1, {}, 0, 0, 0},
-    {1, {}, 0, 0, 0},
-    {1, {}, 0, 0, 0},
-    {1, {}, 0, 0, 0},
-    {1, "aid_texture_ghoulies_unlockableart_whereitbegan", 0, 0, 0},
-    {1, "aid_texture_ghoulies_unlockableart_whereitbegan", 0, 0, 0},
-    {2, "aid_texture_ghoulies_transition_blood_down", 0x3fc00000u, 0, 1},
-    {3, {}, 0x3e4ccccdu, 0, 1},
-    {-1, {}, 0, 0, 0},
+    {0, "", "", 0x00000000u, 0, 1},
+    {1, "", "", 0x00000000u, 0, 0},
+    {1, "", "", 0x00000000u, 1, 0},
+    {1, "aid_texture_ghoulies_transition_chaptertitles_chapter1", "", 0x00000000u, 2, 0},
+    {1, "aid_texture_ghoulies_transition_chaptertitles_chapter2", "", 0x00000000u, 2, 0},
+    {1, "aid_texture_ghoulies_transition_chaptertitles_chapter3", "", 0x00000000u, 2, 0},
+    {1, "aid_texture_ghoulies_transition_chaptertitles_chapter4", "", 0x00000000u, 2, 0},
+    {1, "aid_texture_ghoulies_transition_chaptertitles_chapter5", "", 0x00000000u, 2, 0},
+    {1, "", "", 0x00000000u, 3, 0},
+    {1, "", "", 0x00000000u, 4, 0},
+    {1, "", "", 0x00000000u, 5, 0},
+    {1, "", "", 0x00000000u, 6, 0},
+    {1, "", "", 0x00000000u, 7, 0},
+    {1, "aid_texture_ghoulies_unlockableart_whereitbegan", "", 0x00000000u, 13, 0},
+    {1, "aid_texture_ghoulies_unlockableart_whereitbegan", "", 0x00000000u, 14, 0},
+    {2, "aid_texture_ghoulies_transition_blood_down", "aid_texture_ghoulies_transition_blood_down", 0x3fc00000u, -1, 1},
+    {3, "", "", 0x3e4ccccdu, 0, 1},
+    {-1, "", "", 0x00000000u, 0, 0},
 };
 static_assert(sizeof(kTransition31478) / sizeof(kTransition31478[0]) == 18);
 
@@ -22382,6 +22663,8 @@ void fn_11ce40()
 // Phases 1 and 3 call DAT_003129AC + handler * 0x18 with &DAT_00546328.
 // The handler is the dword at DAT_00431478. The image slots are 0x0012BC80,
 // 0x0012B370, 0x0012BDD0, and 0x0012BDD0. Those calls are not translated.
+#include "transition_book.inl"
+
 void fn_12c340()
 {
     // Xbox 0x0012C340
@@ -22427,7 +22710,27 @@ void fn_12c340()
         const i32 handler = *reinterpret_cast<const i32*>(row);
         // Handler at DAT_003129AC + handler * 0x18 is not translated.
         // The argument is &DAT_00546328.
-        (void)handler;
+        if (handler == 1)
+        {
+            fn_12b370(*g_transition_game);
+        }
+        else if (handler == 2)
+        {
+            fn_12bdd0(*g_transition_game);
+        }
+        else if (handler == 0 || handler == 3)
+        {
+            float time = std::bit_cast<float>(g_546330);
+            if (0.f < time)
+            {
+                time -= g_sim_dt;
+                g_546330 = std::bit_cast<u32>(time);
+            }
+            if (time <= 0.f && (handler != 0 || time != 0.f))
+            {
+                fn_12c830(2);
+            }
+        }
     }
     else if (g_54632c == 3)
     {
@@ -22436,7 +22739,27 @@ void fn_12c340()
         const i32 handler = *reinterpret_cast<const i32*>(row);
         // Handler at DAT_003129AC + handler * 0x18 is not translated.
         // The argument is &DAT_00546328.
-        (void)handler;
+        if (handler == 1)
+        {
+            fn_12b370(*g_transition_game);
+        }
+        else if (handler == 2)
+        {
+            fn_12bdd0(*g_transition_game);
+        }
+        else if (handler == 0 || handler == 3)
+        {
+            float time = std::bit_cast<float>(g_546330);
+            if (0.f < time)
+            {
+                time -= g_sim_dt;
+                g_546330 = std::bit_cast<u32>(time);
+            }
+            if (time <= 0.f && time != 0.f)
+            {
+                fn_12c830(0);
+            }
+        }
         return;
     }
 }
@@ -22460,8 +22783,24 @@ void fn_12c4e0()
     const i32 handler = *reinterpret_cast<const i32*>(row);
     // Handler at DAT_003129B4 + handler * 0x18 is not translated.
     // The argument is &DAT_00546328.
-    (void)handler;
-    fn_48c70(reinterpret_cast<EntityCamNode*>(&g_54937c));
+    if (handler == 1)
+    {
+        fn_12b5a0();
+    }
+    else if (handler == 2)
+    {
+        fn_12c1a0();
+    }
+    if (g_54937c.prev != nullptr)
+    {
+        g_54937c.prev->next = g_54937c.next;
+    }
+    if (g_54937c.next != nullptr)
+    {
+        g_54937c.next->prev = g_54937c.prev;
+    }
+    g_54937c.prev = nullptr;
+    g_54937c.next = nullptr;
     if (g_54632c == 0)
     {
         g_510cec = g_510cec + 1;
@@ -22536,7 +22875,7 @@ void fn_12c5d0()
         g_510f7c = 0;
     }
     g_54632c = 1;
-    // 0x0012C2D0 is not translated. EAX is not stored at DAT_00546328.
+    g_546328 = fn_12c2d0(reinterpret_cast<const char*>(g_510e58 + 0x80), g_546338, g_54633c);
     const i32 byte_off = g_546328 * 0x110;
     const u8* row = reinterpret_cast<const u8*>(kTransition31478) + byte_off;
     const u32 bits = *reinterpret_cast<const u32*>(row + 0x104);
@@ -22576,7 +22915,18 @@ void fn_12c5d0()
     const i32 handler = *reinterpret_cast<const i32*>(row);
     // Handler at DAT_003129B8 + handler * 0x18 is not translated.
     // The argument is &DAT_00546328.
-    (void)handler;
+    if (handler == 1)
+    {
+        fn_12b640(*g_transition_game);
+    }
+    else if (handler == 2)
+    {
+        fn_12c1d0(*g_transition_game);
+    }
+    else if (handler == 0)
+    {
+        g_546330 = g_546334 = 0x3c888889u; // Xbox 0x0012BCE0, DAT_0032B150
+    }
     g_4dea24 = g_4dea24 + 1;
 }
 
@@ -22630,7 +22980,18 @@ void fn_12c770()
     const i32 handler = *reinterpret_cast<const i32*>(row);
     // Handler at DAT_003129BC + handler * 0x18 is not translated.
     // The argument is &DAT_00546328.
-    (void)handler;
+    if (handler == 1)
+    {
+        fn_12b790();
+    }
+    else if (handler == 2)
+    {
+        fn_12c270(*g_transition_game);
+    }
+    else if (handler == 0)
+    {
+        g_546330 = g_546334 = 0x3f000000u; // Xbox 0x0012BD50, DAT_0032B0F4
+    }
 }
 
 // Xbox 0x00140E30. DAT_00511B40 null, or equal to the sentinel 0x93C, returns.
@@ -23102,6 +23463,8 @@ void fn_11e6a0(u8* scene, i32 next)
 void script_pump(Game& g)
 {
     // Xbox 0x0011E4C0
+    g_transition_game = &g;
+    g_sim_dt = g.clock.dt;
     u8* scene = g_510e58;
     if (*reinterpret_cast<i32*>(scene + 0x110) == 0 &&
         *reinterpret_cast<u32*>(scene + 0x80) == kAidPrefixEd8)
@@ -23146,7 +23509,6 @@ void script_pump(Game& g)
             // 4 once the transition phase is 2. That store belongs to the
             // handler this load was waiting on, and the handler is not
             // translated. The host read has returned, so the hold is clear.
-            *reinterpret_cast<i32*>(scene + 0x110) = 0;
         }
         *reinterpret_cast<i32*>(scene + 0x114) = 1;
         fn_12c340();

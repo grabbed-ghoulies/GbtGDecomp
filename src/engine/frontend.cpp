@@ -2845,4 +2845,28 @@ void draw_ui(const Game& g)
     draw_keyboard(g);
 }
 
+// Xbox 0x00046760: resolve mapname text and place it beside its map spot.
+// 0x00060710 measures at scale 0.6; 0x0005F5C0 submits the string.
+void draw_map_label(const Game& g, std::string_view key, float x, float y, float spot_height)
+{
+    static std::map<std::string, std::u16string> labels;
+    if (labels.empty())
+    {
+        const auto path = g.aids.game_dir / "loctext" / "english" /
+                          aid_hash_hex(aid_hash("aid_loctext_ghoulies_mapnames"));
+        const LocTable table = parse_loctext(read_file(path), "mapnames");
+        for (const auto& [name, text] : table.keys_to_utf8)
+        {
+            labels.emplace(name, utf8_to_u16(text));
+        }
+    }
+    const auto found = labels.find("mapname__" + std::string(key));
+    const std::u16string text = found == labels.end() ? u"ERROR" : found->second;
+    const GloopyFont& font = gloopy_font(g);
+    const float width = text_width(font, text, 0.6f);
+    const float pen_x = x + width <= 640.f * 0.85f ? x + spot_height : x - width - spot_height;
+    const float pen_y = y - float(font.drop()) * 0.6f * 0.5f;
+    draw_glyphs(font, text, pen_x, pen_y, 0.6f, font.rest_frame());
+}
+
 } // namespace gbtg

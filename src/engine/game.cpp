@@ -97,6 +97,9 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
     std::cout << "game_init: io idle\n";
     // 0x0011E4C0. The first pass accepts the queued aid into state 3.
     // The next pass enters state 4 and loads that script.
+    // No simulation frame has elapsed during initialization. In particular,
+    // do not consume the transition's 1/60-second timer before the first tick.
+    clock.dt = 0.f;
     script_pump(*this);
 }
 
@@ -144,6 +147,7 @@ void frame_tick(Game& g, float dt, const InputState& in)
     }
     draw_cutscene_props(g);
     draw_ui(g);
+    draw_scene_transition(g);
 }
 
 void Game::tick(float dt, const InputState& in)

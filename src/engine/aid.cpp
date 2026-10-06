@@ -24,6 +24,44 @@ bool AidStore::demand_exists(u32 hash) const
     return std::filesystem::exists(demand_path(hash));
 }
 
+// Host resource ownership for the demand files used by the book transition.
+// LooseResource retains the backing allocation for the entry's spans.
+const BundleEntry* AidStore::load_aid(std::string_view name)
+{
+    if (const BundleEntry* entry = find_entry(common, name))
+    {
+        return entry;
+    }
+    for (const auto& [key, bundle] : bundles)
+    {
+        if (const BundleEntry* entry = find_entry(bundle, name))
+        {
+            return entry;
+        }
+    }
+    const std::string key(name);
+    if (const auto found = demand_entries.find(key); found != demand_entries.end())
+    {
+        return &found->second;
+    }
+    const auto path = demand_path(aid_hash(name));
+    if (!std::filesystem::exists(path))
+    {
+        return nullptr;
+    }
+    auto [resource, inserted] = demand_resources.emplace(key, parse_loose_resource(read_file(path)));
+    const LooseResource& file = resource->second;
+    BundleEntry entry;
+    entry.name = key;
+    entry.hash = aid_hash(name);
+    entry.type = file.header.type;
+    entry.header = file.header;
+    entry.gpu_chunks = file.gpu_chunks;
+    entry.cpu = file.cpu;
+    entry.gpu = file.gpu;
+    return &demand_entries.emplace(key, std::move(entry)).first->second;
+}
+
 const Bundle& AidStore::load_bundle_rel(std::string_view relative)
 {
     if (relative == "common.bnl")

@@ -61,6 +61,7 @@ struct GfxRect
 };
 
 void gfx_draw_sprite(const RgbaImage& image, const GfxRect& rect);
+void gfx_release_sprite(const RgbaImage& image);
 
 // HUD quads, in pixels of the 640x480 viewport 0x000F6F70 restores.
 // 0x0005E380 pushes a quad; present_33a90 draws the list before the swap.

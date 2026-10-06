@@ -9,6 +9,7 @@ namespace gbtg
 
 struct Submesh
 {
+    std::string shader_name;
     u32 first_index = 0;
     u32 index_count = 0;
     i32 texture = -1; // -1 untextured, -2 skip draw (colour0)

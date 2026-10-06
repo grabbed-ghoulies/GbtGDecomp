@@ -2025,6 +2025,11 @@ void gfx_size(int& width, int& height)
     height = g.cfg.height;
 }
 
+void gfx_release_sprite(const RgbaImage& image)
+{
+    g.sprites.erase(&image);
+}
+
 void gfx_draw_sprite(const RgbaImage& image, const GfxRect& rect)
 {
     if (!g.ok || image.bgra.empty() || image.width <= 0 || image.height <= 0 || rect.w == 0.f || rect.h == 0.f)

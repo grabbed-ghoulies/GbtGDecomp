@@ -339,6 +339,7 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
     };
 
     size_t active_stream = 0;
+    std::string active_shader_name;
 
     auto read_cstring = [&](size_t abs_off) -> std::string
     {
@@ -353,6 +354,26 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
         }
         return std::string(reinterpret_cast<const char*>(cpu.data() + abs_off), end - abs_off);
     };
+
+    // Xbox 0x001568E0: root+0x10 is the name table, with 12-byte entries.
+    // Preserve the shader parameter names used by the transition page bindings.
+    std::unordered_map<u32, std::string> node_names;
+    const u32 names_rel = read_u32(cpu, kNodeBase + 0x10);
+    if (names_rel != 0)
+    {
+        const size_t names = kNodeBase + size_t(names_rel);
+        const u32 count = read_u32(cpu, names);
+        const size_t list = kNodeBase + size_t(read_u32(cpu, names + 4));
+        for (u32 i = 0; i < count; ++i)
+        {
+            const size_t entry = list + size_t(i) * 12;
+            if (read_u32(cpu, entry + 8) == 4)
+            {
+                const size_t object = kNodeBase + size_t(read_u32(cpu, entry + 4));
+                node_names[read_u32(cpu, object)] = read_cstring(kNodeBase + size_t(read_u32(cpu, entry)));
+            }
+        }
+    }
 
     struct ActiveMaterial
     {
@@ -514,6 +535,7 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
             return;
         }
         Submesh sm;
+        sm.shader_name = active_shader_name;
         sm.first_index = u32(start);
         sm.index_count = added;
         sm.texture = mat.diffuse;
@@ -826,6 +848,8 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
         }
         else if (hi.type == kNdShaderParam2)
         {
+            const auto named = node_names.find(rel);
+            active_shader_name = named == node_names.end() ? std::string{} : named->second;
             active = parse_param(hi.un_other6);
         }
         else if (hi.type == 12)

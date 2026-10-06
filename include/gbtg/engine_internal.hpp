@@ -27,6 +27,8 @@ void draw_ui(const Game& g);
 // 0x000117400 pauses the attract clock while a type-0x15 line is up.
 float attract_caption_dt(const Game& g, float dt);
 void draw_cutscene_props(Game& g);
+void draw_scene_transition(Game& g);
+void draw_map_label(const Game& g, std::string_view key, float x, float y, float spot_height);
 void prepare_dialogue_texture(const Game& g);
 void pad_tick(Game& g, const InputState& in); // Xbox 0x000FA3C0 / 0x000FAD80
 void audio_tick(Game& g, float dt);           // Xbox 0x0015B780 and the XACT calls

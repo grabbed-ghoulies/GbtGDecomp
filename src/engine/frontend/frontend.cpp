@@ -135,27 +135,34 @@ void draw_sprite(const Game::UiImage* image, float x, float y, float w, float h)
 
 void load_ui(Game& g)
 {
+    // The host sprite cache is keyed by image address. Retire uploads before
+    // clearing storage that the next scene's images can reuse.
+    for (const auto& image : g.ui)
+    {
+        gfx_release_sprite(image.image);
+    }
     g.ui.clear();
     // 0x000DD740 resolves these aids with 0x00035E90. They are files in the
     // scene bundle the gameselect scene control just opened, not a name test.
-    if (!g.scene_bundle || !scene_control_is(g, "gameselect"))
+    if (g.scene_bundle && scene_control_is(g, "gameselect"))
     {
-        return;
-    }
-    for (const auto* entry : entries_of_type(*g.scene_bundle, ResourceType::Texture))
-    {
-        try
+        for (const auto* entry : entries_of_type(*g.scene_bundle, ResourceType::Texture))
         {
-            Game::UiImage image;
-            image.name = entry->name;
-            image.image = image_from_entry(*entry);
-            g.ui.push_back(std::move(image));
-        }
-        catch (const std::exception& ex)
-        {
-            std::cout << "  ui fail " << entry->name << ": " << ex.what() << "\n";
+            try
+            {
+                Game::UiImage image;
+                image.name = entry->name;
+                image.image = image_from_entry(*entry);
+                g.ui.push_back(std::move(image));
+            }
+            catch (const std::exception& ex)
+            {
+                std::cout << "  ui fail " << entry->name << ": " << ex.what() << "\n";
+            }
         }
     }
+    // Xbox 0x00141DA0: prompt widgets resolve the shared joypad textures.
+    // Dialogue's dialogMenu_basic uses these outside Game Select as well.
     for (const char* name : kJoypadIconNames)
     {
         if (const BundleEntry* entry = g.aids.load_aid(name))

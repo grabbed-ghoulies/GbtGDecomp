@@ -13,9 +13,10 @@ int main(int argc, char** argv)
 {
     const bool title_test = argc == 3 && std::string_view(argv[2]) == "--title";
     const bool goop_test = argc == 3 && std::string_view(argv[2]) == "--goop";
-    if (argc != 2 && argc != 4 && !title_test && !goop_test)
+    const bool ui_test = argc == 3 && std::string_view(argv[2]) == "--ui";
+    if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test)
     {
-        std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --goop]\n";
+        std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --goop | --ui]\n";
         return 2;
     }
     try
@@ -30,6 +31,50 @@ int main(int argc, char** argv)
         }
         gbtg::Game game;
         game.init(argv[1], title_test ? "" : "scene0_1book");
+        if (ui_test)
+        {
+            gbtg::load_ui(game);
+            if (game.ui.size() < 2 || game.ui[0].name != "aid_texture_joypad_buttons_a")
+            {
+                throw gbtg::Error("story dialogue A icon was not loaded");
+            }
+            gbtg::RgbaImage backdrop;
+            backdrop.width = 1;
+            backdrop.height = 1;
+            backdrop.bgra = {0, 0, 0, 255};
+            auto capture = [&]()
+            {
+                gbtg::gfx_begin_frame();
+                gbtg::gfx_sprite_submit(backdrop, 0.f, 0.f, 640.f, 480.f);
+                gbtg::gfx_sprite_submit(game.ui[0].image, 288.f, 208.f, 64.f, 64.f);
+                gbtg::gfx_end_frame();
+                gbtg::RgbaImage image;
+                if (!gbtg::gfx_readback(image))
+                {
+                    throw gbtg::Error("UI sprite readback failed");
+                }
+                return image;
+            };
+            const auto expected = capture();
+            // Seed the same image address with another uploaded button, as can
+            // happen when the scene's UI storage is reused after Game Select.
+            gbtg::gfx_release_sprite(game.ui[0].image);
+            game.ui[0].image = game.ui[1].image;
+            const auto substituted = capture();
+            if (substituted.bgra == expected.bgra)
+            {
+                throw gbtg::Error("UI cache regression did not seed a different glyph");
+            }
+            gbtg::load_ui(game);
+            const auto restored = capture();
+            if (restored.bgra != expected.bgra)
+            {
+                throw gbtg::Error("UI reload retained the previous button's GPU texture");
+            }
+            std::cout << "PASS: story A glyph restored after UI texture storage reuse\n";
+            gbtg::gfx_shutdown();
+            return 0;
+        }
         if (title_test)
         {
             bool animated = false;

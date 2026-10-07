@@ -483,6 +483,16 @@ char16_t kb_insert_char(const Game& g, u32 code)
 }
 
 
+// Xbox 0x00015260
+void kb_activate_with_audio(Game& g)
+{
+    kb_activate(g);
+    // The retail wrapper plays after the edit, including rejected edits and Done.
+    // The existing audio boundary allocates the voice and handles allocation failure.
+    pcm_play_owned_cue(g, "XACT_SOUNDBANK_GSUPERSCARYSTUF_RIGHTBUTTON");
+}
+
+
 void kb_activate(Game& g)
 {
     const u32 code = kb_row(g).keys[g.kb_col].code;

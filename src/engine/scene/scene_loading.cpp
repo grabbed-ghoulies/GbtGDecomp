@@ -309,6 +309,10 @@ void script_set_default_name(Game& g)
     g.models.clear();
     g.cutscene_props.clear();
     g.cutscene_props_index = static_cast<size_t>(-1);
+    for (const auto& image : g.ui)
+    {
+        gfx_release_sprite(image.image);
+    }
     g.ui.clear();
 }
 

@@ -694,6 +694,8 @@ void caption_accept(const Game& g)
         return;
     }
     // Xbox 0x00058B80 / 0x00057E60: A requests mode 3, not immediate close.
+    // Xbox 0x00142460 / 0x00141E20: the prompt plays its cue before its callback.
+    pcm_play_owned_cue(g, "XACT_SOUNDBANK_GSUPERSCARYSTUF_RIGHTBUTTON");
     g_dialogue_mode = 3;
     g_dialogue_timer = 0.3f;
 }

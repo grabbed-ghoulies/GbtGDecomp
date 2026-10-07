@@ -20,6 +20,8 @@ const char* save_script(const Game& g);
 
 void kb_activate(Game& g);
 
+void kb_activate_with_audio(Game& g); // Xbox 0x00015260
+
 std::u16string key_label(const Game& g, u32 code);
 
 const RgbaImage* joypad_icon(const Game& g, int code);

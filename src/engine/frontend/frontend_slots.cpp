@@ -564,7 +564,7 @@ void gameselect_tick(Game& g, const InputState& in)
             }
             if ((in.accept && !g.slot_accept) || (in.start && !g.slot_start))
             {
-                kb_activate(g);
+                kb_activate_with_audio(g);
             }
         }
     }

@@ -3,6 +3,7 @@
 #include "gbtg/bundle.hpp"
 
 #include <algorithm>
+#include <cerrno>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -1018,6 +1019,40 @@ void pcm_set_master_volume(float volume)
 #else
     (void)volume;
 #endif
+}
+
+RuntimeSoundBoundaries native_sound_boundaries()
+{
+    RuntimeSoundBoundaries boundaries;
+    boundaries.pause_cue = [](void*, void* cue, bool paused) -> i32
+    {
+#if defined(_WIN32)
+        auto* voice = static_cast<IXAudio2SourceVoice*>(cue);
+        return static_cast<i32>(paused ? voice->Stop(0) : voice->Start(0));
+#else
+        return static_cast<i32>(0x80004001u);
+#endif
+    };
+    boundaries.stop_cue = [](void*, u32, u32 flags, void* cue)
+    {
+#if defined(_WIN32)
+        auto* voice = static_cast<IXAudio2SourceVoice*>(cue);
+        voice->Stop((flags & 2) != 0 ? 0 : XAUDIO2_PLAY_TAILS);
+        if ((flags & 2) != 0)
+        {
+            voice->FlushSourceBuffers();
+        }
+#endif
+    };
+    boundaries.last_error = []() -> u32
+    {
+#if defined(_WIN32)
+        return GetLastError();
+#else
+        return static_cast<u32>(errno);
+#endif
+    };
+    return boundaries;
 }
 
 void pcm_stop_cue(const char* cue)

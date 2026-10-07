@@ -139,6 +139,9 @@ struct GfxD3D11
     ComPtr<ID3D11Texture2D> depth;
     ComPtr<ID3D11DepthStencilView> dsv;
     ComPtr<ID3D11VertexShader> vs;
+    ComPtr<ID3D11VertexShader> clear_vs;
+    ComPtr<ID3D11Buffer> clear_cb;
+    ComPtr<ID3D11DepthStencilState> clear_depth;
     ComPtr<ID3D11PixelShader> ps;
     ComPtr<ID3D11PixelShader> model_ps;
     ComPtr<ID3D11InputLayout> layout;
@@ -1456,6 +1459,48 @@ float4 ps_model(VSOut i) : SV_Target
     }
     g.device->CreateVertexShader(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), nullptr, g.vs.GetAddressOf());
     g.device->CreatePixelShader(ps_blob->GetBufferPointer(), ps_blob->GetBufferSize(), nullptr, g.ps.GetAddressOf());
+    const char* clear_hlsl = R"(
+cbuffer ClearRectangle : register(b0)
+{
+    float4 rectangle;
+};
+float4 clear_vertex(uint id : SV_VertexID) : SV_Position
+{
+    const float2 corner[6] =
+    {
+        float2(0, 0), float2(1, 0), float2(0, 1),
+        float2(0, 1), float2(1, 0), float2(1, 1)
+    };
+    return float4(lerp(rectangle.xy, rectangle.zw, corner[id]), 1, 1);
+}
+)";
+    ComPtr<ID3DBlob> clear_blob;
+    if (!compile_shader(clear_hlsl, "clear_vertex", "vs_4_0", clear_blob))
+    {
+        gfx_shutdown();
+        return false;
+    }
+    g.device->CreateVertexShader(clear_blob->GetBufferPointer(), clear_blob->GetBufferSize(), nullptr,
+                                g.clear_vs.GetAddressOf());
+    D3D11_BUFFER_DESC clear_buffer{};
+    clear_buffer.ByteWidth = 16;
+    clear_buffer.Usage = D3D11_USAGE_DYNAMIC;
+    clear_buffer.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    clear_buffer.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    g.device->CreateBuffer(&clear_buffer, nullptr, g.clear_cb.GetAddressOf());
+    D3D11_DEPTH_STENCIL_DESC clear_depth{};
+    clear_depth.DepthEnable = TRUE;
+    clear_depth.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+    clear_depth.DepthFunc = D3D11_COMPARISON_ALWAYS;
+    clear_depth.StencilEnable = TRUE;
+    clear_depth.StencilReadMask = 0xff;
+    clear_depth.StencilWriteMask = 0xff;
+    clear_depth.FrontFace.StencilFailOp = D3D11_STENCIL_OP_REPLACE;
+    clear_depth.FrontFace.StencilDepthFailOp = D3D11_STENCIL_OP_REPLACE;
+    clear_depth.FrontFace.StencilPassOp = D3D11_STENCIL_OP_REPLACE;
+    clear_depth.FrontFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
+    clear_depth.BackFace = clear_depth.FrontFace;
+    g.device->CreateDepthStencilState(&clear_depth, g.clear_depth.GetAddressOf());
     const D3D11_INPUT_ELEMENT_DESC layout[] = {
         {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
         {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0},
@@ -1538,7 +1583,8 @@ float4 ps_model(VSOut i) : SV_Target
         ShowWindow(g.hwnd, SW_SHOW);
     }
     g.ok = g.vs && g.ps && g.layout && g.cb && g.bone_cb && g.rtv && g.dsv && g.ui_vb && g.blend_alpha &&
-           g.depth_off && g.depth_lequal && g.depth_lequal_ro && g.blend_model_alpha && g.blend_additive;
+           g.depth_off && g.depth_lequal && g.depth_lequal_ro && g.blend_model_alpha && g.blend_additive &&
+           g.clear_vs && g.clear_cb && g.clear_depth;
     if (!g.ok)
     {
         std::cerr << "d3d11: pipeline incomplete\n";
@@ -1579,6 +1625,9 @@ void gfx_shutdown()
     g.layout.Reset();
     g.ps.Reset();
     g.vs.Reset();
+    g.clear_vs.Reset();
+    g.clear_cb.Reset();
+    g.clear_depth.Reset();
     g.dsv.Reset();
     g.depth.Reset();
     g.rtv.Reset();
@@ -1797,9 +1846,82 @@ void gfx_release_dialog_texture()
     dialog_target = DialogRenderTarget{};
 }
 
-// Xbox 0x000F9250. The D3D boundary consumes the UI projection from 0x000F6260.
-void gfx_draw_screen_mesh(const Mesh& mesh, float x, float y, float scale)
+// Host boundary for Xbox D3DDevice_Clear(1, rect, 3, ..., 1.f, 0).
+// D24/S8 needs a raster clear: ClearView only accepts depth-only DSVs.
+void gfx_clear_ui_depth(int left, int top, int right, int bottom)
 {
+    if (!g.ok || right <= left || bottom <= top)
+    {
+        return;
+    }
+    const float rectangle[4]
+    {
+        2.f * float(left) / 640.f - 1.f, 1.f - 2.f * float(top) / 480.f,
+        2.f * float(right) / 640.f - 1.f, 1.f - 2.f * float(bottom) / 480.f
+    };
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    if (FAILED(g.context->Map(g.clear_cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+    {
+        throw Error("D3D11 UI depth-clear buffer map failed");
+    }
+    std::memcpy(mapped.pData, rectangle, sizeof(rectangle));
+    g.context->Unmap(g.clear_cb.Get(), 0);
+
+    ComPtr<ID3D11VertexShader> saved_vs;
+    ComPtr<ID3D11PixelShader> saved_ps;
+    ComPtr<ID3D11InputLayout> saved_layout;
+    ComPtr<ID3D11Buffer> saved_cb;
+    ComPtr<ID3D11RasterizerState> saved_rasterizer;
+    ComPtr<ID3D11DepthStencilState> saved_depth;
+    ComPtr<ID3D11RenderTargetView> saved_target;
+    ComPtr<ID3D11DepthStencilView> saved_depth_view;
+    D3D11_PRIMITIVE_TOPOLOGY saved_topology;
+    UINT saved_stencil;
+    D3D11_VIEWPORT saved_viewport{};
+    UINT viewport_count = 1;
+    g.context->VSGetShader(saved_vs.GetAddressOf(), nullptr, nullptr);
+    g.context->PSGetShader(saved_ps.GetAddressOf(), nullptr, nullptr);
+    g.context->IAGetInputLayout(saved_layout.GetAddressOf());
+    g.context->IAGetPrimitiveTopology(&saved_topology);
+    g.context->VSGetConstantBuffers(0, 1, saved_cb.GetAddressOf());
+    g.context->RSGetState(saved_rasterizer.GetAddressOf());
+    g.context->OMGetDepthStencilState(saved_depth.GetAddressOf(), &saved_stencil);
+    g.context->OMGetRenderTargets(1, saved_target.GetAddressOf(), saved_depth_view.GetAddressOf());
+    g.context->RSGetViewports(&viewport_count, &saved_viewport);
+
+    present_hud_viewport();
+    g.context->OMSetRenderTargets(0, nullptr, saved_depth_view.Get());
+    g.context->OMSetDepthStencilState(g.clear_depth.Get(), 0);
+    g.context->RSSetState(g.rast.Get());
+    g.context->IASetInputLayout(nullptr);
+    g.context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    g.context->VSSetShader(g.clear_vs.Get(), nullptr, 0);
+    g.context->PSSetShader(nullptr, nullptr, 0);
+    ID3D11Buffer* clear_buffer = g.clear_cb.Get();
+    g.context->VSSetConstantBuffers(0, 1, &clear_buffer);
+    g.context->Draw(6, 0);
+
+    ID3D11RenderTargetView* target = saved_target.Get();
+    g.context->OMSetRenderTargets(1, &target, saved_depth_view.Get());
+    g.context->OMSetDepthStencilState(saved_depth.Get(), saved_stencil);
+    g.context->RSSetState(saved_rasterizer.Get());
+    g.context->RSSetViewports(viewport_count, &saved_viewport);
+    g.context->IASetInputLayout(saved_layout.Get());
+    g.context->IASetPrimitiveTopology(saved_topology);
+    g.context->VSSetShader(saved_vs.Get(), nullptr, 0);
+    g.context->PSSetShader(saved_ps.Get(), nullptr, 0);
+    ID3D11Buffer* constant_buffer = saved_cb.Get();
+    g.context->VSSetConstantBuffers(0, 1, &constant_buffer);
+}
+
+// Xbox 0x000F9250. The D3D boundary consumes the UI projection from 0x000F6260.
+void gfx_draw_screen_mesh(const Mesh& mesh, float x, float y, float scale, bool clear_depth)
+{
+    if (!clear_depth)
+    {
+        present_hud_sprites();
+        gfx_sprite_clear();
+    }
     present_hud_viewport();
     const Mat4 saved = g.mvp;
     Mat4 ortho{};
@@ -1810,7 +1932,10 @@ void gfx_draw_screen_mesh(const Mesh& mesh, float x, float y, float scale)
     ortho.m[13] = 1.f;
     ortho.m[15] = 1.f;
     g.mvp = ortho;
-    g.context->ClearDepthStencilView(g.dsv.Get(), D3D11_CLEAR_DEPTH, 1.f, 0);
+    if (clear_depth)
+    {
+        g.context->ClearDepthStencilView(g.dsv.Get(), D3D11_CLEAR_DEPTH, 1.f, 0);
+    }
     gfx_draw_mesh(mesh, Vec3{x, y, -50.f}, Vec3{scale, -scale, scale});
     g.mvp = saved;
 }

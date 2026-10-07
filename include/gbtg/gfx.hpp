@@ -37,7 +37,9 @@ void gfx_begin_dialog_texture(u8 slot, int width, int height);
 void gfx_end_dialog_texture();
 void gfx_release_dialog_texture();
 // Xbox 0x000F9250: UI orthographic mesh, with model Y inverted and Z = -50.
-void gfx_draw_screen_mesh(const Mesh& mesh, float x, float y, float scale);
+void gfx_draw_screen_mesh(const Mesh& mesh, float x, float y, float scale, bool clear_depth = true);
+// Xbox D3DDevice_Clear flags 3: depth 1, stencil 0, in a 640x480 UI rectangle.
+void gfx_clear_ui_depth(int left, int top, int right, int bottom);
 // Column-major 4x4 joint matrices for the next skinned draws. count 0 clears skinning.
 void gfx_set_bones(const float* column_major, int count);
 // origin/scale place a cutscene actor. Zero origin and unit scale draw the mesh as stored.

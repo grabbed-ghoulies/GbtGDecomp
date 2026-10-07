@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gbtg/types.hpp"
+#include "gbtg/sound_runtime.hpp"
 
 #include <string>
 #include <vector>
@@ -20,7 +21,43 @@ enum class EntityKind
 };
 
 struct Actor;
+struct ModelBoneBinding;
+struct ActorAttachmentNode
+{
+    ActorAttachmentNode* previous;
+    ActorAttachmentNode* next;
+    std::array<u8, 0xC4> bytes;
+    const ModelBoneBinding* binding; // host pointer for node +0x10
+};
+struct ActorAttachmentList
+{
+    ActorAttachmentNode sentinel{}; // owner +8
+    u16 count = 0; // owner +0x10
+};
+ActorAttachmentNode* fn_3d1b0(ActorAttachmentList& list, const char* name,
+    i32 mode, i32 kind); // Xbox 0x0003D1B0
 struct EntityMaskSpan;
+struct MinaPlayback;
+struct ActorAnimationState;
+struct AnimationResourceRegistry;
+struct ResourceErrorState;
+struct Mesh;
+struct RuntimeModelInstance;
+
+struct ActorModel
+{
+    // Model +0 points to this header; pointers in the serialized copy are offsets.
+    std::span<const u8> cpu;
+    std::span<const u8> physics_shapes; // runtime model-header +0x10 -> +4
+    RuntimeModelInstance* runtime = nullptr;
+};
+
+struct ActorSoundSlot : RuntimeActorSound
+{
+    u8 category = 0;      // +0x3E8
+    u8 mode = 0;          // +0x3E9
+    u16 bone = 0;         // +0x3EA
+};
 
 // Record at actor+0x88. 0x6c bytes. +8 is the parent. +0xc is the basis
 // 0x00040FB0 multiplies. +0x3c is the inverse 0x00041730 applies.
@@ -32,6 +69,7 @@ struct ActorBind
     u8 mode_parent = 0; // +1
     u8 flags = 0;       // +2
     void* bone = nullptr; // +4
+    i32 joint = 0; // alternate interpretation of +4 in mode 2
     Actor* parent = nullptr; // +8. Non-null keeps the bind.
     float basis[12] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f}; // +0xc
     float m[12] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f};      // +0x3c
@@ -61,6 +99,15 @@ struct ActorEulerOut
 
 struct Actor
 {
+    ActorModel* model = nullptr; // +0x204
+    i32 model_mode = 0;          // +0x118
+    i32 shape_mode = 0;          // +0x120
+    u32 model_flags = 0;         // +0x1F0
+    float model_factor = 0.f;    // +0x1C0
+    float model_size_x = 0.f;    // +0x1C4
+    float model_size_y = 0.f;    // +0x1C8
+    float model_size_z = 0.f;    // +0x1CC
+    std::array<ActorSoundSlot, 8> sound_slots;
     u16 class_key = 0; // Xbox actor+0x06. 0x00145FF0 matches this against the case-link slots.
     Vec3 position{}; // Xbox actor+0x08
     Vec3 euler{};    // Xbox actor+0x14 when the object stores euler (0x00041820 reads three floats)
@@ -78,6 +125,8 @@ struct Actor
     float radius_xz = 0.f; // +0x38, scaled by body+0x888
     float scale_200 = 0.f; // +0x200, multiplies the three axis scales
     Vec3 anchor{};         // +0x3c, copy of DAT_0050dd80
+    float animation_rate = 0.f; // +0x92C
+    float animation_pause = 0.f; // +0x930
     Vec3 parked_pos{};     // +0xcc0
     Vec3 parked_euler{};   // +0xccc
     i32 parked_gate = 0;   // +0xcd8
@@ -86,6 +135,53 @@ struct Actor
     EntityMaskSpan* mask_span = nullptr; // +0x980
     i16 mask_mode = 0;                 // +0xcdc
 };
+
+void fn_3d5f0(Actor& actor); // Xbox 0x0003D5F0
+float fn_3d9a0(const Actor& actor); // Xbox 0x0003D9A0
+void fn_3c680(Actor& actor); // Xbox 0x0003C680
+bool fn_559f0(std::span<const u8> shapes); // Xbox 0x000559F0
+void fn_41be0(Actor& actor); // Xbox 0x00041BE0
+void fn_3e6d0(Actor& actor); // Xbox 0x0003E6D0
+void fn_105aa0(Vec3& output, const Vec3& input); // Xbox 0x00105AA0
+u32 fn_52fc0(std::span<const u8> cpu, i16 index); // Xbox 0x00052FC0
+void fn_3aeb0(const Actor& actor, u16 joint, const Vec3& point, Vec3& output); // Xbox 0x0003AEB0
+bool fn_3ae60(const Actor& actor, i32 index, Vec3& output); // Xbox 0x0003AE60
+void fn_3b050(const Actor& actor, u16 joint, Vec3& output); // Xbox 0x0003B050
+bool fn_3b160(const Actor& actor, i16 index, Vec3& output); // Xbox 0x0003B160
+void fn_40aa0(const Actor& actor, const ModelBoneBinding& binding, Vec3& output); // Xbox 0x00040AA0
+void fn_415f0(const Actor& actor, i16 joint, const Vec3& point, Vec3& output); // Xbox 0x000415F0
+void fn_3d510(Actor& actor, const ActorAttachmentNode& node, Vec3& position, Vec3& euler); // Xbox 0x0003D510
+
+struct ButtonBatPoint
+{
+    float x = 0.f;
+    float y = 0.f;
+};
+
+struct ButtonBatScreen
+{
+    Actor actor;
+    i32 state = 0; // +0x934
+    float idle_timer = 0.f; // +0x938
+    float flight_duration = 0.f; // +0x93C
+    ButtonBatPoint from;    // +0x940/+0x944
+    ButtonBatPoint target;  // +0x948/+0x94C
+    ButtonBatPoint current; // +0x950/+0x954
+    const MinaPlayback* animation = nullptr; // controller +0x58, slot 0
+};
+
+bool fn_6d6c0(ButtonBatScreen& bat, const Mesh& mesh); // Xbox 0x0006D6C0
+void fn_6d4f0(ButtonBatScreen& bat, ButtonBatPoint initial, float duration,
+    ActorAnimationState& animation, AnimationResourceRegistry& registry,
+    ResourceErrorState& error, u32& random_state); // Xbox 0x0006D4F0
+void fn_6d8d0(ButtonBatScreen& bat, int state, ActorAnimationState& animation,
+    AnimationResourceRegistry& registry, ResourceErrorState& error,
+    u32& random_state); // Xbox 0x0006D8D0
+void fn_6da00(ButtonBatScreen& bat, ButtonBatPoint target, float scale,
+    ActorAnimationState& animation, AnimationResourceRegistry& registry,
+    ResourceErrorState& error, u32& random_state); // Xbox 0x0006DA00
+bool fn_42360(const Actor& actor, float& timer, float freeze, float dt,
+    float scene_scale); // Xbox 0x00042360
 
 struct Entity;
 struct Message
@@ -258,6 +354,7 @@ void register_entity_types();
 void fn_1da60(EntityMethods& methods);
 
 Vec3 actor_world_position(const Actor& actor); // 0x000412A0
+extern Vec3 actor_transform_origin; // DAT_0050DD80
 Vec3 actor_world_euler(const Actor& actor);    // 0x00041820
 
 // 3x4 row-major (12 floats). 0x00041820 passes the block at bind+0xc.
@@ -268,6 +365,7 @@ void fn_41730(Actor& actor, const Vec3& point); // 0x00041730 EDI actor, ESI poi
 // EAX is an optional position (null reads actor+0x08). out is the 3x4 at the
 // second stack argument.
 void fn_40fb0(Actor& actor, float out[12], const Vec3* position); // 0x00040FB0
+void fn_40de0(Actor& actor); // Xbox 0x00040DE0
 void* fn_f72d0(i32 size);                      // 0x000F72D0 stack size, EAX = block
 void fn_663e0(void* block);                    // 0x000663E0 EAX = block
 void fn_73760(Entity& body);                   // 0x00073760 EAX = body
@@ -638,6 +736,8 @@ void fn_11ead0();
 // zeros at +4, +0xc, +0x10, and the float at +0x14. 0x0010F1C0 then
 // copies each U:\ directory's SaveMeta.xbx Name into that wide pool.
 void fn_10d3b0();
+bool fn_10d810(char16_t* name); // Xbox 0x0010D810: restart save-name enumeration.
+bool fn_10d8a0(char16_t* name); // Xbox 0x0010D8A0: advance save-name enumeration.
 
 // cam_11c480 calls this after 0x0011B630. Each of the ten records at
 // DAT_0051254c (stride 0x90) stores 0xFFFF in the id at +0x8c. The cap

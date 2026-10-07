@@ -78,8 +78,68 @@ struct Game
     bool script_hold = false;
     // Contents plates. 0x000DB450 wraps this. 0 Play, 1 Features, 2 Challenges.
     int contents_row = 0;
+    // Plate/backdrop state: slot +0xB70/+0xB74, contents +0xCB8/+0xCBC.
+    // Both 0x000DE990 and 0x000D9F10 override button-bat +0x93C with 0.4.
+    struct MenuVisual
+    {
+        float duration = 0.4f;
+        float remaining = 0.f;
+        float fraction = 1.f;
+        std::string backdrop;
+        std::string old_backdrop;
+        u8 alpha = 255;
+        u8 old_alpha = 0;
+        u32 generation = 0;
+    };
+    MenuVisual slot_visual;
+    MenuVisual contents_visual;
+    // Host storage for each owned 0x0005F5C0 text widget and its glyph arrays.
+    struct MenuText
+    {
+        struct Glyph
+        {
+            float delay = 0.f;       // +0x204
+            float remaining = 60.f; // +0x604
+            float age = 0.f;         // +0xA04
+            int frame = 0;           // +0xE04
+        };
+        int slot = -2;
+        std::u16string text;
+        mutable std::vector<Glyph> glyphs;
+        mutable u32 draw_frame = ~u32(0);
+        mutable float draw_age = 0.f; // +0x1220
+        bool sticky = true;          // +0x121C
+        mutable bool removed = false;
+    };
+    struct MenuTextPool
+    {
+        MenuText name;
+        MenuText title;
+        MenuText chapter;
+        MenuText prompts[4];
+        std::vector<MenuText> departing_names;
+        std::vector<MenuText> departing_chapters;
+        u32 generation = ~u32(0);
+        int selection = -2;
+    };
+    mutable MenuTextPool slot_text;
+    mutable MenuTextPool contents_text;
+    mutable MenuText keyboard_text[3][5][12];
+    mutable MenuText keyboard_name;
+    u32 keyboard_generation = 0;
+    mutable u32 keyboard_text_generation = ~u32(0);
+    mutable u32 keyboard_name_generation = ~u32(0);
     // frontendGameSlotSelectBasic (0x000DF9A0). Index is menu+0xB2C. Empty slots until a save exists.
     int slot = 0;
+    // Slot widget +0xB84, reset by 0x000DE9E0 when the movie changes.
+    mutable int slot_movie_frames = 0;
+    mutable int slot_movie_index = -1;
+    mutable std::string slot_movie_name;
+    mutable RgbaImage slot_movie_image;
+    // Contents record +0x2B0 / +0x2B4; each row owns its movie delay.
+    mutable int contents_movie_frames[3]{};
+    mutable bool contents_movie_copied[3]{};
+    mutable RgbaImage contents_movie_images[3];
     int slot_status[3] = {}; // 0 empty. 4 after a name is committed (0x000DD6C0).
     bool slot_up = false;
     bool slot_down = false;

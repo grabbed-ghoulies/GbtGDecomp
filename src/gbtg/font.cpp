@@ -87,6 +87,7 @@ bool GloopyFont::load(const std::filesystem::path& path)
         frame_count_ = frames;
         frame_rate_ = float(rate);
         glyph.present = true;
+        glyph.rate = rate;
         glyph.frames.resize(size_t(frames));
         for (int f = 0; f < frames; ++f)
         {
@@ -122,6 +123,18 @@ const GloopyFont::Glyph* GloopyFont::find(char32_t codepoint) const
     return &glyphs_[size_t(index)];
 }
 
+int GloopyFont::glyph_frame_count(char32_t codepoint) const
+{
+    const Glyph* glyph = find(codepoint);
+    return glyph && glyph->present ? int(glyph->frames.size()) : 0;
+}
+
+int GloopyFont::glyph_frame_rate(char32_t codepoint) const
+{
+    const Glyph* glyph = find(codepoint);
+    return glyph && glyph->present ? glyph->rate : 0;
+}
+
 int GloopyFont::advance(char32_t codepoint) const
 {
     if (codepoint == 0x20)
@@ -153,8 +166,9 @@ const RgbaImage* GloopyFont::image(char32_t codepoint, int frame) const
     {
         return nullptr;
     }
-    const int index = frame_count_ > 0 ? frame % frame_count_ : 0;
-    const int wrapped = index < 0 ? index + frame_count_ : index;
+    const int count = int(glyph->frames.size());
+    const int index = frame % count;
+    const int wrapped = index < 0 ? index + count : index;
     if (wrapped < 0 || wrapped >= int(glyph->frames.size()) || glyph->frames[size_t(wrapped)].width <= 0)
     {
         return nullptr;

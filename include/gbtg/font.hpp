@@ -22,6 +22,8 @@ class GloopyFont
     int drop() const { return drop_; }
     int frame(float time) const;
     int rest_frame() const { return frame_count_ > 0 ? frame_count_ - 1 : 0; }
+    int glyph_frame_count(char32_t codepoint) const;
+    int glyph_frame_rate(char32_t codepoint) const;
     // Space (0x20) uses the advance of 'l' (FUN_000607f0). Other missing codes advance by cell().
     int advance(char32_t codepoint) const;
     int bearing(char32_t codepoint) const;
@@ -35,6 +37,7 @@ class GloopyFont
         int y0 = 0;
         int x1 = 0;
         int y1 = 0;
+        int rate = 0;
         std::vector<RgbaImage> frames;
     };
 

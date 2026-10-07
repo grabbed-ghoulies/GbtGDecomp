@@ -3,6 +3,7 @@
 #include "gbtg/bundle.hpp"
 #include "gbtg/engine_internal.hpp"
 #include "gbtg/hash.hpp"
+#include "gbtg/gfx.hpp"
 #include "gbtg/resource.hpp"
 
 #include <algorithm>
@@ -1105,6 +1106,45 @@ void movie_note_visible(const char* name)
     {
         node->play += 1;
     }
+}
+
+// Xbox 0x000DE9E0 / 0x000DACE0: release the widget's playback reference.
+void movie_release_visible(const char* name)
+{
+    MovieNode* node = find_name(name);
+    if (node != nullptr && node->play > 0)
+    {
+        node->play -= 1;
+    }
+}
+
+bool movie_is_open(const char* name)
+{
+    const MovieNode* node = find_name(name);
+    return node != nullptr && node->clip != nullptr;
+}
+
+// Xbox 0x00107360. The host copy implements LockRect / BinkCopyToBuffer.
+// Failed or absent copies leave +0x24 set and return false to the widget.
+bool movie_copy_frame(const char* name, RgbaImage& target)
+{
+    MovieNode* node = find_name(name);
+    if (node != nullptr && node->clip != nullptr && node->pending != 0)
+    {
+        const bool copied = !node->clip->image.bgra.empty();
+        if (copied)
+        {
+            gfx_release_sprite(target);
+            target = node->clip->image;
+            if (node->first_copy != 0)
+            {
+                node->first_copy = 0;
+            }
+        }
+        node->pending -= 1;
+        return copied;
+    }
+    return false;
 }
 
 void movie_sync_cutscene(const Game& g)

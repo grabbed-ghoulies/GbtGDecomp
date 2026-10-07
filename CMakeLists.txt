@@ -47,6 +47,16 @@ add_library(gbtg_lib STATIC
     src/gbtg/script.cpp
     src/gbtg/cutscene.cpp
     src/gbtg/anim.cpp
+    src/gbtg/performance.cpp
+    src/gbtg/resource_error.cpp
+    src/gbtg/object_factory.cpp
+    src/gbtg/model_runtime.cpp
+    src/gbtg/model_render.cpp
+    src/gbtg/model_relocation.cpp
+    src/gbtg/model_texture.cpp
+    src/gbtg/model_resource.cpp
+    src/gbtg/model_views.cpp
+    src/gbtg/sound_runtime.cpp
 )
 target_include_directories(gbtg_lib PUBLIC ${CMAKE_SOURCE_DIR}/include)
 if(TARGET zlibstatic)
@@ -69,6 +79,15 @@ if(BUILD_TESTING)
     add_executable(gbtg-model-tests tests/model_tests.cpp)
     target_link_libraries(gbtg-model-tests PRIVATE gbtg_lib)
     add_test(NAME model-render-inputs COMMAND gbtg-model-tests)
+    add_executable(gbtg-object-factory-tests tests/object_factory_tests.cpp)
+    target_link_libraries(gbtg-object-factory-tests PRIVATE gbtg_lib)
+    add_test(NAME object-factory-lifecycle COMMAND gbtg-object-factory-tests)
+    add_executable(gbtg-model-runtime-tests tests/model_runtime_tests.cpp)
+    target_link_libraries(gbtg-model-runtime-tests PRIVATE gbtg_lib)
+    add_test(NAME model-runtime-lookup-copy COMMAND gbtg-model-runtime-tests)
+    add_executable(gbtg-model-relocation-tests tests/model_relocation_tests.cpp)
+    target_link_libraries(gbtg-model-relocation-tests PRIVATE gbtg_lib)
+    add_test(NAME model-resource-relocation COMMAND gbtg-model-relocation-tests)
 endif()
 
 add_executable(gbtg-xemu-patch src/tools/xemu_patch_main.cpp)
@@ -205,6 +224,9 @@ endif()
 # The retail transition regression drives controller input and asserts the
 # actual scene/map/load sequence. It needs the user's disc assets.
 if(BUILD_TESTING)
+    add_executable(gbtg-animation-event-tests tests/animation_event_tests.cpp)
+    target_link_libraries(gbtg-animation-event-tests PRIVATE gbtg_lib)
+    add_test(NAME animation-event-boundaries COMMAND gbtg-animation-event-tests)
     get_target_property(GBTG_TRANSITION_SOURCES gbtg SOURCES)
     list(REMOVE_ITEM GBTG_TRANSITION_SOURCES src/engine/main.cpp src/engine/platform.cpp)
     add_executable(gbtg-transition-tests EXCLUDE_FROM_ALL tests/scene_transition_tests.cpp ${GBTG_TRANSITION_SOURCES})

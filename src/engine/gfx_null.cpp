@@ -57,7 +57,11 @@ void gfx_release_dialog_texture()
 {
 }
 
-void gfx_draw_screen_mesh(const Mesh&, float, float, float)
+void gfx_draw_screen_mesh(const Mesh&, float, float, float, bool)
+{
+}
+
+void gfx_clear_ui_depth(int, int, int, int)
 {
 }
 

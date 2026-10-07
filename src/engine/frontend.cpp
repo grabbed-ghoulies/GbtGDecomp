@@ -17,19 +17,21 @@
 #include <iostream>
 #include <map>
 #include <string>
+#include <tuple>
 #include <vector>
 
 namespace gbtg
 {
+float scene_sim_step(float dt);
 namespace
 {
 
 std::u16string gameselect_string(const Game& g, std::string_view key);
 std::u16string default_new_game_name(const Game& g);
 float text_width(const GloopyFont& font, std::u16string_view text, float scale);
-int& keyboard_anim_gen();
 int keyboard_glyph_frame(const Game& g, int page, int row, int col, const std::u16string& label, size_t index);
 int keyboard_name_frame(const Game& g, const std::u16string& name, size_t index);
+void draw_plate_background(float center_x, float center_y, float width, float height, u32 color);
 
 RgbaImage image_from_entry(const BundleEntry& entry)
 {
@@ -183,7 +185,7 @@ void kb_open(Game& g)
     }
     g.kb_caret = g.kb_len;
     // 0x00015A10 and 0x00016EF0 build new text widgets here, so the morph restarts.
-    ++keyboard_anim_gen();
+    ++g.keyboard_generation;
     for (int i = 0; i < 64; ++i)
     {
         g.kb_text[i] = i < g.kb_len ? name[size_t(i)] : 0;
@@ -537,9 +539,9 @@ bool wide_name_equal(const char16_t* a, const char16_t* b)
 
 // 0x0010DB10. Walk the save list for the wide name and copy blob+0x102.
 // A miss leaves the caller's buffer unwritten.
-const char* save_script(const Game& g)
+const char* save_script_for_slot(const Game& g, int slot)
 {
-    if (g.slot_name[g.slot][0] == 0)
+    if (g.slot_name[slot][0] == 0)
     {
         return nullptr;
     }
@@ -549,12 +551,17 @@ const char* save_script(const Game& g)
         {
             continue;
         }
-        if (wide_name_equal(g.slot_name[i], g.slot_name[g.slot]))
+        if (wide_name_equal(g.slot_name[i], g.slot_name[slot]))
         {
             return g.slot_script[i];
         }
     }
     return nullptr;
+}
+
+const char* save_script(const Game& g)
+{
+    return save_script_for_slot(g, g.slot);
 }
 
 char16_t kb_insert_char(const Game& g, u32 code)
@@ -703,12 +710,55 @@ constexpr SlotPlate kSlots[3] = {
     {"gameselect_threeframe", 510.f, 200.f, 0.16f, 0.16f, 0.25f, 0.25f},
 };
 
+// Xbox 0x0004B4D0. Suffixes at 0x004232F4 map through 0x002FE698.
+int script_chapter_index(std::string_view script)
+{
+    constexpr std::string_view prefix = "aid_script_ghoulies_chapter";
+    constexpr std::string_view suffixes[] = {"void", "1", "2a", "2b", "2c", "3a", "3b", "3c", "4", "5"};
+    if (script.compare(0, 0x1b, prefix) == 0)
+    {
+        for (int i = 1; i < 10; ++i)
+        {
+            if (script.substr(0x1b).starts_with(suffixes[i]))
+            {
+                return i;
+            }
+        }
+    }
+    return 0;
+}
+
+int slot_chapter(const Game& g, int index)
+{
+    const char* script = save_script_for_slot(g, index);
+    if (script == nullptr)
+    {
+        throw Error("game select: occupied slot has no translated save script");
+    }
+    constexpr int chapters[] = {-1, 1, 2, 2, 2, 3, 3, 3, 4, 5};
+    return chapters[script_chapter_index(script)];
+}
+
+// Xbox 0x000DE9E0: the selected slot owns the movie playback reference.
 const char* slot_movie(const Game& g, int index)
 {
     // 0x000E01B0 fills DAT_00506598 with the empty-slot movies and DAT_005065A4 with chapters.
-    if (g.slot_status[index] == 4)
+    const int status = g.slot_status[index];
+    if (status == 2 || status == 4 || status == 3)
     {
-        return "aid_movie_ghoulies_gameselect_chapter1";
+        static const char* chapters[] = {
+            "aid_movie_ghoulies_gameselect_chapter1",
+            "aid_movie_ghoulies_gameselect_chapter2",
+            "aid_movie_ghoulies_gameselect_chapter3",
+            "aid_movie_ghoulies_gameselect_chapter4",
+            "aid_movie_ghoulies_gameselect_chapter5",
+        };
+        const int chapter = slot_chapter(g, index);
+        if (chapter < 1 || chapter > 5)
+        {
+            throw Error("game select: save script has no chapter movie");
+        }
+        return chapters[chapter - 1];
     }
     static const char* kEmpty[3] = {
         "aid_movie_ghoulies_gameselect_emptyslots_one",
@@ -718,32 +768,198 @@ const char* slot_movie(const Game& g, int index)
     return kEmpty[index];
 }
 
-void draw_movie_or_plate(const Game& g, const char* movie, const char* texture, float x, float y, float w, float h)
+// Xbox 0x00101730: interpolate each packed color byte, clamp, then truncate.
+u32 menu_color(u32 selected, u32 rest, float fraction)
 {
-    // 0x000E62F0 / 0x000D9640 bump +0x18 while it is below 1, then 0x00107360 copies the frame.
-    movie_note_visible(movie);
-    if (const RgbaImage* frame = movie_image(movie))
+    u32 color = 0;
+    for (int shift = 0; shift < 32; shift += 8)
     {
-        gfx_sprite_submit(*frame, x, y, w, h);
-        return;
+        float value = float((rest >> shift) & 0xff) * (1.f - fraction) +
+                      float((selected >> shift) & 0xff) * fraction;
+        if (value < 0.f)
+        {
+            value = 0.f;
+        }
+        else if (255.f < value)
+        {
+            value = 255.f;
+        }
+        color |= u32(u8(value)) << shift;
     }
-    draw_sprite(find_ui(g, texture), x, y, w, h);
+    return color;
 }
 
+std::string slot_backdrop(const Game& g)
+{
+    const int status = g.slot_status[g.slot];
+    return status == 2 || status == 4 || status == 3
+               ? "gameselect_chapter" + std::to_string(slot_chapter(g, g.slot))
+               : "gameselect_emptyslotbackground";
+}
+
+constexpr const char* kContentsTextures[3] = {
+    "gameselect_house", "gameselect_zombieclapframe", "gameselect_skellyscratchheadframe",
+};
+
+// Xbox 0x000DF140 / 0x000DA1E0: retain the previous background and start
+// the countdown from button-bat +0x93C. The menu constructors override it.
+void begin_menu_zoom(Game::MenuVisual& visual, const std::string& backdrop)
+{
+    visual.old_backdrop = visual.backdrop;
+    visual.backdrop = backdrop;
+    visual.remaining = visual.duration;
+    visual.fraction = 0.f;
+    visual.alpha = 0;
+    visual.old_alpha = 255;
+    ++visual.generation;
+}
+
+// Xbox 0x000DF330 / 0x000DA300, followed by the background-alpha part of
+// 0x000DE540 / 0x000D9D10. Plate values are read from fraction when drawn.
+void tick_menu_zoom(Game::MenuVisual& visual, float dt)
+{
+    if (0.f < visual.remaining)
+    {
+        visual.remaining -= dt;
+        if (visual.remaining <= 0.f)
+        {
+            visual.remaining = 0.f;
+        }
+    }
+    float fraction = 1.f;
+    if (visual.duration != 0.f)
+    {
+        fraction = (visual.remaining - visual.duration) / (0.f - visual.duration);
+        if (1.f < fraction)
+        {
+            fraction = 1.f;
+        }
+        else if (fraction < 0.f)
+        {
+            fraction = 0.f;
+        }
+    }
+    visual.fraction = fraction;
+    if (visual.old_backdrop != visual.backdrop)
+    {
+        visual.alpha = u8(fraction * 255.f);
+        visual.old_alpha = 255 - visual.alpha;
+    }
+}
+
+// Xbox 0x000DDF20 / 0x000D9640: current backdrop precedes the old backdrop.
+void draw_menu_backdrop(const Game& g, const Game::MenuVisual& visual)
+{
+    if (const Game::UiImage* image = find_ui(g, visual.backdrop))
+    {
+        gfx_sprite_submit(image->image, 0.f, 0.f, kFrameW, kFrameH, 0.f, 0.f, 1.f, 1.f,
+                          {1.f, 1.f, 1.f, float(visual.alpha) / 255.f});
+    }
+    if (const Game::UiImage* image = find_ui(g, visual.old_backdrop))
+    {
+        gfx_sprite_submit(image->image, 0.f, 0.f, kFrameW, kFrameH, 0.f, 0.f, 1.f, 1.f,
+                          {1.f, 1.f, 1.f, float(visual.old_alpha) / 255.f});
+    }
+}
+
+// Xbox 0x000DDF20: plate pass, before the selected movie overlay.
 void draw_plate(const Game& g, int index, bool selected)
 {
     const SlotPlate& slot = kSlots[index];
     // 0x000DEB20. Empty uses the slot's oneframe/twoframe/threeframe.
     // A named slot (status 4) uses the chapter table at 0x0042939C. A new game is chapter 1.
-    const char* texture = g.slot_status[index] == 4 ? "gameselect_chapter1" : slot.texture;
-    const float nx = selected ? slot.hot_x : slot.rest_x;
-    const float ny = selected ? slot.hot_y : slot.rest_y;
+    std::string texture = slot.texture;
+    switch (g.slot_status[index])
+    {
+    case 2:
+    case 4:
+        texture = "gameselect_chapter" + std::to_string(slot_chapter(g, index));
+        break;
+    case 3:
+        texture = "gameselect_chapter1";
+        break;
+    }
+    const float fraction = selected ? g.slot_visual.fraction : 0.f;
+    const float nx = (slot.hot_x - slot.rest_x) * fraction + slot.rest_x;
+    const float ny = (slot.hot_y - slot.rest_y) * fraction + slot.rest_y;
     // 0x0005CA60. On-screen size is texture pixels * scale, and scale is
     // (norm * screen) / texture pixels, so the quad is norm * {640,480}
     // centered on the table center.
     const float w = nx * kFrameW;
     const float h = ny * kFrameH;
-    draw_movie_or_plate(g, slot_movie(g, index), texture, slot.center_x - w * 0.5f, slot.center_y - h * 0.5f, w, h);
+    const Game::UiImage* image = find_ui(g, texture);
+    if (image != nullptr)
+    {
+        const float padding = (20.f - 12.f) * fraction + 12.f;
+        draw_plate_background(slot.center_x, slot.center_y, w + padding, h + padding,
+                              menu_color(0xC43EF7B6u, 0x80069764u, fraction));
+        draw_sprite(image, slot.center_x - w * 0.5f, slot.center_y - h * 0.5f, w, h);
+    }
+}
+
+// Xbox 0x000DDF20: +0xB84 is tested against DAT_00429000 (10), then
+// faded over DAT_00429004 frames. Static plates remain underneath the movie.
+void draw_slot_movie(const Game& g)
+{
+    if (g.slot_movie_index != g.slot)
+    {
+        if (g.slot_movie_index != -1)
+        {
+            movie_release_visible(g.slot_movie_name.c_str());
+        }
+        g.slot_movie_index = g.slot;
+        g.slot_movie_name = slot_movie(g, g.slot);
+        g.slot_movie_frames = 0;
+        movie_note_visible(slot_movie(g, g.slot));
+    }
+    const char* movie = slot_movie(g, g.slot);
+    if (10 <= g.slot_movie_frames)
+    {
+        movie_copy_frame(movie, g.slot_movie_image);
+    }
+    if (movie_is_open(movie))
+    {
+        if (10 < g.slot_movie_frames)
+        {
+            const SlotPlate& slot = kSlots[g.slot];
+            const float w = ((slot.hot_x - slot.rest_x) * g.slot_visual.fraction + slot.rest_x) * kFrameW;
+            const float h = ((slot.hot_y - slot.rest_y) * g.slot_visual.fraction + slot.rest_y) * kFrameH;
+            const float alpha = float(u8(std::clamp(float(g.slot_movie_frames - 10) / 20.f * 255.f,
+                                                   0.f, 255.f))) / 255.f;
+            gfx_sprite_submit(g.slot_movie_image, slot.center_x - w * 0.5f, slot.center_y - h * 0.5f, w, h,
+                              0.f, 0.f, 1.f, 1.f, {1.f, 1.f, 1.f, alpha});
+        }
+        ++g.slot_movie_frames;
+    }
+}
+
+// Xbox 0x000DEB20 initializes the overlays. 0x000DE540 scales them with
+// the selected plate, and 0x000DDF20 draws them after the movie overlay.
+void draw_slot_status(const Game& g, int index)
+{
+    const char* texture = nullptr;
+    if (g.slot_status[index] == 4)
+    {
+        texture = "gameselect_disc_nowrite";
+    }
+    if (g.slot_status[index] == 3)
+    {
+        texture = "gameselect_disc_broken";
+    }
+    if (texture != nullptr)
+    {
+        if (const Game::UiImage* image = find_ui(g, texture))
+        {
+            const SlotPlate& slot = kSlots[index];
+            const float fraction = index == g.slot ? g.slot_visual.fraction : 0.f;
+            const float scale_x = 0.7f * ((slot.hot_x / slot.rest_x - 1.f) * fraction + 1.f);
+            const float scale_y = 0.7f * ((slot.hot_y / slot.rest_y - 1.f) * fraction + 1.f);
+            const float w = float(image->image.width) * scale_x;
+            const float h = float(image->image.height) * scale_y;
+            gfx_sprite_submit(image->image, slot.center_x - w * 0.5f, slot.center_y - h * 0.5f,
+                              w, h, 0.f, 0.f, 1.f, 1.f, {1.f, 1.f, 1.f, 127.f / 255.f});
+        }
+    }
 }
 
 std::u16string key_label(const Game& g, u32 code)
@@ -858,74 +1074,57 @@ void draw_centered_line(const GloopyFont& font, std::u16string_view text, float 
     draw_glyphs(font, text, anchor_x - width * 0.5f, pen_y, scale, frame);
 }
 
-// 0x00061360 fills a rounded rect. The colour dword is rebuilt as
-// A from the top byte and R,G,B from the low three bytes in memory order
-// (0x80069764 draws R=0x64 G=0x97 B=0x06 A=0x80). Corner radius is height * 0.25,
-// truncated. The image is cached: the HUD keeps the pointer until present.
-const RgbaImage& rounded_fill(int w, int h, u32 color)
+// Xbox 0x00061360. Host rasterization of its central quad and mirrored
+// horizontal scanlines. Keyboard calls pass 0.25; menu plates pass 0.1.
+const RgbaImage& rounded_fill(int w, int h, u32 color, float corner_fraction = 0.25f)
 {
+    const int radius = int(std::floor(float(h) * corner_fraction));
     struct Key
     {
         int w;
         int h;
+        int radius;
         u32 color;
         bool operator<(const Key& other) const
         {
-            if (w != other.w)
-            {
-                return w < other.w;
-            }
-            if (h != other.h)
-            {
-                return h < other.h;
-            }
-            return color < other.color;
+            return std::tie(w, h, radius, color) < std::tie(other.w, other.h, other.radius, other.color);
         }
     };
-    static std::map<Key, RgbaImage> cache;
-    const Key key{w, h, color};
-    const auto found = cache.find(key);
-    if (found != cache.end())
+    static std::map<Key, RgbaImage> images;
+    const Key key{w, h, radius, color};
+    auto found = images.find(key);
+    if (found == images.end())
     {
-        return found->second;
-    }
-    RgbaImage image;
-    image.width = w;
-    image.height = h;
-    image.bgra.assign(size_t(w * h * 4), 0);
-    const u8 a = u8(color >> 24);
-    const u8 b = u8(color >> 16);
-    const u8 g = u8(color >> 8);
-    const u8 r = u8(color);
-    const float radius = float(int(float(h) * 0.25f));
-    const float cx = float(w) * 0.5f;
-    const float cy = float(h) * 0.5f;
-    for (int y = 0; y < h; ++y)
-    {
-        for (int x = 0; x < w; ++x)
+        RgbaImage image;
+        image.width = w;
+        image.height = h;
+        image.bgra.assign(size_t(w * h * 4), 0);
+        for (int y = 0; y < h; ++y)
         {
-            const float px = float(x) + 0.5f;
-            const float py = float(y) + 0.5f;
-            float dx = std::fabs(px - cx) - (cx - radius);
-            float dy = std::fabs(py - cy) - (cy - radius);
-            const float ax = std::max(dx, 0.f);
-            const float ay = std::max(dy, 0.f);
-            const float sdf = std::sqrt(ax * ax + ay * ay) + std::min(std::max(dx, dy), 0.f) - radius;
-            const float coverage = std::clamp(0.5f - sdf, 0.f, 1.f);
-            if (coverage <= 0.f)
+            const int dy = y < radius ? radius - y : y > h - radius ? y - (h - radius) : 0;
+            const float inset = float(radius) - std::sqrt(float(radius * radius - dy * dy));
+            for (int x = int(std::ceil(inset)); float(x) < float(w) - inset; ++x)
             {
-                continue;
+                const size_t offset = size_t((y * w + x) * 4);
+                image.bgra[offset] = u8(color >> 16);
+                image.bgra[offset + 1] = u8(color >> 8);
+                image.bgra[offset + 2] = u8(color);
+                image.bgra[offset + 3] = u8(color >> 24);
             }
-            const size_t i = size_t((y * w + x) * 4);
-            image.bgra[i] = b;
-            image.bgra[i + 1] = g;
-            image.bgra[i + 2] = r;
-            image.bgra[i + 3] = u8(float(a) * coverage);
         }
+        found = images.emplace(key, std::move(image)).first;
     }
-    return cache.emplace(key, std::move(image)).first->second;
+    return found->second;
 }
 
+void draw_plate_background(float center_x, float center_y, float width, float height, u32 color)
+{
+    const int w = int(width);
+    const int h = int(height);
+    // 0x000DDF20 truncates each dimension before integer division by two.
+    gfx_sprite_submit(rounded_fill(w, h, color, 0.1f), float(int(center_x) - w / 2),
+                      float(int(center_y) - h / 2), float(w), float(h));
+}
 // 0x00016FC0. x,y are the text pen; the button sits 5px up and left (DAT_0032B184)
 // and is textWidth + 10 by cell*0.65 + 10 (DAT_0032B10C). 0xFFFF0000 is not drawn.
 void draw_key_button(float pen_x, float pen_y, float text_w, float em, u32 color)
@@ -936,8 +1135,8 @@ void draw_key_button(float pen_x, float pen_y, float text_w, float em, u32 color
     }
     const float bw = text_w + 10.f;
     const float bh = em + 10.f;
-    const int iw = std::max(1, int(std::lround(bw)));
-    const int ih = std::max(1, int(std::lround(bh)));
+    const int iw = int(bw);
+    const int ih = int(bh);
     gfx_sprite_submit(rounded_fill(iw, ih, color), pen_x - 5.f, pen_y - 5.f, float(iw), float(ih));
 }
 
@@ -1191,6 +1390,12 @@ void draw_keyboard(const Game& g)
 
 void draw_contents(const Game& g);
 
+constexpr const char* kContentsMovies[] = {
+    "aid_movie_ghoulies_gameselect_house",
+    "aid_movie_ghoulies_gameselect_zombieclap",
+    "aid_movie_ghoulies_gameselect_skellyscratchhead",
+};
+
 std::u16string utf8_to_u16(std::string_view utf8)
 {
     std::u16string out;
@@ -1265,36 +1470,32 @@ std::u16string gameselect_string(const Game& g, std::string_view key)
     return it->second;
 }
 
-// 0x000DCFC0. 0x000FF0A0 loads supportsavedgame__defaultnewgamename from
-// aid_loctext_ghoulies_savedgame. A failed lookup copies the wide "ERROR"
-// at 0x0032AEE8.
-std::u16string default_new_game_name(const Game& g)
+// Xbox 0x000FF0A0, saved-game callers use the supportsavedgame namespace.
+std::u16string savedgame_string(const Game& g, std::string_view key)
 {
-    static std::u16string name;
+    static std::map<std::string, std::u16string> strings;
     static bool loaded = false;
     if (!loaded)
     {
         loaded = true;
-        name = u"ERROR";
         const auto path = g.aids.game_dir / "loctext" / "english" / "070611e5";
         if (std::filesystem::exists(path))
         {
-            try
+            const LocTable parsed = parse_loctext(read_file(path), "supportsavedgame");
+            for (const auto& [name, value] : parsed.keys_to_utf8)
             {
-                const LocTable parsed = parse_loctext(read_file(path), path.filename().string());
-                const auto it = parsed.keys_to_utf8.find("supportsavedgame__defaultnewgamename");
-                if (it != parsed.keys_to_utf8.end())
-                {
-                    name = utf8_to_u16(it->second);
-                }
-            }
-            catch (const std::exception& ex)
-            {
-                std::cerr << "savedgame loctext " << ex.what() << "\n";
+                strings.emplace(name, utf8_to_u16(value));
             }
         }
     }
-    return name;
+    const auto found = strings.find("supportsavedgame__" + std::string(key));
+    return found == strings.end() ? u"ERROR" : found->second;
+}
+
+// Xbox 0x000DCFC0.
+std::u16string default_new_game_name(const Game& g)
+{
+    return savedgame_string(g, "defaultnewgamename");
 }
 
 float text_width(const GloopyFont& font, std::u16string_view text, float scale)
@@ -1317,69 +1518,41 @@ float banner_delay(unsigned& seed);
 // +0x20 is DAT_0032B0F4 (0.5). Glyph frame count is texture byte +0x11.
 int goo_glyph_frame(float remaining, float life, float step, int count, int rate, bool sticky)
 {
-    constexpr float kEps = 0.001f;
-    if (count <= 1)
+    if (!sticky && remaining < 0.001f)
     {
         return 0;
     }
-    if (!sticky && kEps > remaining)
+    if (life != 0.f)
     {
-        return 0;
-    }
-    if (life == 0.f)
-    {
-        return count - 1;
-    }
-    if (!(step > 0.f))
-    {
-        step = rate > 0 ? float(count) / float(rate) : 0.f;
-    }
-    const auto wrapped = [count](float ticks) {
-        const int q = static_cast<int>(ticks);
-        int frame = count == 0 ? 0 : q % count;
-        if (frame < 0)
+        if (step <= 0.f)
         {
-            frame += count;
+            step = float(count) / float(rate);
         }
-        return frame;
-    };
-    if (remaining < life - step)
-    {
-        if (step < remaining || sticky)
+        if (life - step <= remaining)
         {
-            return count - 1;
+            const float span = (1.f / step) * float(count);
+            if (span == 0.f)
+            {
+                return 0;
+            }
+            return (int((life - remaining) * span) % count) & 0xff;
         }
-        if (step == 0.f)
+        if (remaining <= step && !sticky)
         {
+            // Xbox 0x000602E0.
+            const float span = (1.f / step) * float(count);
+            if (span != 0.f)
+            {
+                return (int(span * remaining) % count) & 0xff;
+            }
             return 0;
         }
-        const float span = (1.f / step) * float(count);
-        if (span == 0.f)
-        {
-            return 0;
-        }
-        return wrapped(span * remaining);
     }
-    if (step == 0.f)
-    {
-        return 0;
-    }
-    const float span = (1.f / step) * float(count);
-    if (span == 0.f)
-    {
-        return 0;
-    }
-    return wrapped((life - remaining) * span);
+    return count - 1;
 }
 
-// One 0x0005F5C0 widget. Delays are the pool's DAT_0054DD7C sequence.
-struct GooLine
-{
-    float born = -1.f;
-    int slot = -2;
-    std::u16string text;
-    std::vector<float> delay;
-};
+// Host storage for the glyph arrays in one 0x0005F5C0 widget.
+using GooLine = Game::MenuText;
 
 unsigned& goo_seed()
 {
@@ -1387,65 +1560,117 @@ unsigned& goo_seed()
     return seed;
 }
 
-void arm_goo(GooLine& line, const std::u16string& text, float now, int slot)
+// Xbox 0x0005F5C0, sticky menu-string initialization.
+void arm_goo(GooLine& line, const std::u16string& text, float, int slot)
 {
     line.text = text;
-    line.born = now;
     line.slot = slot;
-    line.delay.assign(text.size(), 0.f);
+    line.glyphs.assign(text.size(), GooLine::Glyph{});
+    line.draw_frame = ~u32(0);
+    line.draw_age = 0.f;
+    line.sticky = true;
+    line.removed = false;
     unsigned& seed = goo_seed();
-    for (float& delay : line.delay)
+    for (GooLine::Glyph& glyph : line.glyphs)
     {
-        delay = banner_delay(seed);
+        glyph.delay = banner_delay(seed);
     }
 }
 
-int goo_frame(const GooLine& line, size_t index, float now, int count)
+// Xbox 0x0005F970 / 0x0005F7E0: end a widget using the pool's +0x20
+// step and its glyph ages at +0xA04, then clear the sticky flag.
+void end_goo(GooLine& line)
 {
-    constexpr float kLife = 60.f;
-    constexpr float kStep = 0.5f;
-    const float age = now - line.born;
-    const float delay = index < line.delay.size() ? line.delay[index] : 0.f;
-    if (age < delay)
+    for (GooLine::Glyph& glyph : line.glyphs)
     {
-        return 0;
+        const float duration = banner_delay(goo_seed()) + 0.5f;
+        if (duration <= glyph.age)
+        {
+            if (duration <= glyph.remaining)
+            {
+                glyph.remaining = duration;
+            }
+        }
+        else
+        {
+            glyph.remaining = glyph.age;
+        }
     }
-    float remaining = kLife - (age - delay);
-    if (remaining < 0.f)
-    {
-        remaining = 0.f;
-    }
-    return goo_glyph_frame(remaining, kLife, kStep, count, 25, true);
+    line.sticky = false;
 }
 
-int& keyboard_anim_gen()
+// Xbox 0x0005FC30. Delay and life are separate countdowns: crossing a delay
+// boundary does not spend the excess time on life in the same draw.
+void tick_goo(const GooLine& line, const GloopyFont& font, float dt, u32 frame)
 {
-    static int gen = 0;
-    return gen;
+    if (line.draw_frame == frame)
+    {
+        return;
+    }
+    line.draw_frame = frame;
+    size_t expired = 0;
+    for (size_t i = 0; i < line.glyphs.size(); ++i)
+    {
+        GooLine::Glyph& glyph = line.glyphs[i];
+        if (glyph.delay == 0.f)
+        {
+            const int count = font.glyph_frame_count(line.text[i]);
+            glyph.frame = count == 0 ? -1 :
+                goo_glyph_frame(glyph.remaining, 60.f, 0.5f, count,
+                                font.glyph_frame_rate(line.text[i]), line.sticky);
+            if (0.f < glyph.remaining)
+            {
+                glyph.remaining -= dt;
+                if (glyph.remaining <= 0.f)
+                {
+                    glyph.remaining = 0.f;
+                }
+            }
+            glyph.age += dt;
+        }
+        else if (0.f < glyph.delay)
+        {
+            glyph.delay -= dt;
+            if (glyph.delay <= 0.f)
+            {
+                glyph.delay = 0.f;
+            }
+        }
+        if (glyph.remaining < 0.001f && !line.sticky)
+        {
+            ++expired;
+            glyph.frame = 0;
+        }
+    }
+    if (expired == line.glyphs.size())
+    {
+        line.removed = true;
+        return;
+    }
+    line.draw_age += dt;
+}
+
+int goo_frame(const GooLine& line, size_t index, const Game& g)
+{
+    tick_goo(line, gloopy_font(g), scene_sim_step(g.clock.dt), g.frame);
+    return line.glyphs[index].frame;
 }
 
 // One widget per key, born when the keyboard opens (0x00016EF0) or when
 // 0x00015D60 rebuilds a letter after shift or caps changes the label.
 int keyboard_glyph_frame(const Game& g, int page, int row, int col, const std::u16string& label, size_t index)
 {
-    struct Slot
+    auto& slots = g.keyboard_text;
+    if (g.keyboard_text_generation != g.keyboard_generation)
     {
-        int gen = -1;
-        GooLine line;
-    };
-    static int primed = -1;
-    static Slot slots[kKbPages][kKbRows][12];
-    if (primed != keyboard_anim_gen())
-    {
-        primed = keyboard_anim_gen();
+        g.keyboard_text_generation = g.keyboard_generation;
         for (int p = 0; p < kKbPages; ++p)
         {
             for (int r = 0; r < kKbRows; ++r)
             {
                 for (int c = 0; c < kKb[p][r].count && c < 12; ++c)
                 {
-                    arm_goo(slots[p][r][c].line, key_label(g, kKb[p][r].keys[c].code), g.time, -1);
-                    slots[p][r][c].gen = primed;
+                    arm_goo(slots[p][r][c], key_label(g, kKb[p][r].keys[c].code), g.time, -1);
                 }
             }
         }
@@ -1454,36 +1679,34 @@ int keyboard_glyph_frame(const Game& g, int page, int row, int col, const std::u
     {
         return 0;
     }
-    Slot& slot = slots[page][row][col];
-    if (slot.line.text != label)
+    GooLine& slot = slots[page][row][col];
+    if (slot.text != label)
     {
-        arm_goo(slot.line, label, g.time, -1);
-        slot.gen = primed;
+        arm_goo(slot, label, g.time, -1);
     }
-    return goo_frame(slot.line, index, g.time, gloopy_font(g).rest_frame() + 1);
+    return goo_frame(slot, index, g);
 }
 
 // 0x00015A10 replaces the name widget. A caret move does not.
 int keyboard_name_frame(const Game& g, const std::u16string& name, size_t index)
 {
-    static int gen = -1;
-    static GooLine line;
-    if (gen != keyboard_anim_gen() || line.text != name)
+    GooLine& line = g.keyboard_name;
+    if (g.keyboard_name_generation != g.keyboard_generation || line.text != name)
     {
         arm_goo(line, name, g.time, -1);
-        gen = keyboard_anim_gen();
+        g.keyboard_name_generation = g.keyboard_generation;
     }
-    return goo_frame(line, index, g.time, gloopy_font(g).rest_frame() + 1);
+    return goo_frame(line, index, g);
 }
 
-void draw_goo_line(const GloopyFont& font, const GooLine& line, float pen_x, float pen_y, float scale, float now,
+void draw_goo_line(const GloopyFont& font, const GooLine& line, float pen_x, float pen_y, float scale, const Game& g,
                    bool center)
 {
-    if (line.text.empty() || font.cell() <= 0 || scale == 0.f)
+    tick_goo(line, font, scene_sim_step(g.clock.dt), g.frame);
+    if (line.removed || font.cell() <= 0 || scale == 0.f)
     {
         return;
     }
-    const int count = font.rest_frame() + 1;
     float x = pen_x;
     if (center)
     {
@@ -1493,7 +1716,7 @@ void draw_goo_line(const GloopyFont& font, const GooLine& line, float pen_x, flo
     for (size_t i = 0; i < line.text.size(); ++i)
     {
         const char16_t ch = line.text[i];
-        const int frame = goo_frame(line, i, now, count);
+        const int frame = goo_frame(line, i, g);
         if (const RgbaImage* glyph = font.image(ch, frame))
         {
             const float bx = float(font.bearing(ch)) * scale;
@@ -1522,10 +1745,126 @@ void draw_goo_line(const GloopyFont& font, const GooLine& line, float pen_x, flo
 // gameslotcontents_scene, then joined with the wide "%s%s : %s" at 0x00324C3C
 // and the scene name from 0x00011ED80. No save list means no id is copied, so
 // no chapter number is written and the buffer stays the init literal.
-std::u16string contents_progress_line()
+#include "frontend_progress.inl"
+
+// Xbox 0x0011EBC0. The chapter suffix identifies the length of the prefix
+// ending in "_scene"; atol reads the scene number immediately after it.
+int script_scene_number(std::string_view script)
+{
+    const int chapter = script_chapter_index(script);
+    if (chapter == 0)
+    {
+        return 0;
+    }
+    constexpr std::string_view suffixes[] = {"void", "1", "2a", "2b", "2c", "3a", "3b", "3c", "4", "5"};
+    const std::string prefix = "aid_script_ghoulies_chapter" + std::string(suffixes[chapter]) + "_scene";
+    return int(std::atol(std::string(script.substr(prefix.size())).c_str()));
+}
+
+// Xbox 0x0011EC70.
+int script_chapter_scene(std::string_view script)
+{
+    const int chapter = script_chapter_index(script);
+    int scene = script_scene_number(script);
+    switch (chapter)
+    {
+    case 2:
+    case 3:
+    case 4:
+        for (int i = 2; i < chapter; ++i)
+        {
+            scene += kChapterSceneCounts[i];
+        }
+        break;
+    case 5:
+    case 6:
+    case 7:
+        for (int i = 5; i < chapter; ++i)
+        {
+            scene += kChapterSceneCounts[i];
+        }
+        break;
+    }
+    return scene;
+}
+
+// Xbox 0x0004B530.
+int script_chapter_first_scene(int chapter)
+{
+    int scene = 0;
+    for (int i = 1; i < chapter; ++i)
+    {
+        scene += kChapterSceneCounts[i];
+    }
+    return scene;
+}
+
+// Xbox 0x0011ED30.
+int script_scene_index(std::string_view script)
+{
+    const int scene = script_scene_number(script);
+    const int chapter = script_chapter_index(script);
+    if (chapter == 0)
+    {
+        return -1;
+    }
+    if (scene != 0)
+    {
+        return script_chapter_first_scene(chapter) - 1 + scene;
+    }
+    return script_chapter_first_scene(chapter);
+}
+
+// Xbox 0x0011ED80: the ordinal maps through two separate tables before
+// 0x000FF120 resolves the scenenames text key.
+std::u16string script_scene_name(const Game& g, int scene)
+{
+    static std::map<std::string, std::u16string> strings;
+    static bool loaded = false;
+    if (!loaded)
+    {
+        const auto path = g.aids.game_dir / "loctext" / "english" /
+                          aid_hash_hex(aid_hash("aid_loctext_ghoulies_script_scenenames"));
+        const LocTable parsed = parse_loctext(read_file(path), "scenenames");
+        for (const auto& [key, text] : parsed.keys_to_utf8)
+        {
+            strings.emplace(key, utf8_to_u16(text));
+        }
+        loaded = true;
+    }
+    const auto found = strings.find("scenenames__" + std::string(kSceneNameKeys[kSceneNameIndices[scene]]));
+    return found == strings.end() ? std::u16string{} : found->second;
+}
+
+// Xbox 0x000DA040: retain the initialized buffer when either label lookup
+// fails. The host save-list lookup exposes the selected blob's +0x102.
+std::u16string contents_progress_line(const Game& g)
 {
     constexpr char16_t kLiteral[] = u"Progress not set";
-    return std::u16string(kLiteral);
+    const std::u16string chapter_label = gameselect_string(g, "gameslotcontents_chapter");
+    if (chapter_label.empty())
+    {
+        return kLiteral;
+    }
+    const std::u16string scene_label = gameselect_string(g, "gameslotcontents_scene");
+    if (scene_label.empty())
+    {
+        return kLiteral;
+    }
+    const char* script = save_script(g);
+    if (script == nullptr)
+    {
+        return kLiteral;
+    }
+    int scene = script_chapter_scene(script);
+    if (scene == 0)
+    {
+        scene = 1;
+    }
+    const int chapter = slot_chapter(g, g.slot);
+    return chapter_label + u" " + utf8_to_u16(std::to_string(chapter)) +
+           scene_label + u" " + utf8_to_u16(std::to_string(scene)) + u" : " +
+           script_scene_name(g, script_scene_index(script));
 }
 
 void draw_contents(const Game& g)
@@ -1543,12 +1882,8 @@ void draw_contents(const Game& g)
     };
     const int hot = g.contents_row >= 0 && g.contents_row < 3 ? g.contents_row : 0;
     const Plate& shown = kPlates[hot];
-    static const char* kMovies[3] = {
-        "aid_movie_ghoulies_gameselect_house",
-        "aid_movie_ghoulies_gameselect_zombieclap",
-        "aid_movie_ghoulies_gameselect_skellyscratchhead",
-    };
-    draw_movie_or_plate(g, kMovies[hot], shown.texture, 0.f, 0.f, kFrameW, kFrameH);
+    // Xbox 0x000D9640 / 0x000DA1E0: the backdrop is a texture, not a movie.
+    draw_menu_backdrop(g, g.contents_visual);
     for (int i = 0; i < 3; ++i)
     {
         if (i == hot)
@@ -1557,12 +1892,51 @@ void draw_contents(const Game& g)
         }
         const float w = 0.16f * kFrameW;
         const float h = 0.16f * kFrameH;
-        draw_movie_or_plate(g, kMovies[i], kPlates[i].texture, kPlates[i].center_x - w * 0.5f, 200.f - h * 0.5f, w, h);
+        if (const Game::UiImage* image = find_ui(g, kPlates[i].texture))
+        {
+            draw_plate_background(kPlates[i].center_x, 200.f, w + 12.f, h + 12.f, 0x80069764u);
+            draw_sprite(image, kPlates[i].center_x - w * 0.5f, 200.f - h * 0.5f, w, h);
+        }
     }
     {
-        const float w = 0.25f * kFrameW;
-        const float h = 0.25f * kFrameH;
-        draw_movie_or_plate(g, kMovies[hot], shown.texture, shown.center_x - w * 0.5f, 200.f - h * 0.5f, w, h);
+        const float fraction = g.contents_visual.fraction;
+        const float w = ((0.25f - 0.16f) * fraction + 0.16f) * kFrameW;
+        const float h = ((0.25f - 0.16f) * fraction + 0.16f) * kFrameH;
+        if (const Game::UiImage* image = find_ui(g, shown.texture))
+        {
+            const float padding = (20.f - 12.f) * fraction + 12.f;
+            draw_plate_background(shown.center_x, 200.f, w + padding, h + padding,
+                                  menu_color(0xC43EF7B6u, 0x80069764u, fraction));
+            draw_sprite(image, shown.center_x - w * 0.5f, 200.f - h * 0.5f, w, h);
+        }
+        // Xbox 0x000D9640: +0x2B0 >= 7 copies the selected movie; +0x2B4
+        // latches the first successful copy. Other rows draw their static textures.
+        movie_note_visible(kContentsMovies[hot]);
+        if (7 <= g.contents_movie_frames[hot])
+        {
+            const bool copied = movie_copy_frame(kContentsMovies[hot], g.contents_movie_images[hot]);
+            if (!g.contents_movie_copied[hot] && copied)
+            {
+                g.contents_movie_copied[hot] = true;
+            }
+        }
+        if (movie_is_open(kContentsMovies[hot]))
+        {
+            if (g.contents_movie_copied[hot])
+            {
+                // DAT_0032B284 = 7, DAT_0032B250 = 0.05. The Xbox
+                // conversion truncates the clamped byte before submission.
+                const float alpha = float(u8(std::clamp(float(g.contents_movie_frames[hot] - 7) *
+                                                       0.05f * 255.f, 0.f, 255.f))) / 255.f;
+                gfx_sprite_submit(g.contents_movie_images[hot], shown.center_x - w * 0.5f,
+                                  200.f - h * 0.5f, w, h, 0.f, 0.f, 1.f, 1.f,
+                                  {1.f, 1.f, 1.f, alpha});
+            }
+            if (g.contents_movie_frames[hot] < 100)
+            {
+                ++g.contents_movie_frames[hot];
+            }
+        }
     }
 
     const GloopyFont& font = gloopy_font(g);
@@ -1572,27 +1946,63 @@ void draw_contents(const Game& g)
         name.assign(g.slot_name[g.slot], g.slot_name[g.slot] + g.slot_name_len[g.slot]);
     }
     const std::u16string label = gameselect_string(g, shown.label);
-    const std::u16string chapter = contents_progress_line();
-    static int last_row = -2;
-    static GooLine name_line;
-    static GooLine label_line;
-    static GooLine chapter_line;
+    const std::u16string chapter = contents_progress_line(g);
+    auto& text_pool = g.contents_text;
+    int& last_row = text_pool.selection;
+    GooLine& name_line = text_pool.name;
+    GooLine& label_line = text_pool.title;
+    GooLine& chapter_line = text_pool.chapter;
+    auto& departing_labels = text_pool.departing_names;
+    auto& departing_chapters = text_pool.departing_chapters;
+    u32& label_generation = text_pool.generation;
+    if (label_generation != g.contents_visual.generation)
+    {
+        if (!label_line.text.empty())
+        {
+            end_goo(label_line);
+            departing_labels.push_back(label_line);
+        }
+        if (!chapter_line.text.empty())
+        {
+            end_goo(chapter_line);
+            departing_chapters.push_back(chapter_line);
+        }
+        label_line = GooLine{};
+        chapter_line = GooLine{};
+        label_generation = g.contents_visual.generation;
+    }
     if (name_line.slot != g.slot || name_line.text != name)
     {
         arm_goo(name_line, name, g.time, g.slot);
     }
-    if (last_row != hot || label_line.text != label)
+    if (g.contents_visual.fraction >= 1.f && (last_row != hot || label_line.text != label))
     {
         arm_goo(label_line, label, g.time, hot);
     }
-    if (chapter_line.text != chapter)
+    if (g.contents_visual.fraction >= 1.f && hot == 0 && chapter_line.text != chapter)
     {
         arm_goo(chapter_line, chapter, g.time, -1);
     }
     last_row = hot;
-    draw_goo_line(font, name_line, 320.f, 55.f, 1.8f, g.time, true);
-    draw_goo_line(font, label_line, 320.f, 278.f, 1.4f, g.time, true);
-    draw_goo_line(font, chapter_line, 320.f, 330.f, 0.75f, g.time, true);
+    draw_goo_line(font, name_line, 320.f, 55.f, 1.8f, g, true);
+    for (const GooLine& line : departing_labels)
+    {
+        draw_goo_line(font, line, 320.f, 278.f, 1.4f, g, true);
+    }
+    for (const GooLine& line : departing_chapters)
+    {
+        draw_goo_line(font, line, 320.f, 330.f, 0.75f, g, true);
+    }
+    std::erase_if(departing_labels, [](const GooLine& line)
+    {
+        return line.removed;
+    });
+    std::erase_if(departing_chapters, [](const GooLine& line)
+    {
+        return line.removed;
+    });
+    draw_goo_line(font, label_line, 320.f, 278.f, 1.4f, g, true);
+    draw_goo_line(font, chapter_line, 320.f, 330.f, 0.75f, g, true);
 
     // 0x000DAA37 calls 0x000142180 with the prompt set for the highlighted row.
     // 0x0001428F0 walks that set in record order, stride 0x48.
@@ -1612,7 +2022,7 @@ void draw_contents(const Game& g)
         prompt_keys[3] = "gameslotcontents_infoprompt";
         prompt_count = 4;
     }
-    static GooLine prompts[4];
+    auto& prompts = text_pool.prompts;
     constexpr float kPromptScale = 0.75f;
     constexpr float kPromptGap = 32.f;
     float x = 76.5f;
@@ -1627,7 +2037,7 @@ void draw_contents(const Game& g)
         {
             continue;
         }
-        draw_goo_line(font, prompts[i], x, 415.5f, kPromptScale, g.time, false);
+        draw_goo_line(font, prompts[i], x, 415.5f, kPromptScale, g, false);
         x += text_width(font, part, kPromptScale) + kPromptGap;
     }
 }
@@ -1649,19 +2059,34 @@ void draw_slot_select_copy(const Game& g)
     }
     else
     {
-        name = gameselect_string(g, "emptyslotname");
+        name = savedgame_string(g, "emptyslotname");
+    }
+
+    if (g.slot_status[g.slot] == 3)
+    {
+        name = savedgame_string(g, "damagedgamename");
     }
 
     // 0x000DF9A0 builds these widgets again on the way into mode 6, including
     // each time the slot changes. The title and the prompt bar stay put.
-    static int last_mode = -2;
-    const bool entered = last_mode != 1;
-    last_mode = g.frontend_mode;
-
-    static GooLine slot_name;
-    static GooLine title;
-    static GooLine prompts[3];
-    if (entered || slot_name.slot != g.slot || slot_name.text != name)
+    auto& text_pool = g.slot_text;
+    const bool entered = text_pool.generation == ~u32(0);
+    GooLine& slot_name = text_pool.name;
+    GooLine& title = text_pool.title;
+    auto& prompts = text_pool.prompts;
+    u32& name_generation = text_pool.generation;
+    auto& departing_names = text_pool.departing_names;
+    if (name_generation != g.slot_visual.generation)
+    {
+        if (!slot_name.text.empty())
+        {
+            end_goo(slot_name);
+            departing_names.push_back(slot_name);
+        }
+        slot_name = GooLine{};
+        name_generation = g.slot_visual.generation;
+    }
+    if (g.slot_visual.fraction >= 1.f && (entered || slot_name.slot != g.slot || slot_name.text != name))
     {
         arm_goo(slot_name, name, g.time, g.slot);
     }
@@ -1684,19 +2109,28 @@ void draw_slot_select_copy(const Game& g)
         }
     }
 
-    draw_goo_line(font, slot_name, 320.f, 55.f, 1.8f, g.time, true);
-    draw_goo_line(font, title, 320.f, 290.f, 1.f, g.time, true);
+    for (const GooLine& line : departing_names)
+    {
+        draw_goo_line(font, line, 320.f, 55.f, 1.8f, g, true);
+    }
+    std::erase_if(departing_names, [](const GooLine& line)
+    {
+        return line.removed;
+    });
+    draw_goo_line(font, slot_name, 320.f, 55.f, 1.8f, g, true);
+    draw_goo_line(font, title, 320.f, 290.f, 1.f, g, true);
 
     constexpr float kPromptScale = 0.75f;
     constexpr float kPromptGap = 32.f;
     float x = 76.5f;
-    for (const GooLine& part : prompts)
+    for (int i = 0; i < 3; ++i)
     {
+        const GooLine& part = prompts[i];
         if (part.text.empty())
         {
             continue;
         }
-        draw_goo_line(font, part, x, 415.5f, kPromptScale, g.time, false);
+        draw_goo_line(font, part, x, 415.5f, kPromptScale, g, false);
         x += text_width(font, part.text, kPromptScale) + kPromptGap;
     }
 }
@@ -2627,6 +3061,13 @@ void begin_frontend(Game& g)
     g.frontend_pending = 1;
     g.frontend_mode = g.frontend_pending;
     g.naming = false;
+    g.slot_movie_index = -1;
+    g.slot_movie_frames = 0;
+    g.slot_visual = Game::MenuVisual{};
+    g.contents_visual = Game::MenuVisual{};
+    g.slot_text = Game::MenuTextPool{};
+    g.contents_text = Game::MenuTextPool{};
+    begin_menu_zoom(g.slot_visual, slot_backdrop(g));
     // 0x000DD774 calls 0x000E01B0 while the slot widget is installed.
     movie_open_gameselect();
     pcm_play_cue(g, kSlotOpen, true);
@@ -2635,6 +3076,17 @@ void begin_frontend(Game& g)
 
 void gameselect_tick(Game& g, const InputState& in)
 {
+    const int previous_mode = g.frontend_mode;
+    const int previous_row = g.contents_row;
+    const int previous_slot = g.slot;
+    if (g.frontend_mode == 1)
+    {
+        tick_menu_zoom(g.slot_visual, scene_sim_step(g.clock.dt));
+    }
+    if (g.frontend_mode == 3)
+    {
+        tick_menu_zoom(g.contents_visual, scene_sim_step(g.clock.dt));
+    }
     // Dialog A. 0x000584D0's widget takes the accept edge and steps {page}.
     if (in.accept && !g.slot_accept)
     {
@@ -2737,6 +3189,11 @@ void gameselect_tick(Game& g, const InputState& in)
                 g.naming = false;
                 // 0x000E87F0 mode 3 opens the contents clip with flags 6.
                 movie_open_contents();
+                for (int i = 0; i < 3; ++i)
+                {
+                    g.contents_movie_frames[i] = 0;
+                    g.contents_movie_copied[i] = false;
+                }
                 std::cout << "frontend mode 3 slot contents\n";
             }
         }
@@ -2787,6 +3244,36 @@ void gameselect_tick(Game& g, const InputState& in)
             g.frontend_mode = 1;
         }
     }
+    if (g.frontend_mode == 1 && (previous_mode != 1 || previous_slot != g.slot))
+    {
+        if (previous_mode != 1)
+        {
+            g.slot_text = Game::MenuTextPool{};
+        }
+        begin_menu_zoom(g.slot_visual, slot_backdrop(g));
+    }
+    if (g.frontend_mode == 3 && (previous_mode != 3 || previous_row != g.contents_row))
+    {
+        if (previous_mode != 3)
+        {
+            g.contents_text = Game::MenuTextPool{};
+        }
+        begin_menu_zoom(g.contents_visual, kContentsTextures[g.contents_row]);
+    }
+    // Xbox 0x000DB450 / 0x000DACE0: release and reset the departing row
+    // before 0x000D9F60 starts the newly selected movie.
+    if (previous_mode == 3 && (g.frontend_mode != 3 || previous_row != g.contents_row))
+    {
+        movie_release_visible(kContentsMovies[previous_row]);
+        g.contents_movie_frames[previous_row] = 0;
+        g.contents_movie_copied[previous_row] = false;
+    }
+    // Xbox 0x000DF9A0: leaving the slot widget releases its +0xB80 movie.
+    if (previous_mode == 1 && g.frontend_mode != 1 && g.slot_movie_index != -1)
+    {
+        movie_release_visible(g.slot_movie_name.c_str());
+        g.slot_movie_index = -1;
+    }
     g.slot_down = in.down;
     g.slot_up = in.up;
     g.slot_left = in.left;
@@ -2821,8 +3308,6 @@ void draw_ui(const Game& g)
         draw_contents(g);
         return;
     }
-    // 0x000DF140: an empty slot's backdrop is emptyslotbackground, scaled to the 640x480 frame.
-    draw_sprite(find_ui(g, "gameselect_emptyslotbackground"), 0.f, 0.f, kFrameW, kFrameH);
     // Naming is mode-table index 4. Its draw is 0x000DD170, which draws the
     // keyboard object and not the three slot plates.
     if (g.frontend_mode == 4)
@@ -2830,6 +3315,8 @@ void draw_ui(const Game& g)
         draw_keyboard(g);
         return;
     }
+    // Xbox 0x000DF140: occupied statuses use the chapter texture as backdrop.
+    draw_menu_backdrop(g, g.slot_visual);
     for (int i = 0; i < 3; ++i)
     {
         if (i != g.slot)
@@ -2838,6 +3325,11 @@ void draw_ui(const Game& g)
         }
     }
     draw_plate(g, g.slot, true);
+    draw_slot_movie(g);
+    for (int i = 0; i < 3; ++i)
+    {
+        draw_slot_status(g, i);
+    }
     if (g.frontend_mode == 1)
     {
         draw_slot_select_copy(g);

@@ -45,6 +45,11 @@ void movie_present();
 
 // The draw that shows a plate increments the play count at +0x18 while it is below 1.
 void movie_note_visible(const char* name);
+// Menu widget movie ownership (+0x18), released when its selection changes.
+void movie_release_visible(const char* name);
+// Xbox 0x00107360: copies one pending decoded frame into the widget texture.
+bool movie_copy_frame(const char* name, RgbaImage& target);
+bool movie_is_open(const char* name);
 
 // Latest BGRA frame for that aid, or null before the first decoded frame.
 const RgbaImage* movie_image(const char* name);

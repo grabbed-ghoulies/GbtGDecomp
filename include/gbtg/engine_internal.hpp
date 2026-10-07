@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gbtg/game.hpp"
+#include "gbtg/sound_runtime.hpp"
 
 #include <vector>
 
@@ -44,5 +45,7 @@ void pcm_stop_cue(const char* cue);
 void pcm_play_pcm(const char* cue, const std::vector<u8>& pcm, int rate, int channels, bool loop, float volume);
 // PC mix scale, 0..1. Applied on the XAudio2 mastering voice. Cue and movie levels stay as reconstructed.
 void pcm_set_master_volume(float volume);
+// Cue handles at this host boundary are live IXAudio2SourceVoice pointers.
+RuntimeSoundBoundaries native_sound_boundaries();
 
 } // namespace gbtg

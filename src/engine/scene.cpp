@@ -15398,6 +15398,11 @@ void fn_16f266(void* stream)
 }
 } // namespace
 
+float scene_sim_step(float dt)
+{
+    return sim_step(dt);
+}
+
 int fn_16f172(const void* lp, u32 ucb)
 {
     // Xbox 0x0016F172

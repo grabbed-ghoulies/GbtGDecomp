@@ -1,4 +1,8 @@
 #include "gbtg/entity.hpp"
+#include "gbtg/anim.hpp"
+#include "gbtg/model_runtime.hpp"
+#include "gbtg/actor_runtime.hpp"
+#include "gbtg/gfx.hpp"
 
 #include <bit>
 #include <cmath>
@@ -259,25 +263,41 @@ i32 heap_index_for(void* block)
 
 Vec3 actor_world_position(const Actor& actor)
 {
-    // Xbox 0x000412A0: if attach+8 is live, multiply local by parent matrix.
-    // Unattached path copies actor+0x08.
-    if (actor.attach == nullptr)
+    // Xbox 0x000412A0
+    if (actor.bind != nullptr)
     {
-        return actor.position;
+        if (actor.bind->parent != nullptr || (actor.link != nullptr && actor.link->head != nullptr))
+        {
+            const Vec3& origin = actor_transform_origin;
+            return Vec3{actor.xform[1] * origin.y + actor.xform[2] * origin.z +
+                actor.xform[0] * origin.x + actor.xform[3],
+                actor.xform[5] * origin.y + actor.xform[6] * origin.z +
+                actor.xform[4] * origin.x + actor.xform[7],
+                actor.xform[9] * origin.y + actor.xform[10] * origin.z +
+                actor.xform[8] * origin.x + actor.xform[11]};
+        }
+        fn_663e0(actor.bind);
+        const_cast<Actor&>(actor).bind = nullptr;
     }
-    const Vec3 p = actor.attach->position;
-    return Vec3{actor.position.x + p.x, actor.position.y + p.y, actor.position.z + p.z};
+    return actor.position;
 }
+
+Vec3 actor_transform_origin{}; // DAT_0050DD80
 
 Vec3 actor_world_euler(const Actor& actor)
 {
-    // Xbox 0x00041820: unattached copies actor+0x14; attached adds parent euler.
-    if (actor.attach == nullptr)
+    // Xbox 0x00041820
+    if (actor.bind != nullptr)
     {
-        return actor.euler;
+        if (actor.bind->parent != nullptr || (actor.link != nullptr && actor.link->head != nullptr))
+        {
+            const Vec3 euler = fn_104040(actor.bind->basis);
+            return Vec3{actor.euler.x + euler.x, actor.euler.y + euler.y, actor.euler.z + euler.z};
+        }
+        fn_663e0(actor.bind);
+        const_cast<Actor&>(actor).bind = nullptr;
     }
-    const Vec3 e = actor.attach->euler;
-    return Vec3{actor.euler.x + e.x, actor.euler.y + e.y, actor.euler.z + e.z};
+    return actor.euler;
 }
 
 Vec3 fn_104040(const float m[12])
@@ -291,20 +311,7 @@ Vec3 fn_104040(const float m[12])
     // and 0x001530E0 is atan2. The three angles are written through EBX.
     float a[12];
     std::memcpy(a, m, sizeof(a));
-    for (int col = 0; col < 3; ++col)
-    {
-        const float x = a[col];
-        const float y = a[col + 4];
-        const float z = a[col + 8];
-        const float len2 = x * x + y * y + z * z;
-        if (len2 != 0.f)
-        {
-            const float inv = 1.f / std::sqrt(len2);
-            a[col] = x * inv;
-            a[col + 4] = y * inv;
-            a[col + 8] = z * inv;
-        }
-    }
+    normalize_model_matrix(a, 1.f);
 
     constexpr float kHalfPi = std::bit_cast<float>(0x3FC90FDBu);
     constexpr float kNegHalfPi = std::bit_cast<float>(0xBFC90FDBu);
@@ -314,7 +321,7 @@ Vec3 fn_104040(const float m[12])
     {
         if (-1.f < pitch_arg)
         {
-            pitch = std::asin(pitch_arg);
+            pitch = float(retail_asin(pitch_arg));
         }
         else
         {
@@ -325,17 +332,17 @@ Vec3 fn_104040(const float m[12])
     float yaw = 0.f;
     if (a[2] == 0.f && a[10] == 0.f)
     {
-        yaw = std::atan2(a[1], a[9]);
+        yaw = float(retail_atan2(a[1], a[9]));
     }
     else
     {
-        yaw = std::atan2(a[2], a[10]);
+        yaw = float(retail_atan2(a[2], a[10]));
     }
 
     float roll = 0.f;
     if (a[4] != 0.f || a[5] != 0.f)
     {
-        roll = std::atan2(a[4], a[5]);
+        roll = float(retail_atan2(a[4], a[5]));
     }
     return Vec3{pitch, yaw, roll};
 }
@@ -368,16 +375,17 @@ void fn_41730(Actor& actor, const Vec3& point)
     actor.xform_valid = 0;
 }
 
-// 0x00103CB0 with EDI clear. Rotation is Ry(euler.y) * Rx(euler.x) * Rz(euler.z).
+// Xbox 0x00103CB0. Rotation is Ry(euler.y) * Rx(euler.x) * Rz(euler.z).
 // A scale component other than 1 multiplies that column. Translation is the position.
-static void pose_matrix(float m[12], const Vec3& pos, const Vec3& euler, const Vec3& scale)
+static void pose_matrix(float m[12], const Vec3& pos, const Vec3& euler, const Vec3& scale,
+    float* inverse = nullptr)
 {
-    const float sx = std::sin(euler.x);
-    const float cx = std::cos(euler.x);
-    const float sy = std::sin(euler.y);
-    const float cy = std::cos(euler.y);
-    const float sz = std::sin(euler.z);
-    const float cz = std::cos(euler.z);
+    const float sx = float(retail_sin(euler.x));
+    const float cx = float(retail_cos(euler.x));
+    const float sy = float(retail_sin(euler.y));
+    const float cy = float(retail_cos(euler.y));
+    const float sz = float(retail_sin(euler.z));
+    const float cz = float(retail_cos(euler.z));
 
     m[0] = sy * sx * sz + cz * cy;
     m[1] = sy * sx * cz - sz * cy;
@@ -409,6 +417,42 @@ static void pose_matrix(float m[12], const Vec3& pos, const Vec3& euler, const V
         m[2] *= scale.z;
         m[6] *= scale.z;
         m[10] *= scale.z;
+    }
+    if (inverse != nullptr)
+    {
+        if (scale.x == 1.f && scale.y == 1.f && scale.z == 1.f)
+        {
+            inverse[0] = m[0];
+            inverse[1] = m[4];
+            inverse[2] = m[8];
+            inverse[4] = m[1];
+            inverse[5] = m[5];
+            inverse[6] = m[9];
+            inverse[8] = m[2];
+            inverse[9] = m[6];
+            inverse[10] = m[10];
+        }
+        else
+        {
+            float factor = 1.f / (scale.x * scale.x);
+            inverse[0] = m[0] * factor;
+            inverse[1] = m[4] * factor;
+            inverse[2] = factor * m[8];
+            factor = 1.f / (scale.y * scale.y);
+            inverse[4] = factor * m[1];
+            inverse[5] = m[5] * factor;
+            inverse[6] = factor * m[9];
+            factor = 1.f / (scale.z * scale.z);
+            inverse[8] = m[2] * factor;
+            inverse[9] = m[6] * factor;
+            inverse[10] = m[10] * factor;
+        }
+        const float x = 0.f - pos.x;
+        const float y = 0.f - pos.y;
+        const float z = 0.f - pos.z;
+        inverse[3] = inverse[1] * y + inverse[0] * x + inverse[2] * z;
+        inverse[7] = inverse[6] * z + inverse[4] * x + inverse[5] * y;
+        inverse[11] = inverse[9] * y + inverse[10] * z + inverse[8] * x;
     }
 }
 
@@ -449,90 +493,159 @@ static void mul_affine(float out[12], const float a[12], const float b[12])
 // A zero-length column is left alone.
 static void normalize_columns(float m[12], float target)
 {
-    for (int col = 0; col < 3; ++col)
-    {
-        const float x = m[col];
-        const float y = m[col + 4];
-        const float z = m[col + 8];
-        const float len2 = x * x + y * y + z * z;
-        float factor = 1.f;
-        if (len2 != 0.f)
-        {
-            const float inv = 1.f / std::sqrt(len2);
-            if (inv != 0.f)
-            {
-                factor = target * inv;
-            }
-        }
-        m[col] *= factor;
-        m[col + 4] *= factor;
-        m[col + 8] *= factor;
-    }
+    normalize_model_matrix(m, target);
 }
 
 // 0x00104400. ECX is the source, the stack pointer is the destination.
 // A zero determinant leaves the destination unchanged.
 static void invert_affine(float dest[12], const float src[12])
 {
-    const float m00 = src[0];
-    const float m01 = src[1];
-    const float m02 = src[2];
-    const float tx = src[3];
-    const float m10 = src[4];
-    const float m11 = src[5];
-    const float m12 = src[6];
-    const float ty = src[7];
-    const float m20 = src[8];
-    const float m21 = src[9];
-    const float m22 = src[10];
-    const float tz = src[11];
-    const float det = m11 * m00 * m22 + m01 * m12 * m20 + m10 * m21 * m02 - m11 * m20 * m02 - m01 * m10 * m22 -
-                      m21 * m12 * m00;
-    if (det == 0.f)
-    {
-        return;
-    }
-    const float inv = 1.f / det;
-    float out[12];
-    out[0] = (m11 * m22 - m21 * m12) * inv;
-    out[1] = 0.f - (m01 * m22 - m21 * m02) * inv;
-    out[2] = (m01 * m12 - m11 * m02) * inv;
-    out[4] = 0.f - (m10 * m22 - m12 * m20) * inv;
-    out[5] = (m00 * m22 - m20 * m02) * inv;
-    out[6] = 0.f - (m12 * m00 - m10 * m02) * inv;
-    out[8] = (m10 * m21 - m11 * m20) * inv;
-    out[9] = 0.f - (m21 * m00 - m01 * m20) * inv;
-    out[10] = (m11 * m00 - m01 * m10) * inv;
-    out[3] = 0.f - (out[0] * tx + out[1] * ty + out[2] * tz);
-    out[7] = 0.f - (out[4] * tx + out[5] * ty + out[6] * tz);
-    out[11] = 0.f - (out[8] * tx + out[9] * ty + out[10] * tz);
-    std::memcpy(dest, out, sizeof(out));
+    invert_model_matrix(dest, src);
 }
 
-// 0x0003B770. Parent set reads the mode byte at +1; otherwise the byte at +0.
-// Mode 1 copies the host world matrix at +0x2ac (0x0003B8B0). Modes 2 and 3
-// sample a bone (0x0003BAB0 / 0x00051E40); this actor has no skeleton, so
-// those modes keep the basis already stored. Bit 0 of +2 skips the normalize.
-// The inverse of the basis is written at +0x3c.
+// Xbox 0x0003D1B0. EAX retains the allocated node at return.
+ActorAttachmentNode* fn_3d1b0(ActorAttachmentList& list, const char* name, i32 mode, i32 kind)
+{
+    auto* node = static_cast<ActorAttachmentNode*>(fn_f72d0(i32(sizeof(ActorAttachmentNode))));
+    size_t index = 0;
+    char value;
+    do
+    {
+        value = name[index];
+        node->bytes[0x24 + index] = u8(value);
+        ++index;
+    }
+    while (value != '\0');
+    auto word = [node](size_t offset, u32 data)
+    {
+        std::memcpy(node->bytes.data() + offset, &data, 4);
+    };
+    auto half = [node](size_t offset, u16 data)
+    {
+        std::memcpy(node->bytes.data() + offset, &data, 2);
+    };
+    word(0x20, u32(kind));
+    half(0xC, 0xFFFF);
+    word(8, 0xFFFFFFFF);
+    word(0x10, 0);
+    node->binding = nullptr;
+    word(0x14, 0);
+    word(0x1C, u32(mode));
+    node->previous = nullptr;
+    node->next = nullptr;
+    ActorAttachmentNode* tail = &list.sentinel;
+    ActorAttachmentNode* next = list.sentinel.next;
+    while (next != nullptr)
+    {
+        tail = tail->next;
+        next = tail->next;
+    }
+    tail->next = node;
+    node->next = nullptr;
+    node->previous = tail;
+    ++list.count;
+    half(0x18, list.count);
+    node->bytes[0xA4] = 0;
+    node->bytes[0xA5] = 0;
+    word(0xC0, 0x3F800000);
+    return node;
+}
+
+// Xbox 0x0003B8B0
+static Actor* bind_host(Actor& actor)
+{
+    if (actor.bind != nullptr)
+    {
+        if (actor.bind->parent != nullptr)
+        {
+            return actor.bind->parent;
+        }
+        if (actor.link != nullptr && actor.link->head != nullptr)
+        {
+            return actor.link->owner;
+        }
+        fn_663e0(actor.bind);
+        actor.bind = nullptr;
+    }
+    return nullptr;
+}
+
+// Xbox 0x0003BAB0
+static void bind_joint_matrix(Actor& actor, i32 index, float output[12])
+{
+    Actor& host = *bind_host(actor);
+    RuntimeModelInstance& model = *host.model->runtime;
+    const ModelPoseBuffer& pose = *(model.alternate != nullptr ? model.alternate : model.primary);
+    const Joint* joint = nullptr;
+    if (model.skeleton_node != nullptr && model.skeleton_node->joints.data() != nullptr)
+    {
+        joint = model.skeleton_node->joints.data() + index;
+    }
+    AnimationMatrix world;
+    std::memcpy(world.data(), host.xform, sizeof(host.xform));
+    const auto& result = model_joint_world_matrix(pose, index, *joint, world);
+    std::memcpy(output, result.data(), sizeof(world));
+}
+
+// Xbox 0x0003B770
 static void refresh_bind(Actor& actor)
 {
     ActorBind& bind = *actor.bind;
     const u8 mode = bind.parent != nullptr ? bind.mode_parent : bind.mode_local;
-    Actor* host = bind.parent;
-    if (host == nullptr && actor.link != nullptr && actor.link->head != nullptr)
+    if (mode == 1)
     {
-        host = actor.link->owner;
+        Actor& host = *bind_host(actor);
+        std::memcpy(bind.basis, host.xform, sizeof(bind.basis));
     }
-    if (mode == 1 && host != nullptr)
+    else if (mode == 2)
     {
-        std::memcpy(bind.basis, host->xform, sizeof(bind.basis));
-        std::memcpy(bind.m, host->xform_inv, sizeof(bind.m));
+        bind_joint_matrix(actor, bind.joint, bind.basis);
+    }
+    else if (mode == 3)
+    {
+        Actor& host = *bind_host(actor);
+        RuntimeModelInstance& model = *host.model->runtime;
+        const ModelPoseBuffer* pose = model.alternate != nullptr ? model.alternate : model.primary;
+        AnimationMatrix world;
+        AnimationMatrix output;
+        std::memcpy(world.data(), host.xform, sizeof(host.xform));
+        model_bone_world_matrix(*static_cast<const ModelBoneBinding*>(bind.bone), pose, world, output);
+        std::memcpy(bind.basis, output.data(), sizeof(bind.basis));
     }
     if ((bind.flags & 1u) == 0u)
     {
         normalize_columns(bind.basis, 1.f);
     }
     invert_affine(bind.m, bind.basis);
+}
+
+// Xbox 0x00040DE0
+void fn_40de0(Actor& actor)
+{
+    if (actor.bind != nullptr)
+    {
+        if (actor.bind->parent != nullptr || (actor.link != nullptr && actor.link->head != nullptr))
+        {
+            float local[12];
+            float inverse[12];
+            const float scale = actor.scale_200;
+            pose_matrix(local, actor.position, actor.euler,
+                Vec3{actor.scale_x * scale, actor.radius_y * scale, actor.radius_xz * scale}, inverse);
+            refresh_bind(actor);
+            mul_affine(actor.xform, actor.bind->basis, local);
+            invert_affine(actor.xform_inv, actor.xform);
+            return;
+        }
+        fn_663e0(actor.bind);
+        actor.bind = nullptr;
+    }
+    if (actor.xform_valid == 0)
+    {
+        const float scale = actor.scale_200;
+        pose_matrix(actor.xform, actor.position, actor.euler,
+            Vec3{actor.scale_x * scale, actor.radius_y * scale, actor.radius_xz * scale}, actor.xform_inv);
+        actor.xform_valid = 1;
+    }
 }
 
 void fn_40fb0(Actor& actor, float out[12], const Vec3* position)
@@ -4595,7 +4708,7 @@ struct SaveScan
     SavePool* slots = nullptr;
     i32 unused_4 = 0;
     SavePool* names = nullptr;
-    i32 unused_c = 0;
+    i32* enumerator = nullptr;
     i32 pending = 0;
     float timer = 0.f;
 };
@@ -4805,6 +4918,10 @@ void fn_10d3b0()
     {
         release_save_pool(g_save_scan->slots);
         release_save_pool(g_save_scan->names);
+        if (g_save_scan->enumerator != nullptr)
+        {
+            fn_663e0(g_save_scan->enumerator);
+        }
         delete g_save_scan;
         g_save_scan = nullptr;
     }
@@ -4828,11 +4945,74 @@ void fn_10d3b0()
     }
     scan->names = names;
     scan->unused_4 = 0;
-    scan->unused_c = 0;
+    scan->enumerator = nullptr;
     scan->pending = 0;
     scan->timer = 0.f;
     g_save_scan = scan;
     scan_save_names(*names);
 }
+
+// Xbox 0x0010D810.
+bool fn_10d810(char16_t* name)
+{
+    if (g_save_scan->enumerator != nullptr)
+    {
+        fn_663e0(g_save_scan->enumerator);
+        g_save_scan->enumerator = nullptr;
+    }
+    auto* index = static_cast<i32*>(fn_f72d0(4));
+    *index = 0;
+    g_save_scan->enumerator = index;
+    SavePool& pool = *g_save_scan->names;
+    u8* record = pool.begin + pool.stride * *index;
+    if (record != pool.cursor)
+    {
+        ++*index;
+        if (record != nullptr)
+        {
+            const auto* source = reinterpret_cast<const char16_t*>(record);
+            while ((*name++ = *source++) != 0)
+            {
+            }
+            return true;
+        }
+    }
+    fn_663e0(g_save_scan->enumerator);
+    g_save_scan->enumerator = nullptr;
+    *name = 0;
+    return false;
+}
+
+// Xbox 0x0010D8A0.
+bool fn_10d8a0(char16_t* name)
+{
+    i32* index = g_save_scan->enumerator;
+    if (index == nullptr)
+    {
+        *name = 0;
+        return false;
+    }
+    SavePool& pool = *g_save_scan->names;
+    u8* record = pool.begin + pool.stride * *index;
+    if (record != pool.cursor)
+    {
+        ++*index;
+        if (record != nullptr)
+        {
+            const auto* source = reinterpret_cast<const char16_t*>(record);
+            while ((*name++ = *source++) != 0)
+            {
+            }
+            return true;
+        }
+    }
+    fn_663e0(g_save_scan->enumerator);
+    g_save_scan->enumerator = nullptr;
+    *name = 0;
+    return false;
+}
+
+#include "entity_model.inl"
+#include "actor_runtime.inl"
 
 } // namespace gbtg

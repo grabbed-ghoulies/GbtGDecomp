@@ -1,11 +1,105 @@
 #include "gbtg/anim.hpp"
+#include "gbtg/resource_error.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstring>
+#include <new>
+#include <xmmintrin.h>
 
 namespace gbtg
 {
+// Xbox 0x0002DFC0.
+bool dispatch_animation_event(std::span<const u8> event, u32 expected_size, u32 type_flags,
+                              const AnimationEventClock& clock,
+                              const std::function<void(int phase)>& callback)
+{
+    if (read_u16(event, 0) != expected_size)
+    {
+        return false;
+    }
+    const float begin = read_f32(event, 4);
+    const float end = read_f32(event, 8);
+    bool began = false;
+    if (clock.position != clock.previous)
+    {
+        float high;
+        float low;
+        if (clock.speed < 0.f)
+        {
+            high = clock.previous;
+            low = clock.position;
+        }
+        else
+        {
+            high = clock.position;
+            low = clock.previous;
+        }
+        if (high <= low)
+        {
+            if (low <= begin || begin < high)
+            {
+                began = true;
+                if (callback)
+                {
+                    callback(0);
+                }
+            }
+        }
+        else if (low <= begin && begin < high)
+        {
+            began = true;
+            if (callback)
+            {
+                callback(0);
+            }
+        }
+    }
+    if (((event[14] | type_flags) & 4) != 0 && begin <= clock.position && clock.position < end && callback)
+    {
+        callback(2);
+    }
+    bool ended = false;
+    if (end != 0.f && clock.position != clock.previous)
+    {
+        float high;
+        float low;
+        if (clock.speed < 0.f)
+        {
+            high = clock.previous;
+            low = clock.position;
+        }
+        else
+        {
+            low = clock.previous;
+            high = clock.position;
+        }
+        if (high <= low)
+        {
+            if (low <= end || end < high)
+            {
+                ended = true;
+                if (callback)
+                {
+                    callback(1);
+                }
+            }
+        }
+        else if (low <= end && end < high)
+        {
+            ended = true;
+            if (callback)
+            {
+                callback(1);
+            }
+        }
+    }
+    return began || ended;
+}
+
+#include "anim_events.inl"
+
 namespace
 {
 
@@ -106,34 +200,82 @@ struct Streams
         extract_bits(b, nbits, cursor0, shift_b, d1);
         shift = shift_a;
     }
+
+    // Xbox 0x0002ED60; all neighbours use the same cursor and bit shift.
+    void delta_four(int (&values)[4])
+    {
+        const int nbits = read_nibble();
+        const int initial_cursor = cursor;
+        const int initial_shift = shift;
+        for (int frame = 0; frame < 4; ++frame)
+        {
+            int frame_shift = initial_shift;
+            const int frame_cursor = extract_bits(mina.subspan(size_t(frames[frame])), nbits,
+                                                   initial_cursor, frame_shift, values[frame]);
+            cursor = frame_cursor;
+            shift = frame_shift;
+        }
+    }
 };
 
+#include "anim_math.inl"
+
+// Xbox 0x00154030.
 Quat slerp(Quat a, Quat b, float t)
 {
-    float dot = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+    float dot = b.y * a.y + a.x * b.x + b.w * a.w + b.z * a.z;
+    float first = 1.f - t;
     if (dot < 0.f)
     {
-        b.x = -b.x;
-        b.y = -b.y;
-        b.z = -b.z;
-        b.w = -b.w;
+        dot = -dot;
+        t = -t;
     }
-    Quat q{a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, a.w + (b.w - a.w) * t};
-    const float len = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
-    if (len > 1e-8f)
+    if (dot < animation_float(0x3f7fff58u))
     {
-        q.x /= len;
-        q.y /= len;
-        q.z /= len;
-        q.w /= len;
+        const long double angle = animation_acos(dot);
+        const float reciprocal = float(animation_rsqrt(1.f - dot * dot));
+        first = float(animation_sin(float(angle) * first) * reciprocal);
+        t = float(animation_sin(float(angle) * t) * reciprocal);
     }
-    return q;
+    return Quat{a.x * first + b.x * t, b.y * t + a.y * first,
+                b.z * t + a.z * first, b.w * t + a.w * first};
 }
 
-float quat_w(float x, float y, float z)
+// Xbox 0x0002E3A0.
+void finish_mina_quaternion(Quat& current, Quat& next, float fraction, u8 flags)
 {
-    const float d = 1.f - x * x - y * y - z * z;
-    return d > 0.f ? std::sqrt(d) : 0.f;
+    if ((flags & 0xE0) == 0)
+    {
+        current.w = 1.f;
+        return;
+    }
+    const float square = 1.f - (current.x * current.x + current.y * current.y + current.z * current.z);
+    if ((flags & 0x1C) == 0x1C)
+    {
+        float w = 0.f;
+        if (0.f < square)
+        {
+            w = float(animation_sqrt(square));
+        }
+        current.w = w;
+        return;
+    }
+    if (square <= 0.f)
+    {
+        current.w = 0.f;
+    }
+    else
+    {
+        current.w = float(animation_sqrt(square));
+    }
+    const float next_square = 1.f - (next.x * next.x + next.y * next.y + next.z * next.z);
+    float next_w = 0.f;
+    if (0.f < next_square)
+    {
+        next_w = float(animation_sqrt(next_square));
+    }
+    next.w = next_w;
+    current = slerp(current, next, fraction);
 }
 
 struct Mat
@@ -183,6 +325,10 @@ Mat from_affine(const float m[12])
     return o;
 }
 
+} // namespace
+
+#include "anim_scalar.inl"
+
 // Xbox 0x001041B0
 // out = a * b. Apply b first. A destination that aliases either input is written
 // through a temporary, then copied back as twelve floats.
@@ -210,6 +356,9 @@ void fn_1041b0(float out[12], const float a[12], const float b[12])
         std::memcpy(out, tmp, sizeof(tmp));
     }
 }
+
+namespace
+{
 
 Mat mul(const Mat& a, const Mat& b)
 {
@@ -244,10 +393,16 @@ Mat from_pose(Quat q, Vec3 t, Vec3 s)
     return o;
 }
 
+// Xbox 0x0002E130, the player's linear interpolation callback.
+long double mina_linear_value(float fraction, int current, int next)
+{
+    return static_cast<long double>(next - current) * fraction + current;
+}
+
+// Xbox 0x0002E270, linear callback (+0x2B == 0).
 void decode_vec(Streams& st, int flag, float scale, float def, float frac, Vec3& out)
 {
-    float cur[3]{};
-    float nxt[3]{};
+    float components[3];
     int mask = 0x80;
     for (int c = 0; c < 3; ++c)
     {
@@ -256,88 +411,66 @@ void decode_vec(Streams& st, int flag, float scale, float def, float frac, Vec3&
             const int raw = st.read_i16();
             if (flag & (mask >> 3))
             {
-                cur[c] = nxt[c] = float(raw) * scale;
+                components[c] = float(raw) * scale;
             }
             else
             {
-                int d0 = 0, d1 = 0;
-                st.delta(d0, d1);
-                cur[c] = float(raw + d0) * scale;
-                nxt[c] = float(raw + d1) * scale;
+                int deltas[4]{};
+                st.delta_four(deltas);
+                components[c] = float(mina_linear_value(frac, raw + deltas[1], raw + deltas[2]) * scale);
             }
         }
         else
         {
-            cur[c] = nxt[c] = def;
+            components[c] = def;
         }
         mask >>= 1;
     }
-    out.x = cur[0] + (nxt[0] - cur[0]) * frac;
-    out.y = cur[1] + (nxt[1] - cur[1]) * frac;
-    out.z = cur[2] + (nxt[2] - cur[2]) * frac;
+    out.x = components[0];
+    out.y = components[1];
+    out.z = components[2];
 }
 
 } // namespace
 
-std::vector<JointPose> sample_mina(std::span<const u8> mina, float time_norm, bool loop)
+namespace
+{
+
+std::vector<JointPose> sample_mina_channel(std::span<const u8> mina, float time_norm, bool loop, bool root)
 {
     std::vector<JointPose> poses;
-    if (mina.size() < 0x40 || mina[0] != 'M' || mina[1] != 'I' || mina[2] != 'N' || mina[3] != 'A')
-    {
-        return poses;
-    }
     const u32 bits = read_u32(mina, 0x1C);
     const int trans_exp = int((bits >> 18) & 31);
     const int scale_exp = int((bits >> 8) & 31);
     const int rot_exp = int((bits >> 23) & 31);
-    const float trans_scale = trans_exp < 31 ? 1.f / float(1 << trans_exp) : 0.f;
-    const float scale_scale = scale_exp < 31 ? 1.f / float(1 << scale_exp) : 0.f;
-    const float rot_scale = 1.f / float((1 << (rot_exp - 1)) - 1);
-    const int frame_count = int(read_u16(mina, 0x18));
-    const int bones = int(read_u16(mina, 0x14));
-    if (frame_count <= 0 || bones <= 0 || bones > 512)
-    {
-        return poses;
-    }
+    const float trans_scale = 1.f / float(std::bit_cast<i32>(1u << trans_exp));
+    const float scale_scale = 1.f / float(std::bit_cast<i32>(1u << scale_exp));
+    const float rot_scale = 1.f / float(std::bit_cast<i32>((1u << ((rot_exp - 1) & 31)) - 1));
+    const int frame_count = int(read_u16(mina, root ? 0x1A : 0x18));
+    const int bones = root ? 1 : int(read_u16(mina, 0x14));
     // 0x2EB50. Looping (+0x2A == 0) scales by the frame count and wraps.
     // Cutscene playback (+0x2A == 1) scales by count-1 and clamps the neighbours.
-    const int span = loop ? frame_count : std::max(frame_count - 1, 1);
+    const int span = loop ? frame_count : frame_count - 1;
     const float time = float(span) * time_norm;
-    int frame = time >= 0.f ? int(std::floor(time)) : int(time);
-    const float frac = time - float(frame);
+    int frame = u16(int(time));
     int prev = 0;
     int next = 0;
     int next2 = 0;
     if (loop)
     {
         frame %= frame_count;
-        if (frame < 0)
-        {
-            frame += frame_count;
-        }
         prev = (frame + frame_count - 1) % frame_count;
         next = (frame + 1) % frame_count;
         next2 = (frame + 2) % frame_count;
     }
     else
     {
-        if (frame < 0)
-        {
-            frame = 0;
-        }
-        if (frame > span)
-        {
-            frame = span;
-        }
-        prev = frame > 0 ? frame - 1 : 0;
-        next = frame != span ? frame + 1 : frame;
-        next2 = next != span ? next + 1 : next;
+        prev = u16(frame - (frame != 0));
+        next = u16(frame + (frame != span));
+        next2 = u16(next + (next != span));
     }
-    const int directory = 0x40;
-    if (size_t(directory + 8) > mina.size())
-    {
-        return poses;
-    }
+    const float frac = time - float(frame);
+    const int directory = root ? int(read_u32(mina, 0xC)) : 0x40;
     const int base_off = read_u16(mina, size_t(directory));
     const int off2 = read_u16(mina, size_t(directory + 2));
     const int off4 = read_u16(mina, size_t(directory + 4));
@@ -356,10 +489,6 @@ std::vector<JointPose> sample_mina(std::span<const u8> mina, float time_norm, bo
     int flag_p = directory + 0xC;
     for (int i = 0; i < bones; ++i)
     {
-        if (size_t(flag_p) >= mina.size())
-        {
-            break;
-        }
         const int flag = mina[size_t(flag_p++)];
         float cur[3]{};
         float nxt[3]{};
@@ -383,37 +512,111 @@ std::vector<JointPose> sample_mina(std::span<const u8> mina, float time_norm, bo
             }
             mask >>= 1;
         }
-        const float w0 = ((flag & 0xE0) == 0) ? 1.f : quat_w(cur[0], cur[1], cur[2]);
-        const float w1 = ((flag & 0xE0) == 0) ? 1.f : quat_w(nxt[0], nxt[1], nxt[2]);
-        Quat a{cur[0], cur[1], cur[2], w0};
-        Quat b{nxt[0], nxt[1], nxt[2], w1};
-        if ((flag & 0x1C) == 0x1C)
-        {
-            poses[size_t(i)].rotation = a;
-        }
-        else
-        {
-            poses[size_t(i)].rotation = slerp(a, b, frac);
-        }
+        Quat a{cur[0], cur[1], cur[2], 0.f};
+        Quat b{nxt[0], nxt[1], nxt[2], 0.f};
+        finish_mina_quaternion(a, b, frac, u8(flag));
+        poses[size_t(i)].rotation = a;
         if (flag & 2)
         {
-            if (size_t(flag_p) < mina.size())
-            {
-                decode_vec(st, mina[size_t(flag_p)], trans_scale, 0.f, frac, poses[size_t(i)].translation);
-                ++flag_p;
-            }
+            decode_vec(st, mina[size_t(flag_p)], trans_scale, 0.f, frac, poses[size_t(i)].translation);
+            ++flag_p;
         }
         if (flag & 1)
         {
-            if (size_t(flag_p) < mina.size())
-            {
-                decode_vec(st, mina[size_t(flag_p)], scale_scale, 1.f, frac, poses[size_t(i)].scale);
-                ++flag_p;
-            }
+            decode_vec(st, mina[size_t(flag_p)], scale_scale, 1.f, frac, poses[size_t(i)].scale);
+            ++flag_p;
         }
     }
     return poses;
 }
+
+} // namespace
+
+// Xbox 0x00152BE0. CVTTSS2SI preserves the retail signed integer conversion,
+// including its indefinite result for an out-of-range quotient.
+long double animation_remainder(float value, float divisor)
+{
+    float absolute_divisor = divisor;
+    if (divisor < 0.f)
+    {
+        absolute_divisor = 0.f - divisor;
+    }
+    float absolute_value = value;
+    if (value < 0.f)
+    {
+        absolute_value = 0.f - value;
+    }
+    if (absolute_divisor <= absolute_value)
+    {
+        const float quotient = value / divisor;
+        const int integral = _mm_cvtt_ss2si(_mm_set_ss(quotient));
+        return static_cast<long double>(value) - static_cast<long double>(integral) * divisor;
+    }
+    return value;
+}
+
+std::vector<JointPose> sample_mina(std::span<const u8> mina, float time_norm, bool loop)
+{
+    return sample_mina_channel(mina, time_norm, loop, false);
+}
+
+JointPose sample_mina_root(std::span<const u8> mina, float time_norm)
+{
+    return sample_mina_channel(mina, time_norm, false, true).at(0);
+}
+
+// Xbox 0x0002E750 / 0x0002E650.
+Vec3 mina_root_cycle_translation(std::span<const u8> mina)
+{
+    const size_t directory = read_u32(mina, 0xC);
+    Vec3 displacement{};
+    if ((mina[directory + 0xC] & 2) != 0)
+    {
+        Streams stream;
+        stream.mina = mina;
+        stream.word = int(directory + read_u16(mina, directory));
+        stream.nibble = stream.word + read_u16(mina, directory + 2);
+        const int frame_base = stream.nibble + read_u16(mina, directory + 4);
+        stream.frames[1] = frame_base;
+        stream.frames[2] = frame_base + (read_u16(mina, 0x1A) - 1) * read_u16(mina, directory + 6);
+        const int exponent = (read_u32(mina, 0x1C) >> 18) & 31;
+        const float scale = 1.f / float(i32(u32(1) << exponent));
+        const u8 flag = mina[directory + 0xD];
+        float components[3]{};
+        float* component = components;
+        for (int mask = 0x80; mask != 0x10; mask >>= 1)
+        {
+            if ((flag & mask) == 0)
+            {
+                *component = 0.f;
+            }
+            else if ((flag & (mask >> 3)) == 0)
+            {
+                stream.word += 2;
+                int first = 0;
+                int last = 0;
+                stream.delta(first, last);
+                *component = float(last - first) * scale;
+            }
+            else
+            {
+                *component = 0.f;
+                stream.word += 2;
+            }
+            ++component;
+        }
+        displacement = Vec3{components[0], components[1], components[2]};
+    }
+    return displacement;
+}
+
+#include "anim_playback.inl"
+#include "anim_resources.inl"
+#include "anim_resource_providers.inl"
+#include "anim_mix.inl"
+#include "anim_controller.inl"
+#include "anim_skeleton.inl"
+#include "anim_table.inl"
 
 // Xbox 0x0002FAC0 builds each slot as parent * local (0x001041B0). Xbox 0x0002F720
 // then subtracts the joint's bind point through that rotation. Rigid vertices read

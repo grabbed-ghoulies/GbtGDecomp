@@ -7,6 +7,16 @@
 namespace gbtg
 {
 
+struct PerformanceCounterState
+{
+    std::int64_t baseline = 0; // DAT_0050E0D8 / DAT_0050E0DC
+    std::int64_t frequency = 0; // DAT_0050E0E0
+};
+// Host QueryPerformanceCounter / QueryPerformanceFrequency boundaries.
+void initialize_performance_counter(PerformanceCounterState& counter);
+long double performance_counter_seconds(const PerformanceCounterState& counter); // Xbox 0x001077D0
+void wait_performance_counter(const PerformanceCounterState& counter, float seconds); // Xbox 0x00032680
+
 // Xbox fs_init 0x00033030 / pad 0x000FC030 / frame_time 0x00033C80.
 // NTSC 60 Hz unless pal; dt is clamped to 5/fps. Delayed callbacks live in 20
 // slots of 12 bytes at 0x004DEA64..0x004DEB54.

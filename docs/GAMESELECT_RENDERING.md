@@ -1,5 +1,30 @@
 # Game select rendering reconstruction
 
+## Live menu integration
+
+The live slot and contents widgets now own their retail button-bat mesh,
+animation resources, controller and skeleton pose. `gameselect_tick` advances
+stand/flight/hop playback and `draw_ui` calls `0x0006D6C0` after the plate/text
+pass. Constructor parameters come from the embedded normal template: radius
+scale 1, menu scale 2, flight duration 0.4. Flight anchors use the menu tables'
+center plus -20 Y and `0x0006DA00`'s scale * (2,21) adjustment. Navigation
+requires cursor state 1 or 3 (`0x000E0210` / `0x000DB450`).
+
+Occupied-slot Select (`0x000E02D0`) queues widget 3 and book clip 0; contents
+Back (`0x000DB510`) queues widget 1 and clip 1. `0x00083E20`'s strict first
+threshold comparison controls the widget switch. The independent menu book
+advances and releases according to `0x00083D90`, and `0x00083C40` blocks input
+while a book or scene transition is live. Page captures preserve `0x00048110`'s
+two shared texture bindings: pages 1/4 share target 0, pages 2/3 target 1.
+
+Validation uses the actual `Game::tick` and `draw_ui` path with retail assets and
+D3D readback: standing and flying bats, occupied-slot forward page turn,
+contents page, and reverse turn back to slots. This replaces the earlier
+offscreen helper-only rendering check. Generic actor factory/frame integration,
+sound queue playback, save IO and the separate Play/Features/Challenges widgets
+remain distinct unfinished work; this integration does not claim those bodies
+are translated. The notes below record the supporting reconstruction history.
+
 The mode table at `0x0030A000` selects `0x000DDF20` for slot selection,
 `0x000D9640` for occupied-slot contents, and `0x000DD170` for naming.
 `0x000E62F0` belongs to a different widget and is not the slot-selection draw.
@@ -92,8 +117,8 @@ The additional rendering-state translations include:
 - Cursor draw `0x0006D6C0` follows the 0.2/0.92 flight thresholds, directional
   coordinate comparisons, model-bound rectangle and screen-mesh submission.
   Its D3D boundary clears depth and stencil within that rectangle, restores
-  graphics state and preserves queued sprite ordering. This helper is not yet
-  wired into the menu's missing cursor entity factory.
+  graphics state and preserves queued sprite ordering. The live menu now calls
+  this helper through its owned cursor view.
 - Playback initialization follows `0x00031A30` and `0x00031AC0`, preserving
   signed rate factors separately from absolute speed. Controller linear pose
   mixing follows `0x0002CE70`, `0x000312C0`, `0x00031950` and `0x00031FC0`,
@@ -142,7 +167,7 @@ The following dependencies remain untranslated and block full acceptance:
   has been added.
 - Initial slot-save scan (`0x000DF5D0`, `0x000DF650` and save IO callees) and its
   disc-spin/fade states. Contents' initial mode-1 fade also remains untranslated.
-  Current input handling still omits the cursor-state gates used by the callbacks.
+  Live navigation now applies the callbacks' cursor-state gates.
 - Play widget `0x000D5300`, including camera/environment setup, its cutscene,
   prompts and `0x00143840`. The earlier contents fallback still exists.
 - Contents save-state flags at blob +0x184/+0x188, challenge-state icon, complete
@@ -172,7 +197,7 @@ track wrap/clamp interpolation, and startup/shutdown event clocks. All four
 retail button-bat animations were initialized and sampled through the new
 player; each produced 18 joints. The menu integration fixture passed again
 after the shared animation changes. These helpers are prerequisites; the
-menu's cursor startup and entity factory remain unintegrated; the shared
+menu's cursor startup is now integrated through the resource view; the generic entity factory remains separate. The shared
 model-instance application helpers are translated.
 
 The GPU rectangle fixture checked every depth/stencil pixel after clearing a

@@ -1,4 +1,6 @@
 #include "gbtg/bundle.hpp"
+#include "gbtg/anim.hpp"
+#include "gbtg/resource_error.hpp"
 #include "gbtg/dialogue.hpp"
 #include "gbtg/engine_internal.hpp"
 #include "gbtg/font.hpp"
@@ -23,6 +25,168 @@
 namespace gbtg
 {
 float scene_sim_step(float dt);
+
+// Host resource ownership for the slot +0xB38 / contents +0x864 cursor.
+// The cursor state, playback, pose and screen draw use their translated entries.
+struct MenuCursor
+{
+    Mesh mesh;
+    ActorModel model;
+    ButtonBatScreen bat;
+    std::vector<AnimationBundleRecord> resources;
+    std::array<AnimationBundlePool, 1> pools;
+    AnimationResourceRegistry registry;
+    ActorAnimationState animation;
+    ResourceErrorState error{};
+    ModelPoseBuffer pose;
+    ModelAnimationState model_animation;
+    ModelNodeFlagCache flags{};
+    RuntimeActorSoundQueues sounds;
+    u32 random = 0;
+    std::vector<float> palette;
+
+    explicit MenuCursor(Game& game)
+    {
+        // The object template is embedded at 0x00377CC8, not a demand file.
+        const auto* entry = game.aids.load_aid("aid_model_ghoulies_actor_buttonbat");
+        if (entry == nullptr)
+        {
+            throw Error("game select: missing retail button-bat model");
+        }
+        mesh = parse_model(*entry);
+        model.cpu = entry->cpu;
+        bat.actor.model = &model;
+        bat.actor.radius_xz = 1.f; // template +0x20, DAT_00377CE8.
+        bat.actor.scale_200 = 2.f; // DAT_00428F90 / contents DAT_0032B110.
+        bat.actor.animation_rate = 1.f;
+        for (const auto& record : button_bat_animation_table().records)
+        {
+            for (const auto name : {record.animation, record.events})
+            {
+                const auto* resource = game.aids.load_aid(name);
+                if (resource == nullptr)
+                {
+                    throw Error("game select: missing retail cursor animation");
+                }
+                resources.push_back(AnimationBundleRecord{std::string(name), 0,
+                    resource->cpu, resource->gpu, {}, {}});
+            }
+        }
+        pools[0] = AnimationBundlePool{resources, true};
+        register_animation_resource_provider(registry,
+            [this](u32, const AnimationResourceRecord& record, const void*& resolved)
+            {
+                return find_bundle_resource_provider(pools, record.name.c_str(), resolved);
+            },
+            [](u32, const void* resolved, AnimationLoadedResource& output)
+            {
+                return load_bundle_resource_provider(resolved, output);
+            },
+            [this](u32, const char* name, const AnimationLoadedResource&)
+            {
+                unload_bundle_resource_provider(pools, name);
+            }, 3, nullptr);
+        animation.table = &button_bat_animation_table();
+        reset_actor_sound_queues(sounds);
+        animation.message_handler = [this](const ActorAnimationMessage& message)
+        {
+            // Retail cursor resources contain sound-start / sound-stop events.
+            // 0x0006D8A0 -> 0x0003EF70 message 7 -> 0x0003A380.
+            switch (read_u16(message.event, 0xC))
+            {
+            case 0x1D:
+                request_actor_event_sound(message.event, bat.actor, random, sounds);
+                break;
+            case 0x1F:
+                stop_actor_sound(bat.actor, i32(read_u32(message.event, 0x10)), sounds);
+                break;
+            default:
+                throw Error("game select: untranslated cursor animation event");
+            }
+        };
+        // 0x0013B580 offsets the constructor's (0,0) anchor by scale * (2,21).
+        fn_6d4f0(bat, ButtonBatPoint{-4.f, -42.f}, 0.4f, animation, registry, error, random);
+        pose.count = int(mesh.joints.size());
+        pose.matrices.resize(mesh.joints.size());
+        initialize_model_pose(pose);
+        model_animation.primary = &pose;
+        model_animation.joint_count = pose.count;
+        model_animation.skeleton = mesh.joints;
+        palette.resize(mesh.joints.size() * 16);
+    }
+
+    ~MenuCursor()
+    {
+        gfx_release_mesh(mesh);
+    }
+
+    void move(int row)
+    {
+        // Xbox 0x000DE9E0 / 0x000D9F60: table center plus its -20 Y anchor.
+        fn_6da00(bat, ButtonBatPoint{130.f + float(row) * 190.f, 180.f}, 2.f,
+            animation, registry, error, random);
+        bat.animation = animation.controller->slots[0].player.get();
+    }
+
+    void depart(int row)
+    {
+        // Xbox 0x000E02D0: choose the nearer offscreen edge from the
+        // unadjusted +0xB20/+0xB24 anchor, then fly with offset scale 1.
+        const float x = 130.f + float(row) * 190.f;
+        const float exit_x = 320.f < 640.f - x ? 690.f : -50.f;
+        const float exit_y = 240.f < 480.f - 180.f ? 530.f : -50.f;
+        fn_6da00(bat, ButtonBatPoint{exit_x, exit_y}, 1.f,
+            animation, registry, error, random);
+        bat.animation = animation.controller->slots[0].player.get();
+    }
+
+    void tick(float dt)
+    {
+        tick_animation_controller(*animation.controller, dt, false, registry);
+        // Cursor-specific tail of Xbox 0x0006D5C0, after controller advancement.
+        switch (bat.state)
+        {
+        case 1:
+            if (fn_42360(bat.actor, bat.idle_timer, 0.f, dt, 1.f))
+            {
+                fn_6d8d0(bat, 3, animation, registry, error, random);
+            }
+            break;
+        case 2:
+        case 3:
+        case 4:
+            if (actor_animation_completed(animation, 0))
+            {
+                fn_6d8d0(bat, 1, animation, registry, error, random);
+            }
+            break;
+        }
+        bat.animation = animation.controller->slots[0].player.get();
+        const AnimationMatrix identity{1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f};
+        apply_controller_to_model(*animation.controller, model_animation, false, nullptr, flags, identity);
+    }
+
+    void draw()
+    {
+        for (size_t joint = 0; joint < pose.matrices.size(); ++joint)
+        {
+            float* output = palette.data() + joint * 16;
+            for (int row = 0; row < 3; ++row)
+            {
+                for (int column = 0; column < 4; ++column)
+                {
+                    output[column * 4 + row] = pose.matrices[joint][size_t(row * 4 + column)];
+                }
+            }
+            output[3] = output[7] = output[11] = 0.f;
+            output[15] = 1.f;
+        }
+        gfx_set_bones(palette.data(), pose.count);
+        fn_6d6c0(bat, mesh);
+        gfx_set_bones(nullptr, 0);
+    }
+};
+
 namespace
 {
 
@@ -3067,6 +3231,9 @@ void begin_frontend(Game& g)
     g.contents_visual = Game::MenuVisual{};
     g.slot_text = Game::MenuTextPool{};
     g.contents_text = Game::MenuTextPool{};
+    g.slot_cursor.reset();
+    g.contents_cursor.reset();
+    g.menu_book_target = 0;
     begin_menu_zoom(g.slot_visual, slot_backdrop(g));
     // 0x000DD774 calls 0x000E01B0 while the slot widget is installed.
     movie_open_gameselect();
@@ -3079,6 +3246,35 @@ void gameselect_tick(Game& g, const InputState& in)
     const int previous_mode = g.frontend_mode;
     const int previous_row = g.contents_row;
     const int previous_slot = g.slot;
+    bool cursor_created = false;
+    if (tick_menu_book(g) && g.menu_book_target != 0)
+    {
+        g.frontend_mode = g.menu_book_target;
+        g.menu_book_target = 0;
+        g.naming = false;
+        if (g.frontend_mode == 3)
+        {
+            g.contents_row = 0;
+            g.contents_cursor.reset();
+            movie_open_contents();
+            for (int i = 0; i < 3; ++i)
+            {
+                g.contents_movie_frames[i] = 0;
+                g.contents_movie_copied[i] = false;
+            }
+        }
+    }
+    if (g.frontend_mode == 1 || g.frontend_mode == 3)
+    {
+        auto& cursor = g.frontend_mode == 1 ? g.slot_cursor : g.contents_cursor;
+        if (cursor == nullptr)
+        {
+            cursor = std::make_shared<MenuCursor>(g);
+            cursor->move(g.frontend_mode == 1 ? g.slot : g.contents_row);
+            cursor_created = true;
+        }
+        cursor->tick(scene_sim_step(g.clock.dt));
+    }
     if (g.frontend_mode == 1)
     {
         tick_menu_zoom(g.slot_visual, scene_sim_step(g.clock.dt));
@@ -3164,14 +3360,14 @@ void gameselect_tick(Game& g, const InputState& in)
             }
         }
     }
-    else if (g.frontend_mode == 1)
+    else if (g.frontend_mode == 1 && !menu_book_busy())
     {
         // 0x000E0210: direction 8 wraps the index down, direction 4 wraps it up. Both end in state 6.
-        if (in.down && !g.slot_down)
+        if (in.down && !g.slot_down && (g.slot_cursor->bat.state == 1 || g.slot_cursor->bat.state == 3))
         {
             g.slot = (g.slot + 1) % 3;
         }
-        if (in.up && !g.slot_up)
+        if (in.up && !g.slot_up && (g.slot_cursor->bat.state == 1 || g.slot_cursor->bat.state == 3))
         {
             g.slot = (g.slot + 2) % 3;
         }
@@ -3184,17 +3380,11 @@ void gameselect_tick(Game& g, const InputState& in)
             }
             else
             {
-                g.frontend_mode = 3;
-                g.contents_row = 0;
-                g.naming = false;
-                // 0x000E87F0 mode 3 opens the contents clip with flags 6.
-                movie_open_contents();
-                for (int i = 0; i < 3; ++i)
-                {
-                    g.contents_movie_frames[i] = 0;
-                    g.contents_movie_copied[i] = false;
-                }
-                std::cout << "frontend mode 3 slot contents\n";
+                // Xbox 0x000E02D0: queue widget 3 and book clip 0.
+                // 0x00083E20 installs it only after the first page threshold.
+                g.menu_book_target = 3;
+                g.slot_cursor->depart(g.slot);
+                begin_menu_book(g, 0);
             }
         }
         // 0x000E05D0 copies aid_script_ghoulies_gameselect_backtoattract from 0x00324F30
@@ -3205,7 +3395,7 @@ void gameselect_tick(Game& g, const InputState& in)
             script_request(g, "aid_script_ghoulies_gameselect_backtoattract");
         }
     }
-    else if (g.frontend_mode == 3)
+    else if (g.frontend_mode == 3 && !menu_book_busy())
     {
         // 0x000D9450 ticks the prompt widget. Move is 0x000DB450: direction 8
         // increments the row, direction 4 decrements it, then 0x000DA580 mode 6
@@ -3213,11 +3403,11 @@ void gameselect_tick(Game& g, const InputState& in)
         // zoom reaches 1, pushes mode 2 (Play), 5 (Features), or 4 (Challenges).
         // Those bodies place the row label and, for mode 2, the chapter buffer.
         // None of them request a script.
-        if (in.down && !g.slot_down)
+        if (in.down && !g.slot_down && (g.contents_cursor->bat.state == 1 || g.contents_cursor->bat.state == 3))
         {
             g.contents_row = (g.contents_row + 1) % 3;
         }
-        if (in.up && !g.slot_up)
+        if (in.up && !g.slot_up && (g.contents_cursor->bat.state == 1 || g.contents_cursor->bat.state == 3))
         {
             g.contents_row = (g.contents_row + 2) % 3;
         }
@@ -3241,7 +3431,9 @@ void gameselect_tick(Game& g, const InputState& in)
         }
         if (in.back && !g.slot_back)
         {
-            g.frontend_mode = 1;
+            // Xbox 0x000DB510: queue widget 1 and book clip 1 (3 to 2).
+            g.menu_book_target = 1;
+            begin_menu_book(g, 1);
         }
     }
     if (g.frontend_mode == 1 && (previous_mode != 1 || previous_slot != g.slot))
@@ -3251,6 +3443,10 @@ void gameselect_tick(Game& g, const InputState& in)
             g.slot_text = Game::MenuTextPool{};
         }
         begin_menu_zoom(g.slot_visual, slot_backdrop(g));
+        if (g.slot_cursor != nullptr && !cursor_created)
+        {
+            g.slot_cursor->move(g.slot);
+        }
     }
     if (g.frontend_mode == 3 && (previous_mode != 3 || previous_row != g.contents_row))
     {
@@ -3259,6 +3455,14 @@ void gameselect_tick(Game& g, const InputState& in)
             g.contents_text = Game::MenuTextPool{};
         }
         begin_menu_zoom(g.contents_visual, kContentsTextures[g.contents_row]);
+        if (g.contents_cursor == nullptr)
+        {
+            g.contents_cursor = std::make_shared<MenuCursor>(g);
+        }
+        if (!cursor_created)
+        {
+            g.contents_cursor->move(g.contents_row);
+        }
     }
     // Xbox 0x000DB450 / 0x000DACE0: release and reset the departing row
     // before 0x000D9F60 starts the newly selected movie.
@@ -3306,6 +3510,10 @@ void draw_ui(const Game& g)
         // Until that body is translated, the contents plates stay up for the
         // frame before 0x0011EB30's load replaces the scene.
         draw_contents(g);
+        if (g.contents_cursor != nullptr)
+        {
+            g.contents_cursor->draw();
+        }
         return;
     }
     // Naming is mode-table index 4. Its draw is 0x000DD170, which draws the
@@ -3335,6 +3543,10 @@ void draw_ui(const Game& g)
         draw_slot_select_copy(g);
     }
     draw_keyboard(g);
+    if (g.slot_cursor != nullptr)
+    {
+        g.slot_cursor->draw();
+    }
 }
 
 // Xbox 0x00046760: resolve mapname text and place it beside its map spot.

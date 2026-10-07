@@ -12,6 +12,8 @@
 namespace gbtg
 {
 
+struct MenuCursor;
+
 struct InputState
 {
     bool quit = false;
@@ -78,6 +80,9 @@ struct Game
     bool script_hold = false;
     // Contents plates. 0x000DB450 wraps this. 0 Play, 1 Features, 2 Challenges.
     int contents_row = 0;
+    std::shared_ptr<MenuCursor> slot_cursor;
+    std::shared_ptr<MenuCursor> contents_cursor;
+    int menu_book_target = 0; // scene-control +0x94, pending widget index.
     // Plate/backdrop state: slot +0xB70/+0xB74, contents +0xCB8/+0xCBC.
     // Both 0x000DE990 and 0x000D9F10 override button-bat +0x93C with 0.4.
     struct MenuVisual

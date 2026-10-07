@@ -29,6 +29,9 @@ void draw_ui(const Game& g);
 float attract_caption_dt(const Game& g, float dt);
 void draw_cutscene_props(Game& g);
 void draw_scene_transition(Game& g);
+void begin_menu_book(Game& g, int clip); // Xbox 0x00048260, menu owner +0x120.
+bool tick_menu_book(Game& g); // Xbox 0x00083E20 / 0x00083D90.
+bool menu_book_busy(); // Xbox 0x00083C40.
 void draw_map_label(const Game& g, std::string_view key, float x, float y, float spot_height);
 void prepare_dialogue_texture(const Game& g);
 void pad_tick(Game& g, const InputState& in); // Xbox 0x000FA3C0 / 0x000FAD80

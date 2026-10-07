@@ -48,6 +48,9 @@ struct TransitionBook
     i32 released_busy = 0; // transition+0x304C
 };
 std::unique_ptr<TransitionBook> g_transition_book;
+std::unique_ptr<TransitionBook> g_menu_book;
+std::array<RgbaImage, 2> g_book_pages; // DAT_005047D8 / DAT_005047E4.
+constexpr std::array<int, 4> kBookPageTargets{0, 1, 1, 0}; // 0x00423194.
 Game* g_transition_game = nullptr;
 i32 g_546338 = 0; // transition+0x10: clip
 i32 g_54633c = 0; // transition+0x14: route
@@ -373,6 +376,34 @@ void transition_capture_page(TransitionBook& book)
     }
 }
 
+// Xbox 0x00048110 binds colour0 to one of two shared dynamic textures.
+void bind_book_page(TransitionBook& book, size_t page, const RgbaImage& frame)
+{
+    const std::string shader = "shader_page" + std::to_string(page + 1);
+    for (auto& prop : book.view.cutscene_props)
+    {
+        for (auto& submesh : prop.mesh.submeshes)
+        {
+            if (submesh.shader_name == shader)
+            {
+                i32 texture = submesh.texture;
+                if (texture < 0)
+                {
+                    texture = i32(prop.mesh.textures.size());
+                    prop.mesh.textures.push_back(frame);
+                }
+                else
+                {
+                    prop.mesh.textures.at(size_t(texture)) = frame;
+                }
+                submesh.texture = texture;
+                submesh.stages[0] = texture;
+            }
+        }
+        gfx_release_mesh(prop.mesh);
+    }
+}
+
 // Xbox 0x00048260. 0x0004D680 instances the selected clip; 0x0004EA50
 // resolves its named model. Mesh and MINA decoding use the shared parsers.
 std::unique_ptr<TransitionBook> fn_48260(Game& g, i32 clip)
@@ -392,6 +423,14 @@ std::unique_ptr<TransitionBook> fn_48260(Game& g, i32 clip)
     }
     book->view.scene_bundle = &book->resident;
     sync_cutscene_props(book->view);
+    for (size_t page = 0; page < kBookPageTargets.size(); ++page)
+    {
+        const auto& frame = g_book_pages[size_t(kBookPageTargets[page])];
+        if (!frame.bgra.empty())
+        {
+            bind_book_page(*book, page, frame);
+        }
+    }
     std::cout << "transition book begin " << entry.aid << " duration=" << q.items[0].duration << "s\n";
     return book;
 }
@@ -911,18 +950,8 @@ void fn_47770(Game& g, TransitionBook& book)
 
 // Xbox 0x0012B560 / 0x00048550. Copy the scene target into the selected
 // page before switching camera and submitting the book and map overlay.
-void draw_scene_transition(Game& g)
+void draw_transition_book(Game& g, TransitionBook& book)
 {
-    if (g_54632c != 0 && kTransition31478[g_546328].handler == 2)
-    {
-        fn_12be60();
-        return;
-    }
-    if (g_54632c == 0 || g_transition_book == nullptr)
-    {
-        return;
-    }
-    auto& book = *g_transition_book;
     book.view.time = g.time;
     for (size_t page = 0; page < book.capture.size(); ++page)
     {
@@ -931,29 +960,15 @@ void draw_scene_transition(Game& g)
             RgbaImage frame;
             if (gfx_readback(frame))
             {
-                const std::string shader = "shader_page" + std::to_string(page + 1);
-                for (auto& prop : book.view.cutscene_props)
+                const int target = kBookPageTargets[page];
+                frame.serial = g_book_pages[size_t(target)].serial + 1;
+                g_book_pages[size_t(target)] = frame;
+                for (size_t shared_page = 0; shared_page < kBookPageTargets.size(); ++shared_page)
                 {
-                    for (auto& submesh : prop.mesh.submeshes)
+                    if (kBookPageTargets[shared_page] == target)
                     {
-                        if (submesh.shader_name == shader)
-                        {
-                            i32 texture = submesh.texture;
-                            if (texture < 0)
-                            {
-                                texture = i32(prop.mesh.textures.size());
-                                prop.mesh.textures.push_back(frame);
-                            }
-                            else
-                            {
-                                frame.serial = prop.mesh.textures.at(size_t(texture)).serial + 1;
-                                prop.mesh.textures[size_t(texture)] = frame;
-                            }
-                            submesh.texture = texture;
-                            submesh.stages[0] = texture;
-                        }
+                        bind_book_page(book, shared_page, frame);
                     }
-                    gfx_release_mesh(prop.mesh);
                 }
             }
             book.capture[page] = 0;
@@ -971,4 +986,62 @@ void draw_scene_transition(Game& g)
     gfx_set_camera(position, orientation, fov);
     draw_cutscene_props(book.view);
     fn_47770(g, book);
+}
+
+// Xbox 0x000E02D0 / 0x000DB510: the menu owns its book independently
+// of the scene-loading transition. Both callbacks pass flags 1, no map.
+void begin_menu_book(Game& g, int clip)
+{
+    g_menu_book = fn_48260(g, clip);
+    transition_capture_page(*g_menu_book);
+}
+
+// Xbox 0x00083C40: global scene transition or a live menu book blocks input.
+bool menu_book_busy()
+{
+    return g_54632c != 0 || g_menu_book != nullptr;
+}
+
+// Xbox 0x00083E20 checks the first threshold before 0x00083D90 advances
+// the book. Equality retains the old widget; completion releases next tick.
+bool tick_menu_book(Game& g)
+{
+    if (g_menu_book == nullptr)
+    {
+        return false;
+    }
+    auto& book = *g_menu_book;
+    const auto& q = book.view.cutscenes;
+    const bool ready = kTransitionBooks[book.clip].first < q.time / q.items[0].duration;
+    if (book.done != 0)
+    {
+        release_props(book.view);
+        g_menu_book.reset();
+        return ready;
+    }
+    const float previous_step = g_sim_dt;
+    g_sim_dt = g.clock.dt;
+    fn_483e0(g, book);
+    g_sim_dt = previous_step;
+    transition_capture_page(book);
+    return ready;
+}
+
+// Xbox 0x0012B560 / menu 0x00048550.
+void draw_scene_transition(Game& g)
+{
+    if (g_menu_book != nullptr)
+    {
+        draw_transition_book(g, *g_menu_book);
+        return;
+    }
+    if (g_54632c != 0 && kTransition31478[g_546328].handler == 2)
+    {
+        fn_12be60();
+        return;
+    }
+    if (g_54632c != 0 && g_transition_book != nullptr)
+    {
+        draw_transition_book(g, *g_transition_book);
+    }
 }

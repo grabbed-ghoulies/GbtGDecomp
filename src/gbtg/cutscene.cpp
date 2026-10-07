@@ -368,6 +368,38 @@ bool sample_cutscene_camera(const Cutscene& cut, float time, Vec3& position, Qua
     return true;
 }
 
+// Xbox 0x0004C6C0, the normal playback path used by 0x0004DA50.
+bool cutscene_event_phase(float start, float end, float time, float previous, u32& phase)
+{
+    if (end == 0.f)
+    {
+        if (previous <= start && start < time)
+        {
+            phase = 0;
+            return true;
+        }
+    }
+    else
+    {
+        if (previous <= start && start < time)
+        {
+            phase = 0;
+            return true;
+        }
+        if (previous <= end && end < time)
+        {
+            phase = 1;
+            return true;
+        }
+        if (start < time && time < end)
+        {
+            phase = 2;
+            return true;
+        }
+    }
+    return false;
+}
+
 Cutscene parse_cutscene(std::span<const u8> cpu, std::string_view name)
 {
     Cutscene c;

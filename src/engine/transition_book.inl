@@ -46,6 +46,8 @@ struct TransitionBook
     float footstep = 0.f; // +0x164
     std::array<i32, 4> capture{}; // page +0x94
     i32 released_busy = 0; // transition+0x304C
+    std::span<const u8> camera_events; // cutscene +0x24, loaded by 0x0004E020.
+    std::array<u64, 3> sound_windows{}; // +0x48: event slot -> acquired voice.
 };
 std::unique_ptr<TransitionBook> g_transition_book;
 std::unique_ptr<TransitionBook> g_menu_book;
@@ -397,10 +399,105 @@ void bind_book_page(TransitionBook& book, size_t page, const RgbaImage& frame)
                     prop.mesh.textures.at(size_t(texture)) = frame;
                 }
                 submesh.texture = texture;
-                submesh.stages[0] = texture;
+                if (submesh.colour0_stage >= 0 && submesh.colour0_stage < i32(submesh.stages.size()))
+                {
+                    submesh.stages[size_t(submesh.colour0_stage)] = texture;
+                }
             }
         }
         gfx_release_mesh(prop.mesh);
+    }
+}
+
+// Xbox 0x000481E0. The assembly passes table +0x11C in AL to 0x000F96F0.
+void fn_481e0(TransitionBook& book)
+{
+    const auto& entry = kTransitionBooks[book.clip];
+    if (entry.material != -1)
+    {
+        for (auto& prop : book.view.cutscene_props)
+        {
+            if (prop.mesh.name == entry.model)
+            {
+                fn_f96f0(prop.mesh.node_flags, u8(entry.material), u8(entry.flag_11c));
+            }
+        }
+    }
+}
+
+// Xbox 0x0004E020 / 0x0004C640. Missing optional event resources return null.
+void load_book_camera_events(Game& g, TransitionBook& book)
+{
+    std::string name = kTransitionBooks[book.clip].aid;
+    const size_t separator = name.find('_', 4);
+    name = "aid_cutsceneevents" + name.substr(separator) + "_camera";
+    if (const auto* events = g.aids.load_aid(name))
+    {
+        book.camera_events = events->cpu;
+    }
+}
+
+// Xbox 0x0004D370, sound arms of 0x0004C850 (types 1/2, 0xC and 0x1E).
+void dispatch_book_sound_events(Game& g, TransitionBook& book)
+{
+    size_t offset = 0;
+    const auto& q = book.view.cutscenes;
+    while (offset + 16 <= book.camera_events.size())
+    {
+        const auto remaining = book.camera_events.subspan(offset);
+        const u16 type = read_u16(remaining, 0xC);
+        if (type == 0)
+        {
+            break;
+        }
+        const u32 size = read_u32(remaining, 0);
+        if (size < 16 || size > remaining.size())
+        {
+            throw Error("book cutscene event record out of range");
+        }
+        const auto record = remaining.first(size);
+        u32 phase = 0;
+        if (cutscene_event_phase(read_f32(record, 4), read_f32(record, 8), q.time, book.previous, phase))
+        {
+            switch (type)
+            {
+            case 1:
+            case 2:
+            case 0x1E:
+                pcm_play_owned_cue(g, transition_string(record, 0x10).c_str());
+                break;
+            case 0xC:
+            {
+                u64& handle = book.sound_windows.at(read_u32(record, 0x10));
+                if (phase == 0)
+                {
+                    handle = pcm_play_owned_cue(g, transition_string(record, 0x14).c_str());
+                }
+                else if (phase == 1 && handle != 0)
+                {
+                    pcm_stop_owned_cue(handle);
+                    handle = 0;
+                }
+                break;
+            }
+            default:
+                throw Error("untranslated book cutscene event type " + std::to_string(type));
+            }
+        }
+        offset += size;
+    }
+}
+
+// Active host voices in the three slots stopped by 0x0004C420 / 0x0004D720.
+void release_book_sound_windows(TransitionBook& book)
+{
+    for (u64& handle : book.sound_windows)
+    {
+        if (handle != 0)
+        {
+            pcm_stop_owned_cue(handle);
+            handle = 0;
+        }
     }
 }
 
@@ -423,6 +520,7 @@ std::unique_ptr<TransitionBook> fn_48260(Game& g, i32 clip)
     }
     book->view.scene_bundle = &book->resident;
     sync_cutscene_props(book->view);
+    load_book_camera_events(g, *book);
     for (size_t page = 0; page < kBookPageTargets.size(); ++page)
     {
         const auto& frame = g_book_pages[size_t(kBookPageTargets[page])];
@@ -431,6 +529,7 @@ std::unique_ptr<TransitionBook> fn_48260(Game& g, i32 clip)
             bind_book_page(*book, page, frame);
         }
     }
+    fn_481e0(*book);
     std::cout << "transition book begin " << entry.aid << " duration=" << q.items[0].duration << "s\n";
     return book;
 }
@@ -577,6 +676,11 @@ void fn_483e0(Game& g, TransitionBook& book)
                 {
                     q.time = 0.f;
                 }
+                // 0x0004DA50 dispatches only with an unpaused clock and nonzero delta.
+                if ((g_sim_freeze <= 0.f ? g_sim_dt * g_sim_scale : 0.f) != 0.f)
+                {
+                    dispatch_book_sound_events(g, book);
+                }
             }
             const int ended = q.items[0].duration <= q.time;
             if (book.hold == 0)
@@ -699,6 +803,7 @@ void fn_12b5a0()
     if (g_transition_book != nullptr)
     {
         fn_473d0(*g_transition_book);
+        release_book_sound_windows(*g_transition_book);
         release_props(g_transition_book->view);
         g_transition_book.reset();
     }
@@ -958,7 +1063,7 @@ void draw_transition_book(Game& g, TransitionBook& book)
         if (book.capture[page] != 0)
         {
             RgbaImage frame;
-            if (gfx_readback(frame))
+            if (gfx_readback_ui(frame))
             {
                 const int target = kBookPageTargets[page];
                 frame.serial = g_book_pages[size_t(target)].serial + 1;
@@ -1015,6 +1120,7 @@ bool tick_menu_book(Game& g)
     const bool ready = kTransitionBooks[book.clip].first < q.time / q.items[0].duration;
     if (book.done != 0)
     {
+        release_book_sound_windows(book);
         release_props(book.view);
         g_menu_book.reset();
         return ready;
@@ -1044,4 +1150,74 @@ void draw_scene_transition(Game& g)
     {
         draw_transition_book(g, *g_transition_book);
     }
+}
+
+struct NamingBackground
+{
+    Game view;
+    Bundle resident;
+};
+std::unique_ptr<NamingBackground> g_naming_background;
+
+// Xbox 0x000DCEC0: cutscene instance +4, flags 6, initial time DAT_0042A0CC = 0.
+void begin_naming_background(Game& g)
+{
+    if (g_naming_background != nullptr)
+    {
+        release_props(g_naming_background->view);
+    }
+    g_naming_background = std::make_unique<NamingBackground>();
+    auto& background = *g_naming_background;
+    const char* name = "aid_cutscene_ghoulies_dialogs_dialogpage1";
+    const auto& resource = transition_resource(g, name);
+    auto& queue = background.view.cutscenes;
+    queue.items.push_back(parse_cutscene(resource.cpu, name));
+    queue.playing = true;
+    queue.loop = true;
+    for (const auto& actor : queue.items[0].actors)
+    {
+        background.resident.entries.push_back(transition_resource(g, actor.model));
+    }
+    background.view.scene_bundle = &background.resident;
+    sync_cutscene_props(background.view);
+}
+
+// Xbox 0x000DD0A0: rewind before advancement once the clip reaches its duration.
+void tick_naming_background(Game& g)
+{
+    if (g.frontend_mode != 4)
+    {
+        if (g_naming_background != nullptr)
+        {
+            release_props(g_naming_background->view);
+            g_naming_background.reset();
+        }
+        return;
+    }
+    auto& queue = g_naming_background->view.cutscenes;
+    if (queue.items[0].duration <= queue.time)
+    {
+        queue.time = 0.f;
+    }
+    queue.time += scene_sim_step(g.clock.dt);
+    if (queue.items[0].duration < queue.time)
+    {
+        queue.time = queue.items[0].duration;
+    }
+}
+
+// Xbox 0x000DD170: draw the widget's cutscene before its keyboard.
+void draw_naming_background(const Game& g)
+{
+    auto& view = g_naming_background->view;
+    view.time = g.time;
+    Vec3 position;
+    Quat orientation;
+    float fov = 0.f;
+    if (!sample_cutscene_camera(view.cutscenes.items[0], view.cutscenes.time, position, orientation, fov))
+    {
+        throw Error("naming cutscene camera missing");
+    }
+    gfx_set_camera(position, orientation, fov);
+    draw_cutscene_props(view);
 }

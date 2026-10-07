@@ -13,6 +13,7 @@ struct Submesh
     u32 first_index = 0;
     u32 index_count = 0;
     i32 texture = -1; // -1 untextured, -2 skip draw (colour0)
+    i32 colour0_stage = -1; // ndShaderParam2 named texture index, not necessarily stage 0.
     i32 layer1 = -1;  // colour1 (often a light layer on env meshes)
     i32 detail = -1;  // colour2/colour3 detail layer
     i32 lightmap = -1;
@@ -34,6 +35,8 @@ struct Submesh
     std::array<u8, 2> colour_source{255, 255}; // declared direct MOV to oD0/oD1
     u8 skin_weight_mask = 0; // zero: rigid shader does not read the weight stream
     bool uses_skin_palette = false;
+    std::int8_t node_state_slot = -1; // ndPushBuffer +0x3D; -1 draws unconditionally.
+    u8 node_state_value = 0; // +0x3E, compared with the instance's two-bit state.
 };
 
 // Skeleton joint from ndSkeleton. parent is the u16 at record +0 (0xFFFF is the root).
@@ -71,8 +74,10 @@ struct Mesh
     std::vector<Submesh> submeshes;
     std::vector<RgbaImage> textures;
     std::vector<std::string> issues; // missing rendering paths; never substitute invented geometry
+    std::array<u8, 8> node_flags{}; // instance +0x294, initialized by 0x000F9840.
 };
 
+bool model_submesh_visible(const Mesh& mesh, std::int8_t slot, u8 value); // Xbox 0x00158240
 Mesh parse_model(const BundleEntry& entry);
 std::vector<Mesh> extract_models(const Bundle& bundle);
 

@@ -77,5 +77,8 @@ void gfx_end_frame();
 
 // Last presented target as BGRA. False when the backend has no target.
 bool gfx_readback(RgbaImage& out);
+// CopyRects source for UI pages: flush queued quads and copy the fitted
+// 4:3 game viewport, excluding host letterboxing.
+bool gfx_readback_ui(RgbaImage& out);
 
 } // namespace gbtg

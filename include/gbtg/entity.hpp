@@ -601,6 +601,9 @@ u32 fn_1fe00(const EntityMaskHost& host);
 // fit_w / fit_x are the 0x000F56C0 outs. fov_deg, pixel_aspect, and focal_px are the three floats.
 void fn_f57f0(float focal, i32 aspect_slot, i32& fit_w, i32& fit_x, i32& fit_h, i32& fit_y, float& fov_deg,
               float& pixel_aspect, float& focal_px);
+// Host view of the viewport fields fitted by 0x000F56C0 / 0x000F5760.
+void fit_display_viewport(i32 width, i32 height, i32 aspect_slot,
+    i32& fit_w, i32& fit_x, i32& fit_h, i32& fit_y);
 
 constexpr i32 kMsgCameraTranslate = 99;
 

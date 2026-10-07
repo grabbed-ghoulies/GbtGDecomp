@@ -329,6 +329,7 @@ void kb_clamp_col(Game& g)
 
 void kb_open(Game& g)
 {
+    begin_naming_background(g);
     // 0x000E02D0 empty slot: object +0x94 = 4. 0x000DCEC0 loads
     // supportsavedgame__defaultnewgamename into the naming widget. 0x000110D0
     // copies that into the keyboard, and 0x00011870 stores its length at +0xA8,
@@ -3488,6 +3489,7 @@ void gameselect_tick(Game& g, const InputState& in)
     g.slot_page = in.page;
     g.slot_caret_left = in.caret_left;
     g.slot_caret_right = in.caret_right;
+    tick_naming_background(g);
 }
 
 void draw_ui(const Game& g)
@@ -3520,6 +3522,7 @@ void draw_ui(const Game& g)
     // keyboard object and not the three slot plates.
     if (g.frontend_mode == 4)
     {
+        draw_naming_background(g);
         draw_keyboard(g);
         return;
     }

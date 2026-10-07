@@ -4,6 +4,7 @@
 
 #include "gbtg/gfx.hpp"
 #include "gbtg/movie.hpp"
+#include "gbtg/entity.hpp"
 
 #if defined(GBTG_DEBUG_UI)
 #include "gbtg/debug_ui.hpp"
@@ -34,6 +35,7 @@ namespace gbtg
 namespace
 {
 void present_hud_viewport();
+void present_camera_viewport();
 void present_hud_sprites();
 
 struct Mat4
@@ -88,6 +90,8 @@ static_assert(sizeof(GpuCB) == 144 && offsetof(GpuCB, skin_mask) == 128);
 
 struct DrawRange
 {
+    std::int8_t node_state_slot = -1;
+    u8 node_state_value = 0;
     ComPtr<ID3D11ShaderResourceView> srv;
     ComPtr<ID3D11ShaderResourceView> light;
     i32 tex_index = -1;
@@ -510,6 +514,8 @@ bool upload_mesh(const Mesh& mesh, GpuMesh& gpu)
         }
         DrawRange range;
         range.start = sub.first_index;
+        range.node_state_slot = sub.node_state_slot;
+        range.node_state_value = sub.node_state_value;
         range.count = sub.index_count;
         range.albedo_uv = float(sub.albedo_uv);
         range.light_uv = float(sub.lightmap_uv);
@@ -1753,8 +1759,9 @@ void gfx_set_camera(const Vec3& position, const Quat& orientation, float fov_y)
     const Vec3 up = quat_rotate(orientation, Vec3{0.f, 1.f, 0.f});
     const Vec3 at{position.x + forward.x, position.y + forward.y, position.z + forward.z};
     // Xbox 0x000F5FD0: mode-0 projection uses the retail aspect table
-    // and its 1.1 pixel-aspect multiplier. Fit the host viewport separately.
-    present_hud_viewport();
+    // and its 1.1 pixel-aspect multiplier. 0x000F6170 submits the fitted
+    // camera viewport, not the full HUD viewport.
+    present_camera_viewport();
     const float aspect = (640.f / 480.f) * 1.1f;
     g.mvp = mul(perspective(fov_y, aspect, 0.1f, 2000.f), look_at(position, at, up));
 }
@@ -1766,7 +1773,7 @@ void gfx_release_mesh(const Mesh& mesh)
 
 void gfx_set_dialog_camera(const Vec3& position, const Quat& orientation, float fov_y)
 {
-    present_hud_viewport();
+    present_camera_viewport();
     const Vec3 forward = quat_rotate(orientation, Vec3{0.f, 0.f, -1.f});
     const Vec3 up = quat_rotate(orientation, Vec3{0.f, 1.f, 0.f});
     const Vec3 at{position.x + forward.x, position.y + forward.y, position.z + forward.z};
@@ -1997,6 +2004,11 @@ void gfx_draw_mesh(const Mesh& mesh, Vec3 origin, Vec3 scale)
     {
     for (const auto& range : gpu.ranges)
     {
+        // Xbox 0x001582A0 calls 0x00158240 before submitting any sections.
+        if (!model_submesh_visible(mesh, range.node_state_slot, range.node_state_value))
+        {
+            continue;
+        }
         const bool front = range.tex_index >= 0 && size_t(range.tex_index) < mesh.textures.size() &&
                            mesh.textures[size_t(range.tex_index)].movie_front;
         if (front != (pass == 1))
@@ -2732,6 +2744,23 @@ void present_hud_viewport()
     g.context->RSSetViewports(1, &vp);
 }
 
+// Xbox 0x000F6170. Translate the logical retail viewport into the fitted
+// host game area after 0x000F5760 / 0x000F56C0's integer truncation.
+void present_camera_viewport()
+{
+    present_hud_viewport();
+    i32 width, x, height, y;
+    fit_display_viewport(640, 480, 0, width, x, height, y);
+    D3D11_VIEWPORT vp{};
+    UINT count = 1;
+    g.context->RSGetViewports(&count, &vp);
+    vp.TopLeftX += vp.Width * float(x) / 640.f;
+    vp.TopLeftY += vp.Height * float(y) / 480.f;
+    vp.Width *= float(width) / 640.f;
+    vp.Height *= float(height) / 480.f;
+    g.context->RSSetViewports(1, &vp);
+}
+
 // Quads submitted through 0x0005CA60, drawn in the HUD viewport.
 void present_hud_sprites()
 {
@@ -2880,6 +2909,31 @@ bool gfx_readback(RgbaImage& out)
         std::memcpy(out.bgra.data() + size_t(y) * out.width * 4, row, size_t(out.width) * 4);
     }
     g.context->Unmap(staging.Get(), 0);
+    return true;
+}
+
+bool gfx_readback_ui(RgbaImage& out)
+{
+    present_hud_sprites();
+    gfx_sprite_clear();
+    RgbaImage frame;
+    if (!gfx_readback(frame))
+    {
+        return false;
+    }
+    const int width = std::min(frame.width, frame.height * 4 / 3);
+    const int height = std::min(frame.height, frame.width * 3 / 4);
+    const int left = (frame.width - width) / 2;
+    const int top = (frame.height - height) / 2;
+    out.width = width;
+    out.height = height;
+    out.bgra.resize(size_t(width) * height * 4);
+    for (int row = 0; row < height; ++row)
+    {
+        std::memcpy(out.bgra.data() + size_t(row) * width * 4,
+            frame.bgra.data() + (size_t(row + top) * frame.width + left) * 4,
+            size_t(width) * 4);
+    }
     return true;
 }
 

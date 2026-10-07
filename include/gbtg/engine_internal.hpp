@@ -32,6 +32,9 @@ void draw_scene_transition(Game& g);
 void begin_menu_book(Game& g, int clip); // Xbox 0x00048260, menu owner +0x120.
 bool tick_menu_book(Game& g); // Xbox 0x00083E20 / 0x00083D90.
 bool menu_book_busy(); // Xbox 0x00083C40.
+void begin_naming_background(Game& g); // Xbox 0x000DCEC0.
+void tick_naming_background(Game& g); // Xbox 0x000DD0A0.
+void draw_naming_background(const Game& g); // Xbox 0x000DD170.
 void draw_map_label(const Game& g, std::string_view key, float x, float y, float spot_height);
 void prepare_dialogue_texture(const Game& g);
 void pad_tick(Game& g, const InputState& in); // Xbox 0x000FA3C0 / 0x000FAD80
@@ -43,6 +46,8 @@ void pcm_dialog_hold(bool hold);
 void pcm_dialog_advance(const Game& g, const char* cue);
 // Cue-list name, the same key build_catalog stores. loop keeps the voice up.
 void pcm_play_cue(const Game& g, const char* cue, bool loop);
+u64 pcm_play_owned_cue(const Game& g, const char* cue);
+void pcm_stop_owned_cue(u64 handle);
 void pcm_stop_cue(const char* cue);
 // S16 interleaved PCM. The buffer is copied. loop keeps the voice on the bed list.
 void pcm_play_pcm(const char* cue, const std::vector<u8>& pcm, int rate, int channels, bool loop, float volume);

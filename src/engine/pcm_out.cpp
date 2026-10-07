@@ -88,6 +88,7 @@ struct WaveFile
 
 struct PcmVoice
 {
+    u64 handle = 0;
     IXAudio2SourceVoice* voice = nullptr;
     std::vector<u8> pcm;
     std::string cue;
@@ -99,6 +100,7 @@ IXAudio2MasteringVoice* g_master = nullptr;
 float g_master_volume = 1.f;
 std::vector<PcmVoice> g_voices;
 std::vector<PcmVoice> g_bed;
+u64 g_next_voice_handle = 0;
 bool g_device_failed = false;
 bool g_catalog_ready = false;
 std::map<std::string, WaveFile> g_wavefiles;                 // WBND name -> file
@@ -621,11 +623,11 @@ bool load_wave(const WaveChoice& choice, std::vector<u8>& pcm, WAVEFORMATEX& fmt
     return true;
 }
 
-void play_choice(const std::string& cue, const WaveChoice& choice, bool loop = false, bool bed = false)
+u64 play_choice(const std::string& cue, const WaveChoice& choice, bool loop = false, bool bed = false)
 {
     if (!ensure_device())
     {
-        return;
+        return 0;
     }
     reap_voices();
     PcmVoice slot;
@@ -633,12 +635,12 @@ void play_choice(const std::string& cue, const WaveChoice& choice, bool loop = f
     if (!load_wave(choice, slot.pcm, fmt))
     {
         std::cout << "audio skip " << cue << " " << choice.bank << "[" << choice.index << "]\n";
-        return;
+        return 0;
     }
     if (FAILED(g_xa->CreateSourceVoice(&slot.voice, &fmt)))
     {
         std::cout << "audio voice failed " << cue << "\n";
-        return;
+        return 0;
     }
     slot.voice->SetVolume(1.f);
     XAUDIO2_BUFFER buf{};
@@ -649,9 +651,15 @@ void play_choice(const std::string& cue, const WaveChoice& choice, bool loop = f
     if (FAILED(slot.voice->SubmitSourceBuffer(&buf)))
     {
         slot.voice->DestroyVoice();
-        return;
+        return 0;
     }
-    slot.voice->Start(0);
+    if (FAILED(slot.voice->Start(0)))
+    {
+        slot.voice->DestroyVoice();
+        return 0;
+    }
+    const u64 handle = ++g_next_voice_handle;
+    slot.handle = handle;
     slot.cue = cue;
     std::cout << "audio cue " << cue << " " << choice.bank << "[" << choice.index << "]\n";
     // Cutscene sync stops g_voices whenever no clip is playing. A cue the
@@ -664,6 +672,7 @@ void play_choice(const std::string& cue, const WaveChoice& choice, bool loop = f
     {
         g_voices.push_back(std::move(slot));
     }
+    return handle;
 }
 
 const WaveChoice* pick_choice(const std::vector<WaveChoice>& waves, u32 frame)
@@ -948,6 +957,62 @@ void pcm_play_cue(const Game& g, const char* cue, bool loop)
     (void)g;
     (void)cue;
     (void)loop;
+#endif
+}
+
+// Native audio boundary at the retail cue play calls. A failed host voice returns 0.
+// The book owns its handles independently of the scene cutscene's voice list.
+u64 pcm_play_owned_cue(const Game& g, const char* cue)
+{
+#if defined(_WIN32)
+    for (size_t i = 0; i < g_bed.size();)
+    {
+        XAUDIO2_VOICE_STATE state{};
+        g_bed[i].voice->GetState(&state);
+        if (g_bed[i].handle != 0 && state.BuffersQueued == 0)
+        {
+            release_voice(g_bed[i]);
+            g_bed.erase(g_bed.begin() + static_cast<std::ptrdiff_t>(i));
+        }
+        else
+        {
+            ++i;
+        }
+    }
+    build_catalog(g);
+    const auto found = g_cues.find(cue);
+    if (found == g_cues.end())
+    {
+        std::cout << "audio unmapped " << cue << "\n";
+        return 0;
+    }
+    if (const WaveChoice* choice = pick_choice(found->second, g.frame))
+    {
+        return play_choice(cue, *choice, false, true);
+    }
+#else
+    (void)g;
+    (void)cue;
+#endif
+    return 0;
+}
+
+// Native audio boundary at 0x00039690. Stop the voice acquired by this event.
+void pcm_stop_owned_cue(u64 handle)
+{
+#if defined(_WIN32)
+    for (size_t i = 0; i < g_bed.size(); ++i)
+    {
+        if (g_bed[i].handle == handle)
+        {
+            std::cout << "audio cue stop " << g_bed[i].cue << "\n";
+            release_voice(g_bed[i]);
+            g_bed.erase(g_bed.begin() + static_cast<std::ptrdiff_t>(i));
+            return;
+        }
+    }
+#else
+    (void)handle;
 #endif
 }
 

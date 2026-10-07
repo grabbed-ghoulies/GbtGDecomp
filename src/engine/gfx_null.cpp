@@ -635,4 +635,9 @@ bool gfx_readback(RgbaImage&)
     return false;
 }
 
+bool gfx_readback_ui(RgbaImage&)
+{
+    return false;
+}
+
 } // namespace gbtg

@@ -17171,7 +17171,7 @@ int fn_fbfb0(i32 count, const char* const* table, const char* key)
 }
 
 // Xbox 0x000F96F0. AL is the value. The stack byte selects the pair at +0x294.
-void fn_f96f0(CamPairObject* obj, u8 index, u8 value)
+void fn_f96f0(std::span<u8> pairs, u8 index, u8 value)
 {
     const int pair = int(index) * 2;
     const int byte_index = pair >> 3;
@@ -17182,10 +17182,15 @@ void fn_f96f0(CamPairObject* obj, u8 index, u8 value)
     }
     const u8 mask = static_cast<u8>(3u << shift);
     const u8 packed = static_cast<u8>(value << shift);
-    u8 cur = obj->pairs[byte_index];
+    u8 cur = pairs[byte_index];
     cur = static_cast<u8>(cur & static_cast<u8>(~mask));
     cur = static_cast<u8>(cur | packed);
-    obj->pairs[byte_index] = cur;
+    pairs[byte_index] = cur;
+}
+
+void fn_f96f0(CamPairObject* obj, u8 index, u8 value)
+{
+    fn_f96f0(obj->pairs, index, value);
 }
 
 // Xbox 0x00117400. Bit 0 of the mask drives DAT_0050E764. Bit 1 drives

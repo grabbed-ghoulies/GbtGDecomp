@@ -67,6 +67,8 @@ struct CutsceneQueue
 };
 
 Cutscene parse_cutscene(std::span<const u8> cpu, std::string_view name = {});
+// Xbox 0x0004C6C0, ordinary forward playback (force/filter arguments zero).
+bool cutscene_event_phase(float start, float end, float time, float previous, u32& phase);
 
 float sample_curve(const CutsceneCurve& curve, float time, float duration);
 // Position, quaternion, and fov (radians) from the camera channels. False when the clip has none.

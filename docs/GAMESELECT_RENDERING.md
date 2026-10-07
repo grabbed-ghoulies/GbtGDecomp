@@ -16,10 +16,51 @@ threshold comparison controls the widget switch. The independent menu book
 advances and releases according to `0x00083D90`, and `0x00083C40` blocks input
 while a book or scene transition is live. Page captures preserve `0x00048110`'s
 two shared texture bindings: pages 1/4 share target 0, pages 2/3 target 1.
+The CopyRects host boundary flushes pending UI quads and captures the fitted
+4:3 game viewport without host letterboxing. Copying a widescreen backbuffer
+directly into a page incorrectly compressed the game image as the page turned.
+The named `colour0` index is retained from the material name table and used
+when replacing a page texture (`0x00048110` / `0x0015B2B0`). In the retail
+book it is stage 1; stage 0 remains the original ramp texture.
+
+Camera draws now use the fitted viewport submitted by `0x000F6170`, through
+the existing `0x000F5760` / `0x000F56C0` translations. With the current retail
+aspect settings the logical rectangle is (0,22), 640x436. Previously the
+projection included the 1.1 aspect multiplier but drew into 640x480, stretching
+the camera image vertically. HUD and CopyRects continue to use the full game
+area. The book material's literal UV scale is 640x480, with no additional inset
+in that matrix. The actual inset is a separate authored surface, selected by
+`0x00158240`: ndPushBuffer +0x3D selects a two-bit instance state, compared with
++0x3E; -1 bypasses the check. The host previously submitted both the inset and
+full-page alternatives, allowing the full-page screen to cover the paper border.
+The parser retains these bytes from the node, separately from its index payload,
+and D3D checks the current instance state before submitting the range. Instance
+states start at zero, and book setup now applies `0x000481E0` / `0x000F96F0`
+(table +0x118 selects the slot, +0x11C supplies the value in AL). Forward and
+reverse captures now retain the inset borders at the open-book phase. Exact
+shader parity still requires retail comparison; the host material fallback
+remains in use for generated vertex-light texture coordinates.
+
+Naming now owns `aid_cutscene_ghoulies_dialogs_dialogpage1`, loaded by
+`0x000DCEC0` with initial time 0. `0x000DD0A0` rewinds at the clip's duration
+before advancing; `0x000DD170` draws that cutscene behind the keyboard. Its
+retail backdrop and four animated dialog bats are no longer omitted.
+
+Book setup also loads the optional `aid_cutsceneevents_<clip>_camera` resource
+named by `0x0004E020` / `0x0004C640`. Normal playback dispatches its sound
+records using `0x0004C6C0`'s strict time crossings through `0x0004DA50` /
+`0x0004D370`: harp at 0.03 seconds, wind from time zero, and page turn at
+3.16096 seconds forward or 0.941951 seconds backward. Type 0xC retains its
+acquired native voice handle and stops that handle after the window ends;
+cutscene teardown releases the three sound-window slots. Book voices have
+independent ownership from the scene cutscene, so its audio sync cannot cancel
+them. The cues and timing come from the retail event resources.
 
 Validation uses the actual `Game::tick` and `draw_ui` path with retail assets and
 D3D readback: standing and flying bats, occupied-slot forward page turn,
-contents page, and reverse turn back to slots. This replaces the earlier
+contents page, reverse turn back to slots, and naming background. A 960x540
+run checks that the 720x540 page copy matches every pixel of the centered game
+viewport, without rescaling or sidebars. This replaces the earlier
 offscreen helper-only rendering check. Generic actor factory/frame integration,
 sound queue playback, save IO and the separate Play/Features/Challenges widgets
 remain distinct unfinished work; this integration does not claim those bodies

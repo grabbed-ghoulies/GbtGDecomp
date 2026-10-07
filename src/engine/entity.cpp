@@ -2471,36 +2471,44 @@ i32 trunc_i32(float v)
 }
 
 // 0x000F5760. ECX is the aspect slot, ESI and the stack pointer receive the span and the origin.
-void fit_vertical(i32 slot, i32& span, i32& pos)
+void fit_vertical(i32 slot, i32& span, i32& pos, const DisplayView& view)
 {
     const float ref = aspect_triple(g_aspect_preset).aspect;
     const float selected = chosen_aspect(slot);
-    const i32 limit = g_display_view->height;
+    const i32 limit = view.height;
     span = trunc_i32(static_cast<float>(limit) * (ref / selected));
     if (span > limit)
     {
         span = limit;
     }
     const i32 remain = static_cast<i32>(static_cast<u32>(limit) - static_cast<u32>(span));
-    pos = trunc_i32(static_cast<float>(remain) * 0.5f + static_cast<float>(g_display_view->origin_y));
+    pos = trunc_i32(static_cast<float>(remain) * 0.5f + static_cast<float>(view.origin_y));
 }
 
 // 0x000F56C0. Same slot. The span is the wide axis and the second out is its centered origin.
-void fit_horizontal(i32 slot, i32& span, i32& pos)
+void fit_horizontal(i32 slot, i32& span, i32& pos, const DisplayView& view)
 {
     const float ref = aspect_triple(g_aspect_preset).aspect;
     const float selected = chosen_aspect(slot);
-    const i32 limit = g_display_view->width;
+    const i32 limit = view.width;
     span = trunc_i32(static_cast<float>(limit) * (selected / ref));
     if (span > limit)
     {
         span = limit;
     }
     const i32 remain = static_cast<i32>(static_cast<u32>(limit) - static_cast<u32>(span));
-    pos = trunc_i32(static_cast<float>(remain) * 0.5f + static_cast<float>(g_display_view->origin_x));
+    pos = trunc_i32(static_cast<float>(remain) * 0.5f + static_cast<float>(view.origin_x));
 }
 
 } // namespace
+
+void fit_display_viewport(i32 width, i32 height, i32 aspect_slot,
+    i32& fit_w, i32& fit_x, i32& fit_h, i32& fit_y)
+{
+    const DisplayView view{aspect_slot, 0, 0, width, height};
+    fit_vertical(aspect_slot, fit_h, fit_y, view);
+    fit_horizontal(aspect_slot, fit_w, fit_x, view);
+}
 
 void fn_f57f0(float focal, i32 aspect_slot, i32& fit_w, i32& fit_x, i32& fit_h, i32& fit_y, float& fov_deg,
               float& pixel_aspect, float& focal_px)
@@ -2514,8 +2522,8 @@ void fn_f57f0(float focal, i32 aspect_slot, i32& fit_w, i32& fit_x, i32& fit_h, 
     // 2 * atan(sensor / (2 * focal)) degrees. The pixel focal is (height / 2) *
     // cot(half of that angle): sin is 0x00153320, cos is 0x00153230, atan is
     // 0x00152780. Pixel aspect divides width/height by the preset row's aspect.
-    fit_vertical(aspect_slot, fit_h, fit_y);
-    fit_horizontal(aspect_slot, fit_w, fit_x);
+    fit_vertical(aspect_slot, fit_h, fit_y, *g_display_view);
+    fit_horizontal(aspect_slot, fit_w, fit_x, *g_display_view);
 
     i32 sensor_slot = g_display_view->aspect_mode;
     if (sensor_slot == 3)

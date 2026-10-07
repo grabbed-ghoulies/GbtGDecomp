@@ -378,6 +378,7 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
     struct ActiveMaterial
     {
         i32 diffuse = -1;
+        i32 colour0_stage = -1;
         i32 secondary = -1; // colour1
         i32 detail = -1;
         i32 lightmap = -1;
@@ -479,6 +480,7 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
             if (name == "colour0")
             {
                 mat.diffuse = refs[index];
+                mat.colour0_stage = i32(index);
             }
             else if (name == "colour1")
             {
@@ -504,7 +506,7 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
         return mat;
     };
 
-    auto emit_indexed = [&](size_t tag, size_t idx_off, u32 count, u32 prim, const ActiveMaterial& mat,
+    auto emit_indexed = [&](size_t node, size_t idx_off, u32 count, u32 prim, const ActiveMaterial& mat,
                             const std::vector<u8>& skin, const std::vector<u16>& mtx)
     {
         if (prim != 5 && prim != 6 && prim != 7)
@@ -539,6 +541,7 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
         sm.first_index = u32(start);
         sm.index_count = added;
         sm.texture = mat.diffuse;
+        sm.colour0_stage = mat.colour0_stage;
         sm.layer1 = mat.secondary;
         sm.detail = mat.detail;
         sm.lightmap = mat.lightmap;
@@ -558,6 +561,8 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
         sm.colour_source = colour_source;
         sm.skin_weight_mask = skin_weight_mask;
         sm.uses_skin_palette = uses_skin_palette;
+        sm.node_state_slot = static_cast<std::int8_t>(cpu[node + 0x3D]);
+        sm.node_state_value = cpu[node + 0x3E];
         if (has_pixel_shader)
         {
             // CreatePixelShader's mappings select the constants subsequently
@@ -581,7 +586,7 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
 
     // Xbox 0x00158160 relocates the index-pointer array, primitive array,
     // and count array. 0x001582A0 draws every section, not only count == 1.
-    auto emit_push = [&](size_t tag, u32 sections, const ActiveMaterial& mat,
+    auto emit_push = [&](size_t node, size_t tag, u32 sections, const ActiveMaterial& mat,
                          const std::vector<u8>& skin, const std::vector<u16>& mtx)
     {
         const size_t counts = tag + 16;
@@ -594,7 +599,7 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
         for (u32 i = 0; i < sections; ++i)
         {
             const size_t index_offset = size_t(kNodeBase) + read_u32(cpu, pointers + size_t(i) * 4);
-            emit_indexed(tag, index_offset, read_u32(cpu, counts + size_t(i) * 4),
+            emit_indexed(node, index_offset, read_u32(cpu, counts + size_t(i) * 4),
                          read_u32(cpu, primitives + size_t(i) * 4), mat, skin, mtx);
         }
     };
@@ -890,7 +895,7 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
             if (hi.count == 0)
             {
                 const size_t tag = size_t(kNodeBase) + hi.offset;
-                emit_push(tag, hi.un_other6, active, active_skin, mtx_at(rel));
+                emit_push(size_t(kNodeBase) + rel, tag, hi.un_other6, active, active_skin, mtx_at(rel));
             }
             else
             {
@@ -989,6 +994,19 @@ void parse_embedded_textures(std::span<const u8> cpu, std::span<const u8> gpu, s
 }
 
 } // namespace
+
+// Xbox 0x00158240. The render context's +0x1F8 points at instance +0x294.
+bool model_submesh_visible(const Mesh& mesh, std::int8_t slot, u8 value)
+{
+    if (slot == -1)
+    {
+        return true;
+    }
+    const int bit = int(slot) * 2;
+    const int byte = bit / 8;
+    const int shift = bit % 8;
+    return ((mesh.node_flags.at(size_t(byte)) >> (u8(shift) & 31)) & 3) == value;
+}
 
 Mesh parse_model(const BundleEntry& entry)
 {

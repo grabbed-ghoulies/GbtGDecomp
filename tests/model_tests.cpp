@@ -1,4 +1,5 @@
 #include "gbtg/model.hpp"
+#include "gbtg/cutscene.hpp"
 
 #include <cstring>
 #include <iostream>
@@ -84,6 +85,19 @@ int main()
 {
     try
     {
+        gbtg::u32 event_phase = 99;
+        require(!gbtg::cutscene_event_phase(0.03f, 0.f, 0.03f, 0.f, event_phase),
+                "cutscene cue fired at equality instead of after its authored time");
+        require(gbtg::cutscene_event_phase(0.03f, 0.f, 0.04f, 0.02f, event_phase) && event_phase == 0,
+                "cutscene cue missed a frame crossing its authored time");
+        require(!gbtg::cutscene_event_phase(0.03f, 0.f, 0.05f, 0.04f, event_phase),
+                "one-shot cutscene cue retriggered after its time crossing");
+        require(gbtg::cutscene_event_phase(0.f, 4.f, 2.f, 1.f, event_phase) && event_phase == 2,
+                "active sound window was mistaken for a start or stop");
+        require(!gbtg::cutscene_event_phase(0.f, 4.f, 4.f, 3.f, event_phase),
+                "sound window stopped at equality instead of after its end");
+        require(gbtg::cutscene_event_phase(0.f, 4.f, 4.1f, 3.9f, event_phase) && event_phase == 1,
+                "sound window did not stop when its end was crossed");
         for (gbtg::u32 mode = 0; mode != 4; ++mode)
         {
             const auto mesh = Fixture(mode).parse();
@@ -93,6 +107,29 @@ int main()
             require(mesh.submeshes[0].render_mode == int(mode), "material state category changed");
             require(mesh.submeshes[0].colour_source[0] == 0, "declared diffuse MOV not bound to colour descriptor");
         }
+        // Draw metadata belongs to the node, not its separate index-array payload.
+        // These alternate surfaces must follow changes to the live instance state.
+        Fixture gated(0);
+        gated.cpu[320 + 64 + 0x3D] = 5;
+        gated.cpu[320 + 64 + 0x3E] = 2;
+        auto gated_mesh = gated.parse();
+        const auto& gated_sub = gated_mesh.submeshes[0];
+        require(gated_sub.node_state_slot == 5 && gated_sub.node_state_value == 2,
+                "push-buffer visibility metadata read from index payload instead of node");
+        require(!gbtg::model_submesh_visible(gated_mesh, gated_sub.node_state_slot, gated_sub.node_state_value),
+                "alternate surface drawn with default instance state");
+        gated_mesh.node_flags[1] = 0xe4; // slots 4..7: 0,1,2,3.
+        require(!gbtg::model_submesh_visible(gated_mesh, gated_sub.node_state_slot, gated_sub.node_state_value),
+                "neighboring two-bit state selected the alternate surface");
+        gated_mesh.node_flags[1] = 0xe8; // slot 5 changes from 1 to 2.
+        require(gbtg::model_submesh_visible(gated_mesh, gated_sub.node_state_slot, gated_sub.node_state_value),
+                "live instance state did not select its alternate surface");
+        gated.cpu[320 + 64 + 0x3D] = 255;
+        gated.cpu[320 + 64 + 0x3E] = 255;
+        const auto unconditional = gated.parse();
+        require(gbtg::model_submesh_visible(unconditional, unconditional.submeshes[0].node_state_slot,
+                    unconditional.submeshes[0].node_state_value),
+                "unconditional push-buffer sentinel was treated as an instance state");
         Fixture invalid(0);
         Fixture rigid(0);
         rigid.gpu.resize(72);

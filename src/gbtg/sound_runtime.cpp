@@ -4,6 +4,93 @@
 namespace gbtg
 {
 
+// Xbox 0x0012A7D0
+void dispatch_pending_actor_sounds(RuntimeActorSoundGroup& group,
+    const std::function<i16(RuntimeActorSound&)>& start,
+    const std::function<void(Actor&, RuntimeActorSound&)>& started)
+{
+    RuntimeSoundLink* active = &group.active;
+    while (active->previous != nullptr)
+    {
+        active = active->previous;
+    }
+    i32 active_count = 0;
+    for (RuntimeSoundLink* link = active->next; link != nullptr; link = link->next)
+    {
+        ++active_count;
+    }
+    RuntimeSoundLink* pending = &group.pending;
+    while (pending->previous != nullptr)
+    {
+        pending = pending->previous;
+    }
+    i32 pending_count = 0;
+    for (RuntimeSoundLink* link = pending->next; link != nullptr; link = link->next)
+    {
+        ++pending_count;
+    }
+    i32 count = group.capacity - active_count;
+    if (pending_count <= count)
+    {
+        count = pending_count;
+    }
+    if (count > 0)
+    {
+        do
+        {
+            auto& sound = *static_cast<RuntimeActorSound*>(group.pending.next);
+            if (sound.previous != nullptr)
+            {
+                sound.previous->next = sound.next;
+            }
+            if (sound.next != nullptr)
+            {
+                sound.next->previous = sound.previous;
+            }
+            sound.previous = nullptr;
+            sound.next = nullptr;
+            const i16 voice = start(sound);
+            sound.previous_bone = static_cast<u16>(voice);
+            if (voice != -1)
+            {
+                RuntimeSoundLink* root = &group.active;
+                while (root->previous != nullptr)
+                {
+                    root = root->previous;
+                }
+                RuntimeSoundLink* next = root->next;
+                root->next = &sound;
+                sound.previous = root;
+                sound.next = next;
+                if (next != nullptr)
+                {
+                    next->previous = &sound;
+                }
+                if (sound.owner != nullptr)
+                {
+                    started(*sound.owner, sound);
+                }
+            }
+            --count;
+        }
+        while (count != 0);
+    }
+    while (group.pending.next != nullptr)
+    {
+        RuntimeSoundLink* sound = group.pending.next;
+        if (sound->previous != nullptr)
+        {
+            sound->previous->next = sound->next;
+        }
+        if (sound->next != nullptr)
+        {
+            sound->next->previous = sound->previous;
+        }
+        sound->previous = nullptr;
+        sound->next = nullptr;
+    }
+}
+
 // Xbox 0x0012A970
 bool actor_sound_is_active(const RuntimeActorSound& sound,
     const RuntimeActorSoundQueues& queues)

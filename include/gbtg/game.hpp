@@ -145,7 +145,7 @@ struct Game
     mutable int contents_movie_frames[3]{};
     mutable bool contents_movie_copied[3]{};
     mutable RgbaImage contents_movie_images[3];
-    int slot_status[3] = {}; // 0 empty. 4 after a name is committed (0x000DD6C0).
+    int slot_status[3] = {}; // 0 empty; 2 valid save; 3 damaged; 4 cannot write (0x000DEB20).
     bool slot_up = false;
     bool slot_down = false;
     bool slot_left = false;

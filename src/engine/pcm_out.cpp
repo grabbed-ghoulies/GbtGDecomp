@@ -997,6 +997,29 @@ u64 pcm_play_owned_cue(const Game& g, const char* cue)
     return 0;
 }
 
+// Host voice-state query for the retail active-voice tests at 0x0012A510.
+bool pcm_owned_cue_playing(u64 handle)
+{
+    if (handle == 0)
+    {
+        return false;
+    }
+#if defined(_WIN32)
+    for (const PcmVoice& voice : g_bed)
+    {
+        if (voice.handle == handle)
+        {
+            XAUDIO2_VOICE_STATE state{};
+            voice.voice->GetState(&state);
+            return state.BuffersQueued != 0;
+        }
+    }
+#else
+    (void)handle;
+#endif
+    return false;
+}
+
 // Native audio boundary at 0x00039690. Stop the voice acquired by this event.
 void pcm_stop_owned_cue(u64 handle)
 {

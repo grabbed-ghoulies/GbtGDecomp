@@ -51,6 +51,7 @@ struct RuntimeSoundBoundaries
 };
 struct RuntimeActorSoundGroup
 {
+    i32 capacity = 0; // group +0
     RuntimeSoundLink active; // DAT_00512524, stride 0x14
     RuntimeSoundLink pending; // DAT_0051252C
 };
@@ -63,6 +64,11 @@ struct RuntimeActorSoundQueues
     std::span<i16> static_voice_indices; // DAT_005125D8, host view of stride 0x90
     i32 static_voice_count = 0; // DAT_00512548
 };
+// The callbacks translate voice allocation/play and actor message 0x89 at
+// the calls in 0x0012A7D0. Allocation failure is -1, as in 0x00039830.
+void dispatch_pending_actor_sounds(RuntimeActorSoundGroup& group,
+    const std::function<i16(RuntimeActorSound&)>& start,
+    const std::function<void(Actor&, RuntimeActorSound&)>& started); // Xbox 0x0012A7D0
 void reset_actor_sound_queues(RuntimeActorSoundQueues& queues); // Xbox 0x00129F70
 bool actor_sound_is_active(const RuntimeActorSound& sound,
     const RuntimeActorSoundQueues& queues); // Xbox 0x0012A970

@@ -1136,6 +1136,48 @@ int main()
                 animation_remainder(-0.5f, 2.f) == -0.5L &&
                 animation_remainder(2.f, 2.f) == 0.L,
                 "animation remainder changed sign, quotient truncation or magnitude gate");
+        RuntimeActorSoundGroup dispatch_group;
+        dispatch_group.capacity = 1;
+        RuntimeActorSound request_a;
+        RuntimeActorSound request_b;
+        dispatch_group.pending.next = &request_a;
+        request_a.previous = &dispatch_group.pending;
+        request_a.next = &request_b;
+        request_b.previous = &request_a;
+        int starts = 0;
+        dispatch_pending_actor_sounds(dispatch_group, [&](RuntimeActorSound&) -> i16
+        {
+            ++starts;
+            return -1;
+        }, [](Actor&, RuntimeActorSound&)
+        {
+            throw std::runtime_error("failed voice notified its owner");
+        });
+        require(starts == 1 && dispatch_group.active.next == nullptr &&
+            dispatch_group.pending.next == nullptr && request_a.previous_bone == 0xFFFF &&
+            request_b.previous == nullptr,
+            "failed allocation fabricated an active voice or retried dropped requests");
+        dispatch_group.pending.next = &request_a;
+        request_a.previous = &dispatch_group.pending;
+        dispatch_pending_actor_sounds(dispatch_group, [](RuntimeActorSound&) -> i16
+        {
+            return 7;
+        }, [](Actor&, RuntimeActorSound&)
+        {
+        });
+        dispatch_group.pending.next = &request_b;
+        request_b.previous = &dispatch_group.pending;
+        dispatch_pending_actor_sounds(dispatch_group, [&](RuntimeActorSound&) -> i16
+        {
+            ++starts;
+            return 8;
+        }, [](Actor&, RuntimeActorSound&)
+        {
+        });
+        require(starts == 1 && dispatch_group.active.next == &request_a &&
+            request_a.previous_bone == 7 && dispatch_group.pending.next == nullptr &&
+            request_b.previous == nullptr,
+            "sound group exceeded capacity or retained a dropped pending request");
         std::cout << "animation event boundary checks passed\n";
         return 0;
     }

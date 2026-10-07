@@ -451,3 +451,37 @@ remaining menu save/Play paths described above are still outstanding.
 Decompiles were exported read-only from the user's project in
 `Z:/GhouliesStuff/ghidra_projects` into the main checkout's ignored
 `cache/ghidra_frontier/`. No Ghidra symbols or retail disc files were changed.
+
+
+## Game-select controls and prompt icons
+
+`0x001080B0` decodes left as direction 4 and right as direction 8.
+The slot (`0x000E0210`) and contents (`0x000DB450`) callers now use those
+horizontal inputs, preserving their bat-state and page-turn gates. Keyboard
+vertical navigation remains as decoded by its own caller.
+
+Prompt textures resolve through the AID loader, including demand resources.
+The record codes at `0x00308068` and `0x003069F0` supply A, D-pad and B;
+contents also supplies Y for Info. Layout follows `0x001421C0` mode 1:
+alternating columns, upward row steps, centred icons, and separate text offsets.
+Slot sizing comes from `0x000DF9A0`; contents sizing comes from `0x000DA580`.
+`0x001428F0` supplies the widest-text column spacing plus 32 times icon scale
+and 20 pixels.
+
+The native D3D fixture checked horizontal navigation and wraparound, ignored
+vertical menu input, bat-flight blocking, both page turns, and naming. Render
+captures verify the slot and contents icons; audio retains wind, harp and
+page-turn cue dispatch.
+
+
+Selection audio now connects cursor sound events to the pending-list dispatch
+at `0x0012A7D0`, with the group capacities from `0x00129F30` and real native
+voice allocation failures. Cursor-owned voices follow animation stop events
+and are released with the cursor. Face-button prompt callbacks play the
+`RIGHTBUTTON` cue specified by `0x00141E20` / `0x00142460`.
+
+Completing name entry assigns valid-save status 2. `0x000DD270`'s call to
+`0x000DD6C0` with 4 closes the naming widget; it does not assign the save status.
+The previous assignment incorrectly selected the status-4 cannot-write overlay
+from `0x000DEB20`. Native rendering verified the completed save's chapter movie
+without that overlay, and selection audio logs contain mapped cue playback.

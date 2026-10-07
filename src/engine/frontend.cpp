@@ -42,10 +42,15 @@ struct MenuCursor
     ModelAnimationState model_animation;
     ModelNodeFlagCache flags{};
     RuntimeActorSoundQueues sounds;
+    std::array<RuntimeSoundVoice, 48> sound_voices{};
+    std::array<RuntimeSoundCue, 48> sound_cues{};
+    std::array<RuntimeSoundBank, 48> sound_banks{};
+    std::array<u64, 48> sound_handles{};
+    Game& game;
     u32 random = 0;
     std::vector<float> palette;
 
-    explicit MenuCursor(Game& game)
+    explicit MenuCursor(Game& owner) : game(owner)
     {
         // The object template is embedded at 0x00377CC8, not a demand file.
         const auto* entry = game.aids.load_aid("aid_model_ghoulies_actor_buttonbat");
@@ -88,6 +93,17 @@ struct MenuCursor
             }, 3, nullptr);
         animation.table = &button_bat_animation_table();
         reset_actor_sound_queues(sounds);
+        sounds.voices = sound_voices;
+        // Xbox 0x00129F30: capacities of the ordinary and alternate groups.
+        sounds.groups[0].capacity = 20;
+        sounds.groups[1].capacity = 6;
+        sounds.boundaries.stop_cue = [this](void*, u32, u32, void* cue)
+        {
+            auto* runtime = static_cast<RuntimeSoundCue*>(cue);
+            const size_t index = size_t(runtime - sound_cues.data());
+            pcm_stop_owned_cue(sound_handles[index]);
+            sound_handles[index] = 0;
+        };
         animation.message_handler = [this](const ActorAnimationMessage& message)
         {
             // Retail cursor resources contain sound-start / sound-stop events.
@@ -117,6 +133,7 @@ struct MenuCursor
 
     ~MenuCursor()
     {
+        reset_actor_sound_queues(sounds);
         gfx_release_mesh(mesh);
     }
 
@@ -140,9 +157,67 @@ struct MenuCursor
         bat.animation = animation.controller->slots[0].player.get();
     }
 
+    // Host ownership of the menu's real voices. The pending-list dispatch is
+    // 0x0012A7D0; its 0x00039830 / 0x00039A20 calls allocate and play below.
+    void dispatch_sounds()
+    {
+        // Host slots whose retail stop transition has completed can be reused.
+        for (auto& voice : sound_voices)
+        {
+            if (voice.state == 9 || voice.state == 10)
+            {
+                voice.state = 0;
+                voice.cue = nullptr;
+            }
+        }
+        for (auto& sound : bat.actor.sound_slots)
+        {
+            if (actor_sound_is_active(sound, sounds))
+            {
+                const size_t index = sound.previous_bone;
+                if (!pcm_owned_cue_playing(sound_handles[index]))
+                {
+                    // 0x0012A510: ended voices leave the active list.
+                    release_actor_sound(sound, sounds);
+                    sound_voices[index].cue = nullptr;
+                    sound_voices[index].state = 0;
+                }
+            }
+        }
+        for (auto& group : sounds.groups)
+        {
+            dispatch_pending_actor_sounds(group, [this](RuntimeActorSound& sound) -> i16
+            {
+                for (size_t i = 0; i < sound_voices.size(); ++i)
+                {
+                    if (sound_voices[i].state == 0)
+                    {
+                        const u64 handle = pcm_play_owned_cue(game, sound.name.data());
+                        if (handle == 0)
+                        {
+                            return -1;
+                        }
+                        sound_handles[i] = handle;
+                        sound_cues[i] = RuntimeSoundCue{};
+                        sound_cues[i].bank = &sound_banks[i];
+                        sound_cues[i].handle = &sound_cues[i];
+                        sound_voices[i].cue = &sound_cues[i];
+                        sound_voices[i].state = 5;
+                        return static_cast<i16>(i);
+                    }
+                }
+                return -1;
+            }, [](Actor&, RuntimeActorSound&)
+            {
+                // 0x0003EF70 message 0x89 has no actor-specific action.
+            });
+        }
+    }
+
     void tick(float dt)
     {
         tick_animation_controller(*animation.controller, dt, false, registry);
+        dispatch_sounds();
         // Cursor-specific tail of Xbox 0x0006D5C0, after controller advancement.
         switch (bat.state)
         {
@@ -825,8 +900,8 @@ void kb_activate(Game& g)
     }
     if (code == 0x10007)
     {
-        // FUN_000dd210. A nonempty name takes the 0x000DD270 path: mode 1 and status 4
-        // (0x000DD6C0). An empty name does not occupy the slot.
+        // Xbox 0x000DD270 returns to widget 1, then 0x000DD6C0 closes
+        // the naming widget with mode 4. That is not a saved-slot status.
         g.frontend_mode = 1;
         g.naming = false;
         if (g.kb_len > 0)
@@ -836,7 +911,7 @@ void kb_activate(Game& g)
             {
                 g.slot_name[g.slot][i] = g.kb_text[i];
             }
-            g.slot_status[g.slot] = 4;
+            g.slot_status[g.slot] = 2;
             // 0x00010D430's success path calls 0x00010E9D0 before 0x000DD270.
             // 0x00010E9D0 stores 0x00035960's return at blob+0x102. The key is
             // aid_script_ghoulies_gameselect_gameselect (0x00322B8C). On the retail
@@ -1334,47 +1409,33 @@ u32 key_fill(const Game& g, u32 code, bool hot)
     return color;
 }
 
-// Icon index is the dword at VirtualKeyboardMenu+0x40, stride 0x48.
-// 0x000142D74 shifts that index by 7 and adds 0x003150D0.
+// Xbox 0x00142C20: prompt record +0x40 indexes the retail icon AID table.
+static constexpr const char* kJoypadIconNames[] = {
+    "aid_texture_joypad_buttons_a",
+    "aid_texture_joypad_buttons_b",
+    "aid_texture_joypad_buttons_x",
+    "aid_texture_joypad_buttons_y",
+    "aid_texture_joypad_buttons_black",
+    "aid_texture_joypad_buttons_white",
+    "aid_texture_joypad_sticks_xboxsticksmaller",
+    "aid_texture_joypad_buttons_dpad",
+    "aid_texture_joypad_triggers_both",
+};
+
 const RgbaImage* joypad_icon(const Game& g, int code)
 {
-    static const char* kNames[] = {
-        "aid_texture_joypad_buttons_a",
-        "aid_texture_joypad_buttons_b",
-        "aid_texture_joypad_buttons_x",
-        "aid_texture_joypad_buttons_y",
-        "aid_texture_joypad_buttons_black",
-        "aid_texture_joypad_buttons_white",
-        "aid_texture_joypad_sticks_xboxsticksmaller",
-        "aid_texture_joypad_buttons_dpad",
-        "aid_texture_joypad_triggers_both",
-    };
-    static RgbaImage images[9];
-    static bool tried[9] = {};
     if (code < 0 || code >= 9)
     {
         return nullptr;
     }
-    if (!tried[code])
+    for (const auto& image : g.ui)
     {
-        tried[code] = true;
-        if (const BundleEntry* entry = find_entry(g.aids.common, kNames[code]))
+        if (image.name == kJoypadIconNames[code])
         {
-            try
-            {
-                images[code] = image_from_entry(*entry);
-            }
-            catch (const std::exception& ex)
-            {
-                std::cerr << kNames[code] << " " << ex.what() << "\n";
-            }
+            return &image.image;
         }
     }
-    if (images[code].bgra.empty())
-    {
-        return nullptr;
-    }
-    return &images[code];
+    return nullptr;
 }
 
 void draw_keyboard(const Game& g)
@@ -2032,6 +2093,29 @@ std::u16string contents_progress_line(const Game& g)
            script_scene_name(g, script_scene_index(script));
 }
 
+// Xbox 0x001421C0 / 0x00142720 / 0x00142AF0: mode 1 alternates
+// columns, with icon centres and a separate offset for the text widgets.
+void draw_menu_prompts(const Game& g, const GloopyFont& font,
+                       const GooLine* prompts, const int* codes, int count,
+                       float anchor_x, float anchor_y, float icon_scale,
+                       float text_scale, float text_offset_x, float text_offset_y,
+                       float column)
+{
+    for (int i = 0; i < count; ++i)
+    {
+        const float x = anchor_x + float(i % 2) * column;
+        const float y = anchor_y - float(i / 2) * 32.f * icon_scale;
+        if (const RgbaImage* icon = joypad_icon(g, codes[i]))
+        {
+            const float width = float(icon->width) * icon_scale;
+            const float height = float(icon->height) * icon_scale;
+            gfx_sprite_submit(*icon, x - width * 0.5f, y - height * 0.5f, width, height);
+        }
+        draw_goo_line(font, prompts[i], x + text_offset_x, y + text_offset_y,
+                      text_scale, g, false);
+    }
+}
+
 void draw_contents(const Game& g)
 {
     struct Plate
@@ -2188,9 +2272,17 @@ void draw_contents(const Game& g)
         prompt_count = 4;
     }
     auto& prompts = text_pool.prompts;
-    constexpr float kPromptScale = 0.75f;
-    constexpr float kPromptGap = 32.f;
-    float x = 76.5f;
+    float column = 0.f;
+    const char* all_keys[] = {
+        "gameslotcontents_selectprompt", "gameslotcontents_moveprompt",
+        "gameslotcontents_backprompt", "gameslotcontents_infoprompt",
+    };
+    for (const char* key : all_keys)
+    {
+        column = std::max(column, text_width(font, gameselect_string(g, key), 0.76f));
+    }
+    // 0x001428F0 returns maximum text width + 32 * icon scale + 20.
+    column += 32.f * 0.85f + 20.f;
     for (int i = 0; i < prompt_count; ++i)
     {
         const std::u16string part = gameselect_string(g, prompt_keys[i]);
@@ -2198,13 +2290,11 @@ void draw_contents(const Game& g)
         {
             arm_goo(prompts[i], part, g.time, -1);
         }
-        if (part.empty())
-        {
-            continue;
-        }
-        draw_goo_line(font, prompts[i], x, 415.5f, kPromptScale, g, false);
-        x += text_width(font, part, kPromptScale) + kPromptGap;
     }
+    const int codes[] = {0, 7, 1, 3};
+    // 0x000DA580 uses the outer safe rectangle, scale .85 / .76.
+    draw_menu_prompts(g, font, prompts, codes, prompt_count,
+                      64.f, 428.f, 0.85f, 0.76f, 17.6f, -13.6f, column);
 }
 
 // 0x000DF9A0 while the widget mode is 6 places the selected slot's wide name
@@ -2261,8 +2351,8 @@ void draw_slot_select_copy(const Game& g)
         arm_goo(title, title_text, g.time, -1);
     }
     const char* prompt_keys[3] = {
-        "gameslotselection_moveprompt",
         "gameslotselection_selectprompt",
+        "gameslotselection_moveprompt",
         "gameslotselection_backtoattract",
     };
     for (int i = 0; i < 3; ++i)
@@ -2285,19 +2375,17 @@ void draw_slot_select_copy(const Game& g)
     draw_goo_line(font, slot_name, 320.f, 55.f, 1.8f, g, true);
     draw_goo_line(font, title, 320.f, 290.f, 1.f, g, true);
 
-    constexpr float kPromptScale = 0.75f;
-    constexpr float kPromptGap = 32.f;
-    float x = 76.5f;
-    for (int i = 0; i < 3; ++i)
+    float column = 0.f;
+    for (const char* key : prompt_keys)
     {
-        const GooLine& part = prompts[i];
-        if (part.text.empty())
-        {
-            continue;
-        }
-        draw_goo_line(font, part, x, 415.5f, kPromptScale, g, false);
-        x += text_width(font, part.text, kPromptScale) + kPromptGap;
+        column = std::max(column, text_width(font, gameselect_string(g, key), 0.75f));
     }
+    column = std::max(column, text_width(font,
+        gameselect_string(g, "gameslotselection_deleteprompt"), 0.75f));
+    column += 52.f;
+    const int codes[] = {0, 7, 1};
+    draw_menu_prompts(g, font, prompts, codes, 3,
+                      76.5f, 415.5f, 1.f, 0.75f, 20.f, -16.f, column);
 }
 
 // Xbox 0x000FF120 builds "%s__%s" from the two cstrings at 0x00323EE4 / 0x00323EEC.
@@ -3188,6 +3276,16 @@ void load_ui(Game& g)
             std::cout << "  ui fail " << entry->name << ": " << ex.what() << "\n";
         }
     }
+    for (const char* name : kJoypadIconNames)
+    {
+        if (const BundleEntry* entry = g.aids.load_aid(name))
+        {
+            Game::UiImage image;
+            image.name = name;
+            image.image = image_from_entry(*entry);
+            g.ui.push_back(std::move(image));
+        }
+    }
     std::cout << "  ui textures " << g.ui.size() << "\n";
 }
 
@@ -3363,14 +3461,20 @@ void gameselect_tick(Game& g, const InputState& in)
     }
     else if (g.frontend_mode == 1 && !menu_book_busy())
     {
-        // 0x000E0210: direction 8 wraps the index down, direction 4 wraps it up. Both end in state 6.
-        if (in.down && !g.slot_down && (g.slot_cursor->bat.state == 1 || g.slot_cursor->bat.state == 3))
+        // 0x000E0210: direction 8 (right) increments, direction 4 (left) decrements. Both end in state 6.
+        if (in.right && !g.slot_right && (g.slot_cursor->bat.state == 1 || g.slot_cursor->bat.state == 3))
         {
             g.slot = (g.slot + 1) % 3;
         }
-        if (in.up && !g.slot_up && (g.slot_cursor->bat.state == 1 || g.slot_cursor->bat.state == 3))
+        if (in.left && !g.slot_left && (g.slot_cursor->bat.state == 1 || g.slot_cursor->bat.state == 3))
         {
             g.slot = (g.slot + 2) % 3;
+        }
+        // Xbox 0x00142460 / 0x00141E20: prompt face-button acceptance sound.
+        if ((in.accept && !g.slot_accept) || (in.start && !g.slot_start) ||
+            (in.back && !g.slot_back))
+        {
+            pcm_play_owned_cue(g, "XACT_SOUNDBANK_GSUPERSCARYSTUF_RIGHTBUTTON");
         }
         // 0x000E02D0: empty slot sets mode 4. Status 2, 3, or 4 sets mode 3 (slot contents).
         if (in.accept && !g.slot_accept)
@@ -3404,13 +3508,19 @@ void gameselect_tick(Game& g, const InputState& in)
         // zoom reaches 1, pushes mode 2 (Play), 5 (Features), or 4 (Challenges).
         // Those bodies place the row label and, for mode 2, the chapter buffer.
         // None of them request a script.
-        if (in.down && !g.slot_down && (g.contents_cursor->bat.state == 1 || g.contents_cursor->bat.state == 3))
+        if (in.right && !g.slot_right && (g.contents_cursor->bat.state == 1 || g.contents_cursor->bat.state == 3))
         {
             g.contents_row = (g.contents_row + 1) % 3;
         }
-        if (in.up && !g.slot_up && (g.contents_cursor->bat.state == 1 || g.contents_cursor->bat.state == 3))
+        if (in.left && !g.slot_left && (g.contents_cursor->bat.state == 1 || g.contents_cursor->bat.state == 3))
         {
             g.contents_row = (g.contents_row + 2) % 3;
+        }
+        // Xbox 0x00142460 / 0x00141E20: prompt face-button acceptance sound.
+        if ((in.accept && !g.slot_accept) || (in.start && !g.slot_start) ||
+            (in.back && !g.slot_back))
+        {
+            pcm_play_owned_cue(g, "XACT_SOUNDBANK_GSUPERSCARYSTUF_RIGHTBUTTON");
         }
         // Play is 0x000DB570: it copies the slot name, calls 0x00083B10 with 1,
         // then 0x000DA580 with mode 7. Stream 2 is idle, so 0x00083B10 arms the

@@ -48,6 +48,7 @@ void pcm_dialog_advance(const Game& g, const char* cue);
 void pcm_play_cue(const Game& g, const char* cue, bool loop);
 u64 pcm_play_owned_cue(const Game& g, const char* cue);
 void pcm_stop_owned_cue(u64 handle);
+bool pcm_owned_cue_playing(u64 handle);
 void pcm_stop_cue(const char* cue);
 // S16 interleaved PCM. The buffer is copied. loop keeps the voice on the bed list.
 void pcm_play_pcm(const char* cue, const std::vector<u8>& pcm, int rate, int channels, bool loop, float volume);

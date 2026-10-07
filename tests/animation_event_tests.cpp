@@ -1,6 +1,6 @@
-#include "gbtg/anim.hpp"
-#include "gbtg/resource_error.hpp"
-#include "gbtg/sound_runtime.hpp"
+#include "gbtg/anim.h"
+#include "gbtg/resource_error.h"
+#include "gbtg/sound_runtime.h"
 #include <bit>
 
 #include <cstring>

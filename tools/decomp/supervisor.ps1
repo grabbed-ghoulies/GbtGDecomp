@@ -254,7 +254,7 @@ function Invoke-Refill {
 function Test-BaseCommit {
     $prev = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
-    & git -C $Repo cat-file -e "HEAD:src/engine/frontend.cpp" 2>$null | Out-Null
+    & git -C $Repo cat-file -e "HEAD:src/engine/frontend/frontend.cpp" 2>$null | Out-Null
     $ok = $LASTEXITCODE -eq 0
     $ErrorActionPreference = $prev
     return $ok
@@ -335,7 +335,7 @@ Rules:
 
 function Invoke-Claim {
     if (-not (Test-BaseCommit)) {
-        Write-Host "HEAD has no src/engine/frontend.cpp. Commit the engine split before claiming. Worktrees are created from commits."
+        Write-Host "HEAD has no src/engine/frontend/frontend.cpp. Commit the engine split before claiming. Worktrees are created from commits."
         exit 1
     }
     $auto = Ensure-AutoWorktree

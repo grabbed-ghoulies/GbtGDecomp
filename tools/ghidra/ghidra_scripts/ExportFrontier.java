@@ -412,26 +412,26 @@ public class ExportFrontier extends GhidraScript {
 
     private static String filesFor(String owner) {
         if ("frontend".equals(owner)) {
-            return "src/engine/frontend.cpp";
+            return "src/engine/frontend/frontend.cpp";
         }
         if ("scene".equals(owner)) {
-            return "src/engine/scene.cpp";
+            return "src/engine/scene/scene.cpp";
         }
         if ("entity".equals(owner)) {
-            return "src/engine/entity.cpp; include/gbtg/entity.hpp";
+            return "src/engine/entities/entity.cpp; include/gbtg/entity.h";
         }
         if ("clock".equals(owner)) {
-            return "src/engine/clock.cpp";
+            return "src/engine/runtime/clock.cpp";
         }
         if ("audio".equals(owner)) {
-            return "src/engine/audio.cpp";
+            return "src/engine/audio/audio.cpp";
         }
         if ("present".equals(owner) || "gfx".equals(owner)) {
-            return "src/engine/gfx_d3d11.cpp";
+            return "src/engine/graphics/gfx_d3d11.cpp";
         }
         if ("anim".equals(owner)) {
-            return "src/gbtg/anim.cpp";
+            return "src/gbtg/animation/anim.cpp";
         }
-        return "src/gbtg/anim.cpp";
+        return "src/gbtg/animation/anim.cpp";
     }
 }

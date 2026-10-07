@@ -1,0 +1,765 @@
+#include "gbtg/anim.h"
+#include "gbtg/engine_internal.h"
+#include "gbtg/entity.h"
+#include "gbtg/gfx.h"
+#include "gbtg/model.h"
+#include "gbtg/movie.h"
+#include "gbtg/resource.h"
+#include "../transitions/transition_data.h"
+
+#include <algorithm>
+#include <bit>
+#include <chrono>
+#include <cmath>
+#include <cstdint>
+#include <cstddef>
+#include <cerrno>
+#include <charconv>
+#include <cstdarg>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <exception>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <memory>
+#include <mutex>
+#include <new>
+#include <string>
+#include <unordered_map>
+
+#if !defined(_WIN32)
+#include <cfenv>
+#endif
+
+#if defined(_WIN32)
+#include <excpt.h>
+#include <float.h>
+#include <malloc.h>
+extern "C"
+{
+    __declspec(dllimport) void* __stdcall GetModuleHandleA(const char* name);
+    __declspec(dllimport) void* __stdcall GetProcAddress(void* module, const char* name);
+    __declspec(dllimport) unsigned long __stdcall GetCurrentThreadId();
+    __declspec(dllimport) void __stdcall GetSystemTimeAsFileTime(void* time);
+    __declspec(dllimport) unsigned long __stdcall GetTickCount();
+    __declspec(dllimport) int __stdcall QueryPerformanceCounter(void* counter);
+    __declspec(dllimport) void __stdcall RaiseException(unsigned long code, unsigned long flags, unsigned long count,
+                                                        const std::uintptr_t* arguments);
+    __declspec(dllimport) int __stdcall CloseHandle(void* handle);
+    __declspec(dllimport) int __stdcall FlushFileBuffers(void* handle);
+    __declspec(dllimport) unsigned long __stdcall GetLastError();
+    __declspec(dllimport) int __stdcall ReadFile(void* handle, void* buffer, unsigned long bytes, unsigned long* read,
+                                                 void* overlapped);
+    __declspec(dllimport) int __stdcall WriteFile(void* handle, const void* buffer, unsigned long bytes,
+                                                  unsigned long* written, void* overlapped);
+    __declspec(dllimport) unsigned long __stdcall SetFilePointer(void* handle, long distance, long* high,
+                                                                 unsigned long method);
+    __declspec(dllimport) int __stdcall IsBadReadPtr(const void* lp, std::uintptr_t ucb);
+    __declspec(dllimport) int __stdcall IsBadWritePtr(void* lp, std::uintptr_t ucb);
+}
+#endif
+
+
+#include "../scene/scene_types.h"
+#include "../camera/camera.h"
+#include "../cutscenes/cutscene_runtime.h"
+#include "../scene/scene.h"
+#include "script_actions.h"
+#include "script_conditions.h"
+#include "script_vm.h"
+#include "../transitions/transition_book.h"
+
+namespace gbtg
+{
+using namespace scene_detail;
+
+
+// DAT_00512514. 0x00128AB0 stores 1 when the dword it kept at DAT_0051248C is 0.
+// Type 0xF reads it. script_set_name does not write this dword.
+i32 g_gate_2514 = 0;
+
+// DAT_00512518. Type 0xF stores 0, then 1 when DAT_0051251C is already 0.
+i32 g_gate_2518 = 0;
+
+// DAT_0051251C. Types 0xF and 0x10 decrement it. Type 0x11 increments it.
+i32 g_gate_251c = 0;
+
+// DAT_0050E798 and DAT_0050E79C. Type 0x69 copies node+8 and node+0xC.
+u32 g_script_e798 = 0;
+
+u32 g_script_e79c = 0;
+
+// DAT_0050E788. 0x00117140 sets it when 0x001288C0 empties a nonempty fired list.
+i32 g_script_e788 = 0;
+
+// DAT_0050E78C. Nonzero takes the fade at DAT_0050E790. 0x00116E00 clears it.
+i32 g_script_e78c = 0;
+
+// DAT_0050E790. The fade subtracts DAT_005096C0 * DAT_004312C4 while this is above 0.
+float g_script_e790 = 0.f;
+
+// DAT_0050E794. Nonzero skips the condition walk. The latch path increments it.
+i32 g_script_e794 = 0;
+
+bool g_scene_script_started = false;
+
+extern i32 g_script_30d0c;
+
+void request_scene_aid(const char* src, i32 mode);
+
+
+// Xbox 0x00049D10.
+bool scene_end_flag_set()
+{
+    return (*g_scene_flags->bytes & 8) != 0 || (g_flags_ea9c & 0x200000u) != 0;
+}
+
+
+// Xbox 0x00123B00.
+bool script_end_gate_set()
+{
+    return g_script_30d0c == 1 || scene_end_flag_set();
+}
+
+
+// Xbox 0x0012AF10. Seven counters, each followed by 60 counters and a
+// 60-by-61 matrix. This is the statistics block passed in EAX.
+std::array<u32, 7 * 0xe89> g_script_statistics{};
+
+i32 g_545978 = 0;
+
+i32 g_545980 = 0;
+
+i32 g_5064d8 = 0;
+
+// Xbox 0x0012AF10
+void script_initialize_statistics(std::span<u32> statistics)
+{
+    for (int group = 0; group < 7; ++group)
+    {
+        const size_t base = size_t(group) * 0xe89;
+        for (int row = 0; row < 60; ++row)
+        {
+            const size_t at = base + 61 + size_t(row) * 61;
+            std::fill_n(statistics.begin() + at + 1, 60, 0u);
+            statistics[at] = 0;
+        }
+        std::fill_n(statistics.begin() + base + 1, 60, 0u);
+        statistics[base] = 0;
+    }
+    g_545978 = 0;
+}
+
+
+// Xbox 0x00128AB0.
+void script_activate_title(Game& g, std::string_view title, i32 mode, i32 id)
+{
+    if (mode != g_state_248c || id != g_state_2490)
+    {
+        constexpr std::array<u8, 4> decay{1, 0, 1, 0}; // DAT_0030F144
+        const u8 old_decay = decay.at(size_t(g_state_248c));
+        const u8 new_decay = decay.at(size_t(mode));
+        g_state_248c = mode;
+        g_state_2490 = id;
+        g.scene_name = title;
+        g_gate_2514 = mode == 0;
+        g_gate_2518 = 0;
+        g_gate_251c = 0;
+        g_script_conds.clear();
+        for (u32 type : {0xb7u, 0xb6u})
+        {
+            for (LiveScript* live = g_live_scripts; live != nullptr;)
+            {
+                LiveScript* next = live->next;
+                if (live->type == type)
+                {
+                    script_release_event(live);
+                }
+                live = next;
+            }
+        }
+        if (g_5064d8 != 3)
+        {
+            script_initialize_statistics(g_script_statistics);
+            g_545980 = 0;
+        }
+        g_decay_arm = new_decay;
+        if (old_decay != new_decay)
+        {
+            script_update_decay_latches(0xffff, new_decay);
+        }
+    }
+}
+
+
+// Xbox 0x00128BC0. Handler 0 of the table at 0x00312650. The dword at node+4
+// is the type. The byte map at 0x00128D24 covers types 0 through 0x69. Slot 7
+// of the table at 0x00128D04 returns 3, and every type in that range other
+// than 0, 0xD, 0xE, 0xF, 0x10, 0x11, and 0x69 uses it. A type above 0x69
+// returns 3. The second argument is the flag 0x00128A00 passes. The third
+// argument is the value that walk passes.
+//
+// Type 0 returns 1.
+//
+// Type 0xD calls 0x00053170 with the address of node+8 and a stack 0. That
+// call compares the first dword with "aid_". It is not translated. The case
+// returns 2.
+//
+// Type 0xE calls 0x00123B00. The dword at node+0x90 equal to 1 takes the
+// following call when that return is nonzero. Equal to 2 takes it when the
+// return is zero. A nonzero dword at node+0x94 calls 0x00049D10 and takes
+// the same call when that return is nonzero. 0x00123B00 and 0x00049D10 are
+// not translated, so those nonzero returns are not taken. The zero return
+// of 0x00123B00 with node+0x90 equal to 2 would call 0x000532B0 with ECX set
+// to the node cursor and EDX set to 0xF, then return 2. 0x000532B0 is not
+// translated, so the cursor stays put and the case returns 2.
+// Any other node+0x90 calls 0x00128AB0. EAX is the cstring at node+0x10, ECX
+// is the dword at node+8, and EDX is the dword at node+0xC. A nonzero third
+// argument with a zero dword at node+8 returns 0. A zero second argument and
+// a zero third argument return 0. Otherwise the case returns 2.
+//
+// Type 0xF stores 0 at DAT_00512518. A zero DAT_00512514 returns 2. A zero
+// DAT_0051251C stores 1 at DAT_00512518 and returns 0. Any other count
+// decrements DAT_0051251C and returns 2.
+//
+// Type 0x10 with a nonzero third argument returns 2. A zero third argument
+// returns 0 when DAT_0051251C is 0, and otherwise decrements it and returns 2.
+//
+// Type 0x11 with a zero third argument increments DAT_0051251C and returns 2.
+// A nonzero third argument returns 2.
+//
+// Type 0x69 stores the dword at node+0xC into DAT_0050E79C and the dword at
+// node+8 into DAT_0050E798, then returns 2.
+// Xbox 0x000532B0.
+bool script_seek_node_type(const SceneScript& script, u32& cursor, u32 type)
+{
+    for (;;)
+    {
+        const ScriptNode* node = script_node_at(script, cursor);
+        if (node == nullptr)
+        {
+            throw Error("script search cursor outside resource");
+        }
+        if (node->type == type)
+        {
+            return true;
+        }
+        if (node->type == 0)
+        {
+            return false;
+        }
+        cursor = node->link;
+    }
+}
+
+
+// Xbox 0x00128BC0
+int script_handle_title_actions(Game& g, const ScriptNode& node, u32& cursor, int param_2, int param_3)
+{
+    switch (node.type)
+    {
+    case 0:
+        return 1;
+    case 0xd:
+    {
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        (void)key;
+        return 2;
+    }
+    case 0xe:
+    {
+        const u32 mode = node_u32(g.scene_script, node, 0x90);
+        const bool alternate = script_end_gate_set();
+        if ((mode == 1 && alternate) || (mode == 2 && !alternate) ||
+            (node_u32(g.scene_script, node, 0x94) != 0 && scene_end_flag_set()))
+        {
+            script_seek_node_type(g.scene_script, cursor, 0xf);
+            return 2;
+        }
+        const u32 at_8 = node_u32(g.scene_script, node, 8);
+        const u32 at_c = node_u32(g.scene_script, node, 0xc);
+        script_activate_title(g, node_cstr(g.scene_script, node, 0x10), i32(at_8), i32(at_c));
+        if (param_3 != 0 && at_8 == 0)
+        {
+            return 0;
+        }
+        if (param_2 == 0 && param_3 == 0)
+        {
+            return 0;
+        }
+        return 2;
+    }
+    case 0xf:
+        g_gate_2518 = 0;
+        if (g_gate_2514 != 0)
+        {
+            if (g_gate_251c == 0)
+            {
+                g_gate_2518 = 1;
+                return 0;
+            }
+            g_gate_251c = g_gate_251c - 1;
+            return 2;
+        }
+        return 2;
+    case 0x10:
+        if (param_3 == 0)
+        {
+            if (g_gate_251c == 0)
+            {
+                return 0;
+            }
+            g_gate_251c = g_gate_251c - 1;
+            return 2;
+        }
+        return 2;
+    case 0x11:
+        if (param_3 == 0)
+        {
+            g_gate_251c = g_gate_251c + 1;
+            return 2;
+        }
+        return 2;
+    case 0x69:
+        g_script_e79c = node_u32(g.scene_script, node, 0xc);
+        g_script_e798 = node_u32(g.scene_script, node, 8);
+        return 2;
+    default:
+        return 3;
+    }
+}
+
+
+// Xbox 0x00128A00. Walks fired file offsets. Handler 0 is 0x00128BC0.
+// Handler 1 is 0x00124CC0.
+// Handler 2 is 0x00124E50. Handler 3 is 0x00124F30. Handler 4 is 0x00124FC0.
+// Handler 5 is 0x001251E0. Handler 6 is 0x00125450. Handler 7 is 0x001259B0.
+// Handler 8 is 0x00126140. Handler 9 is 0x001269D0. Handler 10 is 0x00126A10.
+// Handler 11 is 0x00126E10. Handler 12 is 0x00127340. Handler 13 is 0x001274B0.
+// Handler 14 is 0x00127BC0. Handler 15 is 0x00128050. Handler 16 is 0x00128770.
+// Handler 0 is the first slot of the table at 0x00312650. The flag passed to handler 4 is nonzero
+// when DAT_0050E4DC has a node whose dword at +8 is 0x7D. Handler 0 receives that same flag.
+// Handler 7 receives that same flag.
+// Its third argument is 0: 0x00128A00 clears EDI whenever that flag is set,
+// and the handler only reads the third argument on that path. Handler 0
+// receives that same third argument. Handler 8
+// receives that same third argument. Handler 13 receives it as well. Handler 14
+// receives that same second argument and that same third argument. Handler 15
+// receives that same second argument and that same third argument. Handler 16
+// reads only the node. A node type none of them covers stops
+// the walk and leaves the
+// fired id in place. Return 1 stops on a type-0 node from handler 0, and on a
+// type-0x3C node. Return 0 means
+// the cursor left the blob, or stopped on an untranslated node, and the
+// drain keeps that fired id.
+// Xbox 0x00128A00
+int script_execute_fired_action(Game& g, u32& offset)
+{
+    int param_2 = 0;
+    for (LiveScript* live = g_live_scripts; live != nullptr; live = live->next)
+    {
+        if (live->type == 0x7d)
+        {
+            param_2 = 1;
+            break;
+        }
+    }
+    const int param_3 = param_2 == 0 && script_end_gate_set() ? 1 : 0;
+    for (int step = 0; step < 256; ++step)
+    {
+        const ScriptNode* node = script_node_at(g.scene_script, offset);
+        if (node == nullptr || node->size == 0)
+        {
+            return 0;
+        }
+        int handler = script_handle_title_actions(g, *node, offset, param_2, param_3);
+        if (handler == 3)
+        {
+            handler = script_handle_actor_state(g, *node);
+        }
+        if (handler == 3)
+        {
+            handler = script_handle_parameters(g, *node);
+        }
+        if (handler == 3)
+        {
+            handler = script_handle_actor_messages(g, *node);
+        }
+        if (handler == 3)
+        {
+            handler = script_handle_pair_updates(g, *node, param_2);
+        }
+        if (handler == 3)
+        {
+            handler = script_handle_condition_setup(g, *node);
+        }
+        if (handler == 3)
+        {
+            handler = script_handle_condition_node(g, *node);
+        }
+        if (handler == 3)
+        {
+            handler = script_handle_action_links(g, *node, param_2, param_3);
+        }
+        if (handler == 3)
+        {
+            handler = script_handle_scene_actions(g, *node, param_2, param_3);
+        }
+        if (handler == 3)
+        {
+            handler = script_handle_flag_bits(g, *node);
+        }
+        if (handler == 3)
+        {
+            handler = script_handle_actor_actions(g, *node);
+        }
+        if (handler == 3)
+        {
+            handler = script_handle_resource_actions(g, *node, param_2);
+        }
+        if (handler == 3)
+        {
+            handler = script_handle_event_actions(g, *node);
+        }
+        if (handler == 3)
+        {
+            handler = script_handle_cutscene_actions(g, *node, param_3);
+        }
+        if (handler == 3)
+        {
+            handler = script_handle_actor_effects(g, *node, param_2, param_3);
+        }
+        if (handler == 3)
+        {
+            handler = script_handle_world_actions(g, *node, param_2, param_3);
+        }
+        if (handler == 3)
+        {
+            handler = script_handle_broadcast_actions(g, *node);
+        }
+        if (handler == 1)
+        {
+            return 1;
+        }
+        if (handler != 2)
+        {
+            return 0;
+        }
+        const ScriptNode* current = script_node_at(g.scene_script, offset);
+        if (current == nullptr)
+        {
+            throw Error("script handler cursor outside resource");
+        }
+        offset = current->link;
+    }
+    return 0;
+}
+
+
+// Xbox 0x001288C0. Walks the fired ids from the back. A zero from 0x00128A00
+// stops and leaves the remaining entries in place.
+// Xbox 0x001288C0
+void script_execute_fired_actions(Game& g)
+{
+    for (size_t i = g_script_fired.size(); i > 0;)
+    {
+        --i;
+        const int ran = script_execute_fired_action(g, g_script_fired[i]);
+        if (ran == 0)
+        {
+            return;
+        }
+        g_script_fired.erase(g_script_fired.begin() + static_cast<std::ptrdiff_t>(i));
+        if (g_script_e79c != 0)
+        {
+            break;
+        }
+    }
+}
+
+
+// Xbox 0x0004B370. Chapter scripts share the setup script for their chapter.
+std::string script_chapter_setup_name(std::string_view name)
+{
+    constexpr std::string_view prefix = "aid_script_ghoulies_chapter";
+    if (!name.starts_with(prefix))
+    {
+        return {};
+    }
+    const size_t end = name.find('_', prefix.size());
+    return std::string(name.substr(0, end)) + "_setup";
+}
+
+
+// Xbox 0x0004B440. Run the setup resource on the same fired-script VM.
+void script_run_chapter_setup(Game& g, std::string_view name)
+{
+    const std::string setup = script_chapter_setup_name(name);
+    if (setup.empty())
+    {
+        return;
+    }
+    const BundleEntry* entry = g.aids.load_aid(setup);
+    if (entry == nullptr)
+    {
+        throw Error("chapter setup resource missing: " + setup);
+    }
+    SceneScript scene = std::move(g.scene_script);
+    g.scene_script = parse_scene_script(entry->cpu, setup);
+    g_script_fired.push_back(g.scene_script.nodes.front().offset);
+    script_execute_fired_actions(g);
+    if (!g_script_fired.empty())
+    {
+        throw Error("chapter setup script did not drain: " + setup);
+    }
+    g.scene_script = std::move(scene);
+}
+
+
+void script_vm_bind(Game& g)
+{
+    script_vm_reset();
+    g_scene_script_started = false;
+    g_script_e788 = 0;
+    g_script_e78c = 0;
+    g_script_e794 = 0;
+    g_script_e798 = 4;
+    g_script_e79c = 0;
+    g_flag_2470 = 0;
+    g_flag_2474 = 0;
+    while (g_live_scripts != nullptr)
+    {
+        script_release_event(g_live_scripts);
+    }
+    if (g.scene_script.nodes.empty())
+    {
+        return;
+    }
+    script_run_chapter_setup(g, g.scene_script.name);
+    g_script_fired.push_back(g.scene_script.nodes.front().offset);
+    script_execute_fired_actions(g);
+}
+
+
+// Xbox 0x00133070. Opcode 0 in the update table at 0x00314334. The int at
+// +0xC, or a clear DAT_0050E768 while the byte at [DAT_0051248C]+0x30F144
+// is set, subtracts a step from the float at +8. DAT_004312DC above 0 makes
+// that step 0. Otherwise the step is DAT_005096C0 * DAT_004312C4. A result
+// at or below 0 is stored as 0.
+// Xbox 0x00133070
+void script_tick_condition_timer(ScriptCond& rec)
+{
+    if (cond_u32(rec, 0xc) != 0 || (g_block_decay == 0 && g_decay_arm != 0))
+    {
+        float step = 0.f;
+        if (g_sim_freeze <= 0.f)
+        {
+            step = g_sim_dt * g_sim_scale;
+        }
+        const float left = cond_f32(rec, 8);
+        if (0.f < left)
+        {
+            float next = left - step;
+            cond_put_f32(rec, 8, next);
+            if (next <= 0.f)
+            {
+                cond_put_f32(rec, 8, 0.f);
+            }
+        }
+    }
+}
+
+
+// Xbox 0x00128D90. Resume the scene's fired cursor at the matching title.
+void script_resume_title(Game& g, i32 mode, i32 id)
+{
+    u32 offset = g.scene_script.nodes.front().offset;
+    const ScriptNode* node = script_node_at(g.scene_script, offset);
+    while (node != nullptr && node->type != 0)
+    {
+        if (node->type == 0xe && i32(node_u32(g.scene_script, *node, 8)) == mode &&
+            i32(node_u32(g.scene_script, *node, 0xc)) == id)
+        {
+            g_script_fired.at(0) = offset;
+            return;
+        }
+        offset = node->link;
+        node = script_node_at(g.scene_script, offset);
+    }
+}
+
+
+bool transition_aid_equal(std::string_view a, std::string_view b);
+
+
+// Xbox 0x00035960. The host vector owns the retail array of 0x80-byte AIDs.
+const std::string* scene_order_find_next(const std::vector<std::string>& list, std::string_view current, i32 wrap)
+{
+    if (list.empty())
+    {
+        return nullptr;
+    }
+    if (current.empty())
+    {
+        return &list.front();
+    }
+    for (size_t i = 0; i < list.size(); ++i)
+    {
+        if (transition_aid_equal(list[i], current))
+        {
+            if (i + 1 == list.size())
+            {
+                return wrap == 0 ? nullptr : &list.front();
+            }
+            return &list[i + 1];
+        }
+    }
+    return nullptr;
+}
+
+
+// Xbox 0x00117140. Drain the scene script, then request the next scene AID.
+void script_tick_fired_vm(Game& g)
+{
+    // Xbox 0x00117140
+    if (g_script_e78c == 0)
+    {
+        if (g_script_e79c != 0)
+        {
+            script_resume_title(g, g_script_e798, g_script_e79c);
+            g_script_e79c = 0;
+        }
+        bool latched = false;
+        if (g_script_e794 == 0)
+        {
+            script_evaluate_conditions(g);
+            const size_t fired_before = g_script_fired.size();
+            script_execute_fired_actions(g);
+            if (fired_before != 0 && g_script_fired.empty())
+            {
+                g_script_e788 = 1;
+                latched = true;
+            }
+        }
+        if (!latched && g_script_e788 == 0)
+        {
+            return;
+        }
+        // Xbox 0x00035960: use the current scene AID, rather than the title
+        // written by type 0xE. The scene-order list wraps when its flag is 1.
+        if (const std::string* next = scene_order_find_next(g.scene_order, g.scene_script.name, 1))
+        {
+            request_scene_aid(next->c_str(), 1);
+            g_script_e790 = 0.f;
+        }
+        g_script_e78c = 1;
+        g_script_e794 = g_script_e794 + 1;
+        return;
+    }
+
+    float step = 0.f;
+    if (g_sim_freeze <= 0.f)
+    {
+        step = g_sim_dt * g_sim_scale;
+    }
+    if (0.f < g_script_e790)
+    {
+        g_script_e790 = g_script_e790 - step;
+        if (g_script_e790 <= 0.f)
+        {
+            g_script_e790 = 0.f;
+        }
+    }
+}
+
+
+// DAT_00509b20 through DAT_00509b2c. entity.cpp keeps a private copy of this tint.
+float g_509b20 = 0.f;
+
+float g_509b24 = 0.f;
+
+float g_509b28 = 0.f;
+
+float g_509b2c = 0.f;
+
+float g_509b4c = 0.f;
+ // DAT_00509b4c
+float g_509b50 = 0.f;
+ // DAT_00509b50. Pool float DAT_0032b160.
+float g_509b54 = 0.f;
+ // DAT_00509b54. Pool float DAT_0032b15c.
+i32 g_509b58 = 0;
+     // DAT_00509b58
+i32 g_509b70 = 0;
+     // DAT_00509b70
+i32 g_509b74 = 0;
+     // DAT_00509b74
+i32 g_5462fc = 0;
+     // DAT_005462FC
+i32 g_545d1c = 0;
+     // DAT_00545D1C
+i32 g_545cc8 = 0;
+     // DAT_00545CC8
+
+// Xbox 0x0011CAC0. Writes 1.0 (0x3f800000) to DAT_00509b2c, DAT_00509b20,
+// DAT_00509b24, DAT_00509b28, and DAT_00509b4c. DAT_00509b50 becomes
+// 0x3eb2b8c3. DAT_005462FC becomes 1. DAT_00509b54 becomes 0x3f32b8c3.
+// DAT_00509b58 becomes 1. DAT_00509b70 becomes 0. DAT_00509b74 becomes 1.
+// 0x000FAEE0, 0x0013CBD0, 0x00116E00, and 0x00124420 are not translated, so
+// those calls are not made. DAT_00545D1C and DAT_00545CC8 are cleared after
+// the 0x000FAEE0 call.
+// Xbox 0x0011CAC0
+void scene_reset_runtime_parameters()
+{
+    // Xbox 0x0011CAC0
+    g_509b2c = 1.f;
+    g_509b20 = 1.f;
+    g_509b24 = 1.f;
+    g_509b28 = 1.f;
+    g_509b4c = 1.f;
+    g_509b50 = std::bit_cast<float>(0x3eb2b8c3u);
+    g_5462fc = 1;
+    g_509b54 = std::bit_cast<float>(0x3f32b8c3u);
+    g_509b58 = 1;
+    g_509b70 = 0;
+    g_509b74 = 1;
+    // 0x000FAEE0 is not translated.
+    g_545d1c = 0;
+    g_545cc8 = 0;
+    // 0x0013CBD0, 0x00116E00, and 0x00124420 are not translated.
+}
+
+
+// Xbox 0x0011CB60. Start the loaded scene and run its script latch.
+void script_queue_scene_start(Game& g)
+{
+    // Xbox 0x0011CB60
+    // 0x0011CBD0 sends the scene-start message directly to 0x00116810,
+    // before its entity broadcasts. This wakes the title action.
+    const std::array<u8, 4> start{0x7d, 0, 0, 0};
+    script_queue_event(g, start);
+    g_scene_script_started = true;
+    cutscene_queue_start(g);
+    script_tick_fired_vm(g);
+}
+
+
+// Xbox 0x00117100, then the eval at 0x00117140. The update walk calls the
+// table at 0x00314334. Opcode 0 is 0x00133070. The other updates are not
+// translated, so those records are not stepped.
+void script_vm_tick(Game& g, float dt)
+{
+    (void)dt;
+    for (ScriptCond& rec : g_script_conds)
+    {
+        if (cond_u32(rec, 0) == 0)
+        {
+            script_tick_condition_timer(rec);
+        }
+    }
+    script_tick_fired_vm(g);
+}
+
+} // namespace gbtg

@@ -1,6 +1,20 @@
 cmake_minimum_required(VERSION 3.20)
 project(GbtGDecomp LANGUAGES CXX)
 
+# Solution folders organize projects; source_group below organizes their files.
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "Tools")
+
+# Enforce the project header convention without inspecting fetched dependencies.
+file(GLOB_RECURSE GBTG_FORBIDDEN_HEADERS CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/*.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.hpp"
+)
+if(GBTG_FORBIDDEN_HEADERS)
+    message(FATAL_ERROR "Project-owned headers must use .h: ${GBTG_FORBIDDEN_HEADERS}")
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -34,29 +48,29 @@ if(GBTG_WITH_SDL)
 endif()
 
 add_library(gbtg_lib STATIC
-    src/gbtg/io.cpp
-    src/gbtg/resource.cpp
-    src/gbtg/bundle.cpp
-    src/gbtg/texture.cpp
-    src/gbtg/model.cpp
-    src/gbtg/loctext.cpp
-    src/gbtg/font.cpp
-    src/gbtg/wavebank.cpp
-    src/gbtg/xbe.cpp
-    src/gbtg/catalog.cpp
-    src/gbtg/script.cpp
-    src/gbtg/cutscene.cpp
-    src/gbtg/anim.cpp
-    src/gbtg/performance.cpp
-    src/gbtg/resource_error.cpp
-    src/gbtg/object_factory.cpp
-    src/gbtg/model_runtime.cpp
-    src/gbtg/model_render.cpp
-    src/gbtg/model_relocation.cpp
-    src/gbtg/model_texture.cpp
-    src/gbtg/model_resource.cpp
-    src/gbtg/model_views.cpp
-    src/gbtg/sound_runtime.cpp
+    src/gbtg/resources/io.cpp
+    src/gbtg/resources/resource.cpp
+    src/gbtg/resources/bundle.cpp
+    src/gbtg/graphics/texture.cpp
+    src/gbtg/models/model.cpp
+    src/gbtg/text/loctext.cpp
+    src/gbtg/graphics/font.cpp
+    src/gbtg/audio/wavebank.cpp
+    src/gbtg/resources/xbe.cpp
+    src/gbtg/resources/catalog.cpp
+    src/gbtg/scripts/script.cpp
+    src/gbtg/scripts/cutscene.cpp
+    src/gbtg/animation/anim.cpp
+    src/gbtg/runtime/performance.cpp
+    src/gbtg/resources/resource_error.cpp
+    src/gbtg/runtime/object_factory.cpp
+    src/gbtg/models/model_runtime.cpp
+    src/gbtg/models/model_render.cpp
+    src/gbtg/models/model_relocation.cpp
+    src/gbtg/models/model_texture.cpp
+    src/gbtg/models/model_resource.cpp
+    src/gbtg/models/model_views.cpp
+    src/gbtg/audio/sound_runtime.cpp
 )
 target_include_directories(gbtg_lib PUBLIC ${CMAKE_SOURCE_DIR}/include)
 if(TARGET zlibstatic)
@@ -95,30 +109,64 @@ target_link_libraries(gbtg-xemu-patch PRIVATE gbtg_lib)
 
 add_executable(gbtg
     src/engine/main.cpp
-    src/engine/host_config.cpp
-    src/engine/aid.cpp
-    src/engine/entity.cpp
-    src/engine/clock.cpp
-    src/engine/audio.cpp
-    src/engine/pcm_out.cpp
-    src/engine/frontend.cpp
-    src/engine/dialogue.cpp
-    src/engine/scene.cpp
+    src/engine/runtime/host_config.cpp
+    src/engine/runtime/aid.cpp
+    src/engine/entities/entity.cpp
+    src/engine/entities/actor_transform.cpp
+    src/engine/camera/entity_camera.cpp
+    src/engine/entities/entity_collision.cpp
+    src/engine/entities/entity_heap.cpp
+    src/engine/entities/entity_model.cpp
+    src/engine/entities/actor_runtime.cpp
+    src/engine/input/controller.cpp
+    src/engine/saves/save_names.cpp
+    src/engine/frontend/text_tokens.cpp
+    src/engine/scene/lighting.cpp
+    src/engine/scene/ambient.cpp
+    src/engine/scene/scene_resources.cpp
+    src/engine/runtime/clock.cpp
+    src/engine/audio/audio.cpp
+    src/engine/audio/pcm_out.cpp
+    src/engine/frontend/frontend.cpp
+    src/engine/frontend/frontend_keyboard.cpp
+    src/engine/frontend/frontend_slots.cpp
+    src/engine/frontend/frontend_contents.cpp
+    src/engine/frontend/frontend_captions.cpp
+    src/engine/frontend/frontend_attract.cpp
+    src/engine/frontend/frontend_text.cpp
+    src/engine/frontend/dialogue.cpp
+    src/engine/scene/scene.cpp
+    src/engine/scene/scene_loading.cpp
+    src/engine/cutscenes/cutscene_runtime.cpp
+    src/engine/camera/camera.cpp
+    src/engine/scripts/script_samples.cpp
+    src/engine/scripts/script_conditions.cpp
+    src/engine/scripts/script_actions.cpp
+    src/engine/scripts/script_vm.cpp
+    src/engine/transitions/scene_transitions.cpp
+    src/engine/transitions/transition_book.cpp
+    src/engine/runtime/crt_runtime.cpp
+    src/engine/runtime/crt_format.cpp
+    src/engine/runtime/xapi_runtime.cpp
+    src/engine/graphics/d3d_packets.cpp
+    src/engine/runtime/engine_memory.cpp
     src/engine/game.cpp
-    src/engine/platform.cpp
-    src/engine/movie.cpp
+    src/engine/runtime/platform.cpp
+    src/engine/video/movie.cpp
 )
 target_link_libraries(gbtg PRIVATE gbtg_lib)
 if(WIN32)
+    # Controller polling belongs to the platform loop with either graphics backend.
+    target_link_libraries(gbtg PRIVATE xinput)
     set(_gbtg_gfx_default d3d11)
 else()
     set(_gbtg_gfx_default null)
 endif()
 set(GBTG_GFX "${_gbtg_gfx_default}" CACHE STRING "Graphics backend: null or d3d11")
 if(GBTG_GFX STREQUAL "d3d11")
-    target_sources(gbtg PRIVATE src/engine/gfx_d3d11.cpp)
+    target_sources(gbtg PRIVATE src/engine/graphics/gfx_d3d11.cpp)
     target_compile_definitions(gbtg PRIVATE GBTG_GFX_D3D11)
-    target_link_libraries(gbtg PRIVATE d3d11 dxgi d3dcompiler user32 xinput xaudio2 ole32)
+    target_link_libraries(gbtg PRIVATE d3d11 dxgi d3dcompiler user32 xaudio2 ole32)
 
     # Dear ImGui is compiled into Debug gbtg only. Release, RelWithDebInfo, and the
     # null backend never see GBTG_DEBUG_UI. Populate skips add_subdirectory: upstream
@@ -149,7 +197,7 @@ if(GBTG_GFX STREQUAL "d3d11")
         "${imgui_SOURCE_DIR}/imgui_widgets.cpp"
         "${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp"
         "${imgui_SOURCE_DIR}/backends/imgui_impl_dx11.cpp"
-        "${CMAKE_SOURCE_DIR}/src/engine/debug_ui.cpp"
+        "${CMAKE_SOURCE_DIR}/src/engine/graphics/debug_ui.cpp"
     )
     target_sources(gbtg PRIVATE "$<$<CONFIG:Debug>:${GBTG_IMGUI_SOURCES}>")
     target_compile_definitions(gbtg PRIVATE
@@ -162,7 +210,7 @@ if(GBTG_GFX STREQUAL "d3d11")
     )
     target_link_libraries(gbtg PRIVATE $<$<CONFIG:Debug>:imm32>)
 else()
-    target_sources(gbtg PRIVATE src/engine/gfx_null.cpp)
+    target_sources(gbtg PRIVATE src/engine/graphics/gfx_null.cpp)
     target_compile_definitions(gbtg PRIVATE GBTG_GFX_NULL)
 endif()
 if(GBTG_WITH_SDL)
@@ -228,7 +276,7 @@ if(BUILD_TESTING)
     target_link_libraries(gbtg-animation-event-tests PRIVATE gbtg_lib)
     add_test(NAME animation-event-boundaries COMMAND gbtg-animation-event-tests)
     get_target_property(GBTG_TRANSITION_SOURCES gbtg SOURCES)
-    list(REMOVE_ITEM GBTG_TRANSITION_SOURCES src/engine/main.cpp src/engine/platform.cpp)
+    list(REMOVE_ITEM GBTG_TRANSITION_SOURCES src/engine/main.cpp src/engine/runtime/platform.cpp)
     add_executable(gbtg-transition-tests EXCLUDE_FROM_ALL tests/scene_transition_tests.cpp ${GBTG_TRANSITION_SOURCES})
     get_target_property(GBTG_TRANSITION_LINKS gbtg LINK_LIBRARIES)
     get_target_property(GBTG_TRANSITION_DEFINITIONS gbtg COMPILE_DEFINITIONS)
@@ -248,4 +296,60 @@ if(BUILD_TESTING)
     if(MSVC)
         target_compile_options(gbtg-transition-tests PRIVATE /W3 /EHsc /utf-8)
     endif()
+endif()
+
+# Register browsing-only files after the transition target copies engine sources.
+file(GLOB_RECURSE GBTG_PUBLIC_HEADERS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h")
+set(GBTG_ENGINE_PUBLIC_HEADERS)
+foreach(header actor_runtime aid clock debug_ui dialogue engine_internal entity game gfx host_config movie platform)
+    list(APPEND GBTG_ENGINE_PUBLIC_HEADERS "${CMAKE_CURRENT_SOURCE_DIR}/include/gbtg/${header}.h")
+endforeach()
+list(REMOVE_ITEM GBTG_PUBLIC_HEADERS ${GBTG_ENGINE_PUBLIC_HEADERS})
+file(GLOB_RECURSE GBTG_LIBRARY_INCLUDES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/gbtg/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/gbtg/*.inl"
+)
+file(GLOB_RECURSE GBTG_ENGINE_INCLUDES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/*.inl"
+)
+set_source_files_properties(${GBTG_LIBRARY_INCLUDES} ${GBTG_ENGINE_INCLUDES} PROPERTIES HEADER_FILE_ONLY TRUE)
+target_sources(gbtg_lib PRIVATE ${GBTG_PUBLIC_HEADERS} ${GBTG_LIBRARY_INCLUDES})
+target_sources(gbtg PRIVATE ${GBTG_ENGINE_PUBLIC_HEADERS} ${GBTG_ENGINE_INCLUDES})
+if(GBTG_GFX STREQUAL "d3d11")
+    set(GBTG_INACTIVE_BACKEND src/engine/graphics/gfx_null.cpp)
+else()
+    set(GBTG_INACTIVE_BACKEND src/engine/graphics/gfx_d3d11.cpp)
+    set_source_files_properties(src/engine/graphics/debug_ui.cpp PROPERTIES HEADER_FILE_ONLY TRUE)
+    target_sources(gbtg PRIVATE src/engine/graphics/debug_ui.cpp)
+endif()
+set_source_files_properties(${GBTG_INACTIVE_BACKEND} PROPERTIES HEADER_FILE_ONLY TRUE)
+target_sources(gbtg PRIVATE ${GBTG_INACTIVE_BACKEND})
+if(TARGET gbtg-transition-tests)
+    target_sources(gbtg-transition-tests PRIVATE ${GBTG_ENGINE_PUBLIC_HEADERS} ${GBTG_ENGINE_INCLUDES})
+endif()
+file(GLOB_RECURSE GBTG_PROJECT_FILES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.inl"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.inl"
+)
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${GBTG_PROJECT_FILES})
+
+set_target_properties(gbtg-catalog gbtg-dump gbtg-model-check gbtg-xemu-patch
+    PROPERTIES FOLDER "Tools"
+)
+if(BUILD_TESTING)
+    set_target_properties(
+        gbtg-model-tests
+        gbtg-object-factory-tests
+        gbtg-model-runtime-tests
+        gbtg-model-relocation-tests
+        gbtg-animation-event-tests
+        gbtg-transition-tests
+        PROPERTIES FOLDER "Test"
+    )
 endif()

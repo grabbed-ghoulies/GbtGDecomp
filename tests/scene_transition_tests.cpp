@@ -1,5 +1,5 @@
-#include "gbtg/engine_internal.hpp"
-#include "gbtg/gfx.hpp"
+#include "gbtg/engine_internal.h"
+#include "gbtg/gfx.h"
 
 #include <iostream>
 
@@ -51,14 +51,14 @@ int main(int argc, char** argv)
                     game.frontend_mode == 1 && gbtg::g_54632c == 0)
                 {
                     const int previous_slot = game.slot;
-                    gbtg::InputState down;
-                    down.down = true;
+                    gbtg::InputState right;
+                    right.right = true;
                     gbtg::gfx_begin_frame();
-                    game.tick(1.f / 59.f, down);
+                    game.tick(1.f / 59.f, right);
                     gbtg::gfx_end_frame();
                     if (game.slot != (previous_slot + 1) % 3)
                     {
-                        throw gbtg::Error("slot selection ignored Down input");
+                        throw gbtg::Error("slot selection ignored Right input");
                     }
                     accepted = true;
                     break;
@@ -68,7 +68,7 @@ int main(int argc, char** argv)
             {
                 throw gbtg::Error("title animation or Start input stalled");
             }
-            std::cout << "PASS: title animates and Start opens slot selection\n";
+            std::cout << "PASS: title animates and Start opens slot selection and Right changes slot\n";
             gbtg::gfx_shutdown();
             return 0;
         }

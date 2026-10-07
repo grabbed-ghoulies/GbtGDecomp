@@ -1,5 +1,5 @@
-#include "gbtg/bundle.hpp"
-#include "gbtg/xbe.hpp"
+#include "gbtg/bundle.h"
+#include "gbtg/xbe.h"
 
 #include <filesystem>
 #include <iostream>

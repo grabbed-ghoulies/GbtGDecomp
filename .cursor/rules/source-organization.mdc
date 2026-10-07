@@ -1,0 +1,11 @@
+---
+description: Project-owned source organization, header extensions, and reconstructed names
+globs: src/**,include/**,tests/**
+alwaysApply: true
+---
+
+- Use `.h` for project-owned headers. Never create `.hpp` headers.
+- Put source files in folders named for their subsystem (camera, entities, scene, scripts, frontend, transitions, runtime, graphics, audio, and so on). Group functions in separately compiled `.cpp` modules with narrow internal `.h` interfaces beside their owning modules.
+- Use descriptive function names derived from implementation evidence.
+- Put `// Xbox 0x........` immediately above every reconstructed function definition and beside its declaration. Preserve the original Xbox address and reconstruction notes.
+- Moving or renaming functions must preserve behavior, branches, comparisons, offsets, and return values.

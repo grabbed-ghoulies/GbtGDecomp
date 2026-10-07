@@ -1,6 +1,6 @@
-#include "gbtg/catalog.hpp"
-#include "gbtg/hash.hpp"
-#include "gbtg/xbe.hpp"
+#include "gbtg/catalog.h"
+#include "gbtg/hash.h"
+#include "gbtg/xbe.h"
 
 #include <fstream>
 #include <iostream>

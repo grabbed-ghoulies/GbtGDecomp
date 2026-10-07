@@ -1,6 +1,6 @@
 ---
 description: Allman braces — opening { on its own line
-globs: **/*.{c,h,cpp,hpp}
+globs: **/*.{c,h,cpp,inl}
 alwaysApply: false
 ---
 

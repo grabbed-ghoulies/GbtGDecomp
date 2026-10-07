@@ -1,6 +1,6 @@
-#include "gbtg/model_runtime.hpp"
-#include "gbtg/model_render.hpp"
-#include "gbtg/resource_error.hpp"
+#include "gbtg/model_runtime.h"
+#include "gbtg/model_render.h"
+#include "gbtg/resource_error.h"
 #include <array>
 #include <cstring>
 #include <iostream>

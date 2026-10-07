@@ -1,4 +1,4 @@
-#include "gbtg/object_factory.hpp"
+#include "gbtg/object_factory.h"
 #include <array>
 #include <cstring>
 #include <iostream>

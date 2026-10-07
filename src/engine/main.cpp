@@ -1,7 +1,7 @@
-#include "gbtg/engine_internal.hpp"
-#include "gbtg/game.hpp"
-#include "gbtg/host_config.hpp"
-#include "gbtg/platform.hpp"
+#include "gbtg/engine_internal.h"
+#include "gbtg/game.h"
+#include "gbtg/host_config.h"
+#include "gbtg/platform.h"
 
 #include <iostream>
 #include <string>

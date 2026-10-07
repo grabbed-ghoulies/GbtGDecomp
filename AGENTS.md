@@ -53,7 +53,7 @@ and which AID is requested. See `docs/XEMU.md`.
 
 ## C/C++ brace style
 
-For all `*.c`, `*.h`, `*.cpp`, and `*.hpp` files:
+For all `*.c`, `*.h`, `*.cpp`, and `*.inl` files:
 
 - Use Allman braces: put the opening `{` on the next line at the same indentation
   as the statement. Do not use K&R braces such as `if (x) {`.
@@ -75,3 +75,11 @@ void tick(int n)
     }
 }
 ```
+
+## Source organization and names
+
+- Project-owned headers must use `.h`; do not create `.hpp` files.
+- Put source files in folders named for their subsystem (camera, entities, scene, scripts, frontend, transitions, runtime, graphics, audio, and so on). Group functions in separately compiled `.cpp` modules with narrow internal `.h` interfaces beside their owning modules.
+- Give reconstructed functions descriptive names derived from their implementation.
+- Always put `// Xbox 0x........` immediately above each reconstructed definition and beside its declaration, using the original function address.
+- Preserve reconstruction behavior and existing address notes when moving or renaming functions.

@@ -1,6 +1,6 @@
-#include "gbtg/engine_internal.hpp"
-#include "gbtg/gfx.hpp"
-#include "gbtg/movie.hpp"
+#include "gbtg/engine_internal.h"
+#include "gbtg/gfx.h"
+#include "gbtg/movie.h"
 
 #include <algorithm>
 #include <iostream>

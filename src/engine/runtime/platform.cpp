@@ -1,0 +1,334 @@
+#include "gbtg/gfx.h"
+#include "gbtg/platform.h"
+#include "gbtg/texture.h"
+
+#if defined(GBTG_DEBUG_UI)
+#include "gbtg/debug_ui.h"
+#endif
+
+#include <chrono>
+#include <iostream>
+
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <xinput.h>
+#endif
+
+#if defined(GBTG_WITH_SDL)
+#include <SDL3/SDL.h>
+#endif
+
+namespace gbtg
+{
+
+int run_platform(Game& game, const PlatformConfig& cfg)
+{
+    int remaining = cfg.frames;
+    if ((cfg.headless || !cfg.screenshot.empty()) && remaining <= 0)
+    {
+        remaining = 1;
+    }
+
+    GfxConfig gfx_cfg;
+    gfx_cfg.width = cfg.width;
+    gfx_cfg.height = cfg.height;
+    gfx_cfg.visible = !cfg.headless && cfg.screenshot.empty();
+    const bool gfx_ok = gfx_init(gfx_cfg);
+    std::cout << "gfx: " << (gfx_ok ? gfx_backend_name() : "unavailable") << (gfx_has_window() ? " window" : " offscreen")
+              << "\n";
+
+#if !defined(GBTG_WITH_SDL)
+    if (!gfx_has_window() && remaining <= 0)
+    {
+        remaining = 1;
+    }
+#endif
+
+#if defined(GBTG_WITH_SDL)
+    SDL_Window* win = nullptr;
+    if (!gfx_has_window() && !cfg.headless)
+    {
+        if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS))
+        {
+            std::cerr << "SDL_Init: " << SDL_GetError() << "\n";
+            gfx_shutdown();
+            return 1;
+        }
+        win = SDL_CreateWindow("GbtGDecomp", cfg.width, cfg.height, 0);
+    }
+#endif
+
+    auto last = std::chrono::steady_clock::now();
+    while (game.running)
+    {
+        InputState in;
+        bool gfx_quit = false;
+        gfx_pump(gfx_quit);
+        if (gfx_quit)
+        {
+            in.quit = true;
+        }
+#if defined(_WIN32)
+        // Xbox pad is read in frame_tick. On PC the host copies the keyboard into that same pad state.
+#if defined(GBTG_DEBUG_UI)
+        // F8 and F12 never enter InputState. While the menu bar is open, keyboard
+        // mappings stay clear so the scene list can use those keys.
+        static bool f8_down = false;
+        static bool f12_down = false;
+        const bool f8 = (GetAsyncKeyState(VK_F8) & 0x8000) != 0;
+        const bool f12 = (GetAsyncKeyState(VK_F12) & 0x8000) != 0;
+        if (f8 && !f8_down)
+        {
+            debug_ui_toggle_menu();
+        }
+        if (f12 && !f12_down)
+        {
+            debug_ui_toggle_overlay();
+        }
+        f8_down = f8;
+        f12_down = f12;
+        if (!debug_ui_menu_open())
+        {
+#endif
+        if (GetAsyncKeyState(VK_UP) & 0x8000)
+        {
+            in.up = true;
+        }
+        if (GetAsyncKeyState(VK_DOWN) & 0x8000)
+        {
+            in.down = true;
+        }
+        if (GetAsyncKeyState(VK_LEFT) & 0x8000)
+        {
+            in.left = true;
+        }
+        if (GetAsyncKeyState(VK_RIGHT) & 0x8000)
+        {
+            in.right = true;
+        }
+        if (GetAsyncKeyState(VK_RETURN) & 0x8000)
+        {
+            in.accept = true;
+        }
+        if (GetAsyncKeyState(VK_BACK) & 0x8000 || GetAsyncKeyState('B') & 0x8000)
+        {
+            in.back = true;
+        }
+        // Start is its own bit. Enter stays A so the two are never down together.
+        if (GetAsyncKeyState(VK_SPACE) & 0x8000)
+        {
+            in.start = true;
+        }
+        // 0x00014C10. X is bit 0x0400 (keyboard code 5). '[' and ']' stand in for
+        // the trigger bits 0x4000 and 0x8000 (codes 9 and 10).
+        if (GetAsyncKeyState('X') & 0x8000)
+        {
+            in.page = true;
+        }
+        if (GetAsyncKeyState(VK_OEM_4) & 0x8000)
+        {
+            in.caret_left = true;
+        }
+        if (GetAsyncKeyState(VK_OEM_6) & 0x8000)
+        {
+            in.caret_right = true;
+        }
+#if defined(GBTG_DEBUG_UI)
+        }
+#endif
+        // 0x001555B0 polls XInput into the four ports. The host keyboard above
+        // fills the same button word, so a connected pad fills those bits too.
+        for (DWORD port = 0; port < 4; ++port)
+        {
+            XINPUT_STATE state{};
+            if (XInputGetState(port, &state) != 0)
+            {
+                continue;
+            }
+            const XINPUT_GAMEPAD& pad = state.Gamepad;
+            const WORD buttons = pad.wButtons;
+            if ((buttons & XINPUT_GAMEPAD_DPAD_UP) != 0 || pad.sThumbLY > 16000)
+            {
+                in.up = true;
+            }
+            if ((buttons & XINPUT_GAMEPAD_DPAD_DOWN) != 0 || pad.sThumbLY < -16000)
+            {
+                in.down = true;
+            }
+            if ((buttons & XINPUT_GAMEPAD_DPAD_LEFT) != 0 || pad.sThumbLX < -16000)
+            {
+                in.left = true;
+            }
+            if ((buttons & XINPUT_GAMEPAD_DPAD_RIGHT) != 0 || pad.sThumbLX > 16000)
+            {
+                in.right = true;
+            }
+            if ((buttons & XINPUT_GAMEPAD_A) != 0)
+            {
+                in.accept = true;
+            }
+            if ((buttons & XINPUT_GAMEPAD_B) != 0)
+            {
+                in.back = true;
+            }
+            if ((buttons & XINPUT_GAMEPAD_START) != 0)
+            {
+                in.start = true;
+            }
+            if ((buttons & XINPUT_GAMEPAD_X) != 0)
+            {
+                in.page = true;
+            }
+            // 0x00154E50 sets bit 0x4000 / 0x8000 when the trigger byte is at least 30.
+            if (pad.bLeftTrigger >= 30)
+            {
+                in.caret_left = true;
+            }
+            if (pad.bRightTrigger >= 30)
+            {
+                in.caret_right = true;
+            }
+        }
+#endif
+#if defined(GBTG_WITH_SDL)
+        if (win)
+        {
+            SDL_Event e;
+            while (SDL_PollEvent(&e))
+            {
+                if (e.type == SDL_EVENT_QUIT)
+                {
+                    in.quit = true;
+                }
+            }
+            const bool* keys = SDL_GetKeyboardState(nullptr);
+            if (keys[SDL_SCANCODE_ESCAPE])
+            {
+                in.quit = true;
+            }
+            if (keys[SDL_SCANCODE_UP])
+            {
+                in.up = true;
+            }
+            if (keys[SDL_SCANCODE_DOWN])
+            {
+                in.down = true;
+            }
+            if (keys[SDL_SCANCODE_LEFT])
+            {
+                in.left = true;
+            }
+            if (keys[SDL_SCANCODE_RIGHT])
+            {
+                in.right = true;
+            }
+            if (keys[SDL_SCANCODE_RETURN])
+            {
+                in.accept = true;
+            }
+            if (keys[SDL_SCANCODE_BACKSPACE] || keys[SDL_SCANCODE_B])
+            {
+                in.back = true;
+            }
+            if (keys[SDL_SCANCODE_SPACE])
+            {
+                in.start = true;
+            }
+            if (keys[SDL_SCANCODE_X])
+            {
+                in.page = true;
+            }
+            if (keys[SDL_SCANCODE_LEFTBRACKET])
+            {
+                in.caret_left = true;
+            }
+            if (keys[SDL_SCANCODE_RIGHTBRACKET])
+            {
+                in.caret_right = true;
+            }
+        }
+#endif
+        const auto now = std::chrono::steady_clock::now();
+        float dt = std::chrono::duration<float>(now - last).count();
+        last = now;
+        if (cfg.headless || !cfg.screenshot.empty())
+        {
+            dt = 1.f / 60.f;
+        }
+        gfx_begin_frame();
+        game.tick(dt, in);
+#if defined(GBTG_DEBUG_UI)
+        debug_ui_build(game, dt);
+#endif
+        gfx_end_frame();
+        if (remaining > 0 && --remaining == 0)
+        {
+            game.running = false;
+        }
+#if defined(GBTG_WITH_SDL)
+        if (win)
+        {
+            SDL_Delay(1);
+        }
+#endif
+    }
+
+    if (!cfg.screenshot.empty())
+    {
+        RgbaImage image;
+        if (gfx_readback(image))
+        {
+            int changed = 0;
+            for (size_t i = 0; i + 3 < image.bgra.size(); i += 4)
+            {
+                const u8 b = image.bgra[i];
+                const u8 g = image.bgra[i + 1];
+                const u8 r = image.bgra[i + 2];
+                const bool clear = b >= 20 && b <= 26 && g >= 12 && g <= 18 && r >= 10 && r <= 16;
+                if (!clear)
+                {
+                    ++changed;
+                }
+            }
+            write_bmp(cfg.screenshot, image);
+            std::cout << "screenshot " << cfg.screenshot.string() << " " << image.width << "x" << image.height
+                      << " drawn_px=" << changed << "\n";
+        }
+        else
+        {
+            std::cerr << "screenshot failed\n";
+        }
+    }
+
+    std::cout << "frames " << game.frame << " t=" << game.time << "s scene " << game.scene_name;
+    if (game.cutscenes.playing && !game.cutscenes.items.empty())
+    {
+        const auto& c = game.cutscenes.items[game.cutscenes.index];
+        std::cout << " cutscene[" << game.cutscenes.index << "] " << c.name << " t=" << game.cutscenes.time << "/"
+                  << c.duration << "s";
+    }
+    if (game.camera && game.camera->actor)
+    {
+        const Vec3& p = game.camera->actor->position;
+        const Quat& q = game.camera->actor->quat;
+        std::cout << " cam=" << p.x << "," << p.y << "," << p.z << " quat=" << q.x << "," << q.y << "," << q.z << ","
+                  << q.w;
+    }
+    std::cout << "\n";
+
+    gfx_shutdown();
+
+#if defined(GBTG_WITH_SDL)
+    if (win)
+    {
+        SDL_DestroyWindow(win);
+        SDL_Quit();
+    }
+#endif
+    return 0;
+}
+
+} // namespace gbtg

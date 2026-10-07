@@ -1,9 +1,9 @@
-#include "gbtg/bundle.hpp"
-#include "gbtg/loctext.hpp"
-#include "gbtg/model.hpp"
-#include "gbtg/resource.hpp"
-#include "gbtg/texture.hpp"
-#include "gbtg/wavebank.hpp"
+#include "gbtg/bundle.h"
+#include "gbtg/loctext.h"
+#include "gbtg/model.h"
+#include "gbtg/resource.h"
+#include "gbtg/texture.h"
+#include "gbtg/wavebank.h"
 
 #include <iostream>
 #include <string>

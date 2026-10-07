@@ -1,5 +1,5 @@
-#include "gbtg/model_relocation.hpp"
-#include "gbtg/model_views.hpp"
+#include "gbtg/model_relocation.h"
+#include "gbtg/model_views.h"
 #include <array>
 #include <bit>
 #include <iostream>

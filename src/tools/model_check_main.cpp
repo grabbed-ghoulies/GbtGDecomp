@@ -1,4 +1,4 @@
-#include "gbtg/model.hpp"
+#include "gbtg/model.h"
 
 #include <cmath>
 #include <iostream>

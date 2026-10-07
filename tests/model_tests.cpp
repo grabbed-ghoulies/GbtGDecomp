@@ -1,5 +1,5 @@
-#include "gbtg/model.hpp"
-#include "gbtg/cutscene.hpp"
+#include "gbtg/model.h"
+#include "gbtg/cutscene.h"
 
 #include <cstring>
 #include <iostream>

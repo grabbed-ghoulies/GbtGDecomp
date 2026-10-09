@@ -103,6 +103,9 @@ void check_shader_cost_dependencies()
         "enabled issue recording propagates failure without overwriting program cost");
     std::array<u32, 4> multiply_program{1, 0, 0, 0x06000000};
     const auto original_multiply = multiply_program;
-    optimize_runtime_shader_multiply_order(state, 1, multiply_program.data());
-    require(multiply_program == original_multiply, "equal scheduling cost retains multiply operand order");
+    require(optimize_runtime_shader_multiply_order(state, 1, multiply_program.data()) == 0
+        && multiply_program == original_multiply, "equal scheduling cost retains multiply order and actual result");
+    std::array<u32, 4> rejected_order{1, 0x01C00000, 0, 0x02000000};
+    require(optimize_runtime_shader_multiply_order(state, 0, rejected_order.data()) == 0x80004005,
+        "multiply-order pass forwards actual issue failure to parent optimizer");
 }

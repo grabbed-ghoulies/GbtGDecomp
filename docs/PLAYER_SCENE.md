@@ -954,3 +954,97 @@ The six operand wrappers 0x0018B9C9/0x0018BA2D/0x0018BA95/0x0018BE49/0x0018BEA8/
 Release game and transition builds pass (cache/scene_shader_hazards_build.log, cache/scene_shader_hazards_final_build.log). Actor-loading integration checks pass (cache/scene_shader_hazards_checks.log), covering strict near bounds/NaNs, option-ten versus eleven special-register timing, unit latency banks, upper-mask rejection, truncated cycles, invalid destinations that still write, constant readiness banks, equal-cost reason replacement, unordered channel skipping, three-cycle bypass and six-cycle readiness boundaries. Complete program tests check enabled/disabled costs, untouched caller output on recording failure in both modes, retained multiply order on equal cost, and the native pending-byte/mode alias. Diff checks pass.
 
 These 21 completed functions close the cost-estimation and multiply-order dependencies of top-level optimizer 0x0018C563. Remaining optimizer parents 0x0018C3F6, 0x0018BF69 and 0x0018BB40 still require their native rewrite/storage chains, and validator 0x0019723C remains incomplete. Retained scratch/frame ownership, XGSpliceVertexShaders, shader creation/selection, real D3D bindings and live dialogue/actor/resource/context installation remain outstanding. This checkpoint does not establish full live scene startup.
+
+Rewrite-storage and validator cleanup checkpoint: 0x00186679 initializes raw rewrite storage with exact option banks and retained bytes at +0x201..+0x203. 0x001862A8/0x00186394 decode and apply vector/scalar destinations, including opcode thirteen, output sentinels and removal of empty operations. 0x0018689E moves three-word instruction records; 0x00186913 replaces pairs with native forward-copy alias behavior, compaction and retained trailing words. 0x001869EC scans signed instruction counts for register-one rewrites, and 0x0018C329 tests genuine instruction hazard cost. 0x00190CC1 clears expression/instruction arenas in order and repeatedly reloads the owned-object tree after actual deleting callbacks; callbacks retain responsibility for genuine tree/count mutation.
+
+0x0018C1B9 now returns the last native issue/configuration result held in EAX, including recording failures, despite its decompiled void signature. Release game and transition builds pass (cache/scene_shader_rewrite_build.log). Actor-loading integration checks pass (cache/scene_shader_rewrite_checks.log), including instruction movement in both directions, replacement alias rereads, signed counts, raw storage gaps, destination round trips/removal, special opcode masks, cleanup ordering and root replacement.
+
+These eight functions are dependency work, not live scene acceptance. 0x0018C3F6 still requires 0x0018C358 and 0x0018B47B; other optimizer parents require their remaining output predicates/context mutators, and validator 0x0019723C remains incomplete. Real scratch ownership, XGSpliceVertexShaders, shader creation/selection, D3D binding and live dialogue/actor/resource/context installation remain outstanding.
+
+Write-conflict and identity-output checkpoint: 0x001866C9 clears exactly bytes +0..+0xDE, retaining +0xDF; 0x00186724 accumulates register/constant/output writes with combined scalar register-one selection, replacement of individual output masks and native partial writes on failure. 0x001866F8/0x00189C00 compare the three actual mask banks and address marker. 0x00186806 decodes selected swizzle channels with x86 byte shifts and checks direct/relative constant reads. Operand wrappers 0x00189C62/0x00189CB3/0x00189D06 preserve boolean AL returns despite void decompiler signatures. 0x00189D56/0x00189EAD select native opcode masks, retaining output bytes on no-op/error; 0x0018B384 combines actual vector/scalar/relative conflict results.
+
+Identity predicates 0x00185F5F/0x00185FDF/0x0018607B/0x00186120 check opcode, source/destination, negation and only active swizzle channels. 0x001861BB removes identity writes sequentially; 0x00186201 tests redundant outputs without accepting empty masks merely because they are empty. Release game and transition builds pass (cache/scene_shader_conflicts_build.log, cache/scene_shader_conflicts_final_build.log). Actor-loading integration checks pass (cache/scene_shader_conflicts_checks.log), covering each bank boundary, padding retention, partial failure writes, every vector opcode, inactive-channel filtering, relative reads, and dual identity removal.
+
+These 17 functions close the leaf chains needed by reorder searches 0x0018B403/0x0018B47B/0x0018C358, which remain to be translated before 0x0018C3F6. Other optimizer/validator parents, retained-frame ownership, shader/D3D binding and live scene installation remain incomplete; this is not live startup acceptance.
+
+Scene startup continuation: reorder searches 0x0018B403/0x0018B47B/0x0018C358 and parent 0x0018C3F6 now use genuine write/read conflicts, pair merging and scheduler costs, retaining the retail retry pass and error returns. Rewrite context chain 0x001864C4/0x00186520/0x0018657E/0x001865DB/0x00186617/0x00189ADC/0x00189B3F/0x00189BA2/0x00189858/0x0018B299 is complete. Parent 0x0018BB40 uses real heap allocation, backward rewrite and reversal into the caller program only on success. Validator leaves 0x0018E57C/0x0018E917/0x0019018D/0x00190271 initialize channel order, copy masks and construct raw nodes with genuine retail pointer/vtable words.
+
+Release game/transition builds pass (cache/scene_shader_reorder_build.log, cache/scene_shader_dead_writes_build.log, cache/scene_shader_dead_writes_final_build.log). Actor-loading integration checks pass (cache/scene_shader_reorder_checks.log, cache/scene_shader_dead_writes_checks.log), covering safe candidate search, read/write conflict rejection, actual reorder compaction, rewrite retention/suppression, opcode failure before append, backward overwritten-write removal, original-program retention on failure and validator constructor/copy semantics.
+
+Live player-opening acceptance was rerun and still FAILS (cache/scene_live_startup_current.log): dialogue=0, cutscene before A=1, actors=1, entities=1. Game still executes the legacy type0x14 branch rather than execute_runtime_script_dialogue with real owned contexts. The existing full dialogue handler requires real scene-owned widget/input/audio/cutscene/actor resources before installation. Shader parent0x0018BF69 remains blocked by register-one rewrite0x0018BD12 through0x0018B6CC/0x0018B8D0/0x0018A38E. Validator0x0019723C still needs tree insertion/balancing and exception dependencies. Native context/actor/resource/D3D ownership and live startup remain incomplete; dependency checks do not establish acceptance.
+
+Register mapping and validator insertion checkpoint: 0x00186D09 records native scalar/vector lifetime flags; 0x00186D67 tests fixed channel occupancy or flexible available channel counts. 0x00186F20 releases channels using the last nonzero reference lifetime and actual expiry index. 0x00186F9D remaps masks through lifetime channel mappings; 0x0018A38E updates operand and destination fields using genuine reference/value/lifetime records. Host pointers are explicit owners; raw 28/10/18-byte table records retain native offsets.
+
+Validator balancing 0x001904C3/0x001904FB/0x00190575/0x001905C0/0x00190B27/0x001917D9 preserves signed height comparisons, wrapping arithmetic, independent parent-child comparisons, cached parent traversal, single/double rotations and root restoration. Insertion 0x00191FBB/0x001921BB uses actual heap results, unsigned key ordering, duplicate reuse, native null-node INT3, count increments even on allocation failure, and genuine balancing. Typed overloads of 0x0019018D/0x00190271 preserve constructor store order while expanding host pointers.
+
+Release game and transition builds pass (cache/scene_shader_register_tree_build.log). Actor-loading integration checks pass (cache/scene_shader_register_tree_checks.log), including reorder recording failures, empty-program retention, mask remapping, fixed/flexible channel availability, last-reference channel release, actual instruction mapping, single/double rotations, height overflow, real heap insertion, duplicate reuse, unsigned keys and failed-allocation count wrapping. Diff checks pass.
+
+Remaining register-one rewrite parents still require lifetime-list merging/allocation through 0x00186A7B/0x00186DE0/0x00186E96/0x0018A24E/0x0018A302 before 0x0018B6CC/0x0018B8D0/0x0018BD12/0x0018BF69 can be completed. Full validator 0x0019723C still requires registration and validation-pass/exception dependencies. Real scene-owned dialogue/input/audio/cutscene/actor/resource/D3D contexts remain uninstalled; latest live acceptance remains the failing cache/scene_live_startup_current.log, not these passing dependency checks.
+
+Register allocator and approved exception checkpoint: register chain 0x00186A7B/0x00186DE0/0x00186E96/0x0018A24E/0x0018A302/0x0018B6CC/0x0018B8D0/0x0018BD12/0x0018BF69 is complete. It merges sorted lifetime lists, clears merged-away records, preserves earlier channel writes on conflict, uses exact DAT_001A2410 candidate bytes {0,2,3,4,5,6,7,8,9,10,11}, collects packed instruction/value/lifetime tables, allocates genuine heap storage and frees/nulls all three tables on every native exit. Assembly confirms 0x0018BD12 returns retained collection result one when later register allocation fails, skipping remapping rather than returning the later failure.
+
+Validator wrappers 0x00192655/0x00192713/0x001928DE register initial/existing object and diagnostic nodes with native count/store order and supplied native identity mappings. The user explicitly approved real host exception dispatch this turn, extending the previously approved host boundaries for the actual retail RaiseException calls. 0x001679C7 copies the eight-word DAT_0020910C record and dispatches through real Windows RaiseException with full-width object/type-info pointers. 0x0018E935 supplies actual operand byte 0x21 and mapped throw-info. Raw retail throw-info remains explicitly distinguished from host compiler catch metadata; no typed-catch compatibility or fake C++ throw is claimed. Non-Windows exception dispatch is unavailable rather than silently succeeding.
+
+Release game and transition builds pass (cache/scene_shader_allocator_exception_build.log, cache/scene_shader_allocator_exception_final_build.log, cache/scene_shader_allocator_merge_build.log). Actor-loading integration checks pass (cache/scene_shader_allocator_exception_checks.log), including sorted lifetime merging, exact candidate order, partial conflict writes, linked program remapping, thirteen full-write register exhaustion retaining result one and original program, heap-table cleanup, wrapper skipping, registration allocation order/duplicates/failure, and genuine structured exception delivery. Exception checks inspect live byte 0x21 before unwind and validate code E06D7363, non-continuable flag, count three, magic 19930520 and full-width pointers. Windows adds EXCEPTION_SOFTWARE_ORIGINATE 0x80, confirmed in the installed SDK; tests account for that actual host flag without changing dispatch behavior.
+
+The register-one dependency of optimizer0x0018C563 is now closed. Validator constructors0x00192934/0x00192A54 still require genuine unwind cleanup (funclets0x00170A1F/0x00170886) and metadata mapping before full validator0x0019723C can be accepted. Its remaining validation-pass callees and live dialogue/input/audio/cutscene/actor/resource/D3D context ownership are still outstanding. Latest live acceptance remains failing cache/scene_live_startup_current.log; the completed dependency checks do not establish dialogue-to-gameplay startup.
+
+### Validator cleanup, traversal and unregister integration (2026-10-09)
+
+Integrated fifteen translated dependencies: 0x00190148, 0x001902BA,
+0x0019038F, 0x0018EFC4, 0x0018E5BC, 0x0018E43B, 0x0018F281,
+0x001901D6, 0x001909A6, 0x0018F0AC, 0x00190234, 0x0019158A,
+0x00191F4A, 0x0019269C and 0x001928F6.
+
+The key lookup uses the balanced-node layout (parent +0x08, children
++0x0c/+0x10); pass iteration retains its distinct parent +0x0c and children
++0x10/+0x14 layout. Cleanup tests exercise callbacks that change child links,
+owner reset timing, real allocation release, and reserved-register lookahead.
+Unregister tests cover missing keys, null erase, joined tree publication before
+actual deletion, count decrement after deletion, and base-vtable installation.
+Exception checks also verify delivery of modified caller-supplied record fields.
+
+Release gbtg and gbtg-transition-tests build passed:
+cache/scene_shader_erase_build.log. Actor-loading dependency checks passed:
+cache/scene_shader_erase_checks.log. Earlier cleanup/traversal checks are in
+cache/scene_shader_unwind_leaves_checks.log.
+
+This closes direct unregister/cleanup dependencies for constructor unwind;
+the constructors 0x00192934/0x00192A54 and full validator dispatch 0x0019723C
+remain outstanding. The real scene startup probe remains failing as previously
+recorded: these dependency tests do not establish live dialogue/cutscene/gameplay
+acceptance, and no replacement success values or partial native owners were added.
+
+### Validator constructors and operand helpers (2026-10-09)
+
+Integrated constructors 0x00192934 and 0x00192A54 with actual Windows SEH
+finally blocks and the retail unwind-state tables. The owner diagnostic registry
+now shares one balanced-node tree with its cleanup view; three typed cleanup
+overloads preserve parent clearing, fresh child reads, deleting callbacks, and
+owner reset timing. Six unwind funclets are translated from their cached dumps.
+No global /EHa setting or synthetic exception return was introduced.
+
+Also integrated operand-tree constructor/insertion/registration 0x001901EB,
+0x001920BB and 0x001926B4, plus channel packing/order helpers 0x0018E442,
+0x0018E7D3 and 0x0018F3B5. The operand tree retains unsigned comparisons,
+duplicate behavior, genuine allocation failure, and count increments even when
+allocation fails. Channel helpers retain nonzero-byte mask tests, sequential
+copies, and alias-safe missing-channel completion.
+
+Release gbtg and gbtg-transition-tests build passed:
+cache/scene_shader_constructors_build.log. The --actor-loading suite invokes
+check_actor_loading -> check_scene_render -> check_shader_compiler_leaves ->
+check_shader_rewrite_dependencies and the new constructor checks; passed log:
+cache/scene_shader_constructors_checks.log. Tests cover normal kind-five mask
+replacement, active-parent fallback, null allocation, actual invalid-operand SEH,
+nested registration SEH with allocation release before owner unregister, and
+allocation SEH before state three. The latter preserves the retail state-zero
+behavior of retaining the base registration; the fixture explicitly releases it
+later. Shared diagnostic roots are never copied into an independent cleanup tree.
+
+Full validator 0x0019723C remains blocked on its real pass constructor/preparation
+and virtual dispatch chains (0x00196739, 0x00197223, 0x001973F1/0x00197A94 and
+serialization). Serializer 0x0018F8B7 still needs 0x0018E7F6 through
+0x0018F5D7 and genuine retained scratch inputs. Live dialogue/cutscene/gameplay
+acceptance remains outstanding; this checkpoint does not change the real scene
+probe failure documented above.

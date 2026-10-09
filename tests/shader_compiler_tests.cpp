@@ -19,12 +19,14 @@ void require(bool condition, const char* message)
 }
 void check_shader_schedule_dependencies();
 void check_shader_cost_dependencies();
+void check_shader_rewrite_dependencies();
 
 void check_shader_compiler_leaves()
 {
     using namespace gbtg;
     check_shader_schedule_dependencies();
     check_shader_cost_dependencies();
+    check_shader_rewrite_dependencies();
     const std::array<u32, 3> multiply{0x01200000, 0, 0x04000000};
     std::array<u32, 3> addition{0x01200000, 0x10000000, 0x06000032};
     std::array<u32, 3> fusion{7, 8, 9};

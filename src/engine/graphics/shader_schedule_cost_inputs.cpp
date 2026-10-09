@@ -214,7 +214,7 @@ u32 estimate_runtime_shader_program_cost(u8* state, u8 mode, const u32* program,
 }
 
 // Xbox 0x0018C1B9
-void optimize_runtime_shader_multiply_order(u8* state, u8 mode, u32* program)
+u32 optimize_runtime_shader_multiply_order(u8* state, u8 mode, u32* program)
 {
     const i32 count = std::bit_cast<i32>(program[0]);
     u32 result = configure_runtime_shader_schedule(state, mode, program[0]);
@@ -226,7 +226,7 @@ void optimize_runtime_shader_multiply_order(u8* state, u8 mode, u32* program)
         {
             if (std::bit_cast<i32>(result) < 0)
             {
-                return;
+                return result;
             }
             u32 swapped[3];
             if (swap_runtime_shader_multiply_operands(swapped, instruction))
@@ -248,5 +248,6 @@ void optimize_runtime_shader_multiply_order(u8* state, u8 mode, u32* program)
             instruction += 3;
         } while (index < std::bit_cast<i32>(program[0]));
     }
+    return result;
 }
 }

@@ -384,6 +384,16 @@ if(GBTG_WITH_SDL)
     target_link_libraries(gbtg PRIVATE SDL3::SDL3)
 endif()
 
+option(GBTG_RETAIL_GAME_ONLY "Only compile retail game. No modifications." ON)
+if(GBTG_RETAIL_GAME_ONLY)
+    target_compile_definitions(gbtg PRIVATE GBTG_RETAIL_GAME_ONLY)
+    target_compile_definitions(gbtg_lib PRIVATE GBTG_RETAIL_GAME_ONLY)
+    
+    # Warning C4996 - Retail uses strcpy, disable deprecation
+    target_compile_definitions(gbtg PRIVATE _CRT_SECURE_NO_WARNINGS)
+    target_compile_definitions(gbtg_lib PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()
+
 # LGPL FFmpeg supplies the Bink decoder. The RAD SDK is not linked. DLLs are copied
 # next to gbtg.exe so running the exe does not need a separate install.
 if(WIN32)

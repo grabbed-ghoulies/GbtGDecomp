@@ -69,7 +69,7 @@ ActorEffectNode* create_actor_effect_node(const char* name, u16 count,
     ResourceErrorState& error)
 {
     const size_t bytes = static_cast<size_t>(count) * 0x150 + 0x4E0;
-    auto* allocation = engine_heap_allocate(sizeof(ActorEffectNode) + bytes);
+    auto* allocation = engine_heap_allocate(static_cast<i32>(sizeof(ActorEffectNode) + bytes));
     auto* effect = new (allocation) ActorEffectNode{};
     effect->bytes = {reinterpret_cast<u8*>(effect + 1), bytes};
     std::memset(effect->bytes.data(), 0, bytes);

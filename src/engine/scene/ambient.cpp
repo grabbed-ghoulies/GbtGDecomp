@@ -3,6 +3,7 @@
 #include "gbtg/model_runtime.h"
 #include "gbtg/actor_runtime.h"
 #include "gbtg/gfx.h"
+#include "background_geometry.h"
 
 #include <bit>
 #include <cmath>
@@ -114,6 +115,7 @@ u8 g_amb_phase_mark = 0;      // DAT_0050e97c
 
 // 0x00118AE0 fills these from the loaded ambience. They stay zero until that
 // pass, so the copies below are zero and the RNG still advances.
+u8 g_amb_volume_enabled = 0; // DAT_0050EA00
 float g_amb_color_lo[3]{}; // DAT_0050ea04, +0x08, +0x0c
 float g_amb_color_hi[3]{}; // DAT_0050ea10, +0x14, +0x18
 Vec3 g_amb_palette[8]{};   // DAT_0050ea1c, stride 12
@@ -271,6 +273,26 @@ i32 g_lookup_count = 0; // DAT_0050ec00
 u32* g_lookup_tex = nullptr; // DAT_0050ec04. 4096 A8R8G8B8 texels.
 
 } // namespace
+
+// Xbox 0x00118AE0
+void initialize_background_volume(const Vec3& low, const Vec3& high)
+{
+    g_amb_volume_enabled = 1;
+    g_amb_color_lo[0] = low.x - 25.f; // DAT_0032B170 = 0x41C80000
+    g_amb_color_lo[1] = low.y - 25.f;
+    g_amb_color_lo[2] = low.z - 25.f;
+    g_amb_color_hi[0] = high.x + 25.f;
+    g_amb_color_hi[1] = high.y + 25.f;
+    g_amb_color_hi[2] = high.z + 25.f;
+    g_amb_palette[0] = low;
+    g_amb_palette[1] = Vec3{high.x, low.y, low.z};
+    g_amb_palette[2] = Vec3{low.x, high.y, low.z};
+    g_amb_palette[3] = Vec3{high.x, high.y, low.z};
+    g_amb_palette[4] = Vec3{low.x, low.y, high.z};
+    g_amb_palette[5] = Vec3{high.x, low.y, high.z};
+    g_amb_palette[6] = Vec3{low.x, high.y, high.z};
+    g_amb_palette[7] = high;
+}
 
 // Xbox 0x00118470
 void ambient_initialize_beds()

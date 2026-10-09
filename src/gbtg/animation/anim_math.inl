@@ -38,6 +38,8 @@ long double animation_sqrt(float value)
     return value;
 }
 
+} // namespace
+
 // Xbox 0x00152BB0.
 float animation_absolute(float value)
 {
@@ -48,7 +50,12 @@ float animation_absolute(float value)
     return 0.f - value;
 }
 
-// Xbox 0x00153530.
+namespace
+{
+
+} // namespace
+
+// Xbox 0x00153530
 long double animation_wrap_angle(float angle)
 {
     constexpr float pi = animation_float(0x40490fdbu);
@@ -75,6 +82,8 @@ long double animation_wrap_angle(float angle)
     return angle;
 }
 
+namespace
+{
 // Xbox 0x00153320.
 long double animation_sin(float angle)
 {

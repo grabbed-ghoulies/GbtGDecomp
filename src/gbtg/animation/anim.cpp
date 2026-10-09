@@ -1,5 +1,6 @@
 #include "gbtg/anim.h"
 #include "gbtg/resource_error.h"
+#include "../../engine/cutscenes/quaternion_math.h"
 
 #include <algorithm>
 #include <bit>
@@ -220,7 +221,21 @@ struct Streams
 
 #include "anim_math.inl"
 
-// Xbox 0x00154030.
+} // namespace
+
+// Xbox 0x001534C0
+long double retail_reciprocal_sqrt(float value)
+{
+    return animation_rsqrt(value);
+}
+
+// Xbox 0x00152B30
+long double retail_square_root(float value)
+{
+    return animation_sqrt(value);
+}
+
+// Xbox 0x00154030
 Quat slerp(Quat a, Quat b, float t)
 {
     float dot = b.y * a.y + a.x * b.x + b.w * a.w + b.z * a.z;
@@ -241,6 +256,8 @@ Quat slerp(Quat a, Quat b, float t)
                 b.z * t + a.z * first, b.w * t + a.w * first};
 }
 
+namespace
+{
 // Xbox 0x0002E3A0.
 void finish_mina_quaternion(Quat& current, Quat& next, float fraction, u8 flags)
 {
@@ -341,17 +358,18 @@ void multiply_affine_matrices(float out[12], const float a[12], const float b[12
     {
         dest = tmp;
     }
-    for (int row = 0; row < 3; ++row)
-    {
-        const float ax = a[row * 4 + 0];
-        const float ay = a[row * 4 + 1];
-        const float az = a[row * 4 + 2];
-        const float aw = a[row * 4 + 3];
-        dest[row * 4 + 0] = ax * b[0] + ay * b[4] + az * b[8];
-        dest[row * 4 + 1] = ax * b[1] + ay * b[5] + az * b[9];
-        dest[row * 4 + 2] = ax * b[2] + ay * b[6] + az * b[10];
-        dest[row * 4 + 3] = ax * b[3] + ay * b[7] + az * b[11] + aw;
-    }
+    dest[0] = (a[0] * b[0] + a[2] * b[8]) + b[4] * a[1];
+    dest[1] = (a[0] * b[1] + a[2] * b[9]) + a[1] * b[5];
+    dest[2] = (a[0] * b[2] + a[2] * b[10]) + a[1] * b[6];
+    dest[3] = ((a[0] * b[3] + a[2] * b[11]) + a[1] * b[7]) + a[3];
+    dest[4] = (a[4] * b[0] + b[8] * a[6]) + b[4] * a[5];
+    dest[5] = (a[4] * b[1] + a[6] * b[9]) + a[5] * b[5];
+    dest[6] = (a[4] * b[2] + a[6] * b[10]) + a[5] * b[6];
+    dest[7] = ((a[4] * b[3] + b[11] * a[6]) + a[5] * b[7]) + a[7];
+    dest[8] = (b[8] * a[10] + b[4] * a[9]) + a[8] * b[0];
+    dest[9] = (a[10] * b[9] + a[9] * b[5]) + a[8] * b[1];
+    dest[10] = (a[10] * b[10] + a[9] * b[6]) + a[8] * b[2];
+    dest[11] = ((a[10] * b[11] + a[9] * b[7]) + a[8] * b[3]) + a[11];
     if (dest != out)
     {
         std::memcpy(out, tmp, sizeof(tmp));

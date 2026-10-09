@@ -952,8 +952,12 @@ int main()
         AnimationMix actor_mix;
         actor_mix.mode = 1;
         actor_mix.borrowed_events = flight_events;
-        start_actor_animation_mix(actor_startup, 0, actor_mix, "aid_anim_TEST", actor_registry,
-                                    suppressed_error, startup_random);
+        auto* ensured_controller = ensure_actor_animation_controller(actor_startup);
+        require(ensure_actor_animation_controller(actor_startup) == ensured_controller &&
+                ensured_controller->event_owner == &actor_startup,
+                "actor animation controller lookup replaced the allocated controller");
+        start_controller_animation_mix(*ensured_controller, 0, actor_mix, "aid_anim_TEST", actor_registry,
+            suppressed_error, startup_random);
         require(actor_startup.controller->slot_count == 4 &&
                 actor_startup.controller->event_owner == &actor_startup &&
                 actor_startup.controller->slots[0].player->owned_resource,
@@ -964,6 +968,16 @@ int main()
         require(actor_animation_completed(actor_startup, 0) &&
                 actor_startup.controller->slots[0].player->previous == 1.f,
                 "actor animation position update or completion differs");
+        AnimationMix borrowed_mix;
+        borrowed_mix.mode = 1;
+        borrowed_mix.borrowed_animation = rootless_mina;
+        const size_t records_before_borrow = actor_registry.records.size();
+        start_controller_animation_mix(*ensured_controller, 1, borrowed_mix, "aid_anim_MISSING",
+            actor_registry, suppressed_error, startup_random);
+        require(!ensured_controller->slots[1].player->owned_resource &&
+                ensured_controller->slots[1].player->mina.data() == rootless_mina.data() &&
+                actor_registry.records.size() == records_before_borrow,
+                "borrowed animation wrapper resolved the ignored name or acquired ownership");
         actor_startup.retain_position = 1;
         const AnimationRecord actor_record{"test", "aid_anim_TEST", "", 0.f, 0.f, 0.f, 0.f,
                                             1, 0x31, 0x21, 0};

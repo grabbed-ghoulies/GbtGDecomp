@@ -348,9 +348,8 @@ int script_handle_title_actions(Game& g, const ScriptNode& node, u32& cursor, in
 // receives that same third argument. Handler 13 receives it as well. Handler 14
 // receives that same second argument and that same third argument. Handler 15
 // receives that same second argument and that same third argument. Handler 16
-// reads only the node. A node type none of them covers stops
-// the walk and leaves the
-// fired id in place. Return 1 stops on a type-0 node from handler 0, and on a
+// reads only the node. A node type none of them covers advances, as in the
+// retail table walk. Return 1 stops on a type-0 node from handler 0, and on a
 // type-0x3C node. Return 0 means
 // the cursor left the blob, or stopped on an untranslated node, and the
 // drain keeps that fired id.
@@ -367,7 +366,7 @@ int script_execute_fired_action(Game& g, u32& offset)
         }
     }
     const int param_3 = param_2 == 0 && script_end_gate_set() ? 1 : 0;
-    for (int step = 0; step < 256; ++step)
+    while (true)
     {
         const ScriptNode* node = script_node_at(g.scene_script, offset);
         if (node == nullptr || node->size == 0)
@@ -443,7 +442,7 @@ int script_execute_fired_action(Game& g, u32& offset)
         {
             return 1;
         }
-        if (handler != 2)
+        if (handler != 2 && handler != 3)
         {
             return 0;
         }
@@ -454,7 +453,6 @@ int script_execute_fired_action(Game& g, u32& offset)
         }
         offset = current->link;
     }
-    return 0;
 }
 
 

@@ -31,6 +31,7 @@ struct ShapeProbe
     i32 (*push)(ShapeProbe& self, const Actor* actor, const Vec3* query, EntityCylinderBound& merged,
                 EntityCylinderBound* shapes, i32 count, Vec3& out) = nullptr;
     ShapeProbe* next = nullptr;
+    ShapeProbe* prev = nullptr; // retail object+0x110
 };
 
 // DAT_00511AA4. Nodes are walked through vtable +0xC when a latch mask leaves 0x3F.
@@ -96,6 +97,7 @@ struct SegmentProbe
     i32 (*query)(SegmentProbe& self, Vec3& candidate, Vec3& kept, u32 param, i32 kind, u32 mask,
                  u8* record) = nullptr;
     SegmentProbe* next = nullptr;
+    SegmentProbe* prev = nullptr; // object+0x1E0, set by 0x0003E810
 };
 
 // Header of the 0x54-byte record pool. begin is the first record (block+0x10).

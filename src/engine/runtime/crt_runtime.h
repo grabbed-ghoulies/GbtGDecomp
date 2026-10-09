@@ -8,6 +8,7 @@ namespace scene_detail
 {
 // Xbox 0x00166ECB
 int crt_wide_string_length(const u16* text); // Xbox 0x00166ECB
+void crt_initialize_float_math(int set_precision); // Xbox 0x001673C1
 
 // Xbox 0x00338180. _pctype. The image pointer is 0x00209788.
 extern const u16* g_crt_pctype;

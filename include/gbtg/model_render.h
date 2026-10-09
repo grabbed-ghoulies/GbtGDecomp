@@ -7,6 +7,8 @@ namespace gbtg
 
 struct RuntimeModelRenderState
 {
+    u16 directional_light_count = 0; // +0x4A
+    std::array<u32, 20> directional_lights{}; // +0xF8, four 0x14-byte records
     std::function<void(u32, u32, u32, void*)> draw; // +0x50
     u32 material_values = 0; // +0x70
     u32 material = 0; // +0x74
@@ -19,6 +21,7 @@ struct RuntimeModelRenderState
     float fog_scaled_end = 0; // DAT_0043723C
     u8 fog_enabled = 0; // DAT_00437248
     u32 fog_color = 0; // DAT_0043724C
+    const float* frustum = nullptr; // +0x64, native six-plane source.
 };
 struct RuntimeRenderLight
 {

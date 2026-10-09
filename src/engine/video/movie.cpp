@@ -1,4 +1,11 @@
 #include "gbtg/movie.h"
+#include "movie_errors.h"
+#include "movie_startup.h"
+#include "movie_files.h"
+#include "../runtime/crt_format.h"
+#include "../runtime/file_worker.h"
+#include "../frontend/dialogue_resources.h"
+#include "gbtg/anim.h"
 
 #include "gbtg/bundle.h"
 #include "gbtg/engine_internal.h"
@@ -15,6 +22,20 @@
 #include <span>
 #include <string>
 #include <vector>
+#include <new>
+#include <memory>
+#include <unordered_map>
+#include <malloc.h>
+
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
 
 #if defined(GBTG_HAS_FFMPEG)
 extern "C"
@@ -30,6 +51,1082 @@ extern "C"
 
 namespace gbtg
 {
+namespace
+{
+u32 g_movie_io_cache = 4096;
+}
+#if defined(_WIN32)
+void bind_native_movie_file_io(MovieFileBoundaries& files, FileWorkerBoundaries& worker)
+{
+    auto requests = std::make_shared<std::unordered_map<RuntimeMovieFile*, OVERLAPPED>>();
+    files.allocate = []()
+    {
+        return new (std::nothrow) RuntimeMovieFile;
+    };
+    files.free = [requests](RuntimeMovieFile* file)
+    {
+        requests->erase(file);
+        delete file;
+    };
+    files.close = [](std::uintptr_t handle)
+    {
+        return CloseHandle(reinterpret_cast<HANDLE>(handle)) != FALSE;
+    };
+    files.size = [](std::uintptr_t handle, u64& size)
+    {
+        LARGE_INTEGER length;
+        const BOOL result = GetFileSizeEx(reinterpret_cast<HANDLE>(handle), &length);
+        if (result != FALSE)
+        {
+            size = static_cast<u64>(length.QuadPart);
+        }
+        return result != FALSE;
+    };
+    files.read = [requests](RuntimeMovieFile& file, void* output, u32 size)
+    {
+        OVERLAPPED& request = (*requests)[&file];
+        request.Offset = file.offset;
+        request.OffsetHigh = 0;
+        return ReadFile(reinterpret_cast<HANDLE>(file.handle), output, size, nullptr, &request) != FALSE;
+    };
+    files.completed = [requests](RuntimeMovieFile& file, u32& transferred)
+    {
+        DWORD bytes;
+        const BOOL result = GetOverlappedResult(reinterpret_cast<HANDLE>(file.handle),
+            &requests->at(&file), &bytes, FALSE);
+        if (result != FALSE)
+        {
+            transferred = bytes;
+        }
+        return result != FALSE;
+    };
+    files.last_error = []()
+    {
+        return static_cast<u32>(GetLastError());
+    };
+    files.ticks = []()
+    {
+        return static_cast<u32>(GetTickCount());
+    };
+    files.sector_size = [](const char* drive)
+    {
+        DWORD sectors_per_cluster;
+        DWORD bytes_per_sector;
+        DWORD free_clusters;
+        DWORD clusters;
+        if (GetDiskFreeSpaceA(drive, &sectors_per_cluster, &bytes_per_sector, &free_clusters, &clusters) == FALSE)
+        {
+            return 0u;
+        }
+        return static_cast<u32>(bytes_per_sector);
+    };
+    files.seek = [](std::uintptr_t handle, std::int64_t distance, u64* output, u32 method)
+    {
+        LARGE_INTEGER move;
+        LARGE_INTEGER result;
+        move.QuadPart = distance;
+        const BOOL success = SetFilePointerEx(reinterpret_cast<HANDLE>(handle), move,
+            output != nullptr ? &result : nullptr, method);
+        if (success != FALSE && output != nullptr)
+        {
+            *output = static_cast<u64>(result.QuadPart);
+        }
+        return success != FALSE;
+    };
+    files.end_file = [](std::uintptr_t handle)
+    {
+        return SetEndOfFile(reinterpret_cast<HANDLE>(handle)) != FALSE;
+    };
+    files.cache_size = [](u32 capacity)
+    {
+        g_movie_io_cache = capacity;
+    };
+    worker.create_file = [](const char* path, u32 access, u32 share, void* security,
+        u32 creation, u32 attributes, std::uintptr_t template_file)
+    {
+        return reinterpret_cast<std::uintptr_t>(CreateFileA(path, access, share,
+            static_cast<SECURITY_ATTRIBUTES*>(security), creation, attributes,
+            reinterpret_cast<HANDLE>(template_file)));
+    };
+    worker.last_error = files.last_error;
+    worker.set_last_error = [](u32 status)
+    {
+        SetLastError(status);
+    };
+    worker.attributes = [](const char* path)
+    {
+        return static_cast<u32>(GetFileAttributesA(path));
+    };
+    worker.create_directory = [](const char* path)
+    {
+        return CreateDirectoryA(path, nullptr) != FALSE;
+    };
+    worker.debug_output = [](const char* text)
+    {
+        OutputDebugStringA(text);
+    };
+}
+
+// Xbox 0x001073E0
+u8* allocate_movie_decoder_memory(u32 size)
+{
+    return static_cast<u8*>(_aligned_malloc(size, 4096));
+}
+
+// Xbox 0x00107400
+void free_movie_decoder_memory(u8* buffer)
+{
+    _aligned_free(buffer);
+}
+
+void bind_native_movie_heap(RuntimeMovieStartupContext& context)
+{
+    context.allocate_buffer = allocate_movie_decoder_memory;
+    context.free_buffer = free_movie_decoder_memory;
+}
+#endif
+namespace
+{
+void lookup_runtime_file_failure(i32 status, MovieFileContext& context)
+{
+    const char* title;
+    const char* message;
+    lookup_movie_error_message(status, title, message, context.error);
+}
+struct MovieFileSeekRequest
+{
+    bool result;
+    u32 error;
+    std::uintptr_t handle;
+    std::int64_t distance;
+    u64* output;
+    u32 method;
+    MovieFileBoundaries* io;
+};
+
+// Xbox 0x000EAA60
+void execute_movie_file_seek(void* payload)
+{
+    auto& request = *static_cast<MovieFileSeekRequest*>(payload);
+    request.result = request.io->seek(request.handle, request.distance, request.output, request.method);
+    request.error = request.io->last_error();
+}
+}
+
+// Xbox 0x000EA9F0
+bool dispatch_movie_file_seek(RuntimeMovieFile& file, u32 low, u32 high, u64* output,
+    u32 method, MovieFileContext& context)
+{
+    MovieFileSeekRequest request;
+    request.handle = file.handle;
+    request.distance = static_cast<std::int64_t>((static_cast<u64>(high) << 32) | low);
+    request.output = output;
+    request.method = method;
+    request.io = &context.io;
+    scene_detail::crt_format_bounded_string(context.worker->diagnostic, 260,
+        "SetFilePointerEx: File Handle(0x%08x)", static_cast<u32>(file.handle));
+    dispatch_runtime_file_operation(execute_movie_file_seek, &request, *context.worker);
+    context.worker->io.set_last_error(request.error);
+    return request.result;
+}
+
+// Xbox 0x000EADC0
+i32 query_runtime_movie_file_position(RuntimeMovieFile& file, u64& output, MovieFileContext& context)
+{
+    i32 status = 0;
+    if (!dispatch_movie_file_seek(file, 0, 0, &output, 0, context))
+    {
+        status = static_cast<i32>(context.io.last_error());
+        if (status != 0 && !((status >= 0x3E4 && status <= 0x3E5) || status == 0x4DE))
+        {
+            lookup_runtime_file_failure(status, context);
+        }
+    }
+    return status;
+}
+
+// Xbox 0x000EAE20
+i32 seek_runtime_movie_file(RuntimeMovieFile& file, u32 low, u32 high, MovieFileContext& context)
+{
+    i32 status = 0;
+    if (!dispatch_movie_file_seek(file, low, high, nullptr, 0, context))
+    {
+        status = static_cast<i32>(context.io.last_error());
+        if (status != 0 && !((status >= 0x3E4 && status <= 0x3E5) || status == 0x4DE))
+        {
+            lookup_runtime_file_failure(status, context);
+        }
+    }
+    return status;
+}
+
+// Xbox 0x000EAF30
+i32 resize_runtime_movie_file(RuntimeMovieFile& file, u32 low, u32 high, MovieFileContext& context)
+{
+    i32 aligned;
+    i32 status = align_runtime_movie_file_length(file, static_cast<i32>(low), aligned, context);
+    const u32 difference = static_cast<u32>(aligned) - low;
+    const u64 rounded = static_cast<u64>(difference) + low;
+    const u32 rounded_high = high + static_cast<u32>(rounded >> 32);
+    u64 previous;
+    if (status == 0 && (status = query_runtime_movie_file_position(file, previous, context)) == 0 &&
+        (status = seek_runtime_movie_file(file, static_cast<u32>(rounded), rounded_high, context)) == 0)
+    {
+        if (context.io.end_file(file.handle) ||
+            (status = static_cast<i32>(context.io.last_error())) == 0)
+        {
+            status = seek_runtime_movie_file(file, static_cast<u32>(previous),
+                static_cast<u32>(previous >> 32), context);
+        }
+    }
+    if (status != 0 && !((status >= 0x3E4 && status <= 0x3E5) || status == 0x4DE))
+    {
+        lookup_runtime_file_failure(status, context);
+    }
+    return status;
+}
+
+// Xbox 0x000EAFF0
+i32 resize_runtime_movie_file_low(RuntimeMovieFile& file, u32 length, MovieFileContext& context)
+{
+    const i32 status = resize_runtime_movie_file(file, length, 0, context);
+    if (status != 0 && !((status >= 0x3E4 && status <= 0x3E5) || status == 0x4DE))
+    {
+        lookup_runtime_file_failure(status, context);
+    }
+    return status;
+}
+
+// Xbox 0x000E8F10
+void initialize_runtime_movie_utility_drive(MovieFileContext& context, RuntimeMovieFileBootState& state)
+{
+    u32 status = context.worker->io.attributes("Z:\\index.dat");
+    if (status == 0xFFFFFFFF)
+    {
+        status = context.io.last_error();
+    }
+    else
+    {
+        status = (0u - static_cast<u32>((status & 0x10) != 0)) & 0x10B;
+    }
+    if (status != 0)
+    {
+        context.io.format_utility();
+        RuntimeMovieFile* index;
+        open_runtime_movie_file(index, "Z:\\index.dat", 0x40000000, 1, context);
+        resize_runtime_movie_file_low(*index, 0x800, context);
+        close_runtime_movie_file(*index, context);
+    }
+    state.utility_pending = 0;
+}
+
+// Xbox 0x000E9CE0
+void initialize_runtime_movie_files(MovieFileContext& context, RuntimeMovieFileBootState& state)
+{
+    initialize_runtime_movie_utility_drive(context, state);
+    context.io.cache_size(0x20000);
+    std::strcpy(state.root, state.disc_root);
+    for (i32 index = 0; index < 26; ++index)
+    {
+        context.sector_sizes[index] = 0;
+    }
+    context.head.previous = nullptr;
+    context.head.next = nullptr;
+    context.count = 0;
+    context.pending = 0;
+    state.first_buffer = new (std::nothrow) u8[0x20000];
+    state.second_buffer = new (std::nothrow) u8[0x20000];
+    state.first_head.previous = nullptr;
+    state.first_head.next = nullptr;
+    state.second_head.previous = nullptr;
+    state.second_head.next = nullptr;
+    state.buffer_size = 0x20000;
+}
+
+// Xbox 0x000E9E60
+void pump_runtime_movie_files(MovieFileContext& context)
+{
+    RuntimeMovieFile* file = context.head.next;
+    while (file != nullptr)
+    {
+        RuntimeMovieFile* current = file;
+        file = current->next;
+        if (current->state == 1)
+        {
+            poll_runtime_movie_file(*current, context);
+        }
+        else if (current->state == 2)
+        {
+            if (current->previous != nullptr)
+            {
+                current->previous->next = current->next;
+            }
+            if (current->next != nullptr)
+            {
+                current->next->previous = current->previous;
+            }
+            current->previous = nullptr;
+            current->next = nullptr;
+            context.io.free(current);
+            --context.count;
+        }
+    }
+}
+
+// Xbox 0x000E9F10
+i32 allocate_runtime_movie_file(RuntimeMovieFile*& output, MovieFileContext& context)
+{
+    RuntimeMovieFile* file = context.io.allocate();
+    if (file != nullptr)
+    {
+        output = file;
+        RuntimeMovieFile* tail = &context.head;
+        if (context.head.next != nullptr)
+        {
+            RuntimeMovieFile** cursor = &context.head.next;
+            do
+            {
+                tail = *cursor;
+                cursor = &tail->next;
+            }
+            while (tail->next != nullptr);
+        }
+        tail->next = file;
+        file->previous = tail;
+        file->next = nullptr;
+        ++context.count;
+        file->state = 0;
+        file->handle = static_cast<std::uintptr_t>(-1);
+        for (u32& word : file->overlapped)
+        {
+            word = 0;
+        }
+        file->offset = 0;
+        return 0;
+    }
+    lookup_runtime_file_failure(0xE, context);
+    return 0xE;
+}
+
+// Xbox 0x000EAA90
+i32 open_runtime_movie_file(RuntimeMovieFile*& output, const char* path,
+    u32 access, u32 creation, MovieFileContext& context)
+{
+    RuntimeMovieFile* file = nullptr;
+    i32 status = allocate_runtime_movie_file(file, context);
+    if (status == 0)
+    {
+        std::strcpy(file->path, path);
+    }
+    if ((access & 0x40000000) != 0 && creation != 0 && (creation < 3 || creation == 4))
+    {
+        status = ensure_runtime_file_parent_directory(path, *context.worker);
+    }
+    if (status == 0)
+    {
+        file->handle = open_runtime_file_handle(path, access, 7, creation, 0x60000080,
+            *context.worker);
+        if (file->handle != static_cast<std::uintptr_t>(-1))
+        {
+            output = file;
+            return status;
+        }
+        status = static_cast<i32>(context.io.last_error());
+        if (status == 0)
+        {
+            output = file;
+            return status;
+        }
+    }
+    if (file != nullptr)
+    {
+        file->state = 2;
+        if (file->previous != nullptr)
+        {
+            file->previous->next = file->next;
+        }
+        if (file->next != nullptr)
+        {
+            file->next->previous = file->previous;
+        }
+        file->previous = nullptr;
+        file->next = nullptr;
+        context.io.free(file);
+        --context.count;
+        file = nullptr;
+    }
+    output = file;
+    if (status != 0 && !((status >= 0x3E4 && status <= 0x3E5) || status == 0x4DE))
+    {
+        lookup_runtime_file_failure(status, context);
+    }
+    return status;
+}
+
+// Xbox 0x000EA850
+i32 wait_runtime_movie_file(RuntimeMovieFile& file, i32 initial_status, MovieFileContext& context)
+{
+    context.io.ticks();
+    u32 last_notify = 0;
+    i32 status = initial_status;
+    for (;;)
+    {
+        const u32 state = file.state;
+        if (state == 0)
+        {
+            return 0;
+        }
+        if (state == 1)
+        {
+            status = poll_runtime_movie_file(file, context);
+        }
+        else if (state == 2)
+        {
+            if (file.previous != nullptr)
+            {
+                file.previous->next = file.next;
+            }
+            if (file.next != nullptr)
+            {
+                file.next->previous = file.previous;
+            }
+            file.previous = nullptr;
+            file.next = nullptr;
+            context.io.free(&file);
+            --context.count;
+            return 0;
+        }
+        if (status < 0x3E4 || (status > 0x3E5 && status != 0x4DE))
+        {
+            return status;
+        }
+        if (context.notify && context.io.ticks() - last_notify >= context.notify_interval)
+        {
+            last_notify = context.io.ticks();
+            context.notify();
+        }
+    }
+}
+
+// Xbox 0x000EB0E0
+i32 read_runtime_movie_file(RuntimeMovieFile& file, void* output, u32 size,
+    std::function<void(RuntimeMovieFile&, i32, void*)> completion, void* payload,
+    MovieFileContext& context)
+{
+    i32 status = wait_runtime_movie_file(file, 0, context);
+    if (status == 0)
+    {
+        file.completion = std::move(completion);
+        file.payload = payload;
+        if (!context.io.read(file, output, size))
+        {
+            status = static_cast<i32>(context.io.last_error());
+            if (status == 0x3E5)
+            {
+                status = 0;
+            }
+            else if (status != 0)
+            {
+                if (!((status >= 0x3E4 && status <= 0x3E5) || status == 0x4DE))
+                {
+                    lookup_runtime_file_failure(status, context);
+                }
+                return status;
+            }
+        }
+        ++context.pending;
+        file.state = 1;
+    }
+    if (status != 0 && !((status >= 0x3E4 && status <= 0x3E5) || status == 0x4DE))
+    {
+        lookup_runtime_file_failure(status, context);
+    }
+    return status;
+}
+
+// Xbox 0x000EB040
+i32 query_runtime_movie_sector_size(RuntimeMovieFile& file, i32& output, MovieFileContext& context)
+{
+    char drive[8];
+    std::strncpy(drive, file.path, 3);
+    drive[3] = '\0';
+    if (static_cast<std::int8_t>(drive[0]) >= 0x61)
+    {
+        drive[0] = static_cast<char>(static_cast<u8>(drive[0]) - 0x20);
+    }
+    const i32 index = static_cast<std::int8_t>(drive[0]) - 0x41;
+    i32 status = 0;
+    if (context.sector_sizes[index] == 0)
+    {
+        context.sector_sizes[index] = static_cast<i32>(context.io.sector_size(drive));
+        if (context.sector_sizes[index] == 0)
+        {
+            status = static_cast<i32>(context.io.last_error());
+        }
+    }
+    output = context.sector_sizes[index];
+    if (status != 0 && !((status >= 0x3E4 && status <= 0x3E5) || status == 0x4DE))
+    {
+        lookup_runtime_file_failure(status, context);
+    }
+    return status;
+}
+
+// Xbox 0x000EB310
+i32 align_runtime_movie_file_length(RuntimeMovieFile& file, i32 length, i32& output,
+    MovieFileContext& context)
+{
+    i32 sector;
+    const i32 status = query_runtime_movie_sector_size(file, sector, context);
+    if (status == 0)
+    {
+        const i32 remainder = length % sector;
+        if (remainder < 1)
+        {
+            if (remainder < 0)
+            {
+                length = static_cast<i32>(static_cast<u32>(length) - static_cast<u32>(remainder));
+            }
+            output = length;
+            return 0;
+        }
+        output = static_cast<i32>(static_cast<u32>(sector) - static_cast<u32>(remainder) + static_cast<u32>(length));
+        return 0;
+    }
+    if (!((status >= 0x3E4 && status <= 0x3E5) || status == 0x4DE))
+    {
+        lookup_runtime_file_failure(status, context);
+    }
+    return status;
+}
+
+// Xbox 0x000EABA0
+i32 close_runtime_movie_file_handle(RuntimeMovieFile& file, MovieFileContext& context)
+{
+    if (file.handle == static_cast<std::uintptr_t>(-1))
+    {
+        return 0;
+    }
+    if (context.io.close(file.handle))
+    {
+        file.handle = static_cast<std::uintptr_t>(-1);
+        file.state = 0;
+        return 0;
+    }
+    const i32 status = static_cast<i32>(context.io.last_error());
+    if (status < 0x3E6)
+    {
+        if (status > 0x3E3)
+        {
+            return status;
+        }
+        if (status == 0)
+        {
+            return status;
+        }
+    }
+    else if (status == 0x4DE)
+    {
+        return status;
+    }
+    lookup_runtime_file_failure(status, context);
+    return status;
+}
+
+// Xbox 0x000EAC20
+i32 close_runtime_movie_file(RuntimeMovieFile& file, MovieFileContext& context)
+{
+    const i32 status = close_runtime_movie_file_handle(file, context);
+    if (status == 0)
+    {
+        file.state = 2;
+        return 0;
+    }
+    if (status < 0x3E6)
+    {
+        if (status > 0x3E3)
+        {
+            return status;
+        }
+        if (status == 0)
+        {
+            return status;
+        }
+    }
+    else if (status == 0x4DE)
+    {
+        return status;
+    }
+    lookup_runtime_file_failure(status, context);
+    return status;
+}
+
+// Xbox 0x000EAE80
+i32 query_runtime_movie_file_size(RuntimeMovieFile& file, u64& output, MovieFileContext& context)
+{
+    i32 status = 0;
+    if (!context.io.size(file.handle, output))
+    {
+        status = static_cast<i32>(context.io.last_error());
+        if (status < 0x3E6)
+        {
+            if (status > 0x3E3)
+            {
+                return status;
+            }
+            if (status == 0)
+            {
+                return status;
+            }
+        }
+        else if (status == 0x4DE)
+        {
+            return status;
+        }
+        lookup_runtime_file_failure(status, context);
+    }
+    return status;
+}
+
+// Xbox 0x000EAED0
+i32 query_runtime_movie_file_length(RuntimeMovieFile& file, u32& output, MovieFileContext& context)
+{
+    u64 size;
+    i32 status = query_runtime_movie_file_size(file, size, context);
+    if (status == 0)
+    {
+        output = static_cast<u32>(size);
+        if ((size >> 32) == 0)
+        {
+            return 0;
+        }
+        status = 1;
+    }
+    else
+    {
+        if (status < 0x3E6)
+        {
+            if (status > 0x3E3)
+            {
+                return status;
+            }
+            if (status == 0)
+            {
+                return status;
+            }
+        }
+        else if (status == 0x4DE)
+        {
+            return status;
+        }
+    }
+    lookup_runtime_file_failure(status, context);
+    return status;
+}
+
+// Xbox 0x000E9FB0
+i32 poll_runtime_movie_file(RuntimeMovieFile& file, MovieFileContext& context)
+{
+    i32 status = 0;
+    u32 transferred;
+    if (!context.io.completed(file, transferred))
+    {
+        status = static_cast<i32>(context.io.last_error());
+        if (status > 0x3E3 && status < 0x3E6)
+        {
+            return 0x4DE;
+        }
+        transferred = 0;
+    }
+    --context.pending;
+    file.state = 0;
+    file.offset += transferred;
+    if (file.completion)
+    {
+        file.completion(file, status, file.payload);
+        if (file.state == 1)
+        {
+            return 0x4DE;
+        }
+    }
+    return status;
+}
+
+// Xbox 0x00106EF0
+char* resolve_runtime_movie_path(const char* name, MoviePathContext& context)
+{
+    u32 status;
+    u32 hash;
+    if (context.pal != 0 && context.pal_override == 0)
+    {
+        char candidate[128];
+        format_dialogue_resource_name(candidate, "%spal", name);
+        hash = animation_resource_hash(candidate);
+        scene_detail::crt_format_string(context.path, "%s%s%08x", context.root, "movie\\", hash);
+        status = context.file_attributes(context.path);
+        if (status == 0xFFFFFFFF)
+        {
+            status = context.last_error();
+        }
+        else
+        {
+            status = (0u - static_cast<u32>((status & 0x10) != 0)) & 0x10B;
+        }
+        if (status == 0)
+        {
+            goto validate;
+        }
+    }
+    hash = animation_resource_hash(name);
+    scene_detail::crt_format_string(context.path, "%s%s%08x", context.root, "movie\\", hash);
+validate:
+    status = context.file_attributes(context.path);
+    if (status == 0xFFFFFFFF)
+    {
+        status = context.last_error();
+    }
+    else
+    {
+        status = (0u - static_cast<u32>((status & 0x10) != 0)) & 0x10B;
+    }
+    if (status != 0)
+    {
+        const char* title;
+        const char* message;
+        lookup_movie_error_message(static_cast<i32>(status), title, message, context.error);
+        resource_error(context.error.error, static_cast<i32>(status));
+    }
+    return context.path;
+}
+
+// Xbox 0x00106FE0
+void complete_runtime_movie_read(RuntimeMovieFile& file, i32 status,
+    RuntimeMovieState& movie, RuntimeMovieStartupContext& context)
+{
+    if (status != 0)
+    {
+        report_movie_error(status, context.paths.error);
+    }
+    static_cast<void>(file);
+    close_runtime_movie_file(*movie.file, context.files);
+    movie.enabled = 1;
+    if (movie.logo != 0)
+    {
+        context.preloaded = movie.buffer;
+        context.preloaded_size = movie.buffer_size;
+    }
+}
+
+// Xbox 0x00107030
+i32 open_runtime_movie(const char* name, const char* path, RuntimeMovieState& movie,
+    RuntimeMovieStartupContext& context)
+{
+    movie.logo = static_cast<u32>(resource_names_match(name,
+        "aid_movie_ghoulies_attractmode_logoscaleup"));
+    if (movie.logo != 0 && context.preloaded != nullptr)
+    {
+        movie.file = nullptr;
+        movie.buffer = context.preloaded;
+        movie.buffer_size = context.preloaded_size;
+        movie.enabled = 1;
+        return 0;
+    }
+    if ((movie.flags & 0x10) == 0)
+    {
+        movie.decoder = context.decoder_open(path, movie.open_flags);
+        if (movie.decoder == nullptr)
+        {
+            report_movie_error(0x6E, context.paths.error);
+            return 0x6E;
+        }
+        context.decoder_track(movie.decoder, 0, 0x4000);
+        movie.file = nullptr;
+        movie.buffer = nullptr;
+        movie.enabled = 1;
+        return 0;
+    }
+    i32 status = open_runtime_movie_file(movie.file, path, 0x80000000, 3, context.files);
+    if (status != 0)
+    {
+        report_movie_error(status, context.paths.error);
+        return status;
+    }
+    u32 size;
+    status = query_runtime_movie_file_length(*movie.file, size, context.files);
+    if (status == 0)
+    {
+        i32 aligned = static_cast<i32>(size);
+        align_runtime_movie_file_length(*movie.file, static_cast<i32>(size), aligned, context.files);
+        size = static_cast<u32>(aligned);
+        movie.buffer = context.allocate_buffer(size);
+        movie.buffer_size = size;
+        if (movie.buffer == nullptr)
+        {
+            return 0xE;
+        }
+        status = read_runtime_movie_file(*movie.file, movie.buffer, size,
+            [&movie, &context](RuntimeMovieFile& file, i32 result, void*)
+            {
+                complete_runtime_movie_read(file, result, movie, context);
+            }, &movie, context.files);
+        if (status == 0)
+        {
+            movie.enabled = 0;
+            return 0;
+        }
+        context.free_buffer(movie.buffer);
+    }
+    return report_movie_error(status, context.paths.error);
+}
+
+// Xbox 0x0015D380
+void register_runtime_movie_memory(const std::function<u8*(u32)>& allocate,
+    const std::function<void(u8*)>& free, RuntimeMovieMemoryCallbacks& callbacks)
+{
+    callbacks.allocate = allocate;
+    callbacks.free = free;
+}
+
+// Xbox 0x001071A0
+RuntimeMovieState* allocate_runtime_movie(const char* name, u32 flags,
+    RuntimeMovieStartupContext& context)
+{
+    u32 open_flags = 0x100000;
+    if (context.initialized == 0)
+    {
+        context.head.previous = nullptr;
+        context.head.next = nullptr;
+        register_runtime_movie_memory(context.allocate_buffer, context.free_buffer, context.memory);
+        context.initialized = 1;
+    }
+    const char* path = resolve_runtime_movie_path(name, context.paths);
+    if (path == nullptr)
+    {
+        return nullptr;
+    }
+    if ((flags & 8) != 0)
+    {
+        open_flags = 0x40100000;
+    }
+    RuntimeMovieState* movie = new (std::nothrow) RuntimeMovieState;
+    movie->loop = (flags >> 2) & 1;
+    movie->flags = flags;
+    movie->play_count = 0;
+    movie->pending = 0;
+    movie->unknown20 = 0;
+    movie->unknown24 = 1;
+    movie->decoder = nullptr;
+    movie->open_flags = open_flags;
+    movie->file = nullptr;
+    movie->buffer = nullptr;
+    movie->enabled = 0;
+    const i32 status = open_runtime_movie(name, path, *movie, context);
+    if (status != 0)
+    {
+        if (movie->file != nullptr)
+        {
+            close_runtime_movie_file(*movie->file, context.files);
+        }
+        delete movie;
+        return nullptr;
+    }
+    movie->open_flags = open_flags | 0x4000000;
+    movie->unknown28 = 0;
+    RuntimeMovieState* tail = &context.head;
+    if (context.head.next != nullptr)
+    {
+        RuntimeMovieState** cursor = &context.head.next;
+        do
+        {
+            tail = *cursor;
+            cursor = &tail->next;
+        }
+        while (tail->next != nullptr);
+    }
+    tail->next = movie;
+    movie->previous = tail;
+    movie->next = nullptr;
+    if ((flags & 2) != 0)
+    {
+        ++movie->play_count;
+    }
+    return movie;
+}
+
+// Xbox 0x00107420
+void tick_runtime_movie(RuntimeMovieState& movie, RuntimeMovieStartupContext& context)
+{
+    if (movie.enabled != 0 && movie.unknown28 == 0)
+    {
+        if (movie.decoder == nullptr)
+        {
+            movie.decoder = context.decoder_memory_open(movie.buffer, movie.open_flags, movie.buffer_size);
+            if (movie.decoder == nullptr)
+            {
+                movie.unknown28 = 1;
+                return;
+            }
+        }
+        const i32 status = context.decoder_wait(movie.decoder);
+        if (status == 0 && static_cast<i32>(movie.play_count) > 0)
+        {
+            context.decoder_do_frame(movie.decoder);
+            movie.pending = 1;
+            if (movie.loop != 0 || context.decoder_frame_number(movie.decoder) < context.decoder_frame_count(movie.decoder))
+            {
+                ++movie.unknown20;
+                context.decoder_next_frame(movie.decoder);
+            }
+        }
+    }
+}
+
+// Xbox 0x00107360
+bool copy_runtime_movie_frame(RuntimeMovieState& movie, void* texture, RuntimeMovieStartupContext& context)
+{
+    if (movie.decoder != nullptr && movie.unknown20 != 0)
+    {
+        const RuntimeMovieLockedSurface surface = context.lock_texture(texture);
+        u32 flags = 0x80000005;
+        if (movie.unknown24 != 0)
+        {
+            flags = 0x80080005;
+        }
+        const i32 status = context.decoder_copy(movie.decoder, surface.pixels, surface.pitch,
+            context.decoder_height(movie.decoder), 0, 0, flags);
+        if (movie.unknown24 != 0 && status == 0)
+        {
+            movie.unknown24 = 0;
+        }
+        --movie.unknown20;
+        return status == 0;
+    }
+    return false;
+}
+
+// Xbox 0x001072B0
+u32 release_runtime_movie(RuntimeMovieState& movie, RuntimeMovieStartupContext& context)
+{
+    if (movie.enabled == 0)
+    {
+        wait_runtime_movie_file(*movie.file, 0, context.files);
+    }
+    if (movie.decoder != nullptr)
+    {
+        context.decoder_close(movie.decoder);
+    }
+    if (movie.logo == 0 && movie.buffer != nullptr)
+    {
+        context.free_buffer(movie.buffer);
+    }
+    if (movie.previous != nullptr)
+    {
+        movie.previous->next = movie.next;
+    }
+    if (movie.next != nullptr)
+    {
+        movie.next->previous = movie.previous;
+    }
+    movie.previous = nullptr;
+    movie.next = nullptr;
+    delete &movie;
+    return 1;
+}
+
+// Xbox 0x00106D50
+void load_runtime_movie_event(const char* name, u8 id, i32 loop, i32 file_buffer,
+    std::array<RuntimeMovieEventSlot, 4>& slots, RuntimeMovieStartupContext& context)
+{
+    i32 index = 0;
+    do
+    {
+        if (slots[index].id == 0)
+        {
+            break;
+        }
+        ++index;
+    }
+    while (index < 4);
+    u32 flags = 0;
+    if (loop != 0)
+    {
+        flags = 4;
+    }
+    if (file_buffer != 0)
+    {
+        flags |= 0x10;
+    }
+    slots[index].movie = allocate_runtime_movie(name, flags, context);
+    slots[index].play_count = reinterpret_cast<u32*>(
+        reinterpret_cast<std::uintptr_t>(slots[index].movie) + offsetof(RuntimeMovieState, play_count));
+    slots[index].id = id;
+    slots[index].state = 1;
+    std::strcpy(slots[index].name, name);
+}
+
+// Xbox 0x00106DD0
+void start_runtime_movie_event(u8 id, i32 mode,
+    std::array<RuntimeMovieEventSlot, 4>& slots)
+{
+    i32 index = 0;
+    while (slots[index].id != id || slots[index].state != 1)
+    {
+        ++index;
+        if (index >= 4)
+        {
+            return;
+        }
+    }
+    if (index < 4)
+    {
+        if (mode == 2)
+        {
+            ++*slots[index].play_count;
+            slots[index].state = 2;
+            return;
+        }
+        slots[index].state = 3;
+    }
+}
+
+// Xbox 0x000E96A0
+void lookup_movie_error_message(i32 code, const char*& title, const char*& message,
+    MovieErrorContext& context)
+{
+    i32 index = 0;
+    if (context.messages[0].code != 0)
+    {
+        const MovieErrorMessage* row = context.messages;
+        i32 current = row->code;
+        do
+        {
+            if (current == code)
+            {
+                title = context.messages[index].title;
+                message = context.messages[index].message;
+                return;
+            }
+            current = row[1].code;
+            ++row;
+            ++index;
+        }
+        while (current != 0);
+    }
+    scene_detail::crt_format_bounded_string(context.fallback, 15, "%d", code);
+    title = "Error Code";
+    message = context.fallback;
+}
+
+// Xbox 0x001074A0
+i32 report_movie_error(i32 code, MovieErrorContext& context)
+{
+    const char* title;
+    const char* message;
+    lookup_movie_error_message(code, title, message, context);
+    resource_error(context.error, code);
+    return code;
+}
+
 namespace
 {
 
@@ -53,6 +1150,9 @@ struct MovieClip
     bool audio_done = false;
     bool loop = false;
     std::string cue;
+    u32 sound_volume = kSoundVolume;
+    std::vector<u8> owned_bytes;
+    std::function<void(u8*)> release_allocation;
 #if defined(GBTG_HAS_FFMPEG)
     AVFormatContext* fmt = nullptr;
     AVCodecContext* video = nullptr;
@@ -70,6 +1170,20 @@ struct MovieClip
     } mem;
 #endif
 };
+
+void destroy_movie_clip(MovieClip* clip)
+{
+    if (clip->release_allocation)
+    {
+        auto free = clip->release_allocation;
+        clip->~MovieClip();
+        free(reinterpret_cast<u8*>(clip));
+    }
+    else
+    {
+        delete clip;
+    }
+}
 
 // 0x3C node from 0x001071A0. Field order matches the offsets the tick reads.
 struct MovieNode
@@ -186,7 +1300,7 @@ void clip_close(MovieClip* clip)
         avio_context_free(&clip->io);
     }
     av_freep(&clip->io_buf);
-    delete clip;
+    destroy_movie_clip(clip);
 }
 
 bool clip_seek_start(MovieClip* clip)
@@ -288,7 +1402,7 @@ void clip_audio(MovieClip* clip, bool loop)
     clip_seek_start(clip);
     if (!pcm.empty())
     {
-        const float volume = float(kSoundVolume) / 32768.f;
+        const float volume = float(clip->sound_volume) / 32768.f;
         pcm_play_pcm(clip->cue.c_str(), pcm, rate, 2, loop, volume);
     }
 }
@@ -359,7 +1473,8 @@ bool clip_decode(MovieClip* clip)
     return false;
 }
 
-MovieClip* clip_open(const void* src, unsigned flags, bool loop, const std::string& cue, const std::vector<u8>* bytes)
+MovieClip* clip_open(const void* src, unsigned flags, bool loop, const std::string& cue,
+    const std::vector<u8>* bytes, const RuntimeMovieMemoryCallbacks* memory = nullptr)
 {
     if (src == nullptr && bytes == nullptr)
     {
@@ -368,13 +1483,27 @@ MovieClip* clip_open(const void* src, unsigned flags, bool loop, const std::stri
     av_log_set_level(AV_LOG_ERROR);
     const AVInputFormat* bink = av_find_input_format("bink");
     AVFormatContext* fmt = nullptr;
-    MovieClip* clip = new MovieClip();
+    MovieClip* clip;
+    if (memory != nullptr)
+    {
+        u8* allocation = memory->allocate(sizeof(MovieClip));
+        if (allocation == nullptr)
+        {
+            return nullptr;
+        }
+        clip = new (allocation) MovieClip();
+        clip->release_allocation = memory->free;
+    }
+    else
+    {
+        clip = new MovieClip();
+    }
     clip->cue = cue;
     if ((flags & kOpenFromMemory) != 0)
     {
         if (bytes == nullptr || bytes->size() < 4)
         {
-            delete clip;
+            destroy_movie_clip(clip);
             return nullptr;
         }
         clip->mem.data = bytes->data();
@@ -401,7 +1530,7 @@ MovieClip* clip_open(const void* src, unsigned flags, bool loop, const std::stri
         const char* path = static_cast<const char*>(src);
         if (avformat_open_input(&fmt, path, bink, nullptr) < 0)
         {
-            delete clip;
+            destroy_movie_clip(clip);
             return nullptr;
         }
     }
@@ -552,11 +1681,13 @@ void pace_to_frame(MovieClip* clip, int want)
 
 void clip_close(MovieClip* clip)
 {
-    delete clip;
+    destroy_movie_clip(clip);
 }
 
-MovieClip* clip_open(const void* src, unsigned flags, bool loop, const std::string& cue, const std::vector<u8>* bytes)
+MovieClip* clip_open(const void* src, unsigned flags, bool loop, const std::string& cue,
+    const std::vector<u8>* bytes, const RuntimeMovieMemoryCallbacks* memory = nullptr)
 {
+    (void)memory;
     (void)src;
     (void)flags;
     (void)loop;
@@ -741,6 +1872,88 @@ void movie_tick(MovieNode* node)
 }
 
 } // namespace
+
+void bind_existing_movie_decoder(RuntimeMovieStartupContext& context)
+{
+    context.decoder_open = [&context](const char* path, u32 flags) -> void*
+    {
+        return clip_open(path, flags, false, path, nullptr, &context.memory);
+    };
+    context.decoder_track = [](void* decoder, u32 track, u32 volume)
+    {
+        if (track == 0)
+        {
+            static_cast<MovieClip*>(decoder)->sound_volume = volume;
+        }
+    };
+    context.decoder_memory_open = [&context](const u8* source, u32 flags, u32 size) -> void*
+    {
+        std::vector<u8> bytes(source, source + size);
+        MovieClip* clip = clip_open(source, flags, false, "runtime_movie", &bytes, &context.memory);
+        if (clip != nullptr)
+        {
+            clip->owned_bytes = std::move(bytes);
+        }
+        return clip;
+    };
+    context.decoder_wait = [](void* decoder)
+    {
+        return bink_wait(static_cast<MovieClip*>(decoder));
+    };
+    context.decoder_do_frame = [](void* decoder)
+    {
+        bink_do_frame(static_cast<MovieClip*>(decoder));
+    };
+    context.decoder_next_frame = [](void* decoder)
+    {
+        bink_next_frame(static_cast<MovieClip*>(decoder));
+    };
+    context.decoder_frame_number = [](void* decoder)
+    {
+        return static_cast<MovieClip*>(decoder)->frame_num;
+    };
+    context.decoder_frame_count = [](void* decoder)
+    {
+        return static_cast<MovieClip*>(decoder)->frames;
+    };
+    context.decoder_close = [](void* decoder)
+    {
+        clip_close(static_cast<MovieClip*>(decoder));
+    };
+    context.decoder_height = [](void* decoder)
+    {
+        return static_cast<MovieClip*>(decoder)->height;
+    };
+    context.decoder_copy = [](void* decoder, u8* destination, i32 pitch, u32 height,
+        u32 x, u32 y, u32 flags)
+    {
+        static_cast<void>(x);
+        static_cast<void>(y);
+        static_cast<void>(flags);
+        const RgbaImage& image = static_cast<MovieClip*>(decoder)->image;
+        const size_t row_bytes = static_cast<size_t>(image.width) * 4;
+        if (destination == nullptr || image.bgra.empty() || pitch < 0 ||
+            static_cast<size_t>(pitch) < row_bytes || height < static_cast<u32>(image.height))
+        {
+            return 1;
+        }
+        for (i32 row = 0; row < image.height; ++row)
+        {
+            std::memcpy(destination + static_cast<size_t>(row) * static_cast<size_t>(pitch),
+                image.bgra.data() + static_cast<size_t>(row) * row_bytes, row_bytes);
+        }
+        return 0;
+    };
+}
+
+const RgbaImage* runtime_movie_image(const RuntimeMovieState& movie)
+{
+    if (movie.decoder == nullptr)
+    {
+        return nullptr;
+    }
+    return &static_cast<MovieClip*>(movie.decoder)->image;
+}
 
 void free_named(const std::string& name)
 {

@@ -47,6 +47,9 @@ void pcm_dialog_advance(const Game& g, const char* cue);
 // Cue-list name, the same key build_catalog stores. loop keeps the voice up.
 void pcm_play_cue(const Game& g, const char* cue, bool loop);
 u64 pcm_play_owned_cue(const Game& g, const char* cue);
+// PrepareEx host boundary: submits the buffer without starting the source voice.
+// On success, voice is a live IXAudio2SourceVoice and handle owns its PCM buffer.
+i32 pcm_prepare_owned_cue(const Game& g, const char* cue, u64& handle, void*& voice);
 void pcm_stop_owned_cue(u64 handle);
 bool pcm_owned_cue_playing(u64 handle);
 void pcm_stop_cue(const char* cue);

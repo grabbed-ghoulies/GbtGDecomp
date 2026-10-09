@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gbtg/types.h"
+#include <cstddef>
 #include <functional>
 
 namespace gbtg
@@ -59,13 +60,18 @@ struct RuntimeGpuSegments
 struct RuntimeVertexShaderCacheEntry
 {
     std::array<u32, 545> program{};
+    // +0x884: declaration words followed by six handle/key pairs at +0x904.
+    // Keep the original contiguous word view for the declaration-copy loop.
     std::array<i32, 44> declaration{};
-    u32 handle = 0;
+    i32 variant_count = 0; // +0x934
     i32 key = 0;
     i32 first_channel = 0;
     i32 second_channel = 0;
 };
 static_assert(sizeof(RuntimeVertexShaderCacheEntry) == 0x944);
+static_assert(offsetof(RuntimeVertexShaderCacheEntry, declaration) == 0x884);
+static_assert(offsetof(RuntimeVertexShaderCacheEntry, variant_count) == 0x934);
+static_assert(offsetof(RuntimeVertexShaderCacheEntry, key) == 0x938);
 struct RuntimeVertexShaderCache
 {
     std::array<RuntimeVertexShaderCacheEntry, 256> entries{};

@@ -142,7 +142,9 @@ u32 next_joint_flags(std::span<const u8> flags, size_t& cursor)
     return u32(rotation) | (u32(translation) << 8) | (u32(scale) << 16);
 }
 
-// Xbox 0x00153DC0. Value inputs preserve its alias-safe evaluation order.
+} // namespace
+
+// Xbox 0x00153DC0
 Quat animation_quaternion_product(Quat first, Quat second)
 {
     return Quat
@@ -153,8 +155,6 @@ Quat animation_quaternion_product(Quat first, Quat second)
         ((second.w * first.w - first.x * second.x) - second.y * first.y) - first.z * second.z
     };
 }
-
-} // namespace
 
 // Xbox 0x0002D1A0.
 void blend_animation_masked(std::span<JointPose> output, std::span<const JointPose> first,

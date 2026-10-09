@@ -103,8 +103,8 @@ void test_shader_interning()
         "last program word participates in lookup");
     require(intern_runtime_vertex_shader(*cache, image, program, declaration, 3, 0, 0) == 2,
         "channel flags participate in lookup");
-    require(cache->entries[1].declaration[1] == -1 && cache->entries[1].handle == 0,
-        "declaration terminator and shader handle initialization");
+    require(cache->entries[1].declaration[1] == -1 && cache->entries[1].variant_count == 0,
+        "declaration terminator and shader variant count initialization");
     const u32 node = image.address;
     image.set_word(node, 0x50, 0x140);
     image.set_word(node, 0x54, 0x100);

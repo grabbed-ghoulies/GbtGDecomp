@@ -1,9 +1,12 @@
 #include "gbtg/engine_internal.h"
 
 #include "gbtg/bundle.h"
+#include "pcm_backend.h"
 
 #include <algorithm>
 #include <cerrno>
+#include <bit>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -17,6 +20,7 @@
 #include <windows.h>
 #include <objbase.h>
 #include <xaudio2.h>
+#include <xaudio2fx.h>
 #endif
 
 namespace gbtg
@@ -61,6 +65,7 @@ float rf32(std::span<const u8> b, size_t o)
 
 struct WaveChoice
 {
+    u8 category = 0;
     std::string bank; // WBND internal name, e.g. Gharddrive1
     u16 index = 0;
     u16 weight_lo = 0;
@@ -88,6 +93,7 @@ struct WaveFile
 
 struct PcmVoice
 {
+    u8 category = 0;
     u64 handle = 0;
     IXAudio2SourceVoice* voice = nullptr;
     std::vector<u8> pcm;
@@ -98,10 +104,18 @@ struct PcmVoice
 IXAudio2* g_xa = nullptr;
 IXAudio2MasteringVoice* g_master = nullptr;
 float g_master_volume = 1.f;
+std::array<float, 256> g_category_volumes = []()
+{
+    std::array<float, 256> volumes;
+    volumes.fill(1.f);
+    return volumes;
+}();
+bool g_listener_effect = false;
 std::vector<PcmVoice> g_voices;
 std::vector<PcmVoice> g_bed;
 u64 g_next_voice_handle = 0;
 bool g_device_failed = false;
+HRESULT g_device_result = S_OK;
 bool g_catalog_ready = false;
 std::map<std::string, WaveFile> g_wavefiles;                 // WBND name -> file
 std::map<std::string, std::vector<WaveChoice>> g_cues;      // full cue string -> variations
@@ -232,7 +246,7 @@ void push_variation_table(std::vector<WaveChoice>& out, std::span<const u8> blob
     }
 }
 
-void waves_from_entry(std::vector<WaveChoice>& out, std::span<const u8> blob, i16 entry, u16 simple_count,
+void waves_from_entry_data(std::vector<WaveChoice>& out, std::span<const u8> blob, i16 entry, u16 simple_count,
                       const std::vector<std::string>& devs)
 {
     const size_t base = 0x38 + size_t(simple_count) * 0x14 + size_t(entry) * 0x14;
@@ -301,6 +315,19 @@ void waves_from_entry(std::vector<WaveChoice>& out, std::span<const u8> blob, i1
             }
         }
         sound += 8u + size;
+    }
+}
+
+void waves_from_entry(std::vector<WaveChoice>& out, std::span<const u8> blob, i16 entry,
+    u16 simple_count, const std::vector<std::string>& devs)
+{
+    const size_t first = out.size();
+    waves_from_entry_data(out, blob, entry, simple_count, devs);
+    const size_t record = 0x38 + size_t(simple_count) * 0x14 + size_t(entry) * 0x14;
+    for (size_t index = first; index < out.size(); ++index)
+    {
+        // Retail XACT sound-entry byte +0xA, used by 0x001BB8C8.
+        out[index].category = blob[record + 0xA];
     }
 }
 
@@ -500,11 +527,17 @@ bool ensure_device()
     const HRESULT co = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (FAILED(co) && co != RPC_E_CHANGED_MODE)
     {
+        g_device_result = co;
         g_device_failed = true;
         std::cout << "audio CoInitializeEx failed\n";
         return false;
     }
-    if (FAILED(XAudio2Create(&g_xa, 0, XAUDIO2_DEFAULT_PROCESSOR)) || FAILED(g_xa->CreateMasteringVoice(&g_master)))
+    g_device_result = XAudio2Create(&g_xa, 0, XAUDIO2_DEFAULT_PROCESSOR);
+    if (SUCCEEDED(g_device_result))
+    {
+        g_device_result = g_xa->CreateMasteringVoice(&g_master);
+    }
+    if (FAILED(g_device_result))
     {
         g_device_failed = true;
         std::cout << "audio XAudio2Create failed\n";
@@ -548,6 +581,7 @@ void stop_all()
 
 bool load_wave(const WaveChoice& choice, std::vector<u8>& pcm, WAVEFORMATEX& fmt)
 {
+    SetLastError(ERROR_INVALID_DATA);
     const auto found = g_wavefiles.find(choice.bank);
     if (found == g_wavefiles.end() || choice.index >= found->second.count)
     {
@@ -577,6 +611,12 @@ bool load_wave(const WaveChoice& choice, std::vector<u8>& pcm, WAVEFORMATEX& fmt
         return false;
     }
     const u32 mini = ru32(rec, 4);
+    if ((mini & 3) != 0)
+    {
+        // Compressed Xbox payloads require a decoder before PCM submission.
+        SetLastError(ERROR_NOT_SUPPORTED);
+        return false;
+    }
     const u32 play_off = ru32(rec, 8);
     const u32 play_len = ru32(rec, 12);
     if (play_len == 0 || play_len > 48 * 1024 * 1024)
@@ -623,11 +663,20 @@ bool load_wave(const WaveChoice& choice, std::vector<u8>& pcm, WAVEFORMATEX& fmt
     return true;
 }
 
-u64 play_choice(const std::string& cue, const WaveChoice& choice, bool loop = false, bool bed = false)
+u64 play_choice(const std::string& cue, const WaveChoice& choice, bool loop = false, bool bed = false,
+    bool start = true, i32* result = nullptr, void** prepared_voice = nullptr)
 {
+    const auto fail = [result](HRESULT error) -> u64
+    {
+        if (result != nullptr)
+        {
+            *result = static_cast<i32>(error);
+        }
+        return 0;
+    };
     if (!ensure_device())
     {
-        return 0;
+        return fail(g_device_result);
     }
     reap_voices();
     PcmVoice slot;
@@ -635,28 +684,49 @@ u64 play_choice(const std::string& cue, const WaveChoice& choice, bool loop = fa
     if (!load_wave(choice, slot.pcm, fmt))
     {
         std::cout << "audio skip " << cue << " " << choice.bank << "[" << choice.index << "]\n";
-        return 0;
+        const DWORD error = GetLastError();
+        return fail(HRESULT_FROM_WIN32(error == ERROR_SUCCESS ? ERROR_INVALID_DATA : error));
     }
-    if (FAILED(g_xa->CreateSourceVoice(&slot.voice, &fmt)))
+    HRESULT status = g_xa->CreateSourceVoice(&slot.voice, &fmt);
+    if (FAILED(status))
     {
         std::cout << "audio voice failed " << cue << "\n";
-        return 0;
+        return fail(status);
     }
-    slot.voice->SetVolume(1.f);
+    slot.category = choice.category;
+    status = slot.voice->SetVolume(g_category_volumes[slot.category]);
+    if (FAILED(status))
+    {
+        slot.voice->DestroyVoice();
+        return fail(status);
+    }
     XAUDIO2_BUFFER buf{};
     buf.AudioBytes = UINT32(slot.pcm.size());
     buf.pAudioData = slot.pcm.data();
     buf.Flags = XAUDIO2_END_OF_STREAM;
     buf.LoopCount = loop ? XAUDIO2_LOOP_INFINITE : 0;
-    if (FAILED(slot.voice->SubmitSourceBuffer(&buf)))
+    status = slot.voice->SubmitSourceBuffer(&buf);
+    if (FAILED(status))
     {
         slot.voice->DestroyVoice();
-        return 0;
+        return fail(status);
     }
-    if (FAILED(slot.voice->Start(0)))
+    if (start)
+    {
+        status = slot.voice->Start(0);
+    }
+    if (FAILED(status))
     {
         slot.voice->DestroyVoice();
-        return 0;
+        return fail(status);
+    }
+    if (result != nullptr)
+    {
+        *result = static_cast<i32>(status);
+    }
+    if (prepared_voice != nullptr)
+    {
+        *prepared_voice = slot.voice;
     }
     const u64 handle = ++g_next_voice_handle;
     slot.handle = handle;
@@ -962,6 +1032,32 @@ void pcm_play_cue(const Game& g, const char* cue, bool loop)
 
 // Native audio boundary at the retail cue play calls. A failed host voice returns 0.
 // The book owns its handles independently of the scene cutscene's voice list.
+i32 pcm_prepare_owned_cue(const Game& g, const char* cue, u64& handle, void*& voice)
+{
+    handle = 0;
+    voice = nullptr;
+#if defined(_WIN32)
+    build_catalog(g);
+    const auto found = g_cues.find(cue);
+    if (found == g_cues.end())
+    {
+        return static_cast<i32>(HRESULT_FROM_WIN32(ERROR_NOT_FOUND));
+    }
+    const WaveChoice* choice = pick_choice(found->second, g.frame);
+    if (choice == nullptr)
+    {
+        return static_cast<i32>(HRESULT_FROM_WIN32(ERROR_INVALID_DATA));
+    }
+    i32 result;
+    handle = play_choice(cue, *choice, false, true, false, &result, &voice);
+    return result;
+#else
+    (void)g;
+    (void)cue;
+    return static_cast<i32>(0x80004001u);
+#endif
+}
+
 u64 pcm_play_owned_cue(const Game& g, const char* cue)
 {
 #if defined(_WIN32)
@@ -1109,6 +1205,99 @@ void pcm_set_master_volume(float volume)
 #endif
 }
 
+AudioListenerSettings native_audio_listener_settings()
+{
+    AudioListenerSettings settings;
+    settings.master_volume = [](u32 category, i32 attenuation) -> i32
+    {
+#if defined(_WIN32)
+        if (!ensure_device())
+        {
+            return static_cast<i32>(g_device_result);
+        }
+        if (category > 0xFF)
+        {
+            return static_cast<i32>(E_INVALIDARG);
+        }
+        const float volume = std::pow(10.f, float(attenuation) / 2000.f);
+        if (category == 0xFF)
+        {
+            g_category_volumes.fill(volume);
+        }
+        else
+        {
+            g_category_volumes[category] = volume;
+        }
+        HRESULT result = S_OK;
+        for (auto* voices : {&g_voices, &g_bed})
+        {
+            for (auto& voice : *voices)
+            {
+                if (category == 0xFF || voice.category == category)
+                {
+                    const HRESULT status = voice.voice->SetVolume(volume);
+                    if (FAILED(status) && SUCCEEDED(result))
+                    {
+                        result = status;
+                    }
+                }
+            }
+        }
+        return static_cast<i32>(result);
+#else
+        (void)category;
+        (void)attenuation;
+        return static_cast<i32>(0x80004001u);
+#endif
+    };
+    settings.listener = [](const std::array<u32, 12>& words, u32 apply) -> i32
+    {
+#if defined(_WIN32)
+        if (!ensure_device())
+        {
+            return static_cast<i32>(g_device_result);
+        }
+        if (!g_listener_effect)
+        {
+            IUnknown* effect = nullptr;
+            HRESULT status = XAudio2CreateReverb(&effect);
+            if (FAILED(status))
+            {
+                return static_cast<i32>(status);
+            }
+            XAUDIO2_VOICE_DETAILS details;
+            g_master->GetVoiceDetails(&details);
+            XAUDIO2_EFFECT_DESCRIPTOR descriptor{effect, TRUE, details.InputChannels};
+            const XAUDIO2_EFFECT_CHAIN chain{1, &descriptor};
+            status = g_master->SetEffectChain(&chain);
+            effect->Release();
+            if (FAILED(status))
+            {
+                return static_cast<i32>(status);
+            }
+            g_listener_effect = true;
+        }
+        XAUDIO2FX_REVERB_I3DL2_PARAMETERS parameters{
+            100.f,
+            std::bit_cast<i32>(words[0]), std::bit_cast<i32>(words[1]),
+            std::bit_cast<float>(words[2]), std::bit_cast<float>(words[3]),
+            std::bit_cast<float>(words[4]), std::bit_cast<i32>(words[5]),
+            std::bit_cast<float>(words[6]), std::bit_cast<i32>(words[7]),
+            std::bit_cast<float>(words[8]), std::bit_cast<float>(words[9]),
+            std::bit_cast<float>(words[10]), std::bit_cast<float>(words[11])};
+        XAUDIO2FX_REVERB_PARAMETERS native;
+        ReverbConvertI3DL2ToNative(&parameters, &native);
+        (void)apply;
+        return static_cast<i32>(g_master->SetEffectParameters(0, &native, sizeof(native)));
+#else
+        (void)words;
+        (void)apply;
+        return static_cast<i32>(0x80004001u);
+#endif
+    };
+    return settings;
+}
+
 RuntimeSoundBoundaries native_sound_boundaries()
 {
     RuntimeSoundBoundaries boundaries;
@@ -1138,6 +1327,39 @@ RuntimeSoundBoundaries native_sound_boundaries()
         return GetLastError();
 #else
         return static_cast<u32>(errno);
+#endif
+    };
+    return boundaries;
+}
+
+AudioCoreCueBoundaries native_audio_core_cue_boundaries(const Game& game,
+    const std::function<const char*(void*, u32)>& cue_name)
+{
+    AudioCoreCueBoundaries boundaries;
+    boundaries.prepare = [&game, cue_name](void* bank, u32 index, void*& cue) -> i32
+    {
+        u64 handle;
+        return pcm_prepare_owned_cue(game, cue_name(bank, index), handle, cue);
+    };
+    boundaries.play = [](void*, void* source, void*& cue) -> i32
+    {
+#if defined(_WIN32)
+        auto* voice = static_cast<IXAudio2SourceVoice*>(cue);
+        if (source != nullptr)
+        {
+            XAUDIO2_SEND_DESCRIPTOR send{0, static_cast<IXAudio2Voice*>(source)};
+            XAUDIO2_VOICE_SENDS sends{1, &send};
+            const HRESULT status = voice->SetOutputVoices(&sends);
+            if (FAILED(status))
+            {
+                return static_cast<i32>(status);
+            }
+        }
+        return static_cast<i32>(voice->Start(0));
+#else
+        (void)source;
+        (void)cue;
+        return static_cast<i32>(0x80004001u);
 #endif
     };
     return boundaries;

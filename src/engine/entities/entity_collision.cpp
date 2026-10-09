@@ -1,4 +1,5 @@
 #include "gbtg/entity.h"
+#include "../navigation/navigation.h"
 #include "gbtg/anim.h"
 #include "gbtg/model_runtime.h"
 #include "gbtg/actor_runtime.h"
@@ -636,28 +637,8 @@ float g_slide_param = 3.f;
 // DAT_0050e240 holds four floor grids. The count is DAT_0050e250. The Y bands
 // are two floats at DAT_0050e254 and two at DAT_0050e25c. Origins are the
 // dwords at DAT_0050e264 and DAT_0050e26c.
-constexpr i32 kNavSlots = 4;
-
-constexpr i32 kNavBands = 2;
-
 constexpr float kNavBandPad = 2.f;
  // DAT_0032B110
-
-struct NavCell
-{
-    i16 bottom = 0; // record +2
-    i16 top = 0;    // record +0xe
-};
-
-
-struct NavGrid
-{
-    i32 width = 0; // +0
-    i32 depth = 0; // +4
-    i32 cell = 0;  // +8, divisor for world XZ
-    std::vector<NavCell> cells; // +0x10, stride 0x12, index width * z + x
-};
-
 
 NavGrid* g_nav_grids[kNavSlots]{};
 
@@ -685,51 +666,6 @@ constexpr float kCellHeight = 10.f;
  // DAT_0032B10C
 constexpr float kCellRadius = 4.f;
   // DAT_00434018
-
-// 0x00110BF0 called as (-1, 0). The -1 never matches a floor, so the cell
-// flag test is skipped. A Y inside [min, max + 2] returns that floor. Otherwise
-// the last floor whose min is strictly below the point wins, or 0 when none do.
-i32 nav_floor_index(const Vec3& point)
-{
-    i32 best = 0;
-    const i32 count = g_nav_count < kNavBands ? g_nav_count : kNavBands;
-    for (i32 i = 0; i < count; ++i)
-    {
-        if (point.y >= g_nav_min_y[i] && (g_nav_max_y[i] + kNavBandPad) >= point.y)
-        {
-            return i;
-        }
-        if (point.y > g_nav_min_y[i])
-        {
-            best = i;
-        }
-    }
-    return best;
-}
-
-
-// 0x00110EF0. EAX is the floor, EBX the point. A null grid or an XZ cell
-// outside the grid returns -1. Truncation matches cvttss2si.
-i32 nav_cell_index(i32 floor, const Vec3& point)
-{
-    if (floor < 0 || floor >= kNavSlots)
-    {
-        return -1;
-    }
-    const NavGrid* grid = g_nav_grids[floor];
-    if (grid == nullptr || grid->cell == 0)
-    {
-        return -1;
-    }
-    const i32 cx = (trunc_i32(point.x) - g_nav_origin_x) / grid->cell;
-    const i32 cz = (trunc_i32(point.z) - g_nav_origin_z) / grid->cell;
-    if (cx < 0 || cx >= grid->width || cz < 0 || cz >= grid->depth)
-    {
-        return -1;
-    }
-    return grid->width * cz + cx;
-}
-
 
 bool nav_cell(i32 floor, i32 index, NavCell& out)
 {
@@ -779,16 +715,16 @@ void entity_build_navigation_cylinder(const Vec3& point, const Actor* actor, Ent
     // difference, uses point Y + 5 and height 10. The floats at +0x10 and +0x18
     // stay 0. Radius is DAT_00434018 plus the DAT_00314EB4 bump for case state
     // 1..4 and class 1..3, plus another 5 when bit 0 of bits byte +5 is set.
-    const i32 floor = nav_floor_index(point);
+    const i32 floor = navigation_floor_index(point, -1, 0);
     float bottom = point.y + kCellLift;
     float height = kCellHeight;
-    const i32 cell = nav_cell_index(floor, point);
+    const i32 cell = navigation_cell_index(floor, point);
     NavCell sample{};
     if (cell >= 0 && nav_cell(floor, cell, sample))
     {
         const float y0 = static_cast<float>(sample.bottom);
         float span = point.y - y0;
-        const i32 cell_b = nav_cell_index(floor, point);
+        const i32 cell_b = navigation_cell_index(floor, point);
         NavCell sample_b{};
         if (cell_b >= 0 && nav_cell(floor, cell_b, sample_b))
         {

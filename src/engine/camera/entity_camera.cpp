@@ -3,6 +3,7 @@
 #include "gbtg/model_runtime.h"
 #include "gbtg/actor_runtime.h"
 #include "gbtg/gfx.h"
+#include "display_view.h"
 
 #include <bit>
 #include <cmath>
@@ -121,13 +122,15 @@ bool cam_name_match(const char* node_name, const char* want)
 
 void copy_cam_name(char* dest, const char* src)
 {
-    int i = 0;
-    while (i < 0x20 && src[i] != '\0')
+    char unit;
+    do
     {
-        dest[i] = src[i];
-        ++i;
+        unit = *src;
+        *dest = unit;
+        ++src;
+        ++dest;
     }
-    dest[i] = '\0';
+    while (unit != 0);
 }
 
 } // namespace entity_detail
@@ -139,8 +142,8 @@ i32 camera_bind_named_view(i32 slot, const char* name)
     // Xbox 0x00048CF0
     // ESI walks the slot list from DAT_004e1684 through +4. EBX is the name.
     // A match stores that record in DAT_004e16a0 and returns 1. A miss clears
-    // the slot and returns 0. The flag, pose, and camera_fit_display_view writes that follow
-    // a hit are the rest of this address.
+    // the slot and returns 0. Mask 2 seeds the pose from the current display;
+    // mask 1 selects Euler direction conversion instead of quaternion copying.
     EntityCamNode* found = g_cam_anchor[slot].next;
     while (found != nullptr && !cam_name_match(found->name, name))
     {
@@ -151,11 +154,52 @@ i32 camera_bind_named_view(i32 slot, const char* name)
         g_cam_active[slot] = nullptr;
         return 0;
     }
+    if ((found->flags & 2) != 0)
+    {
+        if (g_cam_active[slot] == nullptr)
+        {
+            found->position.y = 15.f; // DAT_0032B214
+            found->position.x = 0.f;
+            found->position.z = 30.f; // DAT_0032B108
+        }
+        else
+        {
+            found->position = g_display_view->position;
+        }
+        if ((found->flags & 1) == 0)
+        {
+            found->rotation = g_display_view->rotation;
+        }
+        else
+        {
+            Vec3 direction;
+            if (g_cam_active[slot] == nullptr)
+            {
+                direction = {0.f, 0.f, 1.f};
+            }
+            else
+            {
+                direction.x = 0.f - g_display_view->forward.x;
+                direction.y = 0.f - g_display_view->forward.y;
+                direction.z = 0.f - g_display_view->forward.z;
+            }
+            direction_to_yaw_pitch(direction.x, direction.y, direction.z,
+                found->rotation.y, found->rotation.x);
+            found->rotation.z = 0.f;
+        }
+    }
     if (g_cam_active[slot] != nullptr)
     {
         copy_cam_name(g_cam_saved_name[slot], g_cam_active[slot]->name);
     }
     g_cam_active[slot] = found;
+    i32 fit_width;
+    i32 fit_x;
+    i32 fit_height;
+    i32 fit_y;
+    float fov;
+    camera_fit_display_view(found->focal, found->aspect_slot, fit_width, fit_x,
+        fit_height, fit_y, fov, found->pixel_aspect, found->focal_pixels);
     return 1;
 }
 
@@ -677,19 +721,9 @@ u8 g_aspect_exact = 0;
 
 // DAT_005077A8. 0x000F5900 points this at the display record and copies the viewport
 // (DAT_005096E8 / DAT_005096EA) into the size fields. A null pointer faults on Xbox.
-struct DisplayView
-{
-    i32 aspect_mode = 0; // +0x3c. 3 selects g_aspect_preset.
-    i32 origin_x = 0;    // +0x48
-    i32 origin_y = 0;    // +0x4c
-    i32 width = 0;       // +0x50
-    i32 height = 0;      // +0x54
-};
+DisplayView g_display_records[4]{};
 
-
-DisplayView g_display{};
-
-DisplayView* g_display_view = &g_display;
+DisplayView* g_display_view = &g_display_records[0];
 
 
 // 0x0042A460 stride 0x0c: aspect, sensor height, default focal. Index 3 is the sentinel row.

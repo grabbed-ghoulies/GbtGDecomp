@@ -15,6 +15,7 @@ struct RuntimeActorCreationOptions
     float scale = 0; // +0x2C
     void* user = nullptr; // +0x30
 };
+extern RuntimeActorCreationOptions g_actor_creation_options; // DAT_004E1C5C
 struct RuntimeActorMatrixState
 {
     std::span<const u8> records; // actor +0x288, stride 0x48

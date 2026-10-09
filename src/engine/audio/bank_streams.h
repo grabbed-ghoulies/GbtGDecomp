@@ -1,0 +1,70 @@
+#pragma once
+#include "event_voices.h"
+
+namespace gbtg
+{
+struct AudioTrackedBank
+{
+    i32 id; // +0, stride 0x9C
+    std::array<char, 128> name; // +4
+    i32 channel; // +84
+    i32 references; // +88
+    i32 silence; // +8C
+    u32 retained_90;
+    u32 pending; // +94
+    i32 held; // +98
+};
+struct AudioTrackedChannel
+{
+    i16 voice; // +0, stride 0x8C
+    std::array<char, 130> name; // +2
+    i32 mode; // +84
+    i32 owned; // +88
+};
+struct AudioStreamSlot
+{
+    std::array<char, 128> name; // DAT_004DFFA0, stride 0x80
+    i32 state; // DAT_004E02A0
+    i32 id; // DAT_004E02B8
+    float time; // DAT_004E02D0
+};
+struct AudioBankStreams
+{
+    std::array<AudioTrackedBank, 20> banks; // DAT_004DF370
+    std::array<AudioTrackedChannel, 16> channels; // DAT_004E030C
+    std::array<AudioStreamSlot, 6> streams;
+    AudioEventVoices& voices;
+};
+AudioTrackedBank* next_tracked_audio_bank(AudioTrackedBank* bank,
+    AudioBankStreams& context); // Xbox 0x00038400
+AudioTrackedBank* find_tracked_audio_bank(const char* name, AudioBankStreams& context); // Xbox 0x00038460
+AudioTrackedBank* select_resume_audio_bank(AudioTrackedBank& removed,
+    AudioBankStreams& context); // Xbox 0x00038590
+AudioTrackedChannel* find_tracked_audio_channel(const char* name, i32& found,
+    AudioBankStreams& context); // Xbox 0x00038B30
+void resume_tracked_audio_channel(std::int8_t index, AudioBankStreams& context); // Xbox 0x00038DA0
+void release_tracked_audio_channel(std::int8_t index, AudioBankStreams& context); // Xbox 0x00038CC0
+void resume_tracked_audio_bank(AudioTrackedBank& bank, AudioBankStreams& context); // Xbox 0x00038360
+void detach_tracked_audio_bank(AudioTrackedBank& bank, AudioBankStreams& context); // Xbox 0x00038260
+void release_tracked_audio_bank(const char* name, AudioBankStreams& context); // Xbox 0x00038970
+void release_audio_stream_slot(i32 index, AudioBankStreams& context); // Xbox 0x00038810
+void release_audio_stream(const char* name, AudioBankStreams& context); // Xbox 0x00038780
+void request_audio_stream(const char* name, i32 id, AudioBankStreams& context); // Xbox 0x00038720
+void initialize_tracked_audio_bank(AudioTrackedBank& bank, i32 id,
+    const char* name); // Xbox 0x00038210
+AudioTrackedBank* allocate_tracked_audio_bank(i32 id, const char* name,
+    AudioBankStreams& context); // Xbox 0x000383C0
+void retire_tracked_audio_channel(AudioTrackedChannel& channel,
+    AudioBankStreams& context); // Xbox 0x00038BB0
+std::int8_t acquire_tracked_audio_channel(const char* name, i32* existing,
+    AudioBankStreams& context); // Xbox 0x00038D10
+void start_tracked_audio_bank(AudioTrackedBank& bank, AudioBankStreams& context); // Xbox 0x000382C0
+void pause_tracked_audio_channel(std::int8_t index, AudioBankStreams& context); // Xbox 0x00038E60
+void pause_tracked_audio_bank(AudioTrackedBank& bank, AudioBankStreams& context); // Xbox 0x00038300
+bool tracked_audio_bank_has_priority(AudioTrackedBank& bank,
+    AudioBankStreams& context); // Xbox 0x00038530
+void pause_lower_priority_audio_banks(AudioTrackedBank& bank,
+    AudioBankStreams& context); // Xbox 0x00038AD0
+void acquire_tracked_audio_bank(const char* name, i32 id,
+    AudioBankStreams& context); // Xbox 0x00038910
+}

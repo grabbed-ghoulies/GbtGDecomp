@@ -54,6 +54,30 @@ add_library(gbtg_lib STATIC
     src/gbtg/graphics/texture.cpp
     src/gbtg/models/model.cpp
     src/gbtg/text/loctext.cpp
+    src/gbtg/text/runtime_localtext.cpp
+    src/gbtg/text/localtext_resources.cpp
+    src/engine/frontend/dialogue_tags.cpp
+    src/engine/frontend/dialogue_sound_tags.cpp
+    src/engine/frontend/dialogue_page_voice.cpp
+    src/engine/frontend/dialogue_widget_lifecycle.cpp
+    src/engine/frontend/dialogue_widget_construction.cpp
+    src/engine/frontend/dialogue_widget_update.cpp
+    src/engine/frontend/dialogue_widget_bat.cpp
+    src/engine/frontend/dialogue_tag_actions.cpp
+    src/engine/frontend/dialogue_substitutions.cpp
+    src/engine/frontend/dialogue_time.cpp
+    src/engine/frontend/dialogue_measurement.cpp
+    src/engine/frontend/dialogue_page_layout.cpp
+    src/engine/frontend/dialogue_page_setup.cpp
+    src/engine/frontend/dialogue_resources.cpp
+    src/engine/frontend/dialogue_trophies.cpp
+    src/engine/frontend/dialogue_widget_parameters.cpp
+    src/engine/frontend/dialogue_text_pool.cpp
+    src/engine/frontend/dialogue_text_metrics.cpp
+    src/engine/frontend/dialogue_widget_state.cpp
+    src/engine/frontend/dialogue_input.cpp
+    src/engine/frontend/input_activation.cpp
+    src/engine/audio/listener_settings.cpp
     src/gbtg/graphics/font.cpp
     src/gbtg/audio/wavebank.cpp
     src/gbtg/resources/xbe.cpp
@@ -61,9 +85,11 @@ add_library(gbtg_lib STATIC
     src/gbtg/scripts/script.cpp
     src/gbtg/scripts/cutscene.cpp
     src/gbtg/animation/anim.cpp
+    src/engine/entities/actor_animation_messages.cpp
     src/gbtg/runtime/performance.cpp
     src/gbtg/resources/resource_error.cpp
     src/gbtg/runtime/object_factory.cpp
+    src/gbtg/runtime/actor_spawn_factory.cpp
     src/gbtg/models/model_runtime.cpp
     src/gbtg/models/model_render.cpp
     src/gbtg/models/model_relocation.cpp
@@ -118,15 +144,104 @@ add_executable(gbtg
     src/engine/entities/entity_heap.cpp
     src/engine/entities/entity_model.cpp
     src/engine/entities/actor_runtime.cpp
+    src/engine/entities/actor_event_messages.cpp
+    src/engine/entities/actor_base_messages.cpp
+    src/engine/entities/ghouly_box_messages.cpp
+    src/engine/entities/ghouly_requests.cpp
+    src/engine/navigation/navigation.cpp
+    src/engine/navigation/occupancy.cpp
+    src/engine/entities/actor_world_lists.cpp
+    src/engine/entities/actor_render_registration.cpp
+    src/engine/entities/actor_lifecycle.cpp
+    src/engine/entities/actor_factory_owner.cpp
+    src/engine/entities/actor_model_anchors.cpp
+    src/engine/entities/actor_pose_updates.cpp
+    src/engine/entities/actor_bind_tree.cpp
+    src/engine/entities/actor_live_attachments.cpp
+    src/engine/entities/actor_sound_pose.cpp
+    src/engine/camera/actor_camera_effects.cpp
+    src/engine/camera/view_initialization.cpp
+    src/engine/camera/display_initialization.cpp
+    src/engine/camera/display_setup_math.cpp
+    src/engine/camera/runtime_display_setup.cpp
+    src/engine/camera/display_clip_limits.cpp
+    src/engine/graphics/actor_effect_nodes.cpp
+    src/engine/graphics/scene_render_helpers.cpp
+    src/engine/graphics/scene_light_upload.cpp
+    src/engine/graphics/scene_environment_setup.cpp
+    src/engine/graphics/scene_model_draw.cpp
+    src/engine/graphics/model_tree_dispatch.cpp
+    src/engine/graphics/model_push_buffer_draw.cpp
+    src/engine/graphics/model_render_nodes.cpp
+    src/engine/graphics/model_shader_fragments.cpp
+    src/engine/graphics/vertex_shader_code.cpp
+    src/engine/graphics/shader_schedule_cost.cpp
+    src/engine/graphics/shader_validation_storage.cpp
+    src/engine/graphics/shader_pair_optimizer.cpp
+    src/engine/graphics/shader_merge_optimizer.cpp
+    src/engine/graphics/shader_swizzle.cpp
+    src/engine/graphics/shader_merge_pass.cpp
+    src/engine/graphics/shader_merge_patterns.cpp
+    src/engine/graphics/shader_schedule_issue.cpp
+    src/engine/graphics/shader_schedule_init.cpp
+    src/engine/graphics/shader_schedule_update.cpp
+    src/engine/graphics/shader_schedule_record.cpp
+    src/engine/graphics/shader_schedule_hazards.cpp
+    src/engine/graphics/shader_schedule_cost_inputs.cpp
+    src/engine/graphics/shader_validation_arena.cpp
+    src/engine/graphics/scene_ambient_sampling.cpp
+    src/engine/graphics/scene_environment_matrices.cpp
+    src/engine/graphics/actor_effect_textures.cpp
+    src/engine/graphics/actor_effect_stream.cpp
+    src/engine/entities/spawn_pool_selection.cpp
+    src/engine/entities/spawn_queue_gates.cpp
+    src/engine/entities/actor_trail_requests.cpp
+    src/engine/entities/actor_scare_requests.cpp
+    src/engine/entities/aid_spawn_queue.cpp
+    src/engine/entities/aid_spawn_resources.cpp
+    src/engine/scene/scene_object_requests.cpp
+    src/engine/scene/background_geometry.cpp
+    src/engine/entities/physical_shape_events.cpp
+    src/engine/entities/actor_matrix_setup.cpp
+    src/engine/scene/background_volumes.cpp
+    src/engine/entities/shape_copy.cpp
+    src/engine/scene/background_model_nodes.cpp
+    src/engine/scene/live_spawn_tick.cpp
+    src/engine/audio/bank_lookup.cpp
+    src/engine/audio/bank_streams.cpp
+    src/engine/audio/sound_names.cpp
+    src/engine/audio/footstep_names.cpp
+    src/engine/entities/actor_attachment_requests.cpp
+    src/engine/entities/actor_attachment_updates.cpp
+    src/engine/entities/actor_frame_update.cpp
+    src/engine/entities/actor_frame_render.cpp
+    src/engine/entities/button_bat_update.cpp
+    src/engine/entities/actor_attachment_events.cpp
+    src/engine/audio/resource_requests.cpp
+    src/engine/runtime/name_lookup.cpp
+    src/engine/entities/actor_lookup.cpp
+    src/engine/entities/actor_spawn_eligibility.cpp
+    src/engine/entities/shape_transform.cpp
+    src/engine/entities/actor_spawn_query.cpp
+    src/engine/entities/ghouly_box_controller.cpp
+    src/engine/entities/ghouly_spawn_record.cpp
+    src/engine/entities/ghouly_spawn_scheduler.cpp
+    src/engine/entities/ghouly_spawn_trigger.cpp
+    src/engine/entities/ghouly_box_decoder.cpp
     src/engine/input/controller.cpp
     src/engine/saves/save_names.cpp
     src/engine/frontend/text_tokens.cpp
     src/engine/scene/lighting.cpp
     src/engine/scene/ambient.cpp
     src/engine/scene/scene_resources.cpp
+    src/engine/scene/actor_loading.cpp
     src/engine/runtime/clock.cpp
     src/engine/audio/audio.cpp
     src/engine/audio/pcm_out.cpp
+    src/engine/audio/core_memory.cpp
+    src/engine/audio/core_source.cpp
+    src/engine/audio/core_cue.cpp
+    src/engine/audio/event_voices.cpp
     src/engine/frontend/frontend.cpp
     src/engine/frontend/frontend_keyboard.cpp
     src/engine/frontend/frontend_slots.cpp
@@ -138,21 +253,51 @@ add_executable(gbtg
     src/engine/scene/scene.cpp
     src/engine/scene/scene_loading.cpp
     src/engine/cutscenes/cutscene_runtime.cpp
+    src/engine/cutscenes/curve_sampling.cpp
+    src/engine/cutscenes/instance_construction.cpp
+    src/engine/cutscenes/quaternion_math.cpp
+    src/engine/cutscenes/camera_sampling.cpp
+    src/engine/cutscenes/camera_setup.cpp
+    src/engine/cutscenes/actor_tracks.cpp
+    src/engine/cutscenes/event_pause.cpp
+    src/engine/cutscenes/event_audio.cpp
+    src/engine/cutscenes/event_timing.cpp
+    src/engine/cutscenes/event_binding.cpp
+    src/engine/cutscenes/event_assets.cpp
+    src/engine/cutscenes/event_runtime.cpp
+    src/engine/frontend/dialogue_activation.cpp
+    src/engine/frontend/dialogue_draw_state.cpp
+    src/engine/frontend/dialogue_draw_quads.cpp
+    src/engine/frontend/dialogue_draw_text.cpp
+    src/engine/frontend/dialogue_draw_portraits.cpp
+    src/engine/frontend/dialogue_draw_page.cpp
+    src/engine/frontend/dialogue_draw_outer.cpp
+    src/engine/camera/cutscene_impulse.cpp
+    src/engine/runtime/interpolation.cpp
     src/engine/camera/camera.cpp
     src/engine/scripts/script_samples.cpp
     src/engine/scripts/script_conditions.cpp
     src/engine/scripts/script_actions.cpp
+    src/engine/scripts/script_actor_query.cpp
+    src/engine/scripts/script_dialogue_actions.cpp
     src/engine/scripts/script_vm.cpp
     src/engine/transitions/scene_transitions.cpp
     src/engine/transitions/transition_book.cpp
     src/engine/runtime/crt_runtime.cpp
     src/engine/runtime/crt_format.cpp
+    src/engine/runtime/crt_strings.cpp
+    src/engine/runtime/crt_mantissa.cpp
+    src/engine/runtime/crt_decimal.cpp
+    src/engine/runtime/file_worker.cpp
     src/engine/runtime/xapi_runtime.cpp
     src/engine/graphics/d3d_packets.cpp
     src/engine/runtime/engine_memory.cpp
     src/engine/game.cpp
     src/engine/runtime/platform.cpp
     src/engine/video/movie.cpp
+    src/engine/video/movie_session.cpp
+    src/engine/scene/cutscene_scene_runtime.cpp
+    src/engine/scene/cutscene_resource_views.cpp
 )
 target_link_libraries(gbtg PRIVATE gbtg_lib)
 if(WIN32)
@@ -272,21 +417,30 @@ endif()
 # The retail transition regression drives controller input and asserts the
 # actual scene/map/load sequence. It needs the user's disc assets.
 if(BUILD_TESTING)
+    add_executable(gbtg-cutscene-resource-tests tests/cutscene_resource_tests.cpp
+        src/engine/scene/cutscene_resource_views.cpp
+        src/engine/camera/display_clip_limits.cpp)
+    target_link_libraries(gbtg-cutscene-resource-tests PRIVATE gbtg_lib)
+    add_test(NAME cutscene-resource-views COMMAND gbtg-cutscene-resource-tests)
     add_executable(gbtg-animation-event-tests tests/animation_event_tests.cpp)
     target_link_libraries(gbtg-animation-event-tests PRIVATE gbtg_lib)
     add_test(NAME animation-event-boundaries COMMAND gbtg-animation-event-tests)
     get_target_property(GBTG_TRANSITION_SOURCES gbtg SOURCES)
     list(REMOVE_ITEM GBTG_TRANSITION_SOURCES src/engine/main.cpp src/engine/runtime/platform.cpp)
-    add_executable(gbtg-transition-tests EXCLUDE_FROM_ALL tests/scene_transition_tests.cpp ${GBTG_TRANSITION_SOURCES})
+    add_executable(gbtg-transition-tests EXCLUDE_FROM_ALL tests/scene_transition_tests.cpp tests/camera_display_tests.cpp tests/script_actor_query_tests.cpp tests/scene_render_tests.cpp tests/shader_compiler_tests.cpp tests/shader_schedule_tests.cpp tests/shader_cost_tests.cpp ${GBTG_TRANSITION_SOURCES})
+    add_executable(gbtg-movie-startup-tests EXCLUDE_FROM_ALL tests/movie_startup_tests.cpp ${GBTG_TRANSITION_SOURCES})
     get_target_property(GBTG_TRANSITION_LINKS gbtg LINK_LIBRARIES)
     get_target_property(GBTG_TRANSITION_DEFINITIONS gbtg COMPILE_DEFINITIONS)
     get_target_property(GBTG_TRANSITION_INCLUDES gbtg INCLUDE_DIRECTORIES)
     target_link_libraries(gbtg-transition-tests PRIVATE ${GBTG_TRANSITION_LINKS})
+    target_link_libraries(gbtg-movie-startup-tests PRIVATE ${GBTG_TRANSITION_LINKS})
     if(GBTG_TRANSITION_DEFINITIONS)
         target_compile_definitions(gbtg-transition-tests PRIVATE ${GBTG_TRANSITION_DEFINITIONS})
+        target_compile_definitions(gbtg-movie-startup-tests PRIVATE ${GBTG_TRANSITION_DEFINITIONS})
     endif()
     if(GBTG_TRANSITION_INCLUDES)
         target_include_directories(gbtg-transition-tests PRIVATE ${GBTG_TRANSITION_INCLUDES})
+        target_include_directories(gbtg-movie-startup-tests PRIVATE ${GBTG_TRANSITION_INCLUDES})
     endif()
     foreach(dll ${GBTG_FFMPEG_DLLS})
         add_custom_command(TARGET gbtg-transition-tests POST_BUILD
@@ -295,6 +449,7 @@ if(BUILD_TESTING)
     endforeach()
     if(MSVC)
         target_compile_options(gbtg-transition-tests PRIVATE /W3 /EHsc /utf-8)
+        target_compile_options(gbtg-movie-startup-tests PRIVATE /W3 /EHsc /utf-8)
     endif()
 endif()
 

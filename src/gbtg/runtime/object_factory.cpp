@@ -1,4 +1,5 @@
 #include "gbtg/object_factory.h"
+#include "object_lifecycle.h"
 #include <cstring>
 #include <new>
 
@@ -52,6 +53,15 @@ void destroy_factory_object(ObjectFactoryRegistry& registry, u16 type,
         }
         previous = vtable->destroy;
     }
+}
+
+// Xbox 0x001075C0
+void release_factory_object(ObjectFactoryRegistry& registry, FactoryObject& object)
+{
+    const u16 type = read_u16(std::span<const u8>(object.bytes.get(), object.size), 4);
+    destroy_factory_object(registry, type, object, nullptr);
+    object.bytes.reset(); // Host heap and thread heap selection boundary.
+    --registry.count;
 }
 
 // Xbox 0x00107620.

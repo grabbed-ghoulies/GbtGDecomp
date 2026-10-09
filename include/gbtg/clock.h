@@ -13,6 +13,7 @@ struct PerformanceCounterState
     std::int64_t frequency = 0; // DAT_0050E0E0
 };
 // Host QueryPerformanceCounter / QueryPerformanceFrequency boundaries.
+std::int64_t host_performance_counter();
 void initialize_performance_counter(PerformanceCounterState& counter);
 long double performance_counter_seconds(const PerformanceCounterState& counter); // Xbox 0x001077D0
 void wait_performance_counter(const PerformanceCounterState& counter, float seconds); // Xbox 0x00032680

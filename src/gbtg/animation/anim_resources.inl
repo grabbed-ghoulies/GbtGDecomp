@@ -171,6 +171,8 @@ bool load_animation_registered_resource(AnimationResourceRegistry& registry, Ani
     return false;
 }
 
+} // namespace
+
 // Xbox 0x000FBF50.
 int compare_animation_resource_type(const char* first, const char* second)
 {
@@ -198,6 +200,9 @@ int compare_animation_resource_type(const char* first, const char* second)
         }
     }
 }
+
+namespace
+{
 
 // Xbox 0x000362B0.
 AnimationResourceHook* find_animation_resource_hook(AnimationResourceRegistry& registry, const char* type)

@@ -8,14 +8,18 @@
 
 namespace gbtg
 {
+float animation_absolute(float value); // Xbox 0x00152BB0
 
 struct ResourceErrorState;
+int compare_animation_resource_type(const char* first, const char* second); // Xbox 0x000FBF50
 struct ModelAnimationState;
 long double animation_remainder(float value, float divisor); // Xbox 0x00152BE0
 long double retail_sin(float value); // typed entry to Xbox 0x00153320
 long double retail_cos(float value); // Xbox 0x00153230
 long double retail_asin(float value); // Xbox 0x00152E90
 long double retail_atan2(float y, float x); // Xbox 0x001530E0
+long double retail_reciprocal_sqrt(float value); // Typed entry to Xbox 0x001534C0
+long double retail_square_root(float value); // Typed entry to Xbox 0x00152B30
 void normalize_model_matrix(float matrix[12], float target); // Xbox 0x00103AF0
 bool invert_model_matrix(float output[12], const float input[12]); // Xbox 0x00104400
 
@@ -236,7 +240,7 @@ struct MinaPlayer : MinaPlayback
     u32 ticks = 0;                         // +0x11C
     float age = 0.f;                       // +0x120
     bool sampled = false;                  // +0x124
-    bool paused = false;                   // +0x125
+    u8 paused = 0;                         // +0x125, retail increments this byte
     bool owned_resource = false;           // +0x126
     std::string resource_name;             // +0x2C
     AnimationResourceRegistry* resource_registry = nullptr; // host mapping of the global registry
@@ -379,6 +383,10 @@ void set_actor_animation_table(ActorAnimationState& actor, const char* name,
     const AnimationTableResourceViews& views); // Xbox 0x0003AA30
 void animation_actor_event(std::span<const u8> event, u32 slot, float position,
     ActorAnimationState& actor, int phase); // Xbox 0x0003B3C0
+AnimationController* ensure_actor_animation_controller(ActorAnimationState& actor); // Xbox 0x0003ACB0
+void start_controller_animation_mix(AnimationController& controller, u32 slot,
+    const AnimationMix& mix, const char* name, AnimationResourceRegistry& registry,
+    ResourceErrorState& error, u32& random_state); // Xbox 0x00030B10
 void start_actor_animation_mix(ActorAnimationState& actor, u32 slot, const AnimationMix& mix,
     const char* name, AnimationResourceRegistry& registry, ResourceErrorState& error,
     u32& random_state); // Xbox 0x0003ADA0

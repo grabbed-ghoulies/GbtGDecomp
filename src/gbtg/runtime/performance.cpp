@@ -10,9 +10,6 @@
 namespace gbtg
 {
 
-namespace
-{
-
 std::int64_t host_performance_counter()
 {
 #ifdef _WIN32
@@ -24,8 +21,6 @@ std::int64_t host_performance_counter()
         std::chrono::steady_clock::now().time_since_epoch()).count();
 #endif
 }
-
-} // namespace
 
 void initialize_performance_counter(PerformanceCounterState& counter)
 {

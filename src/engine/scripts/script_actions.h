@@ -5,6 +5,7 @@
 namespace gbtg
 {
 std::string node_cstr(const SceneScript& script, const ScriptNode& node, u32 rel);
+u32 script_find_actor_tag(const char* key); // Xbox 0x001077B0
 
 // Xbox 0x000F96F0. AL is the value. The stack byte selects the pair at +0x294.
 void entity_store_pair(std::span<u8> pairs, u8 index, u8 value); // Xbox 0x000F96F0
@@ -169,11 +170,11 @@ int script_handle_flag_bits(Game& g, const ScriptNode& node); // Xbox 0x001269D0
 // at 0x00126D94 covers types 0x2A through 0x97. Any other type, and the holes
 // in that range, return 3.
 //
-// Type 0x2A tests DAT_00512418. Zero would call 0x0013E8D0 with EBX = node+8,
-// EDX = the dword at node+0x88, and node+0x8c on the stack. That call is not
-// translated. A zero dword at node+0x10c returns 2. Any other value stores 1
-// and returns 0. Nonzero would call 0x001412F0. That call is not translated,
-// so its nonzero return is not taken and this path returns 0.
+// Type 0x2A tests DAT_00512418. Zero calls 0x0013E8D0 with EBX = node+8,
+// EDX = the dword at node+0x88, and node+0x8c on the stack.
+// A zero dword at node+0x10c returns 2. Any other value stores 1
+// and returns 0. Nonzero calls 0x001412F0; a ready load clears the flag and
+// returns 2, while an unfinished load returns 0.
 //
 // Type 0x2B would call 0x000F4E50 with EAX = node+8. That call is not
 // translated. The case returns 2.
@@ -532,13 +533,13 @@ extern u32 g_flag_0650;
 // in that range, return 3. The second argument is the flag 0x00128A00 passes.
 // The third argument is the value that walk passes. A handled type returns 2.
 //
-// Type 0x1 would call 0x0011C890 with EAX = node+8. That call is not translated.
+// Type 0x1 calls 0x0011C890 with EAX = node+8 to queue the background name.
 //
-// Type 0x2 with a zero second argument would call 0x0011C950 with EDX = node+8.
+// Type 0x2 with a zero second argument calls 0x0011C950 to queue an object name.
 // A nonzero second argument would call 0x00107720 with EAX = node+8. A zero
 // return falls through and returns 2. A nonzero return would call 0x00107520
-// with that block, then 0x000663E0 on it. 0x0011C950, 0x00107720, and
-// 0x00107520 are not translated, so the nonzero return is not taken.
+// with that block, then 0x000663E0 on it. This branch still needs a
+// scene-owned factory and resource context before those calls can be wired.
 //
 // Type 0x4 stores the dword at node+8 into DAT_0050EA98.
 // Types 0x5 and 0xC return 2.

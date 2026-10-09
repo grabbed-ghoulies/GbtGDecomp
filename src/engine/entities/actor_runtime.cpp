@@ -287,7 +287,7 @@ void set_actor_node_state(RuntimeActorStartupState& state, u8 slot, u8 value,
 RuntimeActorCreationOptions& actor_creation_options(const Actor& actor, void* user,
     i32 scaled, i32 include_euler)
 {
-    static RuntimeActorCreationOptions options; // DAT_004E1C5C shared scratch
+    auto& options = g_actor_creation_options;
     options.flags = 0;
     options.position = actor_world_position(actor);
     options.user = user;

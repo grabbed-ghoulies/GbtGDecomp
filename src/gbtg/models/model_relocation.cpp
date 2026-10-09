@@ -44,7 +44,7 @@ i32 intern_runtime_vertex_shader(RuntimeVertexShaderCache& cache,
         entry.program[word] = image.word(program, word * 4);
         ++word;
     }
-    entry.handle = 0;
+    entry.variant_count = 0;
     entry.key = key;
     entry.first_channel = first_channel;
     entry.second_channel = second_channel;

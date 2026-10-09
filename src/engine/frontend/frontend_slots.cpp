@@ -1,4 +1,5 @@
 #include "../camera/camera.h"
+#include "../audio/listener_settings.h"
 #include "gbtg/bundle.h"
 #include "gbtg/anim.h"
 #include "gbtg/resource_error.h"
@@ -131,11 +132,10 @@ const char* slot_movie(const Game& g, int index)
 // Xbox 0x00101730: interpolate each packed color byte, clamp, then truncate.
 u32 menu_color(u32 selected, u32 rest, float fraction)
 {
-    u32 color = 0;
-    for (int shift = 0; shift < 32; shift += 8)
+    const float inverse = 1.f - fraction;
+    const auto channel = [inverse, fraction](u32 first, u32 second)
     {
-        float value = float((rest >> shift) & 0xff) * (1.f - fraction) +
-                      float((selected >> shift) & 0xff) * fraction;
+        float value = static_cast<float>(second) * inverse + static_cast<float>(first) * fraction;
         if (value < 0.f)
         {
             value = 0.f;
@@ -144,9 +144,13 @@ u32 menu_color(u32 selected, u32 rest, float fraction)
         {
             value = 255.f;
         }
-        color |= u32(u8(value)) << shift;
-    }
-    return color;
+        return static_cast<u8>(truncate_runtime_float(value));
+    };
+    const u32 red = channel(selected & 0xFF, rest & 0xFF);
+    const u32 green = channel((selected >> 8) & 0xFF, (rest >> 8) & 0xFF);
+    const u32 blue = channel((selected >> 16) & 0xFF, (rest >> 16) & 0xFF);
+    const u32 alpha = channel(selected >> 24, rest >> 24);
+    return red | (green << 8) | (blue << 16) | (alpha << 24);
 }
 
 

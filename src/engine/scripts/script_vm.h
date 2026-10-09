@@ -13,6 +13,7 @@ extern bool g_scene_script_started;
 bool scene_end_flag_set(); // Xbox 0x00049D10
 
 void script_vm_bind(Game& g);
+int script_execute_fired_action(Game& g, u32& offset); // Xbox 0x00128A00
 
 // Xbox 0x00117140. Drain the scene script, then request the next scene AID.
 void script_tick_fired_vm(Game& g); // Xbox 0x00117140

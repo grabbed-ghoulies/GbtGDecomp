@@ -6,6 +6,10 @@
 #include "gbtg/movie.h"
 #include "gbtg/resource.h"
 #include "../transitions/transition_data.h"
+#include "../entities/ghouly_requests.h"
+#include "../scene/actor_loading.h"
+#include "../scene/scene_object_requests.h"
+#include "../runtime/name_lookup.h"
 
 #include <algorithm>
 #include <bit>
@@ -66,6 +70,7 @@ extern "C"
 #include "../camera/camera.h"
 #include "../scene/scene_loading.h"
 #include "script_actions.h"
+#include "../entities/actor_lookup.h"
 #include "script_conditions.h"
 
 namespace gbtg
@@ -326,59 +331,6 @@ const char* const kObjTagActor[0xE9] = {
     "objTag_Weapon_Wheelbarrow",
     "objTag_Weapon_ZombieArm",
 };
-
-
-// Xbox 0x000FBFB0. Binary search. High starts at count-1. A miss returns -1.
-int binary_search_names(i32 count, const char* const* table, const char* key)
-{
-    i32 high = count - 1;
-    i32 low = 0;
-    if (high < 0)
-    {
-        return -1;
-    }
-    const u8* want = reinterpret_cast<const u8*>(key);
-    while (low <= high)
-    {
-        const i32 mid = (low + high) >> 1;
-        const u8* row = reinterpret_cast<const u8*>(table[mid]);
-        u8 tc = row[0];
-        u8 kc = want[0];
-        if (tc == kc)
-        {
-            i32 i = 0;
-            for (;;)
-            {
-                const u8 prev = row[i];
-                i += 1;
-                if (prev == 0)
-                {
-                    return mid;
-                }
-                tc = row[i];
-                kc = want[i];
-                if (tc != kc)
-                {
-                    break;
-                }
-            }
-        }
-        const i32 diff = i32(tc) - i32(kc);
-        if (diff < 0)
-        {
-            low = mid + 1;
-        }
-        else if (diff > 0)
-        {
-            high = mid - 1;
-        }
-        else
-        {
-            return mid;
-        }
-    }
-    return -1;
-}
 
 
 // Xbox 0x000F96F0. AL is the value. The stack byte selects the pair at +0x294.
@@ -767,27 +719,6 @@ void script_broadcast_actor_message(u16 tag, const i32* message)
 }
 
 
-// Xbox 0x00129ED0. DX is compared with the word at object+0x1FC. A zero DX
-// returns null without walking. The list is DAT_00511AA4. The first match
-// returns that object. A miss returns null.
-// Xbox 0x00129ED0
-PulseNode* script_find_actor_by_id(u16 key)
-{
-    if (key == 0)
-    {
-        return nullptr;
-    }
-    for (PulseNode* node = g_pulse_nodes; node != nullptr; node = node->next)
-    {
-        if (node->word_1fc == key)
-        {
-            return node;
-        }
-    }
-    return nullptr;
-}
-
-
 // Xbox 0x00124F30. Handler 3. Type 0x5D searches the cstring at node+8 in the
 // actor tags. A miss calls 0x00122CA0 with tag 0. A hit calls it with the
 // 1-based index, zero-extended from 16 bits. Both pass a message id of 1.
@@ -814,7 +745,7 @@ int script_handle_actor_messages(Game& g, const ScriptNode& node)
         {
             return 3;
         }
-        PulseNode* obj = script_find_actor_by_id(node_u16(g.scene_script, node, 8));
+        PulseNode* obj = find_actor_by_id(node_u16(g.scene_script, node, 8));
         if (obj != nullptr)
         {
             i32 message = 0x13;
@@ -1548,11 +1479,11 @@ int script_handle_flag_bits(Game& g, const ScriptNode& node)
 // at 0x00126D94 covers types 0x2A through 0x97. Any other type, and the holes
 // in that range, return 3.
 //
-// Type 0x2A tests DAT_00512418. Zero would call 0x0013E8D0 with EBX = node+8,
-// EDX = the dword at node+0x88, and node+0x8c on the stack. That call is not
-// translated. A zero dword at node+0x10c returns 2. Any other value stores 1
-// and returns 0. Nonzero would call 0x001412F0. That call is not translated,
-// so its nonzero return is not taken and this path returns 0.
+// Type 0x2A tests DAT_00512418. Zero calls 0x0013E8D0 with EBX = node+8,
+// EDX = the dword at node+0x88, and node+0x8c on the stack.
+// A zero dword at node+0x10c returns 2. Any other value stores 1
+// and returns 0. Nonzero calls 0x001412F0; a ready load clears the flag and
+// returns 2, while an unfinished load returns 0.
 //
 // Type 0x2B would call 0x000F4E50 with EAX = node+8. That call is not
 // translated. The case returns 2.
@@ -1611,14 +1542,18 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
             const std::string name = node_cstr(g.scene_script, node, 8);
             const u32 key = node_u32(g.scene_script, node, 0x88);
             const std::string extra = node_cstr(g.scene_script, node, 0x8c);
-            (void)name;
-            (void)key;
-            (void)extra;
+            request_ghoulybox(name.c_str(), key, extra.c_str());
             if (node_u32(g.scene_script, node, 0x10c) == 0)
             {
                 return 2;
             }
             g_flag_2418 = 1;
+            return 0;
+        }
+        if (actor_loading_complete())
+        {
+            g_flag_2418 = 0;
+            return 2;
         }
         return 0;
     case 0x2b:
@@ -1828,7 +1763,7 @@ int script_handle_resource_actions(Game& g, const ScriptNode& node, int param_2)
     {
     case 0x4d:
     {
-        PulseNode* obj = script_find_actor_by_id(node_u16(g.scene_script, node, 8));
+        PulseNode* obj = find_actor_by_id(node_u16(g.scene_script, node, 8));
         if (obj != nullptr)
         {
             const float extra = std::bit_cast<float>(node_u32(g.scene_script, node, 0x8c)) *
@@ -1846,7 +1781,7 @@ int script_handle_resource_actions(Game& g, const ScriptNode& node, int param_2)
     }
     case 0x60:
     {
-        PulseNode* obj = script_find_actor_by_id(node_u16(g.scene_script, node, 8));
+        PulseNode* obj = find_actor_by_id(node_u16(g.scene_script, node, 8));
         if (obj != nullptr)
         {
             // 0x00112CC0 is not translated onto this object.
@@ -2546,13 +2481,13 @@ u32 g_flag_0650 = 0;
 // in that range, return 3. The second argument is the flag 0x00128A00 passes.
 // The third argument is the value that walk passes. A handled type returns 2.
 //
-// Type 0x1 would call 0x0011C890 with EAX = node+8. That call is not translated.
+// Type 0x1 calls 0x0011C890 with EAX = node+8 to queue the background name.
 //
-// Type 0x2 with a zero second argument would call 0x0011C950 with EDX = node+8.
+// Type 0x2 with a zero second argument calls 0x0011C950 to queue an object name.
 // A nonzero second argument would call 0x00107720 with EAX = node+8. A zero
 // return falls through and returns 2. A nonzero return would call 0x00107520
-// with that block, then 0x000663E0 on it. 0x0011C950, 0x00107720, and
-// 0x00107520 are not translated, so the nonzero return is not taken.
+// with that block, then 0x000663E0 on it. This branch still needs a
+// scene-owned factory and resource context before those calls can be wired.
 //
 // Type 0x4 stores the dword at node+8 into DAT_0050EA98.
 // Types 0x5 and 0xC return 2.
@@ -2630,14 +2565,14 @@ int script_handle_world_actions(Game& g, const ScriptNode& node, int param_2, in
     case 1:
     {
         const std::string key = node_cstr(g.scene_script, node, 8);
-        (void)key;
+        request_scene_background(g_scene_object_requests, key.c_str());
         return 2;
     }
     case 2:
         if (param_2 == 0)
         {
             const std::string key = node_cstr(g.scene_script, node, 8);
-            (void)key;
+            request_scene_object(g_scene_object_requests, key.c_str());
             return 2;
         }
         {

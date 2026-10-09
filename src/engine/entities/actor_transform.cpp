@@ -18,6 +18,7 @@
 
 #include "entity_types.h"
 #include "actor_transform.h"
+#include "actor_bind_tree.h"
 #include "entity_heap.h"
 
 namespace gbtg
@@ -237,6 +238,7 @@ static void actor_local_pose(float out[12], const Actor& actor, const Vec3* posi
 
 
 // 0x001041B0. out = A * B. A matching destination is written through a temporary.
+// Xbox 0x001041B0
 static void mul_affine(float out[12], const float a[12], const float b[12])
 {
     float tmp[12];
@@ -245,17 +247,18 @@ static void mul_affine(float out[12], const float a[12], const float b[12])
     {
         dest = tmp;
     }
-    for (int row = 0; row < 3; ++row)
-    {
-        const float ax = a[row * 4 + 0];
-        const float ay = a[row * 4 + 1];
-        const float az = a[row * 4 + 2];
-        const float aw = a[row * 4 + 3];
-        dest[row * 4 + 0] = ax * b[0] + ay * b[4] + az * b[8];
-        dest[row * 4 + 1] = ax * b[1] + ay * b[5] + az * b[9];
-        dest[row * 4 + 2] = ax * b[2] + ay * b[6] + az * b[10];
-        dest[row * 4 + 3] = ax * b[3] + ay * b[7] + az * b[11] + aw;
-    }
+    dest[0] = (a[0] * b[0] + a[2] * b[8]) + b[4] * a[1];
+    dest[1] = (a[0] * b[1] + a[2] * b[9]) + a[1] * b[5];
+    dest[2] = (a[0] * b[2] + a[2] * b[10]) + a[1] * b[6];
+    dest[3] = ((a[0] * b[3] + a[2] * b[11]) + a[1] * b[7]) + a[3];
+    dest[4] = (a[4] * b[0] + b[8] * a[6]) + b[4] * a[5];
+    dest[5] = (a[4] * b[1] + a[6] * b[9]) + a[5] * b[5];
+    dest[6] = (a[4] * b[2] + a[6] * b[10]) + a[5] * b[6];
+    dest[7] = ((a[4] * b[3] + b[11] * a[6]) + a[5] * b[7]) + a[7];
+    dest[8] = (b[8] * a[10] + b[4] * a[9]) + a[8] * b[0];
+    dest[9] = (a[10] * b[9] + a[9] * b[5]) + a[8] * b[1];
+    dest[10] = (a[10] * b[10] + a[9] * b[6]) + a[8] * b[2];
+    dest[11] = ((a[10] * b[11] + a[9] * b[7]) + a[8] * b[3]) + a[11];
     if (dest != out)
     {
         std::memcpy(out, tmp, sizeof(tmp));
@@ -328,30 +331,10 @@ ActorAttachmentNode* actor_create_attachment(ActorAttachmentList& list, const ch
 }
 
 
-// Xbox 0x0003B8B0
-static Actor* bind_host(Actor& actor)
-{
-    if (actor.bind != nullptr)
-    {
-        if (actor.bind->parent != nullptr)
-        {
-            return actor.bind->parent;
-        }
-        if (actor.link != nullptr && actor.link->head != nullptr)
-        {
-            return actor.link->owner;
-        }
-        engine_heap_free(actor.bind);
-        actor.bind = nullptr;
-    }
-    return nullptr;
-}
-
-
 // Xbox 0x0003BAB0
 static void bind_joint_matrix(Actor& actor, i32 index, float output[12])
 {
-    Actor& host = *bind_host(actor);
+    Actor& host = *actor_bound_parent(actor);
     RuntimeModelInstance& model = *host.model->runtime;
     const ModelPoseBuffer& pose = *(model.alternate != nullptr ? model.alternate : model.primary);
     const Joint* joint = nullptr;
@@ -373,7 +356,7 @@ static void refresh_bind(Actor& actor)
     const u8 mode = bind.parent != nullptr ? bind.mode_parent : bind.mode_local;
     if (mode == 1)
     {
-        Actor& host = *bind_host(actor);
+        Actor& host = *actor_bound_parent(actor);
         std::memcpy(bind.basis, host.xform, sizeof(bind.basis));
     }
     else if (mode == 2)
@@ -382,7 +365,7 @@ static void refresh_bind(Actor& actor)
     }
     else if (mode == 3)
     {
-        Actor& host = *bind_host(actor);
+        Actor& host = *actor_bound_parent(actor);
         RuntimeModelInstance& model = *host.model->runtime;
         const ModelPoseBuffer* pose = model.alternate != nullptr ? model.alternate : model.primary;
         AnimationMatrix world;

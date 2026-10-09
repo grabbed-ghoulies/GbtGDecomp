@@ -21,6 +21,7 @@ enum class EntityKind
 };
 
 struct Actor;
+struct ActorRenderRegistration;
 struct ModelBoneBinding;
 struct ActorAttachmentNode
 {
@@ -44,12 +45,17 @@ struct ResourceErrorState;
 struct Mesh;
 struct RuntimeModelInstance;
 
+struct EntityShapeNode;
+struct EntityBonePose;
+
 struct ActorModel
 {
     // Model +0 points to this header; pointers in the serialized copy are offsets.
     std::span<const u8> cpu;
     std::span<const u8> physics_shapes; // runtime model-header +0x10 -> +4
     RuntimeModelInstance* runtime = nullptr;
+    const EntityBonePose* primary_shape_pose = nullptr; // +0x164
+    const EntityBonePose* alternate_shape_pose = nullptr; // +0x168
 };
 
 struct ActorSoundSlot : RuntimeActorSound
@@ -80,7 +86,10 @@ struct ActorBind
 struct ActorLink
 {
     void* head = nullptr; // +0
-    Actor* owner = nullptr;
+    Actor* owner = nullptr; // native parent actor recovered from head-0x918
+    ActorLink* next = nullptr; // +4
+    ActorLink* child = nullptr; // +8
+    Actor* actor = nullptr; // native owner of this embedded link
 };
 
 struct EntityCaseLink;
@@ -97,8 +106,15 @@ struct ActorEulerOut
     Vec3 euler{};                        // +0x72c
 };
 
+struct ActorAcceptedClass
+{
+    u16 key;
+    u8 padding[0xE];
+};
+
 struct Actor
 {
+    ActorRenderRegistration* render_registration = nullptr; // native view of embedded actor list nodes
     ActorModel* model = nullptr; // +0x204
     i32 model_mode = 0;          // +0x118
     i32 shape_mode = 0;          // +0x120
@@ -132,6 +148,13 @@ struct Actor
     i32 parked_gate = 0;   // +0xcd8
     u32 intro_flags = 0;   // 0x00042500. Bit 2 arms the query in message 0x23.
     i32 mask_flag = 0;                 // +0x93c. Nonzero makes 0x0001FE00 clear bit 0x4000.
+    const EntityShapeNode* const* spawn_points = nullptr; // +0xAC8, pointer array
+    i32 spawn_point_count = 0;          // +0xAC4, count confirmed by 0x001476D0
+    i16 accepted_class_count = 0;       // +0x944
+    const ActorAcceptedClass* accepted_classes = nullptr; // +0x948, stride 0x10
+    Actor* spawn_owner = nullptr;       // +0xD8C
+    i32 spawn_model_blocked = 0;        // +0x9A0
+    i32 spawn_blocked = 0;              // +0xAD0, tested by 0x00146150
     EntityMaskSpan* mask_span = nullptr; // +0x980
     i16 mask_mode = 0;                 // +0xcdc
 };
@@ -285,7 +308,16 @@ struct EntityCamNode
 {
     EntityCamNode* prev = nullptr; // +0
     EntityCamNode* next = nullptr; // +4
+    Vec3 position{};              // +8
+    Quat rotation{};              // +0x14; Euler XYZ when flag bit 1 is set
+    float focal = 0.f;            // +0x24
+    float clip_limit = 0.f;       // +0x28
+    float blend = 0.f;            // +0x2C
+    i32 aspect_slot = 0;          // +0x30
     char name[0x21]{};             // +0x34
+    u8 flags = 0;                 // +0x55
+    float pixel_aspect = 0.f;     // +0x58
+    float focal_pixels = 0.f;     // +0x5C
 };
 
 struct Entity

@@ -64,6 +64,7 @@ extern "C"
 
 #include "../scene/scene_types.h"
 #include "crt_runtime.h"
+#include "crt_format.h"
 
 namespace gbtg
 {
@@ -71,6 +72,170 @@ using namespace scene_detail;
 
 namespace scene_detail
 {
+
+// Xbox 0x00166A72
+int crt_scan_wide_string(const char16_t* input, const char16_t* format, ...)
+{
+    CrtOutputFile file;
+    file.flag = 0x49;
+    file.base = reinterpret_cast<char*>(const_cast<char16_t*>(input));
+    file.ptr = file.base;
+    file.cnt = crt_wide_string_length(reinterpret_cast<const u16*>(input)) << 1;
+    std::va_list arguments;
+    va_start(arguments, format);
+    const int result = crt_scan_wide_input(&file, format, arguments);
+    va_end(arguments);
+    return result;
+}
+
+// Xbox 0x00166A03
+int crt_format_wide_string(char16_t* output, const char16_t* format, ...)
+{
+    CrtOutputFile file;
+    file.ptr = reinterpret_cast<char*>(output);
+    file.base = file.ptr;
+    file.flag = 0x42;
+    file.cnt = 0x7FFFFFFF;
+    std::va_list arguments;
+    va_start(arguments, format);
+    const int result = crt_format_wide_output(&file, format, arguments);
+    va_end(arguments);
+    --file.cnt;
+    if (file.cnt < 0)
+    {
+        // 0x00168E46: fixed string-stream flag selects IOERR/EOF.
+        file.flag |= 0x20;
+    }
+    else
+    {
+        *file.ptr++ = 0;
+    }
+    --file.cnt;
+    if (file.cnt < 0)
+    {
+        file.flag |= 0x20;
+    }
+    else
+    {
+        *file.ptr = 0;
+    }
+    return result;
+}
+
+// Xbox 0x00166FB1
+int crt_format_wide_arguments(char16_t* output, const char16_t* format,
+    std::va_list arguments)
+{
+    CrtOutputFile file;
+    file.ptr = reinterpret_cast<char*>(output);
+    file.base = file.ptr;
+    file.flag = 0x42;
+    file.cnt = 0x7FFFFFFF;
+    const int result = crt_format_wide_output(&file, format, arguments);
+    --file.cnt;
+    if (file.cnt < 0)
+    {
+        // 0x00168E46: fixed string-stream flag selects IOERR/EOF.
+        file.flag |= 0x20;
+    }
+    else
+    {
+        *file.ptr++ = 0;
+    }
+    --file.cnt;
+    if (file.cnt < 0)
+    {
+        file.flag |= 0x20;
+    }
+    else
+    {
+        *file.ptr = 0;
+    }
+    return result;
+}
+
+// Xbox 0x0014BC66
+int xapi_format_wide_arguments(char16_t* output, const char16_t* format,
+    std::va_list arguments)
+{
+    return crt_format_wide_arguments(output, format, arguments);
+}
+
+// Xbox 0x0014BC7D
+int xapi_format_wide_string(char16_t* output, const char16_t* format, ...)
+{
+    std::va_list arguments;
+    va_start(arguments, format);
+    const int result = xapi_format_wide_arguments(output, format, arguments);
+    va_end(arguments);
+    return result;
+}
+
+// Xbox 0x00166449
+int crt_format_bounded(char* output, int capacity, const char* format,
+    std::va_list arguments)
+{
+    CrtOutputFile file;
+    file.cnt = capacity;
+    file.flag = 0x42;
+    file.base = output;
+    file.ptr = output;
+    const int result = crt_format_output(&file, format, arguments);
+    if (output != nullptr)
+    {
+        --file.cnt;
+        if (file.cnt < 0)
+        {
+            // The fixed string-stream flag selects 0x00168E46's IOERR/EOF branch.
+            file.flag |= 0x20;
+        }
+        else
+        {
+            *file.ptr = 0;
+        }
+    }
+    return result;
+}
+
+// Xbox 0x001663B9
+int crt_format_bounded_string(char* output, int capacity, const char* format, ...)
+{
+    std::va_list arguments;
+    va_start(arguments, format);
+    // 0x00166449 has the same stream initialization, output and termination branches.
+    const int result = crt_format_bounded(output, capacity, format, arguments);
+    va_end(arguments);
+    return result;
+}
+
+// Xbox 0x001661F9
+int crt_format_string(char* output, const char* format, ...)
+{
+    CrtOutputFile file;
+    file.cnt = 0x7FFFFFFF;
+    file.flag = 0x42;
+    file.base = output;
+    file.ptr = output;
+    std::va_list arguments;
+    va_start(arguments, format);
+    const int count = crt_format_output(&file, format, arguments);
+    va_end(arguments);
+    if (output != nullptr)
+    {
+        --file.cnt;
+        if (file.cnt < 0)
+        {
+            // Inline 0x00168E46's string-stream branch: flag 0x42 always
+            // has bit 0x40, so it sets IOERR and returns EOF without IO.
+            file.flag |= 0x20;
+        }
+        else
+        {
+            *file.ptr = '\0';
+        }
+    }
+    return count;
+}
 
 
 // Xbox 0x00168FED
@@ -125,17 +290,7 @@ int crt_format_output(void* stream, const char* format, std::va_list argptr)
     // digits. On Xbox the pointer is 32 bits, so eight digits are the whole
     // value.
 
-    struct OutputFile
-    {
-        char* ptr;
-        int cnt;
-        char* base;
-        int flag;
-        int file;
-        int charbuf;
-        int bufsiz;
-        char* tmpfname;
-    };
+    using OutputFile = CrtOutputFile;
 
     // Image bytes at 0x00209280. Index 0 is the character ' '.
     static constexpr unsigned char kLookup[] = {
@@ -1107,17 +1262,7 @@ int crt_format_wide_output(void* stream, const char16_t* format, std::va_list ar
     // digits. On Xbox the pointer is 32 bits, so eight digits are the whole
     // value. %n stores the wide count.
 
-    struct OutputFile
-    {
-        char* ptr;
-        int cnt;
-        char* base;
-        int flag;
-        int file;
-        int charbuf;
-        int bufsiz;
-        char* tmpfname;
-    };
+    using OutputFile = CrtOutputFile;
 
     static constexpr unsigned char kLookup[] = {
         0x06, 0x00, 0x00, 0x06, 0x00, 0x01, 0x00, 0x00, 0x10, 0x00, 0x03, 0x06, 0x00, 0x06, 0x02, 0x10,
@@ -2064,17 +2209,7 @@ int crt_scan_wide_input(void* stream, const char16_t* format, std::va_list argpt
     // (0x00167F1C) if the probe raises; this frees the block on the way out.
     // A ']' missing before the format terminator ends the scan.
 
-    struct ScanFile
-    {
-        char* ptr;
-        int cnt;
-        char* base;
-        int flag;
-        int file;
-        int charbuf;
-        int bufsiz;
-        char* tmpfname;
-    };
+    using ScanFile = CrtOutputFile;
 
     auto* file = static_cast<ScanFile*>(stream);
     const char16_t* fmt = format;

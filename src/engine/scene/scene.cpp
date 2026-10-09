@@ -66,6 +66,7 @@ extern "C"
 #include "../camera/camera.h"
 #include "scene.h"
 #include "scene_loading.h"
+#include "scene_tick_nodes.h"
 #include "../transitions/scene_transitions.h"
 #include "../scripts/script_actions.h"
 #include "../scripts/script_vm.h"
@@ -548,12 +549,6 @@ i32 g_506e28 = 0;
 // DAT_0050E438. The global names the link at object+8. Next is the pointer
 // at +4. vtable +0x10 is called with the object. The port keeps the method
 // and the next pointer on the node the global names.
-struct SceneTickNode
-{
-    void (*tick)(SceneTickNode* self) = nullptr;
-    SceneTickNode* next = nullptr;
-};
-
 SceneTickNode* g_50e438 = nullptr;
 
 // DAT_00510580. Nonzero, with DAT_00510650 clear, drifts the two floats.

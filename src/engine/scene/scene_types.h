@@ -166,6 +166,7 @@ struct PulseNode
     PulseNode* next = nullptr;
     u16 tag_6 = 0; // object+6
     u16 word_1fc = 0; // object+0x1FC
+    u16 word_1fe = 0; // object+0x1FE, group matched by 0x00129F00
     void (*on_message)(PulseNode* self, const i32* msg) = nullptr; // vtable +0xC
 };
 

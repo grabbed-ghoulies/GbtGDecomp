@@ -1094,9 +1094,9 @@ mismatches across several thousand cases per function, and deliberately
 mutated builds were detected. The fixed vectors in
 `tests/shader_validation_serializer_tests.cpp` come from that emulator and run
 in the `--actor-loading` chain through `check_shader_rewrite_dependencies`.
-These modules and tests were compiled and run with g++ on Linux. The Windows
-Release build of `gbtg` and `gbtg-transition-tests`, and the
-`--actor-loading` run, have not yet been repeated for this checkpoint.
+These modules and tests were compiled and run with g++ on Linux; the Windows
+Release build of `gbtg-transition-tests` and its `--actor-loading` run also
+pass with them (confirmed by the user on 2026-10-09).
 
 `tools/ghidra/ghidra_scripts/CalleeTree.java` now inventories untranslated
 callees read-only. From 0x0019723C (plus its vtables at 0x00203820 and
@@ -1110,3 +1110,199 @@ needs the retail address map rather than host pointer order. Pass constructor
 0x00196739, 0x00197223 and dispatch 0x001973F1 remain the large parents. The
 live scene probe is unchanged; this checkpoint does not establish dialogue,
 cutscene or gameplay startup.
+
+### Validator containers, register tables and instruction predicates (2026-10-09)
+
+Thirty-two further validator functions are translated, each compared against
+the retail code in the emulator (`tools/oracle/run.sh`) with zero mismatches
+and with deliberately mutated builds detected.
+
+- `shader_validation_containers`: balanced-node initializers 0x001902D9,
+  0x001903E1 and 0x0019042A; pass-node initializer 0x00190473 and height
+  0x0019051C; predecessor iterator 0x00190337; pass lookup wrapper 0x00190B12;
+  last tree value 0x00190CA6; list destructor 0x001909B1, node constructor
+  0x0018F1E5 and append 0x0019010E; single-channel mask 0x0018F314; and the
+  instruction base constructor 0x001929B7, which registers the object through
+  the existing 0x001928DE path.
+- `shader_validation_registers`: pass-tree height update, rotations, balancing,
+  rebalance and subtree join (0x00190554, 0x0019060B, 0x00190656, 0x00190BDD,
+  0x00191990, 0x001919BD); register-table lookups 0x00191E8F and 0x00191F00
+  and the kind-one chain test 0x00192629; owner equivalence 0x0018F4A9.
+- `shader_validation_channel_ops`: owner channel mask 0x0018F595, operand
+  source mask 0x0018F86B, order composition 0x0018F436, and mask
+  intersection/union 0x0018E4EB/0x0018E48C.
+- `shader_validation_instruction_ops`: slot use 0x0018E988, per-channel reads
+  0x0018E9DC (translated from the assembly; the decompiler output for this
+  switch is not reliable), move negation 0x0018ED95 and scalar-to-vector move
+  conversion 0x0018FF4B.
+
+Layout findings: the pass node's +0x08 word (now `data`) holds the newest
+`ShaderValidationOwner` of a register, and +0x18 is its height. The validator
+pass object holds a register table of kinds 0..12 at +0x28 and a 0x100-keyed
+table at +0x3C (`ShaderValidationRegisterTables`). The list object keeps its
+first node at +0x04 and last at +0x08; 0x0019010E appends at the last node,
+and 0x001909B1 deletes from it. 0x0018F142 leaves neighbour relinking to the
+deleting destructor, so after 0x001909B1 the first link can still name a
+deleted node, exactly as in retail. A failed 0x0019010E allocation still
+clears the last link and increments the count.
+
+Several retail paths dereference null when given inputs the callers never
+produce: 0x00190337 on the first node of a tree, 0x00190BDD with an
+inconsistent height, 0x00192629 with a null owner, and channel indices above
+four in the order/mask helpers. These paths are kept without added guards and
+noted at each definition.
+
+Linux g++ builds and the in-repo checks pass; the Windows Release build and
+`--actor-loading` run also pass with these modules (confirmed by the user). 141 functions (about
+29 KB) remain under 0x0019723C. The next leaves are 0x0018F848, 0x0018EB4C,
+0x0018EB96, 0x00192469, 0x0018FFC9, 0x0018EBEA, 0x0018EDEE and 0x0019149A.
+0x001A1B0B/0x001A1B86/0x001A1BC2 belong to a separate 0x00203828 object and
+0x001679A8 is the compiler's SEH prologue helper. The live scene probe is
+unchanged.
+
+### Validator dependency, swap and tree-instance checkpoint (2026-10-09)
+
+Thirty-two further validator functions are translated and compared against the
+retail code in the emulator with zero mismatches (`tools/oracle/run.sh`, now
+including `trees_oracle.py`); deliberately mutated builds are detected.
+
+- Instruction reads and dependencies (`shader_validation_instruction_ops`):
+  operand reads 0x0018F848/0x001906BB/0x001907E9, slot read mask 0x0018EB4C,
+  unset-channel reads 0x0018EB96, vector-to-scalar move conversion 0x0018FFC9,
+  result propagation 0x0018FC2A/0x0018FD7D, dependency and pairing tests
+  0x00190858/0x0018FED0/0x001908AE, destination channel matching and swapping
+  0x0018EBEA/0x0018EDEE (both translated from the assembly), shared channel
+  writers 0x0018F815 and the owner registry search 0x00190D14 (with a typed
+  balanced-tree overload of 0x001900DE).
+- Pass trees: erase 0x00192469, erase by key 0x001936B5 and signed insertion
+  0x00191A82.
+- Tree template instances (`shader_validation_tree_instances`): joins
+  0x0019164F/0x00191714/0x00191806/0x001918CB/0x00191B1C, erases
+  0x0019204A/0x0019214A/0x0019224A/0x0019234A/0x00192529, unregisters
+  0x001926FB/0x001927B9 and inserts 0x001922BB/0x0019259A. A normalized
+  instruction comparison shows each is byte-identical to an existing
+  instance (0x0019158A, 0x00191F4A, 0x0019269C or 0x00191FBB, differing only
+  in the node initializer), and the emulator runs every address separately.
+
+Type corrections found on the way:
+
+- `ShaderValidationOperand` +0x04 is the owning instruction pointer, not a
+  numeric source. 0x00192DF1 passes the instruction and 0x00192934 raises
+  the invalid-operand exception when it is null for kinds other than 3.
+  Operand +0x0C (`kind`) is the operand slot 0..2, or 3 for an owner's operand.
+- Owner channels (+0x20..+0x2C) hold 0, the retail 0xFFFFFFFF marker, or the
+  instruction that writes the channel (0x0018FFC9 dereferences it and compares
+  its scalar destination). They are now `ShaderValidationChannelWriter`
+  (pointer-sized) with `shader_validation_unwritten_channel` for the marker;
+  0x00192A54 takes its channel value in that type. Callers that pass retail
+  0xFFFFFFFF must pass the marker constant.
+
+The owner-registry search stores retail operand addresses in its nodes, so
+0x00190D14 takes an explicit address-to-operand map rather than casting
+32-bit values to host pointers.
+
+Linux g++ builds and in-repo checks pass; the Windows Release build and
+`--actor-loading` run, including the constructor changes, also pass (confirmed
+by the user). The remaining validator work is
+mostly larger parents (0x00192DF1 instruction construction, 0x00195FBE,
+0x00194E5E, 0x001943CD and the pass dispatcher 0x001973F1), plus 0x0018E94C
+(address-ordered comparison) and the 0x00203828 object helpers
+0x001A1B0B/0x001A1B86/0x001A1BC2. The live scene probe is unchanged.
+
+### Validator instruction sets and owner channel swaps (2026-10-09)
+
+Twenty-two further functions are translated, emulator-verified with zero
+mismatches (`sets_oracle.py`), and covered by in-repo checks:
+
+- Owner chain predicates 0x0018E78B, 0x0018F56F and 0x0018F549.
+- Tree destruction and deletion 0x0018F2AA, 0x0018F2D3 (instances of
+  0x0018F281), 0x0018F1BC (pass layout), 0x00190322, 0x00190163,
+  0x00190AA0 and 0x00190AC6 (deleting destructors of the 0x002037D0 and
+  0x002037D8 tree objects, freeing through XMemFree for flag bit 0).
+- Registration into the 0x002037EC/0x002037F4 trees and pass trees,
+  0x00192772, 0x0019287F, 0x001924DA, plus find-or-register 0x00192830.
+  0x001924DA is declared void, but 0x00192830 uses the node it leaves in EAX,
+  so the translation returns it.
+- The instruction set: comparator 0x0018E94C orders by the signed sequence
+  at instruction +0x40, then by retail object address. Set nodes therefore
+  store retail addresses, and the set functions (0x0018F174 lookup, 0x001923BB
+  insertion, 0x001927D1 registration, 0x001929E7 copy, 0x00192A2B release,
+  0x00190774 writer membership) take explicit address/instruction maps rather
+  than ordering host pointers.
+- Owner channel swapping 0x00190FFE, which climbs derived owners, propagates to
+  channel owners (undoing on failure), swaps writer channels through 0x0018EDEE
+  and rewrites registered operand orders; plus a typed balanced-node overload of
+  iterator 0x0018F0EB.
+
+Instruction +0x44/+0x48 are now `instruction_set_count` and `instruction_set`
+(a 0x002037D0 tree object registered in the DAT_001a4d58 registry).
+
+Remaining under 0x0019723C: 87 functions (about 23 KB). The SEH-framed functions are next
+(instruction construction 0x00192DF1, pass-object destruction 0x001934A5,
+0x001935E6, 0x00190E27 and 0x00192B84), along with the large pass bodies. They
+need the same Windows SEH treatment as the existing constructors.
+
+### SEH-framed construction and pass destruction (2026-10-09)
+
+The first SEH-framed validator functions are translated using the existing
+`__try`/`__finally` pattern. Their unwind actions come from the retail FuncInfo
+tables, which a new read-only byte export (`DumpBytes.java`, code ranges
+0x00160000+ and data 0x00320000+) makes readable:
+
+- 0x00192DF1 `create_shader_validation_instruction` (FuncInfo 0x0032B968):
+  allocates the 0x4C instruction through the 0x001929B7 base, clears its fields
+  and constructs three slot operands parented to the active owner. Each of
+  states 0..3 frees the allocation in EBP-0x10 (funclets
+  0x001708D5/DF/E9/F3). The instruction allocation is dereferenced without a
+  null test, as in retail.
+- 0x001935E6 `create_shader_validation_constant_owner` (FuncInfo 0x0032B8CC):
+  a kind-3 owner with a full mask and channel value 0, optionally parented to
+  the pass owner at +0x50.
+- 0x001934A5 `destroy_shader_validation_pass` (FuncInfo 0x0032BA34, five
+  states): unregisters the three registered pass-tree sub-objects from
+  DAT_001a4d48, clears the special, register and value trees, destroys the
+  instruction list, then unregisters the pass from DAT_001a4d38. The unwind
+  funclets 0x001709A2/97/8C/81/79 call 0x001914B9 (pass-tree destructor, now
+  translated), 0x001909B1 and 0x001928F6 in the retail order.
+
+`ShaderValidationRegisterTables` is replaced by `ShaderValidationPass`, which
+follows the retail layout: base +0x00, instruction list +0x04, three 0x14-byte
+registered pass trees at +0x14/+0x28/+0x3C (each with a registered sub-object
+at +0x10), and the owner at +0x50.
+
+Verification: `ctor_oracle.py` runs the retail functions (including the EH
+prolog 0x001679A8 against an emulated FS:[0] list) and compares the normal path
+with SEH-shimmed host builds. It reports zero mismatches with allocation
+failures injected, and a reordered destructor is detected. The Windows
+build with real SEH and `tests/shader_validation_lifecycle_tests.cpp` (in the
+`--actor-loading` chain) also passes, as confirmed by the user. 0x00190E27 and 0x00192B84 (local tree
+objects with unwind state) and the 0x00193C2A stub remain.
+
+### Owner reader registration and writer negation (2026-10-09)
+
+Two more SEH-framed functions are translated in `shader_validation_owner_sets`:
+
+- 0x00190E27 `shader_validation_owner_readers_registered` (FuncInfo 0x0032BAA8;
+  its single state destroys the by-value mask, funclet 0x00170A5F). For every
+  registered reader of a masked channel, the operand's retail address must be in
+  the given registry, be one of the instruction's operands, or be the operand of
+  an operand parent. The check then recurses into the derived owner and the
+  channel owner, clearing channels each one writes.
+- 0x00192B84 `negate_shader_validation_owner_writers` (FuncInfo 0x0032B8F0;
+  state 0 runs the local set destructor 0x001909CE). It builds a local
+  instruction set of the owner's writers, then negates each writer's move source
+  through 0x0018ED95. If one writer refuses, it walks back with 0x00190337 to undo
+  the earlier negations. On success it toggles every registered reader's marker,
+  then frees the local set nodes with 0x0018F2AA.
+
+`ShaderValidationSetContext` carries the allocator, the set-node deleting
+destructor and the retail address maps. The emulator now also maps the vtable
+block at 0x00203000 (node vtables 0x002037E0..0x002037F8 are one-slot deleting
+destructors), so retail set nodes are freed through the real destructor.
+`ctor_oracle.py` compares both functions (600 cases with allocation failures)
+with zero mismatches, and catches deliberately broken builds. The lifecycle
+tests cover successful negation, rollback and rejected owner kinds.
+
+Remaining under 0x0019723C: 82 functions (about 22 KB), led by the pass
+bodies 0x00195FBE, 0x00194E5E, 0x001943CD, 0x001956D1 and the dispatcher
+0x001973F1.

@@ -18,6 +18,16 @@ u32 find_shader_validation_repeated_channel(const ShaderValidationChannelOrder& 
 void clear_shader_validation_repeated_channels(ShaderValidationChannelOrder& order); // Xbox 0x0018E661
 ShaderValidationChannelOrder* invert_shader_validation_channel_order(const ShaderValidationChannelOrder& order,
     ShaderValidationChannelOrder& result); // Xbox 0x0018E700
+ShaderValidationChannelMask* intersect_shader_validation_channel_masks(const ShaderValidationChannelMask& mask,
+    ShaderValidationChannelMask other, ShaderValidationChannelMask& result); // Xbox 0x0018E4EB
+ShaderValidationChannelMask* unite_shader_validation_channel_masks(const ShaderValidationChannelMask& mask,
+    ShaderValidationChannelMask other, ShaderValidationChannelMask& result); // Xbox 0x0018E48C
+ShaderValidationChannelMask* shader_validation_owner_channel_mask(const ShaderValidationOwner& owner,
+    ShaderValidationChannelMask& result); // Xbox 0x0018F595
+ShaderValidationChannelMask* shader_validation_operand_source_mask(const ShaderValidationOperand& operand,
+    ShaderValidationChannelMask mask, ShaderValidationChannelMask& result); // Xbox 0x0018F86B
+ShaderValidationChannelOrder* compose_shader_validation_channel_orders(const ShaderValidationChannelOrder& order,
+    ShaderValidationChannelOrder other, ShaderValidationChannelOrder& result); // Xbox 0x0018F436
 ShaderValidationChannelMask* shader_validation_channel_order_used_mask(const ShaderValidationChannelOrder& order,
     ShaderValidationChannelMask& result); // Xbox 0x0018F355
 }

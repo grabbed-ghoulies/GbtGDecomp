@@ -7,16 +7,27 @@ root="$(cd "$(dirname "$0")/../.." && pwd)"
 graphics="$root/src/engine/graphics"
 out="$root/cache/oracle"
 mkdir -p "$out"
-common=("$graphics/shader_validation_operand_order.cpp" "$graphics/shader_validation_channels.cpp"
-    "$graphics/shader_validation_storage.cpp" "$graphics/shader_validation_reserved_register.cpp")
-g++ -std=c++20 -O1 -I"$root/include" -I"$graphics" "$root/tools/oracle/serializer_harness.cpp" \
-    "$graphics/shader_validation_serializer.cpp" "${common[@]}" -o "$out/serializer_harness"
-g++ -std=c++20 -O1 -I"$root/include" -I"$graphics" "$root/tools/oracle/accessor_harness.cpp" \
-    "$graphics/shader_validation_accessors.cpp" -o "$out/accessor_harness"
-g++ -std=c++20 -O1 -I"$root/include" -I"$graphics" "$root/tools/oracle/channel_ops_harness.cpp" \
-    "$graphics/shader_validation_channel_ops.cpp" "$graphics/shader_validation_accessors.cpp" \
-    "$graphics/shader_validation_storage.cpp" -o "$out/channel_ops_harness"
+# Portable validator modules; constructors need the Windows SEH backend and are excluded.
+validator=("$graphics"/shader_validation_{instruction_ops,registers,channel_ops,containers,accessors,serializer,operand_order,channels,storage,reserved_register,arena,registration,insert,node_init,balance,pass_traversal,erase,tree_instances,sets}.cpp)
+for name in serializer accessor channel_ops containers registers trees sets; do
+    g++ -std=c++20 -O1 -I"$root/include" -I"$graphics" "$root/tools/oracle/${name}_harness.cpp" "${validator[@]}" -o "$out/${name}_harness"
+done
+# SEH-framed translations: compile shimmed copies so the normal path can be compared on Linux.
+shim="$out/shim"
+mkdir -p "$shim"
+: > "$shim/excpt.h"
+for name in shader_validation_constructors shader_validation_instruction_constructor shader_validation_pass_lifecycle shader_validation_owner_sets; do
+    sed -e 's/__try/if (true)/' -e 's/__finally/else/' -e 's/AbnormalTermination()/false/' "$graphics/$name.cpp" > "$shim/$name.cpp"
+done
+g++ -std=c++20 -O1 -D_WIN32 -I"$shim" -I"$root/include" -I"$graphics" "$root/tools/oracle/ctor_harness.cpp" \
+    "$shim/shader_validation_constructors.cpp" "$shim/shader_validation_instruction_constructor.cpp" "$shim/shader_validation_pass_lifecycle.cpp" "$shim/shader_validation_owner_sets.cpp" "${validator[@]}" \
+    "$graphics/shader_validation_cleanup.cpp" -o "$out/ctor_harness"
 cd "$root/tools/oracle"
 python3 serializer_oracle.py "${1:-1}" "${2:-500}"
 python3 accessor_oracle.py
 python3 channel_ops_oracle.py "${1:-1}"
+python3 containers_oracle.py "${1:-1}"
+python3 registers_oracle.py "${1:-1}"
+python3 trees_oracle.py "${1:-1}"
+python3 sets_oracle.py "${1:-1}"
+python3 ctor_oracle.py "${1:-1}" 600

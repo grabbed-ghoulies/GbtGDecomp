@@ -27,6 +27,21 @@ def new_emu():
     u.mem_map(STACK - 0x10000, 0x20000)
     return u
 
+def new_emu_with_runtime():
+    """Adds the 0x00160000 code range (CRT and EH prolog) and a page at linear address zero,
+    which stands in for the FS:[0] exception list because the emulator's FS base is zero."""
+    u = new_emu()
+    code = open(os.path.join(ROOT, 'cache', 'oracle', 'mem_00160000.bin'), 'rb').read()
+    u.mem_map(0x00160000, 0x20000)
+    u.mem_write(0x00160000, code[:0x20000])
+    u.mem_map(0, 0x1000)
+    data = open(os.path.join(ROOT, 'cache', 'oracle', 'mem_00200000.bin'), 'rb').read()
+    u.mem_map(0x00200000, 0x10000)
+    u.mem_write(0x00200000, data[:0x3000])
+    vtables = open(os.path.join(ROOT, 'cache', 'oracle', 'mem_00203000.bin'), 'rb').read()
+    u.mem_write(0x00203000, vtables[:0xD000])
+    return u
+
 def w32(u, a, v): u.mem_write(a, struct.pack('<I', v & 0xffffffff))
 def r32(u, a): return struct.unpack('<I', u.mem_read(a, 4))[0]
 

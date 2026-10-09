@@ -142,7 +142,7 @@ void check_shader_validation_constructors()
         nullptr, 0x55, ShaderValidationChannelMask{0, {1, 1, 1, 1}}) == &owner,
         "owner constructor returns its actual object");
     require(owner.base.vtable_address == 0x203814 && owner.kind == 5 && owner.source == 0x1234
-        && owner.channels == std::array<u32, 4>{0x55, 0, 0, 0}
+        && owner.channels == std::array<ShaderValidationChannelWriter, 4>{0x55, 0, 0, 0}
         && owner.diagnostics.retained == 0xabcdef01 && owner.diagnostics.nodes.count == 0
         && owner.derived_owner == nullptr && owner.channel_owner == nullptr && objects_tree.count == 2,
         "kind five owner decodes mask eight and preserves child retained word");
@@ -158,7 +158,7 @@ void check_shader_validation_constructors()
     const u32 failed_address = address_of(&failed);
     construct_shader_validation_owner(context, failed, failed_address, 2, 3,
         nullptr, 9, ShaderValidationChannelMask{0, {0, 0x80, 0, 0xff}});
-    require(failed.operand == nullptr && failed.channels == std::array<u32, 4>{0, 9, 0, 9}
+    require(failed.operand == nullptr && failed.channels == std::array<ShaderValidationChannelWriter, 4>{0, 9, 0, 9}
         && objects_tree.count == 1, "failed operand allocation preserves owner and caller mask");
     destroy_shader_validation_registered_object(erase, failed.base, failed_address);
     require(objects_tree.count == 0 && objects_tree.root == nullptr,

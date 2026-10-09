@@ -175,4 +175,97 @@ ShaderValidationChannelMask* shader_validation_channel_order_used_mask(const Sha
     result.channels = used.channels;
     return &result;
 }
+
+// Xbox 0x0018F595
+ShaderValidationChannelMask* shader_validation_owner_channel_mask(const ShaderValidationOwner& owner,
+    ShaderValidationChannelMask& result)
+{
+    ShaderValidationChannelMask present;
+    decode_shader_validation_channel_mask(present, 0xF);
+    i32 channel = 0;
+    do
+    {
+        present.channels[channel] = owner.channels[channel] != 0 ? 1 : 0;
+        ++channel;
+    } while (channel <= 3);
+    result.vtable_address = 0x00203790;
+    result.channels = present.channels;
+    return &result;
+}
+
+// Xbox 0x0018F86B
+ShaderValidationChannelMask* shader_validation_operand_source_mask(const ShaderValidationOperand& operand,
+    ShaderValidationChannelMask mask, ShaderValidationChannelMask& result)
+{
+    // Order entries are 0..4 at every retail call site; larger values would index past the local mask.
+    ShaderValidationChannelMask sources;
+    decode_shader_validation_channel_mask(sources, 0);
+    i32 index = 0;
+    do
+    {
+        if (index != 4)
+        {
+            const u32 channel = operand.channel_order.channels[index];
+            if (channel != 4 && mask.channels[index] != 0)
+            {
+                sources.channels[channel] = 1;
+            }
+        }
+        ++index;
+    } while (index <= 3);
+    result.vtable_address = 0x00203790;
+    result.channels = sources.channels;
+    return &result;
+}
+
+// Xbox 0x0018F436
+ShaderValidationChannelOrder* compose_shader_validation_channel_orders(const ShaderValidationChannelOrder& order,
+    ShaderValidationChannelOrder other, ShaderValidationChannelOrder& result)
+{
+    // Order entries are 0..4 at every retail call site; four selects a missing channel.
+    ShaderValidationChannelOrder composed;
+    initialize_shader_validation_channel_order(composed);
+    i32 index = 0;
+    do
+    {
+        u32 channel = 4;
+        if (index != 4)
+        {
+            const u32 source = order.channels[index];
+            if (source != 4)
+            {
+                channel = other.channels[source];
+            }
+        }
+        composed.channels[index] = channel;
+        ++index;
+    } while (index <= 3);
+    result.channels = composed.channels;
+    result.vtable_address = 0x00203794;
+    return &result;
+}
+
+// Xbox 0x0018E4EB
+ShaderValidationChannelMask* intersect_shader_validation_channel_masks(const ShaderValidationChannelMask& mask,
+    ShaderValidationChannelMask other, ShaderValidationChannelMask& result)
+{
+    const u8 fourth = mask.channels[3] != 0 && other.channels[3] != 0 ? 1 : 0;
+    const u8 third = mask.channels[2] != 0 && other.channels[2] != 0 ? 1 : 0;
+    const u8 second = mask.channels[1] != 0 && other.channels[1] != 0 ? 1 : 0;
+    const u8 first = mask.channels[0] != 0 && other.channels[0] != 0 ? 1 : 0;
+    construct_shader_validation_channel_mask(result, first, second, third, fourth);
+    return &result;
+}
+
+// Xbox 0x0018E48C
+ShaderValidationChannelMask* unite_shader_validation_channel_masks(const ShaderValidationChannelMask& mask,
+    ShaderValidationChannelMask other, ShaderValidationChannelMask& result)
+{
+    const u8 fourth = mask.channels[3] != 0 || other.channels[3] != 0 ? 1 : 0;
+    const u8 third = mask.channels[2] != 0 || other.channels[2] != 0 ? 1 : 0;
+    const u8 second = mask.channels[1] != 0 || other.channels[1] != 0 ? 1 : 0;
+    const u8 first = mask.channels[0] != 0 || other.channels[0] != 0 ? 1 : 0;
+    construct_shader_validation_channel_mask(result, first, second, third, fourth);
+    return &result;
+}
 }

@@ -27,6 +27,7 @@
 void check_runtime_cpp_exception_dispatch();
 void check_shader_validation_constructors();
 void check_shader_validation_serializer();
+void check_shader_validation_lifecycle();
 
 namespace
 {
@@ -144,6 +145,7 @@ void check_shader_rewrite_dependencies()
     check_runtime_cpp_exception_dispatch();
     check_shader_validation_constructors();
     check_shader_validation_serializer();
+    check_shader_validation_lifecycle();
     std::array<u8, runtime_shader_write_storage_size> writes;
     writes.fill(0xA5);
     initialize_runtime_shader_writes(writes.data());

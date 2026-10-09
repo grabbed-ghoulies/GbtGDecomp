@@ -199,7 +199,7 @@ void set_shader_validation_owner_channel_owner(ShaderValidationOwner& owner, Sha
 }
 
 // Xbox 0x0018E7AF
-u32 find_shader_validation_owner_channel(const ShaderValidationOwner* owner, u32 index)
+ShaderValidationChannelWriter find_shader_validation_owner_channel(const ShaderValidationOwner* owner, u32 index)
 {
     // The first owner is dereferenced without a null test, as in retail.
     do

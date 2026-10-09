@@ -7,6 +7,7 @@ namespace gbtg
 {
 // Instruction object allocated by 0x00192DF1 (0x4C retail bytes).
 // Mask and register names follow the microcode fields they are packed into.
+struct ShaderValidationBalancedChildTree;
 struct ShaderValidationInstruction
 {
     ShaderValidationRegisteredObject base; // Retail +0x00.
@@ -20,7 +21,9 @@ struct ShaderValidationInstruction
     ShaderValidationOwner* output_register; // Retail +0x34; nine index bits are packed.
     ShaderValidationOwner* vector_destination; // Retail +0x38.
     ShaderValidationOwner* scalar_destination; // Retail +0x3c.
-    std::array<u32, 3> retained40; // Retail +0x40..+0x48.
+    u32 sequence; // Retail +0x40; signed order key compared by 0x0018E94C.
+    u32 instruction_set_count; // Retail +0x44; count copied by 0x001929E7.
+    ShaderValidationBalancedChildTree* instruction_set; // Retail +0x48; vtable 0x002037D0 set released by 0x00192A2B.
 };
 
 // Retained words of the 0x0018F8B7 frame at EBP-0x1C, EBP-0x18 and EBP-0x14.

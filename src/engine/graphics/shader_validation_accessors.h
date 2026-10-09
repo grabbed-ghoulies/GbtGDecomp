@@ -26,7 +26,7 @@ u32 shader_validation_instruction_is_single_move(const ShaderValidationInstructi
 
 void set_shader_validation_owner_derived(ShaderValidationOwner& owner, ShaderValidationOwner* derived); // Xbox 0x0018E76F
 void set_shader_validation_owner_channel_owner(ShaderValidationOwner& owner, ShaderValidationOwner* channel_owner); // Xbox 0x0018F4F7
-u32 find_shader_validation_owner_channel(const ShaderValidationOwner* owner, u32 index); // Xbox 0x0018E7AF
+ShaderValidationChannelWriter find_shader_validation_owner_channel(const ShaderValidationOwner* owner, u32 index); // Xbox 0x0018E7AF
 
 ShaderValidationPassNode* find_shader_validation_pass_node_signed(const ShaderValidationPassTree& tree, u32 key); // Xbox 0x00190370
 }

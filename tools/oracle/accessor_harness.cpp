@@ -107,7 +107,7 @@ int main()
                 }
                 else
                 {
-                    std::printf("%08X ", find_shader_validation_owner_channel(&o[a], (u32)b));
+                    std::printf("%08X ", static_cast<u32>(find_shader_validation_owner_channel(&o[a], (u32)b)));
                 }
             }
             for (auto &w : o)

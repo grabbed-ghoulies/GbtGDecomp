@@ -76,19 +76,19 @@ void unwind_owner_allocation(ShaderValidationConstructorContext& context, void* 
 }
 
 void construct_operand_body(ShaderValidationConstructorContext& context, ShaderValidationOperand& operand,
-    u32 object_address, u32 source, ShaderValidationOwner* owner, u32 kind, ShaderValidationOwner* parent,
+    u32 object_address, ShaderValidationInstruction* instruction, ShaderValidationOwner* owner, u32 kind, ShaderValidationOwner* parent,
     u8 marker, i32& state)
 {
     initialize_shader_validation_registered_object(context.objects, operand.base, object_address);
     state = 0;
     operand.owner = owner;
     operand.base.vtable_address = 0x0020380c;
-    operand.source = source;
+    operand.instruction = instruction;
     operand.kind = kind;
     operand.parent = parent;
     initialize_shader_validation_channel_order(operand.channel_order);
     state = 1;
-    if ((source == 0) && (kind != 3))
+    if ((instruction == nullptr) && (kind != 3))
     {
         raise_invalid_shader_validation_operand(context.exceptions);
     }
@@ -100,7 +100,7 @@ void construct_operand_body(ShaderValidationConstructorContext& context, ShaderV
 }
 
 void construct_owner_body(ShaderValidationConstructorContext& context, ShaderValidationOwner& owner,
-    u32 object_address, u32 kind, u32 source, ShaderValidationOwner* parent, u32 channel_value,
+    u32 object_address, u32 kind, u32 source, ShaderValidationOwner* parent, ShaderValidationChannelWriter channel_value,
     ShaderValidationChannelMask& mask, i32& state, void*& allocation)
 {
     state = 0;
@@ -138,7 +138,7 @@ void construct_owner_body(ShaderValidationConstructorContext& context, ShaderVal
     u32 index = 0;
     do
     {
-        owner.channels[index] = (0u - static_cast<u32>(mask.channels[index] != 0)) & channel_value;
+        owner.channels[index] = (ShaderValidationChannelWriter{0} - (mask.channels[index] != 0 ? 1u : 0u)) & channel_value;
         ++index;
     } while (index < 4);
     owner.channel_owner = nullptr;
@@ -148,12 +148,13 @@ void construct_owner_body(ShaderValidationConstructorContext& context, ShaderVal
 
 // Xbox 0x00192934
 ShaderValidationOperand* construct_shader_validation_operand(ShaderValidationConstructorContext& context, ShaderValidationOperand& operand,
-    u32 object_address, u32 source, ShaderValidationOwner* owner, u32 kind, ShaderValidationOwner* parent, u8 marker)
+    u32 object_address, ShaderValidationInstruction* instruction, ShaderValidationOwner* owner, u32 kind, ShaderValidationOwner* parent,
+    u8 marker)
 {
     i32 state = -1;
     __try
     {
-        construct_operand_body(context, operand, object_address, source, owner, kind, parent, marker, state);
+        construct_operand_body(context, operand, object_address, instruction, owner, kind, parent, marker, state);
     }
     __finally
     {
@@ -175,7 +176,8 @@ ShaderValidationOperand* construct_shader_validation_operand(ShaderValidationCon
 
 // Xbox 0x00192A54
 ShaderValidationOwner* construct_shader_validation_owner(ShaderValidationConstructorContext& context, ShaderValidationOwner& owner,
-    u32 object_address, u32 kind, u32 source, ShaderValidationOwner* parent, u32 channel_value, ShaderValidationChannelMask mask)
+    u32 object_address, u32 kind, u32 source, ShaderValidationOwner* parent, ShaderValidationChannelWriter channel_value,
+    ShaderValidationChannelMask mask)
 {
     i32 state = -1;
     void* allocation = nullptr;

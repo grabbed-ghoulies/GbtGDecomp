@@ -205,6 +205,14 @@ add_executable(gbtg
     src/engine/graphics/shader_validation_serializer.cpp
     src/engine/graphics/shader_validation_accessors.cpp
     src/engine/graphics/shader_validation_channel_ops.cpp
+    src/engine/graphics/shader_validation_containers.cpp
+    src/engine/graphics/shader_validation_registers.cpp
+    src/engine/graphics/shader_validation_instruction_ops.cpp
+    src/engine/graphics/shader_validation_tree_instances.cpp
+    src/engine/graphics/shader_validation_sets.cpp
+    src/engine/graphics/shader_validation_instruction_constructor.cpp
+    src/engine/graphics/shader_validation_pass_lifecycle.cpp
+    src/engine/graphics/shader_validation_owner_sets.cpp
     src/engine/graphics/shader_validation_pass_traversal.cpp
     src/engine/graphics/shader_validation_registration.cpp
     src/engine/graphics/shader_validation_insert.cpp
@@ -461,7 +469,7 @@ if(BUILD_TESTING)
     add_test(NAME animation-event-boundaries COMMAND gbtg-animation-event-tests)
     get_target_property(GBTG_TRANSITION_SOURCES gbtg SOURCES)
     list(REMOVE_ITEM GBTG_TRANSITION_SOURCES src/engine/main.cpp src/engine/runtime/platform.cpp)
-    add_executable(gbtg-transition-tests EXCLUDE_FROM_ALL tests/scene_transition_tests.cpp tests/camera_display_tests.cpp tests/script_actor_query_tests.cpp tests/scene_render_tests.cpp tests/shader_compiler_tests.cpp tests/shader_schedule_tests.cpp tests/shader_cost_tests.cpp tests/shader_rewrite_tests.cpp tests/native_cpp_exception_tests.cpp tests/shader_validation_constructor_tests.cpp tests/shader_validation_serializer_tests.cpp ${GBTG_TRANSITION_SOURCES})
+    add_executable(gbtg-transition-tests EXCLUDE_FROM_ALL tests/scene_transition_tests.cpp tests/camera_display_tests.cpp tests/script_actor_query_tests.cpp tests/scene_render_tests.cpp tests/shader_compiler_tests.cpp tests/shader_schedule_tests.cpp tests/shader_cost_tests.cpp tests/shader_rewrite_tests.cpp tests/native_cpp_exception_tests.cpp tests/shader_validation_constructor_tests.cpp tests/shader_validation_serializer_tests.cpp tests/shader_validation_lifecycle_tests.cpp ${GBTG_TRANSITION_SOURCES})
     add_executable(gbtg-movie-startup-tests EXCLUDE_FROM_ALL tests/movie_startup_tests.cpp ${GBTG_TRANSITION_SOURCES})
     get_target_property(GBTG_TRANSITION_LINKS gbtg LINK_LIBRARIES)
     get_target_property(GBTG_TRANSITION_DEFINITIONS gbtg COMPILE_DEFINITIONS)

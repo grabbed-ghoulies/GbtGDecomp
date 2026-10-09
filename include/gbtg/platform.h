@@ -7,7 +7,7 @@ namespace gbtg
 
 struct PlatformConfig
 {
-    std::filesystem::path game_dir{"OriginalFiles"};
+    std::filesystem::path game_dir;
     bool headless = false;
     int frames = 0; // 0 = until quit; headless defaults to 1
     std::filesystem::path screenshot; // PC readback of the last presented frame

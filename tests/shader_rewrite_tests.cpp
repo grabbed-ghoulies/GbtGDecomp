@@ -26,6 +26,7 @@
 
 void check_runtime_cpp_exception_dispatch();
 void check_shader_validation_constructors();
+void check_shader_validation_serializer();
 
 namespace
 {
@@ -142,6 +143,7 @@ void check_shader_rewrite_dependencies()
         && erase_calls == 1 && erase_tree.count == 2, "null erase preserves tree");
     check_runtime_cpp_exception_dispatch();
     check_shader_validation_constructors();
+    check_shader_validation_serializer();
     std::array<u8, runtime_shader_write_storage_size> writes;
     writes.fill(0xA5);
     initialize_runtime_shader_writes(writes.data());

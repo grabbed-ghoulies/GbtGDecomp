@@ -141,8 +141,8 @@ void construct_owner_body(ShaderValidationConstructorContext& context, ShaderVal
         owner.channels[index] = (0u - static_cast<u32>(mask.channels[index] != 0)) & channel_value;
         ++index;
     } while (index < 4);
-    owner.retained34 = 0;
-    owner.retained30 = 0;
+    owner.channel_owner = nullptr;
+    owner.derived_owner = nullptr;
 }
 }
 

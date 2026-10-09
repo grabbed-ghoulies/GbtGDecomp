@@ -144,7 +144,7 @@ void check_shader_validation_constructors()
     require(owner.base.vtable_address == 0x203814 && owner.kind == 5 && owner.source == 0x1234
         && owner.channels == std::array<u32, 4>{0x55, 0, 0, 0}
         && owner.diagnostics.retained == 0xabcdef01 && owner.diagnostics.nodes.count == 0
-        && owner.retained30 == 0 && owner.retained34 == 0 && objects_tree.count == 2,
+        && owner.derived_owner == nullptr && owner.channel_owner == nullptr && objects_tree.count == 2,
         "kind five owner decodes mask eight and preserves child retained word");
     require(owner.operand != nullptr && owner.operand->kind == 3 && owner.operand->owner == &owner
         && owner.operand->parent == active_owner && owner.operand->marker == 0,

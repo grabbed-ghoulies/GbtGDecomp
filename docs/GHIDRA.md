@@ -40,3 +40,22 @@ When you rename a function in Ghidra, add a line to [`XBE.md`](XBE.md) and re-ru
 ## Oracle
 
 Run the same disc in **xemu** (LLE) or Cxbx-Reloaded (HLE) when you want a side-effect check: which BNL is opened, which AID hash is requested, what D3D draw shows. The spec for a function is its decompile. The PC engine keeps that function's branches and offsets. A host boundary (file IO, D3D, XInput, heap, thread TLS) is only a call the dump makes, and it returns what the dump tests. `gbtg --headless` is a crash check. It does not accept the function.
+
+## Headless on Linux
+
+The scripts also run from a Linux shell against a copy of the project. Ghidra
+needs a JDK 21 (with `javac`, for script compilation). The project's owner is
+recorded as the Windows user, so pass that name to Java:
+
+```text
+export JAVA_HOME=<jdk-21>
+export JAVA_TOOL_OPTIONS="-Duser.name=<project owner>"
+<ghidra>/support/analyzeHeadless <copy of ghidra_projects> GbtG -process default.xbe.original -readOnly -noanalysis \
+    -scriptPath tools/ghidra/ghidra_scripts -postScript CalleeTree.java <out dir> <translated list> 0019723C
+```
+
+`CalleeTree.java` walks callees breadth-first from the given roots (and from
+`vt:<address>:<count>` vtable slots), stops at addresses in the translated
+list, and writes `callee_tree.txt` plus a decompile for each untranslated
+function. `DumpBytes.java <out dir> <start>-<end>` exports raw bytes for the
+code oracle in `tools/oracle/`. Both are read-only.

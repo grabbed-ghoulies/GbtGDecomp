@@ -32,8 +32,8 @@ struct ShaderValidationOwner
     ShaderValidationOperand* operand; // Retail +0x0c.
     ShaderValidationBalancedChildTree diagnostics; // Retail +0x10.
     std::array<u32, 4> channels; // Retail +0x20.
-    u32 retained30; // Retail +0x30.
-    u32 retained34; // Retail +0x34.
+    ShaderValidationOwner* derived_owner; // Retail +0x30; set by 0x0018E76F/0x0018F4F7.
+    ShaderValidationOwner* channel_owner; // Retail +0x34; 0x0018E7AF follows this chain.
 };
 
 struct ShaderValidationConstructorContext

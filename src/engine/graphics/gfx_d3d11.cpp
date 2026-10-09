@@ -1104,7 +1104,7 @@ bool gfx_init(const GfxConfig& cfg)
         RegisterClassW(&wc);
         RECT rect{0, 0, width, height};
         AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, FALSE);
-        g.hwnd = CreateWindowW(wc.lpszClassName, L"GbtGDecomp", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+        g.hwnd = CreateWindowW(wc.lpszClassName, L"Grabbed by the Ghoulies", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
                                rect.right - rect.left, rect.bottom - rect.top, nullptr, nullptr, wc.hInstance, nullptr);
         if (!g.hwnd)
         {

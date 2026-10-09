@@ -14,7 +14,7 @@ struct GfxConfig
     int width = 960;
     int height = 540;
     bool visible = true; // false: offscreen target (headless / screenshot)
-    const char* title = "GbtGDecomp";
+    const char* title = "Grabbed by the Ghoulies";
 };
 
 bool gfx_init(const GfxConfig& cfg);

@@ -1048,3 +1048,65 @@ serialization). Serializer 0x0018F8B7 still needs 0x0018E7F6 through
 0x0018F5D7 and genuine retained scratch inputs. Live dialogue/cutscene/gameplay
 acceptance remains outstanding; this checkpoint does not change the real scene
 probe failure documented above.
+
+### Validator serializer, accessors and channel helpers (2026-10-09)
+
+Integrated the instruction serializer chain: 0x0018F8B7 packs one validator
+instruction into three microcode words, and 0x001914E8 walks the pass
+instruction list, appends those words after a count and calls the existing
+reserved-register pass 0x0018EFC4. Its callees 0x0018E7F6 (order assignment,
+retaining the destination vtable), 0x0018F5D7 (operand order replacement with
+its by-value argument and returned copy), 0x0018E973 (parent of an owner's
+operand unless it is the active owner DAT_001a4d34) and 0x0018E816
+(destination index, 0xF when absent) are translated, with a typed operand
+overload of 0x0018E7D3. `ShaderValidationInstruction` records the 0x4C-byte
+object built by 0x00192DF1.
+
+The serializer reads three frame words before writing them. Tracing every
+mask shows exactly which retained bits reach the output: word 0 bits 0, 30
+and 31, and word 1 bits 30 and 31. All other bits are written. The words are
+an explicit caller-owned `ShaderValidationSerializerFrame`; retail leaves the
+packed words in those slots, so consecutive calls from 0x001914E8 consume the
+previous instruction's bits. No initial value is invented. Before packing,
+each operand's missing channels are filled in place through 0x0018F3B5.
+
+Also integrated seventeen accessor helpers in `shader_validation_accessors`:
+mask/order constructors 0x0018E414/0x0018E595; order queries
+0x0018E5C3/0x0018E67C/0x0018E6BE; instruction mask getters
+0x0018E833/0x0018E84E/0x0018E869; per-channel unit tests 0x0018E884/0x0018E8A5
+(the output flag selects whether the output mask belongs to the vector or
+scalar unit); opcode classes 0x0018E8E4/0x0018E8C6 (signed 5..7 range)
+/0x0018E8F8; owner links 0x0018E76F/0x0018F4F7 and the channel-owner search
+0x0018E7AF; and signed pass-tree lookup 0x00190370, which pops an unused
+second argument. Owner fields +0x30/+0x34 are now the typed `derived_owner`
+and `channel_owner` links.
+
+Eleven channel-order helpers are in `shader_validation_channel_ops`:
+0x0018E6DF, 0x0018F394, 0x0018E5E2, 0x0018E69C, 0x0018E741 (by-value order,
+RET 0x14), 0x0018E548, 0x0018E604, 0x0018E63F, 0x0018E661, 0x0018E700 and
+0x0018F355.
+
+Verification: each of these 34 functions was compared against the retail
+machine code executed in a CPU emulator (`tools/oracle/`, Unicorn running
+bytes exported from the user's XBE into `cache/oracle/`). Randomized object
+graphs, retained frames, junk channel values and signed boundaries gave zero
+mismatches across several thousand cases per function, and deliberately
+mutated builds were detected. The fixed vectors in
+`tests/shader_validation_serializer_tests.cpp` come from that emulator and run
+in the `--actor-loading` chain through `check_shader_rewrite_dependencies`.
+These modules and tests were compiled and run with g++ on Linux. The Windows
+Release build of `gbtg` and `gbtg-transition-tests`, and the
+`--actor-loading` run, have not yet been repeated for this checkpoint.
+
+`tools/ghidra/ghidra_scripts/CalleeTree.java` now inventories untranslated
+callees read-only. From 0x0019723C (plus its vtables at 0x00203820 and
+0x002037D0) 173 functions (about 31 KB) remain. The remaining leaves include
+0x00190B12, 0x00190CA6, 0x001909B1, 0x0019149A, 0x0018F314, 0x0018F1E5,
+0x001902D9, 0x001903E1, 0x0019042A, 0x00190473, 0x001929B7, 0x0019051C, 0x00190337,
+0x0018F595, 0x0018F86B, 0x0018F4A9, 0x0018F436, 0x0018E988, 0x0018ED95,
+0x0018E4EB, 0x0018E48C, 0x0018FF4B, 0x0018FFC9, 0x0018E9DC and 0x0018EBEA.
+0x0018E94C orders instructions by +0x40 and then by object address, so it
+needs the retail address map rather than host pointer order. Pass constructor
+0x00196739, 0x00197223 and dispatch 0x001973F1 remain the large parents. The
+live scene probe is unchanged; this checkpoint does not establish dialogue,
+cutscene or gameplay startup.

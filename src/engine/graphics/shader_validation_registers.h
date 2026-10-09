@@ -25,6 +25,7 @@ struct ShaderValidationPass
     ShaderValidationOwner* owner; // Retail +0x50; parent passed by 0x001935E6.
 };
 
+ShaderValidationRegisteredPassTree* construct_shader_validation_registered_pass_tree(ShaderValidationRegisteredPassTree& tree); // Xbox 0x0019149A
 void update_shader_validation_pass_ancestor_heights(ShaderValidationPassNode* node); // Xbox 0x00190554
 void rotate_shader_validation_pass_tree_left(ShaderValidationPassNode& node); // Xbox 0x0019060B
 void rotate_shader_validation_pass_tree_right(ShaderValidationPassNode& node); // Xbox 0x00190656

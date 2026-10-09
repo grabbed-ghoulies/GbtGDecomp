@@ -263,16 +263,24 @@ def main():
                 state['next'], state['calls'], state['fail'] = base, 0, -1
                 for k in set_members:
                     call(u, 0x001927D1, set_tree, [instructions[k]])
-                operand_address = r32(u, owners[target] + 0xC)
+                # Half the cases enter through an operand (0x00190813), which climbs to operand.parent.
+                use_operand = random.random() < 0.5
+                operand_index = random.randrange(3 * m) if use_operand else -1
+                walked = r32(u, operands[operand_index] + 0x10) if use_operand else owners[target]
+                operand_address = r32(u, walked + 0xC) if walked else 0
                 foreign = r32(u, operand_address + 0x10) if operand_address else 0
                 if foreign == owner_addr(active):
                     foreign = 0
                 if foreign and r32(u, foreign + 0x20) in (0, 0xFFFFFFFF):
                     continue
-                result = call(u, 0x00190774, owners[target], [R(), 0x00203790, struct.unpack('<I', bytes(mask))[0], set_tree]) & 0xFF
+                packed_mask = struct.unpack('<I', bytes(mask))[0]
+                if use_operand:
+                    result = call(u, 0x00190813, operands[operand_index], [R(), 0x00203790, packed_mask, set_tree]) & 0xFF
+                else:
+                    result = call(u, 0x00190774, owners[target], [R(), 0x00203790, packed_mask, set_tree]) & 0xFF
                 expected.append('%d' % result)
-                lines.append('writers %d %d %s %d %d %d %s %s' % (n, m, ' '.join(description), target, active, len(set_members),
-                    ' '.join(str(1000 + k) for k in set_members), ' '.join(map(str, mask))))
+                lines.append('writers %d %d %s %d %d %d %s %s %d' % (n, m, ' '.join(description), target, active, len(set_members),
+                    ' '.join(str(1000 + k) for k in set_members), ' '.join(map(str, mask)), operand_index))
                 continue
             first, second = random.randint(0, 3), random.randint(0, 3)
             climb, propagate = random.choice([0, 1]), random.choice([0, 1])

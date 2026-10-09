@@ -1,6 +1,7 @@
 #include "../src/engine/graphics/shader_validation_pass_lifecycle.h"
 #include "../src/engine/graphics/shader_validation_owner_sets.h"
 #include <array>
+#include <functional>
 #include <stdexcept>
 #include <vector>
 
@@ -169,5 +170,104 @@ void check_shader_validation_lifecycle()
             "a blocked writer undoes earlier negations");
         target.kind = 2;
         require(!negate_shader_validation_owner_writers(target, sets), "input and constant owners are rejected");
+    }
+
+    // 0x00194311 compares parents, markers, then channel orders; 0x00193C2A never accepts.
+    {
+        ShaderValidationOwner parent{};
+        ShaderValidationInstruction instruction{};
+        ShaderValidationOperand operand{};
+        ShaderValidationOperand other{};
+        operand.parent = &parent;
+        other.parent = &parent;
+        operand.instruction = &instruction;
+        other.instruction = &instruction;
+        operand.channel_order.channels = {0, 1, 2, 3};
+        other.channel_order.channels = {0, 4, 2, 4};
+        require(shader_validation_operands_equivalent(operand, other, nullptr), "unused channels match any order");
+        require(!shader_validation_instruction_accepts_order(instruction, 0, ShaderValidationChannelOrder{0x00203794, {0, 1, 2, 3}}),
+            "instruction order acceptance is always false");
+        other.channel_order.channels = {0, 2, 2, 3};
+        require(!shader_validation_operands_equivalent(operand, other, nullptr), "a mismatched channel is not equivalent");
+        other.channel_order.channels = {0, 1, 2, 3};
+        other.marker = 1;
+        require(!shader_validation_operands_equivalent(operand, other, nullptr), "marker mismatch is not equivalent");
+        other.marker = 0;
+        ShaderValidationOwner other_parent{};
+        other.parent = &other_parent;
+        require(!shader_validation_operands_equivalent(operand, other, nullptr), "distinct non-register parents are not equivalent");
+    }
+
+    // 0x00193EE2 drops a register kind once its owners' readers are registered, or hands it to the first unready channel owner.
+    {
+        ShaderValidationOwner first{};
+        ShaderValidationOwner second{};
+        first.kind = 1;
+        second.kind = 1;
+        first.channel_owner = &second;
+        second.channels = {shader_validation_unwritten_channel, shader_validation_unwritten_channel, shader_validation_unwritten_channel,
+            shader_validation_unwritten_channel};
+        ShaderValidationOperand reader{};
+        reader.kind = 3; // Kind 3 reads channel 0 without an instruction.
+        ShaderValidationBalancedNode diagnostic{};
+        diagnostic.value = 0x3000;
+        second.diagnostics.nodes.root = &diagnostic;
+        std::array<ShaderValidationBalancedNode, 8> set_nodes{};
+        std::size_t set_used = 0;
+        ShaderValidationSetContext sets{[&](std::size_t, u32) -> void*
+            {
+                return &set_nodes[set_used++];
+            },
+            [](ShaderValidationBalancedNode&, u32)
+            {
+            },
+            [](u32) -> const ShaderValidationInstruction*
+            {
+                return nullptr;
+            },
+            [&](u32) -> ShaderValidationOperand*
+            {
+                return &reader;
+            },
+            [](const void*) -> u32
+            {
+                return 0;
+            }};
+        std::array<ShaderValidationPassNode, 4> pass_nodes{};
+        std::size_t pass_used = 0;
+        const std::function<void*(std::size_t, u32)> allocate_pass_node = [&](std::size_t, u32) -> void*
+        {
+            return &pass_nodes[pass_used++];
+        };
+        std::vector<u32> freed;
+        const std::function<void(ShaderValidationPassNode&, u32)> destroy_pass_node = [&](ShaderValidationPassNode& node, u32 flags)
+        {
+            freed.push_back(node.value * 10 + flags);
+        };
+        ShaderValidationPass registers_pass{};
+        construct_shader_validation_registered_pass_tree(registers_pass.registers);
+        require(registers_pass.registers.tree.vtable_address == 0x00203800 && registers_pass.registers.registered.vtable_address == 0x002037fc,
+            "registered pass tree constructor stores the derived vtables");
+        ShaderValidationPassNode* inserted;
+        set_shader_validation_pass_value(registers_pass.registers.tree.nodes, allocate_pass_node, &inserted, 3, &first);
+        ShaderValidationBalancedTree empty{nullptr, 0};
+        require(retire_shader_validation_register(registers_pass, 13, empty, destroy_pass_node, allocate_pass_node, sets) &&
+                retire_shader_validation_register(registers_pass, 4, empty, destroy_pass_node, allocate_pass_node, sets) &&
+                registers_pass.registers.tree.nodes.count == 1,
+            "out-of-range and absent register kinds retire trivially");
+        require(!retire_shader_validation_register(registers_pass, 3, empty, destroy_pass_node, allocate_pass_node, sets) &&
+                freed == std::vector<u32>{31} && registers_pass.registers.tree.nodes.count == 1 &&
+                registers_pass.registers.tree.nodes.root->data == &second && second.kind == 1 && second.source == 3,
+            "an unready channel owner takes over the register kind");
+        ShaderValidationBalancedNode registered{};
+        registered.value = 0x3000;
+        const ShaderValidationBalancedTree registry{&registered, 1};
+        require(retire_shader_validation_register(registers_pass, 3, registry, destroy_pass_node, allocate_pass_node, sets) &&
+                registers_pass.registers.tree.nodes.count == 0 && freed == std::vector<u32>{31, 31},
+            "registered readers retire the register kind");
+        set_shader_validation_pass_value(registers_pass.registers.tree.nodes, allocate_pass_node, &inserted, 5, &second);
+        require(!retire_shader_validation_register(registers_pass, 5, empty, destroy_pass_node, allocate_pass_node, sets) &&
+                registers_pass.registers.tree.nodes.count == 1 && freed.size() == 2,
+            "unregistered readers keep the register kind");
     }
 }

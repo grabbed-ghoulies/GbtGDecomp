@@ -58,4 +58,7 @@ bool shader_validation_owner_writers_in_set(const ShaderValidationOwner& owner, 
     const ShaderValidationInstructionAt& instruction_at); // Xbox 0x00190774
 bool swap_shader_validation_owner_channels(ShaderValidationOwner& owner, u32 first, u32 second, u8 climb, u8 propagate,
     const ShaderValidationOperandAt& operand_at); // Xbox 0x00190FFE
+bool shader_validation_operand_writers_in_set(const ShaderValidationOperand& operand, u32 unused, ShaderValidationChannelMask mask,
+    const ShaderValidationBalancedTree& set, const ShaderValidationOwner* active_owner, const ShaderValidationAddressOf& address_of,
+    const ShaderValidationInstructionAt& instruction_at); // Xbox 0x00190813
 }

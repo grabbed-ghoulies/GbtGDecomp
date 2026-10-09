@@ -146,7 +146,7 @@ def run_owner_sets(u, state, lines, kind):
         description.append('%d %d %d %d %d %d %d %s %s' % (vop, sop, flag, output, vdst, sdst, sequence, ' '.join(map(str, masks)), ' '.join(slots)))
     registry_nodes = HEAP + 0x5000
     for i in range(n):
-        owner_kind = random.choice([0, 1, 1, 2, 3]) if kind == 'negate' else 1
+        owner_kind = random.choice([0, 1, 1, 2, 3]) if kind == 'negate' else random.choice([1, 3, 3]) if kind == 'equiv' else 1
         derived = random.choice([-1, -1] + list(range(i + 1, n)))
         channel_owner = random.choice([-1, -1] + list(range(i)))
         operand = random.choice([-1] + list(range(3 * m)) * 2)
@@ -178,6 +178,81 @@ def run_owner_sets(u, state, lines, kind):
         description.append('%d %d %d %d %s %d %s' % (owner_kind, derived, channel_owner, operand, ' '.join(map(str, codes)), count,
             ' '.join('%d %d %d %d' % (values[j], parents[j], firsts[j], seconds[j]) for j in range(count))))
     target = 0 if biased else random.randrange(n)
+    if kind == 'equiv':
+        # 0x00194311: operand a against operand b; mode 1 copies b's marker/parent from a, mode 2 also its order,
+        # mode 3 copies the parent and order but keeps b's marker.
+        a, b = random.randrange(3 * m), random.randrange(3 * m)
+        mode = random.choice([0, 1, 2, 2, 3])
+        active = random.choice([-1] + list(range(n)))
+        w32(u, ACTIVE_OWNER, owner_addr(active))
+        if mode in (1, 2):
+            u.mem_write(operands[b] + 0x14, bytes(u.mem_read(operands[a] + 0x14, 1)))
+        if mode >= 1:
+            w32(u, operands[b] + 0x10, r32(u, operands[a] + 0x10))
+        if mode >= 2:
+            u.mem_write(operands[b] + 0x1C, bytes(u.mem_read(operands[a] + 0x1C, 0x10)))
+            if random.random() < 0.4:
+                w32(u, operands[b] + 0x1C + 4 * random.randrange(4), random.randint(0, 4))
+        orders = [' '.join('%u' % r32(u, operands[b] + 0x1C + 4 * j) for j in range(4))]
+        sources = [random.choice([0, 0, 1, 5]) for _ in range(n)]
+        for i in range(n):
+            w32(u, owners[i] + 8, sources[i])
+        result = call(u, 0x00194311, operands[a], [operands[b]]) & 0xFF
+        lines.append('equiv %d %d %s %d %d %d %d %d %s %s' % (n, m, ' '.join(description), target, a, b, mode, active, orders[0],
+            ' '.join(map(str, sources))))
+        return '%d' % result
+    if kind == 'retire':
+        # 0x00193EE2 on a pass whose register tree maps kinds to owners; frees are reported by the erased key.
+        registry = HEAP + 0x2800
+        w32(u, registry + 8, 0)
+        w32(u, registry + 0xC, 0)
+        base = HEAP + 0x40000
+        state['next'], state['calls'], state['fail'] = base, 0, -1
+        members = random.sample(range(3 * m), random.randint(0, 3 * m))
+        for j in members:
+            call(u, 0x00192655, registry, [operands[j]])
+        pass_object = HEAP + 0xA000
+        u.mem_write(pass_object, b'\0' * 0x54)
+        keys = random.sample(range(13), random.randint(0, 5))
+        # Prefer late owners: their channel_owner chains reach the loop in 0x00193EE2.
+        datas = [max(random.randrange(n), random.randrange(n)) for _ in keys]
+        result_slot = HEAP + 0xA800
+        for key, data in zip(keys, datas):
+            call(u, 0x00192830, pass_object + 0x28, [result_slot, key, owners[data]])
+        pass_nodes = set()
+        def collect(node):
+            if node:
+                pass_nodes.add(node)
+                collect(r32(u, node + 0x10))
+                collect(r32(u, node + 0x14))
+        collect(r32(u, pass_object + 0x30))
+        retire_kind = random.choice([-1, 13, 0x80000000] + keys * 3 + list(range(13)))
+        events = []
+        try:
+            u.mem_map(0x000F7000, 0x1000)
+        except Exception:
+            pass
+        u.mem_write(0x000F7280, b'\xc2\x08\x00')
+        def free(uc, address, size, user):
+            pointer = r32(uc, uc.reg_read(UC_X86_REG_ESP) + 4)
+            if pointer in pass_nodes:
+                events.append(r32(uc, pointer + 4))
+        hook = u.hook_add(UC_HOOK_CODE, free, begin=0x000F7280, end=0x000F7280)
+        result = call(u, 0x00193EE2, pass_object, [retire_kind, registry]) & 0xFF
+        u.hook_del(hook)
+        text = '%d %u |' % (result, r32(u, pass_object + 0x34))
+        def walk(node):
+            if node:
+                walk(r32(u, node + 0x10))
+                nonlocal text
+                text += ' %u:%d' % (r32(u, node + 4), owners.index(r32(u, node + 8)))
+                walk(r32(u, node + 0x14))
+        walk(r32(u, pass_object + 0x30))
+        text += ' |' + ''.join(' %u,%u' % (r32(u, o + 4), r32(u, o + 8)) for o in owners)
+        text += ''.join(' f%u' % e for e in events)
+        lines.append('retire %d %d %s %d %d %s %d %s %d' % (n, m, ' '.join(description), target, len(members), ' '.join(map(str, members)),
+            len(keys), ' '.join('%d %d' % kd for kd in zip(keys, datas)), retire_kind if retire_kind < 0x80000000 else retire_kind - 0x100000000))
+        return text
     # The retail functions compare operand and instruction pointers; the harness maps them to 0x3000+j / 0x2000+k,
     # which preserves order because both are allocated in ascending address order.
     if kind == 'readers':
@@ -222,7 +297,8 @@ def main():
     random.seed(int(sys.argv[1]) if len(sys.argv) > 1 else 1)
     lines, expected = [], []
     for _ in range(int(sys.argv[2]) if len(sys.argv) > 2 else 60):
-        kind = random.choice(['ctor', 'owner', 'owner', 'passdtor', 'passdtor', 'readers', 'readers', 'readers', 'negate', 'negate', 'negate'])
+        kind = random.choice(['ctor', 'owner', 'owner', 'passdtor', 'passdtor', 'readers', 'readers', 'readers', 'negate', 'negate', 'negate',
+            'equiv', 'equiv', 'equiv', 'retire', 'retire', 'retire', 'regtree'])
         u = new_emu_with_runtime()
         state = {'next': BASE, 'calls': 0, 'fail': random.choice([-1, -1, 2, 3, 4, 5, 6, 7, 8])}
         def allocate(uc, address, size, user):
@@ -278,7 +354,17 @@ def main():
             expected.append(text)
             lines.append('owner %d %d %d %d %d' % (state['fail'], active_kind, source, use_owner, pass_owner_kind))
             continue
-        if kind in ('readers', 'negate'):
+        if kind == 'regtree':
+            # 0x0019149A on a pre-filled 0x14-byte object.
+            words = [R() for _ in range(5)]
+            tree = HEAP + 0xC000
+            for j, word in enumerate(words):
+                w32(u, tree + 4 * j, word)
+            returned = call(u, 0x0019149A, tree, [])
+            expected.append('%d %s' % (1 if returned == tree else 0, ' '.join('%08X' % r32(u, tree + 4 * j) for j in range(5))))
+            lines.append('regtree 0 0 %s' % ' '.join(map(str, words)))
+            continue
+        if kind in ('readers', 'negate', 'equiv', 'retire'):
             text = run_owner_sets(u, state, lines, kind)
             if text is None:
                 continue

@@ -415,8 +415,14 @@ int main()
                 {
                     register_shader_validation_instruction(context, value, instruction_at);
                 }
-                std::printf("%d\n", shader_validation_owner_writers_in_set(owners[static_cast<std::size_t>(target)], 0, mask, set, owner_at(active),
-                                         address_of, instruction_at) ? 1 : 0);
+                int operand_index;
+                std::cin >> operand_index;
+                const bool result = operand_index < 0
+                    ? shader_validation_owner_writers_in_set(owners[static_cast<std::size_t>(target)], 0, mask, set, owner_at(active), address_of,
+                          instruction_at)
+                    : shader_validation_operand_writers_in_set(operands[static_cast<std::size_t>(operand_index)], 0, mask, set, owner_at(active),
+                          address_of, instruction_at);
+                std::printf("%d\n", result ? 1 : 0);
                 continue;
             }
             int target;

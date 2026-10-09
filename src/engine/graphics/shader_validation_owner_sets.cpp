@@ -188,4 +188,100 @@ bool negate_shader_validation_owner_writers(ShaderValidationOwner& owner, const 
     }
     return result;
 }
+
+// Xbox 0x00193C2A
+bool shader_validation_instruction_accepts_order(const ShaderValidationInstruction& instruction, u32 slot, ShaderValidationChannelOrder order)
+{
+    // Retail sets up an EH frame and returns false (RET 0x18); nothing in the body can raise.
+    (void)instruction;
+    (void)slot;
+    bool result = false;
+    __try
+    {
+        result = false;
+    }
+    __finally
+    {
+        if (AbnormalTermination())
+        {
+            // Xbox 0x00170A29: FuncInfo 0x0032BB2C destroys the by-value order.
+            destroy_shader_validation_channel_order(order);
+        }
+    }
+    return result;
+}
+
+// Xbox 0x00194311
+bool shader_validation_operands_equivalent(const ShaderValidationOperand& operand, const ShaderValidationOperand& other,
+    const ShaderValidationOwner* active_owner)
+{
+    if (!shader_validation_owners_equivalent(operand.parent, other.parent, active_owner))
+    {
+        return false;
+    }
+    if (operand.marker != other.marker)
+    {
+        return false;
+    }
+    if (shader_validation_channel_orders_compatible(operand.channel_order, ShaderValidationChannelOrder{0x00203794, other.channel_order.channels}))
+    {
+        return true;
+    }
+    if (other.instruction != nullptr &&
+        shader_validation_instruction_accepts_order(*other.instruction, operand.kind,
+            ShaderValidationChannelOrder{0x00203794, operand.channel_order.channels}))
+    {
+        return true;
+    }
+    // Retail passes this operand's kind with the other operand's order here as well.
+    if (operand.instruction != nullptr &&
+        shader_validation_instruction_accepts_order(*operand.instruction, operand.kind,
+            ShaderValidationChannelOrder{0x00203794, other.channel_order.channels}))
+    {
+        return true;
+    }
+    return false;
+}
+
+// Xbox 0x00193EE2
+bool retire_shader_validation_register(ShaderValidationPass& pass, i32 kind, const ShaderValidationBalancedTree& registry,
+    const std::function<void(ShaderValidationPassNode&, u32)>& deleting_destructor,
+    const std::function<void*(std::size_t, u32)>& allocate, const ShaderValidationSetContext& context)
+{
+    if (kind < 0 || kind > 12)
+    {
+        return true;
+    }
+    const ShaderValidationPassNode* node = find_shader_validation_pass_node(pass.registers.tree.nodes, static_cast<u32>(kind));
+    if (node == nullptr)
+    {
+        return true;
+    }
+    auto* owner = static_cast<ShaderValidationOwner*>(node->data);
+    ShaderValidationChannelMask mask;
+    construct_shader_validation_channel_mask(mask, 0xF);
+    if (!shader_validation_owner_readers_registered(*owner, registry, mask, nullptr, 1, 1, context))
+    {
+        return false;
+    }
+    erase_shader_validation_pass_key(pass.registers.tree.nodes, static_cast<u32>(kind), deleting_destructor);
+    while (true)
+    {
+        owner = owner->channel_owner;
+        if (owner == nullptr)
+        {
+            return true;
+        }
+        construct_shader_validation_channel_mask(mask, 0xF);
+        if (!shader_validation_owner_readers_registered(*owner, registry, mask, nullptr, 1, 1, context))
+        {
+            break;
+        }
+    }
+    owner->kind = 1;
+    owner->source = static_cast<u32>(kind);
+    ShaderValidationPassNode* result;
+    set_shader_validation_pass_value(pass.registers.tree.nodes, allocate, &result, static_cast<u32>(kind), owner);
+    return false;
+}
 }

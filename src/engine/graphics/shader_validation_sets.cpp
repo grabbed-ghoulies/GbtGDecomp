@@ -505,4 +505,18 @@ bool swap_shader_validation_owner_channels(ShaderValidationOwner& owner, u32 fir
     }
     return swapped;
 }
+
+// Xbox 0x00190813
+bool shader_validation_operand_writers_in_set(const ShaderValidationOperand& operand, u32 unused, ShaderValidationChannelMask mask,
+    const ShaderValidationBalancedTree& set, const ShaderValidationOwner* active_owner, const ShaderValidationAddressOf& address_of,
+    const ShaderValidationInstructionAt& instruction_at)
+{
+    if (operand.parent == nullptr)
+    {
+        return true;
+    }
+    ShaderValidationChannelMask sources;
+    shader_validation_operand_source_mask(operand, mask, sources);
+    return shader_validation_owner_writers_in_set(*operand.parent, unused, sources, set, active_owner, address_of, instruction_at);
+}
 }

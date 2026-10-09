@@ -328,4 +328,16 @@ ShaderValidationPassNode* erase_shader_validation_pass_key(ShaderValidationPassT
     // Retail discards the successor returned in EAX; it is forwarded here unchanged.
     return erase_shader_validation_pass_node(tree, find_shader_validation_pass_node(tree, key), deleting_destructor);
 }
+
+// Xbox 0x0019149A
+ShaderValidationRegisteredPassTree* construct_shader_validation_registered_pass_tree(ShaderValidationRegisteredPassTree& tree)
+{
+    // The +0x04 word is not written; the sub-object vtable is stored twice, base then derived.
+    tree.tree.nodes.root = nullptr;
+    tree.tree.nodes.count = 0;
+    tree.registered.vtable_address = 0x00203798;
+    tree.tree.vtable_address = 0x00203800;
+    tree.registered.vtable_address = 0x002037fc;
+    return &tree;
+}
 }

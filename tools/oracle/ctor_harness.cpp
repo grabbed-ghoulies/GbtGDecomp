@@ -7,6 +7,8 @@
 #include <array>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <functional>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -256,6 +258,98 @@ void run_owner_sets(const std::string& kind, int owner_count, int instruction_co
         }};
     int target;
     std::cin >> target;
+    if (kind == "equiv")
+    {
+        int first, second, mode, active;
+        std::cin >> first >> second >> mode >> active;
+        auto& operand = operands[static_cast<std::size_t>(first)];
+        auto& other = operands[static_cast<std::size_t>(second)];
+        if (mode == 1 || mode == 2)
+        {
+            other.marker = operand.marker;
+        }
+        if (mode >= 1)
+        {
+            other.parent = operand.parent;
+        }
+        // The other operand's final order is always sent, covering mode 2 and its perturbation.
+        for (auto& channel : other.channel_order.channels)
+        {
+            std::cin >> channel;
+        }
+        for (auto& owner : owners)
+        {
+            std::cin >> owner.source;
+        }
+        std::printf("%d\n", shader_validation_operands_equivalent(operand, other, owner_at(active)) ? 1 : 0);
+        return;
+    }
+    if (kind == "retire")
+    {
+        int registry_count, key_count, retire_kind;
+        std::cin >> registry_count;
+        std::vector<ShaderValidationBalancedNode> registry_nodes(32);
+        std::size_t registry_used = 0;
+        ShaderValidationBalancedTree registry{nullptr, 0};
+        ShaderValidationInsertContext insert{registry, [&](std::size_t, u32) -> void*
+            {
+                return &registry_nodes[registry_used++];
+            }};
+        for (int index = 0; index < registry_count; ++index)
+        {
+            u32 value;
+            std::cin >> value;
+            register_shader_validation_object(insert, value + 0x3000);
+        }
+        std::vector<ShaderValidationPassNode> pass_nodes(32);
+        std::size_t pass_used = 0;
+        const std::function<void*(std::size_t, u32)> allocate_pass_node = [&](std::size_t, u32) -> void*
+        {
+            return &pass_nodes[pass_used++];
+        };
+        std::vector<u32> freed;
+        const std::function<void(ShaderValidationPassNode&, u32)> destroy_pass_node = [&](ShaderValidationPassNode& node, u32 flags)
+        {
+            if ((flags & 1u) != 0)
+            {
+                freed.push_back(node.value);
+            }
+        };
+        ShaderValidationPass pass{};
+        std::cin >> key_count;
+        for (int index = 0; index < key_count; ++index)
+        {
+            u32 key;
+            int data;
+            std::cin >> key >> data;
+            ShaderValidationPassNode* result;
+            set_shader_validation_pass_value(pass.registers.tree.nodes, allocate_pass_node, &result, key, &owners[static_cast<std::size_t>(data)]);
+        }
+        std::cin >> retire_kind;
+        const bool result = retire_shader_validation_register(pass, retire_kind, registry, destroy_pass_node, allocate_pass_node, context);
+        std::printf("%d %u |", result ? 1 : 0, pass.registers.tree.nodes.count);
+        const std::function<void(const ShaderValidationPassNode*)> walk = [&](const ShaderValidationPassNode* node)
+        {
+            if (node != nullptr)
+            {
+                walk(node->first);
+                std::printf(" %u:%d", node->value, static_cast<int>(static_cast<const ShaderValidationOwner*>(node->data) - owners.data()));
+                walk(node->second);
+            }
+        };
+        walk(pass.registers.tree.nodes.root);
+        std::printf(" |");
+        for (const auto& owner : owners)
+        {
+            std::printf(" %u,%u", owner.kind, owner.source);
+        }
+        for (u32 key : freed)
+        {
+            std::printf(" f%u", key);
+        }
+        std::printf("\n");
+        return;
+    }
     if (kind == "readers")
     {
         int registry_count, instruction, climb_derived, climb_channel;
@@ -313,7 +407,25 @@ int main()
             run_pass_destructor(fail, active_kind);
             continue;
         }
-        if (kind == "readers" || kind == "negate")
+        if (kind == "regtree")
+        {
+            ShaderValidationRegisteredPassTree tree{};
+            u32 words[5];
+            for (u32& word : words)
+            {
+                std::cin >> word;
+            }
+            std::memcpy(&tree.tree.vtable_address, &words[0], 4);
+            std::memcpy(&tree.tree.retained, &words[1], 4);
+            tree.tree.nodes.root = reinterpret_cast<ShaderValidationPassNode*>(static_cast<std::uintptr_t>(words[2]));
+            tree.tree.nodes.count = words[3];
+            tree.registered.vtable_address = words[4];
+            ShaderValidationRegisteredPassTree* returned = construct_shader_validation_registered_pass_tree(tree);
+            std::printf("%d %08X %08X %08X %08X %08X\n", returned == &tree ? 1 : 0, tree.tree.vtable_address, tree.tree.retained,
+                static_cast<u32>(reinterpret_cast<std::uintptr_t>(tree.tree.nodes.root)), tree.tree.nodes.count, tree.registered.vtable_address);
+            continue;
+        }
+        if (kind == "readers" || kind == "negate" || kind == "equiv" || kind == "retire")
         {
             run_owner_sets(kind, fail, active_kind);
             continue;

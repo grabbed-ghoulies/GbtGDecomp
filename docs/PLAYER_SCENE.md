@@ -1301,8 +1301,64 @@ block at 0x00203000 (node vtables 0x002037E0..0x002037F8 are one-slot deleting
 destructors), so retail set nodes are freed through the real destructor.
 `ctor_oracle.py` compares both functions (600 cases with allocation failures)
 with zero mismatches, and catches deliberately broken builds. The lifecycle
-tests cover successful negation, rollback and rejected owner kinds.
+tests cover successful negation, rollback and rejected owner kinds; they pass
+in the Windows build (confirmed by the user).
 
 Remaining under 0x0019723C: 82 functions (about 22 KB), led by the pass
 bodies 0x00195FBE, 0x00194E5E, 0x001943CD, 0x001956D1 and the dispatcher
+0x001973F1.
+
+### Small validator helpers: register retirement and operand equivalence (2026-10-09)
+
+Five small functions are translated:
+
+- 0x0019149A `construct_shader_validation_registered_pass_tree`: clears the
+  root and count, stores the pass-tree vtable 0x00203800, and writes the
+  sub-object vtable twice (base 0x00203798, then 0x002037FC). The +0x04 word is
+  left untouched.
+- 0x00190813 `shader_validation_operand_writers_in_set`: an operand without a
+  parent passes. Otherwise its parent goes through 0x00190774 with the channels
+  the operand sources (0x0018F86B).
+- 0x00193C2A `shader_validation_instruction_accepts_order`: an EH-framed stub
+  that always returns false (RET 0x18). Its only unwind state destroys the
+  by-value order (FuncInfo 0x0032BB2C, funclet 0x00170A29).
+- 0x00194311 `shader_validation_operands_equivalent`: parents must be
+  equivalent (0x0018F4A9) and markers equal. Then the orders must be compatible
+  (0x0018E741), or 0x00193C2A must accept on either instruction. Retail passes
+  this operand's kind in both 0x00193C2A calls.
+- 0x00193EE2 `retire_shader_validation_register` (`RET 8`, pass in ECX):
+  - Kinds outside 0..12, or kinds without a register node, return true.
+  - Otherwise the owner's readers must be registered (0x00190E27 with a full
+    mask, no instruction, and both climbs). If they are not, the kind is kept.
+  - If they are, the kind is erased (0x001936B5) and the owner's
+    `channel_owner` chain is walked. The first owner whose readers are not
+    registered becomes kind 1 with source = kind. It is re-inserted under that
+    kind (0x00192830), and the function returns false.
+
+Verification:
+
+- `sets_oracle.py` now enters `writers` cases through an operand half the time.
+- `ctor_oracle.py` adds `equiv`, `retire` and `regtree` cases. Retire cases
+  report the erased keys from the retail XMemFree hook.
+- Both report zero mismatches.
+- These deliberately broken builds are each caught by the oracle and by the
+  in-repo tests:
+  - a skipped marker test
+  - a derived/channel-owner swap
+  - a wrong kind range
+  - a wrong takeover kind
+  - a swapped vtable
+  - a null-parent result
+
+New tests are in `tests/shader_validation_lifecycle_tests.cpp` (retirement,
+takeover and equivalence) and `tests/shader_validation_serializer_tests.cpp`
+(operand set test).
+
+Inventory note: 0x001A1B0B, 0x001A1B86, 0x001A1BC2, 0x001A1C89 and 0x001A1A7F
+are false positives. They come from scanning past the two-slot vtable
+0x00203820 and are not validator functions. 0x001679A8 is the compiler's EH
+prolog. With those excluded, 71 functions (about 20.9 KB) remain under
+0x0019723C. The current leaves are 0x00193649, 0x00190F87, 0x00193566,
+0x00191417, 0x00191D2D and 0x001911A8. The largest remaining are the pass bodies
+0x001943CD, 0x00194E5E, 0x00195FBE and 0x001956D1, and the dispatcher
 0x001973F1.

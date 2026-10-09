@@ -1079,6 +1079,20 @@ void check_shader_validation_owner_swaps()
             shader_validation_owner_writers_in_set(owner, 0, ShaderValidationChannelMask{0x00203790, {1, 0, 1, 0}}, set, nullptr, address_of,
                 instruction_at),
         "set members, empty and unwritten channels pass the set test");
+
+    // 0x00190813 applies the same test to an operand's parent through the channels it sources.
+    ShaderValidationOperand source{};
+    const ShaderValidationBalancedTree empty{nullptr, 0};
+    require(shader_validation_operand_writers_in_set(source, 0, mask, empty, nullptr, address_of, instruction_at),
+        "an operand without a parent passes the set test");
+    source.parent = &owner;
+    source.kind = 3;
+    source.channel_order.channels = {1, 1, 1, 1};
+    require(shader_validation_operand_writers_in_set(source, 0, ShaderValidationChannelMask{0x00203790, {1, 0, 0, 0}}, set, nullptr, address_of,
+                instruction_at) &&
+            !shader_validation_operand_writers_in_set(source, 0, ShaderValidationChannelMask{0x00203790, {1, 0, 0, 0}}, empty, nullptr, address_of,
+                instruction_at),
+        "an operand's parent writers must be in the set");
 }
 }
 

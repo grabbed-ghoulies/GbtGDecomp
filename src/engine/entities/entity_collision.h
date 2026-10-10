@@ -29,5 +29,8 @@ extern float g_slide_param;
 
 // Xbox 0x001226C0
 i32 entity_record_movement_probe(Vec3& kept, Vec3& candidate, u32 param, i32 kind, u32 mask); // Xbox 0x001226C0
+i32 entity_record_sweep_probe(Vec3& kept, Vec3& candidate, i32 kind, u32 mask); // Xbox 0x00122480, EBX kept
+i32 entity_record_point_probe(Vec3& kept, Vec3& candidate, float radius, u32 mask); // Xbox 0x001229F0, EBX kept
+i32 entity_collect_contact_probes(Vec3& origin, float radius, u32 mask); // Xbox 0x00122B00
 
 } // namespace gbtg

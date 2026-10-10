@@ -6,6 +6,7 @@
 #include "../src/engine/entities/player_attachment_helpers.h"
 #include "../src/engine/entities/player_attachment.h"
 #include "../src/engine/entities/player_construction.h"
+#include "../src/engine/entities/player_destruction.h"
 #include "../src/engine/entities/player_strategy_entry.h"
 #include "../src/engine/entities/player_state.h"
 #include "../src/engine/entities/body_motion_controller.h"
@@ -19,6 +20,7 @@
 #include "../src/engine/entities/entity_heap.h"
 #include <bit>
 #include <new>
+#include <memory>
 
 namespace
 {
@@ -107,6 +109,134 @@ void first_motion_callback(float*, const float*, float*, u16 joint, void* data, 
 }
 void check_body_dependencies(SceneExecutableResources& executable)
 {
+    {
+        std::array<u8, 0xE00> actor_bytes{};
+        std::array<u8, 0x900> body_bytes{};
+        std::span<u8> body = body_bytes;
+        Actor native_actor;
+        RuntimeBodyAttachedActor actor{actor_bytes, 0x12345678, {}};
+        u32 enabled = 1, value = 0x3F800001, argument = 9, name = 10;
+        u32 player_enabled = 0, player_value = 0x40000001, player_argument = 11, player_name = 12;
+        RuntimePlayerScriptOverrides overrides{enabled, value, argument, name,
+            player_enabled, player_value, player_argument, player_name};
+        std::vector<std::array<u32, 5>> notices;
+        actor.message = [&](std::span<const u32> message)
+        {
+            require(message.size() == 5 && message[4] == 0, "override notices retain all five dwords");
+            notices.push_back({message[0], message[1], message[2], message[3], message[4]});
+            if (message[2] == 7)
+            {
+                player_enabled = 1;
+                put(actor_bytes, 0xCDC, 5);
+            }
+        };
+        put(actor_bytes, 0xCDC, 1);
+        require(restore_runtime_player_script_overrides(actor, overrides)
+            && notices.size() == 2 && notices[0] == std::array<u32, 5>{0x86, 10, 7, 9, 0}
+            && notices[1] == std::array<u32, 5>{0x86, 12, 0x13, 11, 0}
+            && read_u32(actor_bytes, 0x930) == value && read_u32(actor_bytes, 0x978) == player_value,
+            "override restoration snapshots player mode but rereads globals after first virtual notice");
+        notices.clear();
+        require(restore_runtime_player_script_overrides(actor, overrides) && notices.size() == 1,
+            "mode five receives only the shared override");
+        put(actor_bytes, 0xCDC, 2);
+        require(!restore_runtime_player_script_overrides(actor, overrides) && notices.size() == 1,
+            "other actor modes do not restore script overrides");
+        entity_detail::LatchNode* first = nullptr;
+        body_bytes[0x260] = 1;
+        body_bytes[0x265] = 1;
+        require(runtime_body_latch_mask(body) == 0x21, "body mask uses six independent byte counters");
+        decrement_runtime_body_latches(body, native_actor, first);
+        require(runtime_body_latch_mask(body) == 0x1E && body_bytes[0x261] == 255,
+            "latch decrement wraps zeros without a saturation guard");
+        increment_runtime_body_latches(body, native_actor, first);
+        require(runtime_body_latch_mask(body) == 0x21 && body_bytes[0x261] == 0,
+            "latch increment wraps 255 to zero");
+        struct LatchFixture : entity_detail::LatchNode
+        {
+            Actor* expected;
+            u32 calls = 0;
+        };
+        LatchFixture second{};
+        LatchFixture leading{};
+        leading.expected = second.expected = &native_actor;
+        leading.next = &second;
+        auto receive = [](entity_detail::LatchNode& node, const Message& message)
+        {
+            auto& fixture = static_cast<LatchFixture&>(node);
+            require(message.id == 0x47 && message.arg == fixture.expected, "latch notice carries actual body owner");
+            ++fixture.calls;
+            node.next = nullptr;
+        };
+        leading.handle_message = second.handle_message = receive;
+        first = &leading;
+        std::fill(body_bytes.begin() + 0x260, body_bytes.begin() + 0x266, 1);
+        decrement_runtime_body_latches(body, native_actor, first);
+        require(leading.calls == 1 && second.calls == 1 && runtime_body_latch_mask(body) == 0,
+            "latch notification saves next node before a virtual callback mutates links");
+        leading.next = &second;
+        std::fill(body_bytes.begin() + 0x260, body_bytes.begin() + 0x266, 255);
+        increment_runtime_body_latches(body, native_actor, first);
+        require(leading.calls == 2 && second.calls == 2, "increment overflow also broadcasts departure from full latch mask");
+        first = nullptr;
+        for (u16 kind = 0; kind < 64; ++kind)
+        {
+            const bool excluded = kind == 2 || kind == 3 || kind == 4 || kind == 7
+                || kind == 0xD || kind == 0x10 || kind == 0x13 || kind == 0x25;
+            require(runtime_goal_requires_latches(kind) == !excluded, "goal classifier must preserve all exclusions");
+        }
+        std::array<u8, 2> zero{};
+        auto* allocation = static_cast<u8*>(engine_heap_allocate(sizeof(RuntimePlayerGoalRing) + 12));
+        auto* ring = new (allocation) RuntimePlayerGoalRing{4, 3, 2, 0, {allocation + sizeof(RuntimePlayerGoalRing), 12}};
+        auto* rows = allocation + sizeof(RuntimePlayerGoalRing);
+        std::memset(rows, 0, 12);
+        rows[8] = 1;
+        rows[0] = 2;
+        std::fill(body_bytes.begin() + 0x260, body_bytes.begin() + 0x266, 1);
+        RuntimePlayerGoalCleanup goals{actor, ring, body, native_actor, first, zero, overrides};
+        put(actor_bytes, 0x980, 123);
+        put(actor_bytes, 0x984, 456);
+        actor_bytes[0x98B] = 1;
+        put(actor_bytes, 0xCDC, 1);
+        notices.clear();
+        remove_runtime_player_goal(goals);
+        require(ring != nullptr && ring->head == 0 && runtime_body_latch_mask(body) == 0
+            && read_u32(actor_bytes, 0x984) == 456 && notices.empty(),
+            "goal pop wraps head and does not latch an excluded next goal");
+        remove_runtime_player_goal(goals);
+        require(ring == nullptr && read_u32(actor_bytes, 0x980) == 0 && read_u32(actor_bytes, 0x984) == 0
+            && actor_bytes[0x98B] == 0 && notices.size() == 2,
+            "final goal frees retained heap storage, clears runtime goal and restores enabled overrides");
+        remove_runtime_player_goal(goals);
+        require(notices.size() == 2, "null ring removal has no side effects");
+        allocation = static_cast<u8*>(engine_heap_allocate(sizeof(RuntimePlayerGoalRing) + 4));
+        ring = new (allocation) RuntimePlayerGoalRing{4, 1, 0, 1, {allocation + sizeof(RuntimePlayerGoalRing), 4}};
+        zero[0] = 2;
+        remove_runtime_player_goal(goals);
+        require(ring == nullptr && runtime_body_latch_mask(body) == 0,
+            "empty ring classification consumes the actual address-zero word rather than invented kind zero");
+
+        entity_detail::NavGrid grid;
+        grid.cells.resize(2);
+        grid.cells[0].value_6 = 0xE0;
+        grid.cells[0].flags_7 = 0xA5;
+        grid.cells[1].value_6 = 0x1F;
+        grid.cells[1].flags_7 = 0xB4;
+        auto* saved_grid = entity_detail::g_nav_grids[0];
+        entity_detail::g_nav_grids[0] = &grid;
+        allocation = static_cast<u8*>(engine_heap_allocate(sizeof(entity_detail::NavigationCellRegistration) + 24));
+        rows = allocation + sizeof(entity_detail::NavigationCellRegistration);
+        auto* registration = new (allocation) entity_detail::NavigationCellRegistration{rows, rows + 24};
+        std::memset(rows, 0, 24);
+        put({rows, 24}, 12, 1);
+        put({rows, 24}, 16, 99);
+        entity_detail::release_navigation_cell_registration(registration, 0);
+        require(registration == nullptr && grid.cells[0].value_6 == 0xFF && grid.cells[0].flags_7 == 0xA5
+            && grid.cells[1].value_6 == 0xFF && grid.cells[1].flags_7 == 0xB5,
+            "navigation release wraps only selected five/four-bit counters and preserves unrelated bits");
+        entity_detail::g_nav_grids[0] = saved_grid;
+        entity_detail::release_navigation_cell_registration(registration, 0xFFFFFFFF);
+    }
     {
         std::array<u8, 0x900> body{};
         std::array<u8, 0xE00> host_bytes{};
@@ -353,8 +483,49 @@ void check_body_dependencies(SceneExecutableResources& executable)
             "full player ctor must share attribute/channel random state, resolve tag, retain attachment and apply story flag");
         require(release_runtime_player_attachment(1, 0, context), "constructor attachment teardown");
         release_factory_object(factory, created_attachment);
-        release_factory_object(factory, body_object);
-        engine_heap_free(input.data());
+        std::array<entity_detail::ListHead, 4> links{};
+        std::array<entity_detail::ListHead, 4> preceding{};
+        std::array<entity_detail::ListHead, 4> following{};
+        for (size_t index = 0; index < links.size(); ++index)
+        {
+            links[index] = {&preceding[index], &following[index]};
+            preceding[index].next = following[index].prev = &links[index];
+            put(host_bytes, 0x934 + index * 8, 100);
+            put(host_bytes, 0x938 + index * 8, 200);
+        }
+        RuntimePlayerGoalRing* ring = nullptr;
+        entity_detail::LatchNode* latch = nullptr;
+        u32 enabled = 1, override_value = 0, override_argument = 0, override_name = 0;
+        RuntimePlayerScriptOverrides overrides{enabled, override_value, override_argument, override_name,
+            enabled, override_value, override_argument, override_name};
+        RuntimePlayerGoalCleanup goals{host, ring, context.body, host_actor, latch, zero, overrides};
+        entity_detail::NavigationCellRegistration* navigation = nullptr;
+        RuntimePlayerDestruction destruction{construction, goals, links, navigation};
+        auto* goal_allocation = static_cast<u8*>(engine_heap_allocate(sizeof(RuntimePlayerGoalRing) + 8));
+        ring = new (goal_allocation) RuntimePlayerGoalRing{4, 2, 0, 1,
+            {goal_allocation + sizeof(RuntimePlayerGoalRing), 8}};
+        auto* goal_rows = goal_allocation + sizeof(RuntimePlayerGoalRing);
+        std::memset(goal_rows, 0, 8);
+        goal_rows[0] = 2; // Excluded first goal; next goal takes then drops all six latches.
+        goal_rows[4] = 1;
+        std::fill(context.body.begin() + 0x260, context.body.begin() + 0x266, 0);
+        host_bytes[0x98B] = 1;
+        host_bytes[0xBA0] = 1;
+        put(host_bytes, 0x960, 0x1234);
+        const auto retained_input = input.data();
+        destroy_runtime_player(host_bytes, destruction);
+        require(player_count == 5 && ring == nullptr && body_object.bytes == nullptr && mind_object.bytes == nullptr
+            && strategy_object.bytes == nullptr && host_bytes[0x98B] == 0 && host_bytes[0xBA0] == 0
+            && read_u16(host_bytes, 0xCF4) == 0 && read_u32(host_bytes, 0x960) == 0x1234
+            && input.data() == retained_input, "player destructor releases children/input and preserves retail input word");
+        for (size_t index = 0; index < links.size(); ++index)
+        {
+            require(preceding[index].next == &following[index] && following[index].prev == &preceding[index]
+                && links[index].prev == nullptr && links[index].next == nullptr
+                && read_u32(host_bytes, 0x934 + index * 8) == 0 && read_u32(host_bytes, 0x938 + index * 8) == 0,
+                "player destructor unlinks all four lists and clears raw link words");
+        }
+        input = {}; // Fixture forgets dangling view only after checking retail teardown semantics.
         require(factory.count == 0 && created_views.empty(), "constructor fixtures must release retained factory ownership");
         construction_factory_fixture = nullptr;
         engine_heap_free(flags);
@@ -781,13 +952,14 @@ void check_body_dependencies(SceneExecutableResources& executable)
             && state->records[1].bytes[0x16] == 1 && state->records[1].bytes[0x17] == 1
             && read_f32(state->records[1].bytes, 0x18) == 1.f,
             "collision state must include matching terminal shape and initialize records");
+        auto filtered = std::make_unique<Actor>();
         std::array<RuntimeBodyCollisionOverride, 2> overrides
-        {{ {actor.data(), 0x12345678, 3, 1}, {actor.data(), 0x87654321, 4, 0} }};
+        {{ {filtered.get(), 0x12345678, 3, 1}, {filtered.get(), 0x87654321, 4, 0} }};
         GhoulySpawnPool pool{};
         pool.begin = reinterpret_cast<u8*>(overrides.data());
         pool.cursor = reinterpret_cast<u8*>(overrides.data() + overrides.size());
         restore_runtime_body_collision_overrides(pool);
-        require(read_u32(actor, 0x1F0) == 0x12345678 && overrides[0].active == 0
+        require(filtered->model_flags == 0x12345678 && overrides[0].active == 0
             && overrides[1].retained == 4, "collision restore must touch only active actor filters");
         destroy_runtime_body_collision_state(state);
         shapes[12] = 0;

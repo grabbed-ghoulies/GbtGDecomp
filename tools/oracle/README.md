@@ -15,7 +15,7 @@ This complements the in-repo regression tests. The fixed vectors in
 
    ```text
    analyzeHeadless <ghidra_projects> GbtG -process default.xbe.original -readOnly -noanalysis
-       -scriptPath tools/ghidra/ghidra_scripts -postScript DumpBytes.java cache/oracle 00160000-00185000 00185000-001A2000 00200000-00203000 00203000-00210000
+       -scriptPath tools/ghidra/ghidra_scripts -postScript DumpBytes.java cache/oracle 00160000-00185000 00185000-001A2000 00200000-00203000 00203000-00210000 00011000-00160000 00210000-00340000 00339000-0033A000
    ```
 
 2. `pip install unicorn`, then run `tools/oracle/run.sh [seed] [cases]`.
@@ -34,7 +34,22 @@ with g++ on Linux. Each oracle reports `mismatches 0` on success.
 | `registers_oracle.py` | `0x00190554`, `0x0019060B`, `0x00190656`, `0x00191E8F`, `0x00191F00`, `0x0018F4A9`, `0x0018F595`, `0x0018F86B`, `0x0018F436`, `0x0019010E`, `0x00190BDD`, `0x00192629`, `0x0018E4EB`, `0x0018E48C`, `0x0018E988`, `0x0018ED95`, `0x0018FF4B`, `0x0018E9DC`, `0x00191990`, `0x001919BD`, `0x0018F848`, `0x0018EB4C`, `0x0018EB96`, `0x00192469`, `0x0018FFC9`, `0x001906BB`, `0x0018FC2A`, `0x0018FD7D`, `0x001936B5` (via `0x00192469`), `0x0018EBEA`, `0x0018EDEE`, `0x001907E9`, `0x0018F815`, `0x00190D14`, `0x00190858`, `0x0018FED0`, `0x001908AE` |
 | `trees_oracle.py` | Tree template instances `0x0019164F`, `0x00191714`, `0x00191806`, `0x001918CB`, `0x00191B1C` (join), `0x0019204A`, `0x0019214A`, `0x0019224A`, `0x0019234A`, `0x00192529` (erase), `0x001926FB`, `0x001927B9` (unregister), `0x001922BB`, `0x0019259A` (insert) and pass insertion `0x00191A82` |
 | `sets_oracle.py` | `0x0018E78B`, `0x0018F56F`, `0x0018F549`, `0x0018F2AA`, `0x0018F2D3`, `0x0018F1BC`, `0x00190322`, `0x00190163`, `0x00190AA0`, `0x00190AC6`, `0x00192772`, `0x0019287F`, `0x001924DA`, `0x0018E94C`, `0x0018F174`, `0x001923BB`, `0x001927D1`, `0x00192830`, `0x001929E7`, `0x00192A2B`, `0x00190774`, `0x00190813`, `0x00190FFE` |
+| `navigation_oracle.py` | `0x001104E0` with `0x001109E0`, `0x00110970` and `0x00110EF0` (heap allocation and reallocation hooked; needs `mem_00011000.bin` and `mem_00210000.bin`) |
+| `overlay_oracle.py` | `0x0001DF70` with `0x0001E2A0`, `0x0001E770`, `0x0003DD50`, `0x0002AC70`, `0x0001E3E0` and `0x0005C1A0` (needs `mem_00011000.bin`, `mem_00160000.bin`, `mem_00200000.bin`/`mem_00203000.bin` and `mem_00210000.bin`) |
+| `update_oracle.py` | Player update helpers `0x00025A30`, `0x00110C90` (with `0x00036AF0`, `0x00110BF0`, `0x00110EF0`, `0x001108B0`), `0x00019520`, `0x0002C980`, `0x0002B450` (with `0x001248D0`) and body sphere pushes `0x00025F00`/`0x00026100` (with `0x00056330`, `0x00040FB0`, `0x0001FE00`, `0x001226C0`, `0x00122480`, `0x00122C10`, `0x000662A0`); heap, `HeapFree`, receivers and probe vtables hooked; needs `mem_00011000.bin`, `mem_00200000.bin`/`mem_00203000.bin`, `mem_00210000.bin` and `mem_00339000.bin` |
+| `contact_oracle.py` | Body contact walk `0x0013F2C0` with `0x0013ED20`, `0x0013EE10`, `0x0013EE80`, `0x0013F7B0`, `0x00122B00`, `0x001229F0`, `0x000FCC90`, `0x000FC6C0`, `0x0013FB50`, `0x0013EBE0`, and the player callback `0x0001F8C0`; same memory files as `update_oracle.py` |
 | `ctor_oracle.py` | `0x00192DF1`, `0x001935E6`, `0x001934A5`, `0x00190E27`, `0x00192B84`, `0x00194311` (with `0x00193C2A`), `0x00193EE2`, `0x0019149A`, `0x00193566`, `0x00190F87`, `0x00191417`, `0x001911A8`, `0x00191D2D`, `0x00193649`, and `0x00193EBE` (normal paths; Linux uses SEH-shimmed copies built by `run.sh`, Windows can compile the original modules with MSVC into `cache/oracle/ctor_harness.exe`; needs `cache/oracle/mem_00160000.bin`) |
+
+The update and contact harnesses were built on Windows with MSVC from a Developer
+Command Prompt (they are not yet in `run.sh`):
+
+```text
+cl /std:c++20 /O1 /EHsc /Gy /Iinclude /Isrc /Isrc/engine tools/oracle/update_harness.cpp src/engine/entities/body_collision.cpp src/engine/entities/entity_collision.cpp src/engine/entities/player_update.cpp src/engine/navigation/floor_tracking.cpp src/engine/navigation/cell_registration.cpp src/engine/navigation/navigation.cpp src/engine/navigation/occupancy.cpp src/engine/entities/actor_transform.cpp src/engine/entities/shape_transform.cpp src/engine/entities/entity.cpp src/gbtg/animation/anim.cpp src/engine/camera/entity_camera.cpp /Fe:cache/oracle/update_harness.exe /link /OPT:REF
+cl /std:c++20 /O1 /EHsc /Gy /Iinclude /Isrc /Isrc/engine tools/oracle/contact_harness.cpp src/engine/entities/body_contacts.cpp src/engine/entities/body_resources.cpp src/engine/entities/segment_records.cpp src/engine/entities/entity_collision.cpp src/engine/navigation/navigation.cpp src/engine/navigation/occupancy.cpp src/engine/entities/actor_transform.cpp src/engine/entities/shape_transform.cpp src/engine/entities/entity.cpp src/gbtg/animation/anim.cpp src/engine/camera/entity_camera.cpp /Fe:cache/oracle/contact_harness.exe /link /OPT:REF
+```
+
+Then run `python update_oracle.py [seed] [cases] [kind]` and `python contact_oracle.py [seed] [cases]`
+from `tools/oracle`.
 
 An oracle is evidence for a translation, not a replacement for reading the
 dump: inputs must reach every branch, and functions that call heap, D3D or

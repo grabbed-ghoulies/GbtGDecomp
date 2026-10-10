@@ -72,6 +72,17 @@ add_library(gbtg_lib STATIC
     src/engine/entities/player_attachment_helpers.cpp
     src/engine/entities/player_attachment.cpp
     src/engine/entities/player_construction.cpp
+    src/engine/entities/player_goal_cleanup.cpp
+    src/engine/entities/player_destruction.cpp
+    src/engine/navigation/cell_registration.cpp
+    src/engine/entities/player_messages.cpp
+    src/engine/entities/player_overlay.cpp
+    src/engine/graphics/billboard_queue.cpp
+    src/engine/navigation/floor_tracking.cpp
+    src/engine/entities/body_collision.cpp
+    src/engine/entities/segment_records.cpp
+    src/engine/entities/body_contacts.cpp
+    src/engine/entities/player_update.cpp
     src/engine/entities/player_state.cpp
     src/engine/entities/body_motion_controller.cpp
     src/engine/entities/body_health.cpp
@@ -508,7 +519,7 @@ if(BUILD_TESTING)
     get_target_property(GBTG_TRANSITION_DEFINITIONS gbtg COMPILE_DEFINITIONS)
     get_target_property(GBTG_TRANSITION_INCLUDES gbtg INCLUDE_DIRECTORIES)
     target_link_libraries(gbtg-transition-tests PRIVATE ${GBTG_TRANSITION_LINKS})
-    target_sources(gbtg-transition-tests PRIVATE tests/player_parent_checks.cpp)
+    target_sources(gbtg-transition-tests PRIVATE tests/player_parent_checks.cpp tests/player_message_checks.cpp tests/player_update_checks.cpp)
     target_link_libraries(gbtg-movie-startup-tests PRIVATE ${GBTG_TRANSITION_LINKS})
     if(GBTG_TRANSITION_DEFINITIONS)
         target_compile_definitions(gbtg-transition-tests PRIVATE ${GBTG_TRANSITION_DEFINITIONS})

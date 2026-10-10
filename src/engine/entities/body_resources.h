@@ -49,26 +49,30 @@ void reload_runtime_body_actions(std::span<u8> body, const char* name,
     ResourceErrorState& error); // Xbox 0x00027740
 bool release_runtime_body_cached_resource(void* resource,
     std::span<RuntimeBodyResourceCacheEntry> entries, i32& count); // Xbox 0x0001B920
+// Retail 0x10-byte override row; the actor's +0x1F0 collision filter is Actor::model_flags.
 struct RuntimeBodyCollisionOverride
 {
-    u8* actor;
-    u32 saved;
-    u32 retained;
-    u32 active;
+    Actor* actor;
+    u32 saved; // +4, the filter word before suspension.
+    u32 retained; // +8, float age advanced by 0x0013ED20.
+    u32 active; // +0xC, nonzero while the filter is suspended.
 };
 struct RuntimeBodyCollisionRecord
 {
-    std::array<u8, 0x1C> bytes;
-    const u8* shape;
+    std::array<u8, 0x1C> bytes; // +8 previous centre, +0x17 flags, +0x18 radius scale.
+    const u8* shape; // +0x1C.
+    RuntimeBodyCollisionRecord* next = nullptr; // Retail +4.
 };
 struct RuntimeBodyCollisionState
 {
     u32 count;
     RuntimeBodyCollisionRecord* records;
-    GhoulySpawnPool* overrides;
-    std::array<u32, 3> retained;
-    void* extra;
-    u32 tail;
+    GhoulySpawnPool* overrides; // +8, RuntimeBodyCollisionOverride rows.
+    u32 word_c;
+    RuntimeBodyCollisionRecord* active; // +0x10, first record linked through record +4.
+    u32 walking; // +0x14, set while 0x0013F7B0 runs.
+    GhoulySpawnPool* removed; // +0x18, Actor* rows dropped from the overrides after a walk.
+    u32 forced; // +0x1C, walks even when the frame step is zero.
 };
 RuntimeBodyCollisionState* create_runtime_body_collision_state(
     const RuntimeBodyModelNodes* model); // Xbox 0x0013F150

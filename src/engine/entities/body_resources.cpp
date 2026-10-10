@@ -331,7 +331,7 @@ void restore_runtime_body_collision_overrides(GhoulySpawnPool& pool)
     {
         if (row->active != 0)
         {
-            std::memcpy(row->actor + 0x1F0, &row->saved, 4);
+            row->actor->model_flags = row->saved;
             row->active = 0;
         }
     }
@@ -348,10 +348,10 @@ void destroy_runtime_body_collision_state(RuntimeBodyCollisionState* state)
         engine_heap_free(state->overrides);
         state->overrides = nullptr;
     }
-    if (state->extra != nullptr)
+    if (state->removed != nullptr)
     {
-        engine_heap_free(state->extra);
-        state->extra = nullptr;
+        engine_heap_free(state->removed);
+        state->removed = nullptr;
     }
     engine_heap_free(state);
 }

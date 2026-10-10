@@ -98,6 +98,16 @@ struct SegmentProbe
                  u8* record) = nullptr;
     SegmentProbe* next = nullptr;
     SegmentProbe* prev = nullptr; // object+0x1E0, set by 0x0003E810
+    // Vtable +0x1C, called by 0x00122480. Kept last so the head sentinel's aliasing of
+    // query/next is unchanged.
+    i32 (*sweep)(SegmentProbe& self, Vec3& candidate, Vec3& kept, i32 kind, u32 mask,
+                 u8* record) = nullptr;
+    // Vtable +0x2C, called by 0x001229F0.
+    i32 (*point)(SegmentProbe& self, Vec3& candidate, Vec3& kept, float radius, u32 mask,
+                 u8* record) = nullptr;
+    // Vtable +0x30, called by 0x00122B00 with the slot pool it may append to or grow.
+    i32 (*contacts)(SegmentProbe& self, Vec3& origin, float radius, u32 mask,
+                    SegmentPool& pool) = nullptr;
 };
 
 // Header of the 0x54-byte record pool. begin is the first record (block+0x10).

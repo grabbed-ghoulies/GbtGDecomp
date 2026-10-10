@@ -1,0 +1,196 @@
+#include "body_collision.h"
+#include "actor_transform.h"
+#include "entity.h"
+#include "entity_collision.h"
+#include "shape_transform.h"
+#include "gbtg/anim.h"
+#include <bit>
+#include <cstring>
+
+namespace gbtg
+{
+namespace
+{
+void put_float(std::span<u8> bytes, size_t offset, float value)
+{
+    std::memcpy(bytes.data() + offset, &value, 4);
+}
+
+float record_float(const u8* record, size_t offset)
+{
+    float value;
+    std::memcpy(&value, record + offset, 4);
+    return value;
+}
+}
+
+// Xbox 0x00025A30
+i32 record_runtime_body_motion(std::span<u8> history, const Vec3& delta, const Actor& owner,
+    const RuntimeActorClock& clock)
+{
+    const float step = runtime_frame_step(clock);
+    const float rate = runtime_actor_rate(owner);
+    size_t sample = 4 + size_t(read_u32(history, 0)) * 12;
+    put_float(history, sample, delta.x);
+    put_float(history, sample + 4, delta.y);
+    put_float(history, sample + 8, delta.z);
+    const float scale = rate * step;
+    if (scale > 0.0f)
+    {
+        const float inverse = 1.0f / scale; // DAT_0032B0F8.
+        sample = 4 + size_t(read_u32(history, 0)) * 12;
+        put_float(history, sample, read_f32(history, sample) * inverse);
+        put_float(history, sample + 4, read_f32(history, sample + 4) * inverse);
+        put_float(history, sample + 8, read_f32(history, sample + 8) * inverse);
+    }
+    const i32 next = i32(read_u32(history, 0)) + 1;
+    const u32 index = u32(next % 0x50);
+    std::memcpy(history.data(), &index, 4);
+    return next / 0x50;
+}
+
+// Xbox 0x00026100
+u8 push_runtime_body_sphere(RuntimeBodyCollision& context, RuntimeBodyCollisionSphere& sphere,
+    const float* world)
+{
+    Actor& owner = context.owner;
+    sphere.contact[0x26] = 0;
+    const EntityBonePose* pose;
+    if (owner.model == nullptr)
+    {
+        pose = nullptr;
+    }
+    else
+    {
+        pose = owner.model->alternate_shape_pose;
+        if (pose == nullptr)
+        {
+            pose = owner.model->primary_shape_pose;
+        }
+    }
+    Vec3 origin;
+    const float radius = shape_sphere_metrics(*sphere.node, world, pose, origin);
+    Vec3 center = origin;
+    Vec3 target = actor_world_position(owner);
+    target.y = float(static_cast<long double>(target.y) + radius + 1.0L); // DAT_0032B0F8.
+    const u32 mask = camera_collision_mask(context.mask);
+    Vec3 kept;
+    for (i32 pass = 0; pass < 3; ++pass)
+    {
+        kept = center;
+        const u8 kind = context.body[0x717];
+        i32 hit;
+        if (kind == 0)
+        {
+            hit = entity_record_movement_probe(kept, target, std::bit_cast<u32>(radius), 0xC, mask);
+        }
+        else if (kind == 1)
+        {
+            float dx = center.x - target.x;
+            float dy = center.y - target.y;
+            float dz = center.z - target.z;
+            const float length = dz * dz + dy * dy + dx * dx;
+            if (length != 0.0f)
+            {
+                const long double scale = retail_reciprocal_sqrt(length);
+                dx = float(dx * scale);
+                dy = float(dy * scale);
+                dz = float(dz * scale);
+            }
+            kept.x = dx * radius + kept.x;
+            kept.y = dy * radius + kept.y;
+            kept.z = dz * radius + kept.z;
+            hit = entity_record_sweep_probe(kept, target, 0xC, mask);
+        }
+        else
+        {
+            break;
+        }
+        if (hit == 0)
+        {
+            break;
+        }
+        // DAT_00511A20: the first slot's pool; its first record is at pool +4.
+        const u8* record = entity_detail::g_segment_slots[0].pool.begin;
+        if (sphere.contact[0x26] == 0)
+        {
+            entity_copy_match_block(sphere.contact.data(), record);
+        }
+        const float normal_x = record_float(record, 0xC);
+        const float normal_y = record_float(record, 0x10);
+        const float normal_z = record_float(record, 0x14);
+        const float dot = ((center.z - target.z) - (kept.z - target.z)) * normal_z +
+            ((center.y - target.y) - (kept.y - target.y)) * normal_y +
+            ((center.x - target.x) - (kept.x - target.x)) * normal_x;
+        float push = 0.0f - dot;
+        constexpr float kMinimumPush = std::bit_cast<float>(0x3D4CCCCDu); // DAT_0032B250.
+        bool apply;
+        if (kMinimumPush > push)
+        {
+            push = kMinimumPush;
+            apply = true;
+        }
+        else
+        {
+            apply = !(0.0f > push);
+        }
+        if (apply)
+        {
+            center.x = push * normal_x + center.x;
+            center.y = normal_y * push + center.y;
+            center.z = normal_z * push + center.z;
+        }
+    }
+    if (sphere.contact[0x26] == 0)
+    {
+        return 0;
+    }
+    float move_x = kept.x - origin.x;
+    float move_y = kept.y - origin.y;
+    float move_z = kept.z - origin.z;
+    if ((context.bits->bytes[5] & 2) != 0)
+    {
+        move_y = 0.0f;
+    }
+    const float step = runtime_frame_step(context.clock);
+    const float rate = runtime_actor_rate(owner);
+    constexpr float kLateralRate = 20.0f; // DAT_003390C8.
+    const float limit = float(static_cast<long double>(step) * rate * kLateralRate);
+    const float lateral_x = move_x * move_x;
+    const float lateral_z = move_z * move_z;
+    if (retail_square_root(lateral_x + lateral_z) > limit)
+    {
+        const float lateral = lateral_x + lateral_z;
+        if (lateral != 0.0f)
+        {
+            const long double scale = retail_reciprocal_sqrt(lateral) * limit;
+            move_x = float(move_x * scale);
+            move_z = float(move_z * scale);
+        }
+    }
+    std::span<u8> body = context.body;
+    put_float(body, 0x18, read_f32(body, 0x18) + move_x);
+    put_float(body, 0x1C, read_f32(body, 0x1C) + move_y);
+    put_float(body, 0x20, read_f32(body, 0x20) + move_z);
+    return 1;
+}
+
+// Xbox 0x00025F00
+void push_runtime_body_spheres(RuntimeBodyCollision& context)
+{
+    std::span<u8> body = context.body;
+    if (context.spheres != nullptr && body[0x715] != 0)
+    {
+        Vec3 position{read_f32(body, 0x18), read_f32(body, 0x1C), read_f32(body, 0x20)};
+        float world[12];
+        actor_build_world_matrix(context.owner, world, &position);
+        RuntimeBodyCollisionSphere* end = context.spheres + body[0x714];
+        body[0x716] = 0;
+        for (RuntimeBodyCollisionSphere* sphere = context.spheres; sphere < end; ++sphere)
+        {
+            const u8 pushed = push_runtime_body_sphere(context, *sphere, world);
+            body[0x716] = u8(body[0x716] + pushed);
+        }
+    }
+}
+}

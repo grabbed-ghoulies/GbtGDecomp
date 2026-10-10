@@ -22,6 +22,12 @@ done
 g++ -std=c++20 -O1 -D_WIN32 -I"$shim" -I"$root/include" -I"$graphics" "$root/tools/oracle/ctor_harness.cpp" \
     "$shim/shader_validation_constructors.cpp" "$shim/shader_validation_instruction_constructor.cpp" "$shim/shader_validation_pass_lifecycle.cpp" "$shim/shader_validation_dependencies.cpp" "$shim/shader_validation_instruction_lifecycle.cpp" "$shim/shader_validation_packed_program.cpp" "$shim/shader_validation_optimizer.cpp" "$shim/shader_validation_scheduler.cpp" "$shim/shader_validation_program.cpp" "$shim/shader_validation_owner_sets.cpp" "$shim/shader_validation_destinations.cpp" "${validator[@]}" \
     "$graphics/shader_validation_cleanup.cpp" -o "$out/ctor_harness"
+g++ -std=c++20 -O1 -I"$root/include" -I"$root/src/engine" "$root/tools/oracle/navigation_harness.cpp" \
+    "$root/src/engine/navigation/cell_registration.cpp" "$root/src/engine/navigation/navigation.cpp" -o "$out/navigation_harness"
+g++ -std=c++20 -O1 -ffunction-sections -fdata-sections -include cstring -include cmath -I"$root/include" -I"$root/src" -I"$root/src/engine" "$root/tools/oracle/overlay_harness.cpp" \
+    "$root/src/engine/entities/player_overlay.cpp" "$root/src/engine/graphics/billboard_queue.cpp" "$root/src/engine/entities/actor_transform.cpp" \
+    "$root/src/engine/entities/player_mind_setup.cpp" "$root/src/engine/audio/listener_settings.cpp" "$root/src/gbtg/animation/anim.cpp" \
+    "$root/src/engine/entities/entity.cpp" -Wl,--gc-sections -o "$out/overlay_harness"
 cd "$root/tools/oracle"
 python3 serializer_oracle.py "${1:-1}" "${2:-500}"
 python3 accessor_oracle.py
@@ -31,3 +37,5 @@ python3 registers_oracle.py "${1:-1}"
 python3 trees_oracle.py "${1:-1}"
 python3 sets_oracle.py "${1:-1}"
 python3 ctor_oracle.py "${1:-1}" 600
+python3 navigation_oracle.py "${1:-1}" 300
+python3 overlay_oracle.py "${1:-1}" 400

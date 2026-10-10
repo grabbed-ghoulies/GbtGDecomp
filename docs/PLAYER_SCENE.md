@@ -15,8 +15,11 @@ opening progress. See the final progress sections for the current dependency sta
 The complete parent body constructor/destructor (0x00024C50/0x00024F70) are now
 translated and checked through their real dependency chains. The complete player
 constructor (0x00028830), attachment creation/replacement and base strategy entry
-are now translated and checked. Player destruction/virtual dispatch and scene
-ownership/type registration still prevent live player spawning.
+are now translated and checked. Complete player destruction (0x00028A30) and
+goal-ring/navigation cleanup are also translated and checked. Player message dispatch
+(0x00028F60/0x00028FC0), the render wrapper 0x00028050 and the player update 0x0002C2B0
+(with its body collision and contact walk) are translated and checked. Scene ownership, type
+registration and the actual body/mind/strategy class methods still prevent live player spawning.
 
 ## Reproduction and opening regression
 
@@ -2607,3 +2610,291 @@ Next lifecycle work is player destructor 0x00028A30, particularly goal-ring remo
 these as well as constructor/destructor into vtable 0x004DD6B8. Complete those
 before installing type 5 and its body/mind/strategy descendants in the real
 scene owner and binding the translated readiness query to the live script gate.
+
+### Complete player destructor and goal cleanup batch (2026-10-10)
+
+Eight routines complete another lifecycle dependency chain:
+
+- `player_goal_cleanup.h/.cpp`: exact six-byte body latch mask 0x0001F7A0,
+  increment 0x0001FC40 and decrement 0x0001FD20, goal classification 0x000283D0,
+  script override restoration 0x00138030 and complete goal removal 0x00028240.
+  Counters wrap as bytes, and leaving mask 0x3F notifies the actual body owner.
+  Recipient traversal saves the next node before the virtual call. Goal removal
+  preserves all eight excluded goal kinds, circular head advancement, null versus
+  empty-ring/address-zero reads, actual heap release, the two-word 0x79 broadcast,
+  and conditional restoration of the actual five-word 0x86 override messages.
+  Override restoration snapshots player mode but rereads the second global
+  enable/payload after the first callback, retaining both raw float words.
+- `navigation/cell_registration.h/.cpp`: 0x001108B0 walks fixed 0xC-byte records,
+  decrements either the low five bits or bits 5..8 of the actual selected grid
+  cell, preserves unrelated bits and releases the retained heap header. Empty
+  registration avoids the grid lookup; there are no invented saturation guards.
+- `player_destruction.h/.cpp`: complete 0x00028A30 decrements the player count,
+  clears +0x98B before draining goals, clears strategy/requests through the real
+  setter, releases mind/input/body/attributes/spawn storage through translated
+  dependencies, unlinks all four actual intrusive lists, unregisters navigation
+  cells and clears the nonzero tag index. The input dispatch retains kinds 1..5
+  and deliberately leaves the retail +0x960 word/native dangling view unchanged
+  after release, as the dump does. This destructor is single-shot.
+
+Fixtures cover independent latch bits, byte overflow/underflow, list mutation
+during callbacks, every goal exclusion, circular goal removal, empty-ring literal
+zero-address reads, final-goal overrides, mode/global changes during virtual
+messages, navigation counter wrap and bit preservation. The constructor fixture
+now tears down through the full destructor with multiple goals, actual factory
+body/input release, all four list backlinks, count/tag/flag cleanup and the
+unchanged input word. Its enabled overrides also verify destructor suppression
+of restoration by clearing +0x98B before draining the goals.
+
+The combined Release build of the game, transition checks and six CTest targets
+passes. All six CTests, dialogue-resource preflight (1357 template clones and
+457 localization keys), actor loading and ghoulybox decoding pass. Ghidra exports
+remain read-only; there are no retail edits, staging or commits.
+
+The remaining player lifecycle frontier is virtual dispatch 0x00028F60 with its
+0x00028FC0 message handler, update 0x0002C2B0 and collision wrapper 0x00028050
+with its dependencies. Type 5 registration and actual scene/body/mind/strategy
+ownership still await these translations. Live +0x254/type 0x6F is unchanged;
+this batch completes destructor dependencies rather than advancing that gate.
+
+### Player message dispatch, activation and navigation registration (2026-10-10)
+
+Nineteen routines complete the player virtual message slot (`player_messages.h/.cpp`, plus
+`navigation/cell_registration`):
+
+- 0x00028F60 runs the player handler, then forwards the message through vtable +0xC of the
+  strategy, mind and body children (+0x954/+0x958/+0x95C), rereading each slot after the
+  previous call and skipping absent children.
+- 0x00028FC0 switches on the message id and always finishes in the base receiver 0x0003EF70:
+  - 7: 0x00019150 fades animation slot `message.slot` when the event kind (+0xC) is 5. It writes
+    (1 - position) * player duration and fade mode 3, and marks the controller dirty. Slot 0 is
+    never touched.
+  - 0xE: 0x000294F0 replies to the sender at message +4 with id 0xF, the six words at +8 and the
+    zero-extended +0x20 word.
+  - 0xF: 0x00029590 sends {0x2D, self, sender} to self, then reuses the same stack record with
+    the owner and sender words swapped for the sender.
+  - 0x23: activation 0x00029270, then the pulse broadcast {0x71, self}.
+  - 0x2D: sets bit 1 of the first body-bit byte (body +0x15C, +8).
+  - 0x6E/0x70: when the message names this actor, carries a nonzero +8 word and attribute word
+    +0x28 (0x000196D0) is set, 0x00019660 resets the attribute timer with value 0.
+  - 0x7C: when the message names this actor, the pulse broadcast {0x76, self}.
+  - 0x7D: 0x00029490 registers navigation cells around +0xCC0 with radius body-owner +0x38 times
+    body +0x888, unless that product equals zero (NaN still registers).
+  - 0xA7/0xA9/0xAA: 0x00028700/0x00028770/0x000287C0 accept a spawn, variant or alternate
+    variant only when +0xBA0 does not start with `aid_` and +0xB9E is zero. They copy the names
+    to +0xBA0 (and +0xC20 for 0xA7), select mode 0/1/2 at +0xB9C and write result 1, otherwise -1.
+  - Any other id: 0x00027FB0. Message 9 increments +0xCD8. The first pause moves the strategy to
+    state 1000 through 0x0002B8D0 and drains every goal (0x00028210) when 0x00028360 reports an
+    active mask. Message 10 decrements the count. At zero, if 0x00028D50 allows it, the strategy
+    returns to its +0xC state. 0x00028D50 picks reference group 1 for mode 2 or a linked +0x93C,
+    and otherwise returns DAT_0030F144[DAT_0051248C].
+- 0x00029270 activation:
+  - Inserts node +0x934 into DAT_00511B34. Mode 1 also inserts +0x944 into DAT_00511B44. Mode 2
+    inserts +0x94C into DAT_00511B4C and appends +0x93C at the tail of DAT_00511B3C.
+  - Stores world position and euler at +0xCC0/+0xCCC.
+  - Records occupancy hits at +0xCA0 (mask 2, when +0x1FC is set) and +0xCA4 (mask 4, actor tag
+    group) for modes 1 and 4.
+  - Resets the attribute timer for excluded tags (DAT_0050E228/0x0050E22C).
+  - Sets +0x98B when the first goal kind is nonzero; otherwise restores script overrides
+    (0x00138030).
+  - Stores the navigation floor at +0xCEC.
+- 0x001104E0 navigation cell registration:
+  - Allocates the 0x40-byte row header (stride 0xC, growth 4) on first use. Later calls first
+    release earlier rows.
+  - Bounds the four radius corners through 0x001109E0/0x00110970.
+  - A cell within (half grid-0 cell + radius) of the centre increments its low five bits when
+    `include_outer` is set, when it is inside the radius, or when it is the centre cell; otherwise
+    it increments bits 5..8.
+  - Rows grow by four through the heap reallocation boundary.
+  - `NavigationCellRegistration` gains the retail capacity, stride and growth fields. The release
+    0x001108B0 is unchanged.
+
+Native ownership notes:
+
+- The list nodes are the same native `ListHead` aliases used by the destructor. Node +0x934 must
+  be the link of an `ActorWorldMessageNode`.
+- The +0x93C word and `Actor::mask_flag` receive the predecessor's retail address through the
+  activation's address map. The other raw link words are not mirrored.
+- +0xCD8 updates both the raw word and `Actor::parked_gate`, which other readers use.
+- The +0xBA0 copies keep the spawn controller's first-name-byte alias in sync.
+
+Verification:
+
+- `tools/oracle/navigation_oracle.py` runs retail 0x001104E0 (with its callees and hooked heap
+  allocation/reallocation) against the host build. Each case has 1-3 successive registrations,
+  random grids, origins, NaN and negative radii, and missing floors. It reports zero mismatches,
+  and catches deliberately broken builds (wrong half-cell grid, growth size, NaN test).
+- `tests/player_message_checks.cpp`, called from the dialogue-resource preflight, covers:
+  - fade slots, timers and attribute reads;
+  - contact replies;
+  - all spawn acceptance and rejection paths;
+  - strategy resume groups;
+  - transitions, nested pauses and goal draining;
+  - registration counters, growth and release;
+  - mode 1 and 2 activation with list ordering, occupancy, excluded tags and goal-deferred
+    overrides.
+- The ghoulybox receiver check (`--actor-loading`) also sends 0xA9, 0x2D, 9 and 0xF through the
+  full dispatch with the real base receiver. This verifies child forwarding order and the
+  absent-child skip.
+
+The Release build of the game and transition tests passes, as do all six CTests,
+`--dialogue-resources`, `--actor-loading` and `--ghoulybox-decoder`. The build was run on the
+user's PC through `cache/_run/build_and_test.bat`, which writes `cache/build_log.txt`.
+
+The remaining player frontier:
+
+- Update 0x0002C2B0 (about 30 untranslated callees, led by 0x0013F7B0, 0x00026100 and 0x0013EBE0).
+- The render wrapper 0x00028050 with its overlay chain: 0x0001DF70, 0x0001E3E0, 0x0001E2A0,
+  0x0001E770, 0x0002AC70, 0x0003DD50, and the billboard queue 0x0005C1A0.
+- Type 5 registration and live scene ownership.
+
+Live +0x254/type 0x6F is unchanged.
+
+### Player render wrapper and body overlay (2026-10-10)
+
+Eight routines complete the player draw slot 0x00028050 (`player_overlay.h/.cpp`, plus
+`graphics/billboard_queue`):
+
+- 0x00028050 returns 0 without drawing when +0xCE0 is set, the actor is mode 2 or linked at
+  +0x93C, and bit 2 of DAT_0050EA9C is set. Otherwise it draws the actor (0x0003C9E0), queues the
+  body overlay and calls body +0x744's vtable +0x18 when present. It returns the draw result.
+- 0x0001DF70 runs only in pass 2:
+  - A body counter (+0xE0) uses sprite +0xD8, white, the truncated +0xDC value, size 3 and rises
+    of 3.
+  - Otherwise both +0xA4 and +0xA8 must be set. It picks sprite +0x98, or (when 0x0001E770 allows
+    the alternate overlay) +0xA0 or +0x9C by +0xA9. Colour comes from 0x0001E2A0 with alpha
+    +0xA5, the value is health +0x94, size is +0xBC, and the rise is 5.
+  - The anchor (0x0003DD50) is world position plus radius_y * size_z, raised by
+    |(size_y - size_z) * radius_y|. Case class 3 adds 6, via state 3 or state 1 with
+    0x00145FF0 on the body +0x48 actor.
+  - The sprite frame is trunc(frames * actor +0x924) mod the sprite's +0x11 byte.
+  - After queuing the sprite, the digit anchor moves by (digit rise - rise), then sideways along
+    the normalized camera side vector (0x0002AC70) when the lateral offset is nonzero.
+- 0x0001E2A0 picks one of four colours by health ratio (< 0.25, < 0.5, < 0.75).
+- 0x0001E770 allows the alternate overlay when +0x98C is clear, +0x978 > 0 or +0x969 is set, and
+  the attributes have no +0xB8 word.
+- 0x0001E3E0 splits the value into at most four decimal digits. It measures each digit sprite
+  (u16 +8 * 0.02), centres the run with 0.2 gaps along the camera side vector, and queues them
+  highest digit first at size 1, frame 0xFF.
+  - The translation mirrors the retail stack slots, which overlap. For four-digit values, retail
+    reads the top digit's index from the first width's float bits, and advances by the stored
+    sprite x. These reads are reproduced rather than corrected.
+- 0x0005C1A0 appends to the 0x800-entry billboard queue (DAT_004EE330, count DAT_00504330):
+  sprite, position, size, rotation, colour, frame. A full queue drops the sprite. The consumer
+  of this queue is not translated yet.
+
+Verification:
+
+- `tools/oracle/overlay_oracle.py` runs retail 0x0001DF70 and 0x0001E3E0, with all their
+  callees, against the host build. It uses values up to 999 and exact colour-threshold ratios,
+  and reports zero mismatches over 400 cases. Deliberately broken builds were each caught:
+  - case-class rise
+  - alpha byte
+  - side direction
+  - frame modulus
+  - digit gap
+  - half-ratio threshold
+  - alternate-overlay timer test
+- `tests/player_message_checks.cpp` adds fixtures for:
+  - digit centring and order
+  - zero and a full queue
+  - colour bands
+  - alternate-overlay gating
+  - a counter overlay's anchor, rise and sideways digit offset
+- The gating and child call in 0x00028050 have no fixture, because the full actor draw context
+  is not available in these tests.
+- A complete `run.sh` pass now takes longer than one three-minute call, so each new oracle was
+  run on its own.
+
+Confirmed on Windows through `cache\_run\build_and_test.bat`: the Release build of the game and
+transition tests (including `player_overlay.cpp`, `billboard_queue.cpp` and the new fixtures)
+passes, as do all six CTests, `--dialogue-resources`, `--actor-loading` and `--ghoulybox-decoder`.
+
+The remaining frontier is player update 0x0002C2B0 (about 30 untranslated callees, led by
+0x0013F7B0, 0x00026100 and 0x0013EBE0), then type 5 registration and live scene ownership.
+
+### Player update, body collision and contact walk (2026-10-10)
+
+Twenty-one routines complete the player update slot 0x0002C2B0. A fresh `CalleeTree.java` export from
+the update (saved as `cache/ghidra_frontier/callee_tree_0002C2B0.txt`) listed 22 untranslated
+static callees plus the update itself and its contact callback 0x0001F8C0. The inline
+0x000F7100/0x0014DED0/`HeapFree` and 0x0014E872 sequences are the same heap boundary as
+`engine_heap_free`/`engine_heap_allocate` (0x000F72D0 disassembles to exactly that wrapper).
+
+- `player_update.h/.cpp`:
+  - 0x00019520 counts actor +0x974/+0x978 down while decay runs and sends 0x55/0x56 at zero; a NaN
+    timer is left alone.
+  - 0x0002B450 records the type-4 occupancy record at +0xCA8, latches +0xCB8 for a foreign record
+    (group 0 or the actor tag), otherwise keeps the last free position at +0xCAC while body +0x30
+    and +0x34 are zero, and sends 0x5D for a latched, unlinked mode-1 player with a strategy.
+  - 0x0002C980 sends 0x33 outside DAT_0050EA04..0x0050EA18 (the top is max(+0x14 bound, y) + 1,
+    with the retail NaN choice), or for a mode-1 player off the navigation grid whose first goal
+    kind is zero (address zero for an empty ring).
+  - 0x0002C2B0 itself: input reset/refresh by device kind and first goal kind; strategy and mind
+    ticks only while +0xCD8 is not positive; body ticks, body-bit clears and the animation
+    tick/apply around body +0x14; for a free body the filter (+0x1F0) and shape mode (+0x118) are
+    cleared around the shape-probe re-registration and sphere pass, with the support query setting
+    or clearing body bit 0x10; a carried body (+0x258) records its offset in the motion history,
+    moves the actor to it and copies the owner back; then transform refresh, frame attachments,
+    attachment effects, position easing, shader animations, body +0x18, the contact walk, the
+    +0x744 action key (looked up and selected with the zero template token), body position/yaw/
+    euler copies, timers, room tracking, floor tracking with 0x24, cell registration or release,
+    the bounds check, pause decay and the actor clock.
+- `body_collision.h/.cpp`: 0x00025A30 writes a delta into the body +0x340 ring (divided by
+  rate x step when positive) and wraps at 0x50. 0x00025F00 builds the world matrix at body +0x18
+  and counts pushes in body +0x716. 0x00026100 sweeps each sphere up to three times (kind 0
+  through 0x001226C0 with the radius as the opaque word, kind 1 from the far surface point through
+  0x00122480), copies the first record once, pushes the centre along the record normal by at least
+  0.05, zeroes Y when body-bit byte +5 has bit 2 set, and clamps the lateral move to step x rate x 20 (DAT_003390C8),
+  with x87 products kept in `long double`.
+- `navigation/floor_tracking.h/.cpp`: 0x00110C90 releases the old floor's registration on a change
+  and resets the mind path search (0x00036AF0) over the new grid. Ghidra's stack reading here was
+  confirmed under Unicorn after a manual count disagreed.
+- `entity_collision.cpp`: sweep 0x00122480 (vtable +0x1C), point probe 0x001229F0 (+0x2C) and
+  multi-contact collection 0x00122B00 (+0x30, one slot pool per hit). `SegmentProbe` gains these
+  slots after its existing fields, so the head sentinel aliasing is unchanged.
+- `segment_records.h/.cpp`: 0x000FCC90 copies a slot's 0x54-byte records into a heap pool;
+  0x000FC6C0 picks the nearest sphere surface point among records whose +0x28 byte is 1.
+- `body_contacts.h/.cpp`: 0x0013F2C0 ages the override rows (0x0013ED20), and while the frame
+  advances or +0x1C forces it, clears the player filter, suspends override actors (0x0013EE10),
+  walks the active shapes (0x0013F7B0), restores (0x0013EE80), drops the removal list's actors
+  from the overrides and restores the filter. 0x0013F7B0 refreshes each shape centre, builds the
+  flag mask (0x220002/0x40/0x100), notifies every multi-contact hit at its nearest point, then the
+  single point hit, stopping when the callback asks or clears the active list. 0x0013FB50 sends
+  the 0x14-byte contact record and velocity (delta x 60) to the callback, then 0x0013EBE0 adds an
+  override unless the actor is a listed player, has a +0x908 link or is already present.
+  Removals in 0x0013EE10 and 0x0013F2C0 copy the last row over the removed one (0x000F71F0 is
+  called with EAX/ECX/EDX; the decompile hides this).
+- 0x0001F8C0 sends 0x15 to the hit actor and 0x41 (carrying the reply) to the player, and on a
+  reply bumps the per-tag counters DAT_0053E528/DAT_00524E2C only for the first contact counted
+  at body +0x2CC.
+
+Representation changes:
+
+- Override rows now hold a native `Actor*` and 0x0013EE80 restores `Actor::model_flags`, which is
+  the +0x1F0 filter that segment-probe registration reads. The existing fixture was updated.
+- `RuntimeBodyCollisionState` names +0x10 (active shape list, linked through the new record
+  `next`), +0x14 (walking), +0x18 (removal pool of `Actor*`) and +0x1C (forced).
+- Child and receiver virtual methods (body +0x10/+0x14/+0x18/+0x1C, strategy/mind +0x10, body
+  +0x744 +0x1C, probe +0x1C/+0x20/+0x2C/+0x30, actor +0xC) are context callbacks; their actual
+  class methods are not translated yet.
+- Hit actors are reached through a `contact_actor` mapping from their `SegmentProbe`.
+
+Verification:
+
+- `tools/oracle/update_oracle.py` compares 0x00025A30, 0x00110C90, 0x00019520, 0x0002C980,
+  0x0002B450 and 0x00025F00/0x00026100 with retail code: 600 mixed cases, zero mismatches.
+  Mutants for the lateral rate and the Y clear were caught.
+- `tools/oracle/contact_oracle.py` runs retail 0x0013F2C0 with hooked probes and either a hooked
+  callback or the real 0x0001F8C0: 700 and 600 cases, zero mismatches. Mutants for the player
+  check, mask flag, velocity scale, row age, report reply and forced walk were all caught.
+- `tests/player_update_checks.cpp` (from the dialogue preflight) drives 0x0002C2B0 with recorded
+  children: tick order, pause gating, input reset, body bits, filter restore, easing, body copies,
+  the carried-body motion sample, a floor change with path-search reset and 0x24, cell
+  registration and release, pause decay and the clock.
+- Confirmed on Windows through `cache/_run/build_and_test.bat`: the Release game and transition
+  builds pass, as do all six CTests, `--dialogue-resources`, `--actor-loading` and
+  `--ghoulybox-decoder`.
+
+The remaining frontier is type 5 registration with the actual body (0x27), mind and strategy class
+methods behind the callbacks above, and live scene ownership. Live +0x254/type 0x6F is unchanged.

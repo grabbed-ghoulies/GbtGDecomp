@@ -10,6 +10,9 @@
 #include "../src/engine/entities/player_children.h"
 #include "../src/engine/entities/player_mind_setup.h"
 #include "player_parent_checks.h"
+#include "player_message_checks.h"
+#include "player_update_checks.h"
+#include "../src/engine/entities/player_messages.h"
 #include "../src/engine/scripts/script_table_lookup.h"
 #include "../src/engine/entities/entity_heap.h"
 #include "../src/engine/frontend/dialogue_page_setup.h"
@@ -2662,6 +2665,102 @@ void check_spawn_receiver_dependencies()
     if (controller.source_93c != nullptr || watched != nullptr)
     {
         throw Error("ghoulybox receiver did not propagate source release to the base actor");
+    }
+    {
+        // Player dispatch 0x00028F60/0x00028FC0 through the same base receiver; ids 0xA9, 0xF,
+        // 0x2D and 9 are ignored by 0x0003EF70.
+        std::vector<u8> player_bytes(0xE00);
+        std::vector<std::vector<u32>> self_messages;
+        RuntimeBodyAttachedActor self{player_bytes, 0x4000, [&](std::span<const u32> message)
+            {
+                self_messages.emplace_back(message.begin(), message.end());
+            }};
+        Actor player_actor;
+        std::span<const u8> attributes;
+        std::array<u8, 1> bit_bytes{};
+        EntityBitBlock bits{bit_bytes.data()};
+        EntityBitBlock* body_bits = &bits;
+        GhoulyController spawn_controller;
+        RuntimePlayerSpawnController spawn{nullptr, 0, spawn_controller};
+        std::array<entity_detail::ListHead, 4> links{};
+        entity_detail::WorldLists world{};
+        i32 excluded_count = 0;
+        const OccupancyRecord* room = nullptr;
+        const OccupancyRecord* allowed = nullptr;
+        RuntimePlayerGoalRing* ring = nullptr;
+        std::array<u8, 2> zero{};
+        u32 off = 0;
+        RuntimePlayerScriptOverrides overrides{off, off, off, off, off, off, off, off};
+        RuntimePlayerActivation activation{self, player_actor, links, world, [](const void*) -> u32
+            {
+                return 0;
+            },
+            excluded_count, nullptr, room, allowed, ring, zero, overrides};
+        FactoryObject strategy;
+        FactoryObject mind;
+        FactoryObject body;
+        RuntimePlayerChildContext child{factory, {}, 0x4000};
+        RuntimePlayerMindRequest* first_request = nullptr;
+        RuntimePlayerMindRequests requests{first_request, [](RuntimePlayerMindRequest&)
+            {
+            }};
+        RuntimePlayerMindRequests* request_view = &requests;
+        RuntimePlayerStrategySetup setup{child, request_view, [](FactoryObject&, u16, u16)
+            {
+            },
+            [](FactoryObject&, u16, u16)
+            {
+            }};
+        std::unordered_map<scene_detail::CamFocus*, RuntimeScriptActorQueryView> views;
+        RuntimeScriptActorQueryContext query{nullptr, views, zero.data()};
+        std::vector<u8> body_storage(0x900);
+        std::span<u8> body_view = body_storage;
+        entity_detail::LatchNode* latch = nullptr;
+        RuntimePlayerGoalCleanup goals{self, ring, body_view, player_actor, latch, zero, overrides};
+        std::array<u32, 2> references{};
+        std::array<u8, 1> decay{1};
+        u32 decay_index = 0;
+        RuntimePlayerStrategyResume resume{references, decay, decay_index};
+        RuntimePlayerPause pause{player_actor, strategy, setup, query, goals, resume};
+        entity_detail::NavigationCellRegistration* records = nullptr;
+        RuntimePlayerNavigationRegistration navigation{body_storage, player_actor, records};
+        RuntimePlayerMessageContext player{self, base, nullptr, attributes, body_bits, spawn, activation, pause, navigation};
+        std::vector<std::pair<FactoryObject*, u32>> forwarded;
+        RuntimePlayerChildMessages children{strategy, mind, body, [&](FactoryObject& object, void* message)
+            {
+                forwarded.emplace_back(&object, *static_cast<const u32*>(message));
+            }};
+        strategy.bytes = std::make_unique<u8[]>(0x10);
+        strategy.size = 0x10;
+        body.bytes = std::make_unique<u8[]>(0x10);
+        body.size = 0x10;
+        GhoulyVariantMessage variant;
+        std::strcpy(variant.name, "variant");
+        dispatch_runtime_player_message(&variant, player, children);
+        if (variant.result != 1 || read_u16(player_bytes, 0xB9C) != 1 || forwarded.size() != 2 || forwarded[0].first != &strategy
+            || forwarded[1].first != &body || forwarded[1].second != 0xA9)
+        {
+            throw Error("player dispatch must handle 0xA9, then forward to the present strategy and body only");
+        }
+        u32 bit_message = 0x2D;
+        dispatch_runtime_player_message(&bit_message, player, children);
+        u32 pause_message = 9;
+        dispatch_runtime_player_message(&pause_message, player, children);
+        if (bit_bytes[0] != 2 || read_u32(player_bytes, 0xCD8) != 1 || player_actor.parked_gate != 1 || forwarded.size() != 6)
+        {
+            throw Error("player dispatch must set the body bit, count pauses and forward each message");
+        }
+        RuntimeMessageReceiver sender{0x5000, [&](std::span<const u32> message)
+            {
+                self_messages.emplace_back(message.begin(), message.end());
+            }};
+        RuntimePlayerContactMessage contact{0xF, &sender, {}, 0};
+        dispatch_runtime_player_message(&contact, player, children);
+        if (self_messages.size() != 2 || self_messages[0] != std::vector<u32>{0x2D, 0x4000, 0x5000}
+            || self_messages[1] != std::vector<u32>{0x2D, 0x5000, 0x4000})
+        {
+            throw Error("player contact acknowledgement must notify self then sender");
+        }
     }
     destroy_ghouly_box_controller(controller);
     scene_detail::g_pulse_nodes = saved_pulses;
@@ -6488,6 +6587,8 @@ void check_player_dialogue_resources(gbtg::AidStore& aids)
     {
         gbtg::SceneExecutableResources executable(aids.game_dir);
         check_player_parent_lifecycle(executable);
+        check_player_messages();
+        check_player_update();
         size_t checked = 0;
         for (const auto& pool : executable.pools)
         {

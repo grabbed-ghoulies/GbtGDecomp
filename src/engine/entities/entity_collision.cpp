@@ -610,6 +610,110 @@ i32 entity_record_movement_probe(Vec3& kept, Vec3& candidate, u32 param, i32 kin
     return 0;
 }
 
+// Xbox 0x00122480
+i32 entity_record_sweep_probe(Vec3& kept, Vec3& candidate, i32 kind, u32 mask)
+{
+    g_segment_count = 0;
+    const float dz = candidate.z - kept.z;
+    const float dy = candidate.y - kept.y;
+    const float dx = candidate.x - kept.x;
+    const float dist2 = dz * dz + dy * dy + dx * dx;
+    if (kLookEps < dist2 || dist2 != dist2)
+    {
+        SegmentPool& pool = *prepare_segment_pool();
+        if (pool.cursor == pool.limit)
+        {
+            grow_segment_pool(pool);
+        }
+        u8* record = pool.cursor;
+        pool.cursor = record + pool.stride;
+        record[0x26] = 0;
+        SegmentProbe* found = nullptr;
+        i32 hit = 0;
+        for (SegmentProbe* probe = g_world.segment; probe != nullptr; probe = probe->next)
+        {
+            if (probe->sweep(*probe, candidate, kept, kind, mask, record) != 0)
+            {
+                found = probe;
+                hit = 1;
+            }
+        }
+        if (found != nullptr)
+        {
+            g_segment_slots[g_segment_count].object = found;
+            ++g_segment_count;
+        }
+        return hit;
+    }
+    kept.x = candidate.x;
+    kept.y = candidate.y;
+    kept.z = candidate.z;
+    return 0;
+}
+
+// Xbox 0x001229F0
+i32 entity_record_point_probe(Vec3& kept, Vec3& candidate, float radius, u32 mask)
+{
+    g_segment_count = 0;
+    const float dz = candidate.z - kept.z;
+    const float dy = candidate.y - kept.y;
+    const float dx = candidate.x - kept.x;
+    const float dist2 = dz * dz + dy * dy + dx * dx;
+    if (kLookEps < dist2 || dist2 != dist2)
+    {
+        SegmentPool& pool = *prepare_segment_pool();
+        if (pool.cursor == pool.limit)
+        {
+            grow_segment_pool(pool);
+        }
+        u8* record = pool.cursor;
+        pool.cursor = record + pool.stride;
+        record[0x26] = 0;
+        SegmentProbe* found = nullptr;
+        for (SegmentProbe* probe = g_world.segment; probe != nullptr; probe = probe->next)
+        {
+            if (probe->point(*probe, candidate, kept, radius, mask, record) != 0)
+            {
+                found = probe;
+            }
+        }
+        if (found != nullptr)
+        {
+            g_segment_slots[g_segment_count].object = found;
+            ++g_segment_count;
+            return 1;
+        }
+        return 0;
+    }
+    kept.x = candidate.x;
+    kept.y = candidate.y;
+    kept.z = candidate.z;
+    return 0;
+}
+
+// Xbox 0x00122B00
+i32 entity_collect_contact_probes(Vec3& origin, float radius, u32 mask)
+{
+    g_segment_count = 0;
+    SegmentProbe* probe = g_world.segment;
+    if (probe == nullptr)
+    {
+        return 0;
+    }
+    do
+    {
+        // Inline 0x00122C10 body: an empty slot gets a fresh 0x358-byte pool, otherwise it rewinds.
+        SegmentPool& pool = *prepare_segment_pool();
+        if (probe->contacts(*probe, origin, radius, mask, pool) != 0)
+        {
+            g_segment_slots[g_segment_count].object = probe;
+            ++g_segment_count;
+        }
+        probe = probe->next;
+    } while (probe != nullptr);
+    return g_segment_count;
+}
+
 namespace entity_detail
 {
 

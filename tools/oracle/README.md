@@ -55,6 +55,25 @@ An oracle is evidence for a translation, not a replacement for reading the
 dump: inputs must reach every branch, and functions that call heap, D3D or
 other host boundaries need those calls hooked rather than skipped.
 
+`body_joint_oracle.py` compares joint target selection `0x00073C30` and angle
+easing `0x00101280`, including the genuine direction, world-euler and retail
+math callees. It uses the existing code/data exports listed in its emulator
+setup, and requires Python with Unicorn. Build the Release `gbtg` target first,
+then build the host harness with `tools/oracle/build_body_joint_harness.ps1`.
+The script reuses the game's current Release engine objects (excluding
+`main.obj`) and reads its linker dependencies from the generated project.
+It currently supports the Visual Studio x64 generator.
+
+```powershell
+& tools/oracle/build_body_joint_harness.ps1
+python tools/oracle/body_joint_oracle.py 1 800
+```
+
+The second argument counts cases per routine, so this runs 1,600 comparisons.
+Tracking and untouched bytes compare exactly; output floats use a small
+rounding tolerance and treat NaNs as equivalent. Unlike the older scripts,
+this oracle returns a failing exit code on any mismatch.
+
 The constructor suite also covers owner selection `0x00193DF4`, owner linking
 `0x00191DF3`, pass-owner installation `0x00191EC3`, register-owner replacement
 `0x00193E52`, and the mutually recursive reader queries `0x00191BE1`/`0x0018F513`.

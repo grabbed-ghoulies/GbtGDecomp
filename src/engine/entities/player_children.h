@@ -8,6 +8,7 @@
 
 namespace gbtg
 {
+void parent_player_body_object_sizes(ObjectSizes& output); // Xbox 0x00076180
 void player_body_object_sizes(ObjectSizes& output); // Xbox 0x00075AD0
 void player_mind_object_sizes(ObjectSizes& output); // Xbox 0x0007E0E0
 void player_strategy_object_sizes(ObjectSizes& output); // Xbox 0x000AF030

@@ -2898,3 +2898,119 @@ Verification:
 
 The remaining frontier is type 5 registration with the actual body (0x27), mind and strategy class
 methods behind the callbacks above, and live scene ownership. Live +0x254/type 0x6F is unchanged.
+
+### Player body child destruction and rotation easing (2026-10-10)
+
+Five further routines are translated before the batch build:
+
+- `player_children.h/.cpp`: 0x00076180 reports the type 0x27 parent's actual
+  instance size 0x924 and parameter size 0x820. The player body child remains
+  0x950/0x820 through 0x00075AD0; these descriptors are distinct.
+- `player_body_motion.h/.cpp`: 0x000734B0 releases the selected shape state
+  (+0x89C) and shape pointer allocation (+0x8A0), clearing each pointer after
+  release, then calls complete joint-storage release 0x00073760. That routine
+  clears live slots from +0x910 backwards to +0x8AC and releases the last pointer
+  encountered, the lowest live slice of the shared joint allocation. Shape
+  counts, joint latches and motion controller ownership remain with their retail
+  owners; the child destructor does not clear or release them.
+- 0x00101280 eases an angle using a wrapped delta, gain, minimum/maximum speed
+  and elapsed time. Assembly recovers the target in XMM0 and the return in
+  XMM0, omitted by the decompile. The overshoot comparison uses the signed step:
+  a positive overshoot preserves the current angle, while a negative step can
+  pass the absolute delta. The resulting angle wraps into a positive turn.
+  Unordered comparisons retain the retail arithmetic path.
+- 0x000265D0 applies that easing on all three axes only when body +0x728 is
+  nonzero. It reads the actor's actual world euler, uses frame step and actor
+  rate, normalizes into the local actor euler and clears +0x2A8. Its final world
+  euler read uses the actual actor at `[actor +0x95C] +8` and writes that body's
+  +0x72C output, rather than assuming it is the original actor.
+
+The existing constructor fixture now releases the joint allocation through
+the real child destructor, including multiple live slices and unchanged counts
+and latches. Additional checks cover descriptor sizes, gain and both speed
+limits, signed overshoot, wrapping, NaN targets, disabled rotation, pause gating
+and a distinct output owner. These are host fixtures; no new differential
+Unicorn oracle was run for these routines.
+
+Read-only Ghidra exports from `Z:\GhouliesStuff\ghidra_projects\GbtG` recovered
+0x00074080 (body message), 0x000744A0 (body relay), 0x00073820 (joint target
+application), 0x00073C30 (joint target selection), 0x00074670 (body collision),
+and 0x00025AE0 (body apply, reached by the tail jump at 0x00074490). Additional
+frontier dumps are available for 0x000743E0, 0x000744F0 and 0x00075120.
+The relay still requires complete 0x00073820/0x00073C30; the body message,
+collision and apply chains still require their genuine callees. No partial
+method table or factory registration was installed. The earlier constructor
+0x00073450/0x000734F0 chain was already translated before this batch.
+
+Validation: Release `gbtg` and `gbtg-transition-tests` builds pass, as do
+`--dialogue-resources` (including these fixtures), `--actor-loading`,
+`--ghoulybox-decoder` and all six CTests. The opening was not rerun; the last
+recorded live gate remains +0x254/type 0x6F. Type 5 registration, complete body,
+mind and strategy methods, and live scene ownership remain outstanding.
+No retail payload edits, Ghidra symbol changes, staging or commits were made.
+
+### Player body joint targets and complete relay (2026-10-10)
+
+Four more body routines are translated in `player_body_motion.h/.cpp`:
+
+- 0x00073C30 selects a target for one of the six joint slots. The disable-byte
+  table DAT_002FFE68 is `{2, 2, 1, 0, 3, 3}`. It computes pitch/yaw deltas from
+  the target and genuine actor world euler, checks the yaw allowance (+0x8A8
+  plus DAT_0032B160), and preserves the ordered assembly comparison's acceptance
+  of an unordered allowance. Its four blend states retain acquisition/release
+  countdowns, conversion on interrupted blends and exact clamping comparisons.
+  Assembly supplies the return weight in XMM0, absent from Ghidra's C output.
+  Unknown states return the reused first-argument stack word: the body address
+  without target calculation, or the wrapped yaw delta after that calculation.
+- 0x00073820 clears bit 0x40 in body-bit byte +4, then visits all six motion
+  records only when +0x310 is zero. Null records and bone index zero are skipped.
+  It calls actual joint transformation 0x0003AEB0 and target selection, sets
+  the tracking bit, and updates record +0x20/+0x10 only when +0x2C/+0x1C are
+  not -1, including unordered values. Record +0xC receives the returned blend.
+- Complete 0x000744A0 forwards the original argument through action +0x744's
+  vtable +0x10 and attachment +0x314's vtable +0x10, rereading the attachment
+  after the first callback. It then calls actual rotation easing 0x000265D0
+  and joint target application 0x00073820. Child virtuals remain explicit
+  native method views until their concrete class implementations are installed.
+- 0x000743E0 allows action selection only with no positive actor pause count,
+  no nonzero first goal kind, zero body +0x30/+0x34/+0x258/+0x6A and none of
+  DAT_002FFE80's eight blocker bits `{48, 44, 30, 49, 46, 42, 52, 54}`. Empty
+  goal rings preserve the literal address-zero kind read; NaN timers fail zero.
+
+The new `tools/oracle/body_joint_oracle.py` compares 0x00073C30 and
+0x00101280 with their retail machine code and actual math callees, without
+hooking those dependencies. The host harness links the built game's actual
+engine objects and core library. Across 800 joint and 800 angle cases it
+reports zero mismatches; return/row floats allow small rounding differences
+and equivalent NaNs, while tracking results and all other body bytes compare
+exactly. Cases include all six slots, all four states plus invalid states,
+disabled targets, reversed limits/rates, pauses, NaNs and infinities.
+
+This oracle exposed two issues in the existing direction helper 0x00105E20.
+`camera/entity_camera.cpp` now calls actual `retail_square_root` and
+`retail_atan2`, preserves the square-add order, and uses the assembly's ordered
+JA gates for Y and horizontal magnitudes. A quiet NaN can produce pitch zero;
+with a live horizontal magnitude it still reaches atan2. Retail infinite
+length behavior also differs from `std::sqrt`. The fresh read-only dump is
+`cache/ghidra_frontier/00105E20.txt`.
+
+Host fixtures in `tests/player_parent_checks.cpp` cover target acquisition,
+release, interrupted blends, disable-byte mappings, invalid-state stack reads,
+NaN allowance, genuine model-pose joint transformation, pitch/yaw sentinels,
+zero bones, the global override, callback changes to child slots, each action
+blocker bit, empty goals and the direction-helper corrections.
+
+Validation: Release game and transition builds, all six CTests,
+`--dialogue-resources`, `--actor-loading`, `--ghoulybox-decoder`, and the
+1,600-case body-joint oracle pass. Tests followed the implementation batch;
+subsequent rebuilds fixed the dependency behavior exposed by the oracle.
+
+The relay is now complete. Next body blockers are message 0x00074080,
+collision/support 0x00074670, apply 0x00025AE0 (tail entry 0x00074490), the
+inherited channel step 0x00072AC0 and actual child methods. The apply dump
+identifies 0x0001EEC0, 0x0001EC20, 0x00025190, 0x00025C50, 0x0001FB40,
+0x00027960, 0x0001DD00 and 0x00025130. Follow their genuine implementations
+and missing callees rather than the legacy `Entity` no-ops. Type 5
+registration and live scene/body/mind/strategy ownership remain incomplete.
+The opening was not rerun and no live gate progress is claimed. No retail
+edits, Ghidra symbol changes, staging or commits were made.

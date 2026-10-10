@@ -18,9 +18,11 @@
 #include "../src/engine/entities/body_construction.h"
 #include "../src/engine/entities/player_body_motion.h"
 #include "../src/engine/entities/entity_heap.h"
+#include "gbtg/model_runtime.h"
 #include <bit>
 #include <new>
 #include <memory>
+#include <cmath>
 
 namespace
 {
@@ -1066,6 +1068,13 @@ void check_body_dependencies(SceneExecutableResources& executable)
     std::array<u8*, 6> records{};
     RuntimeBodyShapeStorage shape_storage{};
     RuntimePlayerBodyMotion motion{&model, primary, secondary, selector, records, nullptr, shape_storage};
+    ObjectSizes parent_sizes{};
+    ObjectSizes child_sizes{};
+    parent_player_body_object_sizes(parent_sizes);
+    player_body_object_sizes(child_sizes);
+    require(parent_sizes.instance == 0x924 && child_sizes.instance == 0x950
+        && parent_sizes.parameters == 0x820 && child_sizes.parameters == 0x820,
+        "type 0x27 and its player child retain distinct instance sizes");
     std::array<u8, 0x950> player_body{};
     put(motion_parameters, 0x800, 0);
     put(motion_parameters, 0x804, std::bit_cast<u32>(0.5f));
@@ -1097,9 +1106,234 @@ void check_body_dependencies(SceneExecutableResources& executable)
         second_accumulator, 1.f, 1.f, motion) == nullptr
         && first_accumulator == 3.f && second_accumulator == 7.f,
         "missing joint preserves newly accumulated values without allocating a record");
-    engine_heap_free(records[0]);
+    shape_storage.selected = static_cast<const u8**>(engine_heap_allocate(4 * sizeof(const u8*)));
+    shape_storage.selected_state = static_cast<u8*>(engine_heap_allocate(0x20));
+    shape_storage.selected_count = 9;
+    player_body[0x8B0] = 3;
+    put(player_body, 0x89C, 0x100);
+    put(player_body, 0x8A0, 0x200);
+    put(player_body, 0x8AC, 0x300);
+    put(player_body, 0x910, 0x400);
+    records[5] = records[0] + 0x30;
+    destroy_runtime_player_body(player_body, shape_storage, records);
+    require(shape_storage.selected == nullptr && shape_storage.selected_state == nullptr
+        && shape_storage.selected_count == 9 && player_body[0x8B0] == 3
+        && read_u32(player_body, 0x89C) == 0 && read_u32(player_body, 0x8A0) == 0
+        && read_u32(player_body, 0x8AC) == 0 && read_u32(player_body, 0x910) == 0
+        && records[0] == nullptr && records[5] == nullptr,
+        "player child destruction frees the lowest live joint slice and preserves counts and latches");
+    put(player_body, 0x8C0, 0xABCD);
+    destroy_runtime_player_body(player_body, shape_storage, records);
+    require(read_u32(player_body, 0x8C0) == 0xABCD,
+        "absent native joint slot preserves untouched retail word");
     engine_heap_free(primary->joints); engine_heap_free(primary->dispatch); engine_heap_free(primary->callbacks);
     engine_heap_free(primary);
+    {
+        std::array<u8, 0x924> target_body{};
+        std::array<u8, 8> target_bits{};
+        RuntimeBodyBitStorage bit_storage{};
+        bit_storage.bytes = target_bits.data();
+        RuntimeBodyBitStorage* flags = &bit_storage;
+        Actor target_actor;
+        target_actor.animation_rate = 1.f;
+        float freeze = 0.f, dt = 0.1f, scale = 1.f;
+        u32 block = 0, index = 0;
+        std::array<u8, 1> enabled{1};
+        RuntimeActorClock clock{freeze, dt, scale, block, enabled, index};
+        std::array<u8*, 6> target_records{};
+        RuntimePlayerJointTargets targets{target_actor, flags, target_records, clock, 0x10001000};
+        put(target_body, 0x304, std::bit_cast<u32>(10.f));
+        put(target_body, 0x8A8, std::bit_cast<u32>(1.f));
+        target_body[0x308] = 1;
+        u32 tracking = 0;
+        require(select_runtime_player_joint_target(target_body, 0, {}, tracking, targets) == 0.f
+            && tracking == 1 && target_body[0x8B0] == 2 && read_f32(target_body, 0x8B4) == 0.2f,
+            "joint targeting starts the acquisition timer and zero blend");
+        require(std::fabs(select_runtime_player_joint_target(target_body, 0, {}, tracking, targets) - 0.5f) < 0.000001f
+            && tracking == 1 && target_body[0x8B0] == 2,
+            "joint acquisition blends during the countdown");
+        require(select_runtime_player_joint_target(target_body, 0, {}, tracking, targets) == 1.f
+            && target_body[0x8B0] == 3, "joint acquisition completes at timer zero");
+        target_body[0x308] = 0;
+        select_runtime_player_joint_target(target_body, 0, {}, tracking, targets);
+        require(tracking == 0 && target_body[0x8B0] == 1 && read_f32(target_body, 0x8B4) == 0.3f,
+            "losing the target starts the release timer");
+        const float released = select_runtime_player_joint_target(target_body, 0, {}, tracking, targets);
+        require(released > 0.66f && released < 0.67f, "joint release preserves partial blend");
+        target_body[0x308] = 1;
+        const float acquired = select_runtime_player_joint_target(target_body, 0, {}, tracking, targets);
+        require(std::fabs(acquired - released) < 0.000001f && target_body[0x8B0] == 2,
+            "reacquiring a target converts timer without a blend discontinuity");
+        target_body[0x308] = 0;
+        const float reversed = select_runtime_player_joint_target(target_body, 0, {}, tracking, targets);
+        require(std::fabs(reversed - acquired) < 0.000001f && target_body[0x8B0] == 1,
+            "losing a partially acquired target preserves blend");
+        dt = 1.f;
+        require(select_runtime_player_joint_target(target_body, 0, {}, tracking, targets) == 0.f
+            && target_body[0x8B0] == 0 && read_f32(target_body, 0x8B4) == 0.f,
+            "joint release finishes by clearing the state and timer");
+        target_body[0x8B0] = 7;
+        require(std::bit_cast<u32>(select_runtime_player_joint_target(target_body, 0, {}, tracking, targets)) == 0x10001000,
+            "unknown untracked joint state returns the original body argument word");
+        target_body[0x308] = 1;
+        put(target_body, 0x2FC, std::bit_cast<u32>(1.f));
+        const float unknown = select_runtime_player_joint_target(target_body, 0, {}, tracking, targets);
+        require(tracking == 1 && unknown == read_f32(target_body, 0x8BC)
+            && unknown > 0.09f && unknown < 0.11f,
+            "unknown tracked joint state returns the reused yaw stack word");
+        constexpr std::array<size_t, 6> disable{2, 2, 1, 0, 3, 3};
+        for (size_t slot = 0; slot < 6; ++slot)
+        {
+            target_body[0x309 + disable[slot]] = 1;
+            select_runtime_player_joint_target(target_body, slot, {}, tracking, targets);
+            require(tracking == 0, "joint slot uses its retail disable byte");
+            target_body[0x309 + disable[slot]] = 0;
+        }
+        put(target_body, 0x8A8, 0x7FC00001);
+        select_runtime_player_joint_target(target_body, 0, {}, tracking, targets);
+        require(tracking == 1, "unordered joint yaw limit retains the assembly JBE acceptance");
+        put(target_body, 0x8A8, std::bit_cast<u32>(-1.f));
+        select_runtime_player_joint_target(target_body, 0, {}, tracking, targets);
+        require(tracking == 0, "negative joint yaw limit rejects the target");
+        put(target_body, 0x8A8, std::bit_cast<u32>(1.f));
+        std::array<Joint, 2> joints{};
+        RuntimeModelNode skeleton{};
+        skeleton.joints = joints;
+        ModelPoseBuffer pose;
+        pose.count = 2;
+        pose.dirty = true;
+        pose.matrices.assign(2, AnimationMatrix{1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f});
+        RuntimeModelInstance runtime{};
+        runtime.primary = &pose;
+        runtime.skeleton_node = &skeleton;
+        ActorModel target_model{};
+        target_model.runtime = &runtime;
+        target_actor.model = &target_model;
+        target_actor.xform[0] = target_actor.xform[5] = target_actor.xform[10] = 1.f;
+        std::array<u8, 0x30> target_record{};
+        const u16 bone = 1;
+        std::memcpy(target_record.data(), &bone, 2);
+        put(target_record, 0x2C, std::bit_cast<u32>(-1.f));
+        put(target_record, 0x1C, 0x7FC00001);
+        put(target_record, 0x20, 0x12345678);
+        target_records[0] = target_record.data();
+        target_body[0x8B0] = 3;
+        target_bits[4] = 0xA5;
+        apply_runtime_player_joint_targets(target_body, targets);
+        require(target_bits[4] == 0xE5 && read_u32(target_record, 0x20) == 0x12345678
+            && read_u32(target_record, 0x10) == read_u32(target_body, 0x8BC)
+            && read_f32(target_record, 0xC) == 1.f,
+            "joint application preserves the pitch sentinel, accepts NaN yaw and stores tracking blend");
+        put(target_body, 0x310, 1);
+        put(target_record, 0xC, 0x12345678);
+        apply_runtime_player_joint_targets(target_body, targets);
+        require(target_bits[4] == 0xA5 && read_u32(target_record, 0xC) == 0x12345678,
+            "body joint override clears the tracking bit while skipping all records");
+        put(target_body, 0x310, 0);
+        std::memcpy(target_record.data(), &index, 2);
+        apply_runtime_player_joint_targets(target_body, targets);
+        require(read_u32(target_record, 0xC) == 0x12345678,
+            "joint index zero is skipped even with a non-null record");
+        std::vector<u32> relay_order;
+        RuntimePlayerBodyRelayChild* action = nullptr;
+        RuntimePlayerBodyRelayChild* attachment = nullptr;
+        RuntimePlayerBodyRelayChild new_attachment{[&](u32 message)
+        {
+            require(message == 0x1234, "relay child receives the original word");
+            relay_order.push_back(2);
+            target_body[0x308] = 0;
+        }};
+        RuntimePlayerBodyRelayChild action_view{[&](u32 message)
+        {
+            require(message == 0x1234, "relay action receives the original word");
+            relay_order.push_back(1);
+            attachment = &new_attachment;
+        }};
+        action = &action_view;
+        target_bits[4] = 0xE5;
+        relay_runtime_player_body(target_body, 0x1234, action, attachment, targets);
+        require(relay_order == std::vector<u32>{1, 2} && target_bits[4] == 0xA5,
+            "body relay rereads the attachment after action and runs targeting after both children");
+        std::array<u8, 0xD00> action_actor{};
+        std::array<u8, 2> address_zero{};
+        EntityBitBlock action_bits{target_bits.data()};
+        target_bits.fill(0);
+        require(runtime_player_body_can_select_action(target_body, action_actor, nullptr, action_bits, address_zero),
+            "unpaused free body without goals or blocker bits can select an action");
+        for (u32 bit : {48u, 44u, 30u, 49u, 46u, 42u, 52u, 54u})
+        {
+            target_bits[bit >> 3] = u8(1u << (bit & 7));
+            require(!runtime_player_body_can_select_action(target_body, action_actor, nullptr, action_bits, address_zero),
+                "each retail blocker bit prevents action selection");
+            target_bits[bit >> 3] = 0;
+        }
+        put(action_actor, 0xCD8, 0xFFFFFFFF);
+        RuntimePlayerGoalRing empty_goal{4, 1, 0, 1, {}};
+        require(runtime_player_body_can_select_action(target_body, action_actor, &empty_goal, action_bits, address_zero),
+            "negative pause count passes and empty goal ring reads the actual zero address view");
+        address_zero[0] = 1;
+        require(!runtime_player_body_can_select_action(target_body, action_actor, &empty_goal, action_bits, address_zero),
+            "nonzero goal kind at address zero blocks body action selection");
+        address_zero[0] = 0;
+        put(target_body, 0x34, 0x7FC00001);
+        require(!runtime_player_body_can_select_action(target_body, action_actor, nullptr, action_bits, address_zero),
+            "unordered body timer fails the exact zero comparison");
+        float direction_yaw = 9.f, direction_pitch = 9.f;
+        const float quiet_nan = std::bit_cast<float>(0x7FC00001u);
+        require(direction_to_yaw_pitch(0.f, quiet_nan, 0.f, direction_yaw, direction_pitch) == 0
+            && direction_yaw == 0.f && direction_pitch == 0.f,
+            "direction helper treats unordered magnitudes as quiet through its ordered JA gates");
+        require(direction_to_yaw_pitch(0.f, quiet_nan, 1.f, direction_yaw, direction_pitch) == 1
+            && direction_yaw == 0.f && std::isnan(direction_pitch),
+            "live horizontal length still reaches atan2 for an unordered vertical component");
+        require(direction_to_yaw_pitch(1.f, -1.f, std::bit_cast<float>(0xFF800000u),
+            direction_yaw, direction_pitch) == 1
+            && direction_pitch == std::bit_cast<float>(0x40490FDBu),
+            "direction helper retains the retail square-root and atan2 infinity behavior");
+    }
+    require(ease_runtime_body_angle(1.f, 0.f, 0.f, 2.f, 1.f, 0.25f) == 0.25f
+        && ease_runtime_body_angle(1.f, 0.f, 0.5f, 2.f, 0.1f, 0.25f) == 0.125f
+        && ease_runtime_body_angle(1.f, 0.f, 0.f, 0.5f, 2.f, 0.25f) == 0.125f,
+        "angle easing applies gain then minimum and maximum speed");
+    require(ease_runtime_body_angle(1.f, 0.f, 0.f, 2.f, 1.f, 2.f) == 0.f,
+        "positive overshoot retains current angle rather than snapping to target");
+    const float circle = std::bit_cast<float>(0x40C90FDBu);
+    require(ease_runtime_body_angle(-1.f, 0.f, 0.f, 2.f, 1.f, 0.25f) == circle - 0.25f
+        && ease_runtime_body_angle(-1.f, 0.f, 0.f, 2.f, 1.f, 2.f) == circle - 2.f,
+        "negative step uses the signed overshoot comparison and wraps into a positive turn");
+    require(std::isnan(ease_runtime_body_angle(std::bit_cast<float>(0x7FC00001u),
+        0.f, 0.f, 2.f, 1.f, 0.25f)), "unordered target reaches remainder arithmetic");
+    {
+        Actor rotation_actor;
+        Actor output_actor;
+        output_actor.euler = {3.f, 4.f, 5.f};
+        ActorEulerOut output_view;
+        output_view.actor = &output_actor;
+        rotation_actor.euler_out = &output_view;
+        rotation_actor.animation_rate = 1.f;
+        rotation_actor.xform_valid = 7;
+        float freeze = 0.f, dt = 0.25f, scale = 1.f;
+        u32 block = 0, decay_index = 0;
+        std::array<u8, 1> decay{1};
+        RuntimeActorClock clock{freeze, dt, scale, block, decay, decay_index};
+        std::array<u8, 0x738> rotation_body{};
+        put(rotation_body, 0x720, std::bit_cast<u32>(2.f));
+        put(rotation_body, 0x724, std::bit_cast<u32>(1.f));
+        put(rotation_body, 0x72C, std::bit_cast<u32>(1.f));
+        put(rotation_body, 0x730, std::bit_cast<u32>(-1.f));
+        ease_runtime_body_rotation(rotation_body, rotation_actor, clock);
+        require(rotation_actor.xform_valid == 7 && output_view.euler.x == 0.f,
+            "disabled rotation preserves transform and output");
+        put(rotation_body, 0x728, 1);
+        ease_runtime_body_rotation(rotation_body, rotation_actor, clock);
+        require(rotation_actor.euler.x == 0.25f && std::fabs(rotation_actor.euler.y + 0.25f) < 0.000001f
+            && rotation_actor.xform_valid == 0 && output_view.euler.x == 3.f
+            && output_view.euler.y == 4.f && output_view.euler.z == 5.f,
+            "rotation normalizes local angles and rereads the actual body output owner");
+        rotation_actor.animation_pause = 1.f;
+        ease_runtime_body_rotation(rotation_body, rotation_actor, clock);
+        require(rotation_actor.euler.x == 0.25f, "paused actor has zero rotation step");
+    }
     matrix.fill(0.f);
     matrix[0] = matrix[5] = matrix[10] = 1.f;
     matrix[3] = 3.f; matrix[7] = 4.f; matrix[11] = 5.f;

@@ -4,6 +4,13 @@
 
 namespace gbtg
 {
+// Xbox 0x00076180
+void parent_player_body_object_sizes(ObjectSizes& output)
+{
+    output.instance = 0x924;
+    output.parameters = 0x820;
+}
+
 // Xbox 0x00075AD0
 void player_body_object_sizes(ObjectSizes& output)
 {

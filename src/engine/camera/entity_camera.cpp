@@ -286,29 +286,29 @@ i32 direction_to_yaw_pitch(float x, float y, float z, float& yaw, float& pitch)
     // EAX is the direction. The first out is yaw = atan2(x, z). The second is
     // pitch = atan2(-y, horizontal length), where that length is sqrt(x^2+z^2)
     // and stays 0 when both axes are quiet. 0x00152BB0 is the absolute value
-    // and 0x001530E0 is atan2. A component no larger than 2e-7 (0x0032B27C)
-    // counts as zero. A dead XZ forces yaw to 0 and the result to 0. A dead Y
-    // together with that zero length forces pitch to 0 and returns 0. A live
-    // XZ returns 1 after both angles are written.
+    // and 0x001530E0 is atan2. Each magnitude gate uses ordered JA against
+    // 2e-7 (0x0032B27C), so NaN magnitudes are quiet. A dead XZ forces yaw and
+    // the result to 0. Quiet Y and horizontal length force pitch to 0 and
+    // return 0. The length and angles use the actual retail math routines.
     const bool xz = engine_absolute(x) > kLookEps || engine_absolute(z) > kLookEps;
     float horiz = 0.f;
     i32 live = 1;
     if (xz)
     {
-        horiz = std::sqrt(x * x + z * z);
-        yaw = std::atan2(x, z);
+        horiz = float(retail_square_root(z * z + x * x));
+        yaw = float(retail_atan2(x, z));
     }
     else
     {
         yaw = 0.f;
         live = 0;
     }
-    if (engine_absolute(y) <= kLookEps && engine_absolute(horiz) <= kLookEps)
+    if (!(engine_absolute(y) > kLookEps || engine_absolute(horiz) > kLookEps))
     {
         pitch = 0.f;
         return 0;
     }
-    pitch = std::atan2(-y, horiz);
+    pitch = float(retail_atan2(0.f - y, horiz));
     return live;
 }
 

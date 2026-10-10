@@ -579,8 +579,11 @@ void stop_all()
     g_stream_cue.clear();
 }
 
-bool load_wave(const WaveChoice& choice, std::vector<u8>& pcm, WAVEFORMATEX& fmt)
+bool load_wave(const WaveChoice& choice, std::vector<u8>& pcm, WAVEFORMATEX& fmt,
+    u32& loop_begin, u32& loop_length)
 {
+    loop_begin = 0;
+    loop_length = 0;
     SetLastError(ERROR_INVALID_DATA);
     const auto found = g_wavefiles.find(choice.bank);
     if (found == g_wavefiles.end() || choice.index >= found->second.count)
@@ -645,6 +648,24 @@ bool load_wave(const WaveChoice& choice, std::vector<u8>& pcm, WAVEFORMATEX& fmt
             channels = alt;
         }
     }
+    // Xbox WBND v3 stores the loop region at entry +0x10/+0x14 in bytes,
+    // relative to the play region. XAudio2 expects interleaved sample frames.
+    if (entry >= 24)
+    {
+        const u32 loop_offset_bytes = ru32(rec, 0x10);
+        const u32 loop_length_bytes = ru32(rec, 0x14);
+        const u32 block_align = u32(channels * bpf);
+        if (loop_length_bytes != 0)
+        {
+            if (loop_offset_bytes > play_len || loop_length_bytes > play_len - loop_offset_bytes ||
+                loop_offset_bytes % block_align != 0 || loop_length_bytes % block_align != 0)
+            {
+                return false;
+            }
+            loop_begin = loop_offset_bytes / block_align;
+            loop_length = loop_length_bytes / block_align;
+        }
+    }
     pcm.resize(play_len);
     in.seekg(size_t(wave_off) + play_off);
     in.read(reinterpret_cast<char*>(pcm.data()), play_len);
@@ -681,7 +702,9 @@ u64 play_choice(const std::string& cue, const WaveChoice& choice, bool loop = fa
     reap_voices();
     PcmVoice slot;
     WAVEFORMATEX fmt{};
-    if (!load_wave(choice, slot.pcm, fmt))
+    u32 loop_begin = 0;
+    u32 loop_length = 0;
+    if (!load_wave(choice, slot.pcm, fmt, loop_begin, loop_length))
     {
         std::cout << "audio skip " << cue << " " << choice.bank << "[" << choice.index << "]\n";
         const DWORD error = GetLastError();
@@ -705,6 +728,12 @@ u64 play_choice(const std::string& cue, const WaveChoice& choice, bool loop = fa
     buf.pAudioData = slot.pcm.data();
     buf.Flags = XAUDIO2_END_OF_STREAM;
     buf.LoopCount = loop ? XAUDIO2_LOOP_INFINITE : 0;
+    if (loop)
+    {
+        // Play from frame zero once, then repeat only the authored loop region.
+        buf.LoopBegin = loop_begin;
+        buf.LoopLength = loop_length;
+    }
     status = slot.voice->SubmitSourceBuffer(&buf);
     if (FAILED(status))
     {

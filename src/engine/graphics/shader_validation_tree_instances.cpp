@@ -4,6 +4,13 @@
 
 namespace gbtg
 {
+// Xbox 0x0019275A
+void unregister_shader_validation_diagnostic(ShaderValidationEraseContext& context, u32 object_address)
+{
+    auto* node = find_shader_validation_pass_node(context.tree, object_address);
+    erase_shader_validation_balanced_node_19214a(context, node);
+}
+
 // Xbox 0x0019164F
 ShaderValidationBalancedNode* join_shader_validation_balanced_nodes_19164f(ShaderValidationBalancedNode* parent,
     ShaderValidationBalancedNode* first, ShaderValidationBalancedNode* second)

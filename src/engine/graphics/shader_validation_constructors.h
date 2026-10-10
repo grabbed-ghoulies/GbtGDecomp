@@ -57,6 +57,12 @@ struct ShaderValidationConstructorContext
 };
 
 void destroy_shader_validation_child_nodes(ShaderValidationBalancedNode* node, const std::function<void(ShaderValidationBalancedNode&, u32)>& deleting_destructor); // Xbox 0x0018F281
+ShaderValidationOwner* reparent_shader_validation_operand(ShaderValidationConstructorContext& context,
+    ShaderValidationOperand& operand, ShaderValidationOwner* parent); // Xbox 0x00192C9E
+void reparent_shader_validation_owner_operand(ShaderValidationConstructorContext& context,
+    ShaderValidationOwner& owner, ShaderValidationOwner* parent); // Xbox 0x00192B20
+void move_shader_validation_unwritten_readers_to_derived(ShaderValidationConstructorContext& context,
+    ShaderValidationOwner& owner, const std::function<ShaderValidationOperand*(u32)>& operand_at); // Xbox 0x00193A40
 void clear_shader_validation_child_tree(ShaderValidationBalancedChildTree& tree, const std::function<void(ShaderValidationBalancedNode&, u32)>& deleting_destructor); // Xbox 0x001901D6
 void destroy_shader_validation_child_tree(ShaderValidationBalancedChildTree& tree, const std::function<void(ShaderValidationBalancedNode&, u32)>& deleting_destructor); // Xbox 0x001909A6
 ShaderValidationOperand* construct_shader_validation_operand(ShaderValidationConstructorContext& context, ShaderValidationOperand& operand,

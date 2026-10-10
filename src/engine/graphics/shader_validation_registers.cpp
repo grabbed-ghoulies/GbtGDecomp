@@ -3,6 +3,49 @@
 
 namespace gbtg
 {
+// Xbox 0x0019370F
+void advance_shader_validation_owner_removal_iterator(ShaderValidationPassNode*& node)
+{
+    ShaderValidationPassNode* next = node->second;
+    if (next != nullptr)
+    {
+        do
+        {
+            node = next;
+            next = node->first;
+        } while (next != nullptr);
+        return;
+    }
+    while ((next = node->parent) != nullptr)
+    {
+        if (next->second != node)
+        {
+            break;
+        }
+        node = next;
+    }
+    node = node->parent;
+}
+
+// Xbox 0x001936CD
+void remove_shader_validation_pass_owner(ShaderValidationRegisteredPassTree& tree, ShaderValidationOwner& owner,
+    const std::function<void(ShaderValidationPassNode&, u32)>& deleting_destructor)
+{
+    ShaderValidationPassNode* node;
+    first_shader_validation_pass_node(tree.tree.nodes, &node);
+    while (node != nullptr)
+    {
+        if (node->data == &owner)
+        {
+            node = erase_shader_validation_pass_node(tree.tree.nodes, node, deleting_destructor);
+        }
+        else
+        {
+            advance_shader_validation_owner_removal_iterator(node);
+        }
+    }
+}
+
 // Xbox 0x00190554
 void update_shader_validation_pass_ancestor_heights(ShaderValidationPassNode* node)
 {

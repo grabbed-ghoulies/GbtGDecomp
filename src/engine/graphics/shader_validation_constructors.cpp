@@ -1,4 +1,7 @@
 #include "shader_validation_constructors.h"
+#include "shader_validation_serializer.h"
+#include "shader_validation_tree_instances.h"
+#include "shader_validation_instruction_ops.h"
 #if defined(_WIN32)
 #include <excpt.h>
 #else
@@ -7,6 +10,175 @@
 
 namespace gbtg
 {
+namespace
+{
+void move_unwritten_readers_body(ShaderValidationConstructorContext& context, ShaderValidationOwner& owner,
+    const std::function<ShaderValidationOperand*(u32)>& operand_at, ShaderValidationChannelMask& accumulated, i32& state)
+{
+    bool allowed = owner.derived_owner != nullptr;
+    accumulated.vtable_address = 0x00203790;
+    decode_shader_validation_channel_mask(accumulated, 0);
+    state = 0;
+    ShaderValidationOwner* current = &owner;
+    do
+    {
+        if (!allowed)
+        {
+            return;
+        }
+        ShaderValidationChannelMask written;
+        shader_validation_owner_channel_mask(*current, written);
+        ShaderValidationChannelMask combined;
+        unite_shader_validation_channel_masks(accumulated, written, combined);
+        copy_shader_validation_channel_mask(accumulated, combined);
+        ShaderValidationBalancedNode* node;
+        find_shader_validation_tree_last(current->diagnostics.nodes, &node);
+        while (node != nullptr)
+        {
+            if (shader_validation_operand_reads_masked_channel(*operand_at(node->value),
+                    ShaderValidationChannelMask{0x00203790, accumulated.channels}))
+            {
+                ShaderValidationChannelMask unwritten;
+                invert_shader_validation_channel_mask(accumulated, unwritten);
+                if (shader_validation_operand_reads_masked_channel(*operand_at(node->value), unwritten))
+                {
+                    allowed = false;
+                }
+            }
+            advance_shader_validation_balanced_iterator(&node);
+        }
+        current = current->channel_owner;
+    } while (current != nullptr);
+    if (allowed)
+    {
+        current = &owner;
+        ShaderValidationChannelMask empty;
+        empty.vtable_address = 0x00203790;
+        decode_shader_validation_channel_mask(empty, 0);
+        copy_shader_validation_channel_mask(accumulated, empty);
+        do
+        {
+            ShaderValidationChannelMask written;
+            shader_validation_owner_channel_mask(*current, written);
+            ShaderValidationChannelMask combined;
+            unite_shader_validation_channel_masks(accumulated, written, combined);
+            copy_shader_validation_channel_mask(accumulated, combined);
+            ShaderValidationBalancedNode* node;
+            find_shader_validation_tree_last(current->diagnostics.nodes, &node);
+            while (node != nullptr)
+            {
+                if (!shader_validation_operand_reads_masked_channel(*operand_at(node->value),
+                        ShaderValidationChannelMask{0x00203790, accumulated.channels}))
+                {
+                    reparent_shader_validation_operand(context, *operand_at(node->value), owner.derived_owner);
+                    // Reparenting mutates the current registry; retail restarts its iterator.
+                    find_shader_validation_tree_last(current->diagnostics.nodes, &node);
+                }
+                else
+                {
+                    advance_shader_validation_balanced_iterator(&node);
+                }
+            }
+            current = current->channel_owner;
+        } while (current != nullptr);
+    }
+}
+}
+
+// Xbox 0x00193A40
+void move_shader_validation_unwritten_readers_to_derived(ShaderValidationConstructorContext& context,
+    ShaderValidationOwner& owner, const std::function<ShaderValidationOperand*(u32)>& operand_at)
+{
+    ShaderValidationChannelMask accumulated;
+    i32 state = -1;
+    __try
+    {
+        move_unwritten_readers_body(context, owner, operand_at, accumulated, state);
+    }
+    __finally
+    {
+        if (AbnormalTermination() && state == 0)
+        {
+            // FuncInfo 0x0032BACC: 0x001709FA destroys EBP-0x30.
+            destroy_shader_validation_channel_mask(accumulated);
+        }
+    }
+}
+
+// Xbox 0x00192C9E
+ShaderValidationOwner* reparent_shader_validation_operand(ShaderValidationConstructorContext& context,
+    ShaderValidationOperand& operand, ShaderValidationOwner* parent)
+{
+    if (operand.parent != nullptr && operand.parent != context.active_owner)
+    {
+        ShaderValidationEraseContext erase{operand.parent->diagnostics.nodes, context.deleting_destructor};
+        unregister_shader_validation_diagnostic(erase, context.retail_address(&operand));
+        // Retail reloads the parent after the virtual registry erase.
+        ShaderValidationOwner* previous = operand.parent;
+        if (previous->kind == 3)
+        {
+            u32 last_value = 0;
+            if (previous->diagnostics.nodes.count != 0)
+            {
+                ShaderValidationBalancedNode* last;
+                find_shader_validation_tree_last(previous->diagnostics.nodes, &last);
+                last_value = last->value;
+            }
+            if (last_value == 0 && find_shader_validation_foreign_parent(*previous, context.active_owner) != nullptr)
+            {
+                reparent_shader_validation_owner_operand(context, *previous, nullptr);
+            }
+        }
+    }
+    operand.parent = parent;
+    if (parent != nullptr && parent != context.active_owner)
+    {
+        register_shader_validation_diagnostic(context.diagnostic_registry(*parent), context.retail_address(&operand));
+    }
+    if (operand.parent == nullptr)
+    {
+        operand.parent = context.active_owner;
+    }
+    return operand.parent;
+}
+
+// Xbox 0x00192B20
+void reparent_shader_validation_owner_operand(ShaderValidationConstructorContext& context,
+    ShaderValidationOwner& owner, ShaderValidationOwner* parent)
+{
+    void* allocation = nullptr;
+    i32 state = -1;
+    __try
+    {
+        if (owner.operand == nullptr)
+        {
+            allocation = context.allocate(sizeof(ShaderValidationOperand), 0x24870000);
+            state = 0;
+            ShaderValidationOperand* operand;
+            if (allocation == nullptr)
+            {
+                operand = nullptr;
+            }
+            else
+            {
+                operand = construct_shader_validation_operand(context, *static_cast<ShaderValidationOperand*>(allocation),
+                    context.retail_address(allocation), nullptr, &owner, 3, context.active_owner, 0);
+            }
+            state = -1;
+            owner.operand = operand;
+        }
+        reparent_shader_validation_operand(context, *owner.operand, parent);
+    }
+    __finally
+    {
+        if (AbnormalTermination() && state == 0)
+        {
+            // FuncInfo 0x0032B8CC, state 0: 0x001709B7 releases EBP-0x10.
+            release_shader_validation_allocation(allocation, context.release);
+        }
+    }
+}
+
 // Xbox 0x0018F281
 void destroy_shader_validation_child_nodes(ShaderValidationBalancedNode* node,
     const std::function<void(ShaderValidationBalancedNode&, u32)>& deleting_destructor)

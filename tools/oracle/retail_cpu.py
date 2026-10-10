@@ -54,4 +54,4 @@ def call(u, fn, ecx, args, esp=STACK):
     return u.reg_read(UC_X86_REG_EAX)
 
 def harness(name):
-    return os.path.join(ROOT, 'cache', 'oracle', name)
+    return os.path.join(ROOT, 'cache', 'oracle', name + ('.exe' if os.name == 'nt' else ''))

@@ -23,6 +23,7 @@ struct ShaderValidationPass
     ShaderValidationRegisteredPassTree registers; // Retail +0x28; register kinds 0..12.
     ShaderValidationRegisteredPassTree special; // Retail +0x3c; key 0x100 is kind 12.
     ShaderValidationOwner* owner; // Retail +0x50; parent passed by 0x001935E6.
+    std::array<ShaderValidationOwner*, 13> initial_registers; // Retail +0x54..+0x84; entry 12 is special source 0x100.
 };
 
 ShaderValidationRegisteredPassTree* construct_shader_validation_registered_pass_tree(ShaderValidationRegisteredPassTree& tree); // Xbox 0x0019149A
@@ -42,6 +43,9 @@ ShaderValidationPassNode* erase_shader_validation_pass_node(ShaderValidationPass
     const std::function<void(ShaderValidationPassNode&, u32)>& deleting_destructor); // Xbox 0x00192469
 ShaderValidationPassNode* erase_shader_validation_pass_key(ShaderValidationPassTree& tree, u32 key,
     const std::function<void(ShaderValidationPassNode&, u32)>& deleting_destructor); // Xbox 0x001936B5
+void advance_shader_validation_owner_removal_iterator(ShaderValidationPassNode*& node); // Xbox 0x0019370F
+void remove_shader_validation_pass_owner(ShaderValidationRegisteredPassTree& tree, ShaderValidationOwner& owner,
+    const std::function<void(ShaderValidationPassNode&, u32)>& deleting_destructor); // Xbox 0x001936CD
 bool shader_validation_owners_equivalent(const ShaderValidationOwner* owner, const ShaderValidationOwner* other,
     const ShaderValidationOwner* active_owner); // Xbox 0x0018F4A9
 }

@@ -34,8 +34,93 @@ with g++ on Linux. Each oracle reports `mismatches 0` on success.
 | `registers_oracle.py` | `0x00190554`, `0x0019060B`, `0x00190656`, `0x00191E8F`, `0x00191F00`, `0x0018F4A9`, `0x0018F595`, `0x0018F86B`, `0x0018F436`, `0x0019010E`, `0x00190BDD`, `0x00192629`, `0x0018E4EB`, `0x0018E48C`, `0x0018E988`, `0x0018ED95`, `0x0018FF4B`, `0x0018E9DC`, `0x00191990`, `0x001919BD`, `0x0018F848`, `0x0018EB4C`, `0x0018EB96`, `0x00192469`, `0x0018FFC9`, `0x001906BB`, `0x0018FC2A`, `0x0018FD7D`, `0x001936B5` (via `0x00192469`), `0x0018EBEA`, `0x0018EDEE`, `0x001907E9`, `0x0018F815`, `0x00190D14`, `0x00190858`, `0x0018FED0`, `0x001908AE` |
 | `trees_oracle.py` | Tree template instances `0x0019164F`, `0x00191714`, `0x00191806`, `0x001918CB`, `0x00191B1C` (join), `0x0019204A`, `0x0019214A`, `0x0019224A`, `0x0019234A`, `0x00192529` (erase), `0x001926FB`, `0x001927B9` (unregister), `0x001922BB`, `0x0019259A` (insert) and pass insertion `0x00191A82` |
 | `sets_oracle.py` | `0x0018E78B`, `0x0018F56F`, `0x0018F549`, `0x0018F2AA`, `0x0018F2D3`, `0x0018F1BC`, `0x00190322`, `0x00190163`, `0x00190AA0`, `0x00190AC6`, `0x00192772`, `0x0019287F`, `0x001924DA`, `0x0018E94C`, `0x0018F174`, `0x001923BB`, `0x001927D1`, `0x00192830`, `0x001929E7`, `0x00192A2B`, `0x00190774`, `0x00190813`, `0x00190FFE` |
-| `ctor_oracle.py` | SEH-framed `0x00192DF1`, `0x001935E6`, `0x001934A5`, `0x00190E27`, `0x00192B84`, `0x00194311` (with `0x00193C2A`), `0x00193EE2`, and `0x0019149A` (normal path, against SEH-shimmed host copies built by `run.sh`; needs `cache/oracle/mem_00160000.bin`) |
+| `ctor_oracle.py` | `0x00192DF1`, `0x001935E6`, `0x001934A5`, `0x00190E27`, `0x00192B84`, `0x00194311` (with `0x00193C2A`), `0x00193EE2`, `0x0019149A`, `0x00193566`, `0x00190F87`, `0x00191417`, `0x001911A8`, `0x00191D2D`, `0x00193649`, and `0x00193EBE` (normal paths; Linux uses SEH-shimmed copies built by `run.sh`, Windows can compile the original modules with MSVC into `cache/oracle/ctor_harness.exe`; needs `cache/oracle/mem_00160000.bin`) |
 
 An oracle is evidence for a translation, not a replacement for reading the
 dump: inputs must reach every branch, and functions that call heap, D3D or
 other host boundaries need those calls hooked rather than skipped.
+
+The constructor suite also covers owner selection `0x00193DF4`, owner linking
+`0x00191DF3`, pass-owner installation `0x00191EC3`, register-owner replacement
+`0x00193E52`, and the mutually recursive reader queries `0x00191BE1`/`0x0018F513`.
+These cases include ignored link failures, query-mode mutation, null-owner
+shortcuts, allocation failure, and the source-12 special-table lookup.
+
+It also covers unwritten dependencies `0x00191CC0` and unused instruction
+destinations `0x00191C74`, including both owner kinds, owner-chain writers,
+output registers, absent destinations and destination reader graphs.
+
+Operand reparenting `0x00192C9E`/`0x00192B20`, diagnostic unregister thunk
+`0x0019275A`, and unused-channel cleanup `0x0019373D`/`0x0019379C` are covered
+by chained kind-3 parents, retained readers, active/null/same-parent updates,
+lazy operand allocation, varied opcodes/masks and already-missing orders.
+The comparison includes parent pointers, sorted diagnostic keys, deletion
+events, object count, channel orders and changed results. Lazy allocation
+failure's null dereference and exceptional cleanup are not oracle-verified.
+
+The destination graph cases cover `0x00190D50`, `0x001908FC`,
+`0x0018F608`/`0x0018F6B7`/`0x0018F766`, their current-mask wrappers
+`0x0019070B`/`0x0019072E`/`0x00190751`, masked writer assignment
+`0x00191C0B`, and duplicate merging `0x00190D77`/`0x00191C47`.
+They compare writers, destinations, mask bytes/vtables and operand orders,
+including competing writers and destination aliases. For a focused run,
+use `ctor_oracle.py 16 4000 destinations`. Invalid null-destination removals
+with selected mask bytes are excluded because the emulator's mapped FS page
+would hide the retail null dereference. Exceptional paths remain unverified.
+
+Reader migration `0x00193A40` has a dedicated `moveunwritten` fixture that
+compares reader parents, sorted diagnostic keys/counts and deleting-node
+events after the two-pass mask traversal. Reproduce its focused check with
+`ctor_oracle.py 17 3000 moveunwritten`; it also participates in mixed runs.
+Owners have real diagnostic registries, and moves use the translated
+reparenting functions. Exceptional cleanup is not CPU-verified.
+
+Scalar splitting `0x00192F0C` has a `split` fixture covering both opcode
+gates, output flag bytes, scalar order/marker copying, parent replacement,
+destination aliases and writer transfers. It compares both instructions,
+all destination channels, allocation calls and object registry keys.
+Reproduce the focused check with `ctor_oracle.py 19 3000 split`; mixed seed
+20 passes 6,000 cases. Allocation failures and exceptional cleanup are
+outside this fixture.
+
+The scalar-split callers `0x0019368D` and `0x00193F8A` use
+`splitregister` and `splitpass` fixtures. These additionally compare the
+program instruction tree's sorted keys and count. Focused seeds 21 and 22
+pass 2,000 cases each; mixed seed 23 passes 6,000 cases. The CPU fixtures
+start with one instruction; fixed lifecycle regressions also exercise a
+tree containing several instructions and repeated/empty traversal.
+
+The `dependencybuild` fixture covers the dependency construction cycle
+`0x0019390D`/`0x001931E4`/`0x00193C44`, lookup and priority/list
+consumers, parent acceptance `0x001940AC`, migration `0x00194D12`,
+detachment/rotation `0x00195BE1`/`0x00195CA0`, register assignment
+`0x00196814`/`0x001969C0`/`0x00196A14` and availability
+`0x00197075`. Four-instruction acyclic graphs compare cache addresses and
+keys, allocation calls, predicate results, list values and owner/register
+updates. Migration/rotation uses empty writers. Allocation failure and
+exceptional paths remain outside the fixture. Focused
+`ctor_oracle.py 29 3000 dependencybuild` and mixed seed 30 (6,000 cases)
+pass with zero mismatches.
+
+`dependencybuild` now also exercises owner merging, move rewriting, readiness,
+instruction merging/destruction, packed instruction and pass construction,
+optimization worklists, scheduling/register assignment and the complete
+`0x0019723C` validation/serialization/cleanup path. Its packed programs include
+input owners and register-dependent move chains. It compares the surviving
+instruction count, scheduled instruction order/opcodes/operand parents, packed
+words, registry counts and allocation calls with retail.
+
+The allocator reserves `0x100` retail bytes per allocation (the derived pass needs
+`0x98`); host allocations use 512-byte blocks. The first serializer call receives
+three explicitly initialized retained frame words. Set/pass/list node callbacks
+model the heap boundary, while instruction/operand/owner destruction and registry
+removal execute their translated bodies.
+
+Reproduce the complete normal-path comparison with
+`ctor_oracle.py 41 1500 dependencybuild`; register-move coverage was added with
+`ctor_oracle.py 43 300 dependencybuild`. These checks pass with zero mismatches.
+The expanded fixture also passes seed 44 (1,500 focused cases) and seed 45
+(1,500 mixed cases), with zero mismatches.
+Allocation failures, C++ exception propagation and the validator's conservative
+retry path are not compared by these fixtures. Linux shims also suppress the
+outer exception handler; they are used solely for normal-path comparisons.

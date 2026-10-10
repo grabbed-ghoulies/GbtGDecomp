@@ -4,6 +4,112 @@
 
 namespace gbtg
 {
+// Xbox 0x001928C6
+void unregister_shader_validation_owner_expression(ShaderValidationEraseContext& context, u32 owner)
+{
+    auto* node = find_shader_validation_pass_node(context.tree, owner);
+    erase_shader_validation_balanced_node_192529(context, node);
+}
+
+// Xbox 0x00192818
+void unregister_shader_validation_instruction_dependency(ShaderValidationEraseContext& context, u32 instruction,
+    const ShaderValidationInstructionAt& instruction_at)
+{
+    auto* node = find_shader_validation_instruction_node(context.tree, instruction, instruction_at);
+    erase_shader_validation_balanced_node_19234a(context, node);
+}
+
+// Xbox 0x00191CC0
+bool shader_validation_owner_has_unwritten_dependency(const ShaderValidationOwner& owner,
+    const std::function<const ShaderValidationOperand*(u32)>& operand_at)
+{
+    if (owner.kind == 4)
+    {
+        for (u32 channel = 0; channel < 4; ++channel)
+        {
+            if (owner.channels[channel] == 0 &&
+                (shader_validation_owner_channel_has_reader(owner, channel, operand_at) ||
+                    (!shader_validation_channel_owner_writes_channel(owner, channel) &&
+                        shader_validation_derived_owner_writes_channel(owner, channel))))
+            {
+                return true;
+            }
+        }
+    }
+    else
+    {
+        for (u32 channel = 0; channel < 4; ++channel)
+        {
+            if (owner.channels[channel] == 0 && shader_validation_owner_channel_has_reader(owner, channel, operand_at))
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+// Xbox 0x00191C74
+bool shader_validation_instruction_destinations_unused(const ShaderValidationInstruction& instruction,
+    const std::function<const ShaderValidationOperand*(u32)>& operand_at)
+{
+    if (instruction.output_register != nullptr)
+    {
+        return false;
+    }
+    if (instruction.vector_destination != nullptr)
+    {
+        for (u32 channel = 0; channel < 4; ++channel)
+        {
+            if (shader_validation_owner_channel_has_reader(*instruction.vector_destination, channel, operand_at))
+            {
+                return false;
+            }
+        }
+    }
+    if (instruction.scalar_destination != nullptr)
+    {
+        for (u32 channel = 0; channel < 4; ++channel)
+        {
+            if (shader_validation_owner_channel_has_reader(*instruction.scalar_destination, channel, operand_at))
+            {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+// Xbox 0x00191BE1
+bool shader_validation_owner_channel_has_reader(const ShaderValidationOwner& owner, u32 channel,
+    const std::function<const ShaderValidationOperand*(u32)>& operand_at)
+{
+    if (!shader_validation_owner_diagnostic_reads_channel(owner, channel, operand_at))
+    {
+        if (!shader_validation_channel_owner_has_reader(owner, channel, operand_at))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Xbox 0x0018F513
+bool shader_validation_channel_owner_has_reader(const ShaderValidationOwner& owner, u32 channel,
+    const std::function<const ShaderValidationOperand*(u32)>& operand_at)
+{
+    if (owner.kind == 4 && owner.channel_owner == nullptr)
+    {
+        return true;
+    }
+    if (owner.channel_owner != nullptr && owner.channel_owner->channels[channel] == 0 &&
+        shader_validation_owner_channel_has_reader(*owner.channel_owner, channel, operand_at))
+    {
+        return true;
+    }
+    return false;
+}
+
 // Xbox 0x0018E78B
 bool shader_validation_owner_derives_from(const ShaderValidationOwner& owner, const ShaderValidationOwner* other)
 {
@@ -281,6 +387,17 @@ void register_shader_validation_instruction(ShaderValidationInsertContext& conte
     {
         insert_shader_validation_instruction_node(context, instruction, context.tree.root, instruction_at);
     }
+}
+
+// Xbox 0x00190CA6
+u32 last_shader_validation_tree_value(const ShaderValidationBalancedTree& tree)
+{
+    if (tree.count == 0)
+    {
+        return 0;
+    }
+    ShaderValidationBalancedNode* node;
+    return (*find_shader_validation_tree_last(tree, &node))->value;
 }
 
 // Xbox 0x0018F0EB

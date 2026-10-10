@@ -12,6 +12,14 @@ using ShaderValidationInstructionAt = std::function<const ShaderValidationInstru
 bool shader_validation_owner_derives_from(const ShaderValidationOwner& owner, const ShaderValidationOwner* other); // Xbox 0x0018E78B
 bool shader_validation_derived_owner_writes_channel(const ShaderValidationOwner& owner, u32 channel); // Xbox 0x0018F56F
 bool shader_validation_channel_owner_writes_channel(const ShaderValidationOwner& owner, u32 channel); // Xbox 0x0018F549
+bool shader_validation_owner_channel_has_reader(const ShaderValidationOwner& owner, u32 channel,
+    const std::function<const ShaderValidationOperand*(u32)>& operand_at); // Xbox 0x00191BE1
+bool shader_validation_channel_owner_has_reader(const ShaderValidationOwner& owner, u32 channel,
+    const std::function<const ShaderValidationOperand*(u32)>& operand_at); // Xbox 0x0018F513
+bool shader_validation_owner_has_unwritten_dependency(const ShaderValidationOwner& owner,
+    const std::function<const ShaderValidationOperand*(u32)>& operand_at); // Xbox 0x00191CC0
+bool shader_validation_instruction_destinations_unused(const ShaderValidationInstruction& instruction,
+    const std::function<const ShaderValidationOperand*(u32)>& operand_at); // Xbox 0x00191C74
 void destroy_shader_validation_balanced_nodes_18f2aa(ShaderValidationBalancedNode* node,
     const std::function<void(ShaderValidationBalancedNode&, u32)>& deleting_destructor); // Xbox 0x0018F2AA, as 0x0018F281
 void destroy_shader_validation_balanced_nodes_18f2d3(ShaderValidationBalancedNode* node,
@@ -46,6 +54,10 @@ using ShaderValidationOperandAt = std::function<ShaderValidationOperand*(u32)>;
 using ShaderValidationAddressOf = std::function<u32(const void*)>;
 
 void advance_shader_validation_arena_iterator(ShaderValidationBalancedNode*& node); // Xbox 0x0018F0EB
+void unregister_shader_validation_instruction_dependency(ShaderValidationEraseContext& context, u32 instruction,
+    const ShaderValidationInstructionAt& instruction_at); // Xbox 0x00192818
+void unregister_shader_validation_owner_expression(ShaderValidationEraseContext& context, u32 owner); // Xbox 0x001928C6
+u32 last_shader_validation_tree_value(const ShaderValidationBalancedTree& tree); // Xbox 0x00190CA6
 ShaderValidationPassNode** set_shader_validation_pass_value(ShaderValidationPassTree& tree,
     const std::function<void*(std::size_t, u32)>& allocate, ShaderValidationPassNode** result, u32 key, void* data); // Xbox 0x00192830
 void copy_shader_validation_instruction_set(ShaderValidationInstruction& instruction, const ShaderValidationBalancedChildTree& source,

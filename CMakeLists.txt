@@ -211,7 +211,14 @@ add_executable(gbtg
     src/engine/graphics/shader_validation_tree_instances.cpp
     src/engine/graphics/shader_validation_sets.cpp
     src/engine/graphics/shader_validation_instruction_constructor.cpp
+    src/engine/graphics/shader_validation_destinations.cpp
     src/engine/graphics/shader_validation_pass_lifecycle.cpp
+    src/engine/graphics/shader_validation_dependencies.cpp
+    src/engine/graphics/shader_validation_instruction_lifecycle.cpp
+    src/engine/graphics/shader_validation_packed_program.cpp
+    src/engine/graphics/shader_validation_optimizer.cpp
+    src/engine/graphics/shader_validation_scheduler.cpp
+    src/engine/graphics/shader_validation_program.cpp
     src/engine/graphics/shader_validation_owner_sets.cpp
     src/engine/graphics/shader_validation_pass_traversal.cpp
     src/engine/graphics/shader_validation_registration.cpp

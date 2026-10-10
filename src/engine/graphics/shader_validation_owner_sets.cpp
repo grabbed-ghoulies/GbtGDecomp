@@ -160,6 +160,359 @@ bool shader_validation_owner_readers_registered(const ShaderValidationOwner& own
     return result;
 }
 
+// Xbox 0x00190F87
+ShaderValidationChannelMask* shader_validation_unregistered_reader_channels(const ShaderValidationOwner& owner,
+    ShaderValidationChannelMask& output, const ShaderValidationBalancedTree& registry,
+    const ShaderValidationInstruction* instruction, const ShaderValidationSetContext& context)
+{
+    ShaderValidationChannelMask mask;
+    construct_shader_validation_channel_mask(mask, 0);
+    __try
+    {
+        for (u32 channel = 0; channel < 4; ++channel)
+        {
+            ShaderValidationChannelMask argument;
+            construct_shader_validation_single_channel_mask(argument, channel);
+            mask.channels[channel] = !shader_validation_owner_readers_registered(owner, registry, argument, instruction, 1, 1, context);
+        }
+        output.vtable_address = 0x00203790;
+        output.channels = mask.channels;
+    }
+    __finally
+    {
+        if (AbnormalTermination())
+        {
+            // Xbox 0x001707EF: FuncInfo 0x0032B7F0 destroys the local mask.
+            destroy_shader_validation_channel_mask(mask);
+        }
+    }
+    return &output;
+}
+
+// Xbox 0x00191417
+bool move_shader_validation_masked_channels(ShaderValidationOwner& owner, ShaderValidationChannelMask mask,
+    u8 climb, u8 propagate, const ShaderValidationSetContext& context)
+{
+    bool result = true;
+    __try
+    {
+        for (u32 channel = 0; channel < 4; ++channel)
+        {
+            if (mask.channels[channel] != 0 && find_shader_validation_owner_channel(&owner, channel) != 0)
+            {
+                bool moved = false;
+                for (u32 destination = 0; destination < 4 && !moved; ++destination)
+                {
+                    if (mask.channels[destination] == 0 && find_shader_validation_owner_channel(&owner, destination) == 0)
+                    {
+                        moved = swap_shader_validation_owner_channels(owner, channel, destination, climb, propagate, context.operand_at);
+                    }
+                }
+                if (!moved)
+                {
+                    result = false;
+                    break;
+                }
+            }
+        }
+    }
+    __finally
+    {
+        if (AbnormalTermination())
+        {
+            // Xbox 0x00170823: FuncInfo 0x0032B848 destroys the by-value mask.
+            destroy_shader_validation_channel_mask(mask);
+        }
+    }
+    return result;
+}
+
+namespace
+{
+bool link_owners_body(ShaderValidationOwner* owner, ShaderValidationOwner* other, u8 query_only,
+    const ShaderValidationChannelMask& owner_mask, const ShaderValidationChannelMask& other_mask,
+    const ShaderValidationSetContext& context)
+{
+    if (other == nullptr)
+    {
+        return true;
+    }
+    if (!move_shader_validation_masked_channels(*owner, ShaderValidationChannelMask{0x00203790, owner_mask.channels}, 1, 1, context))
+    {
+        return false;
+    }
+    if (!move_shader_validation_masked_channels(*other, ShaderValidationChannelMask{0x00203790, other_mask.channels}, 1, 1, context))
+    {
+        return false;
+    }
+    if (owner->derived_owner != nullptr)
+    {
+        return false;
+    }
+    if (owner->channel_owner != nullptr && other->channel_owner != nullptr)
+    {
+        return false;
+    }
+    if (query_only == 0)
+    {
+        if (owner->channel_owner == nullptr)
+        {
+            owner->channel_owner = other->channel_owner;
+        }
+        other->channel_owner = owner;
+        owner->derived_owner = other;
+    }
+    return true;
+}
+
+bool reorder_owner_channels_body(ShaderValidationOwner& owner, ShaderValidationChannelOrder& order,
+    ShaderValidationChannelOrder& retained_inverse, ShaderValidationChannelOrder& remaining, i32& state,
+    const ShaderValidationSetContext& context)
+{
+    if (owner.kind != 1 && owner.kind != 6)
+    {
+        return false;
+    }
+    clear_shader_validation_repeated_channels(order);
+    initialize_shader_validation_channel_order(retained_inverse);
+    while (!shader_validation_channel_order_covers_all(order))
+    {
+        const u32 uncovered = find_shader_validation_uncovered_channel(order);
+        const u32 missing = find_shader_validation_channel_order_index(order, 4);
+        retained_inverse.channels[uncovered] = missing == 4 ? 4 : order.channels[missing];
+        // After duplicate removal, an uncovered channel always has a missing position.
+        order.channels[missing] = uncovered;
+    }
+    invert_shader_validation_channel_order(order, remaining);
+    state = 2;
+    while (!shader_validation_channel_order_keeps_all(remaining))
+    {
+        const u32 first = find_shader_validation_moved_channel(remaining);
+        const u32 second = find_shader_validation_channel_order_index(remaining, first);
+        bool swapped = false;
+        if (owner.derived_owner != nullptr)
+        {
+            swapped = swap_shader_validation_owner_channels(*owner.derived_owner, first, second, 1, 1, context.operand_at);
+        }
+        else
+        {
+            const ShaderValidationChannelWriter first_writer = owner.channels[first];
+            const ShaderValidationChannelWriter second_writer = owner.channels[second];
+            if (first_writer == shader_validation_unwritten_channel || second_writer == shader_validation_unwritten_channel)
+            {
+                return false;
+            }
+            if (owner.channel_owner != nullptr &&
+                !swap_shader_validation_owner_channels(*owner.channel_owner, first, second, 0, 1, context.operand_at))
+            {
+                return false;
+            }
+            if (first_writer == second_writer)
+            {
+                if (second_writer == 0)
+                {
+                    swapped = true;
+                }
+                else
+                {
+                    swapped = swap_shader_validation_destination_channels(*reinterpret_cast<ShaderValidationInstruction*>(second_writer),
+                        &owner, first, second, 0);
+                }
+            }
+            else if (second_writer == 0)
+            {
+                swapped = swap_shader_validation_destination_channels(*reinterpret_cast<ShaderValidationInstruction*>(first_writer),
+                    &owner, first, second, 0);
+                if (swapped)
+                {
+                    owner.channels[second] = first_writer;
+                    owner.channels[first] = 0;
+                }
+            }
+            else if (first_writer == 0)
+            {
+                swapped = swap_shader_validation_destination_channels(*reinterpret_cast<ShaderValidationInstruction*>(second_writer),
+                    &owner, first, second, 0);
+                if (swapped)
+                {
+                    owner.channels[first] = second_writer;
+                    owner.channels[second] = 0;
+                }
+            }
+            else if (swap_shader_validation_destination_channels(*reinterpret_cast<ShaderValidationInstruction*>(second_writer),
+                &owner, first, second, 0))
+            {
+                swapped = swap_shader_validation_destination_channels(*reinterpret_cast<ShaderValidationInstruction*>(first_writer),
+                    &owner, first, second, 0);
+                if (swapped)
+                {
+                    owner.channels[first] = second_writer;
+                    owner.channels[second] = first_writer;
+                }
+                else
+                {
+                    swap_shader_validation_destination_channels(*reinterpret_cast<ShaderValidationInstruction*>(second_writer),
+                        &owner, first, second, 0);
+                }
+            }
+            if (swapped)
+            {
+                ShaderValidationBalancedNode* node;
+                find_shader_validation_tree_last(owner.diagnostics.nodes, &node);
+                while (node != nullptr)
+                {
+                    ShaderValidationOperand& operand = *context.operand_at(node->value);
+                    for (u32 index = 0; index < 4; ++index)
+                    {
+                        if (operand.channel_order.channels[index] == first)
+                        {
+                            operand.channel_order.channels[index] = second;
+                        }
+                        else if (operand.channel_order.channels[index] == second)
+                        {
+                            operand.channel_order.channels[index] = first;
+                        }
+                    }
+                    advance_shader_validation_arena_iterator(node);
+                }
+            }
+            else if (owner.channel_owner != nullptr)
+            {
+                swap_shader_validation_owner_channels(*owner.channel_owner, first, second, 0, 1, context.operand_at);
+            }
+        }
+        if (!swapped)
+        {
+            return false;
+        }
+        const u32 temporary = remaining.channels[first];
+        remaining.channels[first] = remaining.channels[second];
+        remaining.channels[second] = temporary;
+    }
+    return true;
+}
+
+bool owner_dependencies_registered_body(const ShaderValidationOwner& owner, const ShaderValidationPass& pass,
+    const ShaderValidationBalancedTree& writers, const ShaderValidationBalancedTree& readers,
+    const ShaderValidationInstruction* instruction, const ShaderValidationChannelMask& mask,
+    const ShaderValidationSetContext& context)
+{
+    const ShaderValidationOwner* derived = owner.derived_owner;
+    if (derived != nullptr)
+    {
+        if (!shader_validation_owner_readers_registered(*derived, readers, ShaderValidationChannelMask{0x00203790, mask.channels},
+                instruction, 1, 1, context))
+        {
+            return false;
+        }
+        for (u32 channel = 0; channel < 4; ++channel)
+        {
+            const ShaderValidationChannelWriter writer = derived->channels[channel];
+            if (mask.channels[channel] != 0 && writer != 0 && writer != shader_validation_unwritten_channel)
+            {
+                if (find_shader_validation_instruction_node(writers, context.address_of(reinterpret_cast<const void*>(writer)),
+                        context.instruction_at) == nullptr)
+                {
+                    return false;
+                }
+            }
+        }
+    }
+    if (owner.kind == 5 && pass.owner != nullptr)
+    {
+        if (!shader_validation_owner_readers_registered(*pass.owner, readers, ShaderValidationChannelMask{0x00203790, mask.channels},
+                instruction, 1, 1, context))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+}
+
+// Xbox 0x00191DF3
+bool link_shader_validation_owners(ShaderValidationOwner* owner, ShaderValidationOwner* other, u8 query_only,
+    ShaderValidationChannelMask owner_mask, ShaderValidationChannelMask other_mask,
+    const ShaderValidationSetContext& context)
+{
+    bool result = false;
+    __try
+    {
+        result = link_owners_body(owner, other, query_only, owner_mask, other_mask, context);
+    }
+    __finally
+    {
+        if (AbnormalTermination())
+        {
+            // FuncInfo 0x0032BC64: state 1 (+0x10 mask) -> state 0 (+0x18 mask).
+            // Xbox 0x0017084F
+            destroy_shader_validation_channel_mask(owner_mask);
+            // Xbox 0x00170847
+            destroy_shader_validation_channel_mask(other_mask);
+        }
+    }
+    return result;
+}
+
+// Xbox 0x001911A8
+bool reorder_shader_validation_owner_channels(ShaderValidationOwner& owner, ShaderValidationChannelOrder order,
+    const ShaderValidationSetContext& context)
+{
+    ShaderValidationChannelOrder retained_inverse;
+    ShaderValidationChannelOrder remaining;
+    i32 state = 0;
+    bool result = false;
+    __try
+    {
+        result = reorder_owner_channels_body(owner, order, retained_inverse, remaining, state, context);
+    }
+    __finally
+    {
+        if (AbnormalTermination())
+        {
+            // FuncInfo 0x0032B824: states 2 -> 1 -> 0 -> -1.
+            switch (state)
+            {
+            case 2:
+                // Xbox 0x00170811
+                destroy_shader_validation_channel_order(remaining);
+                [[fallthrough]];
+            case 1:
+                // Xbox 0x00170809
+                destroy_shader_validation_channel_order(retained_inverse);
+                [[fallthrough]];
+            case 0:
+                // Xbox 0x00170801
+                destroy_shader_validation_channel_order(order);
+                break;
+            }
+        }
+    }
+    return result;
+}
+
+// Xbox 0x00191D2D
+bool shader_validation_owner_dependencies_registered(const ShaderValidationOwner& owner, const ShaderValidationPass& pass,
+    const ShaderValidationBalancedTree& writers, const ShaderValidationBalancedTree& readers,
+    const ShaderValidationInstruction* instruction, ShaderValidationChannelMask mask,
+    const ShaderValidationSetContext& context)
+{
+    bool result = false;
+    __try
+    {
+        result = owner_dependencies_registered_body(owner, pass, writers, readers, instruction, mask, context);
+    }
+    __finally
+    {
+        if (AbnormalTermination())
+        {
+            // Xbox 0x00170835: FuncInfo 0x0032B86C destroys the by-value mask.
+            destroy_shader_validation_channel_mask(mask);
+        }
+    }
+    return result;
+}
+
 // Xbox 0x00192B84
 bool negate_shader_validation_owner_writers(ShaderValidationOwner& owner, const ShaderValidationSetContext& context)
 {

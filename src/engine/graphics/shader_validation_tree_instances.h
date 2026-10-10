@@ -5,6 +5,7 @@
 
 namespace gbtg
 {
+void unregister_shader_validation_diagnostic(ShaderValidationEraseContext& context, u32 object_address); // Xbox 0x0019275A
 // Retail instantiates the balanced-tree template once per node type. These addresses are
 // byte-identical (after normalizing call targets) to the instance named in each comment.
 ShaderValidationBalancedNode* join_shader_validation_balanced_nodes_19164f(ShaderValidationBalancedNode* parent,

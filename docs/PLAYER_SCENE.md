@@ -1362,3 +1362,455 @@ prolog. With those excluded, 71 functions (about 20.9 KB) remain under
 0x00191417, 0x00191D2D and 0x001911A8. The largest remaining are the pass bodies
 0x001943CD, 0x00194E5E, 0x00195FBE and 0x001956D1, and the dispatcher
 0x001973F1.
+
+### Input-owner cache and missing-reader channel mask (2026-10-10)
+
+Two more validator leaves are translated:
+
+- 0x00193566 `get_shader_validation_input_owner` looks up the exact source key
+  in the pass's +0x14 value tree. On a miss it allocates a kind-2 owner with
+  a full mask, zero writers and the constructor's active-owner fallback,
+  then caches the result. A failed owner allocation still inserts a null
+  value; subsequent lookups return it without retrying allocation.
+- 0x00190F87 `shader_validation_unregistered_reader_channels` checks each of
+  four single-channel masks through 0x00190E27, with both owner climbs enabled
+  and the caller's optional instruction. Each output byte is the negated
+  result, and the output mask receives vtable 0x00203790.
+
+Both retain Windows SEH cleanup. Read-only export from the Ghidra project at
+`Z:\GhouliesStuff\ghidra_projects` confirms 0x00193566 shares FuncInfo
+0x0032B8CC and allocation-release funclet 0x001709B7 with 0x001935E6;
+0x00190F87 uses FuncInfo 0x0032B7F0, whose funclet 0x001707EF destroys its
+local mask. The exported metadata stays in `cache/oracle/`.
+
+The extended `ctor_oracle.py` suite passes 6,000 randomized cases across two
+seeds with zero mismatches against retail machine code, using a Windows MSVC
+harness with real SEH (normal paths, including heap allocation failures).
+Changing the mask polarity produces 59 mismatches in a 600-case run; changing
+the input owner's kind produces 41. The oracle now exits unsuccessfully for
+mismatches or missing output rows, and selects `.exe` harnesses on Windows.
+In-repo lifecycle checks cover cache reuse, cached null values, active-parent
+selection, both reader climbs and local writer masking.
+
+The full Windows Release build, all six CTest checks, `--actor-loading` and
+`--ghoulybox-decoder` pass. `--player-opening` still fails with dialogue=0,
+cutscene before A=1, actors=1 and entities=1. These helpers are dependency
+work; they do not establish playable scene startup. The next previously
+listed leaves are 0x00193649, 0x00191417, 0x00191D2D and 0x001911A8;
+the large pass bodies and dispatcher remain outstanding.
+
+### Owner relocation, reordering and derived-pass destruction (2026-10-10)
+
+Five more functions are translated:
+
+- 0x00191417 `move_shader_validation_masked_channels` relocates occupied
+  masked channels into unmasked empty channels, searching destinations in
+  ascending order. It passes the caller's climb/propagation bytes to
+  0x00190FFE. Failure on a later channel retains earlier successful moves.
+- 0x001911A8 `reorder_shader_validation_owner_channels` accepts owner kinds
+  1 and 6, removes repeated order entries, fills missing channels, then swaps
+  pairs until the inverse order is identity. It preserves the separate
+  derived-owner path, local writer updates, reader-order rewrites and
+  current-pair rollback. Earlier completed pairs are not undone on failure.
+- 0x00191D2D `shader_validation_owner_dependencies_registered` checks the
+  derived owner's readers, then membership of its real masked writers in
+  the instruction set. Zero writers and 0xFFFFFFFF markers are exempt.
+  Kind 5 additionally checks the pass owner's readers when that owner exists.
+- 0x00193649 `destroy_shader_validation_program_pass` clears the derived
+  object's instruction set at +0x88 before calling the full base destructor.
+  The native `ShaderValidationProgramPass` exposes only these used fields.
+- 0x00193EBE `delete_shader_validation_program_pass` invokes that destructor,
+  then frees the object through XMemFree with flags 0x24870000 when the
+  incoming flag's low bit is set, and returns the original pointer.
+
+The SEH unwind actions are verified against the exported retail FuncInfo
+tables: 0x0032B848/0x00170823 and 0x0032B86C/0x00170835 destroy the two
+by-value masks; 0x0032B824 destroys the reordering temporaries and argument
+through 0x00170811/09/01; 0x0032BA58 calls the base pass destructor through
+0x001709CB. These use the existing Windows SEH backend.
+
+The final extended `ctor_oracle.py` suite passes 12,000 randomized cases
+across seeds 5 and 6 with zero mismatches using the native MSVC harness.
+It compares writer slots, instruction masks, reader orders, destructor event
+order, release flags and return values. This checks normal paths; it does
+not establish exceptional-path equivalence. Five deliberately mutated builds
+(masked-channel polarity, dependency kind, reorder kind, omitted derived-set
+cleanup and wrong free bit) are all rejected. Fixed lifecycle regressions
+cover partial relocation, swap rollback, marker handling, kind gates,
+registered readers/writers and destruction before heap release.
+
+The Windows Release build, all six CTest checks, `--actor-loading` and
+`--ghoulybox-decoder` pass. The live `--player-opening` probe remains unchanged:
+dialogue=0, cutscene before A=1, actors=1, entities=1. No live validator or
+scene acceptance is inferred from these dependency checks.
+
+Read-only `CalleeTree.java` inventory from the supplied Ghidra project, using
+all existing source translations plus the two-slot vtables at 0x00203820 and
+0x002037D0, now lists 64 untranslated functions. Its next direct-call leaves
+are 0x00193DF4 (owner selection) and 0x00191DF3 (owner linking). It also
+reports vtable target 0x00192818 as NOFUNC; that entry needs inspection rather
+than an invented implementation. Large pass bodies and dispatcher remain.
+
+### Owner selection, linking, installation and reader-chain queries (2026-10-10)
+
+Six further functions are translated:
+
+- 0x00193DF4 `select_shader_validation_owner`: kind 1 looks up the requested
+  register, kind 2 selects/caches the input source, kind 3 allocates the
+  separate constant source, and other kinds return null. The mask passed
+  to 0x00191E8F is popped but unused, as in that getter's assembly.
+- 0x00191DF3 `link_shader_validation_owners`: a null other owner returns
+  before dereferencing the first owner. Otherwise both masked relocations
+  run with climb/propagation enabled, before checking existing derived links
+  and incompatible channel-owner tails. Query mode still performs relocation
+  but does not install links; neither a later refusal nor query mode undoes
+  completed relocations. Commit inherits an absent first tail, makes the
+  second owner point back to the first, and installs the derived link.
+- 0x00191EC3 `set_shader_validation_pass_owner`: passes two empty masks to
+  the linker, ignores its result, stores the new pass owner and returns it.
+  Null into an empty pass follows the linker's null-other shortcut.
+- 0x00193E52 `replace_shader_validation_register_owner`: looks up the prior
+  owner, attempts a link with empty masks, then erases/replaces the regular
+  register entry regardless of the link result. Source 12 looks up the special
+  0x100 entry but still replaces the regular source-12 entry. A failed root
+  allocation leaves a null root with count one through 0x001924DA; the
+  replacement function still returns the supplied owner.
+- 0x00191BE1 / 0x0018F513: the mutually recursive reader query checks the
+  current diagnostic registry, then follows empty channel-owner slots. A
+  kind-4 owner with no channel owner supplies the terminal true result.
+
+The selection wrapper retains FuncInfo 0x0032BB74, which destroys its mask
+through 0x00170A4D. Linking retains FuncInfo 0x0032BC64: state 1 destroys
+the first mask (+0x10) through 0x0017084F, then state 0 destroys the second
+mask (+0x18) through 0x00170847. No exception or success stubs are added.
+
+The extended native MSVC/retail-machine-code oracle passes 12,000 cases
+across seeds 8 and 9 with zero mismatches, including allocation failure and
+the null first-owner/null other-owner path. It compares selected owners,
+writer slots, masks, reader orders, link pointers, register contents and
+deletion events. Exceptional-path equivalence remains unverified. Six
+deliberate mutations (wrong input-source argument, inverted query mode,
+discarded pass assignment, omitted register erase, wrong terminal owner kind
+and skipped direct reader registry) are all detected. Fixed lifecycle tests
+cover query relocation, retained moves on rejected links, ignored link
+results, special-table lookup and allocation-failure count semantics.
+
+The Release build, all six CTest checks, `--actor-loading` and
+`--ghoulybox-decoder` pass. `--player-opening` remains dialogue=0,
+cutscene before A=1, actors=1 and entities=1; gameplay acceptance is unchanged.
+
+The refreshed read-only Ghidra inventory now lists 58 untranslated functions.
+Its next direct-call leaves are 0x00191CC0 (unwritten-channel dependency
+query) and 0x00191C74 (unused instruction destination query). The large pass
+bodies, dispatcher and NOFUNC vtable entry 0x00192818 remain outstanding.
+
+### Unwritten dependencies and unused destinations (2026-10-10)
+
+Translated 0x00191CC0 and 0x00191C74 in shader_validation_sets. The first
+checks only empty owner channels: kind 4 also accepts a derived writer when
+there is no writer along the channel-owner chain. The second rejects any
+output register, then checks all four channels of each present vector and
+scalar destination for readers. Assembly confirms the receiver is the
+destination owner despite the decompiler's ambiguous call expression.
+
+Both functions use existing translated callees without new host boundaries.
+The expanded constructor oracle passes seed 10 with 6,000 cases and zero
+mismatches. The Release build and all six CTest checks pass. The refreshed
+read-only Ghidra inventory has 56 untranslated functions. This does not
+change the preceding player-opening failure or establish gameplay acceptance.
+
+### Operand reparenting and unused-channel cleanup (2026-10-10)
+
+Translated the mutually recursive 0x00192C9E/0x00192B20 pair. Reparenting
+erases the old diagnostic registration, reloads the old parent, and detaches
+an unused kind-3 parent's own operand when it has a foreign parent. It then
+assigns/registers the new parent and substitutes DAT_001a4d34 for null.
+The owner wrapper creates a kind-3 operand only when absent. Allocation
+failure still reaches the retail null dereference; no fallback is invented.
+FuncInfo 0x0032B8CC state 0 uses 0x001709B7 to release an allocation whose
+constructor fails. Exceptional-path equivalence remains unverified.
+
+The diagnostic virtual erase target 0x0019275A is also translated. The saved
+Ghidra project has no function there; exported retail instructions identify
+the thunk's calls to 0x001902BA and the already translated 0x0019214A.
+The local instruction dump is cache/ghidra_frontier/0019275A.txt. No Ghidra
+function or symbol was created or renamed.
+
+Translated 0x0019373D/0x0019379C in the instruction lifecycle module. Unread
+operand channels become 4; an empty order reparents to the active owner.
+An unread channel reports a change even when already 4. Instruction cleanup
+visits all three operands before combining the result bytes.
+
+The expanded constructor oracle compares parent pointers, diagnostic keys,
+node deletion order/flags, lazy allocation, global registration count,
+channel orders and cleanup results. Seeds 12 and 13 pass 16,000 cases with
+zero mismatches. Fixed lifecycle regressions cover already-missing channels
+and all three operands. Release and transition-test builds, all six CTest
+checks, actor loading and retail ghoulybox decoding pass. Player opening
+still fails with dialogue=0, cutscene before A=1, actors=1 and entities=1.
+
+The refreshed inventory has 52 untranslated functions. The writer/destination
+mutation cycle (0x00190D50, 0x001908FC, the 0x0019070B/2E/51 wrappers and
+0x0018F608/6B7/766 setters) is the next useful group; it must be translated
+together rather than replaced with callbacks or stubs.
+
+### Writer replacement, destination mutation and duplicate-channel merging (2026-10-10)
+
+Translated eleven functions in shader_validation_destinations.cpp/.h:
+0x00190D50, 0x001908FC, 0x0018F608, 0x0018F6B7, 0x0018F766,
+0x0019070B, 0x0019072E, 0x00190751, 0x00191C0B, 0x00190D77
+and 0x00191C47. CMake and the constructor oracle's Linux SEH-shim build
+include the new module.
+
+Channel writer replacement removes the previous real writer's destination
+channel before assigning the new slot; zero and the marker bypass removal.
+Destination removal chooses the first matching output/vector/scalar owner,
+clears the mask byte before the recursive writer update, then detaches an
+empty destination. Replacement snapshots the old mask, clears its writers,
+installs the new mask's writers, and assigns the destination last. Null
+replacement copies an empty mask. The three wrappers retain their current
+mask; the masked-writer loop treats every nonzero byte as selected.
+
+The setters preserve FuncInfo 0x0032B7CC: states 1/2 destroy the local
+snapshot before the argument mask, while state 0 destroys only the argument.
+The masked-writer loop preserves FuncInfo 0x0032B848's argument cleanup.
+These normal paths are CPU-verified; exceptional-path equivalence remains
+unverified.
+
+Duplicate-channel merging first checks the real shared-writer predicate.
+Ancestor channel occupancy can reverse the surviving channel. Removal then
+rewrites diagnostic operand orders along empty removed-channel slots and
+stops at an occupied ancestor. The all-pairs wrapper visits all six pairs
+and ignores individual refusal results.
+
+The expanded retail oracle compares every owner writer, all three instruction
+destinations, mask bytes/vtables, operand orders and defined return values.
+Seed 15 passes 8,000 mixed cases; seed 16 passes 4,000 focused destination
+cases. Both report zero mismatches. A generated invalid graph was excluded:
+removing through a null destination with a nonzero selected mask dereferences
+null in retail, but Unicorn's mapped FS page had hidden that fault. The host
+translation retains the dereference and does not invent a null fallback.
+
+Fixed regressions verify destination alias precedence, noncanonical selected
+bytes, null replacement, and ancestor-driven merge reversal. Release and
+transition-test builds, all six CTest checks, actor loading and retail
+ghoulybox decoding pass. Player opening remains dialogue=0, cutscene before
+A=1, actors=1 and entities=1. The refreshed read-only Ghidra inventory has
+41 untranslated functions; 0x00193A40 and the larger 0x00192F0C/0x00193222
+are now useful next translations.
+
+### Reader migration onto the derived owner (2026-10-10)
+
+Translated 0x00193A40 as move_shader_validation_unwritten_readers_to_derived
+in shader_validation_constructors.cpp/.h. The first pass accumulates writer
+masks along the channel-owner chain and rejects any diagnostic reader that
+reads both the accumulated mask and its complement. It completes the current
+registry traversal before observing rejection at the next owner. Without a
+derived owner it initializes its local mask and returns.
+
+When allowed, a second pass rebuilds the accumulated mask and reparents
+readers that do not read it onto the original owner's derived owner. Every
+reparent is followed by a fresh first-node lookup in the mutated registry;
+continuing a saved successor would change retail behavior. Existing translated
+reparenting and diagnostic registry functions perform all updates. FuncInfo
+0x0032BACC state 0 uses 0x001709FA to destroy the accumulated mask on unwind;
+exceptional-path equivalence remains unverified.
+
+The new moveunwritten oracle fixture compares reader parent pointers, every
+owner's sorted diagnostic keys/count, and deleting-node events/flags across
+varying masks, opcodes, reader orders, owner kinds and chain lengths. Seed 17
+passes 3,000 focused cases; seed 18 passes 6,000 mixed cases, both with zero
+mismatches. Fixed regressions cover multiple moves with iterator restarts,
+a mixed-channel reader preventing otherwise eligible moves, and no derived
+destination. Release/transition builds, all six CTest checks, actor loading
+and ghoulybox decoding pass. Player opening still reports dialogue=0,
+cutscene before A=1, actors=1 and entities=1.
+
+The refreshed read-only inventory now has 40 untranslated functions.
+0x00195BE1 remains blocked by untranslated 0x00194D12; do not implement it
+using a placeholder. The dependency-ready larger transformations
+0x00192F0C and 0x00193222 remain next, followed by the instruction-set
+construction cycle 0x0019390D/0x00193C44/0x001931E4.
+
+### Splitting combined scalar instructions (2026-10-10)
+
+Translated 0x00192F0C as split_shader_validation_scalar_instruction in
+shader_validation_instruction_constructor.cpp/.h. It returns null without
+allocation unless both opcodes are nonzero. The scalar opcode moves into a
+new instruction with the original sequence, a null instruction set and count
+0xFFFFFFFF. Its first two operands get fresh kind-0 owners; the scalar operand
+copies the original parent, marker and channel order. Unless the vector
+opcode is 3 or 4, the source scalar operand is reparented onto another fresh
+kind-0 owner.
+
+Every nonzero output flag transfers the output destination, including
+noncanonical flag bytes. Scalar destination transfer follows output transfer,
+so destination aliases observe any earlier mask mutation. Existing translated
+destination setters update writer ownership before the source fields are
+cleared. FuncInfo 0x0032B9BC cleanup states 0..6 preserve the retail allocation
+slots and nested unwind edges 2->1 and 4->3. Exceptional cleanup and allocation
+failure paths remain unverified by the CPU oracle.
+
+The split fixture compares source/result fields, masks, operands, parent
+addresses, destination writers, allocation calls and sorted object keys.
+Seed 19 passes 3,000 focused cases; seed 20 passes 6,000 mixed cases, both
+with zero mismatches. Fixed regressions cover the early gate, sequence/opcode
+transfer, noncanonical flags, copied scalar order/marker and fresh parent
+construction. A regression initially used opcode 2 for add; the retail
+predicate accepts 3 and 4, and the test was corrected.
+
+Release/transition builds, six CTest checks, actor loading and retail
+ghoulybox decoding pass. Player opening still fails with dialogue=0,
+cutscene before A=1, actors=1 and entities=1. The refreshed read-only
+inventory contains 39 untranslated functions. The two small consumers
+0x0019368D and 0x00193F8A are now ready, followed by 0x00193222 and the
+instruction-set construction cycle.
+
+### Registering scalar splits during program traversal (2026-10-10)
+
+Translated 0x0019368D as split_and_register_shader_validation_scalar_instruction
+and 0x00193F8A as split_shader_validation_program_scalar_instructions in
+shader_validation_pass_lifecycle.cpp/.h. The first checks both opcodes,
+splits the instruction and registers the returned instruction in the
+program's +0x88 instruction tree. The second finds the first node, applies
+that wrapper and advances the current node after insertion. It preserves
+the live tree traversal rather than collecting a snapshot of instructions.
+All callees are existing translated functions.
+
+The splitregister and splitpass oracle fixtures compare registration keys
+and counts as well as source/result state, destination writers and allocation
+calls. Seeds 21 and 22 each pass 2,000 focused cases; seed 23 passes 6,000
+mixed cases, all with zero mismatches. A fixed regression starts with three
+instructions, exercises insertion into the existing tree, then checks that
+a second traversal performs no further splits. Empty traversal also performs
+no allocation. Exceptional paths remain unverified.
+
+Release/transition builds, all six CTest checks, actor loading, retail
+ghoulybox decoding and diff whitespace checks pass. Player opening remains
+blocked by skipped type-0x14 dialogue calls: dialogue=0, cutscene before A=1,
+actors=1 and entities=1. The read-only Ghidra inventory now has 37 untranslated
+functions. Next is 0x00193222, followed by the instruction-set construction
+cycle 0x0019390D/0x00193C44/0x001931E4.
+
+### Remaining-function task: dependency and register group (2026-10-10)
+
+The request to translate all remaining 37 functions is still incomplete.
+Fourteen are now translated in shader_validation_dependencies.cpp/.h:
+0x0019390D, 0x001931E4, 0x00193C44, 0x00193FE4, 0x00194002,
+0x00194047, 0x001940AC, 0x00194D12, 0x00195BE1, 0x00195CA0,
+0x00196814, 0x001969C0, 0x00196A14 and 0x00197075.
+
+The mutually recursive dependency builder caches each instruction's set before
+walking diagnostic readers and ancestor writers. It registers set objects in
+DAT_001a4d58, optionally includes operand ancestor writers through DAT_001a4d30,
+and refreshes the cached count even when the set already exists. Priority
+ordering uses descending signed dependency counts, ascending signed sequence,
+then the retail instruction address. List selection swaps values in place.
+
+Parent compatibility checks other operand owner kinds, derived-owner overlap,
+writer dependencies and the instruction's own destinations. Reader migration
+restarts first-node lookup after each reparent. Kind-6 rotation reconnects both
+directions of the owner chain before another migration. The new typed
+0x00190CA6 overload preserves its count check and zero-key return semantics.
+
+Register assignment recursively handles derived owners, moves unregistered
+reader channels when required, and preserves query-only branches. At
+0x00196966 retail writes the pass address into a by-value mask's channel bytes;
+the translation preserves those exact bytes rather than substituting the
+previously calculated mask. Register selection tries the owner's source,
+11 down through 2, 0, then 1 only for instructions without both opcodes.
+0x00197075 counts register availability and queries a destination's existing
+kind when necessary.
+
+Unwind metadata was inspected for the mask/order states in the dependency,
+parent, migration and register functions. 0x00193C44 destroys only its used
+mask in state 0; 0x00196814 state 1 destroys its unregistered mask before
+unwinding the incoming mask. CPU exception equivalence remains unverified.
+
+The dependencybuild oracle constructs four-instruction acyclic graphs and
+compares set addresses/keys/counts, allocation calls, every pair's dependency
+and priority predicates, list selection, parent acceptance, reader migration,
+rotation/detachment, register assignment/selection and availability counts.
+The migration/rotation portion uses empty channel writers; broader occupied
+migration cases remain a verification limitation. Allocation failure cases
+are excluded. Focused seed 29 passes 3,000 cases and mixed seed 30 passes
+6,000 cases with zero mismatches. Earlier intermediate focused checks also
+passed while the fixture was expanded.
+
+Fixed regressions verify cache reuse, duplicate reader/writer dependencies,
+priority by dependency count, a query that leaves registration unchanged, and
+refusal to register an existing owner under another kind. Release/transition
+builds, all six CTest checks, actor loading and retail ghoulybox decoding pass.
+Player opening remains dialogue=0, cutscene before A=1, actors=1, entities=1.
+
+The read-only inventory now has 23 untranslated functions:
+0x00193222, 0x001943CD, 0x00194E5E, 0x001954F3, 0x001956D1,
+0x00195A15, 0x00195AFC, 0x00195B89, 0x00195C1A, 0x00195D42,
+0x00195E43, 0x00195FBE, 0x00196545, 0x00196739, 0x00196B22,
+0x00196C74, 0x00196D71, 0x00196DD1, 0x00196F09, 0x00197223,
+0x0019723C, 0x001973F1 and 0x00197A94. The next dependency-ready leaves
+are 0x00193222 and 0x00194E5E; the other remaining functions depend on them.
+
+### Remaining validator functions completed (2026-10-10)
+
+All 37 functions from the requested inventory are now translated. This pass
+completed the 23 addresses listed above, and translated ten additional virtual
+destructor/removal callees exposed by their vtables: 0x00192818, 0x001928C6,
+0x00192D13, 0x001936CD, 0x0019370F, 0x001937D8, 0x001937FC,
+0x00193BBC, 0x00193FC0 and 0x00194088. The two removal thunks absent from
+Ghidra's function table were decoded from the exported retail bytes.
+
+The translated modules now cover owner merging and move rewriting, packed
+instruction/pass construction, instruction and owner destruction, optimization
+worklists, scheduling/register assignment, serialization dispatch and the outer
+validator entry point. Each definition and declaration retains its Xbox address.
+The new modules are separately compiled through CMake.
+
+The optimizer preserves both writer redirection and reader reparenting, including
+the duplicate writer checks, sequential destination changes, explicit diagnostic
+node erasure, marker normalization and worklist restart points. Owner destruction
+removes references from the actual expression registry objects; instruction
+destruction removes the instruction from every registered dependency set.
+
+The scheduler maintains writer/deferred instruction sets, ready/blocked lists and
+a reader registry. It retains the vector/scalar conversion and merge passes,
+register availability checks, pairing decisions, blocked-list ordering and NOP
+insertion. The outer 0x0019723C entry point retains its second attempt with scalar
+splitting disabled and conservative scheduling enabled; the second scheduling
+result is ignored as in retail. Its C++ catch-all handler at 0x001973C2 clears the
+result byte and resumes global cleanup. Allocation and container unwind states
+were checked against FuncInfo 0x0032BE70 and the other exported unwind tables.
+
+Typed registry overloads of 0x00190C93/0x00190CC1 support balanced nodes storing
+retail addresses. Their object callback represents the genuine registered-object
+deleting destructor. The context must dispatch to the translated operand,
+instruction, owner and pass destructors. The move and serializer interfaces retain
+their explicit caller-owned frame bytes; the implementation does not invent
+initial values for retail stack data read before assignment.
+
+The expanded dependencybuild CPU oracle compares construction, optimization,
+scheduling, serialization, registry cleanup and allocation counts against retail.
+It includes programs using input owners and register-dependent move chains, and
+uses real translated virtual destruction/removal functions. The allocator fixture
+now reserves 0x100 retail bytes per allocation so the 0x98-byte derived pass cannot
+overlap its next allocation. The serializer fixture explicitly initializes the
+retained frame words before its first call.
+
+Focused checks passed with zero mismatches: seeds 31 (1,500 cases), 32/33/34
+(3,000 each), 35 (2,000), 36 (300), 37 (1,500), 39 (1,500 combined scheduling
+cases), 41 (1,500 complete validation cases) and 43 (300 cases including register
+move chains). Mixed seed 42 also passed 1,500 cases.
+The final expanded fixture passed seed 44 (1,500 focused cases) and seed 45
+(1,500 mixed cases), both with zero mismatches. Allocation failures,
+exception propagation and retry-path equivalence remain outside the CPU fixture;
+these results establish only the normal paths exercised by those cases.
+
+Release and transition builds, all six CTest checks, actor loading and retail
+ghoulybox decoding pass. Player opening still fails with dialogue=0, cutscene
+before A=1, actors=1 and entities=1: script type 0x14 still skips the dialogue
+calls. Completing this validator translation does not establish gameplay
+acceptance or wire its typed contexts into the live shader registration path.
+
+The refreshed read-only Ghidra inventory reports no TODO/NOFUNC entries for the
+23 completed functions and the checked virtual call targets. Ghidra symbols,
+OriginalFiles and the Git index were not changed.

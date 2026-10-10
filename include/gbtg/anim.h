@@ -497,6 +497,7 @@ void subtract_skeleton_bind_points(std::span<AnimationMatrix> output,
                                     std::span<const Joint> joints, int count); // Xbox 0x0002F720
 
 const AnimationRecord* find_animation_record(const AnimationTable& table, std::string_view name); // Xbox 0x00032180
+void append_animation_number(std::string& output, i32 value); // Xbox 0x000FBEA0
 const AnimationAlias* find_animation_alias(const AnimationTable& table, std::string_view name); // Xbox 0x00032210
 const AnimationRecord* find_animation(const AnimationTable& table, std::string_view name); // Xbox 0x00032150
 const AnimationRecord* find_actor_animation(const AnimationTable* table, const char* name,

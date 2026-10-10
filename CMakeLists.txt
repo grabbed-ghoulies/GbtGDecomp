@@ -62,6 +62,25 @@ add_library(gbtg_lib STATIC
     src/engine/scene/executable_resources.cpp
     src/engine/entities/player_spawn.cpp
     src/engine/entities/player_children.cpp
+    src/engine/entities/player_mind_setup.cpp
+    src/engine/entities/player_parent_lifecycle.cpp
+    src/engine/entities/player_attributes.cpp
+    src/engine/entities/player_mind_goals.cpp
+    src/engine/entities/player_mind_events.cpp
+    src/engine/entities/player_mind_targets.cpp
+    src/engine/entities/player_strategy_entry.cpp
+    src/engine/entities/player_attachment_helpers.cpp
+    src/engine/entities/player_attachment.cpp
+    src/engine/entities/player_construction.cpp
+    src/engine/entities/player_state.cpp
+    src/engine/entities/body_motion_controller.cpp
+    src/engine/entities/body_health.cpp
+    src/engine/entities/body_resources.cpp
+    src/engine/entities/body_animation_setup.cpp
+    src/engine/entities/body_action_selection.cpp
+    src/engine/entities/body_attachment_cleanup.cpp
+    src/engine/entities/body_construction.cpp
+    src/engine/entities/player_body_motion.cpp
     src/engine/scene/dialogue_scene_runtime.cpp
     src/engine/frontend/dialogue_sound_tags.cpp
     src/engine/frontend/dialogue_page_voice.cpp
@@ -321,6 +340,7 @@ add_executable(gbtg
     src/engine/runtime/interpolation.cpp
     src/engine/camera/camera.cpp
     src/engine/scripts/script_samples.cpp
+    src/engine/scripts/script_table_lookup.cpp
     src/engine/scripts/script_conditions.cpp
     src/engine/scripts/script_actions.cpp
     src/engine/scripts/script_actor_query.cpp
@@ -488,6 +508,7 @@ if(BUILD_TESTING)
     get_target_property(GBTG_TRANSITION_DEFINITIONS gbtg COMPILE_DEFINITIONS)
     get_target_property(GBTG_TRANSITION_INCLUDES gbtg INCLUDE_DIRECTORIES)
     target_link_libraries(gbtg-transition-tests PRIVATE ${GBTG_TRANSITION_LINKS})
+    target_sources(gbtg-transition-tests PRIVATE tests/player_parent_checks.cpp)
     target_link_libraries(gbtg-movie-startup-tests PRIVATE ${GBTG_TRANSITION_LINKS})
     if(GBTG_TRANSITION_DEFINITIONS)
         target_compile_definitions(gbtg-transition-tests PRIVATE ${GBTG_TRANSITION_DEFINITIONS})

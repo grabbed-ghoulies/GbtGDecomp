@@ -21,6 +21,8 @@ int crt_format_bounded_string(char* output, int capacity, const char* format,
     ...); // Xbox 0x001663B9
 int crt_format_output(void* stream, const char* format, std::va_list arguments); // Xbox 0x00168FED
 int crt_format_string(char* output, const char* format, ...); // Xbox 0x001661F9
+int crt_format_arguments(char* output, const char* format,
+    std::va_list arguments); // Xbox 0x001661A2
 int crt_format_wide_output(void* stream, const char16_t* format, std::va_list arguments); // Xbox 0x0016993D
 int crt_format_wide_string(char16_t* output, const char16_t* format, ...); // Xbox 0x00166A03
 int crt_format_wide_arguments(char16_t* output, const char16_t* format,

@@ -109,9 +109,6 @@ const AnimationTable& button_bat_animation_table()
 {
     return button_bat_table;
 }
-namespace
-{
-
 // Xbox 0x000FBEA0. The host string owns the original character buffer.
 void append_animation_number(std::string& output, i32 value)
 {
@@ -142,8 +139,6 @@ void append_animation_number(std::string& output, i32 value)
     }
     output.push_back('0');
 }
-
-} // namespace
 
 // Xbox 0x0003AAA0.
 const AnimationRecord* find_actor_animation(const AnimationTable* table, const char* name,

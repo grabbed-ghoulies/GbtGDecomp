@@ -5,11 +5,18 @@ Target: `aid_script_ghoulies_chapter1_scene1_2playcam`.
 This scene is not playable yet. Rendering its background and advancing its
 camera do not verify the retail dialogue, actor, or gameplay behavior.
 
-Latest live check (2026-10-10): the script holds at `+0x254`, type `0x6F`,
-waiting for the playable actor. Dialogue and cutscene are both inactive;
+Latest live check (2026-10-10): the script holds at `+0x254`, type `0x6F`.
+The legacy live handler still returns a constant 0: this is not yet an
+execution of the translated player readiness query. Dialogue and cutscene are both inactive;
 the only actor is the camera. Retail player templates and native spawn wrappers
 are now available, but the player factory and scene ownership graph remain
-incomplete. See the final progress sections for the current dependency state.
+incomplete. Dependency preflight progress must be distinguished from live
+opening progress. See the final progress sections for the current dependency state.
+The complete parent body constructor/destructor (0x00024C50/0x00024F70) are now
+translated and checked through their real dependency chains. The complete player
+constructor (0x00028830), attachment creation/replacement and base strategy entry
+are now translated and checked. Player destruction/virtual dispatch and scene
+ownership/type registration still prevent live player spawning.
 
 ## Reproduction and opening regression
 
@@ -1995,3 +2002,608 @@ disassembly, handles existing functions, and removes conflicting function
 analysis only inside a transaction that is always rolled back. This fixes
 incomplete instruction exports caused by unanalysed code marked as data or
 overlapping function bodies. The Ghidra project stays read-only.
+
+### Mind teardown and constructor lookup dependencies (2026-10-10)
+
+Translated 0x0007F0D0 in `player_children.cpp`. The native caller supplies the
+actual actor view reached through mind +8. The destructor retains the runtime
+flag 0x800 gate and actor +0x960 nonzero test, then calls the complete translated
+0x001093C0 input-stack pop. It does not release the input device or mind requests:
+neither operation appears in this destructor. The input regression checks both
+hold gates and an unrelated flag before verifying real row movement, previous
+device reactivation and reset through the destructor.
+
+Added `scripts/script_table_lookup.h/.cpp` for 0x00027510, a prerequisite of
+the mind constructor's body +0x73C lookup. It preserves signed count/index
+arithmetic, unsigned 16-bit key comparisons, stride 0x108 and caller-output
+clearing. A null table returns without touching the output; an empty nonnull
+table clears it. Resource preflight checks hits including 0x8000/0xFFFF,
+misses, null tables and zero/negative counts. The older script sample helper
+is separate and has not been used as a replacement for this native call.
+
+Read-only exports from `Z:\GhouliesStuff\ghidra_projects\GbtG` recovered
+0x0013CCD0, 0x00027510, 0x0013D000, 0x00107720 and 0x00107520. Address
+0x001307D0 is absent from the function table; a rolled-back temporary range
+export recovered its instructions through RET at 0x0013082B. It sets
+DAT_00433BE8, selects DAT_00433BEC using the configuration byte's 0x40 bit,
+and stops the selected sound voice through 0x00039690 before clearing the
+signed 16-bit voice index. That routine and the camera chain still need native
+contexts before completing 0x0007EF10; no constructor was registered in this
+batch. The camera chain includes pose/offset selection 0x0013D000 and a
+required message 0xBA to the created camera, alongside the existing clone and
+factory implementations. Missing factory/virtual mappings must still be
+resolved rather than replaced with callback success values.
+
+Release `gbtg` and `gbtg-transition-tests` builds pass. Dialogue resources,
+actor loading and all six CTest cases pass. Live player opening still fails:
+dialogue=0, cutscene before A=0, actors=1, entities=1, fired cursor
++0x254/type 0x6F. No OriginalFiles edits, Ghidra symbol changes, staging or
+commits were made.
+
+### Player mind construction and strategy setup batch (2026-10-10)
+
+Six more routines are translated, with one batched build/CTest run after
+implementation and focused checks were added:
+
+- 0x001307D0 resets the intro sound globals, selects scale 1/2 from the
+  configuration bit and stops the actual indexed voice through 0x00039690.
+- 0x00145FF0 reads the signed 16-bit class count and stride-0x10 rows, returning
+  unsigned class values. A negative count skips search but still returns the
+  first class; zero returns zero. This native entry does not use the older
+  vector convenience helper, which cannot represent a negative retail count.
+- 0x0013D000 builds the player camera target with the actual actor world
+  position, body scale factors, retail state/class offset table and population
+  height gate. Output byte +3 remains untouched.
+- 0x0013CCD0 clones the executable camera template at 0x00314E50, calculates
+  its pose through translated sine/cosine and direction routines, creates it
+  through the existing object factory and releases the clone. A nonnull player
+  requires real camera message 0xBA dispatch, including when creation fails;
+  the implementation does not add a success-only message guard.
+- 0x0007EF10 implements mind health/chapter gates, animation key 0x2C lookup,
+  camera creation and the exact state writes. The scene context retains the
+  created camera object. The parent mind constructor must supply the native
+  actor and body views before this child constructor can be registered.
+- 0x00028EB0 releases/replaces strategy, clears mind requests, writes the parent
+  token and invokes the real leaving/entering virtual mappings. The leaving
+  callback precedes reading the saved old state; request cleanup sits between
+  setting +0xE and entering. Neither virtual mapping is supplied as a live stub.
+
+The first five entries are in `entities/player_mind_setup.h/.cpp`; strategy
+replacement is beside the other wrappers in `player_children.h/.cpp`.
+All address declarations/definitions retain their Xbox notes.
+
+Resource preflight now exercises the retail camera template and offset table
+with capture-factory callbacks confined to the test. It covers state/class
+bounds, negative/zero class counts, null camera sources, rejected names,
+population gating, preserved target bytes, camera payload and pose, voice
+cleanup, seven health/chapter flag combinations and exact mind state writes.
+Strategy checks modify +0xE during leaving, enqueue a real allocated mind
+request, then verify detach/release and entering order. These fixtures are
+not live player/camera registrations and do not establish factory acceptance.
+
+Release `gbtg` and transition builds pass; dialogue resources, actor loading,
+retail ghoulybox decoding and all six CTest cases pass. The live opening still
+fails at +0x254/type 0x6F with dialogue=0, cutscene before A=0, actors=1 and
+entities=1. Next work remains the parent mind/body/strategy constructors and
+their complete virtual/lifecycle mappings, the player constructor 0x00028830
+dependencies, and the real scene-owned factory/spawn/query graph. Camera
+message dispatch must map to the actual translated camera receiver. No retail
+files, Ghidra symbols or Git index entries were changed.
+
+### Parent lifecycle and player attributes batch (2026-10-10)
+
+Fifteen additional routines are translated before the next build/test batch:
+
+- Parent mind sizes 0x00029D10, parameter/class settings 0x00029A60,
+  constructor 0x00029F20 and destructor 0x00029FF0.
+- Mind request initialization 0x00029EC0, event-list cleanup 0x0002A240,
+  and two-allocation storage release 0x00036B60.
+- Parent strategy sizes 0x0002B6A0, class-range sampling 0x0010F760,
+  constructor 0x0002B740, embedded-list detach 0x00112A20,
+  destructor 0x0002B7A0 and leaving-state counter update 0x000BFA50.
+- Player attribute acquisition/random selection 0x00019240 and the low-AX
+  tag-index result consumed from 0x00133A50.
+
+The parent routines are in `entities/player_parent_lifecycle.h/.cpp`; attributes
+and tag lookup are in `entities/player_attributes.h/.cpp`. Native resource,
+storage and list views alias the actual fields named in their interfaces.
+The mind constructor borrows +0x60 directly from the executable resource
+record; a non-AID name preserves its previous view and an AID miss clears it.
+Mind destruction clears requests before events and storage, then clears the
+borrowed table without releasing it. The strategy sampler leaves its output
+bytes and random state untouched on a miss, including signaling-NaN bytes.
+Its constructor retains +0xE, while destruction rereads that word after the
+leaving callback before setting state 1000 and dispatching entering.
+
+Attribute acquisition keeps the registry reference, matching the dump's lack
+of a release call. The six chance tests consume the shared LCG in retail order,
+preserve chance equality and reject unordered comparisons. The timer at +0x974
+retains its raw bits. A null attribute resource still passes address-zero +0x38
+and +0x78 to name lookup; the caller must supply that real native address view.
+No guard skips these name calls. The tag-index loop stops at the actual null-tag
+sentinel, uses stride 0x87 and returns the low 16 bits used by 0x00028830.
+
+`tests/player_parent_checks.cpp` runs through `--dialogue-resources` and the
+opening preflight. It covers real retail mind/strategy parameter clones,
+borrowed/missing/non-AID table lookup, signed counts, unsigned override values,
+first duplicate matches, reverse random ranges, byte preservation, list anchor
+cleanup, request/event/storage destruction order, callback-modified states,
+counter wrap, tag sentinels, registry acquisition, retained references,
+chance equality/NaNs and raw timers. Synthetic callback/resource fixtures stay
+inside tests. The retail player mind's named table is absent from the current
+executable-only pools; a live owner must supply its actual scene table provider.
+
+Read-only exports establish parent type 7 at getter 0x00029D30 (vtable
+0x004DD6F4), parent type 8 at getter 0x0002B6C0 (vtable 0x004DD74C), and body
+type 0x27 at getter 0x000733F0 over type 6/getter 0x0001DA50. Both mind and
+strategy parents derive from type 1. No new type has been installed prematurely.
+The remaining body constructor chain includes 0x00024C50, 0x00073450,
+0x000734F0 and 0x00075270 plus body destruction and virtual methods. Strategy
+entering 0x0002BAF0 and the player's entering/leaving overrides still require
+their full dependency chains. Player weapon setup 0x0013A720 depends on
+attachment 0x0001B2B0 and detach 0x0013A7C0; their dumps are now recovered but
+their untranslated callees still block completing player constructor 0x00028830.
+
+Release `gbtg` and transition builds pass after correcting test fixture
+expectations for absent tables and retained provider storage. Resource preflight,
+actor loading, retail ghoulybox decoding and all six CTest cases pass. Opening
+still fails at +0x254/type 0x6F: dialogue=0, cutscene before A=0, actors=1,
+entities=1. Ghidra exports used rolled-back temporary ranges where necessary.
+No OriginalFiles edits, symbol changes, staging or commits were made.
+
+### Mind goals, body state and action batch (2026-10-10)
+
+Twelve further routines are translated together before validation:
+
+- Mind goal lookup 0x0002A770, numbered wildcard selection 0x0002A810,
+  request allocation 0x00029D90 and resource decoding 0x0002A8E0 in
+  `entities/player_mind_goals.h/.cpp`.
+- Actor pause reference counts/message dispatch 0x00117400 and player
+  strategy leaving 0x000BF410 in `entities/player_state.h/.cpp`.
+- Body motion defaults 0x00025800, configured joint count 0x00073920,
+  flagged shape collection 0x00075270 and special shape collection
+  0x00026010, beside body action initialization 0x000278F0 and action
+  creation/reset 0x00027B60 in the same module.
+
+Goal lookup folds every byte above 0x20 with 0xDF, including punctuation.
+Wildcard selection counts contiguous numbered names starting at 1, consumes
+one shared LCG draw only after finding them, and ignores text after '?'. It
+reuses the translated integer append routine 0x000FBEA0. Request allocation
+uses the actual size table at 0x00217F18 and appends to the actual mind +0x54
+anchor. Native pointer fields expand separately from the zeroed retail request
+storage. Resource decoding uses the 49 actual goal names at 0x003397BC,
+the exact size/skip test and payload offset +0x10, releases its registry
+reference and returns success even when no recognized request is copied.
+An allocation failure is not converted to a skipped request.
+
+Pause counters wrap without clamping and broadcast only on their 0/1
+transitions. The actor next pointer is saved before dispatch; the head is
+reread for the second group. Leaving preserves the player's state-specific
+counter behavior, body +0x30 increment and pause release. Virtual message
+callbacks require actual scene mappings. Body action setup uses the existing
+resource clone and object factory; an existing action receives message 3.
+The kind at body +0x750 is a full zero-extended word, and existing +0x754
+mode/value fields are preserved after message dispatch.
+
+Both shape collectors test the terminal record before its zero stride.
+Selected pointers grow four slots at a time through the existing heap
+reallocation boundary, now also exposed from `entity_heap`. A zero selection
+preserves the prior state allocation. Native special records retain +0x26
+and +0x54 semantics with expanded host pointers. Model nodes and body storage
+must be supplied by their real owning objects; these routines are not live
+factory registrations.
+
+Parent preflight now covers executable goal names and request sizes, exact
+payload copies and registry release, empty goal nodes, case/punctuation
+folding, wildcard gaps and random preservation, list cleanup, pause nesting
+and callback mutation, leaving counter wrap, all 80 motion vectors and
+untouched gaps, terminal shapes, pointer-array reallocation, retained empty
+shape storage, raw action timer bits and repeated action reset.
+
+Further read-only exports recover motion controller insertion/dispatch
+0x0002F3C0, 0x0002F480 and 0x0002F6A0, and callback math 0x0002EEB0,
+0x0002EF20 and 0x0002EF90. Joint motion setup 0x000734F0/0x00073A90 is still
+blocked on the complete 0x0002F350/0x0002F060 chain, including container
+insertion 0x00066310. Strategy entering 0x0002BAF0 still requires 0x00138870.
+Body health 0x0001DB10 has an opening calculation omitted by its decompiler
+output; translate its assembly rather than treating that output as complete.
+The full body/player constructors and actual scene factory/spawn graph remain
+required before the opening can pass.
+
+Release game and transition builds pass. The new parent/dependency preflight
+runs through `--dialogue-resources`; retail actor loading, ghoulybox decoding
+and all six freshly rebuilt CTests pass. Preflight initially caught a fixture
+gap assertion at +0x343, which is actually part of the explicitly cleared
++0x340 word; the corrected check uses +0x33F. The live opening remains at
+script +0x254/type 0x6F, with dialogue=0, cutscene before A=0, actors=1 and
+entities=1. No new live type registrations were installed. `git diff --check`
+passes. Read-only Ghidra exports used rolled-back temporary functions; no
+OriginalFiles edits, Ghidra symbol changes, staging or commits were made.
+
+### Body controller, orientation and health batch (2026-10-10)
+
+Twelve further routines are complete:
+
+- Pool insertion 0x00066310, controller initialization 0x0002F3C0,
+  sorted joint insertion 0x0002F480, callback registration 0x0002F350
+  and two-callback dispatch 0x0002F6A0.
+- Angle constraint 0x0002EF90, matrix angle extraction 0x0002F1D0,
+  pitch adjustment 0x0002EEB0 and yaw adjustment 0x0002EF20.
+- Body health initialization 0x0001DB10, health texture release
+  0x0001DCA0 and body action/resource cleanup 0x00027580.
+
+Controller/orientation code is in `entities/body_motion_controller.h/.cpp`;
+health and cleanup code is in `entities/body_health.h/.cpp`. All reconstructed
+definitions and declarations retain their Xbox addresses. The controller
+reuses translated pool growth 0x000662A0, with native pointer expansion in
+the function/data pools. It retains the extra joint sentinel, sorted insertion,
+duplicate behavior and insertion order. Registration writes only the first
+callback/data pair; dispatch rereads the second callback and joint after the
+first call, preserving callback mutation. No live controller callbacks are
+invented or registered.
+
+Angle extraction preserves the dump's repeated addition/subtraction of 1
+outside [-1,1], signed pitch endpoints and roll fallback when matrix +4/+0x14
+are both ordered zero. Angle constraints retain the real remainder routine
+and normalize positive pi to negative pi. Pitch/yaw adjustments use translated
+angle extraction, sine/cosine, axis matrix creation and alias-safe affine
+multiplication; their x87 arithmetic is kept through the final float store.
+
+Health initialization translates the opening assembly omitted by Ghidra's
+decompiler: actor +0xCF4 selects a stride-0x87 tag value at tag*stride-0x47,
+byte endpoints map to the two float endpoints, and both ascending and
+descending clamp branches remain. Zero tag/equal byte endpoints use the
+maximum directly. Conversion goes through translated 0x001673D8 and keeps
+the low 16 bits. Four real scoreboard texture names are acquired in retail
+order; misses call the actual resource error routine. Their native views alias
+body +0x98/+0x9C/+0xA0/+0xD8 and are released/cleared in order by cleanup.
+Body action cleanup releases actual factory objects before clearing mode,
+word and retained resource fields.
+
+Dependency preflight covers controller initialization, sentinel growth,
+sorted insertion, duplicate replacement, callback/joint mutation, preservation
+of both callback pairs when moved, identity/wrapped/endpoint/fallback angles,
+both angle constraint directions, positive pi, pitch/yaw postmultiplication,
+translation retention, zero weight, health interpolation/clamps/equal byte
+endpoints and cleanup field boundaries. Callback fixtures remain test-only.
+
+Release game and transition builds, retail dependency preflight, actor loading,
+ghoulybox decoding and all six freshly linked CTests pass. `git diff --check`
+passes. Live opening remains at script +0x254/type 0x6F, dialogue=0, cutscene
+before A=0, actors=1, entities=1. No premature type registrations were added.
+No retail file changes, Ghidra symbol changes, staging or commits were made.
+
+Next joint-motion work is acceleration 0x001010B0 and its distance helper
+0x00100F30 (full read-only ranges now recovered), then the real callback
+0x0002F060, record setup 0x00073A90 and 0x000734F0. Strategy entering still
+requires 0x00138870; full body/player construction and scene-owned factories
+remain necessary for opening acceptance.
+
+### Joint-motion chain and live-blocker audit (2026-10-10)
+
+The unchanged +0x254/type 0x6F marker has a concrete cause beyond missing
+dependencies: `script_handle_actor_effects` in `scripts/script_actions.cpp`
+still returns a literal 0 for that case. The separately translated
+`wait_runtime_script_player`/0x001292D0 query in `script_actor_query.cpp` is
+not wired into this Game caller. `NativeActorFactoryOwner::install` installs
+only types 1, 2 and 0x15; the opening player template needs type 5 plus its
+body/mind/strategy descendants. No complete scene-owned player address and
+query graph exists in this caller. Moving the marker requires completing and
+owning those real objects and binding the query, not returning 2 to skip it.
+Prior repeated acceptance reports showed this same structural blocker; they
+did not establish that the newly translated dependencies were exercised by
+the live opening. The top-level status and source comments now say this
+explicitly instead of describing the query itself as untranslated.
+
+Six further routines close the full joint-motion setup dependency chain:
+
+- 0x00100F30: signed sum of the two normalized angle legs through an anchor.
+- 0x001010B0: angular acceleration/braking, maximum-speed branches, target
+  crossing clamps and zero-distance velocity decay, translated from assembly
+  where the decompiler misidentifies XMM return values.
+- 0x0002F060: real joint callback, including unconditional matrix multiplication,
+  record-word gate, pitch/yaw limit sentinels, constrained targets, smoothing,
+  velocity resets and both matrix adjustments.
+- 0x00073A90: accumulated limits, actual joint-index lookup, lazy controller
+  allocation/aliasing and callback registration, exact 0x30-byte record writes.
+- 0x000734F0: six record slots, initialization writes, actual joint count and
+  heap allocation, ordered sum and per-slot parameter multipliers.
+- 0x00073450: player body child constructor, raw parameter copies, complete
+  joint setup, shape collection and ordered-zero counter increment.
+
+The first three are in `body_motion_controller.h/.cpp`; setup and construction
+are in `player_body_motion.h/.cpp`. All native controller/record fields must
+alias their real actor/body owners. Record +2 remains untouched, missing joints
+retain accumulated values, and the zero-count path preserves prior pointers.
+Both limits are selected using the first limit's comparison, preserving the
+dump's asymmetric condition. The final two slots copy maximum/acceleration
+without multiplying by 1, preserving raw floating-point payloads.
+
+Checks now exercise actual synthetic model-node-9 lookup, lazy controller
+aliases, genuine callback registration, record limits and multipliers, missing
+joint accumulation, no-joint pointer preservation, unordered body factors,
+positive/negative acceleration, crossing clamps, zero-distance braking,
+unconditional matrix multiplication, disabled limits and zero-weight resets.
+Release game/transition builds, dependency preflight, retail actor loading,
+ghoulybox decoding and six fresh CTests pass. The live handler/factory blocker
+has not been bypassed or wired with fabricated objects. No retail file edits,
+Ghidra symbol changes, staging or commits were made.
+
+Next work should prioritize the remaining parent body constructor/destructor
+chain (0x00024C50/0x00024F70), strategy entering/action chain and player
+constructor 0x00028830, then real type registration and scene-owned spawn/query
+binding. The body joint-motion chain is no longer an untranslated dependency.
+
+### Parent body resource and collision batch (2026-10-10)
+
+Nine further complete routines are in `entities/body_resources.h/.cpp`:
+0x0001FA50 friction curve/tag settings; 0x000242E0 attribute table acquisition;
+0x0001ED70 model channel initialization; 0x0001E9F0 ten-resource/hash cleanup;
+0x00027740 action-resource reload; 0x0001B920 reference-cache release and last-row
+compaction; 0x0013F150 collision state construction; 0x0013EE80 active collision
+filter restoration; and 0x0013F240 collision state destruction. Native resource
+and pointer fields must alias their eventual real body owners. Both executable
+model-channel indices at 0x00217E44 are zero; the second probe is retained.
+Friction reads its own tag column (stride 0x87 minus 0x37), not the health
+column, and copies damping bits 0x3F7D70A4. Collision matching includes the
+terminal zero-stride shape. Cached zero references wrap rather than gaining
+an invented guard; last-reference removal copies the entire last native row.
+
+New checks cover interpolation and clamp, exact damping/mode writes, null and
+present model channels, retained/last/zero cache references, whole-row compaction,
+terminal collision shapes and active-only filter restoration. One combined
+Release build of game, transition checks and six CTest executables passed;
+all six CTests plus retail dependency preflight, actor loading and ghoulybox
+decoding passed. No opening rerun was needed: the live 0x6F constant-zero handler
+and missing player factory ownership are unchanged, so this is dependency
+progress, not evidence of advancing the live script marker.
+
+Read-only dumps for the next constructor chain are now cached: 0x0001C220,
+0x0001C1C0, 0x00066140, 0x00035D90, 0x00040980, 0x00027830, 0x00027890 and
+0x0001AF10. Full 0x00024C50/0x00024F70 must still wait for every real callee;
+do not install a partial body constructor or fabricated return values.
+
+### Complete parent body animation chain (2026-10-10)
+
+Eleven further routines now live in `entities/body_animation_setup.h/.cpp`:
+0x00066140 rounded bit storage; 0x0001B9E0 retained group-cache lookup;
+0x0001C400 sequence-length histogram insertion/counting and pool growth;
+0x0001C490 packed native allocation size; 0x0001C4C0 group-header/pointer-table
+layout; 0x0001C220 complete sequence grouping and shared cache insertion;
+0x0001C1C0 maximum animation/group count; 0x0001CB60 animation resource and
+bit allocation; 0x0001D360 body animation settings and actor-class override;
+0x00051CA0 model record counting; and 0x00040980 node-two model lookup.
+This completes the animation setup callee chain of the parent constructor.
+
+The shared cache entry's retail +8 field is a resource identity pointer,
+now represented as a native pointer rather than an integer. Resource +0x10
+sequence pointers require owner-provided native views keyed by the actual
+CPU resource identity, including newly acquired resources. The raw +0x10
+gate remains in the translation; no relocation fallback or substitute callee
+is supplied. Group rows retain pointers to each original 16-bit sequence word,
+group by first-seen length, and allocate the headers and pointer tables in
+one heap block. Cache lookup retains the existing block and copies its count;
+cache misses preserve the output count. Empty sequence paths preserve the
+body count byte, matching the dump. Native pointer expansion affects allocation
+sizes and header strides without replacing heap allocation with vector growth.
+
+Checks exercise actual multi-length sequence grouping, individual word pointers,
+two-body shared cache retention/last release, rounded and zero-bit allocations,
+raw NaN parameter-bit preservation, matching class override, model record stride
+and null model behavior. One combined Release build of game/transition and all
+six CTest executables passed, as did six CTests, dependency preflight, actor
+loading and ghoulybox decoding. No retail edits, symbol renames or commits.
+
+The full parent lifecycle is still pending action-row selection/attachment
+callees and resource-hash acquisition (0x0001E7C0, including the exact loaded
+resource-size query 0x00035D90). Live type 5 ownership/query binding remains
+absent and type 0x6F remains constant zero. Do not treat these dependency tests
+as opening-script acceptance.
+
+### Complete parent body lifecycle and action batch (2026-10-10)
+
+Thirteen further routines complete the parent body constructor/destructor and
+their remaining direct dependency chains:
+
+- `body_resources.h/.cpp`: 0x00035D90 exact loaded-resource size query and
+  0x0001E7C0 ten-resource acquisition/hash collection. The size query scans actual
+  one-based resource slots and adds raw loaded +0xC/+0x14 words, plus the first
+  dword of +0x10 storage when present. It does not substitute a CPU span length.
+  The future scene loader must supply these genuine retained raw fields through
+  `RuntimeBodyLoadedResourceSize`; the older host registry spans alone cannot
+  establish their numeric values. Hash collection skips resource zero, allocates
+  four rows initially, takes only the first dword on its first allocation path,
+  and otherwise deduplicates eight-byte resource rows and grows by four.
+- `body_action_selection.h/.cpp`: 0x0001B020 snapshots both real virtual message
+  recipients and sends animation notice 0x28; 0x0001AF10 performs real variant
+  lookup/fallback, starts the real actor animation and notifies; 0x00027830 and
+  0x00027890 clone distinct optional template slots or executable resources,
+  override body token +8 and construct through the real object factory;
+  0x000276A0 releases both prior actions, selects row/key/animation and creates
+  replacements; 0x00027650 performs the actual signed binary table lookup.
+- `body_attachment_cleanup.h/.cpp`: 0x0003CFD0 searches the primary then secondary
+  attachment lists, invalidates secondary timed records, unlinks and frees;
+  0x00025090 clears the body's recorded tokens while rereading its count;
+  0x0001B4C0 sends 0x9D, performs real actor bind detachment, clears the owner,
+  sends 0x9C, adjusts class-three count and broadcasts 0x73 through the existing
+  scene pulse implementation; 0x00024F70 is the complete parent destructor.
+- `body_construction.h/.cpp`: 0x00024C50 is the complete parent constructor,
+  including shared LCG scale variation/class exclusions, parameter bit copies,
+  health, flags, world transforms, actions, animation, friction, attributes,
+  model channels, collision/hash/special-shape allocation and final action key.
+
+Native attachment and first animation-receiver fields alias the same owners
+across action selection and detach contexts. Required relocated strings/tables
+and resource-size views must map real scene objects; no missing function is
+replaced by a callback. The destructor deliberately repeats group/resource/bit
+cleanup after unload callbacks, matching the assembly. Collision destruction
+receives body +0x2C8 in EAX; the decompiler's apparent actor stack argument
+is not the state pointer. Group count bytes and other fields absent from the
+cleanup dump remain untouched.
+
+Checks now run the complete parent constructor and destructor with translated
+callees and verify exact random scaling, excluded-class random preservation,
+raw parameter bits, world position, damping/constants, conditional byte writes,
+real allocations and cleanup. Additional checks cover hash growth/deduplication,
+raw resource-size terms, both optional action-template clone paths, prior-action
+factory destruction, snapshotted recipients, timed secondary removal and detach
+message order. Registry-reference release is checked separately from provider
+unload, which is deferred by the existing resource registry.
+
+Release game, transition checks and six freshly linked CTest executables pass;
+all six CTests, dependency preflight, retail actor loading and ghoulybox decoding
+pass. No retail edits, symbol changes, staging or commits. Live 0x6F remains
+constant zero; these lifecycle checks do not establish opening acceptance.
+Next priority is full player 0x00028830 and strategy entry, then actual factory
+ownership/query binding. Their next ranges 0x00107830, 0x0013A720, 0x00040200
+and 0x00138870 have been exported read-only for continued work.
+
+### Mind events and attachment helper batch (2026-10-10)
+
+Thirteen more routines are translated from their cached dumps:
+
+- `player_mind_events.h/.cpp`: event allocation 0x0002A190, refresh/rehome
+  0x0002A280, target-event matching 0x0002A0C0 and target setter 0x0002A030;
+  position request 0x00136A70, current goal flags 0x000283A0 and direction-angle
+  query 0x00105F90. Descriptor flags determine event reuse; reuse restores the
+  original duration rather than replacing it with the requested duration.
+  Refresh unlinks and prepends at the actual list root. Clearing a nonzero
+  target sends the real actor virtual message before overwriting the token.
+  Position requests call the existing allocator and preserve raw coordinate
+  bits. Empty goal rings require the genuine address-zero view. Angle tests
+  follow the assembly's JA comparisons, including unordered NaN behavior.
+- `player_attachment_helpers.h/.cpp`: class value lookup 0x00146190, host
+  assignment/notification 0x001461C0, eligibility 0x00146100, bind allocation
+  0x0003B9D0, model joint binding 0x0003B840 and host notification 0x0001B770.
+  Lookup sign-extends row values, host assignment retains the actual actor
+  token, new binds initialize both identity matrices, and joint lookup calls
+  the existing translated model helper. Activation rereads host state after
+  the real virtual message callback.
+
+Native mind events retain LiveScript links so the existing base-mind cleanup
+unlinks and frees these allocations. Their retail payload is separately retained
+at the exact descriptor size; scene ownership must alias the embedded anchor
+and provide actual executable descriptors and actor virtual dispatch.
+
+One combined Release build covered the game and all CTest executables, followed
+by the transition target with the new fixtures. All six CTests and the retail
+dialogue-resource preflight pass (1357 template clones, 457 localization keys).
+Checks cover event reuse/reordering, exact clock/reset writes, notification
+order, request bits, zero-address ring reads, NaN comparisons, attachment
+eligibility, real model lookup and retained bind transforms. No retail edits,
+staging, commits or Ghidra project changes.
+
+Full strategy entry remains pending 0x00138870's target-query chain:
+0x00129640, 0x00129920 and 0x001299B0. Assembly distinguishes its category mask
+stack argument from predicate flags in EAX; these must remain separate. Full
+player construction still needs 0x0001B2B0's attachment chain. Existing input
+creation 0x00107830 and matrix refresh 0x00040200 are already translated and
+should be reused. Live 0x6F remains constant zero until the real player factory,
+scene ownership and readiness binding are complete.
+
+### Complete base strategy entry and target query (2026-10-10)
+
+Five substantial routines close the full base-entry dependency chain rather than
+leaving a partial strategy handler:
+
+- `player_mind_targets.h/.cpp`: target eligibility 0x00129920, reachability
+  0x001299B0 and nearest-target search 0x00129640. Eligibility calls the actual
+  actor activity and body-bit queries. Reachability computes the radius-offset
+  destination using retail angle/sine/cosine, rereads world position, calls the
+  translated navigation query and preserves the occupancy identity/group tests.
+  Target search keeps separate category-mask and predicate-flag arguments,
+  masks category shifts to five bits, filters real actor classes/identity,
+  preserves SSE distance order and COMISS tie/unordered behavior, and only writes
+  the output distance when a target was found.
+- `player_strategy_entry.h/.cpp`: player goal entry 0x00138870 and complete
+  base state entry 0x0002BAF0. Goal entry retains actor status/body state gates,
+  null versus empty-ring behavior and literal address-zero reads; it appends
+  real position requests and clears their duration on the exact retail conditions.
+  Kind ten uses mind +0x68 as category mask, mind +0x64 with bit 0x20 removed
+  and bit 8 added as predicate flags, then calls the real target setter and goal
+  loader with the actual 0x0031C7AC string and 0x0031B548 fallback. Base entry
+  selects the executable goal names, preserves byte increments/fallthrough, and
+  state 0x3FC directly clears the target and frees only the first kind-three event
+  without sending the target-setter notification.
+
+These contexts require actual scene actor/body/mind ownership, target registry,
+occupancy records, ring and executable string views. They do not install fake
+targets, substitute goal-loader results or connect the legacy live 0x6F handler.
+
+Checks exercise independent masks, signed class identities, category shift wrap,
+ties and first-NaN distances, unchanged miss output, all eligibility predicates,
+occupancy identity/group exemptions, missing-grid rejection and a genuine grid
+path whose success depends on radius adjustment. Full entry fixtures verify all
+position-request kinds, actor/ring timing suppression, raw coordinate copies,
+empty-ring address-zero reads, target-event creation, body state transitions,
+byte wrap and single-event removal. Goal-selection tests use the actual executable
+strings and translated resource loader, including both target-goal success and
+fallback while retaining the preceding position request.
+
+One combined Release build of game, transition checks and all six CTest targets
+passes. All six CTests, retail dialogue-resource preflight (1357 template clones
+and 457 localization keys), actor loading and ghoulybox decoding pass. No retail
+edits, symbol changes, staging or commits. The next constructor dependency is
+0x0001B2B0: integrate the attachment helpers with the real body action selection,
+pose update and formatting/class-string chain, then complete player 0x00028830.
+Live player factory ownership/readiness binding remains missing; opening gate
+progress must still be reported separately from this dependency completion.
+
+### Complete player constructor and attachment lifecycle batch (2026-10-10)
+
+Seven further routines close the remaining constructor dependency chain:
+
+- `runtime/crt_format.h/.cpp`: 0x001661A2 varargs formatting uses the existing
+  translated 0x00168FED output engine and preserves the string-stream termination
+  branches. No host printf replacement is used.
+- `player_attachment.h/.cpp`: body variant formatting 0x00020B30, full attachment
+  0x0001B2B0, release 0x0001B810, replacement 0x0013A7C0 and factory creation
+  0x0013A720. Attachment retains the real accepted-class gate, body/receiver
+  ownership and flag updates, executable weapon/class names, model-joint or
+  parent binding, actual body virtual action-key lookup, action selection,
+  animation notification, class-three count, pose update and host notification.
+  Release snapshots both attachments, preserves the inline mode/host tests
+  (which do not include the separate availability helper's +0x941 busy byte),
+  force override, mind-action recipient path and secondary cleanup. Replacement
+  uses actual bind-tree activation on its unavailable path and resets retained
+  player blend storage/controller dirtiness. Creation clones the real executable
+  resource, uses the actual factory, destroys on attach failure and broadcasts
+  the actual 0x74 message on success.
+- `player_construction.h/.cpp`: complete 0x00028830, including mode/tag and world
+  transform copies, the exact 0x0032B0F4 half-scale random phase, shared attribute
+  and spawn setup, body/mind/strategy child setters, actual base input allocation,
+  conditional body animation channel initialization/random advance, optional
+  attachment creation, player count/story-flag writes and final matrix refresh.
+  Native input and factory attachment ownership are retained explicitly rather
+  than truncating native pointers into retail words. The provisional +0x8C write
+  uses the actual DAT_00338EE0 word before the retail random overwrite.
+
+Calling-convention verification also corrected the earlier 0x0001B4C0 detach:
+0x0003B560 consumes the attached actor in EBX, not the body's host actor.
+`RuntimeBodyAttachedActor` now retains that genuine native owner, and the detach
+clears both its native body owner and the raw +0x48 word. A regression fixture
+uses distinct host/attached binds and verifies only the attached bind is freed.
+Host assignment keeps the native +0xD8C owner visible before the virtual notice.
+
+Checks cover rejected classes/occupied body, exact variant output and notice order,
+real parent bind/pose update, protected versus forced release, distinct secondary
+and absent/present mind recipients, actual blend cleanup, varargs string/integer
+formatting, clone-prefix rejection, failed factory construction and failed attach
+cleanup. Full constructor fixtures check transform/tag/input fields, the initial
+LCG phase, six real attribute advances followed by the body channel advance,
+optional weapon creation, story flag, counts and retained ownership cleanup.
+Their factory callbacks are test fixtures supplying native child instances; they
+are not installed in a Game and do not validate live player spawn. The parent
+body constructor has its separate complete translated-chain checks.
+
+One combined Release build of the game, transition checks and six CTest targets
+passes. All six CTests, retail dialogue-resource preflight (1357 template clones,
+457 localization keys), actor loading and ghoulybox decoding pass. No retail
+edits, staging, commits or Ghidra project mutations. Live 0x6F remains unchanged.
+
+Next lifecycle work is player destructor 0x00028A30, particularly goal-ring removal
+0x00028240 and unregister 0x001108B0, followed by the real player virtual slots
+0x00028F60/0x0002C2B0/0x00028050 and their dependencies. Getter 0x00027F60 installs
+these as well as constructor/destructor into vtable 0x004DD6B8. Complete those
+before installing type 5 and its body/mind/strategy descendants in the real
+scene owner and binding the translated readiness query to the live script gate.

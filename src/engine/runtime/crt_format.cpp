@@ -208,6 +208,31 @@ int crt_format_bounded_string(char* output, int capacity, const char* format, ..
     return result;
 }
 
+// Xbox 0x001661A2
+int crt_format_arguments(char* output, const char* format, std::va_list arguments)
+{
+    CrtOutputFile file;
+    file.cnt = 0x7FFFFFFF;
+    file.flag = 0x42;
+    file.base = output;
+    file.ptr = output;
+    const int count = crt_format_output(&file, format, arguments);
+    if (output != nullptr)
+    {
+        --file.cnt;
+        if (file.cnt < 0)
+        {
+            // Inline 0x00168E46's fixed string-stream IOERR/EOF branch.
+            file.flag |= 0x20;
+        }
+        else
+        {
+            *file.ptr = '\0';
+        }
+    }
+    return count;
+}
+
 // Xbox 0x001661F9
 int crt_format_string(char* output, const char* format, ...)
 {

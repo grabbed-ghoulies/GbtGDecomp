@@ -2218,8 +2218,9 @@ u8 g_byte_30d14 = 0;
 // Type 0x6F calls 0x001292D0. A null return returns 0. A live object calls
 // 0x00028360 with ESI set to that object. AX 0 returns 2. A nonzero AX
 // returns 2 when the dword at object+0x984 is nonzero, and 0 when that
-// dword is 0. 0x001292D0 is not translated, so the live path is not entered
-// and the case returns 0.
+// dword is 0. The translated wait_runtime_script_player exists separately,
+// but this legacy Game caller has no scene-owned player/query binding and
+// still returns a constant hold. Its return must not be changed to skip the wait.
 //
 // Type 0x76 calls 0x001292D0. A null return returns 2. A live object calls
 // vtable +0xC with message id 0x42 and a second dword of 1.

@@ -8,6 +8,9 @@
 #include "../src/engine/scene/executable_resources.h"
 #include "../src/engine/entities/player_spawn.h"
 #include "../src/engine/entities/player_children.h"
+#include "../src/engine/entities/player_mind_setup.h"
+#include "player_parent_checks.h"
+#include "../src/engine/scripts/script_table_lookup.h"
 #include "../src/engine/entities/entity_heap.h"
 #include "../src/engine/frontend/dialogue_page_setup.h"
 #include "../src/engine/cutscenes/instance_construction.h"
@@ -3095,7 +3098,23 @@ void check_actor_loading()
             throw Error("input stack name lookup lost retail folding or missing result");
         }
         activate_runtime_input_entry("dialogue", context);
-        pop_runtime_input_entry(context);
+        std::array<u8, 0x964> player_actor{};
+        const u32 player_device = 0x1234;
+        std::memcpy(player_actor.data() + 0x960, &player_device, 4);
+        const auto retained_rows = rows;
+        destroy_runtime_player_mind(player_actor, 0x800, context);
+        if (current != 2 || pool.cursor != rows.data() + rows.size() || rows != retained_rows)
+        {
+            throw Error("disabled player mind destruction changed the input stack");
+        }
+        player_actor.fill(0);
+        destroy_runtime_player_mind(player_actor, 0, context);
+        if (current != 2 || pool.cursor != rows.data() + rows.size() || rows != retained_rows)
+        {
+            throw Error("player mind without input changed the input stack");
+        }
+        std::memcpy(player_actor.data() + 0x960, &player_device, 4);
+        destroy_runtime_player_mind(player_actor, 0x1000, context);
         if (current != 1 || pool.cursor != rows.data() + 2 * 0x50
             || read_u32(rows, 0x50) != 103 || read_u32(rows, 0x48) != 1
             || read_u32(rows, 0x98) != 0 || read_u32(analog, 8) != 0)
@@ -6374,6 +6393,48 @@ void check_player_dialogue_resources(gbtg::AidStore& aids)
 {
     {
         using namespace gbtg;
+        u32 output = 0xABCDEF01;
+        if (find_runtime_script_table_row(nullptr, 0x2C, output) != nullptr || output != 0xABCDEF01)
+        {
+            throw Error("null script table changed the caller output");
+        }
+        std::array<u8, 0x108 * 5> rows{};
+        const u16 keys[]{0, 0x2C, 0x7FFF, 0x8000, 0xFFFF};
+        for (size_t index = 0; index < 5; ++index)
+        {
+            std::memcpy(rows.data() + index * 0x108, &keys[index], 2);
+        }
+        RuntimeScriptLookupTable table{5, rows.data()};
+        for (size_t index = 0; index < 5; ++index)
+        {
+            output = 0xABCDEF01;
+            if (find_runtime_script_table_row(&table, keys[index], output) != rows.data() + index * 0x108
+                || output != 0)
+            {
+                throw Error("script table lookup changed its unsigned key or row stride");
+            }
+        }
+        for (u16 missing : {u16{1}, u16{0x7FFE}, u16{0xFFFE}})
+        {
+            output = 0xABCDEF01;
+            if (find_runtime_script_table_row(&table, missing, output) != nullptr || output != 0)
+            {
+                throw Error("script table miss did not clear caller output");
+            }
+        }
+        for (i32 count : {0, -1})
+        {
+            table.count = count;
+            table.rows = nullptr;
+            output = 0xABCDEF01;
+            if (find_runtime_script_table_row(&table, 0x2C, output) != nullptr || output != 0)
+            {
+                throw Error("empty script table changed signed count handling");
+            }
+        }
+    }
+    {
+        using namespace gbtg;
         std::array<u8, 0x54> strategy{};
         const u32 active = 0x1234;
         std::memcpy(strategy.data() + 0x48, &active, 4);
@@ -6426,6 +6487,7 @@ void check_player_dialogue_resources(gbtg::AidStore& aids)
     }
     {
         gbtg::SceneExecutableResources executable(aids.game_dir);
+        check_player_parent_lifecycle(executable);
         size_t checked = 0;
         for (const auto& pool : executable.pools)
         {
@@ -6487,9 +6549,14 @@ void check_player_dialogue_resources(gbtg::AidStore& aids)
             {
                 sizes = {0x200, 0x820};
             }
-            static bool construct(gbtg::FactoryObject&, std::span<const gbtg::u8> parameters)
+            static bool construct(gbtg::FactoryObject& object, std::span<const gbtg::u8> parameters)
             {
                 CaptureFactory::parameters().assign(parameters.begin(), parameters.end());
+                if (object.type == 0x4F)
+                {
+                    const gbtg::u16 states[]{4, 7};
+                    std::memcpy(object.bytes.get() + 0xC, states, 4);
+                }
                 return true;
             }
             static void destroy(gbtg::FactoryObject&)
@@ -6501,7 +6568,7 @@ void check_player_dialogue_resources(gbtg::AidStore& aids)
                 return &table;
             }
         };
-        std::array<gbtg::ObjectFactoryType, 0x35> factory_types{};
+        std::array<gbtg::ObjectFactoryType, 0x80> factory_types{};
         for (auto& type : factory_types)
         {
             type = {0, CaptureFactory::table};
@@ -6544,6 +6611,242 @@ void check_player_dialogue_resources(gbtg::AidStore& aids)
         if (body.bytes != nullptr || mind.bytes != nullptr || factory.count != 0)
         {
             throw gbtg::Error("player child wrappers did not release their previous objects");
+        }
+        {
+            using namespace gbtg;
+            Actor actor;
+            actor.position = {10.f, 20.f, 30.f};
+            actor.radius_y = 3.f;
+            actor.radius_xz = 4.f;
+            actor.class_key = 42;
+            std::array<u8, 0x890> body_bytes{};
+            const float factors[]{2.f, 3.f};
+            std::memcpy(body_bytes.data() + 0x884, factors, 8);
+            std::array<u8, 0x970> link{};
+            const i16 count = 2;
+            const u16 slots[]{11, 3, 42, 2};
+            std::memcpy(link.data() + 0x944, &count, 2);
+            std::memcpy(link.data() + 0x948, slots, 2);
+            std::memcpy(link.data() + 0x94C, slots + 1, 2);
+            std::memcpy(link.data() + 0x958, slots + 2, 2);
+            std::memcpy(link.data() + 0x95C, slots + 3, 2);
+            if (runtime_actor_case_class(link, 42) != 2 || runtime_actor_case_class(link, 99) != 3)
+            {
+                throw Error("native case class lookup lost matching or first-row fallback");
+            }
+            const i16 negative = -1;
+            std::memcpy(link.data() + 0x944, &negative, 2);
+            if (runtime_actor_case_class(link, 42) != 3)
+            {
+                throw Error("negative case count must skip search and retain first class");
+            }
+            const i16 zero = 0;
+            std::memcpy(link.data() + 0x944, &zero, 2);
+            if (runtime_actor_case_class(link, 42) != 0)
+            {
+                throw Error("zero case count must return zero");
+            }
+            std::memcpy(link.data() + 0x944, &count, 2);
+            link[0x93D] = 1;
+            u32 flags = 0;
+            i32 population = 0;
+            const auto camera_name = executable.memory(0x00314E50, 128);
+            const auto offsets = executable.memory(0x00314EB0, 0x80);
+            int messages = 0;
+            RuntimePlayerCameraContext camera_context{factory, executable.pools,
+                reinterpret_cast<const char*>(camera_name.data()), offsets, flags, population,
+                [&](FactoryObject& camera, const std::array<u32, 3>& payload)
+                {
+                    if (camera.bytes == nullptr || payload != std::array<u32, 3>{0xBA, 0, 0x12345678})
+                    {
+                        throw Error("player camera message lost its created object or actor token");
+                    }
+                    ++messages;
+                }};
+            RuntimePlayerCameraSource source{actor, body_bytes, link};
+            std::array<u8, 0x20> target;
+            for (u8 state = 0; state <= 6; ++state)
+            {
+                link[0x93D] = state;
+                for (u16 kind = 0; kind <= 5; ++kind)
+                {
+                    std::memcpy(link.data() + 0x95C, &kind, 2);
+                    target.fill(0xA6);
+                    build_runtime_player_camera_target(target, source, camera_context);
+                    const bool valid = state > 0 && state < 5 && kind > 0 && kind < 4;
+                    const size_t offset = (kind + state * 3) * 8;
+                    if (target[0] != 4 || target[1] != 0x20 || target[2] != 1 || target[3] != 0xA6
+                        || read_f32(target, 4) != 10.f || read_f32(target, 8) != 20.f
+                        || read_f32(target, 0xC) != 30.f || read_f32(target, 0x10) != 0.f
+                        || read_f32(target, 0x14) != 6.f + (valid ? read_f32(offsets, offset) : 0.f)
+                        || read_f32(target, 0x18) != 0.f
+                        || read_f32(target, 0x1C) != 12.f + (valid ? read_f32(offsets, offset + 4) : 0.f))
+                    {
+                        throw Error("player camera target changed state/class offsets or untouched byte");
+                    }
+                }
+            }
+            source.case_link = {};
+            flags = 0x10;
+            for (i32 players : {3, 4})
+            {
+                population = players;
+                build_runtime_player_camera_target(target, source, camera_context);
+                if (read_f32(target, 0x14) != (players < 4 ? 16.f : 6.f))
+                {
+                    throw Error("player camera population height gate changed");
+                }
+            }
+            flags = 0;
+            auto camera = create_runtime_player_camera(&source, 0x12345678, camera_context);
+            const auto camera_parameters = CaptureFactory::parameters();
+            if (messages != 1 || camera.bytes == nullptr
+                || read_f32(camera_parameters, 8) != 10.f
+                || read_f32(camera_parameters, 0xC) != 26.f + std::bit_cast<float>(0x4178A3D7u)
+                || read_f32(camera_parameters, 0x10) != 30.f - std::bit_cast<float>(0x422AC28Fu)
+                || read_f32(camera_parameters, 0x18) != std::bit_cast<float>(0x40490FDBu)
+                || read_f32(camera_parameters, 0x20) != 1.f
+                || read_u16(camera_parameters, 0x2AA) != 0 || read_u16(camera_parameters, 0x2AC) != 0)
+            {
+                throw Error("player camera clone lost pose, message or identity clearing");
+            }
+            release_factory_object(factory, camera);
+            camera = create_runtime_player_camera(nullptr, 0, camera_context);
+            if (messages != 1 || read_f32(CaptureFactory::parameters(), 8) != 0.f
+                || read_f32(CaptureFactory::parameters(), 0x14) != 0.f
+                || read_f32(CaptureFactory::parameters(), 0x18) != 0.f)
+            {
+                throw Error("null player camera source changed origin or sent an actor message");
+            }
+            release_factory_object(factory, camera);
+            const char* saved_parameters = camera_context.parameters;
+            camera_context.parameters = "none";
+            camera = create_runtime_player_camera(nullptr, 0, camera_context);
+            if (camera.bytes != nullptr || messages != 1)
+            {
+                throw Error("rejected camera parameters fabricated a factory object");
+            }
+            camera_context.parameters = saved_parameters;
+            RuntimeActorSoundQueues sounds;
+            std::array<RuntimeSoundVoice, 1> voices{};
+            sounds.voices = voices;
+            u32 intro_enabled = 0;
+            float intro_scale = 0;
+            i16 voice = -1;
+            u8 configuration = 0;
+            RuntimePlayerIntroSound intro{intro_enabled, intro_scale, voice, configuration, sounds};
+            reset_runtime_player_intro_sound(intro);
+            if (intro_enabled != 1 || intro_scale != 2.f || voice != -1)
+            {
+                throw Error("player intro reset changed the absent-voice path");
+            }
+            configuration = 0x40;
+            voice = 0;
+            reset_runtime_player_intro_sound(intro);
+            if (intro_scale != 1.f || voice != -1 || voices[0].state != 10)
+            {
+                throw Error("player intro reset failed to stop the selected voice");
+            }
+            std::array<u8, 0xCE4> actor_bytes{};
+            std::array<u8, 0x198> mind_bytes;
+            std::array<u8, 0xA4> mind_parameters{};
+            const u32 setting = 0x89ABCDEF;
+            std::memcpy(mind_parameters.data() + 0xA0, &setting, 4);
+            std::array<u8, 0x108> animation_rows{};
+            const u16 animation_key = 0x2C;
+            std::memcpy(animation_rows.data(), &animation_key, 2);
+            RuntimeScriptLookupTable animations{1, animation_rows.data()};
+            u8 scene = 0;
+            u32 story = 0;
+            i32 health = 7;
+            i32 chapter_mode = 0;
+            std::vector<FactoryObject> cameras;
+            RuntimePlayerMindSetup setup{actor, actor_bytes, body_bytes, &animations,
+                0x12345678, scene, flags, story, health, chapter_mode, opening,
+                intro, source, camera_context, cameras};
+            for (int variant = 0; variant < 7; ++variant)
+            {
+                scene = variant == 1 ? 8 : 0;
+                flags = variant == 2 ? 0x200000 : 0;
+                health = variant == 3 ? 0 : 7;
+                story = variant == 4 ? 0x40 : 0;
+                chapter_mode = variant == 5 ? 1 : 0;
+                setup.scene_name = variant == 6 ? "aid_script_ghoulies_chapter5_scene1" : opening;
+                setup.animation_table = variant == 3 ? nullptr : &animations;
+                mind_bytes.fill(0xA6);
+                const u16 prior_health = 0xA6A6;
+                std::memcpy(body_bytes.data() + 0x94, &prior_health, 2);
+                std::memcpy(body_bytes.data() + 0x96, &prior_health, 2);
+                intro_enabled = 0;
+                if (!initialize_runtime_player_mind(mind_bytes, mind_parameters, setup))
+                {
+                    throw Error("translated player mind constructor changed its return");
+                }
+                const u16 expected_health = variant == 1 || variant == 2 ? 10 : variant == 3 ? prior_health : 7;
+                if (read_u16(body_bytes, 0x94) != expected_health || read_u16(body_bytes, 0x96) != expected_health
+                    || intro_enabled != (variant == 0 ? 1u : 0u)
+                    || read_u32(actor_bytes, 0xCE0) != 1 || actor_bytes[0x331] != 1
+                    || read_u32(mind_bytes, 0x144) != (variant == 3 ? 0u : 1u)
+                    || read_u32(mind_bytes, 0x80) != setting || read_f32(mind_bytes, 0x12C) != 1.f
+                    || read_u32(mind_bytes, 0x174) != 1 || read_u32(mind_bytes, 0x18C) != 1
+                    || read_u32(mind_bytes, 0x98) != 1 || read_u32(mind_bytes, 0xC8) != 0x12345678
+                    || mind_bytes[0xCC] != 3 || read_u16(mind_bytes, 0xCE) != 0
+                    || mind_bytes[0x81] != 0xCD || mind_bytes[0x84] != 0xA6
+                    || mind_bytes[0x190] != 0xA6 || cameras.size() != 1)
+                {
+                    throw Error("player mind setup changed health gates, state words or preserved fields");
+                }
+                release_factory_object(factory, cameras.back());
+                cameras.clear();
+            }
+            RuntimePlayerMindRequest request_anchor{};
+            RuntimePlayerMindRequests requests{request_anchor.next, {}};
+            RuntimePlayerMindRequests* request_view = &requests;
+            FactoryObject strategy;
+            std::vector<int> order;
+            RuntimePlayerStrategySetup strategy_setup{children, request_view,
+                [&](FactoryObject& object, u16 previous, u16 next)
+                {
+                    if (previous != 7 || next != 4 || read_u32(CaptureFactory::parameters(), 8) != 0x12345678)
+                    {
+                        throw Error("strategy leaving dispatch lost states or parent token");
+                    }
+                    order.push_back(1);
+                    const u16 modified = 9;
+                    std::memcpy(object.bytes.get() + 0xE, &modified, 2);
+                    auto* request = static_cast<RuntimePlayerMindRequest*>(engine_heap_allocate(sizeof(RuntimePlayerMindRequest)));
+                    *request = {&request_anchor, nullptr, 1, 1};
+                    request_anchor.next = request;
+                },
+                [&](FactoryObject& object, u16 next, u16 previous)
+                {
+                    if (next != 4 || previous != 9 || read_u16({object.bytes.get(), object.size}, 0xE) != 4
+                        || request_anchor.next != nullptr)
+                    {
+                        throw Error("strategy entering dispatch lost post-leaving state or request cleanup");
+                    }
+                    order.push_back(3);
+                }};
+            requests.release_active = [&](RuntimePlayerMindRequest& request)
+            {
+                if (request.previous != nullptr || request.next != nullptr)
+                {
+                    throw Error("strategy mind cleanup did not detach before virtual release");
+                }
+                order.push_back(2);
+            };
+            set_runtime_player_strategy(strategy, "aid_objparams_ghoulies_strategy_player", strategy_setup);
+            if (order != std::vector<int>{1, 2, 3} || strategy.bytes == nullptr)
+            {
+                throw Error("strategy setup reordered virtual transitions and mind cleanup");
+            }
+            set_runtime_player_strategy(strategy, "none", strategy_setup);
+            if (strategy.bytes != nullptr || factory.count != 0)
+            {
+                throw Error("strategy replacement retained its old factory object");
+            }
+            request_view = nullptr;
+            set_runtime_player_strategy(strategy, nullptr, strategy_setup);
         }
     }
     {

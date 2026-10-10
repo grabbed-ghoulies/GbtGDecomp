@@ -92,6 +92,21 @@ void* engine_heap_allocate(i32 size)
 }
 
 
+// Xbox 0x000F73A0
+void* engine_heap_reallocate(void* block, i32 size)
+{
+    const u8 heap_id = *(static_cast<const u8*>(block) + _msize(block) - 2);
+    void* grown = std::realloc(block, static_cast<size_t>(u32(size) + 4u));
+    if (grown != nullptr)
+    {
+        auto* footer = static_cast<u8*>(grown) + _msize(grown) - 4;
+        footer[0] = 0x34;
+        footer[1] = 0x12;
+        footer[2] = heap_id;
+    }
+    return grown;
+}
+
 // Xbox 0x000663E0
 void engine_heap_free(void* block)
 {

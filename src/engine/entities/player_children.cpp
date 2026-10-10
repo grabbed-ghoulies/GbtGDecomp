@@ -79,6 +79,16 @@ void clear_runtime_player_mind_requests(RuntimePlayerMindRequests& mind)
     }
 }
 
+// Xbox 0x0007F0D0
+void destroy_runtime_player_mind(std::span<const u8> actor, u32 runtime_flags,
+    RuntimeInputActivationContext& input)
+{
+    if ((runtime_flags & 0x800) == 0 && read_u32(actor, 0x960) != 0)
+    {
+        pop_runtime_input_entry(input);
+    }
+}
+
 // Xbox 0x00028640
 void set_runtime_player_spawn_controller(RuntimePlayerSpawnController& state,
     const u8* parameters, AnimationResourceRegistry& registry, ResourceErrorState& error,
@@ -140,6 +150,36 @@ void set_runtime_player_mind(FactoryObject& mind, const char* parameters,
         mind = create_factory_object(context.factory, {clone.bytes.get(), clone.size});
         clone.bytes.reset(); // 0x000663E0, paired clone heap release.
         return;
+    }
+}
+
+// Xbox 0x00028EB0
+void set_runtime_player_strategy(FactoryObject& strategy, const char* parameters,
+    RuntimePlayerStrategySetup& context)
+{
+    if (strategy.bytes != nullptr)
+    {
+        release_factory_object(context.child.factory, strategy);
+    }
+    if (context.mind != nullptr)
+    {
+        clear_runtime_player_mind_requests(*context.mind);
+    }
+    if (parameters != nullptr && std::memcmp(parameters, "aid_", 4) == 0)
+    {
+        auto clone = clone_executable_resource(context.child.resources, parameters);
+        std::memcpy(clone.bytes.get() + 8, &context.child.actor_address, 4);
+        strategy = create_factory_object(context.child.factory, {clone.bytes.get(), clone.size});
+        clone.bytes.reset();
+        if (strategy.bytes != nullptr)
+        {
+            const u16 next = read_u16({strategy.bytes.get(), strategy.size}, 0xC);
+            context.leaving(strategy, read_u16({strategy.bytes.get(), strategy.size}, 0xE), next);
+            const u16 previous = read_u16({strategy.bytes.get(), strategy.size}, 0xE);
+            std::memcpy(strategy.bytes.get() + 0xE, &next, 2);
+            clear_runtime_player_mind_requests(*context.mind);
+            context.entering(strategy, next, previous);
+        }
     }
 }
 }

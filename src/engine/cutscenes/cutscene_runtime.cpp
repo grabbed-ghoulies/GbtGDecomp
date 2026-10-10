@@ -160,30 +160,13 @@ void load_cutscene_reel(Game& g)
         }
         break;
     }
-    // No aidlist reel. The chapter script names its cutscene on a type 0x13
-    // node (0x0004EDA0 / node+8). The title node in front of it returns 0, so
-    // that walk does not reach the node. The aid is already on the script.
+    // A chapter clip can only start after the script reaches type 0x13.
+    // Resource references include future clips; they are not start requests.
     if (g.cutscenes.items.empty())
     {
         const std::string pending = g_script_cutscene_pending;
         g_script_cutscene_pending.clear();
         const std::string* name = pending.empty() ? nullptr : &pending;
-        std::string from_script;
-        if (name == nullptr)
-        {
-            for (const std::string& aid : g.scene_script.aids)
-            {
-                if (aid.starts_with("aid_cutscene_"))
-                {
-                    from_script = aid;
-                    break;
-                }
-            }
-            if (!from_script.empty())
-            {
-                name = &from_script;
-            }
-        }
         if (name != nullptr)
         {
             const BundleEntry* entry = find_aid(g, *name);

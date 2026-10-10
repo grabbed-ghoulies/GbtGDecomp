@@ -290,8 +290,8 @@ int script_handle_resource_actions(Game& g, const ScriptNode& node, int param_2)
 // on the first visit.
 extern i32 g_flag_2470;
 
-// DAT_00512474. Type 0x14 reads this. 0x000582A0 is not translated, so the
-// store of 1 on that nonzero return is not made.
+// DAT_00512474. Shared with the scene-bound translated type-0x14 context;
+// it remains set until native dialogue mode returns to zero.
 extern i32 g_flag_2474;
 
 // DAT_0051248C. Type 0x13 compares this dword with 3 and would pass that

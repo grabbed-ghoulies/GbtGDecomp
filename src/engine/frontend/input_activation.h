@@ -65,6 +65,7 @@ void reset_runtime_composite_input(std::span<u8> device,
     const RuntimeInputReleaseContext& context); // Xbox 0x001079D0
 std::span<u8> create_runtime_keyboard_input(const RuntimeInputReleaseContext& context); // Xbox 0x00107EF0
 std::span<u8> create_runtime_selected_input(const RuntimeInputReleaseContext& context); // Xbox 0x00107D60
+std::span<u8> create_runtime_actor_base_input(const RuntimeInputReleaseContext& context); // Xbox 0x00107830
 void refresh_runtime_input_device(u32 address, u32 frame,
     RuntimeInputActivationContext& context, const RuntimeInputReleaseContext& release); // Xbox 0x00109470
 }

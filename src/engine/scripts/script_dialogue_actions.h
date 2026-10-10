@@ -8,7 +8,7 @@ struct RuntimeScriptDialogueContext
 {
     RuntimeDialogueActivationContext& dialogue;
     RuntimeScriptActorQueryContext& actors;
-    u32& active; // DAT_00512474.
+    i32& active; // DAT_00512474, shared with the live script latch.
     u32& scene_flags; // DAT_0050EA9C.
     u32& random; // DAT_0054DD7C.
     char* variant_name; // DAT_00508EB8.

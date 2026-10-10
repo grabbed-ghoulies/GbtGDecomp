@@ -57,6 +57,11 @@ add_library(gbtg_lib STATIC
     src/gbtg/text/runtime_localtext.cpp
     src/gbtg/text/localtext_resources.cpp
     src/engine/frontend/dialogue_tags.cpp
+    src/engine/scene/dialogue_resource_owner.cpp
+    src/engine/scene/executable_resources.cpp
+    src/engine/entities/player_spawn.cpp
+    src/engine/entities/player_children.cpp
+    src/engine/scene/dialogue_scene_runtime.cpp
     src/engine/frontend/dialogue_sound_tags.cpp
     src/engine/frontend/dialogue_page_voice.cpp
     src/engine/frontend/dialogue_widget_lifecycle.cpp

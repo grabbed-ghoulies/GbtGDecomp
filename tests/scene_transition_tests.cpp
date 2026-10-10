@@ -1,7 +1,15 @@
 #include "gbtg/engine_internal.h"
 #include "gbtg/gfx.h"
 #include "gbtg/anim.h"
+#include "gbtg/loctext.h"
 #include "../src/engine/cutscenes/curve_sampling.h"
+#include "../src/engine/scene/dialogue_resource_owner.h"
+#include "../src/engine/scene/dialogue_scene_runtime.h"
+#include "../src/engine/scene/executable_resources.h"
+#include "../src/engine/entities/player_spawn.h"
+#include "../src/engine/entities/player_children.h"
+#include "../src/engine/entities/entity_heap.h"
+#include "../src/engine/frontend/dialogue_page_setup.h"
 #include "../src/engine/cutscenes/instance_construction.h"
 #include "../src/engine/cutscenes/camera_sampling.h"
 #include "../src/engine/cutscenes/quaternion_math.h"
@@ -6344,22 +6352,349 @@ void check_actor_loading()
 }
 }
 
+void check_player_dialogue_resources(gbtg::AidStore& aids)
+{
+    {
+        using namespace gbtg;
+        std::array<u8, 0x54> strategy{};
+        const u32 active = 0x1234;
+        std::memcpy(strategy.data() + 0x48, &active, 4);
+        u32 active_count = 1;
+        destroy_runtime_player_strategy(strategy, active_count);
+        destroy_runtime_player_strategy(strategy, active_count);
+        if (active_count != 0 || read_u32(strategy, 0x48) != 0)
+        {
+            throw Error("player strategy destructor must remove its active count once");
+        }
+        RuntimePlayerMindRequest anchor{};
+        auto* first = static_cast<RuntimePlayerMindRequest*>(engine_heap_allocate(sizeof(RuntimePlayerMindRequest)));
+        auto* second = static_cast<RuntimePlayerMindRequest*>(engine_heap_allocate(sizeof(RuntimePlayerMindRequest)));
+        auto* third = static_cast<RuntimePlayerMindRequest*>(engine_heap_allocate(sizeof(RuntimePlayerMindRequest)));
+        *first = {&anchor, second, 1, 1};
+        *second = {first, third, 2, 0};
+        *third = {second, nullptr, 3, 1};
+        anchor.next = first;
+        int releases = 0;
+        RuntimePlayerMindRequests mind{anchor.next, [&](RuntimePlayerMindRequest& request)
+        {
+            ++releases;
+            if (request.previous != nullptr || request.next != nullptr)
+            {
+                throw Error("bulk mind cleanup must detach before virtual release");
+            }
+        }};
+        clear_runtime_player_mind_requests(mind);
+        if (anchor.next != nullptr || releases != 2)
+        {
+            throw Error("mind cleanup must release active requests and unlink every node");
+        }
+        clear_runtime_player_mind_requests(mind);
+        first = static_cast<RuntimePlayerMindRequest*>(engine_heap_allocate(sizeof(RuntimePlayerMindRequest)));
+        *first = {&anchor, nullptr, 4, 1};
+        anchor.next = first;
+        mind.release_active = [&](RuntimePlayerMindRequest& request)
+        {
+            ++releases;
+            if (request.previous != &anchor || anchor.next != &request)
+            {
+                throw Error("single mind cleanup must invoke virtual release before unlinking");
+            }
+        };
+        release_runtime_player_mind_request(*first, mind);
+        if (anchor.next != nullptr || releases != 3)
+        {
+            throw Error("single mind request release left a linked node");
+        }
+    }
+    {
+        gbtg::SceneExecutableResources executable(aids.game_dir);
+        size_t checked = 0;
+        for (const auto& pool : executable.pools)
+        {
+            if (pool.active)
+            {
+                throw gbtg::Error("retail objparams pool became an active bundle provider");
+            }
+            for (const auto& record : pool.records)
+            {
+                // Lookup uses the actual pool priority; compare against the
+                // selected record when a later pool repeats a template name.
+                const auto* selected = gbtg::find_executable_resource(executable.pools,
+                    record.name.c_str(), true);
+                auto clone = gbtg::clone_executable_resource(executable.pools, record.name.c_str());
+                if (selected == nullptr || clone.bytes == nullptr || clone.size != selected->cpu.size() ||
+                    std::memcmp(clone.bytes.get(), selected->cpu.data(), clone.size) != 0)
+                {
+                    throw gbtg::Error("retail executable template clone disagrees: " + record.name);
+                }
+                ++checked;
+            }
+        }
+        auto player = gbtg::clone_executable_resource(executable.pools, "aid_objparams_ghoulies_actor_player_boy");
+        auto bat = gbtg::clone_executable_resource(executable.pools, "aid_objparams_ghoulies_misc_buttonbat");
+        if (checked != 0x1F1 + 0x35C || player.size != 0x63C || bat.size != 0x340 ||
+            gbtg::read_u32({player.bytes.get(), player.size}, 4) != 5 ||
+            gbtg::read_u32({bat.bytes.get(), bat.size}, 4) != 0x15)
+        {
+            throw gbtg::Error("retail player or button-bat executable template has the wrong factory type");
+        }
+        std::cout << "player executable resources: " << checked << " template clones matched\n";
+        const auto raw_overrides = executable.memory(0x00430DA0, 0x210);
+        const std::span<const gbtg::u8, 0x210> overrides{raw_overrides.data(), 0x210};
+        const auto selected = [&](const char* scene, gbtg::u8 flags, gbtg::u32 runtime)
+        {
+            return std::string_view(gbtg::select_player_parameter_name(scene, overrides, flags, runtime));
+        };
+        const char* opening = "aid_script_ghoulies_chapter1_scene1_2playcam";
+        if (selected(opening, 0, 0) != "aid_objparams_ghoulies_actor_player_boy" ||
+            selected(opening, 8, 0) != "aid_objparams_ghoulies_actor_player_girl" ||
+            selected(opening, 0, 0x200000) != "aid_objparams_ghoulies_actor_player_girl" ||
+            selected("aid_script_ghoulies_challenges_kickemquick", 0, 0) != "aid_objparams_ghoulies_actor_player_girl" ||
+            selected("aid_script_ghoulies_chapter5_scene13_2playcam", 8, 0x200000) !=
+                "aid_objparams_ghoulies_actor_cookplayable" ||
+            gbtg::find_player_scene_override("aid_script_ghoulies_attractsequence_final1", overrides) != 0)
+        {
+            throw gbtg::Error("player selector lost retail scene overrides, fallback flags or the four-row bound");
+        }
+        // Parameter-capture factory fixture only: these callbacks validate the
+        // translated wrappers; they are never installed in a live Game.
+        struct CaptureFactory
+        {
+            static std::vector<gbtg::u8>& parameters()
+            {
+                static std::vector<gbtg::u8> bytes;
+                return bytes;
+            }
+            static void sizes(gbtg::ObjectSizes& sizes)
+            {
+                sizes = {0x200, 0x820};
+            }
+            static bool construct(gbtg::FactoryObject&, std::span<const gbtg::u8> parameters)
+            {
+                CaptureFactory::parameters().assign(parameters.begin(), parameters.end());
+                return true;
+            }
+            static void destroy(gbtg::FactoryObject&)
+            {
+            }
+            static const gbtg::ObjectFactoryVtable* table()
+            {
+                static const gbtg::ObjectFactoryVtable table{0xFFFF0005, sizes, construct, destroy};
+                return &table;
+            }
+        };
+        std::array<gbtg::ObjectFactoryType, 0x35> factory_types{};
+        for (auto& type : factory_types)
+        {
+            type = {0, CaptureFactory::table};
+        }
+        gbtg::ObjectFactoryRegistry factory{factory_types};
+        const gbtg::u8 scene_flags = 0;
+        const gbtg::u32 runtime_flags = 0;
+        gbtg::RuntimePlayerSpawnContext spawn{factory, executable.pools, opening, overrides,
+            scene_flags, runtime_flags, ""};
+        auto player_object = gbtg::create_runtime_player_actor("aid_actorattribs_test",
+            {11.f, -22.f, 33.f}, {-1.f, 2.f, -3.f}, spawn);
+        const auto captured = std::span<const gbtg::u8>(CaptureFactory::parameters());
+        if (player_object.bytes == nullptr || factory.count != 1 || captured.size() != 0x63C ||
+            gbtg::read_f32(captured, 8) != 11.f || gbtg::read_f32(captured, 0xC) != -22.f ||
+            gbtg::read_f32(captured, 0x10) != 33.f || gbtg::read_f32(captured, 0x14) != -1.f ||
+            gbtg::read_f32(captured, 0x18) != 2.f || gbtg::read_f32(captured, 0x1C) != -3.f ||
+            gbtg::read_f32(captured, 0x20) != 1.f || gbtg::read_u16(captured, 0x2AA) != 0 ||
+            gbtg::read_u16(captured, 0x2AC) != 0 ||
+            std::string_view(reinterpret_cast<const char*>(captured.data() + 0x4BA)) != "aid_actorattribs_test")
+        {
+            throw gbtg::Error("player spawn wrapper lost native transform or override fields");
+        }
+        gbtg::release_factory_object(factory, player_object);
+        gbtg::RuntimePlayerChildContext children{factory, executable.pools, 0x12345678};
+        gbtg::FactoryObject body;
+        gbtg::FactoryObject mind;
+        gbtg::set_runtime_player_body(body, "aid_objparams_ghoulies_body_boy", children);
+        if (body.bytes == nullptr || gbtg::read_u32(CaptureFactory::parameters(), 0x1B0) != children.actor_address)
+        {
+            throw gbtg::Error("player body wrapper lost its native parent token");
+        }
+        gbtg::set_runtime_player_mind(mind, "aid_objparams_ghoulies_mind_player", children);
+        if (mind.bytes == nullptr || factory.count != 2 ||
+            gbtg::read_u32(CaptureFactory::parameters(), 0x9C) != children.actor_address)
+        {
+            throw gbtg::Error("player mind wrapper lost its native parent token");
+        }
+        gbtg::set_runtime_player_body(body, nullptr, children);
+        gbtg::set_runtime_player_mind(mind, "none", children);
+        if (body.bytes != nullptr || mind.bytes != nullptr || factory.count != 0)
+        {
+            throw gbtg::Error("player child wrappers did not release their previous objects");
+        }
+    }
+    {
+        gbtg::Game unbound;
+        gbtg::ScriptNode node;
+        node.type = 0x14;
+        // The retail gate must finish without any resource or scene binding.
+        if (gbtg::script_handle_cutscene_actions(unbound, node, 1) != 2)
+        {
+            throw gbtg::Error("gated dialogue action required scene ownership");
+        }
+        unbound.scene_script.bytes.resize(0x98);
+        bool missing_owner = false;
+        try
+        {
+            gbtg::script_handle_cutscene_actions(unbound, node, 0);
+        }
+        catch (const gbtg::Error& error)
+        {
+            missing_owner = std::string_view(error.what()).find("scene dialogue runtime is not installed")
+                != std::string_view::npos;
+        }
+        if (!missing_owner || unbound.script_dialogue != nullptr || unbound.cutscenes.playing)
+        {
+            throw gbtg::Error("unbound dialogue action silently advanced the live script");
+        }
+    }
+    // Exercise the real tutorial's translated lookup and page setup
+    // before checking the live script's hold. This catches incorrect
+    // native views of the retail LSBL and font resources.
+    gbtg::SceneDialogueResourceOwner resources(aids);
+    resources.load_fonts();
+    {
+        gbtg::Game input_game;
+        const std::unordered_map<gbtg::u32, std::span<gbtg::u8>> addresses;
+        gbtg::RuntimeInputReleaseContext release{addresses};
+        auto base = gbtg::create_runtime_actor_base_input(release);
+        const bool base_valid = base.size() == 0xB0 && gbtg::read_u32(base, 0) == 1 &&
+            std::all_of(base.begin() + 4, base.end(), [](gbtg::u8 value)
+            {
+                return value == 0;
+            });
+        gbtg::release_runtime_input_device(base, release);
+        if (!base_valid)
+        {
+            throw gbtg::Error("player base input allocation lost its kind-1 inactive state");
+        }
+        auto record = gbtg::create_runtime_keyboard_input(release);
+        const gbtg::RuntimeDialogueInputDevice device{record, {nullptr, nullptr, nullptr, nullptr}};
+        gbtg::pad_tick(input_game, {});
+        const auto samples = gbtg::runtime_pad_state_views();
+        gbtg::RuntimeDialogueInputState input{samples.merged, {}, 0, 0, 0, nullptr, 0};
+        gbtg::InputState pressed;
+        pressed.accept = true;
+        gbtg::pad_tick(input_game, pressed);
+        const bool first = gbtg::runtime_input_button_edge(device, 0x100, input) != 0;
+        gbtg::pad_tick(input_game, pressed);
+        const bool held = gbtg::runtime_input_button_held(device, 0x100, input) != 0;
+        const bool repeated = gbtg::runtime_input_button_edge(device, 0x100, input) != 0;
+        gbtg::pad_tick(input_game, {});
+        const bool released = gbtg::runtime_input_button_held(device, 0x100, input) == 0;
+        gbtg::release_runtime_input_device(record, release);
+        if (!first || !held || repeated || !released || samples.controllers.size() != 4 * 0xA8)
+        {
+            throw gbtg::Error("live pad samples did not preserve the dialogue A press edge");
+        }
+    }
+    const auto table = gbtg::parse_loctext(gbtg::read_file(
+        aids.game_dir / "loctext" / "english" / "0c50e153"));
+    if (table.keys_to_utf8.empty())
+    {
+        throw gbtg::Error("player dialogue reference table is empty");
+    }
+    for (const auto& [key, expected] : table.keys_to_utf8)
+    {
+        std::array<char16_t, 0x800> text{};
+        if (gbtg::acquire_localtext_key("aid_loctext_ghoulies_dialog_dialogs",
+            key.c_str(), text.data(), resources.text) == 0)
+        {
+            throw gbtg::Error("translated dialogue lookup missed retail key: " + key);
+        }
+        std::string actual;
+        for (const char16_t unit : std::u16string_view(text.data()))
+        {
+            if (unit < 0x80)
+            {
+                actual.push_back(static_cast<char>(unit));
+            }
+            else if (unit < 0x800)
+            {
+                actual.push_back(static_cast<char>(0xC0 | (unit >> 6)));
+                actual.push_back(static_cast<char>(0x80 | (unit & 0x3F)));
+            }
+            else
+            {
+                actual.push_back(static_cast<char>(0xE0 | (unit >> 12)));
+                actual.push_back(static_cast<char>(0x80 | ((unit >> 6) & 0x3F)));
+                actual.push_back(static_cast<char>(0x80 | (unit & 0x3F)));
+            }
+        }
+        if (actual != expected)
+        {
+            throw gbtg::Error("translated dialogue lookup returned the wrong string: " + key +
+                " actual=" + actual.substr(0, 120) + " expected=" + expected.substr(0, 120));
+        }
+    }
+    std::cout << "player dialogue lookup: " << table.keys_to_utf8.size()
+        << " retail keys matched\n";
+    std::array<char16_t, 0x800> tutorial{};
+    gbtg::request_namespaced_localtext("aid_loctext_ghoulies_dialog_dialogs",
+        "dialogs", "chapter1_scene1_fight1_howtofight", tutorial.data(), resources.text);
+    if (tutorial[0] == 0)
+    {
+        throw gbtg::Error("player opening tutorial localization is empty");
+    }
+    gbtg::DialogueOwnedResources owned;
+    const std::array<gbtg::i32, 4> thresholds{};
+    gbtg::u32 flags = 0;
+    std::array<char, 256> names{};
+    gbtg::DialogueTrophyContext trophies{thresholds, owned, flags, names.data(),
+        gbtg::g_retail_dialogue_token_names, resources.registry, resources.error};
+    gbtg::DialogueTagState tag_state{};
+    gbtg::DialogueSoundTagState sound{};
+    gbtg::DialogueTagContext tags{tag_state, trophies, sound,
+        gbtg::g_retail_dialogue_tokens, gbtg::g_retail_dialogue_sound_swaps, {}, 0, 0, 0, 0};
+    std::array<char16_t, 0x800> wide{};
+    std::array<char, 0x800> narrow{};
+    gbtg::DialogueMeasurementContext measurement{tags, resources.metrics, resources.text,
+        {}, 0, 0, 0, 0, 0, 0, 0.f, 1.f, 1.f, 0, wide.data(), narrow.data()};
+    gbtg::DialoguePageLayout page{};
+    gbtg::DialoguePageSettings settings{};
+    gbtg::reset_dialogue_page(page, tutorial.data(), 0, 400.f, settings, measurement);
+    if (page.text == nullptr || *page.text == 0 || page.lines == 0 ||
+        page.width <= 0.f || tag_state.buttons == 0)
+    {
+        throw gbtg::Error("player opening tutorial page setup lost its text or A prompt");
+    }
+    std::cout << "player tutorial resources: speaker=" << owned.speaker
+        << " lines=" << page.lines << " width=" << page.width
+        << " buttons=" << tag_state.buttons << "\n";
+    gbtg::release_dialogue_speaker(owned, resources.registry, 0, 0, 0);
+    gbtg::release_dialogue_icon(owned, resources.registry);
+}
+
 int main(int argc, char** argv)
 {
     const bool audio_test = argc == 3 && std::string_view(argv[2]) == "--audio-preparation";
     const bool title_test = argc == 3 && std::string_view(argv[2]) == "--title";
     const bool goop_test = argc == 3 && std::string_view(argv[2]) == "--goop";
     const bool ui_test = argc == 3 && std::string_view(argv[2]) == "--ui";
+    const bool dialogue_resources_test = argc == 3 && std::string_view(argv[2]) == "--dialogue-resources";
     const bool player_test = argc == 3 && std::string_view(argv[2]) == "--player-opening";
     const bool decoder_test = argc == 3 && std::string_view(argv[2]) == "--ghoulybox-decoder";
     const bool actor_test = argc == 3 && std::string_view(argv[2]) == "--actor-loading";
-    if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test)
+    if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test)
     {
-        std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --goop | --ui | --player-opening | --actor-loading | --ghoulybox-decoder | --audio-preparation]\n";
+        std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --goop | --ui | --player-opening | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation]\n";
         return 2;
     }
     try
     {
+        if (dialogue_resources_test)
+        {
+            gbtg::AidStore aids;
+            aids.open(argv[1]);
+            check_player_dialogue_resources(aids);
+            std::cout << "PASS: retail player tutorial localization, font metrics and dialogue page setup\n";
+            return 0;
+        }
         if (audio_test)
         {
             check_native_audio_preparation(argv[1]);
@@ -6404,6 +6739,7 @@ int main(int argc, char** argv)
         game.init(argv[1], player_test ? "chapter1_scene1_2playcam" : title_test ? "" : "scene0_1book");
         if (player_test)
         {
+            check_player_dialogue_resources(game.aids);
             bool saw_dialogue = false;
             bool cutscene_before_accept = false;
             for (int frame = 0; frame < 300; ++frame)
@@ -6422,6 +6758,12 @@ int main(int argc, char** argv)
                       << " cutscene before A=" << cutscene_before_accept
                       << " actors=" << game.actors.size()
                       << " entities=" << game.entities.size() << "\n";
+            for (const gbtg::u32 cursor : gbtg::g_script_fired)
+            {
+                const auto* node = gbtg::script_node_at(game.scene_script, cursor);
+                std::cout << "player script waiting: offset=0x" << std::hex << cursor
+                          << " type=0x" << (node == nullptr ? 0 : node->type) << std::dec << "\n";
+            }
             gbtg::RgbaImage image;
             if (!gbtg::gfx_readback(image))
             {
@@ -6431,9 +6773,31 @@ int main(int argc, char** argv)
             if (!saw_dialogue || cutscene_before_accept)
             {
                 throw gbtg::Error("player opening must hold chapter1_scene1_fight1_howtofight until A; "
-                                  "script type 0x14 currently skips retail dialogue calls");
+                                  "native dialogue did not hold the live script");
             }
-            std::cout << "PASS: player tutorial holds the opening script until A\n";
+            auto& dialogue = gbtg::scene_dialogue_context(game).dialogue;
+            if (dialogue.state.widget == nullptr || dialogue.state.cutscene == nullptr ||
+                dialogue.state.input.data() == nullptr || dialogue.page.text == nullptr)
+            {
+                throw gbtg::Error("player tutorial flags have no native widget, cutscene, input or page ownership");
+            }
+            bool cutscene_after_accept = false;
+            // Give each native page a fresh A edge, followed by release and
+            // enough time for the fade. Holding A cannot stand in for a new edge.
+            for (int frame = 0; frame < 600 && !cutscene_after_accept; ++frame)
+            {
+                gbtg::InputState input;
+                input.accept = frame % 120 < 5;
+                gbtg::gfx_begin_frame();
+                game.tick(1.f / 60.f, input);
+                gbtg::gfx_end_frame();
+                cutscene_after_accept = game.cutscenes.playing;
+            }
+            if (!cutscene_after_accept || gbtg::g_flag_2474 != 0 || dialogue.state.mode != 0)
+            {
+                throw gbtg::Error("player tutorial A edges did not release dialogue and start the opening cutscene");
+            }
+            std::cout << "PASS: player tutorial holds without A and releases to the opening cutscene after A\n";
             gbtg::gfx_shutdown();
             return 0;
         }

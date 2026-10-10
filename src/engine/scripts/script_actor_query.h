@@ -48,6 +48,13 @@ struct RuntimeScriptActorQueryContext
     std::unordered_map<scene_detail::CamFocus*, RuntimeScriptActorQueryView>& views;
     const u8* address_zero; // Native memory view for the dump's literal address-zero u16 read.
 };
+// Address views must map native address zero to nullptr, including the retail
+// player-link sentinel 0x93C whose subtraction produces address zero.
+Actor* find_runtime_script_player(u32 player_link,
+    const std::unordered_map<u32, Actor*>& addresses); // Xbox 0x001292D0
+int wait_runtime_script_player(u32 player_link,
+    const std::unordered_map<u32, Actor*>& addresses,
+    const RuntimeScriptActorQueryContext& context); // Xbox 0x00127BC0, type 0x6F
 bool script_actor_has_active_marker(const RuntimeScriptActorQueryView& actor); // Xbox 0x00028D20
 bool script_actor_is_active(const Actor& actor); // Xbox 0x00028D00
 Actor* script_actor_reference_source(const RuntimeScriptActorQueryView& actor); // Xbox 0x00028C10

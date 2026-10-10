@@ -17,12 +17,30 @@ public class ExportPlayerScene extends GbtgScript {
                     long last = Long.parseUnsignedLong(range[1], 16);
                     int transaction = currentProgram.startTransaction("Temporary export function");
                     try {
-                        new ghidra.app.cmd.disassemble.DisassembleCommand(toAddr(first),
-                            new ghidra.program.model.address.AddressSet(toAddr(first), toAddr(last)), false)
-                            .applyTo(currentProgram, monitor);
-                        Function temporary = currentProgram.getFunctionManager().createFunction(null,
-                            toAddr(first), new ghidra.program.model.address.AddressSet(toAddr(first), toAddr(last)),
-                            ghidra.program.model.symbol.SourceType.DEFAULT);
+                        Function temporary = currentProgram.getFunctionManager().getFunctionAt(toAddr(first));
+                        if (temporary == null) {
+                            var body = new ghidra.program.model.address.AddressSet(toAddr(first), toAddr(last));
+                            var overlapping = new java.util.ArrayList<ghidra.program.model.address.Address>();
+                            for (var function : currentProgram.getFunctionManager().getFunctions(true)) {
+                                if (function.getBody().intersects(body)) {
+                                    overlapping.add(function.getEntryPoint());
+                                }
+                            }
+                            for (var entry : overlapping) {
+                                currentProgram.getFunctionManager().removeFunction(entry);
+                            }
+                            // Some unanalysed code is marked as data, or starts
+                            // midway through an incorrectly decoded instruction.
+                            // Rebuild the requested range inside this rolled-back
+                            // transaction so branch targets are decoded too.
+                            currentProgram.getListing().clearCodeUnits(toAddr(first), toAddr(last), false);
+                            new ghidra.app.cmd.disassemble.DisassembleCommand(toAddr(first),
+                                new ghidra.program.model.address.AddressSet(toAddr(first), toAddr(last)), true)
+                                .applyTo(currentProgram, monitor);
+                            temporary = currentProgram.getFunctionManager().createFunction(null,
+                                toAddr(first), new ghidra.program.model.address.AddressSet(toAddr(first), toAddr(last)),
+                                ghidra.program.model.symbol.SourceType.DEFAULT);
+                        }
                         var result = decomp.decompileFunction(temporary, 120, monitor);
                         if (result.getDecompiledFunction() == null) {
                             throw new IllegalStateException(result.getErrorMessage());

@@ -10,6 +10,8 @@
 #include "../scene/actor_loading.h"
 #include "../scene/scene_object_requests.h"
 #include "../runtime/name_lookup.h"
+#include "script_dialogue_actions.h"
+#include "../scene/dialogue_scene_runtime.h"
 
 #include <algorithm>
 #include <bit>
@@ -1893,8 +1895,7 @@ i32 g_flag_e560 = 0;
 // on the first visit.
 i32 g_flag_2470 = 0;
 
-// DAT_00512474. Type 0x14 reads this. 0x000582A0 is not translated, so the
-// store of 1 on that nonzero return is not made.
+// DAT_00512474. The native type-0x14 context shares this latch.
 i32 g_flag_2474 = 0;
 
 // DAT_0051248C. Type 0x13 compares this dword with 3 and would pass that
@@ -2034,24 +2035,10 @@ int script_handle_event_actions(Game& g, const ScriptNode& node)
 // A terminal cutscene keeps the instance alive through the scene transition.
 // The optional skip widget is still owned by the untranslated UI path.
 //
-// Type 0x14 with a nonzero third argument returns 2. Nonzero DAT_00512474
-// returns 0 while DAT_004EE1EC is nonzero. Otherwise it calls
-// 0x00117400(0xFFFF, 1), clears DAT_00512474, and returns 2. Zero calls
-// 0x001077B0 with EAX = node+8. A tag above 1 would call 0x001291A0(tag, 0).
-// A zero return would return 2. That call is not translated, so the return
-// is not taken. A nonzero dword at node+0x8C would call 0x00049D10. A
-// nonzero return would return 2. That call is not translated, so the return
-// is not taken. A nonzero dword at node+0x90 tests bit 0x8000000 of
-// DAT_0050EA9C when node+0x94 is 0, and bit 0x10000000 when node+0x94 is 1.
-// A set bit returns 2. Any other node+0x94 skips the test. 0x000FBF90 would
-// take EAX = node+0x48. A nonzero return would build "%s%d" at DAT_00508EB8
-// through 0x001661F9 when node+0x88 is nonzero, calling 0x0001BB60 with
-// ECX = that dword + 1, EDX = 1, and ESI = 0x0054DD7C. 0x000582A0 would
-// then take ECX = that buffer, or node+0x48 when node+0x88 is zero, and a
-// stack 0. A nonzero return calls 0x00117400(0xFFFF, 0), stores 1, and ORs
-// the same DAT_0050EA9C bit. node+0x94 equal to 1 returns 0 after the OR.
-// The other path returns 0 as well. 0x000FBF90, 0x0001BB60, and 0x000582A0
-// are not translated, so that block is not entered and the case returns 2.
+// Type 0x14 delegates to execute_runtime_script_dialogue, which translates
+// the tag, end-flag, once-only, variant and enqueue branches. Activation,
+// update and draw share the scene binding; missing ownership is an error.
+// A nonzero third argument returns 2 before looking up that binding.
 //
 // Type 0x15 would call 0x00106D50 with the byte at node+0x88, the dword at
 // node+0x8C, and 1. EDI is node+8. 0x00106DD0 then takes DL = that byte.
@@ -2134,47 +2121,10 @@ int script_handle_cutscene_actions(Game& g, const ScriptNode& node, int param_3)
         {
             return 2;
         }
-        if (g_flag_2474 != 0)
-        {
-            if (g_draw_e1ec != 0)
-            {
-                return 0;
-            }
-            script_update_decay_latches(0xffff, 1);
-            g_flag_2474 = 0;
-            return 2;
-        }
-        {
-            const std::string key = node_cstr(g.scene_script, node, 8);
-            const u16 tag = static_cast<u16>(script_find_actor_tag(key.c_str()));
-            if (tag > 1)
-            {
-                // 0x001291A0 is not translated.
-            }
-        }
-        if (node_u32(g.scene_script, node, 0x8c) != 0)
-        {
-            // 0x00049D10 is not translated.
-        }
-        if (node_u32(g.scene_script, node, 0x90) != 0)
-        {
-            const u32 kind = node_u32(g.scene_script, node, 0x94);
-            if (kind == 0)
-            {
-                if ((g_flags_ea9c & 0x8000000u) != 0)
-                {
-                    return 2;
-                }
-            }
-            else if (kind == 1)
-            {
-                if ((g_flags_ea9c & 0x10000000u) != 0)
-                {
-                    return 2;
-                }
-            }
-        }
-        return 2;
+        // Native dependency binding, not a substitute implementation of the
+        // retail dialogue calls. Missing ownership must not skip this node.
+        return execute_runtime_script_dialogue(g.scene_script.bytes.data() + node.offset,
+            param_3, scene_dialogue_context(g));
     case 0x15:
     {
         const u8 index = node_u8(g.scene_script, node, 0x88);

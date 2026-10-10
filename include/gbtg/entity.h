@@ -156,6 +156,7 @@ struct Actor
     i32 spawn_model_blocked = 0;        // +0x9A0
     i32 spawn_blocked = 0;              // +0xAD0, tested by 0x00146150
     EntityMaskSpan* mask_span = nullptr; // +0x980
+    i32 mask_loading = 0;              // +0x984, type-0x6F loading gate
     i16 mask_mode = 0;                 // +0xcdc
 };
 

@@ -460,6 +460,12 @@ void pad_tick(Game& g, const InputState& in)
     pad_buttons();
 }
 
+RuntimePadStateViews runtime_pad_state_views()
+{
+    return {{reinterpret_cast<const u8*>(g_pads), sizeof(PadSlot) * kPadPorts},
+        {reinterpret_cast<const u8*>(&g_pads[kPadPorts]), sizeof(PadSlot)}};
+}
+
 bool attract_confirm_pressed()
 {
     // Xbox 0x001431B0. The banner pad object is kind 3, the merged sample at 0x00507C98.

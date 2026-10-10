@@ -4,6 +4,31 @@
 
 namespace gbtg
 {
+// Xbox 0x001292D0
+Actor* find_runtime_script_player(u32 player_link,
+    const std::unordered_map<u32, Actor*>& addresses)
+{
+    if (player_link != 0)
+    {
+        return addresses.at(player_link - 0x93C);
+    }
+    return nullptr;
+}
+
+// Xbox 0x00127BC0, type 0x6F
+int wait_runtime_script_player(u32 player_link,
+    const std::unordered_map<u32, Actor*>& addresses,
+    const RuntimeScriptActorQueryContext& context)
+{
+    const Actor* actor = find_runtime_script_player(player_link, addresses);
+    if (actor == nullptr ||
+        (script_actor_current_mask(*actor, context) != 0 && actor->mask_loading == 0))
+    {
+        return 0;
+    }
+    return 2;
+}
+
 // Xbox 0x00028D20
 bool script_actor_has_active_marker(const RuntimeScriptActorQueryView& candidate)
 {

@@ -1,4 +1,6 @@
 #include "gbtg/engine_internal.h"
+#include "scene/dialogue_scene_runtime.h"
+#include "scene/executable_resources.h"
 #include "gbtg/gfx.h"
 #include "gbtg/movie.h"
 
@@ -32,6 +34,7 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
     register_entity_types();
     clock_init(clock);
     aids.open(game_dir);
+    executable_resources = std::make_shared<SceneExecutableResources>(game_dir);
     movie_set_root(game_dir);
     movie_boot_probe();
     std::cout << "fs_init: " << aids.game_dir.string() << " common.bnl entries " << aids.common.entries.size() << "\n";
@@ -122,6 +125,7 @@ void frame_tick(Game& g, float dt, const InputState& in)
     // 0x0011E927. The condition list is updated after the pump, so a request
     // issued by a fired action waits until the next frame.
     script_vm_tick(g, g.clock.dt);
+    tick_scene_dialogue(g); // Xbox 0x00057E60, the detached dialogue continues during its hold.
     audio_tick(g, g.clock.dt); // 0x0015B780, 0x0003A040, 0x000396F0, 0x00038640, 0x00038C20
     cutscene_queue_tick(g, g.clock.dt);
     for (auto& e : g.entities)
@@ -147,6 +151,7 @@ void frame_tick(Game& g, float dt, const InputState& in)
     }
     draw_cutscene_props(g);
     draw_ui(g);
+    draw_scene_dialogue(g); // Xbox 0x00058150; drawing also computes the next page pointer.
     draw_scene_transition(g);
 }
 

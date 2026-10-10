@@ -132,6 +132,35 @@ void test_query_flags()
     node.active = &host;
     require(query(0x100000), "active mind node accepted");
 }
+void test_player_wait()
+{
+    Actor actor;
+    const std::unordered_map<u32, Actor*> addresses{{0, nullptr}, {0x1000, &actor}};
+    std::unordered_map<scene_detail::CamFocus*, RuntimeScriptActorQueryView> views;
+    const std::array<u8, 2> address_zero{2, 0};
+    RuntimeScriptActorQueryContext context{nullptr, views, address_zero.data()};
+    require(find_runtime_script_player(0, addresses) == nullptr, "null player link");
+    require(find_runtime_script_player(0x93C, addresses) == nullptr, "player sentinel subtracts to null");
+    require(find_runtime_script_player(0x193C, addresses) == &actor, "player link maps actor minus 0x93C");
+    require(wait_runtime_script_player(0, addresses, context) == 0, "missing player holds script");
+    require(wait_runtime_script_player(0x193C, addresses, context) == 2, "null mask span finishes wait");
+    std::array<u16, 2> masks{0, 7};
+    EntityMaskSpan mask;
+    mask.data = reinterpret_cast<u8*>(masks.data());
+    mask.stride = 2;
+    mask.index = 1;
+    mask.end = 2;
+    mask.mark = 0;
+    actor.mask_span = &mask;
+    require(wait_runtime_script_player(0x193C, addresses, context) == 0, "nonzero mask with zero loading holds");
+    actor.mask_loading = -1;
+    require(wait_runtime_script_player(0x193C, addresses, context) == 2, "any nonzero loading finishes wait");
+    actor.mask_loading = 0;
+    mask.index = 0;
+    require(wait_runtime_script_player(0x193C, addresses, context) == 2, "zero current mask finishes wait");
+    mask.end = mask.mark;
+    require(wait_runtime_script_player(0x193C, addresses, context) == 0, "empty span reads native address-zero view");
+}
 void test_idle_and_ancestry()
 {
     std::array<u8, 8> bytes{};
@@ -210,6 +239,7 @@ void test_tag_count()
 }
 void check_script_actor_query()
 {
+    test_player_wait();
     test_query_flags();
     test_idle_and_ancestry();
     test_tag_count();

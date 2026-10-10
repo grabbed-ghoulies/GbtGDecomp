@@ -5,6 +5,12 @@ Target: `aid_script_ghoulies_chapter1_scene1_2playcam`.
 This scene is not playable yet. Rendering its background and advancing its
 camera do not verify the retail dialogue, actor, or gameplay behavior.
 
+Latest live check (2026-10-10): the script holds at `+0x254`, type `0x6F`,
+waiting for the playable actor. Dialogue and cutscene are both inactive;
+the only actor is the camera. Retail player templates and native spawn wrappers
+are now available, but the player factory and scene ownership graph remain
+incomplete. See the final progress sections for the current dependency state.
+
 ## Reproduction and opening regression
 
 ```powershell
@@ -1814,3 +1820,178 @@ acceptance or wire its typed contexts into the live shader registration path.
 The refreshed read-only Ghidra inventory reports no TODO/NOFUNC entries for the
 23 completed functions and the checked virtual call targets. Ghidra symbols,
 OriginalFiles and the Git index were not changed.
+
+## Scene opening resource ownership (2026-10-10)
+
+`SceneDialogueResourceOwner` now owns the retail localization storage and native
+font/key views needed by the translated dialogue calls. It registers the real
+bundle-provider finder/loader/unloader and reads the English loctext and fonts
+from the disc dump. The native LSBL view retains the string table and IDs; key
+names use 0x00162A80 to build the native lookup hash rather than treating the
+disk key metadata as that hash. Testing only the tutorial did not catch this:
+the challenge-award keys initially resolved to unrelated strings.
+
+`runtime_pad_state_views()` exposes the exact existing current/previous samples
+from `pad_tick`, including the four 0xA8-byte controller records and the merged
+record. This lets translated input contexts read the live pad storage directly.
+
+Run the resource/input preflight independently with:
+
+```powershell
+cmake --build build --config Release --target gbtg-transition-tests
+.\build\Release\gbtg-transition-tests.exe OriginalFiles --dialogue-resources
+```
+
+The check compares all 457 dialogue keys with the independent disk parser,
+calls 0x000FF0A0 and 0x000589F0 for the actual opening tutorial, and verifies
+the A press/hold/release through a translated kind-3 input device reading live
+pad samples. The tutorial resolves speaker 2, five lines, width 361.6 and buttons
+enabled. `--player-opening` also runs this preflight before its live check.
+
+This is resource and input ownership progress, not scene-opening acceptance.
+The live script still executes the legacy type-0x14 branch and the opening
+gate still fails. Remaining integration is a scene-owned activation context,
+the native detached dialogue cutscene and its factory actor mappings, the
+button-bat widget/update context, input completion callback and translated draw
+context. Those contexts must be supplied to `execute_runtime_script_dialogue`
+and ticked/rendered by the live scene; setting the two opening flags is not an
+implementation of those calls. No OriginalFiles edits or commits were made.
+
+## Live dialogue dispatch and frame hooks (2026-10-10)
+
+The live type-0x14 branch now delegates to `execute_runtime_script_dialogue`
+instead of skipping the enqueue call. The retail nonzero gate still returns 2
+before dependency lookup. A missing activation graph raises an explicit error;
+it no longer starts the fight cutscene by silently treating dialogue as done.
+
+`bind_scene_dialogue` borrows the activation and outer draw contexts together.
+It requires the actual live script latch and scene flag references, and requires
+the renderer to share the same activation context. `frame_tick` invokes native
+0x00057E60 after the script walk and 0x00058150 during presentation. Unbinding
+calls 0x000583A0 before clearing the borrowed pointers. The owner must outlive
+these calls and unbind before destroying its dependencies.
+
+Rendering cannot be omitted: 0x00058C30 updates `page.next_text`, which
+0x00058AE0 reads when advancing. The frame adapter forwards the current clock
+frame/dt and visibility mask, and the actual simulation freeze/scale globals to the
+activation graph.
+
+The player-opening check now requires native widget, detached cutscene, input
+and page ownership after its no-button hold. It then supplies fresh A edges
+with releases and allows the retail fades to finish, requiring the script latch
+and native mode to clear and the opening cutscene to start. The resource check
+also exercises the live handler's gated and missing-owner paths.
+
+**Still incomplete:** `Game::init` does not construct/install the native scene
+owner. The first unbound, ungated type-0x14 call raises
+`scene dialogue runtime is not installed: type 0x14 requires the owned 0x000584D0 context`.
+The current playable opening has an earlier blocker: its fired script cursor
+stops at type 0x6F, before reaching the tutorial. This requires the real player
+actor returned by 0x001292D0 and the native mask/state comparisons in
+0x00127BC0; returning 2 to skip that wait would invent progress. Neither the
+binding guard nor a stalled script establishes opening acceptance. The
+next work must construct the retail executable template pools, model relocation
+and shader registration contexts, actor factory and cutscene resource views,
+widget/input callbacks, audio contexts and D3D draw adapters, then bind them
+before the first script walk. No fabricated actor, cutscene or callback results
+were added.
+
+The initial live check still showed an imp cutscene despite never reaching
+0x14. `load_cutscene_reel` was selecting the first cutscene in the script's
+reference list even when no type-0x13 action requested it. That fallback is
+removed. Aidlist reels remain supported, and a chapter clip requires the actual
+pending script request. The opening check prints each waiting fired cursor,
+so an earlier player-spawn wait is distinguishable from dialogue activation.
+
+Validation of these changes: Release `gbtg` and `gbtg-transition-tests` builds
+pass, all six CTest checks pass, the dialogue resource/input preflight passes,
+and `git diff --check` passes. The live opening correctly remains a failing
+acceptance check: `dialogue=0`, `cutscene before A=0`, `actors=1`, `entities=1`,
+with fired cursor `offset=0x254 type=0x6f`. The one actor is the body camera;
+no real playable actor has yet unblocked the script. Start with the player spawn
+queue ownership and type-0x6F query before treating dialogue activation as the
+first live failure. OriginalFiles, Ghidra symbols and the Git index are unchanged.
+
+## Retail player templates and spawn wrappers (2026-10-10)
+
+`Game::init` now owns `SceneExecutableResources` before the first script pump.
+It reads the untouched `.original` XBE when present, otherwise the current XBE,
+and maps only file-backed section bytes. Read-only Ghidra exports of 0x00034C30
+and 0x00034BC0 establish the two inactive objparams registrations: 497 records
+at 0x003D7928, then 860 at 0x00402CA0, each stride 0x8C. Pool order and inactive
+status are preserved. Names, CPU spans and clone byte counts come from these
+records; all 1,357 headers agree with the recorded sizes. These pools are used
+for native parameter cloning, not as an invented GPU or active bundle provider.
+
+The following calls are translated against their cached dumps:
+
+- 0x00123A30: search the four 0x84-byte scene override rows at 0x00430DA0.
+- 0x00123A80: select boy/girl/cook, retaining the scene and runtime flag branches.
+- 0x00134920: clone the selected player, write position/Euler/unit scale, clear
+  the two identity words and copy the optional override before factory creation.
+- 0x00028DF0 / 0x00028E50: release and replace body/mind children with the native
+  parent token at parameter +0x1B0 / +0x9C respectively.
+- 0x00028640: replace the optional actor-owned ghouly spawn controller, preserving
+  its prefix check, load result, controller pointer and side-list linkage.
+- 0x00107830: allocate the zeroed 0xB0-byte kind-1 inactive player input device.
+- 0x001292D0 and the type-0x6F branch of 0x00127BC0: subtract 0x93C from the
+  player link, then preserve the mask and +0x984 loading comparisons. Native
+  address views explicitly map zero to nullptr; no missing actor is fabricated.
+
+The resource preflight clones all 1,357 selected templates and tests the actual
+scene override bytes, the opening boy/girl flag selection and the cook override.
+Its parameter-capture factory is a test fixture only. It verifies the spawn
+wrapper's fields and the body/mind parent tokens and releases; its callbacks
+are never installed in a live Game. Actor-query checks cover missing player,
+the link sentinel, zero/nonzero masks, negative loading values and the dump's
+address-zero view. The player input check verifies kind 1, inactive status and
+zeroed state before using its actual release call.
+
+**Still not a live player constructor:** the opening boy template is factory
+type 5, getter 0x00027F60, constructor 0x00028830. It also names
+`aid_objparams_ghoulies_body_boy` (type 0x2A, getter 0x00075AF0),
+`aid_objparams_ghoulies_mind_player` (type 0x34, getter 0x0007E100), and
+`aid_objparams_ghoulies_strategy_player` (type 0x4F, getter 0x000BED40).
+NativeActorFactoryOwner currently installs only types 1, 2 and 0x15. Its actor
+constructor cannot stand in for these types. The parent constructor, strategy
+setup, class-specific constructors and lifecycles still need translation and
+real registrations, followed by scene spawn/update/query ownership. The new
+player wait function is not yet substituted for the legacy live handler's
+constant hold; it needs that same owned player address/query graph. Dialogue
+activation/drawing ownership remains incomplete after this earlier spawn wait.
+Read-only Ghidra exports are in cache; no retail bytes, symbols or Git index
+entries were modified.
+
+### Child lifecycle dependency progress (2026-10-10)
+
+Six more complete leaf routines are translated in `player_children.cpp`:
+0x00075AD0 / 0x0007E0E0 / 0x000AF030 supply body, mind and strategy sizes;
+0x000BED90 decrements the active strategy count only for a nonzero +0x48 and
+clears that field; 0x00029E00 releases one mind request; 0x00029E80 clears the
+mind's +0x58 list. Single-request release invokes the actual mind vtable +0x1C
+mapping before unlinking. Bulk release unlinks first, then calls single release.
+Heap release uses the existing native heap boundary. The callback remains a
+required virtual dispatch mapping, not an installed dummy implementation.
+
+The preflight checks a three-node list with active and inactive requests,
+both virtual-release orderings, empty-list cleanup, and repeated strategy
+destruction. `--actor-loading` runs the new player wait mask checks. Both
+preflights pass. Release builds pass and the six CTest checks pass.
+The latest live opening check still fails at +0x254/type 0x6F with dialogue=0,
+cutscene=0, actors=1 and entities=1. This is not scene-opening completion.
+
+Read-only getter exports identify mind constructor 0x0007EF10 and destructor
+0x0007F0D0 at vtable 0x00505498. The mind constructor includes chapter/health
+setup, animation lookup and input-stack registration; those calls must be
+resolved before installing factory type 0x34. Strategy vtable 0x00505FA0 uses
+the retail constant-success constructor 0x000CFFD0 and destructor 0x000BED90,
+but its parent type 8 and state-transition slots remain prerequisites.
+Body vtable 0x00505248 also uses 0x000CFFD0; its parent type 0x27 must perform
+the actual body setup. None of these classes is registered as a substitute
+for the still-missing parent and player constructors.
+
+`ExportPlayerScene.java` now rebuilds temporary ranges with branch-following
+disassembly, handles existing functions, and removes conflicting function
+analysis only inside a transaction that is always rolled back. This fixes
+incomplete instruction exports caused by unanalysed code marked as data or
+overlapping function bodies. The Ghidra project stays read-only.

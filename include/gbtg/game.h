@@ -13,6 +13,9 @@ namespace gbtg
 {
 
 struct MenuCursor;
+struct RuntimeScriptDialogueContext;
+struct RuntimeDialogueOuterDrawContext;
+class SceneExecutableResources;
 
 struct InputState
 {
@@ -59,6 +62,11 @@ struct Game
     std::vector<Actor> actors;
     std::vector<Entity> entities;
     Entity* camera = nullptr;
+    // Borrowed binding supplied by the scene's native dialogue owner. The
+    // owner and all referenced resources must outlive script execution.
+    RuntimeScriptDialogueContext* script_dialogue = nullptr;
+    RuntimeDialogueOuterDrawContext* dialogue_draw = nullptr;
+    std::shared_ptr<SceneExecutableResources> executable_resources;
     bool running = true;
     float time = 0.f;
     u32 frame = 0;

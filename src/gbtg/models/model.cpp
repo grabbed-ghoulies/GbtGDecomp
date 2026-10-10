@@ -561,6 +561,7 @@ void parse_scene_graph(std::span<const u8> cpu, Mesh& mesh, const std::vector<Ve
         sm.colour_source = colour_source;
         sm.skin_weight_mask = skin_weight_mask;
         sm.uses_skin_palette = uses_skin_palette;
+        sm.cull_disable = cpu[node + 0x3C];
         sm.node_state_slot = static_cast<std::int8_t>(cpu[node + 0x3D]);
         sm.node_state_value = cpu[node + 0x3E];
         if (has_pixel_shader)

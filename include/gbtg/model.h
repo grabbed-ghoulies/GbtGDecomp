@@ -35,6 +35,7 @@ struct Submesh
     std::array<u8, 2> colour_source{255, 255}; // declared direct MOV to oD0/oD1
     u8 skin_weight_mask = 0; // zero: rigid shader does not read the weight stream
     bool uses_skin_palette = false;
+    u8 cull_disable = 0; // ndPushBuffer +0x3C; nonzero draws with CullMode(0) (0x001582A0).
     std::int8_t node_state_slot = -1; // ndPushBuffer +0x3D; -1 draws unconditionally.
     u8 node_state_value = 0; // +0x3E, compared with the instance's two-bit state.
 };

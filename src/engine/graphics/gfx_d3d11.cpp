@@ -90,6 +90,7 @@ static_assert(sizeof(GpuCB) == 144 && offsetof(GpuCB, skin_mask) == 128);
 
 struct DrawRange
 {
+    u8 cull_disable = 0;
     std::int8_t node_state_slot = -1;
     u8 node_state_value = 0;
     ComPtr<ID3D11ShaderResourceView> srv;
@@ -157,6 +158,7 @@ struct GfxD3D11
     ComPtr<ID3D11SamplerState> sampler;
     ComPtr<ID3D11SamplerState> light_sampler;
     ComPtr<ID3D11RasterizerState> rast;
+    ComPtr<ID3D11RasterizerState> rast_model_cull; // DAT_0032E3D0, D3DCULL_CW
     ComPtr<ID3D11DepthStencilState> depth_state;
     ComPtr<ID3D11DepthStencilState> depth_lequal;
     ComPtr<ID3D11DepthStencilState> depth_lequal_ro;
@@ -514,6 +516,7 @@ bool upload_mesh(const Mesh& mesh, GpuMesh& gpu)
         }
         DrawRange range;
         range.start = sub.first_index;
+        range.cull_disable = sub.cull_disable;
         range.node_state_slot = sub.node_state_slot;
         range.node_state_value = sub.node_state_value;
         range.count = sub.index_count;
@@ -1551,6 +1554,12 @@ float4 clear_vertex(uint id : SV_VertexID) : SV_Position
     rast.CullMode = D3D11_CULL_NONE;
     rast.DepthClipEnable = TRUE;
     g.device->CreateRasterizerState(&rast, g.rast.GetAddressOf());
+    // Model trees draw with CullMode(DAT_0032E3D0) = D3DCULL_CW. look_at uses
+    // cross(z, up), which mirrors the Xbox basis, so retail CW culling is the
+    // D3D11 front face here.
+    rast.CullMode = D3D11_CULL_FRONT;
+    g.device->CreateRasterizerState(&rast, g.rast_model_cull.GetAddressOf());
+    rast.CullMode = D3D11_CULL_NONE;
 
     D3D11_DEPTH_STENCIL_DESC ds{};
     ds.DepthEnable = TRUE;
@@ -2146,7 +2155,11 @@ void gfx_draw_mesh(const Mesh& mesh, Vec3 origin, Vec3 scale)
                 g.context->OMSetDepthStencilState(depth_write ? g.depth_lequal.Get() : g.depth_lequal_ro.Get(), 0);
             }
         }
+        // Xbox 0x00158A80 sets CullMode(DAT_0032E3D0) for the model tree;
+        // 0x001582A0 draws a push buffer with byte +0x3C set using CullMode(0).
+        g.context->RSSetState(range.cull_disable != 0 ? g.rast.Get() : g.rast_model_cull.Get());
         g.context->DrawIndexed(range.count, range.start, 0);
+        g.context->RSSetState(g.rast.Get());
 
         tris += range.count / 3;
         if (range.use_light > 0.f || range.use_cel > 0.f)

@@ -1974,35 +1974,12 @@ void paint_movie(RgbaImage& dst, const RgbaImage& src)
     {
         dst.movie_base = dst.bgra;
     }
-    // BinkCopyToBuffer writes the frame, including its alpha, over the page.
-    // A logo plane is transparent around the title, so the page art underneath stays.
-    const bool same = dst.width == src.width && dst.height == src.height && dst.bgra.size() == src.bgra.size() &&
-                      dst.movie_base.size() == dst.bgra.size();
-    if (same)
+    // Xbox 0x00107360. BinkCopyToBuffer overwrites the locked texture with the
+    // frame, alpha included. The surface's own blend state shows what is
+    // underneath; the texture's original pixels are not composited back in.
+    if (dst.width == src.width && dst.height == src.height && dst.bgra.size() == src.bgra.size())
     {
-        const u8* s = src.bgra.data();
-        const u8* base = dst.movie_base.data();
-        u8* d = dst.bgra.data();
-        for (size_t i = 0; i < dst.bgra.size(); i += 4)
-        {
-            const u32 a = s[i + 3];
-            if (a >= 250)
-            {
-                std::memcpy(d + i, s + i, 4);
-            }
-            else if (a == 0)
-            {
-                std::memcpy(d + i, base + i, 4);
-            }
-            else
-            {
-                const u32 inv = 255 - a;
-                d[i] = u8((s[i] * a + base[i] * inv) / 255);
-                d[i + 1] = u8((s[i + 1] * a + base[i + 1] * inv) / 255);
-                d[i + 2] = u8((s[i + 2] * a + base[i + 2] * inv) / 255);
-                d[i + 3] = 255;
-            }
-        }
+        std::memcpy(dst.bgra.data(), src.bgra.data(), dst.bgra.size());
     }
     else
     {
@@ -2011,30 +1988,10 @@ void paint_movie(RgbaImage& dst, const RgbaImage& src)
             const int sy = src.height > 0 ? y * src.height / dst.height : 0;
             u8* row = dst.bgra.data() + size_t(y) * size_t(dst.width) * 4;
             const u8* srow = src.bgra.data() + size_t(sy) * size_t(src.width) * 4;
-            const u8* brow = dst.movie_base.data() + size_t(y) * size_t(dst.width) * 4;
             for (int x = 0; x < dst.width; ++x)
             {
                 const int sx = src.width > 0 ? x * src.width / dst.width : 0;
-                const u8* sp = srow + size_t(sx) * 4;
-                u8* dp = row + size_t(x) * 4;
-                const u8* bp = brow + size_t(x) * 4;
-                const u32 a = sp[3];
-                if (a >= 250)
-                {
-                    std::memcpy(dp, sp, 4);
-                }
-                else if (a == 0)
-                {
-                    std::memcpy(dp, bp, 4);
-                }
-                else
-                {
-                    const u32 inv = 255 - a;
-                    dp[0] = u8((sp[0] * a + bp[0] * inv) / 255);
-                    dp[1] = u8((sp[1] * a + bp[1] * inv) / 255);
-                    dp[2] = u8((sp[2] * a + bp[2] * inv) / 255);
-                    dp[3] = 255;
-                }
+                std::memcpy(row + size_t(x) * 4, srow + size_t(sx) * 4, 4);
             }
         }
     }

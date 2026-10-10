@@ -8,6 +8,8 @@
 #include "../transitions/transition_data.h"
 
 #include <algorithm>
+#include <array>
+#include <span>
 #include <bit>
 #include <chrono>
 #include <cmath>
@@ -68,6 +70,7 @@ extern "C"
 #include "../scene/scene_loading.h"
 #include "../scripts/script_samples.h"
 #include "../scripts/script_vm.h"
+#include "../scripts/script_actions.h"
 
 namespace gbtg
 {
@@ -83,6 +86,101 @@ void release_props(Game& g)
         gfx_release_mesh(prop.mesh);
     }
 }
+
+namespace
+{
+
+// DAT_0042A710. Retail static data starts at language 0 (English); the host
+// has no language selection.
+constexpr u32 kLanguage = 0;
+
+// DAT_004275DC, stride 4: the speech-bubble node shown for each language.
+constexpr std::array<u8, 4> kBubbleLanguageNode{0, 1, 3, 2};
+
+// 0x00080DA0 copies these from 0x00323EB0, 0x00323E74 and 0x00323E38.
+constexpr std::array<const char*, 3> kAttractBubbles{
+    "aid_model_ghoulies_cutscene_attractmodespeechbubble",
+    "aid_model_ghoulies_cutscene_attractmodespeechbubbleaction",
+    "aid_model_ghoulies_cutscene_attractmodespeechbubblebaddies",
+};
+
+// The model CPU blob ends in {type, value} records (+0 offset, +4 count).
+// 0x000320F0 takes its node mask from the type-1 record.
+u32 model_node_animation_mask(std::span<const u8> cpu)
+{
+    if (cpu.size() < 8)
+    {
+        return 0;
+    }
+    const u32 offset = read_u32(cpu, 0);
+    const u32 count = read_u32(cpu, 4);
+    for (u32 index = 0; index < count; ++index)
+    {
+        const size_t at = size_t(offset) + size_t(index) * 8;
+        if (at + 8 > cpu.size())
+        {
+            break;
+        }
+        if (read_u32(cpu, at) == 1)
+        {
+            return read_u32(cpu, at + 4);
+        }
+    }
+    return 0;
+}
+
+// Xbox 0x00080DA0. After 0x0004EDA0 instances an attract clip, the attract
+// scene control finds each speech bubble through 0x0004EA50 and calls
+// 0x000F96F0 with AL = 1 and the language's node on the stack.
+void show_attract_bubble_language(Game& g)
+{
+    const u8 node = kBubbleLanguageNode[kLanguage];
+    for (const char* bubble : kAttractBubbles)
+    {
+        for (auto& prop : g.cutscene_props)
+        {
+            const Cutscene& cut = g.cutscenes.items[g.cutscenes.index];
+            if (prop.actor < cut.actors.size() && cut.actors[prop.actor].model == bubble)
+            {
+                entity_store_pair(prop.mesh.node_flags, node, 1);
+                break;
+            }
+        }
+    }
+}
+
+// Xbox 0x00030C70 node-state tail. A clip with a state channel (MINA +0x20
+// directory, entry +0xC0) passes channel 48 to 0x000320F0 every update.
+// Cutscene actors play slot 0 with mix mode 1 (0x0004DC70), so the channel
+// is sampled with the clamped frame.
+void apply_cutscene_prop_node_states(Game::CutsceneProp& prop, const CutsceneActor& actor, float position)
+{
+    const std::span<const u8> mina(actor.mina);
+    if (mina.size() < 0x28)
+    {
+        return;
+    }
+    const u32 directory = read_u32(mina, 0x20);
+    if (directory == 0 || read_u32(mina, directory + 0xC0) == 0)
+    {
+        return;
+    }
+    MinaPlayback player;
+    player.mina = mina;
+    player.position = position;
+    player.mode = 1;
+    AnimationPose pose;
+    sample_mina_auxiliary(player, pose.auxiliary);
+    const std::array<ModelResourceBlock, 1> blocks{ModelResourceBlock{1, prop.node_mask}};
+    ModelAnimationState model;
+    model.resource_blocks = blocks;
+    std::copy(prop.mesh.node_flags.begin(), prop.mesh.node_flags.end(), model.node_flags.begin());
+    static ModelNodeFlagCache cache{}; // DAT_005078D8
+    apply_model_node_animation(model, std::bit_cast<u32>(pose.auxiliary[48]), cache);
+    std::copy_n(model.node_flags.begin(), prop.mesh.node_flags.size(), prop.mesh.node_flags.begin());
+}
+
+} // namespace
 
 namespace scene_detail
 {
@@ -218,6 +316,7 @@ void sync_cutscene_props(Game& g)
             Game::CutsceneProp prop;
             prop.mesh = parse_model(*entry);
             prop.actor = i;
+            prop.node_mask = model_node_animation_mask(entry->cpu);
             u16 max_bone = 0;
             for (u16 b : prop.mesh.bones)
             {
@@ -232,6 +331,10 @@ void sync_cutscene_props(Game& g)
         {
             std::cout << "  actor fail " << cut.actors[i].model << ": " << ex.what() << "\n";
         }
+    }
+    if (g.scene_name.find("attract") != std::string::npos)
+    {
+        show_attract_bubble_language(g);
     }
 }
 
@@ -263,6 +366,31 @@ void cutscene_queue_start(Game& g)
     q.time = 0.f;
     q.playing = true;
     log_cutscene_begin(g);
+}
+
+
+// Xbox 0x0004EB20. 0x0004EDA0 instances the clip named by a type 0x13 node
+// through 0x0004D680 when the node runs. A request from the load walk stays
+// pending: load_cutscene_reel resets the queue after that walk and takes it.
+void cutscene_queue_begin_script_clip(Game& g)
+{
+    if (!g_scene_script_started || g_script_cutscene_pending.empty())
+    {
+        return;
+    }
+    const std::string name = g_script_cutscene_pending;
+    g_script_cutscene_pending.clear();
+    const BundleEntry* entry = find_aid(g, name);
+    if (entry == nullptr || entry->type != ResourceType::Cutscene)
+    {
+        std::cout << "  cutscene missing " << name << "\n";
+        return;
+    }
+    g.cutscenes = {};
+    g.cutscenes.items.push_back(parse_cutscene(entry->cpu, entry->name));
+    g.cutscenes.loop = false;
+    std::cout << "script cutscene " << name << " " << g.cutscenes.items[0].duration << "s\n";
+    cutscene_queue_start(g);
 }
 
 
@@ -456,6 +584,7 @@ void draw_cutscene_props(Game& g)
         const Vec3 scale{actor_curve(actor, 3, q.time, cut.duration, 1.f),
                          actor_curve(actor, 4, q.time, cut.duration, 1.f),
                          actor_curve(actor, 5, q.time, cut.duration, 1.f)};
+        apply_cutscene_prop_node_states(prop, actor, cut.duration > 0.f ? q.time / cut.duration : 0.f);
         float bones[128 * 16]{};
         if (!actor.mina.empty() && !prop.mesh.joints.empty() && !prop.mesh.bones.empty() && cut.duration > 0.f)
         {

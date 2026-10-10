@@ -12,6 +12,7 @@
 #include "../runtime/name_lookup.h"
 #include "script_dialogue_actions.h"
 #include "../scene/dialogue_scene_runtime.h"
+#include "../cutscenes/cutscene_runtime.h"
 
 #include <algorithm>
 #include <bit>
@@ -2092,6 +2093,7 @@ int script_handle_cutscene_actions(Game& g, const ScriptNode& node, int param_3)
                 if (cut.starts_with("aid_cutscene_"))
                 {
                     g_script_cutscene_pending = cut;
+                    cutscene_queue_begin_script_clip(g);
                 }
                 if (node_u32(g.scene_script, node, 0x88) != 0)
                 {

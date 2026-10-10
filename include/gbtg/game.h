@@ -50,6 +50,7 @@ struct Game
     {
         Mesh mesh;
         size_t actor = 0;
+        u32 node_mask = 0; // model CPU tail type-1 block, the 0x000320F0 node mask
     };
     std::vector<CutsceneProp> cutscene_props;
     size_t cutscene_props_index = static_cast<size_t>(-1);

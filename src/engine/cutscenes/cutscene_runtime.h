@@ -16,6 +16,7 @@ float actor_curve(const CutsceneActor& actor, size_t index, float time, float du
 void release_props(Game& g);
 
 void cutscene_queue_start(Game& g);
+void cutscene_queue_begin_script_clip(Game& g); // Xbox 0x0004EB20
 
 void draw_cutscene_props(Game& g);
 

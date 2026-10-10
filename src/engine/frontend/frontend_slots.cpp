@@ -508,9 +508,13 @@ void gameselect_tick(Game& g, const InputState& in)
         // the gameselect script copied from 0x00322B8C.
         if (!g.attract_banner_latched && attract_confirm_pressed())
         {
-            g.attract_banner_latched = true;
             // 0x00322B8C. 0x0011EB30 queues it. The next 0x0011E4C0 that enters state 4 loads it.
             script_request(g, "aid_script_ghoulies_gameselect_gameselect");
+            // 0x00080CB0 then calls 0x0013BAF0: the cue at 0x00314D68 is
+            // GBARON_STARTBUTTONLAUGH (selection scale DAT_0032B100 is zero).
+            // Keep this one-shot alive across the outgoing cutscene cleanup.
+            pcm_play_owned_cue(g, "XACT_SOUNDBANK_GBARON_STARTBUTTONLAUGH");
+            g.attract_banner_latched = true;
         }
     }
     else if (g.frontend_mode == 4)

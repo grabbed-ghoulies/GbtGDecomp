@@ -2396,6 +2396,24 @@ void check_native_audio_preparation(const char* directory)
     using namespace gbtg;
     Game game;
     game.aids.open(directory);
+    // 0x00080CB0 -> 0x0013BAF0: this one-shot must outlive the intro clip.
+    const char* intro_cue = "XACT_SOUNDBANK_GBARON_STARTBUTTONLAUGH";
+    const u64 intro_handle = pcm_play_owned_cue(game, intro_cue);
+    if (intro_handle == 0 || !pcm_owned_cue_playing(intro_handle))
+    {
+        throw Error("intro confirmation could not start the retail Baron laugh");
+    }
+    pcm_cutscene_sync(game);
+    if (!pcm_owned_cue_playing(intro_handle))
+    {
+        throw Error("intro cutscene cleanup stopped the transition's Baron laugh");
+    }
+    pcm_stop_owned_cue(intro_handle);
+    if (pcm_owned_cue_playing(intro_handle))
+    {
+        throw Error("intro confirmation retained its voice after release");
+    }
+    std::cout << "PASS: intro Baron laugh starts and survives outgoing cutscene cleanup\n";
     u64 handle = 123;
     void* voice = &game;
     if (pcm_prepare_owned_cue(game, "XACT_SOUNDBANK_MISSING_MISSING", handle, voice) >= 0 ||
@@ -6673,7 +6691,8 @@ void check_player_dialogue_resources(gbtg::AidStore& aids)
 int main(int argc, char** argv)
 {
     const bool audio_test = argc == 3 && std::string_view(argv[2]) == "--audio-preparation";
-    const bool title_test = argc == 3 && std::string_view(argv[2]) == "--title";
+    const bool title_a_test = argc == 3 && std::string_view(argv[2]) == "--title-a";
+    const bool title_test = title_a_test || (argc == 3 && std::string_view(argv[2]) == "--title");
     const bool goop_test = argc == 3 && std::string_view(argv[2]) == "--goop";
     const bool ui_test = argc == 3 && std::string_view(argv[2]) == "--ui";
     const bool dialogue_resources_test = argc == 3 && std::string_view(argv[2]) == "--dialogue-resources";
@@ -6682,7 +6701,7 @@ int main(int argc, char** argv)
     const bool actor_test = argc == 3 && std::string_view(argv[2]) == "--actor-loading";
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test)
     {
-        std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --goop | --ui | --player-opening | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation]\n";
+        std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --goop | --ui | --player-opening | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation]\n";
         return 2;
     }
     try
@@ -6852,7 +6871,8 @@ int main(int argc, char** argv)
             for (int frame = 0; frame < 600; ++frame)
             {
                 gbtg::InputState input;
-                input.start = frame == 120;
+                input.start = !title_a_test && frame == 120;
+                input.accept = title_a_test && frame == 120;
                 gbtg::gfx_begin_frame();
                 // Exercise the ordinary wall-clock path, including the first
                 // frame after loading, rather than a headless crash check.
@@ -6881,9 +6901,10 @@ int main(int argc, char** argv)
             }
             if (!animated || !accepted)
             {
-                throw gbtg::Error("title animation or Start input stalled");
+                throw gbtg::Error("title animation or confirmation input stalled");
             }
-            std::cout << "PASS: title animates and Start opens slot selection and Right changes slot\n";
+            std::cout << "PASS: title animates and " << (title_a_test ? "A" : "Start")
+                      << " opens slot selection and Right changes slot\n";
             gbtg::gfx_shutdown();
             return 0;
         }

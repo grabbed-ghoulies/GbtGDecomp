@@ -2,6 +2,7 @@
 #include "gbtg/engine_internal.h"
 #include "gbtg/entity.h"
 #include "gbtg/gfx.h"
+#include "gbtg/language.h"
 #include "gbtg/model.h"
 #include "gbtg/movie.h"
 #include "gbtg/resource.h"
@@ -90,12 +91,9 @@ void release_props(Game& g)
 namespace
 {
 
-// DAT_0042A710. Retail static data starts at language 0 (English); the host
-// has no language selection.
-constexpr u32 kLanguage = 0;
-
-// DAT_004275DC, stride 4: the speech-bubble node shown for each language.
-constexpr std::array<u8, 4> kBubbleLanguageNode{0, 1, 3, 2};
+// DAT_004275DC, stride 4: the speech-bubble node shown for each language
+// (DAT_0042A710, g_language).
+constexpr std::array<u8, 5> kBubbleLanguageNode{0, 1, 3, 2, 4};
 
 // 0x00080DA0 copies these from 0x00323EB0, 0x00323E74 and 0x00323E38.
 constexpr std::array<const char*, 3> kAttractBubbles{
@@ -134,7 +132,7 @@ u32 model_node_animation_mask(std::span<const u8> cpu)
 // 0x000F96F0 with AL = 1 and the language's node on the stack.
 void show_attract_bubble_language(Game& g)
 {
-    const u8 node = kBubbleLanguageNode[kLanguage];
+    const u8 node = kBubbleLanguageNode[g_language < kBubbleLanguageNode.size() ? g_language : 0];
     for (const char* bubble : kAttractBubbles)
     {
         for (auto& prop : g.cutscene_props)

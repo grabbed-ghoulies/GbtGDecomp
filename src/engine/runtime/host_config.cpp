@@ -1,4 +1,5 @@
 #include "gbtg/host_config.h"
+#include "gbtg/language.h"
 
 #include <charconv>
 #include <fstream>
@@ -92,6 +93,19 @@ int clamp_volume(int value)
 void apply_key(HostConfig& cfg, const std::filesystem::path& path, const std::string& section, const std::string& key,
                std::string_view value)
 {
+    if (section == "game" && key == "language")
+    {
+        if (const auto language = parse_language_name(value))
+        {
+            cfg.language = *language;
+        }
+        else
+        {
+            std::cerr << "config: unknown Language '" << value << "' in " << path.string()
+                      << " (English, French, German, Spanish, Italian)\n";
+        }
+        return;
+    }
     const bool width = section == "video" && key == "width";
     const bool height = section == "video" && key == "height";
     const bool volume = section == "audio" && key == "mastervolume";
@@ -188,7 +202,11 @@ bool write_default(const std::filesystem::path& path)
            "\n"
            "[Audio]\n"
            "; 0 to 100\n"
-           "MasterVolume=100\n";
+           "MasterVolume=100\n"
+           "\n"
+           "[Game]\n"
+           "; English, French, German, Spanish or Italian\n"
+           "Language=English\n";
     if (!out)
     {
         std::cerr << "config: could not write " << path.string() << "\n";

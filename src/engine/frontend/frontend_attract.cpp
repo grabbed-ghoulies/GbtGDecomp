@@ -1,5 +1,6 @@
 #include "gbtg/bundle.h"
 #include "gbtg/anim.h"
+#include "gbtg/language.h"
 #include "gbtg/resource_error.h"
 #include "gbtg/dialogue.h"
 #include "gbtg/engine_internal.h"
@@ -47,7 +48,7 @@ std::u16string attract_start_banner(const Game& g)
     }
     loaded = true;
     // aid_loctext_ghoulies_attract_attracttext
-    const auto path = g.aids.game_dir / "loctext" / "english" / "0bbbe8e4";
+    const auto path = g.aids.game_dir / "loctext" / language_folder(g_language) / "0bbbe8e4";
     if (!std::filesystem::exists(path))
     {
         return text;

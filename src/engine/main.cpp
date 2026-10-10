@@ -1,6 +1,7 @@
 #include "gbtg/engine_internal.h"
 #include "gbtg/game.h"
 #include "gbtg/host_config.h"
+#include "gbtg/language.h"
 #include "gbtg/platform.h"
 
 #include <iostream>
@@ -69,8 +70,19 @@ int main(int argc, char** argv)
         cfg.width = host.width;
         cfg.height = host.height;
         gbtg::pcm_set_master_volume(static_cast<float>(host.master_volume) / 100.f);
+        gbtg::g_language = host.language;
+        {
+            std::error_code ec;
+            const auto loctext = cfg.game_dir / "loctext" / gbtg::language_folder(gbtg::g_language);
+            if (gbtg::g_language != 0 && !std::filesystem::is_directory(loctext, ec))
+            {
+                std::cerr << "config: " << loctext.string() << " missing, using English\n";
+                gbtg::g_language = 0;
+            }
+        }
         std::cout << "GbtGDecomp  game-dir=" << cfg.game_dir.string() << "  " << cfg.width << "x" << cfg.height
-                  << "  volume=" << host.master_volume << "\n";
+                  << "  volume=" << host.master_volume << "  language=" << gbtg::language_folder(gbtg::g_language)
+                  << "\n";
         gbtg::Game game;
         game.init(cfg.game_dir, cfg.scene);
         return gbtg::run_platform(game, cfg);

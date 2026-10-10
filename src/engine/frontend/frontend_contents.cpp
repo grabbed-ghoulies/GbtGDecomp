@@ -1,5 +1,6 @@
 #include "gbtg/bundle.h"
 #include "gbtg/anim.h"
+#include "gbtg/language.h"
 #include "gbtg/resource_error.h"
 #include "gbtg/dialogue.h"
 #include "gbtg/engine_internal.h"
@@ -143,7 +144,7 @@ std::u16string script_scene_name(const Game& g, int scene)
     static bool loaded = false;
     if (!loaded)
     {
-        const auto path = g.aids.game_dir / "loctext" / "english" /
+        const auto path = g.aids.game_dir / "loctext" / language_folder(g_language) /
                           aid_hash_hex(aid_hash("aid_loctext_ghoulies_script_scenenames"));
         const LocTable parsed = parse_loctext(read_file(path), "scenenames");
         for (const auto& [key, text] : parsed.keys_to_utf8)

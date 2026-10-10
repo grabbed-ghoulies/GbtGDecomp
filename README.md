@@ -63,6 +63,6 @@ cmake --build build --config Release
 
 `--headless` runs one `frame_tick` and exits. `--frames N` runs N ticks. `--screenshot file.bmp` writes the last presented frame (DirectX 11 readback). `--scene gameselect` (or a scene-order index) boots that scene instead of the attract reel. A window opens when neither `--headless` nor `--screenshot` is set. SDL is an optional quit window only when the DirectX backend is not built (`-DGBTG_WITH_SDL=ON`, `-DGBTG_GFX=null`).
 
-`gbtg.ini` sits beside `gbtg.exe`. The first launch writes one if it is missing (an existing file in the working directory is used instead). `[Video]` `Width` and `Height` set the window, default 960 by 540. `[Audio]` `MasterVolume` is 0 to 100 and scales all sound. Restart after editing.
+`gbtg.ini` sits beside `gbtg.exe`. The first launch writes one if it is missing (an existing file in the working directory is used instead). `[Video]` `Width` and `Height` set the window, default 960 by 540. `[Audio]` `MasterVolume` is 0 to 100 and scales all sound. `[Game]` `Language` is English, French, German, Spanish or Italian (default English) and picks the loctext folder and the attract speech bubbles; it falls back to English if that folder is missing. Restart after editing.
 
 Analyze `default.xbe` in Ghidra, rename a function, add it to `docs/XBE.md`, then reconstruct it under `src/engine/`.

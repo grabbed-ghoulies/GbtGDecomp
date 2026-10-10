@@ -1,4 +1,6 @@
 #include "dialogue_resource_owner.h"
+#include "gbtg/language.h"
+
 #include <cstring>
 
 namespace gbtg
@@ -40,7 +42,7 @@ SceneDialogueResourceOwner::Resource* SceneDialogueResourceOwner::find_resource(
     const std::string key(name);
     if (key.starts_with("aid_loctext_"))
     {
-        const auto path = aids_.game_dir / "loctext" / "english" / aid_hash_hex(aid_hash(key));
+        const auto path = aids_.game_dir / "loctext" / language_folder(g_language) / aid_hash_hex(aid_hash(key));
         if (!std::filesystem::exists(path))
         {
             return nullptr;

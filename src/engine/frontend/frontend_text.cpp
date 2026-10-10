@@ -1,6 +1,7 @@
 #include "../camera/camera.h"
 #include "gbtg/bundle.h"
 #include "gbtg/anim.h"
+#include "gbtg/language.h"
 #include "gbtg/resource_error.h"
 #include "gbtg/dialogue.h"
 #include "gbtg/engine_internal.h"
@@ -214,7 +215,7 @@ std::u16string gameselect_string(const Game& g, std::string_view key)
     if (!loaded)
     {
         loaded = true;
-        const auto path = g.aids.game_dir / "loctext" / "english" / "04d74e34";
+        const auto path = g.aids.game_dir / "loctext" / language_folder(g_language) / "04d74e34";
         if (std::filesystem::exists(path))
         {
             try
@@ -250,7 +251,7 @@ std::u16string savedgame_string(const Game& g, std::string_view key)
     if (!loaded)
     {
         loaded = true;
-        const auto path = g.aids.game_dir / "loctext" / "english" / "070611e5";
+        const auto path = g.aids.game_dir / "loctext" / language_folder(g_language) / "070611e5";
         if (std::filesystem::exists(path))
         {
             const LocTable parsed = parse_loctext(read_file(path), "supportsavedgame");

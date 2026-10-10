@@ -1,5 +1,6 @@
 #include "gbtg/bundle.h"
 #include "gbtg/anim.h"
+#include "gbtg/language.h"
 #include "gbtg/resource_error.h"
 #include "gbtg/dialogue.h"
 #include "gbtg/engine_internal.h"
@@ -298,7 +299,7 @@ void draw_map_label(const Game& g, std::string_view key, float x, float y, float
     static std::map<std::string, std::u16string> labels;
     if (labels.empty())
     {
-        const auto path = g.aids.game_dir / "loctext" / "english" /
+        const auto path = g.aids.game_dir / "loctext" / language_folder(g_language) /
                           aid_hash_hex(aid_hash("aid_loctext_ghoulies_mapnames"));
         const LocTable table = parse_loctext(read_file(path), "mapnames");
         for (const auto& [name, text] : table.keys_to_utf8)

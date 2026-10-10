@@ -1,5 +1,6 @@
 #include "gbtg/bundle.h"
 #include "gbtg/anim.h"
+#include "gbtg/language.h"
 #include "gbtg/resource_error.h"
 #include "gbtg/dialogue.h"
 #include "gbtg/engine_internal.h"
@@ -230,7 +231,7 @@ const LocTable& dialog_loctext(const Game& g)
     }
     loaded = true;
     // aid_loctext_ghoulies_dialog_dialogs
-    const auto path = g.aids.game_dir / "loctext" / "english" / "0c50e153";
+    const auto path = g.aids.game_dir / "loctext" / language_folder(g_language) / "0c50e153";
     if (!std::filesystem::exists(path))
     {
         return table;

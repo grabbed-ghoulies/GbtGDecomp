@@ -53,6 +53,7 @@ add_library(gbtg_lib STATIC
     src/gbtg/resources/bundle.cpp
     src/gbtg/graphics/texture.cpp
     src/gbtg/models/model.cpp
+    src/gbtg/text/language.cpp
     src/gbtg/text/loctext.cpp
     src/gbtg/text/runtime_localtext.cpp
     src/gbtg/text/localtext_resources.cpp

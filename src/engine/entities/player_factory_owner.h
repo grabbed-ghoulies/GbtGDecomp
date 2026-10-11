@@ -265,6 +265,8 @@ public:
     void release_child(const FactoryObject& child);
     size_t player_total() const;
     size_t child_count() const;
+    void strategy_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000BEE10.
+    void strategy_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000BEF40.
     NativePlayerFactoryBindings bindings;
     NativePlayerMindOwner minds;
 

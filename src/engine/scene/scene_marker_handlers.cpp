@@ -9,6 +9,59 @@
 
 namespace gbtg
 {
+RuntimeSceneMarkerHandlers bind_runtime_scene_marker_handlers(RuntimeSceneMarkerBindings& bindings)
+{
+    RuntimeSceneMarkerHandlers handlers{};
+    // Non-null retail slots whose callees remain untranslated. Actual null entries stay empty.
+    for (u32 kind : {5u, 7u, 0xAu, 0xDu, 0xEu, 0xFu, 0x11u, 0x15u, 0x16u, 0x17u, 0x19u})
+    {
+        handlers.untranslated[kind] = true;
+    }
+    handlers.handlers[2] = [&bindings](u8* record)
+    {
+        spawn_runtime_marker_player(record, bindings.player);
+    };
+    handlers.handlers[3] = [&bindings](u8* record)
+    {
+        create_runtime_marker_prop(record, bindings.objects);
+    };
+    handlers.handlers[4] = [&bindings](u8* record)
+    {
+        create_runtime_marker_spawn_actor(record, bindings.objects);
+    };
+    handlers.handlers[6] = [&bindings](u8* record)
+    {
+        create_runtime_marker_template(record, bindings.objects);
+    };
+    handlers.handlers[8] = [&bindings](u8* record)
+    {
+        add_runtime_marker_sphere(record, bindings.tags);
+    };
+    handlers.handlers[0xB] = [&bindings](u8* record)
+    {
+        create_runtime_marker_trigger(record, bindings.objects);
+    };
+    handlers.handlers[0x10] = [&bindings](u8* record)
+    {
+        create_runtime_marker_area(record, bindings.objects);
+    };
+    // DAT_0042A720 +0x48 points at the actual empty function 0x001628B0.
+    handlers.handlers[0x12] = [](u8*)
+    {
+    };
+    handlers.handlers[0x13] = [&bindings](u8* record)
+    {
+        set_runtime_marker_camera_start(record, bindings.camera);
+    };
+    handlers.handlers[0x14] = [&bindings](u8* record)
+    {
+        add_runtime_marker_box(record, bindings.tags);
+    };
+    // Kind 0x18 shares kind 6's real 0x001001A0 handler.
+    handlers.handlers[0x18] = handlers.handlers[6];
+    return handlers;
+}
+
 namespace
 {
 u32 word_at(const u8* bytes, size_t offset)

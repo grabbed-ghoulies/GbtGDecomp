@@ -1,4 +1,5 @@
-param([string]$BuildDirectory = 'build')
+param([string]$BuildDirectory = 'build',
+    [ValidatePattern('^[a-z][a-z0-9_]*$')][string]$HarnessName = 'body_joint_harness')
 
 $ErrorActionPreference = 'Stop'
 $repository = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
@@ -10,7 +11,7 @@ New-Item -ItemType Directory -Force -Path $oraclePath | Out-Null
 # The core library alone does not contain the engine camera and actor modules.
 $objects = Get-ChildItem (Join-Path $buildPath 'gbtg.dir/Release') -Filter '*.obj' |
     Where-Object Name -ne 'main.obj' | ForEach-Object { '"' + $_.FullName + '"' }
-$response = Join-Path $oraclePath 'body_joint_objects.rsp'
+$response = Join-Path $oraclePath "$($HarnessName)_objects.rsp"
 Set-Content -LiteralPath $response -Value $objects -Encoding ascii
 [xml]$project = Get-Content -Raw (Join-Path $buildPath 'gbtg.vcxproj')
 $configuration = $project.Project.ItemDefinitionGroup |
@@ -38,12 +39,12 @@ $commands = @"
 call "$developerCommand" -arch=x64 -host_arch=x64
 if errorlevel 1 exit /b %errorlevel%
 cd /d "$repository"
-cl /nologo /std:c++20 /O2 /MD /EHsc /Iinclude /Isrc /Isrc/engine tools/oracle/body_joint_harness.cpp /c /Fo:"$oraclePath/body_joint_harness.obj"
+cl /nologo /std:c++20 /O2 /MD /EHsc /Iinclude /Isrc /Isrc/engine tools/oracle/$HarnessName.cpp /c /Fo:"$oraclePath/$HarnessName.obj"
 if errorlevel 1 exit /b %errorlevel%
-link /nologo /OUT:"$oraclePath/body_joint_harness.exe" /OPT:REF "$oraclePath/body_joint_harness.obj" @"$response" $($libraries -join ' ')
+link /nologo /OUT:"$oraclePath/$HarnessName.exe" /OPT:REF "$oraclePath/$HarnessName.obj" @"$response" $($libraries -join ' ')
 exit /b %errorlevel%
 "@
-$batch = Join-Path $oraclePath 'build_body_joint_harness.bat'
+$batch = Join-Path $oraclePath "build_$HarnessName.bat"
 Set-Content -LiteralPath $batch -Value $commands -Encoding ascii
 & $batch
 if ($LASTEXITCODE -ne 0)

@@ -255,6 +255,9 @@ void check_player_factory_owner()
     FactoryObject strategy = create_factory_object(factory, strategy_parameters);
     require(strategy.bytes != nullptr && strategy.size == 0x54 && players.find_player(strategy) == &player
         && player.strategy.data() == strategy.bytes.get(), "strategy construction resolves its player");
+    const u32 alert_message[]{0x2C};
+    players.strategy_message(strategy, alert_message);
+    require(read_u32(player.strategy, 0x3C) == 1, "strategy owner dispatches the player virtual message override");
     release_factory_object(factory, strategy);
     require(players.find_player(strategy) == nullptr && player.strategy.empty(), "strategy release unbinds it");
 

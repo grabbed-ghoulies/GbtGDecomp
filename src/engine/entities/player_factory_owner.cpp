@@ -325,6 +325,28 @@ void NativePlayerInstance::refresh_views()
     strategy_entry.strategy = strategy;
 }
 
+void NativePlayerFactoryOwner::strategy_message(FactoryObject& strategy, std::span<const u32> message)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get())
+    {
+        throw Error("player strategy method has no owning instance");
+    }
+    player->refresh_views();
+    dispatch_runtime_player_strategy_message(message, player->flow);
+}
+
+void NativePlayerFactoryOwner::strategy_update(FactoryObject& strategy)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get())
+    {
+        throw Error("player strategy method has no owning instance");
+    }
+    player->refresh_views();
+    update_runtime_player_strategy(player->flow);
+}
+
 NativePlayerFactoryOwner::NativePlayerFactoryOwner(NativePlayerFactoryBindings player_bindings)
     : bindings(std::move(player_bindings)),
       minds(NativePlayerMindBindings{

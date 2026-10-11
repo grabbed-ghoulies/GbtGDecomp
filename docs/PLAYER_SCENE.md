@@ -4394,3 +4394,39 @@ Kind 4 dispatches before kind 2, so the imps are created before the player.
 6. Drive the per-frame update and drawing of factory actors from `frame_tick`.
 
 Nothing is committed.
+
+### 2026-10-11: continuation after scene marker and factory owner commits
+
+Resumed from `89319d4` with the checkout clean except for the existing PDB.
+The intervening agents completed player mind messages/slots, strategy flow,
+native lifecycle ownership and opening marker handlers. Added owner adapters
+for the player strategy message/update overrides (`0x000BEE10`/`0x000BEF40`),
+refreshing shared native value views before dispatch. The constructor fixture
+now exercises message dispatch through the owning strategy adapter.
+
+Added `scene_marker_records_harness.cpp` and `scene_marker_records_oracle.py`
+for swaps, group shuffling, dispatch ordering, next-id selection, restart and
+copied scene startup. This separate oracle bridges heap and actual indirect
+handler callbacks, recording the row inputs. It does not replace marker handler
+bodies or validate their factory/resource behavior. The larger pre-existing
+`scene_markers_oracle.py` still needs its full handler harness. No build/test
+has run yet for this continuation.
+
+Marker-record oracle passed 600 initial cases and a further 3,000 cases across
+all six entry paths. Added a native handler-table binder for DAT_0042A720,
+using the translated opening handlers. Verified the retail table directly:
+kind 0x18 shares kind 6 (`0x001001A0`), kind 0x12 calls the actual empty
+`0x001628B0`, and genuine null entries remain null. Eleven other non-null
+handler slots remain explicitly untranslated and fail if reached. Bindings
+must outlive the handler callbacks. This prepares dispatch ownership but does
+not install the live Game runtime or translate the missing actor classes.
+
+Validation checkpoint: Release game and transition-test builds pass. The
+`--dialogue-resources` suite passes, including the new strategy-owner message
+fixture; all six CTests pass. `git diff --check` reports no whitespace errors.
+The marker-record checks total 3,600 passing cases. Coverage is record-level
+only: full marker handler/factory behavior and live spawning remain unverified.
+No live opening run, retail edits, Ghidra edits, staging or commit was performed.
+Next: attach remaining body/player/mind instance method contexts and construct
+the Game-owned scene factory/resource/address graph. The opening marker order
+still requires real imp construction before the player; do not skip those rows.

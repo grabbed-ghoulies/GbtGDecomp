@@ -68,4 +68,13 @@ void create_runtime_marker_trigger(const u8* record, RuntimeMarkerObjects& conte
 void build_runtime_marker_area_parameters(std::span<u8, 0x348> parameters, const Vec3& position, const Vec3& euler,
     u16 id, u16 next, u32 a2, u32 a3, u32 a4, u32 a5, u32 a6, const char* default_name); // Xbox 0x0006E110
 void create_runtime_marker_area(const u8* record, RuntimeMarkerObjects& context); // Xbox 0x000FFDC0, kind 0x10
+struct RuntimeSceneMarkerBindings
+{
+    RuntimeMarkerPlayerStart& player;
+    RuntimeMarkerObjects& objects;
+    const char* const* tags; // DAT_0042A854.
+    RuntimeMarkerCameraStart& camera;
+};
+// Native mapping of DAT_0042A720. Bindings must outlive the returned callbacks.
+RuntimeSceneMarkerHandlers bind_runtime_scene_marker_handlers(RuntimeSceneMarkerBindings& bindings);
 }

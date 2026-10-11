@@ -37,6 +37,8 @@ void format_runtime_body_variant(std::span<u8> body, const char* format,
     ...); // Xbox 0x00020B30
 bool attach_runtime_player_actor(RuntimePlayerAttachmentActor& attached, i32 update_action,
     RuntimePlayerAttachment& context); // Xbox 0x0001B2B0
+bool attach_runtime_player_secondary(RuntimePlayerAttachmentActor& attached,
+    RuntimePlayerAttachment& context); // Xbox 0x0001B3E0
 bool release_runtime_player_attachment(i32 force, u32 reason,
     RuntimePlayerAttachment& context); // Xbox 0x0001B810
 bool replace_runtime_player_attachment(RuntimePlayerAttachment& context); // Xbox 0x0013A7C0
@@ -50,4 +52,8 @@ FactoryObject create_runtime_player_attachment(const char* name, i32 replace,
     RuntimePlayerAttachmentCreation& context); // Xbox 0x0013A720
 FactoryObject command_runtime_body_create_attachment(const char* name,
     RuntimePlayerAttachmentCreation& context); // Xbox 0x0001A6D0
+FactoryObject command_runtime_body_create_secondary(std::span<const u8> command,
+    std::span<char, 128> name_scratch,
+    const std::function<void(RuntimeBodyAttachedActor&, std::span<char, 128>)>& query_name,
+    RuntimePlayerAttachmentCreation& context); // Xbox 0x0001A2D0
 }

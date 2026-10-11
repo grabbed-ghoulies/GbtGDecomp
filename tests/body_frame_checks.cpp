@@ -9,6 +9,8 @@
 #include "../src/engine/entities/body_animation_commands.h"
 #include "../src/engine/entities/entity_collision.h"
 #include "../src/engine/entities/entity.h"
+#include "../src/engine/runtime/reference_names.h"
+#include "../src/engine/navigation/spawn_candidates.h"
 #include <bit>
 #include <cstring>
 
@@ -258,15 +260,15 @@ void check_body_frame_methods()
     {
         message.accepted = 1;
     };
-    require(!notify_runtime_player_collision_action(position, position, position, nullptr, 3, current_action),
+    require(!notify_runtime_player_collision_action(position, position, position, position, nullptr, current_action),
         "collision action must require both reply words");
     collision_action.message = [](RuntimePlayerCollisionReply& message)
     {
         message.accepted = 1;
         message.handled = 1;
-        message.target->y = 40.f;
+        message.proposed->y = 40.f;
     };
-    require(notify_runtime_player_collision_action(position, position, position, nullptr, 3, current_action)
+    require(notify_runtime_player_collision_action(position, position, position, position, nullptr, current_action)
         && position.y == 40.f, "collision action must preserve actual reply and target writes");
     std::array<u8, 0xD00> attached_bytes{};
     RuntimeBodyAttachedActor attached;
@@ -306,8 +308,8 @@ void check_body_frame_methods()
     RuntimeBodyCollisionState collision_state{};
     RuntimeBodyCollisionRecord active{};
     collision_state.active = &active;
-    request_runtime_body_contact_override(&collision_state, first_contact, players);
-    request_runtime_body_contact_override(&collision_state, second_contact, players);
+    request_runtime_body_contact_override(&collision_state, &first_contact, players);
+    request_runtime_body_contact_override(&collision_state, &second_contact, players);
     require(collision_state.overrides->cursor - collision_state.overrides->begin
         == 2 * sizeof(RuntimeBodyCollisionOverride), "contact notices must retain both native actors");
     collision_state.walking = 1;
@@ -385,4 +387,73 @@ void check_body_frame_methods()
     entity_detail::g_segment_slots[0] = saved_slot;
     entity_detail::g_segment_count = saved_count;
     entity_detail::g_world.segment = saved_segment;
+
+    RuntimeReferenceNames* names = allocate_runtime_reference_names(1);
+    const i32 original = retain_runtime_reference_name(names, "aid_original");
+    require(original == retain_runtime_reference_name(names, "aid_original")
+        && names->begin[original].references == 2,
+        "identical names must share one retained row");
+    const i32 upper = retain_runtime_reference_name(names, "aid_ORIGINAL");
+    require(upper != original && names->begin[upper].hash == names->begin[original].hash,
+        "name deduplication must remain case sensitive even when aid hashes fold case");
+    for (u32 n = 0; n < 14; ++n)
+    {
+        const std::string name = "aid_growth_" + std::to_string(n);
+        retain_runtime_reference_name(names, name.c_str());
+    }
+    const std::string long_name = "aid_" + std::string(300, 'x');
+    const i32 long_index = retain_runtime_reference_name(names, long_name.c_str());
+    require(std::strcmp(names->begin[original].name, "aid_original") == 0
+        && std::strcmp(names->begin[long_index].name, long_name.c_str()) == 0
+        && names->end - names->begin == 20,
+        "row and string growth must preserve retained names and their identity");
+    names->begin[original].references = 0xFFFF;
+    retain_runtime_reference_name(names, "aid_original");
+    require(names->begin[original].references == 0,
+        "reference count must wrap independently of whether the name remains occupied");
+    release_runtime_reference_names(names);
+
+    auto* saved_grid = entity_detail::g_nav_grids[0];
+    const i32 saved_origin_x = entity_detail::g_nav_origin_x;
+    const i32 saved_origin_z = entity_detail::g_nav_origin_z;
+    entity_detail::NavGrid spawn_grid;
+    spawn_grid.width = 4;
+    spawn_grid.depth = 4;
+    spawn_grid.cell = 32;
+    spawn_grid.cells.resize(16);
+    for (i32 z = 0; z < 4; ++z)
+    {
+        for (i32 x = 0; x < 4; ++x)
+        {
+            auto& cell = spawn_grid.cells[z * 4 + x];
+            cell.x = i16(x * 32 + 16);
+            cell.z = i16(z * 32 + 16);
+            cell.bottom = 7;
+            cell.value_8 = 17;
+        }
+    }
+    entity_detail::g_nav_grids[0] = &spawn_grid;
+    entity_detail::g_nav_origin_x = 0;
+    entity_detail::g_nav_origin_z = 0;
+    u32 spawn_random = 1;
+    Vec3 spawn_position;
+    require(entity_detail::select_navigation_spawn_position(0, nullptr, Vec3{64.f, 7.f, 64.f},
+        0.f, 200.f, nullptr, nullptr, 0, 0, spawn_position, spawn_random, 0.f),
+        "selector must retry without the occupancy-count filter when its strict pass is empty");
+    u32 expected_random = 1;
+    for (u32 n = 0; n < 3; ++n)
+    {
+        expected_random = expected_random * 0x19660Du + 0x3C6EF35Fu;
+    }
+    require(spawn_random == expected_random && spawn_position.y == 7.f
+        && entity_detail::navigation_cell_index(0, spawn_position) != -1,
+        "successful fallback must consume exactly three random samples and snap to selected floor");
+    const u32 retained_random = spawn_random;
+    require(!entity_detail::select_navigation_spawn_position(0, nullptr, Vec3{64.f, 7.f, 64.f},
+        0.f, 200.f, nullptr, nullptr, 1, 0, spawn_position, spawn_random, 0.f)
+        && spawn_random == retained_random,
+        "mandatory strict filter must reject empty candidates without advancing random state");
+    entity_detail::g_nav_grids[0] = saved_grid;
+    entity_detail::g_nav_origin_x = saved_origin_x;
+    entity_detail::g_nav_origin_z = saved_origin_z;
 }

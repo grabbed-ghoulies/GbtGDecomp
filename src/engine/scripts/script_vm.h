@@ -11,6 +11,7 @@ extern bool g_scene_script_started;
 
 // Xbox 0x00049D10.
 bool scene_end_flag_set(); // Xbox 0x00049D10
+bool test_and_set_runtime_story_bit(std::span<u8> bits, u32 index); // Xbox 0x000F2A20
 
 void script_vm_bind(Game& g);
 int script_execute_fired_action(Game& g, u32& offset); // Xbox 0x00128A00

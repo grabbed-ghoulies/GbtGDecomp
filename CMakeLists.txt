@@ -67,6 +67,10 @@ add_library(gbtg_lib STATIC
     src/engine/entities/player_attributes.cpp
     src/engine/entities/player_mind_goals.cpp
     src/engine/entities/player_mind_events.cpp
+    src/engine/entities/player_mind_feedback.cpp
+    src/engine/entities/player_mind_requests.cpp
+    src/engine/entities/player_mind_control.cpp
+    src/engine/entities/player_input_binding.cpp
     src/engine/entities/player_mind_targets.cpp
     src/engine/entities/player_strategy_entry.cpp
     src/engine/entities/player_attachment_helpers.cpp
@@ -94,20 +98,36 @@ add_library(gbtg_lib STATIC
     src/engine/entities/player_body_motion.cpp
     src/engine/entities/body_channels.cpp
     src/engine/entities/body_timers.cpp
+    src/engine/entities/body_timer_requests.cpp
     src/engine/entities/body_wash.cpp
     src/engine/entities/actor_shape_bounds.cpp
     src/engine/entities/body_apply.cpp
     src/engine/entities/body_message_helpers.cpp
     src/engine/entities/body_shape_push.cpp
+    src/engine/entities/contact_sweep.cpp
+    src/engine/entities/player_body_messages.cpp
+    src/engine/entities/player_body_collision.cpp
     src/engine/entities/body_action_ids.cpp
+    src/engine/entities/body_attachment_requests.cpp
     src/engine/entities/body_animation_commands.cpp
+    src/engine/entities/body_effect_commands.cpp
+    src/engine/entities/body_animation_dispatch.cpp
+    src/engine/entities/body_message_dispatch.cpp
     src/engine/entities/body_damage_notices.cpp
     src/engine/entities/body_damage_tables.cpp
     src/engine/entities/body_damage_motion.cpp
     src/engine/entities/body_spatial_notifications.cpp
     src/engine/entities/body_damage_animation.cpp
     src/engine/entities/body_damage_processors.cpp
+    src/engine/entities/body_damage_dispatch.cpp
+    src/engine/entities/body_hit_messages.cpp
+    src/engine/entities/body_source_contacts.cpp
     src/engine/entities/body_death_effects.cpp
+    src/engine/entities/body_death_drops.cpp
+    src/engine/entities/ghouly_reference_names.cpp
+    src/engine/entities/actor_template_creation.cpp
+    src/engine/runtime/reference_names.cpp
+    src/engine/navigation/spawn_candidates.cpp
     src/engine/audio/body_sound_commands.cpp
     src/engine/scene/dialogue_scene_runtime.cpp
     src/engine/frontend/dialogue_sound_tags.cpp
@@ -130,6 +150,7 @@ add_library(gbtg_lib STATIC
     src/engine/frontend/dialogue_widget_state.cpp
     src/engine/frontend/dialogue_input.cpp
     src/engine/frontend/input_activation.cpp
+    src/engine/frontend/player_health_display.cpp
     src/engine/audio/listener_settings.cpp
     src/gbtg/graphics/font.cpp
     src/gbtg/audio/wavebank.cpp

@@ -51,6 +51,8 @@ struct RuntimePlayerBodyRelayChild
 {
     std::function<void(u32)> relay; // Actual child vtable +0x10.
 };
+void relay_runtime_parent_body(u32 message, RuntimePlayerBodyRelayChild*& action,
+    RuntimePlayerBodyRelayChild*& attachment); // Xbox 0x00025EC0
 void relay_runtime_player_body(std::span<u8> body, u32 message,
     RuntimePlayerBodyRelayChild*& action, RuntimePlayerBodyRelayChild*& attachment,
     RuntimePlayerJointTargets& context); // Xbox 0x000744A0

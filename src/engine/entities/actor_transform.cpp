@@ -382,6 +382,18 @@ static void refresh_bind(Actor& actor)
 }
 
 
+// Xbox 0x00041B90
+void actor_set_uniform_scale(Actor& actor, float scale)
+{
+    if (actor.scale_x != scale || actor.radius_y != scale || actor.radius_xz != scale)
+    {
+        actor.scale_x = scale;
+        actor.radius_y = scale;
+        actor.radius_xz = scale;
+        actor.xform_valid = 0;
+    }
+}
+
 // Xbox 0x00040DE0
 void actor_refresh_transform(Actor& actor)
 {

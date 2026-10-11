@@ -77,6 +77,70 @@ bool attach_runtime_player_actor(RuntimePlayerAttachmentActor& attached, i32 upd
     return true;
 }
 
+// Xbox 0x0001B3E0
+bool attach_runtime_player_secondary(RuntimePlayerAttachmentActor& attached, RuntimePlayerAttachment& context)
+{
+    const u16 host_class = read_u16(context.host.bytes, 6);
+    const i32 count = i16(read_u16(attached.object.bytes, 0x944));
+    i32 index = 0;
+    if (count <= 0)
+    {
+        return false;
+    }
+    while (read_u16(attached.object.bytes, 0x948 + size_t(index) * 0x10) != host_class)
+    {
+        ++index;
+        if (index >= count)
+        {
+            return false;
+        }
+    }
+    if (index == -1)
+    {
+        return false;
+    }
+    context.secondary = &attached.object;
+    context.actions.second_receiver = &attached.receiver;
+    std::memcpy(context.body.data() + 0x4C, &attached.object.address, 4);
+    std::memcpy(context.body.data() + 0x14, &attached.object.address, 4);
+    index = 0;
+    bool joint_found = false;
+    if (i16(read_u16(attached.object.bytes, 0x944)) > 0)
+    {
+        do
+        {
+            const size_t offset = 0x948 + size_t(index) * 0x10;
+            if (read_u16(attached.object.bytes, offset) == read_u16(context.host.bytes, 6))
+            {
+                if (i16(read_u16(attached.object.bytes, offset + 2)) != -1)
+                {
+                    const i32 joint = runtime_attachment_class_value(attached.object.bytes, read_u16(context.host.bytes, 6));
+                    bind_runtime_actor_joint(attached.actor, &context.ownership.actor, joint, 1);
+                    joint_found = true;
+                }
+                break;
+            }
+            ++index;
+        }
+        while (index < i16(read_u16(attached.object.bytes, 0x944)));
+    }
+    if (!joint_found)
+    {
+        if (ensure_runtime_actor_bind(attached.actor) != nullptr)
+        {
+            attached.actor.bind->mode_parent = 1;
+            attached.actor.bind->parent = &context.ownership.actor;
+            attached.actor.bind->flags = 1;
+        }
+    }
+    set_runtime_attachment_host(attached.object, context.host);
+    notify_runtime_body_animation(context.actions);
+    update_actor_animation_pose(attached.actor, attached.animation, attached.model, attached.bone,
+        context.actions.registry, attached.callbacks, attached.cache, attached.reset);
+    notify_runtime_secondary_attachment_host(context.host, attached.object);
+    return true;
+}
+
 // Xbox 0x0001B810
 bool release_runtime_player_attachment(i32 force, u32 reason, RuntimePlayerAttachment& context)
 {
@@ -185,6 +249,59 @@ FactoryObject create_runtime_player_attachment(const char* name, i32 replace,
     }
     clone.bytes.reset();
     return object;
+}
+
+// Xbox 0x0001A2D0
+FactoryObject command_runtime_body_create_secondary(std::span<const u8> command,
+    std::span<char, 128> name_scratch,
+    const std::function<void(RuntimeBodyAttachedActor&, std::span<char, 128>)>& query_name,
+    RuntimePlayerAttachmentCreation& context)
+{
+    if (read_u32(context.attachment.body, 0x4C) == 0)
+    {
+        if (read_u32(command, 0x10) == 0x5F646961)
+        {
+            const char* source = reinterpret_cast<const char*>(command.data() + 0x10);
+            char* destination = name_scratch.data();
+            char value;
+            do
+            {
+                value = *source++;
+                *destination++ = value;
+            }
+            while (value != 0);
+        }
+        else
+        {
+            auto* primary = context.attachment.ownership.attached;
+            name_scratch[0] = 0;
+            if (primary != nullptr && primary->bytes[0x93D] == 2)
+            {
+                query_name(*primary, name_scratch); // Actual actor vtable +0xC, message 0x99 with native output pointer.
+            }
+        }
+        if (read_u32({reinterpret_cast<const u8*>(name_scratch.data()), name_scratch.size()}, 0) == 0x5F646961)
+        {
+            auto clone = clone_executable_resource(context.child.resources, name_scratch.data());
+            if (clone.bytes != nullptr)
+            {
+                const float scale = read_f32(context.attachment.host.bytes, 0x38) * read_f32({clone.bytes.get(), clone.size}, 0x20);
+                std::memcpy(clone.bytes.get() + 0x20, &scale, 4);
+                auto object = create_factory_object(context.child.factory, {clone.bytes.get(), clone.size});
+                clone.bytes.reset();
+                if (object.bytes != nullptr)
+                {
+                    auto& attached = *context.created.at(object.bytes.get());
+                    if (!attach_runtime_player_secondary(attached, context.attachment))
+                    {
+                        release_factory_object(context.child.factory, object);
+                    }
+                }
+                return object;
+            }
+        }
+    }
+    return {};
 }
 
 // Xbox 0x0001A6D0

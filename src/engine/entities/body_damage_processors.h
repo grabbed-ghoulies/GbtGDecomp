@@ -3,6 +3,8 @@
 #include "body_damage_notices.h"
 #include "body_message_helpers.h"
 #include "body_damage_animation.h"
+#include "body_death_effects.h"
+#include "body_timers.h"
 
 namespace gbtg
 {
@@ -27,7 +29,39 @@ struct RuntimeBodyDamageProcessor
     std::span<const u16, 3> death_actions; // DAT_00217EB8.
     const RuntimeDamageAnimationRows& animation_rows;
     std::span<char> animation_name;
+    RuntimeBodyDeathEffects& death;
+    u32& random;
+    std::array<float, 4>& parameter_scratch; // Actual unwritten outputs retained when 0x00023A50 returns false.
+    std::function<u16()> death_action; // Body vtable +0x4C.
+    RuntimeBodyTimerRecipient*& timer_recipient; // Body +0x760.
 };
+void process_runtime_body_surviving_hit(std::span<u8> body,
+    std::span<const u8> damage, std::span<u32, 3> result, u32 phase,
+    RuntimeBodyDamageProcessor& context); // Xbox 0x00021920
+void process_runtime_body_timer_hit(std::span<u8> body,
+    std::span<const u8> damage, u32 phase,
+    RuntimeBodyDamageProcessor& context); // Xbox 0x00021D10
+void process_runtime_body_lethal_hit(std::span<u8> body,
+    std::span<const u8> damage, std::span<u32, 3> result,
+    RuntimeBodyDamageProcessor& context); // Xbox 0x00021EA0
+void process_runtime_body_direct_reaction(std::span<u8> body,
+    std::span<const u8> damage, std::span<u32, 3> result, u32 push_key,
+    u32 phase, RuntimeBodyDamageProcessor& context); // Xbox 0x000220F0
+bool select_runtime_body_death_motion(std::span<u8> body, const Vec3& direction,
+    float first, float second, float third, float fourth,
+    RuntimeBodyDamageProcessor& context); // Xbox 0x00024760
+void process_runtime_body_knockdown_hit(std::span<u8> body,
+    std::span<const u8> damage, std::span<u32, 3> result, u32 amount,
+    u32 push_key, float movement_scale, float timer_scale,
+    RuntimeBodyDamageProcessor& context); // Xbox 0x00022520
+void process_runtime_body_health_knockdown(std::span<u8> body,
+    std::span<const u8> damage, std::span<u32, 3> result, u32 phase,
+    u32 push_key, float movement_scale, float timer_scale,
+    RuntimeBodyDamageProcessor& context); // Xbox 0x000218A0
+void process_runtime_body_zero_knockdown(std::span<u8> body,
+    std::span<const u8> damage, std::span<u32, 3> result, u32 phase,
+    u32 push_key, float movement_scale, float timer_scale,
+    RuntimeBodyDamageProcessor& context); // Xbox 0x000218E0
 void process_runtime_body_reaction_hit(std::span<u8> body,
     std::span<const u8> damage, std::span<u32, 3> result, u32 push_key,
     u32 phase, RuntimeBodyDamageProcessor& context); // Xbox 0x000215C0

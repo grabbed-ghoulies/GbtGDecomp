@@ -3258,3 +3258,247 @@ hit 0x000219C0. These retain actual health/pulse/push/facing/animation callees;
 Death-effect parameter setup 0x00068770 uses actual actor effect initialization
 and world pose. These newest additions await validation. Full death-effect
 creation, damage dispatch and concrete body/mind/strategy ownership remain open.
+
+After the usage-limit interruption, read-only Ghidra exports resumed successfully.
+Reference-name allocation/lookup/retain/release 0x00066430/0x000666F0/
+0x00066530/0x000664A0/0x00035760 are now translated, including exact string
+matching, reference-word wrapping, string/row growth and relocation of names.
+Ghouly name collection 0x000F3C80 walks actual 0x288-byte definitions; template
+type lookup 0x0013E820 uses genuine executable-resource lookup. Death-class
+notices 0x00134EF0 preserve the repeated used-row count and actual script events.
+Actor creation at a supplied/default pose 0x00112C50 uses the real clone/factory
+callees. This group awaits validation. Navigation candidate selection
+0x0010F7F0/0x00111420 remains in progress before actual drop/effect creation.
+
+Navigation candidate collection 0x0010F7F0 and random selection 0x00111420
+are translated with actual rectangle bounds, occupancy/path checks, candidate
+pool growth and three random advances on successful selection. Drop-name take
+0x000286B0 and death-drop creation 0x00135080 preserve name clearing and the
+three creation/message branches. Effect creation 0x00134C10/0x00134D20 and
+request 0x00024890 preserve live-player scene requests, lifetime gates and
+attachment release ordering. Death-motion selection 0x00024760 and knockdown
+processors 0x00022520/0x000218A0/0x000218E0 now use these actual callees.
+Native parameter scratch retains unwritten values when the retail parameter
+selector returns false. These additions await a combined validation batch;
+full dispatch and live factory installation remain incomplete.
+
+The navigation candidate oracle passes 400 retail machine-code cases with zero
+mismatches. It bridges only heap allocation/reallocation and compares candidate
+indices/order and written row words, including filters, growth, descending or
+empty distance ranges and NaNs. New native fixtures cover reference-name
+identity through both growth paths and strict/fallback navigation selection.
+Surviving/timer/lethal hit paths 0x00021920/0x00021D10/0x00021EA0,
+classification 0x000226C0, bit lookup 0x0001EF10 and hit timer creation
+0x00027B60 are translated. This latest group awaits validation; the two damage
+dispatchers and remaining animation effects are still in progress.
+
+Damage entry 0x00020DC0 and dispatchers 0x00021220/0x00021450 now use the
+translated classification, processors, timers and script notices. Direct reaction
+0x000220F0 retains health/pulse changes before animation lookup. Secondary
+attachment 0x0001B3E0, host notice 0x0001B7C0 and creation command 0x0001A2D0
+are translated with real class lookup, bind, animation and factory callees.
+The message-0x99 name output uses a typed native view of that actual virtual
+message; unwritten name scratch is retained. A combined build/fixture pass is
+next. Full animation dispatch and live factory ownership remain incomplete.
+
+The combined damage/secondary-attachment batch builds both Release targets and
+passes dialogue-resource checks, including the name-growth and navigation
+fixtures. Breath command 0x0001AC50 now uses actual model binding, pose, effect
+stream and animation duration 0x0003B1D0. Model-binding position 0x00040A60
+is translated. Surface-effect name selection/formatting/creation
+0x0001A130/0x0013DEF0/0x0001A220 and chance command 0x00019C60 preserve
+actual navigation material lookup, provider fallback and effect slot consumption.
+These newest effect additions await validation. Live spawning remains open.
+
+Projectile command 0x0001A3C0 now uses actual binding/pose matrices, actor creation
+0x00112C50 and direction addition 0x00106220, preserving host assignment and
+virtual message order. Retail degree/radian constants were read from the image.
+Animation dispatcher 0x0001A8F0 now calls all translated command handlers.
+Created objects are retained by the native owner; no placeholder virtual table
+is installed. This effects/dispatch group awaits build and differential checks.
+
+Parent body message 0x000253B0 now translates child-forwarding order and every
+active message branch using real animation dispatch, contact, latch, pose, action
+and cylinder-push callees. Native message views carry relocated pointer arguments.
+Secondary-attachment fixtures now check class rejection, secondary ownership,
+notification order and real bind cleanup. These additions await the next combined
+build; concrete factory/vtable installation is still blocked by player handlers.
+
+Contact direction 0x000FCA60 now retains the retail four-record unroll, fixed
+0x54-byte scan, header-stride average and actual reciprocal-square-root callee.
+A new machine-code oracle covers zero/short/unrolled pools and nonfinite values.
+Parent message native receiver/timer views follow retail pointer clears; nullable
+contact views are dereferenced only after the original state/link gates.
+The latest build found a missing fixture include, now corrected. This group
+continues toward validation and the remaining player hit-message handlers.
+
+The effects/parent-message batch builds both Release targets and passes focused
+dialogue-resource checks, including secondary ownership fixtures. Contact
+direction oracle 0x000FCA60 passes 400 retail cases with zero mismatches.
+Scaled hit-position events 0x0013ADC0/0x0001F0B0, direct-hit message 0x000205B0,
+health notice 0x00023740 and lethal action request 0x00134E50 are translated.
+These hit-message additions await validation; other contact damage packets and
+concrete player body/mind/strategy ownership remain outstanding.
+
+Damage contact position 0x00021010 and reply/event paths
+0x00020F80/0x0001F1D0/0x0001F240 now use actual first-contact geometry and
+attachment dispatch. Health-contact 0x000233A0 and knockdown-contact 0x00023580
+messages build the genuine stack damage packets and preserve handled replies.
+The contact oracle is extended to the actual 0x00021010 code before the next
+validation batch. Remaining player collision and hit-packet branches still block
+full concrete body installation and live spawning.
+
+The hit-message batch builds both Release targets and all six CTests pass.
+The expanded contact direction/position oracle passes 800 retail cases with
+zero mismatches. Projectile-contact 0x00022CF0, moving-contact 0x00022E40,
+impact notice 0x0001F150 and impact packet 0x000231C0 are now translated.
+This latest packet group awaits validation. Player collision, the remaining
+source contact packets and full native ownership still prevent live spawning.
+
+Resumed after usage reset. Source contacts 0x00020020/0x000240C0 and timer
+contacts 0x000229F0/0x00022A40 now construct the original packets and call the
+translated damage/reply paths, including timer reflection 0x00020A60.
+Angle helpers 0x00041970/0x001060A0/0x0001D540 preserve the retail constants
+and direction selection. Collision hit 0x000202E0 was checked against assembly:
+the compared dot is the original signed dot, and the return/output is damage
+result word 1, despite the decompiler's float signature. This batch awaits
+validation. Concrete player collision and body/mind/strategy ownership remain
+outstanding; live spawning is not complete.
+
+Death completion 0x00134AE0 now calls the translated class notices, world
+position, queued 0xB5 script event, attachment release, clone/factory/free,
+death-drop and bind activation paths. Its controlled-player restart gate and
+early return on failed effect cloning follow the dump. This joins the pending
+source-contact batch for one combined build.
+
+The source-contact/death batch builds both Release targets and passes all six
+CTests plus focused dialogue-resource/player checks. Read-only Ghidra exports
+resolved the missing sweep chain. Quadratic selection 0x00102DA0, point/edge
+sweeps 0x00102C30/0x00102970, sphere sweeps 0x00159CC0/0x0015AB50 and triangle
+intersection/sweep 0x00159E20/0x00102E90 are translated with image-verified
+constants. Multi-contact separation 0x000FC3F0, player contact correction
+0x000744F0 and wide-list insertion 0x0003E8C0 now call concrete dependencies.
+This geometry batch awaits retail differential validation before player wiring.
+
+The geometry/player-message batch builds both Release targets. Six sweep entries
+pass 2,400 retail machine-code cases without callee bridges. The combined contact
+oracle initially found one sphere-separation precision mismatch; assembly keeps
+the Z subtraction in x87 across an FST float spill. Preserving that intermediate
+fixes the mismatch, and all 1,200 direction/position/separation cases now pass.
+The complete player body message dispatcher 0x00074080 calls concrete handlers.
+World contact correction 0x000755A0 and main collision update 0x00074670 are
+translated; this last update awaits validation. Reviewing its actual caller also
+corrected 0x00075960's native payload: +0x18 is the upper-position pointer and
++0x1C is the contact pointer. No partial player vtable has been installed.
+
+Main collision update 0x00074670 builds and matches 400 empty-world retail cases
+through actual dependencies, checking the full body bytes, actor position/stamp
+and flags. No game callee is bridged. This verifies only the empty-world path;
+scene contact branches still need an oracle with real probe recipients.
+All six CTests and focused dialogue/player-resource checks pass after the
+collision batch. Inherited body methods and concrete factory ownership remain
+the next live-spawning work.
+
+Resumed after the next usage reset. Parent mind messages 0x0002A2E0 and
+contact/actor-reference/target-end handlers 0x0002A3E0/0x0002A460/0x0002A5A0
+are translated against their cached assembly. They use real event allocation,
+refresh and release, and actual actor virtual notices; the explicit type-4
+unlink/free path remains separate as in retail. This batch awaits validation.
+Mind/strategy virtual methods and concrete factory ownership still block live
+spawning; no partial vtable is installed.
+
+Parent mind tick 0x0002A9F0 now calls translated request progression
+0x0002AA60, event expiry 0x0002AB50 and alert propagation 0x0002A650;
+alert thresholds 0x0002A740 retain the assembly's unordered comparison behavior.
+Request initialization/update/release remain actual virtual slots. Parent body
+relay 0x00025EC0 is translated with both actual child virtual calls. These
+additions join the pending validation batch while player-specific mind helpers
+are exported from the read-only Ghidra project.
+
+Player mind feedback now includes 0x0007DAC0, 0x0007DAE0, 0x0007DB20,
+0x0007DBE0, 0x0007DC40, 0x0007DC80, 0x0007DCC0, 0x0007DCE0,
+0x0007DEE0, 0x0007E420, 0x0007E470, 0x0007E5C0 and 0x0007F100.
+Actual input selection 0x00109620 is translated; feedback uses the concrete
+attachment-event and camera-shake implementations. Constants were exported
+from the executable image, including 900 distance-squared and the 0.9/1.5
+timers. These changes are pending the combined validation batch. The complete
+mind request selector, player dispatcher and concrete ownership remain open.
+
+The parent-mind/feedback batch builds both Release targets and passes all six
+CTests plus focused dialogue/player-resource checks. Alert threshold, distance
+and nearest-position helpers match 1,200 retail cases exactly without game
+callee bridges. An initial oracle setup error put actor position at +0x20;
+correcting it to the actual +8 world-position field resolves the discrepancies.
+Attachment request searches 0x0001C560/0x0001C5A0/0x0001CB20/0x0001C7C0,
+classification 0x0001B170/0x0001B150/0x0001C800, special selection 0x0001C930
+and request acceptance/selection 0x0001D2E0/0x0001D210 are now translated.
+This attachment selection addition awaits validation; live spawning remains open.
+
+Parent mind request selector 0x000295E0 now dispatches the concrete goal,
+callout, body-bit, scale, attachment selection, named action, animation completion,
+spawn query and idle-check paths. Assembly corrects request 0x21/0x22 flag names
+to +0x50 and preserves mutable 0x3B actor replies. Dependencies 0x0003BFA0,
+0x0003B290, 0x001416D0, 0x00129C20, 0x0001EF40/0x0001EFF0,
+0x00026930, 0x00028810, 0x00024C20, 0x000191C0 and 0x00041B90 are
+translated. This selector/attachment batch is pending validation. Player-specific
+mind and strategy methods plus concrete factory ownership remain outstanding.
+
+The selector/attachment batch builds both Release targets. Five retail lookup
+entries have a new differential oracle prepared for the next harness build.
+Mind navigation initializer 0x00136700 now uses the complete native navigation
+search state and real 0x00036AF0; cleanup 0x00036B60 frees the same scratch field.
+Mind alert selection 0x00137340, reference clearing 0x00140A40, special-event
+classification 0x00123E50 and active query 0x00028CA0 are translated. The retail
+low-health threshold is 0.25. This latest navigation/alert addition is building;
+live spawning is still incomplete.
+
+Navigation/alert additions build both Release targets. All five attachment lookup
+entries match 2,000 retail machine-code cases with zero mismatches. Controlled
+player registration 0x0007F870 and input binding 0x0002CAB0 are translated,
+including the actual input release/create/push calls, linked-list player index
+and alternate port-device path. This input binding awaits the next build.
+Health-display dependencies of the player mind tick are now being reconstructed.
+
+Health texture acquisition 0x0012FE10, decimal digit updates 0x0012F990,
+health-display state 0x00130710 and mind health update 0x0007FC30 now use
+the actual registry/error paths, widths, thresholds and preset timer bits.
+Player mind tick 0x0007FB10 is translated with the real input resets, parent
+request/event progression, alert propagation and health display. This batch
+awaits build/validation. Player mind message/request handlers and strategy
+methods remain outstanding before concrete factory ownership can be installed.
+
+The input/health/player-tick batch built both Release targets successfully.
+Boost request 0x00137A80 and turn request 0x00137C30 now call the real
+attachment release, action selection, strategy resume and pulse broadcast paths.
+Their player feedback wrappers 0x0007F8C0/0x0007F920 are translated. Story-bit
+test/set 0x000F2A20, direction-to-point 0x000419D0, actor/body rotation
+0x0002B560, target occupancy check 0x00141760 and saved-path clearance
+0x0013A2A0 are translated. Attachment callout 0x0007DD30 uses the verified
+0.5 probability constant. This new batch awaits validation; player dispatcher,
+request/control chain, strategy methods and factory ownership remain open.
+Player control leaves 0x0007D280 and 0x0007D300 now advance the hold timer
+and release attachments through the concrete input edge, availability and body
+action implementations. Strategy decay query 0x0002B7F0 is translated.
+The remaining control dependencies have been exported read-only for the next
+reconstruction pass. These additions join the same pending validation batch.
+Secondary axes 0x001088D0 and both axis writers 0x00108FC0/0x001090A0
+are translated after exporting and checking their jump tables. Camera-relative
+axis rotation 0x00140AE0 and player input transformation 0x0007EE40 now use
+the concrete math, read and write paths. Composite-device handling preserves
+the retail four-child loop, disconnected gates and final-child output behavior.
+The new build initially found an undefined signed-byte alias; the equivalent
+sign-bit expressions fix it. This expanded batch awaits validation.
+Input tracking 0x00109810 and complete boost timer progression 0x00137840
+are now translated. The expanded batch builds both Release targets, passes
+all six CTests and the focused retail dialogue/player-resource checks.
+The complete input tracking method matches 2,000 retail machine-code cases
+with zero mismatches, including special float values and all tracking states;
+its square-root callee runs as retail code, without a game bridge. Live spawning
+remains incomplete and no partial player factory has been installed.
+Goal completion 0x00135700 now clears the active goal, releases actual body
+latches, selects the real primary action and queues the original 0xB7 script
+event with actor tag and result payload. Target controlled-player query
+0x001414C0 is translated. Input gesture state 0x0007D5A0 and direction update
+0x0007D460 are translated; a differential oracle for both is prepared.
+This goal/gesture batch is building. Full strategy and player mind control
+composition remain open before factory installation.

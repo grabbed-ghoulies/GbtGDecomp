@@ -218,6 +218,18 @@ u8 runtime_player_can_resume_strategy(std::span<const u8> actor, const RuntimePl
     return context.decay_enabled[context.decay_index];
 }
 
+// Xbox 0x0002B7F0
+u8 runtime_player_strategy_decay_enabled(std::span<const u8> actor,
+    const RuntimePlayerStrategyResume& context)
+{
+    const size_t group = (read_u16(actor, 0xCDC) == 2 || read_u32(actor, 0x93C) != 0) ? 1 : 0;
+    if (context.references[group] != 0)
+    {
+        return 0;
+    }
+    return context.decay_enabled[context.decay_index];
+}
+
 // Xbox 0x0002B8D0
 void change_runtime_player_strategy_state(FactoryObject& strategy, u16 state, RuntimePlayerStrategySetup& context)
 {

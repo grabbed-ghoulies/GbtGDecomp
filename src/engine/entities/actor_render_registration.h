@@ -23,6 +23,7 @@ void unregister_actor_render_bins(ActorRenderRegistration& state); // Xbox 0x000
 void unregister_actor_segment_probes(ActorRenderRegistration& state); // Xbox 0x0003E850
 void unlink_actor_segment_lists(ActorRenderRegistration& state); // Xbox 0x0003E7A0
 void register_actor_child_list(ActorRenderRegistration& state); // Xbox 0x0003ED70
+void register_actor_wide_list(ActorRenderRegistration& state); // Xbox 0x0003E8C0
 void activate_actor_bind_children(ActorLink* node, Actor& source); // Xbox 0x00112D10
 void activate_actor_bind_tree(Actor& actor); // Xbox 0x00112CC0
 }

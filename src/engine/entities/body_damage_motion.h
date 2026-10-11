@@ -4,6 +4,11 @@
 
 namespace gbtg
 {
+float runtime_actor_bound_angle(std::span<const u8> bound,
+    const Actor& origin); // Xbox 0x00041970
+void runtime_horizontal_direction(Vec3& direction, float angle,
+    float length); // Xbox 0x001060A0
+float runtime_body_hit_angle(std::span<const u8> hit); // Xbox 0x0001D540
 float runtime_actor_angle_toward(const Actor& target, const Actor& origin); // Xbox 0x00041900
 float step_runtime_damage_angle(float current, float target, float step); // Xbox 0x00100FE0
 void turn_runtime_body_toward_damage(Actor& actor, const Actor& source,

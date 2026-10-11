@@ -3,6 +3,52 @@
 
 namespace gbtg
 {
+// Xbox 0x001414C0
+bool runtime_mind_target_is_controlled_player(const RuntimeMindTarget& target)
+{
+    if (target.bytes[0x14] != 0)
+    {
+        return false;
+    }
+    if (read_u16(target.actor_bytes, 0xCDC) == 2)
+    {
+        return true;
+    }
+    return read_u32(target.actor_bytes, 0x93C) != 0;
+}
+
+// Xbox 0x0013A2A0
+bool runtime_player_mind_saved_path_clear(const Actor& actor, std::span<const u8> mind,
+    const OccupancyRecord* occupancy, const OccupancyRecord* allowed, u16 owner_class)
+{
+    const Vec3 point{read_f32(mind, 0x70), read_f32(mind, 0x74), read_f32(mind, 0x78)};
+    if (occupancy == nullptr)
+    {
+        const Vec3 position = actor_world_position(actor);
+        i32 last_cell;
+        if (entity_detail::navigation_path_clear(position, point, 0, 0, 1, 0,
+                allowed, &last_cell, i16(owner_class)))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Xbox 0x00141760
+bool runtime_mind_target_occupancy_differs(const RuntimeMindTarget& target,
+    u16 owner_class, const OccupancyRecord* allowed)
+{
+    if (target.bytes[0x14] == 0 && target.occupancy != nullptr
+        && target.occupancy != allowed
+        && (owner_class == 0 || target.occupancy->group == 0
+            || u16(target.occupancy->group) == owner_class))
+    {
+        return true;
+    }
+    return false;
+}
+
 // Xbox 0x00129920
 bool runtime_mind_target_allowed(const RuntimeMindTarget& target, u32 flags)
 {

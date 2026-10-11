@@ -6,6 +6,30 @@
 
 namespace gbtg
 {
+// Xbox 0x00109620
+bool runtime_input_is_selected(std::span<const u8> device, u32 address,
+    const RuntimeInputActivationContext& context)
+{
+    u32 selected = 0;
+    if ((context.entries->cursor - context.entries->begin) / context.entries->stride != 0)
+    {
+        selected = read_u32({context.entries->begin +
+            (context.selected - 1) * context.entries->stride, context.entries->stride}, 0);
+    }
+    switch (read_u32(device, 0))
+    {
+    case 1:
+    case 2:
+    case 3:
+    case 4:
+        return selected == address;
+    case 5:
+        return selected == read_u32(device, 0xB8);
+    default:
+        return selected == 0;
+    }
+}
+
 // Xbox 0x00107E20
 void clear_runtime_input_states(std::span<u8> device)
 {

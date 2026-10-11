@@ -10,8 +10,13 @@ struct RuntimeBodyDamageTables
     std::span<const u8> classes; // DAT_00545AC4, stride 0x87.
 };
 bool runtime_body_contact_damage_blocked(const EntityBitBlock& flags,
-    const entity_detail::SegmentPool* contacts, const Actor& contact_actor,
+    const entity_detail::SegmentPool* contacts, const Actor* contact_actor,
     float contact_y); // Xbox 0x00022870
+bool runtime_body_damage_classified(std::span<const u8> body, const Actor& actor,
+    std::span<const u8> damage, const entity_detail::SegmentPool* contacts,
+    const Actor* contact_actor, const Actor* source, u32 source_live,
+    u32 player_damage, const RuntimeBodyDamageTables& tables,
+    std::span<const u8> keys); // Xbox 0x000226C0
 float runtime_body_damage_direction(float facing, const Vec3& direction); // Xbox 0x000244E0
 float runtime_body_damage_push_amount(const Actor& actor, u16 actor_class,
     u32 key, const RuntimeBodyDamageTables& tables, std::span<const u8> keys); // Xbox 0x000239C0
@@ -43,3 +48,4 @@ u32 runtime_body_damage_amount(std::span<const u8> body, const Actor& actor,
     const Actor* source, u32 source_live, u32 player_damage, u8 key, u16 actor_class,
     const RuntimeBodyDamageTables& tables, std::span<const u8> keys); // Xbox 0x000238E0
 }
+

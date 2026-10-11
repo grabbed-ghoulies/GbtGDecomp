@@ -110,6 +110,18 @@ extern i32 g_script_30d0c;
 void request_scene_aid(const char* src, i32 mode);
 
 
+// Xbox 0x000F2A20
+bool test_and_set_runtime_story_bit(std::span<u8> bits, u32 index)
+{
+    const u8 mask = u8(1u << (index & 7));
+    if ((bits[index >> 3] & mask) != 0)
+    {
+        return false;
+    }
+    bits[index >> 3] |= mask;
+    return true;
+}
+
 // Xbox 0x00049D10.
 bool scene_end_flag_set()
 {

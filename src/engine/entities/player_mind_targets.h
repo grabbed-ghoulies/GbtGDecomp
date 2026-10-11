@@ -17,6 +17,12 @@ struct RuntimeMindTarget
 };
 bool runtime_mind_target_allowed(const RuntimeMindTarget& target,
     u32 flags); // Xbox 0x00129920
+bool runtime_mind_target_occupancy_differs(const RuntimeMindTarget& target,
+    u16 owner_class, const OccupancyRecord* allowed); // Xbox 0x00141760
+bool runtime_mind_target_is_controlled_player(const RuntimeMindTarget& target); // Xbox 0x001414C0
+bool runtime_player_mind_saved_path_clear(const Actor& actor, std::span<const u8> mind,
+    const OccupancyRecord* occupancy, const OccupancyRecord* allowed,
+    u16 owner_class); // Xbox 0x0013A2A0
 bool runtime_mind_target_reachable(const Actor& source, const OccupancyRecord* allowed,
     const RuntimeMindTarget& target, u32 flags); // Xbox 0x001299B0
 RuntimeMindTarget* find_runtime_mind_target(const Actor& source, const OccupancyRecord* allowed,

@@ -113,6 +113,27 @@ bool actor_marker_world_euler(const Actor& actor, i16 index, Vec3& output)
     return false;
 }
 
+// Xbox 0x00040A60
+void actor_binding_world_position(const Actor& actor, const ModelBoneBinding& binding, Vec3& output)
+{
+    const ModelPoseBuffer* pose;
+    if (actor.model == nullptr)
+    {
+        pose = nullptr;
+    }
+    else
+    {
+        pose = actor.model->runtime->alternate;
+        if (pose == nullptr)
+        {
+            pose = actor.model->runtime->primary;
+        }
+    }
+    AnimationMatrix world;
+    std::memcpy(world.data(), actor.xform, sizeof(actor.xform));
+    model_bone_world_point(binding, pose, &world, output);
+}
+
 // Xbox 0x00040AA0
 void actor_binding_world_euler(const Actor& actor, const ModelBoneBinding& binding, Vec3& output)
 {

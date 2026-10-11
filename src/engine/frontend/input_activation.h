@@ -43,6 +43,8 @@ void pop_runtime_input_entry(RuntimeInputActivationContext& context); // Xbox 0x
 void push_runtime_input_entry(u32 address, const char* name,
     RuntimeInputActivationContext& context); // Xbox 0x00109340
 void clear_runtime_input_states(std::span<u8> device); // Xbox 0x00107E20
+bool runtime_input_is_selected(std::span<const u8> device, u32 address,
+    const RuntimeInputActivationContext& context); // Xbox 0x00109620
 void clear_runtime_actor_input_states(std::span<u8> device); // Xbox 0x00107B90
 struct RuntimeInputReleaseContext
 {

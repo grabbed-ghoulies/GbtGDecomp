@@ -4,6 +4,27 @@
 
 namespace gbtg
 {
+// Xbox 0x0003E8C0
+void register_actor_wide_list(ActorRenderRegistration& state)
+{
+    if (state.wide.prev == nullptr)
+    {
+        auto* root = &entity_detail::g_world.wide;
+        while (root->prev != nullptr)
+        {
+            root = static_cast<entity_detail::ListHead*>(root->prev);
+        }
+        auto* successor = static_cast<entity_detail::ListHead*>(root->next);
+        root->next = &state.wide;
+        state.wide.prev = root;
+        state.wide.next = successor;
+        if (successor != nullptr)
+        {
+            successor->prev = &state.wide;
+        }
+    }
+}
+
 // Xbox 0x0003EE70
 void unlink_actor_view(RuntimeActorLink& link)
 {

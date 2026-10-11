@@ -217,6 +217,149 @@ negative:
     return value;
 }
 
+// Xbox 0x001088D0
+void runtime_input_secondary_axes(const RuntimeDialogueInputDevice& device,
+    std::array<float, 2>& output, const RuntimeDialogueInputState& state)
+{
+    switch (read_u32(device.record, 0))
+    {
+    case 1:
+    case 2:
+    case 3:
+    case 5:
+        std::memcpy(output.data(), button_state(device, state) + 8, sizeof(output));
+        return;
+    case 4:
+    {
+        i32 index = 0;
+        i32 remaining = 4;
+        do
+        {
+            const auto& child = *device.children[index];
+            float horizontal = 0.f;
+            float vertical = 0.f;
+            if (read_u32(child.record, 8) != 0xFFFFFFFFu)
+            {
+                const std::span<const u8> block{button_state(child, state) + 8, 8};
+                vertical = read_f32(block, 4);
+                horizontal = read_f32(block, 0);
+                vertical = normalize_input_axis(vertical);
+            }
+            else
+            {
+                vertical = (vertical - std::bit_cast<float>(0x46192000u)) * std::bit_cast<float>(0x3837284Au);
+                if (!(vertical > 1.f))
+                {
+                    if (0.f > vertical)
+                    {
+                        vertical = 0.f;
+                    }
+                }
+                else
+                {
+                    vertical = 1.f;
+                }
+            }
+            horizontal = normalize_input_axis(horizontal);
+            ++index;
+            --remaining;
+            output[0] = horizontal;
+            output[1] = vertical;
+        }
+        while (remaining != 0);
+        return;
+    }
+    default:
+        output[1] = 0.f;
+        output[0] = 0.f;
+        return;
+    }
+}
+
+static u8* writable_button_state(RuntimeInputAxisWriteDevice& device, std::span<u8> keyboard)
+{
+    switch (read_u32(device.record, 0))
+    {
+    case 1:
+    case 2:
+        return device.record.data() + 8;
+    case 3:
+        return keyboard.data();
+    case 5:
+        return device.record.data() + 0x10;
+    default:
+        return nullptr;
+    }
+}
+
+// Xbox 0x00108FC0
+void set_runtime_input_axes(RuntimeInputAxisWriteDevice& device,
+    const std::array<float, 2>& axes, std::span<u8> keyboard)
+{
+    switch (read_u32(device.record, 0))
+    {
+    case 1:
+    case 2:
+    case 3:
+    case 5:
+        std::memcpy(writable_button_state(device, keyboard), axes.data(), sizeof(axes));
+        return;
+    case 4:
+    {
+        i32 index = 0;
+        i32 remaining = 4;
+        do
+        {
+            auto& child = *device.children[index];
+            if (read_u32(child.record, 8) != 0xFFFFFFFFu)
+            {
+                std::memcpy(writable_button_state(child, keyboard), axes.data(), sizeof(axes));
+            }
+            ++index;
+            --remaining;
+        }
+        while (remaining != 0);
+        return;
+    }
+    default:
+        return;
+    }
+}
+
+// Xbox 0x001090A0
+void set_runtime_input_secondary_axes(RuntimeInputAxisWriteDevice& device,
+    const std::array<float, 2>& axes, std::span<u8> keyboard)
+{
+    switch (read_u32(device.record, 0))
+    {
+    case 1:
+    case 2:
+    case 3:
+    case 5:
+        std::memcpy(writable_button_state(device, keyboard) + 8, axes.data(), sizeof(axes));
+        return;
+    case 4:
+    {
+        i32 index = 0;
+        i32 remaining = 4;
+        do
+        {
+            auto& child = *device.children[index];
+            if (read_u32(child.record, 8) != 0xFFFFFFFFu)
+            {
+                std::memcpy(writable_button_state(child, keyboard) + 8, axes.data(), sizeof(axes));
+            }
+            ++index;
+            --remaining;
+        }
+        while (remaining != 0);
+        return;
+    }
+    default:
+        return;
+    }
+}
+
 // Xbox 0x001085F0
 void runtime_input_axes(const RuntimeDialogueInputDevice& device,
     std::array<float, 2>& output, const RuntimeDialogueInputState& state)

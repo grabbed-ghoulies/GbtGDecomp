@@ -121,10 +121,10 @@ void clear_runtime_mind_events(LiveScript*& first)
 // Xbox 0x00036B60
 void release_runtime_mind_storage(RuntimeMindStorage& storage)
 {
-    if (storage.payload != nullptr)
+    if (storage.scratch != nullptr)
     {
-        engine_heap_free(storage.payload);
-        storage.payload = nullptr;
+        engine_heap_free(storage.scratch);
+        storage.scratch = nullptr;
     }
     engine_heap_free(&storage);
 }

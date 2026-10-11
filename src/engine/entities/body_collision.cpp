@@ -4,6 +4,8 @@
 #include "entity_collision.h"
 #include "shape_transform.h"
 #include "gbtg/anim.h"
+#include "segment_records.h"
+#include "entity_heap.h"
 #include "../navigation/navigation.h"
 #include <bit>
 #include <cstring>
@@ -23,6 +25,59 @@ float record_float(const u8* record, size_t offset)
     std::memcpy(&value, record + offset, 4);
     return value;
 }
+}
+
+// Xbox 0x000755A0
+bool separate_runtime_player_world_contacts(std::span<const u8> body, Actor& actor,
+    const EntityMaskHost& mask, const Vec3& stationary)
+{
+    Vec3 position = actor_world_position(actor);
+    const float radius = read_f32(body, 0x894) * actor.radius_xz;
+    const float height = (read_f32(body, 0x8A4) * actor.radius_xz + radius) + 0.5f;
+    Vec3 probe{position.x, height + position.y, position.z};
+    const u32 collision_mask = camera_collision_mask(mask);
+    if (entity_collect_sphere_contacts(probe, radius, 4, collision_mask) != 0)
+    {
+        auto contacts = entity_merge_contact_records();
+        Vec3 separated;
+        separate_runtime_segment_contacts(contacts, probe, radius, separated, stationary);
+        position.x = (separated.x - probe.x) + position.x;
+        position.y = (separated.y - probe.y) + position.y;
+        position.z = (separated.z - probe.z) + position.z;
+        actor_set_world_position(actor, position);
+        engine_heap_free(contacts.block);
+        return true;
+    }
+    return false;
+}
+
+// Xbox 0x000744F0
+void separate_runtime_player_body_contacts(std::span<u8>& body, Actor& actor,
+    EntityBitBlock& bits, const EntityMaskHost& mask, i32 floor, const Vec3& stationary)
+{
+    Vec3 position{read_f32(body, 0x18), read_f32(body, 0x1C), read_f32(body, 0x20)};
+    const float radius = read_f32(body, 0x894) * actor.radius_xz;
+    const float height = (read_f32(body, 0x8A4) * actor.radius_xz + radius) + 0.5f;
+    Vec3 probe{position.x, position.y + height, position.z};
+    const u32 collision_mask = camera_collision_mask(mask);
+    if (entity_collect_sphere_contacts(probe, radius, 4, collision_mask) > 0)
+    {
+        auto contacts = entity_merge_contact_records();
+        Vec3 separated;
+        separate_runtime_segment_contacts(contacts, probe, radius, separated, stationary);
+        engine_heap_free(contacts.block);
+        position.x = (separated.x - probe.x) + position.x;
+        position.y = (separated.y - probe.y) + position.y;
+        position.z = (separated.z - probe.z) + position.z;
+        actor_set_world_position(actor, position);
+        const Vec3 world = actor_world_position(actor);
+        std::memcpy(body.data() + 0x18, &world, 12);
+        sweep_runtime_player_body_floor(body, actor, bits, mask, floor,
+            position, position, probe, radius, height);
+        bits.bytes[2] |= 0x20;
+        return;
+    }
+    bits.bytes[2] &= 0xDF;
 }
 
 // Xbox 0x00075350

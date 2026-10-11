@@ -39,4 +39,8 @@ struct RuntimePlayerGoalCleanup
     RuntimePlayerScriptOverrides& overrides;
 };
 void remove_runtime_player_goal(RuntimePlayerGoalCleanup& context); // Xbox 0x00028240
+bool finish_runtime_player_goal(RuntimePlayerGoalCleanup& context,
+    EntityBitBlock*& flags, RuntimeBodyActionSelection& actions,
+    const std::function<u16()>& primary_action_key, Game& game,
+    u32 success); // Xbox 0x00135700
 }

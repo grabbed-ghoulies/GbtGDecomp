@@ -14,4 +14,6 @@ void bind_runtime_actor_joint(Actor& actor, Actor* parent,
     i32 joint_key, u8 flags); // Xbox 0x0003B840
 void notify_runtime_attachment_host(RuntimeBodyAttachedActor& host,
     RuntimeBodyAttachedActor& attached); // Xbox 0x0001B770
+void notify_runtime_secondary_attachment_host(RuntimeBodyAttachedActor& host,
+    RuntimeBodyAttachedActor& attached); // Xbox 0x0001B7C0
 }

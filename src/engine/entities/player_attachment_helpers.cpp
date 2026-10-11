@@ -110,6 +110,18 @@ void bind_runtime_actor_joint(Actor& actor, Actor* parent, i32 joint_key, u8 fla
     }
 }
 
+// Xbox 0x0001B7C0
+void notify_runtime_secondary_attachment_host(RuntimeBodyAttachedActor& host, RuntimeBodyAttachedActor& attached)
+{
+    const u32 message[]{0x5F, attached.address};
+    host.message(message);
+    if (read_u16(host.bytes, 0xCDC) != 2 && read_u32(host.bytes, 0x93C) == 0)
+    {
+        const u32 active = 1;
+        std::memcpy(attached.bytes.data() + 0x9A4, &active, 4);
+    }
+}
+
 // Xbox 0x0001B770
 void notify_runtime_attachment_host(RuntimeBodyAttachedActor& host, RuntimeBodyAttachedActor& attached)
 {

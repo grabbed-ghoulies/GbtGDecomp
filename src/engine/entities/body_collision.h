@@ -4,6 +4,11 @@
 
 namespace gbtg
 {
+bool separate_runtime_player_world_contacts(std::span<const u8> body, Actor& actor,
+    const EntityMaskHost& mask, const Vec3& stationary); // Xbox 0x000755A0
+void separate_runtime_player_body_contacts(std::span<u8>& body, Actor& actor,
+    EntityBitBlock& bits, const EntityMaskHost& mask, i32 floor,
+    const Vec3& stationary); // Xbox 0x000744F0
 // Body +0x340: a u32 index followed by 0x50 Vec3 samples.
 i32 record_runtime_body_motion(std::span<u8> history, const Vec3& delta, const Actor& owner,
     const RuntimeActorClock& clock); // Xbox 0x00025A30, ECX history, EDX delta, EAX owner

@@ -4,6 +4,10 @@
 
 namespace gbtg
 {
+bool runtime_body_bit_set(const EntityBitBlock& flags, u32 index); // Xbox 0x0001EF10
+bool runtime_body_bit_matches(const EntityBitBlock& flags, u32 index,
+    u32 expected); // Xbox 0x0001EF40
+void assign_runtime_body_bit(EntityBitBlock& flags, u32 index, u32 value); // Xbox 0x0001EFF0
 void set_runtime_body_bit(EntityBitBlock& flags, u32 index); // Xbox 0x0001EFD0
 void clear_runtime_body_bit(EntityBitBlock& flags, u32 index); // Xbox 0x0001F030
 void clear_runtime_body_message_receivers(std::span<u8> body, u32 address); // Xbox 0x0001AEB0
@@ -48,17 +52,17 @@ struct RuntimePlayerCollisionReply
     u32 id;
     u32 accepted;
     u32 handled;
-    const Vec3* start;
-    Vec3* target;
-    const Vec3* position;
-    u8* contact;
-    u32 pass;
+    Vec3* proposed; // +0xC, ECX.
+    const Vec3* start; // +0x10, EDX.
+    Vec3* reference; // +0x14, stack argument 2.
+    Vec3* upper; // +0x18, stack argument 3.
+    u8* contact; // +0x1C, stack argument 4.
 };
 struct RuntimePlayerCollisionAction
 {
     std::function<void(RuntimePlayerCollisionReply&)> message; // Action vtable +0xC.
 };
-bool notify_runtime_player_collision_action(const Vec3& start, Vec3& target,
-    const Vec3& position, u8* contact, u32 pass,
+bool notify_runtime_player_collision_action(Vec3& proposed, const Vec3& start,
+    Vec3& reference, Vec3& upper, u8* contact,
     RuntimePlayerCollisionAction*& action); // Xbox 0x00075960
 }

@@ -51,6 +51,8 @@ struct RuntimePlayerStrategyResume
 };
 u8 runtime_player_can_resume_strategy(std::span<const u8> actor,
     const RuntimePlayerStrategyResume& context); // Xbox 0x00028D50
+u8 runtime_player_strategy_decay_enabled(std::span<const u8> actor,
+    const RuntimePlayerStrategyResume& context); // Xbox 0x0002B7F0
 void change_runtime_player_strategy_state(FactoryObject& strategy, u16 state,
     RuntimePlayerStrategySetup& context); // Xbox 0x0002B8D0
 void drain_runtime_player_goals(RuntimePlayerGoalCleanup& goals); // Xbox 0x00028210

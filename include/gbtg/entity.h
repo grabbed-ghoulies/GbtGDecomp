@@ -174,6 +174,7 @@ bool actor_marker_world_position(const Actor& actor, i32 index, Vec3& output); /
 void actor_joint_world_euler(const Actor& actor, u16 joint, Vec3& output); // Xbox 0x0003B050
 bool actor_marker_world_euler(const Actor& actor, i16 index, Vec3& output); // Xbox 0x0003B160
 void actor_binding_world_euler(const Actor& actor, const ModelBoneBinding& binding, Vec3& output); // Xbox 0x00040AA0
+void actor_binding_world_position(const Actor& actor, const ModelBoneBinding& binding, Vec3& output); // Xbox 0x00040A60
 void actor_transform_point(const Actor& actor, i16 joint, const Vec3& point, Vec3& output); // Xbox 0x000415F0
 void actor_attachment_pose(Actor& actor, const ActorAttachmentNode& node, Vec3& position, Vec3& euler); // Xbox 0x0003D510
 

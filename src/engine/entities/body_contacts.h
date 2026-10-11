@@ -45,9 +45,9 @@ void remove_runtime_body_contact_override(GhoulySpawnPool* overrides,
 void remove_runtime_body_contact_actor(RuntimeBodyCollisionState& state,
     Actor& object); // Xbox 0x0013F720
 void request_runtime_body_contact_override(RuntimeBodyCollisionState* state,
-    RuntimeSegmentContactActor& object, const entity_detail::ListHead& players); // Xbox 0x0001F890
+    RuntimeSegmentContactActor* object, const entity_detail::ListHead& players); // Xbox 0x0001F890
 void request_runtime_body_shape_override(RuntimeBodyCollisionState* state,
-    RuntimeSegmentContactActor& object, const entity_detail::ListHead& players); // Xbox 0x0001F850
+    RuntimeSegmentContactActor* object, const entity_detail::ListHead& players); // Xbox 0x0001F850
 void activate_runtime_body_contact_shapes(RuntimeBodyCollisionState& state,
     Actor& actor, u16 tag, u8 flags, float scale); // Xbox 0x0013F420
 void deactivate_runtime_body_contact_shapes(RuntimeBodyCollisionState& state,

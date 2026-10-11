@@ -5,6 +5,52 @@
 
 namespace gbtg
 {
+// Xbox 0x00041970
+float runtime_actor_bound_angle(std::span<const u8> bound, const Actor& origin)
+{
+    const Vec3 position = actor_world_position(origin);
+    const Vec3 direction{read_f32(bound, 0x20) - position.x,
+        read_f32(bound, 0x24) - position.y, read_f32(bound, 0x28) - position.z};
+    float angle;
+    runtime_direction_angle(direction, angle);
+    return angle;
+}
+
+// Xbox 0x001060A0
+void runtime_horizontal_direction(Vec3& direction, float angle, float length)
+{
+    direction = {0.f, 0.f, 0.f};
+    const float sine = float(retail_sin(angle));
+    const long double cosine = retail_cos(angle);
+    direction.x = float(static_cast<long double>(sine) * length + static_cast<long double>(direction.x));
+    direction.z = float(cosine * length + static_cast<long double>(direction.z));
+}
+
+// Xbox 0x0001D540
+float runtime_body_hit_angle(std::span<const u8> hit)
+{
+    if (hit.data() == nullptr)
+    {
+        return 0.f;
+    }
+    const float angle = read_f32(hit, 0x14) * std::bit_cast<float>(u32(0x3C8EFA35));
+    if (angle == 0.f)
+    {
+        switch (hit[6])
+        {
+        case 0:
+            return std::bit_cast<float>(u32(0x3FC90FDB));
+        case 1:
+            return 0.f;
+        case 2:
+            return std::bit_cast<float>(u32(0xBFC90FDB));
+        case 3:
+            return std::bit_cast<float>(u32(0x40490FDB));
+        }
+    }
+    return angle;
+}
+
 // Xbox 0x00041900
 float runtime_actor_angle_toward(const Actor& target, const Actor& origin)
 {

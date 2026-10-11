@@ -3,6 +3,11 @@
 
 namespace gbtg
 {
+u16 runtime_body_action_name_id(const char* name,
+    const char* const* names); // Xbox 0x00026930, 0x174 sorted names.
+u32 runtime_player_goal_flag_name_id(const char* name,
+    const char* const* names); // Xbox 0x00028810, 3 sorted names.
+bool runtime_body_timer_is_idle(std::span<const u8> body); // Xbox 0x00024C20
 u16 classify_runtime_attached_actor(std::span<const u8> attached, u16 tag); // Xbox 0x00145FF0
 u16 classify_runtime_attached_owner(std::span<const u8> attached,
     const Actor* owner); // Xbox 0x00146030

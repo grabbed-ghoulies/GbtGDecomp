@@ -204,9 +204,11 @@ bool separate_runtime_collision_sphere(std::span<const u8> shape, Vec3& point, f
 {
     float dx = point.x - read_f32(shape, 4);
     float dy = point.y - read_f32(shape, 8);
-    float dz = point.z - read_f32(shape, 0xC);
+    const long double extended_z = static_cast<long double>(point.z) - read_f32(shape, 0xC);
+    float dz = float(extended_z);
     radius = read_f32(shape, 0x10) + radius;
-    const float length = float(std::sqrt((static_cast<long double>(dz) * dz
+    // FST writes dz to float while retaining the unrounded subtraction in ST0.
+    const float length = float(std::sqrt((extended_z * dz
         + static_cast<long double>(dx) * dx) + static_cast<long double>(dy) * dy));
     if (length > radius)
     {

@@ -1,9 +1,38 @@
 #include "body_action_ids.h"
 #include <bit>
 #include "actor_transform.h"
+#include "../runtime/name_lookup.h"
 
 namespace gbtg
 {
+// Xbox 0x00026930
+u16 runtime_body_action_name_id(const char* name, const char* const* names)
+{
+    const i32 index = binary_search_names(0x174, names, name);
+    if (index == -1)
+    {
+        return 0;
+    }
+    return u16(u32(index) + 1);
+}
+
+// Xbox 0x00028810
+u32 runtime_player_goal_flag_name_id(const char* name, const char* const* names)
+{
+    const i32 index = binary_search_names(3, names, name);
+    if (index == -1)
+    {
+        return 0;
+    }
+    return u32(index) + 1;
+}
+
+// Xbox 0x00024C20
+bool runtime_body_timer_is_idle(std::span<const u8> body)
+{
+    return read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f;
+}
+
 // Xbox 0x00145FF0
 u16 classify_runtime_attached_actor(std::span<const u8> attached, u16 tag)
 {

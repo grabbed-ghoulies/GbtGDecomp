@@ -1,4 +1,5 @@
 #include "player_goal_cleanup.h"
+#include "../scripts/script_conditions.h"
 #include "actor_live_attachments.h"
 #include "entity_heap.h"
 #include <array>
@@ -6,6 +7,34 @@
 
 namespace gbtg
 {
+// Xbox 0x00135700
+bool finish_runtime_player_goal(RuntimePlayerGoalCleanup& context,
+    EntityBitBlock*& flags, RuntimeBodyActionSelection& actions,
+    const std::function<u16()>& primary_action_key, Game& game, u32 success)
+{
+    auto body = context.body;
+    const u32 zero = 0;
+    std::memcpy(context.actor.bytes.data() + 0x98C, &zero, 4);
+    if (context.actor.bytes[0x98A] != 0)
+    {
+        decrement_runtime_body_latches(body, context.body_owner, context.first);
+        context.actor.bytes[0x98A] = 0;
+    }
+    bool result;
+    if ((flags->bytes[2] & 2) == 0 && (flags->bytes[4] & 0x10) == 0)
+    {
+        const u16 key = primary_action_key();
+        result = select_runtime_body_action(body, key, actions);
+    }
+    else
+    {
+        result = true;
+    }
+    const std::array<u32, 3> message{0xB7, read_u16(context.actor.bytes, 6), success};
+    script_queue_event(game, {reinterpret_cast<const u8*>(message.data()), sizeof(message)});
+    return result;
+}
+
 namespace
 {
 void put(std::span<u8> bytes, size_t offset, u32 value)

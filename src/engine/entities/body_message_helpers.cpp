@@ -3,6 +3,29 @@
 
 namespace gbtg
 {
+// Xbox 0x0001EF40
+bool runtime_body_bit_matches(const EntityBitBlock& flags, u32 index, u32 expected)
+{
+    return expected == u32((flags.bytes[index >> 3] & (u8(1) << (index & 7))) != 0);
+}
+
+// Xbox 0x0001EFF0
+void assign_runtime_body_bit(EntityBitBlock& flags, u32 index, u32 value)
+{
+    if (value != 0)
+    {
+        flags.bytes[index >> 3] |= u8(u8(1) << (index & 7));
+        return;
+    }
+    flags.bytes[index >> 3] &= u8(~(u8(1) << (index & 7)));
+}
+
+// Xbox 0x0001EF10
+bool runtime_body_bit_set(const EntityBitBlock& flags, u32 index)
+{
+    return (flags.bytes[index >> 3] & u8(1u << (index & 7))) != 0;
+}
+
 // Xbox 0x0001EFD0
 void set_runtime_body_bit(EntityBitBlock& flags, u32 index)
 {
@@ -295,10 +318,10 @@ void request_runtime_body_action_7b(std::span<u8> body, std::span<u8> message,
 }
 
 // Xbox 0x00075960
-bool notify_runtime_player_collision_action(const Vec3& start, Vec3& target,
-    const Vec3& position, u8* contact, u32 pass, RuntimePlayerCollisionAction*& action)
+bool notify_runtime_player_collision_action(Vec3& proposed, const Vec3& start,
+    Vec3& reference, Vec3& upper, u8* contact, RuntimePlayerCollisionAction*& action)
 {
-    RuntimePlayerCollisionReply message{0x62, 0, 0, &start, &target, &position, contact, pass};
+    RuntimePlayerCollisionReply message{0x62, 0, 0, &proposed, &start, &reference, &upper, contact};
     if (action != nullptr)
     {
         action->message(message);

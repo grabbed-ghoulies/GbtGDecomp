@@ -246,23 +246,23 @@ void remove_runtime_body_contact_actor(RuntimeBodyCollisionState& state, Actor& 
 
 // Xbox 0x0001F890
 void request_runtime_body_contact_override(RuntimeBodyCollisionState* state,
-    RuntimeSegmentContactActor& object, const entity_detail::ListHead& players)
+    RuntimeSegmentContactActor* object, const entity_detail::ListHead& players)
 {
     if (state != nullptr && state->active != nullptr)
     {
-        insert_runtime_body_contact_override(state->overrides, object, 0, players);
+        insert_runtime_body_contact_override(state->overrides, *object, 0, players);
     }
 }
 
 // Xbox 0x0001F850
 void request_runtime_body_shape_override(RuntimeBodyCollisionState* state,
-    RuntimeSegmentContactActor& object, const entity_detail::ListHead& players)
+    RuntimeSegmentContactActor* object, const entity_detail::ListHead& players)
 {
     if (state != nullptr && state->active != nullptr)
     {
-        if ((runtime_actor_physical_shape_flags(object.actor) & 0x142) != 0)
+        if ((runtime_actor_physical_shape_flags(object->actor) & 0x142) != 0)
         {
-            insert_runtime_body_contact_override(state->overrides, object, 0, players);
+            insert_runtime_body_contact_override(state->overrides, *object, 0, players);
         }
     }
 }

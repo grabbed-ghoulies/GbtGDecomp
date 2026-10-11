@@ -2,9 +2,16 @@
 #include "body_contacts.h"
 #include "body_message_helpers.h"
 #include "player_goal_cleanup.h"
+#include "../graphics/actor_effect_stream.h"
 
 namespace gbtg
 {
+float runtime_actor_animation_duration(const ActorAnimationState& animation,
+    u32 slot); // Xbox 0x0003B1D0
+void command_runtime_body_breath(Actor& actor, const EntityBitBlock& flags,
+    const ActorAnimationState& animation, u32 phase, u32 slot,
+    std::span<const u8> command, u32 effect_flags,
+    ActorEffectStreamContext& effects); // Xbox 0x0001AC50
 struct RuntimeActorProximityNode
 {
     RuntimeActorProximityNode* next; // Actor intrusive link +0x938.
@@ -77,6 +84,7 @@ void command_runtime_body_release_actor(std::span<u8> body,
     RuntimeBodyActorAttachment& attachment); // Xbox 0x0001A7E0
 void command_runtime_body_random_timer(std::span<u8> body, float low,
     float high, u32& random); // Xbox 0x0001AE50
+float runtime_body_random_range(u32& random, float low, float high); // Xbox 0x000191C0
 void add_runtime_body_direction_push(Actor& actor, i32 speed,
     float angle); // Xbox 0x00019A90
 }

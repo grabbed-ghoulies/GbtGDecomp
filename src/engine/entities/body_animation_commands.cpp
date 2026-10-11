@@ -1,4 +1,5 @@
 #include "body_animation_commands.h"
+#include "actor_model_anchors.h"
 #include "../runtime/name_lookup.h"
 #include "actor_render_registration.h"
 #include "player_mind_events.h"
@@ -8,6 +9,65 @@
 
 namespace gbtg
 {
+// Xbox 0x0003B1D0
+float runtime_actor_animation_duration(const ActorAnimationState& animation, u32 slot)
+{
+    if (animation.controller != nullptr)
+    {
+        auto* player = animation.controller->slots[slot].player.get();
+        if (player != nullptr)
+        {
+            return player->duration;
+        }
+    }
+    return 0.f;
+}
+
+// Xbox 0x0001AC50
+void command_runtime_body_breath(Actor& actor, const EntityBitBlock& flags,
+    const ActorAnimationState& animation, u32 phase, u32 slot,
+    std::span<const u8> command, u32 effect_flags, ActorEffectStreamContext& effects)
+{
+    if (phase == 0 && ((effect_flags & 1) != 0 || (flags.bytes[1] & 0x40) != 0))
+    {
+        const u8* record = find_actor_model_binding(actor, 5);
+        if (record != nullptr)
+        {
+            g_actor_effect_binding.mode = 1;
+            g_actor_effect_binding.actor = &actor;
+            g_actor_effect_binding.index = (g_actor_effect_binding.index & ~0xFFFF) | 5;
+            ModelBoneBinding binding;
+            std::memcpy(&binding.kind, record, 2);
+            std::memcpy(&binding.joint, record + 2, 2);
+            std::memcpy(binding.matrix.data(), record + 4, 48);
+            Vec3 position;
+            Vec3 euler;
+            actor_binding_world_position(actor, binding, position);
+            actor_binding_world_euler(actor, binding, euler);
+            g_actor_creation_options.position = position;
+            g_actor_creation_options.euler = euler;
+            g_actor_creation_options.user = &g_actor_effect_binding;
+            g_actor_creation_options.flags = 0xD;
+            if (load_actor_effect_stream("aid_fxemitter_ghoulies_actor_common_breath", &g_actor_creation_options, effects) != 0)
+            {
+                const i16 index = i16(g_last_actor_effect);
+                g_last_actor_effect = -1;
+                if (index != -1)
+                {
+                    auto& effect = *g_actor_effect_nodes[index];
+                    effect.bytes[0x18] |= 8;
+                    if (read_f32(command, 8) != 0.f)
+                    {
+                        const float duration = runtime_actor_animation_duration(animation, slot);
+                        const float value = duration * (read_f32(command, 8) - read_f32(command, 4));
+                        std::memcpy(effect.bytes.data() + 0x10, &value, 4);
+                    }
+                }
+            }
+        }
+    }
+}
+
 // Xbox 0x00122D80
 void broadcast_runtime_actor_proximity(RuntimeActorProximityNode* first,
     std::span<const u32> message, const Vec3& position, float radius)
@@ -447,11 +507,17 @@ void command_runtime_body_release_actor(std::span<u8> body, RuntimeBodyActorAtta
     }
 }
 
+// Xbox 0x000191C0
+float runtime_body_random_range(u32& random, float low, float high)
+{
+    random = random * 0x19660Du + 0x3C6EF35Fu;
+    return (high - low) * (std::bit_cast<float>((random & 0x7FFFFF) | 0x3F800000u) - 1.f) + low;
+}
+
 // Xbox 0x0001AE50
 void command_runtime_body_random_timer(std::span<u8> body, float low, float high, u32& random)
 {
-    random = random * 0x19660Du + 0x3C6EF35Fu;
-    const float value = (high - low) * (std::bit_cast<float>((random & 0x7FFFFF) | 0x3F800000u) - 1.f) + low;
+    const float value = runtime_body_random_range(random, low, high);
     if (read_f32(body, 0x34) <= value)
     {
         std::memcpy(body.data() + 0x34, &value, 4);

@@ -1,6 +1,7 @@
 #pragma once
 #include "player_children.h"
 #include "../scripts/script_conditions.h"
+#include "../navigation/floor_tracking.h"
 
 namespace gbtg
 {
@@ -19,10 +20,7 @@ bool initialize_runtime_base_mind(std::span<u8> mind, std::span<const u8> parame
     std::span<const u8>& script_table); // Xbox 0x00029F20, table aliases mind +0x60.
 bool initialize_runtime_mind_request(std::span<u8> request, u32& random); // Xbox 0x00029EC0
 void clear_runtime_mind_events(LiveScript*& first); // Xbox 0x0002A240, mind +0x28.
-struct RuntimeMindStorage
-{
-    void* payload; // +0x14, host heap boundary allocation.
-};
+using RuntimeMindStorage = entity_detail::NavigationPathSearch; // Scratch is retail +0x14.
 void release_runtime_mind_storage(RuntimeMindStorage& storage); // Xbox 0x00036B60
 void destroy_runtime_base_mind(RuntimePlayerMindRequests& requests, LiveScript*& events,
     RuntimeMindStorage*& storage, std::span<const u8>& script_table); // Xbox 0x00029FF0

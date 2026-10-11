@@ -180,3 +180,44 @@ selectors or live factory ownership.
 actor lookup and damage pulse/pause selector cases with original machine code.
 Equal endpoints, descending ranges, NaNs, infinities and integer conversion
 indefinite results are included. It does not establish live scene ownership.
+
+`spawn_candidates_oracle.py 1 400` compares 400 navigation candidate cases
+with retail 0x0010F7F0, using actual rectangle/cell routines and bridging only
+heap allocation/reallocation. Candidate order, filters, row writes and growth
+are checked; path/occupancy flags and live actor spawning are not covered.
+
+`contact_direction_oracle.py 1 400` compares retail 0x000FCA60, 0x00021010 and 0x000FC3F0
+without callee bridges. It checks zero, short and unrolled pools, header-stride
+averaging, first-contact sphere projection, null contacts and nonfinite inputs.
+It also covers combined triangle/sphere separation. All 1,200 cases pass;
+this does not establish live spawning.
+
+`contact_sweep_oracle.py 1 400` compares quadratic selection, point/edge sweeps,
+sphere sweeps, triangle intersection and triangle sweeps with genuine math callees.
+All 2,400 cases pass, including degenerate geometry and nonfinite inputs.
+
+`player_collision_oracle.py 1 400` checks the main player collision update
+against retail with empty world lists and a real contact pool. All 400 cases
+pass, comparing complete body bytes, flags and actor position/stamp; no game
+callee is bridged. Scene contact branches and live ownership are not covered.
+
+`player_mind_helpers_oracle.py 1 400` checks alert thresholds, minimum-distance
+recording and nearest-position retention, including nonfinite inputs. All 1,200
+cases match retail exactly without game callee bridges. This does not verify
+the complete mind dispatcher or factory ownership.
+
+`attachment_lookup_oracle.py 1 400` checks five attachment request table searches
+against actual retail machine code, including unsigned keys, absent/matching keys,
+empty tables and the category-4 primary attachment gate. It does not verify
+request acceptance or live attachment ownership.
+All 2,000 cases pass with zero mismatches and no game callee bridges.
+
+`player_input_tracking_oracle.py` compares complete 0x00109810 state updates
+against retail machine code, including the actual square-root routine. The
+`inputtracking` harness protocol returns all six tracking words. The current
+2,000-case run has zero mismatches.
+
+`player_input_gesture_oracle.py` compares 0x0007D5A0 and 0x0007D460, including
+real square-root and atan2 callees. Its `inputgesture` protocol returns all eight
+tracking words. These checks exercise timer boundaries, state transitions and
+special float values; they do not establish live player factory acceptance.

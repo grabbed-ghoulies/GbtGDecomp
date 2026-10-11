@@ -272,6 +272,20 @@ void apply_runtime_player_joint_targets(std::span<u8> body, RuntimePlayerJointTa
     }
 }
 
+// Xbox 0x00025EC0
+void relay_runtime_parent_body(u32 message, RuntimePlayerBodyRelayChild*& action,
+    RuntimePlayerBodyRelayChild*& attachment)
+{
+    if (action != nullptr)
+    {
+        action->relay(message);
+    }
+    if (attachment != nullptr)
+    {
+        attachment->relay(message);
+    }
+}
+
 // Xbox 0x000744A0
 void relay_runtime_player_body(std::span<u8> body, u32 message,
     RuntimePlayerBodyRelayChild*& action, RuntimePlayerBodyRelayChild*& attachment,

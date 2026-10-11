@@ -1,6 +1,7 @@
 #include "body_damage_tables.h"
 #include "gbtg/anim.h"
 #include "player_mind_events.h"
+#include "actor_shape_bounds.h"
 #include <bit>
 #include <immintrin.h>
 #include <cstring>
@@ -62,6 +63,39 @@ u32 nearest_contact_flags(const entity_detail::SegmentPool& contacts, const Acto
     }
     return read_u32(std::span<const u8>(selected, 0x54), 0x20);
 }
+}
+
+// Xbox 0x000226C0
+bool runtime_body_damage_classified(std::span<const u8> body, const Actor& actor,
+    std::span<const u8> damage, const entity_detail::SegmentPool* contacts,
+    const Actor* contact_actor, const Actor* source, u32 source_live,
+    u32 player_damage, const RuntimeBodyDamageTables& tables,
+    std::span<const u8> keys)
+{
+    if (contacts == nullptr || damage[0] == 0x12)
+    {
+        return false;
+    }
+    if ((runtime_actor_physical_shape_flags(actor) & 0x20000) != 0 &&
+        runtime_body_damage_amount(body, actor, source, source_live, player_damage,
+            damage[1], read_u16(damage, 0x64), tables, keys) == 0)
+    {
+        return true;
+    }
+    u32 flags = 0;
+    for (const u8* record = contacts->begin; record < contacts->cursor; record += 0x54)
+    {
+        flags |= read_u32({record, 0x54}, 0x20);
+    }
+    if ((flags & 0x20000) == 0)
+    {
+        return false;
+    }
+    if (i32(contacts->cursor - contacts->begin) / contacts->stride == 1)
+    {
+        return true;
+    }
+    return ((nearest_contact_flags(*contacts, *contact_actor, read_f32(damage, 0x1C)) >> 0x11) & 1) != 0;
 }
 
 // Xbox 0x000244E0
@@ -133,7 +167,7 @@ bool runtime_body_damage_parameters(const Actor& actor, u16 actor_class,
 
 // Xbox 0x00022870
 bool runtime_body_contact_damage_blocked(const EntityBitBlock& flags,
-    const entity_detail::SegmentPool* contacts, const Actor& contact_actor, float contact_y)
+    const entity_detail::SegmentPool* contacts, const Actor* contact_actor, float contact_y)
 {
     if (contacts == nullptr || (flags.bytes[1] & 4) != 0)
     {
@@ -153,7 +187,7 @@ bool runtime_body_contact_damage_blocked(const EntityBitBlock& flags,
     {
         return true;
     }
-    return ((nearest_contact_flags(*contacts, contact_actor, contact_y) >> 0x15) & 1) != 0;
+    return ((nearest_contact_flags(*contacts, *contact_actor, contact_y) >> 0x15) & 1) != 0;
 }
 // Xbox 0x001339C0
 float interpolate_runtime_damage_value(u8 key, u8 value, const RuntimeBodyDamageTables& tables)
@@ -391,3 +425,5 @@ u32 apply_runtime_body_damage_health(std::span<u8> body, const Actor& actor,
     return 0;
 }
 }
+
+

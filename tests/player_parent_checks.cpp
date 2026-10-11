@@ -1,4 +1,5 @@
 #include "player_parent_checks.h"
+#include "../src/engine/entities/body_message_helpers.h"
 #include "body_frame_checks.h"
 #include "../src/engine/entities/player_parent_lifecycle.h"
 #include "../src/engine/entities/player_attributes.h"
@@ -254,7 +255,7 @@ void check_body_dependencies(SceneExecutableResources& executable)
         RuntimeBodyAttachedActor host{host_bytes, 0x1111,
             [&](std::span<const u32> message)
             {
-                require(message[0] == 0x5E && message[1] == 0x2222, "attachment host notice");
+                require((message[0] == 0x5E || message[0] == 0x5F) && message[1] == 0x2222, "attachment host notice");
                 calls.push_back(message[0]);
             }};
         RuntimeBodyAttachedActor object{attached_bytes, 0x2222,
@@ -372,6 +373,25 @@ void check_body_dependencies(SceneExecutableResources& executable)
             && calls == std::vector<u32>{0x9D, 0x9C, 0x97, 0x20},
             "replacement must release attachment, select body action and reset retained animation blend");
         require(!replace_runtime_player_attachment(context), "empty attachment replacement must return false");
+        calls.clear();
+        put(attached_bytes, 0x948, 0xFFFF0009);
+        require(!attach_runtime_player_secondary(actor_view, context) && secondary == nullptr && calls.empty(),
+            "secondary class miss must preserve body ownership and suppress notices");
+        put(attached_bytes, 0x948, 0xFFFF0007);
+        const u8 attachment_flags = flags->bytes[4];
+        const u8 attachment_count = body[0x30B];
+        require(attach_runtime_player_secondary(actor_view, context) && attached == nullptr
+            && secondary == &object && second_receiver == &receiver
+            && read_u32(body, 0x4C) == object.address && read_u32(body, 0x14) == object.address
+            && attached_actor.bind != nullptr && attached_actor.bind->parent == &host_actor
+            && attached_actor.bind->mode_parent == 1 && flags->bytes[4] == attachment_flags
+            && body[0x30B] == attachment_count && calls == std::vector<u32>{0x91, 0x28, 0x5F},
+            "secondary attach must bind and notify without primary action, flag or counter changes");
+        calls.clear();
+        require(detach_runtime_body_secondary(body, secondary, second_receiver) == &object
+            && secondary == nullptr && second_receiver == nullptr && attached_actor.bind == nullptr
+            && calls == std::vector<u32>{0x9D, 0x9C},
+            "secondary ownership must detach through actual bind cleanup and virtual notices");
         format_runtime_body_variant(body, "%s_%d_%08x", "variant", -12, 0xABCD);
         require(std::strcmp(reinterpret_cast<const char*>(body.data() + 0x288), "variant_-12_0000abcd") == 0,
             "body formatter must forward real varargs to reconstructed CRT output");
@@ -2050,7 +2070,7 @@ void check_player_parent_lifecycle(gbtg::SceneExecutableResources& executable)
         ++released;
     }};
     auto* storage = static_cast<RuntimeMindStorage*>(engine_heap_allocate(sizeof(RuntimeMindStorage)));
-    storage->payload = engine_heap_allocate(16);
+    storage->scratch = engine_heap_allocate(16);
     script_table = retained_table;
     destroy_runtime_base_mind(requests, event_anchor.next, storage, script_table);
     require(released == 1 && request_anchor.next == nullptr && event_anchor.next == nullptr

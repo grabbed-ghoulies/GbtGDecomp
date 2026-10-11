@@ -48,4 +48,6 @@ struct RuntimePlayerAttachmentCreation
 };
 FactoryObject create_runtime_player_attachment(const char* name, i32 replace,
     RuntimePlayerAttachmentCreation& context); // Xbox 0x0013A720
+FactoryObject command_runtime_body_create_attachment(const char* name,
+    RuntimePlayerAttachmentCreation& context); // Xbox 0x0001A6D0
 }

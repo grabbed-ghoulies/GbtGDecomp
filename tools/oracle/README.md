@@ -158,3 +158,25 @@ The expanded fixture also passes seed 44 (1,500 focused cases) and seed 45
 Allocation failures, C++ exception propagation and the validator's conservative
 retry path are not compared by these fixtures. Linux shims also suppress the
 outer exception handler; they are used solely for normal-path comparisons.
+
+The body frame oracle uses the actual reconstructed body methods and retail
+machine code. Build `tools/oracle/build_body_joint_harness.ps1`, then run
+`body_frame_oracle.py 1 400` with Unicorn on PYTHONPATH. Movement, channel
+blends, latch/pulse timers and four-phase wash each receive 400 cases. The
+triangle/sphere/cylinder separation modes additionally compare the return byte,
+point and contact writes. Random command timers, side counters and signed
+direction push, damage pulse reduction and health subtraction bring the batch
+to 5,200 cases. Float comparisons permit the harness's small rounding tolerance;
+other body bytes compare exactly. Null scene recipients isolate scalar methods;
+this check does not establish live spawning or concrete scene ownership.
+
+`body_action_oracle.py 1 400` uses the same body-joint harness and compares
+3,600 direct/range/paired action selector cases against original machine code.
+It includes signed row counts, tag lookup/fallback, invalid attachment classes,
+host range gates and retained pair output words. It does not cover table-gated
+selectors or live factory ownership.
+
+`body_damage_oracle.py 1 400` compares 2,400 interpolation, class lookup,
+actor lookup and damage pulse/pause selector cases with original machine code.
+Equal endpoints, descending ranges, NaNs, infinities and integer conversion
+indefinite results are included. It does not establish live scene ownership.

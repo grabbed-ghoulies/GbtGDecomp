@@ -58,6 +58,36 @@ u8 runtime_body_latch_mask(std::span<const u8> body)
     return mask;
 }
 
+// Xbox 0x0001F2F0
+void decrement_runtime_body_latch_mask(std::span<u8> body, u8 mask, Actor& owner,
+    entity_detail::LatchNode*& first)
+{
+    const u8 before = runtime_body_latch_mask(body);
+    for (u32 index = 0; index < 6; ++index)
+    {
+        if ((mask & (1u << index)) != 0)
+        {
+            body[0x260 + index] = u8(body[0x260 + index] - 1);
+        }
+    }
+    notify_latch_change(before, body, owner, first);
+}
+
+// Xbox 0x0001F3F0
+void increment_runtime_body_latch_mask(std::span<u8> body, u8 mask, Actor& owner,
+    entity_detail::LatchNode*& first)
+{
+    const u8 before = runtime_body_latch_mask(body);
+    for (u32 index = 0; index < 6; ++index)
+    {
+        if ((mask & (1u << index)) != 0)
+        {
+            body[0x260 + index] = u8(body[0x260 + index] + 1);
+        }
+    }
+    notify_latch_change(before, body, owner, first);
+}
+
 // Xbox 0x0001FC40
 void increment_runtime_body_latches(std::span<u8> body, Actor& owner,
     entity_detail::LatchNode*& first)

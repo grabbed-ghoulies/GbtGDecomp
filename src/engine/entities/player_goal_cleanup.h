@@ -17,6 +17,10 @@ struct RuntimePlayerScriptOverrides
     u32& player_name; // DAT_00512314.
 };
 u8 runtime_body_latch_mask(std::span<const u8> body); // Xbox 0x0001F7A0
+void decrement_runtime_body_latch_mask(std::span<u8> body, u8 mask, Actor& owner,
+    entity_detail::LatchNode*& first); // Xbox 0x0001F2F0
+void increment_runtime_body_latch_mask(std::span<u8> body, u8 mask, Actor& owner,
+    entity_detail::LatchNode*& first); // Xbox 0x0001F3F0
 void increment_runtime_body_latches(std::span<u8> body, Actor& owner,
     entity_detail::LatchNode*& first); // Xbox 0x0001FC40
 void decrement_runtime_body_latches(std::span<u8> body, Actor& owner,

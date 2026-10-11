@@ -7,6 +7,8 @@
 namespace gbtg
 {
 struct RuntimeBodyBitStorage;
+void add_runtime_player_body_movement(std::span<u8> body, const Vec3& movement,
+    const Actor& actor, const RuntimeActorClock& clock); // Xbox 0x00075120
 struct RuntimePlayerBodyMotion
 {
     const ActorModel* model; // Actor +0x204.

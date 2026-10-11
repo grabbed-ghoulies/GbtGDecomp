@@ -4,6 +4,7 @@
 #include "entity_collision.h"
 #include "shape_transform.h"
 #include "gbtg/anim.h"
+#include "../navigation/navigation.h"
 #include <bit>
 #include <cstring>
 
@@ -22,6 +23,69 @@ float record_float(const u8* record, size_t offset)
     std::memcpy(&value, record + offset, 4);
     return value;
 }
+}
+
+// Xbox 0x00075350
+bool sweep_runtime_player_body_floor(std::span<u8> body, Actor& actor,
+    EntityBitBlock& bits, const EntityMaskHost& mask, i32 floor,
+    const Vec3& start, const Vec3& base, Vec3& candidate, float radius, float height)
+{
+    float minimum = base.y;
+    if (start.y >= minimum)
+    {
+        minimum = start.y;
+    }
+    minimum = minimum + actor.radius_y * read_f32(body, 0x8A4);
+    Vec3 upper{base.x, candidate.y - radius, base.z};
+    if (!(upper.y >= minimum))
+    {
+        upper.y = minimum;
+    }
+    Vec3 lower{upper.x, upper.y - (height + 50.f), upper.z}; // DAT_0032B1E0.
+    bits.bytes[5] &= 0xFD;
+    if (entity_record_sweep_probe(lower, upper, 8, camera_collision_mask(mask)) == 0)
+    {
+        body[0x19E] = 0;
+        return false;
+    }
+    entity_copy_match_block(body.data() + 0x178, entity_detail::g_segment_slots[0].pool.begin);
+    const Vec3 surface{read_f32(body, 0x178), read_f32(body, 0x17C), read_f32(body, 0x180)};
+    const Vec3 anchor = actor.anchor;
+    const float difference = base.y - surface.y;
+    if (surface.y > minimum)
+    {
+        bits.bytes[5] |= 2;
+        u8 kind = 0;
+        const auto* grid = entity_detail::g_nav_grids[floor];
+        if (grid != nullptr)
+        {
+            const i32 cell = entity_detail::navigation_cell_index(floor, surface);
+            if (cell != -1)
+            {
+                const u8* record = reinterpret_cast<const u8*>(&grid->cells[cell]);
+                kind = record[0xB];
+                if (kind == 0)
+                {
+                    kind = record[0xA];
+                }
+            }
+        }
+        body[0x874] = kind;
+        candidate.y = minimum + height;
+        actor.anchor = Vec3{anchor.x, 0.f, anchor.z};
+        return true;
+    }
+    constexpr float low = std::bit_cast<float>(0xBA83126Fu); // DAT_0032B490.
+    constexpr float high = std::bit_cast<float>(0x3A83126Fu); // DAT_0032B1A4.
+    if ((difference < 0.f || (difference >= low && difference <= high))
+        && anchor.y <= 0.f)
+    {
+        bits.bytes[5] |= 2;
+        body[0x874] = entity_detail::navigation_surface_kind(floor, surface);
+        candidate.y = surface.y + height;
+        actor.anchor = Vec3{anchor.x, 0.f, anchor.z};
+    }
+    return true;
 }
 
 // Xbox 0x00025A30

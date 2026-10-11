@@ -92,6 +92,23 @@ add_library(gbtg_lib STATIC
     src/engine/entities/body_attachment_cleanup.cpp
     src/engine/entities/body_construction.cpp
     src/engine/entities/player_body_motion.cpp
+    src/engine/entities/body_channels.cpp
+    src/engine/entities/body_timers.cpp
+    src/engine/entities/body_wash.cpp
+    src/engine/entities/actor_shape_bounds.cpp
+    src/engine/entities/body_apply.cpp
+    src/engine/entities/body_message_helpers.cpp
+    src/engine/entities/body_shape_push.cpp
+    src/engine/entities/body_action_ids.cpp
+    src/engine/entities/body_animation_commands.cpp
+    src/engine/entities/body_damage_notices.cpp
+    src/engine/entities/body_damage_tables.cpp
+    src/engine/entities/body_damage_motion.cpp
+    src/engine/entities/body_spatial_notifications.cpp
+    src/engine/entities/body_damage_animation.cpp
+    src/engine/entities/body_damage_processors.cpp
+    src/engine/entities/body_death_effects.cpp
+    src/engine/audio/body_sound_commands.cpp
     src/engine/scene/dialogue_scene_runtime.cpp
     src/engine/frontend/dialogue_sound_tags.cpp
     src/engine/frontend/dialogue_page_voice.cpp
@@ -519,7 +536,7 @@ if(BUILD_TESTING)
     get_target_property(GBTG_TRANSITION_DEFINITIONS gbtg COMPILE_DEFINITIONS)
     get_target_property(GBTG_TRANSITION_INCLUDES gbtg INCLUDE_DIRECTORIES)
     target_link_libraries(gbtg-transition-tests PRIVATE ${GBTG_TRANSITION_LINKS})
-    target_sources(gbtg-transition-tests PRIVATE tests/player_parent_checks.cpp tests/player_message_checks.cpp tests/player_update_checks.cpp)
+    target_sources(gbtg-transition-tests PRIVATE tests/player_parent_checks.cpp tests/body_frame_checks.cpp tests/player_message_checks.cpp tests/player_update_checks.cpp)
     target_link_libraries(gbtg-movie-startup-tests PRIVATE ${GBTG_TRANSITION_LINKS})
     if(GBTG_TRANSITION_DEFINITIONS)
         target_compile_definitions(gbtg-transition-tests PRIVATE ${GBTG_TRANSITION_DEFINITIONS})

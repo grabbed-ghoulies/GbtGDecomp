@@ -108,6 +108,9 @@ struct SegmentProbe
     // Vtable +0x30, called by 0x00122B00 with the slot pool it may append to or grow.
     i32 (*contacts)(SegmentProbe& self, Vec3& origin, float radius, u32 mask,
                     SegmentPool& pool) = nullptr;
+    // Vtable +0x24, called by 0x001227E0.
+    i32 (*sphere_contacts)(SegmentProbe& self, Vec3& origin, float radius,
+        i32 kind, u32 mask, SegmentPool& pool) = nullptr;
 };
 
 // Header of the 0x54-byte record pool. begin is the first record (block+0x10).

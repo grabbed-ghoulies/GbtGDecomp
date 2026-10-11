@@ -1,4 +1,5 @@
 #include "player_parent_checks.h"
+#include "body_frame_checks.h"
 #include "../src/engine/entities/player_parent_lifecycle.h"
 #include "../src/engine/entities/player_attributes.h"
 #include "../src/engine/entities/player_mind_goals.h"
@@ -1395,6 +1396,7 @@ void check_body_dependencies(SceneExecutableResources& executable)
 
 void check_player_parent_lifecycle(gbtg::SceneExecutableResources& executable)
 {
+    check_body_frame_methods();
     {
         Actor source;
         Actor first_actor;

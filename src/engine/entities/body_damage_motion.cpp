@@ -1,0 +1,106 @@
+#include "body_damage_motion.h"
+#include "player_mind_events.h"
+#include <bit>
+#include <cstring>
+
+namespace gbtg
+{
+// Xbox 0x00041900
+float runtime_actor_angle_toward(const Actor& target, const Actor& origin)
+{
+    const Vec3 first = actor_world_position(target);
+    const Vec3 second = actor_world_position(origin);
+    const Vec3 direction{first.x - second.x, first.y - second.y, first.z - second.z};
+    float angle;
+    runtime_direction_angle(direction, angle);
+    return angle;
+}
+
+// Xbox 0x00100FE0
+float step_runtime_damage_angle(float current, float target, float step)
+{
+    const long double remainder = animation_remainder(target - current, std::bit_cast<float>(0x40C90FDBu));
+    float difference = float(remainder);
+    if (remainder < static_cast<long double>(std::bit_cast<float>(0xC0490FDBu)))
+    {
+        difference += std::bit_cast<float>(0x40C90FDBu);
+    }
+    if (difference >= std::bit_cast<float>(0x40490FDBu))
+    {
+        difference -= std::bit_cast<float>(0x40C90FDBu);
+    }
+    const float absolute = animation_absolute(difference);
+    if (!(step > absolute))
+    {
+        if (0.f > difference)
+        {
+            target = current - step;
+        }
+        else
+        {
+            target = current + step;
+        }
+    }
+    const long double result = animation_remainder(target, std::bit_cast<float>(0x40C90FDBu));
+    float value = float(result);
+    if (result < 0.L)
+    {
+        value += std::bit_cast<float>(0x40C90FDBu);
+    }
+    return value;
+}
+
+// Xbox 0x000246D0
+void turn_runtime_body_toward_damage(Actor& actor, const Actor& source, std::span<const u8> attributes)
+{
+    if ((attributes.data() == nullptr || attributes[0x198] != 0) && !(actor.animation_pause > 0.f))
+    {
+        Vec3 euler = actor_world_euler(actor);
+        const float angle = runtime_actor_angle_toward(source, actor);
+        euler.y = step_runtime_damage_angle(euler.y, angle, std::bit_cast<float>(0x3F32B8C3u));
+        normalize_euler_angles(actor.euler, euler);
+        actor.xform_valid = 0;
+    }
+}
+
+// Xbox 0x00022400
+void push_runtime_body_from_damage(Actor& actor, u32 actor_address,
+    std::span<const u8> damage, std::span<const u8> attributes, u32 key,
+    RuntimeBodyAttachedActor* first_source, RuntimeBodyAttachedActor* second_source,
+    const RuntimeBodyDamageTables& tables, std::span<const u8> keys)
+{
+    const float value = runtime_body_damage_push_amount(actor, read_u16(damage, 0x64), key, tables, keys);
+    const float factor = attributes.data() == nullptr ? 1.f : read_f32(attributes, 0x19C);
+    const float amount = factor * value;
+    if (amount != 0.f)
+    {
+        const Vec3 direction{read_f32(damage, 0x4C), read_f32(damage, 0x50), read_f32(damage, 0x54)};
+        float angle;
+        runtime_direction_angle(direction, angle);
+        const float x = float(retail_sin(angle) * static_cast<long double>(amount));
+        const float z = float(retail_cos(angle) * static_cast<long double>(amount));
+        actor.anchor = {x, 0.f, z};
+        if ((attributes.data() == nullptr || attributes[0x1A2] == 0) &&
+            second_source != nullptr && second_source == first_source)
+        {
+            const std::array<u32, 5> message{0x60, actor_address, std::bit_cast<u32>(x), 0, std::bit_cast<u32>(z)};
+            second_source->message(message);
+        }
+    }
+}
+
+// Xbox 0x00024830
+void set_runtime_body_damage_motion(std::span<u8> body, const Vec3& direction,
+    float first, float second, float third, float fourth)
+{
+    const u16 count = u16(read_u16(body, 0x160) + 1);
+    std::memcpy(body.data() + 0x160, &count, 2);
+    const u16 secondary = u16(read_u16(body, 0x162) + 1);
+    std::memcpy(body.data() + 0x162, &secondary, 2);
+    std::memcpy(body.data() + 0x220, &first, 4);
+    std::memcpy(body.data() + 0x224, &second, 4);
+    std::memcpy(body.data() + 0x228, &third, 4);
+    std::memcpy(body.data() + 0x22C, &fourth, 4);
+    std::memcpy(body.data() + 0x230, &direction, 12);
+}
+}

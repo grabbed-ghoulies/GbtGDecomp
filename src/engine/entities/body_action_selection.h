@@ -48,6 +48,10 @@ struct RuntimeBodyActionTemplates
     std::span<const u8> first; // Native view of optional structure +4.
 };
 void notify_runtime_body_animation(RuntimeBodyActionSelection& context); // Xbox 0x0001B020
+const AnimationRecord* find_runtime_body_animation(const char* name,
+    RuntimeBodyActionSelection& context); // Xbox 0x0001AED0
+void start_runtime_body_animation_record(const AnimationRecord& record,
+    RuntimeBodyActionSelection& context); // Xbox 0x0001AFA0
 const AnimationRecord* select_runtime_body_animation(const char* name,
     RuntimeBodyActionSelection& context); // Xbox 0x0001AF10
 void create_runtime_body_first_action(const char* name, const RuntimeBodyActionTemplates* parameters,

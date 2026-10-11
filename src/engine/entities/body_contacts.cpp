@@ -4,6 +4,7 @@
 #include "entity_heap.h"
 #include "segment_records.h"
 #include "shape_transform.h"
+#include "actor_shape_bounds.h"
 #include <array>
 #include <bit>
 #include <cstring>
@@ -95,6 +96,174 @@ void suspend_runtime_body_contact_overrides(GhoulySpawnPool& overrides)
             }
             ++row;
         } while (row < end);
+    }
+}
+
+// Xbox 0x0013F420
+void activate_runtime_body_contact_shapes(RuntimeBodyCollisionState& state, Actor& actor,
+    u16 tag, u8 flags, float scale)
+{
+    const EntityBonePose* pose = nullptr;
+    if (actor.model != nullptr)
+    {
+        pose = actor.model->alternate_shape_pose;
+        if (pose == nullptr)
+        {
+            pose = actor.model->primary_shape_pose;
+        }
+    }
+    RuntimeBodyCollisionRecord* end = state.records + state.count;
+    for (auto* record = state.records; record < end; ++record)
+    {
+        if (read_u16({record->shape, 4}, 2) == tag)
+        {
+            Vec3 center;
+            shape_sphere_metrics(*reinterpret_cast<const EntityShapeNode*>(record->shape),
+                actor.xform, pose, center);
+            std::memcpy(record->bytes.data() + 8, &center, sizeof(center));
+            record->bytes[0x17] = flags;
+            const u16 enabled = 1;
+            std::memcpy(record->bytes.data() + 0x14, &enabled, 2);
+            std::memcpy(record->bytes.data() + 0x18, &scale, 4);
+            if (record->previous_link == nullptr)
+            {
+                // The state +0xC sentinel's previous word remains zero. Its +4 is active.
+                record->next = state.active;
+                state.active = record;
+                record->previous_link = &state.active;
+                if (record->next != nullptr)
+                {
+                    record->next->previous_link = &record->next;
+                }
+            }
+        }
+    }
+}
+
+// Xbox 0x0013F4D0
+void deactivate_runtime_body_contact_shapes(RuntimeBodyCollisionState& state, u16 tag)
+{
+    RuntimeBodyCollisionRecord* end = state.records + state.count;
+    for (auto* record = state.records; record < end; ++record)
+    {
+        if (read_u16({record->shape, 4}, 2) == tag)
+        {
+            const u16 disabled = 0;
+            const float scale = 1.f;
+            std::memcpy(record->bytes.data() + 0x14, &disabled, 2);
+            std::memcpy(record->bytes.data() + 0x18, &scale, 4);
+            record->bytes[0x17] = 1;
+            if (record->previous_link != nullptr)
+            {
+                *record->previous_link = record->next;
+            }
+            if (record->next != nullptr)
+            {
+                record->next->previous_link = record->previous_link;
+            }
+            record->previous_link = nullptr;
+            record->next = nullptr;
+        }
+    }
+    if (state.active == nullptr && state.overrides != nullptr)
+    {
+        restore_runtime_body_collision_overrides(*state.overrides);
+        engine_heap_free(state.overrides);
+        state.overrides = nullptr;
+    }
+}
+
+// Xbox 0x0013EDD0
+void remove_runtime_body_contact_override(GhoulySpawnPool* overrides, Actor& object)
+{
+    if (overrides != nullptr)
+    {
+        auto* end = override_end(*overrides);
+        auto* row = override_rows(*overrides);
+        if (row < end)
+        {
+            while (row->actor != &object)
+            {
+                ++row;
+                if (row >= end)
+                {
+                    return;
+                }
+            }
+            u8* last = overrides->cursor - overrides->stride;
+            if (reinterpret_cast<u8*>(row) < last)
+            {
+                engine_copy_bytes(row, last, overrides->stride);
+            }
+            overrides->cursor -= overrides->stride;
+        }
+    }
+}
+
+// Xbox 0x0013F720
+void remove_runtime_body_contact_actor(RuntimeBodyCollisionState& state, Actor& object)
+{
+    if (state.overrides != nullptr)
+    {
+        if (state.walking != 0)
+        {
+            if (state.removed == nullptr)
+            {
+                auto* pool = static_cast<GhoulySpawnPool*>(engine_heap_allocate(
+                    i32(sizeof(GhoulySpawnPool) + 4 * sizeof(Actor*))));
+                pool->stride = u16(sizeof(Actor*));
+                pool->grow = 4;
+                pool->begin = reinterpret_cast<u8*>(pool + 1);
+                pool->cursor = pool->begin;
+                pool->limit = pool->begin + 4 * sizeof(Actor*);
+                state.removed = pool;
+            }
+            else
+            {
+                for (u8* row = state.removed->begin; row < state.removed->cursor; row += sizeof(Actor*))
+                {
+                    Actor* value;
+                    std::memcpy(&value, row, sizeof(value));
+                    if (value == &object)
+                    {
+                        return;
+                    }
+                }
+            }
+            if (state.removed->cursor == state.removed->limit)
+            {
+                state.removed = grow_runtime_shape_pool(state.removed);
+            }
+            u8* row = state.removed->cursor;
+            state.removed->cursor += state.removed->stride;
+            Actor* value = &object;
+            std::memcpy(row, &value, sizeof(value));
+            return;
+        }
+        remove_runtime_body_contact_override(state.overrides, object);
+    }
+}
+
+// Xbox 0x0001F890
+void request_runtime_body_contact_override(RuntimeBodyCollisionState* state,
+    RuntimeSegmentContactActor& object, const entity_detail::ListHead& players)
+{
+    if (state != nullptr && state->active != nullptr)
+    {
+        insert_runtime_body_contact_override(state->overrides, object, 0, players);
+    }
+}
+
+// Xbox 0x0001F850
+void request_runtime_body_shape_override(RuntimeBodyCollisionState* state,
+    RuntimeSegmentContactActor& object, const entity_detail::ListHead& players)
+{
+    if (state != nullptr && state->active != nullptr)
+    {
+        if ((runtime_actor_physical_shape_flags(object.actor) & 0x142) != 0)
+        {
+            insert_runtime_body_contact_override(state->overrides, object, 0, players);
+        }
     }
 }
 

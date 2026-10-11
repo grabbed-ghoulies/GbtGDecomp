@@ -475,26 +475,16 @@ void bind_segment_pool(SegmentPool& pool, u8* block, i32 block_size, i32 used)
 // becomes the new header+0x10, and the cursor stays on the same record.
 void grow_segment_pool(SegmentPool& pool)
 {
-    const i32 stride = pool.stride == 0 ? 1 : static_cast<i32>(pool.stride);
-    i32 used = 0;
-    if (pool.begin != nullptr && pool.cursor != nullptr && pool.cursor >= pool.begin)
-    {
-        used = static_cast<i32>(pool.cursor - pool.begin) / stride;
-    }
+    const i32 stride = static_cast<i32>(pool.stride);
+    const i32 used = static_cast<i32>(pool.cursor - pool.begin) / stride;
     const i32 new_count = used + static_cast<i32>(pool.grow);
     const i32 new_bytes = stride * new_count + 0x10;
-    u8* fresh = static_cast<u8*>(engine_heap_allocate(new_bytes));
-    if (fresh == nullptr)
-    {
-        return;
-    }
-    if (pool.block != nullptr && pool.block_size > 0)
-    {
-        const i32 copy = pool.block_size < new_bytes ? pool.block_size : new_bytes;
-        std::memcpy(fresh, pool.block, static_cast<size_t>(copy));
-        engine_heap_free(pool.block);
-    }
-    bind_segment_pool(pool, fresh, new_bytes, used);
+    u8* fresh = static_cast<u8*>(engine_heap_reallocate(pool.block, new_bytes));
+    pool.block = fresh;
+    pool.block_size = new_bytes;
+    pool.begin = fresh + 0x10;
+    pool.cursor = pool.begin + stride * used;
+    pool.limit = pool.begin + stride * new_count;
 }
 
 
@@ -503,18 +493,10 @@ void grow_segment_pool(SegmentPool& pool)
 SegmentPool* prepare_segment_pool()
 {
     const i32 index = g_segment_count;
-    if (index < 0 || index >= kSegmentSlots)
-    {
-        return nullptr;
-    }
     SegmentPool& pool = g_segment_slots[index].pool;
     if (!pool.live)
     {
         u8* block = static_cast<u8*>(engine_heap_allocate(kSegmentPoolBytes));
-        if (block == nullptr)
-        {
-            return nullptr;
-        }
         bind_segment_pool(pool, block, kSegmentPoolBytes, 0);
         pool.live = true;
     }
@@ -532,10 +514,6 @@ u8* bump_segment_record(SegmentPool& pool)
     {
         grow_segment_pool(pool);
     }
-    if (pool.cursor == nullptr || pool.limit == nullptr || pool.cursor >= pool.limit)
-    {
-        return nullptr;
-    }
     u8* record = pool.cursor;
     pool.cursor = record + pool.stride;
     record[0x26] = 0;
@@ -544,6 +522,68 @@ u8* bump_segment_record(SegmentPool& pool)
 
 } // namespace entity_detail
  // namespace
+
+// Xbox 0x001227E0
+i32 entity_collect_sphere_contacts(Vec3& origin, float radius, i32 kind, u32 mask)
+{
+    g_segment_count = 0;
+    for (SegmentProbe* probe = g_world.segment; probe != nullptr; probe = probe->next)
+    {
+        SegmentSlot& slot = g_segment_slots[g_segment_count];
+        SegmentPool& pool = slot.pool;
+        if (!pool.live)
+        {
+            u8* block = static_cast<u8*>(engine_heap_allocate(0x35C));
+            bind_segment_pool(pool, block, 0x35C, 0);
+            pool.live = true;
+        }
+        else
+        {
+            pool.cursor = pool.begin;
+        }
+        if (probe->sphere_contacts(*probe, origin, radius, kind, mask, pool) != 0)
+        {
+            g_segment_slots[g_segment_count].object = probe;
+            ++g_segment_count;
+        }
+    }
+    return g_segment_count;
+}
+
+// Xbox 0x00122310
+SegmentPool entity_merge_contact_records()
+{
+    u32 count = 0;
+    for (i32 index = 0; index < g_segment_count; ++index)
+    {
+        const SegmentPool& pool = g_segment_slots[index].pool;
+        count += i32(pool.cursor - pool.begin) / pool.stride;
+    }
+    const u16 capacity = u16(count);
+    const i32 bytes = i32(capacity) * 0x54 + 0x14;
+    u8* block = static_cast<u8*>(engine_heap_allocate(bytes));
+    SegmentPool output;
+    bind_segment_pool(output, block, bytes, 0);
+    output.grow = capacity != 0 ? capacity : 10;
+    std::memcpy(block + 2, &output.grow, 2);
+    output.live = true;
+    for (i32 index = 0; index < g_segment_count; ++index)
+    {
+        const SegmentPool& pool = g_segment_slots[index].pool;
+        u8* end = pool.cursor;
+        for (u8* record = pool.begin; record < end; record += 0x54)
+        {
+            if (output.cursor == output.limit)
+            {
+                grow_segment_pool(output);
+            }
+            u8* target = output.cursor;
+            output.cursor += output.stride;
+            entity_copy_match_block(target, record);
+        }
+    }
+    return output;
+}
 
 // Xbox 0x001226C0
 i32 entity_record_movement_probe(Vec3& kept, Vec3& candidate, u32 param, i32 kind, u32 mask)
@@ -567,24 +607,12 @@ i32 entity_record_movement_probe(Vec3& kept, Vec3& candidate, u32 param, i32 kin
     if (!(dist2 <= kLookEps))
     {
         SegmentPool* pool = prepare_segment_pool();
-        if (pool == nullptr)
-        {
-            return 0;
-        }
         u8* record = bump_segment_record(*pool);
-        if (record == nullptr)
-        {
-            return 0;
-        }
 
         SegmentProbe* found = nullptr;
         i32 hit = 0;
         for (SegmentProbe* probe = g_world.segment; probe != nullptr; probe = probe->next)
         {
-            if (probe->query == nullptr)
-            {
-                continue;
-            }
             const i32 ok = probe->query(*probe, candidate, kept, param, kind, mask, record);
             if (ok != 0)
             {
@@ -595,10 +623,7 @@ i32 entity_record_movement_probe(Vec3& kept, Vec3& candidate, u32 param, i32 kin
         if (found != nullptr)
         {
             const i32 slot = g_segment_count;
-            if (slot >= 0 && slot < kSegmentSlots)
-            {
-                g_segment_slots[slot].object = found;
-            }
+            g_segment_slots[slot].object = found;
             g_segment_count = slot + 1;
         }
         return hit;

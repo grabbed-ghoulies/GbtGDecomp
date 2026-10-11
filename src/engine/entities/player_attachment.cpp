@@ -186,4 +186,26 @@ FactoryObject create_runtime_player_attachment(const char* name, i32 replace,
     clone.bytes.reset();
     return object;
 }
+
+// Xbox 0x0001A6D0
+FactoryObject command_runtime_body_create_attachment(const char* name,
+    RuntimePlayerAttachmentCreation& context)
+{
+    auto clone = clone_executable_resource(context.child.resources, name);
+    if (clone.bytes != nullptr)
+    {
+        auto object = create_factory_object(context.child.factory, {clone.bytes.get(), clone.size});
+        clone.bytes.reset();
+        if (object.bytes != nullptr)
+        {
+            auto& attached = *context.created.at(object.bytes.get());
+            if (!attach_runtime_player_actor(attached, 0, context.attachment))
+            {
+                release_factory_object(context.child.factory, object);
+            }
+        }
+        return object;
+    }
+    return {};
+}
 }

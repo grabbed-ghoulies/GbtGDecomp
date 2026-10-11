@@ -47,6 +47,26 @@ bool remove_runtime_body_attachment(u16 token, RuntimeBodyAttachmentLists& lists
     return true;
 }
 
+// Xbox 0x000250E0
+void clear_runtime_body_command_attachments(std::span<u8> body, RuntimeBodyAttachmentLists& lists)
+{
+    body[0x2D2] = 0;
+    i32 index = 0;
+    if (std::bit_cast<i32>(read_u32(body, 0x2D8)) < 1)
+    {
+        const u32 zero = 0;
+        std::memcpy(body.data() + 0x2D8, &zero, 4);
+        return;
+    }
+    do
+    {
+        remove_runtime_body_attachment(u16(read_u32(body, 0x2DC + size_t(index) * 4)), lists);
+        ++index;
+    } while (index < std::bit_cast<i32>(read_u32(body, 0x2D8)));
+    const u32 zero = 0;
+    std::memcpy(body.data() + 0x2D8, &zero, 4);
+}
+
 // Xbox 0x00025090
 void clear_runtime_body_attachments(std::span<u8> body, RuntimeBodyAttachmentLists& lists)
 {

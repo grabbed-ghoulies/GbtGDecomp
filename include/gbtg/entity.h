@@ -158,6 +158,7 @@ struct Actor
     EntityMaskSpan* mask_span = nullptr; // +0x980
     i32 mask_loading = 0;              // +0x984, type-0x6F loading gate
     i16 mask_mode = 0;                 // +0xcdc
+    u16 damage_class = 0;              // +0xcf4, class row used by 0x00028DA0.
 };
 
 void actor_initialize_model_size(Actor& actor); // Xbox 0x0003D5F0

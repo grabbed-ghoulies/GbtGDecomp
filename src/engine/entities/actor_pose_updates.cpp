@@ -1,10 +1,28 @@
 #include "actor_pose_updates.h"
 #include "gbtg/model_runtime.h"
+#include "actor_transform.h"
 
 #include <cmath>
 
 namespace gbtg
 {
+// Xbox 0x0002B430
+void set_runtime_actor_body_position(Actor& actor, const Vec3& position)
+{
+    actor_set_world_position(actor, position);
+    ActorEulerOut& body = *actor.euler_out;
+    body.position = actor_world_position(*body.actor);
+}
+
+// Xbox 0x0002B560
+void set_runtime_actor_body_euler(Actor& actor, const Vec3& euler)
+{
+    normalize_euler_angles(actor.euler, euler);
+    actor.xform_valid = 0;
+    ActorEulerOut& body = *actor.euler_out;
+    body.euler = actor_world_euler(*body.actor);
+}
+
 // Xbox 0x00040B40
 const AnimationMatrix* actor_pose_joint_matrix(const Actor& actor, i32 joint)
 {

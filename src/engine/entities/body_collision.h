@@ -26,4 +26,8 @@ struct RuntimeBodyCollision
 u8 push_runtime_body_sphere(RuntimeBodyCollision& context, RuntimeBodyCollisionSphere& sphere,
     const float* world); // Xbox 0x00026100
 void push_runtime_body_spheres(RuntimeBodyCollision& context); // Xbox 0x00025F00, ESI body
+bool sweep_runtime_player_body_floor(std::span<u8> body, Actor& actor,
+    EntityBitBlock& bits, const EntityMaskHost& mask, i32 floor,
+    const Vec3& start, const Vec3& base, Vec3& candidate,
+    float radius, float height); // Xbox 0x00075350
 }

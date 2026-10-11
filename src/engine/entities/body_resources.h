@@ -62,6 +62,7 @@ struct RuntimeBodyCollisionRecord
     std::array<u8, 0x1C> bytes; // +8 previous centre, +0x17 flags, +0x18 radius scale.
     const u8* shape; // +0x1C.
     RuntimeBodyCollisionRecord* next = nullptr; // Retail +4.
+    RuntimeBodyCollisionRecord** previous_link = nullptr; // Retail previous node's +4; sentinel aliases state.active.
 };
 struct RuntimeBodyCollisionState
 {

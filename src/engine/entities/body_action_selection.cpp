@@ -3,6 +3,39 @@
 
 namespace gbtg
 {
+// Xbox 0x0001AED0
+const AnimationRecord* find_runtime_body_animation(const char* name, RuntimeBodyActionSelection& context)
+{
+    const char* variant = nullptr;
+    if (context.attached != nullptr)
+    {
+        if (context.attached->address != 0xFFFFF250u)
+        {
+            variant = reinterpret_cast<const char*>(context.attached->bytes.data() + 0xDB0);
+            if (*variant == '\0')
+            {
+                variant = nullptr;
+            }
+        }
+    }
+    const AnimationRecord* record = find_actor_animation(context.animation.table, name, variant, context.random);
+    if (record == nullptr && variant != nullptr)
+    {
+        record = find_actor_animation(context.animation.table, name, nullptr, context.random);
+    }
+    return record;
+}
+
+// Xbox 0x0001AFA0
+void start_runtime_body_animation_record(const AnimationRecord& record, RuntimeBodyActionSelection& context)
+{
+    const AnimationMix mix = animation_mix(record, context.animation.retain_position != 0);
+    start_actor_animation_mix(context.animation, u32(int(record.slot)), mix, record.animation.data(),
+        context.registry, context.error, context.random);
+    context.animation.retain_position = 0;
+    notify_runtime_body_animation(context);
+}
+
 // Xbox 0x0001B020
 void notify_runtime_body_animation(RuntimeBodyActionSelection& context)
 {

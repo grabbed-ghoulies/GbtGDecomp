@@ -13,6 +13,8 @@ struct RuntimeBodyAttachmentLists
     std::span<u8*> timed; // DAT_00506930.
 };
 bool remove_runtime_body_attachment(u16 token, RuntimeBodyAttachmentLists& lists); // Xbox 0x0003CFD0
+void clear_runtime_body_command_attachments(std::span<u8> body,
+    RuntimeBodyAttachmentLists& lists); // Xbox 0x000250E0
 void clear_runtime_body_attachments(std::span<u8> body,
     RuntimeBodyAttachmentLists& lists); // Xbox 0x00025090
 struct RuntimeBodyActorAttachment

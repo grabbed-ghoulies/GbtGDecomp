@@ -40,6 +40,18 @@ struct RuntimeBodyContactWalk
 void age_runtime_body_contact_overrides(GhoulySpawnPool& overrides,
     const RuntimeActorClock& clock); // Xbox 0x0013ED20, EAX overrides
 void suspend_runtime_body_contact_overrides(GhoulySpawnPool& overrides); // Xbox 0x0013EE10, EDI overrides
+void remove_runtime_body_contact_override(GhoulySpawnPool* overrides,
+    Actor& object); // Xbox 0x0013EDD0
+void remove_runtime_body_contact_actor(RuntimeBodyCollisionState& state,
+    Actor& object); // Xbox 0x0013F720
+void request_runtime_body_contact_override(RuntimeBodyCollisionState* state,
+    RuntimeSegmentContactActor& object, const entity_detail::ListHead& players); // Xbox 0x0001F890
+void request_runtime_body_shape_override(RuntimeBodyCollisionState* state,
+    RuntimeSegmentContactActor& object, const entity_detail::ListHead& players); // Xbox 0x0001F850
+void activate_runtime_body_contact_shapes(RuntimeBodyCollisionState& state,
+    Actor& actor, u16 tag, u8 flags, float scale); // Xbox 0x0013F420
+void deactivate_runtime_body_contact_shapes(RuntimeBodyCollisionState& state,
+    u16 tag); // Xbox 0x0013F4D0
 u32 insert_runtime_body_contact_override(GhoulySpawnPool*& overrides,
     RuntimeSegmentContactActor& object, u32 suspend,
     const entity_detail::ListHead& players); // Xbox 0x0013EBE0

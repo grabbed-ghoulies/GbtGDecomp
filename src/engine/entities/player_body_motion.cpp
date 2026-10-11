@@ -2,6 +2,7 @@
 #include "entity_heap.h"
 #include "actor_transform.h"
 #include "body_animation_setup.h"
+#include "gbtg/anim.h"
 #include <bit>
 #include <cstring>
 #include <cmath>
@@ -9,6 +10,32 @@
 
 namespace gbtg
 {
+// Xbox 0x00075120
+void add_runtime_player_body_movement(std::span<u8> body, const Vec3& movement,
+    const Actor& actor, const RuntimeActorClock& clock)
+{
+    const Vec3 previous{read_f32(body, 0x18), read_f32(body, 0x1C), read_f32(body, 0x20)};
+    const float step = runtime_frame_step(clock);
+    const float rate = runtime_actor_rate(actor);
+    const float maximum = float(static_cast<long double>(rate) * step * 50.f); // DAT_0032B1E0.
+    Vec3 delta = movement;
+    const float squared = (movement.z * movement.z + movement.y * movement.y)
+        + movement.x * movement.x;
+    // FSQRT here is the processor operation, not the separate retail square-root helper.
+    if (std::sqrt(static_cast<long double>(squared)) > static_cast<long double>(maximum)
+        && squared != 0.f)
+    {
+        const long double scale = retail_reciprocal_sqrt(squared) * maximum;
+        delta.x = float(static_cast<long double>(delta.x) * scale);
+        delta.y = float(static_cast<long double>(delta.y) * scale);
+        delta.z = float(static_cast<long double>(delta.z) * scale);
+    }
+    const Vec3 result{delta.x + previous.x, delta.y + previous.y, delta.z + previous.z};
+    std::memcpy(body.data() + 0x18, &result.x, 4);
+    std::memcpy(body.data() + 0x1C, &result.y, 4);
+    std::memcpy(body.data() + 0x20, &result.z, 4);
+}
+
 // Xbox 0x000743E0
 bool runtime_player_body_can_select_action(std::span<const u8> body,
     std::span<const u8> actor, const RuntimePlayerGoalRing* ring,

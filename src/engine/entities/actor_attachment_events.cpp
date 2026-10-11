@@ -52,11 +52,11 @@ void request_attachment_binding_event(const u8* record, const RuntimeActorCreati
 }
 
 // Xbox 0x0003BC40
-void request_attachment_index_event(const u8* record, const RuntimeActorCreationOptions* options,
+u16 request_attachment_index_event(const u8* record, const RuntimeActorCreationOptions* options,
     ActorAttachmentEventContext& context)
 {
     const i32 index = read<i32>(record, 0xC8) == 0 ? read<i32>(record, 0xCC) : -1;
-    request_actor_index_attachment(context.actor, context.attachments,
+    return request_actor_index_attachment(context.actor, context.attachments,
         reinterpret_cast<const char*>(record + 0x48), read<u32>(record, 0xD0), index, options, context.effects);
 }
 

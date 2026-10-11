@@ -3014,3 +3014,247 @@ and missing callees rather than the legacy `Entity` no-ops. Type 5
 registration and live scene/body/mind/strategy ownership remain incomplete.
 The opening was not rerun and no live gate progress is claimed. No retail
 edits, Ghidra symbol changes, staging or commits were made.
+
+### Body frame-channel reconstruction in progress (2026-10-10)
+
+The live-spawning continuation has added `entities/body_channels.h/.cpp` with
+native per-body translations of 0x00030B40, 0x0001EA90, 0x0001D850,
+0x0001EDE0, 0x0001EC20, 0x0001EEC0 and the complete channel-step wrapper
+0x00072AC0. The native views preserve the actual animation-resource indirections,
+model auxiliary targets, body rows/banks and key-table reads. They deliberately
+retain the retail missing-bank-row fault and terminal-key loop behavior, rather
+than using the additional bounds/terminal guards in legacy camera helpers.
+0x00025190 now walks actual actor model anchors and clears body +0x308;
+0x00025130 applies body +0x2D1/+0x2D2 to both actual model instances through
+complete 0x000F96F0. Child virtual +0x14 remains an explicit method view pending
+concrete child class ownership.
+
+`player_body_motion.h/.cpp` also translates movement-message helper
+0x00075120: exact body position offsets, ordered freeze/pause gates, the 50-unit
+rate limit, processor FSQRT comparison and actual 0x001534C0 normalization.
+Fresh read-only dumps for these routines and the four channel-key tables are
+cached from the existing Ghidra project. This checkpoint is implementation in
+progress; no new builds/tests have run, and no live spawning success is claimed.
+The remaining apply dependencies include 0x00025C50, pulse 0x0001FB40,
+timers 0x00027960 and wash 0x0001DD00 plus their genuine callees. Body message,
+collision, mind/strategy methods and scene/factory ownership remain outstanding.
+
+The same implementation batch now includes `body_timers.h/.cpp`, masked latch
+release 0x0001F2F0 and `body_wash.h/.cpp`. Pulse 0x0001FB40 calls complete
+latch expiry 0x0001F600; timers 0x00027960 send the actual `{5, 0}` messages,
+release the six latch counters and preserve callback-sensitive ordering. Wash
+0x0001DD00 follows the assembly's health/actor gates, four phases, opacity
+conversion and true frame timer. Its genuine helpers 0x0001E270, 0x0001E770,
+0x0001E300, 0x0001E380, 0x0001E6C0 and 0x00104DF0 are translated; the
+oscillator uses actual retail sine/cosine and the existing float-to-integer entry.
+
+`actor_shape_bounds.h/.cpp` translates 0x00042640/0x000426F0 shape selection
+and bound construction, 0x0003DB30 model radius, 0x00055B30/0x00055AA0 cylinder
+measurement, 0x00103BE0 direction transformation, 0x00066260/0x000662A0 native
+shape-pool storage, 0x0012B160 bound-record copying and body bound update
+0x00025C50. Existing actual shape transforms, sphere metrics, model height,
+shape copying and retail math provide the remaining callees. The default
+0x00025AE0 apply sequence and player tail entry 0x00074490 are now translated
+in `body_apply.h/.cpp`, including model channels, anchor/bound updates, frame
+latch countdown, pulse/timers, gated +0x70 decay, +0x34 decay, wash/model state
+and the action child's genuine +0x14 method view.
+
+These additions remain unvalidated at this checkpoint; implementation has been
+batched before builds/tests. Concrete child methods, body message/collision,
+mind/strategy methods, factory registration and live ownership still need work.
+
+Validation of the body frame batch: Release `gbtg` and transition-test builds
+pass. The new `tests/body_frame_checks.cpp` checks bound-channel capture, channel
+zero merge/NaN behavior, both default blend writes, banks/key mode transition,
+child callback count changes, full apply ordering with chained timer callbacks,
+decay gates, model-state propagation and actual sphere/pool geometry.
+`--dialogue-resources`, `--actor-loading`, `--ghoulybox-decoder` and all six
+CTests pass. The new `tools/oracle/body_frame_oracle.py` executes 400 cases each
+for movement, blends, pulse, timers and wash against original machine code with
+actual math/latch callees: 2,000 cases, zero mismatches. The previous 1,600-case
+joint/angle oracle also remains clean. Unchanged body bytes compare exactly;
+changed float fields use the existing small rounding tolerance/equivalent NaNs.
+Recipients are null in this differential oracle; the fixture tests actual
+message delivery and callback ordering.
+
+The oracle corrected two wash gates hidden by the decompile: phase zero's
++A7 flag skips the low-health/timer reason, and phase two checks recovered health
+only when +B4 is exactly zero (the parity test distinguishes unordered values).
+No live opening rerun or spawning success is claimed. Continuing with body
+message 0x00074080 and collision 0x00074670 before concrete class installation.
+
+Collision/message continuation: `body_message_helpers.h/.cpp` now translates
+0x0001EFD0/0x0001F030 bit writes, 0x0001F750 latch gating,
+0x0001D4C0/0x00024BA0 push reception, action notification/reset
+0x00024B20/0x00020920, position event 0x0013AD60, action requests
+0x00020980/0x000209E0 and collision action reply 0x00075960. The
+0x000209E0 early branch preserves the incoming reply, as shown by assembly.
+
+`body_shape_push.h/.cpp` translates cylinder merging/shifting and actual probe
+walks 0x001202C0/0x00120D10/0x00120480, fallback point push 0x001203E0,
+sphere conversion 0x00056720 and player selected-shape push 0x000756C0.
+The fallback height is actor +0x34 times body +0x884; radius uses +0x38
+and +0x888. Selected shapes retain actual shader-mask and kind gates.
+The older movement probe 0x001226C0 and its pool preparation/growth now
+follow the dump without invented missing-callback, allocation or bounds guards.
+Pool growth uses the genuine heap reallocation boundary. Sphere contact
+collection 0x001227E0 and record aggregation 0x00122310 are translated,
+with a native view for the actual segment vtable +0x24 callback.
+
+This second group has fixture coverage added but has not yet been built or run.
+Live spawning remains incomplete: full body collision/message methods and
+concrete scene-owned body/mind/strategy installation still require reconstruction.
+
+Second-group validation: both Release targets build; dialogue-resource and
+actor-loading fixtures pass, and all six CTests pass. The expanded body frame
+oracle compares 2,800 cases with zero mismatches, including actual triangle
+0x0010ACD0 and sphere 0x0010ABD0 separation routines. Player floor sweep
+0x00075350 is translated with genuine segment sweep/copy and navigation calls;
+its +0x874 surface, flag and vertical anchor writes follow the assembly.
+
+Action-selector reconstruction is continuing in `body_action_ids.h/.cpp`:
+0x00145FF0 classification and 0x001460C0 attachment range gating provide
+actual callees for direct action IDs, paired IDs and table-gated IDs. This new
+selector group is not yet validated or installed in the live factory.
+
+Action-selector validation: direct IDs 0x00026B00/0x00026BB0/0x00027220/
+0x00027320/0x000273D0/0x00027480, range ID 0x000272D0 and paired IDs
+0x00027060/0x00027140 pass 3,600 retail machine-code comparisons using
+`tools/oracle/body_action_oracle.py 1 400`. Cases include signed negative
+class counts, matching/missing tags, invalid classes/states, actual host range
+flags and preserved pair words. Both Release targets build and dialogue-resource
+fixtures pass after these additions. Table-gated selectors, parameter selectors
+and near selector 0x00026C60 are translated but not covered by that differential
+fixture yet. No live factory installation or live spawning success is claimed.
+
+Base-body message dependencies added in the next implementation batch:
+0x0001AEB0 receiver clears, 0x00024340 damage-source clears, 0x00027B20 timer
+recipient clears, 0x000275E0 action-child destruction, 0x000277E0 current-action
+reselection, 0x0001B570 secondary detach and 0x0001B100 actor-reference cleanup.
+Actor position/Euler propagation 0x0002B430/0x0002B560 uses genuine transforms
+and the actual +0x95C body owner. Physical shape flags 0x00042500 now walk the
+real model type-4 records instead of the legacy cached intro-flags value.
+Contact removal 0x0013EDD0/0x0013F720 preserves immediate compaction versus
+walk-time deferred removal and duplicate suppression; 0x0001F850/0x0001F890
+use the genuine override insertion. Cylinder push 0x00120760 and vector scaling
+0x00120250 are translated with actual retail math. This batch is awaiting build
+and oracle results; full message dispatch and live installation remain incomplete.
+
+The contact-removal/cylinder batch builds and dialogue-resource fixtures pass.
+The frame oracle now checks 3,200 cases with zero mismatches, including actual
+cylinder push 0x00120760 and its 0x00120250 scale callee, ordered/NaN gates,
+untouched failure outputs and DAT_005111AC contact-point writes.
+
+Animation-command reconstruction has started in `body_animation_commands.h/.cpp`.
+Actual contact activation/deactivation 0x0013F420/0x0013F4D0 now retains the
+intrusive sentinel/head semantics through native previous-link aliases. Commands
+0x0001AAF0/0x0001AB50/0x0001ABC0/0x0001ABF0/0x0001A7E0/0x0001AE50 and
+helpers 0x0001EF70/0x0001F3F0/0x00019A90 are translated. The direction-push
+helper converts the command's signed integer speed; zero selects integer 40
+before conversion, as confirmed by CVTSI2SS/FILD assembly. This command group
+is awaiting validation. Remaining command effects and damage handling are still
+untranslated and continue to block complete live body message installation.
+
+2026-10-11 continuation: attachment contact wrappers 0x00144E90/0x00144EE0
+and command 0x0001A290 now use the genuine contact-list functions and actor
+message 0x92. Commands 0x0001A720/0x0001A810/0x0001A880 dispatch actual
+attachment records with the owning actor context and zero final callback value;
+the two named callouts use the real 85-entry name table supplied by the owner.
+Detach command 0x0001A690 calls genuine primary/secondary detachment followed
+by 0x00112CC0 bind activation. Facing push 0x00019A50 retains its flag gate,
+signed speed and retail degree conversion. Cleanup 0x000250E0 clears the
+command latch and removes the recorded attachment tokens with the actual
+signed count loop. Expanded contact fixtures cover intrusive activation/removal
+and sphere-contact collection/aggregation. This batch is awaiting validation.
+
+Read-only damage exports identify 0x00021220/0x00021450 as dispatchers into
+additional damage processors. Those processors, the remaining animation effects,
+and full body/mind/strategy message/update methods still block live spawning.
+No partial vtable is installed and live spawning is not complete.
+
+The animation/contact batch builds both Release targets and passes the
+expanded dialogue-resource fixtures. The frame oracle now passes 4,400 retail
+machine-code comparisons with zero mismatches: the additional 1,200 cover
+0x0001AE50 random timer selection (including NaNs), 0x0001AB50 counter wrapping
+and 0x00019A90 signed direction push. These checks do not establish live spawning.
+
+Further translations now include 0x0013B8B0 attachment-token capture and
+0x0001AE00 command attachment begin/clear, using actual attachment request
+callees and a native view of callback output at body+0x2D8. The existing
+0x0003BC40 wrapper now preserves its genuine token return. Relative target
+angle 0x00041A30 and target push 0x000199F0 use the actual world-position,
+direction-angle and remainder callees; target stored position is supplied by
+its native owner. Damage notices 0x00024A00/0x00024A80/0x00024AD0 use actual
+pulse broadcast and script queuing. Damage eligibility 0x00028D50 and
+attribute-based damage-kind adjustment 0x000211D0 are translated. These latest
+angle/damage additions await validation; damage processors remain incomplete.
+
+Damage support now also translates actual table interpolation 0x001339C0,
+class lookup 0x00133BD0, actor lookup 0x00028DA0, player/live-player predicates
+0x00028D00/0x00028D20 and amount selection 0x000238E0. Native actor state
+retains the actual +0xCF4 class separately from the damage command's +0x64
+class. Health subtraction 0x00021120 and damage-health application 0x00022310
+preserve signed wrapping, player gates and the specific half-damage key cases.
+Pulse count/pause table selectors 0x00023CB0/0x00023E20/0x00023F70 and pulse
+reduction 0x0001FF60 are translated. Contact rejection 0x00022870 walks the
+actual 0x54-byte records, retaining point coordinates when a record lacks a
+point, and selects the nearest record's flag. Source state 0x00024370 preserves
+its word counter increment/reset. This damage group awaits build and retail
+comparison; the full hit processors and live factory installation remain open.
+
+Damage table validation passes 2,400 retail machine-code comparisons with zero
+mismatches using `tools/oracle/body_damage_oracle.py 1 400`. These cover genuine
+interpolation, class/actor lookup and pulse/pause selectors, including equal byte
+endpoints, descending ranges, NaNs, infinities and CVTTSS2SI indefinite results.
+
+Additional motion/action dependencies are translated: 0x000239C0 push amount,
+0x00023A50 four damage parameters, 0x000244E0 direction sector, 0x00041900
+actor-to-actor angle, 0x00100FE0 angular step, 0x000246D0 facing update,
+0x00022400 damage push and 0x00024830 motion state. Animation lookup/start
+0x0001AED0/0x0001AFA0 use the actual animation records and mix callees.
+Spatial notification 0x0012AFE0 creates the actual actor/global intrusive links
+and copies both 0x20-byte shapes; 0x0001D780 creates the notification cylinder
+and 0x000257C0 captures the pose. Its scratch view preserves the unwritten
+shape header byte instead of inventing a value. This latest group is awaiting
+validation; full dispatch and live spawning remain incomplete.
+
+Further damage dependencies: 0x00105C10 keeps the genuine integer candidate
+count and closest-angle index; 0x00020B50/0x00020C10 derive directional/joint
+animation names. Lookup 0x00020C80 preserves the retail variant fallback order,
+including its repeated final lookup, and 0x00024970 selects the damage action
+and optional animation through actual callees. Death-effect probability
+0x00024620 preserves random advancement only when attributes enable the effect.
+Death notice 0x00024910 broadcasts/queues once and sets its gate after callbacks.
+These latest translations await validation. Actual death-effect creation
+0x00134C10/0x00134D20 remains untranslated, so 0x00024890 and processors that
+call it remain blocked rather than being replaced by a host callback.
+
+The frame oracle now passes 5,200 retail comparisons with zero mismatches,
+including damage pulse reduction and health subtraction. Sound command helpers
+0x00107780/0x000259C0/0x0001A020/0x0001A0A0 and commands
+0x00019B40/0x00019F80/0x00019FD0 now use the actual cue lookup and sound queue.
+Teleport 0x0001B5D0/0x0001A750 preserves secondary detach/message order and the
+shared-attachment notice. Proximity broadcast 0x00122D80/0x0001ADB0 saves the
+next intrusive actor before virtual callbacks and preserves strict radius checks.
+Spatial notifications reuse the existing genuine 0x0012AFE0 implementation;
+the duplicate allocation translation was removed. This combined batch awaits
+validation. Live spawning remains incomplete and no partial vtable is installed.
+
+Primary attachment command 0x0001A6D0 now clones the genuine resource, creates
+through the real factory, releases the clone before attachment, and destroys
+failed attachments. Damage processors 0x00021760/0x00021A90/0x00022010 now
+translate their exact flag/action-table gates and state/message ordering using
+actual push, action lookup/selection and health callees. The first combined
+build found a missing math declaration include in the sound module; that include
+is corrected. The processor/attachment additions await validation. Death-effect
+creation and the remaining hit processors still block full dispatch/live spawning.
+
+The combined sound/attachment/spatial/damage-animation batch builds both Release
+targets and passes dialogue-resource checks (1,357 template clones and 457 keys).
+Further translations include turning hit 0x00021B70, amount hit 0x00021C50,
+death-action lookup 0x00024680, main reaction hit 0x000215C0 and interrupting
+hit 0x000219C0. These retain actual health/pulse/push/facing/animation callees;
+0x000215C0 checks for its action row after applying health, as in the dump.
+Death-effect parameter setup 0x00068770 uses actual actor effect initialization
+and world pose. These newest additions await validation. Full death-effect
+creation, damage dispatch and concrete body/mind/strategy ownership remain open.

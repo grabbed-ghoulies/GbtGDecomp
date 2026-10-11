@@ -306,4 +306,53 @@ u8* find_runtime_marker(const u8* records, i16 id)
 {
     return find_marker_row(const_cast<u8*>(records), id);
 }
+
+// Xbox 0x0011EF50
+i32 count_runtime_markers(i16 kind, const u8* records)
+{
+    u16 id = next_runtime_marker_id(0, kind, 1, records);
+    if (id == 0)
+    {
+        return 0;
+    }
+    i32 count = 1;
+    id = next_runtime_marker_id(id, kind, 0, records);
+    while (id != 0)
+    {
+        ++count;
+        id = next_runtime_marker_id(id, kind, 0, records);
+    }
+    return count;
+}
+
+// Xbox 0x0011EFA0
+u16 nearest_runtime_marker(const Vec3& position, i16 kind, const u8* records, Vec3 retained_position)
+{
+    u16 result = 0;
+    float closest = std::bit_cast<float>(0x4E6E6B28u); // DAT_0032B30C.
+    const i32 count = count_runtime_markers(kind, records);
+    for (i32 index = 0; index < count; ++index)
+    {
+        u16 id = next_runtime_marker_id(0, kind, 1, records);
+        for (i32 previous = index; previous > 0; --previous)
+        {
+            id = next_runtime_marker_id(id, kind, 1, records);
+        }
+        const u8* row = find_runtime_marker(records, i16(id));
+        if (row != nullptr)
+        {
+            std::memcpy(&retained_position, row + 0xC, 12);
+        }
+        const float y = position.y - retained_position.y;
+        const float z = position.z - retained_position.z;
+        const float x = position.x - retained_position.x;
+        const float distance = (z * z + y * y) + x * x;
+        if (distance < closest)
+        {
+            closest = distance;
+            result = id;
+        }
+    }
+    return result;
+}
 }

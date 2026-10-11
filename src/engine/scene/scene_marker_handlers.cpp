@@ -4,6 +4,7 @@
 #include "../runtime/name_lookup.h"
 #include "../entities/actor_trail_requests.h"
 #include "gbtg/actor_spawn_factory.h"
+#include "../navigation/navigation.h"
 #include <bit>
 #include <cstring>
 
@@ -12,11 +13,7 @@ namespace gbtg
 RuntimeSceneMarkerHandlers bind_runtime_scene_marker_handlers(RuntimeSceneMarkerBindings& bindings)
 {
     RuntimeSceneMarkerHandlers handlers{};
-    // Non-null retail slots whose callees remain untranslated. Actual null entries stay empty.
-    for (u32 kind : {5u, 7u, 0xAu, 0xDu, 0xEu, 0xFu, 0x11u, 0x15u, 0x16u, 0x17u, 0x19u})
-    {
-        handlers.untranslated[kind] = true;
-    }
+    // Actual null entries stay empty. Every non-null retail slot is translated below.
     handlers.handlers[2] = [&bindings](u8* record)
     {
         spawn_runtime_marker_player(record, bindings.player);
@@ -32,6 +29,14 @@ RuntimeSceneMarkerHandlers bind_runtime_scene_marker_handlers(RuntimeSceneMarker
     handlers.handlers[6] = [&bindings](u8* record)
     {
         create_runtime_marker_template(record, bindings.objects);
+    };
+    handlers.handlers[5] = [&bindings](u8* record)
+    {
+        create_runtime_marker_modified_template(record, bindings.objects);
+    };
+    handlers.handlers[0xE] = [&bindings](u8* record)
+    {
+        create_runtime_marker_named(record, bindings.objects);
     };
     handlers.handlers[8] = [&bindings](u8* record)
     {
@@ -59,6 +64,58 @@ RuntimeSceneMarkerHandlers bind_runtime_scene_marker_handlers(RuntimeSceneMarker
     };
     // Kind 0x18 shares kind 6's real 0x001001A0 handler.
     handlers.handlers[0x18] = handlers.handlers[6];
+    handlers.handlers[7] = [&bindings](u8* record)
+    {
+        if (bindings.additional == nullptr)
+        {
+            throw Error("scene marker name storage is not bound");
+        }
+        register_runtime_marker_chain_name(record, bindings.objects, *bindings.additional);
+    };
+    handlers.handlers[0xA] = [&bindings](u8* record)
+    {
+        create_runtime_marker_camera(record, bindings.objects);
+    };
+    handlers.handlers[0xD] = [&bindings](u8* record)
+    {
+        create_runtime_marker_effect(record, bindings.objects);
+    };
+    handlers.handlers[0xF] = [&bindings](u8* record)
+    {
+        create_runtime_marker_switch(record, bindings.objects);
+    };
+    handlers.handlers[0x11] = [&bindings](u8* record)
+    {
+        create_runtime_marker_named_trigger(record, bindings.objects);
+    };
+    handlers.handlers[0x15] = [&bindings](u8* record)
+    {
+        create_runtime_marker_multi_name(record, bindings.objects);
+    };
+    handlers.handlers[0x16] = [&bindings](u8* record)
+    {
+        if (bindings.additional == nullptr)
+        {
+            throw Error("scene marker scare templates are not bound");
+        }
+        create_runtime_marker_scare(record, bindings.objects, *bindings.additional);
+    };
+    handlers.handlers[0x17] = [&bindings](u8* record)
+    {
+        if (bindings.additional == nullptr)
+        {
+            throw Error("scene marker dropper templates are not bound");
+        }
+        create_runtime_marker_dropper(record, bindings.objects, *bindings.additional);
+    };
+    handlers.handlers[0x19] = [&bindings](u8* record)
+    {
+        if (bindings.additional == nullptr)
+        {
+            throw Error("scene marker player attachment lists are not bound");
+        }
+        attach_runtime_marker_player_shape(record, *bindings.additional);
+    };
     return handlers;
 }
 
@@ -456,6 +513,404 @@ void create_runtime_marker_template(const u8* record, RuntimeMarkerObjects& cont
     }
     put_half(parameters, 0x2AA, half_at(record, 6));
     put_half(parameters, 0x2AC, half_at(record, 8));
+    keep(create_factory_object(context.factory, parameters), context);
+    clone.bytes.reset(); // 0x000663E0.
+}
+
+// Xbox 0x0012A190
+void register_runtime_marker_name(const Vec3& position, const char* name, RuntimeMarkerAdditionalBindings& context)
+{
+    put_vector(context.names, size_t(context.name_count) * 0x90 + 0x80, position);
+    copy_text(context.names, size_t(context.name_count) * 0x90, name);
+    ++context.name_count;
+}
+
+// Xbox 0x00100500
+void register_runtime_marker_chain_name(const u8* record, RuntimeMarkerObjects& objects,
+    RuntimeMarkerAdditionalBindings& context)
+{
+    const Vec3 position = vector_at(record, 0xC);
+    const u16 nearest = nearest_runtime_marker(position, 5, objects.records, context.nearest_retained_position);
+    if (nearest != 0)
+    {
+        const u8* row = find_runtime_marker(objects.records, i16(nearest));
+        if (row != nullptr && half_at(row, 8) == half_at(record, 6))
+        {
+            return;
+        }
+    }
+    if (record[0x28] != 0)
+    {
+        register_runtime_marker_name(position, reinterpret_cast<const char*>(record + 0x28), context);
+    }
+}
+
+// Xbox 0x000FF8F0
+void create_runtime_marker_camera(const u8* record, RuntimeMarkerObjects& context)
+{
+    if (is_aid(record + 0x28))
+    {
+        std::array<u8, 0xC8> parameters{};
+        put_half(parameters, 0, 0xC8);
+        put_half(parameters, 2, 0);
+        put_half(parameters, 4, 0x97);
+        copy_text(parameters, 0x2C, reinterpret_cast<const char*>(record + 0x28));
+        put_word(parameters, 0xAC, word_at(record, 0xB0));
+        put_word(parameters, 0xB0, word_at(record, 0xB4));
+        put_word(parameters, 0xB4, word_at(record, 0xB8));
+        put_word(parameters, 0xB8, word_at(record, 0xBC));
+        put_word(parameters, 0x28, word_at(record, 0xAC));
+        put_vector(parameters, 8, vector_at(record, 0xC));
+        put_vector(parameters, 0x14, vector_at(record, 0x18));
+        put_word(parameters, 0x24, word_at(record, 0xA8));
+        put_word(parameters, 0x20, word_at(record, 0x24));
+        put_word(parameters, 0xBC, word_at(record, 0xC0));
+        put_word(parameters, 0xC0, word_at(record, 0xC4));
+        put_word(parameters, 0xC4, word_at(record, 0xC8));
+        keep(create_factory_object(context.factory, parameters), context);
+    }
+}
+
+// Xbox 0x00100380
+void create_runtime_marker_scare(const u8* record, RuntimeMarkerObjects& objects,
+    RuntimeMarkerAdditionalBindings& context)
+{
+    const char* name = reinterpret_cast<const char*>(context.scare_templates + (word_at(record, 0x28) << 7));
+    auto clone = clone_executable_resource(objects.resources, name);
+    std::span<u8> parameters{clone.bytes.get(), clone.size};
+    Vec3 goal = vector_at(record, 0xC);
+    const u8* self = find_runtime_marker(objects.records, i16(half_at(record, 6)));
+    if (self != nullptr && half_at(self, 8) != 0)
+    {
+        self = find_runtime_marker(objects.records, i16(half_at(record, 6)));
+        const u16 next = self != nullptr ? half_at(self, 8) : 0;
+        goal = vector_at(chain_row(objects.records, objects.address_zero, next), 0xC);
+    }
+    put_word(parameters, 0x334, word_at(record, 0x2C));
+    put_word(parameters, 0x338, word_at(record, 0x30));
+    put_word(parameters, 0x33C, word_at(record, 0x34));
+    put_word(parameters, 0x340, word_at(record, 0x38));
+    put_word(parameters, 0x344, std::bit_cast<u32>(float_at(record, 0x3C) * std::bit_cast<float>(0x3F4CCCCDu)));
+    put_vector(parameters, 0x348, goal);
+    put_vector(parameters, 8, vector_at(record, 0xC));
+    put_vector(parameters, 0x14, vector_at(record, 0x18));
+    put_word(parameters, 0x20, word_at(record, 0x24));
+    keep(create_factory_object(objects.factory, parameters), objects);
+    clone.bytes.reset(); // Heap free sequence inlined at 0x00100460.
+}
+
+// Xbox 0x00100600
+void create_runtime_marker_dropper(const u8* record, RuntimeMarkerObjects& objects,
+    RuntimeMarkerAdditionalBindings& context)
+{
+    const i32 kind = i32(word_at(record, 0x28));
+    if (kind == 0)
+    {
+        Vec3 goal = context.dropper_retained_position;
+        if (half_at(record, 8) != 0)
+        {
+            const u8* next = find_runtime_marker(objects.records, i16(half_at(record, 8)));
+            if (next != nullptr)
+            {
+                goal = vector_at(next, 0xC); // 0x0011F260.
+            }
+        }
+        auto clone = clone_executable_resource(objects.resources, reinterpret_cast<const char*>(context.dropper_templates));
+        std::span<u8> parameters{clone.bytes.get(), clone.size};
+        put_vector(parameters, 8, vector_at(record, 0xC));
+        put_vector(parameters, 0x14, vector_at(record, 0x18));
+        put_word(parameters, 0x33C, word_at(record, 0x34));
+        put_word(parameters, 0x334, word_at(record, 0x2C));
+        put_word(parameters, 0x338, word_at(record, 0x30));
+        put_vector(parameters, 0x340, goal);
+        keep(create_factory_object(objects.factory, parameters), objects);
+        clone.bytes.reset(); // 0x000663E0.
+    }
+    else if (kind > 0 && kind < 5)
+    {
+        auto clone = clone_executable_resource(objects.resources,
+            reinterpret_cast<const char*>(context.dropper_templates + (u32(kind) << 7)));
+        std::span<u8> parameters{clone.bytes.get(), clone.size};
+        put_vector(parameters, 8, vector_at(record, 0xC));
+        put_vector(parameters, 0x14, vector_at(record, 0x18));
+        put_word(parameters, 0x334, word_at(record, 0x2C));
+        put_word(parameters, 0x338, word_at(record, 0x30));
+        put_word(parameters, 0x33C, word_at(record, 0x34));
+        keep(create_factory_object(objects.factory, parameters), objects);
+        clone.bytes.reset(); // 0x000663E0.
+    }
+}
+
+// Xbox 0x000FFA30
+void attach_runtime_marker_player_shape(const u8* record, RuntimeMarkerAdditionalBindings& context)
+{
+    if (context.player != nullptr)
+    {
+        std::array<u8, 0x20> shape{};
+        shape[0] = 4;
+        shape[1] = 0x20;
+        shape[2] = 1;
+        shape[3] = context.attachment_retained_byte;
+        put_vector(shape, 4, vector_at(record, 0xC));
+        put_word(shape, 0x10, 0);
+        put_word(shape, 0x14, word_at(record, 0x28));
+        put_word(shape, 0x18, 0);
+        put_word(shape, 0x1C, word_at(record, 0x2C));
+        const i32 floor = entity_detail::navigation_floor_index(vector_at(record, 0xC), -1, 0);
+        allocate_actor_live_attachment(*context.player, context.player_attachments, context.global_attachments,
+            3, u8(floor), 0, shape.data(), context.attachment_origin);
+    }
+}
+
+// Xbox 0x0006AF70
+void build_runtime_marker_effect_parameters(std::span<u8, 0x460> parameters, const Vec3& position,
+    const Vec3& euler, u16 id, u16 next, u32 value, const char* first, const char* second, u16 key,
+    std::span<const u32, 9> values, const char* default_name)
+{
+    initialize_actor_effect_parameters(parameters.data(), default_name);
+    put_vector(parameters, 8, position);
+    put_vector(parameters, 0x14, euler);
+    put_half(parameters, 0x2AA, id);
+    put_word(parameters, 0x334, value);
+    put_half(parameters, 0x2AC, next);
+    put_half(parameters, 0, 0x460);
+    put_half(parameters, 2, 0x6E);
+    put_half(parameters, 4, 0x24);
+    copy_text(parameters, 0x338, first);
+    copy_text(parameters, 0x3B8, second);
+    put_word(parameters, 0x458, values[7]);
+    put_half(parameters, 0x438, key);
+    put_word(parameters, 0x450, values[5]);
+    put_word(parameters, 0x43C, values[0]);
+    put_word(parameters, 0x454, values[6]);
+    put_word(parameters, 0x448, values[3]);
+    put_word(parameters, 0x440, values[1]);
+    put_word(parameters, 0x444, values[2]);
+    put_word(parameters, 0x44C, values[4]);
+    put_word(parameters, 0x45C, values[8]);
+}
+
+// Xbox 0x000FFC00
+void create_runtime_marker_effect(u8* record, RuntimeMarkerObjects& context)
+{
+    const float percent = std::bit_cast<float>(0x3C23D70Au);
+    const std::array<u32, 9> values{
+        std::bit_cast<u32>(float(i32(word_at(record, 0x130))) * percent), word_at(record, 0x134),
+        std::bit_cast<u32>(float(i32(word_at(record, 0x138))) * percent), word_at(record, 0x13C),
+        word_at(record, 0x140), word_at(record, 0x14C), word_at(record, 0x150),
+        word_at(record, 0x154), word_at(record, 0x158)};
+    std::array<u8, 0x460> parameters{};
+    build_runtime_marker_effect_parameters(parameters, vector_at(record, 0xC), vector_at(record, 0x18),
+        half_at(record, 6), half_at(record, 8), word_at(record, 0x28),
+        reinterpret_cast<const char*>(record + 0x2C), reinterpret_cast<const char*>(record + 0xAC),
+        half_at(record, 0x12C), values, context.default_name);
+    std::memset(record + 0x144, 0, 8);
+    keep(create_factory_object(context.factory, parameters), context);
+}
+
+// Xbox 0x0006BA70
+void build_runtime_marker_switch_parameters(std::span<u8, 0x3C4> parameters, const Vec3& position,
+    const Vec3& euler, u16 id, u16 next, u32 value, u16 key, const char* name,
+    u32 first, u32 second, const char* default_name)
+{
+    initialize_actor_effect_parameters(parameters.data(), default_name);
+    put_vector(parameters, 8, position);
+    put_vector(parameters, 0x14, euler);
+    put_half(parameters, 0x2AA, id);
+    put_half(parameters, 0x2AC, next);
+    put_word(parameters, 0x334, value);
+    put_half(parameters, 0, 0x3C4);
+    put_half(parameters, 2, 0x6E);
+    put_half(parameters, 4, 0x25);
+    put_half(parameters, 0x338, key);
+    copy_text(parameters, 0x33A, name);
+    put_word(parameters, 0x3BC, first);
+    put_word(parameters, 0x3C0, second);
+}
+
+// Xbox 0x000FFCD0
+void create_runtime_marker_switch(const u8* record, RuntimeMarkerObjects& context)
+{
+    std::array<u8, 0x3C4> parameters{};
+    build_runtime_marker_switch_parameters(parameters, vector_at(record, 0xC), vector_at(record, 0x18),
+        half_at(record, 6), half_at(record, 8), word_at(record, 0x28), half_at(record, 0x2C),
+        reinterpret_cast<const char*>(record + 0x30), word_at(record, 0xB0), word_at(record, 0xB4), context.default_name);
+    keep(create_factory_object(context.factory, parameters), context);
+}
+
+// Xbox 0x0006C170
+void build_runtime_marker_named_trigger_parameters(std::span<u8, 0x4C8> parameters, const Vec3& position,
+    const Vec3& euler, u16 id, u16 next, u32 value, const char* first, const char* second,
+    std::span<const u32, 4> values, const char* default_name)
+{
+    initialize_actor_effect_parameters(parameters.data(), default_name);
+    put_vector(parameters, 8, position);
+    put_vector(parameters, 0x14, euler);
+    put_half(parameters, 0x2AA, id);
+    put_word(parameters, 0x334, value);
+    put_half(parameters, 0x2AC, next);
+    put_half(parameters, 0, 0x4C8);
+    put_half(parameters, 2, 0x6E);
+    put_half(parameters, 4, 0x26);
+    copy_text(parameters, 0x338, first);
+    copy_text(parameters, 0x3B8, second);
+    put_word(parameters, 0x438, values[0]);
+    put_word(parameters, 0x43C, values[1]);
+    put_word(parameters, 0x440, values[2]);
+    put_word(parameters, 0x444, values[3]);
+}
+
+// Xbox 0x000FFD30
+void create_runtime_marker_named_trigger(const u8* record, RuntimeMarkerObjects& context)
+{
+    const float percent = std::bit_cast<float>(0x3C23D70Au);
+    const std::array<u32, 4> values{
+        std::bit_cast<u32>(float(i32(word_at(record, 0x12C))) * percent), word_at(record, 0x130),
+        std::bit_cast<u32>(float(i32(word_at(record, 0x134))) * percent), word_at(record, 0x138)};
+    std::array<u8, 0x4C8> parameters{};
+    build_runtime_marker_named_trigger_parameters(parameters, vector_at(record, 0xC), vector_at(record, 0x18),
+        half_at(record, 6), half_at(record, 8), word_at(record, 0x28),
+        reinterpret_cast<const char*>(record + 0x2C), reinterpret_cast<const char*>(record + 0xAC), values, context.default_name);
+    keep(create_factory_object(context.factory, parameters), context);
+}
+
+// Xbox 0x000725E0
+void build_runtime_marker_multi_name_parameters(std::span<u8, 0x754> parameters, const Vec3& position,
+    const Vec3& euler, std::span<const u32, 5> values, std::span<const char* const, 8> names,
+    const char* default_name)
+{
+    initialize_actor_effect_parameters(parameters.data(), default_name);
+    put_vector(parameters, 8, position);
+    put_vector(parameters, 0x14, euler);
+    put_word(parameters, 0x340, values[0]);
+    put_word(parameters, 0x344, values[1]);
+    put_word(parameters, 0x448, values[2]);
+    put_word(parameters, 0x750, values[4]);
+    put_half(parameters, 0, 0x754);
+    put_half(parameters, 2, 0x6A);
+    put_half(parameters, 4, 0x22);
+    put_word(parameters, 0x44C, values[3]);
+    copy_text(parameters, 0x348, names[0]);
+    const u8* second = reinterpret_cast<const u8*>(names[1]);
+    copy_text(parameters, 0x3C8, is_aid(second) ? names[1] : "aid_objparams_ghoulies_misc_prop");
+    copy_text(parameters, 0x450, names[2]);
+    copy_text(parameters, 0x4D0, names[3]);
+    copy_text(parameters, 0x550, names[4]);
+    copy_text(parameters, 0x5D0, names[5]);
+    copy_text(parameters, 0x650, names[6]);
+    copy_text(parameters, 0x6D0, names[7]);
+}
+
+// Xbox 0x00100570
+void create_runtime_marker_multi_name(const u8* record, RuntimeMarkerObjects& context)
+{
+    const std::array<u32, 5> values{word_at(record, 0x28), word_at(record, 0x2C),
+        word_at(record, 0x130), word_at(record, 0x134), word_at(record, 0x438)};
+    const std::array<const char*, 8> names{
+        reinterpret_cast<const char*>(record + 0x30), reinterpret_cast<const char*>(record + 0xB0),
+        reinterpret_cast<const char*>(record + 0x138), reinterpret_cast<const char*>(record + 0x1B8),
+        reinterpret_cast<const char*>(record + 0x238), reinterpret_cast<const char*>(record + 0x2B8),
+        reinterpret_cast<const char*>(record + 0x338), reinterpret_cast<const char*>(record + 0x3B8)};
+    std::array<u8, 0x754> parameters{};
+    build_runtime_marker_multi_name_parameters(parameters, vector_at(record, 0xC), vector_at(record, 0x18),
+        values, names, context.default_name);
+    keep(create_factory_object(context.factory, parameters), context);
+}
+
+// Xbox 0x0006D410
+void build_runtime_marker_named_parameters(std::span<u8, 0x3B4> parameters, const Vec3& position,
+    const Vec3& euler, u16 id, u16 next, const char* name, const char* default_name)
+{
+    initialize_actor_effect_parameters(parameters.data(), default_name);
+    put_vector(parameters, 8, position);
+    put_vector(parameters, 0x14, euler);
+    put_half(parameters, 0x2AC, next);
+    put_half(parameters, 0x2AA, id);
+    put_half(parameters, 0, 0x3B4);
+    put_half(parameters, 2, 0x47);
+    put_half(parameters, 4, 0x1E);
+    copy_text(parameters, 0x334, name);
+}
+
+// Xbox 0x000FF830
+void create_runtime_marker_named(const u8* record, RuntimeMarkerObjects& context)
+{
+    std::array<u8, 0x3B4> parameters{};
+    build_runtime_marker_named_parameters(parameters, vector_at(record, 0xC), vector_at(record, 0x18),
+        half_at(record, 6), half_at(record, 8), reinterpret_cast<const char*>(record + 0x28), context.default_name);
+    keep(create_factory_object(context.factory, parameters), context);
+}
+
+// Xbox 0x00100770
+void create_runtime_marker_companion(const char* name, const Vec3& position, const Vec3& euler,
+    float scale, RuntimeMarkerObjects& context)
+{
+    std::array<u8, 0x334> parameters{};
+    initialize_actor_effect_parameters(parameters.data(), context.default_name);
+    copy_text(parameters, 0x28, name);
+    put_vector(parameters, 8, position);
+    put_vector(parameters, 0x14, euler);
+    put_word(parameters, 0x20, std::bit_cast<u32>(scale));
+    keep(create_factory_object(context.factory, parameters), context);
+}
+
+// Xbox 0x00146C80
+void set_runtime_marker_template_names(std::span<u8> parameters, const char* first, const char* second, u32 value)
+{
+    copy_text(parameters, 0x354, first);
+    copy_text(parameters, 0x3D4, second);
+    put_word(parameters, 0x454, value);
+}
+
+// Xbox 0x00146CC0
+void set_runtime_marker_template_chain_name(std::span<u8> parameters, const char* name)
+{
+    copy_text(parameters, 0x578, name);
+}
+
+// Xbox 0x001007F0
+void create_runtime_marker_modified_template(const u8* record, RuntimeMarkerObjects& context)
+{
+    auto clone = clone_executable_resource(context.resources, reinterpret_cast<const char*>(record + 0x28));
+    if (clone.bytes == nullptr)
+    {
+        return;
+    }
+    std::span<u8> parameters{clone.bytes.get(), clone.size};
+    const float scale = float_at(record, 0x24) * float_at(parameters.data(), 0x20);
+    put_vector(parameters, 8, vector_at(record, 0xC));
+    put_vector(parameters, 0x14, vector_at(record, 0x18));
+    put_word(parameters, 0x20, std::bit_cast<u32>(scale));
+    put_half(parameters, 0x2AA, half_at(record, 6));
+    put_half(parameters, 0x2AC, half_at(record, 8));
+    if (is_aid(record + 0x1A8))
+    {
+        create_runtime_marker_companion(reinterpret_cast<const char*>(record + 0x1A8),
+            vector_at(record, 0xC), vector_at(record, 0x18), scale, context);
+    }
+    if (is_aid(record + 0xA8))
+    {
+        set_runtime_marker_template_names(parameters, reinterpret_cast<const char*>(record + 0xA8),
+            reinterpret_cast<const char*>(record + 0x128), word_at(record, 0x228));
+    }
+    const float percent = std::bit_cast<float>(0x3C23D70Au); // DAT_0032B124.
+    put_word(parameters, 0x344, word_at(record, 0x234));
+    put_word(parameters, 0x34C, word_at(record, 0x23C));
+    put_word(parameters, 0x350, word_at(record, 0x248));
+    put_word(parameters, 0x348, std::bit_cast<u32>(float(i32(word_at(record, 0x238))) * percent));
+    put_word(parameters, 0x340, std::bit_cast<u32>(float(i32(word_at(record, 0x230))) * percent));
+    put_word(parameters, 0x468, word_at(record, 0x240));
+    put_word(parameters, 0x46C, word_at(record, 0x244));
+    put_word(parameters, 0x574, word_at(record, 0x254));
+    put_word(parameters, 0x470, word_at(record, 0x22C));
+    if (half_at(record, 8) != 0)
+    {
+        const u8* next = find_runtime_marker(context.records, i16(half_at(record, 8)));
+        if (next != nullptr && half_at(next, 4) == 7)
+        {
+            set_runtime_marker_template_chain_name(parameters, reinterpret_cast<const char*>(next + 0x28));
+        }
+    }
     keep(create_factory_object(context.factory, parameters), context);
     clone.bytes.reset(); // 0x000663E0.
 }

@@ -2,6 +2,7 @@
 #include "scene_markers.h"
 #include "../entities/player_spawn.h"
 #include "../navigation/occupancy.h"
+#include "../entities/actor_live_attachments.h"
 
 namespace gbtg
 {
@@ -61,6 +62,15 @@ FactoryObject* create_runtime_marker_actor(const char* name, const Vec3& positio
     RuntimeMarkerObjects& context); // Xbox 0x001349E0, ECX fifth, EDX fourth
 void create_runtime_marker_spawn_actor(const u8* record, RuntimeMarkerObjects& context); // Xbox 0x000FF4F0, kind 4
 void create_runtime_marker_template(const u8* record, RuntimeMarkerObjects& context); // Xbox 0x001001A0, kind 6
+void build_runtime_marker_named_parameters(std::span<u8, 0x3B4> parameters, const Vec3& position,
+    const Vec3& euler, u16 id, u16 next, const char* name, const char* default_name); // Xbox 0x0006D410
+void create_runtime_marker_named(const u8* record, RuntimeMarkerObjects& context); // Xbox 0x000FF830, kind 0xE
+void create_runtime_marker_companion(const char* name, const Vec3& position, const Vec3& euler,
+    float scale, RuntimeMarkerObjects& context); // Xbox 0x00100770
+void set_runtime_marker_template_names(std::span<u8> parameters, const char* first, const char* second,
+    u32 value); // Xbox 0x00146C80
+void set_runtime_marker_template_chain_name(std::span<u8> parameters, const char* name); // Xbox 0x00146CC0
+void create_runtime_marker_modified_template(const u8* record, RuntimeMarkerObjects& context); // Xbox 0x001007F0, kind 5
 void build_runtime_marker_trigger_parameters(std::span<u8, 0x65C> parameters, const Vec3& position, const Vec3& euler,
     u16 id, u16 next, u32 a2, u32 a3, u32 a4, u16 a5, const u8* block, u32 a7, u32 a8, const char* first_name,
     const char* second_name, float a11, u32 a12, float a13, u32 a14, const char* default_name); // Xbox 0x0006A010
@@ -68,12 +78,54 @@ void create_runtime_marker_trigger(const u8* record, RuntimeMarkerObjects& conte
 void build_runtime_marker_area_parameters(std::span<u8, 0x348> parameters, const Vec3& position, const Vec3& euler,
     u16 id, u16 next, u32 a2, u32 a3, u32 a4, u32 a5, u32 a6, const char* default_name); // Xbox 0x0006E110
 void create_runtime_marker_area(const u8* record, RuntimeMarkerObjects& context); // Xbox 0x000FFDC0, kind 0x10
+struct RuntimeMarkerAdditionalBindings
+{
+    std::span<u8> names; // DAT_0051254C, 0x90-byte rows.
+    u32& name_count; // DAT_00512548.
+    const u8* scare_templates; // DAT_0030CB18, 0x80-byte names.
+    const u8* dropper_templates; // DAT_0030D098, 0x80-byte names.
+    Vec3& nearest_retained_position; // Retained local stack bytes in 0x0011EFA0.
+    Vec3& dropper_retained_position; // Retained local stack bytes in 0x00100600.
+    Actor*& player; // DAT_00511B20 points to actor +0x934.
+    entity_detail::ListHead& player_attachments; // Actor +0x8F4.
+    entity_detail::ListHead& global_attachments; // DAT_00545984.
+    const Vec3& attachment_origin; // DAT_0050DD80.
+    u8 attachment_retained_byte; // Unwritten shape +3 stack byte in 0x000FFA30.
+};
+void register_runtime_marker_name(const Vec3& position, const char* name,
+    RuntimeMarkerAdditionalBindings& context); // Xbox 0x0012A190
+void register_runtime_marker_chain_name(const u8* record, RuntimeMarkerObjects& objects,
+    RuntimeMarkerAdditionalBindings& context); // Xbox 0x00100500, kind 7
+void create_runtime_marker_camera(const u8* record, RuntimeMarkerObjects& context); // Xbox 0x000FF8F0, kind 0xA
+void create_runtime_marker_effect(u8* record, RuntimeMarkerObjects& context); // Xbox 0x000FFC00, kind 0xD
+void create_runtime_marker_switch(const u8* record, RuntimeMarkerObjects& context); // Xbox 0x000FFCD0, kind 0xF
+void create_runtime_marker_named_trigger(const u8* record, RuntimeMarkerObjects& context); // Xbox 0x000FFD30, kind 0x11
+void create_runtime_marker_multi_name(const u8* record, RuntimeMarkerObjects& context); // Xbox 0x00100570, kind 0x15
+void create_runtime_marker_scare(const u8* record, RuntimeMarkerObjects& objects,
+    RuntimeMarkerAdditionalBindings& context); // Xbox 0x00100380, kind 0x16
+void create_runtime_marker_dropper(const u8* record, RuntimeMarkerObjects& objects,
+    RuntimeMarkerAdditionalBindings& context); // Xbox 0x00100600, kind 0x17
+void attach_runtime_marker_player_shape(const u8* record,
+    RuntimeMarkerAdditionalBindings& context); // Xbox 0x000FFA30, kind 0x19
+void build_runtime_marker_effect_parameters(std::span<u8, 0x460> parameters, const Vec3& position,
+    const Vec3& euler, u16 id, u16 next, u32 value, const char* first, const char* second, u16 key,
+    std::span<const u32, 9> values, const char* default_name); // Xbox 0x0006AF70
+void build_runtime_marker_switch_parameters(std::span<u8, 0x3C4> parameters, const Vec3& position,
+    const Vec3& euler, u16 id, u16 next, u32 value, u16 key, const char* name,
+    u32 first, u32 second, const char* default_name); // Xbox 0x0006BA70
+void build_runtime_marker_named_trigger_parameters(std::span<u8, 0x4C8> parameters, const Vec3& position,
+    const Vec3& euler, u16 id, u16 next, u32 value, const char* first, const char* second,
+    std::span<const u32, 4> values, const char* default_name); // Xbox 0x0006C170
+void build_runtime_marker_multi_name_parameters(std::span<u8, 0x754> parameters, const Vec3& position,
+    const Vec3& euler, std::span<const u32, 5> values, std::span<const char* const, 8> names,
+    const char* default_name); // Xbox 0x000725E0
 struct RuntimeSceneMarkerBindings
 {
     RuntimeMarkerPlayerStart& player;
     RuntimeMarkerObjects& objects;
     const char* const* tags; // DAT_0042A854.
     RuntimeMarkerCameraStart& camera;
+    RuntimeMarkerAdditionalBindings* additional = nullptr;
 };
 // Native mapping of DAT_0042A720. Bindings must outlive the returned callbacks.
 RuntimeSceneMarkerHandlers bind_runtime_scene_marker_handlers(RuntimeSceneMarkerBindings& bindings);

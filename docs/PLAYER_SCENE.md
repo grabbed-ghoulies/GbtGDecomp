@@ -2,6 +2,13 @@
 
 Target: `aid_script_ghoulies_chapter1_scene1_2playcam`.
 
+Marker translation checkpoint (2026-10-11): every non-null retail handler slot
+is translated and present in the native binder (22 slots, including the shared
+kind-6/kind-0x18 handler and the actual empty kind-0x12 handler). No handler is
+marked untranslated. Marker resource loading, row transforms and dispatch were
+already translated. Scene ownership and the actual factory classes remain
+live-spawning dependencies. Validation details and limits are at the end.
+
 This scene is not playable yet. Rendering its background and advancing its
 camera do not verify the retail dialogue, actor, or gameplay behavior.
 
@@ -4430,3 +4437,71 @@ No live opening run, retail edits, Ghidra edits, staging or commit was performed
 Next: attach remaining body/player/mind instance method contexts and construct
 the Game-owned scene factory/resource/address graph. The opening marker order
 still requires real imp construction before the player; do not skip those rows.
+
+### 2026-10-11: modified template and named marker continuation
+
+Reviewed the intervening owner/marker work. Reconstructed six more functions
+from read-only Ghidra exports: named parameter builder `0x0006D410`, kind
+0xE handler `0x000FF830`, companion creation `0x00100770`, template name
+and chain-name overrides `0x00146C80`/`0x00146CC0`, and kind 5 handler
+`0x001007F0`. The handler preserves scaled template size, optional companion
+creation before the main object, percentage conversions and kind-7 chain-name
+selection. Installed both handlers in the native retail table; nine non-null
+handler slots remain untranslated. Factory classes reached by these handlers
+still require real implementations; this does not complete live spawning.
+
+Added a differential parameter harness comparing the full output buffer,
+including untouched bytes, for the three parameter builders. Implementation
+was batched before any builds or tests. Validation pending at this checkpoint.
+
+Validation: Release game and transition-test targets build successfully. The
+new parameter oracle passes 3,000 randomized cases (seed 11) with zero
+mismatches, exercising `0x0006D410`, `0x00146C80` and `0x00146CC0` against
+retail code. All six CTests pass and `git diff --check` passes. The complete
+kind-5/kind-0xE handler factory paths have not received differential coverage;
+no live opening run was performed. The Game-owned scene graph, native body/
+mind/player method bindings and preceding imp classes remain outstanding.
+No retail/project changes, staging or commits were made.
+
+### 2026-10-11: all remaining marker slots translated
+
+Translated the nine remaining handlers (7, A, D, F, 11, 15, 16, 17, 19)
+and their four parameter builders, name registration, kind counting and nearest
+marker selection. The native handler table now covers every non-null retail
+slot. Additional bindings carry the real name pool/count, executable template
+name tables, player attachment lists and attachment origin. They also expose
+retained stack positions in nearest lookup/dropper creation explicitly, so
+missing chains do not receive invented zero positions. The kind-D handler
+preserves its two writes back to the source record. Kind-19 uses the translated
+navigation floor lookup and live attachment allocator. No factory class was
+stubbed. Implementation completed before validation; handler differential
+harness in progress. Game scene ownership and created classes remain separate
+live-spawning work.
+
+Marker translation milestone complete: all 22 non-null retail table entries
+are bound, with the six genuine null entries preserved. Added 16 reconstructed
+functions in this batch (nine handlers, four parameter builders, name storage,
+marker counting and nearest selection), following the preceding six-function
+batch. The binder fixture checks every table slot and dispatches the differential
+cases through the binder itself.
+
+Validation checkpoint: 3,000 handler cases passed with empty navigation floors,
+then 3,000 cases passed with two populated floor bands after correcting kind-19's
+floor argument to the attachment flag byte (tag is zero). Handler coverage is
+kinds 5, 6, 7, A, D, E, F, 11, 15, 16, 17 and 19. It checks factory parameter
+writes, conditional/order behavior, source-row mutation, name storage, player
+presence, retained stack values, attachment metadata/shape copies and origin.
+Factory construction/cloning are fixture capture boundaries, not reconstructed
+class acceptance. Stack parameter padding that retail does not write is excluded
+from the handler comparison; the independent parameter oracle compares full
+seeded buffers, including untouched bytes.
+
+The expanded parameter oracle passed 3,500 cases over seven helpers, including
+all four new parameter builders and the multi-name fallback branch. Release
+game/transition-test builds pass, all six CTests pass, the dialogue-resource
+suite passes, and `git diff --check` passes. The larger legacy
+`scene_markers_oracle.py` still lacks its original combined harness; the separate
+record, parameter and handler oracles document their actual coverage instead.
+No live opening acceptance is claimed. Additional native bindings must outlive
+the handler table and supply real scene storage and retained inputs. No retail
+payload/project changes, staging or commits were made.

@@ -39,4 +39,7 @@ u16 next_runtime_marker_id(u16 id, i16 kind, i32 wrap, const u8* records); // Xb
 void restart_runtime_marker_player(const u8* records,
     const RuntimeSceneMarkerHandlers& handlers); // Xbox 0x00127FF0
 u8* find_runtime_marker(const u8* records, i16 id); // Inlined id walk over DAT_0051108C.
+i32 count_runtime_markers(i16 kind, const u8* records); // Xbox 0x0011EF50, ESI kind
+u16 nearest_runtime_marker(const Vec3& position, i16 kind, const u8* records,
+    Vec3 retained_position); // Xbox 0x0011EFA0, EAX kind; retained stack position
 }

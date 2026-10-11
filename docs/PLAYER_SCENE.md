@@ -3522,7 +3522,11 @@ About 180 functions remain:
 - Mind navigation and pathfinding from 0x00136620/0x00136B00/0x00136EB0 (about 30).
 - Strategy parent message slot 0x0002BC10 and its goal helpers.
 - Player slot methods: sizes 0x00027F40, body message 0x00075B60 and 0x00075B90, mind 0x0007F1E0/
-  0x0007D360/0x0007EBC0, strategy 0x000BEE10/0x000BEF40/0x000BF2B0.
+  0x0007D360/0x0007EBC0.
+
+The player strategy overrides 0x000BEE10/0x000BEF40/0x000BF2B0 are already translated in
+`player_strategy.cpp`; they dispatch player messages, update the brew/idle states and enter player
+strategy states. They were still listed as outstanding in the earlier slot frontier.
 
 This batch completes the strategy parent update slot 0x0002C130 and its goal-state chain
 (`player_strategy_goals.h/.cpp`), 22 routines:
@@ -3570,8 +3574,8 @@ height scale were all caught. The full Windows build, six CTests and three prefl
 ### Strategy parent message slot (2026-10-11)
 
 Ten routines complete the strategy parent message slot 0x0002BC10 (vtable 0x004DD74C +0xC). This
-finishes the strategy parent class; only the player strategy overrides (0x000BEE10/0x000BEF40/
-0x000BF2B0) remain on that side.
+finishes the strategy parent class; the player strategy overrides (0x000BEE10/0x000BEF40/
+0x000BF2B0) are also translated in `player_strategy.cpp`.
 
 - 0x0002BC10 dispatches through its byte-indexed jump table (ids 1..0x8F). The state arguments for
   0x0002B8D0, which the decompile hides in DI, were read from the assembly. Message by message:
@@ -3621,3 +3625,17 @@ the class threshold, ring restart, the delivery radius, the stored contact actor
 and the decay group. The class-threshold mutant at first survived, because the target stub did not log the
 class words; the stubs on both sides now log them. The full Windows build, six CTests and three
 preflights pass.
+
+### Mind path search result predicate (2026-10-11)
+
+Navigation pathfinding helper 0x00036C60 is translated as
+`navigation_path_search_has_result`. It returns 1 only when the existing 0x34-byte
+`NavigationPathSearch` has state 3 at +0x28 and a nonzero result flag at +0x2C; otherwise it returns 0.
+Its caller 0x00136EB0 uses this gate before consuming the result. The same frontier now translates
+0x00036BC0 (`clear_navigation_path_search`) and 0x00036C80
+(`begin_navigation_path_search`): the former clears the node rows and search-list fields, frees
+scratch storage and clears state; the latter sets the endpoint indexes and enters state 1. The
+cell-registration counter helpers 0x00110400/0x00110470 are also translated and are used by the
+existing registration update/release paths. They apply the retail wrapping 5-bit inner or 5-bit
+outer counter update to every registered cell. The larger navigation and pathfinding chain remains
+open.

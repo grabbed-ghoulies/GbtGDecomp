@@ -28,7 +28,45 @@ void reset_navigation_path_search(NavigationPathSearch& search, u8* nodes, const
         const u16 value = u16(index);
         std::memcpy(search.nodes + size_t(index) * 0x14 + 0xA, &value, 2);
     }
-    search.word_28 = 0;
+    search.state = 0;
+}
+
+// Xbox 0x00036BC0
+void clear_navigation_path_search(NavigationPathSearch& search)
+{
+    for (u32 index = 0; index < search.count; ++index)
+    {
+        u8* const row = search.nodes + size_t(index) * 0x14;
+        std::memset(row, 0, 0x14);
+        const u16 no_index = 0xFFFF;
+        std::memcpy(row + 8, &no_index, sizeof(no_index));
+    }
+    search.first = -1;
+    search.last = -1;
+    search.word_0 = 0;
+    search.word_4 = 0;
+    if (search.scratch != nullptr)
+    {
+        engine_heap_free(search.scratch);
+        search.scratch = nullptr;
+    }
+    search.word_30 = 0;
+    search.state = 0;
+}
+
+// Xbox 0x00036C80
+void begin_navigation_path_search(NavigationPathSearch& search, i32 last, i32 first)
+{
+    clear_navigation_path_search(search);
+    search.last = last;
+    search.first = first;
+    search.state = 1;
+}
+
+// Xbox 0x00036C60
+u32 navigation_path_search_has_result(const NavigationPathSearch& search)
+{
+    return search.state == 3 && search.result_found != 0 ? 1 : 0;
 }
 
 // Xbox 0x00110C90

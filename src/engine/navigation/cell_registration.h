@@ -14,6 +14,10 @@ struct NavigationCellRegistration
     u16 stride = 0; // Retail header +0.
     u16 growth = 0; // Retail header +2.
 };
+void decrement_navigation_cell_counts(const NavigationCellRegistration& records,
+    u32 grid); // Xbox 0x00110470
+void increment_navigation_cell_counts(const NavigationCellRegistration& records,
+    u32 grid); // Xbox 0x00110400
 void release_navigation_cell_registration(NavigationCellRegistration*& records,
     u32 grid); // Xbox 0x001108B0
 void clamped_navigation_cell_coordinates(const NavGrid& grid, const Vec3& point, i32& x,

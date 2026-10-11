@@ -6,33 +6,55 @@
 
 namespace gbtg::entity_detail
 {
+namespace
+{
+u16 adjusted_counter_word(u16 old, u32 selector, bool increment)
+{
+    if (selector == 0)
+    {
+        const u32 next = increment ? u32(old) + 1 : u32(old) - 1;
+        return u16(((next ^ old) & 0x1F) ^ old);
+    }
+    const u32 next = increment ? u32(old & 0xFFE0) + 0x20 : ((u32(old >> 5) - 1) << 5);
+    return u16(((next ^ old) & 0x1E0) ^ old);
+}
+
+void adjust_navigation_cell_counts(const NavigationCellRegistration& records, u32 grid, bool increment)
+{
+    NavGrid* owner = g_nav_grids[grid];
+    for (u8* row = records.begin; row < records.end; row += 0xC)
+    {
+        u32 index;
+        u32 selector;
+        std::memcpy(&index, row, 4);
+        std::memcpy(&selector, row + 4, 4);
+        auto& cell = owner->cells[index];
+        const u16 old = u16(cell.value_6) | (u16(cell.flags_7) << 8);
+        const u16 value = adjusted_counter_word(old, selector, increment);
+        cell.value_6 = u8(value);
+        cell.flags_7 = u8(value >> 8);
+    }
+}
+}
+
+// Xbox 0x00110470
+void decrement_navigation_cell_counts(const NavigationCellRegistration& records, u32 grid)
+{
+    adjust_navigation_cell_counts(records, grid, false);
+}
+
+// Xbox 0x00110400
+void increment_navigation_cell_counts(const NavigationCellRegistration& records, u32 grid)
+{
+    adjust_navigation_cell_counts(records, grid, true);
+}
+
 // Xbox 0x001108B0
 void release_navigation_cell_registration(NavigationCellRegistration*& records, u32 grid)
 {
     if (records != nullptr)
     {
-        u8* end = records->end;
-        NavGrid* owner = g_nav_grids[grid];
-        for (u8* row = records->begin; row < end; row += 0xC)
-        {
-            u32 index;
-            u32 selector;
-            std::memcpy(&index, row, 4);
-            std::memcpy(&selector, row + 4, 4);
-            auto& cell = owner->cells[index];
-            const u16 old = u16(cell.value_6) | (u16(cell.flags_7) << 8);
-            u16 value;
-            if (selector == 0)
-            {
-                value = u16((((u32(old) - 1) ^ old) & 0x1F) ^ old);
-            }
-            else
-            {
-                value = u16(((((u32(old >> 5) - 1) << 5) ^ old) & 0x1E0) ^ old);
-            }
-            cell.value_6 = u8(value);
-            cell.flags_7 = u8(value >> 8);
-        }
+        decrement_navigation_cell_counts(*records, grid);
         engine_heap_free(records);
         records = nullptr;
     }
@@ -180,24 +202,7 @@ void register_navigation_cells(NavigationCellRegistration*& records, const Vec3&
     }
     else
     {
-        u8* end = records->end;
-        for (u8* row = records->begin; row < end; row += 0xC)
-        {
-            u32 index;
-            u32 selector;
-            std::memcpy(&index, row, 4);
-            std::memcpy(&selector, row + 4, 4);
-            auto& cell = grid->cells[index];
-            const u16 old = cell_counter_word(cell);
-            if (selector != 0)
-            {
-                store_cell_counter_word(cell, u16(((((u32(u16(old >> 5)) - 1) << 5) ^ old) & 0x1E0) ^ old));
-            }
-            else
-            {
-                store_cell_counter_word(cell, u16((((u32(old) - 1) ^ old) & 0x1F) ^ old));
-            }
-        }
+        decrement_navigation_cell_counts(*records, u32(floor));
         records->end = records->begin;
     }
     const float inner = radius * radius;
@@ -222,14 +227,13 @@ void register_navigation_cells(NavigationCellRegistration*& records, const Vec3&
             u32 selector;
             if (include_outer != 0 || inner > distance || index == center_index)
             {
-                store_cell_counter_word(cell, u16((((u32(old) + 1) ^ old) & 0x1F) ^ old));
                 selector = 0;
             }
             else
             {
-                store_cell_counter_word(cell, u16((((u32(old) & 0xFFE0) + 0x20 ^ old) & 0x1E0) ^ old));
                 selector = 1;
             }
+            store_cell_counter_word(cell, adjusted_counter_word(old, selector, true));
             u8* row = append_registration_row(records);
             std::memcpy(row + 4, &selector, 4);
             std::memcpy(row, &index, 4);

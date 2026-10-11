@@ -81,6 +81,7 @@ add_library(gbtg_lib STATIC
     src/engine/entities/cinema_mind_messages.cpp
     src/engine/entities/cinema_mind_tick.cpp
     src/engine/entities/cinema_mind_movement.cpp
+    src/engine/entities/cinema_mind_request_update.cpp
     src/engine/navigation/mind_vertical_navigation.cpp
     src/engine/navigation/mind_escape_position.cpp
     src/engine/navigation/mind_navigation_angles.cpp

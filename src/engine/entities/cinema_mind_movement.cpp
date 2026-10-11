@@ -146,17 +146,18 @@ u32 update_runtime_cinema_mind_timed_motion(RuntimeCinemaMindMovement& context,
 
 // Xbox 0x0007B840
 u32 request_runtime_cinema_mind_spawn_attachment(RuntimeCinemaMindMovement& context,
-    RuntimeBodyAttachedActor& target, std::span<const u8> target_link,
-    const std::function<void(RuntimeBodyAttachedActor&)>& attach,
-    std::span<u8> body, RuntimeBodyActionSelection& actions, u16 action_key)
+    RuntimeBodyAttachedActor* target,
+    const std::function<std::span<const u8>(const RuntimeBodyAttachedActor&)>& target_link,
+    const std::function<u16(RuntimeBodyAttachedActor&)>& attach,
+    std::span<u8> body, RuntimeBodyActionSelection& actions)
 {
     if (read_u32(context.mind, 0x18) != 0 && !(read_f32(context.mind, 0x98) > 0.f))
     {
-        if (actor_can_supply_ghoulybox(*target.actor) && target.bytes[0x93C] != 0)
+        if (actor_can_supply_ghoulybox(*target->actor) && target->bytes[0x93C] != 0)
         {
-            if (runtime_player_can_attach(context.eligibility, target, target_link))
+            if (runtime_player_can_attach(context.eligibility, *target, target_link(*target)))
             {
-                attach(target); // Actual body vtable +0x5C.
+                const u16 action_key = attach(*target); // Actual body vtable +0x5C, AX feeds 0x00027650.
                 select_runtime_body_action(body, action_key, actions);
             }
         }

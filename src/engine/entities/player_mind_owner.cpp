@@ -1,5 +1,7 @@
 #include "player_mind_owner.h"
 #include "player_mind_control.h"
+#include "cinema_mind_slots.h"
+#include "cinema_mind_requests.h"
 
 namespace gbtg
 {
@@ -48,6 +50,25 @@ const ObjectFactoryVtable* player_mind_lifecycle()
         destroy_player_mind_view};
     return &table;
 }
+bool construct_cinema_mind_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto& slots = active_owner->view(object);
+    if (slots.cinema == nullptr)
+    {
+        throw Error("cinema mind factory requires its native method contexts before construction");
+    }
+    return initialize_runtime_cinema_mind(slots.cinema->lifecycle, parameters);
+}
+void destroy_cinema_mind_view(FactoryObject& object)
+{
+    destroy_runtime_cinema_mind(active_owner->view(object).cinema->lifecycle);
+}
+const ObjectFactoryVtable* cinema_mind_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505478, runtime_cinema_mind_storage_sizes,
+        construct_cinema_mind_view, destroy_cinema_mind_view};
+    return &table;
+}
 }
 
 NativePlayerMindOwner::NativePlayerMindOwner(NativePlayerMindBindings bindings)
@@ -83,6 +104,12 @@ NativePlayerMindSlots& NativePlayerMindOwner::construct_view(FactoryObject& obje
     return *result;
 }
 
+void NativePlayerMindOwner::install_cinema(std::span<ObjectFactoryType> types)
+{
+    install(types);
+    types[0x35] = ObjectFactoryType{7, cinema_mind_lifecycle};
+}
+
 NativePlayerMindSlots& NativePlayerMindOwner::view(const FactoryObject& object)
 {
     return *instances_.at(object.bytes.get());
@@ -100,6 +127,12 @@ void NativePlayerMindOwner::release_view(const FactoryObject& object)
 void NativePlayerMindOwner::message(FactoryObject& mind, const void* message)
 {
     auto& slots = view(mind);
+    if (slots.cinema != nullptr)
+    {
+        dispatch_runtime_cinema_mind_message(slots.cinema->messages,
+            {static_cast<const u32*>(message), 0xC});
+        return;
+    }
     // 0x0007F1E0 reads at most message word 0xB, and only for the ids that carry it.
     const std::span<const u32> words(static_cast<const u32*>(message), 0xC);
     dispatch_runtime_player_mind_message(*slots.messages, words, slots.object_at(words[1]));
@@ -108,17 +141,32 @@ void NativePlayerMindOwner::message(FactoryObject& mind, const void* message)
 void NativePlayerMindOwner::tick(FactoryObject& mind, u32 input)
 {
     auto& slots = view(mind);
+    if (slots.cinema != nullptr)
+    {
+        tick_runtime_cinema_mind(slots.cinema->tick);
+        return;
+    }
     tick_runtime_player_mind(*slots.tick, slots.input_at(input));
 }
 
 i32 NativePlayerMindOwner::update_request(FactoryObject& mind, RuntimePlayerMindRequest& request)
 {
+    auto& slots = view(mind);
+    if (slots.cinema != nullptr)
+    {
+        return update_runtime_cinema_mind_request(slots.cinema->request_update, request.bytes);
+    }
     return update_runtime_player_mind_request(*view(mind).request_update, request);
 }
 
 u32 NativePlayerMindOwner::initialize_request(FactoryObject& mind, RuntimePlayerMindRequest& request)
 {
     auto& slots = view(mind);
+    if (slots.cinema != nullptr)
+    {
+        return initialize_runtime_cinema_mind_request(slots.actor, slots.cinema->target_bytes(),
+            request.bytes, slots.random);
+    }
     return prepare_runtime_player_mind_request(slots.mind, slots.actor, slots.target_position(), request.bytes,
         slots.random);
 }

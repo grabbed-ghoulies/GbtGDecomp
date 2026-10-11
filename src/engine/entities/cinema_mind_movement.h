@@ -35,9 +35,10 @@ bool update_runtime_cinema_mind_target_action(RuntimeCinemaMindMovement& context
     std::span<const u8> request, RuntimeMindChainRequestSelection& selection,
     std::span<u8> input, const RuntimeInputReleaseContext& input_context); // Xbox 0x0007B090
 u32 request_runtime_cinema_mind_spawn_attachment(RuntimeCinemaMindMovement& context,
-    RuntimeBodyAttachedActor& target, std::span<const u8> target_link,
-    const std::function<void(RuntimeBodyAttachedActor&)>& attach,
-    std::span<u8> body, RuntimeBodyActionSelection& actions, u16 action_key); // Xbox 0x0007B840
+    RuntimeBodyAttachedActor* target,
+    const std::function<std::span<const u8>(const RuntimeBodyAttachedActor&)>& target_link,
+    const std::function<u16(RuntimeBodyAttachedActor&)>& attach,
+    std::span<u8> body, RuntimeBodyActionSelection& actions); // Xbox 0x0007B840
 u32 update_runtime_cinema_mind_timed_motion(RuntimeCinemaMindMovement& context,
     std::span<const u8> request, const RuntimeBodyDamageTables& tables,
     std::span<const float> mode_scales); // Xbox 0x0007BA20

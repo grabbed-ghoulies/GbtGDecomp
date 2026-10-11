@@ -3,6 +3,7 @@
 #include "player_mind_request_update.h"
 #include "player_mind_setup.h"
 #include "player_parent_lifecycle.h"
+#include "cinema_mind_slots.h"
 #include "gbtg/object_factory.h"
 #include <memory>
 
@@ -35,6 +36,7 @@ struct NativePlayerMindSlots
     std::function<const Vec3*()> target_position; // Mind +0x10 object +0x20, or null.
     std::function<std::span<u8>(u32)> input_at; // Retail input device address -> device bytes.
     std::function<std::span<const u8>(u32)> object_at; // Message +4 object for 0x0002A2E0.
+    std::unique_ptr<NativeCinemaMindSlots> cinema; // Owned native slot view, required for shared type 0x35.
 };
 struct NativePlayerMindBindings
 {
@@ -50,6 +52,7 @@ public:
     NativePlayerMindOwner& operator=(const NativePlayerMindOwner&) = delete;
     // Installs types 7 and 0x34 (getters 0x00029D30 and 0x0007E100).
     void install(std::span<ObjectFactoryType> types);
+    void install_cinema(std::span<ObjectFactoryType> types); // Native getter view of Xbox 0x0007C520.
     NativePlayerMindSlots& construct_view(FactoryObject& object, std::span<const u8> parameters);
     NativePlayerMindSlots& view(const FactoryObject& object);
     void release_view(const FactoryObject& object);

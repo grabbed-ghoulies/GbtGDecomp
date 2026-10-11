@@ -7,6 +7,7 @@
 #include "navigation/mind_escape_position.h"
 #include "navigation/mind_navigation_angles.h"
 #include "entities/body_damage_motion.h"
+#include "entities/cinema_mind_request_update.h"
 #include <cstring>
 #include <iostream>
 
@@ -137,6 +138,15 @@ int main()
             set_runtime_input_vertical_axes(device,
                 {read_f32(parameters, 0), read_f32(parameters, 4)}, {object.bytes.get() + 0x800, 0x80});
             result = true;
+        }
+        else if (mode == 15)
+        {
+            Actor actor;
+            actor.position = {read_f32(parameters, 8), read_f32(parameters, 0xC), read_f32(parameters, 0x10)};
+            actor.euler.y = read_f32(parameters, 0x18);
+            result = update_runtime_cinema_mind_facing_request(std::span<const u8>{parameters}.subspan(0x600),
+                {object.bytes.get(), object.size}, actor, std::span<const u8>{parameters}.subspan(0x400),
+                std::span<const u8>{parameters}.subspan(0x800)) != 0;
         }
         else if (mode == 14)
         {

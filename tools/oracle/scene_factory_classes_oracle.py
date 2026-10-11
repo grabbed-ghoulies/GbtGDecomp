@@ -14,7 +14,7 @@ def main():
     count = int(sys.argv[2]) if len(sys.argv) > 2 else 3000
     lines, expected = [], []
     for case in range(count):
-        mode = case % 15
+        mode = case % 16
         state, slot = rng.getrandbits(32), rng.getrandbits(32)
         parameters = bytearray(rng.getrandbits(8) for _ in range(0x1000))
         data = bytearray(rng.getrandbits(8) for _ in range(0xC6C))
@@ -106,6 +106,19 @@ def main():
         if mode in [12, 13, 14]:
             for offset in range(0, 0x14, 4):
                 struct.pack_into('<f', parameters, offset, rng.uniform(-100, 100))
+        if mode == 15:
+            struct.pack_into('<H', parameters, 0x808, rng.choice([0x25, 0x26, 0x27]))
+            struct.pack_into('<I', parameters, 0x608, RECORDS + 0x2000)
+            struct.pack_into('<I', parameters, 0x610, rng.choice([0, RECORDS + 0x2400]))
+            struct.pack_into('<I', parameters, 0x95C, RECORDS)
+            struct.pack_into('<I', parameters, 0x88, 0)
+            struct.pack_into('<I', data, 8, RECORDS + 0x2000)
+            struct.pack_into('<H', data, 0x30, rng.randrange(2))
+            struct.pack_into('<f', data, 0x34, rng.choice([0., -0., 1., float('nan')]))
+            for offset in [8, 0xC, 0x10, 0x18, 0x420, 0x424, 0x428, 0x670, 0x674, 0x678, 0x810, 0x814, 0x818]:
+                struct.pack_into('<f', parameters, offset, rng.uniform(-100, 100))
+            for offset in [0x810, 0x81C]:
+                struct.pack_into('<f', parameters, offset, rng.choice([0., -1., 180., rng.uniform(0, 360), float('nan')]))
         cpu = Retail({}).u
         # Actual CRT angle tables used by 0x00105F90; no math capture stub.
         cpu.mem_map(0x00200000, 0x10000)
@@ -164,7 +177,10 @@ def main():
             cpu.mem_write(RECORDS + 0x70, bytes(parameters[:8]))
             cpu.reg_write(UC_X86_REG_ESI, RECORDS + 0x70)
             w32(cpu, STACK + 4, struct.unpack_from('<I', parameters, 8)[0])
-        cpu.emu_start([0x6DC10, 0x69660, 0x69910, 0x7C7D0, 0x7C580, 0x7C4C0, 0x7CCD0, 0x134510, 0x7B800, 0x29C80, 0x109260, 0x135B60, 0x100E90, 0x1060F0, 0x105DD0][mode], STOP, count=10000)
+        if mode == 15:
+            w32(cpu, STACK + 4, RECORDS + 0x2600)
+            w32(cpu, STACK + 8, RECORDS + 0x2800)
+        cpu.emu_start([0x6DC10, 0x69660, 0x69910, 0x7C7D0, 0x7C580, 0x7C4C0, 0x7CCD0, 0x134510, 0x7B800, 0x29C80, 0x109260, 0x135B60, 0x100E90, 0x1060F0, 0x105DD0, 0x7C0E0][mode], STOP, count=10000)
         if mode == 12:
             w32(cpu, RECORDS + 0x70, cpu.reg_read(UC_X86_REG_XMM0) & 0xFFFFFFFF)
         if mode == 10:
@@ -183,13 +199,13 @@ def main():
         got = list(map(int, line.split()))
         if got != wanted:
             if bad < 5:
-                print('case', index, 'mode', index % 15, 'diff', [i for i, pair in enumerate(zip(got, wanted)) if pair[0] != pair[1]][:20])
-                if index % 15 == 4:
+                print('case', index, 'mode', index % 16, 'diff', [i for i, pair in enumerate(zip(got, wanted)) if pair[0] != pair[1]][:20])
+                if index % 16 == 4:
                     for offset in [0x28, 0x2C, 0x34, 0x38]:
                         first, second = bytes(got[3 + offset:7 + offset]), bytes(wanted[3 + offset:7 + offset])
                         if first != second:
                             print(hex(offset), 'host', struct.unpack('<f', first)[0], 'retail', struct.unpack('<f', second)[0])
-                if index % 15 == 13:
+                if index % 16 == 13:
                     fixture = list(map(int, lines[index].split()))[3:3 + 0x1000]
                     print('offset inputs', struct.unpack_from('<5f', bytes(fixture)),
                         'host', struct.unpack('<3f', bytes(got[3 + 0x70:3 + 0x7C])),

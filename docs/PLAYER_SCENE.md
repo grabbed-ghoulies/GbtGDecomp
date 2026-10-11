@@ -4755,3 +4755,38 @@ the next pass: case 8 tests flag name then chance at request +0x40; case 0x19
 approaches the actor's +0xCC0 checkpoint at radius 5/approach 30/speed 1;
 case 0x25 faces mind +0x70, and case 0x26 uses inline request position +0x10.
 The dispatcher remains unregistered, and live spawning remains incomplete.
+
+Shared cinema dispatcher 0x0007C0E0 is now translated against the exported
+switch blocks, including flag/chance gates, sound-before-movement ordering,
+checkpoint approach, facing thresholds and genuine parent fallback. Review
+also corrected 0x0007B840: body vtable +0x5C returns the action key consumed
+by 0x00027650; it is not a caller-supplied key. Null target handling remains
+inside the retail gates. Added required NativeCinemaMindSlots and explicit
+install_cinema to the existing base mind owner, sharing type-7 lifecycle and
+request/event/storage ownership with player minds. Native getter view type
+0x35 uses vtable 0x00505478 and routes lifecycle/message/tick/request methods
+to the translated cinema implementations. This install path is available
+but not activated in the live scene: actual per-actor contexts must be built
+before constructors, and method-level acceptance is still pending. Resource
+views alias the lifecycle resource so acquisition is visible to requests.
+
+Dispatcher/owner build checkpoint: Release game and transition-test targets
+pass. The expanded sixteen-mode oracle passed 1,600 cases (seed 61) with
+zero mismatches. New coverage calls the actual retail 0x0007C0E0 switch for
+0x25/0x26/0x27 and compares all body bytes plus return values, including body
+state gates, null targets, NaN thresholds, inline/mind/target positions and
+relative heading wrapping. A 16,000-case seed-67 run is underway. This covers
+the facing portion of the dispatcher, not all movement, sound or action paths.
+
+Expanded dispatcher acceptance: 16,000 cases (seed 67) passed with zero
+mismatches across all sixteen modes. Native base mind slots now own the
+cinema slot view via unique_ptr, so it remains stable until base destruction
+releases the instance. The native constructor adapter rejects an unbound
+cinema context explicitly rather than dereferencing null or returning an
+invented success. Final Release builds pass. The existing player owner and
+its type-7 lifecycle continue to compile with the new optional owned view.
+Next dependency is the actual per-actor context builder and scene service
+graph; install_cinema is not called by the live scene yet. Type-0x46 strategy
+and book classes also remain required by the opening imp templates. Keep
+full dispatcher/tick/message coverage separate from the verified facing,
+primitive, constructor and selection modes above.

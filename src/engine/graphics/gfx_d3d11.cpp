@@ -1700,7 +1700,7 @@ void gfx_begin_frame()
     {
         return;
     }
-    const float clear[4] = {0.05f, 0.06f, 0.09f, 1.f};
+    const float clear[4] = {0.f, 0.f, 0.f, 1.f};
     g.context->OMSetRenderTargets(1, g.rtv.GetAddressOf(), g.dsv.Get());
     g.context->ClearRenderTargetView(g.rtv.Get(), clear);
     g.context->ClearDepthStencilView(g.dsv.Get(), D3D11_CLEAR_DEPTH, 1.f, 0);

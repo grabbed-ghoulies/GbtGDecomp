@@ -1,6 +1,7 @@
 #include "script_actor_query.h"
 #include "../entities/actor_spawn_eligibility.h"
 #include "../entities/actor_transform.h"
+#include "../entities/player_mind_events.h"
 #include "../navigation/navigation.h"
 #include "gbtg/anim.h"
 #include <bit>
@@ -313,6 +314,70 @@ Actor* find_nearest_runtime_script_actor(const Vec3* point, Actor& requester, i1
     if (found != nullptr && distance != nullptr)
     {
         *distance = float(retail_square_root(best));
+    }
+    return found;
+}
+
+// Xbox 0x00128F70
+Actor* find_nearest_runtime_script_actor_in_angle(Actor& requester, float heading,
+    float half_angle, float radius, float* angle, float* distance, u32 flags,
+    RuntimeScriptActorPredicate predicate, const RuntimeScriptActorQueryContext& context)
+{
+    Actor* found = nullptr;
+    const Vec3 origin = actor_world_position(requester);
+    if (!(radius > 0.f))
+    {
+        radius = std::bit_cast<float>(0x47C35000u); // DAT_0032B4AC.
+    }
+    float best = radius * radius;
+    const float pi = std::bit_cast<float>(0x40490FDBu);
+    const float turn = std::bit_cast<float>(0x40C90FDBu);
+    float picked_angle = heading + pi;
+    for (scene_detail::RangeLink* link = context.first; link != nullptr; link = link->next)
+    {
+        auto& candidate = context.views.at(link->host);
+        if (matches_runtime_script_actor_query(candidate, &requester, flags, context) != 0)
+        {
+            const Vec3 position = actor_world_position(candidate.actor);
+            const float dy = origin.y - position.y;
+            const float dx = origin.x - position.x;
+            const float dz = origin.z - position.z;
+            const float measured = (dz * dz + dy * dy) + dx * dx;
+            const Vec3 direction{position.x - origin.x, position.y - origin.y,
+                position.z - origin.z};
+            float candidate_angle;
+            runtime_direction_angle(direction, candidate_angle);
+            const long double remainder = animation_remainder(candidate_angle - heading, turn);
+            float relative = float(remainder);
+            if (static_cast<long double>(std::bit_cast<float>(0xC0490FDBu)) > remainder)
+            {
+                relative += turn;
+            }
+            if (relative >= pi)
+            {
+                relative -= turn;
+            }
+            const float magnitude = float(animation_absolute(relative));
+            if (best > measured && half_angle > magnitude
+                && runtime_script_actor_path_open(flags, &requester, candidate.actor)
+                && (predicate == nullptr || predicate(&requester, &candidate.actor) != 0))
+            {
+                found = &candidate.actor;
+                best = measured;
+                picked_angle = candidate_angle;
+            }
+        }
+    }
+    if (found != nullptr)
+    {
+        if (angle != nullptr)
+        {
+            *angle = picked_angle;
+        }
+        if (distance != nullptr)
+        {
+            *distance = float(retail_square_root(best));
+        }
     }
     return found;
 }

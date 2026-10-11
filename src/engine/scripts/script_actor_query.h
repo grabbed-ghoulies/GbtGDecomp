@@ -72,4 +72,8 @@ bool runtime_script_actor_path_open(u32 flags, const Actor* requester,
 Actor* find_nearest_runtime_script_actor(const Vec3* point, Actor& requester, i16 tag, float radius,
     float* distance, u32 flags, RuntimeScriptActorPredicate predicate,
     const RuntimeScriptActorQueryContext& context); // Xbox 0x00128DF0, EAX point
+Actor* find_nearest_runtime_script_actor_in_angle(Actor& requester, float heading,
+    float half_angle, float radius, float* angle, float* distance, u32 flags,
+    RuntimeScriptActorPredicate predicate,
+    const RuntimeScriptActorQueryContext& context); // Xbox 0x00128F70
 }

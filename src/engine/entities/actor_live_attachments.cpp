@@ -9,6 +9,23 @@ namespace gbtg
 {
 std::array<ActorAttachmentSlot, 20> g_actor_attachment_slots;
 
+// Xbox 0x0012B1A0
+void suspend_actor_live_attachment(ActorLiveAttachment& record, bool suspend)
+{
+    if (suspend)
+    {
+        if (record.retained_18 == 0)
+        {
+            ActorAttachmentReleaseMessage message{0x8D, &record, 1};
+            broadcast_actor_pulse_message(reinterpret_cast<const i32*>(&message));
+            release_actor_attachment_slot(&record);
+        }
+        ++record.retained_18;
+        return;
+    }
+    --record.retained_18;
+}
+
 // Xbox 0x0012AFE0
 ActorLiveAttachment* allocate_actor_live_attachment(Actor& actor,
     entity_detail::ListHead& owner, entity_detail::ListHead& global,

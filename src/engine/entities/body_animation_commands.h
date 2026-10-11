@@ -55,6 +55,10 @@ void command_runtime_body_target_push(Actor& actor, const EntityBitBlock& flags,
 void record_runtime_body_attachment_event(const u8* record,
     const RuntimeActorCreationOptions* options, ActorAttachmentEventContext& context,
     u32 value); // Xbox 0x0013B8B0
+void request_runtime_player_attachment_events(const u8* record,
+    ActorAttachmentEventContext& context, i32 id, u32 output_address); // Xbox 0x0013B7E0
+void clear_runtime_player_attachment_events(std::span<u8> events,
+    RuntimeBodyAttachmentLists& lists); // Xbox 0x0013B810
 void command_runtime_body_attachment_list(std::span<u8> body, u32 body_address,
     bool clear, const u8* record, ActorAttachmentEventContext& events,
     RuntimeBodyAttachmentLists& lists); // Xbox 0x0001AE00

@@ -1,12 +1,355 @@
 #include "player_mind_control.h"
 #include "gbtg/anim.h"
 #include "actor_live_attachments.h"
+#include "shape_copy.h"
 #include <bit>
 #include <cmath>
 #include <cstring>
 
 namespace gbtg
 {
+// Xbox 0x0007EA20
+std::span<u8> refresh_runtime_player_shape_target(RuntimePlayerMindShapeTarget& context,
+    float angle, float distance)
+{
+    auto body = context.body;
+    auto mind = context.mind;
+    auto* attachment = context.attachment;
+    if (attachment == nullptr || (body[0x6A] != 0
+        && read_u32(mind, 0x14) != context.mind_address + 0xB8))
+    {
+        return {};
+    }
+    if ((body[0x6B] == 0 && body[0x6A] == 0 && !(read_f32(body, 0x70) > 0.f)
+        && read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f
+        && (context.flags.bytes[3] & 8) == 0
+        && !runtime_body_bit_set(context.flags, 0x2C)
+        && !runtime_body_bit_set(context.flags, 0x2A)) || (context.flags.bytes[5] & 0x80) != 0)
+    {
+        std::array<u8, 0x20> first, second;
+        copy_actor_shape(first.data(), attachment->shape.data());
+        copy_actor_shape(second.data(), attachment->secondary_shape.data());
+        Vec3 position = actor_world_position(context.actor);
+        const float sine = float(retail_sin(angle));
+        position.x = sine * distance + position.x;
+        const float cosine = float(retail_cos(angle) * distance + position.z);
+        position.z = cosine;
+        std::memcpy(first.data() + 4, &position, sizeof(position));
+        std::memcpy(second.data() + 4, &position, sizeof(position));
+        copy_actor_shape(mind.data() + 0xD4, first.data());
+        copy_actor_shape(mind.data() + 0xF4, second.data());
+        std::memcpy(mind.data() + 0x114, &actor_transform_origin, sizeof(Vec3));
+        mind[0xD1] = u8(context.floor);
+    }
+    return mind.subspan(0xB8, 0x68);
+}
+
+// Xbox 0x0007E9E0
+std::span<const u8> redirect_runtime_player_shape_target(RuntimePlayerMindShapeTarget& context,
+    const RuntimePlayerAttachmentEligibility& body, std::span<const u8> candidate, float angle)
+{
+    if (candidate[0x14] > 0 && candidate[0x14] <= 2)
+    {
+        if (!runtime_player_body_point_is_near(body, candidate))
+        {
+            return refresh_runtime_player_shape_target(context, angle, 80.f);
+        }
+    }
+    return candidate;
+}
+
+// Xbox 0x0007E960
+bool runtime_player_mind_accepts_target(const RuntimePlayerAttachmentEligibility& body,
+    std::span<const u8> target_body, const Actor& target_actor,
+    std::span<const u8> candidate, const LiveScript& events, std::span<const u8> address_zero)
+{
+    const bool near = runtime_player_body_target_is_near(body, target_body, target_actor);
+    static_cast<void>(runtime_player_body_point_is_near(body, candidate));
+    if (near)
+    {
+        auto* node = events.next;
+        while (node != nullptr && u16(node->type) != 3)
+        {
+            node = node->next;
+        }
+        const auto bytes = node == nullptr ? address_zero : static_cast<const RuntimeMindEvent*>(node)->bytes;
+        return read_f32(bytes, 0x18) >= std::bit_cast<float>(0x3F266666u);
+    }
+    return true;
+}
+
+// Xbox 0x0002A130
+void set_runtime_mind_gaze_anchor(std::span<u8> mind, u32 anchor_address, u32& random_state)
+{
+    std::memcpy(mind.data() + 0x30, &anchor_address, 4);
+    const u32 zero = 0;
+    std::memcpy(mind.data() + 0x34, &zero, 4);
+    float duration = 0.f;
+    if (anchor_address != 0)
+    {
+        random_state = random_state * 0x19660Du + 0x3C6EF35Fu;
+        const float fraction = std::bit_cast<float>((random_state & 0x7FFFFFu) | 0x3F800000u) - 1.f;
+        duration = fraction * 0.5f + 0.5f;
+    }
+    std::memcpy(mind.data() + 0x38, &duration, 4);
+}
+
+// Xbox 0x00137140
+void update_runtime_player_mind_gaze(RuntimePlayerMindGaze& context,
+    i32 check_path, float maximum_height, float radius)
+{
+    auto mind = context.mind;
+    auto body = context.body;
+    if (read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f)
+    {
+        if (read_u32(mind, 0x3C) == 0)
+        {
+            const Vec3 origin = runtime_body_gaze_origin(body, context.body_actor);
+            if (context.anchor == nullptr || read_f32(mind, 0x34) >= read_f32(mind, 0x38))
+            {
+                if (mind[0x20] == 0 || context.target == nullptr)
+                {
+                    context.anchor = find_nearest_actor_model_anchor(context.actor, origin,
+                        check_path, maximum_height, radius);
+                }
+                else
+                {
+                    context.anchor = select_actor_model_anchor(*context.target, context.random_state);
+                }
+                const u32 address = context.anchor == nullptr ? 0 : context.addresses.at(context.anchor);
+                set_runtime_mind_gaze_anchor(mind, address, context.random_state);
+            }
+            if (context.anchor != nullptr)
+            {
+                std::memcpy(body.data() + 0x2FC, &context.anchor->output, sizeof(Vec3));
+                body[0x308] = 1;
+                return;
+            }
+            std::array<float, 2> axes;
+            runtime_input_secondary_axes(context.input, axes, context.input_state);
+            if (axes[0] != 0.f || axes[1] != 0.f)
+            {
+                const float facing = context.actor.euler.y;
+                const float angle = float(runtime_input_axes_angle(axes));
+                set_runtime_body_gaze_angle(body, context.body_actor, runtime_relative_angle(angle, facing));
+            }
+            return;
+        }
+        std::memcpy(body.data() + 0x2FC, mind.data() + 0x40, sizeof(Vec3));
+        body[0x308] = 1;
+    }
+    const u32 zero = 0;
+    std::memcpy(mind.data() + 0x3C, &zero, 4);
+}
+
+// Xbox 0x0007E3A0
+bool request_runtime_player_idle_action(std::span<u8> mind,
+    RuntimeBodyAttachmentRequests& body, u32& random_state)
+{
+    // DAT_002FFEE4, addressed backwards by the negative sampled index.
+    constexpr std::array<u16, 6> keys{135, 136, 162, 165, 153, 154};
+    random_state = random_state * 0x19660Du + 0x3C6EF35Fu;
+    const float fraction = std::bit_cast<float>((random_state & 0x7FFFFFu) | 0x3F800000u) - 1.f;
+    const i32 sampled = i32(fraction * -6.f); // DAT_0032B664.
+    const u8* row = find_runtime_attachment_first_request(*body.tables, keys[size_t(-sampled)]);
+    if (row != nullptr)
+    {
+        const u32 zero = 0;
+        std::memcpy(mind.data() + 0x14, &zero, 4);
+        accept_runtime_attachment_request(body, row, 0);
+        return true;
+    }
+    return false;
+}
+
+// Xbox 0x0007D210
+void update_runtime_player_pending_attachment(RuntimePlayerMindPendingAttachment& context)
+{
+    auto* pending = context.pending;
+    context.pending = nullptr;
+    const u32 zero = 0;
+    std::memcpy(context.mind.data() + 0x134, &zero, 4);
+    if (!(read_f32(context.mind, 0x15C) > 0.f) && pending != nullptr)
+    {
+        const auto link = context.links.at(pending);
+        if (runtime_player_can_attach(context.eligibility, *pending, link)
+            && runtime_input_button_edge(context.input, 0x100, context.input_state) != 0)
+        {
+            context.action = pending;
+            std::memcpy(context.mind.data() + 0x18, &pending->address, 4);
+            const u32 key = context.attach(*pending);
+            select_runtime_body_action(context.body, u16(key), context.actions);
+        }
+    }
+}
+
+// Xbox 0x0007E160
+void update_runtime_player_mind_inactivity(RuntimePlayerMindInactivity& control,
+    RuntimeBodyAttachmentRequests& body, const ActorAnimationState& animation,
+    u32& random_state)
+{
+    auto mind = control.mind;
+    const auto put = [mind](size_t offset, u32 value)
+    {
+        std::memcpy(mind.data() + offset, &value, 4);
+    };
+    std::array<float, 2> axes;
+    runtime_input_axes(control.input, axes, control.input_state);
+    bool active = axes[1] * axes[1] + axes[0] * axes[0] > std::bit_cast<float>(0x3C23D70Bu);
+    if (!active)
+    {
+        runtime_input_secondary_axes(control.input, axes, control.input_state);
+        active = axes[1] * axes[1] + axes[0] * axes[0] > std::bit_cast<float>(0x3C23D70Bu);
+    }
+    if (active)
+    {
+        put(0x148, 0);
+        put(0x150, 0);
+        put(0x154, 0);
+    }
+    else
+    {
+        put(0x148, std::bit_cast<u32>(read_f32(mind, 0x148) + runtime_frame_step(control.clock)));
+    }
+    if (read_u32(mind, 0x144) == 0)
+    {
+        return;
+    }
+    if (read_u16(body.body, 0x748) == 0x2C
+        && runtime_actor_animation_crossed_position(animation, 0, read_f32(mind, 0x14C))
+        && mind[0x20] != 0 && request_runtime_player_idle_action(mind, body, random_state))
+    {
+        put(0x154, 1);
+    }
+    if (read_u16(body.body, 0x30) != 0 || read_f32(body.body, 0x34) != 0.f)
+    {
+        return;
+    }
+    if ((control.flags.bytes[6] & 1) == 0)
+    {
+        return;
+    }
+    bool request = false;
+    if (read_u32(body.body, 0x48) == 0 && read_u32(body.body, 0x50) == 0)
+    {
+        request = read_f32(mind, 0x148) > 10.f && std::bit_cast<i32>(read_u32(mind, 0x150)) > 2;
+    }
+    else
+    {
+        put(0x154, 0);
+    }
+    if (mind[0x20] == 0)
+    {
+        put(0x154, 0);
+    }
+    if (request || read_u32(mind, 0x154) != 0)
+    {
+        if (body.actions.table != nullptr)
+        {
+            u32 optional;
+            const u8* row = find_runtime_script_table_row(body.actions.table, 0x2C, optional);
+            if (row != nullptr)
+            {
+                select_runtime_body_action_row(body.body, row, nullptr, body.actions);
+            }
+        }
+        put(0x148, 0);
+        put(0x150, 0);
+        put(0x154, 1);
+        random_state = random_state * 0x19660Du + 0x3C6EF35Fu;
+        const float fraction = std::bit_cast<float>((random_state & 0x7FFFFFu) | 0x3F800000u) - 1.f;
+        const float position = fraction * std::bit_cast<float>(0x3EB33332u)
+            + std::bit_cast<float>(0x3F19999Au);
+        put(0x14C, std::bit_cast<u32>(position));
+    }
+}
+
+// Xbox 0x0007EBC0
+u32 prepare_runtime_player_mind_request(std::span<u8> mind, Actor& actor,
+    const Vec3* reference_position, std::span<u8> message, u32& random_state)
+{
+    const auto put = [](std::span<u8> bytes, size_t offset, u32 word)
+    {
+        std::memcpy(bytes.data() + offset, &word, 4);
+    };
+    const auto randomize = [&message, &random_state, &put](size_t range_offset, size_t output_offset)
+    {
+        const std::array<float, 2> range{read_f32(message, range_offset), read_f32(message, range_offset + 4)};
+        float output;
+        randomize_runtime_player_request_value(range, output, random_state);
+        put(message, output_offset, std::bit_cast<u32>(output));
+    };
+    const u16 kind = read_u16(message, 8);
+    if (kind == 0x29)
+    {
+        randomize(0x10, 0x18);
+    }
+    switch (kind)
+    {
+    case 0xF:
+        randomize(0x10, 0x2C);
+        break;
+    case 0x10:
+        randomize(0x1C, 0x38);
+        break;
+    case 0x11:
+        randomize(0x10, 0x38);
+        break;
+    case 0x16:
+        put(mind, 0x130, 0);
+        put(mind, 0x124, 0);
+        put(mind, 0x94, 0);
+        put(mind, 0xB0, 0);
+        put(mind, 0xA0, 0);
+        put(mind, 0xA4, 0);
+        put(mind, 0x98, 1);
+        put(mind, 0x9C, 0);
+        put(mind, 0xA8, 0);
+        put(mind, 0xAC, 0);
+        break;
+    case 0x24:
+    {
+        float angle;
+        if (reference_position == nullptr || read_u32(message, 0x20) != 0)
+        {
+            angle = actor.euler.y;
+        }
+        else
+        {
+            angle = runtime_actor_direction_to_point(actor, *reference_position);
+        }
+        random_state = random_state * 0x19660Du + 0x3C6EF35Fu;
+        const float spread = read_f32(message, 0x14);
+        const float negative = 0.0f - spread;
+        const float fraction = std::bit_cast<float>((random_state & 0x7FFFFFu) | 0x3F800000u) - 1.0f;
+        const float sampled = (((spread - negative) * fraction + read_f32(message, 0x10)) + negative) *
+            std::bit_cast<float>(u32(0x3C8EFA35)) + angle;
+        put(message, 0x28, std::bit_cast<u32>(sampled));
+        break;
+    }
+    case 0x2D:
+        randomize(0x10, 0x20);
+        break;
+    case 0x2E:
+        randomize(0x1C, 0x2C);
+        break;
+    case 0x2F:
+        randomize(0x10, 0x2C);
+        break;
+    }
+    return 1;
+}
+
+// Xbox 0x0007EDF0
+void randomize_runtime_player_request_value(std::span<const float, 2> range,
+    float& output, u32& random_state)
+{
+    const float minimum = range[0];
+    const float maximum = range[1];
+    random_state = random_state * 0x19660Du + 0x3C6EF35Fu;
+    const float fraction = std::bit_cast<float>((random_state & 0x7FFFFFu) | 0x3F800000u) - 1.0f;
+    output = (maximum - minimum) * fraction + minimum;
+}
 namespace
 {
 void put_float(std::span<u8> bytes, size_t offset, float value)

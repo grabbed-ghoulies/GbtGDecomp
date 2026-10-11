@@ -1,4 +1,6 @@
 #include "navigation.h"
+#include "floor_tracking.h"
+#include "gbtg/anim.h"
 
 #include <bit>
 #include <cmath>
@@ -52,10 +54,107 @@ void discard_neighbor_distance(const NavCell& first, const NavCell& second)
     if (squared != 0.f)
     {
         // 0x00152B30 computes the square root; both callers discard its result.
-        const volatile double distance = std::sqrt(double(squared));
+        const volatile long double distance = retail_square_root(squared);
         (void)distance;
     }
 }
+}
+
+// Xbox 0x00111660
+i32 navigation_nearest_open_cell(u32 index, i32 floor, Vec3* point)
+{
+    const NavGrid& grid = *g_nav_grids[floor];
+    const u32 x = index % u32(grid.width);
+    const u32 z = index / u32(grid.width);
+    i32 radius = 1;
+    for (;;)
+    {
+        i32 outside = 0;
+        for (i32 direction = 0; direction < 8; ++direction)
+        {
+            const i32 nx = std::bit_cast<i32>(x - u32(neighbor_x[direction]) * u32(radius));
+            const i32 nz = std::bit_cast<i32>(z - u32(neighbor_z[direction]) * u32(radius));
+            if (nx < 0 || nx >= grid.width || nz < 0 || nz >= grid.depth)
+            {
+                ++outside;
+            }
+            else
+            {
+                const NavGrid& current_grid = *g_nav_grids[floor];
+                const i32 candidate = current_grid.width * nz + nx;
+                const NavCell& cell = current_grid.cells[candidate];
+                if ((cell.flags_7 & 2) == 0 && (cell.value_6 & 0x1F) == 0 &&
+                    ((cell.region & 0xFFF) == 0 || (cell.region & 0x1000) == 0))
+                {
+                    if (point == nullptr)
+                    {
+                        return candidate;
+                    }
+                    const NavCell& selected = g_nav_grids[floor]->cells[candidate];
+                    *point = Vec3{float(selected.x), float(selected.bottom), float(selected.z)};
+                    return candidate;
+                }
+            }
+        }
+        if (outside == 8)
+        {
+            return -1;
+        }
+        radius = std::bit_cast<i32>(u32(radius) + 1);
+    }
+}
+
+// Xbox 0x00036A60
+float navigation_cell_distance_cost(const NavGrid& grid, u32 source, u32 destination)
+{
+    const NavCell& first = grid.cells[source];
+    const NavCell& second = grid.cells[destination];
+    const float dx = float(i32(first.x) - i32(second.x));
+    const float dy = float(i32(first.bottom) - i32(second.bottom));
+    const float dz = float(i32(first.z) - i32(second.z));
+    const float squared = dz * dz + (dy * dy + dx * dx);
+    const float distance = squared != 0.0f ? float(retail_square_root(squared)) : 0.0f;
+    return grid.cost_scale * distance;
+}
+
+// Xbox 0x00037340
+bool navigation_search_cells_connected(const NavigationPathSearch& search,
+    u32 source, i32 destination)
+{
+    i32 direction = 0;
+    for (;;)
+    {
+        const NavGrid& grid = *search.grid;
+        const i32 x = static_cast<i32>(source % static_cast<u32>(grid.width));
+        const i32 z = static_cast<i32>(source / static_cast<u32>(grid.width));
+        if (direction >= 8)
+        {
+            return false;
+        }
+        const NavCell& cell = grid.cells[source];
+        while (direction < 8)
+        {
+            const i32 next_x = x + neighbor_x[direction];
+            const i32 next_z = z + neighbor_z[direction];
+            const u32 bit = 1u << direction;
+            ++direction;
+            if ((cell.connections & bit) == 0 || next_x < 0 || next_x >= grid.width ||
+                next_z < 0 || next_z >= grid.depth)
+            {
+                continue;
+            }
+            const i32 next = next_z * grid.width + next_x;
+            discard_neighbor_distance(cell, grid.cells[next]);
+            if (destination == next)
+            {
+                return true;
+            }
+            goto next_connected_neighbor;
+        }
+        return false;
+next_connected_neighbor:
+        ;
+    }
 }
 
 // Xbox 0x0012CB80
@@ -339,6 +438,96 @@ bool navigation_cells_connected(const NavGrid& grid, u32 destination, i32 source
         const i32 neighbor = grid.width * z + x;
         discard_neighbor_distance(cell, grid.cells[neighbor]);
         if (neighbor == source)
+        {
+            return true;
+        }
+    }
+    while (true);
+}
+
+// Xbox 0x00036560
+u32 navigation_neighbor_direction_mask(i32 x, u32 z)
+{
+    i32 index = 0;
+    while (neighbor_x[index] != x || u32(neighbor_z[index]) != z)
+    {
+        ++index;
+        if (index > 7)
+        {
+            return z & 0xFFFFFF00u;
+        }
+    }
+    return 1u << (u32(index) & 0x1F);
+}
+
+// Xbox 0x00036590
+bool navigation_neighbor_connected(const NavGrid& grid, u32 source, u32 destination)
+{
+    if (source == destination)
+    {
+        return true;
+    }
+    const u32 width = u32(grid.width);
+    const i32 x = std::bit_cast<i32>(destination % width - source % width);
+    const i32 z = std::bit_cast<i32>(destination / width - source / width);
+    i32 absolute_x = x;
+    if (absolute_x < 0)
+    {
+        absolute_x = std::bit_cast<i32>(0u - u32(absolute_x));
+    }
+    if (absolute_x < 2)
+    {
+        i32 absolute_z = z;
+        if (absolute_z < 0)
+        {
+            absolute_z = std::bit_cast<i32>(0u - u32(absolute_z));
+        }
+        if (absolute_z < 2
+            && (grid.cells[source].connections & u8(navigation_neighbor_direction_mask(x, u32(z)))) != 0)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Xbox 0x00036600
+bool navigation_cell_has_no_open_neighbor(const NavGrid& grid, u32 index, u32 use_region)
+{
+    const NavCell& cell = grid.cells[index];
+    u16 region;
+    if (use_region == 0)
+    {
+        region = 0;
+    }
+    else
+    {
+        region = cell.region & 0xFFF;
+    }
+    i32 direction = 0;
+    do
+    {
+        const i32 x = std::bit_cast<i32>(index % u32(grid.width) + u32(neighbor_x[direction]));
+        const i32 z = std::bit_cast<i32>(index / u32(grid.width) + u32(neighbor_z[direction]));
+        const i32 bit = direction;
+        ++direction;
+        if ((cell.connections & (1u << bit)) != 0 && x >= 0 && x < grid.width
+            && z >= 0 && z < grid.depth)
+        {
+            const NavCell& neighbor = grid.cells[grid.width * z + x];
+            if ((region != 0 && (neighbor.region & 0xFFF) == region)
+                || ((neighbor.flags_7 & 2) == 0
+                    && ((neighbor.region & 0xFFF) == 0 || (neighbor.region & 0x1000) == 0)))
+            {
+                if ((neighbor.value_6 & 0x1F) == 0 || (neighbor.region & 0x8000) != 0
+                    || (neighbor.region & 0xFFF) != 0)
+                {
+                    discard_neighbor_distance(cell, neighbor);
+                    return false;
+                }
+            }
+        }
+        if (direction > 7)
         {
             return true;
         }

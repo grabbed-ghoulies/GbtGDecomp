@@ -29,4 +29,10 @@ struct ActorModelAnchorReleaseMessage
     ActorModelAnchor* anchor;
 };
 void release_actor_model_anchor(ActorModelAnchor& anchor); // Xbox 0x0011BDA0
+void clear_actor_model_anchors(entity_detail::ListHead& owner_head); // Xbox 0x0003EF40
+bool actor_model_anchor_path_clear(const ActorModelAnchor& anchor,
+    const Vec3& source); // Xbox 0x0011C130
+ActorModelAnchor* find_nearest_actor_model_anchor(Actor& requester, const Vec3& source,
+    i32 check_path, float maximum_height, float radius); // Xbox 0x0011BED0
+ActorModelAnchor* select_actor_model_anchor(Actor& owner, u32& random_state); // Xbox 0x0011BFF0
 }

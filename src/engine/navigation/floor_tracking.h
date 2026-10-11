@@ -4,6 +4,8 @@
 namespace gbtg::entity_detail
 {
 // Retail 0x34-byte search state. Node rows are 0x14 bytes with their u16 index at +0xA.
+// Links in +0/+4 use relocated references: 0=null, 1=search sentinel,
+// index+2=node. This keeps both pointer words in their original four-byte slots.
 struct NavigationPathSearch
 {
     u32 word_0 = 0;
@@ -25,6 +27,10 @@ void reset_navigation_path_search(NavigationPathSearch& search, u8* nodes, const
 void clear_navigation_path_search(NavigationPathSearch& search); // Xbox 0x00036BC0
 void begin_navigation_path_search(NavigationPathSearch& search, i32 last, i32 first); // Xbox 0x00036C80
 u32 navigation_path_search_has_result(const NavigationPathSearch& search); // Xbox 0x00036C60
+u32 advance_navigation_path_search(NavigationPathSearch& search, u32 surface_mask,
+    float elapsed); // Xbox 0x00036EB0
+u32 update_navigation_path_search(NavigationPathSearch& search, u32 surface_mask,
+    float elapsed); // Xbox 0x00036CA0
 u32 update_navigation_floor(const Vec3& point, i32& floor, NavigationCellRegistration*& records,
     NavigationPathSearch* search, i32 preferred, i32 check_cell); // Xbox 0x00110C90, ECX/EAX last two
 }

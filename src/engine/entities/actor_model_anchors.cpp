@@ -2,9 +2,12 @@
 #include "entity_heap.h"
 #include "actor_live_attachments.h"
 #include "gbtg/model_runtime.h"
+#include "../scripts/script_actor_query.h"
+#include "../navigation/navigation.h"
 
 #include <cstring>
 #include <bit>
+#include <cstddef>
 
 namespace gbtg
 {
@@ -37,6 +40,130 @@ void release_actor_model_anchor(ActorModelAnchor& anchor)
 }
 
 entity_detail::ListHead g_actor_model_anchors;
+
+// Xbox 0x0011C130
+bool actor_model_anchor_path_clear(const ActorModelAnchor& anchor, const Vec3& source)
+{
+    Vec3 destination = anchor.output;
+    if (anchor.radius != 0.f)
+    {
+        Vec3 direction{source.x - anchor.output.x, source.y - anchor.output.y,
+            source.z - anchor.output.z};
+        const float squared = (direction.z * direction.z + direction.x * direction.x)
+            + direction.y * direction.y;
+        if (squared != 0.f)
+        {
+            const long double scale = retail_reciprocal_sqrt(squared) * anchor.radius;
+            direction.x = float(static_cast<long double>(direction.x) * scale);
+            direction.y = float(static_cast<long double>(direction.y) * scale);
+            direction.z = float(static_cast<long double>(direction.z) * scale);
+        }
+        destination = {anchor.output.x + direction.x, anchor.output.y + direction.y,
+            anchor.output.z + direction.z};
+    }
+    i32 last_cell;
+    return navigation_path_clear(source, destination, 0, 0, 0, 0, nullptr, &last_cell, 0);
+}
+
+// Xbox 0x0011BED0
+ActorModelAnchor* find_nearest_actor_model_anchor(Actor& requester, const Vec3& source,
+    i32 check_path, float maximum_height, float radius)
+{
+    ActorModelAnchor* selected = nullptr;
+    const float squared_radius = radius * radius;
+    float nearest = squared_radius;
+    auto* node = static_cast<entity_detail::ListHead*>(g_actor_model_anchors.next);
+    while (node != nullptr)
+    {
+        auto* anchor = reinterpret_cast<ActorModelAnchor*>(reinterpret_cast<u8*>(node)
+            - offsetof(ActorModelAnchor, global_link));
+        if (!script_actor_has_ancestor(anchor->owner, &requester))
+        {
+            const float height = float(static_cast<long double>(anchor->output.y) - source.y);
+            if (!(animation_absolute(height) > maximum_height))
+            {
+                const float dz = anchor->output.z - source.z;
+                const float dx = anchor->output.x - source.x;
+                const float horizontal = dz * dz + dx * dx;
+                if (!(horizontal > squared_radius))
+                {
+                    const float x = anchor->output.x - source.x;
+                    const float y = anchor->output.y - source.y;
+                    const float z = anchor->output.z - source.z;
+                    const float distance = (z * z + x * x) + y * y;
+                    if (!(distance > nearest)
+                        && (check_path == 0 || actor_model_anchor_path_clear(*anchor, source)))
+                    {
+                        selected = anchor;
+                        nearest = distance;
+                    }
+                }
+            }
+        }
+        node = static_cast<entity_detail::ListHead*>(node->next);
+    }
+    return selected;
+}
+
+// Xbox 0x0011BFF0
+ActorModelAnchor* select_actor_model_anchor(Actor& owner, u32& random_state)
+{
+    i32 count = 0;
+    auto* node = static_cast<entity_detail::ListHead*>(g_actor_model_anchors.next);
+    if (node != nullptr)
+    {
+        do
+        {
+            auto* anchor = reinterpret_cast<ActorModelAnchor*>(reinterpret_cast<u8*>(node)
+                - offsetof(ActorModelAnchor, global_link));
+            if (script_actor_has_ancestor(anchor->owner, &owner))
+            {
+                ++count;
+            }
+            node = static_cast<entity_detail::ListHead*>(node->next);
+        }
+        while (node != nullptr);
+        if (count != 0)
+        {
+            random_state = random_state * 0x19660Du + 0x3C6EF35Fu;
+            const float fraction = std::bit_cast<float>((random_state & 0x7FFFFFu) | 0x3F800000u) - 1.f;
+            const i32 selected = i32(fraction * float(count));
+            i32 index = 0;
+            node = static_cast<entity_detail::ListHead*>(g_actor_model_anchors.next);
+            while (true)
+            {
+                if (node == nullptr)
+                {
+                    return nullptr;
+                }
+                auto* anchor = reinterpret_cast<ActorModelAnchor*>(reinterpret_cast<u8*>(node)
+                    - offsetof(ActorModelAnchor, global_link));
+                if (script_actor_has_ancestor(anchor->owner, &owner))
+                {
+                    if (selected == index)
+                    {
+                        return anchor;
+                    }
+                    ++index;
+                }
+                node = static_cast<entity_detail::ListHead*>(node->next);
+            }
+        }
+    }
+    return nullptr;
+}
+
+// Xbox 0x0003EF40
+void clear_actor_model_anchors(entity_detail::ListHead& owner_head)
+{
+    auto* node = static_cast<entity_detail::ListHead*>(owner_head.next);
+    while (node != nullptr)
+    {
+        auto* next = static_cast<entity_detail::ListHead*>(node->next);
+        release_actor_model_anchor(*reinterpret_cast<ActorModelAnchor*>(node));
+        node = next;
+    }
+}
 
 // Xbox 0x000408D0
 const u8* find_actor_model_binding(const Actor& actor, i16 kind)

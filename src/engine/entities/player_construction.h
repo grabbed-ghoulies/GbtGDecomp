@@ -5,6 +5,7 @@
 
 namespace gbtg
 {
+void runtime_player_storage_sizes(std::span<u32, 2> sizes); // Xbox 0x00027F40
 struct RuntimePlayerConstruction
 {
     Actor& actor;

@@ -3639,3 +3639,359 @@ cell-registration counter helpers 0x00110400/0x00110470 are also translated and 
 existing registration update/release paths. They apply the retail wrapping 5-bit inner or 5-bit
 outer counter update to every registered cell. The larger navigation and pathfinding chain remains
 open.
+
+### Navigation route continuation (2026-10-11)
+
+After reviewing the strategy/goal and search-state changes from the other agents,
+work continues on the remaining mind navigation chain. Route append 0x000376B0,
+endpoint updates 0x000376F0, route validation 0x00037720/0x00036E90 and route
+extraction 0x00037470/0x00036E50 now use native pool pointers and the existing
+real heap/growth methods. Extraction follows the signed node predecessor fields,
+preserves cell heights and replaces only endpoint X/Z coordinates. Neighbor mask
+0x00036560, adjacency 0x00036590 and open-neighbor query 0x00036600 are translated.
+This batch awaits verification; the search update and mind navigation composition
+remain open. Live spawning is still incomplete.
+
+Route differential verification passed: `navigation_route_oracle.py 1 400`
+reported **400 cases, zero mismatches**, comparing all route words for extraction,
+heap growth, point append, endpoint replacement, and route validation. Only the
+retail heap allocator/reallocator calls are bridged. The Release game build
+passed; the transition test executable is still compiling in the same batch.
+
+Translated `0x00037340` as `navigation_search_cells_connected`, preserving the
+retail neighbor order, connection/bounds gates, discarded distance calculation,
+and grid reload after each eligible neighbor. This new leaf awaits the next
+verification batch. The A* update (`0x00036CA0` / `0x00036EB0`) remains the next
+navigation dependency; live spawning remains incomplete.
+
+The Release game and transition-test builds both completed successfully for the
+route batch. Added the actual grid `+0xC` distance multiplier to `NavGrid` and
+translated `0x00036A60` as `navigation_cell_distance_cost`; callers must supply
+the retail multiplier when constructing a grid. No live resource owner currently
+populates navigation grids. Discarded neighbor square roots now call the existing
+translated `0x00152B30` implementation rather than the host standard library.
+These later navigation leaves have not yet been rebuilt or differentially checked.
+
+The extended route oracle (`navigation_route_oracle.py 2 1000`) passed **1,000
+cases, zero mismatches**, now including `0x00037340` adjacency and `0x00036A60`
+distance-cost float bits. The subsequent Release game rebuild passed.
+
+Translated route insertion `0x00066310` and retargeting `0x00037980`, including
+start/end connection scans, trimming, first-point insertion, final point repair,
+and the ten-edit cutoff. Added differential coverage for these operations and
+search endpoint/edit-counter state; this latest extension awaits verification.
+The existing `truncate_runtime_float` in `audio/listener_settings.cpp` already
+translates `0x001673D8`, so the A* path must reuse it rather than create another
+conversion approximation.
+
+Latest verification: the Release game rebuild passed, and the route oracle
+(`navigation_route_oracle.py 3 2000`) reported **2,000 cases, zero mismatches**,
+including route retarget results, endpoint indexes, edit counts, and every route
+word. This is heap-only differential coverage of the translated navigation
+routines, not live-spawn acceptance. No new CTest run was needed for this batch.
+Next implementation work: preserve the search open-list linkage in native node
+storage, then translate `0x00036EB0` and its outer `0x00036CA0` using the existing
+retail square-root and float-to-qword conversion. The search node identity word
+at `+0xA` must be preserved exactly, including the existing clear routine's
+behavior; do not silently repair it when beginning a search.
+
+### A* search continuation (2026-10-11)
+
+Corrected `0x00036BC0`: the retail instructions clear `+0/+4`, `+8`, and
+`+0xC..+0x13` but preserve the node identity at `+0xA`. The previous blanket
+`memset` was incorrect. This supersedes the previous warning about preserving
+that implementation's zeroed identity behavior.
+
+Translated `0x00036EB0` and `0x00036CA0` into `navigation/path_search.cpp`, with
+retail neighbor order, best-score selection, budget accumulation, region and
+occupancy gates, reopened nodes, target flag clearing/restoration, and the actual
+`0x00152B30` / `0x001673D8` math callees. Four-byte node link words use relocated
+references (null=0, search sentinel=1, node=index+2) so the native 64-bit build
+preserves the original 0x14-byte node rows without pointer truncation or extra
+allocation. Added a differential oracle that executes the entire retail search
+without callee bridges and compares search state, all node words (normalized
+links), and restored grid bytes. This batch awaits build and oracle verification.
+
+A* verification: Release game build passed, and
+`navigation_search_oracle.py 1 1000` reported **1,000 cases, zero mismatches**.
+This executes `0x00036C80`, `0x00036CA0`, and all A* callees in retail code without
+bridges. It compares budget accumulation, terminal states, all five words of each
+node (with normalized links), and all grid bytes after target restoration.
+
+Translated route curve parameter `0x00037F50` and steering `0x00037D50`, preserving
+control-point selection/padding, distance-to-parameter mapping, float weight
+ordering, and the sampled-output write behavior. Added steering float-bit
+comparisons to the existing route oracle; this extension awaits verification.
+
+Route steering verification (`navigation_route_oracle.py 4 2000`) passed **2,000
+cases, zero mismatches**. Added `0x000377B0` route length, retaining the four-edge
+unroll and per-edge SSE addition order; the expanded oracle including length
+(`navigation_route_oracle.py 5 2000`) also passed **2,000 cases, zero mismatches**.
+Translated `0x00111660` nearest open cell, preserving the subtractive radial
+neighbor scan and its all-eight-outside termination. This leaf awaits dedicated
+verification.
+
+Translated floor connection selection `0x00110D00`, exposing the actual
+DAT_0050E248 connection lists, and player navigation request `0x00136EB0` using
+real registration, A*, route, actor-clock and vector-scaling functions. Preserved
+the floor conversion's observed output-Z-from-height instruction. These latest
+callers await build and differential verification; their globals are not yet
+populated by a live scene owner. Live spawning remains incomplete.
+
+Latest checks: Release game and transition-test builds passed; all six CTests
+passed. `navigation_search_oracle.py 2 3000` passed **3,000 cases, zero mismatches**.
+The first floor-query oracle run found 1,848 mismatches, all in successful
+floor-conversion output Z. The earlier instruction reading was incorrect:
+`POP EDI` shifts ESP before the final load, so it loads the selected Z rather
+than the selected height. Corrected the translation to copy the selected XYZ.
+This supersedes the preceding output-Z-from-height notes. Nearest-open-cell
+results matched throughout that run; corrected floor conversion awaits rerun.
+
+Corrected floor-query verification: `navigation_floor_oracle.py 1 2000` now
+reports **2,000 cases, zero mismatches** for nearest-cell selection and floor
+conversion. Release game and transition-test rebuilds passed after the correction;
+dialogue-resource preflight passed (1,357 template clones and 457 retail keys).
+`0x00136EB0` builds with translated callees, but its full combined player-context
+behavior has not yet received a retail differential check. Do not count it as
+live-spawn acceptance.
+
+Next navigation frontier: `0x00136B00` needs attachment registration release
+`0x00137100`; its input-axis write `0x00108FC0` is already translated in
+`frontend/dialogue_input.cpp`. Fallback `0x001373F0` needs `0x00137460`, whose
+real dependencies are `0x00137500` and `0x00137610`, plus `0x00137790` proximity.
+Those then unlock `0x00136620`. The player control/class-slot and live scene
+navigation/resource owners remain outstanding. No new stubs or live factory
+bindings have been installed, and no files have been staged or committed.
+
+### Player navigation control continuation (2026-10-11)
+
+Translated `0x00137100` attachment registration suspension, `0x00137500` motion
+alignment, `0x00137610` input alignment, `0x00137460` motion fallback,
+`0x00137790` proximity, `0x001373F0` fallback, `0x00136B00` navigation drive, and
+`0x00136620` request dispatch. The native contexts expose the actual attachment,
+body actor, bit block, and input device rather than substituting callbacks.
+The drive instruction stream reloads speed (argument six) for its distance
+interpolation; this differs from the decompiler's parameter reconstruction.
+The request wrapper passes message +0x24 plus 2.5 as radius, +0x28 as approach,
+and +0x2C as speed, as established by its pushes and stack overwrite.
+This complete implementation batch awaits build and retail differential checks.
+
+The batch builds. `navigation_motion_oracle.py 1 3000` passed **3,000 cases,
+zero mismatches**, including NaN/infinity cases and full retail input/math callees.
+Added a combined `0x00136EB0` / `0x00136B00` oracle with real A*, routing, steering,
+and input writes; only retail heap allocation/reallocation is bridged. Its first
+1,000-case run found 46 drive-axis magnitude mismatches. Corrected the stack
+interpretation: `0x00136C8F` loads approach before the temporary square-root
+argument is removed; `0x00136CB7` then loads speed. The interpolation therefore
+uses approach as the denominator and speed for the clamp. This supersedes the
+preceding speed-interpolation note. Corrected combined verification is pending.
+
+Corrected combined navigation verification (`navigation_drive_oracle.py 1 3000`)
+passed **3,000 cases, zero mismatches** for actual player path and drive calls,
+including blocked cells, absent searches, body gates, search budgets, steering,
+and input-axis writes. Only heap allocation/reallocation is bridged. Full
+attachment and cross-floor contexts remain outside this oracle's current cases.
+Added the exact player storage-size slot `0x00027F40` (0xCF8, 0x63C). Continuing
+with player-mind request preparation `0x0007EBC0` / `0x0007EDF0`; requested a
+read-only jump-table instruction export from the existing Ghidra project.
+
+The Ghidra export succeeded read-only after its first automatic approval review
+timed out. Translated `0x0007EDF0` range randomization and player-mind class slot
+`0x0007EBC0` request preparation. Jump-table instructions establish different
+input ranges for kinds 0x10 (+0x1C), 0x11 (+0x10), and 0x2E (+0x1C), which the
+decompiler does not retain. Kept the actual RNG updates, mind-field reset, and
+reference-position angle callee. These additions await the next verification
+batch; no class owner has been installed yet.
+
+Latest verification: player-mind request oracle (`player_request_oracle.py 1 3000`)
+passed **3,000 cases, zero mismatches**, with complete message/mind/RNG comparisons
+and no bridged callees. Release game and transition-test builds, all six CTests,
+and dialogue-resource preflight passed for the navigation/request batch.
+
+Exported `0x00075C60` and `0x00075DD0` read-only for the player-body message slot.
+Remaining callees include `0x0012B1A0`, `0x0013B7E0`, `0x0013B810`, and
+`0x0003EF40`; bit updates, attachment event reset, and model-anchor registration
+already have translations. Added player-body action slot `0x00075B90` using the
+existing script table lookup and parent action ID selection, with an actual
+vtable +0x24 callback for the goal-kind-7 branch. This latest slot awaits build
+and differential coverage. Live spawning remains incomplete: the message/control
+class slots and live ownership/resource wiring still need completion.
+
+The Release game rebuild also passed with `0x00075B90` included. Its differential
+coverage remains pending; do not treat that build as behavioral acceptance.
+
+### 2026-10-11: player body control dispatch and remaining mind leaves
+
+Translated player-body vtable message dispatch `0x00075B60` and its actual
+`0x86`/`0x87` handlers `0x00075C60`/`0x00075DD0`. These preserve actor identity
+checks, health save/restore and wrapping additions, visibility reference counts,
+resource callout IDs `0x38`/`0x39`, flag 7, and animation rate changes. Added their
+missing wrappers `0x0013B7E0`/`0x0013B810` (player attachment event tracking),
+`0x0012B1A0` (live attachment suspension), and `0x0003EF40` (model-anchor release).
+All call real translated dependencies; no missing game call was replaced by a
+constant or callback. Context views remain to be installed in the live owner.
+
+Release game build passed. `player_body_control_oracle.py 1 3000` matched all
+3,000 cases using retail `0x00075B60` and real callees without bridges. Coverage
+includes scalar state, identity rejection, empty resource/anchor/attachment
+lists, and suspension counts; populated resource and model-anchor cases remain
+outside this fixture. The native harness initially lacked flag storage and was
+corrected before the successful comparison. This is not live spawn acceptance.
+
+Added the next mind leaves `0x0007E3A0` (six retail idle-action keys selected with
+the actual negative random scale, request lookup and acceptance) and `0x0003B1F0`
+(animation position crossing, including backward playback, wrap and unordered
+comparison behavior). These latest additions await build/differential checks.
+`0x0007D130` still needs its remaining input, attachment and target-control
+callees; `0x0007D360` and `0x0007F1E0` remain incomplete. Live spawning still
+requires complete mind slots followed by native factory/scene ownership wiring.
+
+The next batch also translated `0x0007E160` (input/inactivity timing and idle
+request triggering), attachment eligibility `0x00027DA0`/`0x00027E50`/`0x00027D40`,
+and pending attachment control `0x0007D210`. Eligibility calls the real actor
+position, model-radius and spawn-point routines; pending control uses the actual
+body vtable +0x5C result as the action-selection key. No incomplete control
+callee was represented by a fake implementation. Native owner contexts must
+supply the actual pending actor, actor-link view, and vtable binding.
+
+The Release game and transition-test builds passed after moving a dependency
+include out of the attachment helper header to avoid an include cycle. All six
+CTests passed. Additional retail differential results: animation crossing
+`animation_crossing_oracle.py 1 3000`, idle request selection
+`player_idle_oracle.py 1 3000`, and inactivity
+`player_inactivity_oracle.py 1 3000`: 3,000 cases each, zero mismatches. The
+inactivity comparison first found 39 differences at the input threshold;
+DAT_0032B22C is `0x3C23D70B`, not the usual rounded literal `0.01f`. Corrected
+that exact retail bit pattern before the passing run. Inactivity coverage uses
+keyboard axes with absent animation controller/action table; populated action
+selection remains outside that fixture. Attachment eligibility and pending
+control currently have build verification only.
+
+Current next frontier: `0x0007D890` needs `0x0007E4B0` and `0x0007DF50` plus their
+real call trees; `0x00137140` needs the gaze/anchor selection chain and body look
+helpers; `0x0007F980` needs the path-probe chain. These block `0x0007D130`, then
+`0x0007D360`; player-mind message slot `0x0007F1E0` and live factory/scene ownership
+wiring still remain. The latest live opening evidence is unchanged: camera only,
+script opcode `0x6F` blocked. Do not count these build/oracle results as a live
+Cooper spawn.
+
+### 2026-10-11: complete gaze control chain
+
+Translated `0x00137140` and its remaining gaze callees: `0x000251D0` gaze origin,
+`0x00025250` body look angle, `0x00105D90` input-axis angle, `0x00100E40` relative
+angle, `0x0011C130` anchor navigation-path query, `0x0011BED0` nearest anchor,
+`0x0011BFF0` random owner anchor, and `0x0002A130` mind anchor/duration setup.
+These call the existing real joint lookup/transform, actor ancestry, navigation
+path, and math translations. The caller arguments `1,30,100` mean check-path,
+maximum vertical difference, and search radius respectively. Native contexts
+retain actual anchor identities and target actor pointers; live ownership wiring
+is still outstanding. This batch awaits its first build and retail comparison.
+
+The nine-function gaze batch built successfully and `player_gaze_oracle.py 1
+3000` matched all 3,000 cases with no callee bridges. It exercises populated
+anchor lists, ancestry filtering, random owner selection, cached and explicit
+gaze, and secondary-axis steering, including unordered values. Models and
+navigation grids are absent in this fixture; marker/pose and populated path
+coverage remain outstanding.
+
+Added target range helpers `0x00134240`/`0x00134350`, target acceptance
+`0x0007E960`, embedded shape-target refresh `0x0007EA20`, and redirection
+`0x0007E9E0`. Shape refresh copies the actual live attachment's two shape records
+and follows the retail float/extended-precision steering order, state and flag
+gates. Target acceptance preserves the unconditional second range query and
+the kind-3 mind-event timer gate, including the original address-zero read when
+no event exists. These latest additions await build and differential checks.
+
+The five target range/shape functions now pass the Release build and
+`player_target_oracle.py 1 3000`: 3,000 cases, zero mismatches, with no callee
+bridges. The fixture supplies live contact shapes and exercises refresh,
+redirection and acceptance; attached model-radius coverage remains outstanding.
+
+Continued target selection with `0x00128F70` (nearest eligible actor inside an
+angular window) and `0x0001D3D0` (held-model radius plus body margin). The angular
+query calls the actual eligibility, direction-angle, path and math functions;
+its fallback radius uses the retail bits `0x47C35000`. These two additions await
+build and retail comparison. Live spawning remains incomplete.
+
+Added `0x00041490` actor distance and `0x0007E600` near-actor selection. The latter
+preserves the instruction-level two-empty-results behavior: it writes the
+retained cone-distance stack word rather than silently skipping the output or
+inventing a default. That word is explicit native caller storage; ownership
+wiring must supply it. These additions also await build/differential checks.
+
+Translated `0x0007E6B0` focus maintenance using those real searches, body reach
+and actor-distance functions. It preserves locked-target restoration, the
+60/70-unit gap thresholds, the 200-unit fallback query and gaze-timer reset.
+Native context maps retain actual target bodies and original actor identities;
+the factory/scene bindings remain outstanding. Awaiting build and comparison.
+
+The five-function actor-focus batch passed the Release game and transition-test
+builds. `player_focus_oracle.py 1 3000` matched all 3,000 cases with no callee
+bridges: angular queries, empty near searches including retained-stack output,
+and focus retention/fallback/timer behavior. Navigation grids and held models
+are absent in this fixture.
+
+Continued the held-item shape-target selection branch: `0x00129B20` scoring,
+`0x00129770` angular mind-target search, `0x00137DE0` search windows,
+`0x00137D00` category priority, `0x0007D770` search mode, `0x0007D7C0` retained
+held target, and `0x0007D6B0` policy selection. They call the actual target
+eligibility/reachability, range and math functions; window constants were read
+from retail bytes. Native contexts expose the retained search-angle stack word
+and mutable angular-limit global. This seven-function batch awaits build and
+differential checks; live ownership and the remaining mind handlers still block
+Cooper spawning.
+
+The first shape-search comparison found three retained-angle differences after
+failed held-target checks. Earlier retail callees spill the original actor
+address into the same incoming search-local stack slot. The fixture now
+observes that incoming word (without bridging any callee) and supplies it to
+the native retained-storage context. Live owner integration must reproduce
+that storage binding; this comparison does not validate native stack ownership.
+
+The seven-function held-item selection batch passed both Release builds and
+`player_search_oracle.py 1 3000`: zero mismatches after supplying the observed
+incoming retained-stack word. Coverage uses one populated target and all real
+callees; held models/navigation grids and native stack ownership remain outside
+this fixture. All six CTests passed after this batch.
+
+Continued with target proposal `0x0007E880` and enclosing target control
+`0x0007E4B0` in `player_mind_target_control`. These call the real policy search,
+shape refresh/redirection, mind-event allocation/removal, focus/acceptance and
+feedback functions. Contexts map original target tokens, searchable and
+embedded shape records, and their actual actor owners. These latest two
+translations await build and retail comparison. The remaining input-direction
+branch `0x0007DF50`, navigation avoidance `0x0007F980`, mind-message handling
+and live factory ownership still block the milestone.
+
+The enclosing `0x0007E880`/`0x0007E4B0` proposal/control module now passes both
+Release builds; it has build verification only. Continued the action-request
+frontier with `0x000414F0` squared actor distance, `0x0001CC10` target quadrant,
+`0x00026830` turn direction, `0x0001D180` body readiness, `0x00134650` body target
+state, `0x001413C0` target action requirement and `0x0001D130` special requirement.
+All use real math/position/bit callees and retail constants. This latest batch
+awaits build and differential checks. `0x0007DDA0` and request selection still
+need their remaining translated callees before `0x0007DF50` can be completed.
+
+Also translated `0x0001CD00` target-height/shape preparation and
+`0x0007DDA0` action direction using the newly completed real callees. Direction
+preserves current-target repetition rules and the 625 squared-distance limit
+for a different focus actor. These await the same pending batch validation.
+
+The nine-function action-query batch now passes both Release builds and
+`player_action_query_oracle.py 1 3000`: 3,000 cases, zero mismatches with all
+real callees. It covers readiness/state/requirement gates, direction and turn
+classification, height (without shape output), focus-based action direction and
+squared distance. Held attachments and actor binding trees are absent in this
+fixture. All six CTests passed; the dialogue-resource check also passed with
+1,357 retail template clones and 457 localization keys. `git diff --check`
+passed. No new live opening acceptance run was performed.
+
+Current reconstruction frontier: complete action-request row filtering and
+selection (`0x0001BA20`, `0x0001BBB0`, `0x0001CDA0`, `0x0001CF70`,
+`0x0001CFE0`, `0x0001D060`, `0x0001D0E0` and their remaining real callees),
+then `0x00136770` and `0x0007DF50`. `0x0007DDA0` is now translated and
+differentially checked. Target proposal/control `0x0007E880`/`0x0007E4B0`
+currently have build verification only. Navigation avoidance `0x0007F980`,
+player-mind message handling and complete factory/scene owner installation
+remain. Latest live evidence still shows camera only and opcode `0x6F` blocked;
+these results are not a live Cooper spawn.

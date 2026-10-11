@@ -4,6 +4,149 @@
 
 namespace gbtg
 {
+// Xbox 0x00075C60
+void begin_runtime_player_body_control(std::span<u8> body, std::span<const u8> message,
+    RuntimePlayerBodyControlMessages& context)
+{
+    if (read_u32(message, 4) != read_u32(body, 8))
+    {
+        return;
+    }
+    switch (read_u32(message, 8))
+    {
+    case 3:
+    {
+        const u16 health = read_u16(body, 0x94);
+        const u16 maximum = u16(read_u16(body, 0x96) + read_u32(message, 0xC));
+        std::memcpy(body.data() + 0x94, &maximum, 2);
+        std::memcpy(body.data() + 0x96, &maximum, 2);
+        const u16 updated = u16(health + read_u16(message, 0xC));
+        std::memcpy(body.data() + 0x94, &updated, 2);
+        if (read_u32(body, 0x94C) != 0)
+        {
+            const u32 saved = read_u32(body, 0x948) + read_u32(message, 0xC);
+            std::memcpy(body.data() + 0x948, &saved, 4);
+        }
+        return;
+    }
+    case 4:
+    {
+        const u16 health = read_u16(body, 0x94);
+        const u32 zero = 0;
+        if (health != 0)
+        {
+            if (read_u32(body, 0x94C) == 0)
+            {
+                const u32 saved = health;
+                const u32 one = 1;
+                std::memcpy(body.data() + 0x948, &saved, 4);
+                std::memcpy(body.data() + 0x94C, &one, 4);
+            }
+            const u16 one = 1;
+            std::memcpy(body.data() + 0x94, &one, 2);
+            return;
+        }
+        std::memcpy(body.data() + 0x948, &zero, 4);
+        return;
+    }
+    case 8:
+        if (read_u32(message, 0x10) == 0)
+        {
+            context.events.command_attachments = body.subspan(0x924, 36);
+            request_runtime_player_attachment_events(context.resource.resource.data(),
+                context.events, 0x2E, context.body_address + 0x924);
+        }
+        return;
+    case 9:
+        if (read_u32(message, 0x10) == 0)
+        {
+            ++context.hidden;
+            clear_actor_model_anchors(context.anchors);
+            dispatch_actor_resource_callout(context.resource, 0x38, nullptr, context.events);
+            if (context.attachment != nullptr)
+            {
+                suspend_actor_live_attachment(*context.attachment, true);
+            }
+        }
+        return;
+    case 10:
+        set_runtime_body_bit(context.flags, 7);
+        return;
+    case 0xE:
+        context.actor.animation_rate = 0.5f;
+        return;
+    case 0xF:
+        context.actor.animation_rate = 1.5f;
+        return;
+    default:
+        return;
+    }
+}
+
+// Xbox 0x00075DD0
+void end_runtime_player_body_control(std::span<u8> body, std::span<const u8> message,
+    RuntimePlayerBodyControlMessages& context)
+{
+    if (read_u32(message, 4) != read_u32(body, 8))
+    {
+        return;
+    }
+    switch (read_u32(message, 8))
+    {
+    case 4:
+    {
+        if (read_u16(body, 0x94) != 0 && read_u32(body, 0x948) != 0)
+        {
+            const u16 health = u16(read_u32(body, 0x948));
+            std::memcpy(body.data() + 0x94, &health, 2);
+        }
+        const u32 zero = 0;
+        std::memcpy(body.data() + 0x948, &zero, 4);
+        std::memcpy(body.data() + 0x94C, &zero, 4);
+        return;
+    }
+    case 8:
+        clear_runtime_player_attachment_events(body.subspan(0x924, 36), context.lists);
+        return;
+    case 9:
+        --context.hidden;
+        dispatch_actor_resource_callout(context.resource, 0x39, nullptr, context.events);
+        register_actor_model_anchors(context.actor, context.anchors);
+        if (context.attachment != nullptr)
+        {
+            --context.attachment->retained_18;
+        }
+        return;
+    case 10:
+        clear_runtime_body_bit(context.flags, 7);
+        return;
+    case 0xE:
+    case 0xF:
+        context.actor.animation_rate = 1.f;
+        return;
+    default:
+        return;
+    }
+}
+
+// Xbox 0x00075B60
+void dispatch_runtime_player_body(std::span<u8>& body, std::span<u8> message,
+    const RuntimePlayerBodyMessageViews& views, RuntimePlayerBodyMessages& context,
+    RuntimePlayerBodyControlMessages& controls)
+{
+    if (read_u32(message, 0) == 0x86)
+    {
+        begin_runtime_player_body_control(body, message, controls);
+        return;
+    }
+    if (read_u32(message, 0) == 0x87)
+    {
+        end_runtime_player_body_control(body, message, controls);
+        return;
+    }
+    dispatch_runtime_player_body_message(body, message, views, context);
+}
+
 // Xbox 0x00074080
 void dispatch_runtime_player_body_message(std::span<u8>& body, std::span<u8> message,
     const RuntimePlayerBodyMessageViews& views, RuntimePlayerBodyMessages& context)

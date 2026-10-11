@@ -37,7 +37,8 @@ void clear_navigation_path_search(NavigationPathSearch& search)
     for (u32 index = 0; index < search.count; ++index)
     {
         u8* const row = search.nodes + size_t(index) * 0x14;
-        std::memset(row, 0, 0x14);
+        std::memset(row, 0, 8);
+        std::memset(row + 0xC, 0, 8);
         const u16 no_index = 0xFFFF;
         std::memcpy(row + 8, &no_index, sizeof(no_index));
     }

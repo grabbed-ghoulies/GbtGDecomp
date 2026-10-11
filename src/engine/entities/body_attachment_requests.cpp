@@ -1,8 +1,54 @@
 #include "body_attachment_requests.h"
+#include "body_message_helpers.h"
+#include "shape_copy.h"
+#include <bit>
 #include <cstring>
 
 namespace gbtg
 {
+// Xbox 0x0001CD00
+u32 runtime_body_target_height(std::span<const u8> body, const Actor& actor,
+    std::span<const u8> target, u8* shape)
+{
+    if (shape != nullptr)
+    {
+        copy_actor_shape(shape, target.data() + 0x1C);
+    }
+    const float height = actor.radius_y * read_f32(body, 0x884);
+    const float radius = read_f32(target, 0x30);
+    const Vec3 position = actor_world_position(actor);
+    const float difference = (read_f32(target, 0x24) + radius) - (position.y + height);
+    if (difference > height * .25f)
+    {
+        return 2;
+    }
+    if (height * -.25f > difference)
+    {
+        return 0;
+    }
+    return 1;
+}
+
+// Xbox 0x0001D180
+bool runtime_body_accepts_target_request(std::span<const u8> body,
+    const EntityBitBlock& flags, u16 owner_class)
+{
+    if (body[0x6B] == 0 && (body[0x6A] == 0 || body[0x6C] != 0)
+        && !(read_f32(body, 0x70) > 0.f) && read_u16(body, 0x30) == 0
+        && read_f32(body, 0x34) == 0.f && (flags.bytes[3] & 8) == 0)
+    {
+        if (!runtime_body_bit_set(flags, 0x2C))
+        {
+            if (!runtime_body_bit_set(flags, 0x2A)
+                && (owner_class != 0 || (flags.bytes[5] & 2) != 0))
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 namespace
 {
 const u8* search(const RuntimeAttachmentRequestRows& rows, u16 key, size_t stride)

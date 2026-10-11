@@ -38,4 +38,10 @@ inline bool runtime_decay_enabled(const RuntimeActorClock& clock)
 {
     return clock.block_decay == 0 && clock.decay_enabled[clock.decay_index] != 0;
 }
+
+// Xbox 0x00042320
+inline float runtime_actor_step(const Actor& actor, const RuntimeActorClock& clock)
+{
+    return runtime_actor_rate(actor) * runtime_frame_step(clock);
+}
 }

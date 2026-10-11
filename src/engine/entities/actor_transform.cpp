@@ -26,6 +26,28 @@ namespace gbtg
 using namespace entity_detail;
  // namespace
 
+// Xbox 0x00041490
+long double runtime_actor_distance(const Actor& first, const Actor& second)
+{
+    const Vec3 a = actor_world_position(first);
+    const Vec3 b = actor_world_position(second);
+    const long double dx = static_cast<long double>(a.x) - b.x;
+    const long double dy = static_cast<long double>(a.y) - b.y;
+    const long double dz = static_cast<long double>(a.z) - b.z;
+    return std::sqrt((dz * dz + dx * dx) + dy * dy);
+}
+
+// Xbox 0x000414F0
+float runtime_actor_squared_distance(const Actor& first, const Actor& second)
+{
+    const Vec3 a = actor_world_position(first);
+    const Vec3 b = actor_world_position(second);
+    const float dz = a.z - b.z;
+    const float dx = a.x - b.x;
+    const float dy = a.y - b.y;
+    return (dz * dz + dx * dx) + dy * dy;
+}
+
 Vec3 actor_world_position(const Actor& actor)
 {
     // Xbox 0x000412A0

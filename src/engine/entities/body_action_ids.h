@@ -3,6 +3,7 @@
 
 namespace gbtg
 {
+struct RuntimePlayerGoalRing;
 u16 runtime_body_action_name_id(const char* name,
     const char* const* names); // Xbox 0x00026930, 0x174 sorted names.
 u32 runtime_player_goal_flag_name_id(const char* name,
@@ -19,6 +20,10 @@ struct RuntimeBodyActionIds
     u16 tag; // Owner +6.
     u32 body_address;
 };
+u16 runtime_player_body_primary_id(std::span<const u8> body, const RuntimeBodyActionIds& context,
+    const u8* parameters, const EntityBitBlock& flags, const RuntimeScriptLookupTable* table,
+    const RuntimePlayerGoalRing* goals, std::span<const u8> address_zero,
+    const std::function<u16()>& primary_id, u16 retained_key); // Xbox 0x00075B90
 u32 runtime_body_primary_action_id(const RuntimeBodyActionIds& context); // Xbox 0x00026B00
 u32 runtime_body_secondary_action_id(const RuntimeBodyActionIds& context); // Xbox 0x00026BB0
 u32 runtime_body_contact_action_id(const RuntimeBodyActionIds& context); // Xbox 0x00027220

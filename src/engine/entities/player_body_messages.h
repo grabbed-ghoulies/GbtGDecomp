@@ -4,9 +4,27 @@
 #include "body_collision.h"
 #include "player_body_motion.h"
 #include "actor_render_registration.h"
+#include "body_animation_commands.h"
+#include "actor_model_anchors.h"
 
 namespace gbtg
 {
+struct RuntimePlayerBodyControlMessages
+{
+    Actor& actor;
+    u8& hidden; // Actor +0x197.
+    entity_detail::ListHead& anchors; // Actor +0x1F4, first link at +0x1F8.
+    ActorLiveAttachment*& attachment; // Actor +0x8F8.
+    const RuntimeActorResourceReference& resource;
+    ActorAttachmentEventContext& events;
+    RuntimeBodyAttachmentLists& lists;
+    EntityBitBlock& flags;
+    u32 body_address;
+};
+void begin_runtime_player_body_control(std::span<u8> body, std::span<const u8> message,
+    RuntimePlayerBodyControlMessages& context); // Xbox 0x00075C60
+void end_runtime_player_body_control(std::span<u8> body, std::span<const u8> message,
+    RuntimePlayerBodyControlMessages& context); // Xbox 0x00075DD0
 struct RuntimePlayerBodyMessageViews
 {
     RuntimeBodyMessageViews parent;
@@ -37,4 +55,7 @@ struct RuntimePlayerBodyMessages
 void dispatch_runtime_player_body_message(std::span<u8>& body, std::span<u8> message,
     const RuntimePlayerBodyMessageViews& views,
     RuntimePlayerBodyMessages& context); // Xbox 0x00074080
+void dispatch_runtime_player_body(std::span<u8>& body, std::span<u8> message,
+    const RuntimePlayerBodyMessageViews& views, RuntimePlayerBodyMessages& context,
+    RuntimePlayerBodyControlMessages& controls); // Xbox 0x00075B60
 }

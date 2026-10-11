@@ -34,6 +34,8 @@ u32 runtime_player_callout_name_id(const char* name,
     const char* const* names); // Xbox 0x0003BFA0
 bool runtime_actor_animation_slot_complete(const ActorAnimationState& animation,
     u32 slot); // Xbox 0x0003B290
+bool runtime_actor_animation_crossed_position(const ActorAnimationState& animation,
+    u32 slot, float position); // Xbox 0x0003B1F0
 float runtime_player_target_radius(std::span<const u8> body, const Actor& body_actor,
     const RuntimeBodyAttachedActor* attached, const Actor& target); // Xbox 0x001416D0
 Actor* find_runtime_player_nearest_spawn(const Actor& actor, float* distance,

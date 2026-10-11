@@ -170,6 +170,41 @@ u32 runtime_player_callout_name_id(const char* value, const char* const* names)
     return 0;
 }
 
+// Xbox 0x0003B1F0
+bool runtime_actor_animation_crossed_position(const ActorAnimationState& animation,
+    u32 slot, float position)
+{
+    if (animation.controller == nullptr || animation.controller->slots[slot].player == nullptr)
+    {
+        return false;
+    }
+    const auto& player = *animation.controller->slots[slot].player;
+    if (player.position == player.previous)
+    {
+        return false;
+    }
+    float end = player.position;
+    float start = player.previous;
+    if (0.f > player.speed)
+    {
+        start = player.position;
+        end = player.previous;
+    }
+    if (!(end > start))
+    {
+        if (position < start || std::isnan(position) || std::isnan(start))
+        {
+            return end > position;
+        }
+        return true;
+    }
+    if (position < start || std::isnan(position) || std::isnan(start))
+    {
+        return false;
+    }
+    return end > position;
+}
+
 // Xbox 0x0003B290
 bool runtime_actor_animation_slot_complete(const ActorAnimationState& animation, u32 slot)
 {

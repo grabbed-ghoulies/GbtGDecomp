@@ -218,6 +218,31 @@ void record_runtime_body_attachment_event(const u8* record,
     }
 }
 
+// Xbox 0x0013B7E0
+void request_runtime_player_attachment_events(const u8* record,
+    ActorAttachmentEventContext& context, i32 id, u32 output_address)
+{
+    if (context.actor_address != 0xFFFFFF74u)
+    {
+        dispatch_actor_attachment_records(record, id, record_runtime_body_attachment_event,
+            nullptr, context, output_address);
+    }
+}
+
+// Xbox 0x0013B810
+void clear_runtime_player_attachment_events(std::span<u8> events,
+    RuntimeBodyAttachmentLists& lists)
+{
+    i32 index = 0;
+    while (index < std::bit_cast<i32>(read_u32(events, 0)))
+    {
+        remove_runtime_body_attachment(u16(read_u32(events, size_t(index + 1) * 4)), lists);
+        ++index;
+    }
+    const u32 zero = 0;
+    std::memcpy(events.data(), &zero, 4);
+}
+
 // Xbox 0x0001AE00
 void command_runtime_body_attachment_list(std::span<u8> body, u32 body_address,
     bool clear, const u8* record, ActorAttachmentEventContext& events,

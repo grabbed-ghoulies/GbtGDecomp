@@ -1,10 +1,141 @@
 #include "player_attachment_helpers.h"
+#include "body_message_helpers.h"
 #include "entity_heap.h"
+#include "actor_spawn_query.h"
+#include "actor_transform.h"
+#include "gbtg/model_runtime.h"
 #include <cstring>
 #include <new>
 
 namespace gbtg
 {
+// Xbox 0x0001D3D0
+float runtime_player_body_attachment_radius(const RuntimePlayerAttachmentEligibility& context)
+{
+    const float margin = context.body_actor.radius_xz * read_f32(context.body, 0x78);
+    const auto* attached = context.attached;
+    if (attached != nullptr && attached->bytes[0x93D] == 1
+        && attached->actor->model != nullptr && attached->actor->model->cpu.data() != nullptr)
+    {
+        const float radius = actor_model_radius(*attached->actor);
+        return radius + margin;
+    }
+    return 0.f + margin;
+}
+
+// Xbox 0x00027DA0
+bool runtime_player_body_allows_attachment(const RuntimePlayerAttachmentEligibility& context,
+    const Actor& target)
+{
+    const auto body = context.body;
+    if (body[0x6A] != 0 || read_u16(body, 0x30) != 0 || read_f32(body, 0x34) != 0.f
+        || context.attached != nullptr)
+    {
+        return false;
+    }
+    constexpr std::array<u32, 3> flags{27, 42, 40}; // DAT_00217F08.
+    for (u32 flag : flags)
+    {
+        if (runtime_body_bit_set(context.flags, flag))
+        {
+            return false;
+        }
+    }
+    const Vec3 owner = actor_world_position(context.body_actor);
+    const Vec3 position = actor_world_position(target);
+    return !(owner.y - position.y > 5.f); // DAT_0032B184, JBE accepts unordered.
+}
+
+// Xbox 0x00027E50
+bool runtime_player_attachment_is_in_range(const RuntimePlayerAttachmentEligibility& context,
+    const Actor& target)
+{
+    const auto body = context.body;
+    const float reach = read_f32(body, 0x888) * context.body_actor.radius_xz;
+    const float margin = read_f32(body, 0x78) * context.body_actor.radius_xz;
+    float model_radius = 0.f;
+    const auto* attached = context.attached;
+    if (attached != nullptr && attached->bytes[0x93D] == 1
+        && attached->actor->model != nullptr && attached->actor->model->cpu.data() != nullptr)
+    {
+        model_radius = actor_model_radius(*attached->actor);
+    }
+    const Vec3 owner = actor_world_position(context.body_actor);
+    Vec3 point;
+    float radius;
+    i32 index;
+    if (select_actor_spawn_point(target, owner, point, radius, index))
+    {
+        const float range = (((model_radius + margin) + radius) + reach) + 2.f;
+        const float dz = owner.z - point.z;
+        const float dx = owner.x - point.x;
+        return range * range > dz * dz + dx * dx;
+    }
+    return false;
+}
+
+// Xbox 0x00027D40
+bool runtime_player_can_attach(const RuntimePlayerAttachmentEligibility& body,
+    const RuntimeBodyAttachedActor& target, std::span<const u8> target_link)
+{
+    if (runtime_player_body_allows_attachment(body, *target.actor))
+    {
+        const u32 link = read_u32(target.bytes, 0x918);
+        if ((link == 0 || read_u32(target_link, 0) == 0 || link == 0x918)
+            && target.bytes[0x93C] != 0 && read_u32(target.bytes, 0xAD0) == 0
+            && read_u32(target.bytes, 0xAC4) != 0)
+        {
+            return runtime_player_attachment_is_in_range(body, *target.actor);
+        }
+    }
+    return false;
+}
+
+// Xbox 0x00134240
+bool runtime_player_body_target_is_near(const RuntimePlayerAttachmentEligibility& context,
+    std::span<const u8> target_body, const Actor& target_actor)
+{
+    const auto body = context.body;
+    const float margin = context.body_actor.radius_xz * read_f32(body, 0x78);
+    float model_radius = 0.f;
+    const auto* attached = context.attached;
+    if (attached != nullptr && attached->bytes[0x93D] == 1
+        && attached->actor->model != nullptr && attached->actor->model->cpu.data() != nullptr)
+    {
+        model_radius = actor_model_radius(*attached->actor);
+    }
+    const float reach = read_f32(body, 0x888) * context.body_actor.radius_xz;
+    const Vec3 owner = actor_world_position(context.body_actor);
+    const float target_reach = target_actor.radius_xz * read_f32(target_body, 0x888);
+    const Vec3 target = actor_world_position(target_actor);
+    const float range = ((model_radius + margin) + target_reach) + reach;
+    const float dz = owner.z - target.z;
+    const float dx = owner.x - target.x;
+    const float dy = owner.y - target.y;
+    return range * range >= (dz * dz + dx * dx) + dy * dy;
+}
+
+// Xbox 0x00134350
+bool runtime_player_body_point_is_near(const RuntimePlayerAttachmentEligibility& context,
+    std::span<const u8> target)
+{
+    const auto body = context.body;
+    const float margin = context.body_actor.radius_xz * read_f32(body, 0x78);
+    float model_radius = 0.f;
+    const auto* attached = context.attached;
+    if (attached != nullptr && attached->bytes[0x93D] == 1
+        && attached->actor->model != nullptr && attached->actor->model->cpu.data() != nullptr)
+    {
+        model_radius = actor_model_radius(*attached->actor);
+    }
+    const float reach = read_f32(body, 0x888) * context.body_actor.radius_xz;
+    const Vec3 owner = actor_world_position(context.body_actor);
+    const float range = ((model_radius + margin) + read_f32(target, 0x38)) + reach;
+    const float dz = owner.z - read_f32(target, 0x28);
+    const float dx = owner.x - read_f32(target, 0x20);
+    return range * range >= dz * dz + dx * dx;
+}
+
 // Xbox 0x00146190
 i32 runtime_attachment_class_value(std::span<const u8> attached, u16 host_class)
 {

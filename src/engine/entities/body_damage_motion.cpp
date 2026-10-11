@@ -5,6 +5,70 @@
 
 namespace gbtg
 {
+namespace
+{
+float wrap_target_remainder(long double remainder)
+{
+    float relative = float(remainder);
+    const float turn = std::bit_cast<float>(0x40C90FDBu);
+    if (static_cast<long double>(std::bit_cast<float>(0xC0490FDBu)) > remainder)
+    {
+        relative += turn;
+    }
+    if (relative >= std::bit_cast<float>(0x40490FDBu))
+    {
+        relative -= turn;
+    }
+    return relative;
+}
+}
+
+// Xbox 0x0001CC10
+u32 runtime_body_target_direction(const Actor& actor, std::span<const u8> target, float heading)
+{
+    const Vec3 position = actor_world_position(actor);
+    const Vec3 direction{read_f32(target, 0x20) - position.x,
+        read_f32(target, 0x24) - position.y, read_f32(target, 0x28) - position.z};
+    float angle;
+    runtime_direction_angle(direction, angle);
+    const float reference = heading + std::bit_cast<float>(0x3F490FDBu);
+    const float relative = wrap_target_remainder(animation_remainder(angle - reference,
+        std::bit_cast<float>(0x40C90FDBu)));
+    if (relative > std::bit_cast<float>(0x3FC90FDBu))
+    {
+        return 3;
+    }
+    if (relative >= 0.f)
+    {
+        return 0;
+    }
+    if (std::bit_cast<float>(0xBFC90FDBu) > relative)
+    {
+        return 2;
+    }
+    return 1;
+}
+
+// Xbox 0x00026830
+i32 runtime_body_target_turn_direction(const Actor& actor,
+    std::span<const u8> target, u32* within_angle)
+{
+    const Vec3 position = actor_world_position(actor);
+    const Vec3 direction{read_f32(target, 0x20) - position.x,
+        read_f32(target, 0x24) - position.y, read_f32(target, 0x28) - position.z};
+    float angle;
+    runtime_direction_angle(direction, angle);
+    const float difference = float(static_cast<long double>(angle) - actor.euler.y);
+    const float relative = wrap_target_remainder(animation_remainder(difference,
+        std::bit_cast<float>(0x40C90FDBu)));
+    if (within_angle != nullptr)
+    {
+        *within_angle = static_cast<long double>(std::bit_cast<float>(0x43652EE1u))
+            > animation_absolute(relative) ? 1u : 0u;
+    }
+    return relative > 0.f ? 1 : -1;
+}
+
 // Xbox 0x00041970
 float runtime_actor_bound_angle(std::span<const u8> bound, const Actor& origin)
 {

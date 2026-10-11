@@ -76,6 +76,7 @@ add_library(gbtg_lib STATIC
     src/engine/entities/player_mind_control.cpp
     src/engine/entities/player_input_binding.cpp
     src/engine/entities/player_mind_targets.cpp
+    src/engine/entities/player_mind_target_control.cpp
     src/engine/entities/player_strategy_entry.cpp
     src/engine/entities/player_attachment_helpers.cpp
     src/engine/entities/player_attachment.cpp
@@ -87,6 +88,11 @@ add_library(gbtg_lib STATIC
     src/engine/entities/player_overlay.cpp
     src/engine/graphics/billboard_queue.cpp
     src/engine/navigation/floor_tracking.cpp
+    src/engine/navigation/path_routes.cpp
+    src/engine/navigation/path_search.cpp
+    src/engine/navigation/floor_connections.cpp
+    src/engine/navigation/player_navigation.cpp
+    src/engine/navigation/player_navigation_control.cpp
     src/engine/entities/body_collision.cpp
     src/engine/entities/segment_records.cpp
     src/engine/entities/body_contacts.cpp
@@ -115,6 +121,7 @@ add_library(gbtg_lib STATIC
     src/engine/entities/player_body_messages.cpp
     src/engine/entities/player_body_collision.cpp
     src/engine/entities/body_action_ids.cpp
+    src/engine/entities/body_gaze.cpp
     src/engine/entities/body_attachment_requests.cpp
     src/engine/entities/body_animation_commands.cpp
     src/engine/entities/body_effect_commands.cpp

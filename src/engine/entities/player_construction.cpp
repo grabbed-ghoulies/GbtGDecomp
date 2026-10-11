@@ -4,6 +4,12 @@
 
 namespace gbtg
 {
+// Xbox 0x00027F40
+void runtime_player_storage_sizes(std::span<u32, 2> sizes)
+{
+    sizes[0] = 0xCF8;
+    sizes[1] = 0x63C;
+}
 namespace
 {
 void put(std::span<u8> bytes, size_t offset, u32 value)

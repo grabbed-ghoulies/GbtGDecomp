@@ -46,4 +46,8 @@ bool accept_runtime_attachment_request(RuntimeBodyAttachmentRequests& context,
     const u8* row, u32 timer); // Xbox 0x0001D2E0
 bool select_runtime_attachment_request(RuntimeBodyAttachmentRequests& context,
     u16 key); // Xbox 0x0001D210
+bool runtime_body_accepts_target_request(std::span<const u8> body,
+    const EntityBitBlock& flags, u16 owner_class); // Xbox 0x0001D180
+u32 runtime_body_target_height(std::span<const u8> body, const Actor& actor,
+    std::span<const u8> target, u8* shape); // Xbox 0x0001CD00
 }

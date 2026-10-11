@@ -1,10 +1,41 @@
 #include "body_action_ids.h"
+#include "player_mind_events.h"
 #include <bit>
 #include "actor_transform.h"
 #include "../runtime/name_lookup.h"
 
 namespace gbtg
 {
+// Xbox 0x00075B90
+u16 runtime_player_body_primary_id(std::span<const u8> body, const RuntimeBodyActionIds& context,
+    const u8* parameters, const EntityBitBlock& flags, const RuntimeScriptLookupTable* table,
+    const RuntimePlayerGoalRing* goals, std::span<const u8> address_zero,
+    const std::function<u16()>& primary_id, u16 retained_key)
+{
+    if (read_u16(body, 0x94) == 0 && table != nullptr)
+    {
+        u32 output;
+        if (find_runtime_script_table_row(table, 0x6A, output) != nullptr)
+        {
+            return 0x6A;
+        }
+    }
+    if ((flags.bytes[5] & 0x10) != 0)
+    {
+        return 0xD9;
+    }
+    if (goals != nullptr)
+    {
+        const auto row = goals->tail == goals->capacity ? address_zero :
+            goals->rows.subspan(size_t(goals->head) * goals->stride);
+        if (read_u16(row, 0) == 7)
+        {
+            return primary_id(); // Actual body vtable +0x24.
+        }
+    }
+    return runtime_body_primary_parameter_id(context, parameters, flags, table, retained_key);
+}
+
 // Xbox 0x00026930
 u16 runtime_body_action_name_id(const char* name, const char* const* names)
 {

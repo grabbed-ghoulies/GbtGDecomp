@@ -7,6 +7,10 @@ namespace gbtg
 // namespace
 
 Vec3 actor_world_position(const Actor& actor);
+long double runtime_actor_distance(const Actor& first,
+    const Actor& second); // Xbox 0x00041490
+float runtime_actor_squared_distance(const Actor& first,
+    const Actor& second); // Xbox 0x000414F0
 
 // DAT_0050DD80
 

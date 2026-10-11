@@ -39,6 +39,7 @@ ActorLiveAttachment* allocate_actor_live_attachment(Actor& actor,
     const Vec3& origin); // Xbox 0x0012AFE0
 void broadcast_actor_pulse_message(const i32* message); // Xbox 0x00122C70
 void release_actor_attachment_slot(ActorLiveAttachment* owner); // Xbox 0x00112910
+void suspend_actor_live_attachment(ActorLiveAttachment& record, bool suspend); // Xbox 0x0012B1A0
 void release_actor_live_attachment(ActorLiveAttachment& record); // Xbox 0x0012B0B0
 void clear_actor_live_attachments(entity_detail::ListHead& owner_head); // Xbox 0x00042040
 }

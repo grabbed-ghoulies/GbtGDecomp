@@ -24,6 +24,8 @@
 #include "navigation/path_routes.h"
 #include "navigation/player_navigation.h"
 #include "entities/body_attachment_requests.h"
+#include "entities/body_request_selection.h"
+#include "navigation/player_avoidance.h"
 #include <bit>
 #include <cstring>
 #include <iostream>
@@ -36,6 +38,122 @@ int main()
     std::string kind;
     while (std::cin >> kind)
     {
+        if (kind == "avoidanceheading")
+        {
+            std::array<u32, 12> words;
+            for (auto& word : words)
+            {
+                std::cin >> word;
+            }
+            const auto value = [&words](size_t index)
+            {
+                return std::bit_cast<float>(words[index]);
+            };
+            u32 random = words[4];
+            const Vec3 origin{value(5), value(6), value(7)};
+            Vec3 output{std::bit_cast<float>(0xA5A5A5A5u), std::bit_cast<float>(0xA5A5A5A5u),
+                std::bit_cast<float>(0xA5A5A5A5u)};
+            RuntimeNavigationHeadingSearch context{origin, 0, value(10), value(11), nullptr,
+                nullptr, words[8] != 0 ? &output : nullptr, words[9], 9, 0, random, 0.f};
+            entity_detail::g_nav_grids[0] = nullptr;
+            u32 result;
+            if (words[0] == 0)
+            {
+                result = std::bit_cast<u32>(randomize_runtime_navigation_heading(value(1), value(2), random));
+            }
+            else if (words[0] == 1)
+            {
+                result = probe_runtime_navigation_heading(context, value(1));
+            }
+            else
+            {
+                result = search_runtime_navigation_headings(context, value(1), value(2),
+                    std::bit_cast<i32>(words[3]));
+            }
+            std::cout << result << ' ' << random << ' ' << std::bit_cast<u32>(output.x)
+                << ' ' << std::bit_cast<u32>(output.y) << ' ' << std::bit_cast<u32>(output.z) << '\n';
+            continue;
+        }
+        if (kind == "requestmatch")
+        {
+            std::array<u32, 23> words;
+            for (auto& word : words)
+            {
+                std::cin >> word;
+            }
+            Actor actor{};
+            actor.position = Vec3{std::bit_cast<float>(words[0]), std::bit_cast<float>(words[1]),
+                std::bit_cast<float>(words[2])};
+            actor.radius_xz = std::bit_cast<float>(words[3]);
+            std::array<u8, 0xA00> body{};
+            std::array<u8, 0x24> row{};
+            std::array<u8, 0x40> target{};
+            std::array<u8, 32> shape{};
+            row[6] = u8(words[4]);
+            row[7] = u8(words[5]);
+            row[8] = u8(words[6]);
+            std::memcpy(row.data() + 0xC, &words[7], 4);
+            const i16 low = i16(words[8]), high = i16(words[9]);
+            std::memcpy(row.data() + 0x10, &low, 2);
+            std::memcpy(row.data() + 0x12, &high, 2);
+            std::memcpy(row.data() + 0x20, &words[10], 4);
+            std::memcpy(target.data() + 0x20, words.data() + 11, 12);
+            std::memcpy(target.data() + 0x38, &words[14], 4);
+            target[0x16] = u8(words[15]);
+            body[0x2D0] = u8(words[16]);
+            body[0x2D2] = u8(words[17]);
+            std::memcpy(shape.data() + 8, &words[19], 4);
+            std::memcpy(shape.data() + 0x14, &words[20], 4);
+            std::cout << u32(runtime_attachment_target_row_matches(body, actor, row, target,
+                words[18] != 0 ? shape.data() : nullptr, words[21], u8(words[22]))) << '\n';
+            continue;
+        }
+        if (kind == "requestbits")
+        {
+            std::array<u32, 8> words;
+            for (auto& word : words)
+            {
+                std::cin >> word;
+            }
+            std::array<u8, 16> bytes;
+            std::memcpy(bytes.data(), words.data() + 4, bytes.size());
+            RuntimeRequestBits bits{words[0], {bytes.data(), words[1]}};
+            u32 random = words[2];
+            u32 index = words[3];
+            const i32 count = count_runtime_request_bits(bits);
+            const bool result = select_random_runtime_request_bit(bits, index, random);
+            std::cout << u32(count) << ' ' << u32(result) << ' ' << index << ' ' << random << '\n';
+            continue;
+        }
+        if (kind == "requestlength")
+        {
+            std::array<u32, 10> words;
+            for (auto& word : words)
+            {
+                std::cin >> word;
+            }
+            std::array<u8, 0xA00> body{};
+            std::array<u8, 0xD00> owner{};
+            std::array<u8, 0x200> model{};
+            std::array<u8, 8> flag_bytes{};
+            std::vector<u8> table((words[1] + 1) * 0x87);
+            const u16 classification = u16(words[1]);
+            std::memcpy(owner.data() + 0xCF4, &classification, 2);
+            std::memcpy(body.data() + 0x16C, &words[3], 4);
+            std::memcpy(flag_bytes.data(), &words[4], 4);
+            model[0x1A4] = u8(words[2]);
+            if (classification != 0)
+            {
+                table[u32(classification) * 0x87 - 0x38] = u8(words[9]);
+            }
+            EntityBitBlock flags{};
+            flags.bytes = flag_bytes.data();
+            RuntimeBodyChainLength context{body, owner, words[0] != 0 ? model.data() : nullptr,
+                flags, u8(words[5]), u8(words[6]), std::bit_cast<float>(words[7]),
+                std::bit_cast<float>(words[8]), table};
+            std::cout << u32(runtime_body_target_chain_length(context)) << '\n';
+            continue;
+        }
         if (kind == "playeractionquery")
         {
             std::array<u32, 41> words;

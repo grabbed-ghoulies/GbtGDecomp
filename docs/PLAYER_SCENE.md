@@ -3995,3 +3995,95 @@ currently have build verification only. Navigation avoidance `0x0007F980`,
 player-mind message handling and complete factory/scene owner installation
 remain. Latest live evidence still shows camera only and opcode `0x6F` blocked;
 these results are not a live Cooper spawn.
+
+### 2026-10-11: action-request selection continuation
+
+Resumed from commit `bb16479`, which contains the preceding target-control and
+action-query work. Added real row filtering `0x0001BA20`, descending chain-row
+lookup `0x0001BE20`, model target flag `0x00024600`, point-shape eligibility
+`0x001415D0` and target surface distance `0x0013A5B0` in `body_request_selection`.
+They preserve signed row heights, unordered range comparisons, target/body
+repeat gates, and the original target flags. These additions await a batched
+build and retail comparison. Random eligible-row selection additionally needs
+`0x00066180`, whose dump is not currently cached; no replacement was invented.
+
+Recovered `0x00066180` from the read-only Ghidra project and translated it with
+random eligible-bit selection `0x000661C0`, calling the existing real
+`0x001673D8` conversion. The bit count includes every stored byte, including
+padding; if an ordinal lies outside the logical bit count, the original output
+word remains unchanged and the function still returns success. Continued with
+second, pair, category and special row selectors `0x0001BBB0`, `0x0001C9A0`,
+`0x0001C5E0` and `0x0001C860`. The second selector's instruction-level distance
+test is surface distance > attachment radius * 3, correcting the misleading
+decompile. These six additions join the pending implementation batch.
+
+Added the four body request-selection wrappers `0x0001CF70`, `0x0001CFE0`,
+`0x0001D060` and `0x0001D0E0`. They use actual direction/height/shape preparation
+and the completed row selectors, preserving the table-pointer gates and byte
+direction/height masks. The chain-bearing `0x0001CDA0` still needs the sequence
+callees. No build or test has been run for this continuation batch yet.
+
+Completed first-table target lookup `0x0001C140`, address-to-chain lookup
+`0x0001C510` (missing instructions recovered read-only), chain length
+`0x000243C0`, sequence resume `0x0001C0E0`, sequence candidate selection
+`0x0001BE60`, chain request selection `0x0001CDA0`, the five mind request
+handlers `0x00136830`/`0x001368B0`/`0x00136920`/`0x00136990`/`0x00136A00`,
+and dispatcher `0x00136770`. Sequence candidate removal uses the actual
+last-record copy, preserving candidate ordering; it does not shift the pool.
+Retail data addresses remain explicit and resolve to native storage views.
+These additions await the combined build and retail comparison; live scene
+installation and live Cooper spawning remain incomplete.
+
+The combined Release game/transition build passed, all six CTests passed, and
+retail tutorial resource checks passed (1,357 template clones and 457 keys).
+Added a retail differential oracle for `0x00066180`, `0x000661C0` and
+`0x000243C0`: 3,000 cases passed, including padding bits, retained output,
+NaNs, infinities and signed zero. Populated row/sequence and mind-action paths
+still require differential coverage.
+
+Continued with `0x0007DF50` and main action-control handler `0x0007D890`,
+using real secondary input, target control, event allocation/removal and mind
+request dispatch. Target-to-native-owner bindings must be supplied by live
+scene ownership; these functions do not install themselves into the factory.
+They await the next combined build. Navigation avoidance `0x0007F980`,
+player message handling, remaining mind update/control handlers and complete
+factory/scene installation remain. No new live opening run has been performed.
+
+Main action control `0x0007D890` and target-action execution `0x0007DF50`
+now build. The extended request oracle adds real row filtering `0x0001BA20`;
+6,000 cases passed with zero mismatches (2,000 each for row filtering,
+bit selection/count and chain length). The earlier 3,000 primitive cases also
+passed. Populated sequence selection and full mind dispatch remain unverified.
+
+Added navigation heading probe `0x0013AC80`, alternating heading search
+`0x0013AA50`, randomized/wrapped heading `0x00100C70` and player avoidance
+`0x0007F980` in navigation/player_avoidance. They call the existing real
+navigation spawn selection, retail trigonometry, direction conversion and
+input-axis writer. Retained caller-stack occupancy/direction values remain
+explicit native context inputs; their live ownership is not yet validated.
+These four translations await build and differential checks.
+
+Navigation avoidance and its three helpers build. Completed outer player
+control update `0x0007D130` in entities/player_control_update, preserving
+input transform, action control, pending attachment, gaze, inactivity, hold,
+boost/avoidance and input attachment release order. It requires the actual
+boost preset and shared native owner contexts. Build and runtime installation
+are still pending for this last addition.
+
+Latest checkpoint: all 34 reconstructed definitions in this continuation
+(29 request/action functions, four navigation functions and the outer control
+update) build in Release for both game and transition-test targets. All six
+CTests pass. Heading wrap, direct heading probe and alternating heading search
+passed 3,000 retail differential cases with empty grids. Across the request
+and heading oracles, 12,000 cases passed in this continuation. This coverage
+is limited: populated sequence selection, populated avoidance, complete mind
+action dispatch, retained caller-stack ownership and live owner installation
+are not validated. Tutorial resource checks passed earlier in the same batch.
+
+Next work: recover the complete switch instruction range for player message
+handler `0x0007F1E0` (the cached listing contains only the switch entry/default),
+translate its real callees, and connect the completed control chain through
+factory-owned contexts and the player mind vtable. Revisit populated-row and
+sequence differential fixtures before live acceptance. No retail file or Ghidra
+project was modified, and no commit was created. Live spawning is still
+incomplete; the last opening evidence remains camera-only/opcode `0x6F`.

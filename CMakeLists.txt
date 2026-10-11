@@ -92,6 +92,7 @@ add_library(gbtg_lib STATIC
     src/engine/navigation/path_search.cpp
     src/engine/navigation/floor_connections.cpp
     src/engine/navigation/player_navigation.cpp
+    src/engine/navigation/player_avoidance.cpp
     src/engine/navigation/player_navigation_control.cpp
     src/engine/entities/body_collision.cpp
     src/engine/entities/segment_records.cpp
@@ -123,6 +124,8 @@ add_library(gbtg_lib STATIC
     src/engine/entities/body_action_ids.cpp
     src/engine/entities/body_gaze.cpp
     src/engine/entities/body_attachment_requests.cpp
+    src/engine/entities/body_request_selection.cpp
+    src/engine/entities/player_control_update.cpp
     src/engine/entities/body_animation_commands.cpp
     src/engine/entities/body_effect_commands.cpp
     src/engine/entities/body_animation_dispatch.cpp

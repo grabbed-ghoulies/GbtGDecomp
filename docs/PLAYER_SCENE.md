@@ -3502,3 +3502,122 @@ event with actor tag and result payload. Target controlled-player query
 0x0007D460 are translated; a differential oracle for both is prepared.
 This goal/gesture batch is building. Full strategy and player mind control
 composition remain open before factory installation.
+
+The goal/gesture batch builds. The six CTests and the three preflights pass,
+and the prepared oracles report zero mismatches: input gesture/direction
+0x0007D5A0/0x0007D460 over 3,000 cases and input tracking 0x00109810 over
+2,000 (the body-joint harness was relinked against the current game objects).
+
+### Remaining class-slot frontier and strategy goal states (2026-10-11)
+
+A read-only callee tree from every slot of the four player classes gives the remaining work before
+real factory installation. The slots come from getters 0x00027F60 (player), 0x00075AF0/0x000733F0/
+0x0001DA60 (body), 0x0007E100/0x00029D30 (mind) and 0x000BED40/0x0002B6C0 (strategy). Unanalysed
+slots were exported with temporary functions through `ExportPlayerScene.java range-function:`
+(0x00027F40, 0x00075B60, 0x0007EBC0, 0x000BEF40), and their calls were followed by disassembly. The
+trees are saved as `cache/ghidra_frontier/callee_tree_player_slots.txt` and `_2.txt`.
+About 180 functions remain:
+
+- Player mind control from 0x0007D130 (about 60), including attachment selection.
+- Mind navigation and pathfinding from 0x00136620/0x00136B00/0x00136EB0 (about 30).
+- Strategy parent message slot 0x0002BC10 and its goal helpers.
+- Player slot methods: sizes 0x00027F40, body message 0x00075B60 and 0x00075B90, mind 0x0007F1E0/
+  0x0007D360/0x0007EBC0, strategy 0x000BEE10/0x000BEF40/0x000BF2B0.
+
+This batch completes the strategy parent update slot 0x0002C130 and its goal-state chain
+(`player_strategy_goals.h/.cpp`), 22 routines:
+
+- 0x0002C130 dispatches on the strategy state, using the byte-indexed jump table read from the image.
+  State 1000 resets the input device. States 0x3E9/0x3F4 and 0x3F2/0x418 move to strategy +0x18 or
+  +0x10 once the mind has no requests. 0x3F3 loads "celebrate", and 0x3FB runs the goal state.
+  0x3FF drops a target whose occupancy differs, then reaches the free position either by searching
+  (0x0013A0F0) or through the saved path (0x0013A2A0); on arrival it records the position and
+  resumes (+0x18) or stops (1000). 0x415 counts down strategy +0x34 and moves to +0x12 at zero.
+- 0x00138A30: with a goal volume (+0x98C) it alerts the class-6 latch listener with message 0x63
+  (0x0013D400). It then finds a target inside the volume (0x00139E90) and, once the +0x994 delay
+  expires (0x000285B0), finishes the goal for a controlled player, clears the volume (0x00028580),
+  enters the next goal action (0x001391D0) and plays the actor's effect names and sound
+  (0x00028150/0x0013E6B0). Otherwise a ready goal (0x00135420) completes a step (0x00139010), and
+  goal kinds 6 and 0x23/0x25 load "drone_waitforscare" or "celebrate".
+- 0x00139010 keeps the last goal pending (+0x984) when decay is off. Otherwise it removes the goal,
+  activates the bind tree after a kind-0x15 goal, begins the next goal (0x00138F60), and finally
+  leaves to 0x415 or +0x12 (decay on) or to 1000.
+- 0x00138F60 finds the scripted occupancy record for +0x1FC (0x00124800, through the DAT_0051108C
+  records) once, stores it with latch handling (0x00028500), and either selects the mode action
+  (0x00135540) or enters the goal action.
+- 0x001391D0 selects the goal-kind action (0x00135790). On success it moves to 0x3FB and loads
+  "ghouly_intro" for kind 9; otherwise it drains the goals.
+- Action selection by mode (0x00135540) and goal kind (0x00135790) uses keys read per case from the
+  assembly, body virtual slots +0x24/+0x38/+0x3C/+0x50/+0x54/+0x58, the carry action 0x00135AB0
+  (0xBE/0xBF/0xC0 by attachment state) and, for kind 0x12, controller release (0x0003AC90) and
+  pose refreshes.
+
+Assembly corrections to the decompile: goal kind 0x1A in 0x00135420 tests body bit 0xB, not 0x30;
+0x0002B540 writes the world position to actor +0xCAC; and 0x0013A0F0 passes flags 4 and the
++0xCAC point to 0x00111420, then tests the path from the actor to the selected cell. The inline
+strategy transitions re-read the old state after the leaving call, as retail does. `LatchNode` gains
+the owner tag (owner +6) that 0x0013D400 matches.
+
+Verification: `tools/oracle/strategy_goals_oracle.py` runs the retail routines with every outside
+callee and virtual slot hooked to log its arguments and return scripted values. The host harness
+links `player_strategy_goals.cpp` alone, with stubs that log the same way, and compares the call
+logs plus the touched actor, strategy, mind, request and event words. Nine entry points (0x0002C130,
+0x00135790, 0x00135540, 0x00124800, 0x00028150, 0x00138A30, 0x00139010, 0x00138F60, 0x00135AB0) pass
+2,700 cases with zero mismatches, and every hooked callee is reached. Mutants for an action key,
+the 0x1A bit, the request kind, the ring count, a goal name, the kind-7 marker and the 0x63
+height scale were all caught. The full Windows build, six CTests and three preflights pass.
+
+### Strategy parent message slot (2026-10-11)
+
+Ten routines complete the strategy parent message slot 0x0002BC10 (vtable 0x004DD74C +0xC). This
+finishes the strategy parent class; only the player strategy overrides (0x000BEE10/0x000BEF40/
+0x000BF2B0) remain on that side.
+
+- 0x0002BC10 dispatches through its byte-indexed jump table (ids 1..0x8F). The state arguments for
+  0x0002B8D0, which the decompile hides in DI, were read from the assembly. Message by message:
+  - 1: target alert (0x00138C80).
+  - 0x24: a mode-1 player with no target clears its mind requests.
+  - 0x26: decay off does nothing; a pending mask without +0x984 waits. Otherwise a mask drains the
+    goals and moves to 0x415 or +0x12; with no mask, a mode-1 player with a target moves to 0x3E9
+    and the rest to +0x18.
+  - 0x27: with no mask and outside 0x3F3, moves to 1000.
+  - 0x32: completes a goal step.
+  - 0x4B: moves to strategy +0xC.
+  - 0x4D: queues a goal (0x001387F0).
+  - 0x5D: moves to 0x3FF.
+  - 0x64: moves to +0x16 or +0x14 by message +4.
+  - 0x65: moves to the state in message +4.
+  - 0x6E: detaches strategy +0x20 when message +0x10 is set and message +4 is the actor, then falls
+    through to 0x70.
+  - 0x70: contact completion (0x001392D0).
+  - 0x72: item delivery within 30 units (0x00138B40, 900 at DAT_0032B4EC).
+  - 0x74 and 0x8F: group handoffs (0x00138E40/0x00138EF0), matching actor +0x1FC against the other
+    actor's +0x1FE.
+  - 0x7D: with decay off, sends 0x27 to the actor.
+
+  Messages 0x5D/0x64/0x65 and 0x24 share an inline gate. It requires no strategy +0x1C hold, a free
+  and enabled decay group (mode 2 or +0x93C selects group 1), and no pending goal kind.
+- 0x00138C80 clears strategy +0x34. While the actor is alerted (+0x978 > 0 or +0x969), the target
+  query sets flag 0x10, clears 4 and passes class words +0x97C/+0x97E (only values above 1). It
+  retries with the plain flags, then finishes the goal and either enters the next action with
+  effects or completes a step.
+- 0x00028420 appends a goal row. The first append allocates a 12-row, 0x20-stride ring and takes
+  latches only then. An empty ring restarts at row 0; otherwise the tail wraps with no full check.
+  The row stores the kind, the two vectors and the +0x20 word, and clears +0x984.
+- 0x00028C30 returns the mind target. 0x00042070 returns an actor's +0x8F8 target record when its
+  +0x18 byte is clear.
+
+Native views: messages are their retail words. Actor words resolve through `message_actor` to a
+`RuntimeStrategyMessageActor` (bytes, native actor, +0x8F8 target, body +0x274 holder). Body +0x268
+and strategy +0x20 are supplied natively. Host goal rings are one `engine_heap_allocate` block (header
+plus 0x180 row bytes), matching how 0x00028240 frees them.
+
+Verification: `strategy_goals_oracle.py` gains a message entry point, two other actors and their
+targets, holders, the carried object, the ring header and tail row in the snapshot, and hooks for
+0x00028360, 0x00028210, 0x00112A20, 0x00028D00, 0x000283D0, the heap and the actor message slot.
+Every handler reaches its completion path. Ten entry points pass 3,000 mixed cases and 3,000
+message cases with zero mismatches. Mutants were caught for the 0x64 state choice, the alert flag,
+the class threshold, ring restart, the delivery radius, the stored contact actor, the mode-1 gate
+and the decay group. The class-threshold mutant at first survived, because the target stub did not log the
+class words; the stubs on both sides now log them. The full Windows build, six CTests and three
+preflights pass.

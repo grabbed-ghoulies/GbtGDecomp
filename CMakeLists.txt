@@ -87,6 +87,9 @@ add_library(gbtg_lib STATIC
     src/engine/entities/segment_records.cpp
     src/engine/entities/body_contacts.cpp
     src/engine/entities/player_update.cpp
+    src/engine/entities/player_strategy_goals.cpp
+    src/engine/entities/player_strategy.cpp
+    src/engine/frontend/brew_meter.cpp
     src/engine/entities/player_state.cpp
     src/engine/entities/body_motion_controller.cpp
     src/engine/entities/body_health.cpp

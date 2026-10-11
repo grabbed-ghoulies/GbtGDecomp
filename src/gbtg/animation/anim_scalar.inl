@@ -73,18 +73,19 @@ long double retail_asin(float value)
 // Xbox 0x001530E0
 long double retail_atan2(float y, float x)
 {
+    // Each COMISS gate branches on CF, so unordered inputs take the JB/JBE side.
     const float original_y = y;
-    if (y < 0.f)
+    if (!(y >= 0.f))
     {
         y = 0.f - y;
     }
     float absolute_x = x;
-    if (x < 0.f)
+    if (!(x >= 0.f))
     {
         absolute_x = 0.f - x;
     }
     float angle;
-    if (absolute_x <= y)
+    if (!(absolute_x > y))
     {
         absolute_x /= y;
         const float square = absolute_x * absolute_x;
@@ -99,15 +100,15 @@ long double retail_atan2(float y, float x)
         angle = ((((((square * 0.0066582896f - 0.03310525f) * square + 0.07899983f) * square - 0.13195902f) *
             square + 0.19796892f) * square - 0.33316f) * square + 0.99999565f) * y;
     }
-    if (0.f <= x)
+    if (!(0.f > x))
     {
-        if (0.f <= original_y)
+        if (!(0.f > original_y))
         {
             return angle;
         }
         return -static_cast<long double>(angle);
     }
-    if (0.f <= original_y)
+    if (!(0.f > original_y))
     {
         return static_cast<long double>(animation_float(0x40490FDB)) - angle;
     }

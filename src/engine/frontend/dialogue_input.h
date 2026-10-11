@@ -45,6 +45,8 @@ void set_runtime_input_axes(RuntimeInputAxisWriteDevice& device,
     const std::array<float, 2>& axes, std::span<u8> keyboard); // Xbox 0x00108FC0
 void set_runtime_input_secondary_axes(RuntimeInputAxisWriteDevice& device,
     const std::array<float, 2>& axes, std::span<u8> keyboard); // Xbox 0x001090A0
+void set_runtime_input_trigger_axes(RuntimeInputAxisWriteDevice& device,
+    const std::array<float, 2>& axes, std::span<u8> keyboard); // Xbox 0x00109180
 void dialogue_input_direction(const RuntimeDialogueInputDevice& device,
     std::array<float, 2>& output, const RuntimeDialogueInputState& state); // Xbox 0x001429E0
 u32 activate_dialogue_input(RuntimeDialogueInputState& state); // Xbox 0x000335A0

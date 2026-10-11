@@ -1,5 +1,9 @@
 #include "script_actor_query.h"
 #include "../entities/actor_spawn_eligibility.h"
+#include "../entities/actor_transform.h"
+#include "../navigation/navigation.h"
+#include "gbtg/anim.h"
+#include <bit>
 #include <cstring>
 
 namespace gbtg
@@ -249,5 +253,67 @@ i32 count_runtime_script_actor_tags(u32 flags, i16 tag, RuntimeScriptActorPredic
         }
     }
     return count;
+}
+
+// Xbox 0x001295E0
+bool runtime_script_actor_path_open(u32 flags, const Actor* requester, const Actor& candidate)
+{
+    if ((flags & 0x4000) != 0 && requester != nullptr)
+    {
+        const Vec3 destination = actor_world_position(candidate);
+        const Vec3 source = actor_world_position(*requester);
+        i32 last_cell;
+        if (!entity_detail::navigation_path_clear(source, destination, 0, 0, 0, 0, nullptr, &last_cell,
+                i16(requester->class_key)))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Xbox 0x00128DF0
+Actor* find_nearest_runtime_script_actor(const Vec3* point, Actor& requester, i16 tag, float radius,
+    float* distance, u32 flags, RuntimeScriptActorPredicate predicate, const RuntimeScriptActorQueryContext& context)
+{
+    Actor* found = nullptr;
+    Vec3 origin;
+    if (point == nullptr)
+    {
+        origin = actor_world_position(requester);
+    }
+    else
+    {
+        origin = *point;
+    }
+    float best = radius * radius;
+    if (!(radius > 0.0f))
+    {
+        best = std::bit_cast<float>(0x7F7FFFFFu); // DAT_0032B310.
+    }
+    for (scene_detail::RangeLink* link = context.first; link != nullptr; link = link->next)
+    {
+        auto& candidate = context.views.at(link->host);
+        if ((tag == 0 || i16(candidate.tag) == tag)
+            && matches_runtime_script_actor_query(candidate, &requester, flags, context) != 0)
+        {
+            const Vec3 position = actor_world_position(candidate.actor);
+            const float dy = origin.y - position.y;
+            const float dx = origin.x - position.x;
+            const float dz = origin.z - position.z;
+            const float measured = dz * dz + dy * dy + dx * dx;
+            if (best > measured && runtime_script_actor_path_open(flags, &requester, candidate.actor)
+                && (predicate == nullptr || predicate(&requester, &candidate.actor) != 0))
+            {
+                found = &candidate.actor;
+                best = measured;
+            }
+        }
+    }
+    if (found != nullptr && distance != nullptr)
+    {
+        *distance = float(retail_square_root(best));
+    }
+    return found;
 }
 }

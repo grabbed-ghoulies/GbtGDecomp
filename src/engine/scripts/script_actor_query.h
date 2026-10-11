@@ -67,4 +67,9 @@ u32 matches_runtime_script_actor_query(RuntimeScriptActorQueryView& candidate,
     Actor* requester, u32 flags, const RuntimeScriptActorQueryContext& context); // Xbox 0x00129420
 i32 count_runtime_script_actor_tags(u32 flags, i16 tag, RuntimeScriptActorPredicate predicate,
     RuntimeScriptActorQueryContext& context); // Xbox 0x001291A0
+bool runtime_script_actor_path_open(u32 flags, const Actor* requester,
+    const Actor& candidate); // Xbox 0x001295E0, EAX flags, ECX requester, EDX candidate
+Actor* find_nearest_runtime_script_actor(const Vec3* point, Actor& requester, i16 tag, float radius,
+    float* distance, u32 flags, RuntimeScriptActorPredicate predicate,
+    const RuntimeScriptActorQueryContext& context); // Xbox 0x00128DF0, EAX point
 }

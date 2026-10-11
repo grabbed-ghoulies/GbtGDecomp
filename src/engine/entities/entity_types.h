@@ -39,6 +39,7 @@ struct LatchNode
 {
     void (*handle_message)(LatchNode& self, const Message& msg) = nullptr;
     LatchNode* next = nullptr;
+    u16 tag = 0; // Owner +6; retail nodes sit at owner +0x900 (0x0013D400 reads node -0x8FA).
 };
 
 // Intrusive head. Retail prev is +0 and the first node is +4. Walks follow +4.

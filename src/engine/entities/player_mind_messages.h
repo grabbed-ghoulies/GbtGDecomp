@@ -13,7 +13,7 @@ struct RuntimePlayerMindMessages
 {
     RuntimeMindEvents& events;
     RuntimePlayerMindFeedback& feedback;
-    RuntimePlayerMindBoost& boost;
+    RuntimeMindBoost& boost;
     RuntimeParentMindRequests& requests;
     RuntimePlayerInputBinding& binding;
     const RuntimePlayerStrategyResume& resume;

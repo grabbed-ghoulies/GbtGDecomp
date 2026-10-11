@@ -4390,7 +4390,7 @@ Kind 4 dispatches before kind 2, so the imps are created before the player.
 
    | Class | Untranslated functions |
    | --- | --- |
-   | Imp mind 0x35 | ~133 |
+   | Shared cinema/AI mind 0x35 | ~133 |
    | Imp strategy 0x46 | ~60 |
    | Powerup book 0xD | ~160 |
    | Trigger 0x23 | not yet counted |
@@ -4505,3 +4505,253 @@ record, parameter and handler oracles document their actual coverage instead.
 No live opening acceptance is claimed. Additional native bindings must outlive
 the handler table and supply real scene storage and retained inputs. No retail
 payload/project changes, staging or commits were made.
+
+### 2026-10-11: scene ownership and factory continuation
+
+Added `SceneFactoryRuntime`, retained by `Game` and replaced on scene load.
+It keeps executable template ownership, the actual bundle/demand resource
+provider, all 0xAB retail type-parent/getter/name rows, and checked native
+address registration/resolution. Every uninstalled class has a distinct
+throwing getter. Registry creation does not fabricate constructors or skip
+opening imps. Marker blocks have heap-compatible ownership, but marker start
+is not connected yet. Actor/player lifecycle owners and their complete method
+contexts still need attachment to this scene owner.
+
+Removed the unused FactoryObject reference from NativePlayerInstance: keeping
+it while the marker object vector grows could leave a dangling reference.
+Actual instance bytes and native owner mappings remain stable.
+
+Reconstructed area type 0x1F sizes/constructor/message and pose selection,
+including the candidate-cell history ring, randomized candidate/annulus
+selection and active-dialogue query. Its real navigation, actor transform,
+direction-angle and base-message callees are reused. The class has an install
+adapter but is not installed into the live registry until its actor contexts
+are owned. This batch has not been built or tested yet.
+
+Read-only Ghidra exports establish the other missing class getters: imp mind
+0x35 at 0x0007C520, imp strategy 0x46 at 0x000B4480, trigger 0x23 at
+0x00069620 and book 0xD at 0x00109DD0. No class is claimed complete solely
+because its getter or lifecycle addresses are known.
+
+Checkpoint: trigger 0x23 now has translated sizes, constructor, 512-byte
+attribute copying, spawn-slot selection and both pose-query helpers. The
+constructor retains the retail probability comparison and untouched fields;
+pose selection reuses the actual navigation candidate selector and forwards
+A6 queries to the anchor actor. Its full message/update/destruction binding
+is still pending, so this class is not installed. Read-only exports of its
+remaining methods and the imp strategy methods are cached for continuation.
+
+The scene owner now retains factory objects, registers their instance address
+ranges, and releases them through 0x001075C0 in reverse ownership order before
+resource storage dies. This is native ownership plumbing; it does not replace
+the retail scene teardown sequence. No build/tests have run in this batch yet.
+
+Validation checkpoint: Release game and transition-test targets build with the
+new ownership/area/trigger modules explicitly included in CMake. A new retail
+oracle passed 3,000 seeded full-buffer comparisons of area initialization,
+trigger initialization and spawn-slot selection (seed 23). Controller registry
+insertion is excluded from this oracle because it requires native pointer
+mapping; no retail callees are captured or replaced in these comparisons.
+
+Trigger destruction/update and the complete 0x00069960 message dispatch are now
+translated, including A7 spawn actors/goals/effects, A8 deferred ghoulybox loads,
+A9 template creation preserving template scale, AA scaled creation, and 7C/7D
+reference updates. Added the actual 0x00141840 template-pose helper and an
+actor-only view of 0x00028150 so imp effects do not need a fabricated player
+strategy context. These last changes still need compilation and method-level
+oracle checks. Trigger installation still requires scene-owned native actor
+and message contexts; the exported helper methods do not imply live spawning.
+
+Native class ownership checkpoint: added NativeSceneActorClassOwner over the
+base actor owner. It installs area 0x1F and trigger 0x23, retains stable native
+contexts by instance bytes, routes derived messages/trigger updates, and
+releases trigger registration/load state before base actor destruction. Its
+controller adapter accepts actual A8 requests from 0x0013E8D0. All services are
+explicit required bindings; missing actor/resource/address services are not
+substituted. The live SceneFactoryRuntime has not attached this owner yet.
+
+Area and trigger method bodies are translated; remaining acceptance work is
+method-level retail comparison plus installation with the real scene services.
+Imp mind 0x35, strategy 0x46 and book 0xD remain unfinished, so scene ownership
+and factory spawning are not complete. The opening marker order remains intact.
+
+Ownership checks passed against the retail hierarchy: real type-1 construction
+and teardown for 200 objects across vector growth, exact ownership counts,
+interior address round trips, overlapping-range rejection and stale-address
+rejection after release. SceneFactoryRuntime installs the self-contained base
+object class; actor-derived registrations still wait for their required services.
+
+Added actor_word_messages as the explicit pointer-width conversion into the
+translated base handler for animation events/mixes, vectors and references.
+Its animation-options offsets were checked against the retail 0x00030B10 and
+0x0003EF70 dumps. Area/trigger ownership uses this adapter with required scene
+memory/reference/animation-record mappings. No raw Xbox pointer words are cast
+as native ActorReferenceMessage pointers.
+
+Imp mind 0x35 now has translated sizes, constructor/destructor and the actual
+0x0007CC00 resource-loading/random-delay chain. This does not install its getter:
+message/tick/request/init methods remain unfinished. The constructor oracle is
+being extended to the no-resource path; actual resource acquisition is not
+claimed verified by that path. All six CTests and retail dialogue-resource
+checks passed after the earlier ownership/trigger batch.
+
+Final checkpoint for this batch: Release game/transition-test builds pass.
+The extended constructor/slot oracle passed 4,000 full seeded-buffer cases
+(seed 29), including the imp mind no-resource constructor path. The scene
+ownership harness passed; all six CTests and the retail dialogue-resource suite
+pass. git diff --check passes. Area/trigger message/update paths, imp resource
+loading and native message conversion still need their own method-level oracle
+coverage; this batch's constructor oracle does not certify those paths.
+
+Resume with the real scene model/animation/D3D resource services and ownership
+of ActorBaseContext/actor effects, then attach NativeActorFactoryOwner,
+NativeSceneActorClassOwner and NativePlayerFactoryOwner. Complete imp mind
+0x35 message/tick/request/init, imp strategy 0x46 and book 0xD before dispatching
+the opening markers. Their cached getter/lifecycle/helper dumps identify the
+remaining chains. The milestone and live spawning remain incomplete; no
+opening imps are skipped and no missing callee returns a fabricated success.
+No retail payload/Ghidra project edits, staging or commits were performed.
+
+Continued checkpoint: translated imp mind request initialization 0x0007C580.
+It retains every kind branch, target-null rejection, range source/destination
+and RNG update, including the degree-to-radian turn jitter and the distinct
+0x2E/0x2F ranges. Existing angle/random helpers are reused. Indirect switch
+blocks were exported separately to verify offsets missing from the first
+function instruction listing. Request update 0x0007C0E0, message 0x0007C8B0
+and tick 0x0007CE30 are now cached and remain unfinished; initialization alone
+does not register type 0x35. A method oracle extension is prepared for target
+present/absent branches and all initialization kinds.
+
+Shared-behavior audit (2026-10-11): the retail type table names type 0x35
+entityMindCinema, getter 0x0007C520. Across the 1,357 executable templates,
+35 distinct mind templates use this type and are referenced by 45 actor
+templates, including player AI, imps, skeletons, zombies, haunted objects and
+other ghoulies. The earlier "imp mind" label was too narrow. Renamed the new
+lifecycle/request modules and native context to cinema_mind/RuntimeCinemaMind;
+these remain a single shared implementation with the original Xbox addresses.
+The type table has no other getter alias or direct child of type 0x35.
+Type 0x46 is entityStrategyImpFire (getter 0x000B4480): its single strategy
+template is referenced by imp, impchallenge and improger. Keep that strategy
+separate from shared cinema-mind behavior. No actor-name-based behavior is
+introduced. Empty Ghidra references in unanalysed code are not used as evidence
+of exclusivity. Shared message/tick/request-update methods remain unfinished.
+
+Sharing refactor validation: Release gbtg and the class harness build pass.
+The expanded five-mode retail oracle ran 5,000 cases (seed 31): 112 exact-byte
+mismatches remain in request-init angle outputs. Constructor/slot cases retain
+previous coverage. Added the actual CRT data page used by retail angle math;
+no angle return is stubbed. Do not claim request initialization accepted yet:
+investigate actor/angle fixture and shared direction helper before registration.
+
+Angle mismatch resolution (2026-10-11): all 112 mismatches were caused by
+oracle memory loading, not the shared cinema-mind implementation. The XBE
+reader reads one section at a time. Reading 0x00200000 through 0x00210000 in
+one call padded the next section with zeros, removing atan coefficients at
+0x00203854 and related constants. Load 0x00200000..0x00203000 and
+0x00203000..0x00210000 separately. Genuine retail 0x001530E0 angle math now
+runs with its actual data. The same 5,000 seeded-buffer cases (seed 31) pass
+with zero mismatches, including request initialization 0x0007C580, target-null
+branches, all initialization kinds, RNG and exact output bytes. Added useful
+float diagnostics for future failures; no tolerances, fabricated returns or
+production angle changes were needed. This supersedes the preceding unresolved
+angle checkpoint. Message/tick/request-update and live registration remain
+unfinished; this result accepts only the exercised methods and input coverage.
+
+Shared cinema-mind continuation: translated message handler 0x0007C8B0 and
+its 0x0007C4C0 class-permission helper; added the actual shared base-mind
+0x00029C80 eligibility policy, calling existing 0x00129920/0x001299B0.
+Boost/turn 0x00137A80/0x00137C30 are confirmed shared by player and cinema
+minds, using different embedded state offsets (+0x158 versus +0x94).
+Moved their implementation/context into mind_action_requests and kept player
+notifications in player_mind_requests. No per-actor duplicate was introduced.
+Translated cinema sound timer 0x0007CCD0, calling genuine 0x00041D00, and
+shared body-facing helpers 0x00134510/0x001345F0 plus request 0x0007B800.
+All remaining switch blocks and full tick end were exported read-only; no
+factory registration is claimed until request-update/tick and bindings finish.
+Expanded focused oracle coverage for permission rows and sound-timer gates;
+batch compilation and checks follow these implementation changes.
+
+Focused verification: 7,000 cases (seed 41) passed with zero mismatches across
+constructors, slots, request initialization, class-permission rows and sound
+timers. Sound coverage runs the genuine empty-name 0x00041D00 branch, including
+expiry RNG/reset and NaN/freeze/body-state gates; it does not certify nonempty
+sound-queue delivery. Release game and transition-test builds pass.
+Translated full cinema tick 0x0007CE30 through RET 0x0007D121 and avoidance
+0x0007CAB0 using actual navigation-heading search, request allocation/cleanup,
+input-axis writes, parent mind processing, target policy, gaze and boost timer.
+Request-list access uses its native +0x58 pointer view. These full tick bodies
+still need method-level retail coverage and live service bindings. Additional
+oracle modes now cover 0x00134510/0x0007B800 and shared 0x00029C80 with nonzero
+target categories. Request-update 0x0007C0E0 is still incomplete; the movement
+chains require 0x00135B60/0x00136030/0x00136D60 and further helpers rather than
+stubs. No getter registration or live-spawn acceptance is claimed.
+
+Movement-chain checkpoint: the ten-mode oracle passed 10,000 cases (seed 43)
+with zero mismatches. Added shared vertical-axis writer 0x00109260 and vertical
+navigation drive 0x00136D60, with the real horizontal drive, nav-cell height and
+body-state/input branches. Translated escape-position selector 0x00135B60:
+actual kind-0x1B marker enumeration and farthest/behind selection, followed by
+real navigation candidate/heading searches. No missing helper return is
+invented. Oracle extensions cover direct/aggregate vertical input writes and
+escape-marker selection; navigation fallback and full vertical drive still
+need their own acceptance coverage. Request-update remains unregistered.
+
+Expanded acceptance checkpoint: 12,000 cases (seed 47), zero mismatches,
+including genuine retail escape-marker choice and vertical input writes.
+All six CTests pass. Added real angle interpolation 0x00100E90 and escape
+heading randomization 0x00136030 for the next movement-request chain; these
+new angle methods still await focused verification. Escape request wrapper
+0x0007B110 now translates its success/output and failure-return-4 branches.
+Continue with cinema movement requests and temporary navigation cost handling,
+then request dispatcher, class ownership and live bindings. Live spawning and
+the scene ownership/factory milestone remain incomplete.
+
+Movement implementation checkpoint: translated escape drives 0x0007B170 and
+0x0007B2F0, position drives 0x0007B5A0/0x00136680/0x0007BC20, random/heading
+selection 0x0007B8A0/0x0007B940, vertical/horizontal target chasing
+0x0007B620/0x0007BC80, and target action 0x0007B090. Shared helpers now include
+target movability 0x00141580, relative point angle 0x00041AE0, horizontal point
+offset 0x001060F0, and collect/suspend/restore navigation costs
+0x00110110/0x0007B490/0x0007B510. Calls use existing translated navigation,
+attachment, input and chain-selection implementations. Horizontal chase keeps
+the retail isolated-cell shape selection and conditional forward offset.
+This batch awaits compilation and focused retail acceptance; the shared
+request dispatcher and live class bindings are still incomplete.
+
+Additional request bodies: 0x0007B840 now calls existing shared spawn eligibility
+0x00146150 and attachment eligibility 0x00027D40, then the required actual body
+vtable +0x5C callback and action selection 0x00027650. Timed motion 0x0007BA20
+uses the real body speed 0x000259C0, navigation drive, input reads/writes and
+new shared planar scaling 0x00105DD0. The speed query uses the body actor's
+damage class. Caller-owned mode scales and action key are required; no missing
+callee result is supplied. Release game and transition-test builds pass, and
+all six CTests pass after this batch. A 1,400-case seed-53 retail comparison
+passed with zero mismatches across fourteen modes, including angle interpolation
+and horizontal offsets. Expanded planar-scaling acceptance is running next.
+Remaining immediate work: spawn-point movement 0x0007BF60, exact request
+dispatcher 0x0007C0E0, method-level movement/tick/message coverage, and native
+cinema owner bindings before strategy/book and full live scene integration.
+
+Spawn-position request 0x0007BF60 and its shared neighbor predicate
+0x000368C0 are now translated. The request preserves the target's +0xD00
+navigation floor and the owner's current position for the final neighbor
+query; native target/address and link views must come from the actual owner.
+The expanded 15,000-case seed-59 run found one horizontal-point-offset
+mismatch (case 12058, 0x001060F0, x coordinate); focused diagnosis is in
+progress. Do not treat the larger run or the new movement bodies as accepted
+until that mismatch and remaining method coverage are resolved.
+
+Mismatch resolved: shared sine 0x00153320 recomputed its outer polynomial's
+square in a different floating-point order from the actual SSE instructions.
+The translation now retains the square once, and the inner x87 branch also
+retains its square before multiplying the coefficient. The exact failing
+offset case now matches retail. The unchanged 15,000-case seed-59 suite then
+passed with zero mismatches across fifteen modes, including planar scaling;
+no tolerance change or invented callee was used. Release game/transition
+builds and all six CTests pass, and git diff --check passes. Full movement,
+tick and message methods still await their own retail coverage.
+Exported all request dispatcher switch blocks read-only. Notable bindings for
+the next pass: case 8 tests flag name then chance at request +0x40; case 0x19
+approaches the actor's +0xCC0 checkpoint at radius 5/approach 30/speed 1;
+case 0x25 faces mind +0x70, and case 0x26 uses inline request position +0x10.
+The dispatcher remains unregistered, and live spawning remains incomplete.

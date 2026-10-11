@@ -12,7 +12,7 @@ struct RuntimePlayerControlUpdate
     RuntimePlayerMindGaze& gaze;
     RuntimePlayerMindInactivity& inactivity;
     RuntimePlayerMindControl& control;
-    RuntimePlayerMindBoost& boost;
+    RuntimeMindBoost& boost;
     RuntimePlayerNavigationAvoidance& avoidance;
     const ActorAnimationState& animation;
     const std::span<const u8>& boost_preset; // DAT_002FFF24.

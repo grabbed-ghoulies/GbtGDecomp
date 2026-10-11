@@ -95,7 +95,7 @@ void transform_runtime_player_mind_input(std::span<const u8> body, u32 invert,
 void update_runtime_player_input_tracking(std::span<u8> tracking,
     const std::array<float, 2>& axes, std::span<const u8> preset,
     u32 accumulate, const RuntimeActorClock& clock); // Xbox 0x00109810
-bool update_runtime_player_boost_timer(RuntimePlayerMindBoost& boost,
+bool update_runtime_player_boost_timer(RuntimeMindBoost& boost,
     RuntimePlayerMindControl& control, const std::span<const u8>* preset,
     float multiplier); // Xbox 0x00137840
 void update_runtime_player_input_gesture(std::span<u8> tracking,

@@ -50,6 +50,10 @@ entity_detail::NavigationCellRegistration* suspend_runtime_navigation_attachment
 u32 drive_runtime_player_navigation(RuntimePlayerNavigationControl& context,
     const Vec3& target, i32 target_floor, float radius, float approach,
     float speed, u32 keep_attachment, u32& failed); // Xbox 0x00136B00
+u32 drive_runtime_mind_vertical_navigation(RuntimePlayerNavigationControl& context,
+    const Vec3& target, i32 target_floor, float height, float tolerance,
+    float radius, float approach, float speed, float vertical_speed,
+    u32 keep_attachment, u32& failed); // Xbox 0x00136D60
 u32 handle_runtime_player_navigation_request(RuntimePlayerNavigationControl& context,
     std::span<const u8> message); // Xbox 0x00136620
 }

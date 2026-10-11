@@ -22,93 +22,10 @@ const char* name(std::span<const u8> bytes, size_t offset)
 }
 }
 
-// Xbox 0x00137A80
-bool request_runtime_player_boost(RuntimePlayerMindBoost& context)
-{
-    auto body = context.attachment.body;
-    if (read_u16(context.actor_bytes, 0xCDC) == 2 || read_u32(context.actor_bytes, 0x93C) != 0)
-    {
-        if ((runtime_player_can_resume_strategy(context.actor_bytes, context.resume) != 0
-                || (context.story_word & 0x80) != 0)
-            && read_u16(body, 0x94) != 0 && (context.flags.bytes[7] & 2) == 0
-            && (context.flags.bytes[7] & 4) == 0)
-        {
-            const u16 key = context.range_action_key();
-            if (runtime_body_has_action_id(context.attachment.actions.table, key))
-            {
-                put(context.boost, 0xC, 0);
-                put(context.boost, 8, 0);
-                put(context.boost, 0x14, 0);
-                put(context.boost, 0x10, 0);
-                put(context.boost, 0x18, 0);
-                put(context.boost, 0x1C, 1);
-                put(context.boost, 0x24, 0);
-                put(context.boost, 0x20, 0);
-                put(context.boost, 0x2C, 0);
-                put(context.boost, 0x28, 0);
-                put(context.boost, 0x34, 1);
-                put(context.boost, 0x30, 0);
-                if (!(read_f32(context.boost, 4) > 0.f))
-                {
-                    const u32 fresh = test_and_set_runtime_story_bit(context.story_bits, 1);
-                    put(context.boost, 0, fresh);
-                    put(context.boost, 4, std::bit_cast<u32>(fresh != 0 ? 2.5f : 5.f));
-                    set_runtime_body_bit(context.flags, 0x2C);
-                    release_runtime_player_attachment(0, 0, context.attachment);
-                    if (runtime_body_timer_is_idle(body))
-                    {
-                        select_runtime_body_action(body, key, context.attachment.actions);
-                    }
-                    ++body[0x309];
-                    ++body[0x30A];
-                    ++body[0x30B];
-                    ++body[0x30C];
-                    const std::array<i32, 2> message{0x77, i32(context.actor_address)};
-                    broadcast_actor_pulse_message(message.data());
-                    return true;
-                }
-                put(context.boost, 4,
-                    std::bit_cast<u32>(read_u32(context.boost, 0) != 0 ? 2.5f : 5.f));
-                if (!runtime_body_bit_set(context.flags, 0x1E))
-                {
-                    select_runtime_body_action(body, key, context.attachment.actions);
-                }
-            }
-            return false;
-        }
-    }
-    return false;
-}
-
-// Xbox 0x00137C30
-bool request_runtime_player_turn(RuntimePlayerMindBoost& context, const Vec3& point)
-{
-    auto body = context.attachment.body;
-    if ((read_u16(context.actor_bytes, 0xCDC) == 2 || read_u32(context.actor_bytes, 0x93C) != 0)
-        && !(read_f32(context.boost, 4) > 0.f)
-        && (context.flags.bytes[7] & 2) == 0 && (context.flags.bytes[7] & 4) == 0
-        && read_u16(body, 0x94) != 0)
-    {
-        if (runtime_body_timer_is_idle(body) && body[0x6A] == 0)
-        {
-            const u16 key = context.contact_action_key();
-            if (!runtime_body_has_action_id(context.attachment.actions.table, key))
-            {
-                return false;
-            }
-            const float angle = runtime_actor_direction_to_point(context.actor, point);
-            set_runtime_player_actor_rotation(context.actor, context.body_actor, body, Vec3{0.f, angle, 0.f});
-            select_runtime_body_action(body, key, context.attachment.actions);
-            return true;
-        }
-    }
-    return false;
-}
-
 // Xbox 0x0007F8C0
-bool notify_runtime_player_boost(RuntimePlayerMindBoost& context, RuntimePlayerMindFeedback& feedback)
+bool notify_runtime_player_boost(RuntimeMindBoost& context, RuntimePlayerMindFeedback& feedback)
 {
-    const bool result = request_runtime_player_boost(context);
+    const bool result = request_runtime_mind_boost(context);
     if (result && read_u32(feedback.input, 4) != 0)
     {
         if (runtime_input_is_selected(feedback.input, feedback.input_address, feedback.activation))
@@ -121,10 +38,10 @@ bool notify_runtime_player_boost(RuntimePlayerMindBoost& context, RuntimePlayerM
 }
 
 // Xbox 0x0007F920
-bool notify_runtime_player_turn(RuntimePlayerMindBoost& context,
+bool notify_runtime_player_turn(RuntimeMindBoost& context,
     RuntimePlayerMindFeedback& feedback, const Vec3& point)
 {
-    const bool result = request_runtime_player_turn(context, point);
+    const bool result = request_runtime_mind_turn(context, point);
     if (result)
     {
         if (read_u32(feedback.input, 4) != 0)

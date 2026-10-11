@@ -3,6 +3,22 @@
 
 namespace gbtg
 {
+// Xbox 0x00141840
+FactoryObject create_runtime_actor_pose(const char* name, const Vec3& position,
+    const Vec3& euler, std::span<ExecutableResourcePool> resources, ObjectFactoryRegistry& factory)
+{
+    auto clone = clone_executable_resource(resources, name);
+    if (clone.bytes == nullptr)
+    {
+        return {};
+    }
+    std::memcpy(clone.bytes.get() + 8, &position, 12);
+    std::memcpy(clone.bytes.get() + 0x14, &euler, 12);
+    auto object = create_factory_object(factory, {clone.bytes.get(), clone.size});
+    clone.bytes.reset(); // 0x000663E0.
+    return object;
+}
+
 // Xbox 0x00112C50
 FactoryObject create_runtime_actor_at(const char* name, const Vec3* position,
     const Vec3* euler, float scale, std::span<ExecutableResourcePool> resources,

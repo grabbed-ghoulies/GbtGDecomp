@@ -360,6 +360,40 @@ void set_runtime_input_secondary_axes(RuntimeInputAxisWriteDevice& device,
     }
 }
 
+// Xbox 0x00109260
+void set_runtime_input_vertical_axes(RuntimeInputAxisWriteDevice& device,
+    const std::array<float, 2>& axes, std::span<u8> keyboard)
+{
+    switch (read_u32(device.record, 0))
+    {
+    case 1:
+    case 2:
+    case 3:
+    case 5:
+        std::memcpy(writable_button_state(device, keyboard) + 0x10, axes.data(), sizeof(axes));
+        return;
+    case 4:
+        {
+            i32 index = 0;
+            i32 remaining = 4;
+            do
+            {
+                auto& child = *device.children[index];
+                if (read_u32(child.record, 8) != 0xFFFFFFFFu)
+                {
+                    std::memcpy(writable_button_state(child, keyboard) + 0x10, axes.data(), sizeof(axes));
+                }
+                ++index;
+                --remaining;
+            }
+            while (remaining != 0);
+            return;
+        }
+    default:
+        return;
+    }
+}
+
 // Xbox 0x00109180
 void set_runtime_input_trigger_axes(RuntimeInputAxisWriteDevice& device,
     const std::array<float, 2>& axes, std::span<u8> keyboard)

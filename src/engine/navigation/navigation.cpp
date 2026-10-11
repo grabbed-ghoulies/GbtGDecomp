@@ -535,6 +535,36 @@ bool navigation_cell_has_no_open_neighbor(const NavGrid& grid, u32 index, u32 us
     while (true);
 }
 
+// Xbox 0x000368C0
+bool navigation_cell_has_no_unblocked_neighbor(const NavGrid& grid, u32 index)
+{
+    const NavCell& cell = grid.cells[index];
+    i32 direction = 0;
+    do
+    {
+        const i32 x = std::bit_cast<i32>(index % u32(grid.width) + u32(neighbor_x[direction]));
+        const i32 z = std::bit_cast<i32>(index / u32(grid.width) + u32(neighbor_z[direction]));
+        const i32 bit = direction;
+        ++direction;
+        if ((cell.connections & (1u << bit)) != 0 && x >= 0 && x < grid.width
+            && z >= 0 && z < grid.depth)
+        {
+            const NavCell& neighbor = grid.cells[grid.width * z + x];
+            discard_neighbor_distance(cell, neighbor);
+            if ((neighbor.flags_7 & 2) == 0
+                && ((neighbor.region & 0xFFF) == 0 || (neighbor.region & 0x1000) == 0))
+            {
+                return false;
+            }
+        }
+        if (direction > 7)
+        {
+            return true;
+        }
+    }
+    while (true);
+}
+
 // Xbox 0x00036770
 bool navigation_cell_is_isolated(const NavGrid& grid, u32 index, bool use_region)
 {

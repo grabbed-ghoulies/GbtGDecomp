@@ -242,8 +242,12 @@ void load_runtime_goal_effect(const char* name, const Vec3& position, const Vec3
 // Xbox 0x00028150
 void play_runtime_player_goal_effects(RuntimePlayerStrategyGoals& context)
 {
-    Actor& actor = context.entry.actor;
-    std::span<u8> bytes = context.entry.actor_bytes;
+    play_runtime_actor_goal_effects(context.entry.actor, context.entry.actor_bytes, context.effects);
+}
+
+// Xbox 0x00028150
+void play_runtime_actor_goal_effects(Actor& actor, std::span<u8> bytes, ActorEffectStreamContext& effects)
+{
     const Vec3 position = actor_world_position(actor);
     const Vec3 euler = actor_world_euler(actor);
     for (const size_t offset : {size_t(0x998), size_t(0xA18), size_t(0xA98)})
@@ -251,13 +255,13 @@ void play_runtime_player_goal_effects(RuntimePlayerStrategyGoals& context)
         if (read_u32(bytes, offset) == 0x5F646961)
         {
             load_runtime_goal_effect(reinterpret_cast<const char*>(bytes.data() + offset), position, euler,
-                context.effects);
+                effects);
         }
     }
     if (bytes[0xB18] != 0 && bytes[0xB18] != 0)
     {
         queue_actor_sound(actor.sound_slots[0], 0, &actor, 0, nullptr, nullptr, 1.f,
-            reinterpret_cast<const char*>(bytes.data() + 0xB18), context.effects.sounds);
+            reinterpret_cast<const char*>(bytes.data() + 0xB18), effects.sounds);
     }
 }
 

@@ -63,6 +63,7 @@ extern "C"
 
 
 #include "scene_types.h"
+#include "factory_scene_runtime.h"
 #include "../cutscenes/cutscene_runtime.h"
 #include "scene.h"
 #include "scene_loading.h"
@@ -219,6 +220,7 @@ void load_scene_models(Game& g)
 
 void load_scene_contents(Game& g, std::string_view name)
 {
+    g.factory_scene.reset();
     script_set_default_name(g);
     g.slot = 0;
     g.slot_up = false;
@@ -229,6 +231,10 @@ void load_scene_contents(Game& g, std::string_view name)
         return;
     }
     script_set_name(g, name);
+    if (g.executable_resources != nullptr)
+    {
+        g.factory_scene = std::make_shared<SceneFactoryRuntime>(g.aids, g.executable_resources);
+    }
     if (const auto rel = aid_to_bundle_rel(g.scene_name))
     {
         const auto path = g.aids.bundle_path(*rel);

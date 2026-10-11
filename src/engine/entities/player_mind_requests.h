@@ -1,4 +1,5 @@
 #pragma once
+#include "mind_action_requests.h"
 #include "body_attachment_requests.h"
 #include "body_animation_commands.h"
 #include "player_mind_feedback.h"
@@ -8,27 +9,9 @@
 
 namespace gbtg
 {
-struct RuntimePlayerMindBoost
-{
-    std::span<u8> boost; // Mind +0x158.
-    std::span<const u8> actor_bytes;
-    Actor& actor;
-    Actor& body_actor;
-    EntityBitBlock& flags;
-    RuntimePlayerAttachment& attachment;
-    const RuntimePlayerStrategyResume& resume;
-    std::span<u8> story_bits;
-    const u32& story_word; // DAT_0050EA98.
-    u32 actor_address;
-    std::function<u16()> range_action_key; // Actual body vtable +0x48.
-    std::function<u16()> contact_action_key; // Actual body vtable +0x44.
-};
-bool request_runtime_player_boost(RuntimePlayerMindBoost& context); // Xbox 0x00137A80
-bool request_runtime_player_turn(RuntimePlayerMindBoost& context,
-    const Vec3& point); // Xbox 0x00137C30
-bool notify_runtime_player_boost(RuntimePlayerMindBoost& context,
+bool notify_runtime_player_boost(RuntimeMindBoost& context,
     RuntimePlayerMindFeedback& feedback); // Xbox 0x0007F8C0
-bool notify_runtime_player_turn(RuntimePlayerMindBoost& context,
+bool notify_runtime_player_turn(RuntimeMindBoost& context,
     RuntimePlayerMindFeedback& feedback, const Vec3& point); // Xbox 0x0007F920
 u32 runtime_player_callout_name_id(const char* name,
     const char* const* names); // Xbox 0x0003BFA0

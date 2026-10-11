@@ -1,0 +1,74 @@
+#include "cinema_mind_control.h"
+#include <bit>
+#include <cstring>
+
+namespace gbtg
+{
+namespace
+{
+void value(std::span<u8> bytes, size_t offset, float number)
+{
+    std::memcpy(bytes.data() + offset, &number, 4);
+}
+}
+
+// Xbox 0x0007C4C0
+void refresh_runtime_cinema_mind_action_permission(std::span<u8> mind,
+    std::span<const u8> actor, i32 allowed_count, std::span<const u8> allowed_rows)
+{
+    if (read_u32(actor, 0xCA0) == 0)
+    {
+        i32 index = 0;
+        if (allowed_count > 0)
+        {
+            do
+            {
+                if (read_u16(actor, 6) == read_u16(allowed_rows, size_t(index) * 4))
+                {
+                    return;
+                }
+                ++index;
+            }
+            while (index < allowed_count);
+        }
+        value(mind, 0x6C, 0.f);
+    }
+}
+
+// Xbox 0x0007CCD0
+void update_runtime_cinema_mind_sound(std::span<u8> mind,
+    std::span<const u8> body, std::span<const u8> resource, Actor& actor,
+    const RuntimeActorClock& clock, u32& random, RuntimeActorSoundQueues& sounds)
+{
+    const i32 count = i32(read_u32(mind, 0x88));
+    if (count != 0)
+    {
+        if (read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f)
+        {
+            const float step = runtime_frame_step(clock);
+            const float rate = runtime_actor_rate(actor);
+            const float timer = read_f32(mind, 0x8C);
+            if (timer > 0.f)
+            {
+                const float remaining = timer - rate * step;
+                value(mind, 0x8C, remaining);
+                // COMISS zero,remaining / JC: unordered also exits.
+                if (remaining <= 0.f)
+                {
+                    value(mind, 0x8C, 0.f);
+                    random = random * 0x19660Du + 0x3C6EF35Fu;
+                    const float fraction = std::bit_cast<float>((random & 0x7FFFFFu) | 0x3F800000u) - 1.f;
+                    const i32 selected = i32(fraction * float(count));
+                    request_actor_sound(actor, 1,
+                        reinterpret_cast<const char*>(resource.data() + 0x10 + selected * 0x80), sounds);
+                    const float minimum = read_f32(resource, 8);
+                    const float maximum = read_f32(resource, 0xC);
+                    random = random * 0x19660Du + 0x3C6EF35Fu;
+                    const float delay = std::bit_cast<float>((random & 0x7FFFFFu) | 0x3F800000u) - 1.f;
+                    value(mind, 0x8C, (maximum - minimum) * delay + minimum);
+                }
+            }
+        }
+    }
+}
+}

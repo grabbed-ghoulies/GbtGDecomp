@@ -132,7 +132,7 @@ void notify_runtime_player_mind_attachment_callout(RuntimeParentMindRequests&, c
     logf("callout %x %d", sender, action_target == g_action_target ? 1 : 0);
 }
 
-bool notify_runtime_player_turn(RuntimePlayerMindBoost&, RuntimePlayerMindFeedback& feedback, const Vec3& point)
+bool notify_runtime_player_turn(RuntimeMindBoost&, RuntimePlayerMindFeedback& feedback, const Vec3& point)
 {
     logf("turn %x %x %x %d", bits(point.x), bits(point.y), bits(point.z), is_mind(feedback.mind));
     return false;
@@ -153,7 +153,7 @@ void shake_runtime_player_mind_camera(RuntimePlayerMindFeedback& context, const 
     logf("shake %s %d", name, is_mind(context.mind));
 }
 
-bool notify_runtime_player_boost(RuntimePlayerMindBoost&, RuntimePlayerMindFeedback& feedback)
+bool notify_runtime_player_boost(RuntimeMindBoost&, RuntimePlayerMindFeedback& feedback)
 {
     logf("boost %d", is_mind(feedback.mind));
     return false;
@@ -324,7 +324,7 @@ int main()
         RuntimeMindStorage* storage = nullptr;
         RuntimeCameraPulse pulse;
         std::memset(&pulse, 0xA5, sizeof(pulse));
-        RuntimePlayerMindMessages context{events, feedback, junk<RuntimePlayerMindBoost>(),
+        RuntimePlayerMindMessages context{events, feedback, junk<RuntimeMindBoost>(),
             junk<RuntimeParentMindRequests>(), junk<RuntimePlayerInputBinding>(), junk<RuntimePlayerStrategyResume>(),
             junk<Game>(), kActor, actor_bytes, flags, {}, &action_target, &source_view, &self_mind, nullptr, {},
             nullptr, storage, junk<ActorAnimationState>(), chapter, flags_word, pulse, [](const void*) { return 0u; },

@@ -90,6 +90,16 @@ void runtime_horizontal_direction(Vec3& direction, float angle, float length)
     direction.z = float(cosine * length + static_cast<long double>(direction.z));
 }
 
+// Xbox 0x001060F0
+void offset_runtime_horizontal_point(Vec3& output, const Vec3& source, float angle, float length)
+{
+    output = source;
+    const float sine = float(retail_sin(angle));
+    const long double cosine = retail_cos(angle);
+    output.x = float(static_cast<long double>(sine) * length + output.x);
+    output.z = float(cosine * length + output.z);
+}
+
 // Xbox 0x0001D540
 float runtime_body_hit_angle(std::span<const u8> hit)
 {

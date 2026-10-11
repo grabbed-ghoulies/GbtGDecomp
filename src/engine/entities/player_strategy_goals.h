@@ -56,6 +56,8 @@ void set_runtime_mind_alert_event(RuntimeMindEvents& events, u32 target); // Xbo
 void load_runtime_goal_effect(const char* name, const Vec3& position, const Vec3& euler,
     ActorEffectStreamContext& effects); // Xbox 0x0013E6B0, ECX position, EAX euler
 void play_runtime_player_goal_effects(RuntimePlayerStrategyGoals& context); // Xbox 0x00028150, EAX actor
+void play_runtime_actor_goal_effects(Actor& actor, std::span<u8> bytes,
+    ActorEffectStreamContext& effects); // Xbox 0x00028150, native actor-only view
 void alert_runtime_goal_listener(RuntimePlayerStrategyGoals& context); // Xbox 0x0013D400
 u32 runtime_player_goal_ready(RuntimePlayerStrategyGoals& context); // Xbox 0x00135420, ESI actor
 bool find_runtime_goal_volume_target(const OccupancyRecord& volume, u32& output,

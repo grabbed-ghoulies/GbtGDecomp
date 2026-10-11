@@ -129,7 +129,6 @@ struct NativePlayerInstance
 
     NativePlayerSceneBindings& scene;
     NativeActorFactoryInstance& actor_instance;
-    FactoryObject& actor_object;
     Actor& actor;
     std::span<u8> actor_bytes;
     u32 actor_address;

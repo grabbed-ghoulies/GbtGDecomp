@@ -4,6 +4,7 @@
 
 namespace gbtg
 {
+void install_runtime_base_object_class(std::span<ObjectFactoryType> types);
 struct NativeActorFactoryInstance
 {
     ButtonBatScreen bat;

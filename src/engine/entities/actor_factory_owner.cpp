@@ -71,6 +71,11 @@ NativeActorFactoryOwner::NativeActorFactoryOwner(NativeActorFactoryBindings bind
 {
 }
 
+void install_runtime_base_object_class(std::span<ObjectFactoryType> types)
+{
+    types[1] = ObjectFactoryType{0, base_lifecycle};
+}
+
 NativeActorFactoryOwner::~NativeActorFactoryOwner()
 {
     if (active_owner == this)
@@ -87,7 +92,7 @@ void NativeActorFactoryOwner::install(std::span<ObjectFactoryType> types)
     }
     // Lifecycle views of retail getters 1074F0, 3C070 and 6D4A0. Other types
     // retain their caller-provided registrations and are not substituted.
-    types[1] = ObjectFactoryType{0, base_lifecycle};
+    install_runtime_base_object_class(types);
     types[2] = ObjectFactoryType{1, actor_lifecycle};
     types[0x15] = ObjectFactoryType{2, button_bat_lifecycle};
     active_owner = this;

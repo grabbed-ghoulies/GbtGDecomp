@@ -63,5 +63,7 @@ bool navigation_neighbor_connected(const NavGrid& grid, u32 source,
     u32 destination); // Xbox 0x00036590
 bool navigation_cell_has_no_open_neighbor(const NavGrid& grid, u32 cell,
     u32 use_region); // Xbox 0x00036600
+bool navigation_cell_has_no_unblocked_neighbor(const NavGrid& grid,
+    u32 cell); // Xbox 0x000368C0
 }
 }

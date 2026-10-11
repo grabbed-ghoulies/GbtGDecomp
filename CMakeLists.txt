@@ -64,9 +64,27 @@ add_library(gbtg_lib STATIC
     src/engine/frontend/dialogue_tags.cpp
     src/engine/scene/dialogue_resource_owner.cpp
     src/engine/scene/executable_resources.cpp
+    src/engine/scene/factory_scene_runtime.cpp
     src/engine/scene/scene_markers.cpp
     src/engine/scene/scene_marker_handlers.cpp
     src/engine/entities/player_spawn.cpp
+    src/engine/entities/area_actor.cpp
+    src/engine/entities/trigger_actor.cpp
+    src/engine/entities/scene_actor_factory_owner.cpp
+    src/engine/entities/actor_word_messages.cpp
+    src/engine/entities/cinema_mind_lifecycle.cpp
+    src/engine/entities/cinema_mind_requests.cpp
+    src/engine/entities/cinema_mind_control.cpp
+    src/engine/entities/mind_target_policy.cpp
+    src/engine/entities/mind_action_requests.cpp
+    src/engine/entities/body_orientation.cpp
+    src/engine/entities/cinema_mind_messages.cpp
+    src/engine/entities/cinema_mind_tick.cpp
+    src/engine/entities/cinema_mind_movement.cpp
+    src/engine/navigation/mind_vertical_navigation.cpp
+    src/engine/navigation/mind_escape_position.cpp
+    src/engine/navigation/mind_navigation_angles.cpp
+    src/engine/navigation/mind_navigation_costs.cpp
     src/engine/entities/player_children.cpp
     src/engine/entities/player_mind_setup.cpp
     src/engine/entities/player_parent_lifecycle.cpp

@@ -98,7 +98,8 @@ long double animation_sin(float angle)
     constexpr float c = animation_float(0x3f7fffacu);
     if (absolute <= animation_float(0x3f490fdbu))
     {
-        return ((static_cast<long double>(a) * value * value - b) * value * value + c) * value;
+        const long double square = static_cast<long double>(value) * value;
+        return ((static_cast<long double>(a) * square - b) * square + c) * value;
     }
     if (absolute <= animation_float(0x4016cbe4u))
     {
@@ -112,7 +113,8 @@ long double animation_sin(float angle)
         return absolute;
     }
     const float offset = absolute - animation_float(0x40490fdbu);
-    const float polynomial = (offset * offset * a - b) * offset * offset + c;
+    const float square = offset * offset;
+    const float polynomial = (square * a - b) * square + c;
     if (value < 0.f)
     {
         return polynomial * offset;

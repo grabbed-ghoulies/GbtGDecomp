@@ -156,7 +156,6 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
     NativeActorFactoryInstance& owner_instance, FactoryObject& object)
     : scene(scene_bindings),
       actor_instance(owner_instance),
-      actor_object(object),
       actor(owner_instance.bat.actor),
       actor_bytes(bytes_of(object)),
       actor_address(scene_bindings.address_of(object.bytes.get())),

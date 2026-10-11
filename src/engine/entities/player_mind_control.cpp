@@ -534,7 +534,7 @@ void update_runtime_player_input_tracking(std::span<u8> tracking,
 }
 
 // Xbox 0x00137840
-bool update_runtime_player_boost_timer(RuntimePlayerMindBoost& boost,
+bool update_runtime_player_boost_timer(RuntimeMindBoost& boost,
     RuntimePlayerMindControl& control, const std::span<const u8>* preset, float multiplier)
 {
     const size_t group = (read_u16(boost.actor_bytes, 0xCDC) == 2

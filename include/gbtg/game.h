@@ -16,6 +16,7 @@ struct MenuCursor;
 struct RuntimeScriptDialogueContext;
 struct RuntimeDialogueOuterDrawContext;
 class SceneExecutableResources;
+class SceneFactoryRuntime;
 
 struct InputState
 {
@@ -68,6 +69,7 @@ struct Game
     RuntimeScriptDialogueContext* script_dialogue = nullptr;
     RuntimeDialogueOuterDrawContext* dialogue_draw = nullptr;
     std::shared_ptr<SceneExecutableResources> executable_resources;
+    std::shared_ptr<SceneFactoryRuntime> factory_scene;
     bool running = true;
     float time = 0.f;
     u32 frame = 0;

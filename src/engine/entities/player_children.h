@@ -8,7 +8,10 @@
 
 namespace gbtg
 {
+void base_body_object_sizes(ObjectSizes& output); // Xbox 0x0001DA30
 void parent_player_body_object_sizes(ObjectSizes& output); // Xbox 0x00076180
+bool accept_runtime_object_construction(FactoryObject& object,
+    std::span<const u8> parameters); // Xbox 0x000CFFD0
 void player_body_object_sizes(ObjectSizes& output); // Xbox 0x00075AD0
 void player_mind_object_sizes(ObjectSizes& output); // Xbox 0x0007E0E0
 void player_strategy_object_sizes(ObjectSizes& output); // Xbox 0x000AF030

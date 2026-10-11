@@ -27,10 +27,10 @@ struct NativePlayerMindSlots
     std::span<const u8> actor_bytes; // Mind +8.
     const u32& runtime_flags; // DAT_0050EA9C.
     RuntimeInputActivationContext& input_activation;
-    // Virtual slots +0xC through +0x18.
-    RuntimePlayerMindMessages& messages;
-    RuntimePlayerMindTick& tick;
-    RuntimePlayerMindRequestUpdate& request_update;
+    // Virtual slots +0xC through +0x18; the player owner attaches them once its method contexts exist.
+    RuntimePlayerMindMessages* messages;
+    RuntimePlayerMindTick* tick;
+    RuntimePlayerMindRequestUpdate* request_update;
     Actor& actor; // Mind +8.
     std::function<const Vec3*()> target_position; // Mind +0x10 object +0x20, or null.
     std::function<std::span<u8>(u32)> input_at; // Retail input device address -> device bytes.
@@ -39,6 +39,7 @@ struct NativePlayerMindSlots
 struct NativePlayerMindBindings
 {
     std::function<std::unique_ptr<NativePlayerMindSlots>(FactoryObject&, std::span<const u8>)> create_slots;
+    std::function<void(const FactoryObject&)> released; // Optional; after 0x00029FF0 releases the view.
 };
 class NativePlayerMindOwner
 {

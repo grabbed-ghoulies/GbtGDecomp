@@ -62,8 +62,7 @@ void check_player_mind_owner(SceneExecutableResources& executable)
             return std::make_unique<NativePlayerMindSlots>(NativePlayerMindSlots{
                 std::span<u8>(object.bytes.get(), object.size), 42, settings, random, executable.pools,
                 state.script_table, unused<RuntimePlayerMindSetup>(), state.requests, state.events, state.storage, {},
-                runtime_flags, unused<RuntimeInputActivationContext>(), unused<RuntimePlayerMindMessages>(),
-                unused<RuntimePlayerMindTick>(), unused<RuntimePlayerMindRequestUpdate>(), state.actor, nullptr, nullptr,
+                runtime_flags, unused<RuntimeInputActivationContext>(), nullptr, nullptr, nullptr, state.actor, nullptr, nullptr,
                 nullptr});
         }});
     std::vector<ObjectFactoryType> types(0x60);

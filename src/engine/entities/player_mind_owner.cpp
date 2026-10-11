@@ -91,6 +91,10 @@ NativePlayerMindSlots& NativePlayerMindOwner::view(const FactoryObject& object)
 void NativePlayerMindOwner::release_view(const FactoryObject& object)
 {
     instances_.erase(object.bytes.get());
+    if (bindings.released)
+    {
+        bindings.released(object);
+    }
 }
 
 void NativePlayerMindOwner::message(FactoryObject& mind, const void* message)
@@ -98,18 +102,18 @@ void NativePlayerMindOwner::message(FactoryObject& mind, const void* message)
     auto& slots = view(mind);
     // 0x0007F1E0 reads at most message word 0xB, and only for the ids that carry it.
     const std::span<const u32> words(static_cast<const u32*>(message), 0xC);
-    dispatch_runtime_player_mind_message(slots.messages, words, slots.object_at(words[1]));
+    dispatch_runtime_player_mind_message(*slots.messages, words, slots.object_at(words[1]));
 }
 
 void NativePlayerMindOwner::tick(FactoryObject& mind, u32 input)
 {
     auto& slots = view(mind);
-    tick_runtime_player_mind(slots.tick, slots.input_at(input));
+    tick_runtime_player_mind(*slots.tick, slots.input_at(input));
 }
 
 i32 NativePlayerMindOwner::update_request(FactoryObject& mind, RuntimePlayerMindRequest& request)
 {
-    return update_runtime_player_mind_request(view(mind).request_update, request);
+    return update_runtime_player_mind_request(*view(mind).request_update, request);
 }
 
 u32 NativePlayerMindOwner::initialize_request(FactoryObject& mind, RuntimePlayerMindRequest& request)

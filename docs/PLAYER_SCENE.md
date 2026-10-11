@@ -4245,3 +4245,87 @@ the player's native objects and bind the dispatchers. That needs factory install
 player (type 5), body (types 0x27/0x2A) and strategy (types 8/0x4F) classes. Full player-mind
 construction through `0x0007EF10` (camera creation and the intro sound) has not been run through
 the owner.
+
+### 2026-10-11: player factory owner and the other three player classes
+
+These vtables are also filled at run time by their getters. Retail type table `DAT_0030D41C` gives the
+parent chains:
+
+- player 5 → actor 2 → 1;
+- body 0x2A → 0x27 → 6 → 1;
+- strategy 0x4F → 8 → 1;
+- mind 0x34 → 7 → 1.
+
+| Type | Vtable (getter) | Sizes / construct / destroy | Other slots |
+| --- | --- | --- | --- |
+| 5 player | 0x004DD6B8 (0x00027F60, over actor fill 0x0003C080) | 0x27F40 / 0x28830 / 0x28A30 | +0xC message 0x28F60, +0x10 update 0x2C2B0, +0x14 draw 0x28050 |
+| 6 body | 0x004DD658 (0x0001DA50 → 0x0001DA60) | 0x1DA30 / 0x24C50 / 0x24F70 | 24 base body slots |
+| 0x27 body | 0x00504FE0 (0x000733F0) | 0x76180 / 0x73450 / 0x734B0 | +0xC 0x74080, +0x10 0x744A0, +0x18 0x74490, +0x1C 0x74670 |
+| 0x2A body | 0x00505248 (0x00075AF0) | 0x75AD0 / 0xCFFD0 / empty | +0xC 0x75B60, +0x20 0x75B90, +0x2C 0x75C30 |
+| 8 strategy | 0x004DD74C (0x0002B6C0) | 0x2B6A0 / 0x2B740 / 0x2B7A0 | +0xC 0x2BC10, +0x10 0x2C130, +0x14 0x2BAF0, +0x18 0xBFA50 |
+| 0x4F strategy | 0x00505FA0 (0x000BED40) | 0xAF030 / 0xCFFD0 / 0xBED90 | +0xC 0xBEE10, +0x10 0xBEF40, +0x14 0xBF2B0, +0x18 0xBF410 |
+
+The 0x2A table is a fresh 0x0001DA60 fill plus its own overrides; it is not built on the 0x27 table.
+
+Four small slots were untranslated and are now added:
+
+- `0x0001DA30`: base body sizes 0x894/0x7C8.
+- `0x000CFFD0`: constant-success constructor.
+- `0x00027500`: body +0x4C, which returns 0xA9.
+- `0x00075C30`: player body +0x2C. It returns 0xD8 when body flag byte 5 bit 0x10 is set; otherwise
+  it tail-calls `0x00026A90`.
+
+`NativePlayerFactoryOwner` (`entities/player_factory_owner`) installs types 5, 6, 0x27, 0x2A, 8 and
+0x4F, and owns the mind owner for types 7/0x34. It sits on top of the actor owner's types 1 and 2.
+
+**Lifecycle adapters.** These call the translated constructors and destructors. Each child finds its
+player through the actor address that the player constructor writes into the child's cloned
+parameters: body +0x1B0, mind +0x9C, strategy +8.
+
+**Per-player instance.** `NativePlayerInstance` holds one player's native state and contexts in
+dependency order:
+
+- **Player.** The constructor and destructor contexts, `self`, the attachment creation context, the
+  child FactoryObjects, input and links.
+- **Body.** Native mirrors of fields +0x10/+0x14/+0x48/+0x4C/+0x5C/+0x60/+0x64/+0x15C/+0x268/
+  +0x2C8/+0x314/+0x73C/+0x740/+0x744/+0x760, plus actor +0x54/+0x5C/+0x60 and joint records.
+  These feed the parent body cleanup and construction, action selection and motion contexts. Actor
+  +0x1B0/+0x1B8 alias the next pointers of the actor's attachment sentinel (+0x1AC) and of its
+  pending node (+0x1B4), matching the two list walks in `0x0003CFD0`.
+- **Mind.** The request anchor +0x54 (its next is +0x58), the event anchor +0x24 (its next is
+  +0x28), storage, script table, camera source and setup.
+- **Strategy.** The link, setup, entry, goals, base messages, callout and the full
+  `RuntimePlayerStrategyFlow`.
+
+**Strategy dispatch during construction and destruction.** Retail calls the strategy's virtual
+enter/leave slots here: `0x00028EB0` on creation, and `0x0002B7A0` re-enters state 1000 on
+destruction. Because the object's vtable stays 0x00505FA0, these resolve to the player overrides
+`0x000BF410` and `0x000BF2B0`.
+
+**Value views.** Body, input, mind, strategy and the goal table are value views that the adapters
+refresh as each child appears. The decoded goal table and the model nodes/channels come from scene
+bindings.
+
+The new `check_player_factory_owner` (run by `--dialogue-resources`) covers:
+
+- the installed chains and vtable addresses;
+- a player built through `create_factory_object`, with real translated constructors for the actor,
+  player, body chain (6/0x27/0x2A) and mind chain (7/0x34). It checks the body/mind sizes, address
+  binding, body health written by the mind and the camera notice;
+- a standalone strategy chain whose destructor enters state 1000 through the player flow;
+- a second player whose constructor creates and enters its strategy;
+- full release of both players and their children.
+
+`cache\_run\build_and_test.bat` passes.
+
+**Still to do (method phase).** The remaining virtual-slot contexts must be built and attached to
+the instance:
+
+- player message/update/draw (`self`'s actor message);
+- body slots +0xC..+0x5C (`body_action_key`/`body_slot_key`);
+- the player-mind message/tick/request-update contexts (`NativePlayerMindSlots` pointers);
+- strategy message/update dispatch.
+
+Until then, those slots raise an explicit "not attached" error rather than running a substitute. The
+live scene does not yet create a factory registry or these owners: no live code calls
+`0x00134920` (player spawn). The last opening evidence remains camera-only/opcode `0x6F`.

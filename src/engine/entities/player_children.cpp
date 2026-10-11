@@ -4,6 +4,19 @@
 
 namespace gbtg
 {
+// Xbox 0x0001DA30
+void base_body_object_sizes(ObjectSizes& output)
+{
+    output.instance = 0x894;
+    output.parameters = 0x7C8;
+}
+
+// Xbox 0x000CFFD0
+bool accept_runtime_object_construction(FactoryObject&, std::span<const u8>)
+{
+    return true;
+}
+
 // Xbox 0x00076180
 void parent_player_body_object_sizes(ObjectSizes& output)
 {

@@ -14,7 +14,8 @@ void acquire_texture(const char* name, size_t index, RuntimeBrewMeter& meter)
             resource_error(meter.error, 2);
         }
         meter.textures[index] = texture;
-        meter.half_widths[index] = float(i32(read_u16(texture, 8))) * 0.5f; // DAT_0032B0F4.
+        const std::span<const u8> stored = texture.data() != nullptr ? texture : meter.address_zero;
+        meter.half_widths[index] = float(i32(read_u16(stored, 8))) * 0.5f; // DAT_0032B0F4.
     }
 }
 

@@ -159,7 +159,7 @@ u32 runtime_player_idle_elapsed(RuntimePlayerStrategyFlow& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> strategy = goals.entry.strategy;
-    if ((goals.body_bits->bytes[6] & 1) != 0 || nearest_threat(context) != nullptr)
+    if ((goals.body_bits->bytes[6] & 1) == 0 || nearest_threat(context) != nullptr)
     {
         put_float(strategy, 0x4C, 0.0f);
         return 0;

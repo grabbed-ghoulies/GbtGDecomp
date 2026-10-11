@@ -17,6 +17,7 @@ struct RuntimeBrewMeter
     std::span<const u8> preset; // DAT_00312A1C.
     AnimationResourceRegistry& registry;
     ResourceErrorState& error;
+    std::span<const u8> address_zero; // A missing texture's width is read at address 8.
 };
 void acquire_runtime_brew_textures(RuntimeBrewMeter& meter); // Xbox 0x0012D090
 void show_runtime_brew_count(i32 count, RuntimeBrewMeter& meter); // Xbox 0x0012D4A0, EAX count

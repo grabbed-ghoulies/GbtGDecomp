@@ -100,6 +100,8 @@ add_library(gbtg_lib STATIC
     src/engine/entities/player_update.cpp
     src/engine/entities/player_strategy_goals.cpp
     src/engine/entities/player_strategy.cpp
+    src/engine/entities/player_mind_messages.cpp
+    src/engine/camera/camera_pulse.cpp
     src/engine/frontend/brew_meter.cpp
     src/engine/entities/player_state.cpp
     src/engine/entities/body_motion_controller.cpp

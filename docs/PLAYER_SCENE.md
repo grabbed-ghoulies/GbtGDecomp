@@ -4087,3 +4087,103 @@ factory-owned contexts and the player mind vtable. Revisit populated-row and
 sequence differential fixtures before live acceptance. No retail file or Ghidra
 project was modified, and no commit was created. Live spawning is still
 incomplete; the last opening evidence remains camera-only/opcode `0x6F`.
+
+### 2026-10-11: player mind message slot
+
+Resumed from commit `74e8ce8`. The cached `0x0007F1E0` listing stops after the switch entry, so the
+full body came from disassembling the retail image. That includes the byte-indexed jump table at
+`0x0007F7E0`/`0x0007F768` (ids 0x23..0xB2). The decompile is complete, but it hides register
+arguments; these were read from the assembly:
+
+- 0x41 passes message +0x28 as present and +0x14 as source to `0x0007DEE0`; 0x49/0x5A pass
+  +0x2C and +0x18.
+- 0x37 passes message +4 as the turn point.
+- 0x6E passes message +0x14 as the payload and +0x10 as the target to `0x0007DBE0`.
+- 0x2D queues the 4-word script event {0xB6, actor, message +8, word +6 of that actor}.
+- 0x7D: `0x0003B1D0` leaves the animation duration in XMM0, and `0x00061960` reads that value.
+  The five pushed words (10.0, 0, 0, 1.0, 0) belong to `0x00061960`.
+
+New definitions:
+
+- `dispatch_runtime_player_mind_message` (`0x0007F1E0`) in `entities/player_mind_messages`.
+  Every case ends in the parent mind handler `0x0002A2E0`, as in retail.
+- `runtime_resource_name_is_aid` (`0x000357B0`): tests the 4-byte "aid_" tag.
+- `clear_runtime_goal_message` (`0x00049DB0`): the 9-word goal message 0x4D.
+- `start_runtime_camera_pulse` (`0x00061960`) in `camera/camera_pulse`. It writes the block at
+  `DAT_0050447C`, skipping the write while bit 15 of `DAT_0050EA9C` is set.
+
+Message words that hold retail addresses go through context resolvers:
+
+- the 0x50 camera-shake name;
+- the 0x2D actor;
+- the mind +0x88 source object.
+
+These handlers translate the message words; they do not create the actors or objects behind
+them. Health warnings (0x90) use body +0x94: thresholds 5/10 normally, and 2/5 once the
+scene-end flag is set. A self contact (0x6E) adds 5.0 to mind +0x50 and clamps it at 15.0.
+
+`player_mind_messages_oracle.py 1 3000` and `4 3000` passed 6,000 call-sequence cases with
+zero mismatches. Every id and branch was exercised: activation, aid shake, clears, the 15.0
+clamp, both health tables, the camera pulse and its flag gate, and the script event. Ten
+non-equivalent mutants were killed. These covered:
+
+- the health thresholds;
+- the alert limit;
+- the track word offsets;
+- the goal word;
+- the bit value;
+- the pulse arguments, flag bit and active value;
+- the aid tag.
+
+Alert `>` versus `>=` is an equivalent mutant: clamping 15.0 to 15.0 changes nothing.
+`cache\_run\build_and_test.bat` passed both Release builds, all six CTests and the
+dialogue, actor-loading and decoder checks.
+
+The control chain (`0x0007D130`) and the message slot are now translated. They are not yet
+installed in the player mind vtable or connected to factory-owned contexts. The player strategy
+batch (`0x000BEE10`/`0x000BEF40`/`0x000BF2B0` and helpers) still lacks its host harness for
+`player_strategy_oracle.py`. Live spawning is still incomplete. No retail file or Ghidra project
+was modified, and no commit was made.
+
+### 2026-10-11: player strategy batch verified
+
+The player strategy overrides and helpers translated earlier now have retail differential checks.
+Checking the call sites against the assembly found one translation error. `0x000BF600` resets the
+idle timer when body bit `bytes[6] & 1` is clear (`test; je reset`), or when a threat is found. The
+translation had the bit test inverted; it is fixed, and the oracle rejects the old condition with
+116 mismatches.
+
+Two other corrections:
+
+- `0x0012D090`: when error reporting is suppressed and a texture lookup fails, retail stores the
+  null texture and reads its width at address 8. `RuntimeBrewMeter` now takes an `address_zero`
+  view for that read, following the convention used elsewhere.
+- `0x000BF4D0`: a record chain that refers back to an earlier key loops forever in retail too.
+  The fixture uses forward-only chains.
+
+Verification:
+
+- `player_strategy_oracle.py` (seeds 1, 3 and 5; 9,000 cases) compares the batch call by call.
+  It covers message, enter and update entries, every update state, the brew prompt, scripted
+  goals, knockout, idle, move, the intro unlock, the brew meter and the real axis writers
+  `0x00108FC0`/`0x001090A0`/`0x00109180`. All cases pass. Mutants killed:
+  - the idle and stick thresholds;
+  - the brew-count step;
+  - the follow-up flag;
+  - the difficulty gates;
+  - the intro flag bit;
+  - the health doubling;
+  - the knockout flag value;
+  - the story bit;
+  - the half-width scale;
+  - the negative-count clamp.
+
+  The brew count clamp `> 5` versus `>= 5` is an equivalent mutant.
+- `script_nearest_oracle.py` (seeds 1 and 3; 6,000 cases) checks the nearest-actor query
+  `0x00128DF0` and its path gate `0x001295E0`. The filter `0x00129420` and the Newton-refined
+  square root `0x00152B30` run for real on both sides; the harness includes `anim_math.inl` for
+  the host refinement. All cases pass, and eight mutants were killed (distance order, ordering,
+  radius gate, tag gate, path flag, path class, best update, path direction). Populated filter
+  flags beyond `0x4000` are not covered.
+
+`cache\_run\build_and_test.bat` passed again after these changes. Nothing was committed.

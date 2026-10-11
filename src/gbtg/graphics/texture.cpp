@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <zlib.h>
 
 namespace gbtg
 {
@@ -290,6 +291,70 @@ RgbaImage decode_xbox_texture(const TextureHeader& hdr, std::span<const u8> gpu)
     default:
         throw Error(std::string("unsupported texture format ") + xbox_format_name(hdr.format));
     }
+}
+
+namespace
+{
+void append_png_u32(std::vector<u8>& output, u32 value)
+{
+    output.push_back(u8(value >> 24));
+    output.push_back(u8(value >> 16));
+    output.push_back(u8(value >> 8));
+    output.push_back(u8(value));
+}
+
+void append_png_chunk(std::vector<u8>& output, const char type[4], std::span<const u8> data)
+{
+    append_png_u32(output, u32(data.size()));
+    const size_t chunk_start = output.size();
+    output.insert(output.end(), type, type + 4);
+    output.insert(output.end(), data.begin(), data.end());
+    const uLong crc = crc32(0, output.data() + chunk_start, uInt(output.size() - chunk_start));
+    append_png_u32(output, u32(crc));
+}
+}
+
+void write_png(const std::filesystem::path& path, const RgbaImage& img)
+{
+    if (img.width <= 0 || img.height <= 0 || img.width > 0x7FFFFFFF / 4
+        || img.bgra.size() != size_t(img.width) * size_t(img.height) * 4)
+    {
+        throw Error("invalid RGBA image");
+    }
+    const size_t row_bytes = size_t(img.width) * 4;
+    std::vector<u8> filtered((row_bytes + 1) * size_t(img.height));
+    for (int y = 0; y < img.height; ++y)
+    {
+        u8* row = filtered.data() + size_t(y) * (row_bytes + 1);
+        row[0] = 0;
+        const u8* source = img.bgra.data() + size_t(y) * row_bytes;
+        for (int x = 0; x < img.width; ++x)
+        {
+            row[1 + size_t(x) * 4 + 0] = source[size_t(x) * 4 + 2];
+            row[1 + size_t(x) * 4 + 1] = source[size_t(x) * 4 + 1];
+            row[1 + size_t(x) * 4 + 2] = source[size_t(x) * 4 + 0];
+            row[1 + size_t(x) * 4 + 3] = source[size_t(x) * 4 + 3];
+        }
+    }
+    uLongf compressed_size = compressBound(uLong(filtered.size()));
+    std::vector<u8> compressed(static_cast<size_t>(compressed_size));
+    const int result = compress2(compressed.data(), &compressed_size, filtered.data(), uLong(filtered.size()),
+        Z_BEST_COMPRESSION);
+    if (result != Z_OK)
+    {
+        throw Error("PNG compression failed");
+    }
+    compressed.resize(size_t(compressed_size));
+
+    std::vector<u8> png{137, 80, 78, 71, 13, 10, 26, 10};
+    std::vector<u8> header;
+    append_png_u32(header, u32(img.width));
+    append_png_u32(header, u32(img.height));
+    header.insert(header.end(), {8, 6, 0, 0, 0});
+    append_png_chunk(png, "IHDR", header);
+    append_png_chunk(png, "IDAT", compressed);
+    append_png_chunk(png, "IEND", std::span<const u8>{});
+    write_file(path, png);
 }
 
 void write_bmp(const std::filesystem::path& path, const RgbaImage& img)

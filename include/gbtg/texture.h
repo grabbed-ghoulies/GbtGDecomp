@@ -56,6 +56,7 @@ struct RgbaImage
 bool parse_texture_header(std::span<const u8> cpu, TextureHeader& out);
 RgbaImage decode_xbox_texture(const TextureHeader& hdr, std::span<const u8> gpu);
 void write_bmp(const std::filesystem::path& path, const RgbaImage& img);
+void write_png(const std::filesystem::path& path, const RgbaImage& img);
 const char* xbox_format_name(XboxFormat f);
 
 } // namespace gbtg

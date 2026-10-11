@@ -5,6 +5,7 @@
 #include "gbtg/gfx.h"
 #include "gbtg/movie.h"
 #include "gbtg/entity.h"
+#include "../gbtg_resource.h"
 
 #if defined(GBTG_DEBUG_UI)
 #include "gbtg/debug_ui.h"
@@ -1099,12 +1100,15 @@ bool gfx_init(const GfxConfig& cfg)
 
     if (cfg.visible)
     {
-        WNDCLASSW wc{};
+        WNDCLASSEXW wc{};
+        wc.cbSize = sizeof(wc);
         wc.lpfnWndProc = gfx_wndproc;
         wc.hInstance = GetModuleHandleW(nullptr);
         wc.lpszClassName = L"GbtGDecompGfx";
         wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
-        RegisterClassW(&wc);
+        wc.hIcon = LoadIconW(wc.hInstance, MAKEINTRESOURCEW(IDI_GBTG_APP));
+        wc.hIconSm = wc.hIcon;
+        RegisterClassExW(&wc);
         RECT rect{0, 0, width, height};
         AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, FALSE);
         g.hwnd = CreateWindowW(wc.lpszClassName, L"Grabbed by the Ghoulies", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,

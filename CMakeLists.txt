@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
 project(GbtGDecomp LANGUAGES CXX)
 
+if(WIN32)
+    enable_language(RC)
+endif()
+
 # Solution folders organize projects; source_group below organizes their files.
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "Tools")
@@ -418,6 +422,10 @@ add_executable(gbtg
 )
 target_link_libraries(gbtg PRIVATE gbtg_lib)
 if(WIN32)
+    configure_file(src/engine/gbtg.rc.in "${CMAKE_CURRENT_BINARY_DIR}/gbtg.rc" @ONLY)
+    target_sources(gbtg PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/gbtg.rc")
+    set_property(SOURCE "${CMAKE_CURRENT_BINARY_DIR}/gbtg.rc" APPEND PROPERTY OBJECT_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/gbtg.ico")
     # Controller polling belongs to the platform loop with either graphics backend.
     target_link_libraries(gbtg PRIVATE xinput)
     set(_gbtg_gfx_default d3d11)

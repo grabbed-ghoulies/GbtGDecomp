@@ -1,4 +1,5 @@
 #include "gbtg/bundle.h"
+#include "gbtg/hash.h"
 #include "gbtg/loctext.h"
 #include "gbtg/model.h"
 #include "gbtg/resource.h"
@@ -21,6 +22,18 @@ std::filesystem::path arg(int argc, char** argv, const std::string& key, const s
         }
     }
     return def;
+}
+
+bool has_arg(int argc, char** argv, const std::string& value)
+{
+    for (int i = 1; i < argc; ++i)
+    {
+        if (argv[i] == value)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 std::string safe_filename(std::string s)
@@ -108,6 +121,64 @@ void dump_bundle_models(const gbtg::Bundle& b, const std::filesystem::path& out)
     }
 }
 
+void dump_dialogue_heads(const std::filesystem::path& game, const std::filesystem::path& out)
+{
+    static constexpr const char* speakers[] = {
+        "boy", "girl", "butler", "cook", "groundskeeper", "housekeeper", "krackpot", "baroness",
+        "baron", "crone", "piratecaptain", "skeletonbad", "mrribs", "pirate", "littleguy",
+        "zombiestandard", "hunchback", "binklogo",
+    };
+    const auto demand_dir = game / "demand";
+    const auto output_dir = out / "dialogue_heads";
+    std::filesystem::create_directories(output_dir);
+    size_t frame_count = 0;
+    size_t missing_count = 0;
+    for (const char* speaker : speakers)
+    {
+        const std::string name = "aid_texture_ghoulies_scoreboard_dialogheads_" + std::string(speaker);
+        const auto path = demand_dir / gbtg::aid_hash_hex(gbtg::aid_hash(name));
+        if (!std::filesystem::exists(path))
+        {
+            std::cerr << "  missing dialogue head " << speaker << " (" << path.filename().string() << ")\n";
+            ++missing_count;
+            continue;
+        }
+        auto resource = gbtg::parse_loose_resource(gbtg::read_file(path));
+        gbtg::TextureHeader header;
+        if (!gbtg::parse_texture_header(resource.cpu, header))
+        {
+            throw gbtg::Error("invalid dialogue-head texture header: " + path.string());
+        }
+        std::span<const gbtg::u8> gpu = resource.gpu;
+        if (!resource.gpu_chunks.empty())
+        {
+            const auto& chunk = resource.gpu_chunks[0];
+            if (size_t(chunk.offset) + chunk.size <= resource.gpu.size())
+            {
+                gpu = resource.gpu.subspan(chunk.offset, chunk.size);
+            }
+        }
+        for (size_t frame = 0; frame < header.tile_count; ++frame)
+        {
+            const size_t offset = size_t(header.texture_offset) + frame * header.data_size;
+            if (offset > gpu.size() || header.data_size > gpu.size() - offset)
+            {
+                throw gbtg::Error("dialogue-head frame out of range: " + name);
+            }
+            gbtg::TextureHeader tile = header;
+            tile.texture_offset = 0;
+            const auto image = gbtg::decode_xbox_texture(tile, gpu.subspan(offset, header.data_size));
+            const auto file = output_dir / (std::string(speaker) + "_" + std::to_string(frame) + ".png");
+            gbtg::write_png(file, image);
+            ++frame_count;
+        }
+        std::cerr << "  " << speaker << ": " << unsigned(header.tile_count) << " frames ("
+                  << header.width << "x" << header.height << ")\n";
+    }
+    std::cerr << "  dialogue head frames " << frame_count << ", missing speakers " << missing_count
+              << " -> " << output_dir.string() << "\n";
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -118,6 +189,12 @@ int main(int argc, char** argv)
         const auto game = arg(argc, argv, "--game-dir", "OriginalFiles");
         const auto out = arg(argc, argv, "--out", "dump");
         std::filesystem::create_directories(out);
+
+        if (has_arg(argc, argv, "--dialogue-heads"))
+        {
+            dump_dialogue_heads(game, out);
+            return 0;
+        }
 
         std::cerr << "loading common.bnl\n";
         auto common = gbtg::load_bundle(game / "bundles" / "common.bnl");
@@ -308,7 +385,7 @@ int main(int argc, char** argv)
     catch (const std::exception& ex)
     {
         std::cerr << "error: " << ex.what() << "\n";
-        std::cerr << "usage: gbtg-dump --game-dir <dir> --out dump\n";
+        std::cerr << "usage: gbtg-dump --game-dir <dir> --out dump [--dialogue-heads]\n";
         return 1;
     }
 }

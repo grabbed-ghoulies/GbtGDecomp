@@ -47,9 +47,18 @@ Checksums for a known retail layout live in [`manifests/retail_files.json`](mani
 |--------|------|
 | `gbtg` | Reconstructed engine: `WinMain` / `frame_tick`, attract cutscenes, camera, game-select UI plates, `movie/` Bink playback. PC present is DirectX 11 behind `gfx_*` |
 | `gbtg-catalog` | Classify files, resolve AID hashes, verify the manifest |
-| `gbtg-dump` | Unpack BNL bundles; dump textures, models, loctext, wavebanks |
+| `gbtg-dump` | Unpack BNL bundles; dump textures, models, loctext, wavebanks; export dialogue speaker heads |
 
 Ghidra names and recovered VAs: [`docs/XBE.md`](docs/XBE.md), [`docs/GHIDRA.md`](docs/GHIDRA.md), [`docs/generated/ghidra_functions.txt`](docs/generated/ghidra_functions.txt). Also [`docs/AID.md`](docs/AID.md), [`docs/FORMATS.md`](docs/FORMATS.md), [`docs/LEGAL.md`](docs/LEGAL.md).
+
+Export every available animated dialogue speaker-head frame as a transparency-preserving PNG:
+
+```text
+build\Release\gbtg-dump.exe --game-dir OriginalFiles --out dump --dialogue-heads
+```
+
+The images are written to `dump/dialogue_heads/` as `<speaker>_<frame>.png`. Missing retail demand
+resources are reported by speaker name and AID hash.
 
 ## Build
 

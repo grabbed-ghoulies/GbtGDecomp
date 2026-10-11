@@ -10,6 +10,7 @@
 #include "../src/engine/entities/player_children.h"
 #include "../src/engine/entities/player_mind_setup.h"
 #include "player_parent_checks.h"
+#include "player_mind_owner_checks.h"
 #include "player_message_checks.h"
 #include "player_update_checks.h"
 #include "../src/engine/entities/player_messages.h"
@@ -6589,6 +6590,7 @@ void check_player_dialogue_resources(gbtg::AidStore& aids)
         check_player_parent_lifecycle(executable);
         check_player_messages();
         check_player_update();
+        check_player_mind_owner(executable);
         size_t checked = 0;
         for (const auto& pool : executable.pools)
         {

@@ -4187,3 +4187,61 @@ Verification:
   flags beyond `0x4000` are not covered.
 
 `cache\_run\build_and_test.bat` passed again after these changes. Nothing was committed.
+
+### 2026-10-11: player mind vtable installation
+
+The retail getters fill both mind vtables at run time, because the tables live in BSS:
+
+| Slot | Player mind 0x00505498 (getter 0x0007E100, type 0x34) | Parent mind 0x004DD6F4 (getter 0x00029D30, type 7) |
+| --- | --- | --- |
+| +0 sizes | 0x0007E0E0 | 0x00029D10 |
+| +4 construct | 0x0007EF10 | 0x00029F20 |
+| +8 destroy | 0x0007F0D0 | 0x00029FF0 |
+| +0xC message | 0x0007F1E0 | 0x0002A2E0 |
+| +0x10 tick | 0x0007FB10 | 0x0002A9F0 |
+| +0x14 request update | 0x0007D360 | 0x000295E0 |
+| +0x18 request init | 0x0007EBC0 | 0x00029EC0 |
+| +0x1C request release | 0x001628B0 (empty) | 0x001628B0 |
+
+The retail type table at `DAT_0030D41C` confirms the chain: type 0x34 has parent 7, and type 7 has
+parent 1.
+
+The last untranslated slot was the request update `0x0007D360`, now in
+`entities/player_mind_request_update`:
+
+- request 7 and request 8 select the body action from body vtable +0x38. Request 8 does so only
+  when the body flag named at request +0x10 (`0x0001EF70`) is set, and returns 1 either way.
+- 0x16 runs the control update `0x0007D130` and returns 0.
+- 0x2E returns the navigation request `0x00136620` result.
+- 0x31 selects from body vtable +0x3C.
+- Everything else goes to the parent update `0x000295E0`.
+
+`mind_request_update_oracle.py 1 3000` passes with zero mismatches, and five mutants were killed.
+
+`NativePlayerMindOwner` (`entities/player_mind_owner`) installs types 7 and 0x34, following the
+pattern of `NativeActorFactoryOwner`:
+
+- Its lifecycle adapters call the translated constructors and destructors. The parent destructor
+  releases the instance view after `0x00029FF0`.
+- It provides dispatchers for player mind slots +0xC (`0x0007F1E0`), +0x10 (`0x0007FB10`), +0x14
+  (`0x0007D360`), +0x18 (`0x0007EBC0`) and +0x1C (empty).
+- Each mind's contexts (`NativePlayerMindSlots`) come from a binding that the player owner
+  supplies when type 7 construction begins. Callers that already take child-slot functions bind
+  them to these dispatchers: `RuntimePlayerUpdate::mind_tick`, the player child message,
+  `RuntimeMindTick::update_request`/`initialize_request` and
+  `RuntimePlayerMindRequests::release_active`.
+
+The new `check_player_mind_owner` (run by `--dialogue-resources`) covers:
+
+- the installed parents, vtable addresses and the 0x198 instance size;
+- parent-mind construction through the owner, checking the bytes written by `0x00029F20`;
+- view release on destruction;
+- rejection of a second owner.
+
+`cache\_run\build_and_test.bat` passes.
+
+This does not yet spawn a player. The player owner still has to build `NativePlayerMindSlots` from
+the player's native objects and bind the dispatchers. That needs factory installation for the
+player (type 5), body (types 0x27/0x2A) and strategy (types 8/0x4F) classes. Full player-mind
+construction through `0x0007EF10` (camera creation and the intro sound) has not been run through
+the owner.

@@ -101,6 +101,8 @@ add_library(gbtg_lib STATIC
     src/engine/entities/player_strategy_goals.cpp
     src/engine/entities/player_strategy.cpp
     src/engine/entities/player_mind_messages.cpp
+    src/engine/entities/player_mind_request_update.cpp
+    src/engine/entities/player_mind_owner.cpp
     src/engine/camera/camera_pulse.cpp
     src/engine/frontend/brew_meter.cpp
     src/engine/entities/player_state.cpp
@@ -580,7 +582,7 @@ if(BUILD_TESTING)
     get_target_property(GBTG_TRANSITION_DEFINITIONS gbtg COMPILE_DEFINITIONS)
     get_target_property(GBTG_TRANSITION_INCLUDES gbtg INCLUDE_DIRECTORIES)
     target_link_libraries(gbtg-transition-tests PRIVATE ${GBTG_TRANSITION_LINKS})
-    target_sources(gbtg-transition-tests PRIVATE tests/player_parent_checks.cpp tests/body_frame_checks.cpp tests/player_message_checks.cpp tests/player_update_checks.cpp)
+    target_sources(gbtg-transition-tests PRIVATE tests/player_parent_checks.cpp tests/body_frame_checks.cpp tests/player_message_checks.cpp tests/player_update_checks.cpp tests/player_mind_owner_checks.cpp)
     target_link_libraries(gbtg-movie-startup-tests PRIVATE ${GBTG_TRANSITION_LINKS})
     if(GBTG_TRANSITION_DEFINITIONS)
         target_compile_definitions(gbtg-transition-tests PRIVATE ${GBTG_TRANSITION_DEFINITIONS})

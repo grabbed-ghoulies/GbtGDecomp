@@ -4329,3 +4329,68 @@ the instance:
 Until then, those slots raise an explicit "not attached" error rather than running a substitute. The
 live scene does not yet create a factory registry or these owners: no live code calls
 `0x00134920` (player spawn). The last opening evidence remains camera-only/opcode `0x6F`.
+
+### 2026-10-11: live wiring, stage 1 (scene markers), in progress
+
+**How retail spawns the player.** Scene startup `0x0011CBD0` loads `aid_marker_<scene>` through
+`0x0011CB80`/`0x000FFE20` into `DAT_0051108C`. `0x00140020` then works on a copy of those records:
+
+1. it swaps id pairs (`0x001401B0`);
+2. it shuffles id groups (`0x001402B0`/`0x00140450`);
+3. it dispatches every row through the kind table `DAT_0042A720`, in the 27-kind order at
+   `DAT_00312098` (`0x0011EEC0`).
+
+Kind 2 (`0x000FFEC0`) is the player start; it calls `0x00134920`. The live host never loads
+`DAT_0051108C` (`g_51108c` is only freed), and none of this ran before.
+
+**What the opening scene contains.** `aid_marker_ghoulies_chapter1_scene1_2playcam` holds kinds:
+
+- 0x13 ×2 and 2;
+- 4 ×5, the imps (`aid_objparams_ghoulies_actor_imp`, type 5 with body 0x27, mind 0x35 and strategy
+  0x46);
+- 0xB ×3 and 0x10 ×5;
+- 3 ×2 (rope-barrier props) and 6 (the powerup book, type 0xD);
+- 8 ×2 and 0x14.
+
+Kind 4 dispatches before kind 2, so the imps are created before the player.
+
+**Added (builds; no retail comparison yet):**
+
+- `scene/scene_markers`: `0x000FFE20`, `0x0011CB80`, `0x001401B0`, `0x00140450`, `0x001402B0`,
+  `0x0011EEC0`, `0x00140020`, `0x0011F1C0`, `0x00127FF0`. Dispatch raises an error for a marker
+  kind whose retail handler is not translated, rather than skipping it.
+- `scene/scene_marker_handlers`:
+  - every handler kind in the opening scene: 2 (`0x000FFEC0`, `0x00100110`, `0x000FFFD0`), 3
+    (`0x000FF680`), 4 (`0x000FF4F0`, `0x001349E0`, `0x00069F30`), 6 (`0x001001A0`), 8/0x14
+    (`0x00100210`/`0x001002B0` and the occupancy insert `0x001246A0`), 0xB (`0x000FFAD0`,
+    `0x0006A010`), 0x10 (`0x000FFDC0`, `0x0006E110`) and 0x13 (`0x000FF880`, the camera start pose
+    `DAT_00545AD0`);
+  - created objects are retained by the scene.
+- `tools/oracle/scene_markers_oracle.py`: retail side written. The host harness
+  (`scene_markers_harness.cpp`) is not written and the oracle has not been run.
+
+**Remaining for live spawning in this scene:**
+
+1. Write and run the harness for `scene_markers_oracle.py`.
+2. Add the scene runtime owned by `Game`. It needs:
+   - the factory registry, the actor/player owners and the address map;
+   - an animation resource registry backed by the scene bundle;
+   - for every factory slot that has no class installed, a getter that raises "type not
+     translated".
+3. Call the marker load and start from scene start, before the 0x7D message, and bind opcode 0x6F
+   to `wait_runtime_script_player`.
+4. Translate the classes these markers create. Untranslated callee-tree sizes:
+
+   | Class | Untranslated functions |
+   | --- | --- |
+   | Imp mind 0x35 | ~133 |
+   | Imp strategy 0x46 | ~60 |
+   | Powerup book 0xD | ~160 |
+   | Trigger 0x23 | not yet counted |
+   | Area 0x1F | not yet counted |
+
+5. Add the player method contexts: message 0x28F60, update 0x2C2B0, draw 0x28050, the body slots,
+   the mind methods and the strategy message/update.
+6. Drive the per-frame update and drawing of factory actors from `frame_tick`.
+
+Nothing is committed.

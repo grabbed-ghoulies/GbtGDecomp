@@ -6,7 +6,7 @@ import subprocess
 import sys
 from scene_markers_oracle import Retail, RECORDS, XBE
 from retail_cpu import ROOT, STOP, STACK, w32, harness
-from unicorn.x86_const import UC_X86_REG_EAX, UC_X86_REG_EBX, UC_X86_REG_ECX, UC_X86_REG_EDX, UC_X86_REG_ESI, UC_X86_REG_ESP, UC_X86_REG_XMM0
+from unicorn.x86_const import UC_X86_REG_EAX, UC_X86_REG_EBX, UC_X86_REG_ECX, UC_X86_REG_EDX, UC_X86_REG_ESI, UC_X86_REG_EDI, UC_X86_REG_ESP, UC_X86_REG_XMM0
 
 
 def main():
@@ -14,7 +14,7 @@ def main():
     count = int(sys.argv[2]) if len(sys.argv) > 2 else 3000
     lines, expected = [], []
     for case in range(count):
-        mode = case % 16
+        mode = case % 23
         state, slot = rng.getrandbits(32), rng.getrandbits(32)
         parameters = bytearray(rng.getrandbits(8) for _ in range(0x1000))
         data = bytearray(rng.getrandbits(8) for _ in range(0xC6C))
@@ -119,6 +119,83 @@ def main():
                 struct.pack_into('<f', parameters, offset, rng.uniform(-100, 100))
             for offset in [0x810, 0x81C]:
                 struct.pack_into('<f', parameters, offset, rng.choice([0., -1., 180., rng.uniform(0, 360), float('nan')]))
+        if mode == 16:
+            struct.pack_into('<I', parameters, 0, rng.randrange(4))
+            for offset in [0x88, 0x204]:
+                struct.pack_into('<I', parameters, offset, 0)
+            for offset in [8, 0xC, 0x10, 0x420, 0x424, 0x428, 0x440, 0x444, 0x448, 0x3C0, 0x3C4]:
+                struct.pack_into('<f', parameters, offset, rng.choice([rng.uniform(-100, 100), 0., float('nan')]))
+        if mode == 17:
+            count_shapes = rng.randrange(-2, 9)
+            struct.pack_into('<i', parameters, 0x800, count_shapes)
+            for index in range(max(0, count_shapes)):
+                offset = 0x810 + index * 0x20
+                parameters[offset] = rng.randrange(6)
+                struct.pack_into('<II', parameters, offset + 8, 0x20, rng.choice([0x1235, 0, 0x1234]))
+        if mode in [18, 19]:
+            struct.pack_into('<I', parameters, 0, rng.randrange(4 if mode == 18 else 3))
+            parameters[0x400] = rng.choice([0, 3])
+            struct.pack_into('<H', parameters, 0x408, 0xFFFF)
+            struct.pack_into('<I', parameters, 0x3C4, rng.randrange(2))
+            struct.pack_into('<f', parameters, 0x3C0, rng.uniform(.1, 3))
+            for offset in [0x410, 0x414, 0x418, 0x41C, 0x600, 0x604, 0x608, 0x620, 0x624, 0x628]:
+                struct.pack_into('<f', parameters, offset, rng.uniform(-3, 3))
+            for offset in [0x500, 0x540]:
+                matrix = [1,0,0,0,0,1,0,0,0,0,1,0]
+                if rng.randrange(2):
+                    matrix = [rng.uniform(-2, 2) for _ in range(12)]
+                struct.pack_into('<12f', parameters, offset, *matrix)
+            for offset in [0x700, 0x704, 0x708]:
+                struct.pack_into('<f', data, offset, rng.uniform(-3, 3))
+        if mode == 19:
+            struct.pack_into('<III', parameters, 0x3A0, rng.getrandbits(32), rng.getrandbits(32), rng.getrandbits(32))
+            struct.pack_into('<I', parameters, 0x3B0, rng.getrandbits(32))
+            count_shapes = rng.randrange(0, 4)
+            struct.pack_into('<i', parameters, 0x800, count_shapes)
+            for index in range(count_shapes):
+                offset = 0x808 + index * 0x24
+                parameters[offset:offset + 0x24] = parameters[0x400:0x424]
+                parameters[offset] = rng.randrange(4)
+                parameters[offset + 1] = 0 if index == count_shapes - 1 else 0x24
+                struct.pack_into('<h', parameters, offset + 2, rng.choice([-1, 0, 1]))
+                struct.pack_into('<I', parameters, offset + 4, rng.getrandbits(32))
+        if mode == 20:
+            subtype = rng.randrange(4)
+            struct.pack_into('<I', parameters, 0, subtype)
+            for offset in list(range(0x400, 0x424, 4)) + list(range(0x500, 0x530, 4)) + list(range(0x540, 0x570, 4)) + [0x600,0x604,0x608,0x620,0x624,0x628,0x640,0x644,0x648,0x3C0]:
+                struct.pack_into('<f', parameters, offset, rng.uniform(-10, 10))
+            struct.pack_into('<I', parameters, 0x3C4, rng.randrange(2))
+            if subtype == 0:
+                for axis in range(3):
+                    struct.pack_into('<h', parameters, 0x810 + axis * 2, rng.randrange(-5, 2))
+                    struct.pack_into('<h', parameters, 0x816 + axis * 2, rng.randrange(2, 12))
+                    struct.pack_into('<h', parameters, 0x824 + axis * 2, rng.randrange(-10, 11))
+                struct.pack_into('<H', parameters, 0x822, rng.randrange(1, 10))
+            else:
+                struct.pack_into('<III', parameters, 0x800, 0, 1, 2)
+        if mode == 21:
+            mesh_subtype = rng.randrange(6)
+            struct.pack_into('<I', parameters, 0, mesh_subtype)
+            for offset in list(range(0x400, 0x424, 4)) + [0x600,0x604,0x608]:
+                struct.pack_into('<f', parameters, offset, rng.uniform(-3, 3))
+            for offset in [0x500, 0x540]:
+                struct.pack_into('<12f', parameters, offset, 1,0,0,0,0,1,0,0,0,0,1,0)
+            for offset in [0x700,0x704,0x708]:
+                struct.pack_into('<f', data, offset, rng.uniform(-3, 3))
+            struct.pack_into('<f', parameters, 0x3C0, rng.uniform(.01, 2))
+            struct.pack_into('<I', parameters, 0x3C4, rng.randrange(2))
+            struct.pack_into('<II', parameters, 0x3B0, 0xFFFFFFFF, 0)
+            parameters[0x800:0x834] = bytes(0x34)
+            struct.pack_into('<HHHH', parameters, 0x81C, 1,1,1,8)
+            struct.pack_into('<II', parameters, 0x82C, 1, RECORDS + 0x2850)
+            struct.pack_into('<III', parameters, 0x850, 0,1,2)
+            struct.pack_into('<I', parameters, 0x85C, rng.getrandbits(32))
+            if mesh_subtype >= 3:
+                struct.pack_into('<III', parameters, 0x810, 1, RECORDS + 0x2850, 0)
+        if mode == 22:
+            struct.pack_into('<I', parameters, 0, rng.randrange(2))
+            for offset in list(range(0x400,0x424,4)) + [0x600,0x604,0x608,0x640,0x644,0x648,0x3C0]:
+                struct.pack_into('<f', parameters, offset, rng.choice([0., rng.uniform(-3,3), rng.uniform(-3,3), rng.uniform(-3,3)]))
         cpu = Retail({}).u
         # Actual CRT angle tables used by 0x00105F90; no math capture stub.
         cpu.mem_map(0x00200000, 0x10000)
@@ -180,12 +257,133 @@ def main():
         if mode == 15:
             w32(cpu, STACK + 4, RECORDS + 0x2600)
             w32(cpu, STACK + 8, RECORDS + 0x2800)
-        cpu.emu_start([0x6DC10, 0x69660, 0x69910, 0x7C7D0, 0x7C580, 0x7C4C0, 0x7CCD0, 0x134510, 0x7B800, 0x29C80, 0x109260, 0x135B60, 0x100E90, 0x1060F0, 0x105DD0, 0x7C0E0][mode], STOP, count=10000)
+        entry = [0x6DC10, 0x69660, 0x69910, 0x7C7D0, 0x7C580, 0x7C4C0, 0x7CCD0, 0x134510, 0x7B800, 0x29C80, 0x109260, 0x135B60, 0x100E90, 0x1060F0, 0x105DD0, 0x7C0E0, 0, 0x559F0, 0, 0, 0, 0, 0][mode]
+        if mode == 16:
+            subtype = struct.unpack_from('<I', parameters)[0]
+            entry = [0x15A270, 0x3E4A0, 0x3E590, 0x3E680][subtype]
+            if subtype == 0:
+                args = [RECORDS + 0x2008, struct.unpack_from('<I', parameters, 0x3C4)[0],
+                    RECORDS + 0x2420, struct.unpack_from('<I', parameters, 0x3C0)[0]]
+                for index, word in enumerate(args):
+                    w32(cpu, STACK + 4 + index * 4, word)
+            else:
+                cpu.reg_write(UC_X86_REG_EAX, RECORDS + 0x2000)
+                cpu.reg_write(UC_X86_REG_EBX, RECORDS + 0x2420)
+                w32(cpu, STACK + 4, RECORDS + (0x2420 if subtype == 3 else 0x2440))
+                w32(cpu, STACK + 8, struct.unpack_from('<I', parameters, 0x3C0)[0])
+        if mode == 17:
+            cpu.reg_write(UC_X86_REG_EDX, RECORDS + 0x2800)
+        if mode == 18:
+            subtype = struct.unpack_from('<I', parameters)[0]
+            entry = [0x55CB0, 0x55F80, 0x56580, 0x563F0][subtype]
+            radius = struct.unpack_from('<I', parameters, 0x3C0)[0]
+            record = RECORDS if struct.unpack_from('<I', parameters, 0x3C4)[0] else 0
+            if subtype < 3:
+                args = [RECORDS + 0x2400, RECORDS + 0x2500, RECORDS + 0x2540, 0, RECORDS + 0x2600]
+                args += [radius, 0] if subtype == 2 else [RECORDS + 0x700]
+                if subtype == 0:
+                    args += [record]
+                if subtype == 1:
+                    args += [radius, record]
+                for index, word in enumerate(args):
+                    w32(cpu, STACK + 4 + index * 4, word)
+            else:
+                cpu.reg_write(UC_X86_REG_ESI, RECORDS)
+                cpu.reg_write(UC_X86_REG_EDI, RECORDS + 0x2500)
+                cpu.reg_write(UC_X86_REG_ECX, RECORDS + 0x2600)
+                cpu.reg_write(UC_X86_REG_EAX, RECORDS + 0x2620)
+                w32(cpu, STACK + 4, RECORDS + 0x2400)
+                w32(cpu, STACK + 8, radius)
+            cpu.mem_write(0x50DD80, bytes(12))
+        if mode == 19:
+            subtype = struct.unpack_from('<I', parameters)[0]
+            cpu.mem_write(0x423858, XBE(0x423858, 48))
+            entry = [0x568E0, 0x56A60, 0x56BE0][subtype]
+            mask = struct.unpack_from('<I', parameters, 0x3B0)[0]
+            radius = struct.unpack_from('<I', parameters, 0x3C0)[0]
+            record = RECORDS if struct.unpack_from('<I', parameters, 0x3C4)[0] else 0
+            if subtype == 2:
+                cpu.reg_write(UC_X86_REG_EBX, RECORDS + 0x2800)
+                args = [RECORDS + 0x2500, RECORDS + 0x2540, 0, RECORDS + 0x2600,
+                    radius, mask, RECORDS + 0x23A4, 0]
+            else:
+                cpu.reg_write(UC_X86_REG_EBX, RECORDS + 0x2600)
+                cpu.reg_write(UC_X86_REG_EDI, RECORDS + 0x700)
+                args = [RECORDS + 0x2800, RECORDS + 0x2500, RECORDS + 0x2540, 0]
+                if subtype == 1:
+                    args += [radius]
+                args += [mask, RECORDS + 0x23A4, record]
+            for index, word in enumerate(args):
+                w32(cpu, STACK + 4 + index * 4, word)
+            cpu.mem_write(0x50DD80, bytes(12))
+        if mode == 20:
+            subtype = struct.unpack_from('<I', parameters)[0]
+            radius = struct.unpack_from('<I', parameters, 0x3C0)[0]
+            entry = [0x54340, 0x103400, 0x54170, 0x54DE0][subtype]
+            if subtype == 0:
+                cpu.reg_write(UC_X86_REG_EAX, RECORDS + 0x2600)
+                cpu.reg_write(UC_X86_REG_ECX, RECORDS + 0x2620)
+                cpu.reg_write(UC_X86_REG_EDI, RECORDS + 0x700)
+                cpu.reg_write(UC_X86_REG_EBX, RECORDS + 0x70C)
+                args = [RECORDS + 0x2800, radius]
+            elif subtype == 1:
+                cpu.reg_write(UC_X86_REG_ECX, RECORDS + 0x2620)
+                cpu.reg_write(UC_X86_REG_EDX, RECORDS + 0x2418)
+                cpu.reg_write(UC_X86_REG_ESI, RECORDS + 0x240C)
+                cpu.reg_write(UC_X86_REG_EDI, RECORDS + 0x2600)
+                args = [RECORDS + 0x2400, RECORDS + 0x700]
+            elif subtype == 2:
+                cpu.reg_write(UC_X86_REG_EAX, RECORDS + 0x2400)
+                cpu.reg_write(UC_X86_REG_ECX, RECORDS + 0x2640)
+                cpu.reg_write(UC_X86_REG_EDX, RECORDS + 0x2600)
+                cpu.reg_write(UC_X86_REG_ESI, RECORDS)
+                cpu.reg_write(UC_X86_REG_XMM0, 0)
+                from unicorn.x86_const import UC_X86_REG_XMM1
+                cpu.reg_write(UC_X86_REG_XMM1, radius)
+                args = [RECORDS + 0x2800, RECORDS + 0x2500]
+            else:
+                cpu.reg_write(UC_X86_REG_EAX, RECORDS + 0x2640)
+                cpu.reg_write(UC_X86_REG_ECX, RECORDS + 0x2540 if struct.unpack_from('<I', parameters, 0x3C4)[0] else 0)
+                cpu.reg_write(UC_X86_REG_EDX, RECORDS + 0x2400)
+                cpu.reg_write(UC_X86_REG_EDI, RECORDS)
+                from unicorn.x86_const import UC_X86_REG_XMM1
+                cpu.reg_write(UC_X86_REG_XMM1, radius)
+                args = [RECORDS + 0x2800, RECORDS + 0x2500, RECORDS + 0x2600]
+            for index, word in enumerate(args):
+                w32(cpu, STACK + 4 + index * 4, word)
+        if mode == 21:
+            subtype = struct.unpack_from('<I', parameters)[0]
+            entry = [0x53720, 0x53AA0, 0x53F20, 0x54520, 0x54850, 0x54C40][subtype]
+            record = RECORDS if struct.unpack_from('<I', parameters, 0x3C4)[0] else 0
+            args = [RECORDS + 0x2800, RECORDS + 0x2500, RECORDS + 0x2540, 0,
+                RECORDS + 0x2400, RECORDS + 0x2600]
+            if subtype in [0,1,3,4]:
+                args += [RECORDS + 0x700]
+            if subtype in [1,2,4,5]:
+                args += [struct.unpack_from('<I', parameters, 0x3C0)[0]]
+            args += [0xFFFFFFFF, 0, 0 if subtype in [2,5] else record]
+            for index, word in enumerate(args):
+                w32(cpu, STACK + 4 + index * 4, word)
+            cpu.mem_write(0x50DD80, bytes(12))
+        if mode == 22:
+            subtype = struct.unpack_from('<I', parameters)[0]
+            entry = [0x15A2E0, 0x15A440][subtype]
+            if subtype == 0:
+                cpu.reg_write(UC_X86_REG_EBX, RECORDS + 0x2600)
+                cpu.reg_write(UC_X86_REG_ESI, RECORDS + 0x240C)
+                cpu.reg_write(UC_X86_REG_EDI, RECORDS + 0x2418)
+                args = [RECORDS + 0x2640]
+            else:
+                args = [RECORDS + 0x2600, struct.unpack_from('<I', parameters, 0x3C0)[0],
+                    RECORDS + 0x2400, RECORDS + 0x240C, RECORDS + 0x2418]
+            for index, word in enumerate(args):
+                w32(cpu, STACK + 4 + index * 4, word)
+        cpu.emu_start(entry, STOP, count=10000)
         if mode == 12:
             w32(cpu, RECORDS + 0x70, cpu.reg_read(UC_X86_REG_XMM0) & 0xFFFFFFFF)
         if mode == 10:
             cpu.mem_write(RECORDS + 0x800, bytes(cpu.mem_read(0x507C98, 0x80)))
-        wanted = [1 if mode in [5, 6, 7, 10, 12, 13, 14] else cpu.reg_read(UC_X86_REG_EAX), struct.unpack('<I', cpu.mem_read(0x54DD7C, 4))[0],
+        wanted = [1 if mode in [5, 6, 7, 10, 12, 13, 14] or (mode == 18 and subtype == 3) or (mode == 20 and subtype != 1) else cpu.reg_read(UC_X86_REG_EAX), struct.unpack('<I', cpu.mem_read(0x54DD7C, 4))[0],
             struct.unpack('<I', cpu.mem_read(RECORDS + 0x4000, 4))[0], *cpu.mem_read(RECORDS, len(data))]
         expected.append(wanted)
         lines.append(' '.join(map(str, [mode, state, slot, *parameters, *data])))
@@ -199,17 +397,27 @@ def main():
         got = list(map(int, line.split()))
         if got != wanted:
             if bad < 5:
-                print('case', index, 'mode', index % 16, 'diff', [i for i, pair in enumerate(zip(got, wanted)) if pair[0] != pair[1]][:20])
-                if index % 16 == 4:
+                print('case', index, 'mode', index % 23, 'diff', [i for i, pair in enumerate(zip(got, wanted)) if pair[0] != pair[1]][:20])
+                if index % 23 == 4:
                     for offset in [0x28, 0x2C, 0x34, 0x38]:
                         first, second = bytes(got[3 + offset:7 + offset]), bytes(wanted[3 + offset:7 + offset])
                         if first != second:
                             print(hex(offset), 'host', struct.unpack('<f', first)[0], 'retail', struct.unpack('<f', second)[0])
-                if index % 16 == 13:
+                if index % 23 == 13:
                     fixture = list(map(int, lines[index].split()))[3:3 + 0x1000]
                     print('offset inputs', struct.unpack_from('<5f', bytes(fixture)),
                         'host', struct.unpack('<3f', bytes(got[3 + 0x70:3 + 0x7C])),
                         'retail', struct.unpack('<3f', bytes(wanted[3 + 0x70:3 + 0x7C])))
+                if index % 23 == 19:
+                    fixture = bytes(list(map(int, lines[index].split()))[3:3 + 0x1000])
+                    print('dispatch subtype', struct.unpack_from('<I', fixture)[0], 'return', got[0], wanted[0],
+                        'count', struct.unpack_from('<i', fixture, 0x800)[0],
+                        'rows', [struct.unpack_from('<BBhI', fixture, 0x808 + row * 0x24) for row in range(max(0, struct.unpack_from('<i', fixture, 0x800)[0]))])
+                if index % 23 == 18:
+                    fixture = bytes(list(map(int, lines[index].split()))[3:3 + 0x1000])
+                    print('sphere subtype', struct.unpack_from('<I', fixture)[0],
+                        'end host', struct.unpack('<3f', bytes(got[3 + 0x700:3 + 0x70C])),
+                        'retail', struct.unpack('<3f', bytes(wanted[3 + 0x700:3 + 0x70C])))
             bad += 1
     print(count, 'cases;', bad, 'mismatches')
     return bool(bad)

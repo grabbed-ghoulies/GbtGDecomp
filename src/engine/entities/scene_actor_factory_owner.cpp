@@ -168,19 +168,36 @@ bool NativeSceneActorClassOwner::construct_emitter(FactoryObject& object, std::s
 
 void NativeSceneActorClassOwner::release_area(FactoryObject& object)
 {
-    areas_.erase(object.bytes.get()); // Retail derived destructor 0x001628B0 is empty.
+    // Retail derived destructor 0x001628B0 is empty.
+    if (!defer_release)
+    {
+        areas_.erase(object.bytes.get());
+    }
 }
 
 void NativeSceneActorClassOwner::release_trigger(FactoryObject& object)
 {
     destroy_runtime_trigger_actor(triggers_.at(object.bytes.get())->context);
-    triggers_.erase(object.bytes.get());
+    if (!defer_release)
+    {
+        triggers_.erase(object.bytes.get());
+    }
 }
 
 void NativeSceneActorClassOwner::release_emitter(FactoryObject& object)
 {
     destroy_runtime_fx_anim_emitter(emitters_.at(object.bytes.get())->context);
-    emitters_.erase(object.bytes.get());
+    if (!defer_release)
+    {
+        emitters_.erase(object.bytes.get());
+    }
+}
+
+void NativeSceneActorClassOwner::release_view(const u8* bytes)
+{
+    areas_.erase(bytes);
+    triggers_.erase(bytes);
+    emitters_.erase(bytes);
 }
 
 void NativeSceneActorClassOwner::message(FactoryObject& object, std::span<u32> message)

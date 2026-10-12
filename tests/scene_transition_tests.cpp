@@ -1,3 +1,4 @@
+#include <unordered_set>
 #include "gbtg/engine_internal.h"
 #include "gbtg/gfx.h"
 #include "gbtg/anim.h"
@@ -6608,8 +6609,45 @@ void check_scene_spawn(gbtg::Game& game)
     {
         std::cout << "scene spawn: markers\n";
         services.start_markers();
+        const auto spawned = services.actor_addresses();
+        if (spawned.empty() || !services.activation_pending())
+        {
+            throw Error("opening markers created no pending actors");
+        }
         std::cout << "scene spawn: activation\n";
         services.activate_actors();
+        const auto active = services.active_actor_addresses();
+        if (services.activation_pending() || active.size() != spawned.size())
+        {
+            throw Error("opening activation did not drain every spawned actor");
+        }
+        std::unordered_set<u32> seen;
+        for (u32 address : active)
+        {
+            if (!spawned.contains(address) || !seen.insert(address).second)
+            {
+                throw Error("opening activation registered a duplicate or foreign actor");
+            }
+        }
+        size_t listed = 0;
+        for (auto* node = entity_detail::g_world.latch; node != nullptr; node = node->next)
+        {
+            if (++listed > active.size())
+            {
+                throw Error("opening active actor registry contains a cycle or extra actor");
+            }
+        }
+        if (listed != active.size())
+        {
+            throw Error("opening activation did not publish the world active actor registry");
+        }
+        const size_t count = active.size();
+        services.activate_actors();
+        if (services.activation_pending() || services.active_actor_addresses().size() != count)
+        {
+            throw Error("empty activation pass changed the active actor list");
+        }
+        std::cout << "scene spawn: activated=" << count << " pending=0\n";
     }
     catch (const std::exception& error)
     {
@@ -6624,6 +6662,14 @@ void check_scene_spawn(gbtg::Game& game)
     {
         throw Error("opening markers created no player actors");
     }
+    game.factory_scene->release_objects();
+    game.factory_scene->actor_services.reset();
+    if (game.factory_scene->factory.count != 0 || game.factory_scene->address_count() != 0
+        || entity_detail::g_world.latch != nullptr)
+    {
+        throw Error("activated scene teardown retained factory objects or address mappings");
+    }
+    std::cout << "scene spawn: teardown factory=0 addresses=0\n";
 }
 
 void check_player_dialogue_resources(gbtg::AidStore& aids)

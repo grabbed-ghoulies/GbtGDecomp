@@ -8,6 +8,11 @@
 #include "navigation/mind_navigation_angles.h"
 #include "entities/body_damage_motion.h"
 #include "entities/cinema_mind_request_update.h"
+#include "entities/actor_collision_culling.h"
+#include "entities/model_sphere_collision.h"
+#include "entities/collision_shape_dispatch.h"
+#include "entities/physical_mesh_queries.h"
+#include "entities/mesh_sphere_geometry.h"
 #include <cstring>
 #include <iostream>
 
@@ -138,6 +143,185 @@ int main()
             set_runtime_input_vertical_axes(device,
                 {read_f32(parameters, 0), read_f32(parameters, 4)}, {object.bytes.get() + 0x800, 0x80});
             result = true;
+        }
+        else if (mode == 22)
+        {
+            const Vec3* vertices = reinterpret_cast<const Vec3*>(parameters.data() + 0x400);
+            const Vec3 point{read_f32(parameters, 0x600), read_f32(parameters, 0x604), read_f32(parameters, 0x608)};
+            const Vec3 normal{read_f32(parameters, 0x640), read_f32(parameters, 0x644), read_f32(parameters, 0x648)};
+            result = read_u32(parameters, 0) == 0
+                ? runtime_projected_point_in_triangle(normal, point, vertices[1], vertices[2])
+                : runtime_sphere_intersects_triangle(point, read_f32(parameters, 0x3C0), vertices[0], vertices[1], vertices[2]);
+        }
+        else if (mode == 21)
+        {
+            const float* world = reinterpret_cast<const float*>(parameters.data() + 0x500);
+            const float* inverse = reinterpret_cast<const float*>(parameters.data() + 0x540);
+            const Vec3 start{read_f32(parameters, 0x600), read_f32(parameters, 0x604), read_f32(parameters, 0x608)};
+            Vec3 end{read_f32({object.bytes.get(), object.size}, 0x700), read_f32({object.bytes.get(), object.size}, 0x704),
+                read_f32({object.bytes.get(), object.size}, 0x708)};
+            const Vec3 stationary{};
+            const std::span<u8> record = read_u32(parameters, 0x3C4) != 0 ? std::span<u8>{object.bytes.get(), 0x54} : std::span<u8>{};
+            RuntimeCollisionShapeCall call{parameters.data() + 0x800, 0x10002800, world, inverse, nullptr,
+                0x10002400, start, end, read_f32(parameters, 0x3C0), read_u32(parameters, 0x3B0),
+                i32(read_u32(parameters, 0x3B4)), record, nullptr, stationary};
+            const auto resolve = [&](u32 address, size_t size)
+            {
+                return std::span<const u8>{parameters}.subspan(address - 0x10002000, size);
+            };
+            switch (read_u32(parameters, 0))
+            {
+            case 0:
+                result = collide_runtime_physical_mesh_segment(call, std::span<const u8>{parameters}.subspan(0x800, 0x34), resolve);
+                break;
+            case 1:
+                result = collide_runtime_physical_mesh_sweep(call, std::span<const u8>{parameters}.subspan(0x800, 0x34), resolve);
+                break;
+            case 2:
+                result = collect_runtime_physical_mesh_contacts(call, std::span<const u8>{parameters}.subspan(0x800, 0x34), resolve);
+                break;
+            case 3:
+                result = collide_runtime_posed_mesh_segment(call, nullptr, std::span<const u8>{parameters}.subspan(0x800, 0x1C), resolve);
+                break;
+            case 4:
+                result = collide_runtime_posed_mesh_sweep(call, nullptr, std::span<const u8>{parameters}.subspan(0x800, 0x1C), resolve);
+                break;
+            default:
+                result = collect_runtime_posed_mesh_contacts(call, nullptr, std::span<const u8>{parameters}.subspan(0x800, 0x1C), resolve);
+                break;
+            }
+            std::memcpy(object.bytes.get() + 0x700, &end, 12);
+        }
+        else if (mode == 20)
+        {
+            const Vec3* vertices = reinterpret_cast<const Vec3*>(parameters.data() + 0x400);
+            const float* world = reinterpret_cast<const float*>(parameters.data() + 0x500);
+            const Vec3 origin{read_f32(parameters, 0x600), read_f32(parameters, 0x604), read_f32(parameters, 0x608)};
+            const Vec3 movement{read_f32(parameters, 0x620), read_f32(parameters, 0x624), read_f32(parameters, 0x628)};
+            const Vec3 normal{read_f32(parameters, 0x640), read_f32(parameters, 0x644), read_f32(parameters, 0x648)};
+            switch (read_u32(parameters, 0))
+            {
+            case 0:
+            {
+                std::array<i32, 3> lower, upper;
+                runtime_mesh_query_cell_bounds(std::span<const u8>{parameters}.subspan(0x800), origin,
+                    movement, read_f32(parameters, 0x3C0), lower, upper);
+                std::memcpy(object.bytes.get() + 0x700, lower.data(), 12);
+                std::memcpy(object.bytes.get() + 0x70C, upper.data(), 12);
+                result = true;
+                break;
+            }
+            case 1:
+            {
+                float fraction = read_f32({object.bytes.get(), object.size}, 0x700);
+                result = intersect_runtime_mesh_triangle(movement, vertices[1], vertices[2], vertices[0], origin, fraction);
+                std::memcpy(object.bytes.get() + 0x700, &fraction, 4);
+                break;
+            }
+            case 2:
+                write_runtime_mesh_triangle_contact({object.bytes.get(), 0x54}, std::span<const u8>{parameters}.subspan(0x800),
+                    0x10002800, vertices, normal, origin, read_f32(parameters, 0x3C0), world);
+                result = true;
+                break;
+            default:
+                write_runtime_posed_mesh_contact({object.bytes.get(), 0x54}, std::span<const u8>{parameters}.subspan(0x800),
+                    0x10002800, vertices, normal, origin, read_f32(parameters, 0x3C0), world,
+                    read_u32(parameters, 0x3C4) != 0 ? reinterpret_cast<const float*>(parameters.data() + 0x540) : nullptr);
+                result = true;
+                break;
+            }
+        }
+        else if (mode == 19)
+        {
+            const float* world = reinterpret_cast<const float*>(parameters.data() + 0x500);
+            const float* inverse = reinterpret_cast<const float*>(parameters.data() + 0x540);
+            const Vec3 start{read_f32(parameters, 0x600), read_f32(parameters, 0x604), read_f32(parameters, 0x608)};
+            Vec3 end{read_f32({object.bytes.get(), object.size}, 0x700), read_f32({object.bytes.get(), object.size}, 0x704),
+                read_f32({object.bytes.get(), object.size}, 0x708)};
+            const Vec3 stationary{};
+            const std::span<u8> record = read_u32(parameters, 0x3C4) != 0 ? std::span<u8>{object.bytes.get(), 0x54} : std::span<u8>{};
+            const std::unordered_map<u32, std::function<u32(RuntimeCollisionShapeCall&)>> physical;
+            const u32* masks = reinterpret_cast<const u32*>(parameters.data() + 0x3A4);
+            RuntimeCollisionShapeDispatch context{{nullptr, 0, world, inverse, nullptr, 0, start, end,
+                read_f32(parameters, 0x3C0), read_u32(parameters, 0x3B0), 0, record, nullptr, stationary},
+                masks, std::span<const u8>{parameters}.subspan(0x900),
+                [&](const void* pointer)
+                {
+                    return 0x10002000u + u32(static_cast<const u8*>(pointer) - parameters.data());
+                }, physical};
+            const auto list = std::span<const u8>{parameters}.subspan(0x800);
+            switch (read_u32(parameters, 0))
+            {
+            case 0:
+                result = dispatch_runtime_model_segment_shapes(list, context) != 0;
+                break;
+            case 1:
+                result = dispatch_runtime_model_swept_shapes(list, context) != 0;
+                break;
+            default:
+                result = dispatch_runtime_model_contact_shapes(list, context) != 0;
+                break;
+            }
+            std::memcpy(object.bytes.get() + 0x700, &end, 12);
+        }
+        else if (mode == 18)
+        {
+            const auto& node = *reinterpret_cast<const EntityShapeNode*>(parameters.data() + 0x400);
+            const float* world = reinterpret_cast<const float*>(parameters.data() + 0x500);
+            const float* inverse = reinterpret_cast<const float*>(parameters.data() + 0x540);
+            const Vec3 start{read_f32(parameters, 0x600), read_f32(parameters, 0x604), read_f32(parameters, 0x608)};
+            const Vec3 center{read_f32(parameters, 0x620), read_f32(parameters, 0x624), read_f32(parameters, 0x628)};
+            Vec3 end{read_f32({object.bytes.get(), object.size}, 0x700), read_f32({object.bytes.get(), object.size}, 0x704),
+                read_f32({object.bytes.get(), object.size}, 0x708)};
+            const Vec3 stationary{};
+            const std::span<u8> record = read_u32(parameters, 0x3C4) != 0 ? std::span<u8>{object.bytes.get(), 0x54} : std::span<u8>{};
+            switch (read_u32(parameters, 0))
+            {
+            case 0:
+                result = collide_runtime_model_sphere_segment(node, 0x10002400, world, inverse, nullptr, start, end, record, stationary);
+                break;
+            case 1:
+                result = collide_runtime_model_sphere_sweep(node, 0x10002400, world, inverse, nullptr, start, end,
+                    read_f32(parameters, 0x3C0), record, stationary);
+                break;
+            case 2:
+                result = collect_runtime_model_sphere_contact(node, 0x10002400, world, inverse, nullptr, start,
+                    read_f32(parameters, 0x3C0), nullptr);
+                break;
+            default:
+                write_runtime_sphere_contact({object.bytes.get(), 0x54}, std::span<const u8>{parameters}.subspan(0x400),
+                    0x10002400, start, center, read_f32(parameters, 0x3C0), world);
+                result = true;
+                break;
+            }
+            std::memcpy(object.bytes.get() + 0x700, &end, 12);
+        }
+        else if (mode == 17)
+        {
+            result = runtime_collision_shape_list_has_physical_shape(std::span<const u8>{parameters}.subspan(0x800));
+        }
+        else if (mode == 16)
+        {
+            Actor actor;
+            actor.position = {read_f32(parameters, 8), read_f32(parameters, 0xC), read_f32(parameters, 0x10)};
+            const Vec3 start{read_f32(parameters, 0x420), read_f32(parameters, 0x424), read_f32(parameters, 0x428)};
+            const Vec3 end{read_f32(parameters, 0x440), read_f32(parameters, 0x444), read_f32(parameters, 0x448)};
+            const float radius = read_f32(parameters, 0x3C0);
+            switch (read_u32(parameters, 0))
+            {
+            case 0:
+                result = runtime_collision_spheres_overlap(actor.position, read_f32(parameters, 0x3C4), start, radius);
+                break;
+            case 1:
+                result = runtime_actor_culls_segment(actor, parameters, start, end);
+                break;
+            case 2:
+                result = runtime_actor_culls_swept_sphere(actor, parameters, start, end, radius);
+                break;
+            default:
+                result = runtime_actor_culls_sphere(actor, parameters, start, radius);
+                break;
+            }
         }
         else if (mode == 15)
         {

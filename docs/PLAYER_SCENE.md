@@ -2,6 +2,16 @@
 
 Target: `aid_script_ghoulies_chapter1_scene1_2playcam`.
 
+Current milestone (2026-10-12): opening-scene activation is complete through
+`--scene-spawn`, using the real marker/factory/service graph and translated
+0x00123070. All 18 spawned actors activate exactly once; pending=0; a second
+activation pass does nothing. Explicit teardown releases every factory object
+and address mapping. This verifies direct startup activation, not integration
+of the native actor update graph into the ordinary game loop or playable combat.
+Remaining gameplay dependencies include actor push 0x0003C0F0 and the native
+navigation/update bindings. Historical checkpoints below retain earlier stops;
+the final progress entries describe the current implementation and validation.
+
 Marker translation checkpoint (2026-10-11): every non-null retail handler slot
 is translated and present in the native binder (22 slots, including the shared
 kind-6/kind-0x18 handler and the actual empty kind-0x12 handler). No handler is
@@ -12,7 +22,7 @@ live-spawning dependencies. Validation details and limits are at the end.
 This scene is not playable yet. Rendering its background and advancing its
 camera do not verify the retail dialogue, actor, or gameplay behavior.
 
-Latest live check (2026-10-10): the script holds at `+0x254`, type `0x6F`.
+Historical live check (2026-10-10): the script holds at `+0x254`, type `0x6F`.
 The legacy live handler still returns a constant 0: this is not yet an
 execution of the translated player readiness query. Dialogue and cutscene are both inactive;
 the only actor is the camera. Retail player templates and native spawn wrappers
@@ -5164,3 +5174,181 @@ record).
 Validation: Release builds, all six CTests, the dialogue, actor-loading, decoder and scene-models
 suites, and 120-frame headless runs of the boot and opening scene pass. `--scene-spawn` stops at the
 first untranslated collision slot. Nothing was staged or committed.
+
+### 2026-10-12: collision dependency continuation
+
+Reviewed the latest marker/camera/activation changes before continuing. Added
+shared collision sphere overlap 0x0015A270, actor segment/swept-sphere/sphere
+culls 0x0003E4A0/0x0003E590/0x0003E680, and physical shape-list gate
+0x000559F0 in actor_collision_culling. Culls call the existing genuine actor
+view radius 0x0003D860 and world-position query, retaining SSE midpoint/distance
+order, x87 square-root/radius addition, and unordered sphere comparison.
+No actor collision slot is registered yet: shape dispatch and per-shape
+methods still block activation. This batch requires compilation and focused
+retail coverage; live spawning completion is not claimed.
+
+Collision checkpoint validation: Release game and transition-test builds pass,
+all six CTests pass, and git diff --check passes. The eighteen-mode retail
+oracle passed 1,800 cases (seed 71), zero mismatches. Added modes compare
+0x0015A270 and all three culls using genuine null-model 0x0003D860 and world
+position calls, including NaN/zero inputs; a separate mode checks shape-list
+0x000559F0 with negative/zero counts, physical kinds, tags and stride walking.
+Model-backed cull coverage and the shape-list/per-shape collision methods
+remain outstanding. No substitute collision return or slot bypass was added.
+
+Larger collision batch in progress: translated all six list dispatchers
+0x00055670/0x000557E0/0x00055960 and 0x000568E0/0x00056A60/0x00056BE0,
+preserving physical dword strides, model byte strides, signed bone-mask
+indices, accumulated hit results and contact epsilon offsets. Added actual
+model sphere routines 0x00055CB0/0x00055F80/0x00056580, their contact writer
+0x000563F0 and bound transforms 0x0010AAE0/0x0010AF90. Model kind-1 table
+entries really call empty 0x00055A90, which is translated as such; kind-2
+entries are genuinely null. Physical kind-1/2 routines remain mandatory
+callbacks for their exact retail addresses, with missing bindings throwing.
+No physical routine is faked, and actor slots are not registered yet.
+This thirteen-function batch awaits compilation and focused retail coverage.
+
+Thirteen-function checkpoint: both Release targets and all six CTests pass;
+git diff --check passes. A 19,000-case seed-79 run passed with zero mismatches,
+including direct sphere segment/sweep/contact calls and full seeded 0x54-byte
+contact records. A 2,000-case seed-83 twenty-mode run also passed after fixing
+the dispatcher fixture to load actual DAT_00423858 function pointers. It
+exercises all three model dispatch slots with multiple rows, signed bone-mask
+indices, kinds 0/1/2/3, null entries, actual empty kind-1 calls, sphere hits,
+and contact epsilon adjustment. Initial matrices were identity; the next
+focused fixture adds arbitrary affine matrices. Bone poses and contact-pool
+growth still need coverage. Physical callbacks remain unbound and actor slots
+still reject activation; this is dependency progress, not live acceptance.
+
+Affine checkpoint: 2,000 cases (seed 89) passed with zero mismatches after
+correcting matrix summation order against assembly. The 0x0010AAE0 sphere
+bound and the 0x00055CB0/0x00055F80 output point sum different term orders
+from contact writer 0x000563F0; those orders now remain distinct. Coverage
+includes arbitrary affine world/inverse matrices and unchanged seeded contact
+bytes, with genuine retail callees and actual dispatcher tables. Both Release
+targets, all six CTests and diff check pass after the fixes. Physical kind-1/2
+mesh routines and actor slot installation remain the next activation blockers;
+skeletal poses and contact-pool growth are not certified by this fixture.
+
+### Physical mesh integration continuation
+
+Added physical kind-1 segment 0x00053720 and swept-sphere 0x00053AA0 paths,
+their mesh cell bounds 0x00054340, triangle segment query 0x00103400,
+filtered triangle selectors 0x000551A0/0x000553D0, and triangle contact writer
+0x00054170. Native bindings for these exact two physical table entries now
+call their genuine implementations. Cell records retain their +0x2C layout,
+u16 dimension strides, selected triangle address, early zero-fraction exit,
+and cumulative movement shortening. No activation slot is enabled while the
+kind-2/contact/push dependencies are missing. Initial 2,100-case seed-97
+primitive/contact comparison passed with zero mismatches; expanded direct
+mesh segment/sweep coverage is running. Both Release targets build.
+
+Expanded mesh checkpoint: 2,200 cases (seed 101) passed with zero mismatches
+across twenty-two modes. New direct mode runs retail 0x00053720 and
+0x00053AA0 through real cell-bound, filtered triangle, sweep and contact
+writer callees on a single-cell mesh, comparing returned hits, kept points
+and seeded contact bytes. No per-shape callback capture or callee stub is
+used. The kind-1 segment and sweep table bindings are available, but actor
+slot installation is still held: 0x00053F20/0x000554D0 sphere collection,
+kind-2 pose-linked routines, their contact writer 0x00054DE0, and actor push
+0x0003C0F0 remain untranslated. Exports for these dependencies are now cached
+read-only, including the required 0x0015A440/0x0015A2E0 geometry. Live scene
+activation has not been advanced past the existing collision stop yet.
+
+Physical mesh batch validation: 4,400 cases (seed 103), zero mismatches;
+both Release targets and all six CTests pass. Added pose matrix helper
+0x000544B0 using actual 0x00031530 model-pose lookup, 0x00104400 inversion,
+and 0x001041B0 matrix multiplication, with the retail null-pose copy branch.
+This eighth translated function compiles but has not yet received focused
+pose-backed acceptance. The mesh methods are available through exact-address
+native callbacks, not installed actor slots. Remaining slot dependencies
+above are still real blockers, and resource/cell address adapters must use
+the scene's actual model storage when integrating them.
+
+Sphere-collection/pose-linked batch: added sphere/triangle test 0x0015A440
+and projected point/triangle test 0x0015A2E0, then triangle collection
+0x000554D0, kind-1 sphere collection 0x00053F20, posed contact writer
+0x00054DE0 and all kind-2 methods 0x00054520/0x00054850/0x00054C40.
+All six physical table entries now have native bindings to translated methods.
+Pose-backed bindings require the actual ModelPoseBuffer; an unbound native
+pose raises instead of substituting a null pose. The initial 2,300-case
+seed-107 geometry comparison passed, including finite and degenerate inputs.
+Collection/pool growth and pose-linked methods await their focused coverage.
+Actor collision slot installation and actor push remain outstanding.
+
+Actor query batch: translated 0x0003DF70/0x0003E110/0x0003E050 and
+0x0003E200/0x0003E3C0 over the genuine physical/model dispatchers, including
+class-mask filtering, culls, alternate/primary pose selection and actual
+0x000FCD70 contact copy for physical sweeps. These method bodies compile;
+the factory's live slot adapters still need the actual model CPU address
+space and model +0x16C mask words, not invented mask defaults.
+Expanded 6,900-case seed-127 comparison passed with zero mismatches across
+twenty-three modes. The direct mesh mode now exercises all six physical
+table entries (kind-2 uses the actual null-pose copy path), and contact-writer
+coverage includes both null and arbitrary affine bone matrices. Pool-backed
+collection/growth, non-null ModelPoseBuffer lookup, actor-query methods and
+NaN sphere/triangle behavior still require their own coverage. No live
+activation advance or fully wired collision class is claimed yet.
+
+Live collision integration checkpoint: installed all five translated actor query
+slots with owning actor bytes, original model CPU resource tokens, actual
+physical table methods, model shader words and native poses. Contact collection
+bridges the scene SegmentPool to the native translated pool, retaining the
+complete seeded capacity and propagating growth/cursor state. The first live
+activation advance now passes the former collision-slot stop, reaching an
+empty player-mind object resolver on nested message 0x11. Corrected the owner
+adapter to resolve message +4 only where retail 0x0002A5A0 actually dereferences
+it (the matching 0x8D target branch), and attached the scene resolver. Added
+actor/child/message diagnostics to activation errors. Actor push remains
+outstanding; activation is not yet accepted.
+
+Activation ownership/input checkpoint: registered the controlled-player input
+device with the existing scene input address map. Replaced the empty stack
+input-pool header with the actual four-entry, stride-0x50 heap allocation
+from retail 0x00033030 (0x00033274), retaining grow=4 and publishing the
+rebound pool/selection to dialogue input after messages. Live startup now
+activates Cooper, five imps and cameron, then reaches a separately owned
+type-2 attachment actor. Scene object lookup now includes camera/callout
+ownership and player-owned factory children; previously the pending-list
+adapter dereferenced null for these actors. The next contact notice requires
+the base actor +0x934 node identity for comparisons, now exposed in the
+factory view instead of rejecting every non-player actor. Temporary traces
+are being used to locate the remaining live stop and will be removed.
+
+Live activation pass now drains all 18 pending actors and the empty second
+pass leaves the active list unchanged. Acceptance was strengthened to compare
+the exact spawned-address set, reject duplicates/foreign actors and require
+zero pending nodes. All six CTests pass. Teardown exposed two native lifetime
+issues: scene class message views must survive their derived destructors until
+the actor-base destructor sends render-bin message 0x12, and separately owned
+camera/callout roots need explicit factory release while services remain alive.
+Camera-root release also required the scene address map and active factory
+owner to remain alive: the service owner is now reset explicitly in the scene
+destructor before those dependencies are cleared or destroyed. The actor-query class
+mask now reads the native Actor.model_flags alias of +0x1F0 instead of stale
+serialized instance bytes. Full live exit/teardown is being rechecked.
+
+Activation completion checkpoint (2026-10-12): the strengthened --scene-spawn
+run activates all 18 spawned actors, leaves pending=0, verifies the exact
+address set with no duplicates, and verifies an empty second activation pass.
+The run now exits 0 after releasing both marker roots and separately owned
+camera/callout roots. Native scene-class message views survive through the
+actor-base destructor; scene services are explicitly destroyed before the
+active scene pointer/address map are cleared. Temporary traces are removed.
+An explicit zero-factory/zero-address teardown assertion and final regression
+batch are now being checked. Actor push 0x0003C0F0 is still a later gameplay
+update dependency; it is not reached by this activation milestone.
+
+Final activation validation: Release gbtg and gbtg-transition-tests builds pass;
+--scene-spawn exits 0 with activated=18, pending=0, factory=52 before release,
+and factory=0/addresses=0 after explicit release. The check compares the full
+spawned/active address sets and checks the empty repeat pass. The world active
+registry uses the shared g_world.latch alias of DAT_00511AA4, with a matching
+list-count assertion and an empty-list teardown assertion. All six CTests,
+actor-loading, dialogue resources (including player parent/message/update and
+factory owner checks), and the 461-frame book/map scene transition pass. The
+seed-149, 6,900-case scene-factory/collision oracle reports zero mismatches.
+The 120-frame headless boot run exits 0 (crash check only). No retail payload
+was edited, Ghidra project mutated, or files staged/committed. Pool-growth and
+non-null-pose collision comparisons remain explicit coverage gaps; the live
+activation result does not certify every later gameplay collision branch.

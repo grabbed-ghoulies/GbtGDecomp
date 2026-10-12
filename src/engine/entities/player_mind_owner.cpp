@@ -139,7 +139,14 @@ void NativePlayerMindOwner::message(FactoryObject& mind, const void* message)
     }
     // 0x0007F1E0 reads at most message word 0xB, and only for the ids that carry it.
     const std::span<const u32> words(static_cast<const u32*>(message), 0xC);
-    dispatch_runtime_player_mind_message(*slots.messages, words, slots.object_at(words[1]));
+    std::span<const u8> target;
+    // The parent slot dereferences message +4 only on 0x8D's matching-target branch.
+    if (words[0] == 0x8D && read_u32(slots.mind, 0x10) == words[1]
+        && words[2] != 0 && read_u32(slots.mind, 0xC) != 0)
+    {
+        target = slots.object_at(words[1]);
+    }
+    dispatch_runtime_player_mind_message(*slots.messages, words, target);
 }
 
 void NativePlayerMindOwner::tick(FactoryObject& mind, u32 input)

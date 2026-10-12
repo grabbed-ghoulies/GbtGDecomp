@@ -73,9 +73,9 @@ SceneMindMessages::SceneMindMessages(SceneMindServices& services, NativePlayerIn
           services.event_ids, services.registry, services.error},
       binding_{player.actor_bytes, player.actor_address, player.links[1], entity_detail::g_world.case_head,
           player.input, services.runtime_flags, services.port_devices, services.release, services.activation,
-          [](std::span<u8>) -> u32
+          [this](std::span<u8> device) -> u32
           {
-              unbound("player input device address registration");
+              return services_.address_of(device.data());
           },
           services.address_of},
       player_messages_{player.mind_events, feedback_, boost_, parent_, binding_, services.resume, services.game,
@@ -92,6 +92,10 @@ SceneMindMessages::SceneMindMessages(SceneMindServices& services, NativePlayerIn
               return services_.actor_at(address);
           }}
 {
+    slots.object_at = [this](u32 address)
+    {
+        return services_.bytes_at(address);
+    };
     cinema_mind_ = slots.cinema != nullptr;
     if (slots.cinema != nullptr)
     {

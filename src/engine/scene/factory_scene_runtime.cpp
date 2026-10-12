@@ -82,6 +82,9 @@ SceneFactoryRuntime::SceneFactoryRuntime(AidStore& aids, std::shared_ptr<SceneEx
 SceneFactoryRuntime::~SceneFactoryRuntime()
 {
     release_objects();
+    // Actor services release their separately owned factory roots through the same
+    // address map and base lifecycle; both must still exist during that release.
+    actor_services.reset();
     active_scene = nullptr;
 }
 

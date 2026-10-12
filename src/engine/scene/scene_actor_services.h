@@ -21,6 +21,8 @@ public:
     void start_markers();
     // 0x00123070: activates the actors created since the last pass (message 0x23, then 0x7B notices).
     void activate_actors();
+    bool activation_pending() const; // Pending actor +0x900 list is nonempty.
+    std::span<const u32> active_actor_addresses() const; // Activated actor +0x910 order.
     u32 player_link() const; // DAT_00511B40.
     const std::unordered_map<u32, Actor*>& actor_addresses() const; // Retail actor address -> native actor.
     size_t player_total() const;

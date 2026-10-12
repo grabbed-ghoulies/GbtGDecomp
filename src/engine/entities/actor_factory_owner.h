@@ -7,6 +7,7 @@ namespace gbtg
 void install_runtime_base_object_class(std::span<ObjectFactoryType> types);
 struct NativeActorFactoryInstance
 {
+    std::span<const u8> bytes;
     ButtonBatScreen bat;
     ActorAnimationState animation;
     RuntimeActorStartupState startup{bat.actor, animation};
@@ -15,6 +16,7 @@ struct NativeActorFactoryInstance
     entity_detail::SegmentProbe segment;
     ActorRenderRegistration render{bat.actor, shape, segment, startup.live};
     ActorAttachmentNode pending{};
+    entity_detail::ListHead body_node{}; // Native identity of actor +0x934 for contact-list comparisons.
     entity_detail::ListHead anchors{};
     entity_detail::ListHead live_attachments{};
     void* allocation_8fc = nullptr;
@@ -32,6 +34,8 @@ struct NativeActorFactoryBindings
     const std::unordered_map<ActorFrameAttachment*, FactoryObject*>& frame_objects;
     std::function<void(Actor&, const void*)> message; // Actual actor vtable+0xC mapping.
     const char* empty_name; // DAT_00546208.
+    std::function<u32(const void*)> resource_address;
+    std::function<u32(const void*)> pose_address;
 };
 class NativeActorFactoryOwner
 {
@@ -44,6 +48,7 @@ public:
     NativeActorFactoryInstance& construct_view(FactoryObject& object);
     NativeActorFactoryInstance& view(const FactoryObject& object);
     void release_view(FactoryObject& object);
+    NativeActorFactoryInstance& view(const entity_detail::SegmentProbe& probe);
     NativeActorFactoryBindings bindings;
     std::unordered_map<const u8*, Actor*> actors;
     std::unordered_map<Actor*, ActorAnimationState*> animations;

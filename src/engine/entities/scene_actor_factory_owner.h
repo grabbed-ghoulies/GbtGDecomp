@@ -53,6 +53,8 @@ public:
     bool construct_area(FactoryObject& object, std::span<const u8> parameters);
     bool construct_trigger(FactoryObject& object, std::span<const u8> parameters);
     bool construct_emitter(FactoryObject& object, std::span<const u8> parameters);
+    bool defer_release = false; // Keep message views through the actor-base destructor.
+    void release_view(const u8* bytes); // Native ownership cleanup after all retail destructors.
     void release_area(FactoryObject& object);
     void release_trigger(FactoryObject& object);
     void release_emitter(FactoryObject& object);

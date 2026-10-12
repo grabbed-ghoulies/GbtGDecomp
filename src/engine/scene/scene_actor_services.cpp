@@ -10,6 +10,7 @@
 #include "../entities/body_move_actions.h"
 #include "../entities/body_state_actions.h"
 #include "../entities/actor_callout_resources.h"
+#include "../entities/actor_shape_bounds.h"
 #include "../entities/player_messages.h"
 #include "scene_actor_activation.h"
 #include "scene_body_messages.h"
@@ -249,12 +250,13 @@ struct SceneActorServices::State
     // Input (DAT_0050E0E8 and its devices).
     std::unordered_map<u32, std::span<u8>> input_addresses;
     RuntimeInputReleaseContext input_release{input_addresses};
-    GhoulySpawnPool input_pool{0x50, 1, nullptr, nullptr, nullptr};
+    // 0x00033030, inline pool allocation at 0x00033274: four 0x50-byte input entries.
+    GhoulySpawnPool* input_pool = allocate_runtime_shape_pool(0x50, 4);
     i32 input_selected = 0; // DAT_0050E0EC.
     std::array<u8, 4 * 0xA8> controllers{}; // DAT_005079F8.
     std::array<u8, 0x3C> keyboard{}; // DAT_00507C98.
     std::array<u32, 5> port_masks{}; // DAT_0050E0F4..
-    RuntimeInputActivationContext input_activation{input_pool, input_selected, controllers, keyboard,
+    RuntimeInputActivationContext input_activation{*input_pool, input_selected, controllers, keyboard,
         port_masks.data() + 1, input_addresses};
     // Player construction and children.
     u32 player_count = 0; // DAT_00510578.
@@ -283,7 +285,7 @@ struct SceneActorServices::State
     std::array<u32, 8> override_words{}; // DAT_005121E8..
     RuntimePlayerScriptOverrides overrides{override_words[0], override_words[1], override_words[2],
         override_words[3], override_words[4], override_words[5], override_words[6], override_words[7]};
-    entity_detail::LatchNode* latches = nullptr; // DAT_00511AA4.
+    entity_detail::LatchNode*& latches = entity_detail::g_world.latch; // DAT_00511AA4.
     u32 decay_index = 0; // DAT_0051248C.
     std::span<const u8> decay_enabled; // DAT_0030F144.
     RuntimeActorClock clock;
@@ -294,7 +296,7 @@ struct SceneActorServices::State
     const void* script_records = nullptr; // DAT_0051108C.
     std::string goal_scratch; // DAT_00508EB8.
     std::vector<FactoryObject> callout_objects;
-    RuntimeDialogueInputState input_state{keyboard, {}, 0, 0, 0, &input_pool, 0, nullptr};
+    RuntimeDialogueInputState input_state{keyboard, {}, 0, 0, 0, input_pool, 0, nullptr};
     u32 brews_taken = 0; // DAT_00506C88.
     u32 brew_accepted = 0; // DAT_00430D98.
     i32 prompt_lock = -1; // DAT_004E1C34, 0x0011C480.
@@ -496,7 +498,15 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             actor_message(actor, message);
         },
-        empty_name});
+        empty_name,
+        [this](const void* pointer)
+        {
+            return resources.memory.address_of(static_cast<const u8*>(pointer));
+        },
+        [this](const void* pointer)
+        {
+            return heap_address(pointer, sizeof(ModelPoseBuffer));
+        }});
     actors->install(scene.types);
     players = std::make_unique<NativePlayerFactoryOwner>(NativePlayerFactoryBindings{*actors,
         NativePlayerSceneBindings{scene.factory, image.pools, resources.registry, resources.error, random,
@@ -575,6 +585,24 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     players->defer_release = true;
     scene.released = [this](const u8* bytes)
     {
+        const u32 address = scene.address_of(bytes);
+        if (const auto found = active_nodes.find(address); found != active_nodes.end())
+        {
+            auto** link = &latches;
+            while (*link != nullptr && *link != found->second.get())
+            {
+                link = &(*link)->next;
+            }
+            if (*link != nullptr)
+            {
+                *link = (*link)->next;
+            }
+            active_nodes.erase(found);
+        }
+        if (classes != nullptr)
+        {
+            classes->release_view(bytes);
+        }
         player_messages.erase(bytes);
         mind_messages.erase(bytes);
         body_messages.erase(bytes);
@@ -583,7 +611,6 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             if (player->actor_bytes.data() == bytes)
             {
-                active_nodes.erase(player->actor_address);
                 model_views.erase(&player->actor);
                 players->release_player(bytes);
                 return;
@@ -640,6 +667,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         },
         word_messages, *emitter});
     classes->install(scene.types);
+    classes->defer_release = true;
     install_runtime_move_action_classes(scene.types);
     install_runtime_body_state_classes(scene.types, [this](u32 body_address)
     {
@@ -719,16 +747,22 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         [this](u32 address, std::span<const u32> words)
         {
             auto* object = object_of(scene.resolve_address(address, 0).data());
-            object_message(*object, {const_cast<u32*>(words.data()), words.size()});
+            try
+            {
+                object_message(*object, {const_cast<u32*>(words.data()), words.size()});
+            }
+            catch (const std::exception& error)
+            {
+                throw Error("activation actor " + std::to_string(address) + " type "
+                    + std::to_string(object->type) + " message " + std::to_string(words[0])
+                    + ": " + error.what());
+            }
         },
         [this](u32 address) -> const entity_detail::ListHead*
         {
             auto* object = object_of(scene.resolve_address(address, 0).data());
-            if (object->type != 5)
-            {
-                unbound("actor +0x934 node of a non-player actor");
-            }
-            return &players->player(*object).links[0];
+            return object->type == 5 ? &players->player(*object).links[0]
+                : &actors->view(*object).body_node;
         }});
     state_action_names = strings(0x003390E4, 0x174);
     goal_flag_names = strings(0x003397AC, 3);
@@ -759,6 +793,18 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
 
 SceneActorServices::State::~State()
 {
+    for (auto* owned : {&cameras, &callout_objects})
+    {
+        for (auto object = owned->rbegin(); object != owned->rend(); ++object)
+        {
+            if (object->bytes != nullptr)
+            {
+                release_factory_object(scene.factory, *object);
+            }
+        }
+        owned->clear();
+    }
+    engine_heap_free(input_activation.entries);
     scene.released = nullptr;
     if (active_services == this)
     {
@@ -848,11 +894,26 @@ u32 SceneActorServices::State::address_of(const void* pointer)
 
 FactoryObject* SceneActorServices::State::object_of(const u8* bytes)
 {
-    for (auto& object : scene.objects)
+    for (auto* owned : {&scene.objects, &cameras, &callout_objects})
     {
-        if (object.bytes.get() == bytes)
+        for (auto& object : *owned)
         {
-            return &object;
+            if (object.bytes.get() == bytes)
+            {
+                return &object;
+            }
+        }
+    }
+    for (auto* player : players->instances())
+    {
+        for (FactoryObject* object : {&player->created_attachment, &player->body_object,
+            &player->mind_object, &player->strategy_object, &player->first_action,
+            &player->second_action, &player->body_action_object})
+        {
+            if (object->bytes.get() == bytes)
+            {
+                return object;
+            }
         }
     }
     return nullptr;
@@ -982,12 +1043,22 @@ void SceneActorServices::State::attach_player_messages(FactoryObject& object, Na
         RuntimePlayerChildMessages{player.strategy_object, player.mind_object, player.body_object,
             [this](FactoryObject& child, void* message)
             {
-                child_message(child, message);
+                try
+                {
+                    child_message(child, message);
+                }
+                catch (const std::exception& error)
+                {
+                    throw Error("player child type " + std::to_string(child.type) + " message "
+                        + std::to_string(*static_cast<const u32*>(message)) + ": " + error.what());
+                }
             }});
     auto* messages = slot.get();
     player.actor_message = [this, messages](std::span<const u32> words)
     {
         dispatch_runtime_player_message(const_cast<u32*>(words.data()), messages->context, messages->children);
+        input_state.devices = input_activation.entries;
+        input_state.selected = input_selected;
     };
 }
 
@@ -1065,7 +1136,15 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
         {
                 graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
         }
-        graph->dispatch(child, {static_cast<u32*>(message), 0x42});
+        try
+        {
+            graph->dispatch(child, {static_cast<u32*>(message), 0x42});
+        }
+        catch (const std::exception& error)
+        {
+            throw Error("body type " + std::to_string(child.type) + " message "
+                + std::to_string(words[0]) + ": " + error.what());
+        }
         return;
     }
     default:
@@ -1150,7 +1229,16 @@ void SceneActorServices::State::activate_actors()
         [this](u32 address, std::span<const u32> words)
         {
             auto* object = object_of(scene.resolve_address(address, 0).data());
-            object_message(*object, {const_cast<u32*>(words.data()), words.size()});
+            try
+            {
+                object_message(*object, {const_cast<u32*>(words.data()), words.size()});
+            }
+            catch (const std::exception& error)
+            {
+                throw Error("activation actor " + std::to_string(address) + " type "
+                    + std::to_string(object->type) + " message " + std::to_string(words[0])
+                    + ": " + error.what());
+            }
         },
         [this](u32 address) -> const Actor*
         {
@@ -1209,6 +1297,16 @@ void SceneActorServices::start_markers()
         }
     }
     start_runtime_scene_markers(state.markers, randomizer, handlers);
+}
+
+bool SceneActorServices::activation_pending() const
+{
+    return state_->live_actors.next != nullptr;
+}
+
+std::span<const u32> SceneActorServices::active_actor_addresses() const
+{
+    return state_->scene_nodes;
 }
 
 u32 SceneActorServices::player_link() const

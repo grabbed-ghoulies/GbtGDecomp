@@ -5352,3 +5352,37 @@ The 120-frame headless boot run exits 0 (crash check only). No retail payload
 was edited, Ghidra project mutated, or files staged/committed. Pool-growth and
 non-null-pose collision comparisons remain explicit coverage gaps; the live
 activation result does not certify every later gameplay collision branch.
+
+Shared actor-push batch started (2026-10-12): added actor_shape_push with
+nine translated definitions, covering 0x0003C0F0 and its missing helpers
+0x0003DD50/0x000418B0/0x0003C470/0x0003C3A0/0x0003C5D0 and
+0x001206A0/0x00120950/0x00120BA0. These are base-actor methods shared by
+all actor classes. Existing genuine sphere/cylinder transforms, cylinder
+push and swept-sphere solver are reused. D3DX normalization and vtable
+message dispatch are explicit required context bindings. Added focused
+retail comparison fixtures for bound metrics, offset-cylinder culling,
+planar actor delta and attachment projection. Native slot installation
+and contact-message bridging remain pending; no push acceptance claimed.
+
+Push integration checkpoint: the 2,500-case seed-163 comparison passes with
+zero mismatches, including the complete 0x0003C0F0 null-other path through
+real sphere/cylinder transforms, multiple masked nodes and per-cylinder
+contact writes. Added the four D3DX normalization routines from their actual
+dumps (including the unrounded Z reciprocal and approximate-unit shortcut).
+Installed the shared actor +0x34 slot over real model words and the global
+contact-point index. Contact 0x0E/0x0F now converts sender pointers at the
+scene boundary while preserving raw words for child handlers; the 0x0F body
+handler receives actual source/body/bound views. Directed normalization,
+attached push and the complete message round trip still await validation.
+
+Directed push validation: seed 173, 5,200 cases, zero mismatches across
+26 modes. Covers the genuine retail D3DX normalization entry/callees,
+zero/tiny/unit vectors, scalar tolerance edges, vector division, directed
+sphere sweep and attached-cylinder push with both query-pointer branches.
+The oracle now loads the D3DX XBE section separately and requires every
+retail call to return before its instruction budget (no silent truncation).
+Contact-message integration reached the real player-mind 0xB6 event filter.
+Translated its missing 0x00116890 linked lookup and the deduplication arm
+of 0x00116950. Added a live Cooper/imp 0x0E -> 0x0F -> 0x2D round-trip
+check that validates sender/receiver/class and deduplication. It is pending
+the next build/run; full script-message filter acceptance is not claimed.

@@ -53,6 +53,8 @@ struct SceneBodyServices
     std::function<std::span<const u8>(u32)> bytes_at; // A scene actor's instance bytes.
     std::function<void(u32, std::span<const u32>)> message; // Any actor's vtable +0xC.
     std::function<const entity_detail::ListHead*(u32)> body_node; // Actor +0x934 node of a scene actor.
+    std::function<RuntimeBodyAttachedActor&(u32)> source_at;
+    std::function<std::span<const u8>(u32)> source_body_at;
 };
 
 // One body's message graph: the parent body handler 0x000253B0 and the derived slots of types 0x27

@@ -2,6 +2,9 @@
 #include "actor_collision_queries.h"
 #include "physical_mesh_queries.h"
 #include "entity_heap.h"
+#include "actor_shape_push.h"
+#include "entity_collision.h"
+#include "../graphics/vector_normalize.h"
 #include <cstring>
 #include "gbtg/model_runtime.h"
 #include <bit>
@@ -88,10 +91,6 @@ i32 actor_segment_point(entity_detail::SegmentProbe& probe, Vec3& candidate, Vec
 {
     return i32(actor_query(probe, candidate, kept, radius, 0, mask, record, 0x3E200));
 }
-[[noreturn]] void untranslated_collision_slot(const char* slot)
-{
-    throw Error(std::string("actor collision slot is not translated: ") + slot);
-}
 // SegmentPool stores a 32-bit retail header separately from its native pointer view.
 // Copy the complete capacity through the native pool boundary, retaining untouched bytes.
 i32 actor_collect(entity_detail::SegmentProbe& probe, Vec3& origin, float radius,
@@ -137,10 +136,25 @@ i32 actor_segment_sphere_contacts(entity_detail::SegmentProbe& probe, Vec3& orig
 {
     return actor_collect(probe, origin, radius, mode, mask, pool, 0x3E050);
 }
-i32 actor_shape_push(entity_detail::ShapeProbe&, const Actor*, const Vec3*, EntityCylinderBound&, EntityCylinderBound*,
-    i32, Vec3&)
+i32 actor_shape_push(entity_detail::ShapeProbe& probe, const Actor* other, const Vec3* query,
+    EntityCylinderBound& merged, EntityCylinderBound* shapes, i32 count, Vec3& output)
 {
-    untranslated_collision_slot("vtable +0x34 (0x0003C0F0)");
+    auto& instance = active_owner->view(probe);
+    Actor& actor = instance.bat.actor;
+    std::array<u32, 21> words{};
+    if (actor.model != nullptr && actor.model->runtime != nullptr)
+    {
+        const auto& model = *actor.model->runtime;
+        words[0] = model.alternate != nullptr ? active_owner->bindings.pose_address(model.alternate) : 0;
+        std::copy(model.shader_indices.begin(), model.shader_indices.end(), words.begin() + 1);
+    }
+    RuntimeActorShapePush context{actor, words.data() + 1,
+        entity_detail::g_contact_points[entity_detail::g_contact_slot], normalize_runtime_graphics_vector,
+        [&actor](const Actor& other_actor, const Vec3& push, const Vec3& contact, u16 bone)
+        {
+            active_owner->bindings.shape_message(actor, other_actor, push, contact, bone);
+        }};
+    return i32(push_runtime_actor_shapes(other, query, merged, shapes, count, output, context));
 }
 
 // Native lifecycle slot adapters. The translated constructors/destructor keep
@@ -274,6 +288,18 @@ NativeActorFactoryInstance& NativeActorFactoryOwner::view(const entity_detail::S
         }
     }
     throw Error("segment probe has no actor factory view");
+}
+
+NativeActorFactoryInstance& NativeActorFactoryOwner::view(const entity_detail::ShapeProbe& probe)
+{
+    for (const auto& [address, instance] : instances_)
+    {
+        if (&instance->shape == &probe)
+        {
+            return *instance;
+        }
+    }
+    throw Error("shape probe has no actor factory view");
 }
 
 void NativeActorFactoryOwner::release_view(FactoryObject& object)

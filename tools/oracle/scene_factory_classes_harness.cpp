@@ -9,6 +9,9 @@
 #include "entities/body_damage_motion.h"
 #include "entities/cinema_mind_request_update.h"
 #include "entities/actor_collision_culling.h"
+#include "entities/actor_shape_push.h"
+#include "graphics/vector_normalize.h"
+#include "scripts/script_conditions.h"
 #include "entities/model_sphere_collision.h"
 #include "entities/collision_shape_dispatch.h"
 #include "entities/physical_mesh_queries.h"
@@ -143,6 +146,125 @@ int main()
             set_runtime_input_vertical_axes(device,
                 {read_f32(parameters, 0), read_f32(parameters, 4)}, {object.bytes.get() + 0x800, 0x80});
             result = true;
+        }
+        else if (mode == 26)
+        {
+            std::array<scene_detail::LiveScript, 8> nodes{};
+            const u32 count = read_u32(parameters, 4);
+            for (u32 row = 0; row < count; ++row)
+            {
+                nodes[row].type = read_u32(parameters, 0x400 + row * 4);
+                nodes[row].next = row + 1 < count ? &nodes[row + 1] : nullptr;
+            }
+            g_live_scripts = count != 0 ? &nodes[0] : nullptr;
+            result = find_runtime_script_event_type(read_u32(parameters, 0)) != nullptr;
+            g_live_scripts = nullptr;
+        }
+        else if (mode == 25)
+        {
+            const Vec3 first{read_f32(parameters, 0x680), read_f32(parameters, 0x684), read_f32(parameters, 0x688)};
+            const Vec3 second{read_f32(parameters, 0x6A0), read_f32(parameters, 0x6A4), read_f32(parameters, 0x6A8)};
+            const Vec3 direction{read_f32(parameters, 0x600), read_f32(parameters, 0x604), read_f32(parameters, 0x608)};
+            Vec3 output, contact;
+            std::memcpy(&output, object.bytes.get() + 0x700, 12);
+            std::memcpy(&contact, object.bytes.get() + 0x740, 12);
+            switch (read_u32(parameters, 0))
+            {
+            case 0:
+                normalize_runtime_graphics_vector(output, first);
+                result = true;
+                break;
+            case 1:
+                result = runtime_graphics_scalars_equal(read_f32(parameters, 0x3C0), read_f32(parameters, 0x3C4));
+                break;
+            case 2:
+                divide_runtime_graphics_vector(output, first, read_f32(parameters, 0x3C0));
+                result = true;
+                break;
+            case 3:
+                sweep_runtime_directed_cylinder_push(first, second, read_f32(parameters, 0x3C0),
+                    read_f32(parameters, 0x3C4), direction, output, normalize_runtime_graphics_vector);
+                result = true;
+                break;
+            default:
+            {
+                Actor actor, other;
+                actor.position = {read_f32(parameters, 0x520), read_f32(parameters, 0x524), read_f32(parameters, 0x528)};
+                other.position = {read_f32(parameters, 0x540), read_f32(parameters, 0x544), read_f32(parameters, 0x548)};
+                result = push_runtime_attached_cylinder(actor, other,
+                    *reinterpret_cast<const EntityCylinderBound*>(parameters.data() + 0x400),
+                    *reinterpret_cast<const EntityCylinderBound*>(parameters.data() + 0x440),
+                    read_u32(parameters, 4) != 0 ? &direction : nullptr, first,
+                    output, contact, normalize_runtime_graphics_vector);
+                break;
+            }
+            }
+            std::memcpy(object.bytes.get() + 0x700, &output, 12);
+            std::memcpy(object.bytes.get() + 0x740, &contact, 12);
+        }
+        else if (mode == 24)
+        {
+            Actor actor;
+            ActorModel model{parameters};
+            actor.model = read_u32(parameters, 0x3C4) != 0 ? &model : nullptr;
+            actor.position = {read_f32(parameters, 8), read_f32(parameters, 0xC), read_f32(parameters, 0x10)};
+            actor.radius_y = read_f32(parameters, 0x34);
+            actor.radius_xz = read_f32(parameters, 0x38);
+            actor.model_size_x = read_f32(parameters, 0x1C4);
+            actor.model_size_y = read_f32(parameters, 0x1C8);
+            actor.model_size_z = read_f32(parameters, 0x1CC);
+            actor.model_mode = i32(read_u32(parameters, 0x118));
+            std::memcpy(actor.xform, parameters.data() + 0x500, 48);
+            const auto& merged = *reinterpret_cast<const EntityCylinderBound*>(parameters.data() + 0x400);
+            Vec3 output, contact;
+            std::memcpy(&output, object.bytes.get() + 0x700, 12);
+            std::memcpy(&contact, object.bytes.get() + 0x740, 12);
+            RuntimeActorShapePush context{actor, reinterpret_cast<const u32*>(parameters.data() + 0x3A0),
+                contact, {}, {}};
+            result = push_runtime_actor_shapes(nullptr, nullptr, merged,
+                reinterpret_cast<EntityCylinderBound*>(parameters.data() + 0x440),
+                i32(read_u32(parameters, 0x3C0)), output, context);
+            std::memcpy(object.bytes.get() + 0x700, &output, 12);
+            std::memcpy(object.bytes.get() + 0x740, &contact, 12);
+        }
+        else if (mode == 23)
+        {
+            Actor actor, other;
+            actor.position = {read_f32(parameters, 8), read_f32(parameters, 0xC), read_f32(parameters, 0x10)};
+            other.position = {read_f32(parameters, 0x420), read_f32(parameters, 0x424), read_f32(parameters, 0x428)};
+            actor.radius_y = read_f32(parameters, 0x34);
+            actor.radius_xz = read_f32(parameters, 0x38);
+            actor.model_size_x = read_f32(parameters, 0x1C4);
+            actor.model_size_y = read_f32(parameters, 0x1C8);
+            actor.model_size_z = read_f32(parameters, 0x1CC);
+            const auto& fixed = *reinterpret_cast<const EntityCylinderBound*>(parameters.data() + 0x400);
+            const auto& moving = *reinterpret_cast<const EntityCylinderBound*>(parameters.data() + 0x440);
+            const Vec3 offset{read_f32(parameters, 0x600), read_f32(parameters, 0x604), read_f32(parameters, 0x608)};
+            Vec3 output;
+            std::memcpy(&output, object.bytes.get() + 0x700, 12);
+            switch (read_u32(parameters, 0))
+            {
+            case 0:
+            {
+                float height, radius;
+                runtime_actor_cylinder_metrics(actor, output, height, radius);
+                std::memcpy(object.bytes.get() + 0x70C, &height, 4);
+                std::memcpy(object.bytes.get() + 0x710, &radius, 4);
+                result = true;
+                break;
+            }
+            case 1:
+                result = runtime_offset_cylinders_apart(fixed, moving, offset);
+                break;
+            case 2:
+                runtime_actor_planar_delta(actor, other, output);
+                result = true;
+                break;
+            default:
+                result = push_runtime_attachment_projection(actor, other, fixed, output);
+                break;
+            }
+            std::memcpy(object.bytes.get() + 0x700, &output, 12);
         }
         else if (mode == 22)
         {

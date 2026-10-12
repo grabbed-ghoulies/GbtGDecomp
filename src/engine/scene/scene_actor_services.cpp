@@ -506,6 +506,14 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         [this](const void* pointer)
         {
             return heap_address(pointer, sizeof(ModelPoseBuffer));
+        },
+        [this](Actor& actor, const Actor& other, const Vec3& push, const Vec3& contact, u16 bone)
+        {
+            std::array<u32, 9> message{0xE, address_of(&other), std::bit_cast<u32>(push.x),
+                std::bit_cast<u32>(push.y), std::bit_cast<u32>(push.z), std::bit_cast<u32>(contact.x),
+                std::bit_cast<u32>(contact.y), std::bit_cast<u32>(contact.z), bone};
+            auto* object = object_of(scene.resolve_address(address_of(&actor), 0).data());
+            object_message(*object, message);
         }});
     actors->install(scene.types);
     players = std::make_unique<NativePlayerFactoryOwner>(NativePlayerFactoryBindings{*actors,
@@ -763,6 +771,14 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             auto* object = object_of(scene.resolve_address(address, 0).data());
             return object->type == 5 ? &players->player(*object).links[0]
                 : &actors->view(*object).body_node;
+        },
+        [this](u32 address) -> RuntimeBodyAttachedActor&
+        {
+            return players->player_at(address).self;
+        },
+        [this](u32 address) -> std::span<const u8>
+        {
+            return players->player_at(address).body;
         }});
     state_action_names = strings(0x003390E4, 0x174);
     goal_flag_names = strings(0x003397AC, 3);
@@ -995,6 +1011,30 @@ void SceneActorServices::State::object_message(FactoryObject& object, std::span<
         if (!player.actor_message)
         {
             attach_player_messages(object, player);
+        }
+        if (message[0] == 0xE || message[0] == 0xF)
+        {
+            auto& graph = *player_messages.at(object.bytes.get());
+            const u32 sender_address = message[1];
+            RuntimeMessageReceiver sender{sender_address,
+                [this, sender_address](std::span<const u32> words)
+                {
+                    auto* sender_object = object_of(scene.resolve_address(sender_address, 0).data());
+                    object_message(*sender_object, {const_cast<u32*>(words.data()), words.size()});
+                }};
+            RuntimePlayerContactMessage native{message[0], &sender, {}, u16(message[8])};
+            std::copy_n(message.data() + 2, 6, native.words.data());
+            handle_runtime_player_message(&native, graph.context);
+            for (FactoryObject* child : {&graph.children.strategy, &graph.children.mind, &graph.children.body})
+            {
+                if (child->bytes != nullptr)
+                {
+                    child_message(*child, message.data());
+                }
+            }
+            input_state.devices = input_activation.entries;
+            input_state.selected = input_selected;
+            return;
         }
         player.self.message(message);
         return;
@@ -1257,6 +1297,17 @@ SceneActorServices::~SceneActorServices() = default;
 void SceneActorServices::activate_actors()
 {
     state_->activate_actors();
+}
+
+void SceneActorServices::send_actor_message(u32 address, std::span<const u32> message)
+{
+    auto& state = *state_;
+    auto* object = state.object_of(state.scene.resolve_address(address, 0).data());
+    if (object == nullptr)
+    {
+        throw Error("actor message has no owning factory object");
+    }
+    state.object_message(*object, {const_cast<u32*>(message.data()), message.size()});
 }
 
 void SceneActorServices::start_markers()

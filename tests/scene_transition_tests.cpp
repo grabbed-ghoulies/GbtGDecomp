@@ -1,5 +1,6 @@
 #include <unordered_set>
 #include "gbtg/engine_internal.h"
+#include "../src/engine/scripts/script_conditions.h"
 #include "gbtg/gfx.h"
 #include "gbtg/anim.h"
 #include "gbtg/loctext.h"
@@ -6662,6 +6663,51 @@ void check_scene_spawn(gbtg::Game& game)
     {
         throw Error("opening markers created no player actors");
     }
+    u32 cooper = 0;
+    u32 imp = 0;
+    for (const auto& [address, actor] : services.actor_addresses())
+    {
+        const auto bytes = game.factory_scene->resolve_address(address, 0);
+        if (read_u16(bytes, 4) == 5 && read_u16(bytes, 0xCDC) == 1)
+        {
+            cooper = address;
+        }
+        if (actor->class_key == 23)
+        {
+            imp = address;
+        }
+    }
+    if (cooper == 0 || imp == 0 || find_runtime_script_event_type(0xB6) != nullptr)
+    {
+        throw Error("opening push-message check has no Cooper/imp pair or a preexisting contact event");
+    }
+    const std::array<u32, 9> contact_message{0xE, cooper, std::bit_cast<u32>(1.f), 0, 0,
+        std::bit_cast<u32>(2.f), std::bit_cast<u32>(3.f), std::bit_cast<u32>(4.f), 0};
+    services.send_actor_message(imp, contact_message);
+    const u32* event = find_runtime_script_event_type(0xB6);
+    if (event == nullptr)
+    {
+        throw Error("actor push contact round trip did not enqueue its real player-mind event");
+    }
+    services.send_actor_message(imp, contact_message);
+    size_t contacts = 0;
+    for (auto* node = g_live_scripts; node != nullptr; node = node->next)
+    {
+        if (node->type == 0xB6)
+        {
+            ++contacts;
+            if (read_u32(node->message, 4) != cooper || read_u32(node->message, 8) != imp
+                || read_u32(node->message, 12) != 23)
+            {
+                throw Error("actor push contact reply changed sender, receiver or class");
+            }
+        }
+    }
+    if (contacts != 1)
+    {
+        throw Error("repeated push contact was not deduplicated by the retail script filter");
+    }
+    std::cout << "scene spawn: push contact round trip and event deduplication passed\n";
     game.factory_scene->release_objects();
     game.factory_scene->actor_services.reset();
     if (game.factory_scene->factory.count != 0 || game.factory_scene->address_count() != 0

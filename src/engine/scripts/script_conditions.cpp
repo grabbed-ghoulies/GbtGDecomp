@@ -119,6 +119,21 @@ LiveScript g_live_anchor{};
 LiveScript*& g_live_scripts = g_live_anchor.next;
 
 
+// Xbox 0x00116890
+const u32* find_runtime_script_event_type(u32 type)
+{
+    LiveScript* node = g_live_scripts;
+    while (node != nullptr)
+    {
+        if (node->type == type)
+        {
+            return &node->type;
+        }
+        node = node->next;
+    }
+    return nullptr;
+}
+
 // Xbox 0x00116950. These event IDs are the accepting arms of the message
 // filter; scene startup (0x0011CBD0) submits 0x7D directly.
 // Xbox 0x00116950
@@ -136,6 +151,8 @@ bool script_accepts_event(u32 type)
     case 0xb8:
     case 0xb9:
         return true;
+    case 0xb6:
+        return find_runtime_script_event_type(0xB6) == nullptr;
     default:
         throw Error("untranslated script message filter: " + std::to_string(type));
     }

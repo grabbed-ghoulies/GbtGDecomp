@@ -103,7 +103,6 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
     switch (id)
     {
     case 7:
-    case 0xF:
     case 0x15:
     case 0x16:
     case 0x17:
@@ -122,6 +121,18 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
     std::span<u8> bytes{reinterpret_cast<u8*>(message.data()), message.size() * 4};
     RuntimePlayerBodyMessageViews views{{{}, nullptr, nullptr, nullptr}, nullptr, nullptr, {}, {}};
     std::optional<RuntimeSegmentContactActor> contact;
+    std::array<u8, 0x2C> bound;
+    if (id == 0xF)
+    {
+        views.source = &services_.source_at(message[1]);
+        views.source_body = services_.source_body_at(message[1]);
+        // 0x00022A40 reads target actor +0x8F8 +0x20..+0x28 only when bound exists.
+        if (live_attachment_ != nullptr)
+        {
+            std::memcpy(bound.data() + 0x20, live_attachment_->shape.data() + 4, 12);
+            views.bound = bound;
+        }
+    }
     if (id == 6 || id == 0x7B)
     {
         const u32 address = message[1];

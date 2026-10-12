@@ -9,6 +9,7 @@ extern std::vector<ScriptCond> g_script_conds;
 extern std::vector<u32> g_script_fired;
 
 extern LiveScript*& g_live_scripts;
+const u32* find_runtime_script_event_type(u32 type); // Xbox 0x00116890
 
 // Xbox 0x00116810. Heap allocation is the 0x000F72D0 boundary; the linked
 // insertion and message copy retain the original ownership and ordering.

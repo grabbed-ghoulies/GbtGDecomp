@@ -164,6 +164,8 @@ add_library(gbtg_lib STATIC
     src/engine/entities/physical_mesh_queries.cpp
     src/engine/entities/mesh_sphere_geometry.cpp
     src/engine/entities/actor_collision_queries.cpp
+    src/engine/entities/actor_shape_push.cpp
+    src/engine/graphics/vector_normalize.cpp
     src/engine/entities/body_apply.cpp
     src/engine/entities/body_message_helpers.cpp
     src/engine/entities/body_shape_push.cpp

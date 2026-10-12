@@ -36,6 +36,7 @@ struct NativeActorFactoryBindings
     const char* empty_name; // DAT_00546208.
     std::function<u32(const void*)> resource_address;
     std::function<u32(const void*)> pose_address;
+    std::function<void(Actor&, const Actor&, const Vec3&, const Vec3&, u16)> shape_message;
 };
 class NativeActorFactoryOwner
 {
@@ -49,6 +50,7 @@ public:
     NativeActorFactoryInstance& view(const FactoryObject& object);
     void release_view(FactoryObject& object);
     NativeActorFactoryInstance& view(const entity_detail::SegmentProbe& probe);
+    NativeActorFactoryInstance& view(const entity_detail::ShapeProbe& probe);
     NativeActorFactoryBindings bindings;
     std::unordered_map<const u8*, Actor*> actors;
     std::unordered_map<Actor*, ActorAnimationState*> animations;

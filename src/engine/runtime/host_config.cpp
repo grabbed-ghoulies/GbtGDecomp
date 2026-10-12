@@ -77,6 +77,19 @@ int clamp_dim(int value)
     return value;
 }
 
+int clamp_vsync(int value)
+{
+    if (value > 2)
+    {
+        return 2;
+    }
+    if (value < 0)
+    {
+        return 0;
+    }
+    return value;
+}
+
 int clamp_volume(int value)
 {
     if (value < 0)
@@ -108,8 +121,9 @@ void apply_key(HostConfig& cfg, const std::filesystem::path& path, const std::st
     }
     const bool width = section == "video" && key == "width";
     const bool height = section == "video" && key == "height";
+    const bool vsync = section == "video" && key == "vsync";
     const bool volume = section == "audio" && key == "mastervolume";
-    if (!width && !height && !volume)
+    if (!width && !height && !volume && !vsync)
     {
         return;
     }
@@ -136,6 +150,15 @@ void apply_key(HostConfig& cfg, const std::filesystem::path& path, const std::st
             std::cerr << "config: Height clamped to " << clamped << "\n";
         }
         cfg.height = clamped;
+    }
+    else if (vsync)
+    {
+        const int clamped = clamp_vsync(number);
+        if (clamped != number)
+        {
+            std::cerr << "config: Vsync clamped to " << clamped << "\n";
+        }
+        cfg.vsync = clamped;
     }
     else
     {
@@ -199,6 +222,7 @@ bool write_default(const std::filesystem::path& path)
            "[Video]\n"
            "Width=960\n"
            "Height=540\n"
+           "VSync=1\n"
            "\n"
            "[Audio]\n"
            "; 0 to 100\n"

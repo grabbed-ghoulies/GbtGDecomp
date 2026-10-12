@@ -2,6 +2,7 @@
 #include "dialogue_resource_owner.h"
 #include "executable_resources.h"
 #include "scene_marker_handlers.h"
+#include "scene_actor_services.h"
 #include <map>
 
 namespace gbtg
@@ -23,15 +24,22 @@ public:
     std::array<u32, type_count> retail_getters{};
     std::array<u32, type_count> retail_names{};
     std::vector<FactoryObject> objects;
+    // Type 1 maps each instance's address on construction and releases it on destruction. Owners that
+    // install their own base registration must call this again afterwards.
+    void install_base_class();
     FactoryObject* keep_object(FactoryObject object);
     void release_objects();
     u32 bind_address(std::span<u8> bytes);
     void unbind_address(const void* bytes);
     u32 address_of(const void* pointer) const;
+    u32 find_address(const void* pointer) const; // 0 when the pointer is not in a scene object.
     std::span<u8> resolve_address(u32 address, size_t size) const;
     size_t address_count() const;
     void load_markers(const char* scene_record);
     std::span<const u8> markers() const;
+    // Builds the actor service graph and installs its classes; marker start then creates the scene's actors.
+    SceneActorServices& start_actors(Game& game);
+    std::unique_ptr<SceneActorServices> actor_services; // Declared last: objects are released before it.
 
 private:
     struct MarkerDeleter

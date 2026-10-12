@@ -5037,3 +5037,65 @@ against its dump before the view is wired in. The remaining hook types
 (callout, camera, cutscene, font, loctext, texture relocate 0x00053520) are
 also still unregistered, and the player model comes from a bundle the provider
 has not been exercised with yet.
+
+### 2026-10-12: live marker start, first stage
+
+`SceneActorServices` (`scene/scene_actor_services`, owned by `SceneFactoryRuntime::start_actors`) is
+the scene's actor service graph. It holds native storage for the retail globals the actor, player,
+mind, strategy and scene-class constructors read, installs the class owners over the scene factory,
+loads the markers and runs 0x00140020. Values read from initialised XBE data name their address;
+zeroed storage is BSS whose scene-start value is zero. Services whose contexts are not built raise
+when reached. `gbtg-transition-tests GAME_DIRECTORY --scene-spawn` runs it on the opening scene.
+Marker start is not yet called from the live scene start.
+
+What it needed, in the order the opening's markers reached it:
+
+- **Scene record.** 0x0011CB80 and 0x00123A30 read the full script aid (`aid_script_...`), not the
+  short scene name.
+- **Object addresses.** The scene's type 1 now binds each instance's address when 0x00107700 runs,
+  so derived constructors can name themselves. `address_of` covers scene objects, file-backed XBE
+  memory (mapped back to its XBE address) and the scene resource memory. Plain bundle records are now
+  copied into the resource memory, as models already were, so stored resource pointers have addresses.
+- **Executable record views** (`SceneExecutableResources`): statetables (rows of 0x108 at +4, the body
+  action table), attackdata sequences (+0x10, +0xC words), the row names statetables point at from
+  +0x104, and scripttables (rows of 0x84 at +4, the mind goal tables).
+- **Statsheet.** DAT_00545AC4 is `aid_misc_ghoulies_statsheet_actors` (boot, 0x00033030); 0x00133B70
+  counts its rows up to `objTag_Null`.
+- **`ActorModel` view.** The model hook's post-load also publishes the actor +0x204 view: the original
+  bundle bytes, with the runtime header that 0x00052B70 allocates appended and its block pointers
+  written as offsets (directory +0x10 points at it). Body constructors get the directory blocks and
+  the instance channel word (+0x1CC) from it.
+- **Loaded-row sizes.** 0x00035D90 reads loaded rows +8..+0x14. For bundle records these are the CPU
+  pointer, the file chunk size, and the resource chunk (relocated to its metadata by 0x00034590 only
+  when its size is nonzero). The scene provider fills a parallel table as it loads. Executable records
+  carry their recorded size. Loose localisation and demand files come from other retail providers and
+  their rows are not mapped.
+- **Missing resources.** 0x00032700 halts on the disc-error screen; the scene's error boundary now
+  raises with the last name no provider found.
+- **Player bundle.** 0x00124420 (from 0x0011CAC0) adds the bundle of the template 0x00123A80 selects,
+  unless 0x00124490 finds the scene in the six no-player scripts at 0x00430FB0. Scene loading now loads
+  `bundles/aid_objparams/ghoulies_actor_player_boy.bnl` for the opening.
+- **Cinema minds.** The player owner now creates the type 0x35 lifecycle with the mind; its message,
+  tick and request contexts are attachable later, as the player mind's already are.
+- **Body action classes.** Bodies construct their statetable's initial row (key at body parameters
+  +0x188). Both the imp and the boy start in `stand`: move 0x5B `entityMoveXYZnoG` and state 0x87
+  `entityStateStandAlert`. Translated: weapon base 0xA (sizes 0x0007FCC0, constructor 0x0002B600),
+  0x5B (0x000CFFD0), actorMove base 9 (sizes 0x00095530), and 0x87 (sizes 0x000A2510, constructor
+  0x000A2590, destructor 0x000A2790, with body shape-mode helper 0x0001FEB0). The state classes take
+  a native view of their body, found from state +8.
+
+**Result:** all five opening imps construct (actor, player class, body, cinema mind, imp fire
+strategy and their stand actions), and the scene releases them cleanly. The boy's actor and bodies
+construct. Construction now stops at the player's camera actor: the player mind creates
+`aid_objparams_ghoulies_actor_cameron` (camera body type 0x28, cinema mind type 0x36, director
+strategy type 0x39). Its mind lifecycle is trivial (0x0007AFC0, 0x000CFFD0) and its strategy is
+small (0x000AAE40, 0x000AAEB0). Its body constructor 0x000731F0 links a view record at body +0x894
+into the camera list DAT_004E1680, the same list the legacy live camera entity (`entity_camera.cpp`)
+uses, so the two have to be reconciled first.
+
+The rest of the action family matters once actors change state: 51 `actorMove` state classes and
+five weapon move classes, of which only 0x5B and 0x87 are translated.
+
+Validation: Release builds, all six CTests, the dialogue, actor-loading, decoder and scene-models
+suites, and 120-frame headless runs of the boot and opening scene pass. `--scene-spawn` fails at the
+camera actor as described. Nothing was staged or committed.

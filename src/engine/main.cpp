@@ -69,6 +69,7 @@ int main(int argc, char** argv)
         const gbtg::HostConfig host = gbtg::load_host_config(argc > 0 ? argv[0] : "");
         cfg.width = host.width;
         cfg.height = host.height;
+        cfg.vsync = host.vsync;
         gbtg::pcm_set_master_volume(static_cast<float>(host.master_volume) / 100.f);
         gbtg::g_language = host.language;
         {

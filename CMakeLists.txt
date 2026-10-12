@@ -64,6 +64,9 @@ add_library(gbtg_lib STATIC
     src/engine/frontend/dialogue_tags.cpp
     src/engine/scene/dialogue_resource_owner.cpp
     src/engine/scene/scene_resource_memory.cpp
+    src/engine/scene/scene_actor_services.cpp
+    src/engine/entities/body_move_actions.cpp
+    src/engine/entities/body_state_actions.cpp
     src/engine/scene/executable_resources.cpp
     src/engine/scene/factory_scene_runtime.cpp
     src/engine/scene/scene_markers.cpp

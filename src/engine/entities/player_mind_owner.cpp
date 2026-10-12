@@ -129,7 +129,11 @@ void NativePlayerMindOwner::message(FactoryObject& mind, const void* message)
     auto& slots = view(mind);
     if (slots.cinema != nullptr)
     {
-        dispatch_runtime_cinema_mind_message(slots.cinema->messages,
+        if (slots.cinema->messages == nullptr)
+        {
+            throw Error("cinema mind message slot 0x0007C8B0 is not attached");
+        }
+        dispatch_runtime_cinema_mind_message(*slots.cinema->messages,
             {static_cast<const u32*>(message), 0xC});
         return;
     }
@@ -143,7 +147,11 @@ void NativePlayerMindOwner::tick(FactoryObject& mind, u32 input)
     auto& slots = view(mind);
     if (slots.cinema != nullptr)
     {
-        tick_runtime_cinema_mind(slots.cinema->tick);
+        if (slots.cinema->tick == nullptr)
+        {
+            throw Error("cinema mind tick slot 0x0007CE30 is not attached");
+        }
+        tick_runtime_cinema_mind(*slots.cinema->tick);
         return;
     }
     tick_runtime_player_mind(*slots.tick, slots.input_at(input));
@@ -154,7 +162,11 @@ i32 NativePlayerMindOwner::update_request(FactoryObject& mind, RuntimePlayerMind
     auto& slots = view(mind);
     if (slots.cinema != nullptr)
     {
-        return update_runtime_cinema_mind_request(slots.cinema->request_update, request.bytes);
+        if (slots.cinema->request_update == nullptr)
+        {
+            throw Error("cinema mind request slot 0x0007C0E0 is not attached");
+        }
+        return update_runtime_cinema_mind_request(*slots.cinema->request_update, request.bytes);
     }
     return update_runtime_player_mind_request(*view(mind).request_update, request);
 }

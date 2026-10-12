@@ -4,6 +4,8 @@
 #include "../../gbtg/text/localtext_resources.h"
 #include "scene_resource_memory.h"
 #include "gbtg/model_views.h"
+#include "gbtg/entity.h"
+#include "../entities/body_resources.h"
 #include <map>
 
 namespace gbtg
@@ -49,6 +51,14 @@ public:
     RuntimeModelResourceLoader models{{}, model_views, {node_types.address, relocation_types}, copy_types,
         special_textures, model_heap, d3d_boundaries, gpu_pointer};
     u32 loading = 0; // DAT_004DEDA0; the native provider relocates outside an asynchronous load.
+    // Actor +0x204 views, keyed by the relocated CPU block. Actor code reads the model as one address
+    // space of offsets: the original bundle bytes, with the runtime header that 0x00052B70 allocates
+    // (directory +0x10) appended and its block pointers written as offsets.
+    std::unordered_map<const u8*, ActorModel> actor_models;
+    std::string last_missing; // Host diagnostic: the last name no provider record matched.
+    // Retail words of each loaded row (DAT_004DF09C +8..+0x14), parallel to registry.loaded, as
+    // 0x00035D90 reads them: CPU pointer, CPU size, resource-chunk pointer (or null) and its size.
+    std::vector<RuntimeBodyLoadedResourceSize> loaded_sizes = std::vector<RuntimeBodyLoadedResourceSize>(0x1000);
 
 private:
     struct Resource
@@ -59,6 +69,10 @@ private:
         std::vector<RuntimeLocalTextKey> keys;
         std::vector<RuntimeGpuSegment> segments;
         RuntimeGpuSegments gpu_segments;
+        std::span<const u8> serialized; // The bundle's own model bytes, before relocation.
+        u32 address = 0; // The relocated CPU block's address.
+        std::vector<u8> actor_cpu;
+        const BundleEntry* entry = nullptr;
     };
     AidStore& aids_;
     std::map<std::string, Resource> resources_;
@@ -67,5 +81,8 @@ private:
     Resource* find_resource(const char* name);
     void prepare_text(Resource& resource);
     void prepare_model(Resource& resource, const BundleEntry& entry);
+    void publish_actor_model(const AnimationLoadedResource& loaded);
+    RuntimeBodyLoadedResourceSize& loaded_row(const AnimationLoadedResource& output);
+    void record_bundle_size(const AnimationBundleRecord& record, const AnimationLoadedResource& output);
 };
 }

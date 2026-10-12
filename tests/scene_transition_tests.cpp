@@ -67,6 +67,7 @@
 #include "../src/engine/entities/aid_spawn_queue.h"
 #include "../src/engine/entities/aid_spawn_resources.h"
 #include "../src/engine/scene/live_spawn_tick.h"
+#include "../src/engine/scene/factory_scene_runtime.h"
 #include "../src/engine/audio/bank_lookup.h"
 #include "../src/engine/audio/core_source.h"
 #include "../src/engine/audio/core_cue.h"
@@ -6588,6 +6589,31 @@ void check_scene_model_resources(gbtg::AidStore& aids)
     std::cout << "opening scene models: " << loaded << "\n";
 }
 
+// Scene startup's marker pass (0x00140020) over the opening scene, through the live service graph.
+void check_scene_spawn(gbtg::Game& game)
+{
+    using namespace gbtg;
+    for (int frame = 0; frame < 600 && game.factory_scene == nullptr; ++frame)
+    {
+        gfx_begin_frame();
+        game.tick(1.f / 60.f, {});
+        gfx_end_frame();
+    }
+    if (game.factory_scene == nullptr || game.scene_script.name != "aid_script_ghoulies_chapter1_scene1_2playcam")
+    {
+        throw Error("scene spawn check did not load the opening scene");
+    }
+    auto& services = game.factory_scene->start_actors(game);
+    services.start_markers();
+    std::cout << "scene spawn: objects=" << game.factory_scene->objects.size()
+              << " players=" << services.player_total() << " factory=" << game.factory_scene->factory.count
+              << " player link=0x" << std::hex << services.player_link() << std::dec << "\n";
+    if (services.player_total() == 0)
+    {
+        throw Error("opening markers created no player actors");
+    }
+}
+
 void check_player_dialogue_resources(gbtg::AidStore& aids)
 {
     {
@@ -7226,10 +7252,11 @@ int main(int argc, char** argv)
     const bool decoder_test = argc == 3 && std::string_view(argv[2]) == "--ghoulybox-decoder";
     const bool actor_test = argc == 3 && std::string_view(argv[2]) == "--actor-loading";
     const bool model_resources_test = argc == 3 && std::string_view(argv[2]) == "--scene-models";
+    const bool spawn_test = argc == 3 && std::string_view(argv[2]) == "--scene-spawn";
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
-        && !model_resources_test)
+        && !model_resources_test && !spawn_test)
     {
-        std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --goop | --ui | --player-opening | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models]\n";
+        std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --goop | --ui | --player-opening | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn]\n";
         return 2;
     }
     try
@@ -7291,7 +7318,13 @@ int main(int argc, char** argv)
             throw gbtg::Error("test graphics initialization failed");
         }
         gbtg::Game game;
-        game.init(argv[1], player_test ? "chapter1_scene1_2playcam" : title_test ? "" : "scene0_1book");
+        game.init(argv[1], player_test || spawn_test ? "chapter1_scene1_2playcam" : title_test ? "" : "scene0_1book");
+        if (spawn_test)
+        {
+            check_scene_spawn(game);
+            std::cout << "PASS: opening scene markers create the retail actors and player\n";
+            return 0;
+        }
         if (player_test)
         {
             check_player_dialogue_resources(game.aids);

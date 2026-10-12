@@ -20,6 +20,29 @@ constexpr auto missing_getters(std::index_sequence<Types...>)
 {
     return std::array<const ObjectFactoryVtable* (*)(), sizeof...(Types)>{missing_class<Types>...};
 }
+
+SceneFactoryRuntime* active_scene = nullptr;
+
+// Base object type 1 (vtable 0x0050E0C0): the retail constructor 0x00107700 and empty destructor
+// 0x001628B0, with the native address mapping made when the instance is first constructed, so the
+// derived constructors can name their own instance.
+bool construct_scene_base_object(FactoryObject& object, std::span<const u8> parameters)
+{
+    active_scene->bind_address({object.bytes.get(), object.size});
+    return initialize_base_object(object, parameters);
+}
+
+void destroy_scene_base_object(FactoryObject& object)
+{
+    active_scene->unbind_address(object.bytes.get());
+}
+
+const ObjectFactoryVtable* scene_base_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x0050E0C0, base_object_sizes, construct_scene_base_object,
+        destroy_scene_base_object};
+    return &table;
+}
 }
 
 SceneFactoryRuntime::SceneFactoryRuntime(AidStore& aids, std::shared_ptr<SceneExecutableResources> image)
@@ -44,12 +67,23 @@ SceneFactoryRuntime::SceneFactoryRuntime(AidStore& aids, std::shared_ptr<SceneEx
         retail_getters[type] = read_u32(table, type * 12 + 4);
         retail_names[type] = read_u32(table, type * 12 + 8);
     }
-    install_runtime_base_object_class(types);
+    if (active_scene != nullptr)
+    {
+        throw Error("another scene factory runtime is active");
+    }
+    active_scene = this;
+    install_base_class();
 }
 
 SceneFactoryRuntime::~SceneFactoryRuntime()
 {
     release_objects();
+    active_scene = nullptr;
+}
+
+void SceneFactoryRuntime::install_base_class()
+{
+    types[1] = ObjectFactoryType{0, scene_base_lifecycle};
 }
 
 FactoryObject* SceneFactoryRuntime::keep_object(FactoryObject object)
@@ -58,7 +92,6 @@ FactoryObject* SceneFactoryRuntime::keep_object(FactoryObject object)
     {
         return nullptr;
     }
-    bind_address({object.bytes.get(), object.size});
     objects.push_back(std::move(object));
     return &objects.back();
 }
@@ -69,9 +102,7 @@ void SceneFactoryRuntime::release_objects()
     {
         if (object->bytes != nullptr)
         {
-            const void* pointer = object->bytes.get();
             release_factory_object(factory, *object);
-            unbind_address(pointer);
         }
     }
     objects.clear();
@@ -118,6 +149,20 @@ void SceneFactoryRuntime::unbind_address(const void* pointer)
         }
     }
     throw Error("native scene address release has no registered instance");
+}
+
+u32 SceneFactoryRuntime::find_address(const void* pointer) const
+{
+    const auto value = reinterpret_cast<std::uintptr_t>(pointer);
+    for (const auto& [address, bytes] : addresses_)
+    {
+        const auto begin = reinterpret_cast<std::uintptr_t>(bytes.data());
+        if (value >= begin && value - begin < bytes.size())
+        {
+            return address + u32(value - begin);
+        }
+    }
+    return 0;
 }
 
 u32 SceneFactoryRuntime::address_of(const void* pointer) const
@@ -167,6 +212,15 @@ void SceneFactoryRuntime::MarkerDeleter::operator()(u8* pointer) const
 void SceneFactoryRuntime::load_markers(const char* scene_record)
 {
     markers_.reset(load_runtime_scene_markers(scene_record, resources.registry, resources.error));
+}
+
+SceneActorServices& SceneFactoryRuntime::start_actors(Game& game)
+{
+    if (actor_services == nullptr)
+    {
+        actor_services = std::make_unique<SceneActorServices>(*this, game);
+    }
+    return *actor_services;
 }
 
 std::span<const u8> SceneFactoryRuntime::markers() const

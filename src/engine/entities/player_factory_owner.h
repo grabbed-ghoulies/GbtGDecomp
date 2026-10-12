@@ -219,6 +219,9 @@ struct NativePlayerInstance
     RuntimeMindStorage* mind_storage = nullptr; // Mind +0x1C.
     RuntimePlayerCameraSource camera_source;
     RuntimePlayerMindSetup mind_setup;
+    // Shared cinema mind (type 0x35) lifecycle, created with the mind.
+    std::span<const u8> cinema_resource; // Mind +0x84.
+    std::unique_ptr<RuntimeCinemaMindLifecycle> cinema_lifecycle;
     // Strategy (types 8, 0x4F) state.
     std::span<u8> strategy;
     RuntimeStrategyLink strategy_link{}; // Strategy +0x20.
@@ -281,6 +284,7 @@ public:
     NativePlayerInstance& player(const FactoryObject& object);
     NativePlayerInstance& player_at(u32 actor_address);
     NativePlayerInstance* find_player(const FactoryObject& child) const; // Body, mind or strategy object.
+    NativePlayerInstance* find_child_owner(const u8* child) const; // By the child's instance bytes.
     void release_player(const FactoryObject& object);
     void bind_child(const FactoryObject& child, NativePlayerInstance& player);
     void release_child(const FactoryObject& child);

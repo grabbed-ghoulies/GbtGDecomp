@@ -15,9 +15,12 @@ SceneDialogueResourceOwner::SceneDialogueResourceOwner(AidStore& aids, std::span
             {
                 return find_executable_resource_provider(executable, request.name.c_str(), resolved);
             },
-            [](u32, const void* resolved, AnimationLoadedResource& output)
+            [this](u32, const void* resolved, AnimationLoadedResource& output)
             {
-                return load_executable_resource_provider(resolved, output);
+                const bool loaded = load_executable_resource_provider(resolved, output);
+                // Executable record +0x80/+0x84: the CPU pointer and its recorded size; no resource chunk.
+                loaded_row(output) = {output.cpu.data(), u32(output.cpu.size()), nullptr, 0};
+                return loaded;
             }, {}, 4, nullptr);
     }
     register_animation_resource_provider(registry,
@@ -32,9 +35,11 @@ SceneDialogueResourceOwner::SceneDialogueResourceOwner(AidStore& aids, std::span
                 AnimationBundlePool{{&resource->record, 1}, true}};
             return find_bundle_resource_provider(pools, request.name.c_str(), resolved);
         },
-        [](u32, const void* resolved, AnimationLoadedResource& output)
+        [this](u32, const void* resolved, AnimationLoadedResource& output)
         {
-            return load_bundle_resource_provider(resolved, output);
+            const bool loaded = load_bundle_resource_provider(resolved, output);
+            record_bundle_size(*static_cast<const AnimationBundleRecord*>(resolved), output);
+            return loaded;
         },
         [this](u32, const char* name, const AnimationLoadedResource&)
         {
@@ -44,6 +49,135 @@ SceneDialogueResourceOwner::SceneDialogueResourceOwner(AidStore& aids, std::span
             unload_bundle_resource_provider(pools, name);
         }, 3, this);
     register_runtime_model_resource_hook(registry, models);
+    // 0x00032700 shows the disc error screen and never returns; the scene raises instead.
+    error.boundaries.delete_file = [this](const char*) -> bool
+    {
+        throw Error("retail resource error screen (code " + std::to_string(error.code) + "), last missing resource: "
+            + last_missing);
+    };
+    for (auto& hook : registry.hooks)
+    {
+        if (hook.type != nullptr && std::strcmp(hook.type, "model") == 0)
+        {
+            hook.post_load = [this, post_load = std::move(hook.post_load)](const AnimationLoadedResource& loaded)
+            {
+                post_load(loaded);
+                publish_actor_model(loaded);
+            };
+            hook.unload = [this, unload = std::move(hook.unload)](const AnimationLoadedResource& loaded)
+            {
+                actor_models.erase(loaded.cpu.data());
+                unload(loaded);
+            };
+        }
+    }
+}
+
+RuntimeBodyLoadedResourceSize& SceneDialogueResourceOwner::loaded_row(const AnimationLoadedResource& output)
+{
+    const size_t index = size_t(&output - registry.loaded.data());
+    if (index >= loaded_sizes.size())
+    {
+        throw Error("scene loaded-resource size view is full");
+    }
+    return loaded_sizes[index];
+}
+
+// Bundle record +0x90..+0x9C: the CPU pointer, the file chunk size, and the resource chunk, which
+// 0x00034590 relocates to its metadata only when its size is nonzero.
+void SceneDialogueResourceOwner::record_bundle_size(const AnimationBundleRecord& record,
+    const AnimationLoadedResource& output)
+{
+    auto& row = loaded_row(output);
+    row = {};
+    for (const auto& [name, resource] : resources_)
+    {
+        if (&resource.record != &record)
+        {
+            continue;
+        }
+        if (resource.entry == nullptr)
+        {
+            // Loose localisation and demand files come from other retail providers; their rows stay unmapped.
+            return;
+        }
+        const auto& header = resource.entry->header;
+        row.cpu = output.cpu.data();
+        row.secondary = header.file_chunk.size;
+        row.tail = header.resource_chunk.size;
+        if (header.resource_chunk.size != 0)
+        {
+            const auto contains = [&](const Bundle& bundle)
+            {
+                return !bundle.entries.empty() && resource.entry >= bundle.entries.data()
+                    && resource.entry < bundle.entries.data() + bundle.entries.size();
+            };
+            const Bundle* owner = contains(aids_.common) ? &aids_.common : nullptr;
+            for (const auto& [path, bundle] : aids_.bundles)
+            {
+                if (contains(bundle))
+                {
+                    owner = &bundle;
+                }
+            }
+            if (owner == nullptr)
+            {
+                throw Error("scene bundle resource has no owning bundle: " + name);
+            }
+            row.storage = owner->res_meta.data() + header.resource_chunk.offset;
+        }
+        return;
+    }
+}
+
+// Pointer-width adapter for actor +0x204. Readers take the model directory as the base of one offset
+// space; the runtime header is a separate retail heap block, so it is appended to the original bytes.
+void SceneDialogueResourceOwner::publish_actor_model(const AnimationLoadedResource& loaded)
+{
+    Resource* resource = nullptr;
+    for (auto& [name, candidate] : resources_)
+    {
+        if (candidate.record.cpu.data() == loaded.cpu.data())
+        {
+            resource = &candidate;
+        }
+    }
+    if (resource == nullptr || resource->serialized.empty())
+    {
+        throw Error("loaded model has no scene resource");
+    }
+    const auto& prepared = models.resources.at(loaded.cpu.data());
+    const u32 base = resource->address;
+    const u32 size = u32(resource->serialized.size());
+    const u32 header = (size + 15) & ~15u;
+    auto& bytes = resource->actor_cpu;
+    bytes.assign(resource->serialized.begin(), resource->serialized.end());
+    bytes.resize(header + 0x30);
+    const auto offset_of = [base, size](u32 address)
+    {
+        if (address == 0)
+        {
+            return 0u;
+        }
+        if (address < base || address - base >= size)
+        {
+            throw Error("model runtime header points outside its CPU block");
+        }
+        return address - base;
+    };
+    std::memcpy(bytes.data() + 0x10, &header, 4);
+    for (u32 word = 0; word < 0x30; word += 4)
+    {
+        const u32 value = offset_of(read_u32(prepared.runtime.bytes, word));
+        std::memcpy(bytes.data() + header + word, &value, 4);
+    }
+    ActorModel model{bytes};
+    const u32 shapes = read_u32(bytes, header + 4);
+    if (shapes != 0)
+    {
+        model.physics_shapes = std::span<const u8>(bytes).subspan(shapes);
+    }
+    actor_models[loaded.cpu.data()] = model;
 }
 
 SceneDialogueResourceOwner::Resource* SceneDialogueResourceOwner::find_resource(const char* name)
@@ -70,10 +204,20 @@ SceneDialogueResourceOwner::Resource* SceneDialogueResourceOwner::find_resource(
     const BundleEntry* entry = aids_.load_aid(key);
     if (entry == nullptr)
     {
+        last_missing = key;
         return nullptr;
     }
     auto& resource = resources_[key];
     resource.record = {key, 0, entry->cpu, entry->gpu, {}, {}};
+    if (!aids_.demand_entries.contains(key))
+    {
+        resource.entry = entry;
+    }
+    if (entry->type != ResourceType::Model)
+    {
+        // Retail resources have heap addresses that objects store; the copy gives this one an address.
+        resource.record.cpu = memory.copy(entry->cpu, 0x10).bytes;
+    }
     if (entry->type == ResourceType::Model)
     {
         prepare_model(resource, *entry);
@@ -104,6 +248,8 @@ void SceneDialogueResourceOwner::prepare_model(Resource& resource, const BundleE
     }
     resource.gpu_segments = {resource.segments};
     resource.record.cpu = cpu.bytes;
+    resource.serialized = entry.cpu;
+    resource.address = cpu.address;
     models.resources.emplace(cpu.bytes.data(),
         RuntimePreparedModelResource{{cpu.bytes, cpu.address}, &resource.gpu_segments});
 }

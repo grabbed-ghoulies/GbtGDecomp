@@ -22,6 +22,46 @@ SceneExecutableResources::SceneExecutableResources(const std::filesystem::path& 
     {
         decode_animation_table(record);
     }
+    // Pointer-width adapters for the attackdata sequence pointer (+0x10) and the statetable rows (+4).
+    for (const auto& record : records_[1])
+    {
+        const u32 sequences = read_u32(record.cpu, 0x10);
+        if (sequences != 0)
+        {
+            attack_sequences[record.cpu.data()] = memory(sequences, size_t(read_u32(record.cpu, 0xC)) * 2 + 2).data();
+        }
+    }
+    for (const auto& record : records_[4])
+    {
+        auto decoded = std::make_unique<DecodedGoalTable>();
+        const i32 count = i32(read_u32(record.cpu, 0));
+        const u32 rows = read_u32(record.cpu, 4);
+        for (i32 row = 0; row < count; ++row)
+        {
+            const auto bytes = memory(rows + u32(row) * 0x84, 0x84);
+            decoded->rows.push_back({string(read_u32(bytes, 0)), bytes});
+        }
+        decoded->table = RuntimeMindGoalTable{count, decoded->rows};
+        goal_tables[record.cpu.data()] = &decoded->table;
+        goal_tables_.push_back(std::move(decoded));
+    }
+    for (const auto& record : records_[6])
+    {
+        const i32 count = i32(read_u32(record.cpu, 0));
+        const u32 rows = read_u32(record.cpu, 4);
+        auto table = std::make_unique<RuntimeScriptLookupTable>(RuntimeScriptLookupTable{count,
+            rows == 0 ? nullptr : memory(rows, size_t(count) * 0x108).data()});
+        for (i32 row = 0; row < count; ++row)
+        {
+            const u32 name = read_u32({table->rows + size_t(row) * 0x108, 0x108}, 0x104);
+            if (name != 0)
+            {
+                state_row_names[name] = string(name);
+            }
+        }
+        state_tables[record.cpu.data()] = table.get();
+        state_tables_.push_back(std::move(table));
+    }
 }
 
 std::span<const u8> SceneExecutableResources::memory(u32 address, size_t size) const
@@ -60,6 +100,24 @@ const char* SceneExecutableResources::string(u32 address) const
         }
     }
     throw Error("executable string is outside file-backed XBE memory");
+}
+
+u32 SceneExecutableResources::address_of(const void* pointer) const
+{
+    const auto* byte = static_cast<const u8*>(pointer);
+    if (byte < bytes_.data() || byte >= bytes_.data() + bytes_.size())
+    {
+        return 0;
+    }
+    const size_t offset = size_t(byte - bytes_.data());
+    for (const auto& section : info_.sections)
+    {
+        if (offset >= section.raw_addr && offset - section.raw_addr < section.raw_size)
+        {
+            return section.virt_addr + u32(offset - section.raw_addr);
+        }
+    }
+    return 0;
 }
 
 void SceneExecutableResources::read_pool(size_t pool, const char* type, u32 address, u32 count, bool active)

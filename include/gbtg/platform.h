@@ -14,6 +14,7 @@ struct PlatformConfig
     std::string scene;                // scene-order index or substring; empty boots the first scene
     int width = 960;                  // client width from gbtg.ini
     int height = 540;
+    int vsync = 1;
 };
 
 int run_platform(Game& game, const PlatformConfig& cfg);

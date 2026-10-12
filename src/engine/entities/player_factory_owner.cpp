@@ -428,16 +428,30 @@ NativePlayerFactoryOwner::NativePlayerFactoryOwner(NativePlayerFactoryBindings p
               player.camera_source.case_link = player.attached != nullptr ? std::span<const u8>(player.attached->bytes)
                                                                          : std::span<const u8>();
               auto& scene = player.scene;
-              return std::make_unique<NativePlayerMindSlots>(NativePlayerMindSlots{player.mind,
+              auto slots = std::make_unique<NativePlayerMindSlots>(NativePlayerMindSlots{player.mind,
                   player.actor.class_key, scene.mind_settings, scene.random, scene.resources, player.mind_script_table,
                   player.mind_setup, player.requests, player.event_anchor.next, player.mind_storage, player.actor_bytes,
                   scene.runtime_flags, scene.input_activation, nullptr, nullptr, nullptr, player.actor, nullptr,
                   nullptr, nullptr});
+              if (read_u16(parameters, 4) == 0x35)
+              {
+                  player.cinema_lifecycle = std::make_unique<RuntimeCinemaMindLifecycle>(RuntimeCinemaMindLifecycle{
+                      player.mind, player.actor_bytes, player.cinema_resource, scene.registry, scene.error,
+                      scene.random, scene.address_of});
+                  slots->cinema = std::make_unique<NativeCinemaMindSlots>(NativeCinemaMindSlots{
+                      *player.cinema_lifecycle, nullptr, nullptr, nullptr,
+                      []() -> std::span<const u8>
+                      {
+                          throw Error("cinema mind target view (mind +0x10) is not attached");
+                      }});
+              }
+              return slots;
           },
           [this](const FactoryObject& object)
           {
               if (auto* player = find_player(object))
               {
+                  player->cinema_lifecycle.reset();
                   player->mind = {};
                   player->mind_present = false;
                   player->mind_requests = nullptr;
@@ -502,6 +516,12 @@ NativePlayerInstance& NativePlayerFactoryOwner::player_at(u32 actor_address)
 NativePlayerInstance* NativePlayerFactoryOwner::find_player(const FactoryObject& child) const
 {
     const auto found = children_.find(child.bytes.get());
+    return found != children_.end() ? found->second : nullptr;
+}
+
+NativePlayerInstance* NativePlayerFactoryOwner::find_child_owner(const u8* child) const
+{
+    const auto found = children_.find(child);
     return found != children_.end() ? found->second : nullptr;
 }
 

@@ -6,6 +6,11 @@
 #include "gbtg/movie.h"
 #include "gbtg/resource.h"
 #include "../transitions/transition_data.h"
+#include "../transitions/transition_book.h"
+#include "../entities/player_spawn.h"
+#include "../scripts/script_actions.h"
+#include "../scripts/script_conditions.h"
+#include "executable_resources.h"
 
 #include <algorithm>
 #include <bit>
@@ -218,6 +223,42 @@ void load_scene_models(Game& g)
 } // namespace scene_detail
 
 
+// Xbox 0x00124490. EBX is the scene record; the six rows at 0x00430FB0 are the scenes without a player.
+bool scene_has_player(const char* scene, std::span<const u8> rows)
+{
+    u32 offset = 0;
+    do
+    {
+        if (transition_aid_equal(scene, reinterpret_cast<const char*>(rows.data() + offset)))
+        {
+            return false;
+        }
+        offset += 0x80;
+    } while (offset < 0x300);
+    return true;
+}
+
+// The player bundle 0x00124420 adds to the scene's bundle set: the template 0x00123A80 selects, when
+// 0x00124490 finds the scene has a player. The rest of 0x00124420 is the bundle stream itself, which the
+// port's scene loader performs.
+void load_scene_player_bundle(Game& g)
+{
+    const auto& image = *g.executable_resources;
+    const char* scene = g.scene_script.name.c_str();
+    if (!scene_has_player(scene, image.memory(0x00430FB0, 0x300)))
+    {
+        return;
+    }
+    const char* name = select_player_parameter_name(scene,
+        std::span<const u8, 0x210>(image.memory(0x00430DA0, 0x210).data(), 0x210), g_scene_flags->bytes[0],
+        g_flags_ea9c);
+    if (const auto rel = aid_to_bundle_rel(name))
+    {
+        const auto& bundle = g.aids.load_bundle_rel(*rel);
+        std::cout << "loaded player bundle " << *rel << " entries " << bundle.entries.size() << "\n";
+    }
+}
+
 void load_scene_contents(Game& g, std::string_view name)
 {
     g.factory_scene.reset();
@@ -283,6 +324,10 @@ void load_scene_contents(Game& g, std::string_view name)
                 {
                     std::cout << "    ...\n";
                 }
+            }
+            if (g.executable_resources != nullptr)
+            {
+                load_scene_player_bundle(g);
             }
             load_cutscene_reel(g);
             load_scene_models(g);

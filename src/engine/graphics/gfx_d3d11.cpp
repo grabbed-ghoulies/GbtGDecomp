@@ -1097,6 +1097,7 @@ bool gfx_init(const GfxConfig& cfg)
     const int height = cfg.height > 0 ? cfg.height : 540;
     g.cfg.width = width;
     g.cfg.height = height;
+    g.cfg.vsync = cfg.vsync;
 
     if (cfg.visible)
     {
@@ -2693,7 +2694,7 @@ void present_swap()
         g.context->OMSetRenderTargets(1, g.rtv.GetAddressOf(), nullptr);
         debug_ui_draw();
 #endif
-        g.swap->Present(1, 0);
+        g.swap->Present(g.cfg.vsync, 0);
     }
     if (present_frame.swap_notify != nullptr)
     {

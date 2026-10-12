@@ -177,6 +177,7 @@ struct RuntimeModelResourceBlock
 {
     u32 type; // CPU directory record +0, stride 8
     const u8* data; // +4
+    u32 word = 0; // +4 as stored after relocation; type 1 is not relocated and holds the node mask 0x000320F0 reads.
 };
 struct RuntimeShaderRegistrationState
 {

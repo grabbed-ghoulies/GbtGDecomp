@@ -21,6 +21,8 @@ public:
     void start_markers();
     // 0x00123070: activates the actors created since the last pass (message 0x23, then 0x7B notices).
     void activate_actors();
+    void send_scene_start_notice(); // 0x001231F0: message 0x88 to the activated +0x910 list.
+    void send_scene_start(); // 0x001231A0: message 0x7D to the activated +0x910 list.
     void send_actor_message(u32 address, std::span<const u32> message); // Native vtable +0xC address adapter.
     bool activation_pending() const; // Pending actor +0x900 list is nonempty.
     std::span<const u32> active_actor_addresses() const; // Activated actor +0x910 order.

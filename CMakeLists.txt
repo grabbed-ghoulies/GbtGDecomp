@@ -71,6 +71,11 @@ add_library(gbtg_lib STATIC
     src/engine/entities/body_move_actions.cpp
     src/engine/entities/body_state_actions.cpp
     src/engine/entities/camera_actor_classes.cpp
+    src/engine/entities/camera_director.cpp
+    src/engine/entities/body_move_action_slots.cpp
+    src/engine/camera/camera_mind_rig.cpp
+    src/engine/camera/camera_mind_requests.cpp
+    src/engine/camera/camera_body_slots.cpp
     src/engine/entities/actor_callout_resources.cpp
     src/engine/scene/executable_resources.cpp
     src/engine/scene/factory_scene_runtime.cpp
@@ -114,6 +119,7 @@ add_library(gbtg_lib STATIC
     src/engine/entities/player_goal_cleanup.cpp
     src/engine/entities/player_destruction.cpp
     src/engine/navigation/cell_registration.cpp
+    src/engine/navigation/cell_reach.cpp
     src/engine/entities/player_messages.cpp
     src/engine/entities/player_overlay.cpp
     src/engine/graphics/billboard_queue.cpp
@@ -469,6 +475,7 @@ add_executable(gbtg
     src/engine/runtime/crt_runtime.cpp
     src/engine/runtime/crt_format.cpp
     src/engine/runtime/crt_strings.cpp
+    src/engine/runtime/crt_sort.cpp
     src/engine/runtime/crt_mantissa.cpp
     src/engine/runtime/crt_decimal.cpp
     src/engine/runtime/file_worker.cpp

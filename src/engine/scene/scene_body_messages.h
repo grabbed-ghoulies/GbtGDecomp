@@ -4,6 +4,7 @@
 #include "../entities/body_damage_dispatch.h"
 #include "../entities/body_effect_commands.h"
 #include "../audio/body_sound_commands.h"
+#include "../camera/camera_body_slots.h"
 
 namespace gbtg
 {
@@ -55,6 +56,12 @@ struct SceneBodyServices
     std::function<const entity_detail::ListHead*(u32)> body_node; // Actor +0x934 node of a scene actor.
     std::function<RuntimeBodyAttachedActor&(u32)> source_at;
     std::function<std::span<const u8>(u32)> source_body_at;
+    // Body update slots (+0x10..+0x1C).
+    const RuntimeCameraRigTunables& rig_tunables; // DAT_004274B8.., DAT_00434008..
+    const i32& look_profile; // DAT_00545AEC.
+    const i32& motion_steps; // DAT_004312E0.
+    std::span<u32> node_states; // DAT_005078D8.
+    std::array<std::span<const u8>, 4> channel_keys; // DAT_00338F64, DAT_00338F88, DAT_00338EE0, DAT_00338EA4.
 };
 
 // One body's message graph: the parent body handler 0x000253B0 and the derived slots of types 0x27
@@ -66,8 +73,15 @@ public:
     SceneBodyMessages(const SceneBodyMessages&) = delete;
     SceneBodyMessages& operator=(const SceneBodyMessages&) = delete;
     void dispatch(FactoryObject& body, std::span<u32> message);
+    void tick(FactoryObject& body, u32 input); // Vtable +0x10.
+    void animate(FactoryObject& body); // Vtable +0x14.
+    void settle(FactoryObject& body); // Vtable +0x18.
+    u32 supported(FactoryObject& body); // Vtable +0x1C.
 
 private:
+    void action_tick(FactoryObject& action, u32 input); // Body action child vtable +0x10.
+    void action_step(FactoryObject& action); // Body action child vtable +0x14.
+    RuntimeBodyChannelContext channel_context();
     SceneBodyServices& services_;
     NativePlayerInstance& player_;
     const u8* event_record_ = nullptr; // Actor +0x8C.
@@ -103,5 +117,16 @@ private:
     RuntimeBodyDamageEntry damage_;
     RuntimePlayerBodyMessages messages_;
     RuntimePlayerBodyControlMessages controls_;
+    // Update slot views (actor +0x50 bindings, +0x204/+0x310 models, +0x8F8 bound, +0x8FC shapes, +0x964).
+    RuntimeBodyChannelBindings* channel_bindings_ = nullptr;
+    RuntimeModelInstance* channel_model_ = nullptr;
+    RuntimeModelInstance* secondary_model_ = nullptr;
+    std::span<u8> channel_rows_;
+    std::span<u8> actor_view_;
+    std::span<u8> bound_;
+    GhoulySpawnPool* shapes_ = nullptr;
+    const u8* actor_bound_ = nullptr;
+    RuntimeBodyChannelChild first_step_;
+    RuntimeBodyChannelChild second_step_;
 };
 }

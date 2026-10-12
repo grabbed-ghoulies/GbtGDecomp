@@ -6592,7 +6592,7 @@ void check_scene_model_resources(gbtg::AidStore& aids)
 }
 
 // Scene startup's marker pass (0x00140020) over the opening scene, through the live service graph.
-void check_scene_spawn(gbtg::Game& game)
+void check_scene_spawn(gbtg::Game& game, bool scene_start)
 {
     using namespace gbtg;
     for (int frame = 0; frame < 600 && game.factory_scene == nullptr; ++frame)
@@ -6649,6 +6649,14 @@ void check_scene_spawn(gbtg::Game& game)
             throw Error("empty activation pass changed the active actor list");
         }
         std::cout << "scene spawn: activated=" << count << " pending=0\n";
+        if (scene_start)
+        {
+            // 0x0011CBD0 then sends 0x88 (0x001231F0) and 0x7D (0x001231A0) over the activated list.
+            services.send_scene_start_notice();
+            std::cout << "scene start: notice 0x88 delivered\n";
+            services.send_scene_start();
+            std::cout << "scene start: 0x7D delivered\n";
+        }
     }
     catch (const std::exception& error)
     {
@@ -6663,21 +6671,23 @@ void check_scene_spawn(gbtg::Game& game)
     {
         throw Error("opening markers created no player actors");
     }
-    u32 cooper = 0;
-    u32 imp = 0;
-    for (const auto& [address, actor] : services.actor_addresses())
+    const auto& actor_addresses = services.actor_addresses();
+    const u32 player_link = services.player_link();
+    if (player_link < 0x93C)
     {
-        const auto bytes = game.factory_scene->resolve_address(address, 0);
-        if (read_u16(bytes, 4) == 5 && read_u16(bytes, 0xCDC) == 1)
-        {
-            cooper = address;
-        }
+        throw Error("opening push-message check has no Cooper player link");
+    }
+    const u32 cooper = player_link - 0x93C;
+    u32 imp = 0;
+    for (const auto& [address, actor] : actor_addresses)
+    {
         if (actor->class_key == 23)
         {
             imp = address;
         }
     }
-    if (cooper == 0 || imp == 0 || find_runtime_script_event_type(0xB6) != nullptr)
+    if (!actor_addresses.contains(cooper) || read_u16(game.factory_scene->resolve_address(cooper, 6), 4) != 5
+        || imp == 0 || find_runtime_script_event_type(0xB6) != nullptr)
     {
         throw Error("opening push-message check has no Cooper/imp pair or a preexisting contact event");
     }
@@ -7356,7 +7366,8 @@ int main(int argc, char** argv)
     const bool decoder_test = argc == 3 && std::string_view(argv[2]) == "--ghoulybox-decoder";
     const bool actor_test = argc == 3 && std::string_view(argv[2]) == "--actor-loading";
     const bool model_resources_test = argc == 3 && std::string_view(argv[2]) == "--scene-models";
-    const bool spawn_test = argc == 3 && std::string_view(argv[2]) == "--scene-spawn";
+    const bool scene_start_test = argc == 3 && std::string_view(argv[2]) == "--scene-start";
+    const bool spawn_test = (argc == 3 && std::string_view(argv[2]) == "--scene-spawn") || scene_start_test;
     if (spawn_test)
     {
         std::cout << std::unitbuf;
@@ -7364,7 +7375,7 @@ int main(int argc, char** argv)
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
         && !model_resources_test && !spawn_test)
     {
-        std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --goop | --ui | --player-opening | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn]\n";
+        std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --goop | --ui | --player-opening | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start]\n";
         return 2;
     }
     try
@@ -7429,7 +7440,7 @@ int main(int argc, char** argv)
         game.init(argv[1], player_test || spawn_test ? "chapter1_scene1_2playcam" : title_test ? "" : "scene0_1book");
         if (spawn_test)
         {
-            check_scene_spawn(game);
+            check_scene_spawn(game, scene_start_test);
             std::cout << "PASS: opening scene markers create the retail actors and player\n";
             return 0;
         }

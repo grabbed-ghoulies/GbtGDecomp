@@ -5,6 +5,12 @@
 namespace gbtg
 {
 void install_runtime_base_object_class(std::span<ObjectFactoryType> types);
+struct NativeActorFactoryInstance;
+// Host view of the actor's current model instance (actor +0x204) as the pose routines read it: poses
+// +0x164/+0x168, skeleton +0x1BC (joints +0x24, count +0x20), auxiliary targets +0x1CC, node flags +0x294
+// and the CPU type-1 node mask record. Node flags written through the view are stored back afterwards.
+void refresh_actor_model_animation_view(NativeActorFactoryInstance& instance);
+void store_actor_model_animation_view(NativeActorFactoryInstance& instance);
 struct NativeActorFactoryInstance
 {
     std::span<const u8> bytes;
@@ -22,6 +28,9 @@ struct NativeActorFactoryInstance
     void* allocation_8fc = nullptr;
     void* matrices = nullptr;
     ModelAnimationState pose;
+    std::vector<ModelResourceBlock> pose_blocks; // Model CPU records behind pose.resource_blocks.
+    RuntimeModelInstance* pose_model = nullptr; // Model the view was loaded from.
+    std::array<u8, 8> pose_flags_loaded{}; // Its +0x294 node flags at load.
     ActorFrameState frame{bat.actor, animation, pose, startup.attachments,
         pending, nullptr, anchors};
     CutsceneActorBinding cutscene{frame, render};

@@ -108,6 +108,9 @@ int script_handle_condition_node(Game& g, const ScriptNode& node); // Xbox 0x001
 // DAT_0050EA9C. Type 0x1A tests bit 0x10 of the low byte.
 extern u32 g_flags_ea9c;
 
+// DAT_004DEA58, the input refresh frame.
+extern u32 g_4dea58;
+
 // Xbox 0x001259B0. Handler 7. The dword at node+4 is the type. Type 0x4F
 // with a zero second argument stores the word at node+8 and the dword at
 // node+0xC at DAT_005123B0 + DAT_00512410*8, then increments DAT_00512410.

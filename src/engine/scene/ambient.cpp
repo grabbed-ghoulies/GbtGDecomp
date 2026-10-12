@@ -18,6 +18,13 @@
 
 namespace gbtg
 {
+// 0x00118AE0 fills these from the loaded ambience. They stay zero until that
+// pass, so the copies below are zero and the RNG still advances. The player
+// update 0x0002C980 reads the same words as the world bounds.
+u8 g_amb_volume_enabled = 0; // DAT_0050EA00
+float g_amb_color_lo[3]{}; // DAT_0050ea04, +0x08, +0x0c
+float g_amb_color_hi[3]{}; // DAT_0050ea10, +0x14, +0x18
+
 namespace
 {
 
@@ -113,11 +120,6 @@ float g_amb_phase_rate = 0.f; // DAT_0050e974
 u32 g_amb_phase_color = 0;    // DAT_0050e978. Dword at DAT_00314f4c.
 u8 g_amb_phase_mark = 0;      // DAT_0050e97c
 
-// 0x00118AE0 fills these from the loaded ambience. They stay zero until that
-// pass, so the copies below are zero and the RNG still advances.
-u8 g_amb_volume_enabled = 0; // DAT_0050EA00
-float g_amb_color_lo[3]{}; // DAT_0050ea04, +0x08, +0x0c
-float g_amb_color_hi[3]{}; // DAT_0050ea10, +0x14, +0x18
 Vec3 g_amb_palette[8]{};   // DAT_0050ea1c, stride 12
 
 // 0x00039690. A live voice in states 2..7 is moved toward stop. The voice

@@ -1,4 +1,5 @@
 #include "scene_body_messages.h"
+#include "../entities/body_move_action_slots.h"
 #include <cstring>
 #include <optional>
 
@@ -164,5 +165,138 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
     default:
         unbound("body message slot of factory type " + std::to_string(body.type));
     }
+}
+
+// Body action children of the classes installed so far: 0x5C (vtable 0x00505500), 0x5B (0x00505518) and
+// 0x87 (0x00505BC0).
+void SceneBodyMessages::action_tick(FactoryObject& action, u32)
+{
+    switch (action.type)
+    {
+    case 0x5C:
+        tick_runtime_velocity_action({action.bytes.get(), action.size}, player_.body, player_.actor,
+            services_.clock, services_.motion_steps);
+        return;
+    case 0x5B:
+        unbound("body action 0x5B vtable +0x10 (0x0007FD70)");
+    case 0x87:
+        unbound("body action 0x87 vtable +0x10 (0x000A2930)");
+    default:
+        unbound("body action vtable +0x10 of factory type " + std::to_string(action.type));
+    }
+}
+
+void SceneBodyMessages::action_step(FactoryObject& action)
+{
+    switch (action.type)
+    {
+    case 0x5C:
+        // 0x000803A0 jumps to 0x0002AD30 with the action; its +8 is this body.
+        step_runtime_body_motion(player_.body, player_.actor, player_.actor_instance.animation, services_.clock);
+        return;
+    case 0x5B:
+        unbound("body action 0x5B vtable +0x14 (0x000804E0)");
+    case 0x87:
+        // 0x001628B0 returns at once.
+        return;
+    default:
+        unbound("body action vtable +0x14 of factory type " + std::to_string(action.type));
+    }
+}
+
+RuntimeBodyChannelContext SceneBodyMessages::channel_context()
+{
+    const std::span<const u8> body = player_.body;
+    if (i32(read_u32(body, 0x154)) > 0 || read_u32(body, 0xFC) != 0)
+    {
+        unbound("body channel rows (+0x150) and actor +0x50 channel bindings");
+    }
+    channel_rows_ = {};
+    channel_model_ = player_.actor_instance.startup.models.model.get();
+    return RuntimeBodyChannelContext{player_.actor, services_.clock, channel_bindings_, channel_model_,
+        channel_rows_, player_.body_resources, services_.channel_keys, services_.address_zero};
+}
+
+// Xbox 0x00025EC0 for the camera body (type 0x28).
+void SceneBodyMessages::tick(FactoryObject& body, u32 input)
+{
+    if (body.type != 0x28)
+    {
+        unbound("body vtable +0x10 of factory type " + std::to_string(body.type));
+    }
+    auto& actions = player_.body_selection;
+    // Body +0x744, then +0x314.
+    if (actions.second.bytes != nullptr)
+    {
+        action_tick(actions.second, input);
+    }
+    if (actions.first.bytes != nullptr)
+    {
+        action_tick(actions.first, input);
+    }
+}
+
+// Xbox 0x00072AC0 for the camera body.
+void SceneBodyMessages::animate(FactoryObject& body)
+{
+    if (body.type != 0x28)
+    {
+        unbound("body vtable +0x14 of factory type " + std::to_string(body.type));
+    }
+    auto& actions = player_.body_selection;
+    first_step_.step = [this]()
+    {
+        action_step(player_.body_selection.first);
+    };
+    RuntimeBodyChannelChild* attachment = actions.first.bytes != nullptr ? &first_step_ : nullptr;
+    RuntimeBodyChannelContext channels = channel_context();
+    step_runtime_body_channels(player_.body, attachment, channels);
+}
+
+// Xbox 0x00072B10 for the camera body.
+void SceneBodyMessages::settle(FactoryObject& body)
+{
+    if (body.type != 0x28)
+    {
+        unbound("body vtable +0x18 of factory type " + std::to_string(body.type));
+    }
+    const std::span<const u8> actor = player_.actor_bytes;
+    if (read_u32(actor, 0x8F8) != 0)
+    {
+        unbound("actor +0x8F8 bound view for the body apply 0x00025AE0");
+    }
+    if (read_u32(actor, 0x8FC) != 0)
+    {
+        unbound("actor +0x8FC shape pool for the body apply 0x00025AE0");
+    }
+    bound_ = {};
+    shapes_ = nullptr;
+    actor_view_ = player_.actor_bytes;
+    actor_bound_ = player_.attribute_resource.empty() ? nullptr : player_.attribute_resource.data();
+    secondary_model_ = player_.actor_instance.startup.models.secondary.get();
+    second_step_.step = [this]()
+    {
+        action_step(player_.body_selection.second);
+    };
+    RuntimeBodyChannelChild* action = player_.body_selection.second.bytes != nullptr ? &second_step_ : nullptr;
+    RuntimeBodyChannelContext channels = channel_context();
+    RuntimeBodyApplyContext apply{channels, actor_view_, player_.actor_instance.anchors, *player_.body_bits, bound_,
+        shapes_, services_.latches, first_timer_, second_timer_, actor_bound_, secondary_model_,
+        services_.node_states, action};
+    RuntimeCameraBodySlots camera{player_.body, player_.actor, *player_.body_bits, services_.look_profile,
+        services_.rig_tunables};
+    capture_camera_body_pose(camera, apply);
+}
+
+// Xbox 0x00072CB0 for the camera body.
+u32 SceneBodyMessages::supported(FactoryObject& body)
+{
+    if (body.type != 0x28)
+    {
+        unbound("body vtable +0x1C of factory type " + std::to_string(body.type));
+    }
+    RuntimeCameraBodySlots camera{player_.body, player_.actor, *player_.body_bits, services_.look_profile,
+        services_.rig_tunables};
+    return probe_camera_body_support(camera);
 }
 }

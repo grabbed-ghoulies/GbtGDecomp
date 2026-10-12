@@ -18,4 +18,7 @@ struct RuntimeSceneActivation
     std::function<const Actor*(u32)> actor_at; // Native actor for a Message argument.
 };
 void activate_runtime_scene_actors(RuntimeSceneActivation& context); // Xbox 0x00123070
+// One-word broadcasts over the activated +0x910 list (DAT_00511B60 onward) through actor vtable +0xC.
+void send_runtime_scene_start_notice(RuntimeSceneActivation& context); // Xbox 0x001231F0, message 0x88
+void send_runtime_scene_start(RuntimeSceneActivation& context); // Xbox 0x001231A0, message 0x7D
 }

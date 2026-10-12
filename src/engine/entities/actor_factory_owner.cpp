@@ -165,12 +165,7 @@ bool construct_actor_view(FactoryObject& object, std::span<const u8> parameters)
     const bool result = initialize_runtime_actor(instance.startup, parameters,
         active_owner->bindings.startup);
     instance.frame.bone = instance.startup.bone;
-    if (instance.bat.actor.model != nullptr)
-    {
-        auto& model = *instance.bat.actor.model->runtime;
-        instance.pose.primary = model.primary;
-        instance.pose.alternate = model.alternate;
-    }
+    refresh_actor_model_animation_view(instance);
     return result;
 }
 
@@ -210,6 +205,56 @@ const ObjectFactoryVtable* button_bat_lifecycle()
         construct_button_bat_view, destroy_empty_factory_object};
     return &table;
 }
+}
+
+void refresh_actor_model_animation_view(NativeActorFactoryInstance& instance)
+{
+    // A nested message refreshes mid-way through its caller's: keep what the view has written so far.
+    store_actor_model_animation_view(instance);
+    ModelAnimationState& pose = instance.pose;
+    pose = ModelAnimationState{};
+    instance.pose_blocks.clear();
+    const Actor& actor = instance.bat.actor;
+    if (actor.model == nullptr || actor.model->runtime == nullptr)
+    {
+        return;
+    }
+    const RuntimeModelInstance& model = *actor.model->runtime;
+    pose.primary = model.primary;
+    pose.alternate = model.alternate;
+    if (model.skeleton_node != nullptr)
+    {
+        pose.skeleton = model.skeleton_node->joints;
+        pose.joint_count = int(model.skeleton_node->joints.size());
+    }
+    pose.auxiliary_targets = model.auxiliary_targets;
+    std::copy(model.node_flags.begin(), model.node_flags.end(), pose.node_flags.begin());
+    instance.pose_model = actor.model->runtime;
+    std::copy(model.node_flags.begin(), model.node_flags.end(), instance.pose_flags_loaded.begin());
+    for (const RuntimeModelResourceBlock& block : model.source->blocks)
+    {
+        instance.pose_blocks.push_back(ModelResourceBlock{block.type, block.word});
+    }
+    pose.resource_blocks = instance.pose_blocks;
+}
+
+void store_actor_model_animation_view(NativeActorFactoryInstance& instance)
+{
+    // Only bytes the view changed since it was loaded; the model's own writes in between stay.
+    const Actor& actor = instance.bat.actor;
+    if (instance.pose_model == nullptr || actor.model == nullptr || actor.model->runtime != instance.pose_model)
+    {
+        return;
+    }
+    RuntimeModelInstance& model = *instance.pose_model;
+    for (size_t index = 0; index < model.node_flags.size(); ++index)
+    {
+        if (instance.pose.node_flags[index] != instance.pose_flags_loaded[index])
+        {
+            model.node_flags[index] = instance.pose.node_flags[index];
+            instance.pose_flags_loaded[index] = instance.pose.node_flags[index];
+        }
+    }
 }
 
 NativeActorFactoryOwner::NativeActorFactoryOwner(NativeActorFactoryBindings bindings)

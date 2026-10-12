@@ -192,7 +192,7 @@ std::unique_ptr<RuntimeModelAssetView> view_relocated_runtime_model(
     {
         const u32 entry = image.word(directory) + index * 8;
         storage.blocks[index] = RuntimeModelResourceBlock{image.word(entry),
-            image.word(entry, 4) == 0 ? nullptr : image.pointer(image.word(entry, 4))};
+            image.word(entry, 4) == 0 ? nullptr : image.pointer(image.word(entry, 4)), image.word(entry, 4)};
     }
     result->asset = RuntimeModelAsset{storage.blocks, &storage.tree, resource_identity};
     return result;

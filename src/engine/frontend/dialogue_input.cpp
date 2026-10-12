@@ -489,6 +489,68 @@ void runtime_input_axes(const RuntimeDialogueInputDevice& device,
     }
 }
 
+namespace
+{
+// The state block a group child reads: kinds 4 and unknown select address zero, which retail dereferences.
+const u8* analog_child_state(const RuntimeDialogueInputDevice& child, const RuntimeDialogueInputState& state)
+{
+    const u8* block = button_state(child, state);
+    if (block == nullptr)
+    {
+        throw Error("input group child of kind " + std::to_string(read_u32(child.record, 0))
+            + " reads its analog level from address zero");
+    }
+    return block;
+}
+
+float runtime_input_analog_level(const RuntimeDialogueInputDevice& device,
+    const RuntimeDialogueInputState& state, size_t offset)
+{
+    switch (read_u32(device.record, 0))
+    {
+    case 1:
+    case 2:
+    case 3:
+    case 5:
+        return read_f32({button_state(device, state), offset + 4}, offset);
+    case 4:
+    {
+        float sum = 0.f;
+        for (i32 index = 0; index < 4; ++index)
+        {
+            const auto& child = *device.children[index];
+            if (read_u32(child.record, 8) != 0xFFFFFFFFu)
+            {
+                sum = read_f32({analog_child_state(child, state), offset + 4}, offset) + sum;
+            }
+        }
+        constexpr float kLimit = std::bit_cast<float>(0x430C0000u); // DAT_0032B138, 140.
+        if (sum > kLimit)
+        {
+            sum = kLimit;
+        }
+        return sum * std::bit_cast<float>(0x3BEA0EA1u); // DAT_0032B134, 1/140.
+    }
+    default:
+        return std::bit_cast<float>(0xBF800000u); // DAT_0032B120, -1.
+    }
+}
+}
+
+// Xbox 0x00108DE0
+float runtime_input_first_analog_level(const RuntimeDialogueInputDevice& device,
+    const RuntimeDialogueInputState& state)
+{
+    return runtime_input_analog_level(device, state, 0x30);
+}
+
+// Xbox 0x00108ED0
+float runtime_input_second_analog_level(const RuntimeDialogueInputDevice& device,
+    const RuntimeDialogueInputState& state)
+{
+    return runtime_input_analog_level(device, state, 0x34);
+}
+
 // Xbox 0x001429E0
 void dialogue_input_direction(const RuntimeDialogueInputDevice& device,
     std::array<float, 2>& output, const RuntimeDialogueInputState& state)

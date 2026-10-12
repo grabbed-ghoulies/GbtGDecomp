@@ -6,10 +6,20 @@ Current milestone (2026-10-12): opening-scene activation is complete through
 `--scene-spawn`, using the real marker/factory/service graph and translated
 0x00123070. All 18 spawned actors activate exactly once; pending=0; a second
 activation pass does nothing. Explicit teardown releases every factory object
-and address mapping. This verifies direct startup activation, not integration
-of the native actor update graph into the ordinary game loop or playable combat.
-Remaining gameplay dependencies include actor push 0x0003C0F0 and the native
-navigation/update bindings. Historical checkpoints below retain earlier stops;
+and address mapping. The live Cooper/imp contact-message round trip now reaches
+the player-mind B6 filter and verifies sender, receiver, class, and duplicate
+suppression. This does not exercise spatial push collision or make the scene
+playable.
+
+The retail scene pass `0x0011E640` activates pending actors, sends `0x7D` to
+the newly activated `+0x910` list, then calls each actor's `+0x10` slot and
+refreshes its transform while draining that one-shot list. This is activation
+work, not the recurring gameplay tick. `frame_tick` still has no scene-owned
+actor update/draw dispatch. Although player update `0x0002C2B0` is translated,
+its per-player `RuntimePlayerUpdate` context is not connected; its required
+player-strategy update slot `0x000BEF40` is also not translated. The exported
+body confirms that it has real state-dependent branches and cannot be skipped
+or replaced by a stand-in. Historical checkpoints below retain earlier stops;
 the final progress entries describe the current implementation and validation.
 
 Marker translation checkpoint (2026-10-11): every non-null retail handler slot
@@ -5384,5 +5394,147 @@ retail call to return before its instruction budget (no silent truncation).
 Contact-message integration reached the real player-mind 0xB6 event filter.
 Translated its missing 0x00116890 linked lookup and the deduplication arm
 of 0x00116950. Added a live Cooper/imp 0x0E -> 0x0F -> 0x2D round-trip
-check that validates sender/receiver/class and deduplication. It is pending
-the next build/run; full script-message filter acceptance is not claimed.
+check that validates sender/receiver/class and deduplication.
+
+### 2026-10-12: live contact-message round trip
+
+The Release `gbtg-transition-tests` target builds, and
+`gbtg-transition-tests.exe OriginalFiles --scene-spawn` passes. The check
+selects Cooper through the scene's actual player link (actor +0x93C), finds a
+live class-23 imp, sends the nine-word 0x0E contact message through the scene
+actor service, and verifies the resulting B6 event's Cooper sender, imp
+receiver, and class. Repeating the contact leaves exactly one B6 event. The
+existing activation-set and teardown assertions still pass.
+
+This validates the live message round trip and script-event deduplication, not
+the spatial collision query or a full frame of player input, actor updates, and
+rendering. `frame_tick` still ticks only `Game::entities` and draws `Game::models`
+plus cutscene/UI paths. `SceneActorServices` exposes marker startup, activation,
+and messages, but no frame update/draw entry points; player update 0x0002C2B0
+also requires a per-player `RuntimePlayerUpdate` context wired to its strategy,
+mind, body, collision, navigation, and actor-frame services. Factory actor
+dispatch and model rendering in the frame loop remain the next implementation
+work; this checkpoint does not claim a playable scene.
+
+### 2026-10-12: scene-start broadcasts and the camera director
+
+Retail scene start 0x0011CBD0 follows the marker pass (0x00140020) and
+activation (0x00123070) with 0x00116810 (script 0x7D), then 0x001231F0 (actor
+message 0x88) and 0x001231A0 (actor message 0x7D) over the activated +0x910
+list. Both broadcasts are translated in `scene_actor_activation.cpp` and are
+reachable through `SceneActorServices::send_scene_start_notice` and
+`send_scene_start`. The new `--scene-start` test mode runs them after the
+`--scene-spawn` checks; `--scene-spawn` itself is unchanged and passes.
+
+0x88 runs the base actor pose update 0x0003AE00, which read the actor's
+animation view with null pose buffers (an access violation for Cooper). The
+factory's `ModelAnimationState` was only filled with the two pose pointers at
+construction. `refresh_actor_model_animation_view` now rebuilds it from the
+actor's current model instance before every scene message: poses +0x164/+0x168,
+skeleton joints and count, auxiliary targets +0x1CC, node flags +0x294 and the
+CPU type-1 resource record. Node flags the view changes are stored back
+afterwards (only changed bytes, and only to the same model instance).
+`RuntimeModelResourceBlock` now keeps the stored +4 word, because type-1
+records are not relocated and hold the node mask 0x000320F0 reads.
+All 18 actors now accept 0x88.
+
+0x7D reaches cameron's director strategy (type 0x39), whose 0x7D arm calls the
+actor's own vtable +0x10, the player update 0x0002C2B0. That update calls the
+director's +0x10 tick 0x000AA250, now translated in `camera_director.cpp`
+with its batch: 0x00028CC0, 0x000AA480, 0x000AA4D0, 0x000AA520, the target
+comparator 0x000AA560, target collection 0x000AA590, input heading 0x000AADE0
+and 0x0013DD80, scene-start check 0x0013D1E0 and body hold release
+0x00020000. The CRT qsort 0x00166780 and its short sort 0x00166710 are
+translated in `runtime/crt_sort.cpp`; the comparator never returns 0, so the
+exact CRT algorithm decides tie order. The analog level readers 0x00108DE0
+and 0x00108ED0 are in `dialogue_input.cpp`. The director tunables at
+0x00428708..0x00428730 (and 0x0043400C) are .data values; retail defaults
+skip both candidate walks (0x0042872C = 1) and the watcher checks
+(0x00428708 = 1).
+
+Current stop (`--scene-start`): cameron's 0x7D requires the per-player
+`RuntimePlayerUpdate` context for 0x0002C2B0. For cameron the slots are the
+director tick 0x000AA250 (now translated), camera mind tick 0x0002A9F0 and
+camera body +0x10..+0x1C (0x00025EC0, 0x00072AC0, 0x00072B10, 0x00072CB0).
+The last two are translated over the legacy `Entity` camera body, not the
+factory body view, and need adapting before the update can be wired.
+
+### 2026-10-12: camera mind rig and camera body slots
+
+cameron's player update 0x0002C2B0 ticks its camera mind (type 0x36) through
+the parent mind tick 0x0002A9F0, whose request methods are camera mind
+vtable +0x14 0x00078170 and +0x18 0x0007AEF0. The director tick queues a
+kind-1 request each frame; kind 1 is the camera rig 0x000781F0. Translated
+from the assembly (several of these return through XMM0 or take EBX/EDI
+outputs that the decompiles drop):
+
+- `camera/camera_mind_rig.cpp`: 0x000781F0, rig placement 0x00078840 and its
+  target framing 0x000783A0, stick turn 0x000784B0, heading ease 0x00078630,
+  target merge 0x0013D640, obstruction tracking 0x00079720 and settling
+  0x00079450, heading choice 0x00079320 with the eye sweep 0x000790B0 /
+  0x00078C70 and heading goal 0x000791A0, input turn 0x0013DC40 / 0x0013DD00,
+  floor height 0x0013D110, point offset 0x001062A0, heading clamp
+  0x00101550 and aim offset 0x0013CE80. The tunables at 0x004274B8..0x0042753F
+  and 0x00434008..0x00434033 are .data, mirrored in
+  `RuntimeCameraRigTunables` by retail address.
+- `camera/camera_mind_requests.cpp`: 0x00078170 (kind 1 to the rig; kinds 3,
+  4 and 0x12 raise as untranslated; other kinds go to 0x000295E0) and
+  0x0007AEF0 (kind 0x29 random span, body action key 0x19 / 0x1B).
+- `navigation/cell_reach.cpp`: 0x0010FE10 (cells near a point; the retail
+  heap list is internal to 0x0012CEF0) and 0x0012CEF0.
+- `camera/camera_body_slots.cpp`: camera body +0x18 0x00072B10 with aim
+  0x00072BA0, +0x1C 0x00072CB0, and Euler wrap 0x00105AA0, over the factory
+  body bytes. The legacy `Entity` versions call an empty 0x00025AE0 and wrap
+  with `std::fmod`, so they are not used.
+
+The DAT_0050EA00 world-bound words (`g_amb_volume_enabled`,
+`g_amb_color_lo/hi`) are now exported from `scene/ambient.cpp` through
+`scene/ambient.h` for the player bounds check 0x0002C980.
+
+0x000783A0 divides by the render size DAT_0054DD80/84 that display
+initialization 0x000F5900 sets; that initialization is not installed in the
+live game, so the rig raises if it is reached with a zero size.
+
+Still to wire before `--scene-start` passes cameron's 0x7D: the per-player
+`RuntimePlayerUpdate` (strategy, mind and body slot dispatch by child type,
+body collision view, actor frame, navigation, room and bounds), the camera
+body's +0x14 channel step 0x00072AC0 context, and the 0x00025AE0 body apply
+context.
+
+### 2026-10-12: live player update for cameron
+
+`SceneActorServices::State::update_player` now builds the full
+`RuntimePlayerUpdate` for 0x0002C2B0 from the player's native state and is
+the director's actor update (0x000AAED0's 0x7D arm). Child slots dispatch by
+factory type:
+
+- strategy +0x10: 0x4F player (0x000BEF40), 0x46 imp fire (0x000B45D0),
+  0x39 director (0x000AA250, wired over the scene's mark list DAT_00511B38,
+  camera targets 0x0013D000 and the player input devices);
+- mind +0x10: 0x36 camera mind through 0x0002A9F0 with the camera mind
+  request methods 0x00078170 / 0x0007AEF0 (player and cinema minds raise);
+- body +0x10..+0x1C: the camera body (type 0x28) through new
+  `SceneBodyMessages::tick/animate/settle/supported`: 0x00025EC0, 0x00072AC0,
+  0x00072B10 (with body apply 0x00025AE0) and 0x00072CB0;
+- body action children: type 0x5C +0x10 0x00080340 (velocity ease 0x000803B0
+  over the two-stage integrator 0x00103880 and its callbacks 0x00140700 /
+  0x00140770) and +0x14 0x0002AD30, in `entities/body_move_action_slots.cpp`;
+  the 0x5C class vtable has six slots, so +0x1C reads 0x000CFFD0 (returns 1).
+  Types 0x5B (0x0007FD70, 0x000804E0) and 0x87 +0x10 (0x000A2930) raise.
+
+Views that are not native yet raise when they would be read: body channel
+rows (+0x150) and actor +0x50 bindings when +0x154 or +0xFC is set, actor
++0x8F8 bound and +0x8FC shapes, body +0x710 collision spheres, mind +0x1C
+path search, the player contact callback 0x0001F8C0, and the camera rig's
+render size. The director tunables, rig tunables, DAT_004312E0 and the
+DAT_00338F64.. channel key rows are read from the image; DAT_005122D8 and the
+render size are native storage at their BSS value 0.
+
+`--scene-start` result: cameron's director 0x7D runs the whole player update.
+The next stop is the camera mind's own 0x7D (0x0007B040 -> 0x00136700),
+which reads the navigation node buffer DAT_0050E24C. That buffer, and every
+`g_nav_grids` entry, is built by scene start's 0x00111820 from the background
+actor's model; the background is factory type 4 created by 0x0011C8B0, whose
+class (vtable 0x004E1644, constructor 0x00042DA0) is not installed natively.
+The constructor's tree (lights, sectors, background nodes) plus the grid
+builder is about 40 untranslated functions; their dumps are exported.

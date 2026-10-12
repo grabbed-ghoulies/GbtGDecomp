@@ -53,4 +53,30 @@ void activate_runtime_scene_actors(RuntimeSceneActivation& context)
         }
     } while (context.pending.next != nullptr);
 }
+
+// Xbox 0x001231F0
+void send_runtime_scene_start_notice(RuntimeSceneActivation& context)
+{
+    if (!context.scene_nodes.empty())
+    {
+        const u32 notice[1]{0x88};
+        for (size_t index = 0; index < context.scene_nodes.size(); ++index)
+        {
+            context.message(context.scene_nodes[index], notice);
+        }
+    }
+}
+
+// Xbox 0x001231A0
+void send_runtime_scene_start(RuntimeSceneActivation& context)
+{
+    if (!context.scene_nodes.empty())
+    {
+        const u32 start[1]{0x7D};
+        for (size_t index = 0; index < context.scene_nodes.size(); ++index)
+        {
+            context.message(context.scene_nodes[index], start);
+        }
+    }
+}
 }

@@ -18,6 +18,13 @@ const ObjectFactoryVtable* weapon_lifecycle()
     return &table;
 }
 
+const ObjectFactoryVtable* move_type_5c_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505500, move_action_object_sizes, accept_runtime_object_construction,
+        destroy_empty_action};
+    return &table;
+}
+
 const ObjectFactoryVtable* move_xyz_no_gravity_lifecycle()
 {
     static const ObjectFactoryVtable table{0x00505518, move_action_object_sizes, accept_runtime_object_construction,
@@ -44,5 +51,6 @@ void install_runtime_move_action_classes(std::span<ObjectFactoryType> types)
 {
     types[0xA] = ObjectFactoryType{1, weapon_lifecycle};
     types[0x5B] = ObjectFactoryType{0xA, move_xyz_no_gravity_lifecycle};
+    types[0x5C] = ObjectFactoryType{0xA, move_type_5c_lifecycle};
 }
 }

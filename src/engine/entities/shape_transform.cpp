@@ -14,11 +14,11 @@ float g_shape_bone_scratch[12]; // DAT_004DD768
 // Xbox 0x000315F0
 const float* shape_bone_matrix(const EntityBonePose& pose, i32 index)
 {
-    if (pose.packed != 0)
+    if (pose.packed_flag() != 0)
     {
-        return pose.mats.data() + index * 12;
+        return pose.matrix_data() + index * 12;
     }
-    const float* source = pose.mats.data() + index * 16;
+    const float* source = pose.matrix_data() + index * 16;
     g_shape_bone_scratch[0] = source[0];
     g_shape_bone_scratch[1] = source[4];
     g_shape_bone_scratch[2] = source[8];

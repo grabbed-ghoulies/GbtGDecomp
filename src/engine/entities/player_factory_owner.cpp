@@ -43,7 +43,10 @@ void destroy_player_view(FactoryObject& object)
 {
     auto& player = active_owner->player(object);
     destroy_runtime_player(player.actor_bytes, player.destruction);
-    active_owner->release_player(object);
+    if (!active_owner->defer_release)
+    {
+        active_owner->release_player(object);
+    }
 }
 
 bool construct_parent_body_view(FactoryObject& object, std::span<const u8> parameters)
@@ -89,7 +92,7 @@ bool construct_base_strategy_view(FactoryObject& object, std::span<const u8> par
 {
     auto& player = active_owner->player_at(parameter_word(parameters, 8));
     active_owner->bind_child(object, player);
-    player.strategy_type = 0x4F;
+    player.strategy_type = object.type;
     player.strategy = bytes_of(object);
     player.strategy_entry.strategy = player.strategy;
     return initialize_runtime_base_strategy(player.strategy, parameters, player.actor.class_key,
@@ -124,6 +127,49 @@ void destroy_imp_fire_strategy_view(FactoryObject& object)
     auto* player = active_owner->find_player(object);
     player->refresh_views();
     destroy_runtime_imp_fire_strategy(player->imp_fire);
+}
+
+RuntimeCameraBodyContext camera_body_context(NativePlayerInstance& player)
+{
+    return RuntimeCameraBodyContext{player.body, player.actor, player.body_flags, player.camera_view};
+}
+
+bool construct_camera_body_view(FactoryObject& object, std::span<const u8>)
+{
+    auto context = camera_body_context(*active_owner->find_player(object));
+    return initialize_runtime_camera_body(context);
+}
+
+void destroy_camera_body_view(FactoryObject& object)
+{
+    auto context = camera_body_context(*active_owner->find_player(object));
+    destroy_runtime_camera_body(context);
+}
+
+bool construct_director_strategy_view(FactoryObject& object, std::span<const u8>)
+{
+    return initialize_runtime_director_strategy(bytes_of(object));
+}
+
+const ObjectFactoryVtable* camera_body_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00504F80, camera_body_object_sizes, construct_camera_body_view,
+        destroy_camera_body_view};
+    return &table;
+}
+
+const ObjectFactoryVtable* camera_mind_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505458, camera_mind_object_sizes, accept_runtime_object_construction,
+        destroy_empty_player_object};
+    return &table;
+}
+
+const ObjectFactoryVtable* director_strategy_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505D54, director_strategy_object_sizes,
+        construct_director_strategy_view, destroy_empty_player_object};
+    return &table;
 }
 
 const ObjectFactoryVtable* player_lifecycle()
@@ -233,6 +279,12 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
                   leave_runtime_imp_fire_state(old_state, next_state, imp_fire);
                   return;
               }
+              if (strategy_type == 0x39)
+              {
+                  // Director strategy vtable +0x18, 0x000AA450.
+                  leave_runtime_director_state(bytes_of(object), old_state);
+                  return;
+              }
               // Player strategy vtable +0x18, 0x000BF410.
               leave_runtime_player_strategy(bytes_of(object), old_state, next_state, body, scene.active_strategies,
                   scene.pause);
@@ -244,6 +296,13 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
               {
                   // Imp fire strategy vtable +0x14, 0x000B4940.
                   enter_runtime_imp_fire_state(state, previous, imp_fire);
+                  return;
+              }
+              if (strategy_type == 0x39)
+              {
+                  // Director strategy vtable +0x14, 0x000AA3A0.
+                  RuntimeDirectorStrategy director{strategy, request_anchor, scene.mind_request_sizes, strategy_entry};
+                  enter_runtime_director_state(state, director);
                   return;
               }
               // Player strategy vtable +0x14, 0x000BF2B0.
@@ -484,7 +543,10 @@ void NativePlayerFactoryOwner::install(std::span<ObjectFactoryType> types)
     types[8] = ObjectFactoryType{1, base_strategy_lifecycle};
     types[0x4F] = ObjectFactoryType{8, player_strategy_lifecycle};
     types[0x46] = ObjectFactoryType{8, imp_fire_strategy_lifecycle};
+    types[0x28] = ObjectFactoryType{6, camera_body_lifecycle};
+    types[0x39] = ObjectFactoryType{8, director_strategy_lifecycle};
     minds.install(types);
+    types[0x36] = ObjectFactoryType{7, camera_mind_lifecycle};
     active_owner = this;
 }
 
@@ -527,7 +589,12 @@ NativePlayerInstance* NativePlayerFactoryOwner::find_child_owner(const u8* child
 
 void NativePlayerFactoryOwner::release_player(const FactoryObject& object)
 {
-    const auto found = players_.find(object.bytes.get());
+    release_player(object.bytes.get());
+}
+
+void NativePlayerFactoryOwner::release_player(const u8* bytes)
+{
+    const auto found = players_.find(bytes);
     if (found != players_.end())
     {
         addresses_.erase(found->second->actor_address);
@@ -543,6 +610,16 @@ void NativePlayerFactoryOwner::bind_child(const FactoryObject& child, NativePlay
 void NativePlayerFactoryOwner::release_child(const FactoryObject& child)
 {
     children_.erase(child.bytes.get());
+}
+
+std::vector<NativePlayerInstance*> NativePlayerFactoryOwner::instances() const
+{
+    std::vector<NativePlayerInstance*> result;
+    for (const auto& [bytes, player] : players_)
+    {
+        result.push_back(player.get());
+    }
+    return result;
 }
 
 size_t NativePlayerFactoryOwner::player_total() const

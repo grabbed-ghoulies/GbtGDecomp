@@ -287,6 +287,18 @@ void send_runtime_marker_chain_goals(const u8* record, const Vec3& position, con
     } while (half_at(row, 8) != 0);
 }
 
+// Xbox 0x0013CC70
+bool read_runtime_marker_camera_start(Vec3& position, Vec3& euler, const RuntimeMarkerCameraStart& start)
+{
+    if (start.valid != 0)
+    {
+        position = start.position;
+        euler = start.euler;
+        return true;
+    }
+    return false;
+}
+
 // Xbox 0x000FFEC0
 void spawn_runtime_marker_player(const u8* record, RuntimeMarkerPlayerStart& context)
 {

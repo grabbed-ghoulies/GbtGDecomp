@@ -5099,3 +5099,68 @@ five weapon move classes, of which only 0x5B and 0x87 are translated.
 Validation: Release builds, all six CTests, the dialogue, actor-loading, decoder and scene-models
 suites, and 120-frame headless runs of the boot and opening scene pass. `--scene-spawn` fails at the
 camera actor as described. Nothing was staged or committed.
+
+### 2026-10-12: live marker start, second stage (camera actor and activation)
+
+**Marker start now completes.** `--scene-spawn` creates every opening marker object, including the
+player's camera actor `cameron`, which the player mind creates (camera notice 0xBA):
+
+- camera body type 0x28 (`camera_actor_classes`): constructor 0x000731F0 links its view record (body
+  +0x894, native `EntityCamNode`) into camera slot 0 and binds `cameron` (string 0x00323E30) through the
+  translated 0x00048C20/0x00048CF0; destructor 0x00073300 unlinks it. DAT_00510F70 is
+  `g_camera_actor`.
+- camera mind type 0x36: sizes 0x0007AFC0, constructor 0x000CFFD0, message 0x0007B040 (navigation
+  setup 0x00136700 on 0x7D, then the parent mind handler 0x0002A2E0).
+- director strategy type 0x39: sizes 0x000AAE40, constructor 0x000AAEB0, enter 0x000AA3A0 (mind
+  requests 3/4/0x12 for states 0x3F6/0x3F7/0x401, else 0x0002BAF0), leave 0x000AA450, message
+  0x000AAED0 (0x7D places the actor at the marker camera start through 0x0013CC70, now beside the kind
+  0x13 handler; 0xBA/0xBB change state).
+- move class 0x5C (vtable 0x00505500), the camera's initial `move` row.
+
+The player owner now records each strategy's real factory type and routes enter/leave to the player,
+imp fire or director methods.
+
+**Activation.** Scene startup's 0x00123070 (`scene_actor_activation`) is translated: it sends {0x23,
+0x7B, previous actor} to each pending actor (DAT_00511B08), moves the actor's +0x900 node to the active
+list DAT_00511AA4, records it on DAT_00511B5C, and sends 0x7B notices to the active list and
+DAT_0050E438. The services attach the message graphs this needs:
+
+- player class message 0x00028F60 for every type 5 actor, with its activation (0x00029270), pause and
+  navigation contexts, and child dispatch by factory type;
+- `scene_body_messages`: the parent body handler 0x000253B0 and the imp (0x00074080), player (0x00075B60)
+  and camera (0x00073320) body slots, with the damage, death, timer, sound, effect and projectile
+  contexts. Statetable action children of types 0x5B, 0x5C and 0x87 have the empty 0x001628B0 message.
+  Ids whose handlers read message-pointer views (7, 0xF, 0x15-0x19, 0x1B, 0x1D, 0x2A, 0x45, 0x60,
+  0x63) raise until those views exist. The push-key table and the per-call damage animation rows are
+  not located yet (an empty key view raises on read);
+- `scene_mind_messages`: cinema minds (0x0007C8B0) and player minds (0x0007F1E0) over the parent-mind
+  requests, with a body snapshot for the read-only `RuntimeScriptMindQuery`;
+- the `callout` resource hook (0x0004F610, post-load 0x0004F650, unload 0x0004F6C0), which links each
+  callout resource's terminator (+0xC8) to the next resource the callout walk follows;
+- attackdata request tables (body +0x5C) decoded from the executable records.
+
+Supporting fixes: retail tables for flag (0x00338FB0), state action (0x003390E4), callout (0x00421C9C)
+and goal flag (0x003397AC) names; the case list is `g_world.case_head` (DAT_00511B3C), so the player
+link DAT_00511B40 is its next node; world list heads and player link nodes have retail addresses;
+engine-heap input devices get token addresses and join `input_addresses`; a scene actor's native
+`Actor` maps to its object address. `EntityBonePose` can view a model instance's `ModelPoseBuffer`, and
+the services refresh each actor's shape poses (instance +0x164/+0x168) before dispatch. The player
+owner defers releasing a player's native state to the type 1 destructor, since retail keeps the type 5
+vtable through the whole destructor chain and the base actor destructor still messages the player.
+
+**Current stop.** The first imp's activation reaches the body's 0x23, whose contact separation sweeps
+the world segment list. Every activated actor's segment probe is in that list, and the actor
+collision slots that 0x0003C080 installs (+0x1C 0x0003DF70, +0x20 0x0003E110, +0x24 0x0003E050,
++0x2C 0x0003E200, +0x30 0x0003E3C0, +0x34 0x0003C0F0) are untranslated. They raise for now. Their tree
+is 48 functions: culls (0x0003E4A0, 0x0003E590, 0x0003E680, 0x0015A270), shape-list dispatchers
+(0x00055670, 0x000557E0, 0x00055960, 0x000568E0, 0x00056A60, 0x00056BE0) and the per-shape routines
+in the tables at DAT_00423810 (physical kinds 1 and 2) and DAT_00423858 (model-node shapes). The
+callers (for example 0x00122480) pass each slot (actor, candidate, kept from EBX, first parameter,
+second parameter, record); the slot ANDs the first parameter with the actor's filter (+0x1F0). The
+shape-list dispatchers take the candidate in EBX and the kept point in EDI, and call each shape routine
+as (shape, xform +0x2AC, inverse +0x2DC, pose, block +0xC, candidate, kept, mask, second parameter,
+record).
+
+Validation: Release builds, all six CTests, the dialogue, actor-loading, decoder and scene-models
+suites, and 120-frame headless runs of the boot and opening scene pass. `--scene-spawn` stops at the
+first untranslated collision slot. Nothing was staged or committed.

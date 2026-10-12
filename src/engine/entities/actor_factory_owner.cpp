@@ -11,6 +11,38 @@ void destroy_empty_factory_object(FactoryObject&)
 {
 }
 
+// Actor vtable collision slots set by 0x0003C080. Their shape routines are not translated yet, so a query that
+// reaches one raises instead of reading through a null slot.
+[[noreturn]] void untranslated_collision_slot(const char* slot)
+{
+    throw Error(std::string("actor collision slot is not translated: ") + slot);
+}
+i32 actor_segment_query(entity_detail::SegmentProbe&, Vec3&, Vec3&, u32, i32, u32, u8*)
+{
+    untranslated_collision_slot("vtable +0x20 (0x0003E110)");
+}
+i32 actor_segment_sweep(entity_detail::SegmentProbe&, Vec3&, Vec3&, i32, u32, u8*)
+{
+    untranslated_collision_slot("vtable +0x1C (0x0003DF70)");
+}
+i32 actor_segment_point(entity_detail::SegmentProbe&, Vec3&, Vec3&, float, u32, u8*)
+{
+    untranslated_collision_slot("vtable +0x2C (0x0003E200)");
+}
+i32 actor_segment_contacts(entity_detail::SegmentProbe&, Vec3&, float, u32, entity_detail::SegmentPool&)
+{
+    untranslated_collision_slot("vtable +0x30 (0x0003E3C0)");
+}
+i32 actor_segment_sphere_contacts(entity_detail::SegmentProbe&, Vec3&, float, i32, u32, entity_detail::SegmentPool&)
+{
+    untranslated_collision_slot("vtable +0x24 (0x0003E050)");
+}
+i32 actor_shape_push(entity_detail::ShapeProbe&, const Actor*, const Vec3*, EntityCylinderBound&, EntityCylinderBound*,
+    i32, Vec3&)
+{
+    untranslated_collision_slot("vtable +0x34 (0x0003C0F0)");
+}
+
 // Native lifecycle slot adapters. The translated constructors/destructor keep
 // their retail branches; these associate Xbox instance bytes with host fields.
 bool construct_actor_view(FactoryObject& object, std::span<const u8> parameters)
@@ -106,6 +138,12 @@ NativeActorFactoryInstance& NativeActorFactoryOwner::construct_view(FactoryObjec
     actor.link = &instance->bind; // Retail embedded actor+0x918 link.
     instance->bind.actor = &actor;
     actor.render_registration = &instance->render;
+    instance->segment.query = actor_segment_query;
+    instance->segment.sweep = actor_segment_sweep;
+    instance->segment.point = actor_segment_point;
+    instance->segment.contacts = actor_segment_contacts;
+    instance->segment.sphere_contacts = actor_segment_sphere_contacts;
+    instance->shape.push = actor_shape_push;
     instance->render.message = [](ActorRenderRegistration& registration, u32 id)
     {
         active_owner->bindings.message(registration.actor, &id);

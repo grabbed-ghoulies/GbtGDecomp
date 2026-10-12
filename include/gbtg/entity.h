@@ -47,6 +47,7 @@ struct RuntimeModelInstance;
 
 struct EntityShapeNode;
 struct EntityBonePose;
+struct ModelPoseBuffer;
 
 struct ActorModel
 {
@@ -669,6 +670,11 @@ struct EntityBonePose
     u32 tag = 0;
     u32 packed = 0;
     std::vector<float> mats;
+    // Native view of a model instance's pose buffer; when set, its +4 flag and +0x10 matrices are read.
+    const ModelPoseBuffer* buffer = nullptr;
+    u32 packed_flag() const;
+    const float* matrix_data() const;
+    size_t matrix_floats() const;
 };
 
 // ESI for 0x00055AA0. 0x20 bytes. Y is the bottom; height is the full extent.

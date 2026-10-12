@@ -19,12 +19,14 @@ public:
     SceneActorServices& operator=(const SceneActorServices&) = delete;
     // 0x00140020 over the scene's loaded marker records (DAT_0051108C).
     void start_markers();
+    // 0x00123070: activates the actors created since the last pass (message 0x23, then 0x7B notices).
+    void activate_actors();
     u32 player_link() const; // DAT_00511B40.
     const std::unordered_map<u32, Actor*>& actor_addresses() const; // Retail actor address -> native actor.
     size_t player_total() const;
+    struct State;
 
 private:
-    struct State;
     std::unique_ptr<State> state_;
 };
 }

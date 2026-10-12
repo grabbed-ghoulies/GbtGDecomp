@@ -9,6 +9,7 @@
 #include "player_mind_owner.h"
 #include "player_strategy.h"
 #include "imp_fire_strategy.h"
+#include "camera_actor_classes.h"
 
 namespace gbtg
 {
@@ -256,7 +257,8 @@ struct NativePlayerInstance
     ActorAttachmentEventContext callout;
     RuntimePlayerStrategyFlow flow;
     // Imp fire strategy (type 0x46) methods and their shared target queue and checks.
-    u16 strategy_type = 0; // Factory type of the strategy child: 0x4F player or 0x46 imp fire.
+    u16 strategy_type = 0; // Factory type of the strategy child: 0x4F player, 0x46 imp fire or 0x39 director.
+    EntityCamNode camera_view{}; // Camera body (type 0x28) +0x894.
     RuntimeStrategyTargetChecks target_checks;
     RuntimeStrategyTargetQueue target_queue;
     RuntimeImpFireStrategy imp_fire;
@@ -270,7 +272,8 @@ struct NativePlayerFactoryBindings
     NativePlayerSceneBindings scene;
 };
 
-// Installs the player (type 5), body (6, 0x27, 0x2A), mind (7, 0x34) and strategy (8, 0x4F, 0x46) classes
+// Installs the player (type 5), body (6, 0x27, 0x28, 0x2A), mind (7, 0x34, 0x36) and strategy (8, 0x4F, 0x46,
+// 0x39) classes
 // over the actor owner's types 1 and 2, and keeps one NativePlayerInstance per player actor.
 class NativePlayerFactoryOwner
 {
@@ -286,9 +289,11 @@ public:
     NativePlayerInstance* find_player(const FactoryObject& child) const; // Body, mind or strategy object.
     NativePlayerInstance* find_child_owner(const u8* child) const; // By the child's instance bytes.
     void release_player(const FactoryObject& object);
+    void release_player(const u8* bytes);
     void bind_child(const FactoryObject& child, NativePlayerInstance& player);
     void release_child(const FactoryObject& child);
     size_t player_total() const;
+    std::vector<NativePlayerInstance*> instances() const;
     size_t child_count() const;
     void strategy_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000BEE10.
     void strategy_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000BEF40.
@@ -296,6 +301,9 @@ public:
     void imp_fire_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000B45D0.
     NativePlayerFactoryBindings bindings;
     NativePlayerMindOwner minds;
+    // Retail keeps the type 5 vtable through the whole destructor chain, so the base actor destructor still
+    // messages the player. A scene that defers release calls release_player after its base destructor.
+    bool defer_release = false;
 
 private:
     std::unordered_map<const u8*, std::unique_ptr<NativePlayerInstance>> players_;

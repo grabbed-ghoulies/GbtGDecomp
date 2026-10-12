@@ -34,6 +34,10 @@ bool construct_scene_base_object(FactoryObject& object, std::span<const u8> para
 
 void destroy_scene_base_object(FactoryObject& object)
 {
+    if (active_scene->released)
+    {
+        active_scene->released(object.bytes.get());
+    }
     active_scene->unbind_address(object.bytes.get());
 }
 

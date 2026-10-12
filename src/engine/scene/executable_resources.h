@@ -3,6 +3,7 @@
 #include "gbtg/xbe.h"
 #include "../scripts/script_table_lookup.h"
 #include "../entities/player_mind_goals.h"
+#include "../entities/body_attachment_requests.h"
 
 namespace gbtg
 {
@@ -27,6 +28,8 @@ public:
     std::unordered_map<const u8*, const RuntimeScriptLookupTable*> state_tables;
     // Attackdata records: the sequence words at +0x10 (+0xC words), keyed by each record's CPU bytes.
     std::unordered_map<const u8*, const u8*> attack_sequences;
+    // Attackdata request tables (body +0x5C): rows +0/+8/+0x18/+0x20/+0x28 with counts +4/+6/+0x14/+0x1C/+0x24.
+    std::unordered_map<const u8*, const RuntimeAttachmentRequestTables*> attack_tables;
     // The strings statetable rows name at +0x104, by their XBE address.
     std::unordered_map<u32, const char*> state_row_names;
     // Scripttable records (header +0 count, +4 rows of 0x84, name pointer at row +0), as mind goal tables.
@@ -44,6 +47,7 @@ private:
     std::array<std::vector<ExecutableResourceRecord>, 7> records_;
     std::vector<std::unique_ptr<DecodedAnimationTable>> tables_;
     std::vector<std::unique_ptr<RuntimeScriptLookupTable>> state_tables_;
+    std::vector<std::unique_ptr<RuntimeAttachmentRequestTables>> attack_tables_;
     struct DecodedGoalTable
     {
         std::vector<RuntimeMindGoalRow> rows;

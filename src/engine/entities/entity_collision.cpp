@@ -28,6 +28,33 @@ namespace gbtg
 {
 using namespace entity_detail;
 
+u32 EntityBonePose::packed_flag() const
+{
+    return buffer != nullptr ? u32(buffer->dirty) : packed;
+}
+
+const float* EntityBonePose::matrix_data() const
+{
+    if (buffer == nullptr)
+    {
+        return mats.data();
+    }
+    if (buffer->dirty)
+    {
+        return buffer->matrices.empty() ? nullptr : buffer->matrices.front().data();
+    }
+    return buffer->packed_matrices.empty() ? nullptr : buffer->packed_matrices.front().data();
+}
+
+size_t EntityBonePose::matrix_floats() const
+{
+    if (buffer == nullptr)
+    {
+        return mats.size();
+    }
+    return buffer->dirty ? buffer->matrices.size() * 12 : buffer->packed_matrices.size() * 16;
+}
+
 namespace entity_detail
 {
 
@@ -90,22 +117,22 @@ bool bone_matrix(const EntityBonePose& pose, i16 bone, float out[12])
     {
         return false;
     }
-    if (pose.packed != 0)
+    if (pose.packed_flag() != 0)
     {
         const size_t base = static_cast<size_t>(index) * 12u;
-        if (base + 12u > pose.mats.size())
+        if (base + 12u > pose.matrix_floats())
         {
             return false;
         }
-        std::memcpy(out, pose.mats.data() + base, sizeof(float) * 12u);
+        std::memcpy(out, pose.matrix_data() + base, sizeof(float) * 12u);
         return true;
     }
     const size_t base = static_cast<size_t>(index) * 16u;
-    if (base + 16u > pose.mats.size())
+    if (base + 16u > pose.matrix_floats())
     {
         return false;
     }
-    const float* s = pose.mats.data() + base;
+    const float* s = pose.matrix_data() + base;
     out[0] = s[0];
     out[1] = s[4];
     out[2] = s[8];

@@ -27,6 +27,7 @@ public:
     // Type 1 maps each instance's address on construction and releases it on destruction. Owners that
     // install their own base registration must call this again afterwards.
     void install_base_class();
+    std::function<void(const u8*)> released; // After an object's type 1 destructor, before its storage is freed.
     FactoryObject* keep_object(FactoryObject object);
     void release_objects();
     u32 bind_address(std::span<u8> bytes);

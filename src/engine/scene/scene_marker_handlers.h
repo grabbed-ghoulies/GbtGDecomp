@@ -18,6 +18,8 @@ OccupancyRecord& add_runtime_occupancy_record(u16 kind, u8 value, u16 id, u32 fi
 void add_runtime_marker_sphere(const u8* record, const char* const* tags); // Xbox 0x00100210, kind 8
 void add_runtime_marker_box(const u8* record, const char* const* tags); // Xbox 0x001002B0, kind 0x14
 void set_runtime_marker_camera_start(const u8* record, RuntimeMarkerCameraStart& start); // Xbox 0x000FF880, kind 0x13
+bool read_runtime_marker_camera_start(Vec3& position, Vec3& euler,
+    const RuntimeMarkerCameraStart& start); // Xbox 0x0013CC70, ECX position, EAX euler
 void resolve_runtime_marker_chain_pose(const u8* record, const u8* records, std::span<const u8> address_zero,
     Vec3& position, Vec3& euler); // Xbox 0x00100110, EAX record, EDI position, ESI euler
 void send_runtime_marker_chain_goals(const u8* record, const Vec3& position, const Vec3& euler, const u8* records,

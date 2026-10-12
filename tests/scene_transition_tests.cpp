@@ -6604,7 +6604,19 @@ void check_scene_spawn(gbtg::Game& game)
         throw Error("scene spawn check did not load the opening scene");
     }
     auto& services = game.factory_scene->start_actors(game);
-    services.start_markers();
+    try
+    {
+        std::cout << "scene spawn: markers\n";
+        services.start_markers();
+        std::cout << "scene spawn: activation\n";
+        services.activate_actors();
+    }
+    catch (const std::exception& error)
+    {
+        // Reported before the scene's teardown runs during unwinding.
+        std::cout << "scene spawn error: " << error.what() << "\n";
+        throw;
+    }
     std::cout << "scene spawn: objects=" << game.factory_scene->objects.size()
               << " players=" << services.player_total() << " factory=" << game.factory_scene->factory.count
               << " player link=0x" << std::hex << services.player_link() << std::dec << "\n";
@@ -7253,6 +7265,10 @@ int main(int argc, char** argv)
     const bool actor_test = argc == 3 && std::string_view(argv[2]) == "--actor-loading";
     const bool model_resources_test = argc == 3 && std::string_view(argv[2]) == "--scene-models";
     const bool spawn_test = argc == 3 && std::string_view(argv[2]) == "--scene-spawn";
+    if (spawn_test)
+    {
+        std::cout << std::unitbuf;
+    }
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
         && !model_resources_test && !spawn_test)
     {

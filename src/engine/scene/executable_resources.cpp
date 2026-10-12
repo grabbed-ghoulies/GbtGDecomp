@@ -25,6 +25,18 @@ SceneExecutableResources::SceneExecutableResources(const std::filesystem::path& 
     // Pointer-width adapters for the attackdata sequence pointer (+0x10) and the statetable rows (+4).
     for (const auto& record : records_[1])
     {
+        const auto rows = [&](size_t pointer, size_t count, size_t stride)
+        {
+            const u16 total = read_u16(record.cpu, count);
+            const u32 address = read_u32(record.cpu, pointer);
+            return RuntimeAttachmentRequestRows{address == 0 ? nullptr
+                : memory(address, size_t(total) * stride).data(), total};
+        };
+        auto tables = std::make_unique<RuntimeAttachmentRequestTables>(RuntimeAttachmentRequestTables{
+            rows(0, 4, 0x24), rows(8, 6, 0x24), rows(0x18, 0x14, 0x28), rows(0x20, 0x1C, 0x2C),
+            rows(0x28, 0x24, 0x24)});
+        attack_tables[record.cpu.data()] = tables.get();
+        attack_tables_.push_back(std::move(tables));
         const u32 sequences = read_u32(record.cpu, 0x10);
         if (sequences != 0)
         {

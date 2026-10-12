@@ -6490,6 +6490,104 @@ void check_actor_loading()
 }
 }
 
+void check_scene_model_resources(gbtg::AidStore& aids)
+{
+    using namespace gbtg;
+    const auto fail = [](const char* message)
+    {
+        throw Error(std::string("scene model resources: ") + message);
+    };
+    const Bundle& bundle = aids.load_bundle_rel(*aid_to_bundle_rel("aid_script_ghoulies_chapter1_scene1_2playcam"));
+    SceneExecutableResources executable(aids.game_dir);
+    SceneDialogueResourceOwner owner(aids, executable.pools);
+    // Every executable animtable resolves through the registry to its decoded, name-sorted view.
+    size_t tables = 0;
+    size_t animations = 0;
+    for (const auto& pool : executable.pools)
+    {
+        if (pool.type != "animtable")
+        {
+            continue;
+        }
+        for (const auto& record : pool.records)
+        {
+            const auto cpu = acquire_animation_resource(owner.registry, record.name.c_str());
+            if (cpu.data() != record.cpu.data())
+            {
+                fail("an animtable did not resolve through the executable provider");
+            }
+            const auto found = executable.animation_tables.tables.find(cpu.data());
+            if (found == executable.animation_tables.tables.end() || found->second == nullptr)
+            {
+                fail("an animtable has no decoded view");
+            }
+            for (const auto& animation : found->second->records)
+            {
+                if (find_animation_record(*found->second, animation.name) != &animation
+                    || !animation.animation.starts_with("aid_anim_"))
+                {
+                    fail("a decoded animation record is out of order or names no animation");
+                }
+                ++animations;
+            }
+            for (const auto& alias : found->second->aliases)
+            {
+                if (find_animation_alias(*found->second, alias.name) != &alias)
+                {
+                    fail("a decoded animation alias is out of order");
+                }
+            }
+            release_animation_resource(owner.registry, cpu);
+            ++tables;
+        }
+    }
+    if (tables != 0x56)
+    {
+        fail("the animtable pool does not hold its 0x56 retail records");
+    }
+    std::cout << "executable animtables: " << tables << " animations " << animations << "\n";
+    size_t loaded = 0;
+    for (const BundleEntry* entry : entries_of_type(bundle, ResourceType::Model))
+    {
+        const char* name = entry->name.c_str();
+        const auto cpu = acquire_animation_resource(owner.registry, name);
+        if (cpu.data() == nullptr)
+        {
+            fail("an opening scene model did not load");
+        }
+        ++loaded;
+        const auto found = owner.model_views.assets.find(cpu.data());
+        if (found == owner.model_views.assets.end())
+        {
+            fail("the model post-load hook published no asset view");
+        }
+        const RuntimeModelAsset& asset = *found->second;
+        if (asset.tree == nullptr || asset.tree->roots.empty() || asset.blocks.empty() || asset.cpu.data() != cpu.data())
+        {
+            fail("the relocated model has no node tree or directory blocks");
+        }
+        RuntimeShaderRegistrationState registration{};
+        RuntimeShaderAnimationScratch scratch{};
+        auto instance = make_runtime_model_instance(asset, 1, 1, owner.copy_types, registration, scratch);
+        if (instance == nullptr || instance->source != &asset || instance->tree_storage.bytes.size() != asset.tree->instance_size)
+        {
+            fail("a model instance could not be built from the relocated asset");
+        }
+        std::cout << name << ": blocks " << asset.blocks.size() << " roots " << asset.tree->roots.size()
+                  << " instance " << asset.tree->instance_size << " d3d " << owner.d3d.resources.size()
+                  << " memory blocks " << owner.memory.block_count() << "\n";
+        release_runtime_model_instance(*instance, owner.registry, owner.blendshapes, owner.model_heap,
+            owner.d3d_boundaries);
+        // The registry defers the unload of a released resource, so its view stays published.
+        release_animation_resource(owner.registry, cpu);
+    }
+    if (loaded == 0 || owner.model_views.assets.size() != loaded)
+    {
+        fail("the opening scene bundle's models were not all viewed");
+    }
+    std::cout << "opening scene models: " << loaded << "\n";
+}
+
 void check_player_dialogue_resources(gbtg::AidStore& aids)
 {
     {
@@ -6593,9 +6691,29 @@ void check_player_dialogue_resources(gbtg::AidStore& aids)
         check_player_update();
         check_player_mind_owner(executable);
         check_player_factory_owner();
+        // The registrations of 0x00034C30 and 0x00034BC0, in order, with their active flags.
+        const std::pair<const char*, bool> registered[]{{"animtable", true}, {"attackdata", true},
+            {"hitreaction", true}, {"objparams", false}, {"scripttable", false}, {"objparams", false},
+            {"statetable", true}};
+        if (executable.pools.size() != std::size(registered))
+        {
+            throw gbtg::Error("executable resource pools differ from the retail registrations");
+        }
+        for (size_t index = 0; index < std::size(registered); ++index)
+        {
+            if (executable.pools[index].type != registered[index].first
+                || executable.pools[index].active != registered[index].second)
+            {
+                throw gbtg::Error("executable resource pool order or active flag differs from retail");
+            }
+        }
         size_t checked = 0;
         for (const auto& pool : executable.pools)
         {
+            if (pool.type != "objparams")
+            {
+                continue;
+            }
             if (pool.active)
             {
                 throw gbtg::Error("retail objparams pool became an active bundle provider");
@@ -7107,13 +7225,23 @@ int main(int argc, char** argv)
     const bool player_test = argc == 3 && std::string_view(argv[2]) == "--player-opening";
     const bool decoder_test = argc == 3 && std::string_view(argv[2]) == "--ghoulybox-decoder";
     const bool actor_test = argc == 3 && std::string_view(argv[2]) == "--actor-loading";
-    if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test)
+    const bool model_resources_test = argc == 3 && std::string_view(argv[2]) == "--scene-models";
+    if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
+        && !model_resources_test)
     {
-        std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --goop | --ui | --player-opening | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation]\n";
+        std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --goop | --ui | --player-opening | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models]\n";
         return 2;
     }
     try
     {
+        if (model_resources_test)
+        {
+            gbtg::AidStore aids;
+            aids.open(argv[1]);
+            check_scene_model_resources(aids);
+            std::cout << "PASS: retail opening models relocate, post-load and instance through the scene provider\n";
+            return 0;
+        }
         if (dialogue_resources_test)
         {
             gbtg::AidStore aids;

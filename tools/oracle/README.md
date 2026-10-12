@@ -251,3 +251,19 @@ harness with `cache/oracle/build_fx_emitter.cmd`. Seeds 7, 11, 17 and 19 (3,600,
 3,600, 3,800 and 1,900 cases) have zero mismatches. Each of twelve mutants is
 detected, including exact-boundary cylinder distances and NaN frustum planes.
 The powerup award (0x00123E70) is a stub here because its tree is not translated.
+
+`powerup_hud_oracle.py [seed] [count] [entry]` checks the helpers below the
+powerup award 0x00123E70: scoreboard messages 0x001316F0 (add), 0x001319C0
+(remove), 0x00131BD0 (icon lookup), 0x00132450 (powerup icon), 0x00132540
+(award caption) and 0x0012D7E0 (bonus counters), the table cancel 0x00124320,
+timer extension 0x0004A370, challenge lookup 0x000D0650 and stream restart
+0x00038880. The retail HUD counter 0x0012F990 and memmove 0x00165AF0 run as
+retail code; resource, text-pool, pulse and stream-slot callees are logging
+stubs on both sides. Build the harness with `cache/oracle/build_powerup_hud.cmd`.
+Seeds 3, 7, 11 and 17 (1,000, 3,000, 3,000 and 3,000 cases) have zero
+mismatches. Eleven of thirteen mutants are detected. The two survivors are
+`count < 1` versus `count < 0` (equivalent, since a zero count gives zero
+either way) and the bonus-counter default icon, which only a slot other than 0
+or 1 reaches; retail callers pass only those two slots. Message icons are
+limited to aidlist rows that name a texture, because retail reads a null
+texture's width and faults.

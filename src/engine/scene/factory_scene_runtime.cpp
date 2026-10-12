@@ -23,7 +23,9 @@ constexpr auto missing_getters(std::index_sequence<Types...>)
 }
 
 SceneFactoryRuntime::SceneFactoryRuntime(AidStore& aids, std::shared_ptr<SceneExecutableResources> image)
-    : executable(std::move(image)), resources(aids)
+    : executable(std::move(image)),
+      resources(aids, executable != nullptr ? std::span<ExecutableResourcePool>(executable->pools)
+          : std::span<ExecutableResourcePool>{})
 {
     if (executable == nullptr)
     {

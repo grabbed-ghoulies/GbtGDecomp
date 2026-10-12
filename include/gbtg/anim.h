@@ -185,6 +185,8 @@ void register_animation_resource_provider(AnimationResourceRegistry& registry,
     std::function<bool(u32, const void*, AnimationLoadedResource&)> load,
     std::function<void(u32, const char*, const AnimationLoadedResource&)> unload,
     int category, const void* context); // Xbox 0x00035540
+bool relocate_animation_bundle_pool(AnimationBundlePool& pool, AnimationResourceRegistry& registry,
+    const u32& loading, const std::function<void()>& pump_audio); // Xbox 0x00034730, EBX pool; DAT_004DEDA0 loading
 std::span<const u8> acquire_animation_resource(AnimationResourceRegistry& registry,
                                                const char* name); // Xbox 0x00035E90
 std::span<const u8> acquire_named_animation_resource(AnimationResourceRegistry& registry,

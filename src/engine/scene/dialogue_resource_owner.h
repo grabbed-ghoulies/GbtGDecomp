@@ -2,6 +2,8 @@
 #include "gbtg/aid.h"
 #include "../frontend/dialogue_text_metrics.h"
 #include "../../gbtg/text/localtext_resources.h"
+#include "scene_resource_memory.h"
+#include "gbtg/model_views.h"
 #include <map>
 
 namespace gbtg
@@ -11,7 +13,9 @@ namespace gbtg
 class SceneDialogueResourceOwner
 {
 public:
-    explicit SceneDialogueResourceOwner(AidStore& aids);
+    // With executable pools, their provider (0x00034E90/0x00034EC0, category 4) is registered first,
+    // as 0x00034C30 does at boot, ahead of the bundle and demand provider.
+    explicit SceneDialogueResourceOwner(AidStore& aids, std::span<ExecutableResourcePool> executable = {});
     SceneDialogueResourceOwner(const SceneDialogueResourceOwner&) = delete;
     SceneDialogueResourceOwner& operator=(const SceneDialogueResourceOwner&) = delete;
     AnimationResourceRegistry registry;
@@ -23,6 +27,28 @@ public:
     std::array<RuntimeTextKerning, 2> kerning{};
     RuntimeTextMetrics metrics{font_views, kerning, 1.f, 1.f, 2.f};
     void load_fonts();
+    // Model resources (hook 0x00052F00): relocated copies, their GPU segments and the host D3D state.
+    SceneResourceMemory memory;
+    SceneD3DResources d3d;
+    RuntimeNodeRelocationBoundaries d3d_boundaries = scene_d3d_boundaries(d3d, memory);
+    RuntimeModelHeapBoundaries model_heap = scene_model_heap_boundaries(memory);
+    RuntimeBlendshapeBoundaries blendshapes = scene_blendshape_boundaries(memory);
+    std::unique_ptr<RuntimeVertexShaderCache> shader_cache = std::make_unique<RuntimeVertexShaderCache>();
+    u32 default_pixel_shader = 0;
+    std::array<RuntimeNodeRelocationType, 17> relocation_types =
+        runtime_model_relocation_types(*shader_cache, default_pixel_shader, d3d_boundaries);
+    std::array<RuntimeModelNodeType, 17> copy_types = runtime_model_copy_types(blendshapes);
+    RuntimeSpecialTextures special_textures{};
+    RuntimeModelResourceViews model_views;
+    std::function<const u8*(u32)> gpu_pointer = [this](u32 address)
+    {
+        return static_cast<const u8*>(memory.pointer(address));
+    };
+    // The node type registry (*DAT_004370A0) is a runtime allocation of 0x54-byte descriptors.
+    RuntimeModelAllocation node_types = memory.allocate(u32(relocation_types.size()) * 0x54, 0x10);
+    RuntimeModelResourceLoader models{{}, model_views, {node_types.address, relocation_types}, copy_types,
+        special_textures, model_heap, d3d_boundaries, gpu_pointer};
+    u32 loading = 0; // DAT_004DEDA0; the native provider relocates outside an asynchronous load.
 
 private:
     struct Resource
@@ -31,6 +57,8 @@ private:
         LooseResource loose;
         std::vector<u8> text_file;
         std::vector<RuntimeLocalTextKey> keys;
+        std::vector<RuntimeGpuSegment> segments;
+        RuntimeGpuSegments gpu_segments;
     };
     AidStore& aids_;
     std::map<std::string, Resource> resources_;
@@ -38,5 +66,6 @@ private:
     std::array<LooseResource, 2> font_files_;
     Resource* find_resource(const char* name);
     void prepare_text(Resource& resource);
+    void prepare_model(Resource& resource, const BundleEntry& entry);
 };
 }

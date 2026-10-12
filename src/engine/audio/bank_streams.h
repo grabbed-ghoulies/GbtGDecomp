@@ -50,6 +50,7 @@ void release_tracked_audio_bank(const char* name, AudioBankStreams& context); //
 void release_audio_stream_slot(i32 index, AudioBankStreams& context); // Xbox 0x00038810
 void release_audio_stream(const char* name, AudioBankStreams& context); // Xbox 0x00038780
 void request_audio_stream(const char* name, i32 id, AudioBankStreams& context); // Xbox 0x00038720
+void restart_audio_stream(const char* name, i32 id, AudioBankStreams& context); // Xbox 0x00038880, EBX name
 void initialize_tracked_audio_bank(AudioTrackedBank& bank, i32 id,
     const char* name); // Xbox 0x00038210
 AudioTrackedBank* allocate_tracked_audio_bank(i32 id, const char* name,

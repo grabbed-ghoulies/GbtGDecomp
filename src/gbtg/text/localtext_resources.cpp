@@ -56,7 +56,7 @@ u32 lookup_borrowed_localtext(std::span<const u8> resource, const char* group,
 }
 
 // Xbox 0x000FF0A0
-void request_namespaced_localtext(const char* resource, const char* group,
+u32 request_namespaced_localtext(const char* resource, const char* group,
     const char* key, char16_t* output, LocalTextResourceContext& context)
 {
     char resource_name[128];
@@ -77,7 +77,7 @@ void request_namespaced_localtext(const char* resource, const char* group,
     }
     sanitize_localtext_key(sanitized, key);
     scene_detail::crt_format_string(combined, "%s__%s", group, sanitized);
-    acquire_localtext_key(resource_name, combined, output, context);
+    return acquire_localtext_key(resource_name, combined, output, context);
 }
 
 // Xbox 0x001660E9

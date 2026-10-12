@@ -63,6 +63,7 @@ add_library(gbtg_lib STATIC
     src/gbtg/text/localtext_resources.cpp
     src/engine/frontend/dialogue_tags.cpp
     src/engine/scene/dialogue_resource_owner.cpp
+    src/engine/scene/scene_resource_memory.cpp
     src/engine/scene/executable_resources.cpp
     src/engine/scene/factory_scene_runtime.cpp
     src/engine/scene/scene_markers.cpp
@@ -126,6 +127,7 @@ add_library(gbtg_lib STATIC
     src/engine/entities/imp_fire_strategy.cpp
     src/engine/entities/actor_runtime_queries.cpp
     src/engine/entities/fx_anim_emitter.cpp
+    src/engine/entities/powerup_awards.cpp
     src/engine/entities/intro_notices.cpp
     src/engine/entities/player_mind_messages.cpp
     src/engine/entities/player_mind_request_update.cpp
@@ -201,6 +203,7 @@ add_library(gbtg_lib STATIC
     src/engine/frontend/dialogue_input.cpp
     src/engine/frontend/input_activation.cpp
     src/engine/frontend/player_health_display.cpp
+    src/engine/frontend/scoreboard_messages.cpp
     src/engine/audio/listener_settings.cpp
     src/gbtg/graphics/font.cpp
     src/gbtg/audio/wavebank.cpp

@@ -5,8 +5,21 @@
 
 namespace gbtg
 {
-SceneDialogueResourceOwner::SceneDialogueResourceOwner(AidStore& aids) : aids_(aids)
+SceneDialogueResourceOwner::SceneDialogueResourceOwner(AidStore& aids, std::span<ExecutableResourcePool> executable)
+    : aids_(aids)
 {
+    if (!executable.empty())
+    {
+        register_animation_resource_provider(registry,
+            [executable](u32, const AnimationResourceRecord& request, const void*& resolved) -> u32
+            {
+                return find_executable_resource_provider(executable, request.name.c_str(), resolved);
+            },
+            [](u32, const void* resolved, AnimationLoadedResource& output)
+            {
+                return load_executable_resource_provider(resolved, output);
+            }, {}, 4, nullptr);
+    }
     register_animation_resource_provider(registry,
         [this](u32, const AnimationResourceRecord& request, const void*& resolved) -> u32
         {
@@ -30,6 +43,7 @@ SceneDialogueResourceOwner::SceneDialogueResourceOwner(AidStore& aids) : aids_(a
                 AnimationBundlePool{{&resource.record, 1}, true}};
             unload_bundle_resource_provider(pools, name);
         }, 3, this);
+    register_runtime_model_resource_hook(registry, models);
 }
 
 SceneDialogueResourceOwner::Resource* SceneDialogueResourceOwner::find_resource(const char* name)
@@ -60,7 +74,38 @@ SceneDialogueResourceOwner::Resource* SceneDialogueResourceOwner::find_resource(
     }
     auto& resource = resources_[key];
     resource.record = {key, 0, entry->cpu, entry->gpu, {}, {}};
+    if (entry->type == ResourceType::Model)
+    {
+        prepare_model(resource, *entry);
+        // Retail relocates every record when its bundle opens (0x00034730); the native provider
+        // prepares records one at a time, so each runs that pass when it is first found.
+        AnimationBundlePool pool{{&resource.record, 1}, true};
+        relocate_animation_bundle_pool(pool, registry, loading, []
+        {
+            throw Error("scene resource relocation has no asynchronous audio pump");
+        });
+    }
     return &resource;
+}
+
+// Pointer-width adapter for a model record: a relocatable copy of its CPU block and of each GPU chunk,
+// each at its own address, as the retail loader leaves them before the relocation pass.
+void SceneDialogueResourceOwner::prepare_model(Resource& resource, const BundleEntry& entry)
+{
+    const auto cpu = memory.copy(entry.cpu, 0x10);
+    for (const auto& chunk : entry.gpu_chunks)
+    {
+        if (chunk.offset > entry.gpu.size() || chunk.size > entry.gpu.size() - chunk.offset)
+        {
+            throw Error("scene model GPU chunk is outside its resource data: " + entry.name);
+        }
+        const auto gpu = memory.copy(entry.gpu.subspan(chunk.offset, chunk.size), 0x80);
+        resource.segments.push_back({gpu.address, chunk.size});
+    }
+    resource.gpu_segments = {resource.segments};
+    resource.record.cpu = cpu.bytes;
+    models.resources.emplace(cpu.bytes.data(),
+        RuntimePreparedModelResource{{cpu.bytes, cpu.address}, &resource.gpu_segments});
 }
 
 void SceneDialogueResourceOwner::prepare_text(Resource& resource)

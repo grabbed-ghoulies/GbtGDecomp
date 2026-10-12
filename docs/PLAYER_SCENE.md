@@ -4908,3 +4908,132 @@ Validation: `fx_emitter_oracle.py` matches retail on seeds 7, 11, 17 and 19
 are each detected. Release builds, all six CTests, and the dialogue-resource,
 actor-loading and decoder suites pass. Nothing was staged or committed, and no
 retail payload or Ghidra project was changed.
+
+### 2026-10-12: powerup award tree, first piece
+
+The award 0x00123E70 is still a required binding of the FX emitter. Its tree
+splits into three parts; the first is now translated and verified.
+
+**Translated (`frontend/scoreboard_messages`, `entities/powerup_awards`,
+`audio/stream_restart`):**
+
+- scoreboard messages: 0x001316F0 add, 0x001319C0 remove, 0x00131BD0 icon
+  lookup through `aid_aidlist_ghoulies_scoreboard_icons`, 0x00132450 powerup
+  icon, 0x00132540 award caption, 0x0012D7E0 bonus counters;
+- the award table (DAT_00512140, 20 rows of 0x18): 0x00124320 cancel;
+- 0x0004A370, which adds time to the kind 0x10/0x11 entries of DAT_004E17D8;
+- 0x000D0650, the challenge record lookup in DAT_005064E0;
+- 0x00038880, which restarts a named audio stream unless it is starting or
+  younger than 0.24 seconds.
+
+`request_namespaced_localtext` (0x000FF0A0) now returns the 0x000FF410 result,
+which 0x00132540 tests. The scoreboard (DAT_00545ABC and *DAT_005459F8) is a
+narrow native struct with the fields these calls touch; its constructor
+0x00130BB0 is not translated.
+
+Instruction-level details: in 0x00123E70, case 0xE checks the 0xF row
+(DAT_005122A8) and cancels kind 0xF, and case 0xF checks the 0xE row and
+cancels kind 0xE. Cases 2, 3, 5, 6, 8 to 0xD, 0xF, 0x12 and 0x13 pick sound
+row 0; cases 4, 0xE, 0x10 and 0x11 pick row 1; case 7 picks row 4; case 1
+picks row 2 or 3 from the bonus count. An unmatched kind uses row -1
+(0x003121D0, the preceding objparams name). The rows are XACT names at
+0x00312250, stride 0x80.
+
+Validation: `powerup_hud_oracle.py` has zero mismatches on seeds 3, 7, 11 and
+17 (10,000 cases), and eleven of thirteen mutants are detected. See the oracle
+README for the two survivors.
+
+**Still untranslated below 0x00123E70:**
+
+- Kind 5 (EventComplete), 0x000D0870: the challenge door cutscenes.
+  0x000D0490 frees the challenge table; 0x0005B510 and 0x0005B540 run the door
+  rows of DAT_004EE2B8 (stride 0x154, cutscene instances at +0x140/+0x144)
+  through 0x0005A9B0, 0x0005B2D0, 0x0005B890, 0x0005B960, 0x0005BDB0,
+  0x0005BF30, 0x000663B0, 0x001117E0, 0x00036A00, 0x001410F0 and 0x0013B1F0.
+- Kind 1 (Book), 0x000F24C0: sets the challenge bit, queues the
+  first-bonus-book or first-challenge intro, and, when a save is active
+  (DAT_00506C90), copies the 13 challenge bytes into the save slot (0x000F3230,
+  0x0010E5B0) and writes it. The write is 0x0010DC20, 0x0010E2C0, 0x0010DA80,
+  0x0010F2D0 and 0x0010EB60, through the file jobs 0x000E9A00, 0x000E9A10,
+  0x000E9AF0, 0x000E9C20 and 0x000EB180, with the XAPI file and signature
+  routines at 0x0014A91C to 0x0014CF9B. The save-slot manager DAT_005462E4 has
+  no native owner yet; `saves/save_names.cpp` holds only the name scan.
+- Kind 0xC (MiniCooper) reuses the translated 0x001349E0, but needs the marker
+  object context. Kind 0x13 walks DAT_00511B48 with per-actor views.
+
+Neither remaining part is on the path to a live spawn: the award runs only when
+a player collects a pickup. Live spawning is blocked first by the scene
+resource layer. The actor startup reads model asset views, but no live
+"model" hook is registered: `register_runtime_model_resource_hook` needs the
+D3D relocation boundaries and a prepared relocation image per bundle entry.
+Nothing was staged or committed.
+
+### 2026-10-12: live model resources
+
+Actor construction reads model asset views (actor +0x204 through 0x0003E940),
+and no live code produced them. The scene's resource provider
+(`SceneDialogueResourceOwner`, owned by `SceneFactoryRuntime`) now registers
+the model hook 0x00052F00 and relocates real retail models.
+
+- `scene/scene_resource_memory` is the address-space adapter the relocation
+  code needs. Retail stores absolute 32-bit addresses inside resource CPU
+  blocks, GPU segments and model heap blocks. The scene keeps native copies
+  and gives each a distinct address from a token arena at 0x40000000. It also
+  provides the heap boundaries (allocate, physical allocate, free), the
+  blendshape boundaries and the host D3D boundaries. The host D3D keeps a
+  record per header address instead of Xbox D3D headers; the transpose
+  boundary transposes the 4x4 matrix in place, since model data depends on it.
+- 0x00034730, the relocation pass a bundle runs when it opens, is translated
+  (`relocate_animation_bundle_pool`). The native provider prepares records one
+  at a time, so each model record runs the pass when first found. Preparing a
+  model copies its CPU block and each GPU chunk (offsets into the bundle's GPU
+  heap) into the resource memory.
+- The node-type registry (*DAT_004370A0) is a runtime allocation in retail;
+  the provider allocates its descriptor table in the resource memory and uses
+  that address.
+
+Validation: `gbtg-transition-tests GAME_DIRECTORY --scene-models` acquires all
+16 models in the opening scene's bundle (imp, shadow imp, butler, brambles,
+the central hallway background, doors, the powerup book, the rope barrier and
+the unbreakable chair). Each relocates, post-loads, publishes its asset view,
+and builds and releases a model instance. Release builds, all six CTests, the
+dialogue, actor-loading and decoder suites, and a 120-frame headless run of the
+opening scene pass.
+
+**Executable resources and animation tables.** Animation tables are not
+bundle resources: they are records of the XBE's own animtable pool. Boot
+(0x00034C30, then 0x00034BC0) registers seven executable pools in order:
+animtable (0x0033AC88, 0x56 records, active), attackdata (0x0033E100, 0x1D,
+active), hitreaction (0x00343800, 0x27, active), objparams (0x003D7928,
+inactive), scripttable (0x003E8A10, 0x23, inactive), objparams (0x00402CA0,
+inactive) and statetable (0x004202F0, 0x29, active). `SceneExecutableResources`
+now reads all seven, where it read only the two objparams pools. The scene
+registry now registers the executable provider (0x00034E90/0x00034EC0,
+category 4) ahead of the bundle provider, as boot does.
+
+Each animtable record is a 0x14-byte header: +0 record count, +4 records,
++8 alias count, +0xC aliases. Each 0x118-byte record holds a name pointer at
++0, the animation and events names inline at +4 and +0x84, four floats from
++0x104 and four bytes from +0x114; each alias is a pair of name pointers.
+`SceneExecutableResources` decodes all of them into
+`AnimationTableResourceViews` (a pointer-width adapter over the XBE bytes).
+The `--scene-models` check resolves all 86 tables (2,004 animations) through
+the registry, and the translated binary searches 0x00032180 and 0x00032210
+find every record and alias.
+
+Animations need no relocation in the native model: the translated Mina player
+reads the raw bundle bytes with offsets, so `aid_anim_` resources already work
+through the bundle provider. The `anim` relocate hook 0x0002DD90 must not be
+applied to the bytes those readers use.
+
+**Next: the `ActorModel` view.** The actor code reads `ActorModel.cpu` as the
+serialized model, with offsets (0x000408D0, 0x0003D730, 0x00040550 and
+others), while the relocated copy behind the asset view holds absolute
+addresses. So each model needs both: the asset view over the relocated copy,
+and an `ActorModel` over the original bundle bytes plus the instance and pose
+pointers. Some readers (for example the render registration's +0x10 read) take
+fields that retail fills only at post-load, so each consumer needs checking
+against its dump before the view is wired in. The remaining hook types
+(callout, camera, cutscene, font, loctext, texture relocate 0x00053520) are
+also still unregistered, and the player model comes from a bundle the provider
+has not been exercised with yet.

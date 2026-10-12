@@ -30,6 +30,45 @@ bool resource_names_match(const char* first, const char* second)
     return false;
 }
 
+// Xbox 0x00034730. EBX pool. The native records already hold resolved CPU spans, so the dump's
+// +0x18 base addition is done by the bundle reader. The type copy into DAT_004DF220 and its hook
+// search inline 0x000362B0.
+bool relocate_animation_bundle_pool(AnimationBundlePool& pool, AnimationResourceRegistry& registry,
+    const u32& loading, const std::function<void()>& pump_audio)
+{
+    u32 index = 0;
+    if (pool.records.size() != 0)
+    {
+        do
+        {
+            AnimationBundleRecord& record = pool.records[index];
+            record.references = 0;
+            std::string type;
+            for (size_t cursor = 4; record.name[cursor] != '_'; ++cursor)
+            {
+                type.push_back(record.name[cursor]);
+            }
+            AnimationResourceHook* hook = find_animation_resource_hook(registry, type.c_str());
+            if (hook != nullptr && hook->relocate)
+            {
+                AnimationLoadedResource loaded;
+                loaded.cpu = record.cpu;
+                loaded.gpu = record.gpu;
+                loaded.cpu_storage = record.cpu_storage;
+                loaded.gpu_storage = record.gpu_storage;
+                hook->relocate(loaded);
+            }
+            if (loading != 0)
+            {
+                // 0x0015B780 with DAT_005096C0, then 0x0003A040 and 0x000396F0.
+                pump_audio();
+            }
+            ++index;
+        } while (index < pool.records.size());
+    }
+    return true;
+}
+
 // Xbox 0x00034A70.
 bool find_bundle_resource(std::span<AnimationBundlePool> pools, const char* name,
     AnimationBundlePool*& pool, AnimationBundleRecord*& record)

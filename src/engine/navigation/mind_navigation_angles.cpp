@@ -47,6 +47,45 @@ float interpolate_runtime_mind_angle(float angle, float reference, float fractio
     return output;
 }
 
+namespace
+{
+// The 0x00152BE0 remainder wrapped into [-pi, pi) as the retail angle helpers inline it.
+float wrap_signed_angle(float value)
+{
+    const float tau = std::bit_cast<float>(0x40C90FDBu);
+    const long double remainder = animation_remainder(value, tau);
+    float result = float(remainder);
+    if (remainder < static_cast<long double>(std::bit_cast<float>(0xC0490FDBu)))
+    {
+        result += tau;
+    }
+    if (result >= std::bit_cast<float>(0x40490FDBu))
+    {
+        result -= tau;
+    }
+    return result;
+}
+}
+
+// Xbox 0x00100D00
+float reflect_runtime_angle(float angle, float reference)
+{
+    return wrap_signed_angle(wrap_signed_angle(angle - reference) + angle);
+}
+
+// Xbox 0x00100B80
+float nearest_runtime_angle(float reference, float first, float second)
+{
+    const float first_difference = wrap_signed_angle(first - reference);
+    const float second_difference = wrap_signed_angle(second - reference);
+    const float second_size = float(engine_absolute(second_difference));
+    if (second_size > static_cast<long double>(engine_absolute(first_difference)))
+    {
+        return first;
+    }
+    return second;
+}
+
 // Xbox 0x00136030
 void randomize_runtime_mind_escape_heading(const Actor& actor,
     std::span<const u8> target, const Vec3& destination, float& heading, u32& random)

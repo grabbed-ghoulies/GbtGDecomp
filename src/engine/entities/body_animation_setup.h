@@ -47,4 +47,6 @@ void initialize_runtime_body_animation_settings(std::span<u8> body,
 u32 count_runtime_body_model_records(const u8* data, u16 kind); // Xbox 0x00051CA0
 u32 count_runtime_body_model_kind(const RuntimeBodyModelNodes* model,
     u16 kind); // Xbox 0x00040980
+const u8* find_runtime_body_model_record(const RuntimeBodyModelNodes* model, u16 kind,
+    i32 index); // Xbox 0x000409D0, EAX actor +0x204
 }

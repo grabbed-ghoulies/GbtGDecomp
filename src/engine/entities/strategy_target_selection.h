@@ -1,0 +1,81 @@
+#pragma once
+#include "player_strategy_goals.h"
+
+namespace gbtg
+{
+// DAT_00511B48 actor list; each link is actor +0x944 with its next pointer at +4.
+struct RuntimeActiveActorLink
+{
+    const RuntimeActiveActorLink* next; // +4.
+    const RuntimeScriptMindQuery* body; // +0x18, actor +0x95C.
+    RuntimePlayerGoalRing* const* goals; // +0x3C, actor +0x980.
+};
+struct RuntimeTutorialNotice
+{
+    const Actor* actor; // DAT_00506E04 + 8n.
+    u32 id; // DAT_00506E08 + 8n.
+};
+// The four-entry first-sighting notice queue read by 0x000F4A00.
+struct RuntimeTutorialNotices
+{
+    std::span<const u8> seen; // *(DAT_00506C6C+8) bits.
+    u32& pending; // DAT_00506E28.
+    const Actor*& first; // DAT_00506DFC.
+    u32& first_id; // DAT_00506E00.
+    std::span<RuntimeTutorialNotice, 4> queued; // DAT_00506E04.
+    i32& count; // DAT_00506E24.
+    const Actor* const& player; // DAT_00511B40 minus 0x93C; null for the null and sentinel tokens.
+};
+struct RuntimeStrategyTargetChecks
+{
+    RuntimePlayerStrategyGoals& goals;
+    std::span<const u8>& attributes; // Actor +0x964.
+    const i32& difficulty; // DAT_005064D8.
+    const RuntimeActiveActorLink* const& active; // DAT_00511B48.
+    RuntimeTutorialNotices& notices;
+    float& occupancy_initial; // Retained caller occupancy scratch read by 0x0013AA50 flag 0x10.
+};
+RuntimeMindTarget* find_runtime_strategy_class_target(bool class_filter, float* distance,
+    RuntimePlayerStrategyGoals& context); // Xbox 0x00029AC0, EBX mind, EDX filter
+RuntimeMindTarget* find_runtime_strategy_hostile_target(bool hostile_filter, float* distance,
+    RuntimePlayerStrategyGoals& context); // Xbox 0x00029BA0, EDX mind, EAX filter
+bool select_runtime_strategy_target(RuntimeMindTarget*& output, u32 force,
+    RuntimePlayerStrategyGoals& context); // Xbox 0x00139AA0, EAX strategy
+bool select_runtime_strategy_hostile_target(RuntimeMindTarget*& output, u32 force,
+    RuntimePlayerStrategyGoals& context); // Xbox 0x00139C70, EAX strategy, EDX force
+Actor* runtime_mind_target_case_actor(const RuntimeMindTarget& target); // Xbox 0x00141450, EAX target
+bool runtime_mind_target_case_unavailable(const RuntimeMindTarget& target); // Xbox 0x00141470, EAX target
+u32 runtime_actor_attack_limit(std::span<const u8> attributes); // Xbox 0x000196B0, EAX actor
+bool roll_runtime_actor_attack(std::span<const u8> attributes, u32& random); // Xbox 0x000196F0, EAX actor
+i32 count_runtime_energy_actors(const RuntimeActiveActorLink* first,
+    std::span<const u8> address_zero); // Xbox 0x00129280
+u32 runtime_strategy_abandons_target(const RuntimeMindTarget& target,
+    RuntimeStrategyTargetChecks& context); // Xbox 0x00138410, EAX strategy, EDX target
+bool runtime_message_names_mind_target(std::span<const u32> message, std::span<const u8> mind,
+    const std::function<RuntimeMindTarget*(u32)>& target_at); // Xbox 0x001409C0, EDX message
+void keep_nearer_tutorial_actor(RuntimeTutorialNotice& notice, const Actor& actor,
+    const Actor* player); // Xbox 0x000F4E10, EBX notice, EDI actor
+void queue_runtime_tutorial_notice(const Actor& actor, u32 id,
+    RuntimeTutorialNotices& context); // Xbox 0x000F4870, EAX actor, EDX id
+u32 notice_runtime_strategy_target(u32 id, RuntimeStrategyTargetChecks& context); // Xbox 0x0013A430, EAX strategy
+u32 notice_runtime_strategy_hostile_target(u32 id,
+    RuntimeStrategyTargetChecks& context); // Xbox 0x0013A4F0, ESI strategy
+u32 resume_runtime_strategy_for_target(std::span<const u32> message,
+    RuntimeStrategyTargetChecks& context); // Xbox 0x00138700, EAX strategy
+u32 retreat_runtime_strategy_from_target(std::span<const u32> message,
+    RuntimeStrategyTargetChecks& context); // Xbox 0x00138740, EAX strategy
+u32 review_runtime_strategy_target(RuntimeStrategyTargetChecks& context); // Xbox 0x00138790, EAX strategy
+u32 react_runtime_strategy_message(std::span<const u32> message,
+    RuntimeStrategyTargetChecks& context); // Xbox 0x001384F0, EAX strategy, ECX message
+u32 react_runtime_strategy_contact(std::span<const u32> message, float chance,
+    RuntimeStrategyTargetChecks& context); // Xbox 0x001395C0, EAX strategy, EDX message, XMM1 chance
+u32 react_runtime_strategy_cower(RuntimeStrategyTargetChecks& context); // Xbox 0x001398A0, EAX strategy
+u32 react_runtime_strategy_startle(RuntimeStrategyTargetChecks& context); // Xbox 0x001399A0, EAX strategy
+u32 retreat_runtime_strategy_from_reached_target(RuntimeStrategyTargetChecks& context); // Xbox 0x001383A0, EAX strategy
+RuntimePlayerMindRequest* request_runtime_strategy_position(const Vec3& position, std::span<const u8> settings,
+    RuntimePlayerStrategyGoals& context); // Xbox 0x00139FA0, EAX actor, EDI position, ESI settings
+bool select_runtime_strategy_roam_position(Vec3& output, float heading, float range, float width,
+    RuntimeStrategyTargetChecks& context); // Xbox 0x00138310, EAX actor, XMM0 width
+RuntimePlayerMindRequest* request_runtime_strategy_roam(std::span<const u8> settings,
+    RuntimeStrategyTargetChecks& context); // Xbox 0x0013A0A0, EAX settings, EBX actor
+}

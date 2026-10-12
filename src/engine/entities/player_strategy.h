@@ -1,5 +1,6 @@
 #pragma once
 #include "player_strategy_goals.h"
+#include "intro_notices.h"
 #include "player_state.h"
 #include "actor_attachment_events.h"
 #include "../audio/event_voices.h"
@@ -50,7 +51,6 @@ u32 check_runtime_player_knockout(RuntimePlayerStrategyGoals& context); // Xbox 
 u32 runtime_difficulty_allows_rest(const i32& difficulty); // Xbox 0x000D0690
 u32 runtime_player_idle_elapsed(RuntimePlayerStrategyFlow& context); // Xbox 0x000BF600, EAX body, EDI strategy
 u32 runtime_player_wants_to_move(RuntimePlayerStrategyFlow& context); // Xbox 0x000BF6A0, EBX actor
-u32 runtime_brew_intro_ready(RuntimePlayerStrategyFlow& context); // Xbox 0x0013FF70
 void unlock_runtime_brew_intro(RuntimePlayerStrategyFlow& context); // Xbox 0x0013FF30
 void dispatch_runtime_player_strategy_message(std::span<const u32> message,
     RuntimePlayerStrategyFlow& context); // Xbox 0x000BEE10

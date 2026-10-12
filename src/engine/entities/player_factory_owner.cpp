@@ -89,6 +89,7 @@ bool construct_base_strategy_view(FactoryObject& object, std::span<const u8> par
 {
     auto& player = active_owner->player_at(parameter_word(parameters, 8));
     active_owner->bind_child(object, player);
+    player.strategy_type = 0x4F;
     player.strategy = bytes_of(object);
     player.strategy_entry.strategy = player.strategy;
     return initialize_runtime_base_strategy(player.strategy, parameters, player.actor.class_key,
@@ -108,6 +109,21 @@ void destroy_player_strategy_view(FactoryObject& object)
 {
     auto* player = active_owner->find_player(object);
     destroy_runtime_player_strategy(player->strategy, player->scene.active_strategies);
+}
+
+bool construct_imp_fire_strategy_view(FactoryObject& object, std::span<const u8>)
+{
+    auto* player = active_owner->find_player(object);
+    player->strategy_type = 0x46;
+    player->refresh_views();
+    return initialize_runtime_imp_fire_strategy(player->imp_fire);
+}
+
+void destroy_imp_fire_strategy_view(FactoryObject& object)
+{
+    auto* player = active_owner->find_player(object);
+    player->refresh_views();
+    destroy_runtime_imp_fire_strategy(player->imp_fire);
 }
 
 const ObjectFactoryVtable* player_lifecycle()
@@ -148,6 +164,13 @@ const ObjectFactoryVtable* player_strategy_lifecycle()
 {
     static const ObjectFactoryVtable table{0x00505FA0, player_strategy_object_sizes,
         accept_runtime_object_construction, destroy_player_strategy_view};
+    return &table;
+}
+
+const ObjectFactoryVtable* imp_fire_strategy_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505EA4, imp_fire_strategy_object_sizes,
+        construct_imp_fire_strategy_view, destroy_imp_fire_strategy_view};
     return &table;
 }
 }
@@ -203,14 +226,27 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
       strategy_setup{child, mind_requests,
           [this](FactoryObject& object, u16 old_state, u16 next_state)
           {
+              if (strategy_type == 0x46)
+              {
+                  // Imp fire strategy vtable +0x18, 0x000B4A60.
+                  refresh_views();
+                  leave_runtime_imp_fire_state(old_state, next_state, imp_fire);
+                  return;
+              }
               // Player strategy vtable +0x18, 0x000BF410.
               leave_runtime_player_strategy(bytes_of(object), old_state, next_state, body, scene.active_strategies,
                   scene.pause);
           },
-          [this](FactoryObject&, u16 state, u16)
+          [this](FactoryObject&, u16 state, u16 previous)
           {
-              // Player strategy vtable +0x14, 0x000BF2B0.
               refresh_views();
+              if (strategy_type == 0x46)
+              {
+                  // Imp fire strategy vtable +0x14, 0x000B4940.
+                  enter_runtime_imp_fire_state(state, previous, imp_fire);
+                  return;
+              }
+              // Player strategy vtable +0x14, 0x000BF2B0.
               enter_runtime_player_strategy_state(state, flow);
           }},
       attachment{{}, self, body_attachment, body_selection, secondary, mind_action, mind_present,
@@ -275,7 +311,15 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
           scene_bindings.unlock_flags, scene_bindings.scene_flags, scene_bindings.scene_name,
           scene_bindings.brews_owned, scene_bindings.brews_required, scene_bindings.story_byte,
           scene_bindings.intro_pending, scene_bindings.intro_name, scene_bindings.cases,
-          scene_bindings.case_body_bits, "idle"}
+          scene_bindings.case_body_bits, "idle"},
+      target_checks{strategy_goals, attribute_resource, scene_bindings.difficulty, scene_bindings.active_actors,
+          scene_bindings.notices, scene_bindings.occupancy_initial},
+      target_queue{scene_bindings.target_slots, scene_bindings.queue_limits, scene_bindings.class_queue_limits,
+          scene_bindings.target_of, scene_bindings.actor_bytes_of},
+      imp_fire{strategy_messages, target_checks, target_queue, scene_bindings.imp_fire_parameters,
+          owner_instance.animation, scene_bindings.registry, scene_bindings.create_effect, scene_bindings.object_message,
+          scene_bindings.body_at, scene_bindings.body_of, scene_bindings.model_of, scene_bindings.attachment_limit,
+          "aid_objparams_ghoulies_fx_mutatehalo", "attack", "mutateup", "jumpbite", "jumpbiteprepare"}
 {
 }
 
@@ -346,6 +390,28 @@ void NativePlayerFactoryOwner::strategy_update(FactoryObject& strategy)
     update_runtime_player_strategy(player->flow);
 }
 
+void NativePlayerFactoryOwner::imp_fire_message(FactoryObject& strategy, std::span<const u32> message)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x46)
+    {
+        throw Error("imp fire strategy method has no owning instance");
+    }
+    player->refresh_views();
+    dispatch_runtime_imp_fire_message(message, player->imp_fire);
+}
+
+void NativePlayerFactoryOwner::imp_fire_update(FactoryObject& strategy)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x46)
+    {
+        throw Error("imp fire strategy method has no owning instance");
+    }
+    player->refresh_views();
+    update_runtime_imp_fire_strategy(player->imp_fire);
+}
+
 NativePlayerFactoryOwner::NativePlayerFactoryOwner(NativePlayerFactoryBindings player_bindings)
     : bindings(std::move(player_bindings)),
       minds(NativePlayerMindBindings{
@@ -395,14 +461,15 @@ void NativePlayerFactoryOwner::install(std::span<ObjectFactoryType> types)
     {
         throw Error("native player factory already has an owner");
     }
-    // Lifecycle views of retail getters 0x00027F60, 0x0001DA50, 0x000733F0, 0x00075AF0, 0x0002B6C0 and
-    // 0x000BED40; types 1 and 2 stay with the actor owner, types 7 and 0x34 with the mind owner.
+    // Lifecycle views of retail getters 0x00027F60, 0x0001DA50, 0x000733F0, 0x00075AF0, 0x0002B6C0,
+    // 0x000BED40 and 0x000B4480; types 1 and 2 stay with the actor owner, types 7 and 0x34 with the mind owner.
     types[5] = ObjectFactoryType{2, player_lifecycle};
     types[6] = ObjectFactoryType{1, parent_body_lifecycle};
     types[0x27] = ObjectFactoryType{6, player_body_parent_lifecycle};
     types[0x2A] = ObjectFactoryType{0x27, player_body_lifecycle};
     types[8] = ObjectFactoryType{1, base_strategy_lifecycle};
     types[0x4F] = ObjectFactoryType{8, player_strategy_lifecycle};
+    types[0x46] = ObjectFactoryType{8, imp_fire_strategy_lifecycle};
     minds.install(types);
     active_owner = this;
 }

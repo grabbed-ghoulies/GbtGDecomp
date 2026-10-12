@@ -121,11 +121,18 @@ add_library(gbtg_lib STATIC
     src/engine/entities/player_update.cpp
     src/engine/entities/player_strategy_goals.cpp
     src/engine/entities/player_strategy.cpp
+    src/engine/entities/strategy_target_queue.cpp
+    src/engine/entities/strategy_target_selection.cpp
+    src/engine/entities/imp_fire_strategy.cpp
+    src/engine/entities/actor_runtime_queries.cpp
+    src/engine/entities/fx_anim_emitter.cpp
+    src/engine/entities/intro_notices.cpp
     src/engine/entities/player_mind_messages.cpp
     src/engine/entities/player_mind_request_update.cpp
     src/engine/entities/player_mind_owner.cpp
     src/engine/entities/player_factory_owner.cpp
     src/engine/camera/camera_pulse.cpp
+    src/engine/camera/view_frustum.cpp
     src/engine/frontend/brew_meter.cpp
     src/engine/entities/player_state.cpp
     src/engine/entities/body_motion_controller.cpp

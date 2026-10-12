@@ -314,4 +314,50 @@ u32 count_runtime_body_model_kind(const RuntimeBodyModelNodes* model, u16 kind)
     }
     return 0;
 }
+
+// Xbox 0x000409D0
+const u8* find_runtime_body_model_record(const RuntimeBodyModelNodes* model, u16 kind, i32 index)
+{
+    const u8* row = nullptr;
+    while (true)
+    {
+        if (model == nullptr || model->nodes.data() == nullptr || model->nodes.empty())
+        {
+            return nullptr;
+        }
+        size_t node = 0;
+        while (model->nodes[node].kind != 2)
+        {
+            ++node;
+            if (node >= model->nodes.size())
+            {
+                return nullptr;
+            }
+        }
+        const u8* data = model->nodes[node].data;
+        if (data == nullptr)
+        {
+            return nullptr;
+        }
+        const u8* end = data + 4 + size_t(read_u32({data, 4}, 0)) * 0x34;
+        row = row == nullptr ? data + 4 : row + 0x34;
+        if (end <= row)
+        {
+            return nullptr;
+        }
+        while (i16(read_u16({row, 2}, 0)) != i16(kind))
+        {
+            row += 0x34;
+            if (end <= row)
+            {
+                return nullptr;
+            }
+        }
+        if (index == 0)
+        {
+            return row;
+        }
+        --index;
+    }
+}
 }

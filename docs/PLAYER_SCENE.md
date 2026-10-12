@@ -4790,3 +4790,121 @@ graph; install_cinema is not called by the live scene yet. Type-0x46 strategy
 and book classes also remain required by the opening imp templates. Keep
 full dispatcher/tick/message coverage separate from the verified facing,
 primitive, constructor and selection modes above.
+
+### 2026-10-11: imp fire strategy (type 0x46)
+
+Translated entityStrategyImpFire, the strategy every opening imp template uses
+(getter 0x000B4480, vtable 0x00505EA4), with its untranslated callees. The
+first call tree came from the decompiler and missed three tail-called helpers
+(0x001395C0, 0x001398A0, 0x001399A0) because Ghidra inlined them into the
+0x000B46B0 switch. The final tree was rebuilt from the machine code with a
+capstone walk that follows jump tables and tail jumps. Message and switch case
+blocks were disassembled from the XBE where the read-only exports stopped at the
+indirect jump.
+
+New modules:
+
+- `strategy_target_queue`: the 20-slot attack queue at DAT_0050E284
+  (0x0002CC30, 0x00112B40, 0x00112970, 0x00112A70, 0x0002B910). It shares
+  `g_actor_attachment_slots` with 0x00112910, so slot owners are the native
+  `ActorLiveAttachment` records. `RuntimeMindTarget` gains a trailing `record`
+  pointer to name that identity.
+- `strategy_target_selection`: shared base-strategy target selection, checks,
+  reactions, tutorial-notice queueing and roam requests (0x00029AC0, 0x00029BA0,
+  0x00139AA0, 0x00139C70, 0x00141450, 0x00141470, 0x000196B0, 0x000196F0,
+  0x00129280, 0x00138410, 0x001409C0, 0x000F4E10, 0x000F4870, 0x0013A430,
+  0x0013A4F0, 0x00138700, 0x00138740, 0x00138790, 0x001384F0, 0x001395C0,
+  0x001398A0, 0x001399A0, 0x001383A0, 0x00139FA0, 0x00138310, 0x0013A0A0).
+- `imp_fire_strategy`: sizes, constructor, destructor, message, update, enter
+  and leave slots, and every state handler (0x000B0B90 through 0x000B4F50 and
+  0x000C2D90).
+- Angle helpers 0x00100B80/0x00100D00 in `mind_navigation_angles`, and the
+  model record lookup 0x000409D0 beside 0x00040980.
+
+Behaviour notes taken from the instructions rather than the decompile:
+
+- The decompile hides the predicate flags that 0x00129640 receives in EAX. Each
+  caller's adjustment of `mind +0x64` (`&~4|0x10` while hostile, `&~0x20|8` in
+  0x00029BA0) is kept.
+- 0x000B4160's direction-angle output reuses its caller's argument slot. That
+  slot holds the parameter block address (0x004287BC), and a zero direction
+  leaves that bit pattern as the angle.
+- 0x000B40E0 tests the unrounded x87 remainder, not the rounded float.
+- 0x00112B40 still swaps when the distances are unordered (COMISS/JNC).
+- Strategy message return values are discarded by the actor dispatcher
+  (0x00028F60), so the imp message slot returns void like the player strategy.
+
+`NativePlayerFactoryOwner` installs type 0x46 over base type 8 and records each
+player's strategy type. Strategy vtable +0x14/+0x18 now dispatch to the imp
+enter/leave methods (0x000B4940/0x000B4A60) for imps, and `imp_fire_message` and
+`imp_fire_update` adapt slots +0xC/+0x10. The scene bindings now include the
+queue table and limits, the active-actor list, the tutorial-notice queue, the
+0x004287BC parameter block, effect creation and messaging, and body and model
+views. The imp methods read the strategy through the bound strategy bytes, so a
+standalone strategy child works before the actor's +0x954 object is set.
+
+Validation: `imp_strategy_oracle.py` runs the retail code under Unicorn against
+the native modules. Seeds 3, 7 and 11 (2,000, 6,000 and 3,000 cases) have zero
+mismatches, and ten mutants across the five modules are each detected. The
+factory-owner fixture constructs a type-0x46 strategy through types 1, 8 and
+0x46, dispatches its message slot and releases it. Release game and
+transition-test builds pass. All six CTests and the dialogue-resource,
+actor-loading and decoder suites pass.
+
+Still outstanding for live spawning: book type 0xD, the Game-owned scene
+service graph that supplies these bindings, and calling marker start and the
+per-frame actor updates from the live scene. No retail payload or Ghidra
+project was modified, and nothing was staged or committed.
+
+### 2026-10-12: FX anim emitter (type 0xD)
+
+The opening scene's kind-6 template creates type 0xD, `entityAvatarFxAnimEmitter`
+(getter 0x00109DD0, vtable 0x0050E108, parent 2). Earlier notes called it the
+"book". It is the floating powerup pickup: it flies to a landing point, bounces
+up to three times, pulses its sprite, and is collected when a player's cylinder
+or carried actor's shapes touch it. Translated in `fx_anim_emitter`:
+
+- sizes 0x00109DB0, constructor 0x00109FC0, destructor 0x0010A120;
+- message 0x0010A180;
+- launch 0x00109D10, flight and bounce 0x001099C0, attachment release 0x00109980;
+- update 0x0010A2E0, player scan 0x0010A590, collection 0x0010A6D0;
+- visibility 0x00109E30 and draw 0x00109EE0;
+- burst parameters 0x00069590.
+
+Shared helpers:
+
+- `actor_runtime_queries`: 0x0003D860 view radius, 0x00040550 matrix reach,
+  0x00041CB0 sound check, 0x00042560/0x000425D0 shape walks and 0x001205F0
+  cylinder separation.
+- `view_frustum`: 0x00159AD0, which classifies a sphere against the display
+  view's six planes.
+- `intro_notices`: 0x0013FF70 moved out of the player strategy, and 0x0013FF00
+  added. The gate now takes a narrow `RuntimeIntroNotices` view. DAT_00511B3C's
+  next pointer is DAT_00511B40, the same player list the emitter scans.
+
+Instruction-level details: message 7 only forwards animation events 0x1C, 0x1E,
+0x20, 0x21 and 0x2F within 100 units of the camera. The base draw reads its kind
+from the third argument, which the emitter also tests for its sprite pass. The
+collection test reuses the player-cylinder height slot for the shape diameter.
+
+`NativeSceneActorClassOwner` installs type 0xD over type 2 with slot adapters
+for the constructor, destructor, message, update, draw and visibility.
+`NativeSceneEmitterBindings` carries the frame context, timed attachments,
+clock, display view, flag blocks, player list, resume gate, story byte, intro
+notices, emitter list and the award binding. The native actor base does not yet
+build model matrix records, so the emitter's matrix view starts with zero
+records and the base's cached reach words.
+
+Not translated: the powerup award 0x00123E70, reached only when a player
+collects an emitter. It is a required binding, `NativeSceneEmitterBindings::award`.
+Its tree is about 45 functions: the DAT_00512140 powerup table, scoreboard HUD
+messages (0x001316F0, 0x00132450, 0x00132540), the 0x000D0870 challenge camera
+path through 0x0005B540, and the first-bonus-book challenge path 0x000F24C0. That
+path writes a signed save through 0x0010EB60, 0x000E9A00 and 0x000EB180. Most file
+wrappers already exist in the movie module.
+
+Validation: `fx_emitter_oracle.py` matches retail on seeds 7, 11, 17 and 19
+(3,600, 3,600, 3,800 and 1,900 cases) with zero mismatches, and twelve mutants
+are each detected. Release builds, all six CTests, and the dialogue-resource,
+actor-loading and decoder suites pass. Nothing was staged or committed, and no
+retail payload or Ghidra project was changed.

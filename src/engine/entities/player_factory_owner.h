@@ -8,6 +8,7 @@
 #include "player_destruction.h"
 #include "player_mind_owner.h"
 #include "player_strategy.h"
+#include "imp_fire_strategy.h"
 
 namespace gbtg
 {
@@ -115,6 +116,22 @@ struct NativePlayerSceneBindings
     std::span<char> intro_name; // DAT_00545B44.
     const entity_detail::ListHead& cases; // DAT_00511B3C.
     std::function<const EntityBitBlock*(const entity_detail::ListHead*)> case_body_bits;
+    // Imp fire strategy (type 0x46, vtable 0x00505EA4) and its shared target queue and checks.
+    std::span<ActorAttachmentSlot, 20> target_slots; // DAT_0050E284.
+    std::span<const u32> queue_limits; // DAT_0050E570.
+    std::span<const u32> class_queue_limits; // DAT_0050E660.
+    std::function<const RuntimeMindTarget*(const ActorLiveAttachment*)> target_of; // Slot owner record view.
+    std::function<std::span<const u8>(const void*)> actor_bytes_of; // Strategy link +8 actor bytes.
+    const RuntimeActiveActorLink* const& active_actors; // DAT_00511B48.
+    RuntimeTutorialNotices& notices;
+    float& occupancy_initial; // Retained caller scratch read by 0x0013AA50 flag 0x10.
+    std::span<const u8> imp_fire_parameters; // DAT_004287BC.
+    std::function<u32(const char*, u32)> create_effect; // 0x0003DF40 under scene ownership.
+    std::function<void(u32, std::span<const u32>)> object_message; // Actual object vtable +0xC.
+    std::function<RuntimeStrategyBodyView(u32)> body_at;
+    std::function<RuntimeStrategyBodyView(const Actor&)> body_of; // Actor +0x95C.
+    std::function<const RuntimeBodyModelNodes*(const Actor&)> model_of; // Actor +0x204.
+    const i32& attachment_limit; // DAT_00428684.
 };
 
 // Native state and contexts of one player (type 5) and its body, mind and strategy children.
@@ -235,6 +252,11 @@ struct NativePlayerInstance
     RuntimeBaseStrategyMessages strategy_messages;
     ActorAttachmentEventContext callout;
     RuntimePlayerStrategyFlow flow;
+    // Imp fire strategy (type 0x46) methods and their shared target queue and checks.
+    u16 strategy_type = 0; // Factory type of the strategy child: 0x4F player or 0x46 imp fire.
+    RuntimeStrategyTargetChecks target_checks;
+    RuntimeStrategyTargetQueue target_queue;
+    RuntimeImpFireStrategy imp_fire;
     void refresh_input_views(); // After the player constructor allocates actor +0x960.
     void refresh_views(); // Body, input, mind and strategy value views before a method runs.
 };
@@ -245,7 +267,7 @@ struct NativePlayerFactoryBindings
     NativePlayerSceneBindings scene;
 };
 
-// Installs the player (type 5), body (6, 0x27, 0x2A), mind (7, 0x34) and strategy (8, 0x4F) classes
+// Installs the player (type 5), body (6, 0x27, 0x2A), mind (7, 0x34) and strategy (8, 0x4F, 0x46) classes
 // over the actor owner's types 1 and 2, and keeps one NativePlayerInstance per player actor.
 class NativePlayerFactoryOwner
 {
@@ -266,6 +288,8 @@ public:
     size_t child_count() const;
     void strategy_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000BEE10.
     void strategy_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000BEF40.
+    void imp_fire_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000B46B0.
+    void imp_fire_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000B45D0.
     NativePlayerFactoryBindings bindings;
     NativePlayerMindOwner minds;
 

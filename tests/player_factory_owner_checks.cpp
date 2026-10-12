@@ -187,6 +187,22 @@ void check_player_factory_owner()
     u32 intro_pending = 0;
     std::array<char, 0x40> intro_name{};
     const entity_detail::ListHead cases{};
+    std::array<ActorAttachmentSlot, 20> target_slots{};
+    std::array<u32, 1> queue_limits{2};
+    std::array<u32, 0x40> class_queue_limits{};
+    const RuntimeActiveActorLink* active_actors = nullptr;
+    std::array<u8, 8> seen{};
+    u32 notice_pending = 0;
+    const Actor* notice_first = nullptr;
+    u32 notice_id = 0;
+    std::array<RuntimeTutorialNotice, 4> notice_queue{};
+    i32 notice_count = 0;
+    const Actor* notice_player = nullptr;
+    RuntimeTutorialNotices notices{seen, notice_pending, notice_first, notice_id, notice_queue, notice_count,
+        notice_player};
+    float occupancy_initial = 0.f;
+    std::array<u8, 0x40> imp_fire_parameters{};
+    const i32 attachment_limit = 0;
     NativePlayerFactoryOwner players{NativePlayerFactoryBindings{actors, NativePlayerSceneBindings{factory, pools,
         registry, error, random, release, activation, runtime_flags, story_flags, player_count, active_strategies,
         address_zero, address_of, actor_tags.data(), tag_rows.data(), tag_rows, weapon_names, class_names, 0,
@@ -218,13 +234,46 @@ void check_player_factory_owner()
         [](const entity_detail::ListHead*) -> const EntityBitBlock*
         {
             return nullptr;
-        }}}};
+        },
+        target_slots, queue_limits, class_queue_limits,
+        [](const ActorLiveAttachment*) -> const RuntimeMindTarget*
+        {
+            throw Error("test scene has no target records");
+        },
+        [](const void*) -> std::span<const u8>
+        {
+            throw Error("test scene has no queued strategy links");
+        },
+        active_actors, notices, occupancy_initial, imp_fire_parameters,
+        [](const char*, u32) -> u32
+        {
+            throw Error("test scene does not create imp fire effects");
+        },
+        [](u32, std::span<const u32>)
+        {
+            throw Error("test scene has no imp fire effect objects");
+        },
+        [](u32) -> RuntimeStrategyBodyView
+        {
+            throw Error("test scene has no held bodies");
+        },
+        [](const Actor&) -> RuntimeStrategyBodyView
+        {
+            throw Error("test scene has no target bodies");
+        },
+        [](const Actor&) -> const RuntimeBodyModelNodes*
+        {
+            throw Error("test scene has no target models");
+        },
+        attachment_limit}}};
     players.install(types);
     require(types[5].parent == 2 && types[6].parent == 1 && types[0x27].parent == 6 && types[0x2A].parent == 0x27
-        && types[8].parent == 1 && types[0x4F].parent == 8 && types[7].parent == 1 && types[0x34].parent == 7,
+        && types[8].parent == 1 && types[0x4F].parent == 8 && types[0x46].parent == 8 && types[7].parent == 1
+        && types[0x34].parent == 7,
         "player owner installs the retail parent chains");
     require(types[5].vtable()->address == 0x004DD6B8 && types[0x2A].vtable()->address == 0x00505248
-        && types[0x4F].vtable()->address == 0x00505FA0, "player owner installs the retail vtable addresses");
+        && types[0x4F].vtable()->address == 0x00505FA0 && types[0x46].vtable()->address == 0x00505EA4,
+        "player owner installs the retail vtable addresses");
 
     // A player whose parameters name a body and a mind but no strategy.
     std::vector<u8> parameters(0x63C);
@@ -260,6 +309,22 @@ void check_player_factory_owner()
     require(read_u32(player.strategy, 0x3C) == 1, "strategy owner dispatches the player virtual message override");
     release_factory_object(factory, strategy);
     require(players.find_player(strategy) == nullptr && player.strategy.empty(), "strategy release unbinds it");
+
+    // The imp fire strategy chain: types 1, 8 and 0x46 (0x000B4570 sets effect state 1 and the parameter block).
+    std::vector<u8> imp_parameters(0x18);
+    put16(imp_parameters, 0, 0x18);
+    put16(imp_parameters, 4, 0x46);
+    put32(imp_parameters, 8, player.actor_address);
+    FactoryObject imp = create_factory_object(factory, imp_parameters);
+    require(imp.bytes != nullptr && imp.size == 0x50 && players.find_player(imp) == &player
+        && player.strategy_type == 0x46 && read_u32(player.strategy, 0x40) == 1
+        && read_u32(player.strategy, 0x4C) == 0x004287BC && read_u32(player.strategy, 0x48) == 0,
+        "imp fire strategy construction runs the base and imp constructors");
+    const u32 bite_message[]{0x3B};
+    players.imp_fire_message(imp, bite_message);
+    require(read_u32(player.strategy, 0x48) == 1, "imp fire strategy owner dispatches its message slot");
+    release_factory_object(factory, imp);
+    require(players.find_player(imp) == nullptr && player.strategy.empty(), "imp fire strategy release unbinds it");
 
     // A second player whose constructor also creates its strategy (0x00028EB0 leaves and enters state 1000).
     std::strcpy(reinterpret_cast<char*>(parameters.data() + 0x33A), "aid_test_player_strategy");

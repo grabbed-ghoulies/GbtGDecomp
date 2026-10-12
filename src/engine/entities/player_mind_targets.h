@@ -3,6 +3,7 @@
 #include "../scripts/script_actor_query.h"
 #include "../navigation/navigation.h"
 #include "player_attachment_helpers.h"
+#include "actor_live_attachments.h"
 
 namespace gbtg
 {
@@ -33,6 +34,7 @@ struct RuntimeMindTarget
     std::span<const u8> actor_bytes;
     RuntimeScriptMindQuery& body; // Actor +0x95C.
     const OccupancyRecord* occupancy; // Actor +0xCA8.
+    ActorLiveAttachment* record = nullptr; // Native record behind these bytes; DAT_0050E284 slot owner identity.
 };
 struct RuntimePlayerTargetSearch
 {

@@ -21,6 +21,14 @@ void release_trigger_view(FactoryObject& object)
 {
     active_owner->release_trigger(object);
 }
+bool construct_emitter_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    return active_owner->construct_emitter(object, parameters);
+}
+void release_emitter_view(FactoryObject& object)
+{
+    active_owner->release_emitter(object);
+}
 const ObjectFactoryVtable* area_lifecycle()
 {
     static const ObjectFactoryVtable table{0x00504CAC, runtime_area_storage_sizes,
@@ -31,6 +39,12 @@ const ObjectFactoryVtable* trigger_lifecycle()
 {
     static const ObjectFactoryVtable table{0x00504A90, runtime_trigger_storage_sizes,
         construct_trigger_view, release_trigger_view};
+    return &table;
+}
+const ObjectFactoryVtable* emitter_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x0050E108, fx_anim_emitter_object_sizes,
+        construct_emitter_view, release_emitter_view};
     return &table;
 }
 }
@@ -66,6 +80,37 @@ struct NativeSceneActorClassOwner::TriggerInstance : GhoulyController
     }
 };
 
+// Native views of one emitter. The actor base does not build model matrix records natively, so
+// the matrix view starts empty with the base's cached reach words.
+struct NativeSceneActorClassOwner::EmitterInstance
+{
+    std::span<const u8> sprite; // +0x994.
+    entity_detail::ListHead link{}; // +0x934.
+    ActorMatrixSetup matrices{};
+    RuntimeBodyAttachmentLists lists;
+    RuntimeFxAnimEmitter context;
+    EmitterInstance(NativeSceneActorClassBindings& bindings, FactoryObject& object, NativeActorFactoryInstance& view)
+        : lists{view.pending.next, view.startup.attachments.sentinel.next, bindings.emitter.timed_attachments},
+          context{{object.bytes.get(), object.size}, view.bat.actor, bindings.address_of(object.bytes.get()),
+            bindings.base_of(object),
+            [&bindings](ActorBaseContext& base, std::span<u32> message)
+            {
+                dispatch_base_actor_word_message(base, message, bindings.word_messages);
+            },
+            bindings.word_messages.memory_at, view.animation, view.frame, bindings.emitter.frame, matrices,
+            view.startup.attachments, view.pending, view.anchors, view.startup.resource, lists,
+            bindings.actors.bindings.sounds, bindings.actors.bindings.startup.registry,
+            bindings.actors.bindings.startup.error, bindings.random, sprite, link, bindings.emitter.emitters,
+            bindings.emitter.clock, bindings.emitter.view, bindings.emitter.challenge_bits, bindings.emitter.scene_flags,
+            bindings.emitter.runtime_flags, bindings.emitter.players, bindings.emitter.resume,
+            bindings.emitter.story_byte, bindings.emitter.intro, bindings.actors.bindings.factory, bindings.keep,
+            bindings.actors.bindings.empty_name, bindings.emitter.award}
+    {
+        matrices.progress = view.startup.value_29c;
+        matrices.flags = view.startup.word_2a0;
+    }
+};
+
 NativeSceneActorClassOwner::NativeSceneActorClassOwner(NativeSceneActorClassBindings bindings)
     : bindings_(std::move(bindings))
 {
@@ -87,6 +132,7 @@ void NativeSceneActorClassOwner::install(std::span<ObjectFactoryType> types)
     }
     types[0x1F] = {2, area_lifecycle};
     types[0x23] = {2, trigger_lifecycle};
+    types[0xD] = {2, emitter_lifecycle}; // Getter 0x00109DD0.
     active_owner = this;
 }
 
@@ -112,6 +158,14 @@ bool NativeSceneActorClassOwner::construct_trigger(FactoryObject& object, std::s
     return initialize_runtime_trigger_actor(context->context, parameters);
 }
 
+bool NativeSceneActorClassOwner::construct_emitter(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto instance = std::make_unique<EmitterInstance>(bindings_, object, bindings_.actors.view(object));
+    auto* emitter = instance.get();
+    emitters_.emplace(object.bytes.get(), std::move(instance));
+    return initialize_runtime_fx_anim_emitter(parameters, emitter->context);
+}
+
 void NativeSceneActorClassOwner::release_area(FactoryObject& object)
 {
     areas_.erase(object.bytes.get()); // Retail derived destructor 0x001628B0 is empty.
@@ -121,6 +175,12 @@ void NativeSceneActorClassOwner::release_trigger(FactoryObject& object)
 {
     destroy_runtime_trigger_actor(triggers_.at(object.bytes.get())->context);
     triggers_.erase(object.bytes.get());
+}
+
+void NativeSceneActorClassOwner::release_emitter(FactoryObject& object)
+{
+    destroy_runtime_fx_anim_emitter(emitters_.at(object.bytes.get())->context);
+    emitters_.erase(object.bytes.get());
 }
 
 void NativeSceneActorClassOwner::message(FactoryObject& object, std::span<u32> message)
@@ -133,6 +193,10 @@ void NativeSceneActorClassOwner::message(FactoryObject& object, std::span<u32> m
     {
         dispatch_runtime_trigger_message(triggers_.at(object.bytes.get())->messages, message);
     }
+    else if (object.type == 0xD)
+    {
+        dispatch_runtime_fx_anim_emitter_message(message, emitters_.at(object.bytes.get())->context);
+    }
     else
     {
         throw Error("scene actor class owner has no message view for this class");
@@ -142,5 +206,20 @@ void NativeSceneActorClassOwner::message(FactoryObject& object, std::span<u32> m
 void NativeSceneActorClassOwner::update_trigger(FactoryObject& object)
 {
     update_runtime_trigger_actor(triggers_.at(object.bytes.get())->context);
+}
+
+void NativeSceneActorClassOwner::update_emitter(FactoryObject& object)
+{
+    update_runtime_fx_anim_emitter(emitters_.at(object.bytes.get())->context);
+}
+
+u32 NativeSceneActorClassOwner::draw_emitter(FactoryObject& object, i32 kind, RuntimeFxEmitterDraw& draw)
+{
+    return draw_runtime_fx_anim_emitter(kind, draw, emitters_.at(object.bytes.get())->context);
+}
+
+bool NativeSceneActorClassOwner::emitter_visible(FactoryObject& object, u32 pass, u32 slot)
+{
+    return runtime_fx_anim_emitter_visible(pass, slot, emitters_.at(object.bytes.get())->context);
 }
 }

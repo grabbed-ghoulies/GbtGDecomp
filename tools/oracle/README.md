@@ -226,3 +226,28 @@ against retail machine code, including the actual square-root routine. The
 real square-root and atan2 callees. Its `inputgesture` protocol returns all eight
 tracking words. These checks exercise timer boundaries, state transitions and
 special float values; they do not establish live player factory acceptance.
+
+`imp_strategy_oracle.py [seed] [count] [entry]` checks the imp fire strategy
+(type 0x46) and the shared strategy helpers it calls: the DAT_0050E284 target
+queue (0x0002B910, 0x00112970, 0x00112A70, 0x00112B40, 0x0002CC30), target
+selection (0x00029AC0, 0x00029BA0, 0x00139AA0, 0x00139C70), target checks and
+reactions (0x00138410 through 0x001399A0, 0x0013A430, 0x0013A4F0, 0x000F4870,
+0x000F4E10), roaming requests (0x00138310, 0x00139FA0, 0x0013A0A0), every class
+method from 0x000B0B90 to 0x000B4F50 plus 0x000C2D90, the angle helpers
+0x00100B80/0x00100D00 and model lookup 0x000409D0. Other callees are logging
+stubs on both sides. Build the harness with `cache/oracle/build_imp_strategy.cmd`.
+Seeds 3, 7 and 11 (2,000, 6,000 and 3,000 cases) have zero mismatches, and ten
+mutants across the five modules are each detected. Live imp spawning is not
+covered: the scene still has to supply the bindings.
+
+`fx_emitter_oracle.py [seed] [count] [entry]` checks the FX anim emitter (type
+0xD): sizes, constructor, destructor, message, launch, flight, update, player
+scan, collection, visibility and draw (0x00109DB0 through 0x0010A6D0), the burst
+parameter builder 0x00069590, the actor queries 0x0003D860, 0x00040550,
+0x00041CB0, 0x00042560, 0x000425D0 and 0x001205F0, the frustum test 0x00159AD0,
+and the intro notice pair 0x0013FF00/0x0013FF70. The real retail sin, cos and
+square root are linked; other callees are logging stubs on both sides. Build the
+harness with `cache/oracle/build_fx_emitter.cmd`. Seeds 7, 11, 17 and 19 (3,600,
+3,600, 3,800 and 1,900 cases) have zero mismatches. Each of twelve mutants is
+detected, including exact-boundary cylinder distances and NaN frustum planes.
+The powerup award (0x00123E70) is a stub here because its tree is not translated.

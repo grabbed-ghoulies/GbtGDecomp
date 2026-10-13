@@ -14,24 +14,46 @@ describe.
 - Anything else is missing. Do not assign an invented return value to a missing
   callee. `gbtg --headless` is a crash check, not acceptance of a function.
 
-### Assigned queue tasks
+### Native-first workflow
 
-When working on an assigned task file under `queue/`:
+The game runs on translated retail code driven by retail state, in the retail
+call order from `frame_tick`. That native path is the only source of game
+behavior.
 
-- Edit only files named in the task. `src/engine/game.cpp` is the thin
-  `frame_tick` caller; edit it only if the task lists it.
-- Put `// Xbox 0x........` on each translated function, matching the task address.
+- **Put new behavior on the native path.** Do not write host re-implementations
+  of game logic, such as format parsing for gameplay, curve sampling, timing,
+  menu or dialogue behavior, or camera choice, that bypass the translated
+  functions. If the native path lacks something, translate it.
+- **Host code is boundaries and presentation only.** The boundaries are those
+  listed above, plus XACT audio. Native drawing goes to the recording D3D
+  boundary (`SceneD3DDevice`), and the D3D11 presenter turns that recorded
+  output into host draws. Extend the presenter rather than calling `gfx_*` from
+  game code. Host rendering helpers (texture decode, mesh upload) may be reused
+  for presentation.
+- **Do not extend host stand-ins.** Older code that re-implements retail
+  behavior on the host is listed in `docs/LEGACY_HOST_CODE.md`. When native code
+  covers one of those features, switch its callers to the native path and
+  update that document.
+- **A clean run does not mean the feature works.** A headless run that exits 0
+  shows only that it doesn't crash. For anything visible or audible, take
+  `--screenshot` captures and look at them, and say plainly what is still not
+  shown or heard.
+
+### Working on a function or feature
+
+- Read the decompile from `cache/ghidra_frontier/<VA>.txt`. If it is missing,
+  export it with the read-only Ghidra command (the project is never written):
+  `cmd /c "tools\ghidra\support\analyzeHeadless.bat Z:\GhouliesStuff\ghidra_projects GbtG -process default.xbe.original -readOnly -noanalysis -scriptPath tools\ghidra\ghidra_scripts -postScript ExportPlayerScene.java <VA...>"`
+- Work from a live entry point inward: run the scene, find the first
+  untranslated or unbound callee it reaches, and translate that. Do not work
+  through isolated addresses that nothing native calls yet.
+- Put `// Xbox 0x........` on each translated function, matching its address.
 - Translate the dump rather than pasting it as the implementation. Do not add
   branches absent from the dump.
-- An untranslated callee blocks the task. Do not stub it.
-- Use Allman braces, as in the rest of `src/engine/`.
-- Do not rename Ghidra symbols, append to `docs/XBE.md`, or commit. The supervisor
-  handles those after the build passes.
+- An untranslated callee raises when reached. Do not stub it.
+- `src/engine/game.cpp` is the thin `frame_tick` caller. Keep logic out of it.
+- Do not rename Ghidra symbols, and do not commit unless asked.
 - Do not stage `OriginalFiles/`, `*.xbe`, `*.bnl`, `*.iso`, or `ghidra_projects/`.
-- Read the decompile from `cache/ghidra_frontier/<VA>.txt` on the main checkout;
-  `cache/` is not available in a worktree.
-- Touch `queue/claimed/<VA>.heartbeat` on the main checkout while working, and
-  create `queue/claimed/<VA>.ready` when stopping.
 
 ## OriginalFiles
 

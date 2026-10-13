@@ -169,6 +169,17 @@ struct GfxD3D11
     ComPtr<ID3D11BlendState> blend_additive;
     ComPtr<ID3D11BlendState> blend_model_alpha;
     ComPtr<ID3D11Buffer> ui_vb;
+    // Native scene draws (gfx_draw_native).
+    ComPtr<ID3D11VertexShader> native_vs;
+    ComPtr<ID3D11PixelShader> native_ps;
+    ComPtr<ID3D11InputLayout> native_layout;
+    ComPtr<ID3D11Buffer> native_vb;
+    UINT native_vb_size = 0;
+    ComPtr<ID3D11Buffer> native_material;
+    std::unordered_map<u64, ComPtr<ID3D11BlendState>> native_blends;
+    std::unordered_map<u32, ComPtr<ID3D11DepthStencilState>> native_depths;
+    std::unordered_map<u32, ComPtr<ID3D11RasterizerState>> native_rasterizers;
+    std::unordered_map<u32, ComPtr<ID3D11SamplerState>> native_samplers;
     std::unordered_map<const Mesh*, GpuMesh> meshes;
     struct SpriteGpu
     {
@@ -1248,7 +1259,7 @@ float4 ps_main(VSOut i) : SV_Target {
     return color;
 }
 )";
-    const std::string model_hlsl = std::string(hlsl) + R"(
+    std::string model_hlsl = std::string(hlsl) + R"(
 // NV2A register-combiner fields in the 240-byte shader definition. This
 // interprets the asset's operations; sampler names do not prescribe blending.
 cbuffer Material : register(b2)
@@ -1459,10 +1470,96 @@ float4 ps_model(VSOut i) : SV_Target
     {
         discard;
     }
+    if (alpha_rs.x > 0.5 && alpha_rs.z != 516 && !native_alpha_pass(color.a))
+    {
+        discard;
+    }
     return color;
 }
 
 )";
+    // Native scene draws arrive with their NV2A vertex program already run: clip position, colours and
+    // four texture coordinates. Their pixel stage is ps_model (the combiner definition) or, without one,
+    // texture 0 modulated by the diffuse colour.
+    const char* native_hlsl = R"(
+struct NativeIn { float4 pos : POSITION; float4 diffuse : COLOR0; float4 specular : COLOR1; float2 uv0 : TEXCOORD0; float2 uv1 : TEXCOORD1; float2 uv2 : TEXCOORD2; float2 uv3 : TEXCOORD3; };
+VSOut native_vs(NativeIn i)
+{
+    VSOut o;
+    o.pos = i.pos;
+    o.uv0 = i.uv0;
+    o.uv1 = i.uv1;
+    o.uv2 = i.uv2;
+    o.uv3 = i.uv3;
+    o.nrm = float3(0, 0, 0);
+    o.diffuse = i.diffuse;
+    o.specular = i.specular;
+    return o;
+}
+float4 native_ps(VSOut i) : SV_Target
+{
+    float4 color = i.diffuse;
+    if (alpha_rs.w > 0.5)
+    {
+        color *= g_tex.Sample(g_samp, i.uv0);
+    }
+    color = saturate(color) * tint;
+    if (alpha_rs.x > 0.5 && !native_alpha_pass(color.a))
+    {
+        discard;
+    }
+    return color;
+}
+)";
+    const char* alpha_hlsl = R"(
+bool native_alpha_pass(float alpha)
+{
+    float a = round(saturate(alpha) * 255.0);
+    float f = alpha_rs.z;
+    float r = alpha_rs.y;
+    if (f < 512.5) return false;
+    if (f < 513.5) return a < r;
+    if (f < 514.5) return a == r;
+    if (f < 515.5) return a <= r;
+    if (f < 516.5) return a > r;
+    if (f < 517.5) return a != r;
+    if (f < 518.5) return a >= r;
+    return true;
+}
+)";
+    const std::string shared_hlsl = std::string(hlsl) + alpha_hlsl;
+    model_hlsl = shared_hlsl + model_hlsl.substr(std::string(hlsl).size());
+    const std::string native_source = model_hlsl + native_hlsl;
+    ComPtr<ID3DBlob> native_vs_blob;
+    ComPtr<ID3DBlob> native_ps_blob;
+    if (!compile_shader(native_source.c_str(), "native_vs", "vs_4_0", native_vs_blob) ||
+        !compile_shader(native_source.c_str(), "native_ps", "ps_4_0", native_ps_blob))
+    {
+        gfx_shutdown();
+        return false;
+    }
+    g.device->CreateVertexShader(native_vs_blob->GetBufferPointer(), native_vs_blob->GetBufferSize(), nullptr,
+        g.native_vs.GetAddressOf());
+    g.device->CreatePixelShader(native_ps_blob->GetBufferPointer(), native_ps_blob->GetBufferSize(), nullptr,
+        g.native_ps.GetAddressOf());
+    const D3D11_INPUT_ELEMENT_DESC native_layout[] = {
+        {"POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 16, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"COLOR", 1, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 32, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 48, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 1, DXGI_FORMAT_R32G32_FLOAT, 0, 56, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 2, DXGI_FORMAT_R32G32_FLOAT, 0, 64, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 3, DXGI_FORMAT_R32G32_FLOAT, 0, 72, D3D11_INPUT_PER_VERTEX_DATA, 0},
+    };
+    static_assert(sizeof(GfxNativeVertex) == 80);
+    g.device->CreateInputLayout(native_layout, UINT(std::size(native_layout)), native_vs_blob->GetBufferPointer(),
+        native_vs_blob->GetBufferSize(), g.native_layout.GetAddressOf());
+    D3D11_BUFFER_DESC native_material{};
+    native_material.ByteWidth = 72 * 4;
+    native_material.Usage = D3D11_USAGE_DYNAMIC;
+    native_material.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    native_material.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    g.device->CreateBuffer(&native_material, nullptr, g.native_material.GetAddressOf());
     ComPtr<ID3DBlob> model_blob;
     if (!compile_shader(model_hlsl.c_str(), "ps_model", "ps_4_0", model_blob))
     {
@@ -1634,6 +1731,16 @@ void gfx_shutdown()
 #endif
     g.meshes.clear();
     g.model_ps.Reset();
+    g.native_vs.Reset();
+    g.native_ps.Reset();
+    g.native_layout.Reset();
+    g.native_vb.Reset();
+    g.native_vb_size = 0;
+    g.native_material.Reset();
+    g.native_blends.clear();
+    g.native_depths.clear();
+    g.native_rasterizers.clear();
+    g.native_samplers.clear();
     g.sprites.clear();
     g.ui_vb.Reset();
     g.blend_alpha.Reset();
@@ -2177,6 +2284,338 @@ void gfx_draw_mesh(const Mesh& mesh, Vec3 origin, Vec3 scale)
     {
         std::cout << "d3d11 draw " << mesh.name << " tris " << tris << " lit " << lit << "\n";
         g.logged_draw = true;
+    }
+}
+
+namespace
+{
+D3D11_BLEND native_blend_factor(u32 factor, bool alpha)
+{
+    switch (factor)
+    {
+    case 0:
+        return D3D11_BLEND_ZERO;
+    case 1:
+        return D3D11_BLEND_ONE;
+    case 0x300:
+        return alpha ? D3D11_BLEND_SRC_ALPHA : D3D11_BLEND_SRC_COLOR;
+    case 0x301:
+        return alpha ? D3D11_BLEND_INV_SRC_ALPHA : D3D11_BLEND_INV_SRC_COLOR;
+    case 0x302:
+        return D3D11_BLEND_SRC_ALPHA;
+    case 0x303:
+        return D3D11_BLEND_INV_SRC_ALPHA;
+    case 0x304:
+        return D3D11_BLEND_DEST_ALPHA;
+    case 0x305:
+        return D3D11_BLEND_INV_DEST_ALPHA;
+    case 0x306:
+        return alpha ? D3D11_BLEND_DEST_ALPHA : D3D11_BLEND_DEST_COLOR;
+    case 0x307:
+        return alpha ? D3D11_BLEND_INV_DEST_ALPHA : D3D11_BLEND_INV_DEST_COLOR;
+    case 0x308:
+        return D3D11_BLEND_SRC_ALPHA_SAT;
+    default:
+        throw Error("native draw uses blend factor " + std::to_string(factor));
+    }
+}
+
+D3D11_BLEND_OP native_blend_equation(u32 equation)
+{
+    switch (equation)
+    {
+    case 0x8006:
+        return D3D11_BLEND_OP_ADD;
+    case 0x8007:
+        return D3D11_BLEND_OP_MIN;
+    case 0x8008:
+        return D3D11_BLEND_OP_MAX;
+    case 0x800A:
+        return D3D11_BLEND_OP_SUBTRACT;
+    case 0x800B:
+        return D3D11_BLEND_OP_REV_SUBTRACT;
+    default:
+        throw Error("native draw uses blend equation " + std::to_string(equation));
+    }
+}
+
+D3D11_COMPARISON_FUNC native_comparison(u32 function)
+{
+    if (function < 0x200 || function > 0x207)
+    {
+        throw Error("native draw uses comparison " + std::to_string(function));
+    }
+    return D3D11_COMPARISON_FUNC(function - 0x200 + 1);
+}
+
+D3D11_TEXTURE_ADDRESS_MODE native_address(u32 mode)
+{
+    switch (mode)
+    {
+    case 1:
+        return D3D11_TEXTURE_ADDRESS_WRAP;
+    case 2:
+        return D3D11_TEXTURE_ADDRESS_MIRROR;
+    case 3:
+    case 5:
+        return D3D11_TEXTURE_ADDRESS_CLAMP;
+    case 4:
+        return D3D11_TEXTURE_ADDRESS_BORDER;
+    default:
+        throw Error("native draw uses texture address mode " + std::to_string(mode));
+    }
+}
+
+ID3D11ShaderResourceView* native_texture(const RgbaImage* image)
+{
+    if (image == nullptr || image->bgra.empty() || image->width <= 0 || image->height <= 0)
+    {
+        return nullptr;
+    }
+    auto it = g.sprites.find(image);
+    if (it == g.sprites.end() || it->second.serial != image->serial)
+    {
+        GfxD3D11::SpriteGpu gpu;
+        gpu.srv = upload_bgra(image->bgra.data(), image->width, image->height);
+        gpu.serial = image->serial;
+        it = g.sprites.insert_or_assign(image, std::move(gpu)).first;
+    }
+    return it->second.srv.Get();
+}
+
+// The HUD viewport maps the 640x480 back buffer onto the window; rectangles follow it.
+D3D11_RECT native_rectangle(const std::array<i32, 4>& rectangle)
+{
+    D3D11_VIEWPORT vp{};
+    UINT count = 1;
+    g.context->RSGetViewports(&count, &vp);
+    D3D11_RECT output;
+    output.left = LONG(std::floor(vp.TopLeftX + vp.Width * float(rectangle[0]) / 640.f));
+    output.top = LONG(std::floor(vp.TopLeftY + vp.Height * float(rectangle[1]) / 480.f));
+    output.right = LONG(std::ceil(vp.TopLeftX + vp.Width * float(rectangle[2]) / 640.f));
+    output.bottom = LONG(std::ceil(vp.TopLeftY + vp.Height * float(rectangle[3]) / 480.f));
+    return output;
+}
+}
+
+void gfx_draw_native(const GfxNativeDraw& draw)
+{
+    if (!g.ok || draw.vertices.empty())
+    {
+        return;
+    }
+    present_hud_viewport();
+    const UINT bytes = UINT(draw.vertices.size_bytes());
+    if (!g.native_vb || g.native_vb_size < bytes)
+    {
+        D3D11_BUFFER_DESC desc{};
+        desc.ByteWidth = std::max<UINT>(bytes, 0x10000);
+        desc.Usage = D3D11_USAGE_DYNAMIC;
+        desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+        desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        g.native_vb.Reset();
+        if (FAILED(g.device->CreateBuffer(&desc, nullptr, g.native_vb.GetAddressOf())))
+        {
+            throw Error("D3D11 native vertex buffer creation failed");
+        }
+        g.native_vb_size = desc.ByteWidth;
+    }
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    if (FAILED(g.context->Map(g.native_vb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+    {
+        throw Error("D3D11 native vertex buffer map failed");
+    }
+    std::memcpy(mapped.pData, draw.vertices.data(), bytes);
+    g.context->Unmap(g.native_vb.Get(), 0);
+    if (FAILED(g.context->Map(g.cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+    {
+        throw Error("D3D11 native constant buffer map failed");
+    }
+    GpuCB cb;
+    cb.mvp[0] = cb.mvp[5] = cb.mvp[10] = cb.mvp[15] = 1.f;
+    cb.alpha_test = draw.alpha_test ? 1.f : 0.f;
+    cb.alpha_ref = float(draw.alpha_reference & 0xFF);
+    cb.alpha_func = float(draw.alpha_function);
+    cb.alpha_pad = draw.textures[0] != nullptr ? 1.f : 0.f;
+    std::memcpy(mapped.pData, &cb, sizeof(cb));
+    g.context->Unmap(g.cb.Get(), 0);
+
+    const u32 mask = ((draw.color_mask >> 24) & 1) | ((draw.color_mask >> 15) & 2) | ((draw.color_mask >> 6) & 4) |
+        ((draw.color_mask << 3) & 8);
+    const u64 blend_key = u64(draw.blend) | (u64(draw.source_blend & 0xFFFF) << 1) |
+        (u64(draw.destination_blend & 0xFFFF) << 17) | (u64(draw.blend_equation & 0xFFFF) << 33) | (u64(mask) << 49);
+    auto blend = g.native_blends.find(blend_key);
+    if (blend == g.native_blends.end())
+    {
+        D3D11_BLEND_DESC desc{};
+        auto& target = desc.RenderTarget[0];
+        target.BlendEnable = draw.blend ? TRUE : FALSE;
+        target.SrcBlend = native_blend_factor(draw.source_blend, false);
+        target.DestBlend = native_blend_factor(draw.destination_blend, false);
+        target.BlendOp = native_blend_equation(draw.blend_equation);
+        target.SrcBlendAlpha = native_blend_factor(draw.source_blend, true);
+        target.DestBlendAlpha = native_blend_factor(draw.destination_blend, true);
+        target.BlendOpAlpha = target.BlendOp;
+        target.RenderTargetWriteMask = u8(((draw.color_mask >> 16) & 1 ? D3D11_COLOR_WRITE_ENABLE_RED : 0) |
+            ((draw.color_mask >> 8) & 1 ? D3D11_COLOR_WRITE_ENABLE_GREEN : 0) |
+            (draw.color_mask & 1 ? D3D11_COLOR_WRITE_ENABLE_BLUE : 0) |
+            ((draw.color_mask >> 24) & 1 ? D3D11_COLOR_WRITE_ENABLE_ALPHA : 0));
+        ComPtr<ID3D11BlendState> state;
+        if (FAILED(g.device->CreateBlendState(&desc, state.GetAddressOf())))
+        {
+            throw Error("D3D11 native blend state creation failed");
+        }
+        blend = g.native_blends.emplace(blend_key, state).first;
+    }
+    const u32 depth_key = (draw.depth_test ? 1u : 0u) | (draw.depth_write ? 2u : 0u) | (draw.depth_function << 2);
+    auto depth = g.native_depths.find(depth_key);
+    if (depth == g.native_depths.end())
+    {
+        D3D11_DEPTH_STENCIL_DESC desc{};
+        // NV2A writes depth only while its test is enabled.
+        desc.DepthEnable = draw.depth_test ? TRUE : FALSE;
+        desc.DepthWriteMask = draw.depth_write ? D3D11_DEPTH_WRITE_MASK_ALL : D3D11_DEPTH_WRITE_MASK_ZERO;
+        desc.DepthFunc = native_comparison(draw.depth_function);
+        ComPtr<ID3D11DepthStencilState> state;
+        if (FAILED(g.device->CreateDepthStencilState(&desc, state.GetAddressOf())))
+        {
+            throw Error("D3D11 native depth state creation failed");
+        }
+        depth = g.native_depths.emplace(depth_key, state).first;
+    }
+    auto rasterizer = g.native_rasterizers.find(draw.cull);
+    if (rasterizer == g.native_rasterizers.end())
+    {
+        D3D11_RASTERIZER_DESC desc{};
+        desc.FillMode = D3D11_FILL_SOLID;
+        // The back buffer keeps the Xbox screen orientation, so D3D11's clockwise front face is the Xbox one.
+        switch (draw.cull)
+        {
+        case 0:
+            desc.CullMode = D3D11_CULL_NONE;
+            break;
+        case 0x900:
+            desc.CullMode = D3D11_CULL_FRONT;
+            break;
+        case 0x901:
+            desc.CullMode = D3D11_CULL_BACK;
+            break;
+        default:
+            throw Error("native draw uses cull mode " + std::to_string(draw.cull));
+        }
+        desc.DepthClipEnable = TRUE;
+        desc.ScissorEnable = TRUE;
+        ComPtr<ID3D11RasterizerState> state;
+        if (FAILED(g.device->CreateRasterizerState(&desc, state.GetAddressOf())))
+        {
+            throw Error("D3D11 native rasterizer state creation failed");
+        }
+        rasterizer = g.native_rasterizers.emplace(draw.cull, state).first;
+    }
+    ID3D11ShaderResourceView* views[4]{};
+    ID3D11SamplerState* samplers[4]{};
+    for (size_t stage = 0; stage < 4; ++stage)
+    {
+        views[stage] = native_texture(draw.textures[stage]);
+        const u32 sampler_key = draw.address_u[stage] | (draw.address_v[stage] << 8);
+        auto sampler = g.native_samplers.find(sampler_key);
+        if (sampler == g.native_samplers.end())
+        {
+            D3D11_SAMPLER_DESC desc{};
+            desc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+            desc.AddressU = native_address(draw.address_u[stage]);
+            desc.AddressV = native_address(draw.address_v[stage]);
+            desc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+            desc.MaxLOD = D3D11_FLOAT32_MAX;
+            ComPtr<ID3D11SamplerState> state;
+            if (FAILED(g.device->CreateSamplerState(&desc, state.GetAddressOf())))
+            {
+                throw Error("D3D11 native sampler creation failed");
+            }
+            sampler = g.native_samplers.emplace(sampler_key, state).first;
+        }
+        samplers[stage] = sampler->second.Get();
+    }
+    if (draw.pixel_shader != nullptr)
+    {
+        if (FAILED(g.context->Map(g.native_material.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+        {
+            throw Error("D3D11 native material map failed");
+        }
+        // Combiner words, then stage n samples texture coordinate n, and v0/v1 are the vertex colours.
+        std::array<u32, 72> words{};
+        std::memcpy(words.data(), draw.pixel_shader, 60 * 4);
+        words[60] = 0;
+        words[61] = 1;
+        words[62] = 2;
+        words[63] = 3;
+        words[64] = 0;
+        words[65] = 1;
+        std::memcpy(mapped.pData, words.data(), sizeof(words));
+        g.context->Unmap(g.native_material.Get(), 0);
+        ID3D11Buffer* material = g.native_material.Get();
+        g.context->PSSetConstantBuffers(2, 1, &material);
+        g.context->PSSetShader(g.model_ps.Get(), nullptr, 0);
+    }
+    else
+    {
+        g.context->PSSetShader(g.native_ps.Get(), nullptr, 0);
+    }
+    const D3D11_RECT scissor = native_rectangle(draw.scissor);
+    g.context->RSSetScissorRects(1, &scissor);
+    g.context->PSSetShaderResources(0, 4, views);
+    g.context->PSSetSamplers(0, 4, samplers);
+    g.context->OMSetBlendState(blend->second.Get(), nullptr, 0xFFFFFFFFu);
+    g.context->OMSetDepthStencilState(depth->second.Get(), 0);
+    g.context->RSSetState(rasterizer->second.Get());
+    const UINT stride = sizeof(GfxNativeVertex);
+    const UINT offset = 0;
+    g.context->IASetInputLayout(g.native_layout.Get());
+    g.context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    g.context->IASetVertexBuffers(0, 1, g.native_vb.GetAddressOf(), &stride, &offset);
+    g.context->VSSetShader(g.native_vs.Get(), nullptr, 0);
+    g.context->Draw(UINT(draw.vertices.size()), 0);
+    // Put the shared host pipeline back for the draws that follow.
+    g.context->RSSetState(g.rast.Get());
+    g.context->IASetInputLayout(g.layout.Get());
+    g.context->VSSetShader(g.vs.Get(), nullptr, 0);
+    g.context->PSSetShader(g.ps.Get(), nullptr, 0);
+    ID3D11SamplerState* shared_samplers[2]{g.sampler.Get(), g.light_sampler.Get()};
+    g.context->PSSetSamplers(0, 2, shared_samplers);
+    bind_depth_shadow();
+}
+
+void gfx_clear_native(std::span<const std::array<i32, 4>> rectangles, u32 flags, u32 color, float depth)
+{
+    if (!g.ok)
+    {
+        return;
+    }
+    present_hud_viewport();
+    const UINT depth_flags = ((flags & 1) != 0 ? D3D11_CLEAR_DEPTH : 0) | ((flags & 2) != 0 ? D3D11_CLEAR_STENCIL : 0);
+    ID3D11RenderTargetView* target = dialog_target.rendering ? dialog_target.rtv.Get() : g.rtv.Get();
+    ID3D11DepthStencilView* depth_view = dialog_target.rendering ? dialog_target.dsv.Get() : g.dsv.Get();
+    if (rectangles.empty())
+    {
+        if ((flags & 0xF0) != 0)
+        {
+            const float rgba[4]{float((color >> 16) & 0xFF) / 255.f, float((color >> 8) & 0xFF) / 255.f,
+                float(color & 0xFF) / 255.f, float(color >> 24) / 255.f};
+            g.context->ClearRenderTargetView(target, rgba);
+        }
+        if (depth_flags != 0)
+        {
+            g.context->ClearDepthStencilView(depth_view, depth_flags, depth, 0);
+        }
+        return;
+    }
+    if ((flags & 0xF0) != 0 || flags != 3 || depth != 1.f)
+    {
+        throw Error("native clear of a rectangle supports depth and stencil to 1 only");
+    }
+    for (const auto& rectangle : rectangles)
+    {
+        gfx_clear_ui_depth(rectangle[0], rectangle[1], rectangle[2], rectangle[3]);
     }
 }
 

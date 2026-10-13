@@ -1,5 +1,5 @@
 ---
-description: Rules for unattended reconstruction agents working a queue task
+description: Rules for reconstruction agents translating Xbox functions
 alwaysApply: true
 ---
 
@@ -11,14 +11,16 @@ A host boundary is allowed only when the dump calls it: file IO, D3D, XInput, he
 
 Anything else is missing. A missing callee is not given a return value. `gbtg --headless` is a crash check. It does not accept the function.
 
-When a task file under `queue/` is assigned:
+The native path is the source of game behavior: translated functions, retail state, and the retail call order from `frame_tick`. Do not write host re-implementations of game logic. Host code is boundaries and presentation only. Native draws go to the recording D3D boundary (`SceneD3DDevice`), and the D3D11 presenter shows them. Do not extend the host stand-ins listed in `docs/LEGACY_HOST_CODE.md`. Check visible results with `--screenshot` captures.
 
-- Edit only the files named in that task. `src/engine/game.cpp` is the thin `frame_tick` caller and is not yours unless the task lists it.
-- Put `// Xbox 0x........` on each function you translate. Match the address in the task.
+When translating:
+
+- Read the decompile from `cache/ghidra_frontier/<VA>.txt`; export missing ones with the read-only Ghidra command in `AGENTS.md`.
+- Work from a live entry point inward: the first untranslated or unbound callee the running scene reaches.
+- Put `// Xbox 0x........` on each function you translate.
 - Translate the dump. Do not paste it in as the implementation. If a branch is not in the dump, do not write it.
-- An untranslated callee blocks the task. Do not stub it.
+- An untranslated callee raises when reached. Do not stub it.
+- `src/engine/game.cpp` is the thin `frame_tick` caller. Keep logic out of it.
 - Allman braces, same as the rest of `src/engine/`.
-- Do not rename Ghidra symbols. Do not append `docs/XBE.md`. Do not commit. The supervisor does those after the build passes.
+- Do not rename Ghidra symbols. Do not commit unless asked.
 - Do not stage `OriginalFiles/`, `*.xbe`, `*.bnl`, `*.iso`, or `ghidra_projects/`.
-- Read the decompile from `cache/ghidra_frontier/<VA>.txt` on the main checkout. `cache/` is not in a worktree.
-- Touch `queue/claimed/<VA>.heartbeat` on the main checkout while you work, and create `queue/claimed/<VA>.ready` when you stop.

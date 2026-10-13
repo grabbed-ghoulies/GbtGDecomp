@@ -75,3 +75,9 @@ cmake --build build --config Release
 `gbtg.ini` sits beside `gbtg.exe`. The first launch writes one if it is missing (an existing file in the working directory is used instead). `[Video]` `Width` and `Height` set the window, default 960 by 540. `[Audio]` `MasterVolume` is 0 to 100 and scales all sound. `[Game]` `Language` is English, French, German, Spanish or Italian (default English) and picks the loctext folder and the attract speech bubbles; it falls back to English if that folder is missing. Restart after editing.
 
 Analyze `default.xbe` in Ghidra, rename a function, add it to `docs/XBE.md`, then reconstruct it under `src/engine/`.
+
+Reconstruction is native-first. A function translates its Ghidra dump and runs on retail state in
+retail order. Host code supplies only boundaries (file IO, D3D, XInput, heap, TLS, XACT) and the
+D3D11 presentation of what the native draw records. Older host stand-ins that re-implement game
+behavior are listed for replacement in [`docs/LEGACY_HOST_CODE.md`](docs/LEGACY_HOST_CODE.md).
+See `AGENTS.md` for the full rules.

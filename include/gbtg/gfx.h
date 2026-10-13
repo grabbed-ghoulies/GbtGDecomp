@@ -73,6 +73,40 @@ void gfx_sprite_submit(const RgbaImage& image, float x, float y, float w, float 
                        float u1 = 1.f, float v1 = 1.f,
                        std::array<float, 4> color = {1.f, 1.f, 1.f, 1.f});
 
+// Xbox D3D draws a native scene recorded, after its vertex program has run. Positions are clip
+// coordinates of the 640x480 back buffer; render states keep their NV2A values.
+struct GfxNativeVertex
+{
+    std::array<float, 4> position;
+    std::array<float, 4> diffuse;
+    std::array<float, 4> specular;
+    std::array<std::array<float, 2>, 4> uv;
+};
+struct GfxNativeDraw
+{
+    std::span<const GfxNativeVertex> vertices; // Triangle list.
+    std::array<const RgbaImage*, 4> textures{};
+    std::array<u32, 4> address_u{1, 1, 1, 1}; // D3DTADDRESS: 1 wrap, 2 mirror, 3 clamp, 4 border, 5 clamp to edge.
+    std::array<u32, 4> address_v{1, 1, 1, 1};
+    const u32* pixel_shader = nullptr; // 60-word D3DPIXELSHADERDEF; null modulates texture 0 by diffuse.
+    u32 cull = 0; // 0 none, 0x900 clockwise, 0x901 counter-clockwise (screen space).
+    bool depth_test = false;
+    bool depth_write = false;
+    u32 depth_function = 0x203; // 0x200 never .. 0x207 always.
+    bool blend = false;
+    u32 source_blend = 1;
+    u32 destination_blend = 0;
+    u32 blend_equation = 0x8006;
+    bool alpha_test = false;
+    u32 alpha_function = 0x207;
+    u32 alpha_reference = 0;
+    u32 color_mask = 0x01010101; // NV097_SET_COLOR_MASK: alpha, red, green, blue bytes.
+    std::array<i32, 4> scissor{0, 0, 640, 480}; // Viewport rectangle, back-buffer pixels.
+};
+void gfx_draw_native(const GfxNativeDraw& draw);
+// D3DDevice_Clear over the 640x480 back buffer: flags 1 depth, 2 stencil, 0xF0 colour.
+void gfx_clear_native(std::span<const std::array<i32, 4>> rectangles, u32 flags, u32 color, float depth);
+
 void gfx_size(int& width, int& height);
 void gfx_end_frame();
 

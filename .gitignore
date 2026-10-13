@@ -49,7 +49,3 @@ dump/
 *.obj
 *.png
 
-# Supervisor runtime (task markdown under queue/ is tracked)
-queue/**/*.heartbeat
-queue/**/*.ready
-queue/**/*.prompt.md

@@ -17,7 +17,7 @@ constexpr u32 kQuads = 8;
 
 void SceneD3DDevice::create_vertex_shader(const i32* declaration, const u32* program, u32& handle, u32 usage)
 {
-    VertexShader shader;
+    SceneD3DVertexShader shader;
     std::memcpy(shader.declaration.data(), declaration, sizeof(shader.declaration));
     shader.program.assign(program, program + 1 + (program[0] >> 16) * 4);
     shader.usage = usage;
@@ -27,7 +27,7 @@ void SceneD3DDevice::create_vertex_shader(const i32* declaration, const u32* pro
 
 void SceneD3DDevice::set_vertex_stream(u32 stream, u32 resource, u32 stride)
 {
-    vertex_streams[stream] = VertexStream{resource, stride};
+    vertex_streams_[stream] = SceneD3DVertexStream{resource, stride};
     render_states_[0x10020 + stream] = stride;
 }
 
@@ -43,19 +43,19 @@ SceneD3DDevice::SceneD3DDevice()
     };
     dialogue_.cull = [this](u32 value)
     {
-        render_states_[0x10001] = value;
+        render_states_[kCullMode] = value;
     };
     dialogue_.depth = [this](u32 value)
     {
-        render_states_[0x10002] = value;
+        render_states_[kZEnable] = value;
     };
     dialogue_.vertex_shader = [this](u32 handle)
     {
-        render_states_[0x10003] = handle;
+        render_states_[kVertexShader] = handle;
     };
     dialogue_.pixel_shader = [this](u32 handle)
     {
-        render_states_[0x10004] = handle;
+        render_states_[kPixelShader] = handle;
     };
     dialogue_.texture = [this](u32 stage, const u8* texture)
     {
@@ -92,8 +92,16 @@ SceneD3DDevice::SceneD3DDevice()
     {
         for (u32 index = 0; index < 6; ++index)
         {
-            render_states_[0x10030 + index] = viewport[index];
+            render_states_[kViewport + index] = viewport[index];
         }
+        // SetViewport also loads the screen-space transform vertex programs end with: c-38 scales and
+        // c-37 offsets the projected position into viewport pixels and depth-buffer units.
+        const float width = float(viewport[2]) * 0.5f;
+        const float height = float(viewport[3]) * 0.5f;
+        const float near_z = std::bit_cast<float>(viewport[4]);
+        const float far_z = std::bit_cast<float>(viewport[5]);
+        constants_[96 - 38] = {width, -height, kDepthScale * (far_z - near_z), 0.f};
+        constants_[96 - 37] = {float(viewport[0]) + width, float(viewport[1]) + height, kDepthScale * near_z, 0.f};
     };
     dialogue_.constants_not_inline = [](u32, u32)
     {
@@ -140,13 +148,13 @@ SceneD3DDevice::SceneD3DDevice()
         }
         decode_push(push_.data(), end);
     };
-    outer_.back_buffer = [this](u32)
+    outer_.back_buffer = [](u32)
     {
-        return DialogueSurfaceHandle(1);
+        return DialogueSurfaceHandle(kBackBuffer);
     };
-    outer_.depth_buffer = [this]()
+    outer_.depth_buffer = []()
     {
-        return DialogueSurfaceHandle(2);
+        return DialogueSurfaceHandle(kDepthBuffer);
     };
     outer_.surface = [this](DialogueSurfaceHandle, u32)
     {
@@ -154,21 +162,36 @@ SceneD3DDevice::SceneD3DDevice()
     };
     outer_.render_target = [this](DialogueSurfaceHandle color, DialogueSurfaceHandle depth)
     {
-        render_states_[0x10040] = u32(color);
-        render_states_[0x10041] = u32(depth);
+        commands.push_back(SceneD3DTarget{color, depth});
     };
     outer_.release = [](DialogueSurfaceHandle)
     {
     };
-    outer_.clear = [](u32, const void*, u32, u32, float, u32)
+    outer_.clear = [this](u32 count, const void* rectangles, u32 flags, u32 color, float depth, u32)
     {
+        // D3DRECT: x1, y1, x2, y2.
+        SceneD3DClear clear{std::vector<std::array<i32, 4>>(count), flags, color, depth};
+        if (count != 0)
+        {
+            std::memcpy(clear.rectangles.data(), rectangles, count * sizeof(std::array<i32, 4>));
+        }
+        commands.push_back(std::move(clear));
     };
     outer_.line_width = [this](float width)
     {
         render_states_[0x10050] = std::bit_cast<u32>(width);
     };
-    outer_.pixel_constants = [](u32, const float*, u32)
+    outer_.pixel_constants = [this](u32 reg, const float* data, u32 count)
     {
+        for (u32 index = 0; index < count; ++index)
+        {
+            if (reg + index >= pixel_constants_.size())
+            {
+                throw Error("D3D pixel constant outside the device");
+            }
+            std::memcpy(pixel_constants_[reg + index].data(), data + index * 4, 16);
+            pixel_constants_set_ |= 1u << (reg + index);
+        }
     };
 }
 
@@ -212,7 +235,8 @@ void SceneD3DDevice::decode_push(const u32* begin, const u32* end)
                     }
                     output.color = constants_[0x64];
                     output.texture = textures_[0];
-                    quads.push_back(output);
+                    output.states = render_states_;
+                    commands.push_back(std::move(output));
                 }
                 open = false;
             }
@@ -254,13 +278,15 @@ void SceneD3DDevice::set_constant_words(u32 reg, const u32* data, u32 count)
     }
 }
 
-void SceneD3DDevice::draw_indexed(u32 primitive, u32 count, u32 indices)
+SceneD3DIndexedDraw& SceneD3DDevice::draw_indexed(u32 primitive, u32 count, u32 indices)
 {
-    indexed_draws.push_back({primitive, count, indices});
+    commands.push_back(SceneD3DIndexedDraw{primitive, count, indices, constants_, textures_, render_states_,
+        vertex_streams_, pixel_constants_, pixel_constants_set_});
+    return std::get<SceneD3DIndexedDraw>(commands.back());
 }
 
-std::vector<SceneD3DQuad> SceneD3DDevice::take_quads()
+std::vector<SceneD3DCommand> SceneD3DDevice::take_commands()
 {
-    return std::exchange(quads, {});
+    return std::exchange(commands, {});
 }
 }

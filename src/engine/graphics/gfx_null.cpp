@@ -65,6 +65,14 @@ void gfx_clear_ui_depth(int, int, int, int)
 {
 }
 
+void gfx_draw_native(const GfxNativeDraw&)
+{
+}
+
+void gfx_clear_native(std::span<const std::array<i32, 4>>, u32, u32, float)
+{
+}
+
 void gfx_set_bones(const float*, int)
 {
 }

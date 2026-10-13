@@ -33,7 +33,7 @@ Scripts in `tools/ghidra/ghidra_scripts/` run against the existing `ghidra_proje
 .\tools\ghidra\support\analyzeHeadless.bat ghidra_projects GbtG -process default.xbe.original -readOnly -noanalysis -scriptPath tools\ghidra\ghidra_scripts -postScript ExportFrontier.java
 ```
 
-`ExportEngine.java` writes `docs/generated/ghidra_functions.txt` (addresses and names only) plus `cache/ghidra_engine.txt` (decompiles). `ExportFrontier.java` decompiles the script-handler, stream, camera, and texture-stage seeds into `cache/ghidra_frontier/` and adds one task file per unnamed callee under `queue/open/` when that address is not already queued. `dump-only` skips the enqueue. Close Code Browser first, or the project may be locked.
+`ExportEngine.java` writes `docs/generated/ghidra_functions.txt` (addresses and names only) plus `cache/ghidra_engine.txt` (decompiles). `ExportFrontier.java` decompiles the script-handler, stream, camera, and texture-stage seeds into `cache/ghidra_frontier/`. Run it with `dump-only`; its task-file enqueue fed the retired `queue/` supervisor. For specific addresses, use `ExportPlayerScene.java` with `-readOnly` (see `AGENTS.md`). Close Code Browser first, or the project may be locked.
 
 When you rename a function in Ghidra, add a line to [`XBE.md`](XBE.md) and re-run `ExportEngine.java`.
 

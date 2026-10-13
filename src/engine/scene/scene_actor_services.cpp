@@ -48,6 +48,7 @@
 #include "gbtg/texture.h"
 #include "../camera/display_clip_limits.h"
 #include "../graphics/scene_d3d_device.h"
+#include "../graphics/scene_d3d_present.h"
 #include "../audio/pcm_backend.h"
 #include "gbtg/engine_internal.h"
 #include "../scripts/script_dialogue_actions.h"
@@ -744,9 +745,8 @@ struct SceneActorServices::State
     void actor_draw(Actor& actor, i32 view, i32 pass); // Actor vtable +0x14 by class.
     void draw_scene_actor(FactoryObject& object, Actor& actor, i32 kind); // 0x0003C9E0.
     // Host presentation of the recorded dialogue quads, with decoded images of their texture frames.
-    std::unordered_map<const u8*, std::unique_ptr<RgbaImage>> quad_images;
-    const RgbaImage& quad_image(const u8* record);
-    void present_dialogue_quads();
+    std::unordered_map<const u8*, std::unique_ptr<RgbaImage>> texture_images;
+    const RgbaImage& texture_image(const u8* record);
 };
 
 SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
@@ -1406,7 +1406,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     };
     tree_dispatch->set_cull_mode = [this](u32 mode)
     {
-        d3d_device.set_state(0x10060, mode); // D3D 0x00171420.
+        d3d_device.set_state(SceneD3DDevice::kCullMode, mode); // D3D 0x00171420.
     };
     tree_dispatch->set_fog_color = [this](u32 color)
     {
@@ -1456,7 +1456,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         active_pixel_shader, depth_function, blend_enabled,
         [this](u32 shader)
         {
-            d3d_device.set_state(0x10004, shader);
+            d3d_device.set_state(SceneD3DDevice::kPixelShader, shader);
         },
         [this](u32 method, u32 value)
         {
@@ -1464,7 +1464,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         },
         [this](u32 enabled)
         {
-            d3d_device.set_state(0x10002, enabled);
+            d3d_device.set_state(SceneD3DDevice::kZEnable, enabled);
         }});
     install_runtime_render_node_dispatch(*render_nodes, node_callbacks);
     model_shader_states = std::make_unique<RuntimeModelShaderStates>(RuntimeModelShaderStates{
@@ -1478,20 +1478,20 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         },
         [this](u32 value)
         {
-            d3d_device.set_state(0x10002, value);
+            d3d_device.set_state(SceneD3DDevice::kZEnable, value);
         }});
     model_shader_draw = std::make_unique<RuntimeModelShaderDraw>(RuntimeModelShaderDraw{
         *tree_dispatch, *model_shader_states,
         [this](u32 shader)
         {
-            d3d_device.set_state(0x10004, shader);
+            d3d_device.set_state(SceneD3DDevice::kPixelShader, shader);
         }, {}});
     model_shader_combiner = std::make_unique<RuntimeModelShaderCombiner>(RuntimeModelShaderCombiner{
         *model_shader_draw, std::span<u32>(deferred_states).subspan((0x00181B70 - 0x00181968) / 4),
         deferred_states[0], deferred_states[(0x00181C44 - 0x00181968) / 4], shader_texture_stage,
         [this](u32 setter, u32 value)
         {
-            d3d_device.set_state(setter == 0x001722A0 ? 0x10002 : setter, value);
+            d3d_device.set_state(setter == 0x001722A0 ? SceneD3DDevice::kZEnable : setter, value);
         }});
     bind_runtime_model_shader_callback([this](u32 shader)
     {
@@ -1544,7 +1544,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         },
         [this](u32 handle)
         {
-            d3d_device.set_state(0x10003, handle);
+            d3d_device.set_state(SceneD3DDevice::kVertexShader, handle);
         }});
     node_callbacks[0x00158510] = [this](u32 node, void*)
     {
@@ -1614,7 +1614,15 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         flag_origins,
         [this](u32 primitive, u32 count, u32 indices)
         {
-            d3d_device.draw_indexed(primitive, count, indices);
+            auto& draw = d3d_device.draw_indexed(primitive, count, indices);
+            // D3D_g_DeferredTextureState (DAT_00181970): stage stride 0x20 words, ADDRESSU then ADDRESSV.
+            for (u32 stage = 0; stage < 4; ++stage)
+            {
+                const u32 u = deferred_states[2 + stage * 0x20];
+                const u32 v = deferred_states[2 + stage * 0x20 + 1];
+                draw.address_u[stage] = u == 0 ? 1 : u;
+                draw.address_v[stage] = v == 0 ? 1 : v;
+            }
         }});
     install_runtime_push_buffer_dispatch(*push_buffers, node_callbacks);
     // Camera director (0x000AA250) and rig (0x000781F0) tunables are .data words read from the image.
@@ -2912,13 +2920,42 @@ void SceneActorServices::State::draw_scene_actor(FactoryObject& object, Actor& a
 
 // A bound texture is a frame record of a texture header: header + header size (28) + frame * 0x14
 // (0x00053550). Headers sit at the start of texture resources and inside fonts (one per glyph); the
-// registry's loaded rows own the bytes, and the header's offsets index that row's GPU data.
-const RgbaImage& SceneActorServices::State::quad_image(const u8* record)
+// registry's loaded rows own those bytes, and the header's offsets index that row's GPU data. Model
+// textures are relocated: their records sit in the scene resource memory, and each record's data is
+// the address its relocation registered.
+const RgbaImage& SceneActorServices::State::texture_image(const u8* record)
 {
-    const auto cached = quad_images.find(record);
-    if (cached != quad_images.end())
+    const auto cached = texture_images.find(record);
+    if (cached != texture_images.end())
     {
         return *cached->second;
+    }
+    const u32 address = resources.memory.find_address(record);
+    const auto registered = resources.d3d.resources.find(address);
+    if (address != 0 && registered != resources.d3d.resources.end() && registered->second.data != 0)
+    {
+        const auto block = resources.memory.tail(resources.memory.block_start(address));
+        const size_t before = size_t(record - block.data());
+        TextureHeader header;
+        size_t frame = 0;
+        while (before >= 28 + frame * 0x14 && !(parse_texture_header(block.subspan(before - 28 - frame * 0x14), header)
+            && frame < std::max<size_t>(header.tile_count, 1)))
+        {
+            ++frame;
+        }
+        if (before < 28 + frame * 0x14)
+        {
+            throw Error("bound model texture record has no texture header");
+        }
+        const auto data = resources.memory.tail(registered->second.data);
+        if (header.data_size > data.size())
+        {
+            throw Error("bound model texture data is outside its block");
+        }
+        TextureHeader tile = header;
+        tile.texture_offset = 0;
+        auto image = std::make_unique<RgbaImage>(decode_xbox_texture(tile, data.first(header.data_size)));
+        return *texture_images.emplace(record, std::move(image)).first->second;
     }
     for (const auto& loaded : resources.registry.loaded)
     {
@@ -2943,63 +2980,31 @@ const RgbaImage& SceneActorServices::State::quad_image(const u8* record)
             TextureHeader tile = header;
             tile.texture_offset = 0;
             auto image = std::make_unique<RgbaImage>(decode_xbox_texture(tile, loaded.gpu.subspan(offset, header.data_size)));
-            return *quad_images.emplace(record, std::move(image)).first->second;
+            return *texture_images.emplace(record, std::move(image)).first->second;
         }
-        throw Error("dialogue quad texture record has no texture header");
+        throw Error("bound texture record has no texture header");
     }
-    throw Error("dialogue quad texture is outside every loaded resource");
-}
-
-void SceneActorServices::State::present_dialogue_quads()
-{
-    for (const auto& quad : d3d_device.take_quads())
-    {
-        if (quad.texture == nullptr)
-        {
-            continue;
-        }
-        const RgbaImage& image = quad_image(quad.texture);
-        // Constants c0x60..c0x63 are the transposed transform: clip = row . (x, y, z, 1). The HUD is 640x480.
-        const auto clip = [&quad](const std::array<float, 5>& vertex, u32 row)
-        {
-            const float* m = quad.transform.data() + row * 4;
-            return m[0] * vertex[0] + m[1] * vertex[1] + m[2] * vertex[2] + m[3];
-        };
-        const auto& first = quad.vertices[0];
-        const auto& last = quad.vertices[2];
-        float x0 = (clip(first, 0) + 1.f) * 320.f;
-        float y0 = (1.f - clip(first, 1)) * 240.f;
-        float x1 = (clip(last, 0) + 1.f) * 320.f;
-        float y1 = (1.f - clip(last, 1)) * 240.f;
-        float u0 = first[3];
-        float v0 = first[4];
-        float u1 = last[3];
-        float v1 = last[4];
-        if (x1 < x0)
-        {
-            std::swap(x0, x1);
-            std::swap(u0, u1);
-        }
-        if (y1 < y0)
-        {
-            std::swap(y0, y1);
-            std::swap(v0, v1);
-        }
-        gfx_sprite_submit(image, x0, y0, x1 - x0, y1 - y0, u0, v0, u1, v1, quad.color);
-    }
+    throw Error("bound texture is outside every loaded resource");
 }
 
 void SceneActorServices::present_views(const std::function<void()>& draw_world)
 {
     auto& state = *state_;
-    present_runtime_display_views([&state, &draw_world](i32)
+    const SceneD3DPresentContext present{state.resources.memory, state.resources.d3d, state.d3d_device.vertex_shaders,
+        [&state](const u8* record) -> const RgbaImage&
+        {
+            return state.texture_image(record);
+        }};
+    present_runtime_display_views([&state, &draw_world, &present](i32)
     {
-        // The D3D11 renderer takes the slot's display camera; the display field of view is in degrees.
+        // The D3D11 renderer takes the slot's display camera for the host world draw; the display field
+        // of view is in degrees there.
         const auto& view = *entity_detail::g_display_view;
         gfx_set_camera(view.position, view.rotation, view.field_of_view * (3.14159265f / 180.f));
         draw_world();
+        state.d3d_device.commands.clear();
         draw_scene_dialogue(state.game);
-        state.present_dialogue_quads();
+        present_scene_d3d_commands(state.d3d_device.take_commands(), present);
     }, *state.display_setup);
 }
 

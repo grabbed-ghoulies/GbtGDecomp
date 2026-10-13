@@ -1,4 +1,5 @@
 #include "scene_resource_memory.h"
+#include <iterator>
 #include <limits>
 
 namespace gbtg
@@ -64,6 +65,16 @@ std::span<u8> SceneResourceMemory::tail(u32 address) const
     return resolve(address, block->second.size() - std::min<size_t>(address - block->first, block->second.size()));
 }
 
+u32 SceneResourceMemory::block_start(u32 address) const
+{
+    auto block = blocks_.upper_bound(address);
+    if (block == blocks_.begin() || address - std::prev(block)->first > std::prev(block)->second.size())
+    {
+        throw Error("scene resource address is not mapped");
+    }
+    return std::prev(block)->first;
+}
+
 u8* SceneResourceMemory::pointer(u32 address) const
 {
     if (address == 0)
@@ -79,14 +90,24 @@ u32 SceneResourceMemory::address_of(const u8* pointer) const
     {
         return 0;
     }
+    const u32 address = find_address(pointer);
+    if (address == 0)
+    {
+        throw Error("native pointer is not in a scene resource block");
+    }
+    return address;
+}
+
+u32 SceneResourceMemory::find_address(const u8* pointer) const
+{
     for (const auto& [address, bytes] : blocks_)
     {
-        if (pointer >= bytes.data() && pointer <= bytes.data() + bytes.size())
+        if (pointer != nullptr && pointer >= bytes.data() && pointer <= bytes.data() + bytes.size())
         {
             return address + u32(pointer - bytes.data());
         }
     }
-    throw Error("native pointer is not in a scene resource block");
+    return 0;
 }
 
 size_t SceneResourceMemory::block_count() const

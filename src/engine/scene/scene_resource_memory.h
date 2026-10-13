@@ -20,8 +20,10 @@ public:
     void free(u32 address); // Address of a block start.
     std::span<u8> resolve(u32 address, size_t size) const;
     std::span<u8> tail(u32 address) const; // From the address to the end of its block.
+    u32 block_start(u32 address) const; // Start of the block holding the address.
     u8* pointer(u32 address) const; // Null for address 0.
     u32 address_of(const u8* pointer) const; // 0 for null.
+    u32 find_address(const u8* pointer) const; // 0 for a pointer outside every block.
     size_t block_count() const;
 
 private:

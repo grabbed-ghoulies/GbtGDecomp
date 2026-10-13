@@ -40,6 +40,68 @@ Vec3 record_vec3(const RuntimeBodyCollisionRecord& record, size_t offset)
 }
 }
 
+// Xbox 0x0013EB60
+bool expire_runtime_body_contact_overrides(GhoulySpawnPool* overrides, float maximum_age)
+{
+    if (overrides == nullptr)
+    {
+        return false;
+    }
+    OverrideRow* end = override_end(*overrides);
+    OverrideRow* row = override_rows(*overrides);
+    while (row < end)
+    {
+        // COMISS/JC retains unordered ages, including quiet NaNs.
+        if (!(std::bit_cast<float>(row->retained) >= maximum_age))
+        {
+            ++row;
+        }
+        else
+        {
+            if (row->active != 0)
+            {
+                row->actor->model_flags = row->saved;
+                row->active = 0;
+            }
+            u8* last = overrides->cursor - overrides->stride;
+            if (reinterpret_cast<u8*>(row) < last)
+            {
+                engine_copy_bytes(row, last, overrides->stride);
+            }
+            overrides->cursor -= overrides->stride;
+            --end;
+        }
+    }
+    return (overrides->cursor - overrides->begin) / overrides->stride == 0;
+}
+
+// Xbox 0x0013F110
+void forget_runtime_body_contact_actor(GhoulySpawnPool* overrides, Actor* object)
+{
+    if (overrides != nullptr)
+    {
+        OverrideRow* row = override_rows(*overrides);
+        OverrideRow* end = override_end(*overrides);
+        if (row < end)
+        {
+            while (row->actor != object)
+            {
+                ++row;
+                if (row >= end)
+                {
+                    return;
+                }
+            }
+            u8* last = overrides->cursor - overrides->stride;
+            if (reinterpret_cast<u8*>(row) < last)
+            {
+                engine_copy_bytes(row, last, overrides->stride);
+            }
+            overrides->cursor -= overrides->stride;
+        }
+    }
+}
+
 // Xbox 0x0013ED20
 void age_runtime_body_contact_overrides(GhoulySpawnPool& overrides, const RuntimeActorClock& clock)
 {

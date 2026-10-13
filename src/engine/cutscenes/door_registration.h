@@ -45,6 +45,16 @@ struct RuntimeDoorContext
     const std::function<RuntimeDoorActorModels(Actor*)>& models; // Views of a door track actor's models.
     std::span<u32> shared_model_states;
 };
+struct RuntimeDoorRelease
+{
+    RuntimeDoorContext& doors;
+    u32& camera_registered; // DAT_004EE31C.
+    u32& paused; // DAT_004EE320.
+    u32& active_strategies; // DAT_00510CEC.
+    u32& camera_hold; // DAT_004DEA24.
+    u32& runtime_flags; // DAT_0050EA9C.
+};
+void release_runtime_doors(RuntimeDoorRelease& context); // Xbox 0x0005B1E0
 void load_runtime_door_clips(RuntimeDoorClips& door, const char* clip,
     const char* camera, RuntimeDoorContext& context); // Xbox 0x0005B960
 void register_runtime_door(const Vec3& position, const Vec3& euler, const Vec3& scale,

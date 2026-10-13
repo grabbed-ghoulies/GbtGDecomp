@@ -1,6 +1,7 @@
 // Native side of point_graph_oracle.py: reads cases from stdin and writes the resulting memory image.
 #include "engine/graphics/point_graph_solver.h"
 #include "engine/graphics/d3dx_matrix.h"
+#include "engine/scene/background_update.h"
 #include <cstdio>
 #ifdef _WIN32
 #include <fcntl.h>
@@ -132,6 +133,36 @@ int main()
             Vec3 turned{};
             transform_runtime_graphics_normal(turned, normal, out + 16);
             std::memcpy(out + 64, &turned, 12);
+            break;
+        }
+        case 11:
+        {
+            Actor actor;
+            actor.animation_rate = reals[7];
+            actor.animation_pause = reals[8];
+            ActorMatrixSetup matrices{};
+            matrices.matrices.count = 1;
+            matrices.matrices.node = {memory.data() + 0x6200, 0x40};
+            matrices.matrices.instance = {memory.data() + 0x6300, 0x100};
+            RuntimeBackgroundLifetime lifetime{};
+            lifetime.animation = memory.data();
+            RuntimeBackgroundAnimation animation{};
+            animation.rows = {&graph, 1};
+            animation.animation_block = {memory.data() + 0x6880, 0x48};
+            animation.header = {memory.data() + 0x67F0, 0x10};
+            animation.matrix_count = 1;
+            animation.matrix_node = matrices.matrices.node;
+            RuntimeBackgroundConstruction background{{memory.data() + 0x4000, 0x9E8}, actor, matrices,
+                lifetime, animation, {}, {}};
+            const u32 zero = 0;
+            const RuntimeActorClock clock{reals[4], reals[5], reals[6], zero, {}, zero};
+            const std::function<std::span<const u8>(u32, size_t)> resolve = [&memory](u32 address, size_t size)
+            {
+                return std::span<const u8>{memory}.subspan(address - kBase, size);
+            };
+            RuntimeShaderMatrixBoundaries boundaries{};
+            RuntimeBackgroundUpdate context{&background, clock, resolve, nullptr, boundaries};
+            update_background_animation(background, context);
             break;
         }
         case 10:

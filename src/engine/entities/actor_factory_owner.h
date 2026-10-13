@@ -4,6 +4,7 @@
 
 namespace gbtg
 {
+struct GhoulySpawnPool;
 void install_runtime_base_object_class(std::span<ObjectFactoryType> types);
 struct NativeActorFactoryInstance;
 // Host view of the actor's current model instance (actor +0x204) as the pose routines read it: poses
@@ -27,6 +28,7 @@ struct NativeActorFactoryInstance
     entity_detail::ListHead live_attachments{};
     void* allocation_8fc = nullptr;
     void* matrices = nullptr;
+    GhoulySpawnPool* prop_contacts = nullptr; // Type 0x1A actor +0x934.
     ModelAnimationState pose;
     std::vector<ModelResourceBlock> pose_blocks; // Model CPU records behind pose.resource_blocks.
     RuntimeModelInstance* pose_model = nullptr; // Model the view was loaded from.

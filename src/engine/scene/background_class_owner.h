@@ -30,6 +30,7 @@ struct NativeBackgroundClassBindings
     const std::function<void(u8*)>& heap_free;
     // Message slot 0x00043E50 with the scene's contexts for this background.
     std::function<void(NativeBackgroundInstance&, std::span<u32>)> message;
+    std::function<void(NativeBackgroundInstance&)> update; // Vtable +0x10, 0x000464D0.
 };
 class NativeBackgroundClassOwner
 {
@@ -43,6 +44,7 @@ public:
     bool construct(FactoryObject& object, std::span<const u8> parameters); // Vtable +4, 0x00042DA0.
     void release(FactoryObject& object); // Vtable +8, 0x000430C0.
     void message(FactoryObject& object, std::span<u32> message); // Vtable +0xC, 0x00043E50.
+    void update(FactoryObject& object); // Native adapter for vtable +0x10, 0x000464D0.
     NativeBackgroundInstance& instance(const FactoryObject& object);
     NativeBackgroundInstance* find(const u8* bytes);
     NativeBackgroundClassBindings bindings;

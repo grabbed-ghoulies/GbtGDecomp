@@ -69,6 +69,11 @@ NativeBackgroundInstance& NativeBackgroundClassOwner::instance(const FactoryObje
     return *found;
 }
 
+void NativeBackgroundClassOwner::update(FactoryObject& object)
+{
+    bindings.update(instance(object));
+}
+
 NativeBackgroundInstance* NativeBackgroundClassOwner::first_background()
 {
     for (const auto& [bytes, other] : instances_)

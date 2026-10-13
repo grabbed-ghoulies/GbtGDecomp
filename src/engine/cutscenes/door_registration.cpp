@@ -154,6 +154,50 @@ bool build_runtime_door_clip_names(char* clip, char* camera, u16 first_variant,
     return cutscene_resource_exists(clip, resources);
 }
 
+// Xbox 0x0005B1E0
+void release_runtime_doors(RuntimeDoorRelease& context)
+{
+    auto& doors = context.doors;
+    if (doors.pool != nullptr)
+    {
+        u8* row = doors.pool->begin;
+        u8* end = doors.pool->end;
+        size_t index = 0;
+        while (row < end)
+        {
+            auto& clips = doors.rows[index];
+            if (clips.primary != nullptr)
+            {
+                release_runtime_cutscene(clips.primary, *doors.cutscenes);
+                clips.primary = nullptr;
+                store(clips.fields, 0x140, 0);
+            }
+            if (clips.camera != nullptr)
+            {
+                release_runtime_cutscene(clips.camera, *doors.cutscenes);
+                clips.camera = nullptr;
+                store(clips.fields, 0x144, 0);
+            }
+            row += 0x154;
+            ++index;
+        }
+        engine_heap_free(doors.pool);
+        doors.pool = nullptr;
+    }
+    if (context.camera_registered != 0)
+    {
+        camera_unlink_view(doors.camera);
+        context.camera_registered = 0;
+    }
+    if (context.paused != 0)
+    {
+        --context.active_strategies;
+        --context.camera_hold;
+        context.runtime_flags &= 0xFDFFFFFFu;
+        context.paused = 0;
+    }
+}
+
 // Xbox 0x0005B960
 void load_runtime_door_clips(RuntimeDoorClips& door, const char* clip,
     const char* camera, RuntimeDoorContext& context)

@@ -39,6 +39,10 @@ struct RuntimeBodyContactWalk
 
 void age_runtime_body_contact_overrides(GhoulySpawnPool& overrides,
     const RuntimeActorClock& clock); // Xbox 0x0013ED20, EAX overrides
+bool expire_runtime_body_contact_overrides(GhoulySpawnPool* overrides,
+    float maximum_age); // Xbox 0x0013EB60
+void forget_runtime_body_contact_actor(GhoulySpawnPool* overrides,
+    Actor* object); // Xbox 0x0013F110
 void suspend_runtime_body_contact_overrides(GhoulySpawnPool& overrides); // Xbox 0x0013EE10, EDI overrides
 void remove_runtime_body_contact_override(GhoulySpawnPool* overrides,
     Actor& object); // Xbox 0x0013EDD0

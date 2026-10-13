@@ -3,12 +3,38 @@
 #include "../graphics/model_points.h"
 #include "../graphics/matrix_inverse.h"
 #include "../graphics/point_graph_solver.h"
+#include "gbtg/model_runtime.h"
 #include <bit>
 
 #include <cstring>
 
 namespace gbtg
 {
+// Xbox 0x00044430
+void publish_background_graph_matrices(RuntimeBackgroundAnimation& animation, std::span<u8> instance)
+{
+    const i32 count = animation.matrix_count;
+    if (count != 0)
+    {
+        i32 index = 0;
+        if (count > 0)
+        {
+            do
+            {
+                const auto fields = animation.rows[index].fields;
+                if (fields[0x1D5] != 0)
+                {
+                    RuntimeShaderMatrix matrix;
+                    std::memcpy(matrix.data(), fields.data() + 0xB0, 64);
+                    write_runtime_model_matrix(animation.matrix_node, instance, index, matrix);
+                }
+                ++index;
+            }
+            while (index < animation.matrix_count);
+        }
+    }
+}
+
 // Xbox 0x00044490
 void initialize_background_animation(RuntimeBackgroundAnimation* first,
     const std::function<std::span<const u8>(u32)>& resolve,

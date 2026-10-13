@@ -4,6 +4,7 @@
 #include "entity_heap.h"
 #include "actor_shape_push.h"
 #include "entity_collision.h"
+#include "contact_prop_actor.h"
 #include "../graphics/vector_normalize.h"
 #include <cstring>
 #include "gbtg/model_runtime.h"
@@ -164,6 +165,7 @@ bool construct_actor_view(FactoryObject& object, std::span<const u8> parameters)
     auto& instance = active_owner->construct_view(object);
     const bool result = initialize_runtime_actor(instance.startup, parameters,
         active_owner->bindings.startup);
+    std::memcpy(object.bytes.get() + 0x208, instance.startup.models.name.data(), instance.startup.models.name.size());
     instance.frame.bone = instance.startup.bone;
     refresh_actor_model_animation_view(instance);
     return result;
@@ -183,6 +185,23 @@ bool construct_button_bat_view(FactoryObject& object, std::span<const u8> parame
 void destroy_actor_view(FactoryObject& object)
 {
     active_owner->release_view(object);
+}
+
+bool construct_contact_prop_view(FactoryObject& object, std::span<const u8>)
+{
+    return initialize_runtime_contact_prop({object.bytes.get(), object.size}, active_owner->view(object).bat.actor);
+}
+
+void destroy_contact_prop_view(FactoryObject& object)
+{
+    release_runtime_contact_prop({object.bytes.get(), object.size}, active_owner->view(object).prop_contacts);
+}
+
+const ObjectFactoryVtable* contact_prop_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00504DD8, runtime_contact_prop_sizes,
+        construct_contact_prop_view, destroy_contact_prop_view};
+    return &table;
 }
 
 const ObjectFactoryVtable* base_lifecycle()
@@ -286,6 +305,7 @@ void NativeActorFactoryOwner::install(std::span<ObjectFactoryType> types)
     install_runtime_base_object_class(types);
     types[2] = ObjectFactoryType{1, actor_lifecycle};
     types[0x15] = ObjectFactoryType{2, button_bat_lifecycle};
+    types[0x1A] = ObjectFactoryType{2, contact_prop_lifecycle}; // Getter 0x0006EE20.
     active_owner = this;
 }
 

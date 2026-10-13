@@ -6048,3 +6048,617 @@ track actor is null. Either `create_cutscene_track_actor` (0x0004DEC0 ->
 no object, or the clone or factory construction failed. Retail reads that
 actor's +0x204 with no null check, so the clone or the type-2 construction is
 the next thing to check.
+
+### Cutscene track clone correction (2026-10-13)
+
+Reviewed the newer graph, destruction, background-class and cutscene ownership
+changes before continuing. The door track failure comes from the translated
+0x0004DEC0 template literal: instruction 0x0004DF7A loads DAT_002FE6C0, which
+contains `aid_objparams_ghoulies_misc_prop`. The translation used
+`aid_objparams_ghoulies_misc_actor`, a name absent from both executable objparams
+pools, so the real clone lookup returned null. Corrected the literal to the
+retail prop template; no null fallback or substitute actor was added.
+Build and scene-start verification are pending.
+
+The corrected clone reaches the real template's type 0x1A, whose getter
+0x0006EE20 was not installed. Added its contact-prop sizes, constructor,
+destructor, message and frame callbacks (0x0006EE00 / 0x0006EE70 /
+0x0006EEA0 / 0x0006EF30 / 0x0006EED0). The shared contact scan 0x0013EEB0
+uses existing shape sampling, contact probes, copied hit records and body-contact
+override insertion/restoration. Added shared expiration 0x0013EB60 and removal
+notification 0x0013F110; they retain swap-with-last removal and NaN comparison
+behavior. Installed the lifecycle through the actor owner and routed type 0x1A
+messages and cutscene updates through its real callbacks. Validation pending.
+
+The first integrated run now reaches the background constructor's AID-list query,
+past door track creation. Its access violation exposed a native interface mistake:
+0x00035A40 receives a pointer wrapper on the retail stack, and dereferences it to
+the list's first name. The acquired resource already is that list; the helper
+mistook its initial `aid_` bytes for an offset. Corrected the typed span interface
+and its fixture, and synchronized the actor owner's stored model name (+0x208)
+from the existing `RuntimeActorModelState::name`. No resource contents were changed.
+
+Scene-start now builds the opening hallway background and navigation, creates
+and activates 43 marker actors with zero pending actors, and delivers notice
+0x88. The next stop was notice 0x7D: 0x00136700 allocated its real mind search
+storage, but the scene address adapter did not recognize that owned heap block.
+Added the native mapping for `NativePlayerInstance::mind_storage`; verification
+of the remaining startup notices is pending.
+
+Opening `--scene-start` now passes end-to-end through startup and teardown:
+background/navigation built, 43 actors activated, zero pending actors, notices
+0x88 / 0x7D delivered, contact round-trip/event deduplication passed, and final
+factory/address counts both zero. Added the retail door cleanup 0x0005B1E0,
+corrected cutscene actor release 0x0004E9E0 to test the link head at +0x918
+(rather than the native embedded-link view's address), refreshed moved track
+object ownership mappings, and released remaining scene-owned track objects.
+This closes the previous live startup blocker; it does not accept untranslated
+background per-frame update 0x00045A90 / 0x000464D0 or full gameplay.
+Focused contact-helper and corrected AID-list comparisons are in progress.
+
+Validation complete for this batch: Release `gbtg` and `gbtg-transition-tests`
+builds pass. Seed 431 passed 1,200 focused contact expiration/removal cases;
+seed 433 passed 800 corrected AID-list cases; seed 439 passed 4,400 cases across
+all 44 factory-helper modes, with zero mismatches. Contact comparisons cover
+null/empty pools, duplicate actor matches, restoration of saved filters,
+swap-with-last bytes, unsigned masks and ordered/unordered age comparisons.
+The opening `--scene-start` integration test passes with final factory=0,
+addresses=0 and no live latch nodes. The new prop contact scan/frame callback
+is compiled and connected but has no complete retail differential fixture yet;
+startup exercises its lifecycle and messages, not its collision-update branch.
+
+Next milestone: translate/validate background frame update 0x00045A90 and wrapper
+0x000464D0, then install the actual background update slot. Keep the shared
+effect/graph callees general. Opening startup acceptance does not imply that
+the currently untranslated background tick or the full playable frame is done.
+
+`--actor-loading` also passes. Updated its track-creation fixture to the actual
+DAT_002FE6C0 prop name, and its release cases now distinguish a nonnull native
+link view with a zero retail head from an actor with a real parent head. These
+catch the two corrected cutscene translation errors rather than preserving the
+old fixture assumptions. `git diff --check` passes. No CTests were run.
+
+Background tick dependency batch: translated shared quaternion storage 0x00170250,
+quaternion matrix 0x00184D48, matrix composition 0x00153BE0, Euler wrapping
+0x001059B0, effect emission timing 0x000EF1D0 and graph matrix publication
+0x00044430. Added focused retail fixtures for the math and emission helpers.
+Validation pending. The complete effect tick 0x000EF2D0 still requires binding,
+particle placement, simulation and notification callees; background update remains
+unbound until those translations are available. No missing-callee substitute was added.
+
+Release gbtg build passed for the dependency batch. Seed 443 passed 1,000
+effect-emission cases, including sentinels, signed capacities and unordered timers.
+Seed 449 passed 1,000 quaternion storage/rotation/composition and Euler-wrap
+cases. Graph matrix publication is compiled but still lacks a differential fixture.
+Added shared line and box placement 0x00105170 / 0x001051E0; the latter retains
+the seven-way face selection and in-place alias behavior. Validation pending.
+
+Validation complete: Release gbtg build passes. Seed 457 passed 1,200 shared
+line/box placement cases, including aliased source/output and face selection.
+Seed 461 passed 600 graph-publication cases, including negative/zero counts,
+inactive descriptors, matrix offsets and dirty bytes. Seed 463 passed 4,800
+cases across all 48 factory-helper modes with zero mismatches. git diff --check
+passes. No CTests were run; startup behavior was not changed by these helpers.
+
+Remaining background-tick effect frontier is now exported read-only from Ghidra:
+0x000EEB60 binding preparation requires model attachment sampling 0x000EC8E0 /
+0x000EC9D0 and size selection 0x000EEA00; particle placement 0x000EED50 requires
+the remaining curved-volume samplers and 0x000EE5C0 velocity initialization.
+Particle simulation 0x000F18E0 reaches bounded channels 0x00101980 / 0x00101A40 /
+0x001062E0, oscillation 0x00106A80, approach channels 0x000F1F60, collision
+0x000ECE50 and command dispatch 0x000F0FF0 / 0x000F0390. Notification 0x000EE560
+and particle iteration 0x000EF0B0 are also outstanding. Continue those shared
+callees before implementing 0x000EF2D0 and installing 0x00045A90 / 0x000464D0.
+The 48-mode acceptance covers helpers, not complete background frames.
+
+Particle simulation dependency batch: translated shared decreasing/increasing
+bounded channels 0x00101980 / 0x00101A40, three-channel dispatch 0x001062E0,
+and five-channel effect approach 0x000F1F60. Preserved strict boundary tests,
+flag precedence, wrap loops, bounce flag changes and freeze/time scaling.
+Added focused retail fixtures; build and validation pending.
+
+Release gbtg build passed for the channel batch. Seeds 467 and 479 each passed
+1,400 bounded-channel and target-approach cases with zero mismatches. Continued
+with shared angle-range 0x00104FC0, rectangle 0x00105550 and ellipse 0x00105480
+placement; preserved wrapped-angle intervals, ordered/unordered comparisons,
+random draw counts, biased edge selection and aliased source/output ordering.
+Added focused fixtures; this placement batch awaits build and comparisons.
+
+Angle/rectangle/ellipse comparisons passed: seed 487, 1,000 angle-range cases;
+seed 491, 1,200 rectangle/ellipse cases, including aliased extents. Continued
+with ellipsoid 0x001053B0 and cylinder 0x001056B0 sampling using the existing
+real direction helper 0x00106220. All six placement samplers reached by
+0x000EED50 now have translations; the last two await focused validation.
+
+Ellipsoid/cylinder validation passed: seed 499, 1,200 cases with zero mismatches,
+including in-place extents, interior/surface draw counts and wrapped angle ranges.
+The channel and volume-sampling batch now has nine new reconstructed functions.
+Full 53-mode factory-helper comparison is running. The particle placement caller
+0x000EED50 still needs jitter 0x000EEA70 and velocity initialization 0x000EE5C0;
+it is not yet accepted merely because its volume samplers pass. Remaining
+particle simulation still needs oscillation, collision and command dispatch.
+
+Validation complete for this batch: Release gbtg builds pass; seed 503 passed
+5,300 cases across all 53 factory-helper modes with zero mismatches. Focused
+channel and placement checks passed another 6,200 cases. git diff --check passes.
+No CTests were run. These helpers are general and are not attached to an
+individual actor class. Background tick remains unbound pending full effect
+binding, placement/velocity, oscillation, collision, commands and notifications.
+
+Next concrete work: translate jitter 0x000EEA70 and velocity 0x000EE5C0 to close
+placement 0x000EED50; export missing attachment validation 0x00040930 and size
+sampling 0x000EC830 before effect binding 0x000EEB60. Existing model joint and
+locator transforms cover 0x0003AEB0 / 0x0003B050 / 0x00051CE0 / 0x00051E40 /
+0x00104040, so reuse those implementations rather than adding boundaries.
+
+Particle placement batch: translated jitter 0x000EEA70, velocity initialization
+0x000EE5C0 and full placement 0x000EED50. Retained mode-specific extra speed
+draws, random/local/binding rotations, owner scale for volume sampling, effect
+scale for velocity, inherited motion and copied orientation. The placement
+interface carries explicit incoming scratch for an unsupported volume kind,
+matching the retail local rather than assigning a fabricated zero. Added
+focused retail fixtures; build and validation pending.
+
+Jitter/velocity/placement validation passed: seeds 509 / 521 / 523 passed
+1,200 / 1,400 / 1,800 focused cases with zero mismatches. Release build passes.
+Continued attachment work: translated locator iteration 0x00051C60, actor
+locator iteration 0x00040930, physical shape-block lookup 0x000424C0 and cyclic
+effect shape selection 0x000EC750. Retained first matching table entry, cursor
+advance and wrap order, shifted kind mask and excluded joint -1. Added focused
+fixtures; the attachment selection batch awaits validation.
+
+Attachment selection validation passed: seed 541, 2,000 cases, zero mismatches.
+Coverage includes absent model/header, empty tables, first matching table entry,
+null locator blocks, cursor advance/end behavior, cyclic shape scans, masked
+kind shifts, excluded joint -1 and zero-mask early return. Full 57-mode
+factory-helper comparison is running. The remaining binding wrappers are
+0x000EC830 (shape center/radius), 0x000EC8E0 (locator position/euler),
+0x000EC9D0 (joint position/euler), 0x000EEA00 (size mode) and 0x000EEB60
+(binding preparation and inherited velocity). Their actual selection callees
+now exist; connect native cached-pointer/address views while translating them.
+
+Batch validation complete: Release gbtg build passes. Seed 547 passed 5,700
+cases across all 57 factory-helper modes with zero mismatches, alongside 6,400
+focused jitter/velocity/placement and attachment-selection cases. git diff
+--check passes. No CTests were run. Placement is accepted for all defined volume
+kinds 0..6 and velocity modes, including default-mode preservation; unsupported
+volume kinds depend on incoming retail stack scratch and are not fixture-covered.
+The full background frame remains incomplete until attachment wrappers and the
+remaining effect simulation/command/notification routines are translated.
+
+Effect binding batch: translated shape sampling 0x000EC830, locator sampling
+0x000EC8E0, joint sampling 0x000EC9D0, size update 0x000EEA00 and binding
+preparation 0x000EEB60. Reused existing shape/bone/world transforms and added
+native cached shape/locator views with explicit canonical-address mirroring.
+Preserved null/missing attachment fallbacks, retained unwritten radius/euler,
+size modes, local +0x5C rotation for unbound effects and inherited motion.
+Added full retail fixture setup for primary/alternate pose, joint translations,
+locator iteration and shape sampling; build and validation pending.
+
+Binding validation passed: seed 557, 1,800 cases across all five binding routines,
+zero mismatches. Release build passes. Fixture covers null actors/models, both
+pose buffers, successful shape/locator/joint paths, cached selection, failed
+queries preserving radius/euler, size modes and inherited-motion branches.
+Continued with shared oscillating channels 0x00106A80 and fallback-command
+selection 0x000F0FF0. Preserved float spills around phase wrapping and previous
+marker chaining; focused fixtures added, validation pending.
+
+Focused simulation-helper checks passed: seed 563, 1,400 oscillation cases;
+seed 569, 1,200 fallback-command selection cases, zero mismatches. The latter
+checks empty streams, varying record strides and repeated fallback markers
+including the retail previous-marker cache behavior. Full 60-mode comparisons
+and transition-test rebuild are running. Opening scene startup will be checked
+after the effect ownership storage change.
+
+Batch validation complete: seed 571 passed 6,000 cases across all 60 helper
+modes with zero mismatches, alongside 4,400 focused binding/oscillation/fallback
+cases. Release gbtg and gbtg-transition-tests builds pass. Opening --scene-start
+and --actor-loading both pass: 43 activated, zero pending, notices 0x88/0x7D
+delivered and final factory=0 / addresses=0. git diff --check passes. No CTests.
+
+Binding preparation and particle placement are now translated and validated.
+The full effect tick remains unconnected: next implement collision response
+0x000ECE50 with probe 0x000ECBD0 / 0x000ECA20, response 0x000ECC30, actor
+probe 0x0013C0B0 and pitch 0x00106000; implement command execution 0x000F0390
+and its helpers 0x00105140 / 0x000F0300 / 0x000F2430 / 0x000F23E0 /
+0x000F22F0 / 0x000F1AF0 / 0x000F1D20; implement notification 0x000EE560
+with actual sound request 0x00039580 and effect event 0x0013E610 callees.
+New frontier dumps were exported read-only from the existing Ghidra project.
+Then complete particle simulation 0x000F18E0, emission 0x000EF260, iteration
+0x000EF0B0 and tick 0x000EF2D0 before installing background update 0x00045A90 /
+0x000464D0. No untranslated callee was replaced with a stub.
+
+Collision/command dependency batch: translated reflection 0x000ECC30, pitch
+0x00106000, explicit random-state sampling 0x00105140, active-channel check
+0x000F2430, command conditions 0x000F0300, color/alpha targets 0x000F22F0 /
+0x000F23E0 and oscillation setup 0x000F1AF0. Preserved angular random draws,
+strict/unordered comparisons, duration epsilon, x87 arithmetic spills and
+reflection/spin response. Added focused retail fixtures; build/validation pending.
+The collision probe 0x000ECA20 is still being audited against its actual world
+query callees, and full collision/command dispatch remains untranslated.
+
+Added real world/grid probe 0x000ECA20 and particle probe gate 0x000ECBD0 using
+existing sweep/movement and navigation routines. Seed 599 passed 1,400 grid
+hit/miss, empty-world sweep/movement and particle flag cases. Registered-world
+geometry hits are still not fixture-covered. Reflection seed 577 and primitive
+seed 587 each passed 1,600 cases. Target/setup checks exposed finite/infinity
+division in shared ExtendedFloat: compensation produced NaN where retail yields
+zero. Confirmed all observed target mismatches have infinite duration, and
+corrected nonfinite division handling in the shared arithmetic helper. Rebuild
+and affected/full comparisons pending.
+
+Corrected target/setup comparisons now pass: seed 593, 1,600 cases including
+infinite and unordered durations, zero mismatches. Corrected collision fixture
+origins to verified DAT_0050E264 / DAT_0050E26C; seed 599 again passed 1,400
+probe cases. Full 64-mode helper comparisons and point-graph regression are
+running after the shared ExtendedFloat nonfinite-division fix.
+
+Batch validation complete: Release gbtg build passes. Seed 601 passed 6,400
+cases across all 64 factory-helper modes with zero mismatches; focused reflection,
+primitive, target/setup and probe checks passed 6,200 cases. Seed 607 passed
+2,200 point-graph/matrix regression cases across all 11 modes after the shared
+ExtendedFloat fix. The point-graph oracle now supplies the build/Release DLL
+search path, matching the factory oracle, so its linked harness starts reliably.
+git diff --check passes. No CTests were run.
+
+Ten additional routines are translated in this batch. World/grid collision
+probe and reflection now exist, but registered-world geometry hits still lack
+a dedicated differential fixture. Next complete camera-plane probe 0x0013C0B0
+and collision caller 0x000ECE50; bounded-channel setup 0x000F1D20 and its
+0x00101430 / 0x001063D0 / 0x00106590 callees; then full command execution
+0x000F0390. Notifications 0x000EE560 and their real sound/effect event callees
+also remain. Particle simulation, effect tick and background update stay
+unconnected until all required callees are translated.
+
+Camera/bounded-channel batch: translated wrapped-angle equality 0x00101430,
+channel limits 0x001063D0, channel rates 0x00106590, particle bounded setup
+0x000F1D20, camera-plane clipping 0x0013C0B0 and particle collision/movement
+0x000ECE50. Reused actual probe, reflection, angle and frame-clock helpers.
+Preserved camera projection order, optional outputs, retained row padding, PAL
+rate caps, callback-before-response timing and unordered drag clamping from
+assembly. Differential fixtures are being added; build and validation pending.
+
+Focused checks pass for this batch: seed 613, 1,400 camera-plane cases;
+seed 617, 1,800 equality/limits/rates/bounded-setup cases; seed 619, 1,800
+full particle movement cases. Zero mismatches. Movement checks include camera
+and grid contacts, empty-world probes, supplied callback changing reflection
+inputs, freeze/time scaling, stopped particles, spatial bounds, pitch/yaw
+alignment, rotation wrapping, gravity and ordered/unordered drag behavior.
+Release gbtg build passes. Full 67-mode comparison is pending; no CTests.
+
+Batch validation complete: seed 631 passed 6,700 cases across all 67 helper
+modes with zero mismatches. Strengthened movement fixtures with deliberate
+contacts: seed 641 passed another 2,200 cases, exercising 468 camera hits,
+426 grid hits, 448 supplied callbacks and 345 initially stopped particles.
+Callbacks modify the reflection inputs, so the fixture verifies real call
+ordering as well as invocation. Release gbtg build and git diff --check pass.
+No CTests were run. Registered-world geometry hits remain outside the new
+movement fixture, which covers camera/grid hits and actual empty-world probes.
+
+Camera clipping, bounded-channel setup and particle movement/collision caller
+are now translated and validated. Next translate full particle command dispatch
+0x000F0390: all its direct callees now have translations, including existing
+0x000191C0 random-range and 0x001673D8 integer conversion. Then translate
+notification 0x000EE560 with sound request 0x00039580 and effect event
+0x0013E610, followed by 0x000F18E0 / 0x000EF260 / 0x000EF0B0 / 0x000EF2D0.
+Effect simulation and the background update slot remain unconnected until
+those complete callers are available. No missing callee was stubbed.
+
+Particle command dispatcher 0x000F0390 is translated into a narrow shared
+effect_commands module. Preserved fixed per-opcode strides, terminating and
+waiting commands, cursor rewind, detach count wrapping, cached random durations,
+color integer conversion, signed random angular ranges and nested channel setup.
+All direct callees use existing translations. Added opcode/chain differential
+fixtures; build and validation pending.
+
+### Scene start passes through the background (2026-10-13)
+
+The door clip's null track actor was a translation error in 0x0004DEC0. Retail
+clones `aid_objparams_ghoulies_misc_prop` (DAT_002FE6C0), but the translation
+named a nonexistent `..._misc_actor`, so the clone failed. With that fixed,
+`--scene-start` passes end to end:
+
+1. the background is created and activated;
+2. navigation is built into DAT_0050E24C;
+3. markers run and 43 actors activate;
+4. 0x88 and the 0x7D sweep are delivered, including the camera mind's 0x7D
+   (0x00136700) that previously stopped on the missing nav buffer;
+5. teardown leaves factory=0, addresses=0.
+
+All suites, ctest 6/6 and both headless runs pass.
+
+Next, from the 0x0011CBD0 order: the remaining scene-start steps (0x001153A0,
+0x00123560, 0x00119990, 0x0011F450 and the post-marker calls), the frame pass
+0x0011E640/0x00123270 with the background update slot 0x000464D0 -> 0x00045A90,
+wiring `start_background` into the live game's scene start, then the 0x6F
+player wait and the tutorial dialogue.
+
+Particle dispatcher validation: seed 643 passed 1,800 opcode/chain cases with
+zero mismatches after correcting shared ExtendedFloat division to preserve a
+signed-zero numerator. The six initial mismatches were only the size-rate sign
+bit; retail stores negative zero. Point-graph regression seed 647 passed 2,200
+cases across all 11 modes. Full 68-mode regression is running.
+
+Translated notification 0x000EE560 and its actual sound/effect callees
+0x00039580 / 0x0013E610. Positioned sound uses the real allocation, source
+position and cue preparation functions. Effect events use the real stream
+loader and preserve last-effect clearing/flagging. Notification retains unsigned
+frame wraparound, the five-frame cooldown, hit/miss sound selection and aid_
+prefix check. These callers are not yet wired into particle simulation.
+
+The remaining collision callback is 0x000F18C0 -> 0x000F10F0. Its complete dump
+is now available; 0x000F1040 and 0x000EC580 still need translation before the
+callback and 0x000F18E0 simulation caller can be completed. Footstep naming
+0x0013DE80 and camera effect 0x000FB120 already exist. No missing callee has
+been replaced with a fabricated callback result.
+
+Full helper regression seed 647 passed 6,800 cases across all 68 modes with
+zero mismatches; the notification batch also builds successfully in Release.
+Translated shared debris oldest-slot selection 0x000EBD80 (unsigned timestamps,
+last slot wins ties), free-chain allocation 0x000EBDB0, phase setup 0x000EBE50,
+collision debris spawn 0x000EC580, and collision pose sampling 0x000F1040.
+Preserved slot eviction, initialization offsets, random draw ordering, SSE versus
+x87 division, color/alpha setup and yaw/pitch output destinations. Added focused
+pose/phase fixtures; validation pending. The collision interpreter itself and
+full simulation/background update remain unfinished.
+
+Pose sampling seed 653 passed 1,200 cases; debris phase setup seed 659 passed
+1,400 cases, both with zero mismatches. Release build passes. Debris allocation,
+eviction and spawn currently have source/assembly audit but no dedicated pool
+fixture. Added complete 0x000F10F0 collision-command interpreter and actual
+0x000F18C0 callback: all ten opcodes, per-opcode RNG/gate order, spawn/sound/
+debris/camera side effects, counter wrapping and callback result. Build and
+interpreter differential checks are pending; not yet wired into full simulation.
+
+Collision interpreter/callback focused comparison seed 661 passed 2,200 cases
+with zero mismatches. Covers all opcode strides, range/chance rejection, RNG
+order, collision masks, reflection/scale mutation, unconditional eligible masks,
+and signed counter wrap. Resource-producing branches are source/assembly audited
+but not exercised by this fixture. Added full 0x000F18E0 particle simulation
+using the actual collision callback, preserving expiry output behavior, separate
+caller/global time steps, channel/size updates, fallback selection and command
+dispatch. Added stopped-particle simulation fixtures; build/checks pending.
+
+This batch's final validation: Release gbtg build passes. Particle simulation
+seed 673 passed 1,800 stopped-particle cases (expiry leaves outputs untouched,
+frame/size/color/oscillation/bounded updates, separate caller/global step,
+fallback selection and dispatch). Seed 677 passed 7,200 cases across all 72
+then-existing modes with zero mismatches. Added independent pool fixtures:
+seed 683 passed 1,400 oldest-slot cases, including unsigned timestamp extremes
+and ties; seed 691 passed 1,400 allocation cases, including negative free heads,
+free-chain updates and exact initialized/retained bytes. Zero mismatches.
+Point graph's 2,200-case regression also passed after the signed-zero fix.
+No CTests were run in this batch. git diff --check passes.
+
+Next frontier: 0x000EF260 spawn-and-simulate, 0x000EF0B0 active-particle pass,
+then 0x000EF2D0 effect tick and the background update binding. Preserve the
+active-pass assembly's local scratch behavior: 0x000F18E0 leaves the previous-
+collision output untouched on a hit; 0x000EF0B0 compares that scratch's raw
+word to 1, then makes a random hit/miss sound choice. Do not invent an initial
+scratch value or replace the raw comparison with float equality. Placement's
+unsupported-volume scratch likewise remains explicit. The full simulation's
+collision-hit integration, resource-producing collision branches and combined
+debris spawn/notification callers still need dedicated fixtures; lower movement,
+callback, pose, phase, allocation and eviction helpers have independent checks.
+Full gameplay/background ticking remains unconnected.
+
+Translated 0x000EF260 spawn-and-simulate, 0x000EF0B0 active-particle pass and
+0x000EF2D0 complete effect tick into effect_tick. All direct callees use real
+translations. Preserved signed capacity, 16-bit loop index, wrapping count/free
+chain, raw previous-collision scratch comparison, half-probability notification,
+camera direction alignment, first-tick gate, per-emission substeps, stationary/
+moving interpolation, restore/copy order and effect lifetime return condition.
+Incoming scratch is explicit; no fabricated callback result. Added spawn,
+active-particle and effect-tick differential fixtures; validation pending.
+
+Focused checks pass for this batch: seed 727 passed 1,800 effect-tick cases
+with live allocation/recycling as well as exhausted pools, camera alignment,
+first-tick suppression, emission sentinels, stationary/moving interpolation,
+per-emission substeps and lifetime returns. Seed 733 passed 1,800 active-particle
+cases, including signed capacity, inactive slots, expiry and recycling. Seed 739
+passed 1,800 spawn-and-simulate cases. Zero mismatches; Release gbtg build passes.
+The initial tick fixture allowed zero interval with expired emission timer,
+which loops forever in retail too; constrained fixtures to valid timer states
+without changing implementation. Full 77-mode regression is running.
+
+Remaining integration coverage: collision-hit notification with incoming local
+scratch and real sound/effect resources, bound actor sampling through the full
+tick, and full background/frame integration. Helpers for those branches already
+have separate translations/checks. Next translate complete 0x00045A90 with its
+first-background graph and recorded-animation paths, then 0x000464D0 wrapper.
+Shader animation 0x00165A00 already has a translation; do not stub it. Effect
+passes are complete shared translations but background update remains unbound.
+
+Batch validation complete: seed 743 passed 7,700 cases across all 77 helper
+modes with zero mismatches. Release gbtg build and git diff --check pass. No
+CTests were run. Complete effect spawn/active/tick callers are now available;
+background update and live gameplay frame binding are still outstanding.
+
+Translated full background animation update 0x00045A90, including its 0x000446A0
+tail path, and shader wrapper 0x000464D0. Uses the first background's graph/recorded
+animation state, actual graph collision/recovery and matrix publication, packed
+quaternion/position records, expiry flags, and the auxiliary effect tick/pose path.
+Native background owner now has the +0x10 adapter registered in the existing
+actor_updates map. The scene adapter supports graph/recorded paths; auxiliary
+particle backgrounds explicitly remain blocked on the scene debris pool/effect
+scratch context, rather than supplying an empty pool or fabricated result.
+Differential fixtures and build validation are pending. The main gameplay frame
+pass has not yet been connected to call the registered actor updates.
+
+Recorded background differential check seed 751 passes 1,800 cases after an
+assembly correction: the recorded path's multiplication input is descriptor
++0x30, not the physics rest matrix at +0x70. Covers packed frames, grouped rows,
+age/time scaling, clip expiry, matrix output and dirty flags. Seed 761 passes
+7,800 cases across all 78 helper modes with zero mismatches.
+
+Added full background graph-update fixture to the point-graph oracle. It exposed
+an existing 0x0010C8D0 recovery translation error: a failed 0x00151FAD inverse
+must retain graph +0x170 bytes. The native helper was copying its unwritten local
+instead. Seed the local from the actual destination before inversion. With that
+fix, seed 757 passes 1,800 complete graph-update cases and seed 769 passes 2,400
+cases across all 12 point-graph modes; zero mismatches. Includes collision solve,
+transform recovery, inactive rows, frame clamp, age/motion settling and publish.
+Release gbtg build passes; scene-start regression build/run is pending.
+
+Identified real auxiliary debris initialization 0x000EC2D0 (50 slots, 0x16A8 heap,
+aid_misc_ghoulies_fx_cheap_splat plus ten cached resources), teardown 0x000EC3A0,
+and global effect/debris/trail tick 0x000ED480. Dumps exported read-only. These
+are not yet translated/bound; the scene's auxiliary update remains explicit
+until its real pool and incoming scratch state are available. Full gameplay
+frame dispatch 0x0011E640 / 0x00123270 remains the subsequent frontier.
+
+Scene-start regression passes after the owner/update registration changes:
+background/navigation built, 43 activated actors, pending=0, notices 0x88/0x7D,
+contact round-trip/event deduplication, teardown factory=0 and addresses=0.
+Release gbtg and transition-test builds pass; git diff --check passes. No CTests
+were run. Scene-start does not exercise the gameplay frame dispatcher, and does
+not establish acceptance of the still-unbound auxiliary-particle context.
+
+This batch completes the background update translations and native graph/
+recorded update adapter. Outstanding: real 0x000EC2D0 pool/resource initialization
+and auxiliary effect scratch/context binding, then full gameplay frame dispatch.
+The initializer/teardown/global effect tick exports are retained as the next
+frontier; no missing callee or pool was replaced with a stub.
+
+Translated debris initialization 0x000EC2D0 and release 0x000EC3A0. The scene
+owns the actual 50-slot heap pool and cheap-splat resource plus ten cached texture
+views; initialization and release preserve free-chain and resource word writes.
+Corrected existing heap selector 0x000F7100 to read the allocation's actual footer
+tag after the HeapSize boundary instead of always using 0xFF. Auxiliary background
+updates now construct collision, debris, sound, effect stream, command-resolution
+and simulation contexts from actual scene state. Bind DAT_005077A8 by reference
+to the real display global, and mirror the native script pointer into effect +0x134.
+Incoming effect-pass scratch remains caller supplied through the native +0x10
+adapter; it is not initialized to an invented value.
+
+Added literal actor update queue drain 0x00123270: unlink before vtable +0x10,
+then actual 0x00040DE0 transform refresh, re-reading the current-head word after
+each callback. The complete 0x0011E640 frame caller still requires its other
+untranslated passes; do not wire a shortened frame as acceptance. Build and
+validation of this batch are pending.
+
+Opening scene-start now passes with real debris resource/pool initialization,
+caller-supplied scratch and an actual call through the registered background
++0x10 slot. Added native actor-queue verification: unlink-before-callback,
+callback-added actor processed in order, and transform refresh after callback.
+Pool release runs under native ownership; factory/address teardown remains zero.
+
+Continued into frame prerequisites: translated control activation 0x00115FF0,
+one-word 0x7D notification 0x00116090, update queue drain 0x001160F0 and gameplay
+time advancement 0x0012B1F0. Preserve active-head insertion versus update-tail
+append, callback-added links, current-head re-read, unsigned frame wrap and
+0x027001E0 gameplay-time gate. Added control-order checks and time differential
+fixtures. Full 0x0011E640 still requires the remaining sound, global effect,
+scare/deletion and camera passes; no shortened frame loop is connected.
+
+Batch checks complete: Release gbtg and transition-test builds pass; scene-start
+passes including the actual background update slot and actor/control queue tests.
+Actor-loading passes. Time advancement seed 773 passed 1,800 differential cases;
+seed 779 passed 7,900 cases across all 79 helper modes with zero mismatches.
+No CTests; git diff --check passes. Auxiliary binding now exists with real pool,
+resources, display and command addresses, and caller-supplied scratch. The opening
+fixture exercises the graph background; a dedicated auxiliary-background fixture
+is still needed. Continue with the complete sound/global-effect frame passes,
+then scare/deletion/camera closure before connecting 0x0011E640.
+
+Translated actor sound frame pass 0x0012A150 with active-voice update 0x0012A510
+and pending distance sort 0x0012A6E0. Uses actual voice allocation/preparation,
+source positioning/cone APIs, cue stop and pending dispatch. Preserve callback
+changes to the current voice index, saved-next traversal, owner notices 0x8A/
+0x8B/0x8C/0x89, voice-state gates and COMISS unordered sorting. Generalized
+0x0002CC30 link exchange for strategy and sound links, preserving its branches.
+Added callback/index/source update checks, real exhausted allocation and distance
+sort differential fixtures. These shared functions are not yet called by the
+complete gameplay frame; the latter still needs its remaining passes.
+
+Sound checks pass: seed 787 passed 1,800 pending-sort differential cases with
+zero mismatches, including unordered NaN comparisons and pointer rewiring. Native
+frame checks verify ended/live owner notices, callback-changed voice indices,
+cue stop state/count, scaled source position, cone (not velocity), nearest-first
+pending order and real exhausted voice allocation. Scene-start still passes with
+43 actors, direct background update and clean teardown; actor-loading passes.
+Release builds and git diff --check pass. Full 80-mode regression is running.
+
+Remaining full-frame closure is explicit: 0x00115F70 queued object disposal,
+0x00123BA0 scare timers, 0x000ED480 global effects/debris/trails, 0x001232D0 actor
+deactivation/release and 0x00120EF0 camera/display work. The sound frame pass
+0x0012A150 is now translated, but its scene message binding and the native +0x10
+bindings for remaining actor classes also need completion before 0x0011E640 can
+run every real slot. New exports include 0x000EC0B0 debris tick, 0x000EB9F0 trail
+tick, 0x000EB6C0 trail phase setup, and shared scalar approach 0x00101B90 /
+0x00101C00. These are the next implementation frontier, not fabricated callees.
+
+Final batch regression: seed 797 passed 8,000 cases across all 80 helper modes
+with zero mismatches. Release gbtg/transition builds, scene-start (including
+background update plus actor/control/sound frame checks), actor-loading and
+whitespace checks pass. No CTests were run. No commits or OriginalFiles edits.
+The auxiliary background context is now bound with explicit incoming scratch;
+the whole gameplay frame remains unconnected until its remaining real passes
+and class update slots are complete.
+
+Continued frame closure: translated shared scalar approach 0x00101B90,
+rate-based approach 0x00101C00 and scalar bounded limits 0x00101B00.
+Added debris tick 0x000EC0B0, trail phase setup 0x000EB6C0 and trail tick
+0x000EB9F0, preserving unordered expiry gates, shared random color sample,
+frame channel limits, lifetime handling and free-chain writes. Their native
+interfaces omit incidental EAX values; the gameplay frame does not test those
+values. Global effect pass and native trail pool ownership remain pending.
+Added four differential fixture modes; validation of this batch is pending.
+
+Seed 811 passed 1,200 cases each for the four new modes (4,800 total),
+with zero mismatches; Release gbtg and the differential harness build pass.
+Translated complete global effect pass 0x000ED480 using actual emitter tick
+0x000EF2D0 and release 0x000ED2E0, then all 50 active debris and trail slots.
+No placeholder callee or tested return is introduced. Native trail initialization
+and scene-wide context binding remain to be completed before calling it live.
+Global wrapper build and opening-scene regression are pending.
+
+Batch validation complete: Release gbtg and transition-test targets build;
+scene-start and actor-loading pass, with 43 activated actors, actual background
+update and clean factory/address teardown. Seed 823 passed 8,400 cases across
+all 84 modes with zero mismatches, including actual camera/grid hits and
+collision callbacks. git diff --check passes; no CTests or OriginalFiles edits.
+The new global wrapper is compiled and source-audited, but does not yet have
+a dedicated whole-pass fixture or live scene binding; its new debris/trail
+callees have differential coverage. Full gameplay ticking is still incomplete.
+
+Exported the next closure batch read-only: 0x00123E00 scare-list removal,
+0x000F4970 camera actor removal, 0x000ED5B0 emitter actor detachment,
+0x00132620 scare timer notification and 0x00120FE0 / 0x001211E0 camera passes.
+0x00124320 powerup cancellation and 0x001075C0 factory release already exist;
+reuse their real implementations. Camera removal 0x000F4970 itself still needs
+0x000F4C10 / 0x000F4CC0 / 0x000F4B90 closure. Remaining work is native global
+trail/context ownership, queued disposal, scare/deactivation/camera passes,
+sound scene messages and remaining actor update slots before 0x0011E640 wiring.
+
+Continued the next closure batch: added 0x00132620 scoreboard warning updates,
+0x00123E00 scared-actor removal, full 0x00123BA0 powerup/scare timer pass,
+0x00115F70 queued factory disposal and 0x000ED5B0 emitter actor detachment.
+Preserve saved-next disposal traversal, swap-from-last scare removal,
+callback-visible nine-word 0x4D/0x1B messages and dt*scale decay without the
+freeze gate. COMISS unordered remaining times stay active, as in assembly.
+Native scene bindings and validation of this batch are pending. Camera actor
+removal has a larger tutorial-introduction dependency chain; do not stub it.
+
+Added native sound frame context binding: actual scene queues, audio voices and
+current display listener, with scoped pointer-width sound-reference adaptation.
+The actor reference adapter now resolves actual scene actors; player 0x7C/0x8B
+messages use native reference payloads before forwarding original words to the
+three child classes. Registered the existing player +0x10 update implementation.
+Added differential modes for scare removal/ticking, scoreboard warning lookup
+and emitter detachment, plus native saved-next destructor traversal verification.
+Full-frame wiring still waits for real tutorial-introduction cleanup dependencies,
+remaining camera/render passes and native global trail/effect ownership.
+
+Scare/scoreboard seed 839 passed 1,800 differential cases with zero mismatches.
+Emitter detachment initially exposed a fixture variable overwriting its unrelated
+slot input; renamed that fixture variable (implementation bytes matched already).
+Release builds, scene-start and actor-loading pass for the preceding batch.
+
+Closed native trail ownership: translated 0x000EBB10 texture binding,
+0x000EBB80 50-slot cheap-dust pool initialization and 0x000EBBF0 release.
+Scene ownership now loads and releases the actual four texture resources and
+pool alongside debris. Bound 0x000ED480 to real scene collision, audio, effect
+streams, frame state, shader/resource release and caller-supplied effect scratch.
+The opening-scene fixture now calls the global pass as well as background +0x10;
+this latest native ownership/binding batch is pending validation.

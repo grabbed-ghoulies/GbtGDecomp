@@ -4,6 +4,7 @@
 
 namespace gbtg
 {
+// Native view of the list referenced by the retail stack wrapper; null is a null list.
 i32 find_runtime_aid_list_entry(std::span<const u8> list,
     const char* name); // Xbox 0x00035A40
 }

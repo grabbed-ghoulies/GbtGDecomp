@@ -6,6 +6,7 @@
 namespace gbtg
 {
 class SceneFactoryRuntime;
+struct RuntimeEffectPassScratch;
 // The scene's actor service graph: the native storage behind the retail globals that actor, player,
 // mind, strategy and scene-class constructors read, the class owners installed over the scene's
 // factory, and the marker handler table (DAT_0042A720). Every service is bound to real scene state;
@@ -27,6 +28,9 @@ public:
     void send_scene_start_notice(); // 0x001231F0: message 0x88 to the activated +0x910 list.
     void send_scene_start(); // 0x001231A0: message 0x7D to the activated +0x910 list.
     void send_actor_message(u32 address, std::span<const u32> message); // Native vtable +0xC address adapter.
+    void update_actor(u32 address, RuntimeEffectPassScratch& scratch); // Native vtable +0x10 adapter; caller's incoming effect stack state.
+    void update_sounds(); // Native context binding for Xbox 0x0012A150.
+    void update_effects(RuntimeEffectPassScratch& scratch); // Native context binding for Xbox 0x000ED480.
     bool activation_pending() const; // Pending actor +0x900 list is nonempty.
     std::span<const u32> active_actor_addresses() const; // Activated actor +0x910 order.
     u32 player_link() const; // DAT_00511B40.

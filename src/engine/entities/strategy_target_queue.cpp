@@ -1,4 +1,5 @@
 #include "strategy_target_queue.h"
+#include "../runtime/link_exchange.h"
 
 namespace gbtg
 {
@@ -22,18 +23,6 @@ void unlink(RuntimeStrategyLink& link)
     }
     link.previous = nullptr;
     link.next = nullptr;
-}
-
-void insert_after(RuntimeStrategyLink& link, RuntimeStrategyLink& position)
-{
-    RuntimeStrategyLink* following = position.next;
-    position.next = &link;
-    link.previous = &position;
-    link.next = following;
-    if (following != nullptr)
-    {
-        following->previous = &link;
-    }
 }
 
 void append(RuntimeStrategyLink& link, RuntimeStrategyLink& anchor)
@@ -67,14 +56,7 @@ bool target_bit_set(const RuntimeMindTarget& target)
 // Xbox 0x0002CC30
 void exchange_runtime_strategy_links(RuntimeStrategyLink& first, RuntimeStrategyLink& second)
 {
-    if (first.next == &second)
-    {
-        unlink(first);
-        insert_after(first, second);
-        return;
-    }
-    unlink(second);
-    insert_after(second, first);
+    exchange_runtime_links(first, second);
 }
 
 // Xbox 0x00112B40

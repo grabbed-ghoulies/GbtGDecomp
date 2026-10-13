@@ -3,6 +3,19 @@
 
 namespace gbtg
 {
+// Xbox 0x00132620
+void set_runtime_scoreboard_message_warning(u32 id, u32 warning,
+    RuntimeScoreboard& board)
+{
+    for (auto& message : board.messages)
+    {
+        if (message.id == id)
+        {
+            message.word_18 = warning;
+            return;
+        }
+    }
+}
 // Xbox 0x00131BD0
 void acquire_runtime_scoreboard_icon(u32 index, std::span<const u8>& output, RuntimeScoreboardResources& context)
 {

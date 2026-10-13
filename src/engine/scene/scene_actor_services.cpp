@@ -17,6 +17,9 @@
 #include "scene_mind_messages.h"
 #include "scene_object_requests.h"
 #include "background_class_owner.h"
+#include "background_update.h"
+#include "../audio/actor_sound_tick.h"
+#include "../graphics/global_effect_tick.h"
 #include "background_messages.h"
 #include "ambient.h"
 #include "../navigation/model_grid.h"
@@ -29,6 +32,7 @@
 #include "../camera/entity_camera.h"
 #include "../entities/camera_director.h"
 #include "../entities/player_update.h"
+#include "../entities/contact_prop_actor.h"
 #include "../entities/player_mind_setup.h"
 #include "../navigation/navigation.h"
 #include "../entities/entity.h"
@@ -223,6 +227,28 @@ struct SceneActorServices::State
     Vec3 default_cone{}; // DAT_0042A840.
     ActorEffectModelContext effect_models;
     ActorEffectStreamContext effects;
+    std::unique_ptr<RuntimeEffectDebrisStorage, std::function<void(RuntimeEffectDebrisStorage*)>> debris_pool
+    {
+        new RuntimeEffectDebrisStorage,
+        [this](RuntimeEffectDebrisStorage* storage)
+        {
+            release_effect_debris(*storage, resources.registry);
+            delete storage;
+        }
+    };
+    std::unique_ptr<RuntimeEffectTrailStorage, std::function<void(RuntimeEffectTrailStorage*)>> trail_pool
+    {
+        new RuntimeEffectTrailStorage,
+        [this](RuntimeEffectTrailStorage* storage)
+        {
+            release_effect_trails(*storage, resources.registry);
+            delete storage;
+        }
+    };
+    RuntimeEffectCollision effect_collision{}; // DAT_00506918..DAT_0050692C, BSS.
+    u32 effect_callback_result = 0; // DAT_00506C50, BSS.
+    u32 effect_sound_frame = 0; // DAT_005462D8, BSS.
+    RuntimeEffectPassScratch* effect_pass_scratch = nullptr; // Native view of the caller's incoming stack bytes.
     AudioCoreSources audio_sources{};
     AudioCoreCues audio_cues{audio_sources};
     AudioEventVoices voices{audio_cues, {}, {}, {}, 0, origin, default_cone};
@@ -404,8 +430,9 @@ struct SceneActorServices::State
     // Scene classes (area, trigger, FX emitter).
     const RuntimeAreaDialoguePool* area_dialogue = nullptr;
     RuntimeActorWordBindings word_messages;
+    std::unordered_map<u32, void*> message_references; // Native references carried by temporary Xbox message words.
     std::vector<RuntimeFxEmitterPlayer*> emitter_players;
-    entity_detail::DisplayView* display_view = nullptr; // DAT_005077A8.
+    entity_detail::DisplayView*& display_view = entity_detail::g_display_view; // DAT_005077A8.
     entity_detail::ListHead emitters{}; // DAT_00511B2C.
     RuntimeIntroNotices intro_notices;
     std::unique_ptr<ActorFrameContext> frame;
@@ -446,6 +473,9 @@ struct SceneActorServices::State
     std::unique_ptr<RuntimeScoreAwards> score;
     entity_detail::NavigationCellRegistration* door_pool = nullptr; // DAT_004EE2B8, allocated by 0x0011CBD0.
     std::vector<RuntimeDoorClips> door_rows;
+    u32 door_camera_registered = 0; // DAT_004EE31C.
+    u32 door_paused = 0; // DAT_004EE320.
+    u32 door_camera_hold = 0; // DAT_004DEA24.
     std::array<DoorRoomAlias, 2> door_aliases{}; // PTR_DAT_00434034.
     std::vector<const char*> door_variants; // PTR_DAT_00424970.
     std::vector<const char*> door_shapes; // PTR_DAT_00425118.
@@ -467,6 +497,7 @@ struct SceneActorServices::State
     std::unordered_map<Actor*, FactoryObject*> actor_objects; // Native actor -> factory object.
     std::unordered_map<Actor*, u32> actor_object_addresses;
     std::unordered_map<Actor*, std::function<void(Actor&)>> actor_updates; // Actor vtable +0x10.
+    std::unordered_map<Actor*, std::unique_ptr<RuntimeSegmentContactActor>> prop_contact_views;
     std::unique_ptr<AudioBankStreams> audio_banks; // DAT_004DF370, DAT_004E030C.
     RuntimeModelRenderContext model_renderer{}; // DAT_004370A0..
     RuntimeSceneFog fog{}; // DAT_00509AFC..
@@ -520,10 +551,14 @@ struct SceneActorServices::State
     RuntimeSceneActivation activation_context();
     RuntimeDirectorActor director_actor(NativePlayerInstance& player);
     void update_player(NativePlayerInstance& player); // Player vtable +0x10, 0x0002C2B0.
+    void update_contact_prop(FactoryObject& object);
+    RuntimeSegmentContactActor& prop_contact_actor(entity_detail::SegmentProbe& probe);
     void latch_message(entity_detail::LatchNode& node, const Message& message);
     std::unique_ptr<RuntimeBackgroundConstructionServices> background_services(NativeBackgroundInstance& background,
         NativeActorFactoryInstance& view, RuntimeBackgroundAnimation*& first_animation);
     void background_message(NativeBackgroundInstance& background, std::span<u32> message);
+    void background_update(NativeBackgroundInstance& background);
+    void update_actor(u32 address);
     void start_background();
 };
 
@@ -595,9 +630,14 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     {
         return scene.resolve_address(address, 0);
     };
-    word_messages.reference_at = [](u32) -> void*
+    word_messages.reference_at = [this](u32 address) -> void*
     {
-        unbound("actor reference words");
+        if (const auto found = message_references.find(address); found != message_references.end())
+        {
+            return found->second;
+        }
+        const u8* bytes = scene.resolve_address(address, 0).data();
+        return actors->actors.at(bytes);
     };
     word_messages.animation_record_at = [](u32) -> const AnimationRecord*
     {
@@ -861,6 +901,12 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     footstep_kinds = strings(0x00423620, 1);
     footsteps = std::make_unique<FootstepSoundNames>(FootstepSoundNames{data(0x00314FBC, 0x20), surface_names});
     load_background_part_tables(part_tables, resources.registry, resources.loaded_sizes, resources.error);
+    const std::function<u32(const u8*)> effect_address = [this](const u8* pointer)
+    {
+        return resources.memory.address_of(pointer);
+    };
+    initialize_effect_debris(*debris_pool, resources.registry, resources.error, effect_address);
+    initialize_effect_trails(*trail_pool, resources.registry, resources.error, effect_address);
     load_runtime_sector_settings(sectors, resources.registry, resources.loaded_sizes, resources.error);
     score = std::make_unique<RuntimeScoreAwards>(RuntimeScoreAwards{score_total, score_running_total, g_flags_ea9c,
         {reinterpret_cast<const float*>(data(0x003130B4, 0x20).data()), 8}, score_texts, score_categories,
@@ -895,6 +941,16 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     // Cutscene instances are engine-heap blocks (0x0004C850); door rows store their token addresses.
     door_instance_address = [this](const RuntimeCutsceneInstance* instance)
     {
+        // FactoryObject owners move when the track vector grows; refresh their native pointer views.
+        for (auto& object : cutscene_actors)
+        {
+            if (object.bytes != nullptr)
+            {
+                auto* actor = actors->actors.at(object.bytes.get());
+                actor_objects[actor] = &object;
+                actor_object_addresses[actor] = scene.address_of(object.bytes.get());
+            }
+        }
         return instance == nullptr ? 0u : heap_address(instance, sizeof(RuntimeCutsceneInstance));
     };
     audio_banks = std::make_unique<AudioBankStreams>(AudioBankStreams{{}, {}, {}, voices});
@@ -950,6 +1006,10 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         [this](NativeBackgroundInstance& background, std::span<u32> message)
         {
             background_message(background, message);
+        },
+        [this](NativeBackgroundInstance& background)
+        {
+            background_update(background);
         }});
     backgrounds->install(scene.types);
     // Camera director (0x000AA250) and rig (0x000781F0) tunables are .data words read from the image.
@@ -1102,7 +1162,10 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
 
 SceneActorServices::State::~State()
 {
-    for (auto* owned : {&cameras, &callout_objects})
+    RuntimeDoorRelease door_release{*doors, door_camera_registered, door_paused, active_strategies,
+        door_camera_hold, g_flags_ea9c};
+    release_runtime_doors(door_release);
+    for (auto* owned : {&cutscene_actors, &cameras, &callout_objects})
     {
         for (auto object = owned->rbegin(); object != owned->rend(); ++object)
         {
@@ -1129,10 +1192,6 @@ SceneActorServices::State::~State()
         {
             release_animation_resource(resources.registry, table);
         }
-    }
-    if (door_pool != nullptr)
-    {
-        engine_heap_free(door_pool);
     }
 }
 
@@ -1183,6 +1242,11 @@ u32 SceneActorServices::State::address_of(const void* pointer)
     }
     for (auto* player : players->instances())
     {
+        // 0x00136700 assigns this real heap block before storing its address in mind +0x1C.
+        if (player->mind_storage != nullptr && pointer == player->mind_storage)
+        {
+            return heap_address(pointer, sizeof(RuntimeMindStorage));
+        }
         for (u32 index = 0; index < 4; ++index)
         {
             if (pointer == &player->links[index])
@@ -1319,6 +1383,34 @@ void SceneActorServices::State::object_message(FactoryObject& object, std::span<
 void SceneActorServices::State::route_object_message(FactoryObject& object, std::span<u32> message)
 {
     const u16 type = object.type;
+    if (type == 0x1A)
+    {
+        auto& view = actors->view(object);
+        const u8* bytes = object.bytes.get();
+        actor_updates[&view.bat.actor] = [this, bytes](Actor&)
+        {
+            update_contact_prop(*object_of(bytes));
+        };
+        const std::function<Actor*(u32)> actor_at = [this](u32 address) -> Actor*
+        {
+            if (address == 0)
+            {
+                return nullptr;
+            }
+            return actors->actors.at(scene.resolve_address(address, 0).data());
+        };
+        auto bindings = word_messages;
+        if (message[0] == 0x7C)
+        {
+            bindings.reference_at = [actor_at](u32 address) -> void*
+            {
+                return actor_at(address);
+            };
+        }
+        handle_runtime_contact_prop_message({object.bytes.get(), object.size}, view.prop_contacts,
+            message, actor_at, base_of(object).base, bindings);
+        return;
+    }
     if (type == 0xD || type == 0x1F || type == 0x23)
     {
         classes->message(object, message);
@@ -1326,15 +1418,42 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
     }
     if (type == 4)
     {
+        auto& view = actors->view(object);
+        const u8* bytes = object.bytes.get();
+        actor_updates[&view.bat.actor] = [this, bytes](Actor&)
+        {
+            backgrounds->update(*object_of(bytes));
+        };
         backgrounds->message(object, message);
         return;
     }
     if (type == 5)
     {
         auto& player = players->player(object);
+        actor_updates[&player.actor] = [this, player = &player](Actor&)
+        {
+            update_player(*player);
+        };
         if (!player.actor_message)
         {
             attach_player_messages(object, player);
+        }
+        if (message[0] == 0x7C || message[0] == 0x8B)
+        {
+            auto& graph = *player_messages.at(object.bytes.get());
+            ActorReferenceMessage native{message[0], message[1] == 0 ? nullptr :
+                word_messages.reference_at(message[1])};
+            handle_runtime_player_message(&native, graph.context);
+            for (FactoryObject* child : {&graph.children.strategy, &graph.children.mind, &graph.children.body})
+            {
+                if (child->bytes != nullptr)
+                {
+                    child_message(*child, message.data());
+                }
+            }
+            input_state.devices = input_activation.entries;
+            input_state.selected = input_selected;
+            return;
         }
         if (message[0] == 0xE || message[0] == 0xF)
         {
@@ -1387,6 +1506,58 @@ void SceneActorServices::State::actor_message(Actor& actor, const void* message)
         }
     }
     throw Error("actor message has no scene actor");
+}
+
+RuntimeSegmentContactActor& SceneActorServices::State::prop_contact_actor(entity_detail::SegmentProbe& probe)
+{
+    auto& view = actors->view(probe);
+    auto& actor = view.bat.actor;
+    auto& slot = prop_contact_views[&actor];
+    if (slot == nullptr)
+    {
+        slot = std::make_unique<RuntimeSegmentContactActor>(RuntimeSegmentContactActor{actor, 0, &view.body_node,
+            [this, &actor, bytes = view.bytes.data()](void* payload)
+            {
+                auto& notice = *static_cast<RuntimePropContactNotice*>(payload);
+                const u32 contacts = scene.bind_address({reinterpret_cast<u8*>(notice.contacts), sizeof(GhoulySpawnPool)});
+                std::array<u32, 8> words{notice.id, notice.reply, address_of(notice.sender), notice.value, contacts,
+                    std::bit_cast<u32>(notice.point.x), std::bit_cast<u32>(notice.point.y), std::bit_cast<u32>(notice.point.z)};
+                try
+                {
+                    object_message(*object_of(bytes), words);
+                }
+                catch (...)
+                {
+                    scene.unbind_address(notice.contacts);
+                    throw;
+                }
+                notice.reply = words[1];
+                scene.unbind_address(notice.contacts);
+            }});
+    }
+    slot->child_link = view.render.child.prev != nullptr ? 1u : 0u;
+    return *slot;
+}
+
+void SceneActorServices::State::update_contact_prop(FactoryObject& object)
+{
+    refresh_shape_poses(object);
+    auto& view = actors->view(object);
+    refresh_actor_model_animation_view(view);
+    frame->freeze = pause;
+    frame->dt = frame_delta;
+    frame->scene_scale = time_scale;
+    const std::function<RuntimeSegmentContactActor&(entity_detail::SegmentProbe&)> contact_actor =
+        [this](entity_detail::SegmentProbe& probe) -> RuntimeSegmentContactActor&
+        {
+            return prop_contact_actor(probe);
+        };
+    RuntimeActorShapeContacts contacts{contact_actor, entity_detail::g_world.body_a};
+    update_runtime_contact_prop({object.bytes.get(), object.size}, view.prop_contacts,
+        view.frame, *frame, clock, contacts);
+    const u32 pool = view.prop_contacts != nullptr ? heap_address(view.prop_contacts, sizeof(GhoulySpawnPool)) : 0;
+    std::memcpy(object.bytes.get() + 0x934, &pool, 4);
+    store_actor_model_animation_view(view);
 }
 
 void SceneActorServices::State::attach_player_messages(FactoryObject& object, NativePlayerInstance& player)
@@ -1921,6 +2092,71 @@ void SceneActorServices::State::background_message(NativeBackgroundInstance& bac
     handle_background_message(actor, message, context);
 }
 
+// Native class +0x10 adapter; the translated slot is 0x000464D0.
+void SceneActorServices::State::background_update(NativeBackgroundInstance& background)
+{
+    auto* first = backgrounds->first_background();
+    auto& views = *background_views.at((background.lifetime.animation == nullptr ? &background : first)->bytes.data());
+    if (background.lifetime.animation == nullptr && background.lifetime.effect != nullptr)
+    {
+        if (effect_pass_scratch == nullptr)
+        {
+            throw Error("background particle update requires the caller's incoming effect scratch bytes");
+        }
+        if (display_view == nullptr)
+        {
+            throw Error("background particle collision has no DAT_005077A8 display view");
+        }
+        RuntimeEffectDebris debris{{debris_pool->particles, 0x16A8}, debris_pool->types,
+            debris_pool->free_head, game.clock.frame, random};
+        const Vec3 plane{read_f32(data(0x00433FFC, 12), 0), read_f32(data(0x00433FFC, 12), 4),
+            read_f32(data(0x00433FFC, 12), 8)};
+        const Vec3 minimum{g_amb_color_lo[0], g_amb_color_lo[1], g_amb_color_lo[2]};
+        const Vec3 maximum{g_amb_color_hi[0], g_amb_color_hi[1], g_amb_color_hi[2]};
+        RuntimeEffectCollisionContext movement{effect_collision, clock, *display_view, plane,
+            g_amb_volume_enabled, minimum, maximum, random};
+        RuntimeEffectCollisionCommands commands{effect_collision, debris, voices, effects, *footsteps,
+            effect_callback_result};
+        const std::function<std::span<const u8>(u32)> resolve = [this](u32 address)
+        {
+            return std::span<const u8>{resources.memory.tail(address)};
+        };
+        const std::function<u32(const u8*)> address = [this, &background](const u8* pointer)
+        {
+            auto& effect = *background.lifetime.effect;
+            return pointer == effect.bytes.data() ? heap_address(pointer, effect.bytes.size())
+                : resources.memory.address_of(pointer);
+        };
+        auto& effect = *background.lifetime.effect;
+        const u32 script = resources.memory.address_of(effect.script.data());
+        std::memcpy(effect.bytes.data() + 0x134, &script, 4);
+        RuntimeEffectSimulation simulation{movement, commands, resolve, pal, pal_override};
+        const Vec3 direction = display_view->forward;
+        RuntimeEffectTickContext tick{simulation, game.clock.frame, effect_sound_frame, address, direction,
+            *effect_pass_scratch};
+        RuntimeBackgroundUpdate context{first == nullptr ? nullptr : &first->state, clock, views.resolve,
+            &tick, matrix_boundaries};
+        update_runtime_background(background.state, context);
+        return;
+    }
+    RuntimeBackgroundUpdate context{first == nullptr ? nullptr : &first->state, clock, views.resolve,
+        nullptr, matrix_boundaries};
+    update_runtime_background(background.state, context);
+}
+
+void SceneActorServices::State::update_actor(u32 address)
+{
+    const u8* bytes = scene.resolve_address(address, 0).data();
+    auto* object = object_of(bytes);
+    auto& view = actors->view(*object);
+    const auto found = actor_updates.find(&view.bat.actor);
+    if (found == actor_updates.end())
+    {
+        throw Error("actor update slot is not translated for factory type " + std::to_string(object->type));
+    }
+    found->second(view.bat.actor);
+}
+
 // Scene startup ahead of the markers (0x0011CBD0): the door registration pool, the requested background
 // (0x0011C8B0) and its activation (0x00123070), then the navigation build (0x00111820).
 void SceneActorServices::State::start_background()
@@ -2008,6 +2244,116 @@ void SceneActorServices::send_actor_message(u32 address, std::span<const u32> me
         throw Error("actor message has no owning factory object");
     }
     state.object_message(*object, {const_cast<u32*>(message.data()), message.size()});
+}
+
+void SceneActorServices::update_actor(u32 address, RuntimeEffectPassScratch& scratch)
+{
+    auto& state = *state_;
+    auto* previous = state.effect_pass_scratch;
+    state.effect_pass_scratch = &scratch;
+    state.frame_delta = state.game.clock.dt;
+    state.pal = state.game.clock.pal ? 1 : 0;
+    try
+    {
+        state.update_actor(address);
+    }
+    catch (...)
+    {
+        state.effect_pass_scratch = previous;
+        throw;
+    }
+    state.effect_pass_scratch = previous;
+}
+
+void SceneActorServices::update_sounds()
+{
+    auto& state = *state_;
+    const std::function<void(Actor&, u32, RuntimeActorSound&)> message =
+        [&state](Actor& actor, u32 id, RuntimeActorSound& sound)
+        {
+            const u32 address = state.heap_address(&sound, sizeof(sound));
+            const auto found = state.message_references.find(address);
+            void* previous = found == state.message_references.end() ? nullptr : found->second;
+            state.message_references[address] = &sound;
+            std::array<u32, 0x42> words{};
+            words[0] = id;
+            words[1] = address;
+            try
+            {
+                state.actor_message(actor, words.data());
+            }
+            catch (...)
+            {
+                if (previous != nullptr)
+                {
+                    state.message_references[address] = previous;
+                }
+                else
+                {
+                    state.message_references.erase(address);
+                }
+                throw;
+            }
+            if (previous != nullptr)
+            {
+                state.message_references[address] = previous;
+            }
+            else
+            {
+                state.message_references.erase(address);
+            }
+        };
+    RuntimeActorSoundTick context{state.voices, state.display_view->position, message};
+    tick_runtime_actor_sounds(state.sounds, context);
+}
+
+void SceneActorServices::update_effects(RuntimeEffectPassScratch& scratch)
+{
+    auto& state = *state_;
+    state.frame_delta = state.game.clock.dt;
+    state.pal = state.game.clock.pal ? 1 : 0;
+    RuntimeEffectDebris debris{{state.debris_pool->particles, 0x16A8}, state.debris_pool->types,
+        state.debris_pool->free_head, state.game.clock.frame, state.random};
+    const Vec3 plane{read_f32(state.data(0x00433FFC, 12), 0),
+        read_f32(state.data(0x00433FFC, 12), 4), read_f32(state.data(0x00433FFC, 12), 8)};
+    const Vec3 minimum{g_amb_color_lo[0], g_amb_color_lo[1], g_amb_color_lo[2]};
+    const Vec3 maximum{g_amb_color_hi[0], g_amb_color_hi[1], g_amb_color_hi[2]};
+    RuntimeEffectCollisionContext movement{state.effect_collision, state.clock, *state.display_view,
+        plane, g_amb_volume_enabled, minimum, maximum, state.random};
+    RuntimeEffectCollisionCommands commands{state.effect_collision, debris, state.voices, state.effects,
+        *state.footsteps, state.effect_callback_result};
+    const std::function<std::span<const u8>(u32)> resolve = [&state](u32 address)
+    {
+        return std::span<const u8>{state.resources.memory.tail(address)};
+    };
+    const std::function<u32(const u8*)> address = [&state](const u8* pointer)
+    {
+        for (auto* effect : g_actor_effect_nodes)
+        {
+            if (effect != nullptr && pointer == effect->bytes.data())
+            {
+                return state.heap_address(pointer, effect->bytes.size());
+            }
+        }
+        return state.resources.memory.address_of(pointer);
+    };
+    for (auto* effect : g_actor_effect_nodes)
+    {
+        if (effect != nullptr)
+        {
+            const u32 script = state.resources.memory.address_of(effect->script.data());
+            std::memcpy(effect->bytes.data() + 0x134, &script, 4);
+        }
+    }
+    RuntimeEffectSimulation simulation{movement, commands, resolve, state.pal, state.pal_override};
+    RuntimeEffectTickContext tick{simulation, state.game.clock.frame, state.effect_sound_frame,
+        address, state.display_view->forward, scratch};
+    RuntimeModelSoundRelease release{state.sounds, state.resources.registry, state.deferred,
+        state.fence, state.shaders, state.heap_free};
+    RuntimeEffectTrails trails{{state.trail_pool->particles, 0x19C8}, state.trail_pool->types,
+        state.trail_pool->free_head, state.random, state.pal, state.pal_override, resolve};
+    RuntimeGlobalEffectTick context{g_actor_effect_nodes, tick, release, debris, trails, state.clock};
+    tick_global_actor_effects(context);
 }
 
 void SceneActorServices::start_markers()

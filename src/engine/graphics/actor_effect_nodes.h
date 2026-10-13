@@ -14,6 +14,8 @@ struct ActorEffectNode
     std::span<const u8> texture; // +0x144
     void* binding_actor; // +0xC0
     i32 binding_joint; // +0xD8
+    const u8* binding_shape = nullptr; // Native view of +0xCC.
+    const u8* binding_locator = nullptr; // Native view of +0xD4.
     RuntimeActorSound sound; // native sound slot at +0x2DC
     std::unique_ptr<RuntimeModelInstance> model; // +0x158
 };

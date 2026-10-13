@@ -66,6 +66,9 @@ add_library(gbtg_lib STATIC
     src/engine/scene/scene_resource_memory.cpp
     src/engine/scene/scene_actor_services.cpp
     src/engine/scene/scene_actor_activation.cpp
+    src/engine/scene/scene_actor_update.cpp
+    src/engine/scene/scene_control_update.cpp
+    src/engine/scene/scene_gameplay_time.cpp
     src/engine/scene/scene_body_messages.cpp
     src/engine/scene/scene_mind_messages.cpp
     src/engine/entities/body_move_actions.cpp
@@ -135,6 +138,7 @@ add_library(gbtg_lib STATIC
     src/engine/entities/body_collision.cpp
     src/engine/entities/segment_records.cpp
     src/engine/entities/body_contacts.cpp
+    src/engine/entities/contact_prop_actor.cpp
     src/engine/entities/player_update.cpp
     src/engine/entities/player_strategy_goals.cpp
     src/engine/entities/player_strategy.cpp
@@ -405,10 +409,33 @@ add_executable(gbtg
     src/engine/scene/background_construction.cpp
     src/engine/runtime/aid_list_lookup.cpp
     src/engine/scene/background_animation.cpp
+    src/engine/scene/background_update.cpp
     src/engine/scene/background_lifetime.cpp
     src/engine/entities/model_sound_lifetime.cpp
     src/engine/entities/physical_shape_events.cpp
     src/engine/entities/actor_matrix_sampling.cpp
+    src/engine/entities/euler_wrapping.cpp
+    src/engine/entities/random_placement.cpp
+    src/engine/entities/bounded_channels.cpp
+    src/engine/graphics/effect_channels.cpp
+    src/engine/graphics/effect_placement.cpp
+    src/engine/entities/model_binding_selection.cpp
+    src/engine/graphics/effect_binding.cpp
+    src/engine/graphics/effect_command_selection.cpp
+    src/engine/graphics/effect_collision_response.cpp
+    src/engine/entities/direction_pitch.cpp
+    src/engine/runtime/random_state.cpp
+    src/engine/camera/plane_collision.cpp
+    src/engine/graphics/effect_commands.cpp
+    src/engine/graphics/effect_notifications.cpp
+    src/engine/graphics/effect_debris.cpp
+    src/engine/graphics/effect_trails.cpp
+    src/engine/graphics/global_effect_tick.cpp
+    src/engine/scene/scene_scare_timers.cpp
+    src/engine/scene/scene_object_disposal.cpp
+    src/engine/graphics/effect_collision_commands.cpp
+    src/engine/graphics/effect_simulation.cpp
+    src/engine/graphics/effect_tick.cpp
     src/engine/entities/actor_matrix_setup.cpp
     src/engine/graphics/model_points.cpp
     src/engine/graphics/matrix_inverse.cpp
@@ -457,6 +484,7 @@ add_executable(gbtg
     src/engine/audio/core_source.cpp
     src/engine/audio/core_cue.cpp
     src/engine/audio/event_voices.cpp
+    src/engine/audio/actor_sound_tick.cpp
     src/engine/frontend/frontend.cpp
     src/engine/frontend/frontend_keyboard.cpp
     src/engine/frontend/frontend_slots.cpp

@@ -19,6 +19,11 @@
 #include "../src/engine/entities/player_messages.h"
 #include "../src/engine/scripts/script_table_lookup.h"
 #include "../src/engine/entities/entity_heap.h"
+#include "../src/engine/graphics/effect_tick.h"
+#include "../src/engine/scene/scene_actor_update.h"
+#include "../src/engine/scene/scene_control_update.h"
+#include "../src/engine/scene/scene_object_disposal.h"
+#include "../src/engine/audio/actor_sound_tick.h"
 #include "../src/engine/frontend/dialogue_page_setup.h"
 #include "../src/engine/cutscenes/instance_construction.h"
 #include "../src/engine/cutscenes/camera_sampling.h"
@@ -4012,7 +4017,7 @@ void check_actor_loading()
         {
             throw Error("cutscene actor factory continued after a failed clone");
         }
-        record.name = "aid_objparams_ghoulies_misc_actor";
+        record.name = "aid_objparams_ghoulies_misc_prop"; // DAT_002FE6C0 used by 0x0004DEC0.
         record.hash = animation_resource_hash(record.name.c_str());
         const float x[] = {7.f};
         const float y[] = {8.f};
@@ -4150,6 +4155,8 @@ void check_actor_loading()
         link.next = &next;
         previous.next = &link;
         next.previous = &link;
+        ActorLink detached_link{};
+        actor.link = &detached_link; // Native view exists, but the retail +0x918 head is zero.
         const u32 count_before_release = factory.count;
         release_cutscene_actor_row(&row, 0, release_context);
         if (row.actor != nullptr || row.elapsed != 0 || event_resources[0].data() != nullptr
@@ -4174,6 +4181,8 @@ void check_actor_loading()
             throw Error("actorless cutscene row retained its event resource");
         }
         ActorLink bound_link{};
+        ActorLink parent_link{};
+        bound_link.head = &parent_link;
         actor.link = &bound_link;
         actor.render_registration = &render;
         render.child.prev = &render.child;
@@ -6593,6 +6602,245 @@ void check_scene_model_resources(gbtg::AidStore& aids)
 }
 
 // Scene startup's marker pass (0x00140020) over the opening scene, through the live service graph.
+void check_scene_object_disposal()
+{
+    using namespace gbtg;
+    static std::vector<u32>* order;
+    static RuntimeSceneObjectDisposalLink* mutated;
+    std::vector<u32> destroyed;
+    order = &destroyed;
+    const ObjectFactoryVtable vtable{0, nullptr, nullptr, [](FactoryObject& object)
+        {
+            order->push_back(read_u32({object.bytes.get(), object.size}, 8));
+            mutated->next = nullptr;
+        }};
+    static const ObjectFactoryVtable* active_vtable;
+    active_vtable = &vtable;
+    const std::array<ObjectFactoryType, 2> types{{{}, {0, []()
+        {
+            return active_vtable;
+        }}}};
+    ObjectFactoryRegistry registry{types, 3};
+    std::array<FactoryObject, 3> objects;
+    for (u32 index = 0; index < 3; ++index)
+    {
+        auto& object = objects[index];
+        object.bytes = std::make_unique<u8[]>(0x20);
+        object.size = 0x20;
+        const u16 type = 1;
+        std::memcpy(object.bytes.get() + 4, &type, 2);
+        std::memcpy(object.bytes.get() + 8, &index, 4);
+    }
+    RuntimeSceneObjectDisposalLink third{nullptr, objects[2]};
+    RuntimeSceneObjectDisposalLink second{&third, objects[1]};
+    RuntimeSceneObjectDisposalLink first{&second, objects[0]};
+    mutated = &first;
+    dispose_runtime_scene_objects(&first, registry);
+    if (destroyed != std::vector<u32>{0, 1, 2} || registry.count != 0 ||
+        objects[0].bytes != nullptr || objects[1].bytes != nullptr || objects[2].bytes != nullptr)
+    {
+        throw Error("queued disposal lost its saved next link or factory ownership");
+    }
+    dispose_runtime_scene_objects(nullptr, registry);
+}
+
+void check_actor_sound_frame_pass()
+{
+    using namespace gbtg;
+    AudioCoreSources sources{};
+    sources.unit_scale = 2.f;
+    sources.boundaries.bad_pointer = [](const void*)
+    {
+        return false;
+    };
+    Vec3 position{}, cone{}, origin{};
+    sources.boundaries.position = [&](void*, const Vec3& value, u32)
+    {
+        position = value;
+    };
+    sources.boundaries.cone = [&](void*, const Vec3& value, u32)
+    {
+        cone = value;
+    };
+    sources.boundaries.velocity = [](void*, const Vec3&, u32)
+    {
+        throw Error("actor sound direction used velocity instead of cone");
+    };
+    std::array<u8, 0x60> first_attributes{}, second_attributes{};
+    AudioCoreSource first_source{}, second_source{};
+    first_source.attributes = first_attributes.data();
+    second_source.attributes = second_attributes.data();
+    sources.sources.next = &first_source;
+    first_source.next = &second_source;
+    AudioCoreCues core{sources};
+    AudioEventVoices voices{core, {}, {}, {}, 0, origin, origin};
+    for (auto& voice : voices.voices)
+    {
+        voice.state = 1; // Exhausted allocation boundary through the real allocator.
+    }
+    std::array<AudioCoreCue, 4> cues{};
+    for (size_t index = 0; index < cues.size(); ++index)
+    {
+        voices.voices[index].cue = &cues[index];
+    }
+    voices.voices[0].state = 8;
+    voices.voices[1].state = 5;
+    voices.voices[2].state = voices.voices[3].state = 6;
+    voices.voices[2].source = &first_source;
+    voices.voices[3].source = &second_source;
+    RuntimeActorSoundQueues queues{};
+    auto& group = queues.groups[0];
+    group.capacity = 4;
+    Actor owner;
+    RuntimeActorSound ended{}, live{};
+    ended.owner = live.owner = &owner;
+    ended.previous_bone = 0;
+    live.previous_bone = 2;
+    group.active.next = &ended;
+    ended.previous = &group.active;
+    ended.next = &live;
+    live.previous = &ended;
+    std::vector<u32> messages;
+    const std::function<void(Actor&, u32, RuntimeActorSound&)> message = [&](Actor&, u32 id, RuntimeActorSound& sound)
+    {
+        messages.push_back(id);
+        if (id == 0x8A)
+        {
+            sound.previous_bone = 1;
+        }
+        else if (id == 0x8B)
+        {
+            sound.position = {4.f, 5.f, 6.f};
+        }
+        else if (id == 0x8C)
+        {
+            sound.previous_bone = 3;
+            sound.direction = {0.f, 1.f, 0.f};
+        }
+    };
+    RuntimeActorSoundTick context{voices, origin, message};
+    update_active_actor_sound_voices(group, context);
+    if (messages != std::vector<u32>{0x8A, 0x8B, 0x8C} || ended.previous_bone != 0xFFFF
+        || ended.enabled != 1 || group.active.next != &live || voices.voices[1].state != 9
+        || core.stopped_count != 1 || position.x != 8.f || position.y != 10.f || position.z != 12.f
+        || cone.x != 0.f || cone.y != 1.f || cone.z != 0.f || live.enabled != 0)
+    {
+        throw Error("actor sound frame lost callback index changes, unlinking or source updates");
+    }
+    std::array<RuntimeActorSound, 3> pending{};
+    group.pending.next = &pending[0];
+    for (size_t index = 0; index < pending.size(); ++index)
+    {
+        pending[index].previous = index == 0 ? &group.pending : &pending[index - 1];
+        pending[index].next = index == 2 ? nullptr : &pending[index + 1];
+        pending[index].position = {float(3 - index), 0.f, 0.f};
+    }
+    sort_pending_actor_sounds(group, origin);
+    if (group.pending.next != &pending[2] || pending[2].next != &pending[1] || pending[1].next != &pending[0])
+    {
+        throw Error("pending sounds were not sorted nearest first");
+    }
+    tick_runtime_actor_sounds(queues, context);
+    if (group.pending.next != nullptr)
+    {
+        throw Error("exhausted voice allocation left pending sound nodes linked");
+    }
+}
+
+void check_scene_actor_update_queue()
+{
+    using namespace gbtg;
+    RuntimeActorLink head, first, second, added;
+    head.next = &first;
+    first.previous = &head;
+    first.next = &second;
+    second.previous = &first;
+    std::array<Actor, 3> actors;
+    for (auto& actor : actors)
+    {
+        actor.xform_valid = 1;
+    }
+    actors[1].xform_valid = 0;
+    actors[1].position = {3.f, 4.f, 5.f};
+    actors[1].scale_200 = actors[1].scale_x = actors[1].radius_y = actors[1].radius_xz = 1.f;
+    const std::function<Actor&(RuntimeActorLink&)> actor_at = [&](RuntimeActorLink& node) -> Actor&
+    {
+        if (&node == &first)
+        {
+            return actors[0];
+        }
+        return &node == &second ? actors[1] : actors[2];
+    };
+    std::vector<size_t> order;
+    const std::function<void(Actor&)> update = [&](Actor& actor)
+    {
+        const size_t index = size_t(&actor - actors.data());
+        RuntimeActorLink& node = index == 0 ? first : index == 1 ? second : added;
+        if (node.previous != nullptr || node.next != nullptr)
+        {
+            throw Error("actor update called before unlinking its node");
+        }
+        order.push_back(index);
+        if (index == 0)
+        {
+            second.next = &added;
+            added.previous = &second;
+        }
+    };
+    RuntimeSceneActorUpdates context{head.next, actor_at, update};
+    update_runtime_scene_actors(context);
+    if (order != std::vector<size_t>{0, 1, 2} || head.next != nullptr || actors[1].xform_valid != 1)
+    {
+        throw Error("actor update drain lost callback additions or transform refresh");
+    }
+    RuntimeActorLink pending_head, active_head, update_head, pending_first, pending_second;
+    std::array<RuntimeActorLink, 3> control_updates;
+    pending_head.next = &pending_first;
+    pending_first.previous = &pending_head;
+    pending_first.next = &pending_second;
+    pending_second.previous = &pending_first;
+    const std::function<RuntimeActorLink&(RuntimeActorLink&)> update_link = [&](RuntimeActorLink& node) -> RuntimeActorLink&
+    {
+        return control_updates[&node == &pending_first ? 0 : 1];
+    };
+    std::vector<size_t> notices, updates;
+    const std::function<void(RuntimeActorLink&, std::span<const u32>)> notice = [&](RuntimeActorLink& node, std::span<const u32> message)
+    {
+        if (message.size() != 1 || message[0] != 0x7D)
+        {
+            throw Error("control notification did not retain its one-word message");
+        }
+        const size_t index = size_t(&node - control_updates.data());
+        notices.push_back(index);
+        if (index == 0)
+        {
+            control_updates[1].next = &control_updates[2];
+            control_updates[2].previous = &control_updates[1];
+        }
+    };
+    const std::function<void(RuntimeActorLink&)> control_update = [&](RuntimeActorLink& node)
+    {
+        if (node.previous != nullptr || node.next != nullptr)
+        {
+            throw Error("control update called before unlinking its node");
+        }
+        updates.push_back(size_t(&node - control_updates.data()));
+    };
+    RuntimeSceneControlUpdates controls{pending_head.next, active_head, update_head, update_link, notice, control_update};
+    activate_runtime_scene_controls(controls);
+    if (pending_head.next != nullptr || active_head.next != &pending_second
+        || pending_second.next != &pending_first || update_head.next != &control_updates[0])
+    {
+        throw Error("control activation lost active insertion or update order");
+    }
+    notify_runtime_scene_controls(controls);
+    update_runtime_scene_controls(controls);
+    if (notices != std::vector<size_t>{0, 1, 2} || updates != notices || update_head.next != nullptr)
+    {
+        throw Error("control passes lost callback additions or update order");
+    }
+}
+
 void check_scene_spawn(gbtg::Game& game, bool scene_start)
 {
     using namespace gbtg;
@@ -6663,6 +6911,29 @@ void check_scene_spawn(gbtg::Game& game, bool scene_start)
             std::cout << "scene start: notice 0x88 delivered\n";
             services.send_scene_start();
             std::cout << "scene start: 0x7D delivered\n";
+            check_scene_actor_update_queue();
+            check_actor_sound_frame_pass();
+            check_scene_object_disposal();
+            services.update_sounds();
+            // Exercise the actual background +0x10 binding directly; the full
+            // gameplay frame dispatcher is a separate reconstruction frontier.
+            RuntimeEffectPassScratch effect_scratch{{17.f, -23.f, 31.f}, 0xA5A5A5A5u,
+                std::bit_cast<float>(0x3F000001u)};
+            services.update_effects(effect_scratch);
+            u32 backgrounds_updated = 0;
+            for (auto& object : game.factory_scene->objects)
+            {
+                if (object.type == 4)
+                {
+                    services.update_actor(game.factory_scene->address_of(object.bytes.get()), effect_scratch);
+                    ++backgrounds_updated;
+                }
+            }
+            if (backgrounds_updated == 0)
+            {
+                throw Error("scene-start fixture has no background update slot");
+            }
+            std::cout << "scene start: background update slot passed\n";
         }
     }
     catch (const std::exception& error)
@@ -6730,7 +7001,9 @@ void check_scene_spawn(gbtg::Game& game, bool scene_start)
     if (game.factory_scene->factory.count != 0 || game.factory_scene->address_count() != 0
         || entity_detail::g_world.latch != nullptr)
     {
-        throw Error("activated scene teardown retained factory objects or address mappings");
+        throw Error("activated scene teardown retained factory=" + std::to_string(game.factory_scene->factory.count)
+            + " addresses=" + std::to_string(game.factory_scene->address_count())
+            + " latch=" + std::to_string(entity_detail::g_world.latch != nullptr));
     }
     std::cout << "scene spawn: teardown factory=0 addresses=0\n";
 }

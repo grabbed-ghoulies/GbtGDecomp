@@ -32,6 +32,8 @@ void release_audio_event_voice(AudioEventVoice& voice, AudioEventVoices& context
 i16 allocate_audio_event_voice(u32 mode, AudioEventVoices& context); // Xbox 0x00039830
 bool prepare_audio_event_voice(i16 index, const char* name, AudioEventVoices& context); // Xbox 0x00039A20
 i16 request_audio_event_voice(const char* name, u32 stop, AudioEventVoices& context); // Xbox 0x000395E0
+i16 request_positioned_audio_event_voice(const char* name, u32 stop,
+    const Vec3& position, AudioEventVoices& context); // Xbox 0x00039580
 void notify_audio_event_voice(AudioEventVoice* voice, u32 state, AudioEventVoices& context); // Xbox 0x000398E0
 u32 audio_event_cue_callback(void* context, AudioCoreCue& cue, u32 state); // Xbox 0x00039A00
 void tick_audio_event_voices(AudioEventVoices& context); // Xbox 0x000396F0

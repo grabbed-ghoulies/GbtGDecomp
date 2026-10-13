@@ -1,4 +1,11 @@
 #include "entities/trigger_actor.h"
+#include "graphics/effect_debris.h"
+#include "graphics/effect_trails.h"
+#include "graphics/global_effect_tick.h"
+#include "scene/scene_scare_timers.h"
+#include "graphics/effect_collision_commands.h"
+#include "graphics/effect_simulation.h"
+#include "graphics/effect_tick.h"
 #include "entities/cinema_mind_lifecycle.h"
 #include "entities/cinema_mind_requests.h"
 #include "entities/cinema_mind_control.h"
@@ -23,9 +30,30 @@
 #include "cutscenes/door_registration.h"
 #include "graphics/pose_matrix.h"
 #include "graphics/effect_particles.h"
+#include "graphics/d3dx_matrix.h"
+#include "entities/euler_wrapping.h"
+#include "entities/random_placement.h"
+#include "entities/bounded_channels.h"
+#include "graphics/effect_channels.h"
+#include "graphics/effect_placement.h"
+#include "entities/model_binding_selection.h"
+#include "graphics/effect_binding.h"
+#include "graphics/effect_command_selection.h"
+#include "graphics/effect_collision_response.h"
+#include "entities/direction_pitch.h"
+#include "runtime/random_state.h"
+#include "entities/entity_collision.h"
+#include "entities/entity.h"
+#include "navigation/navigation.h"
+#include "camera/plane_collision.h"
+#include "graphics/effect_commands.h"
+#include "gbtg/model.h"
 #include "graphics/actor_effect_stream.h"
 #include "runtime/aid_list_lookup.h"
 #include "scene/background_construction.h"
+#include "scene/background_update.h"
+#include "scene/scene_gameplay_time.h"
+#include "audio/actor_sound_tick.h"
 #include "scene/background_parts.h"
 #include "entities/runtime_list.h"
 #include "entities/physical_shape_events.h"
@@ -33,6 +61,7 @@
 #include "entities/ghouly_spawn_record.h"
 #include "navigation/mind_navigation_angles.h"
 #include "entities/body_damage_motion.h"
+#include "entities/body_contacts.h"
 #include "entities/cinema_mind_request_update.h"
 #include "entities/actor_collision_culling.h"
 #include "entities/actor_shape_push.h"
@@ -173,6 +202,972 @@ int main()
                 {&children[0], &children[1], &children[2], &children[3]}};
             set_runtime_input_vertical_axes(device,
                 {read_f32(parameters, 0), read_f32(parameters, 4)}, {object.bytes.get() + 0x800, 0x80});
+            result = true;
+        }
+        else if (mode == 84)
+        {
+            auto bytes = std::span<u8>{object.bytes.get(), object.size};
+            const u32 subtype = read_u32(parameters, 0);
+            RuntimeScoreboard board{};
+            for (size_t index = 0; index < 3; ++index)
+            {
+                RuntimeScoreboardMessage message{};
+                message.id = read_u32(bytes, 0x600 + index * 0x94);
+                message.word_18 = read_u32(bytes, 0x618 + index * 0x94);
+                board.messages.push_back(message);
+            }
+            if (subtype == 1)
+            {
+                set_runtime_scoreboard_message_warning(read_u32(parameters, 4),
+                    read_u32(parameters, 8), board);
+                for (size_t index = 0; index < 3; ++index)
+                {
+                    std::memcpy(bytes.data() + 0x618 + index * 0x94,
+                        &board.messages[index].word_18, 4);
+                }
+            }
+            else
+            {
+                board.messages.clear();
+                RuntimeScoreboard* current_board = &board;
+                AnimationResourceRegistry registry;
+                std::array<RuntimePowerupRow, 20> rows;
+                static_assert(sizeof(RuntimePowerupRow) == 0x18);
+                std::memcpy(rows.data(), bytes.data(), sizeof(rows));
+                RuntimePowerupTable table{rows, current_board, registry};
+                i32 count = i32(read_u32(bytes, 0x420));
+                std::array<u32, 4> actors;
+                std::array<float, 4> times;
+                std::memcpy(actors.data(), bytes.data() + 0x400, 16);
+                std::memcpy(times.data(), bytes.data() + 0x410, 16);
+                const float freeze = read_f32(parameters, 0x20);
+                const float dt = read_f32(parameters, 0x24);
+                const float scale = read_f32(parameters, 0x28);
+                const u32 blocked = read_u32(parameters, 0x2C);
+                const u32 zero = 0;
+                RuntimeActorClock clock{freeze, dt, scale, blocked,
+                    std::span<const u8>{parameters}.subspan(0x30, 1), zero};
+                const std::function<void(u32, std::span<const u32>)> message =
+                    [&](u32 actor, std::span<const u32> words)
+                    {
+                        std::memcpy(bytes.data() + 0x500, words.data(), 36);
+                        std::memcpy(bytes.data() + 0x524, &actor, 4);
+                        const u32 calls = read_u32(bytes, 0x528) + 1;
+                        std::memcpy(bytes.data() + 0x528, &calls, 4);
+                    };
+                RuntimeSceneScareTimers context{table, count, actors, times, clock, message};
+                if (subtype == 0)
+                {
+                    remove_runtime_scared_actor(read_u32(parameters, 4), context);
+                }
+                else
+                {
+                    tick_runtime_scene_scare_timers(context);
+                }
+                std::memcpy(bytes.data(), rows.data(), sizeof(rows));
+                std::memcpy(bytes.data() + 0x400, actors.data(), 16);
+                std::memcpy(bytes.data() + 0x410, times.data(), 16);
+                std::memcpy(bytes.data() + 0x420, &count, 4);
+            }
+            result = true;
+        }
+        else if (mode == 85)
+        {
+            auto bytes = std::span<u8>{object.bytes.get(), object.size};
+            std::array<ActorEffectNode, 4> effects{};
+            std::array<ActorEffectNode*, 150> nodes{};
+            for (size_t index = 0; index < 4; ++index)
+            {
+                effects[index].bytes = bytes.subspan(0x100 + index * 0x100, 0x100);
+                effects[index].binding_actor = reinterpret_cast<void*>(uintptr_t(
+                    read_u32(effects[index].bytes, 0xC0)));
+            }
+            for (size_t index = 0; index < 150; ++index)
+            {
+                const u8 slot = parameters[0x100 + index];
+                nodes[index] = slot == 4 ? nullptr : &effects[slot];
+            }
+            detach_actor_from_global_effects(reinterpret_cast<void*>(uintptr_t(read_u32(parameters, 0))), nodes);
+            result = true;
+        }
+        else if (mode >= 80 && mode <= 83)
+        {
+            auto bytes = std::span<u8>{object.bytes.get(), object.size};
+            const i32 pal = i32(read_u32(parameters, 0x10));
+            const i32 override_pal = i32(read_u32(parameters, 0x14));
+            const float freeze = read_f32(parameters, 0x20);
+            const float dt = read_f32(parameters, 0x24);
+            const float scale = read_f32(parameters, 0x28);
+            const u32 zero = 0;
+            RuntimeActorClock clock{freeze, dt, scale, zero, {}, zero};
+            i32 free_head = i32(read_u32(parameters, 4));
+            if (mode == 80)
+            {
+                const u32 subtype = read_u32(parameters, 0);
+                if (subtype == 0)
+                {
+                    const float value = approach_runtime_scalar(read_f32(parameters, 0x30),
+                        read_f32(parameters, 0x34), read_f32(parameters, 0x38));
+                    std::memcpy(bytes.data() + 0xB80, &value, 4);
+                }
+                else if (subtype == 1)
+                {
+                    float current = read_f32(bytes, 0x100);
+                    float rate = read_f32(bytes, 0x104);
+                    approach_runtime_scalar_rate(current, rate, read_f32(parameters, 0x34), dt);
+                    std::memcpy(bytes.data() + 0x100, &current, 4);
+                    std::memcpy(bytes.data() + 0x104, &rate, 4);
+                }
+                else
+                {
+                    set_runtime_bounded_channel_limits(bytes.subspan(0x100, 0x14),
+                        read_f32(parameters, 0x30), read_f32(parameters, 0x34), pal, override_pal);
+                }
+            }
+            else if (mode == 81)
+            {
+                RuntimeEffectDebris context{bytes, std::span<const u8>{parameters}.subspan(0x400),
+                    free_head, zero, random};
+                tick_effect_debris(bytes.subspan(0, 0x74), context, clock);
+                std::memcpy(bytes.data() + 0xB80, &free_head, 4);
+            }
+            else
+            {
+                RuntimeEffectTrails context{bytes, std::span<const u8>{parameters}.subspan(0x400),
+                    free_head, random, pal, override_pal, [&](u32 address)
+                    {
+                        return std::span<const u8>{parameters}.subspan(address - 0x10002000);
+                    }};
+                if (mode == 82)
+                {
+                    set_effect_trail_phase(bytes.subspan(0, 0x84), i32(read_u32(parameters, 0)), context);
+                }
+                else
+                {
+                    tick_effect_trail(bytes.subspan(0, 0x84), context, clock);
+                }
+                std::memcpy(bytes.data() + 0xB80, &free_head, 4);
+            }
+            result = true;
+        }
+        else if (mode == 79)
+        {
+            std::array<RuntimeActorSound, 3> sounds{};
+            RuntimeActorSoundGroup group{};
+            const auto at = [&](u32 address) -> RuntimeSoundLink*
+            {
+                if (address == 0)
+                {
+                    return nullptr;
+                }
+                return address == 0x10000700 ? &group.pending : &sounds[(address - 0x10000100u) / 0x100u];
+            };
+            group.pending.next = at(read_u32({object.bytes.get(), object.size}, 0x704));
+            for (size_t index = 0; index < 3; ++index)
+            {
+                const size_t offset = 0x100 + index * 0x100;
+                const std::span<const u8> bytes{object.bytes.get() + offset, 0xB4};
+                sounds[index].previous = at(read_u32(bytes, 0));
+                sounds[index].next = at(read_u32(bytes, 4));
+                sounds[index].position = {read_f32(bytes, 0x94), read_f32(bytes, 0x98), read_f32(bytes, 0x9C)};
+                sounds[index].elapsed = read_f32(bytes, 0xAC);
+            }
+            sort_pending_actor_sounds(group, {read_f32(parameters, 0), read_f32(parameters, 4), read_f32(parameters, 8)});
+            const auto address = [&](RuntimeSoundLink* link) -> u32
+            {
+                if (link == nullptr)
+                {
+                    return 0;
+                }
+                if (link == &group.pending)
+                {
+                    return 0x10000700;
+                }
+                return 0x10000100u + u32(static_cast<RuntimeActorSound*>(link) - sounds.data()) * 0x100u;
+            };
+            const u32 head = address(group.pending.next);
+            std::memcpy(object.bytes.get() + 0x704, &head, 4);
+            for (size_t index = 0; index < 3; ++index)
+            {
+                const size_t offset = 0x100 + index * 0x100;
+                const u32 previous = address(sounds[index].previous);
+                const u32 next = address(sounds[index].next);
+                std::memcpy(object.bytes.get() + offset, &previous, 4);
+                std::memcpy(object.bytes.get() + offset + 4, &next, 4);
+                std::memcpy(object.bytes.get() + offset + 0xAC, &sounds[index].elapsed, 4);
+            }
+            result = true;
+        }
+        else if (mode == 78)
+        {
+            const float freeze = read_f32(parameters, 4);
+            const float dt = read_f32(parameters, 8);
+            const float scale = read_f32(parameters, 12);
+            const u32 zero = 0;
+            const RuntimeActorClock clock{freeze, dt, scale, zero, {}, zero};
+            advance_scene_gameplay_time({object.bytes.get(), 0x14}, clock, read_u32(parameters, 0));
+            result = true;
+        }
+        else if (mode == 77)
+        {
+            Actor actor;
+            actor.animation_rate = read_f32(parameters, 0x20);
+            actor.animation_pause = read_f32(parameters, 0x24);
+            ActorMatrixSetup matrices{};
+            matrices.matrices.count = 3;
+            matrices.matrices.node = std::span<const u8>{parameters}.subspan(0x300);
+            matrices.matrices.instance = {object.bytes.get() + 0x800, 0x200};
+            RuntimeBackgroundLifetime lifetime{};
+            lifetime.animation = object.bytes.get() + 0x100;
+            RuntimeBackgroundAnimation animation{};
+            std::array<RuntimePointGraph, 3> graphs{};
+            for (size_t index = 0; index < graphs.size(); ++index)
+            {
+                graphs[index].fields = {object.bytes.get() + 0x100 + index * 0x1E0, 0x1E0};
+            }
+            animation.rows = graphs;
+            animation.animation_block = std::span<const u8>{parameters}.subspan(0x400);
+            animation.header = std::span<const u8>{parameters}.subspan(0x500);
+            animation.matrix_count = 3;
+            animation.matrix_node = matrices.matrices.node;
+            RuntimeBackgroundConstruction background{{object.bytes.get(), object.size}, actor, matrices,
+                lifetime, animation, {}, {}};
+            const float freeze = read_f32(parameters, 0x40);
+            const float dt = read_f32(parameters, 0x44);
+            const float scale = read_f32(parameters, 0x48);
+            const u32 zero = 0;
+            const RuntimeActorClock clock{freeze, dt, scale, zero, {}, zero};
+            const std::function<std::span<const u8>(u32, size_t)> resolve = [&](u32 address, size_t size)
+            {
+                return std::span<const u8>{parameters}.subspan(address - 0x10002000u, size);
+            };
+            RuntimeShaderMatrixBoundaries boundaries{};
+            RuntimeBackgroundUpdate context{&background, clock, resolve, nullptr, boundaries};
+            update_background_animation(background, context);
+            result = true;
+        }
+        else if (mode == 72 || mode == 73)
+        {
+            i32 free_head = i32(read_u32(parameters, 0));
+            const u32 frame = read_u32(parameters, 4);
+            if (mode == 72)
+            {
+                std::vector<u8> particles(50 * 0x74);
+                for (size_t index = 0; index < 50; ++index)
+                {
+                    std::memcpy(particles.data() + index * 0x74 + 0x70,
+                        parameters.data() + 0x800 + index * 4, 4);
+                }
+                RuntimeEffectDebris context{particles, {}, free_head, frame, random};
+                const u32 index = u32(oldest_effect_debris(context));
+                std::memcpy(object.bytes.get() + 0xB80, &index, 4);
+            }
+            else
+            {
+                RuntimeEffectDebris context{{object.bytes.get(), object.size}, {}, free_head, frame, random};
+                const auto particle = allocate_effect_debris(context);
+                const u32 address = particle.empty() ? 0 : 0x10000000u + u32(particle.data() - object.bytes.get());
+                std::memcpy(object.bytes.get() + 0xB80, &free_head, 4);
+                std::memcpy(object.bytes.get() + 0xB84, &address, 4);
+            }
+            result = true;
+        }
+        else if (mode == 70 || mode == 71 || mode == 74 || mode == 75 || mode == 76)
+        {
+            AnimationResourceRegistry registry;
+            ResourceErrorState error{};
+            RuntimeModelResourceViews views;
+            RuntimeModelDeferredPool deferred;
+            u32 fence = 0;
+            RuntimeShaderRegistrationState shaders;
+            auto scratch = std::make_unique<RuntimeShaderAnimationScratch>();
+            const std::function<void(u8*)> heap_free = [](u8* pointer)
+            {
+                engine_heap_free(pointer);
+            };
+            ActorEffectModelContext models{registry, error, views, deferred, fence, {}, shaders, *scratch, heap_free};
+            RuntimeActorSoundQueues sounds{};
+            Vec3 origin{};
+            ActorEffectStreamContext effects{models, sounds, random, origin, origin};
+            AudioCoreSources sources{};
+            AudioCoreCues cues{sources};
+            AudioEventVoices voices{cues, {}, {}, {}, 0, origin, origin};
+            i32 free_head = -1;
+            const u32 frame = 0;
+            RuntimeEffectDebris debris{{}, {}, free_head, frame, random};
+            FootstepSoundNames footsteps{};
+            RuntimeEffectCollision collision{};
+            collision.kind = read_u32(parameters, 0);
+            u32 callback = read_u32(parameters, 4);
+            RuntimeEffectCollisionCommands context{collision, debris, voices, effects, footsteps, callback};
+            ActorEffectNode owner{};
+            owner.bytes = {object.bytes.get() + 0x400, 0x390};
+            if (mode >= 74)
+            {
+                owner.bytes = {object.bytes.get(), object.size};
+            }
+            owner.script = std::span<const u8>{parameters}.subspan(0x400);
+            const std::span<u8> particle{object.bytes.get() + 0x100, 0x150};
+            u32 returned = 0;
+            if (mode == 71 || mode >= 74)
+            {
+                const float freeze = read_f32(parameters, 0x20);
+                const float dt = read_f32(parameters, 0x24);
+                const float scale = read_f32(parameters, 0x28);
+                const u32 zero = 0;
+                const RuntimeActorClock clock{freeze, dt, scale, zero, {}, zero};
+                entity_detail::DisplayView view{};
+                const u8 bounded = 0;
+                RuntimeEffectCollisionContext movement{collision, clock, view, origin, bounded, origin, origin, random};
+                const std::function<std::span<const u8>(u32)> resolve = [&](u32 address)
+                {
+                    return std::span<const u8>{parameters}.subspan(address - 0x10002000u);
+                };
+                const i32 pal = i32(read_u32(parameters, 0x10));
+                const i32 override_pal = i32(read_u32(parameters, 0x14));
+                RuntimeEffectSimulation simulation{movement, context, resolve, pal, override_pal};
+                if (mode >= 74)
+                {
+                    const std::function<u32(const u8*)> address = [&](const u8* pointer)
+                    {
+                        return 0x10000000u + u32(pointer - object.bytes.get());
+                    };
+                    const Vec3 direction{read_f32(parameters, 0x90), read_f32(parameters, 0x94), read_f32(parameters, 0x98)};
+                    RuntimeEffectPassScratch pass_scratch{{read_f32(parameters, 0x80), read_f32(parameters, 0x84), read_f32(parameters, 0x88)},
+                        read_u32({object.bytes.get(), object.size}, 0xB88), read_f32({object.bytes.get(), object.size}, 0xB8C)};
+                    u32 cooldown = 0;
+                    RuntimeEffectTickContext tick{simulation, frame, cooldown, address, direction, pass_scratch};
+                    if (mode == 74)
+                    {
+                        returned = tick_actor_effect(owner, read_f32(parameters, 0x18), tick);
+                    }
+                    else if (mode == 75)
+                    {
+                        tick_active_actor_effect_particles(owner, read_f32(parameters, 0x18), tick);
+                    }
+                    else
+                    {
+                        spawn_and_simulate_actor_effect_particle(owner, read_f32(parameters, 0x18), tick);
+                    }
+                }
+                else
+                {
+                    u32 collided = read_u32({object.bytes.get(), object.size}, 0xB88);
+                    float previous = read_f32({object.bytes.get(), object.size}, 0xB8C);
+                    returned = simulate_actor_effect_particle(particle, owner, read_f32(parameters, 0x18),
+                        collided, previous, simulation);
+                    std::memcpy(object.bytes.get() + 0xB88, &collided, 4);
+                    std::memcpy(object.bytes.get() + 0xB8C, &previous, 4);
+                }
+            }
+            else if (read_u32(parameters, 8) != 0)
+            {
+                notify_effect_particle_collision(particle, owner, context);
+            }
+            else
+            {
+                returned = execute_effect_collision_commands(particle, owner, context);
+            }
+            std::memcpy(object.bytes.get() + 0xB80, &callback, 4);
+            std::memcpy(object.bytes.get() + 0xB84, &returned, 4);
+            result = true;
+        }
+        else if (mode == 68)
+        {
+            Vec3 source, position, euler;
+            std::memcpy(&source, object.bytes.get() + 0x100, 12);
+            const Vec3 normal{read_f32(parameters, 0x10), read_f32(parameters, 0x14), read_f32(parameters, 0x18)};
+            sample_effect_collision_pose(source, normal, position, euler);
+            std::memcpy(object.bytes.get() + 0x800, &position, 12);
+            std::memcpy(object.bytes.get() + 0x810, &euler, 12);
+            result = true;
+        }
+        else if (mode == 69)
+        {
+            i32 free_head = -1;
+            const u32 frame = read_u32(parameters, 4);
+            RuntimeEffectDebris context{{}, std::span<const u8>{parameters}.subspan(0x400), free_head, frame, random};
+            set_effect_debris_phase({object.bytes.get() + 0x100, 0x74}, i32(read_u32(parameters, 0)), context);
+            result = true;
+        }
+        else if (mode == 67)
+        {
+            ActorEffectNode owner{};
+            owner.bytes = {object.bytes.get() + 0x400, 0x390};
+            const std::function<std::span<const u8>(u32)> resolve = [&](u32 address)
+            {
+                return std::span<const u8>{parameters}.subspan(address - 0x10002000u);
+            };
+            u32 cursor = read_u32({object.bytes.get(), object.size}, 0x24C);
+            const i32 pal = i32(read_u32(parameters, 0));
+            const i32 override_pal = i32(read_u32(parameters, 4));
+            const u32 returned = execute_actor_effect_commands({object.bytes.get() + 0x100, 0x150}, owner,
+                cursor, resolve, random, pal, override_pal);
+            std::memcpy(object.bytes.get() + 0x24C, &cursor, 4);
+            std::memcpy(object.bytes.get() + 0xB80, &returned, 4);
+            result = true;
+        }
+        else if (mode == 64)
+        {
+            entity_detail::DisplayView view{};
+            std::memcpy(view.transform.data(), parameters.data() + 0x100, 48);
+            view.pixel_aspect = read_f32(parameters, 0x80);
+            view.focal_pixels = read_f32(parameters, 0x84);
+            view.fitted_width = i32(read_u32(parameters, 0x88));
+            view.fitted_height = i32(read_u32(parameters, 0x8C));
+            const Vec3 plane{read_f32(parameters, 0x10), read_f32(parameters, 0x14), read_f32(parameters, 0x18)};
+            Vec3 source, candidate, normal;
+            std::array<float, 2> screen;
+            std::memcpy(&source, object.bytes.get() + 0x100, 12);
+            std::memcpy(&candidate, object.bytes.get() + 0x800, 12);
+            std::memcpy(&normal, object.bytes.get() + 0x810, 12);
+            std::memcpy(screen.data(), object.bytes.get() + 0x820, 8);
+            const u32 options = read_u32(parameters, 0);
+            Vec3* normal_output = (options & 1) != 0 ? ((options & 8) != 0 ? &candidate : &normal) : nullptr;
+            const u32 hit = clip_runtime_camera_plane(view, plane, source, candidate, normal_output,
+                (options & 2) != 0 ? &screen : nullptr);
+            std::memcpy(object.bytes.get() + 0x800, &candidate, 12);
+            std::memcpy(object.bytes.get() + 0x810, &normal, 12);
+            std::memcpy(object.bytes.get() + 0x820, screen.data(), 8);
+            std::memcpy(object.bytes.get() + 0xB80, &hit, 4);
+            result = true;
+        }
+        else if (mode == 65)
+        {
+            const u32 subtype = read_u32(parameters, 0);
+            const i32 pal = i32(read_u32(parameters, 4));
+            const i32 override_pal = i32(read_u32(parameters, 8));
+            const Vec3 first{read_f32(parameters, 0x10), read_f32(parameters, 0x14), read_f32(parameters, 0x18)};
+            const Vec3 second{read_f32(parameters, 0x20), read_f32(parameters, 0x24), read_f32(parameters, 0x28)};
+            const Vec3 rates{read_f32(parameters, 0x30), read_f32(parameters, 0x34), read_f32(parameters, 0x38)};
+            const Vec3 position{read_f32(parameters, 0x40), read_f32(parameters, 0x44), read_f32(parameters, 0x48)};
+            u32 returned = 0;
+            if (subtype == 0)
+            {
+                returned = runtime_wrapped_angles_equal(first.x, second.x);
+            }
+            else if (subtype == 1)
+            {
+                set_runtime_bounded_channel_limits({object.bytes.get() + 0x100, 0x3C}, first, second, pal, override_pal);
+            }
+            else if (subtype == 2)
+            {
+                set_runtime_bounded_channel_rates({object.bytes.get() + 0x100, 0x3C}, rates, pal, override_pal);
+            }
+            else
+            {
+                configure_actor_effect_bounded_channels({object.bytes.get() + 0x100, 0x150}, first, second,
+                    position, rates, i32(read_u32(parameters, 12)), pal, override_pal, random);
+            }
+            std::memcpy(object.bytes.get() + 0xB80, &returned, 4);
+            result = true;
+        }
+        else if (mode == 66)
+        {
+            entity_detail::NavGrid grid;
+            grid.width = 2;
+            grid.depth = 2;
+            grid.cell = 5;
+            grid.cells.resize(4);
+            std::memcpy(grid.cells.data(), parameters.data() + 0x800, 0x48);
+            entity_detail::g_nav_grids[0] = &grid;
+            entity_detail::g_nav_count = 1;
+            entity_detail::g_nav_min_y[0] = 0.f;
+            entity_detail::g_nav_max_y[0] = 10.f;
+            entity_detail::g_nav_origin_x = 0;
+            entity_detail::g_nav_origin_z = 0;
+            entity_detail::g_world.segment = nullptr;
+            RuntimeEffectCollision collision{read_u32({object.bytes.get(), object.size}, 0xB80),
+                object.bytes[0xB84], read_u32({object.bytes.get(), object.size}, 0xB88), {}};
+            std::memcpy(&collision.normal, object.bytes.get() + 0xB8C, 12);
+            const float freeze = read_f32(parameters, 0x20);
+            const float dt = read_f32(parameters, 0x24);
+            const float scale = read_f32(parameters, 0x28);
+            const u32 zero = 0;
+            const RuntimeActorClock clock{freeze, dt, scale, zero, {}, zero};
+            entity_detail::DisplayView view{};
+            std::memcpy(view.transform.data(), parameters.data() + 0x100, 48);
+            const Vec3 plane{read_f32(parameters, 0x10), read_f32(parameters, 0x14), read_f32(parameters, 0x18)};
+            const Vec3 minimum{read_f32(parameters, 0x50), read_f32(parameters, 0x54), read_f32(parameters, 0x58)};
+            const Vec3 maximum{read_f32(parameters, 0x60), read_f32(parameters, 0x64), read_f32(parameters, 0x68)};
+            const u8 bounded = u8(read_u32(parameters, 4));
+            RuntimeEffectCollisionContext context{collision, clock, view, plane, bounded, minimum, maximum, random};
+            std::function<void()> callback;
+            if (read_u32(parameters, 8) != 0)
+            {
+                callback = [&]
+                {
+                    const auto bytes = std::span<u8>{object.bytes.get(), object.size};
+                    const u32 count = read_u32(bytes, 0xBA0) + 1;
+                    std::memcpy(object.bytes.get() + 0xBA0, &count, 4);
+                    const float factor = 2.f;
+                    std::memcpy(object.bytes.get() + 0x140, &factor, 4);
+                    object.bytes[0x156] |= 4;
+                };
+            }
+            const u32 hit = move_actor_effect_particle({object.bytes.get() + 0x100, 0x150}, context, callback);
+            std::memcpy(object.bytes.get() + 0xB80, &collision.kind, 4);
+            object.bytes[0xB84] = collision.surface;
+            std::memcpy(object.bytes.get() + 0xB88, &collision.flags, 4);
+            std::memcpy(object.bytes.get() + 0xB8C, &collision.normal, 12);
+            std::memcpy(object.bytes.get() + 0xB9C, &hit, 4);
+            auto& pool = entity_detail::g_segment_slots[0].pool;
+            if (pool.live)
+            {
+                engine_heap_free(pool.block);
+                pool = {};
+            }
+            entity_detail::g_segment_count = 0;
+            entity_detail::g_nav_grids[0] = nullptr;
+            entity_detail::g_nav_count = 0;
+            result = true;
+        }
+        else if (mode == 63)
+        {
+            entity_detail::NavGrid grid;
+            grid.width = 2;
+            grid.depth = 2;
+            grid.cell = 5;
+            grid.cells.resize(4);
+            std::memcpy(grid.cells.data(), parameters.data() + 0x800, 0x48);
+            entity_detail::g_nav_grids[0] = read_u32(parameters, 0x10) != 0 ? &grid : nullptr;
+            entity_detail::g_nav_count = 1;
+            entity_detail::g_nav_min_y[0] = 0.f;
+            entity_detail::g_nav_max_y[0] = 10.f;
+            entity_detail::g_nav_origin_x = 0;
+            entity_detail::g_nav_origin_z = 0;
+            entity_detail::g_world.segment = nullptr;
+            RuntimeEffectCollision collision{read_u32({object.bytes.get(), object.size}, 0xB80),
+                object.bytes[0xB84], read_u32({object.bytes.get(), object.size}, 0xB88), {}};
+            std::memcpy(&collision.normal, object.bytes.get() + 0xB8C, 12);
+            Vec3 source, candidate;
+            std::memcpy(&source, object.bytes.get() + 0x100, 12);
+            std::memcpy(&candidate, object.bytes.get() + 0x800, 12);
+            u32 hit;
+            if (read_u32(parameters, 0) == 0)
+            {
+                hit = u32(probe_actor_effect_world(source, candidate, read_f32(parameters, 0x20),
+                    i32(read_u32(parameters, 8)), read_u32(parameters, 12), read_u32(parameters, 4), collision));
+                std::memcpy(object.bytes.get() + 0x100, &source, 12);
+            }
+            else
+            {
+                hit = probe_actor_effect_particle({object.bytes.get() + 0x100, 0x150}, candidate, collision);
+            }
+            std::memcpy(object.bytes.get() + 0x800, &candidate, 12);
+            std::memcpy(object.bytes.get() + 0xB80, &collision.kind, 4);
+            object.bytes[0xB84] = collision.surface;
+            std::memcpy(object.bytes.get() + 0xB88, &collision.flags, 4);
+            std::memcpy(object.bytes.get() + 0xB8C, &collision.normal, 12);
+            std::memcpy(object.bytes.get() + 0xB9C, &hit, 4);
+            auto& pool = entity_detail::g_segment_slots[0].pool;
+            if (pool.live)
+            {
+                engine_heap_free(pool.block);
+                pool = {};
+            }
+            entity_detail::g_segment_count = 0;
+            entity_detail::g_nav_grids[0] = nullptr;
+            entity_detail::g_nav_count = 0;
+            result = true;
+        }
+        else if (mode == 60)
+        {
+            const Vec3 normal{read_f32(parameters, 4), read_f32(parameters, 8), read_f32(parameters, 12)};
+            reflect_actor_effect_particle({object.bytes.get() + 0x100, 0x150}, read_u32(parameters, 0), normal, random);
+            result = true;
+        }
+        else if (mode == 61)
+        {
+            const u32 subtype = read_u32(parameters, 0);
+            u32 returned;
+            if (subtype == 0)
+            {
+                const Vec3 direction{read_f32(parameters, 0x10), read_f32(parameters, 0x14), read_f32(parameters, 0x18)};
+                float pitch = read_f32({object.bytes.get(), object.size}, 0x800);
+                returned = runtime_direction_pitch(direction, pitch);
+                std::memcpy(object.bytes.get() + 0x800, &pitch, 4);
+            }
+            else if (subtype == 1)
+            {
+                returned = std::bit_cast<u32>(advance_runtime_random_fraction(random));
+            }
+            else if (subtype == 2)
+            {
+                returned = actor_effect_channels_are_active({object.bytes.get() + 0x100, 0x3C});
+            }
+            else
+            {
+                returned = actor_effect_command_condition(parameters, {object.bytes.get() + 0x100, 0x150});
+            }
+            std::memcpy(object.bytes.get() + 0xB80, &returned, 4);
+            result = true;
+        }
+        else if (mode == 62)
+        {
+            const u32 subtype = read_u32(parameters, 0);
+            auto particle = std::span<u8>{object.bytes.get() + 0x100, 0x150};
+            if (subtype == 0)
+            {
+                target_actor_effect_color(particle, parameters[4], parameters[5], parameters[6], read_f32(parameters, 0x20));
+            }
+            else if (subtype == 1)
+            {
+                target_actor_effect_alpha(particle, parameters[4], read_f32(parameters, 0x20));
+            }
+            else
+            {
+                const Vec3 rate{read_f32(parameters, 0x10), read_f32(parameters, 0x14), read_f32(parameters, 0x18)};
+                const Vec3 phase{read_f32(parameters, 0x20), read_f32(parameters, 0x24), read_f32(parameters, 0x28)};
+                const Vec3 lower{read_f32(parameters, 0x40), read_f32(parameters, 0x44), read_f32(parameters, 0x48)};
+                const Vec3 upper{read_f32(parameters, 0x50), read_f32(parameters, 0x54), read_f32(parameters, 0x58)};
+                configure_actor_effect_oscillation(particle, rate, phase, lower, upper, i32(read_u32(parameters, 8)), random);
+            }
+            result = true;
+        }
+        else if (mode == 58)
+        {
+            tick_actor_effect_oscillation({object.bytes.get() + 0x100, 0x3C}, read_f32(parameters, 0));
+            result = true;
+        }
+        else if (mode == 59)
+        {
+            ActorEffectNode effect{};
+            effect.bytes = {object.bytes.get(), object.size};
+            const std::function<std::span<const u8>(u32)> resolve = [&](u32 address)
+            {
+                return std::span<const u8>{parameters}.subspan(address - 0x10002000u);
+            };
+            const u32 fallback = find_actor_effect_fallback_command(
+                std::span<const u8>{object.bytes.get() + 0x400, 0x150}, effect, resolve);
+            std::memcpy(object.bytes.get() + 0xB80, &fallback, 4);
+            result = true;
+        }
+        else if (mode == 57)
+        {
+            const u32 subtype = read_u32(parameters, 0);
+            Actor actor;
+            actor.position = {read_f32(parameters, 0x20), read_f32(parameters, 0x24), read_f32(parameters, 0x28)};
+            actor.euler = {read_f32(parameters, 0x30), read_f32(parameters, 0x34), read_f32(parameters, 0x38)};
+            std::memcpy(actor.xform, parameters.data() + 0x80, 48);
+            ActorModel model;
+            model.cpu = std::span<const u8>{parameters}.subspan(0x400);
+            RuntimeModelInstance runtime{};
+            std::array<ModelPoseBuffer, 2> poses;
+            std::array<EntityBonePose, 2> shape_poses;
+            for (size_t index = 0; index < 2; ++index)
+            {
+                poses[index].dirty = true;
+                poses[index].matrices.resize(1);
+                std::memcpy(poses[index].matrices[0].data(), parameters.data() + 0x100 + index * 0x40, 48);
+                shape_poses[index].buffer = &poses[index];
+            }
+            runtime.primary = &poses[0];
+            runtime.alternate = read_u32(parameters, 12) != 0 ? &poses[1] : nullptr;
+            model.primary_shape_pose = &shape_poses[0];
+            model.alternate_shape_pose = read_u32(parameters, 12) != 0 ? &shape_poses[1] : nullptr;
+            Joint joint{};
+            joint.world = {read_f32(parameters, 0x180), read_f32(parameters, 0x184), read_f32(parameters, 0x188)};
+            RuntimeModelNode skeleton{};
+            skeleton.joints = {&joint, 1};
+            runtime.skeleton_node = &skeleton;
+            model.runtime = &runtime;
+            actor.model = read_u32(parameters, 8) != 0 ? &model : nullptr;
+            const Actor* owner = read_u32(parameters, 4) != 0 ? &actor : nullptr;
+            ActorEffectNode effect{};
+            effect.bytes = {object.bytes.get(), object.size};
+            effect.binding_actor = const_cast<Actor*>(owner);
+            effect.binding_joint = i32(read_u32(effect.bytes, 0xD8));
+            const auto pointer = [&](u32 value) -> const u8*
+            {
+                return value != 0 ? model.cpu.data() + value - 0x10002400u : nullptr;
+            };
+            effect.binding_shape = pointer(read_u32(effect.bytes, 0xCC));
+            effect.binding_locator = pointer(read_u32(effect.bytes, 0xD4));
+            const std::function<u32(const u8*)> address = [&](const u8* value)
+            {
+                return value != nullptr ? u32(0x10002400 + (value - model.cpu.data())) : 0u;
+            };
+            Vec3 position, euler;
+            std::memcpy(&position, object.bytes.get() + 0x800, 12);
+            std::memcpy(&euler, object.bytes.get() + 0x810, 12);
+            float radius = read_f32(effect.bytes, 0x820);
+            if (subtype == 0)
+            {
+                sample_actor_effect_shape(owner, read_u32(effect.bytes, 0xC8), effect.binding_shape, position, radius);
+            }
+            else if (subtype == 1)
+            {
+                sample_actor_effect_locator(owner, i16(read_u16(effect.bytes, 0xD0)), effect.binding_locator, position, euler);
+            }
+            else if (subtype == 2)
+            {
+                sample_actor_effect_joint(owner, effect.binding_joint, position, euler);
+            }
+            else if (subtype == 3)
+            {
+                update_actor_effect_size(effect, address);
+            }
+            else
+            {
+                prepare_actor_effect_binding(effect, read_f32(parameters, 0x18), address);
+            }
+            std::memcpy(object.bytes.get() + 0x800, &position, 12);
+            std::memcpy(object.bytes.get() + 0x810, &euler, 12);
+            std::memcpy(object.bytes.get() + 0x820, &radius, 4);
+            const u32 shape = address(effect.binding_shape);
+            const u32 locator = address(effect.binding_locator);
+            std::memcpy(object.bytes.get() + 0xB80, &shape, 4);
+            std::memcpy(object.bytes.get() + 0xB84, &locator, 4);
+            result = true;
+        }
+        else if (mode == 56)
+        {
+            const u32 subtype = read_u32(parameters, 0);
+            Actor actor;
+            ActorModel model;
+            const auto cpu = std::span<const u8>{parameters}.subspan(0x400);
+            model.cpu = read_u32(parameters, 12) != 0 ? cpu : std::span<const u8>{};
+            actor.model = read_u32(parameters, 4) != 0 ? &model : nullptr;
+            const u32 previous = read_u32(parameters, 8);
+            const u8* current = previous != 0 ? cpu.data() + 0x104 + (previous - 1) * 0x34 : nullptr;
+            u32 returned = 0;
+            if (subtype == 0)
+            {
+                returned = advance_runtime_model_binding(cpu.data() + 0x100, current, i16(read_u16(parameters, 16)));
+            }
+            else if (subtype == 1)
+            {
+                returned = advance_actor_model_binding(actor, current, i16(read_u16(parameters, 16)));
+            }
+            else if (subtype == 2)
+            {
+                const u8* block = actor_physical_shape_block(actor);
+                returned = block != nullptr ? u32(0x10002400 + (block - cpu.data())) : 0;
+            }
+            else
+            {
+                const u8* shape = previous != 0 ? cpu.data() + 0x308 + (previous - 1) * 0x30 : nullptr;
+                shape = select_actor_effect_shape(actor, shape, read_u32(parameters, 20));
+                returned = shape != nullptr ? u32(0x10002400 + (shape - cpu.data())) : 0;
+            }
+            const u32 current_address = current != nullptr ? u32(0x10002400 + (current - cpu.data())) : 0;
+            std::memcpy(object.bytes.get() + 0xB80, &returned, 4);
+            std::memcpy(object.bytes.get() + 0xB84, &current_address, 4);
+            result = true;
+        }
+        else if (mode == 53)
+        {
+            Vec3 point;
+            std::memcpy(&point, object.bytes.get() + 0x800, 12);
+            jitter_actor_effect_position(point, parameters, random);
+            std::memcpy(object.bytes.get() + 0x800, &point, 12);
+            result = true;
+        }
+        else if (mode == 54)
+        {
+            initialize_actor_effect_velocity({object.bytes.get() + 0x100, 0x150}, parameters, random);
+            result = true;
+        }
+        else if (mode == 55)
+        {
+            Vec3 scratch;
+            place_actor_effect_particle(parameters, {object.bytes.get() + 0x100, 0x150},
+                std::span<const u8>{parameters}.subspan(0x400), scratch, random);
+            result = true;
+        }
+        else if (mode == 52)
+        {
+            Vec3 extent{read_f32(parameters, 8), read_f32(parameters, 12), read_f32(parameters, 16)};
+            Vec3 point;
+            Vec3& output = read_u32(parameters, 4) != 0 ? extent : point;
+            if (read_u32(parameters, 0) == 0)
+            {
+                sample_runtime_ellipsoid_position(extent, output, i32(read_u32(parameters, 20)),
+                    read_f32(parameters, 24), read_f32(parameters, 28), read_f32(parameters, 32),
+                    read_f32(parameters, 36), random);
+            }
+            else
+            {
+                sample_runtime_cylinder_position(extent, output, i32(read_u32(parameters, 20)),
+                    read_f32(parameters, 24), read_f32(parameters, 28), random);
+            }
+            std::memcpy(object.bytes.get() + 0x800, &output, 12);
+            result = true;
+        }
+        else if (mode == 50)
+        {
+            const float angle = sample_runtime_angle_range(read_f32(parameters, 0), read_f32(parameters, 4), random);
+            std::memcpy(object.bytes.get() + 0x800, &angle, 4);
+            result = true;
+        }
+        else if (mode == 51)
+        {
+            Vec3 extent{read_f32(parameters, 8), read_f32(parameters, 12), read_f32(parameters, 16)};
+            Vec3 point;
+            Vec3& output = read_u32(parameters, 4) != 0 ? extent : point;
+            if (read_u32(parameters, 0) == 0)
+            {
+                sample_runtime_rectangle_position(extent, output, i32(read_u32(parameters, 20)), random);
+            }
+            else
+            {
+                sample_runtime_ellipse_position(extent, output, i32(read_u32(parameters, 20)), random);
+            }
+            std::memcpy(object.bytes.get() + 0x800, &output, 12);
+            result = true;
+        }
+        else if (mode == 49)
+        {
+            const float freeze = read_f32(parameters, 0);
+            const float dt = read_f32(parameters, 4);
+            const float scale = read_f32(parameters, 8);
+            const u32 zero = 0;
+            const RuntimeActorClock clock{freeze, dt, scale, zero, {}, zero};
+            approach_actor_effect_channels({object.bytes.get() + 0x100, 0x3C}, clock);
+            result = true;
+        }
+        else if (mode == 48)
+        {
+            const u32 subtype = read_u32(parameters, 0);
+            auto channels = std::span<u8>{object.bytes.get() + 0x100, 0x3C};
+            const float step = read_f32(parameters, 4);
+            if (subtype == 0)
+            {
+                decrease_runtime_bounded_channel(channels, step);
+            }
+            else if (subtype == 1)
+            {
+                increase_runtime_bounded_channel(channels, step);
+            }
+            else
+            {
+                std::array<float, 3> output;
+                tick_runtime_bounded_channels(channels, step, read_u32(parameters, 8) != 0 ? output.data() : nullptr);
+                if (read_u32(parameters, 8) != 0)
+                {
+                    std::memcpy(object.bytes.get() + 0x800, output.data(), 12);
+                }
+            }
+            result = true;
+        }
+        else if (mode == 47)
+        {
+            std::array<RuntimePointGraph, 3> rows{};
+            for (size_t index = 0; index < rows.size(); ++index)
+            {
+                rows[index].fields = {object.bytes.get() + 0x100 + index * 0x1E0, 0x1E0};
+            }
+            RuntimeBackgroundAnimation animation{};
+            animation.rows = rows;
+            animation.matrix_count = i32(read_u32(parameters, 0));
+            animation.matrix_node = parameters;
+            publish_background_graph_matrices(animation, {object.bytes.get() + 0x800, 0x200});
+            result = true;
+        }
+        else if (mode == 46)
+        {
+            Vec3 extent{read_f32(parameters, 8), read_f32(parameters, 12), read_f32(parameters, 16)};
+            Vec3 point;
+            if (read_u32(parameters, 0) == 0)
+            {
+                sample_runtime_line_position(point, extent.x, random);
+            }
+            else if (read_u32(parameters, 4) != 0)
+            {
+                sample_runtime_box_position(extent, extent, i32(read_u32(parameters, 20)), random);
+                point = extent;
+            }
+            else
+            {
+                sample_runtime_box_position(extent, point, i32(read_u32(parameters, 20)), random);
+            }
+            std::memcpy(object.bytes.get() + 0x800, &point, 12);
+            result = true;
+        }
+        else if (mode == 45)
+        {
+            const u32 subtype = read_u32(parameters, 0);
+            if (subtype == 0)
+            {
+                Quat quaternion;
+                store_runtime_quaternion(quaternion, read_f32(parameters, 4), read_f32(parameters, 8),
+                    read_f32(parameters, 12), read_f32(parameters, 16));
+                std::memcpy(object.bytes.get() + 0x800, &quaternion, 16);
+            }
+            else if (subtype == 3)
+            {
+                Vec3 angles{read_f32(parameters, 4), read_f32(parameters, 8), read_f32(parameters, 12)};
+                wrap_runtime_euler_angles(angles);
+                std::memcpy(object.bytes.get() + 0x800, &angles, 12);
+            }
+            else
+            {
+                std::array<float, 16> matrix;
+                const Quat quaternion{read_f32(parameters, 16), read_f32(parameters, 20),
+                    read_f32(parameters, 24), read_f32(parameters, 28)};
+                if (subtype == 1)
+                {
+                    runtime_graphics_quaternion_matrix(matrix.data(), quaternion);
+                }
+                else
+                {
+                    compose_runtime_graphics_matrix(matrix.data(),
+                        {read_f32(parameters, 4), read_f32(parameters, 8), read_f32(parameters, 12)}, quaternion,
+                        {read_f32(parameters, 32), read_f32(parameters, 36), read_f32(parameters, 40)});
+                }
+                std::memcpy(object.bytes.get() + 0x800, matrix.data(), 64);
+            }
+            result = true;
+        }
+        else if (mode == 44)
+        {
+            ActorEffectNode effect;
+            effect.bytes = {object.bytes.get(), object.size};
+            const u32 emitted = actor_effect_emission_count(effect, read_f32(parameters, 0));
+            std::memcpy(object.bytes.get() + 0xB80, &emitted, 4);
+            result = true;
+        }
+        else if (mode == 43)
+        {
+            std::array<Actor, 8> actors;
+            std::array<RuntimeBodyCollisionOverride, 8> rows;
+            for (size_t index = 0; index < actors.size(); ++index)
+            {
+                actors[index].model_flags = read_u32({object.bytes.get(), object.size}, 0x800 + index * 4);
+                const size_t offset = 0x400 + index * 0x10;
+                rows[index] = {&actors[(read_u32({object.bytes.get(), object.size}, offset) - 0x10006000u) / 0x240],
+                    read_u32({object.bytes.get(), object.size}, offset + 4),
+                    read_u32({object.bytes.get(), object.size}, offset + 8),
+                    read_u32({object.bytes.get(), object.size}, offset + 0xC)};
+            }
+            GhoulySpawnPool pool{};
+            pool.stride = sizeof(RuntimeBodyCollisionOverride);
+            pool.begin = reinterpret_cast<u8*>(rows.data());
+            pool.cursor = pool.begin + read_u32(parameters, 8) * pool.stride;
+            pool.limit = pool.begin + rows.size() * pool.stride;
+            auto* optional = read_u32(parameters, 4) != 0 ? &pool : nullptr;
+            u32 returned = 0;
+            if (read_u32(parameters, 0) == 0)
+            {
+                returned = expire_runtime_body_contact_overrides(optional, read_f32(parameters, 0xC));
+            }
+            else
+            {
+                const u32 target = read_u32(parameters, 0xC);
+                forget_runtime_body_contact_actor(optional, target != 8 ? &actors[target] : nullptr);
+            }
+            const u32 count = optional != nullptr ? u32((pool.cursor - pool.begin) / pool.stride) : 0;
+            std::memcpy(object.bytes.get() + 0xB80, &returned, 4);
+            std::memcpy(object.bytes.get() + 0xB84, &count, 4);
+            for (size_t index = 0; index < rows.size(); ++index)
+            {
+                const auto& row = rows[index];
+                const std::array<u32, 4> words{0x10006000u + u32(row.actor - actors.data()) * 0x240u,
+                    row.saved, row.retained, row.active};
+                std::memcpy(object.bytes.get() + 0x400 + index * 0x10, words.data(), 16);
+                std::memcpy(object.bytes.get() + 0x800 + index * 4, &actors[index].model_flags, 4);
+            }
             result = true;
         }
         else if (mode == 42)
@@ -485,7 +1480,8 @@ int main()
         }
         else if (mode == 37)
         {
-            const i32 found = find_runtime_aid_list_entry(std::span<const u8>{parameters}.subspan(0x400),
+            const i32 found = find_runtime_aid_list_entry(read_u32(parameters, 0x400) != 0
+                ? std::span<const u8>{parameters}.subspan(0x440) : std::span<const u8>{},
                 reinterpret_cast<const char*>(parameters.data() + 0x100));
             std::memcpy(object.bytes.get() + 0x700, &found, 4);
             result = true;

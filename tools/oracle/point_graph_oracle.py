@@ -146,7 +146,7 @@ def build_case(rng, mode):
             struct.pack_into('<III', memory, row, *corners)
             for offset in range(0xC, 0x28, 4):
                 struct.pack_into('<f', memory, row + offset, rng.uniform(-1, 1))
-    elif mode == 10:
+    elif mode in [10,11]:
         words[0] = word(rng.choice([1. / 60, .1, .05]))
         memory[FIELDS + 0x1D4] = rng.randrange(0, 4)
         asset, block, grid, triangles, cells, lists = 0x6800, 0x6880, 0x6900, 0x7000, 0x7400, 0x7600
@@ -171,6 +171,21 @@ def build_case(rng, mode):
             struct.pack_into('<f', memory, SCRATCH + offset, rng.uniform(-scale, scale))
         for index in range(4, 10):
             words[index] = word(reals[index])
+    if mode==11:
+        for index in [4,5,6,7,8]:
+            words[index]=word(rng.choice([-1.,0.,.001,.01,.1,.25,1.,2.]))
+        memory[0x1D5]=rng.choice([0,1,255])
+        struct.pack_into('<f',memory,0x1D0,rng.choice([0.,.5,1.,1.01,3.9,4.,4.01,5.]))
+        struct.pack_into('<I',memory,0x4204,BASE+0x67E0)
+        struct.pack_into('<I',memory,0x67E0,BASE+0x6800)
+        struct.pack_into('<I',memory,0x6890,BASE+0x67F0)
+        memory[0x67F1]=1
+        struct.pack_into('<I',memory,0x68AC,0)
+        struct.pack_into('<I',memory,0x4950,BASE)
+        struct.pack_into('<III',memory,0x428C,1,BASE+0x6200,BASE+0x6300)
+        struct.pack_into('<I',memory,0x620C,0)
+        struct.pack_into('<I',memory,0x6230,1)
+        struct.pack_into('<II',memory,0x492C,words[7],words[8])
     return memory, words
 
 
@@ -203,6 +218,11 @@ def retail(cpu, mode, memory, words):
         result = run(cpu, 0x10C340, {UC_X86_REG_ESI: fields}, [BASE + CONTACTS, words[1]])
     elif mode == 8:
         run(cpu, 0x10C8D0, {UC_X86_REG_EBX: fields}, [])
+    elif mode == 11:
+        cpu.mem_write(0x511B20,struct.pack('<I',BASE+0x4934))
+        for address,index in [(0x4312DC,4),(0x5096C0,5),(0x4312C4,6)]:
+            cpu.mem_write(address,struct.pack('<I',words[index]))
+        run(cpu,0x45A90,{UC_X86_REG_EDI:BASE+0x4000},[])
     elif mode == 10:
         run(cpu, 0x10CFE0, {}, [fields, BASE + 0x6800], xmm1=reals[0])
     elif mode == 9:
@@ -224,13 +244,15 @@ def main():
     batch = []
     expected = []
     for case in range(cases):
-        mode = only if only is not None else case % 11
+        mode = only if only is not None else case % 12
         memory, words = build_case(rng, mode)
         image, result = retail(cpu, mode, memory, words)
         batch.append(struct.pack('<II', mode, 0) + bytes(memory) + struct.pack('<16I', *words))
         expected.append((mode, image, result))
     harness = os.path.join(ROOT, 'cache', 'oracle', 'point_graph_harness' + ('.exe' if os.name == 'nt' else ''))
-    output = subprocess.run([harness], input=b''.join(batch), capture_output=True, check=True).stdout
+    environment = os.environ.copy()
+    environment['PATH'] = os.path.join(ROOT, 'build', 'Release') + os.pathsep + environment.get('PATH', '')
+    output = subprocess.run([harness], input=b''.join(batch), capture_output=True, check=True, env=environment).stdout
     mismatches = 0
     step = SIZE + 4
     for index, (mode, image, result) in enumerate(expected):
@@ -241,6 +263,9 @@ def main():
                 first = next((offset for offset in range(SIZE) if native[offset] != image[offset]), None)
                 print('mismatch case', index, 'mode', mode, 'first byte', None if first is None else hex(first),
                     'result', hex(result), hex(struct.unpack('<I', native[SIZE:])[0]))
+                if mode==11:
+                    print('inverse host',struct.unpack_from('<16I',native,0x170),'retail',struct.unpack_from('<16I',image,0x170))
+                    print('initial clock/rate',struct.unpack('<5f',batch[index][-48:-28]),'flag',image[0x1D5],native[0x1D5])
     print('cases', cases, 'mismatches', mismatches)
     return 1 if mismatches else 0
 

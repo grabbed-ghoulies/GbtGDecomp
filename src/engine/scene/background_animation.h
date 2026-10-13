@@ -17,6 +17,8 @@ struct RuntimeBackgroundAnimation
 void initialize_background_animation(RuntimeBackgroundAnimation* first,
     const std::function<std::span<const u8>(u32)>& resolve,
     const std::function<u32(u8*, u32)>& bind_allocation); // Xbox 0x00044490
+void publish_background_graph_matrices(RuntimeBackgroundAnimation& animation,
+    std::span<u8> instance); // Xbox 0x00044430
 // The first background (DAT_00511B20 node): actor +0x92C rate and +0x930 pause, its animation rows and block.
 struct RuntimeBackgroundGraphPush
 {

@@ -3,6 +3,7 @@
 
 namespace gbtg
 {
+u32 actor_effect_emission_count(ActorEffectNode& effect, float step); // Xbox 0x000EF1D0
 void initialize_actor_effect_particle(std::span<u8> particle, const ActorEffectNode& effect,
     u32& random); // Xbox 0x000EF8C0
 void initialize_actor_effect_particle_frames(std::span<u8> particle, const ActorEffectNode& effect,

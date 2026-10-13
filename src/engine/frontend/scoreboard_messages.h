@@ -57,6 +57,8 @@ u32 add_runtime_scoreboard_message(u32 kind, u32 icon, u32 word_70, i32 count, u
     RuntimeScoreboard& board, RuntimeScoreboardResources& context); // Xbox 0x001316F0, EBX board
 bool remove_runtime_scoreboard_message(u32 id, RuntimeScoreboard& board,
     AnimationResourceRegistry& registry); // Xbox 0x001319C0, EAX board, ECX id
+void set_runtime_scoreboard_message_warning(u32 id, u32 warning,
+    RuntimeScoreboard& board); // Xbox 0x00132620
 u32 add_runtime_powerup_message(u32 kind, RuntimeScoreboard& board,
     RuntimeScoreboardResources& context); // Xbox 0x00132450, ECX kind
 // The caption 0x00132540 prints when a powerup is awarded.

@@ -75,7 +75,12 @@ public:
     friend ExtendedFloat operator/(ExtendedFloat first, ExtendedFloat second)
     {
         const double quotient = first.value_.high / second.value_.high;
-        if (!std::isfinite(quotient))
+        if (!std::isfinite(quotient) || !std::isfinite(first.value_.high)
+            || !std::isfinite(second.value_.high))
+        {
+            return ExtendedFloat{quotient};
+        }
+        if (first.value_.high == 0. && first.value_.low == 0.)
         {
             return ExtendedFloat{quotient};
         }

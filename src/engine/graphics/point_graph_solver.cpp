@@ -635,6 +635,7 @@ void recover_runtime_point_graph_transform(RuntimePointGraph& graph)
     multiply_runtime_graphics_matrices(placed.data(), turn.data(), shift.data());
     std::memcpy(graph.fields.data() + 0xB0, placed.data(), 0x40);
     std::array<float, 16> inverse;
+    std::memcpy(inverse.data(), graph.fields.data() + 0x170, 0x40);
     invert_runtime_graphics_matrix(inverse, nullptr, placed);
     std::memcpy(graph.fields.data() + 0x170, inverse.data(), 0x40);
     const u32 frames = read_u32(graph.fields, 0x1C8) + 1;

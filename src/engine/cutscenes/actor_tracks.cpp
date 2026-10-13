@@ -37,7 +37,7 @@ void release_cutscene_actor_row(CutsceneActorRowView* rows, std::int8_t index,
     Actor* actor = row.actor;
     if (actor != nullptr)
     {
-        if (actor->link == nullptr)
+        if (actor->link == nullptr || actor->link->head == nullptr)
         {
             if (row.listed != 0)
             {
@@ -305,6 +305,6 @@ FactoryObject create_cutscene_track_actor(const CutsceneActorTrackView* tracks,
     const u32 secondary = static_cast<u32>((suppress_secondary != 0) - 1)
         & track.flags & 1;
     return create_cutscene_actor(context.factory, context.resources,
-        "aid_objparams_ghoulies_misc_actor", model, position, static_cast<i32>(secondary));
+        "aid_objparams_ghoulies_misc_prop", model, position, static_cast<i32>(secondary)); // DAT_002FE6C0.
 }
 }

@@ -23,6 +23,36 @@ float random_fraction(u32& state)
 }
 }
 
+// Xbox 0x000EF1D0
+u32 actor_effect_emission_count(ActorEffectNode& effect, float step)
+{
+    const float interval = read_f32(effect.bytes, 8);
+    u32 count = 0;
+    if (interval != -1.f && interval != -3.f)
+    {
+        if (interval == -2.f)
+        {
+            return u32(i32(std::bit_cast<i16>(read_u16(effect.bytes, 2))) - i32(std::bit_cast<i16>(read_u16(effect.bytes, 0))));
+        }
+        if (0.f >= read_f32(effect.bytes, 0xC))
+        {
+            float timer = read_f32(effect.bytes, 0xC);
+            do
+            {
+                timer += read_f32(effect.bytes, 8);
+                ++count;
+            }
+            while (0.f >= timer);
+            number(effect.bytes, 0xC, timer);
+        }
+        if (read_f32(effect.bytes, 0xC) > 0.f - step)
+        {
+            number(effect.bytes, 0xC, read_f32(effect.bytes, 0xC) - step);
+        }
+    }
+    return count;
+}
+
 // Xbox 0x000EF8C0
 void initialize_actor_effect_particle(std::span<u8> particle, const ActorEffectNode& effect, u32& random)
 {

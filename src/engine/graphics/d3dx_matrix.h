@@ -3,6 +3,12 @@
 
 namespace gbtg
 {
+void store_runtime_quaternion(Quat& output, float x, float y, float z,
+    float w); // Xbox 0x00170250
+void runtime_graphics_quaternion_matrix(float* output,
+    const Quat& quaternion); // Xbox 0x00184D48
+void compose_runtime_graphics_matrix(float* output, Vec3 scale,
+    Quat rotation, Vec3 translation); // Xbox 0x00153BE0
 // D3DX row-vector matrices (16 floats, row major).
 void multiply_runtime_graphics_matrices(float* output, const float* first,
     const float* second); // Xbox 0x001850CA, D3DXMatrixMultiply

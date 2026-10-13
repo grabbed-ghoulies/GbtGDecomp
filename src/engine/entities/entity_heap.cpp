@@ -43,6 +43,7 @@ HeapSlot g_heap_slots[kHeapSlotCount];
 i32 g_heap_current = 0;
 
 
+// Xbox 0x000F7100
 i32 heap_index_for(void* block)
 {
     // FUN_000f7100. EDI is the block. Four handles at DAT_00507834, stride 0x30.
@@ -51,11 +52,12 @@ i32 heap_index_for(void* block)
     // No match returns 3.
     for (i32 i = 0; i < kHeapSlotCount; ++i)
     {
-        if (g_heap_slots[i].handle == nullptr || block == nullptr)
+        if (g_heap_slots[i].handle == nullptr)
         {
             continue;
         }
-        const u32 tag = 0xFFu;
+        const size_t size = block == nullptr ? size_t(-1) : _msize(block);
+        const u32 tag = size == size_t(-1) ? 0xFFu : *(static_cast<const u8*>(block) + size - 2);
         if (tag == g_heap_slots[i].id)
         {
             return i;

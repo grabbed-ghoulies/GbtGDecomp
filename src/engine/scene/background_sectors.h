@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gbtg/types.h"
+#include "../entities/body_resources.h"
 #include <functional>
 #include <span>
 
@@ -28,4 +29,7 @@ void remap_runtime_sector_color(u8& first, u8& second, u8& third,
     RuntimeBackgroundSectors& state); // Xbox 0x000FEBE0
 void register_runtime_background_sector(std::span<u8> grid, const char* name,
     RuntimeBackgroundSectors& state); // Xbox 0x000FEFD0
+// Clears the sector grids and loads aid_misc_ghoulies_background_lightvolumetable (rows of 0x8C).
+void load_runtime_sector_settings(RuntimeBackgroundSectors& state, AnimationResourceRegistry& registry,
+    std::span<const RuntimeBodyLoadedResourceSize> loaded, ResourceErrorState& error); // Xbox 0x000FEF60
 }

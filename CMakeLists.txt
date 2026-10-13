@@ -174,6 +174,7 @@ add_library(gbtg_lib STATIC
     src/engine/entities/actor_collision_queries.cpp
     src/engine/entities/actor_shape_push.cpp
     src/engine/graphics/vector_normalize.cpp
+    src/engine/graphics/d3dx_matrix.cpp
     src/engine/entities/body_apply.cpp
     src/engine/entities/body_message_helpers.cpp
     src/engine/entities/body_shape_push.cpp
@@ -228,6 +229,7 @@ add_library(gbtg_lib STATIC
     src/engine/frontend/input_activation.cpp
     src/engine/frontend/player_health_display.cpp
     src/engine/frontend/scoreboard_messages.cpp
+    src/engine/frontend/score_awards.cpp
     src/engine/audio/listener_settings.cpp
     src/gbtg/graphics/font.cpp
     src/gbtg/audio/wavebank.cpp
@@ -396,6 +398,9 @@ add_executable(gbtg
     src/engine/entities/runtime_list.cpp
     src/engine/scene/background_parts.cpp
     src/engine/scene/background_part_removal.cpp
+    src/engine/scene/background_part_destruction.cpp
+    src/engine/scene/background_messages.cpp
+    src/engine/scene/background_class_owner.cpp
     src/engine/navigation/grid_regions.cpp
     src/engine/scene/background_construction.cpp
     src/engine/runtime/aid_list_lookup.cpp
@@ -409,6 +414,7 @@ add_executable(gbtg
     src/engine/graphics/matrix_inverse.cpp
     src/engine/graphics/effect_particles.cpp
     src/engine/graphics/point_graph.cpp
+    src/engine/graphics/point_graph_solver.cpp
     src/engine/graphics/pose_matrix.cpp
     src/engine/scene/background_doors.cpp
     src/engine/cutscenes/door_registration.cpp

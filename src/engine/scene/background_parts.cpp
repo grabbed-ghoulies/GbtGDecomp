@@ -47,19 +47,23 @@ void dispatch_background_part_effects(Actor& actor, const char* name,
 
 // Xbox 0x000450A0
 void advance_background_part_stage(Actor& actor, RuntimeModelInstance* secondary,
-    std::span<u8> rows, i32 row, i32 part, std::span<const u8> header,
+    std::span<BackgroundAnimationVolume> rows, i32 row, i32 part, std::span<const u8> header,
     const Vec3& position, const Vec3& source,
     std::span<u32> shared_states, BackgroundPartDispatch& context)
 {
     const size_t metadata = u32(part) * 12;
     if (header[metadata + 0x19] != 0xFF)
     {
-        const size_t offset = u32(row) * 0x9C;
-        u32 stage = read_u32(rows, offset + 4);
+        if (row < 0 || size_t(row) >= rows.size())
+        {
+            throw Error("background part stage row lies outside actor +0x94C");
+        }
+        auto& fields = rows[size_t(row)].fields;
+        u32 stage = read_u32(fields, 4);
         if (std::bit_cast<i32>(stage) < i32(header[metadata + 0x1A]))
         {
             ++stage;
-            std::memcpy(rows.data() + offset + 4, &stage, 4);
+            std::memcpy(fields.data() + 4, &stage, 4);
         }
         const u8 slot = header[metadata + 0x19];
         if (actor.model != nullptr)
@@ -71,49 +75,70 @@ void advance_background_part_stage(Actor& actor, RuntimeModelInstance* secondary
             set_runtime_model_node_state(*secondary, slot, u8(stage), shared_states);
         }
         const u32 time = 0x40200000u; // DAT_0032B20C, 2.5f.
-        std::memcpy(rows.data() + offset + 8, &time, 4);
+        std::memcpy(fields.data() + 8, &time, 4);
     }
     const u32 strings = read_u32(header, 4);
     const char* name = strings != 0 ? reinterpret_cast<const char*>(header.data() + strings + header[metadata + 0x17]) : "unknown"; // DAT_00322F70.
     dispatch_background_part_effects(actor, name, position, source, context);
 }
 
-// Xbox 0x00044EA0
-i32 find_active_background_part(std::span<const u8> rows, i32 part)
+// Xbox 0x00044CA0
+void load_background_part_tables(BackgroundPartTables& tables, AnimationResourceRegistry& registry,
+    std::span<const RuntimeBodyLoadedResourceSize> loaded, ResourceErrorState& error)
 {
-    size_t offset = 0;
+    const auto settings = acquire_animation_resource(registry, "aid_misc_ghoulies_background_parttable");
+    if (settings.data() == nullptr)
+    {
+        resource_error(error, 2);
+    }
+    tables.settings = settings;
+    const u32 size = runtime_body_resource_size(settings.data(), registry.records, loaded);
+    tables.setting_count = i32(u32((u64(size) * 0x75DED953u) >> 40)); // size / 0x22C.
+    const auto text = acquire_animation_resource(registry, "aid_loctext_ghoulies_background_backgroundparttable");
+    if (text.data() == nullptr)
+    {
+        resource_error(error, 2);
+    }
+    tables.text = text;
+}
+
+// Xbox 0x00044EA0
+i32 find_active_background_part(std::span<const BackgroundAnimationVolume> rows, i32 part)
+{
+    size_t row = 0;
     while (true)
     {
-        if (offset >= rows.size())
+        if (row >= rows.size())
         {
             return -1;
         }
-        if (std::bit_cast<i32>(read_u32(rows, offset)) == part)
+        if (std::bit_cast<i32>(read_u32(rows[row].fields, 0)) == part)
         {
             break;
         }
-        offset += 0x9C;
+        ++row;
     }
-    return i32(offset / 0x9C);
+    return i32(row);
 }
 
 // Xbox 0x00045CB0
-bool background_part_can_be_destroyed(const Actor& actor, std::span<const u8> rows,
+bool background_part_can_be_destroyed(const Actor& actor, std::span<const BackgroundAnimationVolume> rows,
     i32 part, std::span<const u8> zero)
 {
-    size_t offset = 0;
+    size_t row = 0;
     while (true)
     {
-        if (offset >= rows.size())
+        if (row >= rows.size())
         {
             return true;
         }
-        if (std::bit_cast<i32>(read_u32(rows, offset)) == part)
+        if (std::bit_cast<i32>(read_u32(rows[row].fields, 0)) == part)
         {
             break;
         }
-        offset += 0x9C;
+        ++row;
     }
+    const auto& fields = rows[row].fields;
     auto header = zero;
     if (actor.model != nullptr && actor.model->cpu.data() != nullptr)
     {
@@ -121,10 +146,10 @@ bool background_part_can_be_destroyed(const Actor& actor, std::span<const u8> ro
         const u32 address = read_u32(cpu, read_u32(cpu, 0x10) + 0x10);
         header = address != 0 ? cpu.subspan(address) : zero;
     }
-    const u32 selected = read_u32(rows, offset);
-    if (header[0x19 + selected * 12] != 0xFF && read_f32(rows, offset + 8) == 0.f)
+    const u32 selected = read_u32(fields, 0);
+    if (header[0x19 + selected * 12] != 0xFF && read_f32(fields, 8) == 0.f)
     {
-        return std::bit_cast<i32>(read_u32(rows, offset + 4)) < i32(header[0x1A + u32(part) * 12]);
+        return std::bit_cast<i32>(read_u32(fields, 4)) < i32(header[0x1A + u32(part) * 12]);
     }
     return false;
 }

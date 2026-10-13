@@ -16,7 +16,7 @@ struct RuntimeBackgroundLifetime
     u8* first_push_buffer; // +0x9D8.
     u8* second_push_buffer; // +0x9DC.
     i32 has_push_buffer; // +0x9E0.
-    RuntimeModelSoundObject* auxiliary; // +0x940.
+    ActorEffectNode* effect; // +0x940, the part debris emitter.
     u8* volumes; // +0x94C.
     u8* animation; // +0x950.
     entity_detail::ListHead link; // +0x934 / +0x938.

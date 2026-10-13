@@ -224,4 +224,24 @@ void register_runtime_background_sector(std::span<u8> grid, const char* name, Ru
     });
     ++state.count;
 }
+
+// Xbox 0x000FEF60
+void load_runtime_sector_settings(RuntimeBackgroundSectors& state, AnimationResourceRegistry& registry,
+    std::span<const RuntimeBodyLoadedResourceSize> loaded, ResourceErrorState& error)
+{
+    state.count = 0;
+    for (auto& grid : state.grids)
+    {
+        grid = {};
+    }
+    const auto table = acquire_animation_resource(registry, "aid_misc_ghoulies_background_lightvolumetable");
+    if (table.data() == nullptr)
+    {
+        resource_error(error, 2);
+    }
+    state.settings = table;
+    const u32 size = runtime_body_resource_size(table.data(), registry.records, loaded);
+    const u32 high = u32((u64(size) * 0xD41D41D5u) >> 32);
+    state.settings_count = i32((((size - high) >> 1) + high) >> 7); // size / 0x8C.
+}
 }

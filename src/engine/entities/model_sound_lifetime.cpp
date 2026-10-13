@@ -1,30 +1,32 @@
 #include "model_sound_lifetime.h"
 #include "gbtg/anim.h"
 
+#include <memory>
+
 namespace gbtg
 {
 // Xbox 0x000ED2E0
-void release_runtime_model_sound_object(RuntimeModelSoundObject& object,
-    RuntimeModelSoundRelease& services)
+void release_actor_effect_node(ActorEffectNode& effect, RuntimeModelSoundRelease& services)
 {
-    release_actor_sound(object.sound_2dc, services.sounds);
-    if (object.resource_144.data() != nullptr)
+    release_actor_sound(effect.sound, services.sounds);
+    if (effect.texture.data() != nullptr)
     {
-        release_animation_resource(services.registry, object.resource_144);
-        object.resource_144 = {};
+        release_animation_resource(services.registry, effect.texture);
+        effect.texture = {};
     }
-    if (object.model_158 != nullptr)
+    if (effect.model != nullptr)
     {
-        const RuntimeModelAsset* source = defer_runtime_model_release(*object.model_158,
+        const RuntimeModelAsset* source = defer_runtime_model_release(*effect.model,
             services.deferred, services.fence, services.registry, services.shaders, services.heap_free);
         release_animation_resource(services.registry, source->cpu);
-        object.model_158 = nullptr;
+        services.deferred.records.back().owner = std::move(effect.model);
     }
-    if (object.resource_134.data() != nullptr)
+    if (effect.script.data() != nullptr)
     {
-        release_animation_resource(services.registry, object.resource_134);
-        object.resource_134 = {};
+        release_animation_resource(services.registry, effect.script);
+        effect.script = {};
     }
-    services.heap_free(object.allocation);
+    std::destroy_at(&effect);
+    services.heap_free(reinterpret_cast<u8*>(&effect));
 }
 }

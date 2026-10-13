@@ -38,11 +38,17 @@ SceneDialogueResourceOwner::SceneDialogueResourceOwner(AidStore& aids, std::span
         [this](u32, const void* resolved, AnimationLoadedResource& output)
         {
             const bool loaded = load_bundle_resource_provider(resolved, output);
-            record_bundle_size(*static_cast<const AnimationBundleRecord*>(resolved), output);
+            const auto& record = *static_cast<const AnimationBundleRecord*>(resolved);
+            record_bundle_size(record, output);
+            if (loaded && record.name.starts_with("aid_cutscene_"))
+            {
+                register_scene_cutscene_resource(output.cpu, cutscene_views);
+            }
             return loaded;
         },
-        [this](u32, const char* name, const AnimationLoadedResource&)
+        [this](u32, const char* name, const AnimationLoadedResource& loaded)
         {
+            unregister_scene_cutscene_resource(loaded.cpu.data(), cutscene_views);
             auto& resource = resources_.at(name);
             std::array<AnimationBundlePool, 1> pools{
                 AnimationBundlePool{{&resource.record, 1}, true}};
@@ -176,8 +182,51 @@ void SceneDialogueResourceOwner::publish_actor_model(const AnimationLoadedResour
     if (shapes != 0)
     {
         model.physics_shapes = std::span<const u8>(bytes).subspan(shapes);
+        publish_shape_views(bytes, shapes);
     }
     actor_models[loaded.cpu.data()] = model;
+}
+
+// The serialized shape words are offsets in the actor model's address space. Shape rows follow the
+// list header at +0x10 and advance by their +8 size; compound rows (type 1) hold +0x20 lists from +0x2C,
+// single rows (type 2) one list at +0x10 (0x00054110 / 0x00054DB0). Event records are 0x14 bytes.
+void SceneDialogueResourceOwner::publish_shape_views(std::span<const u8> bytes, u32 shapes)
+{
+    const auto view = bytes.subspan(shapes);
+    const u32 vertices = read_u32(view, 0xC);
+    if (vertices > bytes.size())
+    {
+        throw Error("model collision vertices lie outside the actor model");
+    }
+    collision_vertices[view.data()] = vertices == 0 ? std::span<const Vec3>{}
+        : std::span<const Vec3>(reinterpret_cast<const Vec3*>(bytes.data() + vertices), (bytes.size() - vertices) / 12);
+    const auto publish = [&](const u8* key)
+    {
+        const std::span<const u8> words(key, 8);
+        const u32 count = read_u32(words, 0);
+        const u32 records = read_u32(words, 4);
+        if (records > bytes.size() || u64(count) * 0x14 > bytes.size() - records)
+        {
+            throw Error("model shape event list lies outside the actor model");
+        }
+        shape_lists[key] = {count, records == 0 ? nullptr : bytes.data() + records};
+    };
+    auto shape = view.subspan(0x10);
+    for (i32 index = 0; index < i32(read_u32(view, 0)); ++index)
+    {
+        if (shape[0] == 1)
+        {
+            for (u32 list = 0; list < read_u16(shape, 0x20); ++list)
+            {
+                publish(shape.data() + 0x2C + list * 8);
+            }
+        }
+        else if (shape[0] == 2)
+        {
+            publish(shape.data() + 0x10);
+        }
+        shape = shape.subspan(read_u32(shape, 8));
+    }
 }
 
 SceneDialogueResourceOwner::Resource* SceneDialogueResourceOwner::find_resource(const char* name)

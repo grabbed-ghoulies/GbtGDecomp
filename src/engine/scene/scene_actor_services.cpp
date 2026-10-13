@@ -15,7 +15,16 @@
 #include "scene_actor_activation.h"
 #include "scene_body_messages.h"
 #include "scene_mind_messages.h"
+#include "scene_object_requests.h"
+#include "background_class_owner.h"
+#include "background_messages.h"
 #include "ambient.h"
+#include "../navigation/model_grid.h"
+#include "../audio/bank_streams.h"
+#include "../camera/cutscene_impulse.h"
+#include "../cutscenes/event_assets.h"
+#include "gbtg/language.h"
+#include "../entities/actor_word_messages.h"
 #include "../camera/camera_mind_requests.h"
 #include "../camera/entity_camera.h"
 #include "../entities/camera_director.h"
@@ -32,6 +41,7 @@
 #include "../scripts/script_actor_query.h"
 #include "gbtg/model_runtime.h"
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <map>
 
@@ -161,6 +171,18 @@ struct SceneActorModelViews
     std::vector<RuntimeBodyModelNode> rows;
     RuntimeBodyModelNodes nodes;
     std::array<u8, 0x1D0> channels{};
+};
+
+// Per-background views its constructor reads: matrix-array bindings (ndMtxArray +0x20, count +0x24) and the
+// model nodes 0x00042C30 writes.
+struct SceneBackgroundViews
+{
+    ActorMatrixBindings matrix_bindings;
+    BackgroundNodeViews nodes;
+    // Retail words the background code resolves: offsets in its actor model's address space (below the
+    // scene objects at 0x10000000), scene objects, then relocated resources from 0x40000000.
+    std::function<std::span<const u8>(u32, size_t)> resolve;
+    std::function<std::span<const u8>(u32)> source;
 };
 
 struct SceneActorServices::State
@@ -390,6 +412,74 @@ struct SceneActorServices::State
     std::unique_ptr<NativeSceneEmitterBindings> emitter;
     std::unique_ptr<RuntimeMarkerObjects> marker_objects;
     std::unique_ptr<NativeSceneActorClassOwner> classes;
+    // Backgrounds (factory type 4, vtable 0x004E1644) and the scene globals their constructor and message
+    // slot use. The part tables (0x00044CA0, boot) and sector settings (0x000FEF60) load with the services.
+    std::array<char, 0x100> room{}; // DAT_00545D40.
+    std::array<BackgroundRegion, 8> background_regions{}; // DAT_0050EAA0, stride 0x2C.
+    i32 background_region_count = 0; // DAT_0050EC00.
+    std::array<std::span<u8>, 4> sector_grids{}; // DAT_0050D770.
+    i32 sector_count = 0; // DAT_0050D780.
+    float sector_minimum = 0.f; // DAT_0050D784.
+    float sector_maximum = 0.f; // DAT_0050D788.
+    float sector_saturation = 0.f; // DAT_0050D78C.
+    float sector_low = 0.f; // DAT_0050D790.
+    float sector_high = 0.f; // DAT_0050D794.
+    RuntimeBackgroundSectors sectors{sector_grids, sector_count, sector_minimum, sector_maximum, sector_saturation,
+        sector_low, sector_high, {}, 0};
+    RuntimeBackgroundAmbient background_ambient = runtime_background_ambient();
+    i32 disable_framebuffer_clear = 0; // DAT_004DEA50.
+    std::span<const u8> part_settings; // DAT_00546294.
+    i32 part_setting_count = 0; // DAT_00546298.
+    std::span<const u8> part_text; // DAT_0054629C.
+    BackgroundPartTables part_tables{part_settings, part_setting_count, part_text};
+    i32 part_sound_slot = 0; // DAT_00546290.
+    u32 broken_parts = 0; // DAT_00545978.
+    std::array<float, 12> sampling_scratch{}; // DAT_0050D7A0.
+    float* sampling_active = nullptr; // DAT_0050DD70.
+    std::array<char16_t, 0x400> wide_scratch{}; // DAT_00507E78.
+    u32 score_total = 0; // DAT_0054597C.
+    u32 score_running_total = 0; // DAT_00545980.
+    std::array<char16_t, 0xA00> score_texts{}; // DAT_00432724.
+    std::array<u32, 10> score_categories{}; // DAT_004326FC.
+    std::array<u32, 10> score_points{}; // DAT_00433B24.
+    u32 score_refresh = 0; // DAT_004326E8.
+    std::unique_ptr<RuntimeScoreAwards> score;
+    entity_detail::NavigationCellRegistration* door_pool = nullptr; // DAT_004EE2B8, allocated by 0x0011CBD0.
+    std::vector<RuntimeDoorClips> door_rows;
+    std::array<DoorRoomAlias, 2> door_aliases{}; // PTR_DAT_00434034.
+    std::vector<const char*> door_variants; // PTR_DAT_00424970.
+    std::vector<const char*> door_shapes; // PTR_DAT_00425118.
+    std::unique_ptr<RuntimeDoorNames> door_names;
+    std::function<u32(const RuntimeCutsceneInstance*)> door_instance_address;
+    std::function<RuntimeDoorActorModels(Actor*)> door_models;
+    std::unique_ptr<RuntimeDoorContext> doors;
+    std::unordered_map<const u8*, std::unique_ptr<SceneBackgroundViews>> background_views;
+    std::function<u32(u8*, u32)> background_allocation; // Engine-heap blocks stored as words.
+    std::function<u32(const void*)> background_address;
+    std::unique_ptr<RuntimeModelSoundRelease> effect_release;
+    entity_detail::NavigationSceneStorage navigation;
+    std::unique_ptr<NativeBackgroundClassOwner> backgrounds;
+    // Cutscene runtime (door clips, scripted cutscenes): native storage of its retail globals.
+    std::vector<const char*> footstep_kinds; // PTR_DAT_00423620.
+    std::array<char, 0x80> replacement_source{}; // DAT_004E1AC0.
+    std::array<char, 0x80> replacement_target{}; // DAT_004E1A40.
+    std::vector<FactoryObject> cutscene_actors; // Track actors 0x0004DEC0 creates.
+    std::unordered_map<Actor*, FactoryObject*> actor_objects; // Native actor -> factory object.
+    std::unordered_map<Actor*, u32> actor_object_addresses;
+    std::unordered_map<Actor*, std::function<void(Actor&)>> actor_updates; // Actor vtable +0x10.
+    std::unique_ptr<AudioBankStreams> audio_banks; // DAT_004DF370, DAT_004E030C.
+    RuntimeModelRenderContext model_renderer{}; // DAT_004370A0..
+    RuntimeSceneFog fog{}; // DAT_00509AFC..
+    CutsceneCameraImpulse camera_impulse{}; // DAT_0050E7BC..
+    CutsceneCameraEventAsset camera_event_asset{}; // DAT_004E1C4C..
+    Vec3 listener_position{};
+    u32 movie_flag_38 = 0;
+    u32 movie_flag_3c = 0;
+    std::array<RuntimeMovieEventSlot, 4> movie_slots{};
+    i32 movie_mode = 0; // DAT_0050DD8C.
+    std::unique_ptr<CutsceneActorFactoryContext> cutscene_factory;
+    std::unique_ptr<CutsceneActorInitializationContext> cutscene_initialization;
+    std::unique_ptr<CutsceneRuntimeContext> cutscenes;
     // Markers.
     const u8* markers = nullptr; // DAT_0051108C.
     RuntimeMarkerCameraStart camera_start{}; // DAT_00545AD0.
@@ -431,6 +521,10 @@ struct SceneActorServices::State
     RuntimeDirectorActor director_actor(NativePlayerInstance& player);
     void update_player(NativePlayerInstance& player); // Player vtable +0x10, 0x0002C2B0.
     void latch_message(entity_detail::LatchNode& node, const Message& message);
+    std::unique_ptr<RuntimeBackgroundConstructionServices> background_services(NativeBackgroundInstance& background,
+        NativeActorFactoryInstance& view, RuntimeBackgroundAnimation*& first_animation);
+    void background_message(NativeBackgroundInstance& background, std::span<u32> message);
+    void start_background();
 };
 
 SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
@@ -645,6 +739,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             classes->release_view(bytes);
         }
+        background_views.erase(bytes);
         player_messages.erase(bytes);
         mind_messages.erase(bytes);
         body_messages.erase(bytes);
@@ -763,7 +858,100 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     std::memcpy(death_actions.data(), data(0x00217EB8, 6).data(), 6);
     damage_tables = std::make_unique<RuntimeBodyDamageTables>(RuntimeBodyDamageTables{data(0x00433C9C, 0xC * 0x10),
         statsheet});
+    footstep_kinds = strings(0x00423620, 1);
     footsteps = std::make_unique<FootstepSoundNames>(FootstepSoundNames{data(0x00314FBC, 0x20), surface_names});
+    load_background_part_tables(part_tables, resources.registry, resources.loaded_sizes, resources.error);
+    load_runtime_sector_settings(sectors, resources.registry, resources.loaded_sizes, resources.error);
+    score = std::make_unique<RuntimeScoreAwards>(RuntimeScoreAwards{score_total, score_running_total, g_flags_ea9c,
+        {reinterpret_cast<const float*>(data(0x003130B4, 0x20).data()), 8}, score_texts, score_categories,
+        score_points, score_refresh});
+    {
+        const auto aliases = data(0x00434034, 0x10);
+        door_aliases = {DoorRoomAlias{image.string(read_u32(aliases, 0)), image.string(read_u32(aliases, 4))},
+            DoorRoomAlias{image.string(read_u32(aliases, 8)), image.string(read_u32(aliases, 0xC))}};
+    }
+    door_variants = strings(0x00424970, 8);
+    door_shapes = strings(0x00425118, 12);
+    door_names = std::make_unique<RuntimeDoorNames>(RuntimeDoorNames{room.data(), door_aliases, door_variants,
+        door_shapes, data(0x00424994, 12 * 0x94)});
+    // Actor +0x204 (model reference and its instance) and +0x310 (secondary instance) of a door track actor.
+    door_models = [this](Actor* actor) -> RuntimeDoorActorModels
+    {
+        if (actor == nullptr)
+        {
+            throw Error("door clip reads a track actor that 0x0004DEC0 did not create");
+        }
+        for (const auto& [bytes, native] : actors->actors)
+        {
+            if (native == actor)
+            {
+                auto& view = actors->view(*object_of(bytes));
+                return RuntimeDoorActorModels{actor->model == nullptr ? nullptr : &actor->model->cpu,
+                    actor->model == nullptr ? nullptr : actor->model->runtime, view.startup.models.secondary.get()};
+            }
+        }
+        throw Error("door track actor is not a scene actor");
+    };
+    // Cutscene instances are engine-heap blocks (0x0004C850); door rows store their token addresses.
+    door_instance_address = [this](const RuntimeCutsceneInstance* instance)
+    {
+        return instance == nullptr ? 0u : heap_address(instance, sizeof(RuntimeCutsceneInstance));
+    };
+    audio_banks = std::make_unique<AudioBankStreams>(AudioBankStreams{{}, {}, {}, voices});
+    cutscene_factory = std::make_unique<CutsceneActorFactoryContext>(CutsceneActorFactoryContext{scene.factory,
+        image.pools, replacement_source.data(), replacement_target.data()});
+    cutscene_initialization = std::make_unique<CutsceneActorInitializationContext>(
+        CutsceneActorInitializationContext{*cutscene_factory, cutscene_actors, actors->cutscene_bindings,
+            resources.registry, resources.error, random, nullptr, node_cache, reset_matrix});
+    cutscenes = std::make_unique<CutsceneRuntimeContext>(CutsceneRuntimeContext{resources.registry, resources.error,
+        resources.cutscene_views.views, {}, *cutscene_initialization, scene.factory, image.pools, actor_objects,
+        actors->render, actors->animations, actor_object_addresses, actor_updates, *audio_banks, effects, scares,
+        model_renderer, fog, camera_impulse, camera_event_asset, *footsteps,
+        footstep_kinds, retail_cutscene_event_sizes, retail_cutscene_dialogue_resources[0].data(),
+        listener_position, random, i32(g_language), movie_flag_38, movie_flag_3c, replacement_source.data(),
+        replacement_target.data(), nullptr, nullptr, movie_slots, movie_mode, {}, {}, {}, {}, engine_heap_free, {}});
+    doors = std::make_unique<RuntimeDoorContext>(RuntimeDoorContext{door_pool, door_rows, *door_names,
+        cutscenes.get(), nullptr, door_instance_address, door_models, node_cache});
+    // Relocated resources live from 0x40000000 (SceneResourceMemory); scene objects below.
+    background_allocation = [this](u8* allocation, u32 size)
+    {
+        return heap_address(allocation, size);
+    };
+    background_address = [this](const void* pointer) -> u32
+    {
+        for (const auto& [bytes, views] : background_views)
+        {
+            if (auto* background = backgrounds->find(bytes); background != nullptr &&
+                pointer == &background->lifetime.link)
+            {
+                return scene.address_of(bytes) + 0x934;
+            }
+        }
+        try
+        {
+            return address_of(pointer);
+        }
+        catch (const Error&)
+        {
+            // Engine-heap records the constructor stores as words (attachments, anchors, event pools).
+            return heap_address(pointer, 0x100);
+        }
+    };
+    effect_release = std::make_unique<RuntimeModelSoundRelease>(RuntimeModelSoundRelease{sounds, resources.registry,
+        deferred, fence, shaders, heap_free});
+    backgrounds = std::make_unique<NativeBackgroundClassOwner>(NativeBackgroundClassBindings{*actors,
+        entity_detail::g_world.body_a,
+        [this](NativeBackgroundInstance& background, NativeActorFactoryInstance& view,
+            RuntimeBackgroundAnimation*& first)
+        {
+            return background_services(background, view, first);
+        },
+        disable_framebuffer_clear, *effect_release, heap_free,
+        [this](NativeBackgroundInstance& background, std::span<u32> message)
+        {
+            background_message(background, message);
+        }});
+    backgrounds->install(scene.types);
     // Camera director (0x000AA250) and rig (0x000781F0) tunables are .data words read from the image.
     std::memcpy(rig_tunables.rig.data(), data(0x004274B8, 0x88).data(), 0x88);
     std::memcpy(rig_tunables.view.data(), data(0x00434008, 0x2C).data(), 0x2C);
@@ -935,6 +1123,17 @@ SceneActorServices::State::~State()
     {
         release_animation_resource(resources.registry, statsheet);
     }
+    for (const auto table : {part_settings, part_text, sectors.settings})
+    {
+        if (table.data() != nullptr)
+        {
+            release_animation_resource(resources.registry, table);
+        }
+    }
+    if (door_pool != nullptr)
+    {
+        engine_heap_free(door_pool);
+    }
 }
 
 // Retail address of a native pointer: a scene object, file-backed XBE memory, or a relocated resource.
@@ -1015,7 +1214,7 @@ u32 SceneActorServices::State::address_of(const void* pointer)
 
 FactoryObject* SceneActorServices::State::object_of(const u8* bytes)
 {
-    for (auto* owned : {&scene.objects, &cameras, &callout_objects})
+    for (auto* owned : {&scene.objects, &cameras, &callout_objects, &cutscene_actors})
     {
         for (auto& object : *owned)
         {
@@ -1123,6 +1322,11 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
     if (type == 0xD || type == 0x1F || type == 0x23)
     {
         classes->message(object, message);
+        return;
+    }
+    if (type == 4)
+    {
+        backgrounds->message(object, message);
         return;
     }
     if (type == 5)
@@ -1564,6 +1768,208 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
     update_runtime_player(update);
 }
 
+// The background constructor's scene services. Its model views (the animation block and header, the
+// collision vertices, matrix-array bindings and writable nodes) are read once the actor base has loaded the
+// model.
+std::unique_ptr<RuntimeBackgroundConstructionServices> SceneActorServices::State::background_services(
+    NativeBackgroundInstance& background, NativeActorFactoryInstance& view, RuntimeBackgroundAnimation*& first_animation)
+{
+    Actor& actor = background.state.actor;
+    auto& views = background_views[background.bytes.data()];
+    views = std::make_unique<SceneBackgroundViews>();
+    views->resolve = [this, &actor](u32 address, size_t size) -> std::span<const u8>
+    {
+        try
+        {
+            if (address < 0x10000000u)
+            {
+                if (actor.model == nullptr || address > actor.model->cpu.size())
+                {
+                    throw Error("model offset lies outside the background model");
+                }
+                const auto tail = actor.model->cpu.subspan(address);
+                if (size > tail.size())
+                {
+                    throw Error("model range exceeds the background model");
+                }
+                return size == 0 ? tail : tail.first(size);
+            }
+            if (address >= 0x40000000u)
+            {
+                return size == 0 ? resources.memory.tail(address) : resources.memory.resolve(address, size);
+            }
+            return scene.resolve_address(address, size);
+        }
+        catch (const Error& error)
+        {
+            char text[24];
+            std::snprintf(text, sizeof(text), "0x%08X", address);
+            throw Error(std::string("background address ") + text + ": " + error.what());
+        }
+    };
+    views->source = [resolve = views->resolve](u32 address)
+    {
+        return resolve(address, 0);
+    };
+    std::span<const Vec3> vertices;
+    if (actor.model != nullptr && actor.model->cpu.data() != nullptr)
+    {
+        const auto cpu = actor.model->cpu;
+        background.animation.model_reference = &actor.model->cpu;
+        const u32 block = read_u32(cpu, 0x10);
+        background.animation.animation_block = cpu.subspan(block);
+        const u32 header = read_u32(cpu, block + 0x10);
+        background.animation.header = header == 0 ? std::span<const u8>{} : cpu.subspan(header);
+        if (actor.model->physics_shapes.data() != nullptr)
+        {
+            vertices = resources.collision_vertices.at(actor.model->physics_shapes.data());
+        }
+        if (actor.model->runtime != nullptr)
+        {
+            std::vector<RuntimeModelNode*> pending(actor.model->runtime->source->tree->roots.begin(),
+                actor.model->runtime->source->tree->roots.end());
+            while (!pending.empty())
+            {
+                RuntimeModelNode* node = pending.back();
+                pending.pop_back();
+                for (; node != nullptr; node = node->sibling)
+                {
+                    views->nodes[node] = std::span<u8>(const_cast<u8*>(node->bytes.data()), node->bytes.size());
+                    if (node->type_name != nullptr && std::strncmp(node->type_name, "ndMtxArray", 11) == 0 &&
+                        i32(read_u32(node->bytes, 0x24)) > 0)
+                    {
+                        views->matrix_bindings[node->bytes.data()] = views->resolve(read_u32(node->bytes, 0x20),
+                            size_t(read_u32(node->bytes, 0x24)) * 8);
+                    }
+                    if (node->child != nullptr)
+                    {
+                        pending.push_back(node->child);
+                    }
+                }
+            }
+        }
+    }
+    return std::make_unique<RuntimeBackgroundConstructionServices>(RuntimeBackgroundConstructionServices{room,
+        entity_detail::g_world.body_a, background_regions, background_region_count, vertices, resources.shape_lists,
+        views->matrix_bindings, resources.copy_types, sectors, view.live_attachments, global_attachments,
+        view.anchors, origin, first_animation, views->source, background_allocation, background_address, *doors,
+        background_ambient, random, resources.registry, resources.error, disable_framebuffer_clear, views->nodes,
+        matrix_boundaries});
+}
+
+// Message slot 0x00043E50 with this background's part state (actor +0x940..+0x958) and the scene's tables.
+void SceneActorServices::State::background_message(NativeBackgroundInstance& background, std::span<u32> message)
+{
+    FactoryObject* object = object_of(background.bytes.data());
+    if (object == nullptr)
+    {
+        throw Error("background message has no owning factory object");
+    }
+    auto& view = actors->view(*object);
+    Actor& actor = background.state.actor;
+    auto& base = base_of(*object);
+    auto& views = *background_views.at(background.bytes.data());
+    const auto field = [&](size_t offset) -> i32&
+    {
+        return *reinterpret_cast<i32*>(background.bytes.data() + offset);
+    };
+    RuntimeActorMatrixSampling sampling{{background.matrices.allocation,
+        size_t(background.matrices.matrices.count) * 0x48}, background.matrices.matrices.node, sampling_scratch,
+        sampling_active, origin, views.source};
+    BackgroundPartDispatch dispatch{part_settings, part_setting_count, part_sound_slot,
+        std::span<const u8, 5>(data(0x002FD200, 5).data(), 5), sounds, effects};
+    // DAT_00511AF4: the first segment probe, stored at its actor +0x1E0.
+    u32 first_segment = 0;
+    if (entity_detail::g_world.segment != nullptr)
+    {
+        first_segment = scene.address_of(actors->view(*entity_detail::g_world.segment).bytes.data()) + 0x1E0;
+    }
+    BackgroundPartRemoval removal{background.state.volumes, background.animation.header, first_segment, views.source,
+        resources.shape_lists, view.startup.resource.resource.data(), base.callouts};
+    auto* first = backgrounds->first_background();
+    if (first == nullptr)
+    {
+        throw Error("background message has no first background on the +0x934 list");
+    }
+    RuntimeBackgroundGraphPush push{first->state.actor, first->animation, clock, random,
+        background_views.at(first->bytes.data())->resolve};
+    const std::span<RuntimePointGraph> graphs = background.lifetime.animation == nullptr ?
+        std::span<RuntimePointGraph>{} : std::span<RuntimePointGraph>(background.state.graphs);
+    BackgroundPartDestruction parts{background.lifetime.effect, field(0x944), field(0x948), graphs, field(0x954),
+        {reinterpret_cast<char*>(background.bytes.data() + 0x958), 0x80}, background.matrices.matrices.count,
+        view.startup.models.secondary.get(), node_cache, sampling, dispatch, removal, push, background_address, pal,
+        pal_override};
+    const std::function<void(std::span<u32>)> base_message = [&](std::span<u32> words)
+    {
+        dispatch_base_actor_word_message(base.base, words, word_messages);
+    };
+    const std::function<Actor*(u32)> actor_at = [this](u32 address) -> Actor*
+    {
+        if (address == 0)
+        {
+            throw Error("background message reads an actor through address zero");
+        }
+        return actors->actors.at(scene.resolve_address(address, 0).data());
+    };
+    const std::function<void(Actor&, const void*)> reply = [this](Actor& receiver, const void* words)
+    {
+        actor_message(receiver, words);
+    };
+    BackgroundMessageContext context{base.base, base_message, parts, address_zero, *score, resources.text, part_text,
+        wide_scratch.data(), broken_parts, reinterpret_cast<const char*>(data(0x00421E58, 0x2D).data()),
+        entity_detail::g_world.anchor, *doors, actor_at, views.resolve, reply};
+    handle_background_message(actor, message, context);
+}
+
+// Scene startup ahead of the markers (0x0011CBD0): the door registration pool, the requested background
+// (0x0011C8B0) and its activation (0x00123070), then the navigation build (0x00111820).
+void SceneActorServices::State::start_background()
+{
+    // DAT_004EE2B8: 0x560 bytes, stride 0x154 and growth 4, so four rows after the header.
+    door_pool = static_cast<entity_detail::NavigationCellRegistration*>(
+        engine_heap_allocate(i32(sizeof(entity_detail::NavigationCellRegistration) + 4 * 0x154)));
+    u8* rows = reinterpret_cast<u8*>(door_pool + 1);
+    door_pool->begin = rows;
+    door_pool->end = rows;
+    door_pool->capacity = rows + 4 * 0x154;
+    door_pool->stride = 0x154;
+    door_pool->growth = 4;
+    auto& requests = g_scene_object_requests;
+    u32 head;
+    std::memcpy(&head, requests.background.data(), 4);
+    if (head == 0x5F646961)
+    {
+        const std::string name(requests.background.data());
+        try
+        {
+            FactoryObject object = create_scene_background(scene.factory, name.c_str(), empty_name);
+            if (object.bytes == nullptr)
+            {
+                throw Error("the factory created no object");
+            }
+            scene.keep_object(std::move(object));
+        }
+        catch (const std::exception& error)
+        {
+            throw Error("scene background " + name + ": " + error.what());
+        }
+    }
+    requests.background[0] = 0;
+    activate_actors();
+    // 0x00111820 reads the actor of the first +0x934 node (DAT_00511B20).
+    const Actor* background = nullptr;
+    if (auto* first = backgrounds->first_background(); first != nullptr)
+    {
+        background = &first->state.actor;
+    }
+    else if (entity_detail::g_world.body_a.next != nullptr)
+    {
+        throw Error("the navigation build's first +0x934 node is not a background");
+    }
+    build_scene_navigation(background, {reinterpret_cast<const float*>(data(0x002FCFB8, 0x400).data()), 0x100},
+        navigation, navigation_nodes);
+}
+
 SceneActorServices::SceneActorServices(SceneFactoryRuntime& scene, Game& game)
     : state_(std::make_unique<State>(scene, game))
 {
@@ -1574,6 +1980,11 @@ SceneActorServices::~SceneActorServices() = default;
 void SceneActorServices::activate_actors()
 {
     state_->activate_actors();
+}
+
+void SceneActorServices::start_background()
+{
+    state_->start_background();
 }
 
 void SceneActorServices::send_scene_start_notice()

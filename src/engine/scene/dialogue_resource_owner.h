@@ -6,6 +6,8 @@
 #include "gbtg/model_views.h"
 #include "gbtg/entity.h"
 #include "../entities/body_resources.h"
+#include "../entities/physical_shape_events.h"
+#include "cutscene_resource_views.h"
 #include <map>
 
 namespace gbtg
@@ -55,12 +57,19 @@ public:
     // space of offsets: the original bundle bytes, with the runtime header that 0x00052B70 allocates
     // (directory +0x10) appended and its block pointers written as offsets.
     std::unordered_map<const u8*, ActorModel> actor_models;
+    // Native views of each actor model's shape event lists (keyed by the list word pair in the shape) and
+    // collision vertices (keyed by the shape list, from its +0xC word).
+    std::unordered_map<const u8*, PhysicalShapeEventList> shape_lists;
+    std::unordered_map<const u8*, std::span<const Vec3>> collision_vertices;
+    // Track and camera views of each loaded aid_cutscene_ resource.
+    SceneCutsceneResourceViews cutscene_views;
     std::string last_missing; // Host diagnostic: the last name no provider record matched.
     // Retail words of each loaded row (DAT_004DF09C +8..+0x14), parallel to registry.loaded, as
     // 0x00035D90 reads them: CPU pointer, CPU size, resource-chunk pointer (or null) and its size.
     std::vector<RuntimeBodyLoadedResourceSize> loaded_sizes = std::vector<RuntimeBodyLoadedResourceSize>(0x1000);
 
 private:
+    void publish_shape_views(std::span<const u8> bytes, u32 shapes);
     struct Resource
     {
         AnimationBundleRecord record;

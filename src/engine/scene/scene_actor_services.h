@@ -17,6 +17,9 @@ public:
     ~SceneActorServices();
     SceneActorServices(const SceneActorServices&) = delete;
     SceneActorServices& operator=(const SceneActorServices&) = delete;
+    // 0x0011CBD0 ahead of the markers: door pool, requested background (0x0011C8B0), its activation
+    // (0x00123070) and the navigation build (0x00111820) that fills DAT_0050E24C.
+    void start_background();
     // 0x00140020 over the scene's loaded marker records (DAT_0051108C).
     void start_markers();
     // 0x00123070: activates the actors created since the last pass (message 0x23, then 0x7B notices).

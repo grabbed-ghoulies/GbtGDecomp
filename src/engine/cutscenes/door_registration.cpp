@@ -158,7 +158,11 @@ bool build_runtime_door_clip_names(char* clip, char* camera, u16 first_variant,
 void load_runtime_door_clips(RuntimeDoorClips& door, const char* clip,
     const char* camera, RuntimeDoorContext& context)
 {
-    auto& cutscenes = context.cutscenes;
+    if (context.cutscenes == nullptr)
+    {
+        throw Error("door clips need the scene cutscene runtime, which is not bound");
+    }
+    auto& cutscenes = *context.cutscenes;
     const bool separate = camera != nullptr &&
         (find_animation_resource(cutscenes.resources.records, camera) != nullptr ||
             cutscene_resource_exists(camera, cutscenes.resources)) && !resource_names_match(clip, camera);
@@ -212,7 +216,7 @@ void load_runtime_door_clips(RuntimeDoorClips& door, const char* clip,
         do
         {
             const auto& row = cutscenes.instances.at(door.primary).actors[std::bit_cast<std::int8_t>(u8(index))];
-            const auto& models = context.models.at(row.actor);
+            const auto models = context.models(row.actor);
             if (models.reference != nullptr)
             {
                 const auto cpu = *models.reference;
@@ -305,7 +309,11 @@ void register_runtime_door(const Vec3& position, const Vec3& euler, const Vec3& 
     store(door.fields, 0x6C, std::bit_cast<u32>(1.f));
     char clip[128];
     char camera[128];
-    build_runtime_door_clip_names(clip, camera, 1, 0, shape, ordinal, context.names, context.cutscenes.resources);
+    if (context.cutscenes == nullptr)
+    {
+        throw Error("door clip names need the scene cutscene runtime, which is not bound");
+    }
+    build_runtime_door_clip_names(clip, camera, 1, 0, shape, ordinal, context.names, context.cutscenes->resources);
     load_runtime_door_clips(door, clip, camera, context);
 }
 }

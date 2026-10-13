@@ -51,10 +51,10 @@ void destroy_runtime_background(RuntimeBackgroundLifetime& background, RuntimeBa
         background.second_push_buffer = nullptr;
     }
     background.has_push_buffer = 0;
-    if (background.auxiliary != nullptr)
+    if (background.effect != nullptr)
     {
-        release_runtime_model_sound_object(*background.auxiliary, services.model_sound);
-        background.auxiliary = nullptr;
+        release_actor_effect_node(*background.effect, services.model_sound);
+        background.effect = nullptr;
     }
     if (background.volumes != nullptr)
     {

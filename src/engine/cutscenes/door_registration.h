@@ -39,10 +39,10 @@ struct RuntimeDoorContext
     entity_detail::NavigationCellRegistration*& pool; // DAT_004EE2B8.
     std::vector<RuntimeDoorClips>& rows; // Native pointer mappings for pool rows.
     const RuntimeDoorNames& names;
-    CutsceneRuntimeContext& cutscenes;
+    CutsceneRuntimeContext* cutscenes; // Raises at use while the scene has no cutscene runtime.
     EntityCamNode* camera; // DAT_004EE2BC.
     const std::function<u32(const RuntimeCutsceneInstance*)>& instance_address;
-    const std::unordered_map<Actor*, RuntimeDoorActorModels>& models;
+    const std::function<RuntimeDoorActorModels(Actor*)>& models; // Views of a door track actor's models.
     std::span<u32> shared_model_states;
 };
 void load_runtime_door_clips(RuntimeDoorClips& door, const char* clip,

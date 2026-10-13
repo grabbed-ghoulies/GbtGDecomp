@@ -5931,3 +5931,120 @@ exports end at 0x0010D3A6 / 0x0010CFDB. Additional untranslated graph callees ar
 0x0015A440 and matrix inverse 0x00151FAD already exist. Translate those graph
 helpers before 0x00044A90 and the full 0x00045170 dispatcher, then finish
 0x000441F0 / 0x000441A0 / 0x00043E50 and the background class installation.
+
+## Point graph solver and background graph push (2026-10-13)
+
+Added `graphics/point_graph_solver` with the graph step 0x00102500, edge solvers
+0x00101C80 / 0x00101DD0 / 0x00101F10, relaxation passes 0x00102030 / 0x00102280,
+sphere record lookup 0x00052040, column store 0x00153A00, rotation between
+vectors 0x0010BEB0, contact crossing 0x0010C100, edge projection 0x0010C340, the
+collision step 0x0010CFE0 and transform recovery 0x0010C8D0. `graphics/d3dx_matrix`
+adds the D3DX helpers 0x001850CA (multiply), 0x00184B7B (translation) and
+0x0018462D (normal transform). `push_background_graph` 0x00044A90 in
+`scene/background_animation` composes them over the block's grid.
+
+`tools/oracle/point_graph_oracle.py` runs retail code in Unicorn over every XBE
+section and compares the whole test image against `point_graph_harness` (built by
+`cache/oracle/build_point_graph.cmd`). Seed 401 passed 500 cases and seed 409
+passed 5,000 cases across modes 0-9. Seed 413 passed 2,200 cases of the collision
+step (mode 10), whose random 2x2x2 grid sets the hit flag +0x1D6 in about 23% of
+cases. 0x00044A90 itself is not yet covered by a fixture.
+
+`--actor-loading` had started failing after 0x00103A80 moved to the retail
+square root 0x00152B30. That change is correct: retail returns 0x3FFFFFF8 for
+the root of 4, so the test now expects those bits. The `--scene-start` stop is
+unchanged: the camera mind 0x7D handler needs nav buffer DAT_0050E24C, which
+waits on the background class install.
+
+## Background part destruction and message slot (2026-10-13)
+
+Added `scene/background_part_destruction` with the breakable-part dispatcher
+0x00045170. It has two branches:
+
+- **Without graphs (+0x950 null):** creates the debris emitter
+  `aid_fxemitter_ghoulies_background_bits_explode` on first use (0x000ED1C0 ->
+  0x000ED990 -> 0x000ED6E0). It then allocates one particle per sample and
+  writes the sampled pose plus six RNG draws at emitter +0x390 + n*0x150.
+- **With graphs:** pushes each listed graph (0x00044A90) away from the nearest
+  sphere record, or uses a random impulse when there is none, and clears graph
+  +0x1D0 / sets +0x1D5. It then releases the attachment and anchor of the row
+  indexed by the part (retail uses the part, not the new row).
+
+Both branches then remove the volume (0x00044EF0) and advance the stage (0x000450A0).
+Rows are the removal volumes; 0x00044EA0 / 0x00045CB0 / 0x000450A0 now take
+`BackgroundAnimationVolume` rows (the factory oracle harness copies bytes in and
+out; seed default passed 3,000 cases with 0 mismatches after the change).
+0x000450A0 raises if a row of -1 reaches its stage write.
+
+Added `scene/background_messages`: the hit loop 0x000441A0, single-hit break
+0x000441F0 (part table caption through `backgroundparttable`, points from
+0x00044E70) and message slot 0x00043E50 (cases 8/0x15/0x19/0x1D hit lists with
+rumble reply 0x50, 0x23 activation cleanup, 0x66 volume navigation, 0x67 door
+selection, 0x8B ignored, others to the base handler). `frontend/score_awards`
+adds 0x0012DE90 (category multipliers DAT_003130B4, ten captions at DAT_00432724).
+
+Background vtable 0x004E1644 (from the stores at 0x00042BCA..): sizes 0x00042BA0,
+constructor 0x00042DA0, destructor 0x000430C0, message 0x00043E50, update
+0x000464D0 (-> 0x00045A90 part/graph frame update, exported, untranslated) and
+draw 0x00042C10. Next: install type 4 through a native class owner (constructor
+plus message slot) so scene start's 0x0011C8B0 creates the background and
+0x00111820 can build DAT_0050E24C. None of 0x00045170 / 0x00043E50 is oracle-covered yet.
+
+## Background class install (2026-10-13)
+
+Background type 4 is now installed by `scene/background_class_owner`
+(`NativeBackgroundClassOwner`). It provides sizes 0x00042BA0, the constructor
+0x00042DA0, the destructor 0x000430C0 and the message slot 0x00043E50 over the
+type-2 actor base. `SceneActorServices::start_background()` runs the 0x0011CBD0
+subset before the markers:
+
+1. the door pool DAT_004EE2B8 (stride 0x154, growth 4);
+2. the requested background (0x0011C8B0);
+3. activation (0x00123070);
+4. the navigation build (0x00111820) into `navigation_nodes` (DAT_0050E24C).
+
+`--scene-start` calls it.
+
+Supporting changes:
+
+- **Loaders.** Translated the part-table loader 0x00044CA0 (DAT_00546294/98/9C)
+  and the sector table loader 0x000FEF60 (DAT_0050D798/9C, rows of 0x8C). The
+  legacy `light_bind_table` in lighting.cpp still leaves its own table null.
+- **Model views.** `SceneDialogueResourceOwner` now publishes each actor model's
+  shape event lists and collision vertices (shape list +0xC). The background
+  views resolve model words below 0x10000000 as offsets in the actor model,
+  scene objects from 0x10000000, and relocated resources from 0x40000000.
+- **Effect node.** 0x000ED2E0 now releases the `ActorEffectNode` that 0x00045170
+  creates (renamed `release_actor_effect_node`). The lifetime's +0x940 is that
+  node, and the factory oracle's mode 33 builds a real node (3,000 cases, 0
+  mismatches).
+- **Doors.** `RuntimeDoorContext.cutscenes` is now a pointer and raises at use
+  while unbound.
+
+Current `--scene-start` stop: the opening hallway model has doors, so 0x00043B40
+-> 0x0005B2D0 needs the scene cutscene runtime (`CutsceneRuntimeContext`) for
+the door clip names. No scene installs it yet (`install_scene_cutscene_runtime`
+has no caller).
+
+### Cutscene runtime for door clips (2026-10-13, in progress)
+
+The scene services now own a `CutsceneRuntimeContext` built from scene state: audio
+banks, the model renderer, fog, the camera impulse and event asset, movie slots, the
+replacement buffers DAT_004E1AC0/DAT_004E1A40, and the footstep kinds
+PTR_DAT_00423620 (one entry, "BOY").
+
+Supporting changes:
+
+- `SceneDialogueResourceOwner` publishes `aid_cutscene_` track and camera views
+  as its bundle provider loads them.
+- `RuntimeDoorContext.models` is now a lookup function over the live actor
+  views, since door track actors are created during the clip load.
+- Cutscene instances map to heap token addresses.
+- `object_of` also searches the cutscene track actors.
+
+Current `--scene-start` stop: during 0x00043B40 -> 0x0005B960, a door clip's
+track actor is null. Either `create_cutscene_track_actor` (0x0004DEC0 ->
+`create_cutscene_actor`, cloning `aid_objparams_ghoulies_misc_actor`) returned
+no object, or the clone or factory construction failed. Retail reads that
+actor's +0x204 with no null check, so the clone or the type-2 construction is
+the next thing to check.

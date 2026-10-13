@@ -2,6 +2,8 @@
 #include "../entities/actor_matrix_setup.h"
 #include "../graphics/model_points.h"
 #include "../graphics/matrix_inverse.h"
+#include "../graphics/point_graph_solver.h"
+#include <bit>
 
 #include <cstring>
 
@@ -76,5 +78,64 @@ void initialize_background_animation(RuntimeBackgroundAnimation* first,
             }
         }
     }
+}
+
+// Xbox 0x00044A90
+void push_background_graph(const Vec3& impulse, u32 graph, RuntimeBackgroundGraphPush& context)
+{
+    const std::span<const u8> block = context.animation.animation_block;
+    if (block.data() == nullptr)
+    {
+        throw Error("background graph push reads the model block through address zero");
+    }
+    if (read_u32(block, 0x2C) != 0)
+    {
+        return;
+    }
+    constexpr float kLongestStep = std::bit_cast<float>(0x3C888889u); // DAT_0032B150, 1/60.
+    float step = runtime_actor_rate(context.background) * runtime_frame_step(context.clock);
+    if (step > kLongestStep)
+    {
+        step = kLongestStep;
+    }
+    RuntimePointGraph& row = context.animation.rows[graph];
+    const float scale = step * 60.f; // DAT_0032B28C.
+    float x = impulse.x * scale;
+    float y = impulse.y * scale;
+    float z = impulse.z * scale;
+    for (u32 index = 0; index < read_u32(row.fields, 0); ++index)
+    {
+        u8* point = row.points.data() + size_t(index) * 0x30;
+        float value;
+        std::memcpy(&value, point, 4);
+        value = value - x;
+        std::memcpy(point + 0xC, &value, 4);
+        std::memcpy(&value, point + 4, 4);
+        value = value - y;
+        std::memcpy(point + 0x10, &value, 4);
+        std::memcpy(&value, point + 8, 4);
+        value = value - z;
+        std::memcpy(point + 0x14, &value, 4);
+    }
+    context.random = context.random * 0x19660D + 0x3C6EF35F;
+    const float unit = std::bit_cast<float>((context.random & 0x7FFFFF) | 0x3F800000);
+    const float share = (unit - 1.f) * 6.f + 2.f; // DAT_0032B0F8, DAT_0032B218, DAT_0032B110.
+    x = x * share;
+    y = y * share;
+    z = z * share;
+    u8* first = row.points.data() + 0xC;
+    float value;
+    std::memcpy(&value, first, 4);
+    value = value - x;
+    std::memcpy(first, &value, 4);
+    std::memcpy(&value, first + 4, 4);
+    value = value - y;
+    std::memcpy(first + 4, &value, 4);
+    std::memcpy(&value, first + 8, 4);
+    value = value - z;
+    std::memcpy(first + 8, &value, 4);
+    const std::span<const u8> grid = context.resolve(read_u32(block, 0x14), 0x48);
+    step_runtime_point_graph_collision(row, step * 6.f, grid, context.resolve);
+    recover_runtime_point_graph_transform(row);
 }
 }

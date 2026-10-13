@@ -267,9 +267,12 @@ int main()
                 const std::array<u8, 5> groups{};
                 BackgroundPartDispatch context{std::span<const u8>(parameters).subspan(0x400, 0x22C), count, slot, groups, sounds, effects};
                 Vec3 position{}, source{};
+                std::array<BackgroundAnimationVolume, 1> rows{};
+                std::memcpy(rows[0].fields.data(), object.bytes.get(), 0x9C);
                 advance_background_part_stage(actor, (read_u32(parameters, 8) & 2) != 0 ? &secondary : nullptr,
-                    {object.bytes.get(), 0x9C}, 0, 0, std::span<const u8>(parameters).subspan(0x700),
+                    rows, 0, 0, std::span<const u8>(parameters).subspan(0x700),
                     position, source, {reinterpret_cast<u32*>(object.bytes.get() + 0x940), 32}, context);
+                std::memcpy(object.bytes.get(), rows[0].fields.data(), 0x9C);
                 std::memcpy(object.bytes.get() + 0x900, primary.node_flags.data(), 8);
                 std::memcpy(object.bytes.get() + 0x910, secondary.node_flags.data(), 8);
                 std::memcpy(object.bytes.get() + 0xB80, &slot, 4);
@@ -304,7 +307,11 @@ int main()
             u32 value = 0;
             if (subtype < 2)
             {
-                const auto rows = std::span<const u8>{parameters}.subspan(0x400, read_u32(parameters, 4) * 0x9C);
+                std::vector<BackgroundAnimationVolume> rows(read_u32(parameters, 4));
+                for (size_t row = 0; row < rows.size(); ++row)
+                {
+                    std::memcpy(rows[row].fields.data(), parameters.data() + 0x400 + row * 0x9C, 0x9C);
+                }
                 const i32 part = std::bit_cast<i32>(read_u32(parameters, 8));
                 if (subtype == 0)
                 {
@@ -713,14 +720,27 @@ int main()
             RuntimeModelDeferredPool deferred;
             RuntimeShaderRegistrationState shaders;
             u32 fence = 0;
-            RuntimeModelSoundRelease model_sound{sounds, registry, deferred, fence, shaders, heap_free};
-            RuntimeModelSoundObject auxiliary{};
-            auxiliary.sound_2dc.enabled = parameters[0x20];
-            auxiliary.sound_2dc.previous_bone = read_u16(parameters, 0x22);
+            ActorEffectNode* effect = nullptr;
             if (subtype == 2 || (subtype == 3 && (flags & 8) != 0))
             {
-                auxiliary.allocation = allocate(0x10009000, 0x390);
+                effect = new (allocate(0x10009000, u32(sizeof(ActorEffectNode)))) ActorEffectNode{};
+                effect->sound.enabled = parameters[0x20];
+                effect->sound.previous_bone = read_u16(parameters, 0x22);
             }
+            // The released node is freed, so its sound words are captured on the way out.
+            RuntimeActorSound released_sound{};
+            const std::function<void(u8*)> effect_free = [&](u8* pointer)
+            {
+                if (effect != nullptr && pointer == reinterpret_cast<u8*>(effect))
+                {
+                    std::memcpy(&released_sound.enabled, pointer + offsetof(ActorEffectNode, sound)
+                        + offsetof(RuntimeActorSound, enabled), 1);
+                    std::memcpy(&released_sound.previous_bone, pointer + offsetof(ActorEffectNode, sound)
+                        + offsetof(RuntimeActorSound, previous_bone), 2);
+                }
+                heap_free(pointer);
+            };
+            RuntimeModelSoundRelease model_sound{sounds, registry, deferred, fence, shaders, effect_free};
             if (subtype == 0)
             {
                 restore_background_shape_event_flags(pool, heap_free);
@@ -733,9 +753,9 @@ int main()
             }
             else if (subtype == 2)
             {
-                release_runtime_model_sound_object(auxiliary, model_sound);
-                object.bytes[0x750] = auxiliary.sound_2dc.enabled;
-                std::memcpy(object.bytes.get() + 0x752, &auxiliary.sound_2dc.previous_bone, 2);
+                release_actor_effect_node(*effect, model_sound);
+                object.bytes[0x750] = released_sound.enabled;
+                std::memcpy(object.bytes.get() + 0x752, &released_sound.previous_bone, 2);
             }
             else
             {
@@ -744,7 +764,7 @@ int main()
                 background.first_push_buffer = (flags & 2) != 0 ? allocate(0x10007000, 16) : nullptr;
                 background.second_push_buffer = (flags & 4) != 0 ? allocate(0x10008000, 16) : nullptr;
                 background.has_push_buffer = i32(read_u32({object.bytes.get(), object.size}, 0x9E0));
-                background.auxiliary = (flags & 8) != 0 ? &auxiliary : nullptr;
+                background.effect = (flags & 8) != 0 ? effect : nullptr;
                 background.volumes = (flags & 16) != 0 ? allocate(0x1000A000, 16) : nullptr;
                 background.animation = (flags & 32) != 0 ? allocate(0x1000B000, 16) : nullptr;
                 entity_detail::ListHead previous;

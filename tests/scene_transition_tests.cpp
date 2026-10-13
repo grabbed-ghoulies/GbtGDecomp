@@ -1132,7 +1132,8 @@ void check_spawn_bind_tree()
     const float matrix[12] = {3.f, 0.f, 0.f, 0.f, 4.f, 0.f, 0.f, 0.f, 0.f, 0.f, 2.f, 0.f};
     Vec3 scales;
     matrix_axis_scales(matrix, scales);
-    if (scales.x != 5.f || scales.y != 0.f || scales.z != 2.f)
+    // Retail 0x00152B30 returns 5 exactly but 0x3FFFFFF8 for the root of 4 (Unicorn run of 0x00103A80).
+    if (scales.x != 5.f || scales.y != 0.f || std::bit_cast<u32>(scales.z) != 0x3FFFFFF8u)
     {
         throw Error("model matrix scale extraction changed column lengths");
     }
@@ -6608,6 +6609,12 @@ void check_scene_spawn(gbtg::Game& game, bool scene_start)
     auto& services = game.factory_scene->start_actors(game);
     try
     {
+        if (scene_start)
+        {
+            // 0x0011CBD0 creates and activates the requested background and builds navigation first.
+            services.start_background();
+            std::cout << "scene start: background and navigation built\n";
+        }
         std::cout << "scene spawn: markers\n";
         services.start_markers();
         const auto spawned = services.actor_addresses();

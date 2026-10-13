@@ -16,4 +16,9 @@ void runtime_graphics_translation_matrix(float* output, float x, float y,
     float z); // Xbox 0x00184B7B, D3DXMatrixTranslation
 void transform_runtime_graphics_normal(Vec3& output, const Vec3& normal,
     const float* matrix); // Xbox 0x0018462D, D3DXVec3TransformNormal
+void runtime_graphics_scaling_matrix(float* output, float x, float y,
+    float z); // Xbox 0x00184B1F, D3DXMatrixScaling
+void scale_runtime_graphics_vector(Vec3& vector, float divisor); // Xbox 0x00184EBE, ECX vector
+void transform_runtime_graphics_coord(Vec3& output, const Vec3& point,
+    const float* matrix); // Xbox 0x00185015, D3DXVec3TransformCoord
 }

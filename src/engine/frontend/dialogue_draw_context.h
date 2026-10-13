@@ -27,15 +27,18 @@ struct DialogueD3DBoundaries
 struct DialogueRenderFrame
 {
     std::array<float, 16> projection; // native frame+0x84
-    const float* view; // native frame+0x40
+    const RuntimeShaderMatrix*& view; // Native frame +0x40, the frame's camera matrix pointer slot.
 };
 struct RuntimeDialogueDrawState
 {
     i32 font; // DAT_005043D8
     u32 active; // DAT_005043DC
     u32 color; // DAT_005043E0
+    float text_scale_x; // DAT_005043E4
+    float text_scale_y; // DAT_005043E8
     u32 retained; // DAT_005043EC
     float angle; // DAT_005043F0
+    u32 retained_f4; // DAT_005043F4
     float half_height; // DAT_005043F8
     float half_width; // DAT_005043FC
     float wrap; // DAT_00504400

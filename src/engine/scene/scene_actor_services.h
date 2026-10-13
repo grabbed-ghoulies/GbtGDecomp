@@ -27,6 +27,10 @@ public:
     void activate_actors();
     void send_scene_start_notice(); // 0x001231F0: message 0x88 to the activated +0x910 list.
     void send_scene_start(); // 0x001231A0: message 0x7D to the activated +0x910 list.
+    // The translated part of 0x0011CBD0 in its order: background and navigation, markers (0x00140020),
+    // activation (0x00123070), the script's 0x7D event (0x00116810, through script_event), then the
+    // 0x88 notice (0x001231F0) and the actor 0x7D sweep (0x001231A0).
+    void start_scene(const std::function<void()>& script_event);
     void send_actor_message(u32 address, std::span<const u32> message); // Native vtable +0xC address adapter.
     void update_actor(u32 address, RuntimeEffectPassScratch& scratch); // Native vtable +0x10 adapter; caller's incoming effect stack state.
     void update_sounds(); // Native context binding for Xbox 0x0012A150.
@@ -36,6 +40,8 @@ public:
     u32 player_link() const; // DAT_00511B40.
     const std::unordered_map<u32, Actor*>& actor_addresses() const; // Retail actor address -> native actor.
     size_t player_total() const;
+    // Script type 0x6F (0x00127BC0) over the scene's player link and actor graph: 0 holds, 2 continues.
+    int wait_script_player() const;
     struct State;
 
 private:

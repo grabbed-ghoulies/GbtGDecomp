@@ -52,7 +52,7 @@ void set_dialogue_render_projection(const float* matrix, RuntimeDialogueDrawCont
 // Xbox 0x00156330
 void set_dialogue_render_view(const float* matrix, RuntimeDialogueDrawContext& c)
 {
-    c.frames.at(&runtime_render_frame(c.renderer)).view = matrix;
+    c.frames.at(&runtime_render_frame(c.renderer)).view = reinterpret_cast<const RuntimeShaderMatrix*>(matrix);
 }
 // Xbox 0x001046A0
 void make_dialogue_axis_rotation(float* m, u8 axis, float sine, float cosine)

@@ -31,6 +31,7 @@ public:
     std::array<RuntimeTextKerning, 2> kerning{};
     RuntimeTextMetrics metrics{font_views, kerning, 1.f, 1.f, 2.f};
     void load_fonts();
+    void publish_font(size_t index, std::span<const u8> cpu); // Metrics view of an acquired font (DAT_00504444).
     // Model resources (hook 0x00052F00): relocated copies, their GPU segments and the host D3D state.
     SceneResourceMemory memory;
     SceneD3DResources d3d;

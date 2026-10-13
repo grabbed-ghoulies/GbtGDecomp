@@ -13,9 +13,15 @@ struct RuntimeRelocationImage
 {
     std::span<u8> bytes;
     u32 address;
+    // Optional host mapping for an address space split across several native blocks.
+    std::function<u8*(u32)> resolve;
 
     u8* pointer(u32 value) const
     {
+        if (resolve)
+        {
+            return resolve(value);
+        }
         return bytes.data() + u32(value - address);
     }
     u32 word(u32 value, u32 offset = 0) const

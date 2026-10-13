@@ -8,6 +8,7 @@
 #include "../transitions/transition_data.h"
 #include "../entities/ghouly_requests.h"
 #include "../scene/actor_loading.h"
+#include "../scene/factory_scene_runtime.h"
 #include "../scene/scene_object_requests.h"
 #include "../runtime/name_lookup.h"
 #include "script_dialogue_actions.h"
@@ -2292,6 +2293,10 @@ int script_handle_actor_effects(Game& g, const ScriptNode& node, int param_2, in
         }
         return 2;
     case 0x6f:
+        if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1)
+        {
+            return g.factory_scene->start_actors(g).wait_script_player();
+        }
         return 0;
     case 0x76:
         return 2;

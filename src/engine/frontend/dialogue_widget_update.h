@@ -18,7 +18,7 @@ struct DialogueWidgetUpdateContext
     RuntimeDialogueWidgetContext& widget;
     RuntimeDialogueInputState& input;
     AudioEventVoices& voices;
-    const std::unordered_map<Actor*, DialogueWidgetBatView>& bats; // native vtable +0x10 mapping
+    const std::function<DialogueWidgetBatView(Actor*)>& bats; // Native vtable +0x10 views of a widget bat.
     const std::unordered_map<u32, void (*)()>& callbacks; // native code pointers from row +0x84
     float freeze; // DAT_004312DC
     float dt; // DAT_005096C0

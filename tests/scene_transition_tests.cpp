@@ -993,8 +993,12 @@ void check_spawn_effect_stream()
         {&frame_bat.actor, DialogueWidgetBatView{frame_bat, frame, frame_context}}
     };
     const std::unordered_map<u32, void (*)()> frame_widget_callbacks;
+    const std::function<DialogueWidgetBatView(Actor*)> frame_bat_views = [&frame_bats](Actor* bat)
+    {
+        return frame_bats.at(bat);
+    };
     DialogueWidgetUpdateContext bat_widget_update{frame_widget_context, frame_input, frame_voices,
-        frame_bats, frame_widget_callbacks, 0.f, 0.1f, 2.f};
+        frame_bat_views, frame_widget_callbacks, 0.f, 0.1f, 2.f};
     RuntimeDialogueWidget bat_widget{};
     bat_widget.bat = &frame_bat.actor;
     const u32 bat_ticks = frame.ticks;
@@ -5816,8 +5820,12 @@ void check_actor_loading()
         {
             ++widget_callback_count;
         }}};
+        const std::function<DialogueWidgetBatView(Actor*)> widget_bat_views = [&widget_bats](Actor* bat)
+        {
+            return widget_bats.at(bat);
+        };
         DialogueWidgetUpdateContext update_context{timing_context, widget_input, widget_voices,
-            widget_bats, widget_callbacks, 0.f, 0.5f, 1.f};
+            widget_bat_views, widget_callbacks, 0.f, 0.5f, 1.f};
         update_dialogue_widget(*created_widget, nullptr, update_context);
         if (created_widget->mode != 1 || created_widget->progress != 1.5f || created_widget->timer != 0.375f)
         {
@@ -6911,6 +6919,7 @@ void check_scene_spawn(gbtg::Game& game, bool scene_start)
             std::cout << "scene start: notice 0x88 delivered\n";
             services.send_scene_start();
             std::cout << "scene start: 0x7D delivered\n";
+            std::cout << "scene start: script 0x6F player wait returns " << services.wait_script_player() << "\n";
             check_scene_actor_update_queue();
             check_actor_sound_frame_pass();
             check_scene_object_disposal();

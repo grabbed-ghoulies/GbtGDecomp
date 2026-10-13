@@ -250,6 +250,20 @@ SceneDialogueResourceOwner::Resource* SceneDialogueResourceOwner::find_resource(
         prepare_text(resource);
         return &resource;
     }
+    if (key.starts_with("aid_font_"))
+    {
+        // Fonts are loose files named by their hash, as load_fonts reads them.
+        const auto path = aids_.game_dir / "font" / aid_hash_hex(aid_hash(key));
+        if (!std::filesystem::exists(path))
+        {
+            last_missing = key;
+            return nullptr;
+        }
+        auto& resource = resources_[key];
+        resource.loose = parse_loose_resource(read_file(path));
+        resource.record = {key, 0, resource.loose.cpu, resource.loose.gpu, {}, {}};
+        return &resource;
+    }
     const BundleEntry* entry = aids_.load_aid(key);
     if (entry == nullptr)
     {
@@ -368,23 +382,28 @@ void SceneDialogueResourceOwner::load_fonts()
     {
         auto& file = font_files_[index];
         file = parse_loose_resource(read_file(aids_.game_dir / "font" / aid_hash_hex(aid_hash(names[index]))));
-        const auto cpu = file.cpu;
-        auto& font = fonts[index];
-        font.first = static_cast<i32>(read_u32(cpu, 0));
-        font.last = static_cast<i32>(read_u32(cpu, 4));
-        font.cell = static_cast<i32>(read_u32(cpu, 12));
-        font.drop = static_cast<i32>(read_u32(cpu, 16));
-        auto& glyphs = glyphs_[index];
-        glyphs.resize(size_t(font.last - font.first + 1));
-        for (size_t glyph = 0; glyph < glyphs.size(); ++glyph)
-        {
-            const size_t row = 24 + glyph * 24;
-            const u32 texture = read_u32(cpu, row);
-            glyphs[glyph] = {texture == 0 ? nullptr : cpu.data() + texture,
-                read_u16(cpu, row + 4), static_cast<i32>(read_u32(cpu, row + 8)),
-                static_cast<i32>(read_u32(cpu, row + 16))};
-        }
-        font.glyphs = glyphs;
+        publish_font(index, file.cpu);
     }
+}
+
+// Metrics view of one font resource: first/last character, cell, drop and 24-byte glyph rows from +0x18.
+void SceneDialogueResourceOwner::publish_font(size_t index, std::span<const u8> cpu)
+{
+    auto& font = fonts.at(index);
+    font.first = static_cast<i32>(read_u32(cpu, 0));
+    font.last = static_cast<i32>(read_u32(cpu, 4));
+    font.cell = static_cast<i32>(read_u32(cpu, 12));
+    font.drop = static_cast<i32>(read_u32(cpu, 16));
+    auto& glyphs = glyphs_[index];
+    glyphs.resize(size_t(font.last - font.first + 1));
+    for (size_t glyph = 0; glyph < glyphs.size(); ++glyph)
+    {
+        const size_t row = 24 + glyph * 24;
+        const u32 texture = read_u32(cpu, row);
+        glyphs[glyph] = {texture == 0 ? nullptr : cpu.data() + texture,
+            read_u16(cpu, row + 4), static_cast<i32>(read_u32(cpu, row + 8)),
+            static_cast<i32>(read_u32(cpu, row + 16))};
+    }
+    font.glyphs = glyphs;
 }
 }

@@ -27,6 +27,34 @@
 #include "../camera/cutscene_impulse.h"
 #include "../cutscenes/event_assets.h"
 #include "gbtg/language.h"
+#include "dialogue_scene_runtime.h"
+#include "../frontend/hud_layout.h"
+#include "../frontend/dialogue_text_system.h"
+#include "../frontend/dialogue_activation.h"
+#include "../frontend/dialogue_widget_construction.h"
+#include "../frontend/dialogue_widget_bat.h"
+#include "../frontend/dialogue_widget_update.h"
+#include "../frontend/dialogue_page_setup.h"
+#include "../frontend/dialogue_measurement.h"
+#include "../frontend/dialogue_tag_actions.h"
+#include "../frontend/dialogue_trophies.h"
+#include "../frontend/dialogue_tags.h"
+#include "../frontend/dialogue_sound_tags.h"
+#include "../frontend/dialogue_resources.h"
+#include "../camera/runtime_display_setup.h"
+#include "../camera/display_view.h"
+#include "../camera/display_clip_limits.h"
+#include "../graphics/scene_d3d_device.h"
+#include "../audio/pcm_backend.h"
+#include "../scripts/script_dialogue_actions.h"
+#include "../graphics/scene_model_draw.h"
+#include "../graphics/scene_environment_setup.h"
+#include "../graphics/model_tree_dispatch.h"
+#include "../graphics/model_render_nodes.h"
+#include "../graphics/model_push_buffer_draw.h"
+#include "../graphics/vector_normalize.h"
+#include "../graphics/d3dx_matrix.h"
+#include "../entities/actor_frame_render.h"
 #include "../entities/actor_word_messages.h"
 #include "../camera/camera_mind_requests.h"
 #include "../camera/entity_camera.h"
@@ -48,6 +76,11 @@
 #include <cstdio>
 #include <cstring>
 #include <map>
+
+extern "C"
+{
+    __declspec(dllimport) int __stdcall QueryPerformanceCounter(void* counter);
+}
 
 namespace gbtg
 {
@@ -461,7 +494,7 @@ struct SceneActorServices::State
     BackgroundPartTables part_tables{part_settings, part_setting_count, part_text};
     i32 part_sound_slot = 0; // DAT_00546290.
     u32 broken_parts = 0; // DAT_00545978.
-    std::array<float, 12> sampling_scratch{}; // DAT_0050D7A0.
+    std::array<float, 24> sampling_scratch{}; // DAT_0050D7A0: matrix, then the dialogue's scratch matrix.
     float* sampling_active = nullptr; // DAT_0050DD70.
     std::array<char16_t, 0x400> wide_scratch{}; // DAT_00507E78.
     u32 score_total = 0; // DAT_0054597C.
@@ -511,6 +544,112 @@ struct SceneActorServices::State
     std::unique_ptr<CutsceneActorFactoryContext> cutscene_factory;
     std::unique_ptr<CutsceneActorInitializationContext> cutscene_initialization;
     std::unique_ptr<CutsceneRuntimeContext> cutscenes;
+    // Scene dialogue runtime (activation 0x000584D0, update 0x00057E60, draw 0x00058150) and the boot
+    // display/text globals it reads (0x00033030: 0x000FC310 -> 0x000FC190, 0x000F5900, 0x00060320).
+    std::array<u16, 2> hud_size{640, 480}; // DAT_005096E8 / DAT_005096EA, the D3D display mode.
+    RuntimeHudLayout hud{}; // DAT_00509708..
+    std::span<const u8> fallback_texture; // DAT_004E1C58.
+    i32 paragraph_disabled = 0; // DAT_0050444C.
+    std::array<std::span<const u8>, 2> text_fonts{}; // DAT_00504444.
+    RuntimeDialogueDrawState dialogue_draw_state{}; // DAT_005043D8.., then DAT_00424900.. data.
+    GhoulySpawnPool* text_registry = nullptr; // DAT_005043CC.
+    i32 text_registry_ready = 0; // DAT_005043D0.
+    std::array<RuntimeDialogueTextTable, 2> text_tables{}; // DAT_005043BC.
+    std::unique_ptr<RuntimeDialogueTextSystem> text_system;
+    std::vector<const char*> widget_icon_names; // DAT_003150D0.
+    RuntimeDialogueActivationState dialogue_state{};
+    u32 frontend_pause = 0; // DAT_004E173C.
+    std::array<char, 0x800> narrow_scratch{}; // DAT_00508EB8, the dialogue's view of the shared scratch.
+    DialogueOwnedResources dialogue_owned{};
+    std::array<i32, 4> trophy_thresholds{}; // DAT_004E17DC.
+    u32 trophy_flags = 0; // DAT_00424958.
+    std::array<char, 256> trophy_names{};
+    DialogueTagState tag_state{};
+    DialogueSoundTagState sound_tags{};
+    std::unique_ptr<DialogueTrophyContext> trophies;
+    std::unique_ptr<DialogueTagContext> tags;
+    std::unique_ptr<DialogueMeasurementContext> measurement;
+    DialoguePageLayout dialogue_page{};
+    DialoguePageSettings page_settings{};
+    std::vector<FactoryObject> dialogue_bats;
+    std::unique_ptr<DialogueWidgetAllocationContext> widget_allocation;
+    std::unique_ptr<DialogueWidgetBatFactoryContext> widget_bats;
+    AudioListenerSettings listener = native_audio_listener_settings();
+    std::function<DialogueWidgetBatView(Actor*)> bat_views; // Live button-bat actor views.
+    std::unordered_map<u32, void (*)()> widget_callbacks;
+    std::unique_ptr<DialogueWidgetUpdateContext> widget_update;
+    std::unordered_map<u32, RuntimeDialogueInputDevice> input_views;
+    std::unique_ptr<RuntimeDialogueActivationContext> dialogue;
+    std::unique_ptr<RuntimeScriptDialogueContext> script_dialogue;
+    SceneD3DDevice d3d_device;
+    std::array<RuntimeModelRenderFrame, 32> render_frame_storage{}; // DAT_004392B0, stride 0x310.
+    std::unordered_map<RuntimeModelRenderFrame*, DialogueRenderFrame> render_frames;
+    std::array<u32, 0xE8> deferred_states{}; // DAT_00181968..00181D08.
+    u32 light_override = 0; // DAT_00509B5C.
+    std::array<float, 16> dialogue_projection{}; // DAT_00506F58.
+    std::array<float, 16> dialogue_view{}; // DAT_00506F18.
+    std::array<float, 16> dialogue_world{}; // DAT_00506ED8.
+    std::array<float, 16> sprite_world{}; // DAT_00504378.
+    std::unique_ptr<RuntimeDialogueDrawContext> dialogue_draw;
+    DisplayClipBounds clip_bounds{}; // DAT_0050EA00.
+    std::array<float, 16> device_projection{}; // DAT_005077AC.
+    std::array<float, 16> device_view{}; // DAT_00506E98.
+    std::array<float, 16> device_world{}; // DAT_00506E58.
+    std::array<float, 16> projection_transpose{}; // DAT_00506FD8.
+    std::array<float, 12> default_world{}; // DAT_0042A7C0.
+    u32 display_address = 0x00507018; // DAT_005077A8, retail address of the current display record.
+    std::unique_ptr<RuntimeDisplaySetupContext> display_setup;
+    DialogueRenderTargetState render_targets{};
+    std::array<RuntimeDialogueQueuedSprite, 64> sprite_records{}; // DAT_00511210.
+    i32 sprite_count = 0; // DAT_00511A10.
+    std::unique_ptr<RuntimeDialogueSpriteQueue> sprites;
+    u32 text_draw_count = 0; // DAT_004E61C8.
+    u32 capture_enabled = 0; // DAT_005077F8.
+    u32 line_retained = 0; // DAT_005044B0.
+    std::unique_ptr<RuntimeDialogueOuterDrawContext> dialogue_outer;
+    // Scene model renderer (0x000F9080) and the retail globals it reads.
+    std::array<const u8*, 4> ambient_grids{}; // DAT_0050D770 as the ambient sampler reads it.
+    std::array<SceneAmbientPoint, 32> ambient_points{}; // DAT_00511B70.
+    u32 ambient_points_enabled = 0; // DAT_005120F0.
+    std::array<float, 3> ambient_scale{}; // DAT_00509B20.
+    u8 environment_world_space = 0; // DAT_004D9668.
+    std::array<float, 4> retained_scene_color{}; // DAT_0032E4E4.
+    std::array<u32, 20> light_records{};
+    std::unordered_map<const RuntimeRenderLight*, std::array<u32, 4>> spot_parameters;
+    SceneLightUploadBoundaries light_boundaries;
+    std::unique_ptr<SceneLightUploadContext> light_upload;
+    RuntimeSceneLightDirection light_direction{}; // DAT_00509B10..
+    std::array<float, 4> override_base_color{}; // DAT_0042A570.
+    std::array<u32, 16> environment_primary{}; // DAT_004D9710.
+    std::array<u32, 16> environment_secondary{}; // DAT_004D9680.
+    std::array<float, 3> scene_color{}; // DAT_00509B30.
+    RuntimeRenderLight directional_light{}; // DAT_00509AB0.
+    std::array<const SceneLocalLightView*, 40> local_lights{}; // DAT_00509B7C.
+    std::array<RuntimeRenderLight, 2> temporary_lights{}; // DAT_005097B8.
+    RuntimeRelocationImage render_image{{}, 0, {}};
+    std::array<ModelTreeStackEntry, 1024> tree_stack{}; // DAT_004372A8.
+    i32 tree_stack_index = -1; // DAT_0043F4B0.
+    std::array<RuntimeShaderMatrix, 32> frame_combined{}; // Each render frame +0.
+    std::array<const RuntimeShaderMatrix*, 32> frame_cameras{}; // Each render frame +0x40.
+    u32 render_retained_204 = 0;
+    u16 render_mask = 0;
+    u32 fog_pixel_state = 0; // DAT_00181CE4.
+    u32 cull_mode = 0; // DAT_0032E3D0.
+    std::unordered_map<u32, std::function<void(u32, void*)>> node_callbacks;
+    std::unique_ptr<ModelTreeDispatchContext> tree_dispatch;
+    std::array<u32, 16> stream_descriptors{}; // Render state +0x78.
+    u32 active_pixel_shader = 0; // DAT_0054D948.
+    u32 depth_function = 0; // DAT_00181C54.
+    u32 blend_enabled = 0; // DAT_00181C5C.
+    std::unique_ptr<ModelRenderNodeContext> render_nodes;
+    std::unordered_map<RuntimeModelInstance*, const u8*> flag_origins; // Model +0x294.
+    std::unique_ptr<ModelPushBufferDrawContext> push_buffers;
+    std::unique_ptr<SceneEnvironmentSetupContext> environment;
+    std::unique_ptr<SceneLightConstructionContext> light_construction;
+    std::unique_ptr<SceneAmbientContext> ambient_context;
+    std::unique_ptr<SceneModelDrawContext> model_draw;
+    std::unordered_map<Actor*, RuntimeActorMatrixState> draw_matrices; // Actor +0x288 views for draws.
+    const std::unordered_map<ActorFrameAttachment*, ActorFrameDrawCallback> attachment_draws; // Attachment vtable +0x14.
     // Markers.
     const u8* markers = nullptr; // DAT_0051108C.
     RuntimeMarkerCameraStart camera_start{}; // DAT_00545AD0.
@@ -560,6 +699,8 @@ struct SceneActorServices::State
     void background_update(NativeBackgroundInstance& background);
     void update_actor(u32 address);
     void start_background();
+    void actor_draw(Actor& actor, i32 view, i32 pass); // Actor vtable +0x14 by class.
+    void draw_scene_actor(FactoryObject& object, Actor& actor, i32 kind); // 0x0003C9E0.
 };
 
 SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
@@ -965,7 +1106,11 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         model_renderer, fog, camera_impulse, camera_event_asset, *footsteps,
         footstep_kinds, retail_cutscene_event_sizes, retail_cutscene_dialogue_resources[0].data(),
         listener_position, random, i32(g_language), movie_flag_38, movie_flag_3c, replacement_source.data(),
-        replacement_target.data(), nullptr, nullptr, movie_slots, movie_mode, {}, {}, {}, {}, engine_heap_free, {}});
+        replacement_target.data(), nullptr, nullptr, movie_slots, movie_mode, {}, {}, {}, {}, engine_heap_free,
+        [this](Actor& actor, i32 view, i32 pass)
+        {
+            actor_draw(actor, view, pass);
+        }});
     doors = std::make_unique<RuntimeDoorContext>(RuntimeDoorContext{door_pool, door_rows, *door_names,
         cutscenes.get(), nullptr, door_instance_address, door_models, node_cache});
     // Relocated resources live from 0x40000000 (SceneResourceMemory); scene objects below.
@@ -1012,6 +1157,206 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             background_update(background);
         }});
     backgrounds->install(scene.types);
+    // Boot display, input and text globals, in 0x00033030 order.
+    layout_runtime_hud(entity_detail::g_aspect_exact, hud_size[0], hud_size[1], hud);
+    initialize_display_views(hud_size[0], hud_size[1], render_width, render_height);
+    port_masks = {0, 1, 2, 4, 8}; // 0x00033248: DAT_0050E0F4 0, then DAT_0050E0F8..DAT_0050E104 1, 2, 4, 8.
+    input_state.selected_mask = port_masks[1];
+    {
+        const auto defaults = data(0x00424900, 0x70);
+        auto& draw = dialogue_draw_state;
+        draw.origin_x = read_f32(defaults, 0);
+        draw.origin_y = read_f32(defaults, 4);
+        draw.paragraph_scale = read_f32(defaults, 0x10);
+        draw.paragraph_offset = read_f32(defaults, 0x14);
+        draw.wave_speed = read_f32(defaults, 0x18);
+        draw.wave_height = read_f32(defaults, 0x1C);
+        draw.scale_x = read_f32(defaults, 0x3C);
+        draw.scale_y = read_f32(defaults, 0x40);
+        draw.line_step = read_f32(defaults, 0x48);
+        draw.space = read_f32(defaults, 0x4C);
+        draw.width = read_f32(defaults, 0x50);
+        draw.lines = std::bit_cast<i32>(read_u32(defaults, 0x54));
+        draw.fade = read_f32(defaults, 0x6C);
+        trophy_flags = read_u32(defaults, 0x58);
+        tag_state.alignment = std::bit_cast<i32>(read_u32(defaults, 0x5C));
+        tag_state.tab = std::bit_cast<i32>(read_u32(defaults, 0x64));
+        tag_state.no_paragraph = std::bit_cast<i32>(read_u32(defaults, 0x68));
+        tag_state.scale_x = read_f32(defaults, 0x34);
+        tag_state.scale_y = read_f32(defaults, 0x38);
+        page_settings = {std::bit_cast<i32>(read_u32(defaults, 0x44)), std::bit_cast<i32>(read_u32(defaults, 0x28)),
+            std::bit_cast<i32>(read_u32(defaults, 0x60))};
+        std::memcpy(default_world.data(), data(0x0042A7C0, 0x30).data(), 0x30);
+    }
+    {
+        const auto tables = data(0x00425160, 8);
+        text_system = std::make_unique<RuntimeDialogueTextSystem>(RuntimeDialogueTextSystem{fallback_texture,
+            paragraph_disabled, text_fonts, dialogue_draw_state, text_registry, text_registry_ready, text_tables,
+            {data(read_u32(tables, 0), 0xC).data(), data(read_u32(tables, 4), 0xC).data()}});
+        initialize_runtime_dialogue_text(g_language, *text_system, resources.registry, resources.error);
+        for (size_t index = 0; index < text_fonts.size(); ++index)
+        {
+            resources.publish_font(index, text_fonts[index]);
+        }
+    }
+    // DAT_003150D0: the widget icon names (stride 0x80) 0x00142C20 indexes, and the DAT_004E1C58 texture.
+    for (u32 index = 0; index < 10; ++index)
+    {
+        widget_icon_names.push_back(reinterpret_cast<const char*>(data(0x003150D0 + index * 0x80, 0x80).data()));
+    }
+    widget_context.icon_names = widget_icon_names;
+    widget_context.fallback_texture = fallback_texture.data();
+    trophies = std::make_unique<DialogueTrophyContext>(DialogueTrophyContext{trophy_thresholds, dialogue_owned,
+        trophy_flags, trophy_names.data(), g_retail_dialogue_token_names, resources.registry, resources.error});
+    tags = std::make_unique<DialogueTagContext>(DialogueTagContext{tag_state, *trophies, sound_tags,
+        g_retail_dialogue_tokens, g_retail_dialogue_sound_swaps, {}, 0, 0, story_byte, g_flags_ea9c});
+    measurement = std::make_unique<DialogueMeasurementContext>(DialogueMeasurementContext{*tags, resources.metrics,
+        resources.text, {i32(challenge_bits.size()), challenge_bits.data()}, 0, 0, 0, 0, 0, 0, 0.f,
+        read_f32(data(0x00424910, 4), 0), read_f32(data(0x0042493C, 4), 0), paragraph_disabled,
+        wide_scratch.data(), narrow_scratch.data()});
+    widget_allocation = std::make_unique<DialogueWidgetAllocationContext>(DialogueWidgetAllocationContext{
+        widget_context, text_registry});
+    widget_bats = std::make_unique<DialogueWidgetBatFactoryContext>(DialogueWidgetBatFactoryContext{scene.factory,
+        image.pools, story_byte, dialogue_bats, actors->actors});
+    bat_views = [this](Actor* bat) -> DialogueWidgetBatView
+    {
+        for (const auto& [bytes, native] : actors->actors)
+        {
+            if (native == bat)
+            {
+                auto& view = actors->view(*object_of(bytes));
+                return DialogueWidgetBatView{view.bat, view.frame, *frame};
+            }
+        }
+        throw Error("dialogue widget bat is not a scene actor");
+    };
+    widget_update = std::make_unique<DialogueWidgetUpdateContext>(DialogueWidgetUpdateContext{widget_context,
+        input_state, voices, bat_views, widget_callbacks, pause, frame_delta, time_scale});
+    dialogue = std::make_unique<RuntimeDialogueActivationContext>(RuntimeDialogueActivationContext{dialogue_state,
+        g_flags_ea9c, active_strategies, frontend_pause, random, story_byte, hud_size[0], hud.inner_bottom,
+        hud.text_width, read_u32(data(0x00421A1C, 4), 0), read_u32(data(0x00421A24, 4), 0),
+        image.string(0x00323C2C), reinterpret_cast<const char*>(data(0x002FEAB8, 0x80).data()),
+        data(0x002FEB50, 4).data(), replacement_source.data(), replacement_target.data(), *widget_allocation,
+        *widget_bats, dialogue_page, page_settings, *measurement, input_activation, input_release, listener, voices,
+        *cutscenes, *widget_update, input_addresses, input_views, 0, pause, frame_delta, time_scale});
+    script_dialogue = std::make_unique<RuntimeScriptDialogueContext>(RuntimeScriptDialogueContext{*dialogue, query,
+        g_flag_2474, g_flags_ea9c, random, narrow_scratch.data()});
+    model_renderer.frames = render_frame_storage;
+    for (size_t index = 0; index < render_frame_storage.size(); ++index)
+    {
+        render_frames.emplace(&render_frame_storage[index], DialogueRenderFrame{{}, frame_cameras[index]});
+    }
+    dialogue_draw = std::make_unique<RuntimeDialogueDrawContext>(RuntimeDialogueDrawContext{*dialogue,
+        dialogue_draw_state, resources.metrics, d3d_device.dialogue(), model_renderer, render_frames, deferred_states,
+        light_override, fog.disabled, sampling_scratch, sampling_active, dialogue_projection, dialogue_view,
+        dialogue_world, sprite_world,
+        std::span<const u32, 4>(reinterpret_cast<const u32*>(&entity_detail::g_display_records[0].fitted_x), 4),
+        render_height, render_width, hud_size[0], hud_size[1], read_u32(data(0x00314F48, 4), 0),
+        read_u32(data(0x004273D4, 4), 0), read_u32(data(0x00425E6C, 4), 0), read_u32(data(0x004273C8, 4), 0),
+        {0, 0, 0}, read_u32(data(0x0042515C, 4), 0), {read_f32(data(0x0042514C, 8), 0), read_f32(data(0x0042514C, 8), 4)},
+        {read_f32(data(0x00425154, 8), 0), read_f32(data(0x00425154, 8), 4)}, fallback_texture.data(), 0.f, 0,
+        []() -> std::int64_t
+        {
+            std::int64_t counter = 0;
+            QueryPerformanceCounter(&counter);
+            return counter;
+        }, read_f32(data(0x00424908, 4), 0), read_f32(data(0x0042490C, 4), 0)});
+    display_setup = std::make_unique<RuntimeDisplaySetupContext>(RuntimeDisplaySetupContext{*dialogue_draw,
+        clip_bounds, device_projection, device_view, device_world, projection_transpose, default_world, frontend_pause,
+        display_address});
+    sprites = std::make_unique<RuntimeDialogueSpriteQueue>(RuntimeDialogueSpriteQueue{sprite_records, sprite_count});
+    dialogue_outer = std::make_unique<RuntimeDialogueOuterDrawContext>(RuntimeDialogueOuterDrawContext{*dialogue_draw,
+        render_targets, d3d_device.outer(), *sprites, {}, *display_setup, text_draw_count, capture_enabled,
+        std::bit_cast<u8>(u8(0)), g_flags_ea9c, display_address, read_u32(data(0x004271F4, 4), 0),
+        read_u32(data(0x00425E0C, 4), 0), read_u32(data(0x004271E8, 4), 0), line_retained});
+    bind_scene_dialogue(game, *script_dialogue, *dialogue_outer);
+    // The scene model renderer over the relocated resources and the host D3D device.
+    std::memcpy(retained_scene_color.data(), data(0x0032E4E4, 0x10).data(), 0x10);
+    std::memcpy(override_base_color.data(), data(0x0042A570, 0x10).data(), 0x10);
+    cull_mode = read_u32(data(0x0032E3D0, 4), 0);
+    render_image.resolve = [this](u32 address) -> u8*
+    {
+        u8* pointer = resources.memory.pointer(address);
+        if (pointer == nullptr)
+        {
+            throw Error("model renderer reads a relocated address of zero");
+        }
+        return pointer;
+    };
+    light_boundaries.set_constant = [this](u32 slot, const u32* words)
+    {
+        d3d_device.set_constant_words(slot, words, 1);
+    };
+    light_boundaries.transform_normal = [](Vec3& output, const Vec3& input, const float* matrix)
+    {
+        transform_runtime_graphics_normal(output, input, matrix);
+    };
+    light_boundaries.normalize = [](Vec3& output, const Vec3& input)
+    {
+        normalize_runtime_graphics_vector(output, input);
+    };
+    light_boundaries.transform_coord = [](Vec3& output, const Vec3& input, const float* matrix)
+    {
+        transform_runtime_graphics_coord(output, input, matrix);
+    };
+    light_upload = std::make_unique<SceneLightUploadContext>(SceneLightUploadContext{model_renderer,
+        environment_world_space, retained_scene_color, light_records, spot_parameters, light_boundaries});
+    ambient_context = std::make_unique<SceneAmbientContext>(SceneAmbientContext{ambient_grids, 0, 0, {}, {}, 0,
+        ambient_points});
+    std::memcpy(ambient_context->override_color.data(), data(0x0042A560, 0x10).data(), 0x10);
+    environment = std::make_unique<SceneEnvironmentSetupContext>(SceneEnvironmentSetupContext{*light_upload, fog,
+        *ambient_context, light_direction,
+        *reinterpret_cast<const std::array<float, 4>*>(background_ambient.light_color.data()), override_base_color,
+        environment_primary, environment_secondary});
+    light_construction = std::make_unique<SceneLightConstructionContext>(SceneLightConstructionContext{*environment,
+        scene_color, retained_scene_color, 0.f, read_f32(data(0x0042A580, 4), 0), directional_light, local_lights,
+        temporary_lights});
+    model_draw = std::make_unique<SceneModelDrawContext>(SceneModelDrawContext{render_image, *light_construction,
+        matrix_boundaries});
+    tree_dispatch = std::make_unique<ModelTreeDispatchContext>(ModelTreeDispatchContext{model_renderer, render_image,
+        tree_stack, tree_stack_index, frame_combined, frame_cameras, render_retained_204, render_mask, fog_pixel_state,
+        cull_mode, node_callbacks});
+    tree_dispatch->multiply = [](RuntimeShaderMatrix& output, const RuntimeShaderMatrix& first,
+        const RuntimeShaderMatrix& second)
+    {
+        multiply_runtime_graphics_matrices(output.data(), first.data(), second.data());
+    };
+    tree_dispatch->scaling = [](RuntimeShaderMatrix& output, float x, float y, float z)
+    {
+        runtime_graphics_scaling_matrix(output.data(), x, y, z);
+    };
+    tree_dispatch->set_cull_mode = [this](u32 mode)
+    {
+        d3d_device.set_state(0x10060, mode); // D3D 0x00171420.
+    };
+    tree_dispatch->set_fog_color = [this](u32 color)
+    {
+        d3d_device.set_state(0x10061, color); // D3D 0x001713D0.
+    };
+    install_runtime_model_tree_dispatch(*tree_dispatch);
+    install_runtime_model_group_dispatch(*tree_dispatch, node_callbacks);
+    render_nodes = std::make_unique<ModelRenderNodeContext>(ModelRenderNodeContext{*tree_dispatch, stream_descriptors,
+        active_pixel_shader, depth_function, blend_enabled,
+        [this](u32 shader)
+        {
+            d3d_device.set_state(0x10004, shader);
+        },
+        [this](u32 method, u32 value)
+        {
+            d3d_device.set_state(method, value);
+        },
+        [this](u32 enabled)
+        {
+            d3d_device.set_state(0x10002, enabled);
+        }});
+    install_runtime_render_node_dispatch(*render_nodes, node_callbacks);
+    push_buffers = std::make_unique<ModelPushBufferDrawContext>(ModelPushBufferDrawContext{*tree_dispatch,
+        flag_origins,
+        [this](u32 primitive, u32 count, u32 indices)
+        {
+            d3d_device.draw_indexed(primitive, count, indices);
+        }});
+    install_runtime_push_buffer_dispatch(*push_buffers, node_callbacks);
     // Camera director (0x000AA250) and rig (0x000781F0) tunables are .data words read from the image.
     std::memcpy(rig_tunables.rig.data(), data(0x004274B8, 0x88).data(), 0x88);
     std::memcpy(rig_tunables.view.data(), data(0x00434008, 0x2C).data(), 0x2C);
@@ -1186,11 +1531,23 @@ SceneActorServices::State::~State()
     {
         release_animation_resource(resources.registry, statsheet);
     }
-    for (const auto table : {part_settings, part_text, sectors.settings})
+    if (game.script_dialogue == script_dialogue.get() && script_dialogue != nullptr)
+    {
+        unbind_scene_dialogue(game);
+    }
+    for (const auto table : {part_settings, part_text, sectors.settings, fallback_texture, text_fonts[0],
+        text_fonts[1]})
     {
         if (table.data() != nullptr)
         {
             release_animation_resource(resources.registry, table);
+        }
+    }
+    for (void* block : {static_cast<void*>(door_pool), static_cast<void*>(text_registry)})
+    {
+        if (block != nullptr)
+        {
+            engine_heap_free(block);
         }
     }
 }
@@ -1278,7 +1635,7 @@ u32 SceneActorServices::State::address_of(const void* pointer)
 
 FactoryObject* SceneActorServices::State::object_of(const u8* bytes)
 {
-    for (auto* owned : {&scene.objects, &cameras, &callout_objects, &cutscene_actors})
+    for (auto* owned : {&scene.objects, &cameras, &callout_objects, &cutscene_actors, &dialogue_bats})
     {
         for (auto& object : *owned)
         {
@@ -2045,7 +2402,8 @@ void SceneActorServices::State::background_message(NativeBackgroundInstance& bac
         return *reinterpret_cast<i32*>(background.bytes.data() + offset);
     };
     RuntimeActorMatrixSampling sampling{{background.matrices.allocation,
-        size_t(background.matrices.matrices.count) * 0x48}, background.matrices.matrices.node, sampling_scratch,
+        size_t(background.matrices.matrices.count) * 0x48}, background.matrices.matrices.node,
+        std::span<float, 12>(sampling_scratch.data(), 12),
         sampling_active, origin, views.source};
     BackgroundPartDispatch dispatch{part_settings, part_setting_count, part_sound_slot,
         std::span<const u8, 5>(data(0x002FD200, 5).data(), 5), sounds, effects};
@@ -2218,9 +2576,82 @@ void SceneActorServices::activate_actors()
     state_->activate_actors();
 }
 
+// Actor vtable +0x14 (draw) for the factory class of a native actor.
+void SceneActorServices::State::actor_draw(Actor& actor, i32 view, i32 pass)
+{
+    for (const auto& [bytes, native] : actors->actors)
+    {
+        if (native == &actor)
+        {
+            FactoryObject* object = object_of(bytes);
+            const u16 type = object == nullptr ? 0 : object->type;
+            // Type 0x1A (vtable 0x00504DD8) +0x14 is 0x0006EF20, a jump to the actor draw 0x0003C9E0.
+            if (type != 0x1A)
+            {
+                unbound("actor draw (vtable +0x14) for factory type " + std::to_string(type) + ", view "
+                    + std::to_string(view) + ", pass " + std::to_string(pass));
+            }
+            draw_scene_actor(*object, actor, pass);
+            return;
+        }
+    }
+    throw Error("actor draw for an actor outside the scene");
+}
+
+// 0x0003C9E0 over a native actor: its frame, model (+0x204), draw flags (+0x197, +0x298), material words
+// (+0x198 / +0x19C) and draw callbacks (+0x1A0 / +0x1A4, payload +0x1A8).
+void SceneActorServices::State::draw_scene_actor(FactoryObject& object, Actor& actor, i32 kind)
+{
+    auto& view = actors->view(object);
+    const std::span<const u8> bytes(object.bytes.get(), object.size);
+    std::unique_ptr<ActorDrawModelView> model;
+    if (actor.model != nullptr && actor.model->runtime != nullptr)
+    {
+        RuntimeModelInstance& instance = *actor.model->runtime;
+        flag_origins[&instance] = instance.node_flags.data();
+        model = std::make_unique<ActorDrawModelView>(ActorDrawModelView{instance,
+            resources.memory.address_of(instance.source->cpu.data()), instance.state_1c0, instance.state_1c4,
+            instance.state_1c8});
+    }
+    std::array<u8, 4> flags = view.startup.flags;
+    const auto callback = [](u32 address, const char* slot) -> std::function<void(Actor&, i32, void*)>
+    {
+        if (address == 0)
+        {
+            return {};
+        }
+        return [slot](Actor&, i32, void*)
+        {
+            unbound(std::string("actor draw callback ") + slot);
+        };
+    };
+    ActorDrawState state{view.frame, model.get(), bytes[0x197], bytes[0x298], view.startup.color,
+        std::bit_cast<u32>(flags), callback(read_u32(bytes, 0x1A0), "+0x1A0"), callback(read_u32(bytes, 0x1A4), "+0x1A4"),
+        reinterpret_cast<void*>(std::uintptr_t(read_u32(bytes, 0x1A8))), draw_matrices[&actor]};
+    ActorFrameDrawContext attachments{attachment_draws};
+    if (model != nullptr)
+    {
+        const u32 cpu = model->cpu;
+        const u32 header = render_image.word(cpu, 0x10);
+        std::fprintf(stderr, "TRACE model cpu %08X flags %08X header %08X tree %08X%c", cpu, render_image.word(cpu, 8),
+            header, header == 0 ? 0 : render_image.word(header, 0x24), 10);
+    }
+    draw_runtime_actor(state, kind, attachments, *model_draw);
+}
+
 void SceneActorServices::start_background()
 {
     state_->start_background();
+}
+
+void SceneActorServices::start_scene(const std::function<void()>& script_event)
+{
+    start_background();
+    start_markers();
+    activate_actors();
+    script_event();
+    send_scene_start_notice();
+    send_scene_start();
 }
 
 void SceneActorServices::send_scene_start_notice()
@@ -2420,6 +2851,11 @@ const std::unordered_map<u32, Actor*>& SceneActorServices::actor_addresses() con
         state.addresses[state.scene.address_of(bytes)] = actor;
     }
     return state.addresses;
+}
+
+int SceneActorServices::wait_script_player() const
+{
+    return wait_runtime_script_player(player_link(), actor_addresses(), state_->query);
 }
 
 size_t SceneActorServices::player_total() const

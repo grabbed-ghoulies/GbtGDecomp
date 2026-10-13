@@ -6662,3 +6662,102 @@ pool alongside debris. Bound 0x000ED480 to real scene collision, audio, effect
 streams, frame state, shader/resource release and caller-supplied effect scratch.
 The opening-scene fixture now calls the global pass as well as background +0x10;
 this latest native ownership/binding batch is pending validation.
+
+### Live scene start and the 0x6F gate (2026-10-13)
+
+**Scene start in the live game.** `script_queue_scene_start` (the host 0x0011CB60)
+now runs `SceneActorServices::start_scene`, the translated part of 0x0011CBD0
+in retail order:
+
+1. background, its activation and navigation;
+2. markers;
+3. activation;
+4. the script's 0x7D event (0x00116810);
+5. the 0x88 notice;
+6. the actor 0x7D sweep.
+
+`SceneFactoryRuntime::actor_start` records the outcome. If a service is not yet
+bound, the run logs `native scene start stopped: ...` and the scene keeps the
+legacy path. The live opening run now logs `native scene start complete`, and
+both headless runs exit 0.
+
+**The 0x6F wait.** `SceneActorServices::wait_script_player` evaluates 0x00127BC0
+over the scene's player link and actor graph. After scene start it returns 2
+(continue); `--scene-start` prints this.
+
+Binding it live moves the opening script past node +0x254 to the next type 0x14
+dialogue node. That node raises because no scene dialogue runtime is installed
+(`bind_scene_dialogue` has no caller). So the live 0x6F case keeps its hold, and
+its comment now says why.
+
+**Next.** Build the scene-owned dialogue runtime from the services:
+
+- `RuntimeDialogueActivationContext`: the widget allocation and bat factory,
+  page layout and settings, measurement and tags, input activation and release,
+  listener, voices, the new cutscene runtime and widget update.
+- `RuntimeDialogueOuterDrawContext`: render targets, D3D boundaries, the sprite
+  queue and display setup.
+
+Bind both at native scene start, then switch the live 0x6F case to
+`wait_script_player`.
+
+**Still missing from 0x0011CBD0:** 0x00060C80, 0x00114180, 0x001153A0,
+0x00123560, 0x00119990, 0x0011F450, 0x0011B7A0/0x0011B8F0/0x0011B7F0,
+0x00112D70, 0x00125B80, 0x00127250, 0x00125070, 0x0011C980, 0x000F4440,
+0x001160C0, 0x00123240, 0x0012A1E0, 0x00132040 and 0x00049BA0. Their dumps are
+now exported.
+
+### Scene dialogue runtime installed (2026-10-13)
+
+The services now build the dialogue runtime and bind it (`bind_scene_dialogue`)
+when they start, and unbind it in their destructor.
+
+**Boot globals translated or applied** (the parts of 0x00033030 the dialogue reads):
+
+- HUD safe-area layout 0x000FC190 (`frontend/hud_layout`), over the D3D display
+  mode 640x480.
+- Display views 0x000F5900.
+- Port masks DAT_0050E0F4.. = {0, 1, 2, 4, 8} (0x00033248).
+- Text init 0x00060320 and its table counter 0x0005F210
+  (`frontend/dialogue_text_system`): the null-char texture DAT_004E1C58, the
+  language fonts DAT_00504444, the draw defaults, and the text-pool registry
+  DAT_005043CC.
+
+**Dialogue contexts.** The activation, measurement, tag and trophy, widget, page,
+draw, display-setup and outer-draw contexts are built from scene state. The
+initialized data (DAT_00424900.., DAT_003150D0 icon names, DAT_00421A1C/24
+audio categories) is read from the image.
+
+**D3D boundary.** `graphics/scene_d3d_device` is a host D3D device for the
+dialogue boundary sets. It keeps transforms, vertex constants, textures and
+states, and decodes push-buffer quad batches into recorded draws.
+
+**Supporting changes:**
+
+- `SceneDialogueResourceOwner` serves loose `aid_font_` files.
+- `publish_font` gives the metrics the fonts that 0x00060320 acquires.
+- `DialogueWidgetUpdateContext.bats` and `CutsceneRuntimeContext.draws` are now
+  lookup functions over live actor views.
+- The renderer gets 32 frames (DAT_004392B0) mapped to dialogue frame views.
+
+**Live result.** With the 0x6F query bound, the live opening:
+
+1. passes 0x6F;
+2. reaches type 0x14 with `chapter1_scene1_fight1_howtofight`;
+3. enqueues the localized text;
+4. activates mode 1: menutext widget, button bat, the dialog camera cutscene
+   load, page reset with the button prompt;
+5. holds the script at 0;
+6. runs `update_runtime_dialogue`: input device, widget and bat update, and
+   the cutscene tick.
+
+The draw then reaches `draw_runtime_cutscene` for the dialogue cutscene's prop
+actor (type 0x1A, whose vtable +0x14 is 0x0006EF20 -> 0x0003C9E0 -> 0x000F9080).
+That needs the translated scene model renderer context (`SceneModelDrawContext`:
+lights, environment and model-tree dispatch with their D3D boundaries).
+`actor_draw` raises with the class, so the live 0x6F case keeps its hold and
+the live runs stay green.
+
+**Next:** bind the scene model renderer, either through the host D3D device or a
+renderer translation. Then the live 0x6F gate can open and the tutorial
+dialogue draws.

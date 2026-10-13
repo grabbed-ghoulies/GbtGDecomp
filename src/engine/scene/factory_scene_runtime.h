@@ -40,6 +40,9 @@ public:
     std::span<const u8> markers() const;
     // Builds the actor service graph and installs its classes; marker start then creates the scene's actors.
     SceneActorServices& start_actors(Game& game);
+    // Native scene start through the actor services: 0 not run, 1 complete, -1 stopped where a service
+    // is not bound yet (the scene then keeps the legacy script path).
+    i32 actor_start = 0;
     std::unique_ptr<SceneActorServices> actor_services; // Declared last: objects are released before it.
 
 private:

@@ -405,6 +405,9 @@ add_executable(gbtg
     src/engine/scene/background_part_destruction.cpp
     src/engine/scene/background_messages.cpp
     src/engine/scene/background_class_owner.cpp
+    src/engine/frontend/hud_layout.cpp
+    src/engine/frontend/dialogue_text_system.cpp
+    src/engine/graphics/scene_d3d_device.cpp
     src/engine/navigation/grid_regions.cpp
     src/engine/scene/background_construction.cpp
     src/engine/runtime/aid_list_lookup.cpp

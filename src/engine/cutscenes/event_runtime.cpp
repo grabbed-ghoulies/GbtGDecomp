@@ -867,8 +867,8 @@ void draw_runtime_cutscene(RuntimeCutsceneInstance& instance, i32 view,
             auto& row = rows[index];
             if (row.listed == 0 && row.initialized != 0 && row.actor != nullptr)
             {
-                context.draws.at(row.actor)(*row.actor, view, 1);
-                context.draws.at(row.actor)(*row.actor, view, 2);
+                context.draws(*row.actor, view, 1);
+                context.draws(*row.actor, view, 2);
             }
             ++index;
         }

@@ -15,7 +15,7 @@ u32 update_dialogue_widget(RuntimeDialogueWidget& widget,
     }
     if (widget.bat != nullptr)
     {
-        const auto& bat = context.bats.at(widget.bat);
+        const auto bat = context.bats(widget.bat);
         update_button_bat(bat.bat, bat.frame, bat.context);
     }
     if (widget.mode == 1)

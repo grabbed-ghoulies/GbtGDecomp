@@ -1,5 +1,6 @@
 #include "d3dx_matrix.h"
 #include "extended_float.h"
+#include "vector_normalize.h"
 #include <array>
 #include <algorithm>
 
@@ -152,5 +153,55 @@ void transform_runtime_graphics_normal(Vec3& output, const Vec3& normal, const f
     output.x = float(x);
     output.y = float(y);
     output.z = float(z);
+}
+
+// Xbox 0x00184B1F
+void runtime_graphics_scaling_matrix(float* output, float x, float y, float z)
+{
+    output[0xE] = 0.f;
+    output[0] = x;
+    output[0xD] = 0.f;
+    output[5] = y;
+    output[0xC] = 0.f;
+    output[0xA] = z;
+    output[0xB] = 0.f;
+    output[9] = 0.f;
+    output[8] = 0.f;
+    output[7] = 0.f;
+    output[6] = 0.f;
+    output[4] = 0.f;
+    output[3] = 0.f;
+    output[2] = 0.f;
+    output[1] = 0.f;
+    output[0xF] = 1.f;
+}
+
+// Xbox 0x00184EBE
+void scale_runtime_graphics_vector(Vec3& vector, float divisor)
+{
+    const long double reciprocal = 1.L / divisor;
+    vector.x = float(reciprocal * vector.x);
+    vector.y = float(reciprocal * vector.y);
+    vector.z = float(reciprocal * vector.z);
+}
+
+// Xbox 0x00185015
+void transform_runtime_graphics_coord(Vec3& output, const Vec3& point, const float* matrix)
+{
+    const long double x = point.x;
+    const long double y = point.y;
+    const long double z = point.z;
+    const long double first = ((x * matrix[0] + y * matrix[4]) + z * matrix[8]) + matrix[12];
+    const long double second = ((x * matrix[1] + y * matrix[5]) + z * matrix[9]) + matrix[13];
+    const long double third = ((x * matrix[2] + y * matrix[6]) + z * matrix[10]) + matrix[14];
+    const long double fourth = ((x * matrix[3] + y * matrix[7]) + z * matrix[11]) + matrix[15];
+    output.x = float(first);
+    output.y = float(second);
+    output.z = float(third);
+    const float w = float(fourth);
+    if (!runtime_graphics_scalars_equal(w, 1.f))
+    {
+        scale_runtime_graphics_vector(output, w);
+    }
 }
 }

@@ -208,7 +208,7 @@ void draw_runtime_dialogue_widget(RuntimeDialogueWidget& widget, i32 immediate,
                 widget.bat->xform_valid = 0;
             }
             const i32 view = static_cast<i32>(c.current_display_address - 0x507018u) / 0x1E4;
-            c.draw.dialogue.cutscenes.draws.at(widget.bat)(*widget.bat, view, 3);
+            c.draw.dialogue.cutscenes.draws(*widget.bat, view, 3);
         }
     }
 }

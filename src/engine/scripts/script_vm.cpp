@@ -6,6 +6,8 @@
 #include "gbtg/movie.h"
 #include "gbtg/resource.h"
 #include "../transitions/transition_data.h"
+#include "../scene/factory_scene_runtime.h"
+#include <iostream>
 
 #include <algorithm>
 #include <bit>
@@ -749,7 +751,34 @@ void script_queue_scene_start(Game& g)
     // 0x0011CBD0 sends the scene-start message directly to 0x00116810,
     // before its entity broadcasts. This wakes the title action.
     const std::array<u8, 4> start{0x7d, 0, 0, 0};
-    script_queue_event(g, start);
+    const auto script_event = [&g, &start]()
+    {
+        script_queue_event(g, start);
+    };
+    bool queued = false;
+    if (g.factory_scene != nullptr && g.factory_scene->actor_start == 0)
+    {
+        try
+        {
+            g.factory_scene->start_actors(g).start_scene([&]()
+            {
+                script_event();
+                queued = true;
+            });
+            g.factory_scene->actor_start = 1;
+            std::cout << "native scene start complete: " << g.scene_name << "\n";
+        }
+        catch (const std::exception& error)
+        {
+            // Host diagnostic: the native actor graph stops where an untranslated service is reached.
+            g.factory_scene->actor_start = -1;
+            std::cout << "native scene start stopped: " << error.what() << "\n";
+        }
+    }
+    if (!queued)
+    {
+        script_event();
+    }
     g_scene_script_started = true;
     cutscene_queue_start(g);
     script_tick_fired_vm(g);

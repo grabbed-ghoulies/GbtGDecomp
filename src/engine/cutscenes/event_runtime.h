@@ -69,7 +69,7 @@ struct CutsceneRuntimeContext
     std::unordered_map<RuntimeCutsceneInstance*, const u8*> dialogue_events; // Native +164 pointer mapping.
     std::vector<FactoryObject> event_objects;
     void (*free_instance)(void*); // HeapFree boundary paired with engine_heap_allocate.
-    std::unordered_map<Actor*, std::function<void(Actor&, i32, i32)>> draws; // Actor vtable+14.
+    std::function<void(Actor&, i32, i32)> draws; // Actor vtable +0x14, dispatched by the actor's class.
 };
 void dispatch_runtime_cutscene_event(RuntimeCutsceneInstance* instance,
     std::span<u8> event_state, u8* event, Actor* actor, u32 phase,

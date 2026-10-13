@@ -1,3 +1,4 @@
+#include <cstdio>
 #include "dialogue_scene_runtime.h"
 #include "../scripts/script_actions.h"
 #include "../camera/camera.h"
@@ -64,7 +65,15 @@ void draw_scene_dialogue(Game& game)
         auto& draw = *game.dialogue_draw;
         draw.visibility_mask = game.script_dialogue->scene_flags;
         draw.draw.animation_time = game.time;
-        render_runtime_dialogue(draw);
+        try
+        {
+            render_runtime_dialogue(draw);
+        }
+        catch (const std::exception& error)
+        {
+            std::fprintf(stderr, "TRACE draw threw: %s%c", error.what(), 10);
+            throw;
+        }
     }
 }
 

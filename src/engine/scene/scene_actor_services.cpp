@@ -44,9 +44,12 @@
 #include "../frontend/dialogue_resources.h"
 #include "../camera/runtime_display_setup.h"
 #include "../camera/display_view.h"
+#include "gbtg/gfx.h"
+#include "gbtg/texture.h"
 #include "../camera/display_clip_limits.h"
 #include "../graphics/scene_d3d_device.h"
 #include "../audio/pcm_backend.h"
+#include "gbtg/engine_internal.h"
 #include "../scripts/script_dialogue_actions.h"
 #include "../graphics/scene_model_draw.h"
 #include "../graphics/scene_environment_setup.h"
@@ -59,6 +62,9 @@
 #include "../graphics/model_shader_states.h"
 #include "../graphics/model_transform_draw.h"
 #include "../graphics/model_vertex_shader_draw.h"
+#include "../graphics/model_shader_parameter_draw.h"
+#include "../graphics/model_blendshape_draw.h"
+#include "../entities/button_bat_draw.h"
 #include "../graphics/vector_normalize.h"
 #include "../graphics/d3dx_matrix.h"
 #include "../entities/actor_frame_render.h"
@@ -534,7 +540,7 @@ struct SceneActorServices::State
     std::array<char, 0x80> replacement_source{}; // DAT_004E1AC0.
     std::array<char, 0x80> replacement_target{}; // DAT_004E1A40.
     std::vector<FactoryObject> cutscene_actors; // Track actors 0x0004DEC0 creates.
-    std::unordered_map<Actor*, FactoryObject*> actor_objects; // Native actor -> factory object.
+    std::function<FactoryObject*(Actor*)> actor_objects; // Native track actor -> its factory object.
     std::unordered_map<Actor*, u32> actor_object_addresses;
     std::unordered_map<Actor*, std::function<void(Actor&)>> actor_updates; // Actor vtable +0x10.
     std::unordered_map<Actor*, std::unique_ptr<RuntimeSegmentContactActor>> prop_contact_views;
@@ -644,7 +650,7 @@ struct SceneActorServices::State
     u32 cull_mode = 0; // DAT_0032E3D0.
     std::unordered_map<u32, std::function<void(u32, void*)>> node_callbacks;
     std::unique_ptr<ModelTreeDispatchContext> tree_dispatch;
-    std::array<u32, 16> stream_descriptors{}; // Render state +0x78.
+    std::array<u32, 67> stream_descriptors{}; // Render state +0x78 up to the colour at +0x184.
     u32 active_pixel_shader = 0; // DAT_0054D948.
     u32& depth_function = deferred_states[(0x00181C54 - 0x00181968) / 4];
     u32& blend_enabled = deferred_states[(0x00181C5C - 0x00181968) / 4];
@@ -675,6 +681,12 @@ struct SceneActorServices::State
     std::unique_ptr<RuntimeModelVertexShaderDraw> vertex_draw;
     std::array<float, 4> vertex_parameters{}; // Render state +0x198, BSS/renderer boot.
     std::array<float, 8> vertex_auxiliary{}; // Render state +0x1B0.
+    RuntimeModelMaterialGlobals material_globals;
+    RuntimeModelTextureRecords texture_records;
+    std::unique_ptr<RuntimeModelMaterialBind> material_bind;
+    std::unique_ptr<RuntimeModelBlendshapeDraw> blendshape_draw;
+    std::unique_ptr<RuntimeScreenModelDraw> screen_model_draw;
+    std::unique_ptr<RuntimeButtonBatDraw> button_bat_draw;
     u32 node_registry_count = 0;
     std::unique_ptr<RuntimeShaderFragmentTable> shader_fragments =
         std::make_unique<RuntimeShaderFragmentTable>();
@@ -731,6 +743,10 @@ struct SceneActorServices::State
     void start_background();
     void actor_draw(Actor& actor, i32 view, i32 pass); // Actor vtable +0x14 by class.
     void draw_scene_actor(FactoryObject& object, Actor& actor, i32 kind); // 0x0003C9E0.
+    // Host presentation of the recorded dialogue quads, with decoded images of their texture frames.
+    std::unordered_map<const u8*, std::unique_ptr<RgbaImage>> quad_images;
+    const RgbaImage& quad_image(const u8* record);
+    void present_dialogue_quads();
 };
 
 SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
@@ -1118,13 +1134,32 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             if (object.bytes != nullptr)
             {
                 auto* actor = actors->actors.at(object.bytes.get());
-                actor_objects[actor] = &object;
                 actor_object_addresses[actor] = scene.address_of(object.bytes.get());
             }
         }
         return instance == nullptr ? 0u : heap_address(instance, sizeof(RuntimeCutsceneInstance));
     };
+    // The track vector grows as cutscenes create actors, so look the owner up when it is needed.
+    actor_objects = [this](Actor* actor) -> FactoryObject*
+    {
+        for (auto& object : cutscene_actors)
+        {
+            if (object.bytes != nullptr && actors->actors.at(object.bytes.get()) == actor)
+            {
+                return &object;
+            }
+        }
+        throw Error("cutscene track actor has no factory object");
+    };
     audio_banks = std::make_unique<AudioBankStreams>(AudioBankStreams{{}, {}, {}, voices});
+    // The XACT engine boundaries behind the audio core: heap, sound sources and cue preparation.
+    audio_sources.memory = native_audio_core_memory();
+    audio_sources.boundaries = native_audio_core_source_boundaries();
+    audio_cues.boundaries = native_audio_core_cue_boundaries(game, [](void*, u32) -> const char*
+    {
+        unbound("audio core cue names for a sound bank handle");
+    });
+    audio_cues.sound = native_sound_boundaries();
     cutscene_factory = std::make_unique<CutsceneActorFactoryContext>(CutsceneActorFactoryContext{scene.factory,
         image.pools, replacement_source.data(), replacement_target.data()});
     cutscene_initialization = std::make_unique<CutsceneActorInitializationContext>(
@@ -1518,6 +1553,63 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         vertex_parameters[1] = model_renderer.state.fog_scaled_end;
         dispatch_runtime_model_vertex_shader(node, *vertex_draw);
     };
+    // DAT_00336130 starts with its .data value; 0x000F8740 binds DAT_004D9754 to 0x000F9BC0 and
+    // DAT_004D9750 to 0x000F9B90.
+    std::memcpy(material_globals.material_vector.data(), data(0x00336130, 0xC).data(), 0xC);
+    material_bind = std::make_unique<RuntimeModelMaterialBind>(RuntimeModelMaterialBind{*tree_dispatch,
+        material_globals, texture_records, deferred_states, deferred_states[(0x00181C60 - 0x00181968) / 4],
+        deferred_states[(0x00181C58 - 0x00181968) / 4], deferred_states[(0x00181C64 - 0x00181968) / 4],
+        environment_primary, environment_secondary,
+        [this](u32 texture, u32 stage)
+        {
+            // 0x000F9BC0 passes the texture to 0x00053550 in ESI.
+            u8* header = resources.memory.pointer(texture);
+            if (header == nullptr)
+            {
+                throw Error("model material binds an unmapped texture");
+            }
+            bind_dialogue_texture(header, stage, *dialogue_draw);
+        },
+        [this](u32)
+        {
+            apply_runtime_model_material_colors(*model_shader_combiner);
+        },
+        [this](u32 stage, u32 texture)
+        {
+            d3d_device.dialogue().texture(stage, texture == 0 ? nullptr : render_image.pointer(texture));
+        },
+        [this](u32 stage, u32 type, u32 value)
+        {
+            // D3D_g_DeferredTextureState, DAT_00181970.
+            deferred_states[2 + stage * 0x20 + type] = value;
+        },
+        [this](u32 reg, const float* values, u32 count)
+        {
+            d3d_device.set_constant_words(reg, reinterpret_cast<const u32*>(values), count);
+        },
+        [this](u32 reg, const float* values, u32 count)
+        {
+            d3d_device.outer().pixel_constants(reg, values, count);
+        },
+        [this](u32 method, u32 value)
+        {
+            d3d_device.set_state(method, value);
+        }});
+    node_callbacks[0x00157090] = [this](u32 node, void* storage)
+    {
+        dispatch_runtime_model_shader_parameters(node, *static_cast<RuntimeModelInstanceStorage*>(storage),
+            *material_bind);
+    };
+    blendshape_draw = std::make_unique<RuntimeModelBlendshapeDraw>(RuntimeModelBlendshapeDraw{*tree_dispatch,
+        stream_descriptors, vertex_auxiliary});
+    node_callbacks[0x00157A50] = [this](u32 node, void* storage)
+    {
+        dispatch_runtime_model_blendshape(node, *static_cast<RuntimeModelInstanceStorage*>(storage),
+            *blendshape_draw);
+    };
+    screen_model_draw = std::make_unique<RuntimeScreenModelDraw>(RuntimeScreenModelDraw{*display_setup, *model_draw});
+    button_bat_draw = std::make_unique<RuntimeButtonBatDraw>(RuntimeButtonBatDraw{*screen_model_draw,
+        d3d_device.outer(), origin});
     push_buffers = std::make_unique<ModelPushBufferDrawContext>(ModelPushBufferDrawContext{*tree_dispatch,
         flag_origins,
         [this](u32 primitive, u32 count, u32 indices)
@@ -1675,6 +1767,11 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
 
 SceneActorServices::State::~State()
 {
+    // The dialogue's cutscene still holds rows over the scene's cutscene actors: close it before they go.
+    if (game.script_dialogue == script_dialogue.get() && script_dialogue != nullptr)
+    {
+        unbind_scene_dialogue(game);
+    }
     RuntimeDoorRelease door_release{*doors, door_camera_registered, door_paused, active_strategies,
         door_camera_hold, g_flags_ea9c};
     release_runtime_doors(door_release);
@@ -1698,10 +1795,6 @@ SceneActorServices::State::~State()
     if (statsheet.data() != nullptr)
     {
         release_animation_resource(resources.registry, statsheet);
-    }
-    if (game.script_dialogue == script_dialogue.get() && script_dialogue != nullptr)
-    {
-        unbind_scene_dialogue(game);
     }
     for (const auto table : {part_settings, part_text, sectors.settings, fallback_texture, text_fonts[0],
         text_fonts[1]})
@@ -2753,10 +2846,27 @@ void SceneActorServices::State::actor_draw(Actor& actor, i32 view, i32 pass)
         {
             FactoryObject* object = object_of(bytes);
             const u16 type = object == nullptr ? 0 : object->type;
+            // Type 0x15 (vtable 0x00504C34) +0x14 is the button bat draw 0x0006D6C0.
+            if (type == 0x15)
+            {
+                if (actor.model == nullptr || actor.model->runtime == nullptr)
+                {
+                    throw Error("button bat draw has no model");
+                }
+                RuntimeModelInstance& instance = *actor.model->runtime;
+                flag_origins[&instance] = instance.node_flags.data();
+                auto& view = actors->view(*object);
+                draw_runtime_button_bat(view.bat, view.animation, instance,
+                    resources.memory.address_of(instance.source->cpu.data()), u32(pass), *button_bat_draw);
+                return;
+            }
             // Type 0x1A (vtable 0x00504DD8) +0x14 is 0x0006EF20, a jump to the actor draw 0x0003C9E0.
             if (type != 0x1A)
             {
-                unbound("actor draw (vtable +0x14) for factory type " + std::to_string(type) + ", view "
+                char vtable[16];
+                std::snprintf(vtable, sizeof(vtable), "0x%08X",
+                    object == nullptr || object->vtable == nullptr ? 0u : object->vtable->address);
+                unbound("actor draw (vtable " + std::string(vtable) + " +0x14) for factory type " + std::to_string(type) + ", view "
                     + std::to_string(view) + ", pass " + std::to_string(pass));
             }
             draw_scene_actor(*object, actor, pass);
@@ -2798,6 +2908,99 @@ void SceneActorServices::State::draw_scene_actor(FactoryObject& object, Actor& a
         reinterpret_cast<void*>(std::uintptr_t(read_u32(bytes, 0x1A8))), draw_matrices[&actor]};
     ActorFrameDrawContext attachments{attachment_draws};
     draw_runtime_actor(state, kind, attachments, *model_draw);
+}
+
+// A bound texture is a frame record of a texture header: header + header size (28) + frame * 0x14
+// (0x00053550). Headers sit at the start of texture resources and inside fonts (one per glyph); the
+// registry's loaded rows own the bytes, and the header's offsets index that row's GPU data.
+const RgbaImage& SceneActorServices::State::quad_image(const u8* record)
+{
+    const auto cached = quad_images.find(record);
+    if (cached != quad_images.end())
+    {
+        return *cached->second;
+    }
+    for (const auto& loaded : resources.registry.loaded)
+    {
+        const u8* begin = loaded.cpu.data();
+        if (begin == nullptr || record < begin || record >= begin + loaded.cpu.size())
+        {
+            continue;
+        }
+        for (size_t frame = 0; size_t(record - begin) >= 28 + frame * 0x14; ++frame)
+        {
+            const size_t start = size_t(record - begin) - 28 - frame * 0x14;
+            TextureHeader header;
+            if (!parse_texture_header(loaded.cpu.subspan(start), header) || frame >= std::max<size_t>(header.tile_count, 1))
+            {
+                continue;
+            }
+            const size_t offset = size_t(header.texture_offset) + frame * header.data_size;
+            if (offset > loaded.gpu.size() || header.data_size > loaded.gpu.size() - offset)
+            {
+                continue;
+            }
+            TextureHeader tile = header;
+            tile.texture_offset = 0;
+            auto image = std::make_unique<RgbaImage>(decode_xbox_texture(tile, loaded.gpu.subspan(offset, header.data_size)));
+            return *quad_images.emplace(record, std::move(image)).first->second;
+        }
+        throw Error("dialogue quad texture record has no texture header");
+    }
+    throw Error("dialogue quad texture is outside every loaded resource");
+}
+
+void SceneActorServices::State::present_dialogue_quads()
+{
+    for (const auto& quad : d3d_device.take_quads())
+    {
+        if (quad.texture == nullptr)
+        {
+            continue;
+        }
+        const RgbaImage& image = quad_image(quad.texture);
+        // Constants c0x60..c0x63 are the transposed transform: clip = row . (x, y, z, 1). The HUD is 640x480.
+        const auto clip = [&quad](const std::array<float, 5>& vertex, u32 row)
+        {
+            const float* m = quad.transform.data() + row * 4;
+            return m[0] * vertex[0] + m[1] * vertex[1] + m[2] * vertex[2] + m[3];
+        };
+        const auto& first = quad.vertices[0];
+        const auto& last = quad.vertices[2];
+        float x0 = (clip(first, 0) + 1.f) * 320.f;
+        float y0 = (1.f - clip(first, 1)) * 240.f;
+        float x1 = (clip(last, 0) + 1.f) * 320.f;
+        float y1 = (1.f - clip(last, 1)) * 240.f;
+        float u0 = first[3];
+        float v0 = first[4];
+        float u1 = last[3];
+        float v1 = last[4];
+        if (x1 < x0)
+        {
+            std::swap(x0, x1);
+            std::swap(u0, u1);
+        }
+        if (y1 < y0)
+        {
+            std::swap(y0, y1);
+            std::swap(v0, v1);
+        }
+        gfx_sprite_submit(image, x0, y0, x1 - x0, y1 - y0, u0, v0, u1, v1, quad.color);
+    }
+}
+
+void SceneActorServices::present_views(const std::function<void()>& draw_world)
+{
+    auto& state = *state_;
+    present_runtime_display_views([&state, &draw_world](i32)
+    {
+        // The D3D11 renderer takes the slot's display camera; the display field of view is in degrees.
+        const auto& view = *entity_detail::g_display_view;
+        gfx_set_camera(view.position, view.rotation, view.field_of_view * (3.14159265f / 180.f));
+        draw_world();
+        draw_scene_dialogue(state.game);
+        state.present_dialogue_quads();
+    }, *state.display_setup);
 }
 
 void SceneActorServices::start_background()

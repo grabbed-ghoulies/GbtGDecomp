@@ -57,7 +57,7 @@ struct CutsceneActorInitializationContext
 struct CutsceneActorReleaseContext
 {
     ObjectFactoryRegistry& factory;
-    const std::unordered_map<Actor*, FactoryObject*>& objects;
+    const std::function<FactoryObject*(Actor*)>& objects; // Factory object owning a track actor.
     const std::unordered_map<Actor*, ActorRenderRegistration*>& render;
     std::span<std::span<const u8>> events; // Native pointers for row+4 resources.
     AnimationResourceRegistry& resources;

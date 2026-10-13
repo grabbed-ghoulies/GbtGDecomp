@@ -37,7 +37,7 @@ struct CutsceneRuntimeContext
     CutsceneActorInitializationContext& initialization;
     ObjectFactoryRegistry& factory;
     std::span<ExecutableResourcePool> executable;
-    const std::unordered_map<Actor*, FactoryObject*>& objects;
+    const std::function<FactoryObject*(Actor*)>& objects; // Factory object owning a track actor.
     const std::unordered_map<Actor*, ActorRenderRegistration*>& render;
     const std::unordered_map<Actor*, ActorAnimationState*>& animations;
     const std::unordered_map<Actor*, u32>& actor_addresses;

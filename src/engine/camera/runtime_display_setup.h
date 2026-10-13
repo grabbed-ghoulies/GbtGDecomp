@@ -38,4 +38,8 @@ bool setup_explicit_camera_display(EntityCamNode* camera, i32 slot,
     RuntimeDisplaySetupContext& context); // Xbox 0x00048BC0
 void setup_active_camera_display(i32 slot,
     RuntimeDisplaySetupContext& context); // Xbox 0x00048B60
+void set_display_transform(const float* matrix, RuntimeDisplaySetupContext& context); // Xbox 0x000F6EB0
+// Each active camera slot's display, then its view draw (0x0011C240).
+void present_runtime_display_views(const std::function<void(i32)>& draw_view,
+    RuntimeDisplaySetupContext& context); // Xbox 0x00033A20
 }

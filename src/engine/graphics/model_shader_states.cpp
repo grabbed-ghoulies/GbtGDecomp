@@ -355,4 +355,29 @@ void post_runtime_model_shader(u32 shader, RuntimeModelShaderCombiner& context)
     }
     apply_runtime_model_shader_overrides(*renderer.active_model, shader, context);
 }
+
+// Xbox 0x000F7FA0
+void set_runtime_model_stage_colors(u32 first, u32 second, RuntimeModelShaderCombiner& context)
+{
+    // Both colours swap their red and blue bytes (ARGB to ABGR).
+    const auto swap = [](u32 color)
+    {
+        return (((color >> 24) << 8 | (color & 0xFF)) << 8 | ((color >> 8) & 0xFF)) << 8 | ((color >> 16) & 0xFF);
+    };
+    write_combiner_state<false>(i32(context.texture_stage + 10), swap(first), context);
+    write_combiner_state<true>(i32(context.texture_stage + 0x12), swap(second), context);
+}
+
+// Xbox 0x000F9B90
+void apply_runtime_model_material_colors(RuntimeModelShaderCombiner& context)
+{
+    if (context.texture_stage != 0)
+    {
+        const RuntimeModelInstance& model = *context.draw.tree.renderer.active_model;
+        if (model.state_1c0 != 0)
+        {
+            set_runtime_model_stage_colors(model.state_1c4, model.state_1c8, context);
+        }
+    }
+}
 }

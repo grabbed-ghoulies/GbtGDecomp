@@ -7,6 +7,7 @@
 #include <cerrno>
 #include <bit>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -111,6 +112,8 @@ std::array<float, 256> g_category_volumes = []()
     return volumes;
 }();
 bool g_listener_effect = false;
+// Owned cue voices routed into a sound-source submix by IXACTSoundBank_PlayEx.
+std::map<IXAudio2SourceVoice*, IXAudio2Voice*> g_source_routes;
 std::vector<PcmVoice> g_voices;
 std::vector<PcmVoice> g_bed;
 u64 g_next_voice_handle = 0;
@@ -154,6 +157,7 @@ void release_voice(PcmVoice& slot)
     }
     slot.voice->Stop(0);
     slot.voice->FlushSourceBuffers();
+    g_source_routes.erase(slot.voice);
     slot.voice->DestroyVoice();
     slot.voice = nullptr;
 }
@@ -1383,12 +1387,141 @@ AudioCoreCueBoundaries native_audio_core_cue_boundaries(const Game& game,
             {
                 return static_cast<i32>(status);
             }
+            g_source_routes[voice] = static_cast<IXAudio2Voice*>(source);
         }
         return static_cast<i32>(voice->Start(0));
 #else
         (void)source;
         (void)cue;
         return static_cast<i32>(0x80004001u);
+#endif
+    };
+    return boundaries;
+}
+
+AudioCoreMemory native_audio_core_memory()
+{
+    AudioCoreMemory memory;
+    memory.allocate = [](size_t size) -> void*
+    {
+        void* allocation = std::malloc(size);
+        if (allocation == nullptr)
+        {
+            throw Error("audio core heap is exhausted");
+        }
+        return allocation;
+    };
+    memory.release = [](void* allocation)
+    {
+        std::free(allocation);
+    };
+    return memory;
+}
+
+AudioCoreSourceBoundaries native_audio_core_source_boundaries()
+{
+    AudioCoreSourceBoundaries boundaries;
+    // XACT sound sources are submix voices; the cue voices PlayEx routes into them mix through them.
+    boundaries.create = [](u32 flags, void*& handle) -> i32
+    {
+        handle = nullptr;
+#if defined(_WIN32)
+        if (!ensure_device())
+        {
+            return static_cast<i32>(g_device_result);
+        }
+        XAUDIO2_VOICE_DETAILS details;
+        g_master->GetVoiceDetails(&details);
+        IXAudio2SubmixVoice* voice = nullptr;
+        // Flag 2 is a 3D (mono) source and flag 1 a 2D source.
+        const HRESULT status = g_xa->CreateSubmixVoice(&voice, flags == 2 ? 1 : 2, details.InputSampleRate);
+        if (SUCCEEDED(status))
+        {
+            handle = voice;
+        }
+        return static_cast<i32>(status);
+#else
+        (void)flags;
+        return static_cast<i32>(0x80004001u);
+#endif
+    };
+    // The PCM backend has no mix bins or 3D positioning; it keeps the submix at its default routing.
+    boundaries.mix_bins = [](void*, std::span<const AudioCoreMixBin>)
+    {
+    };
+    boundaries.mix_volumes = [](void*, std::span<const AudioCoreMixBin>)
+    {
+    };
+    boundaries.position = [](void*, const Vec3&, u32)
+    {
+    };
+    boundaries.velocity = [](void*, const Vec3&, u32)
+    {
+    };
+    boundaries.cone = [](void*, const Vec3&, u32)
+    {
+    };
+    boundaries.reverb = [](void*, std::span<const u32, 9>, u32)
+    {
+    };
+    boundaries.bad_pointer = [](const void* pointer)
+    {
+        return pointer == nullptr;
+    };
+    boundaries.status = [](void* handle, u32& status)
+    {
+        // XACT reports 1 (in use) while a routed cue is still playing.
+        status = 0;
+#if defined(_WIN32)
+        for (const PcmVoice& slot : g_bed)
+        {
+            const auto route = g_source_routes.find(slot.voice);
+            if (route == g_source_routes.end() || route->second != handle)
+            {
+                continue;
+            }
+            XAUDIO2_VOICE_STATE state{};
+            slot.voice->GetState(&state);
+            if (state.BuffersQueued != 0)
+            {
+                status = 1;
+            }
+        }
+#else
+        (void)handle;
+#endif
+    };
+    boundaries.release = [](void* handle)
+    {
+#if defined(_WIN32)
+        for (auto route = g_source_routes.begin(); route != g_source_routes.end();)
+        {
+            if (route->second != handle)
+            {
+                ++route;
+                continue;
+            }
+            const bool live = std::any_of(g_bed.begin(), g_bed.end(), [&route](const PcmVoice& slot)
+            {
+                return slot.voice == route->first;
+            });
+            if (live)
+            {
+                route->first->SetOutputVoices(nullptr);
+            }
+            route = g_source_routes.erase(route);
+        }
+        static_cast<IXAudio2SubmixVoice*>(handle)->DestroyVoice();
+#else
+        (void)handle;
+#endif
+    };
+    boundaries.debug_string = [](const char* text)
+    {
+#if defined(_WIN32)
+        OutputDebugStringA(text);
+#else
+        (void)text;
 #endif
     };
     return boundaries;
@@ -1409,6 +1542,7 @@ void pcm_stop_cue(const char* cue)
             continue;
         }
         g_bed[i].voice->Stop(0);
+        g_source_routes.erase(g_bed[i].voice);
         g_bed[i].voice->DestroyVoice();
         g_bed.erase(g_bed.begin() + static_cast<std::ptrdiff_t>(i));
     }

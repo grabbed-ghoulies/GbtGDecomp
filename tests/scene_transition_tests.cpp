@@ -4151,7 +4151,14 @@ void check_actor_loading()
         registry.records.push_back(AnimationResourceRecord{
             1, 1, "aid_test_cutscene_events", animation_resource_hash("aid_test_cutscene_events")});
         std::span<const u8> event_resources[]{mina};
-        const std::unordered_map<Actor*, FactoryObject*> released_objects{{&actor, &objects.back()}};
+        const std::function<FactoryObject*(Actor*)> released_objects = [&](Actor* found) -> FactoryObject*
+        {
+            if (found != &actor)
+            {
+                throw Error("cutscene release looked up an unknown actor");
+            }
+            return &objects.back();
+        };
         const std::unordered_map<Actor*, ActorRenderRegistration*> released_render{{&actor, &render}};
         CutsceneActorReleaseContext release_context{
             factory, released_objects, released_render, event_resources, registry};

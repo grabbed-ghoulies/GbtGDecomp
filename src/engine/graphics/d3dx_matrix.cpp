@@ -1,6 +1,7 @@
 #include "d3dx_matrix.h"
 #include "extended_float.h"
 #include "vector_normalize.h"
+#include "gbtg/anim.h"
 #include <array>
 #include <algorithm>
 
@@ -202,6 +203,62 @@ void transform_runtime_graphics_coord(Vec3& output, const Vec3& point, const flo
     if (!runtime_graphics_scalars_equal(w, 1.f))
     {
         scale_runtime_graphics_vector(output, w);
+    }
+}
+
+// Xbox 0x00154840
+void copy_runtime_graphics_vector(const float* input, float* output)
+{
+    if (input != output)
+    {
+        output[0] = input[0];
+        output[1] = input[1];
+        output[2] = input[2];
+    }
+}
+
+// Xbox 0x00153AC0
+void runtime_graphics_matrix_column_lengths(const float* matrix, float* output)
+{
+    // DAT_002038F0 is 0.0.
+    output[0] = 0.f;
+    output[1] = 0.f;
+    output[2] = 0.f;
+    output[0] = matrix[0] * matrix[0] + output[0];
+    output[1] = matrix[1] * matrix[1] + output[1];
+    output[2] = matrix[2] * matrix[2] + output[2];
+    output[0] = matrix[4] * matrix[4] + output[0];
+    output[1] = matrix[5] * matrix[5] + output[1];
+    output[2] = matrix[6] * matrix[6] + output[2];
+    output[0] = matrix[8] * matrix[8] + output[0];
+    output[1] = matrix[9] * matrix[9] + output[1];
+    output[2] = matrix[10] * matrix[10] + output[2];
+    output[0] = float(retail_square_root(output[0]));
+    output[1] = float(retail_square_root(output[1]));
+    output[2] = float(retail_square_root(output[2]));
+}
+
+// Xbox 0x001537C0
+void scale_runtime_graphics_matrix_rows(const float* input, float* output, float x, float y, float z)
+{
+    for (u32 column = 0; column < 4; ++column)
+    {
+        output[column] = input[column] * x;
+    }
+    for (u32 column = 4; column < 8; ++column)
+    {
+        output[column] = input[column] * y;
+    }
+    for (u32 column = 8; column < 12; ++column)
+    {
+        output[column] = input[column] * z;
+    }
+    if (output != input)
+    {
+        output[12] = input[12];
+        output[13] = input[13];
+        output[14] = input[14];
+        output[15] = input[15];
     }
 }
 }

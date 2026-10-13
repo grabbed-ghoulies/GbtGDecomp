@@ -336,6 +336,10 @@ add_executable(gbtg
     src/engine/graphics/shader_optimization_driver.cpp
     src/engine/graphics/model_vertex_shader_cache.cpp
     src/engine/graphics/model_vertex_shader_draw.cpp
+    src/engine/graphics/model_shader_parameter_draw.cpp
+    src/engine/graphics/model_blendshape_draw.cpp
+    src/engine/graphics/screen_model_draw.cpp
+    src/engine/entities/button_bat_draw.cpp
     src/engine/graphics/model_push_buffer_draw.cpp
     src/engine/graphics/model_render_nodes.cpp
     src/engine/graphics/model_shader_fragments.cpp

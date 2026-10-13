@@ -49,4 +49,8 @@ void set_runtime_model_alpha_test_states(RuntimeModelShaderStates& states); // X
 void apply_runtime_model_shader_overrides(RuntimeModelInstance& model, u32 shader,
     RuntimeModelShaderCombiner& context); // Xbox 0x000F84A0
 void post_runtime_model_shader(u32 shader, RuntimeModelShaderCombiner& context); // Xbox 0x000F9B40
+void set_runtime_model_stage_colors(u32 first, u32 second,
+    RuntimeModelShaderCombiner& context); // Xbox 0x000F7FA0
+// DAT_004D9750 as 0x000F8740 binds it; the material argument is unused.
+void apply_runtime_model_material_colors(RuntimeModelShaderCombiner& context); // Xbox 0x000F9B90
 }

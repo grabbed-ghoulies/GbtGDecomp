@@ -272,6 +272,16 @@ SceneDialogueResourceOwner::Resource* SceneDialogueResourceOwner::find_resource(
     }
     auto& resource = resources_[key];
     resource.record = {key, 0, entry->cpu, entry->gpu, {}, {}};
+    if (entry->type != ResourceType::Model && !entry->gpu_chunks.empty())
+    {
+        // A texture's data is its first GPU chunk, as image_from_entry and transition_sprite read it.
+        const auto& chunk = entry->gpu_chunks[0];
+        if (chunk.offset > entry->gpu.size() || chunk.size > entry->gpu.size() - chunk.offset)
+        {
+            throw Error("resource GPU chunk lies outside its bundle entry");
+        }
+        resource.record.gpu = entry->gpu.subspan(chunk.offset, chunk.size);
+    }
     if (!aids_.demand_entries.contains(key))
     {
         resource.entry = entry;

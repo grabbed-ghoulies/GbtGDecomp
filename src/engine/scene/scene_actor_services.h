@@ -42,6 +42,10 @@ public:
     size_t player_total() const;
     // Script type 0x6F (0x00127BC0) over the scene's player link and actor graph: 0 holds, 2 continues.
     int wait_script_player() const;
+    // The frame's views (0x00033A20). Each active camera slot sets its display, then draws: the host world
+    // draw (draw_world, in the D3D11 renderer with the slot's display camera), the scene dialogue (0x00058150
+    // and its sprite flush) and the dialogue quads the native draw recorded.
+    void present_views(const std::function<void()>& draw_world);
     struct State;
 
 private:

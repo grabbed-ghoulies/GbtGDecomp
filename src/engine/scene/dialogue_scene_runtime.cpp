@@ -1,4 +1,3 @@
-#include <cstdio>
 #include "dialogue_scene_runtime.h"
 #include "../scripts/script_actions.h"
 #include "../camera/camera.h"
@@ -65,15 +64,9 @@ void draw_scene_dialogue(Game& game)
         auto& draw = *game.dialogue_draw;
         draw.visibility_mask = game.script_dialogue->scene_flags;
         draw.draw.animation_time = game.time;
-        try
-        {
-            render_runtime_dialogue(draw);
-        }
-        catch (const std::exception& error)
-        {
-            std::fprintf(stderr, "TRACE draw threw: %s%c", error.what(), 10);
-            throw;
-        }
+        render_runtime_dialogue(draw);
+        // 0x0011C240 draws the dialogue (0x00058150) and then flushes the sprites it queued (0x00122230).
+        draw_queued_runtime_dialogue_sprites(draw.sprites, draw.draw);
     }
 }
 

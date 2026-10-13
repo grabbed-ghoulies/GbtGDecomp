@@ -402,4 +402,56 @@ void setup_active_camera_display(i32 slot, RuntimeDisplaySetupContext& context)
         bind_display_projection(context);
     }
 }
+
+// Xbox 0x000F6EB0
+void set_display_transform(const float* matrix, RuntimeDisplaySetupContext& context)
+{
+    using namespace entity_detail;
+    auto& view = *g_display_view;
+    for (u32 index = 0; index < 12; ++index)
+    {
+        view.transform[index] = matrix[index];
+    }
+    auto& output = view.projection;
+    output[0] = view.transform[0];
+    output[1] = view.transform[4];
+    output[2] = view.transform[8];
+    output[4] = view.transform[1];
+    output[5] = view.transform[5];
+    output[6] = view.transform[9];
+    output[8] = view.transform[2];
+    output[9] = view.transform[6];
+    output[10] = view.transform[10];
+    output[12] = view.transform[3];
+    output[13] = view.transform[7];
+    output[11] = 0.f;
+    output[7] = 0.f;
+    output[3] = 0.f;
+    output[14] = view.transform[11];
+    output[15] = 1.f; // DAT_0032B0F8.
+    set_dialogue_render_view(output.data(), context.draw);
+}
+// Xbox 0x00033A20
+void present_runtime_display_views(const std::function<void(i32)>& draw_view,
+    RuntimeDisplaySetupContext& context)
+{
+    using namespace entity_detail;
+    i32 slot = 0;
+    do
+    {
+        EntityCamNode* camera = g_cam_active[slot];
+        if (select_display_camera(camera, slot, context))
+        {
+            rebuild_display_view(context);
+            extend_display_clip_limits(g_display_view->transform, context.scene_bounds, camera->blend,
+                camera->clip_limit);
+            g_display_view->near_clip = camera->clip_limit;
+            g_display_view->far_clip = camera->blend;
+            rebuild_display_projection(context);
+            bind_display_projection(context);
+            draw_view(slot); // 0x0011C240
+        }
+        ++slot;
+    } while (slot < 4);
+}
 }

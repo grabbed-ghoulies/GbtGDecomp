@@ -21,4 +21,8 @@ void runtime_graphics_scaling_matrix(float* output, float x, float y,
 void scale_runtime_graphics_vector(Vec3& vector, float divisor); // Xbox 0x00184EBE, ECX vector
 void transform_runtime_graphics_coord(Vec3& output, const Vec3& point,
     const float* matrix); // Xbox 0x00185015, D3DXVec3TransformCoord
+void copy_runtime_graphics_vector(const float* input, float* output); // Xbox 0x00154840
+void runtime_graphics_matrix_column_lengths(const float* matrix, float* output); // Xbox 0x00153AC0
+void scale_runtime_graphics_matrix_rows(const float* input, float* output, float x, float y,
+    float z); // Xbox 0x001537C0
 }

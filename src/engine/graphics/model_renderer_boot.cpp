@@ -117,13 +117,15 @@ void initialize_runtime_lighting(RuntimeModelRenderContext& renderer, RuntimeSha
 void initialize_runtime_model_renderer(RuntimeModelRenderContext& renderer, RuntimeNodeTypeRegistry& registry,
     RuntimeShaderFragmentTable& table)
 {
-    // Render state fields the host state models; +0x46, +0x4C, +0x54..+0x5C, +0x188, +0x18C, +0x198, +0x19C,
+    // Render state fields the host state models; +0x4C, +0x188, +0x18C, +0x198, +0x19C,
     // +0x1A8, +0x1AC, +0x1F0, +0x1FC and +0x200 have no native readers yet. +0x50 is the tree draw 0x00158A80,
     // which install_runtime_model_tree_dispatch binds.
     RuntimeModelRenderState& state = runtime_render_state(renderer);
     state.material_values = 0;
     state.material = 0;
     state.frustum = nullptr;
+    state.texture_key = 0;
+    state.material_vector = {0.f, 0.f, 0.f};
     state.directional_light_count = 0;
     state.color = {0, 0, 0, 0xFF};
     runtime_render_frame(renderer).world = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f,

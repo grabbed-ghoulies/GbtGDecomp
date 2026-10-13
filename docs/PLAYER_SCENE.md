@@ -7058,3 +7058,112 @@ DAT_004D9754 / DAT_004D9750 in addition to actual D3D calls. Audit/bind their
 boot owners before installing shader-parameter draw. The gfx_d3d11 material
 helper is a pre-existing host renderer adapter; verify its branches/pointer
 views before attempting to share it with the reconstructed scene path.
+
+### Live opening runs: 0x6F player wait enabled (2026-10-13)
+
+The live opening (`gbtg --headless --frames 900 --scene chapter1_scene1_2playcam`)
+now runs all 900 frames with the script 0x6F player wait live and exits 0. The
+tutorial dialogue draws on 809 frames ("native scene start complete: Free Play
+(Fighting Intro)"), and the script advances to its TimeOut condition. The 0x6F
+action returns the native wait once `actor_start == 1`. Before a native start it
+returns 0, because there is no player to wait on.
+
+New translations behind the dialogue cutscene draw:
+
+- **Shader-parameter node 0x00157090** (`model_shader_parameter_draw`):
+  - It covers the material bind 0x0015AD20 with its texture-record walk
+    0x0015ABB0, the texture key 0x00157030 and the name hash 0x00158BB0.
+  - It uses the material global setters 0x0015B6B0, 0x0015B6C0, 0x0015B6E0,
+    0x0015B690 and 0x0015B720.
+  - The math leaves 0x00154840, 0x00153AC0 and 0x001537C0 went into
+    `d3dx_matrix`.
+  - 0x000F8740 binds the callbacks: DAT_004D9754 is 0x000F9BC0, which passes
+    the texture to the existing 0x00053550 in ESI. DAT_004D9750 is 0x000F9B90,
+    and its stage colours come from 0x000F7FA0 (both in `model_shader_states`).
+  - Nothing writes DAT_004D9764, DAT_004D9648 or DAT_0054D950, so those branches
+    keep their BSS values.
+  - Render state +0x46 (`texture_key`) and +0x54 (`material_vector`) are now
+    modelled, and 0x00155A10 zeroes them.
+- **Blend shape node 0x00157A50** (`model_blendshape_draw`):
+  - It takes the GPU path 0x00157880, whose instance arrives in EAX. That path
+    picks the eight strongest weights into render state +0x1B0 and redirects
+    target attributes 0x1B..0x22 to each target's first type-9 record in the
+    +0x78 stream table.
+  - The host stream table now spans the full native +0x78..+0x183 range (67
+    words); the live node has 18 attributes.
+  - The CPU vertex path 0x00157650 (node byte +0x26) is not reached live, and it
+    raises.
+- **Button bat draw 0x0006D6C0** (type 0x15, vtable 0x00504C34 +0x14), in
+  `button_bat_draw`. It calls the screen-model draw 0x000F9250
+  (`screen_model_draw`):
+  - The position arrives in EAX, the model in ECX, and the pass in EBX into
+    0x000F9080.
+  - The display transform is set by 0x000F6EB0 (`set_display_transform`).
+  - The D3D clear goes through the outer boundary.
+
+Scene fixes:
+
+- **Sprite flush:** 0x0011C240 flushes the queued dialogue sprites (0x00122230)
+  right after the dialogue draw (0x00058150). The scene caller now does the
+  same, so the widget icon queue (64 records) no longer overflows.
+- **Audio core:** the scene's audio core had no host boundaries. Dialogue page
+  voices reach `create_audio_core_source`.
+  - `native_audio_core_memory` is the host heap.
+  - `native_audio_core_source_boundaries` uses XAudio2 submix voices for XACT
+    sources. Status is 1 while a routed cue voice still has queued buffers.
+  - The existing cue and sound boundaries are now bound.
+  - Cue names for sound-bank handles raise when reached. Nothing populates
+    `g_audio_bank_names`, so `resolve_audio_bank_cue` fails before preparation.
+- **Cutscene release:** `CutsceneActorReleaseContext` / `CutsceneEventContext`
+  `objects` is now a lookup over the live cutscene track actors. The door path
+  had been the only place that filled the old map, so the dialogue cutscene's
+  release missed its actors.
+- **Teardown order:** the services destructor now closes the dialogue before it
+  frees the cutscene actors.
+
+Validation:
+
+- Release build: 6 transition suites, ctest 6/6.
+- Default and opening headless runs both exit 0.
+- `git diff --check` is clean.
+
+Still outstanding:
+
+- Oracle coverage for the new leaves.
+- Bank name registration for dialogue voice cues.
+- The remainder of 0x0011C240 (world/HUD draw), which the host frame still
+  skips.
+
+### Native views presented: camera and dialogue quads (2026-10-13)
+
+The earlier "runs green" note only meant that the native path no longer crashes.
+Nothing native reached the screen, because `SceneD3DDevice` recorded its draws
+and discarded them. With the native scene started, the D3D11 frame now does this:
+
+- **Per-view present (0x00033A20).** The frame runs
+  `present_runtime_display_views`: for each active camera slot it calls 0x489E0
+  and 0xF5E50, writes the 0x13C490 clip limits into display +0x2C/+0x30, then
+  calls 0xF5FD0, 0xF6170 and the view draw. `SceneActorServices::present_views`
+  supplies that view draw. It hands the slot's display (position, rotation, and
+  field of view converted from degrees) to `gfx_set_camera`. It then runs the
+  host world draw, the scene dialogue (0x58150 and the 0x122230 sprite flush),
+  and the dialogue quads the native draw recorded.
+- **Quad presentation.** Constants c0x60..c0x63 map each quad to clip space, and
+  the quad is submitted as a 640x480 HUD sprite with constant c0x64 as its colour.
+- **Texture recovery.** A bound texture is the frame record at
+  header + 28 + frame * 0x14 (0x53550). That holds both for texture resources and
+  for the per-glyph headers inside fonts. The presenter recovers the header from
+  the record and decodes the frame with `decode_xbox_texture`.
+- **GPU spans.** Non-model bundle rows now record their first GPU chunk, as
+  `image_from_entry` and `transition_sprite` already read it. Before this, the
+  row held the entry's whole GPU region, so textures decoded 0x80 bytes early.
+
+During the tutorial dialogue, slot 0 is the dialogue's own camera node,
+"dialog". `camera_bind_named_view` selects it when the page has no render
+target. Its page cutscene, `dialogs_dialogpage1`, has single-key curves: a fixed
+studio camera at (3359.6, 0, 2454.5), identity rotation and focal 35.
+
+A frame-300 screenshot shows the butler head, the tutorial text and the A button
+over black. Still to do: the page's backdrop and dialog-bat models (recorded
+indexed draws) are not presented yet, and the rest of 0x11C240's world/HUD draw
+is not translated.

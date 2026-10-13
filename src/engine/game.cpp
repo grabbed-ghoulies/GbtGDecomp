@@ -1,6 +1,8 @@
 #include "gbtg/engine_internal.h"
 #include "scene/dialogue_scene_runtime.h"
 #include "scene/executable_resources.h"
+#include "scene/factory_scene_runtime.h"
+#include "scene/scene_actor_services.h"
 #include "gbtg/gfx.h"
 #include "gbtg/movie.h"
 
@@ -141,17 +143,29 @@ void frame_tick(Game& g, float dt, const InputState& in)
     movie_present();
     // Present 0x00033480 / 0x00032AB0 / 0x00033A90. The PC backend draws the scene models
     // with the body camera; Xbox D3D8 would issue the original calls here.
-    if (g.camera)
+    const auto draw_world = [&g]()
     {
-        gfx_set_camera(g.camera->pose_position, g.camera->pose_quat, g.camera->pose_fov);
-    }
-    for (const Mesh& mesh : g.models)
+        for (const Mesh& mesh : g.models)
+        {
+            gfx_draw_mesh(mesh);
+        }
+        draw_cutscene_props(g);
+        draw_ui(g);
+    };
+    if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1)
     {
-        gfx_draw_mesh(mesh);
+        // Xbox 0x00033A20 over the natively started scene: each active camera slot draws its view.
+        g.factory_scene->start_actors(g).present_views(draw_world);
     }
-    draw_cutscene_props(g);
-    draw_ui(g);
-    draw_scene_dialogue(g); // Xbox 0x00058150; drawing also computes the next page pointer.
+    else
+    {
+        if (g.camera)
+        {
+            gfx_set_camera(g.camera->pose_position, g.camera->pose_quat, g.camera->pose_fov);
+        }
+        draw_world();
+        draw_scene_dialogue(g); // Xbox 0x00058150; drawing also computes the next page pointer.
+    }
     draw_scene_transition(g);
 }
 

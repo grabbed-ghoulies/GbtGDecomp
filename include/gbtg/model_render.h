@@ -7,7 +7,9 @@ namespace gbtg
 
 struct RuntimeModelRenderState
 {
+    u16 texture_key = 0; // +0x46, hashed into the material texture key.
     u16 directional_light_count = 0; // +0x4A
+    std::array<float, 3> material_vector{}; // +0x54
     std::array<u32, 20> directional_lights{}; // +0xF8, four 0x14-byte records
     std::function<void(u32, u32, u32, void*)> draw; // +0x50
     u32 material_values = 0; // +0x70

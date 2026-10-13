@@ -43,7 +43,7 @@ void release_cutscene_actor_row(CutsceneActorRowView* rows, std::int8_t index,
             {
                 unlink_actor_view(context.render.at(actor)->view);
             }
-            release_factory_object(context.factory, *context.objects.at(actor));
+            release_factory_object(context.factory, *context.objects(actor));
         }
         else
         {

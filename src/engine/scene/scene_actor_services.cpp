@@ -7,6 +7,7 @@
 #include "../entities/actor_event_messages.h"
 #include "../entities/actor_live_attachments.h"
 #include "../entities/entity_heap.h"
+#include "../entities/aligned_heap.h"
 #include "../entities/body_move_actions.h"
 #include "../entities/body_state_actions.h"
 #include "../entities/actor_callout_resources.h"
@@ -52,6 +53,12 @@
 #include "../graphics/model_tree_dispatch.h"
 #include "../graphics/model_render_nodes.h"
 #include "../graphics/model_push_buffer_draw.h"
+#include "../graphics/model_renderer_boot.h"
+#include "../graphics/model_skeleton_draw.h"
+#include "../graphics/model_matrix_array_draw.h"
+#include "../graphics/model_shader_states.h"
+#include "../graphics/model_transform_draw.h"
+#include "../graphics/model_vertex_shader_draw.h"
 #include "../graphics/vector_normalize.h"
 #include "../graphics/d3dx_matrix.h"
 #include "../entities/actor_frame_render.h"
@@ -582,9 +589,9 @@ struct SceneActorServices::State
     std::unique_ptr<RuntimeDialogueActivationContext> dialogue;
     std::unique_ptr<RuntimeScriptDialogueContext> script_dialogue;
     SceneD3DDevice d3d_device;
-    std::array<RuntimeModelRenderFrame, 32> render_frame_storage{}; // DAT_004392B0, stride 0x310.
+    std::array<RuntimeModelRenderFrame, 32> render_frame_storage{}; // DAT_004392B0, retail stride 0xC4.
     std::unordered_map<RuntimeModelRenderFrame*, DialogueRenderFrame> render_frames;
-    std::array<u32, 0xE8> deferred_states{}; // DAT_00181968..00181D08.
+    std::array<u32, 0x200> deferred_states{}; // DAT_00181968 and D3D render-state shadows.
     u32 light_override = 0; // DAT_00509B5C.
     std::array<float, 16> dialogue_projection{}; // DAT_00506F58.
     std::array<float, 16> dialogue_view{}; // DAT_00506F18.
@@ -639,8 +646,12 @@ struct SceneActorServices::State
     std::unique_ptr<ModelTreeDispatchContext> tree_dispatch;
     std::array<u32, 16> stream_descriptors{}; // Render state +0x78.
     u32 active_pixel_shader = 0; // DAT_0054D948.
-    u32 depth_function = 0; // DAT_00181C54.
-    u32 blend_enabled = 0; // DAT_00181C5C.
+    u32& depth_function = deferred_states[(0x00181C54 - 0x00181968) / 4];
+    u32& blend_enabled = deferred_states[(0x00181C5C - 0x00181968) / 4];
+    std::unique_ptr<RuntimeModelShaderStates> model_shader_states;
+    std::unique_ptr<RuntimeModelShaderDraw> model_shader_draw;
+    std::unique_ptr<RuntimeModelShaderCombiner> model_shader_combiner;
+    u32 shader_texture_stage = 0; // DAT_005078D0.
     std::unique_ptr<ModelRenderNodeContext> render_nodes;
     std::unordered_map<RuntimeModelInstance*, const u8*> flag_origins; // Model +0x294.
     std::unique_ptr<ModelPushBufferDrawContext> push_buffers;
@@ -648,6 +659,25 @@ struct SceneActorServices::State
     std::unique_ptr<SceneLightConstructionContext> light_construction;
     std::unique_ptr<SceneAmbientContext> ambient_context;
     std::unique_ptr<SceneModelDrawContext> model_draw;
+    std::unique_ptr<u8, void (*)(u8*)> model_matrix_allocation{nullptr, [](u8* block)
+        {
+            engine_heap_free(block);
+        }};
+    RuntimeModelMatrixScratch model_matrix_scratch;
+    std::span<RuntimeShaderMatrix> published_model_matrices; // Native render state +0x190.
+    std::unique_ptr<RuntimeModelMatrixArrayDraw> matrix_array_draw;
+    std::unique_ptr<RuntimeModelTransformDraw> transform_draw;
+    u16 model_projection_register = 0; // Render state +0x194, BSS until vertex shader draw.
+    u16 model_world_register = 0; // Render state +0x196.
+    u32 vertex_fragment_word; // Retained lookup word; real fragment lookup writes before use.
+    std::unique_ptr<RuntimeShaderFragmentContext> vertex_fragments;
+    std::unique_ptr<RuntimeModelVertexShaderCacheContext> vertex_cache;
+    std::unique_ptr<RuntimeModelVertexShaderDraw> vertex_draw;
+    std::array<float, 4> vertex_parameters{}; // Render state +0x198, BSS/renderer boot.
+    std::array<float, 8> vertex_auxiliary{}; // Render state +0x1B0.
+    u32 node_registry_count = 0;
+    std::unique_ptr<RuntimeShaderFragmentTable> shader_fragments =
+        std::make_unique<RuntimeShaderFragmentTable>();
     std::unordered_map<Actor*, RuntimeActorMatrixState> draw_matrices; // Actor +0x288 views for draws.
     const std::unordered_map<ActorFrameAttachment*, ActorFrameDrawCallback> attachment_draws; // Attachment vtable +0x14.
     // Markers.
@@ -1242,6 +1272,14 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     script_dialogue = std::make_unique<RuntimeScriptDialogueContext>(RuntimeScriptDialogueContext{*dialogue, query,
         g_flag_2474, g_flags_ea9c, random, narrow_scratch.data()});
     model_renderer.frames = render_frame_storage;
+    RuntimeNodeTypeRegistry node_registry{resources.node_types.bytes, node_registry_count};
+    initialize_runtime_model_renderer(model_renderer, node_registry, *shader_fragments);
+    // The scratch allocation/binding sequence in 0x000F8740, with its actual
+    // 0x00155D40 size and 0x20 heap alignment. Other boot services are owned separately.
+    const u32 matrix_size = runtime_model_matrix_scratch_size();
+    model_matrix_allocation.reset(static_cast<u8*>(engine_heap_allocate_aligned(i32(matrix_size), 0x20)));
+    bind_runtime_model_matrix_scratch(reinterpret_cast<RuntimeShaderMatrix*>(model_matrix_allocation.get()),
+        matrix_size, model_matrix_scratch);
     for (size_t index = 0; index < render_frame_storage.size(); ++index)
     {
         render_frames.emplace(&render_frame_storage[index], DialogueRenderFrame{{}, frame_cameras[index]});
@@ -1276,6 +1314,12 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     cull_mode = read_u32(data(0x0032E3D0, 4), 0);
     render_image.resolve = [this](u32 address) -> u8*
     {
+        // Node descriptors live in the relocated arena; their vtables remain in
+        // the executable. These are genuine file-backed words, not substituted callbacks.
+        if (address < 0x40000000u)
+        {
+            return const_cast<u8*>(image.memory(address, 1).data());
+        }
         u8* pointer = resources.memory.pointer(address);
         if (pointer == nullptr)
         {
@@ -1335,6 +1379,44 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     };
     install_runtime_model_tree_dispatch(*tree_dispatch);
     install_runtime_model_group_dispatch(*tree_dispatch, node_callbacks);
+    matrix_array_draw = std::make_unique<RuntimeModelMatrixArrayDraw>(RuntimeModelMatrixArrayDraw{
+        *tree_dispatch, model_matrix_scratch, published_model_matrices});
+    node_callbacks[0x00155F80] = [this](u32 node, void* storage)
+    {
+        dispatch_runtime_model_matrix_array(node, *static_cast<RuntimeModelInstanceStorage*>(storage),
+            *matrix_array_draw);
+    };
+    node_callbacks[0x00157B90] = [this](u32 node, void* storage)
+    {
+        auto& frame = runtime_render_frame(model_renderer);
+        const std::function<void(u32, const float*, u32)> constants =
+            [this](u32 reg, const float* values, u32 count)
+            {
+                d3d_device.set_constant_words(reg, reinterpret_cast<const u32*>(values), count);
+            };
+        RuntimeModelRigidSkinDraw context{*matrix_array_draw, render_frames.at(&frame).projection,
+            matrix_boundaries, constants};
+        dispatch_runtime_model_rigid_skin(node, storage, context);
+    };
+    node_callbacks[0x001569D0] = [this](u32 node, void* storage)
+    {
+        const std::function<ModelPoseBuffer*(void*, u32)> pose = [](void* storage, u32 offset)
+        {
+            auto& instance = *static_cast<RuntimeModelInstanceStorage*>(storage);
+            const auto found = instance.skeleton_poses.find(offset);
+            if (found != instance.skeleton_poses.end())
+            {
+                return found->second;
+            }
+            if (read_u32(instance.bytes, offset) != 0)
+            {
+                throw Error("unmapped native skeleton pose pointer word");
+            }
+            return static_cast<ModelPoseBuffer*>(nullptr);
+        };
+        RuntimeModelSkeletonDraw context{*tree_dispatch, pose};
+        dispatch_runtime_model_skeleton(node, storage, context);
+    };
     render_nodes = std::make_unique<ModelRenderNodeContext>(ModelRenderNodeContext{*tree_dispatch, stream_descriptors,
         active_pixel_shader, depth_function, blend_enabled,
         [this](u32 shader)
@@ -1350,6 +1432,92 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             d3d_device.set_state(0x10002, enabled);
         }});
     install_runtime_render_node_dispatch(*render_nodes, node_callbacks);
+    model_shader_states = std::make_unique<RuntimeModelShaderStates>(RuntimeModelShaderStates{
+        depth_function, deferred_states[(0x00181C70 - 0x00181968) / 4], blend_enabled,
+        deferred_states[(0x00181C60 - 0x00181968) / 4], deferred_states[(0x00181C98 - 0x00181968) / 4],
+        deferred_states[(0x00181C68 - 0x00181968) / 4], deferred_states[(0x00181C6C - 0x00181968) / 4],
+        deferred_states[(0x00181C64 - 0x00181968) / 4],
+        [this](u32 method, u32 value)
+        {
+            d3d_device.set_state(method, value);
+        },
+        [this](u32 value)
+        {
+            d3d_device.set_state(0x10002, value);
+        }});
+    model_shader_draw = std::make_unique<RuntimeModelShaderDraw>(RuntimeModelShaderDraw{
+        *tree_dispatch, *model_shader_states,
+        [this](u32 shader)
+        {
+            d3d_device.set_state(0x10004, shader);
+        }, {}});
+    model_shader_combiner = std::make_unique<RuntimeModelShaderCombiner>(RuntimeModelShaderCombiner{
+        *model_shader_draw, std::span<u32>(deferred_states).subspan((0x00181B70 - 0x00181968) / 4),
+        deferred_states[0], deferred_states[(0x00181C44 - 0x00181968) / 4], shader_texture_stage,
+        [this](u32 setter, u32 value)
+        {
+            d3d_device.set_state(setter == 0x001722A0 ? 0x10002 : setter, value);
+        }});
+    bind_runtime_model_shader_callback([this](u32 shader)
+    {
+        post_runtime_model_shader(shader, *model_shader_combiner);
+    }, *model_shader_draw);
+    node_callbacks[0x00157CE0] = [this](u32 node, void*)
+    {
+        dispatch_runtime_model_shader(node, *model_shader_draw);
+    };
+    transform_draw = std::make_unique<RuntimeModelTransformDraw>(RuntimeModelTransformDraw{
+        *tree_dispatch, frame_cameras, [this](i32 index) -> RuntimeShaderMatrix&
+        {
+            return render_frames.at(&render_frame_storage[index]).projection;
+        }, model_projection_register, model_world_register, matrix_boundaries,
+        [this](u32 reg, const float* values, u32 count)
+        {
+            d3d_device.set_constant_words(reg, reinterpret_cast<const u32*>(values), count);
+        }});
+    node_callbacks[0x00157FC0] = [this](u32 node, void* storage)
+    {
+        dispatch_runtime_model_transform(node, static_cast<RuntimeModelInstanceStorage*>(storage)->bytes,
+            *transform_draw);
+    };
+    node_callbacks[0x00157D50] = [this](u32 node, void* storage)
+    {
+        dispatch_runtime_model_billboard(node, static_cast<RuntimeModelInstanceStorage*>(storage)->bytes,
+            *transform_draw);
+    };
+    node_callbacks[0x00157ED0] = [this](u32, void*)
+    {
+        restore_runtime_model_transform(*transform_draw);
+    };
+    node_callbacks[0x00157D30] = [this](u32, void*)
+    {
+        restore_runtime_model_billboard(*transform_draw);
+    };
+    vertex_fragments = std::make_unique<RuntimeShaderFragmentContext>(RuntimeShaderFragmentContext{
+        model_renderer, shader_fragments->buckets, shader_fragments->programs});
+    vertex_cache = std::make_unique<RuntimeModelVertexShaderCacheContext>(RuntimeModelVertexShaderCacheContext{
+        *resources.shader_cache, render_image, *vertex_fragments, vertex_fragment_word,
+        [this](const i32* declaration, const u32* program, u32& handle, u32 usage)
+        {
+            d3d_device.create_vertex_shader(declaration, program, handle, usage);
+        }});
+    vertex_draw = std::make_unique<RuntimeModelVertexShaderDraw>(RuntimeModelVertexShaderDraw{
+        *transform_draw, *vertex_cache, stream_descriptors, vertex_parameters, vertex_auxiliary,
+        [this](u32 stream, u32 resource, u32 stride)
+        {
+            d3d_device.set_vertex_stream(stream, resource, stride);
+        },
+        [this](u32 handle)
+        {
+            d3d_device.set_state(0x10003, handle);
+        }});
+    node_callbacks[0x00158510] = [this](u32 node, void*)
+    {
+        // Pointer-width view of the existing fog words at render state +0x198/+0x19C.
+        vertex_parameters[0] = model_renderer.state.fog_reciprocal;
+        vertex_parameters[1] = model_renderer.state.fog_scaled_end;
+        dispatch_runtime_model_vertex_shader(node, *vertex_draw);
+    };
     push_buffers = std::make_unique<ModelPushBufferDrawContext>(ModelPushBufferDrawContext{*tree_dispatch,
         flag_origins,
         [this](u32 primitive, u32 count, u32 indices)
@@ -2629,13 +2797,6 @@ void SceneActorServices::State::draw_scene_actor(FactoryObject& object, Actor& a
         std::bit_cast<u32>(flags), callback(read_u32(bytes, 0x1A0), "+0x1A0"), callback(read_u32(bytes, 0x1A4), "+0x1A4"),
         reinterpret_cast<void*>(std::uintptr_t(read_u32(bytes, 0x1A8))), draw_matrices[&actor]};
     ActorFrameDrawContext attachments{attachment_draws};
-    if (model != nullptr)
-    {
-        const u32 cpu = model->cpu;
-        const u32 header = render_image.word(cpu, 0x10);
-        std::fprintf(stderr, "TRACE model cpu %08X flags %08X header %08X tree %08X%c", cpu, render_image.word(cpu, 8),
-            header, header == 0 ? 0 : render_image.word(header, 0x24), 10);
-    }
     draw_runtime_actor(state, kind, attachments, *model_draw);
 }
 

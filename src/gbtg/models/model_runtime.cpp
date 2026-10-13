@@ -14,6 +14,7 @@ void bind_runtime_model_pose(RuntimeModelInstance& model, ModelPoseBuffer* pose,
 {
     if (model.skeleton_node != nullptr)
     {
+        model.tree_storage.skeleton_poses[model.skeleton_node->copy_offset + 4] = pose;
         if (pose == nullptr)
         {
             model.render_pose = nullptr;

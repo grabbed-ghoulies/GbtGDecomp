@@ -19,6 +19,8 @@
 #include "../src/engine/entities/player_messages.h"
 #include "../src/engine/scripts/script_table_lookup.h"
 #include "../src/engine/entities/entity_heap.h"
+#include "../src/engine/entities/aligned_heap.h"
+#include "../src/engine/graphics/scene_d3d_device.h"
 #include "../src/engine/graphics/effect_tick.h"
 #include "../src/engine/scene/scene_actor_update.h"
 #include "../src/engine/scene/scene_control_update.h"
@@ -6610,6 +6612,70 @@ void check_scene_model_resources(gbtg::AidStore& aids)
 }
 
 // Scene startup's marker pass (0x00140020) over the opening scene, through the live service graph.
+void check_aligned_engine_heap()
+{
+    using namespace gbtg;
+    std::array<void*, 3> blocks;
+    const std::array<u32, 3> alignment{16, 32, 64};
+    for (size_t index = 0; index < blocks.size(); ++index)
+    {
+        blocks[index] = engine_heap_allocate_aligned(0x1F400, alignment[index]);
+        if (blocks[index] == nullptr || (reinterpret_cast<uintptr_t>(blocks[index]) & (alignment[index] - 1)) != 0)
+        {
+            throw Error("native aligned heap did not honor the retail alignment request");
+        }
+        std::memset(blocks[index], int(index + 1), 0x1F400);
+    }
+    void* ordinary = engine_heap_allocate(0x80);
+    std::memset(ordinary, 0xA5, 0x80);
+    engine_heap_free(blocks[1]);
+    engine_heap_free(ordinary);
+    for (size_t index : {size_t(2), size_t(0)})
+    {
+        if (static_cast<const u8*>(blocks[index])[0x1F3FF] != u8(index + 1))
+        {
+            throw Error("native aligned heap allocations overlap or lost their payload");
+        }
+        engine_heap_free(blocks[index]);
+    }
+}
+
+void check_scene_vertex_shader_ownership()
+{
+    using namespace gbtg;
+    SceneD3DDevice device;
+    u32 first = 0, second = 0;
+    const std::array<u32, 9> expected{0x00022078, 0, 0x12345678, 0xABCDEF00, 0,
+        0, 0x33333333, 0x44444444, 1};
+    {
+        std::array<i32, 32> declaration{};
+        declaration[0] = 0x123;
+        declaration[31] = -1;
+        auto program = expected;
+        device.create_vertex_shader(declaration.data(), program.data(), first, 0);
+        declaration.fill(0);
+        program.fill(0);
+        auto other = expected;
+        other[2] = 0xDEADBEEF;
+        device.create_vertex_shader(declaration.data(), other.data(), second, 0);
+    }
+    const auto& retained = device.vertex_shaders.at(first);
+    if (first == second || retained.declaration[0] != 0x123 || retained.declaration[31] != -1 ||
+        retained.program != std::vector<u32>(expected.begin(), expected.end()) ||
+        device.vertex_shaders.at(second).program[2] != 0xDEADBEEF)
+    {
+        throw Error("native D3D vertex shader lost its temporary creation data or aliased another shader");
+    }
+    device.set_vertex_stream(0, 0x10000404, 0x20);
+    device.set_vertex_stream(1, 0x10000804, 0x10);
+    device.set_vertex_stream(0, 0x10001004, 0x30);
+    if (device.vertex_streams.at(0).resource != 0x10001004 || device.vertex_streams.at(0).stride != 0x30 ||
+        device.vertex_streams.at(1).resource != 0x10000804 || device.vertex_streams.at(1).stride != 0x10)
+    {
+        throw Error("native D3D vertex stream rebinding changed a different stream");
+    }
+}
+
 void check_scene_object_disposal()
 {
     using namespace gbtg;
@@ -6863,6 +6929,22 @@ void check_scene_spawn(gbtg::Game& game, bool scene_start)
         throw Error("scene spawn check did not load the opening scene");
     }
     auto& services = game.factory_scene->start_actors(game);
+    const auto& resource_owner = game.factory_scene->resources;
+    for (size_t index = 0; index < resource_owner.relocation_types.size(); ++index)
+    {
+        const auto descriptor = resource_owner.node_types.bytes.subspan(index * 0x54, 0x54);
+        if (std::strcmp(reinterpret_cast<const char*>(descriptor.data()),
+                resource_owner.relocation_types[index].name.c_str()) != 0)
+        {
+            throw Error("model renderer registry is not the relocation registry");
+        }
+        const u32 vtable = read_u32(descriptor, 0x50);
+        const u32 draw = read_u32(game.factory_scene->executable->memory(vtable, 4), 0);
+        if (draw == 0)
+        {
+            throw Error("model renderer node has no actual executable draw slot");
+        }
+    }
     try
     {
         if (scene_start)
@@ -6923,6 +7005,8 @@ void check_scene_spawn(gbtg::Game& game, bool scene_start)
             check_scene_actor_update_queue();
             check_actor_sound_frame_pass();
             check_scene_object_disposal();
+            check_aligned_engine_heap();
+            check_scene_vertex_shader_ownership();
             services.update_sounds();
             // Exercise the actual background +0x10 binding directly; the full
             // gameplay frame dispatcher is a separate reconstruction frontier.

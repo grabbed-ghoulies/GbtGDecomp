@@ -15,6 +15,9 @@ struct RuntimeModelRenderState
     std::array<u8, 4> color{}; // +0x184
     u32 node_descriptor = 0; // +0x1F4
     RuntimeModelInstance* instance = nullptr; // +0x1F8, host view beginning at model +0x294
+    ModelPoseBuffer* skeleton_pose = nullptr; // +0x60, pointer-width view.
+    u32 skeleton_matrices = 0; // +0x68, node +0x24.
+    u32 skeleton_joint_count = 0; // +0x6C, node +0x20.
     std::array<float, 4> base_color{}; // DAT_00437270
     std::array<float, 4> ambient_color{}; // DAT_00437280
     float fog_reciprocal = 0; // DAT_00437238

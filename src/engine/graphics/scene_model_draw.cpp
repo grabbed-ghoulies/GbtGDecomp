@@ -1,4 +1,3 @@
-#include <cstdio>
 #include "scene_model_draw.h"
 #include "scene_render_helpers.h"
 
@@ -12,13 +11,9 @@ void draw_runtime_scene_model(RuntimeModelInstance& model, u32 model_cpu,
     RuntimeModelRenderContext& renderer = c.lights.environment.upload.renderer;
     if ((~(c.image.word(model_cpu, 8) >> 1) & 1) != 0)
     {
-        std::fprintf(stderr, "TRACE s0%c", 10);
         build_runtime_scene_lights(position, c.lights);
-        std::fprintf(stderr, "TRACE s1%c", 10);
         apply_runtime_model_materials(c.image, model_cpu, renderer);
-        std::fprintf(stderr, "TRACE s2%c", 10);
         draw_runtime_model_instance(model, c.image, model_cpu, world, kind, renderer, c.matrices);
-        std::fprintf(stderr, "TRACE s3%c", 10);
         return;
     }
     set_runtime_scene_color(1.f, 1.f, 1.f, 1.f, c.lights.retained_color, renderer);

@@ -328,6 +328,14 @@ add_executable(gbtg
     src/engine/graphics/scene_environment_setup.cpp
     src/engine/graphics/scene_model_draw.cpp
     src/engine/graphics/model_tree_dispatch.cpp
+    src/engine/graphics/model_renderer_boot.cpp
+    src/engine/graphics/model_skeleton_draw.cpp
+    src/engine/graphics/model_matrix_array_draw.cpp
+    src/engine/graphics/model_shader_states.cpp
+    src/engine/graphics/model_transform_draw.cpp
+    src/engine/graphics/shader_optimization_driver.cpp
+    src/engine/graphics/model_vertex_shader_cache.cpp
+    src/engine/graphics/model_vertex_shader_draw.cpp
     src/engine/graphics/model_push_buffer_draw.cpp
     src/engine/graphics/model_render_nodes.cpp
     src/engine/graphics/model_shader_fragments.cpp

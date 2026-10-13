@@ -6761,3 +6761,300 @@ the live runs stay green.
 **Next:** bind the scene model renderer, either through the host D3D device or a
 renderer translation. Then the live 0x6F gate can open and the tutorial
 dialogue draws.
+
+### Handoff audit and renderer boot binding (2026-10-13)
+
+Reviewed commits 27d535d and bee56d9 and the shared checkout. The live 0x6F
+case is already bound to wait_script_player, and scene-owned dialogue and model
+render contexts now exist in code. The prior final note saying actor_draw is
+wholly unbound is stale: type 0x1A has its actual 0x0003C9E0 draw chain bound.
+
+Confirmed earlier batch validation on the combined checkout: native trail pool
+ownership and global effect call compile; scene-start/actor-loading pass, with
+43 activated actors, actual sound/global-effect/background calls and clean
+teardown. Scare/scoreboard and emitter detachment seed 839 each pass 1,800
+retail differential cases. Full gameplay 0x0011E640 is still incomplete.
+
+Found and fixed two renderer context omissions before further live validation:
+call the existing 0x00155A10 boot routine over the actual relocation descriptor
+allocation (17 types) and real shader-fragment table; resolve executable node
+vtable words alongside relocated resources. Previously descriptors remained
+zero and those vtable addresses were absent from the render address view.
+Removed temporary TRACE output from the actor/model draw wrappers. Added a
+native check that all 17 relocated node descriptors name the correct type and
+resolve a real executable draw slot. Latest renderer changes await validation.
+
+Model-node frontier is explicit: installed callbacks currently cover groups,
+visibility, vertex buffers, pixel shaders and push buffers. Skeleton, matrix
+array, vertex shader, shader-parameter, skin, blendshape, transform/2D and
+background push-buffer draw slots still need literal translations/bindings.
+Read-only exports now include 0x00155E60, 0x00157FC0, 0x00157D50 and
+0x001580E0; the shader cache selection 0x001596D0 calls 0x00159530 and must
+not substitute a shader result for that missing callee.
+
+Renderer boot was also absent from the CMake engine source list; added it so
+the real initialization routine links into both game and transition targets.
+The resource registry check compares its 17 names against the existing native
+relocation types and resolves each draw slot from the actual executable.
+
+Latest Release game/transition builds and scene-start pass, including all 17
+registry checks. The live player-opening fixture now reaches the model draw
+path and fails on an unbound native lookup; it does not pass tutorial acceptance.
+Added a host virtual-slot lookup diagnostic naming the actual missing model draw
+callback and node, preserving the translated traversal and providing no default
+callback. The diagnostic build/run will identify the next concrete closure.
+
+The diagnostic identifies the actual opening tutorial frontier as skeleton draw
+0x001569D0 at relocated node 0x40FE1F84. Translated that slot: resolve skeleton
+instance +4 pose, publish render state +0x60/+0x68/+0x6C, then queue the actual
+group traversal. Model pose binding now mirrors its real pointer-width store in
+the instance storage, keyed by the retail copy offset. Bound the slot to the
+scene model renderer. An untouched zero pointer word resolves to null; an
+unmapped nonzero pointer raises instead of inventing a pose. This next closure
+batch still needs validation and the subsequent reached node slots.
+
+Added mode 86 differential coverage for skeleton draw 0x001569D0: varied
+instance copy offsets, pose pointer words, bind matrices and joint counts, with
+retail state +0x60/+0x68/+0x6C compared byte-for-byte. The full native model
+header rebuild is running; do not run the old harness against the new mode.
+
+Matrix-array lookahead: 0x00155F80 calls real matrix calculation 0x00155E60;
+its scalar/matrix callees already exist. Output scratch DAT_00437080 is supplied
+through 0x00155D20 (also mirrors DAT_00437090 and count DAT_00437094). Bind
+that actual owner rather than choosing an arbitrary matrix buffer. The skeleton
+fixture and native opening draw will be checked after the shared-header rebuild.
+
+Scratch owner identified: 0x000F8740 calls 0x00155D40 for the real scratch size,
+allocates it through aligned heap 0x000F7330 with alignment 0x20 and supplies
+it to 0x00155D20. It also initializes the material pool and shader hooks, so
+its remaining callees must be audited before binding the complete boot owner.
+
+Skeleton validation complete: seed 853 passed 1,800 mode-86 differential cases
+with zero mismatches. The fixture originally captured an indirect render-state
+pointer; 0x00156DD0 actually returns the address of DAT_004370A0 directly.
+Corrected the fixture capture; the translated skeleton implementation was
+unchanged. Release game/transition builds, scene-start (all registry checks,
+43 activated actors, sound/effects/background calls and clean teardown) and
+actor-loading pass. Live player-opening now gets through skeleton draw and
+stops at the next real slot: matrix array 0x00155F80, node 0x40FE2120.
+Tutorial rendering therefore remains incomplete; do not mark it accepted.
+All 87-mode differential regression is running; no CTests or OriginalFiles edits.
+
+Final checkpoint: seed 857 passed 8,700 cases across all 87 modes with zero
+mismatches, including actual camera/grid hits and collision callbacks. Release
+builds, scene-start, actor-loading and git diff --check pass. Skeleton draw is
+translated, bound and differentially verified. Tutorial acceptance still fails
+at matrix-array slot 0x00155F80; this is the next implementation frontier,
+not a missing skeleton pose or an empty node registry. No CTests, commits or
+OriginalFiles edits in this continuation.
+
+### Matrix-array and rigid-skin draw batch (2026-10-13)
+
+Translated 0x00155E60 matrix calculation and 0x00155F80 draw dispatch, plus
+scratch size/binding 0x00155D40 / 0x00155D20. Preserve flag-bit precedence,
+dynamic-matrix flag offsets, skeletal/static matrix choice, SSE 0x00151E64
+versus D3DX multiply, in-place second multiplication, count reloads and output
+publication even for nonpositive counts. Bound the real 0x1F400-byte scratch
+allocation with 0x20 heap alignment, following the allocation/binding sequence
+inside 0x000F8740; this does not claim the entire boot owner is translated.
+
+Added aligned heap 0x000F7330 with the temporary heap alignment field, footer
+writes and alignment restoration. Native heap size/free boundaries retain the
+matching aligned allocation metadata. Added rigid-skin draw 0x00157B90: actual
+projection upload at c0x74 and transposed selected matrices at c0x78 + 3n,
+then genuine model group traversal. Both draw slots are bound to scene state.
+Validation and differential fixtures for this implementation batch are pending.
+
+Added two differential modes for the matrix calculation/dispatch and rigid-skin
+uploads, including count-zero/negative calculation, all row flag combinations,
+selected skeleton/static/dynamic matrices and exact uploaded registers/words.
+Added native aligned-heap checks over interleaved normal/aligned allocations,
+full scratch-sized payloads and matching release. Changes are batched before
+validation; shader node closures remain separate pending work.
+
+Matrix/rigid-skin checks: seed 877 passed 1,800 cases each in modes 87 and 88
+(3,600 total), zero mismatches. Release builds and scene-start pass, including
+real aligned scratch allocation and interleaved aligned/normal release checks.
+Live tutorial now passes matrix-array dispatch and reaches shader slot
+0x00157CE0 (node 0x40FE2168). Its 0x0015B5E0 setup has four real render-state
+helpers plus a post-shader callback; those must be translated/bound rather than
+leaving the callback absent. Rigid-skin uploads are differentially verified but
+remain later in this live traversal. No CTests in this batch.
+
+### Shader-state closure (2026-10-13)
+
+Translated shared state helpers 0x0015B380 / 0x0015B3F0 / 0x0015B4B0 /
+0x0015B580, shader binding 0x0015B5E0, callback setter 0x0015B660, texture-stage
+query 0x0015B670 and draw dispatch 0x00157CE0 in a narrow graphics module.
+Preserve each hardware call before its shadow write, additive's call through
+alpha setup, shader kinds outside 0..3, and pixel shader before post-callback.
+These functions are not yet installed in the native scene: actual boot installs
+0x000F9B40, which calls 0x000F84A0 and texture-combiner setup 0x000F7420.
+Read-only exports now identify that entire chain; do not omit the callback to
+claim live acceptance. The combiner's four render-state dispatch chains remain
+next work. Validation of the newly translated shader functions is pending.
+
+Assembly audit: 0x00156DE0 uses frame stride 0xC4, not 0x310 as an older native
+header comment states. Logical frame indexing remains correct; +0x84 is the
+projection matrix used by the verified rigid-skin upload.
+
+Closed the callback chain after the shader-state checkpoint: 0x000F7420 now
+retains its four texture-combiner state dispatches, actual command/dirty-mask
+lookup tables, signed comparisons, specialized D3D calls and shadow/dirty store
+order. Translated alpha-test helper 0x0005E0C0, model overrides 0x000F84A0 and
+post-shader hook 0x000F9B40. Native pointer-width views use the existing model
++0x1C0/+0x1C4/+0x1C8 words, not fabricated flags. Shader draw 0x00157CE0 is now
+installed with the actual callback setter. Shared depth/blend values alias the
+same D3D shadow storage as dialogue; enlarged that storage to cover the actual
+combiner index range. This supersedes the preceding unbound checkpoint.
+Implementation batch complete; build and oracle validation are still pending.
+
+Shader validation: seed 883 passed 1,800 mode-89 cases, zero mismatches. The
+fixture checks full render-state shadows, dirty bits, selected texture stage,
+GPU call order/arguments and the shadow checksum seen at each GPU boundary.
+It covers native model override bytes, callback present/absent, shader kinds
+outside 0..3 and all simple/deferred/specialized combiner dispatch ranges.
+The fixture initially mapped an already mapped lookup-table page; corrected
+that fixture mapping before execution, with no implementation change.
+Release game/transition builds, scene-start and actor-loading pass. Live tutorial
+now passes shader slot 0x00157CE0 and reaches vertex shader 0x00158510 (node
+0x40FE22A0); player-opening remains incomplete. Its 0x001596D0 cache selector
+requires genuine 0x00159530 creation and 0x0018D2F4 XG shader splice. Exporting
+that closure next. The all-90-mode regression is running; no CTests.
+
+Final shader checkpoint: seed 887 passed 9,000 cases across all 90 modes with
+zero mismatches (19 camera hits, 25 grid hits, 19 collision callbacks and 10
+stops). Release builds, scene-start, actor-loading and git diff --check pass.
+The live tutorial frontier is now vertex-shader slot 0x00158510, not shader
+state 0x00157CE0. No CTests, commits or OriginalFiles edits in this batch.
+Read-only exports for the next splice closure are available at 0x0018D2F4,
+0x00186FD5 (instruction unpack), 0x0018850C (shader type) and 0x0018C563
+(optimization driver). The optimizer has additional non-host callees; export
+and translate those before claiming a complete generic splice implementation.
+Assembly also shows 0x001596D0 snapshots variant count once before its search;
+its decompile suggests reloads, so retain the assembly's actual comparison.
+
+### Transform/billboard and shader-splice leaves (2026-10-13)
+
+Read-only shader optimizer exports reveal nine additional optimizer/validator
+callees below 0x0018C563, with further dependencies. Generic XG shader splice
+is still incomplete; no optimizer substitute or invented vertex shader handle.
+Translated its independent leaves: instruction unpack 0x00186FD5 and shader
+header type 0x0018850C. Also closing independent renderer slots while this
+larger dependency chain is audited.
+
+Translated frame push/pop 0x00156E00 / 0x00156E30, joint-offset matrix
+0x00156A30, frame constant uploads 0x00156540, transform application 0x00157F10,
+transform/billboard restores 0x00157ED0 / 0x00157D30, and draw dispatches
+0x00157FC0 / 0x00157D50. Frame push copies all four actual C4-frame components:
+combined matrix, camera pointer, world matrix and projection. Keep skeletal
+versus dynamic/static matrix choice, D3DX multiply order, exact SSE translation
+sum order, projection/world constant register tests, and sibling/restore/child
+stack order. Native scene binds both draw and restore slots. Validation pending;
+vertex-shader 0x00158510 remains the live tutorial frontier.
+
+Build audit correction: 0x00186FD5 / 0x0018850C already exist in
+vertex_shader_code.cpp, which the initial address search missed. The linker
+caught duplicate instruction unpack definitions; removed this batch's duplicate
+module and reused the established functions. Mode 91 now verifies those existing
+leaves, including aliased output buffers. The transform/billboard module remains
+new. This supersedes the preceding claim that the splice leaves were newly
+translated. No generic splice/optimizer implementation has been substituted.
+
+Wider source audit found the optimizer's nine direct non-host callees already
+translated in shader_pair_optimizer, shader_merge_pass, shader_register_rewrite,
+shader_rewrite_context, shader_reorder, shader_schedule_cost_inputs and
+shader_validation_program. Do not redo these modules. The remaining driver
+0x0018C563 must assemble their actual stack/typed contexts; splice 0x0018D2F4
+then cache creation/selection can call that completed driver. Earlier notes
+about needing to translate those nine direct dependencies are superseded by
+this source audit. Generic splice and the driver themselves remain missing.
+
+Transform/leaf validation: seed 907 passed 1,800 mode-90 cases and 1,800
+mode-91 cases, zero mismatches. Mode 90 compares all three C4 frames, frame
+index, sibling/restore/child stack entries and exact GPU constant registers,
+counts and words; it covers skeletal/static/dynamic transforms, billboard
+translation, standalone/restored uploads, register thresholds and in-place
+joint matrix updates. Mode 91 verifies the existing unpack/type leaves over
+random words, known/unknown headers and overlapping buffers. Release builds,
+scene-start and actor-loading pass. Live player-opening still reaches the
+pending vertex-shader slot 0x00158510. All 92-mode regression is running.
+
+Final transform checkpoint: seed 911 passed 9,200 cases across all 92 modes,
+zero mismatches (22 camera hits, 23 grid hits, 26 collision callbacks, 14
+stops). Release game/transition builds, scene-start, actor-loading and
+ git diff --check pass. No CTests, commits or OriginalFiles edits. Player-opening
+remains unaccepted at vertex-shader slot 0x00158510; newly bound transforms
+are differentially verified but occur later in that live traversal.
+
+Next driver integration notes: existing ctor_harness.cpp constructs and tests
+the complete typed ShaderValidationProgramContext around 0x0019723C; reuse
+that ownership pattern rather than faking validation. 0x0018C1B9 and
+0x0018C277 allocate separate local schedule frames in their assembly; their
+native APIs take explicit state pointers, so supply separate retained scratch
+views for those calls. 0x0018C563's other frame views are EBP-0x22C for dead
+writes, EBP-0x24 for register rewrite and EBP-0xAF4 for reordering. Keep the
+merge retry frame explicit, following the already translated merge APIs.
+
+### Optimizer driver and vertex splice integration (2026-10-13)
+
+Translated 0x0018C563 using the existing optimizer/validator passes and explicit
+borrowed scratch contexts. Preserve low-byte option normalization, alternate
+program allocation/validation, signed HRESULT exits, pass order, count-reduction
+retry, ignored cost-call return values, ordered x87 cost comparison and cleanup.
+Unordered cost comparisons retain the current program, as the assembly's parity
+branch requires. Translated generic splice 0x0018D2F4, including capacity-query
+return, fragment end-bit clearing, instruction unpack, actual optimization call,
+backward instruction repacking and optional final instruction count. Optimized
+calls require the genuine typed validation owner and retained scratch context;
+no fabricated optimization results. The live cache creator passes optimize=0,
+so that path naturally performs the actual concatenation without invoking the
+optimizer. Driver/splice validation and vertex cache integration are pending.
+
+Implemented cache creation/selection 0x00159530 / 0x001596D0 and vertex-shader
+draw 0x00158510. Retain six-variant saturation behavior, backward pair shifts,
+flag/sign-dependent fragment choice, real fragment lookup, ignored splice/D3D
+return values and count reload after D3D creation. The creation boundary writes
+the actual cache handle slot by reference. Native D3D records own copied shader
+declarations/programs and vertex stream bindings. Bound the scene's existing
+resource-owner shader cache, lighting fragment table and matrix register slots.
+Vertex constants preserve conditional projection/world/camera/aux uploads and
+the unconditional +0x198 upload. That upload uses existing real fog words at
++0x198/+0x19C; the remaining native fields retain their BSS state. Lookup's
+retained fragment word is written by the real registered fragment search before
+its live use. Build and differential validation are pending for this batch.
+
+Vertex validation checkpoint: seed 929 passed 1,800 cases each in modes 92,
+93 and 94 (5,400 total), zero mismatches. Splice coverage includes missing
+size/count outputs, exact/short capacity and zero/count-zero fragments. Cache
+coverage includes hits, six-variant saturation, fragment choices, signed flags,
+full created declaration/program bytes and failed D3D creation retaining the
+real output slot. Vertex coverage compares complete GPU call order, streams,
+shader handle and every constant word/register/threshold plus retained matrix
+register fields. The splice fixture initially reused its case-count variable;
+renamed that fixture variable before comparison, with no implementation change.
+Release builds pass. Live player-opening now passes vertex shader 0x00158510
+and reaches shader-parameter slot 0x00157090 (node 0x40FE255E). Generic splice's
+optimized branch/driver still needs its own new integrated validation with the
+existing typed validator fixture; the tested/live creator calls optimize=0.
+Added a native D3D ownership check that destroys/overwrites temporary creation
+buffers and verifies both shader records and independent stream rebindings.
+
+Final vertex checkpoint: seed 937 passed 9,500 cases across all 95 modes,
+zero mismatches (20 camera hits, 24 grid hits, 19 collision callbacks and 15
+stops). Release game/transition builds, scene-start (including temporary shader
+buffer lifetime and stream rebinding checks), actor-loading and git diff --check
+pass. No CTests, commits or OriginalFiles edits. Live tutorial frontier is now
+shader parameter 0x00157090, node 0x40FE255E. Vertex cache/splice/draw's live
+nonoptimized path is bound and differentially verified; integrated optimized
+splice/driver validation remains outstanding, so do not mark that path accepted.
+
+Next frontier exports include 0x00154840 (three-word copy), 0x00153AC0
+(SSE column lengths plus existing 0x00152B30 square root), 0x001537C0 (row
+scaling with alias test) and 0x0015B720 (texture-selection setter), alongside
+existing dumps for the 0x0015B6xx adapters, 0x00157030 and 0x0015AD20. The
+material bind has texture resolver 0x0015ABB0 and registered callbacks
+DAT_004D9754 / DAT_004D9750 in addition to actual D3D calls. Audit/bind their
+boot owners before installing shader-parameter draw. The gfx_d3d11 material
+helper is a pre-existing host renderer adapter; verify its branches/pointer
+views before attempting to share it with the reconstructed scene path.

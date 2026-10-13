@@ -15,6 +15,22 @@ constexpr u32 kInlineArray = 0x1818; // NV097_INLINE_ARRAY.
 constexpr u32 kQuads = 8;
 }
 
+void SceneD3DDevice::create_vertex_shader(const i32* declaration, const u32* program, u32& handle, u32 usage)
+{
+    VertexShader shader;
+    std::memcpy(shader.declaration.data(), declaration, sizeof(shader.declaration));
+    shader.program.assign(program, program + 1 + (program[0] >> 16) * 4);
+    shader.usage = usage;
+    handle = next_vertex_shader_++;
+    vertex_shaders.emplace(handle, std::move(shader));
+}
+
+void SceneD3DDevice::set_vertex_stream(u32 stream, u32 resource, u32 stride)
+{
+    vertex_streams[stream] = VertexStream{resource, stride};
+    render_states_[0x10020 + stream] = stride;
+}
+
 SceneD3DDevice::SceneD3DDevice()
 {
     dialogue_.simple_state = [this](u32 method, u32 value)

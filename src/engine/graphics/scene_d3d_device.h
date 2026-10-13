@@ -36,6 +36,21 @@ public:
     };
     std::vector<IndexedDraw> indexed_draws;
     void draw_indexed(u32 primitive, u32 count, u32 indices);
+    struct VertexShader
+    {
+        std::array<i32, 32> declaration;
+        std::vector<u32> program;
+        u32 usage;
+    };
+    std::map<u32, VertexShader> vertex_shaders;
+    void create_vertex_shader(const i32* declaration, const u32* program, u32& handle, u32 usage);
+    struct VertexStream
+    {
+        u32 resource;
+        u32 stride;
+    };
+    std::map<u32, VertexStream> vertex_streams;
+    void set_vertex_stream(u32 stream, u32 resource, u32 stride);
 
 private:
     void decode_push(const u32* begin, const u32* end);
@@ -45,6 +60,7 @@ private:
     std::map<u32, u32> render_states_;
     std::vector<u32> push_;
     u32 next_surface_ = 1;
+    u32 next_vertex_shader_ = 1;
     DialogueD3DBoundaries dialogue_;
     DialogueOuterD3DBoundaries outer_;
 };

@@ -2,6 +2,14 @@
 #include "graphics/effect_debris.h"
 #include "graphics/effect_trails.h"
 #include "graphics/global_effect_tick.h"
+#include "graphics/model_skeleton_draw.h"
+#include "graphics/model_matrix_array_draw.h"
+#include "graphics/model_shader_states.h"
+#include "graphics/model_transform_draw.h"
+#include "graphics/vertex_shader_code.h"
+#include "graphics/model_renderer_boot.h"
+#include "graphics/model_vertex_shader_draw.h"
+#include "graphics/shader_optimization_driver.h"
 #include "scene/scene_scare_timers.h"
 #include "graphics/effect_collision_commands.h"
 #include "graphics/effect_simulation.h"
@@ -269,6 +277,453 @@ int main()
                 std::memcpy(bytes.data() + 0x410, times.data(), 16);
                 std::memcpy(bytes.data() + 0x420, &count, 4);
             }
+            result = true;
+        }
+        else if (mode == 92)
+        {
+            auto bytes = std::span<u8>{object.bytes.get(), object.size};
+            std::array<const u32*, 3> programs;
+            for (u32 index = 0; index < programs.size(); ++index)
+            {
+                programs[index] = reinterpret_cast<const u32*>(bytes.data() + 0x100 + index * 0x100);
+            }
+            u32 size = read_u32(bytes, 0xB80), count = read_u32(bytes, 0xB84);
+            const u32 value = splice_runtime_vertex_shaders(reinterpret_cast<u32*>(bytes.data() + 0x600),
+                read_u32(parameters, 4) != 0 ? &size : nullptr,
+                read_u32(parameters, 8) != 0 ? &count : nullptr,
+                programs.data(), read_u32(parameters, 0), 0, nullptr);
+            std::memcpy(bytes.data() + 0xB80, &size, 4);
+            std::memcpy(bytes.data() + 0xB84, &count, 4);
+            std::memcpy(bytes.data() + 0xB88, &value, 4);
+            result = true;
+        }
+        else if (mode == 93 || mode == 94)
+        {
+            auto bytes = std::span<u8>{object.bytes.get(), object.size};
+            const auto append = [&](const void* source, size_t size)
+            {
+                const auto* begin = static_cast<const u8*>(source);
+                graph_bytes.insert(graph_bytes.end(), begin, begin + size);
+            };
+            const auto word = [&](u32 value)
+            {
+                append(&value, 4);
+            };
+            RuntimeRelocationImage image{bytes, 0x10000000u, [&](u32 address)
+            {
+                if (address >= 0x0032E558 && address < 0x0032E7B8)
+                {
+                    return parameters.data() + 0x400 + address - 0x0032E558;
+                }
+                if (address >= 0x10002000 && address < 0x10003000)
+                {
+                    return parameters.data() + address - 0x10002000;
+                }
+                return bytes.data() + u32(address - 0x10000000u);
+            }};
+            auto cache = std::make_unique<RuntimeVertexShaderCache>();
+            std::memcpy(&cache->entries[0], bytes.data() + 0x100, 0x944);
+            RuntimeModelRenderContext renderer;
+            auto fragments = std::make_unique<RuntimeShaderFragmentTable>();
+            initialize_runtime_lighting(renderer, *fragments);
+            renderer.lighting_flags = read_u32(parameters, 8);
+            RuntimeShaderFragmentContext fragment_context{renderer, fragments->buckets, fragments->programs};
+            u32 fragment_word = read_u32(parameters, 0x18);
+            RuntimeModelVertexShaderCacheContext context{*cache, image, fragment_context, fragment_word,
+                [&](const i32* declaration, const u32* program, u32& handle, u32 usage)
+                {
+                    word(0x1732A0);
+                    word(handle);
+                    word(usage);
+                    append(declaration, 0x80);
+                    append(program, size_t(1 + (program[0] >> 16) * 4) * 4);
+                    const u32 calls = read_u32(bytes, 0xB84) + 1;
+                    std::memcpy(bytes.data() + 0xB84, &calls, 4);
+                    if (read_u32(parameters, 0x10) == 0)
+                    {
+                        handle = read_u32(parameters, 0xC);
+                    }
+                }};
+            if (mode == 93)
+            {
+                const u32 handle = read_u32(parameters, 0) == 0 ?
+                    select_runtime_model_vertex_shader(0, read_u32(parameters, 4), context) :
+                    create_runtime_model_vertex_shader(cache->entries[0], read_u32(parameters, 4), context);
+                std::memcpy(bytes.data() + 0xB80, &handle, 4);
+            }
+            else
+            {
+                std::array<RuntimeModelRenderFrame, 1> frames{};
+                renderer.frames = frames;
+                std::array<RuntimeShaderMatrix, 1> combined;
+                RuntimeShaderMatrix projection, camera;
+                std::memcpy(combined[0].data(), parameters.data() + 0x240, 0x40);
+                std::memcpy(projection.data(), parameters.data() + 0x200, 0x40);
+                std::memcpy(camera.data(), parameters.data() + 0x280, 0x40);
+                std::array<const RuntimeShaderMatrix*, 1> cameras{&camera};
+                std::array<ModelTreeStackEntry, 4> stack;
+                i32 stack_index = -1;
+                u32 retained = 0, fog = 0, cull = 0;
+                u16 mask = 0;
+                const std::unordered_map<u32, std::function<void(u32, void*)>> callbacks;
+                ModelTreeDispatchContext tree{renderer, image, stack, stack_index, combined,
+                    cameras, retained, mask, fog, cull, callbacks};
+                u16 projection_register = image.half(0x10002020), world_register = image.half(0x10002022);
+                RuntimeShaderMatrixBoundaries matrices;
+                matrices.transpose = [](RuntimeShaderMatrix& output, const RuntimeShaderMatrix& input)
+                {
+                    const auto source = input;
+                    for (u32 row = 0; row < 4; ++row)
+                    {
+                        for (u32 column = 0; column < 4; ++column)
+                        {
+                            output[row * 4 + column] = source[column * 4 + row];
+                        }
+                    }
+                };
+                RuntimeModelTransformDraw transforms{tree, cameras, [&](i32) -> RuntimeShaderMatrix&
+                    {
+                        return projection;
+                    }, projection_register, world_register, matrices,
+                    [&](u32 reg, const float* values, u32 vectors)
+                    {
+                        word(vectors == 4 ? 0x173440 : vectors == 1 ? 0x1733E0 : 0x1735D0);
+                        word(reg);
+                        word(vectors * 4);
+                        append(values, vectors * 16);
+                    }};
+                std::array<u32, 16> streams;
+                std::array<float, 4> shader_parameters;
+                std::array<float, 8> auxiliary;
+                std::memcpy(streams.data(), parameters.data() + 0x340, sizeof(streams));
+                std::memcpy(shader_parameters.data(), parameters.data() + 0x2C0, sizeof(shader_parameters));
+                std::memcpy(auxiliary.data(), parameters.data() + 0x2D0, sizeof(auxiliary));
+                RuntimeModelVertexShaderDraw draw{transforms, context, streams, shader_parameters, auxiliary,
+                    [&](u32 stream, u32 resource, u32 stride)
+                    {
+                        word(0x173610);
+                        word(stream);
+                        word(resource);
+                        word(stride);
+                    },
+                    [&](u32 handle)
+                    {
+                        word(0x1739F0);
+                        word(handle);
+                        std::memcpy(bytes.data() + 0xB80, &handle, 4);
+                    }};
+                dispatch_runtime_model_vertex_shader(0x10002800, draw);
+                std::memcpy(bytes.data() + 0xB88, &projection_register, 2);
+                std::memcpy(bytes.data() + 0xB8A, &world_register, 2);
+            }
+            std::memcpy(bytes.data() + 0x100, &cache->entries[0], 0x944);
+            result = true;
+        }
+        else if (mode == 91)
+        {
+            if (read_u32(parameters, 0) == 0)
+            {
+                unpack_runtime_vertex_instruction(reinterpret_cast<const u32*>(object.bytes.get() + 0x100),
+                    reinterpret_cast<u32*>(object.bytes.get() + 0x100 + read_u32(parameters, 4)));
+            }
+            else
+            {
+                const u32 type = runtime_vertex_shader_code_type(reinterpret_cast<const u16*>(object.bytes.get() + 0x100));
+                std::memcpy(object.bytes.get() + 0xB80, &type, 4);
+            }
+            result = true;
+        }
+        else if (mode == 90)
+        {
+            auto bytes = std::span<u8>{object.bytes.get(), object.size};
+            RuntimeModelRenderContext renderer;
+            std::array<RuntimeModelRenderFrame, 3> frames;
+            renderer.frames = frames;
+            renderer.frame_index = i32(read_u32(bytes, 0x6A4));
+            RuntimeRelocationImage image{bytes, 0x10000000u};
+            std::array<ModelTreeStackEntry, 8> stack;
+            std::memcpy(stack.data(), bytes.data() + 0x710, sizeof(stack));
+            i32 stack_index = -1;
+            std::array<RuntimeShaderMatrix, 3> combined, projection;
+            std::array<const RuntimeShaderMatrix*, 3> cameras;
+            for (u32 index = 0; index < frames.size(); ++index)
+            {
+                const u32 offset = 0x400 + index * 0xC4;
+                std::memcpy(combined[index].data(), bytes.data() + offset, 0x40);
+                std::memcpy(frames[index].world.data(), bytes.data() + offset + 0x44, 0x40);
+                std::memcpy(projection[index].data(), bytes.data() + offset + 0x84, 0x40);
+                cameras[index] = reinterpret_cast<const RuntimeShaderMatrix*>(parameters.data() +
+                    read_u32(bytes, offset + 0x40) - 0x10002000u);
+            }
+            u32 retained = 0, fog = 0, cull = 0;
+            u16 mask = 0;
+            const std::unordered_map<u32, std::function<void(u32, void*)>> callbacks;
+            ModelTreeDispatchContext tree{renderer, image, stack, stack_index, combined,
+                cameras, retained, mask, fog, cull, callbacks};
+            ModelPoseBuffer pose;
+            pose.packed_matrices.resize(4);
+            std::memcpy(pose.packed_matrices.data(), parameters.data() + 0x400, 0x100);
+            renderer.state.skeleton_pose = &pose;
+            renderer.state.skeleton_matrices = 0x10000300u;
+            u16 projection_register = image.half(0x100006A0), world_register = image.half(0x100006A2);
+            RuntimeShaderMatrixBoundaries matrices;
+            matrices.transpose = [](RuntimeShaderMatrix& output, const RuntimeShaderMatrix& input)
+            {
+                const RuntimeShaderMatrix source = input;
+                for (u32 row = 0; row < 4; ++row)
+                {
+                    for (u32 column = 0; column < 4; ++column)
+                    {
+                        output[row * 4 + column] = source[column * 4 + row];
+                    }
+                }
+            };
+            RuntimeModelTransformDraw context{tree, cameras, [&](i32 index) -> RuntimeShaderMatrix&
+                {
+                    return projection[index];
+                }, projection_register, world_register, matrices,
+                [&](u32 reg, const float* values, u32 count)
+                {
+                    const u32 calls = read_u32(bytes, 0xB80);
+                    const u32 offset = 0x800 + calls * 0x48;
+                    std::memcpy(bytes.data() + offset, &reg, 4);
+                    std::memcpy(bytes.data() + offset + 4, &count, 4);
+                    std::memcpy(bytes.data() + offset + 8, values, count * 0x10);
+                    const u32 next = calls + 1;
+                    std::memcpy(bytes.data() + 0xB80, &next, 4);
+                }};
+            switch (read_u32(parameters, 0))
+            {
+            case 0:
+                apply_runtime_model_node_transform(0x10000100, parameters, context);
+                break;
+            case 1:
+                dispatch_runtime_model_transform(0x10000100, parameters, context);
+                restore_runtime_model_transform(context);
+                break;
+            case 2:
+                dispatch_runtime_model_billboard(0x10000100, parameters, context);
+                restore_runtime_model_billboard(context);
+                break;
+            case 3:
+                upload_runtime_model_frame_matrix(combined[renderer.frame_index], context);
+                break;
+            case 4:
+                restore_runtime_model_transform(context);
+                break;
+            case 5:
+                restore_runtime_model_billboard(context);
+                break;
+            case 6:
+            {
+                auto& matrix = *reinterpret_cast<RuntimeShaderMatrix*>(bytes.data() + 0x780);
+                translate_runtime_model_joint_matrix(0x10000300u, matrix, matrix, image);
+                break;
+            }
+            }
+            for (u32 index = 0; index < frames.size(); ++index)
+            {
+                const u32 offset = 0x400 + index * 0xC4;
+                std::memcpy(bytes.data() + offset, combined[index].data(), 0x40);
+                const u32 camera = 0x10002000u + u32(reinterpret_cast<const u8*>(cameras[index]) - parameters.data());
+                std::memcpy(bytes.data() + offset + 0x40, &camera, 4);
+                std::memcpy(bytes.data() + offset + 0x44, frames[index].world.data(), 0x40);
+                std::memcpy(bytes.data() + offset + 0x84, projection[index].data(), 0x40);
+            }
+            std::memcpy(bytes.data() + 0x6A4, &renderer.frame_index, 4);
+            std::memcpy(bytes.data() + 0x6A8, &stack_index, 4);
+            std::memcpy(bytes.data() + 0x710, stack.data(), sizeof(stack));
+            result = true;
+        }
+        else if (mode == 89)
+        {
+            auto bytes = std::span<u8>{object.bytes.get(), object.size};
+            RuntimeRelocationImage image{bytes, 0x10000000u, [&](u32 address)
+            {
+                if (address >= 0x0020A368 && address < 0x0020A4D8)
+                {
+                    return parameters.data() + 0x400 + address - 0x0020A368;
+                }
+                if (address >= 0x0020A148 && address < 0x0020A368)
+                {
+                    return parameters.data() + 0x600 + address - 0x0020A148;
+                }
+                return bytes.data() + u32(address - 0x10000000u);
+            }};
+            RuntimeModelRenderContext renderer;
+            RuntimeModelInstance model{};
+            model.state_1c0 = read_u32(parameters, 0x1C0);
+            model.state_1c4 = read_u32(parameters, 0x1C4);
+            model.state_1c8 = read_u32(parameters, 0x1C8);
+            renderer.active_model = &model;
+            renderer.rendering = read_u32(parameters, 0x10);
+            std::array<ModelTreeStackEntry, 4> stack{};
+            i32 stack_index = -1;
+            std::array<RuntimeShaderMatrix, 1> combined{};
+            std::array<const RuntimeShaderMatrix*, 1> cameras{};
+            u32 retained = 0, fog = 0, cull = 0;
+            u16 mask = 0;
+            const std::unordered_map<u32, std::function<void(u32, void*)>> callbacks;
+            ModelTreeDispatchContext tree{renderer, image, stack, stack_index, combined,
+                cameras, retained, mask, fog, cull, callbacks};
+            std::array<u32, 0xC0> shadows;
+            std::memcpy(shadows.data(), bytes.data() + 0x400, sizeof(shadows));
+            u32 dirty = read_u32(bytes, 0x700), stage = read_u32(bytes, 0x704);
+            const auto record = [&](u32 method, u32 value)
+            {
+                u32 checksum = dirty;
+                for (u32 index = 0; index < shadows.size(); ++index)
+                {
+                    checksum += (index + 1) * shadows[index];
+                }
+                const u32 calls = read_u32(bytes, 0xB80);
+                const u32 words[]{method, value, checksum};
+                std::memcpy(bytes.data() + 0x800 + calls * 12, words, sizeof(words));
+                const u32 next = calls + 1;
+                std::memcpy(bytes.data() + 0xB80, &next, 4);
+            };
+            const auto index = [](u32 address)
+            {
+                return (address - 0x00181B70) / 4;
+            };
+            RuntimeModelShaderStates states{shadows[index(0x181C54)], shadows[index(0x181C70)],
+                shadows[index(0x181C5C)], shadows[index(0x181C60)], shadows[index(0x181C98)],
+                shadows[index(0x181C68)], shadows[index(0x181C6C)], shadows[index(0x181C64)],
+                record, [&](u32 value)
+                {
+                    record(0x1722A0, value);
+                }};
+            RuntimeModelShaderDraw draw{tree, states, [&](u32 value)
+                {
+                    record(0x175370, value);
+                }, {}};
+            RuntimeModelShaderCombiner combiner{draw, shadows, dirty, shadows[index(0x181C44)], stage, record};
+            if (read_u32(parameters, 0) == 1)
+            {
+                configure_runtime_model_texture_combiner(read_u32(parameters, 8), i32(read_u32(parameters, 4)), combiner);
+            }
+            else
+            {
+                if (read_u32(parameters, 0xC) != 0)
+                {
+                    bind_runtime_model_shader_callback([&](u32 shader)
+                    {
+                        post_runtime_model_shader(shader, combiner);
+                    }, draw);
+                }
+                dispatch_runtime_model_shader(0x10000100, draw);
+            }
+            std::memcpy(bytes.data() + 0x400, shadows.data(), sizeof(shadows));
+            std::memcpy(bytes.data() + 0x700, &dirty, 4);
+            std::memcpy(bytes.data() + 0x704, &stage, 4);
+            result = true;
+        }
+        else if (mode == 87 || mode == 88)
+        {
+            auto bytes = std::span<u8>{object.bytes.get(), object.size};
+            RuntimeModelRenderContext renderer;
+            std::array<RuntimeModelRenderFrame, 1> frames{};
+            renderer.frames = frames;
+            RuntimeRelocationImage image{bytes, 0x10000000u};
+            std::array<ModelTreeStackEntry, 4> stack{};
+            i32 stack_index = -1;
+            std::array<RuntimeShaderMatrix, 1> combined{};
+            RuntimeShaderMatrix camera, projection;
+            std::memcpy(combined[0].data(), parameters.data() + 0x200, 0x40);
+            std::memcpy(camera.data(), parameters.data() + 0x240, 0x40);
+            std::memcpy(projection.data(), parameters.data() + 0x200, 0x40);
+            std::array<const RuntimeShaderMatrix*, 1> cameras{&camera};
+            u32 retained = 0, fog = 0, cull = 0;
+            u16 mask = 0;
+            const std::unordered_map<u32, std::function<void(u32, void*)>> callbacks;
+            ModelTreeDispatchContext tree{renderer, image, stack, stack_index, combined,
+                cameras, retained, mask, fog, cull, callbacks};
+            RuntimeModelMatrixScratch scratch;
+            bind_runtime_model_matrix_scratch(reinterpret_cast<RuntimeShaderMatrix*>(bytes.data() +
+                (mode == 87 ? 0x700 : 0x300)), 0x100, scratch);
+            std::span<RuntimeShaderMatrix> published = scratch.matrices;
+            RuntimeModelMatrixArrayDraw context{tree, scratch, published};
+            if (mode == 87)
+            {
+                ModelPoseBuffer pose;
+                pose.packed_matrices.resize(4);
+                std::memcpy(pose.packed_matrices.data(), parameters.data() + 0x700, 0x100);
+                renderer.state.skeleton_pose = &pose;
+                RuntimeModelInstanceStorage storage{};
+                storage.bytes = parameters;
+                if (read_u32(parameters, 0) == 0)
+                {
+                    calculate_runtime_model_matrix_array(0x10000100, &pose, combined[0], camera,
+                        parameters, context);
+                }
+                else
+                {
+                    dispatch_runtime_model_matrix_array(0x10000100, storage, context);
+                }
+                const u32 pointer = 0x10000000u + u32(reinterpret_cast<u8*>(published.data()) - bytes.data());
+                std::memcpy(bytes.data() + 0xB80, &pointer, 4);
+            }
+            else
+            {
+                const std::function<void(u32, const float*, u32)> constants =
+                    [&](u32 reg, const float* values, u32 count)
+                    {
+                        const u32 calls = read_u32(bytes, 0xB80);
+                        if (reg == 0x74)
+                        {
+                            std::memcpy(bytes.data() + 0x800, values, count * 0x10);
+                        }
+                        else
+                        {
+                            const size_t offset = 0x840 + size_t(calls - 1) * 0x34;
+                            std::memcpy(bytes.data() + offset, &reg, 4);
+                            std::memcpy(bytes.data() + offset + 4, values, count * 0x10);
+                        }
+                        const u32 next = calls + 1;
+                        std::memcpy(bytes.data() + 0xB80, &next, 4);
+                    };
+                RuntimeShaderMatrixBoundaries boundaries;
+                boundaries.transpose = [](RuntimeShaderMatrix& output, const RuntimeShaderMatrix& input)
+                {
+                    const RuntimeShaderMatrix source = input;
+                    for (size_t row = 0; row < 4; ++row)
+                    {
+                        for (size_t column = 0; column < 4; ++column)
+                        {
+                            output[row * 4 + column] = source[column * 4 + row];
+                        }
+                    }
+                };
+                RuntimeModelRigidSkinDraw skin{context, projection, boundaries, constants};
+                dispatch_runtime_model_rigid_skin(0x10000100, nullptr, skin);
+            }
+            result = true;
+        }
+        else if (mode == 86)
+        {
+            auto bytes = std::span<u8>{object.bytes.get(), object.size};
+            RuntimeModelRenderContext renderer;
+            RuntimeRelocationImage image{bytes, 0x10000000u};
+            std::array<ModelTreeStackEntry, 4> stack{};
+            i32 stack_index = -1;
+            std::array<RuntimeShaderMatrix, 1> combined{};
+            std::array<const RuntimeShaderMatrix*, 1> cameras{};
+            u32 retained = 0, fog = 0, cull = 0;
+            u16 mask = 0;
+            const std::unordered_map<u32, std::function<void(u32, void*)>> callbacks;
+            ModelTreeDispatchContext tree{renderer, image, stack, stack_index, combined,
+                cameras, retained, mask, fog, cull, callbacks};
+            const std::function<ModelPoseBuffer*(void*, u32)> pose = [](void* storage, u32 offset)
+            {
+                return reinterpret_cast<ModelPoseBuffer*>(uintptr_t(read_u32(
+                    {static_cast<const u8*>(storage), 0x1000}, offset)));
+            };
+            RuntimeModelSkeletonDraw context{tree, pose};
+            dispatch_runtime_model_skeleton(0x10000100u, parameters.data(), context);
+            const u32 pointer = u32(reinterpret_cast<uintptr_t>(renderer.state.skeleton_pose));
+            std::memcpy(bytes.data() + 0xB80, &pointer, 4);
+            std::memcpy(bytes.data() + 0xB84, &renderer.state.skeleton_matrices, 4);
+            std::memcpy(bytes.data() + 0xB88, &renderer.state.skeleton_joint_count, 4);
             result = true;
         }
         else if (mode == 85)

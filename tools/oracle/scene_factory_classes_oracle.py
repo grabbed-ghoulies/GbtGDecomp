@@ -33,7 +33,7 @@ def main():
     lines, expected = [], []
     movement_coverage = {'camera_hits': 0, 'grid_hits': 0, 'callbacks': 0, 'stopped': 0}
     for case in range(count):
-        mode = int(sys.argv[3]) if len(sys.argv) > 3 else case % 86
+        mode = int(sys.argv[3]) if len(sys.argv) > 3 else case % 95
         subtype = 0
         state, slot = rng.getrandbits(32), rng.getrandbits(32)
         parameters = bytearray(rng.getrandbits(8) for _ in range(0x1000))
@@ -1107,6 +1107,110 @@ def main():
             struct.pack_into('<I',data,0x528,0)
             for index in range(3):
                 struct.pack_into('<I',data,0x600+index*0x94,rng.choice([0,11,22,33]))
+        if mode==92:
+            struct.pack_into('<3I',parameters,0,rng.randrange(4),rng.randrange(2),rng.randrange(2))
+            required=4
+            selected=struct.unpack_from('<I',parameters)[0]
+            for index in range(3):
+                instructions=rng.randrange(5)
+                struct.pack_into('<I',data,0x100+index*0x100,(instructions<<16)|rng.choice([0x2078,0x7378,0x7778,rng.randrange(65536)]))
+                if index<selected:
+                    required+=instructions*16
+            struct.pack_into('<I',data,0xB80,rng.choice([0,max(0,required-1),required,required+4,0x200]))
+        if mode in [93,94]:
+            subtype=rng.randrange(2)
+            global_flags=rng.choice([0,1,0x80000000,0x80000001])
+            flags=rng.choice([global_flags,rng.getrandbits(32)])
+            struct.pack_into('<6I',parameters,0,subtype,flags,global_flags,rng.getrandbits(32),rng.randrange(2),0)
+            struct.pack_into('<I',parameters,0x18,0x32E6EC)
+            parameters[0x400:0x660]=XBE(0x32E558,0x260)
+            struct.pack_into('<I',data,0x100,(rng.randrange(5)<<16)|rng.choice([0x2078,0x7378,0x7778]))
+            variants=rng.choice([-1,0,1,2,3,4,5,6])
+            struct.pack_into('<4I',data,0xA34,variants&0xFFFFFFFF,rng.choice([0,1,2,3,4,0xFFFFFFFF]),rng.randrange(2),rng.choice([0,1,2,255]))
+            if mode==94:
+                struct.pack_into('<II',parameters,0x814,0,0)
+                struct.pack_into('<II',parameters,0x820,RECORDS+0x2900,rng.randrange(5))
+                for offset in [0x828,0x830,0x84C]:
+                    struct.pack_into('<I',parameters,offset,rng.choice([0,1,0x5F,0x60,0xFFFFFFFF]))
+                struct.pack_into('<I',parameters,0x82C,rng.choice([0,1,0x5F,0x60,65535]))
+                struct.pack_into('<I',parameters,0x834,rng.randrange(0x60))
+                struct.pack_into('<I',parameters,0x83C,rng.choice([0,0xFFFFFFFF]))
+                struct.pack_into('<II',parameters,0x858,RECORDS+0x2920,0)
+                struct.pack_into('<I',parameters,0x864,0)
+                struct.pack_into('<HH',parameters,0x20,rng.randrange(65536),rng.randrange(65536))
+                for index in range(4):
+                    struct.pack_into('<I',parameters,0x900+index*4,rng.randrange(16))
+                    parameters[0x920+index]=rng.randrange(256)
+                flags=global_flags&(0x80000000 if struct.unpack_from('<I',parameters,0x83C)[0]==0xFFFFFFFF else 0xFFFFFFFF)
+            if variants>0 and rng.randrange(2):
+                struct.pack_into('<I',data,0xA08+rng.randrange(variants)*8,flags)
+            struct.pack_into('<I',data,0xB84,0)
+        if mode==91:
+            struct.pack_into('<II',parameters,0,rng.randrange(2),rng.choice([0,4,8,12,16,24,32]))
+            struct.pack_into('<H',data,0x100,rng.choice([0x2078,0x7378,0x7778,rng.randrange(65536)]))
+        if mode==90:
+            subtype=rng.randrange(7)
+            struct.pack_into('<I',parameters,0,subtype)
+            struct.pack_into('<I',data,0x10C,0x80)
+            struct.pack_into('<II',data,0x114,rng.choice([0,RECORDS+0x180]),rng.choice([0,RECORDS+0x1C0]))
+            data[0x120]=rng.choice([0,1,2,3,0x12,0xF2])
+            struct.pack_into('<H',data,0x122,rng.randrange(4))
+            struct.pack_into('<II',data,0x190,RECORDS+0x200,0)
+            struct.pack_into('<I',data,0x1D0,RECORDS+0x260)
+            struct.pack_into('<II',data,0x250,RECORDS+0x280,0)
+            struct.pack_into('<I',data,0x2B0,RECORDS+0x2C0)
+            struct.pack_into('<I',data,0x280,rng.getrandbits(32))
+            struct.pack_into('<I',data,0x2C0,rng.getrandbits(32))
+            for begin,length in [(0x124,0x40),(0x300,0x80),(0x400,0x24C),(0x780,0x40)]:
+                for offset in range(begin,begin+length,4):
+                    struct.pack_into('<f',data,offset,rng.choice([-3.,-1.,-0.,0.,.5,1.,3.,rng.uniform(-3,3)]))
+            for begin,length in [(0x88,0x40),(0x200,0xC0),(0x400,0x100)]:
+                for offset in range(begin,begin+length,4):
+                    struct.pack_into('<f',parameters,offset,rng.choice([-3.,-1.,-0.,0.,.5,1.,3.,rng.uniform(-3,3)]))
+            parameters[0x84]=rng.randrange(256)
+            for frame in range(3):
+                struct.pack_into('<I',data,0x440+frame*0xC4,RECORDS+0x2200+frame*0x40)
+            struct.pack_into('<HHII',data,0x6A0,rng.choice([0,1,0x5F,0x60,255,65535]),
+                rng.choice([0,1,0x5F,0x60,255,65535]),rng.choice([1,2]) if subtype in [4,5] else rng.randrange(2),0xFFFFFFFF)
+            struct.pack_into('<I',data,0xB80,0)
+        if mode==89:
+            struct.pack_into('<4I',parameters,0,rng.randrange(2),rng.randrange(0xB0),rng.getrandbits(32),rng.randrange(2))
+            struct.pack_into('<I',parameters,0x10,rng.choice([0,1,0x100,0x101,255]))
+            struct.pack_into('<3I',parameters,0x1C0,rng.choice([0,1,rng.getrandbits(32)]),rng.getrandbits(32),rng.getrandbits(32))
+            parameters[0x1C7]=rng.choice([0,1,254,255])
+            parameters[0x1CB]=rng.choice([0,1,255])
+            parameters[0x400:0x570]=XBE(0x20A368,0x170)
+            parameters[0x600:0x820]=XBE(0x20A148,0x220)
+            struct.pack_into('<II',data,0x114,0,0)
+            struct.pack_into('<I',data,0x120,RECORDS+0x200)
+            struct.pack_into('<II',data,0x200,rng.choice([0,1,2,3,4,0xFFFFFFFF]),RECORDS+0x300)
+            struct.pack_into('<I',data,0x3D4,(rng.getrandbits(24)<<8)|rng.randrange(16))
+            struct.pack_into('<I',data,0xB80,0)
+        if mode in [87,88]:
+            struct.pack_into('<I',parameters,0,rng.randrange(2))
+            struct.pack_into('<III',data,0x10C,0x400,rng.getrandbits(32),0)
+            struct.pack_into('<II',data,0x114,0,0)
+            struct.pack_into('<II',data,0x120,RECORDS+0x200,rng.choice([-1,0,1,2,4])&0xFFFFFFFF if mode==87 else rng.randrange(5))
+            struct.pack_into('<II',data,0x12C,RECORDS+0x300,4)
+            for index in range(4):
+                struct.pack_into('<H',data,0x200+index*8,rng.randrange(4))
+                data[0x205+index*8]=rng.randrange(8)
+                data[0x206+index*8]=rng.randrange(4)
+                for offset in range(0,0x40,4):
+                    struct.pack_into('<f',data,0x300+index*0x40+offset,rng.choice([-3.,-1.,-0.,0.,.5,1.,3.,rng.uniform(-3,3)]))
+                    struct.pack_into('<f',parameters,0x404+index*0x40+offset,rng.choice([-3.,-1.,-0.,0.,.5,1.,3.,rng.uniform(-3,3)]))
+                    struct.pack_into('<f',parameters,0x700+index*0x40+offset,rng.choice([-3.,-1.,-0.,0.,.5,1.,3.,rng.uniform(-3,3)]))
+            for offset in range(0,0x80,4):
+                struct.pack_into('<f',parameters,0x200+offset,rng.choice([-3.,-1.,-0.,0.,.5,1.,3.,rng.uniform(-3,3)]))
+            for index in range(4):
+                parameters[0x504+index]=rng.randrange(256)
+            if mode==88:
+                for index in range(4):
+                    data[0x200+index]=rng.randrange(4)
+                struct.pack_into('<I',data,0xB80,0)
+        if mode==86:
+            struct.pack_into('<I',data,0x10C,rng.randrange(0,0x100,4))
+            struct.pack_into('<II',data,0x114,0,0)
         if mode==85:
             struct.pack_into('<I',parameters,0,rng.choice([0,0x10001000,0x10002000]))
             for index in range(150):
@@ -1250,6 +1354,222 @@ def main():
                 u.reg_write(UC_X86_REG_EIP,struct.unpack('<I',u.mem_read(sp,4))[0])
                 u.reg_write(UC_X86_REG_ESP,sp+4)
             cpu.hook_add(UC_HOOK_CODE,scare_notice,begin=RECORDS+0x7800,end=RECORDS+0x7800)
+        if mode==92:
+            cpu.mem_map(0x180000,0x20000)
+            cpu.mem_write(0x18D2F4,XBE(0x18D2F4,0x1A0))
+            entry=0x18D2F4
+            for index in range(3):
+                w32(cpu,RECORDS+0x2400+index*4,RECORDS+0x100+index*0x100)
+            source_count,size_pointer,count_pointer=struct.unpack_from('<3I',parameters)
+            for index,value in enumerate([RECORDS+0x600,RECORDS+0xB80 if size_pointer else 0,
+                    RECORDS+0xB84 if count_pointer else 0,RECORDS+0x2400,source_count,0]):
+                w32(cpu,STACK+4+index*4,value)
+        if mode in [93,94]:
+            cpu.mem_map(0x160000,0x20000)
+            cpu.mem_map(0x180000,0x20000)
+            cpu.mem_write(0x18D2F4,XBE(0x18D2F4,0x1A0))
+            cpu.mem_write(0x184600,XBE(0x184600,0xE40))
+            cpu.mem_write(0x32E558,bytes(parameters[0x400:0x660]))
+            cpu.mem_write(0x4451D0,bytes(data[0x100:0xA44]))
+            subtype,flags,global_flags=struct.unpack_from('<3I',parameters)
+            w32(cpu,0x445120,global_flags)
+            channel=struct.unpack_from('<I',data,0xA40)[0]&255
+            key=global_flags if channel else 0
+            fragment={0:0x32E6EC,1:0x32E768,0x80000000:0x32E6C8,0x80000001:0x32E700}[key]
+            w32(cpu,0x4439A8+(key%239)*8+4,RECORDS+0x7000)
+            for offset,value in [(0,0),(4,0),(8,key),(12,fragment)]:
+                w32(cpu,RECORDS+0x7000+offset,value)
+            shader_events=bytearray()
+            def vertex_boundary(u,address,size,user):
+                sp=u.reg_read(UC_X86_REG_ESP)
+                if address==0x1732A0:
+                    declaration,program,handle,usage=struct.unpack('<4I',u.mem_read(sp+4,16))
+                    initial=struct.unpack('<I',u.mem_read(handle,4))[0]
+                    header=struct.unpack('<I',u.mem_read(program,4))[0]
+                    shader_events.extend(struct.pack('<3I',address,initial,usage))
+                    shader_events.extend(u.mem_read(declaration,0x80))
+                    shader_events.extend(u.mem_read(program,(1+(header>>16)*4)*4))
+                    w32(u,RECORDS+0xB84,struct.unpack('<I',u.mem_read(RECORDS+0xB84,4))[0]+1)
+                    failure=struct.unpack_from('<I',parameters,0x10)[0]
+                    if not failure:
+                        w32(u,handle,struct.unpack_from('<I',parameters,0xC)[0])
+                    u.reg_write(UC_X86_REG_EAX,0x8007000E if failure else 0)
+                    consumed=20
+                elif address==0x173610:
+                    shader_events.extend(struct.pack('<I',address))
+                    shader_events.extend(u.mem_read(sp+4,12))
+                    consumed=16
+                elif address==0x1739F0:
+                    handle=struct.unpack('<I',u.mem_read(sp+4,4))[0]
+                    shader_events.extend(struct.pack('<II',address,handle))
+                    w32(u,RECORDS+0xB80,handle)
+                    consumed=8
+                else:
+                    reg=u.reg_read(UC_X86_REG_ECX)
+                    pointer=u.reg_read(UC_X86_REG_EDX)
+                    words=16 if address==0x173440 else 4 if address==0x1733E0 else struct.unpack('<I',u.mem_read(sp+4,4))[0]
+                    shader_events.extend(struct.pack('<3I',address,reg,words))
+                    shader_events.extend(u.mem_read(pointer,words*4))
+                    consumed=8 if address==0x1735D0 else 4
+                u.reg_write(UC_X86_REG_EIP,struct.unpack('<I',u.mem_read(sp,4))[0])
+                u.reg_write(UC_X86_REG_ESP,sp+consumed)
+            for address in [0x1732A0,0x173610,0x1739F0,0x173440,0x1733E0,0x1735D0]:
+                cpu.hook_add(UC_HOOK_CODE,vertex_boundary,begin=address,end=address)
+            if mode==93:
+                entry=0x1596D0 if subtype==0 else 0x159530
+                if subtype==0:
+                    w32(cpu,STACK+4,0)
+                    w32(cpu,STACK+8,flags)
+                else:
+                    cpu.reg_write(UC_X86_REG_ESI,0x4451D0)
+                    cpu.reg_write(UC_X86_REG_EBX,flags)
+            else:
+                entry=0x158510
+                w32(cpu,STACK+4,RECORDS+0x2800)
+                w32(cpu,STACK+8,RECORDS+0x2000)
+                w32(cpu,0x43F4B4,0)
+                cpu.mem_write(0x439334,bytes(parameters[0x200:0x240]))
+                cpu.mem_write(0x4392B0,bytes(parameters[0x240:0x280]))
+                w32(cpu,0x4392F0,RECORDS+0x2280)
+                cpu.mem_write(0x437234,bytes(parameters[0x20:0x24]))
+                cpu.mem_write(0x437118,bytes(parameters[0x340:0x380]))
+                cpu.mem_write(0x437238,bytes(parameters[0x2C0:0x2D0]))
+                cpu.mem_write(0x437250,bytes(parameters[0x2D0:0x2F0]))
+        if mode==91:
+            cpu.mem_map(0x180000,0x20000)
+            cpu.mem_write(0x186FD5,XBE(0x186FD5,0x80))
+            cpu.mem_write(0x18850C,XBE(0x18850C,0x40))
+            subtype=struct.unpack_from('<I',parameters)[0]
+            entry=0x186FD5 if subtype==0 else 0x18850C
+            w32(cpu,STACK+4,RECORDS+0x100)
+            w32(cpu,STACK+8,RECORDS+0x100+struct.unpack_from('<I',parameters,4)[0])
+        if mode==90:
+            cpu.mem_map(0x160000,0x20000)
+            cpu.mem_map(0x180000,0x20000)
+            cpu.mem_write(0x184600,XBE(0x184600,0xE40))
+            cpu.mem_write(0x4392B0,bytes(data[0x400:0x64C]))
+            cpu.mem_write(0x43F4B4,bytes(data[0x6A4:0x6A8]))
+            cpu.mem_write(0x43F4B0,bytes(data[0x6A8:0x6AC]))
+            cpu.mem_write(0x4372A8,bytes(data[0x710:0x750]))
+            cpu.mem_write(0x437234,bytes(data[0x6A0:0x6A4]))
+            w32(cpu,0x437100,RECORDS+0x2400)
+            w32(cpu,0x437108,RECORDS+0x300)
+            subtype=struct.unpack_from('<I',parameters)[0]
+            entry=[0x157F10,0x157FC0,0x157D50,0x156540,0x157ED0,0x157D30,0x156A30][subtype]
+            if subtype==6:
+                for index,value in enumerate([RECORDS+0x300,RECORDS+0x780,RECORDS+0x780]):
+                    w32(cpu,STACK+4+index*4,value)
+            elif subtype==3:
+                frame=struct.unpack_from('<I',data,0x6A4)[0]
+                w32(cpu,STACK+4,0x4392B0+frame*0xC4)
+            else:
+                w32(cpu,STACK+4,RECORDS+0x100)
+                w32(cpu,STACK+8,RECORDS+0x2000)
+            def transform_constants(u,address,size,user):
+                sp=u.reg_read(UC_X86_REG_ESP)
+                reg=u.reg_read(UC_X86_REG_ECX)
+                pointer=u.reg_read(UC_X86_REG_EDX)
+                words=16 if address==0x173440 else struct.unpack('<I',u.mem_read(sp+4,4))[0]
+                calls=struct.unpack('<I',u.mem_read(RECORDS+0xB80,4))[0]
+                target=RECORDS+0x800+calls*0x48
+                u.mem_write(target,struct.pack('<II',reg,words//4))
+                u.mem_write(target+8,bytes(u.mem_read(pointer,words*4)))
+                w32(u,RECORDS+0xB80,calls+1)
+                u.reg_write(UC_X86_REG_EIP,struct.unpack('<I',u.mem_read(sp,4))[0])
+                u.reg_write(UC_X86_REG_ESP,sp+(4 if address==0x173440 else 8))
+            cpu.hook_add(UC_HOOK_CODE,transform_constants,begin=0x173440,end=0x173440)
+            cpu.hook_add(UC_HOOK_CODE,transform_constants,begin=0x1735D0,end=0x1735D0)
+        if mode==89:
+            cpu.mem_map(0x160000,0x20000)
+            cpu.mem_map(0x180000,0x20000)
+            cpu.mem_write(0x20A368,bytes(parameters[0x400:0x570]))
+            cpu.mem_write(0x20A148,bytes(parameters[0x600:0x820]))
+            cpu.mem_write(0x181B70,bytes(data[0x400:0x700]))
+            cpu.mem_write(0x181968,bytes(data[0x700:0x704]))
+            cpu.mem_write(0x5078D0,bytes(data[0x704:0x708]))
+            cpu.mem_write(0x5079E4,bytes(parameters[0x10:0x14]))
+            w32(cpu,0x5079EC,RECORDS+0x2000)
+            w32(cpu,0x4D9768,0xF9B40 if struct.unpack_from('<I',parameters,0xC)[0] else 0)
+            subtype=struct.unpack_from('<I',parameters)[0]
+            if subtype==1:
+                entry=0xF7420
+                cpu.reg_write(UC_X86_REG_EAX,struct.unpack_from('<I',parameters,8)[0])
+                cpu.reg_write(UC_X86_REG_EDI,struct.unpack_from('<I',parameters,4)[0])
+            else:
+                entry=0x157CE0
+                w32(cpu,STACK+4,RECORDS+0x100)
+                w32(cpu,STACK+8,RECORDS+0x2000)
+            def shader_boundary(u,address,size,user):
+                sp=u.reg_read(UC_X86_REG_ESP)
+                if address==0x171050:
+                    method=u.reg_read(UC_X86_REG_ECX)
+                    value=u.reg_read(UC_X86_REG_EDX)
+                    consumed=4
+                else:
+                    method=address
+                    value=struct.unpack('<I',u.mem_read(sp+4,4))[0]
+                    consumed=8
+                shadows=struct.unpack('<192I',u.mem_read(0x181B70,0x300))
+                dirty=struct.unpack('<I',u.mem_read(0x181968,4))[0]
+                checksum=(dirty+sum((index+1)*word for index,word in enumerate(shadows)))&0xFFFFFFFF
+                calls=struct.unpack('<I',u.mem_read(RECORDS+0xB80,4))[0]
+                u.mem_write(RECORDS+0x800+calls*12,struct.pack('<3I',method,value,checksum))
+                w32(u,RECORDS+0xB80,calls+1)
+                u.reg_write(UC_X86_REG_EIP,struct.unpack('<I',u.mem_read(sp,4))[0])
+                u.reg_write(UC_X86_REG_ESP,sp+consumed)
+            setters=[0x171050,0x175370,0x171020,0x171870,0x1713D0,0x171740,0x171790,0x1717F0,
+                0x1714D0,0x1722A0,0x172330,0x1723C0,0x171420,0x171490,0x171510,0x171660,
+                0x1716E0,0x171350,0x172600,0x172680,0x1725A0,0x1725D0,0x171390,0x171570,
+                0x1726D0,0x1715E0,0x172430,0x172460,0x1724D0,0x172540,0x172560,0x172580]
+            for setter in setters:
+                cpu.hook_add(UC_HOOK_CODE,shader_boundary,begin=setter,end=setter)
+        if mode in [87,88]:
+            cpu.mem_map(0x160000,0x20000)
+            cpu.mem_write(0x160000,XBE(0x160000,0x20000))
+            cpu.mem_map(0x180000,0x20000)
+            cpu.mem_write(0x184600,XBE(0x184600,0xE40))
+            w32(cpu,0x43F4B4,0)
+            w32(cpu,0x437100,RECORDS+0x2700)
+            w32(cpu,0x437230,RECORDS+0x300)
+            cpu.mem_write(0x4392B0,bytes(parameters[0x200:0x240]))
+            w32(cpu,0x4392F0,RECORDS+0x2240)
+            cpu.mem_write(0x439334,bytes(parameters[0x200:0x240]))
+            if mode==87:
+                subtype=struct.unpack_from('<I',parameters)[0]
+                entry=0x155E60 if subtype==0 else 0x155F80
+                cpu.reg_write(UC_X86_REG_ESI,RECORDS+0x100)
+                if subtype==0:
+                    for index,value in enumerate([RECORDS+0x2700,RECORDS+0x2200,RECORDS+0x2240,RECORDS+0x2000,RECORDS+0x700]):
+                        w32(cpu,STACK+4+index*4,value)
+                else:
+                    w32(cpu,0x437080,RECORDS+0x700)
+                    w32(cpu,STACK+4,RECORDS+0x100)
+                    w32(cpu,STACK+8,RECORDS+0x2000)
+            else:
+                entry=0x157B90
+                w32(cpu,STACK+4,RECORDS+0x100)
+                w32(cpu,STACK+8,RECORDS+0x2000)
+                def skin_constants(u,address,size,user):
+                    sp=u.reg_read(UC_X86_REG_ESP)
+                    reg=u.reg_read(UC_X86_REG_ECX)
+                    pointer=u.reg_read(UC_X86_REG_EDX)
+                    words=16 if address==0x173440 else struct.unpack('<I',u.mem_read(sp+4,4))[0]
+                    calls=struct.unpack('<I',u.mem_read(RECORDS+0xB80,4))[0]
+                    if reg==0x74:
+                        u.mem_write(RECORDS+0x800,bytes(u.mem_read(pointer,words*4)))
+                    else:
+                        target=RECORDS+0x840+(calls-1)*0x34
+                        w32(u,target,reg)
+                        u.mem_write(target+4,bytes(u.mem_read(pointer,words*4)))
+                    w32(u,RECORDS+0xB80,calls+1)
+                    u.reg_write(UC_X86_REG_EIP,struct.unpack('<I',u.mem_read(sp,4))[0])
+                    u.reg_write(UC_X86_REG_ESP,sp+(4 if address==0x173440 else 8))
+                cpu.hook_add(UC_HOOK_CODE,skin_constants,begin=0x173440,end=0x173440)
+                cpu.hook_add(UC_HOOK_CODE,skin_constants,begin=0x1735D0,end=0x1735D0)
+        if mode==86:
+            entry=0x1569D0
+            w32(cpu,STACK+4,RECORDS+0x100)
+            w32(cpu,STACK+8,RECORDS+0x2000)
         if mode==85:
             entry=0xED5B0
             cpu.reg_write(UC_X86_REG_ESI,struct.unpack_from('<I',parameters)[0])
@@ -2329,11 +2649,41 @@ def main():
             cpu.emu_start(entry, STOP, count=100000000 if mode in [34,35] else 100000 if mode in [27,28,29,30,31,32,33,34] else 10000)
             if cpu.reg_read(UC_X86_REG_EIP) != STOP:
                 raise RuntimeError('retail call did not return before its instruction budget')
+            if mode==90 and subtype in [1,2]:
+                cpu.reg_write(UC_X86_REG_ESP,STACK)
+                w32(cpu,STACK,STOP)
+                cpu.emu_start(0x157ED0 if subtype==1 else 0x157D30,STOP,count=10000)
+                if cpu.reg_read(UC_X86_REG_EIP) != STOP:
+                    raise RuntimeError('retail transform restore did not return')
         except Exception:
             print('retail failure', case, mode, subtype, hex(entry), hex(cpu.reg_read(UC_X86_REG_EIP)), hex(cpu.reg_read(UC_X86_REG_ESP)))
             raise
         if mode==80 and subtype==0:
             w32(cpu,RECORDS+0xB80,cpu.reg_read(UC_X86_REG_XMM0)&0xFFFFFFFF)
+        if mode==92:
+            w32(cpu,RECORDS+0xB88,cpu.reg_read(UC_X86_REG_EAX))
+        if mode in [93,94]:
+            cpu.mem_write(RECORDS+0x100,bytes(cpu.mem_read(0x4451D0,0x944)))
+            if mode==93:
+                w32(cpu,RECORDS+0xB80,cpu.reg_read(UC_X86_REG_EAX))
+            else:
+                cpu.mem_write(RECORDS+0xB88,bytes(cpu.mem_read(0x437234,4)))
+        if mode==91 and subtype==1:
+            w32(cpu,RECORDS+0xB80,cpu.reg_read(UC_X86_REG_EAX))
+        if mode==90:
+            cpu.mem_write(RECORDS+0x400,bytes(cpu.mem_read(0x4392B0,0x24C)))
+            cpu.mem_write(RECORDS+0x6A4,bytes(cpu.mem_read(0x43F4B4,4)))
+            cpu.mem_write(RECORDS+0x6A8,bytes(cpu.mem_read(0x43F4B0,4)))
+            cpu.mem_write(RECORDS+0x710,bytes(cpu.mem_read(0x4372A8,0x40)))
+        if mode==89:
+            cpu.mem_write(RECORDS+0x400,bytes(cpu.mem_read(0x181B70,0x300)))
+            cpu.mem_write(RECORDS+0x700,bytes(cpu.mem_read(0x181968,4)))
+            cpu.mem_write(RECORDS+0x704,bytes(cpu.mem_read(0x5078D0,4)))
+        if mode==87:
+            cpu.mem_write(RECORDS+0xB80,bytes(cpu.mem_read(0x437230,4)))
+        if mode==86:
+            cpu.mem_write(RECORDS+0xB80,bytes(cpu.mem_read(0x437100,4)))
+            cpu.mem_write(RECORDS+0xB84,bytes(cpu.mem_read(0x437108,8)))
         if mode==84 and subtype!=1:
             cpu.mem_write(RECORDS,bytes(cpu.mem_read(0x512140,0x1E0)))
             cpu.mem_write(RECORDS+0x400,bytes(cpu.mem_read(0x512324,16)))
@@ -2548,10 +2898,12 @@ def main():
             w32(cpu, RECORDS + 0x70, cpu.reg_read(UC_X86_REG_XMM0) & 0xFFFFFFFF)
         if mode == 10:
             cpu.mem_write(RECORDS + 0x800, bytes(cpu.mem_read(0x507C98, 0x80)))
-        wanted = [1 if mode in [5, 6, 7, 10, 12, 13, 14, 28, 29, 30, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85] or (mode == 36 and subtype == 2) or (mode == 31 and subtype != 5) or (mode == 18 and subtype == 3) or (mode == 20 and subtype != 1) or (mode == 23 and subtype in [0,2]) or (mode == 25 and subtype in [0,2,3]) or (mode == 27 and subtype != 3) else int(cpu.reg_read(UC_X86_REG_EAX) != 0) if mode in [26,27,36] else cpu.reg_read(UC_X86_REG_EAX), struct.unpack('<I', cpu.mem_read(0x54DD7C, 4))[0],
+        wanted = [1 if mode in [5, 6, 7, 10, 12, 13, 14, 28, 29, 30, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94] or (mode == 36 and subtype == 2) or (mode == 31 and subtype != 5) or (mode == 18 and subtype == 3) or (mode == 20 and subtype != 1) or (mode == 23 and subtype in [0,2]) or (mode == 25 and subtype in [0,2,3]) or (mode == 27 and subtype != 3) else int(cpu.reg_read(UC_X86_REG_EAX) != 0) if mode in [26,27,36] else cpu.reg_read(UC_X86_REG_EAX), struct.unpack('<I', cpu.mem_read(0x54DD7C, 4))[0],
             slot if mode in [32,33,38] else struct.unpack('<I', cpu.mem_read(RECORDS + 0x4000, 4))[0], *cpu.mem_read(RECORDS, len(data))]
         if mode in [34,35]:
             wanted.extend(graph_bytes)
+        if mode in [93,94]:
+            wanted.extend(shader_events)
         expected.append(wanted)
         lines.append(' '.join(map(str, [mode, state, slot, *parameters, *data])))
     assert len(expected) == count and len(lines) == count, 'fixture count changed during generation'

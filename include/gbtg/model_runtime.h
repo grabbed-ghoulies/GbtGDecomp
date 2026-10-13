@@ -142,6 +142,7 @@ struct RuntimeModelInstanceStorage
     std::span<u8> bytes;
     std::unordered_map<u32, RuntimeShaderNodeInstance> shader_nodes;
     std::unordered_map<u32, RuntimeBlendshapeNodeInstance> blendshape_nodes;
+    std::unordered_map<u32, ModelPoseBuffer*> skeleton_poses; // Native skeleton instance +4 pointer words.
 };
 std::array<RuntimeModelNodeType, 17> runtime_model_copy_types(
     const RuntimeBlendshapeBoundaries& boundaries); // bindings from Xbox 0x00155A10

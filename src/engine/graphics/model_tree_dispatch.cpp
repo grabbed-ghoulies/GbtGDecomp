@@ -1,7 +1,28 @@
 #include "model_tree_dispatch.h"
+#include <cstdio>
 
 namespace gbtg
 {
+namespace
+{
+// Host virtual-slot lookup. Missing translated slots stop at their actual
+// executable address, without substituting a draw callback.
+const std::function<void(u32, void*)>& node_draw_slot(u32 callback, u32 node,
+    const ModelTreeDispatchContext& context)
+{
+    try
+    {
+        return context.callbacks.at(callback);
+    }
+    catch (const std::out_of_range&)
+    {
+        char detail[100];
+        std::snprintf(detail, sizeof(detail), "untranslated model node draw slot 0x%08X (node 0x%08X)",
+            callback, node);
+        throw Error(detail);
+    }
+}
+}
 // Xbox 0x00156E40
 void push_runtime_model_node(u32 callback, u32 node, ModelTreeDispatchContext& c)
 {
@@ -38,7 +59,7 @@ void dispatch_runtime_model_nodes(u16 mask, void* storage, ModelTreeDispatchCont
         }
         else
         {
-            c.callbacks.at(callback)(node, storage);
+            node_draw_slot(callback, node, c)(node, storage);
         }
         pop_runtime_model_node(callback, node, c);
     }

@@ -120,6 +120,8 @@ add_library(gbtg_lib STATIC
     src/engine/entities/player_destruction.cpp
     src/engine/navigation/cell_registration.cpp
     src/engine/navigation/cell_reach.cpp
+    src/engine/navigation/grid_preparation.cpp
+    src/engine/navigation/model_grid.cpp
     src/engine/entities/player_messages.cpp
     src/engine/entities/player_overlay.cpp
     src/engine/graphics/billboard_queue.cpp
@@ -389,8 +391,27 @@ add_executable(gbtg
     src/engine/entities/aid_spawn_resources.cpp
     src/engine/scene/scene_object_requests.cpp
     src/engine/scene/background_geometry.cpp
+    src/engine/scene/background_ambient.cpp
+    src/engine/scene/background_sectors.cpp
+    src/engine/entities/runtime_list.cpp
+    src/engine/scene/background_parts.cpp
+    src/engine/scene/background_part_removal.cpp
+    src/engine/navigation/grid_regions.cpp
+    src/engine/scene/background_construction.cpp
+    src/engine/runtime/aid_list_lookup.cpp
+    src/engine/scene/background_animation.cpp
+    src/engine/scene/background_lifetime.cpp
+    src/engine/entities/model_sound_lifetime.cpp
     src/engine/entities/physical_shape_events.cpp
+    src/engine/entities/actor_matrix_sampling.cpp
     src/engine/entities/actor_matrix_setup.cpp
+    src/engine/graphics/model_points.cpp
+    src/engine/graphics/matrix_inverse.cpp
+    src/engine/graphics/effect_particles.cpp
+    src/engine/graphics/point_graph.cpp
+    src/engine/graphics/pose_matrix.cpp
+    src/engine/scene/background_doors.cpp
+    src/engine/cutscenes/door_registration.cpp
     src/engine/scene/background_volumes.cpp
     src/engine/entities/shape_copy.cpp
     src/engine/scene/background_model_nodes.cpp

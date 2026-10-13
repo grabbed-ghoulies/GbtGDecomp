@@ -39,6 +39,8 @@ ActorEffectNode* create_actor_effect_node(const char* name, u16 count,
 i32 allocate_actor_effect_slot(i32 category, const char* name, u16 count,
     const Vec3& position, const Vec3& euler, AnimationResourceRegistry& registry,
     ResourceErrorState& error); // Xbox 0x000ED550
+void reset_actor_effect_to_debris(ActorEffectNode& effect,
+    ActorEffectModelContext& context); // Xbox 0x000ED6E0
 void recycle_actor_effect_particles(ActorEffectNode& effect); // Xbox 0x000EF790
 void set_actor_effect_movement(ActorEffectNode& effect, u32 mode, const Vec3& velocity,
     const Vec3& minimum, const Vec3& maximum, i32 relative); // Xbox 0x000EF7F0

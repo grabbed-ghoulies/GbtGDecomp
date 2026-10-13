@@ -15,6 +15,8 @@ struct NavigationCellRegistration
     u16 growth = 0; // Retail header +2.
 };
 extern NavigationCellRegistration* g_nav_floor_connections[kNavSlots]; // DAT_0050E248.
+NavigationCellRegistration* grow_navigation_cell_registration(
+    NavigationCellRegistration* records); // Xbox 0x000662A0
 u32 navigation_floor_connection_point(i32 source_floor, i32 target_floor,
     const Vec3& target, Vec3& output); // Xbox 0x00110D00
 void decrement_navigation_cell_counts(const NavigationCellRegistration& records,

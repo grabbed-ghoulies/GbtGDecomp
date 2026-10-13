@@ -13,6 +13,26 @@ void write(ActorEffectNode& effect, size_t offset, const T& value)
 }
 }
 
+// Xbox 0x000ED6E0
+void reset_actor_effect_to_debris(ActorEffectNode& effect, ActorEffectModelContext& context)
+{
+    if (effect.texture.data() != nullptr)
+    {
+        release_animation_resource(context.registry, effect.texture);
+        effect.texture = {};
+        write(effect, 0x144, u32{0});
+    }
+    if (effect.model != nullptr)
+    {
+        const RuntimeModelAsset* old = defer_runtime_model_release(*effect.model,
+            context.deferred, context.fence, context.registry, context.shaders, context.heap_free);
+        release_animation_resource(context.registry, old->cpu);
+        context.deferred.records.back().owner = std::move(effect.model);
+        write(effect, 0x158, u32{0});
+    }
+    write(effect, 0x13C, u32{1});
+}
+
 // Xbox 0x000ED8C0
 void set_actor_effect_model(ActorEffectNode& effect, const char* name,
     ActorEffectModelContext& context)

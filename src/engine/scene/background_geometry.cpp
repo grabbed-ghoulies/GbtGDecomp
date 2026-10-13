@@ -1,11 +1,61 @@
 #include "background_geometry.h"
 #include "../entities/ghouly_box_decoder.h"
+#include "../entities/actor_collision_culling.h"
 
 #include <cmath>
 #include <cstring>
 
 namespace gbtg
 {
+u8 g_background_collision_bounds_enabled = 0;
+Vec3 g_background_collision_bounds_low{};
+Vec3 g_background_collision_bounds_high{};
+
+// Xbox 0x00043C70
+u32 accumulate_background_triangle_bounds(const u8* event, BackgroundCollisionBounds& bounds)
+{
+    for (u32 index = 0; index < 3; ++index)
+    {
+        const Vec3& point = bounds.vertices[read_u32({event, 0x14}, index * 4)];
+        bounds.low.x = point.x > bounds.low.x ? bounds.low.x : point.x;
+        bounds.low.y = point.y > bounds.low.y ? bounds.low.y : point.y;
+        bounds.low.z = point.z > bounds.low.z ? bounds.low.z : point.z;
+        bounds.high.x = bounds.high.x >= point.x ? bounds.high.x : point.x;
+        bounds.high.y = bounds.high.y >= point.y ? bounds.high.y : point.y;
+        bounds.high.z = bounds.high.z >= point.z ? bounds.high.z : point.z;
+    }
+    return 1;
+}
+
+// Xbox 0x00043190
+void initialize_background_bounds(const Actor& actor, std::span<const Vec3> vertices,
+    const std::unordered_map<const u8*, PhysicalShapeEventList>& lists)
+{
+    if (actor.model != nullptr && actor.model->cpu.data() != nullptr)
+    {
+        Vec3 low;
+        Vec3 high;
+        actor_model_bounds_low(actor, low);
+        actor_model_bounds_high(actor, high);
+        initialize_background_volume(low, high);
+        if (actor.model != nullptr && actor.model->cpu.data() != nullptr &&
+            actor.model->physics_shapes.data() != nullptr &&
+            runtime_collision_shape_list_has_physical_shape(actor.model->physics_shapes))
+        {
+            BackgroundCollisionBounds bounds{{}, {}, vertices};
+            PhysicalShapeEventContext context{0xFFFFFFFFu, 0, 0,
+                [](const u8* event, void* user)
+                {
+                    return accumulate_background_triangle_bounds(event,
+                        *static_cast<BackgroundCollisionBounds*>(user));
+                }, &bounds, lists};
+            visit_model_physical_shape_events(actor.model->physics_shapes, context);
+            g_background_collision_bounds_low = bounds.low;
+            g_background_collision_bounds_high = bounds.high;
+            g_background_collision_bounds_enabled = 1;
+        }
+    }
+}
 // Xbox 0x00043DD0
 u32 collect_background_shape_event(const u8* event, GhoulySpawnPool*& pool)
 {

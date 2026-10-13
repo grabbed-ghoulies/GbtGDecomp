@@ -27,6 +27,8 @@ void set_actor_effect_sound(ActorEffectNode& effect, const char* name,
     RuntimeActorSoundQueues& queues); // Xbox 0x000EF870
 u32 interpret_actor_effect_nodes(ActorEffectNode* effect, const u8*& cursor,
     const RuntimeActorCreationOptions* options, ActorEffectStreamContext& context); // Xbox 0x000ED9F0
+u32 interpret_named_actor_effect(ActorEffectNode* effect, const char* name,
+    const RuntimeActorCreationOptions* options, ActorEffectStreamContext& context); // Xbox 0x000ED990
 u32 interpret_new_actor_effect(const u8*& cursor, const RuntimeActorCreationOptions* options,
     ActorEffectStreamContext& context); // Xbox 0x000ED970
 u32 reject_unused_effect_nodes(); // Xbox 0x00055A90

@@ -1,10 +1,24 @@
 #pragma once
 
 #include "gbtg/entity.h"
+#include "../entities/physical_shape_events.h"
 
 namespace gbtg
 {
 struct GhoulySpawnPool;
+struct BackgroundCollisionBounds
+{
+    Vec3 low;
+    Vec3 high;
+    std::span<const Vec3> vertices;
+};
+extern u8 g_background_collision_bounds_enabled; // DAT_0050EA01.
+extern Vec3 g_background_collision_bounds_low; // DAT_0050EA7C.
+extern Vec3 g_background_collision_bounds_high; // DAT_0050EA88.
+u32 accumulate_background_triangle_bounds(const u8* event,
+    BackgroundCollisionBounds& bounds); // Xbox 0x00043C70
+void initialize_background_bounds(const Actor& actor, std::span<const Vec3> vertices,
+    const std::unordered_map<const u8*, PhysicalShapeEventList>& lists); // Xbox 0x00043190
 struct BackgroundShapeEvent
 {
     const u8* source; // +0

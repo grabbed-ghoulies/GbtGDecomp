@@ -108,6 +108,25 @@ void set_actor_effect_sound(ActorEffectNode& effect, const char* name,
     }
 }
 
+// Xbox 0x000ED990
+u32 interpret_named_actor_effect(ActorEffectNode* effect, const char* name,
+    const RuntimeActorCreationOptions* options, ActorEffectStreamContext& context)
+{
+    std::span<const u8> resource;
+    if (read<u32>(reinterpret_cast<const u8*>(name), 0) == 0x5F646961u)
+    {
+        resource = acquire_animation_resource(context.models.registry, name);
+        if (resource.data() == nullptr)
+        {
+            resource_error(context.models.error, 2);
+        }
+    }
+    const u8* cursor = resource.data();
+    const u32 result = interpret_actor_effect_nodes(effect, cursor, options, context);
+    release_animation_resource(context.models.registry, resource);
+    return result;
+}
+
 // Xbox 0x000ED970
 u32 interpret_new_actor_effect(const u8*& cursor, const RuntimeActorCreationOptions* options,
     ActorEffectStreamContext& context)

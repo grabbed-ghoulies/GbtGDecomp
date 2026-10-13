@@ -18,6 +18,7 @@
 
 #include "entity_types.h"
 #include "actor_transform.h"
+#include "../graphics/pose_matrix.h"
 #include "actor_bind_tree.h"
 #include "entity_heap.h"
 
@@ -169,93 +170,13 @@ void actor_set_world_position(Actor& actor, const Vec3& point)
 }
 
 
-// Xbox 0x00103CB0. Rotation is Ry(euler.y) * Rx(euler.x) * Rz(euler.z).
-// A scale component other than 1 multiplies that column. Translation is the position.
-static void pose_matrix(float m[12], const Vec3& pos, const Vec3& euler, const Vec3& scale,
-    float* inverse = nullptr)
-{
-    const float sx = float(retail_sin(euler.x));
-    const float cx = float(retail_cos(euler.x));
-    const float sy = float(retail_sin(euler.y));
-    const float cy = float(retail_cos(euler.y));
-    const float sz = float(retail_sin(euler.z));
-    const float cz = float(retail_cos(euler.z));
-
-    m[0] = sy * sx * sz + cz * cy;
-    m[1] = sy * sx * cz - sz * cy;
-    m[2] = sy * cx;
-    m[3] = pos.x;
-    m[4] = sz * cx;
-    m[5] = cz * cx;
-    m[6] = -sx;
-    m[7] = pos.y;
-    m[8] = sz * cy * sx - cz * sy;
-    m[9] = sz * sy + cz * cy * sx;
-    m[10] = cy * cx;
-    m[11] = pos.z;
-
-    if (scale.x != 1.f)
-    {
-        m[0] *= scale.x;
-        m[4] *= scale.x;
-        m[8] *= scale.x;
-    }
-    if (scale.y != 1.f)
-    {
-        m[1] *= scale.y;
-        m[5] *= scale.y;
-        m[9] *= scale.y;
-    }
-    if (scale.z != 1.f)
-    {
-        m[2] *= scale.z;
-        m[6] *= scale.z;
-        m[10] *= scale.z;
-    }
-    if (inverse != nullptr)
-    {
-        if (scale.x == 1.f && scale.y == 1.f && scale.z == 1.f)
-        {
-            inverse[0] = m[0];
-            inverse[1] = m[4];
-            inverse[2] = m[8];
-            inverse[4] = m[1];
-            inverse[5] = m[5];
-            inverse[6] = m[9];
-            inverse[8] = m[2];
-            inverse[9] = m[6];
-            inverse[10] = m[10];
-        }
-        else
-        {
-            float factor = 1.f / (scale.x * scale.x);
-            inverse[0] = m[0] * factor;
-            inverse[1] = m[4] * factor;
-            inverse[2] = factor * m[8];
-            factor = 1.f / (scale.y * scale.y);
-            inverse[4] = factor * m[1];
-            inverse[5] = m[5] * factor;
-            inverse[6] = factor * m[9];
-            factor = 1.f / (scale.z * scale.z);
-            inverse[8] = m[2] * factor;
-            inverse[9] = m[6] * factor;
-            inverse[10] = m[10] * factor;
-        }
-        const float x = 0.f - pos.x;
-        const float y = 0.f - pos.y;
-        const float z = 0.f - pos.z;
-        inverse[3] = inverse[1] * y + inverse[0] * x + inverse[2] * z;
-        inverse[7] = inverse[6] * z + inverse[4] * x + inverse[5] * y;
-        inverse[11] = inverse[9] * y + inverse[10] * z + inverse[8] * x;
-    }
-}
 
 
 static void actor_local_pose(float out[12], const Actor& actor, const Vec3* position)
 {
     const Vec3 pos = position != nullptr ? *position : actor.position;
     const float s = actor.scale_200;
-    pose_matrix(out, pos, actor.euler, Vec3{s * actor.scale_x, s * actor.radius_y, s * actor.radius_xz});
+    build_runtime_pose_matrix(out, pos, actor.euler, Vec3{s * actor.scale_x, s * actor.radius_y, s * actor.radius_xz});
 }
 
 
@@ -426,7 +347,7 @@ void actor_refresh_transform(Actor& actor)
             float local[12];
             float inverse[12];
             const float scale = actor.scale_200;
-            pose_matrix(local, actor.position, actor.euler,
+            build_runtime_pose_matrix(local, actor.position, actor.euler,
                 Vec3{actor.scale_x * scale, actor.radius_y * scale, actor.radius_xz * scale}, inverse);
             refresh_bind(actor);
             mul_affine(actor.xform, actor.bind->basis, local);
@@ -439,7 +360,7 @@ void actor_refresh_transform(Actor& actor)
     if (actor.xform_valid == 0)
     {
         const float scale = actor.scale_200;
-        pose_matrix(actor.xform, actor.position, actor.euler,
+        build_runtime_pose_matrix(actor.xform, actor.position, actor.euler,
             Vec3{actor.scale_x * scale, actor.radius_y * scale, actor.radius_xz * scale}, actor.xform_inv);
         actor.xform_valid = 1;
     }

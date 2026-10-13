@@ -4,6 +4,7 @@
 #include "gbtg/actor_runtime.h"
 #include "gbtg/gfx.h"
 #include "background_geometry.h"
+#include "background_ambient.h"
 
 #include <bit>
 #include <cmath>
@@ -108,6 +109,11 @@ Vec3 g_amb_step_now{};        // DAT_0050e828
 
 // Phase block. 0x001185E0 advances DAT_0050e968 under the two gates.
 i32 g_amb_count = 0;          // DAT_0050e930
+Vec3 g_amb_emitters[21]{}; // DAT_0050E834..DAT_0050E92F.
+Vec3 g_amb_vary_point{}; // DAT_0050E938.
+float g_amb_light_color[4]{}; // DAT_00509B3C.
+Vec3 g_amb_phase_point{}; // DAT_0050E958.
+float g_amb_model_matrix_scratch[12]{}; // DAT_004DD798.
 i32 g_amb_vary = 0;           // DAT_0050e944
 float g_amb_vary_scale = 0.f; // DAT_0050e948
 i32 g_amb_phase_on = 0;       // DAT_0050e950
@@ -275,6 +281,13 @@ i32 g_lookup_count = 0; // DAT_0050ec00
 u32* g_lookup_tex = nullptr; // DAT_0050ec04. 4096 A8R8G8B8 texels.
 
 } // namespace
+
+RuntimeBackgroundAmbient runtime_background_ambient()
+{
+    return {g_amb_emitters, g_amb_count, g_amb_vary_point, g_amb_vary,
+        g_amb_vary_scale, g_amb_light_color, g_amb_phase_on, g_amb_phase_point,
+        g_amb_model_matrix_scratch};
+}
 
 // Xbox 0x00118AE0
 void initialize_background_volume(const Vec3& low, const Vec3& high)

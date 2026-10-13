@@ -6,6 +6,20 @@
 
 namespace gbtg::entity_detail
 {
+// Xbox 0x000662A0
+NavigationCellRegistration* grow_navigation_cell_registration(NavigationCellRegistration* records)
+{
+    const i32 stride = records->stride;
+    const i32 count = i32(records->end - records->begin) / stride;
+    const i32 rows = i32(records->growth) + count;
+    auto* grown = static_cast<NavigationCellRegistration*>(
+        engine_heap_reallocate(records, i32(sizeof(NavigationCellRegistration)) + stride * rows));
+    u8* first = reinterpret_cast<u8*>(grown) + sizeof(NavigationCellRegistration);
+    grown->begin = first;
+    grown->end = first + grown->stride * count;
+    grown->capacity = first + grown->stride * rows;
+    return grown;
+}
 namespace
 {
 u16 adjusted_counter_word(u16 old, u32 selector, bool increment)
@@ -84,15 +98,7 @@ u8* append_registration_row(NavigationCellRegistration*& records)
     NavigationCellRegistration* header = records;
     if (header->end == header->capacity)
     {
-        const i32 stride = header->stride;
-        const i32 count = i32(header->end - header->begin) / stride;
-        const i32 rows = i32(header->growth) + count;
-        auto* grown = static_cast<NavigationCellRegistration*>(
-            engine_heap_reallocate(header, i32(sizeof(NavigationCellRegistration)) + stride * rows));
-        u8* first = reinterpret_cast<u8*>(grown) + sizeof(NavigationCellRegistration);
-        grown->begin = first;
-        grown->end = first + grown->stride * count;
-        grown->capacity = first + grown->stride * rows;
+        auto* grown = grow_navigation_cell_registration(header);
         records = grown;
         header = grown;
     }

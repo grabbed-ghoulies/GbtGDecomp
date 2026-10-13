@@ -60,7 +60,7 @@ void matrix_axis_scales(const float* matrix, Vec3& output)
         axis[index] = squared;
         if (squared != 0.f)
         {
-            axis[index] = float(std::sqrt(static_cast<long double>(squared)));
+            axis[index] = float(retail_square_root(squared));
         }
         ++index;
         ++component;

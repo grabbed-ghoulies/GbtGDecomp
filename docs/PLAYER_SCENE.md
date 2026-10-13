@@ -5538,3 +5538,396 @@ actor's model; the background is factory type 4 created by 0x0011C8B0, whose
 class (vtable 0x004E1644, constructor 0x00042DA0) is not installed natively.
 The constructor's tree (lights, sectors, background nodes) plus the grid
 builder is about 40 untranslated functions; their dumps are exported.
+
+### 2026-10-12: navigation grid preparation dependency batch
+
+Reviewed the intervening camera/director/player-update commits. The current
+scene-start blocker remains the background factory and its navigation build.
+Added `navigation/grid_preparation.cpp`: shared neighbor iterator 0x00036380,
+height-bound accumulation 0x00111FC0, edge-cost initialization 0x001121B0 and
+height-based connection initialization 0x00112560, from their cached assembly.
+The iterator preserves direction advancement, connection/region/terrain gates,
+surface-cost selection and SSE multiplication order. Surface costs are supplied
+as a view of the retail DAT_002FCFB8 table, without invented defaults for reads.
+These helpers are compiled but are not yet wired into 0x00111820. Added oracle
+mode 27 for all four functions, including blocked cells, boundary rows, tagged
+regions, negative/zero counts, zero/negative/NaN height thresholds and neighbor
+iterator exhaustion. Validation pending; background construction is not complete.
+
+Validation for this batch: Release `gbtg` and the scene factory oracle harness
+build successfully. Oracle seed 179 passed 2,800 cases across 28 modes with zero
+mismatches; 100 fixtures exercise the new grid preparation mode. Retail calls
+must reach the return sentinel; grid walks receive a larger instruction budget
+because they invoke the genuine square-root callee for multiple neighbors.
+Fixed the pre-existing mode-26 harness declaration to use `gbtg::LiveScript`.
+No live scene-start acceptance is claimed: background type 4, its constructor
+0x00042DA0, model-grid decoding 0x00111B80 and remaining 0x00111820 preparation
+passes still need translation and installation before DAT_0050E24C is populated.
+
+### 2026-10-12: remaining navigation passes and model decoding
+
+Added isolation marking 0x001122E0, pairwise connection removal 0x00112680,
+and floor-connection collection 0x001127D0. Isolation retains the retail rule:
+one eligible cardinal neighbor suffices; when the first eligible neighbor is
+diagonal, a second eligible diagonal is required. Walks mutate cells in order.
+Connection removal reads both original bytes before writing either endpoint.
+Floor connections retain stride 0xC, growth 4, and untouched row +8 bytes.
+Extracted the existing registration-pool grow into the shared translated
+0x000662A0 helper, used by both registration and floor-connection collection.
+
+Added `navigation/model_grid.cpp`: model point bounds 0x0004F1B0, cell-aligned
+bounds 0x0004F460, grid allocation 0x000362F0, and model-cell decode 0x00111B80.
+The decoder converts coordinates through CVTTSS2SI, preserves region/flag bit
+assignments and the blocked-cell bitset, and invokes the real 0x00122480 ceiling
+probe. Native ownership releases grid storage and temporary bitsets. This batch
+is not yet built or oracle-validated, and scene-start wiring remains pending.
+
+Added the complete navigation build sequence 0x00111820 over the first background
+actor's offset-based model CPU view. It selects blocks 0xB / 0x17 and link blocks
+0x19 / 0x1A, resets the two height bands, decodes available floors, executes all
+preparation passes in retail order, releases temporary blocked-cell bitsets,
+collects cross-floor links, and allocates/initializes DAT_0050E24C's stride-0x14
+node records. `NavigationSceneStorage` owns the grids/node buffer and releases
+its published globals and floor-link pools on destruction. This owner is not
+yet installed into `SceneActorServices`; the live background root remains absent.
+
+Validation: Release `gbtg` and the scene factory oracle harness build successfully.
+Seed 181 passed 2,900 cases across 29 modes with zero mismatches for the helper
+batch. Seed 191 passed 3,000 cases across 30 modes with zero mismatches, including
+100 full-builder fixtures: absent background, one floor, two floors, and an
+upper-floor block without the required lower-floor block. Compared complete cell
+bytes, grid headers, height bands, aligned origins, floor-link rows, blocked
+bitsets and node records. Model decoder/builder fixtures call the real 0x00122480
+with an empty world segment list; background collision hits are not yet covered.
+Only genuine heap API calls are intercepted by the new full-builder fixtures.
+Oracle generation now asserts the requested fixture count and checks missing
+harness result rows against the expected corpus size.
+
+Next: translate/install background type 4's 0x00042DA0 constructor and remaining
+light/sector/animation dependencies, bind the background root and scene-owned
+navigation storage, then advance `--scene-start` beyond the camera mind's node
+buffer guard. No live scene-start acceptance is claimed for this batch.
+
+### 2026-10-12: background bounds and ambient-node construction
+
+Added physical triangle bounds callback 0x00043C70 and background bounds setup
+0x00043190. The latter invokes the existing model bounds, world-volume setup,
+physical-shape presence check and real shape-event visitor; triangle bounds use
+the retail unordered comparison behavior and remain separate from world bounds.
+Added ambient-node setup 0x000432B0 for kind 8 / 9 / 0x1F model nodes, preserving
+alternate-pose precedence, packed/unpacked bone matrices, actor matrix arithmetic
+order, emitter append order and one RNG step for each kind-9 node. The ambient
+view aliases existing count/vary/phase flags and adds their previously missing
+point/color storage. Implementation landed; validation pending. The background
+constructor remains unregistered while its animation/effect/sector callees are
+incomplete.
+
+Bounds/ambient validation: seed 199 passed 3,100 cases across 31 modes with zero
+mismatches. Fixtures cover triangle bounds with NaNs, absent model/CPU/shape
+lists, physical-event traversal, zero/nonzero shape flags, seeded globals,
+all three ambient-node kinds, primary/alternate poses and both matrix formats.
+The oracle exposed EDI = 0xFFFFFFFF in 0x00043190: this is a filtering mask,
+not mask 0; zero-flag shapes/events are skipped. The implementation preserves it.
+
+Added three shared animation dependencies rather than background-only versions:
+0x00053000 finds the first type-0x11 matrix-array block, 0x00155FF0 computes a
+matrix row offset with 32-bit wrap, and 0x0010BD40 averages model points in source
+order with an extended reciprocal. Extended the oracle to include zero counts,
+in-place averaging, first-match/null matrix blocks and wrapping matrix indices.
+Validation of this extension is pending.
+
+Final validation for the six-function background/shared dependency batch:
+Release `gbtg` and scene factory oracle harness builds pass. Seed 211 passed
+6,200 cases across 31 modes with zero mismatches, including 200 fixtures spread
+across the six new functions. Shared point averaging covers in-place source/output
+aliasing; matrix helpers cover null/first-match lookup and full 32-bit index wrap.
+No CTests or live scene-start acceptance were run for this unwired constructor
+batch. Remaining constructor blockers: sector setup 0x000FEFD0 and its callbacks,
+effect registration 0x00043B40 -> 0x0005B2D0, animation initialization 0x00044490
+(including 0x0010B1F0 and 0x00151FAD), and destructor 0x000430C0. Background
+factory type 4 and the scene-owned navigation builder remain uninstalled.
+
+### 2026-10-12: sector colors and shared graphics inverse
+
+Recovered complete read-only dumps for 0x000FEFD0 and the five jump-table cases
+of 0x000FEBE0. `ExportPlayerScene.java` now supports forced temporary ranges and
+explicit disassembly seeds; its Ghidra transaction still rolls back every change.
+Added `background_sectors.cpp`: settings lookup 0x000FEAC0, color-grid walk
+0x00052660, brightness range 0x000FEB70, HSV remap 0x000FEBE0, and sector setup
+0x000FEFD0. The passes keep column-major callback order, the first matching AID
+setting, the default 0.3 / 0.3 / 1.2 settings, reversed brightness intervals,
+upper-only value clamp, hue switch cases, and actual 0x001673D8 byte conversion.
+Added the shared 4x4 inverse 0x00151FAD and finite-double test 0x0016744D, retaining
+float spills, extended minors/cofactors, determinant order, the rounded reciprocal
+filter, and untouched inverse output when that reciprocal is non-finite.
+Implementation batch landed; build and differential validation pending.
+
+Validation for this seven-function batch: Release `gbtg` and the scene factory
+oracle harness build successfully. Seed 227 passed 1,400 focused mode-31 cases
+with zero mismatches; seed 223 passed 3,200 cases across all 32 modes with zero
+mismatches. Coverage includes callback positions/order, zero-sized color grids,
+settings first-match/default behavior, NaN/reversed color intervals, gray/black
+colors, wrapped byte conversion, inverse output aliasing, optional determinants,
+duplicate/near-duplicate matrix rows, small/large diagonal matrices and finite
+classification. No callee capture stubs were added for this batch.
+
+Two oracle findings corrected: the color clamp requires the actual ordered
+COMISS/JA predicate (unordered values clamp to 1), and Windows `long double`
+loses determinant cancellation bits. `graphics/extended_float.h` now represents
+a 64-bit significand using compensated arithmetic, rounds extended operations,
+preserves signed zero and resolves float rounding ties. The inverse keeps the
+retail float spills and uses this view for values retained in x87 registers.
+
+Sector setup 0x000FEFD0 and inverse 0x00151FAD are now translated. Remaining
+constructor dependencies are effect registration 0x00043B40 / 0x0005B2D0,
+animation initialization 0x00044490 / 0x0010B1F0, and background destruction
+0x000430C0 (including 0x00043D50, 0x000ED2E0 and 0x00044620). The native sector
+context, background factory type 4, and scene-owned navigation storage still
+need installation after the complete constructor/destructor chain is ready.
+No live scene-start or CTest acceptance is claimed for this unwired batch.
+
+### 2026-10-12: background teardown and shared point-graph setup
+
+Added saved shape-event flag restoration 0x00043D50, animation allocation release
+0x00044620, the shared model/resource/sound object release 0x000ED2E0, and the
+background destructor 0x000430C0. Teardown retains retail order, clears only the
+fields cleared by the dump, and uses the first background's animation count/rows
+for 0x00044620. Freed row pointers are intentionally not rewritten before the
+row buffer itself is released. The auxiliary release invokes the existing sound,
+resource registry and deferred-model release implementations.
+
+Added shared point-graph storage setup 0x0010B160, comparator 0x001021A0, edge sort
+0x00102200 and preparation 0x001024A0. Storage writes only the descriptor fields
+written by the dump; canonical address binding is supplied by the native owner.
+Sorting uses the real reconstructed CRT quicksort and preserves the comparator's
+-1 / 0 / 1 behavior, active-edge prefix and once-only preparation guard.
+Implementation batch landed; validation pending. The complete point/edge builder
+0x0010B1F0 and animation initialization 0x00044490 still remain.
+
+Validation for the eight-function teardown/point-graph batch: Release `gbtg`
+and the scene factory harness build successfully. Seed 239 passed 400 focused
+teardown cases; seed 241 passed 1,000 focused point-graph cases; seed 239 passed
+3,400 cases across all 34 modes, all with zero mismatches. Coverage includes
+empty/nonempty saved-event pools, repeated event targets, every optional release,
+release order, first-background animation metadata, four list-link combinations,
+clear-state restoration, inactive auxiliary sound reset, storage descriptor writes,
+nonstandard comparator results, real CRT edge sorting and the preparation guard.
+Auxiliary non-null resource/deferred-model branches use existing translations but
+are not covered by these new fixtures. No live scene or CTest acceptance claimed.
+
+Continuing into the complete shared point-graph builder 0x0010B1F0; its remaining
+callees are now available. This is shared graphics behavior, not an actor-specific
+implementation. Background animation initialization 0x00044490 follows it.
+
+Added the full shared point-graph builder 0x0010B1F0 and background animation
+initialization 0x00044490. The builder retains four seed points, adaptive spatial
+bins, inclusive sample bounds, x87 averages/distances, point-count edge sampling,
+real CRT ordering, both valency passes and three seed-edge indices. The animation
+initializer keeps its first-background/model/header/table gates, the CPU +0x2C
+bypass, point means, matrix copies and both inverses. Canonical address resolution
+is supplied by the native owner, without replacing engine callees. Extended
+arithmetic now includes square root for the builder's x87 distance calculation.
+Implementation landed; validation of these two functions is pending.
+
+Validation of the builder/initializer pair: Release `gbtg` and the scene factory
+harness build successfully. Seed 251 passed 140 focused builder cases; seed 257
+passed 560 focused initializer cases; seed 263 passed 3,600 cases across all 36
+modes, all with zero mismatches. Builder checks compare the complete allocation
+bytes, including unused capacity and untouched point bytes, in addition to the
+descriptor. Fixtures cover coincident/collinear points, small extents, bin-boundary
+points, all point-count sampling strides and seed exclusion. Initializer fixtures
+cover all early gates, zero animation rows, bypassed graph construction, zero
+point means, negative/zero/positive matrix counts, multiple rows, nonsingular and
+singular matrices, both inverses and full graph allocations. The bypass flag is
+at animation-block +0x2C (the block referenced by CPU +0x10), not outer CPU +0x2C.
+No engine callee capture stubs were introduced; fixture hooks are heap boundaries
+and observers. `git diff --check` passes. No CTests/live scene acceptance run for
+this unwired dependency batch.
+
+Current remaining constructor dependency: **door/cutscene registration**, previously
+labelled effect registration. The 0x00043B40 directory-kind-0xF rows feed 0x0005B2D0;
+its 0x0005B890 callee generates `aid_cutscene_ghoulies_doors_*` and matching camera
+AIDs, while 0x0005B960 loads and prepares paired cutscene instances. This chain
+must use shared cutscene/resource behavior, not an invented generic effect API.
+Remaining untranslated entry points include 0x00043B40, 0x0005B2D0, 0x0005B890 and
+0x0005B960; inspect their existing shared callees before implementing the chain.
+After that, install the typed background constructor/factory type 4, native
+sector/animation/release contexts and scene-owned navigation storage. Activation
+is not considered live-complete until the actual scene-start navigation blocker
+is removed through that ownership path and exercised at runtime.
+
+### 2026-10-12: background door/cutscene registration
+
+Recovered the complete read-only 0x001410F0 room-suffix helper, including its two
+aliases and bit-mask case comparison. Added name construction 0x0005B890, paired
+clip loading/setup 0x0005B960, door registration 0x0005B2D0 and background directory
+walk 0x00043B40. These use the existing resource registry, cutscene loading/release,
+actor updates, sound cue pause and model node-state implementations. Clip setup
+preserves release/load order, optional distinct camera clips, three transform
+updates, signed-byte actor iteration, pause-reference/voice behavior and model
+visibility flags. Native instance-address binding maps the original pointer slots.
+
+Moved the shared pose-matrix builder 0x00103CB0 out of actor_transform.cpp into
+`graphics/pose_matrix.cpp`, exposing it to door registration. Preserved its inverse
+branches and m[0]'s original SSE multiplication order; zero-subtraction sign
+and translation-store order follow the recovered assembly. Door bounds use the actual 20 / 15 / 40 constants;
+room aliases are `all` -> `centralhallway` and `whitebackground` -> `(storybook desk)`.
+Implementation batch landed; build and differential validation pending. The typed
+background factory/native context wiring remains to follow this shared chain.
+
+Validation for the door batch: Release `gbtg` and the scene factory harness build
+successfully. Seed 269 passed 1,200 focused mode-36 cases; seed 271 passed 3,700
+cases across all 37 modes, all with zero mismatches. New differential coverage
+checks the room helper's pointer identity/null/suffix results, case/punctuation
+masking, both room aliases, shape 12 vs named shapes, camera-name generation,
+existing/missing resource records and both scaled/unscaled pose inverse paths.
+The pose check caught an incorrect intermediate edit to m[0]; tracing the six
+pushed trigonometric arguments confirmed the original `(sy * sx) * sz` order,
+which is retained. No engine stubs were added for these comparisons.
+
+The complete 0x0005B960 clip-loading/actor/voice/model branch matrix and the
+0x0005B2D0 / 0x00043B40 integration are translated and compile, but are **not yet
+covered by the new differential fixtures**. Those require an owned cutscene
+fixture/context, including resources and actor bindings. Do not treat these
+helper results as live spawning acceptance. The next work is that clip-context
+validation plus the typed 0x00042DA0 constructor and scene-owned background
+factory/navigation installation. Other constructor callees (region append,
+volume setup, shape collection and model-node setup) already have translations;
+reuse them and the shared cutscene services rather than adding substitute APIs.
+`git diff --check` passes; no CTests or live scene-start acceptance run this batch.
+
+### 2026-10-12: typed background constructor and factory audit
+
+Added the previously missing AID-list lookup 0x00035A40 and typed constructor
+0x00042DA0. The constructor now calls the reconstructed bounds, matrix, region,
+sector, animation-volume, graph/animation, door, ambient, shape-event and model-node
+routines in dump order, followed by the framebuffer-clear AID-list decision and
+matrix refresh. The list lookup uses the stored actor model name at +0x208;
+constructor event collection uses mask 0, distinct from the bounds pass's -1.
+Native allocation/address bindings retain the original pointer-slot stores.
+Implementation landed; build and validation pending.
+
+Factory audit recovered getter 0x00042BC0: background type 4 inherits actor type 2
+and sets vtable 0x004E1644 to sizes 0x00042BA0, constructor 0x00042DA0,
+destructor 0x000430C0 and message handler 0x00043E50. Inspect/translate that message
+slot before claiming a live installed class; delegating every background message
+straight to the base handler would omit retail behavior.
+
+Added factory storage sizes 0x00042BA0, model link-head lookup 0x00040BE0,
+shared list append 0x0002CBF0 and selective door registration 0x00044300.
+The message audit also led to part-settings lookup 0x00044C20, part-rumble
+selection 0x00046470, volume navigation preparation 0x00045EC0 and shared
+navigation region-bit writes 0x00036A00. The region helper keeps only bit 12's
+assignment and matches the full requested tag against the cell's low 12 bits.
+The rumble lookup retains the byte-indexed part name and its 0x22C settings stride.
+
+The recovered 0x00043E50 activation branch (0x23) does additional render-bin,
+model-list, shape-probe and bind-tree cleanup after the base handler. Its other
+branches reach 0x000441A0 -> 0x000441F0, which still depends on untranslated
+background-part destruction/dispatch functions 0x00044EA0, 0x00045CB0,
+0x00045170 and 0x00044E70. This is a newly confirmed factory installation blocker;
+do not replace those returns or silently route those cases to the base handler.
+The constructor batch builds; the AID-list lookup passed seed 277, 800 focused
+retail comparisons with zero mismatches. Remaining added helpers need validation.
+
+Validation for this ten-function constructor/factory-dependency batch: Release
+`gbtg` and scene factory harness builds pass. Seed 277 passed 800 focused AID-list
+cases; seed 281 passed 1,200 focused mode-38 cases; seed 283 passed 3,900 cases
+across all 39 modes, all with zero mismatches. Mode 38 covers factory sizes,
+nullable model-link lookup, empty/nonempty tail-list insertion, signed grid counts,
+full requested region tags, preservation of all other region bits, part-setting
+first-match/masking and rumble pointer selection/default behavior. No engine callee
+capture stubs added. `git diff --check` passes.
+
+Coverage limits: the typed 0x00042DA0 constructor, selective 0x00044300 registration
+and volume-navigation 0x00045EC0 call graph compile but are not covered end-to-end
+by these helper comparisons. Door clip loading still needs its owned fixture/context.
+Neither background type 4 nor live scene navigation is installed yet, and no live
+scene-start/CTest acceptance is claimed.
+
+Recovered complete remaining frontier dumps: 0x00044EA0 (active volume row lookup),
+0x00045CB0 (part destruction eligibility), 0x00044E70 (part settings +0x220 lookup)
+and 0x00045170 (full part destruction, ending at 0x00045A87). The three small lookups
+are next; the last routine calls debris/model setup 0x000ED1C0 / 0x000ED990 /
+0x000ED6E0 / 0x000EFE30, matrix transforms 0x00040640, part helpers 0x00044EF0 /
+0x00044A90 / 0x000450A0 and attachment/script calls. Audit existing translations
+before implementing each missing callee. 0x000441A0 -> 0x000441F0 -> 0x00045170
+must be completed to translate the background's full message slot 0x00043E50;
+then install the lifecycle with scene-owned cutscene, background and navigation
+contexts. The exported Ghidra project remains unchanged.
+
+### 2026-10-13: active parts and shared effect-particle setup
+
+Added active volume lookup 0x00044EA0, destruction eligibility 0x00045CB0 and
+settings +0x220 lookup 0x00044E70. Eligibility retains the first matching active
+row, byte-0xFF metadata gate, ordered zero-time test and signed stage comparison.
+Added shared debris reset 0x000ED6E0 and named interpreter wrapper 0x000ED990,
+using the existing registry, deferred-model release and effect interpreter.
+
+Added effect-particle initialization 0x000EF8C0, frame setup 0x000EFB20 and free-row
+allocation 0x000EFE30. The allocator keeps the signed free-chain slot, original
++0x148 owner / +0x14C user words, active count wrap, partial initialization,
+conditional frame pass and exact RNG advancement. Frame setup retains PAL rate
+selection, unsigned count conversion, position/speed clamps and mode-bit priority.
+These are shared graphics/effect routines, not background-specific substitutes.
+Implementation batch landed; build and differential validation pending.
+
+Added shared actor model-matrix sampling 0x00040640 after confirming all its
+callees already exist: pose matrices, affine multiplication, array offsets,
+axis scales, Euler extraction and actor world position. The sampler keeps its
+cached-row fast path, alternate-pose precedence, global scratch selection,
+column-major-to-affine conversion, source SSE coordinate order and optional
+height clamp. This closes another direct 0x00045170 dependency; validation pending.
+
+Validation: Release `gbtg` and the scene factory harness build successfully.
+Seed 293 passed 1,600 focused effect/part cases; seed 297 passed 800 door/pose
+cases; seed 301 passed 800 matrix-sampling cases; seed 307 passed 4,100 cases
+across all 41 modes, with zero mismatches. Effect fixtures run real resource
+acquisition/release and interpretation. Matrix fixtures cover cached rows,
+unbound joints, local transforms, scratch state and height clamps; pose selection
+and general rotated matrices remain to be exercised.
+
+Validation exposed and corrected two older translations: 0x0005B890 queries the
+clip name after generating both names (the final stack reload selects the first
+output), and 0x00103A80 calls the existing retail square-root helper rather than
+`std::sqrt`. The door fixture now initializes resource hashes and includes both
+clip and camera records. The effect oracle corrects Unicorn's two-quiet-NaN
+MULSS selection at 0x000EFB06, verified against the identical instruction on the
+native CPU; no engine callee was replaced to obtain the passing comparisons.
+
+Next frontier exports recovered 0x00044D20 (part sound/effect dispatch),
+0x001117E0 (region-bit broadcast) and 0x0012C8A0 (physical shape-event broadcast).
+The graph impulse helpers 0x0010CFE0 and 0x0010C8D0 are substantial routines and
+still need complete translation. Background factory/live navigation remain
+uninstalled; these helper results do not claim live scene acceptance.
+
+Added 0x001117E0 region broadcast, 0x0012C8A0 physical shape-event broadcast,
+0x00044D20 part sound/effect dispatch and 0x000450A0 stage advancement. The stage
+helper keeps signed stage comparisons, both model node-state writes, the 2.5f
+timer and the literal `unknown` fallback. Seed 311 passed 800 focused region and
+stage cases, including nullable primary/secondary models and preserving unrelated
+flags/shared state. Dispatch coverage currently reaches settings matching and
+slot rotation with empty sound/effect names; queued sound and effect branches
+still need end-to-end fixtures.
+
+Added the real event-bit callbacks 0x0012C930 / 0x0012C950 and background volume
+removal 0x00044EF0. Removal retains attachment/anchor release order, optional
+volume-derived midpoint, region unblock, pulse 0xAB, scene event-bit clearing and
+attachment callout 0xD through existing reconstructed callees. Build and the new
+physical event fixtures are pending; volume removal is not yet covered end-to-end.
+
+The expanded batch builds successfully. Seed 313 passed 1,000 focused physical
+event cases; seed 317 passed 4,300 cases across all 43 modes, with zero mismatches.
+The physical-event cases execute real 0x0012C8A0 -> 0x00055A30 -> 0x00054DB0 ->
+0x000555C0 -> 0x0012C930 / 0x0012C950, covering nullable object/resource/shape
+links, signed shape counts, marker gating, category filters and exact bit writes.
+No CTests or live scene-start acceptance is claimed. The typed removal call graph
+compiles but still needs its attachment/anchor/callout fixture.
+
+Remaining immediate destruction frontier: 0x00044A90 requires graph collision
+projection 0x0010CFE0 and graph transform recovery 0x0010C8D0. Their complete
+exports end at 0x0010D3A6 / 0x0010CFDB. Additional untranslated graph callees are
+0x00102500, 0x00102030, 0x0010C340 and 0x0010BEB0; sphere/triangle intersection
+0x0015A440 and matrix inverse 0x00151FAD already exist. Translate those graph
+helpers before 0x00044A90 and the full 0x00045170 dispatcher, then finish
+0x000441F0 / 0x000441A0 / 0x00043E50 and the background class installation.

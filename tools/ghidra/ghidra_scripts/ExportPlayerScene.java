@@ -11,13 +11,15 @@ public class ExportPlayerScene extends GbtgScript {
         decomp.openProgram(currentProgram);
         try {
             for (String arg : getScriptArgs()) {
-                if (arg.startsWith("range-function:")) {
-                    String[] range = arg.substring(15).split("-");
+                if (arg.startsWith("range-function:") || arg.startsWith("range-function-force:")) {
+                    boolean forceRange = arg.startsWith("range-function-force:");
+                    String[] specification = arg.substring(arg.indexOf(':') + 1).split(":");
+                    String[] range = specification[0].split("-");
                     long first = Long.parseUnsignedLong(range[0], 16);
                     long last = Long.parseUnsignedLong(range[1], 16);
                     int transaction = currentProgram.startTransaction("Temporary export function");
                     try {
-                        Function temporary = currentProgram.getFunctionManager().getFunctionAt(toAddr(first));
+                        Function temporary = forceRange ? null : currentProgram.getFunctionManager().getFunctionAt(toAddr(first));
                         if (temporary == null) {
                             var body = new ghidra.program.model.address.AddressSet(toAddr(first), toAddr(last));
                             var overlapping = new java.util.ArrayList<ghidra.program.model.address.Address>();
@@ -37,6 +39,13 @@ public class ExportPlayerScene extends GbtgScript {
                             new ghidra.app.cmd.disassemble.DisassembleCommand(toAddr(first),
                                 new ghidra.program.model.address.AddressSet(toAddr(first), toAddr(last)), true)
                                 .applyTo(currentProgram, monitor);
+                            if (specification.length > 1) {
+                                for (String seed : specification[1].split("[,+]")) {
+                                    new ghidra.app.cmd.disassemble.DisassembleCommand(
+                                        toAddr(Long.parseUnsignedLong(seed, 16)), body, true)
+                                        .applyTo(currentProgram, monitor);
+                                }
+                            }
                             temporary = currentProgram.getFunctionManager().createFunction(null,
                                 toAddr(first), new ghidra.program.model.address.AddressSet(toAddr(first), toAddr(last)),
                                 ghidra.program.model.symbol.SourceType.DEFAULT);

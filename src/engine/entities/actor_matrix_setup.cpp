@@ -10,6 +10,43 @@ i32 runtime_matrix_array_count(std::span<const u8> node)
     return i32(read_u32(node, 0x30));
 }
 
+// Xbox 0x00155FF0
+u32 runtime_matrix_array_matrix_offset(std::span<const u8> node, i32 index)
+{
+    return read_u32(node, 0x2C) + (u32(index) << 6);
+}
+
+// Xbox 0x00040BE0
+u32 actor_model_link_head_offset(const Actor& actor)
+{
+    if (actor.model != nullptr && actor.model->cpu.data() != nullptr)
+    {
+        const auto cpu = actor.model->cpu;
+        return read_u32(cpu, read_u32(cpu, 0x10) + 8);
+    }
+    return 0;
+}
+
+// Xbox 0x00053000
+u32 runtime_model_animation_matrix_array(std::span<const u8> cpu)
+{
+    const u32 count = read_u32(cpu, 4);
+    const u32 table = read_u32(cpu, 0);
+    for (u32 index = 0; index < count; ++index)
+    {
+        if (read_u32(cpu, table + index * 8) == 0x11)
+        {
+            const u32 block = read_u32(cpu, table + index * 8 + 4);
+            if (block == 0)
+            {
+                return 0;
+            }
+            return read_u32(cpu, block + 8);
+        }
+    }
+    return 0;
+}
+
 // Xbox 0x00156050
 u32 runtime_matrix_array_binding(std::span<const u8> node, std::span<const u8> bindings,
     u32 index)

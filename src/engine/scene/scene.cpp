@@ -733,9 +733,9 @@ void scene_tick_pause_counter(Game& g, u8* scene)
         node = next;
     }
     // 0x00123020 over DAT_00511B18, then 0x00122FE0.
-    // Actor updates remain held until the live body channel rows and animation
-    // bindings are attached. SceneActorServices::update_scene_actors now reaches
-    // that explicit dependency through the imp's native body frame.
+    // Actor updates remain held at the next live action lifecycle: type 0x8E
+    // (getter 0x000A55F0). Native channel, gravity motion, collision and
+    // stand-alert next-key paths now run before reaching that dependency.
     // 0x001128A0 and 0x0011B670 are not translated.
     script_vm_tick(g, 0.f);
     // 0x000F4560 and 0x0013FD60 are not translated.

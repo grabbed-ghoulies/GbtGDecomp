@@ -9,6 +9,7 @@
 #include "../entities/actor_event_messages.h"
 #include "../entities/actor_live_attachments.h"
 #include "../entities/entity_heap.h"
+#include "../entities/entity_collision.h"
 #include "../entities/aligned_heap.h"
 #include "../entities/body_move_actions.h"
 #include "../entities/body_state_actions.h"
@@ -358,6 +359,10 @@ struct SceneActorServices::State
     // Camera director and camera rig (player update 0x0002C2B0 for cameron).
     RuntimeCameraRigTunables rig_tunables; // DAT_004274B8.., DAT_00434008..
     i32 motion_steps = 0; // DAT_004312E0.
+    std::array<entity_detail::ShapeProbe*, 8> collision_push_contacts{}; // DAT_0051118C.
+    RuntimeBodyShapePush body_shape_push{entity_detail::g_world.shape, entity_detail::g_contact_slot,
+        collision_push_contacts};
+    std::array<entity_detail::SlideRecord, 5> body_slide_contacts{}; // DAT_00505040.
     u32 view_invert = 0; // DAT_005122D8.
     i32 render_width = 0; // DAT_0054DD84, set by display initialization 0x000F5900.
     i32 render_height = 0; // DAT_0054DD80.
@@ -1839,7 +1844,19 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         },
         rig_tunables, entity_detail::g_look_profile, motion_steps, std::span<u32>(node_cache),
         {data(0x00338F64, 0x24), data(0x00338F88, 0x24), data(0x00338EE0, 0x84), data(0x00338EA4, 0x3C)},
-        read_f32(data(0x0032B22C, 4), 0)});
+        read_f32(data(0x0032B22C, 4), 0),
+        [this]()
+        {
+            std::array<float, 8> phases;
+            std::memcpy(phases.data(), data(0x00339900, 0x20).data(), 0x20);
+            return phases;
+        }(), read_f32(data(0x0032B4F8, 4), 0), read_f32(data(0x0032B3D8, 4), 0),
+        read_f32(data(0x0032B140, 4), 0), body_shape_push,
+        [this]() -> std::span<const u8>
+        {
+            return door_pool == nullptr ? std::span<const u8>()
+                : std::span<const u8>(door_pool->begin, size_t(door_pool->end - door_pool->begin));
+        }, body_slide_contacts});
     state_action_names = strings(0x003390E4, 0x174);
     goal_flag_names = strings(0x003397AC, 3);
     mind_services = std::make_unique<SceneMindServices>(SceneMindServices{game, resources.registry, resources.error,
@@ -2701,6 +2718,8 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
         {
             switch (action.type)
             {
+            case 0x87:
+                return runtime_body_action_next_key(action);
             case 0x5C:
                 // The 0x5C class vtable (0x00505500) has six slots; +0x1C reads the next table's +4, 0x000CFFD0.
                 return u16(accept_runtime_object_construction(action, {}) ? 1 : 0);

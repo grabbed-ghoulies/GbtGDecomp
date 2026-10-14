@@ -53,4 +53,10 @@ void install_runtime_move_action_classes(std::span<ObjectFactoryType> types)
     types[0x5B] = ObjectFactoryType{0xA, move_xyz_no_gravity_lifecycle};
     types[0x5C] = ObjectFactoryType{0xA, move_type_5c_lifecycle};
 }
+
+// Xbox 0x0002B620
+u16 runtime_body_action_next_key(const FactoryObject& object)
+{
+    return read_u16({object.bytes.get(), object.size}, 0xC);
+}
 }

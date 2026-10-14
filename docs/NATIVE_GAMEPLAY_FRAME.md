@@ -174,3 +174,39 @@ pass in both and exercise the new gravity checks; Release scene-start passes.
 The inspected 900-frame capture `cache/actor_checkpoint_900.bmp` retains the
 tutorial text, head, backdrop, corner models and A-button bat. No audio
 acceptance or retail oracle equivalence is claimed for these new translations.
+
+## Body channels, motion and collision checkpoint (2026-10-14)
+
+The previous channel stop is resolved. SceneBodyMessages now aliases the
+native resource-hash rows at body +0x150/+0x154 and builds animation binding
+views from the controller's actual MINA slots and their +0x20 directories.
+Resource banks use their native recorded row counts. No new gameplay parser
+or channel sampling path was introduced.
+
+Translated gravity-action step 0x000804E0 -> 0x0002AE90, its speed lookup
+0x000259C0 and backward-motion limit 0x0002B300. This preserves the selected
+root-motion branch, cyclic phase interpolation (shared DAT_00339900),
+velocity branch and optional limiting/reverse gates. The native body collision
+slot 0x00074670 now uses scene shapes, door rows and contact scratch. Added
+the stand-alert next-key getter 0x0002B620.
+
+Temporary Release and Debug live runs pass those stages and both exit 1 at
+factory type 142 (0x8E), retail entityStateWalkAlert. Getter 0x000A55F0
+uses vtable 0x00505CA0: sizes 0x000A55D0, constructor 0x000A5650,
+destructor 0x000A5950, message 0x000A5A40, tick 0x000A59C0,
+empty animate/settle, next-key 0x0002B620. Its read-only dumps, including
+tick callees 0x000A5A60/0x000A5DC0/0x000A5EA0, are exported. Translate
+that live action next. The final actor-update hold remains; no movement or
+combat acceptance is claimed.
+
+Release/Debug builds, body/dialogue-resource checks and CTest 6/6 in each
+pass. New checks cover phase scaling, shared phase writes, simulation freeze,
+selected-root planar displacement and backward-motion limiting. These are
+regressions, not a differential oracle acceptance of 0x0002AE90.
+
+Final Release opening checks pass tutorial hold, bat animation, fresh A edges
+and the post-tutorial script gate. Scene-start/teardown passes in both builds.
+The fresh 720-frame `cache/player_opening_check.bmp` readback was inspected:
+tutorial text, backdrop, head, corner models and A-button bat are present.
+The redundant 1920x1080 900-frame capture was stopped before completion;
+it is not a successful-run acceptance result.

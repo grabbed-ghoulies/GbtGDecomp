@@ -398,6 +398,10 @@ void NativePlayerInstance::refresh_body_views()
         body_bit_block.bytes = body_flags->bytes;
     }
     carried = body_attributes.data();
+    if (!body.empty())
+    {
+        std::memcpy(body.data() + 0x154, &body_hash_count, 4);
+    }
     strategy_entry.body = body;
     callout.command_attachments = body.empty() ? std::span<u8>() : body.subspan(0x2D8);
 }

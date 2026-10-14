@@ -82,6 +82,7 @@ add_library(gbtg_lib STATIC
     src/engine/entities/camera_actor_classes.cpp
     src/engine/entities/camera_director.cpp
     src/engine/entities/body_move_action_slots.cpp
+    src/engine/entities/body_gravity_motion.cpp
     src/engine/camera/camera_mind_rig.cpp
     src/engine/camera/camera_mind_requests.cpp
     src/engine/camera/camera_body_slots.cpp

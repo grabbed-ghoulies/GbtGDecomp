@@ -1,6 +1,7 @@
 #include "body_frame_checks.h"
 #include "../src/engine/entities/body_apply.h"
 #include "../src/engine/entities/body_move_action_slots.h"
+#include "../src/engine/entities/body_gravity_motion.h"
 #include "../src/engine/entities/player_body_motion.h"
 #include "../src/engine/entities/entity_heap.h"
 #include "../src/engine/entities/body_shape_push.h"
@@ -47,6 +48,63 @@ void check_body_frame_methods()
     u32 block = 0, index = 0;
     std::array<u8, 1> enabled{1};
     RuntimeActorClock clock{freeze, dt, scale, block, enabled, index};
+    {
+        std::array<u8, 0x924> motion_body{};
+        std::array<u8, 12> values{};
+        std::array<u8, 8> flag_bytes{};
+        EntityBitBlock flags{flag_bytes.data()};
+        RuntimeBodyDamageTables tables{values, {}};
+        floating(values, 8, 4.f);
+        floating(motion_body, 0x32C, 1.f);
+        floating(motion_body, 0x18, 3.f);
+        floating(motion_body, 0x1C, 4.f);
+        floating(motion_body, 0x20, 5.f);
+        std::array<float, 8> phases{0.f, 0.f, 0.25f, 0.f, 0.5f, 0.f, 0.75f, 0.f};
+        Actor mover;
+        mover.animation_rate = 1.f;
+        mover.anchor = Vec3{4.f, 2.f, 0.f};
+        ActorAnimationState animation;
+        step_runtime_gravity_motion(motion_body, actor_storage, mover, animation, clock,
+            flags, tables, phases, 0.25f, -0.5f, 1.f, 0, 0);
+        require(std::fabs(read_f32(motion_body, 0x18) - 3.3f) < 0.00001f
+            && std::fabs(read_f32(motion_body, 0x1C) - 4.2f) < 0.00001f
+            && read_f32(motion_body, 0x20) == 5.f,
+            "gravity motion scales planar velocity by phase without scaling vertical velocity by phase");
+        require(std::fabs(phases[1] - 0.75f) < 0.00001f && std::fabs(phases[3] - 1.25f) < 0.00001f && phases[5] == phases[1]
+            && phases[7] == phases[3], "gravity motion updates all four shared phase values");
+        freeze = 1.f;
+        step_runtime_gravity_motion(motion_body, actor_storage, mover, animation, clock,
+            flags, tables, phases, 0.25f, -0.5f, 1.f, 0, 0);
+        require(std::fabs(read_f32(motion_body, 0x18) - 3.3f) < 0.00001f,
+            "freeze stops velocity-based gravity motion");
+        freeze = 0.f;
+        motion_body[0x19E] = 1;
+        flag_bytes[5] = 2;
+        floating(motion_body, 0x184, -1.f);
+        Vec3 backward{4.f, 7.f, 0.f};
+        limit_runtime_body_backward_motion(backward, motion_body, flags, -0.5f);
+        require(backward.x == 2.f && backward.y == 7.f,
+            "backward motion limit clamps the direction dot product and preserves vertical movement");
+        std::array<u8, 0x30> root_resource{};
+        root_resource[0x1A] = 1;
+        animation.controller = make_animation_controller(4);
+        animation.controller->slots[0].player = make_mina_player();
+        auto& root_player = *animation.controller->slots[0].player;
+        root_player.mina = root_resource;
+        root_player.root.translation = Vec3{2.f, 9.f, 3.f};
+        animation.controller->selected_root = &root_player.root;
+        mover.scale_200 = 1.f;
+        mover.radius_xz = 1.f;
+        floating(motion_body, 0x18, 3.f);
+        floating(motion_body, 0x1C, 4.f);
+        floating(motion_body, 0x20, 5.f);
+        step_runtime_gravity_motion(motion_body, actor_storage, mover, animation, clock,
+            flags, tables, phases, 0.25f, -0.5f, 1.f, 0, 0);
+        require(std::fabs(read_f32(motion_body, 0x18) - 5.f) < 0.00001f
+            && std::fabs(read_f32(motion_body, 0x1C) - 4.2f) < 0.00001f
+            && std::fabs(read_f32(motion_body, 0x20) - 8.f) < 0.00001f,
+            "root gravity motion uses selected root planar displacement and velocity-based vertical movement");
+    }
     {
         std::array<u8, 0x924> gravity_body{};
         std::array<u8, 0x20> action{};

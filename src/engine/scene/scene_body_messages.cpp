@@ -1,5 +1,6 @@
 #include "scene_body_messages.h"
 #include "../entities/body_move_action_slots.h"
+#include "../entities/body_gravity_motion.h"
 #include "../entities/body_stand_alert_tick.h"
 #include "../entities/body_action_ids.h"
 #include <cstring>
@@ -217,7 +218,12 @@ void SceneBodyMessages::action_step(FactoryObject& action)
         step_runtime_body_motion(player_.body, player_.actor, player_.actor_instance.animation, services_.clock);
         return;
     case 0x5B:
-        unbound("body action 0x5B vtable +0x14 (0x000804E0)");
+        // Xbox 0x000804E0: action +8 is the body, limits backwards motion and keeps the root direction.
+        step_runtime_gravity_motion(player_.body, player_.actor_bytes, player_.actor,
+            player_.actor_instance.animation, services_.clock, *player_.body_bits, services_.damage_tables,
+            services_.movement_phases, services_.movement_ratio_scale, services_.backward_motion_lower,
+            services_.reverse_turn_threshold, 1, 0);
+        return;
     case 0x87:
         // 0x001628B0 returns at once.
         return;
@@ -229,14 +235,52 @@ void SceneBodyMessages::action_step(FactoryObject& action)
 RuntimeBodyChannelContext SceneBodyMessages::channel_context()
 {
     const std::span<const u8> body = player_.body;
-    if (i32(read_u32(body, 0x154)) > 0 || read_u32(body, 0xFC) != 0)
+    channel_rows_ = {reinterpret_cast<u8*>(player_.body_hashes),
+        size_t(player_.body_hash_count) * sizeof(RuntimeBodyResourceHash)};
+    channel_bindings_ = nullptr;
+    const auto* controller = player_.actor_instance.animation.controller.get();
+    if (controller != nullptr)
     {
-        unbound("body channel rows (+0x150) and actor +0x50 channel bindings");
+        const size_t count = controller->slot_count;
+        channel_assets_.resize(count);
+        channel_resources_.resize(count);
+        channel_animation_rows_.resize(count);
+        channel_directories_.resize(count);
+        for (size_t slot = 0; slot < count; ++slot)
+        {
+            const auto* animation = controller->slots.at(slot).player.get();
+            channel_animation_rows_[slot].resource = nullptr;
+            if (animation != nullptr)
+            {
+                channel_resources_[slot].asset = nullptr;
+                channel_animation_rows_[slot].resource = &channel_resources_[slot];
+                if (!animation->mina.empty())
+                {
+                    channel_assets_[slot].channels = nullptr;
+                    channel_resources_[slot].asset = &channel_assets_[slot];
+                    const u32 directory = read_u32(animation->mina, 0x20);
+                    if (directory != 0)
+                    {
+                        for (size_t channel = 0; channel < 48; ++channel)
+                        {
+                            channel_directories_[slot][channel] = read_u32(animation->mina, directory + channel * 4);
+                        }
+                        channel_assets_[slot].channels = channel_directories_[slot].data();
+                    }
+                }
+            }
+        }
+        channel_binding_view_.rows = channel_animation_rows_;
+        channel_bindings_ = &channel_binding_view_;
     }
-    channel_rows_ = {};
     channel_model_ = player_.actor_instance.startup.models.model.get();
+    auto banks = player_.body_resources;
+    for (size_t bank = 0; bank < banks.size(); ++bank)
+    {
+        banks[bank] = banks[bank].first(size_t(player_.body_resource_counts[bank]) * 8);
+    }
     return RuntimeBodyChannelContext{player_.actor, services_.clock, channel_bindings_, channel_model_,
-        channel_rows_, player_.body_resources, services_.channel_keys, services_.address_zero};
+        channel_rows_, banks, services_.channel_keys, services_.address_zero};
 }
 
 // Xbox 0x00025EC0 for the camera body (type 0x28).
@@ -337,7 +381,26 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
 {
     if (body.type != 0x28)
     {
-        unbound("body vtable +0x1C of factory type " + std::to_string(body.type));
+        if (body.type != 0x27 && body.type != 0x2A)
+        {
+            unbound("body vtable +0x1C of factory type " + std::to_string(body.type));
+        }
+        const EntityMaskHost mask{player_.actor.mask_flag, player_.actor.mask_span, player_.actor.mask_mode};
+        const i32 floor = i32(read_u32(player_.actor_bytes, 0xCEC));
+        RuntimePlayerCollisionAction action{[this](RuntimePlayerCollisionReply&)
+        {
+            const u32 type = player_.body_selection.second.type;
+            if (type != 0x87 && type != 0x5B && type != 0x5C)
+            {
+                unbound("collision reply action vtable +0xC of factory type " + std::to_string(type));
+            }
+            // These three action tables have the empty 0x001628B0 message slot.
+        }};
+        RuntimePlayerCollisionAction* action_view = player_.body_selection.second.bytes == nullptr ? nullptr : &action;
+        RuntimePlayerBodyCollision collision{player_.body, player_.actor, player_.body_bits, mask, floor,
+            player_.shapes, services_.shape_push, action_view, services_.door_rows(), services_.collision_contacts,
+            services_.default_position, services_.clock};
+        return update_runtime_player_body_collision(collision) ? 1 : 0;
     }
     RuntimeCameraBodySlots camera{player_.body, player_.actor, *player_.body_bits, services_.look_profile,
         services_.rig_tunables, player_.camera_view};

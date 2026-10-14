@@ -5,6 +5,7 @@
 #include "../entities/body_effect_commands.h"
 #include "../audio/body_sound_commands.h"
 #include "../camera/camera_body_slots.h"
+#include "../entities/player_body_collision.h"
 
 namespace gbtg
 {
@@ -63,6 +64,13 @@ struct SceneBodyServices
     std::span<u32> node_states; // DAT_005078D8.
     std::array<std::span<const u8>, 4> channel_keys; // DAT_00338F64, DAT_00338F88, DAT_00338EE0, DAT_00338EA4.
     float stand_input_threshold; // DAT_0032B22C.
+    std::array<float, 8> movement_phases; // DAT_00339900, mutable cyclic phase curve.
+    float movement_ratio_scale; // DAT_0032B4F8.
+    float backward_motion_lower; // DAT_0032B3D8.
+    float reverse_turn_threshold; // DAT_0032B140.
+    RuntimeBodyShapePush& shape_push;
+    std::function<std::span<const u8>()> door_rows;
+    std::span<entity_detail::SlideRecord, 5> collision_contacts;
 };
 
 // One body's message graph: the parent body handler 0x000253B0 and the derived slots of types 0x27
@@ -120,6 +128,11 @@ private:
     RuntimePlayerBodyControlMessages controls_;
     // Update slot views (actor +0x50 bindings, +0x204/+0x310 models, +0x8F8 bound, +0x8FC shapes, +0x964).
     RuntimeBodyChannelBindings* channel_bindings_ = nullptr;
+    RuntimeBodyChannelBindings channel_binding_view_;
+    std::vector<RuntimeBodyChannelBindings::Asset> channel_assets_;
+    std::vector<RuntimeBodyChannelBindings::Resource> channel_resources_;
+    std::vector<RuntimeBodyChannelBindings::Row> channel_animation_rows_;
+    std::vector<std::array<u32, 48>> channel_directories_;
     RuntimeModelInstance* channel_model_ = nullptr;
     RuntimeModelInstance* secondary_model_ = nullptr;
     std::span<u8> channel_rows_;

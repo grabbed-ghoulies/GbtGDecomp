@@ -7373,3 +7373,22 @@ Movement and combat are not accepted. Release/Debug builds, CTest 6/6 in
 each, dialogue-resource/body checks in both and Release scene-start pass.
 The 900-frame screenshot cache/actor_checkpoint_900.bmp was inspected and
 still shows the native tutorial, backdrop, head, corner models and A bat.
+
+### Native body channels and collision — 2026-10-14
+
+The previous body-channel frontier is resolved, and native gravity motion,
+player-body collision and stand-alert next-key paths run. Both Release and
+Debug live actor-frame experiments now stop at the uninstalled type 0x8E
+entityStateWalkAlert (getter 0x000A55F0). Its lifecycle and update dumps are
+exported for the next translation. The final scene keeps actor updates held
+until that action is covered. See NATIVE_GAMEPLAY_FRAME.md's "Body channels,
+motion and collision checkpoint" for branch coverage and validation limits.
+
+Release/Debug builds, body/dialogue-resource checks and CTest 6/6 in both
+pass. New motion checks cover root/velocity branches, freeze, phase writes
+and backward limiting. Movement and combat remain unaccepted.
+
+Release opening checks also pass bat animation, fresh A input and the next
+script gate. Scene startup/teardown checks pass in both builds. The final
+720-frame `cache/player_opening_check.bmp` readback was inspected and retains
+the tutorial text, backdrop, head, corner models and A-button bat.

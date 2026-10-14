@@ -81,6 +81,10 @@ i32 sum_runtime_collision_push(const Vec3& point, const Actor* actor,
     i32 hit = 0;
     for (auto* probe = context.first; probe != nullptr; probe = probe->next)
     {
+        if (probe->push == nullptr)
+        {
+            throw Error("body shape push reached an unbound actor vtable +0x34");
+        }
         if (probe->push(*probe, actor, query_pointer, merged, shapes, count, delta) != 0)
         {
             context.contacts[context.contact_count] = probe;

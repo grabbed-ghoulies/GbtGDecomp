@@ -63,7 +63,9 @@ resources are reported by speaker name and AID hash.
 ## Build
 
 Debug D3D11 builds include ImGui diagnostics. Press **F8** to open the menu and
-**F12** to toggle the timing overlay. The Diagnostics menu provides runtime and
+**F12** to toggle the timing overlay. Only the timing overlay is shown by default.
+Open diagnostics windows from the F8 menu; they stay visible and keep updating
+with input disabled while F8 is off. The Diagnostics menu provides runtime and
 loading state, a 240-sample host frame-time graph with freeze/clear controls,
 a read-only native factory-object list filtered by decimal type ID, and a
 searchable bundle cache with CPU/GPU heap sizes. Cache sizes are not GPU memory

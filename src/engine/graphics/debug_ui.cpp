@@ -31,7 +31,7 @@ bool g_menu = false;
 bool g_overlay = true;
 bool g_scenes = false;
 bool g_cutscenes = false;
-bool g_runtime = true;
+bool g_runtime = false;
 bool g_performance = false;
 bool g_objects = false;
 bool g_resources = false;
@@ -91,10 +91,16 @@ struct FrameAvg
 
 FrameAvg g_avg;
 
+// Keep opened diagnostics visible while F8 gives input back to the game.
+ImGuiWindowFlags diagnostic_window_flags()
+{
+    return g_menu ? ImGuiWindowFlags_None : ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoFocusOnAppearing;
+}
+
 void draw_performance()
 {
     ImGui::SetNextWindowSize(ImVec2(560.f, 300.f), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin("Performance", &g_performance))
+    if (ImGui::Begin("Performance", &g_performance, diagnostic_window_flags()))
     {
         ImGui::Text("Host average %.2f ms (%.1f FPS)", g_avg.host * 1000.f,
             g_avg.host > 0.f ? 1.f / g_avg.host : 0.f);
@@ -122,7 +128,7 @@ void draw_performance()
 void draw_runtime(const Game& game)
 {
     ImGui::SetNextWindowSize(ImVec2(460.f, 430.f), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin("Runtime", &g_runtime))
+    if (ImGui::Begin("Runtime", &g_runtime, diagnostic_window_flags()))
     {
         ImGui::TextWrapped("Scene: %s", game.scene_name.c_str());
         ImGui::Text("Frame %u / clock %u, time %.3f s", game.frame, game.clock.frame, game.clock.time);
@@ -170,7 +176,7 @@ void draw_runtime(const Game& game)
 void draw_objects(const Game& game)
 {
     ImGui::SetNextWindowSize(ImVec2(600.f, 420.f), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin("Native objects", &g_objects))
+    if (ImGui::Begin("Native objects", &g_objects, diagnostic_window_flags()))
     {
         ImGui::InputInt("Type (-1 = all)", &g_object_type);
         ImGui::TextUnformatted("Read-only native factory ownership; addresses are retail tokens.");
@@ -213,7 +219,7 @@ void draw_objects(const Game& game)
 void draw_resources(const Game& game)
 {
     ImGui::SetNextWindowSize(ImVec2(620.f, 420.f), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin("Resource cache", &g_resources))
+    if (ImGui::Begin("Resource cache", &g_resources, diagnostic_window_flags()))
     {
         ImGui::Text("Cached bundles %zu / demand resources %zu", game.aids.bundles.size(), game.aids.demand_resources.size());
         ImGui::TextUnformatted("Host cache contents; not a list of active native references. Sizes are heap bytes.");
@@ -257,7 +263,7 @@ void draw_resources(const Game& game)
 void draw_scene_loader(Game& game)
 {
     ImGui::SetNextWindowSize(ImVec2(480.f, 420.f), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("Scenes", &g_scenes))
+    if (!ImGui::Begin("Scenes", &g_scenes, diagnostic_window_flags()))
     {
         ImGui::End();
         return;
@@ -290,7 +296,7 @@ void draw_scene_loader(Game& game)
 void draw_cutscene_loader(Game& game)
 {
     ImGui::SetNextWindowSize(ImVec2(480.f, 420.f), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("Cutscenes", &g_cutscenes))
+    if (!ImGui::Begin("Cutscenes", &g_cutscenes, diagnostic_window_flags()))
     {
         ImGui::End();
         return;
@@ -422,13 +428,21 @@ void debug_ui_build(Game& game, float host_dt)
         g_history_cursor = (g_history_cursor + 1) % kHistorySize;
         g_history_count = std::min(g_history_count + 1, kHistorySize);
     }
+    ImGuiIO& io = ImGui::GetIO();
+    if (g_menu)
+    {
+        io.ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
+    }
+    else
+    {
+        io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+    }
     ImGui_ImplDX11_NewFrame();
     ImGui_ImplWin32_NewFrame();
     if (!g_menu)
     {
         // The Win32 backend queues mouse and key events during NewFrame. Drop them
-        // so the frame-time overlay cannot take a click or a key while the menu is hidden.
-        ImGuiIO& io = ImGui::GetIO();
+        // so visible diagnostics cannot take a click or a key while F8 is inactive.
         io.ClearEventsQueue();
         io.ClearInputKeys();
         io.ClearInputMouse();
@@ -458,30 +472,30 @@ void debug_ui_build(Game& game, float host_dt)
             ImGui::TextUnformatted("F8: debug menu | F12: timing overlay");
             ImGui::EndMainMenuBar();
         }
-        if (g_runtime)
-        {
-            draw_runtime(game);
-        }
-        if (g_performance)
-        {
-            draw_performance();
-        }
-        if (g_objects)
-        {
-            draw_objects(game);
-        }
-        if (g_resources)
-        {
-            draw_resources(game);
-        }
-        if (g_scenes)
-        {
-            draw_scene_loader(game);
-        }
-        if (g_cutscenes)
-        {
-            draw_cutscene_loader(game);
-        }
+    }
+    if (g_runtime)
+    {
+        draw_runtime(game);
+    }
+    if (g_performance)
+    {
+        draw_performance();
+    }
+    if (g_objects)
+    {
+        draw_objects(game);
+    }
+    if (g_resources)
+    {
+        draw_resources(game);
+    }
+    if (g_scenes)
+    {
+        draw_scene_loader(game);
+    }
+    if (g_cutscenes)
+    {
+        draw_cutscene_loader(game);
     }
     if (g_overlay)
     {

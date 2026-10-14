@@ -65,6 +65,23 @@ void gfx_clear_ui_depth(int, int, int, int)
 {
 }
 
+void gfx_validate_native_boundary()
+{
+    throw Error("native rendering validation requires D3D11");
+}
+
+bool gfx_native_vertex_program_supported(std::span<const u32>)
+{
+    return false;
+}
+
+void gfx_begin_native_batch()
+{
+}
+void gfx_end_native_batch()
+{
+}
+
 void gfx_draw_native(const GfxNativeDraw&)
 {
 }

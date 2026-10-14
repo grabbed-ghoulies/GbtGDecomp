@@ -430,6 +430,8 @@ add_executable(gbtg
     src/engine/graphics/scene_d3d_device.cpp
     src/engine/graphics/scene_d3d_present.cpp
     src/engine/graphics/xbox_vertex_program.cpp
+    src/engine/graphics/xbox_vertex_hlsl.cpp
+    src/engine/graphics/render_allocation_profile.cpp
     src/engine/navigation/grid_regions.cpp
     src/engine/scene/background_construction.cpp
     src/engine/runtime/aid_list_lookup.cpp

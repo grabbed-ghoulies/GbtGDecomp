@@ -1,3 +1,7 @@
+#include "render_profile.h"
+#include "xbox_vertex_hlsl.h"
+#include "xbox_vertex_program.h"
+#include "xg_shader_assembly.h"
 #if !defined(GBTG_GFX_D3D11)
 #error gfx_d3d11.cpp is the PC DirectX 11 backend
 #endif
@@ -26,6 +30,7 @@
 #include <cmath>
 #include <cstring>
 #include <iostream>
+#include <map>
 #include <unordered_map>
 #include <vector>
 
@@ -150,6 +155,26 @@ struct GfxD3D11
     ComPtr<ID3D11DepthStencilState> clear_depth;
     ComPtr<ID3D11PixelShader> ps;
     ComPtr<ID3D11PixelShader> model_ps;
+    std::string model_source;
+    std::string vertex_source;
+    struct ProgramGpu
+    {
+        ComPtr<ID3D11VertexShader> shader;
+        ComPtr<ID3D11InputLayout> layout;
+        bool validated = false;
+    };
+    ComPtr<ID3D11GeometryShader> validation_shader;
+    struct ProgramKeyLess
+    {
+        using is_transparent = void;
+        bool operator()(std::span<const u32> a, std::span<const u32> b) const
+        {
+            return std::lexicographical_compare(a.begin(), a.end(), b.begin(), b.end());
+        }
+    };
+    std::map<std::vector<u32>, ProgramGpu, ProgramKeyLess> native_programs;
+    ComPtr<ID3D11Buffer> native_constants;
+    std::map<std::array<u32, 60>, ComPtr<ID3D11PixelShader>> specialized_pixels;
     ComPtr<ID3D11InputLayout> layout;
     ComPtr<ID3D11Buffer> cb;
     ComPtr<ID3D11Buffer> bone_cb;
@@ -175,6 +200,12 @@ struct GfxD3D11
     ComPtr<ID3D11InputLayout> native_layout;
     ComPtr<ID3D11Buffer> native_vb;
     UINT native_vb_size = 0;
+    UINT native_vb_cursor = 0;
+    bool native_batch = false;
+    bool native_pipeline = false;
+    ComPtr<ID3D11Buffer> native_ib;
+    UINT native_ib_size = 0;
+    UINT native_ib_cursor = 0;
     ComPtr<ID3D11Buffer> native_material;
     std::unordered_map<u64, ComPtr<ID3D11BlendState>> native_blends;
     std::unordered_map<u32, ComPtr<ID3D11DepthStencilState>> native_depths;
@@ -365,10 +396,10 @@ Mat4 perspective(float fov_y, float aspect, float zn, float zf)
     return m;
 }
 
-bool compile_shader(const char* src, const char* entry, const char* profile, ComPtr<ID3DBlob>& blob)
+bool compile_shader(const char* src, const char* entry, const char* profile, ComPtr<ID3DBlob>& blob, bool strict = false)
 {
     ComPtr<ID3DBlob> err;
-    const HRESULT hr = D3DCompile(src, std::strlen(src), "gbtg", nullptr, nullptr, entry, profile, D3DCOMPILE_OPTIMIZATION_LEVEL1,
+    const HRESULT hr = D3DCompile(src, std::strlen(src), "gbtg", nullptr, nullptr, entry, profile, D3DCOMPILE_OPTIMIZATION_LEVEL1 | (strict ? D3DCOMPILE_IEEE_STRICTNESS : 0),
                                   0, blob.GetAddressOf(), err.GetAddressOf());
     if (FAILED(hr))
     {
@@ -1162,6 +1193,16 @@ bool gfx_init(const GfxConfig& cfg)
         gfx_shutdown();
         return false;
     }
+    if (render_profile::enabled)
+    {
+        ComPtr<IDXGIDevice> dxgi;
+        ComPtr<IDXGIAdapter> adapter;
+        DXGI_ADAPTER_DESC desc{};
+        if (SUCCEEDED(g.device.As(&dxgi)) && SUCCEEDED(dxgi->GetAdapter(adapter.GetAddressOf())) && SUCCEEDED(adapter->GetDesc(&desc)))
+        {
+            std::wcout << L"profile adapter=" << desc.Description << L" vendor=" << desc.VendorId << L" device=" << desc.DeviceId << L"\n";
+        }
+    }
     if (!create_targets(width, height))
     {
         std::cerr << "d3d11: render target failed\n";
@@ -1560,6 +1601,17 @@ bool native_alpha_pass(float alpha)
     native_material.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     native_material.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
     g.device->CreateBuffer(&native_material, nullptr, g.native_material.GetAddressOf());
+    g.model_source = model_hlsl;
+    g.vertex_source = hlsl;
+    D3D11_BUFFER_DESC native_constants_desc{};
+    native_constants_desc.ByteWidth = 192 * 16;
+    native_constants_desc.Usage = D3D11_USAGE_DYNAMIC;
+    native_constants_desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    native_constants_desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    if (FAILED(g.device->CreateBuffer(&native_constants_desc, nullptr, g.native_constants.GetAddressOf())))
+    {
+        throw Error("native vertex constants creation failed");
+    }
     ComPtr<ID3DBlob> model_blob;
     if (!compile_shader(model_hlsl.c_str(), "ps_model", "ps_4_0", model_blob))
     {
@@ -1723,18 +1775,32 @@ float4 clear_vertex(uint id : SV_VertexID) : SV_Position
     return true;
 }
 
+namespace
+{
+void reset_profile_queries();
+}
+
 void gfx_shutdown()
 {
+    reset_profile_queries();
     gfx_release_dialog_texture();
 #if defined(GBTG_DEBUG_UI)
     debug_ui_shutdown();
 #endif
     g.meshes.clear();
     g.model_ps.Reset();
+    g.specialized_pixels.clear();
+    g.model_source.clear();
+    g.vertex_source.clear();
+    g.validation_shader.Reset();
+    g.native_programs.clear();
+    g.native_constants.Reset();
     g.native_vs.Reset();
     g.native_ps.Reset();
     g.native_layout.Reset();
     g.native_vb.Reset();
+    g.native_ib.Reset();
+    g.native_ib_size = 0;
     g.native_vb_size = 0;
     g.native_material.Reset();
     g.native_blends.clear();
@@ -1802,8 +1868,149 @@ void gfx_pump(bool& quit)
     quit = g.quit;
 }
 
+namespace
+{
+struct ProfileQueries
+{
+    ComPtr<ID3D11Query> disjoint, begin, end;
+    struct DrawQuery
+    {
+        ComPtr<ID3D11Query> begin, end;
+    };
+    std::vector<DrawQuery> draws;
+    size_t used = 0;
+    bool pending = false;
+    unsigned long long frame = 0;
+};
+std::array<ProfileQueries, 16> profile_queries;
+ProfileQueries* active_profile_query = nullptr;
+void reset_profile_queries()
+{
+    active_profile_query = nullptr;
+    for (auto& item : profile_queries)
+    {
+        item = {};
+    }
+}
+void profile_gpu_begin()
+{
+    if (!render_profile::enabled || !g.ok)
+    {
+        return;
+    }
+    for (auto& item : profile_queries)
+    {
+        if (!item.pending)
+        {
+            continue;
+        }
+        D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint{};
+        UINT64 begin = 0, end = 0;
+        if (g.context->GetData(item.disjoint.Get(), &disjoint, sizeof(disjoint), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK &&
+            g.context->GetData(item.begin.Get(), &begin, sizeof(begin), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK &&
+            g.context->GetData(item.end.Get(), &end, sizeof(end), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK)
+        {
+            if (!disjoint.Disjoint && disjoint.Frequency != 0)
+            {
+                render_profile::gpu_output << item.frame << ',' << double(end - begin) * 1000.0 / double(disjoint.Frequency) << ',';
+                if (item.used != 0)
+                {
+                    UINT64 ticks = 0;
+                    for (size_t n = 0; n < item.used; ++n)
+                    {
+                        UINT64 first = 0, last = 0;
+                        if (g.context->GetData(item.draws[n].begin.Get(), &first, sizeof(first), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK ||
+                            g.context->GetData(item.draws[n].end.Get(), &last, sizeof(last), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK)
+                        {
+                            throw Error("completed GPU frame has incomplete draw timestamps");
+                        }
+                        ticks += last - first;
+                    }
+                    render_profile::gpu_output << double(ticks) * 1000.0 / double(disjoint.Frequency);
+                }
+                render_profile::gpu_output << '\n';
+            }
+            item.pending = false;
+        }
+    }
+    auto& item = profile_queries[render_profile::number % profile_queries.size()];
+    if (item.pending)
+    {
+        return; // Bounded ring: never stall for a GPU sample.
+    }
+    if (!item.disjoint)
+    {
+        D3D11_QUERY_DESC desc{D3D11_QUERY_TIMESTAMP_DISJOINT, 0};
+        if (FAILED(g.device->CreateQuery(&desc, item.disjoint.GetAddressOf())))
+        {
+            throw Error("GPU disjoint query creation failed");
+        }
+        desc.Query = D3D11_QUERY_TIMESTAMP;
+        if (FAILED(g.device->CreateQuery(&desc, item.begin.GetAddressOf())) ||
+            FAILED(g.device->CreateQuery(&desc, item.end.GetAddressOf())))
+        {
+            throw Error("GPU timestamp query creation failed");
+        }
+    }
+    item.frame = render_profile::number;
+    item.used = 0;
+    active_profile_query = &item;
+    g.context->Begin(item.disjoint.Get());
+    g.context->End(item.begin.Get());
+}
+void profile_gpu_draw_begin()
+{
+    if (render_profile::enabled)
+    {
+        ++render_profile::frame.all_draws;
+    }
+    if (active_profile_query == nullptr || active_profile_query->frame % 32 != 0 || active_profile_query->used >= 4096)
+    {
+        return;
+    }
+    auto& item = *active_profile_query;
+    if (item.used == item.draws.size())
+    {
+        ProfileQueries::DrawQuery query;
+        D3D11_QUERY_DESC desc{D3D11_QUERY_TIMESTAMP, 0};
+        if (FAILED(g.device->CreateQuery(&desc, query.begin.GetAddressOf())) ||
+            FAILED(g.device->CreateQuery(&desc, query.end.GetAddressOf())))
+        {
+            throw Error("GPU draw timestamp query creation failed");
+        }
+        item.draws.push_back(std::move(query));
+    }
+    g.context->End(item.draws[item.used].begin.Get());
+}
+void profile_gpu_draw_end()
+{
+    if (active_profile_query != nullptr && active_profile_query->frame % 32 == 0 && active_profile_query->used < 4096)
+    {
+        auto& item = *active_profile_query;
+        g.context->End(item.draws[item.used++].end.Get());
+    }
+}
+void profile_gpu_end()
+{
+    if (active_profile_query != nullptr)
+    {
+        g.context->End(active_profile_query->end.Get());
+        g.context->End(active_profile_query->disjoint.Get());
+        active_profile_query->pending = true;
+        active_profile_query = nullptr;
+        if (!g.swap)
+        {
+            g.context->Flush(); // Offscreen runs otherwise need not submit each frame.
+        }
+    }
+}
+}
+
 void gfx_begin_frame()
 {
+    profile_gpu_begin();
+    g.native_vb_cursor = 0;
+    g.native_ib_cursor = 0;
     if (!g.ok)
     {
         return;
@@ -2033,7 +2240,9 @@ void gfx_clear_ui_depth(int left, int top, int right, int bottom)
     g.context->PSSetShader(nullptr, nullptr, 0);
     ID3D11Buffer* clear_buffer = g.clear_cb.Get();
     g.context->VSSetConstantBuffers(0, 1, &clear_buffer);
+    profile_gpu_draw_begin();
     g.context->Draw(6, 0);
+    profile_gpu_draw_end();
 
     ID3D11RenderTargetView* target = saved_target.Get();
     g.context->OMSetRenderTargets(1, &target, saved_depth_view.Get());
@@ -2076,6 +2285,7 @@ void gfx_draw_screen_mesh(const Mesh& mesh, float x, float y, float scale, bool 
 
 void gfx_draw_mesh(const Mesh& mesh, Vec3 origin, Vec3 scale)
 {
+    render_profile::Scope measurement(render_profile::HostRendering);
     if (!g.ok)
     {
         return;
@@ -2270,7 +2480,9 @@ void gfx_draw_mesh(const Mesh& mesh, Vec3 origin, Vec3 scale)
         // Xbox 0x00158A80 sets CullMode(DAT_0032E3D0) for the model tree;
         // 0x001582A0 draws a push buffer with byte +0x3C set using CullMode(0).
         g.context->RSSetState(range.cull_disable != 0 ? g.rast.Get() : g.rast_model_cull.Get());
+        profile_gpu_draw_begin();
         g.context->DrawIndexed(range.count, range.start, 0);
+        profile_gpu_draw_end();
         g.context->RSSetState(g.rast.Get());
 
         tris += range.count / 3;
@@ -2368,6 +2580,7 @@ D3D11_TEXTURE_ADDRESS_MODE native_address(u32 mode)
 
 ID3D11ShaderResourceView* native_texture(const RgbaImage* image)
 {
+    render_profile::Scope measurement(render_profile::Texture);
     if (image == nullptr || image->bgra.empty() || image->width <= 0 || image->height <= 0)
     {
         return nullptr;
@@ -2375,12 +2588,89 @@ ID3D11ShaderResourceView* native_texture(const RgbaImage* image)
     auto it = g.sprites.find(image);
     if (it == g.sprites.end() || it->second.serial != image->serial)
     {
+        if (render_profile::enabled)
+        {
+            ++render_profile::frame.texture_uploads;
+            render_profile::frame.uploaded_bytes += image->bgra.size();
+        }
         GfxD3D11::SpriteGpu gpu;
         gpu.srv = upload_bgra(image->bgra.data(), image->width, image->height);
         gpu.serial = image->serial;
         it = g.sprites.insert_or_assign(image, std::move(gpu)).first;
     }
     return it->second.srv.Get();
+}
+
+// Specialize structural words only; the material buffer still owns mutable colour constants.
+// Same HLSL equations, register dependencies, alpha test and outputs as the generic reference.
+ID3D11PixelShader* native_pixel_shader(const u32* definition)
+{
+    if ((definition[53] & 255) > 8)
+    {
+        throw Error("native pixel shader exceeds eight combiner stages");
+    }
+    for (u32 stage = 0; stage < 4; ++stage)
+    {
+        const u32 mode = (definition[54] >> (stage * 5)) & 31;
+        if (mode > 1)
+        {
+            throw Error("native pixel shader uses unsupported texture mode " + std::to_string(mode));
+        }
+    }
+    if (render_profile::reference)
+    {
+        return g.model_ps.Get();
+    }
+    std::array<u32, 60> key{};
+    std::copy_n(definition, key.size(), key.begin());
+    std::fill(key.begin() + 10, key.begin() + 26, 0);
+    key[43] = key[44] = 0;
+    auto found = g.specialized_pixels.find(key);
+    if (found != g.specialized_pixels.end())
+    {
+        return found->second.Get();
+    }
+    render_profile::Scope compilation(render_profile::Compilation);
+    std::string source = g.model_source;
+    const std::string original = "return ps_words[n / 4][n % 4];";
+    std::string replacement = "switch (n) {";
+    for (u32 n = 0; n < 60; ++n)
+    {
+        if ((n >= 10 && n < 26) || n == 43 || n == 44)
+        {
+            continue;
+        }
+        replacement += "case " + std::to_string(n) + ": return " + std::to_string(key[n]) + "u;";
+    }
+    replacement += "default: return ps_words[n / 4][n % 4]; }";
+    source.replace(source.find(original), original.size(), replacement);
+    const std::string loop = "[loop]\n    for (uint stage = 0; stage < count; ++stage)";
+    source.replace(source.find(loop), loop.size(), "[unroll]\n    for (uint stage = 0; stage < count; ++stage)");
+    // This entry is exclusively the native path, where the material uses identity UVs and v0/v1.
+    const std::string uv = "uint uv = ps_uv[stage];";
+    source.replace(source.find(uv), uv.size(), "uint uv = stage;");
+    const std::string first = "regs[4] = ps_control.x == 0 ? i.diffuse : i.specular;";
+    const std::string second = "regs[5] = ps_control.y == 0 ? i.diffuse : i.specular;";
+    source.replace(source.find(first), first.size(), "regs[4] = i.diffuse;");
+    source.replace(source.find(second), second.size(), "regs[5] = i.specular;");
+    // Constant native controls also remove the conditional enclosing each assignment.
+    size_t pos = source.find("if (ps_control.x < 2)");
+    source.replace(pos, std::strlen("if (ps_control.x < 2)"), "if (true)");
+    pos = source.find("if (ps_control.y < 2)");
+    source.replace(pos, std::strlen("if (ps_control.y < 2)"), "if (true)");
+    ComPtr<ID3DBlob> blob;
+    ComPtr<ID3D11PixelShader> shader;
+    if (!compile_shader(source.c_str(), "ps_model", "ps_4_0", blob) ||
+        FAILED(g.device->CreatePixelShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, shader.GetAddressOf())))
+    {
+        // Explicit fallback to the unchanged generic implementation, including its error checks.
+        shader = g.model_ps;
+    }
+    if (render_profile::enabled)
+    {
+        ++render_profile::frame.pixel_misses;
+    }
+    return g.specialized_pixels.emplace(key, shader).first->second.Get();
 }
 
 // The HUD viewport maps the 640x480 back buffer onto the window; rectangles follow it.
@@ -2398,18 +2688,320 @@ D3D11_RECT native_rectangle(const std::array<i32, 4>& rectangle)
 }
 }
 
+bool gfx_native_vertex_program_supported(std::span<const u32> program)
+{
+    if (!g.ok || render_profile::reference || render_profile::cpu_vertex)
+    {
+        return false;
+    }
+    auto found = g.native_programs.find(program);
+    if (found != g.native_programs.end())
+    {
+        return found->second.shader != nullptr;
+    }
+    render_profile::Scope compilation(render_profile::Compilation);
+    GfxD3D11::ProgramGpu gpu;
+    const auto body = xbox_vertex_hlsl(program);
+    if (render_profile::enabled && body.empty())
+    {
+        std::cout << "profile vertex_fallback instructions=" << (program.empty() ? 0 : program[0] >> 16) << " mac/ilu/relative:";
+        for (size_t n = 1; n + 3 < program.size(); n += 4)
+        {
+            std::cout << ' ' << ((program[n + 1] >> 21) & 15) << '/' << ((program[n + 1] >> 25) & 7) << '/' << ((program[n + 3] >> 1) & 1);
+        }
+        std::cout << "\n";
+    }
+    if (!body.empty())
+    {
+        const auto source = g.vertex_source + body;
+        ComPtr<ID3DBlob> blob;
+        if (compile_shader(source.c_str(), "program_vs", "vs_4_0", blob, true))
+        {
+            std::array<D3D11_INPUT_ELEMENT_DESC, 16> elements{};
+            for (UINT n = 0; n < elements.size(); ++n)
+            {
+                elements[n] = {"TEXCOORD", n, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, n * 16, D3D11_INPUT_PER_VERTEX_DATA, 0};
+            }
+            if (FAILED(g.device->CreateVertexShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, gpu.shader.GetAddressOf())) ||
+                FAILED(g.device->CreateInputLayout(elements.data(), UINT(elements.size()), blob->GetBufferPointer(), blob->GetBufferSize(), gpu.layout.GetAddressOf())))
+            {
+                gpu = {};
+            }
+        }
+    }
+    const bool supported = gpu.shader != nullptr;
+    g.native_programs.emplace(std::vector<u32>(program.begin(), program.end()), std::move(gpu));
+    return supported;
+}
+
+namespace
+{
+void validate_native_gpu_vertices(const GfxNativeDraw& draw, GfxD3D11::ProgramGpu& program)
+{
+    if (!render_profile::validate_vertex || program.validated)
+    {
+        return;
+    }
+    if (!g.validation_shader)
+    {
+        const std::string source = g.vertex_source + R"(
+[maxvertexcount(1)]
+void validate_gs(point VSOut input[1], inout PointStream<VSOut> stream)
+{
+    stream.Append(input[0]);
+}
+)";
+        ComPtr<ID3DBlob> blob;
+        if (!compile_shader(source.c_str(), "validate_gs", "gs_4_0", blob))
+        {
+            throw Error("GPU validation stream shader compilation failed");
+        }
+        const D3D11_SO_DECLARATION_ENTRY entries[] =
+        {
+            {0, "SV_Position", 0, 0, 4, 0},
+            {0, "COLOR", 0, 0, 4, 0}, {0, "COLOR", 1, 0, 4, 0},
+            {0, "TEXCOORD", 0, 0, 2, 0}, {0, "TEXCOORD", 1, 0, 2, 0},
+            {0, "TEXCOORD", 3, 0, 2, 0}, {0, "TEXCOORD", 4, 0, 2, 0}
+        };
+        const UINT stride = sizeof(GfxNativeVertex);
+        if (FAILED(g.device->CreateGeometryShaderWithStreamOutput(blob->GetBufferPointer(), blob->GetBufferSize(),
+            entries, UINT(std::size(entries)), &stride, 1, D3D11_SO_NO_RASTERIZED_STREAM, nullptr, g.validation_shader.GetAddressOf())))
+        {
+            throw Error("GPU validation stream shader creation failed");
+        }
+    }
+    const UINT count = UINT(std::min<size_t>(draw.program_inputs.size(), 16));
+    D3D11_BUFFER_DESC desc{};
+    desc.ByteWidth = count * sizeof(GfxNativeVertex);
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    desc.BindFlags = D3D11_BIND_STREAM_OUTPUT;
+    ComPtr<ID3D11Buffer> stream, staging;
+    if (FAILED(g.device->CreateBuffer(&desc, nullptr, stream.GetAddressOf())))
+    {
+        throw Error("GPU validation stream buffer creation failed");
+    }
+    desc.Usage = D3D11_USAGE_STAGING;
+    desc.BindFlags = 0;
+    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    if (FAILED(g.device->CreateBuffer(&desc, nullptr, staging.GetAddressOf())))
+    {
+        throw Error("GPU validation staging buffer creation failed");
+    }
+    UINT offset = 0;
+    g.context->GSSetShader(g.validation_shader.Get(), nullptr, 0);
+    g.context->SOSetTargets(1, stream.GetAddressOf(), &offset);
+    g.context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_POINTLIST);
+    g.context->Draw(count, 0);
+    ID3D11Buffer* empty = nullptr;
+    g.context->SOSetTargets(1, &empty, &offset);
+    g.context->GSSetShader(nullptr, nullptr, 0);
+    g.context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    g.context->CopyResource(staging.Get(), stream.Get());
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    if (FAILED(g.context->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped)))
+    {
+        throw Error("GPU validation readback failed");
+    }
+    std::vector<GfxNativeVertex> actual(count);
+    std::memcpy(actual.data(), mapped.pData, desc.ByteWidth);
+    g.context->Unmap(staging.Get(), 0);
+    float maximum = 0;
+    for (UINT n = 0; n < count; ++n)
+    {
+        XboxVertexProgramState reference{};
+        reference.constants = *draw.vertex_constants;
+        reference.inputs = draw.program_inputs[n];
+        reference.outputs.fill({0.f, 0.f, 0.f, 1.f});
+        reference.outputs[3] = {1.f, 1.f, 1.f, 1.f};
+        reference.outputs[4] = {0.f, 0.f, 0.f, 0.f};
+        run_xbox_vertex_program(draw.vertex_program, reference);
+        GfxNativeVertex expected{};
+        const auto& p = reference.outputs[0];
+        expected.position = {(p[0] / 320.f - 1.f) * p[3], (1.f - p[1] / 240.f) * p[3], p[2] / 16777215.f * p[3], p[3]};
+        for (size_t c = 0; c < 4; ++c)
+        {
+            expected.diffuse[c] = std::clamp(reference.outputs[3][c], 0.f, 1.f);
+            expected.specular[c] = std::clamp(reference.outputs[4][c], 0.f, 1.f);
+            expected.uv[c] = {reference.outputs[9 + c][0], reference.outputs[9 + c][1]};
+        }
+        std::array<float, 20> a{}, b{};
+        std::memcpy(a.data(), &expected, sizeof(expected));
+        std::memcpy(b.data(), &actual[n], sizeof(actual[n]));
+        for (size_t c = 0; c < a.size(); ++c)
+        {
+            if (a[c] == b[c] || (std::isnan(a[c]) && std::isnan(b[c])))
+            {
+                continue;
+            }
+            const float difference = std::fabs(a[c] - b[c]);
+            if (!std::isfinite(difference) || difference > 0.00005f + 0.00005f * std::fabs(a[c]))
+            {
+                throw Error("GPU vertex reference mismatch: component " + std::to_string(c) + " expected " + std::to_string(a[c]) + " actual " + std::to_string(b[c]));
+            }
+            maximum = std::max(maximum, difference);
+        }
+    }
+    program.validated = true;
+    std::cout << "GPU vertex reference PASS vertices=" << count << " instructions=" << (draw.vertex_program[0] >> 16) << " max_abs_error=" << maximum << " tolerance=5e-5+5e-5*abs(reference)\n";
+}
+}
+
+void gfx_begin_native_batch()
+{
+    g.native_batch = !render_profile::reference;
+}
+void gfx_end_native_batch()
+{
+    g.native_batch = false;
+    if (!g.native_pipeline)
+    {
+        return;
+    }
+    // Put the shared host pipeline back for the draws that follow.
+    g.context->RSSetState(g.rast.Get());
+    g.context->IASetInputLayout(g.layout.Get());
+    g.context->VSSetShader(g.vs.Get(), nullptr, 0);
+    g.context->PSSetShader(g.ps.Get(), nullptr, 0);
+    ID3D11SamplerState* shared_samplers[2]{g.sampler.Get(), g.light_sampler.Get()};
+    g.context->PSSetSamplers(0, 2, shared_samplers);
+    bind_depth_shadow();
+    g.native_pipeline = false;
+}
+
+void gfx_validate_native_boundary()
+{
+    const GfxConfig config{64, 64, 0, false};
+    const auto initialize = [&]()
+    {
+        if (!gfx_init(config))
+        {
+            throw Error("boundary validation device creation failed");
+        }
+        gfx_begin_frame();
+    };
+    initialize();
+    std::array<GfxNativeVertex, 6> vertices{};
+    for (size_t n = 0; n < 6; ++n)
+    {
+        vertices[n].position = n % 3 == 0 ? std::array<float, 4>{-1.f, -1.f, .5f, 1.f} :
+            n % 3 == 1 ? std::array<float, 4>{0.f, 1.f, .5f, 1.f} : std::array<float, 4>{1.f, -1.f, .5f, 1.f};
+        vertices[n].diffuse = n < 3 ? std::array<float, 4>{1.f, 0.f, 0.f, 1.f} : std::array<float, 4>{0.f, 1.f, 0.f, 1.f};
+    }
+    std::array<u32, 3> indices{0, 1, 2};
+    GfxNativeDraw draw;
+    draw.vertices = vertices;
+    draw.indices = indices;
+    const auto expect = [&](u8 red, u8 green, u8 blue)
+    {
+        gfx_draw_native(draw);
+        RgbaImage image;
+        if (!gfx_readback(image))
+        {
+            throw Error("boundary validation readback failed");
+        }
+        const size_t offset = (size_t(image.height / 2) * image.width + image.width / 2) * 4;
+        if (image.bgra[offset] != blue || image.bgra[offset + 1] != green || image.bgra[offset + 2] != red)
+        {
+            throw Error("native mutation/lifetime validation colour mismatch");
+        }
+    };
+    expect(255, 0, 0);
+    indices = {3, 4, 5};
+    expect(0, 255, 0);
+    for (auto& vertex : vertices)
+    {
+        vertex.diffuse = {1.f, 1.f, 1.f, 1.f};
+    }
+    RgbaImage texture;
+    texture.width = texture.height = 1;
+    texture.bgra = {255, 0, 0, 255};
+    draw.textures[0] = &texture;
+    expect(0, 0, 255);
+    texture.bgra = {0, 255, 0, 255};
+    ++texture.serial;
+    expect(0, 255, 0);
+    gfx_release_sprite(texture);
+    texture.bgra = {0, 0, 255, 255};
+    texture.serial = 0;
+    expect(255, 0, 0);
+    draw.textures = {};
+    const auto program = assemble_xg_vertex_shader("xvs.1.1\nm4x4 oPos, v0, c0\nmov oD0, c4\n");
+    if (!gfx_native_vertex_program_supported(program))
+    {
+        throw Error("GPU mutation fixture unexpectedly fell back");
+    }
+    std::array<GfxNativeInputs, 6> inputs{};
+    for (size_t n = 0; n < inputs.size(); ++n)
+    {
+        inputs[n][0] = vertices[n].position;
+    }
+    std::array<XboxVector, 192> constants{};
+    for (size_t n = 0; n < 4; ++n)
+    {
+        constants[96 + n][n] = 1.f;
+    }
+    constants[58] = {320.f, -240.f, 16777215.f, 0.f};
+    constants[59] = {320.f, 240.f, 0.f, 0.f};
+    constants[100] = {1.f, 0.f, 0.f, 1.f};
+    draw.vertices = {};
+    draw.program_inputs = inputs;
+    draw.vertex_program = program;
+    draw.vertex_constants = &constants;
+    expect(255, 0, 0);
+    constants[100] = {0.f, 0.f, 1.f, 1.f};
+    expect(0, 0, 255);
+    // Arithmetic edge cases are reference-read back only in this validation mode.
+    render_profile::validate_vertex = true;
+    std::array<GfxNativeInputs, 6> edge_inputs{};
+    for (size_t n = 0; n < edge_inputs.size(); ++n)
+    {
+        edge_inputs[n][0] = {320.f, 240.f, 0.f, 1.f};
+        edge_inputs[n][1][0] = n % 3 == 0 ? 0.f : n % 3 == 1 ? -0.f : 1e-30f;
+    }
+    constants[96] = {5e-20f, 5e-20f, 5e-20f, 5e-20f};
+    for (const char* operation : {"rcc", "rsq"})
+    {
+        const std::string source = std::string("vs.1.0\n#pragma screenspace\n") + operation + " r0, v1.x\nmul oD0, r0, c0\nmov oPos, v0\n";
+        const auto edge_program = assemble_xg_vertex_shader(source);
+        if (!gfx_native_vertex_program_supported(edge_program))
+        {
+            throw Error("GPU arithmetic fixture unexpectedly fell back");
+        }
+        draw.vertex_program = edge_program;
+        draw.program_inputs = edge_inputs;
+        gfx_draw_native(draw);
+    }
+    gfx_release_sprite(texture);
+    gfx_shutdown();
+    initialize();
+    draw = {};
+    draw.vertices = vertices;
+    draw.indices = indices;
+    expect(255, 255, 255);
+    gfx_shutdown();
+    std::cout << "Native boundary PASS: vertex/index mutation, texture serial/release/address reuse, constants, device unload/reload\n";
+}
+
 void gfx_draw_native(const GfxNativeDraw& draw)
 {
-    if (!g.ok || draw.vertices.empty())
+    render_profile::Scope measurement(render_profile::Submission);
+    if (render_profile::enabled)
+    {
+        ++render_profile::frame.draws;
+        render_profile::frame.output_vertices += draw.indices.empty() ? draw.vertices.size() : draw.indices.size();
+        render_profile::frame.uploaded_bytes += draw.vertices.size_bytes() + draw.program_inputs.size_bytes() + draw.indices.size_bytes();
+    }
+    if (!g.ok || (draw.vertices.empty() && draw.program_inputs.empty()))
     {
         return;
     }
     present_hud_viewport();
-    const UINT bytes = UINT(draw.vertices.size_bytes());
+    const bool program_draw = !draw.program_inputs.empty();
+    const UINT bytes = UINT(program_draw ? draw.program_inputs.size_bytes() : draw.vertices.size_bytes());
     if (!g.native_vb || g.native_vb_size < bytes)
     {
         D3D11_BUFFER_DESC desc{};
-        desc.ByteWidth = std::max<UINT>(bytes, 0x10000);
+        desc.ByteWidth = std::max<UINT>(bytes, 0x400000);
         desc.Usage = D3D11_USAGE_DYNAMIC;
         desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
         desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
@@ -2419,13 +3011,25 @@ void gfx_draw_native(const GfxNativeDraw& draw)
             throw Error("D3D11 native vertex buffer creation failed");
         }
         g.native_vb_size = desc.ByteWidth;
+        g.native_vb_cursor = 0;
+        if (render_profile::enabled)
+        {
+            ++render_profile::frame.buffer_allocations;
+        }
     }
     D3D11_MAPPED_SUBRESOURCE mapped{};
-    if (FAILED(g.context->Map(g.native_vb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+    if (render_profile::reference || bytes > g.native_vb_size - g.native_vb_cursor)
+    {
+        g.native_vb_cursor = 0;
+    }
+    const UINT vertex_offset = g.native_vb_cursor;
+    if (FAILED(g.context->Map(g.native_vb.Get(), 0,
+        vertex_offset == 0 ? D3D11_MAP_WRITE_DISCARD : D3D11_MAP_WRITE_NO_OVERWRITE, 0, &mapped)))
     {
         throw Error("D3D11 native vertex buffer map failed");
     }
-    std::memcpy(mapped.pData, draw.vertices.data(), bytes);
+    std::memcpy(static_cast<u8*>(mapped.pData) + vertex_offset, program_draw ? static_cast<const void*>(draw.program_inputs.data()) : static_cast<const void*>(draw.vertices.data()), bytes);
+    g.native_vb_cursor += bytes;
     g.context->Unmap(g.native_vb.Get(), 0);
     if (FAILED(g.context->Map(g.cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
     {
@@ -2448,6 +3052,10 @@ void gfx_draw_native(const GfxNativeDraw& draw)
     if (blend == g.native_blends.end())
     {
         D3D11_BLEND_DESC desc{};
+        if (render_profile::enabled)
+        {
+            ++render_profile::frame.state_misses;
+        }
         auto& target = desc.RenderTarget[0];
         target.BlendEnable = draw.blend ? TRUE : FALSE;
         target.SrcBlend = native_blend_factor(draw.source_blend, false);
@@ -2472,6 +3080,10 @@ void gfx_draw_native(const GfxNativeDraw& draw)
     if (depth == g.native_depths.end())
     {
         D3D11_DEPTH_STENCIL_DESC desc{};
+        if (render_profile::enabled)
+        {
+            ++render_profile::frame.state_misses;
+        }
         // NV2A writes depth only while its test is enabled.
         desc.DepthEnable = draw.depth_test ? TRUE : FALSE;
         desc.DepthWriteMask = draw.depth_write ? D3D11_DEPTH_WRITE_MASK_ALL : D3D11_DEPTH_WRITE_MASK_ZERO;
@@ -2487,6 +3099,10 @@ void gfx_draw_native(const GfxNativeDraw& draw)
     if (rasterizer == g.native_rasterizers.end())
     {
         D3D11_RASTERIZER_DESC desc{};
+        if (render_profile::enabled)
+        {
+            ++render_profile::frame.state_misses;
+        }
         desc.FillMode = D3D11_FILL_SOLID;
         // Retail 0x00171420 emits CULL_FACE FRONT when CullMode == FrontFace (0x900).
         // xemu's SETUPRASTER front-face bit is clear for this game; its GL backend reverses
@@ -2525,6 +3141,10 @@ void gfx_draw_native(const GfxNativeDraw& draw)
         if (sampler == g.native_samplers.end())
         {
             D3D11_SAMPLER_DESC desc{};
+            if (render_profile::enabled)
+            {
+                ++render_profile::frame.state_misses;
+            }
             desc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
             desc.AddressU = native_address(draw.address_u[stage]);
             desc.AddressV = native_address(draw.address_v[stage]);
@@ -2558,7 +3178,7 @@ void gfx_draw_native(const GfxNativeDraw& draw)
         g.context->Unmap(g.native_material.Get(), 0);
         ID3D11Buffer* material = g.native_material.Get();
         g.context->PSSetConstantBuffers(2, 1, &material);
-        g.context->PSSetShader(g.model_ps.Get(), nullptr, 0);
+        g.context->PSSetShader(native_pixel_shader(draw.pixel_shader), nullptr, 0);
     }
     else
     {
@@ -2571,21 +3191,81 @@ void gfx_draw_native(const GfxNativeDraw& draw)
     g.context->OMSetBlendState(blend->second.Get(), nullptr, 0xFFFFFFFFu);
     g.context->OMSetDepthStencilState(depth->second.Get(), 0);
     g.context->RSSetState(rasterizer->second.Get());
-    const UINT stride = sizeof(GfxNativeVertex);
-    const UINT offset = 0;
+    const UINT stride = program_draw ? sizeof(GfxNativeInputs) : sizeof(GfxNativeVertex);
+    const UINT offset = vertex_offset;
     g.context->IASetInputLayout(g.native_layout.Get());
     g.context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     g.context->IASetVertexBuffers(0, 1, g.native_vb.GetAddressOf(), &stride, &offset);
-    g.context->VSSetShader(g.native_vs.Get(), nullptr, 0);
-    g.context->Draw(UINT(draw.vertices.size()), 0);
-    // Put the shared host pipeline back for the draws that follow.
-    g.context->RSSetState(g.rast.Get());
-    g.context->IASetInputLayout(g.layout.Get());
-    g.context->VSSetShader(g.vs.Get(), nullptr, 0);
-    g.context->PSSetShader(g.ps.Get(), nullptr, 0);
-    ID3D11SamplerState* shared_samplers[2]{g.sampler.Get(), g.light_sampler.Get()};
-    g.context->PSSetSamplers(0, 2, shared_samplers);
-    bind_depth_shadow();
+    if (program_draw)
+    {
+        auto& program = g.native_programs.find(draw.vertex_program)->second;
+        g.context->IASetInputLayout(program.layout.Get());
+        g.context->VSSetShader(program.shader.Get(), nullptr, 0);
+        if (draw.vertex_constants == nullptr || FAILED(g.context->Map(g.native_constants.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+        {
+            throw Error("native vertex constants map failed");
+        }
+        std::memcpy(mapped.pData, draw.vertex_constants->data(), sizeof(*draw.vertex_constants));
+        g.context->Unmap(g.native_constants.Get(), 0);
+        ID3D11Buffer* constants = g.native_constants.Get();
+        g.context->VSSetConstantBuffers(3, 1, &constants);
+        validate_native_gpu_vertices(draw, program);
+    }
+    else
+    {
+        g.context->VSSetShader(g.native_vs.Get(), nullptr, 0);
+    }
+    if (draw.indices.empty())
+    {
+        profile_gpu_draw_begin();
+        g.context->Draw(UINT(draw.vertices.size()), 0);
+        profile_gpu_draw_end();
+    }
+    else
+    {
+        const UINT index_bytes = UINT(draw.indices.size_bytes());
+        if (!g.native_ib || g.native_ib_size < index_bytes)
+        {
+            D3D11_BUFFER_DESC desc{};
+            desc.ByteWidth = std::max<UINT>(index_bytes, 0x100000);
+            desc.Usage = D3D11_USAGE_DYNAMIC;
+            desc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+            desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+            g.native_ib.Reset();
+            if (FAILED(g.device->CreateBuffer(&desc, nullptr, g.native_ib.GetAddressOf())))
+            {
+                throw Error("D3D11 native index buffer creation failed");
+            }
+            g.native_ib_size = desc.ByteWidth;
+            g.native_ib_cursor = 0;
+            if (render_profile::enabled)
+            {
+                ++render_profile::frame.buffer_allocations;
+            }
+        }
+        if (index_bytes > g.native_ib_size - g.native_ib_cursor)
+        {
+            g.native_ib_cursor = 0;
+        }
+        const UINT index_offset = g.native_ib_cursor;
+        if (FAILED(g.context->Map(g.native_ib.Get(), 0,
+            index_offset == 0 ? D3D11_MAP_WRITE_DISCARD : D3D11_MAP_WRITE_NO_OVERWRITE, 0, &mapped)))
+        {
+            throw Error("D3D11 native index buffer map failed");
+        }
+        std::memcpy(static_cast<u8*>(mapped.pData) + index_offset, draw.indices.data(), index_bytes);
+        g.context->Unmap(g.native_ib.Get(), 0);
+        g.native_ib_cursor += index_bytes;
+        g.context->IASetIndexBuffer(g.native_ib.Get(), DXGI_FORMAT_R32_UINT, index_offset);
+        profile_gpu_draw_begin();
+        g.context->DrawIndexed(UINT(draw.indices.size()), 0, 0);
+        profile_gpu_draw_end();
+    }
+    g.native_pipeline = true;
+    if (!g.native_batch)
+    {
+        gfx_end_native_batch();
+    }
 }
 
 void gfx_clear_native(std::span<const std::array<i32, 4>> rectangles, u32 flags, u32 color, float depth)
@@ -2635,6 +3315,7 @@ void gfx_release_sprite(const RgbaImage& image)
 
 void gfx_draw_sprite(const RgbaImage& image, const GfxRect& rect)
 {
+    render_profile::Scope measurement(render_profile::HostRendering);
     if (!g.ok || image.bgra.empty() || image.width <= 0 || image.height <= 0 || rect.w == 0.f || rect.h == 0.f)
     {
         return;
@@ -2695,7 +3376,9 @@ void gfx_draw_sprite(const RgbaImage& image, const GfxRect& rect)
     ID3D11ShaderResourceView* unbound = nullptr;
     ID3D11ShaderResourceView* srvs[2] = {it->second.srv.Get(), unbound};
     g.context->PSSetShaderResources(0, 2, srvs);
+    profile_gpu_draw_begin();
     g.context->Draw(6, 0);
+    profile_gpu_draw_end();
 }
 
 namespace
@@ -3136,6 +3819,7 @@ void present_swap()
         g.context->OMSetRenderTargets(1, g.rtv.GetAddressOf(), nullptr);
         debug_ui_draw();
 #endif
+        render_profile::Scope measurement(render_profile::Present);
         g.swap->Present(g.cfg.vsync, 0);
     }
     if (present_frame.swap_notify != nullptr)
@@ -3328,6 +4012,7 @@ void gfx_end_frame()
     present_tick_insert();
     present_tick_fade();
     present_draw_frame();
+    profile_gpu_end();
 }
 
 bool gfx_readback(RgbaImage& out)

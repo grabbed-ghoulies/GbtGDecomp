@@ -11,6 +11,7 @@
 #include "../src/engine/graphics/xg_shader_assembly.h"
 #include "../src/engine/graphics/xg_pixel_shader.h"
 #include "../src/engine/graphics/xbox_vertex_program.h"
+#include "../src/engine/graphics/xbox_vertex_hlsl.h"
 #include "../src/engine/graphics/scene_d3d_device.h"
 #include "../src/engine/graphics/door_shadow_draw.h"
 #include "../src/engine/graphics/shader_schedule_cost.h"
@@ -56,6 +57,48 @@ void check_color_helpers()
     require(std::bit_cast<u32>(retained[0]) == 0x7FC01234u && renderer.state.color[0] == 0,
         "scene color invalid conversion and retained NaN bits");
 }
+void check_vertex_gpu_translation()
+{
+    const auto program = assemble_xg_vertex_shader("xvs.1.1\nm4x4 oPos, v0, c0\nmov oD0, v3\n");
+    const auto source = xbox_vertex_hlsl(program);
+    require(!source.empty() && source.find("precise") != std::string::npos && source.find("16777215.0") != std::string::npos,
+        "GPU translator preserves precise arithmetic and retail depth conversion");
+    const std::vector<u32> addressed
+    {
+        (2u << 16) | 0x2078, 0, (13u << 21) | (1u << 9), 2u << 26, 0,
+        0, (1u << 21) | (96u << 13) | 0x1B, 3u << 26, 0xF803
+    };
+    require(!xbox_vertex_hlsl(addressed).empty(), "direct address-register loads translate");
+    const auto validations = xbox_vertex_address_validation(addressed);
+    std::array<XboxVector, 16> inputs{};
+    std::array<XboxVector, 192> constants{};
+    inputs[1][0] = 2.9f;
+    validate_xbox_vertex_address(validations, inputs, constants);
+    bool raised = false;
+    inputs[1][0] = 1000.f;
+    try
+    {
+        validate_xbox_vertex_address(validations, inputs, constants);
+    }
+    catch (const Error&)
+    {
+        raised = true;
+    }
+    require(raised, "GPU relative reads outside the register file must raise before submission");
+    auto constant_write = assemble_xg_vertex_shader("vs.1.0\n#pragma screenspace\nmov oPos, v0\n");
+    constant_write[4] &= ~(1u << 11);
+    constant_write[4] |= 96u << 3;
+    require(xbox_vertex_hlsl(constant_write).empty(), "constant writes remain explicit CPU fallbacks");
+    auto transcendental = assemble_xg_vertex_shader("vs.1.0\n#pragma screenspace\nrcc oPos, v0.x\n");
+    transcendental[2] = (transcendental[2] & ~(7u << 25)) | (5u << 25);
+    require(xbox_vertex_hlsl(transcendental).empty(), "unvalidated transcendental arithmetic retains the interpreter");
+    std::map<u32, u32> states{{SceneD3DDevice::kPixelShader, 17}, {SceneD3DDevice::kCullMode, 0x900}};
+    const SceneD3DStateSnapshot snapshot(states);
+    states[SceneD3DDevice::kPixelShader] = 19;
+    require(snapshot.at(SceneD3DDevice::kPixelShader) == 17 && snapshot.find(999) == snapshot.end(),
+        "contiguous state snapshots retain draw-time values after mutation");
+}
+
 void check_boot_shader_boundary()
 {
     const auto shader = assemble_xg_vertex_shader("xvs.1.1\nm4x4 oPos, v0, c0\nmov oD0, v3\n");
@@ -967,6 +1010,7 @@ void check_scene_render()
         "partial light upload retains records beyond count");
     check_color_helpers();
     check_boot_shader_boundary();
+    check_vertex_gpu_translation();
     check_boot_pixel_shaders();
     check_matrix_helpers();
     check_attachment_draw_walk();

@@ -1,4 +1,5 @@
 #include "scene_d3d_device.h"
+#include "render_profile.h"
 #include "d3dx_matrix.h"
 
 #include <bit>
@@ -197,6 +198,7 @@ SceneD3DDevice::SceneD3DDevice()
 
 void SceneD3DDevice::decode_push(const u32* begin, const u32* end)
 {
+    render_profile::Scope measurement(render_profile::Recording);
     bool open = false;
     std::vector<float> vertices;
     for (const u32* cursor = begin; cursor < end;)
@@ -292,6 +294,7 @@ void SceneD3DDevice::set_constant_words(u32 reg, const u32* data, u32 count)
 
 SceneD3DIndexedDraw& SceneD3DDevice::draw_indexed(u32 primitive, u32 count, u32 indices)
 {
+    render_profile::Scope measurement(render_profile::Recording);
     commands.push_back(SceneD3DIndexedDraw{primitive, count, indices, constants_, textures_, render_states_,
         vertex_streams_, pixel_constants_, pixel_constants_set_});
     return std::get<SceneD3DIndexedDraw>(commands.back());

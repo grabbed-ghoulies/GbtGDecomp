@@ -3467,7 +3467,11 @@ void SceneActorServices::present_views(const std::function<void()>& draw_world)
         }
         state.host_world_draw = nullptr;
         draw_scene_dialogue(state.game);
-        present_scene_d3d_commands(state.d3d_device.take_commands(), present);
+        auto commands = state.d3d_device.take_commands();
+        present_scene_d3d_commands(commands, present);
+        // Recycle the recording boundary's command capacity after synchronous presentation.
+        commands.clear();
+        state.d3d_device.commands = std::move(commands);
     }, *state.display_setup);
     // Legacy front-end owners still supply their own camera and draws. Starting the native
     // actor factory does not mean that an owner has registered a native display camera.

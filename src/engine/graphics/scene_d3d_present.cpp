@@ -1,5 +1,7 @@
 #include "scene_d3d_present.h"
+#include "render_profile.h"
 #include "xbox_vertex_program.h"
+#include "xbox_vertex_hlsl.h"
 #include "gbtg/gfx.h"
 
 #include <algorithm>
@@ -24,14 +26,14 @@ constexpr u32 kDepthFunction = 0x40354;
 constexpr u32 kColorMask = 0x40358;
 constexpr u32 kDepthWrite = 0x4035C;
 
-u32 state(const std::map<u32, u32>& states, u32 key, u32 fallback)
+u32 state(const SceneD3DStateSnapshot& states, u32 key, u32 fallback)
 {
     const auto found = states.find(key);
     return found == states.end() ? fallback : found->second;
 }
 
 // D3D's device defaults stand for any state the scene has not written.
-void apply_states(const std::map<u32, u32>& states, GfxNativeDraw& draw)
+void apply_states(const SceneD3DStateSnapshot& states, GfxNativeDraw& draw)
 {
     draw.cull = state(states, SceneD3DDevice::kCullMode, 0);
     draw.depth_test = state(states, SceneD3DDevice::kZEnable, 1) != 0;
@@ -172,6 +174,7 @@ struct DeclaredInput
 
 std::vector<DeclaredInput> declared_inputs(const std::array<i32, 32>& declaration)
 {
+    render_profile::Scope measurement(render_profile::Declaration);
     std::vector<DeclaredInput> inputs;
     u32 stream = 0;
     u32 offset = 0;
@@ -251,8 +254,20 @@ std::array<u32, 60> pixel_shader_words(const u8* definition, const SceneD3DIndex
 }
 
 // Triangle-list vertex order for an Xbox primitive (D3DPT 5 list, 6 strip, 7 fan, 8 quad list).
-std::vector<u32> triangle_order(u32 primitive, u32 count)
+const std::vector<u32>& triangle_order(u32 primitive, u32 count)
 {
+    render_profile::Scope measurement(render_profile::Topology);
+    static std::map<std::pair<u32, u32>, std::vector<u32>> cache;
+    const auto key = std::pair{primitive, count};
+    const auto found = cache.find(key);
+    if (found != cache.end())
+    {
+        return found->second;
+    }
+    if (cache.size() >= 4096)
+    {
+        cache.clear();
+    }
     std::vector<u32> order;
     switch (primitive)
     {
@@ -290,7 +305,7 @@ std::vector<u32> triangle_order(u32 primitive, u32 count)
     default:
         throw Error("indexed draw uses primitive " + std::to_string(primitive));
     }
-    return order;
+    return cache.emplace(key, std::move(order)).first->second;
 }
 
 // The program's oPos is in back-buffer pixels and depth units after its c-38 / c-37 transform, with the
@@ -309,7 +324,22 @@ void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentConte
     {
         throw Error("indexed draw has no created vertex shader bound");
     }
-    const auto inputs = declared_inputs(shader->second.declaration);
+    // Content key avoids stale declarations when shader handles are replaced or reused.
+    static std::map<std::array<i32, 32>, std::vector<DeclaredInput>> declarations;
+    auto declaration = declarations.find(shader->second.declaration);
+    if (declaration == declarations.end())
+    {
+        if (declarations.size() >= 128)
+        {
+            declarations.clear();
+        }
+        declaration = declarations.emplace(shader->second.declaration, declared_inputs(shader->second.declaration)).first;
+        if (render_profile::enabled)
+        {
+            ++render_profile::frame.declaration_misses;
+        }
+    }
+    const auto& inputs = declaration->second;
     struct Stream
     {
         const u8* data;
@@ -338,15 +368,40 @@ void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentConte
         stream = {bytes.data(), bytes.size(), binding->second.stride};
     }
     const auto indices = context.memory.resolve(draw.indices, size_t(draw.count) * 2);
+    const bool gpu_vertex = gfx_native_vertex_program_supported(shader->second.program);
+    const auto address_validation = gpu_vertex ? xbox_vertex_address_validation(shader->second.program) : std::vector<XboxVertexAddressValidation>{};
+    if (render_profile::enabled)
+    {
+        if (gpu_vertex)
+        {
+            ++render_profile::frame.gpu_vertex_draws;
+        }
+        else
+        {
+            ++render_profile::frame.cpu_vertex_draws;
+        }
+    }
+    thread_local std::vector<GfxNativeInputs> gpu_inputs;
+    gpu_inputs.clear();
     XboxVertexProgramState program{};
     program.constants = draw.constants;
-    std::unordered_map<u32, GfxNativeVertex> shaded;
+    // Indices are u16. Scratch is bounded and reset per draw; constants and resource bytes
+    // are always reread, so mutation, scene unload and address reuse cannot leave stale vertices.
+    thread_local std::array<i32, 65536> slots;
+    thread_local std::array<u32, 65536> stamps{};
+    thread_local u32 generation = 0;
+    if (++generation == 0)
+    {
+        stamps.fill(0);
+        generation = 1;
+    }
+    thread_local std::vector<GfxNativeVertex> shaded;
+    shaded.clear();
     const auto vertex = [&](u32 index) -> const GfxNativeVertex&
     {
-        const auto found = shaded.find(index);
-        if (found != shaded.end())
+        if (stamps[index] == generation)
         {
-            return found->second;
+            return shaded[size_t(slots[index])];
         }
         program.inputs.fill({0.f, 0.f, 0.f, 1.f});
         for (const auto& input : inputs)
@@ -359,10 +414,32 @@ void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentConte
             }
             program.inputs[input.reg] = fetch(input.type, stream.data + offset);
         }
+        if (gpu_vertex)
+        {
+            validate_xbox_vertex_address(address_validation, program.inputs, draw.constants);
+            stamps[index] = generation;
+            slots[index] = i32(shaded.size());
+            gpu_inputs.push_back(program.inputs);
+            shaded.push_back({});
+            if (render_profile::enabled)
+            {
+                ++render_profile::frame.vertices;
+                render_profile::frame.shader_instructions += shader->second.program[0] >> 16;
+            }
+            return shaded.back();
+        }
         program.outputs.fill({0.f, 0.f, 0.f, 1.f});
         program.outputs[3] = {1.f, 1.f, 1.f, 1.f};
         program.outputs[4] = {0.f, 0.f, 0.f, 0.f};
-        run_xbox_vertex_program(shader->second.program, program);
+        {
+            render_profile::Scope measurement(render_profile::Vertex);
+            run_xbox_vertex_program(shader->second.program, program);
+        }
+        if (render_profile::enabled)
+        {
+            ++render_profile::frame.vertices;
+            render_profile::frame.shader_instructions += shader->second.program[0] >> 16;
+        }
         GfxNativeVertex output{};
         output.position = clip_position(program.outputs[0]);
         for (u32 component = 0; component < 4; ++component)
@@ -374,17 +451,39 @@ void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentConte
         {
             output.uv[stage] = {program.outputs[9 + stage][0], program.outputs[9 + stage][1]};
         }
-        return shaded.emplace(index, output).first->second;
+        stamps[index] = generation;
+        slots[index] = i32(shaded.size());
+        shaded.push_back(output);
+        return shaded.back();
     };
-    std::vector<GfxNativeVertex> vertices;
+    thread_local std::vector<GfxNativeVertex> vertices;
+    thread_local std::vector<u32> retained_indices;
+    vertices.clear();
+    retained_indices.clear();
     for (const u32 position : triangle_order(draw.primitive, draw.count))
     {
         u16 index;
         std::memcpy(&index, indices.data() + position * 2, 2);
-        vertices.push_back(vertex(index));
+        const auto& value = vertex(index);
+        if (render_profile::reference)
+        {
+            vertices.push_back(value);
+        }
+        else
+        {
+            retained_indices.push_back(u32(slots[index]));
+        }
     }
     GfxNativeDraw output;
-    output.vertices = vertices;
+    output.vertices = render_profile::reference ? std::span<const GfxNativeVertex>(vertices) : std::span<const GfxNativeVertex>(shaded);
+    output.indices = retained_indices;
+    if (gpu_vertex)
+    {
+        output.vertices = {};
+        output.program_inputs = gpu_inputs;
+        output.vertex_program = shader->second.program;
+        output.vertex_constants = &draw.constants;
+    }
     for (u32 stage = 0; stage < 4; ++stage)
     {
         if (draw.textures[stage] != nullptr)
@@ -414,13 +513,32 @@ void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentConte
 // and pixel-shader definition as indexed model draws.
 void present_inline(const SceneD3DInlineDraw& inline_draw, const SceneD3DPresentContext& context)
 {
+    if (render_profile::enabled)
+    {
+        ++render_profile::frame.cpu_vertex_draws;
+    }
     const auto& draw = inline_draw.state;
     const auto shader = context.vertex_shaders.find(state(draw.states, SceneD3DDevice::kVertexShader, 0));
     if (shader == context.vertex_shaders.end())
     {
         throw Error("inline draw has no created vertex shader bound");
     }
-    const auto inputs = declared_inputs(shader->second.declaration);
+    // Content key avoids stale declarations when shader handles are replaced or reused.
+    static std::map<std::array<i32, 32>, std::vector<DeclaredInput>> declarations;
+    auto declaration = declarations.find(shader->second.declaration);
+    if (declaration == declarations.end())
+    {
+        if (declarations.size() >= 128)
+        {
+            declarations.clear();
+        }
+        declaration = declarations.emplace(shader->second.declaration, declared_inputs(shader->second.declaration)).first;
+        if (render_profile::enabled)
+        {
+            ++render_profile::frame.declaration_misses;
+        }
+    }
+    const auto& inputs = declaration->second;
     u32 stride = 0;
     for (const auto& input : inputs)
     {
@@ -449,7 +567,15 @@ void present_inline(const SceneD3DInlineDraw& inline_draw, const SceneD3DPresent
         program.outputs.fill({0.f, 0.f, 0.f, 1.f});
         program.outputs[3] = {1.f, 1.f, 1.f, 1.f};
         program.outputs[4] = {0.f, 0.f, 0.f, 0.f};
-        run_xbox_vertex_program(shader->second.program, program);
+        {
+            render_profile::Scope measurement(render_profile::Vertex);
+            run_xbox_vertex_program(shader->second.program, program);
+        }
+        if (render_profile::enabled)
+        {
+            ++render_profile::frame.vertices;
+            render_profile::frame.shader_instructions += shader->second.program[0] >> 16;
+        }
         GfxNativeVertex vertex{};
         vertex.position = clip_position(program.outputs[0]);
         vertex.diffuse = program.outputs[3];
@@ -523,6 +649,32 @@ void present_quad(const SceneD3DQuad& quad, const SceneD3DPresentContext& contex
 
 void present_scene_d3d_commands(std::span<const SceneD3DCommand> commands, const SceneD3DPresentContext& context)
 {
+    if (render_profile::capture_replay)
+    {
+        const std::vector<SceneD3DCommand> retained(commands.begin(), commands.end());
+        const SceneD3DPresentContext owner = context;
+        auto previous = std::move(render_profile::replay);
+        render_profile::replay = [previous = std::move(previous), retained, owner]()
+        {
+            if (previous)
+            {
+                previous();
+            }
+            present_scene_d3d_commands(retained, owner);
+        };
+    }
+    render_profile::Scope measurement(render_profile::Presenter);
+    struct Batch
+    {
+        Batch()
+        {
+            gfx_begin_native_batch();
+        }
+        ~Batch()
+        {
+            gfx_end_native_batch();
+        }
+    } batch;
     for (const auto& command : commands)
     {
         if (const auto* draw = std::get_if<SceneD3DIndexedDraw>(&command))
@@ -539,10 +691,14 @@ void present_scene_d3d_commands(std::span<const SceneD3DCommand> commands, const
         }
         else if (const auto* clear = std::get_if<SceneD3DClear>(&command))
         {
+            gfx_end_native_batch();
             gfx_clear_native(clear->rectangles, clear->flags, clear->color, clear->depth);
+            gfx_begin_native_batch();
         }
         else
         {
+            gfx_end_native_batch();
+            gfx_begin_native_batch();
             const auto& target = std::get<SceneD3DTarget>(command);
             if (target.color != SceneD3DDevice::kBackBuffer)
             {

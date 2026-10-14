@@ -1,4 +1,5 @@
 #include "gbtg/gfx.h"
+#include "../graphics/render_profile.h"
 #include "gbtg/platform.h"
 #include "gbtg/texture.h"
 
@@ -37,7 +38,12 @@ int run_platform(Game& game, const PlatformConfig& cfg)
     gfx_cfg.height = cfg.height;
     gfx_cfg.vsync = cfg.vsync;
     gfx_cfg.visible = !cfg.headless && cfg.screenshot.empty();
+    const auto gfx_start = render_profile::Clock::now();
     const bool gfx_ok = gfx_init(gfx_cfg);
+    if (render_profile::enabled)
+    {
+        std::cout << "profile gfx_init_ms=" << std::chrono::duration<double, std::milli>(render_profile::Clock::now() - gfx_start).count() << "\n";
+    }
 #if defined(GBTG_DEBUG_UI)
     if (cfg.debug_ui && !debug_ui_menu_open())
     {
@@ -258,6 +264,10 @@ int run_platform(Game& game, const PlatformConfig& cfg)
             }
         }
 #endif
+        if (cfg.headless && render_profile::enabled)
+        {
+            in = {}; // Reproducible neutral host input for automated measurements.
+        }
         const auto now = std::chrono::steady_clock::now();
         float dt = std::chrono::duration<float>(now - last).count();
         last = now;
@@ -265,12 +275,30 @@ int run_platform(Game& game, const PlatformConfig& cfg)
         {
             dt = 1.f / 60.f;
         }
+        const auto frame_start = render_profile::Clock::now();
+        render_profile::count_allocations = render_profile::enabled;
         gfx_begin_frame();
-        game.tick(dt, in);
+        if (cfg.replay_after > 0 && render_profile::number >= static_cast<unsigned long long>(cfg.replay_after))
+        {
+            if (!render_profile::replay)
+            {
+                throw Error("selected replay frame contains no native recorded commands");
+            }
+            render_profile::replay();
+        }
+        else
+        {
+            render_profile::capture_replay = cfg.replay_after > 0 && render_profile::number + 1 == static_cast<unsigned long long>(cfg.replay_after);
+            render_profile::Scope measurement(render_profile::Tick);
+            game.tick(dt, in);
+            render_profile::capture_replay = false;
+        }
 #if defined(GBTG_DEBUG_UI)
         debug_ui_build(game, dt);
 #endif
         gfx_end_frame();
+        render_profile::count_allocations = false;
+        render_profile::finish(std::chrono::duration<double, std::milli>(render_profile::Clock::now() - frame_start).count());
         if (remaining > 0 && --remaining == 0)
         {
             game.running = false;
@@ -285,8 +313,11 @@ int run_platform(Game& game, const PlatformConfig& cfg)
 
     if (!cfg.screenshot.empty())
     {
+        const auto capture_start = render_profile::Clock::now();
         RgbaImage image;
-        if (gfx_readback(image))
+        const bool captured = gfx_readback(image);
+        const double readback_ms = std::chrono::duration<double, std::milli>(render_profile::Clock::now() - capture_start).count();
+        if (captured)
         {
             int changed = 0;
             for (size_t i = 0; i + 3 < image.bgra.size(); i += 4)
@@ -308,6 +339,10 @@ int run_platform(Game& game, const PlatformConfig& cfg)
         {
             std::cerr << "screenshot failed\n";
         }
+        if (render_profile::enabled)
+        {
+            std::cout << "profile readback_ms=" << readback_ms << " capture_total_ms=" << std::chrono::duration<double, std::milli>(render_profile::Clock::now() - capture_start).count() << "\n";
+        }
     }
 
     std::cout << "frames " << game.frame << " t=" << game.time << "s scene " << game.scene_name;
@@ -326,6 +361,8 @@ int run_platform(Game& game, const PlatformConfig& cfg)
     }
     std::cout << "\n";
 
+    // The Game still owns every captured resource here; release replay commands before unloading it.
+    render_profile::replay = {};
     gfx_shutdown();
 
 #if defined(GBTG_WITH_SDL)

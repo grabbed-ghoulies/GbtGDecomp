@@ -2,6 +2,8 @@
 
 #include "../frontend/dialogue_draw_outer.h"
 #include <map>
+#include <algorithm>
+#include <stdexcept>
 #include <variant>
 #include <vector>
 
@@ -12,13 +14,48 @@ namespace gbtg
 // clear and target change in issue order with the state it was issued under. Inline arrays with a
 // created shader preserve raw vertex words; zero-handle dialogue quads retain their x,y,z,u,v path.
 using SceneD3DConstants = std::array<std::array<float, 4>, 192>; // Hardware numbering: register + 96.
+// Sorted immutable draw-state snapshot: one contiguous allocation instead of a tree
+// allocation per state. The recording device's mutable map remains the authority.
+class SceneD3DStateSnapshot
+{
+public:
+    SceneD3DStateSnapshot() = default;
+    SceneD3DStateSnapshot(const std::map<u32, u32>& states) : values_(states.begin(), states.end())
+    {
+    }
+    auto find(u32 key) const
+    {
+        const auto it = std::lower_bound(values_.begin(), values_.end(), key,
+            [](const auto& value, u32 wanted)
+            {
+                return value.first < wanted;
+            });
+        return it != values_.end() && it->first == key ? it : values_.end();
+    }
+    auto end() const
+    {
+        return values_.end();
+    }
+    u32 at(u32 key) const
+    {
+        const auto it = find(key);
+        if (it == end())
+        {
+            throw std::out_of_range("draw state is absent");
+        }
+        return it->second;
+    }
+private:
+    std::vector<std::pair<u32, u32>> values_;
+};
+
 struct SceneD3DQuad
 {
     std::array<std::array<float, 5>, 4> vertices; // Vertex shader input, before the c0x60 transform.
     std::array<float, 16> transform; // Vertex constants c0x60..c0x63 at the draw.
     std::array<float, 4> color; // Vertex constant c0x64 at the draw.
     const u8* texture; // Stage 0 texture record.
-    std::map<u32, u32> states;
+    SceneD3DStateSnapshot states;
 };
 struct SceneD3DVertexStream
 {
@@ -32,7 +69,7 @@ struct SceneD3DIndexedDraw
     u32 indices;
     SceneD3DConstants constants;
     std::array<const u8*, 4> textures;
-    std::map<u32, u32> states;
+    SceneD3DStateSnapshot states;
     std::map<u32, SceneD3DVertexStream> streams;
     std::array<std::array<float, 4>, 16> pixel_constants;
     u32 pixel_constants_set; // Bit n: SetPixelShaderConstant wrote register n.

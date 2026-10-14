@@ -82,9 +82,16 @@ struct GfxNativeVertex
     std::array<float, 4> specular;
     std::array<std::array<float, 2>, 4> uv;
 };
+using GfxNativeInputs = std::array<std::array<float, 4>, 16>;
+bool gfx_native_vertex_program_supported(std::span<const u32> program);
+void gfx_validate_native_boundary();
 struct GfxNativeDraw
 {
-    std::span<const GfxNativeVertex> vertices; // Triangle list.
+    std::span<const GfxNativeVertex> vertices; // Triangle list, or unique vertices when indices are supplied.
+    std::span<const GfxNativeInputs> program_inputs;
+    std::span<const u32> vertex_program;
+    const std::array<std::array<float, 4>, 192>* vertex_constants = nullptr;
+    std::span<const u32> indices; // Optional triangle-list indices, in original draw order.
     std::array<const RgbaImage*, 4> textures{};
     std::array<u32, 4> address_u{1, 1, 1, 1}; // D3DTADDRESS: 1 wrap, 2 mirror, 3 clamp, 4 border, 5 clamp to edge.
     std::array<u32, 4> address_v{1, 1, 1, 1};
@@ -104,6 +111,8 @@ struct GfxNativeDraw
     std::array<i32, 4> scissor{0, 0, 640, 480}; // Viewport rectangle, back-buffer pixels.
 };
 void gfx_draw_native(const GfxNativeDraw& draw);
+void gfx_begin_native_batch();
+void gfx_end_native_batch();
 // D3DDevice_Clear over the 640x480 back buffer: flags 1 depth, 2 stencil, 0xF0 colour.
 void gfx_clear_native(std::span<const std::array<i32, 4>> rectangles, u32 flags, u32 color, float depth);
 

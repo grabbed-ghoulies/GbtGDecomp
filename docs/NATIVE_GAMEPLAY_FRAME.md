@@ -210,3 +210,50 @@ The fresh 720-frame `cache/player_opening_check.bmp` readback was inspected:
 tutorial text, backdrop, head, corner models and A-button bat are present.
 The redundant 1920x1080 900-frame capture was stopped before completion;
 it is not a successful-run acceptance result.
+
+## Walk-alert, animation events and floor collision checkpoint (2026-10-14)
+
+Measured with a temporary live call of `update_scene_actors` (removed; the hold
+in `scene_tick_pause_counter` remains):
+
+- **Type 0x8E (entityStateWalkAlert) is installed.** Lifecycle `0x000A55D0`,
+  `0x000A5650`, `0x000A5950` (`entities/body_state_actions.cpp`); tick
+  `0x000A59C0` with `0x000A5A60`, `0x000A5DC0`, `0x000A5FD0`, `0x000A5C70`,
+  `0x000A5EA0`, `0x00133C90`, `0x00133D50`, `0x000258D0` and message
+  `0x000A5A40` (`entities/body_walk_alert_tick.cpp`). Slots +0x14/+0x18 are the
+  empty `0x001628B0`; +0x1C is `0x0002B620`. The parameters are executable
+  objparams, so the state context resolves their pointers through the XBE
+  image. Message 0x53 (`0x00023890`) and orientation `0x00134720` still raise.
+- **Mina start root.** `0x0002D8E0` samples the position-1 root into player
+  +0xF0 (`reference_root`), not +0xB8; `0x00133C90` reads its z at +0x108. The
+  start translation and its regression test were corrected.
+- **Animation events reach the actor.** Scene players now set
+  `ActorAnimationState::message_handler` (`0x0003B3C0`): message 7 travels as
+  native words {7, position, slot, event address, phase}. The event bytes are
+  bound to a scene address for the call. `0x00028FC0` decodes it once for its
+  fade (`0x00019150`) and the base handler (`0x0003EF70`), and body message 7
+  views the same bytes. The player message context now reads actor +0x50 when
+  the message runs.
+- **Floor collision.** The segment walkers pass the caller's two words to actor
+  vtable +0x1C/+0x18 in order. `0x0003DF70` and `0x0003E110` AND the first
+  with actor +0x1F0 (shape mask) and pass the second as the excluded-flag mode.
+  The host had them swapped, so the body floor sweep (`0x00075350`, words 8 and
+  the `0x0001FE00` mask) never matched the hall floor. The imps used to fall
+  until the bounds check killed them (message 0x33 → script filter 0x31). With
+  the order fixed they stay at y = −2.
+- **Player mind slots.** `input_at` (actor +0x960) and `target_position` (mind
+  +0x10 object +0x20) are attached for type-0x34 minds.
+
+With these changes the five imps update for 900 frames without error. The
+first remaining stop is Cooper's player mind request slot `0x0007D360`
+(`RuntimePlayerMindRequestUpdate`). Its control update `0x0007D130` needs
+contexts that are not built for the player yet: action control
+`0x0007D890` (target control `0x0007E4B0` with focus, proposal and feedback;
+target-action bindings), pending attachment, inactivity, navigation avoidance,
+the boost preset `DAT_002FFF24`, camera direction and invert `DAT_005122D8`.
+Build those from `NativePlayerInstance` in `SceneMindMessages`, as the cinema
+request context is built, then lift the hold.
+
+Not yet checked: whether retail camera probes (`0x00026100` words 0xC and the
+camera mask; camera rig words 4 and the camera mask) behave differently now
+that the mask/mode order is corrected; they take the same corrected path.

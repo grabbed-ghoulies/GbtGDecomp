@@ -330,7 +330,7 @@ bool start_mina_player(MinaPlayer& player, std::span<const u8> mina, float posit
     {
         const float saved = player.position;
         player.position = 1.f;
-        sample_playback_root(player, 0.f, 0, player.root, nullptr, false);
+        sample_playback_root(player, 0.f, 0, player.reference_root, nullptr, false); // ESI = player +0xF0.
         player.position = saved;
     }
     return true;

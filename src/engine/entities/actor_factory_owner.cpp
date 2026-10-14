@@ -77,15 +77,19 @@ u32 actor_query(entity_detail::SegmentProbe& probe, Vec3& candidate, Vec3& kept,
         throw Error("unbound actor collision query address");
     }
 }
+// The list walkers (0x00122480 and its siblings) push the caller's two words after the radius in order;
+// 0x0003E110 and 0x0003DF70 AND the first with actor +0x1F0 as the shape mask and pass the second on as the
+// excluded-flag mode.
 i32 actor_segment_query(entity_detail::SegmentProbe& probe, Vec3& candidate, Vec3& kept,
-    u32 radius, i32 mode, u32 mask, u8* record)
+    u32 radius, i32 mask, u32 mode, u8* record)
 {
-    return i32(actor_query(probe, candidate, kept, std::bit_cast<float>(radius), mode, mask, record, 0x3E110));
+    return i32(actor_query(probe, candidate, kept, std::bit_cast<float>(radius), i32(mode), u32(mask), record,
+        0x3E110));
 }
 i32 actor_segment_sweep(entity_detail::SegmentProbe& probe, Vec3& candidate, Vec3& kept,
-    i32 mode, u32 mask, u8* record)
+    i32 mask, u32 mode, u8* record)
 {
-    return i32(actor_query(probe, candidate, kept, 0.f, mode, mask, record, 0x3DF70));
+    return i32(actor_query(probe, candidate, kept, 0.f, i32(mode), u32(mask), record, 0x3DF70));
 }
 i32 actor_segment_point(entity_detail::SegmentProbe& probe, Vec3& candidate, Vec3& kept,
     float radius, u32 mask, u8* record)

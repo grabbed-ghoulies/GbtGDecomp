@@ -35,6 +35,7 @@ public:
     u32 address_of(const void* pointer) const;
     u32 find_address(const void* pointer) const; // 0 when the pointer is not in a scene object.
     std::span<u8> resolve_address(u32 address, size_t size) const;
+    std::span<u8> resolve_tail(u32 address) const; // From the address to the end of its instance.
     size_t address_count() const;
     void load_markers(const char* scene_record);
     std::span<const u8> markers() const;

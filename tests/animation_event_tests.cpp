@@ -194,7 +194,8 @@ int main()
         start_mina_player(live, mina, 0.25f, 0.4f, 1, 0);
         require(live.pose != nullptr && live.position == 0.25f && live.speed == 2.5f,
                 "borrowed player initialization differs");
-        require(live.root.translation.x == 3.f && live.cached_root.translation.x == 0.f,
+        // 0x0002D8E0 samples the cycle root at position 1 into player +0xF0 (LEA ESI,[EBP + 0xF0]).
+        require(live.reference_root.translation.x == 3.f && live.cached_root.translation.x == 0.f,
                 "initial root sampling differs");
         live.blend_duration = 0.2f;
         tick_mina_player(live, 0.1f, false);

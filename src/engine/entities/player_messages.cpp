@@ -1,6 +1,7 @@
 #include "player_messages.h"
 #include "actor_transform.h"
 #include "actor_live_attachments.h"
+#include <bit>
 #include <cstring>
 
 namespace gbtg
@@ -392,10 +393,19 @@ void activate_runtime_player(RuntimePlayerActivation& context)
 void handle_runtime_player_message(void* message, RuntimePlayerMessageContext& context)
 {
     auto& self = context.self;
-    switch (*static_cast<const u32*>(message))
+    // Message 7 arrives as the 0x0003B3C0 words (+4 position, +8 slot, +0xC event, +0x10 phase); the host
+    // handlers read the decoded form.
+    const auto* words = static_cast<const u32*>(message);
+    ActorAnimationMessage animation{};
+    if (words[0] == 7)
+    {
+        animation = ActorAnimationMessage{7, std::bit_cast<float>(words[1]), words[2],
+            words[3] == 0 ? std::span<const u8>{} : context.event_at(words[3]), i32(words[4])};
+    }
+    switch (words[0])
     {
     case 7:
-        fade_runtime_player_animation_slot(context.animation, *static_cast<const ActorAnimationMessage*>(message));
+        fade_runtime_player_animation_slot(context.animation, animation);
         break;
     case 0xE:
         relay_runtime_player_contact(*static_cast<const RuntimePlayerContactMessage*>(message), self.address);
@@ -445,6 +455,11 @@ void handle_runtime_player_message(void* message, RuntimePlayerMessageContext& c
     default:
         handle_runtime_player_pause_message(self.bytes, *static_cast<const u32*>(message), context.pause);
         break;
+    }
+    if (words[0] == 7)
+    {
+        dispatch_base_actor_message(&animation, context.base);
+        return;
     }
     dispatch_base_actor_message(message, context.base);
 }

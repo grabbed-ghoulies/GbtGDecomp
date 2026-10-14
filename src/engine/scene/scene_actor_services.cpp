@@ -1092,6 +1092,17 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             [](std::span<const u32>)
             {
                 unbound("body message slot (vtable +0xC)");
+            },
+            player->body_selection,
+            [this](u32 address, size_t size) -> std::span<const u8>
+            {
+                // State parameters are executable objparams (cloned by 0x00107720); their pointers are XBE
+                // addresses. Size 0 asks for a NUL-terminated string.
+                if (size == 0)
+                {
+                    return {reinterpret_cast<const u8*>(image.string(address)), 1};
+                }
+                return image.memory(address, size);
             }};
     });
     scene.install_base_class();
@@ -1856,7 +1867,11 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             return door_pool == nullptr ? std::span<const u8>()
                 : std::span<const u8>(door_pool->begin, size_t(door_pool->end - door_pool->begin));
-        }, body_slide_contacts});
+        }, body_slide_contacts, {reinterpret_cast<const float*>(data(0x00217EC0, 0x20).data()), 8},
+        [this](u32 address) -> std::span<const u8>
+        {
+            return scene.resolve_tail(address);
+        }});
     state_action_names = strings(0x003390E4, 0x174);
     goal_flag_names = strings(0x003397AC, 3);
     mind_services = std::make_unique<SceneMindServices>(SceneMindServices{game, resources.registry, resources.error,
@@ -2368,8 +2383,47 @@ void SceneActorServices::State::attach_player_messages(FactoryObject& object, Na
                 }
             }});
     auto* messages = slot.get();
-    player.actor_message = [this, messages](std::span<const u32> words)
+    messages->context.event_at = [this](u32 address) -> std::span<const u8>
     {
+        return scene.resolve_tail(address);
+    };
+    // 0x0003B3C0: an animation event becomes message {7, position, slot, event, phase} to actor vtable +0xC.
+    instance.animation.message_handler = [this, &player](const ActorAnimationMessage& message)
+    {
+        auto* event = const_cast<u8*>(message.event.data());
+        u32 address = scene.find_address(event);
+        const bool bound = address == 0;
+        if (bound)
+        {
+            address = scene.bind_address({event, message.event.size()});
+        }
+        std::array<u32, 0x42> words{};
+        words[0] = 7;
+        words[1] = std::bit_cast<u32>(message.position);
+        words[2] = message.slot;
+        words[3] = address;
+        words[4] = u32(message.phase);
+        try
+        {
+            player.actor_message(words);
+        }
+        catch (...)
+        {
+            if (bound)
+            {
+                scene.unbind_address(event);
+            }
+            throw;
+        }
+        if (bound)
+        {
+            scene.unbind_address(event);
+        }
+    };
+    player.actor_message = [this, messages, &player](std::span<const u32> words)
+    {
+        // Actor +0x50 is read when the message runs; the controller can be created after attachment.
+        messages->context.animation = player.actor_instance.animation.controller.get();
         dispatch_runtime_player_message(const_cast<u32*>(words.data()), messages->context, messages->children);
         input_state.devices = input_activation.entries;
         input_state.selected = input_selected;
@@ -2719,6 +2773,7 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
             switch (action.type)
             {
             case 0x87:
+            case 0x8E:
                 return runtime_body_action_next_key(action);
             case 0x5C:
                 // The 0x5C class vtable (0x00505500) has six slots; +0x1C reads the next table's +4, 0x000CFFD0.
@@ -3125,8 +3180,9 @@ void SceneActorServices::State::draw_player(FactoryObject& object, NativePlayerI
         player.second_action.bytes.get(),
         [&player](void*, i32)
         {
-            // State 0x87 (entityStateStandAlert, getter 0x000A2530) has the empty slot 0x001628B0 at +0x18.
-            if (player.second_action.type != 0x87)
+            // States 0x87 (entityStateStandAlert, getter 0x000A2530) and 0x8E (entityStateWalkAlert, getter
+            // 0x000A55F0) have the empty slot 0x001628B0 at +0x18.
+            if (player.second_action.type != 0x87 && player.second_action.type != 0x8E)
             {
                 unbound("body +0x744 object vtable +0x18 draw for factory type "
                     + std::to_string(player.second_action.type));

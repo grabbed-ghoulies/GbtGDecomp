@@ -71,6 +71,8 @@ struct SceneBodyServices
     RuntimeBodyShapePush& shape_push;
     std::function<std::span<const u8>()> door_rows;
     std::span<entity_detail::SlideRecord, 5> collision_contacts;
+    std::span<const float> mode_scales; // DAT_00217EC0.
+    std::function<std::span<const u8>(u32)> event_at; // Message 7 +0xC: the animation event's bytes.
 };
 
 // One body's message graph: the parent body handler 0x000253B0 and the derived slots of types 0x27
@@ -96,6 +98,7 @@ private:
     const u8* event_record_ = nullptr; // Actor +0x8C.
     std::unordered_map<const u8*, RuntimeBodyMessageChild*> children_;
     RuntimeBodyMessageChild empty_child_;
+    RuntimeBodyMessageChild walk_alert_child_; // 0x8E vtable +0xC, 0x000A5A40.
     std::array<u8, 0x20> shape_scratch_{};
     RuntimeBodyTimerRecipient* first_timer_ = nullptr; // Body +0x760.
     RuntimeBodyTimerRecipient* second_timer_ = nullptr; // Body +0x7F0.

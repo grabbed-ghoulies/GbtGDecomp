@@ -7392,3 +7392,14 @@ Release opening checks also pass bat animation, fresh A input and the next
 script gate. Scene startup/teardown checks pass in both builds. The final
 720-frame `cache/player_opening_check.bmp` readback was inspected and retains
 the tutorial text, backdrop, head, corner models and A-button bat.
+
+## Walk-alert actions and floor collision (2026-10-14)
+
+Type 0x8E (entityStateWalkAlert) is translated and installed. Animation
+events now reach scene players as native message 7. The actor collision slots
+take the caller's shape mask and excluded-flag mode in retail order, so bodies
+stand on the hall floor. Mina start samples its cycle root into player +0xF0.
+The imps' live update is clean. Cooper stops at player mind request slot
+`0x0007D360`, so the actor-update hold stays. Details and the next step are in
+`docs/NATIVE_GAMEPLAY_FRAME.md` ("Walk-alert, animation events and floor
+collision checkpoint").

@@ -178,6 +178,25 @@ SceneMindMessages::SceneMindMessages(SceneMindServices& services, NativePlayerIn
     {
         return services_.bytes_at(address);
     };
+    // Mind +0x10 object +0x20, or null.
+    slots.target_position = [this]() -> const Vec3*
+    {
+        const u32 target = read_u32(player_.mind, 0x10);
+        if (target == 0)
+        {
+            return nullptr;
+        }
+        return reinterpret_cast<const Vec3*>(services_.bytes_at(target).subspan(0x20, sizeof(Vec3)).data());
+    };
+    // The tick's input word is actor +0x960, this player's input record.
+    slots.input_at = [this](u32 address) -> std::span<u8>
+    {
+        if (player_.input.empty() || address != services_.address_of(player_.input.data()))
+        {
+            unbound("mind tick input word that is not this player's input record");
+        }
+        return player_.input;
+    };
     cinema_mind_ = slots.cinema != nullptr;
     if (slots.cinema != nullptr)
     {

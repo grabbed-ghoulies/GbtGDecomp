@@ -206,6 +206,22 @@ std::span<u8> SceneFactoryRuntime::resolve_address(u32 address, size_t size) con
     return row->second.subspan(offset, size);
 }
 
+std::span<u8> SceneFactoryRuntime::resolve_tail(u32 address) const
+{
+    auto row = addresses_.upper_bound(address);
+    if (row == addresses_.begin())
+    {
+        throw Error("scene address is not registered");
+    }
+    --row;
+    const size_t offset = address - row->first;
+    if (offset > row->second.size())
+    {
+        throw Error("scene address range exceeds its native instance");
+    }
+    return row->second.subspan(offset);
+}
+
 size_t SceneFactoryRuntime::address_count() const
 {
     return addresses_.size();

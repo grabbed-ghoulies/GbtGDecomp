@@ -107,6 +107,7 @@ struct RuntimePlayerMessageContext
     RuntimePlayerActivation& activation;
     RuntimePlayerPause& pause;
     RuntimePlayerNavigationRegistration& navigation;
+    std::function<std::span<const u8>(u32)> event_at; // Message 7 +0xC: the animation event's bytes.
 };
 void handle_runtime_player_message(void* message, RuntimePlayerMessageContext& context); // Xbox 0x00028FC0
 struct RuntimePlayerChildMessages

@@ -73,6 +73,7 @@ add_library(gbtg_lib STATIC
     src/engine/graphics/xg_shader_assembly.cpp
     src/engine/graphics/xg_pixel_shader.cpp
     src/engine/entities/body_stand_alert_tick.cpp
+    src/engine/entities/body_walk_alert_tick.cpp
     src/engine/scene/scene_control_update.cpp
     src/engine/scene/scene_gameplay_time.cpp
     src/engine/scene/scene_body_messages.cpp

@@ -2,6 +2,7 @@
 #include "../entities/body_move_action_slots.h"
 #include "../entities/body_gravity_motion.h"
 #include "../entities/body_stand_alert_tick.h"
+#include "../entities/body_walk_alert_tick.h"
 #include "../entities/body_action_ids.h"
 #include <cstring>
 #include <optional>
@@ -83,6 +84,13 @@ SceneBodyMessages::SceneBodyMessages(SceneBodyServices& services, NativePlayerIn
     empty_child_.message = [](std::span<u8>)
     {
     };
+    walk_alert_child_.message = [](std::span<u8> message)
+    {
+        message_runtime_walk_alert(message, []()
+        {
+            unbound("walk-alert stop 0x00023890 (message 0x53)");
+        });
+    };
 }
 
 void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
@@ -92,6 +100,11 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
     {
         if (child->bytes == nullptr)
         {
+            continue;
+        }
+        if (child->type == 0x8E)
+        {
+            children_[child->bytes.get()] = &walk_alert_child_;
             continue;
         }
         if (child->type != 0x5B && child->type != 0x5C && child->type != 0x87)
@@ -106,7 +119,6 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
     // Ids whose handlers read the animation, source or contact views built from message pointers.
     switch (id)
     {
-    case 7:
     case 0x15:
     case 0x16:
     case 0x17:
@@ -126,6 +138,10 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
     RuntimePlayerBodyMessageViews views{{{}, nullptr, nullptr, nullptr}, nullptr, nullptr, {}, {}};
     std::optional<RuntimeSegmentContactActor> contact;
     std::array<u8, 0x2C> bound;
+    if (id == 7)
+    {
+        views.parent.animation_command = services_.event_at(message[3]);
+    }
     if (id == 0xF)
     {
         views.source = &services_.source_at(message[1]);
@@ -170,9 +186,9 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
     }
 }
 
-// Body action children of the classes installed so far: 0x5C (vtable 0x00505500), 0x5B (0x00505518) and
-// 0x87 (0x00505BC0).
-void SceneBodyMessages::action_tick(FactoryObject& action, u32)
+// Body action children of the classes installed so far: 0x5C (vtable 0x00505500), 0x5B (0x00505518),
+// 0x87 (0x00505BC0) and 0x8E (0x00505CA0).
+void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
 {
     switch (action.type)
     {
@@ -204,6 +220,28 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32)
         tick_runtime_stand_alert({action.bytes.get(), action.size}, tick);
         return;
     }
+    case 0x8E:
+    {
+        // ECX of 0x000A5A60 is the tick's input word: the player's input record (actor +0x960) or zero.
+        const RuntimeDialogueInputDevice* device = nullptr;
+        if (input != 0)
+        {
+            if (player_.input.empty() || input != services_.address_of(player_.input.data()))
+            {
+                unbound("walk-alert input word that is not this player's input record");
+            }
+            device = &player_.input_device;
+        }
+        RuntimeWalkAlertTick tick{player_.body, player_.actor, *player_.body_bits, player_.body_selection,
+            services_.clock, device, player_.scene.input_state, services_.damage_tables, services_.mode_scales,
+            !player_.mind.empty(), player_.mind.empty() ? u8(0) : player_.mind[0x20],
+            []()
+            {
+                unbound("walk-alert orientation 0x00134720");
+            }};
+        tick_runtime_walk_alert({action.bytes.get(), action.size}, tick);
+        return;
+    }
     default:
         unbound("body action vtable +0x10 of factory type " + std::to_string(action.type));
     }
@@ -225,6 +263,7 @@ void SceneBodyMessages::action_step(FactoryObject& action)
             services_.reverse_turn_threshold, 1, 0);
         return;
     case 0x87:
+    case 0x8E:
         // 0x001628B0 returns at once.
         return;
     default:
@@ -387,9 +426,17 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
         }
         const EntityMaskHost mask{player_.actor.mask_flag, player_.actor.mask_span, player_.actor.mask_mode};
         const i32 floor = i32(read_u32(player_.actor_bytes, 0xCEC));
-        RuntimePlayerCollisionAction action{[this](RuntimePlayerCollisionReply&)
+        RuntimePlayerCollisionAction action{[this](RuntimePlayerCollisionReply& reply)
         {
             const u32 type = player_.body_selection.second.type;
+            if (type == 0x8E)
+            {
+                message_runtime_walk_alert({reinterpret_cast<const u8*>(&reply.id), 4}, []()
+                {
+                    unbound("walk-alert stop 0x00023890 (message 0x53)");
+                });
+                return;
+            }
             if (type != 0x87 && type != 0x5B && type != 0x5C)
             {
                 unbound("collision reply action vtable +0xC of factory type " + std::to_string(type));

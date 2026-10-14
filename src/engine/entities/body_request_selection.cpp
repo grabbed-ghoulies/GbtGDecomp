@@ -78,7 +78,7 @@ void update_runtime_player_mind_action_control(RuntimePlayerMindActionControl& c
             }
             attached = context.body.actions.attached;
             const i32 mode = attached == nullptr ? 0 : attached->bytes[0x93D];
-            const auto& binding = context.bindings.at(target);
+            auto& binding = context.binding(target);
             update_runtime_player_target_action(binding.requests, mode, focus,
                 binding.target_body, context.attachment_notice);
         }

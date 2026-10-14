@@ -7746,7 +7746,9 @@ int main(int argc, char** argv)
     const bool goop_test = argc == 3 && std::string_view(argv[2]) == "--goop";
     const bool ui_test = argc == 3 && std::string_view(argv[2]) == "--ui";
     const bool dialogue_resources_test = argc == 3 && std::string_view(argv[2]) == "--dialogue-resources";
-    const bool player_test = argc == 3 && std::string_view(argv[2]) == "--player-opening";
+    // --player-fight runs the --player-opening flow, then fights the imps until the script passes its imp gate.
+    const bool fight_test = argc == 3 && std::string_view(argv[2]) == "--player-fight";
+    const bool player_test = (argc == 3 && std::string_view(argv[2]) == "--player-opening") || fight_test;
     const bool decoder_test = argc == 3 && std::string_view(argv[2]) == "--ghoulybox-decoder";
     const bool actor_test = argc == 3 && std::string_view(argv[2]) == "--actor-loading";
     const bool model_resources_test = argc == 3 && std::string_view(argv[2]) == "--scene-models";
@@ -7759,7 +7761,7 @@ int main(int argc, char** argv)
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
         && !model_resources_test && !spawn_test)
     {
-        std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --goop | --ui | --player-opening | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start]\n";
+        std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --goop | --ui | --player-opening | --player-fight | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start]\n";
         return 2;
     }
     try
@@ -8007,6 +8009,87 @@ int main(int argc, char** argv)
             if (dx * dx + dz * dz < 1.f)
             {
                 throw gbtg::Error("left stick did not move Cooper after the tutorial");
+            }
+            if (fight_test)
+            {
+                // Cooper walks to the nearest imp (left stick) and holds the right stick toward it. The stick axes
+                // follow the play camera, which looks down -Z: up is -Z and right is +X.
+                const auto imps = [&game]()
+                {
+                    std::vector<gbtg::Vec3> positions;
+                    for (const auto& [address, actor] : game.factory_scene->start_actors(game).actor_addresses())
+                    {
+                        if (actor != nullptr && actor->class_key == 23)
+                        {
+                            positions.push_back(gbtg::actor_world_position(*actor));
+                        }
+                    }
+                    return positions;
+                };
+                const size_t imps_at_start = imps().size();
+                std::string title = game.scene_name;
+                for (int frame = 0; frame < 3600; ++frame)
+                {
+                    const auto cooper = cooper_position();
+                    const auto alive = imps();
+                    if (!cooper || alive.empty())
+                    {
+                        std::cout << "fight frame " << frame << ": " << alive.size() << " imps left\n";
+                        break;
+                    }
+                    const gbtg::Vec3* nearest = &alive.front();
+                    float best = 1e30f;
+                    for (const auto& imp : alive)
+                    {
+                        const float dx = imp.x - cooper->x;
+                        const float dz = imp.z - cooper->z;
+                        if (dx * dx + dz * dz < best)
+                        {
+                            best = dx * dx + dz * dz;
+                            nearest = &imp;
+                        }
+                    }
+                    const float dx = nearest->x - cooper->x;
+                    const float dz = nearest->z - cooper->z;
+                    const float length = std::sqrt(dx * dx + dz * dz);
+                    const float ux = length > 0.f ? dx / length : 0.f;
+                    const float uz = length > 0.f ? dz / length : 0.f;
+                    gbtg::InputState input;
+                    if (length > 20.f)
+                    {
+                        input.pads[0].lx = gbtg::i16(ux * 32767.f);
+                        input.pads[0].ly = gbtg::i16(-uz * 32767.f);
+                    }
+                    input.pads[0].rx = gbtg::i16(ux * 32767.f);
+                    input.pads[0].ry = gbtg::i16(-uz * 32767.f);
+                    gbtg::gfx_begin_frame();
+                    game.tick(1.f / 60.f, input);
+                    if (frame % 600 == 599)
+                    {
+                        gbtg::RgbaImage fight;
+                        if (gbtg::gfx_readback(fight))
+                        {
+                            gbtg::write_bmp("cache/player_fight_" + std::to_string(frame + 1) + ".bmp", fight);
+                        }
+                    }
+                    gbtg::gfx_end_frame();
+                    if (frame % 60 == 0 || game.scene_name != title)
+                    {
+                        std::cout << "fight frame " << frame << ": imps " << alive.size() << " nearest " << length
+                                  << " cooper " << cooper->x << " " << cooper->z << " title " << game.scene_name << "\n";
+                        title = game.scene_name;
+                    }
+                }
+                const size_t imps_at_end = imps().size();
+                std::cout << "fight: imps " << imps_at_start << " -> " << imps_at_end << ", title " << game.scene_name
+                          << "\n";
+                if (imps_at_end >= imps_at_start)
+                {
+                    throw gbtg::Error("no imp was defeated in the fight");
+                }
+                std::cout << "PASS: Cooper fights the opening imps\n";
+                gbtg::gfx_shutdown();
+                return 0;
             }
             // The script's later fight node (type 0x55, objTag_Actor_Imp) switches to the imps' fight music.
             const gbtg::ScriptNode* fight = nullptr;

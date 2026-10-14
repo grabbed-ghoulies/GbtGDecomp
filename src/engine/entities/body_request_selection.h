@@ -124,7 +124,8 @@ struct RuntimePlayerMindActionControl
     const EntityBitBlock& flags;
     const RuntimeDialogueInputDevice& input;
     const RuntimeDialogueInputState& input_state;
-    const std::unordered_map<u32, RuntimePlayerTargetActionBinding>& bindings;
+    // The request contexts of 0x0007DF50 for one target address: this body's selection against that target.
+    std::function<RuntimePlayerTargetActionBinding&(u32)> binding;
     u32& attachment_notice;
 };
 void update_runtime_player_mind_action_control(RuntimePlayerMindActionControl& context); // Xbox 0x0007D890

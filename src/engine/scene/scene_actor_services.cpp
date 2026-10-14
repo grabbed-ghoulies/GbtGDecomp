@@ -2055,7 +2055,39 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             return next == nullptr ? 0 : address_of(next);
         },
         targets, target_views, target_eligibility, target_addresses, target_queries, query, view_invert,
-        data(0x002FFF24, 0x10), read_f32(data(0x004275B8, 4), 0), attachment_notice});
+        data(0x002FFF24, 0x10), read_f32(data(0x004275B8, 4), 0), attachment_notice,
+        statsheet, data(0x00433D5C, 0xC), powerup_rows[11].active, player_damage,
+        [this](u32 address) -> const u8*
+        {
+            // The native address arenas: resources from 0x40000000, host heap blocks from 0x30000000, scene
+            // objects from 0x10000000, and the XBE image below.
+            if (address >= 0x40000000)
+            {
+                return resources.memory.tail(address).data();
+            }
+            if (address >= 0x30000000)
+            {
+                unbound("retail data address in the host heap arena");
+            }
+            if (address >= 0x10000000)
+            {
+                return scene.resolve_tail(address).data();
+            }
+            return image.memory(address, 4).data();
+        },
+        [this](u32 address) -> std::span<const u8>
+        {
+            auto* object = object_of(scene.resolve_address(address, 0).data());
+            if (object == nullptr || object->type != 5)
+            {
+                unbound("target body of an actor without a player body");
+            }
+            return players->player(*object).body;
+        },
+        [this](const void* pointer, size_t size)
+        {
+            return heap_address(pointer, size);
+        }});
     active_services = this;
 }
 

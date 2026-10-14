@@ -74,6 +74,14 @@ struct SceneMindServices
     std::span<const u8> boost_preset; // DAT_002FFF24.
     float angular_limit; // DAT_004275B8.
     u32& attachment_notice; // DAT_00433BD0.
+    // 0x0007DF50's request selection (0x0001CDA0, 0x000243C0, 0x0001D130).
+    std::span<const u8> class_table; // DAT_00545AC4.
+    std::span<const u8> chain_limits; // DAT_00433D5C (minimum, maximum bytes), DAT_00433D60, DAT_00433D64.
+    const u32& special_first; // DAT_00512248, the active word of powerup row 11.
+    const u32& special_second; // DAT_00512200.
+    std::function<const u8*(u32)> resolve; // A retail data address's bytes.
+    std::function<std::span<const u8>(u32)> target_body; // An actor address's +0x95C body bytes.
+    std::function<u32(const void*, size_t)> heap_address; // A host heap block's stable retail-style address.
 };
 
 // One mind's message graph: cinema minds (type 0x35, 0x0007C8B0) and player minds (type 0x34, 0x0007F1E0)
@@ -137,7 +145,28 @@ private:
     float retained_direction_ = 0.f; // 0x00105F90 output word.
     RuntimeBodyAttachedActor* pending_attachment_ = nullptr; // Mind +0x134.
     RuntimePlayerTargetView embedded_target_{}; // Mind +0xB8.
-    std::unordered_map<u32, RuntimePlayerTargetActionBinding> target_bindings_;
+    // 0x0007DF50 against one target: this body's attachment requests, chains and chain length against it.
+    struct TargetAction
+    {
+        TargetAction(SceneMindMessages& owner, RuntimeMindTarget& target);
+        RuntimeRequestBits bits; // Body +0x60.
+        RuntimeAttachmentTargetSelection selection;
+        RuntimeMindTargetRequestSelection mind;
+        RuntimeAttachmentChainSelection chains;
+        RuntimeBodyChainLength length;
+        RuntimeMindChainRequestSelection requests;
+        RuntimePlayerTargetActionBinding binding;
+    };
+    std::unordered_map<u32, std::unique_ptr<TargetAction>> target_actions_;
+    // Body +0x64 / +0x68 in retail layout (8-byte rows: length, count, values address; then the value words),
+    // built from the native groups and kept while they last, so chain addresses held in body +0x88 stay valid.
+    RuntimeAttachmentChainRows chain_rows_{};
+    std::vector<u8> chain_image_;
+    u32 chain_image_base_ = 0;
+    const RuntimeBodyAnimationGroup* chain_image_source_ = nullptr;
+    void refresh_chain_image();
+    const u8* resolve_chain_address(u32 address) const;
+    RuntimePlayerTargetActionBinding& target_action(u32 target);
     std::unordered_map<RuntimeBodyAttachedActor*, std::span<const u8>> attachment_links_;
     RuntimePlayerMindFocus focus_;
     RuntimePlayerTargetSearch search_;

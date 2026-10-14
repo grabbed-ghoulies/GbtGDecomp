@@ -337,3 +337,58 @@ Cooper now walks under the left stick. There were two causes:
 "(next bit)" gate and requires Cooper to move. He moves about 164 units, up the
 stairs; the frame is saved to `cache/player_walk_check.bmp`. The SDL build's
 input path has no stick mapping yet.
+
+## Combat frontier (2026-10-15)
+
+After "(next bit)" the opening waits on a `scriptConditionId_NumberGhouliesAlive`
+condition (the 0x3E record that links to +0x440). Cooper has to defeat the
+imps. `gbtg-transition-tests OriginalFiles --player-fight` runs the opening,
+then walks Cooper to the nearest imp with the right stick held toward it,
+logging imps alive, distance and script title.
+
+Done:
+
+- **Target binding.** `0x0007D890` hands each target to `0x0007DF50` through
+  `RuntimePlayerMindActionControl::binding`.
+  `SceneMindMessages::target_action` builds the request contexts against that
+  target from the attacking body:
+  - bits +0x60;
+  - tables +0x5C (`tables_address`);
+  - chain rows +0x64 / +0x68;
+  - attributes +0x268 as `model_state`;
+  - the chain-length bounds DAT_00433D5C..64 and the statsheet;
+  - the modes DAT_00512248 (powerup row 11 active) and DAT_00512200.
+- **Chain rows.** The native `RuntimeBodyAnimationGroup` rows are mirrored into
+  a retail-layout image (8-byte rows and 32-bit value words) with a stable
+  host-heap address, so chain addresses stored in body +0x88 stay valid.
+- **Address resolver.** The mind services' `resolve` maps addresses by arena:
+  resources from 0x40000000, the host heap from 0x30000000, scene objects from
+  0x10000000, and the XBE below.
+- **Mind targets.** `refresh_mind_targets` keeps each live record's target
+  object (it used to free targets that strategies still held).
+
+Next. Cooper's attack request now creates factory type 0x73
+`entityStateHit` (parent 9, vtable 0x00505940), which is not installed. It
+needs:
+
+- sizes `0x00095720`, constructor `0x000957A0`, destructor `0x000958A0`;
+- message `0x00095C90` (with `0x000961C0` and `0x00028C80`);
+- tick `0x00095940`, with `0x00095F30` / `0x00096260`, `0x00095EA0` /
+  `0x0001D5B0`, `0x00096060`, `0x00096390`, `0x00134180` / `0x001346B0`,
+  `0x0003CCB0` and `0x0003B260`;
+- the body's next-action picks (vtable +0x20 / +0x2C) and the actor message
+  0x29.
+
+The tick takes the body's input record as its second argument (it reads the
+stick through `0x001085F0`). Animation slot 0's player fields:
+
+| Offset | Field |
+|---|---|
+| +0x14 | position |
+| +0x1C | speed |
+| +0x20 | duration |
+| +0x2A | mode |
+| +0x10C | previous position |
+
+After that comes the imps' side: damage, death and removal through
+`0x001232D0`.

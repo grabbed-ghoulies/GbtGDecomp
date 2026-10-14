@@ -185,7 +185,11 @@ SceneMindMessages::SceneMindMessages(SceneMindServices& services, NativePlayerIn
       proposal_{search_, shape_target_, player.mind_events, services.target_views, embedded_target_},
       target_control_{focus_, proposal_, feedback_, services.clock, services.address_zero},
       action_control_{target_control_, attachment_, body_bits(player), player.input_device, services.input_state,
-          target_bindings_, services.attachment_notice},
+          [this](u32 target) -> RuntimePlayerTargetActionBinding&
+          {
+              return target_action(target);
+          },
+          services.attachment_notice},
       pending_{player.mind, pending_attachment_, player.mind_action, eligibility_, player.body,
           player.body_selection, player.input_device, services.input_state, attachment_links_,
           [](RuntimeBodyAttachedActor&) -> u32
@@ -261,6 +265,85 @@ SceneMindMessages::SceneMindMessages(SceneMindServices& services, NativePlayerIn
         slots.tick = &player_tick_;
         slots.request_update = &player_request_;
     }
+}
+
+void SceneMindMessages::refresh_chain_image()
+{
+    const auto* groups = player_.animation_groups;
+    const u32 count = player_.animation_group_count;
+    if (groups == chain_image_source_ && chain_rows_.count == count)
+    {
+        return;
+    }
+    chain_image_source_ = groups;
+    size_t words = 0;
+    for (u32 index = 0; index < count; ++index)
+    {
+        words += size_t(groups[index].length) * groups[index].count;
+    }
+    chain_image_.assign(size_t(count) * 8 + words * 4, 0);
+    chain_image_base_ = chain_image_.empty() ? 0 : services_.heap_address(chain_image_.data(), chain_image_.size());
+    u32 value_offset = count * 8;
+    for (u32 index = 0; index < count; ++index)
+    {
+        const auto& group = groups[index];
+        u8* row = chain_image_.data() + index * 8;
+        std::memcpy(row, &group.length, 2);
+        std::memcpy(row + 2, &group.count, 2);
+        const u32 values = chain_image_base_ + value_offset;
+        std::memcpy(row + 4, &values, 4);
+        for (u32 value = 0; value < u32(group.length) * group.count; ++value)
+        {
+            const u32 address = services_.address_of(group.values[value]);
+            std::memcpy(chain_image_.data() + value_offset, &address, 4);
+            value_offset += 4;
+        }
+    }
+    chain_rows_ = RuntimeAttachmentChainRows{chain_image_.empty() ? nullptr : chain_image_.data(), u8(count)};
+}
+
+const u8* SceneMindMessages::resolve_chain_address(u32 address) const
+{
+    if (chain_image_base_ != 0 && address >= chain_image_base_ && address - chain_image_base_ < chain_image_.size())
+    {
+        return chain_image_.data() + (address - chain_image_base_);
+    }
+    return services_.resolve(address);
+}
+
+SceneMindMessages::TargetAction::TargetAction(SceneMindMessages& owner, RuntimeMindTarget& target)
+    : bits{owner.player_.animation_bits == nullptr ? 0u : owner.player_.animation_bits->bit_count,
+          owner.player_.animation_bits == nullptr ? std::span<u8>()
+              : std::span<u8>(owner.player_.animation_bits->bytes, owner.player_.animation_bits->byte_count)},
+      selection{owner.attachment_, owner.eligibility_, owner.player_.actor, target, owner.player_.body_attributes.data(),
+          bits, owner.services_.random,
+          owner.player_.animation_resource.empty() ? 0u : owner.services_.address_of(owner.player_.animation_resource.data())},
+      mind{selection, owner.player_.mind_events, body_bits(owner.player_), owner.player_.actor_bytes},
+      chains{selection, owner.chain_rows_,
+          [&owner](u32 address)
+          {
+              return owner.resolve_chain_address(address);
+          }},
+      length{owner.player_.body, owner.player_.actor_bytes, owner.player_.body_attributes.data(),
+          body_bits(owner.player_), owner.services_.chain_limits[0], owner.services_.chain_limits[1],
+          read_f32(owner.services_.chain_limits, 4), read_f32(owner.services_.chain_limits, 8),
+          owner.services_.class_table},
+      requests{mind, chains, length, owner.services_.special_first, owner.services_.special_second},
+      binding{requests, owner.services_.target_body(owner.services_.address_of(&target.actor))} // Record +0x10 actor's body.
+{
+}
+
+// The request contexts of 0x0007DF50 against `target`, rebuilt from the current body state on each use.
+RuntimePlayerTargetActionBinding& SceneMindMessages::target_action(u32 target)
+{
+    if (player_.animation_bits == nullptr)
+    {
+        unbound("target action without the body +0x60 request bits");
+    }
+    refresh_chain_image();
+    auto& action = target_actions_[target];
+    action = std::make_unique<TargetAction>(*this, services_.target_at(target));
+    return action->binding;
 }
 
 SceneMindMessages::~SceneMindMessages()

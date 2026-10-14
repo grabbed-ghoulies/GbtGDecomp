@@ -67,6 +67,8 @@ void draw_scene_dialogue(Game& game)
         render_runtime_dialogue(draw);
         // 0x0011C240 draws the dialogue (0x00058150) and then flushes the sprites it queued (0x00122230).
         draw_queued_runtime_dialogue_sprites(draw.sprites, draw.draw);
+        draw_runtime_dialogue_text_pools(*draw.draw.dialogue.allocation.pools,
+            game.script_dialogue->scene_flags, draw.draw);
     }
 }
 

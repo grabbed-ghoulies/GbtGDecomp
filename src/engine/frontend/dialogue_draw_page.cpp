@@ -44,7 +44,7 @@ void draw_runtime_dialogue_page(DialoguePageLayout& page, float fade,
     {
         s.line_step = drop * line_scale * c.tab_line_scale;
     }
-    s.space = runtime_text_space_advance(*c.metrics.fonts[1], 0.f, c.metrics.scale_x);
+    s.space = runtime_text_space_advance(*c.metrics.fonts[1], s.scale_x, c.metrics.scale_x);
     s.paragraph_scale = 2.f;
     reset_dialogue_font(1, c);
     set_dialogue_font_scale(s.scale_x, s.scale_y, c);

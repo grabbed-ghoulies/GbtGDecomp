@@ -294,3 +294,263 @@ correct: about 48 px wide, directly above the A icon. Its combiner is
   dialogue prompt headlessly. The quickest host reference was to call
   `DialogueScreen::open/tick/draw(false, true, 1.5f)` temporarily in the
   `present_views` lambda.
+
+## Results (2026-10-14)
+
+The native dialogue drawing and the opening-scene switch-over are complete.
+The ordered `SceneD3DDevice` / `present_scene_d3d_commands` / `gfx_draw_native`
+design is retained. No host dialogue logic or second renderer was introduced.
+There is one qualification to the literal screenshot acceptance wording:
+the normal frame-120 screenshot is covered by the existing slime transition.
+The native prompt is already fully drawn beneath it; the transition was not
+changed to make the screenshot pass.
+
+### Lighting and text
+
+- `SceneAmbientContext::override_count` is now a `const u32&` bound to
+  `State::light_override`, the same DAT_00509B5C storage used by the dialogue
+  context. The existing ambient/environment tests now mutate the referenced
+  local variable and verify both override colours. The four pink dialog bats
+  and the orange button bat are lit in the native screenshots.
+- The shadow already records and presents correctly. A temporary probe at
+  frame 300 counted 95 black shadow quads, with alpha 0.501961 (128/255).
+  `prepare_quad` uploads the colour to c0x64, `decode_push` snapshots it, and
+  `present_quad` copies all four channels to vertex diffuse. The recursive
+  shadow-first glyph draw matches `cache/ghidra_frontier/0005E9F0.txt`.
+  Inspection of the full-resolution screenshots confirms the black offset
+  shadow. No shadow implementation change was needed; the probe was removed.
+
+### Culling and depth evidence
+
+- Exported `cache/ghidra_frontier/00171420.txt` read-only. Retail CullMode
+  disables culling for 0; otherwise it emits NV097_SET_CULL_FACE as
+  `0x404 + (CullMode != D3DRS_FrontFace)`. A paused xemu run of the existing
+  `GbtG_render_oracle.iso` measured D3DRS_FrontFace at 0x00181DB8 as 0x900.
+  NV_PGRAPH_SETUPRASTER at 0xFD401990 was 0x00200000: front-face bit clear,
+  cull selector FRONT. Thus 0x900 selects FRONT, and 0x901 selects BACK.
+  The D3D11 mapping is retained and its comment now records this evidence.
+- [xemu's draw boundary](https://github.com/xemu-project/xemu/blob/master/hw/xbox/nv2a/pgraph/gl/draw.c)
+  reverses GL winding for inverted clip Y. The presenter retains Xbox screen
+  orientation, so D3D11's default clockwise front face is equivalent.
+- A bounded xemu NV2A method trace confirmed depth-test enable, LEQUAL
+  (0x203), depth-mask changes between 0 and 1, clear 0xF3, and cull-face
+  0x404/0x405. This was a rendering-state oracle check, not a pixel comparison
+  of the tutorial: its dialogue-active globals were zero at the paused sample.
+  xemu 0.8.136's QEMU monitor reported `unknown command: 'screendump'`, so
+  `tools/xemu/capture.ps1` could not produce an oracle image in this session.
+- Omitting only the host world draw on frame 300 produced a pixel-identical
+  screenshot: zero changed RGB pixels across 1920x1080. Host-world depth
+  does not interfere with this prompt at that frame. Depth testing and
+  culling remain enabled according to the recorded states. The temporary
+  omission was removed. The button bat's depth/stencil rectangle clear still
+  comes from retail 0x0006D6C0, before its orthographic screen-model draw.
+
+### Switch-over and remaining users
+
+A temporary probe covered all five `DialogueScreen` methods, `parse_cutscene`
+and `sample_cutscene_camera`, checking the live game's
+`factory_scene->actor_start == 1` on every call. The opening-scene 900-frame
+run recorded **zero calls total**; the default attract run recorded seven
+calls, confirming that the probe was active. Both exited 0, with no forbidden
+call. All probe code was removed. No additional caller switch was required:
+the native scene already activates and draws its own dialogue resources.
+
+The remaining host users stay unchanged:
+
+- `frontend_captions.cpp`: `g_dialogue_screen` serves host captions outside
+  this native opening scene. Its replacement here is `dialogue_activation.cpp`
+  (load/tick of the detached `RuntimeCutsceneInstance`), `draw_scene_dialogue`
+  / `draw_runtime_dialogue_outer` (0x58150), translated page/head/text/widget
+  draws, and ordered D3D presentation. Retiring it globally still requires
+  native front-end/caption ownership for attract and menus.
+- `cutscene_runtime.cpp`: host `g.cutscenes` loading, camera sampling and
+  `draw_cutscene_props` still support attract/legacy scenes and camera wobble.
+  The replacement is `load_runtime_cutscene`, `tick_runtime_cutscene`,
+  `draw_runtime_cutscene`, native camera setup/sampling and scene actor
+  services. Attract sequencing and the rest of native world/actor drawing
+  remain prerequisites for removing those host users. The native world's
+  host callback still reaches `draw_cutscene_props`, whose host queue is
+  inactive in the measured opening run.
+- `transition_book.cpp`: book page loading, sampled cameras and page views
+  still use the host parser/sampler and `draw_cutscene_props`. Replacement
+  requires the translated transition owner, native cutscene/page views and
+  render-target presentation. The book/slime transition was left intact.
+
+This inventory is recorded here because the task explicitly requires leaving
+the existing changes to `docs/LEGACY_HOST_CODE.md` alone.
+
+### Captures and acceptance
+
+All captures below are local, ignored `cache/` artifacts. The BMPs were
+converted with PIL, and the PNGs were opened and inspected.
+
+- `cache/native_dialogue_120.bmp` / `.png`: the normal final frame includes
+  the slime transition, which obscures almost all of the prompt.
+- `cache/native_dialogue_underlay_120.bmp` / `.png`: diagnostic capture with
+  only that frame's final transition draw temporarily omitted. It shows the
+  backdrop, four lit dialog bats, head, shadowed text, A icon and lit button
+  bat. This is evidence of the underlying native draw, not a substitute for
+  the normal frame-120 screenshot. The diagnostic code was removed.
+- `cache/native_dialogue_300.bmp` / `.png` and
+  `cache/native_dialogue_600.bmp` / `.png`: normal final frames show all the
+  required elements entirely through native draws.
+- `cache/host_dialogue_reference_300.bmp` / `.png`: temporary
+  `DialogueScreen::open/tick/draw(false, true, 1.5f)` inside `present_views`,
+  replacing the native model commands for that frame while retaining native
+  quads. Host model depth occluded the quads in this diagnostic, so it is a
+  model/backdrop reference only. Backdrop and bat placement agree visually;
+  animation poses differ because the host reference ticks once with total
+  elapsed time. The reference call and command filter were removed.
+- The old vertex-stream ownership test was updated to inspect a recorded
+  indexed draw's stream snapshot. It also rebinds the device afterwards to
+  verify that the recorded draw retains the original bindings. The test
+  target is `EXCLUDE_FROM_ALL`, so it must be built explicitly before running
+  the acceptance suites; an older executable is not acceptance evidence.
+- An extra Debug `--actor-loading` run exposed an undersized factory fixture:
+  it reserved types through 0x15 although `NativeActorFactoryOwner::install`
+  also registers type 0x1A. The fixture now reserves through 0x1A. Debug's
+  checked span no longer asserts, and `--actor-loading` passes. The temporary
+  assertion-report/stack diagnostic was removed; production actor logic was
+  unchanged.
+
+Final validation:
+
+- `cmake --build build --config Release` and the Debug equivalent passed.
+  After removing diagnostics, `gbtg` was rebuilt in both configurations.
+- `gbtg-transition-tests` was explicitly rebuilt in Release and Debug.
+  The freshly rebuilt Release executable passed all six required switches:
+  `--scene-start`, `--scene-spawn`, `--dialogue-resources`, `--actor-loading`,
+  `--ghoulybox-decoder`, and `--scene-models` (exit 0 each).
+  The Debug `--actor-loading` run also passed.
+- `ctest --test-dir build -C Release`: all six tests passed.
+- Final Release `gbtg --headless --frames 900 --game-dir OriginalFiles`,
+  with and without `--scene chapter1_scene1_2playcam`: exit 0 each.
+- `git diff --check` passed. Temporary call/shadow probes, the host reference,
+  world-draw omission and transition omission were removed. No temporary
+  instrumentation remains in the source; the large raw xemu trace was deleted.
+- No commit or staging was performed. The task's excluded files, including
+  `docs/LEGACY_HOST_CODE.md` and retail payloads, were left alone.
+
+### Remaining gaps outside this opening dialogue draw
+
+Fog output, projective texture coordinates, non-back-buffer page render
+targets, rectangle colour clears and the omitted XDK pixel-centre bias remain
+as listed in the handoff. Voice-bank name registration is still outside this
+milestone. Exact tutorial pixels against xemu were not captured; the runtime
+oracle established rendering-state semantics instead. Strict final-frame
+visibility at frame 120 remains obscured by the existing transition; frames
+300/600 and the diagnostic frame-120 underlay show the complete native prompt.
+
+## Windowed-launch regression corrected (2026-10-14)
+
+A normal launch of `build/Release/gbtg.exe` showed a black attract scene once
+the native actor factory started. The fast default 900-frame headless check
+had not reached that native start, so it did not exercise the failing path.
+
+The cause was an integration assumption in `SceneActorServices::present_views`:
+`actor_start == 1` means that actors started, not that a native display camera
+exists. The temporary live probe measured all four `g_cam_active` slots as
+null in attract. Retail `present_runtime_display_views` correctly made no
+view callback, but this also skipped the supplied legacy world/front-end draw.
+
+The presentation bridge now tracks whether a native view callback ran. If
+none did, it preserves the existing legacy camera state and world/front-end
+callback. It does not add a camera to the native slots, change the translated
+view loop, parse a new camera, or implement front-end behavior. The native
+opening scene has a registered native camera and continues through its
+translated draw commands; the legacy callback is only used when no native
+view was presented. Retiring the attract owners still requires the native
+cutscene/front-end work listed above.
+
+The actual window was inspected before and after the correction: the black
+attract scene became the rendered room/book shot, and the native opening
+dialogue also rendered correctly in a real window. The initial speculative
+alpha-test shader edit did not fix the problem and was reverted. All camera
+probe code was removed before the final rebuild.
+
+After that rebuild, normal windowed launch was inspected again and showed the
+animated book and Press START banner. Release/Debug `gbtg` builds, all six
+freshly rebuilt Release transition suites, ctest and `git diff --check` passed.
+The final native frame-300 BMP is pixel-identical to the earlier accepted
+native frame-300 capture. No speculative shader change remains.
+
+## Native widget timing and input correction (2026-10-14)
+
+The detached button bat was consuming the actor-frame context's boot-time
+zero delta. Its view adapter now publishes the current dialogue update clock
+to the shared actor clock before calling retail `0x0006D5C0`. The live opening
+test observes the 4.5-second idle period followed by the hop state with an
+advancing animation frame.
+
+The scene input contexts were bound to private zero-filled arrays rather than
+the samples written by `pad_tick`. They now share `runtime_pad_state_views()`.
+The widget callback `0x00058B80` is bound to the existing translated completion
+setter. A fresh A edge reaches that callback and advances the tutorial.
+
+Subsequent pages also needed the retail text-pool presenter `0x0005F330`, called
+after the queued dialogue sprites in `0x0011C240`. Its pool traversal and empty
+record removal are now translated, allowing the icon-only tutorial widget to
+finish its fade and accept the next page. Nonempty pooled glyph animation and
+pooled text drawing remain untranslated and explicitly raise if reached; they
+are not replaced with host text behavior.
+
+The Release `--player-opening` regression now observes the bat hop, verifies
+the tutorial holds without input, and uses fresh A edges to advance both pages
+to the terminal page state. It invokes the existing native dialogue update for
+the final close without advancing unrelated transitions. Continuing the whole
+game beyond that point reaches the existing untranslated chapter-title dialog
+in `transition_book.cpp`; the test no longer expects a host cutscene owner.
+
+Release build, the six required transition suites, ctest (6/6), and both
+900-frame headless runs passed. The native frame-900 capture was converted with
+PIL and inspected: the lit button bat has an animated wing pose. The capture
+also shows an existing text layout overflow at the right edge, which remains
+a visible gap. No input or animation probe is retained.
+
+Debug's full build and ctest (6/6) also passed. The excluded
+`gbtg-transition-tests` target was explicitly rebuilt in Debug, and its fresh
+`--player-opening` run passed the same bat/input regression. Final captures at
+120/300/600 were converted with PIL and inspected again; frame 120 is covered
+by the slime transition. An additional frame-400 capture visibly shows the
+button bat raised during the hop. `git diff --check` passed. No commit or
+staging was performed.
+
+## Text spacing regression and Debug presentation cost (2026-10-14)
+
+The overflow reported above was incorrectly called an existing gap. The saved
+pre-widget-change frame-300 image shows the text fitting correctly. Adding the
+text-pool draw exposed a translation error in `0x00058C30`: the space advance
+used the previous draw's font scale rather than the page's scale. Assembly at
+`0x00058CC4..0x00058D68` leaves the page scale in XMM1 for `0x000607F0`.
+The translation now passes that explicit scale. Release and Debug frame-300
+captures are pixel-identical; their text region is also pixel-identical to the
+pre-change image. The live opening test now checks that drawing reaches the
+last visible word of this tutorial page after repeated widget draws. A trailing
+retail page marker means that requiring the text cursor to reach the final NUL
+would be an incorrect assertion.
+
+At 1920x1080, bounded 600-frame windowed runs measured 6.59 seconds in Release
+with the widget clock/text-pool additions temporarily disabled, and 6.63 seconds
+with them enabled and spacing corrected. Debug measured 27.81 and 28.51 seconds
+respectively. These runs reproduce the Debug/Release speed difference, but do
+not establish a slowdown caused by those widget additions. All diagnostic
+omissions were restored before final validation.
+
+A temporary per-frame timer measured Debug native presentation at approximately
+67 ms, including 44 ms in the CPU vertex-program interpreter. For the MSVC
+Visual Studio build, only `xbox_vertex_program.cpp` and `scene_d3d_present.cpp`
+now compile with optimisation in Debug. Debug symbols and assertions remain;
+MSVC basic runtime checks are disabled for these two files because they are
+incompatible with optimisation, and stepping through them may be less direct.
+Game code keeps its normal Debug build settings. The same probe then measured
+approximately 20 ms for presentation and 9 ms for vertex programs. After probe
+removal, the real Debug window took 15.32 seconds for 600 frames. Debug remains
+slower than Release; this is an improvement, not a claim of 60 fps throughout.
+
+The six required Release transition suites, Release/Debug ctest (6/6 each),
+and freshly rebuilt Release/Debug `--player-opening` checks passed. Both
+900-frame Release headless runs passed. Final Release screenshots at
+120/300/600 and Debug at 300 were converted with PIL and inspected. The frame
+120 slime obstruction and untranslated chapter-title dialog remain separate
+gaps. Temporary timing probes and A/B omissions were removed; no commit or
+staging was performed.

@@ -6,6 +6,7 @@ namespace gbtg
 {
 struct GhoulySpawnPool;
 struct RuntimeTextMetrics;
+struct RuntimeDialogueDrawContext;
 struct RuntimeTextGlyph
 {
     const u8* texture; // font glyph +0, actual relocated texture
@@ -36,6 +37,8 @@ struct RuntimeDialogueTextPool
 };
 void allocate_dialogue_text_pool(RuntimeDialogueTextPool*& output, i32 font,
     u32 variant, u32 flags, GhoulySpawnPool*& registry); // Xbox 0x0005F390
+void draw_runtime_dialogue_text_pools(GhoulySpawnPool& registry, u32 scene_flags,
+    RuntimeDialogueDrawContext& context); // Xbox 0x0005F330
 void release_dialogue_text_pool(RuntimeDialogueTextPool* pool,
     GhoulySpawnPool& registry); // Xbox 0x0005F460
 u32 end_dialogue_text_record(RuntimeDialogueTextPool& pool, u32 id,

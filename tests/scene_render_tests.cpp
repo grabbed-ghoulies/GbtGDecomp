@@ -136,7 +136,8 @@ void check_ambient_sampling()
         "packed color interpolation must use retail invalid truncation");
     std::array<SceneAmbientPoint, 32> points{};
     const u8* grids[]{grid.data(), grid.data()};
-    SceneAmbientContext context{grids, 0, 0, {.1f, .2f, .3f, .4f},
+    u32 override_count = 0;
+    SceneAmbientContext context{grids, 0, override_count, {.1f, .2f, .3f, .4f},
         {2.f, 3.f, 4.f}, 0, points};
     std::array<float, 4> color{};
     sample_runtime_environment_color(center, color.data(), context);
@@ -150,12 +151,12 @@ void check_ambient_sampling()
         && std::fabs(color[1] - 160.f / 255.f) < .00001f
         && std::fabs(color[2] - 120.f / 255.f) < .00001f,
         "environment grids must combine with packed saturation before float conversion");
-    context.override_count = 1;
+    override_count = 1;
     context.points_enabled = 1;
     points[31] = {Vec3{10.f, 0.f, 0.f}, 1};
     sample_runtime_scene_ambient(Vec3{}, color.data(), context);
     require(color == context.override_color, "ambient override bypasses grids, scaling and point contributions");
-    context.override_count = 0;
+    override_count = 0;
     context.grid_count = 0;
     sample_runtime_scene_ambient(Vec3{}, color.data(), context);
     require(color == std::array<float, 4>{52.f, 53.f, 54.f, 51.f},
@@ -234,7 +235,8 @@ void check_environment_matrices()
     fog.start = 10.f;
     fog.end = 110.f;
     std::array<SceneAmbientPoint, 32> points{};
-    SceneAmbientContext ambient{{}, 0, 0, {.7f, .8f, .9f, 1.f}, {.2f, .3f, .4f}, 0, points};
+    u32 override_count = 0;
+    SceneAmbientContext ambient{{}, 0, override_count, {.7f, .8f, .9f, 1.f}, {.2f, .3f, .4f}, 0, points};
     std::array<u32, 20> records{};
     std::unordered_map<const RuntimeRenderLight*, std::array<u32, 4>> spot;
     SceneLightUploadBoundaries boundaries;
@@ -262,7 +264,7 @@ void check_environment_matrices()
         && renderer.state.ambient_color == std::array<float, 4>{.2f, .3f, .4f, 1.f}
         && secondary_output == std::bit_cast<std::array<u32, 16>>(secondary),
         "scene environment joins fog, lights, base, ambient and camera matrices");
-    ambient.override_count = 1;
+    override_count = 1;
     configure_runtime_scene_environment(Vec3{}, 0, context);
     require(renderer.state.base_color == override_base
         && renderer.state.ambient_color == ambient.override_color,
@@ -302,7 +304,7 @@ void check_environment_matrices()
     local_lights[0] = &first;
     local_lights[38] = &second;
     local_lights[39] = &third;
-    ambient.override_count = 0;
+    override_count = 0;
     build_runtime_scene_lights(Vec3{}, construction);
     require(directional.color[0] == .25f && temporary[0].type == 0xE
         && temporary[0].position.x == 1.f && temporary[0].range == 10.f

@@ -1,4 +1,5 @@
 #include "dialogue_text_pool.h"
+#include "dialogue_draw_context.h"
 #include "dialogue_text_metrics.h"
 #include "../entities/ghouly_spawn_record.h"
 #include "../entities/ghouly_box_decoder.h"
@@ -9,6 +10,114 @@
 
 namespace gbtg
 {
+// Xbox 0x0005FC30
+static u32 draw_runtime_dialogue_text_record(RuntimeDialogueTextPool& pool, i32 index,
+    RuntimeDialogueDrawContext& context)
+{
+    auto* allocation = pool.allocation;
+    std::span<u8> record{allocation->begin + index * allocation->stride, allocation->stride};
+    u32 expired = 0;
+    size_t length = 0;
+    constexpr float threshold = std::bit_cast<float>(0x3A83126Fu);
+    const auto& clock = context.dialogue;
+    const float step = clock.freeze <= 0.f ? clock.dt * clock.scene_scale : 0.f;
+    while (read_u16(record, 4 + length * 2) != 0)
+    {
+        const size_t offset = length * 4;
+        float delay = read_f32(record, 0x204 + offset);
+        if (threshold <= float(delay == 0.f))
+        {
+            throw Error("untranslated Xbox 0x00060070: pooled glyph animation");
+        }
+        else if (0.f < delay)
+        {
+            delay -= step;
+            if (delay <= 0.f)
+            {
+                delay = 0.f;
+            }
+            std::memcpy(record.data() + 0x204 + offset, &delay, 4);
+        }
+        const float remaining = read_f32(record, 0x604 + offset);
+        if (remaining < threshold && read_u32(record, 0x121C) == 0)
+        {
+            ++expired;
+            const float zero = 0.f;
+            std::memcpy(record.data() + 0xE04 + offset, &zero, 4);
+        }
+        ++length;
+    }
+    if (expired == length)
+    {
+        u8* destination = record.data();
+        u8* last = allocation->cursor - allocation->stride;
+        if (destination < last)
+        {
+            std::memmove(destination, destination + allocation->stride, size_t(last - destination));
+        }
+        allocation->cursor -= allocation->stride;
+        pool.records = {allocation->begin, size_t(allocation->cursor - allocation->begin)};
+        return 1;
+    }
+    throw Error("untranslated Xbox 0x0005E950: pooled text drawing");
+}
+
+// Xbox 0x0005FB80
+static void draw_runtime_dialogue_text_pool(RuntimeDialogueTextPool& pool,
+    RuntimeDialogueDrawContext& context)
+{
+    reset_dialogue_font(pool.font, context);
+    context.state.wrap = pool.wrap_width;
+    context.state.shadow_x = pool.offsets[0];
+    context.state.shadow_y = pool.offsets[1];
+    auto* allocation = pool.allocation;
+    u8* cursor = allocation->begin;
+    if (pool.variant == 0)
+    {
+        if (cursor < allocation->cursor)
+        {
+            draw_runtime_dialogue_text_record(pool, 0, context);
+        }
+    }
+    else
+    {
+        u8* end = allocation->cursor;
+        i32 index = 0;
+        while (cursor < end)
+        {
+            if (draw_runtime_dialogue_text_record(pool, index, context) != 0)
+            {
+                cursor -= 0x1238;
+                end -= 0x1238;
+                --index;
+            }
+            cursor += 0x1238;
+            ++index;
+        }
+    }
+    --context.override_count;
+    context.state.active = 0;
+    if (context.override_count == 0)
+    {
+        context.fog_disabled = 0;
+    }
+}
+
+// Xbox 0x0005F330
+void draw_runtime_dialogue_text_pools(GhoulySpawnPool& registry, u32 scene_flags,
+    RuntimeDialogueDrawContext& context)
+{
+    const size_t count = size_t(registry.cursor - registry.begin) / registry.stride;
+    for (size_t index = 0; index < count; ++index)
+    {
+        RuntimeDialogueTextPool* pool;
+        std::memcpy(&pool, registry.begin + index * registry.stride, sizeof(pool));
+        if (pool->allocation != nullptr && (pool->flags & scene_flags) == 0)
+        {
+            draw_runtime_dialogue_text_pool(*pool, context);
+        }
+    }
+}
 void engine_copy_bytes(void* destination, const void* source, u32 count); // Xbox 0x000F71F0
 
 // Xbox 0x0005F390

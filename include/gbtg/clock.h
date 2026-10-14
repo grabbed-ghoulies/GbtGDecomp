@@ -58,8 +58,8 @@ void game_init_pump();                                     // 0x00032630
 
 struct RuntimePadStateViews
 {
-    std::span<const u8> controllers; // DAT_005079F8, four stride-0xA8 records.
-    std::span<const u8> merged; // DAT_00507C98, current and previous samples.
+    std::span<u8> controllers; // DAT_005079F8, four stride-0xA8 records.
+    std::span<u8> merged; // DAT_00507C98, current and previous samples.
 };
 // Native byte views of the samples already produced by pad_tick.
 RuntimePadStateViews runtime_pad_state_views();

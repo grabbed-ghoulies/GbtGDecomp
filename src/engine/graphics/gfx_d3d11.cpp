@@ -2488,7 +2488,10 @@ void gfx_draw_native(const GfxNativeDraw& draw)
     {
         D3D11_RASTERIZER_DESC desc{};
         desc.FillMode = D3D11_FILL_SOLID;
-        // The back buffer keeps the Xbox screen orientation, so D3D11's clockwise front face is the Xbox one.
+        // Retail 0x00171420 emits CULL_FACE FRONT when CullMode == FrontFace (0x900).
+        // xemu's SETUPRASTER front-face bit is clear for this game; its GL backend reverses
+        // winding for inverted clip Y. Keeping Xbox screen orientation makes D3D11's
+        // default clockwise front face equivalent, so 0x900 culls FRONT and 0x901 BACK.
         switch (draw.cull)
         {
         case 0:

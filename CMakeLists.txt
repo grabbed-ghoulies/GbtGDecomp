@@ -756,6 +756,19 @@ else()
     target_sources(gbtg PRIVATE src/engine/graphics/debug_ui.cpp)
 endif()
 set_source_files_properties(${GBTG_INACTIVE_BACKEND} PROPERTIES HEADER_FILE_ONLY TRUE)
+
+# The CPU NV2A presentation boundary executes per vertex. Keep game code in
+# Debug, but avoid interpreter and replay overhead dominating each frame.
+if(MSVC AND CMAKE_GENERATOR MATCHES "Visual Studio")
+    set_property(SOURCE
+        src/engine/graphics/xbox_vertex_program.cpp
+        src/engine/graphics/scene_d3d_present.cpp
+        APPEND PROPERTY VS_SETTINGS
+        "$<$<CONFIG:Debug>:Optimization=MaxSpeed>"
+        "$<$<CONFIG:Debug>:InlineFunctionExpansion=AnySuitable>"
+        "$<$<CONFIG:Debug>:BasicRuntimeChecks=Default>"
+    )
+endif()
 target_sources(gbtg PRIVATE ${GBTG_INACTIVE_BACKEND})
 if(TARGET gbtg-transition-tests)
     target_sources(gbtg-transition-tests PRIVATE ${GBTG_ENGINE_PUBLIC_HEADERS} ${GBTG_ENGINE_INCLUDES})

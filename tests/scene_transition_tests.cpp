@@ -994,7 +994,7 @@ void check_spawn_effect_stream()
     {
         {&frame_bat.actor, DialogueWidgetBatView{frame_bat, frame, frame_context}}
     };
-    const std::unordered_map<u32, void (*)()> frame_widget_callbacks;
+    const std::unordered_map<u32, std::function<void()>> frame_widget_callbacks;
     const std::function<DialogueWidgetBatView(Actor*)> frame_bat_views = [&frame_bats](Actor* bat)
     {
         return frame_bats.at(bat);
@@ -2847,7 +2847,7 @@ void check_actor_loading()
         u32 random = 0;
         RuntimeActorStartupContext startup{resources, error, models, tables,
             model_views, deferred, fence, {}, shaders, scratch, free, live, random};
-        std::array<ObjectFactoryType, 0x16> types{};
+        std::array<ObjectFactoryType, 0x1B> types{};
         ObjectFactoryRegistry factory{types};
         RuntimeActorSoundQueues sounds{};
         std::unordered_map<ActorFrameAttachment*, FactoryObject*> frames;
@@ -5825,7 +5825,7 @@ void check_actor_loading()
         const std::unordered_map<Actor*, DialogueWidgetBatView> widget_bats;
         static u32 widget_callback_count;
         widget_callback_count = 0;
-        const std::unordered_map<u32, void (*)()> widget_callbacks{{0x101, []()
+        const std::unordered_map<u32, std::function<void()>> widget_callbacks{{0x101, []()
         {
             ++widget_callback_count;
         }}};
@@ -6676,10 +6676,12 @@ void check_scene_vertex_shader_ownership()
     device.set_vertex_stream(0, 0x10000404, 0x20);
     device.set_vertex_stream(1, 0x10000804, 0x10);
     device.set_vertex_stream(0, 0x10001004, 0x30);
-    if (device.vertex_streams.at(0).resource != 0x10001004 || device.vertex_streams.at(0).stride != 0x30 ||
-        device.vertex_streams.at(1).resource != 0x10000804 || device.vertex_streams.at(1).stride != 0x10)
+    const auto& draw = device.draw_indexed(4, 3, 0x10002000);
+    device.set_vertex_stream(0, 0x10003004, 0x40);
+    if (draw.streams.at(0).resource != 0x10001004 || draw.streams.at(0).stride != 0x30 ||
+        draw.streams.at(1).resource != 0x10000804 || draw.streams.at(1).stride != 0x10)
     {
-        throw Error("native D3D vertex stream rebinding changed a different stream");
+        throw Error("native D3D vertex stream snapshot lost its binding or changed a different stream");
     }
 }
 
@@ -7829,13 +7831,25 @@ int main(int argc, char** argv)
             check_player_dialogue_resources(game.aids);
             bool saw_dialogue = false;
             bool cutscene_before_accept = false;
-            for (int frame = 0; frame < 300; ++frame)
+            bool saw_bat_hop = false;
+            // The native prompt activates after the opening transition. Leave enough
+            // live time for its detached bat's 4.5-second idle period and hop.
+            for (int frame = 0; frame < 600; ++frame)
             {
                 gbtg::gfx_begin_frame();
                 game.tick(1.f / 60.f, {});
                 gbtg::gfx_end_frame();
                 saw_dialogue |= gbtg::g_flag_2474 != 0 && gbtg::g_draw_e1ec != 0;
                 cutscene_before_accept |= game.cutscenes.playing;
+                if (game.script_dialogue != nullptr)
+                {
+                    auto& active = game.script_dialogue->dialogue;
+                    if (active.state.widget != nullptr && active.state.widget->bat != nullptr)
+                    {
+                        const auto bat = active.widget_update.bats(active.state.widget->bat);
+                        saw_bat_hop |= bat.bat.state == 3 && bat.frame.elapsed > 0.f;
+                    }
+                }
             }
             if (game.scene_script.name != "aid_script_ghoulies_chapter1_scene1_2playcam")
             {
@@ -7862,11 +7876,30 @@ int main(int argc, char** argv)
                 throw gbtg::Error("player opening must hold chapter1_scene1_fight1_howtofight until A; "
                                   "native dialogue did not hold the live script");
             }
+            if (!saw_bat_hop)
+            {
+                const auto& active = game.script_dialogue->dialogue;
+                if (active.state.widget == nullptr || active.state.widget->bat == nullptr)
+                {
+                    throw gbtg::Error("native tutorial widget has no button bat after 600 frames");
+                }
+                const auto bat = active.widget_update.bats(active.state.widget->bat);
+                throw gbtg::Error("native tutorial button bat did not hop: state=" + std::to_string(bat.bat.state)
+                    + " idle=" + std::to_string(bat.bat.idle_timer) + " elapsed=" + std::to_string(bat.frame.elapsed)
+                    + " dt=" + std::to_string(bat.context.dt) + " rate=" + std::to_string(bat.bat.actor.animation_rate));
+            }
             auto& dialogue = gbtg::scene_dialogue_context(game).dialogue;
             if (dialogue.state.widget == nullptr || dialogue.state.cutscene == nullptr ||
                 dialogue.state.input.data() == nullptr || dialogue.page.text == nullptr)
             {
                 throw gbtg::Error("player tutorial flags have no native widget, cutscene, input or page ownership");
+            }
+            const std::u16string_view tutorial_page(dialogue.page.text);
+            const size_t last_word = tutorial_page.find(u"attack!");
+            if (last_word == std::u16string_view::npos ||
+                dialogue.page.next_text < dialogue.page.text + last_word + 7)
+            {
+                throw gbtg::Error("opening tutorial text no longer fits its retail page after widget drawing");
             }
             bool cutscene_after_accept = false;
             // Give each native page a fresh A edge, followed by release and
@@ -7878,13 +7911,32 @@ int main(int argc, char** argv)
                 gbtg::gfx_begin_frame();
                 game.tick(1.f / 60.f, input);
                 gbtg::gfx_end_frame();
-                cutscene_after_accept = game.cutscenes.playing;
+                if (frame == 0 && dialogue.state.completion == 0 && dialogue.state.mode == 2)
+                {
+                    const auto samples = gbtg::runtime_pad_state_views();
+                    const auto& widget = *dialogue.state.widget;
+                    throw gbtg::Error("native widget missed a fresh A edge: pad="
+                        + std::to_string(gbtg::read_u16(samples.controllers, 0x38))
+                        + " kind=" + std::to_string(gbtg::read_u32(dialogue.state.input, 0))
+                        + " held=" + std::to_string(gbtg::read_u16(dialogue.state.input, 0x40))
+                        + " previous=" + std::to_string(gbtg::read_u16(dialogue.state.input, 0x7C))
+                        + " widget=" + std::to_string(widget.mode) + " count=" + std::to_string(widget.count)
+                        + " icon=" + std::to_string(gbtg::read_u32({widget.current_set, 0x310}, 0x40)));
+                }
+                cutscene_after_accept = dialogue.state.mode == 0 ||
+                    (dialogue.state.mode == 4 && dialogue.state.count == 1);
             }
-            if (!cutscene_after_accept || gbtg::g_flag_2474 != 0 || dialogue.state.mode != 0)
+            if (cutscene_after_accept && dialogue.state.mode == 4)
             {
-                throw gbtg::Error("player tutorial A edges did not release dialogue and start the opening cutscene");
+                gbtg::update_runtime_dialogue(dialogue);
             }
-            std::cout << "PASS: player tutorial holds without A and releases to the opening cutscene after A\n";
+            if (!cutscene_after_accept || dialogue.state.mode != 0)
+            {
+                throw gbtg::Error("player tutorial A edges did not release dialogue and start the opening cutscene: mode="
+                    + std::to_string(dialogue.state.mode) + " completion=" + std::to_string(dialogue.state.completion)
+                    + " button=" + std::to_string(dialogue.state.button) + " script=" + std::to_string(gbtg::g_flag_2474));
+            }
+            std::cout << "PASS: player tutorial holds without A, animates its bat and closes after fresh A edges\n";
             gbtg::gfx_shutdown();
             return 0;
         }

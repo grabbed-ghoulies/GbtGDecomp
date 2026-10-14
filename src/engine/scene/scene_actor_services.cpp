@@ -378,8 +378,8 @@ struct SceneActorServices::State
     // 0x00033030, inline pool allocation at 0x00033274: four 0x50-byte input entries.
     GhoulySpawnPool* input_pool = allocate_runtime_shape_pool(0x50, 4);
     i32 input_selected = 0; // DAT_0050E0EC.
-    std::array<u8, 4 * 0xA8> controllers{}; // DAT_005079F8.
-    std::array<u8, 0x3C> keyboard{}; // DAT_00507C98.
+    std::span<u8> controllers = runtime_pad_state_views().controllers; // DAT_005079F8.
+    std::span<u8> keyboard = runtime_pad_state_views().merged; // DAT_00507C98.
     std::array<u32, 5> port_masks{}; // DAT_0050E0F4..
     RuntimeInputActivationContext input_activation{*input_pool, input_selected, controllers, keyboard,
         port_masks.data() + 1, input_addresses};
@@ -590,7 +590,7 @@ struct SceneActorServices::State
     std::unique_ptr<DialogueWidgetBatFactoryContext> widget_bats;
     AudioListenerSettings listener = native_audio_listener_settings();
     std::function<DialogueWidgetBatView(Actor*)> bat_views; // Live button-bat actor views.
-    std::unordered_map<u32, void (*)()> widget_callbacks;
+    std::unordered_map<u32, std::function<void()>> widget_callbacks;
     std::unique_ptr<DialogueWidgetUpdateContext> widget_update;
     std::unordered_map<u32, RuntimeDialogueInputDevice> input_views;
     std::unique_ptr<RuntimeDialogueActivationContext> dialogue;
@@ -1290,6 +1290,12 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             if (native == bat)
             {
                 auto& view = actors->view(*object_of(bytes));
+                pause = widget_update->freeze;
+                frame_delta = widget_update->dt;
+                time_scale = widget_update->scene_scale;
+                frame->freeze = pause;
+                frame->dt = frame_delta;
+                frame->scene_scale = time_scale;
                 return DialogueWidgetBatView{view.bat, view.frame, *frame};
             }
         }
@@ -1297,6 +1303,10 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     };
     widget_update = std::make_unique<DialogueWidgetUpdateContext>(DialogueWidgetUpdateContext{widget_context,
         input_state, voices, bat_views, widget_callbacks, pause, frame_delta, time_scale});
+    widget_callbacks.emplace(0x00058B80, [this]()
+    {
+        accept_runtime_dialogue_button(dialogue_state);
+    });
     dialogue = std::make_unique<RuntimeDialogueActivationContext>(RuntimeDialogueActivationContext{dialogue_state,
         g_flags_ea9c, active_strategies, frontend_pause, random, story_byte, hud_size[0], hud.inner_bottom,
         hud.text_width, read_u32(data(0x00421A1C, 4), 0), read_u32(data(0x00421A24, 4), 0),
@@ -1380,7 +1390,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     };
     light_upload = std::make_unique<SceneLightUploadContext>(SceneLightUploadContext{model_renderer,
         environment_world_space, retained_scene_color, light_records, spot_parameters, light_boundaries});
-    ambient_context = std::make_unique<SceneAmbientContext>(SceneAmbientContext{ambient_grids, 0, 0, {}, {}, 0,
+    ambient_context = std::make_unique<SceneAmbientContext>(SceneAmbientContext{ambient_grids, 0, light_override, {}, {}, 0,
         ambient_points});
     std::memcpy(ambient_context->override_color.data(), data(0x0042A560, 0x10).data(), 0x10);
     environment = std::make_unique<SceneEnvironmentSetupContext>(SceneEnvironmentSetupContext{*light_upload, fog,
@@ -2995,8 +3005,10 @@ void SceneActorServices::present_views(const std::function<void()>& draw_world)
         {
             return state.texture_image(record);
         }};
-    present_runtime_display_views([&state, &draw_world, &present](i32)
+    bool presented = false;
+    present_runtime_display_views([&state, &draw_world, &present, &presented](i32)
     {
+        presented = true;
         // The D3D11 renderer takes the slot's display camera for the host world draw; the display field
         // of view is in degrees there.
         const auto& view = *entity_detail::g_display_view;
@@ -3006,6 +3018,17 @@ void SceneActorServices::present_views(const std::function<void()>& draw_world)
         draw_scene_dialogue(state.game);
         present_scene_d3d_commands(state.d3d_device.take_commands(), present);
     }, *state.display_setup);
+    // Legacy front-end owners still supply their own camera and draws. Starting the native
+    // actor factory does not mean that an owner has registered a native display camera.
+    if (!presented)
+    {
+        if (state.game.camera != nullptr)
+        {
+            const auto& camera = *state.game.camera;
+            gfx_set_camera(camera.pose_position, camera.pose_quat, camera.pose_fov);
+        }
+        draw_world();
+    }
 }
 
 void SceneActorServices::start_background()

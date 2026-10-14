@@ -462,8 +462,8 @@ void pad_tick(Game& g, const InputState& in)
 
 RuntimePadStateViews runtime_pad_state_views()
 {
-    return {{reinterpret_cast<const u8*>(g_pads), sizeof(PadSlot) * kPadPorts},
-        {reinterpret_cast<const u8*>(&g_pads[kPadPorts]), sizeof(PadSlot)}};
+    return {{reinterpret_cast<u8*>(g_pads), sizeof(PadSlot) * kPadPorts},
+        {reinterpret_cast<u8*>(&g_pads[kPadPorts]), sizeof(PadSlot)}};
 }
 
 bool attract_confirm_pressed()

@@ -12,7 +12,7 @@ struct SceneAmbientContext
 {
     std::span<const u8* const> grids; // DAT_0050D770.
     i32 grid_count; // DAT_0050D780.
-    u32 override_count; // DAT_00509B5C.
+    const u32& override_count; // DAT_00509B5C.
     std::array<float, 4> override_color; // DAT_0042A560..56C.
     std::array<float, 3> scale; // DAT_00509B20..28.
     u32 points_enabled; // DAT_005120F0.

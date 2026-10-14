@@ -420,24 +420,21 @@ void script_load(Game& g, std::string_view name)
 extern char (&g_510ed8)[0x80];
 
 
+void request_scene_aid(const char* src, i32 mode); // Xbox 0x0011EB30
+
+// Every retail caller of 0x0011EB30 that requests a script by name (boot 0x00033030, the front-end
+// slots 0x00134AE0..0x00134D20 and the scene end 0x00117140) passes mode 1. The mode lands at
+// DAT_00510F58 (scene record +0x100), the state 0x0011E4C0 enters after loading; state 1 runs
+// the scene tick 0x0011E7F0. Loading waits for 0x0011E4C0.
 void script_request(Game& g, std::string_view name)
 {
-    // Xbox 0x0011EB30. EAX is the source string. It is copied to scene+0x80
-    // (DAT_00510ED8) and the mode argument is stored at DAT_00510F58.
-    // Loading waits for 0x0011E4C0.
     (void)g;
-    if (std::memcmp(g_510ed8, "aid_", 4) == 0)
+    if (name.size() + 1 > sizeof(g_510ed8))
     {
-        g_510ed8[0] = '\0';
+        throw Error("scene request name exceeds the 0x80-byte scene record field");
     }
-    size_t i = 0;
-    while (i + 1 < sizeof(g_510ed8) && i < name.size())
-    {
-        g_510ed8[i] = name[i];
-        ++i;
-    }
-    g_510ed8[i] = '\0';
-    // 0x0011EB30 also stores its mode argument at DAT_00510F58. This copy writes the name.
+    const std::string aid(name);
+    request_scene_aid(aid.c_str(), 1);
 }
 
 

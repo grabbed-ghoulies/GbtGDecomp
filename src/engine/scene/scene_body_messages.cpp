@@ -284,7 +284,7 @@ void SceneBodyMessages::settle(FactoryObject& body)
         shapes_, services_.latches, first_timer_, second_timer_, actor_bound_, secondary_model_,
         services_.node_states, action};
     RuntimeCameraBodySlots camera{player_.body, player_.actor, *player_.body_bits, services_.look_profile,
-        services_.rig_tunables};
+        services_.rig_tunables, player_.camera_view};
     capture_camera_body_pose(camera, apply);
 }
 
@@ -296,7 +296,7 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
         unbound("body vtable +0x1C of factory type " + std::to_string(body.type));
     }
     RuntimeCameraBodySlots camera{player_.body, player_.actor, *player_.body_bits, services_.look_profile,
-        services_.rig_tunables};
+        services_.rig_tunables, player_.camera_view};
     return probe_camera_body_support(camera);
 }
 }

@@ -1,5 +1,6 @@
 #include "scene_mind_messages.h"
 #include "../entities/entity.h"
+#include <cstddef>
 #include <cstring>
 
 namespace gbtg
@@ -14,6 +15,15 @@ namespace
 std::span<u8> tail(std::span<u8> bytes, size_t offset)
 {
     return bytes.empty() ? std::span<u8>() : bytes.subspan(offset);
+}
+
+EntityBitBlock& body_bits(NativePlayerInstance& player)
+{
+    if (player.body_bits == nullptr)
+    {
+        unbound("mind control without the body +0x15C bit block");
+    }
+    return *player.body_bits;
 }
 }
 
@@ -90,7 +100,27 @@ SceneMindMessages::SceneMindMessages(SceneMindServices& services, NativePlayerIn
           [this](u32 address) -> const Actor*
           {
               return services_.actor_at(address);
-          }}
+          }},
+      mind_tick_{player.mind_events, player.requests, player.actor, player.actor, player.body, services.clock,
+          [this](RuntimePlayerMindRequest& request)
+          {
+              return i32(services_.initialize_request(player_.mind_object, request));
+          },
+          [this](RuntimePlayerMindRequest& request)
+          {
+              return services_.update_request(player_.mind_object, request);
+          }},
+      avoidance_{mind_tick_, player.ring, services.address_zero, player.request_anchor, player.scene.mind_request_sizes,
+          i32(read_u32(player.actor_bytes, 0xCEC)), player.allowed, services.random, services.occupancy_initial},
+      gaze_{player.mind, player.body, player.actor, player.actor, gaze_target_, gaze_anchor_, player.input_device,
+          services.input_state, anchor_addresses_, services.random},
+      control_{player.mind, player.attachment, body_bits(player), services.clock, player.input_device,
+          services.input_state,
+          [&player]()
+          {
+              return player.body_action_key();
+          }},
+      cinema_tick_{cinema_, avoidance_, gaze_, control_, player.axis_device, services.keyboard}
 {
     slots.object_at = [this](u32 address)
     {
@@ -100,6 +130,12 @@ SceneMindMessages::SceneMindMessages(SceneMindServices& services, NativePlayerIn
     if (slots.cinema != nullptr)
     {
         slots.cinema->messages = &cinema_;
+        slots.cinema->tick = &cinema_tick_;
+        slots.cinema->target_bytes = [this]() -> std::span<const u8>
+        {
+            const u32 target = read_u32(player_.mind, 0x10);
+            return target == 0 ? std::span<const u8>() : services_.bytes_at(target);
+        };
     }
     else
     {
@@ -154,5 +190,49 @@ void SceneMindMessages::refresh()
     }
     feedback_.input = player_.input;
     feedback_.input_address = player_.input.empty() ? 0 : services_.address_of(player_.input.data());
+}
+
+void SceneMindMessages::prepare_tick()
+{
+    refresh();
+    refresh_gaze();
+}
+
+void SceneMindMessages::refresh_gaze()
+{
+    const auto mind = player_.mind;
+    mind_tick_.body = player_.body;
+    avoidance_.goals = player_.ring;
+    avoidance_.floor = i32(read_u32(player_.actor_bytes, 0xCEC));
+    avoidance_.allowed = player_.allowed;
+    gaze_.mind = mind;
+    gaze_.body = player_.body;
+    control_.mind = mind;
+    const u32 target = read_u32(mind, 0xC);
+    gaze_target_ = target == 0 ? nullptr : services_.actor_at(target);
+    anchor_addresses_.clear();
+    for (auto* node = static_cast<entity_detail::ListHead*>(g_actor_model_anchors.next); node != nullptr;
+         node = static_cast<entity_detail::ListHead*>(node->next))
+    {
+        auto* anchor = reinterpret_cast<ActorModelAnchor*>(reinterpret_cast<u8*>(node)
+            - offsetof(ActorModelAnchor, global_link));
+        anchor_addresses_[anchor] = services_.address_of(anchor);
+    }
+    const u32 anchor = read_u32(mind, 0x30);
+    gaze_anchor_ = nullptr;
+    if (anchor != 0)
+    {
+        for (const auto& [native, address] : anchor_addresses_)
+        {
+            if (address == anchor)
+            {
+                gaze_anchor_ = native;
+            }
+        }
+        if (gaze_anchor_ == nullptr)
+        {
+            unbound("mind +0x30 gaze anchor outside the model anchor list");
+        }
+    }
 }
 }

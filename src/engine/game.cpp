@@ -122,12 +122,10 @@ void frame_tick(Game& g, float dt, const InputState& in)
     }
     pad_tick(g, in); // 0x000FA3C0 / 0x000FAD80
     gameselect_tick(g, in);
-    // 0x00033C47. 0x0011E4C0. A queued aid_script loads when the stream enters state 4.
+    // 0x00033C47. 0x0011E4C0. A queued aid_script loads when the stream enters state 4; run state 1
+    // (or 2) ticks the scene through 0x0011E7F0: the dialogue (0x00057E60), the fired script and
+    // its condition timers (0x00117100).
     script_pump(g);
-    // 0x0011E927. The condition list is updated after the pump, so a request
-    // issued by a fired action waits until the next frame.
-    script_vm_tick(g, g.clock.dt);
-    tick_scene_dialogue(g); // Xbox 0x00057E60, the detached dialogue continues during its hold.
     audio_tick(g, g.clock.dt); // 0x0015B780, 0x0003A040, 0x000396F0, 0x00038640, 0x00038C20
     cutscene_queue_tick(g, g.clock.dt);
     for (auto& e : g.entities)

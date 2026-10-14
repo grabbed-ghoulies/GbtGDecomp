@@ -937,10 +937,12 @@ int script_handle_condition_setup(Game& g, const ScriptNode& node)
 
 
 // Xbox 0x00125450. One node of the action walk. Type 0x3C stops the walk.
-// The listed types copy a condition and tell the runner to advance. Every
-// other type stops the walk. The word filled by 0x001077B0 is left 0.
+// The listed types copy a condition, then 0x000532B0 (ECX = cursor, EDX =
+// 0x3C) moves the cursor to the block's closing 0x3C, so the runner advances
+// past the condition body. Every other type returns 3. The word filled by
+// 0x001077B0 is left 0.
 // Xbox 0x00125450
-int script_handle_condition_node(Game& g, const ScriptNode& node)
+int script_handle_condition_node(Game& g, const ScriptNode& node, u32& cursor)
 {
     u32 opcode = 0;
     bool as_float = false;
@@ -1007,6 +1009,7 @@ int script_handle_condition_node(Game& g, const ScriptNode& node)
         }
     }
     script_append_condition(rec, kScriptCondSize[opcode], opcode);
+    script_seek_node_type(g.scene_script, cursor, 0x3C);
     return 2;
 }
 

@@ -71,6 +71,7 @@ extern "C"
 #include "../scripts/script_actions.h"
 #include "../scripts/script_vm.h"
 #include "../transitions/transition_book.h"
+#include "dialogue_scene_runtime.h"
 
 namespace gbtg
 {
@@ -279,7 +280,7 @@ void request_scene_aid(const char* src, i32 mode)
 
 
 // Xbox 0x0011CFB0
-// Phase 2 through 9 would call 0x00057E60. A nonzero DAT_00510CFC calls
+// Phase 2 through 9 calls 0x00057E60. A nonzero DAT_00510CFC calls
 // 0x00109470 with that pointer in EAX. The first switch then steps the
 // phase. Phases 2 and 9 compare the clock ratio with 0.123 (DAT_0032B6CC,
 // 0x3DFBE76D) and 0.815 (DAT_0032B634, 0x3F50A3D7). At or under the gate
@@ -299,7 +300,7 @@ void scene_tick_load_phase()
     i32 phase = g_510cf4;
     if (1 < phase && phase < 10)
     {
-        // 0x00057E60 is not translated.
+        tick_scene_dialogue(*g_transition_game); // Xbox 0x00057E60
     }
     if (g_510cfc != nullptr)
     {
@@ -645,14 +646,15 @@ void scene_begin_audio_pause()
 // is added to DAT_004312E4. The truncated integer lands at DAT_004312E0 and
 // the fraction stays at DAT_004312E4.
 //
-// 0x0004EBD0, 0x0005AA90, and 0x00057E60 are not translated. DAT_00545B38
+// 0x0004EBD0 and 0x0005AA90 are not translated; 0x00057E60 ticks the scene
+// dialogue. DAT_00545B38
 // equal to 3 would call 0x0013FFD0. That call is not translated. 0x00117140
 // runs, then 0x000D0300 and 0x00049DE0 would run. Those two are not
 // translated. 0x00117140 runs again. DAT_00506E28 equal to 1 would call
 // 0x000F4A00 before DAT_0050E438 is loaded. That call is not translated.
 // The list walk saves the next link, then calls vtable +0x10.
 //
-// 0x00123020 would take DAT_00511B18 on the stack. 0x00122FE0, 0x001128A0,
+// 0x00123020 takes DAT_00511B18 on the stack, then 0x00122FE0 runs. 0x001128A0
 // and 0x0011B670 are not translated. 0x00117100 then runs, including its
 // tail into 0x00117140. 0x000F4560 and 0x0013FD60 are not translated.
 //
@@ -709,7 +711,8 @@ void scene_tick_pause_counter(Game& g, u8* scene)
     g_4312e0 = static_cast<i32>(g_4312e4);
     g_4312e4 = g_4312e4 - static_cast<float>(g_4312e0);
 
-    // 0x0004EBD0, 0x0005AA90, and 0x00057E60 are not translated.
+    // 0x0004EBD0 and 0x0005AA90 are not translated.
+    tick_scene_dialogue(g); // Xbox 0x00057E60
     if (g_545b38 == 3)
     {
         // 0x0013FFD0 is not translated.
@@ -728,8 +731,12 @@ void scene_tick_pause_counter(Game& g, u8* scene)
         node->tick(node);
         node = next;
     }
-    // 0x00123020 is not translated. The stack dword is DAT_00511B18.
-    // 0x00122FE0, 0x001128A0, and 0x0011B670 are not translated.
+    // 0x00123020 over DAT_00511B18, then 0x00122FE0, are translated as
+    // SceneActorServices::update_scene_actors. The live call is held: in the opening scene the imps'
+    // cinema-mind requests (0x0007C0E0), Cooper's player-mind tick (0x0007FB10) and the +0x10 slots of
+    // types 2, 0xD, 0x1F and 0x23 are not bound yet, and raise on the first frame
+    // (docs/NATIVE_GAMEPLAY_FRAME.md).
+    // 0x001128A0 and 0x0011B670 are not translated.
     script_vm_tick(g, 0.f);
     // 0x000F4560 and 0x0013FD60 are not translated.
 

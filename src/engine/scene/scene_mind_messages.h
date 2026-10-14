@@ -1,6 +1,8 @@
 #pragma once
 #include "../entities/player_factory_owner.h"
 #include "../entities/cinema_mind_messages.h"
+#include "../entities/cinema_mind_tick.h"
+#include "../entities/actor_model_anchors.h"
 #include "../entities/player_mind_messages.h"
 #include "../entities/player_input_binding.h"
 #include "../scripts/script_actor_query.h"
@@ -36,6 +38,14 @@ struct SceneMindServices
     std::function<u32(const void*)> address_of;
     std::function<Actor*(u32)> actor_at;
     std::function<std::span<const u8>(u32)> bytes_at;
+    const RuntimeActorClock& clock;
+    std::span<const u8> address_zero; // Reads through a null retail pointer.
+    float& occupancy_initial;
+    const RuntimeDialogueInputState& input_state;
+    std::span<u8> keyboard; // DAT_00507C98.
+    // Mind vtable +0x14 / +0x18 of this mind (0x0007C0E0 / 0x0007EBC0 for cinema minds).
+    std::function<i32(FactoryObject&, RuntimePlayerMindRequest&)> update_request;
+    std::function<u32(FactoryObject&, RuntimePlayerMindRequest&)> initialize_request;
 };
 
 // One mind's message graph: cinema minds (type 0x35, 0x0007C8B0) and player minds (type 0x34, 0x0007F1E0)
@@ -47,6 +57,8 @@ public:
     SceneMindMessages(const SceneMindMessages&) = delete;
     SceneMindMessages& operator=(const SceneMindMessages&) = delete;
     void refresh(); // Native snapshots of body fields read by the handlers.
+    // Views for the mind's vtable +0x10 tick: refresh(), then the gaze target (mind +0xC) and anchor (mind +0x30).
+    void prepare_tick();
 
 private:
     SceneMindServices& services_;
@@ -69,5 +81,15 @@ private:
     std::span<const u8> actor_mind_; // Actor +0x958.
     std::span<const u8> body_state_view_; // Body +0x84 object.
     RuntimePlayerMindMessages player_messages_;
+    // Cinema tick views. Mind +0xC and +0x30 hold retail addresses of an actor and a model anchor.
+    Actor* gaze_target_ = nullptr;
+    ActorModelAnchor* gaze_anchor_ = nullptr;
+    std::unordered_map<ActorModelAnchor*, u32> anchor_addresses_;
+    RuntimeMindTick mind_tick_;
+    RuntimeCinemaMindAvoidance avoidance_;
+    RuntimePlayerMindGaze gaze_;
+    RuntimePlayerMindControl control_;
+    RuntimeCinemaMindTick cinema_tick_;
+    void refresh_gaze();
 };
 }

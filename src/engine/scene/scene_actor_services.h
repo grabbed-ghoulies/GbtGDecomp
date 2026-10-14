@@ -33,6 +33,9 @@ public:
     void start_scene(const std::function<void()>& script_event);
     void send_actor_message(u32 address, std::span<const u32> message); // Native vtable +0xC address adapter.
     void update_actor(u32 address, RuntimeEffectPassScratch& scratch); // Native vtable +0x10 adapter; caller's incoming effect stack state.
+    // The scene tick 0x0011E7F0's recurring actor updates: the bind tree under DAT_00511B10 (0x00123020), then the
+    // +0x934 list from DAT_00511B20 (0x00122FE0).
+    void update_scene_actors();
     void update_sounds(); // Native context binding for Xbox 0x0012A150.
     void update_effects(RuntimeEffectPassScratch& scratch); // Native context binding for Xbox 0x000ED480.
     bool activation_pending() const; // Pending actor +0x900 list is nonempty.

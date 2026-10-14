@@ -7832,9 +7832,11 @@ int main(int argc, char** argv)
             bool saw_dialogue = false;
             bool cutscene_before_accept = false;
             bool saw_bat_hop = false;
-            // The native prompt activates after the opening transition. Leave enough
-            // live time for its detached bat's 4.5-second idle period and hop.
-            for (int frame = 0; frame < 600; ++frame)
+            // The native prompt activates after the opening transition: the scene tick
+            // 0x0011E7F0 (and the script's 3-second timeout) runs only once 0x0011E4C0
+            // leaves state 5. Leave enough live time for its detached bat's 4.5-second
+            // idle period and hop.
+            for (int frame = 0; frame < 720; ++frame)
             {
                 gbtg::gfx_begin_frame();
                 game.tick(1.f / 60.f, {});
@@ -7937,6 +7939,26 @@ int main(int argc, char** argv)
                     + " button=" + std::to_string(dialogue.state.button) + " script=" + std::to_string(gbtg::g_flag_2474));
             }
             std::cout << "PASS: player tutorial holds without A, animates its bat and closes after fresh A edges\n";
+            // The condition nodes seek their block's closing 0x3C (0x00125450 -> 0x000532B0), so the main
+            // fired cursor waits at a type 0xF gate instead of draining the fired list, which would end the
+            // scene (0x00117140 requests the next scene AID).
+            for (int frame = 0; frame < 300; ++frame)
+            {
+                gbtg::gfx_begin_frame();
+                game.tick(1.f / 60.f, {});
+                gbtg::gfx_end_frame();
+            }
+            if (game.scene_script.name != "aid_script_ghoulies_chapter1_scene1_2playcam" || gbtg::g_script_fired.empty())
+            {
+                throw gbtg::Error("opening script left the scene after its tutorial: scene=" + game.scene_script.name);
+            }
+            const auto* waiting = gbtg::script_node_at(game.scene_script, gbtg::g_script_fired.front());
+            if (waiting == nullptr || waiting->type != 0xF || game.scene_name != "(next bit)")
+            {
+                throw gbtg::Error("opening script is not waiting at the (next bit) gate after its tutorial: title="
+                    + game.scene_name);
+            }
+            std::cout << "PASS: the opening script holds at its (next bit) gate after the tutorial\n";
             gbtg::gfx_shutdown();
             return 0;
         }

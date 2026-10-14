@@ -100,10 +100,14 @@ int script_handle_pair_updates(Game& g, const ScriptNode& node, int param_2); //
 int script_handle_condition_setup(Game& g, const ScriptNode& node); // Xbox 0x001251E0
 
 // Xbox 0x00125450. One node of the action walk. Type 0x3C stops the walk.
-// The listed types copy a condition and tell the runner to advance. Every
-// other type stops the walk. The word filled by 0x001077B0 is left 0.
+// The listed types copy a condition, seek the cursor to the block's closing
+// 0x3C (0x000532B0) and tell the runner to advance past it. Every other type
+// returns 3. The word filled by 0x001077B0 is left 0.
 // Xbox 0x00125450
-int script_handle_condition_node(Game& g, const ScriptNode& node); // Xbox 0x00125450
+int script_handle_condition_node(Game& g, const ScriptNode& node, u32& cursor); // Xbox 0x00125450
+
+// Xbox 0x000532B0
+bool script_seek_node_type(const SceneScript& script, u32& cursor, u32 type); // Xbox 0x000532B0
 
 // DAT_0050EA9C. Type 0x1A tests bit 0x10 of the low byte.
 extern u32 g_flags_ea9c;

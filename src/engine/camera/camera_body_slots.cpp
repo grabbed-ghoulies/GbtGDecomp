@@ -107,6 +107,11 @@ void capture_camera_body_pose(RuntimeCameraBodySlots& camera, RuntimeBodyApplyCo
     const Vec3 euler = actor_world_euler(camera.actor);
     put_vec3(camera.body, 0x89C, position);
     put_vec3(camera.body, 0x8A8, euler);
+    // The native camera node is the record embedded at body +0x894.
+    camera.view.position = position;
+    camera.view.rotation.x = euler.x;
+    camera.view.rotation.y = euler.y;
+    camera.view.rotation.z = euler.z;
     apply_runtime_body(camera.body, apply);
 }
 

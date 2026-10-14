@@ -76,9 +76,18 @@ void NativeBackgroundClassOwner::update(FactoryObject& object)
 
 NativeBackgroundInstance* NativeBackgroundClassOwner::first_background()
 {
+    if (bindings.backgrounds.next == nullptr)
+    {
+        return nullptr;
+    }
+    return owner_of(*static_cast<const entity_detail::ListHead*>(bindings.backgrounds.next));
+}
+
+NativeBackgroundInstance* NativeBackgroundClassOwner::owner_of(const entity_detail::ListHead& link)
+{
     for (const auto& [bytes, other] : instances_)
     {
-        if (&other->lifetime.link == bindings.backgrounds.next)
+        if (&other->lifetime.link == &link)
         {
             return other.get();
         }

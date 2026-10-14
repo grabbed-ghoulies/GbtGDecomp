@@ -13,6 +13,7 @@ struct RuntimeCameraBodySlots
     EntityBitBlock& bits; // Body +0x15C.
     const i32& look_profile; // DAT_00545AEC.
     const RuntimeCameraRigTunables& tunables; // DAT_004274B8 probe, DAT_004274C8 slide skip, DAT_0043401C/20.
+    EntityCamNode& view; // Body +0x894: node +8 is body +0x89C and node +0x14 (Euler) is body +0x8A8.
 };
 void wrap_runtime_euler(const Vec3& angles, Vec3& output); // Xbox 0x00105AA0, ESI angles, EDI output
 void aim_camera_body(RuntimeCameraBodySlots& camera); // Xbox 0x00072BA0

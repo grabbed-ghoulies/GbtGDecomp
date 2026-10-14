@@ -67,6 +67,7 @@ add_library(gbtg_lib STATIC
     src/engine/scene/scene_actor_services.cpp
     src/engine/scene/scene_actor_activation.cpp
     src/engine/scene/scene_actor_update.cpp
+    src/engine/scene/scene_view_actors.cpp
     src/engine/scene/scene_control_update.cpp
     src/engine/scene/scene_gameplay_time.cpp
     src/engine/scene/scene_body_messages.cpp
@@ -146,6 +147,7 @@ add_library(gbtg_lib STATIC
     src/engine/entities/strategy_target_selection.cpp
     src/engine/entities/imp_fire_strategy.cpp
     src/engine/entities/actor_runtime_queries.cpp
+    src/engine/entities/actor_view_visibility.cpp
     src/engine/entities/fx_anim_emitter.cpp
     src/engine/entities/powerup_awards.cpp
     src/engine/entities/intro_notices.cpp

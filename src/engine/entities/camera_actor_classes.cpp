@@ -31,6 +31,11 @@ bool initialize_runtime_camera_body(RuntimeCameraBodyContext& context)
     const Vec3 euler = actor_world_euler(context.actor);
     std::memcpy(body.data() + 0x89C, &position, sizeof(position));
     std::memcpy(body.data() + 0x8A8, &euler, sizeof(euler));
+    // The native camera node is the record embedded at body +0x894 (position +8, Euler rotation +0x14).
+    context.view.position = position;
+    context.view.rotation.x = euler.x;
+    context.view.rotation.y = euler.y;
+    context.view.rotation.z = euler.z;
     return true;
 }
 

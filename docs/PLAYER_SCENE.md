@@ -7167,3 +7167,80 @@ A frame-300 screenshot shows the butler head, the tutorial text and the A button
 over black. Still to do: the page's backdrop and dialog-bat models (recorded
 indexed draws) are not presented yet, and the rest of 0x11C240's world/HUD draw
 is not translated.
+
+### Opening scene tick, camera view and actor view pass (2026-10-14)
+
+Two reported problems: after the tutorial the game left for the next scene
+instead of starting the fight, and before the tutorial the hall did not show
+Cooper and the imps.
+
+**Leaving after the tutorial (fixed).** Condition nodes (`0x00125450`) end
+with `0x000532B0(cursor, 0x3C)`: after appending the condition they move the
+cursor to the block's closing `0x3C`, so the main walk skips the condition
+body. The translation omitted that seek. The main cursor walked straight from
+the `0x3D` timeout into the tutorial node, then through `0x11`/`0x3C`, which
+emptied the fired list, and `0x00117140` requested the next scene AID.
+`script_handle_condition_node` now takes the cursor and seeks. After the
+tutorial the main cursor waits at the `0xF` gate of "(next bit)" (+0x618)
+with the 10-second timeout and NumberGhouliesAlive conditions armed.
+`--player-opening` now checks that hold for 300 frames after the tutorial.
+
+**Scene tick.** `0x0011E4C0` runs the scene tick `0x0011E7F0` only in run
+state 1 or 2, which comes from the mode `0x0011EB30` stores at scene record
++0x100. Every retail caller (boot `0x00033030`, the front-end slots, the
+scene end `0x00117140`) passes 1, but the host `script_request` dropped it,
+so the opening sat in state 0 and `frame_tick` ticked the script and the
+dialogue itself. `script_request` now calls `request_scene_aid(name, 1)`;
+`frame_tick` no longer calls `script_vm_tick` or `tick_scene_dialogue`; the
+dialogue tick `0x00057E60` runs at its two retail call sites (`0x0011CFB0`
+load phases 2..9 and `0x0011E7F0`). The script's timers now run only once
+the slime-off transition ends (state 5 → 1), so the tutorial opens about 100
+frames later than before; `--player-opening` holds for 720 frames.
+
+**Play camera.** Cameron's camera body embeds its view node at body +0x894,
+so `0x000731F0` and `0x00072B10` writing body +0x89C/+0x8A8 set the node's
+position and Euler rotation. The native node is a separate record, so slot 0
+stayed at the origin and the host world draw rendered the hall from inside
+its geometry. Both functions now also store the node fields
+(`RuntimeCameraBodySlots::view`, `RuntimeCameraBodyContext::view`). Frames
+before the tutorial show the hall from the retail play camera.
+
+**Actor updates (translated, held).** `0x00123020` (the bind tree under
+`DAT_00511B10`, skipping actors whose +0x908 node is linked) and `0x00122FE0`
+(the +0x934 list) are in `scene_actor_update.cpp`, bound as
+`SceneActorServices::update_scene_actors` with a persistent scene-tick effect
+scratch. Binding them live reached the frontier on the first frame, so the
+call in `scene_tick_pause_counter` is held with a comment; the list is in
+`docs/NATIVE_GAMEPLAY_FRAME.md`. Bindings added on the way and kept:
+
+- mind +0x1C is the player's `mind_storage` (allocated by `0x00136700`);
+- mind types 0x34/0x35 tick through their `SceneMindMessages` graph; the
+  cinema tick `0x0007CE30` now has its avoidance, gaze, control and axis
+  contexts, and the cinema slot's target view (mind +0x10);
+- model anchors (`DAT_00510654`) have heap addresses for mind +0x30.
+
+**Actor view pass.** Each native view now runs the bin sort `0x00121730`,
+visibility `0x00121880` (base slot `0x0003C830`; FX emitter `0x00109E30`) and
+the pass-2 draw `0x00121D40` (player `0x00028050`, base `0x0003C9E0`, FX
+emitter `0x00109EE0`). Bin records keep their distance in
+`ActorRenderRegistration::bin_distances`; `0x0002CC30` gained a list-head
+form. The background's +0x14 (`0x00042C10`) is untranslated, and the host
+world draw stands in for it, so the hall is drawn once per view in retail
+order. The stand-alert state 0x87 (getter `0x000A2530`, found by scanning the
+XBE for its slot immediates) has the empty `0x001628B0` at +0x18.
+
+Cooper and the five imps are in view bin 0, in front of the camera and pass
+the frustum test, but nothing shows: their models draw in passes 0 and 1,
+inside the untranslated `0x00121900`. That function, its world helpers and
+the held actor updates are the next milestone
+(`docs/NATIVE_GAMEPLAY_FRAME.md`).
+
+Validation: Release and Debug build; ctest 6/6 in both; all transition suites
+in Release (default, `--title`, `--title-a`, `--goop`, `--ui`,
+`--player-opening`, `--scene-start`, `--scene-spawn`, `--dialogue-resources`,
+`--actor-loading`, `--ghoulybox-decoder`, `--scene-models`) and Debug
+`--player-opening`; both 900-frame headless runs exit 0; `git diff --check`
+is clean. Captures `cache/opening_260.png`, `cache/opening_300.png` (hall
+from the play camera, no characters) and `cache/opening_600.png` (native
+tutorial prompt) were inspected. No temporary traces remain; nothing was
+staged or committed.

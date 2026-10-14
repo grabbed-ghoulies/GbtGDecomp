@@ -246,7 +246,7 @@ void script_activate_title(Game& g, std::string_view title, i32 mode, i32 id)
 //
 // Type 0x69 stores the dword at node+0xC into DAT_0050E79C and the dword at
 // node+8 into DAT_0050E798, then returns 2.
-// Xbox 0x000532B0.
+// Xbox 0x000532B0
 bool script_seek_node_type(const SceneScript& script, u32& cursor, u32 type)
 {
     for (;;)
@@ -410,7 +410,7 @@ int script_execute_fired_action(Game& g, u32& offset)
         }
         if (handler == 3)
         {
-            handler = script_handle_condition_node(g, *node);
+            handler = script_handle_condition_node(g, *node, offset);
         }
         if (handler == 3)
         {

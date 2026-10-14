@@ -50,6 +50,7 @@ public:
     NativeBackgroundClassBindings bindings;
     RuntimeBackgroundAnimation* first_animation = nullptr;
     NativeBackgroundInstance* first_background(); // Owner of the first +0x934 list node (DAT_00511B20).
+    NativeBackgroundInstance* owner_of(const entity_detail::ListHead& link); // Owner of a +0x934 list node.
 
 private:
     std::unordered_map<const u8*, std::unique_ptr<NativeBackgroundInstance>> instances_;

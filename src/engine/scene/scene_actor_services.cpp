@@ -19,6 +19,12 @@
 #include "scene_object_requests.h"
 #include "background_class_owner.h"
 #include "background_update.h"
+#include "scene_actor_update.h"
+#include "scene_view_actors.h"
+#include "../entities/actor_view_visibility.h"
+#include "../entities/player_overlay.h"
+#include "../graphics/billboard_queue.h"
+#include "../entities/actor_model_anchors.h"
 #include "../audio/actor_sound_tick.h"
 #include "../graphics/global_effect_tick.h"
 #include "background_messages.h"
@@ -296,6 +302,9 @@ struct SceneActorServices::State
     u32 effect_callback_result = 0; // DAT_00506C50, BSS.
     u32 effect_sound_frame = 0; // DAT_005462D8, BSS.
     RuntimeEffectPassScratch* effect_pass_scratch = nullptr; // Native view of the caller's incoming stack bytes.
+    // The scene tick's (0x0011E7F0) stack bytes under the effect pass. Retail leaves them uninitialised; this
+    // native slot starts at zero and, like the reused stack slot, keeps what the previous frame left there.
+    RuntimeEffectPassScratch frame_effect_scratch{};
     AudioCoreSources audio_sources{};
     AudioCoreCues audio_cues{audio_sources};
     AudioEventVoices voices{audio_cues, {}, {}, {}, 0, origin, default_cone};
@@ -741,9 +750,17 @@ struct SceneActorServices::State
     void background_message(NativeBackgroundInstance& background, std::span<u32> message);
     void background_update(NativeBackgroundInstance& background);
     void update_actor(u32 address);
+    FactoryObject& object_of_actor(Actor& actor);
     void start_background();
     void actor_draw(Actor& actor, i32 view, i32 pass); // Actor vtable +0x14 by class.
+    u32 actor_visible(Actor& actor, i32 pass, i32 view); // Actor vtable +0x18 by class.
     void draw_scene_actor(FactoryObject& object, Actor& actor, i32 kind); // 0x0003C9E0.
+    void draw_player(FactoryObject& object, NativePlayerInstance& player, i32 kind); // 0x00028050.
+    void draw_view_actors(i32 view); // 0x0011C240's actor bins for one view.
+    // The legacy host world draw stands in for the background's +0x14 (0x00042C10) while a view presents.
+    const std::function<void()>* host_world_draw = nullptr;
+    std::array<const u8*, 10> overlay_digits{}; // DAT_00545A80, BSS until 0x0012E070 loads the digit sprites.
+    ActorDrawState actor_draw_state(FactoryObject& object, Actor& actor, std::unique_ptr<ActorDrawModelView>& model);
     // Host presentation of the recorded dialogue quads, with decoded images of their texture frames.
     std::unordered_map<const u8*, std::unique_ptr<RgbaImage>> texture_images;
     const RgbaImage& texture_image(const u8* record);
@@ -1779,6 +1796,15 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
                 unbound("object view of a retail address outside the scene objects");
             }
             return {object->bytes.get(), object->size};
+        },
+        clock, {address_zero.data(), address_zero.size()}, occupancy_initial, input_state, keyboard,
+        [this](FactoryObject& mind, RuntimePlayerMindRequest& request)
+        {
+            return players->minds.update_request(mind, request);
+        },
+        [this](FactoryObject& mind, RuntimePlayerMindRequest& request)
+        {
+            return players->minds.initialize_request(mind, request);
         }});
     active_services = this;
 }
@@ -1901,6 +1927,15 @@ u32 SceneActorServices::State::address_of(const void* pointer)
     if (const auto found = heap_addresses.find(pointer); found != heap_addresses.end())
     {
         return found->second;
+    }
+    // Model anchors are heap blocks from 0x0011C0B0 on the DAT_00510654 list.
+    for (auto* node = static_cast<entity_detail::ListHead*>(g_actor_model_anchors.next); node != nullptr;
+         node = static_cast<entity_detail::ListHead*>(node->next))
+    {
+        if (pointer == reinterpret_cast<u8*>(node) - offsetof(ActorModelAnchor, global_link))
+        {
+            return heap_address(pointer, sizeof(ActorModelAnchor));
+        }
     }
     try
     {
@@ -2461,11 +2496,17 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
                 + " through the parent mind requests 0x000295E0");
         }};
     const std::span<u8> mind_view = player.mind;
+    entity_detail::NavigationPathSearch* path_search = nullptr;
     if (!mind_view.empty() && read_u32(mind_view, 0x1C) != 0)
     {
-        unbound("mind +0x1C path search view for the navigation floor update");
+        // 0x00136700 allocates the search and stores its heap address at mind +0x1C.
+        if (player.mind_storage == nullptr
+            || heap_address(player.mind_storage, sizeof(RuntimeMindStorage)) != read_u32(mind_view, 0x1C))
+        {
+            unbound("mind +0x1C path search that 0x00136700 did not allocate");
+        }
+        path_search = player.mind_storage;
     }
-    entity_detail::NavigationPathSearch* path_search = nullptr;
     const u8* floor_hint = nullptr;
     if (!mind_view.empty() && read_u32(mind_view, 0x10) != 0)
     {
@@ -2514,8 +2555,25 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
                 unbound("strategy vtable +0x10 of factory type " + std::to_string(strategy.type));
             }
         },
-        [this, &player, &camera_requests](FactoryObject& mind, u32)
+        [this, &player, &camera_requests](FactoryObject& mind, u32 input)
         {
+            if (mind.type == 0x34 || mind.type == 0x35)
+            {
+                // Player mind 0x0007FB10 and cinema mind 0x0007CE30 over the mind's message graph.
+                auto& slots = players->minds.view(mind);
+                auto& graph = mind_messages[mind.bytes.get()];
+                if (graph == nullptr)
+                {
+                    graph = std::make_unique<SceneMindMessages>(*mind_services, player, slots);
+                }
+                graph->prepare_tick();
+                if (slots.cinema == nullptr && slots.tick == nullptr)
+                {
+                    unbound("player mind tick 0x0007FB10 context");
+                }
+                players->minds.tick(mind, input);
+                return;
+            }
             if (mind.type != 0x36)
             {
                 unbound("mind vtable +0x10 of factory type " + std::to_string(mind.type));
@@ -2878,8 +2936,36 @@ void SceneActorServices::State::actor_draw(Actor& actor, i32 view, i32 pass)
                     resources.memory.address_of(instance.source->cpu.data()), u32(pass), *button_bat_draw);
                 return;
             }
-            // Type 0x1A (vtable 0x00504DD8) +0x14 is 0x0006EF20, a jump to the actor draw 0x0003C9E0.
-            if (type != 0x1A)
+            // Type 4 (vtable 0x004E1644) +0x14 is the background draw 0x00042C10. It is not translated; the
+            // legacy host world draw presents the background in its place.
+            if (type == 4)
+            {
+                if (host_world_draw == nullptr)
+                {
+                    unbound("background draw 0x00042C10 outside a presented view");
+                }
+                (*host_world_draw)();
+                return;
+            }
+            // Type 5 +0x14 is the player draw 0x00028050 (getter 0x00027F60).
+            if (type == 5)
+            {
+                draw_player(*object, players->player(*object), pass);
+                return;
+            }
+            // Type 0xD +0x14 is the FX emitter draw 0x00109EE0 (getter 0x00109DD0).
+            if (type == 0xD)
+            {
+                std::unique_ptr<ActorDrawModelView> model;
+                ActorDrawState state = actor_draw_state(*object, actor, model);
+                ActorFrameDrawContext attachments{attachment_draws};
+                RuntimeFxEmitterDraw draw{state, attachments, *model_draw, g_billboard_queue};
+                classes->draw_emitter(*object, pass, draw);
+                return;
+            }
+            // Type 0x1A (vtable 0x00504DD8) +0x14 is 0x0006EF20, a jump to the actor draw 0x0003C9E0; types 2, 0x1F
+            // and 0x23 keep the base slot 0x0003C9E0 (getters 0x0003C080, 0x0006DBD0 and 0x00069620).
+            if (type != 0x1A && type != 2 && type != 0x1F && type != 0x23)
             {
                 char vtable[16];
                 std::snprintf(vtable, sizeof(vtable), "0x%08X",
@@ -2898,9 +2984,122 @@ void SceneActorServices::State::actor_draw(Actor& actor, i32 view, i32 pass)
 // (+0x198 / +0x19C) and draw callbacks (+0x1A0 / +0x1A4, payload +0x1A8).
 void SceneActorServices::State::draw_scene_actor(FactoryObject& object, Actor& actor, i32 kind)
 {
+    std::unique_ptr<ActorDrawModelView> model;
+    ActorDrawState state = actor_draw_state(object, actor, model);
+    ActorFrameDrawContext attachments{attachment_draws};
+    draw_runtime_actor(state, kind, attachments, *model_draw);
+}
+
+// Player vtable +0x14 (0x00028050): the actor draw, the body overlay (0x0001DF70), then the body +0x744
+// object's vtable +0x18.
+void SceneActorServices::State::draw_player(FactoryObject& object, NativePlayerInstance& player, i32 kind)
+{
+    player.refresh_views();
+    std::unique_ptr<ActorDrawModelView> model;
+    ActorDrawState state = actor_draw_state(object, player.actor, model);
+    ActorFrameDrawContext attachments{attachment_draws};
+    if (display_view == nullptr)
+    {
+        throw Error("player draw has no DAT_005077A8 display view");
+    }
+    RuntimeBodyOverlay overlay{player.body, player.actor, player.actor_bytes, player.attribute_resource,
+        player.attached, player.health_textures[0].data(), player.health_textures[1].data(),
+        player.health_textures[2].data(), player.health_textures[3].data(), overlay_digits.data(), *display_view,
+        g_billboard_queue};
+    RuntimePlayerDraw draw{state, attachments, *model_draw, g_flags_ea9c, overlay,
+        player.second_action.bytes.get(),
+        [&player](void*, i32)
+        {
+            // State 0x87 (entityStateStandAlert, getter 0x000A2530) has the empty slot 0x001628B0 at +0x18.
+            if (player.second_action.type != 0x87)
+            {
+                unbound("body +0x744 object vtable +0x18 draw for factory type "
+                    + std::to_string(player.second_action.type));
+            }
+        }};
+    draw_runtime_player({object.bytes.get(), object.size}, kind, draw);
+}
+
+// Actor vtable +0x18 by class. Types 2, 5, 0x1A, 0x1F and 0x23 keep the base actor slot 0x0003C830 (getters
+// 0x0003C080, 0x00027F60, 0x0006EE20, 0x0006DBD0 and 0x00069620); the FX emitter (type 0xD, getter 0x00109DD0)
+// uses 0x00109E30.
+u32 SceneActorServices::State::actor_visible(Actor& actor, i32 pass, i32 view)
+{
+    FactoryObject& object = object_of_actor(actor);
+    if (object.type == 0xD)
+    {
+        return classes->emitter_visible(object, u32(pass), u32(view)) ? 1u : 0u;
+    }
+    if (object.type != 2 && object.type != 5 && object.type != 0x1A && object.type != 0x1F && object.type != 0x23)
+    {
+        unbound("actor vtable +0x18 visibility for factory type " + std::to_string(object.type));
+    }
+    if (display_view == nullptr)
+    {
+        throw Error("actor visibility has no DAT_005077A8 display view");
+    }
+    ActorMatrixSetup* matrices = nullptr;
+    if (i32(read_u32({object.bytes.get(), object.size}, 0x28C)) > 0)
+    {
+        unbound("actor +0x288 matrix setup for view visibility");
+    }
+    RuntimeActorViewVisibility visibility{actor, {object.bytes.get(), object.size}, matrices, *display_view};
+    return runtime_actor_in_view(visibility, pass, view);
+}
+
+// 0x0011C240's actor bins for one view: 0x00121730 and 0x00121880 over DAT_00511AA8[view], then
+// 0x00121D40 over DAT_00511B1C and that bin. 0x00121900 (the background and reflected bin passes) is
+// not translated; the host world draw stands in for the background.
+void SceneActorServices::State::draw_view_actors(i32 view)
+{
+    if (display_view == nullptr)
+    {
+        throw Error("view actor draw has no DAT_005077A8 display view");
+    }
+    const auto entry = [this](entity_detail::ListHead& node) -> RuntimeSceneBinEntry
+    {
+        for (auto& [native, registration] : actors->render)
+        {
+            for (size_t index = 0; index < std::size(registration->bins); ++index)
+            {
+                if (&registration->bins[index] == &node)
+                {
+                    FactoryObject& object = object_of_actor(*native);
+                    return RuntimeSceneBinEntry{*native, registration->bin_distances[index],
+                        *reinterpret_cast<u16*>(object.bytes.get() + 0x194)};
+                }
+            }
+        }
+        throw Error("view bin record has no scene actor");
+    };
+    RuntimeSceneViewActors context{*display_view, entry,
+        [this](entity_detail::ListHead& node) -> Actor&
+        {
+            if (auto* background = backgrounds->owner_of(node); background != nullptr)
+            {
+                return background->state.actor;
+            }
+            throw Error("scene +0x934 list node is not owned by a native background");
+        },
+        [this](Actor& actor, i32 pass, i32 slot)
+        {
+            return actor_visible(actor, pass, slot);
+        },
+        [this](Actor& actor, i32 slot, i32 pass)
+        {
+            actor_draw(actor, slot, pass);
+        }};
+    auto& bin = entity_detail::g_world.bins[size_t(view)];
+    sort_runtime_view_bin(bin, context);
+    classify_runtime_view_bin(bin, 0, view, context);
+    draw_runtime_view_actors(entity_detail::g_world.body_a, &bin, view, 0, context);
+}
+
+ActorDrawState SceneActorServices::State::actor_draw_state(FactoryObject& object, Actor& actor,
+    std::unique_ptr<ActorDrawModelView>& model)
+{
     auto& view = actors->view(object);
     const std::span<const u8> bytes(object.bytes.get(), object.size);
-    std::unique_ptr<ActorDrawModelView> model;
     if (actor.model != nullptr && actor.model->runtime != nullptr)
     {
         RuntimeModelInstance& instance = *actor.model->runtime;
@@ -2921,11 +3120,9 @@ void SceneActorServices::State::draw_scene_actor(FactoryObject& object, Actor& a
             unbound(std::string("actor draw callback ") + slot);
         };
     };
-    ActorDrawState state{view.frame, model.get(), bytes[0x197], bytes[0x298], view.startup.color,
+    return ActorDrawState{view.frame, model.get(), bytes[0x197], bytes[0x298], view.startup.color,
         std::bit_cast<u32>(flags), callback(read_u32(bytes, 0x1A0), "+0x1A0"), callback(read_u32(bytes, 0x1A4), "+0x1A4"),
         reinterpret_cast<void*>(std::uintptr_t(read_u32(bytes, 0x1A8))), draw_matrices[&actor]};
-    ActorFrameDrawContext attachments{attachment_draws};
-    draw_runtime_actor(state, kind, attachments, *model_draw);
 }
 
 // A bound texture is a frame record of a texture header: header + header size (28) + frame * 0x14
@@ -3006,15 +3203,27 @@ void SceneActorServices::present_views(const std::function<void()>& draw_world)
             return state.texture_image(record);
         }};
     bool presented = false;
-    present_runtime_display_views([&state, &draw_world, &present, &presented](i32)
+    present_runtime_display_views([&state, &draw_world, &present, &presented](i32 slot)
     {
         presented = true;
         // The D3D11 renderer takes the slot's display camera for the host world draw; the display field
         // of view is in degrees there.
         const auto& view = *entity_detail::g_display_view;
         gfx_set_camera(view.position, view.rotation, view.field_of_view * (3.14159265f / 180.f));
-        draw_world();
         state.d3d_device.commands.clear();
+        // 0x0011C240 for this view: the bin sort (0x00121730) and visibility (0x00121880), then the +0x934
+        // owners and visible bin actors (0x00121D40). The background's +0x14 is the host world draw.
+        state.host_world_draw = &draw_world;
+        try
+        {
+            state.draw_view_actors(slot);
+        }
+        catch (...)
+        {
+            state.host_world_draw = nullptr;
+            throw;
+        }
+        state.host_world_draw = nullptr;
         draw_scene_dialogue(state.game);
         present_scene_d3d_commands(state.d3d_device.take_commands(), present);
     }, *state.display_setup);
@@ -3079,6 +3288,65 @@ void SceneActorServices::update_actor(u32 address, RuntimeEffectPassScratch& scr
     try
     {
         state.update_actor(address);
+    }
+    catch (...)
+    {
+        state.effect_pass_scratch = previous;
+        throw;
+    }
+    state.effect_pass_scratch = previous;
+}
+
+FactoryObject& SceneActorServices::State::object_of_actor(Actor& actor)
+{
+    for (const auto& [bytes, native] : actors->actors)
+    {
+        if (native == &actor)
+        {
+            if (auto* object = object_of(bytes); object != nullptr)
+            {
+                return *object;
+            }
+        }
+    }
+    throw Error("scene actor update for an actor outside the scene");
+}
+
+void SceneActorServices::update_scene_actors()
+{
+    auto& state = *state_;
+    auto* previous = state.effect_pass_scratch;
+    state.effect_pass_scratch = &state.frame_effect_scratch;
+    state.frame_delta = state.game.clock.dt;
+    state.pal = state.game.clock.pal ? 1 : 0;
+    const std::function<bool(Actor&)> retired = [&state](Actor& actor)
+    {
+        const auto found = state.actors->render.find(&actor);
+        if (found == state.actors->render.end())
+        {
+            throw Error("scene actor update has no actor +0x908 view");
+        }
+        return found->second->child.prev != nullptr;
+    };
+    const std::function<void(Actor&)> update = [&state](Actor& actor)
+    {
+        state.update_actor(state.scene.address_of(state.object_of_actor(actor).bytes.get()));
+    };
+    const std::function<Actor&(entity_detail::ListHead&)> body_actor = [&state](entity_detail::ListHead& node)
+        -> Actor&
+    {
+        if (auto* background = state.backgrounds->owner_of(node); background != nullptr)
+        {
+            return background->state.actor;
+        }
+        throw Error("scene +0x934 list node is not owned by a native background");
+    };
+    RuntimeSceneActorTreeUpdates updates{retired, update};
+    RuntimeSceneBodyListUpdates bodies{entity_detail::g_world.body_a, body_actor, updates};
+    try
+    {
+        update_runtime_scene_actor_tree(state.world_bind.child, updates);
+        update_runtime_scene_body_list(bodies);
     }
     catch (...)
     {

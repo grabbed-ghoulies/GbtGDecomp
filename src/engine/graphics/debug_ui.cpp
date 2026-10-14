@@ -4,6 +4,10 @@
 
 #include "gbtg/debug_ui.h"
 #include "gbtg/engine_internal.h"
+#include "gbtg/gfx.h"
+#include "../scene/factory_scene_runtime.h"
+
+#include <algorithm>
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -27,6 +31,18 @@ bool g_menu = false;
 bool g_overlay = true;
 bool g_scenes = false;
 bool g_cutscenes = false;
+bool g_runtime = true;
+bool g_performance = false;
+bool g_objects = false;
+bool g_resources = false;
+ImGuiTextFilter g_resource_filter;
+int g_object_type = -1;
+
+constexpr int kHistorySize = 240;
+float g_frame_history[kHistorySize]{};
+int g_history_count = 0;
+int g_history_cursor = 0;
+bool g_freeze_history = false;
 char g_scene_filter[128]{};
 char g_cutscene_filter[128]{};
 
@@ -74,6 +90,169 @@ struct FrameAvg
 };
 
 FrameAvg g_avg;
+
+void draw_performance()
+{
+    ImGui::SetNextWindowSize(ImVec2(560.f, 300.f), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Performance", &g_performance))
+    {
+        ImGui::Text("Host average %.2f ms (%.1f FPS)", g_avg.host * 1000.f,
+            g_avg.host > 0.f ? 1.f / g_avg.host : 0.f);
+        ImGui::Text("Game dt %.4f s / raw %.4f s", g_avg.dt, g_avg.dt_raw);
+        ImGui::Checkbox("Freeze history", &g_freeze_history);
+        ImGui::SameLine();
+        if (ImGui::Button("Clear history"))
+        {
+            g_history_count = 0;
+            g_history_cursor = 0;
+        }
+        if (g_history_count > 0)
+        {
+            const auto range = std::minmax_element(g_frame_history, g_frame_history + g_history_count);
+            ImGui::Text("Last %d samples: min %.2f / max %.2f ms", g_history_count, *range.first, *range.second);
+            ImGui::PlotLines("Host ms", g_frame_history, g_history_count,
+                g_history_count == kHistorySize ? g_history_cursor : 0,
+                nullptr, 0.f, std::max(33.33f, *range.second), ImVec2(0.f, 120.f));
+        }
+        ImGui::TextWrapped("Host samples measure loop-to-loop elapsed time, including pacing and presentation; they are not GPU timings.");
+    }
+    ImGui::End();
+}
+
+void draw_runtime(const Game& game)
+{
+    ImGui::SetNextWindowSize(ImVec2(460.f, 430.f), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Runtime", &g_runtime))
+    {
+        ImGui::TextWrapped("Scene: %s", game.scene_name.c_str());
+        ImGui::Text("Frame %u / clock %u, time %.3f s", game.frame, game.clock.frame, game.clock.time);
+        ImGui::Text("Target %d Hz (%s)", clock_fps(game.clock), game.clock.pal ? "PAL" : "NTSC");
+        ImGui::Text("Script phase %d, hold %s", game.script_phase, game.script_hold ? "yes" : "no");
+        ImGui::TextWrapped("Requested script: %.*s", static_cast<int>(sizeof(game.requested_script)), game.requested_script);
+        ImGui::Text("Frontend mode %d / pending %d", game.frontend_mode, game.frontend_pending);
+        int width = 0;
+        int height = 0;
+        gfx_size(width, height);
+        ImGui::Text("Presenter: %s, %d x %d", gfx_backend_name(), width, height);
+        if (game.factory_scene)
+        {
+            const auto& scene = *game.factory_scene;
+            ImGui::SeparatorText("Native scene");
+            ImGui::Text("Actor start: %d (0 idle, 1 complete, -1 blocked)", scene.actor_start);
+            ImGui::Text("Owned objects %zu / registered count %u", scene.objects.size(), scene.factory.count);
+            ImGui::Text("Address bindings %zu / loading %u", scene.address_count(), scene.resources.loading);
+            ImGui::TextWrapped("Last missing resource: %s", scene.resources.last_missing.empty()
+                ? "none recorded" : scene.resources.last_missing.c_str());
+        }
+        else
+        {
+            ImGui::TextUnformatted("No native scene factory bound.");
+        }
+        if (ImGui::TreeNode("Delayed callbacks"))
+        {
+            size_t active = 0;
+            for (size_t i = 0; i < game.clock.delayed.size(); ++i)
+            {
+                const auto& slot = game.clock.delayed[i];
+                if (slot.fn != nullptr)
+                {
+                    ++active;
+                    ImGui::Text("Slot %zu: %u frames remaining", i, slot.frames_left);
+                }
+            }
+            ImGui::Text("%zu / %zu slots active", active, game.clock.delayed.size());
+            ImGui::TreePop();
+        }
+    }
+    ImGui::End();
+}
+
+void draw_objects(const Game& game)
+{
+    ImGui::SetNextWindowSize(ImVec2(600.f, 420.f), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Native objects", &g_objects))
+    {
+        ImGui::InputInt("Type (-1 = all)", &g_object_type);
+        ImGui::TextUnformatted("Read-only native factory ownership; addresses are retail tokens.");
+        if (game.factory_scene && ImGui::BeginTable("objects", 4,
+            ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_ScrollY, ImVec2(0.f, 0.f)))
+        {
+            ImGui::TableSetupColumn("Address");
+            ImGui::TableSetupColumn("Type (hex)");
+            ImGui::TableSetupColumn("Bytes");
+            ImGui::TableSetupColumn("Vtable");
+            ImGui::TableSetupScrollFreeze(0, 1);
+            ImGui::TableHeadersRow();
+            const auto& scene = *game.factory_scene;
+            for (const auto& object : scene.objects)
+            {
+                if (g_object_type >= 0 && object.type != g_object_type)
+                {
+                    continue;
+                }
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::Text("%08X", scene.find_address(object.bytes.get()));
+                ImGui::TableNextColumn();
+                ImGui::Text("%04X", unsigned(object.type));
+                ImGui::TableNextColumn();
+                ImGui::Text("%u", object.size);
+                ImGui::TableNextColumn();
+                ImGui::Text("%08X", object.vtable ? object.vtable->address : 0);
+            }
+            ImGui::EndTable();
+        }
+        if (!game.factory_scene)
+        {
+            ImGui::TextUnformatted("No native scene factory bound.");
+        }
+    }
+    ImGui::End();
+}
+
+void draw_resources(const Game& game)
+{
+    ImGui::SetNextWindowSize(ImVec2(620.f, 420.f), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Resource cache", &g_resources))
+    {
+        ImGui::Text("Cached bundles %zu / demand resources %zu", game.aids.bundles.size(), game.aids.demand_resources.size());
+        ImGui::TextUnformatted("Host cache contents; not a list of active native references. Sizes are heap bytes.");
+        g_resource_filter.Draw("Filter (include,-exclude)");
+        if (ImGui::BeginTable("bundles", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders |
+            ImGuiTableFlags_ScrollY, ImVec2(0.f, 0.f)))
+        {
+            ImGui::TableSetupColumn("Bundle");
+            ImGui::TableSetupColumn("Entries");
+            ImGui::TableSetupColumn("CPU bytes");
+            ImGui::TableSetupColumn("GPU bytes");
+            ImGui::TableSetupScrollFreeze(0, 1);
+            ImGui::TableHeadersRow();
+            const auto row = [](const char* name, const Bundle& bundle)
+            {
+                if (!g_resource_filter.PassFilter(name))
+                {
+                    return;
+                }
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted(name);
+                ImGui::TableNextColumn();
+                ImGui::Text("%zu", bundle.entries.size());
+                ImGui::TableNextColumn();
+                ImGui::Text("%zu", bundle.cpu_heap.size());
+                ImGui::TableNextColumn();
+                ImGui::Text("%zu", bundle.gpu_heap.size());
+            };
+            row("common", game.aids.common);
+            for (const auto& [name, bundle] : game.aids.bundles)
+            {
+                row(name.c_str(), bundle);
+            }
+            ImGui::EndTable();
+        }
+    }
+    ImGui::End();
+}
 
 void draw_scene_loader(Game& game)
 {
@@ -237,6 +416,12 @@ void debug_ui_build(Game& game, float host_dt)
         return;
     }
     g_avg.push(host_dt, game.clock.dt, game.clock.dt_raw);
+    if (!g_freeze_history)
+    {
+        g_frame_history[g_history_cursor] = host_dt * 1000.f;
+        g_history_cursor = (g_history_cursor + 1) % kHistorySize;
+        g_history_count = std::min(g_history_count + 1, kHistorySize);
+    }
     ImGui_ImplDX11_NewFrame();
     ImGui_ImplWin32_NewFrame();
     if (!g_menu)
@@ -253,6 +438,15 @@ void debug_ui_build(Game& game, float host_dt)
     {
         if (ImGui::BeginMainMenuBar())
         {
+            if (ImGui::BeginMenu("Diagnostics"))
+            {
+                ImGui::MenuItem("Runtime", nullptr, &g_runtime);
+                ImGui::MenuItem("Performance", nullptr, &g_performance);
+                ImGui::MenuItem("Native objects", nullptr, &g_objects);
+                ImGui::MenuItem("Resource cache", nullptr, &g_resources);
+                ImGui::MenuItem("Timing overlay", "F12", &g_overlay);
+                ImGui::EndMenu();
+            }
             if (ImGui::Button("Scenes"))
             {
                 g_scenes = !g_scenes;
@@ -261,7 +455,24 @@ void debug_ui_build(Game& game, float host_dt)
             {
                 g_cutscenes = !g_cutscenes;
             }
+            ImGui::TextUnformatted("F8: debug menu | F12: timing overlay");
             ImGui::EndMainMenuBar();
+        }
+        if (g_runtime)
+        {
+            draw_runtime(game);
+        }
+        if (g_performance)
+        {
+            draw_performance();
+        }
+        if (g_objects)
+        {
+            draw_objects(game);
+        }
+        if (g_resources)
+        {
+            draw_resources(game);
         }
         if (g_scenes)
         {

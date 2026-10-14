@@ -9,6 +9,7 @@ struct PlatformConfig
 {
     std::filesystem::path game_dir;
     bool headless = false;
+    bool debug_ui = false; // Open Debug D3D11 diagnostics at startup, including captures.
     int frames = 0; // 0 = until quit; headless defaults to 1
     std::filesystem::path screenshot; // PC readback of the last presented frame
     std::string scene;                // scene-order index or substring; empty boots the first scene

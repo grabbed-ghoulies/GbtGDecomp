@@ -52,6 +52,7 @@ gbtg::PlatformConfig create_platform_config(int argc, char** argv)
     
     cfg.game_dir = arg(argc, argv, "--game-dir", "OriginalFiles");
     cfg.headless = has_flag(argc, argv, "--headless");
+    cfg.debug_ui = has_flag(argc, argv, "--debug-ui");
     cfg.frames = int_arg(argc, argv, "--frames", 0);
     cfg.screenshot = arg(argc, argv, "--screenshot");
     cfg.scene = arg(argc, argv, "--scene").string();

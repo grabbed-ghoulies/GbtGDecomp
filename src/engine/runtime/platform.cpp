@@ -38,6 +38,12 @@ int run_platform(Game& game, const PlatformConfig& cfg)
     gfx_cfg.vsync = cfg.vsync;
     gfx_cfg.visible = !cfg.headless && cfg.screenshot.empty();
     const bool gfx_ok = gfx_init(gfx_cfg);
+#if defined(GBTG_DEBUG_UI)
+    if (cfg.debug_ui && !debug_ui_menu_open())
+    {
+        debug_ui_toggle_menu();
+    }
+#endif
     std::cout << "gfx: " << (gfx_ok ? gfx_backend_name() : "unavailable") << (gfx_has_window() ? " window" : " offscreen")
               << "\n";
 

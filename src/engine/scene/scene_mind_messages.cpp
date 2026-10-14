@@ -1,5 +1,6 @@
 #include "scene_mind_messages.h"
 #include "../entities/entity.h"
+#include "../camera/display_view.h"
 #include <cstddef>
 #include <cstring>
 
@@ -172,8 +173,53 @@ SceneMindMessages::SceneMindMessages(SceneMindServices& services, NativePlayerIn
           [](RuntimeBodyAttachedActor&) -> u16
           {
               unbound("body attach action (vtable +0x5C)");
+          }},
+      boost_preset_(services.boost_preset),
+      focus_{player.mind, player.actor, gaze_target_, eligibility_, services.target_eligibility,
+          services.target_addresses, services.query, retained_cone_distance_},
+      search_{player.actor, player.actor_bytes, eligibility_, nullptr, services.address_zero, retained_angle_,
+          services.angular_limit},
+      shape_target_{player.mind, player.body, player.actor, nullptr, body_bits(player),
+          *reinterpret_cast<i32*>(player.actor_bytes.data() + 0xCEC),
+          player.mind.empty() ? 0 : services.address_of(player.mind.data())},
+      proposal_{search_, shape_target_, player.mind_events, services.target_views, embedded_target_},
+      target_control_{focus_, proposal_, feedback_, services.clock, services.address_zero},
+      action_control_{target_control_, attachment_, body_bits(player), player.input_device, services.input_state,
+          target_bindings_, services.attachment_notice},
+      pending_{player.mind, pending_attachment_, player.mind_action, eligibility_, player.body,
+          player.body_selection, player.input_device, services.input_state, attachment_links_,
+          [](RuntimeBodyAttachedActor&) -> u32
+          {
+              unbound("body attach action (vtable +0x5C)");
+          }},
+      inactivity_{player.mind, body_bits(player), services.clock, player.input_device, services.input_state},
+      player_avoidance_{player.mind, player.body, player.actor,
+          *reinterpret_cast<i32*>(player.actor_bytes.data() + 0xCEC), player.input_device, services.input_state,
+          player.axis_device, services.keyboard, services.random, services.occupancy_initial, retained_direction_},
+      control_update_{action_control_, pending_, gaze_, inactivity_, control_, boost_, player_avoidance_,
+          player.actor_instance.animation, boost_preset_, camera_direction_, services.view_invert, services.random},
+      player_request_{parent_, control_update_, navigation_control_, player.body, body_bits(player),
+          player.body_selection, services.flag_names,
+          [&player]() -> u16
+          {
+              if (!player.body_slot_key)
+              {
+                  unbound("body effect action (vtable +0x38)");
+              }
+              return player.body_slot_key(0x38);
+          },
+          [&player]() -> u16
+          {
+              if (!player.body_slot_key)
+              {
+                  unbound("body contact action (vtable +0x3C)");
+              }
+              return player.body_slot_key(0x3C);
           }}
 {
+    services.target_eligibility[&player.actor] = &eligibility_;
+    services.target_addresses[&player.actor] = player.actor_address;
+    services.target_queries[&player.actor] = &body_query_;
     slots.object_at = [this](u32 address)
     {
         return services_.bytes_at(address);
@@ -213,7 +259,38 @@ SceneMindMessages::SceneMindMessages(SceneMindServices& services, NativePlayerIn
     {
         slots.messages = &player_messages_;
         slots.tick = &player_tick_;
+        slots.request_update = &player_request_;
     }
+}
+
+SceneMindMessages::~SceneMindMessages()
+{
+    services_.target_eligibility.erase(&player_.actor);
+    services_.target_addresses.erase(&player_.actor);
+    services_.target_queries.erase(&player_.actor);
+}
+
+// Views 0x0007D130 reads when the player mind's request slot runs.
+void SceneMindMessages::refresh_control()
+{
+    const auto mind = player_.mind;
+    if (entity_detail::g_display_view == nullptr)
+    {
+        unbound("player input rotation without the DAT_005077A8 display view");
+    }
+    camera_direction_ = entity_detail::g_display_view->forward;
+    search_.first = services_.first_target;
+    const u32 pending = read_u32(mind, 0x134);
+    pending_attachment_ = pending == 0 ? nullptr : &services_.attached_actor_at(pending);
+    if (read_u32(player_.actor_bytes, 0x8F8) != 0)
+    {
+        unbound("actor +0x8F8 live attachment view for the player shape target");
+    }
+    shape_target_.attachment = nullptr;
+    const u32 mind_address = services_.address_of(mind.data());
+    const u32 embedded_owner = read_u32(mind, 0xB8 + 0x10);
+    embedded_target_ = RuntimePlayerTargetView{mind.subspan(0xB8, 0x68), mind_address + 0xB8,
+        embedded_owner == 0 ? nullptr : services_.actor_at(embedded_owner), nullptr};
 }
 
 void SceneMindMessages::refresh()
@@ -290,6 +367,10 @@ void SceneMindMessages::prepare_tick()
     player_.mind_action = spawn == 0 ? nullptr : &services_.attached_actor_at(spawn);
     cinema_request_.body = player_.body;
     cinema_request_.input = player_.input;
+    if (!cinema_mind_)
+    {
+        refresh_control();
+    }
 }
 
 void SceneMindMessages::refresh_gaze()

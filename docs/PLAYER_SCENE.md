@@ -7403,3 +7403,12 @@ The imps' live update is clean. Cooper stops at player mind request slot
 `0x0007D360`, so the actor-update hold stays. Details and the next step are in
 `docs/NATIVE_GAMEPLAY_FRAME.md` ("Walk-alert, animation events and floor
 collision checkpoint").
+
+## Actor updates live (2026-10-14)
+
+`scene_tick_pause_counter` now runs the actor tree (`0x00123020`) and the
+`+0x934` list (`0x00122FE0`) every frame. The mind target registry
+(`DAT_00545988`) is a view over the live-attachment list. Cooper's player
+mind request slot `0x0007D360` has its full control context. Base, area,
+emitter and trigger actors register their update slots. See
+`docs/NATIVE_GAMEPLAY_FRAME.md` ("Actor updates live").

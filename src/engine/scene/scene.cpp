@@ -7,6 +7,7 @@
 #include "gbtg/resource.h"
 #include "../transitions/transition_data.h"
 #include "factory_scene_runtime.h"
+#include "scene_actor_services.h"
 
 #include <algorithm>
 #include <bit>
@@ -732,10 +733,12 @@ void scene_tick_pause_counter(Game& g, u8* scene)
         node->tick(node);
         node = next;
     }
-    // 0x00123020 over DAT_00511B18, then 0x00122FE0.
-    // Actor updates remain held: the imps now update cleanly, but Cooper's player
-    // mind reaches its request slot 0x0007D360, whose context is not attached
-    // (docs/NATIVE_GAMEPLAY_FRAME.md).
+    // 0x00123020 over DAT_00511B18, then 0x00122FE0. The native actors exist once the scene's actor
+    // services have started (the same gate the per-view draw uses).
+    if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1)
+    {
+        g.factory_scene->start_actors(g).update_scene_actors();
+    }
     // 0x001128A0 and 0x0011B670 are not translated.
     script_vm_tick(g, 0.f);
     // 0x000F4560 and 0x0013FD60 are not translated.

@@ -6,6 +6,13 @@
 #include "../entities/player_mind_messages.h"
 #include "../entities/player_input_binding.h"
 #include "../scripts/script_actor_query.h"
+#include "../entities/player_mind_request_update.h"
+#include "../entities/player_control_update.h"
+#include "../entities/player_mind_target_control.h"
+#include "../entities/player_mind_targets.h"
+#include "../entities/body_request_selection.h"
+#include "../entities/player_mind_control.h"
+#include "../navigation/player_avoidance.h"
 
 namespace gbtg
 {
@@ -56,6 +63,17 @@ struct SceneMindServices
     std::function<RuntimeMindTarget&(u32)> target_at;
     std::function<std::span<const u8>(const RuntimeBodyAttachedActor&)> attachment_link;
     std::function<u32()> active_player_link; // DAT_00511B48, alt list's next pointer.
+    // Player control (0x0007D130) views.
+    RuntimeMindTarget* const& first_target; // DAT_00545988.
+    const std::unordered_map<u32, RuntimePlayerTargetView*>& target_views;
+    std::unordered_map<Actor*, const RuntimePlayerAttachmentEligibility*>& target_eligibility;
+    std::unordered_map<Actor*, u32>& target_addresses;
+    std::unordered_map<const Actor*, RuntimeScriptMindQuery*>& target_queries;
+    const RuntimeScriptActorQueryContext& query;
+    const u32& view_invert; // DAT_005122D8.
+    std::span<const u8> boost_preset; // DAT_002FFF24.
+    float angular_limit; // DAT_004275B8.
+    u32& attachment_notice; // DAT_00433BD0.
 };
 
 // One mind's message graph: cinema minds (type 0x35, 0x0007C8B0) and player minds (type 0x34, 0x0007F1E0)
@@ -64,6 +82,7 @@ class SceneMindMessages
 {
 public:
     SceneMindMessages(SceneMindServices& services, NativePlayerInstance& player, NativePlayerMindSlots& slots);
+    ~SceneMindMessages();
     SceneMindMessages(const SceneMindMessages&) = delete;
     SceneMindMessages& operator=(const SceneMindMessages&) = delete;
     void refresh(); // Native snapshots of body fields read by the handlers.
@@ -110,6 +129,28 @@ private:
     RuntimeCinemaMindMovement movement_;
     RuntimeCinemaMindSpawnMovement spawn_;
     RuntimeCinemaMindRequestUpdate cinema_request_;
+    // Player mind request slot 0x0007D360 and its control update 0x0007D130.
+    Vec3 camera_direction_{}; // DAT_005077A8 +0x1C, copied before the mind runs.
+    std::span<const u8> boost_preset_;
+    float retained_cone_distance_ = 0.f; // 0x0007E600 caller-stack word.
+    float retained_angle_ = 0.f; // 0x00137DE0 caller-stack word.
+    float retained_direction_ = 0.f; // 0x00105F90 output word.
+    RuntimeBodyAttachedActor* pending_attachment_ = nullptr; // Mind +0x134.
+    RuntimePlayerTargetView embedded_target_{}; // Mind +0xB8.
+    std::unordered_map<u32, RuntimePlayerTargetActionBinding> target_bindings_;
+    std::unordered_map<RuntimeBodyAttachedActor*, std::span<const u8>> attachment_links_;
+    RuntimePlayerMindFocus focus_;
+    RuntimePlayerTargetSearch search_;
+    RuntimePlayerMindShapeTarget shape_target_;
+    RuntimePlayerMindProposal proposal_;
+    RuntimePlayerMindTargetControl target_control_;
+    RuntimePlayerMindActionControl action_control_;
+    RuntimePlayerMindPendingAttachment pending_;
+    RuntimePlayerMindInactivity inactivity_;
+    RuntimePlayerNavigationAvoidance player_avoidance_;
+    RuntimePlayerControlUpdate control_update_;
+    RuntimePlayerMindRequestUpdate player_request_;
     void refresh_gaze();
+    void refresh_control();
 };
 }

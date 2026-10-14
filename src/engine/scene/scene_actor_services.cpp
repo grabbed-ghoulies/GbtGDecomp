@@ -101,11 +101,13 @@
 #include "../transitions/scene_transitions.h"
 #include "../scripts/script_conditions.h"
 #include "../scripts/script_actor_query.h"
+#include "../entities/player_mind_target_control.h"
 #include "gbtg/model_runtime.h"
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <map>
+#include <unordered_set>
 
 extern "C"
 {
@@ -448,6 +450,24 @@ struct SceneActorServices::State
     std::unordered_map<scene_detail::CamFocus*, RuntimeScriptActorQueryView> query_views;
     RuntimeScriptActorQueryContext query{nullptr, query_views, address_zero.data()};
     RuntimeMindTarget* targets = nullptr; // DAT_00545988.
+    // DAT_00545988 walks the +8 links of the live attachments on DAT_00545984 (linked by 0x0012AFE0). Each
+    // record gets a retail-layout image (+0x10 actor, +0x14.. the record fields) and a target view, kept per
+    // record so pointers held by mind contexts stay valid; refresh_mind_targets() rebuilds them each frame.
+    struct SceneMindTargetRow
+    {
+        std::array<u8, 0x68> bytes{};
+        std::unique_ptr<RuntimeMindTarget> target;
+        RuntimePlayerTargetView view{};
+    };
+    std::unordered_map<const ActorLiveAttachment*, std::unique_ptr<SceneMindTargetRow>> mind_target_rows;
+    std::unordered_map<u32, RuntimePlayerTargetView*> target_views;
+    std::unordered_map<u32, RuntimeMindTarget*> target_records;
+    // Player minds register their eligibility (body +0x95C), address and body query views by actor.
+    std::unordered_map<Actor*, const RuntimePlayerAttachmentEligibility*> target_eligibility;
+    std::unordered_map<Actor*, u32> target_addresses;
+    std::unordered_map<const Actor*, RuntimeScriptMindQuery*> target_queries;
+    RuntimeScriptMindQuery absent_target_query{}; // Actors whose +0x95C is not a player body.
+    u32 attachment_notice = 0; // DAT_00433BD0.
     const void* script_records = nullptr; // DAT_0051108C.
     std::string goal_scratch; // DAT_00508EB8.
     std::vector<FactoryObject> callout_objects;
@@ -750,6 +770,7 @@ struct SceneActorServices::State
     }
     FactoryObject* object_of(const u8* bytes);
     u32 address_of(const void* pointer);
+    void refresh_mind_targets();
     // Engine-heap blocks (0x000F72D0 allocations) the scene's objects store: a token address per block.
     std::map<const void*, u32> heap_addresses;
     u32 next_heap_address = 0x30000000;
@@ -767,6 +788,7 @@ struct SceneActorServices::State
     RuntimeDirectorActor director_actor(NativePlayerInstance& player);
     void update_player(NativePlayerInstance& player); // Player vtable +0x10, 0x0002C2B0.
     void update_contact_prop(FactoryObject& object);
+    void update_base_actor(FactoryObject& object);
     RuntimeSegmentContactActor& prop_contact_actor(entity_detail::SegmentProbe& probe);
     void latch_message(entity_detail::LatchNode& node, const Message& message);
     std::unique_ptr<RuntimeBackgroundConstructionServices> background_services(NativeBackgroundInstance& background,
@@ -938,9 +960,10 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             unbound("strategy message actors");
         },
-        [](u32) -> RuntimeMindTarget*
+        [this](u32 address) -> RuntimeMindTarget*
         {
-            unbound("mind targets");
+            refresh_mind_targets();
+            return address == 0 ? nullptr : target_records.at(address);
         },
         targets, script_records, data(0x003398C8, 0x400), data(0x00217F18, 0x200), mind_goal_names.data(),
         goal_scratch,
@@ -957,13 +980,20 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         keyboard, voices, brews_taken, brew_accepted, prompt_lock, prompt_owner, difficulty, unlock_flags,
         brews_owned, brews_required, story_byte, intro_pending, intro_name, cases, case_body_bits,
         std::span<ActorAttachmentSlot, 20>(g_actor_attachment_slots), queue_limits, class_queue_limits,
-        [](const ActorLiveAttachment*) -> const RuntimeMindTarget*
+        [this](const ActorLiveAttachment* record) -> const RuntimeMindTarget*
         {
-            unbound("strategy target records");
+            refresh_mind_targets();
+            if (record == nullptr)
+            {
+                return nullptr;
+            }
+            return mind_target_rows.at(record)->target.get();
         },
-        [](const void*) -> std::span<const u8>
+        [this](const void* owner) -> std::span<const u8>
         {
-            unbound("strategy link actor bytes");
+            // 0x00112970 stores the member's actor at link +8.
+            auto& object = object_of_actor(*static_cast<Actor*>(const_cast<void*>(owner)));
+            return {object.bytes.get(), object.size};
         },
         active_actors, notices, occupancy_initial, data(0x004287BC, 0x40),
         [](const char*, u32) -> u32
@@ -974,17 +1004,40 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             unbound("imp fire effect messages");
         },
-        [](u32) -> RuntimeStrategyBodyView
+        [this](u32 address) -> RuntimeStrategyBodyView
         {
-            unbound("held body views");
+            // A player body (actor +0x95C) by its retail address.
+            auto* player = players->find_child_owner(scene.resolve_address(address, 0).data());
+            if (player == nullptr || player->body.empty() || scene.address_of(player->body.data()) != address)
+            {
+                unbound("held body view of an address that is not a player body");
+            }
+            return RuntimeStrategyBodyView{address, player->body, player->body_bits};
         },
-        [](const Actor&) -> RuntimeStrategyBodyView
+        [this](const Actor& actor) -> RuntimeStrategyBodyView
         {
-            unbound("target body views");
+            auto& object = object_of_actor(const_cast<Actor&>(actor));
+            if (object.type != 5)
+            {
+                // 0x000B4F50 loads actor +0x95C before 0x000B4EF0 decides whether to touch it. Only a player
+                // has a body there; other actors give the word and no body bytes.
+                const u32 word = object.size >= 0x960 ? read_u32({object.bytes.get(), object.size}, 0x95C) : 0;
+                if (word != 0)
+                {
+                    unbound("target body view of a factory type " + std::to_string(object.type) + " actor");
+                }
+                return RuntimeStrategyBodyView{0, {}, nullptr};
+            }
+            auto& player = players->player(object);
+            if (player.body.empty())
+            {
+                return RuntimeStrategyBodyView{0, {}, nullptr};
+            }
+            return RuntimeStrategyBodyView{scene.address_of(player.body.data()), player.body, player.body_bits};
         },
-        [](const Actor&) -> const RuntimeBodyModelNodes*
+        [this](const Actor& actor) -> const RuntimeBodyModelNodes*
         {
-            unbound("target model views");
+            return model_views_of(actor).nodes; // Actor +0x204 block directory.
         },
         attachment_limit}});
     players->install(scene.types);
@@ -1885,10 +1938,19 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         },
         [this](u32 address) -> Actor*
         {
+            // Mind +0x10 holds a DAT_00545988 target record; its actor is record +0x10.
+            if (const auto found = target_records.find(address); found != target_records.end())
+            {
+                return &found->second->actor;
+            }
             return actors->actors.at(scene.resolve_address(address, 0).data());
         },
         [this](u32 address) -> std::span<const u8>
         {
+            if (const auto found = target_views.find(address); found != target_views.end())
+            {
+                return found->second->bytes;
+            }
             auto* object = object_of(scene.resolve_address(address, 0).data());
             if (object == nullptr)
             {
@@ -1911,9 +1973,10 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             return players->player_at(address).self;
         },
-        [](u32) -> RuntimeMindTarget&
+        [this](u32 address) -> RuntimeMindTarget&
         {
-            unbound("mind target records (DAT_00545988)");
+            refresh_mind_targets();
+            return *target_records.at(address);
         },
         [](const RuntimeBodyAttachedActor&) -> std::span<const u8>
         {
@@ -1923,7 +1986,9 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             const auto* next = entity_detail::g_world.alt.next;
             return next == nullptr ? 0 : address_of(next);
-        }});
+        },
+        targets, target_views, target_eligibility, target_addresses, target_queries, query, view_invert,
+        data(0x002FFF24, 0x10), read_f32(data(0x004275B8, 4), 0), attachment_notice});
     active_services = this;
 }
 
@@ -1989,6 +2054,63 @@ u32 SceneActorServices::State::heap_address(const void* pointer, size_t size)
         next_heap_address += u32((size + 15) & ~size_t(15));
     }
     return found->second;
+}
+
+void SceneActorServices::State::refresh_mind_targets()
+{
+    std::unordered_set<const ActorLiveAttachment*> live;
+    target_views.clear();
+    target_records.clear();
+    RuntimeMindTarget* previous = nullptr;
+    targets = nullptr;
+    for (auto* link = static_cast<entity_detail::ListHead*>(global_attachments.next); link != nullptr;
+         link = static_cast<entity_detail::ListHead*>(link->next))
+    {
+        auto* record = reinterpret_cast<ActorLiveAttachment*>(reinterpret_cast<u8*>(link)
+            - offsetof(ActorLiveAttachment, global_link));
+        live.insert(record);
+        auto& row = mind_target_rows[record];
+        if (row == nullptr)
+        {
+            row = std::make_unique<SceneMindTargetRow>();
+        }
+        Actor& actor = *record->actor;
+        const u32 address = heap_address(record, 0x68);
+        const u32 actor_address = address_of(&actor);
+        std::memcpy(row->bytes.data() + 0x10, &actor_address, 4);
+        std::memcpy(row->bytes.data() + 0x14, &record->mode, 0x54);
+        std::span<const u8> actor_bytes;
+        const OccupancyRecord* occupancy = nullptr;
+        FactoryObject& object = object_of_actor(actor);
+        actor_bytes = {object.bytes.get(), object.size};
+        if (object.type == 5)
+        {
+            occupancy = players->player(object).current; // Actor +0xCA8.
+        }
+        RuntimeScriptMindQuery* query_view = &absent_target_query;
+        if (const auto found = target_queries.find(&actor); found != target_queries.end())
+        {
+            query_view = found->second;
+        }
+        row->target = std::make_unique<RuntimeMindTarget>(RuntimeMindTarget{nullptr, row->bytes, address, actor,
+            actor_bytes, *query_view, occupancy, record});
+        row->view = RuntimePlayerTargetView{row->bytes, address, &actor, row->target.get()};
+        if (previous == nullptr)
+        {
+            targets = row->target.get();
+        }
+        else
+        {
+            previous->next = row->target.get();
+        }
+        previous = row->target.get();
+        target_views[address] = &row->view;
+        target_records[address] = row->target.get();
+    }
+    std::erase_if(mind_target_rows, [&live](const auto& row)
+    {
+        return !live.contains(row.first);
+    });
 }
 
 u32 SceneActorServices::State::address_of(const void* pointer)
@@ -2207,6 +2329,34 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
     }
     if (type == 0xD || type == 0x1F || type == 0x23)
     {
+        // Vtable +0x10: the emitter's 0x0010A2E0 (getter 0x00109DD0), the trigger's 0x00069D20 (getter
+        // 0x00069620) and, for areas (getter 0x0006DBD0 keeps the base slot), 0x000420D0.
+        auto& view = actors->view(object);
+        const u8* bytes = object.bytes.get();
+        actor_updates[&view.bat.actor] = [this, bytes, type](Actor&)
+        {
+            auto& updated = *object_of(bytes);
+            if (type == 0x1F)
+            {
+                update_base_actor(updated);
+                return;
+            }
+            refresh_shape_poses(updated);
+            auto& updated_view = actors->view(updated);
+            refresh_actor_model_animation_view(updated_view);
+            frame->freeze = pause;
+            frame->dt = frame_delta;
+            frame->scene_scale = time_scale;
+            if (type == 0xD)
+            {
+                classes->update_emitter(updated);
+            }
+            else
+            {
+                classes->update_trigger(updated);
+            }
+            store_actor_model_animation_view(updated_view);
+        };
         classes->message(object, message);
         return;
     }
@@ -2278,6 +2428,16 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
     }
     if (type == 2 || type == 0x15)
     {
+        if (type == 2)
+        {
+            // Getter 0x0003C080 keeps the base update 0x000420D0 at +0x10.
+            auto& view = actors->view(object);
+            const u8* bytes = object.bytes.get();
+            actor_updates[&view.bat.actor] = [this, bytes](Actor&)
+            {
+                update_base_actor(*object_of(bytes));
+            };
+        }
         dispatch_base_actor_word_message(base_of(object).base, message, word_messages);
         return;
     }
@@ -2331,6 +2491,19 @@ RuntimeSegmentContactActor& SceneActorServices::State::prop_contact_actor(entity
     }
     slot->child_link = view.render.child.prev != nullptr ? 1u : 0u;
     return *slot;
+}
+
+// Base actor vtable +0x10 (0x000420D0) over the scene's frame context.
+void SceneActorServices::State::update_base_actor(FactoryObject& object)
+{
+    refresh_shape_poses(object);
+    auto& view = actors->view(object);
+    refresh_actor_model_animation_view(view);
+    frame->freeze = pause;
+    frame->dt = frame_delta;
+    frame->scene_scale = time_scale;
+    update_actor_frame(view.frame, *frame);
+    store_actor_model_animation_view(view);
 }
 
 void SceneActorServices::State::update_contact_prop(FactoryObject& object)
@@ -2672,7 +2845,8 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
     const u8* floor_hint = nullptr;
     if (!mind_view.empty() && read_u32(mind_view, 0x10) != 0)
     {
-        floor_hint = scene.resolve_address(read_u32(mind_view, 0x10), 0x1A).data();
+        // Mind +0x10 is a DAT_00545988 target record.
+        floor_hint = target_views.at(read_u32(mind_view, 0x10))->bytes.data();
     }
     if (read_u32(player.body, 0x710) != 0)
     {
@@ -3624,6 +3798,7 @@ void SceneActorServices::update_scene_actors()
     state.time_scale = g_sim_scale;
     state.motion_steps = g_4312e0;
     state.pal = state.game.clock.pal ? 1 : 0;
+    state.refresh_mind_targets();
     const std::function<bool(Actor&)> retired = [&state](Actor& actor)
     {
         const auto found = state.actors->render.find(&actor);

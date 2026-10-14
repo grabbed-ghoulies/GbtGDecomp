@@ -257,3 +257,58 @@ request context is built, then lift the hold.
 Not yet checked: whether retail camera probes (`0x00026100` words 0xC and the
 camera mask; camera rig words 4 and the camera mask) behave differently now
 that the mask/mode order is corrected; they take the same corrected path.
+
+## Actor updates live (2026-10-14)
+
+`scene_tick_pause_counter` now calls `0x00123020`/`0x00122FE0`
+(`update_scene_actors`) every frame. The hold is gone. With no input, the
+opening runs 900 frames without an update error. To get there:
+
+- **Mind target registry.** `DAT_00545988` is the `+8` link of each live
+  attachment on `DAT_00545984` (linked by `0x0012AFE0`; read by `0x00129640`,
+  `0x00129770` and the target search). `refresh_mind_targets()` runs at the
+  start of each actor-update pass. It gives every record a retail-layout image
+  (+0x10 actor address, then the record fields from +0x14) and a
+  `RuntimeMindTarget` and `RuntimePlayerTargetView`. Rows are kept per record,
+  and each record's address is its heap token. The "mind targets", "strategy
+  target records" and "mind target records" lookups now use this table.
+  Mind +0x10 holds one of these record addresses, so the mind services'
+  `bytes_at`/`actor_at` and the update's floor hint (`+0x19`) resolve it
+  there.
+- **Player mind request slot `0x0007D360`.** SceneMindMessages builds the full
+  `0x0007D130` control graph for type-0x34 minds:
+  - focus, target search, shape target, proposal and target control
+    (`0x0007E4B0`), action control (`0x0007D890`);
+  - pending attachment, inactivity, player navigation avoidance, the boost
+    preset (`DAT_002FFF24`), `DAT_004275B8` and `DAT_00433BD0`;
+  - camera direction (`DAT_005077A8` +0x1C, copied before the mind runs) and
+    `DAT_005122D8`.
+
+  Player minds register their eligibility, actor address and body query for
+  other minds' focus checks.
+- **Other actor updates.** Type 2 and areas (0x1F) run the base
+  `0x000420D0`. Emitters (0xD) run `0x0010A2E0` and triggers (0x23) run
+  `0x00069D20`. Each is registered when the actor receives its first
+  message, as the other classes are.
+- **Imp fire strategy (0x46) views.** Strategy link +8 maps to its actor's
+  object. `body_at`/`body_of` give player bodies (actor +0x95C); for other
+  actors `body_of` returns the +0x95C word, which `0x000B4F50` only
+  dereferences after `0x000B4EF0`. `model_of` is the actor +0x204 block
+  directory.
+
+Still raising when reached:
+
+- body attach action (vtable +0x5C) and walk-alert message 0x53
+  (`0x00023890`);
+- orientation `0x00134720`;
+- the actor +0x8F8 live-attachment view;
+- the target-action bindings of `0x0007D890` (the map is empty, so a target
+  event with input enabled throws);
+- the attachment link map of `0x0007D210`.
+
+The body query that target records expose for a player is that player's
+snapshot from the last time its own mind ran, not live body fields.
+
+Next: drive the fight. The `--player-opening` flow presses A through the
+tutorial and holds at "(next bit)". Feed stick input past it and translate
+what the attack, damage and "Kill All" path reaches.

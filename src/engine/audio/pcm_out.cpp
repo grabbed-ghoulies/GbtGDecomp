@@ -13,6 +13,7 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <unordered_map>
 #include <string>
 #include <vector>
 
@@ -112,6 +113,8 @@ std::array<float, 256> g_category_volumes = []()
     return volumes;
 }();
 bool g_listener_effect = false;
+// The Xbox listener reverb (I3DL2) is a wet send beside each voice's dry path, so it lives on its own submix.
+IXAudio2SubmixVoice* g_reverb = nullptr;
 // Owned cue voices routed into a sound-source submix by IXACTSoundBank_PlayEx.
 std::map<IXAudio2SourceVoice*, IXAudio2Voice*> g_source_routes;
 std::vector<PcmVoice> g_voices;
@@ -518,6 +521,14 @@ void build_catalog(const Game& g)
     (void)banks_by_length;
 }
 
+struct NativeCueNotes
+{
+    bool prepared = false;
+    bool started = false;
+    bool playing = false;
+};
+std::unordered_map<void*, NativeCueNotes> g_cue_notes; // By prepared XAudio2 voice.
+
 bool ensure_device()
 {
     if (g_xa)
@@ -548,7 +559,37 @@ bool ensure_device()
         return false;
     }
     g_master->SetVolume(g_master_volume);
+    XAUDIO2_VOICE_DETAILS details;
+    g_master->GetVoiceDetails(&details);
+    if (SUCCEEDED(g_xa->CreateSubmixVoice(&g_reverb, details.InputChannels, details.InputSampleRate)))
+    {
+        IUnknown* effect = nullptr;
+        if (SUCCEEDED(XAudio2CreateReverb(&effect)))
+        {
+            XAUDIO2_EFFECT_DESCRIPTOR descriptor{effect, TRUE, details.InputChannels};
+            const XAUDIO2_EFFECT_CHAIN chain{1, &descriptor};
+            if (SUCCEEDED(g_reverb->SetEffectChain(&chain)))
+            {
+                g_listener_effect = true;
+            }
+            // Silent until the game sets a listener reverb.
+            g_reverb->SetVolume(0.f);
+            effect->Release();
+        }
+    }
     return true;
+}
+
+// A voice's sends: the dry mix to the master voice and, once the listener reverb exists, the wet send.
+HRESULT route_dry_and_reverb(IXAudio2Voice* voice)
+{
+    if (g_reverb == nullptr || !g_listener_effect)
+    {
+        return voice->SetOutputVoices(nullptr);
+    }
+    XAUDIO2_SEND_DESCRIPTOR sends[2]{{0, g_master}, {0, g_reverb}};
+    const XAUDIO2_VOICE_SENDS list{2, sends};
+    return voice->SetOutputVoices(&list);
 }
 
 void reap_voices()
@@ -720,6 +761,7 @@ u64 play_choice(const std::string& cue, const WaveChoice& choice, bool loop = fa
         std::cout << "audio voice failed " << cue << "\n";
         return fail(status);
     }
+    route_dry_and_reverb(slot.voice);
     slot.category = choice.category;
     status = slot.voice->SetVolume(g_category_volumes[slot.category]);
     if (FAILED(status))
@@ -1194,6 +1236,7 @@ void pcm_play_pcm(const char* cue, const std::vector<u8>& pcm, int rate, int cha
     {
         return;
     }
+    route_dry_and_reverb(slot.voice);
     slot.voice->SetVolume(volume);
     XAUDIO2_BUFFER buf{};
     buf.AudioBytes = UINT32(slot.pcm.size());
@@ -1292,23 +1335,7 @@ AudioListenerSettings native_audio_listener_settings()
         }
         if (!g_listener_effect)
         {
-            IUnknown* effect = nullptr;
-            HRESULT status = XAudio2CreateReverb(&effect);
-            if (FAILED(status))
-            {
-                return static_cast<i32>(status);
-            }
-            XAUDIO2_VOICE_DETAILS details;
-            g_master->GetVoiceDetails(&details);
-            XAUDIO2_EFFECT_DESCRIPTOR descriptor{effect, TRUE, details.InputChannels};
-            const XAUDIO2_EFFECT_CHAIN chain{1, &descriptor};
-            status = g_master->SetEffectChain(&chain);
-            effect->Release();
-            if (FAILED(status))
-            {
-                return static_cast<i32>(status);
-            }
-            g_listener_effect = true;
+            return static_cast<i32>(E_FAIL);
         }
         XAUDIO2FX_REVERB_I3DL2_PARAMETERS parameters{
             100.f,
@@ -1321,7 +1348,12 @@ AudioListenerSettings native_audio_listener_settings()
         XAUDIO2FX_REVERB_PARAMETERS native;
         ReverbConvertI3DL2ToNative(&parameters, &native);
         (void)apply;
-        return static_cast<i32>(g_master->SetEffectParameters(0, &native, sizeof(native)));
+        const HRESULT status = g_reverb->SetEffectParameters(0, &native, sizeof(native));
+        if (SUCCEEDED(status))
+        {
+            g_reverb->SetVolume(1.f);
+        }
+        return static_cast<i32>(status);
 #else
         (void)words;
         (void)apply;
@@ -1389,6 +1421,7 @@ AudioCoreCueBoundaries native_audio_core_cue_boundaries(const Game& game,
             }
             g_source_routes[voice] = static_cast<IXAudio2Voice*>(source);
         }
+        g_cue_notes[voice].started = true;
         return static_cast<i32>(voice->Start(0));
 #else
         (void)source;
@@ -1397,6 +1430,93 @@ AudioCoreCueBoundaries native_audio_core_cue_boundaries(const Game& game,
 #endif
     };
     return boundaries;
+}
+
+void dispatch_native_audio_notifications(std::span<AudioCoreBank* const> banks)
+{
+#if defined(_WIN32)
+    for (AudioCoreBank* bank : banks)
+    {
+        if (bank == nullptr)
+        {
+            continue;
+        }
+        AudioCoreLink* link = bank->cues.next;
+        while (link != nullptr)
+        {
+            AudioCoreLink* next = link->next;
+            auto* cue = static_cast<AudioCoreCue*>(link);
+            auto* voice = static_cast<IXAudio2SourceVoice*>(cue->runtime.handle);
+            if (voice != nullptr && cue->callback != nullptr)
+            {
+                auto& notes = g_cue_notes[voice];
+                XAUDIO2_VOICE_STATE state{};
+                voice->GetState(&state);
+                if (!notes.prepared)
+                {
+                    notes.prepared = true;
+                    cue->callback(cue->callback_context, *cue, 3);
+                }
+                else if (notes.started && state.BuffersQueued == 0)
+                {
+                    g_cue_notes.erase(voice);
+                    cue->callback(cue->callback_context, *cue, 1);
+                }
+                else if (notes.started && !notes.playing)
+                {
+                    notes.playing = true;
+                    cue->callback(cue->callback_context, *cue, 0);
+                }
+            }
+            link = next;
+        }
+    }
+#else
+    (void)banks;
+#endif
+}
+
+void boot_native_audio(const Game& game)
+{
+    static NativeAudioBanks banks;
+    banks.memory = native_audio_core_memory();
+    NativeAudioBootBoundaries boundaries;
+    boundaries.resource = [&game](const char* name) -> std::span<const u8>
+    {
+        const BundleEntry* entry = find_entry(game.aids.common, name);
+        return entry == nullptr ? std::span<const u8>() : std::span<const u8>(entry->cpu);
+    };
+    boundaries.resource_error = [](u32 code)
+    {
+        throw Error("audio boot resource error " + std::to_string(code));
+    };
+    boundaries.create_engine = []()
+    {
+#if defined(_WIN32)
+        ensure_device();
+#endif
+    };
+    boundaries.download_effects = [](std::span<const u8>)
+    {
+        // XAudio2 has no DSP image; source reverb uses the XAudio2 reverb effect.
+    };
+    boundaries.register_wavebanks = [&game]()
+    {
+        build_catalog(game);
+    };
+    boundaries.create_sound_bank = [](std::span<const u8> image, void*& handle) -> i32
+    {
+        // Cues resolve by name through the playback boundary; the bank's bytes identify its handle.
+        handle = const_cast<u8*>(image.data());
+        return 0;
+    };
+    boundaries.register_notification = [](void*, u32)
+    {
+        // Cue completion is read from the XAudio2 voice state.
+    };
+    initialize_native_audio(banks, boundaries);
+    std::cout << "native audio banks " << banks.bank_count << " names " << banks.bank_names.size()
+              << " cues " << banks.cue_names.size() << "\n";
 }
 
 AudioCoreMemory native_audio_core_memory()
@@ -1437,6 +1557,7 @@ AudioCoreSourceBoundaries native_audio_core_source_boundaries()
         const HRESULT status = g_xa->CreateSubmixVoice(&voice, flags == 2 ? 1 : 2, details.InputSampleRate);
         if (SUCCEEDED(status))
         {
+            route_dry_and_reverb(voice);
             handle = voice;
         }
         return static_cast<i32>(status);
@@ -1507,7 +1628,7 @@ AudioCoreSourceBoundaries native_audio_core_source_boundaries()
             });
             if (live)
             {
-                route->first->SetOutputVoices(nullptr);
+                route_dry_and_reverb(route->first);
             }
             route = g_source_routes.erase(route);
         }

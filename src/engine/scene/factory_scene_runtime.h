@@ -3,6 +3,7 @@
 #include "executable_resources.h"
 #include "scene_marker_handlers.h"
 #include "scene_actor_services.h"
+#include "scene_controls.h"
 #include <map>
 
 namespace gbtg
@@ -23,6 +24,9 @@ public:
     ObjectFactoryRegistry factory{types};
     std::array<u32, type_count> retail_getters{};
     std::array<u32, type_count> retail_names{};
+    u32 random = 0; // DAT_0054DD7C.
+    // Scene controls (types 3 and 0x91): the script can create them while the scene loads.
+    std::unique_ptr<NativeSceneControlOwner> controls;
     std::vector<FactoryObject> objects;
     // Type 1 maps each instance's address on construction and releases it on destruction. Owners that
     // install their own base registration must call this again afterwards.

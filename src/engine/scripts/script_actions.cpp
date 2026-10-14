@@ -10,6 +10,7 @@
 #include "../entities/ghouly_requests.h"
 #include "../scene/actor_loading.h"
 #include "../scene/factory_scene_runtime.h"
+#include "../scene/executable_resources.h"
 #include "../scene/scene_object_requests.h"
 #include "../runtime/name_lookup.h"
 #include "script_dialogue_actions.h"
@@ -1979,6 +1980,28 @@ bool cutscene_retained_for_transition(const SceneScript& script, const ScriptNod
 //
 // Type 0x8D would call 0x00038720. EAX is node+8 and the stack dword is 6.
 // That call is not translated. The case falls through and returns 2.
+// Xbox 0x00116C90
+void create_scene_ambient_tune(Game& g)
+{
+    // A 0x80-byte name buffer, zero past the string; 0x00107720 clones, 0x00107520 creates, the clone is freed.
+    std::array<char, 0x80> name{};
+    std::strcpy(name.data(), "aid_objparams_ghoulies_scenecontrol_ambient_tune");
+    if (g.factory_scene == nullptr || g.executable_resources == nullptr)
+    {
+        throw Error("ambient tune creation without the scene's object factory");
+    }
+    ClonedExecutableResource parameters = clone_executable_resource(g.executable_resources->pools, name.data());
+    if (parameters.bytes == nullptr)
+    {
+        throw Error("ambient tune objparams are missing; 0x00107520 reads the null clone");
+    }
+    FactoryObject object = create_factory_object(g.factory_scene->factory, {parameters.bytes.get(), parameters.size});
+    if (object.bytes != nullptr)
+    {
+        g.factory_scene->keep_object(std::move(object));
+    }
+}
+
 // Xbox 0x00127340
 int script_handle_event_actions(Game& g, const ScriptNode& node)
 {
@@ -2000,6 +2023,7 @@ int script_handle_event_actions(Game& g, const ScriptNode& node)
     case 0x45:
         if (g_flag_e560 == 0)
         {
+            create_scene_ambient_tune(g);
             g_flag_e560 = 1;
             return 2;
         }
@@ -2537,8 +2561,23 @@ int script_handle_world_actions(Game& g, const ScriptNode& node, int param_2, in
             return 2;
         }
         {
+            // 0x00107720 clones the objparams, 0x00107520 creates the object and 0x000663E0 frees the clone.
             const std::string key = node_cstr(g.scene_script, node, 8);
-            (void)key;
+            if (g.factory_scene == nullptr || g.executable_resources == nullptr)
+            {
+                throw Error("script object creation without the scene's object factory");
+            }
+            ClonedExecutableResource parameters = clone_executable_resource(g.executable_resources->pools,
+                key.c_str());
+            if (parameters.bytes != nullptr)
+            {
+                FactoryObject object = create_factory_object(g.factory_scene->factory,
+                    {parameters.bytes.get(), parameters.size});
+                if (object.bytes != nullptr)
+                {
+                    g.factory_scene->keep_object(std::move(object));
+                }
+            }
         }
         return 2;
     case 4:

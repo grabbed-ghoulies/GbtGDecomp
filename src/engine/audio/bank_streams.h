@@ -35,6 +35,7 @@ struct AudioBankStreams
     std::array<AudioStreamSlot, 6> streams;
     AudioEventVoices& voices;
 };
+void initialize_tracked_audio_channels(AudioBankStreams& context); // Xbox 0x00038BF0
 AudioTrackedBank* next_tracked_audio_bank(AudioTrackedBank* bank,
     AudioBankStreams& context); // Xbox 0x00038400
 AudioTrackedBank* find_tracked_audio_bank(const char* name, AudioBankStreams& context); // Xbox 0x00038460

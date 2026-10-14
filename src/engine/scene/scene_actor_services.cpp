@@ -36,6 +36,10 @@
 #include "ambient.h"
 #include "../navigation/model_grid.h"
 #include "../audio/bank_streams.h"
+#include "scene_controls.h"
+#include "scene_control_update.h"
+#include "scene_object_requests.h"
+#include "../frontend/frontend_slots.h"
 #include "../camera/cutscene_impulse.h"
 #include "../cutscenes/event_assets.h"
 #include "gbtg/language.h"
@@ -265,7 +269,7 @@ struct SceneActorServices::State
 
     // Retail globals. Zero-initialised storage is BSS whose scene-start value is zero; values read
     // from the executable name their initialised-data address.
-    u32 random = 0; // DAT_0054DD7C.
+    u32& random = scene.random; // DAT_0054DD7C.
     std::array<u8, 0x1000> address_zero{}; // Reads through a null retail pointer.
     const char empty_name[4]{}; // DAT_00546208.
     std::vector<const char*> actor_tags; // DAT_0042A854, 0xE9 names.
@@ -596,6 +600,7 @@ struct SceneActorServices::State
     std::unordered_map<Actor*, std::function<void(Actor&)>> actor_updates; // Actor vtable +0x10.
     std::unordered_map<Actor*, std::unique_ptr<RuntimeSegmentContactActor>> prop_contact_views;
     std::unique_ptr<AudioBankStreams> audio_banks; // DAT_004DF370, DAT_004E030C.
+    void create_scene_objects(); // Xbox 0x0011C980
     RuntimeModelRenderContext model_renderer{}; // DAT_004370A0..
     RuntimeSceneFog fog{}; // DAT_00509AFC..
     CutsceneCameraImpulse camera_impulse{}; // DAT_0050E7BC..
@@ -1260,13 +1265,28 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         throw Error("cutscene track actor has no factory object");
     };
     audio_banks = std::make_unique<AudioBankStreams>(AudioBankStreams{{}, {}, {}, voices});
+    initialize_tracked_audio_channels(*audio_banks); // Boot 0x00033030 runs 0x00038BF0 over DAT_004E030C.
+    scene.controls->context.clock = &clock;
+    scene.controls->context.audio = audio_banks.get();
     // The XACT engine boundaries behind the audio core: heap, sound sources and cue preparation.
     audio_sources.memory = native_audio_core_memory();
     audio_sources.boundaries = native_audio_core_source_boundaries();
-    audio_cues.boundaries = native_audio_core_cue_boundaries(game, [](void*, u32) -> const char*
+    audio_cues.boundaries = native_audio_core_cue_boundaries(game, [](void* bank, u32 index) -> const char*
     {
-        unbound("audio core cue names for a sound bank handle");
+        if (g_native_audio == nullptr)
+        {
+            unbound("audio core cue names before boot 0x0003A280");
+        }
+        static std::string name;
+        name = native_audio_cue_name(*g_native_audio, bank, index);
+        return name.c_str();
     });
+    if (g_native_audio != nullptr)
+    {
+        // DAT_004E13B0, the sound banks 0x00039F50 created at boot.
+        voices.banks = std::span<AudioCoreBank* const>(g_native_audio->banks.data(),
+            size_t(g_native_audio->bank_count));
+    }
     audio_cues.sound = native_sound_boundaries();
     cutscene_factory = std::make_unique<CutsceneActorFactoryContext>(CutsceneActorFactoryContext{scene.factory,
         image.pools, replacement_source.data(), replacement_target.data()});
@@ -1994,6 +2014,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
 
 SceneActorServices::State::~State()
 {
+
     // The dialogue's cutscene still holds rows over the scene's cutscene actors: close it before they go.
     if (game.script_dialogue == script_dialogue.get() && script_dialogue != nullptr)
     {
@@ -2424,6 +2445,11 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
             return;
         }
         player.self.message(message);
+        return;
+    }
+    if (type == 3 || type == 0x91)
+    {
+        scene.controls->message(object, message);
         return;
     }
     if (type == 2 || type == 0x15)
@@ -3723,12 +3749,66 @@ void SceneActorServices::start_background()
 
 void SceneActorServices::start_scene(const std::function<void()>& script_event)
 {
+    auto& state = *state_;
     start_background();
+    state.create_scene_objects(); // 0x0011C980
     start_markers();
+    // 0x00115FF0: the pending scene controls join the active and update lists.
+    const std::function<RuntimeActorLink&(RuntimeActorLink&)> update_link = [&state](RuntimeActorLink& link)
+        -> RuntimeActorLink&
+    {
+        return state.scene.controls->instance_of(link).update;
+    };
+    const std::function<void(RuntimeActorLink&, std::span<const u32>)> control_message =
+        [&state](RuntimeActorLink& link, std::span<const u32> message)
+    {
+        auto& control = state.scene.controls->instance_of_update(link);
+        message_runtime_scene_control(control, message, g_scene_controls);
+    };
+    const std::function<void(RuntimeActorLink&)> control_update = [](RuntimeActorLink&)
+    {
+        throw Error("scene control update 0x001160F0 callback is not bound");
+    };
+    RuntimeActorLink*& pending = g_scene_controls.pending.next; // DAT_0050E440 itself.
+    RuntimeSceneControlUpdates controls{pending, g_scene_controls.active, g_scene_controls.updates, update_link,
+        control_message, control_update};
+    activate_runtime_scene_controls(controls);
     activate_actors();
     script_event();
     send_scene_start_notice();
+    notify_runtime_scene_controls(controls); // 0x00116090
     send_scene_start();
+}
+
+// Xbox 0x0011C980
+void SceneActorServices::State::create_scene_objects()
+{
+    auto& requests = g_scene_object_requests;
+    if (requests.count < 1)
+    {
+        requests.count = 0;
+        return;
+    }
+    for (i32 index = 0; index < requests.count; ++index)
+    {
+        const char* name = requests.objects.data() + size_t(index) * 128;
+        if (std::memcmp(name, "aid_", 4) != 0)
+        {
+            continue;
+        }
+        // 0x00034D00 finds the objparams; the clone and 0x00107520 creation follow, then the clone is freed.
+        ClonedExecutableResource parameters = clone_executable_resource(image.pools, name);
+        if (parameters.bytes == nullptr)
+        {
+            continue;
+        }
+        FactoryObject object = create_factory_object(scene.factory, {parameters.bytes.get(), parameters.size});
+        if (object.bytes != nullptr)
+        {
+            scene.keep_object(std::move(object));
+        }
+    }
+    requests.count = 0;
 }
 
 void SceneActorServices::send_scene_start_notice()
@@ -3834,6 +3914,13 @@ void SceneActorServices::update_scene_actors()
         throw;
     }
     state.effect_pass_scratch = previous;
+}
+
+void SceneActorServices::update_audio()
+{
+    auto& state = *state_;
+    dispatch_native_audio_notifications(state.voices.banks); // 0x0015B780
+    tick_audio_event_voices(state.voices); // 0x000396F0
 }
 
 void SceneActorServices::update_sounds()

@@ -37,6 +37,8 @@ public:
     // +0x934 list from DAT_00511B20 (0x00122FE0).
     void update_scene_actors();
     void update_sounds(); // Native context binding for Xbox 0x0012A150.
+    // The frame's native audio: the cue notifications of 0x0015B780, then the event voices (0x000396F0).
+    void update_audio();
     void update_effects(RuntimeEffectPassScratch& scratch); // Native context binding for Xbox 0x000ED480.
     bool activation_pending() const; // Pending actor +0x900 list is nonempty.
     std::span<const u32> active_actor_addresses() const; // Activated actor +0x910 order.

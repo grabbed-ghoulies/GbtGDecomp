@@ -335,6 +335,7 @@ extern i32 g_state_2490;
 // Type 0x8D would call 0x00038720. EAX is node+8 and the stack dword is 6.
 // That call is not translated. The case falls through and returns 2.
 // Xbox 0x00127340
+void create_scene_ambient_tune(Game& g); // Xbox 0x00116C90
 int script_handle_event_actions(Game& g, const ScriptNode& node); // Xbox 0x00127340
 
 // Xbox 0x001274B0. Handler 13. The dword at node+4 is the type. The byte map

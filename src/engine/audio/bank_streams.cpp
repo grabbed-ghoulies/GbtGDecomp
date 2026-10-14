@@ -30,6 +30,17 @@ AudioTrackedBank* allocate_tracked_audio_bank(i32 id, const char* name, AudioBan
     return nullptr;
 }
 
+// Xbox 0x00038BF0
+void initialize_tracked_audio_channels(AudioBankStreams& context)
+{
+    for (auto& channel : context.channels)
+    {
+        channel.voice = -1;
+        channel.name[0] = 0;
+        channel.owned = 0;
+    }
+}
+
 // Xbox 0x00038BB0
 void retire_tracked_audio_channel(AudioTrackedChannel& channel, AudioBankStreams& context)
 {

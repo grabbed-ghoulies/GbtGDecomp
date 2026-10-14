@@ -75,6 +75,7 @@ add_library(gbtg_lib STATIC
     src/engine/entities/body_stand_alert_tick.cpp
     src/engine/entities/body_walk_alert_tick.cpp
     src/engine/scene/scene_control_update.cpp
+    src/engine/scene/scene_controls.cpp
     src/engine/scene/scene_gameplay_time.cpp
     src/engine/scene/scene_body_messages.cpp
     src/engine/scene/scene_mind_messages.cpp
@@ -244,6 +245,7 @@ add_library(gbtg_lib STATIC
     src/engine/frontend/scoreboard_messages.cpp
     src/engine/frontend/score_awards.cpp
     src/engine/audio/listener_settings.cpp
+    src/engine/audio/native_audio.cpp
     src/gbtg/graphics/font.cpp
     src/gbtg/audio/wavebank.cpp
     src/gbtg/resources/xbe.cpp

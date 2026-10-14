@@ -5,9 +5,11 @@
 
 namespace gbtg
 {
-struct AudioCoreBank
+struct AudioCoreBank : AudioCoreHeader
 {
     RuntimeSoundBank runtime; // +18
+    const u8* image; // +1C, the preloaded bank's bytes (0x0015CB10)
+    u8 preloaded; // +20
     AudioCoreLink cues; // +24
 };
 struct AudioCoreCue : AudioCoreHeader

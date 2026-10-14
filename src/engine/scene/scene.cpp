@@ -69,6 +69,7 @@ extern "C"
 #include "scene.h"
 #include "scene_loading.h"
 #include "scene_tick_nodes.h"
+#include "scene_controls.h"
 #include "../transitions/scene_transitions.h"
 #include "../scripts/script_actions.h"
 #include "../scripts/script_vm.h"
@@ -726,13 +727,7 @@ void scene_tick_pause_counter(Game& g, u8* scene)
     {
         // 0x000F4A00 is not translated. DAT_0050E438 is loaded after it.
     }
-    SceneTickNode* node = g_50e438;
-    while (node != nullptr)
-    {
-        SceneTickNode* next = node->next;
-        node->tick(node);
-        node = next;
-    }
+    tick_runtime_scene_control_list(); // DAT_0050E438, each active control's vtable +0x10.
     // 0x00123020 over DAT_00511B18, then 0x00122FE0. The native actors exist once the scene's actor
     // services have started (the same gate the per-view draw uses).
     if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1)

@@ -69,6 +69,7 @@ extern "C"
 
 #include "scene_types.h"
 #include "factory_scene_runtime.h"
+#include "../frontend/frontend_slots.h"
 #include "../cutscenes/cutscene_runtime.h"
 #include "scene.h"
 #include "scene_loading.h"
@@ -275,6 +276,10 @@ void load_scene_contents(Game& g, std::string_view name)
     if (g.executable_resources != nullptr)
     {
         g.factory_scene = std::make_shared<SceneFactoryRuntime>(g.aids, g.executable_resources);
+        g.factory_scene->controls->context.chapter = [&g]() -> i32
+        {
+            return script_chapter_index(g.scene_script.name); // 0x0004B4D0
+        };
     }
     if (const auto rel = aid_to_bundle_rel(g.scene_name))
     {

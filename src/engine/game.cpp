@@ -3,6 +3,7 @@
 #include "scene/executable_resources.h"
 #include "scene/factory_scene_runtime.h"
 #include "scene/scene_actor_services.h"
+#include "audio/pcm_backend.h"
 #include "gbtg/gfx.h"
 #include "gbtg/movie.h"
 
@@ -37,6 +38,7 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
     clock_init(clock);
     aids.open(game_dir);
     executable_resources = std::make_shared<SceneExecutableResources>(game_dir);
+    boot_native_audio(*this); // Boot 0x00033030 -> 0x0003A280.
     movie_set_root(game_dir);
     movie_boot_probe();
     std::cout << "fs_init: " << aids.game_dir.string() << " common.bnl entries " << aids.common.entries.size() << "\n";
@@ -127,6 +129,10 @@ void frame_tick(Game& g, float dt, const InputState& in)
     // its condition timers (0x00117100).
     script_pump(g);
     audio_tick(g, g.clock.dt); // 0x0015B780, 0x0003A040, 0x000396F0, 0x00038640, 0x00038C20
+    if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1)
+    {
+        g.factory_scene->start_actors(g).update_audio(); // The native side of the same pass.
+    }
     cutscene_queue_tick(g, g.clock.dt);
     for (auto& e : g.entities)
     {

@@ -77,6 +77,19 @@ SceneFactoryRuntime::SceneFactoryRuntime(AidStore& aids, std::shared_ptr<SceneEx
     }
     active_scene = this;
     install_base_class();
+    std::vector<const char*> walkabout;
+    for (u32 track = 0; track < 0x2A; ++track)
+    {
+        walkabout.push_back(executable->string(0x002FFFB8 + track * 0x80));
+    }
+    controls = std::make_unique<NativeSceneControlOwner>(SceneControlContext{g_scene_controls, random,
+        std::move(walkabout), executable->string(0x002FFF38),
+        []() -> i32
+        {
+            throw Error("scene control chapter index is not bound");
+        }});
+    controls->install(types);
+    g_scene_control_owner = controls.get();
 }
 
 SceneFactoryRuntime::~SceneFactoryRuntime()
@@ -85,6 +98,11 @@ SceneFactoryRuntime::~SceneFactoryRuntime()
     // Actor services release their separately owned factory roots through the same
     // address map and base lifecycle; both must still exist during that release.
     actor_services.reset();
+    if (g_scene_control_owner == controls.get())
+    {
+        g_scene_control_owner = nullptr;
+        g_scene_controls = SceneControlLists{};
+    }
     active_scene = nullptr;
 }
 

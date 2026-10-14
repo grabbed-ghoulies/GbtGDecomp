@@ -32,7 +32,7 @@ void destroy_runtime_player_body(std::span<u8> body,
     RuntimeBodyShapeStorage& shapes, std::span<u8*, 6> records); // Xbox 0x000734B0
 float ease_runtime_body_angle(float target, float current, float minimum,
     float maximum, float gain, float elapsed); // Xbox 0x00101280
-void ease_runtime_body_rotation(std::span<const u8> body, Actor& actor,
+void ease_runtime_body_rotation(std::span<u8> body, Actor& actor,
     const RuntimeActorClock& clock); // Xbox 0x000265D0
 struct RuntimePlayerJointTargets
 {

@@ -9,6 +9,11 @@ extern i32 g_gate_251c;
 
 extern bool g_scene_script_started;
 
+// DAT_00509B20..DAT_00509B28, the scene ambient tint 0x0011CAC0 resets to 1.
+extern float g_509b20;
+extern float g_509b24;
+extern float g_509b28;
+
 // Xbox 0x00049D10.
 bool scene_end_flag_set(); // Xbox 0x00049D10
 bool test_and_set_runtime_story_bit(std::span<u8> bits, u32 index); // Xbox 0x000F2A20

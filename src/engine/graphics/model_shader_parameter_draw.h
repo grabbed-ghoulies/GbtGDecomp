@@ -50,6 +50,9 @@ u32 runtime_model_material_texture_key(u32 node, RuntimeModelMaterialBind& conte
 void resolve_runtime_model_texture_record(u32 key, u32& texture, RuntimeModelMaterialBind& context); // Xbox 0x0015ABB0
 void bind_runtime_model_material(u32 material, const RuntimeShaderInstance* instance,
     RuntimeModelMaterialBind& context); // Xbox 0x0015AD20
+// The ndShaderParam2 draw slot (vtable 0x0032E3EC) in the executable image's writable data.
+void select_runtime_background_shader_parameters(const RuntimeRelocationImage& image); // Xbox 0x001572C0
+void select_runtime_model_shader_parameters(const RuntimeRelocationImage& image); // Xbox 0x001572B0
 void dispatch_runtime_model_shader_parameters(u32 node, RuntimeModelInstanceStorage& storage,
     RuntimeModelMaterialBind& context); // Xbox 0x00157090
 }

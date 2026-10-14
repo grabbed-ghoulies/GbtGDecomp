@@ -10,7 +10,7 @@ struct RuntimeCinemaMindRequestUpdate
     RuntimeCinemaMindMovement& movement;
     RuntimeCinemaMindSpawnMovement& spawn;
     RuntimeParentMindRequests& parent;
-    RuntimeMindChainRequestSelection& chains;
+    std::function<RuntimeMindChainRequestSelection&()> chains; // Resolved only at the target-action call.
     std::span<u8> body;
     std::span<u8> input;
     const RuntimeInputReleaseContext& input_context;

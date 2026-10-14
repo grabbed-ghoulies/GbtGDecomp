@@ -125,3 +125,52 @@ Other known gaps on this path:
   reference to a slot function, scan the XBE for the immediate (see the
   stand-alert getter `0x000A2530` found that way) and export the range with
   `range-function-force:`.
+
+## Continuation checkpoint (2026-10-14)
+
+The working tree now calls 0x00121900 live. Its inherited temporary door-shadow
+bypass was removed. Native door dispatch 0x0005B020 reaches boot vertex row
+0x13; all 24 vertex rows are assembled and created by translated 0x00065EE0,
+and their binding is translated 0x00065F60. Generic inline-array recording and
+presentation have been added. Door geometry 0x0005AC40/0x0005AE40 is translated
+but not reached live yet.
+
+The opening exits 1 at missing boot pixel shader creation
+0x00063FB0 / XGAssembleShader. Do not describe the scene as drawing characters
+or completing a clean opening run. Translate that boot loop and factory
+0x00063F40 (dump now recovered), implement the pixel assembler boundary, then
+resume the live view path. See the last PLAYER_SCENE.md checkpoint for tests
+and shader-source coverage. The actor-update hold is still present.
+
+## Pixel boot restored (2026-10-14)
+
+The previous checkpoint's 0x00063FB0 stop is resolved. The twenty boot pixel
+rows are created, including translated factory 0x00063F40, and door shadows
+bind the actual boot handle. The opening completes 900 frames. Inspected
+cache/pixel_boot_300.png shows Cooper and imps in the hall; inspected
+cache/pixel_boot_900.png shows the native tutorial, including its backdrop and
+corner models. The passes 0/1 drawing milestone is now visible. Actor updates
+remain held; lifting that hold is still the next gameplay milestone. See the
+last PLAYER_SCENE.md entry for shader coverage and validation limits.
+
+## Actor body frame checkpoint (2026-10-14)
+
+Wired player and cinema mind tick/request contexts, parent/player body relay,
+animation and settle slots. Added native 0x0007FD70 / 0x00133E50 /
+0x00140660 gravity ticking and 0x000A2930 / 0x000A2A90 stand-alert ticking.
+Scene actor updates now use the scene's simulation pause, scale, delta and
+0x004312E0 integration-step state. The shared mind alert uses DAT_00511B48.
+
+A temporary live update run exposed a missing actor +0x95C body pose view.
+That view is now attached, and 0x000265D0 writes its Euler result back to
+body +0x72C. The camera and imp body ticks return. The next measured stop is
+`scene body message service is not bound: body channel rows (+0x150) and
+actor +0x50 channel bindings`, during the imp body animation frame.
+The actor-update hold remains in the final tree; this is not playable movement
+or combat. Later unbound request, collision and action-step slots also remain.
+
+Release and Debug builds pass, CTest is 6/6 in each. Dialogue-resource checks
+pass in both and exercise the new gravity checks; Release scene-start passes.
+The inspected 900-frame capture `cache/actor_checkpoint_900.bmp` retains the
+tutorial text, head, backdrop, corner models and A-button bat. No audio
+acceptance or retail oracle equivalence is claimed for these new translations.

@@ -1351,6 +1351,9 @@ void check_body_dependencies(SceneExecutableResources& executable)
             && rotation_actor.xform_valid == 0 && output_view.euler.x == 3.f
             && output_view.euler.y == 4.f && output_view.euler.z == 5.f,
             "rotation normalizes local angles and rereads the actual body output owner");
+        require(read_f32(rotation_body, 0x72C) == 3.f && read_f32(rotation_body, 0x730) == 4.f
+            && read_f32(rotation_body, 0x734) == 5.f,
+            "rotation writes the actor +0x95C body pose at +0x72C");
         rotation_actor.animation_pause = 1.f;
         ease_runtime_body_rotation(rotation_body, rotation_actor, clock);
         require(rotation_actor.euler.x == 0.25f, "paused actor has zero rotation step");

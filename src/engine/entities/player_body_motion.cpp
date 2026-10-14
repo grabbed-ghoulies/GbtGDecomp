@@ -304,7 +304,7 @@ void relay_runtime_player_body(std::span<u8> body, u32 message,
 }
 
 // Xbox 0x000265D0
-void ease_runtime_body_rotation(std::span<const u8> body, Actor& actor,
+void ease_runtime_body_rotation(std::span<u8> body, Actor& actor,
     const RuntimeActorClock& clock)
 {
     if (read_u32(body, 0x728) != 0)
@@ -321,8 +321,13 @@ void ease_runtime_body_rotation(std::span<const u8> body, Actor& actor,
             ease_runtime_body_angle(target.z, current.z, minimum, maximum, gain, elapsed)};
         normalize_euler_angles(actor.euler, next);
         actor.xform_valid = 0;
+        if (actor.euler_out == nullptr || actor.euler_out->actor == nullptr)
+        {
+            throw Error("body rotation 0x000265D0 has no actor +0x95C body output view");
+        }
         ActorEulerOut& output = *actor.euler_out;
         output.euler = actor_world_euler(*output.actor);
+        std::memcpy(body.data() + 0x72C, &output.euler, sizeof(Vec3));
     }
 }
 

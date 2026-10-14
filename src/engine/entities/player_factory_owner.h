@@ -178,6 +178,7 @@ struct NativePlayerInstance
     RuntimeBodyBitStorage* body_flags = nullptr; // Body +0x15C.
     EntityBitBlock body_bit_block{};
     EntityBitBlock* body_bits = nullptr; // Body +0x15C as the plain bit view.
+    ActorEulerOut body_output{}; // Actor +0x95C body pose view.
     std::span<const u8> animation_resource; // Body +0x5C.
     RuntimeBodyAnimationGroup* animation_groups = nullptr; // Body +0x64.
     u8 animation_group_count = 0; // Body +0x68.

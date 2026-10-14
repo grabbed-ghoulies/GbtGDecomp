@@ -26,6 +26,7 @@ struct RuntimeCinemaMindTick
     RuntimePlayerMindControl& control;
     RuntimeInputAxisWriteDevice& writable;
     std::span<u8> keyboard;
+    u32 player_link = 0; // DAT_00511B48, passed into the shared 0x00137340 predicate.
 };
 void tick_runtime_cinema_mind(RuntimeCinemaMindTick& context); // Xbox 0x0007CE30
 }

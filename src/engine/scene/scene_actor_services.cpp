@@ -1,4 +1,6 @@
 #include "scene_actor_services.h"
+#include "scene.h"
+#include "../camera/camera.h"
 #include "factory_scene_runtime.h"
 #include "scene_marker_handlers.h"
 #include "../entities/player_factory_owner.h"
@@ -21,6 +23,8 @@
 #include "background_update.h"
 #include "scene_actor_update.h"
 #include "scene_view_actors.h"
+#include "lighting.h"
+#include "../graphics/light_volume_draw.h"
 #include "../entities/actor_view_visibility.h"
 #include "../entities/player_overlay.h"
 #include "../graphics/billboard_queue.h"
@@ -54,6 +58,9 @@
 #include "gbtg/texture.h"
 #include "../camera/display_clip_limits.h"
 #include "../graphics/scene_d3d_device.h"
+#include "../graphics/door_shadow_draw.h"
+#include "../graphics/xg_shader_assembly.h"
+#include "../graphics/xg_pixel_shader.h"
 #include "../graphics/scene_d3d_present.h"
 #include "../audio/pcm_backend.h"
 #include "gbtg/engine_internal.h"
@@ -89,6 +96,8 @@
 #include "../frontend/brew_meter.h"
 #include "../frontend/player_health_display.h"
 #include "../scripts/script_actions.h"
+#include "../scripts/script_vm.h"
+#include "../transitions/scene_transitions.h"
 #include "../scripts/script_conditions.h"
 #include "../scripts/script_actor_query.h"
 #include "gbtg/model_runtime.h"
@@ -305,6 +314,13 @@ struct SceneActorServices::State
     // The scene tick's (0x0011E7F0) stack bytes under the effect pass. Retail leaves them uninitialised; this
     // native slot starts at zero and, like the reused stack slot, keeps what the previous frame left there.
     RuntimeEffectPassScratch frame_effect_scratch{};
+    // World-pass gates of 0x00121900's helpers. No translated code writes them yet; they keep their BSS value.
+    u32 blob_shadow_enable = 0; // DAT_0050EF18.
+    i32 blob_shadow_count = 0; // DAT_0050EF10.
+    u32 blob_shadow_suppress = 0; // DAT_0050EF1C.
+    u32 decal_enable = 0; // DAT_005462EC.
+    u32 ambient_point_draw = 0; // DAT_005120F8.
+    void* portal_list = nullptr; // DAT_0050E390.
     AudioCoreSources audio_sources{};
     AudioCoreCues audio_cues{audio_sources};
     AudioEventVoices voices{audio_cues, {}, {}, {}, 0, origin, default_cone};
@@ -605,6 +621,9 @@ struct SceneActorServices::State
     std::unique_ptr<RuntimeDialogueActivationContext> dialogue;
     std::unique_ptr<RuntimeScriptDialogueContext> script_dialogue;
     SceneD3DDevice d3d_device;
+    std::unique_ptr<RuntimeBootVertexShaders> boot_vertex_shaders;
+    std::unique_ptr<RuntimeBootPixelShaders> boot_pixel_shaders;
+    std::vector<std::pair<u32, u32>> boot_pixel_allocations; // Handle and owned definition allocation.
     std::array<RuntimeModelRenderFrame, 32> render_frame_storage{}; // DAT_004392B0, retail stride 0xC4.
     std::unordered_map<RuntimeModelRenderFrame*, DialogueRenderFrame> render_frames;
     std::array<u32, 0x200> deferred_states{}; // DAT_00181968 and D3D render-state shadows.
@@ -757,6 +776,9 @@ struct SceneActorServices::State
     void draw_scene_actor(FactoryObject& object, Actor& actor, i32 kind); // 0x0003C9E0.
     void draw_player(FactoryObject& object, NativePlayerInstance& player, i32 kind); // 0x00028050.
     void draw_view_actors(i32 view); // 0x0011C240's actor bins for one view.
+    // The ambient sampler's view of DAT_0050D770/DAT_0050D780 (filled by 0x000FEFD0), the DAT_00509B20..28 tint and
+    // DAT_005120F0, refreshed before a view draws.
+    void refresh_ambient_context();
     // The legacy host world draw stands in for the background's +0x14 (0x00042C10) while a view presents.
     const std::function<void()>* host_world_draw = nullptr;
     std::array<const u8*, 10> overlay_digits{}; // DAT_00545A80, BSS until 0x0012E070 loads the digit sprites.
@@ -1335,7 +1357,66 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         g_flag_2474, g_flags_ea9c, random, narrow_scratch.data()});
     model_renderer.frames = render_frame_storage;
     RuntimeNodeTypeRegistry node_registry{resources.node_types.bytes, node_registry_count};
+    render_image.resolve = [this](u32 address) -> u8*
+    {
+        // Node descriptors live in the relocated arena; their vtables remain in
+        // the executable. These are genuine file-backed words, not substituted callbacks.
+        if (address < 0x40000000u)
+        {
+            return const_cast<u8*>(image.memory(address, 1).data());
+        }
+        u8* pointer = resources.memory.pointer(address);
+        if (pointer == nullptr)
+        {
+            throw Error("model renderer reads a relocated address of zero");
+        }
+        return pointer;
+    };
     initialize_runtime_model_renderer(model_renderer, node_registry, *shader_fragments);
+    boot_vertex_shaders = std::make_unique<RuntimeBootVertexShaders>(RuntimeBootVertexShaders{render_image,
+        [](std::string_view source, std::vector<u32>& program) -> i32
+        {
+            program = assemble_xg_vertex_shader(source);
+            return 0;
+        },
+        [this](const i32* declaration, const u32* program, u32& handle, u32 usage) -> i32
+        {
+            d3d_device.create_vertex_shader(declaration, program, handle, usage);
+            return 0;
+        },
+        [this](u32 handle)
+        {
+            d3d_device.dialogue().vertex_shader(handle);
+        },
+        [this](u32 reg, const float* values, u32 count)
+        {
+            d3d_device.dialogue().constants(reg, values, count);
+        }});
+    create_runtime_boot_vertex_shaders(*boot_vertex_shaders);
+    boot_pixel_shaders = std::make_unique<RuntimeBootPixelShaders>(RuntimeBootPixelShaders{render_image,
+        [](std::string_view source, XboxPixelShaderDefinition& definition) -> i32
+        {
+            definition = assemble_xg_pixel_shader(source);
+            return 0;
+        },
+        [this](const XboxPixelShaderDefinition& definition, u32& handle) -> i32
+        {
+            const auto allocation = resources.memory.copy(
+                {reinterpret_cast<const u8*>(definition.data()), sizeof(definition)}, 4);
+            handle = resources.d3d.next_handle++;
+            resources.d3d.pixel_shaders.emplace(handle, allocation.address);
+            boot_pixel_allocations.emplace_back(handle, allocation.address);
+            return 0;
+        },
+        [this](u32 factory) -> u32
+        {
+            if (factory == 0x00063F40)
+            {
+                return create_runtime_boot_texture_pixel_shader(*boot_pixel_shaders);
+            }
+            unbound("boot pixel shader factory " + std::to_string(factory));
+        }});
+    create_runtime_boot_pixel_shaders(*boot_pixel_shaders);
     // The scratch allocation/binding sequence in 0x000F8740, with its actual
     // 0x00155D40 size and 0x20 heap alignment. Other boot services are owned separately.
     const u32 matrix_size = runtime_model_matrix_scratch_size();
@@ -1374,21 +1455,6 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     std::memcpy(retained_scene_color.data(), data(0x0032E4E4, 0x10).data(), 0x10);
     std::memcpy(override_base_color.data(), data(0x0042A570, 0x10).data(), 0x10);
     cull_mode = read_u32(data(0x0032E3D0, 4), 0);
-    render_image.resolve = [this](u32 address) -> u8*
-    {
-        // Node descriptors live in the relocated arena; their vtables remain in
-        // the executable. These are genuine file-backed words, not substituted callbacks.
-        if (address < 0x40000000u)
-        {
-            return const_cast<u8*>(image.memory(address, 1).data());
-        }
-        u8* pointer = resources.memory.pointer(address);
-        if (pointer == nullptr)
-        {
-            throw Error("model renderer reads a relocated address of zero");
-        }
-        return pointer;
-    };
     light_boundaries.set_constant = [this](u32 slot, const u32* words)
     {
         d3d_device.set_constant_words(slot, words, 1);
@@ -1772,7 +1838,8 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             return players->player_at(address).body;
         },
         rig_tunables, entity_detail::g_look_profile, motion_steps, std::span<u32>(node_cache),
-        {data(0x00338F64, 0x24), data(0x00338F88, 0x24), data(0x00338EE0, 0x84), data(0x00338EA4, 0x3C)}});
+        {data(0x00338F64, 0x24), data(0x00338F88, 0x24), data(0x00338EE0, 0x84), data(0x00338EA4, 0x3C)},
+        read_f32(data(0x0032B22C, 4), 0)});
     state_action_names = strings(0x003390E4, 0x174);
     goal_flag_names = strings(0x003397AC, 3);
     mind_services = std::make_unique<SceneMindServices>(SceneMindServices{game, resources.registry, resources.error,
@@ -1805,6 +1872,25 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         [this](FactoryObject& mind, RuntimePlayerMindRequest& request)
         {
             return players->minds.initialize_request(mind, request);
+        },
+        pause_references, *health_display, script_records, sounds, *damage_tables,
+        {reinterpret_cast<const float*>(data(0x00217EC0, 0x20).data()), 8},
+        [this](u32 address) -> RuntimeBodyAttachedActor&
+        {
+            return players->player_at(address).self;
+        },
+        [](u32) -> RuntimeMindTarget&
+        {
+            unbound("mind target records (DAT_00545988)");
+        },
+        [](const RuntimeBodyAttachedActor&) -> std::span<const u8>
+        {
+            unbound("spawn attachment actor +0x8F8 link view");
+        },
+        [this]() -> u32
+        {
+            const auto* next = entity_detail::g_world.alt.next;
+            return next == nullptr ? 0 : address_of(next);
         }});
     active_services = this;
 }
@@ -1854,6 +1940,11 @@ SceneActorServices::State::~State()
         {
             engine_heap_free(block);
         }
+    }
+    for (const auto& [handle, allocation] : boot_pixel_allocations)
+    {
+        resources.d3d.pixel_shaders.erase(handle);
+        resources.memory.free(allocation);
     }
 }
 
@@ -2944,7 +3035,12 @@ void SceneActorServices::State::actor_draw(Actor& actor, i32 view, i32 pass)
                 {
                     unbound("background draw 0x00042C10 outside a presented view");
                 }
-                (*host_world_draw)();
+                // The host world draw presents the whole hall at once, so it runs for the first pass
+                // (0x00121900's pass 0); passes 1 and 2 have nothing left for it to present.
+                if (pass == 0)
+                {
+                    (*host_world_draw)();
+                }
                 return;
             }
             // Type 5 +0x14 is the player draw 0x00028050 (getter 0x00027F60).
@@ -3047,15 +3143,27 @@ u32 SceneActorServices::State::actor_visible(Actor& actor, i32 pass, i32 view)
     return runtime_actor_in_view(visibility, pass, view);
 }
 
-// 0x0011C240's actor bins for one view: 0x00121730 and 0x00121880 over DAT_00511AA8[view], then
-// 0x00121D40 over DAT_00511B1C and that bin. 0x00121900 (the background and reflected bin passes) is
-// not translated; the host world draw stands in for the background.
+// 0x0011C240's actor bins for one view: 0x00121730 and 0x00121880 over DAT_00511AA8[view], 0x00121900 (passes 0
+// and 1 with its world helpers), then 0x00121D40 (pass 2) over DAT_00511B1C and that bin. The host world draw
+// stands in for the background's draw.
+void SceneActorServices::State::refresh_ambient_context()
+{
+    for (size_t index = 0; index < ambient_grids.size(); ++index)
+    {
+        ambient_grids[index] = sector_grids[index].data();
+    }
+    ambient_context->grid_count = sector_count;
+    ambient_context->scale = {g_509b20, g_509b24, g_509b28};
+    ambient_context->points_enabled = ambient_points_enabled;
+}
+
 void SceneActorServices::State::draw_view_actors(i32 view)
 {
     if (display_view == nullptr)
     {
         throw Error("view actor draw has no DAT_005077A8 display view");
     }
+    refresh_ambient_context();
     const auto entry = [this](entity_detail::ListHead& node) -> RuntimeSceneBinEntry
     {
         for (auto& [native, registration] : actors->render)
@@ -3089,10 +3197,125 @@ void SceneActorServices::State::draw_view_actors(i32 view)
         {
             actor_draw(actor, slot, pass);
         }};
+    const auto first_background_model = [this]() -> std::span<const u8>
+    {
+        // DAT_00511B20 -> object +0x204 -> its resource header.
+        auto* background = backgrounds->first_background();
+        if (background == nullptr || background->state.actor.model == nullptr)
+        {
+            return {};
+        }
+        return background->state.actor.model->cpu;
+    };
+    RuntimeSceneViewPasses passes{context,
+        [](Actor& actor, u32 mirror)
+        {
+            if (actor.model != nullptr && actor.model->runtime != nullptr)
+            {
+                actor.model->runtime->mirror_pass = mirror;
+            }
+        },
+        [](Actor& actor) -> u32
+        {
+            if (actor.model == nullptr || actor.model->cpu.data() == nullptr)
+            {
+                throw Error("view pass reads the type-1 flags of an actor without a +0x204 model");
+            }
+            const auto cpu = actor.model->cpu;
+            const u32 table = read_u32(cpu, 0);
+            for (u32 index = 0; index < read_u32(cpu, 4); ++index)
+            {
+                if (read_u32(cpu, table + index * 8) == 1)
+                {
+                    return read_u32(cpu, table + index * 8 + 4);
+                }
+            }
+            return 0;
+        },
+        [this](Actor& actor, u8 slot, u8 value)
+        {
+            set_runtime_model_node_state(*actor.model->runtime, slot, value, node_cache);
+        },
+        [this]()
+        {
+            select_runtime_background_shader_parameters(render_image);
+        },
+        [this]()
+        {
+            select_runtime_model_shader_parameters(render_image);
+        },
+        g_50484c,
+        [this]()
+        {
+            if (blob_shadow_enable != 0 && blob_shadow_count != 0 && blob_shadow_suppress == 0)
+            {
+                unbound("blob shadow draw 0x00119AD0");
+            }
+        },
+        [this, first_background_model]()
+        {
+            RuntimeLightVolumeOrder order{g_light_filled, g_light_filled_gate, g_light_order};
+            RuntimeLightVolumeDraw volumes{order, first_background_model(),
+                [](u8 volume)
+                {
+                    unbound("light volume record draw 0x000FE5A0 for record " + std::to_string(volume));
+                },
+                [this]()
+                {
+                    bind_display_projection(*display_setup);
+                }};
+            draw_runtime_light_volumes(volumes);
+        },
+        [this]()
+        {
+            if (decal_enable != 0)
+            {
+                unbound("decal draw 0x00116460");
+            }
+        },
+        [this]()
+        {
+            if (ambient_point_draw != 0 && (ambient_points_enabled != 0 || g_flag_2104 != 0))
+            {
+                unbound("ambient point draw 0x001237E0");
+            }
+        },
+        [this, first_background_model](u32 layer)
+        {
+            if (first_background_model().data() != nullptr && portal_list != nullptr)
+            {
+                unbound("portal draw 0x00115A80 layer " + std::to_string(layer));
+            }
+        },
+        [this]()
+        {
+            RuntimeDoorShadowDraw shadow{door_pool, render_image, d3d_device.dialogue(),
+                *model_shader_states, deferred_states,
+                [this]()
+                {
+                    // The null SetModelView disables the fixed-function model/view override.
+                    d3d_device.set_state(0x10070, 0);
+                },
+                [this](u32 index)
+                {
+                    bind_runtime_boot_vertex_shader(index, *boot_vertex_shaders);
+                },
+                [this](u32 handle)
+                {
+                    d3d_device.dialogue().pixel_shader(handle);
+                },
+                [this](std::span<const u8> row, const float* view, const float* projection)
+                {
+                    draw_runtime_door_shadow(row, view, projection, display_view->position,
+                        render_image, d3d_device.dialogue());
+                }};
+            draw_runtime_door_shadows(shadow);
+        }};
     auto& bin = entity_detail::g_world.bins[size_t(view)];
     sort_runtime_view_bin(bin, context);
     classify_runtime_view_bin(bin, 0, view, context);
-    draw_runtime_view_actors(entity_detail::g_world.body_a, &bin, view, 0, context);
+    auto& drawn = draw_runtime_view_passes(entity_detail::g_world.body_a, bin, view, 0, passes);
+    draw_runtime_view_actors(entity_detail::g_world.body_a, &drawn, view, 0, context);
 }
 
 ActorDrawState SceneActorServices::State::actor_draw_state(FactoryObject& object, Actor& actor,
@@ -3317,7 +3540,10 @@ void SceneActorServices::update_scene_actors()
     auto& state = *state_;
     auto* previous = state.effect_pass_scratch;
     state.effect_pass_scratch = &state.frame_effect_scratch;
-    state.frame_delta = state.game.clock.dt;
+    state.pause = g_sim_freeze;
+    state.frame_delta = g_sim_dt;
+    state.time_scale = g_sim_scale;
+    state.motion_steps = g_4312e0;
     state.pal = state.game.clock.pal ? 1 : 0;
     const std::function<bool(Actor&)> retired = [&state](Actor& actor)
     {

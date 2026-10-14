@@ -263,6 +263,20 @@ void bind_runtime_model_material(u32 material, const RuntimeShaderInstance* inst
     }
 }
 
+// Xbox 0x001572C0
+void select_runtime_background_shader_parameters(const RuntimeRelocationImage& image)
+{
+    const u32 slot = 0x001571B0;
+    std::memcpy(image.pointer(0x0032E3EC), &slot, 4);
+}
+
+// Xbox 0x001572B0
+void select_runtime_model_shader_parameters(const RuntimeRelocationImage& image)
+{
+    const u32 slot = 0x00157090;
+    std::memcpy(image.pointer(0x0032E3EC), &slot, 4);
+}
+
 // Xbox 0x00157090
 void dispatch_runtime_model_shader_parameters(u32 node, RuntimeModelInstanceStorage& storage,
     RuntimeModelMaterialBind& context)

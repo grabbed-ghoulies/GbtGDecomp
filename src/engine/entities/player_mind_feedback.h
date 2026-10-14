@@ -59,7 +59,7 @@ struct RuntimePlayerMindTick
     RuntimeMindTick& base;
     std::span<const u8> actor_bytes;
     EntityBitBlock*& flags; // Body +0x15C -> bytes +8.
-    const u32& player_link; // DAT_00511B48.
+    const u32& player_link; // DAT_00511B48, read by 0x00137340.
     std::span<const u32, 2> references; // DAT_0050E764 and DAT_0050E768.
     const RuntimeInputReleaseContext& input_release;
     RuntimePlayerHealthDisplay& health;

@@ -8,6 +8,11 @@
 #include "../src/engine/graphics/model_render_nodes.h"
 #include "../src/engine/graphics/model_shader_fragments.h"
 #include "../src/engine/graphics/vertex_shader_code.h"
+#include "../src/engine/graphics/xg_shader_assembly.h"
+#include "../src/engine/graphics/xg_pixel_shader.h"
+#include "../src/engine/graphics/xbox_vertex_program.h"
+#include "../src/engine/graphics/scene_d3d_device.h"
+#include "../src/engine/graphics/door_shadow_draw.h"
 #include "../src/engine/graphics/shader_schedule_cost.h"
 #include "../src/engine/camera/display_view.h"
 #include "../src/engine/camera/display_setup_math.h"
@@ -50,6 +55,186 @@ void check_color_helpers()
     set_runtime_scene_color(nan, 0.f, 0.f, 0.f, retained, renderer);
     require(std::bit_cast<u32>(retained[0]) == 0x7FC01234u && renderer.state.color[0] == 0,
         "scene color invalid conversion and retained NaN bits");
+}
+void check_boot_shader_boundary()
+{
+    const auto shader = assemble_xg_vertex_shader("xvs.1.1\nm4x4 oPos, v0, c0\nmov oD0, v3\n");
+    XboxVertexProgramState state{};
+    state.inputs[0] = {2.f, 3.f, .25f, 2.f};
+    state.inputs[3] = {.1f, .2f, .3f, .4f};
+    for (u32 index = 0; index < 4; ++index)
+    {
+        state.constants[96 + index][index] = 1.f;
+    }
+    state.constants[58] = {320.f, -240.f, SceneD3DDevice::kDepthScale, 0.f};
+    state.constants[59] = {320.f, 240.f, 0.f, 0.f};
+    run_xbox_vertex_program(shader, state);
+    require(state.outputs[0][0] == 640.f && state.outputs[0][1] == -120.f && state.outputs[0][3] == 2.f,
+        "boot assembly applies the reciprocal viewport transform and keeps homogeneous w");
+    require(state.outputs[3] == state.inputs[3], "boot assembly preserves the door vertex colour");
+    const auto screen = assemble_xg_vertex_shader("vs.1.0\n#pragma screenspace\nadd oPos, v0, c0\n");
+    state.constants[96] = {10.f, 20.f, 30.f, 0.f};
+    run_xbox_vertex_program(screen, state);
+    require(state.outputs[0] == XboxVector{12.f, 23.f, 30.25f, 2.f},
+        "screenspace pragma suppresses the viewport epilogue");
+    bool raised = false;
+    try
+    {
+        (void)assemble_xg_vertex_shader("xvs.1.1\nunknown oPos, v0\n");
+    }
+    catch (const Error&)
+    {
+        raised = true;
+    }
+    require(raised, "unsupported shader instructions raise");
+    const std::array<i32, 32> declaration{0x20000000, 0x40320000, 0x40400003, -1};
+    SceneD3DDevice device;
+    u32 handle;
+    device.create_vertex_shader(declaration.data(), shader.data(), handle, 0);
+    device.dialogue().vertex_shader(handle);
+    u32* push = device.dialogue().begin_push(21);
+    const std::array<u32, 21> words{0x417FC, 8, 0x40401818,
+        0, 0, 0, 0xFF000000, 0, 0, 0, 0xFF000000,
+        0, 0, 0, 0xFF000000, 0, 0, 0, 0xFF000000, 0x417FC, 0};
+    std::memcpy(push, words.data(), sizeof(words));
+    device.dialogue().end_push(push + words.size());
+    device.dialogue().vertex_shader(0);
+    const auto commands = device.take_commands();
+    const auto* draw = std::get_if<SceneD3DInlineDraw>(&commands.at(0));
+    require(draw != nullptr && draw->vertices.size() == 16 && draw->vertices[3] == 0xFF000000 &&
+        draw->state.states.at(SceneD3DDevice::kVertexShader) == handle,
+        "inline arrays preserve packed colour bits and draw-time shader state");
+    std::array<u8, 0x154> door{};
+    const auto store = [&door](u32 offset, float value)
+    {
+        std::memcpy(door.data() + offset, &value, 4);
+    };
+    store(0x70, 1.f);
+    store(0x84, 1.f);
+    store(0x98, 1.f);
+    store(0xA0, -1.f);
+    store(0xA4, -2.f);
+    store(0xA8, -3.f);
+    store(0xAC, 1.f);
+    store(0xB0, 2.f);
+    store(0xB4, 3.f);
+    std::array<u32, 3> dimensions{std::bit_cast<u32>(10.f), 0x12345678, 0x87654321};
+    u32 margin = std::bit_cast<u32>(2.f);
+    RuntimeRelocationImage image{{}, 0, [&dimensions, &margin](u32 address) -> u8*
+    {
+        if (address == 0x0032B214)
+        {
+            return reinterpret_cast<u8*>(&margin);
+        }
+        require(address >= 0x00424998 && address < 0x004249A4, "door bound table address");
+        return reinterpret_cast<u8*>(dimensions.data()) + address - 0x00424998;
+    }};
+    RuntimeDoorShadowBounds bounds{91.f, 92.f, 93.f, 94.f, 95, 96};
+    require(select_runtime_door_shadow_bounds(door, {-1.f, 2.f, 3.f}, bounds, image) == 0 &&
+        bounds.depth_start == 91.f && bounds.left == 95,
+        "camera on the door volume boundary suppresses drawing without changing outputs");
+    require(select_runtime_door_shadow_bounds(door, {0.f, 0.f, -5.f}, bounds, image) == 1 &&
+        bounds.depth_start == 12.f && bounds.depth_end == 8.f && bounds.left == dimensions[1],
+        "near first door plane selects the forward fade and horizontal bounds");
+    require(select_runtime_door_shadow_bounds(door, {0.f, 0.f, 5.f}, bounds, image) == 1 &&
+        bounds.depth_start == 8.f && bounds.depth_end == 12.f && bounds.left == dimensions[2],
+        "near second door plane reverses the fade and horizontal bounds");
+    require(select_runtime_door_shadow_bounds(door,
+        {std::numeric_limits<float>::quiet_NaN(), 0.f, 0.f}, bounds, image) == 1,
+        "unordered camera coordinates follow the outside-volume branch");
+}
+
+void check_boot_pixel_shaders()
+{
+    const auto pass = assemble_xg_pixel_shader("xps.1.1\nmov r0, v0\n");
+    require((pass[53] & 255) == 1 && (pass[45] & 0xFFF) == 0xC0 && (pass[26] & 0xFFF) == 0xC0,
+        "pass-colour shader writes both RGB and alpha to r0");
+    require((pass[34] >> 24 & 15) == 4 && (pass[0] >> 24 & 31) == 20 &&
+        pass[8] == 0xC && pass[9] == 0x1C00,
+        "pass-colour shader selects diffuse RGB/alpha and passes r0 through the final combiner");
+    const auto texture = assemble_xg_pixel_shader("xps.1.1\ntex t0\nmul r0, t0, v0\n");
+    require((texture[54] & 31) == 1 && (texture[34] >> 24 & 15) == 8 &&
+        (texture[34] >> 16 & 15) == 4 && (texture[0] >> 24 & 31) == 24,
+        "textured diffuse shader samples t0 and multiplies both channels by v0");
+    const auto paired = assemble_xg_pixel_shader(
+        "xps.1.1\ntex t0\nmad r0.rgb, t0, c0, c1 + mov_x4 r0.a, t0.b\n");
+    require((paired[53] & 255) == 1 && (paired[45] & 0xFFF) == 0xC00 &&
+        (paired[26] & 0x20000) != 0 && (paired[0] >> 24 & 31) == 8 &&
+        (paired[57] & 15) == 0 && (paired[58] & 15) == 1,
+        "paired RGB/alpha share a stage and constants, retaining blue-source and x4 output flags");
+    const auto fixed = assemble_xg_pixel_shader("xps.1.1\ndef c0, 1, 0.5, 0, 1\nmov r0, c0\n");
+    require(fixed[10] == 0xFFFF8000 && (fixed[57] & 15) == 15,
+        "def constants are packed and excluded from dynamic constant mapping");
+    const auto dot = assemble_xg_pixel_shader(
+        "xps.1.1\ntex t0\ntexm3x2pad t1, t0_bx2\ntexm3x2tex t2, t0_bx2\nmov r0, t2\n");
+    require((dot[54] >> 5 & 31) == 0x11 && (dot[54] >> 10 & 31) == 9 && dot[55] == 0x11,
+        "texture matrix instructions preserve dependent-read modes and D3D dot mapping");
+    bool raised = false;
+    try
+    {
+        (void)assemble_xg_pixel_shader("xps.1.1\nunsupported r0, v0\n");
+    }
+    catch (const Error&)
+    {
+        raised = true;
+    }
+    require(raised, "unsupported pixel instructions raise instead of fabricating a shader");
+
+    std::array<u8, 0x148> table{};
+    const std::string source = "xps.1.1\nmov r0, v0\n";
+    RuntimeRelocationImage image{table, 0x00425DE0,
+        [&table, &source](u32 address) -> u8*
+        {
+            if (address == 0x10000)
+            {
+                return reinterpret_cast<u8*>(const_cast<char*>(source.data()));
+            }
+            require(address >= 0x00425DE0 && address < 0x00425DE0 + table.size(), "pixel boot table address");
+            return table.data() + address - 0x00425DE0;
+        }};
+    for (u32 index = 0; index < 20; ++index)
+    {
+        const u32 row = 0x00425DE8 + index * 0x10;
+        image.set_word(row - 8, 0, 0x10000);
+        image.set_word(row - 4, 0, u32(source.size()));
+        image.set_word(row, 0, index == 0 ? 0x00063F40 : 0);
+    }
+    u32 assembly_calls = 0, creation_calls = 0, factory_calls = 0;
+    RuntimeBootPixelShaders context{image,
+        [&assembly_calls](std::string_view text, XboxPixelShaderDefinition& definition) -> i32
+        {
+            ++assembly_calls;
+            if (assembly_calls == 3)
+            {
+                return -1;
+            }
+            definition = assemble_xg_pixel_shader(text);
+            return 0;
+        },
+        [&creation_calls](const XboxPixelShaderDefinition& definition, u32& handle) -> i32
+        {
+            ++creation_calls;
+            if (creation_calls == 1)
+            {
+                require(definition[8] == 0x20080000 && definition[9] == 0x1800 &&
+                    definition[53] == 1 && definition[54] == 0x54421 &&
+                    definition[55] == 0x440 && definition[56] == 0x110000,
+                    "0x63F40 factory retains its exact six nonzero definition words");
+            }
+            handle = creation_calls + 100;
+            return -1; // The retail pixel boot functions do not test CreatePixelShader's HRESULT.
+        },
+        [&context, &factory_calls](u32 address) -> u32
+        {
+            require(address == 0x00063F40, "pixel boot invokes the table's factory address");
+            ++factory_calls;
+            return create_runtime_boot_texture_pixel_shader(context);
+        }};
+    create_runtime_boot_pixel_shaders(context);
+    require(factory_calls == 1 && assembly_calls == 19 && creation_calls == 19 &&
+        image.word(0x00425DEC) == 101 && image.word(0x00425DEC + 3 * 0x10) == 0 &&
+        image.word(0x00425F1C) == 119,
+        "pixel boot walks twenty rows, writes zero after assembly failure, and preserves creation output handles");
 }
 void check_matrix_helpers()
 {
@@ -781,6 +966,8 @@ void check_scene_render()
         && light_renderer.state.directional_lights[5] == records[5],
         "partial light upload retains records beyond count");
     check_color_helpers();
+    check_boot_shader_boundary();
+    check_boot_pixel_shaders();
     check_matrix_helpers();
     check_attachment_draw_walk();
     check_ambient_sampling();

@@ -1,5 +1,7 @@
 #include "scene_body_messages.h"
 #include "../entities/body_move_action_slots.h"
+#include "../entities/body_stand_alert_tick.h"
+#include "../entities/body_action_ids.h"
 #include <cstring>
 #include <optional>
 
@@ -178,9 +180,29 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32)
             services_.clock, services_.motion_steps);
         return;
     case 0x5B:
-        unbound("body action 0x5B vtable +0x10 (0x0007FD70)");
+        tick_runtime_gravity_action({action.bytes.get(), action.size}, player_.body, player_.actor,
+            services_.clock, services_.motion_steps);
+        return;
     case 0x87:
-        unbound("body action 0x87 vtable +0x10 (0x000A2930)");
+    {
+        RuntimeStandAlertTick tick{player_.body, player_.actor, *player_.body_bits,
+            player_.actor_instance.animation, player_.body_selection, services_.clock, player_.input_device,
+            player_.scene.input_state,
+            !player_.mind.empty(), player_.mind.empty() ? u8(0) : player_.mind[0x20],
+            services_.stand_input_threshold,
+            [this]() -> u16
+            {
+                const RuntimeBodyActionIds ids{player_.attached, read_u16(player_.actor_bytes, 6),
+                    services_.address_of(player_.body.data())};
+                return runtime_body_damage_gated_id(ids, player_.action_table);
+            },
+            []()
+            {
+                unbound("stand-alert orientation 0x00134720");
+            }};
+        tick_runtime_stand_alert({action.bytes.get(), action.size}, tick);
+        return;
+    }
     default:
         unbound("body action vtable +0x10 of factory type " + std::to_string(action.type));
     }
@@ -220,11 +242,28 @@ RuntimeBodyChannelContext SceneBodyMessages::channel_context()
 // Xbox 0x00025EC0 for the camera body (type 0x28).
 void SceneBodyMessages::tick(FactoryObject& body, u32 input)
 {
-    if (body.type != 0x28)
+    if (body.type != 0x28 && body.type != 0x27 && body.type != 0x2A)
     {
         unbound("body vtable +0x10 of factory type " + std::to_string(body.type));
     }
     auto& actions = player_.body_selection;
+    if (body.type != 0x28)
+    {
+        RuntimePlayerBodyRelayChild action{[this](u32 input)
+        {
+            action_tick(player_.body_selection.second, input);
+        }};
+        RuntimePlayerBodyRelayChild attachment{[this](u32 input)
+        {
+            action_tick(player_.body_selection.first, input);
+        }};
+        RuntimePlayerBodyRelayChild* action_view = actions.second.bytes != nullptr ? &action : nullptr;
+        RuntimePlayerBodyRelayChild* attachment_view = actions.first.bytes != nullptr ? &attachment : nullptr;
+        RuntimePlayerJointTargets joints{player_.actor, player_.body_flags, player_.joint_records, services_.clock,
+            services_.address_of(player_.body.data())};
+        relay_runtime_player_body(player_.body, input, action_view, attachment_view, joints);
+        return;
+    }
     // Body +0x744, then +0x314.
     if (actions.second.bytes != nullptr)
     {
@@ -239,7 +278,7 @@ void SceneBodyMessages::tick(FactoryObject& body, u32 input)
 // Xbox 0x00072AC0 for the camera body.
 void SceneBodyMessages::animate(FactoryObject& body)
 {
-    if (body.type != 0x28)
+    if (body.type != 0x28 && body.type != 0x27 && body.type != 0x2A)
     {
         unbound("body vtable +0x14 of factory type " + std::to_string(body.type));
     }
@@ -256,7 +295,7 @@ void SceneBodyMessages::animate(FactoryObject& body)
 // Xbox 0x00072B10 for the camera body.
 void SceneBodyMessages::settle(FactoryObject& body)
 {
-    if (body.type != 0x28)
+    if (body.type != 0x28 && body.type != 0x27 && body.type != 0x2A)
     {
         unbound("body vtable +0x18 of factory type " + std::to_string(body.type));
     }
@@ -283,6 +322,11 @@ void SceneBodyMessages::settle(FactoryObject& body)
     RuntimeBodyApplyContext apply{channels, actor_view_, player_.actor_instance.anchors, *player_.body_bits, bound_,
         shapes_, services_.latches, first_timer_, second_timer_, actor_bound_, secondary_model_,
         services_.node_states, action};
+    if (body.type != 0x28)
+    {
+        apply_runtime_player_body(player_.body, apply);
+        return;
+    }
     RuntimeCameraBodySlots camera{player_.body, player_.actor, *player_.body_bits, services_.look_profile,
         services_.rig_tunables, player_.camera_view};
     capture_camera_body_pose(camera, apply);

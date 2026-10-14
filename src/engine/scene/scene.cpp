@@ -6,6 +6,7 @@
 #include "gbtg/movie.h"
 #include "gbtg/resource.h"
 #include "../transitions/transition_data.h"
+#include "factory_scene_runtime.h"
 
 #include <algorithm>
 #include <bit>
@@ -731,11 +732,10 @@ void scene_tick_pause_counter(Game& g, u8* scene)
         node->tick(node);
         node = next;
     }
-    // 0x00123020 over DAT_00511B18, then 0x00122FE0, are translated as
-    // SceneActorServices::update_scene_actors. The live call is held: in the opening scene the imps'
-    // cinema-mind requests (0x0007C0E0), Cooper's player-mind tick (0x0007FB10) and the +0x10 slots of
-    // types 2, 0xD, 0x1F and 0x23 are not bound yet, and raise on the first frame
-    // (docs/NATIVE_GAMEPLAY_FRAME.md).
+    // 0x00123020 over DAT_00511B18, then 0x00122FE0.
+    // Actor updates remain held until the live body channel rows and animation
+    // bindings are attached. SceneActorServices::update_scene_actors now reaches
+    // that explicit dependency through the imp's native body frame.
     // 0x001128A0 and 0x0011B670 are not translated.
     script_vm_tick(g, 0.f);
     // 0x000F4560 and 0x0013FD60 are not translated.

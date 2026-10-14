@@ -410,6 +410,88 @@ void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentConte
     gfx_draw_native(output);
 }
 
+// Inline arrays use the bound declaration, including packed D3DCOLOR, and the same vertex interpreter
+// and pixel-shader definition as indexed model draws.
+void present_inline(const SceneD3DInlineDraw& inline_draw, const SceneD3DPresentContext& context)
+{
+    const auto& draw = inline_draw.state;
+    const auto shader = context.vertex_shaders.find(state(draw.states, SceneD3DDevice::kVertexShader, 0));
+    if (shader == context.vertex_shaders.end())
+    {
+        throw Error("inline draw has no created vertex shader bound");
+    }
+    const auto inputs = declared_inputs(shader->second.declaration);
+    u32 stride = 0;
+    for (const auto& input : inputs)
+    {
+        if (input.stream != 0)
+        {
+            throw Error("inline draw declares more than one stream");
+        }
+        stride = std::max(stride, input.offset + type_size(input.type));
+    }
+    const size_t size = inline_draw.vertices.size() * sizeof(u32);
+    if (stride == 0 || size % stride != 0)
+    {
+        throw Error("inline draw has a partial vertex");
+    }
+    const auto* data = reinterpret_cast<const u8*>(inline_draw.vertices.data());
+    XboxVertexProgramState program{};
+    program.constants = draw.constants;
+    std::vector<GfxNativeVertex> shaded;
+    for (size_t offset = 0; offset < size; offset += stride)
+    {
+        program.inputs.fill({0.f, 0.f, 0.f, 1.f});
+        for (const auto& input : inputs)
+        {
+            program.inputs[input.reg] = fetch(input.type, data + offset + input.offset);
+        }
+        program.outputs.fill({0.f, 0.f, 0.f, 1.f});
+        program.outputs[3] = {1.f, 1.f, 1.f, 1.f};
+        program.outputs[4] = {0.f, 0.f, 0.f, 0.f};
+        run_xbox_vertex_program(shader->second.program, program);
+        GfxNativeVertex vertex{};
+        vertex.position = clip_position(program.outputs[0]);
+        vertex.diffuse = program.outputs[3];
+        vertex.specular = program.outputs[4];
+        for (u32 stage = 0; stage < 4; ++stage)
+        {
+            vertex.uv[stage] = {program.outputs[9 + stage][0], program.outputs[9 + stage][1]};
+        }
+        shaded.push_back(vertex);
+    }
+    std::vector<GfxNativeVertex> vertices;
+    for (u32 index : triangle_order(draw.primitive, u32(shaded.size())))
+    {
+        vertices.push_back(shaded[index]);
+    }
+    GfxNativeDraw output;
+    output.vertices = vertices;
+    for (u32 stage = 0; stage < 4; ++stage)
+    {
+        if (draw.textures[stage] != nullptr)
+        {
+            output.textures[stage] = &context.texture(draw.textures[stage]);
+        }
+    }
+    output.address_u = draw.address_u;
+    output.address_v = draw.address_v;
+    std::array<u32, 60> words{};
+    const u32 pixel = state(draw.states, SceneD3DDevice::kPixelShader, 0);
+    if (pixel != 0)
+    {
+        const auto found = context.resources.pixel_shaders.find(pixel);
+        if (found == context.resources.pixel_shaders.end())
+        {
+            throw Error("inline draw binds a pixel shader the device did not create");
+        }
+        words = pixel_shader_words(context.memory.resolve(found->second, sizeof(words)).data(), draw);
+        output.pixel_shader = words.data();
+    }
+    apply_states(draw.states, output);
+    gfx_draw_native(output);
+}
+
 // Constants c0x60..c0x63 are the transposed transform: clip = row . (x, y, z, 1).
 void present_quad(const SceneD3DQuad& quad, const SceneD3DPresentContext& context)
 {
@@ -450,6 +532,10 @@ void present_scene_d3d_commands(std::span<const SceneD3DCommand> commands, const
         else if (const auto* quad = std::get_if<SceneD3DQuad>(&command))
         {
             present_quad(*quad, context);
+        }
+        else if (const auto* draw = std::get_if<SceneD3DInlineDraw>(&command))
+        {
+            present_inline(*draw, context);
         }
         else if (const auto* clear = std::get_if<SceneD3DClear>(&command))
         {

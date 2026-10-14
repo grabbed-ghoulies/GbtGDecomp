@@ -268,6 +268,7 @@ struct RuntimeModelInstance
     u32 state_1c4;
     u32 state_1c0;
     u32 state_1c8; // Model +0x1C8, the draw's second material word.
+    u32 mirror_pass = 0; // Model +0x15C, the mirror flag 0x00121900 stores before each world pass.
     std::unique_ptr<RuntimeModelShaderAnimations> shader_animations; // +0x29C
 };
 void set_runtime_model_node_state(RuntimeModelInstance& model, u8 slot, u8 value,

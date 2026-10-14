@@ -536,6 +536,9 @@ extern u32 g_tune_5d38;
 // DAT_00510650. Type 0xA5 stores 1 when node+8 is nonzero.
 extern u32 g_flag_0650;
 
+// DAT_00512104. Type 0x64 copies node+8; 0x001237E0 tests it.
+extern u32 g_flag_2104;
+
 // Xbox 0x00128050. Handler 15. The dword at node+4 is the type. The byte map
 // at 0x001286BC covers types 0x1 through 0xA5. Any other type, and the holes
 // in that range, return 3. The second argument is the flag 0x00128A00 passes.

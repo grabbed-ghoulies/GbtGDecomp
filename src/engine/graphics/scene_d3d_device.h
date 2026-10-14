@@ -9,8 +9,8 @@ namespace gbtg
 {
 // Host D3D device behind the translated dialogue and model draw boundaries. It keeps the device state
 // the dump reads back (transforms, vertex constants, textures, render targets) and records each draw,
-// clear and target change in issue order with the state it was issued under. Push-buffer quads
-// (SET_BEGIN_END QUADS, inline array of x, y, z, u, v) are decoded into quad draws.
+// clear and target change in issue order with the state it was issued under. Inline arrays with a
+// created shader preserve raw vertex words; zero-handle dialogue quads retain their x,y,z,u,v path.
 using SceneD3DConstants = std::array<std::array<float, 4>, 192>; // Hardware numbering: register + 96.
 struct SceneD3DQuad
 {
@@ -46,12 +46,17 @@ struct SceneD3DClear
     u32 color;
     float depth;
 };
+struct SceneD3DInlineDraw
+{
+    SceneD3DIndexedDraw state;
+    std::vector<u32> vertices;
+};
 struct SceneD3DTarget
 {
     std::uintptr_t color;
     std::uintptr_t depth;
 };
-using SceneD3DCommand = std::variant<SceneD3DQuad, SceneD3DIndexedDraw, SceneD3DClear, SceneD3DTarget>;
+using SceneD3DCommand = std::variant<SceneD3DQuad, SceneD3DIndexedDraw, SceneD3DInlineDraw, SceneD3DClear, SceneD3DTarget>;
 struct SceneD3DVertexShader
 {
     std::array<i32, 32> declaration;

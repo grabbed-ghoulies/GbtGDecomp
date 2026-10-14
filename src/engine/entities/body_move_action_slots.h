@@ -25,6 +25,12 @@ void ease_runtime_body_velocity(std::span<const u8> body, Actor& actor, const i3
 // Move action type 0x5C: vtable +0x10 and +0x14.
 void tick_runtime_velocity_action(std::span<u8> action, std::span<const u8> body, Actor& actor,
     const RuntimeActorClock& clock, const i32& steps); // Xbox 0x00080340
+void ease_runtime_planar_velocity(Vec3& velocity, const Vec3& target, float gain,
+    const i32& steps); // Xbox 0x00140660
+void update_runtime_gravity_velocity(std::span<const u8> body, Actor& actor,
+    const RuntimeActorClock& clock, const i32& steps); // Xbox 0x00133E50
+void tick_runtime_gravity_action(std::span<u8> action, std::span<const u8> body, Actor& actor,
+    const RuntimeActorClock& clock, const i32& steps); // Xbox 0x0007FD70
 void step_runtime_body_motion(std::span<u8> body, Actor& actor, const ActorAnimationState& animation,
     const RuntimeActorClock& clock); // Xbox 0x0002AD30 (0x000803A0 jumps here)
 }

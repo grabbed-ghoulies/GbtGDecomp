@@ -175,7 +175,11 @@ i32 NativePlayerMindOwner::update_request(FactoryObject& mind, RuntimePlayerMind
         }
         return update_runtime_cinema_mind_request(*slots.cinema->request_update, request.bytes);
     }
-    return update_runtime_player_mind_request(*view(mind).request_update, request);
+    if (slots.request_update == nullptr)
+    {
+        throw Error("player mind request slot 0x0007D360 is not attached");
+    }
+    return update_runtime_player_mind_request(*slots.request_update, request);
 }
 
 u32 NativePlayerMindOwner::initialize_request(FactoryObject& mind, RuntimePlayerMindRequest& request)

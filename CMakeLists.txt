@@ -68,6 +68,11 @@ add_library(gbtg_lib STATIC
     src/engine/scene/scene_actor_activation.cpp
     src/engine/scene/scene_actor_update.cpp
     src/engine/scene/scene_view_actors.cpp
+    src/engine/graphics/light_volume_draw.cpp
+    src/engine/graphics/door_shadow_draw.cpp
+    src/engine/graphics/xg_shader_assembly.cpp
+    src/engine/graphics/xg_pixel_shader.cpp
+    src/engine/entities/body_stand_alert_tick.cpp
     src/engine/scene/scene_control_update.cpp
     src/engine/scene/scene_gameplay_time.cpp
     src/engine/scene/scene_body_messages.cpp

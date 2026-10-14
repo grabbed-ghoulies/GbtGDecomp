@@ -1,5 +1,6 @@
 #include "body_frame_checks.h"
 #include "../src/engine/entities/body_apply.h"
+#include "../src/engine/entities/body_move_action_slots.h"
 #include "../src/engine/entities/player_body_motion.h"
 #include "../src/engine/entities/entity_heap.h"
 #include "../src/engine/entities/body_shape_push.h"
@@ -46,6 +47,28 @@ void check_body_frame_methods()
     u32 block = 0, index = 0;
     std::array<u8, 1> enabled{1};
     RuntimeActorClock clock{freeze, dt, scale, block, enabled, index};
+    {
+        std::array<u8, 0x924> gravity_body{};
+        std::array<u8, 0x20> action{};
+        Actor falling;
+        falling.animation_rate = 2.f;
+        falling.anchor = Vec3{3.f, 4.f, 5.f};
+        floating(gravity_body, 0x324, -10.f);
+        const i32 steps = 0;
+        tick_runtime_gravity_action(action, gravity_body, falling, clock, steps);
+        require(read_f32(action, 0xC) == 0.2f && falling.anchor.x == 3.f
+            && falling.anchor.y == 2.f && falling.anchor.z == 5.f,
+            "gravity tick must scale elapsed time and preserve planar velocity with zero integration steps");
+        freeze = 1.f;
+        tick_runtime_gravity_action(action, gravity_body, falling, clock, steps);
+        require(read_f32(action, 0xC) == 0.2f && falling.anchor.y == 2.f,
+            "simulation freeze must stop gravity and action elapsed time");
+        freeze = 0.f;
+        Vec3 planar{0.f, -7.f, 0.f};
+        ease_runtime_planar_velocity(planar, Vec3{10.f, 99.f, -10.f}, 1.f, 1);
+        require(planar.x > 0.f && planar.z < 0.f && planar.y == -7.f,
+            "planar easing must approach its target while preserving vertical velocity");
+    }
     RuntimeModelInstance instance{};
     RuntimeModelInstance* model = &instance;
     RuntimeModelInstance* secondary = nullptr;

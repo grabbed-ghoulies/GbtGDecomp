@@ -62,6 +62,7 @@ struct SceneBodyServices
     const i32& motion_steps; // DAT_004312E0.
     std::span<u32> node_states; // DAT_005078D8.
     std::array<std::span<const u8>, 4> channel_keys; // DAT_00338F64, DAT_00338F88, DAT_00338EE0, DAT_00338EA4.
+    float stand_input_threshold; // DAT_0032B22C.
 };
 
 // One body's message graph: the parent body handler 0x000253B0 and the derived slots of types 0x27

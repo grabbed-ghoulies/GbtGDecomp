@@ -107,6 +107,46 @@ void tick_runtime_velocity_action(std::span<u8> action, std::span<const u8> body
     ease_runtime_body_velocity(body, actor, steps);
 }
 
+// Xbox 0x00140660
+void ease_runtime_planar_velocity(Vec3& velocity, const Vec3& target, float gain, const i32& steps)
+{
+    const float vertical = velocity.y;
+    std::array<u8, 0x10> context;
+    std::memcpy(context.data(), &target, 12);
+    std::memcpy(context.data() + 12, &gain, 4);
+    Vec3 rate{};
+    Vec3 rate_out;
+    integrate_runtime_motion(velocity, rate, velocity, rate_out, context,
+        std::bit_cast<float>(0x3B5A740Eu), steps, runtime_motion_toward_target, runtime_motion_settle_target,
+        [](std::span<const u8>, const Vec3&, Vec3&)
+        {
+            // Xbox 0x001628B0 returns at once.
+        });
+    velocity.y = vertical;
+}
+
+// Xbox 0x00133E50
+void update_runtime_gravity_velocity(std::span<const u8> body, Actor& actor,
+    const RuntimeActorClock& clock, const i32& steps)
+{
+    Vec3 velocity = actor.anchor;
+    const Vec3 target = read_vec3(body, 0x318);
+    const float step = runtime_frame_step(clock);
+    const float rate = runtime_actor_rate(actor);
+    ease_runtime_planar_velocity(velocity, target, read_f32(body, 0x334), steps);
+    velocity.y = rate * step * read_f32(body, 0x324) + velocity.y;
+    actor.anchor = velocity;
+}
+
+// Xbox 0x0007FD70
+void tick_runtime_gravity_action(std::span<u8> action, std::span<const u8> body, Actor& actor,
+    const RuntimeActorClock& clock, const i32& steps)
+{
+    const float elapsed = runtime_actor_rate(actor) * runtime_frame_step(clock) + read_f32(action, 0xC);
+    std::memcpy(action.data() + 0xC, &elapsed, 4);
+    update_runtime_gravity_velocity(body, actor, clock, steps);
+}
+
 // Xbox 0x0002AD30
 void step_runtime_body_motion(std::span<u8> body, Actor& actor, const ActorAnimationState& animation,
     const RuntimeActorClock& clock)

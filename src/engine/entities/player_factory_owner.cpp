@@ -385,6 +385,14 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
 void NativePlayerInstance::refresh_body_views()
 {
     body_bits = body_flags;
+    body_output.actor = &actor;
+    body_output.bits = body_bits;
+    actor.euler_out = body.empty() ? nullptr : &body_output;
+    if (!body.empty())
+    {
+        body_output.position = Vec3{read_f32(body, 0x18), read_f32(body, 0x1C), read_f32(body, 0x20)};
+        body_output.euler = Vec3{read_f32(body, 0x72C), read_f32(body, 0x730), read_f32(body, 0x734)};
+    }
     if (body_flags != nullptr)
     {
         body_bit_block.bytes = body_flags->bytes;

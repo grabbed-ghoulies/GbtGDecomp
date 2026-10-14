@@ -49,7 +49,7 @@ u32 update_runtime_cinema_mind_spawn_position(RuntimeCinemaMindSpawnMovement& co
             context.target = nullptr;
             return 1;
         }
-        target = context.actors.at(selected);
+        target = &context.actor_at(*selected);
         context.target = target;
         std::memcpy(movement.mind.data() + 0x18, &target->address, 4);
     }
@@ -167,7 +167,7 @@ u32 request_runtime_cinema_mind_spawn_attachment(RuntimeCinemaMindMovement& cont
 
 // Xbox 0x0007B090
 bool update_runtime_cinema_mind_target_action(RuntimeCinemaMindMovement& context,
-    std::span<const u8> request, RuntimeMindChainRequestSelection& selection,
+    std::span<const u8> request, const std::function<RuntimeMindChainRequestSelection&()>& selection,
     std::span<u8> input, const RuntimeInputReleaseContext& input_context)
 {
     if (read_u32(context.mind, 0x10) == 0)
@@ -178,7 +178,7 @@ bool update_runtime_cinema_mind_target_action(RuntimeCinemaMindMovement& context
     {
         if (read_u32(request, 0x14) != 0 || context.target->bytes[0x15] == 0)
         {
-            return dispatch_runtime_mind_target_request(selection, 0xFFFFFFFFu, read_u32(request, 0x10)) != 1;
+            return dispatch_runtime_mind_target_request(selection(), 0xFFFFFFFFu, read_u32(request, 0x10)) != 1;
         }
         if (read_u32(context.actor_bytes, 0x960) != 0)
         {

@@ -218,6 +218,18 @@ void SceneD3DDevice::decode_push(const u32* begin, const u32* end)
             }
             else if (mode == 0 && open)
             {
+                const auto bound = render_states_.find(kVertexShader);
+                if (bound != render_states_.end() && bound->second != 0)
+                {
+                    SceneD3DInlineDraw output{SceneD3DIndexedDraw{kQuads, 0, 0, constants_, textures_,
+                        render_states_, vertex_streams_, pixel_constants_, pixel_constants_set_}, {}};
+                    output.vertices.resize(vertices.size());
+                    std::memcpy(output.vertices.data(), vertices.data(), vertices.size() * sizeof(u32));
+                    commands.push_back(std::move(output));
+                    open = false;
+                    cursor += count;
+                    continue;
+                }
                 if (vertices.size() % 20 != 0)
                 {
                     throw Error("D3D quad batch has a partial vertex set");

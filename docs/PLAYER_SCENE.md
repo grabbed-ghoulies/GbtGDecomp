@@ -7244,3 +7244,132 @@ is clean. Captures `cache/opening_260.png`, `cache/opening_300.png` (hall
 from the play camera, no characters) and `cache/opening_600.png` (native
 tutorial prompt) were inspected. No temporary traces remain; nothing was
 staged or committed.
+
+### View passes and boot vertex shaders (2026-10-14 continuation)
+
+Continued the uncommitted view-pass work inherited from the previous session.
+The live native view calls 0x00121900 between visibility and pass 2. Its
+non-mirror path, shader-parameter handler swaps and gated world helpers remain
+in the working tree. Actor updates are still held.
+
+Removed the temporary door-shadow early return and the temporary environment
+printf. The door pool now calls translated 0x0005B020, including its D3D state
+writes, table index 0x13, transform retrieval and row eligibility checks.
+New door_shadow_draw also translates 0x0005AC40 and 0x0005AE40 from their full
+assembly: register-passed bounds, ordered/unordered comparison behavior,
+transposed matrix constants, depth/alpha interpolation, the __ftol call and
+packed-colour inline-array vertices. These geometry entries are not yet
+reached live because pixel-shader creation is missing.
+
+The host XGAssembleShader vertex boundary emits NV2A programs for all 24 retail
+boot-table sources. It supports the table's arithmetic, matrix macro,
+screenspace pragma and specific independent MUL/RCC pair; unsupported syntax
+raises. Native 0x00065EE0 creates the table handles and 0x00065F60 binds them
+and uploads its optional twelve constants from c0. Boot runs after the
+executable/relocated address resolver is installed. This is shader-boundary
+support, not a replacement for scene behavior.
+
+SceneD3DDevice now records inline-array draws under created vertex shaders
+with raw packed vertex words and draw-time state. The presenter reads their
+actual declaration and runs the same NV2A interpreter and pixel definition as
+indexed draws. The zero-handle dialogue quad path remains available.
+
+Current measured live stop, with the temporary bypass removed:
+`gbtg --headless --frames 300 --game-dir OriginalFiles --scene chapter1_scene1_2playcam`
+exits 1 at `boot pixel shader creation 0x00063FB0 / XGAssembleShader`.
+All boot vertex rows assemble and are created before that stop. A complete
+opening screenshot cannot be obtained yet, so neither characters nor door
+shadows are visually accepted. The old green headless results above do not
+apply to this working tree's opening view pass.
+
+The full pixel boot loop dump is cache/ghidra_frontier/00063FB0.txt. Its first
+row calls factory 0x00063F40; that factory was exported with Ghidra read-only.
+The remaining sources include paired alpha/RGB instructions, xdd/xmma,
+texture kill and texture matrix instructions, not only mov/mul. The next
+required work is their XDK assembler boundary, translation of 0x00063FB0 and
+0x00063F40, and registration of owned pixel-shader definitions with the D3D
+resource store. Then replace the explicit missing pixel binding in the door
+context, run the opening, inspect captures and continue at its next live stop.
+
+Added checks in scene_render_tests for homogeneous viewport conversion,
+screenspace programs, vertex colour, unsupported opcode rejection and raw
+inline-array colour/state ownership. Release default transition and
+--scene-start checks pass; Release CTest passes 6/6. This does not establish
+oracle equivalence for assembled shaders or acceptance of the complete scene.
+No retail files were edited and nothing was staged or committed.
+
+Final verification for this continuation: Release and Debug game/transition
+builds pass; default transition runs pass in both configurations; CTest is
+6/6 in both configurations; --scene-start passes in Release. Additional
+synthetic checks cover door-volume boundary suppression with untouched
+outputs, fade direction from either door plane, and unordered camera input.
+The live opening still exits 1 at the explicitly missing pixel boot boundary;
+both attempted frame-100 and frame-300 captures stop before producing a
+complete screenshot. No visual or audible acceptance is claimed.
+
+### Pixel boot restored; characters and tutorial visible (2026-10-14)
+
+The missing pixel boot path from the previous checkpoint is now installed.
+Native 0x00063FB0 walks all twenty rows, invokes factory 0x00063F40 for the
+first row, assembles the other nineteen xps.1.1 sources and stores the handles.
+The factory preserves its exact six nonzero D3DPIXELSHADERDEF words. As in
+the assembly, both functions use CreatePixelShader's output handle without
+testing its HRESULT; an assembly failure stores zero.
+
+The XGAssembleShader host pixel boundary compiles the boot table's mov, mul,
+add, sub, mad, dp3, lrp, cnd, xdd and xmma arithmetic, paired RGB/alpha writes,
+def constants, x4 output scaling, texture loads, coordinate pass-through,
+texture kill and the texm3x2pad/texm3x2tex dependent-read modes into a 60-word
+NV2A definition. The format follows the register/channel and output fields
+used by the existing presenter. Unsupported syntax raises. Static def values
+are excluded from dynamic constant mappings. Program acceptance here means
+these sources assemble; this is not an oracle check of every shader's output
+or acceptance of the presenter's currently unused texture modes.
+
+D3D creation copies each definition into an owned SceneResourceMemory block,
+registers its handle with SceneD3DResources and releases those blocks/handles
+when scene services are destroyed. The door context now binds the real table
+pixel handle, with no temporary return or missing-boot throw.
+
+Observed captures (inspected):
+- cache/pixel_boot_300.png: Cooper and the imps are drawn in the central hall
+  through native passes 0/1. The play camera looks up the stairs behind Cooper.
+- cache/pixel_boot_900.png: tutorial head, text, textured backdrop, four corner
+  models and the A-button bat are visible. The previously unpresented backdrop
+  and dialog-bat model draws now reach the presenter.
+
+Release live runs with and without chapter1_scene1_2playcam both complete
+900 frames and exit 0. The opening reports native scene start complete;
+acceptance does not rely on the legacy native-start-error fallback.
+The inherited actor-update hold remains, so these captures establish drawing,
+not controller movement or a playable fight. Dialogue voice playback was not
+listened to during these headless runs.
+
+Validation: Release and Debug game/transition builds; default transition check
+in both configurations; Release title, title-a, goop, ui, player-opening,
+scene-start, scene-spawn, dialogue-resources, actor-loading, ghoulybox-decoder
+and scene-models suites; CTest 6/6 in both configurations. New checks cover
+pixel RGB/alpha source selection, texture multiplication, paired channels,
+static/dynamic constants, dependent texture encodings, unsupported syntax,
+the native factory words and all twenty boot-loop rows including assembly
+failure and ignored creation HRESULT. git diff --check is clean. No retail
+files were edited and nothing was staged or committed.
+
+Debug --player-opening also passes through fresh A edges and the post-tutorial
+(next bit) hold. Inspected captures and test results above refer to the native
+opening start completing, not a host fallback after a swallowed startup error.
+
+### Native actor body checkpoint — 2026-10-14
+
+The next native update work is recorded in NATIVE_GAMEPLAY_FRAME.md under
+"Actor body frame checkpoint". Player/cinema mind contexts and body frame
+slots are connected; gravity and stand-alert ticks are translated. A live
+run exposed and fixed the missing actor +0x95C body pose binding. Camera and
+imp body ticks now return, then the imp stops explicitly at the unbound body
+channel rows (+0x150) and animation channel bindings (actor +0x50).
+
+Actor updates remain held so the working rendered opening is preserved.
+Movement and combat are not accepted. Release/Debug builds, CTest 6/6 in
+each, dialogue-resource/body checks in both and Release scene-start pass.
+The 900-frame screenshot cache/actor_checkpoint_900.bmp was inspected and
+still shows the native tutorial, backdrop, head, corner models and A bat.

@@ -15,6 +15,8 @@
 #include <span>
 #include <vector>
 
+#include "lighting.h"
+
 namespace gbtg
 {
 namespace
@@ -101,9 +103,14 @@ LightAllocFn g_light_alloc = nullptr; // DAT_0054d94c. Thunk at 0x000F9C10.
 LightFreeFn g_light_free = nullptr;   // DAT_0054d954
 
 LightVolumeRecord g_light_records[kLightVolumeRecords]{};
+} // namespace
+
 i32 g_light_filled = 0;                         // DAT_0050d71c. Compared with 0x19.
 i32 g_light_filled_gate = 0;                    // DAT_0050d720
 u8 g_light_order[kLightVolumeRecords]{};        // DAT_0050d724
+
+namespace
+{
 i32 g_light_mark_740 = 0;                       // DAT_0050d740
 u8 g_light_flag_760 = 0;                        // DAT_0050d760
 u8 g_light_flag_761 = 0;

@@ -46,6 +46,16 @@ struct SceneMindServices
     // Mind vtable +0x14 / +0x18 of this mind (0x0007C0E0 / 0x0007EBC0 for cinema minds).
     std::function<i32(FactoryObject&, RuntimePlayerMindRequest&)> update_request;
     std::function<u32(FactoryObject&, RuntimePlayerMindRequest&)> initialize_request;
+    std::span<const u32, 2> pause_references; // DAT_0050E764..68.
+    RuntimePlayerHealthDisplay& health;
+    const void* const& markers; // DAT_0051108C.
+    RuntimeActorSoundQueues& sounds;
+    const RuntimeBodyDamageTables& damage_tables;
+    std::span<const float> mode_scales; // DAT_00217EC0.
+    std::function<RuntimeBodyAttachedActor&(u32)> attached_actor_at;
+    std::function<RuntimeMindTarget&(u32)> target_at;
+    std::function<std::span<const u8>(const RuntimeBodyAttachedActor&)> attachment_link;
+    std::function<u32()> active_player_link; // DAT_00511B48, alt list's next pointer.
 };
 
 // One mind's message graph: cinema minds (type 0x35, 0x0007C8B0) and player minds (type 0x34, 0x0007F1E0)
@@ -90,6 +100,16 @@ private:
     RuntimePlayerMindGaze gaze_;
     RuntimePlayerMindControl control_;
     RuntimeCinemaMindTick cinema_tick_;
+    u32 active_player_link_ = 0;
+    RuntimePlayerMindTick player_tick_;
+    entity_detail::NavigationPathSearch* path_search_ = nullptr;
+    RuntimePlayerNavigation navigation_;
+    RuntimePlayerNavigationControl navigation_control_;
+    RuntimePlayerAttachmentEligibility eligibility_;
+    RuntimeMindEscapePosition escape_;
+    RuntimeCinemaMindMovement movement_;
+    RuntimeCinemaMindSpawnMovement spawn_;
+    RuntimeCinemaMindRequestUpdate cinema_request_;
     void refresh_gaze();
 };
 }

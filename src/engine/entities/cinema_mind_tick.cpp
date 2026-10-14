@@ -75,7 +75,7 @@ void tick_runtime_cinema_mind(RuntimeCinemaMindTick& context)
     {
         update_runtime_cinema_mind_avoidance(context.avoidance);
     }
-    select_runtime_player_mind_alert(mind, body, parent.flags, read_u32(messages.actor_bytes, 0x93C));
+    select_runtime_player_mind_alert(mind, body, parent.flags, context.player_link);
     update_runtime_mind_requests(base);
     update_runtime_mind_events(base);
     const float step = runtime_frame_step(base.clock);

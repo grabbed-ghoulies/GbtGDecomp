@@ -118,8 +118,7 @@ void release_actor_sound(RuntimeActorSound& sound, RuntimeActorSoundQueues& queu
 {
     if (actor_sound_is_active(sound, queues) && static_cast<i16>(sound.previous_bone) != -1)
     {
-        stop_runtime_sound_voice(queues.voices[static_cast<i16>(sound.previous_bone)],
-            0, queues.stopped_count, queues.boundaries);
+        stop_actor_sound_voice(static_cast<i16>(sound.previous_bone), queues);
         sound.previous_bone = 0xFFFF;
     }
     if (sound.previous != nullptr)
@@ -177,8 +176,7 @@ void reset_actor_sound_queues(RuntimeActorSoundQueues& queues)
         i16& voice = queues.static_voice_indices[index];
         if (voice != -1)
         {
-            stop_runtime_sound_voice(queues.voices[voice], 0,
-                queues.stopped_count, queues.boundaries);
+            stop_actor_sound_voice(voice, queues);
         }
         voice = -1;
     }
@@ -227,6 +225,16 @@ void stop_runtime_sound_cue(RuntimeSoundCue& cue, i32 immediate, u32& stopped_co
         }
         ++stopped_count;
     }
+}
+
+void stop_actor_sound_voice(i16 voice, RuntimeActorSoundQueues& queues)
+{
+    if (queues.stop_voice)
+    {
+        queues.stop_voice(voice);
+        return;
+    }
+    stop_runtime_sound_voice(queues.voices[voice], 0, queues.stopped_count, queues.boundaries);
 }
 
 // Xbox 0x00039690

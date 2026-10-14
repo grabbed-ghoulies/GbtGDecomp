@@ -204,3 +204,25 @@ DAT_00545AEC..DAT_00545AF8 in `0x0013CBD0`, called from scene load
   now share one block, `g_camera_view_tunables` (DAT_00434008), seeded with
   the retail .data words.
 - `g_tune_5aec` is now the same storage as `g_look_profile` (DAT_00545AEC).
+
+### Actor sounds start (2026-10-14)
+
+Footsteps were formatted and queued, but no actor sound ever started:
+
+- **Capacities.** `0x0011CBD0` sets the actor sound group capacities
+  (DAT_00512520 = 0x14, DAT_00512534 = 6) right after its marker load. The port
+  left them at 0, so `0x0012A7D0` started nothing. `State::start_background`
+  now sets them.
+- **Reverb curves.** The scene's event voices had an empty reverb table, so the
+  first 3D voice (`0x00039620`) read out of bounds. They are now bound to the
+  retail DAT_00421A38 pairs.
+- **Stopping actor sound voices.** `0x0012A3D0`, `0x00129F70` and the intro
+  sound reset stop a voice of DAT_004E0CE8. In the scene,
+  `RuntimeActorSoundQueues::stop_voice` routes that to the event voices, as the
+  bank streams do; tests still bind the voice span.
+- **Mind targets.** `refresh_mind_targets` replaced every target object on each
+  call, including calls nested in message handlers, so an imp engaging a
+  target used a freed object. A live record now keeps its target.
+
+In the opening walk, imp and Cooper footsteps (stone, wood, carpet), imp
+chatter and laughs now prepare and play through the event voices.

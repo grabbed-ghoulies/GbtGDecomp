@@ -1321,6 +1321,17 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         voices.banks = std::span<AudioCoreBank* const>(g_native_audio->banks.data(),
             size_t(g_native_audio->bank_count));
     }
+    // The actor sound queues stop the same event voices (DAT_004E0CE8) through 0x00039690.
+    sounds.stop_voice = [this](i16 index)
+    {
+        auto& voice = voices.voices[size_t(index)];
+        RuntimeSoundVoice view{voice.state, voice.cue == nullptr ? nullptr : &voice.cue->runtime};
+        stop_runtime_sound_voice(view, 0, voices.core.stopped_count, voices.core.sound);
+        voice.state = view.state;
+    };
+    // DAT_00421A38: nine {millibel, volume} reverb pairs that 0x00039620 reads for each 3D voice.
+    voices.reverb_curves = std::span<const std::array<u32, 2>>(
+        reinterpret_cast<const std::array<u32, 2>*>(data(0x00421A38, 9 * 8).data()), 9);
     audio_cues.sound = native_sound_boundaries();
     cutscene_factory = std::make_unique<CutsceneActorFactoryContext>(CutsceneActorFactoryContext{scene.factory,
         image.pools, replacement_source.data(), replacement_target.data()});
@@ -2146,8 +2157,22 @@ void SceneActorServices::State::refresh_mind_targets()
         {
             query_view = found->second;
         }
-        row->target = std::make_unique<RuntimeMindTarget>(RuntimeMindTarget{nullptr, row->bytes, address, actor,
-            actor_bytes, *query_view, occupancy, record});
+        // A live record keeps its target object, so strategy and mind contexts holding it across a nested refresh
+        // stay valid; only the reference members force a new one.
+        if (row->target == nullptr || &row->target->actor != &actor || &row->target->body != query_view)
+        {
+            row->target = std::make_unique<RuntimeMindTarget>(RuntimeMindTarget{nullptr, row->bytes, address, actor,
+                actor_bytes, *query_view, occupancy, record});
+        }
+        else
+        {
+            row->target->next = nullptr;
+            row->target->bytes = row->bytes;
+            row->target->address = address;
+            row->target->actor_bytes = actor_bytes;
+            row->target->occupancy = occupancy;
+            row->target->record = record;
+        }
         row->view = RuntimePlayerTargetView{row->bytes, address, &actor, row->target.get()};
         if (previous == nullptr)
         {
@@ -3254,6 +3279,9 @@ void SceneActorServices::State::update_actor(u32 address)
 // (0x0011C8B0) and its activation (0x00123070), then the navigation build (0x00111820).
 void SceneActorServices::State::start_background()
 {
+    // 0x0011CBD0 after its marker load: the actor sound group capacities (DAT_00512520, DAT_00512534).
+    sounds.groups[0].capacity = 0x14;
+    sounds.groups[1].capacity = 6;
     // DAT_004EE2B8: 0x560 bytes, stride 0x154 and growth 4, so four rows after the header.
     door_pool = static_cast<entity_detail::NavigationCellRegistration*>(
         engine_heap_allocate(i32(sizeof(entity_detail::NavigationCellRegistration) + 4 * 0x154)));

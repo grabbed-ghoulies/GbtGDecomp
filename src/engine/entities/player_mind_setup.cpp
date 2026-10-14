@@ -29,8 +29,7 @@ void reset_runtime_player_intro_sound(RuntimePlayerIntroSound& state)
     }
     if (state.voice != -1)
     {
-        stop_runtime_sound_voice(state.sound.voices[state.voice], 0,
-            state.sound.stopped_count, state.sound.boundaries);
+        stop_actor_sound_voice(state.voice, state.sound); // 0x00039690
         state.voice = -1;
     }
 }

@@ -59,6 +59,9 @@ struct RuntimeActorSoundQueues
 {
     std::array<RuntimeActorSoundGroup, 2> groups;
     std::span<RuntimeSoundVoice> voices;
+    // 0x00039690 on event voice n of DAT_004E0CE8 when the scene's event voices own the voices; otherwise the
+    // voices span above is used.
+    std::function<void(i16)> stop_voice;
     u32 stopped_count = 0;
     RuntimeSoundBoundaries boundaries;
     std::span<i16> static_voice_indices; // DAT_005125D8, host view of stride 0x90
@@ -74,6 +77,7 @@ bool actor_sound_is_active(const RuntimeActorSound& sound,
     const RuntimeActorSoundQueues& queues); // Xbox 0x0012A970
 void release_actor_sound(RuntimeActorSound& sound,
     RuntimeActorSoundQueues& queues); // Xbox 0x0012A3D0
+void stop_actor_sound_voice(i16 voice, RuntimeActorSoundQueues& queues); // Xbox 0x00039690 on DAT_004E0CE8[voice]
 void queue_actor_sound(RuntimeActorSound& sound, i32 group, Actor* owner,
     u16 request_id, const Vec3* position, const Vec3* direction, float volume,
     const char* name, RuntimeActorSoundQueues& queues); // Xbox 0x0012A260

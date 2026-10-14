@@ -152,8 +152,24 @@ int run_platform(Game& game, const PlatformConfig& cfg)
 #if defined(GBTG_DEBUG_UI)
         }
 #endif
-        // 0x001555B0 polls XInput into the four ports. The host keyboard above
-        // fills the same button word, so a connected pad fills those bits too.
+        // Keyboard stand-ins for the sticks on port 0: WASD is the left stick, IJKL the right.
+#if defined(GBTG_DEBUG_UI)
+        if (!debug_ui_menu_open())
+#endif
+        {
+            const auto axis = [](int negative, int positive) -> i16
+            {
+                const bool low = (GetAsyncKeyState(negative) & 0x8000) != 0;
+                const bool high = (GetAsyncKeyState(positive) & 0x8000) != 0;
+                return i16(high == low ? 0 : high ? 32767 : -32767);
+            };
+            in.pads[0].lx = axis('A', 'D');
+            in.pads[0].ly = axis('S', 'W');
+            in.pads[0].rx = axis('J', 'L');
+            in.pads[0].ry = axis('K', 'I');
+        }
+        // 0x001555B0 polls XInput into the four ports: thumbsticks, trigger bytes and the button word. XInput's
+        // shoulders stand in for Black (RB) and White (LB); 0x00154E50 sets 0x4000/0x8000 from trigger bytes >= 30.
         for (DWORD port = 0; port < 4; ++port)
         {
             XINPUT_STATE state{};
@@ -163,47 +179,46 @@ int run_platform(Game& game, const PlatformConfig& cfg)
             }
             const XINPUT_GAMEPAD& pad = state.Gamepad;
             const WORD buttons = pad.wButtons;
-            if ((buttons & XINPUT_GAMEPAD_DPAD_UP) != 0 || pad.sThumbLY > 16000)
+            auto& packet = in.pads[port];
+            packet.lx = pad.sThumbLX;
+            packet.ly = pad.sThumbLY;
+            packet.rx = pad.sThumbRX;
+            packet.ry = pad.sThumbRY;
+            packet.trigger_l = pad.bLeftTrigger;
+            packet.trigger_r = pad.bRightTrigger;
+            const std::pair<WORD, u16> map[]{{XINPUT_GAMEPAD_DPAD_UP, 0x0001}, {XINPUT_GAMEPAD_DPAD_DOWN, 0x0002},
+                {XINPUT_GAMEPAD_DPAD_LEFT, 0x0004}, {XINPUT_GAMEPAD_DPAD_RIGHT, 0x0008},
+                {XINPUT_GAMEPAD_START, 0x0010}, {XINPUT_GAMEPAD_BACK, 0x0020},
+                {XINPUT_GAMEPAD_LEFT_THUMB, 0x0040}, {XINPUT_GAMEPAD_RIGHT_THUMB, 0x0080},
+                {XINPUT_GAMEPAD_A, 0x0100}, {XINPUT_GAMEPAD_B, 0x0200}, {XINPUT_GAMEPAD_X, 0x0400},
+                {XINPUT_GAMEPAD_Y, 0x0800}, {XINPUT_GAMEPAD_RIGHT_SHOULDER, 0x1000},
+                {XINPUT_GAMEPAD_LEFT_SHOULDER, 0x2000}};
+            for (const auto& [from, to] : map)
             {
-                in.up = true;
+                if ((buttons & from) != 0)
+                {
+                    packet.buttons = u16(packet.buttons | to);
+                }
             }
-            if ((buttons & XINPUT_GAMEPAD_DPAD_DOWN) != 0 || pad.sThumbLY < -16000)
-            {
-                in.down = true;
-            }
-            if ((buttons & XINPUT_GAMEPAD_DPAD_LEFT) != 0 || pad.sThumbLX < -16000)
-            {
-                in.left = true;
-            }
-            if ((buttons & XINPUT_GAMEPAD_DPAD_RIGHT) != 0 || pad.sThumbLX > 16000)
-            {
-                in.right = true;
-            }
-            if ((buttons & XINPUT_GAMEPAD_A) != 0)
-            {
-                in.accept = true;
-            }
-            if ((buttons & XINPUT_GAMEPAD_B) != 0)
-            {
-                in.back = true;
-            }
-            if ((buttons & XINPUT_GAMEPAD_START) != 0)
-            {
-                in.start = true;
-            }
-            if ((buttons & XINPUT_GAMEPAD_X) != 0)
-            {
-                in.page = true;
-            }
-            // 0x00154E50 sets bit 0x4000 / 0x8000 when the trigger byte is at least 30.
             if (pad.bLeftTrigger >= 30)
             {
-                in.caret_left = true;
+                packet.buttons = u16(packet.buttons | 0x4000);
             }
             if (pad.bRightTrigger >= 30)
             {
-                in.caret_right = true;
+                packet.buttons = u16(packet.buttons | 0x8000);
             }
+            // The host frontend still reads these booleans directly.
+            in.up = in.up || (packet.buttons & 0x0001) != 0;
+            in.down = in.down || (packet.buttons & 0x0002) != 0;
+            in.left = in.left || (packet.buttons & 0x0004) != 0;
+            in.right = in.right || (packet.buttons & 0x0008) != 0;
+            in.start = in.start || (packet.buttons & 0x0010) != 0;
+            in.accept = in.accept || (packet.buttons & 0x0100) != 0;
+            in.back = in.back || (packet.buttons & 0x0200) != 0;
+            in.page = in.page || (packet.buttons & 0x0400) != 0;
+            in.caret_left = in.caret_left || (packet.buttons & 0x4000) != 0;
+            in.caret_right = in.caret_right || (packet.buttons & 0x8000) != 0;
         }
 #endif
 #if defined(GBTG_WITH_SDL)

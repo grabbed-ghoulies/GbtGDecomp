@@ -334,9 +334,11 @@ void pad_poll(float dt, const InputState& in)
     // Xbox 0x001555B0(dt) polls XInput into the four packets. Repeat timers
     // advance with dt there; the sample below reads the held button word.
     (void)dt;
-    for (RawPort& port : g_raw)
+    for (int index = 0; index < kPadPorts; ++index)
     {
-        port = {};
+        const InputState::PadPacket& packet = in.pads[size_t(index)];
+        g_raw[index] = RawPort{packet.lx, packet.ly, packet.rx, packet.ry, packet.trigger_l, packet.trigger_r,
+            packet.buttons};
     }
     RawPort& pad = g_raw[0];
     if (in.up)
@@ -366,6 +368,18 @@ void pad_poll(float dt, const InputState& in)
     if (in.start)
     {
         pad.buttons = u16(pad.buttons | 0x0010);
+    }
+    if (in.page)
+    {
+        pad.buttons = u16(pad.buttons | 0x0400);
+    }
+    if (in.caret_left)
+    {
+        pad.buttons = u16(pad.buttons | 0x4000);
+    }
+    if (in.caret_right)
+    {
+        pad.buttons = u16(pad.buttons | 0x8000);
     }
 }
 

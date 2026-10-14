@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 
 #include "gbtg/aid.h"
 #include "gbtg/clock.h"
@@ -31,6 +32,20 @@ struct InputState
     bool page = false;   // X (0x0400). Keyboard code 5 cycles the page.
     bool caret_left = false;  // Left trigger, bit 0x4000. Keyboard code 9.
     bool caret_right = false; // Right trigger, bit 0x8000. Keyboard code 10.
+    // The XInput packets 0x001555B0 polls, per port: raw thumbsticks, trigger bytes and the Xbox button word
+    // (D-pad 0x1..0x8, Start 0x10, Back 0x20, thumbs 0x40/0x80, A..White 0x100..0x2000, triggers 0x4000/0x8000).
+    // The booleans above are OR'd into port 0's button word.
+    struct PadPacket
+    {
+        i16 lx = 0;
+        i16 ly = 0;
+        i16 rx = 0;
+        i16 ry = 0;
+        u8 trigger_l = 0;
+        u8 trigger_r = 0;
+        u16 buttons = 0;
+    };
+    std::array<PadPacket, 4> pads{};
 };
 
 // Xbox WinMain 0x00032390: gfx_init, fs_init, game_init, then forever frame_tick 0x00033B50.

@@ -6,6 +6,7 @@
 #include "gbtg/movie.h"
 #include "gbtg/resource.h"
 #include "../transitions/transition_data.h"
+#include "../transitions/transition_book.h"
 #include "../entities/ghouly_requests.h"
 #include "../scene/actor_loading.h"
 #include "../scene/factory_scene_runtime.h"
@@ -540,8 +541,6 @@ SceneSpan* g_span_50e0e8 = &g_refresh_span;
 i32 g_refresh_kind = 0;
 
 
-// DAT_004DEA58. clock.h names this Clock::frame.
-u32 g_4dea58 = 0;
 
 
 // Xbox 0x00109470. EAX is the object. The dword at +0 minus 1 selects the
@@ -566,7 +565,7 @@ u32 g_4dea58 = 0;
 // Xbox 0x00109470
 void script_refresh_object_record(void* object)
 {
-    const u32 frame = g_4dea58;
+    const u32 frame = g_transition_game->clock.frame; // DAT_004DEA58, advanced by 0x00033C80.
     const i32 select = *reinterpret_cast<i32*>(object) - 1;
     void* key = nullptr;
     switch (select)

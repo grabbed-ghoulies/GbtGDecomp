@@ -77,6 +77,8 @@
 #include "../src/engine/entities/aid_spawn_resources.h"
 #include "../src/engine/scene/live_spawn_tick.h"
 #include "../src/engine/scene/factory_scene_runtime.h"
+#include "../src/engine/scene/scene_actor_services.h"
+#include <optional>
 #include "../src/engine/audio/bank_lookup.h"
 #include "../src/engine/audio/core_source.h"
 #include "../src/engine/audio/core_cue.h"
@@ -7959,6 +7961,54 @@ int main(int argc, char** argv)
                     + game.scene_name);
             }
             std::cout << "PASS: the opening script holds at its (next bit) gate after the tutorial\n";
+            // Cooper (class 4) walks under the left stick: 0x001555B0's packet reaches the player mind's
+            // control update (0x0007D130) and the body's walk action.
+            const auto cooper_position = [&game]() -> std::optional<gbtg::Vec3>
+            {
+                if (game.factory_scene == nullptr)
+                {
+                    return std::nullopt;
+                }
+                for (const auto& [address, actor] : game.factory_scene->start_actors(game).actor_addresses())
+                {
+                    if (actor != nullptr && actor->class_key == 4)
+                    {
+                        return gbtg::actor_world_position(*actor);
+                    }
+                }
+                return std::nullopt;
+            };
+            const auto before = cooper_position();
+            if (!before)
+            {
+                throw gbtg::Error("opening scene has no class 4 player actor");
+            }
+            for (int frame = 0; frame < 120; ++frame)
+            {
+                gbtg::InputState stick;
+                stick.pads[0].ly = 32767;
+                gbtg::gfx_begin_frame();
+                game.tick(1.f / 60.f, stick);
+                if (frame == 119)
+                {
+                    gbtg::RgbaImage walked;
+                    if (!gbtg::gfx_readback(walked))
+                    {
+                        throw gbtg::Error("player walk readback failed");
+                    }
+                    gbtg::write_bmp("cache/player_walk_check.bmp", walked);
+                }
+                gbtg::gfx_end_frame();
+            }
+            const auto after = cooper_position();
+            const float dx = after->x - before->x;
+            const float dz = after->z - before->z;
+            std::cout << "cooper moved " << dx << " " << (after->y - before->y) << " " << dz << "\n";
+            if (dx * dx + dz * dz < 1.f)
+            {
+                throw gbtg::Error("left stick did not move Cooper after the tutorial");
+            }
+            std::cout << "PASS: the left stick walks Cooper after the tutorial\n";
             gbtg::gfx_shutdown();
             return 0;
         }

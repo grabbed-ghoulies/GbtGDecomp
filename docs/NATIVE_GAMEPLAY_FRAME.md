@@ -312,3 +312,27 @@ snapshot from the last time its own mind ran, not live body fields.
 Next: drive the fight. The `--player-opening` flow presses A through the
 tutorial and holds at "(next bit)". Feed stick input past it and translate
 what the attack, damage and "Kill All" path reaches.
+
+## Player input after the tutorial (2026-10-14)
+
+Cooper now walks under the left stick. There were two causes:
+
+- **The pad boundary had no sticks.** `InputState` now carries the four XInput
+  packets that `0x001555B0` polls: raw thumbsticks, trigger bytes and the Xbox
+  button word, including Back, the thumb clicks, X/Y, Black (RB), White (LB)
+  and the trigger bits. `pad_poll` copies them into the ports before
+  `0x000FA4F0`/`0x000FA840` sample them.
+  - The old left-stick-to-D-pad emulation is gone; menus get the D-pad and the
+    real stick.
+  - On keyboard, WASD drives the left stick and IJKL the right stick on port 0.
+  - The host frontend booleans are still filled from the pad buttons.
+- **The device refresh never ran.** `0x00109470` copies the selected
+  controller into the player's input device only when the activation entry's
+  +0x4C differs from `DAT_004DEA58`. The port bound that to a separate
+  `g_4dea58` that nothing advanced. Both users now read `Clock::frame`, which
+  `0x00033C80` advances, and the stale global is removed.
+
+`--player-opening` now holds the left stick for 120 frames after the
+"(next bit)" gate and requires Cooper to move. He moves about 164 units, up the
+stairs; the frame is saved to `cache/player_walk_check.bmp`. The SDL build's
+input path has no stick mapping yet.

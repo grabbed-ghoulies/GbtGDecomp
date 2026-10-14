@@ -2861,7 +2861,7 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
         g_amb_color_hi[0], g_amb_color_hi[1], g_amb_color_hi[2]};
     auto& instance = player.actor_instance;
     RuntimePlayerUpdate update{player.self, player.input, read_u32(player.actor_bytes, 0x960), input_activation,
-        input_release, g_4dea58, player.ring, address_zero, player.strategy_object, player.mind_object,
+        input_release, game.clock.frame, player.ring, address_zero, player.strategy_object, player.mind_object,
         player.body_object,
         [this, &player](FactoryObject& strategy)
         {

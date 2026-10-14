@@ -62,6 +62,16 @@ resources are reported by speaker name and AID hash.
 
 ## Build
 
+Debug D3D11 builds include ImGui diagnostics. Press **F8** to open the menu and
+**F12** to toggle the timing overlay. The Diagnostics menu provides runtime and
+loading state, a 240-sample host frame-time graph with freeze/clear controls,
+a read-only native factory-object list filtered by decimal type ID, and a
+searchable bundle cache with CPU/GPU heap sizes. Cache sizes are not GPU memory
+usage. Existing scene and cutscene selectors remain available.
+Use `--debug-ui` to open diagnostics at startup; this also works with
+`--screenshot debug.bmp --frames 3` for captures. Release and null builds have no
+ImGui UI.
+
 Requirements: CMake 3.20+, a C++20 compiler (MSVC 2022 recommended on Windows). zlib is fetched at configure time. On Windows the same configure step fetches an LGPL FFmpeg build and copies its DLLs next to `gbtg.exe`, which is what decodes `movie/` BIKi files. The run command is unchanged.
 
 ```text

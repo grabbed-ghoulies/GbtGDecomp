@@ -1,3 +1,5 @@
+#include "../camera/entity_camera.h"
+#include "../camera/camera_mind_rig.h"
 #include "gbtg/anim.h"
 #include "gbtg/engine_internal.h"
 #include "gbtg/entity.h"
@@ -2390,7 +2392,21 @@ u32 script_tune(u32 base, u32 index)
 // DAT_00545AEC, DAT_00545AF0, DAT_00545AF4, DAT_00545AF8. Type 0x61 stores
 // the four indexes. The looked-up words land at DAT_00434008, DAT_00434014,
 // DAT_00434010, DAT_0043402C, and DAT_00434030.
-u32 g_tune_5aec = 0;
+u32& g_tune_5aec = reinterpret_cast<u32&>(entity_detail::g_look_profile);
+
+// Xbox 0x0013CBD0
+void reset_runtime_camera_view_tunables()
+{
+    g_tune_34008 = std::bit_cast<u32>(20.f); // DAT_0032B234.
+    g_tune_3402c = 0;
+    g_tune_34014 = std::bit_cast<u32>(15.f); // DAT_0032B214.
+    g_tune_5aec = 1;
+    g_tune_34010 = 0x2D;
+    g_tune_5af0 = 0;
+    g_tune_34030 = std::bit_cast<u32>(-1.f); // DAT_0032B120.
+    g_tune_5af4 = 0;
+    g_tune_5af8 = 0;
+}
 
 u32 g_tune_5af0 = 0;
 
@@ -2398,15 +2414,15 @@ u32 g_tune_5af4 = 0;
 
 u32 g_tune_5af8 = 0;
 
-u32 g_tune_34008 = 0;
+u32& g_tune_34008 = g_camera_view_tunables[0];
 
-u32 g_tune_34014 = 0;
+u32& g_tune_34014 = g_camera_view_tunables[3];
 
-u32 g_tune_34010 = 0;
+u32& g_tune_34010 = g_camera_view_tunables[2];
 
-u32 g_tune_3402c = 0;
+u32& g_tune_3402c = g_camera_view_tunables[9];
 
-u32 g_tune_34030 = 0;
+u32& g_tune_34030 = g_camera_view_tunables[10];
 
 // DAT_00545D20 and DAT_00545D24. 0x00140E30 clears both when the word at
 // node+0x20 + 0x94 is 0. A live 0x001248D0(1, 0, 0) would set the first to 1.

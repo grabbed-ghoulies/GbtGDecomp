@@ -150,7 +150,8 @@ FactoryObject create_runtime_player_camera(RuntimePlayerCameraSource* source,
     }
     if (source != nullptr)
     {
-        context.message(camera, {0xBA, 0, actor_address});
+        // The word after 0xBA is stored as 0, then overwritten with ESI (the source actor) before the call.
+        context.message(camera, {0xBA, actor_address});
     }
     return camera;
 }

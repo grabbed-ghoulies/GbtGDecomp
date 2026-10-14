@@ -51,6 +51,9 @@ public:
     SceneControlInstance& instance(const FactoryObject& object);
     SceneControlInstance& instance_of(RuntimeActorLink& link); // By the +8 link.
     SceneControlInstance& instance_of_update(RuntimeActorLink& link); // By the +0x10 link.
+    // The scene object that owns a +0x18 disposal link.
+    FactoryObject& object_of_disposal(RuntimeActorLink& link, std::vector<FactoryObject>& objects);
+    void forget(const FactoryObject& object); // After its type 3 destructor.
     void message(FactoryObject& object, std::span<const u32> message); // Vtable +0xC.
     void tick(SceneControlInstance& control); // Vtable +0x10.
     SceneControlContext context;

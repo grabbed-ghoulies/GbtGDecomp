@@ -21,4 +21,6 @@ void activate_runtime_scene_actors(RuntimeSceneActivation& context); // Xbox 0x0
 // One-word broadcasts over the activated +0x910 list (DAT_00511B60 onward) through actor vtable +0xC.
 void send_runtime_scene_start_notice(RuntimeSceneActivation& context); // Xbox 0x001231F0, message 0x88
 void send_runtime_scene_start(RuntimeSceneActivation& context); // Xbox 0x001231A0, message 0x7D
+// Scene start unlinks every +0x910 node without the first update 0x00123270 gives them.
+void clear_runtime_scene_start_list(RuntimeSceneActivation& context); // Xbox 0x00123240
 }

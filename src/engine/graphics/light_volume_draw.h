@@ -11,6 +11,8 @@ struct RuntimeLightVolumeOrder
     const i32& limit; // DAT_0050D720.
     std::span<u8> order; // DAT_0050D724.
 };
+// Volumes with a nonzero +0x1D0 word come first, then the nearer (+0x1D4) of two.
+int compare_runtime_light_volumes(const void* left, const void* right); // Xbox 0x000FE430
 // Numbers the registered light volumes; more than the limit sorts them (comparator 0x000FE430) and keeps the
 // first `limit`.
 void order_runtime_light_volumes(RuntimeLightVolumeOrder& context); // Xbox 0x000FE480

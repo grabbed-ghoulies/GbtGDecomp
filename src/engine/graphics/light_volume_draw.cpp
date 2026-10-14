@@ -1,7 +1,29 @@
 #include "light_volume_draw.h"
+#include "light_volume_records.h"
+#include "../runtime/crt_sort.h"
 
 namespace gbtg
 {
+// Xbox 0x000FE430
+int compare_runtime_light_volumes(const void* left, const void* right)
+{
+    const auto& first = g_light_records[*static_cast<const u8*>(left)];
+    const auto& second = g_light_records[*static_cast<const u8*>(right)];
+    if (first.flags == second.flags)
+    {
+        if (second.distance > first.distance)
+        {
+            return -1;
+        }
+        return 1;
+    }
+    if (first.flags == 0 || second.flags != 0)
+    {
+        return 1;
+    }
+    return -1;
+}
+
 // Xbox 0x000FE480
 void order_runtime_light_volumes(RuntimeLightVolumeOrder& context)
 {
@@ -11,8 +33,8 @@ void order_runtime_light_volumes(RuntimeLightVolumeOrder& context)
     }
     if (context.limit < context.count)
     {
-        // CRT qsort with the distance comparator 0x000FE430.
-        throw Error("light volume ordering comparator 0x000FE430 is not translated");
+        runtime_quick_sort(context.order.data(), size_t(context.count), 1, compare_runtime_light_volumes); // 0x00166780
+        context.count = context.limit;
     }
 }
 

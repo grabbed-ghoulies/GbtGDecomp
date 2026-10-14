@@ -7404,7 +7404,7 @@ void check_player_dialogue_resources(gbtg::AidStore& aids)
                 reinterpret_cast<const char*>(camera_name.data()), offsets, flags, population,
                 [&](FactoryObject& camera, const std::array<u32, 3>& payload)
                 {
-                    if (camera.bytes == nullptr || payload != std::array<u32, 3>{0xBA, 0, 0x12345678})
+                    if (camera.bytes == nullptr || payload != std::array<u32, 3>{0xBA, 0x12345678, 0})
                     {
                         throw Error("player camera message lost its created object or actor token");
                     }

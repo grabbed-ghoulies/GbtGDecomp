@@ -78,6 +78,7 @@ bool construct_scene_control_view(FactoryObject& object, std::span<const u8>)
 void destroy_scene_control_view(FactoryObject& object)
 {
     destroy_runtime_scene_control(installing->instance(object));
+    installing->forget(object); // Type 3 is the last scene-control destructor in the chain.
 }
 
 bool construct_walkabout_view(FactoryObject& object, std::span<const u8>)
@@ -179,6 +180,30 @@ SceneControlInstance& NativeSceneControlOwner::instance_of_update(RuntimeActorLi
         }
     }
     throw Error("scene control update node has no native control");
+}
+
+FactoryObject& NativeSceneControlOwner::object_of_disposal(RuntimeActorLink& link,
+    std::vector<FactoryObject>& objects)
+{
+    for (auto& [bytes, control] : instances_)
+    {
+        if (&control->disposal == &link)
+        {
+            for (auto& object : objects)
+            {
+                if (object.bytes.get() == bytes)
+                {
+                    return object;
+                }
+            }
+        }
+    }
+    throw Error("scene control disposal node has no scene object");
+}
+
+void NativeSceneControlOwner::forget(const FactoryObject& object)
+{
+    instances_.erase(object.bytes.get());
 }
 
 void NativeSceneControlOwner::message(FactoryObject& object, std::span<const u32> words)

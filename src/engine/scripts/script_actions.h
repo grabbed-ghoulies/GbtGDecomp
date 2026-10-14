@@ -494,7 +494,7 @@ u32 script_tune(u32 base, u32 index);
 // DAT_00545AEC, DAT_00545AF0, DAT_00545AF4, DAT_00545AF8. Type 0x61 stores
 // the four indexes. The looked-up words land at DAT_00434008, DAT_00434014,
 // DAT_00434010, DAT_0043402C, and DAT_00434030.
-extern u32 g_tune_5aec;
+extern u32& g_tune_5aec; // entity_detail::g_look_profile.
 
 extern u32 g_tune_5af0;
 
@@ -502,15 +502,20 @@ extern u32 g_tune_5af4;
 
 extern u32 g_tune_5af8;
 
-extern u32 g_tune_34008;
+// Scene load's camera reset: DAT_00434008 20, DAT_00434014 15, DAT_00434010 45, DAT_0043402C 0,
+// DAT_00434030 -1, look profile DAT_00545AEC 1 and the other tune indexes 0. DAT_00545AD0..DAT_00545AE8 (the
+// marker camera start) live in the scene services, which are created cleared after this reset.
+void reset_runtime_camera_view_tunables(); // Xbox 0x0013CBD0
+// Words of g_camera_view_tunables.
+extern u32& g_tune_34008;
 
-extern u32 g_tune_34014;
+extern u32& g_tune_34014;
 
-extern u32 g_tune_34010;
+extern u32& g_tune_34010;
 
-extern u32 g_tune_3402c;
+extern u32& g_tune_3402c;
 
-extern u32 g_tune_34030;
+extern u32& g_tune_34030;
 
 // DAT_00545D20 and DAT_00545D24. 0x00140E30 clears both when the word at
 // node+0x20 + 0x94 is 0. A live 0x001248D0(1, 0, 0) would set the first to 1.

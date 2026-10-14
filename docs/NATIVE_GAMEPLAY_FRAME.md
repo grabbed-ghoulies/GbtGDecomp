@@ -98,7 +98,8 @@ Other known gaps on this path:
    `SceneMindMessages` does for the cinema tick). Then call
    `update_scene_actors` from `scene_tick_pause_counter` and remove the hold
    comment.
-3. **Run `0x0011E640` per frame** so spawned actors activate.
+3. **Run `0x0011E640` per frame** so spawned actors activate. Done
+   (`SceneActorServices::run_scene_pass`; see `docs/NATIVE_AUDIO.md`).
 4. **Play the fight.** With the A-driven `--player-opening` flow, continue the
    frame past "(next bit)" and check the script reaches "Freeplay (Temporary
    Weapon Explained)" when the imps are gone.

@@ -33,4 +33,27 @@ void tick_runtime_gravity_action(std::span<u8> action, std::span<const u8> body,
     const RuntimeActorClock& clock, const i32& steps); // Xbox 0x0007FD70
 void step_runtime_body_motion(std::span<u8> body, Actor& actor, const ActorAnimationState& animation,
     const RuntimeActorClock& clock); // Xbox 0x0002AD30 (0x000803A0 jumps here)
+// Eases `value` toward `target` with `gain` over DAT_004312E0 steps of 1/1200 (EAX target, EDX value).
+void ease_runtime_vector_toward(Vec3& value, const Vec3& target, float gain, const i32& steps); // Xbox 0x001405E0
+
+// State action type 0x5D, entityStateAnim2Stand (vtable 0x005054D0): the camera body's stand state.
+// Action +0xC elapsed, +0x10 reset, +0x14 focus, +0x20 focus rate. Action +8 is the body; body +8 the actor.
+struct RuntimeStandActionContext
+{
+    std::span<u8> body;
+    Actor& actor; // Body +8.
+    std::span<const u8> mind; // Actor +0x958: +0xC target, +0x70 eye.
+    const RuntimeActorClock& clock;
+    const i32& steps; // DAT_004312E0.
+    std::span<const u8> tunables; // DAT_004275BC..DAT_004275CF.
+    std::function<const Actor*(u32)> actor_at; // A target actor by address.
+    // 0x0013CE80: output, from, to, target actor, range, near, far.
+    std::function<void(Vec3&, const Vec3&, const Vec3&, u32, float, float, float)> aim;
+};
+void message_runtime_stand_action(std::span<u8> action, std::span<const u8> message,
+    RuntimeStandActionContext& context); // Xbox 0x0007FE70
+void follow_runtime_stand_focus(std::span<u8> action, RuntimeStandActionContext& context); // Xbox 0x000800A0, EDI body
+void tick_runtime_stand_action(std::span<u8> action, RuntimeStandActionContext& context); // Xbox 0x0007FEC0
+void step_runtime_stand_action(std::span<u8> action, RuntimeStandActionContext& context,
+    const ActorAnimationState& animation); // Xbox 0x0007FFB0
 }

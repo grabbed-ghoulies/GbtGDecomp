@@ -79,4 +79,14 @@ void send_runtime_scene_start(RuntimeSceneActivation& context)
         }
     }
 }
+
+// Xbox 0x00123240
+void clear_runtime_scene_start_list(RuntimeSceneActivation& context)
+{
+    // DAT_00511B5C is held as the ordered node addresses; unlinking the first until none remain empties it.
+    while (!context.scene_nodes.empty())
+    {
+        context.scene_nodes.erase(context.scene_nodes.begin());
+    }
+}
 }

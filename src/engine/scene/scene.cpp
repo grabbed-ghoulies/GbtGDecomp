@@ -1123,13 +1123,15 @@ i32 g_4dea5c = 0;
 // DAT_0051108C is the block 0x000663E0 releases.
 void* g_51108c = nullptr;
 
-float g_4312cc = 0.f;
+alignas(4) u8 g_4312c8[0x14]{};
+// DAT_004312C8..DAT_004312D8, the times 0x0012B1F0 advances.
+float& g_4312cc = *reinterpret_cast<float*>(g_4312c8 + 4);
  // DAT_004312CC
-float g_4312d0 = 0.f;
+float& g_4312d0 = *reinterpret_cast<float*>(g_4312c8 + 8);
  // DAT_004312D0
-i32 g_4312d4 = 0;
+i32& g_4312d4 = *reinterpret_cast<i32*>(g_4312c8 + 0xC);
      // DAT_004312D4
-i32 g_4312d8 = 0;
+i32& g_4312d8 = *reinterpret_cast<i32*>(g_4312c8 + 0x10);
      // DAT_004312D8
 i32 g_511a10 = 0;
      // DAT_00511A10

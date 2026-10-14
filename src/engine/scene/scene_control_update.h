@@ -16,4 +16,6 @@ struct RuntimeSceneControlUpdates
 void activate_runtime_scene_controls(RuntimeSceneControlUpdates& context); // Xbox 0x00115FF0
 void notify_runtime_scene_controls(RuntimeSceneControlUpdates& context); // Xbox 0x00116090
 void update_runtime_scene_controls(RuntimeSceneControlUpdates& context); // Xbox 0x001160F0
+// Scene start empties the DAT_0050E444 update list without running the updates.
+void clear_runtime_scene_control_updates(RuntimeSceneControlUpdates& context); // Xbox 0x001160C0
 }

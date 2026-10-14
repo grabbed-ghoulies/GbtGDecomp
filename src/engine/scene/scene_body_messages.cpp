@@ -107,6 +107,21 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
             children_[child->bytes.get()] = &walk_alert_child_;
             continue;
         }
+        if (child->type == 0x5D)
+        {
+            auto& stand = stand_children_[child->bytes.get()];
+            if (stand == nullptr)
+            {
+                stand = std::make_unique<RuntimeBodyMessageChild>();
+                stand->message = [this, child](std::span<u8> message)
+                {
+                    auto context = stand_context();
+                    message_runtime_stand_action({child->bytes.get(), child->size}, message, context);
+                };
+            }
+            children_[child->bytes.get()] = stand.get();
+            continue;
+        }
         if (child->type != 0x5B && child->type != 0x5C && child->type != 0x87)
         {
             unbound("body action message slot of factory type " + std::to_string(child->type));
@@ -220,6 +235,12 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         tick_runtime_stand_alert({action.bytes.get(), action.size}, tick);
         return;
     }
+    case 0x5D:
+    {
+        auto context = stand_context();
+        tick_runtime_stand_action({action.bytes.get(), action.size}, context);
+        return;
+    }
     case 0x8E:
     {
         // ECX of 0x000A5A60 is the tick's input word: the player's input record (actor +0x960) or zero.
@@ -262,6 +283,12 @@ void SceneBodyMessages::action_step(FactoryObject& action)
             services_.movement_phases, services_.movement_ratio_scale, services_.backward_motion_lower,
             services_.reverse_turn_threshold, 1, 0);
         return;
+    case 0x5D:
+    {
+        auto context = stand_context();
+        step_runtime_stand_action({action.bytes.get(), action.size}, context, player_.actor_instance.animation);
+        return;
+    }
     case 0x87:
     case 0x8E:
         // 0x001628B0 returns at once.
@@ -269,6 +296,21 @@ void SceneBodyMessages::action_step(FactoryObject& action)
     default:
         unbound("body action vtable +0x14 of factory type " + std::to_string(action.type));
     }
+}
+
+RuntimeStandActionContext SceneBodyMessages::stand_context()
+{
+    return RuntimeStandActionContext{player_.body, player_.actor, player_.mind, services_.clock,
+        services_.motion_steps, services_.stand_tunables,
+        [this](u32 address) -> const Actor*
+        {
+            return services_.actor_at(address);
+        },
+        [this](Vec3& output, const Vec3& from, const Vec3& to, u32 target, float range, float near_distance,
+            float far_distance)
+        {
+            aim_camera_offset(output, from, to, target, range, near_distance, far_distance, services_.camera_rig);
+        }};
 }
 
 RuntimeBodyChannelContext SceneBodyMessages::channel_context()

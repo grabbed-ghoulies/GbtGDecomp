@@ -7,11 +7,13 @@
 
 namespace gbtg
 {
-// The camera rig tunables: .data DAT_004274B8..DAT_0042753F and DAT_00434008..DAT_00434033, by retail address.
+// DAT_00434008..DAT_00434033, the camera view tunables: the retail .data words, then whatever 0x0013CBD0,
+// 0x00140E30 and the script's type 0x61 store.
+extern std::array<u32, 11> g_camera_view_tunables;
+// The camera rig tunables: .data DAT_004274B8..DAT_0042753F and g_camera_view_tunables, by retail address.
 struct RuntimeCameraRigTunables
 {
     std::array<u8, 0x88> rig{};
-    std::array<u8, 0x2C> view{};
     float real(u32 address) const;
     u32 word(u32 address) const;
 };

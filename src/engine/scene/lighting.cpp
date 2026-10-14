@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "lighting.h"
+#include "../graphics/light_volume_records.h"
 
 namespace gbtg
 {
@@ -36,22 +37,6 @@ struct LightVolumePass
 static_assert(offsetof(LightVolumePass, color) == 8);
 static_assert(offsetof(LightVolumePass, range) == 0x10);
 
-// DAT_00509c20, stride 0x25c. 0x000FE1D0 clears +0 and +0x1e8 and writes the
-// group word at +0x1f0. Twenty-five records end at DAT_0050d71c.
-struct LightVolumeRecord
-{
-    u32 head = 0; // +0
-    u8 gap_4[0x1e8 - 4]{};
-    u32 tail = 0; // +0x1e8
-    u8 gap_1ec[4]{};
-    u16 kind = 0; // +0x1f0
-    u8 gap_1f2[0x25c - 0x1f2]{};
-};
-
-static_assert(sizeof(LightVolumeRecord) == 0x25c);
-static_assert(offsetof(LightVolumeRecord, tail) == 0x1e8);
-static_assert(offsetof(LightVolumeRecord, kind) == 0x1f0);
-
 // DAT_0030ca80, three groups, stride 8. count is the dword; kind is the word.
 struct LightVolumeGroup
 {
@@ -66,8 +51,7 @@ constexpr LightVolumeGroup kLightVolumeGroups[] = {
 };
 
 constexpr i32 kLightVolumeSlots = 0x28;
-constexpr i32 kLightVolumeRecords = 8 + 8 + 9;
-static_assert(kLightVolumeRecords == 0x19);
+static_assert(kLightVolumeRecords == 8 + 8 + 9);
 static_assert(std::bit_cast<u32>(1.f) == 0x3f800000u);
 static_assert(std::bit_cast<u32>(1000.f) == 0x447a0000u);
 
@@ -88,8 +72,6 @@ float g_light_intensity = 0.f;    // DAT_00509b4c
 float g_light_angle_inner = 0.f;  // DAT_00509b50. Pool float DAT_0032b160.
 float g_light_angle_outer = 0.f;  // DAT_00509b54. Pool float DAT_0032b15c.
 i32 g_light_mark = 0;             // DAT_00509b58
-i32 g_light_paused = 0;           // DAT_00509b70
-i32 g_light_running = 0;          // DAT_00509b74
 i32 g_light_live = 0;             // DAT_00509b78
 void* g_light_slots[kLightVolumeSlots]{}; // DAT_00509b7c
 
@@ -101,10 +83,11 @@ using LightAllocFn = void* (*)(i32);
 using LightFreeFn = void (*)(void*);
 LightAllocFn g_light_alloc = nullptr; // DAT_0054d94c. Thunk at 0x000F9C10.
 LightFreeFn g_light_free = nullptr;   // DAT_0054d954
-
-LightVolumeRecord g_light_records[kLightVolumeRecords]{};
 } // namespace
 
+i32 g_light_paused = 0;                         // DAT_00509b70
+i32 g_light_running = 0;                        // DAT_00509b74
+Vec3 g_light_offset{};                          // DAT_0050d764
 i32 g_light_filled = 0;                         // DAT_0050d71c. Compared with 0x19.
 i32 g_light_filled_gate = 0;                    // DAT_0050d720
 u8 g_light_order[kLightVolumeRecords]{};        // DAT_0050d724
@@ -148,7 +131,7 @@ void light_init_records()
         for (u32 n = 0; n < group.count; ++n)
         {
             LightVolumeRecord& rec = g_light_records[index];
-            rec.head = 0;
+            rec.caster.model = nullptr;
             rec.tail = 0;
             rec.kind = group.kind;
             index += 1;

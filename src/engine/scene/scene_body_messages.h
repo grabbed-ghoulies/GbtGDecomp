@@ -5,6 +5,8 @@
 #include "../entities/body_effect_commands.h"
 #include "../audio/body_sound_commands.h"
 #include "../camera/camera_body_slots.h"
+#include "../camera/camera_mind_rig.h"
+#include "../entities/body_move_action_slots.h"
 #include "../entities/player_body_collision.h"
 
 namespace gbtg
@@ -73,6 +75,8 @@ struct SceneBodyServices
     std::span<entity_detail::SlideRecord, 5> collision_contacts;
     std::span<const float> mode_scales; // DAT_00217EC0.
     std::function<std::span<const u8>(u32)> event_at; // Message 7 +0xC: the animation event's bytes.
+    std::span<const u8> stand_tunables; // DAT_004275BC..DAT_004275CF, read by the type 0x5D stand action.
+    const RuntimeCameraRigContext& camera_rig; // 0x0013CE80's tunables and actor views.
 };
 
 // One body's message graph: the parent body handler 0x000253B0 and the derived slots of types 0x27
@@ -99,6 +103,8 @@ private:
     std::unordered_map<const u8*, RuntimeBodyMessageChild*> children_;
     RuntimeBodyMessageChild empty_child_;
     RuntimeBodyMessageChild walk_alert_child_; // 0x8E vtable +0xC, 0x000A5A40.
+    std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> stand_children_; // 0x5D, 0x0007FE70.
+    RuntimeStandActionContext stand_context(); // Type 0x5D slots over this body.
     std::array<u8, 0x20> shape_scratch_{};
     RuntimeBodyTimerRecipient* first_timer_ = nullptr; // Body +0x760.
     RuntimeBodyTimerRecipient* second_timer_ = nullptr; // Body +0x7F0.

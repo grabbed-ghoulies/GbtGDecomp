@@ -38,6 +38,12 @@
 #include "../audio/bank_streams.h"
 #include "scene_controls.h"
 #include "scene_control_update.h"
+#include "scene_actor_removal.h"
+#include "scene_shadow_casters.h"
+#include "scene_scare_timers.h"
+#include "scene_gameplay_time.h"
+#include "scene_object_disposal.h"
+#include "../graphics/light_volume_records.h"
 #include "scene_object_requests.h"
 #include "../frontend/frontend_slots.h"
 #include "../camera/cutscene_impulse.h"
@@ -404,6 +410,34 @@ struct SceneActorServices::State
     std::unordered_map<u32, std::unique_ptr<entity_detail::LatchNode>> active_nodes;
     std::vector<u32> scene_nodes; // DAT_00511B5C.
     entity_detail::LatchNode* scene_controls = nullptr; // DAT_0050E438; 0x00116170 registers nothing natively yet.
+    // The native scene controls (g_scene_controls) as 0x00115FF0, 0x00116090, 0x001160F0 and 0x001160C0 see them.
+    std::function<RuntimeActorLink&(RuntimeActorLink&)> control_update_link =
+        [this](RuntimeActorLink& link) -> RuntimeActorLink&
+    {
+        return scene.controls->instance_of(link).update;
+    };
+    std::function<void(RuntimeActorLink&, std::span<const u32>)> control_message =
+        [this](RuntimeActorLink& link, std::span<const u32> message)
+    {
+        auto& control = scene.controls->instance_of_update(link);
+        message_runtime_scene_control(control, message, g_scene_controls);
+    };
+    std::function<void(RuntimeActorLink&)> control_update = [this](RuntimeActorLink& link)
+    {
+        scene.controls->tick(scene.controls->instance_of_update(link)); // Control vtable +0x10.
+    };
+    RuntimeSceneControlUpdates control_updates();
+    // 0x00123BA0's tables: the powerup rows and the scared actors with their times.
+    std::array<RuntimePowerupRow, 20> powerup_rows{}; // DAT_00512140.
+    RuntimeScoreboard* powerup_board = nullptr; // DAT_00545ABC.
+    i32 scared_count = 0; // DAT_00512320.
+    std::array<u32, 4> scared_actors{}; // DAT_00512324.
+    std::array<float, 4> scared_times{}; // DAT_00512334.
+    RuntimeSceneShadowActor shadow_actor(Actor& actor);
+    Actor& bin_owner(entity_detail::ListHead& node);
+    void update_first_actors(); // 0x00123270 over DAT_00511B5C.
+    void remove_retired_actors(); // 0x001232D0 over DAT_00511B58.
+    void update_shadow_casters(); // 0x00120EF0.
     i32 excluded_count = 0; // DAT_0050E228, cleared by 0x0011C480.
     u8* navigation_nodes = nullptr; // DAT_0050E24C; the navigation loader that allocates it is not native yet.
     std::array<u16, 0x20> excluded_tags{}; // DAT_0050E22C.
@@ -1809,7 +1843,6 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     install_runtime_push_buffer_dispatch(*push_buffers, node_callbacks);
     // Camera director (0x000AA250) and rig (0x000781F0) tunables are .data words read from the image.
     std::memcpy(rig_tunables.rig.data(), data(0x004274B8, 0x88).data(), 0x88);
-    std::memcpy(rig_tunables.view.data(), data(0x00434008, 0x2C).data(), 0x2C);
     motion_steps = i32(read_u32(data(0x004312E0, 4), 0));
     {
         const auto words = data(0x00428708, 0x2C);
@@ -1944,7 +1977,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         [this](u32 address) -> std::span<const u8>
         {
             return scene.resolve_tail(address);
-        }});
+        }, data(0x004275BC, 0x14), *camera_rig});
     state_action_names = strings(0x003390E4, 0x174);
     goal_flag_names = strings(0x003397AC, 3);
     mind_services = std::make_unique<SceneMindServices>(SceneMindServices{game, resources.registry, resources.error,
@@ -3754,30 +3787,23 @@ void SceneActorServices::start_scene(const std::function<void()>& script_event)
     state.create_scene_objects(); // 0x0011C980
     start_markers();
     // 0x00115FF0: the pending scene controls join the active and update lists.
-    const std::function<RuntimeActorLink&(RuntimeActorLink&)> update_link = [&state](RuntimeActorLink& link)
-        -> RuntimeActorLink&
-    {
-        return state.scene.controls->instance_of(link).update;
-    };
-    const std::function<void(RuntimeActorLink&, std::span<const u32>)> control_message =
-        [&state](RuntimeActorLink& link, std::span<const u32> message)
-    {
-        auto& control = state.scene.controls->instance_of_update(link);
-        message_runtime_scene_control(control, message, g_scene_controls);
-    };
-    const std::function<void(RuntimeActorLink&)> control_update = [](RuntimeActorLink&)
-    {
-        throw Error("scene control update 0x001160F0 callback is not bound");
-    };
-    RuntimeActorLink*& pending = g_scene_controls.pending.next; // DAT_0050E440 itself.
-    RuntimeSceneControlUpdates controls{pending, g_scene_controls.active, g_scene_controls.updates, update_link,
-        control_message, control_update};
+    auto controls = state.control_updates();
     activate_runtime_scene_controls(controls);
     activate_actors();
     script_event();
     send_scene_start_notice();
     notify_runtime_scene_controls(controls); // 0x00116090
     send_scene_start();
+    clear_runtime_scene_control_updates(controls); // 0x001160C0
+    auto activation = state.activation_context();
+    clear_runtime_scene_start_list(activation); // 0x00123240
+}
+
+RuntimeSceneControlUpdates SceneActorServices::State::control_updates()
+{
+    RuntimeActorLink*& pending = g_scene_controls.pending.next; // DAT_0050E440 itself.
+    return RuntimeSceneControlUpdates{pending, g_scene_controls.active, g_scene_controls.updates,
+        control_update_link, control_message, control_update};
 }
 
 // Xbox 0x0011C980
@@ -3921,6 +3947,229 @@ void SceneActorServices::update_audio()
     auto& state = *state_;
     dispatch_native_audio_notifications(state.voices.banks); // 0x0015B780
     tick_audio_event_voices(state.voices); // 0x000396F0
+}
+
+void SceneActorServices::select_frame_display()
+{
+    // 0x00033B50 points DAT_005077A8 at the first display record before the frame's work.
+    state_->display_view = &entity_detail::g_display_records[0];
+    state_->display_address = 0x00507018;
+}
+
+Actor& SceneActorServices::State::bin_owner(entity_detail::ListHead& node)
+{
+    for (auto& [native, registration] : actors->render)
+    {
+        for (auto& bin : registration->bins)
+        {
+            if (&bin == &node)
+            {
+                return *native;
+            }
+        }
+    }
+    throw Error("view bin record has no scene actor");
+}
+
+RuntimeSceneShadowActor SceneActorServices::State::shadow_actor(Actor& actor)
+{
+    FactoryObject& object = object_of_actor(actor);
+    auto& view = actors->view(object);
+    Actor* held = nullptr;
+    const u32 held_address = read_u32({object.bytes.get(), object.size}, 0x314);
+    if (held_address != 0)
+    {
+        const auto found = actors->actors.find(scene.resolve_address(held_address, 0).data());
+        if (found == actors->actors.end())
+        {
+            throw Error("actor +0x314 does not name a native scene actor");
+        }
+        held = found->second;
+    }
+    return RuntimeSceneShadowActor{actor, actor.model != nullptr ? actor.model->runtime : nullptr,
+        view.startup.models.secondary.get(), view.startup.secondary_mode, view.startup.secondary_flags,
+        view.frame.eased, view.frame.target, held};
+}
+
+// 0x00123270 over the port's DAT_00511B5C order: the nodes are linked for the drain, which empties the list.
+void SceneActorServices::State::update_first_actors()
+{
+    std::vector<RuntimeActorLink> nodes(scene_nodes.size());
+    RuntimeActorLink head;
+    RuntimeActorLink* previous = &head;
+    for (auto& node : nodes)
+    {
+        previous->next = &node;
+        node.previous = previous;
+        previous = &node;
+    }
+    const std::vector<u32> addresses = scene_nodes;
+    const std::function<Actor&(RuntimeActorLink&)> actor = [this, &nodes, &addresses](RuntimeActorLink& node)
+        -> Actor&
+    {
+        const u32 address = addresses[size_t(&node - nodes.data())];
+        return *actors->actors.at(scene.resolve_address(address, 0).data());
+    };
+    const std::function<void(Actor&)> update = [this](Actor& updated)
+    {
+        update_actor(scene.address_of(object_of_actor(updated).bytes.get()));
+    };
+    RuntimeSceneActorUpdates updates{head.next, actor, update};
+    update_runtime_scene_actors(updates);
+    scene_nodes.clear();
+}
+
+void SceneActorServices::State::remove_retired_actors()
+{
+    const std::function<Actor&(entity_detail::ListHead&)> owner = [this](entity_detail::ListHead& node) -> Actor&
+    {
+        for (auto& [native, registration] : actors->render)
+        {
+            if (&registration->child == &node)
+            {
+                return *native;
+            }
+        }
+        throw Error("retired +0x908 node has no scene actor");
+    };
+    const auto address = [this](const Actor& actor)
+    {
+        return scene.address_of(object_of_actor(const_cast<Actor&>(actor)).bytes.get());
+    };
+    RuntimeNoticeRemoval notice_removal{notices,
+        []()
+        {
+            unbound("notice stop 0x000F4C10");
+        },
+        []() -> u32
+        {
+            unbound("next notice 0x000F4CC0");
+        },
+        []()
+        {
+            unbound("notice finish 0x000F4B90");
+        }};
+    RuntimeSceneActorRemoval removal{entity_detail::g_world.child, owner,
+        [this](const Actor& actor)
+        {
+            Message message;
+            message.id = 0x7C;
+            message.arg = const_cast<Actor*>(&actor);
+            for (auto* recipient = latches; recipient != nullptr;)
+            {
+                auto* current = recipient;
+                recipient = recipient->next;
+                current->handle_message(*current, message);
+            }
+        },
+        [](std::span<const u32> words)
+        {
+            for (RuntimeActorLink* node = g_scene_controls.active.next; node != nullptr;)
+            {
+                RuntimeActorLink* next = node->next;
+                message_runtime_scene_control(g_scene_control_owner->instance_of(*node), words, g_scene_controls);
+                node = next;
+            }
+        },
+        [](const Actor& actor)
+        {
+            detach_actor_from_global_effects(const_cast<Actor*>(&actor), g_actor_effect_nodes);
+        },
+        notice_removal,
+        [this, address](const Actor& actor)
+        {
+            const std::function<void(u32, std::span<const u32>)> message = [](u32, std::span<const u32>)
+            {
+                unbound("scare message during actor removal");
+            };
+            RuntimePowerupTable powerups{powerup_rows, powerup_board, resources.registry};
+            RuntimeSceneScareTimers scare{powerups, scared_count, scared_actors, scared_times, clock, message};
+            remove_runtime_scared_actor(address(actor), scare);
+        },
+        address,
+        [this](Actor& actor)
+        {
+            release_factory_object(scene.factory, object_of_actor(actor));
+        }};
+    remove_runtime_retired_actors(removal);
+}
+
+void SceneActorServices::State::update_shadow_casters()
+{
+    const std::function<Actor&(entity_detail::ListHead&)> bin_actor = [this](entity_detail::ListHead& node)
+        -> Actor&
+    {
+        return bin_owner(node);
+    };
+    const std::function<RuntimeSceneShadowActor(Actor&)> shadow = [this](Actor& actor)
+    {
+        return shadow_actor(actor);
+    };
+    std::span<const u8> background;
+    if (auto* first = backgrounds->first_background(); first != nullptr && first->state.actor.model != nullptr)
+    {
+        background = first->state.actor.model->cpu;
+    }
+    const u32 view = (display_address - 0x00507018) / 0x1E4;
+    const Actor* player = cases.next == nullptr ? nullptr
+        : actors->actors.at(scene.resolve_address(address_of(cases.next) - 0x93C, 0).data());
+    RuntimeSceneShadowCasters context{*display_setup, view, entity_detail::g_world.bins, bin_actor, shadow, player,
+        background, ambient_points, ambient_points_enabled, g_light_offset, g_light_paused, g_light_running, random,
+        g_light_filled};
+    update_runtime_scene_shadow_casters(context);
+}
+
+// Xbox 0x0011E640
+void SceneActorServices::run_scene_pass()
+{
+    auto& state = *state_;
+    auto controls = state.control_updates();
+    activate_runtime_scene_controls(controls); // 0x00115FF0
+    auto activation = state.activation_context();
+    activate_runtime_scene_actors(activation); // 0x00123070
+    notify_runtime_scene_controls(controls); // 0x00116090
+    send_runtime_scene_start(activation); // 0x001231A0
+    update_runtime_scene_controls(controls); // 0x001160F0
+    state.pause = g_sim_freeze;
+    state.frame_delta = g_sim_dt;
+    state.time_scale = g_sim_scale;
+    state.pal = state.game.clock.pal ? 1 : 0;
+    state.update_first_actors(); // 0x00123270
+    const i32 run_state = i32(read_u32({g_510e58, 0x108}, 0x104)); // DAT_00510F5C, scene record +0x104.
+    if (0 < run_state && run_state < 3)
+    {
+        const std::function<void(u32, std::span<const u32>)> scare_message =
+            [&state](u32 address, std::span<const u32> words)
+        {
+            auto* object = state.object_of(state.scene.resolve_address(address, 0).data());
+            state.object_message(*object, {const_cast<u32*>(words.data()), words.size()});
+        };
+        RuntimePowerupTable powerups{state.powerup_rows, state.powerup_board, state.resources.registry};
+        RuntimeSceneScareTimers scare{powerups, state.scared_count, state.scared_actors, state.scared_times,
+            state.clock, scare_message};
+        tick_runtime_scene_scare_timers(scare); // 0x00123BA0
+        update_effects(state.frame_effect_scratch); // 0x000ED480
+        advance_scene_gameplay_time(g_4312c8, state.clock, g_flags_ea9c); // 0x0012B1F0
+    }
+    update_sounds(); // 0x0012A150
+    // 0x00115F70 over DAT_0050E450: each disposed control's object is destroyed and freed.
+    std::vector<FactoryObject*> disposed;
+    for (RuntimeActorLink* node = g_scene_controls.disposal.next; node != nullptr; node = node->next)
+    {
+        disposed.push_back(&state.scene.controls->object_of_disposal(*node, state.scene.objects));
+    }
+    std::vector<std::unique_ptr<RuntimeSceneObjectDisposalLink>> links;
+    for (auto object = disposed.rbegin(); object != disposed.rend(); ++object)
+    {
+        auto* next = links.empty() ? nullptr : links.back().get();
+        links.push_back(std::make_unique<RuntimeSceneObjectDisposalLink>(RuntimeSceneObjectDisposalLink{next,
+            **object}));
+    }
+    dispose_runtime_scene_objects(links.empty() ? nullptr : links.back().get(), state.scene.factory);
+    state.remove_retired_actors(); // 0x001232D0
+    g_light_filled = 0; // DAT_0050D71C.
+    // Held: 0x00120EF0 (State::update_shadow_casters, translated) registers the shadow volumes that present's
+    // 0x000FE960 then draws through 0x000FE5A0, 0x000644F0 and 0x00064820, which are not translated yet.
 }
 
 void SceneActorServices::update_sounds()

@@ -91,6 +91,9 @@ const EntityCamNode& active_camera()
 }
 }
 
+std::array<u32, 11> g_camera_view_tunables{0x4479FFF0, 0x428C0000, 0x000003E7, 0x4479FFF0, 0x40800000, 0xC0000000,
+    0x40C00000, 0x3F000000, 0x40000000, 0x00000000, 0x00000000};
+
 float RuntimeCameraRigTunables::real(u32 address) const
 {
     float value;
@@ -101,7 +104,7 @@ float RuntimeCameraRigTunables::real(u32 address) const
     }
     if (address >= 0x00434008 && address + 4 <= 0x00434034)
     {
-        std::memcpy(&value, view.data() + (address - 0x00434008), 4);
+        std::memcpy(&value, reinterpret_cast<const u8*>(g_camera_view_tunables.data()) + (address - 0x00434008), 4);
         return value;
     }
     throw Error("camera rig tunable outside DAT_004274B8 and DAT_00434008");

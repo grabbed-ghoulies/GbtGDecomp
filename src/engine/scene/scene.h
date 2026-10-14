@@ -18,6 +18,7 @@ extern char (&g_510ed8)[0x80];
 extern i32 g_script_30d0c;
 
 extern i32 g_4312e0; // DAT_004312E0, motion integration steps from 0x0011E7F0.
+extern u8 g_4312c8[0x14]; // DAT_004312C8..DAT_004312D8, the scene times 0x0012B1F0 advances.
 
 // 0x0011EB30. EAX is the source aid. The stack dword is the mode. A first
 // dword of 'aid_' clears the lead byte, then the source is copied through

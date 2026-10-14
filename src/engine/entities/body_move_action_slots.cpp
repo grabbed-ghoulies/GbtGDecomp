@@ -1,6 +1,8 @@
 #include "body_move_action_slots.h"
 #include "actor_transform.h"
+#include <array>
 #include <bit>
+#include <cmath>
 #include <cstring>
 
 namespace gbtg
@@ -186,5 +188,122 @@ void step_runtime_body_motion(std::span<u8> body, Actor& actor, const ActorAnima
     std::memcpy(body.data() + 0x18, &moved.x, 4);
     std::memcpy(body.data() + 0x1C, &moved.y, 4);
     std::memcpy(body.data() + 0x20, &moved.z, 4);
+}
+
+// Xbox 0x001405E0
+void ease_runtime_vector_toward(Vec3& value, const Vec3& target, float gain, const i32& steps)
+{
+    std::array<u8, 0x10> context;
+    std::memcpy(context.data(), &target, 12);
+    std::memcpy(context.data() + 12, &gain, 4);
+    const Vec3 rate{};
+    Vec3 rate_out;
+    integrate_runtime_motion(value, rate, value, rate_out, context, std::bit_cast<float>(0x3B5A740Eu), steps,
+        runtime_motion_toward_target, runtime_motion_settle_target,
+        [](std::span<const u8>, const Vec3&, Vec3&)
+        {
+            // Xbox 0x001628B0 returns at once.
+        });
+}
+
+// Xbox 0x0007FE70
+void message_runtime_stand_action(std::span<u8> action, std::span<const u8> message,
+    RuntimeStandActionContext& context)
+{
+    const u32 id = read_u32(message, 0);
+    if (id != 3)
+    {
+        if (id != 0x22)
+        {
+            return;
+        }
+        const Vec3 position{read_f32(message, 4), read_f32(message, 8), read_f32(message, 0xC)};
+        actor_set_world_position(context.actor, position); // 0x00041730
+        const Vec3 world = actor_world_position(context.actor); // 0x000412A0 into body +0x18.
+        std::memcpy(context.body.data() + 0x18, &world, 12);
+    }
+    const u32 one = 1;
+    std::memcpy(action.data() + 0x10, &one, 4);
+}
+
+// Xbox 0x000800A0
+void follow_runtime_stand_focus(std::span<u8> action, RuntimeStandActionContext& context)
+{
+    if (context.body[0x308] == 0)
+    {
+        return;
+    }
+    const Vec3 focus{read_f32(context.body, 0x2FC), read_f32(context.body, 0x300), read_f32(context.body, 0x304)};
+    const u32 target = read_u32(context.mind, 0xC);
+    float speed;
+    if (read_u32(context.tunables, 8) == 0) // DAT_004275C4.
+    {
+        speed = 0.f;
+    }
+    else
+    {
+        const Actor* target_actor = context.actor_at(target);
+        if (target_actor == nullptr || target_actor->euler_out == nullptr || target_actor->euler_out->actor == nullptr)
+        {
+            throw Error("camera stand focus target has no +0x95C body actor");
+        }
+        const Vec3& velocity = target_actor->euler_out->actor->anchor; // Body actor +0x3C.
+        speed = std::sqrt(velocity.x * velocity.x + velocity.z * velocity.z); // 0x00152B30
+    }
+    const Vec3 from{read_f32(action, 0x14), read_f32(action, 0x18), read_f32(action, 0x1C)};
+    Vec3 offset;
+    context.aim(offset, from, focus, target, read_f32(context.tunables, 0), speed,
+        read_f32(context.tunables, 4)); // DAT_004275BC, DAT_004275C0.
+    Vec3 rate{read_f32(action, 0x20), read_f32(action, 0x24), read_f32(action, 0x28)};
+    ease_runtime_vector_toward(rate, offset, read_f32(context.body, 0x334), context.steps);
+    std::memcpy(action.data() + 0x20, &rate, 12);
+    if (read_u32(context.tunables, 0xC) != 0) // DAT_004275C8.
+    {
+        std::memcpy(action.data() + 0x20, &offset, 12);
+    }
+}
+
+// Xbox 0x0007FEC0
+void tick_runtime_stand_action(std::span<u8> action, RuntimeStandActionContext& context)
+{
+    const float elapsed = runtime_actor_rate(context.actor) * runtime_frame_step(context.clock) + read_f32(action, 0xC);
+    std::memcpy(action.data() + 0xC, &elapsed, 4);
+    if (read_u32(action, 0x10) != 0)
+    {
+        std::memcpy(context.body.data() + 0x18, context.mind.data() + 0x70, 12);
+        context.actor.anchor = {0.f, 0.f, 0.f}; // Actor +0x3C.
+        if (context.body[0x308] != 0)
+        {
+            std::memcpy(action.data() + 0x14, context.body.data() + 0x2FC, 12);
+        }
+        std::memset(action.data() + 0x20, 0, 12);
+        return;
+    }
+    ease_runtime_body_velocity(context.body, context.actor, context.steps); // 0x000803B0
+    follow_runtime_stand_focus(action, context);
+}
+
+// Xbox 0x0007FFB0
+void step_runtime_stand_action(std::span<u8> action, RuntimeStandActionContext& context,
+    const ActorAnimationState& animation)
+{
+    step_runtime_body_motion(context.body, context.actor, animation, context.clock); // 0x0002AD30
+    const float step = runtime_frame_step(context.clock);
+    const float scaled = runtime_actor_rate(context.actor) * step;
+    const bool keep_planar = read_u32(context.tunables, 0x10) != 0; // DAT_004275CC.
+    for (size_t axis = 0; axis < 3; ++axis)
+    {
+        const float value = read_f32(action, 0x20 + axis * 4) * scaled + read_f32(action, 0x14 + axis * 4);
+        std::memcpy(action.data() + 0x14 + axis * 4, &value, 4);
+    }
+    if (keep_planar && context.body[0x308] != 0)
+    {
+        std::memcpy(action.data() + 0x14, context.body.data() + 0x2FC, 4);
+        std::memcpy(action.data() + 0x1C, context.body.data() + 0x304, 4);
+    }
+    std::memcpy(context.body.data() + 0x2FC, action.data() + 0x14, 12);
+    context.body[0x308] = 1;
+    const u32 zero = 0;
+    std::memcpy(action.data() + 0x10, &zero, 4);
 }
 }

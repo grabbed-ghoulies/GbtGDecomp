@@ -1,3 +1,4 @@
+#include "lighting.h"
 #include "gbtg/anim.h"
 #include "gbtg/engine_internal.h"
 #include "gbtg/entity.h"
@@ -351,6 +352,8 @@ void script_set_default_name(Game& g)
 {
     // Xbox 0x001287F0: copy default into DAT_00512494 and zero script globals.
     script_vm_reset();
+    g_light_offset = {0.f, 30.f, -30.f}; // DAT_0050D764; DAT_0032B108 and DAT_0032B3FC.
+    g_light_filled_gate = 5; // DAT_0050D720.
     g_state_248c = 0;
     g_state_2490 = 0;
     g_gate_251c = 0;

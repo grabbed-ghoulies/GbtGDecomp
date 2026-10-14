@@ -1,4 +1,5 @@
 #include "gbtg/engine_internal.h"
+#include "scripts/script_actions.h"
 #include "scene/dialogue_scene_runtime.h"
 #include "scene/executable_resources.h"
 #include "scene/factory_scene_runtime.h"
@@ -117,6 +118,10 @@ void frame_tick(Game& g, float dt, const InputState& in)
     clock_frame_time(g.clock); // 0x00033C80
     g.time = g.clock.time;
     g.frame = g.clock.frame;
+    if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1)
+    {
+        g.factory_scene->start_actors(g).select_frame_display(); // DAT_005077A8 = &DAT_00507018.
+    }
     if (in.quit)
     {
         g.running = false;
@@ -128,6 +133,11 @@ void frame_tick(Game& g, float dt, const InputState& in)
     // (or 2) ticks the scene through 0x0011E7F0: the dialogue (0x00057E60), the fired script and
     // its condition timers (0x00117100).
     script_pump(g);
+    // 0x00033B50 runs 0x0011E4C0 and 0x0011E640 while DAT_0050EA9C has bits 0x80 and 0x40000 clear.
+    if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1 && (g_flags_ea9c & 0x40080u) == 0)
+    {
+        g.factory_scene->start_actors(g).run_scene_pass(); // 0x0011E640 after 0x0011E4C0.
+    }
     audio_tick(g, g.clock.dt); // 0x0015B780, 0x0003A040, 0x000396F0, 0x00038640, 0x00038C20
     if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1)
     {

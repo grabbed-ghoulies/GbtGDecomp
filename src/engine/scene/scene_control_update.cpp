@@ -88,4 +88,23 @@ void update_runtime_scene_controls(RuntimeSceneControlUpdates& context)
     }
     context.updates.next = node;
 }
+
+// Xbox 0x001160C0
+void clear_runtime_scene_control_updates(RuntimeSceneControlUpdates& context)
+{
+    while (context.updates.next != nullptr)
+    {
+        RuntimeActorLink* node = context.updates.next;
+        if (node->previous != nullptr)
+        {
+            node->previous->next = node->next;
+        }
+        if (node->next != nullptr)
+        {
+            node->next->previous = node->previous;
+        }
+        node->previous = nullptr;
+        node->next = nullptr;
+    }
+}
 }

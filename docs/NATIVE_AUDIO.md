@@ -106,12 +106,13 @@ the audio stack is live:
   event voices.
 
 Still to do:
-- the per-frame activation pass `0x0011E640` (needs `0x001232D0` and
-  `0x00120EF0`);
+- scene start's ambient sounds `0x0012A1E0` (and `0x00132040`, `0x00049BA0`),
+  which `start_scene` does not run yet;
 - the stream slot tick (`0x00038640`) and idle channel release (`0x00038C20`)
   over the native bank streams;
 - fight music (`0x00116C50` → `0x00116D20`) for script node 0x55;
-- actor sounds (`0x0012A150`) through the core.
+- actor sounds: `0x0012A150` now runs every frame inside `0x0011E640`, but no
+  actor queues a sound in the opening before the fight.
 
 ### Listener reverb (2026-10-14)
 
@@ -126,3 +127,80 @@ boundary now copies that:
 - Each source voice and each 3D source submix sends dry to the master voice and
   wet to `g_reverb`.
 - The submix stays muted until the game sets listener parameters.
+
+### Scene pass `0x0011E640` (2026-10-14)
+
+`SceneActorServices::run_scene_pass` runs every frame after `script_pump`.
+`frame_tick` calls it while `DAT_0050EA9C` has bits 0x80 and 0x40000 clear.
+In retail order it runs:
+
+1. Control activation (`0x00115FF0`, `0x00116090`, `0x001160F0`; the last one
+   runs each new control's +0x10).
+2. Actor activation, 0x7D and first update (`0x00123070`, `0x001231A0`,
+   `0x00123270`).
+3. In run states 1 and 2: the scare timers `0x00123BA0`, global effects
+   `0x000ED480` and scene times `0x0012B1F0`.
+4. Actor sounds `0x0012A150`.
+5. Control disposal `0x00115F70`.
+6. Retired actors `0x001232D0`.
+7. The shadow volumes `0x00120EF0`.
+
+Scene start now also drains the update and start lists (`0x001160C0`,
+`0x00123240`), as `0x0011CBD0` does, so the first pass does not repeat 0x7D.
+
+New translations:
+
+- `scene/scene_shadow_casters.cpp`: `0x00120EF0`, `0x00120FE0`, `0x001211E0`,
+  `0x00121160`, `0x00121E30`, `0x001238F0`, `0x00052270`, `0x000FE4D0`,
+  `0x00040B20` and `0x00106B90`.
+- `graphics/light_volume_records.cpp`: `0x000FE320` and `0x000FE260`.
+- `camera/view_frustum.cpp`: `0x00159BA0`.
+- `scene/scene_actor_removal.cpp`: `0x001232D0` and `0x000F4970`.
+
+`0x000F4C10`, `0x000F4CC0` and `0x000F4B90` raise when a showing notice's
+actor is removed. `0x001287F0`'s light defaults (offset 0, 30, -30; limit 5)
+are set when the scene name resets. The opening registers six shadow volumes
+before the tutorial.
+
+Known gaps:
+
+- The shadow step `0x00120EF0` is held in `run_scene_pass`. It is translated,
+  but its volumes reach the draw `0x000FE960`, whose per-record draw
+  (`0x000FE5A0`, `0x000644F0`, `0x00064820`, render-to-texture shadows) is
+  not translated and raises. The sort `0x000FE430` is translated.
+- The boot light setup `0x000FD620` never runs, so `DAT_00509B74` (easing)
+  stays 0.
+
+### Camera fix found through the scene pass (2026-10-14)
+
+Once `0x001232D0` started freeing retired actors, the opening rendered as loose
+polygons.
+
+- **Cause.** `0x0013CCD0` sends `{0xBA, source}` to the new camera (the word
+  after 0xBA is written as 0, then overwritten with ESI). The port sent
+  `{0xBA, 0, actor}`, so the director (`0x000AA250`) had no target and removed
+  itself on its first update. Freeing it removed the only display camera, so
+  present fell back to the host camera at the origin.
+- **Next frontier.** With the target fixed, the camera body enters its stand
+  state, a type 0x5D `entityStateAnim2Stand` action (vtable `0x005054D0`).
+- **Translated for it:**
+  - `0x0007FDF0`, `0x0007FE60`, `0x0007FE70`, `0x0007FEC0`, `0x0007FFB0`,
+    `0x000800A0` and `0x001405E0`;
+  - bound in `SceneBodyMessages` (message, tick and step slots).
+- **Result.** The gameplay camera now follows Cooper from above, before and
+  after the tutorial.
+
+### Camera height fix (2026-10-14)
+
+With the director live, the camera rose to about 190 units above Cooper. The
+rig (`0x00078840`) adds DAT_00434014 to the eye height, and the port read the
+.data sentinel 999.999 there. Retail resets DAT_00434008..DAT_00434030 and
+DAT_00545AEC..DAT_00545AF8 in `0x0013CBD0`, called from scene load
+(`0x0011CAC0`).
+
+- `0x0013CBD0` is now translated as `reset_runtime_camera_view_tunables` and
+  called from `scene_reset_runtime_parameters`.
+- The rig, the script camera tunes (type 0x61, `0x00140E30`) and that reset
+  now share one block, `g_camera_view_tunables` (DAT_00434008), seeded with
+  the retail .data words.
+- `g_tune_5aec` is now the same storage as `g_look_profile` (DAT_00545AEC).

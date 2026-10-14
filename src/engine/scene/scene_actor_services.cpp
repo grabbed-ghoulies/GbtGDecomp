@@ -1320,6 +1320,9 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         // DAT_004E13B0, the sound banks 0x00039F50 created at boot.
         voices.banks = std::span<AudioCoreBank* const>(g_native_audio->banks.data(),
             size_t(g_native_audio->bank_count));
+        // The engine's DAT_004D97F0 / DAT_004D97EC, which the source calls scale and apply with.
+        audio_sources.unit_scale = g_native_audio->listener.unit_scale;
+        audio_sources.apply = g_native_audio->listener.apply;
     }
     // The actor sound queues stop the same event voices (DAT_004E0CE8) through 0x00039690.
     sounds.stop_voice = [this](i16 index)
@@ -3974,7 +3977,17 @@ void SceneActorServices::update_audio()
 {
     auto& state = *state_;
     dispatch_native_audio_notifications(state.voices.banks); // 0x0015B780
+    if (g_native_audio != nullptr && state.display_view != nullptr)
+    {
+        // DAT_00421C70.
+        const Vec3 velocity{read_f32(state.data(0x00421C70, 12), 0), read_f32(state.data(0x00421C70, 12), 4),
+            read_f32(state.data(0x00421C70, 12), 8)};
+        update_audio_listener_from_view(state.display_view->position, state.display_view->rotation,
+            state.display_view->forward, velocity, g_native_audio->listener); // 0x0003A040
+    }
     tick_audio_event_voices(state.voices); // 0x000396F0
+    tick_audio_stream_slots(state.game.clock.dt, g_4e02e8, *state.audio_banks); // 0x00038640
+    release_idle_tracked_audio_channels(*state.audio_banks); // 0x00038C20
 }
 
 void SceneActorServices::select_frame_display()

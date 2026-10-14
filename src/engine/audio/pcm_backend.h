@@ -17,6 +17,8 @@ AudioCoreCueBoundaries native_audio_core_cue_boundaries(const Game& game,
     const std::function<const char*(void*, u32)>& cue_name);
 // Boot 0x0003A280 over the host: bundle AIDs, the XAudio2 device and the wave bank index. Fills g_native_audio.
 void boot_native_audio(const Game& game);
+// The XACT listener calls (position, velocity, orientation) over the host's X3DAudio listener.
+void bind_native_audio_listener(AudioCoreListener& listener);
 // The cue notifications XACTEngineDoWork delivers (0x0015B780): each live native cue's XAudio2 voice is polled
 // and its callback receives 3 once prepared, 0 once playing and 1 when its buffers have drained.
 void dispatch_native_audio_notifications(std::span<AudioCoreBank* const> banks);

@@ -226,3 +226,58 @@ Footsteps were formatted and queued, but no actor sound ever started:
 
 In the opening walk, imp and Cooper footsteps (stone, wood, carpet), imp
 chatter and laughs now prepare and play through the event voices.
+
+### Frame audio order and 3D positioning (2026-10-14)
+
+`SceneActorServices::update_audio` now runs the retail frame audio in order:
+
+1. the cue notifications `0x0015B780`;
+2. the listener `0x0003A040` (`audio/core_listener.cpp`, with the XACT listener
+   calls `0x0015BCB0`, `0x0015B7F0` and `0x0015B840`);
+3. the event voices `0x000396F0`;
+4. the stream slots `0x00038640`;
+5. the idle channel release `0x00038C20`.
+
+`0x000389C0` and `0x00038EF0` moved from `scene/scene_controls` to
+`audio/bank_streams`.
+
+Engine values. `0x0015B960` stores DAT_004D97F0 = 1.0 and DAT_004D97EC = 1
+(DAT_00336140) beside its engine boundary. The scene's sources used 0, which
+put every 3D source at the origin.
+
+Host 3D. The XAudio2 boundary had no 3D, so every 3D source played centred and
+at full level.
+
+- Each mode-1 (mono) sound source submix is now panned and attenuated with
+  X3DAudio from its XACT position and the XACT listener.
+- Retail passes a top vector of (0, -1, 0) for an upright camera. That is the
+  conversion from the game's right-handed view (identity looks down -Z, +X on
+  screen right) into the audio engine's left-handed space, so the host uses
+  the vectors as given; a source at +X plays on the right.
+- The Xbox banks carry each sound's own distance curve; the host uses one
+  inverse-distance curve, full level within 40 world units
+  (`kSpatialFullLevelDistance`). This is a host choice, not a retail value.
+
+### Scene music nodes and fight music (2026-10-14)
+
+- Translated in `scene/scene_controls.cpp`:
+  - `0x00116D20`: switch the scene's named stream (DAT_0050E4E0).
+  - `0x00116C50`: fight music by actor tag, from the 25-row table at
+    DAT_0030E490 (for example tag 23, the imps, gives
+    `GSTREAMSFIGHT_0003_IMPS`); tag 1's row is the fallback.
+- Script node 0x3A plays a named stream (priority 3), 0x3B releases it,
+  0x55 plays fight music for an actor tag, 0x57 plays a named stream
+  (priority 2), and 0x8D queues a stream slot (id 6).
+
+Stopped cues:
+
+- XACT reports a stopped cue (notification 1) even while it releases. The
+  host now records `IXACTSoundBank_Stop` and reports it, and flushes the
+  XAudio2 source buffers on every stop.
+- Without this, stopped actor sounds stayed in state 9 or 10 with their
+  source "in use". After about a hundred footsteps all 48 event voices were
+  taken, and no stream could start.
+
+`--player-opening` now also runs the opening's imp fight node after the walk.
+It checks that the fight stream plays, that the walkabout stream pauses under
+it (`0x00038AD0`), and that finished actor sounds give their voices back.

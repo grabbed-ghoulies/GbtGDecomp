@@ -34,6 +34,7 @@ struct AudioBankStreams
     std::array<AudioTrackedChannel, 16> channels; // DAT_004E030C
     std::array<AudioStreamSlot, 6> streams;
     AudioEventVoices& voices;
+    float level = 0.f; // DAT_004E0BCC.
 };
 void initialize_tracked_audio_channels(AudioBankStreams& context); // Xbox 0x00038BF0
 AudioTrackedBank* next_tracked_audio_bank(AudioTrackedBank* bank,
@@ -69,4 +70,12 @@ void pause_lower_priority_audio_banks(AudioTrackedBank& bank,
     AudioBankStreams& context); // Xbox 0x00038AD0
 void acquire_tracked_audio_bank(const char* name, i32 id,
     AudioBankStreams& context); // Xbox 0x00038910
+// 1 untracked, 2 finished or held, 3 still sounding.
+i32 runtime_audio_bank_state(const char* name, AudioBankStreams& context); // Xbox 0x000389C0, EAX name
+u32 runtime_audio_channel_idle(std::int8_t index, AudioBankStreams& context); // Xbox 0x00038EF0, AL index
+// The six queued stream slots: a requested slot acquires its bank once DAT_004E02E8 is clear; a playing slot is
+// released when its bank finishes and otherwise times its play by `step` (DAT_005096C0).
+void tick_audio_stream_slots(float step, i32 gate, AudioBankStreams& context); // Xbox 0x00038640
+// Owned channels whose voice has no cue or has stopped give the voice up; DAT_004E0BCC becomes 1.
+void release_idle_tracked_audio_channels(AudioBankStreams& context); // Xbox 0x00038C20
 }

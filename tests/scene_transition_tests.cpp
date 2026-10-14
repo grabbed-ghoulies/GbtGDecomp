@@ -8008,7 +8008,56 @@ int main(int argc, char** argv)
             {
                 throw gbtg::Error("left stick did not move Cooper after the tutorial");
             }
-            std::cout << "PASS: the left stick walks Cooper after the tutorial\n";
+            // The script's later fight node (type 0x55, objTag_Actor_Imp) switches to the imps' fight music.
+            const gbtg::ScriptNode* fight = nullptr;
+            for (const auto& node : game.scene_script.nodes)
+            {
+                if (node.type == 0x55 && node.text == "objTag_Actor_Imp")
+                {
+                    fight = &node;
+                    break;
+                }
+            }
+            if (fight == nullptr)
+            {
+                throw gbtg::Error("opening script has no imp fight music node");
+            }
+            gbtg::script_handle_event_actions(game, *fight);
+            for (int frame = 0; frame < 30; ++frame)
+            {
+                gbtg::gfx_begin_frame();
+                game.tick(1.f / 60.f, {});
+                gbtg::gfx_end_frame();
+            }
+            auto& streams = game.factory_scene->controls->context.streams();
+            const auto* music = gbtg::find_tracked_audio_bank("XACT_SOUNDBANK_GSTREAMSFIGHT_0003_IMPS", streams);
+            const auto* walkabout = gbtg::find_tracked_audio_bank(
+                "XACT_SOUNDBANK_GSTREAMSWALK_WALKABOUT37", streams);
+            if (music == nullptr || std::int8_t(music->channel) == -1)
+            {
+                throw gbtg::Error("imp fight music did not acquire a stream channel");
+            }
+            const auto& fight_channel = streams.channels[size_t(std::int8_t(music->channel))];
+            if (fight_channel.mode != 2 || streams.voices.voices[size_t(fight_channel.voice)].state != 6)
+            {
+                throw gbtg::Error("imp fight music is not playing");
+            }
+            // Priority 3 pauses the priority-2 walkabout stream (0x00038AD0).
+            if (walkabout != nullptr && std::int8_t(walkabout->channel) != -1
+                && streams.channels[size_t(std::int8_t(walkabout->channel))].mode != 3)
+            {
+                throw gbtg::Error("walkabout music did not pause under the fight music");
+            }
+            int free_voices = 0;
+            for (const auto& voice : streams.voices.voices)
+            {
+                free_voices += voice.state == 0 ? 1 : 0;
+            }
+            if (free_voices < 24)
+            {
+                throw gbtg::Error("finished actor sounds did not return their event voices");
+            }
+            std::cout << "PASS: the left stick walks Cooper after the tutorial, then the imp fight music starts\n";
             gbtg::gfx_shutdown();
             return 0;
         }

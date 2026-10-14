@@ -484,6 +484,7 @@ add_executable(gbtg
     src/engine/scene/live_spawn_tick.cpp
     src/engine/audio/bank_lookup.cpp
     src/engine/audio/bank_streams.cpp
+    src/engine/audio/core_listener.cpp
     src/engine/audio/sound_names.cpp
     src/engine/audio/footstep_names.cpp
     src/engine/entities/actor_attachment_requests.cpp

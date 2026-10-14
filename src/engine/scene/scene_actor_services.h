@@ -42,7 +42,8 @@ public:
     // given their first update, then scare timers, effects and scene times (run states 1 and 2), actor sounds,
     // control disposal, retired actors and the shadow volumes.
     void run_scene_pass(); // Xbox 0x0011E640
-    // The frame's native audio: the cue notifications of 0x0015B780, then the event voices (0x000396F0).
+    // The frame's native audio: the cue notifications (0x0015B780), the listener (0x0003A040), the event voices
+    // (0x000396F0), the stream slots (0x00038640) and the idle channel release (0x00038C20).
     void update_audio();
     void update_effects(RuntimeEffectPassScratch& scratch); // Native context binding for Xbox 0x000ED480.
     bool activation_pending() const; // Pending actor +0x900 list is nonempty.

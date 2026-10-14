@@ -23,6 +23,7 @@
 #include <objbase.h>
 #include <xaudio2.h>
 #include <xaudio2fx.h>
+#include <x3daudio.h>
 #endif
 
 namespace gbtg
@@ -115,6 +116,19 @@ std::array<float, 256> g_category_volumes = []()
 bool g_listener_effect = false;
 // The Xbox listener reverb (I3DL2) is a wet send beside each voice's dry path, so it lives on its own submix.
 IXAudio2SubmixVoice* g_reverb = nullptr;
+// XACT's 3D engine: the listener and each 3D (mono) sound source, mixed into the master channels by X3DAudio.
+X3DAUDIO_HANDLE g_x3d{};
+bool g_x3d_ready = false;
+X3DAUDIO_LISTENER g_x3d_listener{};
+UINT32 g_master_channels = 0;
+struct SpatialSource
+{
+    X3DAUDIO_VECTOR position{};
+};
+std::unordered_map<IXAudio2Voice*, SpatialSource> g_spatial_sources;
+// The Xbox sound banks carry each 3D sound's own distance curve; the host uses one inverse-distance curve that
+// stays at full level within this many world units (about the play camera's distance from Cooper).
+constexpr float kSpatialFullLevelDistance = 40.f;
 // Owned cue voices routed into a sound-source submix by IXACTSoundBank_PlayEx.
 std::map<IXAudio2SourceVoice*, IXAudio2Voice*> g_source_routes;
 std::vector<PcmVoice> g_voices;
@@ -526,6 +540,7 @@ struct NativeCueNotes
     bool prepared = false;
     bool started = false;
     bool playing = false;
+    bool stopped = false; // IXACTSoundBank_Stop: XACT reports the cue stopped even while its tails play out.
 };
 std::unordered_map<void*, NativeCueNotes> g_cue_notes; // By prepared XAudio2 voice.
 
@@ -561,6 +576,15 @@ bool ensure_device()
     g_master->SetVolume(g_master_volume);
     XAUDIO2_VOICE_DETAILS details;
     g_master->GetVoiceDetails(&details);
+    g_master_channels = details.InputChannels;
+    DWORD channel_mask = 0;
+    if (SUCCEEDED(g_master->GetChannelMask(&channel_mask))
+        && SUCCEEDED(X3DAudioInitialize(channel_mask, X3DAUDIO_SPEED_OF_SOUND, g_x3d)))
+    {
+        g_x3d_ready = true;
+        g_x3d_listener.OrientFront = {0.f, 0.f, 1.f};
+        g_x3d_listener.OrientTop = {0.f, 1.f, 0.f};
+    }
     if (SUCCEEDED(g_xa->CreateSubmixVoice(&g_reverb, details.InputChannels, details.InputSampleRate)))
     {
         IUnknown* effect = nullptr;
@@ -590,6 +614,47 @@ HRESULT route_dry_and_reverb(IXAudio2Voice* voice)
     XAUDIO2_SEND_DESCRIPTOR sends[2]{{0, g_master}, {0, g_reverb}};
     const XAUDIO2_VOICE_SENDS list{2, sends};
     return voice->SetOutputVoices(&list);
+}
+
+// The master-channel matrix of one 3D source from its position and the listener.
+void apply_spatial_source(IXAudio2Voice* voice, const SpatialSource& source)
+{
+    if (!g_x3d_ready || g_master_channels == 0 || g_master_channels > 8)
+    {
+        return;
+    }
+    X3DAUDIO_EMITTER emitter{};
+    emitter.ChannelCount = 1;
+    emitter.CurveDistanceScaler = kSpatialFullLevelDistance;
+    emitter.DopplerScaler = 1.f;
+    emitter.OrientFront = {0.f, 0.f, 1.f};
+    emitter.OrientTop = {0.f, 1.f, 0.f};
+    emitter.Position = source.position;
+    std::array<float, 8> matrix{};
+    X3DAUDIO_DSP_SETTINGS settings{};
+    settings.SrcChannelCount = 1;
+    settings.DstChannelCount = g_master_channels;
+    settings.pMatrixCoefficients = matrix.data();
+    X3DAudioCalculate(g_x3d, &g_x3d_listener, &emitter, X3DAUDIO_CALCULATE_MATRIX, &settings);
+    voice->SetOutputMatrix(g_master, 1, g_master_channels, matrix.data());
+}
+
+void apply_all_spatial_sources()
+{
+    for (const auto& [voice, source] : g_spatial_sources)
+    {
+        apply_spatial_source(voice, source);
+    }
+}
+
+X3DAUDIO_VECTOR unit_vector(const Vec3& vector)
+{
+    const float length = std::sqrt(vector.x * vector.x + vector.y * vector.y + vector.z * vector.z);
+    if (!(length > 0.f))
+    {
+        return {0.f, 0.f, 0.f};
+    }
+    return {vector.x / length, vector.y / length, vector.z / length};
 }
 
 void reap_voices()
@@ -1363,6 +1428,51 @@ AudioListenerSettings native_audio_listener_settings()
     return settings;
 }
 
+void bind_native_audio_listener(AudioCoreListener& listener)
+{
+    listener.set_position = [](const Vec3& position, u32)
+    {
+#if defined(_WIN32)
+        g_x3d_listener.Position = {position.x, position.y, position.z};
+        apply_all_spatial_sources();
+#else
+        (void)position;
+#endif
+    };
+    listener.set_velocity = [](const Vec3& velocity, u32)
+    {
+#if defined(_WIN32)
+        g_x3d_listener.Velocity = {velocity.x, velocity.y, velocity.z};
+#else
+        (void)velocity;
+#endif
+    };
+    listener.set_orientation = [](const Vec3& front, const Vec3& top, u32)
+    {
+#if defined(_WIN32)
+        // X3DAudio needs an orthonormal pair; XACT took the game's vectors as they are.
+        const X3DAUDIO_VECTOR unit_front = unit_vector(front);
+        const float along = top.x * unit_front.x + top.y * unit_front.y + top.z * unit_front.z;
+        const X3DAUDIO_VECTOR unit_top = unit_vector({top.x - unit_front.x * along, top.y - unit_front.y * along,
+            top.z - unit_front.z * along});
+        if (unit_front.x == 0.f && unit_front.y == 0.f && unit_front.z == 0.f)
+        {
+            return;
+        }
+        if (unit_top.x == 0.f && unit_top.y == 0.f && unit_top.z == 0.f)
+        {
+            return;
+        }
+        g_x3d_listener.OrientFront = unit_front;
+        g_x3d_listener.OrientTop = unit_top;
+        apply_all_spatial_sources();
+#else
+        (void)front;
+        (void)top;
+#endif
+    };
+}
+
 RuntimeSoundBoundaries native_sound_boundaries()
 {
     RuntimeSoundBoundaries boundaries;
@@ -1379,11 +1489,14 @@ RuntimeSoundBoundaries native_sound_boundaries()
     {
 #if defined(_WIN32)
         auto* voice = static_cast<IXAudio2SourceVoice*>(cue);
-        voice->Stop((flags & 2) != 0 ? 0 : XAUDIO2_PLAY_TAILS);
-        if ((flags & 2) != 0)
+        if (const auto notes = g_cue_notes.find(voice); notes != g_cue_notes.end())
         {
-            voice->FlushSourceBuffers();
+            notes->second.stopped = true;
         }
+        voice->Stop((flags & 2) != 0 ? 0 : XAUDIO2_PLAY_TAILS);
+        // XACT ends the cue either way (immediately, or after its release); the source buffers have no tail to
+        // play out, so the remainder is dropped and the voice drains for the in-use status and reaping.
+        voice->FlushSourceBuffers();
 #endif
     };
     boundaries.last_error = []() -> u32
@@ -1452,7 +1565,12 @@ void dispatch_native_audio_notifications(std::span<AudioCoreBank* const> banks)
                 auto& notes = g_cue_notes[voice];
                 XAUDIO2_VOICE_STATE state{};
                 voice->GetState(&state);
-                if (!notes.prepared)
+                if (notes.stopped)
+                {
+                    g_cue_notes.erase(voice);
+                    cue->callback(cue->callback_context, *cue, 1);
+                }
+                else if (!notes.prepared)
                 {
                     notes.prepared = true;
                     cue->callback(cue->callback_context, *cue, 3);
@@ -1514,6 +1632,7 @@ void boot_native_audio(const Game& game)
     {
         // Cue completion is read from the XAudio2 voice state.
     };
+    bind_native_audio_listener(banks.listener);
     initialize_native_audio(banks, boundaries);
     std::cout << "native audio banks " << banks.bank_count << " names " << banks.bank_names.size()
               << " cues " << banks.cue_names.size() << "\n";
@@ -1559,6 +1678,11 @@ AudioCoreSourceBoundaries native_audio_core_source_boundaries()
         {
             route_dry_and_reverb(voice);
             handle = voice;
+            if (flags == 2)
+            {
+                g_spatial_sources[voice] = SpatialSource{};
+                apply_spatial_source(voice, g_spatial_sources[voice]);
+            }
         }
         return static_cast<i32>(status);
 #else
@@ -1573,8 +1697,20 @@ AudioCoreSourceBoundaries native_audio_core_source_boundaries()
     boundaries.mix_volumes = [](void*, std::span<const AudioCoreMixBin>)
     {
     };
-    boundaries.position = [](void*, const Vec3&, u32)
+    boundaries.position = [](void* handle, const Vec3& position, u32)
     {
+#if defined(_WIN32)
+        auto* voice = static_cast<IXAudio2Voice*>(handle);
+        const auto found = g_spatial_sources.find(voice);
+        if (found != g_spatial_sources.end())
+        {
+            found->second.position = {position.x, position.y, position.z};
+            apply_spatial_source(voice, found->second);
+        }
+#else
+        (void)handle;
+        (void)position;
+#endif
     };
     boundaries.velocity = [](void*, const Vec3&, u32)
     {
@@ -1632,6 +1768,7 @@ AudioCoreSourceBoundaries native_audio_core_source_boundaries()
             }
             route = g_source_routes.erase(route);
         }
+        g_spatial_sources.erase(static_cast<IXAudio2Voice*>(handle));
         static_cast<IXAudio2SubmixVoice*>(handle)->DestroyVoice();
 #else
         (void)handle;

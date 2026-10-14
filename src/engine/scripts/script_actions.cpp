@@ -12,6 +12,7 @@
 #include "../entities/ghouly_requests.h"
 #include "../scene/actor_loading.h"
 #include "../scene/factory_scene_runtime.h"
+#include "../scene/scene_controls.h"
 #include "../scene/executable_resources.h"
 #include "../scene/scene_object_requests.h"
 #include "../runtime/name_lookup.h"
@@ -1959,29 +1960,21 @@ bool cutscene_retained_for_transition(const SceneScript& script, const ScriptNod
 // in that range, return 3. Every handled type returns 2. The second and third
 // arguments from 0x00128A00 are unused.
 //
-// Type 0x3A would call 0x00116D20. ESI is node+8 and the stack dword is 3.
-// That call is not translated.
+// Type 0x3A plays the stream named at node+8 through 0x00116D20 with priority 3.
 //
-// Type 0x3B tests the byte at DAT_0050E4E0. Zero falls through and returns 2.
-// Nonzero would call 0x00038460 with that address. The dword at bank+0x88 is
-// decremented. A result less than 1, with a bank id other than 0x12 and a
-// nonzero return from 0x00038590, would call 0x00038360. 0x00038260 then
-// takes the bank in EAX and the id is stored as 0. 0x00038590, 0x00038360,
-// and 0x00038260 are not translated, and the bank object from 0x00038460 is
-// not visible here, so those stores are not made. The byte at DAT_0050E4E0
-// is then cleared.
+// Type 0x3B releases the current music stream DAT_0050E4E0 when there is one
+// (0x00116D20's first half, inlined in retail) and returns 2.
 //
 // Type 0x45 tests DAT_0050E560. Nonzero falls through and returns 2. Zero
 // would call 0x00116C90, stores 1, and returns 2. That call is not translated.
 //
-// Type 0x55 calls 0x001077B0 with EAX = the cstring at node+8. ECX would be
-// that return for 0x00116C50. That call is not translated.
+// Type 0x55 looks up the actor tag named at node+8 (0x001077B0) and plays its
+// fight music (0x00116C50).
 //
-// Type 0x57 would call 0x00116D20. ESI is node+8 and the stack dword is 2.
-// That call is not translated.
+// Type 0x57 plays the stream named at node+8 through 0x00116D20, priority 2.
 //
-// Type 0x8D would call 0x00038720. EAX is node+8 and the stack dword is 6.
-// That call is not translated. The case falls through and returns 2.
+// Type 0x8D queues the stream named at node+8 (0x00038720) with id 6, then
+// falls through and returns 2.
 // Xbox 0x00116C90
 void create_scene_ambient_tune(Game& g)
 {
@@ -2004,6 +1997,19 @@ void create_scene_ambient_tune(Game& g)
     }
 }
 
+namespace
+{
+// The native scene's bank streams (DAT_004DF370..), bound once its actor services start.
+AudioBankStreams& scene_music_streams(Game& g)
+{
+    if (g.factory_scene == nullptr || g.factory_scene->controls == nullptr)
+    {
+        throw Error("scene music without the native scene's bank streams");
+    }
+    return g.factory_scene->controls->context.streams();
+}
+}
+
 // Xbox 0x00127340
 int script_handle_event_actions(Game& g, const ScriptNode& node)
 {
@@ -2012,13 +2018,14 @@ int script_handle_event_actions(Game& g, const ScriptNode& node)
     case 0x3a:
     {
         const std::string key = node_cstr(g.scene_script, node, 8);
-        (void)key;
+        play_scene_music_stream(key.c_str(), 3, g_name_e4e0, scene_music_streams(g)); // 0x00116D20
         return 2;
     }
     case 0x3b:
         if (g_name_e4e0[0] != 0)
         {
-            g_name_e4e0[0] = 0;
+            // The release half of 0x00116D20, inlined here.
+            play_scene_music_stream(nullptr, 0, g_name_e4e0, scene_music_streams(g));
             return 2;
         }
         break;
@@ -2033,20 +2040,21 @@ int script_handle_event_actions(Game& g, const ScriptNode& node)
     case 0x55:
     {
         const std::string key = node_cstr(g.scene_script, node, 8);
-        const u32 tag = script_find_actor_tag(key.c_str());
-        (void)tag;
+        const u32 tag = script_find_actor_tag(key.c_str()); // 0x001077B0
+        play_scene_fight_music(i16(tag), g.executable_resources->memory(0x0030E490, 0xCB2), g_name_e4e0,
+            scene_music_streams(g)); // 0x00116C50
         return 2;
     }
     case 0x57:
     {
         const std::string key = node_cstr(g.scene_script, node, 8);
-        (void)key;
+        play_scene_music_stream(key.c_str(), 2, g_name_e4e0, scene_music_streams(g)); // 0x00116D20
         return 2;
     }
     case 0x8d:
     {
         const std::string key = node_cstr(g.scene_script, node, 8);
-        (void)key;
+        request_audio_stream(key.c_str(), 6, scene_music_streams(g)); // 0x00038720
         break;
     }
     default:

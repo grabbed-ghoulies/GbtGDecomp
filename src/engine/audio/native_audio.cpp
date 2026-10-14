@@ -209,6 +209,9 @@ void initialize_native_audio(NativeAudioBanks& banks, NativeAudioBootBoundaries&
     g_native_audio = &banks;
     // 0x0015B730 installs the heap callbacks (banks.memory); 0x0015B750's XACT file callbacks are the host's.
     boundaries.create_engine(); // 0x0015B960
+    // 0x0015B960 beside its engine boundary: deferred settings (DAT_00336140 is 1) and the unit scale DAT_0032B0F8.
+    banks.listener.apply = 1;
+    banks.listener.unit_scale = 1.f;
     // 0x00039EF0
     const auto effects = boundaries.resource("aid_xdsp_ghoulies_test");
     if (effects.data() == nullptr)

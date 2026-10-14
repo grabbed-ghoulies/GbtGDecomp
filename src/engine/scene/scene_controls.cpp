@@ -388,45 +388,6 @@ void tick_runtime_walkabout_control(std::span<u8> state, SceneControlInstance& c
     }
 }
 
-// Xbox 0x000389C0
-i32 runtime_audio_bank_state(const char* name, AudioBankStreams& context)
-{
-    const AudioTrackedBank* bank = find_tracked_audio_bank(name, context);
-    if (bank == nullptr)
-    {
-        return 1;
-    }
-    if (bank->silence != 0)
-    {
-        return 3;
-    }
-    if (bank->held != 0 || std::int8_t(bank->channel) == -1)
-    {
-        return 2;
-    }
-    return runtime_audio_channel_idle(std::int8_t(bank->channel), context) == 0 ? 3 : 2;
-}
-
-// Xbox 0x00038EF0
-u32 runtime_audio_channel_idle(std::int8_t index, AudioBankStreams& context)
-{
-    const AudioTrackedChannel& channel = context.channels.at(size_t(index));
-    if (channel.mode == 3)
-    {
-        return 0;
-    }
-    const AudioEventVoice& voice = context.voices.voices.at(size_t(channel.voice));
-    if (voice.cue != nullptr)
-    {
-        const u32 state = voice.state;
-        if (state == 2 || state == 3 || state == 5 || state == 6 || state == 7)
-        {
-            return 0;
-        }
-    }
-    return 1;
-}
-
 void tick_runtime_scene_control_list()
 {
     if (g_scene_control_owner == nullptr)
@@ -440,6 +401,56 @@ void tick_runtime_scene_control_list()
         RuntimeActorLink* next = node->next;
         owner.tick(owner.instance_of(*node));
         node = next;
+    }
+}
+
+// Xbox 0x00116D20
+void play_scene_music_stream(const char* name, i32 id, char* current, AudioBankStreams& streams)
+{
+    if (current[0] != 0)
+    {
+        AudioTrackedBank* bank = find_tracked_audio_bank(current, streams); // 0x00038460
+        if (bank == nullptr)
+        {
+            throw Error("scene music stream is not tracked; 0x00116D20 reads its +0x88");
+        }
+        const i32 references = bank->references - 1;
+        bank->references = references;
+        if (references < 1)
+        {
+            if (bank->id != 0x12)
+            {
+                if (AudioTrackedBank* resumed = select_resume_audio_bank(*bank, streams); resumed != nullptr)
+                {
+                    resume_tracked_audio_bank(*resumed, streams);
+                }
+            }
+            detach_tracked_audio_bank(*bank, streams);
+            bank->id = 0;
+        }
+        current[0] = 0;
+    }
+    if (name != nullptr)
+    {
+        acquire_tracked_audio_bank(name, id, streams); // 0x00038910
+        std::strcpy(current, name);
+    }
+}
+
+// Xbox 0x00116C50
+void play_scene_fight_music(i16 tag, std::span<const u8> table, char* current, AudioBankStreams& streams)
+{
+    while (true)
+    {
+        for (u32 row = 0; row < 0xCB2; row += 0x82)
+        {
+            if (i16(read_u16(table, row)) == tag)
+            {
+                play_scene_music_stream(reinterpret_cast<const char*>(table.data() + row + 2), 3, current, streams);
+                return;
+            }
+        }
+        tag = 1;
     }
 }
 }

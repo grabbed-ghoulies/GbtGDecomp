@@ -80,8 +80,13 @@ void destroy_runtime_walkabout_control(std::span<u8> state, SceneControlInstance
     SceneControlContext& context); // Xbox 0x000805B0
 void tick_runtime_walkabout_control(std::span<u8> state, SceneControlInstance& control,
     SceneControlContext& context); // Xbox 0x00080600
-i32 runtime_audio_bank_state(const char* name, AudioBankStreams& context); // Xbox 0x000389C0, EAX name
-u32 runtime_audio_channel_idle(std::int8_t index, AudioBankStreams& context); // Xbox 0x00038EF0, AL index
 // 0x0011E7F0's walk of DAT_0050E438: each active control's vtable +0x10.
 void tick_runtime_scene_control_list();
+// The scene's named music stream (DAT_0050E4E0, 0x80 bytes): the current one is released, then `name` (ESI; may
+// be null) is acquired with priority `id` and becomes current.
+void play_scene_music_stream(const char* name, i32 id, char* current, AudioBankStreams& streams); // Xbox 0x00116D20
+// Fight music: the row of DAT_0030E490 (25 rows of 0x82 bytes: actor tag word, stream name) whose tag matches
+// (CX), else tag 1's row, played with priority 3.
+void play_scene_fight_music(i16 tag, std::span<const u8> table, char* current,
+    AudioBankStreams& streams); // Xbox 0x00116C50
 }

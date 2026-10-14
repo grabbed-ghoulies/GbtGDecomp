@@ -2,6 +2,7 @@
 
 #include "bank_lookup.h"
 #include "core_cue.h"
+#include "core_listener.h"
 #include <deque>
 #include <string>
 #include <unordered_map>
@@ -33,6 +34,7 @@ struct NativeAudioBanks
     u32 loaded_count = 0; // DAT_004D980C.
     u32 notifications = 0; // DAT_004D9794.
     std::array<AudioCoreBank*, 80> banks{}; // DAT_004E13B0.
+    AudioCoreListener listener; // DAT_004D97EC, DAT_004D97F0 and the listener pose DAT_004D9820..DAT_004D984C.
     i32 bank_count = 0; // DAT_004E14F0.
     // Host: the name record behind each XACT bank handle, for the cue names the playback boundary resolves.
     std::unordered_map<void*, const AudioBankNames*> handles;

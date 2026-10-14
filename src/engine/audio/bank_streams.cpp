@@ -491,4 +491,120 @@ void request_audio_stream(const char* name, i32 id, AudioBankStreams& context)
     }
     while (index < 6);
 }
+
+// Xbox 0x000389C0
+i32 runtime_audio_bank_state(const char* name, AudioBankStreams& context)
+{
+    const AudioTrackedBank* bank = find_tracked_audio_bank(name, context);
+    if (bank == nullptr)
+    {
+        return 1;
+    }
+    if (bank->silence != 0)
+    {
+        return 3;
+    }
+    if (bank->held != 0 || std::int8_t(bank->channel) == -1)
+    {
+        return 2;
+    }
+    return runtime_audio_channel_idle(std::int8_t(bank->channel), context) == 0 ? 3 : 2;
+}
+
+// Xbox 0x00038EF0
+u32 runtime_audio_channel_idle(std::int8_t index, AudioBankStreams& context)
+{
+    const AudioTrackedChannel& channel = context.channels.at(size_t(index));
+    if (channel.mode == 3)
+    {
+        return 0;
+    }
+    const AudioEventVoice& voice = context.voices.voices.at(size_t(channel.voice));
+    if (voice.cue != nullptr)
+    {
+        const u32 state = voice.state;
+        if (state == 2 || state == 3 || state == 5 || state == 6 || state == 7)
+        {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+// Xbox 0x00038640
+void tick_audio_stream_slots(float step, i32 gate, AudioBankStreams& context)
+{
+    for (i32 index = 0; index < 6; ++index)
+    {
+        auto& slot = context.streams[size_t(index)];
+        if (slot.name[0] == 0)
+        {
+            continue;
+        }
+        if (slot.state == 2)
+        {
+            // 0x000389C0, inlined.
+            i32 state;
+            const AudioTrackedBank* bank = find_tracked_audio_bank(slot.name.data(), context);
+            if (bank == nullptr)
+            {
+                state = 1;
+            }
+            else if (bank->silence == 0)
+            {
+                state = 2;
+                if (bank->held == 0 && std::int8_t(bank->channel) != -1
+                    && runtime_audio_channel_idle(std::int8_t(bank->channel), context) == 0)
+                {
+                    state = 3;
+                }
+            }
+            else
+            {
+                state = 3;
+            }
+            if (state == 2)
+            {
+                release_audio_stream_slot(index, context); // 0x00038810
+            }
+            else if (state == 3)
+            {
+                slot.time = slot.time + step;
+            }
+        }
+        else if (gate == 0)
+        {
+            acquire_tracked_audio_bank(slot.name.data(), slot.id, context); // 0x00038910
+            slot.state = 2;
+            slot.time = 0.f;
+        }
+    }
+}
+
+// Xbox 0x00038C20
+void release_idle_tracked_audio_channels(AudioBankStreams& context)
+{
+    for (auto& channel : context.channels)
+    {
+        const i16 index = channel.voice;
+        if (index == -1)
+        {
+            continue;
+        }
+        auto& voice = context.voices.voices[size_t(index)];
+        const u32 state = voice.state;
+        const bool sounding = state == 2 || state == 3 || state == 5 || state == 6 || state == 7;
+        if ((voice.cue == nullptr || !sounding) && channel.owned != 0)
+        {
+            channel.name[0] = 0;
+            RuntimeSoundVoice view{voice.state, voice.cue == nullptr ? nullptr : &voice.cue->runtime};
+            stop_runtime_sound_voice(view, 0, context.voices.core.stopped_count, context.voices.core.sound); // 0x00039690
+            voice.state = view.state;
+            channel.voice = -1;
+            channel.mode = 0;
+            channel.owned = 0;
+        }
+    }
+    context.level = 1.f;
+}
 }

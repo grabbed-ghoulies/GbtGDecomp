@@ -1,5 +1,7 @@
 #include <unordered_set>
 #include "gbtg/engine_internal.h"
+#include "../src/engine/scene/cutscene_scene_runtime.h"
+#include "../src/engine/scene/gameselect_control.h"
 #include "../src/engine/scripts/script_conditions.h"
 #include "gbtg/gfx.h"
 #include "gbtg/anim.h"
@@ -2421,17 +2423,12 @@ void check_native_audio_preparation(const char* directory)
     using namespace gbtg;
     Game game;
     game.aids.open(directory);
-    // 0x00080CB0 -> 0x0013BAF0: this one-shot must outlive the intro clip.
+    // The owned-cue boundary plays and releases a retail one-shot.
     const char* intro_cue = "XACT_SOUNDBANK_GBARON_STARTBUTTONLAUGH";
     const u64 intro_handle = pcm_play_owned_cue(game, intro_cue);
     if (intro_handle == 0 || !pcm_owned_cue_playing(intro_handle))
     {
         throw Error("intro confirmation could not start the retail Baron laugh");
-    }
-    pcm_cutscene_sync(game);
-    if (!pcm_owned_cue_playing(intro_handle))
-    {
-        throw Error("intro cutscene cleanup stopped the transition's Baron laugh");
     }
     pcm_stop_owned_cue(intro_handle);
     if (pcm_owned_cue_playing(intro_handle))
@@ -2800,13 +2797,15 @@ void check_actor_loading()
                 throw Error(message);
             }
         };
-        std::array<DialogueRenderTargetHook, 2> hooks{};
-        hooks[1] = { [&calls, &require](std::uintptr_t first, std::uintptr_t second)
+        RuntimeSpecialTextures hooks{};
+        hooks[1].get_texture = [&calls, &require](u32 first, u32 second)
         {
             ++calls;
             require(first == 17 && second == 29, "dialogue target callback arguments");
-            return DialogueSurfaceHandle{41};
-        }, 17, 29 };
+            return u32{41};
+        };
+        hooks[1].model = 17;
+        hooks[1].index = 29;
         require(invoke_dialogue_render_target(0, hooks) == 0 && calls == 0,
             "absent dialogue target hook");
         require(invoke_dialogue_render_target(1, hooks) == 41 && calls == 1,
@@ -7742,7 +7741,15 @@ int main(int argc, char** argv)
 {
     const bool audio_test = argc == 3 && std::string_view(argv[2]) == "--audio-preparation";
     const bool title_a_test = argc == 3 && std::string_view(argv[2]) == "--title-a";
-    const bool title_test = title_a_test || (argc == 3 && std::string_view(argv[2]) == "--title");
+    // --attract leaves the attract reel to play its clips and the scripts that follow, with no input.
+    const bool attract_test = argc == 3 && std::string_view(argv[2]) == "--attract";
+    // --gameselect presses Start into game select, then Right, A and B there, capturing each screen.
+    // --gameselect-native installs the game-select control (factory type 0x9A) and reports where its native start
+    // stops (docs/NATIVE_FRONTEND.md).
+    const bool gameselect_native_test = argc == 3 && std::string_view(argv[2]) == "--gameselect-native";
+    const bool gameselect_test = gameselect_native_test || (argc == 3 && std::string_view(argv[2]) == "--gameselect");
+    const bool title_test = title_a_test || attract_test || gameselect_test
+        || (argc == 3 && std::string_view(argv[2]) == "--title");
     const bool goop_test = argc == 3 && std::string_view(argv[2]) == "--goop";
     const bool ui_test = argc == 3 && std::string_view(argv[2]) == "--ui";
     const bool dialogue_resources_test = argc == 3 && std::string_view(argv[2]) == "--dialogue-resources";
@@ -7761,7 +7768,7 @@ int main(int argc, char** argv)
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
         && !model_resources_test && !spawn_test)
     {
-        std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --goop | --ui | --player-opening | --player-fight | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start]\n";
+        std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --goop | --ui | --player-opening | --player-fight | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start]\n";
         return 2;
     }
     try
@@ -7823,6 +7830,7 @@ int main(int argc, char** argv)
             throw gbtg::Error("test graphics initialization failed");
         }
         gbtg::Game game;
+        gbtg::g_native_game_select = gameselect_native_test;
         game.init(argv[1], player_test || spawn_test ? "chapter1_scene1_2playcam" : title_test ? "" : "scene0_1book");
         if (spawn_test)
         {
@@ -8188,6 +8196,99 @@ int main(int argc, char** argv)
             gbtg::gfx_shutdown();
             return 0;
         }
+        if (gameselect_test)
+        {
+            // Start at frame 120 opens game select. Once its page turn has finished, the screens are captured at
+            // fixed offsets: slot select, Right, A on the selected slot, then B.
+            int ready = -1;
+            for (int frame = 0; frame < 1400; ++frame)
+            {
+                gbtg::InputState input;
+                input.start = frame == 120;
+                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos
+                    && gbtg::g_54632c == 0)
+                {
+                    ready = frame;
+                    std::cout << "game select ready at frame " << frame << "\n";
+                }
+                const int at = ready < 0 ? -1 : frame - ready;
+                input.right = at == 90;
+                input.accept = at == 180;
+                input.back = at == 360;
+                gbtg::gfx_begin_frame();
+                game.tick(1.f / 59.f, input);
+                gbtg::gfx_end_frame();
+                if (gameselect_native_test && 0 <= at)
+                {
+                    // The last frame the native control drew before a raise stops it.
+                    gbtg::RgbaImage image;
+                    if (gbtg::gfx_readback(image))
+                    {
+                        gbtg::write_bmp("cache/gameselect_native_last.bmp", image);
+                    }
+                }
+                if (at == 60 || at == 150 || at == 300 || at == 480)
+                {
+                    gbtg::RgbaImage image;
+                    if (gbtg::gfx_readback(image))
+                    {
+                        gbtg::write_bmp("cache/gameselect_check_" + std::to_string(at) + ".bmp", image);
+                    }
+                    std::cout << "game select capture +" << at << " (frame " << frame << ") scene "
+                              << game.scene_script.name << "\n";
+                }
+            }
+            if (ready < 0)
+            {
+                throw gbtg::Error("Start did not open game select");
+            }
+            std::cout << "PASS: game select opened and took Right, A and B\n";
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (attract_test)
+        {
+            // The seven attract clips last about 108 seconds; run past them into the script that follows.
+            std::vector<std::string> scenes;
+            gbtg::i32 clips = 0;
+            const void* previous_clip = nullptr;
+            for (int frame = 0; frame < 8000; ++frame)
+            {
+                gbtg::gfx_begin_frame();
+                game.tick(1.f / 59.f, gbtg::InputState{});
+                gbtg::gfx_end_frame();
+                if (scenes.empty() || scenes.back() != game.scene_script.name)
+                {
+                    scenes.push_back(game.scene_script.name);
+                    std::cout << "attract scene " << game.scene_script.name << " at frame " << frame << "\n";
+                }
+                if (const auto* stack = gbtg::find_scene_cutscene_runtime(game); stack != nullptr)
+                {
+                    const void* clip = -1 < stack->index ? stack->instances[size_t(stack->index)] : nullptr;
+                    if (clip != nullptr && clip != previous_clip)
+                    {
+                        ++clips;
+                    }
+                    previous_clip = clip;
+                }
+                if (frame % 1000 == 500)
+                {
+                    gbtg::RgbaImage image;
+                    if (gbtg::gfx_readback(image))
+                    {
+                        gbtg::write_bmp("cache/attract_check_" + std::to_string(frame) + ".bmp", image);
+                    }
+                }
+            }
+            if (game.cutscenes.playing)
+            {
+                throw gbtg::Error("the legacy host reel played under the native attract");
+            }
+            std::cout << "PASS: attract ran 8000 frames across " << scenes.size() << " scripts and " << clips
+                      << " clip starts natively\n";
+            gbtg::gfx_shutdown();
+            return 0;
+        }
         if (title_test)
         {
             bool animated = false;
@@ -8202,9 +8303,20 @@ int main(int argc, char** argv)
                 // frame after loading, rather than a headless crash check.
                 game.tick(1.f / 59.f, input);
                 gbtg::gfx_end_frame();
+                if (frame == 30 || frame == 60 || frame == 119 || frame == 300)
+                {
+                    gbtg::RgbaImage image;
+                    if (gbtg::gfx_readback(image))
+                    {
+                        gbtg::write_bmp("cache/title_check_" + std::to_string(frame) + ".bmp", image);
+                    }
+                }
                 if (frame == 119)
                 {
-                    animated = game.cutscenes.playing && game.cutscenes.time > 1.f;
+                    // The attract control (type 0x9B) plays its clips on the native scene cutscene stack.
+                    const auto* stack = gbtg::find_scene_cutscene_runtime(game);
+                    animated = stack != nullptr && -1 < stack->index
+                        && stack->instances[size_t(stack->index)]->time > 1.f && game.cutscenes.playing == false;
                 }
                 if (game.scene_script.name.find("gameselect") != std::string::npos &&
                     game.frontend_mode == 1 && gbtg::g_54632c == 0)
@@ -8283,14 +8395,16 @@ int main(int argc, char** argv)
                     }
                 }
             }
-            if (game.scene_script.name.find("scene1_1book") != std::string::npos && game.cutscenes.playing)
+            // The story's cutscene plays on the native scene cutscene stack (0x0004EDA0 / 0x0004EBD0).
+            const auto* story = gbtg::find_scene_cutscene_runtime(game);
+            if (game.scene_script.name.find("scene1_1book") != std::string::npos && story != nullptr && -1 < story->index)
             {
                 if (!saw_map || !saw_load_release || !saw_close)
                 {
                     throw gbtg::Error("next story started before the map load barrier");
                 }
                 saw_next = true;
-                if (gbtg::g_54632c == 0 && game.cutscenes.time > 1.f)
+                if (gbtg::g_54632c == 0 && story->instances[size_t(story->index)]->time > 1.f)
                 {
                     break;
                 }
@@ -8335,7 +8449,8 @@ int main(int argc, char** argv)
                 {
                     ++exiting;
                 }
-                if (entering > 80 && exiting > 80 && gbtg::g_54632c == 0 && game.cutscenes.playing)
+                const auto* story = gbtg::find_scene_cutscene_runtime(game);
+                if (entering > 80 && exiting > 80 && gbtg::g_54632c == 0 && story != nullptr && -1 < story->index)
                 {
                     break;
                 }

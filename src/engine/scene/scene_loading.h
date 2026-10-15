@@ -9,11 +9,10 @@ namespace scene_detail
 const BundleEntry* find_aid(const Game& g, std::string_view name);
 
 } // namespace scene_detail
-// Set by script node type 0x13. 0x0004EDA0 passes node+8 to 0x0004EB20, which
-// 0x0004D680 instances. load_cutscene_reel picks the name up after that walk.
-extern std::string g_script_cutscene_pending;
 
 void script_load(Game& g, std::string_view name);
+// Releases the legacy host meshes of g.models (the front end still draws them).
+void release_models(Game& g);
 
 // DAT_004DEDAC
 

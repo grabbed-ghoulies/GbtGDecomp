@@ -953,7 +953,10 @@ int main()
         configure_runtime_scene_fog(render_context, scene_fog);
         require(render_context.state.fog_enabled == 1, "scene fog enabled branch skipped");
         RuntimeSceneLightDirection light_direction_fixture;
-        light_direction_fixture.camera = render_world;
+        light_direction_fixture.camera = [&render_world]()
+        {
+            return render_world.data();
+        };
         int normalizations = 0;
         const auto normalize_direction = [&](Vec3& output, const Vec3& input)
         {

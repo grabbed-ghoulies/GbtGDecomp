@@ -21,6 +21,22 @@ void detach_actor_from_global_effects(void* actor,
     }
 }
 
+// Xbox 0x000ED450
+void release_global_actor_effects(std::array<ActorEffectNode*, 150>& nodes, RuntimeModelSoundRelease& release,
+    RuntimeEffectDebrisStorage& debris, RuntimeEffectTrailStorage& trails, AnimationResourceRegistry& registry)
+{
+    for (ActorEffectNode*& node : nodes)
+    {
+        if (node != nullptr)
+        {
+            release_actor_effect_node(*node, release); // 0x000ED2E0, EAX the node
+            node = nullptr;
+        }
+    }
+    release_effect_debris(debris, registry); // 0x000EC3A0
+    release_effect_trails(trails, registry); // 0x000EBBF0
+}
+
 // Xbox 0x000ED480
 void tick_global_actor_effects(RuntimeGlobalEffectTick& context)
 {

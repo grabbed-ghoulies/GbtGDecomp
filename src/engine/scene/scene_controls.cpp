@@ -94,6 +94,39 @@ void destroy_walkabout_view(FactoryObject& object)
     destroy_runtime_walkabout_control(state_of(object), installing->instance(object), installing->context);
 }
 
+bool construct_attract_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto& control = installing->instance(object);
+    control.state = state_of(object);
+    control.type = object.type;
+    control.attract = std::make_unique<AttractControlState>();
+    return construct_runtime_attract_control(state_of(object), parameters, *control.attract,
+        installing->context.attract_services());
+}
+
+void destroy_attract_view(FactoryObject& object)
+{
+    auto& control = installing->instance(object);
+    destroy_runtime_attract_control(state_of(object), *control.attract, installing->context.attract_services());
+}
+
+bool construct_gameselect_view(FactoryObject& object, std::span<const u8>)
+{
+    auto& control = installing->instance(object);
+    control.state = state_of(object);
+    control.type = object.type;
+    control.gameselect = std::make_unique<GameSelectControlState>();
+    return construct_runtime_gameselect_control(state_of(object), *control.gameselect,
+        installing->context.gameselect_services());
+}
+
+void destroy_gameselect_view(FactoryObject& object)
+{
+    auto& control = installing->instance(object);
+    destroy_runtime_gameselect_control(state_of(object), *control.gameselect,
+        installing->context.gameselect_services());
+}
+
 const ObjectFactoryVtable* scene_control_lifecycle()
 {
     static const ObjectFactoryVtable table{0x0050E41C, scene_control_object_sizes, construct_scene_control_view,
@@ -105,6 +138,20 @@ const ObjectFactoryVtable* walkabout_control_lifecycle()
 {
     static const ObjectFactoryVtable table{0x00505530, walkabout_control_object_sizes, construct_walkabout_view,
         destroy_walkabout_view};
+    return &table;
+}
+
+const ObjectFactoryVtable* attract_control_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505548, attract_control_object_sizes, construct_attract_view,
+        destroy_attract_view};
+    return &table;
+}
+
+const ObjectFactoryVtable* gameselect_control_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505620, gameselect_control_object_sizes, construct_gameselect_view,
+        destroy_gameselect_view};
     return &table;
 }
 
@@ -132,6 +179,24 @@ const RuntimeActorClock& SceneControlContext::frame_clock() const
     return *clock;
 }
 
+AttractControlServices& SceneControlContext::attract_services() const
+{
+    if (attract == nullptr)
+    {
+        throw Error("attract control before the scene's actor services bind its services");
+    }
+    return *attract;
+}
+
+GameSelectControlServices& SceneControlContext::gameselect_services() const
+{
+    if (gameselect == nullptr)
+    {
+        throw Error("game-select control before the scene's actor services bind its services");
+    }
+    return *gameselect;
+}
+
 AudioBankStreams& SceneControlContext::streams() const
 {
     if (audio == nullptr)
@@ -146,6 +211,11 @@ void NativeSceneControlOwner::install(std::span<ObjectFactoryType> types)
     installing = this;
     types[3] = ObjectFactoryType{1, scene_control_lifecycle};
     types[0x91] = ObjectFactoryType{3, walkabout_control_lifecycle};
+    types[0x9B] = ObjectFactoryType{3, attract_control_lifecycle};
+    if (g_native_game_select)
+    {
+        types[0x9A] = ObjectFactoryType{3, gameselect_control_lifecycle};
+    }
 }
 
 SceneControlInstance& NativeSceneControlOwner::instance(const FactoryObject& object)
@@ -208,7 +278,7 @@ void NativeSceneControlOwner::forget(const FactoryObject& object)
 
 void NativeSceneControlOwner::message(FactoryObject& object, std::span<const u32> words)
 {
-    // Types 3 and 0x91 share 0x00115EE0.
+    // Types 3, 0x91, 0x9A and 0x9B share 0x00115EE0.
     message_runtime_scene_control(instance(object), words, context.lists);
 }
 
@@ -222,8 +292,32 @@ void NativeSceneControlOwner::tick(SceneControlInstance& control)
     case 0x91:
         tick_runtime_walkabout_control(control.state, control, context);
         return;
+    case 0x9A:
+        tick_runtime_gameselect_control(control.state, *control.gameselect, context.gameselect_services());
+        return;
+    case 0x9B:
+        tick_runtime_attract_control(control.state, *control.attract, context.attract_services());
+        return;
     default:
         throw Error("scene control tick for factory type " + std::to_string(control.type));
+    }
+}
+
+void NativeSceneControlOwner::draw(SceneControlInstance& control)
+{
+    switch (control.type)
+    {
+    case 3:
+    case 0x91:
+    case 0x9B:
+        // Types 3 (getter 0x00115D50), 0x91 (getter 0x00080520) and 0x9B (getter 0x00080970) have the empty
+        // 0x001628B0 at +0x14.
+        return;
+    case 0x9A:
+        draw_runtime_gameselect_control(control.state, *control.gameselect, context.gameselect_services());
+        return;
+    default:
+        throw Error("scene control vtable +0x14 for factory type " + std::to_string(control.type));
     }
 }
 
@@ -386,6 +480,33 @@ void tick_runtime_walkabout_control(std::span<u8> state, SceneControlInstance& c
     {
         play_runtime_walkabout_track(state, control, context);
     }
+}
+
+// Xbox 0x00116170
+SceneControlInstance* find_runtime_scene_control(u16 type)
+{
+    if (g_scene_control_owner == nullptr)
+    {
+        return nullptr;
+    }
+    auto& owner = *g_scene_control_owner;
+    for (RuntimeActorLink* node = owner.context.lists.active.next; node != nullptr; node = node->next)
+    {
+        SceneControlInstance& control = owner.instance_of(*node);
+        if (control.type == type)
+        {
+            return &control;
+        }
+    }
+    for (RuntimeActorLink* node = owner.context.lists.pending.next; node != nullptr; node = node->next)
+    {
+        SceneControlInstance& control = owner.instance_of(*node);
+        if (control.type == type)
+        {
+            return &control;
+        }
+    }
+    return nullptr;
 }
 
 void tick_runtime_scene_control_list()

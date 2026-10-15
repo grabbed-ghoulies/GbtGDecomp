@@ -97,6 +97,7 @@ struct GfxNativeDraw
     std::array<u32, 4> address_v{1, 1, 1, 1};
     const u32* pixel_shader = nullptr; // 60-word D3DPIXELSHADERDEF; null modulates texture 0 by diffuse.
     u32 cull = 0; // 0 none, 0x900 clockwise, 0x901 counter-clockwise (screen space).
+    bool lines = false; // The vertices are a line list (Xbox line list, loop or strip), drawn one pixel wide.
     bool depth_test = false;
     bool depth_write = false;
     u32 depth_function = 0x203; // 0x200 never .. 0x207 always.
@@ -115,6 +116,11 @@ void gfx_begin_native_batch();
 void gfx_end_native_batch();
 // D3DDevice_Clear over the 640x480 back buffer: flags 1 depth, 2 stencil, 0xF0 colour.
 void gfx_clear_native(std::span<const std::array<i32, 4>> rectangles, u32 flags, u32 color, float depth);
+// D3DDevice_SetRenderTarget onto a texture surface: native draws and clears go to an offscreen width x height
+// target, in the same Xbox pixel space as the back buffer. Ending reads the target back as BGRA and restores the
+// back buffer.
+void gfx_begin_native_target(int width, int height);
+void gfx_end_native_target(RgbaImage& output);
 
 void gfx_size(int& width, int& height);
 void gfx_end_frame();

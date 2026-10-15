@@ -42,4 +42,6 @@ void position_audio_event_voice_ahead(i16 index, float distance,
     AudioEventVoices& context); // Xbox 0x00039B30
 i16 request_spatial_audio_event_voice(const char* name, u32 stop, float distance,
     AudioEventVoices& context); // Xbox 0x00039510
+// 0x00039690 over DAT_004E0CE8[index], through the shared sound-voice translation.
+void stop_audio_event_voice(i16 index, i32 immediate, AudioEventVoices& context);
 }

@@ -28,6 +28,8 @@ i32 runtime_player_mask_index(u32 mask); // Xbox 0x00107FF0
 i32 runtime_player_controller_index(u32 mask, const u32* ports); // Xbox 0x00109720
 const u8* runtime_input_state_for_mask(u32 mask,
     const RuntimeInputActivationContext& context); // Xbox 0x000FABF0
+// The controller port (0..3) with a new edge of any bit of `mask` (+0x38 set, +0x74 clear), lowest bit first.
+i32 runtime_input_new_edge_port(u16 mask, const RuntimeInputActivationContext& context); // Xbox 0x00107F50, AX mask
 u32 runtime_input_port_mask(std::span<const u8> device,
     const RuntimeInputActivationContext& context); // Xbox 0x00107C60
 void reset_runtime_analog_input(std::span<u8> device); // Xbox 0x001078A0

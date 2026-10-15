@@ -451,6 +451,59 @@ i32 runtime_player_controller_index(u32 mask, const u32* ports)
     return runtime_controller_mask_index(ports[runtime_player_mask_index(mask)]);
 }
 
+// Xbox 0x00107F50
+i32 runtime_input_new_edge_port(u16 mask, const RuntimeInputActivationContext& context)
+{
+    if (mask == 0)
+    {
+        return -1;
+    }
+    u32 bit = 1;
+    do
+    {
+        if ((bit & mask) != 0)
+        {
+            u32 port = 0;
+            do
+            {
+                u32 port_mask;
+                switch (port)
+                {
+                case 0:
+                    port_mask = 1;
+                    break;
+                case 1:
+                    port_mask = 2;
+                    break;
+                case 2:
+                    port_mask = 4;
+                    break;
+                case 3:
+                    port_mask = 8;
+                    break;
+                default:
+                    port_mask = 0;
+                    break;
+                }
+                const u8* state = runtime_input_state_for_mask(port_mask, context);
+                u16 current;
+                u16 previous;
+                std::memcpy(&current, state + 0x38, 2);
+                std::memcpy(&previous, state + 0x74, 2);
+                if ((current & bit) != 0 && (previous & bit) == 0)
+                {
+                    return i32(port);
+                }
+                ++port;
+            }
+            while (port < 4);
+        }
+        bit <<= 1;
+    }
+    while (bit <= 0x8000);
+    return -1;
+}
+
 // Xbox 0x000FABF0
 const u8* runtime_input_state_for_mask(u32 mask, const RuntimeInputActivationContext& context)
 {

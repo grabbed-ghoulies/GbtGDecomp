@@ -295,6 +295,7 @@ int script_handle_resource_actions(Game& g, const ScriptNode& node, int param_2)
 // Type 0x16 sets it when the dword at node+0x8C is nonzero. Type 0x53 sets it
 // on the first visit.
 extern i32 g_flag_2470;
+extern u32 g_flag_10b4; // DAT_005110B4, the mirror pass gate.
 
 // DAT_00512474. Shared with the scene-bound translated type-0x14 context;
 // it remains set until native dialogue mode returns to zero.

@@ -159,6 +159,125 @@ void draw_runtime_dialogue_text(const char16_t* text, float& x, float& y,
     x = current_x;
     y = current_y;
 }
+// Xbox 0x000606A0
+void set_dialogue_glyph_seed(u32 mode, RuntimeDialogueDrawContext& c)
+{
+    if (mode != 0)
+    {
+        c.state.random = mode;
+        return;
+    }
+    c.state.random = static_cast<u32>(c.counter()) - c.counter_baseline;
+}
+// Xbox 0x0005EC60
+void draw_runtime_dialogue_text_run(const char16_t* text, float& x, float& y, i32 count, const u32* frames,
+    float speed, float height, float time, i32 shadow, RuntimeDialogueDrawContext& c)
+{
+    const i32 font = c.state.font;
+    float current_y = y;
+    float current_x = x;
+    u16 previous = 0;
+    i32 index = 0;
+    if (*text != 0)
+    {
+        do
+        {
+            if (count <= index)
+            {
+                break;
+            }
+            const u16 code = *text;
+            if (code == '\n')
+            {
+                current_y = static_cast<float>(c.metrics.fonts[font]->drop) * c.metrics.scale_y + current_y;
+                current_x = x;
+            }
+            else if (code == ' ')
+            {
+                const float space = runtime_text_space_advance(*c.metrics.fonts[font], 0.f, c.metrics.scale_x);
+                runtime_text_word_advance(c.metrics, font, text, 0, 0.f); // Its result is not used.
+                current_x = space + current_x;
+            }
+            else
+            {
+                draw_runtime_dialogue_glyph(code, current_x, current_y, speed, height, time, frames[index],
+                    previous, shadow, c);
+            }
+            previous = *text++;
+            ++index;
+        }
+        while (*text != 0);
+    }
+    x = current_x;
+    y = current_y;
+}
+// Xbox 0x0005EF40
+void draw_runtime_centered_dialogue_text(const char16_t* text, float& x, float& y, u32 frame,
+    const u32* frames, float speed, float height, float time, u32 seed_mode, i32 shadow,
+    RuntimeDialogueDrawContext& c)
+{
+    const i32 font = c.state.font;
+    const float width = runtime_text_line_width(c.metrics, font, text, 0.f);
+    float wrap = c.state.wrap;
+    if (wrap == 0.f)
+    {
+        wrap = c.dialogue.wrap_width;
+    }
+    float start_x = x - width * .5f;
+    float current_y = y;
+    const char16_t* line = text;
+    const u32* line_frames = frames;
+    if (wrap <= width)
+    {
+        i32 count = 0;
+        float line_width = runtime_text_word_advance(c.metrics, font, text, 0, 0.f);
+        while (*text != 0)
+        {
+            float next_width = line_width;
+            if (*text == ' ')
+            {
+                ++text;
+                ++count;
+                if (frames == nullptr)
+                {
+                    throw Error("0x0005EF40 advances a null glyph frame pointer past a space");
+                }
+                ++frames;
+                const float space = runtime_text_space_advance(*c.metrics.fonts[font], 0.f, c.metrics.scale_x);
+                const float word = runtime_text_word_advance(c.metrics, font, text, 0, 0.f) + space;
+                next_width = word + line_width;
+                if (wrap < next_width)
+                {
+                    float run_y = current_y;
+                    const float drop = static_cast<float>(c.metrics.fonts[font]->drop) * c.metrics.scale_y;
+                    start_x = x - line_width * .5f;
+                    draw_runtime_dialogue_text_run(line, start_x, run_y, count, line_frames, speed, height, time,
+                        shadow, c);
+                    current_y = drop + run_y;
+                    count = 0;
+                    next_width = word;
+                    line_frames = frames;
+                    line = text;
+                }
+            }
+            ++text;
+            ++count;
+            if (frames != nullptr)
+            {
+                ++frames;
+            }
+            line_width = next_width;
+        }
+        start_x = x - line_width * .5f;
+        if (seed_mode != 0xFFFFFFFFu)
+        {
+            set_dialogue_glyph_seed(seed_mode, c);
+        }
+    }
+    draw_runtime_dialogue_text(line, start_x, current_y, frame, line_frames, speed, height, time, shadow, c);
+    x = start_x;
+    y = current_y;
+}
 // Xbox 0x0005A630
 float dialogue_line_position(i32 alignment, i32 line, float origin,
     const DialoguePageLayout& page, RuntimeDialogueDrawContext& c)

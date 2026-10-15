@@ -1,16 +1,11 @@
 #pragma once
 #include "dialogue_draw_context.h"
+#include "gbtg/model_relocation.h"
 
 namespace gbtg
 {
 struct RuntimeDisplaySetupContext;
 using DialogueSurfaceHandle = std::uintptr_t;
-struct DialogueRenderTargetHook
-{
-    std::function<DialogueSurfaceHandle(std::uintptr_t, std::uintptr_t)> function; // +0
-    std::uintptr_t first; // +4
-    std::uintptr_t second; // +8, retail hook stride 0x14
-};
 struct DialogueRenderTargetState
 {
     DialogueSurfaceHandle back_buffer; // DAT_005047D0
@@ -53,7 +48,7 @@ struct RuntimeDialogueOuterDrawContext
     DialogueRenderTargetState& targets;
     DialogueOuterD3DBoundaries& d3d;
     RuntimeDialogueSpriteQueue& sprites;
-    std::span<const DialogueRenderTargetHook> hooks; // DAT_00545DC0
+    const RuntimeSpecialTextures* hooks; // DAT_00545DC0, the texture hooks 0x000527C0 registers
     RuntimeDisplaySetupContext& display;
     u32& text_draw_count; // DAT_004E61C8
     u32& capture_enabled; // DAT_005077F8
@@ -64,15 +59,19 @@ struct RuntimeDialogueOuterDrawContext
     u32 line_pixel_shader; // DAT_00425E0C
     u32 line_shader_constants; // PTR_DAT_004271E8
     u32& line_retained; // DAT_005044B0
+    u32 panel_line_width = 0x3F800000u; // DAT_00425168, the panel caps' line width (bits of a float).
 };
 DialogueSurfaceHandle invoke_dialogue_render_target(u8 index,
-    std::span<const DialogueRenderTargetHook> hooks); // Xbox 0x001417A0
+    const RuntimeSpecialTextures& hooks); // Xbox 0x001417A0
 void begin_runtime_dialogue_target(DialogueSurfaceHandle color, DialogueSurfaceHandle depth,
     RuntimeDialogueOuterDrawContext& context); // Xbox 0x000629D0
 void end_runtime_dialogue_target(RuntimeDialogueOuterDrawContext& context); // Xbox 0x00062A90
 void dialogue_viewport_corners(float* output, std::span<const u32, 4> viewport); // Xbox 0x000F5DB0
 void draw_runtime_dialogue_lines(const float* positions, float width, u32 color,
     RuntimeDialogueOuterDrawContext& context); // Xbox 0x00061250
+// A panel with rounded ends: the band between the caps as a quad, then the caps as one-pixel lines.
+void draw_runtime_dialogue_panel(float x, float y, float width, float height, float radius, u32 color,
+    RuntimeDialogueOuterDrawContext& context); // Xbox 0x00061360, XMM2 the height
 void draw_runtime_dialogue_border(float width, u32 color,
     RuntimeDialogueOuterDrawContext& context); // Xbox 0x000619D0
 void draw_runtime_dialogue_sprite(const u8* texture, const float* position, const float* scale,

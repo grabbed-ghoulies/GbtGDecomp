@@ -19,6 +19,11 @@
 #include "script_dialogue_actions.h"
 #include "../scene/dialogue_scene_runtime.h"
 #include "../cutscenes/cutscene_runtime.h"
+#include "../scene/cutscene_scene_runtime.h"
+#include "script_vm.h"
+#include "../entities/player_spawn.h"
+#include "../frontend/dialogue_activation.h"
+#include "script_conditions.h"
 
 #include <algorithm>
 #include <bit>
@@ -1917,13 +1922,113 @@ i32 g_state_2490 = 0;
 i32 g_draw_e1ec = 0;
 
 
-// Xbox 0x0004EFE0.
-bool cutscene_queue_at_end(const Game& g)
+// DAT_00512478 / DAT_0051247C: the skip input 0x00127AC0 activates for a mode-3 cutscene.
+i32 g_cutscene_skip_input = 0;
+u32 g_cutscene_skip_entry = 0;
+
+// Xbox 0x0004EFE0
+bool scene_cutscene_finished(const SceneCutsceneRuntime& state)
 {
-    return !g.cutscenes.items.empty() && g.cutscenes.index < g.cutscenes.items.size() &&
-           g.cutscenes.items[g.cutscenes.index].duration <= g.cutscenes.time;
+    if (-1 < state.index)
+    {
+        const auto& instance = *state.instances[size_t(state.index)];
+        if (instance.duration <= instance.time)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
+// Xbox 0x000F2BB0, ECX the bit.
+bool scene_flag_bit_set(u32 bit)
+{
+    return (g_scene_flags->bytes[bit >> 3] & (1u << (bit & 7))) != 0;
+}
+
+// Xbox 0x00087830. 0x00123A30 reads the scene record DAT_00510E58 against the overrides at 0x00430DA0.
+i32 scene_player_character(const Game& g)
+{
+    i32 character = i32(find_player_scene_override(g.scene_script.name.c_str(),
+        std::span<const u8, 0x210>(g.executable_resources->memory(0x00430DA0, 0x210).data(), 0x210)));
+    if (character == 0)
+    {
+        if ((g_scene_flags->bytes[0] & 8) != 0 || (g_flags_ea9c & 0x200000u) != 0)
+        {
+            return 2;
+        }
+        character = 1;
+    }
+    return character;
+}
+
+// Xbox 0x00127AC0
+void begin_cutscene_skip_input(Game& g)
+{
+    g_cutscene_skip_input = 0;
+    g_cutscene_skip_entry = 0;
+    if (g_state_248c == 3 && (g_flags_ea9c & 0x1000u) == 0)
+    {
+        // The scene's input stacks (DAT_0050E0E8, the devices) through the dialogue's bound contexts.
+        auto& input = scene_dialogue_context(g).dialogue;
+        const std::span<u8> device = create_runtime_selected_input(input.input_release); // 0x00107D60, ESI DAT_0051247C
+        // Native pointer mapping; the retail DAT_0051247C holds the allocated address.
+        g_cutscene_skip_entry = static_cast<u32>(reinterpret_cast<std::uintptr_t>(device.data()));
+        input.input_addresses[g_cutscene_skip_entry] = device;
+        input.input_views[g_cutscene_skip_entry] = {device, {nullptr, nullptr, nullptr, nullptr}};
+        push_runtime_input_entry(g_cutscene_skip_entry, "cutscene skip", input.input); // 0x00109340, ESI 0x0032A8C0
+        g_cutscene_skip_input = 1;
+    }
+}
+
+// Xbox 0x00127B10
+bool cutscene_skip_pressed(Game& g)
+{
+    if (g_cutscene_skip_input != 0)
+    {
+        auto& input = scene_dialogue_context(g).dialogue;
+        refresh_runtime_input_device(g_cutscene_skip_entry, input.frame, input.input, input.input_release);
+        if ((g_flags_ea9c & 0x40u) == 0)
+        {
+            return runtime_input_button_edge(input.input_views.at(g_cutscene_skip_entry), 0x10,
+                input.widget_update.input) != 0; // 0x001083F0
+        }
+    }
+    return false;
+}
+
+// Xbox 0x00127B50
+void end_cutscene_skip_input(Game& g)
+{
+    if (g_cutscene_skip_input != 0)
+    {
+        auto& input = scene_dialogue_context(g).dialogue;
+        pop_runtime_input_entry(input.input); // 0x001093C0
+        const std::span<u8> device = input.input_addresses.at(g_cutscene_skip_entry);
+        switch (read_u32(device, 0))
+        {
+        case 1:
+            release_runtime_simple_input(device); // 0x00107DD0
+            break;
+        case 2:
+            release_runtime_simple_input(device);
+            break;
+        case 3:
+            release_runtime_simple_input(device);
+            break;
+        case 4:
+            release_runtime_composite_input(device, input.input_release); // 0x00107960
+            break;
+        case 5:
+            release_runtime_actor_input(device, input.input_release); // 0x00107B60
+            break;
+        }
+        input.input_views.erase(g_cutscene_skip_entry);
+        input.input_addresses.erase(g_cutscene_skip_entry);
+        g_cutscene_skip_entry = 0;
+        g_cutscene_skip_input = 0;
+    }
+}
 
 // Xbox 0x000532E0. A final cutscene followed by the end gate keeps its
 // instance alive for the scene transition; other cutscenes release it.
@@ -2121,36 +2226,57 @@ int script_handle_cutscene_actions(Game& g, const ScriptNode& node, int param_3)
     case 0x13:
         if (param_3 == 0)
         {
+            auto& cutscenes = scene_cutscene_runtime(g);
             if (g_flag_2470 == 0)
             {
-                const i32 same = g_state_248c == 3 ? 1 : 0;
-                (void)same;
-                // 0x0004EDA0(node+8). The call is the cutscene named by this node.
-                const std::string cut = node_cstr(g.scene_script, node, 8);
-                if (cut.starts_with("aid_cutscene_"))
+                if (scene_player_character(g) == 2)
                 {
-                    g_script_cutscene_pending = cut;
-                    cutscene_queue_begin_script_clip(g);
+                    // 0x0004E610 with the 0x80-byte stack copies of the two names.
+                    std::array<char, 0x80> boy{"aid_model_ghoulies_actor_boy"};
+                    std::array<char, 0x80> girl{"aid_model_ghoulies_actor_girl"};
+                    set_cutscene_actor_replacement(cutscenes.bindings.runtime.replacement_source,
+                        cutscenes.bindings.runtime.replacement_target, boy.data(), girl.data());
                 }
+                const i32 skip_mode = g_state_248c == 3 ? 1 : 0;
+                start_scene_cutscene(node_cstr(g.scene_script, node, 8).c_str(), skip_mode, skip_mode, cutscenes);
                 if (node_u32(g.scene_script, node, 0x88) != 0)
                 {
                     g_flag_2470 = 1;
-                    const u32 mask = node_u32(g.scene_script, node, 0x8c) == 0 ? 0xffffu : 2u;
-                    script_update_decay_latches(mask, 0);
+                    script_update_decay_latches(node_u32(g.scene_script, node, 0x8c) == 0 ? 0xffffu : 2u, 0);
+                    if (!scene_flag_bit_set(1) || scene_end_flag_set())
+                    {
+                        begin_cutscene_skip_input(g);
+                    }
                     return 0;
                 }
             }
             else
             {
-                if (!cutscene_queue_at_end(g))
+                if (!scene_cutscene_finished(cutscenes))
                 {
-                    return 0;
+                    if (g_cutscene_skip_input == 0)
+                    {
+                        return 0;
+                    }
+                    if (!cutscene_skip_pressed(g))
+                    {
+                        return 0;
+                    }
                 }
                 if (!cutscene_retained_for_transition(g.scene_script, node))
                 {
                     g_flag_2470 = 0;
-                    g.cutscenes = {};
+                    release_scene_cutscenes(cutscenes);
                     script_update_decay_latches(node_u32(g.scene_script, node, 0x8c) == 0 ? 0xffffu : 2u, 1);
+                    if (scene_dialogue_context(g).dialogue.state.mode != 0)
+                    {
+                        close_runtime_dialogue(scene_dialogue_context(g).dialogue);
+                    }
+                    if (g_cutscene_skip_input != 0)
+                    {
+                        end_cutscene_skip_input(g);
+                        return 2;
+                    }
                 }
             }
         }

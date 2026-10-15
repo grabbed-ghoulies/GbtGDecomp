@@ -90,6 +90,14 @@ void gfx_clear_native(std::span<const std::array<i32, 4>>, u32, u32, float)
 {
 }
 
+void gfx_begin_native_target(int, int)
+{
+}
+
+void gfx_end_native_target(RgbaImage&)
+{
+}
+
 void gfx_set_bones(const float*, int)
 {
 }

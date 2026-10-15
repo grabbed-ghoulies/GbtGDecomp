@@ -80,6 +80,16 @@ void queue_runtime_model_group(u32 node, ModelTreeDispatchContext& c)
         push_runtime_model_node(callback, child, c);
     }
 }
+// Xbox 0x001589C0
+void queue_runtime_model_sibling(u32 node, ModelTreeDispatchContext& c)
+{
+    const u32 sibling = c.image.word(node, 0x18);
+    if (sibling != 0)
+    {
+        const u32 callback = runtime_model_node_callback(c.image.word(sibling, 0x10), c.image);
+        push_runtime_model_node(callback, sibling, c);
+    }
+}
 // Xbox 0x00158C00
 void prepare_runtime_model_tree_matrices(ModelTreeDispatchContext& c)
 {

@@ -10,40 +10,154 @@
 
 namespace gbtg
 {
+// Xbox 0x000602E0
+static u32 runtime_text_glyph_cycle_frame(const u8* texture, float duration, float remaining)
+{
+    const u32 frames = texture[0x11];
+    const float rate = (1.f / duration) * static_cast<float>(frames);
+    if (rate != 0.f)
+    {
+        return u32(static_cast<i32>(rate * remaining) % static_cast<i32>(frames)) & 0xFF;
+    }
+    return 0;
+}
+
+// Xbox 0x00060070
+static u32 runtime_text_glyph_frame(i32 font, const char16_t* code, float remaining, u32 sticky, float duration,
+    float lifetime, RuntimeDialogueDrawContext& context)
+{
+    const RuntimeTextFont& table = *context.metrics.fonts[font];
+    const u8* texture = nullptr;
+    const i32 value = *code;
+    if (table.first <= value && value <= table.last)
+    {
+        texture = table.glyphs[size_t(value - table.first)].texture;
+    }
+    if (texture == nullptr)
+    {
+        texture = context.fallback_texture;
+    }
+    if (texture == nullptr)
+    {
+        return 0xFFFFFFFFu;
+    }
+    if (sticky == 0 && remaining < std::bit_cast<float>(0x3A83126Fu))
+    {
+        return 0;
+    }
+    const u32 frames = texture[0x11];
+    if (lifetime != 0.f)
+    {
+        if (duration <= 0.f)
+        {
+            duration = static_cast<float>(frames) / static_cast<float>(texture[0x10]);
+        }
+        if (lifetime - duration <= remaining)
+        {
+            const float rate = (1.f / duration) * static_cast<float>(frames);
+            if (rate == 0.f)
+            {
+                return 0;
+            }
+            return u32(static_cast<i32>((lifetime - remaining) * rate) % static_cast<i32>(frames)) & 0xFF;
+        }
+        if (remaining <= duration && sticky == 0)
+        {
+            return runtime_text_glyph_cycle_frame(texture, duration, remaining);
+        }
+    }
+    return frames - 1;
+}
+
+// Xbox 0x0005E950
+static void draw_runtime_pooled_dialogue_text(const char16_t* text, float& x, float& y, u32 centered, u32 frame,
+    float speed, float height, float time, i32 shadow, const u32* frames, u32 seed_mode,
+    RuntimeDialogueDrawContext& context)
+{
+    if (seed_mode != 0xFFFFFFFFu)
+    {
+        if (seed_mode != 0)
+        {
+            context.state.random = seed_mode;
+        }
+        else
+        {
+            context.state.random = static_cast<u32>(context.counter()) - context.counter_baseline;
+        }
+    }
+    if (centered == 0)
+    {
+        draw_runtime_dialogue_text(text, x, y, frame, frames, speed, height, time, shadow, context);
+        return;
+    }
+    draw_runtime_centered_dialogue_text(text, x, y, frame, frames, speed, height, time, seed_mode, shadow,
+        context);
+}
+
 // Xbox 0x0005FC30
 static u32 draw_runtime_dialogue_text_record(RuntimeDialogueTextPool& pool, i32 index,
     RuntimeDialogueDrawContext& context)
 {
     auto* allocation = pool.allocation;
     std::span<u8> record{allocation->begin + index * allocation->stride, allocation->stride};
-    u32 expired = 0;
-    size_t length = 0;
-    constexpr float threshold = std::bit_cast<float>(0x3A83126Fu);
+    const auto real = [&record](size_t offset)
+    {
+        return read_f32(record, offset);
+    };
+    const auto put_real = [&record](size_t offset, float value)
+    {
+        std::memcpy(record.data() + offset, &value, 4);
+    };
+    const auto put_word = [&record](size_t offset, u32 value)
+    {
+        std::memcpy(record.data() + offset, &value, 4);
+    };
     const auto& clock = context.dialogue;
-    const float step = clock.freeze <= 0.f ? clock.dt * clock.scene_scale : 0.f;
+    const auto step = [&clock]()
+    {
+        return clock.freeze <= 0.f ? clock.dt * clock.scene_scale : 0.f;
+    };
+    u32 expired = 0;
+    constexpr float threshold = std::bit_cast<float>(0x3A83126Fu); // DAT_0032B1A4
+    size_t length = 0;
     while (read_u16(record, 4 + length * 2) != 0)
     {
         const size_t offset = length * 4;
-        float delay = read_f32(record, 0x204 + offset);
-        if (threshold <= float(delay == 0.f))
+        if (threshold <= float(real(0x204 + offset) == 0.f))
         {
-            throw Error("untranslated Xbox 0x00060070: pooled glyph animation");
-        }
-        else if (0.f < delay)
-        {
-            delay -= step;
-            if (delay <= 0.f)
+            const u32 glyph = runtime_text_glyph_frame(pool.font,
+                reinterpret_cast<const char16_t*>(record.data() + 4 + length * 2), real(0x604 + offset),
+                read_u32(record, 0x121C), pool.end_time, real(0x1214), context);
+            put_word(0xE04 + offset, glyph);
+            const float advance = step();
+            if (0.f < real(0x604 + offset))
             {
-                delay = 0.f;
+                const float remaining = real(0x604 + offset) - advance;
+                put_real(0x604 + offset, remaining);
+                if (remaining <= 0.f)
+                {
+                    put_real(0x604 + offset, 0.f);
+                }
             }
-            std::memcpy(record.data() + 0x204 + offset, &delay, 4);
+            put_real(0xA04 + offset, real(0xA04 + offset) + step());
         }
-        const float remaining = read_f32(record, 0x604 + offset);
-        if (remaining < threshold && read_u32(record, 0x121C) == 0)
+        else
+        {
+            const float advance = step();
+            if (0.f < real(0x204 + offset))
+            {
+                const float delay = real(0x204 + offset) - advance;
+                put_real(0x204 + offset, delay);
+                if (delay <= 0.f)
+                {
+                    put_real(0x204 + offset, 0.f);
+                }
+            }
+        }
+        if (real(0x604 + offset) < threshold && read_u32(record, 0x121C) == 0)
         {
             ++expired;
-            const float zero = 0.f;
-            std::memcpy(record.data() + 0xE04 + offset, &zero, 4);
+            put_word(0xE04 + offset, 0);
         }
         ++length;
     }
@@ -59,7 +173,22 @@ static u32 draw_runtime_dialogue_text_record(RuntimeDialogueTextPool& pool, i32 
         pool.records = {allocation->begin, size_t(allocation->cursor - allocation->begin)};
         return 1;
     }
-    throw Error("untranslated Xbox 0x0005E950: pooled text drawing");
+    if (read_u32(record, 0x1224) != 0)
+    {
+        throw Error("untranslated Xbox 0x00060160 / 0x00061360: pooled text panel");
+    }
+    float x = real(0x1204);
+    float y = real(0x1208);
+    context.metrics.scale_x = real(0x120C);
+    context.metrics.scale_y = real(0x1210);
+    const RuntimeTextFont& font = *context.metrics.fonts[context.state.font];
+    context.state.half_height = static_cast<float>(font.drop) * context.metrics.scale_y * .5f;
+    context.state.half_width = static_cast<float>(font.cell) * context.metrics.scale_x * .5f;
+    draw_runtime_pooled_dialogue_text(reinterpret_cast<const char16_t*>(record.data() + 4), x, y,
+        read_u32(record, 0x1218), 0xF, pool.origin[0], pool.origin[1], real(0x1220), i32(pool.enabled),
+        reinterpret_cast<const u32*>(record.data() + 0xE04), std::bit_cast<u32>(pool.origin[2]), context);
+    put_real(0x1220, real(0x1220) + step());
+    return 0;
 }
 
 // Xbox 0x0005FB80
@@ -356,5 +485,123 @@ u32 end_dialogue_text_record(RuntimeDialogueTextPool& pool, u32 id,
     const u32 sticky = 0;
     std::memcpy(pool.records.data() + offset + 0x121C, &sticky, 4);
     return 1;
+}
+}
+
+namespace gbtg
+{
+// Xbox 0x0005F970
+u32 end_all_dialogue_text_records(RuntimeDialogueTextPool& pool, std::span<const RuntimeTextFont* const> fonts,
+    const u8* fallback_texture, u32& random_state)
+{
+    auto* allocation = pool.allocation;
+    u8* begin = allocation->begin;
+    u8* end = allocation->cursor;
+    if (end <= begin)
+    {
+        return 0;
+    }
+    u32 count = u32(end - begin - 1) / 0x1238 + 1;
+    u8* text = begin + 4;
+    const auto real = [](const u8* at)
+    {
+        float value;
+        std::memcpy(&value, at, 4);
+        return value;
+    };
+    do
+    {
+        u16 first;
+        std::memcpy(&first, text, 2);
+        if (first != 0)
+        {
+            u8* age = text + 0x600;
+            u8* character = text;
+            do
+            {
+                float time;
+                if (!(pool.end_time > 0.f))
+                {
+                    const auto& font = *fonts[pool.font];
+                    const u32 code = first; // The record's first character, as the dump reads it.
+                    const u8* texture;
+                    if (i32(code) < font.first || font.last < i32(code))
+                    {
+                        texture = fallback_texture;
+                    }
+                    else
+                    {
+                        const auto& glyph = font.glyphs[code - font.first];
+                        texture = glyph.texture;
+                        if (texture == nullptr || u32(glyph.marker) == 0xFFFFFFFFu)
+                        {
+                            texture = fallback_texture;
+                        }
+                    }
+                    const float duration = texture == nullptr ? 0.f : float(texture[0x11]) / float(texture[0x10]);
+                    random_state = random_state * 0x19660Du + 0x3C6EF35Fu;
+                    time = (std::bit_cast<float>((random_state & 0x7FFFFFu) | 0x3F800000u) - 1.f) * 0.25f + duration;
+                }
+                else
+                {
+                    random_state = random_state * 0x19660Du + 0x3C6EF35Fu;
+                    time = (std::bit_cast<float>((random_state & 0x7FFFFFu) | 0x3F800000u) - 1.f) * 0.25f
+                        + pool.end_time;
+                }
+                const float maximum = real(age + 0x400);
+                if (time > maximum)
+                {
+                    std::memcpy(age, &maximum, 4);
+                }
+                else if (real(age) >= time)
+                {
+                    std::memcpy(age, &time, 4);
+                }
+                character += 2;
+                age += 4;
+                u16 next;
+                std::memcpy(&next, character, 2);
+                if (next == 0)
+                {
+                    break;
+                }
+            }
+            while (true);
+        }
+        std::memset(text + 0x1218, 0, 4);
+        text += 0x1238;
+        --count;
+    }
+    while (count != 0);
+    return 1;
+}
+
+// Xbox 0x0005FB10
+u32 remove_dialogue_text_record(RuntimeDialogueTextPool& pool, u32 id)
+{
+    auto* allocation = pool.allocation;
+    u8* record = allocation->begin;
+    u8* const end = allocation->cursor; // Read once: the walk continues to the old end after a removal.
+    u32 index = 0;
+    while (record < end)
+    {
+        u32 word;
+        std::memcpy(&word, record, 4);
+        if (word == id)
+        {
+            const u32 stride = allocation->stride;
+            u8* destination = allocation->begin + stride * index;
+            u8* last = allocation->cursor - stride;
+            if (destination < last)
+            {
+                std::memmove(destination, destination + stride, size_t(last - destination));
+            }
+            allocation->cursor -= allocation->stride;
+        }
+        record += 0x1238;
+        ++index;
+    }
+    pool.records = {allocation->begin, size_t(allocation->cursor - allocation->begin)};
+    return 0;
 }
 }

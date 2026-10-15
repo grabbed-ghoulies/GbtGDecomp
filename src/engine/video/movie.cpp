@@ -1910,7 +1910,8 @@ void bind_existing_movie_decoder(RuntimeMovieStartupContext& context)
     };
     context.decoder_frame_number = [](void* decoder)
     {
-        return static_cast<MovieClip*>(decoder)->frame_num;
+        // Bink object +0xC, FrameNum, counts from 1; the host clip counts its frames from 0.
+        return static_cast<MovieClip*>(decoder)->frame_num + 1;
     };
     context.decoder_frame_count = [](void* decoder)
     {
@@ -2315,73 +2316,6 @@ bool movie_copy_frame(const char* name, RgbaImage& target)
         return copied;
     }
     return false;
-}
-
-void movie_sync_cutscene(const Game& g)
-{
-    if (!g.cutscenes.playing || g.cutscenes.index >= g.cutscenes.items.size())
-    {
-        for (MovieCue& cue : g_cues)
-        {
-            if (cue.started)
-            {
-                free_named(cue.name);
-                cue.started = false;
-            }
-        }
-        g_cues.clear();
-        g_cue_clip.clear();
-        g_cue_time = 0.f;
-        return;
-    }
-    const Cutscene& clip = g.cutscenes.items[g.cutscenes.index];
-    if (clip.name != g_cue_clip)
-    {
-        for (MovieCue& cue : g_cues)
-        {
-            if (cue.started)
-            {
-                free_named(cue.name);
-            }
-        }
-        collect_cues(g, clip);
-    }
-    const float time = g.cutscenes.time;
-    g_cue_time = time;
-    for (MovieCue& cue : g_cues)
-    {
-        // 0x0004CC51 opens at the window start with flags 0x10. Play stays 0, so the tick
-        // does not decode yet. 0x00106DD0 increments play when the window ends.
-        if (time >= cue.start && !cue.started)
-        {
-            movie_alloc(cue.name.c_str(), 0x10);
-            cue.started = true;
-        }
-    }
-    for (const MovieCue& cue : g_cues)
-    {
-        if (time < cue.end)
-        {
-            continue;
-        }
-        MovieNode* node = find_name(cue.name.c_str());
-        if (node == nullptr)
-        {
-            continue;
-        }
-        double step = 1.0 / 30.0;
-        if (node->clip != nullptr && node->clip->frame_dur > 0.0)
-        {
-            step = node->clip->frame_dur;
-        }
-        int show = 0;
-        if (time > cue.end)
-        {
-            show = int((double(time) - double(cue.end)) / step);
-        }
-        node->paced = 1;
-        node->show_frame = show;
-    }
 }
 
 void movie_apply(Mesh& mesh)

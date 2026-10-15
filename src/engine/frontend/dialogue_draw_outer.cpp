@@ -2,20 +2,29 @@
 #include "../camera/runtime_display_setup.h"
 #include "../cutscenes/event_runtime.h"
 #include <algorithm>
+#include <cmath>
 #include <bit>
 
 namespace gbtg
 {
 // Xbox 0x001417A0
 DialogueSurfaceHandle invoke_dialogue_render_target(u8 index,
-    std::span<const DialogueRenderTargetHook> hooks)
+    const RuntimeSpecialTextures& hooks)
 {
     const auto& hook = hooks[index];
-    if (hook.function)
+    if (hook.get_texture)
     {
-        return hook.function(hook.first, hook.second);
+        return hook.get_texture(hook.model, hook.index); // 0x000528C0
     }
     return 0;
+}
+const RuntimeSpecialTextures& dialogue_render_target_hooks(const RuntimeDialogueOuterDrawContext& c)
+{
+    if (c.hooks == nullptr)
+    {
+        throw Error("dialogue render target hooks (DAT_00545DC0) are not bound");
+    }
+    return *c.hooks;
 }
 // Xbox 0x000629D0
 void begin_runtime_dialogue_target(DialogueSurfaceHandle color, DialogueSurfaceHandle depth,
@@ -108,6 +117,71 @@ void draw_runtime_dialogue_lines(const float* positions, float width, u32 color,
     push[12] = 0;
     c.draw.d3d.end_push(push + 13);
 }
+// Xbox 0x00061360
+void draw_runtime_dialogue_panel(float x, float y, float width, float height, float radius, u32 color,
+    RuntimeDialogueOuterDrawContext& c)
+{
+    const float scaled = height * radius;
+    i32 cap = i32(scaled);
+    if (float(cap) > scaled)
+    {
+        --cap;
+    }
+    const float right = x + width;
+    const float r = float(cap);
+    const float top = r + y;
+    const float bottom = (y + height) - r;
+    auto& draw = c.draw;
+    auto& d3d = draw.d3d;
+    initialize_dialogue_orthographic(draw); // 0x000F6260
+    reset_dialogue_sprite_state(draw); // 0x0005E110
+    draw.deferred[(0x181968 - 0x181968) / 4] |= 0x800;
+    draw.deferred[(0x1819A0 - 0x181968) / 4] = 2;
+    draw.deferred[(0x1819B0 - 0x181968) / 4] = 2;
+    draw.deferred[(0x1819A8 - 0x181968) / 4] = 0;
+    draw.deferred[(0x1819B8 - 0x181968) / 4] = 0;
+    d3d.vertex_shader(0x42); // D3D 0x001739F0
+    d3d.simple_state(0x40354, 0x203); // D3D 0x00171050
+    draw.deferred[(0x181C54 - 0x181968) / 4] = 0x203;
+    d3d.simple_state(0x4035C, 0);
+    draw.deferred[(0x181C70 - 0x181968) / 4] = 0;
+    d3d.depth(1); // D3D 0x001722A0
+    // The color's bytes 0..2 swap into a D3DCOLOR: byte 3 stays the alpha, byte 0 becomes red.
+    const u32 swapped = (color & 0xFF000000u) | ((color & 0xFFu) << 16) | (color & 0xFF00u)
+        | ((color >> 16) & 0xFFu);
+    d3d.vertex_data_color(3, swapped); // D3D 0x00172CC0
+    d3d.begin(8); // D3D 0x00172D10
+    d3d.vertex_data4f(-1, x, bottom, 0.f, 1.f); // D3D 0x00172C60
+    d3d.vertex_data4f(-1, right, bottom, 0.f, 1.f);
+    const float cap_top = float(double(top) + 1.0); // DAT_0032B0F8
+    d3d.vertex_data4f(-1, right, cap_top, 0.f, 1.f);
+    d3d.vertex_data4f(-1, x, cap_top, 0.f, 1.f);
+    d3d.end(); // D3D 0x00172D50
+    c.d3d.line_width(std::bit_cast<float>(c.panel_line_width)); // D3D 0x00171570, DAT_00425168
+    d3d.begin(2);
+    float row = 0.f;
+    if (0.f < r)
+    {
+        const float squared = r * r;
+        do
+        {
+            const double reach = std::sqrt(double(squared - row * row)); // 0x00152B30
+            const float inset = float(double(r) - reach);
+            const float upper = float(double(top) - double(row));
+            const float left = float(double(inset) + double(x));
+            d3d.vertex_data4f(-1, left, upper, 0.f, 1.f);
+            const float far_right = float(double(right) - double(inset));
+            d3d.vertex_data4f(-1, far_right, upper, 0.f, 1.f);
+            const float lower = float(double(row) + double(bottom));
+            d3d.vertex_data4f(-1, left, lower, 0.f, 1.f);
+            d3d.vertex_data4f(-1, far_right, lower, 0.f, 1.f);
+            row += 1.f; // DAT_0032B0F8
+        }
+        while (row < r);
+    }
+    d3d.end();
+}
+
 // Xbox 0x000619D0
 void draw_runtime_dialogue_border(float width, u32 color,
     RuntimeDialogueOuterDrawContext& c)
@@ -224,7 +298,8 @@ void render_runtime_dialogue(RuntimeDialogueOuterDrawContext& c)
         set_runtime_render_fog_enabled(c.draw.renderer, 0);
         if (state.entries[state.read].flag != 0)
         {
-            const DialogueSurfaceHandle texture = invoke_dialogue_render_target(state.entries[state.read].flag, c.hooks);
+            const DialogueSurfaceHandle texture = invoke_dialogue_render_target(state.entries[state.read].flag,
+                dialogue_render_target_hooks(c));
             begin_runtime_dialogue_target(texture, 0, c);
             c.d3d.clear(0, nullptr, 0xF3, 0, 1.f, 0);
             c.capture_enabled = 0;

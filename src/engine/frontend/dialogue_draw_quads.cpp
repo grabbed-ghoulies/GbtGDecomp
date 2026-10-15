@@ -82,8 +82,8 @@ void draw_dialogue_uv_quad(const float* top, const float* bottom, u32 color,
     push_quad(top, bottom, c.quad_zero[2], uv_top, uv_bottom, c);
 }
 // Xbox 0x0005CA60
-void draw_dialogue_texture(i32 frame, i32 uv, u8* texture, const float* scale,
-    const float* uv_coordinates, float angle, u32 color, const float* position,
+void draw_dialogue_texture(i32 frame, const float* uv_top, u8* texture, const float* scale,
+    const float* uv_bottom, float angle, u32 color, const float* position,
     RuntimeDialogueDrawContext& c)
 {
     c.current_affine = c.affine.data();
@@ -129,10 +129,10 @@ void draw_dialogue_texture(i32 frame, i32 uv, u8* texture, const float* scale,
         texture[0x13] = static_cast<u8>(frame);
     }
     bind_dialogue_texture(texture, 0, c);
-    if (uv != 0)
+    if (uv_top != nullptr)
     {
-        draw_dialogue_uv_quad(c.quad_top.data(), c.quad_bottom.data(), color,
-            uv_coordinates, uv_coordinates + 2, c);
+        // 0x0005E770: EDI (EDX on entry) is the top texel pair and ESI (the third stack word) the bottom one.
+        draw_dialogue_uv_quad(c.quad_top.data(), c.quad_bottom.data(), color, uv_top, uv_bottom, c);
         return;
     }
     u32 type;

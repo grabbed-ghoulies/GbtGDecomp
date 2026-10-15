@@ -28,7 +28,7 @@ struct SceneLightConstructionContext
     SceneEnvironmentSetupContext& environment;
     const std::array<float, 3>& scene_color; // DAT_00509B30..38
     std::array<float, 4>& retained_color; // DAT_0032E4E4..F0, aliases upload.retained_scene_color
-    float directional_intensity; // DAT_00509B4C
+    const float& directional_intensity; // DAT_00509B4C, 1.0 from scene load 0x0011CAC0
     float override_intensity; // DAT_0042A580
     RuntimeRenderLight& directional; // DAT_00509AB0
     std::span<const SceneLocalLightView* const, 40> local_lights; // DAT_00509B7C

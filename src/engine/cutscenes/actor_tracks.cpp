@@ -1,4 +1,5 @@
 #include "actor_tracks.h"
+#include "../runtime/name_lookup.h"
 #include "../entities/actor_pose_updates.h"
 #include "../entities/entity.h"
 #include "../../gbtg/runtime/object_lifecycle.h"
@@ -78,6 +79,35 @@ std::int8_t find_cutscene_actor_track(const RuntimeCutsceneInstance& instance,
         while (static_cast<i32>(index) < instance.actor_count);
     }
     return -1;
+}
+
+// Xbox 0x0004EA50
+Actor* find_cutscene_actor_by_model(const RuntimeCutsceneInstance& instance,
+    const CutsceneActorTrackView* tracks, const CutsceneActorRowView* rows, const char* name)
+{
+    const i32 count = instance.actor_count;
+    i32 index = 0;
+    if (0 < count)
+    {
+        do
+        {
+            char model[128];
+            const char* source = tracks[static_cast<std::int8_t>(index)].model;
+            size_t at = 0;
+            do
+            {
+                model[at] = source[at];
+            }
+            while (source[at++] != 0);
+            if (transition_aid_equal(name, model))
+            {
+                return rows[index].actor;
+            }
+            ++index;
+        }
+        while (index < count);
+    }
+    return nullptr;
 }
 
 // Xbox 0x0004E980

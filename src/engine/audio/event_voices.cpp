@@ -292,4 +292,12 @@ void tick_audio_event_voices(AudioEventVoices& context)
         }
     }
 }
+// 0x00039690 (stop_runtime_sound_voice) over the event voice DAT_004E0CE8[index].
+void stop_audio_event_voice(i16 index, i32 immediate, AudioEventVoices& context)
+{
+    auto& voice = context.voices[size_t(index)];
+    RuntimeSoundVoice view{voice.state, voice.cue == nullptr ? nullptr : &voice.cue->runtime};
+    stop_runtime_sound_voice(view, immediate, context.core.stopped_count, context.core.sound);
+    voice.state = view.state;
+}
 }

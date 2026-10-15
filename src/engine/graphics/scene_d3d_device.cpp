@@ -22,7 +22,9 @@ void SceneD3DDevice::create_vertex_shader(const i32* declaration, const u32* pro
     std::memcpy(shader.declaration.data(), declaration, sizeof(shader.declaration));
     shader.program.assign(program, program + 1 + (program[0] >> 16) * 4);
     shader.usage = usage;
-    handle = next_vertex_shader_++;
+    // D3D hands out the shader address with bit 0 set, so SetVertexShader tells a created shader from an
+    // even fixed-function format.
+    handle = (next_vertex_shader_++ << 1) | 1u;
     vertex_shaders.emplace(handle, std::move(shader));
 }
 
@@ -149,6 +151,54 @@ SceneD3DDevice::SceneD3DDevice()
         }
         decode_push(push_.data(), end);
     };
+    dialogue_.multisample_mode = [this](u32 mode)
+    {
+        render_states_[kMultiSampleMode] = mode;
+    };
+    dialogue_.stencil_enable = [this](u32 enabled)
+    {
+        render_states_[kStencilEnable] = enabled;
+    };
+    dialogue_.vertex_data_color = [this](u32 reg, u32 color)
+    {
+        render_states_[kVertexDataColor + reg] = color;
+    };
+    // Immediate-mode vertices go out as the push buffer's begin, inline vertices of the bound fixed-function
+    // format (the position, then the current diffuse for D3DFVF_DIFFUSE) and end.
+    dialogue_.begin = [this](u32 primitive)
+    {
+        immediate_.assign({0x417FCu, primitive});
+    };
+    dialogue_.vertex_data4f = [this](i32 reg, float x, float y, float z, float)
+    {
+        if (reg != -1 || immediate_.empty())
+        {
+            throw Error("D3D immediate vertex data other than a position, or outside Begin/End");
+        }
+        const auto bound = render_states_.find(kVertexShader);
+        const u32 format = bound == render_states_.end() ? 0u : bound->second;
+        if (format != 0x2 && format != 0x42)
+        {
+            throw Error("D3D immediate vertices under vertex format " + std::to_string(format));
+        }
+        const u32 words = format == 0x42 ? 4 : 3;
+        immediate_.push_back(0x1818u | (words << 18));
+        immediate_.push_back(std::bit_cast<u32>(x));
+        immediate_.push_back(std::bit_cast<u32>(y));
+        immediate_.push_back(std::bit_cast<u32>(z));
+        if (format == 0x42)
+        {
+            const auto diffuse = render_states_.find(kVertexDataColor + 3);
+            immediate_.push_back(diffuse == render_states_.end() ? 0xFFFFFFFFu : diffuse->second);
+        }
+    };
+    dialogue_.end = [this]()
+    {
+        immediate_.push_back(0x417FCu);
+        immediate_.push_back(0);
+        decode_push(immediate_.data(), immediate_.data() + immediate_.size());
+        immediate_.clear();
+    };
     outer_.back_buffer = [](u32)
     {
         return DialogueSurfaceHandle(kBackBuffer);
@@ -157,9 +207,11 @@ SceneD3DDevice::SceneD3DDevice()
     {
         return DialogueSurfaceHandle(kDepthBuffer);
     };
-    outer_.surface = [this](DialogueSurfaceHandle, u32)
+    outer_.surface = [this](DialogueSurfaceHandle texture, u32)
     {
-        return DialogueSurfaceHandle(0x100 + next_surface_++);
+        const DialogueSurfaceHandle surface(0x100 + next_surface_++);
+        surface_textures[surface] = texture;
+        return surface;
     };
     outer_.render_target = [this](DialogueSurfaceHandle color, DialogueSurfaceHandle depth)
     {
@@ -200,6 +252,7 @@ void SceneD3DDevice::decode_push(const u32* begin, const u32* end)
 {
     render_profile::Scope measurement(render_profile::Recording);
     bool open = false;
+    u32 primitive = 0;
     std::vector<float> vertices;
     for (const u32* cursor = begin; cursor < end;)
     {
@@ -213,24 +266,36 @@ void SceneD3DDevice::decode_push(const u32* begin, const u32* end)
         if (method == kBeginEnd && count == 1)
         {
             const u32 mode = cursor[0];
-            if (mode == kQuads)
+            if (mode != 0)
             {
                 open = true;
+                primitive = mode;
                 vertices.clear();
             }
-            else if (mode == 0 && open)
+            else if (open)
             {
+                open = false;
                 const auto bound = render_states_.find(kVertexShader);
-                if (bound != render_states_.end() && bound->second != 0)
+                const u32 shader = bound == render_states_.end() ? 0u : bound->second;
+                if (shader != 0 && (shader & 1u) == 0)
                 {
-                    SceneD3DInlineDraw output{SceneD3DIndexedDraw{kQuads, 0, 0, constants_, textures_,
+                    record_fixed(primitive, shader, vertices);
+                    cursor += count;
+                    continue;
+                }
+                if (shader != 0)
+                {
+                    SceneD3DInlineDraw output{SceneD3DIndexedDraw{primitive, 0, 0, constants_, textures_,
                         render_states_, vertex_streams_, pixel_constants_, pixel_constants_set_}, {}};
                     output.vertices.resize(vertices.size());
                     std::memcpy(output.vertices.data(), vertices.data(), vertices.size() * sizeof(u32));
                     commands.push_back(std::move(output));
-                    open = false;
                     cursor += count;
                     continue;
+                }
+                if (primitive != kQuads)
+                {
+                    throw Error("D3D push buffer draws a non-quad primitive without a vertex shader");
                 }
                 if (vertices.size() % 20 != 0)
                 {
@@ -252,11 +317,10 @@ void SceneD3DDevice::decode_push(const u32* begin, const u32* end)
                     output.states = render_states_;
                     commands.push_back(std::move(output));
                 }
-                open = false;
             }
             else
             {
-                throw Error("D3D push buffer uses an unsupported primitive mode");
+                throw Error("D3D push buffer ends a primitive it did not begin");
             }
         }
         else if (method == kInlineArray)
@@ -272,6 +336,24 @@ void SceneD3DDevice::decode_push(const u32* begin, const u32* end)
         }
         cursor += count;
     }
+}
+
+void SceneD3DDevice::record_fixed(u32 primitive, u32 format, const std::vector<float>& vertices)
+{
+    const auto transform = [this](u32 state)
+    {
+        const auto found = transforms_.find(state);
+        return found == transforms_.end() ? kIdentity : found->second;
+    };
+    SceneD3DFixedDraw output{primitive, format, std::vector<u32>(vertices.size()), transform(6), transform(0),
+        transform(1), constants_[96 - 38], constants_[96 - 37], 0xFFFFFFFFu, render_states_};
+    std::memcpy(output.vertices.data(), vertices.data(), vertices.size() * sizeof(u32));
+    const auto diffuse = render_states_.find(kVertexDataColor + 3);
+    if (diffuse != render_states_.end())
+    {
+        output.diffuse = diffuse->second;
+    }
+    commands.push_back(std::move(output));
 }
 
 void SceneD3DDevice::set_state(u32 key, u32 value)

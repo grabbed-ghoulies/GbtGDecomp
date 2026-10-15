@@ -281,3 +281,143 @@ Stopped cues:
 `--player-opening` now also runs the opening's imp fight node after the walk.
 It checks that the fight stream plays, that the walkabout stream pauses under
 it (`0x00038AD0`), and that finished actor sounds give their voices back.
+
+## Boot-owned audio core and front-end cues (2026-10-15)
+
+Step 3 of `docs/LEGACY_HOST_CODE.md`.
+
+Goal: the audio core runs every frame from boot, as in retail, and the front
+end and transitions request their cues through it instead of the host
+`pcm_play_cue` path.
+
+Reference screenshots: the step-2 captures in `cache/view_present/`
+(`--scene chapter1_scene1_2playcam` frames 120, 180, 240, 300, 450, 600, 750,
+900 and a 900-frame boot run; see `docs/NATIVE_SCENE_PRESENT.md`).
+
+### Done
+
+- **One audio core for the game.** `NativeAudioRuntime`
+  (`audio/native_audio.h`) holds the sound sources, cues, the 48 event voices
+  (DAT_004E0CE8) and the tracked banks, channels and stream slots
+  (DAT_004DF370, DAT_004E030C, DAT_004DFFA0). `boot_native_audio` builds it
+  after `0x0003A280` and `Game` owns it (declared before the scene, so the
+  scene is destroyed first). The scene's actor services, scene controls and
+  actor sounds use it; they no longer build their own.
+- **Frame audio from boot.** `frame_tick` calls `tick_native_audio`
+  (`0x0015B780`, `0x0003A040`, `0x000396F0`, `0x00038640` gated by
+  DAT_004E02E8, `0x00038C20`) every frame, in the place of the old host
+  `audio_tick`. The host `audio.cpp` is deleted: its XACT stream, channel and
+  voice tables were never filled. `pcm_cutscene_sync` (host cutscene sound)
+  now runs at the start of the host `cutscene_queue_tick` (step 4).
+- **Retail values that were wrong or missing:**
+  - DAT_0042A840, the default cone, is (1, 1, 1) in .data; the port used
+    zeros.
+  - The event voices' DAT_005077A8 view (`AudioEventVoices::listener`) was
+    never bound, so `0x00039B30` would have read null. It now points at a
+    retail-layout copy of the display view (position, rotation, forward),
+    refreshed at the start of each frame's audio tick. Cues requested later in
+    the same frame use the start-of-frame camera.
+  - DAT_0054DD7C is one global (`g_shared_random`,
+    `runtime/random_state.h`). The factory runtime used to restart it at 0
+    for every scene. `scene/ambient.cpp` still keeps a private copy.
+- **Front-end and transition cues on the native voices:**
+
+  | Cue | Host site | Retail call |
+  |---|---|---|
+  | `GSTREAMSDITTIES_PAUSE` | game select opens / closes | `0x000E5B40` / `0x000E5B70` (translated, `frontend/frontend_sounds.cpp`): bank stream `0x00038910` id 1, release `0x00038970` |
+  | `GBARON_STARTBUTTONLAUGH` | attract Start | `0x0013BAF0` (translated): random pick, mode-0 voice, stop 1 |
+  | `GSUPERSCARYSTUF_RIGHTBUTTON` | keyboard key | `0x00015260`'s tail: mode-0 voice, stop 1, `0x00039A20` |
+  | `GSUPERSCARYSTUF_RIGHTBUTTON` | prompt accept (slots, contents, captions) | `0x00142460`: `0x000395E0(widget +0x1034, 1)` |
+  | `GMISC_SLIMEON` | slime start | `0x0012C1D0`: mode-1 voice, stop 1, `0x00039B30(5.0)`, `0x00039A20` |
+  | `GMISC_SLIMEOFF` | slime end | `0x0012BDD0`: `0x00039510(name, 1, 0)` |
+  | `GSTREAMSDITTIES_CHAPTERSCREEN` | map start / release | `0x00039510(name, 0, 0)` kept at book +0x168; `0x00047370` stops it with `0x00039690(voice, 0)` |
+  | `GFOOTSTEPGRAVEL_MAPGRAVEL` | map footsteps | `0x00039510(name, 1, 0)` (`0x000476A0`) |
+
+### Results
+
+- The opening prepares the same 71 cues. SLIMEON is prepared during
+  `Game::init` and starts on the first frame's audio tick (a temporary probe on
+  the play boundary showed it, then was removed).
+- `--title` and `--title-a` prepare STARTBUTTONLAUGH and the PAUSE ditty
+  natively. `--goop` plays SLIMEON/OFF, CHAPTERSCREEN and the map footsteps
+  natively (the number of footsteps varies between runs with the map's frame
+  count, as before).
+- Every reference frame is pixel-identical.
+- Release and Debug build; ctest 6/6 in each; the six transition suites plus
+  `--player-opening`, `--title`, `--title-a`, `--goop`, `--ui` and
+  `--audio-preparation` pass in Release. Debug `--actor-loading` still fails at
+  `check_boot_pixel_shaders`, as on the unmodified tree. Both 900-frame
+  headless runs exit 0 in both builds.
+- Not listened to on hardware in this pass.
+
+### Still on the host
+
+These cues belong to host screens that later steps replace. Moving only their
+audio would leave each screen half on each path:
+
+- captions (`frontend_captions.cpp`): the motif loop, the page cue, and
+  `pcm_dialog_hold` / `pcm_dialog_advance` (steps 4–5, with `DialogueScreen`);
+- the game-select cursor bat (`MenuCursor` in `frontend_types.h`): its own
+  actor sound queue over host voices, instead of the global queues that
+  `0x0012A150` dispatches (step 5);
+- book cutscene record cues (event types 1, 2 and 0x1E) and their sound
+  windows (`transition_book.cpp`), and `pcm_cutscene_sync`: these are host
+  cutscene playback (step 4, `RuntimeCutsceneInstance` and
+  `event_runtime.cpp`);
+- `movie.cpp` stops a clip's cue by name (the movie boundary).
+
+Also still to do from the earlier list: scene start's ambient sounds
+`0x0012A1E0` (with `0x00132040` and `0x00049BA0`).
+
+## Native cue voice lifetime and the exit crash (2026-10-15)
+
+- **Exit crash (the intermittent Release `--goop` segfault).** It was not in
+  the scene reload. The test had already passed and returned from `main`; the
+  crash came during static destruction. `~vector<PcmVoice>` for `g_bed` freed
+  the voices' PCM while XAudio2's mixer thread was still reading it through
+  voices that had never been destroyed. Those voices were looping beds and
+  native cues that were still playing. stdout was block-buffered, so the log
+  seemed to stop in the middle of the second phase. The crash was caught with
+  a Release build that had a PDB (`/O2 /Ob2 /Zi`, in `cache/build-relpdb`),
+  run under a small debug-event loop over dbghelp. The faulting thread was in
+  `xaudio2_9`, and the main thread was in `execute_onexit_table` →
+  `~PcmVoice` → `free`. The run had to end while the mixer was reading a
+  freed buffer, so only some runs crashed. In Debug, RelWithDebInfo and ASan
+  builds the timing of `free` is different, so it did not reproduce there.
+  Fix: `pcm_out.cpp`'s `AudioDeviceTeardown` is a static object defined after
+  the voice lists, so it is destroyed before them. It calls
+  `IXAudio2::StopEngine` and destroys every source voice in `g_voices` and
+  `g_bed` before their storage is freed. Before the fix, 4 to 5 of 20 Release
+  runs crashed. After it, 20 of 20 pass, with and without the PDB.
+- **Native cue voices are released.** XACT reclaims a cue once its stopped
+  notification (1) has been delivered. In retail, the callback frees the cue
+  wrapper there (`0x000398E0` → `0x0015CE90`: stop if not yet stopped, then
+  unlink and free), and nothing uses the handle again.
+  `0x0015CE90` is the only caller, and only on that path. After the callback
+  returns, `dispatch_native_audio_notifications` (the XACTEngineDoWork
+  boundary) now destroys the cue's host voice and removes it from `g_bed`
+  (`release_native_cue_voice`). The translated code is unchanged. With a
+  temporary probe, one `--goop` run released 113 native cue voices. 13 were
+  still in `g_bed` at exit: cues that were still prepared or playing. Before,
+  every native cue stayed in `g_bed` until exit.
+
+### Looping cues (2026-10-15)
+
+Looping cues such as `GSTREAMSTEXTUNE_TEXTLOOP1` (the cutscene dialogue
+backing), rain, wind and the bat flight loop played only once. That's because
+the host XACT boundary (`pcm_out.cpp`) never read the play-wave event's loop
+count.
+
+- In the XACT 1.x sound bank, each play-wave event (kind 0 or 1) has an
+  8-byte header. Its word at +6 is the loop count. Across all banks it is
+  either 0 (play once) or 0xFFFF (loop until the cue is stopped); 120 events
+  use 0xFFFF.
+- `WaveChoice` now carries that count. The play path loops the wave bank
+  entry's loop region (+0x10/+0x14): it plays from frame 0 once, then
+  repeats the region. 0xFFFF maps to `XAUDIO2_LOOP_INFINITE`.
+- TEXTLOOP1 (Gdvddemo[19]) repeats frames 585692–777216 of 822272. In
+  `--goop`, each start is stopped by the dialogue through `IXACTSoundBank_Stop`
+  when its page closes. Rain and wind loop and stop the same way. This was
+  checked with temporary probes, which have been removed.
+- A looping cue drains only when it is stopped, so its event voice stays busy
+  until then, as on Xbox.

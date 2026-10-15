@@ -52,12 +52,37 @@ void draw_runtime_push_buffer(u32 node, ModelPushBufferDrawContext& c)
     }
     queue_runtime_model_group(node, c.tree);
 }
+// Xbox 0x001580E0
+void draw_runtime_background_push_buffer(u32 node, std::span<const u8> instance, ModelPushBufferDrawContext& c)
+{
+    const auto& image = c.tree.image;
+    ++c.background_tested;
+    const u32 key = read_u32(instance, image.word(node, 0xC) + 4);
+    const RuntimeModelRenderState& state = runtime_render_state(c.tree.renderer);
+    if (key != 0xFFFFFFFFu && key != state.background_key)
+    {
+        ++c.background_skipped;
+        queue_runtime_model_group(node, c.tree);
+        return;
+    }
+    if (image.byte(node, 0x3F) == 0)
+    {
+        draw_runtime_push_buffer(node, c);
+        return;
+    }
+    ++c.background_skipped;
+    queue_runtime_model_sibling(node, c.tree);
+}
 void install_runtime_push_buffer_dispatch(ModelPushBufferDrawContext& c,
     std::unordered_map<u32, std::function<void(u32, void*)>>& callbacks)
 {
     callbacks[0x001582A0] = [&c](u32 node, void*)
     {
         draw_runtime_push_buffer(node, c);
+    };
+    callbacks[0x001580E0] = [&c](u32 node, void* storage)
+    {
+        draw_runtime_background_push_buffer(node, static_cast<RuntimeModelInstanceStorage*>(storage)->bytes, c);
     };
 }
 }

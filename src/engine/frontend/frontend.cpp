@@ -1,8 +1,9 @@
 #include "gbtg/bundle.h"
+#include "frontend_sounds.h"
+#include "../audio/native_audio.h"
 #include "gbtg/anim.h"
 #include "gbtg/language.h"
 #include "gbtg/resource_error.h"
-#include "gbtg/dialogue.h"
 #include "gbtg/engine_internal.h"
 #include "gbtg/font.h"
 #include "gbtg/gfx.h"
@@ -26,8 +27,6 @@
 
 #include "frontend_types.h"
 #include "frontend.h"
-#include "frontend_attract.h"
-#include "frontend_captions.h"
 #include "frontend_contents.h"
 #include "frontend_keyboard.h"
 #include "frontend_slots.h"
@@ -178,11 +177,6 @@ void load_ui(Game& g)
 }
 
 
-// 0x000E5B40, from 0x000DF9A0 case 1 when the slot widget opens. EAX is this
-// cue and the id on the stack is 1. 0x00038910 acquires it; 0x000382C0 then
-// binds a channel and 0x00038DA0 sets that voice playing. The cue-list row is
-// Gstreamsditties / pause: device 3 (Gdvd8), wave 0.
-constexpr const char* kSlotOpen = "XACT_SOUNDBANK_GSTREAMSDITTIES_PAUSE";
 
 
 void begin_frontend(Game& g)
@@ -192,11 +186,9 @@ void begin_frontend(Game& g)
     // built because the script names aid_objparams_ghoulies_scenecontrol_attract*.
     if (scene_control_starts(g, "attract"))
     {
-        pcm_stop_cue(kSlotOpen);
+        stop_pause_ditty(g_pause_ditty, native_audio_runtime().streams); // 0x000E5B70
         g.frontend_mode = 0;
         g.naming = false;
-        // A new attract script builds a new banner, so +0x294 starts clear.
-        g.attract_banner_latched = false;
         std::cout << "title attract\n";
         return;
     }
@@ -206,7 +198,7 @@ void begin_frontend(Game& g)
     // A scene with no frontend scene-control leaves the widget down.
     if (!scene_control_is(g, "gameselect"))
     {
-        pcm_stop_cue(kSlotOpen);
+        stop_pause_ditty(g_pause_ditty, native_audio_runtime().streams); // 0x000E5B70
         g.frontend_mode = -1;
         g.naming = false;
         return;
@@ -226,7 +218,8 @@ void begin_frontend(Game& g)
     begin_menu_zoom(g.slot_visual, slot_backdrop(g));
     // 0x000DD774 calls 0x000E01B0 while the slot widget is installed.
     movie_open_gameselect();
-    pcm_play_cue(g, kSlotOpen, true);
+    // 0x000E5B40, from 0x000DF9A0 case 1 when the slot widget opens.
+    start_pause_ditty(g_pause_ditty, native_audio_runtime().streams);
     std::cout << "frontend mode 1 slot select\n";
 }
 
@@ -234,15 +227,10 @@ void begin_frontend(Game& g)
 void draw_ui(const Game& g)
 {
     gfx_sprite_clear();
-    if (g.frontend_mode < 0)
+    // The attract (mode 0) and the book scenes (mode -1) run natively (the attract control, factory type 0x9B,
+    // and the scene cutscene stack); only game select is drawn here.
+    if (g.frontend_mode <= 0)
     {
-        draw_move_captions(g);
-        return;
-    }
-    if (g.frontend_mode == 0)
-    {
-        draw_start_banner(g);
-        draw_move_captions(g);
         return;
     }
     if (g.frontend_mode == 3 || g.frontend_mode == 7)

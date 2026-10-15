@@ -392,3 +392,9 @@ stick through `0x001085F0`). Animation slot 0's player fields:
 
 After that comes the imps' side: damage, death and removal through
 `0x001232D0`.
+
+## Native background draw (2026-10-15)
+
+The background's +0x14 is now the translated `0x00042C10`, so the legacy host
+world draw no longer runs in native scenes. Notes above that call it the host
+world draw are historical. See `docs/NATIVE_SCENE_PRESENT.md`.

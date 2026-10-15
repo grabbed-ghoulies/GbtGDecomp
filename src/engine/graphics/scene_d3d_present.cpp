@@ -2,6 +2,7 @@
 #include "render_profile.h"
 #include "xbox_vertex_program.h"
 #include "xbox_vertex_hlsl.h"
+#include "d3dx_matrix.h"
 #include "gbtg/gfx.h"
 
 #include <algorithm>
@@ -253,7 +254,14 @@ std::array<u32, 60> pixel_shader_words(const u8* definition, const SceneD3DIndex
     return words;
 }
 
-// Triangle-list vertex order for an Xbox primitive (D3DPT 5 list, 6 strip, 7 fan, 8 quad list).
+// D3DPT 2 line list, 3 line loop and 4 line strip are drawn as line lists.
+bool line_primitive(u32 primitive)
+{
+    return primitive >= 2 && primitive <= 4;
+}
+
+// Triangle-list (or, for the line primitives, line-list) vertex order for an Xbox primitive (D3DPT 2 line list,
+// 3 line loop, 4 line strip, 5 list, 6 strip, 7 fan, 8 quad list).
 const std::vector<u32>& triangle_order(u32 primitive, u32 count)
 {
     render_profile::Scope measurement(render_profile::Topology);
@@ -271,6 +279,28 @@ const std::vector<u32>& triangle_order(u32 primitive, u32 count)
     std::vector<u32> order;
     switch (primitive)
     {
+    case 2:
+        for (u32 index = 0; index + 1 < count; index += 2)
+        {
+            order.insert(order.end(), {index, index + 1});
+        }
+        break;
+    case 3:
+        for (u32 index = 0; index + 1 < count; ++index)
+        {
+            order.insert(order.end(), {index, index + 1});
+        }
+        if (count > 1)
+        {
+            order.insert(order.end(), {count - 1, 0});
+        }
+        break;
+    case 4:
+        for (u32 index = 0; index + 1 < count; ++index)
+        {
+            order.insert(order.end(), {index, index + 1});
+        }
+        break;
     case 5:
         for (u32 index = 0; index + 2 < count; index += 3)
         {
@@ -475,6 +505,7 @@ void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentConte
         }
     }
     GfxNativeDraw output;
+    output.lines = line_primitive(draw.primitive);
     output.vertices = render_profile::reference ? std::span<const GfxNativeVertex>(vertices) : std::span<const GfxNativeVertex>(shaded);
     output.indices = retained_indices;
     if (gpu_vertex)
@@ -592,6 +623,7 @@ void present_inline(const SceneD3DInlineDraw& inline_draw, const SceneD3DPresent
         vertices.push_back(shaded[index]);
     }
     GfxNativeDraw output;
+    output.lines = line_primitive(draw.primitive);
     output.vertices = vertices;
     for (u32 stage = 0; stage < 4; ++stage)
     {
@@ -615,6 +647,85 @@ void present_inline(const SceneD3DInlineDraw& inline_draw, const SceneD3DPresent
         output.pixel_shader = words.data();
     }
     apply_states(draw.states, output);
+    gfx_draw_native(output);
+}
+
+// Fixed-function formats: clip = v * world * view * projection (row vectors), then the viewport's screen
+// mapping (c-38 / c-37) the vertex programs also end with, so depth matches the model draws.
+void present_fixed(const SceneD3DFixedDraw& draw, const SceneD3DPresentContext& context)
+{
+    u32 stride = 0;
+    bool has_diffuse = false;
+    switch (draw.format)
+    {
+    case 0x002: // D3DFVF_XYZ.
+        stride = 12;
+        break;
+    case 0x042: // D3DFVF_XYZ | D3DFVF_DIFFUSE.
+        stride = 16;
+        has_diffuse = true;
+        break;
+    default:
+        throw Error("fixed-function draw uses vertex format " + std::to_string(draw.format));
+    }
+    const size_t size = draw.vertices.size() * sizeof(u32);
+    if (size % stride != 0)
+    {
+        throw Error("fixed-function draw has a partial vertex");
+    }
+    std::array<float, 16> world_view;
+    std::array<float, 16> composite;
+    multiply_runtime_graphics_matrices(world_view.data(), draw.world.data(), draw.view.data());
+    multiply_runtime_graphics_matrices(composite.data(), world_view.data(), draw.projection.data());
+    const auto color = [](u32 packed)
+    {
+        // D3DCOLOR: A8R8G8B8.
+        return std::array<float, 4>{float((packed >> 16) & 0xFF) / 255.f, float((packed >> 8) & 0xFF) / 255.f,
+            float(packed & 0xFF) / 255.f, float(packed >> 24) / 255.f};
+    };
+    const auto* data = reinterpret_cast<const u8*>(draw.vertices.data());
+    std::vector<GfxNativeVertex> shaded;
+    for (size_t offset = 0; offset < size; offset += stride)
+    {
+        float position[3];
+        std::memcpy(position, data + offset, 12);
+        std::array<float, 4> clip{};
+        for (u32 column = 0; column < 4; ++column)
+        {
+            clip[column] = position[0] * composite[column] + position[1] * composite[4 + column]
+                + position[2] * composite[8 + column] + composite[12 + column];
+        }
+        const float reciprocal = 1.f / clip[3];
+        XboxVector screen{clip[0] * reciprocal * draw.screen_scale[0] + draw.screen_offset[0],
+            clip[1] * reciprocal * draw.screen_scale[1] + draw.screen_offset[1],
+            clip[2] * reciprocal * draw.screen_scale[2] + draw.screen_offset[2], clip[3]};
+        if (line_primitive(draw.primitive))
+        {
+            // The NV2A samples pixel centres on whole coordinates and D3D11 half a pixel in, so a line drawn
+            // along a pixel row moves half a pixel to land on that row instead of on its edge.
+            screen[0] += 0.5f;
+            screen[1] += 0.5f;
+        }
+        GfxNativeVertex vertex{};
+        vertex.position = clip_position(screen);
+        u32 packed = draw.diffuse;
+        if (has_diffuse)
+        {
+            std::memcpy(&packed, data + offset + 12, 4);
+        }
+        vertex.diffuse = color(packed);
+        shaded.push_back(vertex);
+    }
+    std::vector<GfxNativeVertex> vertices;
+    for (u32 index : triangle_order(draw.primitive, u32(shaded.size())))
+    {
+        vertices.push_back(shaded[index]);
+    }
+    GfxNativeDraw output;
+    output.lines = line_primitive(draw.primitive);
+    output.vertices = vertices;
+    apply_states(draw.states, output);
+    (void)context;
     gfx_draw_native(output);
 }
 
@@ -689,6 +800,10 @@ void present_scene_d3d_commands(std::span<const SceneD3DCommand> commands, const
         {
             present_inline(*draw, context);
         }
+        else if (const auto* draw = std::get_if<SceneD3DFixedDraw>(&command))
+        {
+            present_fixed(*draw, context);
+        }
         else if (const auto* clear = std::get_if<SceneD3DClear>(&command))
         {
             gfx_end_native_batch();
@@ -700,9 +815,16 @@ void present_scene_d3d_commands(std::span<const SceneD3DCommand> commands, const
             gfx_end_native_batch();
             gfx_begin_native_batch();
             const auto& target = std::get<SceneD3DTarget>(command);
-            if (target.color != SceneD3DDevice::kBackBuffer)
+            if (!context.render_target)
             {
-                throw Error("dialogue render target presentation is not bound");
+                if (target.color != SceneD3DDevice::kBackBuffer)
+                {
+                    throw Error("dialogue render target presentation is not bound");
+                }
+            }
+            else
+            {
+                context.render_target(target.color);
             }
         }
     }

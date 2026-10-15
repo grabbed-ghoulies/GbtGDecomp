@@ -3,6 +3,8 @@
 
 namespace gbtg
 {
+u32 g_shared_random = 0;
+
 // Xbox 0x00105140
 float advance_runtime_random_fraction(u32& state)
 {

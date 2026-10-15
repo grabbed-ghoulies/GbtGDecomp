@@ -300,6 +300,21 @@ struct DialogRenderTarget
 };
 DialogRenderTarget dialog_target;
 
+// The texture surface native draws render into between gfx_begin_native_target and gfx_end_native_target.
+struct NativeRenderTarget
+{
+    int width = 0;
+    int height = 0;
+    bool rendering = false;
+    D3D11_VIEWPORT saved_viewport{};
+    ComPtr<ID3D11Texture2D> color;
+    ComPtr<ID3D11RenderTargetView> rtv;
+    ComPtr<ID3D11Texture2D> depth;
+    ComPtr<ID3D11DepthStencilView> dsv;
+    ComPtr<ID3D11Texture2D> staging;
+};
+NativeRenderTarget native_target;
+
 LRESULT CALLBACK gfx_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
 #if defined(GBTG_DEBUG_UI)
@@ -1308,6 +1323,9 @@ cbuffer Material : register(b2)
     uint4 ps_words[15];
     uint4 ps_uv;
     uint4 ps_control;
+    // Per stage (xy, zw): 1/width and 1/height for a linear texture, which the NV2A samples in texels.
+    // Zero (a buffer without these words) means normalized coordinates.
+    float4 ps_uv_scale[2];
 };
 Texture2D stage_tex[4] : register(t0);
 SamplerState stage_samp[4] : register(s0);
@@ -1392,7 +1410,10 @@ float4 output_map(float4 value, uint output)
 float2 stage_coord(VSOut i, uint stage)
 {
     uint uv = ps_uv[stage];
-    return uv == 0 ? i.uv0 : (uv == 1 ? i.uv1 : (uv == 2 ? i.uv2 : i.uv3));
+    float2 coord = uv == 0 ? i.uv0 : (uv == 1 ? i.uv1 : (uv == 2 ? i.uv2 : i.uv3));
+    float4 pair = ps_uv_scale[stage / 2];
+    float2 scale = (stage & 1) != 0 ? pair.zw : pair.xy;
+    return any(scale != 0) ? coord * scale : coord;
 }
 float4 ps_model(VSOut i) : SV_Target
 {
@@ -1596,7 +1617,7 @@ bool native_alpha_pass(float alpha)
     g.device->CreateInputLayout(native_layout, UINT(std::size(native_layout)), native_vs_blob->GetBufferPointer(),
         native_vs_blob->GetBufferSize(), g.native_layout.GetAddressOf());
     D3D11_BUFFER_DESC native_material{};
-    native_material.ByteWidth = 72 * 4;
+    native_material.ByteWidth = 80 * 4;
     native_material.Usage = D3D11_USAGE_DYNAMIC;
     native_material.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     native_material.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
@@ -3166,8 +3187,17 @@ void gfx_draw_native(const GfxNativeDraw& draw)
             throw Error("D3D11 native material map failed");
         }
         // Combiner words, then stage n samples texture coordinate n, and v0/v1 are the vertex colours.
-        std::array<u32, 72> words{};
+        std::array<u32, 80> words{};
         std::memcpy(words.data(), draw.pixel_shader, 60 * 4);
+        for (size_t stage = 0; stage < 4; ++stage)
+        {
+            const RgbaImage* texture = draw.textures[stage];
+            if (texture != nullptr && texture->linear && texture->width > 0 && texture->height > 0)
+            {
+                const float scale[2] = {1.f / float(texture->width), 1.f / float(texture->height)};
+                std::memcpy(&words[68 + stage * 2], scale, sizeof(scale));
+            }
+        }
         words[60] = 0;
         words[61] = 1;
         words[62] = 2;
@@ -3182,6 +3212,10 @@ void gfx_draw_native(const GfxNativeDraw& draw)
     }
     else
     {
+        if (draw.textures[0] != nullptr && draw.textures[0]->linear)
+        {
+            throw Error("native draw without a pixel shader binds a linear texture, which needs texel coordinates");
+        }
         g.context->PSSetShader(g.native_ps.Get(), nullptr, 0);
     }
     const D3D11_RECT scissor = native_rectangle(draw.scissor);
@@ -3194,7 +3228,8 @@ void gfx_draw_native(const GfxNativeDraw& draw)
     const UINT stride = program_draw ? sizeof(GfxNativeInputs) : sizeof(GfxNativeVertex);
     const UINT offset = vertex_offset;
     g.context->IASetInputLayout(g.native_layout.Get());
-    g.context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    g.context->IASetPrimitiveTopology(draw.lines ? D3D11_PRIMITIVE_TOPOLOGY_LINELIST
+        : D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     g.context->IASetVertexBuffers(0, 1, g.native_vb.GetAddressOf(), &stride, &offset);
     if (program_draw)
     {
@@ -3268,6 +3303,94 @@ void gfx_draw_native(const GfxNativeDraw& draw)
     }
 }
 
+void gfx_begin_native_target(int width, int height)
+{
+    if (!g.ok)
+    {
+        return;
+    }
+    if (native_target.rendering)
+    {
+        throw Error("native render target is already bound");
+    }
+    if (native_target.width != width || native_target.height != height)
+    {
+        native_target = NativeRenderTarget{};
+        native_target.width = width;
+        native_target.height = height;
+        D3D11_TEXTURE2D_DESC desc{};
+        desc.Width = UINT(width);
+        desc.Height = UINT(height);
+        desc.MipLevels = 1;
+        desc.ArraySize = 1;
+        desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.BindFlags = D3D11_BIND_RENDER_TARGET;
+        if (FAILED(g.device->CreateTexture2D(&desc, nullptr, native_target.color.GetAddressOf())) ||
+            FAILED(g.device->CreateRenderTargetView(native_target.color.Get(), nullptr,
+                native_target.rtv.GetAddressOf())))
+        {
+            throw Error("native render target creation failed");
+        }
+        desc.BindFlags = 0;
+        desc.Usage = D3D11_USAGE_STAGING;
+        desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        if (FAILED(g.device->CreateTexture2D(&desc, nullptr, native_target.staging.GetAddressOf())))
+        {
+            throw Error("native render target staging creation failed");
+        }
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.CPUAccessFlags = 0;
+        desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+        desc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+        if (FAILED(g.device->CreateTexture2D(&desc, nullptr, native_target.depth.GetAddressOf())) ||
+            FAILED(g.device->CreateDepthStencilView(native_target.depth.Get(), nullptr,
+                native_target.dsv.GetAddressOf())))
+        {
+            throw Error("native render target depth creation failed");
+        }
+    }
+    UINT viewports = 1;
+    g.context->RSGetViewports(&viewports, &native_target.saved_viewport);
+    ID3D11ShaderResourceView* unbound[4]{};
+    g.context->PSSetShaderResources(0, 4, unbound);
+    g.context->OMSetRenderTargets(1, native_target.rtv.GetAddressOf(), native_target.dsv.Get());
+    // Xbox pixel coordinates map 1:1 onto the surface; the 640x480 space extends past its edges.
+    D3D11_VIEWPORT vp{0.f, 0.f, 640.f, 480.f, 0.f, 1.f};
+    g.context->RSSetViewports(1, &vp);
+    native_target.rendering = true;
+}
+
+void gfx_end_native_target(RgbaImage& output)
+{
+    if (!g.ok)
+    {
+        return;
+    }
+    if (!native_target.rendering)
+    {
+        throw Error("native render target is not bound");
+    }
+    g.context->CopyResource(native_target.staging.Get(), native_target.color.Get());
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    if (FAILED(g.context->Map(native_target.staging.Get(), 0, D3D11_MAP_READ, 0, &mapped)))
+    {
+        throw Error("native render target readback failed");
+    }
+    output.width = native_target.width;
+    output.height = native_target.height;
+    output.bgra.resize(size_t(output.width) * size_t(output.height) * 4);
+    for (int y = 0; y < output.height; ++y)
+    {
+        std::memcpy(output.bgra.data() + size_t(y) * size_t(output.width) * 4,
+            static_cast<const u8*>(mapped.pData) + size_t(y) * mapped.RowPitch, size_t(output.width) * 4);
+    }
+    g.context->Unmap(native_target.staging.Get(), 0);
+    g.context->OMSetRenderTargets(1, g.rtv.GetAddressOf(), g.dsv.Get());
+    g.context->RSSetViewports(1, &native_target.saved_viewport);
+    native_target.rendering = false;
+}
+
 void gfx_clear_native(std::span<const std::array<i32, 4>> rectangles, u32 flags, u32 color, float depth)
 {
     if (!g.ok)
@@ -3276,8 +3399,10 @@ void gfx_clear_native(std::span<const std::array<i32, 4>> rectangles, u32 flags,
     }
     present_hud_viewport();
     const UINT depth_flags = ((flags & 1) != 0 ? D3D11_CLEAR_DEPTH : 0) | ((flags & 2) != 0 ? D3D11_CLEAR_STENCIL : 0);
-    ID3D11RenderTargetView* target = dialog_target.rendering ? dialog_target.rtv.Get() : g.rtv.Get();
-    ID3D11DepthStencilView* depth_view = dialog_target.rendering ? dialog_target.dsv.Get() : g.dsv.Get();
+    ID3D11RenderTargetView* target = native_target.rendering ? native_target.rtv.Get()
+        : (dialog_target.rendering ? dialog_target.rtv.Get() : g.rtv.Get());
+    ID3D11DepthStencilView* depth_view = native_target.rendering ? native_target.dsv.Get()
+        : (dialog_target.rendering ? dialog_target.dsv.Get() : g.dsv.Get());
     if (rectangles.empty())
     {
         if ((flags & 0xF0) != 0)
@@ -3874,6 +3999,14 @@ void present_hud_viewport()
     const float window = float(g.cfg.width) / float(g.cfg.height);
     D3D11_VIEWPORT vp{};
     vp.MaxDepth = 1.f;
+    if (native_target.rendering)
+    {
+        // Xbox pixel coordinates map 1:1 onto the texture surface.
+        vp.Width = 640.f;
+        vp.Height = 480.f;
+        g.context->RSSetViewports(1, &vp);
+        return;
+    }
     if (dialog_target.rendering)
     {
         vp.Width = float(dialog_target.width);

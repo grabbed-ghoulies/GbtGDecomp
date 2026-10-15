@@ -55,6 +55,13 @@ void tick_scene_dialogue(Game& game)
 
 void draw_scene_dialogue(Game& game)
 {
+    draw_scene_dialogue_page(game);
+    flush_scene_dialogue_sprites(game);
+    draw_scene_text_pools(game);
+}
+
+void draw_scene_dialogue_page(Game& game)
+{
     if (game.script_dialogue != nullptr)
     {
         if (game.dialogue_draw == nullptr)
@@ -65,8 +72,23 @@ void draw_scene_dialogue(Game& game)
         draw.visibility_mask = game.script_dialogue->scene_flags;
         draw.draw.animation_time = game.time;
         render_runtime_dialogue(draw);
-        // 0x0011C240 draws the dialogue (0x00058150) and then flushes the sprites it queued (0x00122230).
+    }
+}
+
+void flush_scene_dialogue_sprites(Game& game)
+{
+    if (game.script_dialogue != nullptr)
+    {
+        auto& draw = *game.dialogue_draw;
         draw_queued_runtime_dialogue_sprites(draw.sprites, draw.draw);
+    }
+}
+
+void draw_scene_text_pools(Game& game)
+{
+    if (game.script_dialogue != nullptr)
+    {
+        auto& draw = *game.dialogue_draw;
         draw_runtime_dialogue_text_pools(*draw.draw.dialogue.allocation.pools,
             game.script_dialogue->scene_flags, draw.draw);
     }

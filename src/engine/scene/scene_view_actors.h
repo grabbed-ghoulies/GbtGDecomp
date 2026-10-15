@@ -4,6 +4,7 @@
 #include "../camera/display_view.h"
 #include "../entities/entity_types.h"
 #include <functional>
+#include <span>
 
 namespace gbtg
 {
@@ -22,6 +23,7 @@ struct RuntimeSceneViewActors
     std::function<u32(Actor&, i32 pass, i32 view)> visible; // Actual vtable +0x18.
     std::function<void(Actor&, i32 view, i32 pass)> draw; // Actual vtable +0x14.
 };
+struct RuntimeSceneMirrors;
 // The world passes of 0x00121900 around the actor draws.
 struct RuntimeSceneViewPasses
 {
@@ -39,6 +41,12 @@ struct RuntimeSceneViewPasses
     std::function<void()> ambient_points; // 0x001237E0.
     std::function<void(u32)> portals; // 0x00115A80.
     std::function<void()> door_shadows; // 0x0005B020.
+    // The mirror pass (flag 1): the camera side of the mirror plane (0x0011F310), an actor's view radius
+    // (0x0003D860) and the mirror state 0x0011F690 left (plane DAT_00511168, reflected camera DAT_00511178,
+    // sphere test DAT_00511160 over the frustum DAT_005110B8).
+    std::function<u32(const Vec3&)> mirror_side;
+    std::function<float(Actor&)> radius;
+    RuntimeSceneMirrors* mirrors = nullptr;
 };
 // The +0x934 owners' passes 0 and 1, the world helpers, then passes 0 and 1 of every bin actor visible in this
 // view (EAX bodies; stack bin, view, mirror). Returns the bin.
@@ -49,6 +57,22 @@ void sort_runtime_view_bin(entity_detail::ListHead& bin, RuntimeSceneViewActors&
 // Sets or clears each bin actor's view bit from vtable +0x18 (EAX bin).
 void classify_runtime_view_bin(entity_detail::ListHead& bin, i32 pass, i32 view,
     RuntimeSceneViewActors& context); // Xbox 0x00121880
+// Each +0x934 owner's vtable +0x38, then each record's of the view's bin (EBX view); `slot` makes the call for
+// classes whose +0x38 is set.
+void refresh_runtime_view_actors(entity_detail::ListHead& bodies, entity_detail::ListHead& bin, i32 view,
+    const std::function<void(Actor&, i32)>& slot, RuntimeSceneViewActors& context); // Xbox 0x00121DC0
+// One view's bin passes (ESI mirror, the view from DAT_005077A8): DAT_0051120C, 0x0012AB10 for the main pass,
+// then 0x00121730, 0x00121880, 0x00121900 and 0x00121D40 over bin view + 4 * mirror.
+struct RuntimeSceneViewBins
+{
+    RuntimeSceneViewPasses& passes;
+    std::span<entity_detail::ListHead, 8> bins; // DAT_00511AA8.
+    entity_detail::ListHead& bodies; // DAT_00511B1C.
+    i32 view;
+    u32& mirror_pass; // DAT_0051120C.
+    std::function<void()> post_models; // 0x0012AB10.
+};
+void draw_runtime_view_bins(i32 mirror, RuntimeSceneViewBins& context); // Xbox 0x00120E80
 // Draws every +0x934 list owner, then the bin actors visible in this view, through vtable +0x14 with pass 2
 // (EAX bodies, ECX bin, EBX view).
 void draw_runtime_view_actors(entity_detail::ListHead& bodies, entity_detail::ListHead* bin, i32 view, i32 pass,

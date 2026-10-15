@@ -37,7 +37,11 @@ Vec3& runtime_scene_light_direction(RuntimeSceneLightDirection& state,
     if (state.camera_relative != 0)
     {
         AnimationMatrix inverse;
-        invert_model_matrix(inverse.data(), state.camera.data());
+        if (!state.camera)
+        {
+            throw Error("camera-relative light direction has no DAT_005077A8 view");
+        }
+        invert_model_matrix(inverse.data(), state.camera());
         const Vec3 original = state.scratch;
         state.scratch.y = original.y * inverse[5] + original.z * inverse[6] + original.x * inverse[4];
         state.scratch.z = original.y * inverse[9] + original.z * inverse[10] + original.x * inverse[8];

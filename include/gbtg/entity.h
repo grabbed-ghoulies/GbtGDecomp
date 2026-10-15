@@ -782,6 +782,9 @@ void scene_clear_flag_block(); // Xbox 0x0011EAD0
 void save_initialize_name_scan(); // Xbox 0x0010D3B0
 bool save_first_name(char16_t* name); // Xbox 0x0010D810: restart save-name enumeration.
 bool save_next_name(char16_t* name); // Xbox 0x0010D8A0: advance save-name enumeration.
+bool save_slot_loaded(const char16_t* name); // Xbox 0x0010F620, EBX the name.
+bool save_first_slot_name(char16_t* name); // Xbox 0x0010D710: restart the loaded-slot enumeration.
+bool save_next_slot_name(char16_t* name); // Xbox 0x0010D7A0, EBX the name: advance it.
 
 // cam_11c480 calls this after 0x0011B630. Each of the ten records at
 // DAT_0051254c (stride 0x90) stores 0xFFFF in the id at +0x8c. The cap

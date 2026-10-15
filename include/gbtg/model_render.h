@@ -27,6 +27,7 @@ struct RuntimeModelRenderState
     u8 fog_enabled = 0; // DAT_00437248
     u32 fog_color = 0; // DAT_0043724C
     const float* frustum = nullptr; // +0x64, native six-plane source.
+    u32 background_key = 0xFFFFFFFFu; // +0x18C. Only 0x00155A10 writes it (-1); 0x001580E0 compares it.
 };
 struct RuntimeRenderLight
 {
@@ -76,8 +77,11 @@ struct RuntimeSceneLightDirection
     u32 override_mode = 0; // DAT_00509B5C
     float override_pitch_degrees = 0; // DAT_0042A584
     float override_yaw_degrees = 0; // DAT_0042A588
-    AnimationMatrix camera{}; // DAT_005077A8 +0xD8
+    // DAT_005077A8 +0xD8: the current display view's rotation, read when the direction is computed.
+    std::function<const float*()> camera;
 };
+// DAT_00509B10..DAT_00509B5C: one copy for the game. 0x000FD620 sets the angles and camera-relative mode at boot.
+extern RuntimeSceneLightDirection g_scene_light_direction;
 void configure_runtime_scene_fog(RuntimeModelRenderContext& context,
     const RuntimeSceneFog& fog); // Xbox 0x000FD5C0
 Vec3& runtime_scene_light_direction(RuntimeSceneLightDirection& state,

@@ -4,6 +4,8 @@
 #include "gbtg/object_factory.h"
 #include "../audio/bank_streams.h"
 #include "../entities/actor_clock.h"
+#include "attract_control.h"
+#include "gameselect_control.h"
 #include <unordered_map>
 #include <vector>
 
@@ -26,6 +28,8 @@ struct SceneControlInstance
     RuntimeActorLink update{}; // +0x10
     RuntimeActorLink disposal{}; // +0x18
     std::vector<u16> playlist; // Type 0x91 +0x24, the 0x00080670 shuffle.
+    std::unique_ptr<AttractControlState> attract; // Type 0x9B's pointer words.
+    std::unique_ptr<GameSelectControlState> gameselect; // Type 0x9A's pointer words.
 };
 struct SceneControlContext
 {
@@ -37,8 +41,12 @@ struct SceneControlContext
     // Bound when the scene's actor services start; the script can create controls before that.
     const RuntimeActorClock* clock = nullptr;
     AudioBankStreams* audio = nullptr;
+    AttractControlServices* attract = nullptr;
+    GameSelectControlServices* gameselect = nullptr;
     const RuntimeActorClock& frame_clock() const;
     AudioBankStreams& streams() const;
+    AttractControlServices& attract_services() const;
+    GameSelectControlServices& gameselect_services() const;
 };
 class NativeSceneControlOwner
 {
@@ -46,7 +54,9 @@ public:
     explicit NativeSceneControlOwner(SceneControlContext context);
     NativeSceneControlOwner(const NativeSceneControlOwner&) = delete;
     NativeSceneControlOwner& operator=(const NativeSceneControlOwner&) = delete;
-    // Types 3 (getter 0x00115D50, vtable 0x0050E41C) and 0x91 (getter 0x00080520, vtable 0x00505530).
+    // Types 3 (getter 0x00115D50, vtable 0x0050E41C), 0x91 (getter 0x00080520, vtable 0x00505530) and 0x9B
+    // (getter 0x00080970, vtable 0x00505548). Type 0x9A (getter 0x00083610, vtable 0x00505620) only while
+    // g_native_game_select is set.
     void install(std::span<ObjectFactoryType> types);
     SceneControlInstance& instance(const FactoryObject& object);
     SceneControlInstance& instance_of(RuntimeActorLink& link); // By the +8 link.
@@ -56,12 +66,15 @@ public:
     void forget(const FactoryObject& object); // After its type 3 destructor.
     void message(FactoryObject& object, std::span<const u32> message); // Vtable +0xC.
     void tick(SceneControlInstance& control); // Vtable +0x10.
+    void draw(SceneControlInstance& control); // Vtable +0x14.
     SceneControlContext context;
 
 private:
     std::unordered_map<const u8*, std::unique_ptr<SceneControlInstance>> instances_;
 };
 extern NativeSceneControlOwner* g_scene_control_owner; // The scene's owner while it is loaded.
+// The first control of a factory type on the active list (DAT_0050E438), then the pending one (DAT_0050E440).
+SceneControlInstance* find_runtime_scene_control(u16 type); // Xbox 0x00116170, EDX the type
 extern SceneControlLists g_scene_controls;
 bool construct_runtime_scene_control(SceneControlInstance& control, SceneControlLists& lists); // Xbox 0x00115DA0
 void destroy_runtime_scene_control(SceneControlInstance& control); // Xbox 0x00115DE0

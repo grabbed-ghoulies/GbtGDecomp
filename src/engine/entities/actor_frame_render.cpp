@@ -57,6 +57,16 @@ u32 draw_runtime_actor(ActorDrawState& state, i32 kind,
     }
     return 1;
 }
+// Xbox 0x00042C10
+u32 draw_runtime_background(i32 dialogue_mode, ActorDrawState& state, i32 kind,
+    const ActorFrameDrawContext& attachments, SceneModelDrawContext& c)
+{
+    if (dialogue_mode != 0)
+    {
+        return 0;
+    }
+    return draw_runtime_actor(state, kind, attachments, c);
+}
 // Xbox 0x0003DE00
 void draw_actor_frame_attachments(ActorFrameState& state, i32 kind,
     const ActorFrameDrawContext& context)

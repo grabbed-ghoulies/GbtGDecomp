@@ -1,4 +1,7 @@
 #include "gbtg/entity.h"
+#include "gbtg/model_render.h"
+#include "../scripts/script_vm.h"
+#include "../camera/display_view.h"
 #include "gbtg/anim.h"
 #include "gbtg/model_runtime.h"
 #include "gbtg/actor_runtime.h"
@@ -20,6 +23,11 @@
 
 namespace gbtg
 {
+RuntimeSceneLightDirection g_scene_light_direction{.camera = []() -> const float*
+    {
+        return entity_detail::g_display_view->rotation_transform.data(); // DAT_005077A8 +0xD8
+    }};
+
 namespace
 {
 
@@ -67,11 +75,6 @@ constexpr u32 light_grid_bytes(u32 width, u32 height)
 static_assert(light_grid_bytes(0x10, 0x10) == 0x3300u);
 
 LightVolumePass g_light_pass{};
-float g_light_tint[4]{};          // DAT_00509b20
-float g_light_intensity = 0.f;    // DAT_00509b4c
-float g_light_angle_inner = 0.f;  // DAT_00509b50. Pool float DAT_0032b160.
-float g_light_angle_outer = 0.f;  // DAT_00509b54. Pool float DAT_0032b15c.
-i32 g_light_mark = 0;             // DAT_00509b58
 i32 g_light_live = 0;             // DAT_00509b78
 void* g_light_slots[kLightVolumeSlots]{}; // DAT_00509b7c
 
@@ -192,14 +195,15 @@ void lighting_initialize_volume()
     g_light_pass.range = 1000.f;
     light_init_records();
     light_bind_table();
-    g_light_tint[0] = 1.f;
-    g_light_tint[1] = 1.f;
-    g_light_tint[2] = 1.f;
-    g_light_tint[3] = 1.f;
-    g_light_intensity = 1.f;
-    g_light_angle_inner = std::bit_cast<float>(0x3eb2b8c3u);
-    g_light_angle_outer = std::bit_cast<float>(0x3f32b8c3u);
-    g_light_mark = 1;
+    // DAT_00509B20..DAT_00509B2C, the ambient tint.
+    g_509b20 = 1.f;
+    g_509b24 = 1.f;
+    g_509b28 = 1.f;
+    g_509b2c = 1.f;
+    g_509b4c = 1.f; // DAT_00509B4C
+    g_scene_light_direction.pitch = std::bit_cast<float>(0x3eb2b8c3u); // DAT_00509B50, pool DAT_0032B160
+    g_scene_light_direction.yaw = std::bit_cast<float>(0x3f32b8c3u); // DAT_00509B54, pool DAT_0032B15C
+    g_scene_light_direction.camera_relative = 1; // DAT_00509B58
     g_light_paused = 0;
     g_light_running = 1;
 }

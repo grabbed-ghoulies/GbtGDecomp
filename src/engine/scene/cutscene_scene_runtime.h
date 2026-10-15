@@ -8,8 +8,8 @@ struct SceneCutsceneBindings
 {
     CutsceneRuntimeContext& runtime;
     u32& scene_flags; // DAT_0050EA9C.
-    u32& pause_count; // DAT_00510CEC.
-    u32& transition_pause_count; // DAT_004DEA24.
+    i32& pause_count; // DAT_00510CEC.
+    i32& transition_pause_count; // DAT_004DEA24.
     i32& active_count; // DAT_0050E7A0.
     const float& freeze; // DAT_004312DC.
     const float& dt; // DAT_005096C0.
@@ -34,6 +34,7 @@ struct SceneCutsceneRuntime
 // script startup; lookup never silently falls back to the approximate player.
 void install_scene_cutscene_runtime(Game& game, SceneCutsceneBindings bindings);
 SceneCutsceneRuntime& scene_cutscene_runtime(Game& game);
+SceneCutsceneRuntime* find_scene_cutscene_runtime(Game& game); // Null before a native scene installs one.
 void remove_scene_cutscene_runtime(Game& game);
 void release_scene_cutscene_instance(RuntimeCutsceneInstance& instance,
     SceneCutsceneRuntime& state); // Xbox 0x0004F050

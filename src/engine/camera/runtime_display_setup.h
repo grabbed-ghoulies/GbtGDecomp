@@ -39,6 +39,14 @@ bool setup_explicit_camera_display(EntityCamNode* camera, i32 slot,
 void setup_active_camera_display(i32 slot,
     RuntimeDisplaySetupContext& context); // Xbox 0x00048B60
 void set_display_transform(const float* matrix, RuntimeDisplaySetupContext& context); // Xbox 0x000F6EB0
+// Display +0x48..+0x54 (origin and size), then the fitted view (0x000F57F0) from them.
+void set_display_viewport(i32 x, i32 y, i32 width, i32 height); // Xbox 0x000F5CC0
+// Display +0x108 (inverse transform), the frustum (0x000F6630) and the renderer's frustum pointer.
+void set_display_inverse_transform(const float* matrix, RuntimeDisplaySetupContext& context); // Xbox 0x000F6E60
+// The projection transposed into DAT_00506F98 and bound (SetTransform 1, the fitted viewport, 0x00156400),
+// without 0x000F6170's view rebuild.
+void bind_display_projection_only(std::array<float, 16>& transposed,
+    RuntimeDisplaySetupContext& context); // Xbox 0x000F61F0
 // Each active camera slot's display, then its view draw (0x0011C240).
 void present_runtime_display_views(const std::function<void(i32)>& draw_view,
     RuntimeDisplaySetupContext& context); // Xbox 0x00033A20

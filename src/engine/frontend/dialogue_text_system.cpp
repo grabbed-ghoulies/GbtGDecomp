@@ -80,13 +80,15 @@ void initialize_runtime_dialogue_text(u32 language, RuntimeDialogueTextSystem& s
     draw.shadow_x = 2.f; // DAT_0032B110.
     draw.shadow_y = 2.f;
     draw.wrap = 0.f;
-    // The registry: header, then four 4-byte rows (stride 4, growth 4).
-    auto* pool = static_cast<GhoulySpawnPool*>(engine_heap_allocate(i32(sizeof(GhoulySpawnPool) + 0x10)));
+    // The registry: header, then four pool-pointer rows (growth 4). Retail rows are 4 bytes; the host rows hold a
+    // native pointer, so they are pointer-width.
+    constexpr u16 row = sizeof(RuntimeDialogueTextPool*);
+    auto* pool = static_cast<GhoulySpawnPool*>(engine_heap_allocate(i32(sizeof(GhoulySpawnPool) + 4 * row)));
     pool->begin = reinterpret_cast<u8*>(pool + 1);
     pool->cursor = pool->begin;
-    pool->stride = 4;
+    pool->stride = row;
     pool->grow = 4;
-    pool->limit = pool->begin + 0x10;
+    pool->limit = pool->begin + 4 * row;
     system.registry = pool;
     pool->cursor = pool->begin;
     system.registry_ready = 1;

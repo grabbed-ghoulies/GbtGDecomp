@@ -1,4 +1,5 @@
 #pragma once
+#include "../runtime/name_lookup.h"
 
 #include "../scene/scene_types.h"
 
@@ -13,7 +14,6 @@ extern i32 g_546338;
 extern i32 g_54633c;
 
 // Xbox 0x000357D0.
-bool transition_aid_equal(std::string_view a, std::string_view b); // Xbox 0x000357D0
 
 // Xbox 0x0012C2D0. EDI receives the clip, ESI the signed map route.
 int transition_set_clip_route(std::string_view name, i32& clip, i32& route); // Xbox 0x0012C2D0

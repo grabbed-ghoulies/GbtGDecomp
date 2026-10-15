@@ -88,12 +88,28 @@ struct SceneD3DInlineDraw
     SceneD3DIndexedDraw state;
     std::vector<u32> vertices;
 };
+// A push-buffer draw under a fixed-function vertex format (an even SetVertexShader value): raw vertex words
+// and the transforms, vertex data color and constants it was issued under.
+struct SceneD3DFixedDraw
+{
+    u32 primitive; // NV097_SET_BEGIN_END mode.
+    u32 format; // D3DFVF.
+    std::vector<u32> vertices;
+    std::array<float, 16> world; // D3DTS_WORLD (6).
+    std::array<float, 16> view; // D3DTS_VIEW (0).
+    std::array<float, 16> projection; // D3DTS_PROJECTION (1).
+    std::array<float, 4> screen_scale; // Vertex constant -38 (viewport scale).
+    std::array<float, 4> screen_offset; // Vertex constant -37 (viewport offset).
+    u32 diffuse; // SetVertexDataColor register 3 (D3DVSDE_DIFFUSE), D3DCOLOR.
+    SceneD3DStateSnapshot states;
+};
 struct SceneD3DTarget
 {
     std::uintptr_t color;
     std::uintptr_t depth;
 };
-using SceneD3DCommand = std::variant<SceneD3DQuad, SceneD3DIndexedDraw, SceneD3DInlineDraw, SceneD3DClear, SceneD3DTarget>;
+using SceneD3DCommand = std::variant<SceneD3DQuad, SceneD3DIndexedDraw, SceneD3DInlineDraw, SceneD3DClear, SceneD3DTarget,
+    SceneD3DFixedDraw>;
 struct SceneD3DVertexShader
 {
     std::array<i32, 32> declaration;
@@ -110,6 +126,9 @@ public:
     static constexpr u32 kVertexShader = 0x10003;
     static constexpr u32 kPixelShader = 0x10004;
     static constexpr u32 kViewport = 0x10030; // Six words: X, Y, Width, Height, MinZ, MaxZ.
+    static constexpr u32 kVertexDataColor = 0x100A0; // Plus the D3DVSDE register.
+    static constexpr u32 kMultiSampleMode = 0x100C0; // D3DDevice_SetRenderState_MultiSampleMode.
+    static constexpr u32 kStencilEnable = 0x4032C; // NV097_SET_STENCIL_TEST_ENABLE.
     static constexpr u32 kBackBuffer = 1;
     static constexpr u32 kDepthBuffer = 2;
     // D3D's screen-space scale and offset (vertex constants -38 and -37) for the viewport.
@@ -126,11 +145,14 @@ public:
     void set_constant_words(u32 reg, const u32* data, u32 count);
     SceneD3DIndexedDraw& draw_indexed(u32 primitive, u32 count, u32 indices);
     std::map<u32, SceneD3DVertexShader> vertex_shaders;
+    // D3DTexture_GetSurfaceLevel: each surface handle and the texture (resource address) it belongs to.
+    std::map<std::uintptr_t, std::uintptr_t> surface_textures;
     void create_vertex_shader(const i32* declaration, const u32* program, u32& handle, u32 usage);
     void set_vertex_stream(u32 stream, u32 resource, u32 stride);
 
 private:
     void decode_push(const u32* begin, const u32* end);
+    void record_fixed(u32 primitive, u32 format, const std::vector<float>& vertices);
     std::map<u32, std::array<float, 16>> transforms_;
     SceneD3DConstants constants_{};
     std::array<const u8*, 4> textures_{};
@@ -139,6 +161,7 @@ private:
     std::array<std::array<float, 4>, 16> pixel_constants_{};
     u32 pixel_constants_set_ = 0;
     std::vector<u32> push_;
+    std::vector<u32> immediate_; // D3DDevice_Begin .. End.
     u32 next_surface_ = 1;
     u32 next_vertex_shader_ = 1;
     DialogueD3DBoundaries dialogue_;

@@ -23,6 +23,12 @@ struct DialogueD3DBoundaries
     std::function<void(float*, const float*)> transpose;
     std::function<u32*(u32)> begin_push;
     std::function<void(u32*)> end_push;
+    std::function<void(u32)> multisample_mode; // D3D 0x001725A0.
+    std::function<void(u32)> stencil_enable; // D3D 0x00172330.
+    std::function<void(u32, u32)> vertex_data_color; // D3D 0x00172CC0 (register, D3DCOLOR).
+    std::function<void(u32)> begin; // D3DDevice_Begin, D3D 0x00172D10 (primitive).
+    std::function<void(i32, float, float, float, float)> vertex_data4f; // D3D 0x00172C60 (register, x, y, z, w).
+    std::function<void()> end; // D3DDevice_End, D3D 0x00172D50.
 };
 struct DialogueRenderFrame
 {
@@ -117,8 +123,8 @@ void draw_dialogue_quad(u32 color, RuntimeDialogueDrawContext& context); // Xbox
 void draw_dialogue_sized_quad(const float* dimensions, u32 color, RuntimeDialogueDrawContext& context); // Xbox 0x0005E570
 void draw_dialogue_uv_quad(const float* top, const float* bottom, u32 color,
     const float* uv_top, const float* uv_bottom, RuntimeDialogueDrawContext& context); // Xbox 0x0005E770
-void draw_dialogue_texture(i32 frame, i32 uv, u8* texture, const float* scale,
-    const float* uv_coordinates, float angle, u32 color, const float* position,
+void draw_dialogue_texture(i32 frame, const float* uv_top, u8* texture, const float* scale,
+    const float* uv_bottom, float angle, u32 color, const float* position,
     RuntimeDialogueDrawContext& context); // Xbox 0x0005CA60
 void draw_dialogue_icon(float& x, float y, float scale_x, float scale_y, u8 frame,
     RuntimeDialogueDrawContext& context); // Xbox 0x000577E0
@@ -134,6 +140,17 @@ void draw_runtime_dialogue_glyph(u32 code, float& x, float& y, float speed,
 void draw_runtime_dialogue_text(const char16_t* text, float& x, float& y,
     u32 frame, const u32* frames, float speed, float height, float time, i32 shadow,
     RuntimeDialogueDrawContext& context); // Xbox 0x0005ED80
+// DAT_00504410 from a pooled text's timer mode: a nonzero mode itself, else the counter since DAT_0050E0D8.
+void set_dialogue_glyph_seed(u32 mode, RuntimeDialogueDrawContext& context); // Xbox 0x000606A0, EAX mode
+// `count` characters of a wrapped line from (x, y): glyphs through 0x0005E9F0, spaces by the space advance, a
+// newline back to the original x one cell lower.
+void draw_runtime_dialogue_text_run(const char16_t* text, float& x, float& y, i32 count, const u32* frames,
+    float speed, float height, float time, i32 shadow, RuntimeDialogueDrawContext& context); // Xbox 0x0005EC60
+// Text centred on x. Narrower than the wrap width it is one line; otherwise each line breaks at the space that
+// would pass the wrap width and is centred on its own width.
+void draw_runtime_centered_dialogue_text(const char16_t* text, float& x, float& y, u32 frame,
+    const u32* frames, float speed, float height, float time, u32 seed_mode, i32 shadow,
+    RuntimeDialogueDrawContext& context); // Xbox 0x0005EF40
 float dialogue_line_position(i32 alignment, i32 line, float origin,
     const DialoguePageLayout& page, RuntimeDialogueDrawContext& context); // Xbox 0x0005A630
 void draw_runtime_dialogue_page(DialoguePageLayout& page, float fade,

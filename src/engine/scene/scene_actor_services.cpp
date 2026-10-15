@@ -1,4 +1,11 @@
 #include "scene_actor_services.h"
+#include "../frontend/frontend_sounds.h"
+#include "../frontend/frontend_state.h"
+#include "../frontend/gameselect_slots.h"
+#include "../entities/body_timers.h"
+#include "../video/movie_startup.h"
+#include "attract_control.h"
+#include "../graphics/actor_effect_draw.h"
 #include "scene.h"
 #include "../camera/camera.h"
 #include "factory_scene_runtime.h"
@@ -24,6 +31,14 @@
 #include "background_update.h"
 #include "scene_actor_update.h"
 #include "scene_view_actors.h"
+#include "scene_mirror.h"
+#include "scene_view_present.h"
+#include "../graphics/billboard_queue.h"
+#include "../graphics/world_sprite_passes.h"
+#include "../graphics/actor_effect_nodes.h"
+#include "../entities/actor_runtime_queries.h"
+#include "../entities/actor_pose_updates.h"
+#include "scene_controls.h"
 #include "lighting.h"
 #include "../graphics/light_volume_draw.h"
 #include "../entities/actor_view_visibility.h"
@@ -109,6 +124,8 @@
 #include "../scripts/script_actions.h"
 #include "../scripts/script_vm.h"
 #include "../transitions/scene_transitions.h"
+#include "cutscene_scene_runtime.h"
+#include "../video/native_movies.h"
 #include "../scripts/script_conditions.h"
 #include "../scripts/script_actor_query.h"
 #include "../entities/player_mind_target_control.h"
@@ -131,6 +148,14 @@ extern i32 g_5462fc; // DAT_005462FC.
 extern i32 g_545d1c; // DAT_00545D1C.
 extern i32 g_545cc8; // DAT_00545CC8.
 extern i32 g_script_30d0c; // DAT_00430D0C.
+extern i32 g_510580; // DAT_00510580.
+extern float& g_4312cc; // DAT_004312CC.
+extern u32 g_flag_0650; // DAT_00510650.
+extern i32 g_50ec00; // DAT_0050EC00.
+extern u32 g_flag_10b4; // DAT_005110B4.
+extern i32 g_510cf4; // DAT_00510CF4.
+extern u8* g_510e30; // DAT_00510E30.
+extern u8* g_510e24; // DAT_00510E24.
 
 namespace
 {
@@ -334,9 +359,9 @@ struct SceneActorServices::State
     u32 decal_enable = 0; // DAT_005462EC.
     u32 ambient_point_draw = 0; // DAT_005120F8.
     void* portal_list = nullptr; // DAT_0050E390.
-    AudioCoreSources audio_sources{};
-    AudioCoreCues audio_cues{audio_sources};
-    AudioEventVoices voices{audio_cues, {}, {}, {}, 0, origin, default_cone};
+    // The boot-owned audio core (DAT_004E0CE8 and the rest); every scene requests through the same voices.
+    NativeAudioRuntime& audio = native_audio_runtime();
+    AudioEventVoices& voices = audio.voices;
     // Trails and scares.
     float pause = 0.f; // DAT_004312DC.
     float frame_delta = 0.f; // DAT_005096C0.
@@ -633,8 +658,19 @@ struct SceneActorServices::State
     std::unordered_map<Actor*, u32> actor_object_addresses;
     std::unordered_map<Actor*, std::function<void(Actor&)>> actor_updates; // Actor vtable +0x10.
     std::unordered_map<Actor*, std::unique_ptr<RuntimeSegmentContactActor>> prop_contact_views;
-    std::unique_ptr<AudioBankStreams> audio_banks; // DAT_004DF370, DAT_004E030C.
+    AudioBankStreams* audio_banks = &audio.streams; // DAT_004DF370, DAT_004E030C.
+    std::unique_ptr<AttractControlServices> attract_services; // Factory type 0x9B.
+    // Factory type 0x9A (docs/NATIVE_FRONTEND.md), installed only while g_native_game_select is set.
+    std::unique_ptr<GameSelectControlServices> gameselect_services;
+    std::span<const u8> gameselect_text; // DAT_005462C4
+    std::span<const u8> scene_order_held; // DAT_00511B64
+    u32 scene_order_release = 0; // DAT_00511B68
+    float gameselect_stream_wait = 0.f; // DAT_005065C4
+    std::span<u8> frontend_input; // DAT_00429BBC, the boot keyboard device (0x000E5A80), mapped while the scene runs.
+    u32 frontend_input_address = 0;
+    std::array<char16_t, 0x200> gameselect_lookup{}; // DAT_00507E78, the 0x000FF0A0 text buffer.
     void create_scene_objects(); // Xbox 0x0011C980
+    void bind_gameselect_services();
     RuntimeModelRenderContext model_renderer{}; // DAT_004370A0..
     RuntimeSceneFog fog{}; // DAT_00509AFC..
     CutsceneCameraImpulse camera_impulse{}; // DAT_0050E7BC..
@@ -642,8 +678,9 @@ struct SceneActorServices::State
     Vec3 listener_position{};
     u32 movie_flag_38 = 0;
     u32 movie_flag_3c = 0;
-    std::array<RuntimeMovieEventSlot, 4> movie_slots{};
-    i32 movie_mode = 0; // DAT_0050DD8C.
+    // The boot-owned movie event slots (DAT_0050DD90) and their mode (DAT_0050DD8C).
+    std::array<RuntimeMovieEventSlot, 4>& movie_slots = game.native_movies->session->slots;
+    i32& movie_mode = game.native_movies->mode;
     std::unique_ptr<CutsceneActorFactoryContext> cutscene_factory;
     std::unique_ptr<CutsceneActorInitializationContext> cutscene_initialization;
     std::unique_ptr<CutsceneRuntimeContext> cutscenes;
@@ -724,7 +761,7 @@ struct SceneActorServices::State
     std::unordered_map<const RuntimeRenderLight*, std::array<u32, 4>> spot_parameters;
     SceneLightUploadBoundaries light_boundaries;
     std::unique_ptr<SceneLightUploadContext> light_upload;
-    RuntimeSceneLightDirection light_direction{}; // DAT_00509B10..
+    RuntimeSceneLightDirection& light_direction = g_scene_light_direction; // DAT_00509B10..
     std::array<float, 4> override_base_color{}; // DAT_0042A570.
     std::array<u32, 16> environment_primary{}; // DAT_004D9710.
     std::array<u32, 16> environment_secondary{}; // DAT_004D9680.
@@ -841,17 +878,43 @@ struct SceneActorServices::State
     u32 actor_visible(Actor& actor, i32 pass, i32 view); // Actor vtable +0x18 by class.
     void draw_scene_actor(FactoryObject& object, Actor& actor, i32 kind); // 0x0003C9E0.
     void draw_player(FactoryObject& object, NativePlayerInstance& player, i32 kind); // 0x00028050.
-    void draw_view_actors(i32 view); // 0x0011C240's actor bins for one view.
+    void present_view(i32 view); // 0x0011C240 for one view.
     // The ambient sampler's view of DAT_0050D770/DAT_0050D780 (filled by 0x000FEFD0), the DAT_00509B20..28 tint and
     // DAT_005120F0, refreshed before a view draws.
     void refresh_ambient_context();
-    // The legacy host world draw stands in for the background's +0x14 (0x00042C10) while a view presents.
-    const std::function<void()>* host_world_draw = nullptr;
+    RuntimeSceneMirrors mirrors; // DAT_00511090..DAT_00511180, filled by 0x0011F450 at scene start.
+    u32 mirror_pass = 0; // DAT_0051120C.
+    // Gates of 0x0011C240's passes whose writers are not translated; they hold their BSS value.
+    u32 post_model_count = 0; // DAT_00512AF0 (0x0012A9B0 / 0x0012A9E0 / 0x0012AA70).
+    u32 decal_count = 0; // DAT_00510560 (0x0011AEA0 / 0x0011AEE0 / 0x000BA840).
+    u32 caption_camera = 0; // DAT_004DE9AC (0x00032AB0).
+    u32 caption_widget = 0; // DAT_004DE9A0 (0x00032AB0).
+    i32 frontend_state = 0; // DAT_004E17C8 (0x00033030, 0x0004A4D0).
+    u32 frontend_widget = 0; // DAT_004E19A0 (0x00049DE0 .. 0x0004A4D0).
+    u32 hud_enabled = 0; // DAT_005493E0 (0x00132040 in 0x0011CBD0).
+    u32 capture_camera = 0; // DAT_005462A0 (0x00048260 / 0x00048860).
+    u32 screen_flash = 0; // DAT_00504478 (0x00060BC0 / 0x00060C80 / 0x00060D50).
+    u32 screen_capture = 0; // DAT_005044A4 (0x00060C20 / 0x00060C80 / 0x00060D50).
+    void view_refresh_slot(Actor& actor); // Actor vtable +0x38 by class (0x00121DC0).
+    void draw_anchor_sprites(); // 0x00121EC0.
+    void draw_scene_controls(); // DAT_0050E438: each control's vtable +0x14.
+    u32 bound_tested = 0; // DAT_00546310
+    u32 bound_culled = 0; // DAT_0054630C
+    u8 bound_plane = 0; // DAT_0043F4B8
+    RuntimeModelBoundCulling bound_culling{bound_tested, bound_culled, bound_plane};
     std::array<const u8*, 10> overlay_digits{}; // DAT_00545A80, BSS until 0x0012E070 loads the digit sprites.
     ActorDrawState actor_draw_state(FactoryObject& object, Actor& actor, std::unique_ptr<ActorDrawModelView>& model);
     // Host presentation of the recorded dialogue quads, with decoded images of their texture frames.
     std::unordered_map<const u8*, std::unique_ptr<RgbaImage>> texture_images;
     const RgbaImage& texture_image(const u8* record);
+    // D3DTexture_LockRect (0x00177950) for a movie frame: the texture's registered data, linear 32-bit rows.
+    // The texture is marked so its decoded image is rebuilt, with a new serial, the next time it is drawn.
+    RuntimeMovieLockedSurface lock_movie_texture(u32 record);
+    // The recorded SetRenderTarget: draws go to the texture behind a surface until the back buffer returns, then
+    // the rendered pixels are written to the texture's data (linear 32-bit) and it is decoded again.
+    void present_render_target(std::uintptr_t color);
+    u32 render_target_texture = 0;
+    std::unordered_set<const u8*> movie_textures;
 };
 
 SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
@@ -920,7 +983,8 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     };
     word_messages.memory_at = [this](u32 address) -> std::span<const u8>
     {
-        return scene.resolve_address(address, 0);
+        // A message word points at a record of the size its reader takes (an animation event, a mix's tables).
+        return scene.resolve_tail(address);
     };
     word_messages.reference_at = [this](u32 address) -> void*
     {
@@ -1298,44 +1362,13 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         }
         throw Error("cutscene track actor has no factory object");
     };
-    audio_banks = std::make_unique<AudioBankStreams>(AudioBankStreams{{}, {}, {}, voices});
-    initialize_tracked_audio_channels(*audio_banks); // Boot 0x00033030 runs 0x00038BF0 over DAT_004E030C.
     scene.controls->context.clock = &clock;
-    scene.controls->context.audio = audio_banks.get();
-    // The XACT engine boundaries behind the audio core: heap, sound sources and cue preparation.
-    audio_sources.memory = native_audio_core_memory();
-    audio_sources.boundaries = native_audio_core_source_boundaries();
-    audio_cues.boundaries = native_audio_core_cue_boundaries(game, [](void* bank, u32 index) -> const char*
-    {
-        if (g_native_audio == nullptr)
-        {
-            unbound("audio core cue names before boot 0x0003A280");
-        }
-        static std::string name;
-        name = native_audio_cue_name(*g_native_audio, bank, index);
-        return name.c_str();
-    });
-    if (g_native_audio != nullptr)
-    {
-        // DAT_004E13B0, the sound banks 0x00039F50 created at boot.
-        voices.banks = std::span<AudioCoreBank* const>(g_native_audio->banks.data(),
-            size_t(g_native_audio->bank_count));
-        // The engine's DAT_004D97F0 / DAT_004D97EC, which the source calls scale and apply with.
-        audio_sources.unit_scale = g_native_audio->listener.unit_scale;
-        audio_sources.apply = g_native_audio->listener.apply;
-    }
+    scene.controls->context.audio = audio_banks;
     // The actor sound queues stop the same event voices (DAT_004E0CE8) through 0x00039690.
     sounds.stop_voice = [this](i16 index)
     {
-        auto& voice = voices.voices[size_t(index)];
-        RuntimeSoundVoice view{voice.state, voice.cue == nullptr ? nullptr : &voice.cue->runtime};
-        stop_runtime_sound_voice(view, 0, voices.core.stopped_count, voices.core.sound);
-        voice.state = view.state;
+        stop_audio_event_voice(index, 0, voices);
     };
-    // DAT_00421A38: nine {millibel, volume} reverb pairs that 0x00039620 reads for each 3D voice.
-    voices.reverb_curves = std::span<const std::array<u32, 2>>(
-        reinterpret_cast<const std::array<u32, 2>*>(data(0x00421A38, 9 * 8).data()), 9);
-    audio_cues.sound = native_sound_boundaries();
     cutscene_factory = std::make_unique<CutsceneActorFactoryContext>(CutsceneActorFactoryContext{scene.factory,
         image.pools, replacement_source.data(), replacement_target.data()});
     cutscene_initialization = std::make_unique<CutsceneActorInitializationContext>(
@@ -1398,7 +1431,13 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             background_update(background);
         }});
     backgrounds->install(scene.types);
-    // Boot display, input and text globals, in 0x00033030 order.
+    // Boot display, input and text globals, in 0x00033030 order. 0x000FC310 reads the display mode
+    // (DAT_005096E8, the host's 640x480) and, for a 640-wide mode, sets DAT_00509704 from DAT_0042A54C == 0;
+    // its video-standard, video-flag and vertical-blank calls have no host counterpart. It ends in 0x000FC190.
+    if (hud_size[0] == 0x280)
+    {
+        entity_detail::g_aspect_exact = read_u32(data(0x0042A54C, 4), 0) == 0 ? 1 : 0;
+    }
     layout_runtime_hud(entity_detail::g_aspect_exact, hud_size[0], hud_size[1], hud);
     initialize_display_views(hud_size[0], hud_size[1], render_width, render_height);
     port_masks = {0, 1, 2, 4, 8}; // 0x00033248: DAT_0050E0F4 0, then DAT_0050E0F8..DAT_0050E104 1, 2, 4, 8.
@@ -1492,6 +1531,16 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         *cutscenes, *widget_update, input_addresses, input_views, 0, pause, frame_delta, time_scale});
     script_dialogue = std::make_unique<RuntimeScriptDialogueContext>(RuntimeScriptDialogueContext{*dialogue, query,
         g_flag_2474, g_flags_ea9c, random, narrow_scratch.data()});
+    // Cutscene caption events (types 0x14 and the 0x15 page) enqueue through the same dialogue (0x000582A0).
+    cutscenes->dialogue = dialogue.get();
+    // Cutscene movie events (0x00106D50) start in the boot movie lists. A frame copy (0x00107360) locks the
+    // hooked texture's data in this scene's resource memory.
+    auto& movie_startup = game.native_movies->session->startup();
+    cutscenes->movies = &movie_startup;
+    movie_startup.lock_texture = [this](void* texture) -> RuntimeMovieLockedSurface
+    {
+        return lock_movie_texture(u32(reinterpret_cast<std::uintptr_t>(texture)));
+    };
     model_renderer.frames = render_frame_storage;
     RuntimeNodeTypeRegistry node_registry{resources.node_types.bytes, node_registry_count};
     render_image.resolve = [this](u32 address) -> u8*
@@ -1584,10 +1633,38 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         display_address});
     sprites = std::make_unique<RuntimeDialogueSpriteQueue>(RuntimeDialogueSpriteQueue{sprite_records, sprite_count});
     dialogue_outer = std::make_unique<RuntimeDialogueOuterDrawContext>(RuntimeDialogueOuterDrawContext{*dialogue_draw,
-        render_targets, d3d_device.outer(), *sprites, {}, *display_setup, text_draw_count, capture_enabled,
+        render_targets, d3d_device.outer(), *sprites, &resources.special_textures, *display_setup, text_draw_count, capture_enabled,
         std::bit_cast<u8>(u8(0)), g_flags_ea9c, display_address, read_u32(data(0x004271F4, 4), 0),
         read_u32(data(0x00425E0C, 4), 0), read_u32(data(0x004271E8, 4), 0), line_retained});
+    dialogue_outer->panel_line_width = read_u32(data(0x00425168, 4), 0);
     bind_scene_dialogue(game, *script_dialogue, *dialogue_outer);
+    // The scene cutscene stack (DAT_004E1B40..DAT_004E1C54) that script node 0x13 starts (0x0004EDA0) and the
+    // scene tick advances (0x0004EBD0), over this scene's cutscene context.
+    install_scene_cutscene_runtime(game, SceneCutsceneBindings{*cutscenes, g_flags_ea9c, g_510cec, g_4dea24,
+        g_50e7a0, g_sim_freeze, g_sim_dt, g_sim_scale});
+    // The attract control (factory type 0x9B) over this scene's resources, text, input and cutscene stack.
+    attract_services = std::make_unique<AttractControlServices>(AttractControlServices{resources.registry,
+        resources.error, resources.text, text_registry, resources.metrics, widget_context.viewport_width,
+        next_widget_id, random, hud.center_x, hud.bottom, text_fonts[0], g_510cec, input_activation, input_release,
+        input_addresses, input_views, input_state, game.clock.frame, scene_cutscene_runtime(game), node_cache,
+        [this](Actor& actor) -> RuntimeModelInstance*
+        {
+            return actors->view(object_of_actor(actor)).startup.models.secondary.get();
+        },
+        [this](const char* name)
+        {
+            script_request(game, name); // 0x0011EB30 with mode 1.
+        },
+        [this]()
+        {
+            play_start_button_laugh(random, image, voices); // 0x0013BAF0
+        },
+        i32(g_language), data(0x004275DC, 5 * 4), g_sim_freeze, g_sim_dt, g_sim_scale});
+    scene.controls->context.attract = attract_services.get();
+    if (g_native_game_select)
+    {
+        bind_gameselect_services();
+    }
     // The scene model renderer over the relocated resources and the host D3D device.
     std::memcpy(retained_scene_color.data(), data(0x0032E4E4, 0x10).data(), 0x10);
     std::memcpy(override_base_color.data(), data(0x0042A570, 0x10).data(), 0x10);
@@ -1613,12 +1690,15 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     ambient_context = std::make_unique<SceneAmbientContext>(SceneAmbientContext{ambient_grids, 0, light_override, {}, {}, 0,
         ambient_points});
     std::memcpy(ambient_context->override_color.data(), data(0x0042A560, 0x10).data(), 0x10);
+    // DAT_0042A584 / DAT_0042A588: the override light angles, .data.
+    light_direction.override_pitch_degrees = read_f32(data(0x0042A584, 4), 0);
+    light_direction.override_yaw_degrees = read_f32(data(0x0042A588, 4), 0);
     environment = std::make_unique<SceneEnvironmentSetupContext>(SceneEnvironmentSetupContext{*light_upload, fog,
         *ambient_context, light_direction,
         *reinterpret_cast<const std::array<float, 4>*>(background_ambient.light_color.data()), override_base_color,
         environment_primary, environment_secondary});
     light_construction = std::make_unique<SceneLightConstructionContext>(SceneLightConstructionContext{*environment,
-        scene_color, retained_scene_color, 0.f, read_f32(data(0x0042A580, 4), 0), directional_light, local_lights,
+        scene_color, retained_scene_color, g_509b4c, read_f32(data(0x0042A580, 4), 0), directional_light, local_lights,
         temporary_lights});
     model_draw = std::make_unique<SceneModelDrawContext>(SceneModelDrawContext{render_image, *light_construction,
         matrix_boundaries});
@@ -1829,6 +1909,11 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     {
         dispatch_runtime_model_shader_parameters(node, *static_cast<RuntimeModelInstanceStorage*>(storage),
             *material_bind);
+    };
+    node_callbacks[0x001571B0] = [this](u32 node, void* storage)
+    {
+        dispatch_runtime_background_shader_parameters(node, *static_cast<RuntimeModelInstanceStorage*>(storage),
+            *material_bind, bound_culling);
     };
     blendshape_draw = std::make_unique<RuntimeModelBlendshapeDraw>(RuntimeModelBlendshapeDraw{*tree_dispatch,
         stream_descriptors, vertex_auxiliary});
@@ -2091,9 +2176,247 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     active_services = this;
 }
 
+extern i32 g_429bc0; // DAT_00429BC0, scene.cpp.
+extern u16 g_429bc4[0x80]; // DAT_00429BC4, scene.cpp.
+extern char g_50e458[0x80]; // DAT_0050E458, transition_book.cpp.
+
+void SceneActorServices::State::bind_gameselect_services()
+{
+    // Boot 0x000E5A80 made the front end's keyboard device (DAT_00429BBC). The native input registry is the
+    // scene's, so the scene maps the boot device's address while it runs.
+    frontend_input = g_frontend.input;
+    frontend_input_address = static_cast<u32>(reinterpret_cast<std::uintptr_t>(frontend_input.data()));
+    input_addresses[frontend_input_address] = frontend_input;
+    input_views[frontend_input_address] = RuntimeDialogueInputDevice{frontend_input, {nullptr, nullptr, nullptr,
+        nullptr}};
+    RuntimeScreenTextureBoundaries textures;
+    textures.allocate = [this](u32 size)
+    {
+        return resources.memory.allocate(size, 0x10);
+    };
+    textures.free = [this](u32 address)
+    {
+        resources.memory.free(address);
+    };
+    textures.allocate_physical = [this](u32 size, u32 alignment)
+    {
+        return resources.memory.allocate(size, alignment);
+    };
+    textures.free_physical = [this](u32 address)
+    {
+        resources.memory.free(address);
+    };
+    textures.header = [this](u32 width, u32 height, u32 levels, u32 usage, u32 format, u32 pool, u32 texture) -> u32
+    {
+        resources.d3d_boundaries.set_texture_header(width, height, levels, usage, format, pool, texture, 0, 0);
+        // XGSetTextureHeader's size for the linear 32-bit formats 0x000533A0 is given.
+        if ((format != 0x12 && format != 0x1E && format != 0x3F) || levels != 1)
+        {
+            throw Error("XGSetTextureHeader size for format " + std::to_string(format) + " is not mapped");
+        }
+        return width * height * 4;
+    };
+    textures.register_resource = [this](u32 resource, u32 data)
+    {
+        resources.d3d_boundaries.register_resource(resource, data);
+    };
+    textures.address_of = [this](const u8* bytes)
+    {
+        return resources.memory.address_of(bytes);
+    };
+    gameselect_services = std::make_unique<GameSelectControlServices>(GameSelectControlServices{resources.registry,
+        resources.error, g_runtime_profile, g_flags_ea9c, gameselect_text, image.string(read_u32(data(0x00430CF8, 4),
+        0)), scene_order_held, scene_order_release, g_510cec, input_activation, input_release, frontend_input_address,
+        game.clock.frame, g_429bc0, gameselect_stream_wait, read_f32(data(0x0032B184, 4), 0),
+        [this](i32 id) -> i32
+        {
+            return runtime_stream_bank_busy(id, nullptr, nullptr, audio.wavebank_streams); // 0x00039D50
+        },
+        audio.streams, g_pause_ditty, textures, *display_setup, g_sim_freeze, g_sim_dt, g_sim_scale, image,
+        g_frontend, game.native_movies->session->startup(), hud_size, hud, reinterpret_cast<char16_t*>(g_429bc4),
+        reinterpret_cast<i32*>(g_510e58 + 0x124), g_54632c, text_registry, resources.metrics,
+        widget_context.viewport_width, next_widget_id, random, resources.font_views, fallback_texture.data(),
+        *dialogue_draw, *dialogue_outer, widget_context, *widget_allocation, resources.text,
+        [this](const char* resource, const char* group, const char* key) -> const char16_t*
+        {
+            // 0x000FF0A0 writes the text into DAT_00507E78.
+            if (request_namespaced_localtext(resource, group, key, gameselect_lookup.data(), resources.text) == 0)
+            {
+                return nullptr;
+            }
+            return gameselect_lookup.data();
+        },
+        [this](const std::array<float, 2>& position, float scale, float depth) -> Actor*
+        {
+            auto object = create_dialogue_button_bat(widget_bats->factory, widget_bats->resources,
+                widget_bats->configuration, position, scale, depth); // 0x0013B580
+            if (object.bytes == nullptr)
+            {
+                return nullptr;
+            }
+            Actor* bat = widget_bats->actors.at(object.bytes.get());
+            widget_bats->objects.push_back(std::move(object));
+            // 0x0003B3C0: the bat's animation events become message {7, position, slot, event, phase} to its
+            // vtable +0xC (0x0006D8A0).
+            auto& view = actors->view(widget_bats->objects.back());
+            const u8* bytes = widget_bats->objects.back().bytes.get();
+            view.animation.message_handler = [this, bytes](const ActorAnimationMessage& message)
+            {
+                auto* event = const_cast<u8*>(message.event.data());
+                u32 address = scene.find_address(event);
+                const bool bound = address == 0;
+                if (bound)
+                {
+                    address = scene.bind_address({event, message.event.size()});
+                }
+                std::array<u32, 0x42> words{};
+                words[0] = 7;
+                words[1] = std::bit_cast<u32>(message.position);
+                words[2] = message.slot;
+                words[3] = address;
+                words[4] = u32(message.phase);
+                try
+                {
+                    object_message(*object_of(bytes), words);
+                }
+                catch (...)
+                {
+                    if (bound)
+                    {
+                        scene.unbind_address(event);
+                    }
+                    throw;
+                }
+                if (bound)
+                {
+                    scene.unbind_address(event);
+                }
+            };
+            // The bat's vtable +0x10 (getter 0x0006D4A0) is 0x0006D5C0.
+            actor_updates[bat] = [this](Actor& actor)
+            {
+                const auto view = bat_views(&actor);
+                update_button_bat(view.bat, view.frame, view.context);
+            };
+            return bat;
+        },
+        [this](Actor& bat) -> ButtonBatScreen&
+        {
+            return bat_views(&bat).bat;
+        },
+        [this](Actor& bat, const ButtonBatPoint& target, float scale)
+        {
+            for (const auto& [bytes, native] : actors->actors)
+            {
+                if (native == &bat)
+                {
+                    auto& view = actors->view(*object_of(bytes));
+                    fly_runtime_button_bat(view.bat, view.animation, target, scale, resources.registry,
+                        resources.error, random); // 0x0006DA00
+                    return;
+                }
+            }
+            throw Error("game-select bat is not a scene actor");
+        },
+        [this](Actor& actor, i32 view, i32 pass)
+        {
+            actor_draw(actor, view, pass); // Actor vtable +0x14.
+        },
+        [this](RuntimeDialogueWidget& widget, bool device)
+        {
+            const RuntimeDialogueInputDevice* input = device ? &input_views.at(frontend_input_address) : nullptr;
+            update_dialogue_widget(widget, input, *widget_update); // 0x00142460
+        },
+        [this](float* timer) -> u32
+        {
+            return tick_runtime_body_frame_timer(*timer, clock) ? 1 : 0; // 0x0012B2A0
+        },
+        [this](std::array<float, 2>& direction)
+        {
+            dialogue_input_direction(input_views.at(frontend_input_address), direction, input_state); // 0x001429E0
+        },
+        [this](const char* name, i32)
+        {
+            script_request(game, name); // 0x0011EB30 with mode 1.
+        },
+        g_50e458, *cutscenes, *attract_services,
+        [this]() -> i32
+        {
+            return game.script_dialogue == nullptr ? 0 : game.script_dialogue->dialogue.state.mode; // DAT_004EE1EC
+        },
+        voices, u32(g_language),
+        [this](std::span<u8> device) -> u32
+        {
+            const u32 address = static_cast<u32>(reinterpret_cast<std::uintptr_t>(device.data()));
+            input_addresses[address] = device;
+            input_views[address] = RuntimeDialogueInputDevice{device, {nullptr, nullptr, nullptr, nullptr}};
+            return address;
+        },
+        [this](u32 address)
+        {
+            input_views.erase(address);
+            input_addresses.erase(address);
+        },
+        [this](RuntimeDialogueWidget& widget, u32 device)
+        {
+            update_dialogue_widget(widget, &input_views.at(device), *widget_update); // 0x00142460
+        }});
+    scene.controls->context.gameselect = gameselect_services.get();
+    // The slot prompts' row callbacks (+0x84).
+    widget_callbacks[0x000E0210] = [this]()
+    {
+        move_runtime_slot_cursor(*gameselect_services);
+    };
+    widget_callbacks[0x000E02D0] = [this]()
+    {
+        select_runtime_slot(*gameselect_services);
+    };
+    widget_callbacks[0x000E04F0] = [this]()
+    {
+        delete_runtime_slot(*gameselect_services);
+    };
+    widget_callbacks[0x000E05D0] = [this]()
+    {
+        leave_runtime_slot_select(*gameselect_services);
+    };
+    // The keyboard prompts' rows (0x0020AAD8) all name a bare RET (0x001628B0).
+    widget_callbacks[0x001628B0] = []()
+    {
+    };
+}
+
 SceneActorServices::State::~State()
 {
+    if (scene.controls != nullptr && scene.controls->context.attract == attract_services.get())
+    {
+        scene.controls->context.attract = nullptr;
+    }
+    if (scene.controls != nullptr && gameselect_services != nullptr
+        && scene.controls->context.gameselect == gameselect_services.get())
+    {
+        scene.controls->context.gameselect = nullptr;
+    }
+    if (frontend_input.data() != nullptr)
+    {
+        input_views.erase(frontend_input_address);
+        input_addresses.erase(frontend_input_address);
+        frontend_input = {};
+    }
 
+    game.native_movies->session->startup().lock_texture = [](void*) -> RuntimeMovieLockedSurface
+    {
+        throw Error("movie frame copy 0x00107360 has no scene texture to lock");
+    };
+    // 0x0011C6F6: the global effect nodes (0x000ED450) and 0x0011C6FB: the camera-facing sprite queue
+    // (DAT_00504330) go with the scene, so the next scene's first flush draws none of this scene's sprites.
+    release_global_actor_effects(g_actor_effect_nodes, *effect_release, *debris_pool, *trail_pool,
+        resources.registry);
+    g_billboard_queue.count = 0;
+    // 0x0011C5C4: the scene cutscenes (0x0004ECE0) go before the actors their tracks hold.
+    if (find_scene_cutscene_runtime(game) != nullptr)
+    {
+        remove_scene_cutscene_runtime(game);
+    }
     // The dialogue's cutscene still holds rows over the scene's cutscene actors: close it before they go.
     if (game.script_dialogue == script_dialogue.get() && script_dialogue != nullptr)
     {
@@ -2540,7 +2863,7 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
         player.self.message(message);
         return;
     }
-    if (type == 3 || type == 0x91)
+    if (type == 3 || type == 0x91 || type == 0x9A)
     {
         scene.controls->message(object, message);
         return;
@@ -2558,6 +2881,10 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
             };
         }
         dispatch_base_actor_word_message(base_of(object).base, message, word_messages);
+        if (type == 0x15 && message[0] == 0x11)
+        {
+            unregister_actor_render_bins(actors->view(object).render); // 0x0006D8A0's tail: 0x0003CBB0
+        }
         return;
     }
     throw Error("scene object message for factory type " + std::to_string(type) + " has no class view");
@@ -3311,7 +3638,7 @@ void SceneActorServices::State::update_actor(u32 address)
 }
 
 // Scene startup ahead of the markers (0x0011CBD0): the door registration pool, the requested background
-// (0x0011C8B0) and its activation (0x00123070), then the navigation build (0x00111820).
+// (0x0011C8B0) and its activation (0x00123070), the navigation build (0x00111820) and the mirrors (0x0011F450).
 void SceneActorServices::State::start_background()
 {
     // 0x0011CBD0 after its marker load: the actor sound group capacities (DAT_00512520, DAT_00512534).
@@ -3360,6 +3687,9 @@ void SceneActorServices::State::start_background()
     }
     build_scene_navigation(background, {reinterpret_cast<const float*>(data(0x002FCFB8, 0x400).data()), 0x100},
         navigation, navigation_nodes);
+    // 0x0011CBD0 runs 0x001153A0, 0x00123560 and 0x00119990 next (not translated), then 0x0011F450.
+    setup_runtime_scene_mirrors(background != nullptr && background->model != nullptr ? background->model->cpu
+        : std::span<const u8>{}, mirrors);
 }
 
 SceneActorServices::SceneActorServices(SceneFactoryRuntime& scene, Game& game)
@@ -3397,20 +3727,15 @@ void SceneActorServices::State::actor_draw(Actor& actor, i32 view, i32 pass)
                     resources.memory.address_of(instance.source->cpu.data()), u32(pass), *button_bat_draw);
                 return;
             }
-            // Type 4 (vtable 0x004E1644) +0x14 is the background draw 0x00042C10. It is not translated; the
-            // legacy host world draw presents the background in its place.
+            // Type 4 (vtable 0x004E1644) +0x14 is the background draw 0x00042C10: the actor draw unless
+            // DAT_004EE1EC holds a dialogue page.
             if (type == 4)
             {
-                if (host_world_draw == nullptr)
-                {
-                    unbound("background draw 0x00042C10 outside a presented view");
-                }
-                // The host world draw presents the whole hall at once, so it runs for the first pass
-                // (0x00121900's pass 0); passes 1 and 2 have nothing left for it to present.
-                if (pass == 0)
-                {
-                    (*host_world_draw)();
-                }
+                std::unique_ptr<ActorDrawModelView> model;
+                ActorDrawState state = actor_draw_state(*object, actor, model);
+                ActorFrameDrawContext attachments{attachment_draws};
+                const i32 mode = game.script_dialogue == nullptr ? 0 : game.script_dialogue->dialogue.state.mode;
+                draw_runtime_background(mode, state, pass, attachments, *model_draw);
                 return;
             }
             // Type 5 +0x14 is the player draw 0x00028050 (getter 0x00027F60).
@@ -3487,9 +3812,9 @@ void SceneActorServices::State::draw_player(FactoryObject& object, NativePlayerI
     draw_runtime_player({object.bytes.get(), object.size}, kind, draw);
 }
 
-// Actor vtable +0x18 by class. Types 2, 5, 0x1A, 0x1F and 0x23 keep the base actor slot 0x0003C830 (getters
-// 0x0003C080, 0x00027F60, 0x0006EE20, 0x0006DBD0 and 0x00069620); the FX emitter (type 0xD, getter 0x00109DD0)
-// uses 0x00109E30.
+// Actor vtable +0x18 by class. Types 2, 5, 0x15, 0x1A, 0x1F and 0x23 keep the base actor slot 0x0003C830 (getters
+// 0x0003C080, 0x00027F60, 0x0006D4A0, 0x0006EE20, 0x0006DBD0 and 0x00069620); the FX emitter (type 0xD, getter
+// 0x00109DD0) uses 0x00109E30.
 u32 SceneActorServices::State::actor_visible(Actor& actor, i32 pass, i32 view)
 {
     FactoryObject& object = object_of_actor(actor);
@@ -3497,7 +3822,8 @@ u32 SceneActorServices::State::actor_visible(Actor& actor, i32 pass, i32 view)
     {
         return classes->emitter_visible(object, u32(pass), u32(view)) ? 1u : 0u;
     }
-    if (object.type != 2 && object.type != 5 && object.type != 0x1A && object.type != 0x1F && object.type != 0x23)
+    if (object.type != 2 && object.type != 5 && object.type != 0x15 && object.type != 0x1A && object.type != 0x1F
+        && object.type != 0x23)
     {
         unbound("actor vtable +0x18 visibility for factory type " + std::to_string(object.type));
     }
@@ -3515,8 +3841,7 @@ u32 SceneActorServices::State::actor_visible(Actor& actor, i32 pass, i32 view)
 }
 
 // 0x0011C240's actor bins for one view: 0x00121730 and 0x00121880 over DAT_00511AA8[view], 0x00121900 (passes 0
-// and 1 with its world helpers), then 0x00121D40 (pass 2) over DAT_00511B1C and that bin. The host world draw
-// stands in for the background's draw.
+// and 1 with its world helpers), then 0x00121D40 (pass 2) over DAT_00511B1C and that bin.
 void SceneActorServices::State::refresh_ambient_context()
 {
     for (size_t index = 0; index < ambient_grids.size(); ++index)
@@ -3528,7 +3853,7 @@ void SceneActorServices::State::refresh_ambient_context()
     ambient_context->points_enabled = ambient_points_enabled;
 }
 
-void SceneActorServices::State::draw_view_actors(i32 view)
+void SceneActorServices::State::present_view(i32 view)
 {
     if (display_view == nullptr)
     {
@@ -3682,11 +4007,304 @@ void SceneActorServices::State::draw_view_actors(i32 view)
                 }};
             draw_runtime_door_shadows(shadow);
         }};
-    auto& bin = entity_detail::g_world.bins[size_t(view)];
-    sort_runtime_view_bin(bin, context);
-    classify_runtime_view_bin(bin, 0, view, context);
-    auto& drawn = draw_runtime_view_passes(entity_detail::g_world.body_a, bin, view, 0, passes);
-    draw_runtime_view_actors(entity_detail::g_world.body_a, &drawn, view, 0, context);
+    passes.mirror_side = [this](const Vec3& position)
+    {
+        return runtime_mirror_side(position, mirrors);
+    };
+    passes.radius = [this](Actor& actor)
+    {
+        FactoryObject& object = object_of_actor(actor);
+        return runtime_actor_view_radius(actor, {object.bytes.get(), object.size});
+    };
+    passes.mirrors = &mirrors;
+    RuntimeSceneViewBins bins{passes, entity_detail::g_world.bins, entity_detail::g_world.body_a, view, mirror_pass,
+        [this]()
+        {
+            // 0x0012AB10. DAT_00512AF0 is filled by 0x0012A9B0 / 0x0012A9E0 / 0x0012AA70, which nothing native
+            // calls yet.
+            if (post_model_count != 0)
+            {
+                unbound("post-model pass 0x0012AB10 body");
+            }
+        }};
+    RuntimeSceneMirrorPass mirror{mirrors, g_flag_10b4, *display_setup, d3d_device.outer(), cull_mode,
+        [&bins](i32 flag)
+        {
+            draw_runtime_view_bins(flag, bins);
+        }};
+    BillboardFlushContext billboards{g_billboard_queue, *dialogue_draw, d3d_device.outer(), render_image};
+    RuntimeSceneViewPresent present{
+        [&mirror]()
+        {
+            draw_runtime_scene_mirror(mirror);
+        },
+        [this, &context, view]()
+        {
+            refresh_runtime_view_actors(entity_detail::g_world.body_a, entity_detail::g_world.bins[size_t(view)], view,
+                [this](Actor& actor, i32)
+                {
+                    view_refresh_slot(actor);
+                }, context);
+        },
+        [&bins]()
+        {
+            draw_runtime_view_bins(0, bins);
+        },
+        [this]()
+        {
+            draw_anchor_sprites();
+        },
+        [this]()
+        {
+            draw_scene_controls();
+        },
+        []()
+        {
+            // DAT_00506930..DAT_00506C50: 0x000ED390 for each nonzero word (the port's table holds 150 of them).
+            for (ActorEffectNode* effect : g_actor_effect_nodes)
+            {
+                if (effect != nullptr)
+                {
+                    draw_actor_effect_particles(*effect, g_billboard_queue); // 0x000ED390
+                }
+            }
+        },
+        [this]()
+        {
+            draw_effect_debris(debris_pool->particles == nullptr ? std::span<const u8>{}
+                : std::span<const u8>(debris_pool->particles, 0x16A8), *display_setup);
+        },
+        [this]()
+        {
+            // 0x000EBCB0: live type-2 trail records queue billboards through 0x0005C1A0.
+            if (trail_pool->particles != nullptr)
+            {
+                const std::span<const u8> particles(trail_pool->particles, 0x19C8);
+                for (size_t offset = 0x18; offset < 0x18 + 50 * 0x84; offset += 0x84)
+                {
+                    if (i32(read_u32(particles, offset + 100)) == -2 && particles[offset + 0x58] == 2)
+                    {
+                        unbound("trail billboard queue 0x000EBCB0 body");
+                    }
+                }
+            }
+        },
+        [&billboards]()
+        {
+            flush_billboards(billboards);
+        },
+        [this]()
+        {
+            // 0x0011AF90. DAT_00510560 is written by 0x0011AEA0 / 0x0011AEE0 / 0x000BA840 (not translated) and
+            // cleared by 0x0011CBD0.
+            if (decal_count != 0 && backgrounds->first_background() != nullptr)
+            {
+                unbound("decal draw 0x0011AF90 body");
+            }
+        },
+        []()
+        {
+            // 0x00119230.
+            if (g_50ec00 != 0 && g_50484c < 1)
+            {
+                unbound("shadow volume draw 0x00119230 body");
+            }
+        },
+        []()
+        {
+            // 0x0011BA50. DAT_00510580 comes from 0x0011B7A0 in 0x0011CBD0, which the native start does not run.
+            if (g_510580 != 0 && g_flag_0650 == 0)
+            {
+                unbound("refraction draw 0x0011BA50 body");
+            }
+        },
+        [this]()
+        {
+            draw_screen_effects(RuntimeScreenEffects{screen_flash, screen_capture, g_50484c, line_retained},
+                *dialogue_outer);
+        },
+        [this]()
+        {
+            draw_scene_dialogue_page(game);
+        },
+        caption_camera,
+        []()
+        {
+            unbound("caption camera 0x00048BC0 / 0x0004DBD0 (DAT_004DE9AC)");
+        },
+        caption_widget,
+        frontend_state,
+        frontend_widget,
+        [](u32)
+        {
+            unbound("front-end widget draw 0x00142720");
+        },
+        [this]()
+        {
+            flush_scene_dialogue_sprites(game);
+        },
+        [this]()
+        {
+            // 0x00132290. DAT_005493E0 is set by 0x00132040 at scene start, which the native start does not run.
+            if (hud_enabled != 0)
+            {
+                unbound("HUD draw 0x00132290 body");
+            }
+        },
+        g_flags_ea9c,
+        []()
+        {
+            draw_runtime_phase_overlay(g_510cf4, g_510e30, g_510e40, g_510e24);
+        },
+        capture_camera,
+        [](u32)
+        {
+            unbound("camera capture 0x00048550");
+        },
+        [this]()
+        {
+            // 0x0012C490: with a transition running (DAT_0054632C) and no dialogue page (DAT_004EE1EC), the
+            // transition camera (0x00048BC0, ESI DAT_0054937C) and the draw slot of the slot's handler record
+            // (DAT_003129B0 + handler * 0x18).
+            if (g_54632c != 0 && (game.script_dialogue == nullptr ? 0 : game.script_dialogue->dialogue.state.mode) == 0)
+            {
+                const i32 handler = kTransition31478[size_t(g_546328)].handler;
+                const u32 slot = render_image.word(0x003129B0 + u32(handler) * 0x18);
+                if (slot != 0x001628B0)
+                {
+                    // 0x0012B560, 0x0012BE60 and 0x0012BA10 (book and slime) belong to step 5 of
+                    // docs/LEGACY_HOST_CODE.md: the legacy host transition (transition_book.cpp) still draws them,
+                    // after the views (game.cpp draw_scene_transition), and owns the transition camera.
+                    if (slot != 0x0012B560 && slot != 0x0012BE60 && slot != 0x0012BA10)
+                    {
+                        unbound("transition draw slot " + std::to_string(slot));
+                    }
+                }
+            }
+        },
+        [this]()
+        {
+            draw_scene_text_pools(game);
+        }};
+    present_runtime_scene_view(present);
+}
+
+// Actor vtable +0x38, which 0x00121DC0 calls when set. Getters 0x0003C080 (type 2, the base every class below
+// starts from, clears it), 0x00042BC0 (4), 0x00027F60 (5), 0x00109DD0 (0xD), 0x0006D4A0 (0x15), 0x0006EE20 (0x1A),
+// 0x0006DBD0 (0x1F) and 0x00069620 (0x23) leave it 0.
+void SceneActorServices::State::view_refresh_slot(Actor& actor)
+{
+    for (const auto& [bytes, native] : actors->actors)
+    {
+        if (native == &actor)
+        {
+            const FactoryObject* object = object_of(bytes);
+            const u16 type = object == nullptr ? 0 : object->type;
+            if (type == 2 || type == 4 || type == 5 || type == 0xD || type == 0x15 || type == 0x1A || type == 0x1F
+                || type == 0x23)
+            {
+                return;
+            }
+            unbound("actor vtable +0x38 view refresh for factory type " + std::to_string(type));
+        }
+    }
+    throw Error("view refresh for an actor outside the scene");
+}
+
+// Xbox 0x00121EC0
+void SceneActorServices::State::draw_anchor_sprites()
+{
+    for (auto* node = static_cast<entity_detail::ListHead*>(entity_detail::g_world.anchor.next); node != nullptr;
+         node = static_cast<entity_detail::ListHead*>(node->next))
+    {
+        Actor* owner = nullptr;
+        for (auto& [native, registration] : actors->render)
+        {
+            if (&registration->anchor == node)
+            {
+                owner = native;
+            }
+        }
+        if (owner == nullptr)
+        {
+            throw Error("DAT_00511AE8 node without a scene actor");
+        }
+        // Actor +0x204 -> its model header -> runtime header +8: the sprite table.
+        if (owner->model == nullptr || owner->model->cpu.data() == nullptr)
+        {
+            throw Error("0x00121EC0 reads the sprite table of an actor without a +0x204 model");
+        }
+        const auto cpu = owner->model->cpu;
+        const u32 sprites = read_u32(cpu, read_u32(cpu, 0x10) + 8);
+        if (sprites == 0)
+        {
+            throw Error("0x00121EC0 reads +8 of a null sprite table");
+        }
+        if (read_u32(cpu, sprites + 8) == 0)
+        {
+            continue;
+        }
+        Vec3 scale;
+        matrix_axis_scales(owner->xform, scale); // Actor +0x2AC.
+        const auto& m = owner->xform;
+        // The sprite textures are headers inside the model's own resource block. ActorModel::cpu holds that
+        // block's bytes with its pointers as offsets from the block's scene address.
+        if (owner->model->runtime == nullptr || owner->model->runtime->source == nullptr)
+        {
+            throw Error("0x00121EC0 sprite textures have no loaded model block");
+        }
+        const u32 block = resources.memory.address_of(owner->model->runtime->source->cpu.data());
+        const u32 records = read_u32(cpu, sprites + 4);
+        const u32 textures = read_u32(cpu, sprites + 0xC);
+        for (u32 index = 0; index < read_u32(cpu, sprites); ++index)
+        {
+            const u32 record = records + index * 0x18;
+            const i32 slot = i32(read_u32(cpu, record + 0xC));
+            const float size[2]{scale.x * read_f32(cpu, record + 0x10), scale.y * read_f32(cpu, record + 0x10)};
+            const u8* texture = resources.memory.pointer(block + read_u32(cpu, textures + (u32(slot) & 0x7FFFFFFFu) * 4));
+            if (texture == nullptr)
+            {
+                throw Error("0x00121EC0 sprite texture is outside the scene resources");
+            }
+            const i32 tick = i32(float(texture[0x10]) * g_4312cc); // DAT_004312CC.
+            const Vec3 point{read_f32(cpu, record), read_f32(cpu, record + 4), read_f32(cpu, record + 8)};
+            Vec3 position{m[1] * point.y + m[0] * point.x + m[2] * point.z + m[3],
+                m[4] * point.x + m[6] * point.z + m[5] * point.y + m[7],
+                m[10] * point.z + m[9] * point.y + m[8] * point.x + m[11]};
+            if (slot < 0)
+            {
+                // Pulled 5 units (DAT_0032B184) toward the view.
+                const Vec3 eye = display_view->position;
+                float x = position.x - eye.x;
+                float y = position.y - eye.y;
+                float z = position.z - eye.z;
+                const float squared = z * z + y * y + x * x;
+                if (squared != 0.f)
+                {
+                    const long double reciprocal = retail_reciprocal_sqrt(squared);
+                    x = float(x * reciprocal);
+                    y = float(y * reciprocal);
+                    z = float(z * reciprocal);
+                }
+                position = {position.x - x * 5.f, position.y - y * 5.f, position.z - z * 5.f};
+            }
+            queue_billboard(g_billboard_queue, texture, 0xFFFFFFFFu, u32(tick % i32(texture[0x11])), position, size,
+                0.f); // DAT_00314F48.
+        }
+    }
+}
+
+// 0x0011C240's walk of DAT_0050E438: each active control's vtable +0x14.
+void SceneActorServices::State::draw_scene_controls()
+{
+    for (RuntimeActorLink* link = g_scene_controls.active.next; link != nullptr; link = link->next)
+    {
+        if (g_scene_control_owner == nullptr)
+        {
+            throw Error("active scene control without a control owner");
+        }
+        g_scene_control_owner->draw(g_scene_control_owner->instance_of(*link));
+    }
 }
 
 ActorDrawState SceneActorServices::State::actor_draw_state(FactoryObject& object, Actor& actor,
@@ -3719,6 +4337,64 @@ ActorDrawState SceneActorServices::State::actor_draw_state(FactoryObject& object
         reinterpret_cast<void*>(std::uintptr_t(read_u32(bytes, 0x1A8))), draw_matrices[&actor]};
 }
 
+void SceneActorServices::State::present_render_target(std::uintptr_t color)
+{
+    if (color == SceneD3DDevice::kBackBuffer)
+    {
+        if (render_target_texture != 0)
+        {
+            RgbaImage rendered;
+            gfx_end_native_target(rendered);
+            const RuntimeMovieLockedSurface surface = lock_movie_texture(render_target_texture);
+            const size_t row = size_t(rendered.width) * 4;
+            for (int y = 0; y < rendered.height; ++y)
+            {
+                std::memcpy(surface.pixels + size_t(y) * size_t(surface.pitch), rendered.bgra.data() + size_t(y) * row,
+                    row);
+            }
+            render_target_texture = 0;
+        }
+        return;
+    }
+    const auto found = d3d_device.surface_textures.find(color);
+    if (found == d3d_device.surface_textures.end())
+    {
+        throw Error("render target surface has no texture");
+    }
+    if (render_target_texture != 0)
+    {
+        throw Error("render target set while another texture target is open");
+    }
+    const u32 texture = u32(found->second);
+    const auto registered = resources.d3d.resources.find(texture);
+    if (registered == resources.d3d.resources.end() || registered->second.kind != 3)
+    {
+        throw Error("render target surface is not a registered texture");
+    }
+    gfx_begin_native_target(i32(registered->second.header[0]), i32(registered->second.header[1]));
+    render_target_texture = texture;
+}
+
+RuntimeMovieLockedSurface SceneActorServices::State::lock_movie_texture(u32 record)
+{
+    const auto registered = resources.d3d.resources.find(record);
+    if (registered == resources.d3d.resources.end() || registered->second.kind != 3 || registered->second.data == 0)
+    {
+        throw Error("movie frame texture is not a registered texture");
+    }
+    const auto& header = registered->second.header; // width, height, levels, usage, format, pool
+    // X_D3DFMT_LIN_A8R8G8B8 (0x12) and X_D3DFMT_LIN_X8R8G8B8 (0x1E): the decoder writes linear 32-bit rows.
+    if (header[4] != 0x12 && header[4] != 0x1E)
+    {
+        char detail[80];
+        std::snprintf(detail, sizeof(detail), "movie frame texture format 0x%X is not a linear 32-bit format",
+            header[4]);
+        throw Error(detail);
+    }
+    movie_textures.insert(resources.memory.pointer(record));
+    return RuntimeMovieLockedSurface{i32(header[0] * 4), resources.memory.pointer(registered->second.data)};
+}
+
 // A bound texture is a frame record of a texture header: header + header size (28) + frame * 0x14
 // (0x00053550). Headers sit at the start of texture resources and inside fonts (one per glyph); the
 // registry's loaded rows own those bytes, and the header's offsets index that row's GPU data. Model
@@ -3729,7 +4405,21 @@ const RgbaImage& SceneActorServices::State::texture_image(const u8* record)
     const auto cached = texture_images.find(record);
     if (cached != texture_images.end())
     {
-        return *cached->second;
+        if (movie_textures.erase(record) == 0)
+        {
+            return *cached->second;
+        }
+        // A movie frame rewrote the texture's data since it was decoded. The presenter keeps this image's
+        // address across frames, so it is decoded again in place under a new serial.
+        RgbaImage& image = *cached->second;
+        const u32 serial = image.serial + 1;
+        std::unique_ptr<RgbaImage> fresh = std::move(cached->second);
+        texture_images.erase(cached);
+        const RgbaImage& decoded = texture_image(record);
+        image = decoded;
+        image.serial = serial;
+        texture_images[record] = std::move(fresh);
+        return image;
     }
     const u32 address = resources.memory.find_address(record);
     const auto registered = resources.d3d.resources.find(address);
@@ -3788,54 +4478,28 @@ const RgbaImage& SceneActorServices::State::texture_image(const u8* record)
     throw Error("bound texture is outside every loaded resource");
 }
 
-void SceneActorServices::present_views(const std::function<void()>& draw_world)
+void SceneActorServices::present_views()
 {
     auto& state = *state_;
     const SceneD3DPresentContext present{state.resources.memory, state.resources.d3d, state.d3d_device.vertex_shaders,
         [&state](const u8* record) -> const RgbaImage&
         {
             return state.texture_image(record);
+        },
+        [&state](std::uintptr_t color)
+        {
+            state.present_render_target(color);
         }};
-    bool presented = false;
-    present_runtime_display_views([&state, &draw_world, &present, &presented](i32 slot)
+    present_runtime_display_views([&state, &present](i32 slot)
     {
-        presented = true;
-        // The D3D11 renderer takes the slot's display camera for the host world draw; the display field
-        // of view is in degrees there.
-        const auto& view = *entity_detail::g_display_view;
-        gfx_set_camera(view.position, view.rotation, view.field_of_view * (3.14159265f / 180.f));
         state.d3d_device.commands.clear();
-        // 0x0011C240 for this view: the bin sort (0x00121730) and visibility (0x00121880), then the +0x934
-        // owners and visible bin actors (0x00121D40). The background's +0x14 is the host world draw.
-        state.host_world_draw = &draw_world;
-        try
-        {
-            state.draw_view_actors(slot);
-        }
-        catch (...)
-        {
-            state.host_world_draw = nullptr;
-            throw;
-        }
-        state.host_world_draw = nullptr;
-        draw_scene_dialogue(state.game);
+        state.present_view(slot); // 0x0011C240.
         auto commands = state.d3d_device.take_commands();
         present_scene_d3d_commands(commands, present);
         // Recycle the recording boundary's command capacity after synchronous presentation.
         commands.clear();
         state.d3d_device.commands = std::move(commands);
     }, *state.display_setup);
-    // Legacy front-end owners still supply their own camera and draws. Starting the native
-    // actor factory does not mean that an owner has registered a native display camera.
-    if (!presented)
-    {
-        if (state.game.camera != nullptr)
-        {
-            const auto& camera = *state.game.camera;
-            gfx_set_camera(camera.pose_position, camera.pose_quat, camera.pose_fov);
-        }
-        draw_world();
-    }
 }
 
 void SceneActorServices::start_background()
@@ -4003,23 +4667,6 @@ void SceneActorServices::update_scene_actors()
         throw;
     }
     state.effect_pass_scratch = previous;
-}
-
-void SceneActorServices::update_audio()
-{
-    auto& state = *state_;
-    dispatch_native_audio_notifications(state.voices.banks); // 0x0015B780
-    if (g_native_audio != nullptr && state.display_view != nullptr)
-    {
-        // DAT_00421C70.
-        const Vec3 velocity{read_f32(state.data(0x00421C70, 12), 0), read_f32(state.data(0x00421C70, 12), 4),
-            read_f32(state.data(0x00421C70, 12), 8)};
-        update_audio_listener_from_view(state.display_view->position, state.display_view->rotation,
-            state.display_view->forward, velocity, g_native_audio->listener); // 0x0003A040
-    }
-    tick_audio_event_voices(state.voices); // 0x000396F0
-    tick_audio_stream_slots(state.game.clock.dt, g_4e02e8, *state.audio_banks); // 0x00038640
-    release_idle_tracked_audio_channels(*state.audio_banks); // 0x00038C20
 }
 
 void SceneActorServices::select_frame_display()
@@ -4313,6 +4960,16 @@ void SceneActorServices::update_effects(RuntimeEffectPassScratch& scratch)
             if (effect != nullptr && pointer == effect->bytes.data())
             {
                 return state.heap_address(pointer, effect->bytes.size());
+            }
+        }
+        // A binding inside an actor model's CPU view (its serialized copy) has the same offset in the relocated
+        // CPU block the model resource occupies.
+        for (const auto& [relocated, model] : state.resources.actor_models)
+        {
+            const u8* first = model.cpu.data();
+            if (first != nullptr && first <= pointer && pointer < first + model.cpu.size())
+            {
+                return state.resources.memory.address_of(relocated) + u32(pointer - first);
             }
         }
         return state.resources.memory.address_of(pointer);

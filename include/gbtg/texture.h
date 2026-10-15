@@ -24,6 +24,8 @@ enum class XboxFormat : u32
     LinA8R8G8B8 = 0x12,
     LinL8 = 0x13,
     LinX8R8G8B8 = 0x1E,
+    A8B8G8R8 = 0x3A,
+    LinA8B8G8R8 = 0x3F,
 };
 
 struct TextureHeader
@@ -46,6 +48,8 @@ struct RgbaImage
     int height = 0;
     std::vector<u8> bgra; // 4 bytes per pixel, BGRA
     u32 serial = 0;       // bumps when the pixels change, so a cached upload is replaced
+    // A linear (LIN_) format: the NV2A samples it with texel coordinates, 0..width and 0..height.
+    bool linear = false;
     // Texture header flags >> 16. Nonzero marks the surface 0x000527C0 registers for BinkCopyToBuffer.
     u8 movie_slot = 0;
     u32 movie_seen = 0;

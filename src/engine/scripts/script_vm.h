@@ -13,6 +13,8 @@ extern bool g_scene_script_started;
 extern float g_509b20;
 extern float g_509b24;
 extern float g_509b28;
+extern float g_509b2c;
+extern float g_509b4c; // DAT_00509B4C, the directional light intensity.
 
 // Xbox 0x00049D10.
 bool scene_end_flag_set(); // Xbox 0x00049D10

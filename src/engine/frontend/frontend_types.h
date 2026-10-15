@@ -3,7 +3,6 @@
 #include "gbtg/bundle.h"
 #include "gbtg/anim.h"
 #include "gbtg/resource_error.h"
-#include "gbtg/dialogue.h"
 #include "gbtg/engine_internal.h"
 #include "gbtg/font.h"
 #include "gbtg/gfx.h"

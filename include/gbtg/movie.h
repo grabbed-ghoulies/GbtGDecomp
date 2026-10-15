@@ -28,8 +28,6 @@ void movie_open_gameselect();
 // Attract logo. 0x00107030 compares the opened name with this aid.
 void movie_open_attract();
 
-// 0x0004C6C0 / 0x0004C850. Cutscene event types 0x0E, 0x1F and 0x20 open a movie for [start, end).
-void movie_sync_cutscene(const Game& g);
 
 // 0x00106CD0. Copy the live frame into any texture whose movie slot matches.
 void movie_apply(Mesh& mesh);

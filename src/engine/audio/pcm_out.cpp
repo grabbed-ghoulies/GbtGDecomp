@@ -2,6 +2,8 @@
 
 #include "gbtg/bundle.h"
 #include "pcm_backend.h"
+#include "../camera/display_view.h"
+#include "../scene/executable_resources.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -73,17 +75,9 @@ struct WaveChoice
     u16 index = 0;
     u16 weight_lo = 0;
     u16 weight_hi = 10000;
-};
-
-struct SoundEvent
-{
-    float time = 0.f;
-    float stop = 0.f; // type 0x0C window end. 0 leaves the voice to finish.
-    std::string cue;  // XACT_SOUNDBANK_...
-    bool fired = false;
-    bool stopped = false;
-    bool stream = false; // 0x0004D4C0. Starting this cue stops the previous one.
-    bool dialog = false; // Type 0x15. 0x0004C4F0 plays this when the dialog hold ends.
+    // The play-wave event's loop count (event header +6): 0 plays once, 0xFFFF loops until the cue stops. The
+    // wave bank entry's loop region (+0x10/+0x14) is what repeats.
+    u16 loop_count = 0;
 };
 
 #if defined(_WIN32)
@@ -102,6 +96,9 @@ struct PcmVoice
     std::vector<u8> pcm;
     std::string cue;
     bool held = false; // Stopped by the dialog hold. Start resumes the buffer.
+    // A native audio core cue (IXACTSoundBank_Prepare). Only the native core stops and releases it; the host
+    // cue paths below leave it alone.
+    bool native = false;
 };
 
 IXAudio2* g_xa = nullptr;
@@ -139,9 +136,6 @@ HRESULT g_device_result = S_OK;
 bool g_catalog_ready = false;
 std::map<std::string, WaveFile> g_wavefiles;                 // WBND name -> file
 std::map<std::string, std::vector<WaveChoice>> g_cues;      // full cue string -> variations
-std::vector<SoundEvent> g_events;
-size_t g_clip = static_cast<size_t>(-1);
-std::string g_clip_name;
 // Name copied to the stream object +0x86 by 0x0004D4C0.
 std::string g_stream_cue;
 
@@ -225,7 +219,8 @@ std::vector<std::string> device_names(std::span<const u8> blob)
     return names;
 }
 
-void push_wave(std::vector<WaveChoice>& out, std::span<const u8> blob, size_t o, const std::vector<std::string>& devs)
+void push_wave(std::vector<WaveChoice>& out, std::span<const u8> blob, size_t o, const std::vector<std::string>& devs,
+    u16 loop_count = 0)
 {
     if (o + 8 > blob.size())
     {
@@ -246,11 +241,12 @@ void push_wave(std::vector<WaveChoice>& out, std::span<const u8> blob, size_t o,
     {
         c.weight_hi = 10000;
     }
+    c.loop_count = loop_count;
     out.push_back(c);
 }
 
 void push_variation_table(std::vector<WaveChoice>& out, std::span<const u8> blob, size_t jump,
-                          const std::vector<std::string>& devs)
+                          const std::vector<std::string>& devs, u16 loop_count = 0)
 {
     if (jump >= blob.size())
     {
@@ -263,7 +259,7 @@ void push_variation_table(std::vector<WaveChoice>& out, std::span<const u8> blob
     }
     for (u8 i = 0; i < count; ++i)
     {
-        push_wave(out, blob, jump + 4 + size_t(i) * 8, devs);
+        push_wave(out, blob, jump + 4 + size_t(i) * 8, devs, loop_count);
     }
 }
 
@@ -308,6 +304,7 @@ void waves_from_entry_data(std::vector<WaveChoice>& out, std::span<const u8> blo
         if (kind == 0 || kind == 1)
         {
             const u8 sub = blob[sound + 5];
+            const u16 loop_count = ru16(blob, sound + 6);
             if (sub == 0x00 || sub == 0x40)
             {
                 // A 4-byte payload is the wave index and the device index.
@@ -322,17 +319,18 @@ void waves_from_entry_data(std::vector<WaveChoice>& out, std::span<const u8> blo
                         c.bank = devs[size_t(bank)];
                         c.index = static_cast<u16>(wave);
                         c.weight_hi = 10000;
+                        c.loop_count = loop_count;
                         out.push_back(std::move(c));
                     }
                 }
                 else
                 {
-                    push_wave(out, blob, sound + 8, devs);
+                    push_wave(out, blob, sound + 8, devs, loop_count);
                 }
             }
             else if (sub == 0x04 || sub == 0x44)
             {
-                push_variation_table(out, blob, ru32(blob, sound + 8), devs);
+                push_variation_table(out, blob, ru32(blob, sound + 8), devs, loop_count);
             }
         }
         sound += 8u + size;
@@ -543,6 +541,43 @@ struct NativeCueNotes
     bool stopped = false; // IXACTSoundBank_Stop: XACT reports the cue stopped even while its tails play out.
 };
 std::unordered_map<void*, NativeCueNotes> g_cue_notes; // By prepared XAudio2 voice.
+
+// XACT reclaims a cue once its stopped notification (1) has been delivered: the retail callback frees its wrapper
+// there (0x000398E0 -> 0x0015CE90) and nothing uses the handle again, so its host voice goes too.
+void release_native_cue_voice(IXAudio2SourceVoice* voice)
+{
+    for (size_t i = 0; i < g_bed.size(); ++i)
+    {
+        if (g_bed[i].native && g_bed[i].voice == voice)
+        {
+            release_voice(g_bed[i]);
+            g_bed.erase(g_bed.begin() + static_cast<std::ptrdiff_t>(i));
+            return;
+        }
+    }
+}
+
+// The XAudio2 mixer thread reads the voices' PCM straight from g_voices and g_bed. Static destruction frees that
+// storage at exit, so stop the engine and destroy the source voices first; this object is constructed after them,
+// so it is destroyed before them.
+struct AudioDeviceTeardown
+{
+    ~AudioDeviceTeardown()
+    {
+        if (g_xa == nullptr)
+        {
+            return;
+        }
+        g_xa->StopEngine();
+        for (auto* voices : {&g_voices, &g_bed})
+        {
+            for (PcmVoice& slot : *voices)
+            {
+                release_voice(slot);
+            }
+        }
+    }
+} g_device_teardown;
 
 bool ensure_device()
 {
@@ -838,7 +873,14 @@ u64 play_choice(const std::string& cue, const WaveChoice& choice, bool loop = fa
     buf.AudioBytes = UINT32(slot.pcm.size());
     buf.pAudioData = slot.pcm.data();
     buf.Flags = XAUDIO2_END_OF_STREAM;
-    buf.LoopCount = loop ? XAUDIO2_LOOP_INFINITE : 0;
+    // The play event's loop count; 0xFFFF is XACT's infinite loop.
+    if (choice.loop_count != 0)
+    {
+        loop = true;
+    }
+    buf.LoopCount = !loop ? 0
+        : choice.loop_count == 0 || choice.loop_count == 0xFFFF ? XAUDIO2_LOOP_INFINITE
+        : std::min<UINT32>(choice.loop_count, XAUDIO2_MAX_LOOP_COUNT);
     if (loop)
     {
         // Play from frame zero once, then repeat only the authored loop region.
@@ -871,6 +913,7 @@ u64 play_choice(const std::string& cue, const WaveChoice& choice, bool loop = fa
     const u64 handle = ++g_next_voice_handle;
     slot.handle = handle;
     slot.cue = cue;
+    slot.native = prepared_voice != nullptr;
     std::cout << "audio cue " << cue << " " << choice.bank << "[" << choice.index << "]\n";
     // Cutscene sync stops g_voices whenever no clip is playing. A cue the
     // frontend acquired has to live on the bed or that stop deletes it.
@@ -902,241 +945,9 @@ const WaveChoice* pick_choice(const std::vector<WaveChoice>& waves, u32 frame)
     return &waves[0];
 }
 
-void collect_events(const Game& g, const Cutscene& clip)
-{
-    g_events.clear();
-    if (!g.scene_bundle)
-    {
-        return;
-    }
-    std::string prefix = clip.name;
-    const std::string from = "aid_cutscene_";
-    if (prefix.rfind(from, 0) == 0)
-    {
-        prefix.replace(0, from.size(), "aid_cutsceneevents_");
-    }
-    for (const auto& e : g.scene_bundle->entries)
-    {
-        if (e.type != ResourceType::CutsceneEvents || e.name.rfind(prefix, 0) != 0)
-        {
-            continue;
-        }
-        size_t pos = 0;
-        while (pos + 16 <= e.cpu.size())
-        {
-            const u32 size = ru32(e.cpu, pos);
-            if (size < 16 || pos + size > e.cpu.size())
-            {
-                break;
-            }
-            const auto rec = e.cpu.subspan(pos, size);
-            const u32 type = ru32(rec, 0x0c) & 0xffff;
-            // Type 0x0C. 0x0004C3B0 plays the name at +0x14. 0x0004C4A0 stops that
-            // voice when the window ends.
-            if (type == 0x0c && rec.size() > 0x14)
-            {
-                const std::string cue = event_name(rec, 0x14);
-                if (is_xact_cue(cue))
-                {
-                    SoundEvent ev;
-                    ev.time = rf32(rec, 4);
-                    ev.stop = rf32(rec, 8);
-                    ev.cue = cue;
-                    g_events.push_back(std::move(ev));
-                }
-                pos += size;
-                continue;
-            }
-            // Type 0x15. 0x0004C4F0 plays the name at +0xD0 through 0x0004D4C0,
-            // unless that name is XACT_SOUNDBANK_GMISC_NOSOUND.
-            if (type == 0x15 && rec.size() > 0xd0)
-            {
-                const std::string cue = event_name(rec, 0xd0);
-                if (is_xact_cue(cue) && cue != kNoSound)
-                {
-                    SoundEvent ev;
-                    ev.time = rf32(rec, 4);
-                    ev.cue = cue;
-                    ev.stream = true;
-                    // The callback 0x0004C4F0 runs when 0x0004E640 drops the hold,
-                    // which is when the dialog mode returns to 0. Not at this time.
-                    ev.dialog = true;
-                    g_events.push_back(std::move(ev));
-                }
-                pos += size;
-                continue;
-            }
-            const std::string cue = event_name(rec, 0x10);
-            if (is_xact_cue(cue))
-            {
-                SoundEvent ev;
-                ev.time = rf32(rec, 4);
-                ev.cue = cue;
-                // Type 0x0A. 0x0004D4C0 starts this name and remembers it so the
-                // next streamed cue can stop it.
-                ev.stream = type == 0x0a;
-                g_events.push_back(std::move(ev));
-            }
-            pos += size;
-        }
-    }
-    std::cout << "audio events " << g_events.size() << " " << clip.name << "\n";
-}
-
 #endif
 
 } // namespace
-
-#if defined(_WIN32)
-bool g_dialog_held = false;
-
-void hold_voice(PcmVoice& slot, bool hold)
-{
-    if (slot.voice == nullptr)
-    {
-        return;
-    }
-    if (hold)
-    {
-        if (slot.held)
-        {
-            return;
-        }
-        XAUDIO2_VOICE_STATE state{};
-        slot.voice->GetState(&state);
-        if (state.BuffersQueued == 0)
-        {
-            return;
-        }
-        slot.voice->Stop(0);
-        slot.held = true;
-        return;
-    }
-    if (!slot.held)
-    {
-        return;
-    }
-    slot.held = false;
-    slot.voice->Start(0);
-}
-
-void fire_stream(const Game& g, SoundEvent& ev)
-{
-    ev.fired = true;
-    if (ev.stream && !g_stream_cue.empty() && g_stream_cue != ev.cue)
-    {
-        stop_named(g_stream_cue, true);
-    }
-    const auto found = g_cues.find(ev.cue);
-    if (found == g_cues.end())
-    {
-        std::cout << "audio unmapped " << ev.cue << "\n";
-        if (ev.stream)
-        {
-            g_stream_cue = ev.cue;
-        }
-        return;
-    }
-    if (const WaveChoice* choice = pick_choice(found->second, g.frame))
-    {
-        play_choice(ev.cue, *choice);
-    }
-    if (ev.stream)
-    {
-        g_stream_cue = ev.cue;
-    }
-    (void)g;
-}
-#endif
-
-void pcm_dialog_hold(bool hold)
-{
-#if defined(_WIN32)
-    if (hold == g_dialog_held)
-    {
-        return;
-    }
-    g_dialog_held = hold;
-    for (PcmVoice& slot : g_voices)
-    {
-        hold_voice(slot, hold);
-    }
-    // Xbox 0x0004E640 holds the cutscene's handles. Frontend/music voices
-    // belong to separate owners and continue while the dialogue clock runs.
-#else
-    (void)hold;
-#endif
-}
-
-void pcm_dialog_advance(const Game& g, const char* cue)
-{
-#if defined(_WIN32)
-    pcm_dialog_hold(false);
-    if (cue == nullptr || cue[0] == '\0')
-    {
-        return;
-    }
-    build_catalog(g);
-    for (SoundEvent& ev : g_events)
-    {
-        if (!ev.dialog || ev.fired || ev.cue != cue)
-        {
-            continue;
-        }
-        fire_stream(g, ev);
-        return;
-    }
-#else
-    (void)g;
-    (void)cue;
-#endif
-}
-
-void pcm_cutscene_sync(const Game& g)
-{
-#if defined(_WIN32)
-    build_catalog(g);
-    if (!g.cutscenes.playing || g.cutscenes.index >= g.cutscenes.items.size())
-    {
-        if (!g_voices.empty() || g_dialog_held)
-        {
-            stop_all();
-        }
-        g_dialog_held = false;
-        g_clip = static_cast<size_t>(-1);
-        g_stream_cue.clear();
-        return;
-    }
-    const Cutscene& clip = g.cutscenes.items[g.cutscenes.index];
-    if (g.cutscenes.index != g_clip || clip.name != g_clip_name)
-    {
-        stop_all();
-        g_dialog_held = false;
-        g_clip = g.cutscenes.index;
-        g_clip_name = clip.name;
-        collect_events(g, clip);
-    }
-    for (auto& ev : g_events)
-    {
-        if (ev.fired || ev.dialog || ev.time > g.cutscenes.time)
-        {
-            continue;
-        }
-        fire_stream(g, ev);
-    }
-    for (auto& ev : g_events)
-    {
-        if (!ev.fired || ev.stopped || ev.stop <= ev.time || g.cutscenes.time < ev.stop)
-        {
-            continue;
-        }
-        ev.stopped = true;
-        stop_named(ev.cue, false);
-    }
-#else
-    (void)g;
-#endif
-}
 
 void pcm_play_cue(const Game& g, const char* cue, bool loop)
 {
@@ -1205,7 +1016,7 @@ u64 pcm_play_owned_cue(const Game& g, const char* cue)
     {
         XAUDIO2_VOICE_STATE state{};
         g_bed[i].voice->GetState(&state);
-        if (g_bed[i].handle != 0 && state.BuffersQueued == 0)
+        if (!g_bed[i].native && g_bed[i].handle != 0 && state.BuffersQueued == 0)
         {
             release_voice(g_bed[i]);
             g_bed.erase(g_bed.begin() + static_cast<std::ptrdiff_t>(i));
@@ -1569,6 +1380,7 @@ void dispatch_native_audio_notifications(std::span<AudioCoreBank* const> banks)
                 {
                     g_cue_notes.erase(voice);
                     cue->callback(cue->callback_context, *cue, 1);
+                    release_native_cue_voice(voice);
                 }
                 else if (!notes.prepared)
                 {
@@ -1579,6 +1391,7 @@ void dispatch_native_audio_notifications(std::span<AudioCoreBank* const> banks)
                 {
                     g_cue_notes.erase(voice);
                     cue->callback(cue->callback_context, *cue, 1);
+                    release_native_cue_voice(voice);
                 }
                 else if (notes.started && !notes.playing)
                 {
@@ -1594,7 +1407,7 @@ void dispatch_native_audio_notifications(std::span<AudioCoreBank* const> banks)
 #endif
 }
 
-void boot_native_audio(const Game& game)
+std::shared_ptr<NativeAudioRuntime> boot_native_audio(const Game& game)
 {
     static NativeAudioBanks banks;
     banks.memory = native_audio_core_memory();
@@ -1636,6 +1449,60 @@ void boot_native_audio(const Game& game)
     initialize_native_audio(banks, boundaries);
     std::cout << "native audio banks " << banks.bank_count << " names " << banks.bank_names.size()
               << " cues " << banks.cue_names.size() << "\n";
+
+    // The audio core over the XACT boundaries: heap, sound sources and cue preparation.
+    auto owned = std::make_shared<NativeAudioRuntime>();
+    auto& runtime = *owned;
+    runtime.sources.memory = native_audio_core_memory();
+    runtime.sources.boundaries = native_audio_core_source_boundaries();
+    // The engine's DAT_004D97F0 / DAT_004D97EC, which the source calls scale and apply with.
+    runtime.sources.unit_scale = banks.listener.unit_scale;
+    runtime.sources.apply = banks.listener.apply;
+    runtime.cues.boundaries = native_audio_core_cue_boundaries(game, [](void* bank, u32 index) -> const char*
+    {
+        static std::string name;
+        name = native_audio_cue_name(*g_native_audio, bank, index);
+        return name.c_str();
+    });
+    runtime.cues.sound = native_sound_boundaries();
+    // DAT_004E13B0, the sound banks 0x00039F50 created.
+    runtime.voices.banks = std::span<AudioCoreBank* const>(banks.banks.data(), size_t(banks.bank_count));
+    if (game.executable_resources == nullptr)
+    {
+        throw Error("native audio boot needs the executable image for DAT_00421A38 and DAT_0042A840");
+    }
+    const auto& image = *game.executable_resources;
+    // DAT_00421A38: nine {millibel, volume} reverb pairs that 0x00039620 reads for each 3D voice.
+    runtime.voices.reverb_curves = std::span<const std::array<u32, 2>>(
+        reinterpret_cast<const std::array<u32, 2>*>(image.memory(0x00421A38, 9 * 8).data()), 9);
+    std::memcpy(&runtime.default_cone, image.memory(0x0042A840, 0xC).data(), 0xC);
+    std::memcpy(&runtime.listener_velocity, image.memory(0x00421C70, 0xC).data(), 0xC);
+    runtime.voices.listener = runtime.listener_words.data();
+    for (size_t row = 0; row < runtime.wavebank_streams.ids.size(); ++row)
+    {
+        std::memcpy(&runtime.wavebank_streams.ids[row], image.memory(0x00421A8C + u32(row) * 0x14, 4).data(), 4);
+    }
+    initialize_tracked_audio_channels(runtime.streams); // Boot 0x00033030 runs 0x00038BF0 over DAT_004E030C.
+    g_native_audio_runtime = &runtime;
+    return owned;
+}
+
+void tick_native_audio(float dt, i32 stream_gate)
+{
+    if (g_native_audio_runtime == nullptr || g_native_audio == nullptr)
+    {
+        return;
+    }
+    auto& runtime = *g_native_audio_runtime;
+    dispatch_native_audio_notifications(runtime.voices.banks); // 0x0015B780
+    const auto& view = *entity_detail::g_display_view; // DAT_005077A8
+    runtime.listener_words = {view.position.x, view.position.y, view.position.z, view.rotation.x, view.rotation.y,
+        view.rotation.z, view.rotation.w, view.forward.x, view.forward.y, view.forward.z};
+    update_audio_listener_from_view(view.position, view.rotation, view.forward, runtime.listener_velocity,
+        g_native_audio->listener); // 0x0003A040
+    tick_audio_event_voices(runtime.voices); // 0x000396F0
+    tick_audio_stream_slots(dt, stream_gate, runtime.streams); // 0x00038640
+    release_idle_tracked_audio_channels(runtime.streams); // 0x00038C20
 }
 
 AudioCoreMemory native_audio_core_memory()
@@ -1794,7 +1661,7 @@ void pcm_stop_cue(const char* cue)
     }
     for (size_t i = 0; i < g_bed.size();)
     {
-        if (g_bed[i].cue != cue)
+        if (g_bed[i].cue != cue || g_bed[i].native)
         {
             ++i;
             continue;

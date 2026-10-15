@@ -18,6 +18,8 @@ struct RuntimeScriptDialogueContext;
 struct RuntimeDialogueOuterDrawContext;
 class SceneExecutableResources;
 class SceneFactoryRuntime;
+struct NativeAudioRuntime;
+struct NativeMovieRuntime;
 
 struct InputState
 {
@@ -84,6 +86,10 @@ struct Game
     RuntimeScriptDialogueContext* script_dialogue = nullptr;
     RuntimeDialogueOuterDrawContext* dialogue_draw = nullptr;
     std::shared_ptr<SceneExecutableResources> executable_resources;
+    // The audio core (event voices, bank streams) from boot; declared before the scene so it outlives it.
+    std::shared_ptr<NativeAudioRuntime> native_audio;
+    // The movie and file lists and the movie event slots from boot; also declared before the scene.
+    std::shared_ptr<NativeMovieRuntime> native_movies;
     std::shared_ptr<SceneFactoryRuntime> factory_scene;
     bool running = true;
     float time = 0.f;
@@ -97,8 +103,6 @@ struct Game
     // DAT_00429BC0. Boot 0x000E5A80 stores 1. 0x000E5AE0 installs modes[this]
     // once stream 2 is idle. 0x000DD740 writes 1 again.
     int frontend_pending = 1;
-    // Attract banner widget+0x294. 0x00080C10 calls 0x00080CB0 only while this is clear.
-    bool attract_banner_latched = false;
     // Scene record at DAT_00510E58. +0x80 is the script 0x0011EB30 copies in.
     // +0x104 is the phase. +0x110 blocks 0x0011E4C0 until the load finishes.
     char requested_script[0x80]{};

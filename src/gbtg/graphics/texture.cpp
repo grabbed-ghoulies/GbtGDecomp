@@ -225,6 +225,17 @@ RgbaImage decode_argb8888(std::span<const u8> src, int w, int h, bool swizzled)
     return img;
 }
 
+// A8B8G8R8 stores R, G, B, A in memory; the image is B, G, R, A.
+RgbaImage decode_abgr8888(std::span<const u8> src, int w, int h, bool swizzled)
+{
+    RgbaImage img = decode_argb8888(src, w, h, swizzled);
+    for (size_t index = 0; index + 3 < img.bgra.size(); index += 4)
+    {
+        std::swap(img.bgra[index], img.bgra[index + 2]);
+    }
+    return img;
+}
+
 } // namespace
 
 bool parse_texture_header(std::span<const u8> cpu, TextureHeader& out)
@@ -264,6 +275,10 @@ const char* xbox_format_name(XboxFormat f)
         return "LIN_A8R8G8B8";
     case XboxFormat::LinX8R8G8B8:
         return "LIN_X8R8G8B8";
+    case XboxFormat::A8B8G8R8:
+        return "A8B8G8R8";
+    case XboxFormat::LinA8B8G8R8:
+        return "LIN_A8B8G8R8";
     default:
         return "other";
     }
@@ -287,7 +302,19 @@ RgbaImage decode_xbox_texture(const TextureHeader& hdr, std::span<const u8> gpu)
         return decode_argb8888(payload, hdr.width, hdr.height, true);
     case XboxFormat::LinA8R8G8B8:
     case XboxFormat::LinX8R8G8B8:
-        return decode_argb8888(payload, hdr.width, hdr.height, false);
+    {
+        RgbaImage image = decode_argb8888(payload, hdr.width, hdr.height, false);
+        image.linear = true;
+        return image;
+    }
+    case XboxFormat::A8B8G8R8:
+        return decode_abgr8888(payload, hdr.width, hdr.height, true);
+    case XboxFormat::LinA8B8G8R8:
+    {
+        RgbaImage image = decode_abgr8888(payload, hdr.width, hdr.height, false);
+        image.linear = true;
+        return image;
+    }
     default:
         throw Error(std::string("unsupported texture format ") + xbox_format_name(hdr.format));
     }

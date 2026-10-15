@@ -69,6 +69,7 @@ extern "C"
 #include "../scripts/script_actions.h"
 #include "../scripts/script_vm.h"
 #include "transition_book.h"
+#include "../audio/native_audio.h"
 
 namespace gbtg
 {
@@ -121,6 +122,7 @@ struct TransitionBook
     std::vector<std::pair<std::string, MapScreenPoint>> labels;
     RgbaImage spot; // +0x10C
     float footstep = 0.f; // +0x164
+    i16 chapter_voice = -1; // +0x168, the chapter-screen ditty's event voice.
     std::array<i32, 4> capture{}; // page +0x94
     i32 released_busy = 0; // transition+0x304C
     std::span<const u8> camera_events; // cutscene +0x24, loaded by 0x0004E020.
@@ -157,36 +159,19 @@ std::string transition_string(std::span<const u8> bytes, size_t offset)
 }
 
 
-// Xbox 0x000357D0.
-bool transition_aid_equal(std::string_view a, std::string_view b)
-{
-    if (!a.starts_with("aid_"))
-    {
-        return !b.starts_with("aid_");
-    }
-    if (!b.starts_with("aid_"))
-    {
-        return false;
-    }
-    for (size_t i = 4;; ++i)
-    {
-        const u8 ac = i < a.size() ? u8(a[i]) & 0xdf : 0;
-        const u8 bc = i < b.size() ? u8(b[i]) & 0xdf : 0;
-        if (ac != bc)
-        {
-            return false;
-        }
-        if (ac == 0)
-        {
-            return true;
-        }
-    }
-}
-
+char g_50e458[0x80]{}; // DAT_0050E458, a one-shot name that replaces the next lookup's.
 
 // Xbox 0x00116220. The retail fallback is directory entry zero.
 int transition_find_scene_index(std::string_view name)
 {
+    std::string override_name;
+    if (std::memcmp(g_50e458, "aid_", 4) == 0)
+    {
+        override_name = g_50e458;
+        const u32 spent = 0x5F646900u; // The leading "a" becomes NUL.
+        std::memcpy(g_50e458, &spent, 4);
+        name = override_name;
+    }
     for (size_t i = 0; i < std::size(kSceneDirectory); ++i)
     {
         if (transition_aid_equal(kSceneDirectory[i].aid, name))
@@ -327,7 +312,15 @@ void transition_load_enter_texture(Game& g)
     }
     ++g_50484c;
     g_goop_transition.captured = false;
-    pcm_play_cue(g, "XACT_SOUNDBANK_GMISC_SLIMEON", false);
+    // 0x0012C1D0: a mode-1 event voice that stops itself, five units ahead of the camera.
+    auto& voices = native_audio_runtime().voices;
+    const i16 slime = allocate_audio_event_voice(1, voices);
+    if (slime != -1)
+    {
+        voices.voices[size_t(slime)].stop = 1;
+        position_audio_event_voice_ahead(slime, 5.f, voices); // DAT_0032B184
+        prepare_audio_event_voice(slime, "XACT_SOUNDBANK_GMISC_SLIMEON", voices);
+    }
 }
 
 
@@ -387,7 +380,8 @@ int transition_tick_exit_cue(Game& g)
         const float threshold = std::bit_cast<float>(g_546334) * std::bit_cast<float>(0x3f4ccccdu);
         if (threshold < previous && time <= threshold)
         {
-            pcm_play_cue(g, "XACT_SOUNDBANK_GMISC_SLIMEOFF", false);
+            // 0x0012BDD0.
+            request_spatial_audio_event_voice("XACT_SOUNDBANK_GMISC_SLIMEOFF", 1, 0.f, native_audio_runtime().voices);
             return g_54632c;
         }
     }
@@ -690,7 +684,8 @@ void transition_load_map(Game& g, TransitionBook& book, i32 route)
         book.reverse = route < 0;
         book.start_label = transition_string(cpu, spline + (route < 1 ? 0x28 : 8));
         book.end_label = transition_string(cpu, spline + (route < 1 ? 8 : 0x28));
-        pcm_play_cue(g, "XACT_SOUNDBANK_GSTREAMSDITTIES_CHAPTERSCREEN", false);
+        book.chapter_voice = request_spatial_audio_event_voice("XACT_SOUNDBANK_GSTREAMSDITTIES_CHAPTERSCREEN", 0,
+            0.f, native_audio_runtime().voices); // 0x000471E3
         std::cout << "transition map route " << route << " duration=" << duration << "s\n";
     }
 }
@@ -735,7 +730,8 @@ int transition_initialize_map_phase(Game& g, TransitionBook& book)
         if (book.footstep <= 0.f)
         {
             book.footstep = 0.3f;
-            pcm_play_cue(g, "XACT_SOUNDBANK_GFOOTSTEPGRAVEL_MAPGRAVEL", false);
+            request_spatial_audio_event_voice("XACT_SOUNDBANK_GFOOTSTEPGRAVEL_MAPGRAVEL", 1, 0.f,
+                native_audio_runtime().voices); // 0x000476A0
         }
     }
     if (book.countdown == 0)
@@ -906,7 +902,11 @@ void transition_release_book()
     if (book.map_state == 1)
     {
         book.map_state = 2;
-        pcm_stop_cue("XACT_SOUNDBANK_GSTREAMSDITTIES_CHAPTERSCREEN");
+        if (book.chapter_voice != -1)
+        {
+            stop_audio_event_voice(book.chapter_voice, 0, native_audio_runtime().voices); // 0x00039690
+            book.chapter_voice = -1;
+        }
     }
     transition_capture_page(book);
     ++g_50484c;

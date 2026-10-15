@@ -32,6 +32,7 @@ void pop_runtime_model_node(u32& callback, u32& node, ModelTreeDispatchContext& 
 u32 runtime_model_node_callback(u32 descriptor, const RuntimeRelocationImage& image); // Xbox 0x00158900
 void dispatch_runtime_model_nodes(u16 mask, void* storage, ModelTreeDispatchContext& context); // Xbox 0x001589F0
 void queue_runtime_model_group(u32 node, ModelTreeDispatchContext& context); // Xbox 0x00158960
+void queue_runtime_model_sibling(u32 node, ModelTreeDispatchContext& context); // Xbox 0x001589C0
 void prepare_runtime_model_tree_matrices(ModelTreeDispatchContext& context); // Xbox 0x00158C00
 void render_runtime_model_tree(u32 tree, u16 root, u16 mask, void* storage,
     ModelTreeDispatchContext& context); // Xbox 0x00158A80

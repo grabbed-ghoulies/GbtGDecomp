@@ -7,6 +7,7 @@
 #include "gbtg/resource.h"
 #include "../transitions/transition_data.h"
 #include "../scene/factory_scene_runtime.h"
+#include "../scene/scene_loading.h"
 #include <iostream>
 
 #include <algorithm>
@@ -767,6 +768,9 @@ void script_queue_scene_start(Game& g)
                 queued = true;
             });
             g.factory_scene->actor_start = 1;
+            // The native background draws the scene from here on; the legacy host meshes are unused.
+            release_models(g);
+            g.models.clear();
             std::cout << "native scene start complete: " << g.scene_name << "\n";
         }
         catch (const std::exception& error)
@@ -781,7 +785,6 @@ void script_queue_scene_start(Game& g)
         script_event();
     }
     g_scene_script_started = true;
-    cutscene_queue_start(g);
     script_tick_fired_vm(g);
 }
 

@@ -1,7 +1,7 @@
 #include "gbtg/bundle.h"
+#include "../audio/native_audio.h"
 #include "gbtg/anim.h"
 #include "gbtg/resource_error.h"
-#include "gbtg/dialogue.h"
 #include "gbtg/engine_internal.h"
 #include "gbtg/font.h"
 #include "gbtg/gfx.h"
@@ -487,9 +487,15 @@ char16_t kb_insert_char(const Game& g, u32 code)
 void kb_activate_with_audio(Game& g)
 {
     kb_activate(g);
-    // The retail wrapper plays after the edit, including rejected edits and Done.
-    // The existing audio boundary allocates the voice and handles allocation failure.
-    pcm_play_owned_cue(g, "XACT_SOUNDBANK_GSUPERSCARYSTUF_RIGHTBUTTON");
+    // The retail wrapper plays after the edit, including rejected edits and Done: a 2D event voice that stops
+    // itself.
+    auto& voices = native_audio_runtime().voices;
+    const i16 index = allocate_audio_event_voice(0, voices);
+    if (index != -1)
+    {
+        voices.voices[size_t(index)].stop = 1;
+        prepare_audio_event_voice(index, "XACT_SOUNDBANK_GSUPERSCARYSTUF_RIGHTBUTTON", voices);
+    }
 }
 
 

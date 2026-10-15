@@ -7,6 +7,24 @@
 namespace gbtg
 {
 NativeAudioBanks* g_native_audio = nullptr;
+NativeAudioRuntime* g_native_audio_runtime = nullptr;
+
+NativeAudioRuntime::~NativeAudioRuntime()
+{
+    if (g_native_audio_runtime == this)
+    {
+        g_native_audio_runtime = nullptr;
+    }
+}
+
+NativeAudioRuntime& native_audio_runtime()
+{
+    if (g_native_audio_runtime == nullptr)
+    {
+        throw Error("native audio runtime before boot 0x0003A280");
+    }
+    return *g_native_audio_runtime;
+}
 
 // Xbox 0x000FC120
 char* read_audio_list_line(char*& cursor, const char* base, i32 size)
@@ -249,5 +267,28 @@ std::string native_audio_cue_name(const NativeAudioBanks& banks, void* handle, u
         }
     }
     return name;
+}
+
+// Xbox 0x00039D50
+u8 runtime_stream_bank_busy(i32 id, i32* remaining, i32* total, const AudioWavebankStreams& streams)
+{
+    i32 left = 0;
+    i32 size = 0;
+    for (size_t row = 0; row < streams.ids.size(); ++row)
+    {
+        if (streams.ids[row] == id && streams.jobs[row] != nullptr)
+        {
+            throw Error("0x000E9040 (a wavebank stream's file progress) is not translated");
+        }
+    }
+    if (remaining != nullptr)
+    {
+        *remaining = left;
+    }
+    if (total != nullptr)
+    {
+        *total = size;
+    }
+    return left != 0 ? 0xEA : 0;
 }
 }

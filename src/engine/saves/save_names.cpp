@@ -41,7 +41,7 @@ struct SavePool
 struct SaveScan
 {
     SavePool* slots = nullptr;
-    i32 unused_4 = 0;
+    i32* slot_enumerator = nullptr; // +4, the 0x0010D710 / 0x0010D7A0 cursor.
     SavePool* names = nullptr;
     i32* enumerator = nullptr;
     i32 pending = 0;
@@ -258,6 +258,10 @@ void save_initialize_name_scan()
         {
             engine_heap_free(g_save_scan->enumerator);
         }
+        if (g_save_scan->slot_enumerator != nullptr)
+        {
+            engine_heap_free(g_save_scan->slot_enumerator);
+        }
         delete g_save_scan;
         g_save_scan = nullptr;
     }
@@ -280,7 +284,7 @@ void save_initialize_name_scan()
         return;
     }
     scan->names = names;
-    scan->unused_4 = 0;
+    scan->slot_enumerator = nullptr;
     scan->enumerator = nullptr;
     scan->pending = 0;
     scan->timer = 0.f;
@@ -348,5 +352,69 @@ bool save_next_name(char16_t* name)
     return false;
 }
 
+
+// Xbox 0x0010D710
+bool save_first_slot_name(char16_t* name)
+{
+    if (g_save_scan->slot_enumerator != nullptr)
+    {
+        engine_heap_free(g_save_scan->slot_enumerator); // 0x000663E0
+        g_save_scan->slot_enumerator = nullptr;
+    }
+    auto* index = static_cast<i32*>(engine_heap_allocate(4));
+    *index = 0;
+    g_save_scan->slot_enumerator = index;
+    SavePool& pool = *g_save_scan->slots;
+    u8* record = pool.begin + pool.stride * *index;
+    if (record != pool.cursor)
+    {
+        ++*index;
+        if (record != nullptr)
+        {
+            throw Error("0x0010D710 copies a loaded save slot's name (+4 +2), which no translated code creates");
+        }
+    }
+    engine_heap_free(g_save_scan->slot_enumerator);
+    g_save_scan->slot_enumerator = nullptr;
+    *name = 0;
+    return false;
+}
+
+// Xbox 0x0010D7A0, EBX the name
+bool save_next_slot_name(char16_t* name)
+{
+    i32* index = g_save_scan->slot_enumerator;
+    if (index == nullptr)
+    {
+        *name = 0;
+        return false;
+    }
+    SavePool& pool = *g_save_scan->slots;
+    u8* record = pool.begin + pool.stride * *index;
+    if (record != pool.cursor)
+    {
+        ++*index;
+        if (record != nullptr)
+        {
+            throw Error("0x0010D7A0 copies a loaded save slot's name (+4 +2), which no translated code creates");
+        }
+    }
+    engine_heap_free(g_save_scan->slot_enumerator);
+    g_save_scan->slot_enumerator = nullptr;
+    *name = 0;
+    return false;
+}
+
+// Xbox 0x0010F620, EBX the name: whether a loaded save slot (the stride-0x18 pool at DAT_005462E4 +0) holds it.
+bool save_slot_loaded(const char16_t* name)
+{
+    SavePool& pool = *g_save_scan->slots;
+    for (u8* record = pool.begin; record < pool.cursor; record += pool.stride)
+    {
+        (void)name;
+        throw Error("0x0010F620 compares a loaded save slot (+4 +2), which no translated code creates");
+    }
+    return false;
+}
 
 } // namespace gbtg

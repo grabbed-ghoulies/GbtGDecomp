@@ -1,0 +1,1526 @@
+#include "gameselect_slots.h"
+#include "dialogue_draw_context.h"
+#include "dialogue_draw_outer.h"
+#include "dialogue_text_pool.h"
+#include "dialogue_widget_construction.h"
+#include "dialogue_widget_parameters.h"
+#include "dialogue_widget_state.h"
+#include "frontend_sounds.h"
+#include "frontend_state.h"
+#include "hud_layout.h"
+#include "../audio/listener_settings.h"
+#include "../entities/actor_render_registration.h"
+#include "../scene/executable_resources.h"
+#include "gbtg/entity.h"
+#include "../scene/gameselect_control.h"
+#include "../scene/scene_controls.h"
+#include "../scene/scene_types.h"
+#include "../saves/save_summary.h"
+#include "../video/movie_startup.h"
+
+#include <bit>
+#include <cmath>
+#include <cstring>
+
+namespace gbtg
+{
+namespace
+{
+constexpr u32 kAid = 0x5F646961u; // "aid_"
+constexpr size_t kPlate = 0x304;
+
+[[noreturn]] void untranslated(const char* what)
+{
+    throw Error(std::string(what) + " is not translated");
+}
+
+SlotSelectWidget& slots(GameSelectWidget& widget)
+{
+    return static_cast<SlotSelectWidget&>(widget);
+}
+
+u32 word(const SlotSelectWidget& w, size_t offset)
+{
+    return read_u32(w.bytes, offset);
+}
+
+i32 integer(const SlotSelectWidget& w, size_t offset)
+{
+    return i32(word(w, offset));
+}
+
+void put_word(SlotSelectWidget& w, size_t offset, u32 value)
+{
+    std::memcpy(w.bytes.data() + offset, &value, 4);
+}
+
+float real(const SlotSelectWidget& w, size_t offset)
+{
+    return std::bit_cast<float>(word(w, offset));
+}
+
+void put_real(SlotSelectWidget& w, size_t offset, float value)
+{
+    put_word(w, offset, std::bit_cast<u32>(value));
+}
+
+float* reals(SlotSelectWidget& w, size_t offset)
+{
+    return reinterpret_cast<float*>(w.bytes.data() + offset);
+}
+
+u32 exe_word(const GameSelectControlServices& s, u32 address)
+{
+    return read_u32(s.image.memory(address, 4), 0);
+}
+
+float exe_real(const GameSelectControlServices& s, u32 address)
+{
+    return std::bit_cast<float>(exe_word(s, address));
+}
+
+const char* exe_string(const GameSelectControlServices& s, u32 address)
+{
+    return s.image.string(address);
+}
+
+float screen_width(const GameSelectControlServices& s)
+{
+    return float(i32(s.screen[0])); // DAT_005096E8
+}
+
+float screen_height(const GameSelectControlServices& s)
+{
+    return float(i32(s.screen[1])); // DAT_005096EA
+}
+
+float texture_width(std::span<const u8> texture)
+{
+    return float(i32(read_u16(texture, 8)));
+}
+
+float texture_height(std::span<const u8> texture)
+{
+    return float(i32(read_u16(texture, 10)));
+}
+
+// The texture header 0x0005CA60 and 0x0005CE30 bind: +4 offset, +0x12 frame, stride 0x14.
+bool texture_has_frame(std::span<const u8> texture)
+{
+    return texture.data() + read_u32(texture, 4) + size_t(texture[0x12]) * 0x14 != nullptr;
+}
+
+// The frame step: nothing while frozen (DAT_004312DC > 0), else DAT_005096C0 * DAT_004312C4.
+float frame_step(const GameSelectControlServices& s)
+{
+    if (s.freeze <= 0.f)
+    {
+        return s.dt * s.scene_scale;
+    }
+    return 0.f;
+}
+
+u8 truncate_byte(long double value)
+{
+    return u8(truncate_runtime_float(value)); // 0x001673D8, AL
+}
+
+// A color word with its alpha byte (+3) replaced.
+u32 with_alpha(u32 color, u8 alpha)
+{
+    return (color & 0x00FFFFFFu) | (u32(alpha) << 24);
+}
+
+std::span<const u8> acquire_texture(const char* name, GameSelectControlServices& s)
+{
+    if (std::memcmp(name, "aid_", 4) != 0)
+    {
+        return {};
+    }
+    const auto texture = acquire_animation_resource(s.resources, name);
+    if (texture.data() == nullptr)
+    {
+        resource_error(s.error, 2);
+    }
+    return texture;
+}
+
+void release_texture(std::span<const u8>& texture, GameSelectControlServices& s)
+{
+    release_animation_resource(s.resources, texture); // 0x00035C00, EBX the resource
+    texture = {};
+}
+
+// One sprite through 0x0005CDC0 / 0x0005CA60, then the override hold DAT_00509B5C is released.
+void draw_sprite(i32 frame, const float* uv_top, std::span<const u8> texture, const float* scale,
+    const float* uv_bottom, u32 color, const float* position, GameSelectControlServices& s)
+{
+    auto& draw = s.draw;
+    begin_dialogue_sprite_draw(draw); // 0x0005CDC0
+    draw_dialogue_texture(frame, uv_top, const_cast<u8*>(texture.data()), scale, uv_bottom, 0.f, color, position,
+        draw); // 0x0005CA60
+    --draw.override_count;
+    if (draw.override_count == 0)
+    {
+        draw.fog_disabled = 0;
+    }
+}
+
+// Xbox 0x000DF080, EAX widget: the plate textures.
+void release_plate_textures(SlotSelectWidget& w, GameSelectControlServices& s)
+{
+    for (auto& plate : w.plates)
+    {
+        if (plate.plate.data() != nullptr)
+        {
+            release_texture(plate.plate, s);
+        }
+    }
+}
+
+// Xbox 0x000DF0B0, EAX widget: the disc textures.
+void release_disc_textures(SlotSelectWidget& w, GameSelectControlServices& s)
+{
+    for (auto& plate : w.plates)
+    {
+        if (plate.disc.data() != nullptr)
+        {
+            release_texture(plate.disc, s);
+        }
+    }
+}
+
+// Xbox 0x000DF110, EAX widget: the broken-disc textures.
+void release_broken_textures(SlotSelectWidget& w, GameSelectControlServices& s)
+{
+    for (auto& plate : w.plates)
+    {
+        if (plate.broken.data() != nullptr)
+        {
+            release_texture(plate.broken, s);
+        }
+    }
+}
+
+// Xbox 0x000DF0E0, EAX widget: the no-write textures.
+void release_nowrite_textures(SlotSelectWidget& w, GameSelectControlServices& s)
+{
+    for (auto& plate : w.plates)
+    {
+        if (plate.nowrite.data() != nullptr)
+        {
+            release_texture(plate.nowrite, s);
+        }
+    }
+}
+
+// Xbox 0x000DF580, EAX widget: the plates' colors back to rest, the selected box highlighted.
+void reset_plate_colors(SlotSelectWidget& w, GameSelectControlServices& s)
+{
+    const u32 white = exe_word(s, 0x00314F48);
+    const u32 rest = exe_word(s, 0x00308B1C);
+    put_word(w, 0x430, white);
+    put_word(w, 0x50C, rest);
+    put_word(w, 0x734, white);
+    put_word(w, 0x810, rest);
+    put_word(w, 0xA38, white);
+    put_word(w, 0xB14, rest);
+    put_word(w, size_t(integer(w, 0xB2C)) * kPlate + 0x50C, exe_word(s, 0x00308B18));
+}
+
+// Xbox 0x000DF3E0, ESI widget: the plates fade in over DAT_00429014 seconds.
+void fade_in_plates(SlotSelectWidget& w, GameSelectControlServices& s)
+{
+    const u32 rest = exe_word(s, 0x00308B1C);
+    const u32 white = exe_word(s, 0x00314F48);
+    const float step = frame_step(s);
+    float timer = real(w, 0xB78);
+    if (0.f < timer)
+    {
+        timer -= step;
+        put_real(w, 0xB78, timer);
+        if (timer <= 0.f)
+        {
+            put_real(w, 0xB78, 0.f);
+        }
+    }
+    const float duration = exe_real(s, 0x00429014);
+    float fraction;
+    if (duration == 0.f)
+    {
+        fraction = exe_real(s, 0x0032B0F8);
+    }
+    else
+    {
+        fraction = (real(w, 0xB78) - duration) / (0.f - duration);
+        const float one = exe_real(s, 0x0032B0F8);
+        if (fraction > one)
+        {
+            fraction = one;
+        }
+        else if (0.f > fraction)
+        {
+            fraction = 0.f;
+        }
+    }
+    const u32 plate = with_alpha(white, truncate_byte(long double(fraction) * exe_real(s, 0x0032B158)));
+    const u32 box = with_alpha(rest, truncate_byte(long double(fraction) * exe_real(s, 0x0032B368)));
+    for (size_t index = 0; index < 3; ++index)
+    {
+        put_word(w, index * kPlate + 0x430, plate);
+        put_word(w, index * kPlate + 0x50C, box);
+    }
+    const u32 selected = exe_word(s, 0x00308B18);
+    const size_t chosen = size_t(integer(w, 0xB2C)) * kPlate;
+    put_word(w, chosen + 0x50C, selected);
+    w.bytes[chosen + 0x50F] = truncate_byte(long double(fraction) * exe_real(s, 0x0032B378));
+    double limit;
+    std::memcpy(&limit, s.image.memory(0x0032B370, 8).data(), 8);
+    if (!(double(fraction) < limit))
+    {
+        put_word(w, 0xB7C, 0);
+        for (size_t index = 0; index < 3; ++index)
+        {
+            put_word(w, index * kPlate + 0x430, white);
+            put_word(w, index * kPlate + 0x50C, exe_word(s, 0x00308B1C));
+        }
+        put_word(w, chosen + 0x50C, selected);
+    }
+}
+
+// Xbox 0x000DE990, ESI widget: the cursor bat, made once.
+bool create_slot_bat(SlotSelectWidget& w, GameSelectControlServices& s)
+{
+    if (w.bat == nullptr)
+    {
+        const std::array<float, 2> position{0.f, 0.f};
+        w.bat = s.create_bat(position, exe_real(s, 0x00428F90), exe_real(s, 0x00428F94)); // 0x0013B580
+        if (w.bat == nullptr)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+// lstrcpyW
+void copy_wide(char16_t* output, const char16_t* input)
+{
+    while ((*output++ = *input++) != 0)
+    {
+    }
+}
+
+const char16_t* slot_name(const SlotSelectWidget& w, i32 slot)
+{
+    return reinterpret_cast<const char16_t*>(w.bytes.data() + 0xB9C + size_t(slot) * 0x100);
+}
+
+void put_control_word(SceneControlInstance& control, size_t offset, u32 value)
+{
+    std::memcpy(control.state.data() + offset, &value, 4);
+}
+
+// 0x000DF9A0's occupied-slot tail: the selected save becomes the current game (DAT_00506C90).
+void select_profile_game(GameSelectControlServices& s)
+{
+    copy_wide(s.profile.name.data(), s.frontend.selected_name.data());
+    s.profile.scene_flags->bytes[0] |= 2;
+    s.profile.scene_flags->bytes[0] |= 4;
+    refresh_runtime_save_summary(s); // 0x000F2F00
+    untranslated("0x000F3020 (load the current game's save into the profile)");
+}
+
+// Xbox 0x000DF950, EBX the found slot: the slot whose save name matches.
+bool find_slot_by_name(const char16_t* name, i32& slot, GameSelectControlServices& s)
+{
+    auto& w = *s.frontend.slot_widget;
+    slot = 0;
+    for (i32 index = 0; index < 3; ++index)
+    {
+        const auto* candidate = reinterpret_cast<const char16_t*>(w.bytes.data() + 0xB9C + size_t(index) * 0x100);
+        if (std::u16string_view(candidate) == std::u16string_view(name)) // lstrcmpW
+        {
+            slot = index;
+            return true;
+        }
+    }
+    return false;
+}
+
+// Xbox 0x000DF330, ECX widget: the background cross-fade fraction +0xB74 from the bat's flight time.
+void advance_background_fade(SlotSelectWidget& w, GameSelectControlServices& s)
+{
+    const float step = frame_step(s);
+    float timer = real(w, 0xB70);
+    if (0.f < timer)
+    {
+        timer -= step;
+        put_real(w, 0xB70, timer);
+        if (timer <= 0.f)
+        {
+            put_real(w, 0xB70, 0.f);
+        }
+    }
+    const float flight = s.bat_screen(*w.bat).flight_duration; // Bat +0x93C
+    const float one = exe_real(s, 0x0032B0F8);
+    if (flight != 0.f)
+    {
+        const float fraction = (real(w, 0xB70) - flight) / (0.f - flight);
+        if (one < fraction)
+        {
+            put_real(w, 0xB74, one);
+            return;
+        }
+        if (fraction < 0.f)
+        {
+            put_real(w, 0xB74, 0.f);
+            return;
+        }
+        put_real(w, 0xB74, fraction);
+        return;
+    }
+    put_real(w, 0xB74, one);
+}
+
+// Xbox 0x00101730: each byte of `rest` toward `selected` by the fraction, clamped to 0..255 and truncated.
+u32 blend_runtime_color(u32 selected, u32 rest, float fraction, GameSelectControlServices& s)
+{
+    const float full = exe_real(s, 0x0032B158);
+    const float remainder = exe_real(s, 0x0032B0F8) - fraction;
+    u32 output = 0;
+    for (u32 shift = 0; shift < 32; shift += 8)
+    {
+        float value = float(i32((rest >> shift) & 0xFF)) * remainder + float(i32((selected >> shift) & 0xFF)) * fraction;
+        if (0.f > value)
+        {
+            value = 0.f;
+        }
+        else if (value > full)
+        {
+            value = full;
+        }
+        output |= u32(truncate_byte(value)) << shift;
+    }
+    return output;
+}
+
+// Xbox 0x000DE540, ESI widget: the selected plate grows from its rest box as the backgrounds cross-fade.
+void raise_selected_plate(SlotSelectWidget& w, GameSelectControlServices& s)
+{
+    const u32 slot = word(w, 0xB2C);
+    const size_t p = size_t(slot) * kPlate;
+    advance_background_fade(w, s); // 0x000DF330, ECX the widget
+    if (w.old_background.data() != w.background.data())
+    {
+        const u8 alpha = truncate_byte(long double(real(w, 0xB74)) * exe_real(s, 0x0032B158));
+        w.bytes[0xB4F] = alpha;
+        w.bytes[0xB67] = u8(0xFF - alpha);
+    }
+    const float fraction = real(w, 0xB74);
+    put_word(w, p + 0x50C, blend_runtime_color(exe_word(s, 0x00308B18), exe_word(s, 0x00308B1C), fraction, s));
+    const u32 row = 0x0042902C + slot * 0x124;
+    const float width = screen_width(s);
+    const float plate_width = texture_width(w.plates[slot].plate);
+    const float rest_x = (exe_real(s, row + 0x10) * width) / plate_width;
+    const float raised_x = (exe_real(s, row + 8) * width) / plate_width;
+    put_real(w, p + 0x434, (raised_x - rest_x) * fraction + rest_x);
+    const float height = screen_height(s);
+    const float plate_height = texture_height(w.plates[slot].plate);
+    const float raised_y = (height * exe_real(s, row + 0xC)) / plate_height;
+    const float rest_y = (height * exe_real(s, row + 0x14)) / plate_height;
+    const float one = exe_real(s, 0x0032B0F8);
+    put_real(w, p + 0x438, (raised_y - rest_y) * fraction + rest_y);
+    const float grow_x = (exe_real(s, row + 8) / exe_real(s, row + 0x10) - one) * fraction + one;
+    const float grow_y = (exe_real(s, row + 0xC) / exe_real(s, row + 0x14) - one) * fraction + one;
+    if (w.plates[slot].nowrite.data() != nullptr)
+    {
+        put_real(w, p + 0x464, exe_real(s, 0x00428FEC) * grow_x);
+        put_real(w, p + 0x468, exe_real(s, 0x00428FF0) * grow_y);
+    }
+    if (w.plates[slot].broken.data() != nullptr)
+    {
+        put_real(w, p + 0x47C, exe_real(s, 0x00428FD8) * grow_x);
+        put_real(w, p + 0x480, exe_real(s, 0x00428FDC) * grow_y);
+    }
+    const float scale_x = exe_real(s, 0x0032B6B0);
+    const float box_x = exe_real(s, row + 0x10) * scale_x + exe_real(s, 0x00428FBC);
+    put_real(w, p + 0x510, ((exe_real(s, row + 8) * scale_x + exe_real(s, 0x00428FC0)) - box_x) * fraction + box_x);
+    const float scale_y = exe_real(s, 0x0032B6AC);
+    const float box_y = exe_real(s, row + 0x14) * scale_y + exe_real(s, 0x00428FBC);
+    put_real(w, p + 0x514, ((exe_real(s, row + 0xC) * scale_y + exe_real(s, 0x00428FC0)) - box_y) * fraction + box_y);
+    if (!(real(w, 0xB74) < one))
+    {
+        set_runtime_slot_select_state(w, 5, s);
+    }
+}
+
+// Xbox 0x000DE7B0, ESI widget: the selected plate zooms to fill the screen over DAT_00429008 seconds.
+void zoom_selected_plate(SlotSelectWidget& w, GameSelectControlServices& s)
+{
+    const u32 slot = word(w, 0xB2C);
+    const size_t p = size_t(slot) * kPlate;
+    const u32 row = 0x0042902C + slot * 0x124;
+    const float rest_box_x = exe_real(s, row + 8) * exe_real(s, 0x0032B6B0) + exe_real(s, 0x00428FBC);
+    const float rest_box_y = exe_real(s, row + 0xC) * exe_real(s, 0x0032B6AC) + exe_real(s, 0x00428FBC);
+    const float step = frame_step(s);
+    float timer = real(w, 0xB8C);
+    if (0.f < timer)
+    {
+        timer -= step;
+        put_real(w, 0xB8C, timer);
+        if (timer <= 0.f)
+        {
+            put_real(w, 0xB8C, 0.f);
+        }
+    }
+    const float one = exe_real(s, 0x0032B0F8);
+    const float duration = exe_real(s, 0x00429008);
+    float fraction = one;
+    if (duration != 0.f)
+    {
+        fraction = (real(w, 0xB8C) - duration) / (0.f - duration);
+        if (fraction > one)
+        {
+            fraction = one;
+        }
+        else if (0.f > fraction)
+        {
+            fraction = 0.f;
+        }
+    }
+    const bool done = !(fraction < one);
+    const float margin_start = exe_real(s, 0x00428FC0);
+    const float margin = (exe_real(s, 0x00428FC4) - margin_start) * fraction + margin_start;
+    put_real(w, p + 0x510, ((screen_width(s) + margin) - rest_box_x) * fraction + rest_box_x);
+    put_real(w, p + 0x514, ((screen_height(s) + margin) - rest_box_y) * fraction + rest_box_y);
+    const float x = exe_real(s, row);
+    put_real(w, p + 0x428, (s.hud.center_x - x) * fraction + x);
+    const float y = exe_real(s, row + 4);
+    put_real(w, p + 0x42C, (s.hud.center_y - y) * fraction + y);
+    const float scale_x = exe_real(s, row + 8);
+    put_real(w, p + 0x434, (one - scale_x) * fraction + scale_x);
+    const float scale_y = exe_real(s, row + 0xC);
+    put_real(w, p + 0x438, (one - scale_y) * fraction + scale_y);
+    if (done)
+    {
+        set_runtime_slot_select_state(w, 8, s);
+    }
+}
+
+// Xbox 0x000DE9E0, EDI widget: the selected slot's movie and the bat's flight to it.
+bool select_slot_movie(SlotSelectWidget& w, GameSelectControlServices& s)
+{
+    if (word(w, 0xB30) == word(w, 0xB28) && word(w, 0xB34) == word(w, 0xB2C))
+    {
+        return true;
+    }
+    const u32 slot = word(w, 0xB2C);
+    const u32 row = 0x0042902C + slot * 0x124;
+    put_word(w, 0xB20, exe_word(s, row));
+    put_real(w, 0xB24, exe_real(s, row + 0x18) + exe_real(s, row + 4));
+    if (w.movie != nullptr)
+    {
+        --w.movie->play_count;
+    }
+    const i32 status = integer(w, size_t(slot) * kPlate + 0x214);
+    RuntimeMovieState* movie;
+    if (status == 2 || status == 4 || status == 3)
+    {
+        untranslated("0x0010DB10 (the slot's save summary) and 0x0004B4D0");
+    }
+    else
+    {
+        movie = s.frontend.movies[slot];
+    }
+    w.movie = movie;
+    ++movie->play_count;
+    put_word(w, 0xB88, 1);
+    put_word(w, 0xB84, 0);
+    if (w.bat != nullptr)
+    {
+        const ButtonBatPoint target{real(w, 0xB20), real(w, 0xB24)};
+        s.fly_bat(*w.bat, target, exe_real(s, 0x00428F90)); // 0x0006DA00, EBX +0xB20, ESI the bat
+        put_word(w, 0xB34, word(w, 0xB2C));
+        put_word(w, 0xB30, word(w, 0xB28));
+        return true;
+    }
+    return false;
+}
+
+// Xbox 0x000DF140: the background of the selected slot, the old one kept for the cross-fade.
+void select_slot_background(SlotSelectWidget& w, GameSelectControlServices& s)
+{
+    if (w.old_background.data() != nullptr)
+    {
+        release_texture(w.old_background, s);
+    }
+    put_word(w, 0xB64, word(w, 0xB4C));
+    w.old_background = w.background;
+    put_word(w, 0xB68, word(w, 0xB50));
+    put_word(w, 0xB6C, word(w, 0xB54));
+    put_word(w, 0xB5C, word(w, 0xB44));
+    put_word(w, 0xB60, word(w, 0xB48));
+    w.background = {};
+    const i32 status = integer(w, size_t(integer(w, 0xB2C)) * kPlate + 0x214);
+    std::span<const u8> texture;
+    if (status == 2 || status == 4 || status == 3)
+    {
+        untranslated("0x0010DB10 (the slot's save summary) and 0x0004B4D0");
+    }
+    else
+    {
+        char name[0x80]{};
+        std::memcpy(name, "aid_texture_ghoulies_gameselect_emptyslotbackground", 53);
+        texture = acquire_texture(name, s);
+    }
+    w.background = texture;
+    if (texture.data() != nullptr && texture_has_frame(texture) && runtime_texture_format_drawable(texture))
+    {
+        put_real(w, 0xB50, screen_width(s) / texture_width(texture));
+        put_real(w, 0xB54, screen_height(s) / texture_height(texture));
+        if (w.bat != nullptr)
+        {
+            put_real(w, 0xB70, s.bat_screen(*w.bat).flight_duration); // Bat +0x93C
+            put_real(w, 0xB74, 0.f);
+        }
+        w.bytes[0xB4F] = 0;
+        w.bytes[0xB67] = 0xFF;
+    }
+}
+
+// Xbox 0x000DF790: forget the saves that no longer exist, except the selected one.
+void drop_missing_saves(GameSelectControlServices& s)
+{
+    auto& w = *s.frontend.slot_widget;
+    for (i32 index = 0; index < 3; ++index)
+    {
+        const auto* name = reinterpret_cast<const char16_t*>(w.bytes.data() + 0xB9C + size_t(index) * 0x100);
+        if (integer(w, 0xB2C) != index && name[0] != 0)
+        {
+            untranslated("0x0010DBA0 (whether a save still exists)");
+        }
+    }
+}
+
+// Xbox 0x000DF880: each loaded save's name into its own slot, else into the first free one.
+void fill_slots_from_saves(GameSelectControlServices& s)
+{
+    auto& w = *s.frontend.slot_widget;
+    std::array<char16_t, 0x80> name{};
+    save_first_slot_name(name.data()); // 0x0010D710
+    i32 filled = 0;
+    while (name[0] != 0 && filled < 3)
+    {
+        i32 found = 0;
+        if (!find_slot_by_name(name.data(), found, s)) // 0x000DF950
+        {
+            (void)found;
+            throw Error("0x0010DB60 (a loaded save's slot byte) is not translated");
+        }
+        save_next_slot_name(name.data()); // 0x0010D7A0
+    }
+    (void)w;
+}
+
+// Xbox 0x000DF7E0: the slots' save names, kept from DAT_00429DC4 where the save still checks out.
+void load_slot_names(GameSelectControlServices& s)
+{
+    auto& w = *s.frontend.slot_widget;
+    for (size_t index = 0; index < 3; ++index)
+    {
+        std::array<char16_t, 0x80> name{};
+        const auto& kept = s.frontend.slot_names[index];
+        std::copy(kept.begin(), std::find(kept.begin(), kept.end(), u'\0'), name.begin()); // lstrcpyW
+        if (name[0] != 0)
+        {
+            untranslated("0x0010F530 (check a saved game's name)");
+        }
+    }
+    fill_slots_from_saves(s); // 0x000DF880
+    for (size_t index = 0; index < 3; ++index)
+    {
+        const auto* name = reinterpret_cast<const char16_t*>(w.bytes.data() + 0xB9C + index * 0x100);
+        auto& kept = s.frontend.slot_names[index];
+        kept.fill(0);
+        std::copy(name, name + std::u16string_view(name).size(), kept.begin()); // lstrcpyW
+    }
+}
+
+// 0x0010D910, EBX the name, with the callbacks 0x000E0640 and 0x000DF6B0: load a save that is not loaded yet.
+void load_save_slot(const char16_t* name, GameSelectControlServices& s)
+{
+    (void)name;
+    (void)s;
+    untranslated("0x0010D910 (load a saved game)");
+}
+
+// Xbox 0x000DF5D0: start the save enumeration.
+void begin_save_scan(GameSelectControlServices& s)
+{
+    std::array<char16_t, 0x80> name{};
+    save_first_name(name.data()); // 0x0010D810
+    auto& w = *s.frontend.slot_widget;
+    if (name[0] != 0)
+    {
+        if (!save_slot_loaded(name.data())) // 0x0010F620, EBX the name
+        {
+            put_word(w, 0xE9C, word(w, 0xE9C) + 1);
+            load_save_slot(name.data(), s);
+        }
+    }
+    put_word(w, 0xEA0, word(w, 0xEA0) + 1);
+}
+
+// Xbox 0x000DF650: the next save-scan step.
+void continue_save_scan(GameSelectControlServices& s)
+{
+    std::array<char16_t, 0x80> name{};
+    save_next_name(name.data()); // 0x0010D8A0, EBX the name
+    auto& w = *s.frontend.slot_widget;
+    if (name[0] != 0 && !save_slot_loaded(name.data()))
+    {
+        put_word(w, 0xE9C, word(w, 0xE9C) + 1);
+        load_save_slot(name.data(), s);
+    }
+    put_word(w, 0xEA0, word(w, 0xEA0) + 1);
+}
+
+// Xbox 0x000DEB20, EAX widget: each slot's status, name, plate and movie from its save.
+void describe_slots(SlotSelectWidget& w, GameSelectControlServices& s)
+{
+    for (size_t index = 0; index < 3; ++index)
+    {
+        const auto* name = reinterpret_cast<const char16_t*>(w.bytes.data() + 0xB9C + index * 0x100);
+        if (name[0] != 0)
+        {
+            untranslated("0x0010DBA0 / 0x0010DBE0 (a slot's save status)");
+        }
+        put_word(w, index * kPlate + 0x214, 1);
+        // Status 1: the empty-slot name, plate and movie.
+        char16_t* label = reinterpret_cast<char16_t*>(w.bytes.data() + index * kPlate + 0x218);
+        const char16_t* text = s.lookup_text("aid_loctext_ghoulies_savedgame", "supportsavedgame", "emptyslotname");
+        if (text == nullptr)
+        {
+            text = u"ERROR";
+        }
+        std::u16string_view copied(text);
+        std::copy(copied.begin(), copied.end(), label);
+        label[copied.size()] = 0;
+        auto& plate = w.plates[index];
+        const float old_width = texture_width(plate.plate);
+        const float old_height = texture_height(plate.plate);
+        const float scale_x = real(w, index * kPlate + 0x434);
+        const float scale_y = real(w, index * kPlate + 0x438);
+        if (plate.plate.data() != nullptr)
+        {
+            release_texture(plate.plate, s);
+        }
+        const u32 row = 0x00429048 + u32(index) * 0x124;
+        plate.plate = acquire_texture(exe_string(s, row), s);
+        put_real(w, index * kPlate + 0x434, (scale_x * old_width) / texture_width(plate.plate));
+        put_real(w, index * kPlate + 0x438, (scale_y * old_height) / texture_height(plate.plate));
+        const char* movie = exe_string(s, row + 0x80);
+        std::strcpy(reinterpret_cast<char*>(w.bytes.data() + index * kPlate + 0x484), movie);
+        put_word(w, index * kPlate + 0x504, exe_word(s, row + 0x100));
+        put_word(w, index * kPlate + 0x508, exe_word(s, row + 0x104));
+    }
+}
+}
+
+// Xbox 0x000DD730
+GameSelectWidgetHandle create_runtime_slot_select(GameSelectControlServices& services)
+{
+    (void)services;
+    return std::make_unique<SlotSelectWidget>(); // 0x000F72D0(0xEAC)
+}
+
+// Xbox 0x000DD740
+void open_runtime_slot_select(std::span<u8> owner, GameSelectControlState& control, GameSelectWidget& widget,
+    GameSelectControlServices& services)
+{
+    auto& s = services;
+    auto& w = slots(widget);
+    char background[0x80]{};
+    std::memcpy(background, "aid_texture_ghoulies_gameselect_emptyslotbackground", 53);
+    s.frontend.slot_widget = &w; // DAT_005065B8
+    open_runtime_gameselect_movies(s);
+    w.owner = &control;
+    w.owner_state = owner;
+    put_word(w, 0, 0);
+    put_word(w, 0xE9C, 0);
+    put_word(w, 0xEA0, 0);
+    put_real(w, 0xB90, 0.f);
+    w.prompt_pool = nullptr;
+    w.plate_pool = nullptr;
+    put_word(w, 0x20C, 0);
+    put_real(w, 0x204, 0.f);
+    put_real(w, 0x208, 0.f);
+    w.bytes[4] = 0;
+    w.bytes[5] = 0;
+    s.frontend.word_0042a0c8 = 0;
+    s.frontend.word_0042a0c4 = 0;
+    s.next_row = 1;
+    s.selected_game[0] = 0; // lstrcpyW(DAT_00429BC4, 0x0030C9D0), an empty string.
+    clear_runtime_profile_block(s.profile.progress.bytes);
+    clear_runtime_profile_block(s.profile.unlocks.bytes);
+    w.movie = nullptr;
+    put_word(w, 0xB84, 0);
+    put_word(w, 0xB88, 0);
+    put_real(w, 0xB8C, 0.f);
+    put_real(w, 0xB20, 0.f);
+    put_real(w, 0xB24, 0.f);
+    put_word(w, 0xB28, exe_word(s, 0x00428F9C));
+    put_word(w, 0xB2C, exe_word(s, 0x00428FA0));
+    put_word(w, 0xB30, 0xBADBADBAu);
+    put_word(w, 0xB34, 0xBADBADBAu);
+    w.bat = nullptr;
+    for (size_t index = 0; index < 3; ++index)
+    {
+        w.bytes[0xB9C + index * 0x100] = 0;
+        w.bytes[0xB9D + index * 0x100] = 0;
+    }
+    const u32 white = exe_word(s, 0x00314F48);
+    w.background = acquire_texture(background, s);
+    put_word(w, 0xB4C, white);
+    put_real(w, 0xB44, s.hud.center_x);
+    put_real(w, 0xB48, s.hud.center_y);
+    put_real(w, 0xB54, screen_height(s) / texture_height(w.background));
+    put_real(w, 0xB50, screen_width(s) / texture_width(w.background));
+    w.old_background = {};
+    put_word(w, 0xB64, white);
+    put_real(w, 0xB5C, s.hud.center_x);
+    put_real(w, 0xB60, s.hud.center_y);
+    put_word(w, 0xB68, word(w, 0xB50));
+    put_word(w, 0xB6C, word(w, 0xB54));
+    put_real(w, 0xB70, 0.f);
+    put_real(w, 0xB74, 0.f);
+    for (size_t index = 0; index < 3; ++index)
+    {
+        const size_t p = index * kPlate;
+        const u32 row = 0x0042902C + u32(index) * 0x124; // Plate table, stride 0x124: x, y, ..., texture at +0x1C.
+        const u32 movie = 0x0042941C + u32(index) * 0x10C; // Movie names, stride 0x10C.
+        auto& plate = w.plates[index];
+        put_word(w, p + 0x214, 0);
+        const char16_t error[]{u'e', u'r', u'r', u'o', u'r', 0};
+        std::memcpy(w.bytes.data() + p + 0x218, error, sizeof(error));
+        put_real(w, p + 0x418, s.hud.center_x + exe_real(s, 0x00428FA8));
+        put_real(w, p + 0x41C, s.hud.center_y + exe_real(s, 0x00428FAC));
+        plate.plate = acquire_texture(exe_string(s, row + 0x1C), s);
+        put_word(w, p + 0x428, exe_word(s, row));
+        put_word(w, p + 0x42C, exe_word(s, row + 4));
+        put_real(w, p + 0x434, (screen_width(s) * exe_real(s, row + 0x10)) / texture_width(plate.plate));
+        put_real(w, p + 0x438, (screen_height(s) * exe_real(s, row + 0x14)) / texture_height(plate.plate));
+        put_word(w, p + 0x430, white);
+        plate.disc = {};
+        plate.disc = acquire_animation_resource(s.resources, "aid_texture_ghoulies_gameselect_disc_discspin");
+        if (plate.disc.data() == nullptr)
+        {
+            resource_error(s.error, 2);
+        }
+        put_real(w, p + 0x440, exe_real(s, row) + exe_real(s, 0x00428FD0));
+        put_real(w, p + 0x444, exe_real(s, row + 4) + exe_real(s, 0x00428FD4));
+        put_word(w, p + 0x44C, exe_word(s, 0x00428FC8));
+        put_word(w, p + 0x450, exe_word(s, 0x00428FCC));
+        put_word(w, p + 0x448, white);
+        put_word(w, p + 0x460, white);
+        put_real(w, p + 0x458, 0.f);
+        put_real(w, p + 0x45C, 0.f);
+        put_real(w, p + 0x464, 0.f);
+        put_real(w, p + 0x468, 0.f);
+        plate.nowrite = {};
+        put_word(w, p + 0x478, white);
+        put_real(w, p + 0x470, 0.f);
+        put_real(w, p + 0x474, 0.f);
+        put_real(w, p + 0x47C, 0.f);
+        put_real(w, p + 0x480, 0.f);
+        plate.broken = {};
+        std::strcpy(reinterpret_cast<char*>(w.bytes.data() + p + 0x484), exe_string(s, movie));
+        put_word(w, p + 0x504, exe_word(s, movie + 0x80));
+        put_word(w, p + 0x508, exe_word(s, movie + 0x84));
+        put_word(w, p + 0x50C, exe_word(s, 0x00308B1C));
+        put_real(w, p + 0x510, exe_real(s, row + 0x10) * exe_real(s, 0x0032B6B0) + exe_real(s, 0x00428FBC));
+        put_real(w, p + 0x514, exe_real(s, row + 0x14) * exe_real(s, 0x0032B6AC) + exe_real(s, 0x00428FBC));
+    }
+    put_word(w, 0xB94, u32(s.plate_flags[0]));
+    put_word(w, 0xB98, u32(s.plate_flags[1]));
+    s.plate_flags[0] = 1; // DAT_00510F7C
+    s.plate_flags[1] = 1; // DAT_00510F80
+    w.prompts = nullptr;
+    set_runtime_slot_select_state(w, 4, s);
+    allocate_dialogue_text_pool(w.plate_pool, 0, 1, 0x80, s.text_pools);
+    w.plate_pool->origin = {exe_real(s, 0x0042900C), exe_real(s, 0x00429010), std::bit_cast<float>(3u)};
+}
+
+// Xbox 0x000DDC90
+void close_runtime_slot_select(GameSelectWidget& widget, GameSelectControlServices& services)
+{
+    auto& s = services;
+    auto& w = slots(widget);
+    release_plate_textures(w, s);
+    release_disc_textures(w, s);
+    release_broken_textures(w, s);
+    release_nowrite_textures(w, s);
+    if (w.bat != nullptr)
+    {
+        activate_actor_bind_tree(*w.bat); // 0x00112CC0, ESI the bat: message 0x80 retires it.
+        w.bat = nullptr;
+    }
+    const u32 cleared = exe_word(s, 0x00314F30);
+    if (w.background.data() != nullptr)
+    {
+        release_texture(w.background, s);
+        put_word(w, 0xB4C, cleared);
+    }
+    if (w.old_background.data() != nullptr)
+    {
+        release_texture(w.old_background, s);
+        put_word(w, 0xB64, cleared);
+    }
+    s.plate_flags[0] = i32(word(w, 0xB94));
+    s.plate_flags[1] = i32(word(w, 0xB98));
+    for (auto& movie : s.frontend.movies)
+    {
+        if (movie != nullptr)
+        {
+            release_runtime_movie(*movie, s.movies); // 0x001072B0
+            movie = nullptr;
+        }
+    }
+    if (w.plate_pool != nullptr)
+    {
+        release_dialogue_text_pool(w.plate_pool, *s.text_pools); // 0x0005F460
+        w.plate_pool = nullptr;
+    }
+    if (w.prompt_pool != nullptr)
+    {
+        release_dialogue_text_pool(w.prompt_pool, *s.text_pools);
+        w.prompt_pool = nullptr;
+    }
+    if (w.prompts != nullptr)
+    {
+        destroy_dialogue_widget(w.prompts, s.resources, *s.text_pools); // 0x00142070
+        w.prompts = nullptr;
+    }
+}
+
+// Xbox 0x000DDD80
+void tick_runtime_slot_select(GameSelectWidget& widget, GameSelectControlServices& services)
+{
+    auto& s = services;
+    auto& w = slots(widget);
+    const u32 state = word(w, 0);
+    if (state <= 8 && w.prompts != nullptr)
+    {
+        // State 5 updates the prompts with the front-end device (DAT_00429BBC); the others without one (the jump
+        // table at 0x000DDEF0 with its index bytes at 0x000DDEF8).
+        const bool device = state == 5;
+        s.update_prompts(*w.prompts, device); // 0x00142460, EDI the widget
+    }
+    switch (integer(w, 0))
+    {
+    case 1:
+        if (word(w, 0xE9C) == 0)
+        {
+            if (integer(w, 0xEA0) < 3)
+            {
+                continue_save_scan(s);
+                return;
+            }
+            set_runtime_slot_select_state(w, 2, s);
+        }
+        return;
+    case 2:
+    {
+        if (s.timer_expired(reals(w, 0xB90)) != 0) // 0x0012B2A0, EBX +0xB90
+        {
+            set_runtime_slot_select_state(w, 3, s);
+            return;
+        }
+        for (size_t index = 0; index < 3; ++index)
+        {
+            const float duration = exe_real(s, 0x00429028);
+            float alpha;
+            if (duration == 0.f)
+            {
+                alpha = 0.f;
+            }
+            else
+            {
+                const float full = exe_real(s, 0x0032B158);
+                const float value = full - ((real(w, 0xB90) - duration) / (0.f - duration)) * full;
+                if (0.f > value)
+                {
+                    alpha = 0.f;
+                }
+                else if (value > full)
+                {
+                    alpha = full;
+                }
+                else
+                {
+                    alpha = value;
+                }
+            }
+            w.bytes[index * kPlate + 0x44B] = truncate_byte(alpha);
+        }
+        return;
+    }
+    case 4:
+        if (word(w, 0xB7C) == 0)
+        {
+            if (!runtime_gameselect_book_busy(w.owner_state, *w.owner, s)) // 0x00083C40, ECX the owner
+            {
+                set_runtime_slot_select_state(w, 1, s);
+            }
+        }
+        else
+        {
+            fade_in_plates(w, s);
+        }
+        for (size_t index = 0; index < 3; ++index)
+        {
+            w.bytes[index * kPlate + 0x44B] = w.bytes[index * kPlate + 0x433];
+        }
+        return;
+    case 6:
+        raise_selected_plate(w, s);
+        return;
+    case 7:
+        zoom_selected_plate(w, s);
+        return;
+    default:
+        return;
+    }
+}
+
+// Xbox 0x000DDF20
+void draw_runtime_slot_select(GameSelectWidget& widget, GameSelectControlServices& services)
+{
+    auto& s = services;
+    auto& w = slots(widget);
+    const i32 chosen = integer(w, 0xB2C);
+    if ((s.flags & 0x40000u) != 0)
+    {
+        return;
+    }
+    if (w.movie != nullptr)
+    {
+        if ((s.flags & 0x80u) != 0)
+        {
+            if (word(w, 0xB88) != 0)
+            {
+                --w.movie->play_count;
+                put_word(w, 0xB88, 0);
+            }
+        }
+        else if (word(w, 0xB88) == 0)
+        {
+            ++w.movie->play_count;
+            put_word(w, 0xB88, 1);
+        }
+    }
+    const std::span<u8> frame = w.owner->texture;
+    if (w.movie != nullptr && integer(w, 0xB84) >= i32(exe_word(s, 0x00429000)))
+    {
+        // The movie boundary locks a texture header by its native address.
+        const u32 header = s.textures.address_of(frame.data()) + read_u32(frame, 4) + u32(frame[0x12]) * 0x14;
+        copy_runtime_movie_frame(*w.movie, reinterpret_cast<void*>(std::uintptr_t(header)),
+            s.movies); // 0x00107360, ESI the movie, ECX the texture header
+    }
+    if (w.background.data() != nullptr && texture_has_frame(w.background)
+        && runtime_texture_format_drawable(w.background) && w.bytes[0xB4F] != 0)
+    {
+        draw_runtime_dialogue_sprite(w.background.data(), reals(w, 0xB44), reals(w, 0xB50), 0.f, word(w, 0xB4C), 0,
+            s.draw); // 0x0005CE30
+    }
+    if (w.old_background.data() != nullptr && texture_has_frame(w.old_background)
+        && runtime_texture_format_drawable(w.old_background) && w.bytes[0xB67] != 0)
+    {
+        draw_runtime_dialogue_sprite(w.old_background.data(), reals(w, 0xB5C), reals(w, 0xB68), 0.f,
+            word(w, 0xB64), 0, s.draw);
+    }
+    for (i32 index = 0; index < 3; ++index)
+    {
+        const size_t p = size_t(index) * kPlate;
+        if (index != integer(w, 0xB2C) && w.plates[size_t(index)].plate.data() != nullptr)
+        {
+            const i32 box_h = i32(real(w, p + 0x514));
+            const i32 box_w = i32(real(w, p + 0x510));
+            const float x = float(i32(real(w, p + 0x428)) - box_w / 2);
+            const float y = float(i32(real(w, p + 0x42C)) - box_h / 2);
+            draw_runtime_dialogue_panel(x, y, float(box_w), float(box_h), exe_real(s, 0x00428F98), word(w, p + 0x50C),
+                s.outer); // 0x00061360
+            draw_sprite(0, nullptr, w.plates[size_t(index)].plate, reals(w, p + 0x434), nullptr, word(w, p + 0x430),
+                reals(w, p + 0x428), s);
+        }
+    }
+    const size_t p = size_t(integer(w, 0xB2C)) * kPlate;
+    if (w.plates[size_t(integer(w, 0xB2C))].plate.data() != nullptr)
+    {
+        const size_t q = size_t(chosen) * kPlate;
+        const i32 box_h = i32(real(w, q + 0x514));
+        const i32 box_w = i32(real(w, q + 0x510));
+        const float x = float(i32(real(w, q + 0x428)) - box_w / 2);
+        const float y = float(i32(real(w, q + 0x42C)) - box_h / 2);
+        draw_runtime_dialogue_panel(x, y, float(box_w), float(box_h), exe_real(s, 0x00428F98), word(w, q + 0x50C),
+            s.outer);
+        draw_sprite(0, nullptr, w.plates[size_t(chosen)].plate, reals(w, q + 0x434), nullptr, word(w, q + 0x430),
+            reals(w, q + 0x428), s);
+    }
+    (void)p;
+    const i32 state = integer(w, 0);
+    if (0 < state && (state <= 2 || state == 4))
+    {
+        for (size_t index = 0; index < 3; ++index)
+        {
+            const size_t q = index * kPlate;
+            if (w.plates[index].disc.data() != nullptr)
+            {
+                draw_sprite(-1, nullptr, w.plates[index].disc, reals(w, q + 0x44C), nullptr, word(w, q + 0x448),
+                    reals(w, q + 0x440), s);
+            }
+        }
+    }
+    if (w.movie != nullptr && w.movie->decoder != nullptr)
+    {
+        const i32 shown = integer(w, 0xB84);
+        const i32 delay = i32(exe_word(s, 0x00429000));
+        if (shown > delay)
+        {
+            const float start = float(delay);
+            const float end = float(i32(exe_word(s, 0x00429004)) + delay);
+            float alpha;
+            if (end == start)
+            {
+                alpha = exe_real(s, 0x0032B158);
+            }
+            else
+            {
+                const float full = exe_real(s, 0x0032B158);
+                alpha = ((float(shown) - start) / (end - start)) * full;
+                if (alpha > full)
+                {
+                    alpha = full;
+                }
+                else if (0.f > alpha)
+                {
+                    alpha = 0.f;
+                }
+            }
+            const u32 color = with_alpha(exe_word(s, 0x00314F48), truncate_byte(alpha));
+            const float uv_top[2]{exe_real(s, 0x0032B1F4), exe_real(s, 0x0032B1B0)};
+            const size_t q = size_t(chosen) * kPlate;
+            const size_t r = size_t(integer(w, 0xB2C)) * kPlate;
+            const auto plate = w.plates[size_t(chosen)].plate;
+            const float scale[2]{(texture_width(plate) * real(w, r + 0x434)) / texture_width(frame),
+                (texture_height(plate) * real(w, r + 0x438)) / texture_height(frame)};
+            draw_sprite(0, uv_top, frame, scale, reals(w, q + 0x504), color, reals(w, q + 0x428), s);
+        }
+        put_word(w, 0xB84, word(w, 0xB84) + 1);
+    }
+    for (size_t index = 0; index < 3; ++index)
+    {
+        const size_t q = index * kPlate;
+        if (w.plates[index].broken.data() != nullptr)
+        {
+            draw_sprite(0, nullptr, w.plates[index].broken, reals(w, q + 0x47C), nullptr, word(w, q + 0x478),
+                reals(w, q + 0x470), s);
+        }
+        if (w.plates[index].nowrite.data() != nullptr)
+        {
+            draw_sprite(0, nullptr, w.plates[index].nowrite, reals(w, q + 0x464), nullptr, word(w, q + 0x460),
+                reals(w, q + 0x458), s);
+        }
+    }
+    if (word(w, 0xB7C) == 0 && w.bat != nullptr)
+    {
+        const float scale = exe_real(s, 0x00428F90);
+        if (w.bat->scale_200 != scale)
+        {
+            w.bat->scale_200 = scale;
+            w.bat->xform_valid = 0;
+        }
+        const i32 view = i32(s.outer.current_display_address - 0x507018u) / 0x1E4; // DAT_005077A8
+        s.draw_actor(*w.bat, view, 3); // Vtable +0x14
+    }
+    if (w.prompts != nullptr)
+    {
+        draw_runtime_dialogue_widget(*w.prompts, 0, s.outer); // 0x00142720
+    }
+}
+
+// Xbox 0x000DF9A0
+void set_runtime_slot_select_state(SlotSelectWidget& w, i32 state, GameSelectControlServices& services)
+{
+    auto& s = services;
+    const i32 previous = integer(w, 0);
+    if (previous == 3)
+    {
+        if (word(w, 0xB7C) != 0)
+        {
+            put_word(w, 0xB7C, 0);
+            reset_plate_colors(w, s);
+        }
+        create_slot_bat(w, s);
+        char resource[0x80]{};
+        std::memcpy(resource, "aid_loctext_ghoulies_gameselect_gameselecttext", 47); // 0x0020A574
+        const float edge = exe_real(s, 0x0032B1F4);
+        const std::array<float, 2> anchor{s.hud.inner_left + edge, s.hud.inner_bottom - edge};
+        const float icon = exe_real(s, 0x00429020);
+        const float text = exe_real(s, 0x00429024);
+        const float spacing = exe_real(s, 0x00429018);
+        const std::array<float, 2> row_step{icon * 0.f, 0.f - icon * spacing};
+        const float half = spacing * exe_real(s, 0x0032B0F4) * icon;
+        const std::array<float, 2> origin{half + exe_real(s, 0x0042901C), 0.f - half};
+        std::array<char16_t, 0x200> scratch{};
+        float widest = 0.f;
+        const float width = measure_dialogue_widget_width(resource, s.image.memory(0x00308068, 0x310).data(), icon,
+            text, "gameselect", scratch.data(), s.widgets); // 0x001428F0, ECX the prompt rows
+        if (width > exe_real(s, 0x0032B100))
+        {
+            widest = width;
+        }
+        for (const u32 rows : {0x00308378u, 0x00308688u})
+        {
+            const float next = measure_dialogue_widget_width(resource, s.image.memory(rows, 0x310).data(), icon,
+                text, "gameselect", scratch.data(), s.widgets);
+            if (next > widest)
+            {
+                widest = next;
+            }
+        }
+        const std::array<float, 2> column{widest, 0.f};
+        create_resource_dialogue_widget(w.prompts, 1, nullptr, anchor, row_step, origin, &column, icon, text,
+            "gameselect", resource, 0x400C0, s.widget_allocation); // 0x00141DA0, ESI +0xEA8
+        auto& prompts = *w.prompts;
+        const float fade = exe_real(s, 0x0032B1AC);
+        prompts.duration = fade;
+        if (prompts.progress > fade)
+        {
+            prompts.progress = fade;
+        }
+        prompts.pool->end_time = fade;
+        prompts.pool->origin = {exe_real(s, 0x0042900C), exe_real(s, 0x00429010), std::bit_cast<float>(3u)};
+        allocate_dialogue_text_pool(w.prompt_pool, 0, 1, 0x40080, s.text_pools); // 0x0005F390, ESI +0x210
+        w.prompt_pool->origin = {exe_real(s, 0x0042900C), exe_real(s, 0x00429010), std::bit_cast<float>(3u)};
+        put_real(w, 0x204, s.hud.center_x);
+        put_real(w, 0x208, s.hud.center_y);
+        put_real(w, 0x204, real(w, 0x204) + exe_real(s, 0x00428FB4));
+        put_real(w, 0x208, exe_real(s, 0x00428FB8) + real(w, 0x208));
+        if (s.text.data() != nullptr) // IsBadReadPtr(DAT_005462C4, 1), the read check boundary.
+        {
+            lookup_borrowed_localtext(s.text, "gameselect", exe_string(s, 0x00324F60),
+                reinterpret_cast<char16_t*>(w.bytes.data() + 4), s.localtext); // 0x000FF120, EBX +4, EDI the key
+        }
+        put_word(w, 0x20C, create_dialogue_text_record(*w.prompt_pool, reinterpret_cast<const char16_t*>(
+            w.bytes.data() + 4), real(w, 0x204), real(w, 0x208), exe_real(s, 0x00428FB0), exe_real(s, 0x00428FB0),
+            1.f, 1, 0, 1, s.metrics, s.viewport_width, s.next_text_id, s.random)); // 0x0005F5C0, EAX 1
+    }
+    else if (previous == 6)
+    {
+        const size_t p = size_t(integer(w, 0xB2C)) * kPlate;
+        const u32 id = create_dialogue_text_record(*w.plate_pool,
+            reinterpret_cast<const char16_t*>(w.bytes.data() + p + 0x218), real(w, p + 0x418), real(w, p + 0x41C),
+            exe_real(s, 0x00428FA4), exe_real(s, 0x00428FA4), 1.f, 1, 0, 1, s.metrics, s.viewport_width,
+            s.next_text_id, s.random); // 0x0005F5C0, EAX 1
+        put_word(w, p + 0x420, id);
+    }
+    else if (previous == 7)
+    {
+        if (w.movie != nullptr)
+        {
+            --w.movie->play_count;
+        }
+        copy_wide(s.frontend.selected_name.data(), slot_name(w, integer(w, 0xB2C)));
+        if (s.frontend.selected_name[0] != 0)
+        {
+            select_profile_game(s);
+        }
+        drop_missing_saves(s); // 0x000DF790
+        SceneControlInstance* control = find_runtime_scene_control(0x9A); // 0x00116170, EDX 0x9A
+        put_control_word(*control, 0x94, 3);
+        put_control_word(*control, 0x124, 2);
+        untranslated("0x00048260 (the menu book that turns to the slot's contents)");
+    }
+    put_word(w, 0, u32(state));
+    switch (state)
+    {
+    case 1:
+        begin_save_scan(s);
+        start_pause_ditty(s.ditty, s.streams); // 0x000E5B40
+        return;
+    case 2:
+        put_word(w, 0xB90, exe_word(s, 0x00429028));
+        return;
+    case 3:
+    {
+        load_slot_names(s);
+        std::array<char16_t, 0x80> name{};
+        const auto& selected = s.frontend.selected_name;
+        std::copy(selected.begin(), std::find(selected.begin(), selected.end(), u'\0'), name.begin());
+        if (name[0] == 0)
+        {
+            std::copy(s.selected_game, s.selected_game + std::u16string_view(s.selected_game).size(), name.begin());
+        }
+        i32 found = 0;
+        if (name[0] != 0 && find_slot_by_name(name.data(), found, s))
+        {
+            put_word(w, 0xB2C, u32(found));
+        }
+        describe_slots(w, s);
+        if (name[0] == 0)
+        {
+            i32 index = 0;
+            for (; index < 3; ++index)
+            {
+                const i32 status = integer(w, size_t(index) * kPlate + 0x214);
+                if (status == 2 || status == 4 || status == 3)
+                {
+                    break;
+                }
+            }
+            if (index < 3)
+            {
+                put_word(w, 0xB2C, u32(index));
+            }
+        }
+        set_runtime_slot_select_state(w, 6, s);
+        return;
+    }
+    case 4:
+        put_word(w, 0xB78, exe_word(s, 0x00429014));
+        put_word(w, 0xB7C, 1);
+        return;
+    case 6:
+    {
+        for (size_t index = 0; index < 3; ++index)
+        {
+            const size_t p = index * kPlate;
+            const u32 row = 0x0042902C + u32(index) * 0x124;
+            const auto plate = w.plates[index].plate;
+            put_real(w, p + 0x434, (screen_width(s) * exe_real(s, row + 0x10)) / texture_width(plate));
+            put_real(w, p + 0x438, (screen_height(s) * exe_real(s, row + 0x14)) / texture_height(plate));
+            put_real(w, p + 0x510, exe_real(s, row + 0x10) * exe_real(s, 0x0032B6B0) + exe_real(s, 0x00428FBC));
+            put_real(w, p + 0x514, exe_real(s, row + 0x14) * exe_real(s, 0x0032B6AC) + exe_real(s, 0x00428FBC));
+            put_word(w, p + 0x50C, exe_word(s, 0x00308B1C));
+            if (w.plates[index].nowrite.data() != nullptr)
+            {
+                put_word(w, p + 0x464, exe_word(s, 0x00428FEC));
+                put_word(w, p + 0x468, exe_word(s, 0x00428FF0));
+            }
+            if (w.plates[index].broken.data() != nullptr)
+            {
+                put_word(w, p + 0x47C, exe_word(s, 0x00428FD8));
+                put_word(w, p + 0x480, exe_word(s, 0x00428FDC));
+            }
+        }
+        select_slot_movie(w, s);
+        select_slot_background(w, s);
+        for (size_t index = 0; index < 3; ++index)
+        {
+            end_dialogue_text_record(*w.plate_pool, word(w, index * kPlate + 0x420), s.fonts, s.fallback_texture,
+                s.random); // 0x0005F7E0, ECX the record id
+        }
+        if (w.prompts != nullptr)
+        {
+            auto& prompts = *w.prompts;
+            const i32 status = integer(w, size_t(integer(w, 0xB2C)) * kPlate + 0x214);
+            if (status != 2 && status != 4 && status != 3)
+            {
+                copy_dialogue_widget_parameters(prompts.requested_parameters,
+                    s.image.memory(0x00308068, 0x310).data()); // 0x00142DF0, ECX +0x638
+                prompts.requested_set = prompts.requested_parameters.data();
+                set_dialogue_widget_mode(prompts, 3, s.widgets); // 0x00142C20, EAX 3
+                return;
+            }
+            const u32 rows = status == 3 ? 0x00308688u : 0x00308378u;
+            set_dialogue_widget_prompt(prompts, s.image.memory(rows, 0x310).data(), s.widgets); // 0x00142180
+        }
+        return;
+    }
+    case 7:
+        put_word(w, 0xB8C, exe_word(s, 0x00429008));
+        end_dialogue_text_record(*w.plate_pool, word(w, size_t(integer(w, 0xB2C)) * kPlate + 0x420), s.fonts,
+            s.fallback_texture, s.random);
+        return;
+    case 8:
+        if (w.prompts != nullptr)
+        {
+            w.prompts->requested_set = nullptr;
+            set_dialogue_widget_mode(*w.prompts, 3, s.widgets); // 0x00142C20, EAX 3
+        }
+        if (w.movie != nullptr)
+        {
+            --w.movie->play_count;
+        }
+        copy_wide(s.frontend.selected_name.data(), slot_name(w, integer(w, 0xB2C)));
+        drop_missing_saves(s); // 0x000DF790
+        if (s.frontend.selected_name[0] != 0)
+        {
+            select_profile_game(s);
+        }
+        return;
+    default:
+        return;
+    }
+}
+
+// Xbox 0x000E01B0
+void open_runtime_gameselect_movies(GameSelectControlServices& services)
+{
+    auto& s = services;
+    for (size_t index = 0; index < 3; ++index)
+    {
+        s.frontend.movies[index] = allocate_runtime_movie(exe_string(s, 0x004290C8 + u32(index) * 0x124), 0x14,
+            s.movies);
+    }
+    for (size_t index = 0; index < 5; ++index)
+    {
+        s.frontend.movies[3 + index] = allocate_runtime_movie(exe_string(s, 0x0042941C + u32(index) * 0x10C), 0x14,
+            s.movies);
+    }
+}
+
+// Xbox 0x000E0210
+void move_runtime_slot_cursor(GameSelectControlServices& services)
+{
+    auto& s = services;
+    auto& w = *s.frontend.slot_widget;
+    if (w.bat == nullptr)
+    {
+        return;
+    }
+    const i32 flight = s.bat_screen(*w.bat).state; // Bat +0x934
+    if (flight != 1 && flight != 3)
+    {
+        return;
+    }
+    const u32 previous = word(w, 0xB28);
+    i32 slot = integer(w, 0xB2C);
+    std::array<float, 2> direction{};
+    s.frontend_direction(direction); // 0x001429E0, ESI DAT_00429BBC
+    if (direction[0] == 0.f && direction[1] == 0.f)
+    {
+        return;
+    }
+    // 0x001080B0, ESI the direction: an axis inside (DAT_0032B274, DAT_0032B1AC) is dropped; the larger axis
+    // gives up (1), down (2), left (4) or right (8).
+    const float dead = exe_real(s, 0x0032B1AC);
+    const float low = exe_real(s, 0x0032B274);
+    if (dead > direction[0] && direction[0] > low)
+    {
+        direction[0] = 0.f;
+    }
+    if (dead > direction[1] && direction[1] > low)
+    {
+        direction[1] = 0.f;
+    }
+    u16 code = 0;
+    if (direction[0] != 0.f || direction[1] != 0.f)
+    {
+        const float vertical = std::fabs(direction[1]); // 0x00152BB0
+        const float horizontal = std::fabs(direction[0]);
+        if (horizontal < vertical)
+        {
+            code = direction[1] > exe_real(s, 0x0032B100) ? 1 : 2;
+        }
+        else
+        {
+            code = direction[0] > exe_real(s, 0x0032B100) ? 8 : 4;
+        }
+    }
+    if (code == 4)
+    {
+        slot = slot == 0 ? 2 : slot - 1;
+    }
+    else if (code == 8)
+    {
+        slot = slot == 2 ? 0 : slot + 1;
+    }
+    else
+    {
+        return;
+    }
+    put_word(w, 0xB28, previous);
+    put_word(w, 0xB2C, u32(slot));
+    set_runtime_slot_select_state(w, 6, s);
+}
+
+// Xbox 0x000E02D0
+void select_runtime_slot(GameSelectControlServices& services)
+{
+    auto& s = services;
+    auto& w = *s.frontend.slot_widget;
+    for (size_t index = 0; index < 3; ++index)
+    {
+        copy_wide(s.frontend.slot_names[index].data(), slot_name(w, i32(index)));
+    }
+    s.frontend.word_0042a0c4 = integer(w, 0xB2C);
+    s.frontend.word_0042a0c8 = 1;
+    const i32 status = integer(w, size_t(integer(w, 0xB2C)) * kPlate + 0x214);
+    if (status == 2 || status == 4 || status == 3)
+    {
+        const float width = screen_width(s);
+        const float height = screen_height(s);
+        const float half = exe_real(s, 0x0032B0F4);
+        ButtonBatPoint target{};
+        target.x = width - real(w, 0xB20) > width * half ? width + exe_real(s, 0x0032B1E0) : exe_real(s, 0x0032B304);
+        target.y = height - real(w, 0xB24) > height * half ? height + exe_real(s, 0x0032B1E0)
+                                                          : exe_real(s, 0x0032B304);
+        if (w.bat != nullptr)
+        {
+            s.fly_bat(*w.bat, target, 1.f); // 0x0006DA00, EBX the target
+        }
+        SceneControlInstance* control = find_runtime_scene_control(0x9A); // 0x00116170
+        put_control_word(*control, 0x94, 3);
+        put_control_word(*control, 0x124, 2);
+        untranslated("0x00048260 (the menu book that turns to the slot's contents)");
+    }
+    SceneControlInstance* control = find_runtime_scene_control(0x9A); // 0x00116170
+    put_control_word(*control, 0x94, 4);
+    put_control_word(*control, 0x124, 1);
+    if (control->gameselect->book != nullptr)
+    {
+        untranslated("0x00048860 (release the menu book)");
+    }
+    set_runtime_slot_select_state(w, 8, s);
+}
+
+// Xbox 0x000E04F0
+void delete_runtime_slot(GameSelectControlServices& services)
+{
+    auto& s = services;
+    auto& w = *s.frontend.slot_widget;
+    for (size_t index = 0; index < 3; ++index)
+    {
+        copy_wide(s.frontend.slot_names[index].data(), slot_name(w, i32(index)));
+    }
+    copy_wide(s.frontend.selected_name.data(), slot_name(w, integer(w, 0xB2C)));
+    SceneControlInstance* control = find_runtime_scene_control(0x9A); // 0x00116170
+    put_control_word(*control, 0x94, 2);
+    put_control_word(*control, 0x124, 1);
+    if (control->gameselect->book != nullptr)
+    {
+        untranslated("0x00048860 (release the menu book)");
+    }
+    set_runtime_slot_select_state(w, 8, s);
+}
+
+// Xbox 0x000E05D0
+void leave_runtime_slot_select(GameSelectControlServices& services)
+{
+    auto& s = services;
+    char name[0x80]{};
+    std::memcpy(name, "aid_script_ghoulies_gameselect_backtoattract", 45); // 0x00324F30
+    std::strcpy(s.transition_override, name); // DAT_0050E458
+    // 0x0011EAD0: the profile is cleared and the first scene of the held scene order is requested.
+    clear_runtime_profile_block({s.profile.scene_flags->bytes, size_t(s.profile.scene_flags->size)});
+    s.profile.name[0] = 0;
+    s.profile.times = {};
+    s.request_script(reinterpret_cast<const char*>(s.scene_order_held.data()), 1); // 0x0011EB30, EAX *DAT_00511B64
+    auto& w = *s.frontend.slot_widget;
+    w.prompts->requested_set = nullptr;
+    set_dialogue_widget_mode(*w.prompts, 3, s.widgets); // 0x00142C20, EAX 3
+}
+}

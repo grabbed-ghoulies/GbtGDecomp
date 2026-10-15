@@ -1,4 +1,6 @@
 #include "gbtg/anim.h"
+#include "cutscene_scene_runtime.h"
+#include "../video/native_movies.h"
 #include "gbtg/engine_internal.h"
 #include "gbtg/entity.h"
 #include "gbtg/gfx.h"
@@ -649,8 +651,8 @@ void scene_begin_audio_pause()
 // is added to DAT_004312E4. The truncated integer lands at DAT_004312E0 and
 // the fraction stays at DAT_004312E4.
 //
-// 0x0004EBD0 and 0x0005AA90 are not translated; 0x00057E60 ticks the scene
-// dialogue. DAT_00545B38
+// 0x0004EBD0 ticks the native scene's cutscenes; 0x0005AA90 is not
+// translated; 0x00057E60 ticks the scene dialogue. DAT_00545B38
 // equal to 3 would call 0x0013FFD0. That call is not translated. 0x00117140
 // runs, then 0x000D0300 and 0x00049DE0 would run. Those two are not
 // translated. 0x00117140 runs again. DAT_00506E28 equal to 1 would call
@@ -714,7 +716,11 @@ void scene_tick_pause_counter(Game& g, u8* scene)
     g_4312e0 = static_cast<i32>(g_4312e4);
     g_4312e4 = g_4312e4 - static_cast<float>(g_4312e0);
 
-    // 0x0004EBD0 and 0x0005AA90 are not translated.
+    // 0x0004EBD0 over the native scene's cutscene stack. 0x0005AA90 is not translated.
+    if (auto* cutscenes = find_scene_cutscene_runtime(g); cutscenes != nullptr)
+    {
+        tick_scene_cutscenes(*cutscenes);
+    }
     tick_scene_dialogue(g); // Xbox 0x00057E60
     if (g_545b38 == 3)
     {
@@ -950,80 +956,38 @@ void scene_update_actor_marker()
 }
 
 
-// Overlay records at 0x0050DD90. Four records, Xbox stride 0x88, end
-// 0x0050DFB0. The dword at +0 is the object. The byte at +4 is untouched
-// here. The byte at +5 is the state. The host object follows the 0x88-byte
-// image so +5 stays at +5. DAT_0050DD8C is the dword at 0x0050DD8C.
-struct OverlayRec50dd90
-{
-    u32 at_0 = 0;
-    u8 at_4 = 0;
-    u8 state = 0;
-    u8 tail[0x82]{};
-    void* object = nullptr;
-};
-
-static_assert(offsetof(OverlayRec50dd90, at_4) == 4);
-
-static_assert(offsetof(OverlayRec50dd90, state) == 5);
-
-static_assert(offsetof(OverlayRec50dd90, object) == 0x88);
-
-
-// DAT_0050DD8C. 0x00106E90 stores 3. 0x00106EC0 stores 2.
-i32 g_50dd8c = 0;
-
-// DAT_0050DD90. Four overlay records.
-OverlayRec50dd90 g_50dd90[4] = {};
-
-
 // Xbox 0x00106E90
-// Starts at the state byte (0x0050DD95) and steps 0x88 while that address
-// is below 0x0050DFB5. A record whose object is set and whose state is 2
-// decrements the int at object+0x18 and stores 3 in the state. The dword
-// at DAT_0050DD8C becomes 3.
-// Xbox 0x00106E90
+// Each movie event slot (DAT_0050DD90) whose movie plays (state 2) gives back its play count (+0x18) and
+// waits (state 3). The mode DAT_0050DD8C becomes 3.
 void scene_enable_overlays()
 {
-    // Xbox 0x00106E90
-    OverlayRec50dd90* rec = g_50dd90;
-    do
+    auto& movies = native_movie_runtime();
+    for (auto& slot : movies.session->slots)
     {
-        if (rec->object != nullptr && rec->state == 2)
+        if (slot.movie != nullptr && slot.state == 2)
         {
-            i32* count = reinterpret_cast<i32*>(static_cast<u8*>(rec->object) + 0x18);
-            *count = *count - 1;
-            rec->state = 3;
+            --slot.movie->play_count;
+            slot.state = 3;
         }
-        rec = rec + 1;
     }
-    while (rec < g_50dd90 + 4);
-    g_50dd8c = 3;
+    movies.mode = 3;
 }
 
 
 // Xbox 0x00106EC0
-// Starts at the state byte (0x0050DD95) and steps 0x88 while that address
-// is below 0x0050DFB5. A record whose object is set and whose state is 3
-// increments the int at object+0x18 and stores 2 in the state. The dword
-// at DAT_0050DD8C becomes 2.
-// Xbox 0x00106EC0
+// Each waiting slot (state 3) plays again (state 2, play count +1). The mode DAT_0050DD8C becomes 2.
 void scene_disable_overlays()
 {
-    // Xbox 0x00106EC0
-    OverlayRec50dd90* rec = g_50dd90;
-    do
+    auto& movies = native_movie_runtime();
+    for (auto& slot : movies.session->slots)
     {
-        if (rec->object != nullptr && rec->state == 3)
+        if (slot.movie != nullptr && slot.state == 3)
         {
-            i32* count = reinterpret_cast<i32*>(static_cast<u8*>(rec->object) + 0x18);
-            *count = *count + 1;
-            rec->state = 2;
+            ++slot.movie->play_count;
+            slot.state = 2;
         }
-        rec = rec + 1;
     }
-    while (rec < g_50dd90 + 4);
-    g_50dd8c = 2;
+    movies.mode = 2;
 }
 
 
@@ -1185,7 +1149,8 @@ i32 g_50ec00 = 0;
 // otherwise.
 //
 // DAT_004312C4 becomes 1, the dword at DAT_0032B0F8. 0x00048F10, 0x00057DC0,
-// 0x0011CD90, and 0x00106E30 are not translated. 0x0011AEA0 is not translated.
+// and 0x0011CD90 are not translated; 0x00106E30 releases the movie event slots. 0x0011AEA0 is not
+// translated.
 // 0x00173F30 is D3D_KickOffAndWaitForIdle. 0x001593D0 and 0x000F97F0 are not
 // translated. 0x00035D30 is not translated, so its return is not taken and
 // the two 0x00036180 calls in that loop are not made. 0x00034880 is not
@@ -1283,7 +1248,8 @@ void scene_teardown(u8* scene)
     g_4312d8 = 0;
     g_4312d4 = 0;
     g_sim_scale = 1.f;
-    // 0x00048F10, 0x00057DC0, 0x0011CD90, and 0x00106E30 are not translated.
+    // 0x00048F10, 0x00057DC0 and 0x0011CD90 are not translated.
+    release_movie_events(native_movie_runtime()); // 0x00106E30
     g_511a10 = 0;
     // 0x0011AEA0 is not translated.
     g_50eaa0 = nullptr;

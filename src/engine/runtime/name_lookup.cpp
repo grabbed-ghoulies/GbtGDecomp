@@ -54,5 +54,29 @@ int binary_search_names(i32 count, const char* const* table, const char* key)
     return -1;
 }
 
-
+// Xbox 0x000357D0
+bool transition_aid_equal(std::string_view a, std::string_view b)
+{
+    if (!a.starts_with("aid_"))
+    {
+        return !b.starts_with("aid_");
+    }
+    if (!b.starts_with("aid_"))
+    {
+        return false;
+    }
+    for (size_t i = 4;; ++i)
+    {
+        const u8 ac = i < a.size() ? u8(a[i]) & 0xdf : 0;
+        const u8 bc = i < b.size() ? u8(b[i]) & 0xdf : 0;
+        if (ac != bc)
+        {
+            return false;
+        }
+        if (ac == 0)
+        {
+            return true;
+        }
+    }
+}
 }

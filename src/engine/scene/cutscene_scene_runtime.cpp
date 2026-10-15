@@ -42,7 +42,18 @@ void install_scene_cutscene_runtime(Game& game, SceneCutsceneBindings bindings)
 
 SceneCutsceneRuntime& scene_cutscene_runtime(Game& game)
 {
-    return *scene_cutscenes.at(&game);
+    const auto found = scene_cutscenes.find(&game);
+    if (found == scene_cutscenes.end())
+    {
+        throw Error("scene cutscene runtime is not installed: 0x0004EDA0 needs a native scene");
+    }
+    return *found->second;
+}
+
+SceneCutsceneRuntime* find_scene_cutscene_runtime(Game& game)
+{
+    const auto found = scene_cutscenes.find(&game);
+    return found == scene_cutscenes.end() ? nullptr : found->second.get();
 }
 
 void remove_scene_cutscene_runtime(Game& game)

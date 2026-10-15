@@ -1,6 +1,7 @@
 #pragma once
 
 #include "bank_lookup.h"
+#include "bank_streams.h"
 #include "core_cue.h"
 #include "core_listener.h"
 #include <deque>
@@ -40,6 +41,40 @@ struct NativeAudioBanks
     std::unordered_map<void*, const AudioBankNames*> handles;
 };
 extern NativeAudioBanks* g_native_audio; // Set by 0x0003A280.
+// The audio core's globals, live from boot for the whole game as in retail: the XACT sound sources and cues, the
+// 48 event voices (DAT_004E0CE8), the tracked banks, channels and stream slots (DAT_004DF370, DAT_004E030C,
+// DAT_004DFFA0). Scenes, the front end and the transitions all request sounds through these.
+// DAT_004E14F8: the twelve wavebank stream rows 0x00039DD0 opens (stride 0xC), with the stream ids of its table
+// (0x00421A80, stride 0x14, +0xC). The host wavebank boundary (register_wavebanks) loads the banks itself and
+// keeps no retail file job in a row's +0.
+struct AudioWavebankStreams
+{
+    std::array<i32, 12> ids{}; // 0x00421A8C
+    std::array<void*, 12> jobs{}; // DAT_004E14F8 +0
+};
+// 0xEA while a stream of this id still has bytes to read, else 0; the bytes left and the total are summed over
+// its rows.
+u8 runtime_stream_bank_busy(i32 id, i32* remaining, i32* total, const AudioWavebankStreams& streams); // Xbox 0x00039D50
+struct NativeAudioRuntime
+{
+    NativeAudioRuntime() = default;
+    NativeAudioRuntime(const NativeAudioRuntime&) = delete;
+    NativeAudioRuntime& operator=(const NativeAudioRuntime&) = delete;
+    ~NativeAudioRuntime(); // Clears g_native_audio_runtime when it is this one.
+    Vec3 origin{}; // DAT_0050DD80, BSS.
+    Vec3 default_cone{}; // DAT_0042A840, .data (1, 1, 1).
+    Vec3 listener_velocity{}; // DAT_00421C70, the velocity 0x0003A040 passes.
+    // The event voices' DAT_005077A8 words in retail layout (position +0, rotation +0xC, forward +0x1C). The host
+    // display record has another layout, so the frame's audio tick copies them before 0x000396F0.
+    std::array<float, 10> listener_words{};
+    AudioCoreSources sources{};
+    AudioCoreCues cues{sources};
+    AudioEventVoices voices{cues, {}, {}, {}, 0, origin, default_cone};
+    AudioBankStreams streams{{}, {}, {}, voices};
+    AudioWavebankStreams wavebank_streams{};
+};
+extern NativeAudioRuntime* g_native_audio_runtime; // Set at boot, after 0x0003A280.
+NativeAudioRuntime& native_audio_runtime(); // Raises before boot.
 char* read_audio_list_line(char*& cursor, const char* base, i32 size); // Xbox 0x000FC120, EDI size
 AudioBankNames* add_audio_bank_name(const char* name, NativeAudioBanks& banks); // Xbox 0x000390A0
 void add_audio_cue_name(AudioBankNames& bank, const char* name, NativeAudioBanks& banks); // Xbox 0x00039170

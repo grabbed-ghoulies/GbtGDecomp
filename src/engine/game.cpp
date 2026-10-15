@@ -4,7 +4,11 @@
 #include "scene/executable_resources.h"
 #include "scene/factory_scene_runtime.h"
 #include "scene/scene_actor_services.h"
+#include "scene/scene.h"
+#include "frontend/frontend_sounds.h"
+#include "frontend/frontend_state.h"
 #include "audio/pcm_backend.h"
+#include "video/native_movies.h"
 #include "gbtg/gfx.h"
 #include "gbtg/movie.h"
 
@@ -39,7 +43,13 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
     clock_init(clock);
     aids.open(game_dir);
     executable_resources = std::make_shared<SceneExecutableResources>(game_dir);
-    boot_native_audio(*this); // Boot 0x00033030 -> 0x0003A280.
+    native_audio = boot_native_audio(*this); // Boot 0x00033030 -> 0x0003A280.
+    native_movies = boot_native_movies(*this); // Boot 0x00033030 -> 0x000E9CE0, 0x000E9E60.
+    reset_runtime_frontend(g_frontend, g_pause_ditty); // Boot 0x00033030 -> 0x000E5A80.
+    // Boot 0x00033030 -> 0x0011EA50 -> 0x0011C3F0 -> 0x000FD620 (the light defaults). The rest of 0x0011C3F0 is
+    // not translated.
+    lighting_initialize_volume();
+    save_initialize_name_scan(); // 0x0011C3F0 -> 0x0011C480 -> 0x0010D3B0: the saved games on drive U.
     movie_set_root(game_dir);
     movie_boot_probe();
     std::cout << "fs_init: " << aids.game_dir.string() << " common.bnl entries " << aids.common.entries.size() << "\n";
@@ -128,7 +138,15 @@ void frame_tick(Game& g, float dt, const InputState& in)
         return;
     }
     pad_tick(g, in); // 0x000FA3C0 / 0x000FAD80
-    gameselect_tick(g, in);
+    // The legacy front end (docs/LEGACY_HOST_CODE.md) runs only while no scene runs natively.
+    const auto native_scene = [&g]()
+    {
+        return g.factory_scene != nullptr && g.factory_scene->actor_start == 1;
+    };
+    if (!native_scene())
+    {
+        gameselect_tick(g, in);
+    }
     // 0x00033C47. 0x0011E4C0. A queued aid_script loads when the stream enters state 4; run state 1
     // (or 2) ticks the scene through 0x0011E7F0: the dialogue (0x00057E60), the fired script and
     // its condition timers (0x00117100).
@@ -138,12 +156,7 @@ void frame_tick(Game& g, float dt, const InputState& in)
     {
         g.factory_scene->start_actors(g).run_scene_pass(); // 0x0011E640 after 0x0011E4C0.
     }
-    audio_tick(g, g.clock.dt); // 0x0015B780, 0x0003A040, 0x000396F0, 0x00038640, 0x00038C20
-    if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1)
-    {
-        g.factory_scene->start_actors(g).update_audio(); // The native side of the same pass.
-    }
-    cutscene_queue_tick(g, g.clock.dt);
+    tick_native_audio(g.clock.dt, g_4e02e8); // 0x0015B780, 0x0003A040, 0x000396F0, 0x00038640, 0x00038C20
     for (auto& e : g.entities)
     {
         if (e.type && e.type->tick)
@@ -151,33 +164,37 @@ void frame_tick(Game& g, float dt, const InputState& in)
             e.type->tick(e);
         }
     }
-    file_pump(); // 0x000E9E60
-    // 0x00033B50 walks DAT_0050E0B8 before present. Present walks it twice more.
+    // 0x00033B50: the file rows (0x000E9E60), the movie list (0x00107420 over DAT_0050E0B8) and the finished
+    // movie event slots (0x00106C70).
+    auto& movies = *g.native_movies;
+    pump_runtime_movie_files(movies.session->files());
+    tick_native_movie_list(movies);
+    release_finished_movie_events(movies.session->slots, movies.session->startup());
+    // Host movie playback for the legacy front end (docs/LEGACY_HOST_CODE.md).
     movie_advance_time(g.clock.dt);
     movie_present();
-    // Present 0x00033480 / 0x00032AB0 / 0x00033A90. The PC backend draws the scene models
-    // with the body camera; Xbox D3D8 would issue the original calls here.
-    const auto draw_world = [&g]()
-    {
-        for (const Mesh& mesh : g.models)
-        {
-            gfx_draw_mesh(mesh);
-        }
-        draw_cutscene_props(g);
-        draw_ui(g);
-    };
     if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1)
     {
-        // Xbox 0x00033A20 over the natively started scene: each active camera slot draws its view.
-        g.factory_scene->start_actors(g).present_views(draw_world);
+        // Present 0x00033A90 over the natively started scene: the movie list, the movie frames into their hooked
+        // textures (0x00106CD0), each active camera slot's view (0x00033A20), then the movie list again.
+        tick_native_movie_list(movies);
+        copy_movie_event_frames(movies.session->slots, g.factory_scene->resources.special_textures,
+            movies.session->startup());
+        g.factory_scene->start_actors(g).present_views();
+        tick_native_movie_list(movies);
     }
     else
     {
+        // Legacy front end (docs/LEGACY_HOST_CODE.md): the host world, props and UI with the body camera.
         if (g.camera)
         {
             gfx_set_camera(g.camera->pose_position, g.camera->pose_quat, g.camera->pose_fov);
         }
-        draw_world();
+        for (const Mesh& mesh : g.models)
+        {
+            gfx_draw_mesh(mesh);
+        }
+        draw_ui(g);
         draw_scene_dialogue(g); // Xbox 0x00058150; drawing also computes the next page pointer.
     }
     draw_scene_transition(g);

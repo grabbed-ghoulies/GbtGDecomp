@@ -1,5 +1,6 @@
 #include "model_shader_parameter_draw.h"
 #include "d3dx_matrix.h"
+#include "../camera/view_frustum.h"
 
 #include <bit>
 #include <cstring>
@@ -286,6 +287,93 @@ void dispatch_runtime_model_shader_parameters(u32 node, RuntimeModelInstanceStor
     const u32 copy = image.word(node, 0xC);
     RuntimeModelRenderState& state = runtime_render_state(renderer);
     runtime_render_frame(renderer);
+    if (state.material != 0)
+    {
+        set_runtime_model_texture_table(state.material_values, context.globals);
+    }
+    const RuntimeShaderMatrix* camera = context.tree.camera[size_t(renderer.frame_index)];
+    if (camera == nullptr)
+    {
+        throw Error("model shader parameters need the frame camera");
+    }
+    set_runtime_model_material_camera(reinterpret_cast<const u32*>(camera->data()), context.globals);
+    set_runtime_model_normalized_combined(context.tree.combined[size_t(renderer.frame_index)].data(), context.globals);
+    set_runtime_model_material_vector(state.material_vector.data(), context.globals);
+    if (image.word(node, 0x24) != 0)
+    {
+        set_runtime_model_texture_key(runtime_model_material_texture_key(node, context), context.globals);
+    }
+    // Instance storage +copy+4 is the node's primary shader instance.
+    const auto found = storage.shader_nodes.find(copy);
+    if (found == storage.shader_nodes.end())
+    {
+        throw Error("model shader parameters have no instance copy");
+    }
+    bind_runtime_model_material(image.word(node, 0x20), found->second.primary, context);
+    std::array<float, 8> colors;
+    std::memcpy(colors.data(), state.base_color.data(), 0x10);
+    std::memcpy(colors.data() + 4, state.ambient_color.data(), 0x10);
+    context.pixel_constants(6, colors.data(), 2);
+    queue_runtime_model_group(node, context.tree);
+}
+
+// Xbox 0x00157140
+void classify_runtime_model_bound_nodes(u32 node, const float* frustum, u32& visible, u8& plane,
+    const RuntimeRelocationImage& image)
+{
+    do
+    {
+        while (image.byte(image.word(node, 0), 2) != 'B')
+        {
+            if (image.word(node, 0x14) != 0)
+            {
+                classify_runtime_model_bound_nodes(image.word(node, 0x14), frustum, visible, plane, image);
+            }
+            node = image.word(node, 0x18);
+            if (node == 0)
+            {
+                return;
+            }
+        }
+        Vec3 first;
+        Vec3 second;
+        std::memcpy(&first, image.pointer(node + 0x48), 0xC);
+        std::memcpy(&second, image.pointer(node + 0x54), 0xC);
+        if (classify_runtime_box_frustum(std::span<const float, 42>(frustum, 42), first, second, plane) == 0)
+        {
+            image.set_byte(node, 0x3F, 1);
+        }
+        else
+        {
+            image.set_byte(node, 0x3F, 0);
+            visible = 1;
+        }
+        node = image.word(node, 0x18);
+    } while (node != 0);
+}
+
+// Xbox 0x001571B0
+void dispatch_runtime_background_shader_parameters(u32 node, RuntimeModelInstanceStorage& storage,
+    RuntimeModelMaterialBind& context, RuntimeModelBoundCulling& culling)
+{
+    auto& renderer = context.tree.renderer;
+    const auto& image = context.tree.image;
+    ++culling.tested;
+    u32 visible = 0;
+    const u32 copy = image.word(node, 0xC);
+    RuntimeModelRenderState& state = runtime_render_state(renderer);
+    runtime_render_frame(renderer);
+    if (state.frustum == nullptr)
+    {
+        throw Error("background shader parameters need the render state +0x64 frustum");
+    }
+    classify_runtime_model_bound_nodes(image.word(node, 0x14), state.frustum, visible, culling.plane, image);
+    if (visible == 0)
+    {
+        ++culling.culled;
+        queue_runtime_model_sibling(node, context.tree);
+        return;
+    }
     if (state.material != 0)
     {
         set_runtime_model_texture_table(state.material_values, context.globals);

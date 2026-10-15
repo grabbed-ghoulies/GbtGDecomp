@@ -287,7 +287,6 @@ void script_vm_reset()
 {
     g_script_conds.clear();
     g_script_fired.clear();
-    g_script_cutscene_pending.clear();
 }
 
 
@@ -1244,7 +1243,8 @@ int script_condition_consume_pending_nodes()
 
 u8 g_scene_flag_bytes[2]{};
 
-SceneFlagBlock g_scene_flag_block{0, 0, g_scene_flag_bytes};
+// 0x000F2B60 at boot: kind 9, two bytes.
+SceneFlagBlock g_scene_flag_block{9, 2, g_scene_flag_bytes};
 
 SceneFlagBlock* g_scene_flags = &g_scene_flag_block;
 

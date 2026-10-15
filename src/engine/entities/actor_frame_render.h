@@ -36,4 +36,7 @@ struct ActorDrawState
 };
 u32 draw_runtime_actor(ActorDrawState& state, i32 kind,
     const ActorFrameDrawContext& attachments, SceneModelDrawContext& context); // Xbox 0x0003C9E0
+// The background's vtable +0x14: nothing while a dialogue page holds DAT_004EE1EC, else the actor draw.
+u32 draw_runtime_background(i32 dialogue_mode, ActorDrawState& state, i32 kind,
+    const ActorFrameDrawContext& attachments, SceneModelDrawContext& context); // Xbox 0x00042C10
 }

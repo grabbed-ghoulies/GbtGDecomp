@@ -68,6 +68,8 @@ add_library(gbtg_lib STATIC
     src/engine/scene/scene_actor_activation.cpp
     src/engine/scene/scene_actor_update.cpp
     src/engine/scene/scene_view_actors.cpp
+    src/engine/scene/scene_mirror.cpp
+    src/engine/scene/scene_view_present.cpp
     src/engine/graphics/light_volume_draw.cpp
     src/engine/graphics/light_volume_records.cpp
     src/engine/graphics/door_shadow_draw.cpp
@@ -77,6 +79,8 @@ add_library(gbtg_lib STATIC
     src/engine/entities/body_walk_alert_tick.cpp
     src/engine/scene/scene_control_update.cpp
     src/engine/scene/scene_controls.cpp
+    src/engine/scene/attract_control.cpp
+    src/engine/scene/gameselect_control.cpp
     src/engine/scene/scene_actor_removal.cpp
     src/engine/scene/scene_shadow_casters.cpp
     src/engine/scene/scene_gameplay_time.cpp
@@ -140,6 +144,7 @@ add_library(gbtg_lib STATIC
     src/engine/entities/player_messages.cpp
     src/engine/entities/player_overlay.cpp
     src/engine/graphics/billboard_queue.cpp
+    src/engine/graphics/world_sprite_passes.cpp
     src/engine/navigation/floor_tracking.cpp
     src/engine/navigation/path_routes.cpp
     src/engine/navigation/path_search.cpp
@@ -192,6 +197,7 @@ add_library(gbtg_lib STATIC
     src/engine/entities/actor_shape_push.cpp
     src/engine/graphics/vector_normalize.cpp
     src/engine/graphics/d3dx_matrix.cpp
+    src/engine/graphics/d3dx_view.cpp
     src/engine/entities/body_apply.cpp
     src/engine/entities/body_message_helpers.cpp
     src/engine/entities/body_shape_push.cpp
@@ -337,6 +343,7 @@ add_executable(gbtg
     src/engine/camera/runtime_display_setup.cpp
     src/engine/camera/display_clip_limits.cpp
     src/engine/graphics/actor_effect_nodes.cpp
+    src/engine/graphics/actor_effect_draw.cpp
     src/engine/graphics/scene_render_helpers.cpp
     src/engine/graphics/scene_light_upload.cpp
     src/engine/graphics/scene_environment_setup.cpp
@@ -506,13 +513,14 @@ add_executable(gbtg
     src/engine/entities/ghouly_box_decoder.cpp
     src/engine/input/controller.cpp
     src/engine/saves/save_names.cpp
+    src/engine/saves/runtime_profile.cpp
+    src/engine/saves/save_summary.cpp
     src/engine/frontend/text_tokens.cpp
     src/engine/scene/lighting.cpp
     src/engine/scene/ambient.cpp
     src/engine/scene/scene_resources.cpp
     src/engine/scene/actor_loading.cpp
     src/engine/runtime/clock.cpp
-    src/engine/audio/audio.cpp
     src/engine/audio/pcm_out.cpp
     src/engine/audio/core_memory.cpp
     src/engine/audio/core_source.cpp
@@ -522,11 +530,14 @@ add_executable(gbtg
     src/engine/frontend/frontend.cpp
     src/engine/frontend/frontend_keyboard.cpp
     src/engine/frontend/frontend_slots.cpp
+    src/engine/frontend/frontend_sounds.cpp
+    src/engine/frontend/gameselect_rows.cpp
+    src/engine/frontend/gameselect_slots.cpp
+    src/engine/frontend/gameselect_naming.cpp
+    src/engine/frontend/virtual_keyboard.cpp
+    src/engine/frontend/frontend_state.cpp
     src/engine/frontend/frontend_contents.cpp
-    src/engine/frontend/frontend_captions.cpp
-    src/engine/frontend/frontend_attract.cpp
     src/engine/frontend/frontend_text.cpp
-    src/engine/frontend/dialogue.cpp
     src/engine/scene/scene.cpp
     src/engine/scene/scene_loading.cpp
     src/engine/cutscenes/cutscene_runtime.cpp
@@ -575,6 +586,7 @@ add_executable(gbtg
     src/engine/runtime/platform.cpp
     src/engine/video/movie.cpp
     src/engine/video/movie_session.cpp
+    src/engine/video/native_movies.cpp
     src/engine/scene/cutscene_scene_runtime.cpp
     src/engine/scene/cutscene_resource_views.cpp
 )
@@ -750,7 +762,7 @@ endif()
 # Register browsing-only files after the transition target copies engine sources.
 file(GLOB_RECURSE GBTG_PUBLIC_HEADERS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h")
 set(GBTG_ENGINE_PUBLIC_HEADERS)
-foreach(header actor_runtime aid clock debug_ui dialogue engine_internal entity game gfx host_config movie platform)
+foreach(header actor_runtime aid clock debug_ui engine_internal entity game gfx host_config movie platform)
     list(APPEND GBTG_ENGINE_PUBLIC_HEADERS "${CMAKE_CURRENT_SOURCE_DIR}/include/gbtg/${header}.h")
 endforeach()
 list(REMOVE_ITEM GBTG_PUBLIC_HEADERS ${GBTG_ENGINE_PUBLIC_HEADERS})

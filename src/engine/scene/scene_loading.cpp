@@ -83,9 +83,6 @@ namespace gbtg
 using namespace scene_detail;
 
 
-// Set by script node type 0x13. 0x0004EDA0 passes node+8 to 0x0004EB20, which
-// 0x0004D680 instances. load_cutscene_reel picks the name up after that walk.
-std::string g_script_cutscene_pending;
 
 
 void release_models(Game& g)
@@ -335,7 +332,6 @@ void load_scene_contents(Game& g, std::string_view name)
             {
                 load_scene_player_bundle(g);
             }
-            load_cutscene_reel(g);
             load_scene_models(g);
             load_ui(g);
         }
@@ -354,6 +350,7 @@ void script_set_default_name(Game& g)
     script_vm_reset();
     g_light_offset = {0.f, 30.f, -30.f}; // DAT_0050D764; DAT_0032B108 and DAT_0032B3FC.
     g_light_filled_gate = 5; // DAT_0050D720.
+    g_flag_10b4 = 1; // DAT_005110B4, the mirror pass gate.
     g_state_248c = 0;
     g_state_2490 = 0;
     g_gate_251c = 0;
@@ -397,7 +394,6 @@ void scene_order_go(Game& g, size_t index)
     g.scene_index = index;
     std::cout << "scene order [" << index << "] " << g.scene_order[index] << "\n";
     load_scene_contents(g, g.scene_order[index]);
-    cutscene_queue_start(g);
 }
 
 
@@ -420,7 +416,6 @@ void script_load(Game& g, std::string_view name)
     }
     std::cout << "script " << std::string(name) << "\n";
     load_scene_contents(g, name);
-    cutscene_queue_start(g);
 }
 
 

@@ -431,6 +431,46 @@ void set_display_transform(const float* matrix, RuntimeDisplaySetupContext& cont
     output[15] = 1.f; // DAT_0032B0F8.
     set_dialogue_render_view(output.data(), context.draw);
 }
+// Xbox 0x000F5CC0
+void set_display_viewport(i32 x, i32 y, i32 width, i32 height)
+{
+    using namespace entity_detail;
+    auto& view = *g_display_view;
+    view.origin_x = x;
+    view.origin_y = y;
+    view.width = width;
+    view.height = height;
+    camera_fit_display_view(view.focal, view.aspect_mode, view.fitted_width, view.fitted_x, view.fitted_height,
+        view.fitted_y, view.field_of_view, view.pixel_aspect, view.focal_pixels);
+}
+// Xbox 0x000F6E60
+void set_display_inverse_transform(const float* matrix, RuntimeDisplaySetupContext& context)
+{
+    using namespace entity_detail;
+    auto& view = *g_display_view;
+    for (u32 index = 0; index < 12; ++index)
+    {
+        view.inverse_transform[index] = matrix[index];
+    }
+    rebuild_display_frustum();
+    set_display_render_frustum(view.frustum.data(), context.draw.renderer);
+}
+// Xbox 0x000F61F0
+void bind_display_projection_only(std::array<float, 16>& transposed, RuntimeDisplaySetupContext& context)
+{
+    using namespace entity_detail;
+    context.draw.d3d.transpose(transposed.data(), context.device_projection.data());
+    context.draw.d3d.set_transform(1, transposed.data());
+    const std::array<u32, 6> viewport
+    {
+        static_cast<u32>(g_display_view->fitted_x),
+        static_cast<u32>(g_display_view->fitted_y),
+        static_cast<u32>(g_display_view->fitted_width),
+        static_cast<u32>(g_display_view->fitted_height), 0u, 0x3F800000u
+    };
+    context.draw.d3d.viewport(viewport);
+    set_dialogue_render_projection(transposed.data(), context.draw);
+}
 // Xbox 0x00033A20
 void present_runtime_display_views(const std::function<void(i32)>& draw_view,
     RuntimeDisplaySetupContext& context)

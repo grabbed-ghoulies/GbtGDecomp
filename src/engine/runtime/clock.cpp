@@ -480,30 +480,6 @@ RuntimePadStateViews runtime_pad_state_views()
         {reinterpret_cast<u8*>(&g_pads[kPadPorts]), sizeof(PadSlot)}};
 }
 
-bool attract_confirm_pressed()
-{
-    // Xbox 0x001431B0. The banner pad object is kind 3, the merged sample at 0x00507C98.
-    // A is 0x0100 and Start is 0x0010. Both new at once returns 0. Either one alone
-    // is confirmed by 0x00107F50 when a port has that new edge.
-    constexpr u16 kA = 0x0100;
-    constexpr u16 kStart = 0x0010;
-    const bool a = pad_edge(g_pads[kPadPorts], kA);
-    const bool start = pad_edge(g_pads[kPadPorts], kStart);
-    if (a && start)
-    {
-        return false;
-    }
-    if (a)
-    {
-        return pad_edge_port(kA) != -1;
-    }
-    if (start)
-    {
-        return pad_edge_port(kStart) != -1;
-    }
-    return false;
-}
-
 namespace
 {
 

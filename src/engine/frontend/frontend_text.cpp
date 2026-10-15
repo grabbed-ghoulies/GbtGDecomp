@@ -3,7 +3,6 @@
 #include "gbtg/anim.h"
 #include "gbtg/language.h"
 #include "gbtg/resource_error.h"
-#include "gbtg/dialogue.h"
 #include "gbtg/engine_internal.h"
 #include "gbtg/font.h"
 #include "gbtg/gfx.h"
@@ -26,7 +25,6 @@
 
 
 #include "frontend_types.h"
-#include "frontend_attract.h"
 #include "frontend_keyboard.h"
 #include "frontend_text.h"
 
@@ -284,7 +282,13 @@ float text_width(const GloopyFont& font, std::u16string_view text, float scale)
 }
 
 
-float banner_delay(unsigned& seed);
+// 0x0005F6E2. Delay is (rng_float in [1, 2) - 1) * DAT_0032B104.
+float banner_delay(unsigned& seed)
+{
+    seed = seed * 0x19660Du + 0x3C6EF35Fu;
+    const float unit = std::bit_cast<float>((seed & 0x7fffffu) | 0x3f800000u);
+    return (unit - 1.f) * 0.25f;
+}
 
 
 // Xbox 0x00060070. 0x0005FC30 calls it once the glyph delay at +0x204 has

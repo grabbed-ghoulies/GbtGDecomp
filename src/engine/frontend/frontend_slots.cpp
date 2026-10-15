@@ -1,9 +1,11 @@
 #include "../camera/camera.h"
+#include "frontend_sounds.h"
+#include "../audio/native_audio.h"
+#include "../runtime/random_state.h"
 #include "../audio/listener_settings.h"
 #include "gbtg/bundle.h"
 #include "gbtg/anim.h"
 #include "gbtg/resource_error.h"
-#include "gbtg/dialogue.h"
 #include "gbtg/engine_internal.h"
 #include "gbtg/font.h"
 #include "gbtg/gfx.h"
@@ -27,7 +29,6 @@
 
 #include "frontend_types.h"
 #include "frontend.h"
-#include "frontend_captions.h"
 #include "frontend_contents.h"
 #include "frontend_keyboard.h"
 #include "frontend_slots.h"
@@ -495,29 +496,7 @@ void gameselect_tick(Game& g, const InputState& in)
     {
         tick_menu_zoom(g.contents_visual, scene_sim_step(g.clock.dt));
     }
-    // Dialog A. 0x000584D0's widget takes the accept edge and steps {page}.
-    if (in.accept && !g.slot_accept)
-    {
-        caption_accept(g);
-    }
-    if (g.frontend_mode == 0)
-    {
-        g.naming = false;
-        // 0x00080C10 calls 0x00080CB0 while the banner dword at +0x294 is 0.
-        // 0x001431B0 accepts a new A or Start, not both. 0x0011EB30 then requests
-        // the gameselect script copied from 0x00322B8C.
-        if (!g.attract_banner_latched && attract_confirm_pressed())
-        {
-            // 0x00322B8C. 0x0011EB30 queues it. The next 0x0011E4C0 that enters state 4 loads it.
-            script_request(g, "aid_script_ghoulies_gameselect_gameselect");
-            // 0x00080CB0 then calls 0x0013BAF0: the cue at 0x00314D68 is
-            // GBARON_STARTBUTTONLAUGH (selection scale DAT_0032B100 is zero).
-            // Keep this one-shot alive across the outgoing cutscene cleanup.
-            pcm_play_owned_cue(g, "XACT_SOUNDBANK_GBARON_STARTBUTTONLAUGH");
-            g.attract_banner_latched = true;
-        }
-    }
-    else if (g.frontend_mode == 4)
+    if (g.frontend_mode == 4)
     {
         // 0x00014C10 then 0x00015090. A and Start (codes 1 and 2) activate the
         // key. B (codes 3 and 4) calls 0x000DD550, which leaves for slot select.
@@ -591,7 +570,8 @@ void gameselect_tick(Game& g, const InputState& in)
         if ((in.accept && !g.slot_accept) || (in.start && !g.slot_start) ||
             (in.back && !g.slot_back))
         {
-            pcm_play_owned_cue(g, "XACT_SOUNDBANK_GSUPERSCARYSTUF_RIGHTBUTTON");
+            // The prompt's +0x1034 cue (0x00141E20) through 0x000395E0, stopping itself.
+            request_audio_event_voice("XACT_SOUNDBANK_GSUPERSCARYSTUF_RIGHTBUTTON", 1, native_audio_runtime().voices);
         }
         // 0x000E02D0: empty slot sets mode 4. Status 2, 3, or 4 sets mode 3 (slot contents).
         if (in.accept && !g.slot_accept)
@@ -637,7 +617,8 @@ void gameselect_tick(Game& g, const InputState& in)
         if ((in.accept && !g.slot_accept) || (in.start && !g.slot_start) ||
             (in.back && !g.slot_back))
         {
-            pcm_play_owned_cue(g, "XACT_SOUNDBANK_GSUPERSCARYSTUF_RIGHTBUTTON");
+            // The prompt's +0x1034 cue (0x00141E20) through 0x000395E0, stopping itself.
+            request_audio_event_voice("XACT_SOUNDBANK_GSUPERSCARYSTUF_RIGHTBUTTON", 1, native_audio_runtime().voices);
         }
         // Play is 0x000DB570: it copies the slot name, calls 0x00083B10 with 1,
         // then 0x000DA580 with mode 7. Stream 2 is idle, so 0x00083B10 arms the

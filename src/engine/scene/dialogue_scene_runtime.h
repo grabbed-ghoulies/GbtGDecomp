@@ -13,4 +13,9 @@ void unbind_scene_dialogue(Game& game);
 RuntimeScriptDialogueContext& scene_dialogue_context(Game& game);
 void tick_scene_dialogue(Game& game);
 void draw_scene_dialogue(Game& game);
+// The three calls draw_scene_dialogue makes, for the per-view present 0x0011C240, which runs other passes between
+// them.
+void draw_scene_dialogue_page(Game& game); // 0x00058150.
+void flush_scene_dialogue_sprites(Game& game); // 0x00122230.
+void draw_scene_text_pools(Game& game); // 0x0005F330.
 }

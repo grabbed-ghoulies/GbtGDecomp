@@ -42,9 +42,6 @@ public:
     // given their first update, then scare timers, effects and scene times (run states 1 and 2), actor sounds,
     // control disposal, retired actors and the shadow volumes.
     void run_scene_pass(); // Xbox 0x0011E640
-    // The frame's native audio: the cue notifications (0x0015B780), the listener (0x0003A040), the event voices
-    // (0x000396F0), the stream slots (0x00038640) and the idle channel release (0x00038C20).
-    void update_audio();
     void update_effects(RuntimeEffectPassScratch& scratch); // Native context binding for Xbox 0x000ED480.
     bool activation_pending() const; // Pending actor +0x900 list is nonempty.
     std::span<const u32> active_actor_addresses() const; // Activated actor +0x910 order.
@@ -53,10 +50,10 @@ public:
     size_t player_total() const;
     // Script type 0x6F (0x00127BC0) over the scene's player link and actor graph: 0 holds, 2 continues.
     int wait_script_player() const;
-    // The frame's views (0x00033A20). Each active camera slot sets its display, then draws: the host world
-    // draw (draw_world, in the D3D11 renderer with the slot's display camera), the scene dialogue (0x00058150
-    // and its sprite flush) and the dialogue quads the native draw recorded.
-    void present_views(const std::function<void()>& draw_world);
+    // The frame's views (0x00033A20). Each active camera slot sets its display, then records its actor bins
+    // (0x0011C240's 0x00121730..0x00121D40) and the scene dialogue (0x00058150 and its sprite flush), and the
+    // presenter draws what the recording boundary captured. A frame with no active slot draws no scene.
+    void present_views();
     struct State;
 
 private:

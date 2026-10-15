@@ -31,15 +31,15 @@ dedicated agent; the prompt is at the end.
 
 | Area | Files | What it does on the host | Native replacement |
 |---|---|---|---|
-| Frame present | `src/engine/game.cpp` (`frame_tick`) | Draws `g.models` (the background as host meshes), positions the camera from `g.camera`, calls `draw_cutscene_props` and `draw_ui`, then `draw_scene_dialogue` outside the native scene | 0x00033A20 is translated (`present_runtime_display_views`). In native scenes each view now runs 0x00121730, 0x00121880 and 0x00121D40 (`scene_view_actors.cpp`); the host world draw is only reached as the background's +0x14 (0x00042C10, untranslated), so it is drawn once per view in retail order. Still needed: 0x00121900 (background and bin actors' passes 0/1, which is where characters draw) with its world helpers, the rest of 0x0011C240 (HUD, effects) and 0x00042C10 (see `docs/NATIVE_GAMEPLAY_FRAME.md`) |
+| Frame present | `src/engine/game.cpp` (`frame_tick`) | Outside native scenes only (the legacy front end): draws `g.models`, positions the camera from `g.camera`, calls `draw_cutscene_props`, `draw_ui` and `draw_scene_dialogue` | Native scenes present only through 0x00033A20 (`present_views`), whose per-view draw is the translated 0x0011C240: the mirror pass, the actor bins, 0x00121900, the background's 0x00042C10, model sprites and the billboard flush, debris, dialogue and text pools, with the remaining passes' gates translated (`docs/NATIVE_SCENE_PRESENT.md`). The native start releases `g.models`. Still needed: the bodies of the HUD, decal, shadow-volume, refraction, screen-effect and effect passes as their gates open, and the transition draws (step 5). The host branch goes when the front end is native (step 5) |
 | Model rendering inside the renderer | `src/engine/graphics/gfx_d3d11.cpp` (3.6k lines) | Besides being the D3D11 backend, it holds its own versions of retail functions (0x0015AD20, 0x0015ABB0, 0x00158A80, 0x000F9250, 0x00058150, 0x0005E0C0/E110/E2A0, …) over host pointer casts, its own material shader and its own skinning | Native translations already exist for most of these (`model_shader_parameter_draw`, `model_tree_dispatch`, `screen_model_draw`, `dialogue_draw_state`). Reduce `gfx_d3d11` to a presenter of `SceneD3DDevice` output (vertex/index upload, texture decode, state mapping), as in `docs/NATIVE_DIALOGUE_PRESENT.md` |
-| Cutscene playback | `src/gbtg/scripts/cutscene.cpp` (`parse_cutscene`, `sample_cutscene_camera`), `src/engine/cutscenes/cutscene_runtime.cpp` (`g.cutscenes`, `cutscene_queue_tick`, `draw_cutscene_props`) | A heuristic parser (channel-duration checks, assumed FOV) with host prop and camera drawing | `src/engine/cutscenes/*`: `RuntimeCutsceneInstance`, `load_runtime_cutscene` / `tick_runtime_cutscene` / `draw_runtime_cutscene`, camera sampling 0x0004F770 / 0x0004F8C0 |
-| Dialogue screen | `src/engine/frontend/dialogue.cpp` (`DialogueScreen`, `dialogue_skin`); `frontend_captions.cpp` (`g_dialogue_screen`) | Draws the page cutscene, bats and button bat with CPU skinning | Native dialogue (0x00058150 and the rest, `dialogue_*.cpp`) plus the presenter. The native scene is handled by `docs/NATIVE_DIALOGUE_PRESENT.md`; captions and attract still use the host version |
+| Cutscene playback | `src/gbtg/scripts/cutscene.cpp` (`parse_cutscene`), `src/engine/cutscenes/cutscene_runtime.cpp` (`sync_cutscene_props`, `draw_cutscene_props`, `release_props`) | Only the host book and map transitions use these, on their own private `Game` view (step 5). The main game's reel, its audio sync and the attract reel are deleted | Every scene cutscene, the attract included, runs on the native stack (`docs/NATIVE_CUTSCENES.md`). The rest goes with the transition owner (step 5) |
+| Dialogue screen | Deleted (`DialogueScreen`, `frontend_captions.cpp`) | — | Native dialogue (`dialogue_*.cpp`) in every native scene; the attract is native |
 | Button bat | `src/engine/entities/entity_model.cpp` (`button_bat_draw`) | 0x0006D6C0 over host `gfx_clear_ui_depth` and `gfx_draw_screen_mesh` | `src/engine/entities/button_bat_draw.cpp` (`draw_runtime_button_bat`, native 0x0006D6C0 → 0x000F9250) |
-| Front end | `src/engine/frontend/frontend.cpp`, `frontend_attract.cpp`, `frontend_captions.cpp`, `frontend_contents.cpp`, `frontend_keyboard.cpp`, `frontend_slots.cpp`, `frontend_text.cpp` (about 3.8k lines) | Attract reel, game-select menus, keyboard and captions, with host state and `gfx_sprite_submit` draws. Some leaves inside are translated (see `docs/GAMESELECT_RENDERING.md`), but the screens are driven and drawn on the host | Translate the front-end owners and their draw path (sprites through 0x0005E380 and related functions, recorded and presented). The native dialogue sprite path (`dialogue_draw_state.cpp`) can serve as the model |
+| Front end | `src/engine/frontend/frontend.cpp`, `frontend_contents.cpp`, `frontend_keyboard.cpp`, `frontend_slots.cpp`, `frontend_text.cpp`, `frontend_types.h` (`MenuCursor`) | Game select only: slot and contents menus, keyboard and cursor bat, with host state and `gfx_sprite_submit` draws. It runs only while no native scene runs. The attract is native (factory type 0x9B) | Game select stops natively at factory type 154 (0x9A, the game-select scene control). Translate it and its widgets on the native text pools and dialogue widgets (`docs/NATIVE_CUTSCENES.md`, "Native attract", shows the pattern) |
 | Book and slime transitions | `src/engine/transitions/transition_book.cpp` (1.4k lines) | Host book render, page captures, the slime effect and direct cue playback | A translated transition owner presented natively; render targets go through the outer D3D boundary (`DialogueOuterD3DBoundaries`) |
 | Entity system | `src/engine/entities/entity.cpp` (`register_entity_types`, `g.entities`), `entity_camera.cpp` (`g.camera`) | A host entity table (44 types) ticked from `frame_tick`, including the host body camera that feeds `g.camera` | The native object factory (`ObjectFactoryRegistry`, the factory owners and scene actor services) and the native camera slots (`g_cam_active`, display setup). The native scene already uses these |
-| Audio | `src/engine/audio/audio.cpp` (`audio_tick`: `xact_tick_voices`, `xact_tick_streams`, `pcm_cutscene_sync`); `pcm_play_cue` / `pcm_play_owned_cue` callers in the frontend and transitions | Host cue playback by name and host cutscene sync | The native audio core (`core_source`, `core_cue`, `event_voices`, `bank_streams`) on the XAudio2 boundaries in `pcm_out.cpp` (`native_audio_core_*`). Missing: sound-bank name registration (`g_audio_bank_names` is never filled), so native cues never resolve |
+| Audio | `pcm_play_owned_cue` / `pcm_stop_owned_cue` callers in `frontend_types.h` (`MenuCursor`) and the book cutscene events in `transition_book.cpp`; the clip-cue stop in `movie.cpp` | Host cue playback by name for the game-select cursor bat and the host book transition | The boot-owned native audio core (`NativeAudioRuntime`) runs every frame. The host `audio_tick`, the reel sync and the caption cues are deleted (`docs/NATIVE_AUDIO.md`). The remaining callers go with their screens in step 5 |
 | Script VM fallback | `src/engine/scripts/script_vm.cpp` (`script_queue_scene_start` "legacy event") | Queues a host scene-start event when the native start didn't | Delete it once every scene starts natively |
 
 **Format parsers that stay:** `src/gbtg/` (models, graphics, text, resources and
@@ -66,6 +66,36 @@ loaders cover a resource. The native loaders are `SceneDialogueResourceOwner`,
 6. **Entity system and renderer.** Retire `g.entities` and the host body camera.
    Strip the retail-function copies out of `gfx_d3d11.cpp`, leaving a presenter.
 
+Status (2026-10-15):
+
+- **Step 1 is done** (`docs/NATIVE_DIALOGUE_PRESENT.md`, "Results").
+- **Step 2 is mostly done** (`docs/NATIVE_SCENE_PRESENT.md`,
+  `docs/NATIVE_GAMEPLAY_FRAME.md`). Native scenes draw nothing on the host
+  except the step-5 transition. Each view runs the translated 0x0011C240 in
+  retail order, with the mirror pass, model sprites and billboards live in the
+  opening. Remaining: the pass bodies whose gates stay closed in the opening
+  (HUD 0x00132290, decals, shadow volumes, refraction, screen effects, effect
+  and debris quads), which raise when a later scene opens them.
+- **Step 3 is done except for host-screen cues** (`docs/NATIVE_AUDIO.md`,
+  "Boot-owned audio core and front-end cues"). The audio core is boot-owned
+  and ticks every frame. The host `audio_tick` is gone, and the front-end and
+  transition one-shots and streams play through the native voices. The
+  remaining `pcm_*` callers are the game-select cursor bat and the host book
+  transition's clip sound windows (step 5), and a movie clip's cue stop.
+- **Step 4 is done** (`docs/NATIVE_CUTSCENES.md`). Scene cutscenes and the
+  attract (factory type 0x9B) play on the native cutscene stack. The main
+  game's host reel, the host captions and `DialogueScreen` are deleted. Only
+  the host book/map transitions still use the host cutscene parser (step 5).
+- **Step 5 is in progress** (`docs/NATIVE_FRONTEND.md`, "Progress"). Game
+  select still runs on the host. The native game-select control (type 0x9A),
+  slot select, naming and the virtual keyboard run only under the
+  `--gameselect-native` test gate. Keyboard Done, saving, occupied slots, the
+  menu book and the contents and play rows are next; the host front end goes
+  when they are native. The transitions are not started.
+- **Step 6 is open.**
+- Presenter performance is tracked separately in
+  `docs/RENDERING_PERFORMANCE_PLAN.md`.
+
 Each step must meet the same bar as any change:
 
 - Release and Debug build.
@@ -78,14 +108,23 @@ Each step must meet the same bar as any change:
 ## Prompt for a dedicated agent
 
 ```
-Read AGENTS.md and docs/LEGACY_HOST_CODE.md. The project is native-first: game behavior comes only from translated retail functions; host code is boundaries plus the D3D11 presentation of recorded native draws. The files listed in docs/LEGACY_HOST_CODE.md predate that rule and re-implement retail behavior on the host.
+Read AGENTS.md and docs/LEGACY_HOST_CODE.md, then the milestone docs it references (NATIVE_DIALOGUE_PRESENT.md, NATIVE_GAMEPLAY_FRAME.md, NATIVE_AUDIO.md, RENDERING_PERFORMANCE_PLAN.md). The project is native-first: game behavior comes only from translated retail functions; host code is boundaries plus the D3D11 presentation of recorded native draws. Everything in the LEGACY_HOST_CODE inventory predates that rule. Your job is to retire all of it, so the whole game (attract, game select, book/slime transitions, scenes) runs on the native path. You own the whole checkout for this.
 
-Work the "Suggested order" in that document, one step at a time. Step 1 is docs/NATIVE_DIALOGUE_PRESENT.md, so skip it if that milestone is done. For each step:
-1. Inventory the host code involved and the native translations that already exist.
-2. Translate whatever is still missing from cache/ghidra_frontier dumps; export more with the read-only Ghidra command in AGENTS.md.
-3. Switch the callers to the native path and delete the host version once nothing uses it.
-4. Verify with Release and Debug builds, the transition suites, ctest, headless runs, and screenshots of the affected screens compared with before.
-5. Update docs/LEGACY_HOST_CODE.md: mark the step done and list what remains.
+Work the "Suggested order", resuming each step from its Status line. For each step:
+1. Write or extend a milestone doc (docs/NATIVE_<AREA>.md, in the style of the existing ones) with goal, current state, work list and acceptance. Before changing anything, take reference screenshots of the affected screens with --headless --frames N --screenshot; record the frame numbers and which screen each shows.
+2. Trace what retail runs for that screen from boot (0x00033030; frame_tick 0x00033B50 → 0x0011E4C0 → 0x0011E640 → present 0x00033480 / 0x00032AB0 / 0x00033A20 → 0x0011C240) and find the first untranslated or unbound callee the native path reaches. Work from that live entry point inward. Read decompiles from cache/ghidra_frontier and export missing ones with the read-only Ghidra command in AGENTS.md. Translate with the same branches; raise on untranslated callees, never stub.
+3. Switch a screen's callers over only when the native path renders and sounds it fully. Then delete the host code nobody uses any more, including its gfx_* draw helpers, pcm_play_cue callers, g.* state and src/gbtg parsers that only fed gameplay. Keep the parsers gbtg-dump and gbtg-catalog use.
+4. Verify:
+   - Release and Debug build.
+   - The six transition suites (--scene-start --scene-spawn --dialogue-resources --actor-loading --ghoulybox-decoder --scene-models) and ctest pass.
+   - gbtg --headless --frames 900 exits 0, with and without --scene chapter1_scene1_2playcam.
+   - Screenshots at the recorded frames match the references or are better. Convert them with PIL and look at them, and state any difference.
+   - git diff --check is clean, and no temporary probes remain.
+5. Update the milestone doc and this file: the step's status, the remaining users and the gaps.
 
-Never leave a screen half-switched. Don't commit.
+Rules for the whole job:
+- Never leave a screen half on each path.
+- Don't regress what already works natively (the opening scene's dialogue, gameplay frame and audio).
+- Commit nothing unless asked.
+- At the end, game.cpp's frame_tick should call only native owners, gfx_d3d11.cpp should be a presenter of SceneD3DDevice output, and this inventory should be empty or list only what is blocked, with the reason.
 ```

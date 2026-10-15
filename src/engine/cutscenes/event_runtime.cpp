@@ -15,6 +15,27 @@ namespace gbtg
 {
 namespace
 {
+// The context's dialogue (0x000582A0 and the rest) and movie (0x00106D50) owners. An owner that is not bound
+// raises when an event reaches it.
+RuntimeDialogueActivationContext& cutscene_event_dialogue(CutsceneRuntimeContext& context)
+{
+    if (context.dialogue == nullptr)
+    {
+        throw Error("cutscene dialogue event: the scene dialogue (0x000582A0) is not bound");
+    }
+    return *context.dialogue;
+}
+RuntimeMovieStartupContext& cutscene_event_movies(CutsceneRuntimeContext& context)
+{
+    if (context.movies == nullptr)
+    {
+        throw Error("cutscene movie event: the movie startup context (0x00106D50) is not bound");
+    }
+    return *context.movies;
+}
+}
+namespace
+{
 template<class T>
 T event_value(const u8* data, size_t offset)
 {
@@ -35,7 +56,7 @@ CutsceneEventPauseContext event_pause_context(RuntimeCutsceneInstance& instance,
 void enqueue_event_caption(const u8* event, size_t key_offset, u8 flag,
     CutsceneRuntimeContext& context)
 {
-    auto& dialogue = *context.dialogue;
+    auto& dialogue = cutscene_event_dialogue(context);
     request_namespaced_localtext("aid_loctext_ghoulies_dialog_dialogs", "dialogs",
         event_name(event, key_offset), dialogue.measurement.wide_scratch,
         dialogue.measurement.localtext);
@@ -118,7 +139,7 @@ void dispatch_runtime_cutscene_event(RuntimeCutsceneInstance* instance,
         if (phase == 0)
         {
             load_runtime_movie_event(event_name(event, 0x10), event[0x90], 0, 1,
-                context.movie_slots, *context.movies);
+                context.movie_slots, cutscene_event_movies(context));
             context.movie_flag_3c = 0;
             return;
         }
@@ -154,7 +175,7 @@ void dispatch_runtime_cutscene_event(RuntimeCutsceneInstance* instance,
                 event[0x91] = 1;
                 std::memcpy(event + 0x9C, &value, sizeof(value));
                 event[0x92] = 0;
-                if (static_cast<i32>(context.dialogue->state.count + 1) < 9)
+                if (static_cast<i32>(cutscene_event_dialogue(context).state.count + 1) < 9)
                 {
                     enqueue_event_caption(event, 0x22, flag, context);
                     return;
@@ -171,11 +192,11 @@ void dispatch_runtime_cutscene_event(RuntimeCutsceneInstance* instance,
             }
             break;
         case 2:
-            if (context.dialogue->state.mode == 0)
+            if (cutscene_event_dialogue(context).state.mode == 0)
             {
                 release_cutscene_bank(event_state, event_name(event, 0xA0), context.audio);
                 event[0x91] = 0;
-                close_runtime_dialogue(*context.dialogue);
+                close_runtime_dialogue(cutscene_event_dialogue(context));
                 seek_runtime_cutscene(*instance, event_value<float>(event, 8) / instance->duration,
                     event_value<float>(event, 0x94), event[0x93] == 0, context);
                 event[0x92] = 1;
@@ -224,7 +245,7 @@ void dispatch_runtime_cutscene_event(RuntimeCutsceneInstance* instance,
         }
         break;
     case 0x14:
-        if (static_cast<i32>(context.dialogue->state.count + 1) < 9)
+        if (static_cast<i32>(cutscene_event_dialogue(context).state.count + 1) < 9)
         {
             enqueue_event_caption(event, 0x10, event[0x150], context);
         }
@@ -379,7 +400,7 @@ void dispatch_runtime_cutscene_event(RuntimeCutsceneInstance* instance,
             while (index < 5);
             const i32 chosen = select_cutscene_random_index(context.random, count, 0);
             load_runtime_movie_event(names[chosen], event[0x290], 0, 1,
-                context.movie_slots, *context.movies);
+                context.movie_slots, cutscene_event_movies(context));
             context.movie_flag_38 = 0;
             return;
         }
@@ -412,7 +433,7 @@ void dispatch_runtime_cutscene_event(RuntimeCutsceneInstance* instance,
                 format_dialogue_resource_name(name, format, name);
             }
 localized_movie_ready:
-            load_runtime_movie_event(name, event[0x90], 0, 1, context.movie_slots, *context.movies);
+            load_runtime_movie_event(name, event[0x90], 0, 1, context.movie_slots, cutscene_event_movies(context));
             break;
         }
         if (phase == 1)
@@ -794,7 +815,7 @@ bool tick_runtime_cutscene(RuntimeCutsceneInstance& instance, float dt,
 {
     if (instance.pending[2] != 0)
     {
-        if (instance.pending[3] != 0 && context.dialogue->state.mode == 0)
+        if (instance.pending[3] != 0 && cutscene_event_dialogue(context).state.mode == 0)
         {
             auto pause = event_pause_context(instance, context);
             pause_cutscene_events(instance, 0, pause);

@@ -1,4 +1,5 @@
 #pragma once
+#include "../runtime/random_state.h"
 #include "dialogue_resource_owner.h"
 #include "executable_resources.h"
 #include "scene_marker_handlers.h"
@@ -24,7 +25,7 @@ public:
     ObjectFactoryRegistry factory{types};
     std::array<u32, type_count> retail_getters{};
     std::array<u32, type_count> retail_names{};
-    u32 random = 0; // DAT_0054DD7C.
+    u32& random = g_shared_random; // DAT_0054DD7C.
     // Scene controls (types 3 and 0x91): the script can create them while the scene loads.
     std::unique_ptr<NativeSceneControlOwner> controls;
     std::vector<FactoryObject> objects;

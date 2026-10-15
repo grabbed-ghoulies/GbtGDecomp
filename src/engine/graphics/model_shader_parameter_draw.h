@@ -55,4 +55,17 @@ void select_runtime_background_shader_parameters(const RuntimeRelocationImage& i
 void select_runtime_model_shader_parameters(const RuntimeRelocationImage& image); // Xbox 0x001572B0
 void dispatch_runtime_model_shader_parameters(u32 node, RuntimeModelInstanceStorage& storage,
     RuntimeModelMaterialBind& context); // Xbox 0x00157090
+// The background variant's frustum test over its 'B' bound nodes.
+struct RuntimeModelBoundCulling
+{
+    u32& tested; // DAT_00546310
+    u32& culled; // DAT_0054630C
+    u8& plane; // DAT_0043F4B8, the first plane the box test tries.
+};
+// Marks each 'B' node in the sibling chain (and below non-'B' nodes) +0x3F when its +0x48..+0x54 box is outside
+// the frustum; any box inside or crossing sets `visible`.
+void classify_runtime_model_bound_nodes(u32 node, const float* frustum, u32& visible, u8& plane,
+    const RuntimeRelocationImage& image); // Xbox 0x00157140
+void dispatch_runtime_background_shader_parameters(u32 node, RuntimeModelInstanceStorage& storage,
+    RuntimeModelMaterialBind& context, RuntimeModelBoundCulling& culling); // Xbox 0x001571B0
 }

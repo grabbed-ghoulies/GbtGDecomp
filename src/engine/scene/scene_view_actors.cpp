@@ -1,5 +1,8 @@
 #include "scene_view_actors.h"
 #include "../runtime/link_exchange.h"
+#include "scene_mirror.h"
+#include "../camera/view_frustum.h"
+#include "../entities/actor_transform.h"
 
 namespace gbtg
 {
@@ -76,56 +79,135 @@ void classify_runtime_view_bin(entity_detail::ListHead& bin, i32 pass, i32 view,
 entity_detail::ListHead& draw_runtime_view_passes(entity_detail::ListHead& bodies, entity_detail::ListHead& bin,
     i32 view, i32 mirror, RuntimeSceneViewPasses& context)
 {
-    if (mirror != 0)
-    {
-        // The mirror pass (0x0011F310, the plane at DAT_00511168 and the frustum at DAT_005110B8) is not
-        // translated.
-        throw Error("view passes 0x00121900 with the mirror flag are not translated");
-    }
     auto& actors = context.actors;
+    if (mirror == 1 && (context.mirrors == nullptr || !context.mirror_side || !context.radius))
+    {
+        throw Error("view passes 0x00121900 with the mirror flag have no mirror state");
+    }
     for (auto* node = list_next(bodies); node != nullptr; node = list_next(*node))
     {
         Actor& owner = actors.body(*node);
         context.store_mirror(owner, u32(mirror));
-        if ((context.model_flags(owner) & 0x10000000u) != 0)
+        if (mirror == 1)
         {
-            context.node_state(owner, 0x1C, 0);
+            const u32 side = context.mirror_side(actors.view.position);
+            if ((context.model_flags(owner) & 0x40000000u) != 0)
+            {
+                context.node_state(owner, 0x1E, side == 0 ? 1 : 0);
+            }
+            if ((context.model_flags(owner) & 0x20000000u) != 0)
+            {
+                context.node_state(owner, 0x1D, u8(side));
+            }
+            if ((context.model_flags(owner) & 0x10000000u) != 0)
+            {
+                context.node_state(owner, 0x1C, 1);
+            }
         }
-        if ((context.model_flags(owner) & 0x20000000u) != 0)
+        else
         {
-            context.node_state(owner, 0x1D, 0);
-        }
-        if ((context.model_flags(owner) & 0x40000000u) != 0)
-        {
-            context.node_state(owner, 0x1E, 0);
+            if ((context.model_flags(owner) & 0x10000000u) != 0)
+            {
+                context.node_state(owner, 0x1C, 0);
+            }
+            if ((context.model_flags(owner) & 0x20000000u) != 0)
+            {
+                context.node_state(owner, 0x1D, 0);
+            }
+            if ((context.model_flags(owner) & 0x40000000u) != 0)
+            {
+                context.node_state(owner, 0x1E, 0);
+            }
         }
         context.background_shader_parameters();
-        actors.draw(owner, view, 0);
+        if (mirror == 0)
+        {
+            actors.draw(owner, view, 0);
+        }
         actors.draw(owner, view, 1);
         context.model_shader_parameters();
     }
-    if (context.transition_guard < 1)
+    if (mirror == 0)
     {
-        context.blob_shadows();
+        if (context.transition_guard < 1)
+        {
+            context.blob_shadows();
+        }
+        context.light_volumes();
+        context.decals();
+        context.ambient_points();
+        context.portals(0);
     }
-    context.light_volumes();
-    context.decals();
-    context.ambient_points();
-    context.portals(0);
     const u16 bit = u16(1u << (u32(view) & 0x1F));
     for (auto* node = list_next(bin); node != nullptr; node = list_next(*node))
     {
         const RuntimeSceneBinEntry entry = actors.entry(*node);
         context.store_mirror(entry.actor, u32(mirror));
-        if ((entry.visible & bit) != 0)
+        if ((entry.visible & bit) == 0)
+        {
+            continue;
+        }
+        if (mirror == 1)
+        {
+            const float radius = context.radius(entry.actor);
+            const Vec3 position = actor_world_position(entry.actor);
+            auto& mirrors = *context.mirrors;
+            const auto& plane = mirrors.plane_equation;
+            const float distance = position.z * plane[2] + position.y * plane[1] + position.x * plane[0] + plane[3];
+            const float camera = (mirrors.camera.z * plane[2] + mirrors.camera.y * plane[1]
+                + mirrors.camera.x * plane[0] + plane[3]) * distance;
+            if (0.f < camera && radius * radius <= distance * distance)
+            {
+                continue;
+            }
+            if (mirrors.sphere_test != 0
+                && classify_runtime_sphere_frustum(mirrors.frustum, position, radius, mirrors.plane) == 0)
+            {
+                continue;
+            }
+        }
+        else if (mirror == 0)
         {
             actors.draw(entry.actor, view, 0);
-            actors.draw(entry.actor, view, 1);
         }
+        actors.draw(entry.actor, view, 1);
     }
-    context.door_shadows();
-    context.portals(1);
+    if (mirror == 0)
+    {
+        context.door_shadows();
+        context.portals(1);
+    }
     return bin;
+}
+
+// Xbox 0x00121DC0
+void refresh_runtime_view_actors(entity_detail::ListHead& bodies, entity_detail::ListHead& bin, i32 view,
+    const std::function<void(Actor&, i32)>& slot, RuntimeSceneViewActors& context)
+{
+    for (auto* node = list_next(bodies); node != nullptr; node = list_next(*node))
+    {
+        slot(context.body(*node), view);
+    }
+    for (auto* node = list_next(bin); node != nullptr; node = list_next(*node))
+    {
+        slot(context.entry(*node).actor, view);
+    }
+}
+
+// Xbox 0x00120E80
+void draw_runtime_view_bins(i32 mirror, RuntimeSceneViewBins& context)
+{
+    context.mirror_pass = u32(mirror);
+    if (mirror == 0)
+    {
+        context.post_models();
+    }
+    auto& bin = context.bins[size_t(context.view + mirror * 4)];
+    auto& actors = context.passes.actors;
+    sort_runtime_view_bin(bin, actors);
+    classify_runtime_view_bin(bin, mirror, context.view, actors);
+    auto& drawn = draw_runtime_view_passes(context.bodies, bin, context.view, mirror, context.passes);
+    draw_runtime_view_actors(context.bodies, &drawn, context.view, mirror, actors);
 }
 
 // Xbox 0x00121D40

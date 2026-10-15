@@ -73,6 +73,10 @@ std::int8_t find_cutscene_actor_track(const RuntimeCutsceneInstance& instance,
 Actor* find_cutscene_actor(const RuntimeCutsceneInstance& instance,
     const CutsceneActorTrackView* tracks, const CutsceneActorRowView* rows,
     std::int8_t id); // Xbox 0x0004E980
+// The actor of the first track whose model name matches `name` (0x000357D0), or null.
+Actor* find_cutscene_actor_by_model(const RuntimeCutsceneInstance& instance,
+    const CutsceneActorTrackView* tracks, const CutsceneActorRowView* rows,
+    const char* name); // Xbox 0x0004EA50
 void set_cutscene_actor_track_state(const RuntimeCutsceneInstance& instance,
     const CutsceneActorTrackView* tracks, CutsceneActorRowView* rows,
     std::int8_t id, u32 state); // Xbox 0x0004E780

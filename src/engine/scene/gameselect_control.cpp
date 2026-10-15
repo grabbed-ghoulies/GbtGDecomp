@@ -1,4 +1,8 @@
 #include "gameselect_control.h"
+#include "../saves/save_games.h"
+#include "../transitions/native_book.h"
+#include "../cutscenes/instance_construction.h"
+#include "../frontend/frontend_state.h"
 #include "../camera/runtime_display_setup.h"
 #include "../camera/view_initialization.h"
 #include "../frontend/frontend_sounds.h"
@@ -10,8 +14,6 @@
 
 namespace gbtg
 {
-bool g_native_game_select = false;
-
 namespace
 {
 constexpr u32 kAid = 0x5F646961u; // "aid_"
@@ -79,20 +81,104 @@ void hold_scene_order(const char* name, GameSelectControlServices& services)
     services.scene_order_release = 0x00035940;
 }
 
-// 0x00083E20, ECX the control: whether the menu book lets the requested widget open.
-bool book_allows_widget(std::span<const u8> state, const GameSelectControlState& control)
+// The book's place in its clip: time over duration (+0x2C / +0x34 of its cutscene).
+float book_position(const GameSelectControlState& control)
+{
+    const auto* cutscene = control.book->cutscene;
+    return cutscene->time / cutscene->duration;
+}
+
+// Xbox 0x00083E20, ECX the control: whether the menu book lets the requested widget open. Pages 2 and 3 wait
+// for the book past its clip's first threshold.
+bool book_allows_widget(std::span<const u8> state, const GameSelectControlState& control,
+    const GameSelectControlServices& services)
 {
     const u32 book = word(state, 0x124);
     if (book == 1)
     {
         return true;
     }
-    if (book == 2 || book == 3)
+    if (book != 2 && book != 3)
     {
-        (void)control;
-        untranslated("0x00083E20's menu book page threshold");
+        return true;
     }
-    return true;
+    const float position = book_position(control);
+    const float threshold = transition_book_threshold(*control.book, 0x104, services.image); // 0x0042217C
+    return threshold <= position && position != threshold;
+}
+
+// Xbox 0x00083D90, ESI the control: a finished book is released; a running one ticks and asks for a page
+// capture once it is past the clip's first or second threshold.
+void advance_gameselect_book(GameSelectControlState& control, GameSelectControlServices& services)
+{
+    auto& books = services.books;
+    if (control.book != nullptr && control.book->finished != 0)
+    {
+        release_transition_book(control.book, books); // 0x00048860
+        control.book = nullptr;
+    }
+    if (control.book == nullptr)
+    {
+        return;
+    }
+    tick_transition_book(*control.book, books); // 0x000483E0
+    auto& book = *control.book;
+    float position = book_position(control);
+    i32 page;
+    if (position < transition_book_threshold(book, 0x104, services.image)
+        || position == transition_book_threshold(book, 0x104, services.image)) // 0x0042217C
+    {
+        page = transition_book_row_word(book, 0x10C, services.image); // 0x00422184
+    }
+    else
+    {
+        position = book_position(control);
+        if (position < transition_book_threshold(book, 0x108, services.image)
+            || position == transition_book_threshold(book, 0x108, services.image)) // 0x00422180
+        {
+            return;
+        }
+        page = transition_book_row_word(book, 0x110, services.image); // 0x00422188
+    }
+    if (page != -1)
+    {
+        book.pages.at(size_t(page)).capture = 1; // +0x94 + page * 0x10
+    }
+}
+
+// Xbox 0x00083C70 (EAX the control) and 0x00083D10 (ESI the control): the scene flags for the chosen start
+// (+0x11C), the selected game becomes the current one and its script (0x00083C70) or +0x98's (0x00083D10) is
+// requested.
+void start_gameselect_game(std::span<u8> state, bool saved_script, GameSelectControlServices& services)
+{
+    auto& bytes = services.profile.scene_flags->bytes;
+    const u32 mode = word(state, 0x11C);
+    if (mode == 1)
+    {
+        bytes[0] |= 2;
+        bytes[0] |= 4;
+    }
+    else if (mode == 2)
+    {
+        bytes[0] &= 0xFD;
+        bytes[0] |= 4;
+    }
+    else if (mode == 3)
+    {
+        bytes[0] &= 0xFD;
+        bytes[0] &= 0xFB;
+    }
+    std::copy(services.frontend.selected_name.begin(), services.frontend.selected_name.end(),
+        services.profile.name.begin()); // lstrcpyW(DAT_00506C90, DAT_00429CC4)
+    refresh_runtime_save_summary(services); // 0x000F2F00
+    if (saved_script)
+    {
+        char script[0x80]{};
+        save_game_script(services.frontend.selected_name.data(), script); // 0x0010DB10, EBX DAT_00429CC4
+        services.request_script(script, 1); // 0x0011EB30
+        return;
+    }
+    services.request_script(reinterpret_cast<const char*>(state.data() + 0x98), 1); // 0x0011EB30, EAX +0x98
 }
 }
 
@@ -169,7 +255,8 @@ void destroy_runtime_gameselect_control(std::span<u8> state, GameSelectControlSt
     release_animation_resource(services.resources, services.text);
     if (control.book != nullptr)
     {
-        untranslated("0x00048860 (release the menu book)");
+        release_transition_book(control.book, services.books); // 0x00048860
+        control.book = nullptr;
     }
     --services.pause_count;
     release_runtime_screen_texture(control.texture, services.textures);
@@ -190,18 +277,18 @@ void tick_runtime_gameselect_control(std::span<u8> state, GameSelectControlState
         const u32 pending = word(state, 0x118);
         if (pending == 1)
         {
-            untranslated("0x00083C70 (save and continue)");
+            start_gameselect_game(state, true, services); // 0x00083C70
         }
         if (pending == 2)
         {
-            untranslated("0x00083D10 (save and quit)");
+            start_gameselect_game(state, false, services); // 0x00083D10
         }
         if (pending == 1 || pending == 2)
         {
             put_word(state, 0x118, 0);
         }
     }
-    if (word(state, 0x94) != 0 && book_allows_widget(state, control))
+    if (word(state, 0x94) != 0 && book_allows_widget(state, control, services))
     {
         close_gameselect_widget(*control.row, *control.widget, services);
         destroy_runtime_gameselect_widget(*control.row, control.widget);
@@ -216,7 +303,7 @@ void tick_runtime_gameselect_control(std::span<u8> state, GameSelectControlState
     const u32 book = word(state, 0x124);
     if (book == 2 || book == 3)
     {
-        untranslated("0x00083D90 (advance the menu book)");
+        advance_gameselect_book(control, services); // 0x00083D90
     }
 }
 

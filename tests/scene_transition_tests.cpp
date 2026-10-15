@@ -2,6 +2,10 @@
 #include "gbtg/engine_internal.h"
 #include "../src/engine/scene/cutscene_scene_runtime.h"
 #include "../src/engine/scene/gameselect_control.h"
+#include "../src/engine/scene/scene_controls.h"
+#include "../src/engine/frontend/gameselect_slots.h"
+#include "gbtg/texture.h"
+#include "../src/engine/saves/save_root.h"
 #include "../src/engine/scripts/script_conditions.h"
 #include "gbtg/gfx.h"
 #include "gbtg/anim.h"
@@ -152,6 +156,18 @@ void check_scene_render();
 
 namespace
 {
+// The game-select control's widget while it is slot select (mode-table row 1), or null.
+gbtg::SlotSelectWidget* native_slot_select()
+{
+    gbtg::SceneControlInstance* control = gbtg::find_runtime_scene_control(0x9A);
+    if (control == nullptr || control->gameselect == nullptr || control->gameselect->row == nullptr
+        || gbtg::gameselect_widget_row_index(*control->gameselect->row) != 1 || control->gameselect->widget == nullptr)
+    {
+        return nullptr;
+    }
+    return static_cast<gbtg::SlotSelectWidget*>(control->gameselect->widget.get());
+}
+
 struct RequestProbe : gbtg::GhoulyBoxController
 {
     int calls = 0;
@@ -7746,7 +7762,13 @@ int main(int argc, char** argv)
     // --gameselect presses Start into game select, then Right, A and B there, capturing each screen.
     // --gameselect-native installs the game-select control (factory type 0x9A) and reports where its native start
     // stops (docs/NATIVE_FRONTEND.md).
-    const bool gameselect_native_test = argc == 3 && std::string_view(argv[2]) == "--gameselect-native";
+    // --gameselect-new-game (native): A on the empty first slot, then A on the keyboard's Done with the default
+    // name, which saves the new game into the empty test save folder.
+    const bool new_game_test = argc == 3 && std::string_view(argv[2]) == "--gameselect-new-game";
+    const bool delete_test = argc == 3 && std::string_view(argv[2]) == "--gameselect-delete";
+    const bool stats_test = argc == 3 && std::string_view(argv[2]) == "--gameselect-stats";
+    const bool gameselect_native_test = new_game_test || delete_test || stats_test
+        || (argc == 3 && std::string_view(argv[2]) == "--gameselect-native");
     const bool gameselect_test = gameselect_native_test || (argc == 3 && std::string_view(argv[2]) == "--gameselect");
     const bool title_test = title_a_test || attract_test || gameselect_test
         || (argc == 3 && std::string_view(argv[2]) == "--title");
@@ -7768,7 +7790,7 @@ int main(int argc, char** argv)
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
         && !model_resources_test && !spawn_test)
     {
-        std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --goop | --ui | --player-opening | --player-fight | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start]\n";
+        std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --goop | --ui | --player-opening | --player-fight | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start]\n";
         return 2;
     }
     try
@@ -7830,7 +7852,9 @@ int main(int argc, char** argv)
             throw gbtg::Error("test graphics initialization failed");
         }
         gbtg::Game game;
-        gbtg::g_native_game_select = gameselect_native_test;
+        // Each run starts with an empty U: (the save folder), so earlier runs' saves never change the screens.
+        std::filesystem::remove_all("cache/test_saves");
+        gbtg::set_save_root("cache/test_saves");
         game.init(argv[1], player_test || spawn_test ? "chapter1_scene1_2playcam" : title_test ? "" : "scene0_1book");
         if (spawn_test)
         {
@@ -8154,11 +8178,27 @@ int main(int argc, char** argv)
         }
         if (ui_test)
         {
-            gbtg::load_ui(game);
-            if (game.ui.size() < 2 || game.ui[0].name != "aid_texture_joypad_buttons_a")
+            const auto load_icon = [&game](const char* name)
             {
-                throw gbtg::Error("story dialogue A icon was not loaded");
-            }
+                const gbtg::BundleEntry* entry = game.aids.load_aid(name);
+                gbtg::TextureHeader header;
+                if (entry == nullptr || entry->cpu.size() < 28 || !gbtg::parse_texture_header(entry->cpu, header))
+                {
+                    throw gbtg::Error(std::string("story dialogue icon was not loaded: ") + name);
+                }
+                std::span<const gbtg::u8> gpu = entry->gpu;
+                if (!entry->gpu_chunks.empty())
+                {
+                    const auto& chunk = entry->gpu_chunks[0];
+                    if (size_t(chunk.offset) + chunk.size <= entry->gpu.size())
+                    {
+                        gpu = entry->gpu.subspan(chunk.offset, chunk.size);
+                    }
+                }
+                return gbtg::decode_xbox_texture(header, gpu);
+            };
+            gbtg::RgbaImage icon = load_icon("aid_texture_joypad_buttons_a");
+            const gbtg::RgbaImage other = load_icon("aid_texture_joypad_buttons_b");
             gbtg::RgbaImage backdrop;
             backdrop.width = 1;
             backdrop.height = 1;
@@ -8167,7 +8207,7 @@ int main(int argc, char** argv)
             {
                 gbtg::gfx_begin_frame();
                 gbtg::gfx_sprite_submit(backdrop, 0.f, 0.f, 640.f, 480.f);
-                gbtg::gfx_sprite_submit(game.ui[0].image, 288.f, 208.f, 64.f, 64.f);
+                gbtg::gfx_sprite_submit(icon, 288.f, 208.f, 64.f, 64.f);
                 gbtg::gfx_end_frame();
                 gbtg::RgbaImage image;
                 if (!gbtg::gfx_readback(image))
@@ -8179,14 +8219,15 @@ int main(int argc, char** argv)
             const auto expected = capture();
             // Seed the same image address with another uploaded button, as can
             // happen when the scene's UI storage is reused after Game Select.
-            gbtg::gfx_release_sprite(game.ui[0].image);
-            game.ui[0].image = game.ui[1].image;
+            gbtg::gfx_release_sprite(icon);
+            icon = other;
             const auto substituted = capture();
             if (substituted.bgra == expected.bgra)
             {
                 throw gbtg::Error("UI cache regression did not seed a different glyph");
             }
-            gbtg::load_ui(game);
+            gbtg::gfx_release_sprite(icon);
+            icon = load_icon("aid_texture_joypad_buttons_a");
             const auto restored = capture();
             if (restored.bgra != expected.bgra)
             {
@@ -8201,7 +8242,7 @@ int main(int argc, char** argv)
             // Start at frame 120 opens game select. Once its page turn has finished, the screens are captured at
             // fixed offsets: slot select, Right, A on the selected slot, then B.
             int ready = -1;
-            for (int frame = 0; frame < 1400; ++frame)
+            for (int frame = 0; frame < (new_game_test ? 2700 : delete_test || stats_test ? 2000 : 1400); ++frame)
             {
                 gbtg::InputState input;
                 input.start = frame == 120;
@@ -8212,12 +8253,42 @@ int main(int argc, char** argv)
                     std::cout << "game select ready at frame " << frame << "\n";
                 }
                 const int at = ready < 0 ? -1 : frame - ready;
-                input.right = at == 90;
-                input.accept = at == 180;
-                input.back = at == 360;
+                if (new_game_test)
+                {
+                    input.accept = at == 180 || at == 420 || at == 900 || at == 1300;
+                }
+                else if (stats_test)
+                {
+                    // A names and saves a game and opens its contents; Y (Info, code 3) on Play shows the stats.
+                    input.accept = at == 180 || at == 420 || at == 900;
+                    if (at == 1300)
+                    {
+                        input.pads[0].buttons |= 0x0800;
+                    }
+                }
+                else if (delete_test)
+                {
+                    // A names a game on the empty slot and Done saves it; X (Delete) on it, then A deletes it.
+                    input.accept = at == 180 || at == 420 || at == 1100;
+                    input.page = at == 900;
+                }
+                else
+                {
+                    input.right = at == 90;
+                    input.accept = at == 180;
+                    input.back = at == 360;
+                }
                 gbtg::gfx_begin_frame();
                 game.tick(1.f / 59.f, input);
                 gbtg::gfx_end_frame();
+                if (stats_test && at == 1400)
+                {
+                    // 0x000582E0 queued the page and the dialogue shows it (mode 2).
+                    if (game.script_dialogue == nullptr || game.script_dialogue->dialogue.state.mode != 2)
+                    {
+                        throw gbtg::Error("Y on Play did not show the stats dialog");
+                    }
+                }
                 if (gameselect_native_test && 0 <= at)
                 {
                     // The last frame the native control drew before a raise stops it.
@@ -8227,12 +8298,20 @@ int main(int argc, char** argv)
                         gbtg::write_bmp("cache/gameselect_native_last.bmp", image);
                     }
                 }
-                if (at == 60 || at == 150 || at == 300 || at == 480)
+                const bool capture = stats_test ? (at == 1290 || at == 1330 || at == 1400 || at == 1500 || at == 1580)
+                                   : delete_test ? (at == 800 || at == 1000 || at == 1200 || at == 1400 || at == 1700)
+                                   : new_game_test ? (at == 300 || at == 500 || at == 800 || at == 960 || at == 1000 || at == 1100 || at == 1200 || at == 1290 || at == 1500 || at == 1800 || at == 2200)
+                                                   : (at == 60 || at == 150 || at == 300 || at == 480);
+                if (capture)
                 {
                     gbtg::RgbaImage image;
                     if (gbtg::gfx_readback(image))
                     {
-                        gbtg::write_bmp("cache/gameselect_check_" + std::to_string(at) + ".bmp", image);
+                        const std::string prefix = stats_test ? "cache/gameselect_stats_"
+                                                 : delete_test ? "cache/gameselect_delete_"
+                                                 : new_game_test ? "cache/gameselect_new_game_"
+                                                                 : "cache/gameselect_check_";
+                        gbtg::write_bmp(prefix + std::to_string(at) + ".bmp", image);
                     }
                     std::cout << "game select capture +" << at << " (frame " << frame << ") scene "
                               << game.scene_script.name << "\n";
@@ -8241,6 +8320,52 @@ int main(int argc, char** argv)
             if (ready < 0)
             {
                 throw gbtg::Error("Start did not open game select");
+            }
+            if (stats_test)
+            {
+                std::cout << "PASS: game select showed the stats dialog over the contents\n";
+                gbtg::gfx_shutdown();
+                return 0;
+            }
+            if (delete_test)
+            {
+                size_t files = 0;
+                for (const auto& entry : std::filesystem::recursive_directory_iterator("cache/test_saves"))
+                {
+                    std::cout << "save file " << entry.path().generic_string() << "\n";
+                    ++files;
+                }
+                if (files != 0)
+                {
+                    throw gbtg::Error("the deleted game left files in the save folder");
+                }
+                if (native_slot_select() == nullptr)
+                {
+                    throw gbtg::Error("slot select did not come back after the delete");
+                }
+                std::cout << "PASS: game select deleted the new game and returned to slot select\n";
+                gbtg::gfx_shutdown();
+                return 0;
+            }
+            if (new_game_test)
+            {
+                if (!std::filesystem::exists("cache/test_saves"))
+                {
+                    throw gbtg::Error("the new game left no save folder");
+                }
+                for (const auto& entry : std::filesystem::recursive_directory_iterator("cache/test_saves"))
+                {
+                    std::cout << "save file " << entry.path().generic_string() << " "
+                              << (entry.is_regular_file() ? entry.file_size() : 0) << "\n";
+                }
+                if (game.scene_script.name.find("chapter1") == std::string::npos)
+                {
+                    throw gbtg::Error("Play did not start the new game (scene " + game.scene_script.name + ")");
+                }
+                std::cout << "PASS: game select named and saved a new game, opened it and played it into "
+                          << game.scene_script.name << "\n";
+                gbtg::gfx_shutdown();
+                return 0;
             }
             std::cout << "PASS: game select opened and took Right, A and B\n";
             gbtg::gfx_shutdown();
@@ -8318,16 +8443,39 @@ int main(int argc, char** argv)
                     animated = stack != nullptr && -1 < stack->index
                         && stack->instances[size_t(stack->index)]->time > 1.f && game.cutscenes.playing == false;
                 }
-                if (game.scene_script.name.find("gameselect") != std::string::npos &&
-                    game.frontend_mode == 1 && gbtg::g_54632c == 0)
+                auto* slots = native_slot_select();
+                if (game.scene_script.name.find("gameselect") != std::string::npos && slots != nullptr
+                    && gbtg::g_54632c == 0)
                 {
-                    const int previous_slot = game.slot;
+                    // Let the slot prompts come up, then press Right and give its callback (0x000E0210) time.
+                    const auto tick = [&game](const gbtg::InputState& state, int frames)
+                    {
+                        for (int step = 0; step < frames; ++step)
+                        {
+                            gbtg::gfx_begin_frame();
+                            game.tick(1.f / 59.f, state);
+                            gbtg::gfx_end_frame();
+                        }
+                    };
+                    tick(gbtg::InputState{}, 90);
+                    slots = native_slot_select();
+                    if (slots == nullptr)
+                    {
+                        throw gbtg::Error("slot selection closed before Right");
+                    }
+                    gbtg::u32 previous_slot = 0;
+                    std::memcpy(&previous_slot, slots->bytes.data() + 0xB2C, 4);
                     gbtg::InputState right;
                     right.right = true;
-                    gbtg::gfx_begin_frame();
-                    game.tick(1.f / 59.f, right);
-                    gbtg::gfx_end_frame();
-                    if (game.slot != (previous_slot + 1) % 3)
+                    tick(right, 1);
+                    tick(gbtg::InputState{}, 30);
+                    slots = native_slot_select();
+                    gbtg::u32 slot = 0;
+                    if (slots != nullptr)
+                    {
+                        std::memcpy(&slot, slots->bytes.data() + 0xB2C, 4);
+                    }
+                    if (slots == nullptr || slot != (previous_slot + 1) % 3)
                     {
                         throw gbtg::Error("slot selection ignored Right input");
                     }

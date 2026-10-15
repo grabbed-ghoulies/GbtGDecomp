@@ -13,8 +13,6 @@ inline constexpr const char* kNoScript = "There is no script for this scene!";
 inline constexpr const char* kSceneOrder = "aid_aidlist_ghoulies_sceneorder_game";
 
 // File owners for parallel reconstruction. frame_tick in game.cpp is the caller.
-void load_ui(Game& g);
-void begin_frontend(Game& g);
 void load_scene_contents(Game& g, std::string_view name);
 void scene_order_go(Game& g, size_t index);
 void script_request(Game& g, std::string_view name); // 0x0011EB30: queue an aid_script. The pump loads it.
@@ -22,16 +20,7 @@ void script_pump(Game& g);                          // 0x0011E4C0: frame_tick lo
 void script_vm_reset();                             // Clears the condition list and the fired-id list.
 void script_vm_bind(Game& g);                       // 0x0004B440: walk the loaded script from its first node.
 void script_vm_tick(Game& g, float dt);             // 0x00117100: update, eval, then drain fired ids.
-void gameselect_tick(Game& g, const InputState& in);
-void draw_ui(const Game& g);
 void draw_scene_transition(Game& g);
-void begin_menu_book(Game& g, int clip); // Xbox 0x00048260, menu owner +0x120.
-bool tick_menu_book(Game& g); // Xbox 0x00083E20 / 0x00083D90.
-bool menu_book_busy(); // Xbox 0x00083C40.
-void begin_naming_background(Game& g); // Xbox 0x000DCEC0.
-void tick_naming_background(Game& g); // Xbox 0x000DD0A0.
-void draw_naming_background(const Game& g); // Xbox 0x000DD170.
-void draw_map_label(const Game& g, std::string_view key, float x, float y, float spot_height);
 void pad_tick(Game& g, const InputState& in); // Xbox 0x000FA3C0 / 0x000FAD80
 // Cue-list name, the same key build_catalog stores. loop keeps the voice up.
 void pcm_play_cue(const Game& g, const char* cue, bool loop);

@@ -25,6 +25,7 @@ void snapshot_runtime_input_state(u8* state); // Xbox 0x000FA110
 void copy_runtime_input_state(u8* output, const u8* input); // Xbox 0x000FA190
 i32 runtime_controller_mask_index(u32 mask); // Xbox 0x000FACD0
 i32 runtime_player_mask_index(u32 mask); // Xbox 0x00107FF0
+void set_runtime_player_port(i32 port, u32 player, u32* ports); // Xbox 0x00109780, EAX the port
 i32 runtime_player_controller_index(u32 mask, const u32* ports); // Xbox 0x00109720
 const u8* runtime_input_state_for_mask(u32 mask,
     const RuntimeInputActivationContext& context); // Xbox 0x000FABF0

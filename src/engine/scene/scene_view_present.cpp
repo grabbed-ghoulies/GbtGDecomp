@@ -37,9 +37,9 @@ void present_runtime_scene_view(RuntimeSceneViewPresent& c)
     if ((c.scene_flags & 0x2000) != 0)
     {
         c.phase_overlay();
-        if (c.capture_camera != 0)
+        if (c.capture_camera != nullptr)
         {
-            c.capture(c.capture_camera);
+            c.capture(*c.capture_camera);
         }
         c.transition();
         c.text_pools();
@@ -47,9 +47,9 @@ void present_runtime_scene_view(RuntimeSceneViewPresent& c)
     }
     c.text_pools();
     c.phase_overlay();
-    if (c.capture_camera != 0)
+    if (c.capture_camera != nullptr)
     {
-        c.capture(c.capture_camera);
+        c.capture(*c.capture_camera);
     }
     c.transition();
 }

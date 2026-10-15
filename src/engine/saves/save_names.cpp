@@ -15,11 +15,11 @@
 #include <span>
 #include <vector>
 
+#include "save_scan.h"
+#include "xdk_saves.h"
+
 namespace gbtg
 {
-namespace
-{
-
 // Header of a record pool. Retail stores this in a 0x10 byte block from
 // 0x000F72D0: stride, grow, then begin / cursor / limit. An empty pool
 // points all three one past the header. The port keeps those cursors
@@ -35,20 +35,11 @@ struct SavePool
     i32 block_bytes = 0;
 };
 
-// DAT_005462e4. +0 is the stride-0x18 slot pool. +8 is the stride-0x100
-// name pool. +0x10 is the count 0x0010F2D0 increments. +0x14 is the float
-// 0x00033BF2 decays by DAT_005096C0 while it stays above zero.
-struct SaveScan
-{
-    SavePool* slots = nullptr;
-    i32* slot_enumerator = nullptr; // +4, the 0x0010D710 / 0x0010D7A0 cursor.
-    SavePool* names = nullptr;
-    i32* enumerator = nullptr;
-    i32 pending = 0;
-    float timer = 0.f;
-};
-
 SaveScan* g_save_scan = nullptr;
+
+namespace
+{
+
 
 void bind_save_pool(SavePool& pool, u8* block, i32 block_bytes, i32 used)
 {
@@ -132,111 +123,26 @@ u8* bump_save_record(SavePool& pool)
     return record;
 }
 
-// 0x0014C3AF. The file is UTF-16. The first wchar was already consumed by
-// the 2-byte probe. The first "Name=" wins, including one sitting inside
-// "TitleName=". The value runs until CR LF and is clipped to 0x7F wchars.
-bool take_save_name(const std::vector<char16_t>& text, char16_t* dest)
-{
-    constexpr i32 kMax = 0x7F;
-    for (size_t i = 0; i + 5 <= text.size(); ++i)
-    {
-        if (text[i] != u'N' || text[i + 1] != u'a' || text[i + 2] != u'm' || text[i + 3] != u'e' ||
-            text[i + 4] != u'=')
-        {
-            continue;
-        }
-        const size_t value = i + 5;
-        size_t end = value;
-        while (end + 1 < text.size())
-        {
-            if (text[end] == u'\r' && text[end + 1] == u'\n')
-            {
-                size_t count = end - value;
-                if (count > static_cast<size_t>(kMax))
-                {
-                    count = static_cast<size_t>(kMax);
-                }
-                for (size_t n = 0; n < count; ++n)
-                {
-                    dest[n] = text[value + n];
-                }
-                dest[count] = 0;
-                return true;
-            }
-            end += 1;
-        }
-        return false;
-    }
-    return false;
-}
-
-// 0x0014C532. Directories only. Opens dirname\SaveMeta.xbx, requires a
-// 2-byte read, then the Name field. A miss returns false so the walk
-// continues. The wide value is what 0x0010F1C0 copies into the record.
-bool read_save_meta_name(const std::filesystem::path& dir, char16_t* dest)
-{
-    const std::filesystem::path file = dir / "SaveMeta.xbx";
-    std::ifstream in(file, std::ios::binary);
-    if (!in)
-    {
-        return false;
-    }
-    unsigned char probe[2];
-    in.read(reinterpret_cast<char*>(probe), 2);
-    if (in.gcount() != 2)
-    {
-        return false;
-    }
-    std::vector<unsigned char> rest;
-    rest.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
-    std::vector<char16_t> text(rest.size() / 2);
-    for (size_t i = 0; i < text.size(); ++i)
-    {
-        text[i] = static_cast<char16_t>(rest[i * 2] | (static_cast<unsigned>(rest[i * 2 + 1]) << 8));
-    }
-    return take_save_name(text, dest);
-}
-
-// 0x0010F1C0. FindFirstFile of U:\*. Each directory whose SaveMeta.xbx
-// yields a Name is one stride-0x100 record, copied with wcscpy. A missing
-// drive returns -1 from the open and leaves the pool empty.
+// Xbox 0x0010F1C0: every save game on U:\ (0x0032A3C8) adds its name to the stride-0x100 pool.
 void scan_save_names(SavePool& names)
 {
-    std::error_code ec;
-    const std::filesystem::directory_iterator end;
-    std::filesystem::directory_iterator it(std::filesystem::path("U:\\"), ec);
-    if (ec)
+    XGameFindData data;
+    XSaveGameFind* find = find_first_xbox_save_game("U:\\", data); // XFindFirstSaveGame
+    if (find == nullptr)
     {
         return;
     }
-    for (; it != end; it.increment(ec))
+    do
     {
-        if (ec)
-        {
-            break;
-        }
-        std::error_code dir_ec;
-        if (!it->is_directory(dir_ec) || dir_ec)
-        {
-            continue;
-        }
-        char16_t name[0x80];
-        name[0] = 0;
-        if (!read_save_meta_name(it->path(), name))
-        {
-            continue;
-        }
-        u8* record = bump_save_record(names);
-        if (record == nullptr)
-        {
-            return;
-        }
+        u8* record = bump_save_record(names); // 0x000F73A0 grows a full pool.
         auto* dest = reinterpret_cast<char16_t*>(record);
-        const char16_t* src = name;
-        while ((*dest++ = *src++) != 0)
+        const char16_t* src = data.name();
+        while ((*dest++ = *src++) != 0) // lstrcpyW
         {
         }
     }
+    while (find_next_xbox_save_game(*find, data)); // XFindNextSaveGame
+    close_xbox_save_game_find(find); // XFindClose
 }
 
 } // namespace
@@ -252,7 +158,6 @@ void save_initialize_name_scan()
     // A second call drops the previous pools before the new allocations.
     if (g_save_scan != nullptr)
     {
-        release_save_pool(g_save_scan->slots);
         release_save_pool(g_save_scan->names);
         if (g_save_scan->enumerator != nullptr)
         {
@@ -267,19 +172,10 @@ void save_initialize_name_scan()
     }
 
     auto* scan = new SaveScan;
-    scan->slots = nullptr;
-    SavePool* slots = make_save_pool(0x18, 10);
-    if (slots == nullptr)
-    {
-        delete scan;
-        return;
-    }
-    scan->slots = slots;
-    scan->names = nullptr;
+    scan->slots.reserve(10); // The stride-0x18 pool, grow 10.
     SavePool* names = make_save_pool(0x100, 10);
     if (names == nullptr)
     {
-        release_save_pool(slots);
         delete scan;
         return;
     }
@@ -353,6 +249,37 @@ bool save_next_name(char16_t* name)
 }
 
 
+// Xbox 0x000663B0 with the predicate 0x0010E9B0 (lstrcmpW == 0), then 0x00066380 (or its inline copy): the
+// name's record leaves the stride-0x100 name pool, the records after it moving down one stride.
+void remove_save_name(const char16_t* name)
+{
+    SavePool& pool = *g_save_scan->names;
+    for (u8* record = pool.begin; record < pool.cursor; record += pool.stride)
+    {
+        if (std::u16string_view(reinterpret_cast<const char16_t*>(record)) != name)
+        {
+            continue;
+        }
+        u8* last = pool.cursor - pool.stride;
+        if (record < last)
+        {
+            std::memmove(record, record + pool.stride, size_t(last - record));
+        }
+        pool.cursor -= pool.stride;
+        return;
+    }
+}
+
+// Xbox 0x0010F290: the name added to the stride-0x100 name pool (grown when full).
+void save_add_name(const char16_t* name)
+{
+    u8* record = bump_save_record(*g_save_scan->names);
+    auto* dest = reinterpret_cast<char16_t*>(record);
+    while ((*dest++ = *name++) != 0) // lstrcpyW
+    {
+    }
+}
+
 // Xbox 0x0010D710
 bool save_first_slot_name(char16_t* name)
 {
@@ -364,15 +291,16 @@ bool save_first_slot_name(char16_t* name)
     auto* index = static_cast<i32*>(engine_heap_allocate(4));
     *index = 0;
     g_save_scan->slot_enumerator = index;
-    SavePool& pool = *g_save_scan->slots;
-    u8* record = pool.begin + pool.stride * *index;
-    if (record != pool.cursor)
+    auto& slots = g_save_scan->slots;
+    if (size_t(*index) != slots.size())
     {
+        const SaveSlot& slot = slots[size_t(*index)];
         ++*index;
-        if (record != nullptr)
+        const char16_t* source = slot.save->name(); // lstrcpyW(name, +4 +2)
+        while ((*name++ = *source++) != 0)
         {
-            throw Error("0x0010D710 copies a loaded save slot's name (+4 +2), which no translated code creates");
         }
+        return true;
     }
     engine_heap_free(g_save_scan->slot_enumerator);
     g_save_scan->slot_enumerator = nullptr;
@@ -389,15 +317,16 @@ bool save_next_slot_name(char16_t* name)
         *name = 0;
         return false;
     }
-    SavePool& pool = *g_save_scan->slots;
-    u8* record = pool.begin + pool.stride * *index;
-    if (record != pool.cursor)
+    auto& slots = g_save_scan->slots;
+    if (size_t(*index) != slots.size())
     {
+        const SaveSlot& slot = slots[size_t(*index)];
         ++*index;
-        if (record != nullptr)
+        const char16_t* source = slot.save->name();
+        while ((*name++ = *source++) != 0)
         {
-            throw Error("0x0010D7A0 copies a loaded save slot's name (+4 +2), which no translated code creates");
         }
+        return true;
     }
     engine_heap_free(g_save_scan->slot_enumerator);
     g_save_scan->slot_enumerator = nullptr;
@@ -405,14 +334,15 @@ bool save_next_slot_name(char16_t* name)
     return false;
 }
 
-// Xbox 0x0010F620, EBX the name: whether a loaded save slot (the stride-0x18 pool at DAT_005462E4 +0) holds it.
+// Xbox 0x0010F620, EBX the name: whether a loaded save holds it.
 bool save_slot_loaded(const char16_t* name)
 {
-    SavePool& pool = *g_save_scan->slots;
-    for (u8* record = pool.begin; record < pool.cursor; record += pool.stride)
+    for (const SaveSlot& slot : g_save_scan->slots)
     {
-        (void)name;
-        throw Error("0x0010F620 compares a loaded save slot (+4 +2), which no translated code creates");
+        if (std::u16string_view(slot.save->name()) == name) // lstrcmpW
+        {
+            return true;
+        }
     }
     return false;
 }

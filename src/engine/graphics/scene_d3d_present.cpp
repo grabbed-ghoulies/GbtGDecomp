@@ -810,6 +810,16 @@ void present_scene_d3d_commands(std::span<const SceneD3DCommand> commands, const
             gfx_clear_native(clear->rectangles, clear->flags, clear->color, clear->depth);
             gfx_begin_native_batch();
         }
+        else if (const auto* copy = std::get_if<SceneD3DCopy>(&command))
+        {
+            gfx_end_native_batch();
+            if (!context.copy_back_buffer)
+            {
+                throw Error("back-buffer copy presentation is not bound");
+            }
+            context.copy_back_buffer(copy->texture);
+            gfx_begin_native_batch();
+        }
         else
         {
             gfx_end_native_batch();

@@ -9,6 +9,7 @@
 #include "../scene/executable_resources.h"
 #include "../scene/gameselect_control.h"
 #include "../scene/scene_controls.h"
+#include "../transitions/native_book.h"
 
 #include <bit>
 #include <cstring>
@@ -40,6 +41,31 @@ void copy_wide(char16_t* output, const char16_t* input)
 }
 }
 
+namespace
+{
+// 0x000DD2F0, 0x000DD3A0, 0x000DD420 and 0x000DD4A0: the save errors, each an apperror message for the name
+// shown by the app error screen (0x00032990).
+SaveCallback naming_error(const char* key)
+{
+    return [key](const void*)
+    {
+        throw Error(std::string("0x00032990 (the app error screen, apperror ") + key + ") is not translated");
+    };
+}
+
+// The DD210 / DD6C0 save of the widget's name in slot DAT_0042A0C4 (0 when DAT_0042A0C8 is clear).
+i32 save_new_game(GameNamingWidget& w, GameSelectControlServices& s)
+{
+    const u8 slot = s.frontend.word_0042a0c8 != 0 ? u8(s.frontend.word_0042a0c4) : u8(0);
+    const SaveCreateCallbacks callbacks{naming_error("failnaming_toomanysavesmessage"), // 0x000DD4A0 in EAX
+        naming_error("failnaming_createspacemessage"), // 0x000DD2F0
+        naming_error("failnaming_runagainmessage"), // 0x000DD3A0
+        naming_error("failnaming_corruptgamemessage")}; // 0x000DD420
+    SaveGameContext saves{s.files, s.profile, s.scene_order_held};
+    return create_save_game(w.name.data(), slot, callbacks, s.save_image, saves); // 0x0010D430, ECX +0x74
+}
+}
+
 // Xbox 0x000DD6C0
 void set_runtime_game_naming_state(GameNamingWidget& widget, i32 state, GameSelectControlServices& services)
 {
@@ -54,8 +80,43 @@ void set_runtime_game_naming_state(GameNamingWidget& widget, i32 state, GameSele
     }
     else if (state == 3)
     {
-        throw Error("0x0010D430 (create the new game's save) is not translated");
+        if (save_new_game(w, services) != 0)
+        {
+            finish_runtime_game_naming(services); // 0x000DD270
+        }
     }
+}
+
+// Xbox 0x000DD210
+void commit_runtime_game_name(const char16_t* name, GameSelectControlServices& services)
+{
+    auto& w = *services.frontend.naming_widget; // DAT_00506594
+    copy_wide(w.name.data(), name); // lstrcpyW(+0x74, name)
+    w.state = 3;
+    if (save_new_game(w, services) != 0)
+    {
+        finish_runtime_game_naming(services); // 0x000DD270
+    }
+}
+
+// Xbox 0x000DD270: the new game becomes the selected one and slot select comes back.
+void finish_runtime_game_naming(GameSelectControlServices& services)
+{
+    auto& s = services;
+    auto& w = *s.frontend.naming_widget; // DAT_00506594
+    copy_wide(s.frontend.selected_name.data(), w.name.data()); // lstrcpyW(DAT_00429CC4, +0x74)
+    const u8 slot = save_game_slot(w.name.data()); // 0x0010DB60, EBX +0x74
+    copy_wide(s.frontend.slot_names[slot].data(), w.name.data()); // DAT_00429DC4 + slot * 0x100
+    SceneControlInstance* control = find_runtime_scene_control(0x9A); // 0x00116170
+    const u32 one = 1;
+    std::memcpy(control->state.data() + 0x94, &one, 4);
+    std::memcpy(control->state.data() + 0x124, &one, 4);
+    if (control->gameselect->book != nullptr)
+    {
+        release_transition_book(control->gameselect->book, s.books); // 0x00048860
+        control->gameselect->book = nullptr;
+    }
+    set_runtime_game_naming_state(w, 4, s); // 0x000DD6C0
 }
 
 // Xbox 0x000DD550
@@ -73,7 +134,8 @@ void leave_runtime_game_naming(GameSelectControlServices& services)
     std::memcpy(control->state.data() + 0x124, &one, 4);
     if (control->gameselect->book != nullptr)
     {
-        throw Error("0x00048860 (release the menu book) is not translated");
+        release_transition_book(control->gameselect->book, s.books); // 0x00048860
+        control->gameselect->book = nullptr;
     }
     set_runtime_game_naming_state(*s.frontend.naming_widget, 4, s); // 0x000DD6C0, DAT_00506594
 }

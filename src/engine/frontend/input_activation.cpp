@@ -445,6 +445,31 @@ i32 runtime_player_mask_index(u32 mask)
     }
 }
 
+// Xbox 0x00109780, EAX the port: the player's (the mask's) port mask, 1, 2, 4 or 8, or 0 for no port.
+void set_runtime_player_port(i32 port, u32 player, u32* ports)
+{
+    u32 mask;
+    switch (port)
+    {
+    case 0:
+        mask = 1;
+        break;
+    case 1:
+        mask = 2;
+        break;
+    case 2:
+        mask = 4;
+        break;
+    case 3:
+        mask = 8;
+        break;
+    default:
+        mask = 0;
+        break;
+    }
+    ports[runtime_player_mask_index(player)] = mask; // 0x00107FF0, DAT_0050E0F8
+}
+
 // Xbox 0x00109720
 i32 runtime_player_controller_index(u32 mask, const u32* ports)
 {

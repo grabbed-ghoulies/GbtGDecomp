@@ -60,7 +60,6 @@
 #include "scene_object_disposal.h"
 #include "../graphics/light_volume_records.h"
 #include "scene_object_requests.h"
-#include "../frontend/frontend_slots.h"
 #include "../camera/cutscene_impulse.h"
 #include "../cutscenes/event_assets.h"
 #include "gbtg/language.h"
@@ -119,6 +118,11 @@
 #include "../entities/entity.h"
 #include "../audio/core_cue.h"
 #include "../audio/event_voices.h"
+#include "../graphics/texture_xpr.h"
+#include "../transitions/native_book.h"
+#include "../frontend/gameselect_contents.h"
+#include "../frontend/gameselect_delete.h"
+#include "../frontend/input_stack.h"
 #include "../frontend/brew_meter.h"
 #include "../frontend/player_health_display.h"
 #include "../scripts/script_actions.h"
@@ -470,12 +474,12 @@ struct SceneActorServices::State
     // Input (DAT_0050E0E8 and its devices).
     std::unordered_map<u32, std::span<u8>> input_addresses;
     RuntimeInputReleaseContext input_release{input_addresses};
-    // 0x00033030, inline pool allocation at 0x00033274: four 0x50-byte input entries.
-    GhoulySpawnPool* input_pool = allocate_runtime_shape_pool(0x50, 4);
-    i32 input_selected = 0; // DAT_0050E0EC.
+    // The boot-owned input stack (0x00033274's pool, DAT_0050E0EC, the "Scene Master Pad" entry).
+    GhoulySpawnPool* input_pool = game.native_input->pool;
+    i32& input_selected = game.native_input->selected; // DAT_0050E0EC.
     std::span<u8> controllers = runtime_pad_state_views().controllers; // DAT_005079F8.
     std::span<u8> keyboard = runtime_pad_state_views().merged; // DAT_00507C98.
-    std::array<u32, 5> port_masks{}; // DAT_0050E0F4..
+    std::array<u32, 5>& port_masks = game.native_input->port_masks; // DAT_0050E0F4.., set at 0x00033248.
     RuntimeInputActivationContext input_activation{*input_pool, input_selected, controllers, keyboard,
         port_masks.data() + 1, input_addresses};
     // Player construction and children.
@@ -660,7 +664,7 @@ struct SceneActorServices::State
     std::unordered_map<Actor*, std::unique_ptr<RuntimeSegmentContactActor>> prop_contact_views;
     AudioBankStreams* audio_banks = &audio.streams; // DAT_004DF370, DAT_004E030C.
     std::unique_ptr<AttractControlServices> attract_services; // Factory type 0x9B.
-    // Factory type 0x9A (docs/NATIVE_FRONTEND.md), installed only while g_native_game_select is set.
+    // Factory type 0x9A, game select (docs/NATIVE_FRONTEND.md).
     std::unique_ptr<GameSelectControlServices> gameselect_services;
     std::span<const u8> gameselect_text; // DAT_005462C4
     std::span<const u8> scene_order_held; // DAT_00511B64
@@ -671,6 +675,10 @@ struct SceneActorServices::State
     std::array<char16_t, 0x200> gameselect_lookup{}; // DAT_00507E78, the 0x000FF0A0 text buffer.
     void create_scene_objects(); // Xbox 0x0011C980
     void bind_gameselect_services();
+    void bind_book_services();
+    RuntimeScreenTextureBoundaries screen_texture_boundaries();
+    std::array<std::span<u8>, 2> book_pages{}; // DAT_005047D8, DAT_005047E4
+    std::unique_ptr<TransitionBookServices> book_services;
     RuntimeModelRenderContext model_renderer{}; // DAT_004370A0..
     RuntimeSceneFog fog{}; // DAT_00509AFC..
     CutsceneCameraImpulse camera_impulse{}; // DAT_0050E7BC..
@@ -892,7 +900,6 @@ struct SceneActorServices::State
     i32 frontend_state = 0; // DAT_004E17C8 (0x00033030, 0x0004A4D0).
     u32 frontend_widget = 0; // DAT_004E19A0 (0x00049DE0 .. 0x0004A4D0).
     u32 hud_enabled = 0; // DAT_005493E0 (0x00132040 in 0x0011CBD0).
-    u32 capture_camera = 0; // DAT_005462A0 (0x00048260 / 0x00048860).
     u32 screen_flash = 0; // DAT_00504478 (0x00060BC0 / 0x00060C80 / 0x00060D50).
     u32 screen_capture = 0; // DAT_005044A4 (0x00060C20 / 0x00060C80 / 0x00060D50).
     void view_refresh_slot(Actor& actor); // Actor vtable +0x38 by class (0x00121DC0).
@@ -907,12 +914,16 @@ struct SceneActorServices::State
     // Host presentation of the recorded dialogue quads, with decoded images of their texture frames.
     std::unordered_map<const u8*, std::unique_ptr<RgbaImage>> texture_images;
     const RgbaImage& texture_image(const u8* record);
+    // Drops the decoded images of records in host bytes about to be freed, with their presenter uploads: the
+    // allocator can hand the same bytes (and a new image the same address) to a different texture.
+    void forget_texture_images(const u8* begin, size_t size);
     // D3DTexture_LockRect (0x00177950) for a movie frame: the texture's registered data, linear 32-bit rows.
     // The texture is marked so its decoded image is rebuilt, with a new serial, the next time it is drawn.
     RuntimeMovieLockedSurface lock_movie_texture(u32 record);
     // The recorded SetRenderTarget: draws go to the texture behind a surface until the back buffer returns, then
     // the rendered pixels are written to the texture's data (linear 32-bit) and it is decoded again.
     void present_render_target(std::uintptr_t color);
+    void copy_back_buffer(u32 texture);
     u32 render_target_texture = 0;
     std::unordered_set<const u8*> movie_textures;
 };
@@ -1440,8 +1451,11 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     }
     layout_runtime_hud(entity_detail::g_aspect_exact, hud_size[0], hud_size[1], hud);
     initialize_display_views(hud_size[0], hud_size[1], render_width, render_height);
-    port_masks = {0, 1, 2, 4, 8}; // 0x00033248: DAT_0050E0F4 0, then DAT_0050E0F8..DAT_0050E104 1, 2, 4, 8.
     input_state.selected_mask = port_masks[1];
+    // The boot master pad's native address resolves in this scene's input map.
+    input_addresses[game.native_input->master_address] = game.native_input->master_pad;
+    input_views[game.native_input->master_address] = RuntimeDialogueInputDevice{game.native_input->master_pad,
+        {nullptr, nullptr, nullptr, nullptr}};
     {
         const auto defaults = data(0x00424900, 0x70);
         auto& draw = dialogue_draw_state;
@@ -1661,10 +1675,8 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         },
         i32(g_language), data(0x004275DC, 5 * 4), g_sim_freeze, g_sim_dt, g_sim_scale});
     scene.controls->context.attract = attract_services.get();
-    if (g_native_game_select)
-    {
-        bind_gameselect_services();
-    }
+    bind_book_services();
+    bind_gameselect_services();
     // The scene model renderer over the relocated resources and the host D3D device.
     std::memcpy(retained_scene_color.data(), data(0x0032E4E4, 0x10).data(), 0x10);
     std::memcpy(override_base_color.data(), data(0x0042A570, 0x10).data(), 0x10);
@@ -2173,6 +2185,10 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             return heap_address(pointer, size);
         }});
+    resources.memory.on_free = [this](const u8* begin, size_t size)
+    {
+        forget_texture_images(begin, size);
+    };
     active_services = this;
 }
 
@@ -2180,15 +2196,8 @@ extern i32 g_429bc0; // DAT_00429BC0, scene.cpp.
 extern u16 g_429bc4[0x80]; // DAT_00429BC4, scene.cpp.
 extern char g_50e458[0x80]; // DAT_0050E458, transition_book.cpp.
 
-void SceneActorServices::State::bind_gameselect_services()
+RuntimeScreenTextureBoundaries SceneActorServices::State::screen_texture_boundaries()
 {
-    // Boot 0x000E5A80 made the front end's keyboard device (DAT_00429BBC). The native input registry is the
-    // scene's, so the scene maps the boot device's address while it runs.
-    frontend_input = g_frontend.input;
-    frontend_input_address = static_cast<u32>(reinterpret_cast<std::uintptr_t>(frontend_input.data()));
-    input_addresses[frontend_input_address] = frontend_input;
-    input_views[frontend_input_address] = RuntimeDialogueInputDevice{frontend_input, {nullptr, nullptr, nullptr,
-        nullptr}};
     RuntimeScreenTextureBoundaries textures;
     textures.allocate = [this](u32 size)
     {
@@ -2224,6 +2233,66 @@ void SceneActorServices::State::bind_gameselect_services()
     {
         return resources.memory.address_of(bytes);
     };
+    return textures;
+}
+
+void SceneActorServices::State::bind_book_services()
+{
+    // Boot 0x000620C0's two book page textures: DAT_005047D8, a back-buffer texture (LIN_X8R8G8B8), and
+    // DAT_005047E4, retail's alias of the depth buffer's memory as LIN_A8R8G8B8. The host has no native boot
+    // arena or shared depth memory, so each native scene makes both in its resource memory.
+    const RuntimeScreenTextureBoundaries textures = screen_texture_boundaries();
+    book_pages[0] = create_runtime_screen_texture(640, 480, 1, 0x1E, 0, textures); // 0x000533A0
+    book_pages[1] = create_runtime_screen_texture(640, 480, 1, 0x12, 0, textures);
+    book_services = std::make_unique<TransitionBookServices>(TransitionBookServices{*cutscenes, resources.registry,
+        resources.error, image, *display_setup, model_renderer, node_cache, g_sim_freeze, g_sim_dt, g_sim_scale,
+        g_flags_ea9c, {resources.memory.address_of(book_pages[0].data()), resources.memory.address_of(book_pages[1].data())},
+        [this](Actor& actor)
+        {
+            update_base_actor(object_of_actor(actor)); // 0x000420D0
+        },
+        [this](std::span<const u8> texture) -> u32
+        {
+            return resources.memory.address_of(texture.data());
+        },
+        [this](u32 texture)
+        {
+            d3d_device.commands.push_back(SceneD3DCopy{texture}); // D3DDevice_CopyRects
+        },
+        [this](u32 count, const void* rectangles, u32 flags, u32 color, float depth, u32 stencil)
+        {
+            dialogue_outer->d3d.clear(count, rectangles, flags, color, depth, stencil); // D3DDevice_Clear
+        },
+        [this](u8 enabled)
+        {
+            set_runtime_render_fog_enabled(model_renderer, enabled); // 0x00156EA0
+        },
+        [this]() -> i32
+        {
+            return i32(dialogue_outer->current_display_address - 0x507018u) / 0x1E4; // DAT_005077A8
+        },
+        *dialogue_draw,
+        [this](u32 texture) -> u8*
+        {
+            return resources.memory.pointer(texture);
+        },
+        [this](Actor& actor) -> RuntimeModelInstance*
+        {
+            return actors->view(object_of_actor(actor)).startup.models.secondary.get();
+        },
+        dialogue_outer->capture_configuration, 0, read_u32(data(0x004231C4, 4), 0)}); // DAT_005462A4 is never written.
+}
+
+void SceneActorServices::State::bind_gameselect_services()
+{
+    // Boot 0x000E5A80 made the front end's keyboard device (DAT_00429BBC). The native input registry is the
+    // scene's, so the scene maps the boot device's address while it runs.
+    frontend_input = g_frontend.input;
+    frontend_input_address = static_cast<u32>(reinterpret_cast<std::uintptr_t>(frontend_input.data()));
+    input_addresses[frontend_input_address] = frontend_input;
+    input_views[frontend_input_address] = RuntimeDialogueInputDevice{frontend_input, {nullptr, nullptr, nullptr,
+        nullptr}};
+    RuntimeScreenTextureBoundaries textures = screen_texture_boundaries();
     gameselect_services = std::make_unique<GameSelectControlServices>(GameSelectControlServices{resources.registry,
         resources.error, g_runtime_profile, g_flags_ea9c, gameselect_text, image.string(read_u32(data(0x00430CF8, 4),
         0)), scene_order_held, scene_order_release, g_510cec, input_activation, input_release, frontend_input_address,
@@ -2360,7 +2429,55 @@ void SceneActorServices::State::bind_gameselect_services()
         [this](RuntimeDialogueWidget& widget, u32 device)
         {
             update_dialogue_widget(widget, &input_views.at(device), *widget_update); // 0x00142460
-        }});
+        },
+        game.native_movies->session->files(),
+        SaveImageBoundaries{
+            [this](const char* aid) -> std::span<const u8>
+            {
+                return acquire_animation_resource(resources.registry, aid); // 0x00035E90
+            },
+            [this](std::span<const u8> texture)
+            {
+                release_animation_resource(resources.registry, texture); // 0x00035C00
+            },
+            [this](std::span<const u8> header, const char* path)
+            {
+                // XGWriteSurfaceOrTextureToXPR: the D3D header's data is the loaded resource's GPU bytes for its
+                // frame (the same lookup the presenter's texture_image makes).
+                for (const auto& loaded : resources.registry.loaded)
+                {
+                    const u8* begin = loaded.cpu.data();
+                    if (begin == nullptr || header.data() < begin || header.data() >= begin + loaded.cpu.size())
+                    {
+                        continue;
+                    }
+                    for (size_t frame = 0; size_t(header.data() - begin) >= 28 + frame * 0x14; ++frame)
+                    {
+                        TextureHeader parsed;
+                        const size_t start = size_t(header.data() - begin) - 28 - frame * 0x14;
+                        if (!parse_texture_header(loaded.cpu.subspan(start), parsed)
+                            || frame >= std::max<size_t>(parsed.tile_count, 1))
+                        {
+                            continue;
+                        }
+                        const size_t offset = size_t(parsed.texture_offset) + frame * parsed.data_size;
+                        write_texture_xpr(header, loaded.gpu.subspan(offset, parsed.data_size), path);
+                        return;
+                    }
+                }
+                throw Error("the save image texture is not a loaded resource");
+            },
+            [this]()
+            {
+                resource_error(resources.error, 2); // 0x00032700(2)
+            },
+            random},
+        *book_services,
+        [this](u32 address) -> const RuntimeDialogueInputDevice&
+        {
+            return input_views.at(address);
+        },
+        port_masks.data() + 1});
     scene.controls->context.gameselect = gameselect_services.get();
     // The slot prompts' row callbacks (+0x84).
     widget_callbacks[0x000E0210] = [this]()
@@ -2379,6 +2496,44 @@ void SceneActorServices::State::bind_gameselect_services()
     {
         leave_runtime_slot_select(*gameselect_services);
     };
+    // The contents prompts' rows (0x003069F0, 0x00306D00, 0x00307010, 0x00307320).
+    widget_callbacks[0x000DB450] = [this]()
+    {
+        move_runtime_contents_cursor(*gameselect_services);
+    };
+    widget_callbacks[0x000DB510] = [this]()
+    {
+        leave_runtime_game_contents(*gameselect_services);
+    };
+    widget_callbacks[0x000DB570] = [this]()
+    {
+        play_runtime_game(*gameselect_services);
+    };
+    widget_callbacks[0x000DB5E0] = [this]()
+    {
+        show_runtime_game_stats(*gameselect_services);
+    };
+    widget_callbacks[0x000DB620] = [this]()
+    {
+        open_runtime_game_info(*gameselect_services);
+    };
+    widget_callbacks[0x000DB670] = [this]()
+    {
+        open_runtime_game_challenges(*gameselect_services);
+    };
+    widget_callbacks[0x000DB6D0] = [this]()
+    {
+        open_runtime_game_features(*gameselect_services);
+    };
+    // The deletion prompts' rows (0x003077B0).
+    widget_callbacks[0x000DBD50] = [this]()
+    {
+        leave_runtime_game_deletion(*gameselect_services);
+    };
+    widget_callbacks[0x000DBC20] = [this]()
+    {
+        confirm_runtime_game_deletion(*gameselect_services);
+    };
     // The keyboard prompts' rows (0x0020AAD8) all name a bare RET (0x001628B0).
     widget_callbacks[0x001628B0] = []()
     {
@@ -2387,6 +2542,12 @@ void SceneActorServices::State::bind_gameselect_services()
 
 SceneActorServices::State::~State()
 {
+    // 0x0011C5A0: the scene controls go first (0x00115F00; the factory released them, and their widgets retire their
+    // bats with message 0x80), then 0x001232D0 removes the retired actors before the scene's actors are freed.
+    if (actors != nullptr && entity_detail::g_world.child.next != nullptr)
+    {
+        remove_retired_actors();
+    }
     if (scene.controls != nullptr && scene.controls->context.attract == attract_services.get())
     {
         scene.controls->context.attract = nullptr;
@@ -2436,12 +2597,22 @@ SceneActorServices::State::~State()
         }
         owned->clear();
     }
-    engine_heap_free(input_activation.entries);
+    // The input stack is boot-owned: the pool (perhaps grown here) goes back to it.
+    game.native_input->pool = input_activation.entries;
+    input_views.erase(game.native_input->master_address);
+    input_addresses.erase(game.native_input->master_address);
     scene.released = nullptr;
     if (active_services == this)
     {
         active_services = nullptr;
     }
+    // The decoded images go with the scene; their uploads must not serve a later image at the same address.
+    resources.memory.on_free = nullptr;
+    for (const auto& [record, image] : texture_images)
+    {
+        gfx_release_sprite(*image);
+    }
+    texture_images.clear();
     if (statsheet.data() != nullptr)
     {
         release_animation_resource(resources.registry, statsheet);
@@ -4156,10 +4327,10 @@ void SceneActorServices::State::present_view(i32 view)
         {
             draw_runtime_phase_overlay(g_510cf4, g_510e30, g_510e40, g_510e24);
         },
-        capture_camera,
-        [](u32)
+        g_capture_book,
+        [this](RuntimeTransitionBook& book)
         {
-            unbound("camera capture 0x00048550");
+            draw_transition_book(book, *book_services); // 0x00048550
         },
         [this]()
         {
@@ -4375,6 +4546,37 @@ void SceneActorServices::State::present_render_target(std::uintptr_t color)
     render_target_texture = texture;
 }
 
+// D3DDevice_CopyRects(back buffer, null, 0, the texture's level 0, null): the 640x480 game viewport drawn so
+// far (the host window's fitted 4:3 area) into the texture's linear 32-bit level.
+void SceneActorServices::State::copy_back_buffer(u32 texture)
+{
+    RgbaImage frame;
+    if (!gfx_readback_ui(frame) || frame.width <= 0 || frame.height <= 0)
+    {
+        throw Error("back-buffer copy readback failed");
+    }
+    const auto object = resources.memory.resolve(texture, 0x30);
+    const u32 header = texture + read_u32(object, 4) + u32(object[0x12]) * 0x14;
+    const auto registered = resources.d3d.resources.find(header);
+    if (registered == resources.d3d.resources.end())
+    {
+        throw Error("back-buffer copy target is not a registered texture");
+    }
+    const i32 width = i32(registered->second.header[0]);
+    const i32 height = i32(registered->second.header[1]);
+    const RuntimeMovieLockedSurface surface = lock_movie_texture(header);
+    for (i32 y = 0; y < height; ++y)
+    {
+        const i32 source_y = y * frame.height / height;
+        u8* line = surface.pixels + size_t(y) * size_t(surface.pitch);
+        for (i32 x = 0; x < width; ++x)
+        {
+            const i32 source_x = x * frame.width / width;
+            std::memcpy(line + size_t(x) * 4, frame.bgra.data() + (size_t(source_y) * frame.width + source_x) * 4, 4);
+        }
+    }
+}
+
 RuntimeMovieLockedSurface SceneActorServices::State::lock_movie_texture(u32 record)
 {
     const auto registered = resources.d3d.resources.find(record);
@@ -4400,6 +4602,23 @@ RuntimeMovieLockedSurface SceneActorServices::State::lock_movie_texture(u32 reco
 // registry's loaded rows own those bytes, and the header's offsets index that row's GPU data. Model
 // textures are relocated: their records sit in the scene resource memory, and each record's data is
 // the address its relocation registered.
+void SceneActorServices::State::forget_texture_images(const u8* begin, size_t size)
+{
+    for (auto entry = texture_images.begin(); entry != texture_images.end();)
+    {
+        if (begin <= entry->first && entry->first < begin + size)
+        {
+            gfx_release_sprite(*entry->second);
+            movie_textures.erase(entry->first);
+            entry = texture_images.erase(entry);
+        }
+        else
+        {
+            ++entry;
+        }
+    }
+}
+
 const RgbaImage& SceneActorServices::State::texture_image(const u8* record)
 {
     const auto cached = texture_images.find(record);
@@ -4489,6 +4708,10 @@ void SceneActorServices::present_views()
         [&state](std::uintptr_t color)
         {
             state.present_render_target(color);
+        },
+        [&state](u32 texture)
+        {
+            state.copy_back_buffer(texture);
         }};
     present_runtime_display_views([&state, &present](i32 slot)
     {

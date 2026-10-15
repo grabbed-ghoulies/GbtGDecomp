@@ -32,6 +32,8 @@ u32 runtime_input_button_held(const RuntimeDialogueInputDevice& device, u16 mask
     const RuntimeDialogueInputState& state); // Xbox 0x00108300
 u32 runtime_input_button_edge(const RuntimeDialogueInputDevice& device, u16 mask,
     const RuntimeDialogueInputState& state); // Xbox 0x001083F0
+u32 runtime_input_button_release(const RuntimeDialogueInputDevice& device, u16 mask,
+    const RuntimeDialogueInputState& state); // Xbox 0x00108500, EAX device, BX mask
 void runtime_input_axes(const RuntimeDialogueInputDevice& device,
     std::array<float, 2>& output, const RuntimeDialogueInputState& state); // Xbox 0x001085F0
 void runtime_input_secondary_axes(const RuntimeDialogueInputDevice& device,

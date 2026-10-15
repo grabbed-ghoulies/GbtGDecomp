@@ -65,6 +65,8 @@ extern "C"
 #include "../scene/scene_types.h"
 #include "../camera/camera.h"
 #include "crt_runtime.h"
+#include "xapi_runtime.h"
+#include "../saves/save_root.h"
 
 namespace gbtg
 {
@@ -881,7 +883,7 @@ std::uintptr_t xapi_find_first_file(const char* path, void* find_data)
 
     const bool match_all = tail == 3 && path[split] == '*' && path[split + 1] == '.' && path[split + 2] == '*';
     const std::string pattern(path + split, tail);
-    const std::filesystem::path dir(std::string(path, split));
+    const std::filesystem::path dir(xbox_host_path(std::string(path, split).c_str()));
 
     std::error_code ec;
     std::filesystem::directory_iterator it(dir, ec);
@@ -979,6 +981,18 @@ bool xapi_find_next_file(std::uintptr_t find_handle, void* find_data)
 
     g_xapi_last_error = 18;
     return false;
+}
+
+
+// CloseHandle (0x0014B385) on a handle from 0x0014B122.
+void xapi_close_find_file(std::uintptr_t find_handle)
+{
+    if (find_handle == 0 || find_handle == static_cast<std::uintptr_t>(-1))
+    {
+        g_xapi_last_error = 6;
+        return;
+    }
+    delete reinterpret_cast<XapiFindCursor*>(find_handle);
 }
 
 
@@ -1095,7 +1109,7 @@ int xapi_read_save_directory_entry(u8* find_data, const char* root, int root_len
             ++i;
         } while (unit != '\0');
 
-        std::ifstream in(std::filesystem::path(dir), std::ios::binary);
+        std::ifstream in(std::filesystem::path(xbox_host_path(dir)), std::ios::binary);
         if (in)
         {
             unsigned char probe[2] = {};
@@ -1191,7 +1205,7 @@ u32 xapi_create_save_metadata(const char* path, const u16* expected)
         return g_xapi_last_error;
     }
 
-    const std::filesystem::path fs_path(path);
+    const std::filesystem::path fs_path(xbox_host_path(path));
     std::error_code ec;
     if (std::filesystem::is_directory(fs_path, ec))
     {
@@ -1369,7 +1383,7 @@ void xapi_set_save_directory_time(const char* path)
         return;
     }
 
-    const std::filesystem::path fs_path(path);
+    const std::filesystem::path fs_path(xbox_host_path(path));
     std::error_code ec;
     if (!std::filesystem::exists(fs_path, ec) || ec)
     {
@@ -1907,7 +1921,7 @@ std::uintptr_t xapi_create_file(const char* name, u32 access, u32 share, const v
     const bool want_write = (access & kGenericWrite) != 0 || (access & 0x2u) != 0 || (access & 0x4u) != 0;
     const bool truncate = nt_disposition == kFileOverwrite || nt_disposition == kFileOverwriteIf;
 
-    const std::filesystem::path fs_path(name);
+    const std::filesystem::path fs_path(xbox_host_path(name));
     std::error_code ec;
     const bool exists = std::filesystem::exists(fs_path, ec);
     if (ec && ec != std::errc::no_such_file_or_directory)
@@ -2105,7 +2119,7 @@ bool xapi_create_directory(const char* path, const void* security)
     }
 
     std::error_code ec;
-    if (std::filesystem::create_directory(std::filesystem::path(path), ec))
+    if (std::filesystem::create_directory(std::filesystem::path(xbox_host_path(path)), ec))
     {
         return true;
     }
@@ -2157,7 +2171,7 @@ bool xapi_remove_directory(const char* path)
     }
 
     std::error_code ec;
-    const std::filesystem::path fs_path(path);
+    const std::filesystem::path fs_path(xbox_host_path(path));
     if (std::filesystem::is_directory(fs_path, ec))
     {
         ec.clear();
@@ -5982,7 +5996,7 @@ int xapi_open_save_directory(const char* path, void* root)
         return kNameInvalid;
     }
 
-    const std::filesystem::path fs_path(path);
+    const std::filesystem::path fs_path(xbox_host_path(path));
     std::error_code ec;
     if (std::filesystem::is_directory(fs_path, ec))
     {

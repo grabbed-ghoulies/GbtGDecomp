@@ -4,6 +4,7 @@
 #include "movie_files.h"
 #include "../runtime/crt_format.h"
 #include "../runtime/file_worker.h"
+#include "../saves/save_root.h"
 #include "../frontend/dialogue_resources.h"
 #include "gbtg/anim.h"
 
@@ -59,13 +60,15 @@ u32 g_movie_io_cache = 4096;
 void bind_native_movie_file_io(MovieFileBoundaries& files, FileWorkerBoundaries& worker)
 {
     auto requests = std::make_shared<std::unordered_map<RuntimeMovieFile*, OVERLAPPED>>();
+    auto written = std::make_shared<std::unordered_map<RuntimeMovieFile*, std::vector<u8>>>();
     files.allocate = []()
     {
         return new (std::nothrow) RuntimeMovieFile;
     };
-    files.free = [requests](RuntimeMovieFile* file)
+    files.free = [requests, written](RuntimeMovieFile* file)
     {
         requests->erase(file);
+        written->erase(file);
         delete file;
     };
     files.close = [](std::uintptr_t handle)
@@ -88,6 +91,17 @@ void bind_native_movie_file_io(MovieFileBoundaries& files, FileWorkerBoundaries&
         request.Offset = file.offset;
         request.OffsetHigh = 0;
         return ReadFile(reinterpret_cast<HANDLE>(file.handle), output, size, nullptr, &request) != FALSE;
+    };
+    // WriteFile, overlapped. 0x0010EB60 frees its buffer as soon as the write is issued (the Xbox finishes it
+    // first); the host copies the bytes so they outlive that free.
+    files.write = [requests, written](RuntimeMovieFile& file, const void* data, u32 size)
+    {
+        OVERLAPPED& request = (*requests)[&file];
+        request = {};
+        request.Offset = file.offset;
+        auto& bytes = (*written)[&file];
+        bytes.assign(static_cast<const u8*>(data), static_cast<const u8*>(data) + size);
+        return WriteFile(reinterpret_cast<HANDLE>(file.handle), bytes.data(), size, nullptr, &request) != FALSE;
     };
     files.completed = [requests](RuntimeMovieFile& file, u32& transferred)
     {
@@ -114,7 +128,7 @@ void bind_native_movie_file_io(MovieFileBoundaries& files, FileWorkerBoundaries&
         DWORD bytes_per_sector;
         DWORD free_clusters;
         DWORD clusters;
-        if (GetDiskFreeSpaceA(drive, &sectors_per_cluster, &bytes_per_sector, &free_clusters, &clusters) == FALSE)
+        if (GetDiskFreeSpaceA(xbox_host_path(drive).c_str(), &sectors_per_cluster, &bytes_per_sector, &free_clusters, &clusters) == FALSE)
         {
             return 0u;
         }
@@ -144,7 +158,7 @@ void bind_native_movie_file_io(MovieFileBoundaries& files, FileWorkerBoundaries&
     worker.create_file = [](const char* path, u32 access, u32 share, void* security,
         u32 creation, u32 attributes, std::uintptr_t template_file)
     {
-        return reinterpret_cast<std::uintptr_t>(CreateFileA(path, access, share,
+        return reinterpret_cast<std::uintptr_t>(CreateFileA(xbox_host_path(path).c_str(), access, share,
             static_cast<SECURITY_ATTRIBUTES*>(security), creation, attributes,
             reinterpret_cast<HANDLE>(template_file)));
     };
@@ -155,11 +169,11 @@ void bind_native_movie_file_io(MovieFileBoundaries& files, FileWorkerBoundaries&
     };
     worker.attributes = [](const char* path)
     {
-        return static_cast<u32>(GetFileAttributesA(path));
+        return static_cast<u32>(GetFileAttributesA(xbox_host_path(path).c_str()));
     };
     worker.create_directory = [](const char* path)
     {
-        return CreateDirectoryA(path, nullptr) != FALSE;
+        return CreateDirectoryA(xbox_host_path(path).c_str(), nullptr) != FALSE;
     };
     worker.debug_output = [](const char* text)
     {
@@ -537,6 +551,39 @@ i32 read_runtime_movie_file(RuntimeMovieFile& file, void* output, u32 size,
         ++context.pending;
         file.state = 1;
     }
+    if (status != 0 && !((status >= 0x3E4 && status <= 0x3E5) || status == 0x4DE))
+    {
+        lookup_runtime_file_failure(status, context);
+    }
+    return status;
+}
+
+// Xbox 0x000EB180
+i32 write_runtime_movie_file(RuntimeMovieFile& file, const void* data, u32 size,
+    std::function<void(RuntimeMovieFile&, i32, void*)> completion, void* payload,
+    MovieFileContext& context)
+{
+    i32 status = wait_runtime_movie_file(file, 0, context); // 0x000EA850
+    if (status == 0)
+    {
+        file.completion = std::move(completion);
+        file.payload = payload;
+        if (!context.io.write(file, data, size))
+        {
+            status = static_cast<i32>(context.io.last_error());
+            if (status == 0x3E5)
+            {
+                status = 0;
+            }
+            else if (status != 0)
+            {
+                goto done;
+            }
+        }
+        ++context.pending;
+        file.state = 1;
+    }
+done:
     if (status != 0 && !((status >= 0x3E4 && status <= 0x3E5) || status == 0x4DE))
     {
         lookup_runtime_file_failure(status, context);
@@ -2134,18 +2181,6 @@ void movie_boot_probe()
     }
 }
 
-void movie_reset()
-{
-    while (g_movies != nullptr)
-    {
-        free_node(g_movies);
-    }
-    g_cues.clear();
-    g_cue_clip.clear();
-    g_cue_time = 0.f;
-    g_now = 0.0;
-}
-
 void movie_alloc(const char* name, unsigned flags)
 {
     if (!g_ready)
@@ -2211,49 +2246,6 @@ void movie_alloc(const char* name, unsigned flags)
     }
 }
 
-void movie_open_gameselect()
-{
-    // 0x004290C8 stride 0x124, then 0x0042941C stride 0x10C. Both use flags 0x14.
-    const char* empty_slots[] = {
-        "aid_movie_ghoulies_gameselect_emptyslots_one",
-        "aid_movie_ghoulies_gameselect_emptyslots_two",
-        "aid_movie_ghoulies_gameselect_emptyslots_three",
-    };
-    const char* chapters[] = {
-        "aid_movie_ghoulies_gameselect_chapter1",
-        "aid_movie_ghoulies_gameselect_chapter2",
-        "aid_movie_ghoulies_gameselect_chapter3",
-        "aid_movie_ghoulies_gameselect_chapter4",
-        "aid_movie_ghoulies_gameselect_chapter5",
-    };
-    for (const char* name : empty_slots)
-    {
-        movie_alloc(name, 0x14);
-    }
-    for (const char* name : chapters)
-    {
-        movie_alloc(name, 0x14);
-    }
-}
-
-void movie_open_attract()
-{
-    movie_alloc("aid_movie_ghoulies_attractmode_logoscaleup", 6);
-}
-
-void movie_open_contents()
-{
-    const char* names[] = {
-        "aid_movie_ghoulies_gameselect_house",
-        "aid_movie_ghoulies_gameselect_zombieclap",
-        "aid_movie_ghoulies_gameselect_skellyscratchhead",
-    };
-    for (const char* name : names)
-    {
-        movie_alloc(name, 6);
-    }
-}
-
 void movie_advance_time(float dt)
 {
     if (dt > 0.f)
@@ -2268,54 +2260,6 @@ void movie_present()
     {
         movie_tick(node);
     }
-}
-
-void movie_note_visible(const char* name)
-{
-    MovieNode* node = find_name(name);
-    if (node != nullptr && node->play < 1)
-    {
-        node->play += 1;
-    }
-}
-
-// Xbox 0x000DE9E0 / 0x000DACE0: release the widget's playback reference.
-void movie_release_visible(const char* name)
-{
-    MovieNode* node = find_name(name);
-    if (node != nullptr && node->play > 0)
-    {
-        node->play -= 1;
-    }
-}
-
-bool movie_is_open(const char* name)
-{
-    const MovieNode* node = find_name(name);
-    return node != nullptr && node->clip != nullptr;
-}
-
-// Xbox 0x00107360. The host copy implements LockRect / BinkCopyToBuffer.
-// Failed or absent copies leave +0x24 set and return false to the widget.
-bool movie_copy_frame(const char* name, RgbaImage& target)
-{
-    MovieNode* node = find_name(name);
-    if (node != nullptr && node->clip != nullptr && node->pending != 0)
-    {
-        const bool copied = !node->clip->image.bgra.empty();
-        if (copied)
-        {
-            gfx_release_sprite(target);
-            target = node->clip->image;
-            if (node->first_copy != 0)
-            {
-                node->first_copy = 0;
-            }
-        }
-        node->pending -= 1;
-        return copied;
-    }
-    return false;
 }
 
 void movie_apply(Mesh& mesh)

@@ -3403,7 +3403,10 @@ void gfx_clear_native(std::span<const std::array<i32, 4>> rectangles, u32 flags,
         : (dialog_target.rendering ? dialog_target.rtv.Get() : g.rtv.Get());
     ID3D11DepthStencilView* depth_view = native_target.rendering ? native_target.dsv.Get()
         : (dialog_target.rendering ? dialog_target.dsv.Get() : g.dsv.Get());
-    if (rectangles.empty())
+    // A single rectangle over the whole 640x480 back buffer (the full view's fitted rectangle) clears as a whole.
+    const bool whole = rectangles.size() == 1 && rectangles[0][0] == 0 && rectangles[0][1] == 0
+        && rectangles[0][2] == 640 && rectangles[0][3] == 480;
+    if (rectangles.empty() || whole)
     {
         if ((flags & 0xF0) != 0)
         {

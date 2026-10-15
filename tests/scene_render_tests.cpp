@@ -17,7 +17,7 @@
 #include "../src/engine/graphics/shader_schedule_cost.h"
 #include "../src/engine/camera/display_view.h"
 #include "../src/engine/camera/display_setup_math.h"
-#include "../src/engine/frontend/frontend_slots.h"
+#include "../src/engine/graphics/color_blend.h"
 #include "../src/engine/entities/actor_frame_render.h"
 #include <bit>
 #include <limits>
@@ -360,7 +360,7 @@ void check_ambient_sampling()
         "negative grid truncation must retain the retail unsigned fraction conversion");
     require(add_saturated_runtime_colors(0xFFFA0301u, 0x01FF0402u) == 0xFFFF0703u,
         "packed environment addition must saturate each channel independently");
-    require(frontend_detail::menu_color(0xFFFFFFFFu, 0, nan) == 0,
+    require(menu_color(0xFFFFFFFFu, 0, nan) == 0,
         "packed color interpolation must use retail invalid truncation");
     std::array<SceneAmbientPoint, 32> points{};
     const u8* grids[]{grid.data(), grid.data()};

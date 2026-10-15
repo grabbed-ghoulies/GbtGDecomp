@@ -27,5 +27,7 @@ void tick_runtime_game_naming(GameSelectWidget& widget, GameSelectControlService
 void set_runtime_game_naming_state(GameNamingWidget& widget, i32 state,
     GameSelectControlServices& services); // Xbox 0x000DD6C0
 void leave_runtime_game_naming(GameSelectControlServices& services); // Xbox 0x000DD550
+void commit_runtime_game_name(const char16_t* name, GameSelectControlServices& services); // Xbox 0x000DD210
+void finish_runtime_game_naming(GameSelectControlServices& services); // Xbox 0x000DD270
 void draw_runtime_game_naming(GameSelectWidget& widget, GameSelectControlServices& services); // Xbox 0x000DD170
 }

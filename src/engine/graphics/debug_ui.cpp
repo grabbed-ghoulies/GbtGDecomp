@@ -135,7 +135,6 @@ void draw_runtime(const Game& game)
         ImGui::Text("Target %d Hz (%s)", clock_fps(game.clock), game.clock.pal ? "PAL" : "NTSC");
         ImGui::Text("Script phase %d, hold %s", game.script_phase, game.script_hold ? "yes" : "no");
         ImGui::TextWrapped("Requested script: %.*s", static_cast<int>(sizeof(game.requested_script)), game.requested_script);
-        ImGui::Text("Frontend mode %d / pending %d", game.frontend_mode, game.frontend_pending);
         int width = 0;
         int height = 0;
         gfx_size(width, height);

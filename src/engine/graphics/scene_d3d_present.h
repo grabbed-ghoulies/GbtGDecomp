@@ -17,6 +17,8 @@ struct SceneD3DPresentContext
     std::function<const RgbaImage&(const u8*)> texture; // Decoded image of a bound texture record.
     // D3DDevice_SetRenderTarget: a texture surface, or SceneD3DDevice::kBackBuffer to return to the screen.
     std::function<void(std::uintptr_t color)> render_target;
+    // D3DDevice_CopyRects: the back buffer drawn so far into a texture object's level 0.
+    std::function<void(u32 texture)> copy_back_buffer = nullptr;
 };
 void present_scene_d3d_commands(std::span<const SceneD3DCommand> commands, const SceneD3DPresentContext& context);
 }

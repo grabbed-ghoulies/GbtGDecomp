@@ -1,6 +1,6 @@
 #include "player_mind_setup.h"
 #include "actor_transform.h"
-#include "../frontend/frontend_slots.h"
+#include "../scripts/script_chapter.h"
 #include <bit>
 #include <cstring>
 
@@ -173,7 +173,7 @@ bool initialize_runtime_player_mind(std::span<u8> mind, std::span<const u8> para
         const u16 value = static_cast<u16>(health);
         std::memcpy(context.body_bytes.data() + 0x94, &value, 2);
         std::memcpy(context.body_bytes.data() + 0x96, &value, 2);
-        if (frontend_detail::script_chapter_index(context.scene_name) < 9 && (context.scene_flags & 8) == 0
+        if (script_chapter_index(context.scene_name) < 9 && (context.scene_flags & 8) == 0
             && (context.runtime_flags & 0x200000) == 0 && (context.story_flags & 0x40) == 0
             && context.chapter_mode != 1)
         {

@@ -7,6 +7,7 @@
 #include "dialogue_widget_construction.h"
 #include "dialogue_widget_state.h"
 #include "gameselect_naming.h"
+#include "game_names.h"
 #include "hud_layout.h"
 #include "../audio/event_voices.h"
 #include "../entities/actor_render_registration.h"
@@ -1143,6 +1144,8 @@ u32 read_keyboard_input(VirtualKeyboard& k, GameSelectControlServices& s)
 }
 
 void press_key(VirtualKeyboard& k, u32 code, GameSelectControlServices& s);
+void release_keyboard_bats(VirtualKeyboard& k);
+[[noreturn]] void show_name_error(const char* key);
 
 // Xbox 0x00015260, ECX the keyboard: the selected key, then the button sound.
 void press_selected_key(VirtualKeyboard& k, GameSelectControlServices& s)
@@ -1470,7 +1473,41 @@ void press_key(VirtualKeyboard& k, u32 code, GameSelectControlServices& s)
         return;
     }
     case 0x10007:
-        untranslated("0x001411C0 (check the new game's name before saving it)");
+    {
+        const i32 check = check_new_game_name(k.name.data(), s); // 0x001411C0, EAX +0x24
+        switch (check)
+        {
+        case 0:
+        {
+            k.prompts->requested_set = nullptr; // +0x950
+            set_dialogue_widget_mode(*k.prompts, 3, s.widgets); // 0x00142C20, EAX 3, ESI +0x10C
+            k.done = 1;
+            for (auto* pool : {k.pools[2], k.pools[0]})
+            {
+                pool->allocation->cursor = pool->allocation->begin;
+                pool->records = {pool->allocation->begin, 0};
+            }
+            release_keyboard_bats(k); // 0x00017490, EDI the keyboard
+            if (k.prompts != nullptr)
+            {
+                destroy_dialogue_widget(k.prompts, s.resources, *s.text_pools); // 0x00142070
+                k.prompts = nullptr;
+            }
+            commit_runtime_game_name(k.name.data(), s); // 0x000DD210
+            return;
+        }
+        case 2:
+            show_name_error("errormessages_notuniquegamename"); // 0x000582A0(0), ECX 0x0020A554
+        case 3:
+            show_name_error("errormessages_namenotset"); // ECX 0x0020A538
+        case 4:
+            show_name_error("errormessages_nameallwhitespace"); // ECX 0x0020A518
+        case 5:
+            show_name_error("errormessages_nameisreserved"); // ECX 0x0020A4F8
+        default:
+            return;
+        }
+    }
     case 0x10008:
         k.board = 3;
         return;
@@ -1483,6 +1520,27 @@ void press_key(VirtualKeyboard& k, u32 code, GameSelectControlServices& s)
     default:
         return;
     }
+}
+
+// Xbox 0x00017490, EDI the keyboard: the key and caret bats released.
+void release_keyboard_bats(VirtualKeyboard& k)
+{
+    if (k.key_bat != nullptr)
+    {
+        activate_actor_bind_tree(*k.key_bat); // 0x00112CC0
+        k.key_bat = nullptr;
+    }
+    if (k.caret_bat != nullptr)
+    {
+        activate_actor_bind_tree(*k.caret_bat);
+        k.caret_bat = nullptr;
+    }
+}
+
+// 0x000582A0(0): the dialogs page with a key from aid_loctext_ghoulies_dialog_dialogs.
+[[noreturn]] void show_name_error(const char* key)
+{
+    throw Error(std::string("0x000582A0 (the dialog message ") + key + ") is not translated");
 }
 
 // Xbox 0x00016FC0: a key's panel, unless its color is the hidden one (bytes 00 00 FF FF).

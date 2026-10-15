@@ -170,6 +170,41 @@ u32 runtime_input_button_edge(const RuntimeDialogueInputDevice& device, u16 mask
     }
 }
 
+// Xbox 0x00108500, EAX the device, BX the mask: a button let go this frame (held last frame, not now). A group
+// (kind 4) answers for its first connected child that let go.
+u32 runtime_input_button_release(const RuntimeDialogueInputDevice& device, u16 mask,
+    const RuntimeDialogueInputState& state)
+{
+    switch (read_u32(device.record, 0))
+    {
+    case 1:
+    case 2:
+    case 3:
+    case 5:
+    {
+        const std::span<const u8> block{button_state(device, state), 0x76};
+        return (read_u16(block, 0x38) & mask) == 0 && (read_u16(block, 0x74) & mask) != 0 ? 1u : 0u;
+    }
+    case 4:
+        for (i32 index = 0; index < 4; ++index)
+        {
+            const auto& child = *device.children[index];
+            if (read_u32(child.record, 8) == 0xFFFFFFFFu)
+            {
+                continue;
+            }
+            const std::span<const u8> block{button_state(child, state), 0x76};
+            if ((read_u16(block, 0x38) & mask) == 0 && (read_u16(block, 0x74) & mask) != 0)
+            {
+                return 1;
+            }
+        }
+        return 0;
+    default:
+        return 0;
+    }
+}
+
 // Native expression of the duplicated scalar normalization blocks in 0x001085F0.
 static float normalize_input_axis(float value)
 {

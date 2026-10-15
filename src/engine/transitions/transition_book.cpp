@@ -1,6 +1,10 @@
 #include "gbtg/anim.h"
 #include "gbtg/engine_internal.h"
 #include "gbtg/entity.h"
+#include "gbtg/font.h"
+#include "gbtg/hash.h"
+#include "gbtg/language.h"
+#include "gbtg/loctext.h"
 #include "gbtg/gfx.h"
 #include "gbtg/model.h"
 #include "gbtg/movie.h"
@@ -23,6 +27,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -131,7 +136,6 @@ struct TransitionBook
 
 std::unique_ptr<TransitionBook> g_transition_book;
 
-std::unique_ptr<TransitionBook> g_menu_book;
 
 std::array<RgbaImage, 2> g_book_pages;
  // DAT_005047D8 / DAT_005047E4.
@@ -1156,6 +1160,107 @@ void transition_draw_unlock_markers(const TransitionBook& book)
 }
 
 
+// The map labels' gloopy font (aid_font_localisation_gloopy, font table slot 0).
+const GloopyFont& map_label_font(const Game& g)
+{
+    static GloopyFont font;
+    static bool loaded = false;
+    if (!loaded)
+    {
+        loaded = true;
+        const auto path = g.aids.game_dir / "font" / "069563d4";
+        if (!font.load(path))
+        {
+            std::cerr << "gloopy font failed " << path.string() << "\n";
+        }
+    }
+    return font;
+}
+
+
+std::u16string map_label_utf16(std::string_view utf8)
+{
+    std::u16string out;
+    for (size_t i = 0; i < utf8.size();)
+    {
+        const unsigned char c = static_cast<unsigned char>(utf8[i]);
+        char32_t cp = c;
+        size_t n = 1;
+        if (c >= 0xF0 && i + 3 < utf8.size())
+        {
+            cp = (char32_t(c & 0x07) << 18) | (char32_t(utf8[i + 1] & 0x3F) << 12) |
+                 (char32_t(utf8[i + 2] & 0x3F) << 6) | char32_t(utf8[i + 3] & 0x3F);
+            n = 4;
+        }
+        else if (c >= 0xE0 && i + 2 < utf8.size())
+        {
+            cp = (char32_t(c & 0x0F) << 12) | (char32_t(utf8[i + 1] & 0x3F) << 6) | char32_t(utf8[i + 2] & 0x3F);
+            n = 3;
+        }
+        else if (c >= 0xC0 && i + 1 < utf8.size())
+        {
+            cp = (char32_t(c & 0x1F) << 6) | char32_t(utf8[i + 1] & 0x3F);
+            n = 2;
+        }
+        if (cp > 0xFFFF)
+        {
+            cp -= 0x10000;
+            out.push_back(char16_t(0xD800 + (cp >> 10)));
+            out.push_back(char16_t(0xDC00 + (cp & 0x3FF)));
+        }
+        else
+        {
+            out.push_back(char16_t(cp));
+        }
+        i += n;
+    }
+    return out;
+}
+
+
+// Xbox 0x00046760: resolve mapname text and place it beside its map spot.
+// 0x00060710 measures at scale 0.6; 0x0005F5C0 submits the string, drawn here as 0x0005E9F0 does.
+void draw_map_label(const Game& g, std::string_view key, float x, float y, float spot_height)
+{
+    static std::map<std::string, std::u16string> labels;
+    if (labels.empty())
+    {
+        const auto path = g.aids.game_dir / "loctext" / language_folder(g_language) /
+                          aid_hash_hex(aid_hash("aid_loctext_ghoulies_mapnames"));
+        const LocTable table = parse_loctext(read_file(path), "mapnames");
+        for (const auto& [name, text] : table.keys_to_utf8)
+        {
+            labels.emplace(name, map_label_utf16(text));
+        }
+    }
+    const auto found = labels.find("mapname__" + std::string(key));
+    const std::u16string text = found == labels.end() ? u"ERROR" : found->second;
+    const GloopyFont& font = map_label_font(g);
+    const float scale = 0.6f;
+    float width = 0.f;
+    for (char16_t ch : text)
+    {
+        width += float(font.advance(ch)) * scale;
+    }
+    const float pen_x = x + width <= 640.f * 0.85f ? x + spot_height : x - width - spot_height;
+    const float pen_y = y - float(font.drop()) * scale * 0.5f;
+    if (font.cell() <= 0)
+    {
+        return;
+    }
+    const float em = float(font.cell()) * scale;
+    float pen = pen_x;
+    for (char16_t ch : text)
+    {
+        if (const RgbaImage* glyph = font.image(ch, font.rest_frame()))
+        {
+            gfx_sprite_submit(*glyph, pen - float(font.bearing(ch)) * scale, pen_y, em, em);
+        }
+        pen += float(font.advance(ch)) * scale;
+    }
+}
+
+
 // Xbox 0x00047770. Initialize labels after the map camera is installed,
 // then draw spots, endpoint text, the route, and the animated running sprite.
 // Xbox 0x00047770
@@ -1227,57 +1332,9 @@ void draw_transition_book(Game& g, TransitionBook& book)
 }
 
 
-// Xbox 0x000E02D0 / 0x000DB510: the menu owns its book independently
-// of the scene-loading transition. Both callbacks pass flags 1, no map.
-void begin_menu_book(Game& g, int clip)
-{
-    g_menu_book = transition_load_book_clip(g, clip);
-    transition_capture_page(*g_menu_book);
-}
-
-
-// Xbox 0x00083C40: global scene transition or a live menu book blocks input.
-bool menu_book_busy()
-{
-    return g_54632c != 0 || g_menu_book != nullptr;
-}
-
-
-// Xbox 0x00083E20 checks the first threshold before 0x00083D90 advances
-// the book. Equality retains the old widget; completion releases next tick.
-bool tick_menu_book(Game& g)
-{
-    if (g_menu_book == nullptr)
-    {
-        return false;
-    }
-    auto& book = *g_menu_book;
-    const auto& q = book.view.cutscenes;
-    const bool ready = kTransitionBooks[book.clip].first < q.time / q.items[0].duration;
-    if (book.done != 0)
-    {
-        release_book_sound_windows(book);
-        release_props(book.view);
-        g_menu_book.reset();
-        return ready;
-    }
-    const float previous_step = g_sim_dt;
-    g_sim_dt = g.clock.dt;
-    transition_tick_book_clip(g, book);
-    g_sim_dt = previous_step;
-    transition_capture_page(book);
-    return ready;
-}
-
-
-// Xbox 0x0012B560 / menu 0x00048550.
+// Xbox 0x0012B560.
 void draw_scene_transition(Game& g)
 {
-    if (g_menu_book != nullptr)
-    {
-        draw_transition_book(g, *g_menu_book);
-        return;
-    }
     if (g_54632c != 0 && kTransition31478[g_546328].handler == 2)
     {
         transition_select_texture_frame();
@@ -1289,79 +1346,5 @@ void draw_scene_transition(Game& g)
     }
 }
 
-
-struct NamingBackground
-{
-    Game view;
-    Bundle resident;
-};
-
-std::unique_ptr<NamingBackground> g_naming_background;
-
-
-// Xbox 0x000DCEC0: cutscene instance +4, flags 6, initial time DAT_0042A0CC = 0.
-void begin_naming_background(Game& g)
-{
-    if (g_naming_background != nullptr)
-    {
-        release_props(g_naming_background->view);
-    }
-    g_naming_background = std::make_unique<NamingBackground>();
-    auto& background = *g_naming_background;
-    const char* name = "aid_cutscene_ghoulies_dialogs_dialogpage1";
-    const auto& resource = transition_resource(g, name);
-    auto& queue = background.view.cutscenes;
-    queue.items.push_back(parse_cutscene(resource.cpu, name));
-    queue.playing = true;
-    queue.loop = true;
-    for (const auto& actor : queue.items[0].actors)
-    {
-        background.resident.entries.push_back(transition_resource(g, actor.model));
-    }
-    background.view.scene_bundle = &background.resident;
-    sync_cutscene_props(background.view);
-}
-
-
-// Xbox 0x000DD0A0: rewind before advancement once the clip reaches its duration.
-void tick_naming_background(Game& g)
-{
-    if (g.frontend_mode != 4)
-    {
-        if (g_naming_background != nullptr)
-        {
-            release_props(g_naming_background->view);
-            g_naming_background.reset();
-        }
-        return;
-    }
-    auto& queue = g_naming_background->view.cutscenes;
-    if (queue.items[0].duration <= queue.time)
-    {
-        queue.time = 0.f;
-    }
-    queue.time += scene_sim_step(g.clock.dt);
-    if (queue.items[0].duration < queue.time)
-    {
-        queue.time = queue.items[0].duration;
-    }
-}
-
-
-// Xbox 0x000DD170: draw the widget's cutscene before its keyboard.
-void draw_naming_background(const Game& g)
-{
-    auto& view = g_naming_background->view;
-    view.time = g.time;
-    Vec3 position;
-    Quat orientation;
-    float fov = 0.f;
-    if (!sample_cutscene_camera(view.cutscenes.items[0], view.cutscenes.time, position, orientation, fov))
-    {
-        throw Error("naming cutscene camera missing");
-    }
-    gfx_set_camera(position, orientation, fov);
-    draw_cutscene_props(view);
-}
 
 } // namespace gbtg

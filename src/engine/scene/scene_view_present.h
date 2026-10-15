@@ -4,6 +4,7 @@
 
 namespace gbtg
 {
+struct RuntimeTransitionBook;
 // The per-view present 0x0011C240, in retail order. Each callee is the native owner of its pass; a pass whose
 // body is not translated raises once its gate opens.
 struct RuntimeSceneViewPresent
@@ -32,8 +33,8 @@ struct RuntimeSceneViewPresent
     std::function<void()> hud; // 0x00132290.
     const u32& scene_flags; // DAT_0050EA9C.
     std::function<void()> phase_overlay; // 0x0011DB50.
-    const u32& capture_camera; // DAT_005462A0.
-    std::function<void(u32)> capture; // 0x00048550.
+    RuntimeTransitionBook* const& capture_camera; // DAT_005462A0.
+    std::function<void(RuntimeTransitionBook&)> capture; // 0x00048550.
     std::function<void()> transition; // 0x0012C490.
     std::function<void()> text_pools; // 0x0005F330.
 };

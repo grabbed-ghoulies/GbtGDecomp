@@ -14,8 +14,10 @@
 #include "gbtg/entity.h"
 #include "../scene/gameselect_control.h"
 #include "../scene/scene_controls.h"
+#include "../transitions/native_book.h"
 #include "../scene/scene_types.h"
 #include "../saves/save_summary.h"
+#include "../saves/save_games.h"
 #include "../video/movie_startup.h"
 
 #include <bit>
@@ -328,7 +330,39 @@ void select_profile_game(GameSelectControlServices& s)
     s.profile.scene_flags->bytes[0] |= 2;
     s.profile.scene_flags->bytes[0] |= 4;
     refresh_runtime_save_summary(s); // 0x000F2F00
-    untranslated("0x000F3020 (load the current game's save into the profile)");
+    load_runtime_save_progress(s.frontend.selected_name.data(), s); // 0x000F3020, EAX DAT_00429CC4
+}
+
+SaveGameContext save_context(GameSelectControlServices& s)
+{
+    return {s.files, s.profile, s.scene_order_held};
+}
+
+// Xbox 0x0004B4D0, EAX the script: its chapter (1..9 from the names at 0x004232F8), or 0.
+i32 script_chapter(const char* script, GameSelectControlServices& s)
+{
+    if (std::strncmp("aid_script_ghoulies_chapter", script, 0x1B) != 0)
+    {
+        return 0;
+    }
+    for (i32 chapter = 1; chapter < 10; ++chapter)
+    {
+        const char* name = exe_string(s, exe_word(s, 0x004232F4 + u32(chapter) * 4));
+        if (std::strncmp(name, script + 0x1B, std::strlen(name)) == 0)
+        {
+            return chapter;
+        }
+    }
+    return 0;
+}
+
+// The 0x0010DB10 / 0x0004B4D0 / DAT_002FE698 row of the selected slot's save: its chapter's plate row.
+i32 slot_chapter_row(const char16_t* name, GameSelectControlServices& s)
+{
+    char script[0x80]{};
+    save_game_script(name, script); // 0x0010DB10, EBX the name
+    const i32 chapter = script_chapter(script, s); // 0x0004B4D0
+    return i32(exe_word(s, 0x002FE698 + u32(chapter) * 4));
 }
 
 // Xbox 0x000DF950, EBX the found slot: the slot whose save name matches.
@@ -527,7 +561,8 @@ bool select_slot_movie(SlotSelectWidget& w, GameSelectControlServices& s)
     RuntimeMovieState* movie;
     if (status == 2 || status == 4 || status == 3)
     {
-        untranslated("0x0010DB10 (the slot's save summary) and 0x0004B4D0");
+        const i32 row = slot_chapter_row(slot_name(w, i32(slot)), s);
+        movie = s.frontend.movies.at(size_t(2 + row)); // DAT_005065A0 + row * 4
     }
     else
     {
@@ -566,7 +601,8 @@ void select_slot_background(SlotSelectWidget& w, GameSelectControlServices& s)
     std::span<const u8> texture;
     if (status == 2 || status == 4 || status == 3)
     {
-        untranslated("0x0010DB10 (the slot's save summary) and 0x0004B4D0");
+        const i32 row = slot_chapter_row(slot_name(w, integer(w, 0xB2C)), s);
+        texture = acquire_texture(exe_string(s, 0x00429290 + u32(row) * 0x10C), s);
     }
     else
     {
@@ -598,7 +634,12 @@ void drop_missing_saves(GameSelectControlServices& s)
         const auto* name = reinterpret_cast<const char16_t*>(w.bytes.data() + 0xB9C + size_t(index) * 0x100);
         if (integer(w, 0xB2C) != index && name[0] != 0)
         {
-            untranslated("0x0010DBA0 (whether a save still exists)");
+            if (save_game_loading(name) == 0) // 0x0010DBA0, EBX the name
+            {
+                SaveGameContext saves = save_context(s);
+                unload_save_game(name, saves); // 0x0010D9B0, EAX the name
+                *const_cast<char16_t*>(name) = 0;
+            }
         }
     }
 }
@@ -615,12 +656,27 @@ void fill_slots_from_saves(GameSelectControlServices& s)
         i32 found = 0;
         if (!find_slot_by_name(name.data(), found, s)) // 0x000DF950
         {
-            (void)found;
-            throw Error("0x0010DB60 (a loaded save's slot byte) is not translated");
+            const u8 slot = save_game_slot(name.data()); // 0x0010DB60
+            auto* target = reinterpret_cast<char16_t*>(w.bytes.data() + 0xB9C + size_t(slot) * 0x100);
+            if (target[0] == 0)
+            {
+                std::copy(name.begin(), std::find(name.begin(), name.end(), u'\0') + 1, target); // lstrcpyW
+                save_next_slot_name(name.data()); // 0x0010D7A0
+                continue;
+            }
+            filled = 0;
+            while (filled < 3 && slot_name(w, filled)[0] != 0)
+            {
+                ++filled;
+            }
+            if (filled < 3)
+            {
+                auto* free = reinterpret_cast<char16_t*>(w.bytes.data() + 0xB9C + size_t(filled) * 0x100);
+                std::copy(name.begin(), std::find(name.begin(), name.end(), u'\0') + 1, free);
+            }
         }
         save_next_slot_name(name.data()); // 0x0010D7A0
     }
-    (void)w;
 }
 
 // Xbox 0x000DF7E0: the slots' save names, kept from DAT_00429DC4 where the save still checks out.
@@ -632,9 +688,10 @@ void load_slot_names(GameSelectControlServices& s)
         std::array<char16_t, 0x80> name{};
         const auto& kept = s.frontend.slot_names[index];
         std::copy(kept.begin(), std::find(kept.begin(), kept.end(), u'\0'), name.begin()); // lstrcpyW
-        if (name[0] != 0)
+        if (name[0] != 0 && save_game_name_exists(name.data())) // 0x0010F530
         {
-            untranslated("0x0010F530 (check a saved game's name)");
+            auto* target = reinterpret_cast<char16_t*>(w.bytes.data() + 0xB9C + index * 0x100);
+            std::copy(name.begin(), std::find(name.begin(), name.end(), u'\0') + 1, target); // lstrcpyW
         }
     }
     fill_slots_from_saves(s); // 0x000DF880
@@ -650,9 +707,20 @@ void load_slot_names(GameSelectControlServices& s)
 // 0x0010D910, EBX the name, with the callbacks 0x000E0640 and 0x000DF6B0: load a save that is not loaded yet.
 void load_save_slot(const char16_t* name, GameSelectControlServices& s)
 {
-    (void)name;
-    (void)s;
-    untranslated("0x0010D910 (load a saved game)");
+    SaveGameContext saves = save_context(s);
+    load_save_game(name,
+        [&s](const void*)
+        {
+            // Xbox 0x000E0640: one load fewer outstanding.
+            put_word(*s.frontend.slot_widget, 0xE9C, word(*s.frontend.slot_widget, 0xE9C) - 1);
+        },
+        [](const void*)
+        {
+            // Xbox 0x000DF6B0: apperror slotselection_corruptgamemessage on the app error screen.
+            throw Error("0x00032990 (the app error screen, apperror slotselection_corruptgamemessage) is not "
+                        "translated");
+        },
+        saves); // 0x0010D910, EBX the name
 }
 
 // Xbox 0x000DF5D0: start the save enumeration.
@@ -686,44 +754,124 @@ void continue_save_scan(GameSelectControlServices& s)
     put_word(w, 0xEA0, word(w, 0xEA0) + 1);
 }
 
+// The plate texture of a slot replaced, keeping its drawn size (0x000DEB20's scale update).
+void replace_plate_texture(SlotSelectWidget& w, size_t index, const char* name, GameSelectControlServices& s)
+{
+    auto& plate = w.plates[index];
+    const float old_width = texture_width(plate.plate);
+    const float old_height = texture_height(plate.plate);
+    const float scale_x = real(w, index * kPlate + 0x434);
+    const float scale_y = real(w, index * kPlate + 0x438);
+    if (plate.plate.data() != nullptr)
+    {
+        release_texture(plate.plate, s);
+    }
+    plate.plate = acquire_texture(name, s);
+    put_real(w, index * kPlate + 0x434, (scale_x * old_width) / texture_width(plate.plate));
+    put_real(w, index * kPlate + 0x438, (scale_y * old_height) / texture_height(plate.plate));
+}
+
+void copy_label(SlotSelectWidget& w, size_t index, const char16_t* text)
+{
+    char16_t* label = reinterpret_cast<char16_t*>(w.bytes.data() + index * kPlate + 0x218);
+    std::u16string_view copied(text);
+    std::copy(copied.begin(), copied.end(), label);
+    label[copied.size()] = 0;
+}
+
+// An overlay texture for the plate (the no-write and broken discs): its texture, size words, position from the
+// plate's (+0x428, +0x42C) and color.
+void set_plate_overlay(SlotSelectWidget& w, size_t index, std::span<const u8>& texture, const char* name,
+    size_t offset, u32 size_row, u32 offset_row, u32 alpha_row, GameSelectControlServices& s)
+{
+    texture = acquire_animation_resource(s.resources, name); // 0x00035E90
+    if (texture.data() == nullptr)
+    {
+        resource_error(s.error, 2); // 0x00032700(2)
+    }
+    const size_t p = index * kPlate;
+    put_word(w, p + offset + 0x10, exe_word(s, size_row));
+    put_word(w, p + offset + 0x14, exe_word(s, size_row + 4));
+    put_real(w, p + offset + 4, real(w, p + 0x428) + exe_real(s, offset_row));
+    put_real(w, p + offset + 8, real(w, p + 0x42C) + exe_real(s, offset_row + 4));
+    put_word(w, p + offset + 0xC, exe_word(s, 0x00314F48));
+    w.bytes[p + offset + 0xF] = s.image.memory(alpha_row, 1)[0];
+}
+
 // Xbox 0x000DEB20, EAX widget: each slot's status, name, plate and movie from its save.
 void describe_slots(SlotSelectWidget& w, GameSelectControlServices& s)
 {
     for (size_t index = 0; index < 3; ++index)
     {
-        const auto* name = reinterpret_cast<const char16_t*>(w.bytes.data() + 0xB9C + index * 0x100);
-        if (name[0] != 0)
+        const auto* name = slot_name(w, i32(index));
+        const size_t p = index * kPlate;
+        i32 status;
+        if (name[0] == 0)
         {
-            untranslated("0x0010DBA0 / 0x0010DBE0 (a slot's save status)");
+            status = 1;
         }
-        put_word(w, index * kPlate + 0x214, 1);
-        // Status 1: the empty-slot name, plate and movie.
-        char16_t* label = reinterpret_cast<char16_t*>(w.bytes.data() + index * kPlate + 0x218);
-        const char16_t* text = s.lookup_text("aid_loctext_ghoulies_savedgame", "supportsavedgame", "emptyslotname");
-        if (text == nullptr)
+        else if (save_game_loading(name) != 0) // 0x0010DBA0
         {
-            text = u"ERROR";
+            status = 4;
         }
-        std::u16string_view copied(text);
-        std::copy(copied.begin(), copied.end(), label);
-        label[copied.size()] = 0;
-        auto& plate = w.plates[index];
-        const float old_width = texture_width(plate.plate);
-        const float old_height = texture_height(plate.plate);
-        const float scale_x = real(w, index * kPlate + 0x434);
-        const float scale_y = real(w, index * kPlate + 0x438);
-        if (plate.plate.data() != nullptr)
+        else if (save_game_writing(name) != 0) // 0x0010DBE0
         {
-            release_texture(plate.plate, s);
+            status = 3;
         }
+        else
+        {
+            status = 2;
+        }
+        put_word(w, p + 0x214, u32(status));
         const u32 row = 0x00429048 + u32(index) * 0x124;
-        plate.plate = acquire_texture(exe_string(s, row), s);
-        put_real(w, index * kPlate + 0x434, (scale_x * old_width) / texture_width(plate.plate));
-        put_real(w, index * kPlate + 0x438, (scale_y * old_height) / texture_height(plate.plate));
-        const char* movie = exe_string(s, row + 0x80);
-        std::strcpy(reinterpret_cast<char*>(w.bytes.data() + index * kPlate + 0x484), movie);
-        put_word(w, index * kPlate + 0x504, exe_word(s, row + 0x100));
-        put_word(w, index * kPlate + 0x508, exe_word(s, row + 0x104));
+        switch (status)
+        {
+        case 1:
+        {
+            // The empty-slot name, plate and movie.
+            const char16_t* text = s.lookup_text("aid_loctext_ghoulies_savedgame", "supportsavedgame",
+                "emptyslotname");
+            copy_label(w, index, text == nullptr ? u"ERROR" : text);
+            replace_plate_texture(w, index, exe_string(s, row), s);
+            std::strcpy(reinterpret_cast<char*>(w.bytes.data() + p + 0x484), exe_string(s, row + 0x80));
+            put_word(w, p + 0x504, exe_word(s, row + 0x100));
+            put_word(w, p + 0x508, exe_word(s, row + 0x104));
+            break;
+        }
+        case 2:
+        case 4:
+        {
+            // The save's chapter plate and movie (rows of 0x10C from 0x00429290), and its name.
+            const u32 chapter = 0x00429290 + u32(slot_chapter_row(name, s)) * 0x10C;
+            replace_plate_texture(w, index, exe_string(s, chapter), s);
+            std::strcpy(reinterpret_cast<char*>(w.bytes.data() + p + 0x484), exe_string(s, chapter + 0x80));
+            put_word(w, p + 0x504, exe_word(s, chapter + 0x100));
+            put_word(w, p + 0x508, exe_word(s, chapter + 0x104));
+            copy_label(w, index, name);
+            if (status == 4)
+            {
+                set_plate_overlay(w, index, w.plates[index].nowrite, "aid_texture_ghoulies_gameselect_disc_nowrite",
+                    0x454, 0x00428FEC, 0x00428FF4, 0x00428FFC, s);
+            }
+            break;
+        }
+        case 3:
+        {
+            // A damaged save: its name, plate, movie and the broken disc.
+            const char16_t* text = s.lookup_text("aid_loctext_ghoulies_savedgame", "supportsavedgame",
+                "damagedgamename");
+            copy_label(w, index, text == nullptr ? u"ERROR" : text);
+            replace_plate_texture(w, index, exe_string(s, 0x0042939C), s);
+            std::strcpy(reinterpret_cast<char*>(w.bytes.data() + p + 0x484), exe_string(s, 0x0042941C));
+            put_word(w, p + 0x504, exe_word(s, 0x0042949C));
+            put_word(w, p + 0x508, exe_word(s, 0x004294A0));
+            set_plate_overlay(w, index, w.plates[index].broken, "aid_texture_ghoulies_gameselect_disc_broken",
+                0x46C, 0x00428FD8, 0x00428FE0, 0x00428FE8, s);
+            break;
+        }
+        default:
+            break;
+        }
     }
 }
 }
@@ -1241,7 +1389,7 @@ void set_runtime_slot_select_state(SlotSelectWidget& w, i32 state, GameSelectCon
         SceneControlInstance* control = find_runtime_scene_control(0x9A); // 0x00116170, EDX 0x9A
         put_control_word(*control, 0x94, 3);
         put_control_word(*control, 0x124, 2);
-        untranslated("0x00048260 (the menu book that turns to the slot's contents)");
+        control->gameselect->book = create_transition_book(0, 1, nullptr, s.books); // 0x00048260(0, 1, 0)
     }
     put_word(w, 0, u32(state));
     switch (state)
@@ -1475,14 +1623,17 @@ void select_runtime_slot(GameSelectControlServices& services)
         SceneControlInstance* control = find_runtime_scene_control(0x9A); // 0x00116170
         put_control_word(*control, 0x94, 3);
         put_control_word(*control, 0x124, 2);
-        untranslated("0x00048260 (the menu book that turns to the slot's contents)");
+        control->gameselect->book = create_transition_book(0, 1, nullptr, s.books); // 0x00048260(0, 1, 0)
+        set_runtime_slot_select_state(w, 8, s); // 0x000DF9A0(DAT_005065B8, 8)
+        return;
     }
     SceneControlInstance* control = find_runtime_scene_control(0x9A); // 0x00116170
     put_control_word(*control, 0x94, 4);
     put_control_word(*control, 0x124, 1);
     if (control->gameselect->book != nullptr)
     {
-        untranslated("0x00048860 (release the menu book)");
+        release_transition_book(control->gameselect->book, s.books); // 0x00048860
+        control->gameselect->book = nullptr;
     }
     set_runtime_slot_select_state(w, 8, s);
 }
@@ -1502,7 +1653,8 @@ void delete_runtime_slot(GameSelectControlServices& services)
     put_control_word(*control, 0x124, 1);
     if (control->gameselect->book != nullptr)
     {
-        untranslated("0x00048860 (release the menu book)");
+        release_transition_book(control->gameselect->book, s.books); // 0x00048860
+        control->gameselect->book = nullptr;
     }
     set_runtime_slot_select_state(w, 8, s);
 }

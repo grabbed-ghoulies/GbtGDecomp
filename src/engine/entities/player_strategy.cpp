@@ -1,6 +1,6 @@
 #include "player_strategy.h"
 #include "body_action_ids.h"
-#include "../frontend/frontend_slots.h"
+#include "../scripts/script_chapter.h"
 #include <cstring>
 #include <xmmintrin.h>
 
@@ -84,7 +84,7 @@ u32 runtime_brew_prompt_available(RuntimePlayerStrategyFlow& context)
     if (context.chapter_mode == 1 && (context.unlock_flags & 8) != 0 && (context.scene_flags & 8) == 0
         && (goals_of(context).runtime_flags & 0x204000) == 0)
     {
-        if (frontend_detail::script_chapter_index(context.scene_script) < 8)
+        if (script_chapter_index(context.scene_script) < 8)
         {
             return context.brews_owned >= context.brews_required ? 1 : 0;
         }

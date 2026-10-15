@@ -1,5 +1,5 @@
 #include "scene_ambient_sampling.h"
-#include "../frontend/frontend_slots.h"
+#include "color_blend.h"
 #include "../audio/listener_settings.h"
 #include <bit>
 #include <cstring>
@@ -83,11 +83,11 @@ u32 sample_runtime_environment_grid(const u8* grid, const Vec3& position)
     const i32 bottom = grid_index(next_z, depth - 1);
     const u32 top_row = static_cast<u32>(top) * static_cast<u32>(width);
     const u32 bottom_row = static_cast<u32>(bottom) * static_cast<u32>(width);
-    const u32 top_color = frontend_detail::menu_color(grid_color(grid, top_row + static_cast<u32>(right)),
+    const u32 top_color = menu_color(grid_color(grid, top_row + static_cast<u32>(right)),
         grid_color(grid, top_row + static_cast<u32>(left)), fraction_x);
-    const u32 bottom_color = frontend_detail::menu_color(grid_color(grid, bottom_row + static_cast<u32>(right)),
+    const u32 bottom_color = menu_color(grid_color(grid, bottom_row + static_cast<u32>(right)),
         grid_color(grid, bottom_row + static_cast<u32>(left)), fraction_x);
-    return frontend_detail::menu_color(bottom_color, top_color, fraction_z);
+    return menu_color(bottom_color, top_color, fraction_z);
 }
 // Xbox 0x000FEE90
 void sample_runtime_environment_color(const Vec3& position, float* output,

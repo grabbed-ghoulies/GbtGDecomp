@@ -212,10 +212,7 @@ void NativeSceneControlOwner::install(std::span<ObjectFactoryType> types)
     types[3] = ObjectFactoryType{1, scene_control_lifecycle};
     types[0x91] = ObjectFactoryType{3, walkabout_control_lifecycle};
     types[0x9B] = ObjectFactoryType{3, attract_control_lifecycle};
-    if (g_native_game_select)
-    {
-        types[0x9A] = ObjectFactoryType{3, gameselect_control_lifecycle};
-    }
+    types[0x9A] = ObjectFactoryType{3, gameselect_control_lifecycle};
 }
 
 SceneControlInstance& NativeSceneControlOwner::instance(const FactoryObject& object)

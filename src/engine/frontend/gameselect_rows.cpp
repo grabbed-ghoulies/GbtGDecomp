@@ -1,4 +1,6 @@
 #include "gameselect_rows.h"
+#include "gameselect_contents.h"
+#include "gameselect_delete.h"
 #include "gameselect_naming.h"
 #include "gameselect_slots.h"
 
@@ -34,10 +36,12 @@ const std::array<GameSelectWidgetRow, 19> kRows{{
     {{0, 0, 0, 0, 0, 0}, nullptr, nullptr, nullptr, nullptr, nullptr},
     {{0x000DD730, kHeapFreeWidget, 0x000DD740, 0x000DDC90, 0x000DDD80, 0x000DDF20}, create_runtime_slot_select,
         open_runtime_slot_select, close_runtime_slot_select, tick_runtime_slot_select, draw_runtime_slot_select},
-    {{0x000DB720, kHeapFreeWidget, 0x000DB730, 0x000DB950, 0x000DB9E0, 0x000DBB90}, nullptr, nullptr, nullptr,
-        nullptr, nullptr},
-    {{0x000D8AB0, kHeapFreeWidget, 0x000D8B10, 0x000D9300, 0x000D9450, 0x000D9640}, nullptr, nullptr, nullptr,
-        nullptr, nullptr},
+    {{0x000DB720, kHeapFreeWidget, 0x000DB730, 0x000DB950, 0x000DB9E0, 0x000DBB90}, create_runtime_game_deletion,
+        open_runtime_game_deletion, close_runtime_game_deletion, tick_runtime_game_deletion,
+        draw_runtime_game_deletion},
+    {{0x000D8AB0, kHeapFreeWidget, 0x000D8B10, 0x000D9300, 0x000D9450, 0x000D9640}, create_runtime_game_contents,
+        open_runtime_game_contents, close_runtime_game_contents, tick_runtime_game_contents,
+        draw_runtime_game_contents},
     {{0x000DCEB0, kHeapFreeWidget, 0x000DCEC0, 0x000DD030, 0x000DD0A0, 0x000DD170}, create_runtime_game_naming,
         open_runtime_game_naming, close_runtime_game_naming, tick_runtime_game_naming, draw_runtime_game_naming},
     {{0x000DC0B0, kHeapFreeWidget, 0x000DC0C0, 0x000DC640, 0x000DC6F0, 0x000DC9A0}, nullptr, nullptr, nullptr,

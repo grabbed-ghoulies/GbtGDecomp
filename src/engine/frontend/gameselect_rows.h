@@ -4,6 +4,7 @@
 #include "gbtg/resource_error.h"
 #include "input_activation.h"
 #include "../saves/runtime_profile.h"
+#include "../saves/save_games.h"
 
 #include <functional>
 #include <memory>
@@ -33,6 +34,8 @@ class SceneExecutableResources;
 struct CutsceneRuntimeContext;
 struct AttractControlServices;
 struct AudioEventVoices;
+struct TransitionBookServices;
+struct RuntimeDialogueInputDevice;
 // A front-end widget instance (a mode row's create). Each row's state derives from this.
 struct GameSelectWidget
 {
@@ -126,6 +129,11 @@ struct GameSelectControlServices
     std::function<void(u32 address)> unmap_input;
     // 0x00142460 over the scene's widget update with a mapped device.
     std::function<void(RuntimeDialogueWidget& widget, u32 device)> update_widget;
+    MovieFileContext& files; // The asynchronous file rows the save code reads and writes through.
+    SaveImageBoundaries save_image; // 0x0010F320's texture and its XPR file.
+    TransitionBookServices& books; // The menu book (0x00048260 ..).
+    std::function<const RuntimeDialogueInputDevice&(u32 address)> input_view; // A mapped device's view.
+    u32* port_masks; // DAT_0050E0F8, the players' port masks.
 };
 // One row of the mode table at 0x0030A000: create, destroy, open(owner, widget), close, tick, draw. A null entry
 // is a row function that is not translated yet; reaching it raises with its address.

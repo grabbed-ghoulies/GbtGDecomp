@@ -23,6 +23,7 @@ struct MovieFileBoundaries
     std::function<RuntimeMovieFile*()> allocate; // F72D0 heap boundary.
     std::function<void(RuntimeMovieFile*)> free; // F7100/HeapFree boundary.
     std::function<bool(RuntimeMovieFile&, void*, u32)> read;
+    std::function<bool(RuntimeMovieFile&, const void*, u32)> write;
     std::function<u32()> ticks;
     std::function<u32(const char*)> sector_size;
     std::function<bool(std::uintptr_t, std::int64_t, u64*, u32)> seek;
@@ -55,6 +56,9 @@ i32 wait_runtime_movie_file(RuntimeMovieFile& file, i32 initial_status,
 i32 read_runtime_movie_file(RuntimeMovieFile& file, void* output, u32 size,
     std::function<void(RuntimeMovieFile&, i32, void*)> completion, void* payload,
     MovieFileContext& context); // Xbox 0x000EB0E0
+i32 write_runtime_movie_file(RuntimeMovieFile& file, const void* data, u32 size,
+    std::function<void(RuntimeMovieFile&, i32, void*)> completion, void* payload,
+    MovieFileContext& context); // Xbox 0x000EB180
 i32 query_runtime_movie_sector_size(RuntimeMovieFile& file, i32& output,
     MovieFileContext& context); // Xbox 0x000EB040
 i32 align_runtime_movie_file_length(RuntimeMovieFile& file, i32 length, i32& output,

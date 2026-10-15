@@ -1,6 +1,7 @@
 #pragma once
 #include "gbtg/model_relocation.h"
 #include "gbtg/model_runtime.h"
+#include <functional>
 #include <map>
 #include <vector>
 
@@ -25,6 +26,8 @@ public:
     u32 address_of(const u8* pointer) const; // 0 for null.
     u32 find_address(const u8* pointer) const; // 0 for a pointer outside every block.
     size_t block_count() const;
+    // Told the host bytes of a block before free releases them, so caches keyed by those bytes can drop it.
+    std::function<void(const u8* begin, size_t size)> on_free;
 
 private:
     std::map<u32, std::vector<u8>> blocks_;

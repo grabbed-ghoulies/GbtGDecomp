@@ -55,8 +55,7 @@ public:
     NativeSceneControlOwner(const NativeSceneControlOwner&) = delete;
     NativeSceneControlOwner& operator=(const NativeSceneControlOwner&) = delete;
     // Types 3 (getter 0x00115D50, vtable 0x0050E41C), 0x91 (getter 0x00080520, vtable 0x00505530) and 0x9B
-    // (getter 0x00080970, vtable 0x00505548). Type 0x9A (getter 0x00083610, vtable 0x00505620) only while
-    // g_native_game_select is set.
+    // (getter 0x00080970, vtable 0x00505548). Type 0x9A (getter 0x00083610, vtable 0x00505620) is game select.
     void install(std::span<ObjectFactoryType> types);
     SceneControlInstance& instance(const FactoryObject& object);
     SceneControlInstance& instance_of(RuntimeActorLink& link); // By the +8 link.

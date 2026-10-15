@@ -31,10 +31,16 @@ RuntimeModelAllocation SceneResourceMemory::copy(std::span<const u8> bytes, u32 
 
 void SceneResourceMemory::free(u32 address)
 {
-    if (blocks_.erase(address) == 0)
+    const auto block = blocks_.find(address);
+    if (block == blocks_.end())
     {
         throw Error("scene resource free has no block at that address");
     }
+    if (on_free)
+    {
+        on_free(block->second.data(), block->second.size());
+    }
+    blocks_.erase(block);
 }
 
 std::span<u8> SceneResourceMemory::resolve(u32 address, size_t size) const

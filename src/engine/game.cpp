@@ -9,6 +9,9 @@
 #include "frontend/frontend_state.h"
 #include "audio/pcm_backend.h"
 #include "video/native_movies.h"
+#include "saves/save_games.h"
+#include "frontend/input_stack.h"
+#include "camera/camera.h"
 #include "gbtg/gfx.h"
 #include "gbtg/movie.h"
 
@@ -45,6 +48,7 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
     executable_resources = std::make_shared<SceneExecutableResources>(game_dir);
     native_audio = boot_native_audio(*this); // Boot 0x00033030 -> 0x0003A280.
     native_movies = boot_native_movies(*this); // Boot 0x00033030 -> 0x000E9CE0, 0x000E9E60.
+    native_input = boot_native_input_stack(); // Boot 0x00033030 -> 0x00033248, 0x00033274; 0x0011C3F0's push.
     reset_runtime_frontend(g_frontend, g_pause_ditty); // Boot 0x00033030 -> 0x000E5A80.
     // Boot 0x00033030 -> 0x0011EA50 -> 0x0011C3F0 -> 0x000FD620 (the light defaults). The rest of 0x0011C3F0 is
     // not translated.
@@ -138,15 +142,6 @@ void frame_tick(Game& g, float dt, const InputState& in)
         return;
     }
     pad_tick(g, in); // 0x000FA3C0 / 0x000FAD80
-    // The legacy front end (docs/LEGACY_HOST_CODE.md) runs only while no scene runs natively.
-    const auto native_scene = [&g]()
-    {
-        return g.factory_scene != nullptr && g.factory_scene->actor_start == 1;
-    };
-    if (!native_scene())
-    {
-        gameselect_tick(g, in);
-    }
     // 0x00033C47. 0x0011E4C0. A queued aid_script loads when the stream enters state 4; run state 1
     // (or 2) ticks the scene through 0x0011E7F0: the dialogue (0x00057E60), the fired script and
     // its condition timers (0x00117100).
@@ -170,6 +165,9 @@ void frame_tick(Game& g, float dt, const InputState& in)
     pump_runtime_movie_files(movies.session->files());
     tick_native_movie_list(movies);
     release_finished_movie_events(movies.session->slots, movies.session->startup());
+    // 0x00033BF2: the save timer and the queued saves (0x0010F440).
+    SaveGameContext saves{movies.session->files(), g_runtime_profile, {}};
+    tick_save_games(g_sim_dt, saves);
     // Host movie playback for the legacy front end (docs/LEGACY_HOST_CODE.md).
     movie_advance_time(g.clock.dt);
     movie_present();
@@ -185,7 +183,7 @@ void frame_tick(Game& g, float dt, const InputState& in)
     }
     else
     {
-        // Legacy front end (docs/LEGACY_HOST_CODE.md): the host world, props and UI with the body camera.
+        // Between native scenes (docs/LEGACY_HOST_CODE.md): the host world and props with the body camera.
         if (g.camera)
         {
             gfx_set_camera(g.camera->pose_position, g.camera->pose_quat, g.camera->pose_fov);
@@ -194,7 +192,6 @@ void frame_tick(Game& g, float dt, const InputState& in)
         {
             gfx_draw_mesh(mesh);
         }
-        draw_ui(g);
         draw_scene_dialogue(g); // Xbox 0x00058150; drawing also computes the next page pointer.
     }
     draw_scene_transition(g);

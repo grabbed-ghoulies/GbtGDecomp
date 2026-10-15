@@ -1,5 +1,8 @@
 # Game select rendering reconstruction
 
+> Historical: this describes the host front end (`gameselect_tick` / `draw_ui`), which is deleted. Game
+> select now runs on the native control; see `docs/NATIVE_FRONTEND.md`.
+
 ## Live menu integration
 
 The live slot and contents widgets now own their retail button-bat mesh,

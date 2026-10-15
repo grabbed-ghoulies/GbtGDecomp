@@ -103,13 +103,18 @@ struct SceneD3DFixedDraw
     u32 diffuse; // SetVertexDataColor register 3 (D3DVSDE_DIFFUSE), D3DCOLOR.
     SceneD3DStateSnapshot states;
 };
+// D3DDevice_CopyRects from the back buffer into a texture's level 0 (the book's page captures).
+struct SceneD3DCopy
+{
+    u32 texture; // The texture object's native address.
+};
 struct SceneD3DTarget
 {
     std::uintptr_t color;
     std::uintptr_t depth;
 };
 using SceneD3DCommand = std::variant<SceneD3DQuad, SceneD3DIndexedDraw, SceneD3DInlineDraw, SceneD3DClear, SceneD3DTarget,
-    SceneD3DFixedDraw>;
+    SceneD3DFixedDraw, SceneD3DCopy>;
 struct SceneD3DVertexShader
 {
     std::array<i32, 32> declaration;

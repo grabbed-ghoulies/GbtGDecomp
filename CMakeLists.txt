@@ -515,6 +515,15 @@ add_executable(gbtg
     src/engine/saves/save_names.cpp
     src/engine/saves/runtime_profile.cpp
     src/engine/saves/save_summary.cpp
+    src/engine/saves/save_root.cpp
+    src/engine/saves/xdk_saves.cpp
+    src/engine/saves/save_games.cpp
+    src/engine/frontend/game_names.cpp
+    src/engine/graphics/texture_xpr.cpp
+    src/engine/transitions/native_book.cpp
+    src/engine/frontend/gameselect_contents.cpp
+    src/engine/frontend/gameselect_delete.cpp
+    src/engine/frontend/input_stack.cpp
     src/engine/frontend/text_tokens.cpp
     src/engine/scene/lighting.cpp
     src/engine/scene/ambient.cpp
@@ -527,17 +536,14 @@ add_executable(gbtg
     src/engine/audio/core_cue.cpp
     src/engine/audio/event_voices.cpp
     src/engine/audio/actor_sound_tick.cpp
-    src/engine/frontend/frontend.cpp
-    src/engine/frontend/frontend_keyboard.cpp
-    src/engine/frontend/frontend_slots.cpp
     src/engine/frontend/frontend_sounds.cpp
+    src/engine/scripts/script_chapter.cpp
+    src/engine/graphics/color_blend.cpp
     src/engine/frontend/gameselect_rows.cpp
     src/engine/frontend/gameselect_slots.cpp
     src/engine/frontend/gameselect_naming.cpp
     src/engine/frontend/virtual_keyboard.cpp
     src/engine/frontend/frontend_state.cpp
-    src/engine/frontend/frontend_contents.cpp
-    src/engine/frontend/frontend_text.cpp
     src/engine/scene/scene.cpp
     src/engine/scene/scene_loading.cpp
     src/engine/cutscenes/cutscene_runtime.cpp

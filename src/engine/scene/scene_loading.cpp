@@ -70,7 +70,7 @@ extern "C"
 
 #include "scene_types.h"
 #include "factory_scene_runtime.h"
-#include "../frontend/frontend_slots.h"
+#include "../scripts/script_chapter.h"
 #include "../cutscenes/cutscene_runtime.h"
 #include "scene.h"
 #include "scene_loading.h"
@@ -262,10 +262,6 @@ void load_scene_contents(Game& g, std::string_view name)
 {
     g.factory_scene.reset();
     script_set_default_name(g);
-    g.slot = 0;
-    g.slot_up = false;
-    g.slot_down = false;
-    g.slot_back = false;
     if (name.empty())
     {
         return;
@@ -333,14 +329,12 @@ void load_scene_contents(Game& g, std::string_view name)
                 load_scene_player_bundle(g);
             }
             load_scene_models(g);
-            load_ui(g);
         }
         else
         {
             std::cout << "scene bundle missing: " << path.string() << "\n";
         }
     }
-    begin_frontend(g);
 }
 
 
@@ -365,11 +359,6 @@ void script_set_default_name(Game& g)
     g.models.clear();
     g.cutscene_props.clear();
     g.cutscene_props_index = static_cast<size_t>(-1);
-    for (const auto& image : g.ui)
-    {
-        gfx_release_sprite(image.image);
-    }
-    g.ui.clear();
 }
 
 

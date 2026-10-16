@@ -1,0 +1,103 @@
+{
+    "version": 6,
+    "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+    "configurePresets": [
+        {
+            "name": "base",
+            "hidden": true,
+            "cacheVariables": {
+                "BUILD_TESTING": "ON",
+                "GBTG_BUILD_INSPECTOR": "OFF"
+            }
+        },
+        {
+            "name": "vs-base",
+            "hidden": true,
+            "inherits": "base",
+            "generator": "Visual Studio 17 2022",
+            "description": "No explicit -A: VS 2022 defaults to x64, and existing build/ trees were configured without it."
+        },
+        {
+            "name": "ninja-base",
+            "hidden": true,
+            "inherits": "base",
+            "generator": "Ninja",
+            "description": "Needs the MSVC x64 environment: run through tools/build/ninja.ps1 or a x64 Native Tools prompt.",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "cl",
+                "CMAKE_CXX_COMPILER": "cl"
+            },
+            "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+        },
+        {
+            "name": "vs",
+            "displayName": "VS 2022 game and tests",
+            "inherits": "vs-base",
+            "binaryDir": "${sourceDir}/build"
+        },
+        {
+            "name": "vs-inspector",
+            "displayName": "VS 2022 with inspector",
+            "inherits": "vs-base",
+            "binaryDir": "${sourceDir}/build-inspector",
+            "cacheVariables": { "GBTG_BUILD_INSPECTOR": "ON" }
+        },
+        {
+            "name": "ninja-release",
+            "displayName": "Ninja Release",
+            "inherits": "ninja-base",
+            "binaryDir": "${sourceDir}/out/ninja-release",
+            "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+        },
+        {
+            "name": "ninja-relpdb",
+            "displayName": "Ninja RelWithDebInfo",
+            "inherits": "ninja-base",
+            "binaryDir": "${sourceDir}/out/ninja-relpdb",
+            "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
+        },
+        {
+            "name": "ninja-debug",
+            "displayName": "Ninja Debug",
+            "inherits": "ninja-base",
+            "binaryDir": "${sourceDir}/out/ninja-debug",
+            "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+        },
+        {
+            "name": "ninja-inspector",
+            "displayName": "Ninja Release with inspector",
+            "inherits": "ninja-base",
+            "binaryDir": "${sourceDir}/out/ninja-inspector",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "GBTG_BUILD_INSPECTOR": "ON"
+            }
+        }
+    ],
+    "buildPresets": [
+        { "name": "game", "configurePreset": "vs", "configuration": "Release", "targets": [ "gbtg" ] },
+        { "name": "game-debug", "configurePreset": "vs", "configuration": "Debug", "targets": [ "gbtg" ] },
+        {
+            "name": "tests",
+            "configurePreset": "vs",
+            "configuration": "Release",
+            "targets": [ "ALL_BUILD", "gbtg-transition-tests" ]
+        },
+        {
+            "name": "inspector",
+            "configurePreset": "vs-inspector",
+            "configuration": "Release",
+            "targets": [ "gbtg-inspector", "gbtg-inspector-tests", "gbtg-inspector-build-guard-tests" ]
+        },
+        { "name": "ninja-game", "configurePreset": "ninja-release", "targets": [ "gbtg" ] },
+        { "name": "ninja-tests", "configurePreset": "ninja-release", "targets": [ "all", "gbtg-transition-tests" ] },
+        { "name": "ninja-relpdb-tests", "configurePreset": "ninja-relpdb", "targets": [ "gbtg", "gbtg-transition-tests" ] },
+        { "name": "ninja-debug-game", "configurePreset": "ninja-debug", "targets": [ "gbtg" ] },
+        { "name": "ninja-inspector", "configurePreset": "ninja-inspector", "targets": [ "gbtg-inspector", "gbtg-inspector-tests", "gbtg-inspector-build-guard-tests" ] }
+    ],
+    "testPresets": [
+        { "name": "tests", "configurePreset": "vs", "configuration": "Release", "output": { "outputOnFailure": true } },
+        { "name": "inspector", "configurePreset": "vs-inspector", "configuration": "Release", "filter": { "include": { "name": "^inspector-" } }, "output": { "outputOnFailure": true } },
+        { "name": "ninja-tests", "configurePreset": "ninja-release", "output": { "outputOnFailure": true } }
+    ]
+}

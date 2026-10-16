@@ -23,7 +23,23 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Visual Studio compiles a project's sources serially without /MP. Ninja schedules
+# its own jobs and would only warn about the flag.
+if(MSVC AND CMAKE_GENERATOR MATCHES "Visual Studio")
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/MP>)
+endif()
+
 include(FetchContent)
+
+# Build directories share one copy of each fetched source tree when it has been
+# seeded under cache/_deps; each directory still builds it out of its own _deps.
+foreach(dep zlib imgui ffmpeg_lgpl)
+    string(TOUPPER "${dep}" _gbtg_dep_upper)
+    set(_gbtg_dep_src "${CMAKE_CURRENT_SOURCE_DIR}/cache/_deps/${dep}-src")
+    if(NOT DEFINED FETCHCONTENT_SOURCE_DIR_${_gbtg_dep_upper} AND IS_DIRECTORY "${_gbtg_dep_src}")
+        set(FETCHCONTENT_SOURCE_DIR_${_gbtg_dep_upper} "${_gbtg_dep_src}")
+    endif()
+endforeach()
 
 set(ZLIB_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
@@ -277,6 +293,9 @@ add_library(gbtg_lib STATIC
     src/gbtg/audio/sound_runtime.cpp
 )
 target_include_directories(gbtg_lib PUBLIC ${CMAKE_SOURCE_DIR}/include)
+# Stable std headers only; see the header for what may go in it.
+set(GBTG_PCH "${CMAKE_CURRENT_SOURCE_DIR}/src/pch/gbtg_pch.h")
+target_precompile_headers(gbtg_lib PRIVATE "${GBTG_PCH}")
 if(TARGET zlibstatic)
     target_link_libraries(gbtg_lib PUBLIC zlibstatic)
 else()
@@ -807,6 +826,12 @@ if(MSVC AND CMAKE_GENERATOR MATCHES "Visual Studio")
         "$<$<CONFIG:Debug>:InlineFunctionExpansion=AnySuitable>"
         "$<$<CONFIG:Debug>:BasicRuntimeChecks=Default>"
     )
+    # Their Debug options differ from the PCH they would otherwise share.
+    set_source_files_properties(
+        src/engine/graphics/xbox_vertex_program.cpp
+        src/engine/graphics/scene_d3d_present.cpp
+        PROPERTIES SKIP_PRECOMPILE_HEADERS ON
+    )
 endif()
 target_sources(gbtg PRIVATE ${GBTG_INACTIVE_BACKEND})
 if(TARGET gbtg-transition-tests)
@@ -842,6 +867,7 @@ if(WIN32 AND GBTG_GFX STREQUAL "d3d11")
         endif()
     endforeach()
     add_library(gbtg-runtime OBJECT ${GBTG_SHARED_RUNTIME_SOURCES})
+    target_precompile_headers(gbtg-runtime PRIVATE "${GBTG_PCH}")
     get_target_property(GBTG_RUNTIME_LINKS gbtg LINK_LIBRARIES)
     get_target_property(GBTG_RUNTIME_DEFINITIONS gbtg COMPILE_DEFINITIONS)
     get_target_property(GBTG_RUNTIME_INCLUDES gbtg INCLUDE_DIRECTORIES)
@@ -866,6 +892,7 @@ if(WIN32 AND GBTG_GFX STREQUAL "d3d11")
     if(GBTG_BUILD_INSPECTOR)
         get_target_property(GBTG_INSPECTOR_LIBRARY_SOURCES gbtg_lib SOURCES)
         add_library(gbtg-inspector-lib STATIC ${GBTG_INSPECTOR_LIBRARY_SOURCES})
+        target_precompile_headers(gbtg-inspector-lib PRIVATE "${GBTG_PCH}")
         foreach(property INCLUDE_DIRECTORIES COMPILE_DEFINITIONS COMPILE_OPTIONS)
             get_target_property(value gbtg_lib ${property})
             if(value)
@@ -877,6 +904,7 @@ if(WIN32 AND GBTG_GFX STREQUAL "d3d11")
         target_include_directories(gbtg-inspector-lib PUBLIC "${CMAKE_SOURCE_DIR}/include")
         target_compile_definitions(gbtg-inspector-lib PUBLIC GBTG_INSPECTOR_APP)
         add_library(gbtg-inspector-runtime OBJECT ${GBTG_SHARED_RUNTIME_SOURCES})
+        target_precompile_headers(gbtg-inspector-runtime PRIVATE "${GBTG_PCH}")
         set(GBTG_INSPECTOR_RUNTIME_LINKS ${GBTG_RUNTIME_LINKS})
         list(REMOVE_ITEM GBTG_INSPECTOR_RUNTIME_LINKS gbtg_lib)
         target_link_libraries(gbtg-inspector-runtime PUBLIC ${GBTG_INSPECTOR_RUNTIME_LINKS} gbtg-inspector-lib)

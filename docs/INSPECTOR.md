@@ -11,7 +11,9 @@ All inspector/editor implementation and shared-runtime hooks are guarded by
 the normal `gbtg_lib` / `gbtg-runtime` variants exclude those hooks, fields and
 APIs. This keeps each executable's `Game` layout consistent across its libraries.
 Use `cmake -B build -DGBTG_BUILD_INSPECTOR=OFF` to omit inspector targets entirely;
-set the option back to `ON` to build them. Game/inspector build-guard checks
+set the option back to `ON` to build them. The `vs` and `ninja-*` presets turn it
+off so the game build compiles the engine once; the `vs-inspector`
+(`build-inspector/`) and `ninja-inspector` presets turn it on. Game/inspector build-guard checks
 verify API exclusion and inclusion respectively.
 
 Audio-capable inspector tests set the mastering voice and isolated preview output
@@ -20,9 +22,9 @@ The transport checks keep the cue itself silent and also verify restoration of
 the application's scene mute after preview playback.
 
 ```powershell
-cmake -B build
-cmake --build build --config Release --target gbtg-inspector
-.\build\Release\gbtg-inspector.exe --game-dir OriginalFiles --scene chapter1_scene1_2playcam
+cmake --preset vs-inspector
+cmake --build --preset inspector
+.\build-inspector\Release\gbtg-inspector.exe --game-dir OriginalFiles --scene chapter1_scene1_2playcam
 ```
 
 The scene argument accepts the game's scene-order index or substring. The

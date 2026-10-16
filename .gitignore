@@ -23,7 +23,8 @@ ghidra_projects/
 *.lock
 
 # Build
-build/
+/build/
+/build-inspector/
 cmake-build-*/
 out/
 .vs/

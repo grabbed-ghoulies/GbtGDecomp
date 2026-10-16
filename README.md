@@ -62,6 +62,39 @@ cmake --build build --config Release --target gbtg
 These examples use the Visual Studio generator. With a single-configuration
 generator, set `CMAKE_BUILD_TYPE` when configuring and adjust executable paths.
 
+### Faster builds with presets
+
+`CMakePresets.json` keeps the day-to-day game build separate from the scene
+inspector. A plain `cmake -S . -B build` still builds everything, including the
+inspector, which compiles the engine a second time with `GBTG_INSPECTOR_APP`.
+The presets turn the inspector off except in their own inspector directories:
+
+```powershell
+cmake --preset vs                     # build/: game, tools and tests
+cmake --build --preset game           # Release gbtg
+cmake --build --preset tests          # everything plus gbtg-transition-tests
+ctest --preset tests
+
+cmake --preset vs-inspector           # build-inspector/: adds gbtg-inspector
+cmake --build --preset inspector
+```
+
+Ninja presets (`ninja-release`, `ninja-relpdb`, `ninja-debug` and
+`ninja-inspector`, under `out/`) need the MSVC x64 environment.
+`tools\build\ninja.ps1` loads it through `vswhere` and then configures and builds:
+
+```powershell
+tools\build\ninja.ps1                                         # ninja-release, gbtg
+tools\build\ninja.ps1 -Preset ninja-relpdb -Build ninja-relpdb-tests
+```
+
+Visual Studio builds compile each project's sources in parallel (`/MP`). The
+library and runtime targets use the precompiled header `src/pch/gbtg_pch.h`;
+it may hold only stable standard headers, because editing it rebuilds every TU.
+Copies of the fetched sources in `cache/_deps/<name>-src` (zlib, imgui,
+ffmpeg_lgpl) are used in place of a download, so new build directories configure
+offline. Seed them once from `build/_deps/*-src`.
+
 CMake fetches zlib and, for the D3D11 backend, Dear ImGui. Windows builds also
 fetch an LGPL FFmpeg build and copy its DLLs beside the executable. Initial
 configuration requires network access unless dependencies are already cached.

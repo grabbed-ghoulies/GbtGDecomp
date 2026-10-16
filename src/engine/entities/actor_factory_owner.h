@@ -67,6 +67,7 @@ public:
     std::unordered_map<Actor*, ActorAnimationState*> animations;
     std::unordered_map<Actor*, ActorRenderRegistration*> render;
     std::unordered_map<const u8*, CutsceneActorBinding*> cutscene_bindings;
+    std::function<void(Actor&)> released; // Host bookkeeping keyed by the view's actor, told before it goes.
 
 private:
     std::unordered_map<const u8*, std::unique_ptr<NativeActorFactoryInstance>> instances_;

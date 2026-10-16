@@ -385,6 +385,10 @@ void NativeActorFactoryOwner::release_view(FactoryObject& object)
         instance.live_attachments, instance.allocation_8fc, instance.matrices,
         bindings.sounds, instance.pose, bindings.empty_name};
     release_runtime_actor(context);
+    if (released)
+    {
+        released(actor);
+    }
     animations.erase(&actor);
     render.erase(&actor);
     actors.erase(object.bytes.get());

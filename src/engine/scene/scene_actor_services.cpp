@@ -136,6 +136,7 @@
 #include "../video/native_movies.h"
 #include "../scripts/script_conditions.h"
 #include "../scripts/script_event_tallies.h"
+#include "../frontend/scoreboard_hud.h"
 #include "../scripts/script_actor_query.h"
 #include "../entities/player_mind_target_control.h"
 #include "gbtg/model_runtime.h"
@@ -593,6 +594,8 @@ struct SceneActorServices::State
     std::array<u32, 5> health_widths{}; // DAT_00433C90.
     u32 override_health = 0; // DAT_00512230.
     std::unique_ptr<RuntimePlayerHealthDisplay> health_display;
+    RuntimeScoreboardGlobals scoreboard_globals;
+    std::unique_ptr<RuntimeScoreboardHud> scoreboard_hud; // 0x00132040 / 0x00132100 / 0x00132290.
     std::array<u8, 0x20> challenge_bits{}; // *(DAT_00506C54+8).
     std::unique_ptr<NativeActorFactoryOwner> actors;
     std::unique_ptr<NativePlayerFactoryOwner> players;
@@ -1051,6 +1054,26 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         health_style, health_intensity, health_counter, health_mode, health_textures, health_widths, override_health,
         story_byte, data(0x00313A40, 5 * 0x18), data(0x00313A18, 0x14), data(0x00313A2C, 0x14), resources.registry,
         resources.error});
+    scoreboard_hud = std::make_unique<RuntimeScoreboardHud>(RuntimeScoreboardHud{scoreboard_globals, *brew,
+        *health_display, overlay_digits, powerup_board, hud_enabled, g_flags_ea9c, score_refresh, score_points,
+        health_style, difficulty, prompt_lock, prompt_owner, hud, hud_size[0], data(0x00313390, 12 * 0x80),
+        read_u32(data(0x00314F48, 4), 0), resources.registry, resources.error,
+        [this](RuntimeDialogueWidget* widget)
+        {
+            destroy_dialogue_widget(widget, resources.registry, *text_registry);
+        },
+        [this](RuntimeDialogueTextPool* pool)
+        {
+            release_dialogue_text_pool(pool, *text_registry);
+        },
+        [this](u16 voice)
+        {
+            stop_audio_event_voice(i16(voice), 0, voices);
+        },
+        [this]()
+        {
+            return runtime_area_dialogue_active(area_dialogue);
+        }});
     // Boot registers the callout hook (0x0004F610) with the other resource hooks.
     callout_resources = std::make_unique<RuntimeCalloutResources>(RuntimeCalloutResources{resources.registry,
         resources.error, linked_records,
@@ -1082,6 +1105,11 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             auto* object = object_of(scene.resolve_address(address_of(&actor), 0).data());
             object_message(*object, message);
         }});
+    // The update slot goes with its actor's view, so a later view that reuses the memory binds its own.
+    actors->released = [this](Actor& actor)
+    {
+        actor_updates.erase(&actor);
+    };
     actors->install(scene.types);
     players = std::make_unique<NativePlayerFactoryOwner>(NativePlayerFactoryBindings{*actors,
         NativePlayerSceneBindings{scene.factory, image.pools, resources.registry, resources.error, random,
@@ -1218,6 +1246,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             if (player->actor_bytes.data() == bytes)
             {
+                actor_updates.erase(&player->actor);
                 model_views.erase(&player->actor);
                 players->release_player(bytes);
                 return;
@@ -1319,6 +1348,21 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             target = target_views.at(read_u32(player->mind, 0x14))->bytes;
         }
         return RuntimeHitStateLifecycle{player->body, player->actor, player->actor_bytes, player->body_flags, target};
+    },
+    [this](u32 body_address) -> RuntimeDizzyStateContext&
+    {
+        const auto bytes = scene.resolve_address(body_address, 0);
+        auto* player = players->find_child_owner(bytes.data());
+        if (player == nullptr || player->body.data() != bytes.data())
+        {
+            unbound("dizzy state whose body has no player owner");
+        }
+        auto& graph = body_messages[player->body.data()];
+        if (graph == nullptr)
+        {
+            graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
+        }
+        return graph->dizzy_context();
     });
     scene.install_base_class();
 
@@ -2195,6 +2239,20 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
                 graph = std::make_unique<SceneBodyMessages>(*body_services, player);
             }
             return graph->damage_entry();
+        },
+        [this](std::span<const u8> parameters) -> u32
+        {
+            FactoryObject* object = scene.keep_object(create_factory_object(scene.factory, parameters));
+            return object == nullptr ? 0 : address_of(object->bytes.get());
+        },
+        [this](u32 address) -> NativeActorFactoryInstance&
+        {
+            auto* object = object_of(scene.resolve_address(address, 0).data());
+            if (object == nullptr)
+            {
+                unbound("actor view of an object outside the scene");
+            }
+            return actors->view(*object);
         }});
     state_action_names = strings(0x003390E4, 0x174);
     goal_flag_names = strings(0x003397AC, 3);
@@ -2545,6 +2603,8 @@ void SceneActorServices::State::end_scene()
     release_global_actor_effects(g_actor_effect_nodes, *effect_release, *debris_pool, *trail_pool,
         resources.registry);
     g_billboard_queue.count = 0;
+    // 0x0011C5A0 later tears the scoreboard down.
+    tear_down_runtime_scoreboard(*scoreboard_hud); // 0x00132100
     // The scene's cutscenes released their track actors (0x0004D720). Track actors a live cutscene still holds (one
     // that outlives the scene, as a transition's book does) stay; any other goes with the scene.
     std::unordered_set<const Actor*> held;
@@ -4060,13 +4120,16 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
         {
             switch (action.type)
             {
+            case 0x64:
             case 0x73:
             case 0x74:
             case 0x87:
             case 0x8E:
                 return runtime_body_action_next_key(action);
+            case 0x5A:
             case 0x5C:
-                // The 0x5C class vtable (0x00505500) has six slots; +0x1C reads the next table's +4, 0x000CFFD0.
+                // The 0x5A (0x005054E8) and 0x5C (0x00505500) class vtables have six slots; +0x1C reads the next
+                // table's +4, 0x000CFFD0.
                 return u16(accept_runtime_object_construction(action, {}) ? 1 : 0);
             default:
                 unbound("body action vtable +0x1C of factory type " + std::to_string(action.type));
@@ -4317,7 +4380,17 @@ void SceneActorServices::State::update_actor(u32 address)
     const u8* bytes = scene.resolve_address(address, 0).data();
     auto* object = object_of(bytes);
     auto& view = actors->view(*object);
-    const auto found = actor_updates.find(&view.bat.actor);
+    auto found = actor_updates.find(&view.bat.actor);
+    if (found == actor_updates.end() && object->type == 2)
+    {
+        // Vtable +0x10 is the class's slot (getter 0x0003C080 keeps 0x000420D0), so a base actor updates even
+        // before its first message, as a star bound under its owner does (0x0008CEF0).
+        const u8* object_bytes = object->bytes.get();
+        found = actor_updates.emplace(&view.bat.actor, [this, object_bytes](Actor&)
+        {
+            update_base_actor(*object_of(object_bytes));
+        }).first;
+    }
     if (found == actor_updates.end())
     {
         throw Error("actor update slot is not translated for factory type " + std::to_string(object->type));
@@ -4514,11 +4587,11 @@ void SceneActorServices::State::draw_player(FactoryObject& object, NativePlayerI
         player.second_action.bytes.get(),
         [&player](void*, i32)
         {
-            // States 0x73 (entityStateHit, getter 0x00095740), 0x74 (entityStateHitFurnace, getter 0x000966B0),
-            // 0x87 (entityStateStandAlert, getter 0x000A2530) and 0x8E (entityStateWalkAlert, getter 0x000A55F0)
-            // have the empty slot 0x001628B0 at +0x18.
+            // States 0x64 (getter 0x0008C940), 0x73 (entityStateHit, getter 0x00095740), 0x74
+            // (entityStateHitFurnace, getter 0x000966B0), 0x87 (entityStateStandAlert, getter 0x000A2530) and 0x8E
+            // (entityStateWalkAlert, getter 0x000A55F0) have the empty slot 0x001628B0 at +0x18.
             const u32 type = player.second_action.type;
-            if (type != 0x73 && type != 0x74 && type != 0x87 && type != 0x8E)
+            if (type != 0x64 && type != 0x73 && type != 0x74 && type != 0x87 && type != 0x8E)
             {
                 unbound("body +0x744 object vtable +0x18 draw for factory type "
                     + std::to_string(player.second_action.type));
@@ -4918,11 +4991,7 @@ void SceneActorServices::State::present_view(i32 view)
         },
         [this]()
         {
-            // 0x00132290. DAT_005493E0 is set by 0x00132040 at scene start, which the native start does not run.
-            if (hud_enabled != 0)
-            {
-                unbound("HUD draw 0x00132290 body");
-            }
+            draw_runtime_scoreboard_hud(*scoreboard_hud); // 0x00132290
         },
         g_flags_ea9c,
         []()
@@ -5583,6 +5652,8 @@ void SceneActorServices::start_scene(const std::function<void()>& script_event)
     clear_runtime_scene_control_updates(controls); // 0x001160C0
     auto activation = state.activation_context();
     clear_runtime_scene_start_list(activation); // 0x00123240
+    // 0x0011CBD0 then runs 0x0012A1E0 and the scoreboard set-up.
+    set_up_runtime_scoreboard(*state.scoreboard_hud); // 0x00132040
 }
 
 RuntimeSceneControlUpdates SceneActorServices::State::control_updates()

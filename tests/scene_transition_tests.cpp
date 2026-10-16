@@ -8124,13 +8124,25 @@ int main(int argc, char** argv)
                     const float ux = length > 0.f ? dx / length : 0.f;
                     const float uz = length > 0.f ? dz / length : 0.f;
                     gbtg::InputState input;
-                    if (length > 20.f)
+                    // Keep a short standoff: close in from afar, step back when standing on the imp, where no
+                    // direction toward it falls inside the target cone.
+                    if (length > 10.f)
                     {
                         input.pads[0].lx = gbtg::i16(ux * 32767.f);
                         input.pads[0].ly = gbtg::i16(-uz * 32767.f);
                     }
-                    input.pads[0].rx = gbtg::i16(ux * 32767.f);
-                    input.pads[0].ry = gbtg::i16(-uz * 32767.f);
+                    else if (length < 4.f)
+                    {
+                        input.pads[0].lx = gbtg::i16(-ux * 32767.f);
+                        input.pads[0].ly = gbtg::i16(uz * 32767.f);
+                    }
+                    // The mind's stick gesture (0x0007D5A0) attacks when the stick comes back after a push, so
+                    // the right stick is flicked: eight frames out, eight frames centred.
+                    if ((frame / 8) % 2 == 0)
+                    {
+                        input.pads[0].rx = gbtg::i16(ux * 32767.f);
+                        input.pads[0].ry = gbtg::i16(-uz * 32767.f);
+                    }
                     gbtg::gfx_begin_frame();
                     game.tick(1.f / 60.f, input);
                     if (frame % 120 == 119)

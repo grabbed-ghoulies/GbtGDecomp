@@ -68,7 +68,8 @@ SceneBodyMessages::SceneBodyMessages(SceneBodyServices& services, NativePlayerIn
           services.death_actions, damage_rows_, std::span<char>(), death_, services.random, parameter_scratch_,
           []() -> u16
           {
-              unbound("body death action (vtable +0x4C)");
+              // Body vtable +0x4C is the parent's 0x00027500 for types 0x27 and 0x2A (neither getter overrides it).
+              return runtime_body_death_action_key();
           },
           first_timer_},
       timer_creation_{first_timer_, timer_object_, player.child, timers_},
@@ -161,8 +162,23 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
             children_[child->bytes.get()] = hit.get();
             continue;
         }
+        if (child->type == 0x64)
+        {
+            auto& dizzy = dizzy_children_[child->bytes.get()];
+            if (dizzy == nullptr)
+            {
+                dizzy = std::make_unique<RuntimeBodyMessageChild>();
+                dizzy->message = [child](std::span<u8> message)
+                {
+                    message_runtime_dizzy_state({child->bytes.get(), child->size}, message); // 0x0008CEA0
+                };
+            }
+            children_[child->bytes.get()] = dizzy.get();
+            continue;
+        }
         // 0x74 has the empty 0x001628B0 message slot.
-        if (child->type != 0x5B && child->type != 0x5C && child->type != 0x74 && child->type != 0x87)
+        if (child->type != 0x5A && child->type != 0x5B && child->type != 0x5C && child->type != 0x74
+            && child->type != 0x87)
         {
             unbound("body action message slot of factory type " + std::to_string(child->type));
         }
@@ -283,6 +299,10 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
 {
     switch (action.type)
     {
+    case 0x5A:
+        tick_runtime_xz_gravity_action({action.bytes.get(), action.size}, player_.body, player_.actor,
+            services_.clock);
+        return;
     case 0x5C:
         tick_runtime_velocity_action({action.bytes.get(), action.size}, player_.body, player_.actor,
             services_.clock, services_.motion_steps);
@@ -402,28 +422,6 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
             }
             device = &player_.input_device;
         }
-        RuntimeBodyRecoveryAction recovery{player_.body, player_.body_attributes, player_.action_table, first_timer_,
-            player_.ring, read_u16(player_.actor_bytes, 0x990), services_.address_zero,
-            [](u32&)
-            {
-                unbound("recovery goal action 0x00028360 / 0x00135790");
-            },
-            [](u32&)
-            {
-                unbound("recovery goal action 0x00135540");
-            },
-            [this]()
-            {
-                return body_slot_key(0x20);
-            },
-            [this]()
-            {
-                return body_slot_key(0x30);
-            },
-            [this]()
-            {
-                return body_slot_key(0x34);
-            }};
         RuntimeHitFurnaceTick tick{player_.body, player_.actor, player_.actor_bytes,
             player_.actor_instance.animation, services_.clock, player_.body_attributes, device,
             player_.scene.input_state, services_.address_zero,
@@ -431,10 +429,13 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
             {
                 unbound("furnace hit scorch 0x000965C0");
             },
-            recovery};
+            recovery_action()};
         tick_runtime_hit_furnace_state({action.bytes.get(), action.size}, tick);
         return;
     }
+    case 0x64:
+        tick_runtime_dizzy_state({action.bytes.get(), action.size}, dizzy_context());
+        return;
     default:
         unbound("body action vtable +0x10 of factory type " + std::to_string(action.type));
     }
@@ -444,6 +445,8 @@ void SceneBodyMessages::action_step(FactoryObject& action)
 {
     switch (action.type)
     {
+    case 0x5A:
+        // Type 0x5A's +0x14 is 0x0002AD30 itself.
     case 0x5C:
         // 0x000803A0 jumps to 0x0002AD30 with the action; its +8 is this body.
         step_runtime_body_motion(player_.body, player_.actor, player_.actor_instance.animation, services_.clock);
@@ -461,6 +464,7 @@ void SceneBodyMessages::action_step(FactoryObject& action)
         step_runtime_stand_action({action.bytes.get(), action.size}, context, player_.actor_instance.animation);
         return;
     }
+    case 0x64:
     case 0x73:
     case 0x74:
     case 0x87:
@@ -523,6 +527,67 @@ void SceneBodyMessages::refresh_damage_rows()
             reinterpret_cast<const char*>(services_.record_at(name, 1).data())});
     }
     damage_rows_ = RuntimeDamageAnimationRows{count, damage_row_storage_};
+}
+
+RuntimeBodyRecoveryAction& SceneBodyMessages::recovery_action()
+{
+    recovery_.emplace(RuntimeBodyRecoveryAction{player_.body, player_.body_attributes, player_.action_table,
+        first_timer_, player_.ring, read_u16(player_.actor_bytes, 0x990), services_.address_zero,
+        [](u32&)
+        {
+            unbound("recovery goal action 0x00028360 / 0x00135790");
+        },
+        [](u32&)
+        {
+            unbound("recovery goal action 0x00135540");
+        },
+        [this]()
+        {
+            return body_slot_key(0x20);
+        },
+        [this]()
+        {
+            return body_slot_key(0x30);
+        },
+        [this]()
+        {
+            return body_slot_key(0x34);
+        }});
+    return *recovery_;
+}
+
+RuntimeDizzyStateContext& SceneBodyMessages::dizzy_context()
+{
+    player_.refresh_views();
+    if (player_.body_flags == nullptr)
+    {
+        unbound("dizzy state without the body +0x15C bit block");
+    }
+    dizzy_stars_.create = [this](std::span<const u8> parameters)
+    {
+        return services_.create_object(parameters);
+    };
+    dizzy_stars_.actor = [this](u32 address) -> Actor&
+    {
+        return services_.actor_view(address).bat.actor;
+    };
+    dizzy_stars_.animation = [this](u32 address) -> ActorAnimationState&
+    {
+        return services_.actor_view(address).animation;
+    };
+    dizzy_stars_.render = [this](u32 address) -> ActorRenderRegistration&
+    {
+        return services_.actor_view(address).render;
+    };
+    dizzy_stars_.message = [this](u32 address, std::span<u32> message)
+    {
+        services_.message(address, message);
+    };
+    dizzy_.emplace(RuntimeDizzyStateContext{player_.body, player_.actor, player_.actor_bytes, *player_.body_flags,
+        player_.actor_instance.animation, services_.clock, dizzy_stars_, read_u32(player_.body, 8),
+        services_.default_position, services_.default_euler, services_.empty_name, services_.random,
+        services_.sounds, recovery_action()});
+    return *dizzy_;
 }
 
 std::span<const u8> SceneBodyMessages::mind_target()
@@ -724,7 +789,25 @@ void SceneBodyMessages::settle(FactoryObject& body)
     {
         unbound("actor +0x8FC shape pool for the body apply 0x00025AE0");
     }
+    // Actor +0x8F8 is the first record on the actor's +0x8F4 list (0x0012AFE0 links each new one at its head). The
+    // apply reads that record's retail image (+0x14 mode .. +0x68) and 0x0012B160 rewrites it, so it goes back to
+    // the native record afterwards.
     bound_ = {};
+    auto* bound_live = static_cast<ActorLiveAttachment*>(player_.actor_instance.live_attachments.next);
+    if (bound_live != nullptr)
+    {
+        const ActorLiveAttachment& live = *bound_live;
+        bound_record_.fill(0);
+        bound_record_[0x14] = live.mode;
+        bound_record_[0x15] = live.retained_15;
+        std::memcpy(bound_record_.data() + 0x16, &live.tag, 2);
+        bound_record_[0x18] = live.retained_18;
+        bound_record_[0x19] = live.flag;
+        std::memcpy(bound_record_.data() + 0x1C, live.shape.data(), 0x20);
+        std::memcpy(bound_record_.data() + 0x3C, live.secondary_shape.data(), 0x20);
+        std::memcpy(bound_record_.data() + 0x5C, &live.origin, 12);
+        bound_ = bound_record_;
+    }
     shapes_ = nullptr;
     actor_view_ = player_.actor_bytes;
     actor_bound_ = player_.attribute_resource.empty() ? nullptr : player_.attribute_resource.data();
@@ -741,6 +824,14 @@ void SceneBodyMessages::settle(FactoryObject& body)
     if (body.type != 0x28)
     {
         apply_runtime_player_body(player_.body, apply);
+        if (bound_live != nullptr && bound_.data() == bound_record_.data())
+        {
+            ActorLiveAttachment& live = *bound_live;
+            live.flag = bound_record_[0x19];
+            std::memcpy(live.shape.data(), bound_record_.data() + 0x1C, 0x20);
+            std::memcpy(live.secondary_shape.data(), bound_record_.data() + 0x3C, 0x20);
+            std::memcpy(&live.origin, bound_record_.data() + 0x5C, 12);
+        }
         return;
     }
     RuntimeCameraBodySlots camera{player_.body, player_.actor, *player_.body_bits, services_.look_profile,
@@ -768,6 +859,14 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 {
                     unbound("walk-alert stop 0x00023890 (message 0x53)");
                 });
+                return;
+            }
+            if (type == 0x64)
+            {
+                // 0x0008CEA0 reads the reply's id and, for 0x7C, its next word.
+                auto& second = player_.body_selection.second;
+                message_runtime_dizzy_state({second.bytes.get(), second.size},
+                    {reinterpret_cast<const u8*>(&reply.id), 8});
                 return;
             }
             if (type != 0x87 && type != 0x5B && type != 0x5C && type != 0x74)

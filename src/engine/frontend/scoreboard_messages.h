@@ -43,7 +43,13 @@ struct RuntimeScoreboard
     u32 next_id; // +4.
     std::span<const u8> first_icon; // +8.
     std::span<const u8> second_icon; // +0xC.
+    // +0x10..+0x3C: three placements of {x0, y0, x1, y1}; 0x00130F20 picks one by message kind.
+    std::array<float, 12> slots;
+    float slot_scale_x; // +0x40.
+    float slot_scale_y; // +0x44.
     float icon_scale; // +0x48.
+    float spacing; // +0x4C.
+    u32 word_50; // +0x50.
 };
 struct RuntimeScoreboardResources
 {

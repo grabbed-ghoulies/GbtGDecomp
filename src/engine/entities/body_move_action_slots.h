@@ -22,6 +22,10 @@ void runtime_motion_toward_target(std::span<const u8> context, const Vec3& state
 void runtime_motion_settle_target(std::span<const u8> context, const Vec3& state, Vec3& output); // Xbox 0x00140770
 // Actor +0x3C velocity eases toward body +0x318 at rate body +0x334 over DAT_004312E0 steps of 1/300.
 void ease_runtime_body_velocity(std::span<const u8> body, Actor& actor, const i32& steps); // Xbox 0x000803B0, EAX body
+// Move action type 0x5A: vtable +0x10. Carries the actor's velocity (+0x3C) into body +0x318 and falls by body
+// +0x324 per step.
+void tick_runtime_xz_gravity_action(std::span<u8> action, std::span<u8> body, Actor& actor,
+    const RuntimeActorClock& clock); // Xbox 0x00080200
 // Move action type 0x5C: vtable +0x10 and +0x14.
 void tick_runtime_velocity_action(std::span<u8> action, std::span<const u8> body, Actor& actor,
     const RuntimeActorClock& clock, const i32& steps); // Xbox 0x00080340

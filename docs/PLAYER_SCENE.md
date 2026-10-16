@@ -79,10 +79,19 @@ Live and native:
   `0x0012AF80`, `scripts/script_event_tallies.cpp`) and drops it.
 - **Hit effects.** Type-2 effect particles draw as world sprite quads
   (`0x000F0010` → `0x0005CF90`).
+- **Dizzy.** The dizzy state (type `0x64`) circles three star objects over the
+  imp for 10 s (body +0x23C), plays the dizzy cue and hands back to the stand
+  row.
+- **Targets and pursuit.** Each actor's +0x8F8 target record follows the actor
+  (the body apply's `0x0012B160`), so Cooper keeps finding imps and chases them
+  around the hall under the sticks.
+- **The scoreboard** is set up at scene start and torn down at scene end; the
+  damage digits over a hit imp draw.
 - **The alive count** (`0x00132680`) walks the native `DAT_00511B48` list
   (player `links[2]`, actor +0x944) and reads each body's +0x94.
 
-Not live yet: no imp has died. See the frontier.
+Not live yet: an imp reaches 0 health, but its knockdown state is not
+translated, so none dies. See the frontier.
 
 ## Conventions
 
@@ -153,36 +162,41 @@ Headless captures: `gbtg --headless --frames N --scene chapter1_scene1_2playcam
 - **Body +0x84 is not the only image record.** Image records resolve through
   `record_at(address, size)`; give the size you read (the body +0x268 direction
   rows are 8 bytes each, not the 0x24 of an attackdata row).
+- **`scene.objects` is a `std::vector`.** Creating objects mid-update (stars,
+  trails) can move every `FactoryObject`; look objects up by their bytes, never
+  keep a `FactoryObject&` across a creation.
+- **Native views keyed by `Actor*` must go with the view.** A released view's
+  memory is reused by the next one; `actor_updates` now drops its entry when
+  `NativeActorFactoryOwner::release_view` runs.
+- **Attacks need a flick.** The mind's stick gesture (`0x0007D5A0`) fires when
+  the right stick comes back after a push, and targets come from each actor's
+  +0x8F8 record, refreshed by the body apply (`0x00025C50` -> `0x0012B160`).
 - **Register arguments.** `0x00020C80`'s last fallback passes the bare direction
   name in EBX, not the printed buffer. Check the instructions, not only the
   decompile, when a callee takes its name or output in a register.
 
 ## Frontier
 
-Measured with `--player-fight` and a temporary skip of the digit draw
-(removed). A clean run stops at fight frame ~125, on Cooper's first hit, at the
-present-path stop: the hit imp's damage number. With the digits skipped, the
-update path runs on until the imp's hit animation ends and it enters its dizzy
-row, at the update-path stop below.
+Measured with `--player-fight` (no temporary catch needed; the run stops on
+the first untranslated callee). Cooper hits an imp at fight frame ~125, the
+imp goes dizzy for 10 s and recovers, Cooper chases the imps around the hall,
+and at fight frame ~480 a hit knocks an imp to 0 health. The death action row
+then builds the knockdown state, the stop below.
 
 | Path | Stop | What it needs |
 |---|---|---|
-| Present (per view, `0x00028050` player draw → the body overlay's digits `0x0001E3E0`) | `scoreboard energy digits DAT_00545A80 are not loaded: 0x00132040 is not translated` | The damage numbers over a hit imp use the scoreboard's energy-number textures. They are loaded by `0x0012EE60` inside the scoreboard set-up `0x00132040`, which scene load `0x0011CBD0` calls (teardown `0x00132100` from `0x0011C5A0`). The native scene start skips it. `0x00132040` also runs `0x0012D180`, `0x0012D5F0`, `0x0012D930`, `0x0012FA50`, `0x0012FF80`, `0x00132350` (panels through `0x00130BB0`) and sets the HUD gate `DAT_005493E0`, which opens the untranslated per-view HUD draw `0x00132290`. So this step is the HUD milestone: set-up, teardown and draw together |
-| Update (the imp at 1 health, row 0x33 `actorstate_imp_dizzy`) | `scene factory type 100 is not translated/installed` | Type `0x64` (getter `0x0008C940`, vtable `0x00505760`, parent 9, named entityStateDroneAppear): sizes `0x0008C920` (0x184 / 0x11C), constructor `0x0008C9A0`, destructor `0x0008CB30`, message `0x0008CEA0` (0x7C clears the three star slots), tick `0x0008CC40`; +0x14/+0x18 empty, +0x1C `0x0002B620`. The constructor spawns three orbiting star objects through the factory (`0x0008CEF0`: `0x000411A0`, `0x0008D230`, `0x00107520`, `0x00152BB0`, `0x0003B9D0`, `0x0003BB20`) and places them (`0x0008D0E0`: `0x00152BE0`, `0x0008D230`, `0x00105AA0`), then calls `0x0012A260`. The tick counts state +0x58 down, may call `0x00134720` (state +0x50) and the player-input branch (`0x001085F0`, `0x00109810`, `0x001088D0`), then ends through `0x001346B0`, `0x00122C70` and `0x00134060`. The destructor releases the stars (`0x00112D10`, message 0x80, `0x0003ED70`) and calls `0x0012A3D0`. Exports are in `cache/ghidra_frontier/` |
+| Update (the imp at 0 health: the death action key `0x00027500` -> 0xA9, its row's second action) | `scene factory type 122 getter 0x0009C570 is not translated/installed` | Type `0x7A` (getter `0x0009C570`, vtable `0x00505A20`, parent 9, named entityStateLookForWeapon): sizes `0x0009C550` (0xF4 / 0x50), constructor `0x0009C5D0`, destructor `0x0009CA80`, message `0x0009D0E0`, tick `0x0009CBE0`; +0x14/+0x18 empty, +0x1C `0x0002B620`. The constructor raises the body's counters, bumps +0x15 on every actor +0x8F8 record, looks up seven animations (`0x0003AAA0`), and calls `0x0001B810`, `0x0001FEB0`, `0x000412A0`, `0x0009C150`, `0x0009B350`, `0x0009D150`, `0x00024910` (the death notice, translated) and `0x00027BE0`. Exports are in `cache/ghidra_frontier/` |
+| Present (behind it) | not reached yet | Score rows on the boards (`0x00130F20`), the health display (`0x00130420`), the damage counter (`0x0012DAF0`), the meter (`0x0012EA50`), the brew meter (`0x0012D300`) and the caption refresh (`0x0012DDB0`) each raise at their first untranslated callee (`0x00131F00`, `0x0012DF30`, `0x000FF0A0`) once their gate opens. A kill awards score (`0x0012DE90`), which queues a caption, so `0x0012DF30` is likely next |
 
-Behind those: the second hit (the imp dies at 0 health: the death action
-through body vtable +0x4C, unbound in `SceneBodyMessages`), message 0x31
-through the script filter (translated, untested live), removal `0x001232D0`,
-the "Kill All" gate and the scene end.
+Behind those: message 0x31 through the script filter (translated, untested
+live), removal `0x001232D0`, the "Kill All" gate and the scene end.
 
 ## Work
 
-1. The scoreboard/HUD milestone: `0x00132040` at scene load, `0x00132100` at
-   teardown, and the per-view HUD draw `0x00132290`. Unblocks the damage
-   numbers.
-2. Type `0x64`, the imp's dizzy state, with its star objects.
-3. Imp death and removal: the body death action (vtable +0x4C), message 0x31
-   and the retired-actor removal `0x001232D0`.
+1. Type `0x7A`, the imp's knockdown/death state.
+2. The HUD draw bodies as their gates open: `0x00131F00`, `0x001221B0`,
+   `0x0012F000` and the caption refresh `0x0012DF30` / `0x0012DFD0`.
+3. Imp removal: message 0x31 and the retired-actor removal `0x001232D0`.
 4. The "Kill All" gate: `0x00132680` is bound; check it passes once the imps
    die.
 5. The scene end: the fired script requests the next scene AID through
@@ -221,6 +235,57 @@ the "Kill All" gate and the scene end.
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-16: dizzy, targets and the death action
+
+- Translated factory type `0x64`, the imp's dizzy state
+  (`entities/body_dizzy_state.cpp`): sizes `0x0008C920`, constructor
+  `0x0008C9A0`, destructor `0x0008CB30`, message `0x0008CEA0`, tick
+  `0x0008CC40`, with the stars `0x0008CEF0` / `0x0008D0E0` / `0x0008D230`. The
+  tick's `0x00134720` branch (state +0x50) and its player-input branch raise
+  when reached; the imps reach neither.
+- Type `0x5A` (getter `0x000801B0`), the first-slot move of the death row: tick
+  `0x00080200`, step `0x0002AD30`.
+- Body vtable +0x4C is bound to `0x00027500`.
+- Fixes on the way:
+  - a base actor (type 2) updated through its owner's bind tree before its
+    first message had no update slot; vtable +0x10 is fixed by the class, so
+    `update_actor` binds it on first use;
+  - `actor_updates` kept the slot of a released view, so a star whose view
+    reused that memory ran a dead prop's update;
+  - the body apply never refreshed the actor's +0x8F8 target record (the native
+    record is not a byte image), so the imps' target positions stayed at their
+    spawn points and Cooper stopped finding targets once he walked past them;
+  - a test that stopped mid-scene aborted in `~SceneFactoryRuntime` (stars
+    released before their owner); the destructor now ends a live scene first.
+- `--player-fight` flicks the right stick and keeps a short standoff.
+- Verified (covers this checkpoint and the HUD one below): Release and Debug
+  build; ctest 7/7 in each; the six transition suites, `--player-opening`,
+  `--title`, `--title-a`, `--attract`, `--goop`, `--ui` and
+  `--audio-preparation` pass in both (Debug `--actor-loading` fails in
+  `check_boot_pixel_shaders` as before). `--player-fight` stops at the
+  frontier above in both. Both 900-frame headless runs exit 0. The opening
+  captures at 180, 300 and 900 and `player_opening_check.bmp` are
+  pixel-identical to `cache/player_ref/`. `player_walk_check.bmp` is not:
+  Cooper ends his 120-frame walk at (-6.98722, -165.073) against (-6.98966,
+  -165.131) before; the frame looks the same. The shift is there with the
+  scoreboard set-up and the record refresh turned off, and first showed after
+  commit 202d952 (shared PCH) landed; its cause is not pinned down. The dizzy
+  stars were seen in `cache/player_fight_240.bmp`; the damage digits and the
+  hit sparks were not checked in a capture. Nothing here was compared with
+  xemu.
+
+### 2026-10-16: the scoreboard HUD
+
+- Translated the scoreboard set-up `0x00132040` (at the end of the native
+  scene start), the teardown `0x00132100` (in the scene end) and the per-view
+  draw `0x00132290` (`frontend/scoreboard_hud.cpp`): `0x0012EE60` /
+  `0x0012EF10` (the energy digits `DAT_00545A80`), `0x0012D180` / `0x0012D200`
+  (brew meter), `0x00130BB0` / `0x00130CE0` (boards), `0x0012D5F0`,
+  `0x0012D930` / `0x0012D9B0`, `0x0012FA50`, `0x0012FF80` / `0x00130080`,
+  `0x0012E840` and `0x00132350`. The draw's leaves raise at their first
+  untranslated callee once their gates open (see the frontier).
+- The damage digits over a hit imp now load and draw.
 
 ### 2026-10-16: the imp's hit reaction
 

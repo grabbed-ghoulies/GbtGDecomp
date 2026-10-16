@@ -100,6 +100,22 @@ void ease_runtime_body_velocity(std::span<const u8> body, Actor& actor, const i3
     actor.anchor = velocity;
 }
 
+// Xbox 0x00080200
+void tick_runtime_xz_gravity_action(std::span<u8> action, std::span<u8> body, Actor& actor,
+    const RuntimeActorClock& clock)
+{
+    const float elapsed = runtime_actor_rate(actor) * runtime_frame_step(clock) + read_f32(action, 0xC);
+    std::memcpy(action.data() + 0xC, &elapsed, 4);
+    const float step = runtime_frame_step(clock);
+    const float rate = runtime_actor_rate(actor);
+    const Vec3 velocity = actor.anchor; // Actor +0x3C.
+    std::memcpy(body.data() + 0x318, &velocity.x, 4);
+    std::memcpy(body.data() + 0x320, &velocity.z, 4);
+    const float vertical = rate * step * read_f32(body, 0x324) + velocity.y;
+    std::memcpy(body.data() + 0x31C, &vertical, 4);
+    actor.anchor = Vec3{velocity.x, vertical, velocity.z};
+}
+
 // Xbox 0x00080340
 void tick_runtime_velocity_action(std::span<u8> action, std::span<const u8> body, Actor& actor,
     const RuntimeActorClock& clock, const i32& steps)

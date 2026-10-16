@@ -97,6 +97,19 @@ SceneFactoryRuntime::SceneFactoryRuntime(std::shared_ptr<SceneExecutableResource
 
 SceneFactoryRuntime::~SceneFactoryRuntime()
 {
+    // A host shutdown inside a live scene (a test that stops mid-scene) still tears the scene down in 0x0011C5A0's
+    // order first, so objects that refer to each other go the way the game releases them.
+    if (actor_services != nullptr && actor_services->in_scene())
+    {
+        try
+        {
+            end_scene();
+        }
+        catch (const std::exception&)
+        {
+            // A destructor cannot report it; the plain release below still frees everything.
+        }
+    }
     release_objects();
     // Actor services release their separately owned factory roots through the same
     // address map and base lifecycle; both must still exist during that release.

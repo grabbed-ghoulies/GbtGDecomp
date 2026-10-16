@@ -94,6 +94,7 @@ add_library(gbtg_lib STATIC
     src/engine/entities/body_stand_alert_tick.cpp
     src/engine/entities/body_walk_alert_tick.cpp
     src/engine/entities/body_hit_state.cpp
+    src/engine/entities/body_dizzy_state.cpp
     src/engine/scene/scene_control_update.cpp
     src/engine/scene/scene_controls.cpp
     src/engine/scene/attract_control.cpp
@@ -269,6 +270,7 @@ add_library(gbtg_lib STATIC
     src/engine/frontend/input_activation.cpp
     src/engine/frontend/player_health_display.cpp
     src/engine/frontend/scoreboard_messages.cpp
+    src/engine/frontend/scoreboard_hud.cpp
     src/engine/frontend/score_awards.cpp
     src/engine/audio/listener_settings.cpp
     src/engine/audio/native_audio.cpp

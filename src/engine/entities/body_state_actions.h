@@ -43,11 +43,13 @@ void destroy_runtime_walk_alert(std::span<u8> state, RuntimeBodyStateContext& co
 // record lives on the host, so the native word only says whether one was found.
 const AnimationRecord* runtime_walk_alert_record(std::span<const u8> state, u16 index);
 struct RuntimeHitStateLifecycle;
+struct RuntimeDizzyStateContext;
 // Installs type 9 actorMove (getter 0x0002B5A0, vtable 0x004DD72C) and the state classes whose lifecycles
-// are translated: 0x73 entityStateHit (getter 0x00095740, vtable 0x00505940), 0x74 entityStateHitFurnace
+// are translated: 0x64 (getter 0x0008C940, vtable 0x00505760), 0x73 entityStateHit (getter 0x00095740, vtable 0x00505940), 0x74 entityStateHitFurnace
 // (getter 0x000966B0, vtable 0x00505960), 0x87 entityStateStandAlert
 // (getter 0x000A2530, vtable 0x00505BC0) and 0x8E entityStateWalkAlert (getter 0x000A55F0, vtable
 // 0x00505CA0). The context resolvers map a state's body address (+8) to its native body views.
 void install_runtime_body_state_classes(std::span<ObjectFactoryType> types,
-    std::function<RuntimeBodyStateContext(u32)> context_of, std::function<RuntimeHitStateLifecycle(u32)> hit_of);
+    std::function<RuntimeBodyStateContext(u32)> context_of, std::function<RuntimeHitStateLifecycle(u32)> hit_of,
+    std::function<RuntimeDizzyStateContext&(u32)> dizzy_of);
 }

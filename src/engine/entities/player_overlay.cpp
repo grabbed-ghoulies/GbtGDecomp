@@ -40,8 +40,8 @@ float digit_width(const u8* const* digits, i32 digit)
 {
     if (digits[digit] == nullptr)
     {
-        // DAT_00545A80 is filled by 0x0012EE60 under the scoreboard set-up 0x00132040.
-        throw Error("scoreboard energy digits DAT_00545A80 are not loaded: 0x00132040 is not translated");
+        // DAT_00545A80 is filled by 0x0012EE60 under the scoreboard set-up 0x00132040; retail reads +8 of null.
+        throw Error("scoreboard energy digit DAT_00545A80 is not loaded");
     }
     u16 width;
     std::memcpy(&width, digits[digit] + 8, 2);

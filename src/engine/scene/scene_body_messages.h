@@ -9,9 +9,12 @@
 #include "../entities/body_move_action_slots.h"
 #include "../entities/player_body_collision.h"
 #include "../entities/body_hit_state.h"
+#include "../entities/body_dizzy_state.h"
+#include <optional>
 
 namespace gbtg
 {
+struct NativeActorFactoryInstance;
 // Scene state shared by every body's message graph.
 struct SceneBodyServices
 {
@@ -91,6 +94,8 @@ struct SceneBodyServices
     std::function<void(u32 actor, u32 id)> actor_callouts;
     std::span<const u8> push_keys; // DAT_00217DB0..DAT_00217EB8, read by 0x000239C0 and 0x00023A50.
     std::function<RuntimeBodyDamageEntry&(u32 actor)> damage_at; // A player's body damage entry, by actor address.
+    std::function<u32(std::span<const u8> parameters)> create_object; // 0x00107520 into the scene's objects.
+    std::function<NativeActorFactoryInstance&(u32 address)> actor_view; // A scene actor's native views.
 };
 
 // One body's message graph: the parent body handler 0x000253B0 and the derived slots of types 0x27
@@ -99,6 +104,7 @@ class SceneBodyMessages
 {
 public:
     SceneBodyMessages(SceneBodyServices& services, NativePlayerInstance& player);
+    RuntimeDizzyStateContext& dizzy_context(); // The type 0x64 state's views of this body.
     SceneBodyMessages(const SceneBodyMessages&) = delete;
     SceneBodyMessages& operator=(const SceneBodyMessages&) = delete;
     void dispatch(FactoryObject& body, std::span<u32> message);
@@ -123,6 +129,11 @@ private:
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> hit_children_; // 0x73, 0x00095C90.
     std::span<const u8> mind_target(); // Actor +0x958 -> +0x14.
     u16 body_slot_key(u32 slot); // Actual body vtable +0x20 / +0x2C / +0x30 / +0x34.
+    RuntimeBodyRecoveryAction& recovery_action(); // 0x00133F50 / 0x00134060 over this body.
+    std::optional<RuntimeBodyRecoveryAction> recovery_;
+    RuntimeDizzyStars dizzy_stars_;
+    std::optional<RuntimeDizzyStateContext> dizzy_;
+    std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> dizzy_children_; // 0x64, 0x0008CEA0.
     std::array<u8, 0x20> shape_scratch_{};
     RuntimeBodyTimerRecipient* first_timer_ = nullptr; // Body +0x760.
     RuntimeBodyTimerRecipient* second_timer_ = nullptr; // Body +0x7F0.
@@ -168,6 +179,7 @@ private:
     std::span<u8> channel_rows_;
     std::span<u8> actor_view_;
     std::span<u8> bound_;
+    std::array<u8, 0x68> bound_record_{}; // Retail image of the actor +0x8F8 record during the body apply.
     GhoulySpawnPool* shapes_ = nullptr;
     const u8* actor_bound_ = nullptr;
     RuntimeBodyChannelChild first_step_;

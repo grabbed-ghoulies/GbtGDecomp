@@ -3,6 +3,7 @@
 #include "body_move_actions.h"
 #include "actor_world_lists.h"
 #include "body_hit_state.h"
+#include "body_dizzy_state.h"
 #include "gbtg/entity.h"
 #include <bit>
 #include <cstring>
@@ -15,6 +16,7 @@ namespace
 {
 std::function<RuntimeBodyStateContext(u32)> body_context_of;
 std::function<RuntimeHitStateLifecycle(u32)> hit_context_of;
+std::function<RuntimeDizzyStateContext&(u32)> dizzy_context_of;
 // Walk-alert speed-band records by state, the host side of state +0x30 + 0x10 * index.
 std::unordered_map<const u8*, std::vector<const AnimationRecord*>> walk_alert_records;
 
@@ -131,6 +133,25 @@ const ObjectFactoryVtable* hit_furnace_state_lifecycle()
 {
     static const ObjectFactoryVtable table{0x00505960, hit_furnace_state_object_sizes,
         construct_hit_furnace_state_view, destroy_hit_furnace_state_view};
+    return &table;
+}
+
+bool construct_dizzy_state_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    const std::span<u8> state{object.bytes.get(), object.size};
+    return initialize_runtime_dizzy_state(state, parameters, dizzy_context_of(word(state, 8)));
+}
+
+void destroy_dizzy_state_view(FactoryObject& object)
+{
+    const std::span<u8> state{object.bytes.get(), object.size};
+    destroy_runtime_dizzy_state(state, dizzy_context_of(word(state, 8)));
+}
+
+const ObjectFactoryVtable* dizzy_state_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505760, dizzy_state_object_sizes, construct_dizzy_state_view,
+        destroy_dizzy_state_view};
     return &table;
 }
 
@@ -428,10 +449,13 @@ const AnimationRecord* runtime_walk_alert_record(std::span<const u8> state, u16 
 }
 
 void install_runtime_body_state_classes(std::span<ObjectFactoryType> types,
-    std::function<RuntimeBodyStateContext(u32)> context_of, std::function<RuntimeHitStateLifecycle(u32)> hit_of)
+    std::function<RuntimeBodyStateContext(u32)> context_of, std::function<RuntimeHitStateLifecycle(u32)> hit_of,
+    std::function<RuntimeDizzyStateContext&(u32)> dizzy_of)
 {
     body_context_of = std::move(context_of);
     hit_context_of = std::move(hit_of);
+    dizzy_context_of = std::move(dizzy_of);
+    types[0x64] = ObjectFactoryType{9, dizzy_state_lifecycle};
     types[0x73] = ObjectFactoryType{9, hit_state_lifecycle};
     types[0x74] = ObjectFactoryType{9, hit_furnace_state_lifecycle};
     types[9] = ObjectFactoryType{1, actor_move_lifecycle};

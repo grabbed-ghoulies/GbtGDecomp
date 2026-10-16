@@ -90,8 +90,39 @@ Live and native:
 - **The alive count** (`0x00132680`) walks the native `DAT_00511B48` list
   (player `links[2]`, actor +0x944) and reads each body's +0x94.
 
-Not live yet: an imp reaches 0 health, but its knockdown state is not
-translated, so none dies. See the frontier.
+- **Knockdown and death.** At 0 health the death row builds factory type
+  `0x7A` (`entities/body_knockdown_state.cpp`): the imp is launched, sweeps
+  for contacts, bounces and lands, and the death finish (`0x00134AE0`) spawns
+  its death effect. The alive count drops (5 -> 4) by fight frame ~540, when
+  the imp's health is 0; the knockdown plays until ~720, when the death finish
+  creates the effect.
+- **The death effect** is factory type `0xF`, entityAvatarFxMotionBlur
+  (`entities/avatar_motion_blur.cpp`): a copy of the dying imp's pose and model
+  (the model clone `0x000F87D0`) that runs the effect stream at its +0x950
+  name, takes a 64x64 snapshot of the imp (`0x00116530`,
+  `graphics/actor_snapshots.cpp`, rendered into a created texture), then
+  burns: the +0x9D0 effect stream and the ONFIRE / BURNDITTY cues in sound
+  slots 4 and 5, fading through four timed phases.
+
+- **The glow.** The copy's draw hooks capture it into book page 0 with its depth, stamp that depth into the
+  frame's stencil through the DOT_ZW depth-replace shader, and composite the two fading colours where the
+  stencil passes.
+- **Removal.** Dead imps are removed (`0x001232D0`). Broadcasts (`0x00122C70`) reach every actor still on
+  DAT_00511AA4: the 0x31 death notice, the 0x85 anchor release (which clears a mind's +0x30 gaze anchor) and
+  the 0x8D record release are delivered, and an actor leaves the list where `0x0003EBA0` unlinks its +0x900
+  node.
+- **Scenery.** A flying imp or Cooper's hits break background parts (pottery), which award, rumble and remove
+  the part.
+- **The later fight.** Imps die through entityStateDie (type `0x62`) and pose through type `0x5E`; a dizzy
+  Cooper's stick input speeds the stars (`0x0008CC40`'s input branch).
+- **"Kill All".** All five imps die and are removed by fight frame ~5100. The gate record (opcode 1, at most 0
+  alive, 1.5 s) counts down in `0x001330E0` once the count holds, and `0x00132680` fires; the butler's
+  "Well done, Sir!" page takes A, the script requests the ghoulybox through its trigger (message 0xA8) and moves
+  to "Event Door Intro" (fight frame ~5660). The next section runs: Cooper stands in the main hall facing the
+  stairs, stable for 3600 more frames.
+
+Not live yet: the 64x64 actor snapshot records its draws but rasterizes nothing (its texture stays empty).
+See the frontier.
 
 ## Conventions
 
@@ -171,38 +202,43 @@ Headless captures: `gbtg --headless --frames N --scene chapter1_scene1_2playcam
 - **Attacks need a flick.** The mind's stick gesture (`0x0007D5A0`) fires when
   the right stick comes back after a push, and targets come from each actor's
   +0x8F8 record, refreshed by the body apply (`0x00025C50` -> `0x0012B160`).
+- **A run that looks hung may be GPU-starved.** With another program holding
+  the GPU (a game at 100%), the D3D11 maps in `gfx_draw_native` wait and
+  `--player-fight` takes ~25 minutes. Check the GPU before hunting a loop; a
+  temporary watchdog thread that walks the main thread's stack
+  (`SuspendThread` + `StackWalk64`) shows where it waits.
+- **Recorded draws outside a view are dropped.** Each view clears the
+  recording device's commands before it draws. A draw recorded during the
+  update (the actor snapshot) has to be presented when it is recorded; see
+  `RuntimeActorSnapshots::begin_capture` / `present_capture`.
 - **Register arguments.** `0x00020C80`'s last fallback passes the bare direction
   name in EBX, not the printed buffer. Check the instructions, not only the
   decompile, when a callee takes its name or output in a register.
 
 ## Frontier
 
-Measured with `--player-fight` (no temporary catch needed; the run stops on
-the first untranslated callee). Cooper hits an imp at fight frame ~125, the
-imp goes dizzy for 10 s and recovers, Cooper chases the imps around the hall,
-and at fight frame ~480 a hit knocks an imp to 0 health. The death action row
-then builds the knockdown state, the stop below.
+Measured with `--player-fight` (Release). The fight passes "Kill All" and the script moves to its "Event Door
+Intro" section; the scene does not end there. The rest of the scene is more play: the bot would have to walk
+Cooper on (the doors event) before the script reaches its scene request.
 
 | Path | Stop | What it needs |
 |---|---|---|
-| Update (the imp at 0 health: the death action key `0x00027500` -> 0xA9, its row's second action) | `scene factory type 122 getter 0x0009C570 is not translated/installed` | Type `0x7A` (getter `0x0009C570`, vtable `0x00505A20`, parent 9, named entityStateLookForWeapon): sizes `0x0009C550` (0xF4 / 0x50), constructor `0x0009C5D0`, destructor `0x0009CA80`, message `0x0009D0E0`, tick `0x0009CBE0`; +0x14/+0x18 empty, +0x1C `0x0002B620`. The constructor raises the body's counters, bumps +0x15 on every actor +0x8F8 record, looks up seven animations (`0x0003AAA0`), and calls `0x0001B810`, `0x0001FEB0`, `0x000412A0`, `0x0009C150`, `0x0009B350`, `0x0009D150`, `0x00024910` (the death notice, translated) and `0x00027BE0`. Exports are in `cache/ghidra_frontier/` |
-| Present (behind it) | not reached yet | Score rows on the boards (`0x00130F20`), the health display (`0x00130420`), the damage counter (`0x0012DAF0`), the meter (`0x0012EA50`), the brew meter (`0x0012D300`) and the caption refresh (`0x0012DDB0`) each raise at their first untranslated callee (`0x00131F00`, `0x0012DF30`, `0x000FF0A0`) once their gate opens. A kill awards score (`0x0012DE90`), which queues a caption, so `0x0012DF30` is likely next |
-
-Behind those: message 0x31 through the script filter (translated, untested
-live), removal `0x001232D0`, the "Kill All" gate and the scene end.
+| Script (after "Event Door Intro") | no stop within 3600 frames of A edges | Drive Cooper through the next section (its doors event) and follow the script to its next-scene request through `0x00117140`; the native transition should then take over |
+| Present (the snapshot) | renders nothing | `0x00116530` records 39 model draws into its 64x64 texture (the viewport follows SetRenderTarget), but the texture's colour and alpha stay zero. Not traced yet; the copy and its glow do not depend on it |
+| Turn (not reached) | `0x001068E0` | `0x00134720` with body +0x19E set eases toward the body's +0x184 point first; it raises there |
+| Script updates (not reached) | `0x00133170` ... `0x00133900` | `0x00117100` walks the whole update table; opcodes 0 and 1 are translated, 2, 6..9 and 20..26 are empty, the others raise when a record reaches them |
+| Update (not reached) | `0x00123720` | The copy's point light, only when `DAT_005120F0` or `DAT_00512104` is set |
+| Message (not reached) | `0x0009BB60` | The knockdown's contact pool (state +0xCC) for message 0xE while flying |
+| Present (behind it) | not reached yet | The HUD draw leaves (`0x00131F00`, `0x0012DF30`, `0x000FF0A0`) once their gates open |
 
 ## Work
 
-1. Type `0x7A`, the imp's knockdown/death state.
-2. The HUD draw bodies as their gates open: `0x00131F00`, `0x001221B0`,
-   `0x0012F000` and the caption refresh `0x0012DF30` / `0x0012DFD0`.
-3. Imp removal: message 0x31 and the retired-actor removal `0x001232D0`.
-4. The "Kill All" gate: `0x00132680` is bound; check it passes once the imps
-   die.
-5. The scene end: the fired script requests the next scene AID through
-   `0x00117140` and the native transition takes over.
-6. Imps fighting back: their fire strategy (`0x46`) attacks reach Cooper's
-   body damage path.
+1. The scene's next section: extend `--player-fight` (or a new mode) to walk Cooper through the doors event and
+   follow the script to the scene end and the next scene.
+2. Why the actor snapshot rasterizes nothing.
+3. The HUD draw bodies as their gates open.
+4. Teardown after a failure: when a body state's destructor throws during scene release, the second release
+   pass destroys the half-released player again and reads its freed input (seen only after an earlier failure).
 
 ## Acceptance
 
@@ -229,12 +265,95 @@ live), removal `0x001232D0`, the "Kill All" gate and the scene end.
 | `opening_300.bmp` | Same view a little later; the imps have moved |
 | `opening_900.bmp` | The native tutorial page: Jeeves' head, "I suggest Sir uses the Left Thumbstick to move and HOLDS the Right Thumbstick…", the corner imps and the A-button bat |
 | `player_opening_check.bmp` | `--player-opening` at frame 720: the tutorial page |
-| `player_walk_check.bmp` | `--player-opening` after 120 frames of left stick: Cooper climbing the stairs |
+| `player_walk_check.bmp` | `--player-opening` after 120 frames of left stick: Cooper climbing the stairs (re-taken 2026-10-16 after commit 202d952 moved the walk end slightly) |
 
 `--player-fight` before this work stopped at frame ~60 of the fight with
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-16: the glow, broadcasts and "Kill All"
+
+- The glow hooks `0x00066B90` / `0x00066C00` (`entities/avatar_motion_blur.cpp`) over `graphics/glow_pass.cpp`:
+  `0x0013BCC0`, `0x00101640`, `0x00062220`, `0x00061D00`, `0x00061EE0`, `0x000623C0` and `0x00062750`. Boot
+  `0x000620C0`'s targets are book page 0's surface and, for the depth surface and its LIN_A8R8G8B8 alias, book
+  page 1.
+- Presenter: native draws take the NV097 stencil state; a texture target's depth surface that aliases a texture
+  receives the target's D24S8 words when the target ends; the pixel shader runs DOTPRODUCT (stage 2) and DOT_ZW
+  (stage 3) with the HILO_1 dot mapping and writes SV_Depth; `SetRenderState_PSTextureModes` overrides the
+  shader's modes until the next shader; vertex programs pass full oT2 / oT3; colour rectangle clears work on
+  texture targets; SetRenderTarget resets the viewport (and c-38 / c-37) to the target, as in D3D8.
+- `0x00122C70` is native in scenes: `g_actor_broadcast` walks DAT_00511AA4 and sends each active actor the
+  retail words (the 0x8D, 0x85 and 0x7E/0x7F payloads carry their pointers as addresses). `0x0003EBA0` takes
+  the actor's latch off that list where retail unlinks +0x900 (`ActorReleaseContext::unlink_active_node`);
+  the earlier check on the cutscene view link dropped every broadcast to a live actor, so a released model
+  anchor never cleared a mind's +0x30.
+- New states: type `0x62` (`entities/body_die_state.cpp`: `0x0008C1C0`, `0x0008C240`, `0x0008C4F0`, `0x0008C2D0`,
+  `0x0008C4D0`, `0x0008C310`) and type `0x5E` (`entities/body_anim_state.cpp`: `0x00088500`, `0x00088580`,
+  `0x00088660`, `0x00088960`, `0x000886B0`); `0x00134720` (`entities/body_orientation.cpp`); the dizzy tick's
+  input branch; body slot +0x40 (`0x00026F90`).
+- Script: `0x001330E0` (opcode 1's update) counts the "Kill All" delay down; the `0x00117100` walk now covers
+  the whole update table and raises for untranslated updates instead of skipping them. The trigger's ghoulybox
+  record (message 0xA8, +0xB44) has a heap-arena address.
+- Host views fixed on the way: non-player target bodies read their own +0x95C word; the knockdown sweep and
+  player contacts reach props and backgrounds as retail words with a retail pool image; the background rumble
+  passes its cue name by address; scenery callouts use the actor's own +0x8C records; the body impact 0x1B has
+  its contact views; the body tag lookup uses the objTag_Null-based table `0x00133A50` indexes; the player's
+  body slot hook (+0x28, +0x38, +0x3C, +0x40) is bound; a freed target record keeps its last bytes and actor for
+  the frame a mind still names it; a background resolve of size 0 returns the tail; the knockdown and dizzy
+  contexts refresh body views only (a state destroyed with its player ran after the input was freed: a heap
+  corruption found with page heap); `~SceneFactoryRuntime` reports a release failure instead of throwing from
+  the destructor.
+- `graphics/xg_pixel_shader.cpp`: a combiner's four inputs are read in order A, B, C, D. They were packed in
+  one `|` expression whose evaluation order C++ leaves open, and `input()` claims constant slots, so Debug
+  swapped c0 / c1 (the `--actor-loading` paired RGB/alpha check failed in Debug only).
+- `--player-fight` runs up to 7200 frames and gives fresh A edges once every imp is down, for the butler's page.
+- Looked at: the fight captures show the hit spark, a knocked-down imp with its health heart (frame 720), the
+  butler's "Well done, Sir!" page after the gate, and the main hall for "Event Door Intro". Not confirmed by
+  eye: the burning copy's glow (no capture shows it clearly; one frame has an imp high against the far wall
+  with no visible glow), and the snapshot (known empty).
+- Verified: Release and Debug build; `ctest` 7/7 in both; every transition suite passes in both (`--scene-start`, `--scene-spawn`, `--dialogue-resources`, `--actor-loading`, `--ghoulybox-decoder`, `--scene-models`, `--player-opening`, `--player-fight` through "Kill All", `--title`, `--title-a`, `--attract`, `--goop`, `--ui`, `--audio-preparation`); headless 900 frames (default and the opening scene) exit 0; the opening captures at 180 / 300 / 900 and the opening and walk checks are byte-identical to `cache/player_ref`; `git diff --check` clean.
+
+### 2026-10-16: knockdown, death and the burning copy
+
+- Translated factory type `0x7A` (`entities/body_knockdown_state.cpp`):
+  sizes `0x0009C550`, constructor `0x0009C5D0`, destructor `0x0009CA80`,
+  message `0x0009D0E0` (0x62 is `0x0009B720` over the collision reply), tick
+  `0x0009CBE0`, and the launch, sweep, flight, bounce, landing and end paths
+  (`0x0009C150`, `0x0009B350`, `0x00140BF0`, `0x0009D150`, `0x0009BEE0`,
+  `0x0009C100`, `0x0009B430`, `0x0009BA40`, `0x0009B780`, `0x0009D5C0`,
+  `0x0009D670`, `0x0009D6D0`, `0x0009D7D0`, `0x00025FA0`, `0x0009D810`,
+  `0x00136150`, `0x0009C220`, `0x0009BD40`), and the probe notice `0x0013FC50`.
+  Its +0x18 draw and +0x1C next key are the shared `0x001628B0` /
+  `0x0002B620`.
+- Translated factory type `0xF`, entityAvatarFxMotionBlur
+  (`entities/avatar_motion_blur.cpp`): sizes `0x000668E0`, constructor
+  `0x00066E20`, destructor `0x00066F50`, message `0x00070370`, tick
+  `0x00066FE0` with `0x00066940` and `0x00066F70`; the appearance copy
+  `0x0013AE30` and model copy `0x00040CA0`; the effect start `0x00066AB0`.
+- The model clone `0x000F87D0` with `0x001560A0` and `0x000F8B80`
+  (`gbtg/models/model_runtime.cpp`); model nodes now keep the ndMtxArray
+  record table.
+- The actor snapshot `0x00116530` / `0x00116750` and the cull mode setter
+  `0x001565E0` (`graphics/actor_snapshots.cpp`), with `0x0003D900` /
+  `0x0003DA00` (`entities/actor_shape_bounds.cpp`). `D3DDevice_CreateTexture2`
+  is now a scene D3D boundary: the texture's header lives in the resource
+  arena, the presenter renders into it (swizzled for A8R8G8B8) and decodes it
+  from its creation arguments when bound.
+- `scene_actor_services.cpp` builds with `/bigobj` (Debug passed the COFF
+  section limit).
+- Verified: Release and Debug build; ctest 7/7 in each; the six transition
+  suites, `--player-opening`, `--title`, `--title-a`, `--attract`, `--goop`,
+  `--ui` and `--audio-preparation` pass in both (Debug `--actor-loading` fails
+  in `check_boot_pixel_shaders` as before). `--player-fight` stops at the
+  frontier above in both. Both 900-frame headless runs exit 0. The opening
+  captures at 180, 300 and 900, `player_opening_check.bmp` and
+  `player_walk_check.bmp` are pixel-identical to `cache/player_ref/` (the
+  first Debug 300 capture caught keyboard input; the retake matched). The
+  fight readbacks at 600 and 720 show the hits and health hearts, but the
+  knockdown's flight and landing, the copy's snapshot texture and its burn
+  effects were not checked in a capture, and the cues were not listened to.
+  Nothing here was compared with xemu.
 
 ### 2026-10-16: dizzy, targets and the death action
 
@@ -266,11 +385,10 @@ live), removal `0x001232D0`, the "Kill All" gate and the scene end.
   `check_boot_pixel_shaders` as before). `--player-fight` stops at the
   frontier above in both. Both 900-frame headless runs exit 0. The opening
   captures at 180, 300 and 900 and `player_opening_check.bmp` are
-  pixel-identical to `cache/player_ref/`. `player_walk_check.bmp` is not:
-  Cooper ends his 120-frame walk at (-6.98722, -165.073) against (-6.98966,
-  -165.131) before; the frame looks the same. The shift is there with the
-  scoreboard set-up and the record refresh turned off, and first showed after
-  commit 202d952 (shared PCH) landed; its cause is not pinned down. The dizzy
+  pixel-identical to `cache/player_ref/`. `player_walk_check.bmp` moved
+  slightly (Cooper ends his 120-frame walk at (-6.98722, -165.073), not
+  (-6.98966, -165.131); the frame looks the same), first seen after commit
+  202d952 landed; the reference was updated to the new readback. The dizzy
   stars were seen in `cache/player_fight_240.bmp`; the damage digits and the
   hit sparks were not checked in a capture. Nothing here was compared with
   xemu.

@@ -8088,7 +8088,7 @@ int main(int argc, char** argv)
                 const std::string gate_title = game.scene_name;
                 std::string title = game.scene_name;
                 bool cleared = false;
-                for (int frame = 0; frame < 5400; ++frame)
+                for (int frame = 0; frame < 7200; ++frame)
                 {
                     const auto cooper = cooper_position();
                     const auto alive = imps();
@@ -8100,10 +8100,26 @@ int main(int argc, char** argv)
                     }
                     if (!cooper || alive.empty())
                     {
-                        // Defeated imps are removed; wait for the script to leave its gate.
+                        // Defeated imps are removed; wait for the script to leave its gate. Past "Kill All" the
+                        // butler's page waits for A, so give fresh A edges as the tutorial does.
+                        gbtg::InputState input;
+                        input.accept = alive_count() == 0 && frame % 120 < 5;
                         gbtg::gfx_begin_frame();
-                        game.tick(1.f / 60.f, {});
+                        game.tick(1.f / 60.f, input);
+                        if (frame % 120 == 119)
+                        {
+                            gbtg::RgbaImage after;
+                            if (gbtg::gfx_readback(after))
+                            {
+                                gbtg::write_bmp("cache/player_fight_" + std::to_string(frame + 1) + ".bmp", after);
+                            }
+                        }
                         gbtg::gfx_end_frame();
+                        if (game.scene_name != title)
+                        {
+                            std::cout << "fight frame " << frame << ": title " << game.scene_name << "\n";
+                            title = game.scene_name;
+                        }
                         continue;
                     }
                     const gbtg::Vec3* nearest = &alive.front();

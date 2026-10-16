@@ -35,6 +35,7 @@ struct RuntimeModelNode
     const RuntimeBlendshapeCpu* blendshape_cpu = nullptr; // blendshape node +0x20 -> +0
     std::span<const Joint> joints; // skeleton +0x24, count +0x20
     const char* type_name = nullptr; // resolved original node +0, before descriptor lookup
+    std::span<const u8> matrix_records; // ndMtxArray +0x20, 8-byte records, count +0x30
 };
 struct RuntimeModelNamedEntry
 {
@@ -278,6 +279,16 @@ void bind_runtime_model_pose(RuntimeModelInstance& model, ModelPoseBuffer* pose,
 std::unique_ptr<RuntimeModelInstance> make_runtime_model_instance(const RuntimeModelAsset& asset,
     int create_pose, int copy_shaders, std::span<const RuntimeModelNodeType> types,
     RuntimeShaderRegistrationState& registration, RuntimeShaderAnimationScratch& scratch); // Xbox 0x000F9840
+// The matrices a source ndMtxArray instance flagged (by record byte +6), with their flags set in the copy.
+void copy_runtime_matrix_array_flags(const RuntimeModelNode& source_node, std::span<const u8> source,
+    const RuntimeModelNode& node, std::span<u8> instance); // Xbox 0x001560A0
+void copy_runtime_model_node_flags(RuntimeModelInstance& model,
+    const RuntimeModelInstance& source); // Xbox 0x000F8B80, EAX model, ECX source
+// A copy of a live instance: its header and shader storage, a fresh tree copy with the flagged matrices, its
+// primary pose and node flags.
+std::unique_ptr<RuntimeModelInstance> clone_runtime_model_instance(const RuntimeModelInstance& source,
+    std::span<const RuntimeModelNodeType> types, AnimationResourceRegistry& registry,
+    RuntimeShaderRegistrationState& registration, RuntimeShaderAnimationScratch& scratch); // Xbox 0x000F87D0
 struct RuntimeModelDeferredRelease
 {
     RuntimeModelInstance* instance; // +0, stride 8

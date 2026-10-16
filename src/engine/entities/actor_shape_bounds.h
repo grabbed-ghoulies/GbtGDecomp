@@ -8,6 +8,11 @@ GhoulySpawnPool* allocate_runtime_shape_pool(u16 stride, u16 count); // Xbox 0x0
 GhoulySpawnPool* grow_runtime_shape_pool(GhoulySpawnPool* pool); // Xbox 0x000662A0
 u32 count_runtime_actor_bound_shapes(const Actor& actor, u32 mask); // Xbox 0x00042640
 u32 runtime_actor_physical_shape_flags(const Actor& actor); // Xbox 0x00042500
+long double actor_model_sweep_radius(const Actor& actor); // Xbox 0x0003D9A0, EDI actor
+// The model's type-5 block centre (+4..+0xC) times +0x200 * +0x38, or zero without one.
+void actor_model_bound_center(const Actor& actor, Vec3& output); // Xbox 0x0003D900, EBX actor, ECX output
+// The block centre through the actor's +0x2AC matrix and its 0x0003D9A0 radius; false without a block.
+bool actor_model_world_bound(const Actor& actor, Vec3& center, float& radius); // Xbox 0x0003DA00, EAX actor
 long double actor_model_bound_radius(const Actor& actor); // Xbox 0x0003DB30
 void transform_runtime_shape_direction(const float* matrix, const Vec3& direction,
     Vec3& output); // Xbox 0x00103BE0

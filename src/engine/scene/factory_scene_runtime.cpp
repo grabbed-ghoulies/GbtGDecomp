@@ -110,7 +110,15 @@ SceneFactoryRuntime::~SceneFactoryRuntime()
             // A destructor cannot report it; the plain release below still frees everything.
         }
     }
-    release_objects();
+    try
+    {
+        release_objects();
+    }
+    catch (const std::exception& error)
+    {
+        // A scene stopped mid-update can leave a view its retail destructor expects; a destructor must not throw.
+        std::fprintf(stderr, "scene release after a failure: %s\n", error.what());
+    }
     // Actor services release their separately owned factory roots through the same
     // address map and base lifecycle; both must still exist during that release.
     actor_services.reset();

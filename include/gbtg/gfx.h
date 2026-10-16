@@ -109,6 +109,16 @@ struct GfxNativeDraw
     u32 alpha_function = 0x207;
     u32 alpha_reference = 0;
     u32 color_mask = 0x01010101; // NV097_SET_COLOR_MASK: alpha, red, green, blue bytes.
+    // NV097 stencil test: function 0x200 never .. 0x207 always; ops 0x1E00 keep, 0 zero, 0x1E01 replace, 0x1E02
+    // incr-sat, 0x1E03 decr-sat, 0x150A invert, 0x8507 incr, 0x8508 decr.
+    bool stencil_test = false;
+    u32 stencil_function = 0x207;
+    u32 stencil_reference = 0;
+    u32 stencil_read_mask = 0xFF;
+    u32 stencil_write_mask = 0xFF;
+    u32 stencil_fail = 0x1E00;
+    u32 stencil_depth_fail = 0x1E00;
+    u32 stencil_pass = 0x1E00;
     std::array<i32, 4> scissor{0, 0, 640, 480}; // Viewport rectangle, back-buffer pixels.
 };
 void gfx_draw_native(const GfxNativeDraw& draw);
@@ -121,6 +131,9 @@ void gfx_clear_native(std::span<const std::array<i32, 4>> rectangles, u32 flags,
 // back buffer.
 void gfx_begin_native_target(int width, int height);
 void gfx_end_native_target(RgbaImage& output);
+// The open texture target's depth-stencil as the Xbox D24S8 words its memory holds (depth << 8 | stencil),
+// width x height in rows. Empty without a device.
+void gfx_read_native_target_depth(std::vector<u32>& output);
 
 void gfx_size(int& width, int& height);
 void gfx_end_frame();

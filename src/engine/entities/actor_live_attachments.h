@@ -3,6 +3,7 @@
 #include "entity_types.h"
 
 #include <array>
+#include <functional>
 
 namespace gbtg
 {
@@ -37,6 +38,8 @@ ActorLiveAttachment* allocate_actor_live_attachment(Actor& actor,
     entity_detail::ListHead& owner, entity_detail::ListHead& global,
     u8 mode, u8 flag, u16 tag, const u8* shape,
     const Vec3& origin); // Xbox 0x0012AFE0
+// A native scene's walk of DAT_00511AA4 (each active actor's vtable +0xC), set while it runs.
+extern std::function<void(const i32* message)> g_actor_broadcast;
 void broadcast_actor_pulse_message(const i32* message); // Xbox 0x00122C70
 void release_actor_attachment_slot(ActorLiveAttachment* owner); // Xbox 0x00112910
 void suspend_actor_live_attachment(ActorLiveAttachment& record, bool suspend); // Xbox 0x0012B1A0

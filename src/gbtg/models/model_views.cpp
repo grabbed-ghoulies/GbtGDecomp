@@ -1,5 +1,6 @@
 #include "gbtg/model_views.h"
 #include <bit>
+#include <cstring>
 #include <deque>
 
 namespace gbtg
@@ -93,6 +94,10 @@ public:
         output.bytes = image.bytes.subspan(u32(address - image.address));
         output.child = node(image.word(address, 0x14));
         output.sibling = node(image.word(address, 0x18));
+        if (std::strcmp(output.type_name, "ndMtxArray") == 0 && image.word(address, 0x20) != 0)
+        {
+            output.matrix_records = {image.pointer(image.word(address, 0x20)), size_t(image.word(address, 0x30)) * 8};
+        }
         if (output.type == 7)
         {
             auto& joints = storage.skeletons.emplace_back(image.word(address, 0x20));

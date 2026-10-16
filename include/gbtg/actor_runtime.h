@@ -73,6 +73,8 @@ struct RuntimeActorStartupContext
     RuntimeActorLink& live_actors; // DAT_00511B08 sentinel
     u32& random_state;
 };
+// Points actor +0x204 at the host view of the state's current model (null for none).
+void bind_actor_model_view(RuntimeActorStartupState& state, const RuntimeActorStartupContext& context);
 bool initialize_runtime_actor(RuntimeActorStartupState& state, std::span<const u8> parameters,
     RuntimeActorStartupContext& context); // Xbox 0x0003E940
 void set_actor_node_state(RuntimeActorStartupState& state, u8 slot, u8 value,

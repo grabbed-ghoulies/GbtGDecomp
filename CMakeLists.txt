@@ -95,6 +95,12 @@ add_library(gbtg_lib STATIC
     src/engine/entities/body_walk_alert_tick.cpp
     src/engine/entities/body_hit_state.cpp
     src/engine/entities/body_dizzy_state.cpp
+    src/engine/entities/body_die_state.cpp
+    src/engine/entities/body_anim_state.cpp
+    src/engine/entities/body_knockdown_state.cpp
+    src/engine/entities/avatar_motion_blur.cpp
+    src/engine/graphics/actor_snapshots.cpp
+    src/engine/graphics/glow_pass.cpp
     src/engine/scene/scene_control_update.cpp
     src/engine/scene/scene_controls.cpp
     src/engine/scene/attract_control.cpp
@@ -743,6 +749,8 @@ if(WIN32)
 endif()
 
 if(MSVC)
+    # The scene services translation unit passes the default COFF section limit in Debug.
+    set_source_files_properties(src/engine/scene/scene_actor_services.cpp PROPERTIES COMPILE_OPTIONS /bigobj)
     target_compile_options(gbtg_lib PRIVATE /W3 /EHsc /utf-8)
     target_compile_options(gbtg-catalog PRIVATE /W3 /EHsc /utf-8)
     target_compile_options(gbtg-dump PRIVATE /W3 /EHsc /utf-8)

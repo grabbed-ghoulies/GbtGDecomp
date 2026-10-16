@@ -140,6 +140,7 @@ public:
     static constexpr u32 kViewport = 0x10030; // Six words: X, Y, Width, Height, MinZ, MaxZ.
     static constexpr u32 kVertexDataColor = 0x100A0; // Plus the D3DVSDE register.
     static constexpr u32 kMultiSampleMode = 0x100C0; // D3DDevice_SetRenderState_MultiSampleMode.
+    static constexpr u32 kPSTextureModes = 0x10070; // D3DDevice_SetRenderState_PSTextureModes.
     static constexpr u32 kStencilEnable = 0x4032C; // NV097_SET_STENCIL_TEST_ENABLE.
     static constexpr u32 kBackBuffer = 1;
     static constexpr u32 kDepthBuffer = 2;
@@ -159,6 +160,8 @@ public:
     std::map<u32, SceneD3DVertexShader> vertex_shaders;
     // D3DTexture_GetSurfaceLevel: each surface handle and the texture (resource address) it belongs to.
     std::map<std::uintptr_t, std::uintptr_t> surface_textures;
+    // A texture's level-0 width and height, for the viewport SetRenderTarget resets.
+    std::function<std::array<u32, 2>(std::uintptr_t texture)> texture_size;
     void create_vertex_shader(const i32* declaration, const u32* program, u32& handle, u32 usage);
     void set_vertex_stream(u32 stream, u32 resource, u32 stride);
 

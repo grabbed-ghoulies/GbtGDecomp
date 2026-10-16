@@ -183,8 +183,12 @@ struct PixelAssembler
         const auto pack = [this, alpha](const std::string& a, const std::string& b,
             const std::string& c, const std::string& d)
         {
-            return (input(a, alpha) << 24) | (input(b, alpha) << 16) |
-                (input(c, alpha) << 8) | input(d, alpha);
+            // input() claims constant slots, so the operands are read in order A, B, C, D.
+            const u32 first = input(a, alpha);
+            const u32 second = input(b, alpha);
+            const u32 third = input(c, alpha);
+            const u32 fourth = input(d, alpha);
+            return (first << 24) | (second << 16) | (third << 8) | fourth;
         };
         const auto destination = [](const std::string& text)
         {

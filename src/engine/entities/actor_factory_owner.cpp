@@ -384,6 +384,13 @@ void NativeActorFactoryOwner::release_view(FactoryObject& object)
         frames, instance.frame.updates, instance.pending, instance.anchors,
         instance.live_attachments, instance.allocation_8fc, instance.matrices,
         bindings.sounds, instance.pose, bindings.empty_name};
+    if (bindings.unlink_active_node)
+    {
+        context.unlink_active_node = [&]()
+        {
+            bindings.unlink_active_node(object.bytes.get());
+        };
+    }
     release_runtime_actor(context);
     if (released)
     {

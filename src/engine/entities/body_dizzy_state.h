@@ -36,6 +36,10 @@ struct RuntimeDizzyStateContext
     u32& random; // DAT_0054DD7C.
     RuntimeActorSoundQueues& sounds;
     RuntimeBodyRecoveryAction& recovery; // 0x00134060 and the 0x001346B0 views.
+    const RuntimeDialogueInputDevice* input = nullptr; // The tick's second argument (actor +0x960 or zero).
+    const RuntimeDialogueInputState* input_state = nullptr;
+    std::span<const u8> input_preset{}; // DAT_00428660.
+    float input_scale = 0.f; // DAT_00428670.
 };
 void dizzy_state_object_sizes(ObjectSizes& output); // Xbox 0x0008C920
 // The star's position (ESI) and euler (EBX) for slot `index` (ECX) around the body (EAX).

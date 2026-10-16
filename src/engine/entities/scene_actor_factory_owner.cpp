@@ -29,6 +29,14 @@ void release_emitter_view(FactoryObject& object)
 {
     active_owner->release_emitter(object);
 }
+bool construct_motion_blur_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    return active_owner->construct_motion_blur(object, parameters);
+}
+void release_motion_blur_view(FactoryObject& object)
+{
+    active_owner->release_motion_blur(object);
+}
 const ObjectFactoryVtable* area_lifecycle()
 {
     static const ObjectFactoryVtable table{0x00504CAC, runtime_area_storage_sizes,
@@ -47,6 +55,12 @@ const ObjectFactoryVtable* emitter_lifecycle()
         construct_emitter_view, release_emitter_view};
     return &table;
 }
+const ObjectFactoryVtable* motion_blur_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x005049A0, avatar_motion_blur_object_sizes,
+        construct_motion_blur_view, release_motion_blur_view};
+    return &table;
+}
 }
 
 struct NativeSceneActorClassOwner::TriggerInstance : GhoulyController
@@ -62,7 +76,16 @@ struct NativeSceneActorClassOwner::TriggerInstance : GhoulyController
                 dispatch_runtime_trigger_message(messages, message);
             }},
           messages{context, bindings.base_of(object), bindings.objects, bindings.effects,
-            bindings.bytes_at, bindings.address_of,
+            bindings.bytes_at,
+            [this, &bindings](const void* pointer) -> u32
+            {
+                // 0x000F39A0's record is a heap block the trigger keeps at +0xB44.
+                if (pointer != nullptr && pointer == load)
+                {
+                    return bindings.heap_address(load, sizeof(GhoulySpawnRecord));
+                }
+                return bindings.address_of(pointer);
+            },
             [&bindings](FactoryObject& actor) -> Actor&
             {
                 return bindings.actors.view(actor).bat.actor;
@@ -133,6 +156,7 @@ void NativeSceneActorClassOwner::install(std::span<ObjectFactoryType> types)
     types[0x1F] = {2, area_lifecycle};
     types[0x23] = {2, trigger_lifecycle};
     types[0xD] = {2, emitter_lifecycle}; // Getter 0x00109DD0.
+    types[0xF] = {2, motion_blur_lifecycle}; // Getter 0x00066900.
     active_owner = this;
 }
 
@@ -164,6 +188,41 @@ bool NativeSceneActorClassOwner::construct_emitter(FactoryObject& object, std::s
     auto* emitter = instance.get();
     emitters_.emplace(object.bytes.get(), std::move(instance));
     return initialize_runtime_fx_anim_emitter(parameters, emitter->context);
+}
+
+bool NativeSceneActorClassOwner::construct_motion_blur(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto views = [this](FactoryObject& actor)
+    {
+        auto& view = bindings_.actors.view(actor);
+        return RuntimeAvatarActorViews{{actor.bytes.get(), actor.size}, view.bat.actor, view.startup};
+    };
+    auto context = std::make_unique<RuntimeAvatarMotionBlur>(RuntimeAvatarMotionBlur{views(object),
+        [this, views](u32 address)
+        {
+            auto* actor = bindings_.object_at(address);
+            if (actor == nullptr)
+            {
+                throw Error("avatar motion blur source actor is outside the scene");
+            }
+            return views(*actor);
+        },
+        bindings_.actors.bindings.startup, bindings_.effects, bindings_.snapshots(), bindings_.actors.bindings.empty_name,
+        bindings_.address_of(object.bytes.get()), bindings_.actors.bindings.resource_address, {},
+        bindings_.emitter.clock, bindings_.actors.bindings.sounds, bindings_.actors.view(object).frame,
+        bindings_.emitter.frame, bindings_.lights_enabled, bindings_.script_lights});
+    auto* blur = context.get();
+    motion_blurs_.emplace(object.bytes.get(), std::move(context));
+    return initialize_runtime_avatar_motion_blur(parameters, *blur);
+}
+
+void NativeSceneActorClassOwner::release_motion_blur(FactoryObject& object)
+{
+    destroy_runtime_avatar_motion_blur(*motion_blurs_.at(object.bytes.get()));
+    if (!defer_release)
+    {
+        motion_blurs_.erase(object.bytes.get());
+    }
 }
 
 void NativeSceneActorClassOwner::release_area(FactoryObject& object)
@@ -198,6 +257,7 @@ void NativeSceneActorClassOwner::release_view(const u8* bytes)
     areas_.erase(bytes);
     triggers_.erase(bytes);
     emitters_.erase(bytes);
+    motion_blurs_.erase(bytes);
 }
 
 void NativeSceneActorClassOwner::message(FactoryObject& object, std::span<u32> message)
@@ -233,6 +293,11 @@ void NativeSceneActorClassOwner::update_emitter(FactoryObject& object)
 u32 NativeSceneActorClassOwner::draw_emitter(FactoryObject& object, i32 kind, RuntimeFxEmitterDraw& draw)
 {
     return draw_runtime_fx_anim_emitter(kind, draw, emitters_.at(object.bytes.get())->context);
+}
+
+void NativeSceneActorClassOwner::update_motion_blur(FactoryObject& object)
+{
+    tick_runtime_avatar_motion_blur(*motion_blurs_.at(object.bytes.get()));
 }
 
 bool NativeSceneActorClassOwner::emitter_visible(FactoryObject& object, u32 pass, u32 slot)

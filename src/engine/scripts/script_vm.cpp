@@ -70,6 +70,7 @@ extern "C"
 #include "script_actions.h"
 #include "script_conditions.h"
 #include "script_vm.h"
+#include "../entities/entity.h"
 #include "../transitions/scene_transitions.h"
 
 namespace gbtg
@@ -583,6 +584,49 @@ void script_tick_condition_timer(ScriptCond& rec)
 }
 
 
+// Xbox 0x001330E0. Opcode 1 in the update table at 0x00314334. While the
+// DAT_00511B48 actors whose body +0x94 is nonzero number at most the int at
+// +8, DAT_0050E768 is clear and the byte at [DAT_0051248C]+0x30F144 is set,
+// the float at +0xC counts down by the frame step, stopping at 0; 0x00132680
+// fires once it reaches 0.
+// Xbox 0x001330E0
+void script_tick_actor_count_condition(ScriptCond& rec)
+{
+    i32 count = 0;
+    for (const auto* node = static_cast<const entity_detail::ListHead*>(entity_detail::g_world.alt.next);
+         node != nullptr; node = static_cast<const entity_detail::ListHead*>(node->next))
+    {
+        if (!g_alt_node_body)
+        {
+            throw Error("DAT_00511B48 node has no body view");
+        }
+        if (read_u16(g_alt_node_body(node), 0x94) != 0)
+        {
+            count = count + 1;
+        }
+    }
+    if (count > static_cast<i32>(cond_u32(rec, 8)) || g_block_decay != 0 || g_decay_arm == 0)
+    {
+        return;
+    }
+    float step = 0.f;
+    if (g_sim_freeze <= 0.f)
+    {
+        step = g_sim_dt * g_sim_scale;
+    }
+    const float left = cond_f32(rec, 0xc);
+    if (0.f < left)
+    {
+        const float next = left - step;
+        cond_put_f32(rec, 0xc, next);
+        if (!(0.f < next))
+        {
+            cond_put_f32(rec, 0xc, 0.f);
+        }
+    }
+}
+
+
 // Xbox 0x00128D90. Resume the scene's fired cursor at the matching title.
 void script_resume_title(Game& g, i32 mode, i32 id)
 {
@@ -791,16 +835,37 @@ void script_queue_scene_start(Game& g)
 
 
 // Xbox 0x00117100, then the eval at 0x00117140. The update walk calls the
-// table at 0x00314334. Opcode 0 is 0x00133070. The other updates are not
-// translated, so those records are not stepped.
+// table at 0x00314334: opcode 0 is 0x00133070 and opcode 1 is 0x001330E0.
+// Opcodes 2, 6..9 and 20..26 have the empty 0x001628B0; the others' updates
+// are not translated and raise when a record reaches them.
 void script_vm_tick(Game& g, float dt)
 {
     (void)dt;
+    static constexpr u32 kUpdates[27] = {0x00133070, 0x001330E0, 0x001628B0, 0x00133170, 0x00133230,
+        0x001332B0, 0x001628B0, 0x001628B0, 0x001628B0, 0x001628B0, 0x001333A0, 0x00133330, 0x00133420,
+        0x00133570, 0x001335E0, 0x00133770, 0x001336A0, 0x001334B0, 0x00133870, 0x00133900, 0x001628B0,
+        0x001628B0, 0x001628B0, 0x001628B0, 0x001628B0, 0x001628B0, 0x001628B0};
     for (ScriptCond& rec : g_script_conds)
     {
-        if (cond_u32(rec, 0) == 0)
+        const u32 opcode = cond_u32(rec, 0);
+        if (opcode >= 27)
+        {
+            throw Error("script condition opcode " + std::to_string(opcode) + " outside the update table");
+        }
+        if (opcode == 0)
         {
             script_tick_condition_timer(rec);
+        }
+        else if (opcode == 1)
+        {
+            script_tick_actor_count_condition(rec);
+        }
+        else if (kUpdates[opcode] != 0x001628B0)
+        {
+            char address[16];
+            std::snprintf(address, sizeof(address), "0x%08X", kUpdates[opcode]);
+            throw Error("untranslated Xbox " + std::string(address) + " (script condition update, opcode "
+                + std::to_string(opcode) + ")");
         }
     }
     script_tick_fired_vm(g);

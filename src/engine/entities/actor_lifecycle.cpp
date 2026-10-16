@@ -30,6 +30,10 @@ void release_runtime_actor(ActorReleaseContext& context)
         engine_heap_free(actor.bind);
         actor.bind = nullptr;
     }
+    if (context.unlink_active_node)
+    {
+        context.unlink_active_node();
+    }
     unlink_actor_view(context.render.view);
     unregister_actor_render_bins(context.render);
     auto& child = context.render.child;

@@ -16,7 +16,8 @@ struct SceneD3DPresentContext
     const std::map<u32, SceneD3DVertexShader>& vertex_shaders;
     std::function<const RgbaImage&(const u8*)> texture; // Decoded image of a bound texture record.
     // D3DDevice_SetRenderTarget: a texture surface, or SceneD3DDevice::kBackBuffer to return to the screen.
-    std::function<void(std::uintptr_t color)> render_target;
+    // The depth surface comes too: a texture surface there takes the target's depth-stencil when it ends.
+    std::function<void(std::uintptr_t color, std::uintptr_t depth)> render_target;
     // D3DDevice_CopyRects: the back buffer drawn so far into a texture object's level 0.
     std::function<void(u32 texture)> copy_back_buffer = nullptr;
 };

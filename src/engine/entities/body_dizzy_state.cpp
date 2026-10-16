@@ -1,4 +1,7 @@
 #include "body_dizzy_state.h"
+#include "../frontend/dialogue_input.h"
+#include "player_mind_control.h"
+#include "body_orientation.h"
 #include "actor_bind_tree.h"
 #include "actor_live_attachments.h"
 #include "actor_trail_requests.h"
@@ -308,13 +311,25 @@ void tick_runtime_dizzy_state(std::span<u8> state, RuntimeDizzyStateContext& con
     put_float(body, 0x72C, 0.f);
     if (read_u32(state, 0x50) != 0)
     {
-        throw Error("untranslated Xbox 0x00134720 reached from the dizzy state tick 0x0008CC40");
+        settle_runtime_body_turn(body, actor);
     }
-    const float step = runtime_frame_step(context.clock) * runtime_actor_rate(actor);
+    float step = runtime_frame_step(context.clock) * runtime_actor_rate(actor);
     if (read_u32(state, 0x48) != 0)
     {
-        // 0x001085F0 / 0x001088D0 into the +0x18 / +0x30 filters (0x00109810), which can speed the stars.
-        throw Error("the dizzy state's player input branch (0x00109810 over state +0x18 / +0x30) is not bound");
+        // Both reads take the tick's input argument.
+        if (context.input == nullptr || context.input_state == nullptr)
+        {
+            throw Error("dizzy state +0x48 input branch without the tick's input device");
+        }
+        std::array<float, 2> axes{};
+        runtime_input_axes(*context.input, axes, *context.input_state);
+        update_runtime_player_input_tracking(state.subspan(0x18), axes, context.input_preset, 1, context.clock);
+        runtime_input_secondary_axes(*context.input, axes, *context.input_state);
+        update_runtime_player_input_tracking(state.subspan(0x30), axes, context.input_preset, 1, context.clock);
+        if (read_u32(state, 0x2C) == 2 || read_u32(state, 0x44) == 2)
+        {
+            step = context.input_scale * step;
+        }
     }
     orbit_runtime_dizzy_stars(state, step, context);
     const float remaining = read_f32(state, 0x58);

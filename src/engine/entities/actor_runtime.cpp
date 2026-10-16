@@ -17,9 +17,6 @@
 
 namespace gbtg
 {
-namespace
-{
-
 // Host pointer mapping; a null model remains a null Xbox actor +0x204.
 void bind_actor_model_view(RuntimeActorStartupState& state, const RuntimeActorStartupContext& context)
 {
@@ -32,8 +29,6 @@ void bind_actor_model_view(RuntimeActorStartupState& state, const RuntimeActorSt
     state.model_view.runtime = state.models.model.get();
     state.actor.model = &state.model_view;
 }
-
-} // namespace
 
 // Xbox 0x0003E940
 bool initialize_runtime_actor(RuntimeActorStartupState& state, std::span<const u8> parameters,

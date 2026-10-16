@@ -27,6 +27,13 @@ constexpr u32 kBlendEquation = 0x40350;
 constexpr u32 kDepthFunction = 0x40354;
 constexpr u32 kColorMask = 0x40358;
 constexpr u32 kDepthWrite = 0x4035C;
+constexpr u32 kStencilMask = 0x40360;
+constexpr u32 kStencilFunction = 0x40364;
+constexpr u32 kStencilReference = 0x40368;
+constexpr u32 kStencilFunctionMask = 0x4036C;
+constexpr u32 kStencilFail = 0x40370;
+constexpr u32 kStencilDepthFail = 0x40374;
+constexpr u32 kStencilPass = 0x40378;
 
 u32 state(const SceneD3DStateSnapshot& states, u32 key, u32 fallback)
 {
@@ -49,6 +56,14 @@ void apply_states(const SceneD3DStateSnapshot& states, GfxNativeDraw& draw)
     draw.alpha_function = state(states, kAlphaFunction, 0x207);
     draw.alpha_reference = state(states, kAlphaReference, 0);
     draw.color_mask = state(states, kColorMask, 0x01010101);
+    draw.stencil_test = state(states, SceneD3DDevice::kStencilEnable, 0) != 0;
+    draw.stencil_function = state(states, kStencilFunction, 0x207);
+    draw.stencil_reference = state(states, kStencilReference, 0);
+    draw.stencil_read_mask = state(states, kStencilFunctionMask, 0xFF);
+    draw.stencil_write_mask = state(states, kStencilMask, 0xFF);
+    draw.stencil_fail = state(states, kStencilFail, 0x1E00);
+    draw.stencil_depth_fail = state(states, kStencilDepthFail, 0x1E00);
+    draw.stencil_pass = state(states, kStencilPass, 0x1E00);
     const u32 x = state(states, SceneD3DDevice::kViewport, 0);
     const u32 y = state(states, SceneD3DDevice::kViewport + 1, 0);
     draw.scissor = {i32(x), i32(y), i32(x + state(states, SceneD3DDevice::kViewport + 2, 640)),
@@ -241,6 +256,12 @@ std::array<u32, 60> pixel_shader_words(const u8* definition, const SceneD3DIndex
         {
             words[18 + stage] = pack_color(draw.pixel_constants[second]);
         }
+    }
+    // D3DDevice_SetRenderState_PSTextureModes after the shader replaces its texture modes.
+    const auto modes = draw.states.find(SceneD3DDevice::kPSTextureModes);
+    if (modes != draw.states.end())
+    {
+        words[54] = modes->second;
     }
     const u32 final_first = words[59] & 0xF;
     const u32 final_second = (words[59] >> 4) & 0xF;
@@ -902,7 +923,7 @@ void present_scene_d3d_commands(std::span<const SceneD3DCommand> commands, const
             }
             else
             {
-                context.render_target(target.color);
+                context.render_target(target.color, target.depth);
             }
         }
     }

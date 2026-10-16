@@ -1,4 +1,6 @@
 #pragma once
+
+#include <functional>
 #include "actor_base_messages.h"
 #include "actor_frame_update.h"
 #include "../../gbtg/runtime/object_lifecycle.h"
@@ -26,6 +28,7 @@ struct ActorReleaseContext
     RuntimeActorSoundQueues& sounds;
     ModelAnimationState& pose;
     const char* empty_name; // DAT_00546208.
+    std::function<void()> unlink_active_node; // Actor +0x900/+0x904 on DAT_00511AA4; empty when none is linked.
 };
 void release_actor_frame_attachments(ActorFrameAttachment* head,
     ActorFrameReleaseContext& context); // Xbox 0x0003DE90

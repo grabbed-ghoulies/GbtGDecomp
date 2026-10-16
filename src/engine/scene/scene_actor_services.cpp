@@ -20,6 +20,7 @@
 #include "../entities/actor_event_messages.h"
 #include "../entities/actor_live_attachments.h"
 #include "../entities/entity_heap.h"
+#include "../entities/segment_records.h"
 #include "../entities/entity_collision.h"
 #include "../entities/aligned_heap.h"
 #include "../entities/body_move_actions.h"
@@ -95,6 +96,7 @@
 #include "gbtg/engine_internal.h"
 #include "../scripts/script_dialogue_actions.h"
 #include "../graphics/scene_model_draw.h"
+#include "../graphics/actor_snapshots.h"
 #include "../graphics/scene_environment_setup.h"
 #include "../graphics/model_tree_dispatch.h"
 #include "../graphics/model_render_nodes.h"
@@ -153,6 +155,14 @@ extern "C"
 
 namespace gbtg
 {
+// The scene's play bounds, scene.cpp (cleared by 0x0011C5A0).
+extern u8 g_50ea01; // DAT_0050EA01.
+extern float g_50ea7c; // DAT_0050EA7C.
+extern float g_50ea80; // DAT_0050EA80.
+extern float g_50ea84; // DAT_0050EA84.
+extern float g_50ea88; // DAT_0050EA88.
+extern float g_50ea8c; // DAT_0050EA8C.
+extern float g_50ea90; // DAT_0050EA90.
 extern u32 g_flag_ea98; // DAT_0050EA98.
 extern i32 g_5462fc; // DAT_005462FC.
 extern i32 g_545d1c; // DAT_00545D1C.
@@ -535,6 +545,38 @@ struct SceneActorServices::State
     std::unordered_map<const ActorLiveAttachment*, std::unique_ptr<SceneMindTargetRow>> mind_target_rows;
     std::unordered_map<u32, RuntimePlayerTargetView*> target_views;
     std::unordered_map<u32, RuntimeMindTarget*> target_records;
+    // A freed record's last bytes, by its heap address: retail's heap keeps them until the block is reused, and a
+    // mind's +0x10 can still name it until the mind next picks a target.
+    struct RetiredTarget
+    {
+        std::array<u8, 0x68> bytes{};
+        Actor actor; // The released actor as it was; its model view is gone, so model reads raise.
+    };
+    std::unordered_map<u32, std::unique_ptr<RetiredTarget>> retired_targets;
+    // The copy keeps the actor's own pose, scales and cached matrix; every block it pointed at is freed or owned
+    // elsewhere, so those pointers are cleared and reads through them raise or fall back as for an unbound actor.
+    static std::unique_ptr<RetiredTarget> retire_target(const std::array<u8, 0x68>& bytes, const Actor& actor)
+    {
+        auto retired = std::make_unique<RetiredTarget>(RetiredTarget{bytes, actor});
+        Actor& copy = retired->actor;
+        copy.render_registration = nullptr;
+        copy.model = nullptr;
+        copy.attach = nullptr;
+        copy.bind = nullptr;
+        copy.link = nullptr;
+        copy.euler_out = nullptr;
+        copy.spawn_points = nullptr;
+        copy.spawn_point_count = 0;
+        copy.accepted_classes = nullptr;
+        copy.accepted_class_count = 0;
+        copy.spawn_owner = nullptr;
+        copy.mask_span = nullptr;
+        for (auto& slot : copy.sound_slots)
+        {
+            static_cast<RuntimeActorSound&>(slot) = RuntimeActorSound{};
+        }
+        return retired;
+    }
     // Player minds register their eligibility (body +0x95C), address and body query views by actor.
     std::unordered_map<Actor*, const RuntimePlayerAttachmentEligibility*> target_eligibility;
     std::unordered_map<Actor*, u32> target_addresses;
@@ -881,6 +923,9 @@ struct SceneActorServices::State
     }
     FactoryObject* object_of(const u8* bytes);
     u32 address_of(const void* pointer);
+    // 0x0003BE20 over a scene actor's +0x8C callout records with callback 0 and value 0.
+    void actor_callouts(u32 address, u32 id, const RuntimeActorCreationOptions* options);
+    RuntimeBodyStateContext body_state_context(u32 body_address); // A state action's body views (state +8).
     void refresh_mind_targets();
     // Engine-heap blocks (0x000F72D0 allocations) the scene's objects store: a token address per block.
     std::map<const void*, u32> heap_addresses;
@@ -905,6 +950,7 @@ struct SceneActorServices::State
     void dispatch_contact_words(NativePlayerInstance& player, std::span<u32> words, GhoulySpawnPool* contacts,
         size_t contacts_word);
     void latch_message(entity_detail::LatchNode& node, const Message& message);
+    void unlink_active_node(const u8* bytes); // 0x0003EBA0's +0x900 unlink from DAT_00511AA4.
     std::unique_ptr<RuntimeBackgroundConstructionServices> background_services(NativeBackgroundInstance& background,
         NativeActorFactoryInstance& view, RuntimeBackgroundAnimation*& first_animation);
     void background_message(NativeBackgroundInstance& background, std::span<u32> message);
@@ -956,11 +1002,70 @@ struct SceneActorServices::State
     RuntimeMovieLockedSurface lock_movie_texture(u32 record);
     // The recorded SetRenderTarget: draws go to the texture behind a surface until the back buffer returns, then
     // the rendered pixels are written to the texture's data (linear 32-bit) and it is decoded again.
-    void present_render_target(std::uintptr_t color);
+    void present_render_target(std::uintptr_t color, std::uintptr_t depth);
+    u32 render_target_depth_texture = 0; // A texture surface given as the open target's depth.
     void copy_back_buffer(u32 texture);
     u32 render_target_texture = 0;
     std::unordered_set<const u8*> movie_textures;
+    // D3DDevice_CreateTexture2 records (0x14-byte headers in the resource arena), decoded from their arguments.
+    std::unordered_set<u32> created_textures;
+    std::vector<std::unique_ptr<RuntimeActorSnapshot>> actor_snapshots; // DAT_005462F4.
+    i32 actor_snapshot_count = 0; // DAT_005462F0.
+    RuntimeActorSnapshotD3D snapshot_d3d;
+    std::unique_ptr<RuntimeActorSnapshots> snapshots;
+    std::vector<SceneD3DCommand> snapshot_saved; // The frame's commands while a snapshot is recorded.
+    RuntimeGlowTargets glow_targets;
+    std::unique_ptr<RuntimeGlowPass> glow_pass;
+    std::unique_ptr<RuntimeAvatarGlow> avatar_glow;
 };
+
+void SceneActorServices::State::actor_callouts(u32 address, u32 id, const RuntimeActorCreationOptions* options)
+{
+    auto* object = object_of(scene.resolve_address(address, 0).data());
+    if (object == nullptr || !actors->actors.contains(object->bytes.get()))
+    {
+        unbound("actor +0x8C callouts of an address outside the scene actors");
+    }
+    if (object->type == 5)
+    {
+        auto& player = players->player(*object);
+        dispatch_actor_attachment_records(player.actor_instance.startup.resource.resource.data(), i32(id), nullptr,
+            options, player.callout, 0);
+        return;
+    }
+    auto& view = actors->view(*object);
+    dispatch_actor_attachment_records(view.startup.resource.resource.data(), i32(id), nullptr, options,
+        base_of(*object).base.callouts, 0);
+}
+
+RuntimeBodyStateContext SceneActorServices::State::body_state_context(u32 body_address)
+{
+    const auto bytes = scene.resolve_address(body_address, 0);
+    auto* player = players->find_child_owner(bytes.data());
+    if (player == nullptr || player->body.data() != bytes.data())
+    {
+        unbound("state action whose body has no player owner");
+    }
+    auto& instance = player->actor_instance;
+    return RuntimeBodyStateContext{player->body, player->actor, player->body_flags,
+        instance.animation.controller.get(), instance.shape, instance.startup.models.secondary.get(),
+        instance.startup.secondary_mode, sounds, node_cache, player->secondary, player->second_receiver,
+        [](std::span<const u32>)
+        {
+            unbound("body message slot (vtable +0xC)");
+        },
+        player->body_selection,
+        [this](u32 address, size_t size) -> std::span<const u8>
+        {
+            // State parameters are executable objparams (cloned by 0x00107720); their pointers are XBE
+            // addresses. Size 0 asks for a NUL-terminated string.
+            if (size == 0)
+            {
+                return {reinterpret_cast<const u8*>(image.string(address)), 1};
+            }
+            return image.memory(address, size);
+        }};
+}
 
 SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     : scene(owner),
@@ -1109,9 +1214,20 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     actors->released = [this](Actor& actor)
     {
         actor_updates.erase(&actor);
+        for (const auto& [record, row] : mind_target_rows)
+        {
+            if (row->target != nullptr && &row->target->actor == &actor)
+            {
+                retired_targets[row->target->address] = retire_target(row->bytes, actor);
+            }
+        }
+    };
+    actors->bindings.unlink_active_node = [this](const u8* bytes)
+    {
+        unlink_active_node(bytes);
     };
     actors->install(scene.types);
-    players = std::make_unique<NativePlayerFactoryOwner>(NativePlayerFactoryBindings{*actors,
+    players =std::make_unique<NativePlayerFactoryOwner>(NativePlayerFactoryBindings{*actors,
         NativePlayerSceneBindings{scene.factory, image.pools, resources.registry, resources.error, random,
         input_release, input_activation, g_flags_ea9c, g_flag_ea98, player_count, active_strategies,
         address_zero,
@@ -1302,37 +1418,30 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             return scene.keep_object(std::move(object));
         },
-        word_messages, *emitter});
+        word_messages, *emitter,
+        [this](u32 address)
+        {
+            return object_of(scene.resolve_address(address, 0).data());
+        },
+        [this]() -> RuntimeActorSnapshots&
+        {
+            if (snapshots == nullptr)
+            {
+                unbound("actor snapshots before the scene's draw contexts");
+            }
+            return *snapshots;
+        },
+        ambient_points_enabled, g_flag_2104,
+        [this](const void* pointer, size_t size)
+        {
+            return heap_address(pointer, size);
+        }});
     classes->install(scene.types);
     classes->defer_release = true;
     install_runtime_move_action_classes(scene.types);
     install_runtime_body_state_classes(scene.types, [this](u32 body_address)
     {
-        const auto bytes = scene.resolve_address(body_address, 0);
-        auto* player = players->find_child_owner(bytes.data());
-        if (player == nullptr || player->body.data() != bytes.data())
-        {
-            unbound("state action whose body has no player owner");
-        }
-        auto& instance = player->actor_instance;
-        return RuntimeBodyStateContext{player->body, player->actor, player->body_flags,
-            instance.animation.controller.get(), instance.shape, instance.startup.models.secondary.get(),
-            instance.startup.secondary_mode, sounds, node_cache, player->secondary, player->second_receiver,
-            [](std::span<const u32>)
-            {
-                unbound("body message slot (vtable +0xC)");
-            },
-            player->body_selection,
-            [this](u32 address, size_t size) -> std::span<const u8>
-            {
-                // State parameters are executable objparams (cloned by 0x00107720); their pointers are XBE
-                // addresses. Size 0 asks for a NUL-terminated string.
-                if (size == 0)
-                {
-                    return {reinterpret_cast<const u8*>(image.string(address)), 1};
-                }
-                return image.memory(address, size);
-            }};
+        return body_state_context(body_address);
     },
     [this](u32 body_address)
     {
@@ -1363,6 +1472,51 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
         }
         return graph->dizzy_context();
+    },
+    [this](u32 body_address) -> RuntimeKnockdownContext&
+    {
+        const auto bytes = scene.resolve_address(body_address, 0);
+        auto* player = players->find_child_owner(bytes.data());
+        if (player == nullptr || player->body.data() != bytes.data())
+        {
+            unbound("knockdown state whose body has no player owner");
+        }
+        auto& graph = body_messages[player->body.data()];
+        if (graph == nullptr)
+        {
+            graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
+        }
+        return graph->knockdown_context();
+    },
+    [this](u32 body_address) -> RuntimeDieStateContext&
+    {
+        const auto bytes = scene.resolve_address(body_address, 0);
+        auto* player = players->find_child_owner(bytes.data());
+        if (player == nullptr || player->body.data() != bytes.data())
+        {
+            unbound("die state whose body has no player owner");
+        }
+        auto& graph = body_messages[player->body.data()];
+        if (graph == nullptr)
+        {
+            graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
+        }
+        return graph->die_context();
+    },
+    [this](u32 body_address) -> RuntimeAnimStateContext&
+    {
+        const auto bytes = scene.resolve_address(body_address, 0);
+        auto* player = players->find_child_owner(bytes.data());
+        if (player == nullptr || player->body.data() != bytes.data())
+        {
+            unbound("anim state whose body has no player owner");
+        }
+        auto& graph = body_messages[player->body.data()];
+        if (graph == nullptr)
+        {
+            graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
+        }
+        return graph->anim_context();
     });
     scene.install_base_class();
 
@@ -1765,6 +1919,46 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         i32(g_language), data(0x004275DC, 5 * 4), g_sim_freeze, g_sim_dt, g_sim_scale});
     scene.controls->context.attract = attract_services.get();
     bind_book_services();
+    // Boot 0x000620C0's glow targets over the book pages: book page 0's surface (DAT_005047E0) and, for the depth
+    // surface (DAT_005047FC) and its texture alias (DAT_005047E8), book page 1, the scene's stand-in for the depth
+    // memory DAT_005047E4 aliases as LIN_A8R8G8B8.
+    const auto frame_record = [](std::span<u8> texture)
+    {
+        return texture.data() + read_u32(texture, 4) + u32(texture[0x12]) * 0x14;
+    };
+    glow_targets.page_texture = frame_record(book_pages[0]);
+    glow_targets.depth_texture = frame_record(book_pages[1]);
+    glow_targets.page_surface = d3d_device.outer().surface(
+        DialogueSurfaceHandle(resources.memory.address_of(glow_targets.page_texture)), 0);
+    glow_targets.depth_surface = d3d_device.outer().surface(
+        DialogueSurfaceHandle(resources.memory.address_of(glow_targets.depth_texture)), 0);
+    glow_pass = std::make_unique<RuntimeGlowPass>(RuntimeGlowPass{*dialogue_outer, glow_targets, g_50484c,
+        [this](u32 address)
+        {
+            return read_u32(data(address, 4), 0);
+        },
+        [this](u32 value)
+        {
+            d3d_device.set_state(0x40370, value); // D3D 0x001723C0, NV097_SET_STENCIL_OP_FAIL.
+        },
+        [this](u32 value)
+        {
+            d3d_device.set_state(SceneD3DDevice::kPSTextureModes, value); // D3D 0x00171020.
+        },
+        [this](u32 address)
+        {
+            // Loaded texture resources sit in the resource arena (from 0x40000000).
+            if (address < 0x40000000)
+            {
+                unbound("glow texture outside the resource arena");
+            }
+            return resources.memory.tail(address).data();
+        }});
+    avatar_glow = std::make_unique<RuntimeAvatarGlow>(RuntimeAvatarGlow{*glow_pass, mirror_pass,
+        [this](u32 address)
+        {
+            return read_u32(data(address, 4), 0);
+        }});
     bind_gameselect_services();
     bind_transition_services();
     // The scene model renderer over the relocated resources and the host D3D device.
@@ -1804,6 +1998,101 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         temporary_lights});
     model_draw = std::make_unique<SceneModelDrawContext>(SceneModelDrawContext{render_image, *light_construction,
         matrix_boundaries});
+    d3d_device.texture_size = [this](std::uintptr_t texture) -> std::array<u32, 2>
+    {
+        const auto& record = resources.d3d.resources.at(u32(texture));
+        return {record.header[0], record.header[1]};
+    };
+    snapshot_d3d.create_texture = [this](u32 width, u32 height, u32 levels, u32 usage, u32 format, u32 pool)
+    {
+        // D3DDevice_CreateTexture2: one level of 32-bit texels behind a resource header.
+        if (levels != 1 || (format != 6 && format != 0x12))
+        {
+            unbound("D3DDevice_CreateTexture2 of a format or level count other than one 32-bit level");
+        }
+        const u32 header = resources.memory.allocate(0x14, 4).address;
+        const u32 texels = resources.memory.allocate(width * height * 4, 0x80).address;
+        auto& record = resources.d3d.resources[header];
+        record.kind = 3;
+        record.data = texels;
+        record.header = {width, height, levels, usage, format, pool};
+        created_textures.insert(header);
+        return header;
+    };
+    snapshot_d3d.surface_level = [this](u32 texture, u32 level)
+    {
+        return d3d_device.outer().surface(DialogueSurfaceHandle(texture), level);
+    };
+    snapshot_d3d.depth_stencil = [this]()
+    {
+        return d3d_device.outer().depth_buffer();
+    };
+    snapshot_d3d.render_target = [this]()
+    {
+        return d3d_device.outer().back_buffer(0);
+    };
+    snapshot_d3d.set_render_target = [this](std::uintptr_t color, std::uintptr_t depth)
+    {
+        d3d_device.outer().render_target(color, depth);
+    };
+    snapshot_d3d.z_enable = [this](u32 value)
+    {
+        d3d_device.set_state(SceneD3DDevice::kZEnable, value);
+    };
+    snapshot_d3d.stencil_enable = [this](u32 value)
+    {
+        d3d_device.set_state(SceneD3DDevice::kStencilEnable, value);
+    };
+    snapshot_d3d.set_state = [this](u32 method, u32 value)
+    {
+        d3d_device.set_state(method, value);
+    };
+    snapshot_d3d.clear = [this](u32 count, const void* rectangles, u32 flags, u32 color, float depth, u32 stencil)
+    {
+        d3d_device.outer().clear(count, rectangles, flags, color, depth, stencil);
+    };
+    snapshot_d3d.release = [this](std::uintptr_t handle)
+    {
+        d3d_device.outer().release(handle);
+    };
+    snapshots = std::make_unique<RuntimeActorSnapshots>(RuntimeActorSnapshots{*display_setup, snapshot_d3d,
+        deferred_states[(0x00181C70 - 0x00181968) / 4], depth_function, cull_mode,
+        [this](Actor& actor, const AnimationMatrix& world, u32 kind)
+        {
+            if (actor.model == nullptr || actor.model->runtime == nullptr)
+            {
+                unbound("actor snapshot of an actor without a model");
+            }
+            RuntimeModelInstance& instance = *actor.model->runtime;
+            flag_origins[&instance] = instance.node_flags.data();
+            draw_runtime_scene_model(instance, resources.memory.address_of(instance.source->cpu.data()), world, kind,
+                *model_draw);
+        },
+        actor_snapshots, actor_snapshot_count,
+        [this]()
+        {
+            snapshot_saved = d3d_device.take_commands();
+        },
+        [this]()
+        {
+            auto commands = d3d_device.take_commands();
+            const SceneD3DPresentContext present{resources.memory, resources.d3d, d3d_device.vertex_shaders,
+                [this](const u8* record) -> const RgbaImage&
+                {
+                    return texture_image(record);
+                },
+                [this](std::uintptr_t color, std::uintptr_t depth)
+                {
+                    present_render_target(color, depth);
+                },
+                [this](u32 texture)
+                {
+                    copy_back_buffer(texture);
+                }};
+            present_scene_d3d_commands(commands, present);
+            d3d_device.commands = std::move(snapshot_saved);
+            snapshot_saved.clear();
+        }});
     tree_dispatch = std::make_unique<ModelTreeDispatchContext>(ModelTreeDispatchContext{model_renderer, render_image,
         tree_stack, tree_stack_index, frame_combined, frame_cameras, render_retained_204, render_mask, fog_pixel_state,
         cull_mode, node_callbacks});
@@ -2112,7 +2401,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         director_targets->input_device, input_state});
     body_services = std::make_unique<SceneBodyServices>(SceneBodyServices{game, scene.factory, image.pools,
         scene.objects, sounds, effects, latches, entity_detail::g_world.body_a, global_attachments, origin, default_euler, random,
-        address_zero, clock, statsheet.data(), actor_tags.data(), *damage_tables, *footsteps, surface_names,
+        address_zero, clock, statsheet.data(), object_tags.data(), *damage_tables, *footsteps, surface_names,
         object_tags, image.string(0x0031C354),
         {image.string(0x00315A98), image.string(0x00315AE0), image.string(0x00315AFC), image.string(0x00315AF4)},
         std::span<const char* const, 0x55>(callout_names.data(), 0x55),
@@ -2219,14 +2508,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         },
         [this](u32 address, u32 id)
         {
-            auto* object = object_of(scene.resolve_address(address, 0).data());
-            if (object == nullptr || object->type != 5)
-            {
-                unbound("actor +0x8C callouts of a non-player actor");
-            }
-            auto& player = players->player(*object);
-            dispatch_actor_attachment_records(player.actor_instance.startup.resource.resource.data(), i32(id), nullptr,
-                &g_actor_creation_options, player.callout, 0);
+            actor_callouts(address, id, &g_actor_creation_options);
         },
         data(0x00217DB0, 0x108),
         [this](u32 address) -> RuntimeBodyDamageEntry&
@@ -2253,7 +2535,44 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
                 unbound("actor view of an object outside the scene");
             }
             return actors->view(*object);
+        },
+        [this](u32 body_address)
+        {
+            return body_state_context(body_address);
+        },
+        g_50ea01, {&g_50ea7c, &g_50ea80, &g_50ea84, &g_50ea88, &g_50ea8c, &g_50ea90},
+        std::span<const u8, 2>(data(0x00433D08, 2).data(), 2),
+        std::span<const float, 2>(reinterpret_cast<const float*>(data(0x00433D0C, 8).data()), 2),
+        [this](u32 address, u32 id, const RuntimeActorCreationOptions* options)
+        {
+            actor_callouts(address, id, options);
+        },
+        [this](i32 count, u32 player, u32 actor) -> i32
+        {
+            // Xbox 0x0013FC50: each slot's records are copied first (0x000FCC90), then each owner gets message 8
+            // with its copy, which is freed after; the replies' +4 words are summed.
+            std::vector<std::pair<entity_detail::SegmentProbe*, GhoulySpawnPool*>> kept;
+            for (i32 index = 0; index < count; ++index)
+            {
+                auto& slot = entity_detail::g_segment_slots[index];
+                kept.emplace_back(slot.object, copy_segment_records(slot.pool));
+            }
+            i32 total = 0;
+            for (auto& [probe, records] : kept)
+            {
+                RuntimeSweepNotice notice{8, 0, records, player, actor};
+                segment_contact_actor(*probe).message(&notice);
+                engine_heap_free(records);
+                total += std::bit_cast<i32>(notice.reply);
+            }
+            return total;
+        },
+        [this](u32 address) -> const char*
+        {
+            return address == 0 ? nullptr : image.string(address);
         }});
+    body_services->dizzy_input_preset = data(0x00428660, 0x10);
+    std::memcpy(&body_services->dizzy_input_scale, data(0x00428670, 4).data(), 4);
     state_action_names = strings(0x003390E4, 0x174);
     goal_flag_names = strings(0x003397AC, 3);
     mind_services = std::make_unique<SceneMindServices>(SceneMindServices{game, resources.registry, resources.error,
@@ -2272,6 +2591,10 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             {
                 return &found->second->actor;
             }
+            if (const auto retired = retired_targets.find(address); retired != retired_targets.end())
+            {
+                return &retired->second->actor;
+            }
             return actors->actors.at(scene.resolve_address(address, 0).data());
         },
         [this](u32 address) -> std::span<const u8>
@@ -2279,6 +2602,10 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             if (const auto found = target_views.find(address); found != target_views.end())
             {
                 return found->second->bytes;
+            }
+            if (const auto retired = retired_targets.find(address); retired != retired_targets.end())
+            {
+                return retired->second->bytes;
             }
             auto* object = object_of(scene.resolve_address(address, 0).data());
             if (object == nullptr)
@@ -2340,11 +2667,27 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         [this](u32 address) -> std::span<const u8>
         {
             auto* object = object_of(scene.resolve_address(address, 0).data());
-            if (object == nullptr || object->type != 5)
+            if (object == nullptr)
             {
-                unbound("target body of an actor without a player body");
+                unbound("target body of an address outside the scene objects");
             }
-            return players->player(*object).body;
+            if (object->type == 5)
+            {
+                return players->player(*object).body;
+            }
+            // Other classes keep their own word at actor +0x95C; the target code reads it only for its own
+            // kinds, so a zero word gives an empty view that raises if it is read.
+            const u32 body = read_u32({object->bytes.get(), object->size}, 0x95C);
+            if (body == 0)
+            {
+                return {};
+            }
+            if (body < 0x10000000 || body >= 0x30000000)
+            {
+                unbound("target body word of factory type " + std::to_string(object->type)
+                    + " outside the scene objects");
+            }
+            return scene.resolve_tail(body);
         },
         [this](const void* pointer, size_t size)
         {
@@ -2355,6 +2698,68 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         forget_texture_images(begin, size);
     };
     active_services = this;
+    // Xbox 0x00122C70: every active actor (DAT_00511AA4, actor +0x900) gets the message through vtable +0xC. The
+    // native senders' payloads are retail word arrays, except three that carry host pointers.
+    g_actor_broadcast = [this](const i32* raw)
+    {
+        std::array<u32, 0x42> words{};
+        const u32 id = u32(raw[0]);
+        words[0] = id;
+        switch (id)
+        {
+        case 0x8D:
+        {
+            const auto& release = *reinterpret_cast<const ActorAttachmentReleaseMessage*>(raw);
+            words[1] = heap_address(release.record, 0x68);
+            words[2] = u32(release.value);
+            break;
+        }
+        case 0x85:
+            words[1] = address_of(reinterpret_cast<const ActorModelAnchorReleaseMessage*>(raw)->anchor);
+            break;
+        case 0x7E:
+        case 0x7F:
+        {
+            // A cutscene instance (0x0004DB20's heap block): its stable heap address.
+            const void* instance = reinterpret_cast<const ActorReferenceMessage*>(raw)->value;
+            words[1] = instance == nullptr ? 0 : heap_address(instance, 4);
+            break;
+        }
+        default:
+        {
+            static const std::unordered_map<u32, u32> lengths{{0x31, 3}, {0x6E, 8}, {0x6F, 5}, {0x70, 5}, {0x71, 2},
+                {0x72, 5}, {0x73, 3}, {0x74, 3}, {0x75, 2}, {0x76, 2}, {0x77, 2}, {0x78, 2}, {0x79, 2}, {0x87, 3},
+                {0xAB, 4}};
+            const auto found = lengths.find(id);
+            if (found == lengths.end())
+            {
+                unbound("broadcast message " + std::to_string(id) + " has no word layout");
+            }
+            std::memcpy(words.data(), raw, found->second * 4);
+            break;
+        }
+        }
+        for (auto* recipient = latches; recipient != nullptr;)
+        {
+            auto* current = recipient;
+            recipient = recipient->next;
+            u32 address = 0;
+            for (const auto& [node_address, latch] : active_nodes)
+            {
+                if (latch.get() == current)
+                {
+                    address = node_address;
+                    break;
+                }
+            }
+            if (address == 0)
+            {
+                unbound("broadcast to an active node with no scene actor");
+            }
+            std::array<u32, 0x42> copy = words;
+            object_message(*object_of(scene.resolve_address(address, 0).data()), copy);
+        }
+    };
     g_script_actor_bytes = [this](u32 address) -> std::span<const u8>
     {
         auto* object = object_of(scene.resolve_address(address, 0).data());
@@ -3078,6 +3483,7 @@ SceneActorServices::State::~State()
     if (active_services == this)
     {
         active_services = nullptr;
+        g_actor_broadcast = nullptr;
         g_alt_node_body = nullptr;
         g_script_actor_bytes = nullptr;
         g_script_kill_counters = nullptr;
@@ -3201,9 +3607,31 @@ void SceneActorServices::State::refresh_mind_targets()
         target_views[address] = &row->view;
         target_records[address] = row->target.get();
     }
-    std::erase_if(mind_target_rows, [&live](const auto& row)
+    std::erase_if(mind_target_rows, [this, &live](const auto& row)
     {
-        return !live.contains(row.first);
+        if (live.contains(row.first))
+        {
+            return false;
+        }
+        // A record unlinked while its actor lives on keeps its last bytes too (a released actor's are kept by
+        // the release hook).
+        if (row.second->target != nullptr && !retired_targets.contains(row.second->target->address))
+        {
+            Actor* actor = &row.second->target->actor;
+            const bool alive = std::any_of(actors->actors.begin(), actors->actors.end(), [actor](const auto& entry)
+            {
+                return entry.second == actor;
+            });
+            if (alive)
+            {
+                retired_targets[row.second->target->address] = retire_target(row.second->bytes, *actor);
+            }
+        }
+        return true;
+    });
+    std::erase_if(retired_targets, [this](const auto& retired)
+    {
+        return target_views.contains(retired.first);
     });
 }
 
@@ -3525,6 +3953,32 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
         scene.controls->message(object, message);
         return;
     }
+    if (type == 0xF)
+    {
+        // Getter 0x00066900: +0x10 is 0x00066FE0 and +0xC is 0x00070370.
+        auto& view = actors->view(object);
+        const u8* bytes = object.bytes.get();
+        actor_updates[&view.bat.actor] = [this, bytes](Actor&)
+        {
+            auto& updated = *object_of(bytes);
+            refresh_shape_poses(updated);
+            auto& updated_view = actors->view(updated);
+            refresh_actor_model_animation_view(updated_view);
+            frame->freeze = pause;
+            frame->dt = frame_delta;
+            frame->scene_scale = time_scale;
+            classes->update_motion_blur(updated);
+            store_actor_model_animation_view(updated_view);
+        };
+        // Xbox 0x00070370
+        dispatch_base_actor_word_message(base_of(object).base, message, word_messages);
+        if (message[0] == 0x23)
+        {
+            unregister_actor_segment_probes(view.render);
+            clear_actor_shape_probe(view.bat.actor, view.shape);
+        }
+        return;
+    }
     if (type == 2 || type == 0x15)
     {
         if (type == 2)
@@ -3575,6 +4029,86 @@ RuntimeSegmentContactActor& SceneActorServices::State::prop_contact_actor(entity
         slot = std::make_unique<RuntimeSegmentContactActor>(RuntimeSegmentContactActor{actor, 0, &view.body_node,
             [this, &actor, bytes = view.bytes.data()](void* payload)
             {
+                // The receiver reads a contact pool as its retail image: the header's three addresses, then the
+                // records, bound to a scene address for the call.
+                std::vector<u8> image;
+                const auto bind_pool = [this, &image](const GhoulySpawnPool* pool) -> u32
+                {
+                    if (pool == nullptr)
+                    {
+                        return 0;
+                    }
+                    const size_t used = size_t(pool->cursor - pool->begin);
+                    const size_t reserved = size_t(pool->limit - pool->begin);
+                    image.resize(0x10 + reserved);
+                    std::memcpy(image.data(), &pool->stride, 2);
+                    std::memcpy(image.data() + 2, &pool->grow, 2);
+                    std::memcpy(image.data() + 0x10, pool->begin, used);
+                    const u32 address = scene.bind_address(image);
+                    const std::array<u32, 3> addresses{address + 0x10, address + 0x10 + u32(used),
+                        address + 0x10 + u32(reserved)};
+                    std::memcpy(image.data() + 4, addresses.data(), sizeof(addresses));
+                    return address;
+                };
+                const auto send = [this, bytes, &image](std::span<u32> words, u32 records)
+                {
+                    try
+                    {
+                        object_message(*object_of(bytes), words);
+                    }
+                    catch (...)
+                    {
+                        if (records != 0)
+                        {
+                            scene.unbind_address(image.data());
+                        }
+                        throw;
+                    }
+                    if (records != 0)
+                    {
+                        scene.unbind_address(image.data());
+                    }
+                };
+                const u32 id = *static_cast<const u32*>(payload);
+                if (id == 8)
+                {
+                    // {8, reply, contacts, player, actor} from the knockdown sweep (0x0013FC50).
+                    auto& sweep = *static_cast<RuntimeSweepNotice*>(payload);
+                    const u32 records = bind_pool(sweep.contacts);
+                    std::array<u32, 0x42> words{};
+                    words[0] = sweep.id;
+                    words[1] = sweep.reply;
+                    words[2] = records;
+                    words[3] = sweep.player;
+                    words[4] = sweep.actor;
+                    send(words, records);
+                    sweep.reply = words[1];
+                    return;
+                }
+                if (id == 0x15)
+                {
+                    // {0x15, reply, sender, velocity, contacts, point} from a player's contact (0x0001F8C0).
+                    auto& notice = *static_cast<RuntimeContactNotice*>(payload);
+                    const u32 records = bind_pool(notice.contacts);
+                    std::array<u32, 0x42> words{};
+                    words[0] = notice.id;
+                    words[1] = notice.reply;
+                    words[2] = address_of(notice.sender);
+                    words[3] = std::bit_cast<u32>(notice.velocity.x);
+                    words[4] = std::bit_cast<u32>(notice.velocity.y);
+                    words[5] = std::bit_cast<u32>(notice.velocity.z);
+                    words[6] = records;
+                    words[7] = std::bit_cast<u32>(notice.point.x);
+                    words[8] = std::bit_cast<u32>(notice.point.y);
+                    words[9] = std::bit_cast<u32>(notice.point.z);
+                    send(words, records);
+                    notice.reply = words[1];
+                    return;
+                }
+                if (id != 0x1B)
+                {
+                    unbound("prop contact notice " + std::to_string(id));
+                }
                 auto& notice = *static_cast<RuntimePropContactNotice*>(payload);
                 const u32 contacts = scene.bind_address({reinterpret_cast<u8*>(notice.contacts), sizeof(GhoulySpawnPool)});
                 std::array<u32, 8> words{notice.id, notice.reply, address_of(notice.sender), notice.value, contacts,
@@ -3641,6 +4175,35 @@ RuntimeSegmentContactActor& SceneActorServices::State::segment_contact_actor(ent
                 &player->links[0],
                 [this, player](void* payload)
                 {
+                    if (*static_cast<const u32*>(payload) == 8)
+                    {
+                        // {8, reply, contacts, player, actor} from the knockdown sweep (0x0013FC50).
+                        auto& sweep = *static_cast<RuntimeSweepNotice*>(payload);
+                        std::array<u32, 0x42> words{};
+                        words[0] = sweep.id;
+                        words[1] = sweep.reply;
+                        words[3] = sweep.player;
+                        words[4] = sweep.actor;
+                        dispatch_contact_words(*player, words, sweep.contacts, 2);
+                        sweep.reply = words[1];
+                        return;
+                    }
+                    if (*static_cast<const u32*>(payload) == 0x1B)
+                    {
+                        // {0x1B, reply, sender, value, contacts, point} from a contact prop's shapes (0x0006EB00).
+                        auto& notice = *static_cast<RuntimePropContactNotice*>(payload);
+                        std::array<u32, 0x42> words{};
+                        words[0] = notice.id;
+                        words[1] = notice.reply;
+                        words[2] = address_of(notice.sender);
+                        words[3] = notice.value;
+                        words[5] = std::bit_cast<u32>(notice.point.x);
+                        words[6] = std::bit_cast<u32>(notice.point.y);
+                        words[7] = std::bit_cast<u32>(notice.point.z);
+                        dispatch_contact_words(*player, words, notice.contacts, 4);
+                        notice.reply = words[1];
+                        return;
+                    }
                     if (*static_cast<const u32*>(payload) != 0x15)
                     {
                         unbound("player contact payload " + std::to_string(*static_cast<const u32*>(payload)));
@@ -3868,6 +4431,27 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
     }
 }
 
+// The host latch mirrors an actor's +0x900 node; 0x0003EBA0 takes it off DAT_00511AA4 before the rest of the
+// release, so later broadcasts during that release skip the actor.
+void SceneActorServices::State::unlink_active_node(const u8* bytes)
+{
+    const auto found = active_nodes.find(scene.address_of(bytes));
+    if (found == active_nodes.end())
+    {
+        return;
+    }
+    auto** link = &latches;
+    while (*link != nullptr && *link != found->second.get())
+    {
+        link = &(*link)->next;
+    }
+    if (*link != nullptr)
+    {
+        *link = (*link)->next;
+    }
+    found->second->next = nullptr;
+}
+
 // Active-list adapter: the native Message carries the actor argument the retail words hold at +4.
 void SceneActorServices::State::latch_message(entity_detail::LatchNode& node, const Message& message)
 {
@@ -4019,8 +4603,24 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
     const u8* floor_hint = nullptr;
     if (!mind_view.empty() && read_u32(mind_view, 0x10) != 0)
     {
-        // Mind +0x10 is a DAT_00545988 target record.
-        floor_hint = target_views.at(read_u32(mind_view, 0x10))->bytes.data();
+        // Mind +0x10 is a DAT_00545988 target record; the host views are rebuilt when a record is new.
+        const u32 record = read_u32(mind_view, 0x10);
+        if (!target_views.contains(record))
+        {
+            refresh_mind_targets();
+        }
+        if (const auto found = target_views.find(record); found != target_views.end())
+        {
+            floor_hint = found->second->bytes.data();
+        }
+        else if (const auto retired = retired_targets.find(record); retired != retired_targets.end())
+        {
+            floor_hint = retired->second->bytes.data();
+        }
+        else
+        {
+            unbound("mind +0x10 target record " + std::to_string(record) + " outside DAT_00545988");
+        }
     }
     if (read_u32(player.body, 0x710) != 0)
     {
@@ -4120,9 +4720,12 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
         {
             switch (action.type)
             {
+            case 0x5E:
+            case 0x62:
             case 0x64:
             case 0x73:
             case 0x74:
+            case 0x7A:
             case 0x87:
             case 0x8E:
                 return runtime_body_action_next_key(action);
@@ -4199,7 +4802,7 @@ std::unique_ptr<RuntimeBackgroundConstructionServices> SceneActorServices::State
             {
                 return size == 0 ? resources.memory.tail(address) : resources.memory.resolve(address, size);
             }
-            return scene.resolve_address(address, size);
+            return size == 0 ? scene.resolve_tail(address) : scene.resolve_address(address, size);
         }
         catch (const Error& error)
         {
@@ -4313,9 +4916,18 @@ void SceneActorServices::State::background_message(NativeBackgroundInstance& bac
         }
         return actors->actors.at(scene.resolve_address(address, 0).data());
     };
-    const std::function<void(Actor&, const void*)> reply = [this](Actor& receiver, const void* words)
+    const std::function<void(Actor&, const void*)> reply = [this](Actor& receiver, const void* payload)
     {
-        actor_message(receiver, words);
+        // The background's only actor message is the rumble 0x50: its +4 is the cue name's retail address.
+        const auto& rumble = *static_cast<const BackgroundRumbleMessage*>(payload);
+        if (rumble.id != 0x50)
+        {
+            unbound("background actor message " + std::to_string(rumble.id));
+        }
+        std::array<u32, 0x42> words{};
+        words[0] = rumble.id;
+        words[1] = address_of(rumble.name);
+        actor_message(receiver, words.data());
     };
     BackgroundMessageContext context{base.base, base_message, parts, address_zero, *score, resources.text, part_text,
         wide_scratch.data(), broken_parts, reinterpret_cast<const char*>(data(0x00421E58, 0x2D).data()),
@@ -4542,7 +5154,7 @@ void SceneActorServices::State::actor_draw(Actor& actor, i32 view, i32 pass)
             }
             // Type 0x1A (vtable 0x00504DD8) +0x14 is 0x0006EF20, a jump to the actor draw 0x0003C9E0; types 2, 0x1F
             // and 0x23 keep the base slot 0x0003C9E0 (getters 0x0003C080, 0x0006DBD0 and 0x00069620).
-            if (type != 0x1A && type != 2 && type != 0x1F && type != 0x23)
+            if (type != 0x1A && type != 2 && type != 0xF && type != 0x1F && type != 0x23)
             {
                 char vtable[16];
                 std::snprintf(vtable, sizeof(vtable), "0x%08X",
@@ -4587,11 +5199,13 @@ void SceneActorServices::State::draw_player(FactoryObject& object, NativePlayerI
         player.second_action.bytes.get(),
         [&player](void*, i32)
         {
-            // States 0x64 (getter 0x0008C940), 0x73 (entityStateHit, getter 0x00095740), 0x74
-            // (entityStateHitFurnace, getter 0x000966B0), 0x87 (entityStateStandAlert, getter 0x000A2530) and 0x8E
-            // (entityStateWalkAlert, getter 0x000A55F0) have the empty slot 0x001628B0 at +0x18.
+            // States 0x5E (getter 0x00088520), 0x62 (entityStateDie, getter 0x0008C1E0), 0x64 (getter 0x0008C940), 0x73 (entityStateHit, getter 0x00095740), 0x74
+            // (entityStateHitFurnace, getter 0x000966B0), 0x7A (getter 0x0009C570), 0x87 (entityStateStandAlert,
+            // getter 0x000A2530) and 0x8E (entityStateWalkAlert, getter 0x000A55F0) have the empty slot 0x001628B0 at
+            // +0x18.
             const u32 type = player.second_action.type;
-            if (type != 0x64 && type != 0x73 && type != 0x74 && type != 0x87 && type != 0x8E)
+            if (type != 0x5E && type != 0x62 && type != 0x64 && type != 0x73 && type != 0x74 && type != 0x7A && type != 0x87
+                && type != 0x8E)
             {
                 unbound("body +0x744 object vtable +0x18 draw for factory type "
                     + std::to_string(player.second_action.type));
@@ -4610,8 +5224,8 @@ u32 SceneActorServices::State::actor_visible(Actor& actor, i32 pass, i32 view)
     {
         return classes->emitter_visible(object, u32(pass), u32(view)) ? 1u : 0u;
     }
-    if (object.type != 2 && object.type != 5 && object.type != 0x15 && object.type != 0x1A && object.type != 0x1F
-        && object.type != 0x23)
+    if (object.type != 2 && object.type != 5 && object.type != 0xF && object.type != 0x15 && object.type != 0x1A
+        && object.type != 0x1F && object.type != 0x23)
     {
         unbound("actor vtable +0x18 visibility for factory type " + std::to_string(object.type));
     }
@@ -5029,8 +5643,8 @@ void SceneActorServices::State::view_refresh_slot(Actor& actor)
         {
             const FactoryObject* object = object_of(bytes);
             const u16 type = object == nullptr ? 0 : object->type;
-            if (type == 2 || type == 4 || type == 5 || type == 0xD || type == 0x15 || type == 0x1A || type == 0x1F
-                || type == 0x23)
+            if (type == 2 || type == 4 || type == 5 || type == 0xD || type == 0xF || type == 0x15 || type == 0x1A
+                || type == 0x1F || type == 0x23)
             {
                 return;
             }
@@ -5150,11 +5764,27 @@ ActorDrawState SceneActorServices::State::actor_draw_state(FactoryObject& object
             instance.state_1c8});
     }
     std::array<u8, 4> flags = view.startup.flags;
-    const auto callback = [](u32 address, const char* slot) -> std::function<void(Actor&, i32, void*)>
+    const auto callback = [this](u32 address, const char* slot) -> std::function<void(Actor&, i32, void*)>
     {
         if (address == 0)
         {
             return {};
+        }
+        if (address == 0x00066B90)
+        {
+            return [this](Actor& drawn, i32, void*)
+            {
+                begin_runtime_avatar_glow(drawn, *avatar_glow);
+            };
+        }
+        if (address == 0x00066C00)
+        {
+            // The third argument is the +0x1A8 word, the copy's own address.
+            return [this](Actor&, i32, void* payload)
+            {
+                end_runtime_avatar_glow(scene.resolve_address(u32(reinterpret_cast<std::uintptr_t>(payload)), 0xA50),
+                    *avatar_glow);
+            };
         }
         return [slot](Actor&, i32, void*)
         {
@@ -5166,10 +5796,51 @@ ActorDrawState SceneActorServices::State::actor_draw_state(FactoryObject& object
         reinterpret_cast<void*>(std::uintptr_t(read_u32(bytes, 0x1A8))), draw_matrices[&actor]};
 }
 
-void SceneActorServices::State::present_render_target(std::uintptr_t color)
+void SceneActorServices::State::present_render_target(std::uintptr_t color, std::uintptr_t depth)
 {
+    if (color == SceneD3DDevice::kBackBuffer && render_target_depth_texture != 0)
+    {
+        // The target's depth surface aliases a LIN_A8R8G8B8 texture (boot 0x000620C0's DAT_005047E8): its texels
+        // take the target's D24S8 words.
+        std::vector<u32> words;
+        gfx_read_native_target_depth(words);
+        const auto& record = resources.d3d.resources.at(render_target_depth_texture);
+        const size_t count = size_t(record.header[0]) * record.header[1];
+        if (!words.empty())
+        {
+            if (words.size() != count || record.header[4] != 0x12)
+            {
+                throw Error("render target depth texture is not a LIN_A8R8G8B8 texture of the target's size");
+            }
+            std::memcpy(resources.memory.tail(record.data).data(), words.data(), count * 4);
+        }
+        movie_textures.insert(resources.memory.pointer(render_target_depth_texture));
+        render_target_depth_texture = 0;
+    }
     if (color == SceneD3DDevice::kBackBuffer)
     {
+        if (render_target_texture != 0 && created_textures.contains(render_target_texture))
+        {
+            // A created swizzled A8R8G8B8 (or linear) texture takes the rendered rows in its own texel order.
+            RgbaImage rendered;
+            gfx_end_native_target(rendered);
+            const auto& record = resources.d3d.resources.at(render_target_texture);
+            const auto texels = resources.memory.tail(record.data).first(size_t(record.header[0]) * record.header[1] * 4);
+            if (rendered.width == i32(record.header[0]) && rendered.height == i32(record.header[1]))
+            {
+                if (record.header[4] == 6)
+                {
+                    swizzle_nv2a_into(texels, rendered.bgra, record.header[0], record.header[1], 4);
+                }
+                else
+                {
+                    std::memcpy(texels.data(), rendered.bgra.data(), texels.size());
+                }
+            }
+            movie_textures.insert(resources.memory.pointer(render_target_texture));
+            render_target_texture = 0;
+            return;
+        }
         if (render_target_texture != 0)
         {
             RgbaImage rendered;
@@ -5202,6 +5873,16 @@ void SceneActorServices::State::present_render_target(std::uintptr_t color)
     }
     gfx_begin_native_target(i32(registered->second.header[0]), i32(registered->second.header[1]));
     render_target_texture = texture;
+    const auto depth_texture = d3d_device.surface_textures.find(depth);
+    if (depth_texture != d3d_device.surface_textures.end())
+    {
+        const auto depth_record = resources.d3d.resources.find(u32(depth_texture->second));
+        if (depth_record == resources.d3d.resources.end() || depth_record->second.kind != 3)
+        {
+            throw Error("render target depth surface is not a registered texture");
+        }
+        render_target_depth_texture = u32(depth_texture->second);
+    }
 }
 
 // D3DDevice_CopyRects(back buffer, null, 0, the texture's level 0, null): the 640x480 game viewport drawn so
@@ -5300,6 +5981,19 @@ const RgbaImage& SceneActorServices::State::texture_image(const u8* record)
     }
     const u32 address = resources.memory.find_address(record);
     const auto registered = resources.d3d.resources.find(address);
+    if (created_textures.contains(address))
+    {
+        // A D3DDevice_CreateTexture2 texture: its creation arguments are its header.
+        const auto& arguments = registered->second.header;
+        TextureHeader header;
+        header.format = XboxFormat(arguments[4]);
+        header.width = u16(arguments[0]);
+        header.height = u16(arguments[1]);
+        header.data_size = arguments[0] * arguments[1] * 4;
+        const auto data = resources.memory.tail(registered->second.data).first(header.data_size);
+        auto image = std::make_unique<RgbaImage>(decode_xbox_texture(header, data));
+        return *texture_images.emplace(record, std::move(image)).first->second;
+    }
     if (address != 0 && registered != resources.d3d.resources.end() && registered->second.data != 0)
     {
         const auto block = resources.memory.tail(resources.memory.block_start(address));
@@ -5576,9 +6270,9 @@ void SceneActorServices::inspect_view(const InspectionView& camera, InspectionFr
             state.d3d_device.vertex_shaders, [&state](const u8* record) -> const RgbaImage&
             {
                 return state.texture_image(record);
-            }, [&state](std::uintptr_t color)
+            }, [&state](std::uintptr_t color, std::uintptr_t depth)
             {
-                state.present_render_target(color);
+                state.present_render_target(color, depth);
             }, [&state](u32 texture)
             {
                 state.copy_back_buffer(texture);
@@ -5610,9 +6304,9 @@ void SceneActorServices::present_views()
         {
             return state.texture_image(record);
         },
-        [&state](std::uintptr_t color)
+        [&state](std::uintptr_t color, std::uintptr_t depth)
         {
-            state.present_render_target(color);
+            state.present_render_target(color, depth);
         },
         [&state](u32 texture)
         {

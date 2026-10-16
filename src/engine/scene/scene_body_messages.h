@@ -10,6 +10,9 @@
 #include "../entities/player_body_collision.h"
 #include "../entities/body_hit_state.h"
 #include "../entities/body_dizzy_state.h"
+#include "../entities/body_die_state.h"
+#include "../entities/body_anim_state.h"
+#include "../entities/body_knockdown_state.h"
 #include <optional>
 
 namespace gbtg
@@ -33,7 +36,7 @@ struct SceneBodyServices
     std::span<const u8> address_zero;
     const RuntimeActorClock& clock;
     const u8* tag_rows; // DAT_00545AC4.
-    const char* const* tag_names; // DAT_0042A854.
+    const char* const* tag_names; // DAT_0042A850, from objTag_Null, as 0x00133A50 indexes it.
     const RuntimeBodyDamageTables& damage_tables;
     const FootstepSoundNames& footsteps;
     std::span<const char* const> surfaces; // DAT_004340A0, 0x12 names.
@@ -96,6 +99,18 @@ struct SceneBodyServices
     std::function<RuntimeBodyDamageEntry&(u32 actor)> damage_at; // A player's body damage entry, by actor address.
     std::function<u32(std::span<const u8> parameters)> create_object; // 0x00107520 into the scene's objects.
     std::function<NativeActorFactoryInstance&(u32 address)> actor_view; // A scene actor's native views.
+    std::function<RuntimeBodyStateContext(u32 body_address)> state_context; // 0x0001FEB0's views of a body.
+    const u8& play_bounded; // DAT_0050EA01.
+    std::array<const float*, 6> play_bounds; // DAT_0050EA7C..DAT_0050EA90.
+    std::span<const u8, 2> hit_bands; // DAT_00433D08.
+    std::span<const float, 2> hit_damage; // DAT_00433D0C.
+    // 0x0003BE20 over an actor's +0x8C records with an explicit options pointer (may be null) and callback 0.
+    std::function<void(u32 actor, u32 id, const RuntimeActorCreationOptions* options)> actor_callouts_with;
+    // 0x0013FC50 over the DAT_00511A1C slots the last probe filled.
+    std::function<i32(i32 count, u32 player, u32 actor)> probe_messages;
+    std::function<const char*(u32 address)> image_string; // An XBE string, or null for 0.
+    std::span<const u8> dizzy_input_preset{}; // DAT_00428660, 0x00109810's tracking preset for the dizzy state.
+    float dizzy_input_scale = 0.f; // DAT_00428670.
 };
 
 // One body's message graph: the parent body handler 0x000253B0 and the derived slots of types 0x27
@@ -105,6 +120,9 @@ class SceneBodyMessages
 public:
     SceneBodyMessages(SceneBodyServices& services, NativePlayerInstance& player);
     RuntimeDizzyStateContext& dizzy_context(); // The type 0x64 state's views of this body.
+    RuntimeDieStateContext& die_context(); // The type 0x62 state's views of this body.
+    RuntimeAnimStateContext& anim_context(); // The type 0x5E state's views of this body.
+    RuntimeKnockdownContext& knockdown_context(); // The type 0x7A state's views of this body.
     SceneBodyMessages(const SceneBodyMessages&) = delete;
     SceneBodyMessages& operator=(const SceneBodyMessages&) = delete;
     void dispatch(FactoryObject& body, std::span<u32> message);
@@ -134,6 +152,13 @@ private:
     RuntimeDizzyStars dizzy_stars_;
     std::optional<RuntimeDizzyStateContext> dizzy_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> dizzy_children_; // 0x64, 0x0008CEA0.
+    std::optional<RuntimeDieStateContext> die_;
+    std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> die_children_; // 0x62, 0x0008C4D0.
+    std::optional<RuntimeAnimStateContext> anim_;
+    std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> anim_children_; // 0x5E, 0x00088960.
+    std::optional<RuntimeKnockdownContext> knockdown_;
+    std::optional<RuntimeBodyStateContext> knockdown_shape_;
+    std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> knockdown_children_; // 0x7A, 0x0009D0E0.
     std::array<u8, 0x20> shape_scratch_{};
     RuntimeBodyTimerRecipient* first_timer_ = nullptr; // Body +0x760.
     RuntimeBodyTimerRecipient* second_timer_ = nullptr; // Body +0x7F0.

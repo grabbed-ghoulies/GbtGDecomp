@@ -3,6 +3,7 @@
 #include "trigger_actor.h"
 #include "actor_word_messages.h"
 #include "fx_anim_emitter.h"
+#include "avatar_motion_blur.h"
 
 namespace gbtg
 {
@@ -39,6 +40,11 @@ struct NativeSceneActorClassBindings
     std::function<FactoryObject*(FactoryObject)> keep;
     const RuntimeActorWordBindings& word_messages;
     NativeSceneEmitterBindings& emitter;
+    std::function<FactoryObject*(u32)> object_at; // A scene object by native address, or null.
+    std::function<RuntimeActorSnapshots&()> snapshots; // DAT_005462F4 and 0x00116530's views.
+    const u32& lights_enabled; // DAT_005120F0.
+    const u32& script_lights; // DAT_00512104.
+    std::function<u32(const void*, size_t)> heap_address; // A stable retail address for a native heap block.
 };
 // Native contexts for the retail area/trigger classes, over the existing
 // actor lifecycle owner. All referenced scene services must outlive this owner.
@@ -53,16 +59,19 @@ public:
     bool construct_area(FactoryObject& object, std::span<const u8> parameters);
     bool construct_trigger(FactoryObject& object, std::span<const u8> parameters);
     bool construct_emitter(FactoryObject& object, std::span<const u8> parameters);
+    bool construct_motion_blur(FactoryObject& object, std::span<const u8> parameters);
     bool defer_release = false; // Keep message views through the actor-base destructor.
     void release_view(const u8* bytes); // Native ownership cleanup after all retail destructors.
     void release_area(FactoryObject& object);
     void release_trigger(FactoryObject& object);
     void release_emitter(FactoryObject& object);
+    void release_motion_blur(FactoryObject& object);
     void message(FactoryObject& object, std::span<u32> message);
     void update_trigger(FactoryObject& object);
     void update_emitter(FactoryObject& object); // Vtable +0x10, Xbox 0x0010A2E0.
     u32 draw_emitter(FactoryObject& object, i32 kind, RuntimeFxEmitterDraw& draw); // Vtable +0x14, Xbox 0x00109EE0.
     bool emitter_visible(FactoryObject& object, u32 pass, u32 slot); // Vtable +0x18, Xbox 0x00109E30.
+    void update_motion_blur(FactoryObject& object); // Type 0xF vtable +0x10, Xbox 0x00066FE0.
 
 private:
     struct TriggerInstance;
@@ -71,5 +80,6 @@ private:
     std::unordered_map<const u8*, std::unique_ptr<RuntimeAreaActorContext>> areas_;
     std::unordered_map<const u8*, std::unique_ptr<TriggerInstance>> triggers_;
     std::unordered_map<const u8*, std::unique_ptr<EmitterInstance>> emitters_;
+    std::unordered_map<const u8*, std::unique_ptr<RuntimeAvatarMotionBlur>> motion_blurs_;
 };
 }

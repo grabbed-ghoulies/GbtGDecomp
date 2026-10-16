@@ -44,4 +44,18 @@ void face_runtime_body_target(std::span<u8> body, const Actor& actor,
         face_runtime_body_point(body, actor, point);
     }
 }
+
+// Xbox 0x00134720
+void settle_runtime_body_turn(std::span<u8> body, const Actor& actor)
+{
+    const u32 kept = read_u32(body, 0x730);
+    if (body[0x19E] != 0)
+    {
+        throw Error("untranslated Xbox 0x001068E0 reached from 0x00134720 (body +0x19E set)");
+    }
+    const float zero = 0.f;
+    std::memcpy(body.data() + 0x72C, &zero, 4);
+    std::memcpy(body.data() + 0x730, &kept, 4);
+    std::memcpy(body.data() + 0x734, &zero, 4);
+}
 }

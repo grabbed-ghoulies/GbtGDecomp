@@ -4,6 +4,9 @@
 #include "actor_world_lists.h"
 #include "body_hit_state.h"
 #include "body_dizzy_state.h"
+#include "body_knockdown_state.h"
+#include "body_die_state.h"
+#include "body_anim_state.h"
 #include "gbtg/entity.h"
 #include <bit>
 #include <cstring>
@@ -17,6 +20,9 @@ namespace
 std::function<RuntimeBodyStateContext(u32)> body_context_of;
 std::function<RuntimeHitStateLifecycle(u32)> hit_context_of;
 std::function<RuntimeDizzyStateContext&(u32)> dizzy_context_of;
+std::function<RuntimeKnockdownContext&(u32)> knockdown_context_of;
+std::function<RuntimeDieStateContext&(u32)> die_context_of;
+std::function<RuntimeAnimStateContext&(u32)> anim_context_of;
 // Walk-alert speed-band records by state, the host side of state +0x30 + 0x10 * index.
 std::unordered_map<const u8*, std::vector<const AnimationRecord*>> walk_alert_records;
 
@@ -152,6 +158,63 @@ const ObjectFactoryVtable* dizzy_state_lifecycle()
 {
     static const ObjectFactoryVtable table{0x00505760, dizzy_state_object_sizes, construct_dizzy_state_view,
         destroy_dizzy_state_view};
+    return &table;
+}
+
+bool construct_anim_state_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    const std::span<u8> state{object.bytes.get(), object.size};
+    return initialize_runtime_anim_state(state, parameters, anim_context_of(word(state, 8)));
+}
+
+void destroy_anim_state_view(FactoryObject& object)
+{
+    const std::span<u8> state{object.bytes.get(), object.size};
+    destroy_runtime_anim_state(state, anim_context_of(word(state, 8)));
+}
+
+const ObjectFactoryVtable* anim_state_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x005056A0, anim_state_object_sizes, construct_anim_state_view,
+        destroy_anim_state_view};
+    return &table;
+}
+
+bool construct_die_state_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    const std::span<u8> state{object.bytes.get(), object.size};
+    return initialize_runtime_die_state(state, parameters, die_context_of(word(state, 8)));
+}
+
+void destroy_die_state_view(FactoryObject& object)
+{
+    const std::span<u8> state{object.bytes.get(), object.size};
+    destroy_runtime_die_state(state, die_context_of(word(state, 8)));
+}
+
+const ObjectFactoryVtable* die_state_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505720, die_state_object_sizes, construct_die_state_view,
+        destroy_die_state_view};
+    return &table;
+}
+
+bool construct_knockdown_state_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    const std::span<u8> state{object.bytes.get(), object.size};
+    return initialize_runtime_knockdown_state(state, parameters, knockdown_context_of(word(state, 8)));
+}
+
+void destroy_knockdown_state_view(FactoryObject& object)
+{
+    const std::span<u8> state{object.bytes.get(), object.size};
+    destroy_runtime_knockdown_state(state, knockdown_context_of(word(state, 8)));
+}
+
+const ObjectFactoryVtable* knockdown_state_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505A20, knockdown_state_object_sizes, construct_knockdown_state_view,
+        destroy_knockdown_state_view};
     return &table;
 }
 
@@ -450,8 +513,15 @@ const AnimationRecord* runtime_walk_alert_record(std::span<const u8> state, u16 
 
 void install_runtime_body_state_classes(std::span<ObjectFactoryType> types,
     std::function<RuntimeBodyStateContext(u32)> context_of, std::function<RuntimeHitStateLifecycle(u32)> hit_of,
-    std::function<RuntimeDizzyStateContext&(u32)> dizzy_of)
+    std::function<RuntimeDizzyStateContext&(u32)> dizzy_of, std::function<RuntimeKnockdownContext&(u32)> knockdown_of,
+    std::function<RuntimeDieStateContext&(u32)> die_of, std::function<RuntimeAnimStateContext&(u32)> anim_of)
 {
+    anim_context_of = std::move(anim_of);
+    types[0x5E] = ObjectFactoryType{9, anim_state_lifecycle};
+    die_context_of = std::move(die_of);
+    types[0x62] = ObjectFactoryType{9, die_state_lifecycle};
+    knockdown_context_of = std::move(knockdown_of);
+    types[0x7A] = ObjectFactoryType{9, knockdown_state_lifecycle};
     body_context_of = std::move(context_of);
     hit_context_of = std::move(hit_of);
     dizzy_context_of = std::move(dizzy_of);

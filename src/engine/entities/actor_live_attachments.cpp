@@ -68,8 +68,15 @@ ActorLiveAttachment* allocate_actor_live_attachment(Actor& actor,
 }
 
 // Xbox 0x00122C70
+std::function<void(const i32* message)> g_actor_broadcast;
+
 void broadcast_actor_pulse_message(const i32* message)
 {
+    if (g_actor_broadcast)
+    {
+        g_actor_broadcast(message);
+        return;
+    }
     auto* node = scene_detail::g_pulse_nodes;
     while (node != nullptr)
     {

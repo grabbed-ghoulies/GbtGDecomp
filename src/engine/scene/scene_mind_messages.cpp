@@ -98,9 +98,9 @@ SceneMindMessages::SceneMindMessages(SceneMindServices& services, NativePlayerIn
           &actor_mind_, &body_state_view_, services.grids, services.nodes, player.mind_storage,
           player.actor_instance.animation, services.chapter_mode, services.runtime_flags, services.pulse,
           services.address_of,
-          [](u32) -> const char*
+          [this](u32 address) -> const char*
           {
-              unbound("player mind message string argument");
+              return address == 0 ? nullptr : reinterpret_cast<const char*>(services_.resolve(address));
           },
           [this](u32 address) -> const Actor*
           {
@@ -492,7 +492,7 @@ void SceneMindMessages::refresh_gaze()
         }
         if (gaze_anchor_ == nullptr)
         {
-            unbound("mind +0x30 gaze anchor outside the model anchor list");
+            unbound("mind +0x30 gaze anchor " + std::to_string(anchor) + " outside the model anchor list");
         }
     }
 }

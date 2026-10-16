@@ -59,6 +59,8 @@ struct RgbaImage
 
 bool parse_texture_header(std::span<const u8> cpu, TextureHeader& out);
 RgbaImage decode_xbox_texture(const TextureHeader& hdr, std::span<const u8> gpu);
+// Linear rows into the NV2A Morton order a swizzled texture level stores (the inverse of the decode).
+void swizzle_nv2a_into(std::span<u8> destination, std::span<const u8> linear, u32 width, u32 height, u32 bpp);
 void write_bmp(const std::filesystem::path& path, const RgbaImage& img);
 void write_png(const std::filesystem::path& path, const RgbaImage& img);
 const char* xbox_format_name(XboxFormat f);

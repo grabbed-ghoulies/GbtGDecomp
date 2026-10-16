@@ -59,6 +59,7 @@ SceneD3DDevice::SceneD3DDevice()
     dialogue_.pixel_shader = [this](u32 handle)
     {
         render_states_[kPixelShader] = handle;
+        render_states_.erase(kPSTextureModes); // The shader's own texture modes apply again.
     };
     dialogue_.texture = [this](u32 stage, const u8* texture)
     {
@@ -250,6 +251,22 @@ SceneD3DDevice::SceneD3DDevice()
     outer_.render_target = [this](DialogueSurfaceHandle color, DialogueSurfaceHandle depth)
     {
         commands.push_back(SceneD3DTarget{color, depth});
+        // As in D3D8, a new render target resets the viewport to its whole surface (and with it c-38 / c-37).
+        u32 width = 640;
+        u32 height = 480;
+        if (color != kBackBuffer)
+        {
+            const auto texture = surface_textures.find(color);
+            if (texture == surface_textures.end() || !texture_size)
+            {
+                throw Error("render target surface has no texture size");
+            }
+            const auto size = texture_size(texture->second);
+            width = size[0];
+            height = size[1];
+        }
+        const std::array<u32, 6> viewport{0, 0, width, height, 0, std::bit_cast<u32>(1.f)};
+        dialogue_.viewport(viewport);
     };
     outer_.release = [](DialogueSurfaceHandle)
     {

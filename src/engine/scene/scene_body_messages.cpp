@@ -1,4 +1,5 @@
 #include "scene_body_messages.h"
+#include "../camera/display_view.h"
 #include "../entities/body_move_action_slots.h"
 #include "../entities/body_gravity_motion.h"
 #include "../entities/body_stand_alert_tick.h"
@@ -82,6 +83,11 @@ SceneBodyMessages::SceneBodyMessages(SceneBodyServices& services, NativePlayerIn
           player.actor_instance.startup.resource, player.callout, player.body_lists, *player.body_flags,
           player.scene.address_of(player.body.data())}
 {
+    // The player's view of its body's next-action slots (the mind reads +0x28, +0x38 and +0x3C).
+    player_.body_slot_key = [this](u32 slot)
+    {
+        return body_slot_key(slot);
+    };
     // The state and move actions installed so far (0x5B, 0x5C, 0x87) all have the empty 0x001628B0 at +0xC.
     empty_child_.message = [](std::span<u8>)
     {
@@ -162,6 +168,50 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
             children_[child->bytes.get()] = hit.get();
             continue;
         }
+        if (child->type == 0x7A)
+        {
+            auto& knockdown = knockdown_children_[child->bytes.get()];
+            if (knockdown == nullptr)
+            {
+                knockdown = std::make_unique<RuntimeBodyMessageChild>();
+                knockdown->message = [this, child](std::span<u8> message)
+                {
+                    message_runtime_knockdown_state({child->bytes.get(), child->size}, message,
+                        knockdown_context()); // 0x0009D0E0
+                };
+            }
+            children_[child->bytes.get()] = knockdown.get();
+            continue;
+        }
+        if (child->type == 0x5E)
+        {
+            auto& anim = anim_children_[child->bytes.get()];
+            if (anim == nullptr)
+            {
+                anim = std::make_unique<RuntimeBodyMessageChild>();
+                anim->message = [this, child](std::span<u8> message)
+                {
+                    message_runtime_anim_state({child->bytes.get(), child->size}, message,
+                        anim_context()); // 0x00088960
+                };
+            }
+            children_[child->bytes.get()] = anim.get();
+            continue;
+        }
+        if (child->type == 0x62)
+        {
+            auto& die = die_children_[child->bytes.get()];
+            if (die == nullptr)
+            {
+                die = std::make_unique<RuntimeBodyMessageChild>();
+                die->message = [child](std::span<u8> message)
+                {
+                    message_runtime_die_state({child->bytes.get(), child->size}, message); // 0x0008C4D0
+                };
+            }
+            children_[child->bytes.get()] = die.get();
+            continue;
+        }
         if (child->type == 0x64)
         {
             auto& dizzy = dizzy_children_[child->bytes.get()];
@@ -198,7 +248,6 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
     case 0x17:
     case 0x18:
     case 0x19:
-    case 0x1B:
     case 0x1D:
     case 0x2A:
     case 0x45:
@@ -214,6 +263,8 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
     std::array<u8, 0x2C> target_bound;
     std::optional<RuntimeSegmentContactActor> contact;
     std::array<u8, 0x2C> bound;
+    std::optional<RuntimeBodyAttachedActor> impact_source;
+    std::optional<RuntimeBodyContactHitViews> impact;
     if (id == 7)
     {
         views.parent.animation_command = services_.event_at(message[3]);
@@ -254,6 +305,23 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
             request == 0 ? std::span<const u8>() : services_.record_at(request, 0x24), bound_view, player_.ring,
             services_.address_zero, player_.self, damage_, services_.damage_at(message[2])});
         views.source_contact = &*source_contact;
+    }
+    if (id == 0x1B)
+    {
+        // {0x1B, reply, sender, value, contacts, point} from a contact prop; the contacts are a copied segment pool.
+        const auto& pool = *reinterpret_cast<const GhoulySpawnPool*>(services_.event_at(message[4]).data());
+        contact_pool.emplace(entity_detail::SegmentPool{pool.stride, pool.grow, pool.begin, pool.cursor, pool.limit});
+        const u32 sender = message[2];
+        const auto sender_bytes = services_.bytes_at(sender);
+        impact_source.emplace(RuntimeBodyAttachedActor{{const_cast<u8*>(sender_bytes.data()), sender_bytes.size()},
+            sender,
+            [this, sender](std::span<const u32> words)
+            {
+                services_.message(sender, words);
+            },
+            nullptr, services_.actor_at(sender)});
+        impact.emplace(RuntimeBodyContactHitViews{*contact_pool, message[4], *impact_source, nullptr});
+        views.impact = &*impact;
     }
     if (id == 6 || id == 0x7B)
     {
@@ -433,8 +501,45 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         tick_runtime_hit_furnace_state({action.bytes.get(), action.size}, tick);
         return;
     }
+    case 0x5E:
+    {
+        // The tick's second argument is the player's input record (actor +0x960) or zero, as for 0x73.
+        const RuntimeDialogueInputDevice* device = nullptr;
+        if (input != 0)
+        {
+            if (player_.input.empty() || input != services_.address_of(player_.input.data()))
+            {
+                unbound("anim state input word that is not this player's input record");
+            }
+            device = &player_.input_device;
+        }
+        auto& context = anim_context();
+        context.input = device;
+        tick_runtime_anim_state({action.bytes.get(), action.size}, context);
+        return;
+    }
+    case 0x62:
+        tick_runtime_die_state({action.bytes.get(), action.size}, die_context());
+        return;
     case 0x64:
-        tick_runtime_dizzy_state({action.bytes.get(), action.size}, dizzy_context());
+    {
+        // The tick's second argument is the player's input record (actor +0x960) or zero, as for 0x73.
+        const RuntimeDialogueInputDevice* device = nullptr;
+        if (input != 0)
+        {
+            if (player_.input.empty() || input != services_.address_of(player_.input.data()))
+            {
+                unbound("dizzy state input word that is not this player's input record");
+            }
+            device = &player_.input_device;
+        }
+        auto& context = dizzy_context();
+        context.input = device;
+        tick_runtime_dizzy_state({action.bytes.get(), action.size}, context);
+        return;
+    }
+    case 0x7A:
+        tick_runtime_knockdown_state({action.bytes.get(), action.size}, knockdown_context());
         return;
     default:
         unbound("body action vtable +0x10 of factory type " + std::to_string(action.type));
@@ -464,9 +569,12 @@ void SceneBodyMessages::action_step(FactoryObject& action)
         step_runtime_stand_action({action.bytes.get(), action.size}, context, player_.actor_instance.animation);
         return;
     }
+    case 0x5E:
+    case 0x62:
     case 0x64:
     case 0x73:
     case 0x74:
+    case 0x7A:
     case 0x87:
     case 0x8E:
         // 0x001628B0 returns at once.
@@ -556,9 +664,41 @@ RuntimeBodyRecoveryAction& SceneBodyMessages::recovery_action()
     return *recovery_;
 }
 
+RuntimeKnockdownContext& SceneBodyMessages::knockdown_context()
+{
+    // Body views only: a state destroyed with its player runs after the player's input device is released.
+    player_.refresh_body_views();
+    if (player_.body_flags == nullptr)
+    {
+        unbound("knockdown state without the body +0x15C bit block");
+    }
+    knockdown_shape_.emplace(services_.state_context(services_.address_of(player_.body.data())));
+    knockdown_.emplace(RuntimeKnockdownContext{player_.body, player_.actor, player_.actor_bytes,
+        read_u32(player_.body, 8), *player_.body_flags, player_.actor_instance.animation, services_.clock,
+        services_.motion_steps, services_.default_position, *knockdown_shape_, player_.body_selection,
+        player_.attachment, player_.callout, player_.actor_instance.startup.resource.resource.data(),
+        player_.actor_instance.live_attachments, services_.address_of, player_.body_lists, death_,
+        services_.game, services_.scene_flags, services_.restart_requested, player_.body_attributes,
+        player_.action_table, services_.random, services_.tag_rows, services_.hit_bands, services_.hit_damage,
+        services_.play_bounded, services_.play_bounds, services_.image_string,
+        [this](u32 id, const RuntimeActorCreationOptions* options)
+        {
+            services_.actor_callouts_with(read_u32(player_.body, 8), id, options);
+        },
+        [this](std::span<const u32> message)
+        {
+            std::array<u32, 0x42> buffer{};
+            std::copy_n(message.begin(), std::min<size_t>(message.size(), buffer.size()), buffer.begin());
+            player_.self.message(buffer);
+        },
+        services_.probe_messages, services_.record_at});
+    return *knockdown_;
+}
+
 RuntimeDizzyStateContext& SceneBodyMessages::dizzy_context()
 {
-    player_.refresh_views();
+    // Body views only: a state destroyed with its player runs after the player's input device is released.
+    player_.refresh_body_views();
     if (player_.body_flags == nullptr)
     {
         unbound("dizzy state without the body +0x15C bit block");
@@ -587,7 +727,84 @@ RuntimeDizzyStateContext& SceneBodyMessages::dizzy_context()
         player_.actor_instance.animation, services_.clock, dizzy_stars_, read_u32(player_.body, 8),
         services_.default_position, services_.default_euler, services_.empty_name, services_.random,
         services_.sounds, recovery_action()});
+    dizzy_->input_state = &player_.scene.input_state;
+    dizzy_->input_preset = services_.dizzy_input_preset;
+    dizzy_->input_scale = services_.dizzy_input_scale;
     return *dizzy_;
+}
+
+RuntimeAnimStateContext& SceneBodyMessages::anim_context()
+{
+    // Body views only, as for the dizzy state: a state destroyed with its player outlives the input device.
+    player_.refresh_body_views();
+    if (player_.body_flags == nullptr)
+    {
+        unbound("anim state without the body +0x15C bit block");
+    }
+    anim_.emplace(RuntimeAnimStateContext{player_.body, player_.actor, *player_.body_flags,
+        player_.actor_instance.animation, services_.clock, player_.body_selection, services_.sounds,
+        services_.stand_input_threshold, services_.image_string,
+        [this]() -> u32
+        {
+            // Actor +0x958 is the mind; its +0xC is the target.
+            const u32 mind = read_u32(player_.actor_bytes, 0x958);
+            if (mind == 0)
+            {
+                return 0;
+            }
+            if (player_.mind.empty() || mind != services_.address_of(player_.mind.data()))
+            {
+                unbound("anim state actor +0x958 " + std::to_string(mind) + " is not the player's mind");
+            }
+            return read_u32(player_.mind, 0xC);
+        },
+        [this](u32 address) -> const Actor*
+        {
+            return services_.actor_at(address);
+        },
+        [this](u32 slot)
+        {
+            return body_slot_key(slot);
+        }});
+    anim_->input_state = &player_.scene.input_state;
+    return *anim_;
+}
+
+RuntimeDieStateContext& SceneBodyMessages::die_context()
+{
+    // Body views only, as for the dizzy state: a state destroyed with its player outlives the input device.
+    player_.refresh_body_views();
+    if (player_.body_flags == nullptr)
+    {
+        unbound("die state without the body +0x15C bit block");
+    }
+    die_.emplace(RuntimeDieStateContext{player_.body, player_.actor, *player_.body_flags,
+        player_.actor_instance.animation, services_.clock, player_.body_selection, services_.random,
+        entity_detail::g_display_view->position,
+        services_.image_string,
+        [this]() -> u32
+        {
+            // Actor +0x958 is the mind; its +0xC is the target.
+            const u32 mind = read_u32(player_.actor_bytes, 0x958);
+            if (mind == 0)
+            {
+                return 0;
+            }
+            if (player_.mind.empty() || mind != services_.address_of(player_.mind.data()))
+            {
+                unbound("die state actor +0x958 " + std::to_string(mind) + " is not the player's mind");
+            }
+            return read_u32(player_.mind, 0xC);
+        },
+        [this](u32 address) -> const Actor*
+        {
+            return services_.actor_at(address);
+        },
+        [this](u32 slot)
+        {
+            return body_slot_key(slot);
+        }});
+    return *die_;
 }
 
 std::span<const u8> SceneBodyMessages::mind_target()
@@ -650,6 +867,23 @@ u16 SceneBodyMessages::body_slot_key(u32 slot)
                 retained);
         }
         return runtime_body_secondary_parameter_id(ids, mind, *player_.body_bits, player_.action_table, retained);
+    }
+    // Neither getter (0x000733F0 for 0x27, 0x00075AF0 for 0x2A) replaces these base slots (0x0001DA60).
+    if (slot == 0x28)
+    {
+        return u16(runtime_body_idle_action_id(ids));
+    }
+    if (slot == 0x38)
+    {
+        return runtime_body_effect_gated_id(ids, player_.action_table);
+    }
+    if (slot == 0x3C)
+    {
+        return runtime_body_contact_gated_id(ids, player_.action_table);
+    }
+    if (slot == 0x40)
+    {
+        return runtime_body_damage_gated_id(ids, player_.action_table);
     }
     unbound("body next-action slot " + std::to_string(slot));
 }
@@ -861,12 +1095,44 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 });
                 return;
             }
+            if (type == 0x7A)
+            {
+                // 0x0009D0E0 reads the reply's id and, for 0x7C, its next word.
+                auto& second = player_.body_selection.second;
+                message_runtime_knockdown_state({second.bytes.get(), second.size}, reply, knockdown_context());
+                return;
+            }
+            if (type == 0x5E)
+            {
+                // 0x00088960 reads the reply's id: only 0x25 acts.
+                auto& second = player_.body_selection.second;
+                message_runtime_anim_state({second.bytes.get(), second.size},
+                    {reinterpret_cast<const u8*>(&reply.id), 8}, anim_context());
+                return;
+            }
+            if (type == 0x62)
+            {
+                // 0x0008C4D0 reads the reply's id and, for 0x7C, its next word.
+                auto& second = player_.body_selection.second;
+                message_runtime_die_state({second.bytes.get(), second.size}, {reinterpret_cast<const u8*>(&reply.id), 8});
+                return;
+            }
             if (type == 0x64)
             {
                 // 0x0008CEA0 reads the reply's id and, for 0x7C, its next word.
                 auto& second = player_.body_selection.second;
                 message_runtime_dizzy_state({second.bytes.get(), second.size},
                     {reinterpret_cast<const u8*>(&reply.id), 8});
+                return;
+            }
+            if (type == 0x73)
+            {
+                // 0x00095C90 acts on ids 7, 0x41, 0x5A, 0x6E, 0x6F, 0x70 and 0x7C and returns for the others.
+                const u32 id = reply.id;
+                if (id == 7 || id == 0x41 || id == 0x5A || id == 0x6E || id == 0x6F || id == 0x70 || id == 0x7C)
+                {
+                    unbound("collision reply id " + std::to_string(id) + " to the hit state 0x00095C90");
+                }
                 return;
             }
             if (type != 0x87 && type != 0x5B && type != 0x5C && type != 0x74)

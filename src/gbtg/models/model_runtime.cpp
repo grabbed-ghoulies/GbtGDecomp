@@ -1075,6 +1075,127 @@ std::unique_ptr<RuntimeModelInstance> make_runtime_model_instance(const RuntimeM
     return result;
 }
 
+// Xbox 0x001560A0. The count is reloaded at each iteration on Xbox.
+void copy_runtime_matrix_array_flags(const RuntimeModelNode& source_node, std::span<const u8> source,
+    const RuntimeModelNode& node, std::span<u8> instance)
+{
+    i32 count;
+    std::memcpy(&count, source_node.bytes.data() + 0x30, 4);
+    i32 index = 0;
+    if (0 < count)
+    {
+        size_t offset = 0;
+        do
+        {
+            const u8 joint = source_node.matrix_records[size_t(index) * 8 + 6];
+            if ((source[size_t(count) * 0x40 + joint + source_node.copy_offset + 4] & 1) != 0)
+            {
+                std::memcpy(instance.data() + offset + node.copy_offset + 4,
+                    source.data() + offset + source_node.copy_offset + 4, 0x40);
+                i32 copies;
+                std::memcpy(&copies, node.bytes.data() + 0x30, 4);
+                instance[size_t(copies) * 0x40 + size_t(index) + 4 + node.copy_offset] = 1;
+            }
+            std::memcpy(&count, source_node.bytes.data() + 0x30, 4);
+            ++index;
+            offset += 0x40;
+        } while (index < count);
+    }
+}
+
+// Xbox 0x000F8B80. The eight node flag bytes at +0x294.
+void copy_runtime_model_node_flags(RuntimeModelInstance& model, const RuntimeModelInstance& source)
+{
+    if (&model != &source)
+    {
+        model.node_flags = source.node_flags;
+        std::memcpy(model.allocation.get() + 0x294, source.allocation.get() + 0x294, 8);
+    }
+}
+
+// Xbox 0x000F87D0. The header copy carries the source's asset, skeleton node, node flags and state words.
+std::unique_ptr<RuntimeModelInstance> clone_runtime_model_instance(const RuntimeModelInstance& source,
+    std::span<const RuntimeModelNodeType> types, AnimationResourceRegistry& registry,
+    RuntimeShaderRegistrationState& registration, RuntimeShaderAnimationScratch& scratch)
+{
+    const RuntimeModelAsset& asset = *source.source;
+    const RuntimeModelTree& tree = *asset.tree;
+    bool shaders = false;
+    u32 index = 0;
+    if (asset.blocks.size() != 0)
+    {
+        do
+        {
+            if (asset.blocks[index].type == 3)
+            {
+                const u8* data = asset.blocks[index].data;
+                u32 count = 0;
+                if (data != nullptr)
+                {
+                    std::memcpy(&count, data, 4);
+                }
+                shaders = data != nullptr && count != 0;
+                break;
+            }
+            ++index;
+        } while (index < asset.blocks.size());
+    }
+    std::unique_ptr<RuntimeModelInstance> result(new (std::nothrow) RuntimeModelInstance);
+    const u32 tree_size = runtime_model_instance_size(tree);
+    if (shaders)
+    {
+        const u32 size = runtime_model_shader_storage_size(asset.blocks);
+        result->allocation_size = size + tree_size + 0x2A0;
+        result->allocation.reset(new (std::nothrow) u8[result->allocation_size]);
+        std::memcpy(result->allocation.get(), source.allocation.get(), size + tree_size + 0x2A0);
+        result->shader_storage = result->allocation.get() + tree_size + 0x2A0;
+        register_runtime_model_shaders(result->shader_storage, registration);
+    }
+    else
+    {
+        result->allocation_size = tree_size + 0x2A0;
+        result->allocation.reset(new (std::nothrow) u8[result->allocation_size]);
+        std::memcpy(result->allocation.get(), source.allocation.get(), tree_size + 0x2A0);
+        result->shader_storage = source.shader_storage;
+    }
+    result->source = source.source;
+    result->skeleton_node = source.skeleton_node;
+    result->node_flags = source.node_flags;
+    result->state_290 = source.state_290;
+    result->state_1c4 = source.state_1c4;
+    result->state_1c0 = source.state_1c0;
+    result->state_1c8 = source.state_1c8;
+    result->mirror_pass = source.mirror_pass;
+    result->tree_storage.bytes = std::span<u8>(result->allocation.get() + 0x2A0, tree_size);
+    std::memset(result->tree_storage.bytes.data(), 0, tree.instance_size);
+    copy_runtime_model_tree(tree, result->tree_storage);
+    const RuntimeModelNode* matrices = find_runtime_model_node_by_name(tree, 0, "ndMtxArray", types);
+    const RuntimeModelNode* copies = find_runtime_model_node_by_name(*result->source->tree, 0, "ndMtxArray",
+        types);
+    if (matrices != nullptr && copies != nullptr)
+    {
+        copy_runtime_matrix_array_flags(*matrices, source.tree_storage.bytes, *copies, result->tree_storage.bytes);
+    }
+    retain_animation_resource(registry, asset.cpu);
+    result->shader_indices.fill(0xFFFFFFFF);
+    if (source.primary != nullptr)
+    {
+        result->primary_pose = *source.primary;
+        result->primary = &result->primary_pose;
+    }
+    else
+    {
+        result->primary = nullptr;
+    }
+    result->alternate = nullptr;
+    bind_model_auxiliary_targets(result->auxiliary_targets, tree, result->tree_storage.bytes);
+    copy_runtime_model_node_flags(*result, source);
+    std::memset(result->allocation.get() + 4, 0, 0x56 * 4);
+    result->shader_animations.reset();
+    result->shader_animations = make_runtime_model_shader_animations(tree, result->tree_storage, scratch);
+    return result;
+}
+
 // Xbox 0x001574B0.
 void release_runtime_blendshape_node(const RuntimeModelNode& node,
     RuntimeModelInstanceStorage& instance, const RuntimeBlendshapeBoundaries& boundaries)

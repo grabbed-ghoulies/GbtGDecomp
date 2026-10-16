@@ -55,6 +55,53 @@ std::vector<u8> unswizzle_nv2a(std::span<const u8> src, u32 w, u32 h, u32 bpp)
     return dst;
 }
 
+} // namespace
+
+void swizzle_nv2a_into(std::span<u8> destination, std::span<const u8> linear, u32 width, u32 height, u32 bpp)
+{
+    u32 mask_x = 0, mask_y = 0, bit = 1, mask_bit = 1;
+    for (;;)
+    {
+        bool done = true;
+        if (bit < width)
+        {
+            mask_x |= mask_bit;
+            mask_bit <<= 1;
+            done = false;
+        }
+        if (bit < height)
+        {
+            mask_y |= mask_bit;
+            mask_bit <<= 1;
+            done = false;
+        }
+        bit <<= 1;
+        if (done)
+        {
+            break;
+        }
+    }
+    u32 off_y = 0;
+    for (u32 y = 0; y < height; ++y)
+    {
+        u32 off_x = 0;
+        for (u32 x = 0; x < width; ++x)
+        {
+            const size_t to = size_t(off_y + off_x) * bpp;
+            const size_t from = (size_t(y) * width + x) * bpp;
+            if (to + bpp <= destination.size() && from + bpp <= linear.size())
+            {
+                std::memcpy(destination.data() + to, linear.data() + from, bpp);
+            }
+            off_x = (off_x - mask_x) & mask_x;
+        }
+        off_y = (off_y - mask_y) & mask_y;
+    }
+}
+
+namespace
+{
+
 void decode_rgb565(u16 c, u8& r, u8& g, u8& b)
 {
     r = u8(((c >> 11) & 31) * 255 / 31);

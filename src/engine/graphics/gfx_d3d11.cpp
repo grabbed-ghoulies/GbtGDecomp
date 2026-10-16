@@ -25,6 +25,7 @@
 #include <intrin.h>
 
 #include <d3d11.h>
+#include <d3d11_1.h>
 #include <d3dcompiler.h>
 #include <dxgi.h>
 
@@ -212,7 +213,7 @@ struct GfxD3D11
     UINT native_ib_cursor = 0;
     ComPtr<ID3D11Buffer> native_material;
     std::unordered_map<u64, ComPtr<ID3D11BlendState>> native_blends;
-    std::unordered_map<u32, ComPtr<ID3D11DepthStencilState>> native_depths;
+    std::map<std::array<u32, 9>, ComPtr<ID3D11DepthStencilState>> native_depths;
     std::unordered_map<u32, ComPtr<ID3D11RasterizerState>> native_rasterizers;
     std::unordered_map<u32, ComPtr<ID3D11SamplerState>> native_samplers;
     std::unordered_map<const Mesh*, GpuMesh> meshes;
@@ -316,6 +317,7 @@ struct NativeRenderTarget
     ComPtr<ID3D11Texture2D> depth;
     ComPtr<ID3D11DepthStencilView> dsv;
     ComPtr<ID3D11Texture2D> staging;
+    ComPtr<ID3D11Texture2D> depth_staging;
 };
 NativeRenderTarget native_target;
 
@@ -1257,7 +1259,7 @@ Texture2D g_light : register(t1);
 SamplerState g_samp : register(s0);
 SamplerState g_light_samp : register(s1);
 struct VSIn { float3 pos : POSITION; float2 uv0 : TEXCOORD0; float2 uv1 : TEXCOORD1; float3 nrm : NORMAL; float2 bone : TEXCOORD2; float2 wt : TEXCOORD3; float2 uv2 : TEXCOORD4; float4 diffuse : COLOR0; float4 specular : COLOR1; float2 uv3 : TEXCOORD5; float2 extra_bone : TEXCOORD6; float2 extra_wt : TEXCOORD7; };
-struct VSOut { float4 pos : SV_Position; float2 uv0 : TEXCOORD0; float2 uv1 : TEXCOORD1; float3 nrm : TEXCOORD2; float2 uv2 : TEXCOORD3; float4 diffuse : COLOR0; float4 specular : COLOR1; float2 uv3 : TEXCOORD4; };
+struct VSOut { float4 pos : SV_Position; float2 uv0 : TEXCOORD0; float2 uv1 : TEXCOORD1; float3 nrm : TEXCOORD2; float2 uv2 : TEXCOORD3; float4 diffuse : COLOR0; float4 specular : COLOR1; float2 uv3 : TEXCOORD4; float4 tq2 : TEXCOORD5; float4 tq3 : TEXCOORD6; };
 VSOut vs_main(VSIn i) {
     VSOut o;
     float3 p = i.pos;
@@ -1284,6 +1286,8 @@ VSOut vs_main(VSIn i) {
     o.uv1 = i.uv1;
     o.uv2 = i.uv2;
     o.uv3 = i.uv3;
+    o.tq2 = float4(i.uv2, 0, 1);
+    o.tq3 = float4(i.uv3, 0, 1);
     o.nrm = nrm;
     o.diffuse = i.diffuse;
     o.specular = i.specular;
@@ -1430,7 +1434,34 @@ float2 stage_coord(VSOut i, uint stage)
     float2 scale = (stage & 1) != 0 ? pair.zw : pair.xy;
     return any(scale != 0) ? coord * scale : coord;
 }
+// PSDotMapping (word 55, stage n at bits (n - 1) * 4): 0 ZERO_TO_ONE, 4 HILO_1 (the 16-bit A:R and G:B halves
+// of the texel's 32 bits, and 1).
+float3 ps_dotmap(uint stage, float4 c)
+{
+    uint mapping = (ps_word(55) >> ((stage - 1) * 4)) & 7;
+    if (mapping == 4)
+    {
+        uint4 b = uint4(round(saturate(c) * 255));
+        return float3(float((b.a << 8) | b.r) / 65535.0, float((b.g << 8) | b.b) / 65535.0, 1.0);
+    }
+    return c.rgb;
+}
+float4 ps_model_core(VSOut i, inout float depth);
 float4 ps_model(VSOut i) : SV_Target
+{
+    float depth = i.pos.z;
+    return ps_model_core(i, depth);
+}
+struct DepthOut { float4 color : SV_Target; float depth : SV_Depth; };
+// DOT_ZW on stage 3 replaces the fragment depth: z / w in Xbox Z-buffer units (D24 here, 0xFFFFFF).
+DepthOut ps_model_depth(VSOut i)
+{
+    DepthOut o;
+    o.depth = i.pos.z;
+    o.color = ps_model_core(i, o.depth);
+    return o;
+}
+float4 ps_model_core(VSOut i, inout float depth)
 {
     float4 regs[16];
     [unroll]
@@ -1464,6 +1495,20 @@ float4 ps_model(VSOut i) : SV_Target
     if (((ps_word(54) >> 15) & 31) == 1)
     {
         regs[11] = stage_tex[3].Sample(stage_samp[3], stage_coord(i, 3));
+    }
+    // DOTPRODUCT (17) on stage 2 and DOT_ZW (10) on stage 3 take their input texture from PSInputTexture
+    // (word 56, stage 2 at bits 16, stage 3 at bits 20) and the full texture coordinates.
+    float dot_w = 1;
+    if (((ps_word(54) >> 10) & 31) == 17)
+    {
+        dot_w = dot(i.tq2.xyz, ps_dotmap(2, regs[8 + ((ps_word(56) >> 16) & 3)]));
+        regs[10] = 0;
+    }
+    if (((ps_word(54) >> 15) & 31) == 10)
+    {
+        float z = dot(i.tq3.xyz, ps_dotmap(3, regs[8 + ((ps_word(56) >> 20) & 3)]));
+        depth = saturate(z / dot_w / 16777215.0);
+        regs[11] = 0;
     }
     regs[12].a = regs[8].a;
     uint count = min(ps_word(53) & 255, 8);
@@ -1568,6 +1613,8 @@ VSOut native_vs(NativeIn i)
     o.uv1 = i.uv1;
     o.uv2 = i.uv2;
     o.uv3 = i.uv3;
+    o.tq2 = float4(i.uv2, 0, 1);
+    o.tq3 = float4(i.uv3, 0, 1);
     o.nrm = float3(0, 0, 0);
     o.diffuse = i.diffuse;
     o.specular = i.specular;
@@ -2605,6 +2652,31 @@ D3D11_BLEND_OP native_blend_equation(u32 equation)
     }
 }
 
+D3D11_STENCIL_OP native_stencil_op(u32 operation)
+{
+    switch (operation)
+    {
+    case 0x1E00:
+        return D3D11_STENCIL_OP_KEEP;
+    case 0:
+        return D3D11_STENCIL_OP_ZERO;
+    case 0x1E01:
+        return D3D11_STENCIL_OP_REPLACE;
+    case 0x1E02:
+        return D3D11_STENCIL_OP_INCR_SAT;
+    case 0x1E03:
+        return D3D11_STENCIL_OP_DECR_SAT;
+    case 0x150A:
+        return D3D11_STENCIL_OP_INVERT;
+    case 0x8507:
+        return D3D11_STENCIL_OP_INCR;
+    case 0x8508:
+        return D3D11_STENCIL_OP_DECR;
+    default:
+        throw Error("native stencil operation " + std::to_string(operation) + " is not an NV097 operation");
+    }
+}
+
 D3D11_COMPARISON_FUNC native_comparison(u32 function)
 {
     if (function < 0x200 || function > 0x207)
@@ -2666,11 +2738,21 @@ ID3D11PixelShader* native_pixel_shader(const u32* definition)
     for (u32 stage = 0; stage < 4; ++stage)
     {
         const u32 mode = (definition[54] >> (stage * 5)) & 31;
-        if (mode > 1)
+        const bool dot = (stage == 2 && mode == 17) || (stage == 3 && mode == 10 && ((definition[54] >> 10) & 31) == 17);
+        if (mode > 1 && !dot)
         {
             throw Error("native pixel shader uses unsupported texture mode " + std::to_string(mode));
         }
+        if (dot)
+        {
+            const u32 mapping = (definition[55] >> ((stage - 1) * 4)) & 7;
+            if (mapping != 0 && mapping != 4)
+            {
+                throw Error("native pixel shader uses unsupported dot mapping " + std::to_string(mapping));
+            }
+        }
     }
+    const bool depth_output = ((definition[54] >> 15) & 31) == 10;
     if (render_profile::reference)
     {
         return g.model_ps.Get();
@@ -2714,9 +2796,13 @@ ID3D11PixelShader* native_pixel_shader(const u32* definition)
     source.replace(pos, std::strlen("if (ps_control.y < 2)"), "if (true)");
     ComPtr<ID3DBlob> blob;
     ComPtr<ID3D11PixelShader> shader;
-    if (!compile_shader(source.c_str(), "ps_model", "ps_4_0", blob) ||
+    if (!compile_shader(source.c_str(), depth_output ? "ps_model_depth" : "ps_model", "ps_4_0", blob) ||
         FAILED(g.device->CreatePixelShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, shader.GetAddressOf())))
     {
+        if (depth_output)
+        {
+            throw Error("native depth-replacing pixel shader failed to compile");
+        }
         // Explicit fallback to the unchanged generic implementation, including its error checks.
         shader = g.model_ps;
     }
@@ -3129,7 +3215,9 @@ void gfx_draw_native(const GfxNativeDraw& draw)
         }
         blend = g.native_blends.emplace(blend_key, state).first;
     }
-    const u32 depth_key = (draw.depth_test ? 1u : 0u) | (draw.depth_write ? 2u : 0u) | (draw.depth_function << 2);
+    const std::array<u32, 9> depth_key{(draw.depth_test ? 1u : 0u) | (draw.depth_write ? 2u : 0u)
+        | (draw.depth_function << 2), draw.stencil_test ? 1u : 0u, draw.stencil_function, draw.stencil_read_mask,
+        draw.stencil_write_mask, draw.stencil_fail, draw.stencil_depth_fail, draw.stencil_pass, 0};
     auto depth = g.native_depths.find(depth_key);
     if (depth == g.native_depths.end())
     {
@@ -3142,6 +3230,17 @@ void gfx_draw_native(const GfxNativeDraw& draw)
         desc.DepthEnable = draw.depth_test ? TRUE : FALSE;
         desc.DepthWriteMask = draw.depth_write ? D3D11_DEPTH_WRITE_MASK_ALL : D3D11_DEPTH_WRITE_MASK_ZERO;
         desc.DepthFunc = native_comparison(draw.depth_function);
+        if (draw.stencil_test)
+        {
+            desc.StencilEnable = TRUE;
+            desc.StencilReadMask = u8(draw.stencil_read_mask);
+            desc.StencilWriteMask = u8(draw.stencil_write_mask);
+            desc.FrontFace.StencilFunc = native_comparison(draw.stencil_function);
+            desc.FrontFace.StencilFailOp = native_stencil_op(draw.stencil_fail);
+            desc.FrontFace.StencilDepthFailOp = native_stencil_op(draw.stencil_depth_fail);
+            desc.FrontFace.StencilPassOp = native_stencil_op(draw.stencil_pass);
+            desc.BackFace = desc.FrontFace;
+        }
         ComPtr<ID3D11DepthStencilState> state;
         if (FAILED(g.device->CreateDepthStencilState(&desc, state.GetAddressOf())))
         {
@@ -3256,7 +3355,7 @@ void gfx_draw_native(const GfxNativeDraw& draw)
     g.context->PSSetShaderResources(0, 4, views);
     g.context->PSSetSamplers(0, 4, samplers);
     g.context->OMSetBlendState(blend->second.Get(), nullptr, 0xFFFFFFFFu);
-    g.context->OMSetDepthStencilState(depth->second.Get(), 0);
+    g.context->OMSetDepthStencilState(depth->second.Get(), draw.stencil_reference & 0xFF);
     g.context->RSSetState(rasterizer->second.Get());
     const UINT stride = program_draw ? sizeof(GfxNativeInputs) : sizeof(GfxNativeVertex);
     const UINT offset = vertex_offset;
@@ -3394,6 +3493,50 @@ void gfx_begin_native_target(int width, int height)
     native_target.rendering = true;
 }
 
+void gfx_read_native_target_depth(std::vector<u32>& output)
+{
+    output.clear();
+    if (!g.ok)
+    {
+        return;
+    }
+    if (!native_target.rendering)
+    {
+        throw Error("native render target is not bound");
+    }
+    if (!native_target.depth_staging)
+    {
+        D3D11_TEXTURE2D_DESC desc{};
+        native_target.depth->GetDesc(&desc);
+        desc.Usage = D3D11_USAGE_STAGING;
+        desc.BindFlags = 0;
+        desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        if (FAILED(g.device->CreateTexture2D(&desc, nullptr, native_target.depth_staging.GetAddressOf())))
+        {
+            throw Error("native render target depth staging creation failed");
+        }
+    }
+    g.context->CopyResource(native_target.depth_staging.Get(), native_target.depth.Get());
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    if (FAILED(g.context->Map(native_target.depth_staging.Get(), 0, D3D11_MAP_READ, 0, &mapped)))
+    {
+        throw Error("native render target depth readback failed");
+    }
+    output.resize(size_t(native_target.width) * size_t(native_target.height));
+    for (int y = 0; y < native_target.height; ++y)
+    {
+        const u8* row = static_cast<const u8*>(mapped.pData) + size_t(y) * mapped.RowPitch;
+        for (int x = 0; x < native_target.width; ++x)
+        {
+            u32 value;
+            std::memcpy(&value, row + size_t(x) * 4, 4);
+            // D24_UNORM_S8_UINT holds depth in bits 0..23 and stencil above; the NV2A's D24S8 is the reverse.
+            output[size_t(y) * size_t(native_target.width) + size_t(x)] = ((value & 0xFFFFFFu) << 8) | (value >> 24);
+        }
+    }
+    g.context->Unmap(native_target.depth_staging.Get(), 0);
+}
+
 void gfx_end_native_target(RgbaImage& output)
 {
     if (!g.ok)
@@ -3453,7 +3596,28 @@ void gfx_clear_native(std::span<const std::array<i32, 4>> rectangles, u32 flags,
         }
         return;
     }
-    if ((flags & 0xF0) != 0 || flags != 3 || depth != 1.f)
+    if ((flags & 0xF0) != 0)
+    {
+        // A texture target is in Xbox pixels (see present_hud_viewport); the back buffer's fitted area is not.
+        ComPtr<ID3D11DeviceContext1> context1;
+        if ((flags & 0xF0) != 0xF0 || !native_target.rendering || FAILED(g.context.As(&context1)))
+        {
+            throw Error("native clear of a colour rectangle supports a whole colour on a texture target only");
+        }
+        const float rgba[4]{float((color >> 16) & 0xFF) / 255.f, float((color >> 8) & 0xFF) / 255.f,
+            float(color & 0xFF) / 255.f, float(color >> 24) / 255.f};
+        std::vector<D3D11_RECT> rects;
+        for (const auto& rectangle : rectangles)
+        {
+            rects.push_back(D3D11_RECT{rectangle[0], rectangle[1], rectangle[2], rectangle[3]});
+        }
+        context1->ClearView(target, rgba, rects.data(), UINT(rects.size()));
+    }
+    if ((flags & 3) == 0)
+    {
+        return;
+    }
+    if ((flags & 3) != 3 || depth != 1.f)
     {
         throw Error("native clear of a rectangle supports depth and stencil to 1 only");
     }

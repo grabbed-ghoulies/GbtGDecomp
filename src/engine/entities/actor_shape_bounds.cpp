@@ -118,6 +118,54 @@ u32 count_runtime_actor_bound_shapes(const Actor& actor, u32 mask)
     return count;
 }
 
+// Xbox 0x0003D9A0
+long double actor_model_sweep_radius(const Actor& actor)
+{
+    const u8* block = actor_shape_block(actor, 5);
+    if (block != nullptr)
+    {
+        const float radius = float(static_cast<long double>(actor.scale_200)
+            * bound_float(block, 0x10) * actor.radius_xz);
+        return animation_absolute(radius);
+    }
+    return 0.L; // DAT_0032B100.
+}
+
+// Xbox 0x0003D900
+void actor_model_bound_center(const Actor& actor, Vec3& output)
+{
+    const u8* block = actor_shape_block(actor, 5);
+    if (block != nullptr)
+    {
+        output = Vec3{bound_float(block, 4), bound_float(block, 8), bound_float(block, 0xC)};
+        const float scale = actor.scale_200 * actor.radius_xz;
+        output.x = output.x * scale;
+        output.y = output.y * scale;
+        output.z = output.z * scale;
+        return;
+    }
+    output.z = 0.f;
+    output.y = 0.f;
+    output.x = 0.f;
+}
+
+// Xbox 0x0003DA00
+bool actor_model_world_bound(const Actor& actor, Vec3& center, float& radius)
+{
+    if (actor_shape_block(actor, 5) == nullptr)
+    {
+        return false;
+    }
+    Vec3 local;
+    actor_model_bound_center(actor, local);
+    const float* m = actor.xform;
+    center.x = m[1] * local.y + m[2] * local.z + m[0] * local.x + m[3];
+    center.y = m[5] * local.y + m[6] * local.z + m[4] * local.x + m[7];
+    center.z = m[9] * local.y + m[10] * local.z + m[8] * local.x + m[11];
+    radius = float(actor_model_sweep_radius(actor));
+    return true;
+}
+
 // Xbox 0x0003DB30
 long double actor_model_bound_radius(const Actor& actor)
 {

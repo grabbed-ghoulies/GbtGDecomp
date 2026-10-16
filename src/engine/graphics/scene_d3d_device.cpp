@@ -169,24 +169,29 @@ SceneD3DDevice::SceneD3DDevice()
     {
         immediate_.assign({0x417FCu, primitive});
     };
-    dialogue_.vertex_data4f = [this](i32 reg, float x, float y, float z, float)
+    // Register -1 (D3DVSDE_VERTEX) and 0 (D3DVSDE_POSITION) both write the position, which emits the vertex.
+    dialogue_.vertex_data4f = [this](i32 reg, float x, float y, float z, float w)
     {
-        if (reg != -1 || immediate_.empty())
+        if ((reg != -1 && reg != 0) || immediate_.empty())
         {
             throw Error("D3D immediate vertex data other than a position, or outside Begin/End");
         }
         const auto bound = render_states_.find(kVertexShader);
         const u32 format = bound == render_states_.end() ? 0u : bound->second;
-        if (format != 0x2 && format != 0x42)
+        if (format != 0x2 && format != 0x42 && format != 0x44)
         {
             throw Error("D3D immediate vertices under vertex format " + std::to_string(format));
         }
-        const u32 words = format == 0x42 ? 4 : 3;
+        const u32 words = format == 0x44 ? 5 : format == 0x42 ? 4 : 3;
         immediate_.push_back(0x1818u | (words << 18));
         immediate_.push_back(std::bit_cast<u32>(x));
         immediate_.push_back(std::bit_cast<u32>(y));
         immediate_.push_back(std::bit_cast<u32>(z));
-        if (format == 0x42)
+        if (format == 0x44)
+        {
+            immediate_.push_back(std::bit_cast<u32>(w)); // D3DFVF_XYZRHW's reciprocal w.
+        }
+        if (format == 0x42 || format == 0x44)
         {
             const auto diffuse = render_states_.find(kVertexDataColor + 3);
             immediate_.push_back(diffuse == render_states_.end() ? 0xFFFFFFFFu : diffuse->second);

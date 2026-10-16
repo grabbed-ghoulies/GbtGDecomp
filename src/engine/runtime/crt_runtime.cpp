@@ -5,7 +5,6 @@
 #include "gbtg/model.h"
 #include "gbtg/movie.h"
 #include "gbtg/resource.h"
-#include "../transitions/transition_data.h"
 
 #include <algorithm>
 #include <bit>

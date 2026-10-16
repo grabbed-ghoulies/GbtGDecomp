@@ -25,6 +25,25 @@ void write(ActorCameraEffect& effect, size_t offset, const T& value)
 }
 }
 
+// Xbox 0x00048F10
+void release_actor_camera_effects()
+{
+    while (ActorCameraEffect* effect = g_actor_camera_effects.next)
+    {
+        if (effect->previous != nullptr)
+        {
+            effect->previous->next = effect->next;
+        }
+        if (effect->next != nullptr)
+        {
+            effect->next->previous = effect->previous;
+        }
+        effect->previous = nullptr;
+        effect->next = nullptr;
+        engine_heap_free(effect); // HeapFree on the effect's thread heap
+    }
+}
+
 // Xbox 0x000494B0
 ActorCameraEffect* allocate_actor_camera_effect(u8 type)
 {

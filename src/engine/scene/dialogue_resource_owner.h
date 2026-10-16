@@ -3,6 +3,7 @@
 #include "../frontend/dialogue_text_metrics.h"
 #include "../../gbtg/text/localtext_resources.h"
 #include "scene_resource_memory.h"
+#include "../graphics/scene_d3d_device.h"
 #include "gbtg/model_views.h"
 #include "gbtg/entity.h"
 #include "../entities/body_resources.h"
@@ -35,6 +36,9 @@ public:
     // Model resources (hook 0x00052F00): relocated copies, their GPU segments and the host D3D state.
     SceneResourceMemory memory;
     SceneD3DResources d3d;
+    // The recording D3D device (vertex shaders, streams, states). Boot-owned with the vertex shader cache below,
+    // whose cached handles name shaders created on it.
+    SceneD3DDevice device;
     RuntimeNodeRelocationBoundaries d3d_boundaries = scene_d3d_boundaries(d3d, memory);
     RuntimeModelHeapBoundaries model_heap = scene_model_heap_boundaries(memory);
     RuntimeBlendshapeBoundaries blendshapes = scene_blendshape_boundaries(memory);

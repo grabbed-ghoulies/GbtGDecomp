@@ -49,10 +49,10 @@ const ObjectFactoryVtable* scene_base_lifecycle()
 }
 }
 
-SceneFactoryRuntime::SceneFactoryRuntime(AidStore& aids, std::shared_ptr<SceneExecutableResources> image)
+SceneFactoryRuntime::SceneFactoryRuntime(std::shared_ptr<SceneExecutableResources> image,
+    SceneDialogueResourceOwner& owner)
     : executable(std::move(image)),
-      resources(aids, executable != nullptr ? std::span<ExecutableResourcePool>(executable->pools)
-          : std::span<ExecutableResourcePool>{})
+      resources(owner)
 {
     if (executable == nullptr)
     {
@@ -261,7 +261,60 @@ SceneActorServices& SceneFactoryRuntime::start_actors(Game& game)
     {
         actor_services = std::make_unique<SceneActorServices>(*this, game);
     }
+    else if (!actor_services->in_scene())
+    {
+        actor_services->begin_scene();
+    }
     return *actor_services;
+}
+
+void SceneFactoryRuntime::start_services(Game& game)
+{
+    if (actor_services == nullptr)
+    {
+        actor_services = std::make_unique<SceneActorServices>(*this, game);
+    }
+}
+
+void SceneFactoryRuntime::end_scene()
+{
+    // 0x0011C5A0 in its order: the dialogue, scene cutscenes and doors; the scene controls (0x00115F00); message 0x80
+    // to the active actors and the retired ones removed (0x00122C70, 0x001232D0); then the scene's other objects.
+    if (actor_services != nullptr)
+    {
+        actor_services->begin_teardown();
+    }
+    for (auto object = objects.rbegin(); object != objects.rend(); ++object)
+    {
+        if (object->bytes == nullptr)
+        {
+            continue;
+        }
+        u16 type = object->type;
+        while (type != 3 && type > 1)
+        {
+            type = types[type].parent;
+        }
+        if (type == 3)
+        {
+            release_factory_object(factory, *object);
+        }
+    }
+    if (actor_services != nullptr)
+    {
+        actor_services->retire_actors();
+    }
+    release_objects();
+    if (actor_services != nullptr)
+    {
+        actor_services->end_scene();
+    }
+    if (g_scene_control_owner == controls.get())
+    {
+        g_scene_controls = SceneControlLists{};
+    }
+    markers_.reset();
+    actor_start = 0;
 }
 
 std::span<const u8> SceneFactoryRuntime::markers() const

@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cmath>
 #include <cstring>
 #include <string>
 #include <unordered_map>
@@ -656,6 +657,7 @@ void present_fixed(const SceneD3DFixedDraw& draw, const SceneD3DPresentContext& 
 {
     u32 stride = 0;
     bool has_diffuse = false;
+    bool pretransformed = false;
     switch (draw.format)
     {
     case 0x002: // D3DFVF_XYZ.
@@ -664,6 +666,11 @@ void present_fixed(const SceneD3DFixedDraw& draw, const SceneD3DPresentContext& 
     case 0x042: // D3DFVF_XYZ | D3DFVF_DIFFUSE.
         stride = 16;
         has_diffuse = true;
+        break;
+    case 0x044: // D3DFVF_XYZRHW | D3DFVF_DIFFUSE: already in screen space.
+        stride = 20;
+        has_diffuse = true;
+        pretransformed = true;
         break;
     default:
         throw Error("fixed-function draw uses vertex format " + std::to_string(draw.format));
@@ -685,20 +692,29 @@ void present_fixed(const SceneD3DFixedDraw& draw, const SceneD3DPresentContext& 
     };
     const auto* data = reinterpret_cast<const u8*>(draw.vertices.data());
     std::vector<GfxNativeVertex> shaded;
+    std::vector<XboxVector> screens;
     for (size_t offset = 0; offset < size; offset += stride)
     {
-        float position[3];
-        std::memcpy(position, data + offset, 12);
-        std::array<float, 4> clip{};
-        for (u32 column = 0; column < 4; ++column)
+        float position[4]{};
+        std::memcpy(position, data + offset, pretransformed ? 16 : 12);
+        XboxVector screen{};
+        if (pretransformed)
         {
-            clip[column] = position[0] * composite[column] + position[1] * composite[4 + column]
-                + position[2] * composite[8 + column] + composite[12 + column];
+            screen = {position[0], position[1], position[2], 1.f / position[3]};
         }
-        const float reciprocal = 1.f / clip[3];
-        XboxVector screen{clip[0] * reciprocal * draw.screen_scale[0] + draw.screen_offset[0],
-            clip[1] * reciprocal * draw.screen_scale[1] + draw.screen_offset[1],
-            clip[2] * reciprocal * draw.screen_scale[2] + draw.screen_offset[2], clip[3]};
+        else
+        {
+            std::array<float, 4> clip{};
+            for (u32 column = 0; column < 4; ++column)
+            {
+                clip[column] = position[0] * composite[column] + position[1] * composite[4 + column]
+                    + position[2] * composite[8 + column] + composite[12 + column];
+            }
+            const float reciprocal = 1.f / clip[3];
+            screen = {clip[0] * reciprocal * draw.screen_scale[0] + draw.screen_offset[0],
+                clip[1] * reciprocal * draw.screen_scale[1] + draw.screen_offset[1],
+                clip[2] * reciprocal * draw.screen_scale[2] + draw.screen_offset[2], clip[3]};
+        }
         if (line_primitive(draw.primitive))
         {
             // The NV2A samples pixel centres on whole coordinates and D3D11 half a pixel in, so a line drawn
@@ -711,18 +727,54 @@ void present_fixed(const SceneD3DFixedDraw& draw, const SceneD3DPresentContext& 
         u32 packed = draw.diffuse;
         if (has_diffuse)
         {
-            std::memcpy(&packed, data + offset + 12, 4);
+            std::memcpy(&packed, data + offset + (pretransformed ? 16 : 12), 4);
         }
         vertex.diffuse = color(packed);
         shaded.push_back(vertex);
+        screens.push_back(screen);
     }
     std::vector<GfxNativeVertex> vertices;
-    for (u32 index : triangle_order(draw.primitive, u32(shaded.size())))
+    const auto& order = triangle_order(draw.primitive, u32(shaded.size()));
+    // D3DRS_LINEWIDTH (pixels): D3D11 lines are one pixel, so a wider line becomes a quad across each segment.
+    const float width = std::bit_cast<float>(state(draw.states, 0x10050, std::bit_cast<u32>(1.f)));
+    const bool wide = line_primitive(draw.primitive) && width > 1.f;
+    if (wide)
     {
-        vertices.push_back(shaded[index]);
+        for (size_t index = 0; index + 1 < order.size(); index += 2)
+        {
+            const XboxVector& a = screens[order[index]];
+            const XboxVector& b = screens[order[index + 1]];
+            const float dx = b[0] - a[0];
+            const float dy = b[1] - a[1];
+            const float length = std::sqrt(dx * dx + dy * dy);
+            if (length == 0.f)
+            {
+                continue;
+            }
+            const float px = -dy / length * width * 0.5f;
+            const float py = dx / length * width * 0.5f;
+            const auto corner = [&](const XboxVector& end, u32 source, float sign)
+            {
+                GfxNativeVertex vertex = shaded[source];
+                vertex.position = clip_position({end[0] + px * sign, end[1] + py * sign, end[2], end[3]});
+                return vertex;
+            };
+            const GfxNativeVertex a0 = corner(a, order[index], 1.f);
+            const GfxNativeVertex a1 = corner(a, order[index], -1.f);
+            const GfxNativeVertex b0 = corner(b, order[index + 1], 1.f);
+            const GfxNativeVertex b1 = corner(b, order[index + 1], -1.f);
+            vertices.insert(vertices.end(), {a0, b0, b1, a0, b1, a1});
+        }
+    }
+    else
+    {
+        for (u32 index : order)
+        {
+            vertices.push_back(shaded[index]);
+        }
     }
     GfxNativeDraw output;
-    output.lines = line_primitive(draw.primitive);
+    output.lines = line_primitive(draw.primitive) && !wide;
     output.vertices = vertices;
     apply_states(draw.states, output);
     (void)context;

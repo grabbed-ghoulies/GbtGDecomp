@@ -20,7 +20,6 @@ void script_pump(Game& g);                          // 0x0011E4C0: frame_tick lo
 void script_vm_reset();                             // Clears the condition list and the fired-id list.
 void script_vm_bind(Game& g);                       // 0x0004B440: walk the loaded script from its first node.
 void script_vm_tick(Game& g, float dt);             // 0x00117100: update, eval, then drain fired ids.
-void draw_scene_transition(Game& g);
 void pad_tick(Game& g, const InputState& in); // Xbox 0x000FA3C0 / 0x000FAD80
 // Cue-list name, the same key build_catalog stores. loop keeps the voice up.
 void pcm_play_cue(const Game& g, const char* cue, bool loop);

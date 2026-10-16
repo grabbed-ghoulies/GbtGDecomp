@@ -471,16 +471,6 @@ u32 present_clear_flags()
 }
 
 // Xbox 0x00033A90
-// 0x00107420 walks DAT_0050E0B8. The null backend keeps the lock test and does not draw.
-void present_movies()
-{
-    if (present_frame.movie_lock_a != 0 || present_frame.movie_lock_b != 0)
-    {
-        return;
-    }
-    movie_present();
-}
-
 // Xbox 0x00033A90
 // 0x00106CD0. A null object skips the record.
 void present_overlays()
@@ -616,7 +606,6 @@ void present_draw_frame()
     // 0x0005E110 installs the frame render states.
     // 0x000F9780 retires the deferred span at DAT_005079E0.
     // 0x00036180 submits the draw span at DAT_004DF240 and resets it.
-    present_movies();
     present_overlays();
     present_cameras();
     // 0x000F6F70 restores the HUD viewport from DAT_005096E8 / DAT_005096EA.
@@ -624,7 +613,6 @@ void present_draw_frame()
     // 0x00066080 walks the 0x18 depth list at DAT_00504960.
     present_sprite_span();
     present_swap();
-    present_movies();
 }
 
 } // namespace

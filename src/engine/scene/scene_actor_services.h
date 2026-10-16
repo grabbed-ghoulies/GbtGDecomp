@@ -18,6 +18,13 @@ public:
     ~SceneActorServices();
     SceneActorServices(const SceneActorServices&) = delete;
     SceneActorServices& operator=(const SceneActorServices&) = delete;
+    // The services live for the run; each scene begins (its markers and scene data) and ends (0x0011C5A0's
+    // teardown of its actors, cutscenes, doors and effects) inside them. start_actors begins each scene.
+    void begin_scene();
+    void begin_teardown(); // 0x0011C5A0's 0x000584D0, 0x0004ECE0 and 0x0005B1E0
+    void retire_actors(); // 0x0011C5A0's 0x00122C70 (message 0x80) and 0x001232D0
+    void end_scene();
+    bool in_scene() const;
     // 0x0011CBD0 ahead of the markers: door pool, requested background (0x0011C8B0), its activation
     // (0x00123070) and the navigation build (0x00111820) that fills DAT_0050E24C.
     void start_background();

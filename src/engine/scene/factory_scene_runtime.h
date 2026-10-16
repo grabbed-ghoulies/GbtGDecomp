@@ -15,12 +15,12 @@ class SceneFactoryRuntime
 {
 public:
     static constexpr size_t type_count = 0xAB; // DAT_0030D41C through type 0xAA.
-    SceneFactoryRuntime(AidStore& aids, std::shared_ptr<SceneExecutableResources> executable);
+    SceneFactoryRuntime(std::shared_ptr<SceneExecutableResources> executable, SceneDialogueResourceOwner& owner);
     ~SceneFactoryRuntime();
     SceneFactoryRuntime(const SceneFactoryRuntime&) = delete;
     SceneFactoryRuntime& operator=(const SceneFactoryRuntime&) = delete;
     std::shared_ptr<SceneExecutableResources> executable;
-    SceneDialogueResourceOwner resources; // Actual bundle/demand resource provider, including markers.
+    SceneDialogueResourceOwner& resources; // The boot-owned resource registry and memory (Game::native_resources).
     std::array<ObjectFactoryType, type_count> types;
     ObjectFactoryRegistry factory{types};
     std::array<u32, type_count> retail_getters{};
@@ -46,6 +46,11 @@ public:
     std::span<const u8> markers() const;
     // Builds the actor service graph and installs its classes; marker start then creates the scene's actors.
     SceneActorServices& start_actors(Game& game);
+    // Boot 0x00033030: the services exist before the first scene (its request already starts a transition).
+    void start_services(Game& game);
+    // The runtime lives for the run like retail's factory and actor lists. A scene ends with 0x0011C5A0's
+    // teardown (its objects, then the services' part); the next scene begins when its actors start.
+    void end_scene();
     // Native scene start through the actor services: 0 not run, 1 complete, -1 stopped where a service
     // is not bound yet (the scene then keeps the legacy script path).
     i32 actor_start = 0;

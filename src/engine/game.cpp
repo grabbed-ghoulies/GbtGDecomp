@@ -5,6 +5,7 @@
 #include "scene/factory_scene_runtime.h"
 #include "scene/scene_actor_services.h"
 #include "scene/scene.h"
+#include "scripts/script_chapter.h"
 #include "frontend/frontend_sounds.h"
 #include "frontend/frontend_state.h"
 #include "audio/pcm_backend.h"
@@ -46,10 +47,19 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
     clock_init(clock);
     aids.open(game_dir);
     executable_resources = std::make_shared<SceneExecutableResources>(game_dir);
+    // Boot 0x00033030 -> 0x00035A90 and the provider and hook registrations.
+    native_resources = std::make_shared<SceneDialogueResourceOwner>(aids, executable_resources->pools);
     native_audio = boot_native_audio(*this); // Boot 0x00033030 -> 0x0003A280.
     native_movies = boot_native_movies(*this); // Boot 0x00033030 -> 0x000E9CE0, 0x000E9E60.
     native_input = boot_native_input_stack(); // Boot 0x00033030 -> 0x00033248, 0x00033274; 0x0011C3F0's push.
     reset_runtime_frontend(g_frontend, g_pause_ditty); // Boot 0x00033030 -> 0x000E5A80.
+    // The object factory, actor lists and scene services, boot-owned like retail's globals.
+    factory_scene = std::make_shared<SceneFactoryRuntime>(executable_resources, *native_resources);
+    factory_scene->controls->context.chapter = [this]() -> i32
+    {
+        return script_chapter_index(scene_script.name); // 0x0004B4D0
+    };
+    factory_scene->start_services(*this);
     // Boot 0x00033030 -> 0x0011EA50 -> 0x0011C3F0 -> 0x000FD620 (the light defaults). The rest of 0x0011C3F0 is
     // not translated.
     lighting_initialize_volume();
@@ -168,33 +178,18 @@ void frame_tick(Game& g, float dt, const InputState& in)
     // 0x00033BF2: the save timer and the queued saves (0x0010F440).
     SaveGameContext saves{movies.session->files(), g_runtime_profile, {}};
     tick_save_games(g_sim_dt, saves);
-    // Host movie playback for the legacy front end (docs/LEGACY_HOST_CODE.md).
+    // The Bink decoder's clock (BinkWait's timer).
     movie_advance_time(g.clock.dt);
-    movie_present();
-    if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1)
-    {
-        // Present 0x00033A90 over the natively started scene: the movie list, the movie frames into their hooked
-        // textures (0x00106CD0), each active camera slot's view (0x00033A20), then the movie list again.
-        tick_native_movie_list(movies);
-        copy_movie_event_frames(movies.session->slots, g.factory_scene->resources.special_textures,
-            movies.session->startup());
-        g.factory_scene->start_actors(g).present_views();
-        tick_native_movie_list(movies);
-    }
-    else
-    {
-        // Between native scenes (docs/LEGACY_HOST_CODE.md): the host world and props with the body camera.
-        if (g.camera)
-        {
-            gfx_set_camera(g.camera->pose_position, g.camera->pose_quat, g.camera->pose_fov);
-        }
-        for (const Mesh& mesh : g.models)
-        {
-            gfx_draw_mesh(mesh);
-        }
-        draw_scene_dialogue(g); // Xbox 0x00058150; drawing also computes the next page pointer.
-    }
-    draw_scene_transition(g);
+    // 0x00033A90 flushes the deferred resource unloads (0x00036180) before it presents.
+    flush_animation_resource_unloads(g.native_resources->registry);
+    // Present 0x00033A90: the movie list, the movie frames into their hooked textures (0x00106CD0), each active
+    // camera slot's view (0x00033A20), then the movie list again. The views run every frame, with or without a
+    // started scene, as the transition camera can hold slot 0 between scenes.
+    tick_native_movie_list(movies);
+    copy_movie_event_frames(movies.session->slots, g.factory_scene->resources.special_textures,
+        movies.session->startup());
+    g.factory_scene->actor_services->present_views();
+    tick_native_movie_list(movies);
 }
 
 void Game::tick(float dt, const InputState& in)

@@ -11,8 +11,6 @@ const BundleEntry* find_aid(const Game& g, std::string_view name);
 } // namespace scene_detail
 
 void script_load(Game& g, std::string_view name);
-// Releases the legacy host meshes of g.models (the front end still draws them).
-void release_models(Game& g);
 
 // DAT_004DEDAC
 

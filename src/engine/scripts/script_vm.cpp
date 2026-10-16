@@ -5,7 +5,6 @@
 #include "gbtg/model.h"
 #include "gbtg/movie.h"
 #include "gbtg/resource.h"
-#include "../transitions/transition_data.h"
 #include "../scene/factory_scene_runtime.h"
 #include "../scene/scene_loading.h"
 #include <iostream>
@@ -67,12 +66,11 @@ extern "C"
 
 #include "../scene/scene_types.h"
 #include "../camera/camera.h"
-#include "../cutscenes/cutscene_runtime.h"
 #include "../scene/scene.h"
 #include "script_actions.h"
 #include "script_conditions.h"
 #include "script_vm.h"
-#include "../transitions/transition_book.h"
+#include "../transitions/scene_transitions.h"
 
 namespace gbtg
 {
@@ -768,9 +766,6 @@ void script_queue_scene_start(Game& g)
                 queued = true;
             });
             g.factory_scene->actor_start = 1;
-            // The native background draws the scene from here on; the legacy host meshes are unused.
-            release_models(g);
-            g.models.clear();
             std::cout << "native scene start complete: " << g.scene_name << "\n";
         }
         catch (const std::exception& error)

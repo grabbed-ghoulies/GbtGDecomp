@@ -143,8 +143,8 @@
 
 namespace gbtg
 {
-extern i32 g_546328;
-extern i32 g_54632c;
+extern i32& g_546328;
+extern i32& g_54632c;
 extern i32 g_flag_2474;
 extern i32 g_draw_e1ec;
 extern i32 g_script_30d0c;
@@ -6944,7 +6944,7 @@ void check_scene_actor_update_queue()
 void check_scene_spawn(gbtg::Game& game, bool scene_start)
 {
     using namespace gbtg;
-    for (int frame = 0; frame < 600 && game.factory_scene == nullptr; ++frame)
+    for (int frame = 0; frame < 600 && game.scene_script.name != "aid_script_ghoulies_chapter1_scene1_2playcam"; ++frame)
     {
         gfx_begin_frame();
         game.tick(1.f / 60.f, {});
@@ -7631,7 +7631,7 @@ void check_player_dialogue_resources(gbtg::AidStore& aids)
             missing_owner = std::string_view(error.what()).find("scene dialogue runtime is not installed")
                 != std::string_view::npos;
         }
-        if (!missing_owner || unbound.script_dialogue != nullptr || unbound.cutscenes.playing)
+        if (!missing_owner || unbound.script_dialogue != nullptr)
         {
             throw gbtg::Error("unbound dialogue action silently advanced the live script");
         }
@@ -7851,6 +7851,13 @@ int main(int argc, char** argv)
         {
             throw gbtg::Error("test graphics initialization failed");
         }
+        if (player_test)
+        {
+            // Its unit checks build their own factory owners, so they run before the game's boot-owned services exist.
+            gbtg::AidStore aids;
+            aids.open(argv[1]);
+            check_player_dialogue_resources(aids);
+        }
         gbtg::Game game;
         // Each run starts with an empty U: (the save folder), so earlier runs' saves never change the screens.
         std::filesystem::remove_all("cache/test_saves");
@@ -7864,9 +7871,7 @@ int main(int argc, char** argv)
         }
         if (player_test)
         {
-            check_player_dialogue_resources(game.aids);
             bool saw_dialogue = false;
-            bool cutscene_before_accept = false;
             bool saw_bat_hop = false;
             // The native prompt activates after the opening transition: the scene tick
             // 0x0011E7F0 (and the script's 3-second timeout) runs only once 0x0011E4C0
@@ -7878,7 +7883,6 @@ int main(int argc, char** argv)
                 game.tick(1.f / 60.f, {});
                 gbtg::gfx_end_frame();
                 saw_dialogue |= gbtg::g_flag_2474 != 0 && gbtg::g_draw_e1ec != 0;
-                cutscene_before_accept |= game.cutscenes.playing;
                 if (game.script_dialogue != nullptr)
                 {
                     auto& active = game.script_dialogue->dialogue;
@@ -7894,7 +7898,6 @@ int main(int argc, char** argv)
                 throw gbtg::Error("player test loaded the wrong scene");
             }
             std::cout << "player opening: dialogue=" << saw_dialogue
-                      << " cutscene before A=" << cutscene_before_accept
                       << " actors=" << game.actors.size()
                       << " entities=" << game.entities.size() << "\n";
             for (const gbtg::u32 cursor : gbtg::g_script_fired)
@@ -7909,7 +7912,7 @@ int main(int argc, char** argv)
                 throw gbtg::Error("player opening readback failed");
             }
             gbtg::write_bmp("cache/player_opening_check.bmp", image);
-            if (!saw_dialogue || cutscene_before_accept)
+            if (!saw_dialogue)
             {
                 throw gbtg::Error("player opening must hold chapter1_scene1_fight1_howtofight until A; "
                                   "native dialogue did not hold the live script");
@@ -8405,10 +8408,6 @@ int main(int argc, char** argv)
                     }
                 }
             }
-            if (game.cutscenes.playing)
-            {
-                throw gbtg::Error("the legacy host reel played under the native attract");
-            }
             std::cout << "PASS: attract ran 8000 frames across " << scenes.size() << " scripts and " << clips
                       << " clip starts natively\n";
             gbtg::gfx_shutdown();
@@ -8441,7 +8440,7 @@ int main(int argc, char** argv)
                     // The attract control (type 0x9B) plays its clips on the native scene cutscene stack.
                     const auto* stack = gbtg::find_scene_cutscene_runtime(game);
                     animated = stack != nullptr && -1 < stack->index
-                        && stack->instances[size_t(stack->index)]->time > 1.f && game.cutscenes.playing == false;
+                        && stack->instances[size_t(stack->index)]->time > 1.f;
                 }
                 auto* slots = native_slot_select();
                 if (game.scene_script.name.find("gameselect") != std::string::npos && slots != nullptr
@@ -8523,6 +8522,15 @@ int main(int argc, char** argv)
                     gbtg::write_bmp(gbtg::g_54632c == 1 ? "cache/goop_enter_check.bmp" :
                                                                          "cache/goop_exit_check.bmp", image);
                 }
+                if (frames == 5 || frames == 15 || frames == 60)
+                {
+                    gbtg::RgbaImage image;
+                    if (gbtg::gfx_readback(image))
+                    {
+                        gbtg::write_bmp(std::string("cache/transition_goop_") + (gbtg::g_54632c == 1 ? "enter_" : "exit_")
+                            + std::to_string(frames) + ".bmp", image);
+                    }
+                }
             }
             if (gbtg::g_546328 == 8 && gbtg::g_54632c != 0)
             {
@@ -8534,6 +8542,15 @@ int main(int argc, char** argv)
                 ++map_frames;
                 saw_load_release = saw_load_release || gbtg::g_54632c == 2;
                 saw_close = saw_close || gbtg::g_54632c == 3;
+                if (map_frames == 5 || map_frames == 30 || map_frames == 90 || map_frames == 150 || map_frames == 270
+                    || map_frames == 330 || map_frames == 400)
+                {
+                    gbtg::RgbaImage image;
+                    if (gbtg::gfx_readback(image))
+                    {
+                        gbtg::write_bmp("cache/transition_map_" + std::to_string(map_frames) + ".bmp", image);
+                    }
+                }
                 if (map_frames == 210)
                 {
                     gbtg::RgbaImage screenshot;

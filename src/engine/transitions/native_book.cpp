@@ -1,4 +1,5 @@
 #include "native_book.h"
+#include "book_map.h"
 #include "../camera/display_view.h"
 #include "../camera/runtime_display_setup.h"
 #include "../camera/view_initialization.h"
@@ -175,55 +176,6 @@ void clear_book_view(u32 color, TransitionBookServices& s)
     s.clear(1, rectangle.data(), 0xF3, swapped, 1.f, 0);
 }
 
-// Xbox 0x000473D0, ESI the book: the map's textures, text, widget, input and voice released.
-void release_book_map(RuntimeTransitionBook& book, TransitionBookServices& s)
-{
-    book.map_state = 0;
-    for (auto* texture : {&book.map_runner, &book.map_runner_back, &book.map_spot})
-    {
-        if (texture->data() != nullptr)
-        {
-            release_animation_resource(s.resources, *texture); // 0x00035C00
-            *texture = {};
-        }
-    }
-    for (auto& marker : book.map_markers)
-    {
-        if (marker.data() != nullptr)
-        {
-            release_animation_resource(s.resources, marker);
-            marker = {};
-        }
-    }
-    if (book.map_text != nullptr)
-    {
-        untranslated("0x000473D0's map text pool release (0x0005F460)");
-    }
-    s.flags &= 0xFFFFDFFFu;
-    book.map_points = 0;
-    if (book.map_widget != nullptr)
-    {
-        untranslated("0x000473D0's map widget release (0x00142070)");
-    }
-    if (book.map_input.data() != nullptr)
-    {
-        untranslated("0x000473D0's map input release (0x001093C0)");
-    }
-    if (book.voice != -1)
-    {
-        untranslated("0x000473D0's map voice stop (DAT_004E0CE8)");
-    }
-}
-
-// Xbox 0x000475B0, EAX the book: the map phase's step; without a map it keeps +0xE4.
-u32 tick_book_map(RuntimeTransitionBook& book)
-{
-    if (book.map_state == 1 || book.map_state == 2)
-    {
-        untranslated("0x000475B0's map phase (states 1 and 2)");
-    }
-    return book.map_ready;
-}
 }
 
 float transition_book_threshold(const RuntimeTransitionBook& book, size_t offset, const SceneExecutableResources& image)
@@ -280,10 +232,10 @@ void tick_transition_book(RuntimeTransitionBook& book, TransitionBookServices& s
     {
         return;
     }
-    tick_book_map(book); // 0x000475B0
+    tick_book_map(book, s); // 0x000475B0
     if (book.finished == 0)
     {
-        const bool ended = tick_runtime_cutscene(*book.cutscene, frame_step(s), nullptr, s.cutscenes); // 0x0004DA50
+        const bool ended = tick_runtime_cutscene(*book.cutscene, frame_step(s), &book.camera, s.cutscenes); // 0x0004DA50, ESI +0x28
         i32 done = ended ? 1 : 0;
         auto& rows = s.cutscenes.instances.at(book.cutscene);
         const u8 tracks = book.cutscene->resource[3]; // *(+0x3C) + 3
@@ -310,7 +262,8 @@ void tick_transition_book(RuntimeTransitionBook& book, TransitionBookServices& s
                 }
                 if (book.route != 0)
                 {
-                    untranslated("0x00046F40 (the book's map route)");
+                    begin_book_map(book, book.route_argument, s); // 0x00046F40
+                    return;
                 }
                 book.finished = done;
             }
@@ -406,10 +359,7 @@ void draw_transition_book(RuntimeTransitionBook& book, TransitionBookServices& s
         bind_display_projection(s.display); // 0x000F6170
     }
     draw_runtime_cutscene(*book.cutscene, s.view(), s.cutscenes); // 0x0004DBD0, EBX +0x24
-    if (book.map_state != 0)
-    {
-        untranslated("0x00047770 (the book's map draw)");
-    }
+    draw_book_map(book, s); // 0x00047770
     for (i32 slot = 0; slot < 4; ++slot)
     {
         if (entity_detail::g_cam_active[slot] != &book.camera)

@@ -1,500 +1,828 @@
-#include "gbtg/anim.h"
-#include "gbtg/engine_internal.h"
-#include "gbtg/entity.h"
-#include "gbtg/gfx.h"
-#include "gbtg/model.h"
-#include "gbtg/movie.h"
-#include "gbtg/resource.h"
-#include "transition_data.h"
-
-#include <algorithm>
-#include <bit>
-#include <chrono>
-#include <cmath>
-#include <cstdint>
-#include <cstddef>
-#include <cerrno>
-#include <charconv>
-#include <cstdarg>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <exception>
-#include <filesystem>
-#include <fstream>
-#include <iostream>
-#include <memory>
-#include <mutex>
-#include <new>
-#include <string>
-#include <unordered_map>
-
-#if !defined(_WIN32)
-#include <cfenv>
-#endif
-
-#if defined(_WIN32)
-#include <excpt.h>
-#include <float.h>
-#include <malloc.h>
-extern "C"
-{
-    __declspec(dllimport) void* __stdcall GetModuleHandleA(const char* name);
-    __declspec(dllimport) void* __stdcall GetProcAddress(void* module, const char* name);
-    __declspec(dllimport) unsigned long __stdcall GetCurrentThreadId();
-    __declspec(dllimport) void __stdcall GetSystemTimeAsFileTime(void* time);
-    __declspec(dllimport) unsigned long __stdcall GetTickCount();
-    __declspec(dllimport) int __stdcall QueryPerformanceCounter(void* counter);
-    __declspec(dllimport) void __stdcall RaiseException(unsigned long code, unsigned long flags, unsigned long count,
-                                                        const std::uintptr_t* arguments);
-    __declspec(dllimport) int __stdcall CloseHandle(void* handle);
-    __declspec(dllimport) int __stdcall FlushFileBuffers(void* handle);
-    __declspec(dllimport) unsigned long __stdcall GetLastError();
-    __declspec(dllimport) int __stdcall ReadFile(void* handle, void* buffer, unsigned long bytes, unsigned long* read,
-                                                 void* overlapped);
-    __declspec(dllimport) int __stdcall WriteFile(void* handle, const void* buffer, unsigned long bytes,
-                                                  unsigned long* written, void* overlapped);
-    __declspec(dllimport) unsigned long __stdcall SetFilePointer(void* handle, long distance, long* high,
-                                                                 unsigned long method);
-    __declspec(dllimport) int __stdcall IsBadReadPtr(const void* lp, std::uintptr_t ucb);
-    __declspec(dllimport) int __stdcall IsBadWritePtr(void* lp, std::uintptr_t ucb);
-}
-#endif
-
-
-#include "../scene/scene_types.h"
-#include "../camera/camera.h"
-#include "../scene/scene.h"
+#include "scene_transition.h"
 #include "scene_transitions.h"
+#include "native_book.h"
+#include "book_map.h"
+#include "../audio/event_voices.h"
+#include "../audio/listener_settings.h"
+#include "../camera/actor_camera_effects.h"
+#include "../camera/camera.h"
+#include "../camera/runtime_display_setup.h"
+#include "../camera/view_initialization.h"
+#include "../cutscenes/instance_construction.h"
+#include "../frontend/dialogue_draw_context.h"
+#include "../frontend/dialogue_text_pool.h"
+#include "../runtime/name_lookup.h"
+#include "../scene/executable_resources.h"
+#include "../scene/scene.h"
+#include "../scene/scene_types.h"
 #include "../scripts/script_actions.h"
-#include "transition_book.h"
+#include "../../gbtg/text/localtext_resources.h"
+#include "gbtg/anim.h"
+#include "gbtg/resource_error.h"
+
+#include <bit>
+#include <cstring>
 
 namespace gbtg
 {
 using namespace scene_detail;
 
-static_assert(sizeof(TransitionSlot31478) == 0x110);
+RuntimeSceneTransition g_scene_transition;
+EntityCamNode g_transition_camera{};
+SceneTransitionServices* g_transition_services = nullptr;
 
-static_assert(offsetof(TransitionSlot31478, aid) == 4);
-
-static_assert(offsetof(TransitionSlot31478, at_104) == 0x104);
-
-static_assert(offsetof(TransitionSlot31478, at_10c) == 0x10c);
-
-static_assert(sizeof(kTransition31478) / sizeof(kTransition31478[0]) == 18);
-
-
-// DAT_00546328. Scene-order slot. Its address is the handler argument.
-i32 g_546328 = 0;
-
-// DAT_0054632C. 1 runs the countdown and the handler. 3 runs the handler.
-// A nonzero value is the clear gate.
-i32 g_54632c = 0;
-
-// DAT_00546344. Steps while DAT_0050484C is above 0, and while this is not.
-i32 g_546344 = 0;
-
-// DAT_00546348. Nonzero counts down. Landing on 0 ORs 0x2000 into DAT_0050EA9C.
-i32 g_546348 = 0;
-
-// DAT_0054634C. The object at [this] holds the unsigned counts at +4 and +8.
-u8** g_54634c = nullptr;
-
-// DAT_0050484C. Incremented when it is below 1 and DAT_00546344 is above 0.
-i32 g_50484c = 0;
-
-// DAT_005096E8 and DAT_005096EA. HUD width and height, zero-extended to float.
-u16 g_5096e8 = 0;
-
-u16 g_5096ea = 0;
-
-// DAT_0050E7A0. Counted when the scene state leaves or enters 1 or 2.
-// entity.cpp keeps a private copy as g_amb_counter.
-i32 g_50e7a0 = 0;
-
-// DAT_00510CEC. Counted up when DAT_0054632C is 0 on entry to 0x0012C5D0.
-i32 g_510cec = 0;
-
-// DAT_004DEA24. Counted with that gate, and once more on the way out.
-// gfx keeps the same address as present_insert.hold.
-i32 g_4dea24 = 0;
-
-// DAT_00510F80. Scene record +0x128. Cleared when the phase is 1.
+i32& g_546328 = g_scene_transition.row;
+i32& g_54632c = g_scene_transition.phase;
+i32 g_50484c = 0; // DAT_0050484C
+i32 g_50e7a0 = 0; // DAT_0050E7A0
+i32 g_510cec = 0; // DAT_00510CEC
+i32 g_4dea24 = 0; // DAT_004DEA24
 i32& g_510f80 = *reinterpret_cast<i32*>(g_510e58 + 0x128);
-
-// DAT_00510F7C. Scene record +0x124. Cleared when the phase is 3.
 i32& g_510f7c = *reinterpret_cast<i32*>(g_510e58 + 0x124);
-
-// DAT_00546330 and DAT_00546334. Both receive the dword at slot+0x104.
-u32 g_546330 = 0;
-
-u32 g_546334 = 0;
-
-// DAT_00546340. Address of slot+4 when that dword is 'aid_', otherwise null.
-const char* g_546340 = nullptr;
-
-
-// DAT_0054937C. Xbox +0 is prev and +4 is next. Xbox +0x34 is the name at
-// DAT_005493B0. DAT_004E1680 is the slot-0 sentinel. entity.cpp keeps the
-// live list private, so the splice walks the copy held here.
-struct ViewNode54937c
-{
-    ViewNode54937c* prev = nullptr;
-    ViewNode54937c* next = nullptr;
-    char name[0x21]{};
-};
-
-ViewNode54937c g_4e1680{};
-
-ViewNode54937c g_54937c{};
-
-
-// DAT_00507DF4. 0x0011CE40 stores 0.
 i32 g_507df4 = 0;
-
-// DAT_00510CE8. Nonzero clears bit 0x20 of DAT_0050EA9C, then stores 0.
 i32 g_510ce8 = 0;
-
-// DAT_00510E40. Nonzero is EBX for 0x00035C00, then stores 0.
 void* g_510e40 = nullptr;
-
-// DAT_00510E34. Nonzero decrements DAT_004DEA24, then stores 0.
 i32 g_510e34 = 0;
+// DAT_005493DC: .bss, and nothing native writes it; 0x0012C2D0 tests it.
+u32 g_5493dc = 0;
+char g_50e458[0x80]{};
+Game* g_transition_game = nullptr;
 
-// Xbox 0x0012C340
-void transition_tick_active()
+namespace
 {
-    // Xbox 0x0012C340
-    if (0 < g_54632c && g_54632c < 4)
+constexpr u32 kRows = 0x00431478; // Stride 0x110.
+constexpr u32 kHandlers = 0x003129A8; // 4 records of 0x18: init, tick, draw, end, begin, exit.
+constexpr u32 kDirectory = 0x0042AC80; // Stride 0x90: the scene name, its row (+0x80) and route (+0x84).
+constexpr u32 kRet = 0x001628B0;
+
+SceneTransitionServices& services()
+{
+    if (g_transition_services == nullptr)
     {
-        const i32 byte_off = g_546328 * 0x110;
-        const u8* row = reinterpret_cast<const u8*>(kTransition31478) + byte_off;
-        if (*reinterpret_cast<const i32*>(row + 0x10c) != 0 && g_54634c != nullptr)
+        throw Error("the scene transition has no services: the boot scene services are not built");
+    }
+    return *g_transition_services;
+}
+
+u32 image_word(u32 address)
+{
+    return read_u32(services().image.memory(address, 4), 0);
+}
+
+float image_real(u32 address)
+{
+    return std::bit_cast<float>(image_word(address));
+}
+
+u32 row_address(i32 row)
+{
+    return kRows + u32(row) * 0x110;
+}
+
+i32 row_handler(i32 row)
+{
+    return i32(image_word(row_address(row)));
+}
+
+const char* row_aid(i32 row, u32 offset)
+{
+    const u32 address = row_address(row) + offset;
+    if (image_word(address) != kAidPrefixEd8)
+    {
+        return nullptr;
+    }
+    return services().image.string(address);
+}
+
+// The time counts down by DAT_005096C0.
+void count_down(RuntimeSceneTransition& t, const SceneTransitionServices& s)
+{
+    if (0.f < t.time)
+    {
+        t.time = t.time - s.dt;
+    }
+}
+
+// The phase change every 0x0012C5D0-family function opens with.
+void leave_phase(i32 phase)
+{
+    if (phase == 0)
+    {
+        g_510cec = g_510cec + 1;
+        g_4dea24 = g_4dea24 + 1;
+        g_flags_ea9c = g_flags_ea9c | 0x100u;
+    }
+    else if (phase == 1)
+    {
+        g_510f80 = 0;
+    }
+    else if (phase == 3)
+    {
+        g_510f7c = 0;
+    }
+}
+
+[[noreturn]] void untranslated(const char* what)
+{
+    throw Error(std::string(what) + " is not translated");
+}
+
+// Xbox 0x0012C830, ECX the transition, EDX the phase.
+void set_transition_phase(RuntimeSceneTransition& t, i32 phase)
+{
+    leave_phase(t.phase);
+    t.phase = phase;
+    if (phase == 0)
+    {
+        g_510cec = g_510cec - 1;
+        g_4dea24 = g_4dea24 - 1;
+        g_flags_ea9c = g_flags_ea9c & 0xFFFFFEFFu;
+    }
+}
+
+// Xbox 0x00116220, EAX the scene: its row of the directory at 0x0042AC80, or 0. A pending override name
+// (DAT_0050E458) is used instead, and cleared.
+i32 find_scene_directory_row(const char* scene)
+{
+    char name[0x80]{};
+    if (std::memcmp(g_50e458, "aid_", 4) == 0)
+    {
+        std::strcpy(name, g_50e458);
+        g_50e458[0] = 0;
+    }
+    else
+    {
+        std::strcpy(name, scene);
+    }
+    for (u32 index = 0; index * 0x90 < 0x5E80; ++index)
+    {
+        if (transition_aid_equal(name, services().image.string(kDirectory + index * 0x90))) // 0x000357D0
         {
-            const u8* obj = *g_54634c;
-            const u32 at_4 = *reinterpret_cast<const u32*>(obj + 4);
-            const u32 at_8 = *reinterpret_cast<const u32*>(obj + 8);
-            if (at_8 <= at_4)
-            {
-                const float x = static_cast<float>(g_5096e8) * std::bit_cast<float>(0x3f000000u);
-                const float y = static_cast<float>(g_5096ea) * std::bit_cast<float>(0x3f4ccccdu);
-                // 0x0005F580 and 0x0005F550 are not translated.
-                (void)x;
-                (void)y;
-            }
+            return i32(index);
         }
     }
-    if (g_54632c == 1)
+    return 0;
+}
+
+// Xbox 0x0012C2D0, EAX the scene, EDI the clip, ESI the route: the scene's transition row.
+i32 select_transition_row(const char* scene, i32& clip, i32& route)
+{
+    if (g_5493dc != 0)
     {
-        if (g_546348 != 0)
+        clip = i32(image_word(row_address(2) + 0x108)); // DAT_004317A0
+        g_5493dc = 0;
+        route = 0;
+        return 2;
+    }
+    const i32 entry = find_scene_directory_row(scene); // 0x00116220
+    if (entry != -1)
+    {
+        const i32 row = i32(image_word(kDirectory + u32(entry) * 0x90 + 0x80));
+        clip = i32(image_word(row_address(row) + 0x108));
+        route = i32(image_word(kDirectory + u32(entry) * 0x90 + 0x84));
+        return row;
+    }
+    clip = 0;
+    route = 0;
+    return 0;
+}
+
+// The first and second page thresholds of the book's clip row (0x0042217C, 0x00422180) against the book's
+// cutscene time; the page index the row names (0x00422184, 0x00422188) is captured next draw.
+float book_position(const RuntimeTransitionBook& book)
+{
+    return book.cutscene->time / book.cutscene->duration; // book +0x24: the cutscene's +0x2C over +0x34
+}
+
+void capture_book_page(RuntimeTransitionBook& book, const SceneTransitionServices& s)
+{
+    const float position = book_position(book);
+    const float first = transition_book_threshold(book, 0x104, s.image);
+    i32 page = -1;
+    if (position < first || position == first)
+    {
+        page = transition_book_row_word(book, 0x10C, s.image);
+    }
+    else
+    {
+        const float second = transition_book_threshold(book, 0x108, s.image);
+        if (second < position && position != second)
         {
-            g_546348 = g_546348 - 1;
-            if (g_546348 == 0)
+            page = transition_book_row_word(book, 0x110, s.image);
+        }
+        else
+        {
+            return;
+        }
+    }
+    if (page != -1)
+    {
+        book.pages[size_t(page)].capture = 1;
+    }
+}
+
+// Handler 0, the fade.
+// Xbox 0x0012BC80
+i32 tick_fade(RuntimeSceneTransition& t)
+{
+    auto& s = services();
+    count_down(t, s);
+    if (t.phase == 1)
+    {
+        if (t.time <= 0.f && t.time != 0.f)
+        {
+            g_510f80 = 0;
+            t.phase = 2;
+        }
+    }
+    else if (t.phase == 3 && t.time <= 0.f && t.time != 0.f)
+    {
+        set_transition_phase(t, 0); // 0x0012C830
+        return t.phase;
+    }
+    return t.phase;
+}
+
+// Xbox 0x0012BCE0
+void begin_fade(RuntimeSceneTransition& t)
+{
+    const float duration = image_real(0x0032B150);
+    leave_phase(t.phase);
+    t.phase = 1;
+    t.duration = duration;
+    t.time = duration;
+}
+
+// Xbox 0x0012BD50
+void exit_fade(RuntimeSceneTransition& t)
+{
+    const float duration = image_real(0x0032B0F4);
+    leave_phase(t.phase);
+    t.phase = 3;
+    t.duration = duration;
+    t.time = duration;
+}
+
+// Handler 1, the book.
+// Xbox 0x0012B360
+void initialize_book_handler(RuntimeSceneTransition& t)
+{
+    t.book = nullptr;
+}
+
+// Xbox 0x0012B370
+i32 tick_book_handler(RuntimeSceneTransition& t)
+{
+    auto& s = services();
+    if (t.phase == 1)
+    {
+        tick_transition_book(*t.book, s.books); // 0x000483E0
+        if (t.book->finished != 0)
+        {
+            if (t.titled != 0)
+            {
+                untranslated("0x0012B370's chapter title (0x0012B810, 0x00109470, 0x00142460)");
+            }
+            set_transition_phase(t, 2); // 0x0012C830
+        }
+        return t.phase;
+    }
+    if (t.phase == 2)
+    {
+        if (t.title_widget != nullptr)
+        {
+            untranslated("0x0012B370's chapter title prompts (0x00142460)");
+        }
+        return t.phase;
+    }
+    if (t.phase != 3)
+    {
+        return t.phase;
+    }
+    if (t.title_widget != nullptr)
+    {
+        untranslated("0x0012B370's chapter title prompts (0x00142460)");
+    }
+    const float position = book_position(*t.book);
+    const float second = transition_book_threshold(*t.book, 0x108, s.image);
+    if (second <= position && position != second && t.title_released == 0)
+    {
+        g_50484c = g_50484c - 1;
+        t.title_released = 1;
+    }
+    {
+        const float first = transition_book_threshold(*t.book, 0x104, s.image);
+        i32 page = -1;
+        if (position < first || position == first)
+        {
+            page = transition_book_row_word(*t.book, 0x10C, s.image);
+        }
+        else if (second <= position && position != second)
+        {
+            page = transition_book_row_word(*t.book, 0x110, s.image);
+        }
+        if (page != -1)
+        {
+            t.book->pages[size_t(page)].capture = 1;
+        }
+    }
+    tick_transition_book(*t.book, s.books); // 0x000483E0
+    if (t.book->finished != 0)
+    {
+        set_transition_phase(t, 0); // 0x0012C830
+    }
+    return t.phase;
+}
+
+// Xbox 0x0012B560
+void draw_book_handler(RuntimeSceneTransition& t)
+{
+    auto& s = services();
+    if (t.book != nullptr)
+    {
+        draw_transition_book(*t.book, s.books); // 0x00048550
+    }
+    if (t.title_widget != nullptr)
+    {
+        untranslated("0x0012B560's chapter title prompts (0x00142720)");
+    }
+}
+
+// Xbox 0x0012B5A0
+void end_book_handler(RuntimeSceneTransition& t)
+{
+    auto& s = services();
+    if (t.title_widget != nullptr)
+    {
+        untranslated("0x0012B5A0's chapter title prompts (0x00142070)");
+    }
+    if (t.title_input != nullptr)
+    {
+        untranslated("0x0012B5A0's chapter title input (0x00107DD0, 0x00107960, 0x00107B60)");
+    }
+    release_transition_book(t.book, s.books); // 0x00048860
+    t.book = nullptr;
+    if (t.title_pool != nullptr)
+    {
+        release_dialogue_text_pool(t.title_pool, *s.text_pools); // 0x0005F460
+    }
+}
+
+// Xbox 0x0012B640
+void begin_book_handler(RuntimeSceneTransition& t)
+{
+    auto& s = services();
+    t.book = create_transition_book(t.clip, 0, t.aid, s.books); // 0x00048260
+    auto& book = *t.book;
+    switch (t.clip)
+    {
+    case 0:
+    case 1:
+    case 0xD:
+    case 0xE:
+        t.titled = 0;
+        book.holding = 1;
+        break;
+    case 2:
+        untranslated("0x0012B640's chapter title (0x0004B550, 0x0004B5A0, 0x0005F390)");
+    case 3:
+    case 4:
+    case 5:
+    case 6:
+    case 7:
+        t.titled = 0;
+        book.holding = 1;
+        book.route = 1;
+        book.route_argument = 0;
+        book.map_from[0] = 0; // +0x118
+        book.map_to[0] = 0; // +0x138
+        book.route_argument = t.route;
+        break;
+    default:
+        capture_book_page(book, s);
+        return;
+    }
+    t.chapter_name[0] = 0;
+    t.chapter_number[0] = 0;
+    t.title_pool = nullptr;
+    capture_book_page(book, s);
+}
+
+// Xbox 0x0012B790
+void exit_book_handler(RuntimeSceneTransition& t)
+{
+    auto& s = services();
+    auto& book = *t.book;
+    book.holding = 0;
+    close_book_map(book, s.books); // 0x00047370, ESI the book
+    capture_book_page(book, s);
+    g_50484c = g_50484c + 1;
+    t.title_released = 0;
+}
+
+// Handler 2, the slime.
+// Xbox 0x0012BDC0
+void initialize_slime(RuntimeSceneTransition& t)
+{
+    t.slime = {};
+}
+
+// Xbox 0x0012BDD0
+i32 tick_slime(RuntimeSceneTransition& t)
+{
+    auto& s = services();
+    const float previous = t.time;
+    count_down(t, s);
+    if (t.phase == 1)
+    {
+        if (t.time <= 0.f)
+        {
+            g_510f80 = 0;
+            t.phase = 2;
+        }
+    }
+    else if (t.phase == 3)
+    {
+        if (t.time <= 0.f && t.time != 0.f)
+        {
+            set_transition_phase(t, 0); // 0x0012C830
+            return t.phase;
+        }
+        const float off = t.duration * image_real(0x0032B244);
+        if (off < previous && t.time <= off)
+        {
+            request_spatial_audio_event_voice(services().image.string(0x00431370), 1, 0.f, s.voices); // 0x00039510
+            return t.phase;
+        }
+    }
+    return t.phase;
+}
+
+// The slime frame 0x0012BE60 truncates (0x001673D8): the time's share of the frames, clamped.
+float slime_frame(float value, float limit)
+{
+    if (0.f < limit)
+    {
+        if (value > limit)
+        {
+            return limit;
+        }
+        if (0.f > value)
+        {
+            return 0.f;
+        }
+        return value;
+    }
+    if (limit > value)
+    {
+        return limit;
+    }
+    if (value > 0.f)
+    {
+        return 0.f;
+    }
+    return value;
+}
+
+// Xbox 0x0012BE60
+void draw_slime(RuntimeSceneTransition& t)
+{
+    auto& s = services();
+    const auto& view = *entity_detail::g_display_view; // DAT_005077A8
+    const float view_height = float(view.fitted_height); // +0x64
+    const float view_width = float(view.fitted_width); // +0x60
+    const float screen_width = float(i32(s.screen[0]));
+    const float half = image_real(0x0032B0F4);
+    const float one = image_real(0x0032B0F8);
+    std::array<float, 2> position{screen_width * half - one, view_height * half - one};
+    std::array<float, 2> scale{};
+    u8 frame = 0;
+    const auto frames = [&t]()
+    {
+        return float(i32(t.slime[0x11]));
+    };
+    const auto width = [&t]()
+    {
+        return float(i32(read_u16(t.slime, 8)));
+    };
+    const auto height = [&t]()
+    {
+        return float(i32(read_u16(t.slime, 10)));
+    };
+    if (t.phase == 1)
+    {
+        if (t.slime_captured == 0)
+        {
+            s.copy_back_buffer(s.address_of(s.page.data())); // DAT_005047DC's surface level 0
+            t.slime_captured = 1;
+        }
+        std::array<float, 2> page_scale{screen_width / view_width, image_real(0x004313F4)}; // DAT_004313F0
+        begin_dialogue_sprite_draw(s.draw); // 0x0005CDC0
+        draw_dialogue_texture(0, nullptr, s.page.data(), page_scale.data(), nullptr, 0.f, image_word(0x00314F48),
+            position.data(), s.draw); // 0x0005CA60, DAT_005047D8
+        --s.draw.override_count;
+        if (s.draw.override_count == 0)
+        {
+            s.draw.fog_disabled = 0;
+        }
+        const float last = frames() - one;
+        float value = 0.f;
+        if (t.duration != 0.f)
+        {
+            value = slime_frame(t.time / t.duration * (0.f - last) + last, last);
+        }
+        frame = u8(truncate_runtime_float(value));
+        scale = {view_width / width(), view_height / height()};
+    }
+    else if (t.phase == 2)
+    {
+        frame = u8(t.slime[0x11] - 1);
+        scale = {view_width / width(), view_height / height()};
+    }
+    else if (t.phase == 3)
+    {
+        const float count = frames();
+        float value = count;
+        if (t.duration != 0.f)
+        {
+            value = slime_frame(t.time / t.duration * count, count);
+        }
+        frame = u8(truncate_runtime_float(value));
+        scale = {0.f - view_width / width(), image_real(0x0032B120) / height() * view_height};
+    }
+    else
+    {
+        untranslated("0x0012BE60 outside phases 1 to 3 (its frame is an uninitialised stack byte)");
+    }
+    begin_dialogue_sprite_draw(s.draw); // 0x0005CDC0
+    draw_dialogue_texture(frame, nullptr, const_cast<u8*>(t.slime.data()), scale.data(), nullptr, 0.f, t.slime_color,
+        position.data(), s.draw); // 0x0005CA60
+    --s.draw.override_count;
+    if (s.draw.override_count == 0)
+    {
+        s.draw.fog_disabled = 0;
+    }
+}
+
+// Xbox 0x0012C1A0
+void end_slime(RuntimeSceneTransition& t)
+{
+    auto& s = services();
+    release_animation_resource(s.resources, t.slime); // 0x00035C00
+    unload_animation_resource(s.resources, t.slime); // 0x00035C60
+    t.slime = {};
+}
+
+std::span<const u8> acquire_slime(const char* aid)
+{
+    auto& s = services();
+    const auto texture = acquire_animation_resource(s.resources, aid); // 0x00035E90
+    if (texture.data() == nullptr)
+    {
+        resource_error(s.error, 2); // 0x00032700
+    }
+    return texture;
+}
+
+// Xbox 0x0012C1D0
+void begin_slime(RuntimeSceneTransition& t)
+{
+    auto& s = services();
+    t.slime_color = u32(t.clip);
+    t.slime = t.aid != nullptr ? acquire_slime(t.aid) : std::span<const u8>{};
+    g_50484c = g_50484c + 1;
+    t.slime_captured = 0;
+    const i16 voice = allocate_audio_event_voice(1, s.voices); // 0x00039830, EBX 1
+    if (voice != -1)
+    {
+        s.voices.voices[size_t(voice)].stop = 1; // DAT_004E0CEC
+        position_audio_event_voice_ahead(voice, image_real(0x0032B184), s.voices); // 0x00039B30
+        prepare_audio_event_voice(voice, s.image.string(0x004313F8), s.voices); // 0x00039A20
+    }
+}
+
+// Xbox 0x0012C270
+void exit_slime(RuntimeSceneTransition& t)
+{
+    auto& s = services();
+    t.slime_color = u32(t.clip);
+    if (t.slime.data() != nullptr)
+    {
+        release_animation_resource(s.resources, t.slime); // 0x00035C00
+    }
+    if (t.aid == nullptr)
+    {
+        t.slime = {};
+        return;
+    }
+    t.slime = acquire_slime(t.aid);
+}
+
+// Handler 3 (row 16), which no scene's directory row names.
+[[noreturn]] void handler_three(u32 slot)
+{
+    char detail[96];
+    std::snprintf(detail, sizeof(detail), "transition handler 3's slot 0x%08X (row 16)", slot);
+    untranslated(detail);
+}
+
+// The handler record's slot (0x003129A8 + handler * 0x18 + slot * 4), as the indirect call reaches it.
+i32 call_handler(i32 handler, u32 slot)
+{
+    auto& t = g_scene_transition;
+    const u32 address = image_word(kHandlers + u32(handler) * 0x18 + slot * 4);
+    switch (address)
+    {
+    case kRet:
+        return 0;
+    case 0x0012BC80:
+        return tick_fade(t);
+    case 0x0012BCE0:
+        begin_fade(t);
+        return 0;
+    case 0x0012BD50:
+        exit_fade(t);
+        return 0;
+    case 0x0012B360:
+        initialize_book_handler(t);
+        return 0;
+    case 0x0012B370:
+        return tick_book_handler(t);
+    case 0x0012B560:
+        draw_book_handler(t);
+        return 0;
+    case 0x0012B5A0:
+        end_book_handler(t);
+        return 0;
+    case 0x0012B640:
+        begin_book_handler(t);
+        return 0;
+    case 0x0012B790:
+        exit_book_handler(t);
+        return 0;
+    case 0x0012BDC0:
+        initialize_slime(t);
+        return 0;
+    case 0x0012BDD0:
+        return tick_slime(t);
+    case 0x0012BE60:
+        draw_slime(t);
+        return 0;
+    case 0x0012C1A0:
+        end_slime(t);
+        return 0;
+    case 0x0012C1D0:
+        begin_slime(t);
+        return 0;
+    case 0x0012C270:
+        exit_slime(t);
+        return 0;
+    case 0x0012BA10:
+    case 0x0012BC70:
+        handler_three(address);
+    default:
+        untranslated("transition handler slot");
+    }
+}
+}
+
+// Xbox 0x0011C3F0's loop: each handler record's +0 slot over the transition.
+void initialize_scene_transition()
+{
+    for (i32 handler = 0; handler < 4; ++handler)
+    {
+        call_handler(handler, 0);
+    }
+}
+
+// Xbox 0x0012C340
+void tick_scene_transition()
+{
+    auto& t = g_scene_transition;
+    auto& s = services();
+    if (0 < t.phase && t.phase < 4 && image_word(row_address(t.row) + 0x10C) != 0 && t.loading_pool != nullptr)
+    {
+        const auto* allocation = t.loading_pool->allocation;
+        if (allocation->limit <= allocation->cursor)
+        {
+            create_dialogue_text_record(*t.loading_pool, t.loading_text.data(),
+                float(i32(s.screen[0])) * image_real(0x0032B0F4), float(i32(s.screen[1])) * image_real(0x0032B244),
+                1.5f, 1.5f, 1.5f, 1, 0, 0, s.metrics, s.viewport_width, s.next_text_id, s.random); // 0x0005F580
+            create_dialogue_text_record(*t.loading_pool, u"spam", -100.f, -100.f, 0.1f, 0.1f, 0.5f, 0, 0, 0,
+                s.metrics, s.viewport_width, s.next_text_id, s.random); // 0x0005F550
+        }
+    }
+    if (t.phase == 1)
+    {
+        if (t.flag_delay != 0)
+        {
+            t.flag_delay = t.flag_delay - 1;
+            if (t.flag_delay == 0)
             {
                 g_flags_ea9c = g_flags_ea9c | 0x2000u;
             }
         }
-        if (g_50484c < 1 && 0 < g_546344)
+        if (g_50484c < 1 && 0 < t.loading_frames)
         {
             g_50484c = g_50484c + 1;
         }
         else
         {
-            g_546344 = g_546344 + 1;
+            t.loading_frames = t.loading_frames + 1;
         }
-        const i32 byte_off = g_546328 * 0x110;
-        const u8* row = reinterpret_cast<const u8*>(kTransition31478) + byte_off;
-        const i32 handler = *reinterpret_cast<const i32*>(row);
-        // Handler at DAT_003129AC + handler * 0x18 is not translated.
-        // The argument is &DAT_00546328.
-        if (handler == 1)
-        {
-            transition_initialize_chapter_title(*g_transition_game);
-        }
-        else if (handler == 2)
-        {
-            transition_tick_exit_cue(*g_transition_game);
-        }
-        else if (handler == 0 || handler == 3)
-        {
-            float time = std::bit_cast<float>(g_546330);
-            if (0.f < time)
-            {
-                time -= g_sim_dt;
-                g_546330 = std::bit_cast<u32>(time);
-            }
-            if (time <= 0.f && (handler != 0 || time != 0.f))
-            {
-                transition_select_clip(2);
-            }
-        }
+        call_handler(row_handler(t.row), 1);
     }
-    else if (g_54632c == 3)
+    else if (t.phase == 3)
     {
-        const i32 byte_off = g_546328 * 0x110;
-        const u8* row = reinterpret_cast<const u8*>(kTransition31478) + byte_off;
-        const i32 handler = *reinterpret_cast<const i32*>(row);
-        // Handler at DAT_003129AC + handler * 0x18 is not translated.
-        // The argument is &DAT_00546328.
-        if (handler == 1)
-        {
-            transition_initialize_chapter_title(*g_transition_game);
-        }
-        else if (handler == 2)
-        {
-            transition_tick_exit_cue(*g_transition_game);
-        }
-        else if (handler == 0 || handler == 3)
-        {
-            float time = std::bit_cast<float>(g_546330);
-            if (0.f < time)
-            {
-                time -= g_sim_dt;
-                g_546330 = std::bit_cast<u32>(time);
-            }
-            if (time <= 0.f && time != 0.f)
-            {
-                transition_select_clip(0);
-            }
-        }
-        return;
+        call_handler(row_handler(t.row), 1);
     }
 }
 
+// Xbox 0x0012C490
+void draw_scene_transition_view()
+{
+    auto& t = g_scene_transition;
+    auto& s = services();
+    if (t.phase != 0 && s.dialogue_mode() == 0)
+    {
+        setup_explicit_camera_display(&g_transition_camera, 0, s.display); // 0x00048BC0, ESI DAT_0054937C
+        call_handler(row_handler(t.row), 2);
+    }
+}
 
 // Xbox 0x0012C4E0
-// The handler dword at slot+0 selects the 0x18-byte record at DAT_003129AC.
-// The call is the pointer at +8 (DAT_003129B4) with &DAT_00546328. The image
-// slots are 0x001628B0, 0x0012B5A0, 0x0012C1A0, and 0x001628B0. Those handlers
-// are not translated. EAX is then DAT_0054937C for 0x00048C70.
-// Phase 0 increments DAT_00510CEC and DAT_004DEA24. Phase 1 clears
-// DAT_00510F80. Phase 3 clears DAT_00510F7C. Any other phase falls through.
-// DAT_00510CEC and DAT_004DEA24 decrement. Bit 0x100 of DAT_0050EA9C clears.
-// DAT_0054632C becomes 0. A nonzero DAT_0054634C would call 0x0005F460. That
-// call is not translated. Bit 0x2000 then clears and the pointer becomes 0.
-// DAT_004DEA24 decrements again.
-// Xbox 0x0012C4E0
-void transition_dispatch_handler()
+void end_scene_transition()
 {
-    // Xbox 0x0012C4E0
-    const i32 byte_off = g_546328 * 0x110;
-    const u8* row = reinterpret_cast<const u8*>(kTransition31478) + byte_off;
-    const i32 handler = *reinterpret_cast<const i32*>(row);
-    // Handler at DAT_003129B4 + handler * 0x18 is not translated.
-    // The argument is &DAT_00546328.
-    if (handler == 1)
-    {
-        transition_initialize_book();
-    }
-    else if (handler == 2)
-    {
-        transition_release_texture();
-    }
-    if (g_54937c.prev != nullptr)
-    {
-        g_54937c.prev->next = g_54937c.next;
-    }
-    if (g_54937c.next != nullptr)
-    {
-        g_54937c.next->prev = g_54937c.prev;
-    }
-    g_54937c.prev = nullptr;
-    g_54937c.next = nullptr;
-    if (g_54632c == 0)
+    auto& t = g_scene_transition;
+    auto& s = services();
+    call_handler(row_handler(t.row), 3);
+    camera_unlink_view(&g_transition_camera); // 0x00048C70, EAX DAT_0054937C
+    if (t.phase == 0)
     {
         g_510cec = g_510cec + 1;
         g_4dea24 = g_4dea24 + 1;
     }
-    else if (g_54632c == 1)
+    else if (t.phase == 1)
     {
         g_510f80 = 0;
     }
-    else if (g_54632c == 3)
+    else if (t.phase == 3)
     {
         g_510f7c = 0;
     }
     g_510cec = g_510cec - 1;
     g_4dea24 = g_4dea24 - 1;
-    g_flags_ea9c = g_flags_ea9c & 0xfffffeffu;
-    g_54632c = 0;
-    if (g_54634c != nullptr)
+    g_flags_ea9c = g_flags_ea9c & 0xFFFFFEFFu;
+    t.phase = 0;
+    if (t.loading_pool != nullptr)
     {
-        // 0x0005F460 is not translated. EBX is DAT_0054634C.
-        g_flags_ea9c = g_flags_ea9c & 0xffffdfffu;
-        g_54634c = nullptr;
+        release_dialogue_text_pool(t.loading_pool, *s.text_pools); // 0x0005F460
+        g_flags_ea9c = g_flags_ea9c & 0xFFFFDFFFu;
+        t.loading_pool = nullptr;
     }
     g_4dea24 = g_4dea24 - 1;
 }
 
-
 // Xbox 0x0012C5D0
-// A nonzero DAT_0054632C calls 0x0012C4E0 before the phase test. Phase 0
-// increments DAT_00510CEC and DAT_004DEA24 and ORs 0x100 into DAT_0050EA9C.
-// Phase 1 clears DAT_00510F80. Phase 3 clears DAT_00510F7C. Any other phase
-// falls through. DAT_0054632C becomes 1.
-//
-// 0x0012C2D0 is not translated. ESI would be DAT_0054633C and EDI DAT_00546338.
-// EAX would replace DAT_00546328. That return is not stored. The slot already
-// in DAT_00546328 is scaled by 0x110. The dword at +0x104 is copied to
-// DAT_00546334 and DAT_00546330. DAT_00546344 becomes 0. DAT_00546348 becomes
-// 0xf. DAT_00546340 is the address of slot+4 when that dword is 'aid_'
-// (0x5f646961), and null when it is not.
-//
-// 0x000496C0 is not translated. EDX would be this node, EAX the string
-// "transition", and CL 0. That call would copy the name to +0x34. The node
-// is inserted after the slot-0 record whose prev is null. A null DAT_004E16A0
-// would then call camera_bind_named_view with slot 0 and that name. The name is
-// written by 0x000496C0, and entity.cpp keeps the live slot, so that call is
-// not made. 0x00048F10 is not translated. 0x0005F390 is not translated: the
-// stack is 0, 1, 0x80 and ESI is DAT_0054634C. 0x000FF0A0 is not translated:
-// the stack is aid_loctext_ghoulies_gameselect_gameselecttext, "gameselect",
-// "loading", and DAT_00546350.
-//
-// The handler dword at slot+0 selects the 0x18-byte record at DAT_003129AC.
-// The call is the pointer at +0xC (DAT_003129B8) with &DAT_00546328. Those
-// handlers are not translated. DAT_004DEA24 increments on the way out.
-// Xbox 0x0012C5D0
-void transition_tick_queue()
+void begin_scene_transition(const char* scene)
 {
-    // Xbox 0x0012C5D0
-    if (g_54632c != 0)
+    auto& t = g_scene_transition;
+    auto& s = services();
+    if (t.phase != 0)
     {
-        transition_dispatch_handler();
+        end_scene_transition(); // 0x0012C4E0
     }
-    if (g_54632c == 0)
-    {
-        g_510cec = g_510cec + 1;
-        g_4dea24 = g_4dea24 + 1;
-        g_flags_ea9c = g_flags_ea9c | 0x100u;
-    }
-    else if (g_54632c == 1)
-    {
-        g_510f80 = 0;
-    }
-    else if (g_54632c == 3)
-    {
-        g_510f7c = 0;
-    }
-    g_54632c = 1;
-    g_546328 = transition_set_clip_route(reinterpret_cast<const char*>(g_510e58 + 0x80), g_546338, g_54633c);
-    const i32 byte_off = g_546328 * 0x110;
-    const u8* row = reinterpret_cast<const u8*>(kTransition31478) + byte_off;
-    const u32 bits = *reinterpret_cast<const u32*>(row + 0x104);
-    g_546334 = bits;
-    g_546330 = bits;
-    g_546344 = 0;
-    g_546348 = 0xf;
-    const u32 marker = *reinterpret_cast<const u32*>(row + 4);
-    const char* aid = reinterpret_cast<const char*>(row + 4);
-    if (marker != kAidPrefixEd8)
-    {
-        aid = nullptr;
-    }
-    g_546340 = aid;
-    // 0x000496C0 is not translated. EDX is this node, EAX is "transition", CL is 0.
-    ViewNode54937c* cursor = &g_4e1680;
-    if (cursor->prev != nullptr)
-    {
-        do
-        {
-            cursor = cursor->prev;
-        } while (cursor->prev != nullptr);
-    }
-    ViewNode54937c* saved = cursor->next;
-    cursor->next = &g_54937c;
-    g_54937c.prev = cursor;
-    g_54937c.next = saved;
-    if (saved != nullptr)
-    {
-        saved->prev = &g_54937c;
-    }
-    // A null DAT_004E16A0 would call camera_bind_named_view(0, name). The name is
-    // written by 0x000496C0, which is not translated, so that call is not made.
-    // 0x00048F10 is not translated.
-    // 0x0005F390 is not translated. ESI is DAT_0054634C. The stack is 0, 1, 0x80.
-    // 0x000FF0A0 is not translated.
-    const i32 handler = *reinterpret_cast<const i32*>(row);
-    // Handler at DAT_003129B8 + handler * 0x18 is not translated.
-    // The argument is &DAT_00546328.
-    if (handler == 1)
-    {
-        transition_initialize_map_book(*g_transition_game);
-    }
-    else if (handler == 2)
-    {
-        transition_load_enter_texture(*g_transition_game);
-    }
-    else if (handler == 0)
-    {
-        g_546330 = g_546334 = 0x3c888889u; // Xbox 0x0012BCE0, DAT_0032B150
-    }
+    leave_phase(t.phase);
+    t.phase = 1;
+    t.row = select_transition_row(scene, t.clip, t.route); // 0x0012C2D0, EAX DAT_00510ED8
+    t.time = image_real(row_address(t.row) + 0x104);
+    t.loading_frames = 0;
+    t.flag_delay = 0xF;
+    t.aid = row_aid(t.row, 4);
+    t.duration = t.time;
+    initialize_camera_view(g_transition_camera, s.image.string(0x0032A954), 0); // 0x000496C0, CL 0
+    link_camera_view(0, g_transition_camera); // The inline 0x00048C20 link and 0x00048CF0 when slot 0 has none.
+    release_actor_camera_effects(); // 0x00048F10
+    allocate_dialogue_text_pool(t.loading_pool, 0, 1, 0x80, s.text_pools); // 0x0005F390, ESI DAT_0054634C
+    request_namespaced_localtext("aid_loctext_ghoulies_gameselect_gameselecttext", "gameselect", "loading",
+        t.loading_text.data(), s.localtext); // 0x000FF0A0 into DAT_00546350
+    call_handler(row_handler(t.row), 4);
     g_4dea24 = g_4dea24 + 1;
 }
 
-
 // Xbox 0x0012C770
-// Phase 0 increments DAT_00510CEC and DAT_004DEA24 and ORs 0x100 into
-// DAT_0050EA9C. Phase 1 clears DAT_00510F80. Phase 3 clears DAT_00510F7C.
-// Any other phase falls through. The slot in DAT_00546328 is scaled by 0x110.
-// The dword at +0x104 is copied to DAT_00546330, then DAT_0054632C becomes 3.
-// DAT_0050484C decrements when it is above 0. DAT_00546340 is the address of
-// slot+0x84 when that dword is 'aid_' (0x5f646961), and null when it is not.
-// DAT_00546334 then receives DAT_00546330.
-//
-// The handler dword at slot+0 selects the 0x18-byte record at DAT_003129AC.
-// The call is the pointer at +0x10 (DAT_003129BC) with &DAT_00546328. The
-// image slots are 0x0012BD50, 0x0012B790, 0x0012C270, and 0x001628B0. Those
-// handlers are not translated.
-// Xbox 0x0012C770
-void transition_finish_pending()
+void leave_scene_transition()
 {
-    // Xbox 0x0012C770
-    if (g_54632c == 0)
-    {
-        g_510cec = g_510cec + 1;
-        g_4dea24 = g_4dea24 + 1;
-        g_flags_ea9c = g_flags_ea9c | 0x100u;
-    }
-    else if (g_54632c == 1)
-    {
-        g_510f80 = 0;
-    }
-    else if (g_54632c == 3)
-    {
-        g_510f7c = 0;
-    }
-    const i32 byte_off = g_546328 * 0x110;
-    const u8* row = reinterpret_cast<const u8*>(kTransition31478) + byte_off;
-    const u32 bits = *reinterpret_cast<const u32*>(row + 0x104);
-    g_546330 = bits;
-    g_54632c = 3;
+    auto& t = g_scene_transition;
+    leave_phase(t.phase);
+    t.time = image_real(row_address(t.row) + 0x104);
+    t.phase = 3;
     if (0 < g_50484c)
     {
         g_50484c = g_50484c - 1;
     }
-    const u32 marker = *reinterpret_cast<const u32*>(row + 0x84);
-    const char* aid = reinterpret_cast<const char*>(row + 0x84);
-    if (marker != kAidPrefixEd8)
-    {
-        aid = nullptr;
-    }
-    g_546340 = aid;
-    g_546334 = g_546330;
-    const i32 handler = *reinterpret_cast<const i32*>(row);
-    // Handler at DAT_003129BC + handler * 0x18 is not translated.
-    // The argument is &DAT_00546328.
-    if (handler == 1)
-    {
-        transition_release_book();
-    }
-    else if (handler == 2)
-    {
-        transition_load_exit_texture(*g_transition_game);
-    }
-    else if (handler == 0)
-    {
-        g_546330 = g_546334 = 0x3f000000u; // Xbox 0x0012BD50, DAT_0032B0F4
-    }
+    t.aid = row_aid(t.row, 0x84);
+    t.duration = t.time;
+    call_handler(row_handler(t.row), 5);
 }
-
-} // namespace gbtg
+}

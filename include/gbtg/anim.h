@@ -123,6 +123,8 @@ struct AnimationResourceRegistry
     std::array<AnimationResourceProvider, 16> providers; // DAT_004DF0A0
     std::array<AnimationResourceHook, 16> hooks; // DAT_004DF258
     u32 provider_serial = 0; // DAT_0042195C
+    u32 current_deferred = 0; // DAT_004DF24C: which deferred list unloads go on.
+    i32 flushing = -1; // DAT_004DF240: the deferred list 0x00036180 is unloading, or -1.
     size_t record_limit = 32;
     size_t loaded_limit = 32;
     AnimationResourceRegistry(); // host storage for pools initialized in 0x00033030 / 0x00035A90
@@ -195,6 +197,12 @@ void release_animation_resource(AnimationResourceRegistry& registry,
                                  std::span<const u8> resource); // Xbox 0x00035C00
 void retain_animation_resource(AnimationResourceRegistry& registry,
     std::span<const u8> resource); // Xbox 0x00035BA0
+bool unload_animation_resource(AnimationResourceRegistry& registry,
+    std::span<const u8> resource); // Xbox 0x00035C60, EAX the resource: deferred unless a flush is running
+void flush_animation_resource_unloads(AnimationResourceRegistry& registry); // Xbox 0x00036180
+bool unload_unreferenced_animation_resources(AnimationResourceRegistry& registry); // Xbox 0x00035D30
+bool animation_resource_held(AnimationResourceRegistry& registry, std::span<const u8> resource,
+    u32& referenced); // Xbox 0x00036210, EAX the resource
 
 void blend_animation_root(AnimationRoot& output, const AnimationRoot* first,
                           const AnimationRoot* second, float fraction); // Xbox 0x000312C0

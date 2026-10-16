@@ -24,6 +24,7 @@ struct ActorCameraShake
 extern ActorCameraEffect g_actor_camera_effects; // DAT_004E1734
 extern GhoulySpawnPool* g_actor_camera_shakes; // DAT_00507D80
 
+void release_actor_camera_effects(); // Xbox 0x00048F10
 ActorCameraEffect* allocate_actor_camera_effect(u8 type); // Xbox 0x000494B0
 ActorCameraEffect* create_positioned_camera_effect(u8 type, float size,
     float value, const Vec3& position); // Xbox 0x00049520

@@ -520,6 +520,7 @@ add_executable(gbtg
     src/engine/saves/save_games.cpp
     src/engine/frontend/game_names.cpp
     src/engine/graphics/texture_xpr.cpp
+    src/engine/transitions/book_map.cpp
     src/engine/transitions/native_book.cpp
     src/engine/frontend/gameselect_contents.cpp
     src/engine/frontend/gameselect_delete.cpp
@@ -546,7 +547,6 @@ add_executable(gbtg
     src/engine/frontend/frontend_state.cpp
     src/engine/scene/scene.cpp
     src/engine/scene/scene_loading.cpp
-    src/engine/cutscenes/cutscene_runtime.cpp
     src/engine/cutscenes/curve_sampling.cpp
     src/engine/cutscenes/instance_construction.cpp
     src/engine/cutscenes/quaternion_math.cpp
@@ -577,7 +577,6 @@ add_executable(gbtg
     src/engine/scripts/script_dialogue_actions.cpp
     src/engine/scripts/script_vm.cpp
     src/engine/transitions/scene_transitions.cpp
-    src/engine/transitions/transition_book.cpp
     src/engine/runtime/crt_runtime.cpp
     src/engine/runtime/crt_format.cpp
     src/engine/runtime/crt_strings.cpp

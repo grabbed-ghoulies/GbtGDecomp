@@ -361,12 +361,6 @@ int run_platform(Game& game, const PlatformConfig& cfg)
     }
 
     std::cout << "frames " << game.frame << " t=" << game.time << "s scene " << game.scene_name;
-    if (game.cutscenes.playing && !game.cutscenes.items.empty())
-    {
-        const auto& c = game.cutscenes.items[game.cutscenes.index];
-        std::cout << " cutscene[" << game.cutscenes.index << "] " << c.name << " t=" << game.cutscenes.time << "/"
-                  << c.duration << "s";
-    }
     if (game.camera && game.camera->actor)
     {
         const Vec3& p = game.camera->actor->position;

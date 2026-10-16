@@ -679,6 +679,8 @@ struct SceneActorServices::State
     RuntimeScreenTextureBoundaries screen_texture_boundaries();
     std::array<std::span<u8>, 2> book_pages{}; // DAT_005047D8, DAT_005047E4
     std::unique_ptr<TransitionBookServices> book_services;
+    std::unique_ptr<SceneTransitionServices> transition_services; // The scene transition's (DAT_00546328).
+    void bind_transition_services();
     RuntimeModelRenderContext model_renderer{}; // DAT_004370A0..
     RuntimeSceneFog fog{}; // DAT_00509AFC..
     CutsceneCameraImpulse camera_impulse{}; // DAT_0050E7BC..
@@ -729,7 +731,8 @@ struct SceneActorServices::State
     std::unordered_map<u32, RuntimeDialogueInputDevice> input_views;
     std::unique_ptr<RuntimeDialogueActivationContext> dialogue;
     std::unique_ptr<RuntimeScriptDialogueContext> script_dialogue;
-    SceneD3DDevice d3d_device;
+    // The device is boot-owned with the vertex shader cache whose handles it created.
+    SceneD3DDevice& d3d_device = resources.device;
     std::unique_ptr<RuntimeBootVertexShaders> boot_vertex_shaders;
     std::unique_ptr<RuntimeBootPixelShaders> boot_pixel_shaders;
     std::vector<std::pair<u32, u32>> boot_pixel_allocations; // Handle and owned definition allocation.
@@ -837,6 +840,18 @@ struct SceneActorServices::State
     std::unique_ptr<RuntimeMarkerPlayerStart> player_start;
     std::unique_ptr<RuntimeSceneMarkerBindings> marker_bindings;
     RuntimeSceneMarkerHandlers handlers;
+    // The scene record's name (DAT_00510E58) the spawn and player bindings read, copied as each scene begins.
+    std::array<char, 0x80> scene_name{};
+    // The services are boot-owned like retail's globals: each scene begins (its markers and scene data) and ends
+    // (0x0011C5A0's teardown of its actors, cutscenes, doors and effects) inside the same services.
+    bool in_scene = false;
+    bool first_scene = true;
+    std::function<void(const u8*)> released_binding;
+    void begin_scene();
+    void begin_teardown(); // 0x0011C5A0's 0x000584D0, 0x0004ECE0 and 0x0005B1E0
+    void retire_actors(); // 0x0011C5A0's 0x00122C70 and 0x001232D0
+    void end_scene();
+    void reset_scene_data();
 
     std::span<const u8> data(u32 address, size_t size) const
     {
@@ -1068,7 +1083,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             return model_views_of(actor);
         },
         mind_settings, intro_sound, camera, cameras, g_scene_flags->bytes[0], g_script_30d0c,
-        g_script_30d0c, game.scene_script.name.c_str(), strategy_ranges, pause_groups, overrides, latches, game, clock,
+        g_script_30d0c, scene_name.data(), strategy_ranges, pause_groups, overrides, latches, game, clock,
         resume, query,
         [](u32) -> RuntimeStrategyMessageActor*
         {
@@ -1157,7 +1172,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     players->install(scene.types);
     players->minds.install_cinema(scene.types);
     players->defer_release = true;
-    scene.released = [this](const u8* bytes)
+    released_binding = [this](const u8* bytes)
     {
         const u32 address = scene.address_of(bytes);
         if (const auto found = active_nodes.find(address); found != active_nodes.end())
@@ -1192,6 +1207,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             }
         }
     };
+    scene.released = released_binding;
 
     frame = std::make_unique<ActorFrameContext>(ActorFrameContext{effects, nullptr, node_cache, reset_matrix,
         matrix_boundaries, pause, frame_delta, time_scale, 0, pause_references[1], decay_enabled[decay_index]});
@@ -1274,12 +1290,9 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     });
     scene.install_base_class();
 
-    // Markers (0x0011CB80 loads them into DAT_0051108C) and the kind handlers (DAT_0042A720).
-    scene.load_markers(game.scene_script.name.c_str());
-    markers = scene.markers().data();
-    script_records = markers;
+    // The kind handlers (DAT_0042A720) over the markers each scene loads (begin_scene).
     spawn = std::make_unique<RuntimePlayerSpawnContext>(RuntimePlayerSpawnContext{scene.factory, image.pools,
-        game.scene_script.name.c_str(), std::span<const u8, 0x210>(data(0x00430DA0, 0x210).data(), 0x210),
+        scene_name.data(), std::span<const u8, 0x210>(data(0x00430DA0, 0x210).data(), 0x210),
         g_scene_flags->bytes[0], g_flags_ea9c, reinterpret_cast<const char*>(&g_byte_30d14)});
     player_start = std::make_unique<RuntimeMarkerPlayerStart>(RuntimeMarkerPlayerStart{*spawn, markers,
         address_zero, reinterpret_cast<const u32&>(g_5462fc), g_script_30d0c, g_scene_flags->bytes[0],
@@ -1677,6 +1690,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     scene.controls->context.attract = attract_services.get();
     bind_book_services();
     bind_gameselect_services();
+    bind_transition_services();
     // The scene model renderer over the relocated resources and the host D3D device.
     std::memcpy(retained_scene_color.data(), data(0x0032E4E4, 0x10).data(), 0x10);
     std::memcpy(override_base_color.data(), data(0x0042A570, 0x10).data(), 0x10);
@@ -2192,9 +2206,278 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     active_services = this;
 }
 
+void SceneActorServices::State::begin_scene()
+{
+    if (in_scene)
+    {
+        throw Error("the scene services begin a scene while one is running");
+    }
+    if (!first_scene)
+    {
+        reset_scene_data();
+    }
+    first_scene = false;
+    const std::string& name = game.scene_script.name;
+    if (name.size() >= scene_name.size())
+    {
+        throw Error("scene name runs past the scene record's 0x80 bytes");
+    }
+    scene_name.fill(0);
+    std::memcpy(scene_name.data(), name.c_str(), name.size());
+    // Markers (0x0011CB80 loads them into DAT_0051108C).
+    scene.load_markers(scene_name.data());
+    markers = scene.markers().data();
+    script_records = markers;
+    scene.released = released_binding;
+    in_scene = true;
+}
+
+// The scene globals a scene starts from: what 0x0011C5A0, 0x0011C480 and 0x00116DA0 clear, and the per-scene
+// storage the services hold for the scene's actors, backgrounds, doors and lights.
+void SceneActorServices::State::reset_scene_data()
+{
+    effect_collision = {};
+    effect_callback_result = 0;
+    effect_sound_frame = 0;
+    frame_effect_scratch = {};
+    scare_flags = 0;
+    player_link = 0;
+    player_damage = 0;
+    collision_push_contacts = {};
+    body_slide_contacts = {};
+    view_invert = 0;
+    story_bits = {};
+    port_devices = {};
+    pulse = {};
+    scene_nodes.clear();
+    scene_controls = nullptr;
+    powerup_rows = {};
+    powerup_board = nullptr;
+    scared_count = 0;
+    scared_actors = {};
+    scared_times = {};
+    excluded_count = 0;
+    navigation_nodes = nullptr;
+    excluded_tags = {};
+    player_count = 0;
+    active_strategies = 0;
+    scale_exclusions = {};
+    animation_classes = {};
+    mind_settings = {0, {}};
+    camera_players = 0;
+    strategy_ranges = {0, {}};
+    pause_references = {};
+    first_pause = nullptr;
+    override_words = {};
+    decay_index = 0;
+    targets = nullptr;
+    attachment_notice = 0;
+    goal_scratch.clear();
+    brews_taken = 0;
+    brew_accepted = 0;
+    prompt_lock = -1;
+    prompt_owner = 0;
+    difficulty = 0;
+    brews_owned = 0;
+    brews_required = 0;
+    story_byte = 0;
+    unlock_flags = 0;
+    intro_pending = 0;
+    intro_name = {};
+    queue_limits = {};
+    class_queue_limits = {};
+    queue_limits[0] = 3; // 0x00116DA0
+    class_queue_limits.fill(99);
+    notice_seen = {};
+    notice_pending = 0;
+    notice_first = nullptr;
+    notice_id = 0;
+    notice_queue = {};
+    notice_count = 0;
+    notice_player = nullptr;
+    timed_attachments = {};
+    brew_state = 0;
+    brew_intensity = 0.f;
+    brew_counter = {};
+    health_active = 0;
+    health_intensity = 0.f;
+    health_counter = {};
+    health_mode = 0;
+    override_health = 0;
+    challenge_bits = {};
+    area_dialogue = nullptr;
+    message_references.clear();
+    emitter_players.clear();
+    emitters = {};
+    room = {};
+    background_regions = {};
+    background_region_count = 0;
+    sector_grids = {};
+    sector_count = 0;
+    sector_minimum = 0.f;
+    sector_maximum = 0.f;
+    sector_saturation = 0.f;
+    sector_low = 0.f;
+    sector_high = 0.f;
+    disable_framebuffer_clear = 0;
+    part_sound_slot = 0;
+    broken_parts = 0;
+    sampling_scratch = {};
+    sampling_active = nullptr;
+    door_rows.clear();
+    door_camera_registered = 0;
+    door_paused = 0;
+    door_camera_hold = 0;
+    std::destroy_at(&navigation); // Its grids and node buffer go with the scene.
+    std::construct_at(&navigation);
+    replacement_source = {};
+    replacement_target = {};
+    listener_position = {};
+    movie_flag_38 = 0;
+    movie_flag_3c = 0;
+    frontend_pause = 0;
+    ambient_points = {};
+    ambient_points_enabled = 0;
+    ambient_scale = {};
+    environment_world_space = 0;
+    light_records = {};
+    spot_parameters.clear();
+    scene_color = {};
+    directional_light = {};
+    local_lights = {};
+    temporary_lights = {};
+    mirrors = {};
+    mirror_pass = 0;
+    post_model_count = 0;
+    decal_count = 0;
+    caption_camera = 0;
+    caption_widget = 0;
+    frontend_state = 0;
+    frontend_widget = 0;
+    hud_enabled = 0;
+    screen_flash = 0;
+    screen_capture = 0;
+    camera_start = {};
+}
+
+// The start of 0x0011C5A0, before the scene controls go: an open dialogue closes (0x000584D0(0)), the scene
+// cutscenes go (0x0004ECE0) and the doors' cutscene registrations (0x0005B1E0).
+void SceneActorServices::State::begin_teardown()
+{
+    if (!in_scene)
+    {
+        return;
+    }
+    if (script_dialogue != nullptr && script_dialogue->dialogue.state.mode != 0)
+    {
+        close_runtime_dialogue(script_dialogue->dialogue);
+    }
+    if (auto* stack = find_scene_cutscene_runtime(game); stack != nullptr)
+    {
+        release_scene_cutscenes(*stack);
+    }
+    RuntimeDoorRelease door_release{*doors, door_camera_registered, door_paused, active_strategies,
+        door_camera_hold, g_flags_ea9c};
+    release_runtime_doors(door_release);
+}
+
+// 0x0011C5A0's 0x00122C70: message 0x80 to every active actor (DAT_00511AA4, the +0x900 node's vtable +0xC), which
+// retires it into the child list; 0x001232D0 then takes the retired actors out of the scene's lists. A retired
+// actor is not freed: a cutscene that outlives the scene (a transition's book) still ticks and draws its own.
+void SceneActorServices::State::retire_actors()
+{
+    if (!in_scene || actors == nullptr)
+    {
+        return;
+    }
+    Message retire;
+    retire.id = 0x80;
+    for (entity_detail::LatchNode* node = latches; node != nullptr;)
+    {
+        entity_detail::LatchNode* next = node->next;
+        node->handle_message(*node, retire);
+        node = next;
+    }
+    if (entity_detail::g_world.child.next != nullptr)
+    {
+        remove_retired_actors(); // 0x001232D0
+    }
+}
+
+// The scene's part of 0x0011C5A0, after its actors retired and the factory released the scene's objects.
+void SceneActorServices::State::end_scene()
+{
+    if (!in_scene)
+    {
+        return;
+    }
+    if (actors != nullptr && entity_detail::g_world.child.next != nullptr)
+    {
+        remove_retired_actors(); // The scene controls' widgets retire their bats as the controls go (0x00115F00).
+    }
+    // 0x0011C6F6: the global effect nodes (0x000ED450) and 0x0011C6FB: the camera-facing sprite queue
+    // (DAT_00504330) go with the scene, so the next scene's first flush draws none of this scene's sprites.
+    release_global_actor_effects(g_actor_effect_nodes, *effect_release, *debris_pool, *trail_pool,
+        resources.registry);
+    g_billboard_queue.count = 0;
+    // The scene's cutscenes released their track actors (0x0004D720). Track actors a live cutscene still holds (one
+    // that outlives the scene, as a transition's book does) stay; any other goes with the scene.
+    std::unordered_set<const Actor*> held;
+    for (const auto& [instance, rows] : cutscenes->instances)
+    {
+        for (const auto& row : rows.actors)
+        {
+            if (row.actor != nullptr)
+            {
+                held.insert(row.actor);
+            }
+        }
+    }
+    std::vector<FactoryObject> kept;
+    for (auto object = cutscene_actors.rbegin(); object != cutscene_actors.rend(); ++object)
+    {
+        if (object->bytes == nullptr)
+        {
+            continue;
+        }
+        const auto view = actors->cutscene_bindings.find(object->bytes.get());
+        const Actor* actor = view != actors->cutscene_bindings.end() ? &view->second->frame.actor : nullptr;
+        if (actor != nullptr && held.contains(actor))
+        {
+            kept.push_back(std::move(*object));
+        }
+        else
+        {
+            release_factory_object(scene.factory, *object);
+        }
+    }
+    cutscene_actors.clear();
+    for (auto object = kept.rbegin(); object != kept.rend(); ++object)
+    {
+        cutscene_actors.push_back(std::move(*object));
+    }
+    for (auto* owned : {&cameras, &callout_objects})
+    {
+        for (auto object = owned->rbegin(); object != owned->rend(); ++object)
+        {
+            if (object->bytes != nullptr)
+            {
+                release_factory_object(scene.factory, *object);
+            }
+        }
+        owned->clear();
+    }
+    // DAT_004EE2B8, which 0x0011CBD0 allocates for each scene.
+    if (door_pool != nullptr)
+    {
+        engine_heap_free(door_pool);
+        door_pool = nullptr;
+    }
+    in_scene = false;
+}
+
 extern i32 g_429bc0; // DAT_00429BC0, scene.cpp.
 extern u16 g_429bc4[0x80]; // DAT_00429BC4, scene.cpp.
-extern char g_50e458[0x80]; // DAT_0050E458, transition_book.cpp.
 
 RuntimeScreenTextureBoundaries SceneActorServices::State::screen_texture_boundaries()
 {
@@ -2234,6 +2517,29 @@ RuntimeScreenTextureBoundaries SceneActorServices::State::screen_texture_boundar
         return resources.memory.address_of(bytes);
     };
     return textures;
+}
+
+void SceneActorServices::State::bind_transition_services()
+{
+    transition_services = std::make_unique<SceneTransitionServices>(SceneTransitionServices{image, resources.registry,
+        resources.error, text_registry, resources.metrics, widget_context.viewport_width, next_widget_id, random,
+        resources.font_views, fallback_texture.data(), resources.text, hud_size, g_sim_dt, *book_services, voices,
+        *dialogue_draw, *display_setup,
+        [this]() -> i32
+        {
+            return game.script_dialogue == nullptr ? 0 : game.script_dialogue->dialogue.state.mode; // DAT_004EE1EC
+        },
+        book_pages[0],
+        [this](u32 texture)
+        {
+            d3d_device.commands.push_back(SceneD3DCopy{texture}); // D3DDevice_CopyRects
+        },
+        [this](const u8* bytes) -> u32
+        {
+            return resources.memory.address_of(bytes);
+        }});
+    g_transition_services = transition_services.get();
+    initialize_scene_transition(); // Boot 0x0011C3F0's loop over the handlers' +0 slots.
 }
 
 void SceneActorServices::State::bind_book_services()
@@ -2280,7 +2586,14 @@ void SceneActorServices::State::bind_book_services()
         {
             return actors->view(object_of_actor(actor)).startup.models.secondary.get();
         },
-        dialogue_outer->capture_configuration, 0, read_u32(data(0x004231C4, 4), 0)}); // DAT_005462A4 is never written.
+        dialogue_outer->capture_configuration, 0, read_u32(data(0x004231C4, 4), 0), // DAT_005462A4 is never written.
+        text_registry, resources.metrics, widget_context.viewport_width, next_widget_id, random, resources.font_views,
+        fallback_texture.data(), resources.text, voices,
+        [this](float width)
+        {
+            dialogue_outer->d3d.line_width(width); // D3D 0x00171570
+        },
+        game.clock.time, story_bits, g_scene_flags->bytes[0], hud_size});
 }
 
 void SceneActorServices::State::bind_gameselect_services()
@@ -2542,12 +2855,8 @@ void SceneActorServices::State::bind_gameselect_services()
 
 SceneActorServices::State::~State()
 {
-    // 0x0011C5A0: the scene controls go first (0x00115F00; the factory released them, and their widgets retire their
-    // bats with message 0x80), then 0x001232D0 removes the retired actors before the scene's actors are freed.
-    if (actors != nullptr && entity_detail::g_world.child.next != nullptr)
-    {
-        remove_retired_actors();
-    }
+    begin_teardown();
+    end_scene();
     if (scene.controls != nullptr && scene.controls->context.attract == attract_services.get())
     {
         scene.controls->context.attract = nullptr;
@@ -2568,34 +2877,13 @@ SceneActorServices::State::~State()
     {
         throw Error("movie frame copy 0x00107360 has no scene texture to lock");
     };
-    // 0x0011C6F6: the global effect nodes (0x000ED450) and 0x0011C6FB: the camera-facing sprite queue
-    // (DAT_00504330) go with the scene, so the next scene's first flush draws none of this scene's sprites.
-    release_global_actor_effects(g_actor_effect_nodes, *effect_release, *debris_pool, *trail_pool,
-        resources.registry);
-    g_billboard_queue.count = 0;
-    // 0x0011C5C4: the scene cutscenes (0x0004ECE0) go before the actors their tracks hold.
     if (find_scene_cutscene_runtime(game) != nullptr)
     {
         remove_scene_cutscene_runtime(game);
     }
-    // The dialogue's cutscene still holds rows over the scene's cutscene actors: close it before they go.
     if (game.script_dialogue == script_dialogue.get() && script_dialogue != nullptr)
     {
         unbind_scene_dialogue(game);
-    }
-    RuntimeDoorRelease door_release{*doors, door_camera_registered, door_paused, active_strategies,
-        door_camera_hold, g_flags_ea9c};
-    release_runtime_doors(door_release);
-    for (auto* owned : {&cutscene_actors, &cameras, &callout_objects})
-    {
-        for (auto object = owned->rbegin(); object != owned->rend(); ++object)
-        {
-            if (object->bytes != nullptr)
-            {
-                release_factory_object(scene.factory, *object);
-            }
-        }
-        owned->clear();
     }
     // The input stack is boot-owned: the pool (perhaps grown here) goes back to it.
     game.native_input->pool = input_activation.entries;
@@ -2605,6 +2893,19 @@ SceneActorServices::State::~State()
     if (active_services == this)
     {
         active_services = nullptr;
+    }
+    if (g_transition_services == transition_services.get())
+    {
+        g_transition_services = nullptr;
+    }
+    // Boot registers the callout hook once; the boot-owned registry outlives this scene's callout context, so the
+    // hook this scene added goes with it.
+    for (auto& hook : resources.registry.hooks)
+    {
+        if (hook.type != nullptr && std::strcmp(hook.type, "callout") == 0)
+        {
+            hook = AnimationResourceHook{};
+        }
     }
     // The decoded images go with the scene; their uploads must not serve a later image at the same address.
     resources.memory.on_free = nullptr;
@@ -2625,12 +2926,9 @@ SceneActorServices::State::~State()
             release_animation_resource(resources.registry, table);
         }
     }
-    for (void* block : {static_cast<void*>(door_pool), static_cast<void*>(text_registry)})
+    if (text_registry != nullptr)
     {
-        if (block != nullptr)
-        {
-            engine_heap_free(block);
-        }
+        engine_heap_free(text_registry);
     }
     for (const auto& [handle, allocation] : boot_pixel_allocations)
     {
@@ -3870,6 +4168,31 @@ SceneActorServices::SceneActorServices(SceneFactoryRuntime& scene, Game& game)
 
 SceneActorServices::~SceneActorServices() = default;
 
+void SceneActorServices::begin_scene()
+{
+    state_->begin_scene();
+}
+
+void SceneActorServices::end_scene()
+{
+    state_->end_scene();
+}
+
+void SceneActorServices::retire_actors()
+{
+    state_->retire_actors();
+}
+
+void SceneActorServices::begin_teardown()
+{
+    state_->begin_teardown();
+}
+
+bool SceneActorServices::in_scene() const
+{
+    return state_->in_scene;
+}
+
 void SceneActorServices::activate_actors()
 {
     state_->activate_actors();
@@ -4334,28 +4657,11 @@ void SceneActorServices::State::present_view(i32 view)
         },
         [this]()
         {
-            // 0x0012C490: with a transition running (DAT_0054632C) and no dialogue page (DAT_004EE1EC), the
-            // transition camera (0x00048BC0, ESI DAT_0054937C) and the draw slot of the slot's handler record
-            // (DAT_003129B0 + handler * 0x18).
-            if (g_54632c != 0 && (game.script_dialogue == nullptr ? 0 : game.script_dialogue->dialogue.state.mode) == 0)
-            {
-                const i32 handler = kTransition31478[size_t(g_546328)].handler;
-                const u32 slot = render_image.word(0x003129B0 + u32(handler) * 0x18);
-                if (slot != 0x001628B0)
-                {
-                    // 0x0012B560, 0x0012BE60 and 0x0012BA10 (book and slime) belong to step 5 of
-                    // docs/LEGACY_HOST_CODE.md: the legacy host transition (transition_book.cpp) still draws them,
-                    // after the views (game.cpp draw_scene_transition), and owns the transition camera.
-                    if (slot != 0x0012B560 && slot != 0x0012BE60 && slot != 0x0012BA10)
-                    {
-                        unbound("transition draw slot " + std::to_string(slot));
-                    }
-                }
-            }
+            draw_scene_transition_view(); // 0x0012C490
         },
         [this]()
         {
-            draw_scene_text_pools(game);
+            draw_runtime_dialogue_text_pools(*text_registry, g_flags_ea9c, *dialogue_draw); // 0x0005F330
         }};
     present_runtime_scene_view(present);
 }

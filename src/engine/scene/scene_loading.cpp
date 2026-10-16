@@ -6,8 +6,8 @@
 #include "gbtg/model.h"
 #include "gbtg/movie.h"
 #include "gbtg/resource.h"
-#include "../transitions/transition_data.h"
-#include "../transitions/transition_book.h"
+#include "../transitions/scene_transitions.h"
+#include "../runtime/name_lookup.h"
 #include "../entities/player_spawn.h"
 #include "../scripts/script_actions.h"
 #include "../scripts/script_conditions.h"
@@ -71,7 +71,6 @@ extern "C"
 #include "scene_types.h"
 #include "factory_scene_runtime.h"
 #include "../scripts/script_chapter.h"
-#include "../cutscenes/cutscene_runtime.h"
 #include "scene.h"
 #include "scene_loading.h"
 #include "../scripts/script_actions.h"
@@ -85,13 +84,6 @@ using namespace scene_detail;
 
 
 
-void release_models(Game& g)
-{
-    for (const Mesh& mesh : g.models)
-    {
-        gfx_release_mesh(mesh);
-    }
-}
 
 namespace scene_detail
 {
@@ -154,71 +146,6 @@ void log_script_refs(Game& g, const SceneScript& script)
 }
 
 
-void load_scene_models(Game& g)
-{
-    release_models(g);
-    g.models.clear();
-    for (const auto& aid : g.scene_script.aids)
-    {
-        if (!aid.starts_with("aid_model_"))
-        {
-            continue;
-        }
-        const BundleEntry* entry = find_aid(g, aid);
-        if (!entry || entry->type != ResourceType::Model)
-        {
-            std::cout << "  model missing " << aid << "\n";
-            continue;
-        }
-        try
-        {
-            Mesh mesh = parse_model(*entry);
-            Vec3 lo{1e9f, 1e9f, 1e9f};
-            Vec3 hi{-1e9f, -1e9f, -1e9f};
-            for (const Vec3& p : mesh.positions)
-            {
-                lo.x = std::min(lo.x, p.x);
-                lo.y = std::min(lo.y, p.y);
-                lo.z = std::min(lo.z, p.z);
-                hi.x = std::max(hi.x, p.x);
-                hi.y = std::max(hi.y, p.y);
-                hi.z = std::max(hi.z, p.z);
-            }
-            std::cout << "  model " << mesh.name << " verts " << mesh.positions.size() << " idx " << mesh.indices.size()
-                      << " tex " << mesh.textures.size() << " bounds " << lo.x << "," << lo.y << "," << lo.z << " .. " << hi.x
-                      << "," << hi.y << "," << hi.z << "\n";
-            int lit_sm = 0;
-            int detail_sm = 0;
-            int bare_sm = 0;
-            for (const Submesh& sm : mesh.submeshes)
-            {
-                if (sm.lightmap >= 0)
-                {
-                    ++lit_sm;
-                }
-                if (sm.detail >= 0)
-                {
-                    ++detail_sm;
-                }
-                if (sm.texture < 0)
-                {
-                    ++bare_sm;
-                }
-            }
-            std::cout << "    submeshes " << mesh.submeshes.size() << " lit " << lit_sm << " detail " << detail_sm
-                      << " bare " << bare_sm << "\n";
-            if (!mesh.positions.empty())
-            {
-                g.models.push_back(std::move(mesh));
-            }
-        }
-        catch (const std::exception& ex)
-        {
-            std::cout << "  model fail " << aid << ": " << ex.what() << "\n";
-        }
-    }
-}
-
 } // namespace scene_detail
 
 
@@ -260,16 +187,33 @@ void load_scene_player_bundle(Game& g)
 
 void load_scene_contents(Game& g, std::string_view name)
 {
-    g.factory_scene.reset();
+    if (g.factory_scene != nullptr)
+    {
+        g.factory_scene->end_scene(); // 0x0011C5A0
+    }
+    if (g.native_resources != nullptr)
+    {
+        // The tail of 0x0011C5A0: unload what nothing references, flushing both deferred lists, until nothing
+        // more goes. 0x00034880 then frees the bundle pools; the host AidStore keeps its files.
+        auto& registry = g.native_resources->registry;
+        bool unloaded = false;
+        do
+        {
+            unloaded = unload_unreferenced_animation_resources(registry); // 0x00035D30
+            flush_animation_resource_unloads(registry); // 0x00036180
+            flush_animation_resource_unloads(registry);
+        }
+        while (unloaded);
+    }
     script_set_default_name(g);
     if (name.empty())
     {
         return;
     }
     script_set_name(g, name);
-    if (g.executable_resources != nullptr)
+    if (g.executable_resources != nullptr && g.factory_scene == nullptr)
     {
-        g.factory_scene = std::make_shared<SceneFactoryRuntime>(g.aids, g.executable_resources);
+        g.factory_scene = std::make_shared<SceneFactoryRuntime>(g.executable_resources, *g.native_resources);
         g.factory_scene->controls->context.chapter = [&g]() -> i32
         {
             return script_chapter_index(g.scene_script.name); // 0x0004B4D0
@@ -328,7 +272,6 @@ void load_scene_contents(Game& g, std::string_view name)
             {
                 load_scene_player_bundle(g);
             }
-            load_scene_models(g);
         }
         else
         {
@@ -353,12 +296,6 @@ void script_set_default_name(Game& g)
     g.scene_name = kNoScript;
     g.scene_script = {};
     g.script_aidlists.clear();
-    g.cutscenes = {};
-    release_models(g);
-    release_props(g);
-    g.models.clear();
-    g.cutscene_props.clear();
-    g.cutscene_props_index = static_cast<size_t>(-1);
 }
 
 

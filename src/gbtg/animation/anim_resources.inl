@@ -313,3 +313,175 @@ std::span<const u8> acquire_named_animation_resource(AnimationResourceRegistry& 
     }
     return resource;
 }
+
+namespace
+{
+
+// Xbox 0x00035650, EAX the loaded slot (one-based), the stack the record: the provider's unload, then the row
+// clears.
+void unload_animation_loaded_resource(AnimationResourceRegistry& registry, u32 slot,
+    const AnimationResourceRecord& record)
+{
+    AnimationLoadedResource& loaded = registry.loaded[slot - 1];
+    AnimationResourceProvider* provider = nullptr;
+    for (auto& candidate : registry.providers)
+    {
+        if (candidate.handle == loaded.provider)
+        {
+            provider = &candidate;
+            break;
+        }
+    }
+    if (provider != nullptr && provider->unload)
+    {
+        provider->unload(provider->handle, record.name.c_str(), loaded);
+    }
+    loaded = AnimationLoadedResource{};
+}
+
+// Xbox 0x00036070, EBX the resource, EDX the record, ESI the list: the type's hook unload (0x0013A980 over
+// 0x000362B0), then the list's record holding the resource has its loaded row unloaded.
+void unload_animation_record(AnimationResourceRegistry& registry, std::span<const u8> resource,
+    const AnimationResourceRecord& record, std::vector<AnimationResourceRecord>& list)
+{
+    std::string type;
+    for (size_t index = 4; record.name[index] != '_'; ++index) // 0x0013A980 copies to DAT_004DF220.
+    {
+        type.push_back(record.name[index]);
+    }
+    if (AnimationResourceHook* hook = find_animation_resource_hook(registry, type.c_str());
+        hook != nullptr && hook->unload)
+    {
+        hook->unload(registry.loaded[record.resource_slot - 1]);
+    }
+    for (auto& candidate : list)
+    {
+        if (candidate.resource_slot != 0 && registry.loaded[candidate.resource_slot - 1].cpu.data() == resource.data())
+        {
+            unload_animation_loaded_resource(registry, candidate.resource_slot, candidate); // 0x00035650
+            return;
+        }
+    }
+    throw Error("0x00036070: the resource's record is not in its list");
+}
+
+// Xbox 0x000360D0, EBX the record: a copy goes on the current deferred list (*DAT_004DF24C, grown by
+// 0x000662A0), and the record is cleared.
+void defer_animation_record(AnimationResourceRegistry& registry, AnimationResourceRecord& record)
+{
+    registry.deferred[registry.current_deferred].push_back(record);
+    record.resource_slot = 0;
+    record.name.clear();
+    record.hash = 0;
+}
+
+} // namespace
+
+// Xbox 0x00035C60
+bool unload_animation_resource(AnimationResourceRegistry& registry, std::span<const u8> resource)
+{
+    AnimationResourceRecord* record = nullptr;
+    for (auto& candidate : registry.records)
+    {
+        if (candidate.resource_slot != 0 && registry.loaded[candidate.resource_slot - 1].cpu.data() == resource.data())
+        {
+            record = &candidate;
+            break;
+        }
+    }
+    if (registry.flushing < 0) // DAT_004DF240
+    {
+        if (record == nullptr)
+        {
+            return false;
+        }
+        defer_animation_record(registry, *record); // 0x000360D0
+        return true;
+    }
+    auto* list = &registry.records;
+    if (record == nullptr)
+    {
+        // 0x000663B0 with 0x00035FF0 over the list being flushed.
+        list = &registry.deferred[size_t(registry.flushing)];
+        for (auto& candidate : *list)
+        {
+            if (candidate.resource_slot != 0
+                && registry.loaded[candidate.resource_slot - 1].cpu.data() == resource.data())
+            {
+                record = &candidate;
+                break;
+            }
+        }
+        if (record == nullptr)
+        {
+            return false;
+        }
+    }
+    unload_animation_record(registry, resource, *record, *list); // 0x00036070
+    record->resource_slot = 0;
+    record->name.clear();
+    record->hash = 0;
+    return true;
+}
+
+// Xbox 0x00036180
+void flush_animation_resource_unloads(AnimationResourceRegistry& registry)
+{
+    const u32 list = registry.current_deferred == 0 ? 1u : 0u; // The list DAT_004DF24C does not point at.
+    registry.current_deferred = list;
+    registry.flushing = i32(list);
+    auto& records = registry.deferred[list];
+    for (size_t index = 0; index < records.size(); ++index)
+    {
+        const AnimationResourceRecord& record = records[index];
+        if (record.resource_slot != 0)
+        {
+            const std::span<const u8> resource = registry.loaded[record.resource_slot - 1].cpu;
+            unload_animation_record(registry, resource, record, records); // 0x00036070
+        }
+    }
+    records.clear(); // +8 = +4
+    registry.flushing = -1;
+}
+
+// Xbox 0x00035D30
+bool unload_unreferenced_animation_resources(AnimationResourceRegistry& registry)
+{
+    bool unloaded = false;
+    for (size_t index = 0; index < registry.records.size(); ++index)
+    {
+        AnimationResourceRecord& record = registry.records[index];
+        if (record.resource_slot != 0 && record.references == 0)
+        {
+            unloaded = true;
+            unload_animation_resource(registry, registry.loaded[record.resource_slot - 1].cpu); // 0x00035C60
+        }
+    }
+    return unloaded;
+}
+
+// Xbox 0x00036210, EAX the resource: whether the registry holds it, and in `referenced` whether anything does.
+bool animation_resource_held(AnimationResourceRegistry& registry, std::span<const u8> resource, u32& referenced)
+{
+    for (const auto& record : registry.records)
+    {
+        if (record.resource_slot != 0 && registry.loaded[record.resource_slot - 1].cpu.data() == resource.data())
+        {
+            referenced = record.references != 0 ? 1u : 0u;
+            return true;
+        }
+    }
+    if (registry.flushing >= 0)
+    {
+        for (const auto& record : registry.deferred[size_t(registry.flushing)])
+        {
+            if (record.resource_slot != 0
+                && registry.loaded[record.resource_slot - 1].cpu.data() == resource.data())
+            {
+                referenced = 0;
+                return true;
+            }
+        }
+    }
+    return false;
+}

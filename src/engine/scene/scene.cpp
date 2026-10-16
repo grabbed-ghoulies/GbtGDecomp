@@ -7,7 +7,6 @@
 #include "gbtg/model.h"
 #include "gbtg/movie.h"
 #include "gbtg/resource.h"
-#include "../transitions/transition_data.h"
 #include "factory_scene_runtime.h"
 #include "scene_actor_services.h"
 
@@ -75,7 +74,6 @@ extern "C"
 #include "../transitions/scene_transitions.h"
 #include "../scripts/script_actions.h"
 #include "../scripts/script_vm.h"
-#include "../transitions/transition_book.h"
 #include "dialogue_scene_runtime.h"
 
 namespace gbtg
@@ -1303,7 +1301,7 @@ void scene_set_state(u8* scene, i32 next)
             g_4dea24 = g_4dea24 + -1;
             break;
         case 5:
-            transition_dispatch_handler();
+            end_scene_transition(); // 0x0012C4E0
             break;
         case 6:
             scene_tick_audio_pause();
@@ -1393,7 +1391,7 @@ void script_pump(Game& g)
         scene_set_state(scene, 3);
         if (g_54632c != 1 && g_54632c != 2)
         {
-            transition_tick_queue();
+            begin_scene_transition(reinterpret_cast<const char*>(scene + 0x80)); // 0x0012C5D0
         }
     }
     const i32 state = *reinterpret_cast<i32*>(scene + 0x104);
@@ -1411,7 +1409,7 @@ void script_pump(Game& g)
     case 2:
         *reinterpret_cast<i32*>(scene + 0x108) = 0;
         scene_tick_pause_counter(g, scene);
-        transition_tick_active();
+        tick_scene_transition(); // 0x0012C340
         return;
     case 3:
         if (*reinterpret_cast<i32*>(scene + 0x114) != 0)
@@ -1432,7 +1430,7 @@ void script_pump(Game& g)
             // translated. The host read has returned, so the hold is clear.
         }
         *reinterpret_cast<i32*>(scene + 0x114) = 1;
-        transition_tick_active();
+        tick_scene_transition(); // 0x0012C340
         return;
     case 4:
         g_4e02e8 = 1;
@@ -1441,11 +1439,11 @@ void script_pump(Game& g)
             g_506604 = 0;
             if (g_54632c == 2)
             {
-                transition_finish_pending();
+                leave_scene_transition(); // 0x0012C770
                 *reinterpret_cast<i32*>(scene + 0x110) = 0;
                 script_queue_scene_start(g);
                 *reinterpret_cast<i32*>(scene + 0x108) = 5;
-                transition_tick_active();
+                tick_scene_transition(); // 0x0012C340
                 return;
             }
         }
@@ -1454,7 +1452,7 @@ void script_pump(Game& g)
         if (g_54632c == 0)
         {
             *reinterpret_cast<i32*>(scene + 0x108) = *reinterpret_cast<i32*>(scene + 0x100);
-            transition_tick_active();
+            tick_scene_transition(); // 0x0012C340
             return;
         }
         if (g_510f7c == 0)
@@ -1469,7 +1467,7 @@ void script_pump(Game& g)
     default:
         break;
     }
-    transition_tick_active();
+    tick_scene_transition(); // 0x0012C340
 }
 
 } // namespace gbtg

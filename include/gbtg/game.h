@@ -17,6 +17,7 @@ struct RuntimeScriptDialogueContext;
 struct RuntimeDialogueOuterDrawContext;
 class SceneExecutableResources;
 class SceneFactoryRuntime;
+class SceneDialogueResourceOwner;
 struct NativeAudioRuntime;
 struct NativeMovieRuntime;
 struct NativeInputStack;
@@ -61,17 +62,6 @@ struct Game
     const Bundle* scene_bundle = nullptr;
     SceneScript scene_script;
     std::vector<std::string> script_aidlists;
-    CutsceneQueue cutscenes; // attract / scenecontrol reel of type-7 clips
-    std::vector<Mesh> models; // scene models submitted at present
-    // Cutscene actor tracks (title books, ghoulies). actor indexes Cutscene::actors.
-    struct CutsceneProp
-    {
-        Mesh mesh;
-        size_t actor = 0;
-        u32 node_mask = 0; // model CPU tail type-1 block, the 0x000320F0 node mask
-    };
-    std::vector<CutsceneProp> cutscene_props;
-    size_t cutscene_props_index = static_cast<size_t>(-1);
     std::vector<Actor> actors;
     std::vector<Entity> entities;
     Entity* camera = nullptr;
@@ -80,6 +70,10 @@ struct Game
     RuntimeScriptDialogueContext* script_dialogue = nullptr;
     RuntimeDialogueOuterDrawContext* dialogue_draw = nullptr;
     std::shared_ptr<SceneExecutableResources> executable_resources;
+    // The resource registry (DAT_004DF250 / DAT_004DF09C) and the relocated resource memory, for the whole run as
+    // retail keeps them: a scene teardown unloads only what nothing references (0x0011C5A0's purge), so a
+    // transition's resources outlive the scene it opened in. Declared before the scene so it outlives it.
+    std::shared_ptr<SceneDialogueResourceOwner> native_resources;
     // The audio core (event voices, bank streams) from boot; declared before the scene so it outlives it.
     std::shared_ptr<NativeAudioRuntime> native_audio;
     // The movie and file lists and the movie event slots from boot; also declared before the scene.

@@ -18,6 +18,12 @@ struct ResourceErrorState;
 struct RuntimeDisplaySetupContext;
 struct RuntimeModelRenderContext;
 struct RuntimeDialogueDrawContext;
+struct RuntimeDialogueTextPool;
+struct RuntimeTextMetrics;
+struct RuntimeTextFont;
+struct LocalTextResourceContext;
+struct GhoulySpawnPool;
+struct AudioEventVoices;
 class SceneExecutableResources;
 // A shader parameter a book page binds its texture to (0x18 bytes, 0x000F8540): the model, the shader's
 // instance (model +0x2A4 + the node's offset), the parameter's texture index, the texture and two words.
@@ -54,22 +60,43 @@ struct RuntimeTransitionBook
         u32 copy = 0; // +0x98
     };
     std::array<Page, 4> pages{};
-    // The map state (0x00046F40, 0x000473D0, 0x000475B0).
-    i32 map_state = 0; // +0xCC
-    float map_timer_d4 = 0.f; // +0xD4
-    float map_timer_d8 = 0.f; // +0xD8
+    // The map state (0x00046F40, 0x000473D0, 0x000475B0, 0x00047770).
+    i32 map_state = 0; // +0xCC: 1 running, 2 closing.
+    i32 map_route = 0; // +0xD0, the route's index in the map block.
+    float map_timer_d4 = 0.f; // +0xD4, the run's time left.
+    float map_timer_d8 = 0.f; // +0xD8, the run's whole time (0 standing).
+    u32 map_reverse = 0; // +0xDC, the route runs from its end.
     u32 map_ready = 0; // +0xE4
     u32 map_menu = 0; // +0xE8
-    float map_timer_ec = 0.f; // +0xEC
+    float map_timer_ec = 0.f; // +0xEC, the fade.
+    u32 map_block = 0; // +0xF0, the book model's map block (type 0x16), an offset in its CPU view.
+    i32 map_countdown = 0; // +0xF4, frames until DAT_0050EA9C gets 0x2000.
+    std::array<float, 2> map_runner_position{}; // +0xF8, +0xFC
     std::span<const u8> map_runner; // +0x100
     std::span<const u8> map_runner_back; // +0x104
+    std::span<const u8> map_runner_shown; // +0x108
     std::span<const u8> map_spot; // +0x10C
-    void* map_text = nullptr; // +0x114
-    u32 map_points = 0; // +0x158
+    u32 map_labelled = 0; // +0x110
+    RuntimeDialogueTextPool* map_text = nullptr; // +0x114
+    std::array<char, 0x20> map_from{}; // +0x118, the route's starting spot name.
+    std::array<char, 0x20> map_to{}; // +0x138, the route's ending spot name.
+    i32 map_points = 0; // +0x158, the labels placed.
     std::span<u8> map_input; // +0x15C
     void* map_widget = nullptr; // +0x160
+    float map_footstep = 0.f; // +0x164
     i16 voice = -1; // +0x168
-    std::array<std::span<const u8>, 6> map_markers{}; // +0x1E25C, stride 0xC.
+    struct MapLabel
+    {
+        std::array<char16_t, 0x800> text{}; // +0
+        std::array<float, 2> position{}; // +0x1000
+    };
+    std::array<MapLabel, 30> map_labels{}; // +0x16C, stride 0x1008.
+    struct MapMarker
+    {
+        std::span<const u8> texture; // +0
+        std::array<float, 2> position{}; // +4
+    };
+    std::array<MapMarker, 6> map_markers{}; // +0x1E25C, stride 0xC.
 };
 // What the book reaches outside itself.
 struct TransitionBookServices
@@ -99,6 +126,21 @@ struct TransitionBookServices
     u8 capture_configuration; // DAT_00509703
     u32 clear_color; // DAT_005462A4
     u32 page_clear_color; // DAT_004231C4
+    // The map's text, voices and progress.
+    GhoulySpawnPool*& text_pools; // DAT_005043CC
+    const RuntimeTextMetrics& metrics;
+    const float& viewport_width;
+    i32& next_text_id;
+    u32& random; // DAT_0054DD7C
+    std::span<const RuntimeTextFont* const> fonts;
+    const u8* fallback_texture; // DAT_004E1C58
+    LocalTextResourceContext& localtext;
+    AudioEventVoices& voices; // DAT_004E0CE8
+    std::function<void(float)> line_width; // D3DDevice_SetRenderState_LineWidth, D3D 0x00171570
+    const float& time; // DAT_004DEA60
+    std::span<const u8> story_bits; // *(DAT_00506C6C+8)
+    const u8& scene_flags; // **(DAT_00506C74+8)
+    const std::array<u16, 2>& screen; // DAT_005096E8 / DAT_005096EA
 };
 extern RuntimeTransitionBook* g_capture_book; // DAT_005462A0
 extern u32 g_book_viewport_reset; // DAT_005077FC, read by the present (0x000F6F70).

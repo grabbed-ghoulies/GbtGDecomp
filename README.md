@@ -1,100 +1,222 @@
-# GbtGDecomp
+# Grabbed by the Ghoulies
 
-Readable C++ reconstruction of **Grabbed by the Ghoulies** (Xbox, Rare 2003).
+A C++20 reconstruction of **Grabbed by the Ghoulies** (Rare, Xbox, 2003) for PC.
 
-This is **not** a matching Xbox decompilation and **not** an emulator. Functions recovered from `default.xbe` in Ghidra are rewritten against a PC layer and load **your** copy of the game files.
+The project translates functions recovered from the retail Xbox executable into
+readable C++, preserving their behavior and running them against the original
+game data. It is not a binary-matching Xbox decompilation or an emulator.
 
-## You must own the game
+## How it works
 
-This repository does **not** contain, and will never distribute:
+Game behavior comes from translated retail functions, driven by retail state in
+the original call order from `frame_tick`. Host code provides platform boundaries
+for file IO, graphics, input, memory, thread-local storage and audio.
 
-- Xbox executables (`.xbe`)
-- Disc images (`.iso` / `.xiso`)
-- Bundles, textures, audio, movies, or any other original assets
-- Microsoft XDK headers or the RAD Bink SDK
+Native rendering records Xbox D3D commands through `SceneD3DDevice`. A Direct3D 11
+presenter turns those records into PC draws. Movie playback uses FFmpeg's Bink
+decoder; the RAD Bink SDK is not required.
 
-Put a retail dump in a local folder and point the tools at it.
+The repository also includes a separate runtime scene inspector, asset inspection
+tools, reconstruction tests and Ghidra/xemu tooling.
+
+## Game data
+
+You must supply your own extracted retail copy of the game. This repository does
+not distribute Xbox executables, disc images, original assets, Microsoft XDK
+headers or the RAD Bink SDK.
+
+Place the extracted disc files in `OriginalFiles/`, or pass another directory
+with `--game-dir`. The runtime expects an extracted directory, not an ISO:
 
 ```text
-git clone <this-repo>
-cmake -B build
-cmake --build build --config Release
-.\build\Release\gbtg.exe --game-dir path\to\extracted\disc --headless
-.\build\Release\gbtg-catalog.exe --game-dir path\to\extracted\disc --out docs\generated
-```
-
-The folder should look like the Xbox disc data:
-
-```text
-game-dir/
+OriginalFiles/
   default.xbe
-  bundles/common.bnl
-  bundles/aid_script/...
+  bundles/
+    common.bnl
+    aid_script/
+    aid_objparams/
   demand/
+  font/
   loctext/
   movie/
-  font/
   xwavebank/
 ```
 
-`cdx.xbe`, `Videos/`, and `Other PNGs/` are a Microsoft kiosk trailer player. The port ignores them.
-
-Checksums for a known retail layout live in [`manifests/retail_files.json`](manifests/retail_files.json) (hashes and sizes only).
-
-## What is here
-
-| Target | Role |
-|--------|------|
-| `gbtg` | Reconstructed engine: `WinMain` / `frame_tick`, attract cutscenes, camera, game-select UI plates, `movie/` Bink playback. PC present is DirectX 11 behind `gfx_*` |
-| `gbtg-catalog` | Classify files, resolve AID hashes, verify the manifest |
-| `gbtg-dump` | Unpack BNL bundles; dump textures, models, loctext, wavebanks; export dialogue speaker heads |
-
-Ghidra names and recovered VAs: [`docs/XBE.md`](docs/XBE.md), [`docs/GHIDRA.md`](docs/GHIDRA.md), [`docs/generated/ghidra_functions.txt`](docs/generated/ghidra_functions.txt). Also [`docs/AID.md`](docs/AID.md), [`docs/FORMATS.md`](docs/FORMATS.md), [`docs/LEGAL.md`](docs/LEGAL.md).
-
-Export every available animated dialogue speaker-head frame as a transparency-preserving PNG:
-
-```text
-build\Release\gbtg-dump.exe --game-dir OriginalFiles --out dump --dialogue-heads
-```
-
-The images are written to `dump/dialogue_heads/` as `<speaker>_<frame>.png`. Missing retail demand
-resources are reported by speaker name and AID hash.
+See [Disc layout](docs/DISC_LAYOUT.md) for details. The
+[retail manifest](manifests/retail_files.json) records hashes and sizes for a
+reference dump without including its contents. Kiosk content such as `cdx.xbe`
+and promotional videos is separate from the game data used by the port.
 
 ## Build
 
-The separate **runtime scene inspector** provides a static scene viewport, free
-flight, native object/marker inspection and rendering diagnostics. Build the
-`gbtg-inspector` target on Windows/D3D11; see [docs/INSPECTOR.md](docs/INSPECTOR.md)
-for controls, captures and reconstruction limitations.
+The Windows runtime uses Direct3D 11, XInput and XAudio2. Use a C++20 toolchain
+with the Windows SDK (Visual Studio 2022 is recommended), CMake 3.20 or newer,
+and Git. Run these commands from the repository root:
 
-Debug D3D11 builds include ImGui diagnostics. Press **F8** to open the menu and
-**F12** to toggle the timing overlay. Only the timing overlay is shown by default.
-Open diagnostics windows from the F8 menu; they stay visible and keep updating
-with input disabled while F8 is off. The Diagnostics menu provides runtime and
-loading state, a 240-sample host frame-time graph with freeze/clear controls,
-a read-only native factory-object list filtered by decimal type ID, and a
-searchable bundle cache with CPU/GPU heap sizes. Cache sizes are not GPU memory
-usage. Existing scene and cutscene selectors remain available.
-Use `--debug-ui` to open diagnostics at startup; this also works with
-`--screenshot debug.bmp --frames 3` for captures. Release and null builds have no
-ImGui UI.
-
-Requirements: CMake 3.20+, a C++20 compiler (MSVC 2022 recommended on Windows). zlib is fetched at configure time. On Windows the same configure step fetches an LGPL FFmpeg build and copies its DLLs next to `gbtg.exe`, which is what decodes `movie/` BIKi files. The run command is unchanged.
-
-```text
-cmake -B build
-cmake --build build --config Release
-.\build\Release\gbtg.exe --game-dir OriginalFiles --headless
+```powershell
+cmake -S . -B build -A x64
+cmake --build build --config Release --target gbtg
+.\build\Release\gbtg.exe --game-dir OriginalFiles
 ```
 
-`--headless` runs one `frame_tick` and exits. `--frames N` runs N ticks. `--screenshot file.bmp` writes the last presented frame (DirectX 11 readback). `--scene gameselect` (or a scene-order index) boots that scene instead of the attract reel. A window opens when neither `--headless` nor `--screenshot` is set. SDL is an optional quit window only when the DirectX backend is not built (`-DGBTG_WITH_SDL=ON`, `-DGBTG_GFX=null`).
+These examples use the Visual Studio generator. With a single-configuration
+generator, set `CMAKE_BUILD_TYPE` when configuring and adjust executable paths.
 
-`gbtg.ini` sits beside `gbtg.exe`. The first launch writes one if it is missing (an existing file in the working directory is used instead). `[Video]` `Width` and `Height` set the window, default 960 by 540. `[Audio]` `MasterVolume` is 0 to 100 and scales all sound. `[Game]` `Language` is English, French, German, Spanish or Italian (default English) and picks the loctext folder and the attract speech bubbles; it falls back to English if that folder is missing. Restart after editing.
+CMake fetches zlib and, for the D3D11 backend, Dear ImGui. Windows builds also
+fetch an LGPL FFmpeg build and copy its DLLs beside the executable. Initial
+configuration requires network access unless dependencies are already cached.
 
-Analyze `default.xbe` in Ghidra, rename a function, add it to `docs/XBE.md`, then reconstruct it under `src/engine/`.
+Useful build options:
 
-Reconstruction is native-first. A function translates its Ghidra dump and runs on retail state in
-retail order. Host code supplies only boundaries (file IO, D3D, XInput, heap, TLS, XACT) and the
-D3D11 presentation of what the native draw records. Older host stand-ins that re-implement game
-behavior are listed for replacement in [`docs/LEGACY_HOST_CODE.md`](docs/LEGACY_HOST_CODE.md).
-See `AGENTS.md` for the full rules.
+- `-DGBTG_GFX=null` selects the non-rendering backend. D3D11 is the default on
+  Windows; the null backend is the default elsewhere.
+- `-DGBTG_WITH_SDL=ON` adds an optional SDL3 window loop for the null backend.
+- `-DGBTG_BUILD_INSPECTOR=OFF` omits the separate inspector targets.
+- `-DBUILD_TESTING=OFF` omits test targets.
+
+The null backend is useful for development checks; it does not provide the
+Windows runtime's graphics presentation.
+
+## Run and capture
+
+With no scene override, the runtime follows the retail boot sequence. `--scene`
+accepts a scene-order index or a matching scene name:
+
+```powershell
+.\build\Release\gbtg.exe --game-dir OriginalFiles --scene gameselect
+.\build\Release\gbtg.exe --game-dir OriginalFiles --scene chapter1_scene1_2playcam
+```
+
+For a bounded run and a capture through the D3D11 backend:
+
+```powershell
+.\build\Release\gbtg.exe --game-dir OriginalFiles --headless --frames 900 --screenshot capture.bmp
+```
+
+- `--headless` hides the window and defaults to one tick unless `--frames N`
+  is supplied. Headless runs use 10% master volume.
+- `--frames N` limits the number of ticks.
+- `--screenshot file.bmp` saves the final presented frame and hides the window.
+  Supply `--frames N` to capture beyond the default single tick.
+- `--width W`, `--height H` and `--vsync N` override video settings.
+
+A successful headless run is a crash check, not proof that rendering, audio or
+reconstructed behavior is correct.
+
+### Configuration and diagnostics
+
+The runtime reads `gbtg.ini` beside the executable, falling back to an existing
+file in the working directory. If neither exists, it creates a default beside
+the executable. Edit it and restart:
+
+```ini
+[Video]
+Width=960
+Height=540
+VSync=1
+
+[Audio]
+MasterVolume=100
+
+[Game]
+Language=English
+```
+
+`MasterVolume` accepts 0–100. Languages are English, French, German, Spanish and
+Italian; a missing localized text directory falls back to English.
+
+Debug D3D11 game builds include ImGui diagnostics: **F8** opens the menu and
+**F12** toggles the timing overlay. `--debug-ui` opens diagnostics at startup.
+Release game builds and the null backend omit this UI.
+
+## Scene inspector
+
+`gbtg-inspector` is a separate Windows/D3D11 application for inspecting scenes
+constructed by the native runtime. It provides a free-flight camera, object and
+marker inspection, render diagnostics, captures and sound preview. Its ImGui
+interface is available in both Debug and Release builds.
+
+```powershell
+cmake --build build --config Release --target gbtg-inspector
+.\build\Release\gbtg-inspector.exe --game-dir OriginalFiles --scene chapter1_scene1_2playcam
+```
+
+The inspector presents a static view after scene initialization. It can label
+scenes as partial and report omitted content when reconstruction errors occur;
+this inspection policy is separate from normal gameplay. See
+[Runtime scene inspector](docs/INSPECTOR.md) for controls and limitations.
+
+## Data tools
+
+Build the tools separately, or omit `--target` when building to build all default
+targets:
+
+```powershell
+cmake --build build --config Release --target gbtg-catalog gbtg-dump gbtg-model-check
+```
+
+- **`gbtg-catalog`** classifies disc files, resolves AID hashes and verifies a
+  supplied manifest.
+- **`gbtg-dump`** extracts BNL resources, including textures, models, localized
+  text and wavebanks. `--dialogue-heads` exports animated dialogue head frames
+  as PNGs with transparency.
+- **`gbtg-model-check`** scans bundled models and reports decoding issues.
+
+```powershell
+.\build\Release\gbtg-catalog.exe --game-dir OriginalFiles --out docs\generated
+.\build\Release\gbtg-dump.exe --game-dir OriginalFiles --out dump --dialogue-heads
+```
+
+Keep extracted assets local; they remain original game content.
+
+## Tests
+
+Build and run the CTest suite:
+
+```powershell
+cmake --build build --config Release
+ctest --test-dir build -C Release --output-on-failure
+```
+
+Runtime transition tests are built explicitly and accept the game directory as
+a positional argument:
+
+```powershell
+cmake --build build --config Release --target gbtg-transition-tests
+.\build\Release\gbtg-transition-tests.exe OriginalFiles --scene-start
+```
+
+Tests that open an audio device must set master volume to 10% before creating
+the master voice. Visible or audible changes also require captures and direct
+inspection; passing tests alone does not establish feature completeness.
+
+## Contributing
+
+Read [AGENTS.md](AGENTS.md) before changing reconstructed code.
+
+Work inward from a live native entry point and translate the first missing
+callee reached. Use the decompile in `cache/ghidra_frontier/<VA>.txt`, preserving
+its branches, comparisons and offsets. Export missing dumps using the read-only
+Ghidra workflow in `AGENTS.md`; do not rename Ghidra symbols or write the project.
+Missing callees must raise when reached rather than return invented values.
+
+Keep game logic on the native path. Host code supplies boundaries and
+presentation; older host implementations are tracked in
+[Legacy host code](docs/LEGACY_HOST_CODE.md) for replacement. Keep
+`src/engine/game.cpp` as the thin `frame_tick` caller, organize code by subsystem,
+use `.h` headers and Allman braces, and retain Xbox address comments on
+reconstructed declarations and definitions.
+
+Never stage or distribute `OriginalFiles/`, retail payloads (`*.xbe`, `*.bnl`,
+`*.iso`, `*.original`) or Ghidra project databases. Before editing any file in
+`OriginalFiles/`, preserve an untouched `.original` backup and document the edit
+and restoration steps in [Original file changes](docs/ORIGINAL_FILES.md).
+
+## Reference
+
+- [Executable map](docs/XBE.md) and [Ghidra workflow](docs/GHIDRA.md)
+- [AID resource identifiers](docs/AID.md) and [File formats](docs/FORMATS.md)
+- [Native scene presentation](docs/NATIVE_SCENE_PRESENT.md),
+  [Transitions](docs/NATIVE_TRANSITIONS.md) and [Audio](docs/NATIVE_AUDIO.md)
+- [xemu runtime oracle](docs/XEMU.md) and [Oracle tooling](tools/oracle/README.md)
+- [Legal notes](docs/LEGAL.md)

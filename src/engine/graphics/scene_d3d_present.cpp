@@ -658,6 +658,7 @@ void present_fixed(const SceneD3DFixedDraw& draw, const SceneD3DPresentContext& 
     u32 stride = 0;
     bool has_diffuse = false;
     bool pretransformed = false;
+    bool textured = false;
     switch (draw.format)
     {
     case 0x002: // D3DFVF_XYZ.
@@ -672,8 +673,16 @@ void present_fixed(const SceneD3DFixedDraw& draw, const SceneD3DPresentContext& 
         has_diffuse = true;
         pretransformed = true;
         break;
+    case 0x102: // D3DFVF_XYZ | D3DFVF_TEX1: textured, under the current diffuse.
+        stride = 20;
+        textured = true;
+        break;
     default:
         throw Error("fixed-function draw uses vertex format " + std::to_string(draw.format));
+    }
+    if (textured && draw.texture == nullptr)
+    {
+        throw Error("textured fixed-function draw has no stage-0 texture");
     }
     const size_t size = draw.vertices.size() * sizeof(u32);
     if (size % stride != 0)
@@ -730,6 +739,10 @@ void present_fixed(const SceneD3DFixedDraw& draw, const SceneD3DPresentContext& 
             std::memcpy(&packed, data + offset + (pretransformed ? 16 : 12), 4);
         }
         vertex.diffuse = color(packed);
+        if (textured)
+        {
+            std::memcpy(vertex.uv[0].data(), data + offset + 12, 8);
+        }
         shaded.push_back(vertex);
         screens.push_back(screen);
     }
@@ -776,8 +789,11 @@ void present_fixed(const SceneD3DFixedDraw& draw, const SceneD3DPresentContext& 
     GfxNativeDraw output;
     output.lines = line_primitive(draw.primitive) && !wide;
     output.vertices = vertices;
+    if (textured)
+    {
+        output.textures[0] = &context.texture(draw.texture);
+    }
     apply_states(draw.states, output);
-    (void)context;
     gfx_draw_native(output);
 }
 

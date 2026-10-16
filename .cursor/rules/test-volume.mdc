@@ -1,0 +1,13 @@
+---
+description: Tests play audio at 10% master volume
+alwaysApply: true
+---
+
+# Test volume
+
+Every test that can open the audio device sets the master volume to 10%.
+
+- `gbtg-transition-tests` calls `pcm_set_master_volume(0.1f)` at the top of `main`.
+- `gbtg --headless` runs are tests and use 10% instead of the config volume.
+- A new test executable, or a new test mode that plays audio through some other
+  path, must set 10% before the XAudio2 master voice is created.

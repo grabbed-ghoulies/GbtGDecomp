@@ -201,8 +201,9 @@ The new `--attract` mode runs 8000 frames with no input and writes
     are in `frontend/dialogue_draw_text.cpp`.
   - A record with a panel (+0x1224) still raises at `0x00060160` / `0x00061360`.
 - **Effect particles `0x000ED390` / `0x000EFEA0`** (`graphics/actor_effect_draw.cpp`): type-0
-  particles are queued as billboards (the attract's sparkle trail). Type 2 (`0x0005DFF0`,
-  `0x0005CA10`) and type 4 (`0x000F0160`) raise when reached.
+  particles are queued as billboards (the attract's sparkle trail). Type 2 particles
+  (`0x000F0010`) draw as world sprite quads (`0x0005CF90`) between `0x0005CF20` /
+  `0x0005DFF0` and the projection rebind. Type 4 (`0x000F0160`) raises when reached.
 
 ### Fixes found on the way
 

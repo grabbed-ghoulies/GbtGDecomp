@@ -8,7 +8,7 @@ recording D3D boundary (`SceneD3DDevice`) and the D3D11 presenter. No host draw
 native scene.
 
 This is step 2 of `docs/LEGACY_HOST_CODE.md`. Read `AGENTS.md` first. The actor
-bins and `0x00121900` are covered in `docs/NATIVE_GAMEPLAY_FRAME.md`.
+bins and `0x00121900` are covered in `docs/PLAYER_SCENE.md`.
 
 ## Retail order
 
@@ -119,7 +119,15 @@ Translated and live in the opening:
   along with LIN_A8B8G8R8 (0x3F).
 - **`0x000EC470`** (`graphics/world_sprite_passes.cpp`, with `0x0005CF20`).
   The debris pool exists, so the setup and the fog hold run every view. A live
-  debris record raises (its quad, `0x0005CF90`, is not translated).
+  debris record still raises: its quad `0x0005CF90` is translated
+  (`draw_world_sprite_quad`, used by the type-2 effect particles), but the
+  debris loop's size and colour set-up around it is not.
+- **World sprite quads `0x0005CF90`** (`graphics/world_sprite_passes.cpp`, with
+  the depth mode `0x0005DFF0`). Immediate-mode `Begin(8)` quads under the
+  `DAT_0050DD70` world matrix, with `SetVertexData2f` register 9 texture
+  coordinates. The recording device records them as fixed format `0x102`
+  (`D3DFVF_XYZ | D3DFVF_TEX1`) with the stage-0 texture, and the presenter
+  samples it under the current diffuse.
 - **Control list** (`DAT_0050E438`, vtable +0x14). Control types 3 and 0x91
   have the empty `0x001628B0` there.
 - **Dialogue.** `0x00058150`, `0x00122230` and `0x0005F330` are called
@@ -187,8 +195,8 @@ The new references are the `cache/view_present/scene_N.png` captures.
 1. **HUD and effect bodies.** Translate the scene-start writers (`0x00132040`,
    `0x0011B7A0`, `0x00060C80`) and the bodies above as their gates open in
    later scenes or the fight.
-2. **Debris quads** (`0x0005CF90`, immediate-mode quads with the
-   `DAT_0050DD70` world matrix), needed once debris is live in the fight.
+2. **Debris quads**: the `0x000EC470` loop body around the translated quad
+   `0x0005CF90`, needed once debris is live in the fight.
 3. **Transition draws** (step 5): the slot record at `DAT_00546328`, the
    back-buffer copy (`CopyRects`) in the recording device and presenter, and
    `0x0012B560` / `0x0012BE60` / `0x0012BA10`.

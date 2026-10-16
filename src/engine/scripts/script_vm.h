@@ -6,6 +6,7 @@ namespace gbtg
 {
 // DAT_0051251C. Types 0xF and 0x10 decrement it. Type 0x11 increments it.
 extern i32 g_gate_251c;
+extern i32 g_script_e794; // DAT_0050E794.
 
 extern bool g_scene_script_started;
 

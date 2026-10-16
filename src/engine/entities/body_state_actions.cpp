@@ -2,6 +2,7 @@
 #include "body_message_helpers.h"
 #include "body_move_actions.h"
 #include "actor_world_lists.h"
+#include "body_hit_state.h"
 #include "gbtg/entity.h"
 #include <bit>
 #include <cstring>
@@ -13,6 +14,7 @@ namespace gbtg
 namespace
 {
 std::function<RuntimeBodyStateContext(u32)> body_context_of;
+std::function<RuntimeHitStateLifecycle(u32)> hit_context_of;
 // Walk-alert speed-band records by state, the host side of state +0x30 + 0x10 * index.
 std::unordered_map<const u8*, std::vector<const AnimationRecord*>> walk_alert_records;
 
@@ -78,6 +80,58 @@ void destroy_walk_alert_view(FactoryObject& object)
     const std::span<u8> state{object.bytes.get(), object.size};
     auto context = body_context_of(word(state, 8));
     destroy_runtime_walk_alert(state, context);
+}
+
+// Body +0x15C: the bit block whose +8 bytes the furnace state sets.
+RuntimeBodyBitStorage& bits_of(const RuntimeBodyStateContext& context)
+{
+    if (context.bits == nullptr)
+    {
+        throw Error("body state has no body +0x15C bit block");
+    }
+    return *context.bits;
+}
+
+bool construct_hit_state_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    const std::span<u8> state{object.bytes.get(), object.size};
+    auto context = hit_context_of(word(state, 8));
+    return initialize_runtime_hit_state(state, parameters, context);
+}
+
+void destroy_hit_state_view(FactoryObject& object)
+{
+    const std::span<u8> state{object.bytes.get(), object.size};
+    auto context = hit_context_of(word(state, 8));
+    destroy_runtime_hit_state(state, context);
+}
+
+const ObjectFactoryVtable* hit_state_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505940, hit_state_object_sizes, construct_hit_state_view,
+        destroy_hit_state_view};
+    return &table;
+}
+
+bool construct_hit_furnace_state_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    const std::span<u8> state{object.bytes.get(), object.size};
+    auto context = body_context_of(word(state, 8));
+    return initialize_runtime_hit_furnace_state(state, parameters, context.body, bits_of(context));
+}
+
+void destroy_hit_furnace_state_view(FactoryObject& object)
+{
+    const std::span<u8> state{object.bytes.get(), object.size};
+    auto context = body_context_of(word(state, 8));
+    destroy_runtime_hit_furnace_state(state, context.body, bits_of(context));
+}
+
+const ObjectFactoryVtable* hit_furnace_state_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505960, hit_furnace_state_object_sizes,
+        construct_hit_furnace_state_view, destroy_hit_furnace_state_view};
+    return &table;
 }
 
 const ObjectFactoryVtable* actor_move_lifecycle()
@@ -374,9 +428,12 @@ const AnimationRecord* runtime_walk_alert_record(std::span<const u8> state, u16 
 }
 
 void install_runtime_body_state_classes(std::span<ObjectFactoryType> types,
-    std::function<RuntimeBodyStateContext(u32)> context_of)
+    std::function<RuntimeBodyStateContext(u32)> context_of, std::function<RuntimeHitStateLifecycle(u32)> hit_of)
 {
     body_context_of = std::move(context_of);
+    hit_context_of = std::move(hit_of);
+    types[0x73] = ObjectFactoryType{9, hit_state_lifecycle};
+    types[0x74] = ObjectFactoryType{9, hit_furnace_state_lifecycle};
     types[9] = ObjectFactoryType{1, actor_move_lifecycle};
     types[0x87] = ObjectFactoryType{9, stand_alert_lifecycle};
     types[0x8E] = ObjectFactoryType{9, walk_alert_lifecycle};

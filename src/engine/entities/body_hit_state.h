@@ -1,0 +1,141 @@
+#pragma once
+
+#include "body_action_selection.h"
+#include "body_animation_setup.h"
+#include "body_damage_tables.h"
+#include "body_resources.h"
+#include "body_timers.h"
+#include "actor_clock.h"
+#include "actor_render_registration.h"
+#include "actor_trail_requests.h"
+#include "../frontend/dialogue_input.h"
+#include "../scripts/script_table_lookup.h"
+
+namespace gbtg
+{
+struct RuntimePlayerGoalRing;
+
+// Factory type 0x73 entityStateHit (getter 0x00095740, vtable 0x00505940): +0x14/+0x18 are the empty 0x001628B0
+// and +0x1C is 0x0002B620. State +8 is the body.
+struct RuntimeHitStateLifecycle
+{
+    std::span<u8> body;
+    Actor& actor; // Body +8.
+    std::span<u8> actor_bytes;
+    RuntimeBodyBitStorage*& bits; // Body +0x15C.
+    std::span<const u8> target; // Actor +0x958 -> +0x14: the mind's target record, or empty.
+};
+void hit_state_object_sizes(ObjectSizes& output); // Xbox 0x00095720
+bool initialize_runtime_hit_state(std::span<u8> state, std::span<const u8> parameters,
+    RuntimeHitStateLifecycle& context); // Xbox 0x000957A0
+void destroy_runtime_hit_state(std::span<u8> state, RuntimeHitStateLifecycle& context); // Xbox 0x000958A0
+
+// Message views of the hit state's body (state +8).
+struct RuntimeHitStateMessages
+{
+    std::span<u8> body;
+    u32 actor_address; // Body +8.
+    std::span<const u8> target; // Actor +0x958 -> +0x14: the mind's target record, or empty.
+    std::span<const u8> event; // Message 7 +0xC: the animation event's bytes.
+    const Vec3* contact; // Ids 0x41 and 0x5A: the reported contact point (EAX of 0x000961C0), or null.
+    u32 body_attached; // Actor +0x95C -> +0x48 (id 0x5A).
+    // 0x0003BE20 over actor `actor`'s +0x8C callout records with g_actor_creation_options and callback 0.
+    std::function<void(u32 actor, u32 id)> callouts;
+};
+void message_runtime_hit_state(std::span<u8> state, std::span<const u8> message,
+    RuntimeHitStateMessages& context); // Xbox 0x00095C90
+
+// Native views of the hit state's body (state +8) and actor (body +8).
+struct RuntimeHitStateTick
+{
+    std::span<u8> body;
+    Actor& actor;
+    std::span<u8> actor_bytes;
+    RuntimeBodyBitStorage*& bits; // Body +0x15C.
+    const ActorAnimationState& animation; // Actor +0x50.
+    const RuntimeActorClock& clock;
+    const i32& motion_steps; // DAT_004312E0.
+    const Vec3& default_position; // DAT_0050DD80.
+    std::span<const u8> target; // Actor +0x958 -> +0x14: the mind's target record, or empty.
+    std::span<const u8> hit; // Body +0x84.
+    std::span<const u8> settings; // Body +0x268.
+    const RuntimeBodyCollisionState* collision; // Body +0x2C8.
+    const RuntimeBodyCollisionState* attached_collision; // Body +0x48 -> +0x998.
+    const ActorRenderRegistration& render; // Actor +0x124 bins.
+    ActorTrailContext& trails;
+    u32 input_word; // The tick's second argument.
+    const RuntimeDialogueInputDevice* input; // The tick's input word, or null.
+    const RuntimeDialogueInputDevice* own_input; // Actor +0x960, or null.
+    const RuntimeDialogueInputState& input_state;
+    std::span<const u8> address_zero; // What a null input word reads.
+    const RuntimeBodyDamageTables& tables;
+    std::span<const float> mode_scales; // DAT_00217EC0.
+    const RuntimeScriptLookupTable* table; // Body +0x73C.
+    RuntimeBodyTimerRecipient* first_timer; // Body +0x760.
+    std::function<void(std::span<const u32>)> actor_message; // Actor vtable +0xC; the rest of the stack follows.
+    std::function<u16()> primary_key; // Body vtable +0x20.
+    std::function<u16()> secondary_key; // Body vtable +0x2C.
+};
+bool runtime_actor_has_render_bins(const ActorRenderRegistration& render, u8 hidden); // Xbox 0x0003CCB0
+// Picks the body's next action into state +0xC (EAX body, EBX state).
+void select_runtime_body_next_action(std::span<u8> state, u32 secondary,
+    RuntimeHitStateTick& context); // Xbox 0x00134180
+void reset_runtime_body_turn(u32 brake, std::span<u8> body,
+    RuntimeBodyTimerRecipient* first_timer); // Xbox 0x001346B0, ESI body
+float runtime_hit_target_gap(float& angle, RuntimeHitStateTick& context); // Xbox 0x00096260
+void lunge_runtime_hit_state(std::span<u8> state, RuntimeHitStateTick& context); // Xbox 0x00095F30
+bool runtime_hit_turn_toward(std::span<const u8> state, const Vec3& target, Vec3& euler,
+    RuntimeHitStateTick& context); // Xbox 0x0001D5B0
+void face_runtime_hit_target(std::span<const u8> state, RuntimeHitStateTick& context); // Xbox 0x00095EA0
+void steer_runtime_hit_body(RuntimeHitStateTick& context); // Xbox 0x000963E0
+void move_runtime_hit_body(std::span<const u8> state, RuntimeHitStateTick& context); // Xbox 0x00096060
+void finish_runtime_hit_state(std::span<u8> state, u32 secondary, RuntimeHitStateTick& context); // Xbox 0x00096390
+void tick_runtime_hit_state(std::span<u8> state, RuntimeHitStateTick& context); // Xbox 0x00095940
+
+// Factory type 0x74 entityStateHitFurnace (getter 0x000966B0, vtable 0x00505960): the message and the +0x14 / +0x18
+// slots are the empty 0x001628B0 and +0x1C is 0x0002B620. State +8 is the body.
+void hit_furnace_state_object_sizes(ObjectSizes& output); // Xbox 0x00090410
+bool initialize_runtime_hit_furnace_state(std::span<u8> state, std::span<const u8> parameters, std::span<u8> body,
+    RuntimeBodyBitStorage& bits); // Xbox 0x00096710
+void destroy_runtime_hit_furnace_state(std::span<const u8> state, std::span<u8> body,
+    RuntimeBodyBitStorage& bits); // Xbox 0x000967F0
+
+// The body's next action after a recovery (EAX body).
+struct RuntimeBodyRecoveryAction
+{
+    std::span<u8> body;
+    std::span<const u8> settings; // Body +0x268.
+    const RuntimeScriptLookupTable* table; // Body +0x73C.
+    RuntimeBodyTimerRecipient* first_timer; // Body +0x760.
+    const RuntimePlayerGoalRing* ring; // Actor +0x980.
+    u16 goal_latch; // Actor +0x990.
+    std::span<const u8> address_zero; // What an empty goal ring's front row reads.
+    // 0x00028360 then 0x00135790 (actor +0x990 zero) and 0x00135540 (otherwise) over the front goal: each fills
+    // the output word the caller tests.
+    std::function<void(u32& output)> kind_goal_action;
+    std::function<void(u32& output)> player_goal_action;
+    std::function<u16()> primary_key; // Body vtable +0x20.
+    std::function<u16()> primary_id; // Body vtable +0x30.
+    std::function<u16()> secondary_id; // Body vtable +0x34.
+};
+void select_runtime_body_recovery_action(std::span<u8> state, u16 key,
+    RuntimeBodyRecoveryAction& context); // Xbox 0x00133F50
+void select_runtime_body_goal_action(std::span<u8> state,
+    RuntimeBodyRecoveryAction& context); // Xbox 0x00134060, EBX body
+
+struct RuntimeHitFurnaceTick
+{
+    std::span<u8> body;
+    Actor& actor; // Body +8.
+    std::span<const u8> actor_bytes;
+    const ActorAnimationState& animation; // Actor +0x50.
+    const RuntimeActorClock& clock;
+    std::span<const u8> settings; // Body +0x268.
+    const RuntimeDialogueInputDevice* input; // The tick's input word, or null.
+    const RuntimeDialogueInputState& input_state;
+    std::span<const u8> address_zero; // What a null input word reads.
+    std::function<void()> scorch; // 0x000965C0 with the state.
+    RuntimeBodyRecoveryAction& recovery;
+};
+void tick_runtime_hit_furnace_state(std::span<u8> state, RuntimeHitFurnaceTick& context); // Xbox 0x00096890
+}

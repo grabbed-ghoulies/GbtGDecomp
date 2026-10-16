@@ -411,10 +411,13 @@ void SceneMindMessages::refresh()
     body_query_.bits = player_.body_flags;
     target_ = object_at(read_u32(mind, 0x10), "mind +0x10 target");
     parent_.target_bytes = target_;
+    player_messages_.target = target_;
     parent_.target_actor = target_.empty() ? nullptr : services_.actor_at(read_u32(mind, 0x10));
     action_target_ = object_at(read_u32(mind, 0x14), "mind +0x14 action target");
     actor_mind_ = mind;
-    body_state_view_ = object_at(read_u32(body, 0x84), "body +0x84 state");
+    // Body +0x84 is an attackdata request row (0x0001D2E0), stride 0x24 or more, by its data address.
+    const u32 request = read_u32(body, 0x84);
+    body_state_view_ = request == 0 ? std::span<const u8>() : std::span<const u8>(services_.resolve(request), 0x24);
     body_state_ = body_state_view_.data();
     cinema_.floor = i32(read_u32(player_.actor_bytes, 0xCEC));
     if (cinema_mind_ == false)

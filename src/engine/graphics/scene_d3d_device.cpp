@@ -168,6 +168,22 @@ SceneD3DDevice::SceneD3DDevice()
     dialogue_.begin = [this](u32 primitive)
     {
         immediate_.assign({0x417FCu, primitive});
+        immediate_textured_ = false;
+    };
+    // Register 9 (D3DVSDE_TEXCOORD0) holds the current texture coordinate; each later position carries it, and
+    // the block draws as D3DFVF_XYZ | D3DFVF_TEX1.
+    dialogue_.vertex_data2f = [this](i32 reg, float a, float b)
+    {
+        if (reg != 9 || immediate_.empty())
+        {
+            throw Error("D3D immediate 2f data other than texture coordinate 0, or outside Begin/End");
+        }
+        if (!immediate_textured_ && immediate_.size() > 2)
+        {
+            throw Error("D3D immediate texture coordinate after untextured vertices");
+        }
+        immediate_texcoord_ = {a, b};
+        immediate_textured_ = true;
     };
     // Register -1 (D3DVSDE_VERTEX) and 0 (D3DVSDE_POSITION) both write the position, which emits the vertex.
     dialogue_.vertex_data4f = [this](i32 reg, float x, float y, float z, float w)
@@ -182,11 +198,21 @@ SceneD3DDevice::SceneD3DDevice()
         {
             throw Error("D3D immediate vertices under vertex format " + std::to_string(format));
         }
-        const u32 words = format == 0x44 ? 5 : format == 0x42 ? 4 : 3;
+        if (immediate_textured_ && format != 0x2)
+        {
+            throw Error("D3D immediate texture coordinates under vertex format " + std::to_string(format));
+        }
+        const u32 words = immediate_textured_ ? 5 : format == 0x44 ? 5 : format == 0x42 ? 4 : 3;
         immediate_.push_back(0x1818u | (words << 18));
         immediate_.push_back(std::bit_cast<u32>(x));
         immediate_.push_back(std::bit_cast<u32>(y));
         immediate_.push_back(std::bit_cast<u32>(z));
+        if (immediate_textured_)
+        {
+            immediate_.push_back(std::bit_cast<u32>(immediate_texcoord_[0]));
+            immediate_.push_back(std::bit_cast<u32>(immediate_texcoord_[1]));
+            return;
+        }
         if (format == 0x44)
         {
             immediate_.push_back(std::bit_cast<u32>(w)); // D3DFVF_XYZRHW's reciprocal w.
@@ -201,7 +227,10 @@ SceneD3DDevice::SceneD3DDevice()
     {
         immediate_.push_back(0x417FCu);
         immediate_.push_back(0);
+        immediate_format_ = immediate_textured_ ? 0x102u : 0u;
         decode_push(immediate_.data(), immediate_.data() + immediate_.size());
+        immediate_format_ = 0;
+        immediate_textured_ = false;
         immediate_.clear();
     };
     outer_.back_buffer = [](u32)
@@ -281,7 +310,8 @@ void SceneD3DDevice::decode_push(const u32* begin, const u32* end)
             {
                 open = false;
                 const auto bound = render_states_.find(kVertexShader);
-                const u32 shader = bound == render_states_.end() ? 0u : bound->second;
+                const u32 shader = immediate_format_ != 0 ? immediate_format_
+                    : bound == render_states_.end() ? 0u : bound->second;
                 if (shader != 0 && (shader & 1u) == 0)
                 {
                     record_fixed(primitive, shader, vertices);
@@ -351,7 +381,7 @@ void SceneD3DDevice::record_fixed(u32 primitive, u32 format, const std::vector<f
         return found == transforms_.end() ? kIdentity : found->second;
     };
     SceneD3DFixedDraw output{primitive, format, std::vector<u32>(vertices.size()), transform(6), transform(0),
-        transform(1), constants_[96 - 38], constants_[96 - 37], 0xFFFFFFFFu, render_states_};
+        transform(1), constants_[96 - 38], constants_[96 - 37], 0xFFFFFFFFu, render_states_, textures_[0]};
     std::memcpy(output.vertices.data(), vertices.data(), vertices.size() * sizeof(u32));
     const auto diffuse = render_states_.find(kVertexDataColor + 3);
     if (diffuse != render_states_.end())

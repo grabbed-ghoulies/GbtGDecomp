@@ -131,6 +131,7 @@
 #include "cutscene_scene_runtime.h"
 #include "../video/native_movies.h"
 #include "../scripts/script_conditions.h"
+#include "../scripts/script_event_tallies.h"
 #include "../scripts/script_actor_query.h"
 #include "../entities/player_mind_target_control.h"
 #include "gbtg/model_runtime.h"
@@ -662,6 +663,10 @@ struct SceneActorServices::State
     std::unordered_map<Actor*, u32> actor_object_addresses;
     std::unordered_map<Actor*, std::function<void(Actor&)>> actor_updates; // Actor vtable +0x10.
     std::unordered_map<Actor*, std::unique_ptr<RuntimeSegmentContactActor>> prop_contact_views;
+    std::unordered_map<const NativePlayerInstance*, std::unique_ptr<RuntimeSegmentContactActor>> player_contact_views;
+    // Contact counts by actor tag, 0x3D words per tag (0xEA tags): DAT_0053E528 and DAT_00524E2C.
+    std::vector<u32> contact_totals = std::vector<u32>(size_t(0xEA) * 0x3D);
+    std::vector<u32> contact_session = std::vector<u32>(size_t(0xEA) * 0x3D);
     AudioBankStreams* audio_banks = &audio.streams; // DAT_004DF370, DAT_004E030C.
     std::unique_ptr<AttractControlServices> attract_services; // Factory type 0x9B.
     // Factory type 0x9A, game select (docs/NATIVE_FRONTEND.md).
@@ -889,6 +894,9 @@ struct SceneActorServices::State
     void update_contact_prop(FactoryObject& object);
     void update_base_actor(FactoryObject& object);
     RuntimeSegmentContactActor& prop_contact_actor(entity_detail::SegmentProbe& probe);
+    RuntimeSegmentContactActor& segment_contact_actor(entity_detail::SegmentProbe& probe);
+    void dispatch_contact_words(NativePlayerInstance& player, std::span<u32> words, GhoulySpawnPool* contacts,
+        size_t contacts_word);
     void latch_message(entity_detail::LatchNode& node, const Message& message);
     std::unique_ptr<RuntimeBackgroundConstructionServices> background_services(NativeBackgroundInstance& background,
         NativeActorFactoryInstance& view, RuntimeBackgroundAnimation*& first_animation);
@@ -1287,6 +1295,21 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
                 }
                 return image.memory(address, size);
             }};
+    },
+    [this](u32 body_address)
+    {
+        const auto bytes = scene.resolve_address(body_address, 0);
+        auto* player = players->find_child_owner(bytes.data());
+        if (player == nullptr || player->body.data() != bytes.data())
+        {
+            unbound("hit state whose body has no player owner");
+        }
+        std::span<const u8> target;
+        if (!player->mind.empty() && read_u32(player->mind, 0x14) != 0)
+        {
+            target = target_views.at(read_u32(player->mind, 0x14))->bytes;
+        }
+        return RuntimeHitStateLifecycle{player->body, player->actor, player->actor_bytes, player->body_flags, target};
     });
     scene.install_base_class();
 
@@ -1318,7 +1341,8 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     shock_fail = {image.string(0x00316854), image.string(0x00316840), image.string(0x0031682C),
         image.string(0x00316810)};
     std::memcpy(death_actions.data(), data(0x00217EB8, 6).data(), 6);
-    damage_tables = std::make_unique<RuntimeBodyDamageTables>(RuntimeBodyDamageTables{data(0x00433C9C, 0xC * 0x10),
+    // DAT_00433C9C holds 0x48 rows of 0xC, one per statsheet key.
+    damage_tables = std::make_unique<RuntimeBodyDamageTables>(RuntimeBodyDamageTables{data(0x00433C9C, 0xC * 0x48),
         statsheet});
     footstep_kinds = strings(0x00423620, 1);
     footsteps = std::make_unique<FootstepSoundNames>(FootstepSoundNames{data(0x00314FBC, 0x20), surface_names});
@@ -2040,7 +2064,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         object_tags, image.string(0x0031C354),
         {image.string(0x00315A98), image.string(0x00315AE0), image.string(0x00315AFC), image.string(0x00315AF4)},
         std::span<const char* const, 0x55>(callout_names.data(), 0x55),
-        std::span<const char* const, 0x41>(flag_names.data(), 0x41), shock_pass, shock_fail, data(0x00217DE8, 0x40),
+        std::span<const char* const, 0x41>(flag_names.data(), 0x41), shock_pass, shock_fail, data(0x00217DE8, 0xD0),
         death_actions, pause_references, decay_enabled, decay_index, player_damage, g_flags_ea9c, g_flag_ea98,
         reinterpret_cast<u32&>(g_script_30d0c), goal_scratch, empty_name, occupancy_initial,
         [this](const void* pointer)
@@ -2102,7 +2126,57 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         [this](u32 address) -> std::span<const u8>
         {
             return scene.resolve_tail(address);
-        }, data(0x004275BC, 0x14), *camera_rig});
+        }, data(0x004275BC, 0x14), *camera_rig, pause, frame_delta, time_scale, pal, pal_override,
+        [this](u32 address) -> std::span<const u8>
+        {
+            const auto found = target_views.find(address);
+            if (found == target_views.end())
+            {
+                unbound("mind target record " + std::to_string(address) + " outside DAT_00545988");
+            }
+            return found->second->bytes;
+        },
+        [this](u32 address, size_t size) -> std::span<const u8>
+        {
+            // The native address arenas: resources from 0x40000000, host heap blocks from 0x30000000, scene
+            // objects from 0x10000000, and the XBE image below.
+            if (address >= 0x40000000)
+            {
+                return resources.memory.tail(address);
+            }
+            if (address >= 0x30000000)
+            {
+                unbound("data record in the host heap arena");
+            }
+            if (address >= 0x10000000)
+            {
+                return scene.resolve_tail(address);
+            }
+            return image.memory(address, size);
+        },
+        [this](u32 address, u32 id)
+        {
+            auto* object = object_of(scene.resolve_address(address, 0).data());
+            if (object == nullptr || object->type != 5)
+            {
+                unbound("actor +0x8C callouts of a non-player actor");
+            }
+            auto& player = players->player(*object);
+            dispatch_actor_attachment_records(player.actor_instance.startup.resource.resource.data(), i32(id), nullptr,
+                &g_actor_creation_options, player.callout, 0);
+        },
+        data(0x00217DB0, 0x108),
+        [this](u32 address) -> RuntimeBodyDamageEntry&
+        {
+            auto& player = players->player_at(address);
+            player.refresh_views();
+            auto& graph = body_messages[player.body.data()];
+            if (graph == nullptr)
+            {
+                graph = std::make_unique<SceneBodyMessages>(*body_services, player);
+            }
+            return graph->damage_entry();
+        }});
     state_action_names = strings(0x003390E4, 0x174);
     goal_flag_names = strings(0x003397AC, 3);
     mind_services = std::make_unique<SceneMindServices>(SceneMindServices{game, resources.registry, resources.error,
@@ -2204,6 +2278,38 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         forget_texture_images(begin, size);
     };
     active_services = this;
+    g_script_actor_bytes = [this](u32 address) -> std::span<const u8>
+    {
+        auto* object = object_of(scene.resolve_address(address, 0).data());
+        if (object == nullptr)
+        {
+            unbound("script tally actor " + std::to_string(address) + " is not a scene object");
+        }
+        return {object->bytes.get(), object->size};
+    };
+    // DAT_00506C80 and DAT_00545970 are the dialogue measurement's counts; DAT_00506C8C is the count the player
+    // strategy reads.
+    g_script_kill_counters = [this]()
+    {
+        if (measurement == nullptr)
+        {
+            unbound("script kill counters before the dialogue measurement exists");
+        }
+        return RuntimeScriptKillCounters{&measurement->second_count, &brews_owned, &measurement->first_additional};
+    };
+    // DAT_00511B48 nodes are player actor +0x944 (links[2]); node +0x18 is actor +0x95C.
+    g_alt_node_body = [this](const void* node) -> std::span<const u8>
+    {
+        for (auto* player : players->instances())
+        {
+            if (&player->links[2] == node)
+            {
+                player->refresh_views();
+                return player->body;
+            }
+        }
+        unbound("DAT_00511B48 node without a native player");
+    };
 }
 
 void SceneActorServices::State::begin_scene()
@@ -2893,6 +2999,9 @@ SceneActorServices::State::~State()
     if (active_services == this)
     {
         active_services = nullptr;
+        g_alt_node_body = nullptr;
+        g_script_actor_bytes = nullptr;
+        g_script_kill_counters = nullptr;
     }
     if (g_transition_services == transition_services.get())
     {
@@ -3408,6 +3517,77 @@ RuntimeSegmentContactActor& SceneActorServices::State::prop_contact_actor(entity
     return *slot;
 }
 
+// A player's actor message with a contact pool word: the pool is bound to a scene address while it runs.
+void SceneActorServices::State::dispatch_contact_words(NativePlayerInstance& player, std::span<u32> words,
+    GhoulySpawnPool* contacts, size_t contacts_word)
+{
+    const bool bound = contacts != nullptr && scene.find_address(contacts) == 0;
+    if (contacts != nullptr)
+    {
+        words[contacts_word] = bound ? scene.bind_address({reinterpret_cast<u8*>(contacts), sizeof(GhoulySpawnPool)})
+            : scene.find_address(contacts);
+    }
+    try
+    {
+        player.actor_message(words);
+    }
+    catch (...)
+    {
+        if (bound)
+        {
+            scene.unbind_address(contacts);
+        }
+        throw;
+    }
+    if (bound)
+    {
+        scene.unbind_address(contacts);
+    }
+}
+
+// The contact walk's view of the actor whose segment probe it hit: a player (actor +0x934 node, message 0x15
+// from 0x0001F8C0) or a prop.
+RuntimeSegmentContactActor& SceneActorServices::State::segment_contact_actor(entity_detail::SegmentProbe& probe)
+{
+    for (auto* player : players->instances())
+    {
+        if (&player->actor_instance.segment != &probe)
+        {
+            continue;
+        }
+        auto& slot = player_contact_views[player];
+        if (slot == nullptr)
+        {
+            slot = std::make_unique<RuntimeSegmentContactActor>(RuntimeSegmentContactActor{player->actor, 0,
+                &player->links[0],
+                [this, player](void* payload)
+                {
+                    if (*static_cast<const u32*>(payload) != 0x15)
+                    {
+                        unbound("player contact payload " + std::to_string(*static_cast<const u32*>(payload)));
+                    }
+                    auto& notice = *static_cast<RuntimeContactNotice*>(payload);
+                    // {0x15, reply, sender, velocity, contacts, point}.
+                    std::array<u32, 0x42> words{};
+                    words[0] = notice.id;
+                    words[1] = notice.reply;
+                    words[2] = address_of(notice.sender);
+                    words[3] = std::bit_cast<u32>(notice.velocity.x);
+                    words[4] = std::bit_cast<u32>(notice.velocity.y);
+                    words[5] = std::bit_cast<u32>(notice.velocity.z);
+                    words[7] = std::bit_cast<u32>(notice.point.x);
+                    words[8] = std::bit_cast<u32>(notice.point.y);
+                    words[9] = std::bit_cast<u32>(notice.point.z);
+                    dispatch_contact_words(*player, words, notice.contacts, 6);
+                    notice.reply = words[1];
+                }});
+        }
+        slot->child_link = player->actor_instance.render.child.prev != nullptr ? 1u : 0u;
+        return *slot;
+    }
+    return prop_contact_actor(probe);
+}
+
 // Base actor vtable +0x10 (0x000420D0) over the scene's frame context.
 void SceneActorServices::State::update_base_actor(FactoryObject& object)
 {
@@ -3861,6 +4041,8 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
         {
             switch (action.type)
             {
+            case 0x73:
+            case 0x74:
             case 0x87:
             case 0x8E:
                 return runtime_body_action_next_key(action);
@@ -3873,14 +4055,32 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
         },
         path_search, floor_hint, collision_view, player.actor_bytes, player.body_bits, player.collision,
         player.body_selection,
-        [](Actor&, RuntimeSegmentContactActor&, const Vec3&, GhoulySpawnPool*, const RuntimeSegmentContactRecord&,
-            const Vec3&, u16) -> u32
+        [this, &player](Actor& actor, RuntimeSegmentContactActor& object, const Vec3& point, GhoulySpawnPool* contacts,
+            const RuntimeSegmentContactRecord&, const Vec3& velocity, u16 word) -> u32
         {
-            unbound("player body contact callback 0x0001F8C0");
+            RuntimePlayerContactReport report{player.body, player.actor_bytes, contact_totals, contact_session,
+                [this, &player](void* payload)
+                {
+                    auto& report = *static_cast<RuntimeContactReport*>(payload);
+                    // {0x41, word, velocity, object, contacts, point, reply}.
+                    std::array<u32, 0x42> words{};
+                    words[0] = report.id;
+                    words[1] = u32(report.word);
+                    words[2] = std::bit_cast<u32>(report.velocity.x);
+                    words[3] = std::bit_cast<u32>(report.velocity.y);
+                    words[4] = std::bit_cast<u32>(report.velocity.z);
+                    words[5] = address_of(&report.object->actor);
+                    words[7] = std::bit_cast<u32>(report.point.x);
+                    words[8] = std::bit_cast<u32>(report.point.y);
+                    words[9] = std::bit_cast<u32>(report.point.z);
+                    words[10] = report.reply;
+                    dispatch_contact_words(player, words, report.contacts, 6);
+                }};
+            return report_runtime_player_contact(actor, object, point, contacts, velocity, word, report);
         },
-        [](entity_detail::SegmentProbe&) -> RuntimeSegmentContactActor&
+        [this](entity_detail::SegmentProbe& probe) -> RuntimeSegmentContactActor&
         {
-            unbound("body contact walk actor view");
+            return segment_contact_actor(probe);
         },
         entity_detail::g_world.body_a, instance.animation, instance.pose, instance.startup.attachments,
         instance.pending, instance.frame.updates, instance.shape, *frame, clock, player.navigation, room, bounds};
@@ -4295,9 +4495,11 @@ void SceneActorServices::State::draw_player(FactoryObject& object, NativePlayerI
         player.second_action.bytes.get(),
         [&player](void*, i32)
         {
-            // States 0x87 (entityStateStandAlert, getter 0x000A2530) and 0x8E (entityStateWalkAlert, getter
-            // 0x000A55F0) have the empty slot 0x001628B0 at +0x18.
-            if (player.second_action.type != 0x87 && player.second_action.type != 0x8E)
+            // States 0x73 (entityStateHit, getter 0x00095740), 0x74 (entityStateHitFurnace, getter 0x000966B0),
+            // 0x87 (entityStateStandAlert, getter 0x000A2530) and 0x8E (entityStateWalkAlert, getter 0x000A55F0)
+            // have the empty slot 0x001628B0 at +0x18.
+            const u32 type = player.second_action.type;
+            if (type != 0x73 && type != 0x74 && type != 0x87 && type != 0x8E)
             {
                 unbound("body +0x744 object vtable +0x18 draw for factory type "
                     + std::to_string(player.second_action.type));
@@ -4552,14 +4754,14 @@ void SceneActorServices::State::present_view(i32 view)
         {
             draw_scene_controls();
         },
-        []()
+        [this]()
         {
             // DAT_00506930..DAT_00506C50: 0x000ED390 for each nonzero word (the port's table holds 150 of them).
             for (ActorEffectNode* effect : g_actor_effect_nodes)
             {
                 if (effect != nullptr)
                 {
-                    draw_actor_effect_particles(*effect, g_billboard_queue); // 0x000ED390
+                    draw_actor_effect_particles(*effect, g_billboard_queue, *display_setup); // 0x000ED390
                 }
             }
         },

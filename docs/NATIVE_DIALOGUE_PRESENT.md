@@ -7,10 +7,9 @@ the speaker head, the text, the A button and the button bat. It should look the
 same as the existing host cutscene prompts. Once it does, the host stand-in
 (`DialogueScreen`) is no longer used for native-scene dialogue.
 
-Read `AGENTS.md` first; every rule there applies. Background history and
-addresses are in `docs/PLAYER_SCENE.md`. The sections that matter here are "Live
-opening runs: 0x6F player wait enabled" and "Native views presented: camera and
-dialogue quads".
+Read `AGENTS.md` first; every rule there applies. The opening scene's frame
+order and current state are in `docs/PLAYER_SCENE.md`; the earlier history of
+the 0x6F player wait and the first native view quads is in git history.
 
 ## Why there are two implementations
 

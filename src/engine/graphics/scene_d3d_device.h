@@ -102,6 +102,7 @@ struct SceneD3DFixedDraw
     std::array<float, 4> screen_offset; // Vertex constant -37 (viewport offset).
     u32 diffuse; // SetVertexDataColor register 3 (D3DVSDE_DIFFUSE), D3DCOLOR.
     SceneD3DStateSnapshot states;
+    const u8* texture; // Stage 0, sampled by the D3DFVF_TEX1 format.
 };
 // D3DDevice_CopyRects from the back buffer into a texture's level 0 (the book's page captures).
 struct SceneD3DCopy
@@ -167,6 +168,9 @@ private:
     u32 pixel_constants_set_ = 0;
     std::vector<u32> push_;
     std::vector<u32> immediate_; // D3DDevice_Begin .. End.
+    std::array<float, 2> immediate_texcoord_{}; // SetVertexData2f register 9.
+    bool immediate_textured_ = false;
+    u32 immediate_format_ = 0; // The fixed format an immediate block records under, when not the bound one.
     u32 next_surface_ = 1;
     u32 next_vertex_shader_ = 1;
     DialogueD3DBoundaries dialogue_;

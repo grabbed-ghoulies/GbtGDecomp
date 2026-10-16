@@ -88,7 +88,9 @@ int main(int argc, char** argv)
         {
             throw gbtg::Error("command replay requires --render-profile");
         }
-        gbtg::pcm_set_master_volume(static_cast<float>(host.master_volume) / 100.f);
+        // Headless runs are tests, which play at 10% master volume (AGENTS.md).
+        const int master_volume = cfg.headless ? 10 : host.master_volume;
+        gbtg::pcm_set_master_volume(static_cast<float>(master_volume) / 100.f);
         gbtg::g_language = host.language;
         {
             std::error_code ec;
@@ -100,7 +102,7 @@ int main(int argc, char** argv)
             }
         }
         std::cout << "GbtGDecomp  game-dir=" << cfg.game_dir.string() << "  " << cfg.width << "x" << cfg.height
-                  << "  volume=" << host.master_volume << "  language=" << gbtg::language_folder(gbtg::g_language)
+                  << "  volume=" << master_volume << "  language=" << gbtg::language_folder(gbtg::g_language)
                   << "\n";
         gbtg::render_profile::reference = has_flag(argc, argv, "--render-reference");
         gbtg::render_profile::cpu_vertex = has_flag(argc, argv, "--cpu-vertex");

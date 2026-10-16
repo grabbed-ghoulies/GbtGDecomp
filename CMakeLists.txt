@@ -77,6 +77,7 @@ add_library(gbtg_lib STATIC
     src/engine/graphics/xg_pixel_shader.cpp
     src/engine/entities/body_stand_alert_tick.cpp
     src/engine/entities/body_walk_alert_tick.cpp
+    src/engine/entities/body_hit_state.cpp
     src/engine/scene/scene_control_update.cpp
     src/engine/scene/scene_controls.cpp
     src/engine/scene/attract_control.cpp
@@ -572,6 +573,7 @@ add_executable(gbtg
     src/engine/scripts/script_samples.cpp
     src/engine/scripts/script_table_lookup.cpp
     src/engine/scripts/script_conditions.cpp
+    src/engine/scripts/script_event_tallies.cpp
     src/engine/scripts/script_actions.cpp
     src/engine/scripts/script_actor_query.cpp
     src/engine/scripts/script_dialogue_actions.cpp

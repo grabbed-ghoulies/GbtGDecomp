@@ -28,6 +28,7 @@ struct DialogueD3DBoundaries
     std::function<void(u32, u32)> vertex_data_color; // D3D 0x00172CC0 (register, D3DCOLOR).
     std::function<void(u32)> begin; // D3DDevice_Begin, D3D 0x00172D10 (primitive).
     std::function<void(i32, float, float, float, float)> vertex_data4f; // D3D 0x00172C60 (register, x, y, z, w).
+    std::function<void(i32, float, float)> vertex_data2f; // D3D 0x00172C20 (register, a, b).
     std::function<void()> end; // D3DDevice_End, D3D 0x00172D50.
 };
 struct DialogueRenderFrame

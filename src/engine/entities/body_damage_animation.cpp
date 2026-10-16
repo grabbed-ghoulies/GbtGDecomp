@@ -73,6 +73,10 @@ const char* runtime_damage_animation_direction(const RuntimeDamageAnimationRows&
             ++index;
         } while (index < rows.count);
     }
+    if (size_t(selection.index) >= rows.rows.size())
+    {
+        throw Error("damage direction rows (body +0x268 +4) have no native view");
+    }
     return rows.rows[selection.index].name;
 }
 
@@ -149,7 +153,8 @@ const AnimationRecord* find_runtime_body_damage_animation(std::span<const u8> bo
     if (record == nullptr && (variant == nullptr ||
         (record = find_actor_animation(context.animation.table, buffer.data(), nullptr, context.random)) == nullptr))
     {
-        record = find_runtime_body_animation(buffer.data(), context);
+        // EBX of this 0x0001AED0 is the direction name alone (EBP), not the printed buffer.
+        record = find_runtime_body_animation(direction, context);
     }
     return record;
 }

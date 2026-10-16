@@ -8,6 +8,7 @@
 #include "../camera/camera_mind_rig.h"
 #include "../entities/body_move_action_slots.h"
 #include "../entities/player_body_collision.h"
+#include "../entities/body_hit_state.h"
 
 namespace gbtg
 {
@@ -40,7 +41,7 @@ struct SceneBodyServices
     std::span<const char* const, 0x41> flags; // 0x00338FB0.
     std::span<const char* const, 4> shock_pass; // 0x00023787 table: 0x003168A4, 0x00316890, 0x0031687C, 0x00316860.
     std::span<const char* const, 4> shock_fail; // 0x000237AF table: 0x00316854, 0x00316840, 0x0031682C, 0x00316810.
-    std::span<const u8> amount_keys; // DAT_00217DE8.
+    std::span<const u8> amount_keys; // DAT_00217DE8..DAT_00217EB8, two key bytes per amount key (0x000238E0).
     std::span<const u16, 3> death_actions; // DAT_00217EB8.
     std::span<const u32, 2> player_blocked; // DAT_0050E764.
     std::span<const u8> player_modes; // DAT_0030F144.
@@ -77,6 +78,19 @@ struct SceneBodyServices
     std::function<std::span<const u8>(u32)> event_at; // Message 7 +0xC: the animation event's bytes.
     std::span<const u8> stand_tunables; // DAT_004275BC..DAT_004275CF, read by the type 0x5D stand action.
     const RuntimeCameraRigContext& camera_rig; // 0x0013CE80's tunables and actor views.
+    // Trail request clock (0x0013B030, 0x0013B1B0).
+    float& pause; // DAT_004312DC.
+    float& frame_delta; // DAT_005096C0.
+    float& time_scale; // DAT_004312C4.
+    i32& pal; // DAT_005096E0.
+    i32& pal_override; // DAT_005096E4.
+    std::function<std::span<const u8>(u32)> target_at; // A DAT_00545988 target record's retail image.
+    // A data record by address arena; `size` bounds a record in the XBE image (body +0x84 rows are 0x24).
+    std::function<std::span<const u8>(u32 address, size_t size)> record_at;
+    // 0x0003BE20 over an actor's +0x8C callout records with g_actor_creation_options and callback 0.
+    std::function<void(u32 actor, u32 id)> actor_callouts;
+    std::span<const u8> push_keys; // DAT_00217DB0..DAT_00217EB8, read by 0x000239C0 and 0x00023A50.
+    std::function<RuntimeBodyDamageEntry&(u32 actor)> damage_at; // A player's body damage entry, by actor address.
 };
 
 // One body's message graph: the parent body handler 0x000253B0 and the derived slots of types 0x27
@@ -88,6 +102,7 @@ public:
     SceneBodyMessages(const SceneBodyMessages&) = delete;
     SceneBodyMessages& operator=(const SceneBodyMessages&) = delete;
     void dispatch(FactoryObject& body, std::span<u32> message);
+    RuntimeBodyDamageEntry& damage_entry(); // This body's damage entry, with its views refreshed.
     void tick(FactoryObject& body, u32 input); // Vtable +0x10.
     void animate(FactoryObject& body); // Vtable +0x14.
     void settle(FactoryObject& body); // Vtable +0x18.
@@ -105,6 +120,9 @@ private:
     RuntimeBodyMessageChild walk_alert_child_; // 0x8E vtable +0xC, 0x000A5A40.
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> stand_children_; // 0x5D, 0x0007FE70.
     RuntimeStandActionContext stand_context(); // Type 0x5D slots over this body.
+    std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> hit_children_; // 0x73, 0x00095C90.
+    std::span<const u8> mind_target(); // Actor +0x958 -> +0x14.
+    u16 body_slot_key(u32 slot); // Actual body vtable +0x20 / +0x2C / +0x30 / +0x34.
     std::array<u8, 0x20> shape_scratch_{};
     RuntimeBodyTimerRecipient* first_timer_ = nullptr; // Body +0x760.
     RuntimeBodyTimerRecipient* second_timer_ = nullptr; // Body +0x7F0.
@@ -115,8 +133,11 @@ private:
     std::unordered_map<const u8*, RuntimeBodyTimerObject*> timers_;
     FactoryObject timer_object_;
     std::array<float, 4> parameter_scratch_{};
-    RuntimeDamageAnimationRows damage_rows_{0, {}};
+    RuntimeDamageAnimationRows damage_rows_{0, {}}; // Body +0x268 head, refreshed with the views.
+    std::vector<RuntimeDamageAnimationRow> damage_row_storage_;
+    void refresh_damage_rows();
     std::span<u8> body_view_;
+    std::span<const u8> hit_view_; // Body +0x84: the attackdata request row.
     EntityMaskHost mask_{};
     ActorLiveAttachment* live_attachment_ = nullptr; // Actor +0x8F8.
     RuntimeBodyActionMessages actions_;

@@ -40,6 +40,7 @@ dedicated agent; the prompt is at the end.
 | Book and slime transitions | Deleted (`transition_book.cpp`, `transition_data.h`) | — | The translated transition core and handlers (`scene_transitions.cpp`, `native_book.cpp`, `book_map.cpp`) on the boot-owned scene stack (`docs/NATIVE_TRANSITIONS.md`) |
 | Entity system | `src/engine/entities/entity.cpp` (`register_entity_types`, `g.entities`), `entity_camera.cpp` (`g.camera`) | A host entity table (44 types) ticked from `frame_tick`, including the host body camera that feeds `g.camera` | The native object factory (`ObjectFactoryRegistry`, the factory owners and scene actor services) and the native camera slots (`g_cam_active`, display setup). The native scene already uses these |
 | Audio | The movie clip's own audio (`pcm_play_pcm` / `pcm_stop_cue` in `movie.cpp`'s Bink clip); `pcm_play_owned_cue` / `pcm_stop_owned_cue` remain defined with no caller | Bink clip sound | The boot-owned native audio core (`NativeAudioRuntime`) runs every frame; the transitions' cues play through the native voices (`docs/NATIVE_AUDIO.md`) |
+| Script alt-list walks | `g_alt_links` (`camera.cpp`) in script conditions 23/24 (`script_conditions.cpp`) and four script actions (`script_actions.cpp`) | Walk a host `AltLink` list that nothing fills, so they see no actors | The native `DAT_00511B48` list (`entity_detail::g_world.alt`, player `links[2]`) through `g_alt_node_body`, as condition 1 (`0x00132680`) now does (`docs/PLAYER_SCENE.md`) |
 | Script VM fallback | `src/engine/scripts/script_vm.cpp` (`script_queue_scene_start` "legacy event") | Queues a host scene-start event when the native start didn't | Delete it once every scene starts natively |
 
 **Format parsers that stay:** `src/gbtg/` (models, graphics, text, resources and
@@ -70,7 +71,7 @@ Status (2026-10-16):
 
 - **Step 1 is done** (`docs/NATIVE_DIALOGUE_PRESENT.md`, "Results").
 - **Step 2 is mostly done** (`docs/NATIVE_SCENE_PRESENT.md`,
-  `docs/NATIVE_GAMEPLAY_FRAME.md`). Native scenes draw nothing on the host
+  `docs/PLAYER_SCENE.md`). Native scenes draw nothing on the host
   except the step-5 transition. Each view runs the translated 0x0011C240 in
   retail order, with the mirror pass, model sprites and billboards live in the
   opening. Remaining: the pass bodies whose gates stay closed in the opening
@@ -116,7 +117,7 @@ Each step must meet the same bar as any change:
 ## Prompt for a dedicated agent
 
 ```
-Read AGENTS.md and docs/LEGACY_HOST_CODE.md, then the milestone docs it references (NATIVE_DIALOGUE_PRESENT.md, NATIVE_GAMEPLAY_FRAME.md, NATIVE_AUDIO.md, RENDERING_PERFORMANCE_PLAN.md). The project is native-first: game behavior comes only from translated retail functions; host code is boundaries plus the D3D11 presentation of recorded native draws. Everything in the LEGACY_HOST_CODE inventory predates that rule. Your job is to retire all of it, so the whole game (attract, game select, book/slime transitions, scenes) runs on the native path. You own the whole checkout for this.
+Read AGENTS.md and docs/LEGACY_HOST_CODE.md, then the milestone docs it references (NATIVE_DIALOGUE_PRESENT.md, PLAYER_SCENE.md, NATIVE_AUDIO.md, RENDERING_PERFORMANCE_PLAN.md). The project is native-first: game behavior comes only from translated retail functions; host code is boundaries plus the D3D11 presentation of recorded native draws. Everything in the LEGACY_HOST_CODE inventory predates that rule. Your job is to retire all of it, so the whole game (attract, game select, book/slime transitions, scenes) runs on the native path. You own the whole checkout for this.
 
 Work the "Suggested order", resuming each step from its Status line. For each step:
 1. Write or extend a milestone doc (docs/NATIVE_<AREA>.md, in the style of the existing ones) with goal, current state, work list and acceptance. Before changing anything, take reference screenshots of the affected screens with --headless --frames N --screenshot; record the frame numbers and which screen each shows.

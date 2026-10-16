@@ -42,10 +42,12 @@ void destroy_runtime_walk_alert(std::span<u8> state, RuntimeBodyStateContext& co
 // Walk-alert state +0x30 + 0x10 * index: the animation record 0x000A5650 found for speed band `index`. The
 // record lives on the host, so the native word only says whether one was found.
 const AnimationRecord* runtime_walk_alert_record(std::span<const u8> state, u16 index);
+struct RuntimeHitStateLifecycle;
 // Installs type 9 actorMove (getter 0x0002B5A0, vtable 0x004DD72C) and the state classes whose lifecycles
-// are translated: 0x87 entityStateStandAlert (getter 0x000A2530, vtable 0x00505BC0) and 0x8E
-// entityStateWalkAlert (getter 0x000A55F0, vtable 0x00505CA0). The context
-// resolver maps a state's body address (+8) to its native body views.
+// are translated: 0x73 entityStateHit (getter 0x00095740, vtable 0x00505940), 0x74 entityStateHitFurnace
+// (getter 0x000966B0, vtable 0x00505960), 0x87 entityStateStandAlert
+// (getter 0x000A2530, vtable 0x00505BC0) and 0x8E entityStateWalkAlert (getter 0x000A55F0, vtable
+// 0x00505CA0). The context resolvers map a state's body address (+8) to its native body views.
 void install_runtime_body_state_classes(std::span<ObjectFactoryType> types,
-    std::function<RuntimeBodyStateContext(u32)> context_of);
+    std::function<RuntimeBodyStateContext(u32)> context_of, std::function<RuntimeHitStateLifecycle(u32)> hit_of);
 }

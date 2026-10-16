@@ -7755,6 +7755,8 @@ void check_player_dialogue_resources(gbtg::AidStore& aids)
 
 int main(int argc, char** argv)
 {
+    // Tests play at 10% master volume (AGENTS.md); the master voice takes it when it is created.
+    gbtg::pcm_set_master_volume(0.1f);
     const bool audio_test = argc == 3 && std::string_view(argv[2]) == "--audio-preparation";
     const bool title_a_test = argc == 3 && std::string_view(argv[2]) == "--title-a";
     // --attract leaves the attract reel to play its clips and the scripts that follow, with no input.
@@ -8061,16 +8063,48 @@ int main(int argc, char** argv)
                     }
                     return positions;
                 };
+                // The script's "Kill All" gate (0x00132680) counts the DAT_00511B48 actors whose body +0x94 is
+                // nonzero; count the same list.
+                const auto alive_count = []()
+                {
+                    int count = 0;
+                    for (const auto* node = static_cast<const gbtg::entity_detail::ListHead*>(
+                             gbtg::entity_detail::g_world.alt.next);
+                         node != nullptr; node = static_cast<const gbtg::entity_detail::ListHead*>(node->next))
+                    {
+                        if (gbtg::read_u16(gbtg::g_alt_node_body(node), 0x94) != 0)
+                        {
+                            ++count;
+                        }
+                    }
+                    return count;
+                };
                 const size_t imps_at_start = imps().size();
+                const int alive_at_start = alive_count();
+                if (imps_at_start == 0 || alive_at_start == 0)
+                {
+                    throw gbtg::Error("the fight starts with no live imps on DAT_00511B48");
+                }
+                const std::string gate_title = game.scene_name;
                 std::string title = game.scene_name;
-                for (int frame = 0; frame < 3600; ++frame)
+                bool cleared = false;
+                for (int frame = 0; frame < 5400; ++frame)
                 {
                     const auto cooper = cooper_position();
                     const auto alive = imps();
+                    if (alive_count() == 0 && game.scene_name != gate_title)
+                    {
+                        std::cout << "fight frame " << frame << ": every imp defeated, title " << game.scene_name << "\n";
+                        cleared = true;
+                        break;
+                    }
                     if (!cooper || alive.empty())
                     {
-                        std::cout << "fight frame " << frame << ": " << alive.size() << " imps left\n";
-                        break;
+                        // Defeated imps are removed; wait for the script to leave its gate.
+                        gbtg::gfx_begin_frame();
+                        game.tick(1.f / 60.f, {});
+                        gbtg::gfx_end_frame();
+                        continue;
                     }
                     const gbtg::Vec3* nearest = &alive.front();
                     float best = 1e30f;
@@ -8099,7 +8133,7 @@ int main(int argc, char** argv)
                     input.pads[0].ry = gbtg::i16(-uz * 32767.f);
                     gbtg::gfx_begin_frame();
                     game.tick(1.f / 60.f, input);
-                    if (frame % 600 == 599)
+                    if (frame % 120 == 119)
                     {
                         gbtg::RgbaImage fight;
                         if (gbtg::gfx_readback(fight))
@@ -8110,19 +8144,30 @@ int main(int argc, char** argv)
                     gbtg::gfx_end_frame();
                     if (frame % 60 == 0 || game.scene_name != title)
                     {
-                        std::cout << "fight frame " << frame << ": imps " << alive.size() << " nearest " << length
-                                  << " cooper " << cooper->x << " " << cooper->z << " title " << game.scene_name << "\n";
+                        std::cout << "fight frame " << frame << ": imps " << alive.size() << " alive " << alive_count()
+                                  << " nearest " << length << " cooper " << cooper->x << " " << cooper->z << " title "
+                                  << game.scene_name << "\n";
                         title = game.scene_name;
                     }
                 }
-                const size_t imps_at_end = imps().size();
-                std::cout << "fight: imps " << imps_at_start << " -> " << imps_at_end << ", title " << game.scene_name
-                          << "\n";
-                if (imps_at_end >= imps_at_start)
+                gbtg::RgbaImage final_frame;
+                if (gbtg::gfx_readback(final_frame))
+                {
+                    gbtg::write_bmp("cache/player_fight_end.bmp", final_frame);
+                }
+                const int alive_at_end = alive_count();
+                std::cout << "fight: imps " << imps_at_start << " -> " << imps().size() << ", alive " << alive_at_start
+                          << " -> " << alive_at_end << ", title " << game.scene_name << "\n";
+                if (alive_at_end >= alive_at_start)
                 {
                     throw gbtg::Error("no imp was defeated in the fight");
                 }
-                std::cout << "PASS: Cooper fights the opening imps\n";
+                if (!cleared)
+                {
+                    throw gbtg::Error("the opening script did not pass its Kill All gate: " + std::to_string(alive_at_end)
+                        + " imps alive, title " + game.scene_name);
+                }
+                std::cout << "PASS: Cooper defeats the opening imps and the script passes Kill All\n";
                 gbtg::gfx_shutdown();
                 return 0;
             }

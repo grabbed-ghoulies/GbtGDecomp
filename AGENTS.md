@@ -55,6 +55,14 @@ behavior.
 - Do not rename Ghidra symbols, and do not commit unless asked.
 - Do not stage `OriginalFiles/`, `*.xbe`, `*.bnl`, `*.iso`, or `ghidra_projects/`.
 
+## Test volume
+
+Every test that can open the audio device sets the master volume to 10%.
+`gbtg-transition-tests` calls `pcm_set_master_volume(0.1f)` at the top of
+`main`, and `gbtg --headless` runs use 10% instead of the config volume. A new
+test executable or test mode that plays audio must set 10% before the XAudio2
+master voice is created.
+
 ## OriginalFiles
 
 `OriginalFiles/` is the user's retail disc dump. Never stage, commit, or distribute

@@ -66,11 +66,16 @@ extern "C"
 #include "../scene/scene_loading.h"
 #include "script_actions.h"
 #include "script_conditions.h"
+#include "script_event_tallies.h"
+#include "script_vm.h"
+#include "../entities/entity.h"
 
 namespace gbtg
 {
 using namespace scene_detail;
 
+
+std::function<std::span<const u8>(const void* node)> g_alt_node_body;
 
 constexpr const char* kScriptCondName[27] = {
     "scriptConditionId_TimeOut",
@@ -133,13 +138,68 @@ const u32* find_runtime_script_event_type(u32 type)
     return nullptr;
 }
 
-// Xbox 0x00116950. These event IDs are the accepting arms of the message
-// filter; scene startup (0x0011CBD0) submits 0x7D directly.
+// Xbox 0x00116950. The accepting arms queue the message; scene startup (0x0011CBD0) submits 0x7D directly. The
+// other arms tally the message and drop it, and ids without an arm are dropped.
 // Xbox 0x00116950
-bool script_accepts_event(u32 type)
+bool script_accepts_event(std::span<const u8> message)
 {
+    const u32 type = read_u32(message, 0);
+    const auto actor_tag = [](u32 actor)
+    {
+        if (!g_script_actor_bytes)
+        {
+            throw Error("script message filter has no scene actor view");
+        }
+        return read_u16(g_script_actor_bytes(actor), 6);
+    };
+    // EBX: message +8's actor tag, or 1 when it is null.
+    const auto second_tag = [&]()
+    {
+        const u32 actor = read_u32(message, 8);
+        return actor == 0 ? u16(1) : actor_tag(actor);
+    };
     switch (type)
     {
+    case 0x31:
+    {
+        const u16 second = second_tag();
+        const u32 actor = read_u32(message, 4);
+        tally_runtime_script_event(actor_tag(actor), second, 0);
+        // 0x00028D20 with EAX the dying actor.
+        const auto bytes = g_script_actor_bytes(actor);
+        if (read_u32(bytes, 0xCE0) != 0 && (read_u16(bytes, 0xCDC) == 2 || read_u32(bytes, 0x93C) != 0))
+        {
+            ++g_script_e794;
+        }
+        return false;
+    }
+    case 0x6b:
+    {
+        // AX is message +4's low word itself.
+        const u16 second = second_tag();
+        tally_runtime_script_event(read_u16(message, 4), second, 0);
+        return false;
+    }
+    case 0x6e:
+        tally_runtime_script_hit(read_u32(message, 4), read_u32(message, 8), read_u32(message, 0x10),
+            read_u32(message, 0x18));
+        return false;
+    case 0x70:
+    {
+        const u16 second = second_tag();
+        const u16 first = actor_tag(read_u32(message, 4));
+        tally_runtime_script_event(first, second, 2);
+        tally_runtime_script_event(first, second, read_u32(message, 0xC) != 0 ? 3 : 4);
+        return false;
+    }
+    case 0x80:
+    case 0x83:
+    case 0xb0:
+        throw Error("untranslated script message filter arm: " + std::to_string(type));
+    case 0xaf:
+    case 0xb3:
+        ++g_gate_251c;
+        return false;
     case 0x7d:
     case 0x81:
     case 0xad:
@@ -153,7 +213,7 @@ bool script_accepts_event(u32 type)
     case 0xb6:
         return find_runtime_script_event_type(0xB6) == nullptr;
     default:
-        throw Error("untranslated script message filter: " + std::to_string(type));
+        return false;
     }
 }
 
@@ -164,7 +224,7 @@ bool script_accepts_event(u32 type)
 void script_queue_event(Game& g, std::span<const u8> message)
 {
     const u32 type = read_u32(message, 0);
-    if (script_accepts_event(type))
+    if (script_accepts_event(message))
     {
         auto* live = new LiveScript{};
         LiveScript* tail = &g_live_anchor;
@@ -331,9 +391,14 @@ int script_condition_timer_expired(const ScriptCond& rec)
 int script_condition_actor_count_at_most(const ScriptCond& rec)
 {
     int count = 0;
-    for (AltLink* link = g_alt_links; link != nullptr; link = link->next)
+    for (const auto* node = static_cast<const entity_detail::ListHead*>(entity_detail::g_world.alt.next);
+         node != nullptr; node = static_cast<const entity_detail::ListHead*>(node->next))
     {
-        if (link->at_18->word_94 != 0)
+        if (!g_alt_node_body)
+        {
+            throw Error("DAT_00511B48 node has no body view");
+        }
+        if (read_u16(g_alt_node_body(node), 0x94) != 0)
         {
             count = count + 1;
         }

@@ -5,6 +5,11 @@ Game behavior comes from translated retail functions running on retail state, in
 the retail order from `frame_tick`. Host code supplies only the boundaries and
 presents what the native draw records.
 
+The runtime inspector also uses the native background/actor bins, mirror pass,
+world sprites and billboard flush through the shared view-context adapter. It
+uses recorded native draws. Its separate presentation entry
+point excludes simulation, dialogue, frontend and transition progression.
+
 Code written before that rule re-implements retail behavior on the host: its own
 parsers, sampling, timing and menu logic, drawn straight through `gfx_*`. It
 often cites Xbox addresses but isn't a branch-for-branch translation. It still

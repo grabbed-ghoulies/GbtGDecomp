@@ -21,6 +21,9 @@ class SceneDialogueResourceOwner;
 struct NativeAudioRuntime;
 struct NativeMovieRuntime;
 struct NativeInputStack;
+#if defined(GBTG_INSPECTOR_APP)
+struct SceneInspectionPolicy;
+#endif
 
 struct InputState
 {
@@ -81,6 +84,10 @@ struct Game
     std::shared_ptr<NativeInputStack> native_input; // DAT_0050E0E8.., boot-owned.
     std::shared_ptr<SceneFactoryRuntime> factory_scene;
     bool running = true;
+#if defined(GBTG_INSPECTOR_APP)
+    bool strict_native_start = false; // Host tooling: propagate native scene-start failures.
+    SceneInspectionPolicy* inspection = nullptr; // Borrowed host diagnostics.
+#endif
     float time = 0.f;
     u32 frame = 0;
     // Scene record at DAT_00510E58. +0x80 is the script 0x0011EB30 copies in.

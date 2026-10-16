@@ -11,6 +11,10 @@
 #include "gbtg/entity.h"
 #include "../gbtg_resource.h"
 
+#if defined(GBTG_INSPECTOR_APP)
+#include "../inspector/inspector_graphics.h"
+#endif
+
 #if defined(GBTG_DEBUG_UI)
 #include "gbtg/debug_ui.h"
 #endif
@@ -317,6 +321,17 @@ NativeRenderTarget native_target;
 
 LRESULT CALLBACK gfx_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
+#if defined(GBTG_INSPECTOR_APP)
+    if (msg == WM_GETMINMAXINFO)
+    {
+        RECT minimum{0, 0, 800, 600};
+        AdjustWindowRectEx(&minimum, DWORD(GetWindowLongPtrW(hwnd, GWL_STYLE)), FALSE,
+            DWORD(GetWindowLongPtrW(hwnd, GWL_EXSTYLE)));
+        auto* limits = reinterpret_cast<MINMAXINFO*>(lp);
+        limits->ptMinTrackSize = {minimum.right - minimum.left, minimum.bottom - minimum.top};
+        return 0;
+    }
+#endif
 #if defined(GBTG_DEBUG_UI)
     if (debug_ui_wndproc(hwnd, msg, wp, lp))
     {
@@ -1776,6 +1791,9 @@ float4 clear_vertex(uint id : SV_VertexID) : SV_Position
 
     if (g.hwnd)
     {
+#if defined(GBTG_INSPECTOR_APP)
+        SetWindowTextA(g.hwnd, cfg.title);
+#endif
         ShowWindow(g.hwnd, SW_SHOW);
     }
     g.ok = g.vs && g.ps && g.layout && g.cb && g.bone_cb && g.rtv && g.dsv && g.ui_vb && g.blend_alpha &&
@@ -1788,7 +1806,11 @@ float4 clear_vertex(uint id : SV_VertexID) : SV_Position
         return false;
     }
 #if defined(GBTG_DEBUG_UI)
-    if (g.hwnd && g.swap && g.device && g.context)
+    if (g.device && g.context
+#if !defined(GBTG_INSPECTOR_APP)
+        && g.hwnd && g.swap
+#endif
+        )
     {
         debug_ui_init(g.hwnd, g.device.Get(), g.context.Get());
     }
@@ -1887,6 +1909,17 @@ void gfx_pump(bool& quit)
         DispatchMessageW(&msg);
     }
     quit = g.quit;
+#if defined(GBTG_INSPECTOR_APP)
+    // Rebuild once after the message batch, never inside WM_SIZE while a draw may hold a target.
+    if (!quit && g.ok && !inspector_window_minimized())
+    {
+        RECT client{};
+        if (GetClientRect(g.hwnd, &client))
+        {
+            inspector_resize_surface(client.right - client.left, client.bottom - client.top);
+        }
+    }
+#endif
 }
 
 namespace
@@ -4138,6 +4171,193 @@ void gfx_end_frame()
     present_draw_frame();
     profile_gpu_end();
 }
+
+#if defined(GBTG_INSPECTOR_APP)
+namespace
+{
+ComPtr<ID3D11Texture2D> inspection_color;
+ComPtr<ID3D11ShaderResourceView> inspection_srv;
+ComPtr<ID3D11Texture2D> inspection_depth_staging;
+std::vector<u32> inspection_depth;
+}
+
+void* inspector_window()
+{
+    return g.hwnd;
+}
+
+bool inspector_window_minimized()
+{
+    return g.hwnd != nullptr && IsIconic(g.hwnd) != FALSE;
+}
+
+void inspector_resize_surface(int width, int height)
+{
+    if (!g.ok || width <= 0 || height <= 0 || (width == g.cfg.width && height == g.cfg.height))
+    {
+        return;
+    }
+    g.context->OMSetRenderTargets(0, nullptr, nullptr);
+    ID3D11ShaderResourceView* empty[4]{};
+    g.context->PSSetShaderResources(0, 4, empty);
+    inspector_release_graphics();
+    g.rtv.Reset();
+    g.dsv.Reset();
+    g.depth.Reset();
+    g.color.Reset();
+    g.context->Flush();
+    if (g.swap && FAILED(g.swap->ResizeBuffers(0, UINT(width), UINT(height), DXGI_FORMAT_UNKNOWN, 0)))
+    {
+        throw Error("inspector swap chain resize failed");
+    }
+    if (!create_targets(width, height))
+    {
+        throw Error("inspector render target resize failed");
+    }
+    g.cfg.width = width;
+    g.cfg.height = height;
+}
+
+void inspector_release_graphics()
+{
+    inspection_srv.Reset();
+    inspection_color.Reset();
+    inspection_depth_staging.Reset();
+    inspection_depth.clear();
+}
+
+void* inspector_texture_preview(const RgbaImage& image)
+{
+    return native_texture(&image);
+}
+
+void* inspector_capture_viewport(bool read_depth)
+{
+    if (!g.ok)
+    {
+        return nullptr;
+    }
+    ComPtr<ID3D11Texture2D> source = g.color;
+    if (g.swap && FAILED(g.swap->GetBuffer(0, IID_PPV_ARGS(source.GetAddressOf()))))
+    {
+        throw Error("inspector cannot access the viewport target");
+    }
+    if (!inspection_color)
+    {
+        D3D11_TEXTURE2D_DESC desc{};
+        source->GetDesc(&desc);
+        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        if (FAILED(g.device->CreateTexture2D(&desc, nullptr, inspection_color.GetAddressOf()))
+            || FAILED(g.device->CreateShaderResourceView(inspection_color.Get(), nullptr, inspection_srv.GetAddressOf())))
+        {
+            throw Error("inspector viewport texture creation failed");
+        }
+    }
+    g.context->OMSetRenderTargets(0, nullptr, nullptr);
+    ID3D11ShaderResourceView* empty[4]{};
+    g.context->PSSetShaderResources(0, 4, empty);
+    g.context->CopyResource(inspection_color.Get(), source.Get());
+    inspection_depth.clear();
+    if (read_depth)
+    {
+        if (!inspection_depth_staging)
+        {
+            D3D11_TEXTURE2D_DESC desc{};
+            g.depth->GetDesc(&desc);
+            desc.Usage = D3D11_USAGE_STAGING;
+            desc.BindFlags = 0;
+            desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+            if (FAILED(g.device->CreateTexture2D(&desc, nullptr, inspection_depth_staging.GetAddressOf())))
+            {
+                throw Error("inspector depth readback creation failed");
+            }
+        }
+        g.context->CopyResource(inspection_depth_staging.Get(), g.depth.Get());
+        D3D11_MAPPED_SUBRESOURCE map{};
+        if (FAILED(g.context->Map(inspection_depth_staging.Get(), 0, D3D11_MAP_READ, 0, &map)))
+        {
+            throw Error("inspector depth readback failed");
+        }
+        inspection_depth.resize(size_t(g.cfg.width) * g.cfg.height);
+        for (int row = 0; row < g.cfg.height; ++row)
+        {
+            std::memcpy(inspection_depth.data() + size_t(row) * g.cfg.width,
+                static_cast<const u8*>(map.pData) + size_t(row) * map.RowPitch, size_t(g.cfg.width) * 4);
+        }
+        g.context->Unmap(inspection_depth_staging.Get(), 0);
+    }
+    g.context->OMSetRenderTargets(1, g.rtv.GetAddressOf(), g.dsv.Get());
+    return inspection_srv.Get();
+}
+
+bool inspector_depth_visible(float retail_x, float retail_y, float depth)
+{
+    if (inspection_depth.empty())
+    {
+        return true;
+    }
+    const float scale = std::min(float(g.cfg.width) / 640.f, float(g.cfg.height) / 480.f);
+    const int x = int((g.cfg.width - 640.f * scale) * .5f + retail_x * scale);
+    const int y = int((g.cfg.height - 480.f * scale) * .5f + retail_y * scale);
+    if (x < 0 || y < 0 || x >= g.cfg.width || y >= g.cfg.height)
+    {
+        return false;
+    }
+    const float sampled = float(inspection_depth[size_t(y) * g.cfg.width + x] & 0xFFFFFFu) / 16777215.f;
+    return depth <= sampled + 0.00005f;
+}
+
+bool inspector_viewport_readback(RgbaImage& image)
+{
+    if (!inspection_color)
+    {
+        return false;
+    }
+    D3D11_TEXTURE2D_DESC desc{};
+    inspection_color->GetDesc(&desc);
+    desc.Usage = D3D11_USAGE_STAGING;
+    desc.BindFlags = 0;
+    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    ComPtr<ID3D11Texture2D> staging;
+    if (FAILED(g.device->CreateTexture2D(&desc, nullptr, staging.GetAddressOf())))
+    {
+        return false;
+    }
+    g.context->CopyResource(staging.Get(), inspection_color.Get());
+    D3D11_MAPPED_SUBRESOURCE map{};
+    if (FAILED(g.context->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &map)))
+    {
+        return false;
+    }
+    image.width = desc.Width;
+    image.height = desc.Height;
+    image.bgra.resize(size_t(desc.Width) * desc.Height * 4);
+    for (u32 row = 0; row < desc.Height; ++row)
+    {
+        std::memcpy(image.bgra.data() + size_t(row) * desc.Width * 4,
+            static_cast<const u8*>(map.pData) + size_t(row) * map.RowPitch, size_t(desc.Width) * 4);
+    }
+    g.context->Unmap(staging.Get(), 0);
+    return true;
+}
+
+void inspector_finish_frame()
+{
+    if (!g.ok)
+    {
+        return;
+    }
+    const float background[4]{0.055f, 0.065f, 0.08f, 1.f};
+    g.context->OMSetRenderTargets(1, g.rtv.GetAddressOf(), nullptr);
+    g.context->ClearRenderTargetView(g.rtv.Get(), background);
+    debug_ui_draw();
+    if (g.swap)
+    {
+        g.swap->Present(g.cfg.vsync, 0);
+    }
+    profile_gpu_end();
+}
+#endif
 
 bool gfx_readback(RgbaImage& out)
 {

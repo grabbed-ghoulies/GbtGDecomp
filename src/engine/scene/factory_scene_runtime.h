@@ -51,6 +51,9 @@ public:
     // The runtime lives for the run like retail's factory and actor lists. A scene ends with 0x0011C5A0's
     // teardown (its objects, then the services' part); the next scene begins when its actors start.
     void end_scene();
+#if defined(GBTG_INSPECTOR_APP)
+    u64 inspection_generation = 0; // Tooling observes scene replacement within the boot-owned factory.
+#endif
     // Native scene start through the actor services: 0 not run, 1 complete, -1 stopped where a service
     // is not bound yet (the scene then keeps the legacy script path).
     i32 actor_start = 0;

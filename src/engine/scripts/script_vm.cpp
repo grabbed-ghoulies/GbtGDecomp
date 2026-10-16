@@ -770,6 +770,12 @@ void script_queue_scene_start(Game& g)
         }
         catch (const std::exception& error)
         {
+#if defined(GBTG_INSPECTOR_APP)
+            if (g.strict_native_start)
+            {
+                throw;
+            }
+#endif
             // Host diagnostic: the native actor graph stops where an untranslated service is reached.
             g.factory_scene->actor_start = -1;
             std::cout << "native scene start stopped: " << error.what() << "\n";

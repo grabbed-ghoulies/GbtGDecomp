@@ -40,6 +40,7 @@ struct NativePlayerSceneBindings
     std::function<u32(const void*)> address_of;
     // Player construction (0x00028830).
     const char* const* actor_tags; // DAT_0042A854.
+    const char* const* object_tags; // DAT_0042A850, includes objTag_Null for 0x00133A50.
     const u8* tag_rows; // DAT_00545AC4, stride 0x87.
     std::span<const u8> tags; // DAT_00545AC4 as a span.
     const char* const* weapon_names; // DAT_00434104.

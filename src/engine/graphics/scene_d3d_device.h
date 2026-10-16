@@ -36,6 +36,12 @@ public:
     {
         return values_.end();
     }
+#if defined(GBTG_INSPECTOR_APP)
+    std::span<const std::pair<u32, u32>> values() const
+    {
+        return values_;
+    }
+#endif
     u32 at(u32 key) const
     {
         const auto it = find(key);

@@ -62,6 +62,11 @@ resources are reported by speaker name and AID hash.
 
 ## Build
 
+The separate **runtime scene inspector** provides a static scene viewport, free
+flight, native object/marker inspection and rendering diagnostics. Build the
+`gbtg-inspector` target on Windows/D3D11; see [docs/INSPECTOR.md](docs/INSPECTOR.md)
+for controls, captures and reconstruction limitations.
+
 Debug D3D11 builds include ImGui diagnostics. Press **F8** to open the menu and
 **F12** to toggle the timing overlay. Only the timing overlay is shown by default.
 Open diagnostics windows from the F8 menu; they stay visible and keep updating

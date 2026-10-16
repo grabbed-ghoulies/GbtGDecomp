@@ -4,15 +4,20 @@
 #include "../../gbtg/runtime/object_lifecycle.h"
 #include <limits>
 #include <utility>
+#include <cstdio>
 
 namespace gbtg
 {
 namespace
 {
+SceneFactoryRuntime* active_scene = nullptr;
+
 template<size_t Type>
 const ObjectFactoryVtable* missing_class()
 {
-    throw Error("scene factory type " + std::to_string(Type) + " is not translated/installed");
+    char address[16];
+    std::snprintf(address, sizeof(address), "0x%08X", active_scene->retail_getters[Type]);
+    throw Error("scene factory type " + std::to_string(Type) + " getter " + address + " is not translated/installed");
 }
 
 template<size_t... Types>
@@ -20,8 +25,6 @@ constexpr auto missing_getters(std::index_sequence<Types...>)
 {
     return std::array<const ObjectFactoryVtable* (*)(), sizeof...(Types)>{missing_class<Types>...};
 }
-
-SceneFactoryRuntime* active_scene = nullptr;
 
 // Base object type 1 (vtable 0x0050E0C0): the retail constructor 0x00107700 and empty destructor
 // 0x001628B0, with the native address mapping made when the instance is first constructed, so the
@@ -315,6 +318,9 @@ void SceneFactoryRuntime::end_scene()
     }
     markers_.reset();
     actor_start = 0;
+#if defined(GBTG_INSPECTOR_APP)
+    ++inspection_generation;
+#endif
 }
 
 std::span<const u8> SceneFactoryRuntime::markers() const

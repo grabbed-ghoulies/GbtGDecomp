@@ -4,6 +4,9 @@
 #include <vector>
 #include <cstdio>
 #include <cstring>
+#if defined(GBTG_INSPECTOR_APP)
+#include <memory>
+#endif
 
 namespace gbtg
 {
@@ -225,6 +228,9 @@ void start_runtime_scene_markers(const u8* records, const RuntimeSceneMarkerRand
 {
     const u32 size = word_at(records, 4);
     auto* copy = static_cast<u8*>(engine_heap_allocate(i32(size)));
+#if defined(GBTG_INSPECTOR_APP)
+    const std::unique_ptr<u8, decltype(&engine_heap_free)> owner(copy, engine_heap_free);
+#endif
     if (copy != nullptr)
     {
         std::memcpy(copy, records, size);
@@ -232,7 +238,9 @@ void start_runtime_scene_markers(const u8* records, const RuntimeSceneMarkerRand
     swap_runtime_marker_pairs(copy, randomizer);
     shuffle_runtime_marker_groups(copy, randomizer);
     dispatch_runtime_marker_records(copy, handlers);
+#if !defined(GBTG_INSPECTOR_APP)
     engine_heap_free(copy);
+#endif
 }
 
 // Xbox 0x0011F1C0

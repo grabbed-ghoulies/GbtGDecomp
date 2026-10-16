@@ -360,7 +360,15 @@ void end_book_handler(RuntimeSceneTransition& t)
     {
         untranslated("0x0012B5A0's chapter title input (0x00107DD0, 0x00107960, 0x00107B60)");
     }
+#if defined(GBTG_INSPECTOR_APP)
+    // An inspector load can stop before create_transition_book returns an owner.
+    if (t.book != nullptr)
+    {
+#endif
     release_transition_book(t.book, s.books); // 0x00048860
+#if defined(GBTG_INSPECTOR_APP)
+    }
+#endif
     t.book = nullptr;
     if (t.title_pool != nullptr)
     {

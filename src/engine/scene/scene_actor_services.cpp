@@ -6,6 +6,10 @@
 #include "../video/movie_startup.h"
 #include "attract_control.h"
 #include "../graphics/actor_effect_draw.h"
+#if defined(GBTG_INSPECTOR_APP)
+#include "scene_inspection.h"
+#include "../inspector/inspection_view.h"
+#endif
 #include "scene.h"
 #include "../camera/camera.h"
 #include "factory_scene_runtime.h"
@@ -910,6 +914,10 @@ struct SceneActorServices::State
     void draw_scene_actor(FactoryObject& object, Actor& actor, i32 kind); // 0x0003C9E0.
     void draw_player(FactoryObject& object, NativePlayerInstance& player, i32 kind); // 0x00028050.
     void present_view(i32 view); // 0x0011C240 for one view.
+#if defined(GBTG_INSPECTOR_APP)
+    void with_view_context(i32 view, const std::function<void(RuntimeSceneViewPresent&)>& present);
+    std::map<size_t, u32> inspection_draw_owners;
+#endif
     // The ambient sampler's view of DAT_0050D770/DAT_0050D780 (filled by 0x000FEFD0), the DAT_00509B20..28 tint and
     // DAT_005120F0, refreshed before a view draws.
     void refresh_ambient_context();
@@ -980,6 +988,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
       intro_notices{g_flags_ea9c, g_scene_flags->bytes[0], intro_pending, intro_name, cases, case_body_bits}
 {
     actor_tags = strings(0x0042A854, 0xE9);
+    object_tags = strings(0x0042A850, 0xEA);
     weapon_names = strings(0x00434104, 5);
     class_names = strings(0x004340EC, 5);
     mind_goal_names = strings(0x003397BC, 0x31);
@@ -1082,7 +1091,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             return address_of(pointer);
         },
-        actor_tags.data(), statsheet.data(), statsheet, weapon_names.data(), class_names.data(),
+        actor_tags.data(), object_tags.data(), statsheet.data(), statsheet, weapon_names.data(), class_names.data(),
         read_u32(data(0x00338EE0, 4), 0), matrix_boundaries, attachment_objects, attachment_actors,
         {}, 0, {}, 0, data(0x00433D68, 0x10), data(0x00433CA8, 0x10), resources.loaded_sizes, image.state_tables, image.attack_sequences,
         animation_cache, animation_cache_count, image.state_row_names, timed_attachments,
@@ -1334,7 +1343,6 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     handlers = bind_runtime_scene_marker_handlers(*marker_bindings);
     callout_names = strings(0x00421C9C, 0x55);
     flag_names = strings(0x00338FB0, 0x41);
-    object_tags = strings(0x0042A850, 0xEA);
     surface_names = strings(0x004340A0, 0x12);
     shock_pass = {image.string(0x003168A4), image.string(0x00316890), image.string(0x0031687C),
         image.string(0x00316860)};
@@ -2089,6 +2097,17 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             }
             catch (const std::exception& error)
             {
+#if defined(GBTG_INSPECTOR_APP)
+                if (game.inspection != nullptr)
+                {
+                    const auto found = game.inspection->owners.find(address);
+                    if (found != game.inspection->owners.end())
+                    {
+                        throw SceneInspectionFailure(found->second,
+                            "activation / message " + std::to_string(words[0]), error.what());
+                    }
+                }
+#endif
                 throw Error("activation actor " + std::to_string(address) + " type "
                     + std::to_string(object->type) + " message " + std::to_string(words[0])
                     + ": " + error.what());
@@ -4549,7 +4568,17 @@ void SceneActorServices::State::refresh_ambient_context()
     ambient_context->points_enabled = ambient_points_enabled;
 }
 
+#if defined(GBTG_INSPECTOR_APP)
 void SceneActorServices::State::present_view(i32 view)
+{
+    with_view_context(view, present_runtime_scene_view);
+}
+
+void SceneActorServices::State::with_view_context(i32 view,
+    const std::function<void(RuntimeSceneViewPresent&)>& draw)
+#else
+void SceneActorServices::State::present_view(i32 view)
+#endif
 {
     if (display_view == nullptr)
     {
@@ -4583,11 +4612,59 @@ void SceneActorServices::State::present_view(i32 view)
         },
         [this](Actor& actor, i32 pass, i32 slot)
         {
+#if defined(GBTG_INSPECTOR_APP)
+            try
+            {
+                return actor_visible(actor, pass, slot);
+            }
+            catch (const std::exception& error)
+            {
+                if (game.inspection != nullptr && game.inspection->drawing)
+                {
+                    const u32 address = address_of(&actor);
+                    const auto found = game.inspection->owners.find(address);
+                    if (found != game.inspection->owners.end())
+                    {
+                        throw SceneInspectionFailure(found->second, "visibility / actor " + std::to_string(address), error.what());
+                    }
+                }
+                throw;
+            }
+#else
             return actor_visible(actor, pass, slot);
+#endif
         },
         [this](Actor& actor, i32 slot, i32 pass)
         {
+#if defined(GBTG_INSPECTOR_APP)
+            try
+            {
+                const size_t first_command = d3d_device.commands.size();
+                actor_draw(actor, slot, pass);
+                if (game.inspection != nullptr && game.inspection->drawing)
+                {
+                    for (size_t command = first_command; command < d3d_device.commands.size(); ++command)
+                    {
+                        inspection_draw_owners[command] = address_of(&actor);
+                    }
+                }
+            }
+            catch (const std::exception& error)
+            {
+                if (game.inspection != nullptr && game.inspection->drawing)
+                {
+                    const u32 address = address_of(&actor);
+                    const auto found = game.inspection->owners.find(address);
+                    if (found != game.inspection->owners.end())
+                    {
+                        throw SceneInspectionFailure(found->second, "drawing / actor " + std::to_string(address), error.what());
+                    }
+                }
+                throw;
+            }
+#else
             actor_draw(actor, slot, pass);
+#endif
         }};
     const auto first_background_model = [this]() -> std::span<const u8>
     {
@@ -4865,7 +4942,11 @@ void SceneActorServices::State::present_view(i32 view)
         {
             draw_runtime_dialogue_text_pools(*text_registry, g_flags_ea9c, *dialogue_draw); // 0x0005F330
         }};
+#if defined(GBTG_INSPECTOR_APP)
+    draw(present);
+#else
     present_runtime_scene_view(present);
+#endif
 }
 
 // Actor vtable +0x38, which 0x00121DC0 calls when set. Getters 0x0003C080 (type 2, the base every class below
@@ -5205,6 +5286,253 @@ const RgbaImage& SceneActorServices::State::texture_image(const u8* record)
     throw Error("bound texture is outside every loaded resource");
 }
 
+#if defined(GBTG_INSPECTOR_APP)
+InspectionView SceneActorServices::inspection_camera(std::string* source) const
+{
+    using namespace entity_detail;
+    const auto* camera = g_cam_active[0];
+    if (camera == nullptr)
+    {
+        InspectionView result;
+        Vec3 euler;
+        if (read_runtime_marker_camera_start(result.position, euler, state_->camera_start))
+        {
+            camera_euler_to_quaternion(euler, result.rotation);
+            if (source != nullptr)
+            {
+                *source = "native camera-start marker";
+            }
+        }
+        else if (source != nullptr)
+        {
+            *source = "editor origin";
+        }
+        return result; // Host inspection camera only; no camera is inserted into retail state.
+    }
+    if (source != nullptr)
+    {
+        *source = "active runtime camera";
+    }
+    // A copy avoids the normalization/clip stores made by retail camera setup.
+    EntityCamNode copy = *camera;
+    auto& setup = *state_->display_setup;
+    const auto saved_record = g_display_records[0];
+    auto* saved_pointer = g_display_view;
+    const u32 saved_address = setup.current_display_address;
+    const u32 saved_effects = setup.effects_disabled;
+    const auto restore = [&]()
+    {
+        g_display_records[0] = saved_record;
+        g_display_view = saved_pointer;
+        setup.current_display_address = saved_address;
+        setup.effects_disabled = saved_effects;
+    };
+    try
+    {
+        setup.effects_disabled = 1;
+        select_display_camera(&copy, 0, setup);
+        const auto& view = *g_display_view;
+        InspectionView result;
+        result.position = view.position;
+        result.rotation = view.rotation;
+        result.fov = view.field_of_view;
+        restore();
+        return result;
+    }
+    catch (...)
+    {
+        restore();
+        throw;
+    }
+}
+
+void SceneActorServices::inspect_view(const InspectionView& camera, InspectionFrame& frame)
+{
+    auto& state = *state_;
+    auto& setup = *state.display_setup;
+    using namespace entity_detail;
+    // The editor owns its camera. Preserve native display bindings even when a draw raises.
+    const auto saved_view = g_display_records[0];
+    auto* saved_pointer = g_display_view;
+    const u32 saved_address = setup.current_display_address;
+    const auto saved_projection = setup.device_projection;
+    const auto saved_device_view = setup.device_view;
+    const auto saved_world = setup.device_world;
+    const auto saved_transpose = setup.projection_transpose;
+    const u32 saved_effects = setup.effects_disabled;
+    const auto restore = [&]()
+    {
+    #if defined(GBTG_INSPECTOR_APP)
+    if (state.game.inspection != nullptr)
+        {
+            state.game.inspection->drawing = false;
+        }
+#endif
+        g_display_records[0] = saved_view;
+        g_display_view = saved_pointer;
+        setup.current_display_address = saved_address;
+        setup.device_projection = saved_projection;
+        setup.device_view = saved_device_view;
+        setup.device_world = saved_world;
+        setup.projection_transpose = saved_transpose;
+        setup.effects_disabled = saved_effects;
+    };
+    const char* stage = "inspection display setup";
+    try
+    {
+        state.d3d_device.commands.clear();
+        state.inspection_draw_owners.clear();
+        EntityCamNode node;
+        node.position = camera.position;
+        node.rotation = camera.rotation;
+        node.focal = 35.f;
+        setup.effects_disabled = 1;
+        select_display_camera(&node, 0, setup);
+        rebuild_display_view(setup);
+        // Use the native focal conversion so projection and the visibility frustum agree.
+        auto& view = *g_display_view;
+        view.focal *= std::tan(view.field_of_view * 0.00872664626f)
+            / std::tan(camera.fov * 0.00872664626f);
+        rebuild_display_view(setup);
+        view.near_clip = camera.near_clip;
+        view.far_clip = camera.far_clip;
+        rebuild_display_projection(setup);
+        bind_display_projection(setup);
+        frame.display = view;
+        frame.projection = setup.device_projection;
+        stage = "native actor view draw 0x0011C240";
+    #if defined(GBTG_INSPECTOR_APP)
+    if (state.game.inspection != nullptr)
+        {
+            state.game.inspection->drawing = true;
+        }
+#endif
+        state.with_view_context(0, [](RuntimeSceneViewPresent& view)
+        {
+            view.mirror();
+            view.refresh_actors();
+            view.bins();
+            view.anchor_sprites();
+            view.billboards();
+        });
+    #if defined(GBTG_INSPECTOR_APP)
+    if (state.game.inspection != nullptr)
+        {
+            state.game.inspection->drawing = false;
+        }
+#endif
+        auto commands = state.d3d_device.take_commands();
+        frame.draws.clear();
+        const auto& actors = actor_addresses();
+        for (const auto& command : commands)
+        {
+            InspectionDraw draw;
+            if (const auto owner = state.inspection_draw_owners.find(frame.draws.size());
+                owner != state.inspection_draw_owners.end())
+            {
+                draw.owner = owner->second;
+                const auto actor = actors.find(draw.owner);
+                if (actor != actors.end() && actor->second->model != nullptr)
+                {
+                    const auto* model = actor->second->model;
+                    const auto cpu = model->runtime != nullptr && model->runtime->source != nullptr
+                        ? model->runtime->source->cpu.data() : model->cpu.data();
+                    const auto& registry = state.resources.registry;
+                    for (const auto& record : registry.records)
+                    {
+                        if (record.resource_slot > 0 && record.resource_slot <= registry.loaded.size()
+                            && registry.loaded[record.resource_slot - 1].cpu.data() == cpu)
+                        {
+                            draw.model_resource = record.name;
+                            break;
+                        }
+                    }
+                }
+            }
+            const SceneD3DIndexedDraw* indexed = std::get_if<SceneD3DIndexedDraw>(&command);
+            if (const auto* inline_draw = std::get_if<SceneD3DInlineDraw>(&command))
+            {
+                indexed = &inline_draw->state;
+                draw.kind = "Inline";
+            }
+            if (indexed != nullptr)
+            {
+                if (draw.kind.empty())
+                {
+                    draw.kind = "Indexed";
+                }
+                draw.primitive = indexed->primitive;
+                draw.count = indexed->count;
+                draw.index_address = indexed->indices;
+                draw.streams.assign(indexed->streams.begin(), indexed->streams.end());
+                const auto states = indexed->states.values();
+                draw.states.assign(states.begin(), states.end());
+                for (size_t stage = 0; stage < 4; ++stage)
+                {
+                    draw.textures[stage] = state.resources.memory.find_address(indexed->textures[stage]);
+                    if (indexed->textures[stage] != nullptr)
+                    {
+                        draw.texture_images[stage] = &state.texture_image(indexed->textures[stage]);
+                    }
+                }
+            }
+            else if (const auto* quad = std::get_if<SceneD3DQuad>(&command))
+            {
+                draw.kind = "Quad";
+                draw.count = 4;
+                draw.textures[0] = state.resources.memory.find_address(quad->texture);
+                if (quad->texture != nullptr)
+                {
+                    draw.texture_images[0] = &state.texture_image(quad->texture);
+                }
+                const auto states = quad->states.values();
+                draw.states.assign(states.begin(), states.end());
+            }
+            else if (const auto* fixed = std::get_if<SceneD3DFixedDraw>(&command))
+            {
+                draw.kind = "Fixed (vertex words)";
+                draw.primitive = fixed->primitive;
+                draw.count = u32(fixed->vertices.size());
+                const auto states = fixed->states.values();
+                draw.states.assign(states.begin(), states.end());
+            }
+            else
+            {
+                draw.kind = std::holds_alternative<SceneD3DClear>(command) ? "Clear"
+                    : std::holds_alternative<SceneD3DCopy>(command) ? "Back-buffer copy" : "Target";
+            }
+            frame.draws.push_back(std::move(draw));
+        }
+        const SceneD3DPresentContext present{state.resources.memory, state.resources.d3d,
+            state.d3d_device.vertex_shaders, [&state](const u8* record) -> const RgbaImage&
+            {
+                return state.texture_image(record);
+            }, [&state](std::uintptr_t color)
+            {
+                state.present_render_target(color);
+            }, [&state](u32 texture)
+            {
+                state.copy_back_buffer(texture);
+            }};
+        stage = "recorded D3D presentation";
+        present_scene_d3d_commands(commands, present);
+    }
+    catch (const SceneInspectionFailure&)
+    {
+        state.d3d_device.commands.clear();
+        restore();
+        throw;
+    }
+    catch (const std::exception& error)
+    {
+        state.d3d_device.commands.clear();
+        restore();
+        throw Error(std::string(stage) + ": " + error.what());
+    }
+    restore();
+}
+
+#endif
 void SceneActorServices::present_views()
 {
     auto& state = *state_;
@@ -5741,20 +6069,44 @@ void SceneActorServices::start_markers()
     }
     // Host diagnostics: a failing handler names its marker kind and id.
     RuntimeSceneMarkerHandlers handlers = state.handlers;
+#if defined(GBTG_INSPECTOR_APP)
+    if (state.game.inspection != nullptr)
+    {
+        state.game.inspection->owners.clear();
+    }
+#endif
     for (size_t kind = 0; kind < handlers.handlers.size(); ++kind)
     {
         if (handlers.handlers[kind])
         {
-            handlers.handlers[kind] = [kind, handler = handlers.handlers[kind]](u8* record)
+            handlers.handlers[kind] = [&state, kind, handler = handlers.handlers[kind]](u8* record)
             {
+                u16 id;
+                std::memcpy(&id, record + 6, 2);
+#if defined(GBTG_INSPECTOR_APP)
+                if (auto* inspection = state.game.inspection; inspection != nullptr)
+                {
+                    const size_t before = state.scene.objects.size();
+                    const SceneInspectionMarker marker{u16(kind), id};
+                    if (inspection->run_marker(marker, [&]()
+                        {
+                            handler(record);
+                        }))
+                    {
+                        for (size_t index = before; index < state.scene.objects.size(); ++index)
+                        {
+                            inspection->owners[state.scene.find_address(state.scene.objects[index].bytes.get())] = marker;
+                        }
+                    }
+                    return;
+                }
+#endif
                 try
                 {
                     handler(record);
                 }
                 catch (const std::exception& error)
                 {
-                    u16 id;
-                    std::memcpy(&id, record + 6, 2);
                     throw Error("marker kind " + std::to_string(kind) + " id " + std::to_string(id) + ": "
                         + error.what());
                 }

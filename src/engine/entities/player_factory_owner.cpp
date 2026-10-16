@@ -36,7 +36,21 @@ void player_sizes(ObjectSizes& output)
 bool construct_player_view(FactoryObject& object, std::span<const u8> parameters)
 {
     auto& player = active_owner->construct_player(object);
+#if defined(GBTG_INSPECTOR_APP)
+    try
+    {
+#endif
     return initialize_runtime_player(player.actor_bytes, parameters, player.construction);
+#if defined(GBTG_INSPECTOR_APP)
+    }
+    catch (...)
+    {
+        // Children must go while the base actor and its shape/model views still
+        // exist. The generic factory then unwinds that completed base actor.
+        destroy_runtime_player(player.actor_bytes, player.destruction);
+        throw;
+    }
+#endif
 }
 
 void destroy_player_view(FactoryObject& object)
@@ -321,7 +335,7 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
           }},
       attachment_creation{attachment, child, scene_bindings.attachment_objects},
       construction{owner_instance.bat.actor, attributes, spawn, body_object, mind_object, strategy_object,
-          strategy_setup, input, scene_bindings.input_release, scene_bindings.tag_rows, scene_bindings.actor_tags,
+          strategy_setup, input, scene_bindings.input_release, scene_bindings.tag_rows, scene_bindings.object_tags,
           attachment_creation, created_attachment, scene_bindings.initial_channel_word, scene_bindings.player_count,
           scene_bindings.story_flags, matrices, scene_bindings.matrix_boundaries},
       goal_cleanup{self, ring, body, owner_instance.bat.actor, scene_bindings.latches, scene_bindings.address_zero,

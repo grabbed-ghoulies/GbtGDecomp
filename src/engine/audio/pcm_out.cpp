@@ -99,6 +99,9 @@ struct PcmVoice
     // A native audio core cue (IXACTSoundBank_Prepare). Only the native core stops and releases it; the host
     // cue paths below leave it alone.
     bool native = false;
+#if defined(GBTG_INSPECTOR_APP)
+    float duration = 0.f; // Decoded PCM duration for host inspection diagnostics.
+#endif
 };
 
 IXAudio2* g_xa = nullptr;
@@ -855,6 +858,9 @@ u64 play_choice(const std::string& cue, const WaveChoice& choice, bool loop = fa
         const DWORD error = GetLastError();
         return fail(HRESULT_FROM_WIN32(error == ERROR_SUCCESS ? ERROR_INVALID_DATA : error));
     }
+#if defined(GBTG_INSPECTOR_APP)
+    slot.duration = fmt.nAvgBytesPerSec != 0 ? float(double(slot.pcm.size()) / fmt.nAvgBytesPerSec) : 0.f;
+#endif
     HRESULT status = g_xa->CreateSourceVoice(&slot.voice, &fmt);
     if (FAILED(status))
     {
@@ -1407,6 +1413,201 @@ void dispatch_native_audio_notifications(std::span<AudioCoreBank* const> banks)
 #endif
 }
 
+#if defined(GBTG_INSPECTOR_APP)
+void suspend_pcm_audio()
+{
+#if defined(_WIN32)
+    if (g_xa != nullptr)
+    {
+        g_xa->StopEngine();
+    }
+#endif
+}
+
+namespace
+{
+float inspection_output_volume = 1.f;
+}
+
+void pcm_set_inspection_output_volume(float volume)
+{
+    inspection_output_volume = std::clamp(volume, 0.f, 1.f);
+}
+
+void begin_pcm_inspection_preview(void* cue, float volume)
+{
+#if defined(_WIN32)
+    if (g_xa == nullptr || cue == nullptr)
+    {
+        throw Error("sound preview has no prepared audio device/voice");
+    }
+    // Resume the mixer only after every scene voice is stopped. Gameplay's
+    // native cue state is left alone; only the selected tooling cue is audible.
+    if (g_reverb != nullptr)
+    {
+        g_reverb->SetVolume(0.f);
+    }
+    for (auto* voices : {&g_voices, &g_bed})
+    {
+        for (auto& voice : *voices)
+        {
+            if (voice.voice != cue)
+            {
+                voice.voice->Stop(0);
+            }
+        }
+    }
+    volume_pcm_inspection_preview(cue, volume);
+    // The inspector deliberately keeps the game's requested master gain at zero.
+    // Scene voices are stopped above, so only the tooling preview can reach this
+    // temporary output gain. Its volume control remains on the cue voice.
+    if (FAILED(g_master->SetVolume(inspection_output_volume)))
+    {
+        throw Error("could not enable the sound preview output");
+    }
+    if (FAILED(g_xa->StartEngine()))
+    {
+        throw Error("could not start the sound preview mixer");
+    }
+#else
+    throw Error("sound preview requires the Windows audio backend");
+#endif
+}
+
+void volume_pcm_inspection_preview(void* cue, float volume)
+{
+#if defined(_WIN32)
+    if (cue != nullptr)
+    {
+        const HRESULT result = static_cast<IXAudio2SourceVoice*>(cue)->SetVolume(std::clamp(volume, 0.f, 1.f));
+        if (FAILED(result))
+        {
+            throw Error("could not set sound preview volume");
+        }
+    }
+#endif
+}
+
+bool pcm_inspection_preview_pending(void* cue, float& seconds)
+{
+#if defined(_WIN32)
+    XAUDIO2_VOICE_STATE state{};
+    auto* voice = static_cast<IXAudio2SourceVoice*>(cue);
+    voice->GetState(&state);
+    XAUDIO2_VOICE_DETAILS details{};
+    voice->GetVoiceDetails(&details);
+    seconds = details.InputSampleRate != 0 ? float(double(state.SamplesPlayed) / details.InputSampleRate) : 0.f;
+    if (state.BuffersQueued == 0)
+    {
+        for (const auto& slot : g_bed)
+        {
+            if (slot.voice == voice)
+            {
+                seconds = (std::max)(seconds, slot.duration);
+                break;
+            }
+        }
+    }
+    return state.BuffersQueued != 0;
+#else
+    return false;
+#endif
+}
+
+void release_pcm_inspection_preview(void* cue)
+{
+#if defined(_WIN32)
+    g_cue_notes.erase(cue);
+    release_native_cue_voice(static_cast<IXAudio2SourceVoice*>(cue));
+    if (g_master != nullptr)
+    {
+        g_master->SetVolume(g_master_volume);
+    }
+#endif
+}
+
+float pcm_inspection_output_volume()
+{
+#if defined(_WIN32)
+    float volume = 0.f;
+    if (g_master != nullptr)
+    {
+        g_master->GetVolume(&volume);
+    }
+    return volume;
+#else
+    return 0.f;
+#endif
+}
+
+void shutdown_pcm_audio()
+{
+#if defined(_WIN32)
+    suspend_pcm_audio();
+    for (auto* voices : {&g_voices, &g_bed})
+    {
+        for (auto& voice : *voices)
+        {
+            if (voice.voice != nullptr)
+            {
+                voice.voice->DestroyVoice();
+            }
+        }
+        voices->clear();
+    }
+    g_cue_notes.clear();
+    g_source_routes.clear();
+    for (const auto& [voice, source] : g_spatial_sources)
+    {
+        voice->DestroyVoice();
+    }
+    g_spatial_sources.clear();
+    if (g_reverb != nullptr)
+    {
+        g_reverb->DestroyVoice();
+        g_reverb = nullptr;
+    }
+    if (g_master != nullptr)
+    {
+        g_master->DestroyVoice();
+        g_master = nullptr;
+    }
+    if (g_xa != nullptr)
+    {
+        g_xa->Release();
+        g_xa = nullptr;
+    }
+    g_x3d_ready = false;
+    g_catalog_ready = false;
+    g_wavefiles.clear();
+    g_cues.clear();
+#endif
+}
+
+void release_native_audio_boot()
+{
+    if (g_native_audio == nullptr)
+    {
+        return;
+    }
+    auto& banks = *g_native_audio;
+    auto* link = banks.loaded.next;
+    while (link != nullptr)
+    {
+        auto* next = link->next;
+        auto* bank = static_cast<AudioCoreBank*>(link);
+        // These are host allocations made by the XACT/heap boot adapter. All scene cue owners
+        // must already have been destroyed; this is not a replacement for native bank behavior.
+        banks.memory.release(bank->name);
+        banks.memory.release(bank);
+        link = next;
+    }
+    banks = NativeAudioBanks{};
+    g_native_audio = nullptr;
+    g_audio_bank_names = nullptr;
+}
+
+#endif
 std::shared_ptr<NativeAudioRuntime> boot_native_audio(const Game& game)
 {
     static NativeAudioBanks banks;

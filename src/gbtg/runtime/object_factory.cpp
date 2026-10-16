@@ -84,15 +84,41 @@ bool construct_factory_object(ObjectFactoryRegistry& registry, FactoryObject& ob
         const ObjectFactoryVtable* parent_vtable = registry.types[parent].vtable();
         previous = parent_vtable->construct;
     }
+#if defined(GBTG_INSPECTOR_APP)
+    // A missing derived getter can throw after its base constructor registered
+    // the allocation. Unwind completed bases for either getter or constructor failure.
+    bool constructed = true;
+    try
+    {
+        const ObjectConstructor constructor = registry.types[index].vtable()->construct;
+        if (constructor != nullptr && previous != constructor)
+        {
+            constructed = constructor(object, parameters);
+        }
+    }
+    catch (...)
+    {
+        if (parent != 0)
+        {
+            destroy_factory_object(registry, parent, object, nullptr);
+        }
+        throw;
+    }
+    if (!constructed)
+    {
+#else
     const ObjectFactoryVtable* vtable = registry.types[index].vtable();
     const ObjectConstructor constructor = vtable->construct;
     if (constructor != nullptr && previous != constructor)
     {
         if (!constructor(object, parameters))
         {
+#endif
             destroy_factory_object(registry, u16(type), object, nullptr);
             return false;
+#if !defined(GBTG_INSPECTOR_APP)
         }
+#endif
     }
     return true;
 }

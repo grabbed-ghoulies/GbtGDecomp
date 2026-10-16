@@ -7,6 +7,10 @@ namespace gbtg
 {
 class SceneFactoryRuntime;
 struct RuntimeEffectPassScratch;
+#if defined(GBTG_INSPECTOR_APP)
+struct InspectionView;
+struct InspectionFrame;
+#endif
 // The scene's actor service graph: the native storage behind the retail globals that actor, player,
 // mind, strategy and scene-class constructors read, the class owners installed over the scene's
 // factory, and the marker handler table (DAT_0042A720). Every service is bound to real scene state;
@@ -61,6 +65,11 @@ public:
     // (0x0011C240's 0x00121730..0x00121D40) and the scene dialogue (0x00058150 and its sprite flush), and the
     // presenter draws what the recording boundary captured. A frame with no active slot draws no scene.
     void present_views();
+#if defined(GBTG_INSPECTOR_APP)
+    // Host inspector: native geometry without simulation.
+    void inspect_view(const InspectionView& camera, InspectionFrame& frame);
+    InspectionView inspection_camera(std::string* source = nullptr) const;
+#endif
     struct State;
 
 private:

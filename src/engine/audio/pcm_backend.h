@@ -17,6 +17,20 @@ AudioCoreCueBoundaries native_audio_core_cue_boundaries(const Game& game,
     const std::function<const char*(void*, u32)>& cue_name);
 // Boot 0x0003A280 over the host: bundle AIDs, the XAudio2 device and the wave bank index. Fills g_native_audio.
 std::shared_ptr<NativeAudioRuntime> boot_native_audio(const Game& game);
+#if defined(GBTG_INSPECTOR_APP)
+// Host tooling lifecycle: release boot-owned bank allocations after every scene/cue owner is gone.
+void release_native_audio_boot();
+// Host session lifecycle. Stop mixing while inspecting; destroy voices before their PCM buffers.
+void suspend_pcm_audio();
+void shutdown_pcm_audio();
+// Host tooling playback isolation. These operate only on prepared native cue handles.
+void begin_pcm_inspection_preview(void* cue, float volume);
+void pcm_set_inspection_output_volume(float volume); // Preview master gain; tests use 10%.
+void release_pcm_inspection_preview(void* cue);
+void volume_pcm_inspection_preview(void* cue, float volume);
+bool pcm_inspection_preview_pending(void* cue, float& seconds);
+float pcm_inspection_output_volume(); // Actual mastering-voice gain, including preview isolation.
+#endif
 // The XACT listener calls (position, velocity, orientation) over the host's X3DAudio listener.
 void bind_native_audio_listener(AudioCoreListener& listener);
 // The cue notifications XACTEngineDoWork delivers (0x0015B780): each live native cue's XAudio2 voice is polled

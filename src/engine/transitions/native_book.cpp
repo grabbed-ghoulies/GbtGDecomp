@@ -9,6 +9,9 @@
 #include "../frontend/dialogue_draw_context.h"
 #include "../scene/executable_resources.h"
 #include "gbtg/model_runtime.h"
+#if defined(GBTG_INSPECTOR_APP)
+#include <memory>
+#endif
 
 #include <bit>
 #include <cstring>
@@ -194,6 +197,13 @@ RuntimeTransitionBook* create_transition_book(i32 clip, u32 flags, const char* t
 {
     auto& s = services;
     auto* book = new RuntimeTransitionBook; // 0x000F72D0(0x1E2A4), zeroed
+#if defined(GBTG_INSPECTOR_APP)
+    const auto abandon = [&s](RuntimeTransitionBook* pending)
+    {
+        release_transition_book(pending, s);
+    };
+    std::unique_ptr<RuntimeTransitionBook, decltype(abandon)> pending(book, abandon);
+#endif
     book->clip = clip;
     book->flags = flags;
     book->real_88 = 0.f;
@@ -221,6 +231,9 @@ RuntimeTransitionBook* create_transition_book(i32 clip, u32 flags, const char* t
     {
         g_capture_book = book; // DAT_005462A0
     }
+#if defined(GBTG_INSPECTOR_APP)
+    pending.release();
+#endif
     return book;
 }
 

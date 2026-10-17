@@ -40,7 +40,9 @@ bool initialize_runtime_player(std::span<u8> actor, std::span<const u8> paramete
     word(actor, 0xCF6, tag);
     if (tag != 0)
     {
-        word(actor, 0xCF4, find_runtime_player_tag_index(tag, context.tag_rows, context.tag_names));
+        const u16 index = find_runtime_player_tag_index(tag, context.tag_rows, context.tag_names);
+        word(actor, 0xCF4, index);
+        context.actor.damage_class = index; // Native alias of the actor +0xCF4 word.
         word(actor, 0xCF6, tag);
     }
     vector(actor, 0xCC0, actor_world_position(context.actor));
@@ -60,6 +62,7 @@ bool initialize_runtime_player(std::span<u8> actor, std::span<const u8> paramete
         set_runtime_player_mind(context.mind, reinterpret_cast<const char*>(parameters.data() + 0x3BA), child);
     }
     context.input = create_runtime_actor_base_input(context.input_release);
+    put(actor, 0x960, context.address_of(context.input.data()));
     if (read_u32(parameters, 0x33A) == 0x5F646961)
     {
         set_runtime_player_strategy(context.strategy, reinterpret_cast<const char*>(parameters.data() + 0x33A),

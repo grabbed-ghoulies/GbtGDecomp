@@ -7779,7 +7779,10 @@ int main(int argc, char** argv)
     const bool dialogue_resources_test = argc == 3 && std::string_view(argv[2]) == "--dialogue-resources";
     // --player-fight runs the --player-opening flow, then fights the imps until the script passes its imp gate.
     const bool fight_test = argc == 3 && std::string_view(argv[2]) == "--player-fight";
-    const bool player_test = (argc == 3 && std::string_view(argv[2]) == "--player-opening") || fight_test;
+    // --player-controls runs the --player-opening flow, then checks run speed across frame rates and the right stick.
+    const bool controls_test = argc == 3 && std::string_view(argv[2]) == "--player-controls";
+    const bool player_test = (argc == 3 && std::string_view(argv[2]) == "--player-opening") || fight_test
+        || controls_test;
     const bool decoder_test = argc == 3 && std::string_view(argv[2]) == "--ghoulybox-decoder";
     const bool actor_test = argc == 3 && std::string_view(argv[2]) == "--actor-loading";
     const bool model_resources_test = argc == 3 && std::string_view(argv[2]) == "--scene-models";
@@ -7792,7 +7795,7 @@ int main(int argc, char** argv)
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
         && !model_resources_test && !spawn_test)
     {
-        std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --goop | --ui | --player-opening | --player-fight | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start]\n";
+        std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --goop | --ui | --player-opening | --player-fight | --player-controls | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start]\n";
         return 2;
     }
     try
@@ -8047,6 +8050,159 @@ int main(int argc, char** argv)
             {
                 throw gbtg::Error("left stick did not move Cooper after the tutorial");
             }
+            if (controls_test)
+            {
+                // Hold the left stick for one second at each host rate. Cooper's speed is the median of his per-frame
+                // planar speeds over the second half (after the 0x0002C2B0 velocity ease has settled), so an imp
+                // blocking or hitting him for a few frames does not move it.
+                const auto run_speed = [&](float hz, gbtg::i16 lx, gbtg::i16 ly)
+                {
+                    const int frames = int(hz);
+                    std::vector<float> samples;
+                    auto previous = cooper_position();
+                    for (int frame = 0; frame < frames; ++frame)
+                    {
+                        gbtg::InputState stick;
+                        stick.pads[0].lx = lx;
+                        stick.pads[0].ly = ly;
+                        gbtg::gfx_begin_frame();
+                        game.tick(1.f / hz, stick);
+                        gbtg::gfx_end_frame();
+                        const auto now = cooper_position();
+                        if (frame >= frames / 2)
+                        {
+                            const float dx = now->x - previous->x;
+                            const float dz = now->z - previous->z;
+                            samples.push_back(std::sqrt(dx * dx + dz * dz) * hz);
+                        }
+                        previous = now;
+                    }
+                    std::nth_element(samples.begin(), samples.begin() + samples.size() / 2, samples.end());
+                    return samples[samples.size() / 2];
+                };
+                const auto settle = [&]()
+                {
+                    for (int frame = 0; frame < 30; ++frame)
+                    {
+                        gbtg::gfx_begin_frame();
+                        game.tick(1.f / 60.f, {});
+                        gbtg::gfx_end_frame();
+                    }
+                };
+                std::vector<float> speeds;
+                for (const float hz : {60.f, 144.f, 240.f})
+                {
+                    // Four directions; walls and imps only slow him, so the fastest is his free run.
+                    float fastest = 0.f;
+                    std::cout << "run speed at " << hz << " Hz:";
+                    for (const auto& [lx, ly] : {std::pair<gbtg::i16, gbtg::i16>{32767, 0}, {-32767, 0}, {0, -32767},
+                             {0, 32767}})
+                    {
+                        settle();
+                        const float speed = run_speed(hz, lx, ly);
+                        std::cout << " " << speed;
+                        fastest = std::max(fastest, speed);
+                    }
+                    std::cout << " units/s\n";
+                    speeds.push_back(fastest);
+                }
+                for (const float speed : speeds)
+                {
+                    if (std::abs(speed - speeds.front()) > speeds.front() * .05f)
+                    {
+                        throw gbtg::Error("Cooper's run speed depends on the host frame rate");
+                    }
+                }
+                std::cout << "PASS: Cooper's run speed is the same at 60, 144 and 240 Hz\n";
+                // Flick the right stick away from every imp. With nothing in range, 0x0007E880 falls back to the
+                // mind's own +0xB8 record (0x0007EA20), 80 units along the stick, and Cooper swings at the air.
+                settle();
+                const auto start = cooper_position();
+                float ax = 0.f;
+                float az = 0.f;
+                for (const auto& [address, actor] : game.factory_scene->start_actors(game).actor_addresses())
+                {
+                    if (actor != nullptr && actor->class_key == 23)
+                    {
+                        const auto imp = gbtg::actor_world_position(*actor);
+                        ax -= imp.x - start->x;
+                        az -= imp.z - start->z;
+                    }
+                }
+                const float away = std::sqrt(ax * ax + az * az);
+                ax = away > 0.f ? ax / away : 1.f;
+                az = away > 0.f ? az / away : 0.f;
+                float swing = 0.f;
+                for (int frame = 0; frame < 64; ++frame)
+                {
+                    gbtg::InputState input;
+                    if ((frame / 8) % 2 == 0)
+                    {
+                        input.pads[0].rx = gbtg::i16(ax * 32767.f);
+                        input.pads[0].ry = gbtg::i16(-az * 32767.f);
+                    }
+                    gbtg::gfx_begin_frame();
+                    game.tick(1.f / 60.f, input);
+                    if (frame == 12)
+                    {
+                        gbtg::RgbaImage swung;
+                        if (gbtg::gfx_readback(swung))
+                        {
+                            gbtg::write_bmp("cache/player_air_swing.bmp", swung);
+                        }
+                    }
+                    gbtg::gfx_end_frame();
+                    const auto now = cooper_position();
+                    swing = std::max(swing, std::sqrt((now->x - start->x) * (now->x - start->x)
+                        + (now->z - start->z) * (now->z - start->z)));
+                }
+                std::cout << "air swing: direction " << ax << " " << az << ", Cooper moved up to " << swing << "\n";
+                if (swing < 1.f)
+                {
+                    throw gbtg::Error("the right stick did not swing Cooper with no imp in range");
+                }
+                std::cout << "PASS: the right stick swings Cooper at the air with no imp in range\n";
+                // The triggers turn the follow camera (0x0013DC40): left alone turns one way, right the other.
+                const auto camera_yaw = []()
+                {
+                    const auto forward = gbtg::entity_detail::g_display_view->forward;
+                    return std::atan2(forward.x, forward.z);
+                };
+                const auto turn = [&](gbtg::u8 left, gbtg::u8 right)
+                {
+                    settle();
+                    const float before = camera_yaw();
+                    for (int frame = 0; frame < 60; ++frame)
+                    {
+                        gbtg::InputState input;
+                        input.pads[0].trigger_l = left;
+                        input.pads[0].trigger_r = right;
+                        gbtg::gfx_begin_frame();
+                        game.tick(1.f / 60.f, input);
+                        gbtg::gfx_end_frame();
+                    }
+                    float delta = camera_yaw() - before;
+                    while (delta > 3.14159265f)
+                    {
+                        delta -= 6.28318531f;
+                    }
+                    while (delta < -3.14159265f)
+                    {
+                        delta += 6.28318531f;
+                    }
+                    return delta;
+                };
+                const float left_turn = turn(255, 0);
+                const float right_turn = turn(0, 255);
+                std::cout << "camera turn: left trigger " << left_turn << ", right trigger " << right_turn << " rad\n";
+                if (!(left_turn * right_turn < 0.f))
+                {
+                    throw gbtg::Error("the triggers did not turn the follow camera in opposite directions");
+                }
+                std::cout << "PASS: the triggers turn the follow camera\n";
+                gbtg::gfx_shutdown();
+                return 0;
+            }
             if (fight_test)
             {
                 // Cooper walks to the nearest imp (left stick) and holds the right stick toward it. The stick axes
@@ -8141,8 +8297,9 @@ int main(int argc, char** argv)
                     const float uz = length > 0.f ? dz / length : 0.f;
                     gbtg::InputState input;
                     // Keep a short standoff: close in from afar, step back when standing on the imp, where no
-                    // direction toward it falls inside the target cone.
-                    if (length > 10.f)
+                    // direction toward it falls inside the target cone. Imps further than 80 units are in another
+                    // room or behind a wall the straight-line walk cannot pass; wait for them to come back.
+                    if (length > 10.f && length < 80.f)
                     {
                         input.pads[0].lx = gbtg::i16(ux * 32767.f);
                         input.pads[0].ly = gbtg::i16(-uz * 32767.f);
@@ -8153,8 +8310,9 @@ int main(int argc, char** argv)
                         input.pads[0].ly = gbtg::i16(uz * 32767.f);
                     }
                     // The mind's stick gesture (0x0007D5A0) attacks when the stick comes back after a push, so
-                    // the right stick is flicked: eight frames out, eight frames centred.
-                    if ((frame / 8) % 2 == 0)
+                    // the right stick is flicked: eight frames out, eight frames centred. Out of reach a flick
+                    // swings at the air (0x0007EA20), so only flick inside the standoff.
+                    if (length <= 10.f && (frame / 8) % 2 == 0)
                     {
                         input.pads[0].rx = gbtg::i16(ux * 32767.f);
                         input.pads[0].ry = gbtg::i16(-uz * 32767.f);

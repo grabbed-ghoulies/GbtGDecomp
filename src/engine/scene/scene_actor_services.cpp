@@ -581,6 +581,7 @@ struct SceneActorServices::State
     std::unordered_map<Actor*, const RuntimePlayerAttachmentEligibility*> target_eligibility;
     std::unordered_map<Actor*, u32> target_addresses;
     std::unordered_map<const Actor*, RuntimeScriptMindQuery*> target_queries;
+    std::unordered_map<u32, std::pair<RuntimePlayerTargetView*, RuntimeMindTarget*>> embedded_targets;
     RuntimeScriptMindQuery absent_target_query{}; // Actors whose +0x95C is not a player body.
     u32 attachment_notice = 0; // DAT_00433BD0.
     const void* script_records = nullptr; // DAT_0051108C.
@@ -2643,7 +2644,8 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             const auto* next = entity_detail::g_world.alt.next;
             return next == nullptr ? 0 : address_of(next);
         },
-        targets, target_views, target_eligibility, target_addresses, target_queries, query, view_invert,
+        targets, target_views, target_eligibility, target_addresses, target_queries, embedded_targets, query,
+        view_invert,
         data(0x002FFF24, 0x10), read_f32(data(0x004275B8, 4), 0), attachment_notice,
         statsheet, data(0x00433D5C, 0xC), powerup_rows[11].active, player_damage,
         [this](u32 address) -> const u8*
@@ -3606,6 +3608,12 @@ void SceneActorServices::State::refresh_mind_targets()
         previous = row->target.get();
         target_views[address] = &row->view;
         target_records[address] = row->target.get();
+    }
+    // Player minds' own +0xB8 records are not on DAT_00545988 but are addressed like its records.
+    for (const auto& [address, embedded] : embedded_targets)
+    {
+        target_views[address] = embedded.first;
+        target_records[address] = embedded.second;
     }
     std::erase_if(mind_target_rows, [this, &live](const auto& row)
     {

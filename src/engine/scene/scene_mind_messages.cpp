@@ -148,9 +148,10 @@ SceneMindMessages::SceneMindMessages(SceneMindServices& services, NativePlayerIn
               return services_.attachment_link(actor);
           }},
       cinema_request_{movement_, spawn_, parent_,
-          []() -> RuntimeMindChainRequestSelection&
+          [this]() -> RuntimeMindChainRequestSelection&
           {
-              unbound("cinema target chain selection");
+              // 0x0007B090 passes the mind's +0x10 target record to 0x00136770, as 0x0007DF50 does for players.
+              return target_action(read_u32(player_.mind, 0x10)).requests;
           },
           player.body, player.input, services.release, player.cinema_resource, services.sounds,
           services.damage_tables, services.mode_scales, player.body_selection,
@@ -224,6 +225,10 @@ SceneMindMessages::SceneMindMessages(SceneMindServices& services, NativePlayerIn
     services.target_eligibility[&player.actor] = &eligibility_;
     services.target_addresses[&player.actor] = player.actor_address;
     services.target_queries[&player.actor] = &body_query_;
+    // 0x0007EF10 writes mind +0xC8 (the record's +0x10) with this actor and +0xCC with mode 3. The record's
+    // bytes and address are bound in refresh_control, once the mind exists.
+    embedded_record_ = std::make_unique<RuntimeMindTarget>(RuntimeMindTarget{nullptr, {}, 0, player.actor,
+        player.actor_bytes, body_query_, player.current, nullptr});
     slots.object_at = [this](u32 address)
     {
         return services_.bytes_at(address);
@@ -351,6 +356,10 @@ SceneMindMessages::~SceneMindMessages()
     services_.target_eligibility.erase(&player_.actor);
     services_.target_addresses.erase(&player_.actor);
     services_.target_queries.erase(&player_.actor);
+    if (embedded_target_.address != 0)
+    {
+        services_.embedded_targets.erase(embedded_target_.address);
+    }
 }
 
 // Views 0x0007D130 reads when the player mind's request slot runs.
@@ -369,11 +378,27 @@ void SceneMindMessages::refresh_control()
     {
         unbound("actor +0x8F8 live attachment view for the player shape target");
     }
-    shape_target_.attachment = nullptr;
-    const u32 mind_address = services_.address_of(mind.data());
+    // Actor +0x8F8 is the first record on the actor's +0x8F4 list (0x0012AFE0 links each new one at its head).
+    shape_target_.attachment = static_cast<ActorLiveAttachment*>(player_.actor_instance.live_attachments.next);
     const u32 embedded_owner = read_u32(mind, 0xB8 + 0x10);
-    embedded_target_ = RuntimePlayerTargetView{mind.subspan(0xB8, 0x68), mind_address + 0xB8,
-        embedded_owner == 0 ? nullptr : services_.actor_at(embedded_owner), nullptr};
+    if (embedded_owner != player_.actor_address)
+    {
+        unbound("player mind +0xC8 naming an actor other than its own");
+    }
+    const u32 embedded_address = services_.address_of(mind.data()) + 0xB8;
+    if (embedded_target_.address != embedded_address)
+    {
+        if (embedded_target_.address != 0)
+        {
+            services_.embedded_targets.erase(embedded_target_.address);
+        }
+        services_.embedded_targets[embedded_address] = {&embedded_target_, embedded_record_.get()};
+    }
+    embedded_record_->bytes = mind.subspan(0xB8, 0x68);
+    embedded_record_->address = embedded_address;
+    embedded_record_->occupancy = player_.current; // Actor +0xCA8.
+    embedded_target_ = RuntimePlayerTargetView{mind.subspan(0xB8, 0x68), embedded_address, &player_.actor,
+        embedded_record_.get()};
 }
 
 void SceneMindMessages::refresh()

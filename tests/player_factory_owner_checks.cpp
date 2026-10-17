@@ -1,6 +1,7 @@
 #include "player_factory_owner_checks.h"
 #include "../src/engine/entities/player_factory_owner.h"
 #include "../src/engine/entities/entity_heap.h"
+#include "../src/engine/frontend/input_activation.h"
 #include "gbtg/model_runtime.h"
 #include <array>
 #include <cstring>
@@ -90,7 +91,9 @@ void check_player_factory_owner()
     // Scene bindings.
     std::unordered_map<u32, std::span<u8>> input_addresses;
     const RuntimeInputReleaseContext release{input_addresses};
-    GhoulySpawnPool entries{0x50, 1, nullptr, nullptr, nullptr};
+    // Room for the entries the player minds' activation (message 0x23 -> 0x0002CAB0) would push.
+    std::array<u8, 0x50 * 4> entry_rows{};
+    GhoulySpawnPool entries{0x50, 1, entry_rows.data(), entry_rows.data(), entry_rows.data() + entry_rows.size()};
     i32 selected = 0;
     std::array<u8, 0x3C> keyboard{};
     std::array<u32, 5> ports{};
@@ -334,9 +337,16 @@ void check_player_factory_owner()
         && players.find_player(second_player.strategy_object) == &second_player
         && read_u16(second_player.strategy, 0xE) == 1000 && read_u32(second_player.strategy, 8)
             == second_player.actor_address, "player constructor creates and enters its strategy");
+    // The constructor stores its base input at actor +0x960; the mind destructor (0x0007F0D0) pops the entry an
+    // activated mind pushed for it.
+    require(read_u32(second_player.actor_bytes, 0x960) == address_of(second_player.input.data()),
+        "player constructor stores its base input at actor +0x960");
+    push_runtime_input_entry(read_u32(second_player.actor_bytes, 0x960), "player1", activation);
     release_factory_object(factory, second);
+    require(selected == 0 && entries.cursor == entries.begin, "player mind release pops its input entry");
     require(players.player_total() == 1, "second player release keeps the first player");
 
+    push_runtime_input_entry(read_u32(player.actor_bytes, 0x960), "player0", activation);
     release_factory_object(factory, actor);
     require(actor.bytes == nullptr && factory.count == 0 && players.child_count() == 0 && players.player_total() == 0
         && actors.actors.empty(), "player release destroys its children and both owners' views");

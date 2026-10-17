@@ -69,6 +69,8 @@ struct SceneMindServices
     std::unordered_map<Actor*, const RuntimePlayerAttachmentEligibility*>& target_eligibility;
     std::unordered_map<Actor*, u32>& target_addresses;
     std::unordered_map<const Actor*, RuntimeScriptMindQuery*>& target_queries;
+    // Each player mind's own +0xB8 record (0x0007EA20) by its address, beside the DAT_00545988 records.
+    std::unordered_map<u32, std::pair<RuntimePlayerTargetView*, RuntimeMindTarget*>>& embedded_targets;
     const RuntimeScriptActorQueryContext& query;
     const u32& view_invert; // DAT_005122D8.
     std::span<const u8> boost_preset; // DAT_002FFF24.
@@ -145,6 +147,7 @@ private:
     float retained_direction_ = 0.f; // 0x00105F90 output word.
     RuntimeBodyAttachedActor* pending_attachment_ = nullptr; // Mind +0x134.
     RuntimePlayerTargetView embedded_target_{}; // Mind +0xB8.
+    std::unique_ptr<RuntimeMindTarget> embedded_record_; // Mind +0xB8 as a target record; its +0x10 is this actor.
     // 0x0007DF50 against one target: this body's attachment requests, chains and chain length against it.
     struct TargetAction
     {

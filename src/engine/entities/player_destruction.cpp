@@ -96,6 +96,7 @@ void destroy_runtime_player(std::span<u8> actor, RuntimePlayerDestruction& conte
     {
         const u16 zero = 0;
         std::memcpy(actor.data() + 0xCF4, &zero, 2);
+        owner.actor.damage_class = 0; // Native alias of the cleared actor +0xCF4 word.
     }
 }
 }

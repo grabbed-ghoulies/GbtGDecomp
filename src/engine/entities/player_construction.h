@@ -26,6 +26,7 @@ struct RuntimePlayerConstruction
     const u32& story_flags; // DAT_0050EA98.
     RuntimeActorMatrixState& matrices;
     const RuntimeShaderMatrixBoundaries& matrix_boundaries;
+    std::function<u32(const void*)> address_of; // Retail address of the input device for actor +0x960.
 };
 bool initialize_runtime_player(std::span<u8> actor, std::span<const u8> parameters,
     RuntimePlayerConstruction& context); // Xbox 0x00028830

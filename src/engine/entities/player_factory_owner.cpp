@@ -337,7 +337,7 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
       construction{owner_instance.bat.actor, attributes, spawn, body_object, mind_object, strategy_object,
           strategy_setup, input, scene_bindings.input_release, scene_bindings.tag_rows, scene_bindings.object_tags,
           attachment_creation, created_attachment, scene_bindings.initial_channel_word, scene_bindings.player_count,
-          scene_bindings.story_flags, matrices, scene_bindings.matrix_boundaries},
+          scene_bindings.story_flags, matrices, scene_bindings.matrix_boundaries, scene_bindings.address_of},
       goal_cleanup{self, ring, body, owner_instance.bat.actor, scene_bindings.latches, scene_bindings.address_zero,
           scene_bindings.overrides},
       destruction{construction, goal_cleanup, links, navigation},

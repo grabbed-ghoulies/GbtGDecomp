@@ -463,7 +463,10 @@ void check_body_dependencies(SceneExecutableResources& executable)
         RuntimePlayerConstruction construction{host_actor, attributes, spawn, body_object, mind_object,
             strategy_object, strategy_setup, input, input_release, tag_rows.data(), tag_names, creation,
             created_attachment, read_u32(executable.memory(0x338EE0, 4), 0), player_count, story_flags,
-            matrices, boundaries};
+            matrices, boundaries, [](const void*) -> u32
+            {
+                return 0x30001230;
+            }};
         host_actor.position = Vec3{1.f, 2.f, 3.f};
         host_actor.euler = Vec3{0.1f, 0.2f, 0.3f};
         put(parameters, 0x63A, 17);
@@ -477,7 +480,7 @@ void check_body_dependencies(SceneExecutableResources& executable)
             && read_f32(host_bytes, 0xCC8) == 3.f && read_f32(host_bytes, 0xCCC) == 0.1f
             && read_u16(host_bytes, 0x990) == 17 && read_u16(host_bytes, 0xCF4) == 0xBEEF
             && input.data() != nullptr && input.size() == 0xB0 && read_u32(input, 0) == 1
-            && read_u32(input, 4) == 0 && host_bytes[0x298] == 1
+            && read_u32(input, 4) == 0 && host_bytes[0x298] == 1 && read_u32(host_bytes, 0x960) == 0x30001230
             && player_count == 5 && factory.count == 1 && created_attachment.bytes == nullptr,
             "full player ctor must copy transforms, consume actual LCG, preserve zero-tag field and create base input/body");
         engine_heap_free(input.data());
@@ -497,7 +500,7 @@ void check_body_dependencies(SceneExecutableResources& executable)
         require(initialize_runtime_player(host_bytes, parameters, construction)
             && random == expected && read_f32(host_bytes, 0x994) == next_phase
             && read_u16(host_bytes, 0xCDC) == 1 && host_actor.mask_mode == 1
-            && read_u16(host_bytes, 0xCDE) == 4 && read_u16(host_bytes, 0xCF4) == 1
+            && read_u16(host_bytes, 0xCDE) == 4 && read_u16(host_bytes, 0xCF4) == 1 && host_actor.damage_class == 1
             && read_u16(host_bytes, 0xCF6) == 2 && player_count == 6
             && read_f32(context.body, 0x8C) == channel && context.body[0x90] == 2
             && context.body[0x91] == 0 && context.body[0x92] == 2

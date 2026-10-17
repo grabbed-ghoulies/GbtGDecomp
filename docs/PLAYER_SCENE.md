@@ -56,8 +56,10 @@ Live and native:
   button bat hops, and the script then waits at its "(next bit)" type-0xF gate.
 - The play camera (cameron's director `0x000AA250`), the actor draw passes and
   the background `0x00042C10`. Cooper and the five imps are drawn.
-- Actor updates run every frame (no hold). The imps walk and idle on the hall
-  floor; Cooper walks under the left stick (state `0x8E` walk-alert).
+- Actor updates run every frame (no hold). The imps hunt Cooper: their mind requests `0x2F` / `0x2E` navigate
+  toward him by writing their own input axes (`0x00136620`), their walk state `0x8E` reads them back through
+  actor +0x960, and request 2 (`0x0007B090`) makes them punch and kick. Cooper walks under the left stick
+  (state `0x8E` walk-alert).
 - **Attacks.** The right stick makes Cooper's mind request an attack: the body
   selects factory type `0x73` `entityStateHit` (`entities/body_hit_state.cpp`),
   whose tick lunges toward the mind's target, turns toward it, plays the swing
@@ -115,7 +117,7 @@ Live and native:
   the part.
 - **The later fight.** Imps die through entityStateDie (type `0x62`) and pose through type `0x5E`; a dizzy
   Cooper's stick input speeds the stars (`0x0008CC40`'s input branch).
-- **"Kill All".** All five imps die and are removed by fight frame ~5100. The gate record (opcode 1, at most 0
+- **"Kill All".** All five imps die and are removed by fight frame ~3260. The gate record (opcode 1, at most 0
   alive, 1.5 s) counts down in `0x001330E0` once the count holds, and `0x00132680` fires; the butler's
   "Well done, Sir!" page takes A, the script requests the ghoulybox through its trigger (message 0xA8) and moves
   to "Event Door Intro" (fight frame ~5660). The next section runs: Cooper stands in the main hall facing the
@@ -123,6 +125,31 @@ Live and native:
 
 Not live yet: the 64x64 actor snapshot records its draws but rasterizes nothing (its texture stays empty).
 See the frontier.
+
+## Controls
+
+The pad path is native from the host packet inward: `platform.cpp` (stands in for `0x001555B0`) → `pad_process`
+(`0x000FA3C0`, deadzone 9800, limit 32700) → the device readers in `dialogue_input.cpp` → the player mind,
+strategy and camera. The `0x00154xxx` layer in `src/engine/input/controller.cpp` (sticks ×1/74 and ×1/59,
+button repeat, rumble) has no caller; its remap hooks `0x00155360` / `0x001553B0` stay null.
+
+`--player-controls` checks the rows marked *tested*.
+
+| Input | Native reader | What it does | Status |
+|---|---|---|---|
+| Left stick | `0x001085F0` → `0x000A5A60` (walk steer), `0x00140AE0` (camera-relative turn), `0x000784B0` (camera swing) | Walk/run; speed is body +0x32C × the class value `0x000259C0` (actor +0xCF4 class) × surface scale × stick | Works, *tested*: 45 units/s at full tilt, the same at 60, 144 and 240 Hz |
+| Right stick | `0x001088D0` → `0x0007D460` / `0x0007D5A0` (gesture) → `0x0007E880` | A flick attacks: the nearest target in the cone, else the mind's own +0xB8 record 80 units along the stick (`0x0007EA20`) | Works, *tested* with no imp in range; also turns the head (`0x00137140`) without a gaze anchor |
+| A (0x100) | `0x0007D210` | Picks up the pending attachment (mind +0x134) | Translated; no pickup in the opening scene yet |
+| A / B | `0x000BEF40` state 0x3F1 | Accept or refuse the brew prompt | Translated; not reached in the opening |
+| B (0x200) | `0x0007D300` | Drops/throws the held attachment | Translated; not reached in the opening |
+| A/B/X/Y (0xF00) | `0x000BF6A0` | Any face-button edge counts as "wants to move" for the strategy | Translated |
+| Left / right trigger | `0x0013DC40` (camera turn), `0x000AADE0` (both > 0.5: director heading) | Turn the follow camera; both together steer the director | Works, *tested*: 60 frames of one trigger turn the camera ~2 rad, the two triggers in opposite directions |
+| Start / Back | frontend (pause) | | Host menu booleans only in the player scene |
+| Black / White, stick clicks | no player-path reader found | | |
+
+The class at actor +0xCF4 is written by the player constructor (`0x00028830`) into the actor bytes, and
+`Actor::damage_class` is its native alias. Before 2026-10-16 the alias stayed 0, so every class lookup took
+the class-0 maximum (Cooper ran at 90 units/s).
 
 ## Conventions
 
@@ -160,6 +187,7 @@ All take the game directory, e.g.
 | `--scene-start` | The above plus the background, navigation, the 0x88/0x7D notices and the 0x6F player wait |
 | `--player-opening` | Tutorial hold, bat hop, A edges, the "(next bit)" gate, Cooper walking (`cache/player_walk_check.bmp`), the imp fight music |
 | `--player-fight` | The opening flow, then Cooper fights the imps (see Acceptance) |
+| `--player-controls` | The opening flow, then run speed at 60/144/240 Hz, a right-stick swing with no imp in range (`cache/player_air_swing.bmp`) and the trigger camera turn |
 
 Headless captures: `gbtg --headless --frames N --scene chapter1_scene1_2playcam
 --width 640 --height 480 --screenshot FILE.bmp`.
@@ -271,6 +299,23 @@ Cooper on (the doors event) before the script reaches its scene request.
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-17: controls, class values and moving imps
+
+- Cooper's run speed: `Actor::damage_class` (the native alias of actor +0xCF4) was never set, so every class
+  lookup (`0x000259C0`, `0x00133BD0`, `0x00028DA0`) took the class-0 maximum. `0x00028830` now sets it; Cooper
+  runs at 45 units/s (was 90), the same at 60, 144 and 240 Hz. The class values also feed both sides' damage,
+  pauses and pulses.
+- The right stick with no target in range: `0x0007EA20` reads actor +0x8F8 (the first record on the actor's
+  +0x8F4 list) and the mind's own +0xB8 record is addressed like a `DAT_00545988` record, so Cooper swings at
+  the air 80 units along the stick.
+- Imps stood still: `0x00028830` stores `0x00107830`'s base input at actor +0x960 and the port dropped that
+  store. The imps' navigation wrote their stick, but their walk state (`0x000A5A60`, input word = actor +0x960)
+  read zero and went back to stand every frame. With the store, imps chase Cooper, punch and kick through
+  request 2 (`0x0007B090`, its chain selection now bound like the player's `0x0007DF50`), and knock him back.
+- `--player-fight` passes ("Kill All" at frame ~3260). The bot now flicks only inside its 10-unit standoff
+  (a flick out of reach swings at the air) and does not chase imps more than 80 units away.
+- New `--player-controls` mode: run speed at three rates, the air swing, the trigger camera turn.
 
 ### 2026-10-16: the glow, broadcasts and "Kill All"
 

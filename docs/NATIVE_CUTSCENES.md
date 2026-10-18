@@ -42,18 +42,21 @@ The opening (`--scene chapter1_scene1_2playcam`, frames 120–900) and the
 900-frame boot run are pixel-identical to the step 3 references
 (`cache/audio_step/shots/`).
 
-The attract cannot be captured headless: the boot transition uses handler 0,
-which advances only once its timer is below zero. A fixed 1/60 s step lands on
-exactly 0.0, so the boot never leaves transition state 1 and the attract scene
-never starts. This is retail behavior, faithfully translated. `--title` (1/59 s
-steps) does reach the attract.
+The transition fade (handler 0) lasts 1/60 s (`0x0032B150`) and advances only once its
+timer is below zero. `0x0011E4C0` begins the transition and ticks it in the same frame, so a
+1/60 s step lands on exactly 0.0 and the fade never ends: the next scene stays black. That was
+true for every scene change while the port stepped 1/60 s (2026-10-19: final1 to final2).
 
-Retail gets past it because its step is not fixed: `0x000FC030` sets `DAT_005096C0` to
-the vblanks between the last two swaps (`DAT_005096D0`, counted by the vertical-blank
-callback `0x000FC3B0`) over 60, capped at 5 fields. The frame that loads the attract script
-spans several fields, so the next step pushes the 1/60 s fade below zero. Paced (windowed)
-runs do the same: `run_platform` counts 60 Hz fields from `PlatformConfig::boot_started`,
-taken before `Game::init` runs that load, so the first pass covers it (2026-10-18).
+Retail never steps 1/60 s. It creates the device with PresentationInterval 2 (`0x000FC310`
+stores 2 at `DAT_00509700`; `0x001548B0` passes it to Direct3D_CreateDevice), so it swaps on
+every second vertical blank. `0x000FC030` sets `DAT_005096C0` to the vblanks between the
+last two swaps (`DAT_005096D0`, counted by the vertical-blank callback `0x000FC3B0`) over 60,
+capped at 5 fields: 1/30 s, or more after a slow frame. `run_platform` now ticks the logic the
+same way: windowed runs tick once two 60 Hz fields have passed since the last tick, with the
+fields that actually passed (counted from `PlatformConfig::boot_started`, before `Game::init`
+loads the first script), and present the last frame again in between (`gfx_present_again`).
+Headless and screenshot runs step two fields a pass, so they reach the attract too.
+`gbtg-transition-tests` still drives `game.tick(1/60)` itself; `--title` uses 1/59 s steps.
 
 ## Done (2026-10-15)
 

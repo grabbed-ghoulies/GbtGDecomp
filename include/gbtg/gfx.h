@@ -142,6 +142,9 @@ void gfx_read_native_target_depth(std::vector<u32>& output);
 
 void gfx_size(int& width, int& height);
 void gfx_end_frame();
+// Presents the last finished frame again with no logic tick, so the host window can refresh faster than the
+// retail 30 Hz swap. Nothing happens before the first frame or without a window.
+void gfx_present_again();
 
 // Last presented target as BGRA. False when the backend has no target.
 bool gfx_readback(RgbaImage& out);

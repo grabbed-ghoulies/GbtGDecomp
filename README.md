@@ -128,7 +128,8 @@ For a bounded run and a capture through the D3D11 backend:
 
 - `--headless` hides the window and defaults to one tick unless `--frames N`
   is supplied. Headless runs use 10% master volume.
-- `--frames N` limits the number of ticks.
+- `--frames N` limits the number of logic ticks. Like retail, the logic ticks at 30 Hz (1/30 s a tick), so
+  900 frames is 30 seconds.
 - `--screenshot file.bmp` saves the final presented frame and hides the window.
   Supply `--frames N` to capture beyond the default single tick.
 - `--width W`, `--height H` and `--vsync N` override video settings.

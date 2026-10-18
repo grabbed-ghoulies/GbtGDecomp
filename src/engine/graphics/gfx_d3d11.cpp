@@ -154,6 +154,7 @@ struct GfxD3D11
     ComPtr<ID3D11RenderTargetView> rtv;
     ComPtr<ID3D11Texture2D> depth;
     ComPtr<ID3D11DepthStencilView> dsv;
+    ComPtr<ID3D11Texture2D> last_frame; // The last swapped game frame, without the debug UI, for gfx_present_again.
     ComPtr<ID3D11VertexShader> vs;
     ComPtr<ID3D11VertexShader> clear_vs;
     ComPtr<ID3D11Buffer> clear_cb;
@@ -4141,6 +4142,40 @@ void present_clear(u32 flags)
 
 // Xbox 0x00033A90
 // 0x00154A40. Notify 0, D3DDevice_Swap(0), notify 1.
+// Copies the finished back buffer aside so gfx_present_again can show it again until the next logic tick.
+void retain_last_frame()
+{
+    ComPtr<ID3D11Texture2D> back;
+    if (FAILED(g.swap->GetBuffer(0, IID_PPV_ARGS(back.GetAddressOf()))))
+    {
+        g.last_frame.Reset();
+        return;
+    }
+    D3D11_TEXTURE2D_DESC desc{};
+    back->GetDesc(&desc);
+    if (g.last_frame)
+    {
+        D3D11_TEXTURE2D_DESC held{};
+        g.last_frame->GetDesc(&held);
+        if (held.Width != desc.Width || held.Height != desc.Height || held.Format != desc.Format)
+        {
+            g.last_frame.Reset();
+        }
+    }
+    if (!g.last_frame)
+    {
+        desc.BindFlags = 0;
+        desc.CPUAccessFlags = 0;
+        desc.MiscFlags = 0;
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        if (FAILED(g.device->CreateTexture2D(&desc, nullptr, g.last_frame.GetAddressOf())))
+        {
+            return;
+        }
+    }
+    g.context->CopyResource(g.last_frame.Get(), back.Get());
+}
+
 void present_swap()
 {
     if (present_frame.swap_notify != nullptr)
@@ -4149,6 +4184,7 @@ void present_swap()
     }
     if (g.ok && g.swap)
     {
+        retain_last_frame();
 #if defined(GBTG_DEBUG_UI)
         g.context->OMSetRenderTargets(1, g.rtv.GetAddressOf(), nullptr);
         debug_ui_draw();
@@ -4355,6 +4391,25 @@ void gfx_end_frame()
     profile_gpu_end();
 }
 
+void gfx_present_again()
+{
+    if (!g.ok || !g.swap || !g.last_frame)
+    {
+        return;
+    }
+    ComPtr<ID3D11Texture2D> back;
+    if (FAILED(g.swap->GetBuffer(0, IID_PPV_ARGS(back.GetAddressOf()))))
+    {
+        return;
+    }
+    g.context->CopyResource(back.Get(), g.last_frame.Get());
+#if defined(GBTG_DEBUG_UI)
+    g.context->OMSetRenderTargets(1, g.rtv.GetAddressOf(), nullptr);
+    debug_ui_draw();
+#endif
+    g.swap->Present(g.cfg.vsync, 0);
+}
+
 #if defined(GBTG_INSPECTOR_APP)
 namespace
 {
@@ -4388,6 +4443,7 @@ void inspector_resize_surface(int width, int height)
     g.dsv.Reset();
     g.depth.Reset();
     g.color.Reset();
+    g.last_frame.Reset();
     g.context->Flush();
     if (g.swap && FAILED(g.swap->ResizeBuffers(0, UINT(width), UINT(height), DXGI_FORMAT_UNKNOWN, 0)))
     {

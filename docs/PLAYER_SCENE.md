@@ -394,6 +394,10 @@ through the doorway, Cooper fights it down with the chair (its after-images and 
   whatever the display refreshes at, as retail does (`0x00033030`: 60 Hz, 50 for PAL, `dt = 1/fps`). It used the
   real elapsed time, so a 240 Hz display ran the logic at 1/240 s steps. Headless and screenshot runs keep their
   fixed 1/60 s without waiting. Measured: 600 windowed frames take 11.5 s (10 s plus start-up).
+- Corrected 2026-10-19: retail swaps every second vblank (PresentationInterval 2), so its logic runs at 30 Hz
+  with a 1/30 s step (`0x000FC030` counts the fields between swaps). The loop now ticks that way and presents
+  the last frame again between ticks; headless and screenshot runs step 1/30 s. See `docs/NATIVE_CUTSCENES.md`.
+  The opening scene's checkpoints above were taken at 1/60 s steps.
 - An imp was seen staying behind the wave's door in a 240 Hz play. `--player-fight` driven at four 1/240 s steps a
   frame did not show it: all ten imps came into the hall after "Kill All", as at 60 Hz. The cause is not known.
   In both runs the imps hold still behind the door from about frame 420 (the door shuts near frame 400) until

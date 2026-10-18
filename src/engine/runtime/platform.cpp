@@ -27,8 +27,10 @@ namespace gbtg
 {
 namespace
 {
-// The retail game runs its logic once per 60 Hz NTSC field; DAT_005096C0 holds that 1/60 s step.
+// One 60 Hz NTSC field, the unit 0x000FC030 counts the step in (DAT_005096C0 = fields / 60).
 constexpr std::chrono::duration<double> kLogicStep{1.0 / 60.0};
+// D3DPRESENT_INTERVAL_TWO: the fewest fields between two swaps, so the usual step is 1/30 s.
+constexpr int kSwapInterval = 2;
 
 // Waits until `deadline`: a high-resolution timer sleep until about a millisecond before it, then a short spin.
 void wait_until(std::chrono::steady_clock::time_point deadline)
@@ -119,22 +121,50 @@ int run_platform(Game& game, const PlatformConfig& cfg)
     }
 #endif
 
-    // Interactive runs pace each pass to the next 60 Hz slot whatever the display refresh, so input is sampled and
-    // the logic ticks at the retail rate. Headless and screenshot runs tick as fast as they can, one field a pass.
+    // Retail swaps every second vertical blank (PresentationInterval 2: 0x000FC310 stores 2 at DAT_00509700, which
+    // 0x001548B0 passes to Direct3D_CreateDevice), so the logic ticks once per two 60 Hz fields, or more when a frame
+    // runs long. Interactive runs keep that schedule and present the last frame again between ticks, so the window
+    // can refresh faster than the logic. Headless and screenshot runs tick as fast as they can, two fields a pass.
     const bool paced = !cfg.headless && cfg.screenshot.empty();
     const auto step = std::chrono::duration_cast<std::chrono::steady_clock::duration>(kLogicStep);
     // Fields count from the boot frame: retail loads the first script inside a frame (0x0011E4C0 state 4), so the
     // step after it spans that load. Game::init runs that load before this loop.
     const auto origin = cfg.boot_started;
-    long long field = 0; // The 60 Hz slot the previous pass started in.
+    long long field = 0; // The 60 Hz field of the previous logic tick (its swap).
+    bool presented = false;
+    [[maybe_unused]] auto last_pass = std::chrono::steady_clock::now(); // The debug UI's host frame time.
     while (game.running)
     {
         // DAT_005096D0: the fields between the last two swaps, which the vertical-blank callback 0x000FC3B0 counts.
-        // 0x000FC030 makes the step that many fields, so a slow frame (a load) gives a step past 1/60 s.
-        int fields = 1;
+        // 0x000FC030 makes the step that many fields.
+        int fields = kSwapInterval;
         if (paced)
         {
-            wait_until(origin + step * (field + 1));
+            const auto due = origin + step * (field + kSwapInterval);
+            if (std::chrono::steady_clock::now() < due)
+            {
+                if (!presented || cfg.vsync == 0)
+                {
+                    wait_until(due);
+                }
+                else
+                {
+                    bool gfx_quit = false;
+                    gfx_pump(gfx_quit);
+                    if (gfx_quit)
+                    {
+                        game.running = false;
+                        break;
+                    }
+#if defined(GBTG_DEBUG_UI)
+                    const auto now = std::chrono::steady_clock::now();
+                    debug_ui_build(game, std::chrono::duration<float>(now - last_pass).count());
+                    last_pass = now;
+#endif
+                    gfx_present_again();
+                    continue;
+                }
+            }
             const long long now_field = (std::chrono::steady_clock::now() - origin) / step;
             fields = int(std::min<long long>(now_field - field, 600));
             field = now_field;
@@ -365,9 +395,14 @@ int run_platform(Game& game, const PlatformConfig& cfg)
             render_profile::capture_replay = false;
         }
 #if defined(GBTG_DEBUG_UI)
-        debug_ui_build(game, dt);
+        {
+            const auto now = std::chrono::steady_clock::now();
+            debug_ui_build(game, paced ? std::chrono::duration<float>(now - last_pass).count() : dt);
+            last_pass = now;
+        }
 #endif
         gfx_end_frame();
+        presented = true;
         render_profile::count_allocations = false;
         render_profile::finish(std::chrono::duration<double, std::milli>(render_profile::Clock::now() - frame_start).count());
         if (remaining > 0 && --remaining == 0)

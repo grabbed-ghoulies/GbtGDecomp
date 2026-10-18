@@ -654,6 +654,10 @@ void gfx_end_frame()
     present_draw_frame();
 }
 
+void gfx_present_again()
+{
+}
+
 bool gfx_readback(RgbaImage&)
 {
     return false;

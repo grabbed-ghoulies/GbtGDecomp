@@ -114,6 +114,7 @@ int main(int argc, char** argv)
         }
         gbtg::Game game;
         const auto startup = gbtg::render_profile::Clock::now();
+        cfg.boot_started = std::chrono::steady_clock::now();
         game.init(cfg.game_dir, cfg.scene);
         if (gbtg::render_profile::enabled)
         {

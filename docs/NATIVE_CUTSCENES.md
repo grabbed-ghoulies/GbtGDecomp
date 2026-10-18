@@ -48,6 +48,13 @@ exactly 0.0, so the boot never leaves transition state 1 and the attract scene
 never starts. This is retail behavior, faithfully translated. `--title` (1/59 s
 steps) does reach the attract.
 
+Retail gets past it because its step is not fixed: `0x000FC030` sets `DAT_005096C0` to
+the vblanks between the last two swaps (`DAT_005096D0`, counted by the vertical-blank
+callback `0x000FC3B0`) over 60, capped at 5 fields. The frame that loads the attract script
+spans several fields, so the next step pushes the 1/60 s fade below zero. Paced (windowed)
+runs do the same: `run_platform` counts 60 Hz fields from `PlatformConfig::boot_started`,
+taken before `Game::init` runs that load, so the first pass covers it (2026-10-18).
+
 ## Done (2026-10-15)
 
 - **Scene cutscene stack live.** `SceneActorServices` installs

@@ -7,6 +7,7 @@
 #include "gbtg/debug_ui.h"
 #endif
 
+#include <algorithm>
 #include <chrono>
 #include <iostream>
 
@@ -119,21 +120,24 @@ int run_platform(Game& game, const PlatformConfig& cfg)
 #endif
 
     // Interactive runs pace each pass to the next 60 Hz slot whatever the display refresh, so input is sampled and
-    // the logic ticks at the retail rate. Headless and screenshot runs tick as fast as they can.
+    // the logic ticks at the retail rate. Headless and screenshot runs tick as fast as they can, one field a pass.
     const bool paced = !cfg.headless && cfg.screenshot.empty();
     const auto step = std::chrono::duration_cast<std::chrono::steady_clock::duration>(kLogicStep);
-    auto next = std::chrono::steady_clock::now();
+    // Fields count from the boot frame: retail loads the first script inside a frame (0x0011E4C0 state 4), so the
+    // step after it spans that load. Game::init runs that load before this loop.
+    const auto origin = cfg.boot_started;
+    long long field = 0; // The 60 Hz slot the previous pass started in.
     while (game.running)
     {
+        // DAT_005096D0: the fields between the last two swaps, which the vertical-blank callback 0x000FC3B0 counts.
+        // 0x000FC030 makes the step that many fields, so a slow frame (a load) gives a step past 1/60 s.
+        int fields = 1;
         if (paced)
         {
-            wait_until(next);
-            next += step;
-            const auto now = std::chrono::steady_clock::now();
-            if (now - next > step * 4)
-            {
-                next = now + step; // Too far behind (a stall or a breakpoint): restart the schedule.
-            }
+            wait_until(origin + step * (field + 1));
+            const long long now_field = (std::chrono::steady_clock::now() - origin) / step;
+            fields = int(std::min<long long>(now_field - field, 600));
+            field = now_field;
         }
         InputState in;
         bool gfx_quit = false;
@@ -341,7 +345,7 @@ int run_platform(Game& game, const PlatformConfig& cfg)
         {
             in = {}; // Reproducible neutral host input for automated measurements.
         }
-        const float dt = float(kLogicStep.count());
+        const float dt = float(fields) / 60.f; // 0x000FC030 caps it at five fields (clock_pad).
         const auto frame_start = render_profile::Clock::now();
         render_profile::count_allocations = render_profile::enabled;
         gfx_begin_frame();

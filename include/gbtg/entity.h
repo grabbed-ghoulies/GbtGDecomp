@@ -148,7 +148,8 @@ struct Actor
     Vec3 parked_euler{};   // +0xccc
     i32 parked_gate = 0;   // +0xcd8
     u32 intro_flags = 0;   // 0x00042500. Bit 2 arms the query in message 0x23.
-    i32 mask_flag = 0;                 // +0x93c. Nonzero makes 0x0001FE00 clear bit 0x4000.
+    i32 mask_flag = 0;                 // +0x93c dword. Nonzero makes 0x0001FE00 clear bit 0x4000.
+                                       // Kept with the word by 0x00029270 / 0x00028A30 and the weapon writers.
     const EntityShapeNode* const* spawn_points = nullptr; // +0xAC8, pointer array
     i32 spawn_point_count = 0;          // +0xAC4, count confirmed by 0x001476D0
     i16 accepted_class_count = 0;       // +0x944
@@ -158,7 +159,7 @@ struct Actor
     i32 spawn_blocked = 0;              // +0xAD0, tested by 0x00146150
     EntityMaskSpan* mask_span = nullptr; // +0x980
     i32 mask_loading = 0;              // +0x984, type-0x6F loading gate
-    i16 mask_mode = 0;                 // +0xcdc
+    i16 mask_mode = 0;                 // +0xcdc, kept with the word by 0x00028830 and 0x001495C0
     u16 damage_class = 0;              // +0xcf4, class row used by 0x00028DA0.
 };
 

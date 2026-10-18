@@ -273,6 +273,19 @@ std::array<u32, 60> pixel_shader_words(const u8* definition, const SceneD3DIndex
     {
         words[44] = pack_color(draw.pixel_constants[final_second]);
     }
+    // Raw combiner register writes since the shader was bound (the model shader overrides) replace their words.
+    for (size_t word = 0; word < SceneD3DDevice::kPixelShaderRegisters.size(); ++word)
+    {
+        if (word == 54 && modes != draw.states.end())
+        {
+            continue;
+        }
+        const auto raw = draw.states.find(SceneD3DDevice::kPixelShaderRegisters[word]);
+        if (raw != draw.states.end())
+        {
+            words[word] = raw->second;
+        }
+    }
     return words;
 }
 

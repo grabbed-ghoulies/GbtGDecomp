@@ -31,6 +31,7 @@ bool occupancy_sphere_contains(const OccupancyRecord& record, const Vec3& point,
     float& distance); // Xbox 0x00124640
 bool occupancy_box_contains(const OccupancyRecord& record, const Vec3& point,
     float& distance); // Xbox 0x001244D0
+bool occupancy_region_contains(u32 region, const Vec3& point); // Xbox 0x00124860, EDI point
 const OccupancyRecord* find_occupancy_record(const Vec3& point, float initial_distance,
     u32 mask, const OccupancyRecord* excluded, i16 group); // Xbox 0x001248D0
 }

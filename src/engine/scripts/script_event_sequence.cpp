@@ -1,0 +1,911 @@
+#include "script_event_sequence.h"
+#include "script_actions.h"
+#include "script_conditions.h"
+#include "script_dialogue_actions.h"
+#include "script_vm.h"
+#include "../cutscenes/door_registration.h"
+#include "../entities/actor_live_attachments.h"
+#include "../entities/aid_spawn_queue.h"
+#include "../entities/aid_spawn_resources.h"
+#include "../entities/entity.h"
+#include "../entities/entity_heap.h"
+#include "../audio/bank_streams.h"
+#include "../scene/actor_loading.h"
+#include "../scene/cutscene_scene_runtime.h"
+#include "../scene/dialogue_scene_runtime.h"
+#include "../frontend/dialogue_activation.h"
+#include "../camera/camera.h"
+#include "gbtg/engine_internal.h"
+
+#include <bit>
+#include <cstdio>
+#include <cstring>
+
+namespace gbtg
+{
+i32 g_event_sequence_state = 0;
+ScriptEventSequence g_event_sequence;
+ScriptEventSequenceContext* g_event_sequence_context = nullptr;
+
+extern u32 g_flags_ea9c; // DAT_0050EA9C.
+using scene_detail::g_block_decay; // DAT_0050E768.
+using scene_detail::g_decay_arm; // DAT_0030F144[DAT_0051248C].
+using scene_detail::g_sim_dt; // DAT_005096C0.
+using scene_detail::g_sim_freeze; // DAT_004312DC.
+using scene_detail::g_sim_scale; // DAT_004312C4.
+
+namespace
+{
+constexpr u32 kStepStride = 0x88;
+
+ScriptEventSequenceContext& context()
+{
+    if (g_event_sequence_context == nullptr)
+    {
+        throw Error("script event sequence without the scene's services (doors, scoreboard, voices)");
+    }
+    return *g_event_sequence_context;
+}
+
+std::span<u8> step_at(u8* row)
+{
+    return {row, kStepStride};
+}
+
+void put_word(std::span<u8> bytes, size_t offset, u32 value)
+{
+    std::memcpy(bytes.data() + offset, &value, 4);
+}
+
+void put_float(std::span<u8> bytes, size_t offset, float value)
+{
+    std::memcpy(bytes.data() + offset, &value, 4);
+}
+
+float frame_step()
+{
+    return g_sim_freeze <= 0.f ? g_sim_dt * g_sim_scale : 0.f;
+}
+
+// Retail stack message {id, value} sent to the script queue (0x00116810) and every actor (0x00122C70).
+void notify_event_end(Game& g)
+{
+    const u32 message[]{0x83, 1};
+    script_queue_event(g, {reinterpret_cast<const u8*>(message), sizeof(message)}); // 0x00116810
+    broadcast_actor_pulse_message(reinterpret_cast<const i32*>(message)); // 0x00122C70
+}
+
+void broadcast_word(u32 id)
+{
+    // A one-word stack message; the receivers read its id.
+    const u32 message[]{id};
+    broadcast_actor_pulse_message(reinterpret_cast<const i32*>(message)); // 0x00122C70
+}
+
+RuntimeScoreboardMessage* board_row(u32 id)
+{
+    auto* board = context().board;
+    if (board == nullptr)
+    {
+        throw Error("script event icons without the scoreboard DAT_00545AB0");
+    }
+    for (auto& row : board->messages)
+    {
+        if (row.id == id)
+        {
+            return &row;
+        }
+    }
+    return nullptr;
+}
+
+bool door_exists(u16 door)
+{
+    u16 state = 0;
+    return runtime_door_state(door, state, context().doors); // 0x0005B510's walk
+}
+
+void remove_step(u8*& row, u8*& end)
+{
+    auto* pool = g_event_sequence.steps;
+    if (row < pool->end - pool->stride)
+    {
+        std::memmove(row, row + pool->stride, size_t(pool->end - (row + pool->stride))); // 0x000F71F0
+    }
+    pool->end -= pool->stride;
+    end -= kStepStride;
+    row -= kStepStride;
+}
+
+void release_step_camera(std::span<u8> step)
+{
+    if (read_u32(step, 0) == 0xF && read_u32(step, 0x84) != 0)
+    {
+        throw Error("script event step type 0xF with a bound camera (0x00048C70 on its view)");
+    }
+}
+
+// From the head, +0 is followed while it is set; the count walks +4 from that node's +4.
+template<class Record, auto Back, auto Next>
+i32 count_list_tail(Record& head)
+{
+    Record* node = &head;
+    while (node->*Back != nullptr)
+    {
+        node = node->*Back;
+    }
+    i32 count = 0;
+    for (Record* chain = node->*Next; chain != nullptr; chain = chain->*Next)
+    {
+        ++count;
+    }
+    return count;
+}
+}
+
+// Xbox 0x000D0490
+void release_script_event_steps()
+{
+    auto* pool = g_event_sequence.steps;
+    if (pool == nullptr)
+    {
+        return;
+    }
+    for (u8* row = pool->begin; row < pool->end; row += kStepStride)
+    {
+        release_step_camera(step_at(row));
+    }
+    engine_heap_free(pool); // 0x000F7100 heap, then HeapFree
+    g_event_sequence.steps = nullptr;
+}
+
+// Xbox 0x000D0530
+void reset_script_event_sequence()
+{
+    release_script_event_steps();
+    g_event_sequence.door = 0;
+    g_event_sequence_state = 0;
+    g_flags_ea9c &= 0xFF7FFFFFu;
+}
+
+// Xbox 0x000D0550
+void begin_script_event_sequence(u16 door, u32 hold, const char* name)
+{
+    auto& sequence = g_event_sequence;
+    if (sequence.door == 0)
+    {
+        auto* pool = static_cast<entity_detail::NavigationCellRegistration*>(engine_heap_allocate(
+            i32(sizeof(entity_detail::NavigationCellRegistration) + 2 * kStepStride))); // 0x000F72D0(0x120)
+        u8* rows = reinterpret_cast<u8*>(pool + 1);
+        pool->begin = rows;
+        pool->end = rows;
+        pool->capacity = rows + 2 * kStepStride;
+        pool->stride = u16(kStepStride);
+        pool->growth = 2;
+        sequence.steps = pool;
+    }
+    else
+    {
+        g_event_sequence_state = 0;
+    }
+    sequence.door = door;
+    sequence.hold = hold;
+    sequence.page_shown = 0;
+    size_t index = 0;
+    char character;
+    do
+    {
+        character = name[index];
+        sequence.name.at(index) = character;
+        ++index;
+    } while (character != '\0');
+}
+
+// Xbox 0x000D05D0
+void queue_script_event_step(std::span<const u8> step)
+{
+    const u32 type = read_u32(step, 0);
+    if ((g_flags_ea9c & 0x10u) != 0)
+    {
+        switch (type)
+        {
+        case 4:
+        case 7:
+        case 8:
+        case 9:
+        case 10:
+        case 0xB:
+        case 0xC:
+        case 0x10:
+        case 0x11:
+            return;
+        default:
+            break;
+        }
+    }
+    auto*& pool = g_event_sequence.steps;
+    if (pool == nullptr)
+    {
+        throw Error("script event step queued before 0x000D0550 allocated DAT_005064E0");
+    }
+    if (pool->end == pool->capacity)
+    {
+        pool = entity_detail::grow_navigation_cell_registration(pool); // 0x000662A0
+    }
+    u8* row = pool->end;
+    pool->end += pool->stride;
+    const u32 size = read_u32(context().step_sizes, size_t(type) * 0x14);
+    if (size > kStepStride || size > step.size())
+    {
+        throw Error("script event step type " + std::to_string(type) + " size outside its record");
+    }
+    std::memcpy(row, step.data(), size); // 0x000F71F0
+    put_word(step_at(row), 0x10, 0);
+    put_word(step_at(row), 0x14, 0);
+}
+
+// Xbox 0x000D0680
+void play_script_event_sequence(Game& g)
+{
+    set_script_event_sequence_state(g, 1);
+    tick_script_event_door(g);
+}
+
+// Xbox 0x000D09A0
+void set_script_event_sequence_state(Game& g, i32 state)
+{
+    auto& sequence = g_event_sequence;
+    bool notify = g_event_sequence_state == 4;
+    u32 latch = 1;
+    if (notify)
+    {
+        notify_event_end(g);
+    }
+    switch (state)
+    {
+    case 0:
+        sequence.door = 0;
+        break;
+    case 1:
+    {
+        prepare_script_event_steps();
+        auto* pool = sequence.steps;
+        const u32 count = u32(pool->end - pool->begin) / pool->stride;
+        // {0x81, door word, step count, steps}: the steps travel by address.
+        const ScriptEventStartMessage message{0x81, sequence.door, 0, count, pool->begin};
+        broadcast_actor_pulse_message(reinterpret_cast<const i32*>(&message)); // 0x00122C70
+        if (door_exists(sequence.door)) // 0x0005B510, SI door
+        {
+            set_runtime_door_state(sequence.door, 5, sequence.hold, 1, context().doors); // 0x0005B540
+            if (sequence.hold == 0)
+            {
+                request_audio_stream("XACT_SOUNDBANK_GSTREAMSDITTIES_EVENTBEGIN", 9, scene_music_streams(g));
+            }
+        }
+        latch = 0;
+        notify = true;
+        sequence.door_delay = 1.f; // DAT_0032B0F8.
+        break;
+    }
+    case 3:
+        latch = 1;
+        notify = true;
+        break;
+    case 4:
+        if (door_exists(sequence.door)) // 0x0005B510
+        {
+            set_runtime_door_state(sequence.door, 0, 0, 0, context().doors); // 0x0005B540
+        }
+        latch = 0;
+        notify = true;
+        break;
+    default:
+        break;
+    }
+    g_event_sequence_state = state;
+    if (notify)
+    {
+        script_update_decay_latches(0xFFFF, i32(latch)); // 0x00117400
+    }
+}
+
+// Xbox 0x000D0B10
+void prepare_script_event_steps()
+{
+    auto* pool = g_event_sequence.steps;
+    for (u8* row = pool->begin; row < pool->end; row += kStepStride)
+    {
+        // The table at 0x003039C8: types 1 and 0xF have 0x000D0200 / 0x000D02E0, the others the empty 0x001628B0.
+        const u32 type = read_u32(step_at(row), 0);
+        if (type == 1)
+        {
+            throw Error("untranslated Xbox 0x000D0200 (script event step type 1)");
+        }
+        if (type == 0xF)
+        {
+            throw Error("untranslated Xbox 0x000D02E0 (script event step type 0xF)");
+        }
+    }
+}
+
+// Xbox 0x000D12E0
+void tick_script_event_door(Game& g)
+{
+    auto& sequence = g_event_sequence;
+    auto& services = context();
+    auto& doors = services.doors;
+    bool held = false;
+    if (sequence.hold != 0)
+    {
+        for (u32 index = 0; index < u32(doors.rows.size()); ++index)
+        {
+            const auto& door = doors.rows[index];
+            if (read_u16(door.fields, 4) == sequence.door)
+            {
+                held = read_u32(door.fields, 0x14C) != 0;
+                break;
+            }
+        }
+        if (!held)
+        {
+            if (door_exists(sequence.door)) // 0x0005B510
+            {
+                request_audio_stream("XACT_SOUNDBANK_GSTREAMSDITTIES_EVENTBEGIN", 9, scene_music_streams(g));
+            }
+            sequence.hold = 0;
+        }
+    }
+    if (door_exists(sequence.door) && !runtime_door_at_event(sequence.door, doors)) // 0x0005B7C0
+    {
+        return;
+    }
+    bool ended = false;
+    if (!script_event_icons_ready()) // 0x000D1260
+    {
+        if (sequence.steps != nullptr)
+        {
+            if (0.f < sequence.icon_delay)
+            {
+                sequence.icon_delay -= frame_step();
+            }
+            show_script_event_icons(); // 0x000D0F20
+            return;
+        }
+        ended = g_event_sequence_state == 4;
+        if (ended)
+        {
+            notify_event_end(g);
+        }
+        sequence.door = 0;
+        g_event_sequence_state = 0;
+    }
+    else
+    {
+        const float step = frame_step();
+        if (sequence.door_delay <= 0.f)
+        {
+            return;
+        }
+        if (0.f < sequence.door_delay - step)
+        {
+            sequence.door_delay -= step;
+            return;
+        }
+        sequence.door_delay = 0.f;
+        if (door_exists(sequence.door) && *doors.camera_registered != 0)
+        {
+            camera_unlink_view(doors.camera); // 0x00048C70
+            *doors.camera_registered = 0;
+        }
+        if (show_script_event_page(g)) // 0x000D1190
+        {
+            if (g_event_sequence_state == 4)
+            {
+                notify_event_end(g);
+            }
+            g_event_sequence_state = 3;
+            script_update_decay_latches(0xFFFF, 1); // 0x00117400
+            return;
+        }
+        ended = g_event_sequence_state == 4;
+        if (ended)
+        {
+            notify_event_end(g);
+        }
+        g_event_sequence_state = 2;
+    }
+    if (!ended)
+    {
+        return;
+    }
+    script_update_decay_latches(0xFFFF, 1); // 0x00117400
+}
+
+// Xbox 0x000D0300
+void tick_script_event_sequence(Game& g)
+{
+    if (0 < g_script_e794)
+    {
+        pulse_script_event_icons(); // 0x000D1200
+        return;
+    }
+    auto& sequence = g_event_sequence;
+    switch (g_event_sequence_state)
+    {
+    case 1:
+        pulse_script_event_icons();
+        tick_script_event_door(g);
+        return;
+    case 2:
+        if (!show_script_event_page(g))
+        {
+            return;
+        }
+        if (g_event_sequence_state == 4)
+        {
+            notify_event_end(g);
+        }
+        g_event_sequence_state = 3;
+        script_update_decay_latches(0xFFFF, 1);
+        return;
+    case 3:
+        if (!run_script_event_steps(g)) // 0x000D0B40
+        {
+            return;
+        }
+        g_flags_ea9c |= 0x00800000u;
+        if (door_exists(sequence.door))
+        {
+            if (g_event_sequence_state == 4)
+            {
+                notify_event_end(g);
+            }
+            if (door_exists(sequence.door))
+            {
+                set_runtime_door_state(sequence.door, 0, 0, 0, context().doors); // 0x0005B540
+            }
+            g_event_sequence_state = 4;
+            script_update_decay_latches(0xFFFF, 0);
+            return;
+        }
+        break;
+    case 4:
+        if (door_exists(sequence.door))
+        {
+            u16 state = 0;
+            if (!runtime_door_state(sequence.door, state, context().doors)) // 0x0005B780
+            {
+                return;
+            }
+            if (state != 0)
+            {
+                return;
+            }
+        }
+        break;
+    default:
+        return;
+    }
+    set_script_event_sequence_state(g, 0);
+}
+
+// Xbox 0x000D1200
+void pulse_script_event_icons()
+{
+    auto* pool = g_event_sequence.steps;
+    if (pool == nullptr)
+    {
+        return;
+    }
+    for (u8* row = pool->begin; row < pool->end; row += kStepStride)
+    {
+        const u32 id = read_u32(step_at(row), 0x10);
+        if (id != 0)
+        {
+            if (auto* message = board_row(id); message != nullptr)
+            {
+                message->float_c = context().icon_pulse;
+            }
+        }
+    }
+}
+
+// Xbox 0x000D1260
+bool script_event_icons_ready()
+{
+    auto* pool = g_event_sequence.steps;
+    if (pool == nullptr)
+    {
+        return false;
+    }
+    bool ready = true;
+    for (u8* row = pool->begin; row < pool->end; row += kStepStride)
+    {
+        const u32 id = read_u32(step_at(row), 0x10);
+        if (ready && id != 0)
+        {
+            const auto* message = board_row(id);
+            if (message != nullptr && message->word_8 == 2)
+            {
+                ready = true;
+                continue;
+            }
+        }
+        ready = false;
+    }
+    return ready;
+}
+
+// Xbox 0x000D0F20
+void show_script_event_icons()
+{
+    auto* pool = g_event_sequence.steps;
+    if (pool == nullptr)
+    {
+        return;
+    }
+    auto& services = context();
+    for (u8* row = pool->begin; row < pool->end; row += kStepStride)
+    {
+        const auto step = step_at(row);
+        const u32 type = read_u32(step, 0);
+        u16 kind = 0;
+        u32 count = 0xFFFFFFFFu;
+        switch (type)
+        {
+        case 6:
+            count = 0;
+            break;
+        case 0:
+        case 1:
+        case 9:
+        case 0xA:
+        case 0xB:
+        case 0xC:
+        case 0xF:
+        case 0x11:
+            break;
+        default:
+            throw Error("script event step type " + std::to_string(type)
+                + " icon count (0x000D0F20) is not translated");
+        }
+        if (read_u32(step, 0x10) == 0 && read_u32(step, 0x14) == 0 && g_event_sequence.icon_delay <= 0.f)
+        {
+            g_event_sequence.icon_delay = services.icon_delay;
+            put_word(step, 0x10, add_script_event_icon(type)); // 0x0012FB80, EDI type
+            put_word(step, 0x14, 1);
+            const i16 voice = allocate_audio_event_voice(0, services.voices); // 0x00039830, EBX 0
+            if (voice != -1)
+            {
+                services.voices.voices.at(size_t(voice)).stop = 1; // DAT_004E0CEC
+                prepare_audio_event_voice(voice, type == 4 ? "XACT_SOUNDBANK_GPICKUPDITTIES_REAPERICON"
+                    : "XACT_SOUNDBANK_GPICKUPDITTIES_EVENTREQICON", services.voices); // 0x00039A20
+            }
+        }
+        const u32 id = read_u32(step, 0x10);
+        if (id != 0)
+        {
+            if (auto* message = board_row(id); message != nullptr)
+            {
+                message->float_c = services.icon_pulse;
+            }
+            if (count != 0xFFFFFFFFu)
+            {
+                throw Error("untranslated Xbox 0x001318A0 (script event icon count)");
+            }
+            if (kind != 0)
+            {
+                throw Error("untranslated Xbox 0x00131920 (script event icon picture)");
+            }
+        }
+    }
+}
+
+// Xbox 0x000D1190
+bool show_script_event_page(Game& g)
+{
+    auto& sequence = g_event_sequence;
+    if ((g_flags_ea9c & 0x4000u) != 0 || sequence.name[0] == '\0')
+    {
+        return true;
+    }
+    auto& services = context();
+    if (sequence.page_shown != 0)
+    {
+        return services.prompt_owner == 0;
+    }
+    if (services.prompt_owner == 0)
+    {
+        if (services.restart_requested == 1)
+        {
+            return true;
+        }
+        if (enqueue_runtime_dialogue_key(sequence.name.data(), 0, scene_dialogue_context(g).dialogue) != 0)
+        {
+            sequence.page_shown = 1;
+        }
+    }
+    return false;
+}
+
+// Xbox 0x000D0B40
+bool run_script_event_steps(Game& g)
+{
+    auto& sequence = g_event_sequence;
+    auto& services = context();
+    bool succeeded = false;
+    bool removed = false;
+    auto* pool = sequence.steps;
+    if (pool == nullptr)
+    {
+        return true;
+    }
+    if (0.f < sequence.icon_delay)
+    {
+        sequence.icon_delay -= frame_step();
+    }
+    u32 waiting = 0;
+    i32 pending = 0;
+    show_script_event_icons(); // 0x000D0F20
+    u8* end = pool->end;
+    for (u8* row = pool->begin; row < end; row += kStepStride)
+    {
+        const auto step = step_at(row);
+        const u32 type = read_u32(step, 0);
+        bool skipped = false;
+        if ((g_flags_ea9c & 0x10u) != 0)
+        {
+            switch (type)
+            {
+            case 4:
+            case 7:
+            case 8:
+            case 9:
+            case 10:
+            case 0xB:
+            case 0xC:
+            case 0x10:
+            case 0x11:
+                skipped = true;
+                break;
+            default:
+                break;
+            }
+        }
+        if (skipped)
+        {
+            release_step_camera(step);
+            remove_step(row, end);
+            continue;
+        }
+        i32 result = 0;
+        if (!services.steps_held())
+        {
+            if (type != 0)
+            {
+                throw Error("script event step type " + std::to_string(type)
+                    + " (table 0x003039CC) is not translated");
+            }
+            result = run_script_event_kill_step(step); // 0x000CFA10
+        }
+        switch (result)
+        {
+        case 1:
+            broadcast_word(0x82);
+            fade_script_event_icon(read_u32(step, 0x10)); // 0x0012FDC0, EDX id
+            put_word(step, 0x10, 0);
+            release_step_camera(step);
+            remove_step(row, end);
+            succeeded = true;
+            removed = true;
+            break;
+        case 2:
+            ++pending;
+            break;
+        case 3:
+            broadcast_word(0x84);
+            fade_script_event_icon(read_u32(step, 0x10));
+            put_word(step, 0x10, 0);
+            if ((g_flags_ea9c & 0x10u) == 0)
+            {
+                throw Error("untranslated Xbox 0x000CF7B0 (script event step failure reward)");
+            }
+            release_step_camera(step);
+            remove_step(row, end);
+            removed = true;
+            break;
+        case 4:
+            if ((g_flags_ea9c & 0x10u) == 0)
+            {
+                throw Error("untranslated Xbox 0x000CF7B0 (script event step reward)");
+            }
+            break;
+        case 5:
+            waiting = 1;
+            sequence.waiting = 1;
+            break;
+        default:
+            break;
+        }
+    }
+    const u32 remaining = u32(pool->end - pool->begin) / pool->stride;
+    if (removed && (remaining == 0 || remaining == u32(pending)))
+    {
+        for (u8* row = pool->begin; row < pool->end; row += kStepStride)
+        {
+            const auto step = step_at(row);
+            if (auto* message = board_row(read_u32(step, 0x10)); message != nullptr)
+            {
+                if (1 < message->word_8 && message->word_8 < 4)
+                {
+                    message->float_c = 0.f;
+                }
+                message->word_8 = 5;
+                message->float_10 = services.icon_fade;
+            }
+            put_word(step, 0x10, 0);
+        }
+        release_script_event_steps(); // 0x000D0490
+        if (succeeded)
+        {
+            request_audio_stream("XACT_SOUNDBANK_GSTREAMSDITTIES_EVENTBEGIN", 10, scene_music_streams(g));
+        }
+    }
+    else if (succeeded)
+    {
+        request_audio_stream("XACT_SOUNDBANK_GSTREAMSDITTIES_EVENTBEGIN", 0xB, scene_music_streams(g));
+    }
+    sequence.waiting = waiting;
+    return sequence.steps == nullptr;
+}
+
+// Xbox 0x000D0700
+bool script_event_step_delay_done(std::span<u8> timer)
+{
+    const i32 cutscene = g_event_sequence_context == nullptr ? -1 : context().cutscene_index();
+    if (read_u32(timer, 4) == 0)
+    {
+        put_word(timer, 4, 1);
+        put_word(timer, 8, cutscene > -1 ? 1u : 0u);
+    }
+    if (read_u32(timer, 8) != 0)
+    {
+        return cutscene <= -1;
+    }
+    if (read_f32(timer, 0) > 0.f)
+    {
+        // 0x000D06B0: no step while bit 4 of DAT_0050EA9C is set or the decay latches hold.
+        float step = 0.f;
+        if ((g_flags_ea9c & 4u) == 0 && g_block_decay == 0 && g_decay_arm != 0)
+        {
+            step = frame_step();
+        }
+        const float left = read_f32(timer, 0) - step;
+        put_float(timer, 0, left);
+        if (!(0.f < left))
+        {
+            put_float(timer, 0, 0.f);
+            return true;
+        }
+    }
+    return read_f32(timer, 0) == 0.f;
+}
+
+// Xbox 0x000CFA10
+i32 run_script_event_kill_step(std::span<u8> step)
+{
+    i32 alive = 0;
+    for (const auto* node = static_cast<const entity_detail::ListHead*>(entity_detail::g_world.alt.next);
+         node != nullptr; node = static_cast<const entity_detail::ListHead*>(node->next))
+    {
+        if (!g_alt_node_body)
+        {
+            throw Error("DAT_00511B48 node has no body view");
+        }
+        if (read_u16(g_alt_node_body(node), 0x94) != 0)
+        {
+            ++alive;
+        }
+    }
+    if (alive != 0)
+    {
+        return 0;
+    }
+    if (count_list_tail<ActorLoadRecord, &ActorLoadRecord::prev, &ActorLoadRecord::next>(g_side_list) != 0) // DAT_00510568
+    {
+        return 0;
+    }
+    if (count_list_tail<AidSpawnQueueRecord, &AidSpawnQueueRecord::previous, &AidSpawnQueueRecord::next>(
+            g_aid_spawn_queue) != 0) // 0x0011B770, DAT_00510570
+    {
+        return 0;
+    }
+    return script_event_step_delay_done(step.subspan(4)) ? 1 : 5; // 0x000D0700, ECX step+4
+}
+
+// Xbox 0x0012FB80
+u32 add_script_event_icon(u32 kind)
+{
+    u32 icon = 0;
+    u32 word_70 = 1;
+    u32 word_78 = 0;
+    switch (kind)
+    {
+    case 0:
+        icon = 7;
+        break;
+    case 1:
+        icon = 5;
+        break;
+    case 4:
+        icon = 0xB;
+        word_70 = 4;
+        break;
+    case 5:
+        icon = 0xA;
+        word_70 = 4;
+        break;
+    case 6:
+        icon = 8;
+        word_70 = 3;
+        break;
+    case 8:
+        icon = 0x11;
+        word_78 = 1;
+        break;
+    case 9:
+        icon = 0xD;
+        break;
+    case 0xA:
+        icon = 0xC;
+        break;
+    case 0xB:
+        icon = 4;
+        break;
+    case 0xC:
+        icon = 9;
+        break;
+    case 0xE:
+        icon = 0xF;
+        word_70 = 2;
+        break;
+    case 0xF:
+        icon = 6;
+        break;
+    case 0x10:
+        icon = 0xE;
+        word_70 = 2;
+        break;
+    case 0x11:
+        icon = 0x10;
+        word_78 = 1;
+        break;
+    default:
+        throw Error("script event icon kind " + std::to_string(kind) + " needs 0x00131A30");
+    }
+    auto& services = context();
+    if (services.board == nullptr)
+    {
+        throw Error("script event icons without the scoreboard DAT_00545AB0");
+    }
+    return add_runtime_scoreboard_message(1, icon, word_70, 0, word_78, 1, 1, *services.board,
+        services.board_resources); // 0x001316F0, EBX DAT_00545AB0
+}
+
+// Xbox 0x0012FDC0
+bool fade_script_event_icon(u32 id)
+{
+    auto* message = board_row(id);
+    if (message == nullptr)
+    {
+        return false;
+    }
+    if (1 < message->word_8 && message->word_8 < 4)
+    {
+        message->float_c = 0.f;
+    }
+    message->word_8 = 5;
+    message->float_10 = context().icon_fade;
+    return true;
+}
+}

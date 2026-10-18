@@ -2,6 +2,12 @@
 #include "../frontend/dialogue_resources.h"
 #include "../graphics/pose_matrix.h"
 #include "../entities/entity_heap.h"
+#include "../navigation/grid_regions.h"
+#include "../camera/camera.h"
+#include "../camera/view_initialization.h"
+#include "event_pause.h"
+#include "../scene/actor_loading.h"
+#include "../runtime/name_lookup.h"
 
 #include <bit>
 #include <cstring>
@@ -304,14 +310,14 @@ void register_runtime_door(const Vec3& position, const Vec3& euler, const Vec3& 
         pool = entity_detail::grow_navigation_cell_registration(pool);
         for (u32 row = 0; row < index; ++row)
         {
-            context.rows[row].fields = {pool->begin + row * pool->stride, 0x150};
+            context.rows[row].fields = {pool->begin + row * pool->stride, 0x154};
         }
     }
     u8* cursor = pool->end;
     pool->end += pool->stride;
     context.rows.resize(index + 1);
     auto& door = context.rows[index];
-    door.fields = {cursor, 0x150};
+    door.fields = {cursor, 0x154};
     door.primary = nullptr;
     door.camera = nullptr;
     store(door.fields, 0, std::bit_cast<u32>(shape));
@@ -359,5 +365,325 @@ void register_runtime_door(const Vec3& position, const Vec3& euler, const Vec3& 
     }
     build_runtime_door_clip_names(clip, camera, 1, 0, shape, ordinal, context.names, context.cutscenes->resources);
     load_runtime_door_clips(door, clip, camera, context);
+}
+
+RuntimeDoorContext* g_runtime_doors = nullptr;
+
+namespace
+{
+RuntimeDoorClips* find_runtime_door(u16 ordinal, RuntimeDoorContext& context)
+{
+    if (context.pool == nullptr)
+    {
+        throw Error("door lookup before 0x0011CBD0 allocated DAT_004EE2B8");
+    }
+    size_t index = 0;
+    for (u8* row = context.pool->begin; row < context.pool->end; row += context.pool->stride, ++index)
+    {
+        if (read_u16({row, 8}, 4) == ordinal)
+        {
+            return &context.rows.at(index);
+        }
+    }
+    return nullptr;
+}
+
+void put_half(std::span<u8> row, size_t offset, u16 value)
+{
+    std::memcpy(row.data() + offset, &value, 2);
+}
+}
+
+// Xbox 0x0005B7C0
+bool runtime_door_at_event(u16 ordinal, RuntimeDoorContext& context)
+{
+    const RuntimeDoorClips* door = find_runtime_door(ordinal, context);
+    if (door == nullptr)
+    {
+        return false;
+    }
+    if (read_u16(door->fields, 4) == 2)
+    {
+        return read_u16(door->fields, 6) == 5;
+    }
+    if (read_u16(door->fields, 6) != 5)
+    {
+        if (read_u16(door->fields, 8) != 5)
+        {
+            return false;
+        }
+        if (door->primary == nullptr)
+        {
+            throw Error("door moving to its event state without a clip at +0x140");
+        }
+        if (door->primary->time / door->primary->duration <= 0.5f) // DAT_0032B0F4.
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Xbox 0x0005B780
+bool runtime_door_state(u16 ordinal, u16& state, RuntimeDoorContext& context)
+{
+    const RuntimeDoorClips* door = find_runtime_door(ordinal, context);
+    if (door == nullptr)
+    {
+        return false;
+    }
+    state = read_u16(door->fields, 6);
+    return true;
+}
+
+// Xbox 0x0005B540
+void set_runtime_door_state(u16 ordinal, u16 state, u32 hold, u32 last, RuntimeDoorContext& context)
+{
+    RuntimeDoorClips* door = find_runtime_door(ordinal, context);
+    if (door == nullptr)
+    {
+        throw Error("untranslated Xbox 0x0005B870 (0x000663B0 adding door " + std::to_string(ordinal)
+            + " after 0x0005B2D0(0xC))");
+    }
+    if (state == 6)
+    {
+        throw Error("door state 6 removes the row (0x000F71F0), which is not translated here");
+    }
+    if (state == 7)
+    {
+        throw Error("untranslated Xbox 0x0005A9B0 (door state 7)");
+    }
+    if (state != read_u16(door->fields, 6))
+    {
+        if (context.cutscenes == nullptr)
+        {
+            throw Error("door clip names need the scene cutscene runtime, which is not bound");
+        }
+        char clip[128];
+        char camera[128];
+        const i32 shape = std::bit_cast<i32>(read_u32(door->fields, 0));
+        const bool moved = read_u32(door->fields, 0x148) != 0;
+        if (moved)
+        {
+            build_runtime_door_clip_names(clip, camera, read_u16(door->fields, 6), state, shape, ordinal,
+                context.names, context.cutscenes->resources);
+            put_half(door->fields, 8, state);
+        }
+        else
+        {
+            const u16 other = state == 0 ? 1 : 0;
+            build_runtime_door_clip_names(clip, camera, state, other, shape, ordinal, context.names,
+                context.cutscenes->resources);
+            put_half(door->fields, 6, state);
+            put_half(door->fields, 8, other);
+        }
+        if (!transition_aid_equal(reinterpret_cast<const char*>(door->fields.data() + 0xC0), clip))
+        {
+            load_runtime_door_clips(*door, clip, camera, context);
+        }
+        if (moved)
+        {
+            hold_runtime_door(*door, 1, context);
+            auto& cutscenes = *context.cutscenes;
+            if (door->primary == nullptr)
+            {
+                throw Error("door " + std::to_string(ordinal) + " moves without a clip at +0x140");
+            }
+            if (hold == 0)
+            {
+                CutsceneEventPauseContext pause{cutscenes.instances.at(door->primary).actors.data(),
+                    cutscenes.animations, cutscenes.audio.voices, cutscenes.resume_callbacks};
+                pause_cutscene_events(*door->primary, 0, pause); // 0x0004E640, EDI +0x140
+            }
+            RuntimeCutsceneInstance* view = door->camera;
+            if (view == nullptr && door->primary->resource[2] != 0)
+            {
+                view = door->primary;
+            }
+            if (view != nullptr)
+            {
+                if (context.camera == nullptr)
+                {
+                    throw Error("door camera view DAT_004EE2BC is not bound");
+                }
+                update_cutscene_camera_view(*view, cutscenes.views.at(view->resource).cameras.data(),
+                    *context.camera); // 0x0004D7D0
+            }
+        }
+        else
+        {
+            snap_runtime_door_state(*door, state, context);
+        }
+        store(door->fields, 0x14C, hold);
+        store(door->fields, 0x150, last);
+    }
+    store(door->fields, 0x148, 1);
+}
+
+// Xbox 0x0005AA90
+void update_runtime_doors(RuntimeDoorContext& context, float step)
+{
+    if (context.pool == nullptr)
+    {
+        return;
+    }
+    const u32 count = u32(context.pool->end - context.pool->begin) / context.pool->stride;
+    if (count == 0)
+    {
+        return;
+    }
+    if (context.cutscenes == nullptr || context.camera_registered == nullptr || context.paused == nullptr
+        || context.active_strategies == nullptr || context.camera_hold == nullptr || context.runtime_flags == nullptr)
+    {
+        throw Error("door update without its cutscene runtime and hold globals");
+    }
+    auto& cutscenes = *context.cutscenes;
+    bool unbind = false;
+    for (u32 index = 0; index < count; ++index)
+    {
+        RuntimeDoorClips& door = context.rows.at(index);
+        if (read_u32(door.fields, 0xB8) == 0)
+        {
+            continue;
+        }
+        if (read_u32(door.fields, 0x14C) != 0 && actor_loading_complete()) // 0x001412F0
+        {
+            if (door.primary == nullptr)
+            {
+                throw Error("running door without a clip at +0x140");
+            }
+            CutsceneEventPauseContext pause{cutscenes.instances.at(door.primary).actors.data(),
+                cutscenes.animations, cutscenes.audio.voices, cutscenes.resume_callbacks};
+            pause_cutscene_events(*door.primary, 0, pause); // 0x0004E640, EDI +0x140
+            store(door.fields, 0x14C, 0);
+        }
+        if (door.primary == nullptr)
+        {
+            throw Error("running door without a clip at +0x140");
+        }
+        // ESI: the door camera unless a separate camera clip drives it.
+        EntityCamNode* view = read_u32(door.fields, 0x144) != 0 ? nullptr : context.camera;
+        if (tick_runtime_cutscene(*door.primary, step, view, cutscenes)) // 0x0004DA50
+        {
+            if (read_u32(door.fields, 0x144) != 0 && read_u32(door.fields, 0x150) == 0)
+            {
+                unbind = true;
+            }
+            if (read_u32(door.fields, 0xB8) != 0)
+            {
+                store(door.fields, 0xB8, 0);
+                if (*context.paused != 0)
+                {
+                    --*context.active_strategies;
+                    --*context.camera_hold;
+                    *context.runtime_flags &= 0xFDFFFFFFu;
+                    *context.paused = 0;
+                }
+            }
+            snap_runtime_door_state(door, read_u16(door.fields, 8), context); // 0x0005BDB0, AX +8
+        }
+        if (read_u32(door.fields, 0x144) != 0)
+        {
+            if (door.camera == nullptr)
+            {
+                throw Error("door +0x144 names a camera clip with no native instance");
+            }
+            tick_runtime_cutscene(*door.camera, step, context.camera, cutscenes); // 0x0004DA50, ESI DAT_004EE2BC
+        }
+    }
+    if (unbind && *context.camera_registered != 0)
+    {
+        camera_unlink_view(context.camera); // 0x00048C70, EAX DAT_004EE2BC
+        *context.camera_registered = 0;
+    }
+}
+
+// Xbox 0x0005C020
+void apply_runtime_door_regions(RuntimeDoorContext& context)
+{
+    if (context.pool == nullptr)
+    {
+        return;
+    }
+    for (u8* row = context.pool->begin; row < context.pool->end; row += 0x154)
+    {
+        const std::span<const u8> fields{row, 8};
+        set_all_navigation_regions_blocked(read_u16(fields, 4), read_u16(fields, 6) != 0 ? 1 : 0); // 0x00036A00
+    }
+}
+
+// Xbox 0x0005BF30
+void hold_runtime_door(RuntimeDoorClips& door, u32 active, RuntimeDoorContext& context)
+{
+    if (read_u32(door.fields, 0xB8) == active)
+    {
+        return;
+    }
+    store(door.fields, 0xB8, active);
+    if (context.camera_registered == nullptr || context.paused == nullptr || context.active_strategies == nullptr
+        || context.camera_hold == nullptr || context.runtime_flags == nullptr)
+    {
+        throw Error("door hold globals (DAT_004EE31C, DAT_004EE320, DAT_00510CEC, DAT_004DEA24) are not bound");
+    }
+    if (active == 0)
+    {
+        if (*context.paused != 0)
+        {
+            --*context.active_strategies;
+            --*context.camera_hold;
+            *context.runtime_flags &= 0xFDFFFFFFu;
+            *context.paused = 0;
+        }
+        return;
+    }
+    if (*context.camera_registered != 0 || read_u32(door.fields, 0x144) == 0)
+    {
+        return;
+    }
+    if (*context.paused == 0)
+    {
+        ++*context.active_strategies;
+        ++*context.camera_hold;
+        *context.runtime_flags |= 0x02000000u;
+        *context.paused = 1;
+    }
+    if (context.camera == nullptr || context.camera_name == nullptr)
+    {
+        throw Error("door camera view DAT_004EE2BC is not bound");
+    }
+    initialize_camera_view(*context.camera, context.camera_name, 0); // 0x000496C0, EDX view, EAX name
+    link_camera_view(0, *context.camera); // 0x00048C20, ESI 0
+    camera_bind_named_view(0, context.camera_name); // 0x00048CF0, EBX name
+    *context.camera_registered = 1;
+}
+
+// Xbox 0x0005BDB0
+void snap_runtime_door_state(RuntimeDoorClips& door, u16 state, RuntimeDoorContext& context)
+{
+    set_all_navigation_regions_blocked(read_u16(door.fields, 4), state == 0 ? 0 : 1); // 0x001117E0, EBX
+    put_half(door.fields, 6, state);
+    put_half(door.fields, 8, state == 0 ? 1 : 0);
+    if (door.primary == nullptr || door.primary->resource[3] == 0)
+    {
+        return;
+    }
+    if (!context.actor_message)
+    {
+        throw Error("door clip actor messages are not bound");
+    }
+    // The message is a one-word stack slot; receivers read its id.
+    const u32 id = state == 1 ? 0x1F : 0x1E;
+    std::int8_t index = 0;
+    do
+    {
+        Actor* actor = context.cutscenes->instances.at(door.primary).actors[index].actor;
+        if (actor != nullptr)
+        {
+            std::array<u32, 0x42> message{};
+            message[0] = id;
+            context.actor_message(*actor, message);
+        }
+        index = std::bit_cast<std::int8_t>(u8(u8(index) + 1));
+    } while (i32(index) < i32(door.primary->resource[3]));
 }
 }

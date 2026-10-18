@@ -48,6 +48,8 @@ extern i32 g_nav_origin_x;
 extern i32 g_nav_origin_z;
 i32 navigation_floor_index(const Vec3& point, i32 preferred, i32 check_cell); // Xbox 0x00110BF0
 i32 navigation_cell_index(i32 floor, const Vec3& point); // Xbox 0x00110EF0
+// The floor cell under the point and its +2 height; false outside the grid.
+bool navigation_cell_height(i32 floor, const Vec3& point, float& height); // Xbox 0x00110BB0, ESI floor, EBX point
 u8 navigation_surface_kind(i32 floor, const Vec3& point); // Xbox 0x001117A0
 bool navigation_path_clear(const Vec3& source, const Vec3& destination, i32 region_mode,
     i32 allow_tagged, i32 query_occupancy, i32 reject_marked, const OccupancyRecord* allowed,

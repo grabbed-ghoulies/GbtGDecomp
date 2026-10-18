@@ -97,6 +97,9 @@ add_library(gbtg_lib STATIC
     src/engine/entities/body_dizzy_state.cpp
     src/engine/entities/body_die_state.cpp
     src/engine/entities/body_anim_state.cpp
+    src/engine/scripts/script_event_sequence.cpp
+    src/engine/frontend/scoreboard_update.cpp
+    src/engine/frontend/scoreboard_draw.cpp
     src/engine/entities/body_knockdown_state.cpp
     src/engine/entities/avatar_motion_blur.cpp
     src/engine/graphics/actor_snapshots.cpp
@@ -106,12 +109,14 @@ add_library(gbtg_lib STATIC
     src/engine/scene/attract_control.cpp
     src/engine/scene/gameselect_control.cpp
     src/engine/scene/scene_actor_removal.cpp
+    src/engine/scene/ghoul_intro.cpp
     src/engine/scene/scene_shadow_casters.cpp
     src/engine/scene/scene_gameplay_time.cpp
     src/engine/scene/scene_body_messages.cpp
     src/engine/scene/scene_mind_messages.cpp
     src/engine/entities/body_move_actions.cpp
     src/engine/entities/body_state_actions.cpp
+    src/engine/entities/body_pickup_state.cpp
     src/engine/entities/camera_actor_classes.cpp
     src/engine/entities/camera_director.cpp
     src/engine/entities/body_move_action_slots.cpp
@@ -126,6 +131,10 @@ add_library(gbtg_lib STATIC
     src/engine/scene/scene_marker_handlers.cpp
     src/engine/entities/player_spawn.cpp
     src/engine/entities/area_actor.cpp
+    src/engine/entities/actor_model_pieces.cpp
+    src/engine/entities/weapon_actor.cpp
+    src/engine/entities/weapon_motion.cpp
+    src/engine/entities/weapon_breakage.cpp
     src/engine/entities/trigger_actor.cpp
     src/engine/entities/scene_actor_factory_owner.cpp
     src/engine/entities/actor_word_messages.cpp

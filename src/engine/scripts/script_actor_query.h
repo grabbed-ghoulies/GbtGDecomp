@@ -1,6 +1,7 @@
 #pragma once
 #include "gbtg/entity.h"
 #include "../scene/scene_types.h"
+#include <functional>
 #include <unordered_map>
 
 namespace gbtg
@@ -42,11 +43,19 @@ struct RuntimeScriptActorQueryView
     void* marker; // actor+0xCE0
 };
 using RuntimeScriptActorPredicate = u32 (*)(Actor* requester, Actor* candidate);
+struct RuntimePlayerGoalRing;
+// A player actor's retail words: its bytes (+0x984) and its goal ring (+0x980). Empty bytes for other actors.
+struct RuntimeScriptActorGoals
+{
+    std::span<const u8> bytes;
+    const RuntimePlayerGoalRing* ring;
+};
 struct RuntimeScriptActorQueryContext
 {
     scene_detail::RangeLink* first; // DAT_00511B38
     std::unordered_map<scene_detail::CamFocus*, RuntimeScriptActorQueryView>& views;
     const u8* address_zero; // Native memory view for the dump's literal address-zero u16 read.
+    std::function<RuntimeScriptActorGoals(const Actor&)> goals{}; // A scene player's +0x980 / +0x984 words.
 };
 // Address views must map native address zero to nullptr, including the retail
 // player-link sentinel 0x93C whose subtraction produces address zero.

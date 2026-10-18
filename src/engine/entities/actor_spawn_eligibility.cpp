@@ -7,9 +7,11 @@ namespace gbtg
 // Xbox 0x00146150
 bool actor_can_supply_ghoulybox(const Actor& actor)
 {
-    const ActorLink* link = actor.link;
-    if ((link == nullptr || link->head == nullptr ||
-        reinterpret_cast<uintptr_t>(link) == 0x918) &&
+    // Actor +0x918 is the actor's bind node (Actor::link); its first dword is the parent's node, whose own first
+    // dword is null at the root (DAT_00511B10). The parent node minus 0x918 is the parent actor, kept natively as
+    // the actor node's owner.
+    const auto* parent = actor.link == nullptr ? nullptr : static_cast<const ActorLink*>(actor.link->head);
+    if ((parent == nullptr || parent->head == nullptr || actor.link->owner == nullptr) &&
         (u8(actor.mask_flag) != 0 && actor.spawn_blocked == 0))
     {
         return actor.spawn_point_count != 0;

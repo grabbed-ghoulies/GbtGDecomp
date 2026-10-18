@@ -60,6 +60,10 @@ SceneD3DDevice::SceneD3DDevice()
     {
         render_states_[kPixelShader] = handle;
         render_states_.erase(kPSTextureModes); // The shader's own texture modes apply again.
+        for (const u32 method : kPixelShaderRegisters)
+        {
+            render_states_.erase(method); // The upload replaces any raw combiner writes.
+        }
     };
     dialogue_.texture = [this](u32 stage, const u8* texture)
     {

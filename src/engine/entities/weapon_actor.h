@@ -1,0 +1,236 @@
+#pragma once
+
+#include "actor_factory_owner.h"
+#include "actor_matrix_setup.h"
+#include "actor_base_messages.h"
+#include "actor_frame_update.h"
+#include "actor_spawn_query.h"
+#include "body_contacts.h"
+#include "body_resources.h"
+#include "camera_director.h"
+#include "../camera/display_view.h"
+#include "../scene/scene_marker_handlers.h"
+#include "../frontend/scoreboard_hud.h"
+#include "../audio/event_voices.h"
+#include "../scripts/script_actor_query.h"
+#include "ghouly_requests.h"
+#include "../navigation/cell_registration.h"
+#include "../navigation/floor_tracking.h"
+#include "gbtg/resource_error.h"
+#include "actor_lifecycle.h"
+#include "ghouly_spawn_record.h"
+#include "../../gbtg/text/localtext_resources.h"
+
+#include <array>
+#include <functional>
+#include <memory>
+#include <vector>
+
+namespace gbtg
+{
+// Weapon base, factory type 0x0B (getter 0x00145900) over the actor (type 2), and its subclass the cook's chair,
+// type 0xAA (getter 0x000CEF70, vtable 0x00506438).
+void weapon_actor_object_sizes(ObjectSizes& sizes); // Xbox 0x001458E0
+void chair_weapon_object_sizes(ObjectSizes& sizes); // Xbox 0x000CEF50
+
+// DAT_005461F4..DAT_005461FC: the weapon stat table (0x44-byte rows: the tag name, then the points at +0x40), its
+// row count, and the loctext table of its captions. Loaded at boot by 0x001486C0.
+struct RuntimeWeaponStatTables
+{
+    std::span<const u8> stats;
+    u32 count = 0;
+    std::span<const u8> text;
+};
+void load_runtime_weapon_stat_tables(RuntimeWeaponStatTables& tables, AnimationResourceRegistry& registry,
+    ResourceErrorState& error); // Xbox 0x001486C0
+// Scene services every weapon shares.
+struct RuntimeWeaponServices
+{
+    RuntimeWeaponStatTables& stats;
+    std::function<const char*(u16)> tag_name; // DAT_0042A850[tag].
+    LocalTextResourceContext& text; // 0x000FF120.
+    std::span<char16_t> award_text; // DAT_00507E78.
+    std::function<void(i32, u32, const char16_t*, i32)> award; // 0x0012DE90: points, category, text, quiet.
+    u32& broken_parts; // DAT_00545978.
+    RuntimeActorSoundQueues& sounds; // 0x00039690's voices.
+    std::span<float, 12> sampling_scratch; // DAT_0050D7A0.
+    float*& sampling_active; // DAT_0050DD70.
+    std::function<std::span<const u8>(const Actor&, u32)> resolve; // A retail word in an actor model's space.
+    std::function<void(Actor&, ActorFrameAttachment*)> release_frames; // 0x0003DE90 over actor +0x1D8.
+    u32& runtime_flags; // DAT_0050EA9C.
+    std::function<u32(const Actor&)> actor_address; // A scene actor's retail address.
+    std::function<std::span<const u8>(u32)> body_of; // The actor's +0x95C object (players).
+    RuntimeMarkerObjects& objects; // The factory, the objparams pools and DAT_0051108C.
+    std::function<FactoryObject*(FactoryObject)> keep; // The scene keeps created objects.
+    entity_detail::DisplayView* const& view; // DAT_005077A8.
+    float occupancy_initial;
+    const Vec3& default_euler; // DAT_0050DD74.
+    RuntimeScoreboardGlobals& scoreboard; // DAT_00432688..DAT_004326E4.
+    std::span<const u8> damage_preset; // DAT_00312F8C.
+    std::function<void(u32)> detach_from_holder; // 0x0001B4C0 on the holder's body (+0x95C).
+    std::function<u32(const void*, size_t)> bind_address; // A retail word for a native block in a message.
+    std::function<void(const void*)> unbind_address;
+    std::function<void*(u32)> bound_at; // The native block behind a bound word.
+    std::span<u32> contact_totals; // DAT_0053E528, 0x3D words per tag.
+    std::span<u32> contact_session; // DAT_00524E2C.
+    std::function<ActorAnimationState*(Actor&)> animation_of; // A scene actor's +0x50 views.
+    const std::unordered_map<ActorFrameAttachment*, FactoryObject*>& frame_objects; // Actor +0x1D8 objects.
+    AudioEventVoices& voices; // DAT_004E0CE8.
+};
+// Message 0x1D from a weapon's contact test (0x00141890) to the actor it hit.
+struct RuntimeWeaponHitNotice
+{
+    u32 id = 0x1D;
+    u32 kind = 0; // +4, weapon +0xDAC.
+    u32 strength = 0; // +8, weapon +0xDAD.
+    u32 style = 0; // +0xC, weapon +0xDAE.
+    u32 reply = 0; // +0x10.
+    Actor* weapon = nullptr; // +0x14.
+    Vec3 velocity{}; // +0x18.
+    GhoulySpawnPool* contacts = nullptr; // +0x24.
+    Vec3 point{}; // +0x28.
+};
+
+// One weapon instance: the retail-layout bytes, its actor, and native storage behind the pointer fields.
+struct RuntimeWeaponActor
+{
+    std::span<u8> bytes;
+    Actor& actor;
+    NativeActorFactoryInstance& view;
+    u16 type; // The factory type, which picks vtable +0x3C / +0x40.
+    GhoulyController& controller; // The DAT_00512B74 entry's object.
+    u32& random; // DAT_0054DD7C.
+    std::function<std::span<const u8>(u32, size_t)> executable; // Objparams pointers (XBE addresses).
+    AnimationResourceRegistry& registry; // 0x00035E90.
+    ResourceErrorState& error; // 0x00032700.
+    std::span<const RuntimeModelNodeType> model_types;
+    std::function<const ActorMatrixBindings&(const Actor&)> matrix_bindings;
+    const RuntimeShaderMatrixBoundaries& matrix_boundaries;
+    entity_detail::ListHead& global_attachments; // DAT_00545984, 0x0012AFE0's second list.
+    // 0x00107720 / 0x00107520 with +8 this actor's address and the patch applied; the scene keeps the object.
+    std::function<u32(const char*, const std::function<void(std::span<u8>)>&)> create_object;
+    std::function<void(std::span<u32>)> base_message; // 0x0003EF70.
+    std::function<void(std::span<u32>)> message; // Vtable +0xC of this weapon.
+    std::function<u32(const entity_detail::LatchNode&)> latch_owner; // DAT_00511AA4 node - 0x900, as an address.
+    std::function<std::span<u8>(u32)> bytes_at; // An object's bytes by address.
+    std::function<void(u32, std::span<u32>)> send; // Vtable +0xC of the object at an address.
+    std::function<u32()> self_address; // This weapon's retail address.
+    ActorFrameContext& frame; // The base update's scene values (0x000420D0's steps).
+    const i32& blocked_players; // DAT_004E1C34 for 0x0013E980.
+    std::function<std::vector<RuntimeDirectorActor>()> marks; // DAT_00511B38 nodes in list order.
+    // DAT_00511B40 actors in list order, as 0x00129420 reads them; only the 0x1A000 tests are viewed.
+    std::function<std::vector<RuntimeScriptActorQueryView>()> case_actors;
+    const RuntimeScriptActorQueryContext& query;
+    const u32& runtime_flags; // DAT_0050EA9C.
+    std::function<RuntimeSegmentContactActor&(entity_detail::SegmentProbe&)> contact_actor; // 0x0013F2C0's views.
+    const entity_detail::ListHead& players; // DAT_00511B1C.
+    const RuntimeActorClock& clock;
+    std::function<Actor*(u32)> actor_at; // The actor at a retail address; raises when absent.
+    std::function<ActorBaseContext&()> base; // The actor base's views (callouts for 0x0003BE20).
+    const Vec3& default_euler; // DAT_0050DD74.
+    u8* const& navigation_nodes; // DAT_0050E24C.
+    RuntimeWeaponServices& services;
+    ActorSpawnLink spawn_link{nullptr, nullptr, &actor}; // +0x934 on DAT_00511B24.
+    std::vector<u8> pieces; // +0x2A4, 0x0003F170.
+    std::array<std::span<const u8>, 5> accepted_resources{}; // +0x948 rows' +8.
+    const AnimationTableResourceViews* animation_tables = nullptr; // The animtable views behind the row +8 AIDs.
+    std::vector<RuntimeBodyModelNode> model_nodes; // Actor +0x204's node table, as 0x0013F150 reads it.
+    RuntimeBodyCollisionState* markers = nullptr; // +0x998, 0x0013F150; +0x99C is the class's contact test.
+    std::vector<const u8*> grab_shapes; // +0xAB8, count +0xAB4.
+    std::span<const u8> hand_texture; // +0xAD8.
+    std::vector<const EntityShapeNode*> spawn_points; // +0xAC8, count +0xAC4; the actor's spawn_points.
+    std::vector<const u8*> flagged_markers; // +0xAE8, count +0xAE6.
+    entity_detail::NavigationCellRegistration* cells = nullptr; // +0xCFC, grid +0xD00.
+    entity_detail::NavigationPathSearch* path_search = nullptr; // +0xD04.
+    GhoulySpawnRecord* spawn_record = nullptr; // +0xC04, 0x00148430's ghoulybox.
+    std::function<std::span<const u8>(u32)> model_source; // Retail words in this actor's model space.
+    std::function<RuntimeSegmentContactActor&(u32)> contact_actor_at; // The contact view of the actor at an address.
+    std::function<u32(const FactoryObject&)> object_address; // A scene object's retail address.
+    Actor* actor_or_null(u32 address) const // A retail actor word: zero is no actor.
+    {
+        return address == 0 ? nullptr : actor_at(address);
+    }
+    ActorMatrixSetup matrices; // +0x288..+0x2A0.
+};
+
+bool initialize_runtime_weapon_actor(RuntimeWeaponActor& weapon,
+    std::span<const u8> parameters); // Xbox 0x00145C80
+bool initialize_runtime_chair_weapon(RuntimeWeaponActor& weapon,
+    std::span<const u8> parameters); // Xbox 0x000CEFE0
+void block_runtime_weapon_spawn(RuntimeWeaponActor& weapon); // Xbox 0x00147860, EBX actor
+void set_runtime_weapon_mask(RuntimeWeaponActor& weapon, u8 value); // Xbox 0x00146230, ESI actor, EAX value
+void register_runtime_weapon_cells(RuntimeWeaponActor& weapon); // Xbox 0x00145BC0, EAX actor
+void start_runtime_weapon_idle(RuntimeWeaponActor& weapon); // Xbox 0x00144D00, ESI actor
+bool start_runtime_weapon_animation(RuntimeWeaponActor& weapon, const char* name); // Xbox 0x00144D40, EAX actor
+void attach_runtime_weapon_volume(RuntimeWeaponActor& weapon); // Xbox 0x00146310, EAX actor
+void change_runtime_weapon_state(RuntimeWeaponActor& weapon, u16 state); // Xbox 0x0014A290, ESI actor, EDI state
+void start_runtime_weapon_scene(RuntimeWeaponActor& weapon); // Xbox 0x00144FD0, EAX actor
+void bind_runtime_weapon_group(RuntimeWeaponActor& weapon); // Xbox 0x00148600, ESI actor
+void release_runtime_weapon_holder(RuntimeWeaponActor& weapon, u32 actor); // Xbox 0x001462B0, ESI weapon, EAX actor
+void reset_runtime_weapon_state(RuntimeWeaponActor& weapon); // Xbox 0x0014A0D0, ESI actor
+void destroy_runtime_weapon_actor(RuntimeWeaponActor& weapon); // Xbox 0x00145E80
+// Vtable +0x10 of the weapon classes.
+void update_runtime_weapon_actor(RuntimeWeaponActor& weapon); // Xbox 0x0014A2E0
+void update_runtime_chair_weapon_state(RuntimeWeaponActor& weapon, u16 state); // Xbox 0x000CF050, vtable +0x44
+void update_runtime_weapon_state(RuntimeWeaponActor& weapon, u16 state); // Xbox 0x0014A220, vtable +0x44
+void notify_runtime_weapon_grab_points(RuntimeWeaponActor& weapon); // Xbox 0x00147430, EAX actor
+void update_runtime_weapon_bounds(RuntimeWeaponActor& weapon); // Xbox 0x00145A40, EAX actor
+void update_runtime_weapon_markers(RuntimeWeaponActor& weapon); // Xbox 0x00144E30, EAX actor
+void update_runtime_weapon_variant(RuntimeWeaponActor& weapon); // Xbox 0x00148510, EAX actor
+void update_runtime_weapon_pieces(RuntimeWeaponActor& weapon); // Xbox 0x00145740, ESI actor
+void finish_runtime_weapon_pieces(RuntimeWeaponActor& weapon); // Xbox 0x00145820, EAX actor
+void check_runtime_weapon_world_bounds(RuntimeWeaponActor& weapon); // Xbox 0x0014A6D0, EAX actor
+void update_runtime_weapon_prompt(RuntimeWeaponActor& weapon); // Xbox 0x00147160, EAX actor
+void update_runtime_weapon_voice(RuntimeWeaponActor& weapon); // Xbox 0x0014A770, EAX actor
+// Vtable +0x14 of the weapon classes after the actor draw 0x0003C9E0: whether the draw is skipped for a held
+// weapon, and the hand prompt icons 0x00147560 for pass 2.
+bool runtime_weapon_draw_hidden(const RuntimeWeaponActor& weapon); // Xbox 0x001459C0's holder test
+void draw_runtime_weapon_prompt(RuntimeWeaponActor& weapon, i32 pass); // Xbox 0x00147560, EAX pass, EBX actor
+void tick_actor_model_pieces(const Actor& actor, std::span<u8> actor_bytes, std::vector<u8>& pieces, ActorMatrixSetup& matrices,
+    float step); // Xbox 0x0003FB80
+bool actor_model_pieces_settled(const Actor& actor, const std::vector<u8>& pieces); // Xbox 0x00040040, EAX actor
+Actor* find_nearest_runtime_case_actor(const Vec3* point, Actor& requester, u32 flags, float* distance,
+    const std::vector<RuntimeScriptActorQueryView>& candidates,
+    const RuntimeScriptActorQueryContext& context); // Xbox 0x001292F0, EAX point, ECX flags
+bool runtime_frame_timer_elapsed(float& timer, const Actor& actor,
+    const ActorFrameContext& frame); // Xbox 0x00042360, EAX timer, ECX actor
+// Message 0x28 from the holder's body (+0x10): plays the weapon's animation for the holder's new action.
+void animate_runtime_weapon_with_holder(RuntimeWeaponActor& weapon,
+    std::span<const u32> message); // Xbox 0x00144B80, EAX message
+void dispatch_runtime_weapon_message(RuntimeWeaponActor& weapon, std::span<u32> message); // Xbox 0x001463D0
+// The weapon breaks when hit: by the player at message +0x10 (8), or by an attacker (EDI) for a category.
+void break_runtime_weapon_by_player(RuntimeWeaponActor& weapon, std::span<u32> message); // Xbox 0x00146A60, ESI actor, EBX message
+u32 break_runtime_weapon_by_attacker(RuntimeWeaponActor& weapon, Actor* attacker, u16 category); // Xbox 0x00146B80, ESI actor, EDI attacker
+// The weapon's ghoulybox controller requests (0xA7 / 0xA9 / 0xAA): a spawned actor, a template at the weapon, or a
+// template beside it that hops away (0x96). Each returns the new object's address, or 0.
+u32 spawn_runtime_weapon_body(RuntimeWeaponActor& weapon, const char* name, const char* third,
+    const char* second, const char* fourth, bool face_view); // Xbox 0x00147FC0
+u32 spawn_runtime_weapon_template(RuntimeWeaponActor& weapon, const char* name); // Xbox 0x00148270, EAX actor
+u32 spawn_runtime_weapon_hopper(RuntimeWeaponActor& weapon, const char* name); // Xbox 0x00148300, EAX actor
+// The chair's contact test (+0x99C): reports the hit to the actor touched, its holder and the chair.
+u32 test_runtime_chair_contact(RuntimeWeaponActor& weapon, RuntimeSegmentContactActor& object, const Vec3& point,
+    GhoulySpawnPool* contacts, const Vec3& velocity, u16 word); // Xbox 0x000CF5F0
+u32 report_runtime_weapon_contact(RuntimeWeaponActor& weapon, Actor* holder, RuntimeSegmentContactActor& object,
+    const Vec3& point, GhoulySpawnPool* contacts, const Vec3& velocity, u16 word, u8 kind, u8 strength, u8 style,
+    bool count); // Xbox 0x00141890, EAX velocity, EBX point
+// Breaks off piece groups until the remaining fraction is at most the given one.
+void chip_runtime_weapon(RuntimeWeaponActor& weapon, const Vec3& direction, const Vec3& velocity,
+    float fraction); // Xbox 0x001451C0, ECX direction, EDX actor, EAX velocity
+void drop_runtime_chair_weapon(RuntimeWeaponActor& weapon); // Xbox 0x000CF670, ESI actor
+bool start_runtime_weapon_prewait(RuntimeWeaponActor& weapon); // Xbox 0x00144CC0, EDI actor
+// A held weapon's flagged markers push the holder off walls (message 0x9E).
+void push_runtime_weapon_holder(RuntimeWeaponActor& weapon, Actor& holder); // Xbox 0x00147B30, EAX actor
+void push_runtime_weapon_marker(RuntimeWeaponActor& weapon, Actor& holder, std::span<const u8, 0x14> shape,
+    Vec3& push); // Xbox 0x00147CD0, EAX holder
+void show_runtime_weapon_uses(RuntimeWeaponActor& weapon, i32 uses, u32 caption); // Xbox 0x0012DC80, EAX uses
+void update_runtime_weapon_cells(RuntimeWeaponActor& weapon, i32 preferred); // Xbox 0x00145C30, EAX actor
+// The object at +0xE6C among the actor's +0x1D8 updates: told 0x14 through the actor, then released.
+bool release_runtime_actor_frame_object(RuntimeWeaponActor& weapon, u32 object); // Xbox 0x0003DE30, ECX actor, ESI object
+void dispatch_runtime_chair_weapon_message(RuntimeWeaponActor& weapon,
+    std::span<u32> message); // Xbox 0x000CF0D0
+// Vtable +0x3C and +0x40 of the weapon classes.
+void enter_runtime_weapon_state(RuntimeWeaponActor& weapon, u16 state, u16 previous); // Xbox 0x0014A120
+void leave_runtime_weapon_state(RuntimeWeaponActor& weapon, u16 state, u16 next); // Xbox 0x0014A180
+void enter_runtime_chair_weapon_state(RuntimeWeaponActor& weapon, u16 state, u16 previous); // Xbox 0x000CF400
+void leave_runtime_chair_weapon_state(RuntimeWeaponActor& weapon, u16 state, u16 next); // Xbox 0x000CF510
+}

@@ -627,6 +627,54 @@ void script_tick_actor_count_condition(ScriptCond& rec)
 }
 
 
+// Xbox 0x00133170. Opcode 3 in the update table at 0x00314334. Walks DAT_0050E4DC to the first event 0xAD, then
+// along the events of that type to one whose word at +0xC is the word at record+8. With that event queued,
+// DAT_0050E768 clear and the byte at [DAT_0051248C]+0x30F144 set, the float at +0xC counts down by the frame step
+// (0 while DAT_004312DC is above 0), stopping at 0.
+// Xbox 0x00133170
+void script_tick_picked_up_condition(ScriptCond& rec)
+{
+    LiveScript* node = g_live_scripts;
+    while (node != nullptr && node->type != 0xadu)
+    {
+        node = node->next;
+    }
+    if (node == nullptr)
+    {
+        return;
+    }
+    const u16 want = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+    while (node->word_c != want)
+    {
+        const u32 type = node->type;
+        node = node->next;
+        while (node != nullptr && node->type != type)
+        {
+            node = node->next;
+        }
+        if (node == nullptr)
+        {
+            return;
+        }
+    }
+    if (g_block_decay != 0 || g_decay_arm == 0)
+    {
+        return;
+    }
+    const float step = 0.f < g_sim_freeze ? 0.f : g_sim_dt * g_sim_scale;
+    const float left = cond_f32(rec, 0xc);
+    if (0.f < left)
+    {
+        const float next = left - step;
+        cond_put_f32(rec, 0xc, next);
+        if (!(0.f < next))
+        {
+            cond_put_f32(rec, 0xc, 0.f);
+        }
+    }
+}
+
+
 // Xbox 0x00128D90. Resume the scene's fired cursor at the matching title.
 void script_resume_title(Game& g, i32 mode, i32 id)
 {
@@ -835,7 +883,7 @@ void script_queue_scene_start(Game& g)
 
 
 // Xbox 0x00117100, then the eval at 0x00117140. The update walk calls the
-// table at 0x00314334: opcode 0 is 0x00133070 and opcode 1 is 0x001330E0.
+// table at 0x00314334: opcode 0 is 0x00133070, opcode 1 is 0x001330E0 and opcode 3 is 0x00133170.
 // Opcodes 2, 6..9 and 20..26 have the empty 0x001628B0; the others' updates
 // are not translated and raise when a record reaches them.
 void script_vm_tick(Game& g, float dt)
@@ -859,6 +907,10 @@ void script_vm_tick(Game& g, float dt)
         else if (opcode == 1)
         {
             script_tick_actor_count_condition(rec);
+        }
+        else if (opcode == 3)
+        {
+            script_tick_picked_up_condition(rec);
         }
         else if (kUpdates[opcode] != 0x001628B0)
         {

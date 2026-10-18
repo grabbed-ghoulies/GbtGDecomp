@@ -31,6 +31,13 @@ bool runtime_attachment_available(std::span<const u8> attached,
 ActorBind* ensure_runtime_actor_bind(Actor& actor); // Xbox 0x0003B9D0
 void bind_runtime_actor_joint(Actor& actor, Actor* parent,
     i32 joint_key, u8 flags); // Xbox 0x0003B840
+// Binds `actor` (ECX) under `parent` (EAX, may be null) in mode 1 with `flags`, then applies the bind at once:
+// mode +0 takes +1 and 0x0003BB20 links the actor under bind +8 at `origin` / `euler` (DAT_0050DD80 / DAT_0050DD74).
+bool bind_runtime_actor_parent_now(Actor& actor, Actor* parent, u8 flags, const Vec3& origin,
+    const Vec3& euler); // Xbox 0x0003B460
+// 0x0003B840 for `actor` (EDI) on `parent`'s (EDX) joint `joint_key` (ECX), then the same apply.
+bool bind_runtime_actor_joint_now(Actor& actor, Actor* parent, i32 joint_key, u8 flags, const Vec3& origin,
+    const Vec3& euler); // Xbox 0x0003B4C0
 void notify_runtime_attachment_host(RuntimeBodyAttachedActor& host,
     RuntimeBodyAttachedActor& attached); // Xbox 0x0001B770
 void notify_runtime_secondary_attachment_host(RuntimeBodyAttachedActor& host,

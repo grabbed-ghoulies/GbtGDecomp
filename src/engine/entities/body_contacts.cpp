@@ -202,6 +202,74 @@ void activate_runtime_body_contact_shapes(RuntimeBodyCollisionState& state, Acto
     }
 }
 
+// Xbox 0x0013F5B0, EAX actor
+void activate_all_runtime_body_contact_shapes(Actor& actor, RuntimeBodyCollisionState& state, u8 flags)
+{
+    const EntityBonePose* pose = nullptr;
+    if (actor.model != nullptr)
+    {
+        pose = actor.model->alternate_shape_pose;
+        if (pose == nullptr)
+        {
+            pose = actor.model->primary_shape_pose;
+        }
+    }
+    RuntimeBodyCollisionRecord* end = state.records + state.count;
+    for (auto* record = state.records; record < end; ++record)
+    {
+        Vec3 center;
+        shape_sphere_metrics(*reinterpret_cast<const EntityShapeNode*>(record->shape), actor.xform, pose,
+            center); // 0x00056330
+        std::memcpy(record->bytes.data() + 8, &center, sizeof(center));
+        const u16 enabled = 1;
+        std::memcpy(record->bytes.data() + 0x14, &enabled, 2);
+        const float scale = 1.f; // DAT_0032B0F8.
+        std::memcpy(record->bytes.data() + 0x18, &scale, 4);
+        record->bytes[0x17] = flags;
+        if (record->previous_link == nullptr)
+        {
+            // Linked after the state +0xC sentinel, whose +4 is active.
+            record->next = state.active;
+            state.active = record;
+            record->previous_link = &state.active;
+            if (record->next != nullptr)
+            {
+                record->next->previous_link = &record->next;
+            }
+        }
+    }
+}
+
+// Xbox 0x0013F660, EBX state
+void deactivate_all_runtime_body_contact_shapes(RuntimeBodyCollisionState& state)
+{
+    RuntimeBodyCollisionRecord* end = state.records + state.count;
+    for (auto* record = state.records; record < end; ++record)
+    {
+        const u16 disabled = 0;
+        std::memcpy(record->bytes.data() + 0x14, &disabled, 2);
+        const float scale = 1.f; // DAT_0032B0F8.
+        std::memcpy(record->bytes.data() + 0x18, &scale, 4);
+        record->bytes[0x17] = 1;
+        if (record->previous_link != nullptr)
+        {
+            *record->previous_link = record->next;
+        }
+        if (record->next != nullptr)
+        {
+            record->next->previous_link = record->previous_link;
+        }
+        record->previous_link = nullptr;
+        record->next = nullptr;
+    }
+    if (state.overrides != nullptr)
+    {
+        restore_runtime_body_collision_overrides(*state.overrides); // As 0x0013EE80 restores each held filter.
+        engine_heap_free(state.overrides);
+        state.overrides = nullptr;
+    }
+}
+
 // Xbox 0x0013F4D0
 void deactivate_runtime_body_contact_shapes(RuntimeBodyCollisionState& state, u16 tag)
 {

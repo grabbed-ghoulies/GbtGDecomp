@@ -13,6 +13,7 @@
 #include "../entities/body_die_state.h"
 #include "../entities/body_anim_state.h"
 #include "../entities/body_knockdown_state.h"
+#include "../entities/body_pickup_state.h"
 #include <optional>
 
 namespace gbtg
@@ -111,6 +112,10 @@ struct SceneBodyServices
     std::function<const char*(u32 address)> image_string; // An XBE string, or null for 0.
     std::span<const u8> dizzy_input_preset{}; // DAT_00428660, 0x00109810's tracking preset for the dizzy state.
     float dizzy_input_scale = 0.f; // DAT_00428670.
+    // A scene weapon's views for 0x0001B190 (its bytes, actor, animation receiver and pose), by address.
+    std::function<RuntimePlayerAttachmentActor&(u32 address)> weapon_attachment_at{};
+    // An attached weapon's +0x998 collision state (null when it has none), by address.
+    std::function<RuntimeBodyCollisionState*&(u32 address)> weapon_collision{};
 };
 
 // One body's message graph: the parent body handler 0x000253B0 and the derived slots of types 0x27
@@ -123,6 +128,7 @@ public:
     RuntimeDieStateContext& die_context(); // The type 0x62 state's views of this body.
     RuntimeAnimStateContext& anim_context(); // The type 0x5E state's views of this body.
     RuntimeKnockdownContext& knockdown_context(); // The type 0x7A state's views of this body.
+    RuntimePickupStateContext& pickup_context(); // The type 0x7C state's views of this body.
     SceneBodyMessages(const SceneBodyMessages&) = delete;
     SceneBodyMessages& operator=(const SceneBodyMessages&) = delete;
     void dispatch(FactoryObject& body, std::span<u32> message);
@@ -159,6 +165,7 @@ private:
     std::optional<RuntimeKnockdownContext> knockdown_;
     std::optional<RuntimeBodyStateContext> knockdown_shape_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> knockdown_children_; // 0x7A, 0x0009D0E0.
+    std::optional<RuntimePickupStateContext> pickup_;
     std::array<u8, 0x20> shape_scratch_{};
     RuntimeBodyTimerRecipient* first_timer_ = nullptr; // Body +0x760.
     RuntimeBodyTimerRecipient* second_timer_ = nullptr; // Body +0x7F0.
@@ -182,6 +189,7 @@ private:
     RuntimeBodyEffectCommands effect_commands_;
     std::function<void(RuntimeBodyAttachedActor&, std::span<char, 128>)> query_name_;
     RuntimeBodyAnimationDispatch animation_;
+    std::optional<RuntimeBodyCommandAttachment> attached_shapes_; // Body +0x48's views for 0x0001A290.
     RuntimeBodySpatialNotifications spatial_;
     RuntimeBodyMessageDispatch parent_;
     RuntimeBodyDeathNotice death_notice_;

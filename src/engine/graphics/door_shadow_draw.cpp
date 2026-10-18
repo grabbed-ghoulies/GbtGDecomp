@@ -52,6 +52,9 @@ u32 select_runtime_door_shadow_bounds(std::span<const u8> row, const Vec3& camer
     return 1;
 }
 
+// DAT_005462A8 is BSS that no retail code writes (only 0x0005AE40 reads it), so it stays 0.
+u32 g_door_shadow_bottom = 0;
+
 // Xbox 0x0005AE40
 void draw_runtime_door_shadow(std::span<const u8> row, const float* view, const float* projection,
     const Vec3& camera, const RuntimeRelocationImage& image, DialogueD3DBoundaries& d3d)
@@ -83,7 +86,7 @@ void draw_runtime_door_shadow(std::span<const u8> row, const float* view, const 
         const float depth = depth_delta * fraction + bounds.depth_start;
         const long double opacity = static_cast<long double>(alpha_delta) * fraction + bounds.alpha_start;
         const u32 color = u32(u8(truncate_runtime_float(opacity))) << 24;
-        const u32 bottom = image.word(0x005462A8);
+        const u32 bottom = g_door_shadow_bottom; // DAT_005462A8.
         const u32 top = image.word(0x00425114);
         const std::array<u32, 16> vertices{bounds.left, bottom, std::bit_cast<u32>(depth), color,
             bounds.right, bottom, std::bit_cast<u32>(depth), color,

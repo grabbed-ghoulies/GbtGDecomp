@@ -266,10 +266,8 @@ void dispatch_runtime_trigger_message(RuntimeTriggerMessages& context, std::span
     case 0x7D:
         if (read_u16(bytes, 0x1FE) != 0)
         {
-            // PulseNode is the native lookup view of the actor. address_of
-            // must map that view to the actor's instance address.
-            auto* node = find_actor_by_id(read_u16(bytes, 0x1FE));
-            word(bytes, 0xB40, context.address_of(node));
+            word(bytes, 0xB40, find_runtime_actor_by_id(read_u16(bytes, 0x1FE), context.latch_owner,
+                context.bytes_at)); // 0x00129ED0
         }
         break;
     case 0xA6:
@@ -308,7 +306,7 @@ void dispatch_runtime_trigger_message(RuntimeTriggerMessages& context, std::span
                         reinterpret_cast<const char*>(message.data() + index) : nullptr;
                 };
                 object = create_runtime_marker_actor(name, source_position, source_euler, 1.f,
-                    aid(0x21), aid(0x41), aid(0x61), read_u16(bytes, 0x93C), 0,
+                    aid(0x21), aid(0x61), aid(0x41), read_u16(bytes, 0x93C), 0, // EDX +0x184, ECX +0x104.
                     position, euler, bytes.data() + 0x93E, chained, 0, context.objects);
                 if (chained != 0)
                 {

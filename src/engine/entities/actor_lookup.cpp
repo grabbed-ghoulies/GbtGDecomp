@@ -1,6 +1,7 @@
 #include "actor_lookup.h"
 #include <cstring>
 #include "../camera/camera.h"
+#include "entity.h"
 
 namespace gbtg
 {
@@ -19,6 +20,25 @@ scene_detail::PulseNode* find_actor_by_id(u16 key)
         }
     }
     return nullptr;
+}
+
+// Xbox 0x00129ED0, DX key
+u32 find_runtime_actor_by_id(u16 key, const std::function<u32(const entity_detail::LatchNode&)>& owner,
+    const std::function<std::span<u8>(u32)>& bytes_at)
+{
+    if (key == 0)
+    {
+        return 0;
+    }
+    for (const auto* node = entity_detail::g_world.latch; node != nullptr; node = node->next) // DAT_00511AA4.
+    {
+        const u32 address = owner(*node); // The node sits at the object's +0x900.
+        if (read_u16(bytes_at(address), 0x1FC) == key)
+        {
+            return address;
+        }
+    }
+    return 0;
 }
 
 // Xbox 0x00129F00

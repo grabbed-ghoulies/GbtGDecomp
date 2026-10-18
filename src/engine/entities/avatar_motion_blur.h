@@ -3,6 +3,7 @@
 #include "actor_factory_owner.h"
 #include "actor_clock.h"
 #include "actor_frame_update.h"
+#include "actor_frame_render.h"
 #include "gbtg/sound_runtime.h"
 #include "../graphics/actor_effect_stream.h"
 #include "../graphics/actor_snapshots.h"
@@ -77,4 +78,40 @@ bool copy_runtime_actor_model(RuntimeAvatarActorViews& actor, RuntimeAvatarActor
 // Effect stream `name` (ECX) bound to the avatar (EAX) with options id 0x4D and the given scale.
 void start_runtime_avatar_effect(RuntimeAvatarMotionBlur& context, const char* name,
     float scale); // Xbox 0x00066AB0
+
+// Type 16 (getter 0x000690A0, vtable 0x00504A54) over the avatar actor (type 2): a copy of an actor's look that
+// fades over its life, the swing trail 0x0013B030 leaves. Bytes: +0x934 the time left, +0x938 the life (parameter
+// +0x338), +0x93C the alpha and +0x940 its start (parameter +0x33C), +0x944..+0x94C the copy's +0x30 at the start,
+// +0x950..+0x958 the end (parameters +0x340..+0x348), +0x95C / +0x960 the effect and resource named at parameter
+// +0x350, +0x964 the glow flag (parameter +0x34C). Parameter +0x334 is the source actor.
+struct RuntimeAvatarAfterimage
+{
+    RuntimeAvatarActorViews self;
+    std::function<RuntimeAvatarActorViews(u32 address)> actor_at; // A scene actor's views.
+    RuntimeActorStartupContext& startup;
+    const char* default_name; // DAT_00546208.
+    const RuntimeActorClock& clock;
+    ActorFrameState& frame; // 0x000420D0's views of the copy.
+    ActorFrameContext& frame_context;
+    ActorRenderRegistration& render; // 0x0003E850's probes.
+    entity_detail::ShapeProbe& shape; // 0x0003C700's probe.
+    entity_detail::ListHead& anchors; // Actor +0x1F4; its next (+0x1F8) is the first anchor.
+};
+void avatar_afterimage_object_sizes(ObjectSizes& output); // Xbox 0x00069080
+bool initialize_runtime_avatar_afterimage(std::span<const u8> parameters,
+    RuntimeAvatarAfterimage& context); // Xbox 0x000690F0
+void destroy_runtime_avatar_afterimage(RuntimeAvatarAfterimage& context); // Xbox 0x00069220
+void tick_runtime_avatar_afterimage(RuntimeAvatarAfterimage& context); // Xbox 0x00069250
+// The part after the base actor message 0x0003EF70: 0x23 drops the copy's probes and model anchors.
+void message_runtime_avatar_afterimage(u32 id, RuntimeAvatarAfterimage& context); // Xbox 0x00069540
+
+struct RuntimeAvatarAfterimageDraw
+{
+    std::span<const u8> bytes;
+    Actor& actor;
+    ActorDrawModelView* model; // Actor +0x204.
+    u32 material_second; // DAT_00427428.
+    SceneModelDrawContext& draw;
+};
+u32 draw_runtime_avatar_afterimage(i32 kind, RuntimeAvatarAfterimageDraw& context); // Xbox 0x00069410
 }

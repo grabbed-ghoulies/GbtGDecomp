@@ -142,6 +142,15 @@ public:
     static constexpr u32 kMultiSampleMode = 0x100C0; // D3DDevice_SetRenderState_MultiSampleMode.
     static constexpr u32 kPSTextureModes = 0x10070; // D3DDevice_SetRenderState_PSTextureModes.
     static constexpr u32 kStencilEnable = 0x4032C; // NV097_SET_STENCIL_TEST_ENABLE.
+    // The NV2A combiner registers behind pixel-shader definition words 0..56 (the table at 0x0020A368). Raw writes
+    // to them (the model shader overrides, 0x000F7420 / 0x000F7FA0) stand until the next SetPixelShader uploads a
+    // definition; the presenter lays them over the bound definition's words.
+    static constexpr std::array<u32, 57> kPixelShaderRegisters{0x40260, 0x40264, 0x40268, 0x4026C, 0x40270,
+        0x40274, 0x40278, 0x4027C, 0x40288, 0x4028C, 0x40A60, 0x40A64, 0x40A68, 0x40A6C, 0x40A70, 0x40A74, 0x40A78,
+        0x40A7C, 0x40A80, 0x40A84, 0x40A88, 0x40A8C, 0x40A90, 0x40A94, 0x40A98, 0x40A9C, 0x40AA0, 0x40AA4, 0x40AA8,
+        0x40AAC, 0x40AB0, 0x40AB4, 0x40AB8, 0x40ABC, 0x40AC0, 0x40AC4, 0x40AC8, 0x40ACC, 0x40AD0, 0x40AD4, 0x40AD8,
+        0x40ADC, 0x417F8, 0x41E20, 0x41E24, 0x41E40, 0x41E44, 0x41E48, 0x41E4C, 0x41E50, 0x41E54, 0x41E58, 0x41E5C,
+        0x41E60, 0x41D90, 0x41E74, 0x41E78};
     static constexpr u32 kBackBuffer = 1;
     static constexpr u32 kDepthBuffer = 2;
     // D3D's screen-space scale and offset (vertex constants -38 and -37) for the viewport.

@@ -601,6 +601,12 @@ NativePlayerInstance& NativePlayerFactoryOwner::player_at(u32 actor_address)
     return *found->second;
 }
 
+NativePlayerInstance* NativePlayerFactoryOwner::find_player_at(u32 actor_address)
+{
+    const auto found = addresses_.find(actor_address);
+    return found == addresses_.end() ? nullptr : found->second;
+}
+
 NativePlayerInstance* NativePlayerFactoryOwner::find_player(const FactoryObject& child) const
 {
     const auto found = children_.find(child.bytes.get());

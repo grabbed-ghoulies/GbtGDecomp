@@ -3,6 +3,7 @@
 #include "entity_heap.h"
 #include "actor_spawn_query.h"
 #include "actor_transform.h"
+#include "actor_bind_tree.h"
 #include "gbtg/model_runtime.h"
 #include <cstring>
 #include <new>
@@ -81,7 +82,11 @@ bool runtime_player_can_attach(const RuntimePlayerAttachmentEligibility& body,
     if (runtime_player_body_allows_attachment(body, *target.actor))
     {
         const u32 link = read_u32(target.bytes, 0x918);
-        if ((link == 0 || read_u32(target_link, 0) == 0 || link == 0x918)
+        if (link != 0 && link != 0x918 && target_link.empty())
+        {
+            throw Error("attachment target +0x918 link has no native view");
+        }
+        if ((link == 0 || link == 0x918 || read_u32(target_link, 0) == 0)
             && target.bytes[0x93C] != 0 && read_u32(target.bytes, 0xAD0) == 0
             && read_u32(target.bytes, 0xAC4) != 0)
         {
@@ -184,6 +189,10 @@ void set_runtime_attachment_host(RuntimeBodyAttachedActor& attached,
     std::memcpy(attached.bytes.data() + 0x946, &selected, 2);
     std::memcpy(attached.bytes.data() + 0xD8C, &host.address, 4);
     attached.host = const_cast<RuntimeBodyAttachedActor*>(&host);
+    if (attached.actor != nullptr)
+    {
+        attached.actor->spawn_owner = host.actor; // The native view of +0xD8C.
+    }
     const u32 message[]{0x91, host.address};
     attached.message(message);
 }
@@ -239,6 +248,47 @@ void bind_runtime_actor_joint(Actor& actor, Actor* parent, i32 joint_key, u8 fla
             actor.bind->joint = i32(joint);
         }
     }
+}
+
+namespace
+{
+// The shared tail of 0x0003B460 and 0x0003B4C0.
+void apply_runtime_actor_bind(Actor& actor, const Vec3& origin, const Vec3& euler)
+{
+    ActorBind* bind = actor.bind; // Actor +0x88.
+    if (bind != nullptr)
+    {
+        bind->mode_local = bind->mode_parent;
+        if (bind->parent == nullptr)
+        {
+            throw Error("0x0003BB20 links an actor under a null bind +8 parent");
+        }
+        bind_actor_under_parent(actor, *bind->parent, origin, euler); // 0x0003BB20
+        bind->parent = nullptr;
+    }
+}
+}
+
+// Xbox 0x0003B460
+bool bind_runtime_actor_parent_now(Actor& actor, Actor* parent, u8 flags, const Vec3& origin, const Vec3& euler)
+{
+    if (parent != nullptr && ensure_runtime_actor_bind(actor) != nullptr)
+    {
+        actor.bind->mode_parent = 1;
+        actor.bind->parent = parent;
+        actor.bind->flags = flags;
+    }
+    apply_runtime_actor_bind(actor, origin, euler);
+    return true;
+}
+
+// Xbox 0x0003B4C0
+bool bind_runtime_actor_joint_now(Actor& actor, Actor* parent, i32 joint_key, u8 flags, const Vec3& origin,
+    const Vec3& euler)
+{
+    bind_runtime_actor_joint(actor, parent, joint_key, flags); // 0x0003B840
+    apply_runtime_actor_bind(actor, origin, euler);
+    return true;
 }
 
 // Xbox 0x0001B7C0

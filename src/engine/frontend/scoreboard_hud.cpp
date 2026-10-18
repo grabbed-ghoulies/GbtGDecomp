@@ -1,4 +1,6 @@
 #include "scoreboard_hud.h"
+#include "scoreboard_draw.h"
+#include "../camera/camera.h"
 #include "dialogue_widget_state.h"
 #include <algorithm>
 #include <bit>
@@ -418,25 +420,298 @@ void tear_down_runtime_scoreboard(RuntimeScoreboardHud& context)
     context.enabled = 0;
 }
 
+namespace
+{
+RuntimeScoreboardDraw& draw_views(RuntimeScoreboardHud& context)
+{
+    if (context.draw == nullptr)
+    {
+        throw Error("scoreboard draw without the HUD sprite queue");
+    }
+    return *context.draw;
+}
+}
+
 // Xbox 0x00130420
 void draw_runtime_health_display(RuntimeScoreboardHud& context)
 {
-    const auto& globals = context.globals;
-    if ((context.difficulty < 1 || context.difficulty > 2) && !context.area_dialogue_active()
-        && (globals.health_shown != 0 || globals.health_pending != 0))
+    auto& globals = context.globals;
+    if (!((context.difficulty < 1 || context.difficulty > 2) && !context.area_dialogue_active() // 0x0005B830
+        && (globals.health_shown != 0 || globals.health_pending != 0)))
     {
-        // The heart (or its override) and the broken-heart flag are picked before the placement 0x00131F00.
-        untranslated("0x00131F00", "the health display draw 0x00130420");
+        return;
+    }
+    auto& draw = draw_views(context);
+    auto& health = context.health;
+    const auto& layout = context.layout;
+    u32 backing = 0;
+    const u8* heart;
+    float width;
+    float size;
+    if (health.override_health != 0) // DAT_00512230
+    {
+        width = float(i32(health.widths[0])); // DAT_00433C90
+        heart = health.textures[2].data(); // DAT_00433C84
+        size = 0.85f; // DAT_0032B17C
+    }
+    else
+    {
+        backing = draw.brew_accepted; // DAT_00430D98
+        if (health.mode != 0) // DAT_00433C70
+        {
+            heart = health.textures[1].data(); // DAT_00433C80
+            width = float(i32(health.widths[1])); // DAT_00433C94
+        }
+        else
+        {
+            heart = health.textures[0].data(); // DAT_00433C7C
+            width = float(i32(health.widths[0]));
+        }
+        size = 1.f; // DAT_0032B0F8
+    }
+    float shown[2]{layout.inner_right - width - 4.5f, 0.f}; // DAT_00509748, DAT_0032B3B0
+    shown[1] = layout.inner_top + width - 36.f; // DAT_00509744, DAT_0032B5C4
+    float hidden[2]{shown[0] + 160.f, shown[1]}; // DAT_0032B2FC
+    float at[2];
+    const RuntimeHudFade fade{globals.health_shown, health.intensity,
+        *reinterpret_cast<float*>(&globals.health_c18[0]), globals.health_c18[1],
+        globals.health_c18[2]}; // DAT_00433C10..DAT_00433C20
+    if (place_runtime_hud_element(fade, hidden, shown, at)) // 0x00131F00, EDI at
+    {
+        const u32 color = 0xC0FFFFFFu;
+        if (backing != 0)
+        {
+            const float scale[2]{globals.health_bf4[1] * 1.5f, globals.health_bf4[1] * 1.5f}; // DAT_00433BF8, DAT_0032B210
+            queue_runtime_hud_sprite(health.textures[3].data(), at, scale, 0.f, color, 0, draw); // DAT_00433C88
+        }
+        const float beat = globals.health_bf4[0] * size; // DAT_00433BF4
+        const float scale[2]{beat, beat};
+        queue_runtime_hud_sprite(heart, at, scale, 0.f, color, 0, draw); // 0x001221B0
+        const float offset = width - 20.f; // DAT_0032B234
+        shown[0] += offset;
+        hidden[0] += offset;
+        float digits[2];
+        place_runtime_hud_element(fade, hidden, shown, digits); // 0x00131F00, EDI the digits
+        const auto preset = health.mode != 0 ? health.active_preset : health.normal_preset; // 0x00130B90
+        if (context.health_style == 1)
+        {
+            draw_runtime_hud_two_digits(digits, health.counter, preset, 0, context, draw); // 0x0012F060
+        }
+        else
+        {
+            draw_runtime_hud_counter(health.counter, digits, preset, 0, context, draw); // 0x0012F000
+        }
+        globals.health_drawn = 1; // DAT_00433C6C
+    }
+    const float broken = float(i32(health.widths[4])); // DAT_00433CA0
+    float pending_shown[2]{layout.inner_right - broken - 20.f, layout.inner_top + broken - 100.f}; // DAT_0032B12C
+    float pending_hidden[2]{pending_shown[0], pending_shown[1] - 120.f}; // DAT_0032B400
+    const RuntimeHudFade pending{globals.health_pending, *reinterpret_cast<float*>(&globals.health_c28[0]),
+        *reinterpret_cast<float*>(&globals.health_c28[1]), globals.health_c28[2], globals.health_c28[3]}; // DAT_00433C24
+    if (place_runtime_hud_element(pending, pending_hidden, pending_shown, at))
+    {
+        const float scale[2]{0.75f, 0.75f}; // DAT_0032B2AC
+        queue_runtime_hud_sprite(health.textures[4].data(), at, scale, 0.f, 0xC0FFFFFFu, 0, draw); // DAT_00433C8C
     }
 }
 
 // Xbox 0x00130F20
-void draw_runtime_scoreboard(RuntimeScoreboard* board, RuntimeScoreboardHud&)
+void draw_runtime_scoreboard(RuntimeScoreboard* board, RuntimeScoreboardHud& context)
 {
-    // The kind counts and the placements only feed the per-row draw, whose first call is 0x00131F00.
-    if (!board->messages.empty())
+    if (board == nullptr)
     {
-        untranslated("0x00131F00", "the scoreboard row draw 0x00130F20");
+        return;
+    }
+    auto& draw = draw_views(context);
+    i32 counts[3]{};
+    for (const auto& row : board->messages)
+    {
+        if (row.word_70 >= 1 && row.word_70 <= 3)
+        {
+            ++counts[row.word_70 - 1];
+        }
+    }
+    // Three placements of {shown x, shown y, hidden x, hidden y}: kind 4 rows use the second (the first again when
+    // no row counts), kind 5 rows the third, the others the first.
+    float first[4]{board->slots[0], board->slots[1], board->slots[2], board->slots[3]};
+    float second[4];
+    if (counts[0] == 0 && counts[1] == 0 && counts[2] == 0)
+    {
+        std::copy_n(first, 4, second);
+    }
+    else
+    {
+        std::copy_n(board->slots.begin() + 4, 4, second);
+    }
+    float third[4]{board->slots[8], board->slots[9], board->slots[10], board->slots[11]};
+    const float blink_rate = 6.f; // DAT_0032B218
+    for (size_t index = board->messages.size(); index-- > 0;)
+    {
+        auto& row = board->messages[index];
+        float* shown = first;
+        float* hidden = first + 2;
+        if (row.word_70 == 4)
+        {
+            shown = second;
+            hidden = second + 2;
+        }
+        else if (row.word_70 == 5)
+        {
+            shown = third;
+            hidden = third + 2;
+        }
+        const bool wide = row.scaled_width == 128.f; // DAT_0032B368
+        if (wide)
+        {
+            shown[0] += 32.f; // DAT_0032B458
+            hidden[0] += 32.f;
+        }
+        const RuntimeHudFade fade{row.word_8, row.float_c, row.float_10, row.word_14, row.word_18};
+        float at[2];
+        if (!place_runtime_hud_element(fade, hidden, shown, at)) // 0x00131F00, EAX row+8
+        {
+            if (wide)
+            {
+                shown[0] -= 32.f;
+                hidden[0] -= 32.f;
+            }
+            continue;
+        }
+        float size = board->icon_scale * row.scale_y; // board +0x48, row +0x24
+        float scale[2]{size, size};
+        const u32 base_color = 0xC0FFFFFFu;
+        float factor = 0.f;
+        const bool blinking = row.word_8 == 5 || row.word_8 == 3;
+        const bool hidden_blink = blinking && (i32(draw.hold_time * blink_rate) & 1) == 0;
+        if (!hidden_blink)
+        {
+            if (row.pulse != 0 && 0.f < row.pulse_scale) // +0x7C, +0x80
+            {
+                const float step = scene_detail::g_sim_freeze <= 0.f
+                    ? scene_detail::g_sim_dt * scene_detail::g_sim_scale : 0.f;
+                if (0.f < row.pulse_scale)
+                {
+                    row.pulse_scale -= step;
+                    if (row.pulse_scale <= 0.f)
+                    {
+                        row.pulse_scale = 0.f;
+                    }
+                }
+                float level = row.pulse_scale * 0.25f; // DAT_0032B104
+                float clamped = level;
+                if (clamped > 1.f)
+                {
+                    clamped = 1.f;
+                }
+                else if (0.f > clamped)
+                {
+                    clamped = 0.f;
+                }
+                const float glow = (clamped + 1.f) * size;
+                const float glow_scale[2]{glow, glow};
+                float alpha = level * 255.f; // DAT_0032B158
+                if (alpha > 255.f)
+                {
+                    alpha = 255.f;
+                }
+                else if (0.f > alpha)
+                {
+                    alpha = 0.f;
+                }
+                const u8 byte = u8(static_cast<std::int64_t>(alpha)); // 0x001673D8
+                const u32 color = (base_color & 0x00FFFFFFu) | (u32(byte) << 24);
+                queue_runtime_hud_sprite(board->second_icon.data(), at, glow_scale, 0.f, color, 0, draw);
+                if (row.pulse_scale < 0.001f) // DAT_0032B1A4
+                {
+                    row.pulse = 0;
+                }
+            }
+            if (row.word_78 != 0)
+            {
+                const float back[2]{at[0] - 5.f, at[1]}; // DAT_0032B184
+                queue_runtime_hud_sprite(board->first_icon.data(), back, scale, 0.f, base_color, 0, draw);
+            }
+            if (row.icon == 0x42)
+            {
+                size *= 1.5f; // DAT_0032B210
+                scale[0] = size;
+                scale[1] = size;
+            }
+            queue_runtime_hud_sprite(row.texture.data(), at, scale, 0.f, base_color, 0, draw); // +0x88
+        }
+        switch (row.word_8)
+        {
+        case 1:
+            factor = 1.f - row.float_10 * (5.f / 3.f); // DAT_0032B118
+            break;
+        case 2:
+        case 3:
+        case 5:
+            factor = 1.f;
+            break;
+        case 4:
+        case 6:
+            factor = row.float_10 * 1.25f; // DAT_0032B114
+            break;
+        default:
+            factor = 0.f;
+            break;
+        }
+        {
+            if (!blinking || (i32(draw.hold_time * blink_rate) & 1) != 0)
+            {
+                const auto preset = context.counter_preset(row.word_74 != 0); // 0x00314184 / 0x00314170
+                if (row.word_70 >= 2 && row.word_70 <= 5)
+                {
+                    const float offset = row.scale_y * row.scaled_width * 0.5f; // +0x24, +0x90, DAT_0032B0F4
+                    shown[0] += offset;
+                    hidden[0] += offset;
+                    float digits[2];
+                    if (place_runtime_hud_element(fade, hidden, shown, digits)) // 0x00131F00
+                    {
+                        if (row.word_70 == 2)
+                        {
+                            draw_runtime_hud_counter(row.counter, digits, preset, 0, context, draw); // 0x0012F000
+                        }
+                        else if (row.word_70 == 3)
+                        {
+                            draw_runtime_hud_money(digits, row.counter, preset, 0, context, draw); // 0x0012F0D0
+                        }
+                        else
+                        {
+                            throw Error("untranslated Xbox 0x0012F110 (scoreboard row kind "
+                                + std::to_string(row.word_70) + ")");
+                        }
+                    }
+                    shown[0] -= offset;
+                    hidden[0] -= offset;
+                }
+            }
+        }
+        float spacing = board->spacing; // board +0x4C
+        switch (row.word_70)
+        {
+        case 2:
+            spacing += 89.f; // DAT_0032B258
+            break;
+        case 3:
+            spacing += 79.f; // DAT_0032B5F8
+            break;
+        case 4:
+        case 5:
+            spacing += 144.f; // DAT_0032B5F4
+            break;
+        default:
+            spacing += 74.f; // DAT_0032B5F0
+            break;
+        }
+        shown[0] = spacing * factor + shown[0];
+        hidden[0] = hidden[0] + spacing * factor;
+        if (wide)
+        {
+            shown[0] += 32.f;
+            hidden[0] += 32.f;
+        }
     }
 }
 

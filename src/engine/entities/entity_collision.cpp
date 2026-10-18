@@ -662,6 +662,31 @@ i32 entity_record_movement_probe(Vec3& kept, Vec3& candidate, u32 param, i32 kin
     return 0;
 }
 
+// Xbox 0x001225A0, ESI target, EDI start
+i32 entity_record_sphere_probe(Vec3& target, Vec3& start, float radius, i32 kind, u32 mask)
+{
+    float dx = target.x - start.x;
+    float dz = target.z - start.z;
+    float dy = target.y - start.y;
+    const float length = (dx * dx + dz * dz) + dy * dy;
+    if (length != 0.f)
+    {
+        const long double scale = static_cast<long double>(engine_reciprocal_sqrt(length)) * radius; // 0x001534C0
+        dx = float(dx * scale);
+        dy = float(dy * scale);
+        dz = float(dz * scale);
+    }
+    Vec3 reach{target.x + dx, target.y + dy, dz + target.z};
+    const i32 hit = entity_record_sweep_probe(reach, start, kind, mask); // 0x00122480
+    if (hit != 0)
+    {
+        target.x = reach.x - dx;
+        target.y = reach.y - dy;
+        target.z = reach.z - dz;
+    }
+    return hit;
+}
+
 // Xbox 0x00122480
 i32 entity_record_sweep_probe(Vec3& kept, Vec3& candidate, i32 kind, u32 mask)
 {

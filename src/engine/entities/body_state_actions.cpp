@@ -7,6 +7,7 @@
 #include "body_knockdown_state.h"
 #include "body_die_state.h"
 #include "body_anim_state.h"
+#include "body_pickup_state.h"
 #include "gbtg/entity.h"
 #include <bit>
 #include <cstring>
@@ -23,6 +24,7 @@ std::function<RuntimeDizzyStateContext&(u32)> dizzy_context_of;
 std::function<RuntimeKnockdownContext&(u32)> knockdown_context_of;
 std::function<RuntimeDieStateContext&(u32)> die_context_of;
 std::function<RuntimeAnimStateContext&(u32)> anim_context_of;
+std::function<RuntimePickupStateContext&(u32)> pickup_context_of;
 // Walk-alert speed-band records by state, the host side of state +0x30 + 0x10 * index.
 std::unordered_map<const u8*, std::vector<const AnimationRecord*>> walk_alert_records;
 
@@ -215,6 +217,25 @@ const ObjectFactoryVtable* knockdown_state_lifecycle()
 {
     static const ObjectFactoryVtable table{0x00505A20, knockdown_state_object_sizes, construct_knockdown_state_view,
         destroy_knockdown_state_view};
+    return &table;
+}
+
+bool construct_pickup_state_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    const std::span<u8> state{object.bytes.get(), object.size};
+    return initialize_runtime_pickup_state(state, parameters, pickup_context_of(word(state, 8)));
+}
+
+void destroy_pickup_state_view(FactoryObject& object)
+{
+    const std::span<u8> state{object.bytes.get(), object.size};
+    destroy_runtime_pickup_state(state, pickup_context_of(word(state, 8)));
+}
+
+const ObjectFactoryVtable* pickup_state_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505A60, pickup_state_object_sizes, construct_pickup_state_view,
+        destroy_pickup_state_view};
     return &table;
 }
 
@@ -514,8 +535,11 @@ const AnimationRecord* runtime_walk_alert_record(std::span<const u8> state, u16 
 void install_runtime_body_state_classes(std::span<ObjectFactoryType> types,
     std::function<RuntimeBodyStateContext(u32)> context_of, std::function<RuntimeHitStateLifecycle(u32)> hit_of,
     std::function<RuntimeDizzyStateContext&(u32)> dizzy_of, std::function<RuntimeKnockdownContext&(u32)> knockdown_of,
-    std::function<RuntimeDieStateContext&(u32)> die_of, std::function<RuntimeAnimStateContext&(u32)> anim_of)
+    std::function<RuntimeDieStateContext&(u32)> die_of, std::function<RuntimeAnimStateContext&(u32)> anim_of,
+    std::function<RuntimePickupStateContext&(u32)> pickup_of)
 {
+    pickup_context_of = std::move(pickup_of);
+    types[0x7C] = ObjectFactoryType{9, pickup_state_lifecycle};
     anim_context_of = std::move(anim_of);
     types[0x5E] = ObjectFactoryType{9, anim_state_lifecycle};
     die_context_of = std::move(die_of);

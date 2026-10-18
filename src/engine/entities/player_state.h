@@ -16,6 +16,8 @@ struct RuntimeActorPauseGroups
     RuntimePauseActor*& first; // DAT_00511B38.
 };
 void change_runtime_actor_pause(u8 mask, i32 release, RuntimeActorPauseGroups& groups); // Xbox 0x00117400
+// 0x00117400 over the scene's DAT_00511B38 list; empty outside a native scene, where that list is empty.
+extern std::function<void(u8 mask, i32 release)> g_actor_pause;
 void leave_runtime_player_strategy(std::span<u8> strategy, u16 old_state, u16 next_state,
     std::span<u8> body, u32& active_count, RuntimeActorPauseGroups& groups); // Xbox 0x000BF410
 void initialize_runtime_body_motion(std::span<u8> body); // Xbox 0x00025800

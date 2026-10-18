@@ -1,4 +1,5 @@
 #include "scene_mind_messages.h"
+#include "../entities/body_action_ids.h"
 #include "../entities/entity.h"
 #include "../camera/display_view.h"
 #include <cstddef>
@@ -171,9 +172,10 @@ SceneMindMessages::SceneMindMessages(SceneMindServices& services, NativePlayerIn
               }
               return player.body_slot_key(0x3C);
           },
-          [](RuntimeBodyAttachedActor&) -> u16
+          [&player](RuntimeBodyAttachedActor& attached) -> u16
           {
-              unbound("body attach action (vtable +0x5C)");
+              // Body vtable +0x5C: the base 0x00026C60 for types 0x27 and 0x2A (neither getter replaces it).
+              return runtime_body_near_action_id(player.body, player.actor, attached, player.action_table);
           }},
       boost_preset_(services.boost_preset),
       focus_{player.mind, player.actor, gaze_target_, eligibility_, services.target_eligibility,
@@ -193,9 +195,10 @@ SceneMindMessages::SceneMindMessages(SceneMindServices& services, NativePlayerIn
           services.attachment_notice},
       pending_{player.mind, pending_attachment_, player.mind_action, eligibility_, player.body,
           player.body_selection, player.input_device, services.input_state, attachment_links_,
-          [](RuntimeBodyAttachedActor&) -> u32
+          [&player](RuntimeBodyAttachedActor& attached) -> u32
           {
-              unbound("body attach action (vtable +0x5C)");
+              // Body vtable +0x5C: the base 0x00026C60 for types 0x27 and 0x2A (neither getter replaces it).
+              return runtime_body_near_action_id(player.body, player.actor, attached, player.action_table);
           }},
       inactivity_{player.mind, body_bits(player), services.clock, player.input_device, services.input_state},
       player_avoidance_{player.mind, player.body, player.actor,

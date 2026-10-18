@@ -84,6 +84,8 @@
 #include "../src/engine/scene/live_spawn_tick.h"
 #include "../src/engine/scene/factory_scene_runtime.h"
 #include "../src/engine/scene/scene_actor_services.h"
+#include "../src/engine/entities/camera_director.h"
+#include "../src/engine/navigation/occupancy.h"
 #include <optional>
 #include "../src/engine/audio/bank_lookup.h"
 #include "../src/engine/audio/core_source.h"
@@ -394,8 +396,10 @@ void check_actor_spawn_eligibility()
     }
     scene_detail::g_pulse_nodes = saved_head;
     Actor actor;
+    Actor parent_actor;
     ActorLink link;
-    int source = 0;
+    ActorLink parent; // The parent actor's node (+0x918).
+    ActorLink root; // DAT_00511B10: its first dword is null.
     actor.spawn_point_count = 2;
     actor.mask_flag = 1;
     if (!actor_can_supply_ghoulybox(actor))
@@ -407,12 +411,22 @@ void check_actor_spawn_eligibility()
     {
         throw Error("empty actor link rejected as a ghoulybox source");
     }
-    link.head = &source;
+    // 0x00146150 looks one node up: an actor under the root (every activated actor) stays eligible, one bound
+    // under another actor's node does not.
+    link.head = &root;
+    if (!actor_can_supply_ghoulybox(actor))
+    {
+        throw Error("actor under the world bind root rejected as a ghoulybox source");
+    }
+    parent.head = &root;
+    link.head = &parent;
+    link.owner = &parent_actor;
     if (actor_can_supply_ghoulybox(actor))
     {
         throw Error("bound actor accepted as a ghoulybox source");
     }
     link.head = nullptr;
+    link.owner = nullptr;
     actor.mask_flag = 0x100;
     if (actor_can_supply_ghoulybox(actor))
     {
@@ -1851,12 +1865,15 @@ void check_spawn_scheduler()
         actor.radius_xz = 5.f;
         float timer = 0.f;
         trail_calls = 0;
+        // 0x0013B030 pushes the record address before its stores, so the source, life, alpha and scale land at
+        // +0x334..+0x348 (the after-image 0x000690F0 reads them there) and +0x34C / +0x350 are zero.
         if (!request_actor_trail(actor, 6.f, timer, 30, trail) || trail_calls != 1 ||
             objects.size() != 1 || read_u16(received, 2) != 0x43 ||
-            read_u16(received, 4) != 0x10 || read_u32(received, 0x338) != 0x11223344 ||
-            read_f32(received, 0x24) != 2.f || read_f32(received, 0x33C) != 6.f ||
-            read_f32(received, 0x344) != 3.f || read_f32(received, 0x348) != 4.f ||
-            read_f32(received, 0x34C) != 5.f || received[0x340] != 0x80)
+            read_u16(received, 4) != 0x10 || read_u32(received, 0x334) != 0x11223344 ||
+            read_f32(received, 0x24) != 2.f || read_f32(received, 0x338) != 6.f ||
+            read_f32(received, 0x340) != 3.f || read_f32(received, 0x344) != 4.f ||
+            read_f32(received, 0x348) != 5.f || received[0x33C] != 0x80 || read_u32(received, 0x34C) != 0 ||
+            read_u32(received, 0x350) != 0)
         {
             throw Error("actor trail lost factory selection, its source pointer, or derived parameter offsets");
         }
@@ -7878,6 +7895,20 @@ int main(int argc, char** argv)
         {
             bool saw_dialogue = false;
             bool saw_bat_hop = false;
+            // DAT_00511B38's players (Cooper class 4, the imps class 23) with their strategy, body and actor words.
+            const auto marked = [&game]()
+            {
+                return game.factory_scene->start_actors(game).marked_actors();
+            };
+            const auto strategy_state = [](const gbtg::RuntimeDirectorActor& mark)
+            {
+                return mark.strategy.empty() ? 0 : gbtg::read_u16(mark.strategy, 0xE);
+            };
+            // Script type 0x2F sends Cooper goal 7 (message 0x4D): his strategy holds in its goal state 0x3FB until
+            // type 0x30 (message 0x32) releases him after the tutorial.
+            bool cooper_locked = false;
+            // The page's 0x00117400 sends 0x27 down DAT_00511B38: every imp's strategy waits in state 1000.
+            bool imps_paused = false;
             // The native prompt activates after the opening transition: the scene tick
             // 0x0011E7F0 (and the script's 3-second timeout) runs only once 0x0011E4C0
             // leaves state 5. Leave enough live time for its detached bat's 4.5-second
@@ -7888,6 +7919,25 @@ int main(int argc, char** argv)
                 game.tick(1.f / 60.f, {});
                 gbtg::gfx_end_frame();
                 saw_dialogue |= gbtg::g_flag_2474 != 0 && gbtg::g_draw_e1ec != 0;
+                if (frame == 719)
+                {
+                    bool all_paused = true;
+                    int imps_seen = 0;
+                    for (const auto& mark : marked())
+                    {
+                        if (mark.actor->class_key == 4)
+                        {
+                            cooper_locked = strategy_state(mark) == 0x3FB;
+                        }
+                        else if (mark.actor->class_key == 23)
+                        {
+                            ++imps_seen;
+                            all_paused &= strategy_state(mark) == 0x3E8;
+                        }
+                    }
+                    imps_paused = all_paused && imps_seen > 0 && game.script_dialogue != nullptr
+                        && game.script_dialogue->dialogue.state.mode != 0;
+                }
                 if (game.script_dialogue != nullptr)
                 {
                     auto& active = game.script_dialogue->dialogue;
@@ -7917,6 +7967,39 @@ int main(int argc, char** argv)
                 throw gbtg::Error("player opening readback failed");
             }
             gbtg::write_bmp("cache/player_opening_check.bmp", image);
+            // The scoreboard's 0x00132290 draws nothing while DAT_004EE1EC (the page's mode) is set: no heart at the
+            // top right behind the tutorial page.
+            const auto heart_pixels = [](const gbtg::RgbaImage& frame)
+            {
+                int count = 0;
+                for (int y = 40; y < 110 && y < frame.height; ++y)
+                {
+                    for (int x = 480; x < 580 && x < frame.width; ++x)
+                    {
+                        const size_t at = (size_t(y) * size_t(frame.width) + size_t(x)) * 4;
+                        const int b = frame.bgra[at];
+                        const int g = frame.bgra[at + 1];
+                        const int r = frame.bgra[at + 2];
+                        count += r > 180 && g < 90 && b < 90 ? 1 : 0;
+                    }
+                }
+                return count;
+            };
+            const int page_heart = heart_pixels(image);
+            std::cout << "player opening: heart pixels behind the page " << page_heart << "\n";
+            if (page_heart > 20)
+            {
+                throw gbtg::Error("the HUD heart draws behind the tutorial page (DAT_004EE1EC gate)");
+            }
+            if (!cooper_locked)
+            {
+                throw gbtg::Error("Cooper is not held in goal 7 (strategy state 0x3FB) before the tutorial ends");
+            }
+            if (!imps_paused)
+            {
+                throw gbtg::Error("the imps' strategies did not wait (state 1000) behind the tutorial page");
+            }
+            std::cout << "PASS: Cooper is locked, the imps pause and the HUD hides behind the tutorial page\n";
             if (!saw_dialogue)
             {
                 throw gbtg::Error("player opening must hold chapter1_scene1_fight1_howtofight until A; "
@@ -7986,12 +8069,47 @@ int main(int argc, char** argv)
             // The condition nodes seek their block's closing 0x3C (0x00125450 -> 0x000532B0), so the main
             // fired cursor waits at a type 0xF gate instead of draining the fired list, which would end the
             // scene (0x00117140 requests the next scene AID).
-            for (int frame = 0; frame < 300; ++frame)
+            // An imp's first sighting of Cooper queues the ghoul intro (0x000F4870); the scene tick shows it
+            // (0x000F4A00 / 0x000F4560): scene flag 4 hides the HUD, the intro camera holds four shots, then
+            // 0x000F4B90 ends it. Play on until it has ended.
+            int intro_start = -1;
+            int intro_end = -1;
+            for (int frame = 0; frame < 300 || (intro_start >= 0 && intro_end < 0 && frame < 900); ++frame)
             {
                 gbtg::gfx_begin_frame();
                 game.tick(1.f / 60.f, {});
+                const bool showing = (gbtg::g_flags_ea9c & 4u) != 0;
+                if (showing && intro_start < 0)
+                {
+                    intro_start = frame;
+                }
+                if (!showing && intro_start >= 0 && intro_end < 0)
+                {
+                    intro_end = frame;
+                }
+                if (intro_start >= 0 && frame == intro_start + 90)
+                {
+                    gbtg::RgbaImage intro;
+                    if (gbtg::gfx_readback(intro))
+                    {
+                        gbtg::write_bmp("cache/player_intro_check.bmp", intro);
+                    }
+                }
                 gbtg::gfx_end_frame();
             }
+            std::cout << "ghoul intro: frames " << intro_start << " to " << intro_end << "\n";
+            if (intro_start < 0 || intro_end < 0)
+            {
+                throw gbtg::Error("the imps' ghoul intro did not play after the tutorial");
+            }
+            for (const auto& mark : marked())
+            {
+                if (mark.actor->class_key == 4 && strategy_state(mark) == 0x3FB)
+                {
+                    throw gbtg::Error("Cooper is still held in goal 7 after the tutorial released him");
+                }
+            }
+            std::cout << "PASS: the ghoul intro plays on an imp after the tutorial and Cooper is released\n";
             if (game.scene_script.name != "aid_script_ghoulies_chapter1_scene1_2playcam" || gbtg::g_script_fired.empty())
             {
                 throw gbtg::Error("opening script left the scene after its tutorial: scene=" + game.scene_script.name);
@@ -8243,96 +8361,154 @@ int main(int argc, char** argv)
                 }
                 const std::string gate_title = game.scene_name;
                 std::string title = game.scene_name;
-                bool cleared = false;
-                for (int frame = 0; frame < 7200; ++frame)
+                // The heart shows at the top right once the fight has touched health; behind a script page the
+                // scoreboard's 0x00132290 draws nothing while DAT_004EE1EC (the page's mode) is set.
+                int hud_heart_frames = 0;
+                int page_frames = 0;
+                int pages_checked = 0;
+                // One frame of play: walk Cooper to the nearest imp and flick the right stick to attack; with no
+                // imp to fight, give fresh A edges for the script's pages, as the tutorial does.
+                const auto play_frame = [&](int frame, const std::string& prefix)
                 {
                     const auto cooper = cooper_position();
                     const auto alive = imps();
+                    gbtg::InputState input;
+                    float length = 0.f;
+                    // A script page (the butler's dialogue) holds the scene until A; give it fresh A edges and
+                    // leave the sticks centred.
+                    const bool page = game.script_dialogue != nullptr &&
+                        game.script_dialogue->dialogue.state.widget != nullptr &&
+                        game.script_dialogue->dialogue.state.mode != 0;
+                    if (page)
+                    {
+                        input.accept = frame % 30 < 5;
+                    }
+                    else if (!cooper || alive.empty())
+                    {
+                        // No A outside a page.
+                    }
+                    else
+                    {
+                        const gbtg::Vec3* nearest = &alive.front();
+                        float best = 1e30f;
+                        for (const auto& imp : alive)
+                        {
+                            const float dx = imp.x - cooper->x;
+                            const float dz = imp.z - cooper->z;
+                            if (dx * dx + dz * dz < best)
+                            {
+                                best = dx * dx + dz * dz;
+                                nearest = &imp;
+                            }
+                        }
+                        const float dx = nearest->x - cooper->x;
+                        const float dz = nearest->z - cooper->z;
+                        length = std::sqrt(dx * dx + dz * dz);
+                        const float ux = length > 0.f ? dx / length : 0.f;
+                        const float uz = length > 0.f ? dz / length : 0.f;
+                        // Keep a short standoff: close in from afar, step back when standing on the imp, where no
+                        // direction toward it falls inside the target cone. Imps further than 80 units are in
+                        // another room or behind a wall the straight-line walk cannot pass; wait for them to come
+                        // back.
+                        if (length > 10.f && length < 80.f)
+                        {
+                            input.pads[0].lx = gbtg::i16(ux * 32767.f);
+                            input.pads[0].ly = gbtg::i16(-uz * 32767.f);
+                        }
+                        else if (length < 4.f)
+                        {
+                            input.pads[0].lx = gbtg::i16(-ux * 32767.f);
+                            input.pads[0].ly = gbtg::i16(uz * 32767.f);
+                        }
+                        // The mind's stick gesture (0x0007D5A0) attacks when the stick comes back after a push, so
+                        // the right stick is flicked: eight frames out, eight frames centred. Out of reach a flick
+                        // swings at the air (0x0007EA20), so only flick inside the standoff.
+                        if (length <= 10.f && (frame / 8) % 2 == 0)
+                        {
+                            input.pads[0].rx = gbtg::i16(ux * 32767.f);
+                            input.pads[0].ry = gbtg::i16(-uz * 32767.f);
+                        }
+                    }
+                    gbtg::gfx_begin_frame();
+                    game.tick(1.f / 60.f, input);
+                    page_frames = page ? page_frames + 1 : 0;
+                    if (frame % 120 == 119 || page_frames == 30)
+                    {
+                        gbtg::RgbaImage capture;
+                        if (gbtg::gfx_readback(capture))
+                        {
+                            if (frame % 120 == 119)
+                            {
+                                gbtg::write_bmp("cache/" + prefix + std::to_string(frame + 1) + ".bmp", capture);
+                                hud_heart_frames += !page && heart_pixels(capture) > 100 ? 1 : 0;
+                            }
+                            if (page_frames == 30)
+                            {
+                                ++pages_checked;
+                                if (heart_pixels(capture) > 20)
+                                {
+                                    gbtg::write_bmp("cache/player_page_hud.bmp", capture);
+                                    throw gbtg::Error("the HUD heart draws behind a script page (DAT_004EE1EC gate)");
+                                }
+                            }
+                        }
+                    }
+                    gbtg::gfx_end_frame();
+                    if (frame % 60 == 0 && cooper && !alive.empty())
+                    {
+                        // Imps beyond the walk's reach (80 units) are in another room, such as behind a door.
+                        int distant = 0;
+                        for (const auto& imp : alive)
+                        {
+                            const float dx = imp.x - cooper->x;
+                            const float dz = imp.z - cooper->z;
+                            distant += dx * dx + dz * dz >= 80.f * 80.f ? 1 : 0;
+                        }
+                        // DAT_0050E568 / DAT_0050E56C: the script's live ghouly maximum and minimum for spawns.
+                        std::cout << prefix << "frame " << frame << ": imps " << alive.size() << " alive "
+                                  << alive_count() << " far " << distant << " limits "
+                                  << gbtg::scene_word(0x0050E568u) << "/" << gbtg::scene_word(0x0050E56Cu)
+                                  << " nearest " << length << " cooper " << cooper->x << " " << cooper->z
+                                  << (page ? " page" : "") << " title " << game.scene_name << "\n";
+                    }
+                };
+                bool cleared = false;
+                // A reacting imp (action 0x7E, its hit reaction) can be hit again: its health drops while it stays
+                // in the reaction. Health stops at 1 until the imp is dizzy (0x000215C0's 0x00024680 minimum).
+                std::unordered_map<gbtg::u32, std::pair<gbtg::u16, gbtg::u16>> reactions; // Address: action, health.
+                bool rehit = false;
+                const auto track_reactions = [&]()
+                {
+                    for (const auto& mark : marked())
+                    {
+                        if (mark.actor->class_key != 23)
+                        {
+                            continue;
+                        }
+                        const gbtg::u16 action = gbtg::read_u16(mark.body, 0x748);
+                        const gbtg::u16 health = gbtg::read_u16(mark.body, 0x94);
+                        const auto found = reactions.find(mark.address);
+                        if (found != reactions.end() && found->second.first == 0x7E && action == 0x7E
+                            && health < found->second.second)
+                        {
+                            rehit = true;
+                        }
+                        reactions[mark.address] = {action, health};
+                    }
+                };
+                for (int frame = 0; frame < 7200; ++frame)
+                {
                     if (alive_count() == 0 && game.scene_name != gate_title)
                     {
                         std::cout << "fight frame " << frame << ": every imp defeated, title " << game.scene_name << "\n";
                         cleared = true;
                         break;
                     }
-                    if (!cooper || alive.empty())
+                    play_frame(frame, "player_fight_");
+                    track_reactions();
+                    if (game.scene_name != title)
                     {
-                        // Defeated imps are removed; wait for the script to leave its gate. Past "Kill All" the
-                        // butler's page waits for A, so give fresh A edges as the tutorial does.
-                        gbtg::InputState input;
-                        input.accept = alive_count() == 0 && frame % 120 < 5;
-                        gbtg::gfx_begin_frame();
-                        game.tick(1.f / 60.f, input);
-                        if (frame % 120 == 119)
-                        {
-                            gbtg::RgbaImage after;
-                            if (gbtg::gfx_readback(after))
-                            {
-                                gbtg::write_bmp("cache/player_fight_" + std::to_string(frame + 1) + ".bmp", after);
-                            }
-                        }
-                        gbtg::gfx_end_frame();
-                        if (game.scene_name != title)
-                        {
-                            std::cout << "fight frame " << frame << ": title " << game.scene_name << "\n";
-                            title = game.scene_name;
-                        }
-                        continue;
-                    }
-                    const gbtg::Vec3* nearest = &alive.front();
-                    float best = 1e30f;
-                    for (const auto& imp : alive)
-                    {
-                        const float dx = imp.x - cooper->x;
-                        const float dz = imp.z - cooper->z;
-                        if (dx * dx + dz * dz < best)
-                        {
-                            best = dx * dx + dz * dz;
-                            nearest = &imp;
-                        }
-                    }
-                    const float dx = nearest->x - cooper->x;
-                    const float dz = nearest->z - cooper->z;
-                    const float length = std::sqrt(dx * dx + dz * dz);
-                    const float ux = length > 0.f ? dx / length : 0.f;
-                    const float uz = length > 0.f ? dz / length : 0.f;
-                    gbtg::InputState input;
-                    // Keep a short standoff: close in from afar, step back when standing on the imp, where no
-                    // direction toward it falls inside the target cone. Imps further than 80 units are in another
-                    // room or behind a wall the straight-line walk cannot pass; wait for them to come back.
-                    if (length > 10.f && length < 80.f)
-                    {
-                        input.pads[0].lx = gbtg::i16(ux * 32767.f);
-                        input.pads[0].ly = gbtg::i16(-uz * 32767.f);
-                    }
-                    else if (length < 4.f)
-                    {
-                        input.pads[0].lx = gbtg::i16(-ux * 32767.f);
-                        input.pads[0].ly = gbtg::i16(uz * 32767.f);
-                    }
-                    // The mind's stick gesture (0x0007D5A0) attacks when the stick comes back after a push, so
-                    // the right stick is flicked: eight frames out, eight frames centred. Out of reach a flick
-                    // swings at the air (0x0007EA20), so only flick inside the standoff.
-                    if (length <= 10.f && (frame / 8) % 2 == 0)
-                    {
-                        input.pads[0].rx = gbtg::i16(ux * 32767.f);
-                        input.pads[0].ry = gbtg::i16(-uz * 32767.f);
-                    }
-                    gbtg::gfx_begin_frame();
-                    game.tick(1.f / 60.f, input);
-                    if (frame % 120 == 119)
-                    {
-                        gbtg::RgbaImage fight;
-                        if (gbtg::gfx_readback(fight))
-                        {
-                            gbtg::write_bmp("cache/player_fight_" + std::to_string(frame + 1) + ".bmp", fight);
-                        }
-                    }
-                    gbtg::gfx_end_frame();
-                    if (frame % 60 == 0 || game.scene_name != title)
-                    {
-                        std::cout << "fight frame " << frame << ": imps " << alive.size() << " alive " << alive_count()
-                                  << " nearest " << length << " cooper " << cooper->x << " " << cooper->z << " title "
-                                  << game.scene_name << "\n";
+                        std::cout << "fight frame " << frame << ": title " << game.scene_name << "\n";
                         title = game.scene_name;
                     }
                 }
@@ -8354,6 +8530,161 @@ int main(int argc, char** argv)
                         + " imps alive, title " + game.scene_name);
                 }
                 std::cout << "PASS: Cooper defeats the opening imps and the script passes Kill All\n";
+                if (!rehit)
+                {
+                    throw gbtg::Error("no imp lost health while still in its hit reaction (action 0x7E)");
+                }
+                std::cout << "PASS: a reacting imp can be hit again before its reaction ends\n";
+                std::cout << "HUD: heart in " << hud_heart_frames << " fight captures, " << pages_checked
+                          << " script pages checked\n";
+                if (hud_heart_frames == 0 || pages_checked == 0)
+                {
+                    throw gbtg::Error("the fight never showed the heart, or no script page was checked for it");
+                }
+                std::cout << "PASS: the HUD shows in the fight and hides behind the butler's pages\n";
+                // "Freeplay (Temporary Weapon Explained)": the chair stands in the hall, type 0x96 put Cooper on
+                // marker 1 inside region 1, and the section waits for the chair's pickup (ObjectPickedUp, event
+                // 0xAD with the chair's tag), for Cooper to leave region 1 (0x00124860), or for its 5 s timeout.
+                if (game.scene_name != "Freeplay (Temporary Weapon Explained)")
+                {
+                    throw gbtg::Error("Kill All did not lead to the chair's section: title " + game.scene_name);
+                }
+                const gbtg::u32 chair_tag = gbtg::script_find_actor_tag("objTag_Weapon_Chair");
+                bool picked_up_condition = false;
+                for (const auto& condition : gbtg::g_script_conds)
+                {
+                    picked_up_condition |= gbtg::cond_u32(condition, 0) == 3
+                        && (gbtg::cond_u32(condition, 8) & 0xFFFFu) == chair_tag && chair_tag != 0;
+                }
+                const auto placed = cooper_position();
+                if (!picked_up_condition || !placed || !gbtg::occupancy_region_contains(1, *placed))
+                {
+                    throw gbtg::Error("the chair's section does not wait for the chair with Cooper in region 1");
+                }
+                // The chair (its actor +6 is the chair's tag): Cooper walks up to it, where his mind takes it as the
+                // pending pickup (mind +0x134), and A picks it up (0x0007D210): the pick-up body state (factory type
+                // 0x7C, 0x0009DF90) attaches it (0x0001B190), and its exit (0x0009DEA0) queues event 0xAD with the
+                // chair's tag, which ends the section before its 5 s timeout.
+                const auto chair_actor = [&game, chair_tag]() -> gbtg::Actor*
+                {
+                    for (const auto& [address, actor] : game.factory_scene->start_actors(game).actor_addresses())
+                    {
+                        if (actor != nullptr && actor->class_key == chair_tag)
+                        {
+                            return actor;
+                        }
+                    }
+                    return nullptr;
+                };
+                const auto cooper_actor = [&game]() -> gbtg::Actor*
+                {
+                    for (const auto& [address, actor] : game.factory_scene->start_actors(game).actor_addresses())
+                    {
+                        if (actor != nullptr && actor->class_key == 4)
+                        {
+                            return actor;
+                        }
+                    }
+                    return nullptr;
+                };
+                int held = 0;
+                int picked_frame = -1;
+                int event_frame = -1;
+                while (game.scene_name == "Freeplay (Temporary Weapon Explained)" && held < 1200)
+                {
+                    gbtg::InputState input;
+                    gbtg::Actor* chair = chair_actor();
+                    const auto cooper = cooper_position();
+                    float distance = 0.f;
+                    if (held >= 60 && chair != nullptr && cooper && picked_frame < 0)
+                    {
+                        const gbtg::Vec3 at = gbtg::actor_world_position(*chair);
+                        const float dx = at.x - cooper->x;
+                        const float dz = at.z - cooper->z;
+                        distance = std::sqrt(dx * dx + dz * dz);
+                        if (distance > 3.f)
+                        {
+                            input.pads[0].lx = gbtg::i16(dx / distance * 32767.f);
+                            input.pads[0].ly = gbtg::i16(-dz / distance * 32767.f);
+                        }
+                        else
+                        {
+                            input.accept = held % 20 < 3;
+                        }
+                    }
+                    gbtg::gfx_begin_frame();
+                    game.tick(1.f / 60.f, input);
+                    if (held == 40)
+                    {
+                        gbtg::RgbaImage chair_capture;
+                        if (gbtg::gfx_readback(chair_capture))
+                        {
+                            gbtg::write_bmp("cache/player_chair_check.bmp", chair_capture);
+                        }
+                    }
+                    chair = chair_actor();
+                    if (picked_frame < 0 && chair != nullptr && chair->spawn_owner != nullptr
+                        && chair->spawn_owner == cooper_actor())
+                    {
+                        picked_frame = held;
+                        std::cout << "chair picked up at frame " << held << "\n";
+                        gbtg::RgbaImage pickup_capture;
+                        if (gbtg::gfx_readback(pickup_capture))
+                        {
+                            gbtg::write_bmp("cache/player_chair_pickup.bmp", pickup_capture);
+                        }
+                    }
+                    if (picked_frame >= 0 && held == picked_frame + 100)
+                    {
+                        gbtg::RgbaImage held_capture;
+                        if (gbtg::gfx_readback(held_capture))
+                        {
+                            gbtg::write_bmp("cache/player_chair_held.bmp", held_capture);
+                        }
+                    }
+                    // The pick-up state's exit queues {0xAD, chair tag} (0x00116810); node +0xC is the tag.
+                    for (const gbtg::LiveScript* node = gbtg::g_live_scripts; node != nullptr && event_frame < 0;
+                         node = node->next)
+                    {
+                        if (node->type == 0xAD && node->word_c == gbtg::u16(chair_tag))
+                        {
+                            event_frame = held;
+                            std::cout << "event 0xAD with the chair's tag queued at frame " << held << "\n";
+                        }
+                    }
+                    gbtg::gfx_end_frame();
+                    if (held % 30 == 0)
+                    {
+                        std::cout << "chair frame " << held << ": distance " << distance << "\n";
+                    }
+                    ++held;
+                }
+                std::cout << "chair section held " << held << " frames, then title " << game.scene_name << "\n";
+                if (picked_frame < 0)
+                {
+                    throw gbtg::Error("A beside the chair did not pick it up");
+                }
+                // The TimeOut ends the section at frame 299; ObjectPickedUp (opcode 3) ends it once its delay
+                // (record +0xC) has run out with the event queued.
+                if (event_frame < picked_frame || game.scene_name != "Event Door Intro" || held >= 295)
+                {
+                    throw gbtg::Error("the chair's section did not move on through the pickup (event 0xAD) before its "
+                        "5 s timeout: title " + game.scene_name);
+                }
+                std::cout << "PASS: A beside the chair picks it up and the section moves on through event 0xAD\n";
+                // Play on: the door opens, a second wave comes in for the script's "Kill All" event, the exit door
+                // opens and the butler sees Cooper out. The scene ends when the script asks for the next one.
+                const std::string scene_script = game.scene_script.name;
+                for (int frame = 0; frame < 14400 && game.scene_script.name == scene_script; ++frame)
+                {
+                    play_frame(frame, "player_after_");
+                    if (game.scene_name != title)
+                    {
+                        std::cout << "after frame " << frame << ": title " << game.scene_name << "\n";
+                        title = game.scene_name;
+                    }
+                }
+                std::cout << "after: script " << game.scene_script.name << ", title " << game.scene_name << "\n";
                 gbtg::gfx_shutdown();
                 return 0;
             }

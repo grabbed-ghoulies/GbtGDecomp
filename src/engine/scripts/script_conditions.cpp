@@ -69,6 +69,9 @@ extern "C"
 #include "script_event_tallies.h"
 #include "script_vm.h"
 #include "../entities/entity.h"
+#include "../entities/camera_director.h"
+#include "../navigation/occupancy.h"
+#include "../scene/scene_actor_services.h"
 
 namespace gbtg
 {
@@ -138,6 +141,22 @@ const u32* find_runtime_script_event_type(u32 type)
     return nullptr;
 }
 
+// Xbox 0x001168C0, EDI type
+void release_runtime_script_events(u32 type)
+{
+    // Walks DAT_0050E4DC, taking each next link before 0x000E9210 releases a node of the type.
+    LiveScript* node = g_live_scripts;
+    while (node != nullptr)
+    {
+        LiveScript* next = node->next;
+        if (node->type == type)
+        {
+            script_release_event(node); // 0x000E9210
+        }
+        node = next;
+    }
+}
+
 // Xbox 0x00116950. The accepting arms queue the message; scene startup (0x0011CBD0) submits 0x7D directly. The
 // other arms tally the message and drop it, and ids without an arm are dropped.
 // Xbox 0x00116950
@@ -193,7 +212,15 @@ bool script_accepts_event(std::span<const u8> message)
         return false;
     }
     case 0x80:
+        release_runtime_script_events(0x7D); // 0x001168C0, EDI 0x7D
+        return false;
     case 0x83:
+        if (read_u32(message, 4) != 0)
+        {
+            ++g_gate_251c;
+        }
+        release_runtime_script_events(0x81); // 0x001168C0, EDI 0x81
+        return false;
     case 0xb0:
         throw Error("untranslated script message filter arm: " + std::to_string(type));
     case 0xaf:
@@ -235,7 +262,16 @@ void script_queue_event(Game& g, std::span<const u8> message)
         tail->next = live;
         live->prev = tail;
         std::copy(message.begin(), message.end(), live->message.begin());
+        // 0x000F71F0 copies the message to node +8: the type, then +0xC, +0x10 and +0x14 are its words at +4,
+        // +8 and +0xC.
         live->type = type;
+        const auto word_at = [&message](size_t offset) -> u32
+        {
+            return offset + 4 <= message.size() ? read_u32(message, offset) : 0u;
+        };
+        live->word_c = u16(word_at(4));
+        live->dword_10 = word_at(8);
+        live->word_14 = u16(word_at(0xC));
         live->timestamp = g.time;
     }
 }
@@ -716,44 +752,61 @@ int script_condition_consume_tagged_event(const ScriptCond& rec)
 }
 
 
-// Xbox 0x00132940. Opcode 8 in the table at 0x00314330. The dword at
-// record+8 is loaded first. DAT_00511B40 null, or equal to the sentinel
-// 0x93C, returns 0. The word at node+0x20 + 0x94 must be nonzero.
-// 0x000412A0 then writes that actor's world position. 0x00124860 takes the
-// dword at record+8 and its return is this function's return. 0x00124860
-// is not translated, so that return is not taken.
-// Xbox 0x00132940
-int script_condition_actor_query(const ScriptCond& rec)
+// The DAT_00511B40 player as 0x00132940 and 0x001329A0 read it; null before a native start or without a player.
+namespace
 {
-    const u32 region = cond_u32(rec, 8);
-    if (g_actor_mark != nullptr && reinterpret_cast<std::uintptr_t>(g_actor_mark) != 0x93cu &&
-        g_actor_mark->at_20->word_94 != 0)
+const RuntimeDirectorActor* script_condition_player(Game& g, std::vector<RuntimeDirectorActor>& marks)
+{
+    SceneActorServices* actors = script_scene_actors(g);
+    const u32 link = actors == nullptr ? 0 : actors->player_link();
+    if (link == 0 || link == 0x93Cu)
     {
-        const Vec3 world = actor_world_position(*g_actor_mark->actor);
-        (void)world;
-        (void)region;
+        return nullptr;
     }
-    return 0;
+    marks = actors->marked_actors();
+    for (const auto& mark : marks)
+    {
+        if (mark.address == link - 0x93C)
+        {
+            return &mark;
+        }
+    }
+    throw Error("DAT_00511B40 player is not on DAT_00511B38");
+}
 }
 
 
-// Xbox 0x001329A0. Opcode 9 in the table at 0x00314330. The dword at
-// record+8 is loaded first. DAT_00511B40 null, or equal to the sentinel
-// 0x93C, returns 1. Otherwise 0x000412A0 writes that actor's world position
-// and 0x00124860 takes the dword at record+8. A zero return from that call
-// returns 1. 0x00124860 is not translated, so that return is not taken.
-// Xbox 0x001329A0
-int script_condition_actor_query_clear(const ScriptCond& rec)
+// Xbox 0x00132940. Opcode 8 in the table at 0x00314330. DAT_00511B40 null, or 0x93C (no actor), returns 0. The
+// player's body (node+0x20, actor +0x95C) word +0x94 must be nonzero; 0x00124860 then tests the player's world
+// position (0x000412A0) against the region in the dword at record+8, and its result is returned.
+// Xbox 0x00132940
+int script_condition_actor_query(Game& g, const ScriptCond& rec)
 {
     const u32 region = cond_u32(rec, 8);
-    if (g_actor_mark != nullptr && reinterpret_cast<std::uintptr_t>(g_actor_mark) != 0x93cu)
+    std::vector<RuntimeDirectorActor> marks;
+    const RuntimeDirectorActor* player = script_condition_player(g, marks);
+    if (player == nullptr || read_u16(player->body, 0x94) == 0)
     {
-        const Vec3 world = actor_world_position(*g_actor_mark->actor);
-        (void)world;
-        (void)region;
         return 0;
     }
-    return 1;
+    return occupancy_region_contains(region, actor_world_position(*player->actor)) ? 1 : 0;
+}
+
+
+// Xbox 0x001329A0. Opcode 9 in the table at 0x00314330. DAT_00511B40 null, or 0x93C, returns 1. Otherwise
+// 0x00124860 tests the player's world position (0x000412A0) against the region in the dword at record+8, and the
+// record fires when the player is outside it.
+// Xbox 0x001329A0
+int script_condition_actor_query_clear(Game& g, const ScriptCond& rec)
+{
+    const u32 region = cond_u32(rec, 8);
+    std::vector<RuntimeDirectorActor> marks;
+    const RuntimeDirectorActor* player = script_condition_player(g, marks);
+    if (player == nullptr)
+    {
+        return 1;
+    }
+    return occupancy_region_contains(region, actor_world_position(*player->actor)) ? 0 : 1;
 }
 
 
@@ -1511,11 +1564,11 @@ void script_evaluate_conditions(Game& g)
         }
         else if (opcode == 8)
         {
-            fired = script_condition_actor_query(rec);
+            fired = script_condition_actor_query(g, rec);
         }
         else if (opcode == 9)
         {
-            fired = script_condition_actor_query_clear(rec);
+            fired = script_condition_actor_query_clear(g, rec);
         }
         else if (opcode == 10)
         {

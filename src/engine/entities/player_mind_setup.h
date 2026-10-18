@@ -27,7 +27,7 @@ struct RuntimePlayerCameraContext
     ObjectFactoryRegistry& factory;
     std::span<ExecutableResourcePool> resources;
     const char* parameters; // string at 0x00314E50.
-    std::span<const u8> offsets; // table at 0x00314EB0.
+    std::span<const u8> offsets; // table at 0x00314EB0: 8-byte rows read at (class + state * 3), up to 0x80 bytes.
     const u32& runtime_flags; // DAT_0050EA9C.
     const i32& player_count; // DAT_00545AF0.
     // Required genuine camera vtable +0xC mapping. Payload: id, zero, actor token.

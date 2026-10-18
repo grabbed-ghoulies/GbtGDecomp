@@ -79,6 +79,40 @@ bool occupancy_box_contains(const OccupancyRecord& record, const Vec3& point, fl
     return false;
 }
 
+// Xbox 0x00124860. EDI is the point. Each DAT_00512344 record whose dword at +0 is the region tests the point with
+// its kind's shape (0 sphere, 1 box); the first that contains it returns 1.
+// Xbox 0x00124860
+bool occupancy_region_contains(u32 region, const Vec3& point)
+{
+    if (g_512344 == nullptr)
+    {
+        return false;
+    }
+    const auto& pool = *static_cast<const OccupancyPool*>(g_512344);
+    float distance = 0.f;
+    for (const OccupancyRecord* record = pool.begin; record < pool.cursor; ++record)
+    {
+        if (record->value_0 != region)
+        {
+            continue;
+        }
+        bool contains = false;
+        if (record->kind == 0)
+        {
+            contains = occupancy_sphere_contains(*record, point, distance);
+        }
+        else if (record->kind == 1)
+        {
+            contains = occupancy_box_contains(*record, point, distance);
+        }
+        if (contains)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Xbox 0x001248D0
 const OccupancyRecord* find_occupancy_record(const Vec3& point, float initial_distance,
     u32 mask, const OccupancyRecord* excluded, i16 group)

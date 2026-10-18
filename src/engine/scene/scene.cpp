@@ -1,3 +1,5 @@
+#include "../cutscenes/door_registration.h"
+#include "../scripts/script_event_sequence.h"
 #include "gbtg/anim.h"
 #include "cutscene_scene_runtime.h"
 #include "../video/native_movies.h"
@@ -547,9 +549,6 @@ i32 g_4312e0 = 0;
 // DAT_00545B38. 3 would call 0x0013FFD0.
 i32 g_545b38 = 0;
 
-// DAT_00506E28. 1 would call 0x000F4A00 before the tick list is read.
-i32 g_506e28 = 0;
-
 // DAT_0050E438. The global names the link at object+8. Next is the pointer
 // at +4. vtable +0x10 is called with the object. The port keeps the method
 // and the next pointer on the node the global names.
@@ -649,17 +648,17 @@ void scene_begin_audio_pause()
 // is added to DAT_004312E4. The truncated integer lands at DAT_004312E0 and
 // the fraction stays at DAT_004312E4.
 //
-// 0x0004EBD0 ticks the native scene's cutscenes; 0x0005AA90 is not
-// translated; 0x00057E60 ticks the scene dialogue. DAT_00545B38
+// 0x0004EBD0 ticks the native scene's cutscenes; 0x0005AA90 ticks the
+// doors; 0x00057E60 ticks the scene dialogue. DAT_00545B38
 // equal to 3 would call 0x0013FFD0. That call is not translated. 0x00117140
-// runs, then 0x000D0300 and 0x00049DE0 would run. Those two are not
-// translated. 0x00117140 runs again. DAT_00506E28 equal to 1 would call
-// 0x000F4A00 before DAT_0050E438 is loaded. That call is not translated.
+// runs, then 0x000D0300 ticks the event sequence and 0x00049DE0 would
+// run; that one is not translated. 0x00117140 runs again. DAT_00506E28 equal to 1 calls
+// 0x000F4A00 (the ghoul intro) before DAT_0050E438 is loaded.
 // The list walk saves the next link, then calls vtable +0x10.
 //
 // 0x00123020 takes DAT_00511B18 on the stack, then 0x00122FE0 runs. 0x001128A0
 // and 0x0011B670 are not translated. 0x00117100 then runs, including its
-// tail into 0x00117140. 0x000F4560 and 0x0013FD60 are not translated.
+// tail into 0x00117140. 0x000F4560 ticks the ghoul intro; 0x0013FD60 is not translated.
 //
 // DAT_004312DC above 0 leaves the step at 0. Otherwise the step is
 // DAT_005096C0 * DAT_004312C4, capped at DAT_0032B150 when that product is
@@ -714,10 +713,14 @@ void scene_tick_pause_counter(Game& g, u8* scene)
     g_4312e0 = static_cast<i32>(g_4312e4);
     g_4312e4 = g_4312e4 - static_cast<float>(g_4312e0);
 
-    // 0x0004EBD0 over the native scene's cutscene stack. 0x0005AA90 is not translated.
+    // 0x0004EBD0 over the native scene's cutscene stack, then the doors (0x0005AA90).
     if (auto* cutscenes = find_scene_cutscene_runtime(g); cutscenes != nullptr)
     {
         tick_scene_cutscenes(*cutscenes);
+    }
+    if (g_runtime_doors != nullptr)
+    {
+        update_runtime_doors(*g_runtime_doors, g_sim_freeze <= 0.f ? g_sim_dt * g_sim_scale : 0.f);
     }
     tick_scene_dialogue(g); // Xbox 0x00057E60
     if (g_545b38 == 3)
@@ -725,11 +728,12 @@ void scene_tick_pause_counter(Game& g, u8* scene)
         // 0x0013FFD0 is not translated.
     }
     script_tick_fired_vm(g);
-    // 0x000D0300 and 0x00049DE0 are not translated.
+    tick_script_event_sequence(g); // 0x000D0300
+    // 0x00049DE0 is not translated.
     script_tick_fired_vm(g);
-    if (g_506e28 == 1)
+    if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1)
     {
-        // 0x000F4A00 is not translated. DAT_0050E438 is loaded after it.
+        g.factory_scene->start_actors(g).start_pending_ghoul_intro(); // 0x000F4A00 while DAT_00506E28 is 1
     }
     tick_runtime_scene_control_list(); // DAT_0050E438, each active control's vtable +0x10.
     // 0x00123020 over DAT_00511B18, then 0x00122FE0. The native actors exist once the scene's actor
@@ -738,9 +742,17 @@ void scene_tick_pause_counter(Game& g, u8* scene)
     {
         g.factory_scene->start_actors(g).update_scene_actors();
     }
-    // 0x001128A0 and 0x0011B670 are not translated.
+    // 0x001128A0 is not translated.
+    if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1)
+    {
+        g.factory_scene->start_actors(g).tick_live_spawns(); // 0x0011B670
+    }
     script_vm_tick(g, 0.f);
-    // 0x000F4560 and 0x0013FD60 are not translated.
+    if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1)
+    {
+        g.factory_scene->start_actors(g).update_ghoul_intro(); // 0x000F4560
+    }
+    // 0x0013FD60 is not translated.
 
     float step = 0.f;
     if (g_sim_freeze <= 0.f)

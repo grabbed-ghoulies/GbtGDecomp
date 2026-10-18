@@ -32,6 +32,9 @@ extern float g_slide_param;
 i32 entity_record_movement_probe(Vec3& kept, Vec3& candidate, u32 param, i32 kind, u32 mask); // Xbox 0x001226C0
 i32 entity_record_sweep_probe(Vec3& kept, Vec3& candidate, i32 kind, u32 mask); // Xbox 0x00122480, EBX kept
 i32 entity_record_point_probe(Vec3& kept, Vec3& candidate, float radius, u32 mask); // Xbox 0x001229F0, EBX kept
+// A sphere of the radius moved from start to target: the target is held back by the radius at a hit.
+i32 entity_record_sphere_probe(Vec3& target, Vec3& start, float radius, i32 kind,
+    u32 mask); // Xbox 0x001225A0, ESI target, EDI start
 i32 entity_collect_contact_probes(Vec3& origin, float radius, u32 mask); // Xbox 0x00122B00
 i32 entity_collect_sphere_contacts(Vec3& origin, float radius, i32 kind,
     u32 mask); // Xbox 0x001227E0

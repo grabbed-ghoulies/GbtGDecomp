@@ -9,6 +9,8 @@
 
 namespace gbtg
 {
+void engine_copy_bytes(void* destination, const void* source, u32 count); // Xbox 0x000F71F0
+
 // Xbox 0x000FC3F0
 void separate_runtime_segment_contacts(const entity_detail::SegmentPool& pool,
     const Vec3& position, float radius, Vec3& output, const Vec3& stationary)
@@ -241,6 +243,64 @@ void nearest_segment_contact(const GhoulySpawnPool& records, Vec3& output, const
             row += 0x54;
             --remaining;
         } while (remaining != 0);
+    }
+}
+
+// Xbox 0x000FC840, EDI pool
+void cull_back_facing_segment_contacts(entity_detail::SegmentPool& pool, const Vec3& point)
+{
+    u8* end = pool.cursor;
+    for (u8* row = pool.begin; row < end; row += 0x54)
+    {
+        if (row[0x28] != 0)
+        {
+            continue;
+        }
+        const auto f = [&](size_t offset)
+        {
+            float value;
+            std::memcpy(&value, row + offset, 4);
+            return value;
+        };
+        float dx = f(0x2C) - point.x;
+        float dy = f(0x30) - point.y;
+        float dz = f(0x34) - point.z;
+        const float length = (dz * dz + dy * dy) + dx * dx;
+        if (length != 0.f)
+        {
+            const long double scale = engine_reciprocal_sqrt(length); // 0x001534C0
+            dx = float(dx * scale);
+            dy = float(dy * scale);
+            dz = float(dz * scale);
+        }
+        const float b_y = f(0x48) - f(0x30);
+        const float b_z = f(0x4C) - f(0x34);
+        const float a_y = f(0x3C) - f(0x30);
+        const float a_z = f(0x40) - f(0x34);
+        const float a_x = f(0x38) - f(0x2C);
+        const float b_x = f(0x44) - f(0x2C);
+        float nx = a_z * b_x - b_z * a_x;
+        float ny = b_y * a_x - a_y * b_x;
+        float nz = b_z * a_y - b_y * a_z;
+        const float normal = (ny * ny + nx * nx) + nz * nz;
+        if (normal != 0.f)
+        {
+            const long double scale = engine_reciprocal_sqrt(normal);
+            nz = float(nz * scale);
+            nx = float(nx * scale);
+            ny = float(ny * scale);
+        }
+        if (ny * dz + nx * dy + nz * dx >= 0.f)
+        {
+            const u8* last = pool.cursor - pool.stride;
+            if (row < last)
+            {
+                engine_copy_bytes(row, last, pool.stride); // 0x000F71F0
+            }
+            pool.cursor -= pool.stride;
+            row -= 0x54;
+            end -= 0x54;
+        }
     }
 }
 }

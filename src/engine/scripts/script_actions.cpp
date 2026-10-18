@@ -20,8 +20,16 @@
 #include "../scene/cutscene_scene_runtime.h"
 #include "script_vm.h"
 #include "../entities/player_spawn.h"
+#include "../entities/player_state.h"
+#include "../entities/player_mind_messages.h"
+#include "../entities/camera_director.h"
+#include "../scene/scene_actor_services.h"
+#include "../scene/scene_markers.h"
 #include "../frontend/dialogue_activation.h"
 #include "script_conditions.h"
+#include "script_event_sequence.h"
+#include "../cutscenes/door_registration.h"
+#include "../navigation/grid_regions.h"
 
 #include <algorithm>
 #include <bit>
@@ -345,6 +353,29 @@ const char* const kObjTagActor[0xE9] = {
 };
 
 
+SceneActorServices* script_scene_actors(Game& g)
+{
+    if (g.factory_scene == nullptr || g.factory_scene->actor_start != 1)
+    {
+        return nullptr;
+    }
+    return &g.factory_scene->start_actors(g);
+}
+
+
+// Xbox 0x00122D40
+void message_runtime_marked_actors(SceneActorServices& actors, u16 tag, std::span<const u32> message)
+{
+    for (const auto& mark : actors.marked_actors())
+    {
+        if (read_u16(mark.bytes, 6) == tag)
+        {
+            actors.send_actor_message(mark.address, message);
+        }
+    }
+}
+
+
 // Xbox 0x000F96F0. AL is the value. The stack byte selects the pair at +0x294.
 void entity_store_pair(std::span<u8> pairs, u8 index, u8 value)
 {
@@ -380,74 +411,15 @@ void entity_store_pair(CamPairObject* obj, u8 index, u8 value)
 // Xbox 0x00117400
 void script_update_decay_latches(u32 mask, i32 flag)
 {
-    const u8 bits = static_cast<u8>(mask);
-    i32 edge0 = 0;
-    i32 edge1 = 0;
-    if (flag != 0)
+    if (g_actor_pause)
     {
-        if ((bits & 1u) != 0)
-        {
-            g_count_e764 -= 1;
-            if (g_count_e764 == 0)
-            {
-                edge0 = 1;
-            }
-        }
-        if ((bits & 2u) != 0)
-        {
-            g_block_decay -= 1;
-            if (g_block_decay == 0)
-            {
-                edge1 = 1;
-            }
-        }
+        g_actor_pause(static_cast<u8>(mask), flag);
+        return;
     }
-    else
-    {
-        if ((bits & 1u) != 0)
-        {
-            g_count_e764 += 1;
-            if (g_count_e764 == 1)
-            {
-                edge0 = 1;
-            }
-        }
-        if ((bits & 2u) != 0)
-        {
-            g_block_decay += 1;
-            if (g_block_decay == 1)
-            {
-                edge1 = 1;
-            }
-        }
-    }
-    const i32 edge[2] = {edge0, edge1};
-    for (i32 edi = 0; edi < 2; ++edi)
-    {
-        if (edge[edi] == 0)
-        {
-            continue;
-        }
-        const i32 note = flag != 0 ? 0x26 : 0x27;
-        for (RangeLink* link = g_range_links; link != nullptr; link = link->next)
-        {
-            CamFocus* obj = link->host;
-            if (obj == nullptr)
-            {
-                continue;
-            }
-            i32 match = 0;
-            if (obj->word_cdc == 2 || std::bit_cast<u32>(obj->pulse) != 0)
-            {
-                match = 1;
-            }
-            if (match != edi || obj->on_note == nullptr)
-            {
-                continue;
-            }
-            obj->on_note(obj, note);
-        }
-    }
+    // No native scene: DAT_00511B38 is empty, so only the counts change.
+    RuntimePauseActor* none = nullptr;
+    RuntimeActorPauseGroups groups{scene_detail::g_pause_references, none};
+    change_runtime_actor_pause(static_cast<u8>(mask), flag, groups);
 }
 
 
@@ -945,8 +917,8 @@ int script_handle_condition_setup(Game& g, const ScriptNode& node)
 // Xbox 0x00125450. One node of the action walk. Type 0x3C stops the walk.
 // The listed types copy a condition, then 0x000532B0 (ECX = cursor, EDX =
 // 0x3C) moves the cursor to the block's closing 0x3C, so the runner advances
-// past the condition body. Every other type returns 3. The word filled by
-// 0x001077B0 is left 0.
+// past the condition body. Every other type returns 3. Types 0x40, 0x94,
+// 0x95 and 0x99 store 0x001077B0's tag in the word at +8.
 // Xbox 0x00125450
 int script_handle_condition_node(Game& g, const ScriptNode& node, u32& cursor)
 {
@@ -1004,6 +976,8 @@ int script_handle_condition_node(Game& g, const ScriptNode& node, u32& cursor)
     }
     else if (word_then_far)
     {
+        // The word at +8 is 0x001077B0's tag for the name at node+8.
+        cond_put_u32(rec, 8, static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 8).c_str())));
         cond_put_u32(rec, 0xC, node_u32(g.scene_script, node, 0x48));
     }
     else if (payload_at_8)
@@ -1086,8 +1060,6 @@ std::vector<u32> g_mark_2448;
 i32 g_mark_2444 = 0;
 
 
-// DAT_005064D8. Type 0x18 compares this with 3. 0x000D0530 would store 0.
-i32 g_flag_64d8 = 0;
 
 
 // DAT_0050EA9C. Type 0x1A tests bit 0x10 of the low byte.
@@ -1123,10 +1095,62 @@ u32 g_script_6550 = 0;
 // at node+0xC. A hit compares the written word. A match calls
 // 0x00117400(0xffff, 1), clears DAT_00512378, and returns 2. The other path
 // stores those two words in the 4-byte record at DAT_0051237C and grows
-// DAT_005123AC when the index has reached the count. 0x001117E0, 0x00122F70,
-// 0x000532E0, 0x0005B540, and 0x0005B780 are not translated, so those calls
-// are not made. The 0x0005B780 match is not taken. Any other type returns 3.
-// A handled store returns 2.
+// DAT_005123AC when the index has reached the count. 0x001117E0 and
+// 0x00122F70 (types 0x4F and 0x56) are not translated, so those calls are not
+// made. Any other type returns 3. A handled store returns 2.
+// Xbox 0x00125B80. Scene start (0x0011CBD0): every door's navigation regions follow its state (0x0005C020), the
+// door pairs the script's head recorded set their doors (0x0005B540 with no hold), the queued 0x4F tags set their
+// regions on every grid, both lists empty, and each DAT_00511B20 actor gets message 0x66.
+// Xbox 0x00125B80
+void script_apply_scene_door_states(ScriptDoorStartContext& context)
+{
+    apply_runtime_door_regions(context.doors); // 0x0005C020
+    for (i32 index = 0; index < g_tag_pair_count; ++index)
+    {
+        const TagPair& pair = g_tag_pairs.at(size_t(index));
+        set_runtime_door_state(pair.at_8, pair.at_c, 0, 0, context.doors);
+    }
+    for (i32 index = 0; index < g_queued_tag_count; ++index)
+    {
+        const QueuedTag& tag = g_queued_tags.at(size_t(index));
+        set_all_navigation_regions_blocked(tag.at_8, i16(tag.at_c)); // 0x00036A00 on each grid, the dword pushed
+    }
+    g_tag_pair_count = 0;
+    g_queued_tag_count = 0;
+    context.notify_body_list(0x66);
+}
+
+
+// Xbox 0x000532E0. ECX is the node: true when it is the script's last action, followed by the end node or by a
+// type 0xF gate and then the end node.
+bool script_node_is_last_action(const SceneScript& script, const ScriptNode& node)
+{
+    if (node.type == 0)
+    {
+        return true;
+    }
+    const ScriptNode* next = script_node_at(script, node.link);
+    if (next == nullptr)
+    {
+        throw Error("script node " + std::to_string(node.offset) + " links outside the script");
+    }
+    if (next->type == 0)
+    {
+        return true;
+    }
+    if (next->type != 0xF)
+    {
+        return false;
+    }
+    const ScriptNode* after = script_node_at(script, next->link);
+    if (after == nullptr)
+    {
+        throw Error("script node " + std::to_string(next->offset) + " links outside the script");
+    }
+    return after->type == 0;
+}
+
+
 // Xbox 0x001259B0
 int script_handle_action_links(Game& g, const ScriptNode& node, int param_2, int param_3)
 {
@@ -1162,14 +1186,15 @@ int script_handle_action_links(Game& g, const ScriptNode& node, int param_2, int
     }
     if ((param_2 != 0) && (param_3 == 0))
     {
+        if (g_runtime_doors == nullptr)
+        {
+            throw Error("script door node 0x29 without the scene's DAT_004EE2B8 door context");
+        }
         if (g_flag_2378 == 0)
         {
-            const u16 ax = node_u16(g.scene_script, node, 8);
-            const u16 arg_c = node_u16(g.scene_script, node, 0xC);
-            const u32 arg_14 = node_u32(g.scene_script, node, 0x14);
-            (void)ax;
-            (void)arg_c;
-            (void)arg_14;
+            const u32 last = script_node_is_last_action(g.scene_script, node) ? 1u : 0u; // 0x000532E0, ECX node
+            set_runtime_door_state(node_u16(g.scene_script, node, 8), node_u16(g.scene_script, node, 0xC),
+                node_u32(g.scene_script, node, 0x14), last, *g_runtime_doors); // 0x0005B540
             if (node_u32(g.scene_script, node, 0x10) == 0)
             {
                 return 2;
@@ -1179,10 +1204,15 @@ int script_handle_action_links(Game& g, const ScriptNode& node, int param_2, int
         }
         else
         {
-            const u16 key = node_u16(g.scene_script, node, 8);
-            const u32 expect = node_u32(g.scene_script, node, 0xC);
-            (void)key;
-            (void)expect;
+            // 0x0005B780 with SI the door: a miss leaves 8 in AX.
+            u16 state = 8;
+            runtime_door_state(node_u16(g.scene_script, node, 8), state, *g_runtime_doors);
+            if (u32(state) == node_u32(g.scene_script, node, 0xC))
+            {
+                script_update_decay_latches(0xffff, 1);
+                g_flag_2378 = 0;
+                return 2;
+            }
         }
         return 0;
     }
@@ -1218,13 +1248,16 @@ int script_handle_action_links(Game& g, const ScriptNode& node, int param_2, int
 // range, return 3.
 //
 // Type 0x17 returns 0 when the third argument is nonzero. Zero tests the
-// dword at node+0x10. Nonzero would call 0x000D0530. The word at node+8,
-// the dword at node+0xC, and ESI = node+0x14 would then go to 0x000D0550,
-// and the case returns 2. Those two calls are not translated.
+// dword at node+0x10. Nonzero calls 0x000D0530. The word at node+8,
+// the dword at node+0xC, and ESI = node+0x14 then go to 0x000D0550,
+// and the case returns 2.
 //
-// Type 0x18 tests DAT_00512414. Zero would call 0x000D0680, stores 1, and
+// Type 0x18 tests DAT_00512414. Zero calls 0x000D0680, stores 1, and
 // returns 0. Nonzero compares DAT_005064D8 with 3. Equal stores 0 and
-// returns 2. Otherwise it returns 0. 0x000D0680 is not translated.
+// returns 2. Otherwise it returns 0.
+//
+// Type 0x19 builds step type 0 (0x00125C80, XMM0 = 1.5) and queues it
+// through 0x000D05D0.
 //
 // Type 0x54 copies five fields into DAT_00506540 and returns 2.
 //
@@ -1261,30 +1294,36 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
         }
         if (node_u32(g.scene_script, node, 0x10) != 0)
         {
-            // 0x000D0530 is not translated.
+            reset_script_event_sequence(); // 0x000D0530
         }
         {
-            const u16 ax = node_u16(g.scene_script, node, 8);
-            const u32 arg = node_u32(g.scene_script, node, 0xC);
-            (void)ax;
-            (void)arg;
+            const std::string name = node_cstr(g.scene_script, node, 0x14);
+            begin_script_event_sequence(node_u16(g.scene_script, node, 8), node_u32(g.scene_script, node, 0xC),
+                name.c_str()); // 0x000D0550, ESI node+0x14
         }
         return 2;
     case 0x18:
         if (g_flag_2414 == 0)
         {
+            play_script_event_sequence(g); // 0x000D0680
             g_flag_2414 = 1;
             return 0;
         }
-        if (g_flag_64d8 == 3)
+        if (g_event_sequence_state == 3)
         {
             g_flag_2414 = 0;
             return 2;
         }
         return 0;
     case 0x19:
-        // 0x00125C80, XMM0 = 1.5 (0x0032B210). 0x000D05D0 is not translated.
+    {
+        // 0x00125C80 builds step type 0 with XMM0 = 1.5 (0x0032B210) at +4, then 0x000D05D0 queues it.
+        std::array<u8, 0x88> step{};
+        const float delay = 1.5f;
+        std::memcpy(step.data() + 4, &delay, 4);
+        queue_script_event_step(step);
         return 2;
+    }
     case 0x1a:
     {
         const float value = std::bit_cast<float>(node_u32(g.scene_script, node, 8));
@@ -1513,8 +1552,8 @@ int script_handle_flag_bits(Game& g, const ScriptNode& node)
 // The case returns 2.
 //
 // Type 0x5C stores message id 0x36, calls 0x001077B0 with EAX = node+8, and
-// would pass that tag in EDI with the message in EBX to 0x00122D40. That
-// call is not translated. The case returns 2.
+// passes that tag in EDI with the message in EBX to 0x00122D40, which sends
+// it to each DAT_00511B38 actor with that tag. The case returns 2.
 //
 // Type 0x5E calls 0x001077B0 with EAX = node+8 and the dword at node+0x4c
 // on the stack. XMM0 is the float at node+0x48. 0x000F4930 would take the
@@ -1610,10 +1649,12 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
     }
     case 0x5c:
     {
-        const u32 message = 0x36;
+        std::array<u32, 0x42> message{0x36};
         const u16 tag = static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 8).c_str()));
-        (void)message;
-        (void)tag;
+        if (SceneActorServices* actors = script_scene_actors(g); actors != nullptr)
+        {
+            message_runtime_marked_actors(*actors, tag, message); // 0x00122D40
+        }
         return 2;
     }
     case 0x5e:
@@ -1732,11 +1773,12 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
 // Type 0x60 loads the word at node+8 into DX for 0x00129ED0. A hit would call
 // 0x00112CC0 with ESI set to that object. That call is not made.
 //
-// Type 0x62 would call 0x0011F1C0(0x13, 1). A nonzero AX walks the records at
-// DAT_0051108C+8, comparing the word at record+6 with AX and the dword at
-// record+0x28 with the dword at node+8. A hit would call 0x0013D250. A miss
-// calls 0x0011F1C0(0x13, 0) and stops when AX matches the first return or AX
-// is 0. 0x0011F1C0 is not translated, so the walk is not entered.
+// Type 0x62 calls 0x0011F1C0(0x13, 1) with AX 0. A nonzero AX walks the
+// records at DAT_0051108C+8, comparing the word at record+6 with AX and the
+// dword at record+0x28 with the dword at node+8. A hit calls 0x0013D250 with
+// record+0xC and (0 - record+0x18, record+0x1C + pi, record+0x20). A miss
+// calls 0x0011F1C0(0x13, 0) with AX the current id and stops when AX matches
+// the first return or AX is 0.
 //
 // Type 0x67 with a zero second argument stores the byte at node+8 and the
 // word at node+0xC into DAT_00512420 and increments DAT_00512440. Nonzero
@@ -1802,7 +1844,46 @@ int script_handle_resource_actions(Game& g, const ScriptNode& node, int param_2)
         return 2;
     }
     case 0x62:
-        return 2;
+    {
+        // The type-0x13 marker whose dword at +0x28 is the dword at node+8 places the scene camera (0x0013D250) at
+        // its +0xC position, facing (0 - +0x18, +0x1C + pi, +0x20).
+        SceneActorServices* actors = script_scene_actors(g);
+        if (actors == nullptr)
+        {
+            throw Error("script type 0x62 without the scene's marker records");
+        }
+        const u8* records = actors->marker_records();
+        const u16 first = next_runtime_marker_id(0, 0x13, 1, records); // 0x0011F1C0, AX 0
+        if (first == 0)
+        {
+            return 2;
+        }
+        const u32 wanted = node_u32(g.scene_script, node, 8);
+        u16 id = first;
+        while (true)
+        {
+            const u8* record = find_runtime_marker(records, i16(id));
+            if (record == nullptr)
+            {
+                throw Error("script type 0x62 reads +0x28 of a missing marker (address zero)");
+            }
+            if (read_u32({record, 0x2C}, 0x28) == wanted)
+            {
+                const std::span<const u8> row{record, 0x24};
+                const Vec3 position{read_f32(row, 0xC), read_f32(row, 0x10), read_f32(row, 0x14)};
+                const Vec3 euler{0.f - read_f32(row, 0x18),
+                    read_f32(row, 0x1C) + std::bit_cast<float>(0x40490FDBu), // DAT_0032B148
+                    read_f32(row, 0x20)};
+                actors->place_scene_camera(position, euler); // 0x0013D250
+                return 2;
+            }
+            id = next_runtime_marker_id(id, 0x13, 0, records); // AX the current id
+            if (id == first || id == 0)
+            {
+                return 2;
+            }
+        }
+    }
     case 0x67:
         if (param_2 == 0)
         {
@@ -2100,8 +2181,6 @@ void create_scene_ambient_tune(Game& g)
     }
 }
 
-namespace
-{
 // The native scene's bank streams (DAT_004DF370..), bound once its actor services start.
 AudioBankStreams& scene_music_streams(Game& g)
 {
@@ -2110,7 +2189,6 @@ AudioBankStreams& scene_music_streams(Game& g)
         throw Error("scene music without the native scene's bank streams");
     }
     return g.factory_scene->controls->context.streams();
-}
 }
 
 // Xbox 0x00127340
@@ -2361,7 +2439,7 @@ u8 g_byte_30d14 = 0;
 //
 // Type 0x2F calls 0x001292D0. A null return returns 2. A live object passes
 // the stack slot at frame+0x1C to 0x00049DB0 in EAX, stores 7 in the next
-// dword, and calls vtable +0xC with that slot. That call is not translated.
+// dword, and calls vtable +0xC with that slot (message 0x4D, goal 7).
 //
 // Type 0x30 calls 0x001292D0. A null return returns 2. A live object calls
 // vtable +0xC with message id 0x32 and a second dword of 0.
@@ -2379,9 +2457,7 @@ u8 g_byte_30d14 = 0;
 // Type 0x6F calls 0x001292D0. A null return returns 0. A live object calls
 // 0x00028360 with ESI set to that object. AX 0 returns 2. A nonzero AX
 // returns 2 when the dword at object+0x984 is nonzero, and 0 when that
-// dword is 0. The translated wait_runtime_script_player exists separately,
-// but this legacy Game caller has no scene-owned player/query binding and
-// still returns a constant hold. Its return must not be changed to skip the wait.
+// dword is 0. Before a native scene start there is no player, so it holds.
 //
 // Type 0x76 calls 0x001292D0. A null return returns 2. A live object calls
 // vtable +0xC with message id 0x42 and a second dword of 1.
@@ -2401,8 +2477,7 @@ u8 g_byte_30d14 = 0;
 // A miss calls 0x0011F1C0 with EAX = the previous AX and stack words 2, 0,
 // and returns 2 when that AX is 0. A hit calls 0x0002B430 with EAX = the
 // object and ECX = record+0xC, then 0x0002B560 with ECX = record+0x18.
-// 0x001292D0 is not translated, so the walk is not entered. The case
-// returns 2.
+// The case returns 2.
 //
 // Type 0xA0 calls 0x001292D0. A null return returns 2. A live object stores
 // 0x2C over the first argument and calls vtable +0xC with that address.
@@ -2433,9 +2508,31 @@ int script_handle_actor_effects(Game& g, const ScriptNode& node, int param_2, in
     case 0x2e:
         return 2;
     case 0x2f:
+    {
+        // 0x001292D0, then 0x00049DB0's message 0x4D with 7 in the next dword, through vtable +0xC.
+        SceneActorServices* actors = script_scene_actors(g);
+        const u32 link = actors == nullptr ? 0 : actors->player_link();
+        if (link != 0)
+        {
+            std::array<u32, 0x42> message{};
+            clear_runtime_goal_message(std::span<u32, 9>(message.data(), 9));
+            message[1] = 7;
+            actors->send_actor_message(link - 0x93C, message);
+        }
         return 2;
+    }
     case 0x30:
+    {
+        // 0x001292D0, then message 0x32 with a zero second dword through vtable +0xC.
+        SceneActorServices* actors = script_scene_actors(g);
+        const u32 link = actors == nullptr ? 0 : actors->player_link();
+        if (link != 0)
+        {
+            std::array<u32, 0x42> message{0x32, 0};
+            actors->send_actor_message(link - 0x93C, message);
+        }
         return 2;
+    }
     case 0x31:
         if (param_2 == 0)
         {
@@ -2466,7 +2563,42 @@ int script_handle_actor_effects(Game& g, const ScriptNode& node, int param_2, in
     case 0x91:
         return 2;
     case 0x96:
-        return 2;
+    {
+        // 0x001292D0's player goes to the type-2 marker whose word at +0x28 is the dword at node+8: 0x0002B430 with
+        // the marker's +0xC position, then 0x0002B560 with its +0x18 euler.
+        SceneActorServices* actors = script_scene_actors(g);
+        if (actors == nullptr || actors->player_link() == 0)
+        {
+            return 2;
+        }
+        const u8* records = actors->marker_records();
+        u16 id = next_runtime_marker_id(0, 2, 1, records); // 0x0011F1C0, AX 0
+        if (id == 0)
+        {
+            return 2;
+        }
+        const u32 wanted = node_u32(g.scene_script, node, 8);
+        while (true)
+        {
+            const u8* record = find_runtime_marker(records, i16(id)); // 0x0011EF20, SI id
+            if (record == nullptr)
+            {
+                throw Error("script type 0x96 reads +0x28 of a missing marker (address zero)");
+            }
+            if (u32(read_u16({record, 0x2C}, 0x28)) == wanted)
+            {
+                const std::span<const u8> row{record, 0x24};
+                actors->place_script_player({read_f32(row, 0xC), read_f32(row, 0x10), read_f32(row, 0x14)},
+                    {read_f32(row, 0x18), read_f32(row, 0x1C), read_f32(row, 0x20)});
+                return 2;
+            }
+            id = next_runtime_marker_id(id, 2, 0, records);
+            if (id == 0)
+            {
+                return 2;
+            }
+        }
+    }
     case 0xa0:
         return 2;
     case 0xa6:

@@ -1,0 +1,260 @@
+#include "actor_model_pieces.h"
+#include "gbtg/anim.h"
+#include "gbtg/model_runtime.h"
+
+#include <bit>
+#include <cmath>
+#include <cstring>
+
+namespace gbtg
+{
+namespace
+{
+void store(std::vector<u8>& bytes, size_t offset, float value)
+{
+    std::memcpy(bytes.data() + offset, &value, 4);
+}
+
+// DAT_0054DD7C's step and its [1, 2) mantissa float.
+float next_unit(u32& random)
+{
+    random = random * 0x19660Du + 0x3C6EF35Fu;
+    return std::bit_cast<float>((random & 0x7FFFFFu) | 0x3F800000u);
+}
+
+// Model-internal pointers in the actor's CPU copy are offsets into it.
+std::span<const u8> model_range(std::span<const u8> cpu, u32 offset, size_t size)
+{
+    if (offset > cpu.size() || size > cpu.size() - offset)
+    {
+        throw Error("actor model piece list lies outside the model");
+    }
+    return cpu.subspan(offset, size);
+}
+}
+
+// Xbox 0x0003F170
+void build_actor_model_pieces(const Actor& actor, std::vector<u8>& pieces, u32& random)
+{
+    if (actor.model == nullptr || actor.model->cpu.data() == nullptr)
+    {
+        return;
+    }
+    const auto cpu = actor.model->cpu;
+    const u32 block = read_u32(cpu, read_u32(cpu, 0x10) + 0x10);
+    if (block == 0)
+    {
+        return;
+    }
+    const u8 count = cpu[block + 1];
+    pieces.assign(size_t(count) * 0xB0, 0); // 0x000F72D0.
+    constexpr float one = 1.f; // DAT_0032B0F8.
+    constexpr float turn = std::bit_cast<float>(0x40C90FDBu); // DAT_0032B298.
+    constexpr float quarter_turn = std::bit_cast<float>(0x3FC90FDBu); // DAT_0032B140.
+    constexpr float two_turns = std::bit_cast<float>(0x41490FDBu); // DAT_0032B21C.
+    for (u32 index = 0; index < count; ++index)
+    {
+        const size_t row = size_t(index) * 0xB0;
+        store(pieces, row + 0x44, 0.f);
+        store(pieces, row + 0x40, 0.f);
+        store(pieces, row + 0x3C, 0.f);
+        store(pieces, row + 0x20, 0.f);
+        store(pieces, row + 0x1C, 0.f);
+        store(pieces, row + 0x18, 0.f);
+        store(pieces, row + 0xA8, 0.f);
+        store(pieces, row + 0x8C, 0.f);
+        const u32 lists = read_u32(cpu, block + 8);
+        float x = 0.f;
+        float y = 0.f;
+        float z = 0.f;
+        float radius = 4.f; // DAT_0032B1B0.
+        u32 points = 0;
+        if (lists != 0)
+        {
+            points = read_u32(cpu, lists + index * 8);
+        }
+        if (points == 0)
+        {
+            store(pieces, row + 0xAC, 0.f);
+        }
+        else
+        {
+            const auto list = model_range(cpu, read_u32(cpu, lists + index * 8 + 4), size_t(points) * 0xC);
+            for (u32 point = 0; point < points; ++point)
+            {
+                x += read_f32(list, point * 0xC);
+                y += read_f32(list, point * 0xC + 4);
+                z += read_f32(list, point * 0xC + 8);
+            }
+            long double scale = static_cast<long double>(i32(points));
+            if (i32(points) < 0)
+            {
+                scale += 4294967296.0L; // DAT_0032B144.
+            }
+            scale = static_cast<long double>(one) / scale;
+            x = float(static_cast<long double>(x) * scale);
+            y = float(static_cast<long double>(y) * scale);
+            z = float(static_cast<long double>(z) * scale);
+            long double distance = 0.0L;
+            for (u32 point = 0; point < points; ++point)
+            {
+                const long double dx = static_cast<long double>(x) - read_f32(list, point * 0xC);
+                const long double dy = static_cast<long double>(y) - read_f32(list, point * 0xC + 4);
+                const long double dz = static_cast<long double>(z) - read_f32(list, point * 0xC + 8);
+                distance = std::sqrt((dz * dz + dy * dy) + dx * dx) + distance;
+            }
+            long double divisor = static_cast<long double>(i32(points));
+            if (i32(points) < 0)
+            {
+                divisor += 4294967296.0L;
+            }
+            radius = float(distance / divisor);
+            store(pieces, row + 0x20, 0.f);
+            store(pieces, row + 0x1C, 0.f);
+            store(pieces, row + 0x18, 0.f);
+            float max_x = read_f32(list, 0);
+            float max_y = read_f32(list, 4);
+            float max_z = read_f32(list, 8);
+            float min_x = max_x;
+            float min_y = max_y;
+            float min_z = max_z;
+            for (u32 point = 1; point < points; ++point)
+            {
+                const float px = read_f32(list, point * 0xC);
+                const float py = read_f32(list, point * 0xC + 4);
+                const float pz = read_f32(list, point * 0xC + 8);
+                if (px > max_x)
+                {
+                    max_x = px;
+                }
+                if (py > max_y)
+                {
+                    max_y = py;
+                }
+                if (pz > max_z)
+                {
+                    max_z = pz;
+                }
+                if (min_x > px)
+                {
+                    min_x = px;
+                }
+                if (min_y > py)
+                {
+                    min_y = py;
+                }
+                if (min_z > pz)
+                {
+                    min_z = pz;
+                }
+            }
+            const float extent_y = max_y - min_y;
+            const float extent_x = max_x - min_x;
+            const float extent_z = max_z - min_z;
+            if (extent_y > extent_x || extent_y > extent_z)
+            {
+                if (extent_x > extent_z)
+                {
+                    store(pieces, row + 0x18, quarter_turn);
+                    store(pieces, row + 0xAC, extent_z * 0.5f); // DAT_0032B0F4.
+                }
+                else
+                {
+                    store(pieces, row + 0x20, quarter_turn);
+                    store(pieces, row + 0xAC, extent_x * 0.5f);
+                }
+            }
+            else
+            {
+                store(pieces, row + 0xAC, extent_y * 0.5f);
+            }
+            store(pieces, row + 0x1C, (next_unit(random) - one) * turn);
+        }
+        radius *= std::bit_cast<float>(0x3F4CCCCDu); // DAT_0032B244.
+        store(pieces, row + 0x98, z);
+        store(pieces, row + 0x90, x);
+        store(pieces, row + 0x94, y);
+        constexpr float largest = 5.f; // DAT_0032B184.
+        if (radius > largest)
+        {
+            radius = largest;
+        }
+        store(pieces, row + 0x48, radius);
+        const float first = next_unit(random);
+        const float second = next_unit(random);
+        store(pieces, row + 0xC, (second - one) * two_turns - turn);
+        store(pieces, row + 0x14, 0.f);
+        store(pieces, row + 0x10, (first - one) * two_turns - turn);
+    }
+}
+
+// Xbox 0x0003F820, EAX group
+void launch_actor_model_piece_group(Actor& actor, i32 group, std::vector<u8>& pieces, const ActorMatrixSetup& matrices,
+    RuntimeActorMatrixSampling& sampling, const std::function<std::span<const u8>(u32)>& resolve, u32& random)
+{
+    if (pieces.empty()) // +0x2A4.
+    {
+        return;
+    }
+    if (actor.model == nullptr || actor.model->cpu.data() == nullptr || actor.model->runtime == nullptr)
+    {
+        throw Error("0x0003F820 launches pieces of an actor without a model instance");
+    }
+    const auto cpu = actor.model->cpu;
+    const u32 header = read_u32(cpu, read_u32(cpu, 0x10) + 0x10);
+    const u32 descriptor = header + u32(group) * 0xC;
+    const u8 count = cpu[descriptor + 0x16];
+    const u32 list = header + read_u16(cpu, descriptor + 0x14);
+    // The world matrix through the root bone, inverted: piece offsets are measured in the model's root frame.
+    AnimationMatrix world;
+    std::memcpy(world.data(), actor.xform, 48);
+    const ModelPoseBuffer* pose = actor.model->runtime->alternate;
+    if (pose == nullptr)
+    {
+        pose = actor.model->runtime->primary;
+    }
+    if (pose == nullptr)
+    {
+        throw Error("0x0003F820 reads the root bone of a model instance without a pose");
+    }
+    multiply_affine_matrices(world.data(), world.data(), model_pose_matrix(*pose, 0).data()); // 0x00031530, 0x001041B0
+    invert_model_matrix(world.data(), world.data()); // 0x00104400
+    const auto& w = world;
+    for (u32 index = 0; index < count; ++index)
+    {
+        const u8 piece = cpu[list + index];
+        const size_t row = size_t(piece) * 0xB0;
+        const u32 one = 1;
+        std::memcpy(pieces.data() + row + 0x8C, &one, 4);
+        const auto matrix = resolve(runtime_matrix_array_matrix_offset(matrices.matrices.node, piece)); // 0x00155FF0
+        std::memcpy(pieces.data() + row + 0x4C, matrix.data(), 0x40);
+        Vec3 position;
+        Vec3 euler;
+        sample_actor_model_matrix(actor, piece, position, euler, 1, sampling); // 0x00040640
+        std::memcpy(pieces.data() + row + 0x30, &position, 12);
+        std::memcpy(pieces.data() + row + 0x3C, &euler, 12);
+        const float px = read_f32(pieces, row + 0x30);
+        const float py = read_f32(pieces, row + 0x34);
+        const float pz = read_f32(pieces, row + 0x38);
+        const float dx = ((py * w[1] + pz * w[2]) + px * w[0]) + w[3] - read_f32(pieces, row + 0x90);
+        const float dy = ((px * w[4] + py * w[5]) + pz * w[6]) + w[7] - read_f32(pieces, row + 0x94);
+        const float dz = ((px * w[8] + py * w[9]) + pz * w[10]) + w[11] - read_f32(pieces, row + 0x98);
+        const long double length = std::sqrt(std::sqrt((static_cast<long double>(dz) * dz +
+            static_cast<long double>(dy) * dy) + static_cast<long double>(dx) * dx));
+        float extent = float(static_cast<long double>(read_f32(pieces, row + 0xAC)) - length);
+        if (0.f > extent)
+        {
+            extent = 0.f;
+        }
+        std::memcpy(pieces.data() + row + 0xAC, &extent, 4);
+        const float first = next_unit(random);
+        const float second = next_unit(random);
+        const float third = next_unit(random);
+        constexpr float spread = std::bit_cast<float>(0x3FB33333u); // DAT_0032B3D0.
+        constexpr float offset = std::bit_cast<float>(0x3F333333u); // DAT_0032B264.
+        store(pieces, row, (first - 1.f) * spread - offset);
+        store(pieces, row + 4, (second - 1.f) * offset);
+        store(pieces, row + 8, (third - 1.f) * spread - offset);
+    }
+}
+}

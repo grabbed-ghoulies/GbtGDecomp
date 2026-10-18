@@ -16,8 +16,10 @@ float float_at(const u8* bytes, size_t offset)
     return value;
 }
 
+}
+
 // Actor +0x204 node table: the first entry of the kind names its data block, or null.
-const u8* model_block(const Actor& actor, u32 kind)
+const u8* runtime_actor_model_block(const Actor& actor, u32 kind)
 {
     if (actor.model == nullptr || actor.model->cpu.data() == nullptr)
     {
@@ -35,6 +37,13 @@ const u8* model_block(const Actor& actor, u32 kind)
         }
     }
     return nullptr;
+}
+
+namespace
+{
+const u8* model_block(const Actor& actor, u32 kind)
+{
+    return runtime_actor_model_block(actor, kind);
 }
 
 bool shape_matches(const u8* record, u32 mask, u8 kind, i16 id)

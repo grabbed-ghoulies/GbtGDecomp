@@ -4,6 +4,7 @@
 #include "actor_word_messages.h"
 #include "fx_anim_emitter.h"
 #include "avatar_motion_blur.h"
+#include "weapon_actor.h"
 
 namespace gbtg
 {
@@ -45,6 +46,23 @@ struct NativeSceneActorClassBindings
     const u32& lights_enabled; // DAT_005120F0.
     const u32& script_lights; // DAT_00512104.
     std::function<u32(const void*, size_t)> heap_address; // A stable retail address for a native heap block.
+    // The weapon classes (types 0x0B and 0xAA): objparams pointers (XBE addresses; size 0 gives the C string), the
+    // model node types and matrix bindings 0x000400D0 reads, and 0x00040200's matrix boundaries.
+    std::function<std::span<const u8>(u32, size_t)> executable;
+    std::span<const RuntimeModelNodeType> model_types;
+    std::function<const ActorMatrixBindings&(const Actor&)> matrix_bindings;
+    const RuntimeShaderMatrixBoundaries& matrix_boundaries;
+    std::function<void(FactoryObject&)> refresh_shape_poses; // The model instance's poses at +0x164 / +0x168.
+    entity_detail::ListHead& global_attachments; // DAT_00545984.
+    std::span<ExecutableResourcePool> pools; // 0x00107720's templates.
+    std::function<u32(const entity_detail::LatchNode&)> latch_owner; // The object a DAT_00511AA4 node sits in.
+    std::function<std::vector<RuntimeDirectorActor>()> marks; // DAT_00511B38 nodes in list order.
+    std::function<std::vector<RuntimeScriptActorQueryView>()> case_actors; // DAT_00511B40 actors in list order.
+    const RuntimeScriptActorQueryContext& query;
+    std::function<RuntimeSegmentContactActor&(entity_detail::SegmentProbe&)> contact_actor; // 0x0013F2C0's views.
+    const Vec3& default_euler; // DAT_0050DD74.
+    u8* const& navigation_nodes; // DAT_0050E24C.
+    RuntimeWeaponServices& weapon_services;
 };
 // Native contexts for the retail area/trigger classes, over the existing
 // actor lifecycle owner. All referenced scene services must outlive this owner.
@@ -60,6 +78,12 @@ public:
     bool construct_trigger(FactoryObject& object, std::span<const u8> parameters);
     bool construct_emitter(FactoryObject& object, std::span<const u8> parameters);
     bool construct_motion_blur(FactoryObject& object, std::span<const u8> parameters);
+    bool construct_weapon(FactoryObject& object, std::span<const u8> parameters); // Type 0x0B, Xbox 0x00145C80.
+    bool construct_chair_weapon(FactoryObject& object, std::span<const u8> parameters); // Type 0xAA, Xbox 0x000CEFE0.
+    void release_weapon(FactoryObject& object); // Type 0x0B, Xbox 0x00145E80.
+    void update_weapon(FactoryObject& object); // Vtable +0x10, Xbox 0x0014A2E0.
+    bool weapon_draw_hidden(FactoryObject& object); // Vtable +0x14 before 0x0003C9E0, Xbox 0x001459C0.
+    void draw_weapon_prompt(FactoryObject& object, i32 pass); // Vtable +0x14 after 0x0003C9E0, Xbox 0x00147560.
     bool defer_release = false; // Keep message views through the actor-base destructor.
     void release_view(const u8* bytes); // Native ownership cleanup after all retail destructors.
     void release_area(FactoryObject& object);
@@ -72,14 +96,26 @@ public:
     u32 draw_emitter(FactoryObject& object, i32 kind, RuntimeFxEmitterDraw& draw); // Vtable +0x14, Xbox 0x00109EE0.
     bool emitter_visible(FactoryObject& object, u32 pass, u32 slot); // Vtable +0x18, Xbox 0x00109E30.
     void update_motion_blur(FactoryObject& object); // Type 0xF vtable +0x10, Xbox 0x00066FE0.
+    bool construct_afterimage(FactoryObject& object, std::span<const u8> parameters); // Type 0x10, Xbox 0x000690F0.
+    void release_afterimage(FactoryObject& object); // Xbox 0x00069220.
+    void update_afterimage(FactoryObject& object); // Type 0x10 vtable +0x10, Xbox 0x00069250.
+    void message_afterimage(FactoryObject& object, u32 id); // Type 0x10 vtable +0xC after 0x0003EF70, Xbox 0x00069540.
+    // A weapon's +0x998 collision state slot (0x0013F150); `bytes` must be a weapon of this owner.
+    RuntimeBodyCollisionState*& weapon_markers(const u8* bytes);
+    bool owns_weapon(const u8* bytes) const;
+    // Each trigger's ghouly controller and the trigger's actor, for the spawn queues' distance tests.
+    void controller_actors(std::unordered_map<const GhoulyController*, Actor*>& output);
 
 private:
     struct TriggerInstance;
     struct EmitterInstance;
+    struct WeaponInstance;
     NativeSceneActorClassBindings bindings_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeAreaActorContext>> areas_;
     std::unordered_map<const u8*, std::unique_ptr<TriggerInstance>> triggers_;
     std::unordered_map<const u8*, std::unique_ptr<EmitterInstance>> emitters_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeAvatarMotionBlur>> motion_blurs_;
+    std::unordered_map<const u8*, std::unique_ptr<RuntimeAvatarAfterimage>> afterimages_;
+    std::unordered_map<const u8*, std::unique_ptr<WeaponInstance>> weapons_;
 };
 }

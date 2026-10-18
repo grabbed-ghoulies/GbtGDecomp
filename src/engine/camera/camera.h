@@ -58,11 +58,14 @@ extern CamFocus g_cam_focus;
 // Xbox 0x0011BE40
 void camera_update_anchor(CamAnchor& node); // Xbox 0x0011BE40
 
+// DAT_0050E764 and DAT_0050E768, the two counts 0x00117400 keeps.
+extern std::array<u32, 2> g_pause_references;
+
 // DAT_0050E768. Nonzero skips the +0x930 decay inside the base update.
-extern i32 g_block_decay;
+extern i32& g_block_decay;
 
 // DAT_0050E764. 0x00117400 counts the other mask bit beside DAT_0050E768.
-extern i32 g_count_e764;
+extern i32& g_count_e764;
 
 // Byte at [DAT_0051248C]+0x30F144. Zero skips that same decay.
 extern u8 g_decay_arm;

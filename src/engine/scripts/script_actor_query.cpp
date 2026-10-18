@@ -26,8 +26,14 @@ int wait_runtime_script_player(u32 player_link,
     const RuntimeScriptActorQueryContext& context)
 {
     const Actor* actor = find_runtime_script_player(player_link, addresses);
-    if (actor == nullptr ||
-        (script_actor_current_mask(*actor, context) != 0 && actor->mask_loading == 0))
+    if (actor == nullptr)
+    {
+        return 0;
+    }
+    // Actor +0x984: the scene player's own word when it has one.
+    const RuntimeScriptActorGoals goals = context.goals ? context.goals(*actor) : RuntimeScriptActorGoals{};
+    const i32 loading = goals.bytes.empty() ? actor->mask_loading : i32(read_u32(goals.bytes, 0x984));
+    if (script_actor_current_mask(*actor, context) != 0 && loading == 0)
     {
         return 0;
     }
@@ -137,6 +143,24 @@ bool script_mind_is_idle(const RuntimeScriptMindQuery& mind, i32 allow_permitted
 u16 script_actor_current_mask(const Actor& actor,
     const RuntimeScriptActorQueryContext& context)
 {
+    // A scene player's +0x980 is its native goal ring.
+    if (const RuntimeScriptActorGoals goals = context.goals ? context.goals(actor) : RuntimeScriptActorGoals{};
+        !goals.bytes.empty())
+    {
+        const RuntimePlayerGoalRing* ring = goals.ring;
+        if (ring == nullptr)
+        {
+            return 0;
+        }
+        u16 value;
+        if (ring->tail == ring->capacity)
+        {
+            std::memcpy(&value, context.address_zero, sizeof(value));
+            return value;
+        }
+        std::memcpy(&value, ring->rows.data() + size_t(ring->head) * ring->stride, sizeof(value));
+        return value;
+    }
     const EntityMaskSpan* span = actor.mask_span;
     if (span == nullptr)
     {

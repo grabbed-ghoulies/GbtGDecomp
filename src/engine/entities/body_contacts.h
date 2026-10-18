@@ -56,6 +56,10 @@ void activate_runtime_body_contact_shapes(RuntimeBodyCollisionState& state,
     Actor& actor, u16 tag, u8 flags, float scale); // Xbox 0x0013F420
 void deactivate_runtime_body_contact_shapes(RuntimeBodyCollisionState& state,
     u16 tag); // Xbox 0x0013F4D0
+// Every record of the state at once, as the weapons switch their contact shapes.
+void activate_all_runtime_body_contact_shapes(Actor& actor, RuntimeBodyCollisionState& state,
+    u8 flags); // Xbox 0x0013F5B0, EAX actor
+void deactivate_all_runtime_body_contact_shapes(RuntimeBodyCollisionState& state); // Xbox 0x0013F660, EBX state
 u32 insert_runtime_body_contact_override(GhoulySpawnPool*& overrides,
     RuntimeSegmentContactActor& object, u32 suspend,
     const entity_detail::ListHead& players); // Xbox 0x0013EBE0

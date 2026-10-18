@@ -77,6 +77,64 @@ bool attach_runtime_player_actor(RuntimePlayerAttachmentActor& attached, i32 upd
     return true;
 }
 
+// Xbox 0x0001B190
+bool attach_runtime_player_weapon(RuntimePlayerAttachmentActor& attached, i32 update_action,
+    RuntimePlayerAttachment& context, const Vec3& origin, const Vec3& euler)
+{
+    const u16 host_class = read_u16(context.host.bytes, 6);
+    const i32 count = i16(read_u16(attached.object.bytes, 0x944));
+    i32 index = 0;
+    if (count <= 0)
+    {
+        return false;
+    }
+    while (read_u16(attached.object.bytes, 0x948 + size_t(index) * 0x10) != host_class)
+    {
+        ++index;
+        if (index >= count)
+        {
+            return false;
+        }
+    }
+    if (index == -1 || context.ownership.attached != nullptr)
+    {
+        return false;
+    }
+    context.ownership.attached = &attached.object;
+    context.ownership.receiver = &attached.receiver;
+    std::memcpy(context.body.data() + 0x48, &attached.object.address, 4);
+    std::memcpy(context.body.data() + 0x10, &attached.object.address, 4);
+    context.ownership.flags->bytes[4] |= 4;
+    const u32 kind = runtime_actor_case_class(attached.object.bytes, read_u16(context.host.bytes, 6));
+    format_runtime_body_variant(context.body, "%s_%s", context.weapon_names[attached.object.bytes[0x93D]],
+        context.class_names[kind]);
+    const i32 joint = runtime_attachment_class_value(attached.object.bytes, read_u16(context.host.bytes, 6));
+    if (joint == -1)
+    {
+        bind_runtime_actor_parent_now(attached.actor, &context.ownership.actor, 1, origin, euler); // 0x0003B460
+    }
+    else
+    {
+        bind_runtime_actor_joint_now(attached.actor, &context.ownership.actor, joint, 1, origin,
+            euler); // 0x0003B4C0
+    }
+    set_runtime_attachment_host(attached.object, context.host);
+    if (update_action != 0)
+    {
+        const u16 key = context.body_action_key();
+        select_runtime_body_action(context.body, key, context.actions);
+    }
+    notify_runtime_body_animation(context.actions);
+    update_actor_animation_pose(attached.actor, attached.animation, attached.model, attached.bone,
+        context.actions.registry, attached.callbacks, attached.cache, attached.reset);
+    if (attached.object.bytes[0x93D] == 3)
+    {
+        ++context.body[0x30B];
+    }
+    notify_runtime_attachment_host(context.host, attached.object);
+    return true;
+}
+
 // Xbox 0x0001B3E0
 bool attach_runtime_player_secondary(RuntimePlayerAttachmentActor& attached, RuntimePlayerAttachment& context)
 {

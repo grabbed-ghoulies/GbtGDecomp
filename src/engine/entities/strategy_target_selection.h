@@ -18,7 +18,7 @@ struct RuntimeTutorialNotice
 // The four-entry first-sighting notice queue read by 0x000F4A00.
 struct RuntimeTutorialNotices
 {
-    std::span<const u8> seen; // *(DAT_00506C6C+8) bits.
+    std::span<u8> seen; // *(DAT_00506C6C+8) bits; 0x000F4B90 sets a shown notice's bit.
     u32& pending; // DAT_00506E28.
     const Actor*& first; // DAT_00506DFC.
     u32& first_id; // DAT_00506E00.

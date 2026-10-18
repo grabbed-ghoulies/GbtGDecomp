@@ -4,8 +4,14 @@
 
 namespace gbtg
 {
+struct RuntimeDoorContext;
 std::string node_cstr(const SceneScript& script, const ScriptNode& node, u32 rel);
 u32 script_find_actor_tag(const char* key); // Xbox 0x001077B0
+class SceneActorServices;
+// The natively started scene's actor services, or null before the scene has started natively (no actor lists).
+SceneActorServices* script_scene_actors(Game& g);
+// DI is the tag, EBX the message: each DAT_00511B38 actor whose word at +6 is the tag takes it through vtable +0xC.
+void message_runtime_marked_actors(SceneActorServices& actors, u16 tag, std::span<const u32> message); // Xbox 0x00122D40
 
 // Xbox 0x000F96F0. AL is the value. The stack byte selects the pair at +0x294.
 void entity_store_pair(std::span<u8> pairs, u8 index, u8 value); // Xbox 0x000F96F0
@@ -136,6 +142,15 @@ extern u32 g_flags_ea9c;
 // A handled store returns 2.
 // Xbox 0x001259B0
 int script_handle_action_links(Game& g, const ScriptNode& node, int param_2, int param_3); // Xbox 0x001259B0
+bool script_node_is_last_action(const SceneScript& script, const ScriptNode& node); // Xbox 0x000532E0
+struct AudioBankStreams;
+AudioBankStreams& scene_music_streams(Game& g); // The native scene's bank streams (DAT_004DF370..).
+struct ScriptDoorStartContext
+{
+    RuntimeDoorContext& doors; // DAT_004EE2B8.
+    std::function<void(u32 id)> notify_body_list; // Actor vtable +0xC with {id} to each DAT_00511B20 node's actor.
+};
+void script_apply_scene_door_states(ScriptDoorStartContext& context); // Xbox 0x00125B80
 
 // Xbox 0x00126140. Handler 8. The dword at node+4 is the type. The table
 // covers types 0x17 through 0x88. Any other type, and the holes in that
@@ -197,8 +212,8 @@ int script_handle_flag_bits(Game& g, const ScriptNode& node); // Xbox 0x001269D0
 // The case returns 2.
 //
 // Type 0x5C stores message id 0x36, calls 0x001077B0 with EAX = node+8, and
-// would pass that tag in EDI with the message in EBX to 0x00122D40. That
-// call is not translated. The case returns 2.
+// passes that tag in EDI with the message in EBX to 0x00122D40, which sends
+// it to each DAT_00511B38 actor with that tag. The case returns 2.
 //
 // Type 0x5E calls 0x001077B0 with EAX = node+8 and the dword at node+0x4c
 // on the stack. XMM0 is the float at node+0x48. 0x000F4930 would take the
@@ -251,11 +266,12 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node); // Xbox 0x0012
 // Type 0x60 loads the word at node+8 into DX for 0x00129ED0. A hit would call
 // 0x00112CC0 with ESI set to that object. That call is not made.
 //
-// Type 0x62 would call 0x0011F1C0(0x13, 1). A nonzero AX walks the records at
-// DAT_0051108C+8, comparing the word at record+6 with AX and the dword at
-// record+0x28 with the dword at node+8. A hit would call 0x0013D250. A miss
-// calls 0x0011F1C0(0x13, 0) and stops when AX matches the first return or AX
-// is 0. 0x0011F1C0 is not translated, so the walk is not entered.
+// Type 0x62 calls 0x0011F1C0(0x13, 1) with AX 0. A nonzero AX walks the
+// records at DAT_0051108C+8, comparing the word at record+6 with AX and the
+// dword at record+0x28 with the dword at node+8. A hit calls 0x0013D250 with
+// record+0xC and (0 - record+0x18, record+0x1C + pi, record+0x20). A miss
+// calls 0x0011F1C0(0x13, 0) with AX the current id and stops when AX matches
+// the first return or AX is 0.
 //
 // Type 0x67 with a zero second argument stores the byte at node+8 and the
 // word at node+0xC into DAT_00512420 and increments DAT_00512440. Nonzero
@@ -433,7 +449,7 @@ extern u8 g_byte_30d14;
 //
 // Type 0x2F calls 0x001292D0. A null return returns 2. A live object passes
 // the stack slot at frame+0x1C to 0x00049DB0 in EAX, stores 7 in the next
-// dword, and calls vtable +0xC with that slot. That call is not translated.
+// dword, and calls vtable +0xC with that slot (message 0x4D, goal 7).
 //
 // Type 0x30 calls 0x001292D0. A null return returns 2. A live object calls
 // vtable +0xC with message id 0x32 and a second dword of 0.
@@ -451,9 +467,7 @@ extern u8 g_byte_30d14;
 // Type 0x6F calls 0x001292D0. A null return returns 0. A live object calls
 // 0x00028360 with ESI set to that object. AX 0 returns 2. A nonzero AX
 // returns 2 when the dword at object+0x984 is nonzero, and 0 when that
-// dword is 0. The translated wait_runtime_script_player exists separately,
-// but this legacy Game caller has no scene-owned player/query binding and
-// still returns a constant hold. Its return must not be changed to skip the wait.
+// dword is 0. Before a native scene start there is no player, so it holds.
 //
 // Type 0x76 calls 0x001292D0. A null return returns 2. A live object calls
 // vtable +0xC with message id 0x42 and a second dword of 1.
@@ -473,8 +487,7 @@ extern u8 g_byte_30d14;
 // A miss calls 0x0011F1C0 with EAX = the previous AX and stack words 2, 0,
 // and returns 2 when that AX is 0. A hit calls 0x0002B430 with EAX = the
 // object and ECX = record+0xC, then 0x0002B560 with ECX = record+0x18.
-// 0x001292D0 is not translated, so the walk is not entered. The case
-// returns 2.
+// The case returns 2.
 //
 // Type 0xA0 calls 0x001292D0. A null return returns 2. A live object stores
 // 0x2C over the first argument and calls vtable +0xC with that address.

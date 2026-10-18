@@ -24,6 +24,50 @@
 
 namespace gbtg
 {
+namespace
+{
+// The retail game runs its logic once per 60 Hz NTSC field; DAT_005096C0 holds that 1/60 s step.
+constexpr std::chrono::duration<double> kLogicStep{1.0 / 60.0};
+
+// Waits until `deadline`: a high-resolution timer sleep until about a millisecond before it, then a short spin.
+void wait_until(std::chrono::steady_clock::time_point deadline)
+{
+#if defined(_WIN32)
+    static HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
+        TIMER_ALL_ACCESS);
+#endif
+    for (;;)
+    {
+        const auto left = deadline - std::chrono::steady_clock::now();
+        if (left <= std::chrono::steady_clock::duration::zero())
+        {
+            return;
+        }
+        if (left > std::chrono::milliseconds(1))
+        {
+#if defined(_WIN32)
+            if (timer != nullptr)
+            {
+                LARGE_INTEGER due{};
+                // Relative 100 ns units, stopping a millisecond short.
+                due.QuadPart = -std::chrono::duration_cast<std::chrono::duration<long long, std::ratio<1, 10000000>>>(
+                    left - std::chrono::milliseconds(1)).count();
+                if (SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE))
+                {
+                    WaitForSingleObject(timer, INFINITE);
+                    continue;
+                }
+            }
+            Sleep(0);
+#endif
+            continue;
+        }
+#if defined(_WIN32)
+        YieldProcessor();
+#endif
+    }
+}
+}
 
 int run_platform(Game& game, const PlatformConfig& cfg)
 {
@@ -74,9 +118,23 @@ int run_platform(Game& game, const PlatformConfig& cfg)
     }
 #endif
 
-    auto last = std::chrono::steady_clock::now();
+    // Interactive runs pace each pass to the next 60 Hz slot whatever the display refresh, so input is sampled and
+    // the logic ticks at the retail rate. Headless and screenshot runs tick as fast as they can.
+    const bool paced = !cfg.headless && cfg.screenshot.empty();
+    const auto step = std::chrono::duration_cast<std::chrono::steady_clock::duration>(kLogicStep);
+    auto next = std::chrono::steady_clock::now();
     while (game.running)
     {
+        if (paced)
+        {
+            wait_until(next);
+            next += step;
+            const auto now = std::chrono::steady_clock::now();
+            if (now - next > step * 4)
+            {
+                next = now + step; // Too far behind (a stall or a breakpoint): restart the schedule.
+            }
+        }
         InputState in;
         bool gfx_quit = false;
         gfx_pump(gfx_quit);
@@ -283,13 +341,7 @@ int run_platform(Game& game, const PlatformConfig& cfg)
         {
             in = {}; // Reproducible neutral host input for automated measurements.
         }
-        const auto now = std::chrono::steady_clock::now();
-        float dt = std::chrono::duration<float>(now - last).count();
-        last = now;
-        if (cfg.headless || !cfg.screenshot.empty())
-        {
-            dt = 1.f / 60.f;
-        }
+        const float dt = float(kLogicStep.count());
         const auto frame_start = render_profile::Clock::now();
         render_profile::count_allocations = render_profile::enabled;
         gfx_begin_frame();

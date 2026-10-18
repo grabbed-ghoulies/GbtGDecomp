@@ -58,18 +58,20 @@ bool request_actor_trail(Actor& actor, float scale, float& timer, i32 frequency,
             {
                 std::array<u8, 0x358> parameters;
                 initialize_actor_effect_parameters(parameters.data(), context.default_name);
+                // The stores after the PUSH of the record address at 0x0013B123 are 4 bytes further up the
+                // stack: +0x334 the source actor, +0x338 the life, +0x33C the alpha, +0x340..+0x348 actor +0x30.
                 store<float>(parameters.data(), 0x24, actor.scale_200);
-                store<float>(parameters.data(), 0x344, actor.scale_x);
-                store<float>(parameters.data(), 0x348, actor.radius_y);
+                store<float>(parameters.data(), 0x340, actor.scale_x);
+                store<float>(parameters.data(), 0x344, actor.radius_y);
                 store<u16>(parameters.data(), 0, 0x354);
                 store<u16>(parameters.data(), 2, 0x43);
                 store<u16>(parameters.data(), 4, 0x10);
-                store<u32>(parameters.data(), 0x338, context.actor_address);
-                store<float>(parameters.data(), 0x33C, scale);
-                store<u8>(parameters.data(), 0x340, 0x80);
-                store<u32>(parameters.data(), 0x354, 0);
+                store<u32>(parameters.data(), 0x334, context.actor_address);
+                store<float>(parameters.data(), 0x338, scale);
+                store<u8>(parameters.data(), 0x33C, 0x80);
                 store<u32>(parameters.data(), 0x350, 0);
-                store<float>(parameters.data(), 0x34C, actor.radius_xz);
+                store<u32>(parameters.data(), 0x34C, 0);
+                store<float>(parameters.data(), 0x348, actor.radius_xz);
                 auto object = create_factory_object(context.factory, parameters);
                 created = object.bytes != nullptr;
                 if (created)

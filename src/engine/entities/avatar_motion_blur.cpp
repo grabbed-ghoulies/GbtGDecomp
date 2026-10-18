@@ -4,6 +4,8 @@
 #include "actor_runtime_queries.h"
 #include "actor_render_registration.h"
 #include "actor_shape_push.h"
+#include "actor_world_lists.h"
+#include "actor_model_anchors.h"
 #include "../audio/listener_settings.h"
 #include "gbtg/anim.h"
 #include "gbtg/model_runtime.h"
@@ -421,5 +423,142 @@ void destroy_runtime_avatar_motion_blur(RuntimeAvatarMotionBlur& context)
         throw Error("avatar motion blur 0x00035C00 over a null +0x94C resource");
     }
     release_animation_resource(context.startup.registry, context.resource);
+}
+
+// Xbox 0x00069080
+void avatar_afterimage_object_sizes(ObjectSizes& output)
+{
+    output.instance = 0x968;
+    output.parameters = 0x354;
+}
+
+// Xbox 0x000690F0
+bool initialize_runtime_avatar_afterimage(std::span<const u8> parameters, RuntimeAvatarAfterimage& context)
+{
+    const auto bytes = context.self.bytes;
+    put_word(bytes, 0x938, read_u32(parameters, 0x338));
+    put_word(bytes, 0x934, read_u32(parameters, 0x338));
+    put_word(bytes, 0x940, parameters[0x33C]);
+    put_word(bytes, 0x93C, parameters[0x33C]);
+    put_word(bytes, 0x964, read_u32(parameters, 0x34C));
+    auto source = context.actor_at(read_u32(parameters, 0x334));
+    copy_runtime_actor_appearance(context.self, source, context.default_name, context.startup); // 0x0013AE30
+    const Actor& actor = context.self.actor;
+    put_float(bytes, 0x944, actor.scale_x); // +0x30.
+    put_float(bytes, 0x948, actor.radius_y); // +0x34.
+    put_float(bytes, 0x94C, actor.radius_xz); // +0x38.
+    put_word(bytes, 0x950, read_u32(parameters, 0x340));
+    put_word(bytes, 0x954, read_u32(parameters, 0x344));
+    put_word(bytes, 0x958, read_u32(parameters, 0x348));
+    if (read_u32(parameters, 0x350) != 0)
+    {
+        throw Error("untranslated Xbox 0x000F8540 reached from the after-image 0x000690F0 (parameter +0x350 set)");
+    }
+    return true;
+}
+
+// Xbox 0x00069220
+void destroy_runtime_avatar_afterimage(RuntimeAvatarAfterimage& context)
+{
+    if (read_u32(context.self.bytes, 0x95C) != 0)
+    {
+        throw Error("untranslated Xbox 0x000F85D0 reached from the after-image 0x00069220 (+0x95C set)");
+    }
+    if (read_u32(context.self.bytes, 0x960) != 0)
+    {
+        throw Error("after-image 0x00069220 releases a +0x960 resource it has no view of");
+    }
+}
+
+// Xbox 0x00069250
+void tick_runtime_avatar_afterimage(RuntimeAvatarAfterimage& context)
+{
+    const auto bytes = context.self.bytes;
+    Actor& actor = context.self.actor;
+    if (read_u32(bytes, 0x95C) != 0)
+    {
+        throw Error("untranslated Xbox 0x000F8640 reached from the after-image 0x00069250 (+0x95C set)");
+    }
+    const float left = read_f32(bytes, 0x934);
+    if (left > 0.f)
+    {
+        const float next = left - runtime_actor_step(actor, context.clock);
+        put_float(bytes, 0x934, next);
+        if (next <= 0.f) // JC on 0 < next, unordered included.
+        {
+            put_float(bytes, 0x934, 0.f);
+            activate_actor_bind_tree(actor); // 0x00112CC0
+        }
+    }
+    const float phase = read_f32(bytes, 0x934) / read_f32(bytes, 0x938);
+    constexpr float pi = std::bit_cast<float>(0x40490FDBu); // DAT_0032B148.
+    constexpr float half_pi = std::bit_cast<float>(0x3FC90FDBu); // DAT_0032B140.
+    const long double wave = retail_sin(phase * pi - half_pi); // 0x00153320
+    const long double alpha = (wave + 1.L) * static_cast<long double>(i32(read_u32(bytes, 0x940))) * 0.5L;
+    put_word(bytes, 0x93C, u32(truncate_runtime_float(alpha))); // 0x001673D8
+    const float towards = 1.f - phase; // DAT_0032B0F8.
+    const float x = (read_f32(bytes, 0x950) - read_f32(bytes, 0x944)) * towards + read_f32(bytes, 0x944);
+    const float y = (read_f32(bytes, 0x954) - read_f32(bytes, 0x948)) * towards + read_f32(bytes, 0x948);
+    const float z = (read_f32(bytes, 0x958) - read_f32(bytes, 0x94C)) * towards + read_f32(bytes, 0x94C);
+    if (x != actor.scale_x || y != actor.radius_y || z != actor.radius_xz)
+    {
+        actor.scale_x = x;
+        actor.radius_y = y;
+        actor.radius_xz = z;
+        actor.xform_valid = 0; // +0x2A8.
+    }
+    update_actor_frame(context.frame, context.frame_context); // 0x000420D0
+}
+
+// Xbox 0x00069540
+void message_runtime_avatar_afterimage(u32 id, RuntimeAvatarAfterimage& context)
+{
+    if (id != 0x23)
+    {
+        return;
+    }
+    unregister_actor_segment_probes(context.render); // 0x0003E850
+    clear_actor_shape_probe(context.self.actor, context.shape); // 0x0003C700
+    auto* node = static_cast<entity_detail::ListHead*>(context.anchors.next);
+    while (node != nullptr)
+    {
+        auto* next = static_cast<entity_detail::ListHead*>(node->next);
+        release_actor_model_anchor(*reinterpret_cast<ActorModelAnchor*>(node)); // 0x0011BDA0
+        node = next;
+    }
+}
+
+// Xbox 0x00069410
+u32 draw_runtime_avatar_afterimage(i32 kind, RuntimeAvatarAfterimageDraw& context)
+{
+    if (kind != 2)
+    {
+        return 0;
+    }
+    if (read_u32(context.bytes, 0x964) != 0)
+    {
+        throw Error("untranslated Xbox 0x00062490 reached from the after-image draw 0x00069410 (+0x964 glow set)");
+    }
+    if (context.model == nullptr)
+    {
+        throw Error("after-image draw 0x00069410 has no actor +0x204 model");
+    }
+    auto& model = *context.model;
+    // +0x1C4 is the kind argument's stack word with the alpha stored in its top byte.
+    model.material_enabled = 1;
+    model.material_first = (u32(context.bytes[0x93C]) << 24) | (u32(kind) & 0x00FFFFFFu);
+    model.material_second = context.material_second;
+    AnimationMatrix world;
+    std::memcpy(world.data(), context.actor.xform, sizeof(context.actor.xform)); // Actor +0x2AC.
+    if ((context.draw.image.byte(model.cpu, 8) & 0x10) != 0)
+    {
+        draw_runtime_scene_model(model.instance, model.cpu, world, 0, context.draw); // 0x000F9080
+    }
+    draw_runtime_scene_model(model.instance, model.cpu, world, 1, context.draw);
+    if ((context.draw.image.byte(model.cpu, 8) & 8) != 0)
+    {
+        draw_runtime_scene_model(model.instance, model.cpu, world, 2, context.draw);
+    }
+    return 1;
 }
 }

@@ -37,6 +37,10 @@ void format_runtime_body_variant(std::span<u8> body, const char* format,
     ...); // Xbox 0x00020B30
 bool attach_runtime_player_actor(RuntimePlayerAttachmentActor& attached, i32 update_action,
     RuntimePlayerAttachment& context); // Xbox 0x0001B2B0
+// 0x0001B2B0 with the bind applied at once (0x0003B4C0 / 0x0003B460 at `origin` / `euler`, DAT_0050DD80 /
+// DAT_0050DD74): EAX the attached actor, the body and the update flag on the stack.
+bool attach_runtime_player_weapon(RuntimePlayerAttachmentActor& attached, i32 update_action,
+    RuntimePlayerAttachment& context, const Vec3& origin, const Vec3& euler); // Xbox 0x0001B190
 bool attach_runtime_player_secondary(RuntimePlayerAttachmentActor& attached,
     RuntimePlayerAttachment& context); // Xbox 0x0001B3E0
 bool release_runtime_player_attachment(i32 force, u32 reason,

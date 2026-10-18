@@ -240,6 +240,18 @@ i32 navigation_floor_index(const Vec3& point, i32 preferred, i32 check_cell)
     return best;
 }
 
+// Xbox 0x00110BB0, ESI floor, EBX point
+bool navigation_cell_height(i32 floor, const Vec3& point, float& height)
+{
+    const i32 cell = navigation_cell_index(floor, point); // 0x00110EF0
+    if (cell == -1)
+    {
+        return false;
+    }
+    height = float(g_nav_grids[floor]->cells[size_t(cell)].bottom);
+    return true;
+}
+
 // Xbox 0x00110EF0
 i32 navigation_cell_index(i32 floor, const Vec3& point)
 {

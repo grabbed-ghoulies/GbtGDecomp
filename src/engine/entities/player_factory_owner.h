@@ -288,6 +288,7 @@ public:
     NativePlayerInstance& construct_player(FactoryObject& object);
     NativePlayerInstance& player(const FactoryObject& object);
     NativePlayerInstance& player_at(u32 actor_address);
+    NativePlayerInstance* find_player_at(u32 actor_address); // Null when no player has that actor address.
     NativePlayerInstance* find_player(const FactoryObject& child) const; // Body, mind or strategy object.
     NativePlayerInstance* find_child_owner(const u8* child) const; // By the child's instance bytes.
     void release_player(const FactoryObject& object);

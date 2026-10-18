@@ -88,6 +88,11 @@ SceneBodyMessages::SceneBodyMessages(SceneBodyServices& services, NativePlayerIn
     {
         return body_slot_key(slot);
     };
+    // The attachment's re-selection (0x000277E0) reads body vtable +0x20.
+    player_.body_action_key = [this]()
+    {
+        return body_slot_key(0x20);
+    };
     // The state and move actions installed so far (0x5B, 0x5C, 0x87) all have the empty 0x001628B0 at +0xC.
     empty_child_.message = [](std::span<u8>)
     {
@@ -226,9 +231,9 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
             children_[child->bytes.get()] = dizzy.get();
             continue;
         }
-        // 0x74 has the empty 0x001628B0 message slot.
+        // 0x74 and 0x7C have the empty 0x001628B0 message slot.
         if (child->type != 0x5A && child->type != 0x5B && child->type != 0x5C && child->type != 0x74
-            && child->type != 0x87)
+            && child->type != 0x7C && child->type != 0x87)
         {
             unbound("body action message slot of factory type " + std::to_string(child->type));
         }
@@ -240,6 +245,19 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
     refresh_damage_rows();
     const u32 request = read_u32(player_.body, 0x84);
     hit_view_ = request == 0 ? std::span<const u8>() : services_.record_at(request, 0x24);
+    // 0x0001A290 reads body +0x48: the held weapon and its +0x998 collision state.
+    attached_shapes_.reset();
+    animation_.attached_shapes = nullptr;
+    if (const u32 held = read_u32(player_.body, 0x48); held != 0)
+    {
+        if (!services_.weapon_attachment_at || !services_.weapon_collision)
+        {
+            unbound("body +0x48 command views without the scene weapon views");
+        }
+        attached_shapes_.emplace(RuntimeBodyCommandAttachment{services_.weapon_attachment_at(held).object,
+            services_.weapon_collision(held)});
+        animation_.attached_shapes = &*attached_shapes_;
+    }
     const u32 id = message[0];
     // Ids whose handlers read the animation, source or contact views built from message pointers.
     switch (id)
@@ -248,7 +266,6 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
     case 0x17:
     case 0x18:
     case 0x19:
-    case 0x1D:
     case 0x2A:
     case 0x45:
     case 0x63:
@@ -304,6 +321,38 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
             {const_cast<u8*>(source_body.data()), source_body.size()},
             request == 0 ? std::span<const u8>() : services_.record_at(request, 0x24), bound_view, player_.ring,
             services_.address_zero, player_.self, damage_, services_.damage_at(message[2])});
+        views.source_contact = &*source_contact;
+    }
+    if (id == 0x1D)
+    {
+        // {0x1D, kind, strength, style, reply, weapon, velocity, contacts, point} from a weapon's contact test
+        // (0x00141890); the contacts are a copied segment pool. 0x000240C0 reads the weapon's holder (+0xD8C) and
+        // the holder's body +0x84.
+        const auto& pool = *reinterpret_cast<const GhoulySpawnPool*>(services_.event_at(message[9]).data());
+        contact_pool.emplace(entity_detail::SegmentPool{pool.stride, pool.grow, pool.begin, pool.cursor, pool.limit});
+        if (!services_.weapon_attachment_at)
+        {
+            unbound("weapon contact 0x1D without the scene weapon views");
+        }
+        auto& weapon = services_.weapon_attachment_at(message[5]).object;
+        if (weapon.host == nullptr)
+        {
+            unbound("weapon contact 0x1D from a weapon with no holder at +0xD8C");
+        }
+        const u32 holder = weapon.host->address;
+        const auto holder_body = services_.source_body_at(holder);
+        const u32 request = read_u32(holder_body, 0x84);
+        std::span<const u8> bound_view;
+        if (live_attachment_ != nullptr)
+        {
+            std::memcpy(target_bound.data() + 0x20, live_attachment_->shape.data() + 4, 12);
+            bound_view = target_bound;
+        }
+        source_contact.emplace(RuntimeBodySourceContact{
+            RuntimeBodyContactHitViews{*contact_pool, message[9], weapon, nullptr},
+            {const_cast<u8*>(holder_body.data()), holder_body.size()},
+            request == 0 ? std::span<const u8>() : services_.record_at(request, 0x24), bound_view, player_.ring,
+            services_.address_zero, player_.self, damage_, services_.damage_at(holder)});
         views.source_contact = &*source_contact;
     }
     if (id == 0x1B)
@@ -446,9 +495,14 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         }
         const u32 hit_address = read_u32(player_.body, 0x84);
         const u32 attached = read_u32(player_.body, 0x48);
+        const RuntimeBodyCollisionState* attached_collision = nullptr;
         if (attached != 0)
         {
-            unbound("hit state attached actor +0x998 collision view");
+            if (!services_.weapon_collision)
+            {
+                unbound("hit state attached actor +0x998 collision view");
+            }
+            attached_collision = services_.weapon_collision(attached); // Body +0x48 -> +0x998.
         }
         ActorTrailContext trails{services_.factory, services_.objects, player_.actor_address, services_.pause,
             services_.frame_delta, services_.time_scale, services_.pal, services_.pal_override,
@@ -456,7 +510,8 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         RuntimeHitStateTick tick{player_.body, player_.actor, player_.actor_bytes, player_.body_flags,
             player_.actor_instance.animation, services_.clock, services_.motion_steps, services_.default_position,
             mind_target(), hit_address == 0 ? std::span<const u8>() : services_.record_at(hit_address, 0x24),
-            player_.body_attributes, player_.collision, nullptr, player_.actor_instance.render, trails, input, device,
+            player_.body_attributes, player_.collision, attached_collision, player_.actor_instance.render, trails, input,
+            device,
             own,
             player_.scene.input_state, services_.address_zero, services_.damage_tables, services_.mode_scales,
             player_.action_table, first_timer_,
@@ -541,6 +596,23 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
     case 0x7A:
         tick_runtime_knockdown_state({action.bytes.get(), action.size}, knockdown_context());
         return;
+    case 0x7C:
+    {
+        // The tick's second argument is the player's input record (actor +0x960) or zero, as for 0x5E.
+        const RuntimeDialogueInputDevice* device = nullptr;
+        if (input != 0)
+        {
+            if (player_.input.empty() || input != services_.address_of(player_.input.data()))
+            {
+                unbound("pick-up state input word that is not this player's input record");
+            }
+            device = &player_.input_device;
+        }
+        auto& context = pickup_context();
+        context.input = device;
+        tick_runtime_pickup_state({action.bytes.get(), action.size}, context);
+        return;
+    }
     default:
         unbound("body action vtable +0x10 of factory type " + std::to_string(action.type));
     }
@@ -575,6 +647,7 @@ void SceneBodyMessages::action_step(FactoryObject& action)
     case 0x73:
     case 0x74:
     case 0x7A:
+    case 0x7C:
     case 0x87:
     case 0x8E:
         // 0x001628B0 returns at once.
@@ -693,6 +766,43 @@ RuntimeKnockdownContext& SceneBodyMessages::knockdown_context()
         },
         services_.probe_messages, services_.record_at});
     return *knockdown_;
+}
+
+RuntimePickupStateContext& SceneBodyMessages::pickup_context()
+{
+    // Body views only, as for the dizzy state: a state destroyed with its player outlives the input device.
+    player_.refresh_body_views();
+    if (player_.body_flags == nullptr)
+    {
+        unbound("pick-up state without the body +0x15C bit block");
+    }
+    if (!services_.weapon_attachment_at)
+    {
+        unbound("pick-up state without the scene weapon views");
+    }
+    // Actor +0x958 is the player's native mind object (mind_present says it is set).
+    const std::span<u8> mind = player_.mind_present ? player_.mind : std::span<u8>();
+    pickup_.emplace(RuntimePickupStateContext{player_.body, player_.actor, player_.actor_bytes, *player_.body_flags,
+        player_.actor_instance.animation, services_.clock, player_.actor_instance.live_attachments,
+        player_.attachment, services_.default_position, services_.default_euler, services_.stand_input_threshold,
+        mind, services_.weapon_attachment_at,
+        [this](u32 weapon, u32 id)
+        {
+            services_.actor_callouts_with(weapon, id, nullptr);
+        },
+        [this](std::span<const u32> message)
+        {
+            std::array<u32, 0x42> buffer{};
+            std::copy_n(message.begin(), std::min<size_t>(message.size(), buffer.size()), buffer.begin());
+            player_.self.message(buffer);
+        },
+        [this](u32 slot)
+        {
+            return body_slot_key(slot);
+        },
+        services_.game});
+    pickup_->input_state = &player_.scene.input_state;
+    return *pickup_;
 }
 
 RuntimeDizzyStateContext& SceneBodyMessages::dizzy_context()
@@ -884,6 +994,30 @@ u16 SceneBodyMessages::body_slot_key(u32 slot)
     if (slot == 0x40)
     {
         return runtime_body_damage_gated_id(ids, player_.action_table);
+    }
+    if (slot == 0x24)
+    {
+        return runtime_body_primary_gated_id(ids, player_.action_table); // 0x000269C0
+    }
+    if (slot == 0x44)
+    {
+        return u16(runtime_body_contact_action_id(ids)); // 0x00027220
+    }
+    if (slot == 0x48)
+    {
+        return u16(runtime_body_range_action_id(ids)); // 0x000272D0
+    }
+    if (slot == 0x50)
+    {
+        return u16(runtime_body_effect_action_id(ids)); // 0x00027320
+    }
+    if (slot == 0x54)
+    {
+        return u16(runtime_body_damage_action_id(ids)); // 0x000273D0
+    }
+    if (slot == 0x58)
+    {
+        return u16(runtime_body_attachment_action_id(ids)); // 0x00027480
     }
     unbound("body next-action slot " + std::to_string(slot));
 }
@@ -1135,11 +1269,11 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 }
                 return;
             }
-            if (type != 0x87 && type != 0x5B && type != 0x5C && type != 0x74)
+            if (type != 0x87 && type != 0x5B && type != 0x5C && type != 0x74 && type != 0x7C)
             {
                 unbound("collision reply action vtable +0xC of factory type " + std::to_string(type));
             }
-            // These four action tables have the empty 0x001628B0 message slot.
+            // These five action tables have the empty 0x001628B0 message slot.
         }};
         RuntimePlayerCollisionAction* action_view = player_.body_selection.second.bytes == nullptr ? nullptr : &action;
         RuntimePlayerBodyCollision collision{player_.body, player_.actor, player_.body_bits, mask, floor,

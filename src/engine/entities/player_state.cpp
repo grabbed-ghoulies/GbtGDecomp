@@ -47,6 +47,8 @@ void initialize_runtime_body_action(std::span<u8> body, std::span<const u8> para
     }
 }
 
+std::function<void(u8 mask, i32 release)> g_actor_pause;
+
 // Xbox 0x00117400
 void change_runtime_actor_pause(u8 mask, i32 release, RuntimeActorPauseGroups& groups)
 {

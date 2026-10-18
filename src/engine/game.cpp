@@ -160,6 +160,7 @@ void frame_tick(Game& g, float dt, const InputState& in)
     if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1 && (g_flags_ea9c & 0x40080u) == 0)
     {
         g.factory_scene->start_actors(g).run_scene_pass(); // 0x0011E640 after 0x0011E4C0.
+        g.factory_scene->start_actors(g).update_scoreboard_hud(); // 0x00132210
     }
     tick_native_audio(g.clock.dt, g_4e02e8); // 0x0015B780, 0x0003A040, 0x000396F0, 0x00038640, 0x00038C20
     for (auto& e : g.entities)

@@ -43,7 +43,7 @@ player, `0x35` cinema, `0x36` camera), the strategy, and the body (`0x27` imp,
 then +0x314) through their vtable +0x10, and walks its attack shapes against
 other actors' segment probes (`0x0013F2C0` → `0x0013F7B0` → `0x0013FB50`).
 
-## Current state (2026-10-16)
+## Current state (2026-10-18)
 
 Verified against the source and live runs (`--player-opening`,
 `--player-fight`, headless captures below).
@@ -52,8 +52,24 @@ Live and native:
 
 - Scene start, markers, activation and teardown (`--scene-spawn`,
   `--scene-start`).
+- **Cooper's scared lock.** Script type 0x2F sends Cooper goal 7 (message 0x4D): his strategy holds in its goal
+  state 0x3FB and his body plays the +0x24 action (the scared pose) until type 0x30 (message 0x32) releases him
+  after the tutorial.
 - The tutorial: the native dialogue holds the script until a fresh A edge, its
   button bat hops, and the script then waits at its "(next bit)" type-0xF gate.
+- **Pause behind pages.** Opening a page runs `0x00117400` over DAT_00511B38: the imps get 0x27 and their
+  strategies wait in state 1000 until 0x26. DAT_0050E764 / DAT_0050E768 have one owner (`g_pause_references`).
+- **HUD behind pages.** The scoreboard's DAT_004EE1EC is the scene dialogue's mode, so the HUD draws nothing
+  while a page shows.
+- **The ghoul intro.** An imp's first sighting of Cooper (`0x000F4870`) queues it; the scene tick shows it
+  (`scene/ghoul_intro.cpp`: `0x000F4A00`, `0x000F4560`, `0x000F4220`, `0x000F4B90`): the imp's goal 9
+  ("ghouly_intro"), four camera shots on the imp, the "Imp" name card (aid_loctext_ghoulies_actor_ghoulyintro),
+  the GHOULINTRODITTY stream, scene flag 4 (HUD hidden) and the pause. The impcomeincam cutscene belongs to the
+  later "Event Door Intro" section (script type 0x13), not to the opening.
+- **The chair's section.** After the butler's page, type 0x96 puts Cooper on marker 1 and type 0x62 resets the
+  play camera to marker 1 (`0x0013D250`). "Freeplay (Temporary Weapon Explained)" then waits for the chair's
+  pickup (ObjectPickedUp, event 0xAD with the chair's tag), for Cooper to leave region 1 (`0x001329A0` over
+  `0x00124860`), or for its 5 s TimeOut, which the retail script arms (DAT_0030F144[0] = 1).
 - The play camera (cameron's director `0x000AA250`), the actor draw passes and
   the background `0x00042C10`. Cooper and the five imps are drawn.
 - Actor updates run every frame (no hold). The imps hunt Cooper: their mind requests `0x2F` / `0x2E` navigate
@@ -139,7 +155,7 @@ button repeat, rumble) has no caller; its remap hooks `0x00155360` / `0x001553B0
 |---|---|---|---|
 | Left stick | `0x001085F0` → `0x000A5A60` (walk steer), `0x00140AE0` (camera-relative turn), `0x000784B0` (camera swing) | Walk/run; speed is body +0x32C × the class value `0x000259C0` (actor +0xCF4 class) × surface scale × stick | Works, *tested*: 45 units/s at full tilt, the same at 60, 144 and 240 Hz |
 | Right stick | `0x001088D0` → `0x0007D460` / `0x0007D5A0` (gesture) → `0x0007E880` | A flick attacks: the nearest target in the cone, else the mind's own +0xB8 record 80 units along the stick (`0x0007EA20`) | Works, *tested* with no imp in range; also turns the head (`0x00137140`) without a gaze anchor |
-| A (0x100) | `0x0007D210` | Picks up the pending attachment (mind +0x134) | Translated; no pickup in the opening scene yet |
+| A (0x100) | `0x0007D210` | Picks up the pending attachment (mind +0x134) | Works, *tested* by `--player-fight`: A beside the cook's chair enters the pick-up state 0x7C, which attaches the chair and queues event 0xAD |
 | A / B | `0x000BEF40` state 0x3F1 | Accept or refuse the brew prompt | Translated; not reached in the opening |
 | B (0x200) | `0x0007D300` | Drops/throws the held attachment | Translated; not reached in the opening |
 | A/B/X/Y (0xF00) | `0x000BF6A0` | Any face-button edge counts as "wants to move" for the strategy | Translated |
@@ -185,8 +201,8 @@ All take the game directory, e.g.
 |---|---|
 | `--scene-spawn` | Opening markers create the retail actors and players; activation drains; contact round trip; teardown releases everything |
 | `--scene-start` | The above plus the background, navigation, the 0x88/0x7D notices and the 0x6F player wait |
-| `--player-opening` | Tutorial hold, bat hop, A edges, the "(next bit)" gate, Cooper walking (`cache/player_walk_check.bmp`), the imp fight music |
-| `--player-fight` | The opening flow, then Cooper fights the imps (see Acceptance) |
+| `--player-opening` | Cooper's goal-7 lock and the imps' pause behind the tutorial page, no HUD heart behind it, tutorial hold, bat hop, A edges, the ghoul intro (scene flag 4 on and off, `cache/player_intro_check.bmp`), Cooper released, the "(next bit)" gate, Cooper walking (`cache/player_walk_check.bmp`), the imp fight music |
+| `--player-fight` | The opening flow, then Cooper fights the imps (see Acceptance), a re-hit during an imp's reaction, the HUD heart in fight captures and not behind the butler's page, the chair's section (the ObjectPickedUp record with the chair's tag, Cooper in region 1, Cooper walks to the chair and A picks it up; event 0xAD with the chair's tag is queued and the section ends before its 5 s timeout; `cache/player_chair_check.bmp`, `player_chair_pickup.bmp`, `player_chair_held.bmp`), then the play-on |
 | `--player-controls` | The opening flow, then run speed at 60/144/240 Hz, a right-stick swing with no imp in range (`cache/player_air_swing.bmp`) and the trigger camera turn |
 
 Headless captures: `gbtg --headless --frames N --scene chapter1_scene1_2playcam
@@ -245,28 +261,25 @@ Headless captures: `gbtg --headless --frames N --scene chapter1_scene1_2playcam
 
 ## Frontier
 
-Measured with `--player-fight` (Release). The fight passes "Kill All" and the script moves to its "Event Door
-Intro" section; the scene does not end there. The rest of the scene is more play: the bot would have to walk
-Cooper on (the doors event) before the script reaches its scene request.
+Measured with `--player-fight` (Release and Debug, identical). The fight passes "Kill All"; Cooper picks up the
+cook's chair and its section ends through event 0xAD. In the play-on the driver takes the butler's pages, the
+second wave (ten imps, `aid_ghoulybox_ghoulies_chapter1_scene1_4playcamimps`: count 10, one every 0.3 s) comes
+through the doorway, Cooper fights it down with the chair (its after-images and hit sparks show), the wave's
+"Kill All" passes and the run stops at the butler's type 59.
 
 | Path | Stop | What it needs |
 |---|---|---|
-| Script (after "Event Door Intro") | no stop within 3600 frames of A edges | Drive Cooper through the next section (its doors event) and follow the script to its next-scene request through `0x00117140`; the native transition should then take over |
-| Present (the snapshot) | renders nothing | `0x00116530` records 39 model draws into its 64x64 texture (the viewport follows SetRenderTarget), but the texture's colour and alpha stay zero. Not traced yet; the copy and its glow do not depend on it |
-| Turn (not reached) | `0x001068E0` | `0x00134720` with body +0x19E set eases toward the body's +0x184 point first; it raises there |
-| Script updates (not reached) | `0x00133170` ... `0x00133900` | `0x00117100` walks the whole update table; opcodes 0 and 1 are translated, 2, 6..9 and 20..26 are empty, the others raise when a record reaches them |
-| Update (not reached) | `0x00123720` | The copy's point light, only when `DAT_005120F0` or `DAT_00512104` is set |
-| Message (not reached) | `0x0009BB60` | The knockdown's contact pool (state +0xCC) for message 0xE while flying |
-| Present (behind it) | not reached yet | The HUD draw leaves (`0x00131F00`, `0x0012DF30`, `0x000FF0A0`) once their gates open |
+| Player death (not reached) | `scene factory type 105 getter 0x0008EED0` (seen while the chair's swings missed) | Body state 0x69 (vtable `0x00505800`: sizes `0x0008EEB0`, constructor `0x0008EF30`, destructor `0x0008F1A0`, tick `0x0008F290`, `0x0008F4D0`, `0x0008F650`): Cooper's death and the retry menu (`0x0012C4E0`, `0x0012C2D0`, `0x000496C0`, the "gameselect" loading) |
+| Butler strategy | `scene factory type 59 getter 0x000AB040 is not translated/installed` | The strategy class 0x3B over the base strategy 8 (size 0x98; vtable 0x00505D70: sizes `0x000AB020`, constructor `0x000AB090`, message `0x000AB170` with `0x000AB2D0`, update `0x000AB0C0` with `0x000AB260`, `+0x14` `0x000AB1A0`, `+0x18` `0x000AB220`). Callees still missing: `0x00128DF0`, `0x0002A030`, `0x00139AA0`; the rest (`0x0002C130`, `0x0002BC10`, `0x0002BAF0`, `0x0002B8D0`, `0x0002A8E0`, `0x0013D400`) are native. Install it like the imp fire strategy (type 0x46) |
+| Actor id lookups | legacy | `find_actor_by_id` / `find_actor_by_group` over the unfilled `g_pulse_nodes` still serve script actions, conditions and the ghoulybox controller; see `docs/LEGACY_HOST_CODE.md` |
+| Present (the snapshot) | renders nothing | `0x00116530` records its draws but the texture stays empty |
+| HUD draws (not reached) | `0x0012F110` | Scoreboard rows of kinds 4 and 5 (the formatted counter) |
 
 ## Work
 
-1. The scene's next section: extend `--player-fight` (or a new mode) to walk Cooper through the doors event and
-   follow the script to the scene end and the next scene.
-2. Why the actor snapshot rasterizes nothing.
-3. The HUD draw bodies as their gates open.
-4. Teardown after a failure: when a body state's destructor throws during scene release, the second release
-   pass destroys the half-released player again and reads its freed input (seen only after an earlier failure).
+1. The butler's strategy (type 0x3B), then "Exit Door Opens", "Free Play", the butler's cutscene and the scene end.
+2. The death state 0x69 (`0x0008EED0`) and its retry menu, for a run where the imps win.
+3. Move the remaining `g_pulse_nodes` callers to the native `DAT_00511AA4` lookups.
 
 ## Acceptance
 
@@ -276,8 +289,8 @@ Cooper on (the doors event) before the script reaches its scene request.
 - Release and Debug build; `ctest`; the six transition suites (`--scene-start
   --scene-spawn --dialogue-resources --actor-loading --ghoulybox-decoder
   --scene-models`), `--player-opening`, `--player-fight`, `--title`,
-  `--title-a`, `--attract`, `--goop`, `--ui`, `--audio-preparation`. Debug
-  `--actor-loading` fails at `check_boot_pixel_shaders` on the unmodified tree.
+  `--title-a`, `--attract`, `--goop`, `--ui`, `--audio-preparation`. (Debug
+  `--actor-loading` used to fail at `check_boot_pixel_shaders`; it passes since the 2026-10-16 combiner fix.)
 - `gbtg --headless --frames 900` exits 0, with and without `--scene
   chapter1_scene1_2playcam`.
 - Screenshots at the reference frames match or are better.
@@ -290,15 +303,306 @@ Cooper on (the doors event) before the script reaches its scene request.
 | Capture | Screen |
 |---|---|
 | `opening_180.bmp` | The hall from behind Cooper; three imps on the floor, the staircase and portraits |
-| `opening_300.bmp` | Same view a little later; the imps have moved |
+| `opening_300.bmp` | Same view a little later: the imps wander, and the HUD heart with its counter (50) shows at the top right (re-taken 2026-10-17 after the HUD update and the script's queue limits; the morning's take is in `before_hud_2026-10-17/`) |
 | `opening_900.bmp` | The native tutorial page: Jeeves' head, "I suggest Sir uses the Left Thumbstick to move and HOLDS the Right Thumbstick…", the corner imps and the A-button bat |
-| `player_opening_check.bmp` | `--player-opening` at frame 720: the tutorial page |
-| `player_walk_check.bmp` | `--player-opening` after 120 frames of left stick: Cooper climbing the stairs (re-taken 2026-10-16 after commit 202d952 moved the walk end slightly) |
+| `player_opening_check.bmp` | `--player-opening` at frame 720: the tutorial page (re-taken 2026-10-17; a 52x32 patch near the top changed) |
+| `player_intro_check.bmp` | `--player-opening`, 90 frames into the ghoul intro: the intro camera behind an imp and its "Imp" name card (new 2026-10-18, no reference yet) |
+| `player_chair_check.bmp` | `--player-fight`, 40 frames into the chair's section: Cooper beside the cook's chair and its hand prompt, the camera reset behind him (new 2026-10-18, no reference yet) |
+| `player_chair_pickup.bmp` | `--player-fight`, the frame the chair attaches (0x0001B190): Cooper beside the chair, which still lies on the floor (new 2026-10-18, no reference yet) |
+| `player_chair_held.bmp` | `--player-fight`, 100 frames after the pickup: Cooper holding the chair upside down over his left shoulder (2026-10-18, matches the retail idle hold) |
+| `player_walk_check.bmp` | `--player-opening` after 120 frames of left stick: Cooper walking toward the stairs with an imp behind him (re-taken 2026-10-17 after the door pass, then after the HUD update; earlier takes are in `before_doors_2026-10-17/` and `before_hud_2026-10-17/`) |
 
 `--player-fight` before this work stopped at frame ~60 of the fight with
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-18: the scared lock and the ghoul intro (fix 1)
+
+- Script types 0x2F and 0x30 were empty stubs. 0x2F now sends the DAT_00511B40 player 0x00049DB0's message 0x4D
+  with goal 7, and 0x30 sends message 0x32. Cooper holds in goal state 0x3FB and plays his body +0x24 action (the
+  scared pose, base `0x000269C0`, now bound with the other base slots +0x44..+0x58) until the tutorial ends.
+- Type 0x5C sends message 0x36 to the imps through `0x00122D40` over DAT_00511B38.
+- The "enemy intro" is the ghoul intro, not a cutscene resource: new `scene/ghoul_intro.cpp` with `0x000F4440`
+  (introdata rows, scene start), `0x000F44B0` (scene end), `0x000F4560` / `0x000F4A00` (scene tick; the stale
+  `g_506e28` copy is gone), `0x000F4220` (the camera), `0x000F4B90`, `0x000F4C10`, `0x000F4CC0`, `0x000F4D40`,
+  `0x000F4DA0`, `0x000F4DF0` and `0x00124860`. The notice removal's stop, next and finish are bound.
+- 0x00028360 read `Actor::mask_span`, which nothing sets, so it always saw no goal: the 0x26 resume never drained
+  the intro imp's goal 9 and its damage latches (body +0x260, raised for goal 9) stayed up, so it could not be
+  damaged. It now reads the player's goal ring.
+- The player's body vtable +0x20 view for the attachment re-selection (`0x000277E0`) was never attached.
+- Shown: `cache/round1/shots/opening_300.bmp` has Cooper in the scared pose (arms raised, facing the camera) where
+  the reference stood him normally; `player_intro_check.bmp` shows the intro camera on an imp with the "Imp" card.
+  Heard: the GHOULINTRODITTY cue starts (log); not listened to.
+- Verified (covers the four 2026-10-18 fixes): Release and Debug build; ctest 7/7 in both; the six transition
+  suites, `--player-opening`, `--title`, `--title-a`, `--attract`, `--goop`, `--ui` and `--audio-preparation` pass
+  in both (Debug `--actor-loading` included); `--player-fight` passes every check in both and stops at the
+  expected type 59; headless 900 (both scenes) exits 0 in both. Against `cache/player_ref`: 180, 900 and
+  `player_opening_check` are pixel-identical; 300 differs (Cooper in the scared pose, the imps elsewhere);
+  `player_walk_check` is shifted slightly (the walk now starts after the ghoul intro). The references were not
+  re-taken. Nothing here was compared with xemu.
+
+### 2026-10-18: pause and HUD behind pages (fix 2)
+
+- `0x00117400` walked the empty host `g_range_links`; it now walks DAT_00511B38 natively (`g_actor_pause`, the
+  services' `pause_groups`, which the strategy's own calls also use and which were never filled). The imps get
+  0x27 behind the tutorial and wait in strategy state 1000.
+- One owner each for DAT_0050E764/DAT_0050E768 (`g_pause_references`), DAT_0051248C (the services' decay index is
+  the script's `g_state_248c`), DAT_00510CEC and DAT_004DEA24 (the transitions' globals). The actor frame update's
+  copies of DAT_0050E768 and the decay byte are refreshed each frame.
+- The scoreboard's DAT_004EE1EC was a services copy stuck at 0; it is now the scene dialogue's mode.
+- Shown: the HUD heart is absent behind the butler's page (`--player-fight` checks a page capture) and present
+  in fight captures. The tutorial page capture had no heart before either.
+
+### 2026-10-18: the chair's section (fix 3)
+
+- Condition setup 0x40 / 0x94 / 0x95 / 0x99 now stores 0x001077B0's tag at record +8 (it stored 0); opcode 3's
+  update `0x00133170` is translated; conditions 8 and 9 (`0x00132940`, `0x001329A0`) read the native player link
+  instead of the unset `g_actor_mark`, which made PlayerLeavesRegion fire at once and skip the section.
+- Script types 0x96 (`0x0002B430` / `0x0002B560` on the player, marker 1) and 0x62 (`0x0013D250`, the play camera
+  to marker 1) replace empty stubs; Cooper now starts the section beside the chair, inside region 1.
+- The section waits for the pickup, region 1 or its 5 s TimeOut. The TimeOut is armed in retail (mode 0,
+  DAT_0030F144 = {1, 0, 1, 0}); nothing in the dumps holds DAT_0050E768 there, so the scene does move on after
+  5 s without the chair. Not compared with xemu.
+- The pickup: weapons now have an attached-actor view (mind +0x134 names the chair), the +0x918 link is read only
+  when retail reads it, and body vtable +0x5C is the base `0x00026C60`. Walking Cooper to the chair and
+  pressing A (an exploratory run) reaches the pick-up body state, factory type 0x7C (getter `0x0009DDA0`), which is
+  not translated; its exit `0x0009E560` is what queues event 0xAD for the script. `--player-fight` walks Cooper to
+  the chair without pressing A, and its driver now gives A only on script pages.
+- Shown: `player_chair_check.bmp`, Cooper beside the chair with its hand prompt, camera reset behind him.
+
+### 2026-10-18: the chair hold against retail
+
+- Retail (a xemu screenshot from the user): in the two-handed idle the chair lies upside down over Cooper's left
+  shoulder, held up by his left hand, while his right hand is at his chin.
+- Fixed: the held weapon's animation (`0x00144B80`, message 0x28) never ran. It tested row +8 in the actor bytes, but
+  native keeps the row's AID in `accepted_resources`, so the test was always false. It also lost the holder's record
+  at message +8. Now the 0x28 receiver binds the holder's slot-0 record as a word for the message, and `0x00144B80`
+  follows the dump: the row's animtable, the holder record's name through the aliases (`0x00032210`) and records
+  (`0x00032180`), "default" when neither is found, the mix from the holder record (`0x000322A0`) with the weapon
+  record's events, message +0x10 position and the old-pose rule, then `0x0003ADA0` with message +0xC.
+- Checked on the way, no change: the chair binds to joint 21 (key 12, Cooper's right wrist, at his chin in the
+  idle), as retail's bind code and the chair's three class rows (classes 4, 14, 52, all key 12) give. Its transform is
+  exactly that joint's matrix. The chair's own animation is what lays it across to the left shoulder.
+- Shown: `player_chair_held.bmp`, now 100 frames after the pickup: the chair upside down over the left shoulder,
+  the left hand under it, as in the retail screenshot.
+- Not compared: the hold while running or swinging (only the standing idle has a retail reference).
+
+### 2026-10-18: logic at 60 Hz
+
+- The interactive loop (`runtime/platform.cpp`) now waits for each 1/60 s slot and ticks with exactly 1/60 s,
+  whatever the display refreshes at, as retail does (`0x00033030`: 60 Hz, 50 for PAL, `dt = 1/fps`). It used the
+  real elapsed time, so a 240 Hz display ran the logic at 1/240 s steps. Headless and screenshot runs keep their
+  fixed 1/60 s without waiting. Measured: 600 windowed frames take 11.5 s (10 s plus start-up).
+- An imp was seen staying behind the wave's door in a 240 Hz play. `--player-fight` driven at four 1/240 s steps a
+  frame did not show it: all ten imps came into the hall after "Kill All", as at 60 Hz. The cause is not known.
+  In both runs the imps hold still behind the door from about frame 420 (the door shuts near frame 400) until
+  "Kill All". With the 60 Hz loop the user no longer sees it in play.
+- Verified (with the after-image fixes): Release and Debug build; ctest 7/7; every suite passes except
+  `--player-fight`, which ends at the expected type 59 in both; headless 900 (both scenes) exits 0.
+
+### 2026-10-18: the swing's after-images and the combiner overrides
+
+- Fixed (presenter): a model draw's raw NV2A combiner writes (the model shader overrides `0x000F84A0` / `0x000F7420`
+  and the stage colours `0x000F7FA0`) were recorded but never reached the host shader, which used only the bound
+  definition and SetPixelShaderConstant. The registers behind definition words 0..56 (the table at `0x0020A368`)
+  now lie over the bound definition's words until the next SetPixelShader, after the constants. The model path's
+  SetPixelShader now goes through the device's hook, so a new shader drops them.
+- Shown: the swing's after-images are translucent copies trailing Cooper (they drew as solid Coopers before, and as
+  nothing when the stage colour was lost). Any model with a +0x1C0 colour override now draws its override stage.
+- Checked, no change: holding the chair. Cooper plays the two-handed rows (`stand_wielding_largetwohanded_weapon`,
+  `aid_anim_ghoulies_actor_boy_largetwohanded_stand`, the `..._attack_swing*` rows, all slot 0), and the chair's
+  bind (joint key 12 -> joint 0x15 through `0x00052FC0`, `0x0003B840`, `0x0003B770`, `0x0003BAB0`, `0x000316B0`)
+  follows the dumps. The chair's own +0xDB0 animation variant is empty (its parameter +0x33C is 0), and its holder
+  row has no animation table, so 0x28 plays nothing on it. Not compared with xemu.
+
+### 2026-10-18: swinging the cook's chair
+
+- New native type 0x10, the after-image (`entities/avatar_motion_blur.cpp`, getter `0x000690A0`, vtable `0x00504A54`
+  over the avatar actor): sizes `0x00069080`, constructor `0x000690F0`, destructor `0x00069220`, update
+  `0x00069250`, message `0x00069540`, draw `0x00069410`. The swing trail (`0x0013B030`, from the hit state) leaves a
+  copy of the holder's look that fades out over its life (alpha in the model's +0x1C4 word) and is drawn in pass 2.
+  Its effect (+0x95C), resource (+0x960) and glow (+0x964) paths raise; the trail leaves them unset.
+- Fixed: `0x0013B030` wrote its parameters 4 bytes too low (it pushes the record address before the stores), so the
+  copy would have read the life as the source actor.
+- New: weapon contact message 0x1D (`0x00141890` -> `0x000240C0`) to a body now has its views: the weapon (its
+  holder at +0xD8C), the holder's body +0x84 and damage entry, and the copied contact pool. It was an unbound.
+- `--player-fight`: Cooper fights the second wave down with the chair; the wave's "Kill All" passes and the run
+  stops at the butler's type 59 again. Shown in the play-on readbacks (`player_after_1200` .. `_1800`): the fading
+  copies along a swing, the chair over Cooper's head, a hit spark as it lands, the hearts dropping. Not compared with
+  xemu; the copies' alpha and colour word were not checked against the retail look.
+- The trail's unit check in `--actor-loading` now expects the retail offsets.
+- Verified: Release and Debug (fresh exes): ctest 7/7; every suite passes except `--player-fight`, which ends at the
+  expected type 59 in both; headless 900 (both scenes) exits 0.
+
+### 2026-10-18: picking up the cook's chair
+
+- New native type 0x7C, the pick-up body state (`entities/body_pickup_state.cpp`, getter `0x0009DDA0`, vtable `0x00505A60`):
+  sizes `0x0009DD80`, constructor `0x0009DE00`, destructor `0x0009DEA0`, tick `0x0009DF90` and its approach `0x0009E2B0`.
+  The tick walks the body toward the chair's nearest pick-up sphere and, once the animation passes the chair's grab
+  point (its class row +0xC, 0.2 for Cooper), attaches it through the new `0x0001B190` (with `0x0003B460` /
+  `0x0003B4C0`). The destructor broadcasts {0x74, actor, weapon}, drops weapon +0xAE4 and, for a controlled player,
+  queues {0xAD, weapon tag}. (`0x0009E560` is the same exit in another class; type 0x7C's vtable has `0x0009DEA0`.)
+- The chair's message 0x28 (`0x00144B80`) returns for a row without an animation table, as the chair's is; the table
+  path raises. Scene weapons now have pick-up views (actor, animation receiver, pose) listed in `attachment_actors`.
+- Fixed: `0x00146150` read actor +0x918's node instead of the parent's, so every activated actor (all sit under the
+  world bind, DAT_00511B10) looked bound; it now tests the parent node's head and owner. Its unit test now binds
+  through a parent node.
+- Fixed: the queued script event's +0xC / +0x10 / +0x14 (message +4 / +8 / +0xC) were never filled by `0x00116810`,
+  so tag-keyed conditions such as ObjectPickedUp (opcode 3) never matched a tag.
+- Fixed: the pick-up context reads the native mind (`mind_present`); actor +0x958 is not kept in the bytes.
+- Fixed: the player camera's offset table (`0x0013D000`, DAT_00314EB0) was a 0x30-byte view; armed rows reach 0x80.
+- Fixed: the body's animation command 0xB (`0x0001A290`) had no body +0x48 views, so a held weapon's +0x998 shapes
+  never activated; the hit state now gets the weapon's +0x998 state too.
+- `--player-fight`: Cooper walks to the chair and A picks it up (frame 151 of the section); event 0xAD with the
+  chair's tag is queued at frame 190 and the section moves on to "Event Door Intro" at frame 281, before the TimeOut
+  (frame 299). The test checks the pickup, the queued event and the early end.
+- The play-on then had Cooper holding the chair: his first swing reached the weapon trail's type 0x10
+  (`0x000690A0`), so the run stopped there (see "swinging the cook's chair"). Before the shapes fix, the swing never hit and
+  the wave killed him (type 0x69, the death state). Not compared with xemu.
+- Shown: `player_chair_pickup.bmp` (the attach frame, the chair still on the floor beside Cooper) and
+  `player_chair_held.bmp` (Cooper holding the chair on his shoulder). Not shown: the chair in a swing, or any chair hit
+  on an imp.
+- Verified: Release and Debug (fresh exes): ctest 7/7; every suite passes except `--player-fight`, which passes the
+  chair's section and stops at type 16 in the play-on in both; headless 900 (both scenes) exits 0. The Ghidra exports
+  came from a temporary local import of `default.xbe` (the Z: project was offline); spot checks matched its dumps.
+
+### 2026-10-18: hitting a reacting imp (fix 4)
+
+- Measured with temporary probes (removed): re-hits during the imp's reaction (action 0x7E) land, and its health
+  drops 5 -> 1 within one reaction; Cooper's body +0x6C opens on each hit and his swings chain. At health 1 the
+  reaction hit keeps 1 (`0x000215C0` with `0x00024680`: the imp's table has no death rows 0x68..0x6A), so the imp
+  only dies once dizzy. That matches the dump; no code changed for this item. The "invincible" imp the user saw
+  was the intro imp (fix 1).
+- `--player-fight` now requires a health drop while an imp stays in action 0x7E.
+
+### 2026-10-18: the actor +0xCDC / +0x93C aliases
+
+- The damage readers (`0x00020DC0`, `0x00021120`, `0x00021EA0`, `0x00022010`, `0x00022310`, `0x000238E0`..
+  `0x00023F70`, `0x0001FF60`, `0x00028D00`/`20`/`50`, `0x001460C0`, `0x00146150`) match their dumps. Their
+  `Actor::mask_mode` / `mask_flag` aliases are written beside the words: `0x00028830` (+0xCDC) and `0x00029270` /
+  `0x00028A30` (+0x93C) for players. A temporary probe in `0x00020DC0` (removed) read Cooper as mode 2 with +0x93C
+  0x00511B3C on all 24 of his hits in `--player-fight`, and every imp as mode 1. So Cooper was already treated as a
+  controlled player; his hit reactions do not change.
+- Two weapon gaps are closed: `0x00145C80` now mirrors the +0x93D / +0x93F bytes into the +0x93C alias (the alias kept
+  only +0x93C, so `0x001460C0` always read state 0 and never reported an unavailable spawn owner), and `0x001495C0`
+  mirrors its +0xCDC = 1. `0x00145C80` runs for the chair; `--player-fight` still passes "Kill All" and ends at
+  type 59 as before, with no visible change.
+- `mask_span` (+0x980) is still never written; the camera mask (`EntityMaskHost`) reads it. See
+  `docs/LEGACY_HOST_CODE.md`.
+
+### 2026-10-18: the second wave comes through the door
+
+- The play-on driver (`--player-fight`) gives fresh A edges while a script page shows and logs the wave (imps out of
+  reach, the spawn limits `DAT_0050E568` / `DAT_0050E56C`); it plays up to 14400 frames or until the script changes.
+- Fixed: the actor startup (0x0003E940) kept parameters `+0x2AA` / `+0x2AC` only in host fields; the instance bytes
+  now carry them at actor `+0x1FC` / `+0x1FE`, which triggers, strategies and weapons read.
+- New native 0x00129ED0 (`find_runtime_actor_by_id`) over `DAT_00511AA4`; the trigger's 0x7D anchor uses it. Before,
+  the wave's trigger had no anchor, so every imp was told to stand at its spawn point behind the door.
+- Fixed: the scene class owner's `bytes_at` asked for an empty span (`resolve_address(address, 0)`); it now returns
+  the instance from the address on, so the trigger's anchor reads and the weapon's group bind work.
+- Fixed: the scene's per-player contact views were never dropped, so an imp built where a released one had been
+  reused its dangling actor; the contact report then failed on an unknown actor. This was also the run-to-run
+  variation (it depended on heap reuse; cdb's debug heap hid it, `-hd` showed it).
+- The script filter's 0x80 / 0x83 arms (0x00116950) with 0x001168C0, which drops the queued 0x7D / 0x81 events.
+- Shown: the wave in the hall, Cooper's kicks and hit sparks, the health hearts dropped, the HUD at 40, the cook's
+  chair standing in the hall, then the camera turning to the exit door. Not shown yet: the butler (type 0x3B).
+- Verified: Release and Debug (fresh exes): ctest 7/7; every suite passes except `--player-fight`, which stops at the
+  expected type 59; headless 900 (both scenes) exits 0; the 180 / 300 / 900 captures and both check images match
+  `cache/player_ref`.
+
+### 2026-10-17: the chair's update and draw, and the second wave
+
+- The weapon update `0x0014A2E0` and its callees in `entities/weapon_actor.cpp`: the per-state updates
+  (`0x0014A220`, the chair's `0x000CF050`), `0x00145A40`, `0x00144E30`, `0x00148510`, `0x00145740` (the falling
+  pieces `0x0003FB80` with the sphere probe `0x001225A0`, `0x00040040`, `0x00145820`), `0x0014A6D0`, the hand
+  prompt `0x00147160`, the cell update `0x00145C30` and the carried sound `0x0014A770`; the draw `0x001459C0`.
+- New `entities/weapon_motion.cpp` (states 2, 5, 8 and the enter/leave of state 10) and
+  `entities/weapon_breakage.cpp` (the stat tables `0x001486C0`, the break `0x001454F0` and its pieces, the variant
+  `0x00148430`, the scare `0x0013B660`). The chair's messages `0x5A`, `0x91`, `0x92`, `0x97`, its contact test
+  `0x000CF5F0` with the report `0x00141890`, the chip `0x001451C0`, the drop `0x000CF670` and the prewait
+  `0x00144CC0`.
+- Fixed in the trigger's spawn request (`0x00069960`, message `0xA7`): retail passes the message's `+0x184` name in
+  EDX (to parameters `+0x53A`) and `+0x104` in ECX (to `+0x5BA`); the translation had them swapped, so the second
+  wave's imps read their actorattribs name as a ghoulybox.
+- Fixed in the trigger controller: the scheduler's `0xA7` request is `0x82` words and its `0xA9` / `0xAA` requests
+  `0x22`; the controller wrapped every message in `0x42` words, which Debug caught as a span assert and Release
+  miscompiled into an unbound address later in the play-on.
+- Not shown yet: the chair was not seen in the readbacks checked; the second wave is not fought (see Frontier).
+- Verified: Release and Debug (fresh exes, 22:57 and 23:01): ctest 7/7; every suite passes, `--player-fight` through "Kill
+  All" and the 3600-frame play-on; headless 900 (both scenes) exits 0; the 180 / 300 / 900 captures and both check
+  images match `cache/player_ref`.
+
+### 2026-10-17: the weapon class family and the cook's chair
+
+- New `entities/weapon_actor.cpp`: the weapon base (type `0x0B`, getter `0x00145900`, vtable `0x005461A8`) and the
+  cook's chair (type `0xAA`, getter `0x000CEF70`, vtable `0x00506438`), installed by the scene actor class owner.
+  Sizes `0x001458E0` / `0x000CEF50`; constructors `0x00145C80` / `0x000CEFE0` with `0x00144A80` (accepted classes),
+  `0x0013F150` (marker rows), `0x00145150` (names), `0x00146D10` (grab shapes and spawn points), `0x00147E10`,
+  `0x00147F00`, `0x00147860` and `0x00146230`; the destructor `0x00145E80` with `0x0014A0D0`; the state slots
+  `0x0014A120` / `0x0014A180` / `0x000CF400` / `0x000CF510` and the state change `0x0014A290`; state 16's
+  `0x00145BC0`, `0x00144D00`, `0x00144D40` and `0x00146310`; the messages `0x001463D0` and `0x000CF0D0` (ids `0x14`,
+  `0x20`, `0x23`, `0x7C`, `0x7D`, `0x93` translated, with `0x00144FD0`, `0x00148600` and `0x001462B0`; the rest
+  raise with their callee).
+- New `entities/actor_model_pieces.cpp`: `0x0003F170`, the model's piece rows at actor `+0x2A4`.
+- Scene services bind the weapon's objparams pointers (XBE addresses), per-model ndMtxArray bindings for
+  `0x000400D0`, the shape poses (refreshed before the constructor reads them), `0x0003DF40` through the scene's
+  keep, and the active-list owners for `0x00148600`.
+- Weapons join the ghouly controller pool (DAT_00512B74) and its distance map, and their `+0x934` link joins
+  DAT_00511B24, which the spawn queries walk.
+- Not shown yet: the chair has no update or draw, so nothing of it is visible.
+- Verified: Release and Debug (fresh test exes, 18:54): ctest 7/7; every suite passes except `--player-fight`, which stops at the expected `0x0014A2E0` with a clean teardown; headless 900 (both scenes) exits 0; the 180 / 300 / 900 captures and both check images match `cache/player_ref`.
+
+### 2026-10-17: the HUD update and draws, and the live spawn tick
+
+- HUD per-frame update `0x00132210` (`frontend/scoreboard_update.cpp`), called from `frame_tick` after
+  `0x0011E640` as retail does: the fade state machine `0x00131C50` / `0x00131FC0`, the timers `0x0012B2F0`,
+  the pulse `0x00104DF0` and swell `0x0012EF60`, the row update `0x00130E10` and its callback `0x00131B70`, the
+  health display `0x001301A0` with `0x00130A50`, `0x00130830`, `0x00130AC0` and `0x001308A0`, the powerup board
+  `0x001323E0`, the bonus board `0x0012D690`, the brew prompt `0x0012D290`, the damage counter `0x0012DA10`, the
+  meter `0x0012E070` / `0x0012E900` / `0x0012EE00`. Deeper branches (the brew widget, the challenge row, the
+  shown meter) raise.
+- HUD draws (`frontend/scoreboard_draw.cpp`, `frontend/scoreboard_hud.cpp`): the sprite queue `0x001221B0`, the
+  placement `0x00131F00` with its ease `0x00103850`, the digits `0x0012F8F0` / `0x0012F850` / `0x0012F000` /
+  `0x0012F060` / `0x0012F0D0`, the health display `0x00130420` and the scoreboard rows `0x00130F20`. The heart
+  and its counter now show at the top right of the hall, and the event icon shows on the scoreboard.
+- Live spawns: `0x0011B670` (already translated) now runs in the scene tick after the actors, with the
+  scene's spawn views. DAT_0050E568..DAT_0050E758 have one owner: the scene's queue limits are views onto the
+  script's scene words.
+- Event sequence fixes: the kill step walks the side list and the spawn queue by their real record links.
+- Before the spawn tick, the second event ran end to end up to its kill step (captures show the door locking, the
+  butler's two pages and the tombstone icon); the step then held on the two unspawned side-list records.
+- The 300-frame capture and `player_walk_check` now show the heart and counter, and the imps' queue limits are
+  the script's; both references were re-taken (the user approved it), the morning's in
+  `cache/player_ref/before_hud_2026-10-17/`.
+- Verified: Release and Debug build; ctest 7/7 in both; every suite passes in both except `--player-fight`, which stops at type `0xAA` (the frontier above) in both; headless 900 exits 0 both ways; captures 180 and 900 and `player_opening_check` match the references; the 300-frame capture and `player_walk_check` differ in both (the HUD heart and counter now draw, and with the script's queue limits honoured the imps wander at frame 300 instead of crowding Cooper); `git diff --check` clean.
+
+### 2026-10-17: doors and the event sequence
+
+- Doors (`cutscenes/door_registration.cpp`): `0x0005B540` (move a door), `0x0005B780` (its state), `0x0005B7C0`
+  (at its event state), `0x0005BDB0` (snap), `0x0005BF30` (the door camera hold), `0x0005AA90` (the per-frame
+  door pass, now in the scene tick after `0x0004EBD0`), `0x0005C020` (regions follow door states). Door rows are
+  0x154 bytes; the doors have a real DAT_004EE2BC camera node. The script's type 0x29 node (`0x001259B0`) and
+  `0x000532E0` replace the old stubs that held the script forever after "Event Door Intro".
+- Scene start: `0x00125B80` (in `0x0011CBD0` before `0x0011C980`) applies the script head's door pairs and queued
+  region tags and sends 0x66 down DAT_00511B20. Doors now block their navigation regions while closed.
+- Door shadows: DAT_005462A8 is BSS nothing writes; the shadow quad's bottom reads it as 0.
+- The event sequence (`scripts/script_event_sequence.cpp`): `0x000D0490`, `0x000D0530`, `0x000D0550`,
+  `0x000D05D0`, `0x000D0680`, `0x000D09A0`, `0x000D0B10`, `0x000D12E0`, `0x000D0300` (scene tick, between the
+  two fired-script passes), `0x000D1200`, `0x000D1260`, `0x000D0F20`, `0x000D1190`, `0x000D0B40`, `0x000D0700`,
+  step type 0 `0x000CFA10`, `0x0012FB80`, `0x0012FDC0`. Script types 0x17, 0x18 and 0x19 use them. DAT_005064D8
+  has one owner (`g_event_sequence_state`); the HUD reads the same value. Steps of other types raise.
+- `--player-fight` plays on after "Kill All" (fights any live imp, A edges otherwise) until the scene's script
+  changes, up to 3600 frames.
+- The 300-frame opening capture and `player_opening_check` / `player_walk_check` changed: at frame 300 the imps
+  close in on Cooper (their health hearts show) where they used to wander, and the walk check's Cooper stops short
+  of the stairs. The likely cause is the scene-start door pass blocking the closed doors' navigation regions as
+  retail does. 180 and 900 are unchanged. The three references were re-taken (the user approved it); the old
+  ones are in `cache/player_ref/before_doors_2026-10-17/`.
+- Verified for the door work (before the event sequence), Release and Debug alike: both build; ctest 7/7;
+  every suite passes; headless 900 exits 0 both ways; captures as above in both. The event sequence is built
+  (Release) but not verified: with it, `--player-fight` passes "Kill All" and then fails at the row draw raise
+  above.
 
 ### 2026-10-17: controls, class values and moving imps
 

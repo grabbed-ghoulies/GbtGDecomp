@@ -1114,11 +1114,14 @@ void camera_update_anchor(CamAnchor& node)
 // DAT_00509B74. Nonzero eases +0x318 toward +0x324; zero snaps.
 i32 g_ease_live = 0;
 
+// DAT_0050E764 and DAT_0050E768, the two counts 0x00117400 keeps. The scene's actor services read the same words.
+std::array<u32, 2> g_pause_references{};
+
 // DAT_0050E768. Nonzero skips the +0x930 decay inside the base update.
-i32 g_block_decay = 0;
+i32& g_block_decay = reinterpret_cast<i32&>(g_pause_references[1]);
 
 // DAT_0050E764. 0x00117400 counts the other mask bit beside DAT_0050E768.
-i32 g_count_e764 = 0;
+i32& g_count_e764 = reinterpret_cast<i32&>(g_pause_references[0]);
 
 // Byte at [DAT_0051248C]+0x30F144. Zero skips that same decay.
 u8 g_decay_arm = 0;

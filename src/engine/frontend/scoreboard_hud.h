@@ -8,6 +8,7 @@
 
 namespace gbtg
 {
+struct RuntimeScoreboardDraw;
 // The scoreboard's scene state that 0x00132040 sets up, 0x00132100 tears down and 0x00132290 draws from, apart
 // from the meters the strategy already drives (brew, health), the powerup board and the score captions.
 struct RuntimeScoreboardGlobals
@@ -20,6 +21,9 @@ struct RuntimeScoreboardGlobals
     u32 damage_698 = 0; // DAT_00432698.
     u32 damage_69c = 0; // DAT_0043269C.
     RuntimeHudCounter damage_counter{}; // DAT_004326A0.
+    u32 damage_6e0 = 0; // DAT_004326E0; the chair's 0x000CF0D0 sets 2.
+    float damage_6d8 = 0.f; // DAT_004326D8, half the icon texture's +8 width.
+    float damage_6e4 = 0.f; // DAT_004326E4.
     std::span<const u8> damage_texture; // DAT_004326D4.
     std::span<const u8> damage_flash_texture; // DAT_004326DC.
     // DAT_00433B4C..DAT_00433BD0: the meter that 0x0012EA50 draws.
@@ -38,8 +42,10 @@ struct RuntimeScoreboardGlobals
     float meter_bb8 = 0.f; // DAT_00433BB8.
     u32 meter_bbc = 0; // DAT_00433BBC.
     float meter_bc0 = 0.f; // DAT_00433BC0.
+    u32 meter_bc8 = 0; // DAT_00433BC8 (written by code not yet translated).
     u32 meter_drawn = 0; // DAT_00433BCC.
     u32 meter_bd0 = 0; // DAT_00433BD0.
+    float meter_bd8 = 0.f; // DAT_00433BD8.
     // DAT_00433BE4..DAT_00433C6C: the health display's words that RuntimePlayerHealthDisplay does not view.
     u16 health_voice = 0xFFFF; // DAT_00433BE4.
     u16 health_second_voice = 0xFFFF; // DAT_00433BF0.
@@ -96,6 +102,12 @@ struct RuntimeScoreboardHud
     std::function<void(RuntimeDialogueTextPool*)> release_text_pool; // 0x0005F460.
     std::function<void(u16 voice)> stop_voice; // 0x00039690 with stack 0.
     std::function<bool()> area_dialogue_active; // 0x0005B830.
+    RuntimeScoreboardDraw* draw = nullptr; // The HUD sprite queue and the draw clocks.
+    std::array<std::span<const u8>, 2> counter_presets{}; // DAT_00314170, DAT_00314184.
+    std::span<const u8> counter_preset(bool alternate) const
+    {
+        return counter_presets[alternate ? 1 : 0];
+    }
 };
 
 void load_runtime_scoreboard_digits(RuntimeScoreboardHud& context); // Xbox 0x0012EE60

@@ -14,6 +14,7 @@ extern LiveScript*& g_live_scripts;
 // The body (node +0x18, actor +0x95C) of a DAT_00511B48 node (actor +0x944), bound by the scene's actor services.
 extern std::function<std::span<const u8>(const void* node)> g_alt_node_body;
 const u32* find_runtime_script_event_type(u32 type); // Xbox 0x00116890
+void release_runtime_script_events(u32 type); // Xbox 0x001168C0, EDI type: drops every queued event of the type
 
 // Xbox 0x00116810. Heap allocation is the 0x000F72D0 boundary; the linked
 // insertion and message copy retain the original ownership and ordering.

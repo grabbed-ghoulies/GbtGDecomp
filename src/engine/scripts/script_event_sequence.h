@@ -1,0 +1,84 @@
+#pragma once
+
+#include "../navigation/cell_registration.h"
+#include "../frontend/scoreboard_messages.h"
+#include "../audio/event_voices.h"
+
+#include <array>
+#include <functional>
+
+namespace gbtg
+{
+struct Game;
+struct RuntimeDoorContext;
+struct RuntimeDialogueActivationContext;
+
+// The scripted event sequence (0x000D0xxx): a script node (type 0x17) names an event and its door, later nodes
+// queue steps (0x88-byte records, 0x000D05D0), and type 0x18 plays them: the event door moves to state 5, the
+// event's page shows, each step gets a scoreboard icon, and the steps run until all are done.
+struct ScriptEventSequence
+{
+    u16 door = 0; // DAT_005064DC.
+    entity_detail::NavigationCellRegistration* steps = nullptr; // DAT_005064E0, stride 0x88, growth 2.
+    u32 hold = 0; // DAT_005064E4.
+    std::array<char, 0x40> name{}; // DAT_005064E8, the event's page key.
+    u32 page_shown = 0; // DAT_00506528.
+    float door_delay = 0.f; // DAT_00506534.
+    float icon_delay = 0.f; // DAT_00506538.
+    u32 waiting = 0; // DAT_0050653C.
+};
+extern i32 g_event_sequence_state; // DAT_005064D8.
+extern ScriptEventSequence g_event_sequence;
+
+// The scene services the sequence reaches; the scene binds it while it runs (null between scenes).
+struct ScriptEventSequenceContext
+{
+    RuntimeDoorContext& doors; // DAT_004EE2B8.
+    RuntimeScoreboard*& board; // DAT_00545AB0.
+    RuntimeScoreboardResources& board_resources;
+    AudioEventVoices& voices;
+    const u32& prompt_owner; // DAT_004EE1EC.
+    const i32& restart_requested; // DAT_00430D0C.
+    std::span<const u8> step_sizes; // DAT_0042890C, stride 0x14 by step type.
+    float icon_delay; // DAT_0032B24C.
+    float icon_pulse; // DAT_0032B110.
+    float icon_fade; // DAT_0032B210.
+    std::function<bool()> steps_held; // DAT_00511B40 null, or its player's body +0x15C byte 3 bit 8.
+    std::function<i32()> cutscene_index; // DAT_004E1C34.
+};
+// Message 0x81 from 0x000D09A0: {id, door word, step count, steps}; the steps travel by address.
+struct ScriptEventStartMessage
+{
+    u32 id;
+    u16 door;
+    u16 pad;
+    u32 count;
+    const u8* steps;
+};
+extern ScriptEventSequenceContext* g_event_sequence_context;
+
+void release_script_event_steps(); // Xbox 0x000D0490
+void reset_script_event_sequence(); // Xbox 0x000D0530
+// AX door, the stack hold word, ESI name.
+void begin_script_event_sequence(u16 door, u32 hold, const char* name); // Xbox 0x000D0550
+// EDI step: copies the step type's size into the next pool record.
+void queue_script_event_step(std::span<const u8> step); // Xbox 0x000D05D0
+// Script type 0x18 on its first pass: start the steps and the door.
+void play_script_event_sequence(Game& g); // Xbox 0x000D0680
+void set_script_event_sequence_state(Game& g, i32 state); // Xbox 0x000D09A0
+void prepare_script_event_steps(); // Xbox 0x000D0B10
+void tick_script_event_door(Game& g); // Xbox 0x000D12E0
+void tick_script_event_sequence(Game& g); // Xbox 0x000D0300
+void pulse_script_event_icons(); // Xbox 0x000D1200
+bool script_event_icons_ready(); // Xbox 0x000D1260
+void show_script_event_icons(); // Xbox 0x000D0F20
+bool show_script_event_page(Game& g); // Xbox 0x000D1190
+bool run_script_event_steps(Game& g); // Xbox 0x000D0B40
+// ECX the step's +4 timer block: the step waits on a running cutscene, or counts its +4 delay down.
+bool script_event_step_delay_done(std::span<u8> timer); // Xbox 0x000D0700
+i32 run_script_event_kill_step(std::span<u8> step); // Xbox 0x000CFA10, step type 0
+// EDI kind: adds the step's scoreboard icon and returns its message id.
+u32 add_script_event_icon(u32 kind); // Xbox 0x0012FB80
+// EDX id: the scoreboard message fades out.
+bool fade_script_event_icon(u32 id); // Xbox 0x0012FDC0
+}

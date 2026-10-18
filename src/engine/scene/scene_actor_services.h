@@ -6,6 +6,7 @@
 namespace gbtg
 {
 class SceneFactoryRuntime;
+struct RuntimeDirectorActor;
 struct RuntimeEffectPassScratch;
 #if defined(GBTG_INSPECTOR_APP)
 struct InspectionView;
@@ -53,10 +54,21 @@ public:
     // given their first update, then scare timers, effects and scene times (run states 1 and 2), actor sounds,
     // control disposal, retired actors and the shadow volumes.
     void run_scene_pass(); // Xbox 0x0011E640
+    void update_scoreboard_hud(); // Xbox 0x00132210, after the scene pass
+    void tick_live_spawns(); // Xbox 0x0011B670, in the scene tick after the actors
+    // The scene tick's ghoul intro: 0x000F4A00 while DAT_00506E28 is 1, before the control list, then 0x000F4560
+    // after the script timers.
+    void start_pending_ghoul_intro();
+    void update_ghoul_intro();
     void update_effects(RuntimeEffectPassScratch& scratch); // Native context binding for Xbox 0x000ED480.
     bool activation_pending() const; // Pending actor +0x900 list is nonempty.
     std::span<const u32> active_actor_addresses() const; // Activated actor +0x910 order.
     u32 player_link() const; // DAT_00511B40.
+    std::vector<RuntimeDirectorActor> marked_actors(); // DAT_00511B38 (actor +0x934 nodes) in list order.
+    const u8* marker_records() const; // DAT_0051108C.
+    void place_scene_camera(const Vec3& position, const Vec3& euler); // Xbox 0x0013D250, ESI position, stack euler
+    // Script type 0x96's 0x0002B430 / 0x0002B560 on the DAT_00511B40 player.
+    void place_script_player(const Vec3& position, const Vec3& euler);
     const std::unordered_map<u32, Actor*>& actor_addresses() const; // Retail actor address -> native actor.
     size_t player_total() const;
     // Script type 0x6F (0x00127BC0) over the scene's player link and actor graph: 0 holds, 2 continues.

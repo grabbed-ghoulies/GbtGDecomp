@@ -43,6 +43,7 @@ struct RuntimeTriggerMessages
     std::function<FactoryObject*(FactoryObject)> keep; // Native scene ownership, not a creation callee.
     std::function<void(ActorBaseContext&, std::span<u32>)> base_message;
     // Required pointer-width adapter into the translated 0x0003EF70.
+    std::function<u32(const entity_detail::LatchNode&)> latch_owner; // The object a DAT_00511AA4 node sits in.
 };
 void dispatch_runtime_trigger_message(RuntimeTriggerMessages& context,
     std::span<u32> message); // Xbox 0x00069960

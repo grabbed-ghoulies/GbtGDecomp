@@ -3,6 +3,7 @@
 #include "scene_render_helpers.h"
 #include "../camera/display_view.h"
 #include <bit>
+#include <cstring>
 
 namespace gbtg
 {
@@ -46,11 +47,16 @@ lights_selected:
                 break;
             }
             RuntimeRenderLight& light = c.temporary[slot];
-            const SceneLocalLightView& source = *c.local_lights[index];
+            const u8* source = c.local_lights[size_t(index)];
+            Vec3 position;
+            std::memcpy(&position, source + 0x40, sizeof(position));
+            float radius;
+            std::memcpy(&radius, source + 0x70, sizeof(radius));
+            u32 color;
+            std::memcpy(&color, source + 0x78, sizeof(color));
             set_runtime_light_type(light, 0xE);
-            set_runtime_light_position(light, source.position);
-            set_runtime_light_range(light, source.radius * .5f, source.radius);
-            const u32 color = source.color;
+            set_runtime_light_position(light, position);
+            set_runtime_light_range(light, radius * .5f, radius);
             const float reciprocal = std::bit_cast<float>(0x3B808081U);
             set_runtime_light_color(light, static_cast<float>(color & 0xFF) * reciprocal,
                 static_cast<float>((color >> 8) & 0xFF) * reciprocal,

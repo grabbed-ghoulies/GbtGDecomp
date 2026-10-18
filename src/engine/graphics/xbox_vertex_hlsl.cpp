@@ -231,7 +231,7 @@ std::string xbox_vertex_hlsl(std::span<const u32> program)
             break;
         }
     }
-    source += "VSOut result=(VSOut)0; precise float w=o[0].w; result.pos=float4((o[0].x/320-1)*w,(1-o[0].y/240)*w,o[0].z/16777215.0*w,w); result.diffuse=clamp(o[3],0,1); result.specular=clamp(o[4],0,1); result.uv0=o[9].xy;result.uv1=o[10].xy;result.uv2=o[11].xy;result.uv3=o[12].xy;result.tq2=o[11];result.tq3=o[12];return result;}";
+    source += "VSOut result=(VSOut)0; precise float w=o[0].w; result.pos=float4((o[0].x/320-1)*w,(1-o[0].y/240)*w,o[0].z/16777215.0*w,w); result.diffuse=clamp(o[3],0,1); result.specular=clamp(o[4],0,1); result.uv0=o[9].xy;result.uv1=o[10].xy;result.uv2=o[11].xy;result.uv3=o[12].xy;result.tq2=o[11];result.tq3=o[12];result.fog=saturate(o[5].x);return result;}";
     return source;
 }
 }

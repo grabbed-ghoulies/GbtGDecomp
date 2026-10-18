@@ -1259,7 +1259,7 @@ Texture2D g_light : register(t1);
 SamplerState g_samp : register(s0);
 SamplerState g_light_samp : register(s1);
 struct VSIn { float3 pos : POSITION; float2 uv0 : TEXCOORD0; float2 uv1 : TEXCOORD1; float3 nrm : NORMAL; float2 bone : TEXCOORD2; float2 wt : TEXCOORD3; float2 uv2 : TEXCOORD4; float4 diffuse : COLOR0; float4 specular : COLOR1; float2 uv3 : TEXCOORD5; float2 extra_bone : TEXCOORD6; float2 extra_wt : TEXCOORD7; };
-struct VSOut { float4 pos : SV_Position; float2 uv0 : TEXCOORD0; float2 uv1 : TEXCOORD1; float3 nrm : TEXCOORD2; float2 uv2 : TEXCOORD3; float4 diffuse : COLOR0; float4 specular : COLOR1; float2 uv3 : TEXCOORD4; float4 tq2 : TEXCOORD5; float4 tq3 : TEXCOORD6; };
+struct VSOut { float4 pos : SV_Position; float2 uv0 : TEXCOORD0; float2 uv1 : TEXCOORD1; float3 nrm : TEXCOORD2; float2 uv2 : TEXCOORD3; float4 diffuse : COLOR0; float4 specular : COLOR1; float2 uv3 : TEXCOORD4; float4 tq2 : TEXCOORD5; float4 tq3 : TEXCOORD6; float fog : TEXCOORD7; };
 VSOut vs_main(VSIn i) {
     VSOut o;
     float3 p = i.pos;
@@ -1291,6 +1291,7 @@ VSOut vs_main(VSIn i) {
     o.nrm = nrm;
     o.diffuse = i.diffuse;
     o.specular = i.specular;
+    o.fog = 1;
     return o;
 }
 float4 ps_main(VSOut i) : SV_Target {
@@ -1345,6 +1346,8 @@ cbuffer Material : register(b2)
     // Per stage (xy, zw): 1/width and 1/height for a linear texture, which the NV2A samples in texels.
     // Zero (a buffer without these words) means normalized coordinates.
     float4 ps_uv_scale[2];
+    // x: D3DRS_FOGENABLE, y: D3DRS_FOGCOLOR.
+    uint4 ps_fog;
 };
 Texture2D stage_tex[4] : register(t0);
 SamplerState stage_samp[4] : register(s0);
@@ -1445,6 +1448,11 @@ float3 ps_dotmap(uint stage, float4 c)
         return float3(float((b.a << 8) | b.r) / 65535.0, float((b.g << 8) | b.b) / 65535.0, 1.0);
     }
     return c.rgb;
+}
+// D3D's spec/fog final combiner, used when a definition has none: FOG.a * R0 + (1 - FOG.a) * FOG.rgb.
+float3 native_fog(float3 color, float factor)
+{
+    return ps_fog.x != 0 ? lerp(argb(ps_fog.y).rgb, color, saturate(factor)) : color;
 }
 float4 ps_model_core(VSOut i, inout float depth);
 float4 ps_model(VSOut i) : SV_Target
@@ -1574,6 +1582,12 @@ float4 ps_model_core(VSOut i, inout float depth)
     float4 color = regs[12];
     uint final0 = ps_word(8);
     uint final1 = ps_word(9);
+    // The FOG register: the fog colour, with the vertex fog factor in alpha.
+    regs[3] = float4(argb(ps_fog.y).rgb, saturate(i.fog));
+    if (final0 == 0 && final1 == 0)
+    {
+        color.rgb = native_fog(color.rgb, i.fog);
+    }
     if (final0 != 0 || final1 != 0)
     {
         uint flags = final1 & 255;
@@ -1604,7 +1618,7 @@ float4 ps_model_core(VSOut i, inout float depth)
     // four texture coordinates. Their pixel stage is ps_model (the combiner definition) or, without one,
     // texture 0 modulated by the diffuse colour.
     const char* native_hlsl = R"(
-struct NativeIn { float4 pos : POSITION; float4 diffuse : COLOR0; float4 specular : COLOR1; float2 uv0 : TEXCOORD0; float2 uv1 : TEXCOORD1; float2 uv2 : TEXCOORD2; float2 uv3 : TEXCOORD3; };
+struct NativeIn { float4 pos : POSITION; float4 diffuse : COLOR0; float4 specular : COLOR1; float2 uv0 : TEXCOORD0; float2 uv1 : TEXCOORD1; float2 uv2 : TEXCOORD2; float2 uv3 : TEXCOORD3; float fog : TEXCOORD4; };
 VSOut native_vs(NativeIn i)
 {
     VSOut o;
@@ -1618,6 +1632,7 @@ VSOut native_vs(NativeIn i)
     o.nrm = float3(0, 0, 0);
     o.diffuse = i.diffuse;
     o.specular = i.specular;
+    o.fog = i.fog;
     return o;
 }
 float4 native_ps(VSOut i) : SV_Target
@@ -1674,8 +1689,9 @@ bool native_alpha_pass(float alpha)
         {"TEXCOORD", 1, DXGI_FORMAT_R32G32_FLOAT, 0, 56, D3D11_INPUT_PER_VERTEX_DATA, 0},
         {"TEXCOORD", 2, DXGI_FORMAT_R32G32_FLOAT, 0, 64, D3D11_INPUT_PER_VERTEX_DATA, 0},
         {"TEXCOORD", 3, DXGI_FORMAT_R32G32_FLOAT, 0, 72, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 4, DXGI_FORMAT_R32_FLOAT, 0, 80, D3D11_INPUT_PER_VERTEX_DATA, 0},
     };
-    static_assert(sizeof(GfxNativeVertex) == 80);
+    static_assert(sizeof(GfxNativeVertex) == 84);
     g.device->CreateInputLayout(native_layout, UINT(std::size(native_layout)), native_vs_blob->GetBufferPointer(),
         native_vs_blob->GetBufferSize(), g.native_layout.GetAddressOf());
     D3D11_BUFFER_DESC native_material{};
@@ -2901,7 +2917,7 @@ void validate_gs(point VSOut input[1], inout PointStream<VSOut> stream)
             {0, "SV_Position", 0, 0, 4, 0},
             {0, "COLOR", 0, 0, 4, 0}, {0, "COLOR", 1, 0, 4, 0},
             {0, "TEXCOORD", 0, 0, 2, 0}, {0, "TEXCOORD", 1, 0, 2, 0},
-            {0, "TEXCOORD", 3, 0, 2, 0}, {0, "TEXCOORD", 4, 0, 2, 0}
+            {0, "TEXCOORD", 3, 0, 2, 0}, {0, "TEXCOORD", 4, 0, 2, 0}, {0, "TEXCOORD", 7, 0, 1, 0}
         };
         const UINT stride = sizeof(GfxNativeVertex);
         if (FAILED(g.device->CreateGeometryShaderWithStreamOutput(blob->GetBufferPointer(), blob->GetBufferSize(),
@@ -2964,7 +2980,8 @@ void validate_gs(point VSOut input[1], inout PointStream<VSOut> stream)
             expected.specular[c] = std::clamp(reference.outputs[4][c], 0.f, 1.f);
             expected.uv[c] = {reference.outputs[9 + c][0], reference.outputs[9 + c][1]};
         }
-        std::array<float, 20> a{}, b{};
+        expected.fog = std::clamp(reference.outputs[5][0], 0.f, 1.f);
+        std::array<float, 21> a{}, b{};
         std::memcpy(a.data(), &expected, sizeof(expected));
         std::memcpy(b.data(), &actual[n], sizeof(actual[n]));
         for (size_t c = 0; c < a.size(); ++c)
@@ -3321,6 +3338,8 @@ void gfx_draw_native(const GfxNativeDraw& draw)
         // Combiner words, then stage n samples texture coordinate n, and v0/v1 are the vertex colours.
         std::array<u32, 80> words{};
         std::memcpy(words.data(), draw.pixel_shader, 60 * 4);
+        words[76] = draw.fog ? 1u : 0u; // ps_fog
+        words[77] = draw.fog_color;
         for (size_t stage = 0; stage < 4; ++stage)
         {
             const RgbaImage* texture = draw.textures[stage];

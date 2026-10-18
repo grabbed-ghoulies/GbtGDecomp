@@ -64,6 +64,8 @@ void apply_states(const SceneD3DStateSnapshot& states, GfxNativeDraw& draw)
     draw.stencil_fail = state(states, kStencilFail, 0x1E00);
     draw.stencil_depth_fail = state(states, kStencilDepthFail, 0x1E00);
     draw.stencil_pass = state(states, kStencilPass, 0x1E00);
+    draw.fog = state(states, SceneD3DDevice::kFogEnable, 0) != 0;
+    draw.fog_color = state(states, SceneD3DDevice::kFogColor, 0);
     const u32 x = state(states, SceneD3DDevice::kViewport, 0);
     const u32 y = state(states, SceneD3DDevice::kViewport + 1, 0);
     draw.scissor = {i32(x), i32(y), i32(x + state(states, SceneD3DDevice::kViewport + 2, 640)),
@@ -516,6 +518,7 @@ void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentConte
         {
             output.uv[stage] = {program.outputs[9 + stage][0], program.outputs[9 + stage][1]};
         }
+        output.fog = std::clamp(program.outputs[5][0], 0.f, 1.f); // oFog.x, the fog factor.
         stamps[index] = generation;
         slots[index] = i32(shaded.size());
         shaded.push_back(output);
@@ -650,6 +653,7 @@ void present_inline(const SceneD3DInlineDraw& inline_draw, const SceneD3DPresent
         {
             vertex.uv[stage] = {program.outputs[9 + stage][0], program.outputs[9 + stage][1]};
         }
+        vertex.fog = std::clamp(program.outputs[5][0], 0.f, 1.f); // oFog.x, the fog factor.
         shaded.push_back(vertex);
     }
     std::vector<GfxNativeVertex> vertices;

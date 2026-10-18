@@ -81,6 +81,7 @@ struct GfxNativeVertex
     std::array<float, 4> diffuse;
     std::array<float, 4> specular;
     std::array<std::array<float, 2>, 4> uv;
+    float fog = 1.f; // oFog.x: 1 leaves the colour, 0 is all fog colour.
 };
 using GfxNativeInputs = std::array<std::array<float, 4>, 16>;
 bool gfx_native_vertex_program_supported(std::span<const u32> program);
@@ -120,6 +121,10 @@ struct GfxNativeDraw
     u32 stencil_depth_fail = 0x1E00;
     u32 stencil_pass = 0x1E00;
     std::array<i32, 4> scissor{0, 0, 640, 480}; // Viewport rectangle, back-buffer pixels.
+    // D3DRS_FOGENABLE and D3DRS_FOGCOLOR (D3DCOLOR). The combiners' FOG register is the fog colour with the
+    // vertex fog factor in alpha; a definition without a final combiner gets D3D's fog blend.
+    bool fog = false;
+    u32 fog_color = 0;
 };
 void gfx_draw_native(const GfxNativeDraw& draw);
 void gfx_begin_native_batch();

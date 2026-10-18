@@ -341,6 +341,7 @@ void SceneD3DDevice::decode_push(const u32* begin, const u32* end)
                 }
                 if (shader != 0)
                 {
+                    flush_deferred_states();
                     SceneD3DInlineDraw output{SceneD3DIndexedDraw{primitive, 0, 0, constants_, textures_,
                         render_states_, vertex_streams_, pixel_constants_, pixel_constants_set_}, {}};
                     output.vertices.resize(vertices.size());
@@ -430,9 +431,18 @@ void SceneD3DDevice::set_constant_words(u32 reg, const u32* data, u32 count)
     }
 }
 
+void SceneD3DDevice::flush_deferred_states()
+{
+    if (fog_enable != nullptr)
+    {
+        render_states_[kFogEnable] = *fog_enable;
+    }
+}
+
 SceneD3DIndexedDraw& SceneD3DDevice::draw_indexed(u32 primitive, u32 count, u32 indices)
 {
     render_profile::Scope measurement(render_profile::Recording);
+    flush_deferred_states();
     commands.push_back(SceneD3DIndexedDraw{primitive, count, indices, constants_, textures_, render_states_,
         vertex_streams_, pixel_constants_, pixel_constants_set_});
     return std::get<SceneD3DIndexedDraw>(commands.back());

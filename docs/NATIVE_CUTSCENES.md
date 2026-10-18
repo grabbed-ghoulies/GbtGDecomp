@@ -262,6 +262,28 @@ The new `--attract` mode runs 8000 frames with no input and writes
   `--actor-loading` still fails as on the unmodified tree.
 - Not listened to on hardware.
 
+### Candle lighting: fog (2026-10-18)
+
+The attract's room is dark until the hand lights the candle. The clip does this with black fog,
+not lights: event 0x1A at t=0 sets colour `ff000000`, start 0, end 44.6, and event 0x1B ramps the
+end to 4419.6 between 3.08 s and 18.75 s. The native events already set the fog; the presenter
+ignored it, so the room was lit from the first frame.
+
+- The game writes D3DRS_FOGENABLE directly (`fog_render_state`, 0x00158A80 / 0x00156EA0, dirty bit
+  0x2000). `SceneD3DDevice` flushes it as `kFogEnable` at each vertex-program draw, the way D3D's
+  lazy update does. `kFogColor` is the recorded 0x10061.
+- The vertex program's `oFog.x` (the model programs compute `(end - z) / (end - start)` from
+  `fog_scaled_end` and `fog_reciprocal`) goes per vertex through both the CPU and GPU paths.
+- `ps_model` exposes the FOG register (fog colour, factor in alpha). A definition without a final
+  combiner gets D3D's spec/fog blend: FOG.a × R0 + (1 − FOG.a) × FOG.rgb. Draws without a pixel
+  shader and fixed-function draws are not fogged.
+- Also fixed: the scene light builder (0x000FD3F0) read its own empty copy of DAT_00509B7C instead of
+  the light records 0x000FDF60 registers. It now reads the registered records. The attract registers
+  none, so this doesn't change the attract.
+- Checked: windowed `--scene 0` captures (dark, candle, room brightening, books lit); headless
+  `chapter1_scene1_2playcam` and `chapter1_scene0_1book` at frame 300 look normal; ctest 7/7.
+  Not compared with xemu.
+
 ### Remaining
 
 - Game select (`aid_script_ghoulies_gameselect_gameselect`) stops at factory type 154 (0x9A) and

@@ -134,6 +134,8 @@ class SceneD3DDevice
 public:
     // Render-state keys outside the NV2A method space.
     static constexpr u32 kCullMode = 0x10060; // D3DDevice_SetRenderState_CullMode.
+    static constexpr u32 kFogColor = 0x10061; // D3DDevice_SetRenderState_FogColor (0x001713D0), D3DCOLOR.
+    static constexpr u32 kFogEnable = 0x10062; // D3DRS_FOGENABLE, a deferred state flushed at each draw.
     static constexpr u32 kZEnable = 0x10002; // D3DDevice_SetRenderState_ZEnable.
     static constexpr u32 kVertexShader = 0x10003;
     static constexpr u32 kPixelShader = 0x10004;
@@ -173,8 +175,12 @@ public:
     std::function<std::array<u32, 2>(std::uintptr_t texture)> texture_size;
     void create_vertex_shader(const i32* declaration, const u32* program, u32& handle, u32 usage);
     void set_vertex_stream(u32 stream, u32 resource, u32 stride);
+    // D3D__RenderState[D3DRS_FOGENABLE]: the game writes it directly (0x00158A80, 0x00156EA0) and D3D's lazy
+    // update reads it when a draw is issued.
+    const u32* fog_enable = nullptr;
 
 private:
+    void flush_deferred_states();
     void decode_push(const u32* begin, const u32* end);
     void record_fixed(u32 primitive, u32 format, const std::vector<float>& vertices);
     std::map<u32, std::array<float, 16>> transforms_;

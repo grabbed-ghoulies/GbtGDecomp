@@ -17,12 +17,6 @@ struct SceneEnvironmentSetupContext
 };
 void configure_runtime_scene_environment(const Vec3& position, u8 enabled,
     SceneEnvironmentSetupContext& context); // Xbox 0x000FD2A0
-struct SceneLocalLightView
-{
-    Vec3 position; // entity +0x40
-    float radius; // entity +0x70
-    u32 color; // entity +0x78
-};
 struct SceneLightConstructionContext
 {
     SceneEnvironmentSetupContext& environment;
@@ -31,7 +25,8 @@ struct SceneLightConstructionContext
     const float& directional_intensity; // DAT_00509B4C, 1.0 from scene load 0x0011CAC0
     float override_intensity; // DAT_0042A580
     RuntimeRenderLight& directional; // DAT_00509AB0
-    std::span<const SceneLocalLightView* const, 40> local_lights; // DAT_00509B7C
+    // DAT_00509B7C: the 0x98-byte light records 0x000FDF60 registers (position +0x40, radius +0x70, color +0x78).
+    const std::array<u8*, 40>& local_lights;
     std::span<RuntimeRenderLight, 2> temporary; // DAT_005097B8, stride 0x4C
 };
 void build_runtime_scene_lights(const Vec3& position,

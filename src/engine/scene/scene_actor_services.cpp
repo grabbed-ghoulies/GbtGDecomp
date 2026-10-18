@@ -864,7 +864,6 @@ struct SceneActorServices::State
     std::array<u32, 16> environment_secondary{}; // DAT_004D9680.
     std::array<float, 3> scene_color{}; // DAT_00509B30.
     RuntimeRenderLight directional_light{}; // DAT_00509AB0.
-    std::array<const SceneLocalLightView*, 40> local_lights{}; // DAT_00509B7C.
     std::array<RuntimeRenderLight, 2> temporary_lights{}; // DAT_005097B8.
     RuntimeRelocationImage render_image{{}, 0, {}};
     std::array<ModelTreeStackEntry, 1024> tree_stack{}; // DAT_004372A8.
@@ -2386,10 +2385,11 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         *reinterpret_cast<const std::array<float, 4>*>(background_ambient.light_color.data()), override_base_color,
         environment_primary, environment_secondary});
     light_construction = std::make_unique<SceneLightConstructionContext>(SceneLightConstructionContext{*environment,
-        scene_color, retained_scene_color, g_509b4c, read_f32(data(0x0042A580, 4), 0), directional_light, local_lights,
+        scene_color, retained_scene_color, g_509b4c, read_f32(data(0x0042A580, 4), 0), directional_light, shaders.records,
         temporary_lights});
     model_draw = std::make_unique<SceneModelDrawContext>(SceneModelDrawContext{render_image, *light_construction,
         matrix_boundaries});
+    d3d_device.fog_enable = &model_renderer.fog_render_state;
     d3d_device.texture_size = [this](std::uintptr_t texture) -> std::array<u32, 2>
     {
         const auto& record = resources.d3d.resources.at(u32(texture));
@@ -2503,7 +2503,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     };
     tree_dispatch->set_fog_color = [this](u32 color)
     {
-        d3d_device.set_state(0x10061, color); // D3D 0x001713D0.
+        d3d_device.set_state(SceneD3DDevice::kFogColor, color); // D3D 0x001713D0.
     };
     install_runtime_model_tree_dispatch(*tree_dispatch);
     install_runtime_model_group_dispatch(*tree_dispatch, node_callbacks);
@@ -3365,7 +3365,6 @@ void SceneActorServices::State::reset_scene_data()
     spot_parameters.clear();
     scene_color = {};
     directional_light = {};
-    local_lights = {};
     temporary_lights = {};
     mirrors = {};
     mirror_pass = 0;

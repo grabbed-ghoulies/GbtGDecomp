@@ -9689,7 +9689,7 @@ int main(int argc, char** argv)
                     {
                         throw gbtg::Error("slot selection closed before Right");
                     }
-                    const auto previous_slot = gbtg::u32(gbtg::get(slots->bytes, gbtg::slot_select_field::slot));
+                    const auto previous_slot = gbtg::u32(slots->slot);
                     gbtg::InputState right;
                     right.right = true;
                     tick(right, 1);
@@ -9698,7 +9698,7 @@ int main(int argc, char** argv)
                     gbtg::u32 slot = 0;
                     if (slots != nullptr)
                     {
-                        slot = gbtg::u32(gbtg::get(slots->bytes, gbtg::slot_select_field::slot));
+                        slot = gbtg::u32(slots->slot);
                     }
                     if (slots == nullptr || slot != (previous_slot + 1) % 3)
                     {

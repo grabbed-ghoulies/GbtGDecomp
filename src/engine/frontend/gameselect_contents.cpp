@@ -35,9 +35,6 @@ namespace gbtg
 {
 namespace
 {
-namespace control_field = gameselect_control_field;
-namespace sequence_field = button_sequence_field;
-
 constexpr u32 kChapterTextures = 0x00428C84; // Stride 0x104: the texture, +0x80 the movie.
 constexpr u32 kChapterLayout = 0x0030699C; // Stride 0x1C.
 
@@ -46,38 +43,32 @@ constexpr u32 kChapterLayout = 0x0030699C; // Stride 0x1C.
     throw Error(std::string(what) + " is not translated");
 }
 
-namespace field = game_contents_field;
-namespace chapter_field = game_contents_field::chapter;
-namespace sprite = gameselect_sprite;
-namespace text_line = gameselect_text_line;
-
 GameContentsWidget& contents(GameSelectWidget& widget)
 {
     return static_cast<GameContentsWidget&>(widget);
 }
 
-// Chapter panel `index`'s bytes (+4 + index * 0x2C4).
-std::span<u8> chapter_bytes(GameContentsWidget& w, size_t index)
+// Chapter panel `index` (+4 + index * 0x2C4).
+GameContentsWidget::Chapter& chapter_panel(GameContentsWidget& w, size_t index)
 {
-    return record(w.bytes, field::chapters, index);
+    return w.chapters[index];
 }
 
-std::span<u8> chapter_sprite(GameContentsWidget& w, size_t index)
+GameSelectSprite& chapter_sprite(GameContentsWidget& w, size_t index)
 {
-    return record(chapter_bytes(w, index), chapter_field::sprite);
+    return chapter_panel(w, index).sprite;
 }
 
-// A countdown field ticked toward 0 by the frame step and clamped there (0x000DA300 / 0x000DA3B0).
-template <typename F>
-void count_down(std::span<u8> bytes, F timer, float step)
+// A countdown ticked toward 0 by the frame step and clamped there (0x000DA300 / 0x000DA3B0).
+void count_down(float& timer, float step)
 {
-    if (0.f < get(bytes, timer))
+    if (0.f < timer)
     {
-        const float left = get(bytes, timer) - step;
-        set(bytes, timer, left);
+        const float left = timer - step;
+        timer = left;
         if (left <= 0.f)
         {
-            set(bytes, timer, 0.f);
+            timer = 0.f;
         }
     }
 }
@@ -134,7 +125,7 @@ u32 with_alpha(u32 color, u8 alpha)
 // The selected panel (+0x85C).
 size_t chapter(const GameContentsWidget& w)
 {
-    return size_t(get(w.bytes, field::chapter_index));
+    return size_t(w.chapter_index);
 }
 
 // 0x00035E90 with its 'aid_' test and 0x00032700(2) when missing.
@@ -182,9 +173,9 @@ u32 text_record(RuntimeDialogueTextPool& pool, const char16_t* text, float x, fl
 }
 
 // A text line's record: its text at its position.
-u32 line_record(RuntimeDialogueTextPool& pool, std::span<u8> line, float scale, GameSelectControlServices& s)
+u32 line_record(RuntimeDialogueTextPool& pool, GameSelectTextLine& line, float scale, GameSelectControlServices& s)
 {
-    return text_record(pool, field_data(line, text_line::text), get(line, text_line::x), get(line, text_line::y),
+    return text_record(pool, line.text.data(), line.x, line.y,
         scale, s);
 }
 
@@ -362,11 +353,11 @@ bool describe_progress(GameContentsWidget& w, GameSelectControlServices& s)
 {
     if (save_game_word(w.name, 0x184) == 0) // 0x0010DC20
     {
-        set(w.bytes, field::start_mode, save_game_word(w.name, 0x188) != 0 ? 3 : 2); // 0x0010DC60
+        w.start_mode = save_game_word(w.name, 0x188) != 0 ? 3 : 2; // 0x0010DC60
     }
     else
     {
-        set(w.bytes, field::start_mode, 1);
+        w.start_mode = 1;
     }
     if (s.text.data() == nullptr) // IsBadReadPtr(DAT_005462C4, 1)
     {
@@ -402,7 +393,7 @@ bool describe_progress(GameContentsWidget& w, GameSelectControlServices& s)
     std::array<char16_t, 0x800> name{};
     const std::u16string place = scene_name(scene_ordinal(script, s), name, s); // 0x0011ED30, 0x0011ED80, lstrcpyW
     const std::u16string line = chapter_line + scene_line + u" : " + place; // wsprintfW("%s%s : %s")
-    char16_t* text = field_data(record(w.bytes, field::progress), text_line::text);
+    char16_t* text = w.progress.text.data();
     std::copy(line.begin(), line.end(), text);
     text[line.size()] = 0;
     return true;
@@ -414,22 +405,22 @@ bool load_chapter_names(GameContentsWidget& w, GameSelectControlServices& s)
     for (size_t index = 0; index < 3; ++index)
     {
         auto& assets = w.chapters[index];
-        const auto panel = chapter_bytes(w, index);
-        if (assets.texture.data() != nullptr)
+        auto& panel = chapter_panel(w, index);
+        if (assets.sprite.texture.data() != nullptr)
         {
-            release_texture(assets.texture, s);
+            release_texture(assets.sprite.texture, s);
         }
         const u32 row = kChapterTextures + u32(index) * 0x104;
-        assets.texture = acquire_texture(s.image.string(row), s);
-        std::strcpy(field_data(panel, chapter_field::movie_name), s.image.string(row + 0x80));
-        set(panel, chapter_field::name_key, exe_word(s, row - 4));
+        assets.sprite.texture = acquire_texture(s.image.string(row), s);
+        std::strcpy(panel.movie_name.data(), s.image.string(row + 0x80));
+        panel.name_key = exe_word(s, row - 4);
         if (s.text.data() == nullptr) // IsBadReadPtr(DAT_005462C4, 1)
         {
             return false;
         }
         // 0x000FF120, EDI the key (+0x210), EBX the chapter's name (+4).
-        if (lookup_borrowed_localtext(s.text, "gameselect", s.image.string(get(panel, chapter_field::name_key)),
-                field_data(record(panel, chapter_field::name), text_line::text), s.localtext) == 0)
+        if (lookup_borrowed_localtext(s.text, "gameselect", s.image.string(panel.name_key),
+                panel.name.text.data(), s.localtext) == 0)
         {
             return false;
         }
@@ -442,9 +433,9 @@ void release_chapter_textures(GameContentsWidget& w, GameSelectControlServices& 
 {
     for (auto& record : w.chapters)
     {
-        if (record.texture.data() != nullptr)
+        if (record.sprite.texture.data() != nullptr)
         {
-            release_texture(record.texture, s);
+            release_texture(record.sprite.texture, s);
         }
     }
 }
@@ -456,10 +447,10 @@ void reset_chapter_colors(GameContentsWidget& w, GameSelectControlServices& s)
     const u32 rest = exe_word(s, 0x003069EC);
     for (size_t index = 0; index < 3; ++index)
     {
-        set(chapter_sprite(w, index), sprite::color, white);
-        set(chapter_bytes(w, index), chapter_field::box_color, rest);
+        chapter_sprite(w, index).color = white;
+        chapter_panel(w, index).box_color = rest;
     }
-    set(chapter_bytes(w, chapter(w)), chapter_field::box_color, exe_word(s, 0x003069E8));
+    chapter_panel(w, chapter(w)).box_color = exe_word(s, 0x003069E8);
 }
 
 // Xbox 0x000D9F10, ESI the widget: the cursor bat, made once.
@@ -479,14 +470,14 @@ bool create_contents_bat(GameContentsWidget& w, GameSelectControlServices& s)
 // Xbox 0x000DACE0: the selected chapter's movie stops being shown.
 void stop_chapter_movie(GameContentsWidget& w)
 {
-    const auto panel = chapter_bytes(w, chapter(w));
+    auto& panel = chapter_panel(w, chapter(w));
     auto* movie = w.chapters[chapter(w)].movie;
     if (movie != nullptr)
     {
         --movie->play_count;
-        set(panel, chapter_field::movie_held, get(panel, chapter_field::movie_held) - 1);
-        set(panel, chapter_field::movie_frames, 0);
-        set(panel, chapter_field::movie_frame_ready, 0);
+        panel.movie_held = panel.movie_held - 1;
+        panel.movie_frames = 0;
+        panel.movie_frame_ready = 0;
     }
 }
 
@@ -494,26 +485,26 @@ void stop_chapter_movie(GameContentsWidget& w)
 bool select_chapter_movie(GameContentsWidget& w, GameSelectControlServices& s)
 {
     const size_t index = chapter(w);
-    if (get(w.bytes, field::flown_chapter) == u32(index))
+    if (w.flown_chapter == u32(index))
     {
         return true;
     }
     const u32 layout = kChapterLayout + u32(index) * 0x1C;
-    set(w.bytes, field::bat_target_x, exe_real(s, layout - 8));
-    set(w.bytes, field::bat_target_y, exe_real(s, layout + 0x10) + exe_real(s, layout - 4));
-    const auto panel = chapter_bytes(w, index);
-    if (get(panel, chapter_field::movie_held) < 1)
+    w.bat_target[0] = exe_real(s, layout - 8);
+    w.bat_target[1] = exe_real(s, layout + 0x10) + exe_real(s, layout - 4);
+    auto& panel = chapter_panel(w, index);
+    if (panel.movie_held < 1)
     {
         ++w.chapters[index].movie->play_count;
-        set(panel, chapter_field::movie_held, get(panel, chapter_field::movie_held) + 1);
-        set(panel, chapter_field::movie_frames, 0);
-        set(panel, chapter_field::movie_frame_ready, 0);
+        panel.movie_held = panel.movie_held + 1;
+        panel.movie_frames = 0;
+        panel.movie_frame_ready = 0;
     }
     if (w.bat != nullptr)
     {
-        const ButtonBatPoint target{get(w.bytes, field::bat_target_x), get(w.bytes, field::bat_target_y)};
+        const ButtonBatPoint target{w.bat_target[0], w.bat_target[1]};
         s.fly_bat(*w.bat, target, 2.f); // 0x0006DA00, EBX +0x854
-        set(w.bytes, field::flown_chapter, u32(index));
+        w.flown_chapter = u32(index);
         return true;
     }
     return false;
@@ -522,48 +513,48 @@ bool select_chapter_movie(GameContentsWidget& w, GameSelectControlServices& s)
 // Xbox 0x000DA1E0, ESI the widget: the selected chapter's background, the old one kept for the cross-fade.
 void select_chapter_background(GameContentsWidget& w, GameSelectControlServices& s)
 {
-    if (w.old_background.data() != nullptr)
+    if (w.old_background.texture.data() != nullptr)
     {
-        release_texture(w.old_background, s);
+        release_texture(w.old_background.texture, s);
     }
-    w.old_background = w.background;
-    w.background = {};
-    const auto background = record(w.bytes, field::background);
-    const auto old_background = record(w.bytes, field::old_background);
-    set(old_background, sprite::scale_x, get(background, sprite::scale_x));
-    set(old_background, sprite::scale_y, get(background, sprite::scale_y));
-    set(old_background, sprite::x, get(background, sprite::x));
-    set(old_background, sprite::y, get(background, sprite::y));
-    w.background = acquire_texture(s.image.string(kChapterTextures + u32(chapter(w)) * 0x104), s);
-    set(background, sprite::scale_y, screen_height(s) / texture_height(w.background));
-    set(background, sprite::scale_x, screen_width(s) / texture_width(w.background));
-    set(w.bytes, field::background_fade_timer, s.bat_screen(*w.bat).flight_duration); // Bat +0x93C
-    set(w.bytes, field::background_fade, 0.f);
-    field_byte(background, sprite::color, 3) = 0;
-    field_byte(old_background, sprite::color, 3) = 0xFF;
+    w.old_background.texture = w.background.texture;
+    w.background.texture = {};
+    auto& background = w.background;
+    auto& old_background = w.old_background;
+    old_background.scale[0] = background.scale[0];
+    old_background.scale[1] = background.scale[1];
+    old_background.position[0] = background.position[0];
+    old_background.position[1] = background.position[1];
+    w.background.texture = acquire_texture(s.image.string(kChapterTextures + u32(chapter(w)) * 0x104), s);
+    background.scale[1] = screen_height(s) / texture_height(w.background.texture);
+    background.scale[0] = screen_width(s) / texture_width(w.background.texture);
+    w.background_fade_timer = s.bat_screen(*w.bat).flight_duration; // Bat +0x93C
+    w.background_fade = 0.f;
+    set_color_alpha(background.color, 0);
+    set_color_alpha(old_background.color, 0xFF);
 }
 
 // Xbox 0x000DA300, ECX the widget: the cross-fade's fraction from the bat's flight.
 void tick_chapter_fade(GameContentsWidget& w, GameSelectControlServices& s)
 {
-    count_down(w.bytes, field::background_fade_timer, frame_step(s));
+    count_down(w.background_fade_timer, frame_step(s));
     const float flight = s.bat_screen(*w.bat).flight_duration; // +0x93C
     float fraction = exe_real(s, 0x0032B0F8);
     if (flight != 0.f)
     {
-        fraction = (get(w.bytes, field::background_fade_timer) - flight) / (0.f - flight);
+        fraction = (w.background_fade_timer - flight) / (0.f - flight);
         if (exe_real(s, 0x0032B0F8) < fraction)
         {
-            set(w.bytes, field::background_fade, exe_real(s, 0x0032B0F8));
+            w.background_fade = exe_real(s, 0x0032B0F8);
             return;
         }
         if (fraction < 0.f)
         {
-            set(w.bytes, field::background_fade, 0.f);
+            w.background_fade = 0.f;
             return;
         }
     }
-    set(w.bytes, field::background_fade, fraction);
+    w.background_fade = fraction;
 }
 
 void set_contents_state(GameContentsWidget& w, i32 state, GameSelectControlServices& s);
@@ -572,39 +563,36 @@ void set_contents_state(GameContentsWidget& w, i32 state, GameSelectControlServi
 void tick_chapter_select(GameContentsWidget& w, GameSelectControlServices& s)
 {
     const size_t index = chapter(w);
-    const auto panel = chapter_bytes(w, index);
-    const auto panel_sprite = record(panel, chapter_field::sprite);
+    auto& panel = chapter_panel(w, index);
+    auto& panel_sprite = panel.sprite;
     tick_chapter_fade(w, s); // 0x000DA300
-    if (w.old_background.data() != w.background.data())
+    if (w.old_background.texture.data() != w.background.texture.data())
     {
-        const u8 alpha = truncate_byte(get(w.bytes, field::background_fade) * exe_real(s, 0x0032B158)); // 0x001673D8
-        field_byte(record(w.bytes, field::background), sprite::color, 3) = alpha;
-        field_byte(record(w.bytes, field::old_background), sprite::color, 3) = u8(0xFF - alpha);
+        const u8 alpha = truncate_byte(w.background_fade * exe_real(s, 0x0032B158)); // 0x001673D8
+        set_color_alpha(w.background.color, alpha);
+        set_color_alpha(w.old_background.color, u8(0xFF - alpha));
     }
-    const float fraction = get(w.bytes, field::background_fade);
-    set(panel, chapter_field::box_color,
-        blend_color(exe_word(s, 0x003069E8), exe_word(s, 0x003069EC), fraction, s)); // 0x00101730
+    const float fraction = w.background_fade;
+    panel.box_color = blend_color(exe_word(s, 0x003069E8), exe_word(s, 0x003069EC), fraction, s); // 0x00101730
     const u32 layout = kChapterLayout + u32(index) * 0x1C;
-    const float width = texture_width(w.chapters[index].texture);
+    const float width = texture_width(w.chapters[index].sprite.texture);
     const float rest_x = (exe_real(s, layout + 8) * screen_width(s)) / width; // DAT_003069A4
-    set(panel_sprite, sprite::scale_x, ((exe_real(s, layout) * screen_width(s)) / width - rest_x) * fraction + rest_x);
-    const float height = texture_height(w.chapters[index].texture);
+    panel_sprite.scale[0] = ((exe_real(s, layout) * screen_width(s)) / width - rest_x) * fraction + rest_x;
+    const float height = texture_height(w.chapters[index].sprite.texture);
     const float rest_y = (screen_height(s) * exe_real(s, layout + 0xC)) / height; // DAT_003069A8
-    set(panel_sprite, sprite::scale_y,
-        ((screen_height(s) * exe_real(s, layout + 4)) / height - rest_y) * fraction + rest_y);
+    panel_sprite.scale[1] = ((screen_height(s) * exe_real(s, layout + 4)) / height - rest_y) * fraction + rest_y;
     const float scale_x = exe_real(s, 0x0032B6B0);
     const float base = exe_real(s, 0x0032B470);
     const float grow = exe_real(s, 0x0032B234);
     const float from_x = exe_real(s, layout + 8) * scale_x + base;
-    set(panel, chapter_field::box_width, ((exe_real(s, layout) * scale_x + grow) - from_x) * fraction + from_x);
+    panel.box_width = ((exe_real(s, layout) * scale_x + grow) - from_x) * fraction + from_x;
     const float from_y = exe_real(s, layout + 0xC) * exe_real(s, 0x0032B6AC) + base;
-    set(panel, chapter_field::box_height,
-        ((exe_real(s, layout + 4) * exe_real(s, 0x0032B6AC) + grow) - from_y) * fraction + from_y);
+    panel.box_height = ((exe_real(s, layout + 4) * exe_real(s, 0x0032B6AC) + grow) - from_y) * fraction + from_y;
     if (exe_real(s, 0x0032B0F8) <= fraction)
     {
         if (index == 0)
         {
-            set_contents_state(w, get(w.bytes, field::start_mode) == 3 ? 3 : 2, s);
+            set_contents_state(w, w.start_mode == 3 ? 3 : 2, s);
         }
         else if (index == 1)
         {
@@ -622,8 +610,8 @@ void tick_contents_fade_in(GameContentsWidget& w, GameSelectControlServices& s)
 {
     const u32 white = exe_word(s, 0x00314F48);
     const u32 rest = exe_word(s, 0x003069EC);
-    count_down(w.bytes, field::panel_fade_timer, frame_step(s));
-    const float scaled = (get(w.bytes, field::panel_fade_timer) - exe_real(s, 0x0032B110)) * exe_real(s, 0x0032B1C4);
+    count_down(w.panel_fade_timer, frame_step(s));
+    const float scaled = (w.panel_fade_timer - exe_real(s, 0x0032B110)) * exe_real(s, 0x0032B1C4);
     float fraction;
     if (scaled <= exe_real(s, 0x0032B0F8))
     {
@@ -637,22 +625,21 @@ void tick_contents_fade_in(GameContentsWidget& w, GameSelectControlServices& s)
     const u32 faded_rest = with_alpha(rest, truncate_byte(fraction * exe_real(s, 0x0032B158)));
     for (size_t index = 0; index < 3; ++index)
     {
-        set(chapter_sprite(w, index), sprite::color, faded_white);
-        set(chapter_bytes(w, index), chapter_field::box_color, faded_rest);
+        chapter_sprite(w, index).color = faded_white;
+        chapter_panel(w, index).box_color = faded_rest;
     }
     const u32 lit = exe_word(s, 0x003069E8);
-    set(chapter_bytes(w, chapter(w)), chapter_field::box_color, lit);
-    field_byte(chapter_bytes(w, chapter(w)), chapter_field::box_color, 3) =
-        truncate_byte(fraction * exe_real(s, 0x0032B158));
+    chapter_panel(w, chapter(w)).box_color = lit;
+    set_color_alpha(chapter_panel(w, chapter(w)).box_color, truncate_byte(fraction * exe_real(s, 0x0032B158)));
     if (exe_real(s, 0x0032B370) <= fraction)
     {
-        set(w.bytes, field::panels_fading, 0);
+        w.panels_fading = 0;
         for (size_t index = 0; index < 3; ++index)
         {
-            set(chapter_sprite(w, index), sprite::color, white);
-            set(chapter_bytes(w, index), chapter_field::box_color, rest);
+            chapter_sprite(w, index).color = white;
+            chapter_panel(w, index).box_color = rest;
         }
-        set(chapter_bytes(w, chapter(w)), chapter_field::box_color, lit);
+        chapter_panel(w, chapter(w)).box_color = lit;
     }
 }
 
@@ -660,40 +647,40 @@ void tick_contents_fade_in(GameContentsWidget& w, GameSelectControlServices& s)
 void show_completed_splat(GameSelectControlServices& s)
 {
     auto& w = *s.frontend.contents_widget; // DAT_005462CC
-    if (w.splat.data() == nullptr)
+    if (w.splat.texture.data() == nullptr)
     {
-        w.splat = acquire_animation_resource(s.resources, "aid_texture_ghoulies_gameselect_completedsplat");
-        if (w.splat.data() == nullptr)
+        w.splat.texture = acquire_animation_resource(s.resources, "aid_texture_ghoulies_gameselect_completedsplat");
+        if (w.splat.texture.data() == nullptr)
         {
             resource_error(s.error, 2);
         }
     }
-    const auto splat = record(w.bytes, field::splat);
-    set(splat, sprite::color, exe_word(s, 0x00314F48));
-    field_byte(splat, sprite::color, 3) = 0x9B;
-    set(splat, sprite::x, s.hud.center_x);
-    set(splat, sprite::y, s.hud.center_y);
+    auto& splat = w.splat;
+    splat.color = exe_word(s, 0x00314F48);
+    set_color_alpha(splat.color, 0x9B);
+    splat.position[0] = s.hud.center_x;
+    splat.position[1] = s.hud.center_y;
     const float height = float(s.metrics.fonts[0]->cell) * exe_real(s, 0x0032B3D0); // DAT_00504444 +0x10
     const float width = runtime_text_line_width(s.metrics, 0,
-        field_data(record(w.bytes, field::completed), text_line::text), exe_real(s, 0x0032B3D0)); // 0x00060710
-    set(splat, sprite::y, width * exe_real(s, 0x0032B0F4) + get(splat, sprite::y) + exe_real(s, 0x0032B548));
-    set(w.bytes, field::splat_full_scale_x, height / texture_width(w.splat));
-    set(w.bytes, field::splat_full_scale_y, width / texture_height(w.splat));
-    set(w.bytes, field::splat_full_scale_x, get(w.bytes, field::splat_full_scale_x) * exe_real(s, 0x0032B544));
-    set(w.bytes, field::splat_full_scale_y, get(w.bytes, field::splat_full_scale_y) * exe_real(s, 0x0032B540));
+        w.completed.text.data(), exe_real(s, 0x0032B3D0)); // 0x00060710
+    splat.position[1] = width * exe_real(s, 0x0032B0F4) + splat.position[1] + exe_real(s, 0x0032B548);
+    w.splat_full_scale[0] = height / texture_width(w.splat.texture);
+    w.splat_full_scale[1] = width / texture_height(w.splat.texture);
+    w.splat_full_scale[0] = w.splat_full_scale[0] * exe_real(s, 0x0032B544);
+    w.splat_full_scale[1] = w.splat_full_scale[1] * exe_real(s, 0x0032B540);
     float time;
-    if (get(w.bytes, field::splat_phase) == 3)
+    if (w.splat_phase == 3)
     {
-        time = exe_real(s, 0x0032B1AC) - get(w.bytes, field::splat_timer);
+        time = exe_real(s, 0x0032B1AC) - w.splat_timer;
     }
     else
     {
-        set(splat, sprite::scale_x, 0.f);
-        set(splat, sprite::scale_y, 0.f);
+        splat.scale[0] = 0.f;
+        splat.scale[1] = 0.f;
         time = exe_real(s, 0x0032B1AC);
     }
-    set(w.bytes, field::splat_timer, time);
-    set(w.bytes, field::splat_phase, 1);
+    w.splat_timer = time;
+    w.splat_phase = 1;
 }
 
 // Xbox 0x000DAED0: the splat shrinks away.
@@ -701,29 +688,29 @@ void hide_completed_splat(GameSelectControlServices& s)
 {
     auto& w = *s.frontend.contents_widget;
     float time = exe_real(s, 0x0032B1AC);
-    if (get(w.bytes, field::splat_phase) == 1)
+    if (w.splat_phase == 1)
     {
-        time = exe_real(s, 0x0032B1AC) - get(w.bytes, field::splat_timer);
+        time = exe_real(s, 0x0032B1AC) - w.splat_timer;
     }
-    set(w.bytes, field::splat_timer, time);
-    set(w.bytes, field::splat_phase, 3);
+    w.splat_timer = time;
+    w.splat_phase = 3;
 }
 
 // Xbox 0x000DAF10: the splat's grow (1), hold (2) and shrink (3).
 void tick_completed_splat(GameSelectControlServices& s)
 {
     auto& w = *s.frontend.contents_widget;
-    if (w.splat.data() == nullptr)
+    if (w.splat.texture.data() == nullptr)
     {
         return;
     }
-    const i32 phase = get(w.bytes, field::splat_phase);
-    const auto splat = record(w.bytes, field::splat);
-    float* scale = field_data(splat, sprite::scale);
-    const float* full_scale = field_data(w.bytes, field::splat_full_scale);
+    const i32 phase = w.splat_phase;
+    auto& splat = w.splat;
+    float* scale = splat.scale.data();
+    const float* full_scale = w.splat_full_scale.data();
     if (phase == 0)
     {
-        release_texture(w.splat, s);
+        release_texture(w.splat.texture, s);
         return;
     }
     const float step = frame_step(s);
@@ -731,16 +718,16 @@ void tick_completed_splat(GameSelectControlServices& s)
     const float total = exe_real(s, 0x0032B1AC);
     if (phase == 3)
     {
-        if (0.f < get(w.bytes, field::splat_timer))
+        if (0.f < w.splat_timer)
         {
-            const float left = get(w.bytes, field::splat_timer) - step;
-            set(w.bytes, field::splat_timer, left);
+            const float left = w.splat_timer - step;
+            w.splat_timer = left;
             if (left <= 0.f)
             {
-                set(w.bytes, field::splat_timer, 0.f);
-                set(w.bytes, field::splat_phase, 0);
-                set(splat, sprite::scale_x, 0.f);
-                set(splat, sprite::scale_y, 0.f);
+                w.splat_timer = 0.f;
+                w.splat_phase = 0;
+                splat.scale[0] = 0.f;
+                splat.scale[1] = 0.f;
                 return;
             }
         }
@@ -748,7 +735,7 @@ void tick_completed_splat(GameSelectControlServices& s)
         for (size_t axis = 0; axis < 2; ++axis)
         {
             const float full = full_scale[axis];
-            float value = (get(w.bytes, field::splat_timer) - total) * rate * (0.f - full) + full;
+            float value = (w.splat_timer - total) * rate * (0.f - full) + full;
             if (0.f <= full)
             {
                 if (value < 0.f)
@@ -776,16 +763,16 @@ void tick_completed_splat(GameSelectControlServices& s)
     {
         return;
     }
-    if (0.f < get(w.bytes, field::splat_timer))
+    if (0.f < w.splat_timer)
     {
-        const float left = get(w.bytes, field::splat_timer) - step;
-        set(w.bytes, field::splat_timer, left);
+        const float left = w.splat_timer - step;
+        w.splat_timer = left;
         if (left <= 0.f)
         {
-            set(w.bytes, field::splat_timer, 0.f);
-            set(w.bytes, field::splat_phase, 2);
-            set(splat, sprite::scale_x, get(w.bytes, field::splat_full_scale_x));
-            set(splat, sprite::scale_y, get(w.bytes, field::splat_full_scale_y));
+            w.splat_timer = 0.f;
+            w.splat_phase = 2;
+            splat.scale[0] = w.splat_full_scale[0];
+            splat.scale[1] = w.splat_full_scale[1];
             return;
         }
     }
@@ -793,7 +780,7 @@ void tick_completed_splat(GameSelectControlServices& s)
     for (size_t axis = 0; axis < 2; ++axis)
     {
         const float full = full_scale[axis];
-        float value = (get(w.bytes, field::splat_timer) - total) * rate * full;
+        float value = (w.splat_timer - total) * rate * full;
         if (full <= 0.f)
         {
             if (full <= value && !(value < 0.f) && value != 0.f)
@@ -823,35 +810,35 @@ void tick_completed_splat(GameSelectControlServices& s)
 // Xbox 0x00142E50, EAX the sequence: empty, waiting (state 1).
 void reset_button_sequence(ButtonSequence& sequence)
 {
-    auto& b = sequence.bytes;
-    set(b, sequence_field::last_press, 0xFFFFFFFFu);
-    set(b, sequence_field::last_held, 0xFFFFFFFFu);
-    set(b, sequence_field::held, {0, 0});
-    set(b, sequence_field::presses, {});
-    set(b, sequence_field::step, 0);
-    set(b, sequence_field::step_pressed, 0);
-    set(b, sequence_field::step_released, 0);
-    set(b, sequence_field::state, 1);
+    auto& b = sequence;
+    b.last_press = 0xFFFFFFFFu;
+    b.last_held = 0xFFFFFFFFu;
+    b.held = {0, 0};
+    b.presses = {};
+    b.step = 0;
+    b.step_pressed = 0;
+    b.step_released = 0;
+    b.state = 1;
 }
 
 // Xbox 0x000DB1A0: the contents' secret sequence (held: black and white; pressed: B, Y, X, A, X, Y, B).
 void build_button_sequence(GameContentsWidget& w)
 {
-    auto& b = w.sequence->bytes;
-    u32* presses = field_data(b, sequence_field::presses);
-    u32* held = field_data(b, sequence_field::held);
+    auto& b = *w.sequence;
+    u32* presses = b.presses.data();
+    u32* held = b.held.data();
     // A held button is added unless a press already uses it, and a press unless a held button uses it.
     const auto hold = [&](u32 mask)
     {
-        for (i32 index = 0; index <= i32(get(b, sequence_field::last_press)); ++index)
+        for (i32 index = 0; index <= i32(b.last_press); ++index)
         {
             if ((presses[size_t(index)] & mask) != 0)
             {
                 return;
             }
         }
-        const u32 next = get(b, sequence_field::last_held) + 1;
-        set(b, sequence_field::last_held, next);
+        const u32 next = b.last_held + 1;
+        b.last_held = next;
         held[next] = mask;
     };
     const auto press = [&](u32 mask)
@@ -863,8 +850,8 @@ void build_button_sequence(GameContentsWidget& w)
                 return;
             }
         }
-        const u32 next = get(b, sequence_field::last_press) + 1;
-        set(b, sequence_field::last_press, next);
+        const u32 next = b.last_press + 1;
+        b.last_press = next;
         presses[next] = mask;
     };
     hold(0x4000);
@@ -876,12 +863,12 @@ void build_button_sequence(GameContentsWidget& w)
     press(0x2000);
     press(0x80);
     press(0x40);
-    if (get(b, sequence_field::last_press) != 0xFFFFFFFFu)
+    if (b.last_press != 0xFFFFFFFFu)
     {
-        set(b, sequence_field::step_released, 0);
-        set(b, sequence_field::step_pressed, 0);
-        set(b, sequence_field::step, 0);
-        set(b, sequence_field::state, i32(get(b, sequence_field::last_held)) > -1 ? 2 : 3);
+        b.step_released = 0;
+        b.step_pressed = 0;
+        b.step = 0;
+        b.state = i32(b.last_held) > -1 ? 2 : 3;
     }
 }
 
@@ -889,17 +876,17 @@ void build_button_sequence(GameContentsWidget& w)
 void tick_button_sequence(ButtonSequence& sequence, const RuntimeDialogueInputDevice& device,
     const RuntimeDialogueInputState& input)
 {
-    auto& b = sequence.bytes;
-    const u32* presses = field_data(b, sequence_field::presses);
-    const u32* held_buttons = field_data(b, sequence_field::held);
+    auto& b = sequence;
+    const u32* presses = b.presses.data();
+    const u32* held_buttons = b.held.data();
     const auto restart = [&](u32 state)
     {
-        set(b, sequence_field::state, state);
-        set(b, sequence_field::step, 0);
-        set(b, sequence_field::step_pressed, 0);
-        set(b, sequence_field::step_released, 0);
+        b.state = state;
+        b.step = 0;
+        b.step_pressed = 0;
+        b.step_released = 0;
     };
-    const u32 state = get(b, sequence_field::state);
+    const u32 state = b.state;
     if (state == 2)
     {
         bool held = true;
@@ -932,38 +919,38 @@ void tick_button_sequence(ButtonSequence& sequence, const RuntimeDialogueInputDe
             }
         }
     }
-    const u16 expected = u16(presses[get(b, sequence_field::step)]);
-    if (get(b, sequence_field::step_pressed) == 0)
+    const u16 expected = u16(presses[b.step]);
+    if (b.step_pressed == 0)
     {
         if (runtime_input_button_edge(device, expected, input) != 0) // 0x001083F0
         {
-            set(b, sequence_field::step_pressed, 1);
+            b.step_pressed = 1;
         }
         else if (runtime_input_button_edge(device, 0xFFFF, input) != 0)
         {
             restart(3);
         }
     }
-    else if (get(b, sequence_field::step_released) == 0)
+    else if (b.step_released == 0)
     {
         if (runtime_input_button_release(device, expected, input) != 0)
         {
-            set(b, sequence_field::step_released, 1);
+            b.step_released = 1;
         }
         else if (runtime_input_button_edge(device, 0xFFFF, input) != 0)
         {
             restart(3);
         }
     }
-    if (get(b, sequence_field::step_pressed) != 0 && get(b, sequence_field::step_released) != 0)
+    if (b.step_pressed != 0 && b.step_released != 0)
     {
-        const u32 next = get(b, sequence_field::step) + 1;
-        set(b, sequence_field::step_pressed, 0);
-        set(b, sequence_field::step_released, 0);
-        set(b, sequence_field::step, next);
-        if (i32(get(b, sequence_field::last_press)) < i32(next))
+        const u32 next = b.step + 1;
+        b.step_pressed = 0;
+        b.step_released = 0;
+        b.step = next;
+        if (i32(b.last_press) < i32(next))
         {
-            set(b, sequence_field::state, 4);
+            b.state = 4;
         }
     }
 }
@@ -1014,7 +1001,7 @@ const u8* chapter_prompts(const GameContentsWidget& w, GameSelectControlServices
     switch (chapter(w))
     {
     case 0:
-        return s.image.memory(get(w.bytes, field::start_mode) == 3 ? 0x00306D00 : 0x003069F0, 0x310).data();
+        return s.image.memory(w.start_mode == 3 ? 0x00306D00 : 0x003069F0, 0x310).data();
     case 1:
         return s.image.memory(0x00307010, 0x310).data();
     case 2:
@@ -1027,19 +1014,19 @@ const u8* chapter_prompts(const GameContentsWidget& w, GameSelectControlServices
 // Xbox 0x000DA580, EAX the widget
 void set_contents_state(GameContentsWidget& w, i32 state, GameSelectControlServices& s)
 {
-    const i32 previous = get(w.bytes, field::state);
-    const auto title = record(w.bytes, field::title);
-    const auto progress = record(w.bytes, field::progress);
-    const auto completed = record(w.bytes, field::completed);
+    const i32 previous = w.state;
+    auto& title = w.title;
+    auto& progress = w.progress;
+    auto& completed = w.completed;
     switch (previous)
     {
     case 1:
     {
-        if (get(w.bytes, field::panels_fading) != 0)
+        if (w.panels_fading != 0)
         {
-            set(w.bytes, field::panels_fading, 0);
+            w.panels_fading = 0;
             reset_chapter_colors(w, s); // 0x000DA530
-            set(title, text_line::record, line_record(*w.title_pool, title, 1.8f, s));
+            title.record = line_record(*w.title_pool, title, 1.8f, s);
         }
         create_contents_bat(w, s); // 0x000D9F10
         char resource[0x80]{};
@@ -1075,11 +1062,11 @@ void set_contents_state(GameContentsWidget& w, i32 state, GameSelectControlServi
     }
     case 2:
         end_all_dialogue_text_records(*w.name_pool, s.fonts, s.fallback_texture, s.random); // 0x0005F970
-        end_dialogue_text_record(*w.progress_pool, get(progress, text_line::record), s.fonts, s.fallback_texture,
+        end_dialogue_text_record(*w.progress_pool, progress.record, s.fonts, s.fallback_texture,
             s.random); // 0x0005F7E0
         break;
     case 3:
-        remove_dialogue_text_record(*w.completed_pool, get(completed, text_line::record)); // 0x0005FB10
+        remove_dialogue_text_record(*w.completed_pool, completed.record); // 0x0005FB10
         hide_completed_splat(s); // 0x000DAED0
         break;
     case 4:
@@ -1089,22 +1076,22 @@ void set_contents_state(GameContentsWidget& w, i32 state, GameSelectControlServi
     default:
         break;
     }
-    set(w.bytes, field::state, state);
-    const auto panel = chapter_bytes(w, chapter(w));
-    const auto name = record(panel, chapter_field::name);
+    w.state = state;
+    auto& panel = chapter_panel(w, chapter(w));
+    auto& name = panel.name;
     switch (state)
     {
     case 2:
-        set(progress, text_line::record, line_record(*w.progress_pool, progress, 0.75f, s));
-        set(name, text_line::record, line_record(*w.name_pool, name, 1.4f, s));
+        progress.record = line_record(*w.progress_pool, progress, 0.75f, s);
+        name.record = line_record(*w.name_pool, name, 1.4f, s);
         return;
     case 3:
-        set(completed, text_line::record, line_record(*w.completed_pool, completed, 1.4f, s));
+        completed.record = line_record(*w.completed_pool, completed, 1.4f, s);
         show_completed_splat(s); // 0x000DAD50
         return;
     case 4:
     case 5:
-        set(name, text_line::record, line_record(*w.name_pool, name, 1.4f, s));
+        name.record = line_record(*w.name_pool, name, 1.4f, s);
         return;
     case 6:
     {
@@ -1112,14 +1099,14 @@ void set_contents_state(GameContentsWidget& w, i32 state, GameSelectControlServi
         // Every panel back to its rest size and color.
         for (size_t index = 0; index < 3; ++index)
         {
-            const auto other = chapter_bytes(w, index);
-            const auto other_sprite = record(other, chapter_field::sprite);
-            const auto& texture = w.chapters[index].texture;
-            set(other_sprite, sprite::scale_x, (screen_width(s) * scale) / texture_width(texture));
-            set(other_sprite, sprite::scale_y, (screen_height(s) * scale) / texture_height(texture));
-            set(other, chapter_field::box_width, exe_real(s, 0x0032B694));
-            set(other, chapter_field::box_height, exe_real(s, 0x0032B698));
-            set(other, chapter_field::box_color, exe_word(s, 0x003069EC));
+            auto& other = chapter_panel(w, index);
+            auto& other_sprite = other.sprite;
+            const auto& texture = w.chapters[index].sprite.texture;
+            other_sprite.scale[0] = (screen_width(s) * scale) / texture_width(texture);
+            other_sprite.scale[1] = (screen_height(s) * scale) / texture_height(texture);
+            other.box_width = exe_real(s, 0x0032B694);
+            other.box_height = exe_real(s, 0x0032B698);
+            other.box_color = exe_word(s, 0x003069EC);
         }
         select_chapter_movie(w, s); // 0x000D9F60, EDI the widget
         select_chapter_background(w, s); // 0x000DA1E0, ESI the widget
@@ -1130,17 +1117,17 @@ void set_contents_state(GameContentsWidget& w, i32 state, GameSelectControlServi
         return;
     }
     case 7:
-        if (0 < get(panel, chapter_field::movie_held))
+        if (0 < panel.movie_held)
         {
             stop_chapter_movie(w); // 0x000DACE0
             auto& shared = *s.frontend.contents_widget; // DAT_005462CC
-            set(chapter_bytes(shared, chapter(shared)), chapter_field::movie_frames, 100);
+            chapter_panel(shared, chapter(shared)).movie_frames = 100;
         }
-        s.frontend.contents_chapter = get(w.bytes, field::chapter_index); // DAT_005462C8
+        s.frontend.contents_chapter = w.chapter_index; // DAT_005462C8
         return;
     case 8:
-        end_dialogue_text_record(*w.title_pool, get(title, text_line::record), s.fonts, s.fallback_texture, s.random);
-        end_dialogue_text_record(*w.name_pool, get(name, text_line::record), s.fonts, s.fallback_texture, s.random);
+        end_dialogue_text_record(*w.title_pool, title.record, s.fonts, s.fallback_texture, s.random);
+        end_dialogue_text_record(*w.name_pool, name.record, s.fonts, s.fallback_texture, s.random);
         if (w.prompts != nullptr)
         {
             w.prompts->requested_set = nullptr; // +0x950
@@ -1182,23 +1169,23 @@ void open_runtime_game_contents(std::span<u8> owner, GameSelectControlState& con
     auto& w = contents(widget);
     const u32 white = exe_word(s, 0x00314F48);
     w.owner = &control;
-    w.owner_state = owner;
+    (void)owner; // the control's bytes; the widget reaches the control through +0xF28
     w.name = s.frontend.selected_name.data(); // +0xF20, DAT_00429CC4
-    const auto splat = record(w.bytes, field::splat);
-    set(w.bytes, field::state, 0);
-    set(w.bytes, field::start_mode, 0);
-    set(splat, sprite::color, white);
-    set(splat, sprite::x, 0.f);
-    set(splat, sprite::y, 0.f);
-    set(splat, sprite::scale_x, 0.f);
-    set(splat, sprite::scale_y, 0.f);
-    set(w.bytes, field::splat_timer, 0.f);
-    set(w.bytes, field::bat_target_x, 0.f);
-    set(w.bytes, field::bat_target_y, 0.f);
-    w.splat = {};
-    set(w.bytes, field::splat_phase, 0);
-    set(w.bytes, field::chapter_index, s.frontend.contents_chapter); // DAT_005462C8
-    set(w.bytes, field::flown_chapter, 0xBADBADBAu);
+    auto& splat = w.splat;
+    w.state = 0;
+    w.start_mode = 0;
+    splat.color = white;
+    splat.position[0] = 0.f;
+    splat.position[1] = 0.f;
+    splat.scale[0] = 0.f;
+    splat.scale[1] = 0.f;
+    w.splat_timer = 0.f;
+    w.bat_target[0] = 0.f;
+    w.bat_target[1] = 0.f;
+    w.splat.texture = {};
+    w.splat_phase = 0;
+    w.chapter_index = s.frontend.contents_chapter; // DAT_005462C8
+    w.flown_chapter = 0xBADBADBAu;
     w.bat = nullptr;
     w.sequence = nullptr;
     s.frontend.contents_widget = &w; // DAT_005462CC
@@ -1224,111 +1211,110 @@ void open_runtime_game_contents(std::span<u8> owner, GameSelectControlState& con
     }
     allocate_dialogue_text_pool(w.title_pool, 0, 1, 0xC0, s.text_pools); // 0x0005F390, ESI +0xA74
     w.title_pool->origin = {exe_real(s, 0x0032B260), exe_real(s, 0x0032B264), std::bit_cast<float>(3u)};
-    const auto title = record(w.bytes, field::title);
-    const auto progress = record(w.bytes, field::progress);
-    const auto completed = record(w.bytes, field::completed);
+    auto& title = w.title;
+    auto& progress = w.progress;
+    auto& completed = w.completed;
     const char16_t blank[] = u"blank";
-    std::copy(std::begin(blank), std::end(blank), field_data(title, text_line::text));
-    set(title, text_line::record, 0);
-    set(title, text_line::x, s.hud.center_x);
-    set(title, text_line::y, s.hud.center_y - exe_real(s, 0x0032B6BC));
+    std::copy(std::begin(blank), std::end(blank), title.text.data());
+    title.record = 0;
+    title.x = s.hud.center_x;
+    title.y = s.hud.center_y - exe_real(s, 0x0032B6BC);
     allocate_dialogue_text_pool(w.progress_pool, 0, 1, 0xC0, s.text_pools); // +0xC84
     const char* unset = "Progress not set"; // 0x00324CB4
-    char16_t* progress_text = field_data(progress, text_line::text);
+    char16_t* progress_text = progress.text.data();
     for (size_t index = 0; index < 0x10; ++index)
     {
         progress_text[index] = char16_t(i16(static_cast<signed char>(unset[index]))); // MOVSX
     }
     progress_text[0x10] = 0;
-    set(progress, text_line::x, s.hud.center_x);
-    set(progress, text_line::y, s.hud.center_y + exe_real(s, 0x0032B1E8));
-    set(progress, text_line::record, 0);
+    progress.x = s.hud.center_x;
+    progress.y = s.hud.center_y + exe_real(s, 0x0032B1E8);
+    progress.record = 0;
     allocate_dialogue_text_pool(w.name_pool, 0, 1, 0xC0, s.text_pools); // +0x850
     allocate_dialogue_text_pool(w.completed_pool, 0, 1, 0x400C0, s.text_pools); // +0xEF4
     if (s.text.data() != nullptr) // IsBadReadPtr(DAT_005462C4, 1)
     {
         lookup_borrowed_localtext(s.text, "gameselect", "gameslotcontents_completed",
-            field_data(completed, text_line::text), s.localtext); // 0x000FF120, EDI 0x00324C98
+            completed.text.data(), s.localtext); // 0x000FF120, EDI 0x00324C98
     }
-    set(completed, text_line::x, s.hud.center_x);
-    set(completed, text_line::y, s.hud.center_y + exe_real(s, 0x0032B548));
+    completed.x = s.hud.center_x;
+    completed.y = s.hud.center_y + exe_real(s, 0x0032B548);
     for (size_t index = 0; index < 3; ++index)
     {
-        const auto panel = chapter_bytes(w, index);
-        const auto name = record(panel, chapter_field::name);
-        const auto panel_sprite = record(panel, chapter_field::sprite);
+        auto& panel = chapter_panel(w, index);
+        auto& name = panel.name;
+        auto& panel_sprite = panel.sprite;
         const u32 layout = kChapterLayout + u32(index) * 0x1C + 8; // EDI, DAT_003069A4
         const char16_t error[] = u"error";
-        std::copy(std::begin(error), std::end(error), field_data(name, text_line::text));
-        set(name, text_line::x, s.hud.center_x);
-        set(name, text_line::y, s.hud.center_y + exe_real(s, 0x0032B6B8));
-        set(name, text_line::record, 0);
-        set(panel_sprite, sprite::x, exe_real(s, layout - 0x10));
-        set(panel_sprite, sprite::y, exe_real(s, layout - 0xC));
-        set(panel_sprite, sprite::scale_x, exe_real(s, layout));
-        set(panel_sprite, sprite::scale_y, exe_real(s, layout + 4));
+        std::copy(std::begin(error), std::end(error), name.text.data());
+        name.x = s.hud.center_x;
+        name.y = s.hud.center_y + exe_real(s, 0x0032B6B8);
+        name.record = 0;
+        panel_sprite.position[0] = exe_real(s, layout - 0x10);
+        panel_sprite.position[1] = exe_real(s, layout - 0xC);
+        panel_sprite.scale[0] = exe_real(s, layout);
+        panel_sprite.scale[1] = exe_real(s, layout + 4);
         const u32 row = kChapterTextures + u32(index) * 0x104;
-        w.chapters[index].texture = acquire_texture(s.image.string(row), s);
-        set(panel_sprite, sprite::color, white);
-        const auto& texture = w.chapters[index].texture;
-        set(panel_sprite, sprite::scale_x, (screen_width(s) * exe_real(s, layout)) / texture_width(texture));
-        set(panel_sprite, sprite::scale_y, (screen_height(s) * exe_real(s, layout + 4)) / texture_height(texture));
-        char* movie = field_data(panel, chapter_field::movie_name);
+        w.chapters[index].sprite.texture = acquire_texture(s.image.string(row), s);
+        panel_sprite.color = white;
+        const auto& texture = w.chapters[index].sprite.texture;
+        panel_sprite.scale[0] = (screen_width(s) * exe_real(s, layout)) / texture_width(texture);
+        panel_sprite.scale[1] = (screen_height(s) * exe_real(s, layout + 4)) / texture_height(texture);
+        char* movie = panel.movie_name.data();
         std::strcpy(movie, s.image.string(row + 0x80));
-        set(panel, chapter_field::box_color, exe_word(s, 0x003069EC));
-        set(panel, chapter_field::box_width,
-            exe_real(s, layout) * exe_real(s, 0x0032B6B0) + exe_real(s, 0x0032B470));
-        set(panel, chapter_field::box_height,
-            exe_real(s, layout + 4) * exe_real(s, 0x0032B6AC) + exe_real(s, 0x0032B470));
-        set(panel, chapter_field::movie_held, 0);
+        panel.box_color = exe_word(s, 0x003069EC);
+        panel.box_width = exe_real(s, layout) * exe_real(s, 0x0032B6B0) + exe_real(s, 0x0032B470);
+        panel.box_height = exe_real(s, layout + 4) * exe_real(s, 0x0032B6AC) + exe_real(s, 0x0032B470);
+        panel.movie_held = 0;
         w.chapters[index].movie = allocate_runtime_movie(movie, 0x14, s.movies); // 0x001071A0
-        set(panel, chapter_field::movie_frames, 0);
-        set(panel, chapter_field::movie_frame_ready, 0);
+        panel.movie_frames = 0;
+        panel.movie_frame_ready = 0;
     }
-    const auto challenge = record(w.bytes, field::challenge);
-    set(challenge, sprite::color, white);
-    set(challenge, sprite::x, 0.f);
-    set(challenge, sprite::y, 0.f);
-    set(challenge, sprite::scale_x, 0.f);
-    set(challenge, sprite::scale_y, 0.f);
-    w.challenge = {};
+    auto& challenge = w.challenge;
+    challenge.color = white;
+    challenge.position[0] = 0.f;
+    challenge.position[1] = 0.f;
+    challenge.scale[0] = 0.f;
+    challenge.scale[1] = 0.f;
+    w.challenge.texture = {};
     if (unplayed_challenges(s) != 0) // 0x0004A470
     {
-        w.challenge = acquire_animation_resource(s.resources, "aid_texture_ghoulies_scoreboard_challenge_unplayed");
-        if (w.challenge.data() == nullptr)
+        w.challenge.texture =
+            acquire_animation_resource(s.resources, "aid_texture_ghoulies_scoreboard_challenge_unplayed");
+        if (w.challenge.texture.data() == nullptr)
         {
             resource_error(s.error, 2);
         }
         // The icon starts on the Features panel (chapter 2's sprite +0x7A0).
-        set(challenge, sprite::x, get(chapter_sprite(w, 2), sprite::x));
-        set(challenge, sprite::y, get(chapter_sprite(w, 2), sprite::y));
+        challenge.position[0] = chapter_sprite(w, 2).position[0];
+        challenge.position[1] = chapter_sprite(w, 2).position[1];
     }
-    const auto background = record(w.bytes, field::background);
-    const auto old_background = record(w.bytes, field::old_background);
-    w.background = acquire_texture(s.image.string(kChapterTextures + u32(chapter(w)) * 0x104), s);
-    set(background, sprite::color, white);
-    set(background, sprite::x, s.hud.center_x);
-    set(background, sprite::y, s.hud.center_y);
-    set(background, sprite::scale_y, screen_height(s) / texture_height(w.background));
-    set(background, sprite::scale_x, screen_width(s) / texture_width(w.background));
-    set(old_background, sprite::x, s.hud.center_x);
-    set(old_background, sprite::y, s.hud.center_y);
-    set(old_background, sprite::scale_x, get(background, sprite::scale_x));
-    set(old_background, sprite::scale_y, get(background, sprite::scale_y));
-    w.old_background = {};
-    set(old_background, sprite::color, white);
-    set(w.bytes, field::background_fade_timer, 0.f);
-    set(w.bytes, field::background_fade, 0.f);
-    set(w.bytes, field::panel_fade_timer, exe_real(s, 0x0032B110));
-    set(w.bytes, field::panels_fading, 1);
+    auto& background = w.background;
+    auto& old_background = w.old_background;
+    w.background.texture = acquire_texture(s.image.string(kChapterTextures + u32(chapter(w)) * 0x104), s);
+    background.color = white;
+    background.position[0] = s.hud.center_x;
+    background.position[1] = s.hud.center_y;
+    background.scale[1] = screen_height(s) / texture_height(w.background.texture);
+    background.scale[0] = screen_width(s) / texture_width(w.background.texture);
+    old_background.position[0] = s.hud.center_x;
+    old_background.position[1] = s.hud.center_y;
+    old_background.scale[0] = background.scale[0];
+    old_background.scale[1] = background.scale[1];
+    w.old_background.texture = {};
+    old_background.color = white;
+    w.background_fade_timer = 0.f;
+    w.background_fade = 0.f;
+    w.panel_fade_timer = exe_real(s, 0x0032B110);
+    w.panels_fading = 1;
     w.prompts = nullptr;
-    set(w.bytes, field::saved_plate_flag_0, s.plate_flags[0]);
-    set(w.bytes, field::saved_plate_flag_1, s.plate_flags[1]);
+    w.saved_plate_flag_0 = s.plate_flags[0];
+    w.saved_plate_flag_1 = s.plate_flags[1];
     s.plate_flags[0] = 1; // DAT_00510F7C
     s.plate_flags[1] = 1; // DAT_00510F80
     load_chapter_names(w, s); // 0x000D9C20
     const std::u16string_view name(w.name);
-    char16_t* title_text = field_data(title, text_line::text);
+    char16_t* title_text = title.text.data();
     std::copy(name.begin(), name.end(), title_text); // lstrcpyW(+0x868, +0xF20)
     title_text[name.size()] = 0;
     describe_progress(w, s); // 0x000DA040
@@ -1352,14 +1338,14 @@ void close_runtime_game_contents(GameSelectWidget& widget, GameSelectControlServ
         *pool = nullptr;
     }
     release_chapter_textures(w, s); // 0x000DA1B0
-    if (w.challenge.data() != nullptr)
+    if (w.challenge.texture.data() != nullptr)
     {
-        release_texture(w.challenge, s);
+        release_texture(w.challenge.texture, s);
     }
     auto& shared = *s.frontend.contents_widget; // DAT_005462CC
-    if (shared.splat.data() != nullptr)
+    if (shared.splat.texture.data() != nullptr)
     {
-        release_texture(shared.splat, s);
+        release_texture(shared.splat.texture, s);
     }
     if (w.bat != nullptr)
     {
@@ -1367,28 +1353,28 @@ void close_runtime_game_contents(GameSelectWidget& widget, GameSelectControlServ
         w.bat = nullptr;
     }
     const u32 rest = exe_word(s, 0x00314F30);
-    if (w.background.data() != nullptr)
+    if (w.background.texture.data() != nullptr)
     {
-        release_texture(w.background, s);
-        set(record(w.bytes, field::background), sprite::color, rest);
+        release_texture(w.background.texture, s);
+        w.background.color = rest;
     }
-    if (w.old_background.data() != nullptr)
+    if (w.old_background.texture.data() != nullptr)
     {
-        release_texture(w.old_background, s);
-        set(record(w.bytes, field::old_background), sprite::color, rest);
+        release_texture(w.old_background.texture, s);
+        w.old_background.color = rest;
     }
-    s.plate_flags[0] = get(w.bytes, field::saved_plate_flag_0);
-    s.plate_flags[1] = get(w.bytes, field::saved_plate_flag_1);
+    s.plate_flags[0] = w.saved_plate_flag_0;
+    s.plate_flags[1] = w.saved_plate_flag_1;
     for (size_t index = 0; index < 3; ++index)
     {
         auto*& movie = w.chapters[index].movie;
         if (movie != nullptr)
         {
-            const auto panel = chapter_bytes(w, index);
-            if (0 < get(panel, chapter_field::movie_held))
+            auto& panel = chapter_panel(w, index);
+            if (0 < panel.movie_held)
             {
                 --movie->play_count;
-                set(panel, chapter_field::movie_held, get(panel, chapter_field::movie_held) - 1);
+                panel.movie_held = panel.movie_held - 1;
             }
             release_runtime_movie(*movie, s.movies); // 0x001072B0
             movie = nullptr;
@@ -1406,7 +1392,7 @@ void tick_runtime_game_contents(GameSelectWidget& widget, GameSelectControlServi
 {
     auto& s = services;
     auto& w = contents(widget);
-    const i32 state = get(w.bytes, field::state);
+    const i32 state = w.state;
     if (w.prompts != nullptr && u32(state) <= 8)
     {
         switch (state)
@@ -1420,7 +1406,7 @@ void tick_runtime_game_contents(GameSelectWidget& widget, GameSelectControlServi
                 if (w.sequence != nullptr)
                 {
                     tick_button_sequence(*w.sequence, frontend_device(s), s.attract.input_state); // 0x00142F00
-                    if (get(w.sequence->bytes, sequence_field::state) == 4)
+                    if (w.sequence->state == 4)
                     {
                         unlock_secret(s); // 0x000DB380
                         delete w.sequence; // 0x00142EB0
@@ -1435,14 +1421,14 @@ void tick_runtime_game_contents(GameSelectWidget& widget, GameSelectControlServi
             break;
         }
     }
-    switch (get(w.bytes, field::state))
+    switch (w.state)
     {
     case 1:
-        if (get(w.bytes, field::panels_fading) != 0)
+        if (w.panels_fading != 0)
         {
             tick_contents_fade_in(w, s); // 0x000DA3B0
         }
-        if (!runtime_gameselect_book_busy(w.owner_state, *w.owner, s)) // 0x00083C40
+        if (!runtime_gameselect_book_busy(*w.owner, s)) // 0x00083C40
         {
             set_contents_state(w, 6, s);
         }
@@ -1451,7 +1437,7 @@ void tick_runtime_game_contents(GameSelectWidget& widget, GameSelectControlServi
         tick_chapter_select(w, s); // 0x000D9D10
         break;
     case 7:
-        if (!runtime_gameselect_book_busy(w.owner_state, *w.owner, s))
+        if (!runtime_gameselect_book_busy(*w.owner, s))
         {
             set_contents_state(w, 8, s);
         }
@@ -1460,22 +1446,22 @@ void tick_runtime_game_contents(GameSelectWidget& widget, GameSelectControlServi
         break;
     }
     tick_completed_splat(s); // 0x000DAF10
-    if (w.challenge.data() != nullptr)
+    if (w.challenge.texture.data() != nullptr)
     {
         // The icon follows the Features panel (chapter 2), at its right edge.
-        const auto features = chapter_sprite(w, 2);
-        const auto challenge = record(w.bytes, field::challenge);
-        const float scale_x = get(features, sprite::scale_x);
+        auto& features = chapter_sprite(w, 2);
+        auto& challenge = w.challenge;
+        const float scale_x = features.scale[0];
         const float offset = scale_x * exe_real(s, 0x0032B6B4) * exe_real(s, 0x0032B184);
-        set(challenge, sprite::x, get(features, sprite::x));
-        set(challenge, sprite::y, get(features, sprite::y));
-        const auto& texture = w.chapters[2].texture; // +0x79C
-        set(challenge, sprite::x,
-            texture_width(texture) * scale_x * exe_real(s, 0x0032B0F4) + offset + get(challenge, sprite::x));
-        const float height = texture_height(texture) * get(features, sprite::scale_y) * exe_real(s, 0x0032B2AC);
-        set(challenge, sprite::scale_x, height / texture_width(w.challenge));
-        set(challenge, sprite::scale_y, height / texture_height(w.challenge));
-        set(challenge, sprite::color, get(features, sprite::color));
+        challenge.position[0] = features.position[0];
+        challenge.position[1] = features.position[1];
+        const auto& texture = w.chapters[2].sprite.texture; // +0x79C
+        challenge.position[0] =
+            texture_width(texture) * scale_x * exe_real(s, 0x0032B0F4) + offset + challenge.position[0];
+        const float height = texture_height(texture) * features.scale[1] * exe_real(s, 0x0032B2AC);
+        challenge.scale[0] = height / texture_width(w.challenge.texture);
+        challenge.scale[1] = height / texture_height(w.challenge.texture);
+        challenge.color = features.color;
     }
 }
 
@@ -1484,32 +1470,32 @@ void draw_runtime_game_contents(GameSelectWidget& widget, GameSelectControlServi
 {
     auto& s = services;
     auto& w = contents(widget);
-    const i32 state = get(w.bytes, field::state);
+    const i32 state = w.state;
     size_t selected = chapter(w);
     if (state == 2 || state == 3 || state == 5 || state == 4)
     {
-        const auto panel = chapter_bytes(w, selected);
+        auto& panel = chapter_panel(w, selected);
         if (w.chapters[selected].movie != nullptr)
         {
             if ((s.flags & 0x80) != 0)
             {
-                if (0 < get(panel, chapter_field::movie_held))
+                if (0 < panel.movie_held)
                 {
                     stop_chapter_movie(w); // 0x000DACE0
                 }
             }
-            else if (get(panel, chapter_field::movie_held) < 1)
+            else if (panel.movie_held < 1)
             {
                 ++w.chapters[selected].movie->play_count;
-                set(panel, chapter_field::movie_held, get(panel, chapter_field::movie_held) + 1);
+                panel.movie_held = panel.movie_held + 1;
             }
         }
     }
     std::span<const u8> shown;
-    auto panel = chapter_bytes(w, selected);
-    if (state == 1 || get(panel, chapter_field::movie_frames) < 7)
+    auto& panel = chapter_panel(w, selected);
+    if (state == 1 || panel.movie_frames < 7)
     {
-        shown = w.chapters[selected].texture;
+        shown = w.chapters[selected].sprite.texture;
     }
     else if (w.chapters[selected].movie != nullptr)
     {
@@ -1518,67 +1504,67 @@ void draw_runtime_game_contents(GameSelectWidget& widget, GameSelectControlServi
         const u32 header = s.textures.address_of(shown.data()) + read_u32(shown, 4) + u32(shown[0x12]) * 0x14;
         const bool copied = copy_runtime_movie_frame(*w.chapters[selected].movie,
             reinterpret_cast<void*>(std::uintptr_t(header)), s.movies); // 0x00107360, ECX the texture header
-        if (get(panel, chapter_field::movie_frame_ready) == 0 && copied)
+        if (panel.movie_frame_ready == 0 && copied)
         {
-            set(panel, chapter_field::movie_frame_ready, 1);
+            panel.movie_frame_ready = 1;
         }
     }
-    const auto background = record(w.bytes, field::background);
-    if (w.background.data() != nullptr && field_byte(background, sprite::color, 3) != 0)
+    auto& background = w.background;
+    if (w.background.texture.data() != nullptr && color_alpha(background.color) != 0)
     {
-        draw_runtime_dialogue_sprite(w.background.data(), field_data(background, sprite::position),
-            field_data(background, sprite::scale), 0.f, get(background, sprite::color), 0, s.draw); // 0x0005CE30
+        draw_runtime_dialogue_sprite(w.background.texture.data(), background.position.data(),
+            background.scale.data(), 0.f, background.color, 0, s.draw); // 0x0005CE30
     }
-    const auto old_background = record(w.bytes, field::old_background);
-    if (w.old_background.data() != nullptr && field_byte(old_background, sprite::color, 3) != 0)
+    auto& old_background = w.old_background;
+    if (w.old_background.texture.data() != nullptr && color_alpha(old_background.color) != 0)
     {
-        draw_runtime_dialogue_sprite(w.old_background.data(), field_data(old_background, sprite::position),
-            field_data(old_background, sprite::scale), 0.f, get(old_background, sprite::color), 0, s.draw);
+        draw_runtime_dialogue_sprite(w.old_background.texture.data(), old_background.position.data(),
+            old_background.scale.data(), 0.f, old_background.color, 0, s.draw);
     }
     auto& shared = *s.frontend.contents_widget; // DAT_005462CC
-    if (shared.splat.data() != nullptr)
+    if (shared.splat.texture.data() != nullptr)
     {
-        const auto splat = record(shared.bytes, field::splat);
-        draw_sprite(field_data(splat, sprite::position), 0, nullptr, shared.splat, field_data(splat, sprite::scale),
-            nullptr, get(splat, sprite::color), s);
+        auto& splat = shared.splat;
+        draw_sprite(splat.position.data(), 0, nullptr, shared.splat.texture, splat.scale.data(),
+            nullptr, splat.color, s);
     }
     // A panel: the box centred on its sprite, then the sprite.
     const auto draw_chapter = [&](size_t index)
     {
-        const auto box = chapter_bytes(w, index);
-        const auto panel_sprite = record(box, chapter_field::sprite);
-        const i32 height = i32(get(box, chapter_field::box_height));
-        const i32 width = i32(get(box, chapter_field::box_width));
-        const i32 y = i32(get(panel_sprite, sprite::y)) - height / 2;
-        const i32 x = i32(get(panel_sprite, sprite::x)) - width / 2;
+        auto& box = chapter_panel(w, index);
+        auto& panel_sprite = box.sprite;
+        const i32 height = i32(box.box_height);
+        const i32 width = i32(box.box_width);
+        const i32 y = i32(panel_sprite.position[1]) - height / 2;
+        const i32 x = i32(panel_sprite.position[0]) - width / 2;
         draw_runtime_dialogue_panel(float(x), float(y), float(width), float(height), 0.1f,
-            get(box, chapter_field::box_color), s.outer); // 0x00061360
-        draw_sprite(field_data(panel_sprite, sprite::position), 0, nullptr, w.chapters[index].texture,
-            field_data(panel_sprite, sprite::scale), nullptr, get(panel_sprite, sprite::color), s);
+            box.box_color, s.outer); // 0x00061360
+        draw_sprite(panel_sprite.position.data(), 0, nullptr, w.chapters[index].sprite.texture,
+            panel_sprite.scale.data(), nullptr, panel_sprite.color, s);
     };
     for (size_t index = 0; index < 3; ++index)
     {
-        if (index != selected && w.chapters[index].texture.data() != nullptr)
+        if (index != selected && w.chapters[index].sprite.texture.data() != nullptr)
         {
             draw_chapter(index);
         }
     }
     selected = chapter(w);
-    if (w.chapters[selected].texture.data() != nullptr)
+    if (w.chapters[selected].sprite.texture.data() != nullptr)
     {
         draw_chapter(selected);
     }
-    panel = chapter_bytes(w, selected);
-    const auto panel_sprite = record(panel, chapter_field::sprite);
+    auto& selected_panel = chapter_panel(w, selected);
+    auto& panel_sprite = selected_panel.sprite;
     auto* movie = w.chapters[selected].movie;
     if (movie != nullptr && movie->flags != 0)
     {
-        if (get(panel, chapter_field::movie_frame_ready) != 0)
+        if (selected_panel.movie_frame_ready != 0)
         {
             const float top[2]{exe_real(s, 0x0032B1F4), exe_real(s, 0x0032B1B0)};
             const float bottom[2]{exe_real(s, 0x0032B588), exe_real(s, 0x0032B584)};
             const float full = exe_real(s, 0x0032B158);
-            float alpha = (float(get(panel, chapter_field::movie_frames)) - exe_real(s, 0x0032B284))
+            float alpha = (float(selected_panel.movie_frames) - exe_real(s, 0x0032B284))
                 * exe_real(s, 0x0032B250) * full;
             if (alpha > full)
             {
@@ -1589,24 +1575,24 @@ void draw_runtime_game_contents(GameSelectWidget& widget, GameSelectControlServi
                 alpha = 0.f;
             }
             const u32 color = with_alpha(exe_word(s, 0x00314F48), truncate_byte(alpha)); // 0x001673D8
-            const float scale[2]{(texture_width(w.chapters[selected].texture) * get(panel_sprite, sprite::scale_x))
+            const float scale[2]{(texture_width(w.chapters[selected].sprite.texture) * panel_sprite.scale[0])
                     / texture_width(shown),
-                (texture_height(w.chapters[selected].texture) * get(panel_sprite, sprite::scale_y))
+                (texture_height(w.chapters[selected].sprite.texture) * panel_sprite.scale[1])
                     / texture_height(shown)};
-            draw_sprite(field_data(panel_sprite, sprite::position), 0, top, shown, scale, bottom, color, s);
+            draw_sprite(panel_sprite.position.data(), 0, top, shown, scale, bottom, color, s);
         }
-        if (get(w.bytes, field::state) != 1 && get(panel, chapter_field::movie_frames) < 100)
+        if (w.state != 1 && selected_panel.movie_frames < 100)
         {
-            set(panel, chapter_field::movie_frames, get(panel, chapter_field::movie_frames) + 1);
+            selected_panel.movie_frames = selected_panel.movie_frames + 1;
         }
     }
-    if (w.challenge.data() != nullptr)
+    if (w.challenge.texture.data() != nullptr)
     {
-        const auto challenge = record(w.bytes, field::challenge);
-        draw_sprite(field_data(challenge, sprite::position), -1, nullptr, w.challenge,
-            field_data(challenge, sprite::scale), nullptr, get(challenge, sprite::color), s);
+        auto& challenge = w.challenge;
+        draw_sprite(challenge.position.data(), -1, nullptr, w.challenge.texture,
+            challenge.scale.data(), nullptr, challenge.color, s);
     }
-    if (s.dialogue_page_hold() == 0 && get(w.bytes, field::panels_fading) == 0 && w.bat != nullptr)
+    if (s.dialogue_page_hold() == 0 && w.panels_fading == 0 && w.bat != nullptr)
     {
         const float scale = exe_real(s, 0x0032B110);
         if (w.bat->scale_200 != scale)
@@ -1636,7 +1622,7 @@ void move_runtime_contents_cursor(GameSelectControlServices& services)
     {
         return;
     }
-    i32 index = get(w.bytes, field::chapter_index);
+    i32 index = w.chapter_index;
     std::array<float, 2> direction{};
     s.frontend_direction(direction); // 0x001429E0
     if (direction[0] == 0.f && direction[1] == 0.f)
@@ -1658,7 +1644,7 @@ void move_runtime_contents_cursor(GameSelectControlServices& services)
         stop_chapter_movie(w);
         index = index == 2 ? 0 : index + 1;
     }
-    set(w.bytes, field::chapter_index, index);
+    w.chapter_index = index;
     set_contents_state(w, 6, s); // 0x000DA580(6)
 }
 
@@ -1667,10 +1653,10 @@ void leave_runtime_game_contents(GameSelectControlServices& services)
 {
     auto& s = services;
     auto& w = *s.frontend.contents_widget;
-    fly_bat_off_screen(w.bat, field_data(w.bytes, field::bat_target), s); // 0x0013B9D0, EAX +0x854
+    fly_bat_off_screen(w.bat, w.bat_target.data(), s); // 0x0013B9D0, EAX +0x854
     auto& control = gameselect_control();
-    set(control.state, control_field::requested_row, 1);
-    set(control.state, control_field::book_turn, 3);
+    control.gameselect->requested_row = 1;
+    control.gameselect->book_turn = 3;
     control.gameselect->book = create_transition_book(1, 1, nullptr, s.books); // 0x00048260(1, 1, 0)
     set_contents_state(w, 8, s); // 0x000DA580(8)
 }
@@ -1691,18 +1677,18 @@ void play_runtime_game(GameSelectControlServices& services)
     }
     auto& control = gameselect_control();
     // 0x00083B10(1), EAX the control.
-    if (get(control.state, control_field::pending_start) != 1)
+    if (control.gameselect->pending_start != 1)
     {
-        set(control.state, control_field::start_mode, 1);
-        set(control.state, control_field::pending_start, 1);
+        control.gameselect->start_mode = 1;
+        control.gameselect->pending_start = 1;
         if (s.stream_busy(2) == 0) // 0x00039D50(2, 0, 0)
         {
-            set(control.state, control_field::start_ready, 1);
+            control.gameselect->start_ready = 1;
         }
         else
         {
-            set(control.state, control_field::requested_row, 0x12);
-            set(control.state, control_field::book_turn, 1);
+            control.gameselect->requested_row = 0x12;
+            control.gameselect->book_turn = 1;
             release_control_book(control, s);
         }
     }
@@ -1731,8 +1717,8 @@ void open_runtime_game_info(GameSelectControlServices& services)
 {
     auto& s = services;
     auto& control = gameselect_control();
-    set(control.state, control_field::requested_row, 0x13);
-    set(control.state, control_field::book_turn, 1);
+    control.gameselect->requested_row = 0x13;
+    control.gameselect->book_turn = 1;
     release_control_book(control, s);
     set_contents_state(*s.frontend.contents_widget, 8, s);
 }
@@ -1742,10 +1728,10 @@ void open_runtime_game_challenges(GameSelectControlServices& services)
 {
     auto& s = services;
     auto& w = *s.frontend.contents_widget;
-    fly_bat_off_screen(w.bat, field_data(w.bytes, field::bat_target), s); // 0x0013B9D0, EAX +0x854
+    fly_bat_off_screen(w.bat, w.bat_target.data(), s); // 0x0013B9D0, EAX +0x854
     auto& control = gameselect_control();
-    set(control.state, control_field::requested_row, 6);
-    set(control.state, control_field::book_turn, 2);
+    control.gameselect->requested_row = 6;
+    control.gameselect->book_turn = 2;
     control.gameselect->book = create_transition_book(0, 1, nullptr, s.books); // 0x00048260(0, 1, 0)
     set_contents_state(w, 7, s);
 }
@@ -1755,8 +1741,8 @@ void open_runtime_game_features(GameSelectControlServices& services)
 {
     auto& s = services;
     auto& control = gameselect_control();
-    set(control.state, control_field::requested_row, 8);
-    set(control.state, control_field::book_turn, 1);
+    control.gameselect->requested_row = 8;
+    control.gameselect->book_turn = 1;
     release_control_book(control, s);
     set_contents_state(*s.frontend.contents_widget, 7, s);
 }

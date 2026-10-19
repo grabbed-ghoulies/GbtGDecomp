@@ -22,12 +22,9 @@ namespace gbtg
 {
 namespace
 {
-namespace control_field = gameselect_control_field;
 
 constexpr u32 kDeletionRows = 0x003077B0; // "GameSlotDeletionMenu"
 
-namespace field = game_deletion_field;
-namespace text_line = gameselect_text_line;
 
 GameDeletionWidget& deletion(GameSelectWidget& widget)
 {
@@ -37,7 +34,7 @@ GameDeletionWidget& deletion(GameSelectWidget& widget)
 // The game being deleted (+0x48C).
 char16_t* save_name(GameDeletionWidget& w)
 {
-    return field_data(w.bytes, field::save_name);
+    return w.save_name.data();
 }
 
 float exe_real(const GameSelectControlServices& s, u32 address)
@@ -62,18 +59,18 @@ void copy_wide(char16_t* output, const char16_t* input)
 }
 
 // 0x0005F5C0 with EAX 1: a centred, sticky text record for a text line.
-u32 text_record(GameDeletionWidget& w, std::span<u8> line, float scale, GameSelectControlServices& s)
+u32 text_record(GameDeletionWidget& w, GameSelectTextLine& line, float scale, GameSelectControlServices& s)
 {
-    return create_dialogue_text_record(*w.pool, field_data(line, text_line::text), get(line, text_line::x),
-        get(line, text_line::y), scale, scale, 1.f, 1, 0, 1, s.metrics, s.viewport_width, s.next_text_id, s.random);
+    return create_dialogue_text_record(*w.pool, line.text.data(), line.x,
+        line.y, scale, scale, 1.f, 1, 0, 1, s.metrics, s.viewport_width, s.next_text_id, s.random);
 }
 
 // The control's widget request: row 1 (slot select) on the next book threshold, the book released.
 void request_slot_select(GameSelectControlServices& s)
 {
     SceneControlInstance* control = find_runtime_scene_control(0x9A); // 0x00116170, EDX 0x9A
-    set(control->state, control_field::requested_row, 1);
-    set(control->state, control_field::book_turn, 1);
+    control->gameselect->requested_row = 1;
+    control->gameselect->book_turn = 1;
     if (control->gameselect->book != nullptr)
     {
         release_transition_book(control->gameselect->book, s.books); // 0x00048860
@@ -88,7 +85,7 @@ bool book_turning(const GameDeletionWidget& w, const GameSelectControlServices& 
     {
         return true;
     }
-    const i32 book = i32(get(w.owner_state, control_field::book_turn));
+    const i32 book = i32(w.owner->book_turn);
     return 1 < book && book <= 3 && w.owner->book != nullptr;
 }
 
@@ -112,17 +109,17 @@ void set_runtime_game_deletion_state(GameDeletionWidget& widget, i32 state, Game
 {
     auto& s = services;
     auto& w = widget;
-    const i32 previous = get(w.bytes, field::state);
-    const auto title = record(w.bytes, field::title);
-    const auto prompt = record(w.bytes, field::prompt);
+    const i32 previous = w.state;
+    auto& title = w.title;
+    auto& prompt = w.prompt;
     if (previous == 1)
     {
         const std::array<float, 2> anchor{s.hud.inner_left + exe_real(s, 0x0032B604),
             s.hud.inner_bottom - exe_real(s, 0x0032B1F4)}; // DAT_00509740, DAT_0050974C
         const std::array<float, 2> row_step{0.f, exe_real(s, 0x0032B600)};
         const std::array<float, 2> origin{exe_real(s, 0x0032B234), exe_real(s, 0x0032B5FC)};
-        set(title, text_line::record, text_record(w, title, 1.35f, s));
-        set(prompt, text_line::record, text_record(w, prompt, 1.5f, s));
+        title.record = text_record(w, title, 1.35f, s);
+        prompt.record = text_record(w, prompt, 1.5f, s);
         if (s.text.data() == nullptr) // IsBadReadPtr(DAT_005462C4, 1)
         {
             return;
@@ -141,18 +138,18 @@ void set_runtime_game_deletion_state(GameDeletionWidget& widget, i32 state, Game
     }
     else if (previous == 2)
     {
-        remove_dialogue_text_record(*w.pool, get(prompt, text_line::record)); // 0x0005FB10
+        remove_dialogue_text_record(*w.pool, prompt.record); // 0x0005FB10
     }
-    set(w.bytes, field::state, state);
+    w.state = state;
     if (state == 3)
     {
-        field_data(prompt, text_line::text)[0] = 0;
+        prompt.text[0] = 0;
         if (s.text.data() != nullptr)
         {
             lookup_borrowed_localtext(s.text, "gameselect", "gameslotdeletion_deleting",
-                field_data(prompt, text_line::text), s.localtext); // 0x000FF120, EDI 0x00324D1C
+                prompt.text.data(), s.localtext); // 0x000FF120, EDI 0x00324D1C
         }
-        set(prompt, text_line::record, text_record(w, prompt, 1.5f, s));
+        prompt.record = text_record(w, prompt, 1.5f, s);
     }
     else if (state == 4)
     {
@@ -180,9 +177,9 @@ void open_runtime_game_deletion(std::span<u8> owner, GameSelectControlState& con
     char page[0x80]{};
     std::memcpy(page, "aid_cutscene_ghoulies_dialogs_dialogpage1", 42); // 0x00324C04
     w.owner = &control;
-    w.owner_state = owner;
+    (void)owner; // the control's bytes; the widget reaches the control through +0x58C
     s.frontend.deletion_widget = &w; // DAT_0050658C
-    set(w.bytes, field::state, 0);
+    w.state = 0;
     w.prompts = nullptr;
     copy_wide(save_name(w), s.frontend.selected_name.data()); // lstrcpyW(+0x48C, DAT_00429CC4)
     initialize_camera_view(w.camera, "gameslotdeletion", 8); // 0x000496C0, EAX 0x00324D94
@@ -198,26 +195,26 @@ void open_runtime_game_deletion(std::span<u8> owner, GameSelectControlState& con
     w.page = load_runtime_cutscene(page, 6, &w.camera, s.cutscenes); // 0x0004D680
     seek_runtime_cutscene(*w.page, s.frontend.real_0042a0cc, 0.f, 0, s.cutscenes); // 0x0004E4A0, ESI the page
     camera_bind_named_view(0, "gameslotdeletion"); // 0x00048CF0, EBX 0x00324D94
-    set(w.bytes, field::saved_plate_flag_0, s.plate_flags[0]);
-    set(w.bytes, field::saved_plate_flag_1, s.plate_flags[1]);
+    w.saved_plate_flag_0 = s.plate_flags[0];
+    w.saved_plate_flag_1 = s.plate_flags[1];
     s.plate_flags[0] = 1; // DAT_00510F7C
     s.plate_flags[1] = 1; // DAT_00510F80
     allocate_dialogue_text_pool(w.pool, 0, 1, 0x40080, s.text_pools); // 0x0005F390, ESI +0x41C
     w.pool->origin = {exe_real(s, 0x0032B260), exe_real(s, 0x0032B264), std::bit_cast<float>(3u)};
-    const auto title = record(w.bytes, field::title);
-    const auto prompt = record(w.bytes, field::prompt);
-    copy_wide(field_data(title, text_line::text), save_name(w));
-    set(title, text_line::x, exe_real(s, 0x0032B564));
-    set(title, text_line::y, exe_real(s, 0x0032B12C));
-    set(title, text_line::record, 0);
+    auto& title = w.title;
+    auto& prompt = w.prompt;
+    copy_wide(title.text.data(), save_name(w));
+    title.x = exe_real(s, 0x0032B564);
+    title.y = exe_real(s, 0x0032B12C);
+    title.record = 0;
     if (s.text.data() != nullptr) // IsBadReadPtr(DAT_005462C4, 1)
     {
         lookup_borrowed_localtext(s.text, "gameselect", "gameslotdeletion_deleteprompt",
-            field_data(prompt, text_line::text), s.localtext); // 0x000FF120, EBX +0x210, EDI 0x00324D74
+            prompt.text.data(), s.localtext); // 0x000FF120, EBX +0x210, EDI 0x00324D74
     }
-    set(prompt, text_line::x, exe_real(s, 0x0032B564));
-    set(prompt, text_line::y, exe_real(s, 0x0032B680));
-    set(prompt, text_line::record, 0);
+    prompt.x = exe_real(s, 0x0032B564);
+    prompt.y = exe_real(s, 0x0032B680);
+    prompt.record = 0;
     set_runtime_game_deletion_state(w, 1, s); // 0x000DBDC0, EAX 1
 }
 
@@ -238,8 +235,8 @@ void close_runtime_game_deletion(GameSelectWidget& widget, GameSelectControlServ
     release_runtime_cutscene(w.page, s.cutscenes); // 0x0004D720, EAX the page
     w.page = nullptr;
     camera_unlink_view(&w.camera); // 0x00048C70, EAX +0x424
-    s.plate_flags[0] = get(w.bytes, field::saved_plate_flag_0);
-    s.plate_flags[1] = get(w.bytes, field::saved_plate_flag_1);
+    s.plate_flags[0] = w.saved_plate_flag_0;
+    s.plate_flags[1] = w.saved_plate_flag_1;
 }
 
 // Xbox 0x000DB9E0
@@ -255,13 +252,13 @@ void tick_runtime_game_deletion(GameSelectWidget& widget, GameSelectControlServi
         }
         tick_runtime_cutscene(*w.page, frame_step(s), &w.camera, s.cutscenes); // 0x0004DA50, ESI +0x424
     }
-    const i32 state = get(w.bytes, field::state);
+    const i32 state = w.state;
     if (w.prompts != nullptr && u32(state) <= 5)
     {
         // The jump table at 0x000DBB74: state 2 passes the front-end device (DAT_00429BBC), the others 0.
         s.update_prompts(*w.prompts, state == 2); // 0x00142460
     }
-    switch (get(w.bytes, field::state))
+    switch (w.state)
     {
     case 1:
         if (!book_turning(w, s))

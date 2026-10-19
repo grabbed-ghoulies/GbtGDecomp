@@ -18,7 +18,6 @@ namespace gbtg
 {
 namespace
 {
-namespace control_field = gameselect_control_field;
 
 GameNamingWidget& naming(GameSelectWidget& widget)
 {
@@ -110,8 +109,8 @@ void finish_runtime_game_naming(GameSelectControlServices& services)
     const u8 slot = save_game_slot(w.name.data()); // 0x0010DB60, EBX +0x74
     copy_wide(s.frontend.slot_names[slot].data(), w.name.data()); // DAT_00429DC4 + slot * 0x100
     SceneControlInstance* control = find_runtime_scene_control(0x9A); // 0x00116170
-    set(control->state, control_field::requested_row, 1);
-    set(control->state, control_field::book_turn, 1);
+    control->gameselect->requested_row = 1;
+    control->gameselect->book_turn = 1;
     if (control->gameselect->book != nullptr)
     {
         release_transition_book(control->gameselect->book, s.books); // 0x00048860
@@ -130,8 +129,8 @@ void leave_runtime_game_naming(GameSelectControlServices& services)
         s.frontend.slot_names[size_t(s.frontend.word_0042a0c4)][0] = 0;
     }
     SceneControlInstance* control = find_runtime_scene_control(0x9A); // 0x00116170, EDX 0x9A
-    set(control->state, control_field::requested_row, 1);
-    set(control->state, control_field::book_turn, 1);
+    control->gameselect->requested_row = 1;
+    control->gameselect->book_turn = 1;
     if (control->gameselect->book != nullptr)
     {
         release_transition_book(control->gameselect->book, s.books); // 0x00048860
@@ -156,7 +155,7 @@ void open_runtime_game_naming(std::span<u8> owner, GameSelectControlState& contr
     char page[0x80]{};
     std::memcpy(page, "aid_cutscene_ghoulies_dialogs_dialogpage1", 42); // 0x00324C04
     w.owner = &control;
-    w.owner_state = owner;
+    (void)owner; // the control's bytes; the widget reaches the control through +0x174
     s.frontend.naming_widget = &w; // DAT_00506594
     w.state = 0;
     w.keyboard = nullptr;
@@ -232,7 +231,7 @@ void tick_runtime_game_naming(GameSelectWidget& widget, GameSelectControlService
         {
             return;
         }
-        const i32 book = i32(get(w.owner_state, control_field::book_turn));
+        const i32 book = i32(w.owner->book_turn);
         if (1 < book && book <= 3 && w.owner->book != nullptr)
         {
             return;

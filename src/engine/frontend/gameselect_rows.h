@@ -5,42 +5,45 @@
 #include "input_activation.h"
 #include "../saves/runtime_profile.h"
 #include "../saves/save_games.h"
-#include "gbtg/retail_field.h"
 
 #include <functional>
 #include <memory>
 
 namespace gbtg
 {
-// A text line inside a game-select widget (0x20C bytes): wide text, the position it is centred on, and the id
-// 0x0005F5C0 returns for it. The slot-select prompt (+0x4) and plate labels (plate +0x4), and the deletion title
-// (+0x4) and prompt (+0x210), all use this layout. Treating it as one shared struct is inferred from that.
-namespace gameselect_text_line
+// A text line inside a game-select widget (0x20C bytes in retail): wide text, the position it is centred on, and
+// the id 0x0005F5C0 returns for it. The slot-select prompt and plate labels, the deletion title and prompt, and
+// the contents chapter names, title, progress and completed lines all use this layout. Treating it as one shared
+// struct is inferred from that.
+struct GameSelectTextLine
 {
-constexpr RetailField<std::array<char16_t, 0x100>, 0x000> text{};
-constexpr RetailField<float, 0x200> x{};
-constexpr RetailField<float, 0x204> y{};
-constexpr RetailField<u32, 0x208> record{}; // 0x0005F5C0's text record id
-constexpr u32 kSize = 0x20C;
-static_assert(retail_fits(kSize, record));
-} // namespace gameselect_text_line
+    std::array<char16_t, 0x100> text{}; // +0
+    float x = 0.f; // +0x200
+    float y = 0.f; // +0x204
+    u32 record = 0; // +0x208, 0x0005F5C0's text record id
+};
 
-// A sprite inside a game-select widget (0x18 bytes): +0 the texture (a host member of the widget), then where, how
-// and in what color it is drawn. The draw calls 0x0005CA60 / 0x0005CE30 take the position and scale by address.
-// Slot select's plates, discs and backgrounds, and contents' chapters, backgrounds, splat and challenge icon, all
-// use this layout.
-namespace gameselect_sprite
+// A sprite inside a game-select widget (0x18 bytes in retail): its texture, then where, how and in what color it
+// is drawn. The draw calls 0x0005CA60 / 0x0005CE30 take the position and scale by address. Slot select's plates,
+// discs and backgrounds, and contents' chapters, backgrounds, splat and challenge icon, all use this layout.
+struct GameSelectSprite
 {
-constexpr RetailField<std::array<float, 2>, 0x4> position{};
-constexpr RetailField<float, 0x4> x{};
-constexpr RetailField<float, 0x8> y{};
-constexpr RetailField<u32, 0xC> color{}; // alpha in byte 3
-constexpr RetailField<std::array<float, 2>, 0x10> scale{};
-constexpr RetailField<float, 0x10> scale_x{};
-constexpr RetailField<float, 0x14> scale_y{};
-constexpr u32 kSize = 0x18;
-static_assert(retail_fits(kSize, scale_y));
-} // namespace gameselect_sprite
+    std::span<const u8> texture; // +0
+    std::array<float, 2> position{}; // +4
+    u32 color = 0; // +0xC, alpha in byte 3
+    std::array<float, 2> scale{}; // +0x10
+};
+
+// A color word's alpha (byte 3), which the retail code reads and writes on its own.
+inline u8 color_alpha(u32 color)
+{
+    return u8(color >> 24);
+}
+
+inline void set_color_alpha(u32& color, u8 alpha)
+{
+    color = (color & 0x00FFFFFFu) | (u32(alpha) << 24);
+}
 
 struct RuntimeDisplaySetupContext;
 struct AudioBankStreams;

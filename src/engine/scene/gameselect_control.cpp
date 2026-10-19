@@ -17,7 +17,6 @@ namespace gbtg
 {
 namespace
 {
-namespace control_field = gameselect_control_field;
 
 constexpr u32 kAid = 0x5F646961u; // "aid_"
 
@@ -73,10 +72,10 @@ float book_position(const GameSelectControlState& control)
 
 // Xbox 0x00083E20, ECX the control: whether the menu book lets the requested widget open. Pages 2 and 3 wait
 // for the book past its clip's first threshold.
-bool book_allows_widget(std::span<const u8> state, const GameSelectControlState& control,
+bool book_allows_widget(const GameSelectControlState& control,
     const GameSelectControlServices& services)
 {
-    const u32 book = get(state, control_field::book_turn);
+    const u32 book = control.book_turn;
     if (book == 1)
     {
         return true;
@@ -132,10 +131,11 @@ void advance_gameselect_book(GameSelectControlState& control, GameSelectControlS
 // Xbox 0x00083C70 (EAX the control) and 0x00083D10 (ESI the control): the scene flags for the chosen start
 // (+0x11C), the selected game becomes the current one and its script (0x00083C70) or +0x98's (0x00083D10) is
 // requested.
-void start_gameselect_game(std::span<u8> state, bool saved_script, GameSelectControlServices& services)
+void start_gameselect_game(const GameSelectControlState& control, bool saved_script,
+    GameSelectControlServices& services)
 {
     auto& bytes = services.profile.scene_flags->bytes;
-    const u32 mode = get(state, control_field::start_mode);
+    const u32 mode = control.start_mode;
     if (mode == 1)
     {
         bytes[0] |= 2;
@@ -161,7 +161,7 @@ void start_gameselect_game(std::span<u8> state, bool saved_script, GameSelectCon
         services.request_script(script, 1); // 0x0011EB30
         return;
     }
-    services.request_script(field_data(state, control_field::script), 1); // 0x0011EB30, EAX +0x98
+    services.request_script(control.script.data(), 1); // 0x0011EB30, EAX +0x98
 }
 }
 
@@ -185,13 +185,13 @@ bool construct_runtime_gameselect_control(std::span<u8> state, GameSelectControl
     profile.scene_flags->bytes[0] |= 4;
     refresh_runtime_save_summary(services); // 0x000F2F00
     services.flags |= 0x100000u;
-    set(state, control_field::current_row, 0);
-    set(state, control_field::requested_row, 0);
-    set(state, control_field::book_turn, 1);
-    set(state, control_field::start_mode, 1);
-    set(state, control_field::start_ready, 0);
+    control.current_row = 0;
+    control.requested_row = 0;
+    control.book_turn = 1;
+    control.start_mode = 1;
+    control.start_ready = 0;
     control.texture = create_runtime_screen_texture(0x280, 0x1E0, 1, 0x1E, 0, services.textures);
-    set(state, control_field::pending_start, 0);
+    control.pending_start = 0;
     std::span<const u8> text;
     if (std::memcmp(name, "aid_", 4) == 0)
     {
@@ -255,35 +255,35 @@ void tick_runtime_gameselect_control(std::span<u8> state, GameSelectControlState
 {
     set(state, scene_control_field::elapsed, get(state, scene_control_field::elapsed) + frame_step(services));
     refresh_runtime_input_device(services.frontend_input, services.frame, services.input, services.input_release);
-    if (get(state, control_field::start_ready) != 0)
+    if (control.start_ready != 0)
     {
-        const u32 pending = get(state, control_field::pending_start);
+        const u32 pending = control.pending_start;
         if (pending == 1)
         {
-            start_gameselect_game(state, true, services); // 0x00083C70
+            start_gameselect_game(control, true, services); // 0x00083C70
         }
         if (pending == 2)
         {
-            start_gameselect_game(state, false, services); // 0x00083D10
+            start_gameselect_game(control, false, services); // 0x00083D10
         }
         if (pending == 1 || pending == 2)
         {
-            set(state, control_field::pending_start, 0);
+            control.pending_start = 0;
         }
     }
-    if (get(state, control_field::requested_row) != 0 && book_allows_widget(state, control, services))
+    if (control.requested_row != 0 && book_allows_widget(control, services))
     {
         close_gameselect_widget(*control.row, *control.widget, services);
         destroy_runtime_gameselect_widget(*control.row, control.widget);
-        const u32 next = get(state, control_field::requested_row);
-        set(state, control_field::current_row, next);
-        set(state, control_field::requested_row, 0);
+        const u32 next = control.requested_row;
+        control.current_row = next;
+        control.requested_row = 0;
         control.row = &gameselect_widget_row(next);
         control.widget = create_gameselect_widget(*control.row, services);
         open_gameselect_widget(*control.row, state, control, *control.widget, services);
     }
     tick_gameselect_widget(*control.row, *control.widget, services);
-    const u32 book = get(state, control_field::book_turn);
+    const u32 book = control.book_turn;
     if (book == 2 || book == 3)
     {
         advance_gameselect_book(control, services); // 0x00083D90
@@ -310,14 +310,14 @@ void draw_runtime_gameselect_control(std::span<u8> state, GameSelectControlState
 }
 
 // Xbox 0x00083C40
-bool runtime_gameselect_book_busy(std::span<const u8> state, const GameSelectControlState& control,
+bool runtime_gameselect_book_busy(const GameSelectControlState& control,
     const GameSelectControlServices& services)
 {
     if (services.transition != 0)
     {
         return true;
     }
-    const i32 book = i32(get(state, control_field::book_turn));
+    const i32 book = i32(control.book_turn);
     if (1 < book && book <= 3 && control.book != nullptr)
     {
         return true;

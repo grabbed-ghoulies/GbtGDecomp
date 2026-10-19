@@ -17,7 +17,6 @@ struct GameNamingWidget : GameSelectWidget
     std::array<i32, 2> plate_flags{}; // +0x6C / +0x70, DAT_00510F7C / DAT_00510F80 while the widget is open.
     std::array<char16_t, 0x80> name{}; // +0x74
     GameSelectControlState* owner = nullptr; // +0x174
-    std::span<u8> owner_state;
 };
 GameSelectWidgetHandle create_runtime_game_naming(GameSelectControlServices& services); // Xbox 0x000DCEB0
 void open_runtime_game_naming(std::span<u8> owner, GameSelectControlState& control, GameSelectWidget& widget,

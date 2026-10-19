@@ -671,8 +671,8 @@ void scene_begin_audio_pause()
 //
 // DAT_00510580 nonzero and DAT_00510650 clear adds DAT_0032B314 to
 // DAT_00510648 and DAT_0051064C, then would call 0x0011B7F0. That call is
-// not translated. 0x0012AA70, 0x001185E0, 0x000FDDA0, and 0x000FD5C0 are
-// not translated.
+// not translated. 0x0012AA70, 0x001185E0 and 0x000FDDA0 are not translated;
+// 0x000FD5C0 applies the scene fog record.
 //
 // A nonzero record count in DAT_0050E0E8, and a nonzero dword at
 // (DAT_0050E0EC - 1) * stride + begin, would call 0x001083F0 with that
@@ -780,7 +780,11 @@ void scene_tick_pause_counter(Game& g, u8* scene)
         g_51064c = g_51064c + drift;
         // 0x0011B7F0 is not translated.
     }
-    // 0x0012AA70, 0x001185E0, 0x000FDDA0, and 0x000FD5C0 are not translated.
+    // 0x0012AA70, 0x001185E0 and 0x000FDDA0 are not translated.
+    if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1)
+    {
+        g.factory_scene->start_actors(g).configure_scene_fog(); // 0x000FD5C0
+    }
 
     SceneSpan* span = g_span_50e0e8;
     const i32 delta = static_cast<i32>(
@@ -1212,7 +1216,7 @@ i32 g_50ec00 = 0;
 // A nonzero DAT_00510584 is the argument of 0x001759F0, the D3D resource
 // release. No D3D8 object is bound to that pointer, so the call is not made
 // and the pointer is cleared. DAT_00510580 is cleared. 0x001133B0 is not
-// translated. 0x000FD710 is not translated.
+// translated. 0x000FD710 runs in the actor services' end of scene.
 //
 // Bit 8 of DAT_0050EA9C is written back as 0x100 after the dword is cleared.
 // DAT_0050EA98 is cleared. 0x000ED450 is not translated. 0x00129F70 is not
@@ -1275,7 +1279,7 @@ void scene_teardown(u8* scene)
     g_50ea8c = 0.f;
     g_50ea88 = 0.f;
     g_50ea94 = 0;
-    // 0x000FD710 is not translated.
+    // 0x000FD710 runs in the actor services' end of scene (SceneActorServices::State::end_scene).
     const u32 kept = (g_flags_ea9c >> 8) & 1u;
     g_50ea98 = 0;
     g_flags_ea9c = 0;

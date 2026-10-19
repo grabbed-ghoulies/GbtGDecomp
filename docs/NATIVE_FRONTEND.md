@@ -52,7 +52,7 @@ the other half of that step). Read `AGENTS.md` first.
   | 5 | `0x000DC0B0` | `0x000DC0C0` | `0x000DC640` | `0x000DC6F0` | `0x000DC9A0` | |
   | 6 | `0x000D5850` | `0x000D5880` | `0x000D62A0` | `0x000D6410` | `0x000D67F0` | |
   | 7 | `0x000D4EA0` | `0x000D4EB0` | `0x000D5160` | `0x000D51E0` | `0x000D5300` | bonus book collection ("BonusBookCollectionMenu") |
-  | 8 | `0x000D4EA0` | `0x000D7A60` | `0x000D7DB0` | `0x000D7E40` | `0x000D7F80` | |
+  | 8 | `0x000D4EA0` | `0x000D7A60` | `0x000D7DB0` | `0x000D7E40` | `0x000D7F80` | features ("FeaturesMenu") |
   | 9 | `0x000E1E00` | `0x000E1E10` | `0x000E21A0` | `0x000E2230` | `0x000E4DB0` | |
   | 10 | `0x000E1E00` | `0x000E2B90` | `0x000E2F20` | `0x000E2FB0` | `0x000E4DB0` | |
   | 11 | `0x000E1E00` | `0x000E39F0` | `0x000E3D80` | `0x000E3E10` | `0x000E4DB0` | |
@@ -242,7 +242,9 @@ Hallway", Back / Select / Info / Move), and Play starts
 The progress line (`0x000DA040`) once stopped after "Chapter 1": its chapter
 number was converted from the begin and end of two different temporary
 strings, which copied stray memory (a NUL among it) into the line. Both
-numbers now go through one `wsprintfW("%s %d")` helper.
+numbers now go through one `wsprintfW("%s %d")` helper. The completed splat's
+height (`0x000DAD50`) now uses the font's line height (+0x10, `drop`) instead
+of its cell (+0xC).
 
 The native transition book (`src/engine/transitions/native_book.cpp`):
 `0x00048260` (create: the clip row at `0x00422078`, its cutscene and
@@ -272,6 +274,48 @@ the prompt callbacks `0x000DB450` (move), `0x000DB510` (back, book clip 1),
 `0x000DB570` (Play: `0x00083B10`, the port claim `0x00107F50` /
 `0x00109780`), `0x000DB620` (row 19), `0x000DB670` (challenges, row 6) and
 `0x000DB6D0` (features, row 8).
+
+Row 8, features (`gameselect_features.cpp`): `0x000D4EA0`..`0x000D7F80`, the
+state changes `0x000D8840`, the items `0x000D85A0` and the prompt callbacks
+`0x000E4E40` (A: the selected item's action), `0x000D8080` (the stick: up and
+down) and `0x000D8030` (B: back to the contents). It shows the book page, the
+game's name, the "Features" banner and a button-bat menu of the features:
+Artwork (when a challenge is finished or the progress bit 0x3D is set),
+Options (row 17), Replay Scene (row 10, past scene one), Replay Chapter (row 9,
+past chapter one), Story Books (row 16, not a new game), Demos (when
+`D:\cdxmedia\cdx.inx` exists) and Credits (a finished game). The menu lists
+them last-added first. Replay Scene, Replay Chapter and Story Books show an
+error page from `aid_loctext_ghoulies_dialog_dialogs` when their test fails.
+Artwork queues `aid_script_ghoulies_gameselect_unlockableart` through
+`0x00083B90` with its scene order held by `0x001234B0`. Demos (the `cdx.xbe`
+launch, `0x00032570`) and Credits (its scene order, `0x000F71F0`) raise.
+
+The button-bat menu (`button_bat_menu.cpp`, `DAT_005461A4`): create
+`0x00143550`, destroy `0x00143680`, items `0x00143320` / `0x001434E0`, add
+`0x001439C0` (each item linked first), open `0x00143B10`, close `0x00143B80`,
+tick `0x00143790`, draw `0x00143840`, up and down `0x00143BF0` / `0x00143CB0`,
+the paging `0x00144080`, `0x00144180`, `0x00144270`, the layout `0x00144480`,
+the records `0x00144360`, the hide `0x001443F0`, the bat's flight `0x00144320`,
+the arrows `0x001446F0` / `0x00144690` and their slide-in sprites
+`0x00144780` / `0x00144820` / `0x00144880`, with `0x00144030` and the text
+pool's `0x0005FFA0` (a record still revealing). Rows 9, 10 and 16 use it too.
+
+`--gameselect-features` names and saves a game, opens its contents, Right to
+Features and A. In the menu it presses Down twice (the bat moves to Replay
+Scene), A (a new game shows "Sir must first complete Scene One!"), A to close
+the page and B, and checks the control is back on row 3. It passes. The page
+behind the menu (and behind the delete and naming screens) was black until the
+attract's fog was reset at scene teardown (`0x000FD710`, see
+NATIVE_CUTSCENES.md, "Fog between scenes").
+
+`--gameselect-replay-scene` checks Replay Scene on a save past scene one. A
+child `--gameselect-new-game` run saves a game; the test sets its
+`progress.xsv` script (record +0x102) to
+`aid_script_ghoulies_chapter1_scene2_1viewcam` and signs the file again
+(`0x000E9AF0`'s signature, flags 0), and the native scan and load read it back.
+The contents show "Chapter 1, Scene 2 : Trophy Room". In the features menu,
+A on Replay Scene requests row 10 (scene ordinal 1), and the run stops there:
+row 10 (`0x000E1E00`) is not translated.
 
 Row 2, delete (`gameselect_delete.cpp`): `0x000DB720`..`0x000DBB90`, the
 state switch `0x000DBDC0` and the "GameSlotDeletionMenu" callbacks `0x000DBD50`
@@ -311,13 +355,13 @@ Engine fixes the front end needed:
 
 Not translated yet (each raises when reached):
 
-- **The other rows**: 6 (challenges, from contents), 8 (features, from
-  contents: its menu `0x000D8840` / `0x000D85A0` and the item callbacks
-  `0x000D80E0` (row 17), `0x000D8130` (unlockable art), `0x000D81D0` (row 10),
-  `0x000D8290` (row 9), `0x000D8360` (row 16), `0x000D8400` (`cdx.xbe`) and
-  `0x000D8420` (credits)), 19 (final score, from contents Info when Play is
-  unavailable), 7 (bonus book collection) and 5, 9..17 (also requested on the
-  way back from gameplay, `0x0011CFB0` and `0x0004A470`). A read-only walk from
+- **The other rows**: 6 (challenges, from contents), 19 (final score, from
+  contents Info when Play is unavailable), 7 (bonus book collection) and 5,
+  9..17 (9, 10, 16 and 17 from the features menu; also requested on the way
+  back from gameplay, `0x0011CFB0` and `0x0004A470`). Row 19 was missing from
+  the host table, so Info raised "past the table"; it is now listed and raises
+  as untranslated. The features menu's Demos (`0x000D8400`, the `cdx.xbe`
+  launch) and Credits (`0x000D8420`). A read-only walk from
   these rows and callbacks reaches about 226 untranslated functions (61 KB).
 - **The secret sequence's save** (`0x000DB380`'s `0x000F2A50`, `0x0010E4F0`,
   `0x0010DA80`) and the book's map routes (`0x00046F40`, `0x00047770`) and

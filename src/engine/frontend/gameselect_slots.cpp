@@ -1,4 +1,5 @@
 #include "gameselect_slots.h"
+#include "gameselect_progress.h"
 #include "dialogue_draw_context.h"
 #include "dialogue_draw_outer.h"
 #include "dialogue_text_pool.h"
@@ -356,30 +357,12 @@ SaveGameContext save_context(GameSelectControlServices& s)
     return {s.files, s.profile, s.scene_order_held};
 }
 
-// Xbox 0x0004B4D0, EAX the script: its chapter (1..9 from the names at 0x004232F8), or 0.
-i32 script_chapter(const char* script, GameSelectControlServices& s)
-{
-    if (std::strncmp("aid_script_ghoulies_chapter", script, 0x1B) != 0)
-    {
-        return 0;
-    }
-    for (i32 chapter = 1; chapter < 10; ++chapter)
-    {
-        const char* name = exe_string(s, exe_word(s, 0x004232F4 + u32(chapter) * 4));
-        if (std::strncmp(name, script + 0x1B, std::strlen(name)) == 0)
-        {
-            return chapter;
-        }
-    }
-    return 0;
-}
-
 // The 0x0010DB10 / 0x0004B4D0 / DAT_002FE698 row of the selected slot's save: its chapter's plate row.
 i32 slot_chapter_row(const char16_t* name, GameSelectControlServices& s)
 {
     char script[0x80]{};
     save_game_script(name, script); // 0x0010DB10, EBX the name
-    const i32 chapter = script_chapter(script, s); // 0x0004B4D0
+    const i32 chapter = gameselect_script_chapter(script, s); // 0x0004B4D0
     return i32(exe_word(s, 0x002FE698 + u32(chapter) * 4));
 }
 

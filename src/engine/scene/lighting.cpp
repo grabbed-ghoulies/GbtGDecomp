@@ -20,6 +20,7 @@
 
 #include "lighting.h"
 #include "../graphics/light_volume_records.h"
+#include "background_ambient.h"
 
 namespace gbtg
 {
@@ -206,6 +207,48 @@ void lighting_initialize_volume()
     g_scene_light_direction.camera_relative = 1; // DAT_00509B58
     g_light_paused = 0;
     g_light_running = 1;
+}
+
+// Xbox 0x000FDED0
+void release_runtime_light_records(RuntimeShaderRegistrationState& shaders)
+{
+    for (i32 index = 0; index < 0x28; ++index)
+    {
+        if (shaders.records[size_t(index)] != nullptr)
+        {
+            // HeapFree when +0x66 bit 0x10 is clear. The host's records point into their model's shader storage
+            // (0x000FDF60), which owns them, so the heap boundary has nothing to free.
+            shaders.records[size_t(index)] = nullptr;
+            --shaders.count;
+        }
+    }
+    shaders.count = 0;
+}
+
+// Xbox 0x000FD710
+void reset_runtime_light_environment(RuntimeShaderRegistrationState& shaders, RuntimeSceneFog& fog)
+{
+    release_runtime_light_records(shaders); // 0x000FDED0
+    g_light_filled = 0; // DAT_0050D71C
+    g_light_mark_740 = 0; // DAT_0050D740
+    // DAT_00509AFC..DAT_00509B0C has two host views: the scene fog record the cutscene events and 0x000FD5C0 use,
+    // and this file's light-volume pass. Both are reset.
+    fog.enabled = 0; // DAT_00509AFC
+    fog.disabled = 0; // DAT_00509B00
+    g_light_pass.active = 0;
+    g_light_pass.gate = 0;
+    fog.start = 1.f; // DAT_00509B08 = DAT_0032B0F8
+    g_light_pass.scale = 1.f;
+    const auto light_color = runtime_background_ambient().light_color; // DAT_00509B3C
+    light_color[3] = 1.f; // DAT_00509B48 = DAT_0032B0F8
+    fog.end = 1000.f; // DAT_00509B0C = DAT_0032B164
+    g_light_pass.range = 1000.f;
+    const u32 color = 0xFFC0C0C0u; // DAT_00509B04 = DAT_00314F94
+    std::memcpy(fog.color.data(), &color, 4);
+    g_light_pass.color = color;
+    light_color[2] = 0.f; // DAT_00509B44
+    light_color[1] = 0.f; // DAT_00509B40
+    light_color[0] = 0.f; // DAT_00509B3C
 }
 
 

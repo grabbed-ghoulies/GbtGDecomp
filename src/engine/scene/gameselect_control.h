@@ -24,9 +24,9 @@ struct GameSelectControlState
     // +0x94: a widget's request for the next row. When it is set and the book allows it (0x00083E20), 0x000838D0
     // closes the widget, opens that row and clears this.
     u32 requested_row = 0;
-    std::array<char, 0x80> script{}; // +0x98, the script 0x00083D10 requests; no translated code writes it
-    // +0x118: 0x000838D0 starts the game while start_ready is set: 1 the save's script (0x00083C70), 2 +0x98's
-    // (0x00083D10).
+    std::array<char, 0x80> script{}; // +0x98, the script 0x00083B90 queues and 0x00083D10 requests
+    // +0x118: 0x000838D0 starts the game while start_ready is set: 1 the save's script (0x00083C70, queued by
+    // 0x00083B10), 2 +0x98's (0x00083D10, queued by 0x00083B90).
     u32 pending_start = 0;
     // +0x11C: the scene flags the start sets (0x00083C70): 1 sets bits 2 and 4, 2 clears 2 and sets 4, 3 clears
     // both.
@@ -51,6 +51,9 @@ void draw_runtime_gameselect_control(std::span<u8> state, GameSelectControlState
     GameSelectControlServices& services); // Xbox 0x000839E0
 bool runtime_gameselect_book_busy(const GameSelectControlState& control,
     const GameSelectControlServices& services); // Xbox 0x00083C40, ECX the control
+void hold_runtime_scene_order(const char* name, GameSelectControlServices& services); // Xbox 0x001234B0, EAX name
+void queue_runtime_gameselect_script(GameSelectControlState& control, const char* script, u32 mode,
+    GameSelectControlServices& services); // Xbox 0x00083B90, ECX the control, EAX the script
 void select_runtime_gameselect_row(const GameSelectWidgetRow*& row,
     GameSelectControlServices& services); // Xbox 0x000E5AE0, ESI the control's +0x88
 }

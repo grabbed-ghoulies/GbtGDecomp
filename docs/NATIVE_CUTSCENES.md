@@ -287,7 +287,22 @@ ignored it, so the room was lit from the first frame.
   `chapter1_scene1_2playcam` and `chapter1_scene0_1book` at frame 300 look normal; ctest 7/7.
   Not compared with xemu.
 
-### Remaining
+### Fog between scenes (2026-10-19)
+
+The attract's black fog (`ff000000`, end 44.6 at its last 0x1A) stayed in the fog record after the attract
+ended, so game select's page cutscene, which sets no fog, drew its background into black fog: the delete,
+naming and features screens had no page behind them.
+
+- Retail resets the record at scene teardown: 0x000FD710 (from 0x0011C6C0) drops the light records
+  (0x000FDED0), clears the shadow-volume counts and sets the fog record (DAT_00509AFC..DAT_00509B0C) to off,
+  start 1, end 1000, colour `ffc0c0c0`, and the base light colour to (0, 0, 0, 1). It is
+  `reset_runtime_light_environment` (`scene/lighting.cpp`), called from the actor services' `end_scene`.
+- The scene tick applies the record each frame through 0x000FD5C0 (`configure_scene_fog`), while the scene's
+  actors are started, as retail's 0x0011E7F0 does.
+- Checked: `--attract` passes; the five game-select modes, `--gameselect-features` and `--scene6` pass, and the
+  scene6 captures are byte-identical. The game-select captures that changed are the delete and naming screens
+  (now on the page) and the chapter 1 book after Play, which is no longer darkened. Headless 900 frames exits 0.
+  Not compared with xemu.
 
 - Game select (`aid_script_ghoulies_gameselect_gameselect`) stops at factory type 154 (0x9A) and
   falls back to the host front end. That's step 5.

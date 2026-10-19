@@ -168,6 +168,10 @@ struct GameSelectControlServices
     TransitionBookServices& books; // The menu book (0x00048260 ..).
     std::function<const RuntimeDialogueInputDevice&(u32 address)> input_view; // A mapped device's view.
     u32* port_masks; // DAT_0050E0F8, the players' port masks.
+    const i32& paused; // DAT_00510CE8
+    std::function<void(Actor& actor)> update_actor; // The actor's vtable +0x10.
+    char* replacement_source; // DAT_004E1AC0, the cutscene actor model a replacement swaps out.
+    char* replacement_target; // DAT_004E1A40
 };
 // One row of the mode table at 0x0030A000: create, destroy, open(owner, widget), close, tick, draw. A null entry
 // is a row function that is not translated yet; reaching it raises with its address.
@@ -182,6 +186,9 @@ struct GameSelectWidgetRow
     void (*draw)(GameSelectWidget& widget, GameSelectControlServices& services);
 };
 const GameSelectWidgetRow& gameselect_widget_row(u32 index); // 0x0030A000 + index * 0x18
+// The front-end stick as up (1), down (2), left (4) or right (8), or 0 inside the dead zone.
+u16 gameselect_direction_code(std::array<float, 2> direction,
+    const GameSelectControlServices& services); // Xbox 0x001080B0, ESI the direction
 u32 gameselect_widget_row_index(const GameSelectWidgetRow& row);
 GameSelectWidgetHandle create_gameselect_widget(const GameSelectWidgetRow& row,
     GameSelectControlServices& services); // Row +0

@@ -30,6 +30,8 @@ float runtime_text_line_width(const RuntimeTextMetrics& state, i32 font,
     const char16_t* text, float scale); // Xbox 0x00060710
 float runtime_text_word_advance(const RuntimeTextMetrics& state, i32 font,
     const char16_t* text, u16 stop, float scale); // Xbox 0x00060790
+// A font's line height (+0x10) at a scale, or at DAT_005043E8 when the scale is 0 (DAT_0032B100).
+float runtime_text_line_height(const RuntimeTextMetrics& state, i32 font, float scale); // Xbox 0x000606D0, ECX XMM1
 i32 measure_runtime_text_block(const RuntimeTextMetrics& state, i32 font,
     const char16_t* text, float scale, float wrap_width, float viewport_width,
     float* dimensions); // Xbox 0x00060A40

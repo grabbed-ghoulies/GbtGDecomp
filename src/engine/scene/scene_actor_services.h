@@ -56,6 +56,9 @@ public:
     void run_scene_pass(); // Xbox 0x0011E640
     void update_scoreboard_hud(); // Xbox 0x00132210, after the scene pass
     void tick_live_spawns(); // Xbox 0x0011B670, in the scene tick after the actors
+    // The scene tick's fog: the renderer takes the scene fog record (DAT_00509AFC..) each frame, so a cutscene's
+    // fog events (0x1A / 0x1B), which change the record after configuring the renderer, apply on the next frame.
+    void configure_scene_fog(); // Xbox 0x000FD5C0
     // The scene tick's ghoul intro: 0x000F4A00 while DAT_00506E28 is 1, before the control list, then 0x000F4560
     // after the script timers.
     void start_pending_ghoul_intro();

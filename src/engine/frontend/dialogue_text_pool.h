@@ -48,6 +48,9 @@ u32 end_all_dialogue_text_records(RuntimeDialogueTextPool& pool,
     std::span<const RuntimeTextFont* const> fonts, const u8* fallback_texture,
     u32& random_state); // Xbox 0x0005F970
 u32 remove_dialogue_text_record(RuntimeDialogueTextPool& pool, u32 id); // Xbox 0x0005FB10
+// Whether record `id` still has a letter whose animation frame is short of its texture's last.
+u32 dialogue_text_record_animating(const RuntimeDialogueTextPool& pool, u32 id,
+    std::span<const RuntimeTextFont* const> fonts, const u8* fallback_texture); // Xbox 0x0005FFA0
 u32 create_dialogue_text_record(RuntimeDialogueTextPool& pool, const char16_t* text,
     float x, float y, float scale_x, float scale_y, float lifetime,
     i32 centered, i32 panel, i32 sticky, const RuntimeTextMetrics& metrics,

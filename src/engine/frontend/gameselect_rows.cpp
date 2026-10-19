@@ -1,9 +1,14 @@
 #include "gameselect_rows.h"
 #include "gameselect_contents.h"
 #include "gameselect_delete.h"
+#include "gameselect_features.h"
 #include "gameselect_naming.h"
 #include "gameselect_slots.h"
 
+#include "../scene/executable_resources.h"
+
+#include <bit>
+#include <cmath>
 #include <cstring>
 #include <sstream>
 
@@ -31,8 +36,8 @@ void put_half(std::span<u8> bytes, size_t offset, u16 value)
     std::memcpy(bytes.data() + offset, &value, 2);
 }
 
-// The mode table at 0x0030A000. Row 0 is empty.
-const std::array<GameSelectWidgetRow, 19> kRows{{
+// The mode table at 0x0030A000 (20 rows). Row 0 is empty.
+const std::array<GameSelectWidgetRow, 20> kRows{{
     {{0, 0, 0, 0, 0, 0}, nullptr, nullptr, nullptr, nullptr, nullptr},
     {{0x000DD730, kHeapFreeWidget, 0x000DD740, 0x000DDC90, 0x000DDD80, 0x000DDF20}, create_runtime_slot_select,
         open_runtime_slot_select, close_runtime_slot_select, tick_runtime_slot_select, draw_runtime_slot_select},
@@ -50,8 +55,9 @@ const std::array<GameSelectWidgetRow, 19> kRows{{
         nullptr, nullptr},
     {{0x000D4EA0, kHeapFreeWidget, 0x000D4EB0, 0x000D5160, 0x000D51E0, 0x000D5300}, nullptr, nullptr, nullptr,
         nullptr, nullptr},
-    {{0x000D4EA0, kHeapFreeWidget, 0x000D7A60, 0x000D7DB0, 0x000D7E40, 0x000D7F80}, nullptr, nullptr, nullptr,
-        nullptr, nullptr},
+    {{0x000D4EA0, kHeapFreeWidget, 0x000D7A60, 0x000D7DB0, 0x000D7E40, 0x000D7F80}, create_runtime_game_features,
+        open_runtime_game_features, close_runtime_game_features, tick_runtime_game_features,
+        draw_runtime_game_features},
     {{0x000E1E00, kHeapFreeWidget, 0x000E1E10, 0x000E21A0, 0x000E2230, 0x000E4DB0}, nullptr, nullptr, nullptr,
         nullptr, nullptr},
     {{0x000E1E00, kHeapFreeWidget, 0x000E2B90, 0x000E2F20, 0x000E2FB0, 0x000E4DB0}, nullptr, nullptr, nullptr,
@@ -71,6 +77,8 @@ const std::array<GameSelectWidgetRow, 19> kRows{{
     {{0x000E0B60, kHeapFreeWidget, 0x000E0B70, 0x000E0F50, 0x000E1000, 0x000E1130}, nullptr, nullptr, nullptr,
         nullptr, nullptr},
     {{0x000E0650, kHeapFreeWidget, 0x000E0660, 0x000E0830, 0x000E08C0, 0x000E0A30}, nullptr, nullptr, nullptr,
+        nullptr, nullptr},
+    {{0x000D79A0, kHeapFreeWidget, 0x000D79B0, 0x000D79F0, 0x000D7A00, 0x00082F70}, nullptr, nullptr, nullptr,
         nullptr, nullptr},
 }};
 }
@@ -216,5 +224,38 @@ bool runtime_texture_format_drawable(std::span<const u8> texture)
     default:
         return false;
     }
+}
+
+namespace
+{
+float image_real(const GameSelectControlServices& s, u32 address)
+{
+    return std::bit_cast<float>(read_u32(s.image.memory(address, 4), 0));
+}
+}
+
+// Xbox 0x001080B0, ESI the direction: an axis inside (DAT_0032B274, DAT_0032B1AC) is dropped; the larger axis
+// gives up (1), down (2), left (4) or right (8).
+u16 gameselect_direction_code(std::array<float, 2> direction, const GameSelectControlServices& s)
+{
+    const float dead = image_real(s, 0x0032B1AC);
+    const float low = image_real(s, 0x0032B274);
+    if (dead > direction[0] && direction[0] > low)
+    {
+        direction[0] = 0.f;
+    }
+    if (dead > direction[1] && direction[1] > low)
+    {
+        direction[1] = 0.f;
+    }
+    if (direction[0] == 0.f && direction[1] == 0.f)
+    {
+        return 0;
+    }
+    if (std::fabs(direction[0]) < std::fabs(direction[1])) // 0x00152BB0
+    {
+        return direction[1] > image_real(s, 0x0032B100) ? 1 : 2;
+    }
+    return direction[0] > image_real(s, 0x0032B100) ? 8 : 4;
 }
 }

@@ -132,6 +132,7 @@
 #include "../transitions/native_book.h"
 #include "../frontend/gameselect_contents.h"
 #include "../frontend/gameselect_delete.h"
+#include "../frontend/gameselect_features.h"
 #include "../frontend/input_stack.h"
 #include "../frontend/brew_meter.h"
 #include "../frontend/player_health_display.h"
@@ -3927,6 +3928,9 @@ void SceneActorServices::State::end_scene()
         engine_heap_free(door_pool);
         door_pool = nullptr;
     }
+    // 0x0011C6C0: the light records and the fog record reset, so a scene's fog (the attract's black fog) does not
+    // carry into the next.
+    reset_runtime_light_environment(shaders, fog); // 0x000FD710
     in_scene = false;
 }
 
@@ -4210,7 +4214,12 @@ void SceneActorServices::State::bind_gameselect_services()
         {
             return input_views.at(address);
         },
-        port_masks.data() + 1});
+        port_masks.data() + 1, g_510ce8,
+        [this](Actor& actor)
+        {
+            actor_updates.at(&actor)(actor); // Actor vtable +0x10.
+        },
+        replacement_source.data(), replacement_target.data()});
     scene.controls->context.gameselect = gameselect_services.get();
     // The slot prompts' row callbacks (+0x84).
     widget_callbacks[0x000E0210] = [this]()
@@ -4257,6 +4266,19 @@ void SceneActorServices::State::bind_gameselect_services()
     widget_callbacks[0x000DB6D0] = [this]()
     {
         open_runtime_game_features(*gameselect_services);
+    };
+    // The features prompts' rows (0x00306570, "FeaturesMenu").
+    widget_callbacks[0x000E4E40] = [this]()
+    {
+        activate_runtime_feature(*gameselect_services);
+    };
+    widget_callbacks[0x000D8080] = [this]()
+    {
+        move_runtime_features_cursor(*gameselect_services);
+    };
+    widget_callbacks[0x000D8030] = [this]()
+    {
+        leave_runtime_game_features(*gameselect_services);
     };
     // The deletion prompts' rows (0x003077B0).
     widget_callbacks[0x000DBD50] = [this]()
@@ -8391,6 +8413,11 @@ void SceneActorServices::start_pending_ghoul_intro()
     {
         start_runtime_ghoul_intro(*state_->ghoul_intro_context); // 0x000F4A00
     }
+}
+
+void SceneActorServices::configure_scene_fog()
+{
+    configure_runtime_scene_fog(state_->model_renderer, state_->fog); // 0x000FD5C0
 }
 
 void SceneActorServices::update_ghoul_intro()

@@ -11,6 +11,8 @@ struct SlotSelectWidget;
 struct GameNamingWidget;
 struct GameContentsWidget;
 struct GameDeletionWidget;
+struct GameFeaturesWidget;
+struct ButtonBatMenu;
 // The front end's boot-reset globals (0x000E5A80). DAT_00429BC0 (the next widget row) and DAT_00429BC4 (a wide
 // name) are scene.cpp's g_429bc0 and g_429bc4.
 struct RuntimeFrontendState
@@ -27,7 +29,11 @@ struct RuntimeFrontendState
     GameNamingWidget* naming_widget = nullptr; // DAT_00506594, the open naming widget.
     GameContentsWidget* contents_widget = nullptr; // DAT_005462CC, the open contents widget.
     GameDeletionWidget* deletion_widget = nullptr; // DAT_0050658C, the open deletion widget.
+    GameFeaturesWidget* features_widget = nullptr; // DAT_00506588, the open features widget.
+    ButtonBatMenu* bat_menu = nullptr; // DAT_005461A4, the button-bat menu (0x00143550 .. 0x00143680).
     i32 contents_chapter = 0; // DAT_005462C8, the chapter contents last showed.
+    i32 word_005065bc = 0; // DAT_005065BC, cleared by 0x00083B90 while stream 2 is busy; no translated code reads it
+    i32 word_005065c0 = 0; // DAT_005065C0, set by 0x00083B90 then; no translated code reads it
 };
 extern RuntimeFrontendState g_frontend;
 void reset_runtime_frontend(RuntimeFrontendState& state, FrontendPauseDitty& ditty); // Xbox 0x000E5A80

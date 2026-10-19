@@ -1,4 +1,6 @@
 #include "gameselect_contents.h"
+#include "button_bat_menu.h"
+#include "gameselect_progress.h"
 #include "dialogue_draw_context.h"
 #include "dialogue_draw_outer.h"
 #include "dialogue_activation.h"
@@ -201,137 +203,9 @@ u32 blend_color(u32 selected, u32 rest, float fraction, GameSelectControlService
     return output;
 }
 
-// Xbox 0x001080B0, ESI the direction: an axis inside (DAT_0032B274, DAT_0032B1AC) is dropped; the larger axis
-// gives up (1), down (2), left (4) or right (8).
-u16 direction_code(std::array<float, 2> direction, GameSelectControlServices& s)
-{
-    const float dead = exe_real(s, 0x0032B1AC);
-    const float low = exe_real(s, 0x0032B274);
-    if (dead > direction[0] && direction[0] > low)
-    {
-        direction[0] = 0.f;
-    }
-    if (dead > direction[1] && direction[1] > low)
-    {
-        direction[1] = 0.f;
-    }
-    if (direction[0] == 0.f && direction[1] == 0.f)
-    {
-        return 0;
-    }
-    if (std::fabs(direction[0]) < std::fabs(direction[1])) // 0x00152BB0
-    {
-        return direction[1] > exe_real(s, 0x0032B100) ? 1 : 2;
-    }
-    return direction[0] > exe_real(s, 0x0032B100) ? 8 : 4;
-}
-
-// Xbox 0x0013B9D0, ECX the bat, EAX its point: the bat flies off the nearer screen edge.
-void fly_bat_off_screen(Actor* bat, const float* point, GameSelectControlServices& s)
-{
-    const float width = screen_width(s);
-    const float height = screen_height(s);
-    const float half = exe_real(s, 0x0032B0F4);
-    ButtonBatPoint target{};
-    target.x = width - point[0] > width * half ? width + exe_real(s, 0x0032B1E0) : exe_real(s, 0x0032B304);
-    target.y = height - point[1] > height * half ? height + exe_real(s, 0x0032B1E0) : exe_real(s, 0x0032B304);
-    if (bat != nullptr)
-    {
-        s.fly_bat(*bat, target, 1.f); // 0x0006DA00
-    }
-}
-
 const RuntimeDialogueInputDevice& frontend_device(GameSelectControlServices& s)
 {
     return s.input_view(s.frontend_input); // DAT_00429BBC
-}
-
-// Xbox 0x0004B4D0, EAX the script: its chapter (1..9 from the names at 0x004232F8), or 0.
-i32 script_chapter(const char* script, GameSelectControlServices& s)
-{
-    if (std::strncmp("aid_script_ghoulies_chapter", script, 0x1B) != 0)
-    {
-        return 0;
-    }
-    for (i32 index = 1; index < 10; ++index)
-    {
-        const char* name = s.image.string(exe_word(s, 0x004232F4 + u32(index) * 4));
-        if (std::strncmp(name, script + 0x1B, std::strlen(name)) == 0)
-        {
-            return index;
-        }
-    }
-    return 0;
-}
-
-// Xbox 0x0004B530, EDX the chapter: the scenes of the chapters before it (DAT_002FE670 counts).
-i32 scenes_before(i32 index, GameSelectControlServices& s)
-{
-    i32 total = 0;
-    for (i32 count = 1; count < index; ++count)
-    {
-        total += i32(exe_word(s, 0x002FE670 + u32(count) * 4));
-    }
-    return total;
-}
-
-// Xbox 0x0011EBC0, EBX the script: the scene number after "aid_script_ghoulies_chapter<name>_scene".
-i32 script_scene(const char* script, GameSelectControlServices& s)
-{
-    const i32 index = script_chapter(script, s); // 0x0004B4D0
-    if (index == 0)
-    {
-        return 0;
-    }
-    std::string prefix = s.image.string(exe_word(s, 0x00430CFC)); // "aid_script_ghoulies_chapter"
-    prefix += s.image.string(exe_word(s, 0x004232F4 + u32(index) * 4));
-    prefix += s.image.string(exe_word(s, 0x00430D00)); // "_scene"
-    return i32(std::atol(script + prefix.size()));
-}
-
-// Xbox 0x0011EC70, EAX the script: the scene's number within its book (chapters 2..4 and 5..7 count on).
-i32 book_scene(const char* script, GameSelectControlServices& s)
-{
-    const i32 index = script_chapter(script, s); // 0x0004B4D0
-    i32 scene = script_scene(script, s); // 0x0011EBC0
-    i32 first;
-    switch (index)
-    {
-    case 2:
-    case 3:
-    case 4:
-        first = 2;
-        break;
-    case 5:
-    case 6:
-    case 7:
-        first = 5;
-        break;
-    default:
-        return scene;
-    }
-    i32 total = 0;
-    for (i32 count = first; count < index; ++count)
-    {
-        total += i32(exe_word(s, 0x002FE670 + u32(count) * 4));
-    }
-    return scene + total;
-}
-
-// Xbox 0x0011ED30, EAX the script: the scene's ordinal over all chapters, or -1.
-i32 scene_ordinal(const char* script, GameSelectControlServices& s)
-{
-    const i32 scene = script_scene(script, s); // 0x0011EBC0
-    const i32 index = script_chapter(script, s); // 0x0004B4D0
-    if (index == 0)
-    {
-        return -1;
-    }
-    if (scene != 0)
-    {
-        return scenes_before(index, s) - 1 + scene;
-    }
-    return scenes_before(index, s); // 0x0004B530
 }
 
 // Xbox 0x0011ED80: the scene's localized name (aid_loctext_ghoulies_script_scenenames, "scenenames") in
@@ -386,17 +260,17 @@ bool describe_progress(GameContentsWidget& w, GameSelectControlServices& s)
     }
     char script[0x80]{};
     save_game_script(w.name, script); // 0x0010DB10
-    const i32 index = script_chapter(script, s); // 0x0004B4D0
+    const i32 index = gameselect_script_chapter(script, s); // 0x0004B4D0
     const std::u16string chapter_line =
         text_and_number(chapter_text.data(), i32(exe_word(s, 0x002FE698 + u32(index) * 4))); // wsprintfW("%s %d")
-    i32 scene = book_scene(script, s); // 0x0011EC70
+    i32 scene = gameselect_book_scene(script, s); // 0x0011EC70
     if (scene == 0)
     {
         scene = 1;
     }
     const std::u16string scene_line = text_and_number(scene_text.data(), scene); // wsprintfW("%s %d")
     std::array<char16_t, 0x800> name{};
-    const std::u16string place = scene_name(scene_ordinal(script, s), name, s); // 0x0011ED30, 0x0011ED80, lstrcpyW
+    const std::u16string place = scene_name(gameselect_scene_ordinal(script, s), name, s); // 0x0011ED30, 0x0011ED80, lstrcpyW
     const std::u16string line = chapter_line + scene_line + u" : " + place; // wsprintfW("%s%s : %s")
     char16_t* text = w.progress.text.data();
     std::copy(line.begin(), line.end(), text);
@@ -665,7 +539,7 @@ void show_completed_splat(GameSelectControlServices& s)
     set_color_alpha(splat.color, 0x9B);
     splat.position[0] = s.hud.center_x;
     splat.position[1] = s.hud.center_y;
-    const float height = float(s.metrics.fonts[0]->cell) * exe_real(s, 0x0032B3D0); // DAT_00504444 +0x10
+    const float height = float(s.metrics.fonts[0]->drop) * exe_real(s, 0x0032B3D0); // DAT_00504444 +0x10
     const float width = runtime_text_line_width(s.metrics, 0,
         w.completed.text.data(), exe_real(s, 0x0032B3D0)); // 0x00060710
     splat.position[1] = width * exe_real(s, 0x0032B0F4) + splat.position[1] + exe_real(s, 0x0032B548);
@@ -1634,7 +1508,7 @@ void move_runtime_contents_cursor(GameSelectControlServices& services)
     {
         return;
     }
-    const u16 pressed = direction_code(direction, s); // 0x001080B0
+    const u16 pressed = gameselect_direction_code(direction, s); // 0x001080B0
     if (pressed == 4)
     {
         stop_chapter_movie(w); // 0x000DACE0
@@ -1658,7 +1532,7 @@ void leave_runtime_game_contents(GameSelectControlServices& services)
 {
     auto& s = services;
     auto& w = *s.frontend.contents_widget;
-    fly_bat_off_screen(w.bat, w.bat_target.data(), s); // 0x0013B9D0, EAX +0x854
+    fly_runtime_bat_off_screen(w.bat, w.bat_target.data(), s); // 0x0013B9D0, EAX +0x854
     auto& control = gameselect_control();
     control.gameselect->requested_row = 1;
     control.gameselect->book_turn = 3;
@@ -1733,7 +1607,7 @@ void open_runtime_game_challenges(GameSelectControlServices& services)
 {
     auto& s = services;
     auto& w = *s.frontend.contents_widget;
-    fly_bat_off_screen(w.bat, w.bat_target.data(), s); // 0x0013B9D0, EAX +0x854
+    fly_runtime_bat_off_screen(w.bat, w.bat_target.data(), s); // 0x0013B9D0, EAX +0x854
     auto& control = gameselect_control();
     control.gameselect->requested_row = 6;
     control.gameselect->book_turn = 2;

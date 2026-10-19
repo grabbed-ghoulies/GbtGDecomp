@@ -604,4 +604,41 @@ u32 remove_dialogue_text_record(RuntimeDialogueTextPool& pool, u32 id)
     pool.records = {allocation->begin, size_t(allocation->cursor - allocation->begin)};
     return 0;
 }
+
+// Xbox 0x0005FFA0
+u32 dialogue_text_record_animating(const RuntimeDialogueTextPool& pool, u32 id,
+    std::span<const RuntimeTextFont* const> fonts, const u8* fallback_texture)
+{
+    for (size_t offset = 0; offset < pool.records.size(); offset += 0x1238)
+    {
+        if (read_u32(pool.records, offset) != id)
+        {
+            continue;
+        }
+        // Each letter (+4, wide) and its animation frame (+0xE04, a word per letter).
+        size_t text = offset + 4;
+        size_t frame = offset + 0xE04;
+        for (u16 code = read_u16(pool.records, text); code != 0; code = read_u16(pool.records, text))
+        {
+            const auto& font = *fonts[size_t(pool.font)];
+            const u8* texture = fallback_texture;
+            if (font.first <= i32(code) && i32(code) <= font.last)
+            {
+                const auto& glyph = font.glyphs[code - font.first];
+                // MOVZX followed by CMP -1, as in 0x0005F7E0.
+                if (glyph.texture != nullptr && u32(glyph.marker) != 0xFFFFFFFFu)
+                {
+                    texture = glyph.texture;
+                }
+            }
+            if (texture != nullptr && 1 < texture[0x11] && i32(texture[0x11]) - 1 > i32(read_u32(pool.records, frame)))
+            {
+                return 1;
+            }
+            text += 2;
+            frame += 4;
+        }
+    }
+    return 0;
+}
 }

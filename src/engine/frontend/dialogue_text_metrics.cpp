@@ -130,6 +130,16 @@ i32 runtime_text_glyph_advance(const RuntimeTextFont& font, u16 code)
     return font.cell;
 }
 
+// Xbox 0x000606D0
+float runtime_text_line_height(const RuntimeTextMetrics& state, i32 font, float scale)
+{
+    if (scale != 0.f)
+    {
+        return float(state.fonts[size_t(font)]->drop) * scale;
+    }
+    return float(state.fonts[size_t(font)]->drop) * state.scale_y;
+}
+
 // Xbox 0x000607F0
 float runtime_text_space_advance(const RuntimeTextFont& font, float scale, float default_scale)
 {

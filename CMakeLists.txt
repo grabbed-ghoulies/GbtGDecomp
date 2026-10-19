@@ -577,6 +577,9 @@ add_executable(gbtg
     src/engine/transitions/native_book.cpp
     src/engine/frontend/gameselect_contents.cpp
     src/engine/frontend/gameselect_delete.cpp
+    src/engine/frontend/gameselect_features.cpp
+    src/engine/frontend/gameselect_progress.cpp
+    src/engine/frontend/button_bat_menu.cpp
     src/engine/frontend/input_stack.cpp
     src/engine/frontend/text_tokens.cpp
     src/engine/scene/lighting.cpp

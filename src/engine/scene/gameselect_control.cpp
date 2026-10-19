@@ -9,6 +9,7 @@
 #include "../saves/save_summary.h"
 #include "../scene/scene_types.h"
 #include "scene_control_fields.h"
+#include "scene_controls.h"
 
 #include <bit>
 #include <cstring>
@@ -33,34 +34,6 @@ float frame_step(const GameSelectControlServices& services)
 [[noreturn]] void untranslated(const char* what)
 {
     throw Error(std::string(what) + " is not translated");
-}
-
-// Xbox 0x001234B0, EAX name: the held scene-order resource (DAT_00511B64) and its release (DAT_00511B68).
-void hold_scene_order(const char* name, GameSelectControlServices& services)
-{
-    if (services.scene_order_release != 0 && services.scene_order_held.data() != nullptr)
-    {
-        if (services.scene_order_release != 0x00035940)
-        {
-            untranslated("the scene-order release callback");
-        }
-        // 0x00035940: 0x00035C00 over the held pointer, then the slot is cleared.
-        release_animation_resource(services.resources, services.scene_order_held);
-        services.scene_order_held = {};
-    }
-    if (std::memcmp(name, "aid_", 4) != 0)
-    {
-        services.scene_order_held = {};
-        services.scene_order_release = 0x00035940;
-        return;
-    }
-    const auto held = acquire_animation_resource(services.resources, name);
-    if (held.data() == nullptr)
-    {
-        resource_error(services.error, 2);
-    }
-    services.scene_order_held = held;
-    services.scene_order_release = 0x00035940;
 }
 
 // The book's place in its clip: time over duration (+0x2C / +0x34 of its cutscene).
@@ -165,6 +138,62 @@ void start_gameselect_game(const GameSelectControlState& control, bool saved_scr
 }
 }
 
+// Xbox 0x001234B0, EAX name: the held scene-order resource (DAT_00511B64) and its release (DAT_00511B68).
+void hold_runtime_scene_order(const char* name, GameSelectControlServices& services)
+{
+    if (services.scene_order_release != 0 && services.scene_order_held.data() != nullptr)
+    {
+        if (services.scene_order_release != 0x00035940)
+        {
+            untranslated("the scene-order release callback");
+        }
+        // 0x00035940: 0x00035C00 over the held pointer, then the slot is cleared.
+        release_animation_resource(services.resources, services.scene_order_held);
+        services.scene_order_held = {};
+    }
+    if (std::memcmp(name, "aid_", 4) != 0)
+    {
+        services.scene_order_held = {};
+        services.scene_order_release = 0x00035940;
+        return;
+    }
+    const auto held = acquire_animation_resource(services.resources, name);
+    if (held.data() == nullptr)
+    {
+        resource_error(services.error, 2);
+    }
+    services.scene_order_held = held;
+    services.scene_order_release = 0x00035940;
+}
+
+// Xbox 0x00083B90
+void queue_runtime_gameselect_script(GameSelectControlState& control, const char* script, u32 mode,
+    GameSelectControlServices& services)
+{
+    if (control.pending_start == 2)
+    {
+        return;
+    }
+    control.start_mode = mode;
+    std::strcpy(control.script.data(), script); // the byte copy to +0x98
+    control.pending_start = 2;
+    if (services.stream_busy(2) == 0) // 0x00039D50(2, 0, 0)
+    {
+        control.start_ready = 1;
+        return;
+    }
+    services.frontend.word_005065bc = 0; // DAT_005065BC
+    services.frontend.word_005065c0 = 1; // DAT_005065C0
+    auto& owner = *find_runtime_scene_control(0x9A)->gameselect; // 0x00116170, EDX 0x9A
+    owner.requested_row = 0x12;
+    owner.book_turn = 1;
+    if (owner.book != nullptr)
+    {
+        release_transition_book(owner.book, services.books); // 0x00048860
+        owner.book = nullptr;
+    }
+}
+
 // Xbox 0x000835F0
 void gameselect_control_object_sizes(ObjectSizes& output)
 {
@@ -205,7 +234,7 @@ bool construct_runtime_gameselect_control(std::span<u8> state, GameSelectControl
     control.book = nullptr;
     control.row = nullptr;
     select_runtime_gameselect_row(control.row, services);
-    hold_scene_order(services.scene_order, services);
+    hold_runtime_scene_order(services.scene_order, services);
     control.widget = create_gameselect_widget(*control.row, services);
     open_gameselect_widget(*control.row, state, control, *control.widget, services);
     initialize_camera_view(control.camera, "gameselect", 8); // 0x003241E0

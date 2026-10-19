@@ -94,6 +94,26 @@ void release_shader_parameter(BookShaderParameter* parameter)
     delete parameter; // HeapFree
 }
 
+// Xbox 0x000F86F0, EAX the parameter, ECX the texture, EDX the +0x10 word.
+void set_shader_parameter_texture(BookShaderParameter& parameter, u32 texture, u32 word,
+    const std::function<u8*(u32)>& texture_bytes)
+{
+    parameter.texture = texture;
+    parameter.word_10 = word;
+    parameter.word_14 = 0;
+    if (texture != 0)
+    {
+        u8* bytes = texture_bytes(texture);
+        if (bytes[0x11] != 0)
+        {
+            bytes[0x13] = 0;
+        }
+        set_shader_texture(*parameter.shader, parameter.index, parameter.texture); // 0x0015B2B0
+        return;
+    }
+    set_shader_texture(*parameter.shader, parameter.index, 0); // 0x0015B2B0
+}
+
 // Xbox 0x00048110: each page shader's colour0 gets a page texture (pages 2 and 3 DAT_005047E4, 1 and 4
 // DAT_005047D8).
 void bind_book_pages(RuntimeTransitionBook& book, TransitionBookServices& s)
@@ -222,9 +242,30 @@ RuntimeTransitionBook* create_transition_book(i32 clip, u32 flags, const char* t
     book->model = find_cutscene_actor_by_model(*book->cutscene, view.tracks.data(), rows.actors.data(),
         s.image.string(row(*book) + 0x80)); // 0x0004EA50, 0x004220F8
     bind_book_pages(*book, s); // 0x00048110
-    if (texture != nullptr && transition_book_row_word(*book, 0x114, s.image) != -1) // 0x0042218C
+    const i32 texture_page = transition_book_row_word(*book, 0x114, s.image); // 0x0042218C
+    if (texture != nullptr && texture_page != -1)
     {
-        untranslated("0x00048260's page texture (0x00035E90, 0x000F86F0)");
+        // An "aid_" name is the page's texture resource (0x00035E90); a missing one is resource error 2.
+        u32 address = 0;
+        if (std::memcmp(texture, "aid_", 4) == 0)
+        {
+            book->texture = acquire_animation_resource(s.resources, texture);
+            if (book->texture.data() == nullptr)
+            {
+                resource_error(s.error, 2); // 0x00032700
+            }
+            address = book->texture.data() == nullptr ? 0 : s.texture_address(book->texture);
+        }
+        else
+        {
+            book->texture = {};
+        }
+        BookShaderParameter* parameter = book->pages.at(size_t(texture_page)).parameter;
+        if (parameter == nullptr)
+        {
+            throw Error("transition book page " + std::to_string(texture_page) + " has no colour0 parameter");
+        }
+        set_shader_parameter_texture(*parameter, address, 0, s.texture_bytes); // 0x000F86F0
     }
     apply_book_camera_pair(*book, s); // 0x000481E0
     if ((book->flags & 1) != 0)

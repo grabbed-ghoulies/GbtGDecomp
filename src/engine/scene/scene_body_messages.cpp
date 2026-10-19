@@ -3,8 +3,14 @@
 #include "../entities/body_move_action_slots.h"
 #include "../entities/body_gravity_motion.h"
 #include "../entities/body_stand_alert_tick.h"
+#include "../entities/body_struggle_state.h"
+#include "../entities/actor_transform.h"
 #include "../entities/body_walk_alert_tick.h"
 #include "../entities/body_action_ids.h"
+#include "../transitions/scene_transition.h"
+#include "../transitions/scene_transitions.h"
+#include "../saves/runtime_profile.h"
+#include "scene.h"
 #include <bit>
 #include <cstring>
 #include <optional>
@@ -233,7 +239,7 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
         }
         // 0x74 and 0x7C have the empty 0x001628B0 message slot.
         if (child->type != 0x5A && child->type != 0x5B && child->type != 0x5C && child->type != 0x74
-            && child->type != 0x7C && child->type != 0x87)
+            && child->type != 0x7C && child->type != 0x87 && child->type != 0x88 && child->type != 0x69)
         {
             unbound("body action message slot of factory type " + std::to_string(child->type));
         }
@@ -268,7 +274,6 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
     case 0x19:
     case 0x2A:
     case 0x45:
-    case 0x63:
         unbound("body message views for id " + std::to_string(id));
     default:
         break;
@@ -285,6 +290,11 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
     if (id == 7)
     {
         views.parent.animation_command = services_.event_at(message[3]);
+    }
+    if (id == 0x63)
+    {
+        // {0x63, cylinder} from 0x0013D400: the bound lies in the message words from +4.
+        views.parent.cylinder = reinterpret_cast<const EntityCylinderBound*>(message.data() + 1);
     }
     if (id == 0xF)
     {
@@ -446,6 +456,31 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
                 unbound("stand-alert orientation 0x00134720");
             }};
         tick_runtime_stand_alert({action.bytes.get(), action.size}, tick);
+        return;
+    }
+    case 0x69:
+        tick_runtime_player_death_state({action.bytes.get(), action.size}, player_death_context()); // 0x0008F290
+        return;
+    case 0x88:
+    {
+        RuntimeStruggleTick tick{player_.body, player_.actor, player_.actor_bytes, *player_.body_bits,
+            player_.body_selection, services_.clock, player_.input_device, player_.scene.input_state, player_.mind,
+            [this]() -> u16
+            {
+                const RuntimeBodyActionIds ids{player_.attached, read_u16(player_.actor_bytes, 6),
+                    services_.address_of(player_.body.data())};
+                return runtime_body_damage_gated_id(ids, player_.action_table);
+            },
+            [this](u32 address) -> Vec3
+            {
+                Actor* target = services_.actor_at ? services_.actor_at(address) : nullptr;
+                if (target == nullptr)
+                {
+                    unbound("struggle target actor view (mind +0xC)");
+                }
+                return actor_world_position(*target);
+            }};
+        tick_runtime_struggle_state({action.bytes.get(), action.size}, tick);
         return;
     }
     case 0x5D:
@@ -648,9 +683,11 @@ void SceneBodyMessages::action_step(FactoryObject& action)
     case 0x74:
     case 0x7A:
     case 0x7C:
+    case 0x69:
     case 0x87:
+    case 0x88:
     case 0x8E:
-        // 0x001628B0 returns at once.
+        // 0x001628B0 (0x000D4179 for 0x69 and 0x88) returns at once.
         return;
     default:
         unbound("body action vtable +0x14 of factory type " + std::to_string(action.type));
@@ -915,6 +952,24 @@ RuntimeDieStateContext& SceneBodyMessages::die_context()
             return body_slot_key(slot);
         }});
     return *die_;
+}
+
+RuntimePlayerDeathContext& SceneBodyMessages::player_death_context()
+{
+    auto& knockdown = knockdown_context();
+    if (services_.camera_pulse == nullptr || !services_.streams || services_.dialogue == nullptr
+        || services_.frontend_state == nullptr || !services_.begin_transition)
+    {
+        unbound("player death state views (camera pulse, streams, dialogue, transition)");
+    }
+    auto& scene = player_.scene;
+    player_death_.emplace(RuntimePlayerDeathContext{knockdown, services_.latches, player_.mind,
+        player_.mind.empty() ? nullptr : &player_.mind_events.anchor, *services_.camera_pulse, services_.streams(),
+        *services_.dialogue, g_510cec, g_4dea24, g_script_30d94, scene.brews_owned, scene.brews_required,
+        *services_.frontend_state, scene.prompt_owner, g_scene_transition.phase, g_5493dc,
+        g_runtime_profile.progress.bytes, g_runtime_profile.unlocks.bytes, reinterpret_cast<const char*>(g_510e58),
+        services_.begin_transition});
+    return *player_death_;
 }
 
 std::span<const u8> SceneBodyMessages::mind_target()
@@ -1269,7 +1324,7 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 }
                 return;
             }
-            if (type != 0x87 && type != 0x5B && type != 0x5C && type != 0x74 && type != 0x7C)
+            if (type != 0x87 && type != 0x88 && type != 0x69 && type != 0x5B && type != 0x5C && type != 0x74 && type != 0x7C)
             {
                 unbound("collision reply action vtable +0xC of factory type " + std::to_string(type));
             }

@@ -17,6 +17,7 @@
 #include "../scene/scene_types.h"
 #include "../scripts/script_actions.h"
 #include "../../gbtg/text/localtext_resources.h"
+#include <cstdio>
 #include "gbtg/anim.h"
 #include "gbtg/resource_error.h"
 
@@ -43,7 +44,7 @@ i32 g_507df4 = 0;
 i32 g_510ce8 = 0;
 void* g_510e40 = nullptr;
 i32 g_510e34 = 0;
-// DAT_005493DC: .bss, and nothing native writes it; 0x0012C2D0 tests it.
+// DAT_005493DC: .bss; the player's death (0x0008F4D0) sets it and 0x0012C2D0 tests it.
 u32 g_5493dc = 0;
 char g_50e458[0x80]{};
 Game* g_transition_game = nullptr;
@@ -376,6 +377,41 @@ void end_book_handler(RuntimeSceneTransition& t)
     }
 }
 
+// The chapter's heading under the key in aid_loctext_ghoulies_chapterheadings, in DAT_00507E78.
+const char16_t* chapter_heading(const char* key, i32 chapter, LocalTextResourceContext& localtext)
+{
+    static std::array<char16_t, 0x800> scratch{}; // DAT_00507E78
+    char name[0x100];
+    std::snprintf(name, sizeof(name), "%d", chapter); // 0x001661F9, "%d" at 0x00322D20
+    scratch[0] = 0;
+    request_namespaced_localtext("aid_loctext_ghoulies_chapterheadings", key, name, scratch.data(),
+        localtext); // 0x000FF0A0
+    return scratch.data();
+}
+
+// Xbox 0x0004B550, EAX chapter
+const char16_t* chapter_number_heading(i32 chapter, LocalTextResourceContext& localtext)
+{
+    return chapter_heading("chapternumber", chapter, localtext);
+}
+
+// Xbox 0x0004B5A0, EAX chapter
+const char16_t* chapter_name_heading(i32 chapter, LocalTextResourceContext& localtext)
+{
+    return chapter_heading("chaptername", chapter, localtext);
+}
+
+// lstrcpyW (0x0014A961) into a transition string.
+void copy_wide(std::array<char16_t, 0x800>& output, const char16_t* text)
+{
+    size_t index = 0;
+    for (; text[index] != 0 && index + 1 < output.size(); ++index)
+    {
+        output[index] = text[index];
+    }
+    output[index] = 0;
+}
+
 // Xbox 0x0012B640
 void begin_book_handler(RuntimeSceneTransition& t)
 {
@@ -392,7 +428,14 @@ void begin_book_handler(RuntimeSceneTransition& t)
         book.holding = 1;
         break;
     case 2:
-        untranslated("0x0012B640's chapter title (0x0004B550, 0x0004B5A0, 0x0005F390)");
+        t.titled = 1;
+        t.title_ready = 0;
+        book.holding = 1;
+        copy_wide(t.chapter_number, chapter_number_heading(t.route, s.localtext)); // 0x0004B550
+        copy_wide(t.chapter_name, chapter_name_heading(t.route, s.localtext)); // 0x0004B5A0
+        allocate_dialogue_text_pool(t.title_pool, 0, 1, 0x80, s.text_pools); // 0x0005F390, ESI +0x103C
+        capture_book_page(book, s);
+        return;
     case 3:
     case 4:
     case 5:

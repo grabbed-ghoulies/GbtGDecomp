@@ -76,6 +76,10 @@ extern "C"
 #include "../transitions/scene_transitions.h"
 #include "../scripts/script_actions.h"
 #include "../scripts/script_vm.h"
+#include "../scripts/script_conditions.h"
+#include "../navigation/occupancy.h"
+#include "../entities/camera_director.h"
+#include "gbtg/actor_spawn_factory.h"
 #include "dialogue_scene_runtime.h"
 
 namespace gbtg
@@ -893,75 +897,140 @@ void scene_tick_audio_pause()
 }
 
 
-// Xbox 0x00140E30. DAT_00511B40 null, or equal to the sentinel 0x93C, returns.
-// A zero word at node+0x20 + 0x94 clears DAT_00545D20 and DAT_00545D24 and
-// returns. The int at node+0x39C below 1, and the int at [node+0x20]+0x258
-// equal to 0, calls 0x000412A0. The int at node+0x39C is read again. Below 1,
-// 0x001248D0(1, 0, 0) would run. A nonzero return, while DAT_00545D20 is 0,
-// builds message id 0xB0. A nonzero word at the returned node+10 would call
-// 0x0011F2E0 and store that word in the next dword. 0x00116810 would then
-// run, and DAT_00545D20 becomes 1. 0x001248D0 is not translated, so that
-// nonzero return is not taken and DAT_00545D20 is cleared. The other side of
-// the compare clears it as well.
-//
-// 0x001248D0(8, 0, 0) would then run. A zero return clears DAT_00545D24. A
-// nonzero return, while DAT_00545D24 is 0, builds message id 0xB1. A nonzero
-// word at node+10 would call 0x0011F2E0 and vtable +0xC on the actor
-// (node-0x93C) with that message. 0x00124970 would then run, and DAT_00545D24
-// becomes 1. Those calls are not translated, so the nonzero return is not
-// taken and DAT_00545D24 is cleared.
-//
-// 0x001248D0(0x10, 0, 0) would then run. A null return calls 0x0013D610. A
-// nonzero return from that call would call 0x000412A0 and 0x001248D0 again.
-// A still-null pointer, with DAT_00545D28 nonzero, writes the saved indexes
-// back through 0x00314DE8, 0x00314DFC, 0x00314E10, 0x00314E28, and
-// 0x00314E38, then clears DAT_00545D28. 0x0013D610 is not translated, so its
-// nonzero return is not taken. A live pointer from 0x001248D0 would copy
-// the four indexes when DAT_00545D28 is 0, then the dwords at +0xC, +0x10,
-// +0x14, and +0x18 when the dword at +0 differs from DAT_00545D28. That
-// nonzero return is not taken.
+// Xbox 0x00140E30. The DAT_00511B40 player (actor = link - 0x93C) with a live body (+0x94) and no park (+0xCD8 below
+// 1) or body +0x258 hold queues {0xB0, door} once on entering an exit volume (0x001248D0 mask 1) and sends {0xB1,
+// door} to itself once on entering a mask-8 volume, whose mask bit 0x00124970 then clears; the door word is
+// 0x0011F2E0 on the volume's +0xA key. The mask-0x10 volume at the same point, or at the first DAT_00511AA4 actor
+// with tag 6 (0x0013D610), picks the camera tune indexes (+0xC..+0x18); leaving every one restores the saved ones.
 // Xbox 0x00140E30
-void scene_update_actor_marker()
+void scene_update_actor_marker(Game& g)
 {
-    // Xbox 0x00140E30
-    if (g_actor_mark == nullptr ||
-        reinterpret_cast<std::uintptr_t>(g_actor_mark) == 0x93cu)
+    SceneActorServices* actors = script_scene_actors(g);
+    const u32 link = actors == nullptr ? 0 : actors->player_link();
+    if (link == 0 || link == 0x93Cu)
     {
         return;
     }
-    if (g_actor_mark->at_20->word_94 == 0)
+    std::vector<RuntimeDirectorActor> marks = actors->marked_actors();
+    const RuntimeDirectorActor* player = nullptr;
+    for (const auto& mark : marks)
     {
-        g_flag_5d20 = 0;
-        g_flag_5d24 = 0;
-        return;
-    }
-    Actor* actor = g_actor_mark->actor;
-    if (actor->parked_gate < 1 && g_actor_mark->at_20->int_258 == 0)
-    {
-        const Vec3 world = actor_world_position(*actor);
-        (void)world;
-        if (actor->parked_gate < 1)
+        if (mark.address == link - 0x93C)
         {
-            // 0x001248D0(1, 0, 0) is not translated. A nonzero return is not taken.
+            player = &mark;
         }
-        g_flag_5d20 = 0;
-        // 0x001248D0(8, 0, 0) is not translated. A nonzero return is not taken.
-        g_flag_5d24 = 0;
     }
-    // 0x001248D0(0x10, 0, 0) is not translated. A nonzero return is not taken.
-    // 0x0013D610 is not translated. A nonzero return is not taken.
-    if (g_flag_5d28 != 0)
+    if (player == nullptr)
     {
-        g_tune_34008 = script_tune(0x00314de8u, g_tune_5d2c);
-        g_tune_34014 = script_tune(0x00314dfcu, g_tune_5d2c);
-        g_tune_5aec = g_tune_5d2c;
-        g_tune_34010 = script_tune(0x00314e10u, g_tune_5d30);
-        g_tune_5af0 = g_tune_5d30;
-        g_tune_3402c = script_tune(0x00314e28u, g_tune_5d34);
-        g_tune_5af4 = g_tune_5d34;
-        g_tune_34030 = script_tune(0x00314e38u, g_tune_5d38);
-        g_tune_5af8 = g_tune_5d38;
-        g_flag_5d28 = 0;
+        throw Error("DAT_00511B40 player is not on DAT_00511B38");
+    }
+    if (read_u16(player->body, 0x94) == 0)
+    {
+        g_flag_5d20 = 0;
+        g_flag_5d24 = 0;
+        return;
+    }
+    // The point is a stack slot that only the paths below write; the mask-0x10 lookup reads it either way, so it
+    // keeps the last point written.
+    static Vec3 point{};
+    const auto door_of = [actors](const OccupancyRecord& volume) -> u16
+    {
+        i16 key;
+        std::memcpy(&key, reinterpret_cast<const u8*>(&volume) + 0xA, 2);
+        return key == 0 ? u16(0) : find_scene_spawn_type(actors->marker_records(), key); // 0x0011F2E0
+    };
+    Actor& actor = *player->actor;
+    if (actor.parked_gate < 1 && read_u32(player->body, 0x258) == 0)
+    {
+        point = actor_world_position(actor); // 0x000412A0
+        const OccupancyRecord* exit = actor.parked_gate < 1 ? find_occupancy_record(point, 0.f, 1, nullptr, 0) : nullptr;
+        if (exit != nullptr)
+        {
+            if (g_flag_5d20 == 0)
+            {
+                const u32 message[2]{0xB0, door_of(*exit)};
+                script_queue_event(g, {reinterpret_cast<const u8*>(message), sizeof(message)}); // 0x00116810
+            }
+            g_flag_5d20 = 1;
+        }
+        else
+        {
+            g_flag_5d20 = 0;
+        }
+        const OccupancyRecord* notice = find_occupancy_record(point, 0.f, 8, nullptr, 0);
+        if (notice == nullptr)
+        {
+            g_flag_5d24 = 0;
+        }
+        else
+        {
+            if (g_flag_5d24 == 0)
+            {
+                i16 key;
+                std::memcpy(&key, reinterpret_cast<const u8*>(notice) + 0xA, 2);
+                if (key != 0)
+                {
+                    std::array<u32, 0x42> message{};
+                    message[0] = 0xB1;
+                    message[1] = find_scene_spawn_type(actors->marker_records(), key); // 0x0011F2E0
+                    actors->send_actor_message(player->address, message); // Actor vtable +0xC.
+                }
+                clear_occupancy_record_mask(const_cast<OccupancyRecord&>(*notice), 8); // 0x00124970
+            }
+            g_flag_5d24 = 1;
+        }
+    }
+    const OccupancyRecord* tune = find_occupancy_record(point, 0.f, 0x10, nullptr, 0);
+    if (tune == nullptr)
+    {
+        if (Actor* listener = actors->first_latched_actor(6)) // 0x0013D610
+        {
+            point = actor_world_position(*listener); // 0x000412A0
+            tune = find_occupancy_record(point, 0.f, 0x10, nullptr, 0);
+        }
+    }
+    if (tune == nullptr)
+    {
+        if (g_flag_5d28 != 0)
+        {
+            g_tune_34008 = script_tune(0x00314de8u, g_tune_5d2c);
+            g_tune_34014 = script_tune(0x00314dfcu, g_tune_5d2c);
+            g_tune_5aec = g_tune_5d2c;
+            g_tune_34010 = script_tune(0x00314e10u, g_tune_5d30);
+            g_tune_5af0 = g_tune_5d30;
+            g_tune_3402c = script_tune(0x00314e28u, g_tune_5d34);
+            g_tune_5af4 = g_tune_5d34;
+            g_tune_34030 = script_tune(0x00314e38u, g_tune_5d38);
+            g_tune_5af8 = g_tune_5d38;
+            g_flag_5d28 = 0;
+        }
+        return;
+    }
+    if (g_flag_5d28 == 0)
+    {
+        g_tune_5d2c = g_tune_5aec;
+        g_tune_5d30 = g_tune_5af0;
+        g_tune_5d34 = g_tune_5af4;
+        g_tune_5d38 = g_tune_5af8;
+    }
+    if (tune->value_0 != u32(g_flag_5d28))
+    {
+        const auto word = [tune](size_t offset)
+        {
+            u32 value;
+            std::memcpy(&value, reinterpret_cast<const u8*>(tune) + offset, 4);
+            return value;
+        };
+        g_tune_5aec = word(0xC);
+        g_tune_5af0 = word(0x10);
+        g_tune_5af4 = word(0x14);
+        g_tune_5af8 = word(0x18);
+        g_tune_34008 = script_tune(0x00314de8u, g_tune_5aec);
+        g_tune_34014 = script_tune(0x00314dfcu, g_tune_5aec);
+        g_tune_34010 = script_tune(0x00314e10u, g_tune_5af0);
+        g_tune_3402c = script_tune(0x00314e28u, g_tune_5af4);
+        g_flag_5d28 = i32(tune->value_0);
+        g_tune_34030 = script_tune(0x00314e38u, g_tune_5af8);
     }
 }
 

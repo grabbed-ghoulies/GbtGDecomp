@@ -3,6 +3,8 @@
 #include "../frontend/frontend_state.h"
 #include "../frontend/gameselect_slots.h"
 #include "../entities/body_timers.h"
+#include "../entities/actor_lookup.h"
+#include "../entities/actor_render_registration.h"
 #include "../video/movie_startup.h"
 #include "attract_control.h"
 #include "../graphics/actor_effect_draw.h"
@@ -1427,7 +1429,25 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             return model_views_of(actor).nodes; // Actor +0x204 block directory.
         },
-        attachment_limit}});
+        attachment_limit,
+        [this](const Actor& actor)
+        {
+            return address_of(object_of_actor(const_cast<Actor&>(actor)).bytes.get());
+        },
+        [this](const Actor& actor) -> std::span<const u8>
+        {
+            auto& object = object_of_actor(const_cast<Actor&>(actor));
+            return {object.bytes.get(), object.size};
+        },
+        [this](u32 address) -> std::span<const u8>
+        {
+            // The words through +0xCDC that 0x000AB2D0 reads.
+            return scene.resolve_address(address, 0xCE0);
+        },
+        [this](u32 address) -> const char*
+        {
+            return image.string(address);
+        }}});
     players->install(scene.types);
     players->minds.install_cinema(scene.types);
     players->defer_release = true;
@@ -1843,6 +1863,21 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
         }
         return graph->pickup_context();
+    },
+    [this](u32 body_address) -> RuntimePlayerDeathContext&
+    {
+        const auto bytes = scene.resolve_address(body_address, 0);
+        auto* player = players->find_child_owner(bytes.data());
+        if (player == nullptr || player->body.data() != bytes.data())
+        {
+            unbound("player death state whose body has no player owner");
+        }
+        auto& graph = body_messages[player->body.data()];
+        if (graph == nullptr)
+        {
+            graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
+        }
+        return graph->player_death_context();
     });
     scene.install_base_class();
 
@@ -2946,6 +2981,21 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             return address == 0 ? nullptr : image.string(address);
         }});
     body_services->dizzy_input_preset = data(0x00428660, 0x10);
+    body_services->camera_pulse = &pulse;
+    body_services->streams = [this]() -> AudioBankStreams&
+    {
+        if (game.factory_scene == nullptr || game.factory_scene->controls == nullptr)
+        {
+            unbound("player death streams without the scene controls");
+        }
+        return game.factory_scene->controls->context.streams();
+    };
+    body_services->frontend_state = &frontend_state;
+    body_services->dialogue = dialogue.get();
+    body_services->begin_transition = []()
+    {
+        begin_scene_transition(reinterpret_cast<const char*>(g_510e58 + 0x80)); // 0x0012C5D0
+    };
     body_services->weapon_attachment_at = [this](u32 address) -> RuntimePlayerAttachmentActor&
     {
         return weapon_attachment_at(address);
@@ -3194,6 +3244,49 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             unbound("script tally actor " + std::to_string(address) + " is not a scene object");
         }
         return {object->bytes.get(), object->size};
+    };
+    g_script_door_pose = [this](u16 door, std::span<u32, 0x42> pose) -> const u8*
+    {
+        // 0x00129ED0 (DX door) over DAT_00511AA4.
+        const u32 found = find_runtime_actor_by_id(door,
+            [this](const entity_detail::LatchNode& node) -> u32
+            {
+                for (const auto& [address, latch] : active_nodes)
+                {
+                    if (latch.get() == &node)
+                    {
+                        return address;
+                    }
+                }
+                unbound("DAT_00511AA4 node with no scene actor");
+            },
+            [this](u32 address)
+            {
+                return scene.resolve_address(address, 0x200);
+            });
+        if (found != 0)
+        {
+            addresses.clear();
+            for (const auto& [bytes, actor] : actors->actors)
+            {
+                addresses[scene.address_of(bytes)] = actor;
+            }
+            if (Actor* player = find_runtime_script_player(
+                    cases.next == nullptr ? 0 : address_of(cases.next), addresses)) // 0x001292D0
+            {
+                const Vec3 position = actor_world_position(*player); // 0x000412A0
+                const Vec3 euler = actor_world_euler(*player); // 0x00041820
+                std::memcpy(&pose[1], &position, 12);
+                std::memcpy(&pose[4], &euler, 12);
+            }
+            auto* object = object_of(scene.resolve_address(found, 0).data());
+            if (object == nullptr)
+            {
+                unbound("door actor " + std::to_string(found) + " is not a scene object");
+            }
+            object_message(*object, pose); // Actor vtable +0xC.
+        }
+        return static_cast<const u8*>(script_records);
     };
     // DAT_00506C80 and DAT_00545970 are the dialogue measurement's counts; DAT_00506C8C is the count the player
     // strategy reads.
@@ -3928,6 +4021,7 @@ SceneActorServices::State::~State()
         g_actor_broadcast = nullptr;
         g_alt_node_body = nullptr;
         g_script_actor_bytes = nullptr;
+        g_script_door_pose = nullptr;
         g_script_kill_counters = nullptr;
     }
     if (g_transition_services == transition_services.get())
@@ -4874,6 +4968,9 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
     case 0x46:
         players->imp_fire_message(child, words);
         return;
+    case 0x3B:
+        players->butler_message(child, words);
+        return;
     case 0x39:
     {
         auto* player = players->find_player(child);
@@ -5307,6 +5404,9 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
             case 0x46:
                 players->imp_fire_update(strategy);
                 return;
+            case 0x3B:
+                players->butler_update(strategy);
+                return;
             case 0x39:
             {
                 RuntimeDirectorUpdate director{strategy, player.actor, player.actor_address, player.mind, player.body,
@@ -5387,7 +5487,9 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
             case 0x74:
             case 0x7A:
             case 0x7C:
+            case 0x69:
             case 0x87:
+            case 0x88:
             case 0x8E:
                 return runtime_body_action_next_key(action);
             case 0x5A:
@@ -5990,10 +6092,10 @@ void SceneActorServices::State::draw_player(FactoryObject& object, NativePlayerI
             // States 0x5E (getter 0x00088520), 0x62 (entityStateDie, getter 0x0008C1E0), 0x64 (getter 0x0008C940), 0x73 (entityStateHit, getter 0x00095740), 0x74
             // (entityStateHitFurnace, getter 0x000966B0), 0x7A (getter 0x0009C570), 0x7C (getter 0x0009DDA0), 0x87 (entityStateStandAlert,
             // getter 0x000A2530) and 0x8E (entityStateWalkAlert, getter 0x000A55F0) have the empty slot 0x001628B0 at
-            // +0x18.
+            // +0x18; 0x88 (entityStateStruggle, getter 0x000A2B30) has the empty 0x000D4179 case there.
             const u32 type = player.second_action.type;
             if (type != 0x5E && type != 0x62 && type != 0x64 && type != 0x73 && type != 0x74 && type != 0x7A && type != 0x7C
-                && type != 0x87 && type != 0x8E)
+                && type != 0x87 && type != 0x88 && type != 0x8E && type != 0x69)
             {
                 unbound("body +0x744 object vtable +0x18 draw for factory type "
                     + std::to_string(player.second_action.type));
@@ -7749,6 +7851,93 @@ std::span<const u32> SceneActorServices::active_actor_addresses() const
 const u8* SceneActorServices::marker_records() const
 {
     return static_cast<const u8*>(state_->script_records);
+}
+
+u32 SceneActorServices::find_actor_by_id(u16 key) const
+{
+    auto& state = *state_;
+    return find_runtime_actor_by_id(key,
+        [&state](const entity_detail::LatchNode& node) -> u32
+        {
+            for (const auto& [address, latch] : state.active_nodes)
+            {
+                if (latch.get() == &node)
+                {
+                    return address;
+                }
+            }
+            unbound("DAT_00511AA4 node with no scene actor");
+        },
+        [&state](u32 address)
+        {
+            return state.scene.resolve_address(address, 0x200);
+        });
+}
+
+void SceneActorServices::activate_actor(u32 address)
+{
+    const auto found = actor_addresses().find(address);
+    if (found == actor_addresses().end() || found->second == nullptr)
+    {
+        unbound("activated address that is not a scene actor");
+    }
+    activate_actor_bind_tree(*found->second);
+}
+
+void SceneActorServices::release_script_player_weapon()
+{
+    auto& state = *state_;
+    Actor* player = find_runtime_script_player(player_link(), actor_addresses()); // 0x001292D0
+    if (player == nullptr)
+    {
+        return;
+    }
+    auto& instance = state.players->player(state.object_of_actor(*player));
+    instance.refresh_views();
+    replace_runtime_player_attachment(instance.attachment); // 0x0013A7C0
+    reset_runtime_meter(*state.scoreboard_update); // 0x0012ECC0
+}
+
+Actor* SceneActorServices::first_latched_actor(u16 tag) const
+{
+    auto& state = *state_;
+    for (auto* node = state.latches; node != nullptr; node = node->next)
+    {
+        if (node->tag != tag)
+        {
+            continue;
+        }
+        for (const auto& [address, latch] : state.active_nodes)
+        {
+            if (latch.get() == node)
+            {
+                return state.actors->actors.at(state.scene.resolve_address(address, 0).data());
+            }
+        }
+        unbound("DAT_00511AA4 node with no scene actor");
+    }
+    return nullptr;
+}
+
+void SceneActorServices::set_tagged_actor_model_nodes(u16 tag, u8 slot, u8 value)
+{
+    auto& state = *state_;
+    for (const auto& mark : state.marked_actors())
+    {
+        if (read_u16(mark.bytes, 6) != tag)
+        {
+            continue;
+        }
+        Actor& actor = *mark.actor;
+        if (actor.model != nullptr && actor.model->runtime != nullptr)
+        {
+            set_runtime_model_node_state(*actor.model->runtime, slot, value, state.node_cache); // 0x000F96F0
+        }
+        if (auto* secondary = state.actors->view(state.object_of_actor(actor)).startup.models.secondary.get())
+        {
+            set_runtime_model_node_state(*secondary, slot, value, state.node_cache); // 0x000F96F0
+        }
+    }
 }
 
 // Xbox 0x0013D250

@@ -14,6 +14,7 @@
 #include "../entities/body_anim_state.h"
 #include "../entities/body_knockdown_state.h"
 #include "../entities/body_pickup_state.h"
+#include "../entities/body_player_death_state.h"
 #include <optional>
 
 namespace gbtg
@@ -116,6 +117,13 @@ struct SceneBodyServices
     std::function<RuntimePlayerAttachmentActor&(u32 address)> weapon_attachment_at{};
     // An attached weapon's +0x998 collision state (null when it has none), by address.
     std::function<RuntimeBodyCollisionState*&(u32 address)> weapon_collision{};
+    // The player's death (type 0x69): the camera pulse (DAT_0050447C), the streams, the scene dialogue,
+    // DAT_004E17C8 and the transition start 0x0012C5D0.
+    RuntimeCameraPulse* camera_pulse{};
+    std::function<AudioBankStreams&()> streams{};
+    RuntimeDialogueActivationContext* dialogue{};
+    const i32* frontend_state{};
+    std::function<void()> begin_transition{};
 };
 
 // One body's message graph: the parent body handler 0x000253B0 and the derived slots of types 0x27
@@ -129,6 +137,7 @@ public:
     RuntimeAnimStateContext& anim_context(); // The type 0x5E state's views of this body.
     RuntimeKnockdownContext& knockdown_context(); // The type 0x7A state's views of this body.
     RuntimePickupStateContext& pickup_context(); // The type 0x7C state's views of this body.
+    RuntimePlayerDeathContext& player_death_context(); // The type 0x69 state's views of this body.
     SceneBodyMessages(const SceneBodyMessages&) = delete;
     SceneBodyMessages& operator=(const SceneBodyMessages&) = delete;
     void dispatch(FactoryObject& body, std::span<u32> message);
@@ -166,6 +175,7 @@ private:
     std::optional<RuntimeBodyStateContext> knockdown_shape_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> knockdown_children_; // 0x7A, 0x0009D0E0.
     std::optional<RuntimePickupStateContext> pickup_;
+    std::optional<RuntimePlayerDeathContext> player_death_;
     std::array<u8, 0x20> shape_scratch_{};
     RuntimeBodyTimerRecipient* first_timer_ = nullptr; // Body +0x760.
     RuntimeBodyTimerRecipient* second_timer_ = nullptr; // Body +0x7F0.

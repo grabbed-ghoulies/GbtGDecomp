@@ -34,4 +34,6 @@ bool occupancy_box_contains(const OccupancyRecord& record, const Vec3& point,
 bool occupancy_region_contains(u32 region, const Vec3& point); // Xbox 0x00124860, EDI point
 const OccupancyRecord* find_occupancy_record(const Vec3& point, float initial_distance,
     u32 mask, const OccupancyRecord* excluded, i16 group); // Xbox 0x001248D0
+// ECX record, EAX mask: clears the mask bits on the record, then rebuilds DAT_00512348 from every record's mask.
+void clear_occupancy_record_mask(OccupancyRecord& record, u32 mask); // Xbox 0x00124970
 }

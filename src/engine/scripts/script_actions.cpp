@@ -19,6 +19,7 @@
 #include "../scene/dialogue_scene_runtime.h"
 #include "../scene/cutscene_scene_runtime.h"
 #include "script_vm.h"
+#include "../saves/runtime_profile.h"
 #include "../entities/player_spawn.h"
 #include "../entities/player_state.h"
 #include "../entities/player_mind_messages.h"
@@ -463,21 +464,10 @@ int script_handle_actor_state(Game& g, const ScriptNode& node)
         const u16 id = found == -1 ? u16{0} : static_cast<u16>(found + 1);
         const u8 index = node_u8(g.scene_script, node, 0x48);
         const u8 value = node_u8(g.scene_script, node, 0x4c);
-        for (RangeLink* link = g_range_links; link != nullptr; link = link->next)
+        // The DAT_00511B38 walk; with no native scene the list is empty.
+        if (SceneActorServices* actors = script_scene_actors(g); actors != nullptr)
         {
-            CamFocus* obj = link->host;
-            if (obj == nullptr || obj->tag_6 != id)
-            {
-                continue;
-            }
-            if (obj->pair_204 != nullptr)
-            {
-                entity_store_pair(obj->pair_204, index, value);
-            }
-            if (obj->pair_310 != nullptr)
-            {
-                entity_store_pair(obj->pair_310, index, value);
-            }
+            actors->set_tagged_actor_model_nodes(id, index, value);
         }
     }
     return 2;
@@ -1053,9 +1043,11 @@ i32 g_gate_2440 = 0;
 
 // DAT_00512448. DAT_00512444 is the count, the dword immediately before this
 // base. DAT_0051245C begins 0x14 bytes above the base, so five dwords sit in
-// front of it. Type 0x9E stores the dword at node+8. 0x000F29A0 is not
-// translated, so the parallel dword at DAT_0051245C is not stored.
+// front of it. Type 0x9E stores the story bit at node+8 here.
 std::vector<u32> g_mark_2448;
+
+// DAT_0051245C: each DAT_00512448 bit's value before type 0x9E changed it.
+std::vector<u32> g_mark_245c;
 
 i32 g_mark_2444 = 0;
 
@@ -1836,10 +1828,16 @@ int script_handle_resource_actions(Game& g, const ScriptNode& node, int param_2)
     }
     case 0x60:
     {
-        PulseNode* obj = find_actor_by_id(node_u16(g.scene_script, node, 8));
-        if (obj != nullptr)
+        // 0x00129ED0 (DX the word at +8), then 0x00112CC0 on the actor it finds.
+        SceneActorServices* actors = script_scene_actors(g);
+        if (actors == nullptr)
         {
-            // 0x00112CC0 is not translated onto this object.
+            throw Error("script type 0x60 without the native scene's actors (0x00129ED0)");
+        }
+        const u32 actor = actors->find_actor_by_id(node_u16(g.scene_script, node, 8));
+        if (actor != 0)
+        {
+            actors->activate_actor(actor);
         }
         return 2;
     }
@@ -1955,19 +1953,23 @@ int script_handle_resource_actions(Game& g, const ScriptNode& node, int param_2)
         return 2;
     case 0x9e:
     {
+        // ECX is the bit at +8 of the story block (*(DAT_00506C6C + 8)).
+        const u32 bit = node_u32(g.scene_script, node, 8);
         if (node_u32(g.scene_script, node, 0x10) != 0)
         {
             const size_t slot = size_t(g_mark_2444);
             g_mark_2448.resize(slot + 1);
-            g_mark_2448[slot] = node_u32(g.scene_script, node, 8);
+            g_mark_245c.resize(slot + 1);
+            g_mark_2448[slot] = bit;
+            g_mark_245c[slot] = test_runtime_story_bit(g_runtime_profile.progress.bytes, bit) ? 1 : 0; // 0x000F29A0
             g_mark_2444 = g_mark_2444 + 1;
         }
-        const u32 key = node_u32(g.scene_script, node, 8);
-        (void)key;
         if (node_u32(g.scene_script, node, 0xc) != 0)
         {
+            set_runtime_story_bit(g_runtime_profile.progress.bytes, bit); // 0x000F29D0
             return 2;
         }
+        clear_runtime_story_bit(g_runtime_profile.progress.bytes, bit); // 0x000F29F0
         return 2;
     }
     default:
@@ -2547,6 +2549,10 @@ int script_handle_actor_effects(Game& g, const ScriptNode& node, int param_2, in
             g_flag_30d08 = 0;
             g_byte_30d14 = 0;
             return 2;
+        }
+        if (SceneActorServices* actors = script_scene_actors(g); actors != nullptr)
+        {
+            actors->release_script_player_weapon(); // 0x001292D0, 0x0013A7C0, 0x0012ECC0
         }
         return 2;
     case 0x6f:

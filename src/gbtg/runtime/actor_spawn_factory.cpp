@@ -60,6 +60,48 @@ FactoryObject create_resource_object_with_data(ObjectFactoryRegistry& factory,
     return object;
 }
 
+namespace
+{
+// The DAT_0051108C record whose +6 word is the key; null when none matches.
+const u8* find_scene_marker_record(const u8* scene_records, i16 key)
+{
+    u32 count;
+    std::memcpy(&count, scene_records, 4);
+    const u8* record = scene_records + 8;
+    for (u32 index = 0; index < count; ++index)
+    {
+        i16 record_key;
+        std::memcpy(&record_key, record + 6, 2);
+        if (record_key == key)
+        {
+            return record;
+        }
+        u32 size;
+        std::memcpy(&size, record, 4);
+        record += size;
+    }
+    return nullptr;
+}
+}
+
+// Xbox 0x0011F260
+void read_scene_marker_position(const u8* scene_records, i16 key, Vec3& output)
+{
+    if (const u8* record = find_scene_marker_record(scene_records, key))
+    {
+        std::memcpy(&output, record + 0xC, 12);
+    }
+}
+
+// Xbox 0x0011F2A0
+void read_scene_marker_euler(const u8* scene_records, i16 key, Vec3& output)
+{
+    if (const u8* record = find_scene_marker_record(scene_records, key))
+    {
+        std::memcpy(&output, record + 0x18, 12);
+    }
+}
+
 // Xbox 0x0011F2E0
 u16 find_scene_spawn_type(const u8* scene_records, i16 key)
 {

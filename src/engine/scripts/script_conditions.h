@@ -13,6 +13,8 @@ extern std::vector<u32> g_script_fired;
 extern LiveScript*& g_live_scripts;
 // The body (node +0x18, actor +0x95C) of a DAT_00511B48 node (actor +0x944), bound by the scene's actor services.
 extern std::function<std::span<const u8>(const void* node)> g_alt_node_body;
+// DAT_00511B48 nodes whose body +0x94 (health) is nonzero.
+i32 count_runtime_live_actors(); // Xbox 0x00129210
 const u32* find_runtime_script_event_type(u32 type); // Xbox 0x00116890
 void release_runtime_script_events(u32 type); // Xbox 0x001168C0, EDI type: drops every queued event of the type
 

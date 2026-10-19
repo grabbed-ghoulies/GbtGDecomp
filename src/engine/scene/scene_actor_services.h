@@ -67,6 +67,14 @@ public:
     std::vector<RuntimeDirectorActor> marked_actors(); // DAT_00511B38 (actor +0x934 nodes) in list order.
     const u8* marker_records() const; // DAT_0051108C.
     void place_scene_camera(const Vec3& position, const Vec3& euler); // Xbox 0x0013D250, ESI position, stack euler
+    u32 find_actor_by_id(u16 key) const; // Xbox 0x00129ED0 over DAT_00511AA4: the actor address, or 0.
+    void activate_actor(u32 address); // Xbox 0x00112CC0, ESI actor.
+    // Script type 0x9F's walk of DAT_00511B38: 0x000F96F0 (AL value, stack slot) on the +0x204 and +0x310 models
+    // of every actor whose +6 tag matches.
+    void set_tagged_actor_model_nodes(u16 tag, u8 slot, u8 value);
+    // Script type 0x46 with a live 0x7D: the 0x001292D0 player drops its weapon (0x0013A7C0), then 0x0012ECC0.
+    void release_script_player_weapon();
+    Actor* first_latched_actor(u16 tag) const; // Xbox 0x0013D610 for tag 6: the first DAT_00511AA4 actor with the tag.
     // Script type 0x96's 0x0002B430 / 0x0002B560 on the DAT_00511B40 player.
     void place_script_player(const Vec3& position, const Vec3& euler);
     const std::unordered_map<u32, Actor*>& actor_addresses() const; // Retail actor address -> native actor.

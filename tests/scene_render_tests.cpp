@@ -499,7 +499,7 @@ void check_environment_matrices()
         "scene override selects both retail base and ambient colors");
     std::array<RuntimeRenderLight, 2> temporary;
     RuntimeRenderLight directional;
-    std::array<const SceneLocalLightView*, 40> local_lights{};
+    std::array<u8*, 40> local_lights{};
     const std::array<float, 3> scene_color{.1f, .2f, .3f};
     SceneLightConstructionContext construction{context, scene_color, retained,
         .25f, .75f, directional, local_lights, temporary};
@@ -526,12 +526,21 @@ void check_environment_matrices()
     // These words are the actual trailing fields of the temporary light views.
     spot[&temporary[0]] = {0x12345678, 0, 0, 0};
     spot[&temporary[1]] = {0x87654321, 0, 0, 0};
-    SceneLocalLightView first{{1.f, 2.f, 3.f}, 10.f, 0x80402010};
-    SceneLocalLightView second{{4.f, 5.f, 6.f}, 20.f, 0xFF80FFFF};
-    SceneLocalLightView third{{7.f, 8.f, 9.f}, 30.f, 0};
-    local_lights[0] = &first;
-    local_lights[38] = &second;
-    local_lights[39] = &third;
+    // 0x98-byte light records as 0x000FDF60 registers them: position +0x40, radius +0x70, color +0x78.
+    auto light_record = [](const Vec3& position, float radius, u32 color)
+    {
+        std::array<u8, 0x98> record{};
+        std::memcpy(record.data() + 0x40, &position, sizeof(position));
+        std::memcpy(record.data() + 0x70, &radius, sizeof(radius));
+        std::memcpy(record.data() + 0x78, &color, sizeof(color));
+        return record;
+    };
+    std::array<u8, 0x98> first = light_record({1.f, 2.f, 3.f}, 10.f, 0x80402010);
+    std::array<u8, 0x98> second = light_record({4.f, 5.f, 6.f}, 20.f, 0xFF80FFFF);
+    std::array<u8, 0x98> third = light_record({7.f, 8.f, 9.f}, 30.f, 0);
+    local_lights[0] = first.data();
+    local_lights[38] = second.data();
+    local_lights[39] = third.data();
     override_count = 0;
     build_runtime_scene_lights(Vec3{}, construction);
     require(directional.color[0] == .25f && temporary[0].type == 0xE
@@ -540,7 +549,7 @@ void check_environment_matrices()
         && temporary[1].position.x == 4.f && temporary[1].range == 20.f,
         "scene light construction skips holes, builds two point lights and excludes third");
     local_lights.fill(nullptr);
-    local_lights[39] = &third;
+    local_lights[39] = third.data();
     build_runtime_scene_lights(Vec3{}, construction);
     require(renderer.lights.next == &directional && directional.next == &temporary[0]
         && temporary[0].next == nullptr && temporary[0].position.x == 7.f,

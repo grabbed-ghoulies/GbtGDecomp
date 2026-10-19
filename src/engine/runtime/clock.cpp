@@ -29,14 +29,17 @@ void clock_init(Clock& c)
     c.delayed = {};
 }
 
+// Xbox 0x000FC030
 void clock_pad(Clock& c, float incoming_seconds)
 {
     const int fps = clock_fps(c);
     const float cap = 5.f / float(fps);
     c.dt_raw = incoming_seconds;
     c.dt = std::min(incoming_seconds, cap);
+    // DAT_005096C8 keeps only the fraction; DAT_005096C4 is this step's whole 1/300 s ticks.
     c.acc300 += c.dt * 300.f;
     c.ticks300 = i32(c.acc300);
+    c.acc300 -= float(c.ticks300);
 }
 
 void clock_frame_time(Clock& c)

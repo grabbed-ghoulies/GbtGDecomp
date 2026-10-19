@@ -233,6 +233,24 @@ const ObjectFactoryVtable* imp_fire_strategy_lifecycle()
         construct_imp_fire_strategy_view, destroy_imp_fire_strategy_view};
     return &table;
 }
+
+bool construct_butler_strategy_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto* player = active_owner->find_player(object);
+    player->strategy_type = 0x3B;
+    player->refresh_views();
+    const u32 name = parameter_word(parameters, 0x18);
+    return initialize_runtime_butler_strategy(player->strategy, player->actor_bytes,
+        name == 0 ? nullptr : player->scene.string_at(name));
+}
+
+const ObjectFactoryVtable* butler_strategy_lifecycle()
+{
+    // Vtable +8 is the shared empty 0x000D4179 case.
+    static const ObjectFactoryVtable table{0x00505D70, butler_strategy_object_sizes,
+        construct_butler_strategy_view, destroy_empty_player_object};
+    return &table;
+}
 }
 
 NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bindings,
@@ -293,6 +311,13 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
                   leave_runtime_imp_fire_state(old_state, next_state, imp_fire);
                   return;
               }
+              if (strategy_type == 0x3B)
+              {
+                  // Butler strategy vtable +0x18, 0x000AB220.
+                  refresh_views();
+                  leave_runtime_butler_state(old_state, butler);
+                  return;
+              }
               if (strategy_type == 0x39)
               {
                   // Director strategy vtable +0x18, 0x000AA450.
@@ -310,6 +335,12 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
               {
                   // Imp fire strategy vtable +0x14, 0x000B4940.
                   enter_runtime_imp_fire_state(state, previous, imp_fire);
+                  return;
+              }
+              if (strategy_type == 0x3B)
+              {
+                  // Butler strategy vtable +0x14, 0x000AB1A0.
+                  enter_runtime_butler_state(state, previous, butler);
                   return;
               }
               if (strategy_type == 0x39)
@@ -392,7 +423,9 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
       imp_fire{strategy_messages, target_checks, target_queue, scene_bindings.imp_fire_parameters,
           owner_instance.animation, scene_bindings.registry, scene_bindings.create_effect, scene_bindings.object_message,
           scene_bindings.body_at, scene_bindings.body_of, scene_bindings.model_of, scene_bindings.attachment_limit,
-          "aid_objparams_ghoulies_fx_mutatehalo", "attack", "mutateup", "jumpbite", "jumpbiteprepare"}
+          "aid_objparams_ghoulies_fx_mutatehalo", "attack", "mutateup", "jumpbite", "jumpbiteprepare"},
+      butler{strategy_messages, scene_bindings.actor_address, scene_bindings.actor_bytes, scene_bindings.actor_bytes_at,
+          "scared", "far"}
 {
 }
 
@@ -497,6 +530,28 @@ void NativePlayerFactoryOwner::imp_fire_update(FactoryObject& strategy)
     update_runtime_imp_fire_strategy(player->imp_fire);
 }
 
+void NativePlayerFactoryOwner::butler_message(FactoryObject& strategy, std::span<const u32> message)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x3B)
+    {
+        throw Error("butler strategy method has no owning instance");
+    }
+    player->refresh_views();
+    dispatch_runtime_butler_message(message, player->butler);
+}
+
+void NativePlayerFactoryOwner::butler_update(FactoryObject& strategy)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x3B)
+    {
+        throw Error("butler strategy method has no owning instance");
+    }
+    player->refresh_views();
+    update_runtime_butler_strategy(player->butler);
+}
+
 NativePlayerFactoryOwner::NativePlayerFactoryOwner(NativePlayerFactoryBindings player_bindings)
     : bindings(std::move(player_bindings)),
       minds(NativePlayerMindBindings{
@@ -561,7 +616,7 @@ void NativePlayerFactoryOwner::install(std::span<ObjectFactoryType> types)
         throw Error("native player factory already has an owner");
     }
     // Lifecycle views of retail getters 0x00027F60, 0x0001DA50, 0x000733F0, 0x00075AF0, 0x0002B6C0,
-    // 0x000BED40 and 0x000B4480; types 1 and 2 stay with the actor owner, types 7 and 0x34 with the mind owner.
+    // 0x000BED40, 0x000B4480 and 0x000AB040; types 1 and 2 stay with the actor owner, types 7 and 0x34 with the mind owner.
     types[5] = ObjectFactoryType{2, player_lifecycle};
     types[6] = ObjectFactoryType{1, parent_body_lifecycle};
     types[0x27] = ObjectFactoryType{6, player_body_parent_lifecycle};
@@ -569,6 +624,7 @@ void NativePlayerFactoryOwner::install(std::span<ObjectFactoryType> types)
     types[8] = ObjectFactoryType{1, base_strategy_lifecycle};
     types[0x4F] = ObjectFactoryType{8, player_strategy_lifecycle};
     types[0x46] = ObjectFactoryType{8, imp_fire_strategy_lifecycle};
+    types[0x3B] = ObjectFactoryType{8, butler_strategy_lifecycle};
     types[0x28] = ObjectFactoryType{6, camera_body_lifecycle};
     types[0x39] = ObjectFactoryType{8, director_strategy_lifecycle};
     minds.install(types);

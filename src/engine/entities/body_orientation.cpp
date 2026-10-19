@@ -1,5 +1,7 @@
 #include "body_orientation.h"
 #include "player_mind_feedback.h"
+#include "player_mind_events.h"
+#include "actor_transform.h"
 #include <bit>
 #include <cstring>
 
@@ -57,5 +59,16 @@ void settle_runtime_body_turn(std::span<u8> body, const Actor& actor)
     std::memcpy(body.data() + 0x72C, &zero, 4);
     std::memcpy(body.data() + 0x730, &kept, 4);
     std::memcpy(body.data() + 0x734, &zero, 4);
+}
+
+// Xbox 0x000197B0
+float runtime_body_point_heading(std::span<const u8> body, const Actor& actor)
+{
+    const Vec3 point{read_f32(body, 0x3C), read_f32(body, 0x40), read_f32(body, 0x44)};
+    const Vec3 position = actor_world_position(actor);
+    const Vec3 direction{point.x - position.x, point.y - position.y, point.z - position.z};
+    float angle = 0.f;
+    runtime_direction_angle(direction, angle);
+    return angle;
 }
 }

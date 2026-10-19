@@ -132,6 +132,7 @@
 #include "../src/engine/camera/camera.h"
 #include "../src/engine/scripts/script_actions.h"
 #include "../src/engine/scripts/script_vm.h"
+#include "../src/engine/transitions/scene_transition.h"
 #include "../src/engine/scripts/script_conditions.h"
 
 #include <cstring>
@@ -7794,12 +7795,28 @@ int main(int argc, char** argv)
     const bool goop_test = argc == 3 && std::string_view(argv[2]) == "--goop";
     const bool ui_test = argc == 3 && std::string_view(argv[2]) == "--ui";
     const bool dialogue_resources_test = argc == 3 && std::string_view(argv[2]) == "--dialogue-resources";
+    // The player modes tick 1/60 s, the step their checkpoints were taken at. A trailing --retail-step ticks 1/30 s,
+    // retail's step: it swaps every second vblank (PresentationInterval 2) and 0x000FC030 counts the fields.
+    const bool retail_step = argc == 4 && std::string_view(argv[3]) == "--retail-step";
+    const auto player_mode = [&](std::string_view name)
+    {
+        return (argc == 3 || retail_step) && std::string_view(argv[2]) == name;
+    };
+    const float player_step = retail_step ? 2.f / 60.f : 1.f / 60.f;
+    // A count of 1/60 s frames as ticks of player_step, for the drivers' waits.
+    const auto player_ticks = [player_step](int frames)
+    {
+        return int(float(frames) / 60.f / player_step + .5f);
+    };
     // --player-fight runs the --player-opening flow, then fights the imps until the script passes its imp gate.
-    const bool fight_test = argc == 3 && std::string_view(argv[2]) == "--player-fight";
+    // --player-death runs the --player-opening flow, then leaves Cooper to the imps until he dies and the scene restarts.
+    const bool death_test = player_mode("--player-death");
+    const bool fight_test = player_mode("--player-fight") || death_test;
     // --player-controls runs the --player-opening flow, then checks run speed across frame rates and the right stick.
-    const bool controls_test = argc == 3 && std::string_view(argv[2]) == "--player-controls";
-    const bool player_test = (argc == 3 && std::string_view(argv[2]) == "--player-opening") || fight_test
-        || controls_test;
+    const bool controls_test = player_mode("--player-controls");
+    const bool player_test = player_mode("--player-opening") || fight_test || controls_test;
+    // The death run gives Cooper no sticks: the imps win.
+    const bool passive = death_test;
     const bool decoder_test = argc == 3 && std::string_view(argv[2]) == "--ghoulybox-decoder";
     const bool actor_test = argc == 3 && std::string_view(argv[2]) == "--actor-loading";
     const bool model_resources_test = argc == 3 && std::string_view(argv[2]) == "--scene-models";
@@ -7812,7 +7829,7 @@ int main(int argc, char** argv)
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
         && !model_resources_test && !spawn_test)
     {
-        std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --goop | --ui | --player-opening | --player-fight | --player-controls | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start]\n";
+        std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start]\n";
         return 2;
     }
     try
@@ -7867,8 +7884,8 @@ int main(int argc, char** argv)
         }
         gbtg::GfxConfig config;
         config.visible = false;
-        config.width = argc == 4 ? std::stoi(argv[2]) : 640;
-        config.height = argc == 4 ? std::stoi(argv[3]) : 480;
+        config.width = argc == 4 && !player_test ? std::stoi(argv[2]) : 640;
+        config.height = argc == 4 && !player_test ? std::stoi(argv[3]) : 480;
         if (!gbtg::gfx_init(config))
         {
             throw gbtg::Error("test graphics initialization failed");
@@ -7916,7 +7933,7 @@ int main(int argc, char** argv)
             for (int frame = 0; frame < 720; ++frame)
             {
                 gbtg::gfx_begin_frame();
-                game.tick(1.f / 60.f, {});
+                game.tick(player_step, {});
                 gbtg::gfx_end_frame();
                 saw_dialogue |= gbtg::g_flag_2474 != 0 && gbtg::g_draw_e1ec != 0;
                 if (frame == 719)
@@ -8038,7 +8055,7 @@ int main(int argc, char** argv)
                 gbtg::InputState input;
                 input.accept = frame % 120 < 5;
                 gbtg::gfx_begin_frame();
-                game.tick(1.f / 60.f, input);
+                game.tick(player_step, input);
                 gbtg::gfx_end_frame();
                 if (frame == 0 && dialogue.state.completion == 0 && dialogue.state.mode == 2)
                 {
@@ -8077,7 +8094,7 @@ int main(int argc, char** argv)
             for (int frame = 0; frame < 300 || (intro_start >= 0 && intro_end < 0 && frame < 900); ++frame)
             {
                 gbtg::gfx_begin_frame();
-                game.tick(1.f / 60.f, {});
+                game.tick(player_step, {});
                 const bool showing = (gbtg::g_flags_ea9c & 4u) != 0;
                 if (showing && intro_start < 0)
                 {
@@ -8087,7 +8104,7 @@ int main(int argc, char** argv)
                 {
                     intro_end = frame;
                 }
-                if (intro_start >= 0 && frame == intro_start + 90)
+                if (intro_start >= 0 && frame == intro_start + player_ticks(90))
                 {
                     gbtg::RgbaImage intro;
                     if (gbtg::gfx_readback(intro))
@@ -8143,13 +8160,13 @@ int main(int argc, char** argv)
             {
                 throw gbtg::Error("opening scene has no class 4 player actor");
             }
-            for (int frame = 0; frame < 120; ++frame)
+            for (int frame = 0; frame < player_ticks(120); ++frame)
             {
                 gbtg::InputState stick;
                 stick.pads[0].ly = 32767;
                 gbtg::gfx_begin_frame();
-                game.tick(1.f / 60.f, stick);
-                if (frame == 119)
+                game.tick(player_step, stick);
+                if (frame == player_ticks(120) - 1)
                 {
                     gbtg::RgbaImage walked;
                     if (!gbtg::gfx_readback(walked))
@@ -8203,12 +8220,12 @@ int main(int argc, char** argv)
                     for (int frame = 0; frame < 30; ++frame)
                     {
                         gbtg::gfx_begin_frame();
-                        game.tick(1.f / 60.f, {});
+                        game.tick(player_step, {});
                         gbtg::gfx_end_frame();
                     }
                 };
                 std::vector<float> speeds;
-                for (const float hz : {60.f, 144.f, 240.f})
+                for (const float hz : {30.f, 60.f, 144.f, 240.f})
                 {
                     // Four directions; walls and imps only slow him, so the fastest is his free run.
                     float fastest = 0.f;
@@ -8231,7 +8248,7 @@ int main(int argc, char** argv)
                         throw gbtg::Error("Cooper's run speed depends on the host frame rate");
                     }
                 }
-                std::cout << "PASS: Cooper's run speed is the same at 60, 144 and 240 Hz\n";
+                std::cout << "PASS: Cooper's run speed is the same at 30 (retail), 60, 144 and 240 Hz\n";
                 // Flick the right stick away from every imp. With nothing in range, 0x0007E880 falls back to the
                 // mind's own +0xB8 record (0x0007EA20), 80 units along the stick, and Cooper swings at the air.
                 settle();
@@ -8260,7 +8277,7 @@ int main(int argc, char** argv)
                         input.pads[0].ry = gbtg::i16(-az * 32767.f);
                     }
                     gbtg::gfx_begin_frame();
-                    game.tick(1.f / 60.f, input);
+                    game.tick(player_step, input);
                     if (frame == 12)
                     {
                         gbtg::RgbaImage swung;
@@ -8296,7 +8313,7 @@ int main(int argc, char** argv)
                         input.pads[0].trigger_l = left;
                         input.pads[0].trigger_r = right;
                         gbtg::gfx_begin_frame();
-                        game.tick(1.f / 60.f, input);
+                        game.tick(player_step, input);
                         gbtg::gfx_end_frame();
                     }
                     float delta = camera_yaw() - before;
@@ -8366,8 +8383,61 @@ int main(int argc, char** argv)
                 int hud_heart_frames = 0;
                 int page_frames = 0;
                 int pages_checked = 0;
+                // The region walk's last position, last stick angle and the learned camera offset.
+                std::optional<gbtg::Vec3> walk_last;
+                std::optional<float> walk_commanded;
+                float walk_offset = 0.f;
+                // The centre of the first region record named by a live PlayerEntersRegion condition.
+                const auto region_goal = [&]() -> std::optional<gbtg::Vec3>
+                {
+                    if (gbtg::g_512344 == nullptr)
+                    {
+                        return std::nullopt;
+                    }
+                    const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+                    for (const auto& condition : gbtg::g_script_conds)
+                    {
+                        if (gbtg::cond_u32(condition, 0) != 8)
+                        {
+                            continue;
+                        }
+                        const gbtg::u32 region = gbtg::cond_u32(condition, 8);
+                        for (const auto* record = pool.begin; record < pool.cursor; ++record)
+                        {
+                            if (record->value_0 == region)
+                            {
+                                return record->center;
+                            }
+                        }
+                    }
+                    // A section held at its end (type 0xF, DAT_00512518) waits for the player to leave: walk into
+                    // an exit volume (mask 1, 0x00140E30).
+                    if (gbtg::g_gate_2518 != 0)
+                    {
+                        for (const auto* record = pool.begin; record < pool.cursor; ++record)
+                        {
+                            if ((record->mask & 1) != 0)
+                            {
+                                // Line up with the box across x before going in: a straight walk from the room
+                                // clips the door frame.
+                                const auto at = cooper_position();
+                                const float reach = record->extent_x * 2.f;
+                                if (at && std::abs(at->z - record->center.z) > record->extent_z * 0.5f
+                                    && std::abs(at->x - record->center.x) > reach * 0.5f)
+                                {
+                                    const float side = at->x < record->center.x ? -1.f : 1.f;
+                                    return gbtg::Vec3{record->center.x + side * reach, record->center.y,
+                                        record->center.z};
+                                }
+                                return record->center;
+                            }
+                        }
+                    }
+                    return std::nullopt;
+                };
                 // One frame of play: walk Cooper to the nearest imp and flick the right stick to attack; with no
-                // imp to fight, give fresh A edges for the script's pages, as the tutorial does.
+                // imp to fight, give fresh A edges for the script's pages, as the tutorial does, and walk him into a
+                // region the script waits for.
                 const auto play_frame = [&](int frame, const std::string& prefix)
                 {
                     const auto cooper = cooper_position();
@@ -8383,11 +8453,47 @@ int main(int argc, char** argv)
                     {
                         input.accept = frame % 30 < 5;
                     }
-                    else if (!cooper || alive.empty())
+                    else if (!cooper)
                     {
                         // No A outside a page.
                     }
-                    else
+                    else if (alive.empty() || alive_count() == 0)
+                    {
+                        // No A outside a page. A live PlayerEntersRegion (condition 8, 0x00132940, region at record
+                        // +8), or a section held at its end, is waiting for Cooper: walk him toward that region's or
+                        // the exit's centre.
+                        if (const auto goal = region_goal())
+                        {
+                            // The stick is camera-relative: learn the offset between the stick's angle and the
+                            // direction Cooper actually moved, and steer by it.
+                            if (walk_last && walk_commanded)
+                            {
+                                const float mx = cooper->x - walk_last->x;
+                                const float mz = cooper->z - walk_last->z;
+                                if (mx * mx + mz * mz > 0.01f)
+                                {
+                                    float error = std::atan2(mx, mz) - (*walk_commanded + walk_offset);
+                                    error = std::remainder(error, 6.2831853f);
+                                    walk_offset += error * 0.5f;
+                                }
+                            }
+                            const float dx = goal->x - cooper->x;
+                            const float dz = goal->z - cooper->z;
+                            if (dx * dx + dz * dz > 1.f)
+                            {
+                                const float stick = std::atan2(dx, dz) - walk_offset;
+                                input.pads[0].lx = gbtg::i16(std::sin(stick) * 32767.f);
+                                input.pads[0].ly = gbtg::i16(-std::cos(stick) * 32767.f);
+                                walk_commanded = stick;
+                            }
+                            else
+                            {
+                                walk_commanded.reset();
+                            }
+                            walk_last = *cooper;
+                        }
+                    }
+                    else if (!passive)
                     {
                         const gbtg::Vec3* nearest = &alive.front();
                         float best = 1e30f;
@@ -8430,7 +8536,7 @@ int main(int argc, char** argv)
                         }
                     }
                     gbtg::gfx_begin_frame();
-                    game.tick(1.f / 60.f, input);
+                    game.tick(player_step, input);
                     page_frames = page ? page_frames + 1 : 0;
                     if (frame % 120 == 119 || page_frames == 30)
                     {
@@ -8496,6 +8602,69 @@ int main(int argc, char** argv)
                         reactions[mark.address] = {action, health};
                     }
                 };
+                if (death_test)
+                {
+                    // Cooper stands still in the fight. The imps' hits empty his health; the player's death state
+                    // (factory type 0x69) plays his dying animations, starts the scene's transition (0x0012C5D0)
+                    // and restarts the scene (0x0008F650, 0x00134AE0).
+                    const std::string fight_title = game.scene_name;
+                    const auto cooper_health = [&]() -> int
+                    {
+                        for (const auto& mark : marked())
+                        {
+                            if (mark.actor->class_key == 4)
+                            {
+                                return gbtg::read_u16(mark.body, 0x94);
+                            }
+                        }
+                        return -1;
+                    };
+                    int died = -1;
+                    int transition = -1;
+                    int restarted = -1;
+                    for (int frame = 0; frame < player_ticks(36000) && restarted < 0; ++frame)
+                    {
+                        play_frame(frame, "player_death_");
+                        const int health = cooper_health();
+                        if (died < 0 && health == 0)
+                        {
+                            died = frame;
+                            std::cout << "death frame " << frame << ": Cooper's health is 0, title " << game.scene_name
+                                      << "\n";
+                        }
+                        if (died >= 0 && transition < 0 && gbtg::g_scene_transition.phase != 0)
+                        {
+                            transition = frame;
+                            std::cout << "death frame " << frame << ": the transition starts (row "
+                                      << gbtg::g_scene_transition.row << ")\n";
+                        }
+                        if (transition >= 0 && health > 0 && game.scene_name != fight_title)
+                        {
+                            restarted = frame;
+                        }
+                        if (frame % player_ticks(600) == 0)
+                        {
+                            std::cout << "death frame " << frame << ": health " << health << " title "
+                                      << game.scene_name << " transition " << gbtg::g_scene_transition.phase << "\n";
+                        }
+                    }
+                    if (died < 0)
+                    {
+                        throw gbtg::Error("the imps never emptied Cooper's health");
+                    }
+                    if (transition < 0)
+                    {
+                        throw gbtg::Error("Cooper's death never started the scene transition");
+                    }
+                    if (restarted < 0)
+                    {
+                        throw gbtg::Error("the scene did not restart after Cooper's death: title " + game.scene_name);
+                    }
+                    std::cout << "PASS: the imps beat Cooper, his death state turns the page and the scene restarts ("
+                              << game.scene_name << ")\n";
+                    gbtg::gfx_shutdown();
+                    return 0;
+                }
                 for (int frame = 0; frame < 7200; ++frame)
                 {
                     if (alive_count() == 0 && game.scene_name != gate_title)
@@ -8596,7 +8765,7 @@ int main(int argc, char** argv)
                     gbtg::Actor* chair = chair_actor();
                     const auto cooper = cooper_position();
                     float distance = 0.f;
-                    if (held >= 60 && chair != nullptr && cooper && picked_frame < 0)
+                    if (held >= player_ticks(60) && chair != nullptr && cooper && picked_frame < 0)
                     {
                         const gbtg::Vec3 at = gbtg::actor_world_position(*chair);
                         const float dx = at.x - cooper->x;
@@ -8609,12 +8778,12 @@ int main(int argc, char** argv)
                         }
                         else
                         {
-                            input.accept = held % 20 < 3;
+                            input.accept = held % player_ticks(20) < player_ticks(3);
                         }
                     }
                     gbtg::gfx_begin_frame();
-                    game.tick(1.f / 60.f, input);
-                    if (held == 40)
+                    game.tick(player_step, input);
+                    if (held == player_ticks(40))
                     {
                         gbtg::RgbaImage chair_capture;
                         if (gbtg::gfx_readback(chair_capture))
@@ -8634,7 +8803,7 @@ int main(int argc, char** argv)
                             gbtg::write_bmp("cache/player_chair_pickup.bmp", pickup_capture);
                         }
                     }
-                    if (picked_frame >= 0 && held == picked_frame + 100)
+                    if (picked_frame >= 0 && held == picked_frame + player_ticks(100))
                     {
                         gbtg::RgbaImage held_capture;
                         if (gbtg::gfx_readback(held_capture))
@@ -8664,16 +8833,18 @@ int main(int argc, char** argv)
                 {
                     throw gbtg::Error("A beside the chair did not pick it up");
                 }
-                // The TimeOut ends the section at frame 299; ObjectPickedUp (opcode 3) ends it once its delay
-                // (record +0xC) has run out with the event queued.
-                if (event_frame < picked_frame || game.scene_name != "Event Door Intro" || held >= 295)
+                // The TimeOut ends the section after 5 s (frame 299 at 1/60 s); ObjectPickedUp (opcode 3) ends it
+                // once its delay (record +0xC) has run out with the event queued.
+                const int timeout_frames = int(5.f / player_step + .5f);
+                if (event_frame < picked_frame || game.scene_name != "Event Door Intro" || held >= timeout_frames - 5)
                 {
                     throw gbtg::Error("the chair's section did not move on through the pickup (event 0xAD) before its "
                         "5 s timeout: title " + game.scene_name);
                 }
                 std::cout << "PASS: A beside the chair picks it up and the section moves on through event 0xAD\n";
                 // Play on: the door opens, a second wave comes in for the script's "Kill All" event, the exit door
-                // opens and the butler sees Cooper out. The scene ends when the script asks for the next one.
+                // opens, Cooper walks into region 2 for the butler's "leave room" pages, then out through the exit
+                // (0x00140E30's event 0xB0), and the script asks for the next scene.
                 const std::string scene_script = game.scene_script.name;
                 for (int frame = 0; frame < 14400 && game.scene_script.name == scene_script; ++frame)
                 {
@@ -8685,6 +8856,17 @@ int main(int argc, char** argv)
                     }
                 }
                 std::cout << "after: script " << game.scene_script.name << ", title " << game.scene_name << "\n";
+                if (game.scene_script.name == scene_script)
+                {
+                    throw gbtg::Error("the play-on stalled with the opening script still running: title "
+                        + game.scene_name);
+                }
+                if (game.scene_script.name != "aid_script_ghoulies_chapter1_scene2_1viewcam")
+                {
+                    throw gbtg::Error("the opening scene led to " + game.scene_script.name);
+                }
+                std::cout << "PASS: the opening scene plays to its end and the next scene ("
+                          << game.scene_script.name << ") starts\n";
                 gbtg::gfx_shutdown();
                 return 0;
             }
@@ -8706,7 +8888,7 @@ int main(int argc, char** argv)
             for (int frame = 0; frame < 30; ++frame)
             {
                 gbtg::gfx_begin_frame();
-                game.tick(1.f / 60.f, {});
+                game.tick(player_step, {});
                 gbtg::gfx_end_frame();
             }
             auto& streams = game.factory_scene->controls->context.streams();

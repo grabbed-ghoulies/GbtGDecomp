@@ -194,6 +194,9 @@ add_library(gbtg_lib STATIC
     src/engine/entities/player_strategy.cpp
     src/engine/entities/strategy_target_queue.cpp
     src/engine/entities/strategy_target_selection.cpp
+    src/engine/entities/butler_strategy.cpp
+    src/engine/entities/body_struggle_state.cpp
+    src/engine/entities/body_player_death_state.cpp
     src/engine/entities/imp_fire_strategy.cpp
     src/engine/entities/actor_runtime_queries.cpp
     src/engine/entities/actor_view_visibility.cpp

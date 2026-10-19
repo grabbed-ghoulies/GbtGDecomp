@@ -96,6 +96,19 @@ u32 g_script_e79c = 0;
 // DAT_0050E788. 0x00117140 sets it when 0x001288C0 empties a nonempty fired list.
 i32 g_script_e788 = 0;
 
+// DAT_0050E76C..DAT_0050E784. 0x00116E00 clears the flag.
+Vec3 g_scene_entry_position{};
+Vec3 g_scene_entry_euler{};
+i32 g_scene_entry_set = 0;
+
+// Xbox 0x00117580
+void store_scene_entry_pose(const Vec3& position, const Vec3& euler)
+{
+    g_scene_entry_position = position;
+    g_scene_entry_euler = euler;
+    g_scene_entry_set = 1;
+}
+
 // DAT_0050E78C. Nonzero takes the fade at DAT_0050E790. 0x00116E00 clears it.
 i32 g_script_e78c = 0;
 
@@ -111,6 +124,30 @@ extern i32 g_script_30d0c;
 
 void request_scene_aid(const char* src, i32 mode);
 
+
+// Xbox 0x000F29A0
+bool test_runtime_story_bit(std::span<const u8> bits, u32 index)
+{
+    return (bits[index >> 3] & u8(1u << (index & 7))) != 0;
+}
+
+// Xbox 0x000F29D0
+void set_runtime_story_bit(std::span<u8> bits, u32 index)
+{
+    bits[index >> 3] |= u8(1u << (index & 7));
+}
+
+// Xbox 0x000F29F0
+void clear_runtime_story_bit(std::span<u8> bits, u32 index)
+{
+    bits[index >> 3] &= u8(~(1u << (index & 7)));
+}
+
+// Xbox 0x000F2B30
+bool test_runtime_unlock_bit(std::span<const u8> bits, u32 index)
+{
+    return (bits[index >> 3] & u8(1u << (index & 7))) != 0;
+}
 
 // Xbox 0x000F2A20
 bool test_and_set_runtime_story_bit(std::span<u8> bits, u32 index)
@@ -534,6 +571,7 @@ void script_vm_bind(Game& g)
 {
     script_vm_reset();
     g_scene_script_started = false;
+    g_scene_entry_set = 0;
     g_script_e788 = 0;
     g_script_e78c = 0;
     g_script_e794 = 0;
@@ -882,13 +920,14 @@ void script_queue_scene_start(Game& g)
 }
 
 
-// Xbox 0x00117100, then the eval at 0x00117140. The update walk calls the
+// Xbox 0x00117100: 0x00140E30, then the condition updates and the eval at 0x00117140. The update walk calls the
 // table at 0x00314334: opcode 0 is 0x00133070, opcode 1 is 0x001330E0 and opcode 3 is 0x00133170.
 // Opcodes 2, 6..9 and 20..26 have the empty 0x001628B0; the others' updates
 // are not translated and raise when a record reaches them.
 void script_vm_tick(Game& g, float dt)
 {
     (void)dt;
+    scene_update_actor_marker(g); // 0x00140E30
     static constexpr u32 kUpdates[27] = {0x00133070, 0x001330E0, 0x001628B0, 0x00133170, 0x00133230,
         0x001332B0, 0x001628B0, 0x001628B0, 0x001628B0, 0x001628B0, 0x001333A0, 0x00133330, 0x00133420,
         0x00133570, 0x001335E0, 0x00133770, 0x001336A0, 0x001334B0, 0x00133870, 0x00133900, 0x001628B0,

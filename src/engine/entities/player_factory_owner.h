@@ -9,6 +9,7 @@
 #include "player_mind_owner.h"
 #include "player_strategy.h"
 #include "imp_fire_strategy.h"
+#include "butler_strategy.h"
 #include "camera_actor_classes.h"
 
 namespace gbtg
@@ -134,6 +135,11 @@ struct NativePlayerSceneBindings
     std::function<RuntimeStrategyBodyView(const Actor&)> body_of; // Actor +0x95C.
     std::function<const RuntimeBodyModelNodes*(const Actor&)> model_of; // Actor +0x204.
     const i32& attachment_limit; // DAT_00428684.
+    // Butler strategy (type 0x3B, vtable 0x00505D70).
+    std::function<u32(const Actor&)> actor_address; // Retail address of an actor.
+    std::function<std::span<const u8>(const Actor&)> actor_bytes; // An actor's bytes (+0x8F8 target record).
+    std::function<std::span<const u8>(u32)> actor_bytes_at; // Actor bytes by retail address.
+    std::function<const char*(u32)> string_at; // A NUL-terminated string a parameter block names.
 };
 
 // Native state and contexts of one player (type 5) and its body, mind and strategy children.
@@ -259,11 +265,12 @@ struct NativePlayerInstance
     ActorAttachmentEventContext callout;
     RuntimePlayerStrategyFlow flow;
     // Imp fire strategy (type 0x46) methods and their shared target queue and checks.
-    u16 strategy_type = 0; // Factory type of the strategy child: 0x4F player, 0x46 imp fire or 0x39 director.
+    u16 strategy_type = 0; // Factory type of the strategy child: 0x4F player, 0x46 imp fire, 0x39 director or 0x3B butler.
     EntityCamNode camera_view{}; // Camera body (type 0x28) +0x894.
     RuntimeStrategyTargetChecks target_checks;
     RuntimeStrategyTargetQueue target_queue;
     RuntimeImpFireStrategy imp_fire;
+    RuntimeButlerStrategy butler; // Type 0x3B.
     void refresh_input_views(); // After the player constructor allocates actor +0x960.
     void refresh_views(); // Body, input, mind and strategy value views before a method runs.
 };
@@ -302,6 +309,8 @@ public:
     void strategy_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000BEF40.
     void imp_fire_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000B46B0.
     void imp_fire_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000B45D0.
+    void butler_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000AB170.
+    void butler_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000AB0C0.
     NativePlayerFactoryBindings bindings;
     NativePlayerMindOwner minds;
     // Retail keeps the type 5 vtable through the whole destructor chain, so the base actor destructor still

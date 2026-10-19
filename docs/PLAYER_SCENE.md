@@ -202,11 +202,18 @@ All take the game directory, e.g.
 | `--scene-spawn` | Opening markers create the retail actors and players; activation drains; contact round trip; teardown releases everything |
 | `--scene-start` | The above plus the background, navigation, the 0x88/0x7D notices and the 0x6F player wait |
 | `--player-opening` | Cooper's goal-7 lock and the imps' pause behind the tutorial page, no HUD heart behind it, tutorial hold, bat hop, A edges, the ghoul intro (scene flag 4 on and off, `cache/player_intro_check.bmp`), Cooper released, the "(next bit)" gate, Cooper walking (`cache/player_walk_check.bmp`), the imp fight music |
-| `--player-fight` | The opening flow, then Cooper fights the imps (see Acceptance), a re-hit during an imp's reaction, the HUD heart in fight captures and not behind the butler's page, the chair's section (the ObjectPickedUp record with the chair's tag, Cooper in region 1, Cooper walks to the chair and A picks it up; event 0xAD with the chair's tag is queued and the section ends before its 5 s timeout; `cache/player_chair_check.bmp`, `player_chair_pickup.bmp`, `player_chair_held.bmp`), then the play-on |
-| `--player-controls` | The opening flow, then run speed at 60/144/240 Hz, a right-stick swing with no imp in range (`cache/player_air_swing.bmp`) and the trigger camera turn |
+| `--player-fight` | The opening flow, then Cooper fights the imps (see Acceptance), a re-hit during an imp's reaction, the HUD heart in fight captures and not behind the butler's page, the chair's section (the ObjectPickedUp record with the chair's tag, Cooper in region 1, Cooper walks to the chair and A picks it up; event 0xAD with the chair's tag is queued and the section ends before its 5 s timeout; `cache/player_chair_check.bmp`, `player_chair_pickup.bmp`, `player_chair_held.bmp`), then the play-on, which fails if the opening script is still running when it gives up |
+| `--player-death` | The opening flow, then Cooper stands still in the first fight: the imps empty his health, the death state 0x69 plays his dying animations and the fail stream, starts the transition (row 2) and restarts the scene ("Free Play (Fighting Intro)") |
+| `--player-controls` | The opening flow, then run speed at 30/60/144/240 Hz, a right-stick swing with no imp in range (`cache/player_air_swing.bmp`) and the trigger camera turn |
 
 Headless captures: `gbtg --headless --frames N --scene chapter1_scene1_2playcam
 --width 640 --height 480 --screenshot FILE.bmp`.
+
+The player modes tick 1/60 s, the step their checkpoints were taken at. A trailing `--retail-step`
+(`--player-fight --retail-step`) ticks 1/30 s, the step retail and `gbtg` use. The drivers' waits and
+captures count time, not ticks, so the captures show the same moments at both steps. Headless runs always
+step 1/30 s, so frame N is N/30 s; the references in `cache/player_ref/` were taken at 1/60 s, so
+`opening_180` there is frame 90 now.
 
 ## Known traps
 
@@ -261,31 +268,33 @@ Headless captures: `gbtg --headless --frames N --scene chapter1_scene1_2playcam
 
 ## Frontier
 
-Measured with `--player-fight` (Release and Debug, identical). The fight passes "Kill All"; Cooper picks up the
-cook's chair and its section ends through event 0xAD. In the play-on the driver takes the butler's pages, the
-second wave (ten imps, `aid_ghoulybox_ghoulies_chapter1_scene1_4playcamimps`: count 10, one every 0.3 s) comes
-through the doorway, Cooper fights it down with the chair (its after-images and hit sparks show), the wave's
-"Kill All" passes and the run stops at the butler's type 59.
+Measured with `--player-fight`. The whole opening scene now plays to its end: the fight passes "Kill All", Cooper
+picks up the cook's chair, the second wave comes through the doorway and its "Kill All" passes, the exit door opens,
+"Free Play" brings the butler in (`aid_ghoulybox_single_crivens`, strategy type 0x3B), Cooper walks into region 2
+for the butler's "leave room" pages (the butler takes the chair), then out through the far door. The exit volume
+queues event 0xB0, the script ends, the book transition shows the chapter title and the next scene
+(`aid_script_ghoulies_chapter1_scene2_1viewcam`, "Trophy Heads Super Scary Shock") starts.
 
 | Path | Stop | What it needs |
 |---|---|---|
-| Player death (not reached) | `scene factory type 105 getter 0x0008EED0` (seen while the chair's swings missed) | Body state 0x69 (vtable `0x00505800`: sizes `0x0008EEB0`, constructor `0x0008EF30`, destructor `0x0008F1A0`, tick `0x0008F290`, `0x0008F4D0`, `0x0008F650`): Cooper's death and the retry menu (`0x0012C4E0`, `0x0012C2D0`, `0x000496C0`, the "gameselect" loading) |
-| Butler strategy | `scene factory type 59 getter 0x000AB040 is not translated/installed` | The strategy class 0x3B over the base strategy 8 (size 0x98; vtable 0x00505D70: sizes `0x000AB020`, constructor `0x000AB090`, message `0x000AB170` with `0x000AB2D0`, update `0x000AB0C0` with `0x000AB260`, `+0x14` `0x000AB1A0`, `+0x18` `0x000AB220`). Callees still missing: `0x00128DF0`, `0x0002A030`, `0x00139AA0`; the rest (`0x0002C130`, `0x0002BC10`, `0x0002BAF0`, `0x0002B8D0`, `0x0002A8E0`, `0x0013D400`) are native. Install it like the imp fire strategy (type 0x46) |
+| The brew offer after a death | not reached | The death state's state 4 (`0x0008F290` with the unlock bit 3, enough brews and a chapter below 8): "intros_brewoffer" and its answer; the opening scene's runs have no brews |
 | Actor id lookups | legacy | `find_actor_by_id` / `find_actor_by_group` over the unfilled `g_pulse_nodes` still serve script actions, conditions and the ghoulybox controller; see `docs/LEGACY_HOST_CODE.md` |
+| Script actions | legacy | `0x00126E10`'s other cases (0x4D, 0x4E, 0x62, 0x67, 0x6E, 0x73, 0x74, 0x8E, 0x9D) and `0x00127BC0`'s cases still compute values and skip their callees; this scene does not reach them |
 | Present (the snapshot) | renders nothing | `0x00116530` records its draws but the texture stays empty |
 | HUD draws (not reached) | `0x0012F110` | Scoreboard rows of kinds 4 and 5 (the formatted counter) |
 
 ## Work
 
-1. The butler's strategy (type 0x3B), then "Exit Door Opens", "Free Play", the butler's cutscene and the scene end.
-2. The death state 0x69 (`0x0008EED0`) and its retry menu, for a run where the imps win.
-3. Move the remaining `g_pulse_nodes` callers to the native `DAT_00511AA4` lookups.
+1. The chapter's next scene (`aid_script_ghoulies_chapter1_scene2_1viewcam`) from its first frontier.
+2. Move the remaining `g_pulse_nodes` callers to the native `DAT_00511AA4` lookups.
 
 ## Acceptance
 
 - `--player-fight` drives Cooper with the sticks, defeats every imp, requires
-  the script to pass "Kill All" and saves readbacks along the way
-  (`cache/player_fight_N.bmp`).
+  the script to pass "Kill All", plays the rest of the scene to its end and the
+  next scene's start, and saves readbacks along the way
+  (`cache/player_fight_N.bmp`, `cache/player_after_N.bmp`). `--player-death`
+  requires the death and the restart. Both also run with `--retail-step`.
 - Release and Debug build; `ctest`; the six transition suites (`--scene-start
   --scene-spawn --dialogue-resources --actor-loading --ghoulybox-decoder
   --scene-models`), `--player-opening`, `--player-fight`, `--title`,
@@ -404,6 +413,96 @@ through the doorway, Cooper fights it down with the chair (its after-images and 
   "Kill All". With the 60 Hz loop the user no longer sees it in play.
 - Verified (with the after-image fixes): Release and Debug build; ctest 7/7; every suite passes except
   `--player-fight`, which ends at the expected type 59 in both; headless 900 (both scenes) exits 0.
+
+### 2026-10-19: the butler and the scene's end
+
+- Butler strategy (factory type 0x3B, `entities/butler_strategy.cpp`): sizes `0x000AB020`, constructor `0x000AB090`,
+  message `0x000AB170` with the hit reaction `0x000AB2D0`, update `0x000AB0C0` with its look-around `0x000AB260`,
+  enter `0x000AB1A0` ("far" for 0x401, "scared" for 0x411) and leave `0x000AB220`. `0x00129210` (live actors on
+  DAT_00511B48) is translated beside the "Kill All" gate. The update's tail `0x0013D400` sends message 0x63 to the
+  class-6 actor; the body message service now views its cylinder (message +4) for `0x000253B0`.
+- entityStateStruggle (factory type 0x88, `entities/body_struggle_state.cpp`): sizes `0x000A2B10`, constructor
+  `0x000A2B90`, destructor `0x000A2D60`, tick `0x000A2DB0` with `0x000A2F90` (turn toward the mind's target),
+  `0x000A3070` (the in-band / out-of-band animations) and `0x000A2EB0` (the next key); `0x000197B0` (the heading to
+  body +0x3C) is in `body_orientation.cpp`. The butler struggles while scared.
+- Script actions: 0x60 (`0x00129ED0` and `0x00112CC0` on the native actors), 0x9E (story bits `0x000F29A0`,
+  `0x000F29D0`, `0x000F29F0`), 0x9F (the DAT_00511B38 walk with `0x000F96F0` on both models) and 0x46 with a live
+  0x7D (the player drops its weapon, `0x0013A7C0`, and `0x0012ECC0` resets the meter): the butler takes the chair.
+- The scene's end: `0x00140E30` (exit, notice and camera-tune volumes) replaces the host stub that read
+  `g_actor_mark` and never ran; it now runs at the head of `0x00117100` as the dump has it, with `0x00124970` and
+  `0x0013D610`. Its event 0xB0 is handled in `0x00116950` (the door actor's {0xA6} pose, or the door marker's
+  through `0x0011F260` / `0x0011F2A0`, into `0x00117580`'s next-scene entry pose) and sets DAT_0050E788, so
+  `0x00117140` requests the next scene. In this scene the exit is region 1's box at (-208.6, 49.6) behind the far
+  door.
+- Transition: `0x00048260` binds an "aid_" page texture (`0x00035E90`, `0x000F86F0`); `0x0012B640` clip 2 shows the
+  chapter title (`0x0004B550`, `0x0004B5A0`, the "chapterheadings" loctext, and its text pool).
+- Fixed: the dialogue draw (`0x00058C30`) wraps onto line 5 of a five-line page and asks `0x0005A630` for that
+  line's position before its loop test ends the page; retail reads the word after the five widths (DAT_004EE22C,
+  past the DAT_004EE208 page) and drops the result. The native widths array now has that sixth word; it read past
+  the array before (a Debug assert on the butler's "discard weapons" page).
+- `--player-fight`: the play-on walks Cooper into any region a live PlayerEntersRegion (condition 8) names, and into
+  the exit volume while a section holds at its end (type 0xF, DAT_00512518). The walk learns the camera's offset
+  from Cooper's movement. The mode passes once the next scene's script starts.
+- Shown: the butler's pages ("Crivens is my name…", "Let me remove that chair for now…", "Let me also give you
+  this map…", "…discard weapons by pressing the B Button…", "Good luck to you, Sir!"), then Cooper without the chair
+  walking into the far doorway past the butler. Heard: the butler's dialogue cues (log); not listened to.
+- Verified (with the death work below): Release and Debug build; ctest 7/7 in both; the six transition suites,
+  `--title`, `--title-a`, `--attract`, `--goop`, `--ui`, `--audio-preparation`, `--player-opening` and
+  `--player-controls` pass (Release); `--player-fight` and `--player-death` pass in Release at both steps, and both
+  pass in Debug; headless 900 (both scenes) exits 0. The driver lines Cooper up with the exit box
+  before going in: at 1/30 the straight walk clipped the door frame. Nothing here was compared with xemu.
+
+### 2026-10-19: the player's death
+
+- Factory type 0x69 (`entities/body_player_death_state.cpp`): sizes `0x0008EEB0`, constructor `0x0008EF30`,
+  destructor `0x0008F1A0`, tick `0x0008F290` (its jump-table cases decoded from the raw bytes), phases `0x0008F4D0`,
+  the restart `0x0008F650` (the native `0x00134AE0`), the fail stream `0x0008F6A0` with `0x00038A10` (hold the
+  lower-priority banks), and `0x0002B630` (a state timer) and `0x000F2B30` (an unlock bit). The tick's case 1 tail
+  calls `0x0012C5D0`, the native `begin_scene_transition`; `0x0008F4D0` sets DAT_005493DC first, so `0x0012C2D0`
+  takes row 2. The state's context is the knockdown context plus the latches, the mind and its events, the camera
+  pulse, the streams, the scene dialogue and the transition.
+- `--player-death`: Cooper's health goes from 50 to 0 in about 5960 frames (1/60 s) with no input; the death plays,
+  the transition starts at row 2 and the scene restarts at "Free Play (Fighting Intro)".
+- Shown: `player_death_5880` (health 1), `_6000` (0, standing), `_6120` (slumping), `_6240` (lying on the stairs
+  by the book). Heard: XACT_SOUNDBANK_GSTREAMSDITTIES_FAILPITCHBEND starts (log); not listened to.
+- Not reached: the brew offer (state 4), which needs the unlock bit 3 and enough brews.
+
+### 2026-10-19: the opening at retail's 30 Hz step
+
+- Step consumers checked against the dumps: every dump that caps the step at DAT_0032B150 (1/60) is
+  translated with the cap (`0x0011E7F0` for `0x00115BB0`, which is untranslated, so the cap has no effect
+  yet; `0x00044A90` the background graph push; `0x0012BCE0` the transition). Everything else multiplies
+  DAT_005096C0 * DAT_004312C4 or counts down by it, including opcode 3's delay (`0x00133170`), so it is
+  step-independent.
+- Fixed: `clock_pad` (`0x000FC030`) left the 1/300 s accumulator DAT_005096C8 holding its whole ticks, so
+  DAT_005096C4 counted up forever instead of giving each step's ticks. Only the inspector reads it.
+- Not fixed, host copy: the present gate in `gfx_d3d11.cpp` / `gfx_null.cpp` (`0x00032AB0`) has its own
+  `dt = 1/60` for DAT_005096C0. Its fade (DAT_004DE9AC) is never installed, so nothing runs it.
+- Headless captures at 1/30 s (frame 90, 150, 450, 900) against `cache/player_ref/` at the same time:
+  90 = ref 180 (1672 pixels differ), 450 = ref 900 (the tutorial page, 3883 pixels, the corner bats'
+  pose), 150 = ref 300 differs as it has since fix 1 (Cooper in the scared pose). All exit 0.
+- `--retail-step` runs: `--player-opening` and `--player-controls` pass. Cooper's run speed at 30 Hz is
+  the same as at 60/144/240. In `--player-fight` the first fight passes "Kill All" (frame 1512, 50 s;
+  2600 frames, 43 s at 1/60), the re-hit and HUD checks pass, and the chair's section moves on through
+  event 0xAD: pickup 2.53 s, event 3.17 s, section ends 4.70 s (1/60: 2.52, 3.17, 4.68 s). The walk,
+  chair and held-chair captures match the 1/60 ones. In the intro capture the camera is on an imp that
+  faces it, where at 1/60 the imp faces away. This is likely the same random spread as the wave below.
+- The driver had tick-counted waits (1 s before walking to the chair, the A cadence, the walk and intro
+  captures). At 1/30 s these made the pickup late enough for the 5 s TimeOut to win. They now count time.
+- Play-on at 1/30: the second wave's first imp spawns at (-216.1, 53.8) and stands there, in walk action
+  0x15C and strategy 0x3FB, for 4 s until its mind's +0x8C timer runs out and re-plans. By then the
+  door has shut. It stops against x = -195.244, behind the door, for the rest of the run. "Kill All"
+  never passes, so the run never reaches type 59. At 1/60 every imp in the wave walks in at once.
+  Spawn times (one every 0.3 s from 1.8 s) and walk speeds (27-37 units/s) are the same at both steps;
+  only the spawn spots differ, presumably because the random sequence is consumed per tick. This is
+  probably the imp seen behind the door in the 240 Hz play. Whether retail can strand an imp the
+  same way, and what blocks it at its spawn spot, is not known. Not compared with xemu.
+- The play-on used to return 0 when it gave up with the opening script still running. It now fails.
+- Verified: Release build; ctest; `--player-opening`, `--player-controls` pass at both steps;
+  `--player-fight` ended at type 59 at 1/60 and at the stranded imp at 1/30 (later that day both steps play the
+  scene to its end; the 1/30 wave did not strand an imp in those runs); headless 900 (both scenes)
+  exits 0. The test target did not build on `eddace6` (the light-construction check still used the removed
+  `SceneLocalLightView`); it now builds the 0x98-byte light records the native code reads.
 
 ### 2026-10-18: the swing's after-images and the combiner overrides
 

@@ -71,6 +71,7 @@ extern "C"
 #include "../entities/entity.h"
 #include "../entities/camera_director.h"
 #include "../navigation/occupancy.h"
+#include "gbtg/actor_spawn_factory.h"
 #include "../scene/scene_actor_services.h"
 
 namespace gbtg
@@ -222,7 +223,34 @@ bool script_accepts_event(std::span<const u8> message)
         release_runtime_script_events(0x81); // 0x001168C0, EDI 0x81
         return false;
     case 0xb0:
-        throw Error("untranslated script message filter arm: " + std::to_string(type));
+    {
+        // The exit door (0x00140E30's 0x0011F2E0 word): a zeroed {0xA6} pose goes to its actor, and its reply's
+        // position (+0x20) and euler (+0x2C), or with a zero result (+0x38) the door marker's, become the next
+        // scene's entry pose (0x00117580).
+        const u16 door = read_u16(message, 4);
+        if (door != 0)
+        {
+            if (!g_script_door_pose)
+            {
+                throw Error("script event 0xB0 without the scene's door actors");
+            }
+            std::array<u32, 0x42> pose{};
+            pose[0] = 0xA6;
+            const u8* records = g_script_door_pose(door, pose);
+            Vec3 position;
+            Vec3 euler;
+            std::memcpy(&position, &pose[8], 12);
+            std::memcpy(&euler, &pose[11], 12);
+            if (pose[14] == 0)
+            {
+                read_scene_marker_position(records, i16(door), position); // 0x0011F260
+                read_scene_marker_euler(records, i16(door), euler); // 0x0011F2A0
+            }
+            store_scene_entry_pose(position, euler); // 0x00117580
+        }
+        g_script_e788 = 1;
+        return false;
+    }
     case 0xaf:
     case 0xb3:
         ++g_gate_251c;
@@ -418,6 +446,25 @@ int script_condition_timer_expired(const ScriptCond& rec)
     return 0;
 }
 
+
+// Xbox 0x00129210
+i32 count_runtime_live_actors()
+{
+    i32 count = 0;
+    for (const auto* node = static_cast<const entity_detail::ListHead*>(entity_detail::g_world.alt.next);
+         node != nullptr; node = static_cast<const entity_detail::ListHead*>(node->next))
+    {
+        if (!g_alt_node_body)
+        {
+            throw Error("DAT_00511B48 node has no body view");
+        }
+        if (read_u16(g_alt_node_body(node), 0x94) != 0)
+        {
+            ++count;
+        }
+    }
+    return count;
+}
 
 // Xbox 0x00132680. Opcode 1 in the table at 0x00314330. Walks DAT_00511B48.
 // Each node whose word at [node+0x18]+0x94 is nonzero adds one. A count at

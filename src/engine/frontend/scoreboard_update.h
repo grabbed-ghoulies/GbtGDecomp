@@ -77,6 +77,7 @@ void update_runtime_damage_counter(RuntimeScoreboardUpdate& context); // Xbox 0x
 void update_runtime_meter_view(RuntimeScoreboardUpdate& context); // Xbox 0x0012E070
 void update_runtime_meter(RuntimeScoreboardUpdate& context); // Xbox 0x0012E900
 void release_runtime_meter_voice(RuntimeScoreboardUpdate& context); // Xbox 0x0012EE00
+void reset_runtime_meter(RuntimeScoreboardUpdate& context); // Xbox 0x0012ECC0
 void update_runtime_scoreboard_hud(RuntimeScoreboardUpdate& context); // Xbox 0x00132210
 // The weapon-only icons of the damage counter (DAT_004326D4 and its half width DAT_004326D8) and the head glow
 // (DAT_004326DC, its phase DAT_004326E4), loaded when first needed.

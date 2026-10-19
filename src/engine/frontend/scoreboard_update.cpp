@@ -622,6 +622,25 @@ void update_runtime_meter_view(RuntimeScoreboardUpdate& context)
     throw Error("untranslated Xbox 0x0012E710 / 0x0005C1A0 (the meter view with DAT_00545A18 set, 0x0012E070)");
 }
 
+// Xbox 0x0012ECC0
+void reset_runtime_meter(RuntimeScoreboardUpdate& context)
+{
+    auto& globals = context.hud.globals;
+    globals.meter_b90 = 0; // DAT_00433B90
+    globals.meter_b8c = 0; // DAT_00433B8C
+    globals.meter_visible = 0; // DAT_00433B88
+    globals.meter_b94 = 0; // DAT_00433B94
+    globals.meter_b98 = 0; // DAT_00433B98
+    globals.meter_level = 1.f; // DAT_00433B80, DAT_0032B0F8
+    globals.meter_drawn = 0; // DAT_00433BCC
+    globals.meter_bd0 = 0; // DAT_00433BD0
+    if (globals.meter_voice != 0xFFFF)
+    {
+        stop_voice(globals.meter_voice, context); // 0x00039690
+        globals.meter_voice = 0xFFFF;
+    }
+}
+
 // Xbox 0x0012EE00
 void release_runtime_meter_voice(RuntimeScoreboardUpdate& context)
 {

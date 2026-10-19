@@ -6,7 +6,15 @@ namespace gbtg
 {
 // DAT_0051251C. Types 0xF and 0x10 decrement it. Type 0x11 increments it.
 extern i32 g_gate_251c;
+// DAT_00512518. Type 0xF stores 1 while it holds the section's end.
+extern i32 g_gate_2518;
 extern i32 g_script_e794; // DAT_0050E794.
+extern i32 g_script_e788; // DAT_0050E788: the scene is done; 0x00117140 requests the next one.
+// DAT_0050E76C..DAT_0050E780: the next scene's entry position and euler; DAT_0050E784 is 1 once they are set.
+extern Vec3 g_scene_entry_position;
+extern Vec3 g_scene_entry_euler;
+extern i32 g_scene_entry_set;
+void store_scene_entry_pose(const Vec3& position, const Vec3& euler); // Xbox 0x00117580, ECX position, EAX euler
 
 extern bool g_scene_script_started;
 
@@ -20,6 +28,12 @@ extern float g_509b4c; // DAT_00509B4C, the directional light intensity.
 // Xbox 0x00049D10.
 bool scene_end_flag_set(); // Xbox 0x00049D10
 bool test_and_set_runtime_story_bit(std::span<u8> bits, u32 index); // Xbox 0x000F2A20
+// Bit `index` of the story block (*(DAT_00506C6C + 8)); ECX index.
+bool test_runtime_story_bit(std::span<const u8> bits, u32 index); // Xbox 0x000F29A0
+void set_runtime_story_bit(std::span<u8> bits, u32 index); // Xbox 0x000F29D0
+void clear_runtime_story_bit(std::span<u8> bits, u32 index); // Xbox 0x000F29F0
+// Bit `index` of the unlock block (*(DAT_00506C70 + 8)); ECX index.
+bool test_runtime_unlock_bit(std::span<const u8> bits, u32 index); // Xbox 0x000F2B30
 
 void script_vm_bind(Game& g);
 int script_execute_fired_action(Game& g, u32& offset); // Xbox 0x00128A00

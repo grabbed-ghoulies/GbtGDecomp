@@ -22,6 +22,9 @@ extern i32 g_50e7a0;
 // DAT_00510CEC. Counted up when DAT_0054632C is 0 on entry to 0x0012C5D0.
 extern i32 g_510cec;
 
+// DAT_005493DC. The player's death (0x0008F4D0) sets it; 0x0012C2D0 then takes row 2 and clears it.
+extern u32 g_5493dc;
+
 // DAT_004DEA24. Counted with that gate, and once more on the way out.
 extern i32 g_4dea24;
 

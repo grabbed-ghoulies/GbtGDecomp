@@ -68,6 +68,8 @@ bool tracked_audio_bank_has_priority(AudioTrackedBank& bank,
     AudioBankStreams& context); // Xbox 0x00038530
 void pause_lower_priority_audio_banks(AudioTrackedBank& bank,
     AudioBankStreams& context); // Xbox 0x00038AD0
+// EBX priority: every tracked bank below it (bar id 0x12) gives up its channel (0x00038260) and is held.
+void hold_lower_priority_audio_banks(i32 priority, AudioBankStreams& context); // Xbox 0x00038A10
 void acquire_tracked_audio_bank(const char* name, i32 id,
     AudioBankStreams& context); // Xbox 0x00038910
 // 1 untracked, 2 finished or held, 3 still sounding.

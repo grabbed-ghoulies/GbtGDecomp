@@ -5,6 +5,7 @@ namespace gbtg
 RuntimeScriptTallies g_script_tallies;
 std::function<RuntimeScriptKillCounters()> g_script_kill_counters;
 std::function<std::span<const u8>(u32 address)> g_script_actor_bytes;
+std::function<const u8*(u16 door, std::span<u32, 0x42> pose)> g_script_door_pose;
 
 namespace
 {

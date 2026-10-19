@@ -29,6 +29,10 @@ extern std::function<RuntimeScriptKillCounters()> g_script_kill_counters;
 // A scene actor's instance bytes by retail address (the filter reads each actor's +6 tag), bound by the scene's
 // actor services.
 extern std::function<std::span<const u8>(u32 address)> g_script_actor_bytes;
+// Event 0xB0's door: 0x00129ED0 finds the actor with the door's id; when it and the 0x001292D0 player exist, the
+// player's world position (0x000412A0, pose +4) and euler (0x00041820, pose +0x10) go in, and the pose goes to the
+// actor's vtable +0xC. Returns the scene's marker records (DAT_0051108C). Bound by the scene's actor services.
+extern std::function<const u8*(u16 door, std::span<u32, 0x42> pose)> g_script_door_pose;
 
 void tally_runtime_script_pair(u32 kind, std::span<u32> table, u16 second,
     u16 first); // Xbox 0x0012AF80, EAX kind, EDX table, DI first

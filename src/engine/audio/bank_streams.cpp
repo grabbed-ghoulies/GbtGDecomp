@@ -203,6 +203,31 @@ void pause_lower_priority_audio_banks(AudioTrackedBank& bank, AudioBankStreams& 
     while (index < 20);
 }
 
+// Xbox 0x00038A10
+void hold_lower_priority_audio_banks(i32 priority, AudioBankStreams& context)
+{
+    i32 index = 0;
+    do
+    {
+        if (context.banks[index].id != 0)
+        {
+            auto* candidate = &context.banks[index];
+            while (candidate != nullptr)
+            {
+                if (candidate->id != 0x12 && candidate->id < priority)
+                {
+                    detach_tracked_audio_bank(*candidate, context); // 0x00038260
+                    candidate->held = 1;
+                }
+                candidate = next_tracked_audio_bank(candidate, context);
+            }
+            return;
+        }
+        ++index;
+    }
+    while (index < 20);
+}
+
 // Xbox 0x00038910
 void acquire_tracked_audio_bank(const char* name, i32 id, AudioBankStreams& context)
 {

@@ -40,6 +40,7 @@ void draw_runtime_game_scene_replay(GameSelectWidget& widget,
 void set_runtime_game_scene_replay_state(GameSceneReplayWidget& widget, i32 state,
     GameSelectControlServices& services); // Xbox 0x000E3760
 // The scene-replay prompts' B callback (rows +0x44 at 0x003095D0). A and the stick are the features menu's
-// 0x000E4E40 and 0x000D8080; the page keys (0x000E4ED0, 0x000E4EC0) jump to 0x00143F30 and 0x00143D60.
+// 0x000E4E40 and 0x000D8080; the page keys (0x000E4ED0, 0x000E4EC0) jump to the button-bat menu's 0x00143F30 and
+// 0x00143D60.
 void leave_runtime_game_scene_replay(GameSelectControlServices& services); // Xbox 0x000E30E0
 }

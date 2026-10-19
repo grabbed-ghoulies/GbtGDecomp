@@ -152,7 +152,8 @@ Game select checked with `--gameselect`, `--gameselect-native`, `--gameselect-ne
 `--gameselect-stats`. All pass, and all 25 captures are byte-identical to the captures taken before the first
 naming change, both after naming and after consolidation. Those runs don't reach the contents completed splat
 (`0x000DAD50` / `0x000DAED0` / `0x000DAF10`, a finished game only) or the challenge icon (shown only with unplayed
-challenges). Those paths compile but haven't run. The control is exercised by every row change and the new-game
+challenges). Those paths compile but haven't run there. `--gameselect-retail-save` (a finished retail save,
+added later) does show the completed splat, so that path has now run. The control is exercised by every row change and the new-game
 start. The button sequence is built and ticked but never entered; its unlock (0x000DB380) is still untranslated.
 
 ## Named with descriptors

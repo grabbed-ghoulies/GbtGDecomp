@@ -5,6 +5,8 @@
 #include "../src/engine/scene/scene_controls.h"
 #include "../src/engine/frontend/gameselect_slots.h"
 #include "../src/engine/frontend/button_bat_menu.h"
+#include "../src/engine/frontend/gameselect_features.h"
+#include "../src/engine/frontend/gameselect_scene_replay.h"
 #include "../src/engine/frontend/frontend_state.h"
 #include "gbtg/texture.h"
 #include "../src/engine/saves/save_root.h"
@@ -8027,9 +8029,9 @@ void play_scene3(gbtg::Game& game, bool drive)
 }
 
 // --gameselect-replay-scene's save: a child --gameselect-new-game run saves a new game, then its progress.xsv's
-// record script (+0x102, read by 0x0010DB10) is set to a Chapter 1 Scene 2 script and the file is signed again
-// as 0x0010EB60 signs it (0x000E9AF0, flags 0: the last 0x14 bytes), so the native load (0x0010EF10) verifies it.
-void write_chapter1_scene2_save(const char* exe, const char* original)
+// record script (+0x102, read by 0x0010DB10) is set to `script` and the file is signed again as 0x0010EB60 signs
+// it (0x000E9AF0, flags 0: the last 0x14 bytes), so the native load (0x0010EF10) verifies it.
+void write_replay_save(const char* exe, const char* original, const std::string& script)
 {
     const std::string command = "\"\"" + std::string(exe) + "\" \"" + original + "\" --gameselect-new-game\"";
     if (std::system(command.c_str()) != 0)
@@ -8059,9 +8061,8 @@ void write_chapter1_scene2_save(const char* exe, const char* original)
         throw gbtg::Error("progress.xsv is too short");
     }
     std::cout << "saved script " << reinterpret_cast<const char*>(bytes.data() + 0x102) << "\n";
-    const char script[] = "aid_script_ghoulies_chapter1_scene2_1viewcam";
     std::memset(bytes.data() + 0x102, 0, 0x80);
-    std::memcpy(bytes.data() + 0x102, script, sizeof(script));
+    std::memcpy(bytes.data() + 0x102, script.c_str(), script.size() + 1);
     const std::uintptr_t handle = gbtg::begin_xbox_signature(0);
     if (handle == std::uintptr_t(-1)
         || gbtg::update_xbox_signature(handle, bytes.data(), gbtg::u32(bytes.size() - size)) != 0
@@ -8097,8 +8098,23 @@ int main(int argc, char** argv)
     // progress.xsv's script (record +0x102) becomes aid_script_ghoulies_chapter1_scene2_1viewcam and is signed again,
     // and this run loads it: A on its slot, Right and A to the features menu, Down twice and A on Replay Scene, which
     // must request the scene replay (row 10) rather than show the not-past-scene-one page.
-    const bool replay_scene_test = argc == 3 && std::string_view(argv[2]) == "--gameselect-replay-scene";
+    // --gameselect-replay-paging: the same on a Chapter 1 Scene 10 save, whose nine scenes are more than the menu's
+    // eight rows. X (Page Down, code 2) from the first scene shows the ninth alone and selects it; Y (Page Up, code
+    // 3) goes back to the first page and its first scene.
+    const bool replay_paging_test = argc == 3 && std::string_view(argv[2]) == "--gameselect-replay-paging";
+    // --gameselect-retail-save: a save written by the retail game (a finished game) is copied into the empty test
+    // save folder from GBTG_RETAIL_SAVES (default ../Saves/Xbox/4d530053, the title's U: folder), outside the
+    // repository. The native scan must verify its signature; A opens it, Right and A the features, Down to Replay
+    // Scene and A, whose list must hold all 100 scenes; X pages down twice and Y once, then B goes back.
+    const bool retail_save_test = argc == 3 && std::string_view(argv[2]) == "--gameselect-retail-save";
+    const bool replay_scene_test = replay_paging_test
+        || (argc == 3 && std::string_view(argv[2]) == "--gameselect-replay-scene");
+    if (replay_scene_test || retail_save_test)
+    {
+        std::cout << std::unitbuf; // its output survives a crash in teardown
+    }
     const bool gameselect_native_test = new_game_test || delete_test || stats_test || features_test || replay_scene_test
+        || retail_save_test
         || (argc == 3 && std::string_view(argv[2]) == "--gameselect-native");
     const bool gameselect_test = gameselect_native_test || (argc == 3 && std::string_view(argv[2]) == "--gameselect");
     const bool title_test = title_a_test || attract_test || gameselect_test
@@ -8215,12 +8231,25 @@ int main(int argc, char** argv)
         gbtg::Game game;
         if (replay_scene_test)
         {
-            write_chapter1_scene2_save(argv[0], argv[1]);
+            write_replay_save(argv[0], argv[1], replay_paging_test ? "aid_script_ghoulies_chapter1_scene10_1playcam"
+                : "aid_script_ghoulies_chapter1_scene2_1viewcam");
         }
         else
         {
             // Each run starts with an empty U: (the save folder), so earlier runs' saves never change the screens.
             std::filesystem::remove_all("cache/test_saves");
+        }
+        if (retail_save_test)
+        {
+            const char* from = std::getenv("GBTG_RETAIL_SAVES");
+            const std::filesystem::path source = from != nullptr ? from : "../Saves/Xbox/4d530053";
+            if (!std::filesystem::is_directory(source))
+            {
+                throw gbtg::Error("no retail save folder at " + source.generic_string() + " (set GBTG_RETAIL_SAVES)");
+            }
+            std::filesystem::create_directories("cache/test_saves");
+            std::filesystem::copy(source, "cache/test_saves", std::filesystem::copy_options::recursive);
+            std::cout << "copied the retail saves from " << source.generic_string() << "\n";
         }
         gbtg::set_save_root("cache/test_saves");
         game.init(argv[1], scene6_test ? "6" : scene3_test ? "7" : player_test || spawn_test ? "chapter1_scene1_2playcam"
@@ -9534,6 +9563,125 @@ int main(int argc, char** argv)
             gbtg::gfx_shutdown();
             return 0;
         }
+        if (retail_save_test)
+        {
+            const auto text_of = [](const gbtg::ButtonBatMenuItem& entry)
+            {
+                std::string text;
+                for (const char16_t* c = entry.text.data(); *c != 0; ++c)
+                {
+                    text += char(*c < 0x80 ? *c : '?');
+                }
+                return text;
+            };
+            const auto selected_text = [&text_of]() -> std::string
+            {
+                const auto* menu = gbtg::g_frontend.bat_menu;
+                if (menu == nullptr || menu->selected < 0 || size_t(menu->selected) >= menu->items.size())
+                {
+                    return {};
+                }
+                return text_of(*menu->items[size_t(menu->selected)]);
+            };
+            int ready = -1;
+            int features_at = -1;
+            int replay_at = -1;
+            size_t scenes = 0;
+            std::vector<std::string> pages;
+            for (int frame = 0; frame < 4200; ++frame)
+            {
+                gbtg::InputState input;
+                input.start = frame == 120;
+                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_54632c == 0)
+                {
+                    ready = frame;
+                }
+                const int at = ready < 0 ? -1 : frame - ready;
+                if (features_at < 0 && gbtg::g_frontend.features_widget != nullptr
+                    && gbtg::g_frontend.features_widget->state == 2)
+                {
+                    features_at = frame;
+                    std::cout << "features open at +" << at << "\n";
+                }
+                if (replay_at < 0 && gbtg::g_frontend.scene_replay_widget != nullptr
+                    && gbtg::g_frontend.scene_replay_widget->state == 2)
+                {
+                    replay_at = frame;
+                    scenes = gbtg::g_frontend.bat_menu->items.size();
+                    std::cout << "scene replay open at +" << at << " with " << scenes << " scenes, first \""
+                              << text_of(*gbtg::g_frontend.bat_menu->items.front()) << "\", last \""
+                              << text_of(*gbtg::g_frontend.bat_menu->items.back()) << "\"\n";
+                }
+                input.accept = at == 180 || at == 900;
+                input.right = at == 700;
+                if (features_at >= 0 && replay_at < 0)
+                {
+                    // Down until Replay Scene is selected, then A.
+                    const int since = frame - features_at;
+                    if (since % 100 == 50)
+                    {
+                        if (selected_text() == "Replay Scene")
+                        {
+                            input.accept = true;
+                        }
+                        else
+                        {
+                            input.down = true;
+                        }
+                    }
+                }
+                if (replay_at >= 0)
+                {
+                    const int since = frame - replay_at;
+                    input.page = since == 100 || since == 400; // X, Page Down
+                    if (since == 700)
+                    {
+                        input.pads[0].buttons |= 0x0800; // Y, Page Up
+                    }
+                    input.back = since == 1000;
+                    if (since == 390 || since == 690 || since == 990)
+                    {
+                        const auto* menu = gbtg::g_frontend.bat_menu;
+                        pages.push_back(std::to_string(menu == nullptr ? -9 : menu->selected) + " \"" + selected_text()
+                            + "\"");
+                        std::cout << "after page " << pages.size() << ": " << pages.back() << "\n";
+                    }
+                }
+                gbtg::gfx_begin_frame();
+                game.tick(1.f / 59.f, input);
+                gbtg::gfx_end_frame();
+                const bool capture = at == 300 || at == 650 || at == 1100 || (replay_at >= 0
+                    && (frame - replay_at == 50 || frame - replay_at == 390 || frame - replay_at == 690
+                        || frame - replay_at == 990 || frame - replay_at == 1300));
+                if (capture)
+                {
+                    gbtg::RgbaImage image;
+                    if (gbtg::gfx_readback(image))
+                    {
+                        const std::string name = replay_at >= 0 ? "replay_" + std::to_string(frame - replay_at)
+                                                                : std::to_string(at);
+                        gbtg::write_bmp("cache/gameselect_retail_" + name + ".bmp", image);
+                    }
+                }
+            }
+            if (features_at < 0 || replay_at < 0)
+            {
+                throw gbtg::Error("the retail save did not reach the scene replay");
+            }
+            // 12 + 17 + 10 + 13 + 12 + 7 + 15 + 1 + 13 scenes (DAT_002FE670): a finished game with +0x260 lists 100.
+            if (scenes != 100 || pages.size() != 3)
+            {
+                throw gbtg::Error("the retail save's scene replay listed " + std::to_string(scenes) + " scenes");
+            }
+            const auto* control = gbtg::find_runtime_scene_control(0x9A);
+            if (control == nullptr || control->gameselect->current_row != 8)
+            {
+                throw gbtg::Error("B in the scene replay did not return to the features (row 8)");
+            }
+            std::cout << "PASS: the retail save loaded, its scene replay listed 100 scenes and paged, and B went back\n";
+            gbtg::gfx_shutdown();
+            return 0;
+        }
         if (gameselect_test)
         {
             // Start at frame 120 opens game select. Once its page turn has finished, the screens are captured at
@@ -9544,7 +9692,10 @@ int main(int argc, char** argv)
             bool replay_opened = false;
             size_t replay_items = 0;
             std::string replay_item;
-            for (int frame = 0; frame < (replay_scene_test ? 3000 : features_test ? 3200 : new_game_test ? 2700 : delete_test || stats_test ? 2000
+            gbtg::i32 paged_down = -3;
+            gbtg::i32 paged_up = -3;
+            size_t paged_visible = 0;
+            for (int frame = 0; frame < (replay_paging_test ? 3100 : replay_scene_test ? 3000 : features_test ? 3200 : new_game_test ? 2700 : delete_test || stats_test ? 2000
                      : 1400); ++frame)
             {
                 gbtg::InputState input;
@@ -9564,9 +9715,17 @@ int main(int argc, char** argv)
                 {
                     // A on the saved game's slot opens its contents; Right, A to the features menu, Down twice, A on
                     // Replay Scene, then A on the first scene in its list.
-                    input.accept = at == 180 || at == 900 || at == 1400 || at == 2000;
+                    input.accept = at == 180 || at == 900 || at == 1400 || (!replay_paging_test && at == 2000);
                     input.right = at == 700;
                     input.down = at == 1150 || at == 1250;
+                    if (replay_paging_test)
+                    {
+                        input.page = at == 2000; // X, Page Down
+                        if (at == 2300)
+                        {
+                            input.pads[0].buttons |= 0x0800; // Y, Page Up
+                        }
+                    }
                 }
                 else if (stats_test)
                 {
@@ -9616,6 +9775,18 @@ int main(int argc, char** argv)
                         }
                     }
                 }
+                if (replay_paging_test && (at == 2290 || at == 2590) && gbtg::g_frontend.bat_menu != nullptr)
+                {
+                    const auto& menu = *gbtg::g_frontend.bat_menu;
+                    (at == 2290 ? paged_down : paged_up) = menu.selected;
+                    if (at == 2290)
+                    {
+                        for (const auto& entry : menu.items)
+                        {
+                            paged_visible += entry->visible != 0 ? 1 : 0;
+                        }
+                    }
+                }
                 if ((features_test || replay_scene_test) && at == (replay_scene_test ? 1390 : 1990)
                     && gbtg::g_frontend.bat_menu != nullptr)
                 {
@@ -9644,7 +9815,7 @@ int main(int argc, char** argv)
                 }
                 const bool capture = replay_scene_test ? (at == 120 || at == 300 || at == 650 || at == 800 || at == 1100
                                          || at == 1350 || at == 1500 || at == 1700 || at == 1900 || at == 2100
-                                         || at == 2400 || at == 2900)
+                                         || at == 2400 || at == 2900 || at == 2200 || at == 2500)
                                    : features_test ? (at == 1420 || at == 1560 || at == 1700 || at == 1800
                                          || at == 1950 || at == 2150 || at == 2450 || at == 2700 || at == 3100)
                                    : stats_test ? (at == 1290 || at == 1330 || at == 1400 || at == 1500 || at == 1580)
@@ -9656,7 +9827,8 @@ int main(int argc, char** argv)
                     gbtg::RgbaImage image;
                     if (gbtg::gfx_readback(image))
                     {
-                        const std::string prefix = replay_scene_test ? "cache/gameselect_replay_scene_"
+                        const std::string prefix = replay_paging_test ? "cache/gameselect_replay_paging_"
+                                                 : replay_scene_test ? "cache/gameselect_replay_scene_"
                                                  : features_test ? "cache/gameselect_features_"
                                                  : stats_test ? "cache/gameselect_stats_"
                                                  : delete_test ? "cache/gameselect_delete_"
@@ -9684,6 +9856,18 @@ int main(int argc, char** argv)
                     throw gbtg::Error("A on Replay Scene in a Chapter 1 Scene 2 save did not open the scene replay");
                 }
                 std::cout << "scene replay list: " << replay_items << " item(s), \"" << replay_item << "\"\n";
+                if (replay_paging_test)
+                {
+                    std::cout << "page down selected " << paged_down << " with " << paged_visible
+                              << " visible; page up selected " << paged_up << "\n";
+                    if (replay_items != 9 || paged_down != 8 || paged_visible != 1 || paged_up != 0)
+                    {
+                        throw gbtg::Error("the scene replay's pages are wrong");
+                    }
+                    std::cout << "PASS: the scene replay listed nine scenes, paged down to the ninth and back up\n";
+                    gbtg::gfx_shutdown();
+                    return 0;
+                }
                 // Scene 2's save can replay one scene: ordinal 0, chapter 1's book and scene 1.
                 if (replay_items != 1)
                 {

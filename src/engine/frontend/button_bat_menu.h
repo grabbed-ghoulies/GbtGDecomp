@@ -90,4 +90,8 @@ void tick_runtime_button_bat_menu(GameSelectControlServices& services); // Xbox 
 void draw_runtime_button_bat_menu(GameSelectControlServices& services); // Xbox 0x00143840
 void move_runtime_button_bat_menu_up(GameSelectControlServices& services); // Xbox 0x00143BF0
 void move_runtime_button_bat_menu_down(GameSelectControlServices& services); // Xbox 0x00143CB0
+// A page at a time: up to the page above (its first item), down to the page below (its last item). When every
+// item fits on one page with wrap, they select the first or the last item.
+void page_runtime_button_bat_menu_up(GameSelectControlServices& services); // Xbox 0x00143D60
+void page_runtime_button_bat_menu_down(GameSelectControlServices& services); // Xbox 0x00143F30
 }

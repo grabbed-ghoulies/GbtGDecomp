@@ -135,6 +135,7 @@
 #include "../frontend/gameselect_delete.h"
 #include "../frontend/gameselect_features.h"
 #include "../frontend/gameselect_scene_replay.h"
+#include "../frontend/button_bat_menu.h"
 #include "../frontend/input_stack.h"
 #include "../frontend/brew_meter.h"
 #include "../frontend/player_health_display.h"
@@ -4288,13 +4289,13 @@ void SceneActorServices::State::bind_gameselect_services()
     {
         leave_runtime_game_scene_replay(*gameselect_services);
     };
-    widget_callbacks[0x000E4ED0] = []()
+    widget_callbacks[0x000E4ED0] = [this]()
     {
-        throw Error("the button-bat menu's page down (0x000E4ED0 -> 0x00143F30) is not translated");
+        page_runtime_button_bat_menu_down(*gameselect_services); // 0x000E4ED0: JMP 0x00143F30
     };
-    widget_callbacks[0x000E4EC0] = []()
+    widget_callbacks[0x000E4EC0] = [this]()
     {
-        throw Error("the button-bat menu's page up (0x000E4EC0 -> 0x00143D60) is not translated");
+        page_runtime_button_bat_menu_up(*gameselect_services); // 0x000E4EC0: JMP 0x00143D60
     };
     // The deletion prompts' rows (0x003077B0).
     widget_callbacks[0x000DBD50] = [this]()

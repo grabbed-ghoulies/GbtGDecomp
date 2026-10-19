@@ -206,8 +206,9 @@ void release_menu_item(std::unique_ptr<ButtonBatMenuItem>& entry, GameSelectCont
 {
     if (entry->context != 0)
     {
-        // 0x000663E0 frees the context; no translated item carries one.
-        throw Error("0x000663E0 (a button-bat menu item's context release) is not translated");
+        // 0x000663E0: HeapFree of the context block on its heap (the host heap boundary). A host item holds the
+        // block's value (0x000E3560's scene ordinal) rather than its address, so there is no block to free.
+        entry->context = 0;
     }
     if (entry->icon != nullptr)
     {
@@ -791,5 +792,125 @@ void move_runtime_button_bat_menu_down(GameSelectControlServices& services)
     }
     menu.scroll = 2;
     scroll_menu(menu, s); // 0x00144080
+}
+
+// Xbox 0x00143D60. The item lists are walked through their previous links (+0); the head (-1) ends a walk.
+void page_runtime_button_bat_menu_up(GameSelectControlServices& services)
+{
+    auto& s = services;
+    auto& menu = menu_of(s);
+    const i32 count = item_count(menu); // the inline 0x0002CC10
+    if (count == 1 || menu.state != 2)
+    {
+        return;
+    }
+    i32 top = menu.selected;
+    if (menu.wrap != 0)
+    {
+        if (count <= menu.visible_rows) // 0x0002CC10
+        {
+            if (menu.selected == 0)
+            {
+                return; // its previous link is the head
+            }
+            deselect_item(menu); // 0x00144660
+            menu.selected = 0; // +0x60, the first item
+            fly_bat_to_selection(menu, s); // 0x00144320
+            select_item(menu); // The tail jump to 0x00144630.
+            return;
+        }
+        // The topmost of the visible items above the selection.
+        for (i32 above = top - 1; 0 <= above && item(menu, above)->visible != 0; --above)
+        {
+            top = above;
+        }
+    }
+    else
+    {
+        i32 above = top - 1;
+        if (above < 0)
+        {
+            return;
+        }
+        // Up through the visible items; one that is not visible pages up from the last visible one, and reaching
+        // the first item with every item visible leaves the menu as it is.
+        while (item(menu, above)->visible != 0)
+        {
+            top = above;
+            --above;
+            if (above < 0)
+            {
+                return;
+            }
+        }
+    }
+    menu.selected = top;
+    // 0x00143E30: the page above, its last item then the topmost visible one selected. +0x4C stays 1.
+    menu.scroll = 1;
+    page_up(menu, s); // 0x00144180
+    if (menu.wrap != 0 && menu.selected == 0)
+    {
+        menu.selected = item_at(menu, count - 1); // the inline 0x0002CC10 / 0x0002CCB0
+    }
+    else
+    {
+        menu.selected -= 1; // its previous link
+    }
+    for (i32 above = menu.selected - 1; 0 <= above && item(menu, above)->visible != 0; --above)
+    {
+        menu.selected = above;
+    }
+    fly_bat_to_selection(menu, s); // +0x40 from +0x224, 0x0006DA00(0), state 3
+    select_item(menu); // +0x210 with +0x21C, unless the selection is the head
+    update_arrows(menu); // The tail jump to 0x001446F0.
+}
+
+// Xbox 0x00143F30. The item lists are walked through their next links (+4); null ends a walk.
+void page_runtime_button_bat_menu_down(GameSelectControlServices& services)
+{
+    auto& s = services;
+    auto& menu = menu_of(s);
+    const i32 count = item_count(menu); // the inline 0x0002CC10
+    if (count == 1 || menu.state != 2)
+    {
+        return;
+    }
+    if (menu.wrap != 0)
+    {
+        if (count <= menu.visible_rows) // 0x0002CC10
+        {
+            if (count <= menu.selected + 1)
+            {
+                return;
+            }
+            deselect_item(menu); // 0x00144660
+            menu.selected = count - 1; // the last item
+            fly_bat_to_selection(menu, s); // 0x00144320
+            select_item(menu); // The tail jump to 0x00144630.
+            return;
+        }
+        // The last of the visible items below the selection, then the page below.
+        i32 last = menu.selected;
+        for (i32 below = last + 1; below < count && item(menu, below)->visible != 0; ++below)
+        {
+            last = below;
+        }
+        menu.selected = last;
+        menu.scroll = 2;
+        scroll_menu(menu, s); // The tail jump to 0x00144080.
+        return;
+    }
+    // Down through the visible items; the first that is not visible pages down from the one above it.
+    for (i32 below = menu.selected + 1; below < count; ++below)
+    {
+        if (item(menu, below)->visible == 0)
+        {
+            menu.selected = below - 1; // its previous link
+            menu.scroll = 2;
+            scroll_menu(menu, s); // 0x00144080
+            update_arrows(menu); // The tail jump to 0x001446F0.
+            return;
+        }
+    }
 }
 }

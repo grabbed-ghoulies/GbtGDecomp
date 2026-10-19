@@ -335,9 +335,29 @@ select, releases the old order, holds the new one with the heap release
 `0x000358F0`, sets the next row to 10 and queues the scene's first script
 (`0x00083B90`, mode 2). The prompts ("ReplayChapterMenu", `0x003095D0`) use
 the features menu's A (`0x000E4E40`) and stick (`0x000D8080`) and their own B
-(`0x000E30E0`, back to row 8). Page Up and Page Down (`0x000E4EC0` and
-`0x000E4ED0`, jumping to the button-bat menu's `0x00143D60` and `0x00143F30`)
-raise: those two are not translated.
+(`0x000E30E0`, back to row 8). Page Up (Y, `0x000E4EC0`) and Page Down (X,
+`0x000E4ED0`) jump to the button-bat menu's `0x00143D60` and `0x00143F30`
+(`button_bat_menu.cpp`). With every item on one page (and wrap) they select the
+first or the last item. Otherwise Page Down turns to the page below its visible
+rows through `0x00144080` and selects its first item. Page Up turns to the page
+above (`0x00144180`) and selects that page's first item, leaving +0x4C at 1. An
+item's context is released through `0x000663E0` (HeapFree, the heap boundary);
+a host item holds the block's value, so the release only clears it.
+
+`--gameselect-replay-paging` is the replay test on a Chapter 1 Scene 10 save:
+nine scenes, more than the menu's eight rows (`0x00429A50`). X from the first
+selects the ninth, alone on its page; Y goes back to the first. It passes.
+
+`--gameselect-retail-save` loads a save the retail game wrote: a finished game
+("Paul", at `chapter5_scene13_3book`, +0x188 and +0x260 set). The test copies
+the title's U: folder from `GBTG_RETAIL_SAVES` (default
+`../Saves/Xbox/4d530053`, outside the repository) into the empty test save
+folder. The native scan verifies its `progress.xsv` signature, so the host's
+keyed signature (`0x0014CEF5`..`0x0014CF57`) matches the console's. The contents
+show the COMPLETED splat on Play and the features list View Staff Credits. The
+scene replay lists all 100 scenes, from "Chapter 1 : Grand Hallway" to
+"Chapter 5 : Front Gate". X, X and Y page to items 8, 16 and back to 8, and B
+returns to the features (row 8). It passes.
 
 The script VM (`0x00117140`) picks the next scene from the held order:
 `0x00035960` (`next_scene_order_name`, `runtime/name_lookup.cpp`) with EAX

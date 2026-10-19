@@ -348,6 +348,16 @@ const char16_t* scene_name(i32 ordinal, std::array<char16_t, 0x800>& output, Gam
     return output.data();
 }
 
+// wsprintfW("%s %d"): the text, a space and the number.
+std::u16string text_and_number(const char16_t* text, i32 number)
+{
+    std::u16string output(text);
+    output += u' ';
+    const std::wstring digits = std::to_wstring(number);
+    output.append(digits.begin(), digits.end());
+    return output;
+}
+
 // Xbox 0x000DA040: the game's start mode (+0xF24) and its progress line at +0xA78.
 bool describe_progress(GameContentsWidget& w, GameSelectControlServices& s)
 {
@@ -377,19 +387,14 @@ bool describe_progress(GameContentsWidget& w, GameSelectControlServices& s)
     char script[0x80]{};
     save_game_script(w.name, script); // 0x0010DB10
     const i32 index = script_chapter(script, s); // 0x0004B4D0
-    std::u16string chapter_line(chapter_text.data());
-    chapter_line += u" ";
-    chapter_line += std::u16string(std::to_wstring(i32(exe_word(s, 0x002FE698 + u32(index) * 4))).begin(),
-        std::to_wstring(i32(exe_word(s, 0x002FE698 + u32(index) * 4))).end()); // wsprintfW("%s %d")
+    const std::u16string chapter_line =
+        text_and_number(chapter_text.data(), i32(exe_word(s, 0x002FE698 + u32(index) * 4))); // wsprintfW("%s %d")
     i32 scene = book_scene(script, s); // 0x0011EC70
     if (scene == 0)
     {
         scene = 1;
     }
-    std::u16string scene_line(scene_text.data());
-    scene_line += u" ";
-    const std::wstring number = std::to_wstring(scene);
-    scene_line += std::u16string(number.begin(), number.end());
+    const std::u16string scene_line = text_and_number(scene_text.data(), scene); // wsprintfW("%s %d")
     std::array<char16_t, 0x800> name{};
     const std::u16string place = scene_name(scene_ordinal(script, s), name, s); // 0x0011ED30, 0x0011ED80, lstrcpyW
     const std::u16string line = chapter_line + scene_line + u" : " + place; // wsprintfW("%s%s : %s")

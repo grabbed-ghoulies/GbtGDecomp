@@ -235,9 +235,14 @@ loading with `0x000E0640`, `0x000DF790`, `0x000DF7E0`, `0x000DF880`.
 with the default name, A on the new game's slot and A on Play. It passes: the
 save is written to `cache/test_saves`, slot select shows "My Game" in slot 1
 (its chapter plate, movie, background and the Delete prompt), the menu book
-turns to the contents (three chapters, "Play / Chapter 1", Back / Select /
-Info / Move), and Play starts `aid_script_ghoulies_chapter1_scene0_1book`
-natively ("Game Intro.").
+turns to the contents (three chapters, "Play" over "Chapter 1, Scene 1 : Grand
+Hallway", Back / Select / Info / Move), and Play starts
+`aid_script_ghoulies_chapter1_scene0_1book` natively ("Game Intro.").
+
+The progress line (`0x000DA040`) once stopped after "Chapter 1": its chapter
+number was converted from the begin and end of two different temporary
+strings, which copied stray memory (a NUL among it) into the line. Both
+numbers now go through one `wsprintfW("%s %d")` helper.
 
 The native transition book (`src/engine/transitions/native_book.cpp`):
 `0x00048260` (create: the clip row at `0x00422078`, its cutscene and

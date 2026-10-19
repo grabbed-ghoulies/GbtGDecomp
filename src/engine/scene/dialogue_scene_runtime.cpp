@@ -36,7 +36,7 @@ RuntimeScriptDialogueContext& scene_dialogue_context(Game& game)
     return *game.script_dialogue;
 }
 
-void tick_scene_dialogue(Game& game)
+void sync_scene_dialogue_clock(Game& game)
 {
     if (game.script_dialogue != nullptr)
     {
@@ -48,6 +48,15 @@ void tick_scene_dialogue(Game& game)
         context.widget_update.dt = game.clock.dt;
         context.widget_update.freeze = context.freeze;
         context.widget_update.scene_scale = context.scene_scale;
+    }
+}
+
+void tick_scene_dialogue(Game& game)
+{
+    if (game.script_dialogue != nullptr)
+    {
+        auto& context = game.script_dialogue->dialogue;
+        sync_scene_dialogue_clock(game);
         update_runtime_dialogue(context);
         g_draw_e1ec = context.state.mode;
     }

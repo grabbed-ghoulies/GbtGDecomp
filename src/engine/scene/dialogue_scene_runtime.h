@@ -12,6 +12,9 @@ void bind_scene_dialogue(Game& game, RuntimeScriptDialogueContext& context,
 void unbind_scene_dialogue(Game& game);
 RuntimeScriptDialogueContext& scene_dialogue_context(Game& game);
 void tick_scene_dialogue(Game& game);
+// The dialogue context's copies of the frame globals (DAT_004DEA58, DAT_005096C0, DAT_004312DC, DAT_004312C4),
+// which retail reads directly; the transition's chapter title reads them before the scene ticks.
+void sync_scene_dialogue_clock(Game& game);
 void draw_scene_dialogue(Game& game);
 // The three calls draw_scene_dialogue makes, for the per-view present 0x0011C240, which runs other passes between
 // them.

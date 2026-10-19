@@ -1465,6 +1465,7 @@ void script_pump(Game& g)
     // Xbox 0x0011E4C0
     g_transition_game = &g;
     g_sim_dt = g.clock.dt;
+    sync_scene_dialogue_clock(g); // Host mirrors of the frame globals the transition's title reads.
     u8* scene = g_510e58;
     if (*reinterpret_cast<i32*>(scene + 0x110) == 0 &&
         *reinterpret_cast<u32*>(scene + 0x80) == kAidPrefixEd8)

@@ -484,6 +484,11 @@ queues event 0xB0, the script ends, the book transition shows the chapter title 
     its kind (`0x00107DD0`, `0x00107960`, `0x00107B60`).
 - The transition services now carry the scene's widget, input and draw contexts, the frame (DAT_004DEA58) and
   DAT_0050974C.
+- Booting straight into a scene (`gbtg --scene 6`) takes the same row (3, clip 2, from the target scene's directory
+  row) and shows the same title. Its text and prompts stayed invisible there. Retail's text-record draw reads the
+  frame globals (DAT_005096C0, DAT_004312C4, DAT_004312DC), but the native dialogue context copies them only in
+  `tick_scene_dialogue`, which does not run before the scene starts. So the step stayed 0. `script_pump`
+  (`0x0011E4C0`) now refreshes the copies each frame (`sync_scene_dialogue_clock`).
 - Shown: `player_chapter_title.bmp`, "Chapter One" and "The Rescue" over the sketch page, with the A prompt and its
   bat. `--player-fight` now requires the title and that A moves the transition to phase 2.
 - Next blocker: once the next scene (chapter1_scene2_1viewcam, "Trophy Heads Super Scary Shock") has loaded, its

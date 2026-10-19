@@ -62,6 +62,8 @@ struct SceneD3DQuad
     std::array<float, 4> color; // Vertex constant c0x64 at the draw.
     const u8* texture; // Stage 0 texture record.
     SceneD3DStateSnapshot states;
+    u32 address_u = 1; // Stage 0 D3DTSS_ADDRESSU / ADDRESSV at the draw.
+    u32 address_v = 1;
 };
 struct SceneD3DVertexStream
 {
@@ -109,6 +111,8 @@ struct SceneD3DFixedDraw
     u32 diffuse; // SetVertexDataColor register 3 (D3DVSDE_DIFFUSE), D3DCOLOR.
     SceneD3DStateSnapshot states;
     const u8* texture; // Stage 0, sampled by the D3DFVF_TEX1 format.
+    u32 address_u = 1; // Stage 0 D3DTSS_ADDRESSU / ADDRESSV at the draw.
+    u32 address_v = 1;
 };
 // D3DDevice_CopyRects from the back buffer into a texture's level 0 (the book's page captures).
 struct SceneD3DCopy
@@ -178,6 +182,9 @@ public:
     // D3D__RenderState[D3DRS_FOGENABLE]: the game writes it directly (0x00158A80, 0x00156EA0) and D3D's lazy
     // update reads it when a draw is issued.
     const u32* fog_enable = nullptr;
+    // D3D_g_DeferredTextureState (DAT_00181970): per stage (stride 0x20 words) ADDRESSU then ADDRESSV, which D3D's
+    // lazy update writes to the NV2A when a draw is issued. Every recorded draw carries them.
+    const u32* deferred_texture_states = nullptr;
 
 private:
     void flush_deferred_states();
@@ -186,6 +193,8 @@ private:
     std::map<u32, std::array<float, 16>> transforms_;
     SceneD3DConstants constants_{};
     std::array<const u8*, 4> textures_{};
+    std::array<u32, 4> address_u_{1, 1, 1, 1}; // The deferred address modes at the last flush.
+    std::array<u32, 4> address_v_{1, 1, 1, 1};
     std::map<u32, u32> render_states_;
     std::map<u32, SceneD3DVertexStream> vertex_streams_;
     std::array<std::array<float, 4>, 16> pixel_constants_{};

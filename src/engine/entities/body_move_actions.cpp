@@ -6,6 +6,31 @@ namespace gbtg
 {
 namespace
 {
+std::function<std::span<u8>(u32)> action_body_at; // A body's bytes by its retail address (action +8).
+
+std::span<u8> body_of_action(const FactoryObject& object)
+{
+    return action_body_at(read_u32({object.bytes.get(), object.size}, 8));
+}
+
+bool construct_speed_limit_action(FactoryObject& object, std::span<const u8>)
+{
+    raise_runtime_body_speed_limit(body_of_action(object)); // 0x0007FD30
+    return true;
+}
+
+void destroy_speed_limit_action(FactoryObject& object)
+{
+    restore_runtime_body_speed_limit(body_of_action(object)); // 0x0009F150
+}
+
+const ObjectFactoryVtable* speed_limit_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x005054B8, move_action_object_sizes, construct_speed_limit_action,
+        destroy_speed_limit_action};
+    return &table;
+}
+
 // Xbox 0x001628B0
 void destroy_empty_action(FactoryObject&)
 {
@@ -61,8 +86,28 @@ bool initialize_runtime_weapon_action(FactoryObject& object, std::span<const u8>
     return true;
 }
 
-void install_runtime_move_action_classes(std::span<ObjectFactoryType> types)
+// Xbox 0x0007FD30
+void raise_runtime_body_speed_limit(std::span<u8> body)
 {
+    std::memcpy(body.data() + 0x330, body.data() + 0x334, 4);
+    const float limit = 70.f; // DAT_0032B2C4.
+    std::memcpy(body.data() + 0x334, &limit, 4);
+    const u32 holders = read_u32(body, 0x338) + 1;
+    std::memcpy(body.data() + 0x338, &holders, 4);
+}
+
+// Xbox 0x0009F150
+void restore_runtime_body_speed_limit(std::span<u8> body)
+{
+    std::memcpy(body.data() + 0x334, body.data() + 0x330, 4);
+    const u32 holders = read_u32(body, 0x338) - 1;
+    std::memcpy(body.data() + 0x338, &holders, 4);
+}
+
+void install_runtime_move_action_classes(std::span<ObjectFactoryType> types, std::function<std::span<u8>(u32)> body_at)
+{
+    action_body_at = std::move(body_at);
+    types[0x59] = ObjectFactoryType{0xA, speed_limit_lifecycle};
     types[0xA] = ObjectFactoryType{1, weapon_lifecycle};
     types[0x5A] = ObjectFactoryType{0xA, move_xz_gravity_lifecycle};
     types[0x5B] = ObjectFactoryType{0xA, move_xyz_no_gravity_lifecycle};

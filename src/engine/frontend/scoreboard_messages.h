@@ -65,6 +65,10 @@ bool remove_runtime_scoreboard_message(u32 id, RuntimeScoreboard& board,
     AnimationResourceRegistry& registry); // Xbox 0x001319C0, EAX board, ECX id
 void set_runtime_scoreboard_message_warning(u32 id, u32 warning,
     RuntimeScoreboard& board); // Xbox 0x00132620
+// Message `id`'s counter (+0x3C) aims at `count` (taking it at once from zero, then 0x0012F990 on the preset) and
+// its +0xC pulse restarts at 2; false when the board has no such message.
+u32 set_runtime_scoreboard_count(u32 id, i32 count, RuntimeScoreboard& board,
+    std::span<const u8> preset); // Xbox 0x001318A0, ECX id, EDX count, ESI 0x00314170
 u32 add_runtime_powerup_message(u32 kind, RuntimeScoreboard& board,
     RuntimeScoreboardResources& context); // Xbox 0x00132450, ECX kind
 // The caption 0x00132540 prints when a powerup is awarded.

@@ -1,6 +1,9 @@
 #pragma once
+#include "../audio/bank_streams.h"
 #include "../frontend/scoreboard_messages.h"
+#include "../saves/runtime_profile.h"
 #include "ghouly_spawn_record.h"
+#include "intro_notices.h"
 
 namespace gbtg
 {
@@ -25,4 +28,29 @@ void cancel_runtime_powerup(u32 kind, RuntimePowerupTable& table); // Xbox 0x001
 void extend_runtime_scene_timers(float amount, GhoulySpawnPool* timers); // Xbox 0x0004A370, XMM0 amount
 // The challenge record (stride 0x88) whose kind word at +0 matches, from the DAT_005064E0 pool.
 u8* find_runtime_challenge_record(u32 kind, GhoulySpawnPool* challenges); // Xbox 0x000D0650, EDX kind
+// What 0x000F24C0 reaches when a challenge is won.
+struct RuntimeChallengeAward
+{
+    RuntimeProfile& profile; // DAT_00506C54 (the challenge bits), DAT_00506C90 (the save name).
+    RuntimeIntroNotices& notices; // 0x0013FF70, DAT_00545B38, DAT_00545B44.
+    RuntimeBonusCounters& counters; // 0x0012D7E0
+    RuntimeScoreboardResources& scoreboard;
+};
+// Sets challenge bit `index`, queues the first-bonus-book (one won) or first-challenge (five won) notice, saves the
+// game when one is named, and shows the count on the bonus board; returns the challenges won.
+i32 award_runtime_challenge(u32 index, RuntimeChallengeAward& context); // Xbox 0x000F24C0, ECX index
+// What 0x00123E70 reaches.
+struct RuntimePowerupAwardContext
+{
+    RuntimePowerupTable& table;
+    RuntimePowerupCaption& caption; // 0x00132540
+    RuntimeScoreboardResources& scoreboard; // 0x00132450
+    RuntimeChallengeAward& challenge; // 0x000F24C0
+    AudioBankStreams& streams; // 0x00038880
+    std::span<const u8> sounds; // 0x003121D0: rows of 0x80 from index -1 (0x00312250 is row 0).
+};
+// Awards powerup `kind` (a row of DAT_00512140): its amount, extra word, player and id, the caption and its
+// scoreboard message, the kind's own effect, its sound (stream 0x12) and, for a player, broadcast 0x86.
+void award_runtime_powerup(i32 id, u32 player, u32 kind, float amount, u32 extra,
+    RuntimePowerupAwardContext& context); // Xbox 0x00123E70, EDX id
 }

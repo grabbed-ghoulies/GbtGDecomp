@@ -93,6 +93,8 @@ add_library(gbtg_lib STATIC
     src/engine/graphics/xg_pixel_shader.cpp
     src/engine/entities/body_stand_alert_tick.cpp
     src/engine/entities/body_walk_alert_tick.cpp
+    src/engine/entities/body_walk_target_state.cpp
+    src/engine/entities/body_hold_state.cpp
     src/engine/entities/body_hit_state.cpp
     src/engine/entities/body_dizzy_state.cpp
     src/engine/entities/body_die_state.cpp
@@ -107,6 +109,8 @@ add_library(gbtg_lib STATIC
     src/engine/scene/scene_control_update.cpp
     src/engine/scene/scene_controls.cpp
     src/engine/scene/attract_control.cpp
+    src/engine/scene/trophy_heads_control.cpp
+    src/engine/scene/super_scary_control.cpp
     src/engine/scene/gameselect_control.cpp
     src/engine/scene/scene_actor_removal.cpp
     src/engine/scene/ghoul_intro.cpp
@@ -199,6 +203,10 @@ add_library(gbtg_lib STATIC
     src/engine/entities/body_player_death_state.cpp
     src/engine/entities/body_grabbed_state.cpp
     src/engine/entities/imp_fire_strategy.cpp
+    src/engine/entities/skeleton_strategy.cpp
+    src/engine/entities/projectile_weapon.cpp
+    src/engine/entities/bob_weapon.cpp
+    src/engine/entities/ghouly_cutscene_setup.cpp
     src/engine/entities/actor_runtime_queries.cpp
     src/engine/entities/actor_view_visibility.cpp
     src/engine/entities/fx_anim_emitter.cpp
@@ -535,6 +543,7 @@ add_executable(gbtg
     src/engine/scene/live_spawn_tick.cpp
     src/engine/audio/bank_lookup.cpp
     src/engine/audio/bank_streams.cpp
+    src/engine/audio/stream_restart.cpp
     src/engine/audio/core_listener.cpp
     src/engine/audio/sound_names.cpp
     src/engine/audio/footstep_names.cpp

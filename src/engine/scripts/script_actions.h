@@ -394,22 +394,8 @@ int script_handle_event_actions(Game& g, const ScriptNode& node); // Xbox 0x0012
 // with a nonzero dword at node+0x8C stores 1 and returns 0. Otherwise the
 // case returns 2.
 //
-// Type 0x53 with a nonzero third argument returns 2. Zero with DAT_00512470
-// clear would call 0x0004EDA0(node+8, 0, 1) and pass that return with
-// "aid_model_ghoulies_cutscene_reliccandle" to 0x0004EA50. A zero return
-// stores 0 at DAT_00512480. A nonzero return calls 0x00107720 with EAX =
-// "aid_objparams_ghoulies_scenecontrol_candle", stores the model at +8,
-// stores 0x00107520 at DAT_00512480, and calls 0x000663E0 on that block.
-// 0x0011F1C0(0xC, 1) would then run. A nonzero AX calls 0x0011F260,
-// 0x0011F2A0, 0x00100DF0(pi), 0x0004EF20, and 0x0004EF80. Those calls are
-// not translated, so DAT_00512480 is not stored. The flag is set and the
-// case returns 0. Nonzero DAT_00512470 would call 0x0004EFE0. A zero return
-// returns 0. A nonzero return calls 0x000532E0 with ECX = the node. A
-// nonzero return from that call returns 2. Zero clears the flag, calls
-// 0x0004ECE0 and 0x00127FF0, and returns 2 when DAT_00512480 is zero.
-// Otherwise it calls 0x00116140, clears DAT_00512480, and returns 2.
-// 0x0004EFE0 is not translated, so its nonzero return is not taken and this
-// path returns 0.
+// Type 0x53 plays the player's walk-in cutscene at the first kind 0xC marker with the relic candle's scene control;
+// when it ends, the player marker runs again (0x00127FF0). See play_script_walk_in_cutscene.
 //
 // Type 0x9B calls 0x000FB120 with 1.0, EAX = node+8, and ECX = a stack
 // vector. Type 0x9C calls 0x000493D0 with EDX = node+8 and EAX = that
@@ -658,5 +644,7 @@ int script_handle_world_actions(Game& g, const ScriptNode& node, int param_2, in
 // Any other type returns 3.
 // Xbox 0x00128770
 int script_handle_broadcast_actions(Game& g, const ScriptNode& node); // Xbox 0x00128770
+// The scene's player character: its 0x00430DA0 override, else 2 with the alternate flags, else 1.
+i32 scene_player_character(const Game& g); // Xbox 0x00087830
 
 } // namespace gbtg

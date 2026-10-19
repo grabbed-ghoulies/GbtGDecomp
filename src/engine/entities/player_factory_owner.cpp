@@ -244,6 +244,22 @@ bool construct_butler_strategy_view(FactoryObject& object, std::span<const u8> p
         name == 0 ? nullptr : player->scene.string_at(name));
 }
 
+bool construct_skeleton_strategy_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto* player = active_owner->find_player(object);
+    player->strategy_type = 0x51;
+    player->refresh_views();
+    return accept_runtime_object_construction(object, parameters);
+}
+
+const ObjectFactoryVtable* skeleton_strategy_lifecycle()
+{
+    // Vtable +8 is the empty 0x001628B0.
+    static const ObjectFactoryVtable table{0x00505FD8, skeleton_strategy_object_sizes,
+        construct_skeleton_strategy_view, destroy_empty_player_object};
+    return &table;
+}
+
 const ObjectFactoryVtable* butler_strategy_lifecycle()
 {
     // Vtable +8 is the shared empty 0x000D4179 case.
@@ -311,6 +327,13 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
                   leave_runtime_imp_fire_state(old_state, next_state, imp_fire);
                   return;
               }
+              if (strategy_type == 0x51)
+              {
+                  // Skeleton strategy vtable +0x18, 0x000C0130.
+                  refresh_views();
+                  leave_runtime_skeleton_state(old_state, skeleton);
+                  return;
+              }
               if (strategy_type == 0x3B)
               {
                   // Butler strategy vtable +0x18, 0x000AB220.
@@ -335,6 +358,12 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
               {
                   // Imp fire strategy vtable +0x14, 0x000B4940.
                   enter_runtime_imp_fire_state(state, previous, imp_fire);
+                  return;
+              }
+              if (strategy_type == 0x51)
+              {
+                  // Skeleton strategy vtable +0x14, 0x000BFF80.
+                  enter_runtime_skeleton_state(state, previous, skeleton);
                   return;
               }
               if (strategy_type == 0x3B)
@@ -425,7 +454,11 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
           scene_bindings.body_at, scene_bindings.body_of, scene_bindings.model_of, scene_bindings.attachment_limit,
           "aid_objparams_ghoulies_fx_mutatehalo", "attack", "mutateup", "jumpbite", "jumpbiteprepare"},
       butler{strategy_messages, scene_bindings.actor_address, scene_bindings.actor_bytes, scene_bindings.actor_bytes_at,
-          "scared", "far"}
+          "scared", "far"},
+      strategy_views{scene_bindings.actor_at, scene_bindings.actor_bytes_at, scene_bindings.body_of,
+          scene_bindings.query, scene_bindings.story_flags},
+      skeleton{strategy_messages, target_checks, target_queue, strategy_views, scene_bindings.skeleton_fetch_delay,
+          "attack", "knockdown", "attackwithprojectile", "attackwithweapon", "duckndodge?", "far", "getweapon"}
 {
 }
 
@@ -541,6 +574,28 @@ void NativePlayerFactoryOwner::butler_message(FactoryObject& strategy, std::span
     dispatch_runtime_butler_message(message, player->butler);
 }
 
+void NativePlayerFactoryOwner::skeleton_message(FactoryObject& strategy, std::span<const u32> message)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x51)
+    {
+        throw Error("skeleton strategy method has no owning instance");
+    }
+    player->refresh_views();
+    dispatch_runtime_skeleton_message(message, player->skeleton);
+}
+
+void NativePlayerFactoryOwner::skeleton_update(FactoryObject& strategy)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x51)
+    {
+        throw Error("skeleton strategy method has no owning instance");
+    }
+    player->refresh_views();
+    update_runtime_skeleton_strategy(player->skeleton);
+}
+
 void NativePlayerFactoryOwner::butler_update(FactoryObject& strategy)
 {
     auto* player = find_player(strategy);
@@ -625,6 +680,7 @@ void NativePlayerFactoryOwner::install(std::span<ObjectFactoryType> types)
     types[0x4F] = ObjectFactoryType{8, player_strategy_lifecycle};
     types[0x46] = ObjectFactoryType{8, imp_fire_strategy_lifecycle};
     types[0x3B] = ObjectFactoryType{8, butler_strategy_lifecycle};
+    types[0x51] = ObjectFactoryType{8, skeleton_strategy_lifecycle};
     types[0x28] = ObjectFactoryType{6, camera_body_lifecycle};
     types[0x39] = ObjectFactoryType{8, director_strategy_lifecycle};
     minds.install(types);

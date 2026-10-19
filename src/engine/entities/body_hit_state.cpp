@@ -108,8 +108,9 @@ void read_input_axes(const RuntimeDialogueInputDevice* input, std::array<float, 
     }
     axes = {0.f, 0.f};
 }
+}
 
-// Xbox 0x001013A0: the angle `current` moved by `fraction` of its signed turn toward `target`, in [0, 2pi).
+// Xbox 0x001013A0
 float step_runtime_angle_toward(float target, float current, float fraction)
 {
     const float tau = std::bit_cast<float>(0x40C90FDBu); // DAT_0032B298.
@@ -130,7 +131,6 @@ float step_runtime_angle_toward(float target, float current, float fraction)
         result += tau;
     }
     return result;
-}
 }
 
 // Xbox 0x00095720

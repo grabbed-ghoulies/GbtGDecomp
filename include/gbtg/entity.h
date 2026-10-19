@@ -124,6 +124,7 @@ struct Actor
     float model_size_x = 0.f;    // +0x1C4
     float model_size_y = 0.f;    // +0x1C8
     float model_size_z = 0.f;    // +0x1CC
+    float model_extent = 0.f;    // +0x1D0, 0x0003D670's reach of the bound
     std::array<ActorSoundSlot, 8> sound_slots;
     u16 class_key = 0; // Xbox actor+0x06. 0x00145FF0 matches this against the case-link slots.
     Vec3 position{}; // Xbox actor+0x08
@@ -431,6 +432,8 @@ i32 camera_bind_named_view(i32 slot, const char* name); // Xbox 0x00048CF0 // 0x
 
 // EAX is the camera record at body+0x894.
 void camera_unlink_view(EntityCamNode* node); // Xbox 0x00048C70 // 0x00048C70
+// EAX is the camera record. Rebinds the slot it is bound in, as 0x00048C70 does after its unlink.
+void camera_rebind_view(EntityCamNode* node); // Xbox 0x00048EB0
 bool entity_body_camera_message(Entity& body, const Message& msg); // 0x00073320, id 99
 
 // BanjoCam body passed to 0x00072BA0. Aim point is +0x2fc. +0x308 enables the look.

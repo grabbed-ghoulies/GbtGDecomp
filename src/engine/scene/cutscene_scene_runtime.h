@@ -47,4 +47,9 @@ void release_scene_cutscenes(SceneCutsceneRuntime& state); // Xbox 0x0004ECE0
 void update_scene_cutscene_camera_event(float dt,
     SceneCutsceneRuntime& state); // Xbox 0x0004F110
 void tick_scene_cutscenes(SceneCutsceneRuntime& state); // Xbox 0x0004EBD0
+// The current clip has played to its end (+0x34 <= +0x2C). Defined with the script actions.
+bool scene_cutscene_finished(const SceneCutsceneRuntime& state); // Xbox 0x0004EFE0
+// The current clip's origin (+0) or euler (+0x18), its actors and the cutscene camera at the clip's time.
+void place_scene_cutscene(const Vec3& position, SceneCutsceneRuntime& state); // Xbox 0x0004EF20, ECX position
+void turn_scene_cutscene(const Vec3& euler, SceneCutsceneRuntime& state); // Xbox 0x0004EF80, ECX euler
 }

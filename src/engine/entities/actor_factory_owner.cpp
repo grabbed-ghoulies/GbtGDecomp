@@ -336,6 +336,13 @@ NativeActorFactoryInstance& NativeActorFactoryOwner::construct_view(FactoryObjec
     {
         active_owner->bindings.message(registration.actor, &id);
     };
+    if (bindings.animation_message)
+    {
+        instance->animation.message_handler = [this, &actor](const ActorAnimationMessage& message)
+        {
+            bindings.animation_message(actor, message); // 0x0003B3C0
+        };
+    }
     const u8* address = object.bytes.get();
     actors.emplace(address, &actor);
     animations.emplace(&actor, &instance->animation);

@@ -555,7 +555,17 @@ void update_runtime_bonus_board(RuntimeScoreboardUpdate& context)
                 {
                     if (row.word_8 == 2 && globals.bonus_active[slot] != 0)
                     {
-                        throw Error("untranslated Xbox 0x001318A0 (bonus counter shown, 0x0012D690)");
+                        set_runtime_scoreboard_count(globals.bonus_ids[slot], globals.bonus_counts[slot], board,
+                            context.row_preset); // 0x001318A0, ECX the id, EDX the count
+                        globals.bonus_active[slot] = 0;
+                        for (auto& again : board.messages)
+                        {
+                            if (again.id == globals.bonus_ids[slot])
+                            {
+                                again.word_1c = 1;
+                                break;
+                            }
+                        }
                     }
                     break;
                 }

@@ -49,6 +49,8 @@ struct NativeActorFactoryBindings
     std::function<u32(const void*)> pose_address;
     std::function<void(Actor&, const Actor&, const Vec3&, const Vec3&, u16)> shape_message;
     std::function<void(const u8*)> unlink_active_node; // 0x0003EBA0's +0x900 unlink, by the object's bytes.
+    // 0x0003B3C0: an animation event as message {7, position, slot, event, phase} to the actor's vtable +0xC.
+    std::function<void(Actor&, const ActorAnimationMessage&)> animation_message;
 };
 class NativeActorFactoryOwner
 {

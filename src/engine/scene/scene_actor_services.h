@@ -66,6 +66,7 @@ public:
     u32 player_link() const; // DAT_00511B40.
     std::vector<RuntimeDirectorActor> marked_actors(); // DAT_00511B38 (actor +0x934 nodes) in list order.
     const u8* marker_records() const; // DAT_0051108C.
+    void restart_marker_player(); // Xbox 0x00127FF0: the next player marker (kind 2) runs its handler again.
     void place_scene_camera(const Vec3& position, const Vec3& euler); // Xbox 0x0013D250, ESI position, stack euler
     u32 find_actor_by_id(u16 key) const; // Xbox 0x00129ED0 over DAT_00511AA4: the actor address, or 0.
     void activate_actor(u32 address); // Xbox 0x00112CC0, ESI actor.

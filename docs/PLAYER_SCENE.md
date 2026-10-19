@@ -205,6 +205,8 @@ All take the game directory, e.g.
 | `--player-fight` | The opening flow, then Cooper fights the imps (see Acceptance), a re-hit during an imp's reaction, the HUD heart in fight captures and not behind the butler's page, the chair's section (the ObjectPickedUp record with the chair's tag, Cooper in region 1, Cooper walks to the chair and A picks it up; event 0xAD with the chair's tag is queued and the section ends before its 5 s timeout; `cache/player_chair_check.bmp`, `player_chair_pickup.bmp`, `player_chair_held.bmp`), then the play-on, which fails if the opening script is still running when it gives up |
 | `--player-death` | The opening flow, then Cooper stands still in the first fight: the imps empty his health, the death state 0x69 plays his dying animations and the fail stream, starts the transition (row 2) and restarts the scene ("Free Play (Fighting Intro)"), whose script then moves past its player wait |
 | `--player-controls` | The opening flow, then run speed at 30/60/144/240 Hz, a right-stick swing with no imp in range (`cache/player_air_swing.bmp`) and the trigger camera turn |
+| `--scene6` | Boots scene 6 (chapter1_scene2_1viewcam), A on the chapter title, the transition ends; the trophy heads attack, the first Super Scary challenge fails unanswered into Crivens' page, later ones are won by pressing the shown buttons, the heads' cutscene resumes, and the script moves on to scene 3 (`cache/scene6_c*_s*_*.bmp`); then scene 3's transition ends (no chapter title) and its walk-in and Free Play run with the sticks centred (the scene 3 checks below, passive) |
+| `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake. Fails at the frontier (factory type 0x8F) |
 
 Headless captures: `gbtg --headless --frames N --scene chapter1_scene1_2playcam
 --width 640 --height 480 --screenshot FILE.bmp`.
@@ -273,7 +275,11 @@ picks up the cook's chair, the second wave comes through the doorway and its "Ki
 "Free Play" brings the butler in (`aid_ghoulybox_single_crivens`, strategy type 0x3B), Cooper walks into region 2
 for the butler's "leave room" pages (the butler takes the chair), then out through the far door. The exit volume
 queues event 0xB0, the script ends, the book transition shows the chapter title and the next scene
-(`aid_script_ghoulies_chapter1_scene2_1viewcam`, "Trophy Heads Super Scary Shock") starts.
+(`aid_script_ghoulies_chapter1_scene2_1viewcam`, "Trophy Heads Super Scary Shock") starts. `--scene6` plays that
+scene to its end, through the trophy heads and their Super Scary challenges, and the script moves on to
+`aid_script_ghoulies_chapter1_scene3_1playcam` (see the scene 6 checkpoint). `--scene3` plays that scene's start,
+walk-in and "Free Play" natively; driven at the skeletons, they walk up and fight Cooper until the first one dies
+(see the scene 3 checkpoints).
 
 | Path | Stop | What it needs |
 |---|---|---|
@@ -282,10 +288,14 @@ queues event 0xB0, the script ends, the book transition shows the chapter title 
 | Script actions | legacy | `0x00126E10`'s other cases (0x4D, 0x4E, 0x62, 0x67, 0x6E, 0x73, 0x74, 0x8E, 0x9D) and `0x00127BC0`'s cases still compute values and skip their callees; this scene does not reach them |
 | Present (the snapshot) | renders nothing | `0x00116530` records its draws but the texture stays empty |
 | HUD draws (not reached) | `0x0012F110` | Scoreboard rows of kinds 4 and 5 (the formatted counter) |
+| Scene 3, a skeleton dies (`--scene3`, frame ~1700) | factory type 0x12 (getter `0x00067E60`) | The skeleton's bone debris, created by `0x00134C10` (`create_runtime_body_death_effect`) from a knockdown hit. An actor class (parent 2, instance 0xAAC, parameters 0x55C): ctor `0x00067EB0` (with `0x00068850`, `0x00068970`, `0x00140560`, and `0x00040640`, `0x000EFE30`, `0x000EE5C0`, `0x00053170` below them), dtor `0x00068010`, message `0x00068700` (`0x00041D90`), update `0x00068060` (`0x0013AF80`; it steps its own effect node at +0x934 through `0x000EF2D0`), draw `0x000686A0`. The bones are effect particles (+0x390 + 0x150 * n) whose poses go back into the actor's +0x288 joint rows, so the actor visibility and draw paths also need the +0x288 matrix setup, which they reject today |
+| Script condition nodes | partial | `0x00125450` registers only types 0x3D, 0x3E, 0x40, 0x47, 0x48, 0x6A, 0x94, 0x95 and 0x99; retail also takes 0x3F, 0x41..0x44, 0x5A, 0x5B, 0x65, 0x66, 0x68, 0x6C, 0x72, 0x75, 0x8B, 0x8C, 0x92, 0x93 and 0xA3, which still run as ordinary nodes |
+| Script type 0x16 | legacy | Still the old shortcut; retail waits for `0x0004EFE0` with DAT_00512470 set, then releases the cutscenes |
 
 ## Work
 
-1. The chapter's next scene (`aid_script_ghoulies_chapter1_scene2_1viewcam`) from its first frontier.
+1. Scene 3's skeleton fight from its frontier (factory type 0x12, the bone debris; then whatever the trophy's flight
+   and its pickup reach).
 2. Move the remaining `g_pulse_nodes` callers to the native `DAT_00511AA4` lookups.
 
 ## Acceptance
@@ -325,6 +335,207 @@ queues event 0xB0, the script ends, the book transition shows the chapter title 
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-19: scene 3, the skeletons walk and fight
+
+Driven at the skeletons, `--scene3` now plays the fight: the woken skeletons walk to Cooper, attack, knock him about
+and take hits, until one dies at about frame 1700. The run then stops at factory type 0x12 (the bone debris; see
+Frontier).
+
+- Type 0x8F, the walk toward the mind's target (getter `0x000A6220`, vtable `0x00505CC0`), in
+  `entities/body_walk_target_state.cpp`:
+  - Slots: sizes `0x00091A90`, ctor `0x000A6380` (rows `0x00091820`), dtor `0x000A64D0`, tick `0x000A6520` and
+    +0x1C `0x00091F70`. The message is 0x8E's `0x000A5A40`; +0x14 and +0x18 are the empty `0x001628B0`.
+  - Tick helpers: `0x00019840` (the stick, through actor +0x960), `0x000A67C0` (aim; distance `0x000A6950`),
+    `0x000A6280` (row from band `0x00091A00` and side `0x000A61B0`/`0x000A6140`), `0x000A62D0` (retime; rate
+    `0x000918C0`) and `0x000A6640` (arrival).
+  - The angle helpers `0x001009A0`, `0x00100A80`/`0x00100B80`, `0x00092120` and `0x000921E0` are there too.
+    `0x001013A0` (`step_runtime_angle_toward`) moved out of `body_hit_state.cpp`'s anonymous namespace so both use it.
+  - `RuntimeBodyStateContext` gains the mind view and an actor-position lookup (`0x000412A0` of the mind's target).
+- Type 0x8A, a timed hold before the next goal action (getter `0x000A34C0`, vtable `0x00505C20`), in
+  `entities/body_hold_state.cpp`: sizes `0x000A34A0`, ctor `0x000A3520`, dtor `0x000A35E0` and tick `0x000A3670`
+  (`0x00134720`, `0x001346B0`, the 0x75 notice through `0x00122C70`, then `0x00134060`). The message and +0x14/+0x18
+  slots are empty; +0x1C is `0x0002B620`.
+- Type 0x59's message slot is the empty `0x001628B0` (its getter `0x0007FCE0` stores it at `0x005054C4`).
+- Shown (`cache/s3w_captures/`; looked at):
+  - Frame 1278: the left skeleton in mid-stride, stepping off the dais toward Cooper.
+  - Frames 1338 to 1698: both skeletons at Cooper, with hit flashes, the skeletons' health hearts and Cooper's
+    health HUD (50, then 47). A stunned skeleton has the pink dizzy bats over its head.
+- Heard (log only, not listened to): skeleton footsteps on stone and wood, the build-up call, the dizzy bats and the
+  heartbeat.
+- Not shown, heard or checked:
+  - A skeleton's death and its bones (type 0x12).
+  - The trophy pickup and throw, the conditions firing and the scene's end.
+  - Whether the skeletons' walk speed, turning and timing match retail; nothing was compared with xemu.
+- Verified: Release build in `cache/build_s3`. Of the regression modes (`cache/s3w_regress.sh`), default and
+  `--player-death` with and without `--retail-step` pass. The run was stopped during `--player-fight`, so
+  `--player-fight`, `--player-opening`, `--player-controls`, `--scene6` and the 900-frame headless run were not run
+  on this build. `--scene3` stops at its new frontier.
+
+### 2026-10-19: scene 3, the snooker room's walk-in
+
+Scene 3 (`aid_script_ghoulies_chapter1_scene3_1playcam`, "Player Enters Room") now starts and plays its walk-in and
+"Free Play" natively. Its transition is row 1, which shows no chapter title. Booted straight in (`--scene3`), the
+transition ends at frame 292. Cooper's walk-in cutscene then plays, followed by the door cutscene and Crivens' two pages
+("Ah, the door ahead is open, Sir…", then the camera-trigger hint). Cooper spawns at the player marker at the walk-in's
+end (frame 451). "Free Play" starts at frame 979 and holds on its conditions, with the player camera "cameron" bound.
+Driven at the skeletons, Cooper wakes them (frame 1240: strategy 0x401, then 0x3F9) and the run stops at factory
+type 0x8F.
+
+- Scene start. The markers need four new classes:
+  - Type 0x51, `entityStrategySkeleton` (`entities/skeleton_strategy.cpp`):
+    - Slots: sizes `0x000A9FC0`; the shared constructor `0x000CFFD0`; message `0x000BFE10`; update
+      `0x000BFAC0`; enter `0x000BFF80`; leave `0x000C0130`.
+    - Helpers: `0x000C05C0`, `0x000C0170`, `0x000C01A0`, `0x000C02D0`, `0x000C03D0`, `0x000C0430`,
+      `0x000C0500` and `0x000C0590`.
+    - Its hit message uses the shared reactions `0x00139390`, `0x00139740` and `0x001397B0`, with `0x001372A0`,
+      `0x001372F0`, `0x001408A0` and `0x001363E0` (`strategy_target_selection.cpp`). `0x00136AC0` (a range request)
+      sits beside `0x00136A70`.
+  - Type 0xA9, `entityWeaponProjectileLarge` (`entities/projectile_weapon.cpp`), the trophy:
+    - Slots: sizes `0x000CD620`, constructor `0x000CD6B0`, destructor `0x000CDAA0`, message `0x000CDBE0`, enter
+      `0x000CD700`, leave `0x000CD8A0` and state update `0x000CDA10`.
+    - Helpers: `0x000CDF40`, `0x000CEEC0` and `0x001454B0`.
+    - Not translated (they raise when reached): its flight, pickup and throw (`0x000CE020`, `0x000CE1F0`,
+      `0x000CDAD0`, `0x000CEBD0`, `0x000CEC70`, `0x000CE7E0`, `0x000CE810`, `0x000CE660`, `0x0001B680`,
+      `0x0003E900`) and its contact test `0x000CE5D0` (`0x00141A30`).
+  - Type 0xA0, `entityWeaponBob` (`entities/bob_weapon.cpp`):
+    - Slots: sizes `0x000C5B90`, constructor `0x000C5C20`, destructor `0x000C5D30`, message `0x000C5EB0`, enter
+      `0x000C6100`, leave `0x000C61B0` and state update `0x000C5D50`. Its cutscene branch (story bit 8) goes through
+      the scene's cutscene runtime.
+    - Not translated: `0x000C6250`, `0x000C62C0`, `0x000C63A0`, `0x0012ADC0` and the contact test `0x000C61D0`.
+  - Type 0x25, `entityAvatarGhoulySetupCutscene` (`entities/ghouly_cutscene_setup.cpp`), the walk-in ghoulyboxes:
+    - Slots: sizes `0x0006B0F0`, constructor `0x0006B150`, destructor `0x0006B350`, message `0x0006B4C0` and update
+      `0x0006B8B0`.
+    - Helpers: `0x0006B390`, `0x0006B9C0`, and the cutscene event callback `0x0006BA60` (event 0x13, registered in
+      the cutscene runtime's `event_callbacks`).
+    - `0x00048EB0` (`camera_rebind_view`) is new in `entity_camera.cpp`.
+  - The two new weapons keep the weapon base's update, draw, visibility and +0x48 slots, like the chair.
+- Fixes on the way:
+  - `set_runtime_player_goal_volume` (`0x00028500`) stored actor +0x98C as the address of a host occupancy record,
+    which had none. Records in the `DAT_00512344` pool now map to addresses inside the pool's block.
+  - Bob's message 0x23 tail is `0x0003EF40` (`clear_actor_model_anchors`).
+  - The 0x8E-style contact tests of the new weapons raise when they run, not when they are fetched.
+- The walk-in:
+  - Script type 0x53 was a host shortcut that set DAT_00512470 and held the script forever. It is now
+    translated from `0x001274B0` (`play_script_walk_in_cutscene`). The cutscene starts at the first kind 0xC marker,
+    turned by pi (`0x00100DF0`, `add_wrapped_angle`); `0x0004EF20`/`0x0004EF80` place it.
+  - The relic candle's scene control (`aid_objparams_ghoulies_scenecontrol_candle`) is created when the cutscene has a
+    `reliccandle` actor. This walk-in has none, so the control's class is not needed yet.
+  - At the end the player marker runs again (`0x00127FF0`, `SceneActorServices::restart_marker_player`). That
+    handler spawned no one, because DAT_005462FC stayed 1. Retail's scene start (`0x0011CBD0`) clears it last; the
+    port's `start_scene` now does too. `0x0012A1E0` and `0x00049BA0`, before it, are still not translated.
+  - The marker handler's `0x00123B00` binding is `script_end_gate_set`.
+- Free Play:
+  - `0x00125450` lacked type 0x6A. It now registers condition 15 (GhoulyTriggered) with the tag, node+0x48 and the
+    float at node+0x4C. Before, the section ran straight to its end and the scene ended two frames in.
+  - Condition 15's update `0x00133770` is translated (`script_tick_ghouly_signal_condition`).
+  - Move action type 0x59 (getter `0x0007FCE0`) is installed: constructor `0x0007FD30`, destructor `0x0009F150`
+    (the body's speed limit), +0x10 `0x0007FD70` (as 0x5B) and +0x14 `0x0007FDD0` (`0x0002AE90` with 1, 1).
+- Tests: `--scene3` (new). `--scene6` now continues into scene 3 and plays its walk-in and Free Play with the
+  sticks centred. `pass_chapter_title` accepts a transition without a title.
+- Shown (`cache/scene3_*.bmp`, `scene3_page1.bmp`; looked at):
+  - The walk-in in the snooker room: sofas, the snooker table under its lamp, the skeleton portraits.
+  - The door cutscene's two skeletons (yawning, hands on hips) by the empty trophy board.
+  - Crivens' pages.
+  - Cooper from behind in the player camera, walking to the skeletons by the far wall.
+- Heard (log only, not listened to): Cooper's breath and carpet, stone and wood footsteps; the skeletons' yawn,
+  attack, question, hands-on-hips, fold-arms and look-at-nails calls; the door creak, vine, dirt mound and Crivens'
+  door; Crivens' dialogue; the page A ditty (SUPERSCARYSTUF_RIGHTBUTTON); the walkabout stream; skeleton footsteps
+  once they wake.
+- Not shown, heard or checked:
+  - The trophy on its board (not seen in the captures; whether it should be is not checked).
+  - Any HUD; no fight has touched health yet.
+  - The skeletons walking, attacking or throwing; Cooper hitting them.
+  - The trophy pickup and the conditions firing; the scene's end.
+  - Anything in xemu.
+  - The class-6 marked actor with strategy state 0x40C, which appears with Cooper, is not identified.
+- Verified: Release build. The `cache/regress.sh` modes pass: default, `--player-death` with and without `--retail-step`,
+  `--player-fight`, `--player-opening` and `--player-controls`. The 900-frame headless run exits 0. `--scene6` passes
+  through scene 3's Free Play. `--scene3` fails at its frontier. Not run: the Debug build, ctest and the other
+  suites.
+
+### 2026-10-19: scene 6, the trophy heads and their Super Scary Shock
+
+Scene 6 (`aid_script_ghoulies_chapter1_scene2_1viewcam`, "Trophy Heads Super Scary Shock") now plays to its end
+natively. The transition's chapter title moves on after A, the leaving page turns, the heads' cutscene plays, the
+heads attack, and each attack starts a button challenge. When the cutscene ends, the script moves on to
+`aid_script_ghoulies_chapter1_scene3_1playcam` ("Player Enters Room").
+
+- Factory names: the name for type t is at 0x0030D418 + t * 0xC, one word before the getter, not at +8 of the
+  0x0030D41C rows. So type 0x92 is entitySceneControlChapter1Scene2 (the task note's "Chapter1Scene8" was the next
+  row's name), and type 0x98 is entitySceneControlSuperScary.
+- Type 0x92, the trophy heads (`scene/trophy_heads_control.cpp`): sizes `0x000816A0`, constructor `0x00081710`,
+  destructor `0x00081AD0`, message `0x00081B00`, tick `0x00081890`, and state machine `0x00081CE0`. Its draw slot
+  is the empty `0x001628B0`.
+  - Head choice: `0x000821A0`, `0x000820D0`, `0x00082440` (the head's kind-0xD event in the +0x104 events resource)
+    and `0x00082170`.
+  - Attack: `0x00082370` with `0x000873A0`, which builds the 0x1D8-byte type-0x98 parameters with the
+    "superscary" aidlist.
+  - Clip helpers: `0x0004F010`, `0x0004E7D0` (a clip actor's slot-1 animation), `0x0003B310` and `0x0003D670` (the
+    actor's bound size). `0x0003D670` writes `Actor::model_extent` (+0x1D0), a new field.
+  - State 2 spawns Cooper with `0x00134920`. State 4, which runs near the cutscene's end, awards powerup row 1
+    (`0x00123E70`).
+- Type 0x98, the Super Scary challenge (`scene/super_scary_control.cpp`):
+  - Slots: sizes `0x000842D0`, constructor `0x00084340`, destructor `0x000846E0`, message `0x00084930`, tick
+    `0x00084960`, and draw `0x00085380`.
+  - States: `0x000856E0`, with cases decoded from the raw bytes because Ghidra drops the EAX events argument and
+    the per-mode animation rows.
+  - Helpers: `0x00086BC0`, `0x000874F0`, `0x00087170`/`0x00087080` (the button row and its shuffle),
+    `0x00086C90` (message {0x8E, step} to the scene controls), `0x000854E0` (the clip at an actor),
+    `0x00086860` (slot-0 animation), `0x00084E50` and `0x00086CE0` (the "superscaryshock" camera),
+    `0x00086E80` (Cooper faces the head), `0x00086FD0` (the ditty streams), `0x00086990` (the shock strings),
+    `0x00086A40`/`0x00086B30` (right and wrong buttons through `0x001083F0`), `0x00086B70`, `0x00087720`,
+    `0x00085190`/`0x00085280` (button positions and their panel), `0x0006DAD0` (the bat's "doh"), and
+    `0x00116140` (`dispose_runtime_scene_control`).
+- 0x92 and 0x98 talk through the scene controls. `0x0004EB20`/`0x0004F050` walk DAT_0050E438 with 0x7E/0x7F, and
+  that walk now reaches the native control list (it walked the never-set `g_50e438` before).
+  `NativeSceneControlOwner::message` dispatches by type and carries the instance pointer that the second word
+  holds in retail. The messages:
+  - {0x8E, 0}: load the head's roar animation and events.
+  - {0x8E, 7}: the challenge is won; Cooper is retired and the cutscene resumes.
+  - {0x8E, 8}: the challenge is lost; the same, and health drops by 10.
+  - 0x7F: the 0x92 control unpauses.
+- Award: `0x00123E70` is translated in full in `entities/powerup_awards.cpp`. Its reached case 1 calls
+  `0x000F24C0`, which sets challenge bit 1, queues "challenge_firstbonusbook" for the first win and shows the
+  bonus counter. The stream row is picked by the count. The cases that need views the scene does not bind raise:
+  5 (`0x000D0870`), 6, 7, 0xC (`0x001349E0`) and 0x13. `0x001318A0` (the bonus board's count) is translated in
+  `0x0012D690`. `audio/stream_restart.cpp` (`0x00038880`) was in the tree but not in the build; it is now built.
+- Other fixes on the way:
+  - `0x00048860` releases the page texture (`0x00035C00`, `0x00036210`, `0x00035C60`).
+  - Every native actor view gets the `0x0003B3C0` animation-event handler (message 7 through its vtable +0xC). The
+    head's roar events had no handler.
+  - The challenge's button bat (type 0x15) joins the actor updates through `bind_button_bat`, which is shared with
+    game select.
+  - Broadcast 0x8E has a two-word layout.
+- Profile blocks: the two controls read and write the boot-owned `g_runtime_profile` blocks: the story bits
+  (DAT_00506C6C) and the challenge bits (DAT_00506C54). The script actions use the same blocks. SceneActorServices
+  still keeps its own `story_bits`, `story_byte` and `challenge_bits` copies, which the older scene code uses.
+- `--scene6` (new):
+  - Boot and transition: boots scene 6, presses A on the chapter title, and requires the transition to end in the
+    scene. The run then plays the scene.
+  - Challenges: it leaves the first challenge unanswered, so it fails (state 10), and presses the shown buttons in
+    the later ones, so they are won (state 8). It presses A on Crivens' page.
+  - It requires a failure, a success, the page, and the heads' cutscene resuming.
+  - One run: four attacks (moose first). One failure took health from 50 to 40; three wins followed; then the
+    award, state 3 (event 0xAF), and the script moved on to scene 3.
+- Shown (`cache/scene6_c*_s*_*.bmp`, `scene6_page1.bmp`):
+  - The head's close attack and Cooper's two recoils.
+  - The four A buttons in their panel, with the bat on the current one.
+  - Cooper slumped after the failure.
+  - Crivens' "Gadzooks! Sir has suffered a SUPER SCARY SHOCK and lost some energy as a result!" page with the A
+    prompt.
+  - Cooper with his hand on his chest after a win, and the heads' cutscene between attacks.
+- Heard (log only, not listened to): GTROPHYHEADS_MOOSE/MOOSE2, the shock strings, GBOY_FRIGHT, GBOY_SHIVER, the
+  BUTTONPRESS ditty, eight heartbeats (the last four fast), BUTTONNODIE, GBOY_SHOCKSIGH/SHOCKEXHALE and Crivens'
+  CRIVENSFRIGHT.
+- Not checked:
+  - Whether Cooper's pose 160 frames into a won challenge (arms loose, close to his rest pose) matches retail.
+  - Whether the first attack's all-A row matches retail (count 1 gives four A buttons).
+  - The "challenge_firstbonusbook" notice: it is queued, but the scene ends before it shows.
+  - The bonus board count on screen.
+  - The modes 2 and 3 of type 0x98 (the head-bound camera, `0x0003B500`, the floor height and the render
+    toggles). They raise if reached; scene 6 uses mode 0.
+  - Anything in xemu.
 
 ### 2026-10-18: the scared lock and the ghoul intro (fix 1)
 
@@ -466,6 +677,27 @@ queues event 0xB0, the script ends, the book transition shows the chapter title 
 - Shown: `player_death_5880` (health 1), `_6000` (0, standing), `_6120` (slumping), `_6240` (lying on the stairs
   by the book). Heard: XACT_SOUNDBANK_GSTREAMSDITTIES_FAILPITCHBEND starts (log); not listened to.
 - Not reached: the brew offer (state 4), which needs the unlock bit 3 and enough brews.
+
+### 2026-10-19: glyph textures
+
+- Text glyphs were stitched from the wrong texels: in the forming frames, part of a glyph's right side showed at
+  its left edge, one block row lower. The cause was the font GPU data.
+  - Fonts load from loose files (`OriginalFiles/font`). The resource owner kept the whole GPU payload, but the
+    texel data starts at the first GPU chunk's offset (16 bytes in).
+  - So every 32x32 DXT frame (8 per glyph) was decoded one 16-byte block early.
+  - Bundle textures already take the first chunk. The loose font branch in `dialogue_resource_owner.cpp` now takes
+    it too, as the legacy host font loader did.
+- Texture address modes: only model push-buffer draws carried D3D_g_DeferredTextureState (DAT_00181970, stage stride
+  0x20 words: ADDRESSU, ADDRESSV). Dialogue quads and fixed-function draws were presented with WRAP.
+  - The dialogue sprite setup (`0x0005CDC0`) sets CLAMP on stage 0.
+  - The recording device now copies the deferred address modes at each draw, as it does for fog (D3D's lazy
+    update). Every recorded draw carries them: indexed, inline, quad and fixed.
+- Game select panels (`0x00061360`) draw their rounded caps as one line per 640x480 row, with width 1
+  (DAT_00425168). The presenter drew a width-1 line as a D3D11 line, one output pixel thick, so above 640x480 the
+  rows left gaps (stripes across the green frames at 1920x1080). Every line of positive width is now a quad
+  measured in retail screen units. Checked: the 1080p game select frames are solid, and 640x480 is unchanged.
+- Shown: the chapter title's glyph frames decode whole (dumped with a probe, since removed), and the stray sliver
+  between "Chapter" and "One" is gone. Not compared with xemu.
 
 ### 2026-10-19: the chapter title at the scene's end
 

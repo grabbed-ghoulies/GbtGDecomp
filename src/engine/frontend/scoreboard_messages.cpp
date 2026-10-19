@@ -138,6 +138,44 @@ bool remove_runtime_scoreboard_message(u32 id, RuntimeScoreboard& board, Animati
     return false;
 }
 
+// Xbox 0x001318A0
+u32 set_runtime_scoreboard_count(u32 id, i32 count, RuntimeScoreboard& board, std::span<const u8> preset)
+{
+    if (id == 0)
+    {
+        return 0;
+    }
+    for (auto& message : board.messages)
+    {
+        if (message.id != id)
+        {
+            continue;
+        }
+        auto& counter = message.counter; // +0x3C
+        if (0 < count)
+        {
+            counter.target = count;
+            if (counter.value == 0)
+            {
+                counter.value = count;
+                update_runtime_hud_counter_digits(counter, preset); // 0x0012F990
+            }
+        }
+        else
+        {
+            counter.target = 0;
+            if (counter.value == 0)
+            {
+                counter.value = 0;
+                update_runtime_hud_counter_digits(counter, preset);
+            }
+        }
+        message.float_c = 2.f; // DAT_0032B110
+        return 1;
+    }
+    return 0;
+}
+
 // Xbox 0x00132450
 u32 add_runtime_powerup_message(u32 kind, RuntimeScoreboard& board, RuntimeScoreboardResources& context)
 {

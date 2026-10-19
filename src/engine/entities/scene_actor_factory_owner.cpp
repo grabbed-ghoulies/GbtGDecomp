@@ -1,4 +1,5 @@
 #include "scene_actor_factory_owner.h"
+#include "../cutscenes/event_runtime.h"
 #include "gbtg/actor_spawn_factory.h"
 #include "entity.h"
 #include "ghouly_spawn_scheduler.h"
@@ -23,6 +24,14 @@ void release_area_view(FactoryObject& object)
 void release_trigger_view(FactoryObject& object)
 {
     active_owner->release_trigger(object);
+}
+bool construct_cutscene_setup_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    return active_owner->construct_cutscene_setup(object, parameters);
+}
+void release_cutscene_setup_view(FactoryObject& object)
+{
+    active_owner->release_cutscene_setup(object);
 }
 bool construct_emitter_view(FactoryObject& object, std::span<const u8> parameters)
 {
@@ -56,6 +65,22 @@ bool construct_chair_weapon_view(FactoryObject& object, std::span<const u8> para
 {
     return active_owner->construct_chair_weapon(object, parameters);
 }
+bool construct_large_projectile_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    return active_owner->construct_large_projectile(object, parameters);
+}
+void release_large_projectile_view(FactoryObject& object)
+{
+    active_owner->release_large_projectile(object);
+}
+bool construct_bob_weapon_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    return active_owner->construct_bob_weapon(object, parameters);
+}
+void release_bob_weapon_view(FactoryObject& object)
+{
+    active_owner->release_bob_weapon(object);
+}
 void release_weapon_view(FactoryObject& object)
 {
     active_owner->release_weapon(object);
@@ -74,6 +99,24 @@ const ObjectFactoryVtable* chair_weapon_lifecycle()
 {
     static const ObjectFactoryVtable table{0x00506438, chair_weapon_object_sizes,
         construct_chair_weapon_view, release_chair_weapon_view};
+    return &table;
+}
+const ObjectFactoryVtable* large_projectile_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x005063E8, large_projectile_weapon_object_sizes,
+        construct_large_projectile_view, release_large_projectile_view};
+    return &table;
+}
+const ObjectFactoryVtable* bob_weapon_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x005060B8, bob_weapon_object_sizes, construct_bob_weapon_view,
+        release_bob_weapon_view};
+    return &table;
+}
+const ObjectFactoryVtable* cutscene_setup_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00504B08, ghouly_cutscene_setup_object_sizes,
+        construct_cutscene_setup_view, release_cutscene_setup_view};
     return &table;
 }
 const ObjectFactoryVtable* area_lifecycle()
@@ -155,6 +198,50 @@ struct NativeSceneActorClassOwner::TriggerInstance : GhoulyController
                 count = sizeof(GhoulyVariantMessage) / 4;
             }
             dispatch_runtime_trigger_message(instance.messages, {words, count});
+        };
+    }
+};
+
+struct NativeSceneActorClassOwner::CutsceneSetupInstance : GhoulyController
+{
+    GhoulySpawnRecord* load = nullptr; // +0x944.
+    RuntimeCutsceneInstance* cutscene = nullptr; // +0x948.
+    EntityCamNode camera{}; // +0x94C.
+    RuntimeGhoulyCutsceneSetup context;
+    RuntimeGhoulyCutsceneSetupMessages messages;
+    CutsceneSetupInstance(NativeSceneActorClassBindings& bindings, FactoryObject& object)
+        : context{{object.bytes.get(), object.size}, bindings.actors.view(object).bat.actor, *this, bindings.random,
+            bindings.occupancy_initial, load, cutscene, camera, bindings.weapon_services.cutscenes,
+            bindings.weapon_services.voices,
+            [&bindings, bytes = object.bytes.get()]()
+            {
+                return bindings.address_of(bytes);
+            },
+            bindings.message, bindings.emitter.clock},
+          messages{context, bindings.base_of(object), bindings.objects, bindings.bytes_at,
+            [&bindings](FactoryObject& actor) -> Actor&
+            {
+                return bindings.actors.view(actor).bat.actor;
+            }, bindings.keep, [&bindings](ActorBaseContext& base, std::span<u32> message)
+            {
+                dispatch_base_actor_word_message(base, message, bindings.word_messages);
+            }, bindings.latch_owner}
+    {
+        message = [](GhoulyController& controller, void* data)
+        {
+            auto& instance = static_cast<CutsceneSetupInstance&>(controller);
+            // As the trigger's: the 0x108-byte A8 request, and the scheduler's 0xA7 / 0xA9 / 0xAA requests.
+            auto* words = static_cast<u32*>(data);
+            size_t count = 0x42;
+            if (words[0] == 0xA7)
+            {
+                count = sizeof(GhoulySpawnMessage) / 4;
+            }
+            else if (words[0] == 0xA9 || words[0] == 0xAA)
+            {
+                count = sizeof(GhoulyVariantMessage) / 4;
+            }
+            dispatch_runtime_ghouly_cutscene_setup_message(instance.messages, {words, count});
         };
     }
 };
@@ -316,11 +403,14 @@ void NativeSceneActorClassOwner::install(std::span<ObjectFactoryType> types)
     }
     types[0x1F] = {2, area_lifecycle};
     types[0x23] = {2, trigger_lifecycle};
+    types[0x25] = {2, cutscene_setup_lifecycle}; // Getter 0x0006B110.
     types[0xD] = {2, emitter_lifecycle}; // Getter 0x00109DD0.
     types[0xF] = {2, motion_blur_lifecycle}; // Getter 0x00066900.
     types[0x10] = {2, afterimage_lifecycle}; // Getter 0x000690A0.
     types[0xB] = {2, weapon_lifecycle}; // Getter 0x00145900.
     types[0xAA] = {0xB, chair_weapon_lifecycle}; // Getter 0x000CEF70.
+    types[0xA9] = {0xB, large_projectile_lifecycle}; // Getter 0x000CD640.
+    types[0xA0] = {0xB, bob_weapon_lifecycle}; // Getter 0x000C5BB0.
     active_owner = this;
 }
 
@@ -438,6 +528,26 @@ bool NativeSceneActorClassOwner::construct_chair_weapon(FactoryObject& object, s
     return initialize_runtime_chair_weapon(weapons_.at(object.bytes.get())->context, parameters);
 }
 
+bool NativeSceneActorClassOwner::construct_large_projectile(FactoryObject& object, std::span<const u8> parameters)
+{
+    return initialize_runtime_large_projectile(weapons_.at(object.bytes.get())->context, parameters);
+}
+
+void NativeSceneActorClassOwner::release_large_projectile(FactoryObject& object)
+{
+    destroy_runtime_large_projectile(weapons_.at(object.bytes.get())->context);
+}
+
+bool NativeSceneActorClassOwner::construct_bob_weapon(FactoryObject& object, std::span<const u8> parameters)
+{
+    return initialize_runtime_bob_weapon(weapons_.at(object.bytes.get())->context, parameters);
+}
+
+void NativeSceneActorClassOwner::release_bob_weapon(FactoryObject& object)
+{
+    destroy_runtime_bob_weapon(weapons_.at(object.bytes.get())->context);
+}
+
 void NativeSceneActorClassOwner::release_weapon(FactoryObject& object)
 {
     destroy_runtime_weapon_actor(weapons_.at(object.bytes.get())->context);
@@ -480,6 +590,39 @@ void NativeSceneActorClassOwner::release_area(FactoryObject& object)
     }
 }
 
+bool NativeSceneActorClassOwner::construct_cutscene_setup(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto instance = std::make_unique<CutsceneSetupInstance>(bindings_, object);
+    auto* setup = instance.get();
+    cutscene_setups_.emplace(object.bytes.get(), std::move(instance));
+    // Cutscene event 0x13 calls instance +0x150 (0x0006BA60) with +0x154, this setup's address.
+    bindings_.weapon_services.cutscenes().event_callbacks[0x0006BA60] =
+        [this](RuntimeCutsceneInstance&, u32 owner, u32)
+        {
+            auto* object = bindings_.object_at(owner);
+            if (object == nullptr)
+            {
+                throw Error("cutscene spawn event for an object outside the scene");
+            }
+            release_runtime_ghouly_cutscene_spawn({object->bytes.get(), object->size}); // 0x0006BA60
+        };
+    return initialize_runtime_ghouly_cutscene_setup(setup->context, parameters);
+}
+
+void NativeSceneActorClassOwner::release_cutscene_setup(FactoryObject& object)
+{
+    destroy_runtime_ghouly_cutscene_setup(cutscene_setups_.at(object.bytes.get())->context);
+    if (!defer_release)
+    {
+        cutscene_setups_.erase(object.bytes.get());
+    }
+}
+
+void NativeSceneActorClassOwner::update_cutscene_setup(FactoryObject& object)
+{
+    update_runtime_ghouly_cutscene_setup(cutscene_setups_.at(object.bytes.get())->context);
+}
+
 void NativeSceneActorClassOwner::release_trigger(FactoryObject& object)
 {
     destroy_runtime_trigger_actor(triggers_.at(object.bytes.get())->context);
@@ -502,6 +645,7 @@ void NativeSceneActorClassOwner::release_view(const u8* bytes)
 {
     areas_.erase(bytes);
     triggers_.erase(bytes);
+    cutscene_setups_.erase(bytes);
     emitters_.erase(bytes);
     motion_blurs_.erase(bytes);
     afterimages_.erase(bytes);
@@ -518,9 +662,21 @@ void NativeSceneActorClassOwner::message(FactoryObject& object, std::span<u32> m
     {
         dispatch_runtime_trigger_message(triggers_.at(object.bytes.get())->messages, message);
     }
+    else if (object.type == 0x25)
+    {
+        dispatch_runtime_ghouly_cutscene_setup_message(cutscene_setups_.at(object.bytes.get())->messages, message);
+    }
     else if (object.type == 0xAA)
     {
         dispatch_runtime_chair_weapon_message(weapons_.at(object.bytes.get())->context, message);
+    }
+    else if (object.type == 0xA9)
+    {
+        dispatch_runtime_large_projectile_message(weapons_.at(object.bytes.get())->context, message);
+    }
+    else if (object.type == 0xA0)
+    {
+        dispatch_runtime_bob_weapon_message(weapons_.at(object.bytes.get())->context, message);
     }
     else if (object.type == 0xD)
     {
@@ -563,6 +719,10 @@ void NativeSceneActorClassOwner::controller_actors(std::unordered_map<const Ghou
     for (auto& [bytes, trigger] : triggers_)
     {
         output[trigger.get()] = &trigger->context.actor;
+    }
+    for (auto& [bytes, setup] : cutscene_setups_)
+    {
+        output[setup.get()] = &setup->context.actor;
     }
     for (auto& [bytes, weapon] : weapons_)
     {

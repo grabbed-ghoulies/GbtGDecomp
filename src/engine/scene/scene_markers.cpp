@@ -1,5 +1,6 @@
 #include "scene_markers.h"
 #include "../entities/entity_heap.h"
+#include "gbtg/anim.h"
 #include <bit>
 #include <vector>
 #include <cstdio>
@@ -283,6 +284,23 @@ u16 next_runtime_marker_id(u16 id, i16 kind, i32 wrap, const u8* records)
             return 0;
         }
     }
+}
+
+// Xbox 0x00100DF0, XMM0 angle
+float add_wrapped_angle(float angle, float delta)
+{
+    constexpr float turn = std::bit_cast<float>(0x40C90FDBu); // DAT_0032B298.
+    const long double remainder = animation_remainder(angle + delta, turn); // 0x00152BE0
+    float result = float(remainder);
+    if (std::bit_cast<float>(0xC0490FDBu) > remainder) // DAT_0032B29C, compared in x87.
+    {
+        result = result + turn;
+    }
+    if (result >= std::bit_cast<float>(0x40490FDBu)) // DAT_0032B148.
+    {
+        result = result - turn;
+    }
+    return result;
 }
 
 // Xbox 0x00127FF0

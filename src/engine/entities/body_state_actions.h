@@ -28,6 +28,8 @@ struct RuntimeBodyStateContext
     RuntimeBodyActionSelection& actions; // Body animation selection (0x0001AED0, 0x0001B020).
     // XBE addresses held in executable parameters; size 0 views a NUL-terminated string.
     std::function<std::span<const u8>(u32 address, size_t size)> resolve;
+    std::span<const u8> mind{}; // Actor +0x958, or empty.
+    std::function<Vec3(u32)> actor_position{}; // 0x000412A0 of the actor at an address.
 };
 u8 set_runtime_body_shape_mode(u8 mode, RuntimeBodyStateContext& context); // Xbox 0x0001FEB0, BL mode, EDI body
 void actor_move_object_sizes(ObjectSizes& output); // Xbox 0x00095530
@@ -57,7 +59,8 @@ struct RuntimeGrabbedStateContext;
 // player's death (getter 0x0008EED0, vtable 0x00505800), 0x88
 // entityStateStruggle (getter 0x000A2B30, vtable 0x00505BE0) and
 // 0x8E entityStateWalkAlert (getter 0x000A55F0, vtable
-// 0x00505CA0). The context resolvers map a state's body address (+8) to its native body views.
+// 0x00505CA0), 0x8F, the skeletons' walk toward their target (getter 0x000A6220, vtable 0x00505CC0) and 0x8A, a
+// timed hold (getter 0x000A34C0, vtable 0x00505C20). The context resolvers map a state's body address (+8) to its native body views.
 void install_runtime_body_state_classes(std::span<ObjectFactoryType> types,
     std::function<RuntimeBodyStateContext(u32)> context_of, std::function<RuntimeHitStateLifecycle(u32)> hit_of,
     std::function<RuntimeDizzyStateContext&(u32)> dizzy_of, std::function<RuntimeKnockdownContext&(u32)> knockdown_of,

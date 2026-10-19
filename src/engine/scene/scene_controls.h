@@ -6,6 +6,8 @@
 #include "../entities/actor_clock.h"
 #include "attract_control.h"
 #include "gameselect_control.h"
+#include "super_scary_control.h"
+#include "trophy_heads_control.h"
 #include <unordered_map>
 #include <vector>
 
@@ -30,6 +32,8 @@ struct SceneControlInstance
     std::vector<u16> playlist; // Type 0x91 +0x24, the 0x00080670 shuffle.
     std::unique_ptr<AttractControlState> attract; // Type 0x9B's pointer words.
     std::unique_ptr<GameSelectControlState> gameselect; // Type 0x9A's pointer words.
+    std::unique_ptr<TrophyHeadsControlState> trophy_heads; // Type 0x92's pointer words.
+    std::unique_ptr<SuperScaryControlState> super_scary; // Type 0x98's pointer words.
 };
 struct SceneControlContext
 {
@@ -43,10 +47,14 @@ struct SceneControlContext
     AudioBankStreams* audio = nullptr;
     AttractControlServices* attract = nullptr;
     GameSelectControlServices* gameselect = nullptr;
+    TrophyHeadsControlServices* trophy_heads = nullptr;
+    SuperScaryControlServices* super_scary = nullptr;
     const RuntimeActorClock& frame_clock() const;
     AudioBankStreams& streams() const;
     AttractControlServices& attract_services() const;
     GameSelectControlServices& gameselect_services() const;
+    TrophyHeadsControlServices& trophy_heads_services() const;
+    SuperScaryControlServices& super_scary_services() const;
 };
 class NativeSceneControlOwner
 {
@@ -55,7 +63,9 @@ public:
     NativeSceneControlOwner(const NativeSceneControlOwner&) = delete;
     NativeSceneControlOwner& operator=(const NativeSceneControlOwner&) = delete;
     // Types 3 (getter 0x00115D50, vtable 0x0050E41C), 0x91 (getter 0x00080520, vtable 0x00505530) and 0x9B
-    // (getter 0x00080970, vtable 0x00505548). Type 0x9A (getter 0x00083610, vtable 0x00505620) is game select.
+    // (getter 0x00080970, vtable 0x00505548). Type 0x9A (getter 0x00083610, vtable 0x00505620) is game select;
+    // type 0x92 (getter 0x000816C0, vtable 0x00505590) the trophy heads and type 0x98 (getter 0x000842F0, vtable
+    // 0x00505668) their Super Scary challenge.
     void install(std::span<ObjectFactoryType> types);
     SceneControlInstance& instance(const FactoryObject& object);
     SceneControlInstance& instance_of(RuntimeActorLink& link); // By the +8 link.
@@ -64,6 +74,8 @@ public:
     FactoryObject& object_of_disposal(RuntimeActorLink& link, std::vector<FactoryObject>& objects);
     void forget(const FactoryObject& object); // After its type 3 destructor.
     void message(FactoryObject& object, std::span<const u32> message); // Vtable +0xC.
+    // Vtable +0xC; `reference` is the native pointer a message's second word carries (0x7E, 0x7F).
+    void message(SceneControlInstance& control, std::span<const u32> message, const void* reference = nullptr);
     void tick(SceneControlInstance& control); // Vtable +0x10.
     void draw(SceneControlInstance& control); // Vtable +0x14.
     SceneControlContext context;
@@ -78,6 +90,8 @@ extern SceneControlLists g_scene_controls;
 bool construct_runtime_scene_control(SceneControlInstance& control, SceneControlLists& lists); // Xbox 0x00115DA0
 void destroy_runtime_scene_control(SceneControlInstance& control); // Xbox 0x00115DE0
 u32 retire_runtime_scene_control(SceneControlInstance& control, SceneControlLists& lists); // Xbox 0x00115E70, ESI
+// Message 0x80 through the control's vtable +0xC, then 0x00115E70 when that left it off the disposal list.
+void dispose_runtime_scene_control(SceneControlInstance& control, SceneControlLists& lists); // Xbox 0x00116140, EAX
 void message_runtime_scene_control(SceneControlInstance& control, std::span<const u32> message,
     SceneControlLists& lists); // Xbox 0x00115EE0
 void tick_runtime_scene_control(std::span<u8> state, const RuntimeActorClock& clock); // Xbox 0x00115E30

@@ -1,5 +1,5 @@
 #include "cutscene_scene_runtime.h"
-#include "scene_tick_nodes.h"
+#include "scene_controls.h"
 #include "../camera/view_initialization.h"
 #include "../entities/actor_base_messages.h"
 #include <bit>
@@ -11,14 +11,22 @@ namespace gbtg
 namespace
 {
 std::unordered_map<Game*, std::unique_ptr<SceneCutsceneRuntime>> scene_cutscenes;
+// DAT_0050E438, the active scene controls: each control's vtable +0xC with the message. The instance pointer in
+// the message's second word goes to the native controls as their reference.
 void notify_scene_cutscene(const ActorReferenceMessage& message)
 {
-    auto* node = g_50e438;
+    if (g_scene_control_owner == nullptr)
+    {
+        return;
+    }
+    auto& owner = *g_scene_control_owner;
+    const std::array<u32, 2> words{message.id, 0};
+    RuntimeActorLink* node = owner.context.lists.active.next;
     while (node != nullptr)
     {
-        auto* owner = node;
-        node = node->next;
-        owner->message(owner, &message);
+        RuntimeActorLink* next = node->next;
+        owner.message(owner.instance_of(*node), words, message.value);
+        node = next;
     }
 }
 void decrement_cutscene_count(i32& count)
@@ -70,6 +78,29 @@ void release_scene_cutscene_instance(RuntimeCutsceneInstance& instance,
     broadcast_actor_pulse_message(reinterpret_cast<const i32*>(&message));
     notify_scene_cutscene(message);
     release_runtime_cutscene(&instance, state.bindings.runtime);
+}
+
+// Xbox 0x0004EF20, ECX position
+void place_scene_cutscene(const Vec3& position, SceneCutsceneRuntime& state)
+{
+    auto& runtime = state.bindings.runtime;
+    auto& instance = *state.instances[state.index];
+    const float fraction = instance.time / instance.duration;
+    instance.position = position;
+    update_runtime_cutscene_actors(instance, -1.f, fraction, runtime); // 0x0004E1E0
+    auto& current = *state.instances[state.index];
+    update_cutscene_camera_view(current, runtime.views.at(current.resource).cameras.data(), state.camera); // 0x0004D7D0
+}
+
+// Xbox 0x0004EF80, ECX euler
+void turn_scene_cutscene(const Vec3& euler, SceneCutsceneRuntime& state)
+{
+    auto& runtime = state.bindings.runtime;
+    auto& instance = *state.instances[state.index];
+    instance.euler = euler;
+    update_runtime_cutscene_actors(instance, -1.f, instance.time / instance.duration, runtime); // 0x0004E1E0
+    auto& current = *state.instances[state.index];
+    update_cutscene_camera_view(current, runtime.views.at(current.resource).cameras.data(), state.camera); // 0x0004D7D0
 }
 
 // Xbox 0x0004EAD0

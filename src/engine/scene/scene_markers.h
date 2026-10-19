@@ -36,6 +36,8 @@ void dispatch_runtime_marker_records(u8* records, const RuntimeSceneMarkerHandle
 void start_runtime_scene_markers(const u8* records, const RuntimeSceneMarkerRandomizer& randomizer,
     const RuntimeSceneMarkerHandlers& handlers); // Xbox 0x00140020
 u16 next_runtime_marker_id(u16 id, i16 kind, i32 wrap, const u8* records); // Xbox 0x0011F1C0, AX id
+// The sum of two angles wrapped into [-pi, pi) after 0x00152BE0.
+float add_wrapped_angle(float angle, float delta); // Xbox 0x00100DF0, XMM0 angle
 void restart_runtime_marker_player(const u8* records,
     const RuntimeSceneMarkerHandlers& handlers); // Xbox 0x00127FF0
 u8* find_runtime_marker(const u8* records, i16 id); // Inlined id walk over DAT_0051108C.

@@ -48,32 +48,26 @@ int int_arg(int argc, char** argv, const std::string& key, int def)
     return def;
 }
 
-gbtg::PlatformConfig create_platform_config(int argc, char** argv)
-{
-    gbtg::PlatformConfig cfg;
-    
-    cfg.game_dir = arg(argc, argv, "--game-dir", "OriginalFiles");
-    cfg.headless = has_flag(argc, argv, "--headless");
-    cfg.debug_ui = has_flag(argc, argv, "--debug-ui");
-    cfg.frames = int_arg(argc, argv, "--frames", 0);
-    cfg.replay_after = int_arg(argc, argv, "--render-replay-after", 0);
-    cfg.screenshot = arg(argc, argv, "--screenshot");
-    cfg.scene = arg(argc, argv, "--scene").string();
-    
-    return cfg;
-}
-
 } // namespace
 
 int main(int argc, char** argv)
 {
     try
     {
-        gbtg::PlatformConfig cfg = create_platform_config(argc, argv);
         const gbtg::HostConfig host = gbtg::load_host_config(argc > 0 ? argv[0] : "");
+
+        gbtg::PlatformConfig cfg;
+        cfg.game_dir = arg(argc, argv, "--game-dir", "OriginalFiles");
+        cfg.headless = has_flag(argc, argv, "--headless");
+        cfg.debug_ui = has_flag(argc, argv, "--debug-ui");
+        cfg.frames = int_arg(argc, argv, "--frames", 0);
+        cfg.replay_after = int_arg(argc, argv, "--render-replay-after", 0);
+        cfg.screenshot = arg(argc, argv, "--screenshot");
+        cfg.scene = arg(argc, argv, "--scene").string();
         cfg.width = int_arg(argc, argv, "--width", host.width);
         cfg.height = int_arg(argc, argv, "--height", host.height);
         cfg.vsync = int_arg(argc, argv, "--vsync", host.vsync);
+
         const auto profile = arg(argc, argv, "--render-profile");
         if (!profile.empty())
         {

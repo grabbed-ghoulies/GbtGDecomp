@@ -25,6 +25,8 @@ struct RuntimeHitStateLifecycle
     RuntimeBodyBitStorage*& bits; // Body +0x15C.
     std::span<const u8> target; // Actor +0x958 -> +0x14: the mind's target record, or empty.
 };
+// The angle `current` moved by `fraction` of its signed turn toward `target` (XMM0), in [0, 2pi).
+float step_runtime_angle_toward(float target, float current, float fraction); // Xbox 0x001013A0
 void hit_state_object_sizes(ObjectSizes& output); // Xbox 0x00095720
 bool initialize_runtime_hit_state(std::span<u8> state, std::span<const u8> parameters,
     RuntimeHitStateLifecycle& context); // Xbox 0x000957A0

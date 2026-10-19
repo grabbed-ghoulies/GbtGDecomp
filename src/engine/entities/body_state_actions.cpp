@@ -11,6 +11,8 @@
 #include "body_struggle_state.h"
 #include "body_player_death_state.h"
 #include "body_grabbed_state.h"
+#include "body_walk_target_state.h"
+#include "body_hold_state.h"
 #include "gbtg/entity.h"
 #include <bit>
 #include <cstring>
@@ -314,6 +316,48 @@ const ObjectFactoryVtable* struggle_state_lifecycle()
 {
     static const ObjectFactoryVtable table{0x00505BE0, struggle_state_object_sizes, construct_struggle_state_view,
         destroy_struggle_state_view};
+    return &table;
+}
+
+bool construct_walk_target_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    const std::span<u8> state{object.bytes.get(), object.size};
+    auto context = body_context_of(word(state, 8));
+    return initialize_runtime_walk_target(state, parameters, context);
+}
+
+void destroy_walk_target_view(FactoryObject& object)
+{
+    const std::span<u8> state{object.bytes.get(), object.size};
+    auto context = body_context_of(word(state, 8));
+    destroy_runtime_walk_target(state, context);
+}
+
+bool construct_hold_state_view(FactoryObject& object, std::span<const u8>)
+{
+    const std::span<u8> state{object.bytes.get(), object.size};
+    auto context = body_context_of(word(state, 8));
+    return initialize_runtime_hold_state(state, context);
+}
+
+void destroy_hold_state_view(FactoryObject& object)
+{
+    const std::span<u8> state{object.bytes.get(), object.size};
+    auto context = body_context_of(word(state, 8));
+    destroy_runtime_hold_state(state, context);
+}
+
+const ObjectFactoryVtable* hold_state_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505C20, hold_state_object_sizes, construct_hold_state_view,
+        destroy_hold_state_view};
+    return &table;
+}
+
+const ObjectFactoryVtable* walk_target_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505CC0, walk_target_object_sizes, construct_walk_target_view,
+        destroy_walk_target_view};
     return &table;
 }
 
@@ -626,5 +670,7 @@ void install_runtime_body_state_classes(std::span<ObjectFactoryType> types,
     types[0x87] = ObjectFactoryType{9, stand_alert_lifecycle};
     types[0x88] = ObjectFactoryType{9, struggle_state_lifecycle};
     types[0x8E] = ObjectFactoryType{9, walk_alert_lifecycle};
+    types[0x8F] = ObjectFactoryType{9, walk_target_lifecycle};
+    types[0x8A] = ObjectFactoryType{9, hold_state_lifecycle};
 }
 }

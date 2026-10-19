@@ -5,13 +5,6 @@
 
 namespace gbtg
 {
-// An actor's body (actor +0x95C) as the imp strategy reads and holds it.
-struct RuntimeStrategyBodyView
-{
-    u32 address;
-    std::span<u8> bytes; // +0x50 holder actor address, +0x58, +0x15C bit block.
-    const EntityBitBlock* bits; // +0x15C.
-};
 // entityStrategyImpFire (type 0x46, vtable 0x00505EA4) over the base strategy (type 8).
 // Strategy bytes: +0x38 attack delay, +0x3C held body address, +0x40 effect state, +0x44 effect
 // object address, +0x48 bite request, +0x4C parameter block address.

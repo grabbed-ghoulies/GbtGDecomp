@@ -5,6 +5,9 @@
 #include "fx_anim_emitter.h"
 #include "avatar_motion_blur.h"
 #include "weapon_actor.h"
+#include "projectile_weapon.h"
+#include "bob_weapon.h"
+#include "ghouly_cutscene_setup.h"
 
 namespace gbtg
 {
@@ -76,10 +79,18 @@ public:
     void install(std::span<ObjectFactoryType> types);
     bool construct_area(FactoryObject& object, std::span<const u8> parameters);
     bool construct_trigger(FactoryObject& object, std::span<const u8> parameters);
+    bool construct_cutscene_setup(FactoryObject& object, std::span<const u8> parameters); // Type 0x25.
+    void release_cutscene_setup(FactoryObject& object); // Type 0x25, Xbox 0x0006B350.
+    void update_cutscene_setup(FactoryObject& object); // Type 0x25, Xbox 0x0006B8B0.
     bool construct_emitter(FactoryObject& object, std::span<const u8> parameters);
     bool construct_motion_blur(FactoryObject& object, std::span<const u8> parameters);
     bool construct_weapon(FactoryObject& object, std::span<const u8> parameters); // Type 0x0B, Xbox 0x00145C80.
     bool construct_chair_weapon(FactoryObject& object, std::span<const u8> parameters); // Type 0xAA, Xbox 0x000CEFE0.
+    bool construct_large_projectile(FactoryObject& object,
+        std::span<const u8> parameters); // Type 0xA9, Xbox 0x000CD6B0.
+    void release_large_projectile(FactoryObject& object); // Type 0xA9, Xbox 0x000CDAA0.
+    bool construct_bob_weapon(FactoryObject& object, std::span<const u8> parameters); // Type 0xA0, Xbox 0x000C5C20.
+    void release_bob_weapon(FactoryObject& object); // Type 0xA0, Xbox 0x000C5D30.
     void release_weapon(FactoryObject& object); // Type 0x0B, Xbox 0x00145E80.
     void update_weapon(FactoryObject& object); // Vtable +0x10, Xbox 0x0014A2E0.
     bool weapon_draw_hidden(FactoryObject& object); // Vtable +0x14 before 0x0003C9E0, Xbox 0x001459C0.
@@ -108,11 +119,13 @@ public:
 
 private:
     struct TriggerInstance;
+    struct CutsceneSetupInstance;
     struct EmitterInstance;
     struct WeaponInstance;
     NativeSceneActorClassBindings bindings_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeAreaActorContext>> areas_;
     std::unordered_map<const u8*, std::unique_ptr<TriggerInstance>> triggers_;
+    std::unordered_map<const u8*, std::unique_ptr<CutsceneSetupInstance>> cutscene_setups_;
     std::unordered_map<const u8*, std::unique_ptr<EmitterInstance>> emitters_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeAvatarMotionBlur>> motion_blurs_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeAvatarAfterimage>> afterimages_;

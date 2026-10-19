@@ -713,6 +713,74 @@ void script_tick_picked_up_condition(ScriptCond& rec)
 }
 
 
+// Xbox 0x00133770. Opcode 15 in the update table at 0x00314334. The word at record+8 is kept when 1 is below it.
+// Walks DAT_0050E4DC to the first event 0xB7, then along the events of that type. An event whose word at +0xC is the
+// kept word (or any, with no word) passes by the int at record+0xC: 0 always, 1 when its dword at +0x10 is nonzero,
+// 2 when that dword is zero, any other value always. A passing event, with DAT_0050E768 clear and the byte at
+// [DAT_0051248C]+0x30F144 set, counts the float at +0x10 down by the frame step (0 while DAT_004312DC is above 0),
+// stopping at 0.
+// Xbox 0x00133770
+void script_tick_ghouly_signal_condition(ScriptCond& rec)
+{
+    const u16 raw = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+    const u16 key = 1 < raw ? raw : u16(0);
+    LiveScript* node = g_live_scripts;
+    while (node != nullptr && node->type != 0xb7u)
+    {
+        node = node->next;
+    }
+    if (node == nullptr)
+    {
+        return;
+    }
+    for (;;)
+    {
+        if (key == 0 || node->word_c == key)
+        {
+            const i32 mode = static_cast<i32>(cond_u32(rec, 0xc));
+            u32 state = 1;
+            if (mode == 1)
+            {
+                state = node->dword_10;
+            }
+            else if (mode == 2)
+            {
+                state = node->dword_10 == 0 ? 1u : 0u;
+            }
+            if (state != 0)
+            {
+                break;
+            }
+        }
+        const u32 type = node->type;
+        node = node->next;
+        while (node != nullptr && node->type != type)
+        {
+            node = node->next;
+        }
+        if (node == nullptr)
+        {
+            return;
+        }
+    }
+    if (g_block_decay != 0 || g_decay_arm == 0)
+    {
+        return;
+    }
+    const float step = 0.f < g_sim_freeze ? 0.f : g_sim_dt * g_sim_scale;
+    const float left = cond_f32(rec, 0x10);
+    if (0.f < left)
+    {
+        const float next = left - step;
+        cond_put_f32(rec, 0x10, next);
+        if (!(0.f < next))
+        {
+            cond_put_f32(rec, 0x10, 0.f);
+        }
+    }
+}
+
+
 // Xbox 0x00128D90. Resume the scene's fired cursor at the matching title.
 void script_resume_title(Game& g, i32 mode, i32 id)
 {
@@ -921,7 +989,8 @@ void script_queue_scene_start(Game& g)
 
 
 // Xbox 0x00117100: 0x00140E30, then the condition updates and the eval at 0x00117140. The update walk calls the
-// table at 0x00314334: opcode 0 is 0x00133070, opcode 1 is 0x001330E0 and opcode 3 is 0x00133170.
+// table at 0x00314334: opcode 0 is 0x00133070, opcode 1 is 0x001330E0, opcode 3 is 0x00133170 and opcode 15 is
+// 0x00133770.
 // Opcodes 2, 6..9 and 20..26 have the empty 0x001628B0; the others' updates
 // are not translated and raise when a record reaches them.
 void script_vm_tick(Game& g, float dt)
@@ -950,6 +1019,10 @@ void script_vm_tick(Game& g, float dt)
         else if (opcode == 3)
         {
             script_tick_picked_up_condition(rec);
+        }
+        else if (opcode == 15)
+        {
+            script_tick_ghouly_signal_condition(rec);
         }
         else if (kUpdates[opcode] != 0x001628B0)
         {

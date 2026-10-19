@@ -48,6 +48,8 @@ void update_runtime_mind_alert(RuntimeMindTick& context); // Xbox 0x0002A650
 void tick_runtime_parent_mind(RuntimeMindTick& context); // Xbox 0x0002A9F0
 RuntimePlayerMindRequest* append_runtime_position_request(RuntimePlayerMindRequest& anchor,
     std::span<const u8> sizes, std::span<const u8, 12> position); // Xbox 0x00136A70
+RuntimePlayerMindRequest* append_runtime_range_request(RuntimePlayerMindRequest& anchor,
+    std::span<const u8> sizes, float range); // Xbox 0x00136AC0, EAX mind
 struct RuntimePlayerGoalRing
 {
     u16 stride;

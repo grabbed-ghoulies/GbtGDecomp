@@ -2,6 +2,9 @@
 #include "mind_target_policy.h"
 #include "actor_spawn_eligibility.h"
 #include "actor_transform.h"
+#include "actor_shape_bounds.h"
+#include "player_children.h"
+#include "player_mind_targets.h"
 #include "body_request_selection.h"
 #include "../navigation/player_avoidance.h"
 #include "../scripts/script_conditions.h"
@@ -739,5 +742,164 @@ RuntimePlayerMindRequest* request_runtime_strategy_roam(std::span<const u8> sett
         return nullptr;
     }
     return request_runtime_strategy_position(position, settings, context.goals);
+}
+
+// Xbox 0x001372A0
+i32 runtime_mind_contact_count(const RuntimeMindEvents& events, u32 attacker)
+{
+    const u32 owner = read_u32(events.mind, 8);
+    for (LiveScript* node = events.anchor.next; node != nullptr; node = node->next)
+    {
+        if (u16(node->type) != 1)
+        {
+            continue;
+        }
+        const auto& event = *static_cast<RuntimeMindEvent*>(node);
+        if (read_u32(event.bytes, 0x20) == owner && read_u32(event.bytes, 0x24) == attacker)
+        {
+            return std::bit_cast<i32>(read_u32(event.bytes, 0x28));
+        }
+    }
+    return 0;
+}
+
+// Xbox 0x001372F0
+bool runtime_mind_watches_actor(const RuntimeMindEvents& events, u32 actor)
+{
+    for (LiveScript* node = events.anchor.next; node != nullptr; node = node->next)
+    {
+        if (u16(node->type) == 4 && read_u32(static_cast<RuntimeMindEvent*>(node)->bytes, 0x20) == actor)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Xbox 0x001408A0
+bool runtime_message_lands_on_actor(std::span<const u32> message, u32 actor)
+{
+    return message[1] == actor && message[4] != 0;
+}
+
+// Xbox 0x001363E0
+float runtime_actor_body_gap(const Actor& first, const Actor& second, RuntimeStrategyActorViews& views)
+{
+    const std::span<const u8> first_body = views.body_of(first).bytes;
+    const std::span<const u8> second_body = views.body_of(second).bytes;
+    const float distance = float(runtime_actor_distance(first, second));
+    const float first_scale = first.radius_xz;
+    const float reach = read_f32(second_body, 0x78) * second.radius_xz;
+    float held_radius = 0.f;
+    const u32 held = read_u32(second_body, 0x48);
+    if (held != 0 && views.actor_bytes_at(held)[0x93D] == 1)
+    {
+        const Actor& weapon = *views.actor_at(held);
+        if (weapon.model != nullptr && weapon.model->cpu.data() != nullptr)
+        {
+            held_radius = float(actor_model_sweep_radius(weapon));
+        }
+    }
+    const float radii = read_f32(second_body, 0x888) * second.radius_xz + read_f32(first_body, 0x888) * first_scale
+        + (held_radius + reach);
+    const float gap = distance - radii;
+    if (0.f < gap)
+    {
+        return gap;
+    }
+    return 0.f;
+}
+
+// Xbox 0x00139390
+u32 retaliate_runtime_strategy_contact(std::span<const u32> message, i32 minimum, RuntimeStrategyTargetChecks& context,
+    RuntimeStrategyActorViews& views)
+{
+    RuntimePlayerStrategyGoals& goals = context.goals;
+    RuntimeMindEvents& events = goals.entry.events;
+    const u32 actor = read_u32(goals.entry.strategy, 8);
+    if ((views.story_flags & 0x100) != 0 || message[1] != actor)
+    {
+        return 0;
+    }
+    const u32 attacker = message[2];
+    if (attacker == 0)
+    {
+        return 0;
+    }
+    const std::span<const u8> attacker_body = views.body_of(*views.actor_at(attacker)).bytes;
+    if (std::bit_cast<i32>(read_u32(attacker_body, 0x738)) < minimum || !reactions_enabled(goals))
+    {
+        return 0;
+    }
+    const i32 contacts = runtime_mind_contact_count(events, attacker);
+    const bool landed = runtime_message_lands_on_actor(message, actor);
+    const u32 current = read_u32(events.mind, 0x10);
+    clear_runtime_player_mind_requests(*goals.setup.mind);
+    if (current != 0 && !landed && contacts <= 0)
+    {
+        return 0;
+    }
+    const u32 record = read_u32(views.actor_bytes_at(attacker), 0x8F8);
+    if (record == 0)
+    {
+        return 0;
+    }
+    RuntimeMindTarget* target = goals.target_at(record);
+    if (target->bytes[0x18] != 0 || runtime_strategy_abandons_target(*target, context) != 0)
+    {
+        return 0;
+    }
+    set_runtime_mind_target(events, record);
+    put(events.mind, 0xC, attacker);
+    return 1;
+}
+
+// Xbox 0x00139740
+u32 runtime_strategy_target_hit_lands(std::span<const u32> message, RuntimeStrategyTargetChecks& context,
+    RuntimeStrategyActorViews& views)
+{
+    RuntimePlayerStrategyGoals& goals = context.goals;
+    const std::span<const u8> mind = goals.entry.events.mind;
+    const u32 actor = read_u32(goals.entry.strategy, 8);
+    if (mind.data() == nullptr || read_u32(mind, 0x10) == 0)
+    {
+        return 0;
+    }
+    const RuntimeMindTarget* target = goals.target_at(read_u32(mind, 0x10));
+    if (read_u32(target->bytes, 0x10) != message[1] || message[2] != actor || message[4] == 0)
+    {
+        return 0;
+    }
+    const RuntimeStrategyBodyView body = views.body_of(*views.actor_at(message[1]));
+    if ((body.bits->bytes[3] & 2) != 0)
+    {
+        return 1;
+    }
+    if ((body.bits->bytes[2] & 2) != 0)
+    {
+        return runtime_body_target_state_active(body.bytes) ? 1 : 0;
+    }
+    return 0;
+}
+
+// Xbox 0x001397B0
+u32 react_runtime_strategy_watched_actor(std::span<const u32> message, RuntimeStrategyTargetChecks& context,
+    RuntimeStrategyActorViews& views)
+{
+    RuntimePlayerStrategyGoals& goals = context.goals;
+    const RuntimeMindEvents& events = goals.entry.events;
+    if (!reactions_enabled(goals) || read_u32(events.mind, 0xC) != message[1]
+        || !runtime_mind_watches_actor(events, message[1]))
+    {
+        return 0;
+    }
+    Actor* nearest = find_nearest_runtime_script_actor(nullptr, goals.entry.actor, 0, 0.f, nullptr, 0xC00, nullptr,
+        views.query);
+    if (nearest != nullptr && 40.f > runtime_actor_body_gap(goals.entry.actor, *nearest, views)) // DAT_0032B1B8.
+    {
+        return 0;
+    }
+    change_state(0x3F2, goals);
+    return 1;
 }
 }

@@ -30,6 +30,8 @@
 #include "script_conditions.h"
 #include "script_event_sequence.h"
 #include "../cutscenes/door_registration.h"
+#include "../cutscenes/actor_tracks.h"
+#include "gbtg/actor_spawn_factory.h"
 #include "../navigation/grid_regions.h"
 
 #include <algorithm>
@@ -907,8 +909,9 @@ int script_handle_condition_setup(Game& g, const ScriptNode& node)
 // Xbox 0x00125450. One node of the action walk. Type 0x3C stops the walk.
 // The listed types copy a condition, then 0x000532B0 (ECX = cursor, EDX =
 // 0x3C) moves the cursor to the block's closing 0x3C, so the runner advances
-// past the condition body. Every other type returns 3. Types 0x40, 0x94,
-// 0x95 and 0x99 store 0x001077B0's tag in the word at +8.
+// past the condition body. Every other type returns 3. Types 0x40, 0x6A, 0x94,
+// 0x95 and 0x99 store 0x001077B0's tag in the word at +8; 0x6A also copies the
+// float at node+0x4C to +0x10.
 // Xbox 0x00125450
 int script_handle_condition_node(Game& g, const ScriptNode& node, u32& cursor)
 {
@@ -916,6 +919,7 @@ int script_handle_condition_node(Game& g, const ScriptNode& node, u32& cursor)
     bool as_float = false;
     bool word_then_far = false;
     bool payload_at_8 = false;
+    bool float_at_10 = false;
     switch (node.type)
     {
     case 0x3C:
@@ -939,6 +943,11 @@ int script_handle_condition_node(Game& g, const ScriptNode& node, u32& cursor)
     case 0x48:
         opcode = 9;
         payload_at_8 = true;
+        break;
+    case 0x6A:
+        opcode = 15; // scriptConditionId_GhoulyTriggered: the tag, node+0x48 and the float at node+0x4C.
+        word_then_far = true;
+        float_at_10 = true;
         break;
     case 0x94:
         opcode = 23;
@@ -969,6 +978,10 @@ int script_handle_condition_node(Game& g, const ScriptNode& node, u32& cursor)
         // The word at +8 is 0x001077B0's tag for the name at node+8.
         cond_put_u32(rec, 8, static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 8).c_str())));
         cond_put_u32(rec, 0xC, node_u32(g.scene_script, node, 0x48));
+        if (float_at_10)
+        {
+            cond_put_u32(rec, 0x10, node_u32(g.scene_script, node, 0x4C));
+        }
     }
     else if (payload_at_8)
     {
@@ -2272,22 +2285,9 @@ int script_handle_event_actions(Game& g, const ScriptNode& node)
 // with a nonzero dword at node+0x8C stores 1 and returns 0. Otherwise the
 // case returns 2.
 //
-// Type 0x53 with a nonzero third argument returns 2. Zero with DAT_00512470
-// clear would call 0x0004EDA0(node+8, 0, 1) and pass that return with
-// "aid_model_ghoulies_cutscene_reliccandle" to 0x0004EA50. A zero return
-// stores 0 at DAT_00512480. A nonzero return calls 0x00107720 with EAX =
-// "aid_objparams_ghoulies_scenecontrol_candle", stores the model at +8,
-// stores 0x00107520 at DAT_00512480, and calls 0x000663E0 on that block.
-// 0x0011F1C0(0xC, 1) would then run. A nonzero AX calls 0x0011F260,
-// 0x0011F2A0, 0x00100DF0(pi), 0x0004EF20, and 0x0004EF80. Those calls are
-// not translated, so DAT_00512480 is not stored. The flag is set and the
-// case returns 0. Nonzero DAT_00512470 would call 0x0004EFE0. A zero return
-// returns 0. A nonzero return calls 0x000532E0 with ECX = the node. A
-// nonzero return from that call returns 2. Zero clears the flag, calls
-// 0x0004ECE0 and 0x00127FF0, and returns 2 when DAT_00512480 is zero.
-// Otherwise it calls 0x00116140, clears DAT_00512480, and returns 2.
-// 0x0004EFE0 is not translated, so its nonzero return is not taken and this
-// path returns 0.
+// Type 0x53 plays the player's walk-in cutscene (node+8) at the first kind 0xC marker, turned by pi, with the
+// relic candle's scene control while it plays; when it ends (unless it is the scene's last action) the player marker
+// runs again (0x00127FF0) and the candle's control is disposed.
 //
 // Type 0x9B calls 0x000FB120 with 1.0, EAX = node+8, and ECX = a stack
 // vector. Type 0x9C calls 0x000493D0 with EDX = node+8 and EAX = that
@@ -2296,6 +2296,96 @@ int script_handle_event_actions(Game& g, const ScriptNode& node)
 // and EDI = the vector. 0x000FB120 and 0x000493D0 are not translated, and
 // the port's 0x000412A0 does not take this ESI/EDI pair, so those calls
 // are not made. Both cases return 2.
+// DAT_00512480: the relic candle's scene control while a walk-in cutscene plays, as its retail address.
+u32 g_walk_in_candle = 0;
+
+// Script type 0x53 with a zero third argument, in 0x001274B0.
+int play_script_walk_in_cutscene(Game& g, const ScriptNode& node)
+{
+    auto& cutscenes = scene_cutscene_runtime(g);
+    SceneActorServices* actors = script_scene_actors(g);
+    if (actors == nullptr)
+    {
+        throw Error("script walk-in cutscene (type 0x53) without the native scene's actors");
+    }
+    if (g_flag_2470 == 0)
+    {
+        const std::string name = node_cstr(g.scene_script, node, 8);
+        RuntimeCutsceneInstance* instance = start_scene_cutscene(name.c_str(), 0, 1, cutscenes); // 0x0004EDA0
+        auto& runtime = cutscenes.bindings.runtime;
+        const auto& view = runtime.views.at(instance->resource);
+        auto& rows = runtime.instances.at(instance);
+        Actor* relic = find_cutscene_actor_by_model(*instance, view.tracks.data(), rows.actors.data(),
+            "aid_model_ghoulies_cutscene_reliccandle"); // 0x0004EA50
+        if (relic == nullptr)
+        {
+            g_walk_in_candle = 0;
+        }
+        else
+        {
+            // 0x00107720 clones the objparams, +8 takes the relic, 0x00107520 creates it, 0x000663E0 frees the clone.
+            ClonedExecutableResource parameters = clone_executable_resource(g.executable_resources->pools,
+                "aid_objparams_ghoulies_scenecontrol_candle");
+            u32 relic_address = 0;
+            for (const auto& [address, actor] : actors->actor_addresses())
+            {
+                if (actor == relic)
+                {
+                    relic_address = address;
+                }
+            }
+            if (relic_address == 0)
+            {
+                throw Error("the walk-in cutscene's relic candle has no retail address");
+            }
+            std::memcpy(parameters.bytes.get() + 8, &relic_address, 4);
+            FactoryObject* object = g.factory_scene->keep_object(create_factory_object(g.factory_scene->factory,
+                {parameters.bytes.get(), parameters.size}));
+            g_walk_in_candle = object == nullptr || object->bytes == nullptr ? 0
+                : g.factory_scene->address_of(object->bytes.get());
+        }
+        const u8* records = actors->marker_records();
+        const u16 id = next_runtime_marker_id(0, 0xC, 1, records); // 0x0011F1C0
+        if (id != 0)
+        {
+            Vec3 position;
+            Vec3 euler;
+            read_scene_marker_position(records, i16(id), position); // 0x0011F260
+            read_scene_marker_euler(records, i16(id), euler); // 0x0011F2A0
+            euler.y = add_wrapped_angle(euler.y, std::bit_cast<float>(0x40490FDBu)); // 0x00100DF0
+            place_scene_cutscene(position, cutscenes); // 0x0004EF20
+            turn_scene_cutscene(euler, cutscenes); // 0x0004EF80
+        }
+        g_flag_2470 = 1;
+        return 0;
+    }
+    if (!scene_cutscene_finished(cutscenes)) // 0x0004EFE0
+    {
+        return 0;
+    }
+    if (script_node_is_last_action(g.scene_script, node)) // 0x000532E0, ECX node
+    {
+        return 2;
+    }
+    g_flag_2470 = 0;
+    release_scene_cutscenes(cutscenes); // 0x0004ECE0
+    actors->restart_marker_player(); // 0x00127FF0
+    if (g_walk_in_candle == 0)
+    {
+        return 2;
+    }
+    for (auto& object : g.factory_scene->objects)
+    {
+        if (object.bytes != nullptr && g.factory_scene->address_of(object.bytes.get()) == g_walk_in_candle)
+        {
+            dispose_runtime_scene_control(g.factory_scene->controls->instance(object), g_scene_controls); // 0x00116140
+            break;
+        }
+    }
+    g_walk_in_candle = 0;
+    return 2;
+}
+
 // Xbox 0x001274B0
 int script_handle_cutscene_actions(Game& g, const ScriptNode& node, int param_3)
 {
@@ -2393,15 +2483,11 @@ int script_handle_cutscene_actions(Game& g, const ScriptNode& node, int param_3)
         }
         return 2;
     case 0x53:
-        if (param_3 == 0)
+        if (param_3 != 0)
         {
-            if (g_flag_2470 == 0)
-            {
-                g_flag_2470 = 1;
-            }
-            return 0;
+            return 2;
         }
-        return 2;
+        return play_script_walk_in_cutscene(g, node);
     case 0x9b:
         return 2;
     case 0x9c:

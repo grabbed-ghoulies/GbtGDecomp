@@ -127,6 +127,38 @@ void destroy_gameselect_view(FactoryObject& object)
         installing->context.gameselect_services());
 }
 
+bool construct_trophy_heads_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto& control = installing->instance(object);
+    control.state = state_of(object);
+    control.type = object.type;
+    control.trophy_heads = std::make_unique<TrophyHeadsControlState>();
+    return construct_runtime_trophy_heads_control(state_of(object), parameters, *control.trophy_heads,
+        installing->context.trophy_heads_services());
+}
+
+void destroy_trophy_heads_view(FactoryObject& object)
+{
+    destroy_runtime_trophy_heads_control(state_of(object), installing->context.trophy_heads_services());
+}
+
+bool construct_super_scary_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto& control = installing->instance(object);
+    control.state = state_of(object);
+    control.type = object.type;
+    control.super_scary = std::make_unique<SuperScaryControlState>();
+    return construct_runtime_super_scary_control(state_of(object), parameters, *control.super_scary,
+        installing->context.super_scary_services());
+}
+
+void destroy_super_scary_view(FactoryObject& object)
+{
+    auto& control = installing->instance(object);
+    destroy_runtime_super_scary_control(state_of(object), *control.super_scary,
+        installing->context.super_scary_services());
+}
+
 const ObjectFactoryVtable* scene_control_lifecycle()
 {
     static const ObjectFactoryVtable table{0x0050E41C, scene_control_object_sizes, construct_scene_control_view,
@@ -152,6 +184,20 @@ const ObjectFactoryVtable* gameselect_control_lifecycle()
 {
     static const ObjectFactoryVtable table{0x00505620, gameselect_control_object_sizes, construct_gameselect_view,
         destroy_gameselect_view};
+    return &table;
+}
+
+const ObjectFactoryVtable* trophy_heads_control_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505590, trophy_heads_control_object_sizes,
+        construct_trophy_heads_view, destroy_trophy_heads_view};
+    return &table;
+}
+
+const ObjectFactoryVtable* super_scary_control_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505668, super_scary_control_object_sizes, construct_super_scary_view,
+        destroy_super_scary_view};
     return &table;
 }
 
@@ -197,6 +243,24 @@ GameSelectControlServices& SceneControlContext::gameselect_services() const
     return *gameselect;
 }
 
+TrophyHeadsControlServices& SceneControlContext::trophy_heads_services() const
+{
+    if (trophy_heads == nullptr)
+    {
+        throw Error("trophy-heads control before the scene's actor services bind its services");
+    }
+    return *trophy_heads;
+}
+
+SuperScaryControlServices& SceneControlContext::super_scary_services() const
+{
+    if (super_scary == nullptr)
+    {
+        throw Error("Super Scary control before the scene's actor services bind its services");
+    }
+    return *super_scary;
+}
+
 AudioBankStreams& SceneControlContext::streams() const
 {
     if (audio == nullptr)
@@ -213,6 +277,8 @@ void NativeSceneControlOwner::install(std::span<ObjectFactoryType> types)
     types[0x91] = ObjectFactoryType{3, walkabout_control_lifecycle};
     types[0x9B] = ObjectFactoryType{3, attract_control_lifecycle};
     types[0x9A] = ObjectFactoryType{3, gameselect_control_lifecycle};
+    types[0x92] = ObjectFactoryType{3, trophy_heads_control_lifecycle};
+    types[0x98] = ObjectFactoryType{3, super_scary_control_lifecycle};
 }
 
 SceneControlInstance& NativeSceneControlOwner::instance(const FactoryObject& object)
@@ -275,8 +341,25 @@ void NativeSceneControlOwner::forget(const FactoryObject& object)
 
 void NativeSceneControlOwner::message(FactoryObject& object, std::span<const u32> words)
 {
+    message(instance(object), words);
+}
+
+void NativeSceneControlOwner::message(SceneControlInstance& control, std::span<const u32> words,
+    const void* reference)
+{
+    if (control.type == 0x92)
+    {
+        message_runtime_trophy_heads_control(control.state, words, reference, *control.trophy_heads, control,
+            context.lists, context.trophy_heads_services());
+        return;
+    }
+    if (control.type == 0x98)
+    {
+        message_runtime_super_scary_control(control.state, words, *control.super_scary, control, context.lists);
+        return;
+    }
     // Types 3, 0x91, 0x9A and 0x9B share 0x00115EE0.
-    message_runtime_scene_control(instance(object), words, context.lists);
+    message_runtime_scene_control(control, words, context.lists);
 }
 
 void NativeSceneControlOwner::tick(SceneControlInstance& control)
@@ -295,6 +378,13 @@ void NativeSceneControlOwner::tick(SceneControlInstance& control)
     case 0x9B:
         tick_runtime_attract_control(control.state, *control.attract, context.attract_services());
         return;
+    case 0x92:
+        tick_runtime_trophy_heads_control(control.state, *control.trophy_heads, context.trophy_heads_services());
+        return;
+    case 0x98:
+        tick_runtime_super_scary_control(control.state, *control.super_scary, control, context.lists,
+            context.super_scary_services());
+        return;
     default:
         throw Error("scene control tick for factory type " + std::to_string(control.type));
     }
@@ -306,12 +396,16 @@ void NativeSceneControlOwner::draw(SceneControlInstance& control)
     {
     case 3:
     case 0x91:
+    case 0x92:
     case 0x9B:
-        // Types 3 (getter 0x00115D50), 0x91 (getter 0x00080520) and 0x9B (getter 0x00080970) have the empty
-        // 0x001628B0 at +0x14.
+        // Types 3 (getter 0x00115D50), 0x91 (getter 0x00080520), 0x92 (getter 0x000816C0) and 0x9B (getter
+        // 0x00080970) have the empty 0x001628B0 at +0x14.
         return;
     case 0x9A:
         draw_runtime_gameselect_control(control.state, *control.gameselect, context.gameselect_services());
+        return;
+    case 0x98:
+        draw_runtime_super_scary_control(control.state, *control.super_scary, context.super_scary_services());
         return;
     default:
         throw Error("scene control vtable +0x14 for factory type " + std::to_string(control.type));
@@ -342,6 +436,20 @@ u32 retire_runtime_scene_control(SceneControlInstance& control, SceneControlList
     append(lists.disposal, control.disposal);
     unlink(control.link);
     return 1;
+}
+
+// Xbox 0x00116140
+void dispose_runtime_scene_control(SceneControlInstance& control, SceneControlLists& lists)
+{
+    if (control.disposal.previous == nullptr)
+    {
+        const std::array<u32, 1> message{0x80};
+        g_scene_control_owner->message(control, message);
+        if (control.disposal.previous == nullptr)
+        {
+            retire_runtime_scene_control(control, lists);
+        }
+    }
 }
 
 // Xbox 0x00115EE0

@@ -243,6 +243,29 @@ void camera_unlink_view(EntityCamNode* node)
     }
 }
 
+// Xbox 0x00048EB0
+void camera_rebind_view(EntityCamNode* node)
+{
+    using namespace entity_detail;
+    for (i32 slot = 0; slot < 4; ++slot)
+    {
+        if (g_cam_active[slot] != node)
+        {
+            continue;
+        }
+        if (camera_bind_named_view(slot, g_cam_saved_name[slot]) == 0)
+        {
+            if (g_cam_anchor[slot].next != nullptr)
+            {
+                camera_bind_named_view(slot, g_cam_anchor[slot].next->name);
+                return;
+            }
+            g_cam_active[slot] = nullptr;
+        }
+        return;
+    }
+}
+
 namespace entity_detail
 {
 

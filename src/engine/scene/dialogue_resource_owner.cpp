@@ -262,6 +262,17 @@ SceneDialogueResourceOwner::Resource* SceneDialogueResourceOwner::find_resource(
         auto& resource = resources_[key];
         resource.loose = parse_loose_resource(read_file(path));
         resource.record = {key, 0, resource.loose.cpu, resource.loose.gpu, {}, {}};
+        if (!resource.loose.gpu_chunks.empty())
+        {
+            // The glyph frames are the first GPU chunk's data, as for a bundle texture below; the payload before
+            // the chunk's offset is not texel data.
+            const auto& chunk = resource.loose.gpu_chunks[0];
+            if (chunk.offset > resource.loose.gpu.size() || chunk.size > resource.loose.gpu.size() - chunk.offset)
+            {
+                throw Error("font GPU chunk lies outside its file");
+            }
+            resource.record.gpu = resource.loose.gpu.subspan(chunk.offset, chunk.size);
+        }
         return &resource;
     }
     const BundleEntry* entry = aids_.load_aid(key);

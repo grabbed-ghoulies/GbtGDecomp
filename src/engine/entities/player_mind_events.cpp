@@ -450,6 +450,18 @@ RuntimePlayerMindRequest* append_runtime_position_request(RuntimePlayerMindReque
     return request;
 }
 
+// Xbox 0x00136AC0
+RuntimePlayerMindRequest* append_runtime_range_request(RuntimePlayerMindRequest& anchor, std::span<const u8> sizes,
+    float range)
+{
+    auto* request = allocate_runtime_mind_request(anchor, 0x2F, sizes);
+    put(request->bytes, 0x10, 0x3F800000);
+    put(request->bytes, 0x14, 0x3F800000);
+    put(request->bytes, 0x1C, 0x41F00000);
+    put(request->bytes, 0x18, std::bit_cast<u32>(range));
+    return request;
+}
+
 // Xbox 0x000283A0
 u32 runtime_player_goal_flags(const RuntimePlayerGoalRing* ring, std::span<const u8> address_zero)
 {

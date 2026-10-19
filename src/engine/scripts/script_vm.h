@@ -27,6 +27,7 @@ extern float g_509b4c; // DAT_00509B4C, the directional light intensity.
 
 // Xbox 0x00049D10.
 bool scene_end_flag_set(); // Xbox 0x00049D10
+bool script_end_gate_set(); // Xbox 0x00123B00
 bool test_and_set_runtime_story_bit(std::span<u8> bits, u32 index); // Xbox 0x000F2A20
 // Bit `index` of the story block (*(DAT_00506C6C + 8)); ECX index.
 bool test_runtime_story_bit(std::span<const u8> bits, u32 index); // Xbox 0x000F29A0

@@ -6,6 +6,8 @@
 #include "../entities/body_struggle_state.h"
 #include "../entities/actor_transform.h"
 #include "../entities/body_walk_alert_tick.h"
+#include "../entities/body_walk_target_state.h"
+#include "../entities/body_hold_state.h"
 #include "../entities/body_action_ids.h"
 #include "../transitions/scene_transition.h"
 #include "../transitions/scene_transitions.h"
@@ -121,8 +123,9 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
         {
             continue;
         }
-        if (child->type == 0x8E)
+        if (child->type == 0x8E || child->type == 0x8F)
         {
+            // 0x8F's +0xC is 0x8E's 0x000A5A40.
             children_[child->bytes.get()] = &walk_alert_child_;
             continue;
         }
@@ -237,8 +240,9 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
             children_[child->bytes.get()] = dizzy.get();
             continue;
         }
-        // 0x74 and 0x7C have the empty 0x001628B0 message slot.
-        if (child->type != 0x5A && child->type != 0x5B && child->type != 0x5C && child->type != 0x74
+        // 0x59, 0x74, 0x7C and 0x8A have the empty 0x001628B0 message slot (0x59's getter 0x0007FCE0 stores it at
+        // 0x005054C4, 0x8A's getter 0x000A34C0 at 0x00505C2C).
+        if (child->type != 0x59 && child->type != 0x8A && child->type != 0x5A && child->type != 0x5B && child->type != 0x5C && child->type != 0x74
             && child->type != 0x7C && child->type != 0x87 && child->type != 0x88 && child->type != 0x69
             && child->type != 0x70)
         {
@@ -427,7 +431,7 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
 }
 
 // Body action children of the classes installed so far: 0x5C (vtable 0x00505500), 0x5B (0x00505518),
-// 0x73 (0x00505940), 0x74 (0x00505960), 0x87 (0x00505BC0) and 0x8E (0x00505CA0).
+// 0x73 (0x00505940), 0x74 (0x00505960), 0x87 (0x00505BC0), 0x8E (0x00505CA0) and 0x8F (0x00505CC0).
 void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
 {
     switch (action.type)
@@ -441,6 +445,8 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
             services_.clock, services_.motion_steps);
         return;
     case 0x5B:
+    case 0x59:
+        // Both classes' +0x10 is 0x0007FD70.
         tick_runtime_gravity_action({action.bytes.get(), action.size}, player_.body, player_.actor,
             services_.clock, services_.motion_steps);
         return;
@@ -515,6 +521,35 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
                 unbound("walk-alert orientation 0x00134720");
             }};
         tick_runtime_walk_alert({action.bytes.get(), action.size}, tick);
+        return;
+    }
+    case 0x8A:
+    {
+        RuntimeHoldStateTick tick{player_.body, player_.actor, player_.actor_address,
+            services_.clock, recovery_action()};
+        tick_runtime_hold_state({action.bytes.get(), action.size}, tick);
+        return;
+    }
+    case 0x8F:
+    {
+        // 0x000A6520 takes only the state; 0x00019840 reads the stick through actor +0x960 itself.
+        const RuntimeDialogueInputDevice* device = nullptr;
+        if (read_u32(player_.actor_bytes, 0x960) != 0)
+        {
+            device = &player_.input_device;
+        }
+        RuntimeWalkTargetTick tick{player_.body, player_.actor, player_.body_selection, services_.clock, device,
+            player_.scene.input_state, services_.damage_tables, services_.mode_scales, player_.mind,
+            [this](u32 address) -> Vec3
+            {
+                Actor* target = services_.actor_at ? services_.actor_at(address) : nullptr;
+                if (target == nullptr)
+                {
+                    unbound("walk-target mind target actor view (mind +0xC)");
+                }
+                return actor_world_position(*target);
+            }};
+        tick_runtime_walk_target({action.bytes.get(), action.size}, tick);
         return;
     }
     case 0x73:
@@ -683,6 +718,13 @@ void SceneBodyMessages::action_step(FactoryObject& action)
             services_.movement_phases, services_.movement_ratio_scale, services_.backward_motion_lower,
             services_.reverse_turn_threshold, 1, 0);
         return;
+    case 0x59:
+        // Xbox 0x0007FDD0: 0x0002AE90 with both stack words 1.
+        step_runtime_gravity_motion(player_.body, player_.actor_bytes, player_.actor,
+            player_.actor_instance.animation, services_.clock, *player_.body_bits, services_.damage_tables,
+            services_.movement_phases, services_.movement_ratio_scale, services_.backward_motion_lower,
+            services_.reverse_turn_threshold, 1, 1);
+        return;
     case 0x5D:
     {
         auto context = stand_context();
@@ -700,7 +742,9 @@ void SceneBodyMessages::action_step(FactoryObject& action)
     case 0x70:
     case 0x87:
     case 0x88:
+    case 0x8A:
     case 0x8E:
+    case 0x8F:
         // 0x001628B0 (0x000D4179 for 0x69, 0x70 and 0x88) returns at once.
         return;
     default:
@@ -1324,7 +1368,7 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
         RuntimePlayerCollisionAction action{[this](RuntimePlayerCollisionReply& reply)
         {
             const u32 type = player_.body_selection.second.type;
-            if (type == 0x8E)
+            if (type == 0x8E || type == 0x8F)
             {
                 message_runtime_walk_alert({reinterpret_cast<const u8*>(&reply.id), 4}, []()
                 {

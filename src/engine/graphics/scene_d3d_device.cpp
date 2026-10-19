@@ -343,7 +343,8 @@ void SceneD3DDevice::decode_push(const u32* begin, const u32* end)
                 {
                     flush_deferred_states();
                     SceneD3DInlineDraw output{SceneD3DIndexedDraw{primitive, 0, 0, constants_, textures_,
-                        render_states_, vertex_streams_, pixel_constants_, pixel_constants_set_}, {}};
+                        render_states_, vertex_streams_, pixel_constants_, pixel_constants_set_, address_u_,
+                        address_v_}, {}};
                     output.vertices.resize(vertices.size());
                     std::memcpy(output.vertices.data(), vertices.data(), vertices.size() * sizeof(u32));
                     commands.push_back(std::move(output));
@@ -358,6 +359,7 @@ void SceneD3DDevice::decode_push(const u32* begin, const u32* end)
                 {
                     throw Error("D3D quad batch has a partial vertex set");
                 }
+                flush_deferred_states();
                 for (size_t quad = 0; quad < vertices.size(); quad += 20)
                 {
                     SceneD3DQuad output{};
@@ -372,6 +374,8 @@ void SceneD3DDevice::decode_push(const u32* begin, const u32* end)
                     output.color = constants_[0x64];
                     output.texture = textures_[0];
                     output.states = render_states_;
+                    output.address_u = address_u_[0];
+                    output.address_v = address_v_[0];
                     commands.push_back(std::move(output));
                 }
             }
@@ -402,8 +406,10 @@ void SceneD3DDevice::record_fixed(u32 primitive, u32 format, const std::vector<f
         const auto found = transforms_.find(state);
         return found == transforms_.end() ? kIdentity : found->second;
     };
+    flush_deferred_states();
     SceneD3DFixedDraw output{primitive, format, std::vector<u32>(vertices.size()), transform(6), transform(0),
-        transform(1), constants_[96 - 38], constants_[96 - 37], 0xFFFFFFFFu, render_states_, textures_[0]};
+        transform(1), constants_[96 - 38], constants_[96 - 37], 0xFFFFFFFFu, render_states_, textures_[0],
+        address_u_[0], address_v_[0]};
     std::memcpy(output.vertices.data(), vertices.data(), vertices.size() * sizeof(u32));
     const auto diffuse = render_states_.find(kVertexDataColor + 3);
     if (diffuse != render_states_.end())
@@ -437,6 +443,16 @@ void SceneD3DDevice::flush_deferred_states()
     {
         render_states_[kFogEnable] = *fog_enable;
     }
+    if (deferred_texture_states != nullptr)
+    {
+        for (u32 stage = 0; stage < 4; ++stage)
+        {
+            const u32 u = deferred_texture_states[stage * 0x20];
+            const u32 v = deferred_texture_states[stage * 0x20 + 1];
+            address_u_[stage] = u == 0 ? 1 : u;
+            address_v_[stage] = v == 0 ? 1 : v;
+        }
+    }
 }
 
 SceneD3DIndexedDraw& SceneD3DDevice::draw_indexed(u32 primitive, u32 count, u32 indices)
@@ -444,7 +460,7 @@ SceneD3DIndexedDraw& SceneD3DDevice::draw_indexed(u32 primitive, u32 count, u32 
     render_profile::Scope measurement(render_profile::Recording);
     flush_deferred_states();
     commands.push_back(SceneD3DIndexedDraw{primitive, count, indices, constants_, textures_, render_states_,
-        vertex_streams_, pixel_constants_, pixel_constants_set_});
+        vertex_streams_, pixel_constants_, pixel_constants_set_, address_u_, address_v_});
     return std::get<SceneD3DIndexedDraw>(commands.back());
 }
 

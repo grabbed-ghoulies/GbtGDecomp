@@ -28,6 +28,8 @@
 
 namespace gbtg
 {
+struct RuntimeCutsceneInstance;
+struct CutsceneRuntimeContext;
 // Weapon base, factory type 0x0B (getter 0x00145900) over the actor (type 2), and its subclass the cook's chair,
 // type 0xAA (getter 0x000CEF70, vtable 0x00506438).
 void weapon_actor_object_sizes(ObjectSizes& sizes); // Xbox 0x001458E0
@@ -76,6 +78,8 @@ struct RuntimeWeaponServices
     std::function<ActorAnimationState*(Actor&)> animation_of; // A scene actor's +0x50 views.
     const std::unordered_map<ActorFrameAttachment*, FactoryObject*>& frame_objects; // Actor +0x1D8 objects.
     AudioEventVoices& voices; // DAT_004E0CE8.
+    const u32& story_flags; // DAT_0050EA98.
+    std::function<CutsceneRuntimeContext&()> cutscenes; // 0x0004D680's scene cutscene runtime.
 };
 // Message 0x1D from a weapon's contact test (0x00141890) to the actor it hit.
 struct RuntimeWeaponHitNotice
@@ -143,6 +147,8 @@ struct RuntimeWeaponActor
     entity_detail::NavigationCellRegistration* cells = nullptr; // +0xCFC, grid +0xD00.
     entity_detail::NavigationPathSearch* path_search = nullptr; // +0xD04.
     GhoulySpawnRecord* spawn_record = nullptr; // +0xC04, 0x00148430's ghoulybox.
+    GhoulySpawnPool* collision_overrides = nullptr; // +0xE7C of type 0xA9, 0x0013EBE0's pool.
+    RuntimeCutsceneInstance* cutscene = nullptr; // +0xFE0 of type 0xA0, 0x0004D680's instance.
     std::function<std::span<const u8>(u32)> model_source; // Retail words in this actor's model space.
     std::function<RuntimeSegmentContactActor&(u32)> contact_actor_at; // The contact view of the actor at an address.
     std::function<u32(const FactoryObject&)> object_address; // A scene object's retail address.

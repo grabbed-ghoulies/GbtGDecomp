@@ -9,6 +9,7 @@
 #include "player_mind_owner.h"
 #include "player_strategy.h"
 #include "imp_fire_strategy.h"
+#include "skeleton_strategy.h"
 #include "butler_strategy.h"
 #include "camera_actor_classes.h"
 
@@ -140,6 +141,9 @@ struct NativePlayerSceneBindings
     std::function<std::span<const u8>(const Actor&)> actor_bytes; // An actor's bytes (+0x8F8 target record).
     std::function<std::span<const u8>(u32)> actor_bytes_at; // Actor bytes by retail address.
     std::function<const char*(u32)> string_at; // A NUL-terminated string a parameter block names.
+    // Skeleton strategy (type 0x51, vtable 0x00505FD8).
+    std::function<Actor*(u32)> actor_at; // A scene actor by retail address.
+    const float& skeleton_fetch_delay; // DAT_004288AC.
 };
 
 // Native state and contexts of one player (type 5) and its body, mind and strategy children.
@@ -271,6 +275,8 @@ struct NativePlayerInstance
     RuntimeStrategyTargetQueue target_queue;
     RuntimeImpFireStrategy imp_fire;
     RuntimeButlerStrategy butler; // Type 0x3B.
+    RuntimeStrategyActorViews strategy_views; // Other actors for the 0x00139xxx reactions.
+    RuntimeSkeletonStrategy skeleton; // Type 0x51.
     void refresh_input_views(); // After the player constructor allocates actor +0x960.
     void refresh_views(); // Body, input, mind and strategy value views before a method runs.
 };
@@ -311,6 +317,8 @@ public:
     void imp_fire_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000B45D0.
     void butler_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000AB170.
     void butler_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000AB0C0.
+    void skeleton_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000BFE10.
+    void skeleton_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000BFAC0.
     NativePlayerFactoryBindings bindings;
     NativePlayerMindOwner minds;
     // Retail keeps the type 5 vtable through the whole destructor chain, so the base actor destructor still

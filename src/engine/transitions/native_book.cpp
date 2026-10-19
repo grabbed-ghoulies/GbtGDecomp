@@ -362,7 +362,17 @@ void release_transition_book(RuntimeTransitionBook* book, TransitionBookServices
     }
     if (book->texture.data() != nullptr)
     {
-        untranslated("0x00048860's page texture release (0x00035C00, 0x00036210, 0x00035C60)");
+        release_animation_resource(s.resources, book->texture); // 0x00035C00, EBX the texture
+        u32 referenced = 0;
+        if (!animation_resource_held(s.resources, book->texture, referenced)) // 0x00036210
+        {
+            // Retail then tests a flag 0x00036210 never wrote.
+            throw Error("0x00048860 releases a page texture the resource registry does not hold");
+        }
+        if (referenced == 0)
+        {
+            unload_animation_resource(s.resources, book->texture); // 0x00035C60
+        }
     }
     delete book; // HeapFree
 }

@@ -786,9 +786,11 @@ void present_fixed(const SceneD3DFixedDraw& draw, const SceneD3DPresentContext& 
     }
     std::vector<GfxNativeVertex> vertices;
     const auto& order = triangle_order(draw.primitive, u32(shaded.size()));
-    // D3DRS_LINEWIDTH (pixels): D3D11 lines are one pixel, so a wider line becomes a quad across each segment.
+    // D3DRS_LINEWIDTH is in retail framebuffer pixels (the 640x480 screen space above), and D3D11 lines are one
+    // output pixel, so every line becomes a quad across each segment: at a larger output a one-pixel line still
+    // covers its whole retail row (the game select panel's caps, 0x00061360, are one line per row).
     const float width = std::bit_cast<float>(state(draw.states, 0x10050, std::bit_cast<u32>(1.f)));
-    const bool wide = line_primitive(draw.primitive) && width > 1.f;
+    const bool wide = line_primitive(draw.primitive) && width > 0.f;
     if (wide)
     {
         for (size_t index = 0; index + 1 < order.size(); index += 2)
@@ -830,6 +832,8 @@ void present_fixed(const SceneD3DFixedDraw& draw, const SceneD3DPresentContext& 
     if (textured)
     {
         output.textures[0] = &context.texture(draw.texture);
+        output.address_u[0] = draw.address_u;
+        output.address_v[0] = draw.address_v;
     }
     apply_states(draw.states, output);
     gfx_draw_native(output);
@@ -859,6 +863,8 @@ void present_quad(const SceneD3DQuad& quad, const SceneD3DPresentContext& contex
     GfxNativeDraw output;
     output.vertices = vertices;
     output.textures[0] = &context.texture(quad.texture);
+    output.address_u[0] = quad.address_u;
+    output.address_v[0] = quad.address_v;
     apply_states(quad.states, output);
     gfx_draw_native(output);
 }

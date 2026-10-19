@@ -7,13 +7,26 @@ struct Actor;
 struct RuntimeDialogueTextPool;
 struct RuntimeDialogueWidget;
 struct RuntimeMovieState;
-// The button sequence 0x00142E50 watches for (0x70 bytes): its state, the step reached, the up-to-20 buttons
-// 0x000DB1A0 lists at +8 (the last index at +0x58), the held buttons at +0x5C (the last at +0x64), and the two
-// step flags.
+// The button sequence 0x00142E50 watches for (0x70 bytes, button_sequence_field below).
 struct ButtonSequence
 {
     std::array<u8, 0x70> bytes{};
 };
+// A button sequence's fields at their retail offsets: buttons to hold, then buttons to press and release in order.
+namespace button_sequence_field
+{
+// 1 empty (0x00142E50), 2 waiting for the held buttons, 3 taking the presses (0x00142F00), 4 entered.
+constexpr RetailField<u32, 0x00> state{};
+constexpr RetailField<u32, 0x04> step{}; // the press reached
+constexpr RetailField<std::array<u32, 20>, 0x08> presses{}; // button masks, in order (0x000DB1A0)
+constexpr RetailField<u32, 0x58> last_press{}; // the last index in presses, 0xFFFFFFFF for none
+constexpr RetailField<std::array<u32, 2>, 0x5C> held{}; // button masks held throughout
+constexpr RetailField<u32, 0x64> last_held{}; // the last index in held, 0xFFFFFFFF for none
+constexpr RetailField<u32, 0x68> step_pressed{}; // the step's button went down
+constexpr RetailField<u32, 0x6C> step_released{}; // and came back up
+constexpr u32 kSize = 0x70;
+static_assert(retail_fits(kSize, step_released));
+} // namespace button_sequence_field
 // The contents widget's scalar fields at their retail offsets (see docs/RETAIL_LAYOUTS.md). The words that hold
 // pointers are GameContentsWidget members, noted here by offset.
 namespace game_contents_field

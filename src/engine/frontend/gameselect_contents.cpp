@@ -35,6 +35,9 @@ namespace gbtg
 {
 namespace
 {
+namespace control_field = gameselect_control_field;
+namespace sequence_field = button_sequence_field;
+
 constexpr u32 kChapterTextures = 0x00428C84; // Stride 0x104: the texture, +0x80 the movie.
 constexpr u32 kChapterLayout = 0x0030699C; // Stride 0x1C.
 
@@ -821,61 +824,48 @@ void tick_completed_splat(GameSelectControlServices& s)
 void reset_button_sequence(ButtonSequence& sequence)
 {
     auto& b = sequence.bytes;
-    const auto put = [&b](size_t offset, u32 value)
-    {
-        std::memcpy(b.data() + offset, &value, 4);
-    };
-    put(0x58, 0xFFFFFFFFu);
-    put(0x64, 0xFFFFFFFFu);
-    put(0x5C, 0);
-    put(0x60, 0);
-    for (size_t offset = 8; offset <= 0x54; offset += 4)
-    {
-        put(offset, 0);
-    }
-    put(4, 0);
-    put(0x68, 0);
-    put(0x6C, 0);
-    put(0, 1);
+    set(b, sequence_field::last_press, 0xFFFFFFFFu);
+    set(b, sequence_field::last_held, 0xFFFFFFFFu);
+    set(b, sequence_field::held, {0, 0});
+    set(b, sequence_field::presses, {});
+    set(b, sequence_field::step, 0);
+    set(b, sequence_field::step_pressed, 0);
+    set(b, sequence_field::step_released, 0);
+    set(b, sequence_field::state, 1);
 }
 
 // Xbox 0x000DB1A0: the contents' secret sequence (held: black and white; pressed: B, Y, X, A, X, Y, B).
 void build_button_sequence(GameContentsWidget& w)
 {
     auto& b = w.sequence->bytes;
-    const auto get = [&b](size_t offset)
-    {
-        return read_u32(b, offset);
-    };
-    const auto put = [&b](size_t offset, u32 value)
-    {
-        std::memcpy(b.data() + offset, &value, 4);
-    };
+    u32* presses = field_data(b, sequence_field::presses);
+    u32* held = field_data(b, sequence_field::held);
+    // A held button is added unless a press already uses it, and a press unless a held button uses it.
     const auto hold = [&](u32 mask)
     {
-        for (i32 index = 0; index <= i32(get(0x58)); ++index)
+        for (i32 index = 0; index <= i32(get(b, sequence_field::last_press)); ++index)
         {
-            if ((get(8 + size_t(index) * 4) & mask) != 0)
+            if ((presses[size_t(index)] & mask) != 0)
             {
                 return;
             }
         }
-        const u32 next = get(0x64) + 1;
-        put(0x64, next);
-        put(0x5C + size_t(next) * 4, mask);
+        const u32 next = get(b, sequence_field::last_held) + 1;
+        set(b, sequence_field::last_held, next);
+        held[next] = mask;
     };
     const auto press = [&](u32 mask)
     {
         for (size_t index = 0; index < 2; ++index)
         {
-            if ((get(0x5C + index * 4) & mask) != 0)
+            if ((held[index] & mask) != 0)
             {
                 return;
             }
         }
-        const u32 next = get(0x58) + 1;
-        put(0x58, next);
-        put(8 + size_t(next) * 4, mask);
+        const u32 next = get(b, sequence_field::last_press) + 1;
+        set(b, sequence_field::last_press, next);
+        presses[next] = mask;
     };
     hold(0x4000);
     hold(0x8000);
@@ -886,12 +876,12 @@ void build_button_sequence(GameContentsWidget& w)
     press(0x2000);
     press(0x80);
     press(0x40);
-    if (get(0x58) != 0xFFFFFFFFu)
+    if (get(b, sequence_field::last_press) != 0xFFFFFFFFu)
     {
-        put(0x6C, 0);
-        put(0x68, 0);
-        put(4, 0);
-        put(0, i32(get(0x64)) > -1 ? 2 : 3);
+        set(b, sequence_field::step_released, 0);
+        set(b, sequence_field::step_pressed, 0);
+        set(b, sequence_field::step, 0);
+        set(b, sequence_field::state, i32(get(b, sequence_field::last_held)) > -1 ? 2 : 3);
     }
 }
 
@@ -900,28 +890,22 @@ void tick_button_sequence(ButtonSequence& sequence, const RuntimeDialogueInputDe
     const RuntimeDialogueInputState& input)
 {
     auto& b = sequence.bytes;
-    const auto get = [&b](size_t offset)
-    {
-        return read_u32(b, offset);
-    };
-    const auto put = [&b](size_t offset, u32 value)
-    {
-        std::memcpy(b.data() + offset, &value, 4);
-    };
+    const u32* presses = field_data(b, sequence_field::presses);
+    const u32* held_buttons = field_data(b, sequence_field::held);
     const auto restart = [&](u32 state)
     {
-        put(0, state);
-        put(4, 0);
-        put(0x68, 0);
-        put(0x6C, 0);
+        set(b, sequence_field::state, state);
+        set(b, sequence_field::step, 0);
+        set(b, sequence_field::step_pressed, 0);
+        set(b, sequence_field::step_released, 0);
     };
-    const u32 state = get(0);
+    const u32 state = get(b, sequence_field::state);
     if (state == 2)
     {
         bool held = true;
         for (size_t index = 0; index < 2 && held; ++index)
         {
-            const u32 mask = get(0x5C + index * 4);
+            const u32 mask = held_buttons[index];
             if (mask != 0 && runtime_input_button_held(device, u16(mask), input) == 0) // 0x00108300
             {
                 held = false;
@@ -937,49 +921,49 @@ void tick_button_sequence(ButtonSequence& sequence, const RuntimeDialogueInputDe
     {
         return;
     }
-    if (get(0x5C) != 0)
+    if (held_buttons[0] != 0)
     {
         for (size_t index = 0; index < 2; ++index)
         {
-            if (runtime_input_button_release(device, u16(get(0x5C + index * 4)), input) != 0) // 0x00108500
+            if (runtime_input_button_release(device, u16(held_buttons[index]), input) != 0) // 0x00108500
             {
                 restart(2);
                 break;
             }
         }
     }
-    const u16 expected = u16(get(8 + size_t(get(4)) * 4));
-    if (get(0x68) == 0)
+    const u16 expected = u16(presses[get(b, sequence_field::step)]);
+    if (get(b, sequence_field::step_pressed) == 0)
     {
         if (runtime_input_button_edge(device, expected, input) != 0) // 0x001083F0
         {
-            put(0x68, 1);
+            set(b, sequence_field::step_pressed, 1);
         }
         else if (runtime_input_button_edge(device, 0xFFFF, input) != 0)
         {
             restart(3);
         }
     }
-    else if (get(0x6C) == 0)
+    else if (get(b, sequence_field::step_released) == 0)
     {
         if (runtime_input_button_release(device, expected, input) != 0)
         {
-            put(0x6C, 1);
+            set(b, sequence_field::step_released, 1);
         }
         else if (runtime_input_button_edge(device, 0xFFFF, input) != 0)
         {
             restart(3);
         }
     }
-    if (get(0x68) != 0 && get(0x6C) != 0)
+    if (get(b, sequence_field::step_pressed) != 0 && get(b, sequence_field::step_released) != 0)
     {
-        const u32 next = get(4) + 1;
-        put(0x68, 0);
-        put(0x6C, 0);
-        put(4, next);
-        if (i32(get(0x58)) < i32(next))
+        const u32 next = get(b, sequence_field::step) + 1;
+        set(b, sequence_field::step_pressed, 0);
+        set(b, sequence_field::step_released, 0);
+        set(b, sequence_field::step, next);
+        if (i32(get(b, sequence_field::last_press)) < i32(next))
         {
-            put(0, 4);
+            set(b, sequence_field::state, 4);
         }
     }
 }
@@ -1171,11 +1155,6 @@ void set_contents_state(GameContentsWidget& w, i32 state, GameSelectControlServi
 SceneControlInstance& gameselect_control()
 {
     return *find_runtime_scene_control(0x9A); // 0x00116170, EDX 0x9A
-}
-
-void put_control(SceneControlInstance& control, size_t offset, u32 value)
-{
-    std::memcpy(control.state.data() + offset, &value, 4);
 }
 
 void release_control_book(SceneControlInstance& control, GameSelectControlServices& s)
@@ -1441,7 +1420,7 @@ void tick_runtime_game_contents(GameSelectWidget& widget, GameSelectControlServi
                 if (w.sequence != nullptr)
                 {
                     tick_button_sequence(*w.sequence, frontend_device(s), s.attract.input_state); // 0x00142F00
-                    if (read_u32(w.sequence->bytes, 0) == 4)
+                    if (get(w.sequence->bytes, sequence_field::state) == 4)
                     {
                         unlock_secret(s); // 0x000DB380
                         delete w.sequence; // 0x00142EB0
@@ -1690,8 +1669,8 @@ void leave_runtime_game_contents(GameSelectControlServices& services)
     auto& w = *s.frontend.contents_widget;
     fly_bat_off_screen(w.bat, field_data(w.bytes, field::bat_target), s); // 0x0013B9D0, EAX +0x854
     auto& control = gameselect_control();
-    put_control(control, 0x94, 1);
-    put_control(control, 0x124, 3);
+    set(control.state, control_field::requested_row, 1);
+    set(control.state, control_field::book_turn, 3);
     control.gameselect->book = create_transition_book(1, 1, nullptr, s.books); // 0x00048260(1, 1, 0)
     set_contents_state(w, 8, s); // 0x000DA580(8)
 }
@@ -1712,18 +1691,18 @@ void play_runtime_game(GameSelectControlServices& services)
     }
     auto& control = gameselect_control();
     // 0x00083B10(1), EAX the control.
-    if (read_u32(control.state, 0x118) != 1)
+    if (get(control.state, control_field::pending_start) != 1)
     {
-        put_control(control, 0x11C, 1);
-        put_control(control, 0x118, 1);
+        set(control.state, control_field::start_mode, 1);
+        set(control.state, control_field::pending_start, 1);
         if (s.stream_busy(2) == 0) // 0x00039D50(2, 0, 0)
         {
-            put_control(control, 0x128, 1);
+            set(control.state, control_field::start_ready, 1);
         }
         else
         {
-            put_control(control, 0x94, 0x12);
-            put_control(control, 0x124, 1);
+            set(control.state, control_field::requested_row, 0x12);
+            set(control.state, control_field::book_turn, 1);
             release_control_book(control, s);
         }
     }
@@ -1752,8 +1731,8 @@ void open_runtime_game_info(GameSelectControlServices& services)
 {
     auto& s = services;
     auto& control = gameselect_control();
-    put_control(control, 0x94, 0x13);
-    put_control(control, 0x124, 1);
+    set(control.state, control_field::requested_row, 0x13);
+    set(control.state, control_field::book_turn, 1);
     release_control_book(control, s);
     set_contents_state(*s.frontend.contents_widget, 8, s);
 }
@@ -1765,8 +1744,8 @@ void open_runtime_game_challenges(GameSelectControlServices& services)
     auto& w = *s.frontend.contents_widget;
     fly_bat_off_screen(w.bat, field_data(w.bytes, field::bat_target), s); // 0x0013B9D0, EAX +0x854
     auto& control = gameselect_control();
-    put_control(control, 0x94, 6);
-    put_control(control, 0x124, 2);
+    set(control.state, control_field::requested_row, 6);
+    set(control.state, control_field::book_turn, 2);
     control.gameselect->book = create_transition_book(0, 1, nullptr, s.books); // 0x00048260(0, 1, 0)
     set_contents_state(w, 7, s);
 }
@@ -1776,8 +1755,8 @@ void open_runtime_game_features(GameSelectControlServices& services)
 {
     auto& s = services;
     auto& control = gameselect_control();
-    put_control(control, 0x94, 8);
-    put_control(control, 0x124, 1);
+    set(control.state, control_field::requested_row, 8);
+    set(control.state, control_field::book_turn, 1);
     release_control_book(control, s);
     set_contents_state(*s.frontend.contents_widget, 7, s);
 }

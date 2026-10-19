@@ -22,6 +22,8 @@ namespace gbtg
 {
 namespace
 {
+namespace control_field = gameselect_control_field;
+
 constexpr u32 kDeletionRows = 0x003077B0; // "GameSlotDeletionMenu"
 
 namespace field = game_deletion_field;
@@ -70,9 +72,8 @@ u32 text_record(GameDeletionWidget& w, std::span<u8> line, float scale, GameSele
 void request_slot_select(GameSelectControlServices& s)
 {
     SceneControlInstance* control = find_runtime_scene_control(0x9A); // 0x00116170, EDX 0x9A
-    const u32 one = 1;
-    std::memcpy(control->state.data() + 0x94, &one, 4);
-    std::memcpy(control->state.data() + 0x124, &one, 4);
+    set(control->state, control_field::requested_row, 1);
+    set(control->state, control_field::book_turn, 1);
     if (control->gameselect->book != nullptr)
     {
         release_transition_book(control->gameselect->book, s.books); // 0x00048860
@@ -87,7 +88,7 @@ bool book_turning(const GameDeletionWidget& w, const GameSelectControlServices& 
     {
         return true;
     }
-    const i32 book = i32(read_u32(w.owner_state, 0x124));
+    const i32 book = i32(get(w.owner_state, control_field::book_turn));
     return 1 < book && book <= 3 && w.owner->book != nullptr;
 }
 

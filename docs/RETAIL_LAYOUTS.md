@@ -106,26 +106,30 @@ For one object type:
 | Deletion widget (`GameDeletionWidget`, 0x000DB720) | 0x594 | `game_deletion_field`: title and prompt lines, saved plate flags, save name | `src/engine/frontend/gameselect_delete.h` |
 | Contents widget (`GameContentsWidget`, 0x000D8AB0) | 0xF34 | `game_contents_field`: 3 chapter records (name line, sprite, movie state, box), title/progress/completed lines, 4 sprites, timers, splat | `src/engine/frontend/gameselect_contents.h` |
 | Super Scary challenge (factory type 0x98, 0x000842D0) | 0x2C8, parameters 0x1D8 | `super_scary_field`: actor addresses, phase, timers, clip names and placements, shock camera, presses and button row, settle, render swap; `super_scary_parameter`: the construction block | `src/engine/scene/super_scary_control.h` |
+| Game-select control (factory type 0x9A, 0x000835F0) | 300 | `gameselect_control_field`: current and requested row, start script, pending start, start mode, book turn, start ready | `src/engine/scene/gameselect_control.h` |
+| Button sequence (contents +0xF30, 0x00142E50) | 0x70 | `button_sequence_field`: state, step, presses, held buttons, step flags | `src/engine/frontend/gameselect_contents.h` |
 | Scene-control base (factory type 3) | — | `scene_control_field::elapsed` (+0x20) only; the list links at +8, +0x10 and +0x18 are SceneControlInstance members | `src/engine/scene/scene_control_fields.h` |
 
 Super Scary checked with `--scene6`: it passes, the challenge's phase sequence and the trophy-heads states match the
 log from before the change line for line, and all 45 captures are byte-identical. That run covers phases 1–5 and
 8–11, through both failure and success. It doesn't reach phases 6 and 7 or the DAT_005122F0 auto-press path, and it
-doesn't check which scare modes occur, so the bound-mode (2/3) branches may not have run. The attract, game-select
-and trophy-heads controls still read +0x20 directly.
+doesn't check which scare modes occur, so the bound-mode (2/3) branches may not have run. The attract and
+trophy-heads controls still read +0x20 directly.
 
 Game select checked together: `--gameselect`, `--gameselect-native`, `--gameselect-new-game`, `--gameselect-delete` and
 `--gameselect-stats` pass, and all 25 captures are byte-identical to captures from the code before the change.
 Those runs don't reach the contents completed splat (`0x000DAD50` / `0x000DAED0` / `0x000DAF10`, a finished game
 only) or the challenge icon (shown only with unplayed challenges). Those converted paths compile but haven't been
-run.
+run. The control fields are exercised by every row change and the new-game start. The button sequence is built
+and ticked but never entered; its unlock (0x000DB380) is still untranslated.
 
 ## Next
 
 - Merge the per-file `word` / `put_word` / `real` copies into `retail_field.h` as their files are converted.
-- The rest of game select: the control (`gameselect_control.cpp`), the rows (`gameselect_rows.cpp`), and the
-  contents button sequence (`ButtonSequence`, 0x70 bytes).
-- The other scene controls (`trophy_heads_control`, `attract_control`, `gameselect_control`), starting with
+- Game select is named except the 0x30-byte screen texture (0x000533A0). That is the engine's texture resource
+  (width +8, height +0xA, header offset +4, data +0x14, size +0x18), which the widgets' `texture_width` helpers
+  and the presenter also read, so it belongs with the texture resource's own layout.
+- The other scene controls (`trophy_heads_control`, `attract_control`), starting with
   `scene_control_field::elapsed`, then the entities. Player body +0x728 (written by Super Scary through
   `set_body_word_728`) waits for the body's layout.
 - `DAT_` globals, with the same evidence rule.

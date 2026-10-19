@@ -28,6 +28,8 @@ namespace gbtg
 {
 namespace
 {
+namespace control_field = gameselect_control_field;
+
 constexpr u32 kAid = 0x5F646961u; // "aid_"
 
 namespace field = slot_select_field;
@@ -357,11 +359,6 @@ const char16_t* slot_name(const SlotSelectWidget& w, i32 slot)
 char16_t* slot_name(SlotSelectWidget& w, i32 slot)
 {
     return reinterpret_cast<char16_t*>(record(w.bytes, field::slot_names, size_t(slot)).data());
-}
-
-void put_control_word(SceneControlInstance& control, size_t offset, u32 value)
-{
-    std::memcpy(control.state.data() + offset, &value, 4);
 }
 
 // 0x000DF9A0's occupied-slot tail: the selected save becomes the current game (DAT_00506C90).
@@ -1426,8 +1423,8 @@ void set_runtime_slot_select_state(SlotSelectWidget& w, i32 state, GameSelectCon
         }
         drop_missing_saves(s); // 0x000DF790
         SceneControlInstance* control = find_runtime_scene_control(0x9A); // 0x00116170, EDX 0x9A
-        put_control_word(*control, 0x94, 3);
-        put_control_word(*control, 0x124, 2);
+        set(control->state, control_field::requested_row, 3);
+        set(control->state, control_field::book_turn, 2);
         control->gameselect->book = create_transition_book(0, 1, nullptr, s.books); // 0x00048260(0, 1, 0)
     }
     set(w.bytes, field::state, state);
@@ -1669,15 +1666,15 @@ void select_runtime_slot(GameSelectControlServices& services)
             s.fly_bat(*w.bat, target, 1.f); // 0x0006DA00, EBX the target
         }
         SceneControlInstance* control = find_runtime_scene_control(0x9A); // 0x00116170
-        put_control_word(*control, 0x94, 3);
-        put_control_word(*control, 0x124, 2);
+        set(control->state, control_field::requested_row, 3);
+        set(control->state, control_field::book_turn, 2);
         control->gameselect->book = create_transition_book(0, 1, nullptr, s.books); // 0x00048260(0, 1, 0)
         set_runtime_slot_select_state(w, 8, s); // 0x000DF9A0(DAT_005065B8, 8)
         return;
     }
     SceneControlInstance* control = find_runtime_scene_control(0x9A); // 0x00116170
-    put_control_word(*control, 0x94, 4);
-    put_control_word(*control, 0x124, 1);
+    set(control->state, control_field::requested_row, 4);
+    set(control->state, control_field::book_turn, 1);
     if (control->gameselect->book != nullptr)
     {
         release_transition_book(control->gameselect->book, s.books); // 0x00048860
@@ -1697,8 +1694,8 @@ void delete_runtime_slot(GameSelectControlServices& services)
     }
     copy_wide(s.frontend.selected_name.data(), slot_name(w, chosen_slot(w)));
     SceneControlInstance* control = find_runtime_scene_control(0x9A); // 0x00116170
-    put_control_word(*control, 0x94, 2);
-    put_control_word(*control, 0x124, 1);
+    set(control->state, control_field::requested_row, 2);
+    set(control->state, control_field::book_turn, 1);
     if (control->gameselect->book != nullptr)
     {
         release_transition_book(control->gameselect->book, s.books); // 0x00048860

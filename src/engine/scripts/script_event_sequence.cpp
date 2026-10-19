@@ -748,12 +748,12 @@ bool run_script_event_steps(Game& g)
         release_script_event_steps(); // 0x000D0490
         if (succeeded)
         {
-            request_audio_stream("XACT_SOUNDBANK_GSTREAMSDITTIES_EVENTBEGIN", 10, scene_music_streams(g));
+            request_audio_stream("XACT_SOUNDBANK_GSTREAMSDITTIES_EVENTCOMPLETE", 10, scene_music_streams(g)); // 0x00303C60
         }
     }
     else if (succeeded)
     {
-        request_audio_stream("XACT_SOUNDBANK_GSTREAMSDITTIES_EVENTBEGIN", 0xB, scene_music_streams(g));
+        request_audio_stream("XACT_SOUNDBANK_GSTREAMSDITTIES_EVENTCOMPLETEHALF", 0xB, scene_music_streams(g)); // 0x00303AE0
     }
     sequence.waiting = waiting;
     return sequence.steps == nullptr;

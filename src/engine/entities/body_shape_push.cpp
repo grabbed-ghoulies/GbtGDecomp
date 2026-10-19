@@ -282,7 +282,7 @@ void push_runtime_player_body_shapes(std::span<u8> body, Actor& actor, Vec3& pos
             }
         }
         i32 count = 0;
-        for (i32 index = 0; index < i32(read_u32(body, 0x898)); ++index)
+        for (i32 index = 0; index < i32(shapes.selected_count); ++index) // Body +0x898.
         {
             const u8* shape = shapes.selected[index];
             const u32 flags = actor.model == nullptr ? 0xFFFFFFFFu

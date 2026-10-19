@@ -203,7 +203,7 @@ All take the game directory, e.g.
 | `--scene-start` | The above plus the background, navigation, the 0x88/0x7D notices and the 0x6F player wait |
 | `--player-opening` | Cooper's goal-7 lock and the imps' pause behind the tutorial page, no HUD heart behind it, tutorial hold, bat hop, A edges, the ghoul intro (scene flag 4 on and off, `cache/player_intro_check.bmp`), Cooper released, the "(next bit)" gate, Cooper walking (`cache/player_walk_check.bmp`), the imp fight music |
 | `--player-fight` | The opening flow, then Cooper fights the imps (see Acceptance), a re-hit during an imp's reaction, the HUD heart in fight captures and not behind the butler's page, the chair's section (the ObjectPickedUp record with the chair's tag, Cooper in region 1, Cooper walks to the chair and A picks it up; event 0xAD with the chair's tag is queued and the section ends before its 5 s timeout; `cache/player_chair_check.bmp`, `player_chair_pickup.bmp`, `player_chair_held.bmp`), then the play-on, which fails if the opening script is still running when it gives up |
-| `--player-death` | The opening flow, then Cooper stands still in the first fight: the imps empty his health, the death state 0x69 plays his dying animations and the fail stream, starts the transition (row 2) and restarts the scene ("Free Play (Fighting Intro)") |
+| `--player-death` | The opening flow, then Cooper stands still in the first fight: the imps empty his health, the death state 0x69 plays his dying animations and the fail stream, starts the transition (row 2) and restarts the scene ("Free Play (Fighting Intro)"), whose script then moves past its player wait |
 | `--player-controls` | The opening flow, then run speed at 30/60/144/240 Hz, a right-stick swing with no imp in range (`cache/player_air_swing.bmp`) and the trigger camera turn |
 
 Headless captures: `gbtg --headless --frames N --scene chapter1_scene1_2playcam
@@ -466,6 +466,77 @@ queues event 0xB0, the script ends, the book transition shows the chapter title 
 - Shown: `player_death_5880` (health 1), `_6000` (0, standing), `_6120` (slumping), `_6240` (lying on the stairs
   by the book). Heard: XACT_SOUNDBANK_GSTREAMSDITTIES_FAILPITCHBEND starts (log); not listened to.
 - Not reached: the brew offer (state 4), which needs the unlock bit 3 and enough brews.
+
+### 2026-10-19: the chapter title at the scene's end
+
+- Leaving the opening scene runs the book transition with clip 2. When the page turn finishes, the book handler's
+  tick (`0x0012B370`) raised on its chapter title. It now follows the dump:
+  - `0x0012B810` adds two sticky, centred text records (`0x0005F5C0`): the chapter number at 10% of the screen
+    height (scale 1.2) and the name at 60% (scale 0.9).
+  - It creates the "Chapter splash screen" input (`0x00107D60`, `0x00109340`) and the "transitionMenu_basic"
+    prompts (`0x00141DA0` with menutext, anchor (width / 2, DAT_0050974C - 16)). It attaches their bat
+    (`0x00142860`) and sets the widget's sound to DAT_004312E8 (XACT_SOUNDBANK_GGRIMREAPER_DEATHBELLFRONTEND).
+  - Each tick refreshes the input (`0x00109470`) and updates the prompts (`0x00142460`). When they accept, the
+    tick pops and releases the input, sets the widget to mode 3 (`0x00142C20`), ends the text records
+    (`0x0005F970`) and moves to phase 2.
+  - Phases 2 and 3 keep updating the prompts with no device. The draw slot (`0x0012B560`) draws them
+    (`0x00142720`, immediate). The end slot (`0x0012B5A0`) destroys them (`0x00142070`) and releases the input by
+    its kind (`0x00107DD0`, `0x00107960`, `0x00107B60`).
+- The transition services now carry the scene's widget, input and draw contexts, the frame (DAT_004DEA58) and
+  DAT_0050974C.
+- Shown: `player_chapter_title.bmp`, "Chapter One" and "The Rescue" over the sketch page, with the A prompt and its
+  bat. `--player-fight` now requires the title and that A moves the transition to phase 2.
+- Next blocker: once the next scene (chapter1_scene2_1viewcam, "Trophy Heads Super Scary Shock") has loaded, its
+  scene control, factory type 0x92 entitySceneControlChapter1Scene8 (getter `0x000816C0`), is not translated.
+  It is the trophy-heads controller: sizes `0x000816A0` (0x188 / 0x108), constructor `0x00081710`, tick
+  `0x00081890`, destructor `0x00081AD0` and message `0x00081B00`, with its state machine `0x00081CE0`. Until it
+  exists, the transition's leaving page turn (phase 3) cannot run.
+
+### 2026-10-19: actor collision and the challenge-complete ditty
+
+- Cooper walked through the imps, the butler and the chair. `0x000756C0` reads the count of its selected shapes
+  from body +0x898. Native keeps that count in `RuntimeBodyShapeStorage::selected_count` (which `0x00075270`
+  fills), but the loop read the raw body word, which is never written. So Cooper had no push shapes and was never
+  pushed. The loop now reads the native count.
+- With the push live, other actors' shape probes (`0x0003C770`, DAT_00511B04) reach a flying imp's knockdown state
+  as message 0xE. The knockdown contact pool (state +0xCC) is now native: record `0x0009BB60`, forget `0x0009BEA0`
+  (message 0x7C), notify `0x0009BD40` (message 0x45 to each contact; a contact that replies halves the flyer's
+  horizontal velocity, DAT_0032B0F4 = 0.5), and free in `0x0009CA80`. The knockdown constructor's `0x00027BE0` is
+  wired too. The body message 0x45 now binds its sender's views (word 3), as 0xF does.
+- On the probe list during the fight are classes 4 (Cooper), 23 (the imps), 5 (the butler) and 137 (the chair).
+  These classes come from the tag table: Cooper is 4. Cooper's closest approach to an imp's centre went from 1.38
+  to 2.68.
+- The `--player-fight` driver can no longer reach the chair's centre: the chair's shape stops Cooper at about 7.9.
+  It now closes to 10, then circles the chair between A presses until a grab point (`0x00147430`) is in reach.
+- `0x000D0B40` played EVENTBEGIN for a finished challenge. The dump passes 0x00303C60 (GSTREAMSDITTIES_EVENTCOMPLETE,
+  id 10) when the last step finishes and 0x00303AE0 (GSTREAMSDITTIES_EVENTCOMPLETEHALF, id 0xB) otherwise. The run
+  now plays EVENTCOMPLETE as the Kill All door opens (log); it was not listened to.
+- Not checked: how solid retail actors feel (only the logs and the closest-approach numbers were compared), and the
+  push between two imps.
+
+### 2026-10-19: the restart after a death, and dialogue kerning
+
+- The restart froze on its first frame: the restarted scene's native start threw inside 0x7D, player mind 0x34,
+  strategy 0x4F message 0x4D, which builds factory type 0x70. `script_queue_scene_start` swallowed the error and
+  left `actor_start` at -1, so the script's 0x6F player wait (node 0x254) never passed.
+- Type 0x70, entityStateGrabbed (`entities/body_grabbed_state.cpp`, getter `0x000942F0`, vtable `0x005058E0`):
+  sizes `0x000942D0`, constructor `0x00094350`, destructor `0x00094450` and tick `0x00094530`. Its +0xC and +0x14/+0x18
+  slots are the empty `0x000D4179`, and +0x1C is `0x0002B620`. The constructor's parameters +0x10 call
+  `0x00027BE0` (`hold_runtime_body_latches` in `body_timer_requests.cpp`). That function sends {3} to body +0x7F0, or
+  creates that timer from the "aid_" name at +0x7F4. Once (+0x7E4), it raises all six latches through `0x0001F3F0`.
+  Then it counts +0x7E5 and copies +0x7EC to +0x7E8.
+- `--player-death` now plays on after the restart: the script leaves node 0x254 (to 0x31C) and the imps attack
+  again. The test requires that the script leaves the node, and saves `player_death_restart.bmp`. Shown: the follow
+  camera in the hall behind Cooper, with the imps around him. Cooper restarts at health 1, not at the 50 he entered
+  with, so with no input he dies again within seconds. The source of that 1 was not traced, and it was not compared
+  with xemu.
+- The camera tune volumes (`0x00140E30`, mask 0x10) never match in this scene, so they do not cause the exit
+  camera. In the `--player-fight` captures the camera moves in and turns toward the butler as Cooper goes out.
+  That view was not compared with retail.
+- Dialogue kerning: `0x0005F210` counts the two kerning tables (DAT_005043BC/C0, from PTR_DAT_00425160) into
+  `text_tables`. However, the `RuntimeTextMetrics` kerning that `0x0005F250` reads was never given them, so no pair
+  applied. With them wired in `SceneActorServices`, the idle page no longer shows the gaps in "po p", "hel p",
+  "f rom" and "f or". This was checked in the butler's page captures.
 
 ### 2026-10-19: the opening at retail's 30 Hz step
 

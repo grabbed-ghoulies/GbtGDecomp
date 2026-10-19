@@ -20,6 +20,7 @@
 #include <bit>
 #include <cstring>
 #include <unordered_map>
+#include <vector>
 
 namespace gbtg
 {
@@ -28,6 +29,21 @@ namespace
 // The seven records the constructor finds (state +0x38..+0x50) live on the host; the state words say whether each
 // was found.
 std::unordered_map<const u8*, std::array<const AnimationRecord*, 7>> knockdown_records;
+
+// The +0xCC pool (stride 0x20, grown by 4) of actors that pushed against the flying body: +0 the actor, +4 the
+// direction away from it, +0x10 the contact point, +0x1C sent, +0x1D the flag, +0x1E the bone. The rows live on
+// the host; state +0xCC holds a nonzero marker while the pool exists.
+struct KnockdownContact
+{
+    u32 actor;
+    Vec3 direction;
+    Vec3 contact;
+    u8 sent;
+    u8 flag;
+    u16 bone;
+};
+std::unordered_map<const u8*, std::vector<KnockdownContact>> knockdown_contacts;
+constexpr u32 kContactPoolMarker = 1;
 
 void put_word(std::span<u8> bytes, size_t offset, u32 value)
 {
@@ -452,7 +468,7 @@ bool initialize_runtime_knockdown_state(std::span<u8> state, std::span<const u8>
     }
     if (read_u32(state, 0xE4) != 0)
     {
-        throw Error("untranslated Xbox 0x00027BE0 reached from the knockdown constructor 0x0009C5D0");
+        context.hold_latches(); // 0x00027BE0
     }
     return true;
 }
@@ -463,7 +479,8 @@ void destroy_runtime_knockdown_state(std::span<u8> state, RuntimeKnockdownContex
     const auto body = context.body;
     if (read_u32(state, 0xCC) != 0)
     {
-        throw Error("knockdown contact pool (state +0xCC, 0x000663E0) has no native view");
+        knockdown_contacts.erase(state.data()); // 0x000663E0
+        put_word(state, 0xCC, 0);
     }
     if (read_u32(state, 0x2C) != 0)
     {
@@ -535,26 +552,94 @@ void message_runtime_knockdown_state(std::span<u8> state, RuntimePlayerCollision
 }
 
 // Xbox 0x0009D0E0
-void message_runtime_knockdown_state(std::span<u8> state, std::span<const u8> message, RuntimeKnockdownContext&)
+void message_runtime_knockdown_state(std::span<u8> state, std::span<const u8> message,
+    RuntimeKnockdownContext& context)
 {
     switch (read_u32(message, 0))
     {
     case 0xE:
         if (read_u32(state, 0x18) == 1)
         {
-            throw Error("untranslated Xbox 0x0009BB60 reached from the knockdown message 0x0009D0E0");
+            // {0xE, actor, push, contact, bone} from the shape push (actor vtable +0x34).
+            const Vec3 contact{read_f32(message, 0x14), read_f32(message, 0x18), read_f32(message, 0x1C)};
+            record_runtime_knockdown_contact(state, read_u32(message, 4), contact,
+                read_u32(state, 0x40) == 0 ? 1 : 0, read_u16(message, 0x20), context);
         }
         return;
     case 0x62:
         throw Error("knockdown message 0x62 needs the collision reply's contact record");
     case 0x7C:
-        if (read_u32(state, 0xCC) != 0)
-        {
-            throw Error("knockdown contact pool (state +0xCC) has no native view");
-        }
+        forget_runtime_knockdown_contact(state, read_u32(message, 4)); // 0x0009BEA0
         return;
     default:
         return;
+    }
+}
+
+// Xbox 0x0009BB60
+void record_runtime_knockdown_contact(std::span<u8> state, u32 other, const Vec3& contact, u8 flag, u16 bone,
+    RuntimeKnockdownContext& context)
+{
+    if (read_u32(state, 0xC8) == other)
+    {
+        return;
+    }
+    if (read_u32(state, 0xCC) == 0)
+    {
+        knockdown_contacts[state.data()].reserve(4); // 0x000F72D0(0x90): 4 rows of 0x20.
+        put_word(state, 0xCC, kContactPoolMarker);
+    }
+    auto& rows = knockdown_contacts[state.data()];
+    for (const auto& row : rows)
+    {
+        if (row.actor == other)
+        {
+            return;
+        }
+    }
+    if (rows.size() == rows.capacity())
+    {
+        rows.reserve(rows.size() + 4); // 0x000F73A0: grown by the pool's +2 step.
+    }
+    KnockdownContact row{};
+    row.actor = other;
+    row.flag = flag;
+    row.bone = bone;
+    row.sent = 0;
+    row.contact = contact;
+    const Vec3 from = context.actor_position(other); // 0x000412A0
+    const Vec3 to = actor_world_position(context.actor); // 0x000412A0
+    row.direction = Vec3{to.x - from.x, 0.f, to.z - from.z};
+    if (row.direction.x != 0.f || row.direction.y != 0.f || row.direction.z != 0.f)
+    {
+        const float length = row.direction.x * row.direction.x + row.direction.y * row.direction.y
+            + row.direction.z * row.direction.z;
+        if (length != 0.f)
+        {
+            const long double factor = retail_reciprocal_sqrt(length); // 0x001534C0
+            row.direction.x = float(factor * static_cast<long double>(row.direction.x));
+            row.direction.y = float(factor * static_cast<long double>(row.direction.y));
+            row.direction.z = float(factor * static_cast<long double>(row.direction.z));
+        }
+    }
+    rows.push_back(row);
+}
+
+// Xbox 0x0009BEA0
+void forget_runtime_knockdown_contact(std::span<u8> state, u32 other)
+{
+    if (read_u32(state, 0xCC) == 0)
+    {
+        return;
+    }
+    auto& rows = knockdown_contacts[state.data()];
+    for (auto row = rows.begin(); row != rows.end(); ++row)
+    {
+        if (row->actor == other)
+        {
+            rows.erase(row); // 0x000F71F0 shifts the later rows down.
+            return;
+        }
     }
 }
 
@@ -934,11 +1019,48 @@ void pose_runtime_knockdown(std::span<u8> state, float timer, RuntimeKnockdownCo
 }
 
 // Xbox 0x0009BD40
-void notify_runtime_knockdown_contacts(std::span<u8> state, RuntimeKnockdownContext&)
+void notify_runtime_knockdown_contacts(std::span<u8> state, RuntimeKnockdownContext& context)
 {
-    if (read_u32(state, 0xCC) != 0)
+    if (read_u32(state, 0xCC) == 0)
     {
-        throw Error("knockdown contact pool (state +0xCC) has no native view for 0x0009BD40");
+        return;
+    }
+    bool bounced = false;
+    // Indexed: a reply can reach 0x0009BEA0 and shift the rows.
+    auto& rows = knockdown_contacts[state.data()];
+    for (size_t index = 0; index < rows.size(); ++index)
+    {
+        if (rows[index].sent != 0)
+        {
+            continue;
+        }
+        const KnockdownContact row = rows[index];
+        // {0x45, reply, reply, this actor, direction, contact, flag << 8 | bone << 16}.
+        std::array<u32, 0x42> message{};
+        message[0] = 0x45;
+        message[3] = context.actor_address;
+        message[4] = std::bit_cast<u32>(row.direction.x);
+        message[5] = std::bit_cast<u32>(row.direction.y);
+        message[6] = std::bit_cast<u32>(row.direction.z);
+        message[7] = std::bit_cast<u32>(row.contact.x);
+        message[8] = std::bit_cast<u32>(row.contact.y);
+        message[9] = std::bit_cast<u32>(row.contact.z);
+        message[10] = (u32(row.flag) << 8) | (u32(row.bone) << 16);
+        context.send(row.actor, message); // Vtable +0xC.
+        if (message[2] != 0 && message[1] != 0)
+        {
+            bounced = true;
+        }
+        if (index < rows.size())
+        {
+            rows[index].sent = 1;
+        }
+    }
+    if (bounced)
+    {
+        // DAT_0032B0F4 (0.5) halves the body's horizontal velocity (actor +0x3C, +0x44).
+        context.actor.anchor.z = context.actor.anchor.z * 0.5f;
+        context.actor.anchor.x = context.actor.anchor.x * 0.5f;
     }
 }
 

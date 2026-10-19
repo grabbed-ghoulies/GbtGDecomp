@@ -133,6 +133,7 @@
 #include "../src/engine/scripts/script_actions.h"
 #include "../src/engine/scripts/script_vm.h"
 #include "../src/engine/transitions/scene_transition.h"
+#include "../src/engine/transitions/scene_transitions.h"
 #include "../src/engine/scripts/script_conditions.h"
 
 #include <cstring>
@@ -8660,6 +8661,30 @@ int main(int argc, char** argv)
                     {
                         throw gbtg::Error("the scene did not restart after Cooper's death: title " + game.scene_name);
                     }
+                    // The restarted scene runs on: its script passes the 0x6F player wait (node 0x254), which a
+                    // failed native start (factory_scene->actor_start -1) holds forever.
+                    const gbtg::u32 restart_node = gbtg::g_script_fired.empty() ? 0u : gbtg::g_script_fired.back();
+                    bool resumed = false;
+                    for (int frame = 0; frame < player_ticks(600) && !resumed; ++frame)
+                    {
+                        gbtg::InputState input;
+                        gbtg::gfx_begin_frame();
+                        game.tick(player_step, input);
+                        resumed = !gbtg::g_script_fired.empty() && gbtg::g_script_fired.back() != restart_node;
+                        if (resumed)
+                        {
+                            gbtg::RgbaImage capture;
+                            if (gbtg::gfx_readback(capture))
+                            {
+                                gbtg::write_bmp("cache/player_death_restart.bmp", capture);
+                            }
+                        }
+                        gbtg::gfx_end_frame();
+                    }
+                    if (!resumed)
+                    {
+                        throw gbtg::Error("the restarted scene's script never moved past its player wait");
+                    }
                     std::cout << "PASS: the imps beat Cooper, his death state turns the page and the scene restarts ("
                               << game.scene_name << ")\n";
                     gbtg::gfx_shutdown();
@@ -8771,14 +8796,25 @@ int main(int argc, char** argv)
                         const float dx = at.x - cooper->x;
                         const float dz = at.z - cooper->z;
                         distance = std::sqrt(dx * dx + dz * dz);
-                        if (distance > 3.f)
+                        // The chair's collision shape stops Cooper short of its centre, and A picks it up only
+                        // inside the cylinder round a grab point (0x00147430). Close in, then circle the chair
+                        // between A presses until a grab point is in reach.
+                        if (distance > 10.f)
                         {
                             input.pads[0].lx = gbtg::i16(dx / distance * 32767.f);
                             input.pads[0].ly = gbtg::i16(-dz / distance * 32767.f);
                         }
-                        else
+                        else if (held % player_ticks(20) < player_ticks(3))
                         {
-                            input.accept = held % player_ticks(20) < player_ticks(3);
+                            input.accept = true;
+                        }
+                        else if (held % player_ticks(20) >= player_ticks(8))
+                        {
+                            // Half toward the chair, half along its rim.
+                            const float tx = (dx - dz) / (distance * 1.41421356f);
+                            const float tz = (dz + dx) / (distance * 1.41421356f);
+                            input.pads[0].lx = gbtg::i16(tx * 16000.f);
+                            input.pads[0].ly = gbtg::i16(-tz * 16000.f);
                         }
                     }
                     gbtg::gfx_begin_frame();
@@ -8867,6 +8903,38 @@ int main(int argc, char** argv)
                 }
                 std::cout << "PASS: the opening scene plays to its end and the next scene ("
                           << game.scene_script.name << ") starts\n";
+                // The book turns its page, then the chapter title (0x0012B810: the chapter number and name and the
+                // "transitionMenu_basic" prompts) holds the transition until A; A moves it on to phase 2, the load.
+                bool titled = false;
+                bool moved_on = false;
+                for (int frame = 0; frame < player_ticks(1200) && !moved_on; ++frame)
+                {
+                    gbtg::InputState input;
+                    input.accept = titled && frame % player_ticks(30) < player_ticks(5);
+                    gbtg::gfx_begin_frame();
+                    game.tick(player_step, input);
+                    if (!titled && gbtg::g_scene_transition.phase == 1 && gbtg::g_scene_transition.title_widget != nullptr)
+                    {
+                        titled = true;
+                        std::cout << "chapter title shows at frame " << frame << "\n";
+                    }
+                    if (titled && frame % player_ticks(30) == player_ticks(29))
+                    {
+                        gbtg::RgbaImage capture;
+                        if (gbtg::gfx_readback(capture))
+                        {
+                            gbtg::write_bmp("cache/player_chapter_title.bmp", capture);
+                        }
+                    }
+                    moved_on = titled && gbtg::g_scene_transition.phase == 2;
+                    gbtg::gfx_end_frame();
+                }
+                if (!titled || !moved_on)
+                {
+                    throw gbtg::Error(std::string("the chapter title ") + (titled ? "did not move on after A"
+                        : "never showed"));
+                }
+                std::cout << "PASS: the chapter title shows after the page turn and A moves the transition on\n";
                 gbtg::gfx_shutdown();
                 return 0;
             }

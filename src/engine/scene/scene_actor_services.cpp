@@ -1878,6 +1878,21 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
         }
         return graph->player_death_context();
+    },
+    [this](u32 body_address) -> RuntimeGrabbedStateContext&
+    {
+        const auto bytes = scene.resolve_address(body_address, 0);
+        auto* player = players->find_child_owner(bytes.data());
+        if (player == nullptr || player->body.data() != bytes.data())
+        {
+            unbound("grabbed state whose body has no player owner");
+        }
+        auto& graph = body_messages[player->body.data()];
+        if (graph == nullptr)
+        {
+            graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
+        }
+        return graph->grabbed_context();
     });
     scene.install_base_class();
 
@@ -2154,6 +2169,11 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         for (size_t index = 0; index < text_fonts.size(); ++index)
         {
             resources.publish_font(index, text_fonts[index]);
+            // 0x0005F250 reads these same words (DAT_005043BC + font * 8) as each font's kerning pairs; its
+            // search can touch row `count`, the terminating zero row.
+            const auto& table = text_tables[index];
+            resources.kerning[index] = RuntimeTextKerning{table.count,
+                {table.rows, (size_t(table.count) + 1) * 0xC}};
         }
     }
     // DAT_003150D0: the widget icon names (stride 0x80) 0x00142C20 indexes, and the DAT_004E1C58 texture.
@@ -3653,7 +3673,14 @@ void SceneActorServices::State::bind_transition_services()
         [this](const u8* bytes) -> u32
         {
             return resources.memory.address_of(bytes);
-        }});
+        },
+        *widget_allocation, *widget_bats, *widget_update, *dialogue_outer, input_activation, input_release,
+        input_addresses, input_views,
+        [this]() -> u32
+        {
+            return game.frame; // DAT_004DEA58
+        },
+        hud.inner_bottom});
     g_transition_services = transition_services.get();
     initialize_scene_transition(); // Boot 0x0011C3F0's loop over the handlers' +0 slots.
 }
@@ -5488,6 +5515,7 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
             case 0x7A:
             case 0x7C:
             case 0x69:
+            case 0x70:
             case 0x87:
             case 0x88:
             case 0x8E:
@@ -6095,7 +6123,7 @@ void SceneActorServices::State::draw_player(FactoryObject& object, NativePlayerI
             // +0x18; 0x88 (entityStateStruggle, getter 0x000A2B30) has the empty 0x000D4179 case there.
             const u32 type = player.second_action.type;
             if (type != 0x5E && type != 0x62 && type != 0x64 && type != 0x73 && type != 0x74 && type != 0x7A && type != 0x7C
-                && type != 0x87 && type != 0x88 && type != 0x8E && type != 0x69)
+                && type != 0x87 && type != 0x88 && type != 0x8E && type != 0x69 && type != 0x70)
             {
                 unbound("body +0x744 object vtable +0x18 draw for factory type "
                     + std::to_string(player.second_action.type));

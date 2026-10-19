@@ -11,6 +11,11 @@
 #include "../cutscenes/instance_construction.h"
 #include "../frontend/dialogue_draw_context.h"
 #include "../frontend/dialogue_text_pool.h"
+#include "../frontend/dialogue_draw_outer.h"
+#include "../frontend/dialogue_widget_bat.h"
+#include "../frontend/dialogue_widget_construction.h"
+#include "../frontend/dialogue_widget_update.h"
+#include "../frontend/input_activation.h"
 #include "../runtime/name_lookup.h"
 #include "../scene/executable_resources.h"
 #include "../scene/scene.h"
@@ -271,6 +276,54 @@ void initialize_book_handler(RuntimeSceneTransition& t)
     t.book = nullptr;
 }
 
+// 0x00142460 over the title prompts, with the title's input device (EAX +0x3048) or none (EAX 0).
+u32 update_title_prompts(RuntimeSceneTransition& t, bool with_device)
+{
+    auto& s = services();
+    s.widget_update.input.devices = s.input.entries;
+    s.widget_update.input.selected = s.input.selected;
+    s.widget_update.input.device_views = &s.input_views;
+    if (!with_device || t.title_input.data() == nullptr)
+    {
+        return update_dialogue_widget(*t.title_widget, nullptr, s.widget_update);
+    }
+    const RuntimeDialogueInputDevice device{t.title_input, {nullptr, nullptr, nullptr, nullptr}};
+    return update_dialogue_widget(*t.title_widget, &device, s.widget_update);
+}
+
+// Xbox 0x0012B810, EBX the transition
+void show_chapter_title(RuntimeSceneTransition& t)
+{
+    auto& s = services();
+    const float width = float(s.screen[0]);
+    const float height = float(s.screen[1]);
+    // The chapter number at 10% down and the name at 60%, centred, sticky (EAX 1).
+    create_dialogue_text_record(*t.title_pool, t.chapter_number.data(), width * 0.5f, height * 0.1f, 1.2f, 1.2f,
+        7.5f, 1, 0, 1, s.metrics, s.viewport_width, s.next_text_id, s.random); // 0x0005F5C0
+    create_dialogue_text_record(*t.title_pool, t.chapter_name.data(), width * 0.5f, height * 0.6f, 0.9f, 0.9f,
+        7.5f, 1, 0, 1, s.metrics, s.viewport_width, s.next_text_id, s.random); // 0x0005F5C0
+    if (t.title_input.data() == nullptr)
+    {
+        t.title_input = create_runtime_selected_input(s.input_release); // 0x00107D60
+        // Native pointer mapping; the retail entry stores the allocated address.
+        t.title_input_address = static_cast<u32>(reinterpret_cast<std::uintptr_t>(t.title_input.data()));
+        s.input_addresses[t.title_input_address] = t.title_input;
+        s.input_views[t.title_input_address] = {t.title_input, {nullptr, nullptr, nullptr, nullptr}};
+        push_runtime_input_entry(t.title_input_address, s.image.string(0x0032A93C), s.input); // 0x00109340
+    }
+    if (t.title_widget == nullptr)
+    {
+        // Anchor (DAT_005096E8 * 0.5, DAT_0050974C - 16), rows (0, -72), origin (40, -36).
+        create_resource_dialogue_widget(t.title_widget, 0, s.image.memory(0x00312698, 0x310).data(),
+            {width * 0.5f, s.viewport_bottom - 16.f}, {0.f, -72.f}, {40.f, -36.f}, nullptr, 1.5f, 0.75f,
+            s.image.string(0x003225D0), s.image.string(0x003225E8), 0x400C0, s.widget_allocation); // 0x00141DA0
+        attach_dialogue_widget_bat(*t.title_widget, 2.f, 0, s.widget_bats); // 0x00142860
+        const char* sound = s.image.string(0x004312E8);
+        std::snprintf(t.title_widget->sound_name.data(), t.title_widget->sound_name.size(), "%s", sound);
+    }
+    t.title_ready = 1;
+}
+
 // Xbox 0x0012B370
 i32 tick_book_handler(RuntimeSceneTransition& t)
 {
@@ -282,7 +335,32 @@ i32 tick_book_handler(RuntimeSceneTransition& t)
         {
             if (t.titled != 0)
             {
-                untranslated("0x0012B370's chapter title (0x0012B810, 0x00109470, 0x00142460)");
+                if (t.title_ready == 0)
+                {
+                    show_chapter_title(t); // 0x0012B810
+                }
+                refresh_runtime_input_device(t.title_input_address, s.frame(), s.input, s.input_release); // 0x00109470
+                if (update_title_prompts(t, true) == 0) // 0x00142460, EAX +0x3048
+                {
+                    return t.phase;
+                }
+                if (t.titled != 0 && t.title_ready != 0)
+                {
+                    if (t.title_input.data() != nullptr)
+                    {
+                        pop_runtime_input_entry(s.input); // 0x001093C0
+                        release_runtime_input_device(t.title_input, s.input_release); // 0x00108230
+                        t.title_input = {};
+                        t.title_input_address = 0;
+                    }
+                    if (t.title_widget != nullptr)
+                    {
+                        t.title_widget->requested_set = nullptr; // +0x950
+                        set_dialogue_widget_mode(*t.title_widget, 3, s.widget_allocation.widget); // 0x00142C20
+                    }
+                    end_all_dialogue_text_records(*t.title_pool, s.fonts, s.fallback_texture, s.random); // 0x0005F970
+                    t.titled = 0;
+                }
             }
             set_transition_phase(t, 2); // 0x0012C830
         }
@@ -292,7 +370,7 @@ i32 tick_book_handler(RuntimeSceneTransition& t)
     {
         if (t.title_widget != nullptr)
         {
-            untranslated("0x0012B370's chapter title prompts (0x00142460)");
+            update_title_prompts(t, false); // 0x00142460, EAX 0
         }
         return t.phase;
     }
@@ -302,7 +380,7 @@ i32 tick_book_handler(RuntimeSceneTransition& t)
     }
     if (t.title_widget != nullptr)
     {
-        untranslated("0x0012B370's chapter title prompts (0x00142460)");
+        update_title_prompts(t, false); // 0x00142460, EAX 0
     }
     const float position = book_position(*t.book);
     const float second = transition_book_threshold(*t.book, 0x108, s.image);
@@ -345,7 +423,7 @@ void draw_book_handler(RuntimeSceneTransition& t)
     }
     if (t.title_widget != nullptr)
     {
-        untranslated("0x0012B560's chapter title prompts (0x00142720)");
+        draw_runtime_dialogue_widget(*t.title_widget, 1, s.widget_draw); // 0x00142720
     }
 }
 
@@ -355,11 +433,29 @@ void end_book_handler(RuntimeSceneTransition& t)
     auto& s = services();
     if (t.title_widget != nullptr)
     {
-        untranslated("0x0012B5A0's chapter title prompts (0x00142070)");
+        destroy_dialogue_widget(t.title_widget, s.resources, *s.widget_allocation.pools); // 0x00142070
+        t.title_widget = nullptr;
     }
-    if (t.title_input != nullptr)
+    if (t.title_input.data() != nullptr)
     {
-        untranslated("0x0012B5A0's chapter title input (0x00107DD0, 0x00107960, 0x00107B60)");
+        switch (read_u32(t.title_input, 0))
+        {
+        case 1:
+        case 2:
+        case 3:
+            release_runtime_simple_input(t.title_input); // 0x00107DD0
+            break;
+        case 4:
+            release_runtime_composite_input(t.title_input, s.input_release); // 0x00107960
+            break;
+        case 5:
+            release_runtime_actor_input(t.title_input, s.input_release); // 0x00107B60
+            break;
+        default:
+            break;
+        }
+        t.title_input = {};
+        t.title_input_address = 0;
     }
 #if defined(GBTG_INSPECTOR_APP)
     // An inspector load can stop before create_transition_book returns an owner.

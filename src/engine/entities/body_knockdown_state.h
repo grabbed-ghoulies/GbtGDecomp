@@ -67,6 +67,10 @@ struct RuntimeKnockdownContext
     // 0x0013FC50 over the DAT_00511A1C slots the last probe filled: message 8 to each, the replies' +4 summed.
     std::function<i32(i32 count, u32 player, u32 actor)> probe_messages;
     std::function<std::span<const u8>(u32 address, size_t size)> record_at; // A scene record's bytes.
+    std::function<Vec3(u32 actor)> actor_position; // 0x000412A0 on another scene actor.
+    // Another scene actor's vtable +0xC; its replies land in the words.
+    std::function<void(u32 actor, std::span<u32> message)> send;
+    std::function<void()> hold_latches; // 0x00027BE0 on this body.
 };
 
 // Message 8 from the knockdown sweep (0x0013FC50) to a probe's owner: +4 the owner's reply, +8 its contact
@@ -86,6 +90,9 @@ bool initialize_runtime_knockdown_state(std::span<u8> state, std::span<const u8>
 void destroy_runtime_knockdown_state(std::span<u8> state, RuntimeKnockdownContext& context); // Xbox 0x0009CA80
 void message_runtime_knockdown_state(std::span<u8> state, std::span<const u8> message,
     RuntimeKnockdownContext& context); // Xbox 0x0009D0E0
+void record_runtime_knockdown_contact(std::span<u8> state, u32 other, const Vec3& contact, u8 flag, u16 bone,
+    RuntimeKnockdownContext& context); // Xbox 0x0009BB60, EAX other
+void forget_runtime_knockdown_contact(std::span<u8> state, u32 other); // Xbox 0x0009BEA0, EAX state, EDX other
 // 0x0009D0E0 for a collision reply (body vtable +0x1C), whose +0x1C contact record is a host pointer.
 void message_runtime_knockdown_state(std::span<u8> state, RuntimePlayerCollisionReply& reply,
     RuntimeKnockdownContext& context); // Xbox 0x0009D0E0

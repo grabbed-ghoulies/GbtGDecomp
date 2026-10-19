@@ -5,6 +5,7 @@
 #include <array>
 #include <functional>
 #include <span>
+#include <unordered_map>
 
 namespace gbtg
 {
@@ -21,6 +22,14 @@ struct RuntimeDisplaySetupContext;
 struct RuntimeTransitionBook;
 struct TransitionBookServices;
 struct AudioEventVoices;
+struct RuntimeDialogueWidget;
+struct DialogueWidgetAllocationContext;
+struct DialogueWidgetBatFactoryContext;
+struct DialogueWidgetUpdateContext;
+struct RuntimeDialogueOuterDrawContext;
+struct RuntimeInputActivationContext;
+struct RuntimeInputReleaseContext;
+struct RuntimeDialogueInputDevice;
 // The scene transition (DAT_00546328, 0x3054 bytes): a row of the 18 rows at 0x00431478 (0x110 bytes each) and the
 // state its handler (0x003129A8, 4 records of 6 slots) keeps. Words that hold pointers are typed members.
 struct RuntimeSceneTransition
@@ -45,8 +54,9 @@ struct RuntimeSceneTransition
     std::array<char16_t, 0x800> chapter_number{}; // +0x1040
     std::array<char16_t, 0x800> chapter_name{}; // +0x2040
     i32 title_ready = 0; // +0x3040
-    void* title_widget = nullptr; // +0x3044
-    void* title_input = nullptr; // +0x3048
+    RuntimeDialogueWidget* title_widget = nullptr; // +0x3044, the "transitionMenu_basic" prompts.
+    std::span<u8> title_input; // +0x3048, the "Chapter splash screen" input device.
+    u32 title_input_address = 0; // Native pointer mapping for +0x3048.
     i32 title_released = 0; // +0x304C
     i32 fade_captured = 0; // +0x3050 (handler 3)
 };
@@ -76,6 +86,17 @@ struct SceneTransitionServices
     std::span<u8> page; // DAT_005047D8, the back buffer's copy (0x000620C0).
     std::function<void(u32 texture)> copy_back_buffer; // D3DDevice_CopyRects into the texture's surface level 0
     std::function<u32(const u8*)> address_of; // A texture object's native address.
+    // The chapter title's prompts and input (0x0012B810 and the book handler's slots).
+    DialogueWidgetAllocationContext& widget_allocation; // 0x00141DA0
+    DialogueWidgetBatFactoryContext& widget_bats; // 0x00142860
+    DialogueWidgetUpdateContext& widget_update; // 0x00142460
+    RuntimeDialogueOuterDrawContext& widget_draw; // 0x00142720
+    RuntimeInputActivationContext& input; // 0x00109340, 0x001093C0, 0x00109470
+    RuntimeInputReleaseContext& input_release; // 0x00107D60 and the device releases
+    std::unordered_map<u32, std::span<u8>>& input_addresses;
+    std::unordered_map<u32, RuntimeDialogueInputDevice>& input_views;
+    std::function<u32()> frame; // DAT_004DEA58
+    const float& viewport_bottom; // DAT_0050974C
 };
 extern SceneTransitionServices* g_transition_services;
 void initialize_scene_transition(); // Xbox 0x0011C3F0's loop over each handler's +0 slot

@@ -15,6 +15,7 @@
 #include "../entities/body_knockdown_state.h"
 #include "../entities/body_pickup_state.h"
 #include "../entities/body_player_death_state.h"
+#include "../entities/body_grabbed_state.h"
 #include <optional>
 
 namespace gbtg
@@ -138,6 +139,7 @@ public:
     RuntimeKnockdownContext& knockdown_context(); // The type 0x7A state's views of this body.
     RuntimePickupStateContext& pickup_context(); // The type 0x7C state's views of this body.
     RuntimePlayerDeathContext& player_death_context(); // The type 0x69 state's views of this body.
+    RuntimeGrabbedStateContext& grabbed_context(); // The type 0x70 state's views of this body.
     SceneBodyMessages(const SceneBodyMessages&) = delete;
     SceneBodyMessages& operator=(const SceneBodyMessages&) = delete;
     void dispatch(FactoryObject& body, std::span<u32> message);
@@ -176,6 +178,7 @@ private:
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> knockdown_children_; // 0x7A, 0x0009D0E0.
     std::optional<RuntimePickupStateContext> pickup_;
     std::optional<RuntimePlayerDeathContext> player_death_;
+    std::optional<RuntimeGrabbedStateContext> grabbed_;
     std::array<u8, 0x20> shape_scratch_{};
     RuntimeBodyTimerRecipient* first_timer_ = nullptr; // Body +0x760.
     RuntimeBodyTimerRecipient* second_timer_ = nullptr; // Body +0x7F0.
@@ -185,6 +188,10 @@ private:
     std::unordered_map<const u8*, RuntimeBodyAttachedActor*> created_;
     std::unordered_map<const u8*, RuntimeBodyTimerObject*> timers_;
     FactoryObject timer_object_;
+    FactoryObject hold_timer_object_; // Body +0x7F0's object.
+    std::optional<RuntimeBodyTimerCreation> hold_timer_creation_;
+    std::optional<RuntimeBodyHoldTimerContext> hold_timer_;
+    RuntimeBodyHoldTimerContext& hold_timer(); // 0x00027BE0's views: body +0x7F0, the actor and DAT_00511AA4.
     std::array<float, 4> parameter_scratch_{};
     RuntimeDamageAnimationRows damage_rows_{0, {}}; // Body +0x268 head, refreshed with the views.
     std::vector<RuntimeDamageAnimationRow> damage_row_storage_;

@@ -239,7 +239,8 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
         }
         // 0x74 and 0x7C have the empty 0x001628B0 message slot.
         if (child->type != 0x5A && child->type != 0x5B && child->type != 0x5C && child->type != 0x74
-            && child->type != 0x7C && child->type != 0x87 && child->type != 0x88 && child->type != 0x69)
+            && child->type != 0x7C && child->type != 0x87 && child->type != 0x88 && child->type != 0x69
+            && child->type != 0x70)
         {
             unbound("body action message slot of factory type " + std::to_string(child->type));
         }
@@ -273,7 +274,6 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
     case 0x18:
     case 0x19:
     case 0x2A:
-    case 0x45:
         unbound("body message views for id " + std::to_string(id));
     default:
         break;
@@ -295,6 +295,12 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
     {
         // {0x63, cylinder} from 0x0013D400: the bound lies in the message words from +4.
         views.parent.cylinder = reinterpret_cast<const EntityCylinderBound*>(message.data() + 1);
+    }
+    if (id == 0x45)
+    {
+        // {0x45, reply, reply, sender, direction, contact, flag << 8 | bone << 16} from 0x0009BD40.
+        views.source = &services_.source_at(message[3]);
+        views.source_body = services_.source_body_at(message[3]);
     }
     if (id == 0xF)
     {
@@ -631,6 +637,7 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
     case 0x7A:
         tick_runtime_knockdown_state({action.bytes.get(), action.size}, knockdown_context());
         return;
+    case 0x70:
     case 0x7C:
     {
         // The tick's second argument is the player's input record (actor +0x960) or zero, as for 0x5E.
@@ -645,6 +652,12 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         }
         auto& context = pickup_context();
         context.input = device;
+        if (action.type == 0x70)
+        {
+            RuntimeGrabbedStateContext grabbed{context, recovery_action(), hold_timer()};
+            tick_runtime_grabbed_state({action.bytes.get(), action.size}, grabbed); // 0x00094530
+            return;
+        }
         tick_runtime_pickup_state({action.bytes.get(), action.size}, context);
         return;
     }
@@ -684,10 +697,11 @@ void SceneBodyMessages::action_step(FactoryObject& action)
     case 0x7A:
     case 0x7C:
     case 0x69:
+    case 0x70:
     case 0x87:
     case 0x88:
     case 0x8E:
-        // 0x001628B0 (0x000D4179 for 0x69 and 0x88) returns at once.
+        // 0x001628B0 (0x000D4179 for 0x69, 0x70 and 0x88) returns at once.
         return;
     default:
         unbound("body action vtable +0x14 of factory type " + std::to_string(action.type));
@@ -801,7 +815,24 @@ RuntimeKnockdownContext& SceneBodyMessages::knockdown_context()
             std::copy_n(message.begin(), std::min<size_t>(message.size(), buffer.size()), buffer.begin());
             player_.self.message(buffer);
         },
-        services_.probe_messages, services_.record_at});
+        services_.probe_messages, services_.record_at,
+        [this](u32 actor) -> Vec3
+        {
+            Actor* other = services_.actor_at(actor);
+            if (other == nullptr)
+            {
+                unbound("knockdown contact actor has no scene view");
+            }
+            return actor_world_position(*other); // 0x000412A0
+        },
+        [this](u32 actor, std::span<u32> message)
+        {
+            services_.message(actor, message);
+        },
+        [this]()
+        {
+            hold_runtime_body_latches(player_.body, hold_timer()); // 0x00027BE0
+        }});
     return *knockdown_;
 }
 
@@ -952,6 +983,23 @@ RuntimeDieStateContext& SceneBodyMessages::die_context()
             return body_slot_key(slot);
         }});
     return *die_;
+}
+
+RuntimeBodyHoldTimerContext& SceneBodyMessages::hold_timer()
+{
+    if (!hold_timer_)
+    {
+        hold_timer_creation_.emplace(RuntimeBodyTimerCreation{second_timer_, hold_timer_object_, player_.child, timers_});
+        hold_timer_.emplace(RuntimeBodyHoldTimerContext{*hold_timer_creation_, player_.actor, services_.latches});
+    }
+    return *hold_timer_;
+}
+
+RuntimeGrabbedStateContext& SceneBodyMessages::grabbed_context()
+{
+    auto& pickup = pickup_context();
+    grabbed_.emplace(RuntimeGrabbedStateContext{pickup, recovery_action(), hold_timer()});
+    return *grabbed_;
 }
 
 RuntimePlayerDeathContext& SceneBodyMessages::player_death_context()
@@ -1324,7 +1372,7 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 }
                 return;
             }
-            if (type != 0x87 && type != 0x88 && type != 0x69 && type != 0x5B && type != 0x5C && type != 0x74 && type != 0x7C)
+            if (type != 0x87 && type != 0x88 && type != 0x69 && type != 0x70 && type != 0x5B && type != 0x5C && type != 0x74 && type != 0x7C)
             {
                 unbound("collision reply action vtable +0xC of factory type " + std::to_string(type));
             }

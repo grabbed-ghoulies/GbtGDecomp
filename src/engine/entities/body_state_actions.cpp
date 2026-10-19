@@ -10,6 +10,7 @@
 #include "body_pickup_state.h"
 #include "body_struggle_state.h"
 #include "body_player_death_state.h"
+#include "body_grabbed_state.h"
 #include "gbtg/entity.h"
 #include <bit>
 #include <cstring>
@@ -26,6 +27,7 @@ std::function<RuntimeDizzyStateContext&(u32)> dizzy_context_of;
 std::function<RuntimeKnockdownContext&(u32)> knockdown_context_of;
 std::function<RuntimeDieStateContext&(u32)> die_context_of;
 std::function<RuntimePlayerDeathContext&(u32)> player_death_context_of;
+std::function<RuntimeGrabbedStateContext&(u32)> grabbed_context_of;
 std::function<RuntimeAnimStateContext&(u32)> anim_context_of;
 std::function<RuntimePickupStateContext&(u32)> pickup_context_of;
 // Walk-alert speed-band records by state, the host side of state +0x30 + 0x10 * index.
@@ -253,6 +255,25 @@ const ObjectFactoryVtable* stand_alert_lifecycle()
 {
     static const ObjectFactoryVtable table{0x00505BC0, stand_alert_object_sizes, construct_stand_alert_view,
         destroy_stand_alert_view};
+    return &table;
+}
+
+bool construct_grabbed_state_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    const std::span<u8> state{object.bytes.get(), object.size};
+    return initialize_runtime_grabbed_state(state, parameters, grabbed_context_of(word(state, 8)));
+}
+
+void destroy_grabbed_state_view(FactoryObject& object)
+{
+    const std::span<u8> state{object.bytes.get(), object.size};
+    destroy_runtime_grabbed_state(state, grabbed_context_of(word(state, 8)));
+}
+
+const ObjectFactoryVtable* grabbed_state_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x005058E0, grabbed_state_object_sizes, construct_grabbed_state_view,
+        destroy_grabbed_state_view};
     return &table;
 }
 
@@ -580,8 +601,11 @@ void install_runtime_body_state_classes(std::span<ObjectFactoryType> types,
     std::function<RuntimeDizzyStateContext&(u32)> dizzy_of, std::function<RuntimeKnockdownContext&(u32)> knockdown_of,
     std::function<RuntimeDieStateContext&(u32)> die_of, std::function<RuntimeAnimStateContext&(u32)> anim_of,
     std::function<RuntimePickupStateContext&(u32)> pickup_of,
-    std::function<RuntimePlayerDeathContext&(u32)> player_death_of)
+    std::function<RuntimePlayerDeathContext&(u32)> player_death_of,
+    std::function<RuntimeGrabbedStateContext&(u32)> grabbed_of)
 {
+    grabbed_context_of = std::move(grabbed_of);
+    types[0x70] = ObjectFactoryType{9, grabbed_state_lifecycle};
     player_death_context_of = std::move(player_death_of);
     types[0x69] = ObjectFactoryType{9, player_death_state_lifecycle};
     pickup_context_of = std::move(pickup_of);

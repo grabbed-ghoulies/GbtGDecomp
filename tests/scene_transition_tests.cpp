@@ -9541,9 +9541,10 @@ int main(int argc, char** argv)
             int ready = -1;
             int features_selected = -3;
             bool features_page = false;
-            gbtg::u32 replay_requested = 0;
-            std::string replay_stop;
-            for (int frame = 0; frame < (replay_scene_test ? 2400 : features_test ? 3200 : new_game_test ? 2700 : delete_test || stats_test ? 2000
+            bool replay_opened = false;
+            size_t replay_items = 0;
+            std::string replay_item;
+            for (int frame = 0; frame < (replay_scene_test ? 3000 : features_test ? 3200 : new_game_test ? 2700 : delete_test || stats_test ? 2000
                      : 1400); ++frame)
             {
                 gbtg::InputState input;
@@ -9561,8 +9562,9 @@ int main(int argc, char** argv)
                 }
                 else if (replay_scene_test)
                 {
-                    // A on the saved game's slot opens its contents; Right, A to the features menu, Down twice, A.
-                    input.accept = at == 180 || at == 900 || at == 1400;
+                    // A on the saved game's slot opens its contents; Right, A to the features menu, Down twice, A on
+                    // Replay Scene, then A on the first scene in its list.
+                    input.accept = at == 180 || at == 900 || at == 1400 || at == 2000;
                     input.right = at == 700;
                     input.down = at == 1150 || at == 1250;
                 }
@@ -9597,33 +9599,23 @@ int main(int argc, char** argv)
                     input.back = at == 360;
                 }
                 gbtg::gfx_begin_frame();
-                if (replay_scene_test)
+                game.tick(1.f / 59.f, input);
+                gbtg::gfx_end_frame();
+                if (replay_scene_test && at == 1990 && gbtg::g_frontend.scene_replay_widget != nullptr
+                    && gbtg::g_frontend.bat_menu != nullptr)
                 {
-                    try
+                    // Row 10 is open with its scene list (the bat menu's items).
+                    replay_opened = true;
+                    const auto& items = gbtg::g_frontend.bat_menu->items;
+                    replay_items = items.size();
+                    if (!items.empty())
                     {
-                        game.tick(1.f / 59.f, input);
-                    }
-                    catch (const gbtg::Error& error)
-                    {
-                        // Row 10 (the scene replay) is not translated yet; reaching it is where this run stops.
-                        replay_stop = error.what();
-                        gbtg::gfx_end_frame();
-                        std::cout << "stopped at frame " << frame << ": " << replay_stop << "\n";
-                        break;
-                    }
-                    if (const auto* control = gbtg::find_runtime_scene_control(0x9A))
-                    {
-                        if (control->gameselect->requested_row == 10 || control->gameselect->current_row == 10)
+                        for (const char16_t* c = items.back()->text.data(); *c != 0; ++c)
                         {
-                            replay_requested = 10;
+                            replay_item += char(*c < 0x80 ? *c : '?');
                         }
                     }
                 }
-                else
-                {
-                    game.tick(1.f / 59.f, input);
-                }
-                gbtg::gfx_end_frame();
                 if ((features_test || replay_scene_test) && at == (replay_scene_test ? 1390 : 1990)
                     && gbtg::g_frontend.bat_menu != nullptr)
                 {
@@ -9651,7 +9643,8 @@ int main(int argc, char** argv)
                     }
                 }
                 const bool capture = replay_scene_test ? (at == 120 || at == 300 || at == 650 || at == 800 || at == 1100
-                                         || at == 1350 || at == 1420 || at == 1500)
+                                         || at == 1350 || at == 1500 || at == 1700 || at == 1900 || at == 2100
+                                         || at == 2400 || at == 2900)
                                    : features_test ? (at == 1420 || at == 1560 || at == 1700 || at == 1800
                                          || at == 1950 || at == 2150 || at == 2450 || at == 2700 || at == 3100)
                                    : stats_test ? (at == 1290 || at == 1330 || at == 1400 || at == 1500 || at == 1580)
@@ -9686,13 +9679,36 @@ int main(int argc, char** argv)
                     throw gbtg::Error("Down twice in the features menu selected item "
                         + std::to_string(features_selected));
                 }
-                if (replay_requested != 10)
+                if (!replay_opened)
                 {
-                    throw gbtg::Error("A on Replay Scene in a Chapter 1 Scene 2 save did not request row 10"
-                        + (replay_stop.empty() ? std::string() : " (stopped: " + replay_stop + ")"));
+                    throw gbtg::Error("A on Replay Scene in a Chapter 1 Scene 2 save did not open the scene replay");
                 }
-                std::cout << "PASS: Replay Scene in a Chapter 1 Scene 2 save requested the scene replay (row 10)"
-                          << (replay_stop.empty() ? std::string() : "; the run stops there: " + replay_stop) << "\n";
+                std::cout << "scene replay list: " << replay_items << " item(s), \"" << replay_item << "\"\n";
+                // Scene 2's save can replay one scene: ordinal 0, chapter 1's book and scene 1.
+                if (replay_items != 1)
+                {
+                    throw gbtg::Error("the scene replay listed " + std::to_string(replay_items) + " scenes, not 1");
+                }
+                // 0x000E3130 holds game select, the scene's scripts and game select, and starts the first script.
+                const auto& order = gbtg::g_frontend.scene_order_heap;
+                std::vector<std::string> held;
+                for (size_t offset = 0; offset + 4 <= order.size()
+                     && std::memcmp(order.data() + offset, "aid_", 4) == 0; offset += 0x80)
+                {
+                    held.emplace_back(reinterpret_cast<const char*>(order.data() + offset));
+                    std::cout << "held scene order [" << held.size() - 1 << "] " << held.back() << "\n";
+                }
+                if (held.size() < 3 || held.front() != "aid_script_ghoulies_gameselect_gameselect"
+                    || held.back() != "aid_script_ghoulies_gameselect_gameselect")
+                {
+                    throw gbtg::Error("the replay did not hold game select around the scene's scripts");
+                }
+                if (game.scene_script.name != held[1])
+                {
+                    throw gbtg::Error("the replay did not start " + held[1] + " (scene " + game.scene_script.name + ")");
+                }
+                std::cout << "PASS: Replay Scene in a Chapter 1 Scene 2 save listed scene one and replayed it from "
+                          << game.scene_script.name << "\n";
                 gbtg::gfx_shutdown();
                 return 0;
             }

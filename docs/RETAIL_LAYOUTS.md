@@ -144,6 +144,7 @@ For one object type:
 | Button sequence (`ButtonSequence`, contents +0xF30, 0x00142E50): state, step, presses, held buttons, step flags | 0x70 | `src/engine/frontend/gameselect_contents.h` |
 | Naming widget (`GameNamingWidget`, 0x000DCEB0), typed from the start | 0x178 | `src/engine/frontend/gameselect_naming.h` |
 | Features widget (`GameFeaturesWidget`, 0x000D4EA0), typed from the start: title and banner lines, page, camera, saved plate flags, name, prompts | 0x498 | `src/engine/frontend/gameselect_features.h` |
+| Scene-replay widget (`GameSceneReplayWidget`, 0x000E1E00), typed from the start: title and banner lines, page, camera, saved plate flags, name, chapter number, owner, prompts | 0x49C | `src/engine/frontend/gameselect_scene_replay.h` |
 | Button-bat menu (`ButtonBatMenu`, `DAT_005461A4`, 0x00143550), typed from the start, with its items (0x23C) and slide-in sprites (0x2C) | 100 | `src/engine/frontend/button_bat_menu.h` |
 | Game-select control (`GameSelectControlState`, factory type 0x9A, 0x000835F0): rows, start script, pending start, start mode, book turn, start ready. +0x20 stays on the factory bytes as the base's `elapsed`. | 300 | `src/engine/scene/gameselect_control.h` |
 

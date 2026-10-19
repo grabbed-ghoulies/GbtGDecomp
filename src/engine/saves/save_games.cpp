@@ -912,11 +912,18 @@ i32 save_game_writing(const char16_t* name)
 }
 
 // 0x0010DC20 (+0x184), 0x0010DC60 (+0x188), 0x0010DCA0 (+0x18C), 0x0010DCE0 (+0x190), 0x0010DD20 (+0x194),
-// 0x0010DD60 (+0x198), 0x0010DDA0 (+0x19C) and 0x0010E050 (+0x1A0), EBX the name.
+// 0x0010DD60 (+0x198), 0x0010DDA0 (+0x19C), 0x0010E050 (+0x1A0) and 0x0010E120 (+0x260), EBX the name.
 i32 save_game_word(const char16_t* name, size_t offset)
 {
     SaveSlot* slot = find_save_slot(name);
     return slot == nullptr ? 0 : i32(word(*slot->save, offset));
+}
+
+// Xbox 0x0010E0E0: AL is the byte, 0 for no save (the rest of EAX is not a result).
+u8 save_game_byte(const char16_t* name, size_t offset)
+{
+    SaveSlot* slot = find_save_slot(name);
+    return slot == nullptr ? 0 : slot->save->bytes[offset];
 }
 
 // Xbox 0x0010DDE0

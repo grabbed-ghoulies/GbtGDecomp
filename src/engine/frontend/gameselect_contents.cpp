@@ -208,20 +208,6 @@ const RuntimeDialogueInputDevice& frontend_device(GameSelectControlServices& s)
     return s.input_view(s.frontend_input); // DAT_00429BBC
 }
 
-// Xbox 0x0011ED80: the scene's localized name (aid_loctext_ghoulies_script_scenenames, "scenenames") in
-// DAT_00507E78.
-const char16_t* scene_name(i32 ordinal, std::array<char16_t, 0x800>& output, GameSelectControlServices& s)
-{
-    const char* resource = "aid_loctext_ghoulies_script_scenenames"; // 0x0032A5AC
-    const std::span<const u8> text = acquire_texture(resource, s);
-    const u32 key = exe_word(s, 0x00430C28 + exe_word(s, 0x00311E88 + u32(ordinal) * 4) * 4);
-    output[0] = 0;
-    lookup_borrowed_localtext(text, "scenenames", s.image.string(key), output.data(), s.localtext); // 0x000FF120
-    std::span<const u8> held = text;
-    release_animation_resource(s.resources, held); // 0x00035C00
-    return output.data();
-}
-
 // wsprintfW("%s %d"): the text, a space and the number.
 std::u16string text_and_number(const char16_t* text, i32 number)
 {
@@ -270,7 +256,7 @@ bool describe_progress(GameContentsWidget& w, GameSelectControlServices& s)
     }
     const std::u16string scene_line = text_and_number(scene_text.data(), scene); // wsprintfW("%s %d")
     std::array<char16_t, 0x800> name{};
-    const std::u16string place = scene_name(gameselect_scene_ordinal(script, s), name, s); // 0x0011ED30, 0x0011ED80, lstrcpyW
+    const std::u16string place = gameselect_scene_name(gameselect_scene_ordinal(script, s), name, s); // 0x0011ED30, 0x0011ED80, lstrcpyW
     const std::u16string line = chapter_line + scene_line + u" : " + place; // wsprintfW("%s%s : %s")
     char16_t* text = w.progress.text.data();
     std::copy(line.begin(), line.end(), text);

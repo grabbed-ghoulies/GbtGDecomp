@@ -133,6 +133,7 @@
 #include "../frontend/gameselect_contents.h"
 #include "../frontend/gameselect_delete.h"
 #include "../frontend/gameselect_features.h"
+#include "../frontend/gameselect_scene_replay.h"
 #include "../frontend/input_stack.h"
 #include "../frontend/brew_meter.h"
 #include "../frontend/player_health_display.h"
@@ -4279,6 +4280,20 @@ void SceneActorServices::State::bind_gameselect_services()
     widget_callbacks[0x000D8030] = [this]()
     {
         leave_runtime_game_features(*gameselect_services);
+    };
+    // The scene-replay prompts' rows (0x003095D0, "ReplayChapterMenu"): A and the stick are 0x000E4E40 and
+    // 0x000D8080 above.
+    widget_callbacks[0x000E30E0] = [this]()
+    {
+        leave_runtime_game_scene_replay(*gameselect_services);
+    };
+    widget_callbacks[0x000E4ED0] = []()
+    {
+        throw Error("the button-bat menu's page down (0x000E4ED0 -> 0x00143F30) is not translated");
+    };
+    widget_callbacks[0x000E4EC0] = []()
+    {
+        throw Error("the button-bat menu's page up (0x000E4EC0 -> 0x00143D60) is not translated");
     };
     // The deletion prompts' rows (0x003077B0).
     widget_callbacks[0x000DBD50] = [this]()

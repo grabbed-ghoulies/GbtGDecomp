@@ -54,7 +54,7 @@ the other half of that step). Read `AGENTS.md` first.
   | 7 | `0x000D4EA0` | `0x000D4EB0` | `0x000D5160` | `0x000D51E0` | `0x000D5300` | bonus book collection ("BonusBookCollectionMenu") |
   | 8 | `0x000D4EA0` | `0x000D7A60` | `0x000D7DB0` | `0x000D7E40` | `0x000D7F80` | features ("FeaturesMenu") |
   | 9 | `0x000E1E00` | `0x000E1E10` | `0x000E21A0` | `0x000E2230` | `0x000E4DB0` | |
-  | 10 | `0x000E1E00` | `0x000E2B90` | `0x000E2F20` | `0x000E2FB0` | `0x000E4DB0` | |
+  | 10 | `0x000E1E00` | `0x000E2B90` | `0x000E2F20` | `0x000E2FB0` | `0x000E4DB0` | scene replay ("ReplayChapterMenu") |
   | 11 | `0x000E1E00` | `0x000E39F0` | `0x000E3D80` | `0x000E3E10` | `0x000E4DB0` | |
   | 12 | `0x000E5BD0` | `0x000E5BE0` | `0x000E6120` | `0x000E6210` | `0x000E62F0` | |
   | 13 | `0x000E7E00` | `0x000E7E10` | `0x000E81F0` | `0x000E8270` | `0x000E83A0` | |
@@ -314,8 +314,36 @@ child `--gameselect-new-game` run saves a game; the test sets its
 `aid_script_ghoulies_chapter1_scene2_1viewcam` and signs the file again
 (`0x000E9AF0`'s signature, flags 0), and the native scan and load read it back.
 The contents show "Chapter 1, Scene 2 : Trophy Room". In the features menu,
-A on Replay Scene requests row 10 (scene ordinal 1), and the run stops there:
-row 10 (`0x000E1E00`) is not translated.
+A on Replay Scene opens row 10, which lists one scene ("Chapter 1 : Grand
+Hallway", ordinal 0). A on it holds the order game select,
+`chapter1_scene0_1book`, `chapter1_scene1_1book`, `chapter1_scene1_2playcam`,
+game select and starts `chapter1_scene0_1book`. The test checks the list, the
+held order and the started scene. It passes.
+
+Row 10, scene replay (`gameselect_scene_replay.cpp`): create `0x000E1E00`
+(0x49C bytes, shared with rows 9, 11 and 16), open `0x000E2B90`, close
+`0x000E2F20`, tick `0x000E2FB0`, draw `0x000E4DB0` (shared too), the state
+changes `0x000E3760` and the scene list `0x000E3560`. The list has one item per
+scene before the save's: its ordinal for an unfinished game in a chapter
+numbered below 5, 100 for a finished game with save word +0x260
+(`0x0010E120`), otherwise the save's +0x25D byte (`0x0010E0E0`) plus 0x57. Each
+item reads "Chapter N : <scene name>" (`replayscene_chapter`, the chapter
+table at `0x002FE698`, and `0x0011ED80`, now `gameselect_scene_name` in
+`gameselect_progress.cpp`). The item's action `0x000E3130` builds a heap scene
+order of game select, every script of that scene in the held order and game
+select, releases the old order, holds the new one with the heap release
+`0x000358F0`, sets the next row to 10 and queues the scene's first script
+(`0x00083B90`, mode 2). The prompts ("ReplayChapterMenu", `0x003095D0`) use
+the features menu's A (`0x000E4E40`) and stick (`0x000D8080`) and their own B
+(`0x000E30E0`, back to row 8). Page Up and Page Down (`0x000E4EC0` and
+`0x000E4ED0`, jumping to the button-bat menu's `0x00143D60` and `0x00143F30`)
+raise: those two are not translated.
+
+Not yet retail after a replay: the script VM (`0x00117140`) picks the next
+scene from the host's boot scene list (`Game::scene_order`), not from the held
+order at `DAT_00511B64`. By that code, a replayed scene would run on into the next
+chapter-1 scene instead of returning to game select (not run yet). The artwork's held order
+has the same gap.
 
 Row 2, delete (`gameselect_delete.cpp`): `0x000DB720`..`0x000DBB90`, the
 state switch `0x000DBDC0` and the "GameSlotDeletionMenu" callbacks `0x000DBD50`

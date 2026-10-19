@@ -51,6 +51,8 @@ void draw_runtime_gameselect_control(std::span<u8> state, GameSelectControlState
     GameSelectControlServices& services); // Xbox 0x000839E0
 bool runtime_gameselect_book_busy(const GameSelectControlState& control,
     const GameSelectControlServices& services); // Xbox 0x00083C40, ECX the control
+// Calls the held scene order's release callback (DAT_00511B68) on DAT_00511B64.
+void release_held_scene_order(GameSelectControlServices& services);
 void hold_runtime_scene_order(const char* name, GameSelectControlServices& services); // Xbox 0x001234B0, EAX name
 void queue_runtime_gameselect_script(GameSelectControlState& control, const char* script, u32 mode,
     GameSelectControlServices& services); // Xbox 0x00083B90, ECX the control, EAX the script

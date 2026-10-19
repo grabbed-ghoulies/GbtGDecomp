@@ -143,13 +143,7 @@ void hold_runtime_scene_order(const char* name, GameSelectControlServices& servi
 {
     if (services.scene_order_release != 0 && services.scene_order_held.data() != nullptr)
     {
-        if (services.scene_order_release != 0x00035940)
-        {
-            untranslated("the scene-order release callback");
-        }
-        // 0x00035940: 0x00035C00 over the held pointer, then the slot is cleared.
-        release_animation_resource(services.resources, services.scene_order_held);
-        services.scene_order_held = {};
+        release_held_scene_order(services);
     }
     if (std::memcmp(name, "aid_", 4) != 0)
     {
@@ -164,6 +158,26 @@ void hold_runtime_scene_order(const char* name, GameSelectControlServices& servi
     }
     services.scene_order_held = held;
     services.scene_order_release = 0x00035940;
+}
+
+// The (*DAT_00511B68)(&DAT_00511B64) call: 0x00035940 releases a held resource, 0x000358F0 frees a heap block.
+void release_held_scene_order(GameSelectControlServices& services)
+{
+    if (services.scene_order_release == 0x00035940)
+    {
+        // 0x00035940: 0x00035C00 over the held pointer, then the slot is cleared.
+        release_animation_resource(services.resources, services.scene_order_held);
+        services.scene_order_held = {};
+        return;
+    }
+    if (services.scene_order_release == 0x000358F0)
+    {
+        // Xbox 0x000358F0: HeapFree on the block's heap (0x000F7100), then the slot is cleared.
+        services.frontend.scene_order_heap.clear();
+        services.scene_order_held = {};
+        return;
+    }
+    untranslated("the scene-order release callback");
 }
 
 // Xbox 0x00083B90

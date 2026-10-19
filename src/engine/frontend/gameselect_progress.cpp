@@ -1,5 +1,8 @@
 #include "gameselect_progress.h"
+#include "../../gbtg/text/localtext_resources.h"
 #include "../scene/executable_resources.h"
+#include "gbtg/anim.h"
+#include "gbtg/resource_error.h"
 
 #include <cstdlib>
 #include <cstring>
@@ -101,5 +104,25 @@ i32 gameselect_scene_ordinal(const char* script, const GameSelectControlServices
         return gameselect_scenes_before(index, s) - 1 + scene;
     }
     return gameselect_scenes_before(index, s); // 0x0004B530
+}
+
+// Xbox 0x0011ED80
+const char16_t* gameselect_scene_name(i32 ordinal, std::array<char16_t, 0x800>& output, GameSelectControlServices& s)
+{
+    const char* resource = "aid_loctext_ghoulies_script_scenenames"; // 0x0032A5AC
+    std::span<const u8> text;
+    if (std::memcmp(resource, "aid_", 4) == 0)
+    {
+        text = acquire_animation_resource(s.resources, resource); // 0x00035E90
+        if (text.data() == nullptr)
+        {
+            resource_error(s.error, 2); // 0x00032700(2)
+        }
+    }
+    const u32 key = exe_word(s, 0x00430C28 + exe_word(s, 0x00311E88 + u32(ordinal) * 4) * 4);
+    output[0] = 0;
+    lookup_borrowed_localtext(text, "scenenames", s.image.string(key), output.data(), s.localtext); // 0x000FF120
+    release_animation_resource(s.resources, text); // 0x00035C00
+    return output.data();
 }
 }

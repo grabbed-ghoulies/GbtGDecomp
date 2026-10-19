@@ -3,6 +3,7 @@
 #include "gameselect_delete.h"
 #include "gameselect_features.h"
 #include "gameselect_naming.h"
+#include "gameselect_scene_replay.h"
 #include "gameselect_slots.h"
 
 #include "../scene/executable_resources.h"
@@ -60,8 +61,9 @@ const std::array<GameSelectWidgetRow, 20> kRows{{
         draw_runtime_game_features},
     {{0x000E1E00, kHeapFreeWidget, 0x000E1E10, 0x000E21A0, 0x000E2230, 0x000E4DB0}, nullptr, nullptr, nullptr,
         nullptr, nullptr},
-    {{0x000E1E00, kHeapFreeWidget, 0x000E2B90, 0x000E2F20, 0x000E2FB0, 0x000E4DB0}, nullptr, nullptr, nullptr,
-        nullptr, nullptr},
+    {{0x000E1E00, kHeapFreeWidget, 0x000E2B90, 0x000E2F20, 0x000E2FB0, 0x000E4DB0},
+        create_runtime_game_scene_replay, open_runtime_game_scene_replay, close_runtime_game_scene_replay,
+        tick_runtime_game_scene_replay, draw_runtime_game_scene_replay},
     {{0x000E1E00, kHeapFreeWidget, 0x000E39F0, 0x000E3D80, 0x000E3E10, 0x000E4DB0}, nullptr, nullptr, nullptr,
         nullptr, nullptr},
     {{0x000E5BD0, kHeapFreeWidget, 0x000E5BE0, 0x000E6120, 0x000E6210, 0x000E62F0}, nullptr, nullptr, nullptr,

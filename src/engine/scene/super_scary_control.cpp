@@ -1,5 +1,6 @@
 #include "super_scary_control.h"
 #include "scene_controls.h"
+#include "scene_control_fields.h"
 #include "gbtg/sound_runtime.h"
 #include "../camera/actor_camera_effects.h"
 #include "../camera/display_view.h"
@@ -38,54 +39,46 @@ i32 g_super_scary_presses = 0;
 // DAT_00505684: set, the next tick draws a new button row from 0x00302198.
 u32 g_super_scary_reshuffle = 0;
 
-u32 word(std::span<const u8> bytes, size_t offset)
-{
-    return read_u32(bytes, offset);
-}
+namespace field = super_scary_field;
+namespace parameter = super_scary_parameter;
 
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-float real(std::span<const u8> bytes, size_t offset)
-{
-    return std::bit_cast<float>(read_u32(bytes, offset));
-}
-
-void put_real(std::span<u8> bytes, size_t offset, float value)
-{
-    put_word(bytes, offset, std::bit_cast<u32>(value));
-}
-
-i32 integer(std::span<const u8> bytes, size_t offset)
-{
-    return i32(read_u32(bytes, offset));
-}
-
-void put_vector(std::span<u8> bytes, size_t offset, const Vec3& value)
-{
-    put_real(bytes, offset, value.x);
-    put_real(bytes, offset + 4, value.y);
-    put_real(bytes, offset + 8, value.z);
-}
-
-Vec3 vector(std::span<const u8> bytes, size_t offset)
-{
-    return Vec3{real(bytes, offset), real(bytes, offset + 4), real(bytes, offset + 8)};
-}
-
-void copy_string(std::span<u8> bytes, size_t offset, const char* text)
+// A byte-by-byte copy through the terminator, as 0x00084340 copies the clip names.
+void copy_string(char* output, const char* text)
 {
     size_t at = 0;
     char copied;
     do
     {
         copied = text[at];
-        bytes[offset + at] = u8(copied);
+        output[at] = copied;
         ++at;
     }
     while (copied != 0);
+}
+
+// Button `index` of the row (+0x214 + index * 4).
+u32 button_at(std::span<const u8> state, i32 index)
+{
+    return field_data(state, field::buttons)[size_t(index)];
+}
+
+// The shiver voice is cleared to -1 by a two-byte 0xFF fill.
+void clear_shiver_voice(std::span<u8> state)
+{
+    std::memset(field_data(state, field::shiver_voice), 0xFF, 2);
+}
+
+// Player body +0x728, cleared while Cooper is bound to the head and set again after. The body's own layout is
+// not named yet.
+void set_body_word_728(std::span<u8> body, u32 value)
+{
+    std::memcpy(body.data() + 0x728, &value, 4);
+}
+
+// Modes 2 and 3 bind Cooper to the head.
+bool bound_mode(std::span<const u8> state)
+{
+    return 1 < get(state, field::scare_mode) && get(state, field::scare_mode) < 4;
 }
 
 float frame_step(const SuperScaryControlServices& services)
@@ -260,20 +253,20 @@ void play_clip_animation(const SuperScaryControlState& control, u32 actor, const
 bool hide_head_show_player(std::span<u8> state, SuperScaryControlState& control, i32 next,
     SuperScaryControlServices& services)
 {
-    if (word(state, 0x2BC) == 0)
+    if (get(state, field::swap_render) == 0)
     {
         return false;
     }
-    if (word(state, 0x2C4) == 0)
+    if (get(state, field::head_hidden) == 0)
     {
         services.unregister_render(control.head);
-        put_word(state, 0x2C4, 1);
+        set(state, field::head_hidden, 1);
     }
-    if (word(state, 0x2C0) != 0)
+    if (get(state, field::player_hidden) != 0)
     {
         services.register_render(control.player);
-        put_word(state, 0x2C0, 0);
-        put_word(state, 0x34, u32(next));
+        set(state, field::player_hidden, 0);
+        set(state, field::phase, next);
         return true;
     }
     return false;
@@ -293,9 +286,9 @@ bool construct_runtime_super_scary_control(std::span<u8> state, std::span<const 
 {
     ++services.pause_count;
     std::span<const u8> clips;
-    if (word(parameters, 0x154) == kAid)
+    if (read_u32(parameters, parameter::clip_list.offset) == kAid)
     {
-        clips = acquire_animation_resource(services.resources, reinterpret_cast<const char*>(parameters.data() + 0x154));
+        clips = acquire_animation_resource(services.resources, field_data(parameters, parameter::clip_list));
         if (clips.data() == nullptr)
         {
             resource_error(services.error, 2);
@@ -303,44 +296,42 @@ bool construct_runtime_super_scary_control(std::span<u8> state, std::span<const 
     }
     control.clips = clips;
     control.player = 0;
-    put_word(state, 0x28, 0);
+    set(state, field::player, 0);
     g_super_scary_presses = 0;
     g_super_scary_reshuffle = 0;
-    put_word(state, 0x26C, services.cutscenes.index > -1 ? 1 : 0);
-    put_real(state, 0xAC, 0.25f); // DAT_0032B104
-    put_real(state, 0xA4, 0.45f); // DAT_0032B4F8
-    put_real(state, 0xA8, 0.01f); // DAT_0032B124
-    control.head = word(parameters, 8);
-    put_word(state, 0x2C, control.head);
-    put_word(state, 0x3C, 0);
-    put_word(state, 0x34, 0);
-    put_word(state, 0x210, u32(services.button_count));
-    put_word(state, 0x20C, 0);
+    set(state, field::paused_cutscene, services.cutscenes.index > -1 ? 1 : 0);
+    set(state, field::focal_jitter_timer, 0.25f); // DAT_0032B104
+    set(state, field::shock_timer, 0.45f); // DAT_0032B4F8
+    set(state, field::heartbeat_timer, 0.01f); // DAT_0032B124
+    control.head = get(parameters, parameter::head);
+    set(state, field::head, control.head);
+    set(state, field::input_pushed, 0);
+    set(state, field::phase, 0);
+    set(state, field::button_count, services.button_count);
+    set(state, field::presses, 0);
     control.bat = 0;
-    put_word(state, 0x30, 0);
-    put_word(state, 0x208, 8);
-    put_real(state, 0xB0, 0.f);
-    put_real(state, 0xB4, 0.f);
-    put_word(state, 0x270, word(parameters, 0x134));
-    put_word(state, 0x1B8, word(parameters, 0x10C));
-    put_word(state, 0x1BC, word(parameters, 0x110));
-    put_word(state, 0x28C, word(parameters, 0x150));
-    put_word(state, 0x2B8, 0);
-    put_word(state, 0x2C0, 0);
-    put_word(state, 0x2C4, 0);
-    put_word(state, 0x2BC, word(parameters, 0x1D4));
-    put_word(state, 0x1F4, 0);
-    put_word(state, 0x1F0, 0);
-    put_word(state, 0x1EC, 0);
-    put_word(state, 0x200, 0);
-    put_word(state, 0x1FC, 0);
-    put_word(state, 0x1F8, 0);
-    const u32 mode = word(state, 0x28C);
+    set(state, field::bat, 0);
+    set(state, field::heartbeats_left, 8);
+    set(state, field::wrong_press_timer, 0.f);
+    set(state, field::unk_B4, 0.f);
+    set(state, field::move_player, get(parameters, parameter::move_player));
+    set(state, field::first_clip_timer, get(parameters, parameter::first_clip_time));
+    set(state, field::second_clip_timer, get(parameters, parameter::second_clip_time));
+    set(state, field::scare_mode, get(parameters, parameter::scare_mode));
+    set(state, field::player_released, 0);
+    set(state, field::player_hidden, 0);
+    set(state, field::head_hidden, 0);
+    set(state, field::swap_render, get(parameters, parameter::swap_render));
+    set(state, field::shock_camera_position, Vec3{0.f, 0.f, 0.f});
+    set(state, field::shock_camera_roll, 0.f);
+    set(state, field::shock_camera_yaw, 0.f);
+    set(state, field::shock_camera_pitch, 0.f);
+    const u32 mode = get(state, field::scare_mode);
     if (mode == 2 || mode == 3)
     {
         if (control.head == 0)
         {
-            put_word(state, 0x28C, mode == 2 ? 0 : 1);
+            set(state, field::scare_mode, mode == 2 ? 0 : 1);
         }
         else
         {
@@ -350,53 +341,47 @@ bool construct_runtime_super_scary_control(std::span<u8> state, std::span<const 
             {
                 throw Error("Super Scary mode 2/3 keeps a model binding at +0x288; its native view is not bound");
             }
-            put_word(state, 0x288, 0);
+            set(state, field::head_binding, 0);
         }
     }
-    copy_string(state, 0xB8, reinterpret_cast<const char*>(parameters.data() + 0xC));
-    copy_string(state, 0x138, reinterpret_cast<const char*>(parameters.data() + 0x8C));
-    if (word(parameters, 0x120) == 0)
+    copy_string(field_data(state, field::first_clip), field_data(parameters, parameter::first_clip));
+    copy_string(field_data(state, field::second_clip), field_data(parameters, parameter::second_clip));
+    if (get(parameters, parameter::has_clip_position) == 0)
     {
-        put_word(state, 0x274, 0);
+        set(state, field::has_clip_position, 0);
     }
     else
     {
-        put_word(state, 0x1D4, word(parameters, 0x114));
-        put_word(state, 0x1D8, word(parameters, 0x118));
-        put_word(state, 0x1DC, word(parameters, 0x11C));
-        put_word(state, 0x274, 1);
+        set(state, field::clip_position, get(parameters, parameter::clip_position));
+        set(state, field::has_clip_position, 1);
     }
-    if (word(parameters, 0x130) != 0)
+    if (get(parameters, parameter::spawn_under_view) != 0)
     {
-        put_word(state, 0x278, 1);
+        set(state, field::spawn_under_view, 1);
     }
     else
     {
-        put_word(state, 0x1C8, word(parameters, 0x124));
-        put_word(state, 0x1CC, word(parameters, 0x128));
-        put_word(state, 0x1D0, word(parameters, 0x12C));
-        put_word(state, 0x278, 0);
+        set(state, field::player_spawn, get(parameters, parameter::player_spawn));
+        set(state, field::spawn_under_view, 0);
     }
-    if (word(parameters, 0x144) == 0)
+    if (get(parameters, parameter::has_clip_euler) == 0)
     {
-        put_word(state, 0x268, 0);
+        set(state, field::has_clip_euler, 0);
     }
     else
     {
-        put_word(state, 0x1E0, word(parameters, 0x138));
-        put_word(state, 0x1E4, word(parameters, 0x13C));
-        put_word(state, 0x1E8, word(parameters, 0x140));
-        put_word(state, 0x268, 1);
+        set(state, field::clip_euler, get(parameters, parameter::clip_euler));
+        set(state, field::has_clip_euler, 1);
     }
-    choose_runtime_super_scary_buttons(integer(parameters, 0x148), state, services);
+    choose_runtime_super_scary_buttons(get(parameters, parameter::button_pattern), state, services);
     initialize_camera_view(control.camera, "superscaryshock", 1); // 0x000496C0, EAX 0x00324238, CL 1
     link_camera_view(0, control.camera); // The 0x00048C20 link, inlined.
-    put_word(state, 0xA0, 1);
+    set(state, field::camera_linked, 1);
     for (size_t slot = 0; slot < 5; ++slot)
     {
         const size_t row = 0x1880 + slot * 0x80;
         std::span<const u8> texture;
-        if (word(control.clips, row) == kAid)
+        if (read_u32(control.clips, row) == kAid)
         {
             texture = acquire_animation_resource(services.resources, clip_name(control, row));
             if (texture.data() == nullptr)
@@ -406,9 +391,9 @@ bool construct_runtime_super_scary_control(std::span<u8> state, std::span<const 
         }
         control.buttons[slot] = texture;
     }
-    put_word(state, 0x1C4, 0);
-    put_word(state, 0x290, word(parameters, 0x14C));
-    std::memset(state.data() + 0x264, 0xFF, 2);
+    set(state, field::music, 0);
+    set(state, field::unk_290, get(parameters, parameter::unk_14C));
+    clear_shiver_voice(state);
     if (services.scene_name_text != nullptr)
     {
         // DAT_00512484: its first word's +8 goes back to its +4.
@@ -422,20 +407,20 @@ void destroy_runtime_super_scary_control(std::span<u8> state, SuperScaryControlS
     SuperScaryControlServices& services)
 {
     --services.pause_count;
-    if (word(state, 0x2BC) != 0)
+    if (get(state, field::swap_render) != 0)
     {
-        if (word(state, 0x2C0) != 0)
+        if (get(state, field::player_hidden) != 0)
         {
             services.register_render(control.player);
-            put_word(state, 0x2C0, 0);
+            set(state, field::player_hidden, 0);
         }
-        if (word(state, 0x2C4) != 0)
+        if (get(state, field::head_hidden) != 0)
         {
             services.register_render(control.head);
-            put_word(state, 0x2C4, 0);
+            set(state, field::head_hidden, 0);
         }
     }
-    const u32 music = word(state, 0x1C4);
+    const u32 music = get(state, field::music);
     if (music != 0)
     {
         if (music == 1)
@@ -450,29 +435,29 @@ void destroy_runtime_super_scary_control(std::span<u8> state, SuperScaryControlS
         {
             release_tracked_audio_bank("XACT_SOUNDBANK_GSTREAMSDITTIES_BUTTONNODIE", services.streams);
         }
-        put_word(state, 0x1C4, 0);
+        set(state, field::music, 0);
     }
     for (auto& texture : control.buttons)
     {
         release_animation_resource(services.resources, texture); // 0x00035C00, EBX the texture
     }
-    if (word(state, 0x2B8) == 0)
+    if (get(state, field::player_released) == 0)
     {
         std::array<u32, 1> message{10};
         services.actor_message(control.player, message);
-        put_word(state, 0x2B8, 1);
+        set(state, field::player_released, 1);
     }
-    if (word(state, 0xA0) != 0)
+    if (get(state, field::camera_linked) != 0)
     {
         camera_unlink_view(&control.camera); // 0x00048C70
-        put_word(state, 0xA0, 0);
+        set(state, field::camera_linked, 0);
     }
-    if (word(state, 0x3C) != 0)
+    if (get(state, field::input_pushed) != 0)
     {
         release_input(control, services);
-        put_word(state, 0x3C, 0);
+        set(state, field::input_pushed, 0);
     }
-    const i16 voice = i16(read_u16(state, 0x264));
+    const i16 voice = get(state, field::shiver_voice);
     if (voice != -1)
     {
         auto& record = services.voices.voices.at(size_t(voice));
@@ -499,7 +484,7 @@ void destroy_runtime_super_scary_control(std::span<u8> state, SuperScaryControlS
                 break;
             }
         }
-        std::memset(state.data() + 0x264, 0xFF, 2);
+        clear_shiver_voice(state);
     }
     if (control.clips.data() != nullptr)
     {
@@ -510,7 +495,7 @@ void destroy_runtime_super_scary_control(std::span<u8> state, SuperScaryControlS
     {
         services.retire_actor(control.bat); // 0x00112D10, message 0x80 and 0x0003ED70, inlined 0x00112CC0
         control.bat = 0;
-        put_word(state, 0x30, 0);
+        set(state, field::bat, 0);
     }
     services.runtime_flags &= 0xFFFFFBFFu;
 }
@@ -522,7 +507,7 @@ void message_runtime_super_scary_control(std::span<u8> state, std::span<const u3
     if (message[0] == 0x7C && control.player == message[1])
     {
         control.player = 0;
-        put_word(state, 0x28, 0);
+        set(state, field::player, 0);
     }
     if (message[0] == 0x80)
     {
@@ -534,23 +519,23 @@ void message_runtime_super_scary_control(std::span<u8> state, std::span<const u3
 void tick_runtime_super_scary_control(std::span<u8> state, SuperScaryControlState& control,
     SceneControlInstance& instance, SceneControlLists& lists, SuperScaryControlServices& services)
 {
-    put_real(state, 0x20, real(state, 0x20) + frame_step(services));
+    set(state, scene_control_field::elapsed, get(state, scene_control_field::elapsed) + frame_step(services));
     if (g_super_scary_reshuffle != 0)
     {
         const i32 row = i32((random_unit(services.random) - 1.f) * 4.f); // DAT_0032B1B0
-        std::memcpy(state.data() + 0x214, services.button_rows.data() + size_t(row) * 0x50, 0x50);
+        std::memcpy(field_data(state, field::buttons), services.button_rows.data() + size_t(row) * 0x50, 0x50);
         g_super_scary_reshuffle = 0;
     }
-    switch (integer(state, 0x34))
+    switch (get(state, field::phase))
     {
     case 0:
         set_runtime_super_scary_state(state, 1, control, services);
         break;
     case 1:
     {
-        float timer = real(state, 0x1B8);
+        float timer = get(state, field::first_clip_timer);
         const bool expired = tick_runtime_body_frame_timer(timer, services.clock); // 0x0012B2A0, EAX +0x1B8
-        put_real(state, 0x1B8, timer);
+        set(state, field::first_clip_timer, timer);
         if (expired)
         {
             set_runtime_super_scary_state(state, 2, control, services);
@@ -567,9 +552,9 @@ void tick_runtime_super_scary_control(std::span<u8> state, SuperScaryControlStat
         break;
     case 3:
     {
-        float timer = real(state, 0x1BC);
+        float timer = get(state, field::second_clip_timer);
         const bool expired = tick_runtime_body_frame_timer(timer, services.clock);
-        put_real(state, 0x1BC, timer);
+        set(state, field::second_clip_timer, timer);
         if (expired)
         {
             set_runtime_super_scary_state(state, 4, control, services);
@@ -589,28 +574,29 @@ void tick_runtime_super_scary_control(std::span<u8> state, SuperScaryControlStat
     {
         refresh_runtime_input_device(control.input_address, services.frame, services.input,
             services.input_release); // 0x00109470, EAX +0x38
-        if (0.f < real(state, 0xB0))
+        if (0.f < get(state, field::wrong_press_timer))
         {
-            put_real(state, 0xB0, real(state, 0xB0) - frame_step(services)); // 0x0012B270
+            set(state, field::wrong_press_timer,
+                get(state, field::wrong_press_timer) - frame_step(services)); // 0x0012B270
         }
-        if (!(0.f < real(state, 0xB0)))
+        if (!(0.f < get(state, field::wrong_press_timer)))
         {
             if (runtime_super_scary_right_button(state, control, services) != 0)
             {
-                const i32 presses = integer(state, 0x20C) + 1;
-                put_word(state, 0x20C, u32(presses));
+                const i32 presses = get(state, field::presses) + 1;
+                set(state, field::presses, presses);
                 if ((services.runtime_flags & 0x1000000) == 0)
                 {
                     g_super_scary_presses = presses;
                 }
                 request_audio_event_voice("XACT_SOUNDBANK_GSUPERSCARYSTUF_RIGHTBUTTON", 1, services.voices); // 0x000395E0
-                if (integer(state, 0x20C) == integer(state, 0x210))
+                if (get(state, field::presses) == get(state, field::button_count))
                 {
                     set_runtime_super_scary_state(state, 8, control, services);
                     return;
                 }
                 std::array<float, 2> position{};
-                runtime_super_scary_button_position(position, state, integer(state, 0x20C), services);
+                runtime_super_scary_button_position(position, state, get(state, field::presses), services);
                 auto bat = services.bat_view(control.bat);
                 fly_runtime_button_bat(bat.bat, bat.animation, ButtonBatPoint{position[0], position[1]}, 1.5f,
                     services.resources, services.error, services.random); // 0x0006DA00, ESI +0x30, EBX the point
@@ -618,17 +604,18 @@ void tick_runtime_super_scary_control(std::span<u8> state, SuperScaryControlStat
             else if (runtime_super_scary_wrong_button(state, control, services) != 0)
             {
                 request_audio_event_voice("XACT_SOUNDBANK_GSUPERSCARYSTUF_WRONGBUTTON", 1, services.voices);
-                put_real(state, 0xB0, 1.f); // DAT_0032B0F8
+                set(state, field::wrong_press_timer, 1.f); // DAT_0032B0F8
                 auto bat = services.bat_view(control.bat);
                 wobble_runtime_button_bat(bat.bat, bat.animation, services); // 0x0006DAD0, ESI +0x30
             }
         }
-        float heartbeat = real(state, 0xA8);
+        float heartbeat = get(state, field::heartbeat_timer);
         const bool beat = tick_runtime_body_frame_timer(heartbeat, services.clock); // 0x0012B2A0, EAX +0xA8
-        put_real(state, 0xA8, heartbeat);
+        set(state, field::heartbeat_timer, heartbeat);
         if (!beat)
         {
-            const float calm = 1.f - (float(integer(state, 0x208)) - 8.f) * -0.125f; // DAT_0032B26C, DAT_0032B6EC
+            const float calm =
+                1.f - (float(get(state, field::heartbeats_left)) - 8.f) * -0.125f; // DAT_0032B26C, DAT_0032B6EC
             float shake;
             if (0.f > calm)
             {
@@ -645,8 +632,8 @@ void tick_runtime_super_scary_control(std::span<u8> state, SuperScaryControlStat
             place_runtime_super_scary_camera(state, shake, control, services);
             break;
         }
-        const i32 beats = integer(state, 0x208) - 1;
-        put_word(state, 0x208, u32(beats));
+        const i32 beats = get(state, field::heartbeats_left) - 1;
+        set(state, field::heartbeats_left, beats);
         if (beats < 0)
         {
             if (std::int8_t(services.runtime_flags >> 8) < 0)
@@ -668,9 +655,9 @@ void tick_runtime_super_scary_control(std::span<u8> state, SuperScaryControlStat
         }
         const float eased = float(ease_runtime_hud(float(ease_runtime_hud(float(ease_runtime_hud(
             float(ease_runtime_hud(calm)))))))); // 0x00103850 four times, XMM0
-        put_real(state, 0xAC, 0.25f); // DAT_0032B104
-        put_real(state, 0xA8, eased * 0.7f + 0.3f); // DAT_0032B264, DAT_0032B268
-        if (integer(state, 0x208) < 4)
+        set(state, field::focal_jitter_timer, 0.25f); // DAT_0032B104
+        set(state, field::heartbeat_timer, eased * 0.7f + 0.3f); // DAT_0032B264, DAT_0032B268
+        if (get(state, field::heartbeats_left) < 4)
         {
             request_spatial_audio_event_voice("XACT_SOUNDBANK_GSUPERSCARYSTUF_HEARTBEATFAST", 1, 0.f,
                 services.voices); // 0x00039510
@@ -728,9 +715,9 @@ void tick_runtime_super_scary_control(std::span<u8> state, SuperScaryControlStat
         break;
     case 11:
     {
-        float timer = real(state, 0xA4);
+        float timer = get(state, field::shock_timer);
         const bool expired = tick_runtime_body_frame_timer(timer, services.clock);
-        put_real(state, 0xA4, timer);
+        set(state, field::shock_timer, timer);
         if (expired)
         {
             dispose_runtime_scene_control(instance, lists); // 0x00116140, EAX the control
@@ -753,13 +740,13 @@ void tick_runtime_super_scary_control(std::span<u8> state, SuperScaryControlStat
 void set_runtime_super_scary_state(std::span<u8> state, i32 next, SuperScaryControlState& control,
     SuperScaryControlServices& services)
 {
-    const i32 mode = integer(state, 0x28C);
+    const i32 mode = get(state, field::scare_mode);
     switch (next)
     {
     case 1:
     {
         services.pause_actors(0xFF, 0); // 0x00117400(0xFFFF, 0)
-        if (word(state, 0x26C) != 0)
+        if (get(state, field::paused_cutscene) != 0)
         {
             auto& runtime = services.cutscenes.bindings.runtime;
             auto& instance = current_cutscene(services);
@@ -828,70 +815,71 @@ void set_runtime_super_scary_state(std::span<u8> state, i32 next, SuperScaryCont
         }
         announce_runtime_super_scary_step(0, services);
         std::array<float, 2> position{};
-        runtime_super_scary_button_position(position, state, integer(state, 0x20C), services);
+        runtime_super_scary_button_position(position, state, get(state, field::presses), services);
         control.bat = services.create_bat(position, 1.5f, -1.f); // 0x0013B580, EAX the position
-        put_word(state, 0x30, control.bat);
-        if (word(state, 0x278) != 0)
+        set(state, field::bat, control.bat);
+        if (get(state, field::spawn_under_view) != 0)
         {
             Vec3 euler;
             aim_runtime_super_scary_camera(state, euler, services); // ESI +0x1C8, ECX a local
         }
-        control.player = spawn_runtime_super_scary_player(state, vector(state, 0x1C8), control, services);
-        put_word(state, 0x28, control.player);
+        control.player = spawn_runtime_super_scary_player(state, get(state, field::player_spawn), control, services);
+        set(state, field::player, control.player);
         control.input = create_runtime_selected_input(services.input_release); // 0x00107D60, ESI +0x38
         control.input_address = u32(reinterpret_cast<std::uintptr_t>(control.input.data()));
         services.input_addresses[control.input_address] = control.input;
         services.input_views[control.input_address] = input_device(control);
         push_runtime_input_entry(control.input_address, "superscaryshock", services.input); // 0x00109340
-        put_word(state, 0x3C, 1);
+        set(state, field::input_pushed, 1);
         runtime_actor_angle_toward(services.actor_view(control.player).actor,
             services.actor_view(control.head).actor); // 0x00041900; the angle is not used
         if (const Actor* attached = services.attached_actor(control.player);
             attached != nullptr && actor_spawn_owner_unavailable(*attached)) // 0x001460C0, ECX body +0x48
         {
-            if (integer(state, 0x28C) == 0)
+            if (get(state, field::scare_mode) == 0)
             {
-                put_word(state, 0x28C, 1);
+                set(state, field::scare_mode, 1);
             }
-            else if (integer(state, 0x28C) == 2)
+            else if (get(state, field::scare_mode) == 2)
             {
-                put_word(state, 0x28C, 3);
+                set(state, field::scare_mode, 3);
             }
         }
-        const Vec3 offset = vector(state, 0x1E0);
-        const Vec3 place = vector(state, 0x1D4);
-        const float duration = start_runtime_super_scary_clip(word(state, 0x274) != 0 ? &place : nullptr,
-            word(state, 0x268) != 0 ? &offset : nullptr, control.head,
-            reinterpret_cast<const char*>(state.data() + 0xB8), services);
-        if (const auto row = approach_animation(integer(state, 0x28C), services.player_character()); row)
+        const Vec3 offset = get(state, field::clip_euler);
+        const Vec3 place = get(state, field::clip_position);
+        const float duration = start_runtime_super_scary_clip(
+            get(state, field::has_clip_position) != 0 ? &place : nullptr,
+            get(state, field::has_clip_euler) != 0 ? &offset : nullptr, control.head,
+            field_data(state, field::first_clip), services);
+        if (const auto row = approach_animation(get(state, field::scare_mode), services.player_character()); row)
         {
             play_clip_animation(control, control.player, *row, 1, 0.55f, 0.f, -1.f, services);
         }
-        if (!(0.f < real(state, 0x1B8)))
+        if (!(0.f < get(state, field::first_clip_timer)))
         {
-            put_real(state, 0x1B8, duration);
+            set(state, field::first_clip_timer, duration);
         }
-        put_real(state, 0xA4, 0.45f); // DAT_0032B4F8
-        put_word(state, 0x204, 3);
-        if (1 < integer(state, 0x28C) && integer(state, 0x28C) < 4)
+        set(state, field::shock_timer, 0.45f); // DAT_0032B4F8
+        set(state, field::shocks_left, 3);
+        if (bound_mode(state))
         {
             const auto view = services.actor_view(control.player);
-            put_vector(state, 0x27C, actor_world_position(view.actor)); // 0x000412A0, EDI +0x27C
-            if (word(state, 0x288) != 0)
+            set(state, field::bound_position, actor_world_position(view.actor)); // 0x000412A0, EDI +0x27C
+            if (get(state, field::head_binding) != 0)
             {
                 throw Error("Super Scary binds the player to +0x288 (0x0003B500); its native view is not bound");
             }
-            put_word(services.player_body(control.player), 0x728, 0);
+            set_body_word_728(services.player_body(control.player), 0);
             if (view.secondary_model)
             {
                 view.secondary_mode = 0;
             }
         }
-        if (word(state, 0x2BC) != 0 && word(state, 0x2C0) == 0)
+        if (get(state, field::swap_render) != 0 && get(state, field::player_hidden) == 0)
         {
             services.unregister_render(control.player);
-            put_word(state, 0x2C0, 1);
-            put_word(state, 0x34, u32(next));
+            set(state, field::player_hidden, 1);
+            set(state, field::phase, next);
             return;
         }
         break;
@@ -905,7 +893,7 @@ void set_runtime_super_scary_state(std::span<u8> state, i32 next, SuperScaryCont
         {
             play_clip_animation(control, control.player, *row, 1, 0.55f, 0.f, -1.f, services);
         }
-        const bool bound = 1 < integer(state, 0x28C) && integer(state, 0x28C) < 4;
+        const bool bound = bound_mode(state);
         const size_t clip = next == 2 ? (bound ? 0x1500 : 0x1480) : (bound ? 0x1600 : 0x1580);
         start_runtime_super_scary_clip(nullptr, nullptr, control.player, clip_name(control, clip), services);
         if (hide_head_show_player(state, control, next, services))
@@ -922,27 +910,28 @@ void set_runtime_super_scary_state(std::span<u8> state, i32 next, SuperScaryCont
         {
             play_clip_animation(control, control.player, *row, 1, 0.55f, 0.f, -1.f, services);
         }
-        const Vec3 offset = vector(state, 0x1E0);
-        const Vec3 place = vector(state, 0x1D4);
-        const float duration = start_runtime_super_scary_clip(word(state, 0x274) != 0 ? &place : nullptr,
-            word(state, 0x268) != 0 ? &offset : nullptr, control.head,
-            reinterpret_cast<const char*>(state.data() + 0x138), services);
-        if (!(0.f < real(state, 0x1BC)))
+        const Vec3 offset = get(state, field::clip_euler);
+        const Vec3 place = get(state, field::clip_position);
+        const float duration = start_runtime_super_scary_clip(
+            get(state, field::has_clip_position) != 0 ? &place : nullptr,
+            get(state, field::has_clip_euler) != 0 ? &offset : nullptr, control.head,
+            field_data(state, field::second_clip), services);
+        if (!(0.f < get(state, field::second_clip_timer)))
         {
-            put_real(state, 0x1BC, duration);
+            set(state, field::second_clip_timer, duration);
         }
-        if (word(state, 0x2BC) != 0)
+        if (get(state, field::swap_render) != 0)
         {
-            if (word(state, 0x2C0) == 0)
+            if (get(state, field::player_hidden) == 0)
             {
                 services.unregister_render(control.player);
-                put_word(state, 0x2C0, 1);
+                set(state, field::player_hidden, 1);
             }
-            if (word(state, 0x2C4) != 0)
+            if (get(state, field::head_hidden) != 0)
             {
                 services.register_render(control.head);
-                put_word(state, 0x2C4, 0);
-                put_word(state, 0x34, u32(next));
+                set(state, field::head_hidden, 0);
+                set(state, field::phase, next);
                 return;
             }
         }
@@ -951,7 +940,7 @@ void set_runtime_super_scary_state(std::span<u8> state, i32 next, SuperScaryCont
     case 5:
     {
         const auto& view = *services.display_view;
-        put_vector(state, 0x1EC, view.position);
+        set(state, field::shock_camera_position, view.position);
         auto player = services.actor_view(control.player);
         actor_refresh_transform(player.actor); // 0x00040DE0
         const u32 joint = player_joint(player.actor, 0); // 0x00052FC0(0)
@@ -959,16 +948,16 @@ void set_runtime_super_scary_state(std::span<u8> state, i32 next, SuperScaryCont
         actor_transform_joint_point(player.actor, u16(joint), actor_transform_origin, point); // 0x0003AEB0, EBX DAT_0050DD80
         float yaw = 0.f;
         float pitch = 0.f;
-        direction_to_yaw_pitch(point.x - real(state, 0x1EC), point.y - real(state, 0x1F0),
-            point.z - real(state, 0x1F4), yaw, pitch); // 0x00105E20
-        put_real(state, 0x1F8, 0.f - pitch);
-        put_real(state, 0x1FC, yaw + 3.14159274f); // DAT_0032B148
-        put_real(state, 0x200, 0.f);
+        const Vec3 camera = get(state, field::shock_camera_position);
+        direction_to_yaw_pitch(point.x - camera.x, point.y - camera.y, point.z - camera.z, yaw, pitch); // 0x00105E20
+        set(state, field::shock_camera_pitch, 0.f - pitch);
+        set(state, field::shock_camera_yaw, yaw + 3.14159274f); // DAT_0032B148
+        set(state, field::shock_camera_roll, 0.f);
         leave_clip(services);
         camera_bind_named_view(0, "superscaryshock"); // 0x00048CF0, EBX 0x00324238
         place_runtime_super_scary_camera(state, 1.f, control, services);
         announce_runtime_super_scary_step(4, services);
-        put_real(state, 0x1C0, (random_unit(services.random) - 1.f) * 0.2f + 0.2f); // DAT_0032B1AC
+        set(state, field::auto_press_timer, (random_unit(services.random) - 1.f) * 0.2f + 0.2f); // DAT_0032B1AC
         const i32 character = services.player_character();
         std::optional<ClipAnimation> row;
         const auto pick = [character](ClipAnimation first, ClipAnimation second) -> std::optional<ClipAnimation>
@@ -1004,7 +993,7 @@ void set_runtime_super_scary_state(std::span<u8> state, i32 next, SuperScaryCont
         }
         const i16 voice = request_spatial_audio_event_voice("XACT_SOUNDBANK_GBOY_SHIVER", 0, 0.f,
             services.voices); // 0x00039510
-        std::memcpy(state.data() + 0x264, &voice, 2);
+        set(state, field::shiver_voice, voice);
         set_runtime_super_scary_music(state, 1, services);
         if (hide_head_show_player(state, control, next, services))
         {
@@ -1022,7 +1011,7 @@ void set_runtime_super_scary_state(std::span<u8> state, i32 next, SuperScaryCont
         {
             enqueue_runtime_dialogue_key(next == 7 ? "chapter1_scene2_shock1_success"
                 : "chapter1_scene2_shock1_failure", 0, services.dialogue); // 0x000582A0, ECX 0x00302158 / 0x00302178
-            put_word(state, 0x34, u32(next));
+            set(state, field::phase, next);
             return;
         }
         break;
@@ -1044,7 +1033,7 @@ void set_runtime_super_scary_state(std::span<u8> state, i32 next, SuperScaryCont
         };
         bool head = false;
         std::optional<ClipAnimation> row;
-        switch (integer(state, 0x28C))
+        switch (get(state, field::scare_mode))
         {
         case 1:
             row = pick({0x680, 0x1180}, {0xE00, 0x1380});
@@ -1069,17 +1058,17 @@ void set_runtime_super_scary_state(std::span<u8> state, i32 next, SuperScaryCont
         {
             play_clip_animation(control, control.head, ClipAnimation{0xF80, 0x1400}, 1, -1.f, 0.f, -1.f, services);
         }
-        const bool bound = 1 < integer(state, 0x28C) && integer(state, 0x28C) < 4;
+        const bool bound = bound_mode(state);
         start_runtime_super_scary_clip(nullptr, nullptr, control.player, clip_name(control, bound ? 0x1800 : 0x1780),
             services);
         set_runtime_super_scary_music(state, 2, services);
-        put_word(state, 0x34, u32(next));
+        set(state, field::phase, next);
         return;
     }
     case 10:
     {
         end_runtime_super_scary_challenge(state, 0, control, services);
-        if (1 < integer(state, 0x28C) && integer(state, 0x28C) < 4)
+        if (bound_mode(state))
         {
             start_runtime_super_scary_clip(nullptr, nullptr, control.player, clip_name(control, 0x1700), services);
             play_clip_animation(control, control.head, ClipAnimation{0xF80, 0x1400}, 1, -1.f, 0.f, -1.f, services);
@@ -1088,7 +1077,7 @@ void set_runtime_super_scary_state(std::span<u8> state, i32 next, SuperScaryCont
         {
             start_runtime_super_scary_clip(nullptr, nullptr, control.player, clip_name(control, 0x1680), services);
         }
-        const u32 music = word(state, 0x1C4);
+        const u32 music = get(state, field::music);
         if (music != 3)
         {
             if (music == 1)
@@ -1100,32 +1089,32 @@ void set_runtime_super_scary_state(std::span<u8> state, i32 next, SuperScaryCont
                 release_tracked_audio_bank("XACT_SOUNDBANK_GSTREAMSDITTIES_SUCCEED", services.streams);
             }
             acquire_tracked_audio_bank("XACT_SOUNDBANK_GSTREAMSDITTIES_BUTTONNODIE", 7, services.streams); // 0x00038910
-            put_word(state, 0x1C4, 3);
-            put_word(state, 0x34, u32(next));
+            set(state, field::music, 3);
+            set(state, field::phase, next);
             return;
         }
         break;
     }
     case 11:
-        put_real(state, 0xA4, 1.f); // DAT_0032B0F8
-        if (word(state, 0x2BC) != 0)
+        set(state, field::shock_timer, 1.f); // DAT_0032B0F8
+        if (get(state, field::swap_render) != 0)
         {
-            if (word(state, 0x2C4) != 0)
+            if (get(state, field::head_hidden) != 0)
             {
                 services.register_render(control.head);
-                put_word(state, 0x2C4, 0);
+                set(state, field::head_hidden, 0);
             }
-            if (word(state, 0x2C0) != 0)
+            if (get(state, field::player_hidden) != 0)
             {
                 services.register_render(control.player);
-                put_word(state, 0x2C0, 0);
+                set(state, field::player_hidden, 0);
             }
         }
         break;
     default:
         break;
     }
-    put_word(state, 0x34, u32(next));
+    set(state, field::phase, next);
 }
 
 // Xbox 0x00086BC0
@@ -1136,15 +1125,15 @@ void finish_runtime_super_scary(std::span<u8> state, i32 outcome, SuperScaryCont
     services.runtime_flags &= 0xFFFFFBFFu;
     services.pause_actors(0xFF, 1); // 0x00117400(0xFFFF, 1)
     services.pause_actors(0xFF, 1);
-    if (word(state, 0xA0) != 0)
+    if (get(state, field::camera_linked) != 0)
     {
         camera_unlink_view(&control.camera); // 0x00048C70, EAX +0x40
-        put_word(state, 0xA0, 0);
+        set(state, field::camera_linked, 0);
     }
-    if (word(state, 0x3C) != 0)
+    if (get(state, field::input_pushed) != 0)
     {
         release_input(control, services);
-        put_word(state, 0x3C, 0);
+        set(state, field::input_pushed, 0);
     }
     set_runtime_super_scary_state(state, 11, control, services);
     announce_runtime_super_scary_step(u32(outcome), services); // The tail jump, EAX the outcome.
@@ -1154,50 +1143,50 @@ void finish_runtime_super_scary(std::span<u8> state, i32 outcome, SuperScaryCont
 void end_runtime_super_scary_challenge(std::span<u8> state, i32 succeeded, SuperScaryControlState& control,
     SuperScaryControlServices& services)
 {
-    if (word(state, 0x2B8) == 0)
+    if (get(state, field::player_released) == 0)
     {
         std::array<u32, 1> message{10};
         services.actor_message(control.player, message);
-        put_word(state, 0x2B8, 1);
+        set(state, field::player_released, 1);
     }
     u32 step = 6;
-    if (word(state, 0x3C) != 0)
+    if (get(state, field::input_pushed) != 0)
     {
         release_input(control, services);
-        put_word(state, 0x3C, 0);
+        set(state, field::input_pushed, 0);
         step = 5;
     }
     announce_runtime_super_scary_step(step, services);
-    const i16 voice = i16(read_u16(state, 0x264));
+    const i16 voice = get(state, field::shiver_voice);
     if (voice != -1)
     {
         stop_audio_event_voice(voice, 0, services.voices); // 0x00039690, EAX the voice
-        std::memset(state.data() + 0x264, 0xFF, 2);
+        clear_shiver_voice(state);
     }
     if (control.bat != 0)
     {
         services.retire_actor(control.bat); // 0x00112CC0, ESI +0x30
         control.bat = 0;
-        put_word(state, 0x30, 0);
+        set(state, field::bat, 0);
     }
-    if (1 < integer(state, 0x28C) && integer(state, 0x28C) < 4)
+    if (bound_mode(state))
     {
         auto player = services.actor_view(control.player);
         detach_actor_bind(player.actor); // 0x0003B560, EBX the player
-        put_word(services.player_body(control.player), 0x728, 1);
+        set_body_word_728(services.player_body(control.player), 1);
         if (player.secondary_model)
         {
             player.secondary_mode = 1;
         }
-        const float height = services.floor_height(vector(state, 0x27C)); // 0x00110BF0, 0x00110EF0
-        put_real(state, 0x2B4, height);
-        put_real(state, 0x2B0, height + 20.f); // DAT_0032B234
-        put_real(state, 0x2AC, 0.5f); // DAT_0032B0F4
-        put_real(state, 0x280, height + 20.f);
-        actor_set_world_position(player.actor, vector(state, 0x27C)); // 0x00041730
+        const float height = services.floor_height(get(state, field::bound_position)); // 0x00110BF0, 0x00110EF0
+        set(state, field::settle_floor_y, height);
+        set(state, field::settle_start_y, height + 20.f); // DAT_0032B234
+        set(state, field::settle_timer, 0.5f); // DAT_0032B0F4
+        set(state, field::bound_position_y, height + 20.f);
+        actor_set_world_position(player.actor, get(state, field::bound_position)); // 0x00041730
         services.refresh_body_position(control.player); // Body +0x18 from 0x000412A0 on the body's actor (+8).
     }
-    std::array<u32, 5> message{0x1C, 0, 0, u32(integer(state, 0x28C)), u32(succeeded)};
+    std::array<u32, 5> message{0x1C, 0, 0, u32(get(state, field::scare_mode)), u32(succeeded)};
     if (succeeded == 0 && services.override_health == 0)
     {
         message[2] = 10;
@@ -1216,40 +1205,41 @@ void choose_runtime_super_scary_buttons(i32 count, std::span<u8> state, SuperSca
     {
         return;
     }
-    const auto buttons = state.subspan(0x214);
+    const auto buttons = state.subspan(field::buttons.offset, field::buttons.size);
+    u32* chosen = field_data(state, field::buttons);
     switch (count)
     {
     case 0:
-        for (i32 index = 0; index < integer(state, 0x210); ++index)
+        for (i32 index = 0; index < get(state, field::button_count); ++index)
         {
-            put_word(buttons, size_t(index) * 4, u32(i32((random_unit(services.random) - 1.f) * 4.f))); // DAT_0032B1B0
+            chosen[size_t(index)] = u32(i32((random_unit(services.random) - 1.f) * 4.f)); // DAT_0032B1B0
         }
         return;
     case 1:
-        put_word(buttons, 0, 0);
-        put_word(buttons, 4, 0);
-        put_word(buttons, 8, 0);
-        put_word(buttons, 0xC, 0);
+        chosen[0] = 0;
+        chosen[1] = 0;
+        chosen[2] = 0;
+        chosen[3] = 0;
         return;
     case 2:
-        put_word(buttons, 0, 0);
-        put_word(buttons, 4, 0);
-        put_word(buttons, 8, 1);
-        put_word(buttons, 0xC, 1);
+        chosen[0] = 0;
+        chosen[1] = 0;
+        chosen[2] = 1;
+        chosen[3] = 1;
         shuffle_runtime_super_scary_buttons(buttons, 4, services.random);
         return;
     case 3:
-        put_word(buttons, 0, 0);
-        put_word(buttons, 4, 1);
-        put_word(buttons, 8, 2);
-        put_word(buttons, 0xC, u32(i32((random_unit(services.random) - 1.f) * 3.f))); // DAT_0032B260
+        chosen[0] = 0;
+        chosen[1] = 1;
+        chosen[2] = 2;
+        chosen[3] = u32(i32((random_unit(services.random) - 1.f) * 3.f)); // DAT_0032B260
         shuffle_runtime_super_scary_buttons(buttons, 4, services.random);
         return;
     case 4:
-        put_word(buttons, 0, 0);
-        put_word(buttons, 4, 1);
-        put_word(buttons, 8, 2);
-        put_word(buttons, 0xC, 3);
+        chosen[0] = 0;
+        chosen[1] = 1;
+        chosen[2] = 2;
+        chosen[3] = 3;
         shuffle_runtime_super_scary_buttons(buttons, 4, services.random);
         return;
     default:
@@ -1276,9 +1266,10 @@ void shuffle_runtime_super_scary_buttons(std::span<u8> buttons, i32 count, u32& 
         const i32 first = i32((random_unit(random) - 1.f) * scale);
         const i32 second = i32((random_unit(random) - 1.f) * scale);
         --swaps;
-        const u32 kept = word(buttons, size_t(first) * 4);
-        put_word(buttons, size_t(first) * 4, word(buttons, size_t(second) * 4));
-        put_word(buttons, size_t(second) * 4, kept);
+        const u32 kept = read_u32(buttons, size_t(first) * 4);
+        const u32 moved = read_u32(buttons, size_t(second) * 4);
+        std::memcpy(buttons.data() + size_t(first) * 4, &moved, 4);
+        std::memcpy(buttons.data() + size_t(second) * 4, &kept, 4);
     }
     while (swaps != 0);
 }
@@ -1389,7 +1380,7 @@ void place_runtime_super_scary_camera(std::span<u8> state, float shake, SuperSca
     Vec3 eye{};
     Vec3 turn{};
     float focal = shake;
-    switch (integer(state, 0x28C))
+    switch (get(state, field::scare_mode))
     {
     case 0:
     case 1:
@@ -1411,18 +1402,19 @@ void place_runtime_super_scary_camera(std::span<u8> state, float shake, SuperSca
     }
     case 2:
     case 3:
-        eye = vector(state, 0x1EC);
-        turn = Vec3{real(state, 0x1F8), real(state, 0x1FC), real(state, 0x200)};
+        eye = get(state, field::shock_camera_position);
+        turn = Vec3{get(state, field::shock_camera_pitch), get(state, field::shock_camera_yaw),
+            get(state, field::shock_camera_roll)};
         focal = 10.f - shake * 4.f; // DAT_0032B10C, DAT_0032B1B0
         break;
     default:
         break;
     }
-    if (0.f < real(state, 0xAC))
+    if (0.f < get(state, field::focal_jitter_timer))
     {
-        put_real(state, 0xAC, real(state, 0xAC) - frame_step(services));
+        set(state, field::focal_jitter_timer, get(state, field::focal_jitter_timer) - frame_step(services));
         const float noise = random_unit(services.random);
-        const float fall = 1.f - (real(state, 0xAC) - 0.25f) * -4.f; // DAT_0032B104, DAT_0032B2A4
+        const float fall = 1.f - (get(state, field::focal_jitter_timer) - 0.25f) * -4.f; // DAT_0032B104, DAT_0032B2A4
         float weight = 0.f;
         if (!(0.f > fall))
         {
@@ -1470,7 +1462,7 @@ void aim_runtime_super_scary_camera(std::span<u8> state, Vec3& euler, SuperScary
     Vec3 start = place;
     place.y -= 50.f; // DAT_0032B1E0
     entity_record_sweep_probe(place, start, 8, 0); // 0x00122480, EBX the point
-    put_vector(state, 0x1C8, place);
+    set(state, field::player_spawn, place);
 }
 
 // Xbox 0x00086E80
@@ -1485,7 +1477,7 @@ u32 spawn_runtime_super_scary_player(std::span<u8> state, const Vec3& position, 
     }
     services.pause_actors(0xFF, 0); // 0x00117400(0xFFFF, 0)
     auto view = services.actor_view(player);
-    if (word(state, 0x270) != 0)
+    if (get(state, field::move_player) != 0)
     {
         actor_set_world_position(view.actor, position); // 0x00041730, ESI the position, EDI the player
         services.refresh_body_position(player); // Body +0x18 from 0x000412A0 on the body's actor (+8).
@@ -1505,7 +1497,7 @@ u32 spawn_runtime_super_scary_player(std::span<u8> state, const Vec3& position, 
 // Xbox 0x00086FD0
 void set_runtime_super_scary_music(std::span<u8> state, i32 next, SuperScaryControlServices& services)
 {
-    const i32 current = integer(state, 0x1C4);
+    const i32 current = get(state, field::music);
     if (next == current)
     {
         return;
@@ -1532,23 +1524,24 @@ void set_runtime_super_scary_music(std::span<u8> state, i32 next, SuperScaryCont
     {
         acquire_tracked_audio_bank(name, 7, services.streams); // 0x00038910
     }
-    put_word(state, 0x1C4, u32(next));
+    set(state, field::music, next);
 }
 
 // Xbox 0x00086990
 void tick_runtime_super_scary_shocks(std::span<u8> state, SuperScaryControlState& control,
     SuperScaryControlServices& services)
 {
-    if (real(state, 0x1B8) <= 1.f && 0 < integer(state, 0x204) && 0.f < real(state, 0xA4))
+    if (get(state, field::first_clip_timer) <= 1.f && 0 < get(state, field::shocks_left)
+        && 0.f < get(state, field::shock_timer))
     {
-        const float left = real(state, 0xA4) - frame_step(services);
-        put_real(state, 0xA4, left);
+        const float left = get(state, field::shock_timer) - frame_step(services);
+        set(state, field::shock_timer, left);
         if (left <= 0.f)
         {
-            put_real(state, 0xA4, 0.45f); // DAT_0032B4F8
+            set(state, field::shock_timer, 0.45f); // DAT_0032B4F8
             request_audio_event_voice("XACT_SOUNDBANK_GSUPERSCARYSTUF_SHOCKSTRINGS_LEFT", 1, services.voices);
             request_audio_event_voice("XACT_SOUNDBANK_GSUPERSCARYSTUF_SHOCKSTRINGS_RIGHT", 1, services.voices);
-            put_word(state, 0x204, word(state, 0x204) - 1);
+            set(state, field::shocks_left, get(state, field::shocks_left) - 1);
             shake_runtime_super_scary_camera(control, services);
         }
     }
@@ -1561,19 +1554,19 @@ u32 runtime_super_scary_right_button(std::span<u8> state, SuperScaryControlState
     if (services.auto_presses != 0)
     {
         const float step = frame_step(services);
-        if (0.f < real(state, 0x1C0))
+        if (0.f < get(state, field::auto_press_timer))
         {
-            const float left = real(state, 0x1C0) - step;
-            put_real(state, 0x1C0, left);
+            const float left = get(state, field::auto_press_timer) - step;
+            set(state, field::auto_press_timer, left);
             if (!(0.f < left))
             {
-                put_real(state, 0x1C0, 0.f);
-                put_real(state, 0x1C0, (random_unit(services.random) - 1.f) * 0.2f + 0.2f); // DAT_0032B1AC
+                set(state, field::auto_press_timer, 0.f);
+                set(state, field::auto_press_timer, (random_unit(services.random) - 1.f) * 0.2f + 0.2f); // DAT_0032B1AC
                 return 1;
             }
         }
     }
-    const u32 mask = 0x100u << (word(state, 0x214 + size_t(integer(state, 0x20C)) * 4) & 0x1F);
+    const u32 mask = 0x100u << (button_at(state, get(state, field::presses)) & 0x1F);
     const auto device = input_device(control);
     if (runtime_input_button_edge(device, u16(~mask & 0xF00), services.input_state) != 0) // 0x001083F0, EAX EDI
     {
@@ -1590,7 +1583,7 @@ u32 runtime_super_scary_wrong_button(std::span<const u8> state, SuperScaryContro
     {
         return 0;
     }
-    const u32 mask = 0x100u << (word(state, 0x214 + size_t(integer(state, 0x20C)) * 4) & 0x1F);
+    const u32 mask = 0x100u << (button_at(state, get(state, field::presses)) & 0x1F);
     return runtime_input_button_edge(input_device(control), u16(~mask & 0xF00), services.input_state);
 }
 
@@ -1604,26 +1597,26 @@ void shake_runtime_super_scary_camera(SuperScaryControlState& control, SuperScar
 void settle_runtime_super_scary_player(std::span<u8> state, SuperScaryControlState& control,
     SuperScaryControlServices& services)
 {
-    const i32 mode = integer(state, 0x28C);
-    if (!(1 < mode && mode < 4) || !(0.f < real(state, 0x2AC)))
+    const i32 mode = get(state, field::scare_mode);
+    if (!(1 < mode && mode < 4) || !(0.f < get(state, field::settle_timer)))
     {
         return;
     }
     const float step = frame_step(services);
-    if (0.f < real(state, 0x2AC))
+    if (0.f < get(state, field::settle_timer))
     {
-        const float left = real(state, 0x2AC) - step;
-        put_real(state, 0x2AC, left);
+        const float left = get(state, field::settle_timer) - step;
+        set(state, field::settle_timer, left);
         if (!(0.f < left))
         {
-            put_real(state, 0x2AC, 0.f);
+            set(state, field::settle_timer, 0.f);
         }
     }
     auto player = services.actor_view(control.player);
     Vec3 place = actor_world_position(player.actor); // 0x000412A0
-    const float top = real(state, 0x2B4);
-    const float bottom = real(state, 0x2B0);
-    float y = (real(state, 0x2AC) - 0.5f) * -2.f * (top - bottom) + bottom; // DAT_0032B0F4, DAT_0032B14C
+    const float top = get(state, field::settle_floor_y);
+    const float bottom = get(state, field::settle_start_y);
+    float y = (get(state, field::settle_timer) - 0.5f) * -2.f * (top - bottom) + bottom; // DAT_0032B0F4, DAT_0032B14C
     if (top > bottom)
     {
         if (y > top)
@@ -1654,7 +1647,7 @@ void runtime_super_scary_button_position(std::array<float, 2>& output, std::span
 {
     const float width = float(i32(services.screen[0]));
     float centre = width * 0.5f; // DAT_0032B0F4
-    const i32 count = integer(state, 0x210);
+    const i32 count = get(state, field::button_count);
     const float room = width - 96.f; // DAT_0032B1B4
     const float wanted = float(count + 1) * 96.f;
     const auto spacing = [&]()
@@ -1682,7 +1675,7 @@ void draw_runtime_super_scary_panel(std::span<const u8> state, SuperScaryControl
 {
     std::array<float, 2> first{};
     runtime_super_scary_button_position(first, state, 0, services);
-    const i32 count = integer(state, 0x210);
+    const i32 count = get(state, field::button_count);
     std::array<float, 2> last{};
     runtime_super_scary_button_position(last, state, count - 1, services);
     const float room = float(i32(services.screen[0])) - 96.f; // DAT_0032B1B4
@@ -1701,29 +1694,29 @@ void draw_runtime_super_scary_panel(std::span<const u8> state, SuperScaryControl
 void draw_runtime_super_scary_control(std::span<u8> state, SuperScaryControlState& control,
     SuperScaryControlServices& services)
 {
-    const i32 phase = integer(state, 0x34);
+    const i32 phase = get(state, field::phase);
     if (phase < 5 || phase > 6 || std::int8_t(services.runtime_flags) < 0)
     {
         return;
     }
     const std::array<float, 2> scale{1.5f, 1.5f}; // DAT_0032B210
-    for (i32 index = 0; index < integer(state, 0x210); ++index)
+    for (i32 index = 0; index < get(state, field::button_count); ++index)
     {
         std::array<float, 2> position{};
         runtime_super_scary_button_position(position, state, index, services);
-        if (integer(state, 0x20C) == index)
+        if (get(state, field::presses) == index)
         {
             draw_runtime_super_scary_panel(state, services);
         }
         u32 color = services.button_color; // DAT_00314F48
-        if (index < integer(state, 0x20C))
+        if (index < get(state, field::presses))
         {
             color = (color & 0x00FFFFFFu) | 0x60000000u;
         }
-        const u32 button = word(state, 0x214 + size_t(index) * 4);
+        const u32 button = button_at(state, index);
         queue_runtime_dialogue_sprite(scale.data(), position.data(), control.buttons.at(button).data(), color, 0,
             0.f, services.sprites); // 0x001221B0, +0x298 + the button * 4
-        if (integer(state, 0x20C) == index && 0.1f < real(state, 0xB0)) // DAT_0032B254
+        if (get(state, field::presses) == index && 0.1f < get(state, field::wrong_press_timer)) // DAT_0032B254
         {
             const u32 highlight = (services.highlight_color & 0x00FFFFFFu) | 0x80000000u; // DAT_00314F30
             queue_runtime_dialogue_sprite(scale.data(), position.data(), control.buttons[4].data(), highlight, 0,

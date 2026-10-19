@@ -9,3 +9,4 @@ alwaysApply: true
 - Use descriptive function names derived from implementation evidence.
 - Put `// Xbox 0x........` immediately above every reconstructed function definition and beside its declaration. Preserve the original Xbox address and reconstruction notes.
 - Moving or renaming functions must preserve behavior, branches, comparisons, offsets, and return values.
+- Read and write retail object fields through named `RetailField` / `RetailRecord` descriptors (`include/gbtg/retail_field.h`) declared beside the owning type, not literal offsets. Name each field from every dump that touches it; use `unk_<offset>` when the evidence does not settle it. See `docs/RETAIL_LAYOUTS.md` and `tools/layout/offset_census.py`.

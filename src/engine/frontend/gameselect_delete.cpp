@@ -24,34 +24,18 @@ namespace
 {
 constexpr u32 kDeletionRows = 0x003077B0; // "GameSlotDeletionMenu"
 
+namespace field = game_deletion_field;
+namespace text_line = gameselect_text_line;
+
 GameDeletionWidget& deletion(GameSelectWidget& widget)
 {
     return static_cast<GameDeletionWidget&>(widget);
 }
 
-u32 word(const GameDeletionWidget& w, size_t offset)
+// The game being deleted (+0x48C).
+char16_t* save_name(GameDeletionWidget& w)
 {
-    return read_u32(w.bytes, offset);
-}
-
-void put_word(GameDeletionWidget& w, size_t offset, u32 value)
-{
-    std::memcpy(w.bytes.data() + offset, &value, 4);
-}
-
-float real(const GameDeletionWidget& w, size_t offset)
-{
-    return std::bit_cast<float>(word(w, offset));
-}
-
-void put_real(GameDeletionWidget& w, size_t offset, float value)
-{
-    put_word(w, offset, std::bit_cast<u32>(value));
-}
-
-char16_t* wide(GameDeletionWidget& w, size_t offset)
-{
-    return reinterpret_cast<char16_t*>(w.bytes.data() + offset);
+    return field_data(w.bytes, field::save_name);
 }
 
 float exe_real(const GameSelectControlServices& s, u32 address)
@@ -75,11 +59,11 @@ void copy_wide(char16_t* output, const char16_t* input)
     }
 }
 
-// 0x0005F5C0 with EAX 1: a centred, sticky text record.
-u32 text_record(GameDeletionWidget& w, size_t text, size_t position, float scale, GameSelectControlServices& s)
+// 0x0005F5C0 with EAX 1: a centred, sticky text record for a text line.
+u32 text_record(GameDeletionWidget& w, std::span<u8> line, float scale, GameSelectControlServices& s)
 {
-    return create_dialogue_text_record(*w.pool, wide(w, text), real(w, position), real(w, position + 4), scale,
-        scale, 1.f, 1, 0, 1, s.metrics, s.viewport_width, s.next_text_id, s.random);
+    return create_dialogue_text_record(*w.pool, field_data(line, text_line::text), get(line, text_line::x),
+        get(line, text_line::y), scale, scale, 1.f, 1, 0, 1, s.metrics, s.viewport_width, s.next_text_id, s.random);
 }
 
 // The control's widget request: row 1 (slot select) on the next book threshold, the book released.
@@ -127,15 +111,17 @@ void set_runtime_game_deletion_state(GameDeletionWidget& widget, i32 state, Game
 {
     auto& s = services;
     auto& w = widget;
-    const i32 previous = i32(word(w, 0));
+    const i32 previous = get(w.bytes, field::state);
+    const auto title = record(w.bytes, field::title);
+    const auto prompt = record(w.bytes, field::prompt);
     if (previous == 1)
     {
         const std::array<float, 2> anchor{s.hud.inner_left + exe_real(s, 0x0032B604),
             s.hud.inner_bottom - exe_real(s, 0x0032B1F4)}; // DAT_00509740, DAT_0050974C
         const std::array<float, 2> row_step{0.f, exe_real(s, 0x0032B600)};
         const std::array<float, 2> origin{exe_real(s, 0x0032B234), exe_real(s, 0x0032B5FC)};
-        put_word(w, 0x20C, text_record(w, 4, 0x204, 1.35f, s));
-        put_word(w, 0x418, text_record(w, 0x210, 0x410, 1.5f, s));
+        set(title, text_line::record, text_record(w, title, 1.35f, s));
+        set(prompt, text_line::record, text_record(w, prompt, 1.5f, s));
         if (s.text.data() == nullptr) // IsBadReadPtr(DAT_005462C4, 1)
         {
             return;
@@ -154,18 +140,18 @@ void set_runtime_game_deletion_state(GameDeletionWidget& widget, i32 state, Game
     }
     else if (previous == 2)
     {
-        remove_dialogue_text_record(*w.pool, word(w, 0x418)); // 0x0005FB10
+        remove_dialogue_text_record(*w.pool, get(prompt, text_line::record)); // 0x0005FB10
     }
-    put_word(w, 0, u32(state));
+    set(w.bytes, field::state, state);
     if (state == 3)
     {
-        wide(w, 0x210)[0] = 0;
+        field_data(prompt, text_line::text)[0] = 0;
         if (s.text.data() != nullptr)
         {
-            lookup_borrowed_localtext(s.text, "gameselect", "gameslotdeletion_deleting", wide(w, 0x210),
-                s.localtext); // 0x000FF120, EDI 0x00324D1C
+            lookup_borrowed_localtext(s.text, "gameselect", "gameslotdeletion_deleting",
+                field_data(prompt, text_line::text), s.localtext); // 0x000FF120, EDI 0x00324D1C
         }
-        put_word(w, 0x418, text_record(w, 0x210, 0x410, 1.5f, s));
+        set(prompt, text_line::record, text_record(w, prompt, 1.5f, s));
     }
     else if (state == 4)
     {
@@ -195,9 +181,9 @@ void open_runtime_game_deletion(std::span<u8> owner, GameSelectControlState& con
     w.owner = &control;
     w.owner_state = owner;
     s.frontend.deletion_widget = &w; // DAT_0050658C
-    put_word(w, 0, 0);
+    set(w.bytes, field::state, 0);
     w.prompts = nullptr;
-    copy_wide(wide(w, 0x48C), s.frontend.selected_name.data()); // lstrcpyW(+0x48C, DAT_00429CC4)
+    copy_wide(save_name(w), s.frontend.selected_name.data()); // lstrcpyW(+0x48C, DAT_00429CC4)
     initialize_camera_view(w.camera, "gameslotdeletion", 8); // 0x000496C0, EAX 0x00324D94
     w.camera.aspect_slot = 0; // +0x30
     i32 fit_w = 0;
@@ -211,24 +197,26 @@ void open_runtime_game_deletion(std::span<u8> owner, GameSelectControlState& con
     w.page = load_runtime_cutscene(page, 6, &w.camera, s.cutscenes); // 0x0004D680
     seek_runtime_cutscene(*w.page, s.frontend.real_0042a0cc, 0.f, 0, s.cutscenes); // 0x0004E4A0, ESI the page
     camera_bind_named_view(0, "gameslotdeletion"); // 0x00048CF0, EBX 0x00324D94
-    put_word(w, 0x484, u32(s.plate_flags[0]));
-    put_word(w, 0x488, u32(s.plate_flags[1]));
+    set(w.bytes, field::saved_plate_flag_0, s.plate_flags[0]);
+    set(w.bytes, field::saved_plate_flag_1, s.plate_flags[1]);
     s.plate_flags[0] = 1; // DAT_00510F7C
     s.plate_flags[1] = 1; // DAT_00510F80
     allocate_dialogue_text_pool(w.pool, 0, 1, 0x40080, s.text_pools); // 0x0005F390, ESI +0x41C
     w.pool->origin = {exe_real(s, 0x0032B260), exe_real(s, 0x0032B264), std::bit_cast<float>(3u)};
-    copy_wide(wide(w, 4), wide(w, 0x48C));
-    put_real(w, 0x204, exe_real(s, 0x0032B564));
-    put_real(w, 0x208, exe_real(s, 0x0032B12C));
-    put_word(w, 0x20C, 0);
+    const auto title = record(w.bytes, field::title);
+    const auto prompt = record(w.bytes, field::prompt);
+    copy_wide(field_data(title, text_line::text), save_name(w));
+    set(title, text_line::x, exe_real(s, 0x0032B564));
+    set(title, text_line::y, exe_real(s, 0x0032B12C));
+    set(title, text_line::record, 0);
     if (s.text.data() != nullptr) // IsBadReadPtr(DAT_005462C4, 1)
     {
-        lookup_borrowed_localtext(s.text, "gameselect", "gameslotdeletion_deleteprompt", wide(w, 0x210),
-            s.localtext); // 0x000FF120, EBX +0x210, EDI 0x00324D74
+        lookup_borrowed_localtext(s.text, "gameselect", "gameslotdeletion_deleteprompt",
+            field_data(prompt, text_line::text), s.localtext); // 0x000FF120, EBX +0x210, EDI 0x00324D74
     }
-    put_real(w, 0x410, exe_real(s, 0x0032B564));
-    put_real(w, 0x414, exe_real(s, 0x0032B680));
-    put_word(w, 0x418, 0);
+    set(prompt, text_line::x, exe_real(s, 0x0032B564));
+    set(prompt, text_line::y, exe_real(s, 0x0032B680));
+    set(prompt, text_line::record, 0);
     set_runtime_game_deletion_state(w, 1, s); // 0x000DBDC0, EAX 1
 }
 
@@ -249,8 +237,8 @@ void close_runtime_game_deletion(GameSelectWidget& widget, GameSelectControlServ
     release_runtime_cutscene(w.page, s.cutscenes); // 0x0004D720, EAX the page
     w.page = nullptr;
     camera_unlink_view(&w.camera); // 0x00048C70, EAX +0x424
-    s.plate_flags[0] = i32(word(w, 0x484));
-    s.plate_flags[1] = i32(word(w, 0x488));
+    s.plate_flags[0] = get(w.bytes, field::saved_plate_flag_0);
+    s.plate_flags[1] = get(w.bytes, field::saved_plate_flag_1);
 }
 
 // Xbox 0x000DB9E0
@@ -266,13 +254,13 @@ void tick_runtime_game_deletion(GameSelectWidget& widget, GameSelectControlServi
         }
         tick_runtime_cutscene(*w.page, frame_step(s), &w.camera, s.cutscenes); // 0x0004DA50, ESI +0x424
     }
-    const i32 state = i32(word(w, 0));
+    const i32 state = get(w.bytes, field::state);
     if (w.prompts != nullptr && u32(state) <= 5)
     {
         // The jump table at 0x000DBB74: state 2 passes the front-end device (DAT_00429BBC), the others 0.
         s.update_prompts(*w.prompts, state == 2); // 0x00142460
     }
-    switch (i32(word(w, 0)))
+    switch (get(w.bytes, field::state))
     {
     case 1:
         if (!book_turning(w, s))
@@ -281,7 +269,7 @@ void tick_runtime_game_deletion(GameSelectWidget& widget, GameSelectControlServi
         }
         return;
     case 3:
-        if (!save_game_name_exists(wide(w, 0x48C))) // 0x0010F530
+        if (!save_game_name_exists(save_name(w))) // 0x0010F530
         {
             s.frontend.selected_name[0] = 0; // lstrcpyW(DAT_00429CC4, 0x0030C9D0)
             request_slot_select(s);
@@ -341,7 +329,7 @@ void confirm_runtime_game_deletion(GameSelectControlServices& services)
 {
     auto& s = services;
     auto& w = *s.frontend.deletion_widget; // DAT_0050658C
-    const char16_t* name = wide(w, 0x48C);
+    const char16_t* name = save_name(w);
     if (save_game_loading(name) != 0 || save_game_name_exists(name)) // 0x0010DBA0, 0x0010F530
     {
         SaveGameContext saves{s.files, s.profile, s.scene_order_held};

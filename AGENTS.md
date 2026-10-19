@@ -113,3 +113,4 @@ void tick(int n)
 - Give reconstructed functions descriptive names derived from their implementation.
 - Always put `// Xbox 0x........` immediately above each reconstructed definition and beside its declaration, using the original function address.
 - Preserve reconstruction behavior and existing address notes when moving or renaming functions.
+- Read and write retail object fields through named `RetailField` / `RetailRecord` descriptors (`include/gbtg/retail_field.h`) declared beside the owning type, not through literal offsets. Name a field from every dump that touches it, and use `unk_<offset>` when the evidence doesn't settle the name. See `docs/RETAIL_LAYOUTS.md`; `tools/layout/offset_census.py` lists the evidence.

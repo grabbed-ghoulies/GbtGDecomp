@@ -29,7 +29,11 @@ namespace gbtg
 namespace
 {
 constexpr u32 kAid = 0x5F646961u; // "aid_"
-constexpr size_t kPlate = 0x304;
+
+namespace field = slot_select_field;
+namespace plate_field = slot_select_field::plate;
+namespace sprite = gameselect_sprite;
+namespace text_line = gameselect_text_line;
 
 [[noreturn]] void untranslated(const char* what)
 {
@@ -41,34 +45,53 @@ SlotSelectWidget& slots(GameSelectWidget& widget)
     return static_cast<SlotSelectWidget&>(widget);
 }
 
-u32 word(const SlotSelectWidget& w, size_t offset)
+// Plate `index`'s bytes (+0x214 + index * 0x304).
+std::span<u8> plate_bytes(SlotSelectWidget& w, size_t index)
 {
-    return read_u32(w.bytes, offset);
+    return record(w.bytes, field::plates, index);
 }
 
-i32 integer(const SlotSelectWidget& w, size_t offset)
+std::span<const u8> plate_bytes(const SlotSelectWidget& w, size_t index)
 {
-    return i32(word(w, offset));
+    return record(w.bytes, field::plates, index);
 }
 
-void put_word(SlotSelectWidget& w, size_t offset, u32 value)
+// The selected plate (+0xB2C).
+i32 chosen_slot(const SlotSelectWidget& w)
 {
-    std::memcpy(w.bytes.data() + offset, &value, 4);
+    return get(w.bytes, field::slot);
 }
 
-float real(const SlotSelectWidget& w, size_t offset)
+std::span<u8> chosen_plate(SlotSelectWidget& w)
 {
-    return std::bit_cast<float>(word(w, offset));
+    return plate_bytes(w, size_t(chosen_slot(w)));
 }
 
-void put_real(SlotSelectWidget& w, size_t offset, float value)
+i32 plate_status(const SlotSelectWidget& w, size_t index)
 {
-    put_word(w, offset, std::bit_cast<u32>(value));
+    return get(plate_bytes(w, index), plate_field::status);
 }
 
-float* reals(SlotSelectWidget& w, size_t offset)
+// Status 2, 3 or 4: the slot holds a save.
+bool status_has_save(i32 status)
 {
-    return reinterpret_cast<float*>(w.bytes.data() + offset);
+    return status == 2 || status == 4 || status == 3;
+}
+
+// A countdown field ticked toward 0 by the frame step and clamped there (0x000DF330 / 0x000DF3E0 / 0x000DE7B0).
+template <typename F>
+void count_down(std::span<u8> bytes, F timer, float step)
+{
+    float value = get(bytes, timer);
+    if (0.f < value)
+    {
+        value -= step;
+        set(bytes, timer, value);
+        if (value <= 0.f)
+        {
+            set(bytes, timer, 0.f);
+        }
+    }
 }
 
 u32 exe_word(const GameSelectControlServices& s, u32 address)
@@ -168,6 +191,28 @@ void draw_sprite(i32 frame, const float* uv_top, std::span<const u8> texture, co
     }
 }
 
+// A plate's sprite record drawn through draw_sprite: its scale, color and position, no UVs.
+void draw_plate_sprite(i32 frame, std::span<const u8> texture, std::span<u8> sprite_bytes,
+    GameSelectControlServices& s)
+{
+    draw_sprite(frame, nullptr, texture, field_data(sprite_bytes, sprite::scale), nullptr,
+        get(sprite_bytes, sprite::color), field_data(sprite_bytes, sprite::position), s);
+}
+
+// 0x000DDF20's plate: the box panel centered on the plate, then the plate sprite.
+void draw_plate(SlotSelectWidget& w, size_t index, GameSelectControlServices& s)
+{
+    const auto p = plate_bytes(w, index);
+    const auto plate_sprite = record(p, plate_field::plate_sprite);
+    const i32 box_h = i32(get(p, plate_field::box_height));
+    const i32 box_w = i32(get(p, plate_field::box_width));
+    const float x = float(i32(get(plate_sprite, sprite::x)) - box_w / 2);
+    const float y = float(i32(get(plate_sprite, sprite::y)) - box_h / 2);
+    draw_runtime_dialogue_panel(x, y, float(box_w), float(box_h), exe_real(s, 0x00428F98),
+        get(p, plate_field::box_color), s.outer); // 0x00061360
+    draw_plate_sprite(0, w.plates[index].plate, plate_sprite, s);
+}
+
 // Xbox 0x000DF080, EAX widget: the plate textures.
 void release_plate_textures(SlotSelectWidget& w, GameSelectControlServices& s)
 {
@@ -221,13 +266,13 @@ void reset_plate_colors(SlotSelectWidget& w, GameSelectControlServices& s)
 {
     const u32 white = exe_word(s, 0x00314F48);
     const u32 rest = exe_word(s, 0x00308B1C);
-    put_word(w, 0x430, white);
-    put_word(w, 0x50C, rest);
-    put_word(w, 0x734, white);
-    put_word(w, 0x810, rest);
-    put_word(w, 0xA38, white);
-    put_word(w, 0xB14, rest);
-    put_word(w, size_t(integer(w, 0xB2C)) * kPlate + 0x50C, exe_word(s, 0x00308B18));
+    for (size_t index = 0; index < 3; ++index)
+    {
+        const auto plate = plate_bytes(w, index);
+        set(record(plate, plate_field::plate_sprite), sprite::color, white);
+        set(plate, plate_field::box_color, rest);
+    }
+    set(chosen_plate(w), plate_field::box_color, exe_word(s, 0x00308B18));
 }
 
 // Xbox 0x000DF3E0, ESI widget: the plates fade in over DAT_00429014 seconds.
@@ -235,17 +280,7 @@ void fade_in_plates(SlotSelectWidget& w, GameSelectControlServices& s)
 {
     const u32 rest = exe_word(s, 0x00308B1C);
     const u32 white = exe_word(s, 0x00314F48);
-    const float step = frame_step(s);
-    float timer = real(w, 0xB78);
-    if (0.f < timer)
-    {
-        timer -= step;
-        put_real(w, 0xB78, timer);
-        if (timer <= 0.f)
-        {
-            put_real(w, 0xB78, 0.f);
-        }
-    }
+    count_down(w.bytes, field::plate_fade_timer, frame_step(s));
     const float duration = exe_real(s, 0x00429014);
     float fraction;
     if (duration == 0.f)
@@ -254,7 +289,7 @@ void fade_in_plates(SlotSelectWidget& w, GameSelectControlServices& s)
     }
     else
     {
-        fraction = (real(w, 0xB78) - duration) / (0.f - duration);
+        fraction = (get(w.bytes, field::plate_fade_timer) - duration) / (0.f - duration);
         const float one = exe_real(s, 0x0032B0F8);
         if (fraction > one)
         {
@@ -269,24 +304,24 @@ void fade_in_plates(SlotSelectWidget& w, GameSelectControlServices& s)
     const u32 box = with_alpha(rest, truncate_byte(long double(fraction) * exe_real(s, 0x0032B368)));
     for (size_t index = 0; index < 3; ++index)
     {
-        put_word(w, index * kPlate + 0x430, plate);
-        put_word(w, index * kPlate + 0x50C, box);
+        set(record(plate_bytes(w, index), plate_field::plate_sprite), sprite::color, plate);
+        set(plate_bytes(w, index), plate_field::box_color, box);
     }
     const u32 selected = exe_word(s, 0x00308B18);
-    const size_t chosen = size_t(integer(w, 0xB2C)) * kPlate;
-    put_word(w, chosen + 0x50C, selected);
-    w.bytes[chosen + 0x50F] = truncate_byte(long double(fraction) * exe_real(s, 0x0032B378));
+    const auto chosen = chosen_plate(w);
+    set(chosen, plate_field::box_color, selected);
+    field_byte(chosen, plate_field::box_color, 3) = truncate_byte(long double(fraction) * exe_real(s, 0x0032B378));
     double limit;
     std::memcpy(&limit, s.image.memory(0x0032B370, 8).data(), 8);
     if (!(double(fraction) < limit))
     {
-        put_word(w, 0xB7C, 0);
+        set(w.bytes, field::plates_fading, 0);
         for (size_t index = 0; index < 3; ++index)
         {
-            put_word(w, index * kPlate + 0x430, white);
-            put_word(w, index * kPlate + 0x50C, exe_word(s, 0x00308B1C));
+            set(record(plate_bytes(w, index), plate_field::plate_sprite), sprite::color, white);
+            set(plate_bytes(w, index), plate_field::box_color, exe_word(s, 0x00308B1C));
         }
-        put_word(w, chosen + 0x50C, selected);
+        set(chosen, plate_field::box_color, selected);
     }
 }
 
@@ -313,9 +348,15 @@ void copy_wide(char16_t* output, const char16_t* input)
     }
 }
 
+// Slot `slot`'s save name (+0xB9C + slot * 0x100).
 const char16_t* slot_name(const SlotSelectWidget& w, i32 slot)
 {
-    return reinterpret_cast<const char16_t*>(w.bytes.data() + 0xB9C + size_t(slot) * 0x100);
+    return reinterpret_cast<const char16_t*>(record(w.bytes, field::slot_names, size_t(slot)).data());
+}
+
+char16_t* slot_name(SlotSelectWidget& w, i32 slot)
+{
+    return reinterpret_cast<char16_t*>(record(w.bytes, field::slot_names, size_t(slot)).data());
 }
 
 void put_control_word(SceneControlInstance& control, size_t offset, u32 value)
@@ -372,7 +413,7 @@ bool find_slot_by_name(const char16_t* name, i32& slot, GameSelectControlService
     slot = 0;
     for (i32 index = 0; index < 3; ++index)
     {
-        const auto* candidate = reinterpret_cast<const char16_t*>(w.bytes.data() + 0xB9C + size_t(index) * 0x100);
+        const char16_t* candidate = slot_name(w, index);
         if (std::u16string_view(candidate) == std::u16string_view(name)) // lstrcmpW
         {
             slot = index;
@@ -382,39 +423,29 @@ bool find_slot_by_name(const char16_t* name, i32& slot, GameSelectControlService
     return false;
 }
 
-// Xbox 0x000DF330, ECX widget: the background cross-fade fraction +0xB74 from the bat's flight time.
+// Xbox 0x000DF330, ECX widget: the background cross-fade fraction from the bat's flight time.
 void advance_background_fade(SlotSelectWidget& w, GameSelectControlServices& s)
 {
-    const float step = frame_step(s);
-    float timer = real(w, 0xB70);
-    if (0.f < timer)
-    {
-        timer -= step;
-        put_real(w, 0xB70, timer);
-        if (timer <= 0.f)
-        {
-            put_real(w, 0xB70, 0.f);
-        }
-    }
+    count_down(w.bytes, field::background_fade_timer, frame_step(s));
     const float flight = s.bat_screen(*w.bat).flight_duration; // Bat +0x93C
     const float one = exe_real(s, 0x0032B0F8);
     if (flight != 0.f)
     {
-        const float fraction = (real(w, 0xB70) - flight) / (0.f - flight);
+        const float fraction = (get(w.bytes, field::background_fade_timer) - flight) / (0.f - flight);
         if (one < fraction)
         {
-            put_real(w, 0xB74, one);
+            set(w.bytes, field::background_fade, one);
             return;
         }
         if (fraction < 0.f)
         {
-            put_real(w, 0xB74, 0.f);
+            set(w.bytes, field::background_fade, 0.f);
             return;
         }
-        put_real(w, 0xB74, fraction);
+        set(w.bytes, field::background_fade, fraction);
         return;
     }
-    put_real(w, 0xB74, one);
+    set(w.bytes, field::background_fade, one);
 }
 
 // Xbox 0x00101730: each byte of `rest` toward `selected` by the fraction, clamped to 0..255 and truncated.
@@ -442,48 +473,53 @@ u32 blend_runtime_color(u32 selected, u32 rest, float fraction, GameSelectContro
 // Xbox 0x000DE540, ESI widget: the selected plate grows from its rest box as the backgrounds cross-fade.
 void raise_selected_plate(SlotSelectWidget& w, GameSelectControlServices& s)
 {
-    const u32 slot = word(w, 0xB2C);
-    const size_t p = size_t(slot) * kPlate;
+    const u32 slot = u32(chosen_slot(w));
+    const auto p = plate_bytes(w, slot);
+    const auto plate_sprite = record(p, plate_field::plate_sprite);
     advance_background_fade(w, s); // 0x000DF330, ECX the widget
     if (w.old_background.data() != w.background.data())
     {
-        const u8 alpha = truncate_byte(long double(real(w, 0xB74)) * exe_real(s, 0x0032B158));
-        w.bytes[0xB4F] = alpha;
-        w.bytes[0xB67] = u8(0xFF - alpha);
+        const u8 alpha = truncate_byte(long double(get(w.bytes, field::background_fade)) * exe_real(s, 0x0032B158));
+        field_byte(record(w.bytes, field::background), sprite::color, 3) = alpha;
+        field_byte(record(w.bytes, field::old_background), sprite::color, 3) = u8(0xFF - alpha);
     }
-    const float fraction = real(w, 0xB74);
-    put_word(w, p + 0x50C, blend_runtime_color(exe_word(s, 0x00308B18), exe_word(s, 0x00308B1C), fraction, s));
+    const float fraction = get(w.bytes, field::background_fade);
+    set(p, plate_field::box_color, blend_runtime_color(exe_word(s, 0x00308B18), exe_word(s, 0x00308B1C), fraction, s));
     const u32 row = 0x0042902C + slot * 0x124;
     const float width = screen_width(s);
     const float plate_width = texture_width(w.plates[slot].plate);
     const float rest_x = (exe_real(s, row + 0x10) * width) / plate_width;
     const float raised_x = (exe_real(s, row + 8) * width) / plate_width;
-    put_real(w, p + 0x434, (raised_x - rest_x) * fraction + rest_x);
+    set(plate_sprite, sprite::scale_x, (raised_x - rest_x) * fraction + rest_x);
     const float height = screen_height(s);
     const float plate_height = texture_height(w.plates[slot].plate);
     const float raised_y = (height * exe_real(s, row + 0xC)) / plate_height;
     const float rest_y = (height * exe_real(s, row + 0x14)) / plate_height;
     const float one = exe_real(s, 0x0032B0F8);
-    put_real(w, p + 0x438, (raised_y - rest_y) * fraction + rest_y);
+    set(plate_sprite, sprite::scale_y, (raised_y - rest_y) * fraction + rest_y);
     const float grow_x = (exe_real(s, row + 8) / exe_real(s, row + 0x10) - one) * fraction + one;
     const float grow_y = (exe_real(s, row + 0xC) / exe_real(s, row + 0x14) - one) * fraction + one;
     if (w.plates[slot].nowrite.data() != nullptr)
     {
-        put_real(w, p + 0x464, exe_real(s, 0x00428FEC) * grow_x);
-        put_real(w, p + 0x468, exe_real(s, 0x00428FF0) * grow_y);
+        const auto nowrite = record(p, plate_field::nowrite_sprite);
+        set(nowrite, sprite::scale_x, exe_real(s, 0x00428FEC) * grow_x);
+        set(nowrite, sprite::scale_y, exe_real(s, 0x00428FF0) * grow_y);
     }
     if (w.plates[slot].broken.data() != nullptr)
     {
-        put_real(w, p + 0x47C, exe_real(s, 0x00428FD8) * grow_x);
-        put_real(w, p + 0x480, exe_real(s, 0x00428FDC) * grow_y);
+        const auto broken = record(p, plate_field::broken_sprite);
+        set(broken, sprite::scale_x, exe_real(s, 0x00428FD8) * grow_x);
+        set(broken, sprite::scale_y, exe_real(s, 0x00428FDC) * grow_y);
     }
     const float scale_x = exe_real(s, 0x0032B6B0);
     const float box_x = exe_real(s, row + 0x10) * scale_x + exe_real(s, 0x00428FBC);
-    put_real(w, p + 0x510, ((exe_real(s, row + 8) * scale_x + exe_real(s, 0x00428FC0)) - box_x) * fraction + box_x);
+    set(p, plate_field::box_width,
+        ((exe_real(s, row + 8) * scale_x + exe_real(s, 0x00428FC0)) - box_x) * fraction + box_x);
     const float scale_y = exe_real(s, 0x0032B6AC);
     const float box_y = exe_real(s, row + 0x14) * scale_y + exe_real(s, 0x00428FBC);
-    put_real(w, p + 0x514, ((exe_real(s, row + 0xC) * scale_y + exe_real(s, 0x00428FC0)) - box_y) * fraction + box_y);
-    if (!(real(w, 0xB74) < one))
+    set(p, plate_field::box_height,
+        ((exe_real(s, row + 0xC) * scale_y + exe_real(s, 0x00428FC0)) - box_y) * fraction + box_y);
+    if (!(get(w.bytes, field::background_fade) < one))
     {
         set_runtime_slot_select_state(w, 5, s);
     }
@@ -492,28 +528,19 @@ void raise_selected_plate(SlotSelectWidget& w, GameSelectControlServices& s)
 // Xbox 0x000DE7B0, ESI widget: the selected plate zooms to fill the screen over DAT_00429008 seconds.
 void zoom_selected_plate(SlotSelectWidget& w, GameSelectControlServices& s)
 {
-    const u32 slot = word(w, 0xB2C);
-    const size_t p = size_t(slot) * kPlate;
+    const u32 slot = u32(chosen_slot(w));
+    const auto p = plate_bytes(w, slot);
+    const auto plate_sprite = record(p, plate_field::plate_sprite);
     const u32 row = 0x0042902C + slot * 0x124;
     const float rest_box_x = exe_real(s, row + 8) * exe_real(s, 0x0032B6B0) + exe_real(s, 0x00428FBC);
     const float rest_box_y = exe_real(s, row + 0xC) * exe_real(s, 0x0032B6AC) + exe_real(s, 0x00428FBC);
-    const float step = frame_step(s);
-    float timer = real(w, 0xB8C);
-    if (0.f < timer)
-    {
-        timer -= step;
-        put_real(w, 0xB8C, timer);
-        if (timer <= 0.f)
-        {
-            put_real(w, 0xB8C, 0.f);
-        }
-    }
+    count_down(w.bytes, field::zoom_timer, frame_step(s));
     const float one = exe_real(s, 0x0032B0F8);
     const float duration = exe_real(s, 0x00429008);
     float fraction = one;
     if (duration != 0.f)
     {
-        fraction = (real(w, 0xB8C) - duration) / (0.f - duration);
+        fraction = (get(w.bytes, field::zoom_timer) - duration) / (0.f - duration);
         if (fraction > one)
         {
             fraction = one;
@@ -526,16 +553,16 @@ void zoom_selected_plate(SlotSelectWidget& w, GameSelectControlServices& s)
     const bool done = !(fraction < one);
     const float margin_start = exe_real(s, 0x00428FC0);
     const float margin = (exe_real(s, 0x00428FC4) - margin_start) * fraction + margin_start;
-    put_real(w, p + 0x510, ((screen_width(s) + margin) - rest_box_x) * fraction + rest_box_x);
-    put_real(w, p + 0x514, ((screen_height(s) + margin) - rest_box_y) * fraction + rest_box_y);
+    set(p, plate_field::box_width, ((screen_width(s) + margin) - rest_box_x) * fraction + rest_box_x);
+    set(p, plate_field::box_height, ((screen_height(s) + margin) - rest_box_y) * fraction + rest_box_y);
     const float x = exe_real(s, row);
-    put_real(w, p + 0x428, (s.hud.center_x - x) * fraction + x);
+    set(plate_sprite, sprite::x, (s.hud.center_x - x) * fraction + x);
     const float y = exe_real(s, row + 4);
-    put_real(w, p + 0x42C, (s.hud.center_y - y) * fraction + y);
+    set(plate_sprite, sprite::y, (s.hud.center_y - y) * fraction + y);
     const float scale_x = exe_real(s, row + 8);
-    put_real(w, p + 0x434, (one - scale_x) * fraction + scale_x);
+    set(plate_sprite, sprite::scale_x, (one - scale_x) * fraction + scale_x);
     const float scale_y = exe_real(s, row + 0xC);
-    put_real(w, p + 0x438, (one - scale_y) * fraction + scale_y);
+    set(plate_sprite, sprite::scale_y, (one - scale_y) * fraction + scale_y);
     if (done)
     {
         set_runtime_slot_select_state(w, 8, s);
@@ -545,21 +572,22 @@ void zoom_selected_plate(SlotSelectWidget& w, GameSelectControlServices& s)
 // Xbox 0x000DE9E0, EDI widget: the selected slot's movie and the bat's flight to it.
 bool select_slot_movie(SlotSelectWidget& w, GameSelectControlServices& s)
 {
-    if (word(w, 0xB30) == word(w, 0xB28) && word(w, 0xB34) == word(w, 0xB2C))
+    if (get(w.bytes, field::flown_row) == get(w.bytes, field::cursor_row)
+        && get(w.bytes, field::flown_slot) == u32(get(w.bytes, field::slot)))
     {
         return true;
     }
-    const u32 slot = word(w, 0xB2C);
+    const u32 slot = u32(chosen_slot(w));
     const u32 row = 0x0042902C + slot * 0x124;
-    put_word(w, 0xB20, exe_word(s, row));
-    put_real(w, 0xB24, exe_real(s, row + 0x18) + exe_real(s, row + 4));
+    set(w.bytes, field::bat_target_x, exe_real(s, row));
+    set(w.bytes, field::bat_target_y, exe_real(s, row + 0x18) + exe_real(s, row + 4));
     if (w.movie != nullptr)
     {
         --w.movie->play_count;
     }
-    const i32 status = integer(w, size_t(slot) * kPlate + 0x214);
+    const i32 status = plate_status(w, slot);
     RuntimeMovieState* movie;
-    if (status == 2 || status == 4 || status == 3)
+    if (status_has_save(status))
     {
         const i32 row = slot_chapter_row(slot_name(w, i32(slot)), s);
         movie = s.frontend.movies.at(size_t(2 + row)); // DAT_005065A0 + row * 4
@@ -570,14 +598,14 @@ bool select_slot_movie(SlotSelectWidget& w, GameSelectControlServices& s)
     }
     w.movie = movie;
     ++movie->play_count;
-    put_word(w, 0xB88, 1);
-    put_word(w, 0xB84, 0);
+    set(w.bytes, field::movie_held, 1);
+    set(w.bytes, field::movie_frames, 0);
     if (w.bat != nullptr)
     {
-        const ButtonBatPoint target{real(w, 0xB20), real(w, 0xB24)};
+        const ButtonBatPoint target{get(w.bytes, field::bat_target_x), get(w.bytes, field::bat_target_y)};
         s.fly_bat(*w.bat, target, exe_real(s, 0x00428F90)); // 0x0006DA00, EBX +0xB20, ESI the bat
-        put_word(w, 0xB34, word(w, 0xB2C));
-        put_word(w, 0xB30, word(w, 0xB28));
+        set(w.bytes, field::flown_slot, u32(get(w.bytes, field::slot)));
+        set(w.bytes, field::flown_row, get(w.bytes, field::cursor_row));
         return true;
     }
     return false;
@@ -590,18 +618,20 @@ void select_slot_background(SlotSelectWidget& w, GameSelectControlServices& s)
     {
         release_texture(w.old_background, s);
     }
-    put_word(w, 0xB64, word(w, 0xB4C));
+    const auto background = record(w.bytes, field::background);
+    const auto old_background = record(w.bytes, field::old_background);
+    set(old_background, sprite::color, get(background, sprite::color));
     w.old_background = w.background;
-    put_word(w, 0xB68, word(w, 0xB50));
-    put_word(w, 0xB6C, word(w, 0xB54));
-    put_word(w, 0xB5C, word(w, 0xB44));
-    put_word(w, 0xB60, word(w, 0xB48));
+    set(old_background, sprite::scale_x, get(background, sprite::scale_x));
+    set(old_background, sprite::scale_y, get(background, sprite::scale_y));
+    set(old_background, sprite::x, get(background, sprite::x));
+    set(old_background, sprite::y, get(background, sprite::y));
     w.background = {};
-    const i32 status = integer(w, size_t(integer(w, 0xB2C)) * kPlate + 0x214);
+    const i32 status = plate_status(w, size_t(chosen_slot(w)));
     std::span<const u8> texture;
-    if (status == 2 || status == 4 || status == 3)
+    if (status_has_save(status))
     {
-        const i32 row = slot_chapter_row(slot_name(w, integer(w, 0xB2C)), s);
+        const i32 row = slot_chapter_row(slot_name(w, chosen_slot(w)), s);
         texture = acquire_texture(exe_string(s, 0x00429290 + u32(row) * 0x10C), s);
     }
     else
@@ -613,15 +643,15 @@ void select_slot_background(SlotSelectWidget& w, GameSelectControlServices& s)
     w.background = texture;
     if (texture.data() != nullptr && texture_has_frame(texture) && runtime_texture_format_drawable(texture))
     {
-        put_real(w, 0xB50, screen_width(s) / texture_width(texture));
-        put_real(w, 0xB54, screen_height(s) / texture_height(texture));
+        set(background, sprite::scale_x, screen_width(s) / texture_width(texture));
+        set(background, sprite::scale_y, screen_height(s) / texture_height(texture));
         if (w.bat != nullptr)
         {
-            put_real(w, 0xB70, s.bat_screen(*w.bat).flight_duration); // Bat +0x93C
-            put_real(w, 0xB74, 0.f);
+            set(w.bytes, field::background_fade_timer, s.bat_screen(*w.bat).flight_duration); // Bat +0x93C
+            set(w.bytes, field::background_fade, 0.f);
         }
-        w.bytes[0xB4F] = 0;
-        w.bytes[0xB67] = 0xFF;
+        field_byte(background, sprite::color, 3) = 0;
+        field_byte(old_background, sprite::color, 3) = 0xFF;
     }
 }
 
@@ -631,14 +661,14 @@ void drop_missing_saves(GameSelectControlServices& s)
     auto& w = *s.frontend.slot_widget;
     for (i32 index = 0; index < 3; ++index)
     {
-        const auto* name = reinterpret_cast<const char16_t*>(w.bytes.data() + 0xB9C + size_t(index) * 0x100);
-        if (integer(w, 0xB2C) != index && name[0] != 0)
+        char16_t* name = slot_name(w, index);
+        if (chosen_slot(w) != index && name[0] != 0)
         {
             if (save_game_loading(name) == 0) // 0x0010DBA0, EBX the name
             {
                 SaveGameContext saves = save_context(s);
                 unload_save_game(name, saves); // 0x0010D9B0, EAX the name
-                *const_cast<char16_t*>(name) = 0;
+                *name = 0;
             }
         }
     }
@@ -657,7 +687,7 @@ void fill_slots_from_saves(GameSelectControlServices& s)
         if (!find_slot_by_name(name.data(), found, s)) // 0x000DF950
         {
             const u8 slot = save_game_slot(name.data()); // 0x0010DB60
-            auto* target = reinterpret_cast<char16_t*>(w.bytes.data() + 0xB9C + size_t(slot) * 0x100);
+            char16_t* target = slot_name(w, slot);
             if (target[0] == 0)
             {
                 std::copy(name.begin(), std::find(name.begin(), name.end(), u'\0') + 1, target); // lstrcpyW
@@ -671,7 +701,7 @@ void fill_slots_from_saves(GameSelectControlServices& s)
             }
             if (filled < 3)
             {
-                auto* free = reinterpret_cast<char16_t*>(w.bytes.data() + 0xB9C + size_t(filled) * 0x100);
+                char16_t* free = slot_name(w, filled);
                 std::copy(name.begin(), std::find(name.begin(), name.end(), u'\0') + 1, free);
             }
         }
@@ -690,14 +720,14 @@ void load_slot_names(GameSelectControlServices& s)
         std::copy(kept.begin(), std::find(kept.begin(), kept.end(), u'\0'), name.begin()); // lstrcpyW
         if (name[0] != 0 && save_game_name_exists(name.data())) // 0x0010F530
         {
-            auto* target = reinterpret_cast<char16_t*>(w.bytes.data() + 0xB9C + index * 0x100);
+            char16_t* target = slot_name(w, i32(index));
             std::copy(name.begin(), std::find(name.begin(), name.end(), u'\0') + 1, target); // lstrcpyW
         }
     }
     fill_slots_from_saves(s); // 0x000DF880
     for (size_t index = 0; index < 3; ++index)
     {
-        const auto* name = reinterpret_cast<const char16_t*>(w.bytes.data() + 0xB9C + index * 0x100);
+        const char16_t* name = slot_name(w, i32(index));
         auto& kept = s.frontend.slot_names[index];
         kept.fill(0);
         std::copy(name, name + std::u16string_view(name).size(), kept.begin()); // lstrcpyW
@@ -712,7 +742,8 @@ void load_save_slot(const char16_t* name, GameSelectControlServices& s)
         [&s](const void*)
         {
             // Xbox 0x000E0640: one load fewer outstanding.
-            put_word(*s.frontend.slot_widget, 0xE9C, word(*s.frontend.slot_widget, 0xE9C) - 1);
+            auto& bytes = s.frontend.slot_widget->bytes;
+            set(bytes, field::loads_pending, get(bytes, field::loads_pending) - 1);
         },
         [](const void*)
         {
@@ -733,11 +764,11 @@ void begin_save_scan(GameSelectControlServices& s)
     {
         if (!save_slot_loaded(name.data())) // 0x0010F620, EBX the name
         {
-            put_word(w, 0xE9C, word(w, 0xE9C) + 1);
+            set(w.bytes, field::loads_pending, get(w.bytes, field::loads_pending) + 1);
             load_save_slot(name.data(), s);
         }
     }
-    put_word(w, 0xEA0, word(w, 0xEA0) + 1);
+    set(w.bytes, field::scan_steps, get(w.bytes, field::scan_steps) + 1);
 }
 
 // Xbox 0x000DF650: the next save-scan step.
@@ -748,54 +779,63 @@ void continue_save_scan(GameSelectControlServices& s)
     auto& w = *s.frontend.slot_widget;
     if (name[0] != 0 && !save_slot_loaded(name.data()))
     {
-        put_word(w, 0xE9C, word(w, 0xE9C) + 1);
+        set(w.bytes, field::loads_pending, get(w.bytes, field::loads_pending) + 1);
         load_save_slot(name.data(), s);
     }
-    put_word(w, 0xEA0, word(w, 0xEA0) + 1);
+    set(w.bytes, field::scan_steps, get(w.bytes, field::scan_steps) + 1);
 }
 
 // The plate texture of a slot replaced, keeping its drawn size (0x000DEB20's scale update).
 void replace_plate_texture(SlotSelectWidget& w, size_t index, const char* name, GameSelectControlServices& s)
 {
     auto& plate = w.plates[index];
+    const auto plate_sprite = record(plate_bytes(w, index), plate_field::plate_sprite);
     const float old_width = texture_width(plate.plate);
     const float old_height = texture_height(plate.plate);
-    const float scale_x = real(w, index * kPlate + 0x434);
-    const float scale_y = real(w, index * kPlate + 0x438);
+    const float scale_x = get(plate_sprite, sprite::scale_x);
+    const float scale_y = get(plate_sprite, sprite::scale_y);
     if (plate.plate.data() != nullptr)
     {
         release_texture(plate.plate, s);
     }
     plate.plate = acquire_texture(name, s);
-    put_real(w, index * kPlate + 0x434, (scale_x * old_width) / texture_width(plate.plate));
-    put_real(w, index * kPlate + 0x438, (scale_y * old_height) / texture_height(plate.plate));
+    set(plate_sprite, sprite::scale_x, (scale_x * old_width) / texture_width(plate.plate));
+    set(plate_sprite, sprite::scale_y, (scale_y * old_height) / texture_height(plate.plate));
 }
 
 void copy_label(SlotSelectWidget& w, size_t index, const char16_t* text)
 {
-    char16_t* label = reinterpret_cast<char16_t*>(w.bytes.data() + index * kPlate + 0x218);
+    char16_t* label = field_data(record(plate_bytes(w, index), plate_field::label), text_line::text);
     std::u16string_view copied(text);
     std::copy(copied.begin(), copied.end(), label);
     label[copied.size()] = 0;
 }
 
-// An overlay texture for the plate (the no-write and broken discs): its texture, size words, position from the
-// plate's (+0x428, +0x42C) and color.
+void copy_movie_name(SlotSelectWidget& w, size_t index, const char* name)
+{
+    std::strcpy(field_data(plate_bytes(w, index), plate_field::movie_name), name);
+}
+
+// An overlay sprite for the plate (the no-write and broken discs): its texture, scale, position offset from the
+// plate sprite's, and color.
+template <typename Sprite>
 void set_plate_overlay(SlotSelectWidget& w, size_t index, std::span<const u8>& texture, const char* name,
-    size_t offset, u32 size_row, u32 offset_row, u32 alpha_row, GameSelectControlServices& s)
+    Sprite overlay, u32 size_row, u32 offset_row, u32 alpha_row, GameSelectControlServices& s)
 {
     texture = acquire_animation_resource(s.resources, name); // 0x00035E90
     if (texture.data() == nullptr)
     {
         resource_error(s.error, 2); // 0x00032700(2)
     }
-    const size_t p = index * kPlate;
-    put_word(w, p + offset + 0x10, exe_word(s, size_row));
-    put_word(w, p + offset + 0x14, exe_word(s, size_row + 4));
-    put_real(w, p + offset + 4, real(w, p + 0x428) + exe_real(s, offset_row));
-    put_real(w, p + offset + 8, real(w, p + 0x42C) + exe_real(s, offset_row + 4));
-    put_word(w, p + offset + 0xC, exe_word(s, 0x00314F48));
-    w.bytes[p + offset + 0xF] = s.image.memory(alpha_row, 1)[0];
+    const auto p = plate_bytes(w, index);
+    const auto plate_sprite = record(p, plate_field::plate_sprite);
+    const auto sprite_bytes = record(p, overlay);
+    set(sprite_bytes, sprite::scale_x, exe_real(s, size_row));
+    set(sprite_bytes, sprite::scale_y, exe_real(s, size_row + 4));
+    set(sprite_bytes, sprite::x, get(plate_sprite, sprite::x) + exe_real(s, offset_row));
+    set(sprite_bytes, sprite::y, get(plate_sprite, sprite::y) + exe_real(s, offset_row + 4));
+    set(sprite_bytes, sprite::color, exe_word(s, 0x00314F48));
+    field_byte(sprite_bytes, sprite::color, 3) = s.image.memory(alpha_row, 1)[0];
 }
 
 // Xbox 0x000DEB20, EAX widget: each slot's status, name, plate and movie from its save.
@@ -803,8 +843,8 @@ void describe_slots(SlotSelectWidget& w, GameSelectControlServices& s)
 {
     for (size_t index = 0; index < 3; ++index)
     {
-        const auto* name = slot_name(w, i32(index));
-        const size_t p = index * kPlate;
+        const char16_t* name = slot_name(w, i32(index));
+        const auto p = plate_bytes(w, index);
         i32 status;
         if (name[0] == 0)
         {
@@ -822,7 +862,7 @@ void describe_slots(SlotSelectWidget& w, GameSelectControlServices& s)
         {
             status = 2;
         }
-        put_word(w, p + 0x214, u32(status));
+        set(p, plate_field::status, status);
         const u32 row = 0x00429048 + u32(index) * 0x124;
         switch (status)
         {
@@ -833,9 +873,8 @@ void describe_slots(SlotSelectWidget& w, GameSelectControlServices& s)
                 "emptyslotname");
             copy_label(w, index, text == nullptr ? u"ERROR" : text);
             replace_plate_texture(w, index, exe_string(s, row), s);
-            std::strcpy(reinterpret_cast<char*>(w.bytes.data() + p + 0x484), exe_string(s, row + 0x80));
-            put_word(w, p + 0x504, exe_word(s, row + 0x100));
-            put_word(w, p + 0x508, exe_word(s, row + 0x104));
+            copy_movie_name(w, index, exe_string(s, row + 0x80));
+            set(p, plate_field::movie_uv, {exe_real(s, row + 0x100), exe_real(s, row + 0x104)});
             break;
         }
         case 2:
@@ -844,14 +883,13 @@ void describe_slots(SlotSelectWidget& w, GameSelectControlServices& s)
             // The save's chapter plate and movie (rows of 0x10C from 0x00429290), and its name.
             const u32 chapter = 0x00429290 + u32(slot_chapter_row(name, s)) * 0x10C;
             replace_plate_texture(w, index, exe_string(s, chapter), s);
-            std::strcpy(reinterpret_cast<char*>(w.bytes.data() + p + 0x484), exe_string(s, chapter + 0x80));
-            put_word(w, p + 0x504, exe_word(s, chapter + 0x100));
-            put_word(w, p + 0x508, exe_word(s, chapter + 0x104));
+            copy_movie_name(w, index, exe_string(s, chapter + 0x80));
+            set(p, plate_field::movie_uv, {exe_real(s, chapter + 0x100), exe_real(s, chapter + 0x104)});
             copy_label(w, index, name);
             if (status == 4)
             {
                 set_plate_overlay(w, index, w.plates[index].nowrite, "aid_texture_ghoulies_gameselect_disc_nowrite",
-                    0x454, 0x00428FEC, 0x00428FF4, 0x00428FFC, s);
+                    plate_field::nowrite_sprite, 0x00428FEC, 0x00428FF4, 0x00428FFC, s);
             }
             break;
         }
@@ -862,11 +900,10 @@ void describe_slots(SlotSelectWidget& w, GameSelectControlServices& s)
                 "damagedgamename");
             copy_label(w, index, text == nullptr ? u"ERROR" : text);
             replace_plate_texture(w, index, exe_string(s, 0x0042939C), s);
-            std::strcpy(reinterpret_cast<char*>(w.bytes.data() + p + 0x484), exe_string(s, 0x0042941C));
-            put_word(w, p + 0x504, exe_word(s, 0x0042949C));
-            put_word(w, p + 0x508, exe_word(s, 0x004294A0));
+            copy_movie_name(w, index, exe_string(s, 0x0042941C));
+            set(p, plate_field::movie_uv, {exe_real(s, 0x0042949C), exe_real(s, 0x004294A0)});
             set_plate_overlay(w, index, w.plates[index].broken, "aid_texture_ghoulies_gameselect_disc_broken",
-                0x46C, 0x00428FD8, 0x00428FE0, 0x00428FE8, s);
+                plate_field::broken_sprite, 0x00428FD8, 0x00428FE0, 0x00428FE8, s);
             break;
         }
         default:
@@ -895,17 +932,18 @@ void open_runtime_slot_select(std::span<u8> owner, GameSelectControlState& contr
     open_runtime_gameselect_movies(s);
     w.owner = &control;
     w.owner_state = owner;
-    put_word(w, 0, 0);
-    put_word(w, 0xE9C, 0);
-    put_word(w, 0xEA0, 0);
-    put_real(w, 0xB90, 0.f);
+    set(w.bytes, field::state, 0);
+    set(w.bytes, field::loads_pending, 0);
+    set(w.bytes, field::scan_steps, 0);
+    set(w.bytes, field::fade_out_timer, 0.f);
     w.prompt_pool = nullptr;
     w.plate_pool = nullptr;
-    put_word(w, 0x20C, 0);
-    put_real(w, 0x204, 0.f);
-    put_real(w, 0x208, 0.f);
-    w.bytes[4] = 0;
-    w.bytes[5] = 0;
+    const auto prompt = record(w.bytes, field::prompt);
+    set(prompt, text_line::record, 0);
+    set(prompt, text_line::x, 0.f);
+    set(prompt, text_line::y, 0.f);
+    field_byte(prompt, text_line::text, 0) = 0;
+    field_byte(prompt, text_line::text, 1) = 0;
     s.frontend.word_0042a0c8 = 0;
     s.frontend.word_0042a0c4 = 0;
     s.next_row = 1;
@@ -913,85 +951,95 @@ void open_runtime_slot_select(std::span<u8> owner, GameSelectControlState& contr
     clear_runtime_profile_block(s.profile.progress.bytes);
     clear_runtime_profile_block(s.profile.unlocks.bytes);
     w.movie = nullptr;
-    put_word(w, 0xB84, 0);
-    put_word(w, 0xB88, 0);
-    put_real(w, 0xB8C, 0.f);
-    put_real(w, 0xB20, 0.f);
-    put_real(w, 0xB24, 0.f);
-    put_word(w, 0xB28, exe_word(s, 0x00428F9C));
-    put_word(w, 0xB2C, exe_word(s, 0x00428FA0));
-    put_word(w, 0xB30, 0xBADBADBAu);
-    put_word(w, 0xB34, 0xBADBADBAu);
+    set(w.bytes, field::movie_frames, 0);
+    set(w.bytes, field::movie_held, 0);
+    set(w.bytes, field::zoom_timer, 0.f);
+    set(w.bytes, field::bat_target_x, 0.f);
+    set(w.bytes, field::bat_target_y, 0.f);
+    set(w.bytes, field::cursor_row, exe_word(s, 0x00428F9C));
+    set(w.bytes, field::slot, i32(exe_word(s, 0x00428FA0)));
+    set(w.bytes, field::flown_row, 0xBADBADBAu);
+    set(w.bytes, field::flown_slot, 0xBADBADBAu);
     w.bat = nullptr;
     for (size_t index = 0; index < 3; ++index)
     {
-        w.bytes[0xB9C + index * 0x100] = 0;
-        w.bytes[0xB9D + index * 0x100] = 0;
+        const auto name = record(w.bytes, field::slot_names, index);
+        name[0] = 0;
+        name[1] = 0;
     }
     const u32 white = exe_word(s, 0x00314F48);
+    const auto background_sprite = record(w.bytes, field::background);
+    const auto old_background_sprite = record(w.bytes, field::old_background);
     w.background = acquire_texture(background, s);
-    put_word(w, 0xB4C, white);
-    put_real(w, 0xB44, s.hud.center_x);
-    put_real(w, 0xB48, s.hud.center_y);
-    put_real(w, 0xB54, screen_height(s) / texture_height(w.background));
-    put_real(w, 0xB50, screen_width(s) / texture_width(w.background));
+    set(background_sprite, sprite::color, white);
+    set(background_sprite, sprite::x, s.hud.center_x);
+    set(background_sprite, sprite::y, s.hud.center_y);
+    set(background_sprite, sprite::scale_y, screen_height(s) / texture_height(w.background));
+    set(background_sprite, sprite::scale_x, screen_width(s) / texture_width(w.background));
     w.old_background = {};
-    put_word(w, 0xB64, white);
-    put_real(w, 0xB5C, s.hud.center_x);
-    put_real(w, 0xB60, s.hud.center_y);
-    put_word(w, 0xB68, word(w, 0xB50));
-    put_word(w, 0xB6C, word(w, 0xB54));
-    put_real(w, 0xB70, 0.f);
-    put_real(w, 0xB74, 0.f);
+    set(old_background_sprite, sprite::color, white);
+    set(old_background_sprite, sprite::x, s.hud.center_x);
+    set(old_background_sprite, sprite::y, s.hud.center_y);
+    set(old_background_sprite, sprite::scale_x, get(background_sprite, sprite::scale_x));
+    set(old_background_sprite, sprite::scale_y, get(background_sprite, sprite::scale_y));
+    set(w.bytes, field::background_fade_timer, 0.f);
+    set(w.bytes, field::background_fade, 0.f);
     for (size_t index = 0; index < 3; ++index)
     {
-        const size_t p = index * kPlate;
+        const auto p = plate_bytes(w, index);
+        const auto plate_sprite = record(p, plate_field::plate_sprite);
+        const auto disc_sprite = record(p, plate_field::disc_sprite);
+        const auto nowrite_sprite = record(p, plate_field::nowrite_sprite);
+        const auto broken_sprite = record(p, plate_field::broken_sprite);
         const u32 row = 0x0042902C + u32(index) * 0x124; // Plate table, stride 0x124: x, y, ..., texture at +0x1C.
         const u32 movie = 0x0042941C + u32(index) * 0x10C; // Movie names, stride 0x10C.
         auto& plate = w.plates[index];
-        put_word(w, p + 0x214, 0);
+        set(p, plate_field::status, 0);
         const char16_t error[]{u'e', u'r', u'r', u'o', u'r', 0};
-        std::memcpy(w.bytes.data() + p + 0x218, error, sizeof(error));
-        put_real(w, p + 0x418, s.hud.center_x + exe_real(s, 0x00428FA8));
-        put_real(w, p + 0x41C, s.hud.center_y + exe_real(s, 0x00428FAC));
+        const auto label = record(p, plate_field::label);
+        std::memcpy(field_data(label, text_line::text), error, sizeof(error));
+        set(label, text_line::x, s.hud.center_x + exe_real(s, 0x00428FA8));
+        set(label, text_line::y, s.hud.center_y + exe_real(s, 0x00428FAC));
         plate.plate = acquire_texture(exe_string(s, row + 0x1C), s);
-        put_word(w, p + 0x428, exe_word(s, row));
-        put_word(w, p + 0x42C, exe_word(s, row + 4));
-        put_real(w, p + 0x434, (screen_width(s) * exe_real(s, row + 0x10)) / texture_width(plate.plate));
-        put_real(w, p + 0x438, (screen_height(s) * exe_real(s, row + 0x14)) / texture_height(plate.plate));
-        put_word(w, p + 0x430, white);
+        set(plate_sprite, sprite::x, exe_real(s, row));
+        set(plate_sprite, sprite::y, exe_real(s, row + 4));
+        set(plate_sprite, sprite::scale_x, (screen_width(s) * exe_real(s, row + 0x10)) / texture_width(plate.plate));
+        set(plate_sprite, sprite::scale_y,
+            (screen_height(s) * exe_real(s, row + 0x14)) / texture_height(plate.plate));
+        set(plate_sprite, sprite::color, white);
         plate.disc = {};
         plate.disc = acquire_animation_resource(s.resources, "aid_texture_ghoulies_gameselect_disc_discspin");
         if (plate.disc.data() == nullptr)
         {
             resource_error(s.error, 2);
         }
-        put_real(w, p + 0x440, exe_real(s, row) + exe_real(s, 0x00428FD0));
-        put_real(w, p + 0x444, exe_real(s, row + 4) + exe_real(s, 0x00428FD4));
-        put_word(w, p + 0x44C, exe_word(s, 0x00428FC8));
-        put_word(w, p + 0x450, exe_word(s, 0x00428FCC));
-        put_word(w, p + 0x448, white);
-        put_word(w, p + 0x460, white);
-        put_real(w, p + 0x458, 0.f);
-        put_real(w, p + 0x45C, 0.f);
-        put_real(w, p + 0x464, 0.f);
-        put_real(w, p + 0x468, 0.f);
+        set(disc_sprite, sprite::x, exe_real(s, row) + exe_real(s, 0x00428FD0));
+        set(disc_sprite, sprite::y, exe_real(s, row + 4) + exe_real(s, 0x00428FD4));
+        set(disc_sprite, sprite::scale_x, exe_real(s, 0x00428FC8));
+        set(disc_sprite, sprite::scale_y, exe_real(s, 0x00428FCC));
+        set(disc_sprite, sprite::color, white);
+        set(nowrite_sprite, sprite::color, white);
+        set(nowrite_sprite, sprite::x, 0.f);
+        set(nowrite_sprite, sprite::y, 0.f);
+        set(nowrite_sprite, sprite::scale_x, 0.f);
+        set(nowrite_sprite, sprite::scale_y, 0.f);
         plate.nowrite = {};
-        put_word(w, p + 0x478, white);
-        put_real(w, p + 0x470, 0.f);
-        put_real(w, p + 0x474, 0.f);
-        put_real(w, p + 0x47C, 0.f);
-        put_real(w, p + 0x480, 0.f);
+        set(broken_sprite, sprite::color, white);
+        set(broken_sprite, sprite::x, 0.f);
+        set(broken_sprite, sprite::y, 0.f);
+        set(broken_sprite, sprite::scale_x, 0.f);
+        set(broken_sprite, sprite::scale_y, 0.f);
         plate.broken = {};
-        std::strcpy(reinterpret_cast<char*>(w.bytes.data() + p + 0x484), exe_string(s, movie));
-        put_word(w, p + 0x504, exe_word(s, movie + 0x80));
-        put_word(w, p + 0x508, exe_word(s, movie + 0x84));
-        put_word(w, p + 0x50C, exe_word(s, 0x00308B1C));
-        put_real(w, p + 0x510, exe_real(s, row + 0x10) * exe_real(s, 0x0032B6B0) + exe_real(s, 0x00428FBC));
-        put_real(w, p + 0x514, exe_real(s, row + 0x14) * exe_real(s, 0x0032B6AC) + exe_real(s, 0x00428FBC));
+        copy_movie_name(w, index, exe_string(s, movie));
+        set(p, plate_field::movie_uv, {exe_real(s, movie + 0x80), exe_real(s, movie + 0x84)});
+        set(p, plate_field::box_color, exe_word(s, 0x00308B1C));
+        set(p, plate_field::box_width,
+            exe_real(s, row + 0x10) * exe_real(s, 0x0032B6B0) + exe_real(s, 0x00428FBC));
+        set(p, plate_field::box_height,
+            exe_real(s, row + 0x14) * exe_real(s, 0x0032B6AC) + exe_real(s, 0x00428FBC));
     }
-    put_word(w, 0xB94, u32(s.plate_flags[0]));
-    put_word(w, 0xB98, u32(s.plate_flags[1]));
+    set(w.bytes, field::saved_plate_flag_0, s.plate_flags[0]);
+    set(w.bytes, field::saved_plate_flag_1, s.plate_flags[1]);
     s.plate_flags[0] = 1; // DAT_00510F7C
     s.plate_flags[1] = 1; // DAT_00510F80
     w.prompts = nullptr;
@@ -1018,15 +1066,15 @@ void close_runtime_slot_select(GameSelectWidget& widget, GameSelectControlServic
     if (w.background.data() != nullptr)
     {
         release_texture(w.background, s);
-        put_word(w, 0xB4C, cleared);
+        set(record(w.bytes, field::background), sprite::color, cleared);
     }
     if (w.old_background.data() != nullptr)
     {
         release_texture(w.old_background, s);
-        put_word(w, 0xB64, cleared);
+        set(record(w.bytes, field::old_background), sprite::color, cleared);
     }
-    s.plate_flags[0] = i32(word(w, 0xB94));
-    s.plate_flags[1] = i32(word(w, 0xB98));
+    s.plate_flags[0] = get(w.bytes, field::saved_plate_flag_0);
+    s.plate_flags[1] = get(w.bytes, field::saved_plate_flag_1);
     for (auto& movie : s.frontend.movies)
     {
         if (movie != nullptr)
@@ -1057,7 +1105,7 @@ void tick_runtime_slot_select(GameSelectWidget& widget, GameSelectControlService
 {
     auto& s = services;
     auto& w = slots(widget);
-    const u32 state = word(w, 0);
+    const u32 state = u32(get(w.bytes, field::state)); // unsigned: the jump table bound
     if (state <= 8 && w.prompts != nullptr)
     {
         // State 5 updates the prompts with the front-end device (DAT_00429BBC); the others without one (the jump
@@ -1065,12 +1113,12 @@ void tick_runtime_slot_select(GameSelectWidget& widget, GameSelectControlService
         const bool device = state == 5;
         s.update_prompts(*w.prompts, device); // 0x00142460, EDI the widget
     }
-    switch (integer(w, 0))
+    switch (get(w.bytes, field::state))
     {
     case 1:
-        if (word(w, 0xE9C) == 0)
+        if (get(w.bytes, field::loads_pending) == 0)
         {
-            if (integer(w, 0xEA0) < 3)
+            if (get(w.bytes, field::scan_steps) < 3)
             {
                 continue_save_scan(s);
                 return;
@@ -1080,7 +1128,7 @@ void tick_runtime_slot_select(GameSelectWidget& widget, GameSelectControlService
         return;
     case 2:
     {
-        if (s.timer_expired(reals(w, 0xB90)) != 0) // 0x0012B2A0, EBX +0xB90
+        if (s.timer_expired(field_data(w.bytes, field::fade_out_timer)) != 0) // 0x0012B2A0, EBX +0xB90
         {
             set_runtime_slot_select_state(w, 3, s);
             return;
@@ -1096,7 +1144,7 @@ void tick_runtime_slot_select(GameSelectWidget& widget, GameSelectControlService
             else
             {
                 const float full = exe_real(s, 0x0032B158);
-                const float value = full - ((real(w, 0xB90) - duration) / (0.f - duration)) * full;
+                const float value = full - ((get(w.bytes, field::fade_out_timer) - duration) / (0.f - duration)) * full;
                 if (0.f > value)
                 {
                     alpha = 0.f;
@@ -1110,12 +1158,13 @@ void tick_runtime_slot_select(GameSelectWidget& widget, GameSelectControlService
                     alpha = value;
                 }
             }
-            w.bytes[index * kPlate + 0x44B] = truncate_byte(alpha);
+            field_byte(record(plate_bytes(w, index), plate_field::disc_sprite), sprite::color, 3) =
+                truncate_byte(alpha);
         }
         return;
     }
     case 4:
-        if (word(w, 0xB7C) == 0)
+        if (get(w.bytes, field::plates_fading) == 0)
         {
             if (!runtime_gameselect_book_busy(w.owner_state, *w.owner, s)) // 0x00083C40, ECX the owner
             {
@@ -1128,7 +1177,10 @@ void tick_runtime_slot_select(GameSelectWidget& widget, GameSelectControlService
         }
         for (size_t index = 0; index < 3; ++index)
         {
-            w.bytes[index * kPlate + 0x44B] = w.bytes[index * kPlate + 0x433];
+            // The disc fades with its plate.
+            const auto p = plate_bytes(w, index);
+            field_byte(record(p, plate_field::disc_sprite), sprite::color, 3) =
+                field_byte(record(p, plate_field::plate_sprite), sprite::color, 3);
         }
         return;
     case 6:
@@ -1147,7 +1199,7 @@ void draw_runtime_slot_select(GameSelectWidget& widget, GameSelectControlService
 {
     auto& s = services;
     auto& w = slots(widget);
-    const i32 chosen = integer(w, 0xB2C);
+    const i32 chosen = chosen_slot(w);
     if ((s.flags & 0x40000u) != 0)
     {
         return;
@@ -1156,83 +1208,67 @@ void draw_runtime_slot_select(GameSelectWidget& widget, GameSelectControlService
     {
         if ((s.flags & 0x80u) != 0)
         {
-            if (word(w, 0xB88) != 0)
+            if (get(w.bytes, field::movie_held) != 0)
             {
                 --w.movie->play_count;
-                put_word(w, 0xB88, 0);
+                set(w.bytes, field::movie_held, 0);
             }
         }
-        else if (word(w, 0xB88) == 0)
+        else if (get(w.bytes, field::movie_held) == 0)
         {
             ++w.movie->play_count;
-            put_word(w, 0xB88, 1);
+            set(w.bytes, field::movie_held, 1);
         }
     }
     const std::span<u8> frame = w.owner->texture;
-    if (w.movie != nullptr && integer(w, 0xB84) >= i32(exe_word(s, 0x00429000)))
+    if (w.movie != nullptr && get(w.bytes, field::movie_frames) >= i32(exe_word(s, 0x00429000)))
     {
         // The movie boundary locks a texture header by its native address.
         const u32 header = s.textures.address_of(frame.data()) + read_u32(frame, 4) + u32(frame[0x12]) * 0x14;
         copy_runtime_movie_frame(*w.movie, reinterpret_cast<void*>(std::uintptr_t(header)),
             s.movies); // 0x00107360, ESI the movie, ECX the texture header
     }
+    const auto background = record(w.bytes, field::background);
     if (w.background.data() != nullptr && texture_has_frame(w.background)
-        && runtime_texture_format_drawable(w.background) && w.bytes[0xB4F] != 0)
+        && runtime_texture_format_drawable(w.background) && field_byte(background, sprite::color, 3) != 0)
     {
-        draw_runtime_dialogue_sprite(w.background.data(), reals(w, 0xB44), reals(w, 0xB50), 0.f, word(w, 0xB4C), 0,
-            s.draw); // 0x0005CE30
+        draw_runtime_dialogue_sprite(w.background.data(), field_data(background, sprite::position),
+            field_data(background, sprite::scale), 0.f, get(background, sprite::color), 0, s.draw); // 0x0005CE30
     }
+    const auto old_background = record(w.bytes, field::old_background);
     if (w.old_background.data() != nullptr && texture_has_frame(w.old_background)
-        && runtime_texture_format_drawable(w.old_background) && w.bytes[0xB67] != 0)
+        && runtime_texture_format_drawable(w.old_background) && field_byte(old_background, sprite::color, 3) != 0)
     {
-        draw_runtime_dialogue_sprite(w.old_background.data(), reals(w, 0xB5C), reals(w, 0xB68), 0.f,
-            word(w, 0xB64), 0, s.draw);
+        draw_runtime_dialogue_sprite(w.old_background.data(), field_data(old_background, sprite::position),
+            field_data(old_background, sprite::scale), 0.f, get(old_background, sprite::color), 0, s.draw);
     }
+    // The unselected plates, then the selected one on top.
     for (i32 index = 0; index < 3; ++index)
     {
-        const size_t p = size_t(index) * kPlate;
-        if (index != integer(w, 0xB2C) && w.plates[size_t(index)].plate.data() != nullptr)
+        if (index != chosen_slot(w) && w.plates[size_t(index)].plate.data() != nullptr)
         {
-            const i32 box_h = i32(real(w, p + 0x514));
-            const i32 box_w = i32(real(w, p + 0x510));
-            const float x = float(i32(real(w, p + 0x428)) - box_w / 2);
-            const float y = float(i32(real(w, p + 0x42C)) - box_h / 2);
-            draw_runtime_dialogue_panel(x, y, float(box_w), float(box_h), exe_real(s, 0x00428F98), word(w, p + 0x50C),
-                s.outer); // 0x00061360
-            draw_sprite(0, nullptr, w.plates[size_t(index)].plate, reals(w, p + 0x434), nullptr, word(w, p + 0x430),
-                reals(w, p + 0x428), s);
+            draw_plate(w, size_t(index), s);
         }
     }
-    const size_t p = size_t(integer(w, 0xB2C)) * kPlate;
-    if (w.plates[size_t(integer(w, 0xB2C))].plate.data() != nullptr)
+    if (w.plates[size_t(chosen_slot(w))].plate.data() != nullptr)
     {
-        const size_t q = size_t(chosen) * kPlate;
-        const i32 box_h = i32(real(w, q + 0x514));
-        const i32 box_w = i32(real(w, q + 0x510));
-        const float x = float(i32(real(w, q + 0x428)) - box_w / 2);
-        const float y = float(i32(real(w, q + 0x42C)) - box_h / 2);
-        draw_runtime_dialogue_panel(x, y, float(box_w), float(box_h), exe_real(s, 0x00428F98), word(w, q + 0x50C),
-            s.outer);
-        draw_sprite(0, nullptr, w.plates[size_t(chosen)].plate, reals(w, q + 0x434), nullptr, word(w, q + 0x430),
-            reals(w, q + 0x428), s);
+        draw_plate(w, size_t(chosen), s);
     }
-    (void)p;
-    const i32 state = integer(w, 0);
+    const i32 state = get(w.bytes, field::state);
     if (0 < state && (state <= 2 || state == 4))
     {
         for (size_t index = 0; index < 3; ++index)
         {
-            const size_t q = index * kPlate;
             if (w.plates[index].disc.data() != nullptr)
             {
-                draw_sprite(-1, nullptr, w.plates[index].disc, reals(w, q + 0x44C), nullptr, word(w, q + 0x448),
-                    reals(w, q + 0x440), s);
+                draw_plate_sprite(-1, w.plates[index].disc,
+                    record(plate_bytes(w, index), plate_field::disc_sprite), s);
             }
         }
     }
     if (w.movie != nullptr && w.movie->decoder != nullptr)
     {
-        const i32 shown = integer(w, 0xB84);
+        const i32 shown = get(w.bytes, field::movie_frames);
         const i32 delay = i32(exe_word(s, 0x00429000));
         if (shown > delay)
         {
@@ -1258,30 +1294,31 @@ void draw_runtime_slot_select(GameSelectWidget& widget, GameSelectControlService
             }
             const u32 color = with_alpha(exe_word(s, 0x00314F48), truncate_byte(alpha));
             const float uv_top[2]{exe_real(s, 0x0032B1F4), exe_real(s, 0x0032B1B0)};
-            const size_t q = size_t(chosen) * kPlate;
-            const size_t r = size_t(integer(w, 0xB2C)) * kPlate;
+            // The movie frame over the plate the frame was chosen for (`chosen`, read on entry), scaled by the
+            // selected plate's (+0xB2C now).
+            const auto q = plate_bytes(w, size_t(chosen));
+            const auto r = record(chosen_plate(w), plate_field::plate_sprite);
             const auto plate = w.plates[size_t(chosen)].plate;
-            const float scale[2]{(texture_width(plate) * real(w, r + 0x434)) / texture_width(frame),
-                (texture_height(plate) * real(w, r + 0x438)) / texture_height(frame)};
-            draw_sprite(0, uv_top, frame, scale, reals(w, q + 0x504), color, reals(w, q + 0x428), s);
+            const float scale[2]{(texture_width(plate) * get(r, sprite::scale_x)) / texture_width(frame),
+                (texture_height(plate) * get(r, sprite::scale_y)) / texture_height(frame)};
+            draw_sprite(0, uv_top, frame, scale, field_data(q, plate_field::movie_uv), color,
+                field_data(record(q, plate_field::plate_sprite), sprite::position), s);
         }
-        put_word(w, 0xB84, word(w, 0xB84) + 1);
+        set(w.bytes, field::movie_frames, get(w.bytes, field::movie_frames) + 1);
     }
     for (size_t index = 0; index < 3; ++index)
     {
-        const size_t q = index * kPlate;
+        const auto p = plate_bytes(w, index);
         if (w.plates[index].broken.data() != nullptr)
         {
-            draw_sprite(0, nullptr, w.plates[index].broken, reals(w, q + 0x47C), nullptr, word(w, q + 0x478),
-                reals(w, q + 0x470), s);
+            draw_plate_sprite(0, w.plates[index].broken, record(p, plate_field::broken_sprite), s);
         }
         if (w.plates[index].nowrite.data() != nullptr)
         {
-            draw_sprite(0, nullptr, w.plates[index].nowrite, reals(w, q + 0x464), nullptr, word(w, q + 0x460),
-                reals(w, q + 0x458), s);
+            draw_plate_sprite(0, w.plates[index].nowrite, record(p, plate_field::nowrite_sprite), s);
         }
     }
-    if (word(w, 0xB7C) == 0 && w.bat != nullptr)
+    if (get(w.bytes, field::plates_fading) == 0 && w.bat != nullptr)
     {
         const float scale = exe_real(s, 0x00428F90);
         if (w.bat->scale_200 != scale)
@@ -1302,12 +1339,12 @@ void draw_runtime_slot_select(GameSelectWidget& widget, GameSelectControlService
 void set_runtime_slot_select_state(SlotSelectWidget& w, i32 state, GameSelectControlServices& services)
 {
     auto& s = services;
-    const i32 previous = integer(w, 0);
+    const i32 previous = get(w.bytes, field::state);
     if (previous == 3)
     {
-        if (word(w, 0xB7C) != 0)
+        if (get(w.bytes, field::plates_fading) != 0)
         {
-            put_word(w, 0xB7C, 0);
+            set(w.bytes, field::plates_fading, 0);
             reset_plate_colors(w, s);
         }
         create_slot_bat(w, s);
@@ -1352,27 +1389,29 @@ void set_runtime_slot_select_state(SlotSelectWidget& w, i32 state, GameSelectCon
         prompts.pool->origin = {exe_real(s, 0x0042900C), exe_real(s, 0x00429010), std::bit_cast<float>(3u)};
         allocate_dialogue_text_pool(w.prompt_pool, 0, 1, 0x40080, s.text_pools); // 0x0005F390, ESI +0x210
         w.prompt_pool->origin = {exe_real(s, 0x0042900C), exe_real(s, 0x00429010), std::bit_cast<float>(3u)};
-        put_real(w, 0x204, s.hud.center_x);
-        put_real(w, 0x208, s.hud.center_y);
-        put_real(w, 0x204, real(w, 0x204) + exe_real(s, 0x00428FB4));
-        put_real(w, 0x208, exe_real(s, 0x00428FB8) + real(w, 0x208));
+        const auto prompt = record(w.bytes, field::prompt);
+        set(prompt, text_line::x, s.hud.center_x);
+        set(prompt, text_line::y, s.hud.center_y);
+        set(prompt, text_line::x, get(prompt, text_line::x) + exe_real(s, 0x00428FB4));
+        set(prompt, text_line::y, exe_real(s, 0x00428FB8) + get(prompt, text_line::y));
         if (s.text.data() != nullptr) // IsBadReadPtr(DAT_005462C4, 1), the read check boundary.
         {
             lookup_borrowed_localtext(s.text, "gameselect", exe_string(s, 0x00324F60),
-                reinterpret_cast<char16_t*>(w.bytes.data() + 4), s.localtext); // 0x000FF120, EBX +4, EDI the key
+                field_data(prompt, text_line::text), s.localtext); // 0x000FF120, EBX +4, EDI the key
         }
-        put_word(w, 0x20C, create_dialogue_text_record(*w.prompt_pool, reinterpret_cast<const char16_t*>(
-            w.bytes.data() + 4), real(w, 0x204), real(w, 0x208), exe_real(s, 0x00428FB0), exe_real(s, 0x00428FB0),
-            1.f, 1, 0, 1, s.metrics, s.viewport_width, s.next_text_id, s.random)); // 0x0005F5C0, EAX 1
+        set(prompt, text_line::record, create_dialogue_text_record(*w.prompt_pool,
+            field_data(prompt, text_line::text), get(prompt, text_line::x), get(prompt, text_line::y),
+            exe_real(s, 0x00428FB0), exe_real(s, 0x00428FB0), 1.f, 1, 0, 1, s.metrics, s.viewport_width,
+            s.next_text_id, s.random)); // 0x0005F5C0, EAX 1
     }
     else if (previous == 6)
     {
-        const size_t p = size_t(integer(w, 0xB2C)) * kPlate;
-        const u32 id = create_dialogue_text_record(*w.plate_pool,
-            reinterpret_cast<const char16_t*>(w.bytes.data() + p + 0x218), real(w, p + 0x418), real(w, p + 0x41C),
-            exe_real(s, 0x00428FA4), exe_real(s, 0x00428FA4), 1.f, 1, 0, 1, s.metrics, s.viewport_width,
-            s.next_text_id, s.random); // 0x0005F5C0, EAX 1
-        put_word(w, p + 0x420, id);
+        const auto label = record(chosen_plate(w), plate_field::label);
+        const u32 id = create_dialogue_text_record(*w.plate_pool, field_data(label, text_line::text),
+            get(label, text_line::x), get(label, text_line::y), exe_real(s, 0x00428FA4),
+            exe_real(s, 0x00428FA4), 1.f, 1, 0, 1, s.metrics, s.viewport_width, s.next_text_id,
+            s.random); // 0x0005F5C0, EAX 1
+        set(label, text_line::record, id);
     }
     else if (previous == 7)
     {
@@ -1380,7 +1419,7 @@ void set_runtime_slot_select_state(SlotSelectWidget& w, i32 state, GameSelectCon
         {
             --w.movie->play_count;
         }
-        copy_wide(s.frontend.selected_name.data(), slot_name(w, integer(w, 0xB2C)));
+        copy_wide(s.frontend.selected_name.data(), slot_name(w, chosen_slot(w)));
         if (s.frontend.selected_name[0] != 0)
         {
             select_profile_game(s);
@@ -1391,7 +1430,7 @@ void set_runtime_slot_select_state(SlotSelectWidget& w, i32 state, GameSelectCon
         put_control_word(*control, 0x124, 2);
         control->gameselect->book = create_transition_book(0, 1, nullptr, s.books); // 0x00048260(0, 1, 0)
     }
-    put_word(w, 0, u32(state));
+    set(w.bytes, field::state, state);
     switch (state)
     {
     case 1:
@@ -1399,7 +1438,7 @@ void set_runtime_slot_select_state(SlotSelectWidget& w, i32 state, GameSelectCon
         start_pause_ditty(s.ditty, s.streams); // 0x000E5B40
         return;
     case 2:
-        put_word(w, 0xB90, exe_word(s, 0x00429028));
+        set(w.bytes, field::fade_out_timer, exe_real(s, 0x00429028));
         return;
     case 3:
     {
@@ -1414,67 +1453,74 @@ void set_runtime_slot_select_state(SlotSelectWidget& w, i32 state, GameSelectCon
         i32 found = 0;
         if (name[0] != 0 && find_slot_by_name(name.data(), found, s))
         {
-            put_word(w, 0xB2C, u32(found));
+            set(w.bytes, field::slot, found);
         }
         describe_slots(w, s);
         if (name[0] == 0)
         {
+            // No save named: the first slot holding one.
             i32 index = 0;
             for (; index < 3; ++index)
             {
-                const i32 status = integer(w, size_t(index) * kPlate + 0x214);
-                if (status == 2 || status == 4 || status == 3)
+                if (status_has_save(plate_status(w, size_t(index))))
                 {
                     break;
                 }
             }
             if (index < 3)
             {
-                put_word(w, 0xB2C, u32(index));
+                set(w.bytes, field::slot, index);
             }
         }
         set_runtime_slot_select_state(w, 6, s);
         return;
     }
     case 4:
-        put_word(w, 0xB78, exe_word(s, 0x00429014));
-        put_word(w, 0xB7C, 1);
+        set(w.bytes, field::plate_fade_timer, exe_real(s, 0x00429014));
+        set(w.bytes, field::plates_fading, 1);
         return;
     case 6:
     {
+        // Every plate back to its rest size and color.
         for (size_t index = 0; index < 3; ++index)
         {
-            const size_t p = index * kPlate;
+            const auto p = plate_bytes(w, index);
+            const auto plate_sprite = record(p, plate_field::plate_sprite);
             const u32 row = 0x0042902C + u32(index) * 0x124;
             const auto plate = w.plates[index].plate;
-            put_real(w, p + 0x434, (screen_width(s) * exe_real(s, row + 0x10)) / texture_width(plate));
-            put_real(w, p + 0x438, (screen_height(s) * exe_real(s, row + 0x14)) / texture_height(plate));
-            put_real(w, p + 0x510, exe_real(s, row + 0x10) * exe_real(s, 0x0032B6B0) + exe_real(s, 0x00428FBC));
-            put_real(w, p + 0x514, exe_real(s, row + 0x14) * exe_real(s, 0x0032B6AC) + exe_real(s, 0x00428FBC));
-            put_word(w, p + 0x50C, exe_word(s, 0x00308B1C));
+            set(plate_sprite, sprite::scale_x, (screen_width(s) * exe_real(s, row + 0x10)) / texture_width(plate));
+            set(plate_sprite, sprite::scale_y, (screen_height(s) * exe_real(s, row + 0x14)) / texture_height(plate));
+            set(p, plate_field::box_width,
+                exe_real(s, row + 0x10) * exe_real(s, 0x0032B6B0) + exe_real(s, 0x00428FBC));
+            set(p, plate_field::box_height,
+                exe_real(s, row + 0x14) * exe_real(s, 0x0032B6AC) + exe_real(s, 0x00428FBC));
+            set(p, plate_field::box_color, exe_word(s, 0x00308B1C));
             if (w.plates[index].nowrite.data() != nullptr)
             {
-                put_word(w, p + 0x464, exe_word(s, 0x00428FEC));
-                put_word(w, p + 0x468, exe_word(s, 0x00428FF0));
+                const auto nowrite = record(p, plate_field::nowrite_sprite);
+                set(nowrite, sprite::scale_x, exe_real(s, 0x00428FEC));
+                set(nowrite, sprite::scale_y, exe_real(s, 0x00428FF0));
             }
             if (w.plates[index].broken.data() != nullptr)
             {
-                put_word(w, p + 0x47C, exe_word(s, 0x00428FD8));
-                put_word(w, p + 0x480, exe_word(s, 0x00428FDC));
+                const auto broken = record(p, plate_field::broken_sprite);
+                set(broken, sprite::scale_x, exe_real(s, 0x00428FD8));
+                set(broken, sprite::scale_y, exe_real(s, 0x00428FDC));
             }
         }
         select_slot_movie(w, s);
         select_slot_background(w, s);
         for (size_t index = 0; index < 3; ++index)
         {
-            end_dialogue_text_record(*w.plate_pool, word(w, index * kPlate + 0x420), s.fonts, s.fallback_texture,
+            const auto label = record(plate_bytes(w, index), plate_field::label);
+            end_dialogue_text_record(*w.plate_pool, get(label, text_line::record), s.fonts, s.fallback_texture,
                 s.random); // 0x0005F7E0, ECX the record id
         }
         if (w.prompts != nullptr)
         {
             auto& prompts = *w.prompts;
-            const i32 status = integer(w, size_t(integer(w, 0xB2C)) * kPlate + 0x214);
-            if (status != 2 && status != 4 && status != 3)
+            const i32 status = plate_status(w, size_t(chosen_slot(w)));
+            if (!status_has_save(status))
             {
                 copy_dialogue_widget_parameters(prompts.requested_parameters,
                     s.image.memory(0x00308068, 0x310).data()); // 0x00142DF0, ECX +0x638
@@ -1488,9 +1534,9 @@ void set_runtime_slot_select_state(SlotSelectWidget& w, i32 state, GameSelectCon
         return;
     }
     case 7:
-        put_word(w, 0xB8C, exe_word(s, 0x00429008));
-        end_dialogue_text_record(*w.plate_pool, word(w, size_t(integer(w, 0xB2C)) * kPlate + 0x420), s.fonts,
-            s.fallback_texture, s.random);
+        set(w.bytes, field::zoom_timer, exe_real(s, 0x00429008));
+        end_dialogue_text_record(*w.plate_pool, get(record(chosen_plate(w), plate_field::label), text_line::record),
+            s.fonts, s.fallback_texture, s.random);
         return;
     case 8:
         if (w.prompts != nullptr)
@@ -1502,7 +1548,7 @@ void set_runtime_slot_select_state(SlotSelectWidget& w, i32 state, GameSelectCon
         {
             --w.movie->play_count;
         }
-        copy_wide(s.frontend.selected_name.data(), slot_name(w, integer(w, 0xB2C)));
+        copy_wide(s.frontend.selected_name.data(), slot_name(w, chosen_slot(w)));
         drop_missing_saves(s); // 0x000DF790
         if (s.frontend.selected_name[0] != 0)
         {
@@ -1544,8 +1590,8 @@ void move_runtime_slot_cursor(GameSelectControlServices& services)
     {
         return;
     }
-    const u32 previous = word(w, 0xB28);
-    i32 slot = integer(w, 0xB2C);
+    const u32 row = get(w.bytes, field::cursor_row);
+    i32 slot = chosen_slot(w);
     std::array<float, 2> direction{};
     s.frontend_direction(direction); // 0x001429E0, ESI DAT_00429BBC
     if (direction[0] == 0.f && direction[1] == 0.f)
@@ -1590,8 +1636,8 @@ void move_runtime_slot_cursor(GameSelectControlServices& services)
     {
         return;
     }
-    put_word(w, 0xB28, previous);
-    put_word(w, 0xB2C, u32(slot));
+    set(w.bytes, field::cursor_row, row);
+    set(w.bytes, field::slot, slot);
     set_runtime_slot_select_state(w, 6, s);
 }
 
@@ -1604,18 +1650,20 @@ void select_runtime_slot(GameSelectControlServices& services)
     {
         copy_wide(s.frontend.slot_names[index].data(), slot_name(w, i32(index)));
     }
-    s.frontend.word_0042a0c4 = integer(w, 0xB2C);
+    s.frontend.word_0042a0c4 = chosen_slot(w);
     s.frontend.word_0042a0c8 = 1;
-    const i32 status = integer(w, size_t(integer(w, 0xB2C)) * kPlate + 0x214);
-    if (status == 2 || status == 4 || status == 3)
+    const i32 status = plate_status(w, size_t(chosen_slot(w)));
+    if (status_has_save(status))
     {
+        // The bat flies off toward the screen edge farther from it.
         const float width = screen_width(s);
         const float height = screen_height(s);
         const float half = exe_real(s, 0x0032B0F4);
         ButtonBatPoint target{};
-        target.x = width - real(w, 0xB20) > width * half ? width + exe_real(s, 0x0032B1E0) : exe_real(s, 0x0032B304);
-        target.y = height - real(w, 0xB24) > height * half ? height + exe_real(s, 0x0032B1E0)
-                                                          : exe_real(s, 0x0032B304);
+        target.x = width - get(w.bytes, field::bat_target_x) > width * half ? width + exe_real(s, 0x0032B1E0)
+                                                                            : exe_real(s, 0x0032B304);
+        target.y = height - get(w.bytes, field::bat_target_y) > height * half ? height + exe_real(s, 0x0032B1E0)
+                                                                              : exe_real(s, 0x0032B304);
         if (w.bat != nullptr)
         {
             s.fly_bat(*w.bat, target, 1.f); // 0x0006DA00, EBX the target
@@ -1647,7 +1695,7 @@ void delete_runtime_slot(GameSelectControlServices& services)
     {
         copy_wide(s.frontend.slot_names[index].data(), slot_name(w, i32(index)));
     }
-    copy_wide(s.frontend.selected_name.data(), slot_name(w, integer(w, 0xB2C)));
+    copy_wide(s.frontend.selected_name.data(), slot_name(w, chosen_slot(w)));
     SceneControlInstance* control = find_runtime_scene_control(0x9A); // 0x00116170
     put_control_word(*control, 0x94, 2);
     put_control_word(*control, 0x124, 1);

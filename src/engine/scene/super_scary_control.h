@@ -2,6 +2,7 @@
 #include "cutscene_scene_runtime.h"
 #include "gbtg/object_factory.h"
 #include "gbtg/resource_error.h"
+#include "gbtg/retail_field.h"
 #include "../audio/bank_streams.h"
 #include "../audio/event_voices.h"
 #include "../entities/actor_clock.h"
@@ -97,6 +98,101 @@ struct SuperScaryControlServices
     std::function<bool()> scene_end_flag; // 0x00049D10
     std::function<i32()> player_character; // 0x00087830
 };
+// The Super Scary challenge's construction parameters (0x1D8 bytes, 0x000842D0), as 0x00084340 reads them.
+namespace super_scary_parameter
+{
+constexpr RetailField<u32, 0x008> head{}; // the attacking actor's address
+constexpr RetailField<std::array<char, 0x80>, 0x00C> first_clip{}; // the head's first scare clip
+constexpr RetailField<std::array<char, 0x80>, 0x08C> second_clip{}; // the head's second scare clip
+constexpr RetailField<float, 0x10C> first_clip_time{}; // 0 to use the clip's duration
+constexpr RetailField<float, 0x110> second_clip_time{};
+constexpr RetailField<Vec3, 0x114> clip_position{};
+constexpr RetailField<u32, 0x120> has_clip_position{};
+constexpr RetailField<Vec3, 0x124> player_spawn{};
+constexpr RetailField<u32, 0x130> spawn_under_view{}; // set: the spawn is the floor under the view (0x00086CE0)
+constexpr RetailField<u32, 0x134> move_player{};
+constexpr RetailField<Vec3, 0x138> clip_euler{};
+constexpr RetailField<u32, 0x144> has_clip_euler{};
+constexpr RetailField<i32, 0x148> button_pattern{}; // 0x00087170's count: 0 random, 1..4 fixed sets, 5 a table row
+constexpr RetailField<u32, 0x14C> unk_14C{}; // copied to state +0x290, which nothing here reads
+constexpr RetailField<i32, 0x150> scare_mode{};
+constexpr RetailField<std::array<char, 0x80>, 0x154> clip_list{}; // the aidlist resource's name
+constexpr RetailField<u32, 0x1D4> swap_render{};
+constexpr u32 kSize = 0x1D8;
+static_assert(retail_fits(kSize, swap_render));
+} // namespace super_scary_parameter
+
+// The Super Scary challenge's state fields at their retail offsets (0x2C8 bytes, 0x000842D0; see
+// docs/RETAIL_LAYOUTS.md). +0x20 is the scene-control base's scene_control_field::elapsed. The words that hold
+// pointers are SuperScaryControlState members, noted here by offset.
+namespace super_scary_field
+{
+constexpr u32 kSize = 0x2C8;
+// The actors' addresses, mirrored in SuperScaryControlState: Cooper (0 once message 0x7C names him), the head,
+// and the button bat.
+constexpr RetailField<u32, 0x028> player{};
+constexpr RetailField<u32, 0x02C> head{};
+constexpr RetailField<u32, 0x030> bat{};
+// 0x000856E0 sets it; 0x00084960 and 0x00085380 switch on it. 1 and 3 the head's scare clips, 2 and 4 Cooper's
+// recoils, 5/6 the button presses, 7/9 the success/failure page, 8/10 the outcome clips, 11 disposal.
+constexpr RetailField<i32, 0x034> phase{};
+// +0x38 input
+constexpr RetailField<u32, 0x03C> input_pushed{}; // set once +0x38 is pushed (0x00109340); released when set
+// +0x40 camera (EntityCamNode, to +0xA0)
+constexpr RetailField<u32, 0x0A0> camera_linked{}; // set once +0x40 is linked; unlinked (0x00048C70) when set
+// Phases 1 to 4: the next shock (0.45 s apart, 0x00086990). Phase 11: the wait before disposal.
+constexpr RetailField<float, 0x0A4> shock_timer{};
+constexpr RetailField<float, 0x0A8> heartbeat_timer{}; // phases 5/6: the next heartbeat, quicker as they run out
+constexpr RetailField<float, 0x0AC> focal_jitter_timer{}; // 0x00084E50 jitters the focal length while it runs
+constexpr RetailField<float, 0x0B0> wrong_press_timer{}; // 1 s after a wrong press: presses ignored, highlight shown
+constexpr RetailField<float, 0x0B4> unk_B4{}; // set to 0 by 0x00084340; nothing here reads it
+constexpr RetailField<std::array<char, 0x80>, 0x0B8> first_clip{}; // super_scary_parameter::first_clip
+constexpr RetailField<std::array<char, 0x80>, 0x138> second_clip{}; // super_scary_parameter::second_clip
+constexpr RetailField<float, 0x1B8> first_clip_timer{}; // phase 1, then the shocks wait until it is under 1
+constexpr RetailField<float, 0x1BC> second_clip_timer{}; // phase 3
+constexpr RetailField<float, 0x1C0> auto_press_timer{}; // with DAT_005122F0 set, a right press when it runs out
+constexpr RetailField<i32, 0x1C4> music{}; // 0x00086FD0: 0 none, 1 BUTTONPRESS, 2 SUCCEED, 3 BUTTONNODIE
+constexpr RetailField<Vec3, 0x1C8> player_spawn{};
+constexpr RetailField<Vec3, 0x1D4> clip_position{}; // used while has_clip_position
+constexpr RetailField<Vec3, 0x1E0> clip_euler{}; // used while has_clip_euler
+constexpr RetailField<Vec3, 0x1EC> shock_camera_position{}; // phase 5: the display view's position
+constexpr RetailField<float, 0x1F8> shock_camera_pitch{}; // phase 5: facing Cooper's joint 0
+constexpr RetailField<float, 0x1FC> shock_camera_yaw{};
+constexpr RetailField<float, 0x200> shock_camera_roll{};
+constexpr RetailField<i32, 0x204> shocks_left{}; // 3 at phase 1
+constexpr RetailField<i32, 0x208> heartbeats_left{}; // 8 at construction; under 0 the challenge fails
+constexpr RetailField<i32, 0x20C> presses{}; // right presses so far; the challenge succeeds at button_count
+constexpr RetailField<i32, 0x210> button_count{}; // DAT_00427958
+constexpr RetailField<std::array<u32, 20>, 0x214> buttons{}; // each press's button, 0..3 for A, B, X, Y
+constexpr RetailField<i16, 0x264> shiver_voice{}; // XACT_SOUNDBANK_GBOY_SHIVER's voice, -1 for none
+constexpr RetailField<u32, 0x268> has_clip_euler{};
+constexpr RetailField<u32, 0x26C> paused_cutscene{}; // a cutscene was running at construction; phase 1 pauses it
+constexpr RetailField<u32, 0x270> move_player{}; // 0x00086E80 moves Cooper to player_spawn
+constexpr RetailField<u32, 0x274> has_clip_position{};
+constexpr RetailField<u32, 0x278> spawn_under_view{};
+// Modes 2 and 3: Cooper's position when bound to the head, where 0x000874F0 puts him back.
+constexpr RetailField<Vec3, 0x27C> bound_position{};
+constexpr RetailField<float, 0x280> bound_position_y{};
+constexpr RetailField<u32, 0x288> head_binding{}; // modes 2 and 3: the head's model binding 2 (0x000408D0)
+// 0..3 from the parameters. 2 and 3 bind Cooper to the head, and drop to 0 and 1 with no head. 0 becomes 1 and 2
+// becomes 3 when his attached actor is unavailable (0x001460C0). It picks the animation rows and the camera
+// (0x00084E50).
+constexpr RetailField<i32, 0x28C> scare_mode{};
+constexpr RetailField<u32, 0x290> unk_290{}; // super_scary_parameter::unk_14C; nothing here reads it
+// +0x294 clips, +0x298 the five button textures
+// Modes 2 and 3 after the challenge: Cooper settles from settle_start_y to settle_floor_y over 0.5 s (0x00087720).
+constexpr RetailField<float, 0x2AC> settle_timer{};
+constexpr RetailField<float, 0x2B0> settle_start_y{};
+constexpr RetailField<float, 0x2B4> settle_floor_y{};
+constexpr RetailField<u32, 0x2B8> player_released{}; // message 10 has gone to Cooper
+// From the parameters: Cooper and the head take turns in the render bins (0x0003CBB0 / 0x0003CAE0).
+constexpr RetailField<u32, 0x2BC> swap_render{};
+constexpr RetailField<u32, 0x2C0> player_hidden{};
+constexpr RetailField<u32, 0x2C4> head_hidden{};
+static_assert(retail_fits(kSize, head_hidden));
+static_assert(retail_fits(0x264, buttons));
+} // namespace super_scary_field
+
 // Native state of a Super Scary challenge whose retail words are pointers.
 struct SuperScaryControlState
 {

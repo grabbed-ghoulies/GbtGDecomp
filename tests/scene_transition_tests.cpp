@@ -8200,11 +8200,15 @@ int main(int argc, char** argv)
             {
                 gbtg::InputState input;
                 const auto* challenge = gbtg::find_runtime_scene_control(0x98);
-                const gbtg::u32 phase = challenge == nullptr ? 0xFFFFFFFFu : words(*challenge, 0x34);
+                namespace challenge_field = gbtg::super_scary_field;
+                const gbtg::u32 phase =
+                    challenge == nullptr ? 0xFFFFFFFFu : gbtg::u32(gbtg::get(challenge->state, challenge_field::phase));
                 if (challenge != nullptr && (phase == 5 || phase == 6) && challenges > 1)
                 {
-                    // Cooper's press: the button at +0x214 + presses (+0x20C) * 4, as A..Y (0x100 << button).
-                    const gbtg::u32 button = words(*challenge, 0x214 + words(*challenge, 0x20C) * 4);
+                    // Cooper's press: the next button in the row, as A..Y (0x100 << button).
+                    const gbtg::i32 presses = gbtg::get(challenge->state, challenge_field::presses);
+                    const gbtg::u32 button =
+                        gbtg::field_data(challenge->state, challenge_field::buttons)[size_t(presses)];
                     if (frame % 8 < 3)
                     {
                         input.pads[0].buttons = gbtg::u16(0x100u << button);
@@ -8215,7 +8219,8 @@ int main(int argc, char** argv)
                 gbtg::gfx_begin_frame();
                 game.tick(1.f / 60.f, input);
                 challenge = gbtg::find_runtime_scene_control(0x98);
-                const gbtg::u32 now = challenge == nullptr ? 0xFFFFFFFFu : words(*challenge, 0x34);
+                const gbtg::u32 now =
+                    challenge == nullptr ? 0xFFFFFFFFu : gbtg::u32(gbtg::get(challenge->state, challenge_field::phase));
                 if (now != last_challenge)
                 {
                     std::cout << "scene6 frame " << frame << ": Super Scary state " << int(now) << "\n";
@@ -9684,8 +9689,7 @@ int main(int argc, char** argv)
                     {
                         throw gbtg::Error("slot selection closed before Right");
                     }
-                    gbtg::u32 previous_slot = 0;
-                    std::memcpy(&previous_slot, slots->bytes.data() + 0xB2C, 4);
+                    const auto previous_slot = gbtg::u32(gbtg::get(slots->bytes, gbtg::slot_select_field::slot));
                     gbtg::InputState right;
                     right.right = true;
                     tick(right, 1);
@@ -9694,7 +9698,7 @@ int main(int argc, char** argv)
                     gbtg::u32 slot = 0;
                     if (slots != nullptr)
                     {
-                        std::memcpy(&slot, slots->bytes.data() + 0xB2C, 4);
+                        slot = gbtg::u32(gbtg::get(slots->bytes, gbtg::slot_select_field::slot));
                     }
                     if (slots == nullptr || slot != (previous_slot + 1) % 3)
                     {

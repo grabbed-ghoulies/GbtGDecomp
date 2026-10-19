@@ -63,6 +63,7 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
     // Boot 0x00033030 -> 0x0011EA50 -> 0x0011C3F0 -> 0x000FD620 (the light defaults). The rest of 0x0011C3F0 is
     // not translated.
     lighting_initialize_volume();
+    factory_scene->actor_services->hold_boot_scene_order(); // 0x0011C3F0 -> 0x0011C480 -> 0x001234B0
     save_initialize_name_scan(); // 0x0011C3F0 -> 0x0011C480 -> 0x0010D3B0: the saved games on drive U.
     movie_set_root(game_dir);
     movie_boot_probe();

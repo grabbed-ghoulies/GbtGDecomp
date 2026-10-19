@@ -7,6 +7,7 @@
 #include "../entities/actor_render_registration.h"
 #include "../video/movie_startup.h"
 #include "attract_control.h"
+#include "gameselect_control.h"
 #include "../graphics/actor_effect_draw.h"
 #if defined(GBTG_INSPECTOR_APP)
 #include "scene_inspection.h"
@@ -7584,6 +7585,17 @@ void SceneActorServices::inspect_view(const InspectionView& camera, InspectionFr
 }
 
 #endif
+void SceneActorServices::hold_boot_scene_order()
+{
+    auto& services = *state_->gameselect_services;
+    hold_runtime_scene_order(services.scene_order, services); // 0x0011C480: 0x001234B0, EAX *DAT_00430CF8
+}
+
+std::span<const u8> SceneActorServices::held_scene_order() const
+{
+    return state_->scene_order_held;
+}
+
 void SceneActorServices::present_views()
 {
     auto& state = *state_;

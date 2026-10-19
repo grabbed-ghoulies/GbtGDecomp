@@ -7,6 +7,7 @@
 #include "gbtg/resource.h"
 #include "../scene/factory_scene_runtime.h"
 #include "../scene/scene_loading.h"
+#include "../runtime/name_lookup.h"
 #include <iostream>
 
 #include <algorithm>
@@ -800,35 +801,6 @@ void script_resume_title(Game& g, i32 mode, i32 id)
 }
 
 
-bool transition_aid_equal(std::string_view a, std::string_view b);
-
-
-// Xbox 0x00035960. The host vector owns the retail array of 0x80-byte AIDs.
-const std::string* scene_order_find_next(const std::vector<std::string>& list, std::string_view current, i32 wrap)
-{
-    if (list.empty())
-    {
-        return nullptr;
-    }
-    if (current.empty())
-    {
-        return &list.front();
-    }
-    for (size_t i = 0; i < list.size(); ++i)
-    {
-        if (transition_aid_equal(list[i], current))
-        {
-            if (i + 1 == list.size())
-            {
-                return wrap == 0 ? nullptr : &list.front();
-            }
-            return &list[i + 1];
-        }
-    }
-    return nullptr;
-}
-
-
 // Xbox 0x00117140. Drain the scene script, then request the next scene AID.
 void script_tick_fired_vm(Game& g)
 {
@@ -856,11 +828,12 @@ void script_tick_fired_vm(Game& g)
         {
             return;
         }
-        // Xbox 0x00035960: use the current scene AID, rather than the title
-        // written by type 0xE. The scene-order list wraps when its flag is 1.
-        if (const std::string* next = scene_order_find_next(g.scene_order, g.scene_script.name, 1))
+        // 0x00035960, EAX &DAT_00511B64 (the held scene order), EBX DAT_00510E58 (the current scene AID, not
+        // the title written by type 0xE), wrapping.
+        const std::span<const u8> order = g.factory_scene->actor_services->held_scene_order();
+        if (const char* next = next_scene_order_name(order, g.scene_script.name.c_str(), 1))
         {
-            request_scene_aid(next->c_str(), 1);
+            request_scene_aid(next, 1);
             g_script_e790 = 0.f;
         }
         g_script_e78c = 1;

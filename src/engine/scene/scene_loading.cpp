@@ -478,17 +478,4 @@ int scene_check_pending_records()
     return g_4dedac;
 }
 
-
-void scene_order_advance(Game& g)
-{
-    // Xbox 0x0012C5D0 via 0x0008F5F6. The finished script is followed by the next
-    // sceneorder name, loaded by the same path as a requested script.
-    const size_t next = g.scene_index + 1;
-    if (next >= g.scene_order.size())
-    {
-        return;
-    }
-    request_scene_aid(g.scene_order[next].c_str(), 1);
-}
-
 } // namespace gbtg

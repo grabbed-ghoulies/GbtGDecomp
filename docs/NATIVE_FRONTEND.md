@@ -339,11 +339,27 @@ the features menu's A (`0x000E4E40`) and stick (`0x000D8080`) and their own B
 `0x000E4ED0`, jumping to the button-bat menu's `0x00143D60` and `0x00143F30`)
 raise: those two are not translated.
 
-Not yet retail after a replay: the script VM (`0x00117140`) picks the next
-scene from the host's boot scene list (`Game::scene_order`), not from the held
-order at `DAT_00511B64`. By that code, a replayed scene would run on into the next
-chapter-1 scene instead of returning to game select (not run yet). The artwork's held order
-has the same gap.
+The script VM (`0x00117140`) picks the next scene from the held order:
+`0x00035960` (`next_scene_order_name`, `runtime/name_lookup.cpp`) with EAX
+`&DAT_00511B64`, EBX the current scene AID (`DAT_00510E58`) and wrap 1. Boot
+holds the game's order (`*DAT_00430CF8`, `aid_aidlist_ghoulies_sceneorder_game`)
+the way `0x0011C3F0` -> `0x0011C480` -> `0x001234B0` does
+(`SceneActorServices::hold_boot_scene_order`), so the attract reel, the title
+and game select run on that order; game select (`0x00083660`) holds it again.
+After a replay the held order is the replay's, so the replayed scene returns
+to game select. The artwork's script now follows its own held order
+(`aid_sceneorder_gameselect_unlockableart`; no test runs it on).
+`--gameselect-replay-scene` runs the replay on: the books advance through the
+VM (game select -> `chapter1_scene0_1book` -> `chapter1_scene1_1book` ->
+`chapter1_scene1_2playcam`). With no player driver for the opening's fight,
+the test sets the VM's done latch (`DAT_0050E788`) 60 frames into the opening,
+and the VM requests game select, which opens on the Replay Scene page.
+`--player-fight` plays the opening to its real end on the boot order and
+reaches `chapter1_scene2_1viewcam`. Still
+host-side: the boot's first request, the `--scene` select and the debug UI
+read `Game::scene_order`, which game.cpp parses from the same list. The VM's
+`DAT_0050E784` branch and its timer's second `0x00035960` / `0x0011EB30` are not
+translated.
 
 Row 2, delete (`gameselect_delete.cpp`): `0x000DB720`..`0x000DBB90`, the
 state switch `0x000DBDC0` and the "GameSlotDeletionMenu" callbacks `0x000DBD50`

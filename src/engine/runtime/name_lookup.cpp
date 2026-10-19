@@ -1,5 +1,7 @@
 #include "name_lookup.h"
 
+#include <cstring>
+
 namespace gbtg
 {
 // Xbox 0x000FBFB0. Binary search. High starts at count-1. A miss returns -1.
@@ -78,5 +80,40 @@ bool transition_aid_equal(std::string_view a, std::string_view b)
             return true;
         }
     }
+}
+
+// Xbox 0x00035960, EAX the held scene order, EBX the current name: the name after it, wrapping when asked.
+const char* next_scene_order_name(std::span<const u8> order, const char* current, i32 wrap)
+{
+    if (order.data() == nullptr)
+    {
+        return nullptr;
+    }
+    const auto entry = [&order](size_t offset) -> const char*
+    {
+        return reinterpret_cast<const char*>(order.data() + offset);
+    };
+    const auto is_aid = [&order, &entry](size_t offset)
+    {
+        return offset + 4 <= order.size() && std::memcmp(entry(offset), "aid_", 4) == 0;
+    };
+    if (current == nullptr)
+    {
+        return entry(0);
+    }
+    size_t at = 0;
+    while (!transition_aid_equal(entry(at), current)) // 0x000357D0
+    {
+        if (!is_aid(at + 0x80))
+        {
+            return nullptr;
+        }
+        at += 0x80;
+    }
+    if (!is_aid(at + 0x80))
+    {
+        return wrap == 0 ? nullptr : entry(0);
+    }
+    return entry(at + 0x80);
 }
 }

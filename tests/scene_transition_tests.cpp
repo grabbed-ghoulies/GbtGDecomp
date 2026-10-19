@@ -9709,6 +9709,71 @@ int main(int argc, char** argv)
                 }
                 std::cout << "PASS: Replay Scene in a Chapter 1 Scene 2 save listed scene one and replayed it from "
                           << game.scene_script.name << "\n";
+                // Run on through the held order: the books end through the script VM (0x00117140), whose next
+                // scene comes from the held order (0x00035960 over DAT_00511B64), with A for their pages and titles.
+                // The opening's fight is --player-opening's: once its scene runs, the VM's done latch (DAT_0050E788)
+                // is set as its last event would, and the VM must pick game select, the held order's next entry.
+                std::vector<std::string> visited{game.scene_script.name};
+                int played = -1;
+                bool returned = false;
+                for (int frame = 0; frame < 24000 && !returned; ++frame)
+                {
+                    gbtg::InputState input;
+                    input.accept = frame % 30 == 0;
+                    gbtg::gfx_begin_frame();
+                    game.tick(1.f / 59.f, input);
+                    gbtg::gfx_end_frame();
+                    if (game.scene_script.name != visited.back())
+                    {
+                        visited.push_back(game.scene_script.name);
+                        std::cout << "replay run-on frame " << frame << ": scene " << game.scene_script.name << "\n";
+                    }
+                    const bool running = gbtg::g_54632c == 0;
+                    if (game.scene_script.name == held[held.size() - 2] && running && played < 0)
+                    {
+                        played = frame;
+                    }
+                    if (played >= 0 && frame == played + 60 && game.scene_script.name == held[held.size() - 2])
+                    {
+                        gbtg::RgbaImage image;
+                        if (gbtg::gfx_readback(image))
+                        {
+                            gbtg::write_bmp("cache/gameselect_replay_scene_playcam.bmp", image);
+                        }
+                        gbtg::g_script_e788 = 1;
+                    }
+                    returned = played >= 0 && running && game.scene_script.name == held.back();
+                }
+                for (int frame = 0; frame < 300 && returned; ++frame)
+                {
+                    gbtg::gfx_begin_frame();
+                    game.tick(1.f / 59.f, {});
+                    gbtg::gfx_end_frame();
+                }
+                {
+                    gbtg::RgbaImage image;
+                    if (gbtg::gfx_readback(image))
+                    {
+                        gbtg::write_bmp("cache/gameselect_replay_scene_returned.bmp", image);
+                    }
+                }
+                if (visited != std::vector<std::string>(held.begin() + 1, held.end()))
+                {
+                    std::string path;
+                    for (const auto& name : visited)
+                    {
+                        path += " " + name;
+                    }
+                    throw gbtg::Error("the replay did not follow its held order:" + path);
+                }
+                const auto* gameselect = gbtg::find_runtime_scene_control(0x9A);
+                if (!returned || gameselect == nullptr || gameselect->gameselect == nullptr)
+                {
+                    throw gbtg::Error("the replayed scene did not return to game select (scene "
+                        + game.scene_script.name + ")");
+                }
+                std::cout << "PASS: the replayed scene ran on through its held order and returned to "
+                          << game.scene_script.name << "\n";
                 gbtg::gfx_shutdown();
                 return 0;
             }

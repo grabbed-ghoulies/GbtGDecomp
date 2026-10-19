@@ -93,41 +93,6 @@ i32 save_file_length(const SaveContainer& container, SaveGameContext& context)
     return length;
 }
 
-// Xbox 0x00035960, EAX the held scene order, EBX the current name: the name after it, wrapping when asked.
-const char* next_scene_order_name(std::span<const u8> order, const char* current, i32 wrap)
-{
-    if (order.data() == nullptr)
-    {
-        return nullptr;
-    }
-    const auto entry = [&order](size_t offset) -> const char*
-    {
-        return reinterpret_cast<const char*>(order.data() + offset);
-    };
-    const auto is_aid = [&order, &entry](size_t offset)
-    {
-        return offset + 4 <= order.size() && std::memcmp(entry(offset), "aid_", 4) == 0;
-    };
-    if (current == nullptr)
-    {
-        return entry(0);
-    }
-    size_t at = 0;
-    while (!transition_aid_equal(entry(at), current)) // 0x000357D0
-    {
-        if (!is_aid(at + 0x80))
-        {
-            return nullptr;
-        }
-        at += 0x80;
-    }
-    if (!is_aid(at + 0x80))
-    {
-        return wrap == 0 ? nullptr : entry(0);
-    }
-    return entry(at + 0x80);
-}
-
 // Xbox 0x0010E9D0: a new save record for the name. Its script is the scene after game select.
 SaveGameRecord* create_save_record(const char16_t* name, SaveGameContext& context)
 {

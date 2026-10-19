@@ -1,6 +1,7 @@
 #pragma once
 #include "gbtg/game.h"
 #include <memory>
+#include <span>
 #include <unordered_map>
 
 namespace gbtg
@@ -89,6 +90,9 @@ public:
     // (0x0011C240's 0x00121730..0x00121D40) and the scene dialogue (0x00058150 and its sprite flush), and the
     // presenter draws what the recording boundary captured. A frame with no active slot draws no scene.
     void present_views();
+    // Boot 0x0011C3F0 -> 0x0011C480: 0x001234B0 over *DAT_00430CF8 holds the game's scene order (DAT_00511B64).
+    void hold_boot_scene_order();
+    std::span<const u8> held_scene_order() const; // DAT_00511B64, which 0x00117140 picks the next scene from.
 #if defined(GBTG_INSPECTOR_APP)
     // Host inspector: native geometry without simulation.
     void inspect_view(const InspectionView& camera, InspectionFrame& frame);

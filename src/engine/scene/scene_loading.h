@@ -29,6 +29,4 @@ void script_load(Game& g, std::string_view name);
 // Xbox 0x000341E0
 int scene_check_pending_records(); // Xbox 0x000341E0
 
-void scene_order_advance(Game& g);
-
 } // namespace gbtg

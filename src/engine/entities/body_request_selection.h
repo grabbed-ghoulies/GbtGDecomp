@@ -101,6 +101,7 @@ struct RuntimeMindChainRequestSelection
     const RuntimeBodyChainLength& target_length;
     const u32& first_mode;
     const u32& second_mode;
+    std::span<const u8> target_body; // The target record's +0x10 actor's body (+0x95C).
 };
 const u8* select_runtime_body_chain_target_request(RuntimeMindChainRequestSelection& context,
     u32 direction, u32& sequence, bool allow_fallback); // Xbox 0x0001CDA0

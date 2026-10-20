@@ -49,6 +49,9 @@ struct RuntimeScoreboardUpdate
     float leave; // DAT_0032B210.
     float band_length; // DAT_0032B254.
     std::function<void(std::span<u32>)> message_players; // 0x00122D10: vtable +0xC of each DAT_00511B40 player.
+    float& intro_timer; // DAT_00433BEC: the randomizer's run time, set by 0x001307D0.
+    u8& story_byte; // **(DAT_00506C6C+8): bit 0x40 once the randomizer has been shown.
+    u32& random; // DAT_0054DD7C.
 };
 
 void set_runtime_hud_fade(RuntimeHudFade fade, u32 state, const RuntimeScoreboardUpdate& context); // Xbox 0x00131FC0
@@ -65,6 +68,10 @@ void settle_runtime_scoreboard_counters(RuntimeScoreboard& board, float& amplitu
     RuntimeScoreboardUpdate& context); // Xbox 0x00131B70
 void update_runtime_health_display(RuntimeScoreboardUpdate& context); // Xbox 0x001301A0
 void release_runtime_health_voice(RuntimeScoreboardUpdate& context); // Xbox 0x001308A0
+// The randomizer's loop on the second health voice (DAT_00433BF0), started once while it is free.
+void loop_runtime_health_second_voice(const char* name, RuntimeScoreboardUpdate& context); // Xbox 0x00130900
+// The second health voice stops and `name` plays on it.
+void play_runtime_health_second_voice(const char* name, RuntimeScoreboardUpdate& context); // Xbox 0x00130950
 // EDX output: the threshold row (DAT_00313A40, stride 0x18) the health counter falls in, and its index.
 i32 runtime_health_display_band(std::span<const u8>& row, RuntimeScoreboardUpdate& context); // Xbox 0x00130A50
 void play_runtime_health_voice(const char* name, RuntimeScoreboardUpdate& context); // Xbox 0x00130830

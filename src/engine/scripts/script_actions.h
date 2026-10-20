@@ -353,6 +353,10 @@ extern i32 g_state_2490;
 // That call is not translated. The case falls through and returns 2.
 // Xbox 0x00127340
 void create_scene_ambient_tune(Game& g); // Xbox 0x00116C90
+extern char g_name_e4e0[0x80]; // DAT_0050E4E0, the scene's named music stream.
+extern i32 g_flag_e560; // DAT_0050E560: node 0x45 has made this scene's ambient tune.
+// The music release at the top of 0x00116E00 (from 0x0011CAC0, before each scene starts).
+void release_scene_music_at_start(); // Xbox 0x00116E00 (part)
 int script_handle_event_actions(Game& g, const ScriptNode& node); // Xbox 0x00127340
 
 // Xbox 0x001274B0. Handler 13. The dword at node+4 is the type. The byte map

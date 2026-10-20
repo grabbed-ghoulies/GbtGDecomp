@@ -12,6 +12,7 @@
 #include "../scene/actor_loading.h"
 #include "../scene/factory_scene_runtime.h"
 #include "../scene/scene_controls.h"
+#include "../audio/native_audio.h"
 #include "../scene/executable_resources.h"
 #include "../scene/scene_object_requests.h"
 #include "../runtime/name_lookup.h"
@@ -2242,6 +2243,19 @@ void create_scene_ambient_tune(Game& g)
     }
 }
 
+// Xbox 0x00116E00 (part)
+// 0x00116E00 releases the stream the last scene's script left in DAT_0050E4E0, inline, as 0x00116D20's first
+// half does, and clears the name. DAT_004DF370 is the boot-owned table, so the release does not need the new
+// scene. The rest of 0x00116E00 (DAT_0050E764..DAT_0050E79C, 0x00116DA0, the DAT_00512B74 and DAT_0051234C
+// pools, 0x0012AF10 and 0x001287F0) is not made here.
+void release_scene_music_at_start()
+{
+    if (g_name_e4e0[0] != 0)
+    {
+        play_scene_music_stream(nullptr, 0, g_name_e4e0, native_audio_runtime().streams);
+    }
+}
+
 // The native scene's bank streams (DAT_004DF370..), bound once its actor services start.
 AudioBankStreams& scene_music_streams(Game& g)
 {
@@ -2695,9 +2709,19 @@ int script_handle_actor_effects(Game& g, const ScriptNode& node, int param_2, in
         }
         return 0;
     case 0x76:
-        return 2;
     case 0x77:
+    {
+        // 0x001292D0, then message 0x42 through vtable +0xC: 1 for type 0x76, 0 for type 0x77 (mind +0x7C).
+        SceneActorServices* actors = script_scene_actors(g);
+        const u32 link = actors == nullptr ? 0 : actors->player_link();
+        if (link == 0)
+        {
+            return 2;
+        }
+        std::array<u32, 0x42> message{0x42, node.type == 0x76 ? 1u : 0u};
+        actors->send_actor_message(link - 0x93C, message);
         return 2;
+    }
     case 0x91:
         return 2;
     case 0x96:

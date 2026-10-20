@@ -336,8 +336,9 @@ SceneMindMessages::TargetAction::TargetAction(SceneMindMessages& owner, RuntimeM
           body_bits(owner.player_), owner.services_.chain_limits[0], owner.services_.chain_limits[1],
           read_f32(owner.services_.chain_limits, 4), read_f32(owner.services_.chain_limits, 8),
           owner.services_.class_table},
-      requests{mind, chains, length, owner.services_.special_first, owner.services_.special_second},
-      binding{requests, owner.services_.target_body(owner.services_.address_of(&target.actor))} // Record +0x10 actor's body.
+      requests{mind, chains, length, owner.services_.special_first, owner.services_.special_second,
+          owner.services_.target_body(owner.services_.address_of(&target.actor))}, // Record +0x10 actor's body.
+      binding{requests, requests.target_body}
 {
 }
 

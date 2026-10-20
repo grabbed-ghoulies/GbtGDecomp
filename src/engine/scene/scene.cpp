@@ -1,5 +1,6 @@
 #include "../cutscenes/door_registration.h"
 #include "../scripts/script_event_sequence.h"
+#include "../scripts/script_actions.h"
 #include "gbtg/anim.h"
 #include "cutscene_scene_runtime.h"
 #include "../video/native_movies.h"
@@ -1322,7 +1323,12 @@ void scene_teardown(u8* scene)
         engine_heap_free(g_51108c);
         g_51108c = nullptr;
     }
-    // 0x00117330 is not translated.
+    // 0x00117330 is not translated, except its clear of DAT_0050E560 (after its 0x00116790 call), so the next
+    // scene's node 0x45 makes that scene's ambient tune again.
+    if (g_flag_e560 != 0)
+    {
+        g_flag_e560 = 0;
+    }
     // 0x001272B0 is not translated. EAX is 1 when DAT_00430D0C is 1, else 0.
     const i32 arg_1272b0 = g_script_30d0c == 1 ? 1 : 0;
     (void)arg_1272b0;

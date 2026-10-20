@@ -889,9 +889,9 @@ i32 g_545cc8 = 0;
 // DAT_00509b24, DAT_00509b28, and DAT_00509b4c. DAT_00509b50 becomes
 // 0x3eb2b8c3. DAT_005462FC becomes 1. DAT_00509b54 becomes 0x3f32b8c3.
 // DAT_00509b58 becomes 1. DAT_00509b70 becomes 0. DAT_00509b74 becomes 1.
-// 0x000FAEE0, 0x00116E00, and 0x00124420 are not translated, so those calls
-// are not made. DAT_00545D1C and DAT_00545CC8 are cleared after
-// the 0x000FAEE0 call.
+// 0x000FAEE0 and 0x00124420 are not translated, so those calls are not made.
+// Of 0x00116E00 only its music release is made. DAT_00545D1C and DAT_00545CC8
+// are cleared after the 0x000FAEE0 call.
 // Xbox 0x0011CAC0
 void scene_reset_runtime_parameters()
 {
@@ -911,7 +911,8 @@ void scene_reset_runtime_parameters()
     g_545d1c = 0;
     g_545cc8 = 0;
     reset_runtime_camera_view_tunables(); // 0x0013CBD0
-    // 0x00116E00 and 0x00124420 are not translated.
+    release_scene_music_at_start(); // 0x00116E00's music release; the rest of it is not translated.
+    // 0x00124420 is not translated.
 }
 
 

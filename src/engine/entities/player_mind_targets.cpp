@@ -61,17 +61,17 @@ bool runtime_mind_target_requires_action(const RuntimeMindTarget& target, std::s
 
 // Xbox 0x0001D130
 bool runtime_mind_target_requires_special_action(const RuntimeMindTarget& target,
-    std::span<const u8> body, const u32& first_mode, const u32& second_mode)
+    std::span<const u8> body, std::span<const u8> actor, const u32& first_mode, const u32& second_mode)
 {
     if (runtime_mind_target_requires_action(target, body))
     {
         return true;
     }
-    if (read_u32(target.actor_bytes, 0xCE0) == 0)
+    if (read_u32(actor, 0xCE0) == 0)
     {
         return false;
     }
-    if (read_u16(target.actor_bytes, 0xCDC) != 2 && read_u32(target.actor_bytes, 0x93C) == 0)
+    if (read_u16(actor, 0xCDC) != 2 && read_u32(actor, 0x93C) == 0)
     {
         return false;
     }

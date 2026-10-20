@@ -202,7 +202,7 @@ All take the game directory, e.g.
 | `--scene-spawn` | Opening markers create the retail actors and players; activation drains; contact round trip; teardown releases everything |
 | `--scene-start` | The above plus the background, navigation, the 0x88/0x7D notices and the 0x6F player wait |
 | `--player-opening` | Cooper's goal-7 lock and the imps' pause behind the tutorial page, no HUD heart behind it, tutorial hold, bat hop, A edges, the ghoul intro (scene flag 4 on and off, `cache/player_intro_check.bmp`), Cooper released, the "(next bit)" gate, Cooper walking (`cache/player_walk_check.bmp`), the imp fight music |
-| `--player-fight` | The opening flow, then Cooper fights the imps (see Acceptance), a re-hit during an imp's reaction, the HUD heart in fight captures and not behind the butler's page, the chair's section (the ObjectPickedUp record with the chair's tag, Cooper in region 1, Cooper walks to the chair and A picks it up; event 0xAD with the chair's tag is queued and the section ends before its 5 s timeout; `cache/player_chair_check.bmp`, `player_chair_pickup.bmp`, `player_chair_held.bmp`), then the play-on, which fails if the opening script is still running when it gives up |
+| `--player-fight` | The opening flow, then Cooper fights the imps (see Acceptance), an imp finished from its hit reaction (0x7E straight to 0 health), the HUD heart in fight captures and not behind the butler's page, the chair's section (the ObjectPickedUp record with the chair's tag, Cooper in region 1, Cooper walks to the chair and A picks it up; event 0xAD with the chair's tag is queued and the section ends before its 5 s timeout; `cache/player_chair_check.bmp`, `player_chair_pickup.bmp`, `player_chair_held.bmp`), then the play-on, which fails if the opening script is still running when it gives up |
 | `--player-death` | The opening flow, then Cooper stands still in the first fight: the imps empty his health, the death state 0x69 plays his dying animations and the fail stream, starts the transition (row 2) and restarts the scene ("Free Play (Fighting Intro)"), whose script then moves past its player wait |
 | `--player-controls` | The opening flow, then run speed at 30/60/144/240 Hz, a right-stick swing with no imp in range (`cache/player_air_swing.bmp`) and the trigger camera turn |
 | `--scene6-save` | `--scene6` from a save: a child `--gameselect-new-game` save pointed at chapter1_scene2_1viewcam, played from game select (Start, A on the slot, A on Play); the trophy heads' award and the rare book collected in a driven scene 3 must write challenges 1 and 2 into its signed progress.xsv; then runs `--scene6-save-reload` |
@@ -341,6 +341,45 @@ the script moves on to scene 4 (see the scene 3 checkpoints).
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-20: finishing reacting imps, scene music, and scene 5's entry
+
+- **Finishing a reacting imp.** Cooper's attack pick `0x0001CDA0` asks `0x0001D130` whether its target needs the
+  special (finishing) attack. The port passed Cooper's own body to `0x001413C0` / `0x00134650` and tested the
+  target's actor +0xCE0/+0xCDC. The asm reads the target record's +0x10 actor's body (`MOV ECX,EBP` at
+  0x00141420) and ESI = the requesting body's actor (`local_24`, body +8). The old oracle used one actor for both,
+  so it could not catch the swap. Now the target body rides in `RuntimeMindChainRequestSelection::target_body`.
+  - Effect: the imp's statsheet stagger count (row `objTag_Actor_Imp`, key 0x10) is 1, so one hit empties its
+    meter (body +0x16C, `0x0001FF60`). While it reacts (IsBeingHit, body +0x23C = 5) Cooper's next attack is the
+    kind-3 knockdown finisher (sub 0x36, 10 damage), which takes it to 0. The meter refills (0.99) when the
+    reaction ends without one (`0x00134060` → `0x001346B0`), so only a hit inside the reaction finishes, at any
+    health. Before, kind-1 hits at 1 health were
+    floored by `0x000215C0` (no death rows 0x68..0x6A) until the dizzy state, and one imp took 17 such hits.
+  - Measured with temporary probes (removed): every opening imp now dies on the hit after its first one. The
+    skeletons take the same path. Not compared with xemu.
+- **Scene music.** `0x0011CAC0` (scene start) calls `0x00116E00`, whose first part releases the stream the last
+  scene's script left in DAT_0050E4E0. That release is made now (`release_scene_music_at_start`); the rest of
+  `0x00116E00` is still not translated. Measured: at scene 3's start after `--scene6`,
+  `GSTREAMSROOMS_TROPHYROOM` is released; before, it played on. The same holds for the Grand Hallway's streams.
+  `0x00117330`'s clear of DAT_0050E560 (the ambient tune made) is made too, so later scenes make their own tune.
+- **Scene 5's entry ("Explain player energy").**
+  - Script types 0x76 / 0x77 (`0x00127BC0`) were empty. They send the player message 0x42 with 1 / 0 (mind
+    +0x7C), which holds Cooper's input around the Baron's page. In `--scene5` he now moves 1.5 units between
+    frames 120 and 240, against 56 before.
+  - The player mind setup (`0x0007EF10`) read DAT_00430D0C where the dump reads DAT_00430D10, which script type
+    0x7 sets. Scene 5's type 0x7 gives Cooper 25 energy; he entered with 50.
+  - DAT_00433BE8 and DAT_00433BF0 were two host words each: `0x001307D0` set one copy, and the heart display read
+    the other. They are one now (`health_style`, `health_second_voice`).
+  - With those, the heart display's style 1 runs: the rest of `0x001301A0`'s style-1 branch, `0x00130900` and
+    `0x00130950`. The heart spins random two-digit values (DAT_00433C60) under `GPROPS_RANDOMIZER`, then the
+    Baron's `GBARON_*_2` cue by the new energy. Shown in headless captures (looked at): the heart counting 45, 58,
+    22 with the Baron's head beside it, then his page. Not listened to.
+  - Not fixed: the vine door (door 4, clip `doors_round_1_highleft_opennoentry`, hold 1) still closes around
+    Cooper while he walks through the doorway (headless frames 175 to 195). The door node, the clip names
+    (`0x0005B540`, `0x0005B890`) and the actor pause (`0x00117400`) match their dumps. What walks Cooper in, and
+    when, relative to retail is not known yet.
+- **The snooker table.** The swing's attach (`0x00098E00`) and release (`0x00099280`) match their dumps: the table
+  goes back to where it was taken. Getting stuck in it after a swing was not reproduced.
 
 ### 2026-10-20: scene 5 plays to its end on its success path: the snooker table swing
 

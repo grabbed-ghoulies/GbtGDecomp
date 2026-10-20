@@ -269,6 +269,11 @@ at full level.
   0x55 plays fight music for an actor tag, 0x57 plays a named stream
   (priority 2), and 0x8D queues a stream slot (id 6).
 
+- At each scene start, `0x0011CAC0` → `0x00116E00` releases the stream DAT_0050E4E0 still names (the last
+  scene's 0x3A / 0x55 / 0x57 music), as 0x00116D20's first half does (2026-10-20). Before, a room's music
+  played on into the next scene. Scene end (`0x00117330`) clears DAT_0050E560 so the next scene's node 0x45
+  makes its own ambient tune.
+
 Stopped cues:
 
 - XACT reports a stopped cue (notification 1) even while it releases. The

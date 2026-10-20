@@ -10214,14 +10214,27 @@ int main(int argc, char** argv)
                     }
                 };
                 bool cleared = false;
-                // A reacting imp (action 0x7E, its hit reaction) can be hit again: its health drops while it stays
-                // in the reaction. Health stops at 1 until the imp is dizzy (0x000215C0's 0x00024680 minimum).
+                // A reacting imp (action 0x7E, its hit reaction) can be finished: one hit empties its stagger
+                // meter (body +0x16C; the imp's statsheet count is 1), so 0x001413C0 passes on its IsBeingHit bit and
+                // Cooper's next attack (0x0001CDA0) is the knockdown finisher that takes it from the reaction to 0.
                 std::unordered_map<gbtg::u32, std::pair<gbtg::u16, gbtg::u16>> reactions; // Address: action, health.
                 bool rehit = false;
+                // The heart only draws once Cooper's health changes; with the finisher he may clear the wave unhit.
+                int cooper_start_health = -1;
+                bool cooper_hit = false;
                 const auto track_reactions = [&]()
                 {
                     for (const auto& mark : marked())
                     {
+                        if (mark.actor->class_key == 4)
+                        {
+                            const int health = gbtg::read_u16(mark.body, 0x94);
+                            if (cooper_start_health < 0)
+                            {
+                                cooper_start_health = health;
+                            }
+                            cooper_hit = cooper_hit || health < cooper_start_health;
+                        }
                         if (mark.actor->class_key != 23)
                         {
                             continue;
@@ -10229,8 +10242,8 @@ int main(int argc, char** argv)
                         const gbtg::u16 action = gbtg::read_u16(mark.body, 0x748);
                         const gbtg::u16 health = gbtg::read_u16(mark.body, 0x94);
                         const auto found = reactions.find(mark.address);
-                        if (found != reactions.end() && found->second.first == 0x7E && action == 0x7E
-                            && health < found->second.second)
+                        if (found != reactions.end() && found->second.first == 0x7E && found->second.second != 0
+                            && health == 0)
                         {
                             rehit = true;
                         }
@@ -10360,14 +10373,18 @@ int main(int argc, char** argv)
                 std::cout << "PASS: Cooper defeats the opening imps and the script passes Kill All\n";
                 if (!rehit)
                 {
-                    throw gbtg::Error("no imp lost health while still in its hit reaction (action 0x7E)");
+                    throw gbtg::Error("no imp was finished from its hit reaction (action 0x7E)");
                 }
-                std::cout << "PASS: a reacting imp can be hit again before its reaction ends\n";
+                std::cout << "PASS: a reacting imp is finished before its reaction ends\n";
                 std::cout << "HUD: heart in " << hud_heart_frames << " fight captures, " << pages_checked
                           << " script pages checked\n";
-                if (hud_heart_frames == 0 || pages_checked == 0)
+                if ((cooper_hit && hud_heart_frames == 0) || pages_checked == 0)
                 {
-                    throw gbtg::Error("the fight never showed the heart, or no script page was checked for it");
+                    throw gbtg::Error("the fight hit Cooper but never showed the heart, or no script page was checked");
+                }
+                if (!cooper_hit)
+                {
+                    std::cout << "HUD: Cooper was not hit in the fight, so the heart had no reason to show\n";
                 }
                 std::cout << "PASS: the HUD shows in the fight and hides behind the butler's pages\n";
                 // "Freeplay (Temporary Weapon Explained)": the chair stands in the hall, type 0x96 put Cooper on

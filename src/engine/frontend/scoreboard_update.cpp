@@ -360,7 +360,7 @@ void update_runtime_health_display(RuntimeScoreboardUpdate& context)
     auto& hud = context.hud;
     auto& globals = hud.globals;
     auto& health = hud.health;
-    bool scary = false;
+    bool randomizing = false;
     if (hud.health_style == 1)
     {
         if (globals.health_drawn == 0) // DAT_00433C6C
@@ -372,7 +372,26 @@ void update_runtime_health_display(RuntimeScoreboardUpdate& context)
         }
         else
         {
-            throw Error("untranslated Xbox 0x00130900 (the super-scary health loop, style 1)");
+            loop_runtime_health_second_voice("XACT_SOUNDBANK_GPROPS_RANDOMIZER", context); // 0x00130900
+            randomizing = true;
+            if (globals.health_shown == 2 || globals.health_shown == 3) // DAT_00433C10
+            {
+                const float step = frame_step();
+                if (0.f < context.intro_timer)
+                {
+                    context.intro_timer = context.intro_timer - step;
+                    if (context.intro_timer <= 0.f)
+                    {
+                        context.intro_timer = 0.f;
+                        hud.health_style = 2;
+                        const i32 target = health.counter.target; // DAT_00433C3C
+                        const char* name = target < 0xB ? "XACT_SOUNDBANK_GBARON_COMING_2"
+                            : target < 0x15 ? "XACT_SOUNDBANK_GBARON_EVILLAUGH_2" : "XACT_SOUNDBANK_GBARON_WHAT_2";
+                        play_runtime_health_second_voice(name, context); // 0x00130950
+                        context.story_byte = u8(context.story_byte | 0x40);
+                    }
+                }
+            }
         }
     }
     else if (hud.health_style == 2)
@@ -401,7 +420,7 @@ void update_runtime_health_display(RuntimeScoreboardUpdate& context)
     {
         pulse_shown = true;
     }
-    else if (health.active != 0 && ((hud.flags & 0x4020u) != 0 || scary)) // DAT_00433BE0
+    else if (health.active != 0 && ((hud.flags & 0x4020u) != 0 || randomizing)) // DAT_00433BE0
     {
         pulse_shown = true;
     }
@@ -410,7 +429,7 @@ void update_runtime_health_display(RuntimeScoreboardUpdate& context)
         health.intensity = context.pulse; // DAT_00433C14
         acquire_runtime_player_health_textures(health); // 0x0012FE10
     }
-    if (scary)
+    if (randomizing)
     {
         as_float(globals.health_c28[0]) = context.pulse; // DAT_00433C28
     }
@@ -438,7 +457,48 @@ void update_runtime_health_display(RuntimeScoreboardUpdate& context)
             }); // 0x00104DF0, ESI DAT_00433BF4, EAX 0x00130AC0
     }
     swell_runtime_hud_counter(health.counter, health.mode != 0 ? health.active_preset : health.normal_preset);
+    if (randomizing)
+    {
+        // DAT_00433C60, the two digits the heart shows while it spins: 10 + 89 * a random unit.
+        context.random = context.random * 0x19660Du + 0x3C6EF35Fu;
+        const float unit = std::bit_cast<float>((context.random & 0x7FFFFFu) | 0x3F800000u);
+        health.counter.word_28 = std::bit_cast<u32>(i32((unit - 1.f) * 89.f + 10.f)); // DAT_0032B258, DAT_0032B10C
+    }
     globals.health_drawn = 0; // 0x0012EF60 above, ESI DAT_00433C38, EDI 0x00313A2C / 0x00313A18
+}
+
+// Xbox 0x00130900
+void loop_runtime_health_second_voice(const char* name, RuntimeScoreboardUpdate& context)
+{
+    auto& voice = context.hud.globals.health_second_voice; // DAT_00433BF0
+    i16 index = i16(voice);
+    if (voice == 0xFFFF)
+    {
+        index = allocate_audio_event_voice(0, context.voices); // 0x00039830
+        if (index != -1)
+        {
+            context.voices.voices.at(size_t(index)).stop = 0; // DAT_004E0CEC
+            prepare_audio_event_voice(index, name, context.voices); // 0x00039A20
+        }
+    }
+    voice = u16(index);
+}
+
+// Xbox 0x00130950
+void play_runtime_health_second_voice(const char* name, RuntimeScoreboardUpdate& context)
+{
+    auto& voice = context.hud.globals.health_second_voice; // DAT_00433BF0
+    if (voice != 0xFFFF)
+    {
+        stop_voice(voice, context); // 0x00039690 with stack 0, then DAT_00433BF0 = -1
+    }
+    const i16 index = allocate_audio_event_voice(0, context.voices); // 0x00039830
+    if (index != -1)
+    {
+        context.voices.voices.at(size_t(index)).stop = 0; // DAT_004E0CEC
+        prepare_audio_event_voice(index, name, context.voices); // 0x00039A20
+    }
+    voice = u16(index);
 }
 
 // Xbox 0x00130A50

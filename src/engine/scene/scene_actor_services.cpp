@@ -529,9 +529,9 @@ struct SceneActorServices::State
     i32 animation_cache_count = 0; // DAT_004DD550.
     std::unordered_map<u32, const char*> action_names;
     RuntimeMindClassSettings mind_settings{0, {}}; // DAT_0050E148.
-    u32 intro_enabled = 0; // DAT_00433BE8.
     float intro_scale = 0.f; // DAT_00433BEC.
-    i16 intro_voice = 0; // DAT_00433BF0.
+    // DAT_00433BE8 and DAT_00433BF0 are the health display's health_style and scoreboard_globals'
+    // health_second_voice: 0x001307D0 sets the style the heart display (0x001301A0) reads.
     RuntimePlayerIntroSound intro_sound;
     i32 camera_players = 0; // DAT_00545AF0.
     RuntimePlayerCameraContext camera;
@@ -1186,7 +1186,8 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
           shaders, *scratch, heap_free},
       effects{effect_models, sounds, random, origin, default_euler},
       scares{scene.factory, image.pools, scene.objects, scare_flags, player_link, default_euler},
-      intro_sound{intro_enabled, intro_scale, intro_voice, story_byte, sounds},
+      intro_sound{reinterpret_cast<u32&>(health_style), intro_scale,
+          reinterpret_cast<i16&>(scoreboard_globals.health_second_voice), story_byte, sounds},
       camera{scene.factory, image.pools, image.string(0x00314E50), data(0x00314EB0, 0x80), g_flags_ea9c,
           camera_players,
           [this](FactoryObject& object, const std::array<u32, 3>& message)
@@ -1208,9 +1209,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     class_names = strings(0x004340EC, 5);
     mind_goal_names = strings(0x003397BC, 0x31);
     decay_enabled = data(0x0030F144, 4);
-    std::memcpy(&intro_enabled, data(0x00433BE8, 4).data(), 4);
     std::memcpy(&intro_scale, data(0x00433BEC, 4).data(), 4);
-    std::memcpy(&intro_voice, data(0x00433BF0, 2).data(), 2);
     std::memcpy(&attachment_limit, data(0x00428684, 4).data(), 4);
     std::memcpy(&skeleton_fetch_delay, data(0x004288AC, 4).data(), 4);
     // 0x00116DA0, from 0x0011CAC0 before scene startup.
@@ -1347,7 +1346,8 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
                     }
                     object_message(*object_of(owner->actor_bytes.data()), message);
                 }
-            }});
+            },
+            intro_scale, story_byte, random});
     }
     // Boot registers the callout hook (0x0004F610) with the other resource hooks.
     callout_resources = std::make_unique<RuntimeCalloutResources>(RuntimeCalloutResources{resources.registry,
@@ -1447,7 +1447,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             return model_views_of(actor);
         },
-        mind_settings, intro_sound, camera, cameras, g_scene_flags->bytes[0], g_script_30d0c,
+        mind_settings, intro_sound, camera, cameras, g_scene_flags->bytes[0], g_script_30d10,
         g_script_30d0c, scene_name.data(), strategy_ranges, pause_groups, overrides, latches, game, clock,
         resume, query,
         [](u32) -> RuntimeStrategyMessageActor*

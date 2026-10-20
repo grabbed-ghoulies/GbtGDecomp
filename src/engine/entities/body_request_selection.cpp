@@ -290,8 +290,9 @@ const u8* select_runtime_body_chain_target_request(RuntimeMindChainRequestSelect
         address = resume_runtime_attachment_chain(context.chains, previous, shape.data(),
             height_mask, selected);
     }
+    // 0x001413C0 reads the target's body; ESI is this body's actor (local_24, the body's +8).
     const bool special = runtime_mind_target_requires_special_action(selection.target,
-        selection.requests.body, context.first_mode, context.second_mode);
+        context.target_body, context.mind.owner, context.first_mode, context.second_mode);
     if (address == 0 || special)
     {
         if (i32(length) < 1 || special)

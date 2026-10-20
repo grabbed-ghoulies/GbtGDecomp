@@ -240,7 +240,7 @@ int main()
                 result = runtime_mind_target_requires_action(target, other);
                 break;
             case 5:
-                result = runtime_mind_target_requires_special_action(target, other, words[39], words[40]);
+                result = runtime_mind_target_requires_special_action(target, other, actor_bytes, words[39], words[40]);
                 break;
             case 6:
                 result = runtime_body_target_height(body, owner, target_bytes, nullptr);

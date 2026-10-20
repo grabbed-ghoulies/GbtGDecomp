@@ -63,10 +63,12 @@ RuntimeMindTarget* select_runtime_player_shape_target(RuntimePlayerTargetSearch&
 bool runtime_mind_target_allowed(const RuntimeMindTarget& target,
     u32 flags); // Xbox 0x00129920
 bool runtime_body_target_state_active(std::span<const u8> body); // Xbox 0x00134650
+// `body` is the target's own body (record +0x10 actor +0x95C).
 bool runtime_mind_target_requires_action(const RuntimeMindTarget& target,
     std::span<const u8> body); // Xbox 0x001413C0
+// `body` is the target's body; `actor` is ESI, the requesting body's actor (its +8), not the target's.
 bool runtime_mind_target_requires_special_action(const RuntimeMindTarget& target,
-    std::span<const u8> body, const u32& first_mode,
+    std::span<const u8> body, std::span<const u8> actor, const u32& first_mode,
     const u32& second_mode); // Xbox 0x0001D130
 bool runtime_mind_target_occupancy_differs(const RuntimeMindTarget& target,
     u16 owner_class, const OccupancyRecord* allowed); // Xbox 0x00141760

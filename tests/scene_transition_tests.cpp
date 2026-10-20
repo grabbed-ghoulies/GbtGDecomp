@@ -7907,6 +7907,7 @@ void play_scene3_run(gbtg::Game& game, bool drive, int book)
     std::optional<float> exit_commanded;
     float exit_offset = 0.f;
     gbtg::u32 trophy_tag = 0;
+    constexpr size_t kTrophyWaypoints = 5;
     size_t trophy_waypoint = 0;
     const auto actor_of_class = [&game](gbtg::u32 key) -> gbtg::Actor*
     {
@@ -8028,9 +8029,11 @@ void play_scene3_run(gbtg::Game& game, bool drive, int book)
             if (nearest == nullptr)
             {
                 // Round the snooker table by the open side of the room Cooper crossed from his spawn
-                // (-115.6, 79.5): up to z 60, across to x -115, then down to the trophy.
-                const std::array<gbtg::Vec3, 2> waypoints{gbtg::Vec3{cooper->x, 0.f, 60.f},
-                    gbtg::Vec3{-115.f, 0.f, 60.f}};
+                // (-115.6, 79.5): up to z 60, across to x -115, down x -100, clear of the furniture between x -117 and
+                // -108 at z 16 that pins a straight walk, and in to the trophy from (-104, -30).
+                const std::array<gbtg::Vec3, kTrophyWaypoints> waypoints{gbtg::Vec3{cooper->x, 0.f, 60.f},
+                    gbtg::Vec3{-115.f, 0.f, 60.f}, gbtg::Vec3{-100.f, 0.f, 30.f}, gbtg::Vec3{-100.f, 0.f, -20.f},
+                    gbtg::Vec3{-104.f, 0.f, -30.f}};
                 while (trophy_waypoint < waypoints.size())
                 {
                     const float wx = waypoints[trophy_waypoint].x - cooper->x;
@@ -8073,13 +8076,13 @@ void play_scene3_run(gbtg::Game& game, bool drive, int book)
             }
             walk_commanded.reset();
             // The trophy's cabinet stops Cooper about 12 from its centre; circle it from 14.
-            if (length > (skeletons.empty() && trophy_waypoint >= 2 ? 14.f : 10.f))
+            if (length > (skeletons.empty() && trophy_waypoint >= kTrophyWaypoints ? 14.f : 10.f))
             {
                 input.pads[0].lx = gbtg::i16(std::sin(stick) * 32767.f);
                 input.pads[0].ly = gbtg::i16(-std::cos(stick) * 32767.f);
                 walk_commanded = stick;
             }
-            else if (skeletons.empty() && trophy_waypoint >= 2)
+            else if (skeletons.empty() && trophy_waypoint >= kTrophyWaypoints)
             {
                 // Beside the trophy: A, then a short step about it, until a grab point (0x00147430) is in reach.
                 if (frame % 40 < 6)

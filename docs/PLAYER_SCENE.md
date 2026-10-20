@@ -374,10 +374,13 @@ the script moves on to scene 4 (see the scene 3 checkpoints).
     `0x00130950`. The heart spins random two-digit values (DAT_00433C60) under `GPROPS_RANDOMIZER`, then the
     Baron's `GBARON_*_2` cue by the new energy. Shown in headless captures (looked at): the heart counting 45, 58,
     22 with the Baron's head beside it, then his page. Not listened to.
-  - Not fixed: the vine door (door 4, clip `doors_round_1_highleft_opennoentry`, hold 1) still closes around
-    Cooper while he walks through the doorway (headless frames 175 to 195). The door node, the clip names
-    (`0x0005B540`, `0x0005B890`) and the actor pause (`0x00117400`) match their dumps. What walks Cooper in, and
-    when, relative to retail is not known yet.
+  - The vine door (door 4, clip `doors_round_1_highleft_opennoentry`) closed around Cooper in the doorway. Its
+    node passes +0x14 = 1, so `0x0005B540` leaves the close clip paused and `0x0005AA90` resumes it once
+    `0x001412F0` reports the actors settled. That check walked the host range links (`g_range_links`, never
+    filled; `span_980` never set), so every actor looked settled and the clip ran at once. It now walks the native
+    DAT_00511B38 players (`g_loading_actors`): the front kind of each +0x980 goal ring, +0x984 and +0x98C. Cooper's
+    walk-in (body action 0x15C) holds the door until he stands inside; the vines then close beside him (headless
+    frames 180 to 250, looked at). The ghoulybox wait in script type 0x2A reads the same check.
 - **The snooker table.** The swing's attach (`0x00098E00`) and release (`0x00099280`) match their dumps: the table
   goes back to where it was taken. Getting stuck in it after a swing was not reproduced.
 

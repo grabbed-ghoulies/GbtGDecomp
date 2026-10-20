@@ -3756,6 +3756,31 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         }
         return {};
     };
+    // 0x001412F0's walk of DAT_00511B38: each player's +0x980 goal ring front (an empty ring reads address zero,
+    // as retail does), +0x984 and +0x98C.
+    g_loading_actors = [this]()
+    {
+        std::vector<RuntimeLoadingActor> actors;
+        for (const auto& mark : marked_actors())
+        {
+            const RuntimePlayerGoalRing* ring = nullptr;
+            for (auto* player : players->instances())
+            {
+                if (&player->actor == mark.actor)
+                {
+                    ring = player->ring;
+                }
+            }
+            u16 goal = 0;
+            if (ring != nullptr)
+            {
+                goal = ring->tail == ring->capacity ? read_u16(address_zero, 0)
+                    : read_u16(ring->rows, size_t(ring->head) * ring->stride);
+            }
+            actors.push_back({goal, read_u32(mark.bytes, 0x984), read_u32(mark.bytes, 0x98C)});
+        }
+        return actors;
+    };
     // Xbox 0x00117400's walk of DAT_00511B38 for the script and the dialogue.
     g_actor_pause = [this](u8 mask, i32 release)
     {
@@ -4643,6 +4668,7 @@ SceneActorServices::State::~State()
     {
         active_services = nullptr;
         g_actor_pause = nullptr;
+        g_loading_actors = nullptr;
         g_actor_broadcast = nullptr;
         g_alt_node_body = nullptr;
         g_script_actor_bytes = nullptr;

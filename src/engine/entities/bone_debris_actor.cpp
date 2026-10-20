@@ -14,8 +14,6 @@
 
 namespace gbtg
 {
-float engine_reciprocal_sqrt(float value); // Xbox 0x001534C0
-
 namespace
 {
 void put_word(std::span<u8> bytes, size_t offset, u32 value)

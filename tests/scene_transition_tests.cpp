@@ -7862,7 +7862,29 @@ void play_scene3_run(gbtg::Game& game, bool drive)
     std::optional<gbtg::Vec3> walk_last;
     std::optional<float> walk_commanded;
     float walk_offset = 0.f;
-    const int frames = drive ? 5400 : 3600;
+    bool skeletons_seen = false;
+    int trophy_frame = -1;
+    int trophy_picked = -1;
+    int trophy_event = -1;
+    int book_collected = -1;
+    // After the throw: the walk to the rare book, then to the exit volume.
+    std::optional<gbtg::Vec3> exit_last;
+    std::optional<float> exit_commanded;
+    float exit_offset = 0.f;
+    gbtg::u32 trophy_tag = 0;
+    size_t trophy_waypoint = 0;
+    const auto actor_of_class = [&game](gbtg::u32 key) -> gbtg::Actor*
+    {
+        for (const auto& [address, actor] : game.factory_scene->start_actors(game).actor_addresses())
+        {
+            if (actor != nullptr && actor->class_key == key)
+            {
+                return actor;
+            }
+        }
+        return nullptr;
+    };
+    const int frames = drive ? 9000 : 3600;
     for (int frame = 0; frame < frames && moved_on < 0 && (drive || free_play < 0 || frame < free_play + 600); ++frame)
     {
         gbtg::InputState input;
@@ -7905,10 +7927,57 @@ void play_scene3_run(gbtg::Game& game, bool drive)
                 states_seen.insert(state);
             }
         }
-        if (drive && !page && free_play >= 0 && cooper && !skeletons.empty())
+        skeletons_seen |= !skeletons.empty();
+        // Once both skeletons are down, Free Play's ObjectPickedUp condition (opcode 3) names the trophy's tag:
+        // Cooper walks to it and presses A about it, as the chair driver does.
+        gbtg::Actor* trophy = nullptr;
+        if (drive && skeletons_seen && skeletons.empty() && free_play >= 0)
+        {
+            if (trophy_tag == 0)
+            {
+                for (const auto& condition : gbtg::g_script_conds)
+                {
+                    if (gbtg::cond_u32(condition, 0) == 3)
+                    {
+                        trophy_tag = gbtg::cond_u32(condition, 8) & 0xFFFFu;
+                    }
+                }
+            }
+            trophy = trophy_tag == 0 ? nullptr : actor_of_class(trophy_tag);
+            if (trophy != nullptr && trophy_frame < 0)
+            {
+                trophy_frame = frame;
+                const gbtg::Vec3 at = gbtg::actor_world_position(*trophy);
+                std::cout << "scene3 frame " << frame << ": the skeletons are down; Cooper goes for the trophy (tag "
+                          << trophy_tag << ") at " << at.x << ", " << at.y << ", " << at.z << "\n";
+            }
+            if (trophy != nullptr && trophy_picked < 0 && cooper && trophy->spawn_owner == actor_of_class(4))
+            {
+                trophy_picked = frame;
+                std::cout << "scene3 frame " << frame << ": Cooper picks up the trophy\n";
+                capture_readback("cache/scene3_trophy_pickup.bmp");
+            }
+            for (const gbtg::LiveScript* node = gbtg::g_live_scripts; node != nullptr && trophy_event < 0;
+                 node = node->next)
+            {
+                if (node->type == 0xAD && node->word_c == gbtg::u16(trophy_tag))
+                {
+                    trophy_event = frame;
+                    for (const auto& condition : gbtg::g_script_conds)
+                    {
+                        std::cout << "scene3 condition opcode " << gbtg::cond_u32(condition, 0) << " words "
+                                  << std::hex << gbtg::cond_u32(condition, 4) << " " << gbtg::cond_u32(condition, 8)
+                                  << " " << gbtg::cond_u32(condition, 0xC) << std::dec << "\n";
+                    }
+                    std::cout << "scene3 frame " << frame << ": event 0xAD with the trophy's tag\n";
+                }
+            }
+        }
+        if (drive && !page && free_play >= 0 && cooper && (!skeletons.empty() || (trophy != nullptr && trophy_picked < 0)))
         {
             const gbtg::Vec3* nearest = nullptr;
             float best = 1e30f;
+            static gbtg::Vec3 target;
             for (const auto& skeleton : skeletons)
             {
                 const gbtg::Vec3 position = gbtg::actor_world_position(*skeleton.actor);
@@ -7917,10 +7986,33 @@ void play_scene3_run(gbtg::Game& game, bool drive)
                 if (dx * dx + dz * dz < best)
                 {
                     best = dx * dx + dz * dz;
-                    static gbtg::Vec3 target;
                     target = position;
                     nearest = &target;
                 }
+            }
+            if (nearest == nullptr)
+            {
+                // Round the snooker table by the open side of the room Cooper crossed from his spawn
+                // (-115.6, 79.5): up to z 60, across to x -115, then down to the trophy.
+                const std::array<gbtg::Vec3, 2> waypoints{gbtg::Vec3{cooper->x, 0.f, 60.f},
+                    gbtg::Vec3{-115.f, 0.f, 60.f}};
+                while (trophy_waypoint < waypoints.size())
+                {
+                    const float wx = waypoints[trophy_waypoint].x - cooper->x;
+                    const float wz = waypoints[trophy_waypoint].z - cooper->z;
+                    if (wx * wx + wz * wz > 100.f)
+                    {
+                        break;
+                    }
+                    ++trophy_waypoint;
+                }
+                target = trophy_waypoint < waypoints.size() ? waypoints[trophy_waypoint]
+                    : gbtg::actor_world_position(*trophy);
+                if (trophy_waypoint == 0)
+                {
+                    target.x = waypoints[0].x;
+                }
+                nearest = &target;
             }
             // The stick is camera-relative: learn the offset between the stick's angle and the direction Cooper
             // actually moved, and steer by it.
@@ -7939,12 +8031,32 @@ void play_scene3_run(gbtg::Game& game, bool drive)
             const float dz = nearest->z - cooper->z;
             const float length = std::sqrt(dx * dx + dz * dz);
             const float stick = std::atan2(dx, dz) - walk_offset;
+            if (skeletons.empty() && frame % 120 == 0)
+            {
+                std::cout << "scene3 frame " << frame << ": Cooper at " << cooper->x << ", " << cooper->y << ", "
+                          << cooper->z << ", waypoint " << trophy_waypoint << ", " << length << " from its target\n";
+            }
             walk_commanded.reset();
-            if (length > 10.f)
+            // The trophy's cabinet stops Cooper about 12 from its centre; circle it from 14.
+            if (length > (skeletons.empty() && trophy_waypoint >= 2 ? 14.f : 10.f))
             {
                 input.pads[0].lx = gbtg::i16(std::sin(stick) * 32767.f);
                 input.pads[0].ly = gbtg::i16(-std::cos(stick) * 32767.f);
                 walk_commanded = stick;
+            }
+            else if (skeletons.empty() && trophy_waypoint >= 2)
+            {
+                // Beside the trophy: A, then a short step about it, until a grab point (0x00147430) is in reach.
+                if (frame % 40 < 6)
+                {
+                    input.accept = true;
+                }
+                else if (frame % 40 >= 16)
+                {
+                    const float about = stick + 0.785398f;
+                    input.pads[0].lx = gbtg::i16(std::sin(about) * 16000.f);
+                    input.pads[0].ly = gbtg::i16(-std::cos(about) * 16000.f);
+                }
             }
             else if ((frame / 8) % 2 == 0)
             {
@@ -7954,8 +8066,136 @@ void play_scene3_run(gbtg::Game& game, bool drive)
             }
             walk_last = *cooper;
         }
+        // Holding the trophy, Cooper throws it: the right stick pushed toward the room's middle and released (the
+        // mind's attack gesture, 0x0007D5A0).
+        if (drive && !page && trophy_picked >= 0 && frame >= trophy_picked + 90 && frame < trophy_picked + 98)
+        {
+            input.pads[0].rx = 32767;
+            if (frame == trophy_picked + 90)
+            {
+                std::cout << "scene3 frame " << frame << ": Cooper throws the trophy" << "\n";
+            }
+        }
+        // The scene's rare book is an FX anim emitter (type 0xD) holding powerup kind 1; in its state 1 (+0x93C) a
+        // live player touching it collects it (0x0010A590 -> 0x0010A6D0), which sets state 2. After the throw Cooper
+        // walks onto it, then, once Free Play's section holds at its end (type 0xF, DAT_00512518), into the exit
+        // volume (mask 1, 0x00140E30) as --player-fight does.
+        if (drive && !page && cooper && trophy_picked >= 0 && frame >= trophy_picked + 240)
+        {
+            std::optional<gbtg::Vec3> goal;
+            for (const auto& object : game.factory_scene->objects)
+            {
+                if (object.type != 0xD || object.bytes == nullptr || object.size < 0x940)
+                {
+                    continue;
+                }
+                const gbtg::u32 state = gbtg::read_u32({object.bytes.get(), object.size}, 0x93C);
+                if (state == 2 && book_collected < 0)
+                {
+                    book_collected = frame;
+                    std::cout << "scene3 frame " << frame << ": Cooper collects the rare book\n";
+                    capture_readback("cache/s3w_captures/scene3_book.bmp");
+                }
+                if (state == 1)
+                {
+                    if (const gbtg::Actor* book = actor_of_class(0x6C); book != nullptr)
+                    {
+                        goal = gbtg::actor_world_position(*book);
+                        // Come at the book from the open floor in front of the sofa, clear of the cabinet.
+                        if (cooper->z > goal->z + 25.f)
+                        {
+                            goal = gbtg::Vec3{goal->x + 15.f, 0.f, goal->z + 20.f};
+                        }
+                    }
+                }
+            }
+            if (!goal && gbtg::g_gate_2518 != 0 && gbtg::g_512344 != nullptr)
+            {
+                const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+                for (const auto* record = pool.begin; record < pool.cursor; ++record)
+                {
+                    if ((record->mask & 1) != 0)
+                    {
+                        // Line up with the box across x before going in, as --player-fight does.
+                        const float reach = record->extent_x * 2.f;
+                        if (std::abs(cooper->z - record->center.z) > record->extent_z * 0.5f
+                            && std::abs(cooper->x - record->center.x) > reach * 0.5f)
+                        {
+                            const float side = cooper->x < record->center.x ? -1.f : 1.f;
+                            goal = gbtg::Vec3{record->center.x + side * reach, record->center.y, record->center.z};
+                        }
+                        else
+                        {
+                            goal = record->center;
+                        }
+                        break;
+                    }
+                }
+            }
+            if (book_collected >= 0 && frame == book_collected + 15)
+            {
+                capture_readback("cache/s3w_captures/scene3_book_burst.bmp");
+            }
+            if (goal && book_collected >= 0 && (frame - book_collected) % 60 == 0)
+            {
+                capture_readback("cache/s3w_captures/scene3_exit_" + std::to_string(frame - book_collected) + ".bmp");
+            }
+            if (goal)
+            {
+                if (exit_last && exit_commanded)
+                {
+                    const float mx = cooper->x - exit_last->x;
+                    const float mz = cooper->z - exit_last->z;
+                    if (mx * mx + mz * mz > 0.01f)
+                    {
+                        exit_offset += std::remainder(std::atan2(mx, mz) - (*exit_commanded + exit_offset),
+                            6.2831853f) * 0.5f;
+                    }
+                }
+                const float dx = goal->x - cooper->x;
+                const float dz = goal->z - cooper->z;
+                exit_commanded.reset();
+                if (dx * dx + dz * dz > 1.f)
+                {
+                    const float stick = std::atan2(dx, dz) - exit_offset;
+                    input.pads[0].lx = gbtg::i16(std::sin(stick) * 32767.f);
+                    input.pads[0].ly = gbtg::i16(-std::cos(stick) * 32767.f);
+                    exit_commanded = stick;
+                }
+                if (frame % 120 == 0)
+                {
+                    std::cout << "scene3 frame " << frame << ": Cooper at " << cooper->x << ", " << cooper->z
+                              << " heads for " << goal->x << ", " << goal->z << (book_collected < 0 ? " (book)" : " (exit)")
+                              << ", gate " << gbtg::g_gate_2518 << "\n";
+                }
+            }
+            exit_last = *cooper;
+        }
         gbtg::gfx_begin_frame();
         game.tick(1.f / 60.f, input);
+        if (drive && trophy_picked >= 0 && frame > trophy_picked + 90 && frame <= trophy_picked + 240)
+        {
+            const int after = frame - trophy_picked - 90;
+            gbtg::Actor* thrown = actor_of_class(trophy_tag);
+            if (after % 10 == 0)
+            {
+                if (thrown == nullptr)
+                {
+                    std::cout << "scene3 frame " << frame << ": the trophy is gone\n";
+                }
+                else
+                {
+                    const gbtg::Vec3 at = gbtg::actor_world_position(*thrown);
+                    std::cout << "scene3 frame " << frame << ": trophy at " << at.x << ", " << at.y << ", " << at.z
+                              << " velocity " << thrown->anchor.x << ", " << thrown->anchor.y << ", "
+                              << thrown->anchor.z << "\n";
+                }
+            }
+            if (after == 8 || after == 20 || after == 40 || after == 80)
+            {
+                capture_readback("cache/s3w_captures/scene3_throw_" + std::to_string(after) + ".bmp");
+            }
+        }
         const bool page_now = game.script_dialogue != nullptr && game.script_dialogue->dialogue.state.mode != 0;
         if (page_now && !page_up)
         {
@@ -7991,6 +8231,14 @@ void play_scene3_run(gbtg::Game& game, bool drive)
         }
         gbtg::gfx_end_frame();
     }
+    for (const auto& condition : gbtg::g_script_conds)
+    {
+        std::cout << "scene3 end condition opcode " << gbtg::cond_u32(condition, 0) << " words " << std::hex
+                  << gbtg::cond_u32(condition, 4) << " " << gbtg::cond_u32(condition, 8) << " "
+                  << gbtg::cond_u32(condition, 0xC) << std::dec << "\n";
+    }
+    std::cout << "scene3: trophy from frame " << trophy_frame << ", picked up at " << trophy_picked << ", event 0xAD at "
+              << trophy_event << "\n";
     std::cout << "scene3: pages " << pages << ", title " << game.scene_name << ", Cooper from frame " << cooper_frame
               << ", Free Play from frame " << free_play << "\n";
     if (cooper_frame < 0)
@@ -8008,6 +8256,30 @@ void play_scene3_run(gbtg::Game& game, bool drive)
     if (gbtg::entity_detail::g_cam_active[0] == nullptr)
     {
         throw gbtg::Error("scene 3 ends with no camera view bound in slot 0");
+    }
+    if (drive && (trophy_picked < 0 || trophy_event < 0))
+    {
+        throw gbtg::Error("scene 3's driven run did not pick up the trophy (type 0x7D, 0x0009E6B0) and queue its "
+                          "event 0xAD");
+    }
+    if (drive)
+    {
+        std::cout << "PASS: scene 3's skeletons fall to Cooper and he lifts the trophy, queueing its event 0xAD"
+                  << "\n";
+    }
+    if (drive && book_collected < 0)
+    {
+        throw gbtg::Error("scene 3's driven run did not collect the rare book (type 0xD, 0x0010A6D0)");
+    }
+    if (drive && moved_on < 0)
+    {
+        throw gbtg::Error("scene 3's driven run did not leave through the exit volume: the script holds at " +
+                          game.scene_script.name);
+    }
+    if (drive)
+    {
+        std::cout << "PASS: scene 3's rare book is collected at frame " << book_collected << " and Cooper leaves "
+                  << "through the open door at frame " << moved_on << " (" << game.scene_script.name << ")\n";
     }
     std::cout << "PASS: scene 3's walk-in spawns Cooper, Crivens' pages close on A and Free Play holds with the "
                  "player camera\n";

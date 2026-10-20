@@ -403,19 +403,19 @@ void lunge_runtime_hit_state(std::span<u8> state, RuntimeHitStateTick& context)
 }
 
 // Xbox 0x0001D5B0
-bool runtime_hit_turn_toward(std::span<const u8> state, const Vec3& target, Vec3& euler,
-    RuntimeHitStateTick& context)
+bool turn_runtime_body_toward(const Vec3& target, std::span<const u8> body, const Vec3& current, Vec3& euler,
+    std::span<const u8> hit, const Actor& actor, const ActorAnimationState& animation)
 {
-    const float offset = runtime_body_hit_angle(context.hit);
-    const float window = hit_window(context.hit);
-    const MinaPlayer* player = slot_player(context.animation);
+    const float offset = runtime_body_hit_angle(hit);
+    const float window = hit_window(hit);
+    const MinaPlayer* player = slot_player(animation);
     const float position = player == nullptr ? 0.f : player->position;
-    const Vec3 origin = actor_world_position(context.actor);
+    const Vec3 origin = actor_world_position(actor);
     float yaw;
     runtime_direction_angle(Vec3{target.x - origin.x, target.y - origin.y, target.z - origin.z}, yaw);
     if (position >= window)
     {
-        euler = Vec3{0.f, read_f32(context.body, 0x730), 0.f};
+        euler = Vec3{0.f, read_f32(body, 0x730), 0.f};
         return true;
     }
     float fraction;
@@ -435,8 +435,6 @@ bool runtime_hit_turn_toward(std::span<const u8> state, const Vec3& target, Vec3
             fraction = 0.f;
         }
     }
-    Vec3 current;
-    std::memcpy(&current, state.data() + 0x38, 12);
     euler.x = step_runtime_angle_toward(0.f, current.x, fraction);
     euler.y = step_runtime_angle_toward(yaw - offset, current.y, fraction);
     euler.z = step_runtime_angle_toward(0.f, current.z, fraction);
@@ -453,7 +451,10 @@ void face_runtime_hit_target(std::span<const u8> state, RuntimeHitStateTick& con
     Vec3 target;
     std::memcpy(&target, context.target.data() + 0x20, 12);
     Vec3 euler;
-    if (runtime_hit_turn_toward(state, target, euler, context))
+    Vec3 current;
+    std::memcpy(&current, state.data() + 0x38, 12);
+    if (turn_runtime_body_toward(target, context.body, current, euler, context.hit, context.actor,
+            context.animation)) // 0x0001D5B0 with state +0x38
     {
         if (runtime_actor_step(context.actor, context.clock) > 0.f)
         {

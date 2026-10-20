@@ -86,8 +86,10 @@ void reset_runtime_body_turn(u32 brake, std::span<u8> body,
     RuntimeBodyTimerRecipient* first_timer); // Xbox 0x001346B0, ESI body
 float runtime_hit_target_gap(float& angle, RuntimeHitStateTick& context); // Xbox 0x00096260
 void lunge_runtime_hit_state(std::span<u8> state, RuntimeHitStateTick& context); // Xbox 0x00095F30
-bool runtime_hit_turn_toward(std::span<const u8> state, const Vec3& target, Vec3& euler,
-    RuntimeHitStateTick& context); // Xbox 0x0001D5B0
+// The turn toward `target` from `current` that the animation reaches by the hit record's window (body +0x84 +0x18),
+// or body +0x730 once the window has passed (EAX target, then the body, the current euler and the output).
+bool turn_runtime_body_toward(const Vec3& target, std::span<const u8> body, const Vec3& current, Vec3& euler,
+    std::span<const u8> hit, const Actor& actor, const ActorAnimationState& animation); // Xbox 0x0001D5B0
 void face_runtime_hit_target(std::span<const u8> state, RuntimeHitStateTick& context); // Xbox 0x00095EA0
 void steer_runtime_hit_body(RuntimeHitStateTick& context); // Xbox 0x000963E0
 void move_runtime_hit_body(std::span<const u8> state, RuntimeHitStateTick& context); // Xbox 0x00096060

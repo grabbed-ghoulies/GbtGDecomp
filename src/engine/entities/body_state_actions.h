@@ -52,6 +52,7 @@ struct RuntimeAnimStateContext;
 struct RuntimePickupStateContext;
 struct RuntimePlayerDeathContext;
 struct RuntimeGrabbedStateContext;
+struct RuntimeThrowStateContext;
 // Installs type 9 actorMove (getter 0x0002B5A0, vtable 0x004DD72C) and the state classes whose lifecycles
 // are translated: 0x64 (getter 0x0008C940, vtable 0x00505760), 0x7A (getter 0x0009C570, vtable 0x00505A20), 0x7C (getter 0x0009DDA0, vtable 0x00505A60), 0x73 entityStateHit (getter 0x00095740, vtable 0x00505940), 0x74 entityStateHitFurnace
 // (getter 0x000966B0, vtable 0x00505960), 0x87 entityStateStandAlert
@@ -60,12 +61,13 @@ struct RuntimeGrabbedStateContext;
 // entityStateStruggle (getter 0x000A2B30, vtable 0x00505BE0) and
 // 0x8E entityStateWalkAlert (getter 0x000A55F0, vtable
 // 0x00505CA0), 0x8F, the skeletons' walk toward their target (getter 0x000A6220, vtable 0x00505CC0) and 0x8A, a
-// timed hold (getter 0x000A34C0, vtable 0x00505C20). The context resolvers map a state's body address (+8) to its native body views.
+// timed hold (getter 0x000A34C0, vtable 0x00505C20), and 0x8B, the throw (getter 0x000A37F0, vtable 0x00505C40). The context resolvers map a state's body address (+8) to its native body views.
 void install_runtime_body_state_classes(std::span<ObjectFactoryType> types,
     std::function<RuntimeBodyStateContext(u32)> context_of, std::function<RuntimeHitStateLifecycle(u32)> hit_of,
     std::function<RuntimeDizzyStateContext&(u32)> dizzy_of, std::function<RuntimeKnockdownContext&(u32)> knockdown_of,
     std::function<RuntimeDieStateContext&(u32)> die_of, std::function<RuntimeAnimStateContext&(u32)> anim_of,
     std::function<RuntimePickupStateContext&(u32)> pickup_of,
     std::function<RuntimePlayerDeathContext&(u32)> player_death_of,
-    std::function<RuntimeGrabbedStateContext&(u32)> grabbed_of);
+    std::function<RuntimeGrabbedStateContext&(u32)> grabbed_of,
+    std::function<RuntimeThrowStateContext&(u32)> throw_of = {});
 }

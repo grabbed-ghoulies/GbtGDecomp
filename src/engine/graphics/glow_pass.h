@@ -41,6 +41,9 @@ void set_runtime_glow_color_states(u32 vertex_shader, u32 pixel_shader, u32 colo
 // Back to the frame: the captured depth is stamped into the stencil over the rectangle, then the colour states.
 u32 begin_runtime_glow_composite(u32 color, u32 vertex_shader, u32 pixel_shader,
     RuntimeGlowPass& context); // Xbox 0x000623C0
+// The capture stamped back into the frame as one quad (vertex shader 2), then plain depth-tested states with no
+// shaders or textures.
+void stamp_runtime_glow(u32 color, u32 pixel_shader, RuntimeGlowPass& context); // Xbox 0x00062490, EAX pixel shader
 void composite_runtime_glow(u32 first_texture, u32 pixel_shader, u32 second_texture, u32 first, u32 second,
     RuntimeGlowPass& context); // Xbox 0x00062750, ECX first texture, EAX pixel shader, EBX second texture
 }

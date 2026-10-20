@@ -42,6 +42,12 @@ struct RuntimePickupStateContext
     Game& game; // 0x00116810.
     const RuntimeDialogueInputDevice* input = nullptr; // The tick's second argument (actor +0x960 or zero).
     const RuntimeDialogueInputState* input_state = nullptr;
+    // Type 0x7D: the weapon's vtable +0xC (its reply words are written back) and the body latches
+    // (0x0001FC40 / 0x0001FD20, DAT_00511AA4).
+    std::function<void(u32 weapon, std::span<const u32>)> weapon_message{};
+    entity_detail::LatchNode** latches = nullptr;
+    std::span<u8> actor_words{}; // The actor's bytes, for 0x0009E9F0's +0x314 store.
+    std::span<const u8> address_zero{}; // What a null input word reads (0x0009E6B0's stick).
 };
 
 void pickup_state_object_sizes(ObjectSizes& output); // Xbox 0x0009DD80
@@ -49,6 +55,21 @@ bool initialize_runtime_pickup_state(std::span<u8> state, std::span<const u8> pa
     RuntimePickupStateContext& context); // Xbox 0x0009DE00
 void destroy_runtime_pickup_state(std::span<u8> state, RuntimePickupStateContext& context); // Xbox 0x0009DEA0
 void tick_runtime_pickup_state(std::span<u8> state, RuntimePickupStateContext& context); // Xbox 0x0009DF90
+// Factory type 0x7D (getter 0x0009E450, vtable 0x00505A80): the body lifts a weapon that answers message 0xA0 (the
+// trophy). +0xC is 0x0009E9F0; the +0x14 / +0x18 slots are the empty 0x001628B0 and +0x1C is 0x0002B620.
+//
+// State words: +0x18 the animation point that asks the weapon, +0x1C the point it reaches the hands, +0x20 the point
+// after which the stick ends the state, +0x24 the hold height (times actor +0x38), +0x28 the weapon that agreed and
+// +0x2C the stage (1 facing the mind's weapon, 2 asked, 3 the weapon agreed).
+void lift_state_object_sizes(ObjectSizes& output); // Xbox 0x0009E430
+bool initialize_runtime_lift_state(std::span<u8> state, std::span<const u8> parameters,
+    RuntimePickupStateContext& context); // Xbox 0x0009E4B0
+void destroy_runtime_lift_state(std::span<u8> state, RuntimePickupStateContext& context); // Xbox 0x0009E560
+// Turns the body toward the weapon's nearest pick-up point.
+void face_runtime_lift_weapon(u32 weapon, RuntimePickupStateContext& context); // Xbox 0x0009EA70
+void tick_runtime_lift_state(std::span<u8> state, RuntimePickupStateContext& context); // Xbox 0x0009E6B0
+void message_runtime_lift_state(std::span<u8> state, std::span<const u32> message,
+    RuntimePickupStateContext& context); // Xbox 0x0009E9F0
 // Moves the body toward the weapon's nearest pick-up point while the animation runs up to `grab`.
 void approach_runtime_pickup(std::span<const u8> state, RuntimePlayerAttachmentActor& weapon, float grab,
     RuntimePickupStateContext& context); // Xbox 0x0009E2B0

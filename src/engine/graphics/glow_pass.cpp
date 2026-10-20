@@ -291,6 +291,37 @@ u32 begin_runtime_glow_composite(u32 color, u32 vertex_shader, u32 pixel_shader,
     return 1;
 }
 
+// Xbox 0x00062490, EAX pixel shader
+void stamp_runtime_glow(u32 color, u32 pixel_shader, RuntimeGlowPass& context)
+{
+    if (begin_runtime_glow_composite(color, 2, pixel_shader, context) == 0)
+    {
+        return;
+    }
+    auto& d3d = context.outer.draw.d3d;
+    u32* push = d3d.begin_push(0x15);
+    push[0] = 0x417FC;
+    push[1] = 8;
+    push[2] = 0x40201818;
+    for (u32 index = 0; index < 8; ++index)
+    {
+        push[3 + index] = std::bit_cast<u32>(context.targets.corners[index]);
+    }
+    push[11] = 0x417FC;
+    push[12] = 0;
+    d3d.end_push(push + 13);
+    deferred(context, 0x00181968) |= 1;
+    deferred(context, 0x0018199C) = 0;
+    d3d.depth(1); // D3DDevice_SetRenderState_ZEnable.
+    d3d.stencil_enable(0);
+    d3d.vertex_shader(0);
+    d3d.pixel_shader(0);
+    d3d.texture(0, nullptr);
+    d3d.texture(1, nullptr);
+    d3d.texture(2, nullptr);
+    d3d.texture(3, nullptr);
+}
+
 // Xbox 0x00062750
 void composite_runtime_glow(u32 first_texture, u32 pixel_shader, u32 second_texture, u32 first, u32 second,
     RuntimeGlowPass& context)

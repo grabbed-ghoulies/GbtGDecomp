@@ -104,6 +104,7 @@ struct RuntimeScoreboardHud
     std::function<bool()> area_dialogue_active; // 0x0005B830.
     RuntimeScoreboardDraw* draw = nullptr; // The HUD sprite queue and the draw clocks.
     std::array<std::span<const u8>, 2> counter_presets{}; // DAT_00314170, DAT_00314184.
+    std::span<const u8> damage_preset{}; // DAT_00312F8C, the total-damage counter's digits.
     std::span<const u8> counter_preset(bool alternate) const
     {
         return counter_presets[alternate ? 1 : 0];

@@ -8,6 +8,7 @@
 #include "../entities/body_walk_alert_tick.h"
 #include "../entities/body_walk_target_state.h"
 #include "../entities/body_hold_state.h"
+#include "../entities/body_throw_state.h"
 #include "../entities/body_action_ids.h"
 #include "../transitions/scene_transition.h"
 #include "../transitions/scene_transitions.h"
@@ -238,6 +239,37 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
                 };
             }
             children_[child->bytes.get()] = dizzy.get();
+            continue;
+        }
+        if (child->type == 0x8B)
+        {
+            auto& thrown = throw_children_[child->bytes.get()];
+            if (thrown == nullptr)
+            {
+                thrown = std::make_unique<RuntimeBodyMessageChild>();
+                thrown->message = [this, child](std::span<u8> message)
+                {
+                    message_runtime_throw_state({child->bytes.get(), child->size}, message,
+                        throw_context()); // 0x000A3D20
+                };
+            }
+            children_[child->bytes.get()] = thrown.get();
+            continue;
+        }
+        if (child->type == 0x7D)
+        {
+            auto& lift = lift_children_[child->bytes.get()];
+            if (lift == nullptr)
+            {
+                lift = std::make_unique<RuntimeBodyMessageChild>();
+                lift->message = [this, child](std::span<u8> message)
+                {
+                    const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
+                    message_runtime_lift_state({child->bytes.get(), child->size}, words,
+                        pickup_context()); // 0x0009E9F0
+                };
+            }
+            children_[child->bytes.get()] = lift.get();
             continue;
         }
         // 0x59, 0x74, 0x7C and 0x8A have the empty 0x001628B0 message slot (0x59's getter 0x0007FCE0 stores it at
@@ -523,6 +555,9 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         tick_runtime_walk_alert({action.bytes.get(), action.size}, tick);
         return;
     }
+    case 0x8B:
+        tick_runtime_throw_state({action.bytes.get(), action.size}, throw_context()); // 0x000A3990
+        return;
     case 0x8A:
     {
         RuntimeHoldStateTick tick{player_.body, player_.actor, player_.actor_address,
@@ -674,6 +709,7 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         return;
     case 0x70:
     case 0x7C:
+    case 0x7D:
     {
         // The tick's second argument is the player's input record (actor +0x960) or zero, as for 0x5E.
         const RuntimeDialogueInputDevice* device = nullptr;
@@ -691,6 +727,11 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         {
             RuntimeGrabbedStateContext grabbed{context, recovery_action(), hold_timer()};
             tick_runtime_grabbed_state({action.bytes.get(), action.size}, grabbed); // 0x00094530
+            return;
+        }
+        if (action.type == 0x7D)
+        {
+            tick_runtime_lift_state({action.bytes.get(), action.size}, context); // 0x0009E6B0
             return;
         }
         tick_runtime_pickup_state({action.bytes.get(), action.size}, context);
@@ -738,11 +779,13 @@ void SceneBodyMessages::action_step(FactoryObject& action)
     case 0x74:
     case 0x7A:
     case 0x7C:
+    case 0x7D:
     case 0x69:
     case 0x70:
     case 0x87:
     case 0x88:
     case 0x8A:
+    case 0x8B:
     case 0x8E:
     case 0x8F:
         // 0x001628B0 (0x000D4179 for 0x69, 0x70 and 0x88) returns at once.
@@ -880,6 +923,37 @@ RuntimeKnockdownContext& SceneBodyMessages::knockdown_context()
     return *knockdown_;
 }
 
+RuntimeThrowStateContext& SceneBodyMessages::throw_context()
+{
+    player_.refresh_body_views();
+    if (player_.body_flags == nullptr)
+    {
+        unbound("throw state without the body +0x15C bit block");
+    }
+    const u32 hit = read_u32(player_.body, 0x84);
+    const RuntimeDialogueInputDevice* own = read_u32(player_.actor_bytes, 0x960) != 0 ? &player_.input_device
+                                                                                       : nullptr;
+    throw_.reset();
+    throw_.emplace(RuntimeThrowStateContext{player_.body, player_.actor, player_.actor_bytes, *player_.body_flags,
+        player_.actor_instance.animation, services_.clock, player_.actor_instance.live_attachments,
+        player_.attachment, hit == 0 ? std::span<const u8>() : services_.record_at(hit, 0x24), mind_target(),
+        [this](u32 address) -> const Actor&
+        {
+            Actor* actor = services_.actor_at ? services_.actor_at(address) : nullptr;
+            if (actor == nullptr)
+            {
+                unbound("throw state target record +0x10 actor view");
+            }
+            return *actor;
+        },
+        [this](u32 slot)
+        {
+            return body_slot_key(slot);
+        },
+        own, player_.scene.input_state, services_.random});
+    return *throw_;
+}
+
 RuntimePickupStateContext& SceneBodyMessages::pickup_context()
 {
     // Body views only, as for the dizzy state: a state destroyed with its player outlives the input device.
@@ -914,6 +988,13 @@ RuntimePickupStateContext& SceneBodyMessages::pickup_context()
         },
         services_.game});
     pickup_->input_state = &player_.scene.input_state;
+    pickup_->weapon_message = [this](u32 weapon, std::span<const u32> words)
+    {
+        services_.message(weapon, words); // Vtable +0xC on the caller's words, so replies come back.
+    };
+    pickup_->latches = &services_.latches;
+    pickup_->actor_words = player_.actor_bytes;
+    pickup_->address_zero = services_.address_zero;
     return *pickup_;
 }
 
@@ -1381,6 +1462,22 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 // 0x0009D0E0 reads the reply's id and, for 0x7C, its next word.
                 auto& second = player_.body_selection.second;
                 message_runtime_knockdown_state({second.bytes.get(), second.size}, reply, knockdown_context());
+                return;
+            }
+            if (type == 0x8B)
+            {
+                // 0x000A3D20 reads the reply's id: only 0x25 acts.
+                auto& second = player_.body_selection.second;
+                message_runtime_throw_state({second.bytes.get(), second.size},
+                    {reinterpret_cast<const u8*>(&reply.id), 4}, throw_context());
+                return;
+            }
+            if (type == 0x7D)
+            {
+                // 0x0009E9F0 reads the reply's id and, for 0x5C and 0x7C, its next word.
+                auto& second = player_.body_selection.second;
+                const std::array<u32, 2> words{reply.id, read_u32({reinterpret_cast<const u8*>(&reply.id), 8}, 4)};
+                message_runtime_lift_state({second.bytes.get(), second.size}, words, pickup_context());
                 return;
             }
             if (type == 0x5E)

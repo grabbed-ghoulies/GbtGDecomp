@@ -14,6 +14,7 @@
 #include "../entities/body_anim_state.h"
 #include "../entities/body_knockdown_state.h"
 #include "../entities/body_pickup_state.h"
+#include "../entities/body_throw_state.h"
 #include "../entities/body_player_death_state.h"
 #include "../entities/body_grabbed_state.h"
 #include <optional>
@@ -140,6 +141,7 @@ public:
     RuntimePickupStateContext& pickup_context(); // The type 0x7C state's views of this body.
     RuntimePlayerDeathContext& player_death_context(); // The type 0x69 state's views of this body.
     RuntimeGrabbedStateContext& grabbed_context(); // The type 0x70 state's views of this body.
+    RuntimeThrowStateContext& throw_context(); // The type 0x8B state's views of this body.
     SceneBodyMessages(const SceneBodyMessages&) = delete;
     SceneBodyMessages& operator=(const SceneBodyMessages&) = delete;
     void dispatch(FactoryObject& body, std::span<u32> message);
@@ -169,6 +171,9 @@ private:
     RuntimeDizzyStars dizzy_stars_;
     std::optional<RuntimeDizzyStateContext> dizzy_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> dizzy_children_; // 0x64, 0x0008CEA0.
+    std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> lift_children_; // 0x7D, 0x0009E9F0.
+    std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> throw_children_; // 0x8B, 0x000A3D20.
+    std::optional<RuntimeThrowStateContext> throw_;
     std::optional<RuntimeDieStateContext> die_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> die_children_; // 0x62, 0x0008C4D0.
     std::optional<RuntimeAnimStateContext> anim_;

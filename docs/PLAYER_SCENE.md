@@ -206,7 +206,7 @@ All take the game directory, e.g.
 | `--player-death` | The opening flow, then Cooper stands still in the first fight: the imps empty his health, the death state 0x69 plays his dying animations and the fail stream, starts the transition (row 2) and restarts the scene ("Free Play (Fighting Intro)"), whose script then moves past its player wait |
 | `--player-controls` | The opening flow, then run speed at 30/60/144/240 Hz, a right-stick swing with no imp in range (`cache/player_air_swing.bmp`) and the trigger camera turn |
 | `--scene6` | Boots scene 6 (chapter1_scene2_1viewcam), A on the chapter title, the transition ends; the trophy heads attack, the first Super Scary challenge fails unanswered into Crivens' page, later ones are won by pressing the shown buttons, the heads' cutscene resumes, and the script moves on to scene 3 (`cache/scene6_c*_s*_*.bmp`); then scene 3's transition ends (no chapter title) and its walk-in and Free Play run with the sticks centred (the scene 3 checks below, passive) |
-| `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake. Fails at the frontier (factory type 0x8F) |
+| `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
 Headless captures: `gbtg --headless --frames N --scene chapter1_scene1_2playcam
 --width 640 --height 480 --screenshot FILE.bmp`.
@@ -278,8 +278,9 @@ queues event 0xB0, the script ends, the book transition shows the chapter title 
 (`aid_script_ghoulies_chapter1_scene2_1viewcam`, "Trophy Heads Super Scary Shock") starts. `--scene6` plays that
 scene to its end, through the trophy heads and their Super Scary challenges, and the script moves on to
 `aid_script_ghoulies_chapter1_scene3_1playcam` (see the scene 6 checkpoint). `--scene3` plays that scene's start,
-walk-in and "Free Play" natively; driven at the skeletons, they walk up and fight Cooper, fall apart into bones
-when they die, and the scene holds in Free Play with the trophy still on its board (see the scene 3 checkpoints).
+walk-in and "Free Play" natively. Driven at the skeletons, they walk up and fight Cooper and fall apart into bones
+when they die. Cooper then lifts and throws the trophy, collects the rare book and leaves through the open door, and
+the script moves on to scene 4 (see the scene 3 checkpoints).
 
 | Path | Stop | What it needs |
 |---|---|---|
@@ -288,14 +289,13 @@ when they die, and the scene holds in Free Play with the trophy still on its boa
 | Script actions | legacy | `0x00126E10`'s other cases (0x4D, 0x4E, 0x62, 0x67, 0x6E, 0x73, 0x74, 0x8E, 0x9D) and `0x00127BC0`'s cases still compute values and skip their callees; this scene does not reach them |
 | Present (the snapshot) | renders nothing | `0x00116530` records its draws but the texture stays empty |
 | HUD draws (not reached) | `0x0012F110` | Scoreboard rows of kinds 4 and 5 (the formatted counter) |
-| Scene 3, the trophy (`--scene3`) | not driven | The test does not take Cooper to the trophy. Its pickup, flight and throw (`entities/projectile_weapon.cpp`: `0x000CE020`, `0x000CE1F0`, `0x000CDAD0`, `0x000CEBD0`, `0x000CEC70`, `0x000CE7E0`, `0x000CE810`, `0x000CE660`, `0x0001B680`, `0x0003E900`) and its contact test `0x000CE5D0` (`0x00141A30`) still raise when reached; Free Play's ObjectPickedUp condition waits on it |
+| Scene 3's Free Play branches (`--scene3`) | legacy | Free Play's node 0x51 on the skeletons still goes through the legacy `g_range_links` |
 | Script condition nodes | partial | `0x00125450` registers only types 0x3D, 0x3E, 0x40, 0x47, 0x48, 0x6A, 0x94, 0x95 and 0x99; retail also takes 0x3F, 0x41..0x44, 0x5A, 0x5B, 0x65, 0x66, 0x68, 0x6C, 0x72, 0x75, 0x8B, 0x8C, 0x92, 0x93 and 0xA3, which still run as ordinary nodes |
 | Script type 0x16 | legacy | Still the old shortcut; retail waits for `0x0004EFE0` with DAT_00512470 set, then releases the cutscenes |
 
 ## Work
 
-1. Scene 3 from its frontier: drive Cooper to the trophy, then whatever its pickup, flight and throw reach, and the
-   scene's end.
+1. Scene 4 (`aid_script_ghoulies_chapter1_scene4_1book`, "Partner and the False Fireplace") from its start.
 2. Move the remaining `g_pulse_nodes` callers to the native `DAT_00511AA4` lookups.
 
 ## Acceptance
@@ -335,6 +335,78 @@ when they die, and the scene holds in Free Play with the trophy still on its boa
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-20: scene 3 to its end: the throw, the rare book and the door
+
+`--scene3` driven now plays the snooker room to its end. Cooper throws the trophy 90 frames after lifting it (right
+stick, the mind's attack gesture). He then walks onto the scene's rare book, which is collected on touch at frame 5962.
+Once Free Play's section holds at its end (type 0xF, DAT_00512518), he walks into the exit volume. The script moves on
+to `aid_script_ghoulies_chapter1_scene4_1book` ("Partner and the False Fireplace") at frame 6384. The test now requires
+the book and the exit when driven.
+
+- The throw, type 0x8B (getter `0x000A37F0`, vtable `0x00505C40`, `entities/body_throw_state.cpp`):
+  - Slots: sizes `0x000A37D0`, ctor `0x000A3850`, dtor `0x000A3910`, tick `0x000A3990`, message `0x000A3D20`.
+  - Aim: turn `0x000A3D50`, the right stick `0x000A3E80`, spread `0x000A3FE0`, leading the target `0x000A4100` and
+    `0x000413F0`.
+  - The hit state's turn is now the shared `0x0001D5B0`.
+- The trophy (0xA9) in flight, `projectile_weapon.cpp`:
+  - State 2: launch `0x000CE020`, the arc `0x000CDAD0` / `0x000CE380` / `0x000CE290`, spin `0x000CE510`, bounce
+    `0x000CE1F0` / `0x000CE150`, `0x001058E0`, and the wide list leave `0x0003E900`.
+  - State 7: `0x000CE7E0`.
+  - State 4, the shatter: `0x000CEBD0`, `0x000CEC70` (a reach growing over 0.6 s that hits each actor once through
+    `0x00141A30`) and its effect callouts `0x000CEB10`.
+  - The contact test is `0x000CE5D0`, and the thrower's hand empties through `0x0001B680`.
+  - Prop and broadcast payloads gained 0x19 (the projectile hit), 0x8F (breakage) and 0x86 (powerup award).
+- The rare book is the FX anim emitter (type 0xD, key 0x6C, at -111.5, 4.7, -82) holding powerup kind 1.
+  - Retail collects it by touch in `0x0010A590` / `0x0010A6D0`. It never was collected here, for two reasons: the
+    emitters' DAT_00511B40 player list was never filled, and the award (`0x00123E70`) was an unbound placeholder.
+  - The scene now refreshes that list each frame from the case list (`refresh_emitter_players`) and calls the
+    translated award. The intro-notice readiness test (`0x0013FF70`) reads the player's body bits through
+    `case_body_bits`, which was unbound.
+  - The collection burst's afterimage (type 0x10) with its glow set now draws through the glow capture (`0x00062220`)
+    and the new stamp `0x00062490` (`graphics/glow_pass.cpp`).
+- Shown (`cache/s3w_captures/`; looked at):
+  - `scene3_throw_20` / `_40` / `_80`: Cooper's throw from the cabinet, with smoke and debris by the cabinet as the
+    trophy leaves. The trophy's flight itself is off-camera; the log has it arcing to x 62 with three bounces and
+    stopping there when it shatters.
+  - `scene3_book` / `scene3_book_burst`: the book gone from by the sofa, and a blue sparkle burst where it lay.
+  - `scene3_exit_360` / `_420`: Cooper walking through the open arched door.
+  - Heard in the log, not listened to: the BONUSBOOK ditty cue.
+- Not shown, heard or checked:
+  - The trophy's shatter on camera.
+  - Any "first bonus book" notice page: the run sees no second page before the exit.
+  - The next scene past its first frame.
+  - Nothing was compared with xemu.
+- Verified: Release build in `cache/build_s3` with `cache/s3w_regress.sh`. All nine modes exit 0: default, both
+  `--player-death`, `--player-fight`, `--player-opening`, `--player-controls`, `--scene6`, `--scene3` and headless.
+
+### 2026-10-20: scene 3, Cooper lifts the trophy
+
+With both skeletons down, the `--scene3` driver takes Cooper to the trophy (`objTag_Weapon_Trophy`, tag 224, in the
+glass cabinet at -118, 7.2, -42). He goes round the snooker table by waypoints (up to z 60, across to x -115, down to
+the cabinet), then presses A about it. Cooper lifts the trophy at frame 5646, and its event 0xAD (frame 5658) ends
+Free Play's last condition. The test now requires both when driven.
+
+- Type 0x7D, the lift (getter `0x0009E450`, vtable `0x00505A80`), beside 0x7C in `entities/body_pickup_state.cpp`:
+  - Slots: sizes `0x0009E430`, ctor `0x0009E4B0` (latches `0x0001FC40`), dtor `0x0009E560` (`0x0001FD20`, the
+    0x7C-style release, or `0x00146280`'s drop {0x97, 0}), tick `0x0009E6B0` and message `0x0009E9F0`.
+  - The tick faces the weapon's pick-up point (`0x0009EA70`). When the animation crosses state +0x18, it asks the
+    weapon with {0xA0, reply, actor, hold offset, lift time}; a weapon that agrees lifts itself, and its {0x5C}
+    attaches it (`0x0001B190`). A null tick input word reads address zero, as in 0x73.
+  - The 0x7C context gains the weapon message (replies come back), the latches, the actor's bytes and address zero.
+- The trophy (0xA9): state 0xF's update `0x000CE810` (`lift_runtime_large_projectile`) eases it on an arc into the
+  holder's hands and sends {0x5C}. Message 0x9D's `0x000CE660` stores its root pose (`+0xE8C` / `+0xE98`).
+  State 3 now sets the holder's body +0x4C / +0x14 through a weapon service that keeps the native secondary and
+  receiver views with the words (`hold_secondary`); before, it read a body address that does not resolve.
+- HUD: the total-damage counter `0x0012DAF0` is translated (icon, digits through `0x0012F000`, slide by
+  `0x00131F00`). DAT_00512278 stays the never-written zero, as elsewhere.
+- Shown (`cache/s3w_captures/`; looked at): `scene3_trophy_pickup.bmp`, Cooper with the golden trophy over his
+  head by the cabinet, and frames 5700 and 6000 holding it, with the counter icon and "1" at the bottom right.
+- Not shown, heard or checked: the throw and its flight; the walk out through the door; how the lift's timing and
+  arc compare with retail; nothing was compared with xemu.
+- Verified: Release build in `cache/build_s3` with `cache/s3w_regress.sh`. All nine modes exit 0 (default, both
+  `--player-death`, `--player-fight`, `--player-opening`, `--player-controls`, `--scene6`, `--scene3`, headless),
+  before the final test assertion was added; `--scene3` was re-run with it.
 
 ### 2026-10-20: scene 3, the skeletons fall apart into bones
 

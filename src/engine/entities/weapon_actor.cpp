@@ -403,11 +403,10 @@ RuntimeBodyContactCallback contact_test(RuntimeWeaponActor& weapon)
     }
     if (read_u32(weapon.bytes, 0x99C) == 0x000CE5D0)
     {
-        return [](Actor&, RuntimeSegmentContactActor&, const Vec3&, GhoulySpawnPool*,
-            const RuntimeSegmentContactRecord&, const Vec3&, u16) -> u32
+        return [&weapon](Actor&, RuntimeSegmentContactActor& object, const Vec3& point, GhoulySpawnPool* contacts,
+            const RuntimeSegmentContactRecord&, const Vec3& velocity, u16 word) -> u32
         {
-            // 0x000CE5D0 reports the hit through 0x00141A30 first.
-            untranslated(0x00141A30, "the large projectile's contact test 0x000CE5D0 (+0x99C)");
+            return test_runtime_projectile_contact(weapon, object, point, contacts, velocity, word); // 0x000CE5D0
         };
     }
     throw Error("weapon contact test at +0x99C is not translated");
@@ -1223,6 +1222,62 @@ u32 report_runtime_weapon_contact(RuntimeWeaponActor& weapon, Actor* holder, Run
         }
     }
     return notice.reply;
+}
+
+// Xbox 0x00141A30, EAX velocity, EBX point, EDX style
+u32 report_runtime_projectile_contact(RuntimeWeaponActor& weapon, Actor* holder, RuntimeSegmentContactActor& object,
+    const Vec3& point, GhoulySpawnPool* contacts, const Vec3& velocity, u16 word, u8 kind, u8 strength, u8 style,
+    bool count, u32 tail)
+{
+    RuntimeProjectileHitNotice notice{0x19, kind, strength, style, 0, 0, 0, &weapon.actor, velocity, contacts, point,
+        tail};
+    object.message(&notice); // Vtable +0xC of the actor touched.
+    if (holder != nullptr)
+    {
+        auto& services = weapon.services;
+        std::array<u32, 0x42> report{};
+        report[0] = 0x49;
+        report[1] = weapon.self_address();
+        report[2] = u32(i32(i16(word)));
+        std::memcpy(report.data() + 3, &velocity, 12);
+        report[6] = services.actor_address(object.actor);
+        report[7] = contacts != nullptr ? services.bind_address(contacts, sizeof(GhoulySpawnPool)) : 0;
+        std::memcpy(report.data() + 8, &point, 12);
+        report[0xB] = notice.reply;
+        report[0xC] = notice.unused_14;
+        report[0xD] = notice.unused_18;
+        const u32 holder_address = services.actor_address(*holder);
+        weapon.send(holder_address, report); // The holder's vtable +0xC.
+        weapon.message(report); // This weapon's.
+        if (contacts != nullptr)
+        {
+            services.unbind_address(contacts);
+        }
+        if (count && notice.reply != 0)
+        {
+            // DAT_0053E528 and DAT_00524E2C: the holder's tag row and the totals at row 0.
+            const u16 tag = read_u16(weapon.bytes_at(holder_address), 6);
+            ++services.contact_totals[size_t(tag) * 0x3D];
+            ++services.contact_totals[0];
+            ++services.contact_session[size_t(tag) * 0x3D];
+            ++services.contact_session[0];
+        }
+    }
+    return notice.reply;
+}
+
+// Xbox 0x000CE5D0
+u32 test_runtime_projectile_contact(RuntimeWeaponActor& weapon, RuntimeSegmentContactActor& object, const Vec3& point,
+    GhoulySpawnPool* contacts, const Vec3& velocity, u16 word)
+{
+    auto bytes = weapon.bytes;
+    if (report_runtime_projectile_contact(weapon, weapon_holder(weapon.actor), object, point, contacts, velocity, word,
+            bytes[0xDAC], bytes[0xDAD], bytes[0xDAE], read_u32(bytes, 0xE88) == 0, 0) != 0) // 0x00141A30
+    {
+        store32(bytes, 0xE88, read_u32(bytes, 0xE88) + 1);
+    }
+    insert_runtime_body_contact_override(weapon.collision_overrides, object, 0, weapon.players); // 0x0013EBE0, +0xE7C
+    return bytes[0x93C] == 0 ? 1u : 0u;
 }
 
 // Xbox 0x000CF5F0

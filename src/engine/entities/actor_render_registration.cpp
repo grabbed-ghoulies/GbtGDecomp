@@ -25,6 +25,21 @@ void register_actor_wide_list(ActorRenderRegistration& state)
     }
 }
 
+// Xbox 0x0003E900, EAX actor
+void unregister_actor_wide_list(ActorRenderRegistration& state)
+{
+    if (state.wide.prev != nullptr)
+    {
+        static_cast<entity_detail::ListHead*>(state.wide.prev)->next = state.wide.next;
+    }
+    if (state.wide.next != nullptr)
+    {
+        static_cast<entity_detail::ListHead*>(state.wide.next)->prev = state.wide.prev;
+    }
+    state.wide.prev = nullptr;
+    state.wide.next = nullptr;
+}
+
 // Xbox 0x0003EE70
 void unlink_actor_view(RuntimeActorLink& link)
 {

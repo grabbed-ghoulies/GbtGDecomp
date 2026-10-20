@@ -2,6 +2,7 @@
 #include "scoreboard_draw.h"
 #include "../camera/camera.h"
 #include "dialogue_widget_state.h"
+#include "../audio/listener_settings.h"
 #include <algorithm>
 #include <bit>
 
@@ -718,10 +719,41 @@ void draw_runtime_scoreboard(RuntimeScoreboard* board, RuntimeScoreboardHud& con
 // Xbox 0x0012DAF0
 void draw_runtime_damage_counter(RuntimeScoreboardHud& context)
 {
-    if (context.globals.damage_caption != -1)
+    auto& globals = context.globals;
+    if (globals.damage_caption == -1)
     {
-        untranslated("0x00131F00", "the damage counter draw 0x0012DAF0");
+        return;
     }
+    auto& draw = draw_views(context);
+    const auto& layout = context.layout;
+    const float half = globals.damage_6d8; // Half the icon's width.
+    const float y = layout.inner_bottom - half + 10.f; // DAT_0050974C, DAT_0032B10C
+    float shown[2]{layout.inner_right - half - 15.5f, y}; // DAT_00509748, DAT_0032B57C
+    float hidden[2]{float(i32(context.width)) + 100.f, y}; // DAT_005096E8, DAT_0032B12C
+    const RuntimeHudFade fade{globals.damage_68c, globals.damage_690,
+        *reinterpret_cast<float*>(&globals.damage_694), globals.damage_698, globals.damage_69c}; // DAT_0043268C..
+    float at[2];
+    if (!place_runtime_hud_element(fade, hidden, shown, at)) // 0x00131F00, EBX hidden, ESI shown, EDI at
+    {
+        return;
+    }
+    constexpr u32 kScriptHold = 0; // DAT_00512278, BSS that no retail code writes.
+    u32 color = 0x00FFFFFFu;
+    if (kScriptHold != 0)
+    {
+        const float scale[2]{1.5f, 1.5f}; // DAT_0032B210
+        const u32 alpha = u32(truncate_runtime_float(static_cast<long double>(globals.damage_6e4) * 192.f)); // DAT_0032B454
+        color = (color & 0x00FFFFFFu) | (alpha << 24);
+        queue_runtime_hud_sprite(globals.damage_flash_texture.data(), at, scale, 0.f, color, 0, draw); // 0x001221B0
+    }
+    color = (color & 0x00FFFFFFu) | 0xC0000000u;
+    const float scale[2]{1.f, 1.f}; // DAT_0032B0F8
+    queue_runtime_hud_sprite(globals.damage_texture.data(), at, scale, 0.f, color, 0, draw); // 0x001221B0
+    const float offset = half + 10.f; // DAT_0032B10C
+    shown[0] += offset;
+    hidden[0] += offset;
+    place_runtime_hud_element(fade, hidden, shown, at); // 0x00131F00, EDI the digits
+    draw_runtime_hud_counter(globals.damage_counter, at, context.damage_preset, 0, context, draw); // 0x0012F000
 }
 
 // Xbox 0x0012DDB0

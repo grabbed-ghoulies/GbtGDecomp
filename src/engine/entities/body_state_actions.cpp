@@ -13,6 +13,7 @@
 #include "body_grabbed_state.h"
 #include "body_walk_target_state.h"
 #include "body_hold_state.h"
+#include "body_throw_state.h"
 #include "gbtg/entity.h"
 #include <bit>
 #include <cstring>
@@ -30,6 +31,7 @@ std::function<RuntimeKnockdownContext&(u32)> knockdown_context_of;
 std::function<RuntimeDieStateContext&(u32)> die_context_of;
 std::function<RuntimePlayerDeathContext&(u32)> player_death_context_of;
 std::function<RuntimeGrabbedStateContext&(u32)> grabbed_context_of;
+std::function<RuntimeThrowStateContext&(u32)> throw_context_of;
 std::function<RuntimeAnimStateContext&(u32)> anim_context_of;
 std::function<RuntimePickupStateContext&(u32)> pickup_context_of;
 // Walk-alert speed-band records by state, the host side of state +0x30 + 0x10 * index.
@@ -246,6 +248,25 @@ const ObjectFactoryVtable* pickup_state_lifecycle()
     return &table;
 }
 
+bool construct_lift_state_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    const std::span<u8> state{object.bytes.get(), object.size};
+    return initialize_runtime_lift_state(state, parameters, pickup_context_of(word(state, 8)));
+}
+
+void destroy_lift_state_view(FactoryObject& object)
+{
+    const std::span<u8> state{object.bytes.get(), object.size};
+    destroy_runtime_lift_state(state, pickup_context_of(word(state, 8)));
+}
+
+const ObjectFactoryVtable* lift_state_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505A80, lift_state_object_sizes, construct_lift_state_view,
+        destroy_lift_state_view};
+    return &table;
+}
+
 const ObjectFactoryVtable* actor_move_lifecycle()
 {
     static const ObjectFactoryVtable table{0x004DD72C, actor_move_object_sizes, initialize_runtime_weapon_action,
@@ -331,6 +352,25 @@ void destroy_walk_target_view(FactoryObject& object)
     const std::span<u8> state{object.bytes.get(), object.size};
     auto context = body_context_of(word(state, 8));
     destroy_runtime_walk_target(state, context);
+}
+
+bool construct_throw_state_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    const std::span<u8> state{object.bytes.get(), object.size};
+    return initialize_runtime_throw_state(state, parameters, throw_context_of(word(state, 8)));
+}
+
+void destroy_throw_state_view(FactoryObject& object)
+{
+    const std::span<u8> state{object.bytes.get(), object.size};
+    destroy_runtime_throw_state(state, throw_context_of(word(state, 8)));
+}
+
+const ObjectFactoryVtable* throw_state_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505C40, throw_state_object_sizes, construct_throw_state_view,
+        destroy_throw_state_view};
+    return &table;
 }
 
 bool construct_hold_state_view(FactoryObject& object, std::span<const u8>)
@@ -646,14 +686,21 @@ void install_runtime_body_state_classes(std::span<ObjectFactoryType> types,
     std::function<RuntimeDieStateContext&(u32)> die_of, std::function<RuntimeAnimStateContext&(u32)> anim_of,
     std::function<RuntimePickupStateContext&(u32)> pickup_of,
     std::function<RuntimePlayerDeathContext&(u32)> player_death_of,
-    std::function<RuntimeGrabbedStateContext&(u32)> grabbed_of)
+    std::function<RuntimeGrabbedStateContext&(u32)> grabbed_of,
+    std::function<RuntimeThrowStateContext&(u32)> throw_of)
 {
+    throw_context_of = std::move(throw_of);
+    if (throw_context_of)
+    {
+        types[0x8B] = ObjectFactoryType{9, throw_state_lifecycle};
+    }
     grabbed_context_of = std::move(grabbed_of);
     types[0x70] = ObjectFactoryType{9, grabbed_state_lifecycle};
     player_death_context_of = std::move(player_death_of);
     types[0x69] = ObjectFactoryType{9, player_death_state_lifecycle};
     pickup_context_of = std::move(pickup_of);
     types[0x7C] = ObjectFactoryType{9, pickup_state_lifecycle};
+    types[0x7D] = ObjectFactoryType{9, lift_state_lifecycle};
     anim_context_of = std::move(anim_of);
     types[0x5E] = ObjectFactoryType{9, anim_state_lifecycle};
     die_context_of = std::move(die_of);

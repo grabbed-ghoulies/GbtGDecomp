@@ -21,6 +21,35 @@ void enter_runtime_large_projectile_state(RuntimeWeaponActor& weapon, u16 state,
     u16 previous); // Xbox 0x000CD700, vtable +0x3C
 void leave_runtime_large_projectile_state(RuntimeWeaponActor& weapon, u16 state,
     u16 next); // Xbox 0x000CD8A0, vtable +0x40
+// Degrees to angles in [0, 2pi) (ESI degrees, EDI the output).
+Vec3 runtime_degrees_to_turns(const Vec3& degrees); // Xbox 0x001058E0
+// State 2's start: the spin (267 degrees about x), the fall (-437), three bounces and 167 toward +0xE54.
+void launch_runtime_large_projectile(RuntimeWeaponActor& weapon); // Xbox 0x000CE020
+void bounce_runtime_large_projectile_velocity(RuntimeWeaponActor& weapon, float pitch_degrees,
+    float keep); // Xbox 0x000CE150, EAX the bounce record, EDI actor
+// State 2 entered again: the spin slows and kicks, the velocity turns up.
+void bounce_runtime_large_projectile(RuntimeWeaponActor& weapon); // Xbox 0x000CE1F0, EBX actor
+void spin_runtime_large_projectile(RuntimeWeaponActor& weapon); // Xbox 0x000CE510, EBX actor
+// 3 when it hits something steep (or starts inside something), 2 on a floor, 1 when the move is clear.
+i32 collide_runtime_large_projectile(RuntimeWeaponActor& weapon, Vec3& last, Vec3& next,
+    float radius); // Xbox 0x000CE290, EAX actor, ECX the last position
+i32 step_runtime_large_projectile(RuntimeWeaponActor& weapon, bool last_bounce); // Xbox 0x000CE380, ECX actor
+void fly_runtime_large_projectile(RuntimeWeaponActor& weapon); // Xbox 0x000CDAD0, EAX actor
+// The shatter: scale +0xE78 (2 for a scripted player hold, else 1) and timer +0xE74 at 0.6, the holder kept out.
+void start_runtime_large_projectile_shatter(RuntimeWeaponActor& weapon); // Xbox 0x000CEBD0, ESI actor
+// The shatter's effect callouts (10, or 11 when scaled up) at the actor's position; sets +0xE80.
+void show_runtime_large_projectile_shatter(RuntimeWeaponActor& weapon); // Xbox 0x000CEB10, EAX actor
+// The shatter's growing reach hits every actor in it once; true when the timer runs out.
+bool update_runtime_large_projectile_shatter(RuntimeWeaponActor& weapon); // Xbox 0x000CEC70, EAX actor
+// Message 0x9D: the root joint's world euler (EBX, +0xE8C) and the actor's position less that joint's point turned
+// by it (+0xE98).
+void record_runtime_large_projectile_root(RuntimeWeaponActor& weapon, std::span<u8> euler,
+    std::span<u8> offset); // Xbox 0x000CE660, EAX actor
+// State 7: back to the pose message 0x9D recorded (+0xE98 position, +0xE8C euler).
+void restore_runtime_large_projectile_root(RuntimeWeaponActor& weapon); // Xbox 0x000CE7E0, EBX actor
+// State 0xF: the projectile rises from where it was taken (+0xEB4, euler +0xEA8) to the holder's hold point (+0xEC0
+// in the holder's space, +0xEDC up, +0xED4 turned) over +0xED0, then tells the holder (+0xEA4) with {0x5C, itself}.
+void lift_runtime_large_projectile(RuntimeWeaponActor& weapon); // Xbox 0x000CE810, EAX actor
 void update_runtime_large_projectile_state(RuntimeWeaponActor& weapon, u16 state); // Xbox 0x000CDA10, vtable +0x44
 void start_runtime_large_projectile_idle(RuntimeWeaponActor& weapon); // Xbox 0x000CDF40, EAX actor
 void show_runtime_large_projectile_holder(RuntimeWeaponActor& weapon); // Xbox 0x000CEEC0, EAX actor

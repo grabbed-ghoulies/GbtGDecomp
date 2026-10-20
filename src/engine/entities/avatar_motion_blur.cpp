@@ -537,19 +537,34 @@ u32 draw_runtime_avatar_afterimage(i32 kind, RuntimeAvatarAfterimageDraw& contex
     {
         return 0;
     }
-    if (read_u32(context.bytes, 0x964) != 0)
+    const bool glow = read_u32(context.bytes, 0x964) != 0;
+    if (glow)
     {
-        throw Error("untranslated Xbox 0x00062490 reached from the after-image draw 0x00069410 (+0x964 glow set)");
+        Vec3 position;
+        float height = 0.f;
+        float radius = 0.f;
+        runtime_actor_cylinder_metrics(context.actor, position, height, radius); // 0x0003DD50
+        std::array<float, 2> minimum{};
+        std::array<float, 2> maximum{};
+        if (!runtime_screen_cylinder_rect(position, radius, height, minimum.data(), maximum.data(),
+            *entity_detail::g_display_view)) // 0x0013BCC0
+        {
+            return 0;
+        }
+        begin_runtime_glow_capture(minimum.data(), maximum.data(), context.pass); // 0x00062220
     }
     if (context.model == nullptr)
     {
         throw Error("after-image draw 0x00069410 has no actor +0x204 model");
     }
     auto& model = *context.model;
-    // +0x1C4 is the kind argument's stack word with the alpha stored in its top byte.
-    model.material_enabled = 1;
-    model.material_first = (u32(context.bytes[0x93C]) << 24) | (u32(kind) & 0x00FFFFFFu);
-    model.material_second = context.material_second;
+    if (!glow)
+    {
+        // +0x1C4 is the kind argument's stack word with the alpha stored in its top byte.
+        model.material_enabled = 1;
+        model.material_first = (u32(context.bytes[0x93C]) << 24) | (u32(kind) & 0x00FFFFFFu);
+        model.material_second = context.material_second;
+    }
     AnimationMatrix world;
     std::memcpy(world.data(), context.actor.xform, sizeof(context.actor.xform)); // Actor +0x2AC.
     if ((context.draw.image.byte(model.cpu, 8) & 0x10) != 0)
@@ -560,6 +575,11 @@ u32 draw_runtime_avatar_afterimage(i32 kind, RuntimeAvatarAfterimageDraw& contex
     if ((context.draw.image.byte(model.cpu, 8) & 8) != 0)
     {
         draw_runtime_scene_model(model.instance, model.cpu, world, 2, context.draw);
+    }
+    if (glow)
+    {
+        // White with the +0x93C alpha in the top byte.
+        stamp_runtime_glow((u32(context.bytes[0x93C]) << 24) | 0x00FFFFFFu, 1, context.pass); // 0x00062490, EAX 1
     }
     return 1;
 }

@@ -4,6 +4,7 @@
 #include "actor_matrix_setup.h"
 #include "actor_base_messages.h"
 #include "actor_frame_update.h"
+#include "actor_trail_requests.h"
 #include "actor_spawn_query.h"
 #include "body_contacts.h"
 #include "body_resources.h"
@@ -80,6 +81,16 @@ struct RuntimeWeaponServices
     AudioEventVoices& voices; // DAT_004E0CE8.
     const u32& story_flags; // DAT_0050EA98.
     std::function<CutsceneRuntimeContext&()> cutscenes; // 0x0004D680's scene cutscene runtime.
+    // Holder body +0x4C and +0x14 (with their native secondary and receiver views) set to a weapon, or cleared for 0.
+    std::function<void(const Actor& holder, u32 weapon)> hold_secondary{};
+    // 0x0001B680 on the holder's body (ECX): empty its hand (+0x48, +0x10, +0x288 and bit 0x22), native views too.
+    std::function<void(const Actor& holder)> empty_hand{};
+    // The large projectile's flight: its trail views (0x0013B030), the actor startup views (0x00041F90) and the PAL
+    // words (DAT_005096E0 / DAT_005096E4).
+    std::function<ActorTrailContext(u32 actor_address)> trail{};
+    std::function<RuntimeActorStartupContext&()> startup{};
+    const i32* pal = nullptr;
+    const i32* pal_override = nullptr;
 };
 // Message 0x1D from a weapon's contact test (0x00141890) to the actor it hit.
 struct RuntimeWeaponHitNotice
@@ -93,6 +104,23 @@ struct RuntimeWeaponHitNotice
     Vec3 velocity{}; // +0x18.
     GhoulySpawnPool* contacts = nullptr; // +0x24.
     Vec3 point{}; // +0x28.
+};
+
+// Message 0x19 from the large projectile's contact test (0x00141A30) to the actor it hit.
+struct RuntimeProjectileHitNotice
+{
+    u32 id = 0x19;
+    u32 kind = 0; // +4, weapon +0xDAC.
+    u32 strength = 0; // +8, weapon +0xDAD.
+    u32 style = 0; // +0xC, weapon +0xDAE.
+    u32 reply = 0; // +0x10.
+    u32 unused_14 = 0;
+    u32 unused_18 = 0;
+    Actor* weapon = nullptr; // +0x1C.
+    Vec3 velocity{}; // +0x20.
+    GhoulySpawnPool* contacts = nullptr; // +0x2C.
+    Vec3 point{}; // +0x30.
+    u32 tail = 0; // +0x3C, the caller's last argument (0).
 };
 
 // One weapon instance: the retail-layout bytes, its actor, and native storage behind the pointer fields.
@@ -219,6 +247,13 @@ u32 test_runtime_chair_contact(RuntimeWeaponActor& weapon, RuntimeSegmentContact
 u32 report_runtime_weapon_contact(RuntimeWeaponActor& weapon, Actor* holder, RuntimeSegmentContactActor& object,
     const Vec3& point, GhoulySpawnPool* contacts, const Vec3& velocity, u16 word, u8 kind, u8 strength, u8 style,
     bool count); // Xbox 0x00141890, EAX velocity, EBX point
+// The large projectile's report: message 0x19 to the actor hit, then {0x49, ...} to the holder and the weapon.
+u32 report_runtime_projectile_contact(RuntimeWeaponActor& weapon, Actor* holder, RuntimeSegmentContactActor& object,
+    const Vec3& point, GhoulySpawnPool* contacts, const Vec3& velocity, u16 word, u8 kind, u8 strength, u8 style,
+    bool count, u32 tail); // Xbox 0x00141A30, EAX velocity, EBX point, EDX style
+// The large projectile's contact test: report the hit, count it, and keep the actor out of further tests.
+u32 test_runtime_projectile_contact(RuntimeWeaponActor& weapon, RuntimeSegmentContactActor& object,
+    const Vec3& point, GhoulySpawnPool* contacts, const Vec3& velocity, u16 word); // Xbox 0x000CE5D0
 // Breaks off piece groups until the remaining fraction is at most the given one.
 void chip_runtime_weapon(RuntimeWeaponActor& weapon, const Vec3& direction, const Vec3& velocity,
     float fraction); // Xbox 0x001451C0, ECX direction, EDX actor, EAX velocity

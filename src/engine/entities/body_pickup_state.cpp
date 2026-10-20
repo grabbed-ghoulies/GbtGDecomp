@@ -4,6 +4,7 @@
 #include "actor_spawn_query.h"
 #include "actor_transform.h"
 #include "player_mind_events.h"
+#include "player_goal_cleanup.h"
 #include "../camera/camera_mind_rig.h"
 #include "../scripts/script_conditions.h"
 #include "gbtg/anim.h"
@@ -271,5 +272,231 @@ void tick_runtime_pickup_state(std::span<u8> state, RuntimePickupStateContext& c
     }
     const u16 key = context.body_slot_key(0x20);
     std::memcpy(state.data() + 0xC, &key, 2);
+}
+
+// Xbox 0x0009E430
+void lift_state_object_sizes(ObjectSizes& output)
+{
+    output.instance = 0x30;
+    output.parameters = 0x1C;
+}
+
+// Xbox 0x0009E4B0
+bool initialize_runtime_lift_state(std::span<u8> state, std::span<const u8> parameters,
+    RuntimePickupStateContext& context)
+{
+    const auto body = context.body;
+    put_word(state, 0x2C, 1);
+    put_word(state, 0x18, read_u32(parameters, 0xC));
+    put_word(state, 0x1C, read_u32(parameters, 0x10));
+    put_word(state, 0x20, read_u32(parameters, 0x14));
+    put_word(state, 0x24, read_u32(parameters, 0x18));
+    body[0x38] = 1;
+    body[0x39] = 1;
+    context.bits.bytes[5] |= 4;
+    adjust_live_attachment_holds(context.live_attachments, 1);
+    body[0x6D] = u8(body[0x6D] + 1);
+    if (context.latches == nullptr)
+    {
+        throw Error("lift state has no DAT_00511AA4 latch view for 0x0001FC40");
+    }
+    increment_runtime_body_latches(body, context.actor, *context.latches); // 0x0001FC40, ECX body
+    adjust_body_counters(body, 1);
+    return true;
+}
+
+// Xbox 0x0009E560
+void destroy_runtime_lift_state(std::span<u8> state, RuntimePickupStateContext& context)
+{
+    const auto body = context.body;
+    context.bits.bytes[5] &= 0xFB;
+    context.bits.bytes[5] &= 0xBF;
+    adjust_body_counters(body, -1);
+    adjust_live_attachment_holds(context.live_attachments, -1);
+    body[0x6D] = u8(body[0x6D] - 1);
+    if (context.latches == nullptr)
+    {
+        throw Error("lift state has no DAT_00511AA4 latch view for 0x0001FD20");
+    }
+    decrement_runtime_body_latches(body, context.actor, *context.latches); // 0x0001FD20, ECX body
+    if (read_u32(body, 0x48) != 0)
+    {
+        release_runtime_pickup_weapon(context); // Inlined as in 0x0009DEA0.
+        return;
+    }
+    const u32 weapon = read_u32(state, 0x28);
+    if (read_u32(state, 0x2C) == 3 && weapon != 0)
+    {
+        const Actor& lifted = context.weapon_at(weapon).actor;
+        // Weapon +0x918: no bind node, an unbound node, or a node of no actor.
+        if (lifted.link == nullptr || lifted.link->head == nullptr || lifted.link->actor == nullptr)
+        {
+            // 0x00146280, EAX the weapon, ECX 0: weapon message {0x97, 0}.
+            if (!context.weapon_message)
+            {
+                throw Error("lift state has no weapon message view for 0x00146280");
+            }
+            const std::array<u32, 2> drop{0x97, 0};
+            context.weapon_message(weapon, drop);
+        }
+    }
+}
+
+// Xbox 0x0009EA70
+void face_runtime_lift_weapon(u32 weapon, RuntimePickupStateContext& context)
+{
+    const auto body = context.body;
+    const Vec3 position = actor_world_position(context.actor); // 0x000412A0, ESI actor
+    Vec3 point;
+    float radius = 0.f;
+    i32 index = 0;
+    // EBX the weapon, EDI the position, ESI the point; the result is not tested.
+    if (!select_actor_spawn_point(context.weapon_at(weapon).actor, position, point, radius, index)) // 0x001476D0
+    {
+        throw Error("0x0009EA70 reads the pick-up point of a weapon without pick-up spheres");
+    }
+    const Vec3 direction{point.x - position.x, point.y - position.y, point.z - position.z};
+    float angle = 0.f;
+    if (runtime_direction_angle(direction, angle)) // 0x00105F90
+    {
+        put_float(body, 0x734, 0.f);
+        put_float(body, 0x72C, 0.f);
+        put_float(body, 0x730, angle);
+    }
+}
+
+// Xbox 0x0009E6B0
+void tick_runtime_lift_state(std::span<u8> state, RuntimePickupStateContext& context)
+{
+    const auto body = context.body;
+    Actor& actor = context.actor;
+    put_float(state, 0x10, runtime_actor_step(actor, context.clock) + read_f32(state, 0x10));
+    put_float(body, 0x734, 0.f);
+    put_float(body, 0x72C, 0.f);
+    const u32 stage = read_u32(state, 0x2C);
+    u32 weapon = 0;
+    if (stage == 1)
+    {
+        weapon = context.mind.empty() ? 0 : read_u32(context.mind, 0x18);
+    }
+    else if (stage == 3)
+    {
+        weapon = read_u32(state, 0x28);
+    }
+    if (stage == 1)
+    {
+        face_runtime_lift_weapon(weapon, context); // 0x0009EA70
+    }
+    const MinaPlayer* player = first_player(context.animation);
+    const bool crossed = player != nullptr && runtime_pickup_grab_crossed(*player, read_f32(state, 0x18));
+    const float position = player == nullptr ? 0.f : player->position;
+    const bool past_end = position >= read_f32(state, 0x20);
+    if (crossed)
+    {
+        put_word(state, 0x2C, 2);
+        if (weapon != 0 && actor_can_supply_ghoulybox(context.weapon_at(weapon).actor)) // 0x00146150, ECX weapon
+        {
+            // {0xA0, reply, the lifting actor, the hold offset (0, actor +0x38 * state +0x24, 0), the lift time}.
+            const float duration = player == nullptr ? 0.f : player->duration; // Player +0x20.
+            std::array<u32, 7> ask{};
+            ask[0] = 0xA0;
+            ask[2] = read_u32(body, 8);
+            ask[3] = std::bit_cast<u32>(0.f);
+            ask[4] = std::bit_cast<u32>(actor.radius_xz * read_f32(state, 0x24)); // Actor +0x38.
+            ask[5] = std::bit_cast<u32>(0.f);
+            ask[6] = std::bit_cast<u32>((read_f32(state, 0x1C) - read_f32(state, 0x18)) * duration);
+            if (!context.weapon_message)
+            {
+                throw Error("lift state has no weapon message view for message 0xA0");
+            }
+            context.weapon_message(weapon, ask); // Weapon vtable +0xC; ask[1] is its reply.
+            if (ask[1] != 0)
+            {
+                put_word(state, 0x28, weapon);
+                put_word(state, 0x2C, 3);
+                context.bits.bytes[5] |= 0x40;
+                const u32 lift[]{0x48};
+                context.actor_message(lift);
+            }
+        }
+    }
+    const bool asked = read_u32(state, 0x2C) == 2;
+    // EAX the tick's input word: a null word reads its kind from address zero, and a kind outside 1..5 gives no
+    // stick in both 0x001085F0 and 0x001088D0.
+    std::array<float, 2> axes{};
+    bool pushed = false;
+    if (context.input != nullptr)
+    {
+        if (context.input_state == nullptr)
+        {
+            throw Error("lift state stick check without the input state");
+        }
+        runtime_input_axes(*context.input, axes, *context.input_state); // 0x001085F0
+        pushed = axes[1] * axes[1] + axes[0] * axes[0] > context.stick_threshold; // DAT_0032B22C.
+        if (!pushed)
+        {
+            runtime_input_secondary_axes(*context.input, axes, *context.input_state); // 0x001088D0
+            pushed = axes[1] * axes[1] + axes[0] * axes[0] > context.stick_threshold;
+        }
+    }
+    else
+    {
+        const u32 kind = context.address_zero.empty() ? 0 : read_u32(context.address_zero, 0);
+        if (kind - 1 <= 4)
+        {
+            throw Error("lift state input word is null but address zero holds an input kind");
+        }
+    }
+    if (past_end && asked)
+    {
+        const u16 key = context.body_slot_key(pushed ? 0x2C : 0x20);
+        std::memcpy(state.data() + 0xC, &key, 2);
+        return;
+    }
+    if (player != nullptr)
+    {
+        bool done = false;
+        if (player->mode == 1)
+        {
+            if (0.f > player->speed)
+            {
+                done = !(0.f < player->position);
+            }
+            else
+            {
+                done = !(player->position < 1.f); // DAT_0032B0F8.
+            }
+        }
+        if (!done)
+        {
+            return;
+        }
+    }
+    const u16 key = context.body_slot_key(0x20);
+    std::memcpy(state.data() + 0xC, &key, 2);
+}
+
+// Xbox 0x0009E9F0
+void message_runtime_lift_state(std::span<u8> state, std::span<const u32> message,
+    RuntimePickupStateContext& context)
+{
+    if (message[0] == 0x5C)
+    {
+        // The weapon reached the hands: attach it (0x0001B190 with 0) and count the holder.
+        auto& weapon = context.weapon_at(message[1]);
+        attach_runtime_player_weapon(weapon, 0, context.attachment, context.default_position,
+            context.default_euler); // 0x0001B190, EAX the weapon
+        const u16 count = u16(read_u16(weapon.object.bytes, 0xAE4) + 1);
+        std::memcpy(weapon.object.bytes.data() + 0xAE4, &count, 2);
+        context.bits.bytes[5] &= 0xBF;
+        put_word(context.actor_words, 0x314, 0); // The weapon 0xA0 stored there.
+        const u32 lifted[]{0x48};
+        context.actor_message(lifted);
+        return;
+    }
+    if (message[0] == 0x7C && message[1] == read_u32(state, 0x28))
+    {
+        put_word(state, 0x28, 0);
+    }
 }
 }

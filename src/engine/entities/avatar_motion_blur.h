@@ -113,6 +113,7 @@ struct RuntimeAvatarAfterimageDraw
     ActorDrawModelView* model; // Actor +0x204.
     u32 material_second; // DAT_00427428.
     SceneModelDrawContext& draw;
+    RuntimeGlowPass& pass; // With +0x964 set: 0x00062220 before the model, 0x00062490 after.
 };
 u32 draw_runtime_avatar_afterimage(i32 kind, RuntimeAvatarAfterimageDraw& context); // Xbox 0x00069410
 }

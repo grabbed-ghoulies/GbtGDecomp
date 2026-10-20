@@ -105,6 +105,10 @@ Useful build options:
   Windows; the null backend is the default elsewhere.
 - `-DGBTG_WITH_SDL=ON` adds an optional SDL3 window loop for the null backend.
 - `-DGBTG_BUILD_INSPECTOR=OFF` omits the separate inspector targets.
+- `-DGBTG_OPTIMIZE=ON` compiles the host presenter optimizations (see
+  `docs/RENDERING_PERFORMANCE_PLAN.md`). The default, OFF, builds the retail
+  presenter path. Both paths record the same native draws, and their output matches.
+  Use a separate build tree, for example `cmake -B build-opt -DGBTG_OPTIMIZE=ON`.
 - `-DBUILD_TESTING=OFF` omits test targets.
 
 The null backend is useful for development checks; it does not provide the
@@ -159,9 +163,11 @@ Language=English
 `MasterVolume` accepts 0–100. Languages are English, French, German, Spanish and
 Italian; a missing localized text directory falls back to English.
 
-Debug D3D11 game builds include ImGui diagnostics: **F8** opens the menu and
-**F12** toggles the timing overlay. `--debug-ui` opens diagnostics at startup.
-Release game builds and the null backend omit this UI.
+D3D11 game builds include ImGui diagnostics in every configuration: **F8** opens
+the menu and **F12** toggles the timing overlay (shown at start in Debug, hidden
+in Release). `--debug-ui` opens diagnostics at
+startup. To build without the UI, set `GBTG_DEBUG_UI_ENABLED` to 0 in
+`include/gbtg/debug_ui.h`. The null backend omits it.
 
 ## Scene inspector
 

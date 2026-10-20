@@ -141,7 +141,7 @@ optimization from those measurements; geometry/index retention and GPU vertex
 execution are the leading candidates based on the current code.
 
 
-## Implementation progress � 2026-10-14
+## Implementation progress — 2026-10-14
 
 Status: implemented presenter optimizations and instrumentation; full comparative
 acceptance remains incomplete. Work was stopped for the incoming usage limit.
@@ -214,8 +214,8 @@ build/Release/gbtg.exe --headless --scene chapter1_scene1_2playcam --frames 300 
 The runner executes six scenarios at all three requested resolutions serially,
 records commands/metadata/results in `cache/render_perf/<label>_results.json`,
 and writes raw CPU/GPU CSVs, logs and fixed-frame BMPs beside it. Hall captures
-frame 300 (warm window 260�299), tutorial frame 720 (600�719), attract/menu/book
-cutscene frame 300 (120�299), and the opening transition interval through frame
+frame 300 (warm window 260–299), tutorial frame 720 (600–719), attract/menu/book
+cutscene frame 300 (120–299), and the opening transition interval through frame
 180 (all frames; explicitly nonsteady). Attract/menu/book owners are existing
 frontend/cutscene owners, including legacy presentation; none was replaced.
 GPU draw-time sample counts are small; do not infer stable p99 busy times from
@@ -307,3 +307,51 @@ Values are nearest-rank median / p95 / p99 frame milliseconds, ordered 640x480,
 - transition: 1.512 / 7.292 / 140.453; 1.487 / 7.116 / 137.886; 4.218 / 7.576 / 140.761.
 
 Final frame-300 hall comparison: maximum channel delta 72, changed pixels 26, mean channel delta 6.864068930041153e-05.
+
+## GBTG_OPTIMIZE (2026-10-20)
+
+`GBTG_OPTIMIZE` is a CMake option, OFF by default. OFF builds the retail presenter path. ON
+compiles the host presenter optimizations below. Native code, the retail call order and the
+recorded `SceneD3DDevice` stream are the same in both builds. The optimized code is in each
+`#if GBTG_OPTIMIZE` branch and the retail code stays in the matching `#else`, so neither path is
+removed. `src/engine/graphics/render_optimize.h` defaults the macro to 0. `--render-profile`
+logs `profile optimize=on|off`, and the frame CSV has an `optimize` column.
+
+Build both into separate trees and compare them:
+
+    cmake -B build-opt -DGBTG_OPTIMIZE=ON
+    cmake --build build-opt --config Release --target gbtg
+    python tools/render_benchmark.py --exe F:\...\build\Release\gbtg.exe --label retail --resolutions 1280x720
+    python tools/render_benchmark.py --exe F:\...\build-opt\Release\gbtg.exe --label opt --resolutions 1280x720
+    python tools/compare_screenshots.py cache/render_perf/retail cache/render_perf/opt
+    python tools/compare_render_benchmarks.py retail opt
+
+Pass `--exe` an absolute Windows path. Copy `build/Release/saves` and `gbtg.ini` beside the
+optimized exe; otherwise the menu case starts from different save data.
+
+| Step | Where | Change under GBTG_OPTIMIZE |
+| --- | --- | --- |
+| 1 | `scene_d3d_device` | Draws share one immutable state snapshot (`shared_ptr`) until a state value actually changes. `decode_push` reuses its scratch. |
+| 2 | `gfx_draw_native` | Within a native batch, skip binds that did not change: viewport/scissor, SRVs, samplers, blend, depth, raster, layout, topology, VS/PS. Skip GpuCB, material and 3 KB vertex-constant Maps when the contents are bitwise equal. Look up the vertex program once. |
+| 3 | `scene_d3d_present`, `gfx_d3d11` | One-entry memos keyed by content or shared snapshot replace map searches: declarations, address validation, `apply_states`, `pixel_shader_words`, specialized pixel shaders. |
+| 4 | `scene_d3d_present` | Adjacent quads with the same snapshot, texture and address modes go out as one triangle list. Inline and fixed draws reuse scratch vectors. |
+| 5 | `native_texture` | A refreshed image of unchanged size goes to its existing texture through `UpdateSubresource`, not a new Texture2D/SRV. |
+| 6 | `gfx_readback` | Persistent staging texture. |
+
+Not done: removing the synchronous render-target round trip (copy → Map → swizzle →
+re-decode). That needs proof that native code never reads the target's memory in the same
+frame. Also not done: R16 index uploads, and GPU decoding of packed streams.
+
+Results: Release, 1280x720, the six benchmark cases, labels `optflag2_retail` / `optflag2_opt`.
+Every screenshot matches with maximum channel delta 0. Median / p99 frame ms, retail →
+optimized:
+
+- hall: 4.484 / 5.318 → 3.533 / 3.973
+- tutorial: 4.539 / 5.831 → 3.589 / 4.134
+- attract: 1.799 / 4.058 → 1.540 / 3.608
+- menu: 0.866 / 5.328 → 0.766 / 5.379
+- cutscene: 0.970 / 1.500 → 0.769 / 1.175
+- transition: 16.809 / 76.764 → 13.572 / 75.287
+
+The transition p99 is unchanged; it is dominated by loading and render-target readback. Main-thread
+allocations per hall frame fell from 34373 to 29505.

@@ -77,6 +77,7 @@ int main(int argc, char** argv)
 #else
             std::cout << "profile build=Release\n";
 #endif
+            std::cout << "profile optimize=" << (GBTG_OPTIMIZE ? "on" : "off") << "\n";
         }
         if (cfg.replay_after > 0 && !gbtg::render_profile::enabled)
         {

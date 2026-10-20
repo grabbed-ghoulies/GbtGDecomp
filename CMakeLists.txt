@@ -671,9 +671,10 @@ if(GBTG_GFX STREQUAL "d3d11")
     target_compile_definitions(gbtg PRIVATE GBTG_GFX_D3D11)
     target_link_libraries(gbtg PRIVATE d3d11 dxgi d3dcompiler user32 xaudio2 ole32)
 
-    # Dear ImGui is compiled into Debug gbtg only. Release, RelWithDebInfo, and the
-    # null backend never see GBTG_DEBUG_UI. Populate skips add_subdirectory: upstream
-    # has no library target that includes the Win32 and D3D11 backends.
+    # Dear ImGui is compiled into every D3D11 gbtg configuration, which defines
+    # GBTG_DEBUG_UI_AVAILABLE. GBTG_DEBUG_UI_ENABLED in include/gbtg/debug_ui.h turns the
+    # debug UI on or off. The null backend never sees it. Populate skips add_subdirectory:
+    # upstream has no library target that includes the Win32 and D3D11 backends.
     FetchContent_Declare(
         imgui
         GIT_REPOSITORY https://github.com/ocornut/imgui.git
@@ -702,16 +703,10 @@ if(GBTG_GFX STREQUAL "d3d11")
         "${imgui_SOURCE_DIR}/backends/imgui_impl_dx11.cpp"
         "${CMAKE_SOURCE_DIR}/src/engine/graphics/debug_ui.cpp"
     )
-    target_sources(gbtg PRIVATE "$<$<CONFIG:Debug>:${GBTG_IMGUI_SOURCES}>")
-    target_compile_definitions(gbtg PRIVATE
-        $<$<CONFIG:Debug>:GBTG_DEBUG_UI>
-        $<$<CONFIG:Debug>:IMGUI_IMPL_WIN32_DISABLE_GAMEPAD>
-    )
-    target_include_directories(gbtg PRIVATE
-        $<$<CONFIG:Debug>:${imgui_SOURCE_DIR}>
-        $<$<CONFIG:Debug>:${imgui_SOURCE_DIR}/backends>
-    )
-    target_link_libraries(gbtg PRIVATE $<$<CONFIG:Debug>:imm32>)
+    target_sources(gbtg PRIVATE ${GBTG_IMGUI_SOURCES})
+    target_compile_definitions(gbtg PRIVATE GBTG_DEBUG_UI_AVAILABLE IMGUI_IMPL_WIN32_DISABLE_GAMEPAD)
+    target_include_directories(gbtg PRIVATE "${imgui_SOURCE_DIR}" "${imgui_SOURCE_DIR}/backends")
+    target_link_libraries(gbtg PRIVATE imm32)
 else()
     target_sources(gbtg PRIVATE src/engine/graphics/gfx_null.cpp)
     target_compile_definitions(gbtg PRIVATE GBTG_GFX_NULL)
@@ -729,6 +724,14 @@ if(GBTG_RETAIL_GAME_ONLY)
     # Warning C4996 - Retail uses strcpy, disable deprecation
     target_compile_definitions(gbtg PRIVATE _CRT_SECURE_NO_WARNINGS)
     target_compile_definitions(gbtg_lib PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()
+
+# Host presenter optimizations (src/engine/graphics/render_optimize.h). OFF keeps the retail
+# presenter path. Test and runtime targets copy gbtg's definitions below.
+option(GBTG_OPTIMIZE "Host presenter optimizations; OFF builds the retail presenter" OFF)
+if(GBTG_OPTIMIZE)
+    target_compile_definitions(gbtg PRIVATE GBTG_OPTIMIZE=1)
+    target_compile_definitions(gbtg_lib PRIVATE GBTG_OPTIMIZE=1)
 endif()
 
 # LGPL FFmpeg supplies the Bink decoder. The RAD SDK is not linked. DLLs are copied

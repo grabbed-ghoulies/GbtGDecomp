@@ -15,9 +15,7 @@
 #include "../inspector/inspector_graphics.h"
 #endif
 
-#if defined(GBTG_DEBUG_UI)
-#include "gbtg/debug_ui.h"
-#endif
+#include "gbtg/debug_ui.h" // Defines GBTG_DEBUG_UI when the debug UI is enabled.
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -217,6 +215,39 @@ struct GfxD3D11
     std::map<std::array<u32, 9>, ComPtr<ID3D11DepthStencilState>> native_depths;
     std::unordered_map<u32, ComPtr<ID3D11RasterizerState>> native_rasterizers;
     std::unordered_map<u32, ComPtr<ID3D11SamplerState>> native_samplers;
+#if GBTG_OPTIMIZE
+    // GBTG_OPTIMIZE step 2: what the previous native draw bound and uploaded. It describes the
+    // pipeline only while native_pipeline is set, because nothing else binds between adjacent
+    // native draws of one batch (clears, copies and target changes end the batch).
+    struct NativeBound
+    {
+        D3D11_VIEWPORT viewport{};
+        D3D11_RECT scissor{};
+        std::array<ID3D11ShaderResourceView*, 4> views{};
+        std::array<ID3D11SamplerState*, 4> samplers{};
+        ID3D11BlendState* blend = nullptr;
+        ID3D11DepthStencilState* depth = nullptr;
+        UINT stencil_reference = 0;
+        ID3D11RasterizerState* rasterizer = nullptr;
+        ID3D11InputLayout* layout = nullptr;
+        D3D11_PRIMITIVE_TOPOLOGY topology = D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED;
+        ID3D11VertexShader* vertex_shader = nullptr;
+        ID3D11PixelShader* pixel_shader = nullptr;
+        bool material = false; // native_material holds `words` and is bound at PS b2.
+        bool constants = false; // native_constants holds `vertex_constants` and is bound at VS b3.
+        GpuCB cb{};
+        std::array<u32, 80> words{};
+        std::array<std::array<float, 4>, 192> vertex_constants{};
+    } native_bound;
+    // The program gfx_native_vertex_program_supported just found, for the draw that follows it.
+    std::span<const u32> supported_words;
+    ProgramGpu* supported_program = nullptr;
+    // GBTG_OPTIMIZE step 3: the last specialized pixel shader and its key (owned by specialized_pixels).
+    std::array<u32, 60> last_pixel_key{};
+    ID3D11PixelShader* last_pixel = nullptr;
+    // GBTG_OPTIMIZE step 6: gfx_readback's staging texture.
+    ComPtr<ID3D11Texture2D> readback_staging;
+#endif
     std::unordered_map<const Mesh*, GpuMesh> meshes;
     struct SpriteGpu
     {
@@ -1901,6 +1932,13 @@ void gfx_shutdown()
     g.vertex_source.clear();
     g.validation_shader.Reset();
     g.native_programs.clear();
+#if GBTG_OPTIMIZE
+    g.supported_words = {};
+    g.supported_program = nullptr;
+    g.native_pipeline = false;
+    g.last_pixel = nullptr;
+    g.readback_staging.Reset();
+#endif
     g.native_constants.Reset();
     g.native_vs.Reset();
     g.native_ps.Reset();
@@ -2736,6 +2774,28 @@ ID3D11ShaderResourceView* native_texture(const RgbaImage* image)
             ++render_profile::frame.texture_uploads;
             render_profile::frame.uploaded_bytes += image->bgra.size();
         }
+#if GBTG_OPTIMIZE
+        // GBTG_OPTIMIZE step 5: a refreshed image of the same size (movie frames, render-target
+        // captures) is written into its existing texture instead of a new one.
+        if (it != g.sprites.end() && it->second.srv)
+        {
+            ComPtr<ID3D11Resource> resource;
+            it->second.srv->GetResource(resource.GetAddressOf());
+            ComPtr<ID3D11Texture2D> texture;
+            D3D11_TEXTURE2D_DESC desc{};
+            if (SUCCEEDED(resource.As(&texture)))
+            {
+                texture->GetDesc(&desc);
+            }
+            if (texture && desc.Width == u32(image->width) && desc.Height == u32(image->height)
+                && desc.Format == DXGI_FORMAT_B8G8R8A8_UNORM && desc.MipLevels == 1 && desc.Usage == D3D11_USAGE_DEFAULT)
+            {
+                g.context->UpdateSubresource(texture.Get(), 0, nullptr, image->bgra.data(), u32(image->width * 4), 0);
+                it->second.serial = image->serial;
+                return it->second.srv.Get();
+            }
+        }
+#endif
         GfxD3D11::SpriteGpu gpu;
         gpu.srv = upload_bgra(image->bgra.data(), image->width, image->height);
         gpu.serial = image->serial;
@@ -2778,6 +2838,19 @@ ID3D11PixelShader* native_pixel_shader(const u32* definition)
     std::copy_n(definition, key.size(), key.begin());
     std::fill(key.begin() + 10, key.begin() + 26, 0);
     key[43] = key[44] = 0;
+#if GBTG_OPTIMIZE
+    // GBTG_OPTIMIZE step 3: consecutive draws usually share the specialized shader.
+    if (g.last_pixel != nullptr && g.last_pixel_key == key)
+    {
+        return g.last_pixel;
+    }
+    if (auto found = g.specialized_pixels.find(key); found != g.specialized_pixels.end())
+    {
+        g.last_pixel_key = key;
+        g.last_pixel = found->second.Get();
+        return g.last_pixel;
+    }
+#endif
     auto found = g.specialized_pixels.find(key);
     if (found != g.specialized_pixels.end())
     {
@@ -2854,6 +2927,11 @@ bool gfx_native_vertex_program_supported(std::span<const u32> program)
     auto found = g.native_programs.find(program);
     if (found != g.native_programs.end())
     {
+#if GBTG_OPTIMIZE
+        // GBTG_OPTIMIZE step 2: the draw that follows reuses this lookup.
+        g.supported_words = program;
+        g.supported_program = &found->second;
+#endif
         return found->second.shader != nullptr;
     }
     render_profile::Scope compilation(render_profile::Compilation);
@@ -3153,7 +3231,21 @@ void gfx_draw_native(const GfxNativeDraw& draw)
     {
         return;
     }
+#if GBTG_OPTIMIZE
+    // GBTG_OPTIMIZE step 2: after another native draw of this batch the pipeline is as `bound` says.
+    auto& bound = g.native_bound;
+    const bool reuse = g.native_pipeline && !render_profile::validate_vertex;
+    if (!reuse)
+    {
+        bound = {};
+        present_hud_viewport();
+        UINT viewports = 1;
+        g.context->RSGetViewports(&viewports, &bound.viewport);
+    }
+    bool cb_current = reuse;
+#else
     present_hud_viewport();
+#endif
     const bool program_draw = !draw.program_inputs.empty();
     const UINT bytes = UINT(program_draw ? draw.program_inputs.size_bytes() : draw.vertices.size_bytes());
     if (!g.native_vb || g.native_vb_size < bytes)
@@ -3189,6 +3281,25 @@ void gfx_draw_native(const GfxNativeDraw& draw)
     std::memcpy(static_cast<u8*>(mapped.pData) + vertex_offset, program_draw ? static_cast<const void*>(draw.program_inputs.data()) : static_cast<const void*>(draw.vertices.data()), bytes);
     g.native_vb_cursor += bytes;
     g.context->Unmap(g.native_vb.Get(), 0);
+#if GBTG_OPTIMIZE
+    // GBTG_OPTIMIZE step 2: the shared constant buffer is rewritten only when it changes.
+    GpuCB cb;
+    cb.mvp[0] = cb.mvp[5] = cb.mvp[10] = cb.mvp[15] = 1.f;
+    cb.alpha_test = draw.alpha_test ? 1.f : 0.f;
+    cb.alpha_ref = float(draw.alpha_reference & 0xFF);
+    cb.alpha_func = float(draw.alpha_function);
+    cb.alpha_pad = draw.textures[0] != nullptr ? 1.f : 0.f;
+    if (!cb_current || std::memcmp(&bound.cb, &cb, sizeof(cb)) != 0)
+    {
+        if (FAILED(g.context->Map(g.cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+        {
+            throw Error("D3D11 native constant buffer map failed");
+        }
+        std::memcpy(mapped.pData, &cb, sizeof(cb));
+        g.context->Unmap(g.cb.Get(), 0);
+        bound.cb = cb;
+    }
+#else
     if (FAILED(g.context->Map(g.cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
     {
         throw Error("D3D11 native constant buffer map failed");
@@ -3201,6 +3312,7 @@ void gfx_draw_native(const GfxNativeDraw& draw)
     cb.alpha_pad = draw.textures[0] != nullptr ? 1.f : 0.f;
     std::memcpy(mapped.pData, &cb, sizeof(cb));
     g.context->Unmap(g.cb.Get(), 0);
+#endif
 
     const u32 mask = ((draw.color_mask >> 24) & 1) | ((draw.color_mask >> 15) & 2) | ((draw.color_mask >> 6) & 4) |
         ((draw.color_mask << 3) & 8);
@@ -3330,6 +3442,160 @@ void gfx_draw_native(const GfxNativeDraw& draw)
         }
         samplers[stage] = sampler->second.Get();
     }
+#if GBTG_OPTIMIZE
+    // GBTG_OPTIMIZE step 2: the same pipeline as the #else path, binding and uploading only what
+    // differs from the previous native draw of this batch.
+    ID3D11PixelShader* pixel_shader = g.native_ps.Get();
+    if (draw.pixel_shader != nullptr)
+    {
+        // Combiner words, then stage n samples texture coordinate n, and v0/v1 are the vertex colours.
+        std::array<u32, 80> words{};
+        std::memcpy(words.data(), draw.pixel_shader, 60 * 4);
+        words[76] = draw.fog ? 1u : 0u; // ps_fog
+        words[77] = draw.fog_color;
+        for (size_t stage = 0; stage < 4; ++stage)
+        {
+            const RgbaImage* texture = draw.textures[stage];
+            if (texture != nullptr && texture->linear && texture->width > 0 && texture->height > 0)
+            {
+                const float scale[2] = {1.f / float(texture->width), 1.f / float(texture->height)};
+                std::memcpy(&words[68 + stage * 2], scale, sizeof(scale));
+            }
+        }
+        words[60] = 0;
+        words[61] = 1;
+        words[62] = 2;
+        words[63] = 3;
+        words[64] = 0;
+        words[65] = 1;
+        if (!bound.material || bound.words != words)
+        {
+            if (FAILED(g.context->Map(g.native_material.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+            {
+                throw Error("D3D11 native material map failed");
+            }
+            std::memcpy(mapped.pData, words.data(), sizeof(words));
+            g.context->Unmap(g.native_material.Get(), 0);
+            if (!bound.material)
+            {
+                ID3D11Buffer* material = g.native_material.Get();
+                g.context->PSSetConstantBuffers(2, 1, &material);
+            }
+            bound.material = true;
+            bound.words = words;
+        }
+        pixel_shader = native_pixel_shader(draw.pixel_shader);
+    }
+    else if (draw.textures[0] != nullptr && draw.textures[0]->linear)
+    {
+        throw Error("native draw without a pixel shader binds a linear texture, which needs texel coordinates");
+    }
+    if (bound.pixel_shader != pixel_shader)
+    {
+        g.context->PSSetShader(pixel_shader, nullptr, 0);
+        bound.pixel_shader = pixel_shader;
+    }
+    // native_rectangle, over the viewport read when the batch's pipeline was first bound.
+    const D3D11_VIEWPORT& vp = bound.viewport;
+    D3D11_RECT scissor;
+    scissor.left = LONG(std::floor(vp.TopLeftX + vp.Width * float(draw.scissor[0]) / 640.f));
+    scissor.top = LONG(std::floor(vp.TopLeftY + vp.Height * float(draw.scissor[1]) / 480.f));
+    scissor.right = LONG(std::ceil(vp.TopLeftX + vp.Width * float(draw.scissor[2]) / 640.f));
+    scissor.bottom = LONG(std::ceil(vp.TopLeftY + vp.Height * float(draw.scissor[3]) / 480.f));
+    if (!reuse || std::memcmp(&bound.scissor, &scissor, sizeof(scissor)) != 0)
+    {
+        g.context->RSSetScissorRects(1, &scissor);
+        bound.scissor = scissor;
+    }
+    if (!reuse || std::memcmp(bound.views.data(), views, sizeof(views)) != 0)
+    {
+        g.context->PSSetShaderResources(0, 4, views);
+        std::memcpy(bound.views.data(), views, sizeof(views));
+    }
+    if (!reuse || std::memcmp(bound.samplers.data(), samplers, sizeof(samplers)) != 0)
+    {
+        g.context->PSSetSamplers(0, 4, samplers);
+        std::memcpy(bound.samplers.data(), samplers, sizeof(samplers));
+    }
+    if (bound.blend != blend->second.Get())
+    {
+        g.context->OMSetBlendState(blend->second.Get(), nullptr, 0xFFFFFFFFu);
+        bound.blend = blend->second.Get();
+    }
+    if (bound.depth != depth->second.Get() || bound.stencil_reference != (draw.stencil_reference & 0xFF))
+    {
+        g.context->OMSetDepthStencilState(depth->second.Get(), draw.stencil_reference & 0xFF);
+        bound.depth = depth->second.Get();
+        bound.stencil_reference = draw.stencil_reference & 0xFF;
+    }
+    if (bound.rasterizer != rasterizer->second.Get())
+    {
+        g.context->RSSetState(rasterizer->second.Get());
+        bound.rasterizer = rasterizer->second.Get();
+    }
+    const UINT stride = program_draw ? sizeof(GfxNativeInputs) : sizeof(GfxNativeVertex);
+    const UINT offset = vertex_offset;
+    const D3D11_PRIMITIVE_TOPOLOGY topology = draw.lines ? D3D11_PRIMITIVE_TOPOLOGY_LINELIST
+        : D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    if (bound.topology != topology)
+    {
+        g.context->IASetPrimitiveTopology(topology);
+        bound.topology = topology;
+    }
+    g.context->IASetVertexBuffers(0, 1, g.native_vb.GetAddressOf(), &stride, &offset);
+    ID3D11InputLayout* layout = g.native_layout.Get();
+    ID3D11VertexShader* vertex_shader = g.native_vs.Get();
+    GfxD3D11::ProgramGpu* found = nullptr;
+    if (program_draw)
+    {
+        found = g.supported_program;
+        if (found == nullptr || g.supported_words.data() != draw.vertex_program.data()
+            || g.supported_words.size() != draw.vertex_program.size())
+        {
+            found = &g.native_programs.find(draw.vertex_program)->second;
+        }
+        g.supported_program = nullptr;
+        auto& program = *found;
+        layout = program.layout.Get();
+        vertex_shader = program.shader.Get();
+        if (draw.vertex_constants == nullptr)
+        {
+            throw Error("native vertex constants map failed");
+        }
+        // Bitwise, so a signed zero or NaN change still uploads.
+        if (!bound.constants || std::memcmp(bound.vertex_constants.data(), draw.vertex_constants->data(),
+            sizeof(bound.vertex_constants)) != 0)
+        {
+            if (FAILED(g.context->Map(g.native_constants.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+            {
+                throw Error("native vertex constants map failed");
+            }
+            std::memcpy(mapped.pData, draw.vertex_constants->data(), sizeof(*draw.vertex_constants));
+            g.context->Unmap(g.native_constants.Get(), 0);
+            if (!bound.constants)
+            {
+                ID3D11Buffer* constants = g.native_constants.Get();
+                g.context->VSSetConstantBuffers(3, 1, &constants);
+            }
+            bound.constants = true;
+            bound.vertex_constants = *draw.vertex_constants;
+        }
+    }
+    if (bound.layout != layout)
+    {
+        g.context->IASetInputLayout(layout);
+        bound.layout = layout;
+    }
+    if (bound.vertex_shader != vertex_shader)
+    {
+        g.context->VSSetShader(vertex_shader, nullptr, 0);
+        bound.vertex_shader = vertex_shader;
+    }
+    if (found != nullptr)
+    {
+        validate_native_gpu_vertices(draw, *found);
+    }
+#else
     if (draw.pixel_shader != nullptr)
     {
         if (FAILED(g.context->Map(g.native_material.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
@@ -3402,6 +3668,7 @@ void gfx_draw_native(const GfxNativeDraw& draw)
     {
         g.context->VSSetShader(g.native_vs.Get(), nullptr, 0);
     }
+#endif
     if (draw.indices.empty())
     {
         profile_gpu_draw_begin();
@@ -4626,11 +4893,30 @@ bool gfx_readback(RgbaImage& out)
     desc.MiscFlags = 0;
     desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
     desc.Usage = D3D11_USAGE_STAGING;
+#if GBTG_OPTIMIZE
+    // GBTG_OPTIMIZE step 6: one staging texture per back-buffer size and format, kept between calls.
+    if (g.readback_staging)
+    {
+        D3D11_TEXTURE2D_DESC held{};
+        g.readback_staging->GetDesc(&held);
+        if (held.Width != desc.Width || held.Height != desc.Height || held.Format != desc.Format
+            || held.SampleDesc.Count != desc.SampleDesc.Count)
+        {
+            g.readback_staging.Reset();
+        }
+    }
+    if (!g.readback_staging && FAILED(g.device->CreateTexture2D(&desc, nullptr, g.readback_staging.GetAddressOf())))
+    {
+        return false;
+    }
+    ComPtr<ID3D11Texture2D> staging = g.readback_staging;
+#else
     ComPtr<ID3D11Texture2D> staging;
     if (FAILED(g.device->CreateTexture2D(&desc, nullptr, staging.GetAddressOf())))
     {
         return false;
     }
+#endif
     g.context->CopyResource(staging.Get(), src.Get());
     D3D11_MAPPED_SUBRESOURCE mapped{};
     if (FAILED(g.context->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped)))

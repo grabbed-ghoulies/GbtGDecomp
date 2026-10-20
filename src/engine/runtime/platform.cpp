@@ -3,9 +3,7 @@
 #include "gbtg/platform.h"
 #include "gbtg/texture.h"
 
-#if defined(GBTG_DEBUG_UI)
-#include "gbtg/debug_ui.h"
-#endif
+#include "gbtg/debug_ui.h" // Defines GBTG_DEBUG_UI when the debug UI is enabled.
 
 #include <algorithm>
 #include <chrono>

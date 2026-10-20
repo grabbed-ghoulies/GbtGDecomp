@@ -31,38 +31,38 @@ void SceneD3DDevice::create_vertex_shader(const i32* declaration, const u32* pro
 void SceneD3DDevice::set_vertex_stream(u32 stream, u32 resource, u32 stride)
 {
     vertex_streams_[stream] = SceneD3DVertexStream{resource, stride};
-    render_states_[0x10020 + stream] = stride;
+    put_state(0x10020 + stream, stride);
 }
 
 SceneD3DDevice::SceneD3DDevice()
 {
     dialogue_.simple_state = [this](u32 method, u32 value)
     {
-        render_states_[method] = value;
+        put_state(method, value);
     };
     dialogue_.noise = [this](u32 value)
     {
-        render_states_[0x10000] = value;
+        put_state(0x10000, value);
     };
     dialogue_.cull = [this](u32 value)
     {
-        render_states_[kCullMode] = value;
+        put_state(kCullMode, value);
     };
     dialogue_.depth = [this](u32 value)
     {
-        render_states_[kZEnable] = value;
+        put_state(kZEnable, value);
     };
     dialogue_.vertex_shader = [this](u32 handle)
     {
-        render_states_[kVertexShader] = handle;
+        put_state(kVertexShader, handle);
     };
     dialogue_.pixel_shader = [this](u32 handle)
     {
-        render_states_[kPixelShader] = handle;
-        render_states_.erase(kPSTextureModes); // The shader's own texture modes apply again.
+        put_state(kPixelShader, handle);
+        erase_state(kPSTextureModes); // The shader's own texture modes apply again.
         for (const u32 method : kPixelShaderRegisters)
         {
-            render_states_.erase(method); // The upload replaces any raw combiner writes.
+            erase_state(method); // The upload replaces any raw combiner writes.
         }
     };
     dialogue_.texture = [this](u32 stage, const u8* texture)
@@ -75,11 +75,11 @@ SceneD3DDevice::SceneD3DDevice()
     };
     dialogue_.texture_coordinates = [this](u32 stage, u32 index)
     {
-        render_states_[0x10010 + stage] = index;
+        put_state(0x10010 + stage, index);
     };
     dialogue_.stream = [this](u32 stream, const void*, u32 stride)
     {
-        render_states_[0x10020 + stream] = stride;
+        put_state(0x10020 + stream, stride);
     };
     dialogue_.shader_input = [](u32, u32, const void*)
     {
@@ -100,7 +100,7 @@ SceneD3DDevice::SceneD3DDevice()
     {
         for (u32 index = 0; index < 6; ++index)
         {
-            render_states_[kViewport + index] = viewport[index];
+            put_state(kViewport + index, viewport[index]);
         }
         // SetViewport also loads the screen-space transform vertex programs end with: c-38 scales and
         // c-37 offsets the projected position into viewport pixels and depth-buffer units.
@@ -158,15 +158,15 @@ SceneD3DDevice::SceneD3DDevice()
     };
     dialogue_.multisample_mode = [this](u32 mode)
     {
-        render_states_[kMultiSampleMode] = mode;
+        put_state(kMultiSampleMode, mode);
     };
     dialogue_.stencil_enable = [this](u32 enabled)
     {
-        render_states_[kStencilEnable] = enabled;
+        put_state(kStencilEnable, enabled);
     };
     dialogue_.vertex_data_color = [this](u32 reg, u32 color)
     {
-        render_states_[kVertexDataColor + reg] = color;
+        put_state(kVertexDataColor + reg, color);
     };
     // Immediate-mode vertices go out as the push buffer's begin, inline vertices of the bound fixed-function
     // format (the position, then the current diffuse for D3DFVF_DIFFUSE) and end.
@@ -287,7 +287,7 @@ SceneD3DDevice::SceneD3DDevice()
     };
     outer_.line_width = [this](float width)
     {
-        render_states_[0x10050] = std::bit_cast<u32>(width);
+        put_state(0x10050, std::bit_cast<u32>(width));
     };
     outer_.pixel_constants = [this](u32 reg, const float* data, u32 count)
     {
@@ -308,7 +308,13 @@ void SceneD3DDevice::decode_push(const u32* begin, const u32* end)
     render_profile::Scope measurement(render_profile::Recording);
     bool open = false;
     u32 primitive = 0;
+#if GBTG_OPTIMIZE
+    // GBTG_OPTIMIZE step 1: the inline vertices reuse the device's scratch capacity.
+    std::vector<float>& vertices = push_vertices_;
+    vertices.clear();
+#else
     std::vector<float> vertices;
+#endif
     for (const u32* cursor = begin; cursor < end;)
     {
         const u32 header = *cursor++;
@@ -343,7 +349,7 @@ void SceneD3DDevice::decode_push(const u32* begin, const u32* end)
                 {
                     flush_deferred_states();
                     SceneD3DInlineDraw output{SceneD3DIndexedDraw{primitive, 0, 0, constants_, textures_,
-                        render_states_, vertex_streams_, pixel_constants_, pixel_constants_set_, address_u_,
+                        snapshot(), vertex_streams_, pixel_constants_, pixel_constants_set_, address_u_,
                         address_v_}, {}};
                     output.vertices.resize(vertices.size());
                     std::memcpy(output.vertices.data(), vertices.data(), vertices.size() * sizeof(u32));
@@ -373,7 +379,7 @@ void SceneD3DDevice::decode_push(const u32* begin, const u32* end)
                     }
                     output.color = constants_[0x64];
                     output.texture = textures_[0];
-                    output.states = render_states_;
+                    output.states = snapshot();
                     output.address_u = address_u_[0];
                     output.address_v = address_v_[0];
                     commands.push_back(std::move(output));
@@ -408,7 +414,7 @@ void SceneD3DDevice::record_fixed(u32 primitive, u32 format, const std::vector<f
     };
     flush_deferred_states();
     SceneD3DFixedDraw output{primitive, format, std::vector<u32>(vertices.size()), transform(6), transform(0),
-        transform(1), constants_[96 - 38], constants_[96 - 37], 0xFFFFFFFFu, render_states_, textures_[0],
+        transform(1), constants_[96 - 38], constants_[96 - 37], 0xFFFFFFFFu, snapshot(), textures_[0],
         address_u_[0], address_v_[0]};
     std::memcpy(output.vertices.data(), vertices.data(), vertices.size() * sizeof(u32));
     const auto diffuse = render_states_.find(kVertexDataColor + 3);
@@ -421,7 +427,48 @@ void SceneD3DDevice::record_fixed(u32 primitive, u32 format, const std::vector<f
 
 void SceneD3DDevice::set_state(u32 key, u32 value)
 {
+    put_state(key, value);
+}
+
+void SceneD3DDevice::put_state(u32 key, u32 value)
+{
+#if GBTG_OPTIMIZE
+    // GBTG_OPTIMIZE step 1: only a changed value retires the shared draw snapshot.
+    const auto [it, inserted] = render_states_.try_emplace(key, value);
+    if (inserted || it->second != value)
+    {
+        it->second = value;
+        snapshot_.reset();
+    }
+#else
     render_states_[key] = value;
+#endif
+}
+
+void SceneD3DDevice::erase_state(u32 key)
+{
+#if GBTG_OPTIMIZE
+    if (render_states_.erase(key) != 0)
+    {
+        snapshot_.reset();
+    }
+#else
+    render_states_.erase(key);
+#endif
+}
+
+SceneD3DStateSnapshot SceneD3DDevice::snapshot()
+{
+#if GBTG_OPTIMIZE
+    // GBTG_OPTIMIZE step 1: draws under unchanged states share the last snapshot.
+    if (!snapshot_)
+    {
+        snapshot_ = std::make_shared<const SceneD3DStateSnapshot::Values>(render_states_.begin(), render_states_.end());
+    }
+    return SceneD3DStateSnapshot(snapshot_);
+#else
+    return SceneD3DStateSnapshot(render_states_);
+#endif
 }
 
 void SceneD3DDevice::set_constant_words(u32 reg, const u32* data, u32 count)
@@ -441,7 +488,7 @@ void SceneD3DDevice::flush_deferred_states()
 {
     if (fog_enable != nullptr)
     {
-        render_states_[kFogEnable] = *fog_enable;
+        put_state(kFogEnable, *fog_enable);
     }
     if (deferred_texture_states != nullptr)
     {
@@ -459,7 +506,7 @@ SceneD3DIndexedDraw& SceneD3DDevice::draw_indexed(u32 primitive, u32 count, u32 
 {
     render_profile::Scope measurement(render_profile::Recording);
     flush_deferred_states();
-    commands.push_back(SceneD3DIndexedDraw{primitive, count, indices, constants_, textures_, render_states_,
+    commands.push_back(SceneD3DIndexedDraw{primitive, count, indices, constants_, textures_, snapshot(),
         vertex_streams_, pixel_constants_, pixel_constants_set_, address_u_, address_v_});
     return std::get<SceneD3DIndexedDraw>(commands.back());
 }

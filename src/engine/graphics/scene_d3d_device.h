@@ -1,7 +1,9 @@
 #pragma once
 
 #include "../frontend/dialogue_draw_outer.h"
+#include "render_optimize.h"
 #include <map>
+#include <memory>
 #include <algorithm>
 #include <stdexcept>
 #include <variant>
@@ -19,27 +21,51 @@ using SceneD3DConstants = std::array<std::array<float, 4>, 192>; // Hardware num
 class SceneD3DStateSnapshot
 {
 public:
+    using Values = std::vector<std::pair<u32, u32>>;
     SceneD3DStateSnapshot() = default;
+#if GBTG_OPTIMIZE
+    // GBTG_OPTIMIZE step 1: draws recorded while the device states are unchanged share one
+    // immutable snapshot instead of copying it per draw.
+    SceneD3DStateSnapshot(const std::map<u32, u32>& states)
+        : values_(std::make_shared<const Values>(states.begin(), states.end()))
+    {
+    }
+    explicit SceneD3DStateSnapshot(std::shared_ptr<const Values> values) : values_(std::move(values))
+    {
+    }
+    // The shared storage: equal identities mean equal states. A memo holds shared() so the
+    // identity cannot be freed and reused by different states.
+    const void* identity() const
+    {
+        return values_.get();
+    }
+    const std::shared_ptr<const Values>& shared() const
+    {
+        return values_;
+    }
+#else
     SceneD3DStateSnapshot(const std::map<u32, u32>& states) : values_(states.begin(), states.end())
     {
     }
+#endif
     auto find(u32 key) const
     {
-        const auto it = std::lower_bound(values_.begin(), values_.end(), key,
+        const Values& values = stored();
+        const auto it = std::lower_bound(values.begin(), values.end(), key,
             [](const auto& value, u32 wanted)
             {
                 return value.first < wanted;
             });
-        return it != values_.end() && it->first == key ? it : values_.end();
+        return it != values.end() && it->first == key ? it : values.end();
     }
     auto end() const
     {
-        return values_.end();
+        return stored().end();
     }
 #if defined(GBTG_INSPECTOR_APP)
     std::span<const std::pair<u32, u32>> values() const
     {
-        return values_;
+        return stored();
     }
 #endif
     u32 at(u32 key) const
@@ -52,7 +78,20 @@ public:
         return it->second;
     }
 private:
-    std::vector<std::pair<u32, u32>> values_;
+#if GBTG_OPTIMIZE
+    const Values& stored() const
+    {
+        static const Values empty;
+        return values_ ? *values_ : empty;
+    }
+    std::shared_ptr<const Values> values_;
+#else
+    const Values& stored() const
+    {
+        return values_;
+    }
+    Values values_;
+#endif
 };
 
 struct SceneD3DQuad
@@ -188,6 +227,14 @@ public:
 
 private:
     void flush_deferred_states();
+    // Every render_states_ write goes through put_state / erase_state; snapshot() is the draw-time copy.
+    void put_state(u32 key, u32 value);
+    void erase_state(u32 key);
+    SceneD3DStateSnapshot snapshot();
+#if GBTG_OPTIMIZE
+    std::shared_ptr<const SceneD3DStateSnapshot::Values> snapshot_; // Null once a state changes.
+    std::vector<float> push_vertices_; // decode_push scratch.
+#endif
     void decode_push(const u32* begin, const u32* end);
     void record_fixed(u32 primitive, u32 format, const std::vector<float>& vertices);
     std::map<u32, std::array<float, 16>> transforms_;

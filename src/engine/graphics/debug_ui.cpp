@@ -1,8 +1,6 @@
-#if !defined(GBTG_DEBUG_UI)
-#error debug_ui.cpp is compiled only for Debug D3D11
-#endif
-
 #include "gbtg/debug_ui.h"
+// Empty unless the debug UI is enabled (GBTG_DEBUG_UI_ENABLED in debug_ui.h).
+#if defined(GBTG_DEBUG_UI)
 #include "gbtg/engine_internal.h"
 #include "gbtg/gfx.h"
 #include "../scene/factory_scene_runtime.h"
@@ -28,7 +26,12 @@ namespace
 
 bool g_ready = false;
 bool g_menu = false;
+// The F12 timing overlay starts shown in Debug and hidden in Release.
+#if defined(_DEBUG)
 bool g_overlay = true;
+#else
+bool g_overlay = false;
+#endif
 bool g_scenes = false;
 bool g_runtime = false;
 bool g_performance = false;
@@ -472,3 +475,5 @@ void debug_ui_draw()
 }
 
 } // namespace gbtg
+
+#endif // GBTG_DEBUG_UI

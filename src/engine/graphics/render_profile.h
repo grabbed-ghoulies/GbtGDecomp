@@ -1,4 +1,5 @@
 #pragma once
+#include "render_optimize.h"
 #include <array>
 #include <chrono>
 #include <fstream>
@@ -37,7 +38,7 @@ inline void start(const std::string& path)
         throw std::runtime_error("cannot open renderer profile output");
     }
     enabled = true;
-    output << "frame,frame_ms,tick_ms,presenter_ms,declaration_ms,vertex_ms,topology_ms,texture_ms,submission_ms,present_ms,compilation_ms,recording_ms,host_rendering_ms,draws,unique_vertices,output_vertices,uploaded_bytes,buffer_allocations,state_misses,declaration_misses,texture_uploads,shader_instructions,pixel_misses,gpu_vertex_draws,cpu_vertex_draws,all_draws,allocations\n";
+    output << "frame,frame_ms,tick_ms,presenter_ms,declaration_ms,vertex_ms,topology_ms,texture_ms,submission_ms,present_ms,compilation_ms,recording_ms,host_rendering_ms,draws,unique_vertices,output_vertices,uploaded_bytes,buffer_allocations,state_misses,declaration_misses,texture_uploads,shader_instructions,pixel_misses,gpu_vertex_draws,cpu_vertex_draws,all_draws,allocations,optimize\n";
     gpu_output << "frame,gpu_ms,gpu_draw_ms\n";
 }
 struct Scope
@@ -68,7 +69,7 @@ inline void finish(double duration)
     }
     output << ',' << frame.draws << ',' << frame.vertices << ',' << frame.output_vertices << ','
         << frame.uploaded_bytes << ',' << frame.buffer_allocations << ',' << frame.state_misses << ','
-        << frame.declaration_misses << ',' << frame.texture_uploads << ',' << frame.shader_instructions << ',' << frame.pixel_misses << ',' << frame.gpu_vertex_draws << ',' << frame.cpu_vertex_draws << ',' << frame.all_draws << ',' << frame.allocations << '\n';
+        << frame.declaration_misses << ',' << frame.texture_uploads << ',' << frame.shader_instructions << ',' << frame.pixel_misses << ',' << frame.gpu_vertex_draws << ',' << frame.cpu_vertex_draws << ',' << frame.all_draws << ',' << frame.allocations << ',' << GBTG_OPTIMIZE << '\n';
     ++number;
     frame = {};
 }

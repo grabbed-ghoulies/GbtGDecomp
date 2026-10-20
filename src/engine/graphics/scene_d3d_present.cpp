@@ -42,7 +42,11 @@ u32 state(const SceneD3DStateSnapshot& states, u32 key, u32 fallback)
 }
 
 // D3D's device defaults stand for any state the scene has not written.
+#if GBTG_OPTIMIZE
+void apply_snapshot_states(const SceneD3DStateSnapshot& states, GfxNativeDraw& draw)
+#else
 void apply_states(const SceneD3DStateSnapshot& states, GfxNativeDraw& draw)
+#endif
 {
     draw.cull = state(states, SceneD3DDevice::kCullMode, 0);
     draw.depth_test = state(states, SceneD3DDevice::kZEnable, 1) != 0;
@@ -71,6 +75,43 @@ void apply_states(const SceneD3DStateSnapshot& states, GfxNativeDraw& draw)
     draw.scissor = {i32(x), i32(y), i32(x + state(states, SceneD3DDevice::kViewport + 2, 640)),
         i32(y + state(states, SceneD3DDevice::kViewport + 3, 480))};
 }
+
+#if GBTG_OPTIMIZE
+// GBTG_OPTIMIZE step 3: draws recorded under one shared snapshot reuse its decoded states.
+void apply_states(const SceneD3DStateSnapshot& states, GfxNativeDraw& draw)
+{
+    thread_local std::shared_ptr<const SceneD3DStateSnapshot::Values> last;
+    thread_local GfxNativeDraw applied;
+    if (states.shared() == nullptr || states.shared() != last)
+    {
+        apply_snapshot_states(states, applied);
+        last = states.shared();
+    }
+    draw.cull = applied.cull;
+    draw.depth_test = applied.depth_test;
+    draw.depth_write = applied.depth_write;
+    draw.depth_function = applied.depth_function;
+    draw.blend = applied.blend;
+    draw.source_blend = applied.source_blend;
+    draw.destination_blend = applied.destination_blend;
+    draw.blend_equation = applied.blend_equation;
+    draw.alpha_test = applied.alpha_test;
+    draw.alpha_function = applied.alpha_function;
+    draw.alpha_reference = applied.alpha_reference;
+    draw.color_mask = applied.color_mask;
+    draw.stencil_test = applied.stencil_test;
+    draw.stencil_function = applied.stencil_function;
+    draw.stencil_reference = applied.stencil_reference;
+    draw.stencil_read_mask = applied.stencil_read_mask;
+    draw.stencil_write_mask = applied.stencil_write_mask;
+    draw.stencil_fail = applied.stencil_fail;
+    draw.stencil_depth_fail = applied.stencil_depth_fail;
+    draw.stencil_pass = applied.stencil_pass;
+    draw.fog = applied.fog;
+    draw.fog_color = applied.fog_color;
+    draw.scissor = applied.scissor;
+}
+#endif
 
 float signed_normal(i32 value, i32 range)
 {
@@ -291,6 +332,50 @@ std::array<u32, 60> pixel_shader_words(const u8* definition, const SceneD3DIndex
     return words;
 }
 
+#if GBTG_OPTIMIZE
+// GBTG_OPTIMIZE step 3: consecutive draws mostly share a declaration, so compare against the
+// last one instead of searching a content-keyed map.
+const std::vector<DeclaredInput>& last_declared_inputs(const std::array<i32, 32>& declaration)
+{
+    thread_local std::array<i32, 32> last{};
+    thread_local std::vector<DeclaredInput> inputs;
+    thread_local bool cached = false;
+    if (!cached || last != declaration)
+    {
+        inputs = declared_inputs(declaration);
+        last = declaration;
+        cached = true;
+        if (render_profile::enabled)
+        {
+            ++render_profile::frame.declaration_misses;
+        }
+    }
+    return inputs;
+}
+
+// GBTG_OPTIMIZE step 3: pixel_shader_words for the previous draw, reused while the definition,
+// pixel constants and shared state snapshot are unchanged.
+const std::array<u32, 60>& last_pixel_shader_words(const u8* definition, const SceneD3DIndexedDraw& draw)
+{
+    thread_local std::array<u8, 240> last_definition{};
+    thread_local u32 last_set = 0;
+    thread_local std::array<std::array<float, 4>, 16> last_constants{};
+    thread_local std::shared_ptr<const SceneD3DStateSnapshot::Values> last_states;
+    thread_local std::array<u32, 60> words{};
+    if (last_states == nullptr || last_states != draw.states.shared() || last_set != draw.pixel_constants_set
+        || std::memcmp(last_definition.data(), definition, last_definition.size()) != 0
+        || std::memcmp(last_constants.data(), draw.pixel_constants.data(), sizeof(last_constants)) != 0)
+    {
+        words = pixel_shader_words(definition, draw);
+        std::memcpy(last_definition.data(), definition, last_definition.size());
+        last_set = draw.pixel_constants_set;
+        last_constants = draw.pixel_constants;
+        last_states = draw.states.shared();
+    }
+    return words;
+}
+#endif
+
 // D3DPT 2 line list, 3 line loop and 4 line strip are drawn as line lists.
 bool line_primitive(u32 primitive)
 {
@@ -391,6 +476,9 @@ void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentConte
     {
         throw Error("indexed draw has no created vertex shader bound");
     }
+#if GBTG_OPTIMIZE
+    const auto& inputs = last_declared_inputs(shader->second.declaration);
+#else
     // Content key avoids stale declarations when shader handles are replaced or reused.
     static std::map<std::array<i32, 32>, std::vector<DeclaredInput>> declarations;
     auto declaration = declarations.find(shader->second.declaration);
@@ -407,6 +495,7 @@ void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentConte
         }
     }
     const auto& inputs = declaration->second;
+#endif
     struct Stream
     {
         const u8* data;
@@ -436,7 +525,20 @@ void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentConte
     }
     const auto indices = context.memory.resolve(draw.indices, size_t(draw.count) * 2);
     const bool gpu_vertex = gfx_native_vertex_program_supported(shader->second.program);
+#if GBTG_OPTIMIZE
+    // GBTG_OPTIMIZE step 3: the address checks depend only on the program's words.
+    thread_local std::vector<u32> validated_program;
+    thread_local std::vector<XboxVertexAddressValidation> program_validation;
+    thread_local const std::vector<XboxVertexAddressValidation> no_validation;
+    if (gpu_vertex && validated_program != shader->second.program)
+    {
+        program_validation = xbox_vertex_address_validation(shader->second.program);
+        validated_program = shader->second.program;
+    }
+    const auto& address_validation = gpu_vertex ? program_validation : no_validation;
+#else
     const auto address_validation = gpu_vertex ? xbox_vertex_address_validation(shader->second.program) : std::vector<XboxVertexAddressValidation>{};
+#endif
     if (render_profile::enabled)
     {
         if (gpu_vertex)
@@ -571,7 +673,11 @@ void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentConte
         {
             throw Error("indexed draw binds a pixel shader the device did not create");
         }
+#if GBTG_OPTIMIZE
+        words = last_pixel_shader_words(context.memory.resolve(found->second, sizeof(words)).data(), draw);
+#else
         words = pixel_shader_words(context.memory.resolve(found->second, sizeof(words)).data(), draw);
+#endif
         output.pixel_shader = words.data();
     }
     apply_states(draw.states, output);
@@ -592,6 +698,9 @@ void present_inline(const SceneD3DInlineDraw& inline_draw, const SceneD3DPresent
     {
         throw Error("inline draw has no created vertex shader bound");
     }
+#if GBTG_OPTIMIZE
+    const auto& inputs = last_declared_inputs(shader->second.declaration);
+#else
     // Content key avoids stale declarations when shader handles are replaced or reused.
     static std::map<std::array<i32, 32>, std::vector<DeclaredInput>> declarations;
     auto declaration = declarations.find(shader->second.declaration);
@@ -608,6 +717,7 @@ void present_inline(const SceneD3DInlineDraw& inline_draw, const SceneD3DPresent
         }
     }
     const auto& inputs = declaration->second;
+#endif
     u32 stride = 0;
     for (const auto& input : inputs)
     {
@@ -625,7 +735,15 @@ void present_inline(const SceneD3DInlineDraw& inline_draw, const SceneD3DPresent
     const auto* data = reinterpret_cast<const u8*>(inline_draw.vertices.data());
     XboxVertexProgramState program{};
     program.constants = draw.constants;
+#if GBTG_OPTIMIZE
+    // GBTG_OPTIMIZE step 4: per-thread scratch keeps its capacity between draws.
+    thread_local std::vector<GfxNativeVertex> shaded;
+    thread_local std::vector<GfxNativeVertex> vertices;
+    shaded.clear();
+    vertices.clear();
+#else
     std::vector<GfxNativeVertex> shaded;
+#endif
     for (size_t offset = 0; offset < size; offset += stride)
     {
         program.inputs.fill({0.f, 0.f, 0.f, 1.f});
@@ -656,7 +774,9 @@ void present_inline(const SceneD3DInlineDraw& inline_draw, const SceneD3DPresent
         vertex.fog = std::clamp(program.outputs[5][0], 0.f, 1.f); // oFog.x, the fog factor.
         shaded.push_back(vertex);
     }
+#if !GBTG_OPTIMIZE
     std::vector<GfxNativeVertex> vertices;
+#endif
     for (u32 index : triangle_order(draw.primitive, u32(shaded.size())))
     {
         vertices.push_back(shaded[index]);
@@ -682,7 +802,11 @@ void present_inline(const SceneD3DInlineDraw& inline_draw, const SceneD3DPresent
         {
             throw Error("inline draw binds a pixel shader the device did not create");
         }
+#if GBTG_OPTIMIZE
+        words = last_pixel_shader_words(context.memory.resolve(found->second, sizeof(words)).data(), draw);
+#else
         words = pixel_shader_words(context.memory.resolve(found->second, sizeof(words)).data(), draw);
+#endif
         output.pixel_shader = words.data();
     }
     apply_states(draw.states, output);
@@ -738,8 +862,18 @@ void present_fixed(const SceneD3DFixedDraw& draw, const SceneD3DPresentContext& 
             float(packed & 0xFF) / 255.f, float(packed >> 24) / 255.f};
     };
     const auto* data = reinterpret_cast<const u8*>(draw.vertices.data());
+#if GBTG_OPTIMIZE
+    // GBTG_OPTIMIZE step 4: per-thread scratch keeps its capacity between draws.
+    thread_local std::vector<GfxNativeVertex> shaded;
+    thread_local std::vector<XboxVector> screens;
+    thread_local std::vector<GfxNativeVertex> vertices;
+    shaded.clear();
+    screens.clear();
+    vertices.clear();
+#else
     std::vector<GfxNativeVertex> shaded;
     std::vector<XboxVector> screens;
+#endif
     for (size_t offset = 0; offset < size; offset += stride)
     {
         float position[4]{};
@@ -784,7 +918,9 @@ void present_fixed(const SceneD3DFixedDraw& draw, const SceneD3DPresentContext& 
         shaded.push_back(vertex);
         screens.push_back(screen);
     }
+#if !GBTG_OPTIMIZE
     std::vector<GfxNativeVertex> vertices;
+#endif
     const auto& order = triangle_order(draw.primitive, u32(shaded.size()));
     // D3DRS_LINEWIDTH is in retail framebuffer pixels (the 640x480 screen space above), and D3D11 lines are one
     // output pixel, so every line becomes a quad across each segment: at a larger output a one-pixel line still
@@ -868,6 +1004,52 @@ void present_quad(const SceneD3DQuad& quad, const SceneD3DPresentContext& contex
     apply_states(quad.states, output);
     gfx_draw_native(output);
 }
+
+#if GBTG_OPTIMIZE
+// GBTG_OPTIMIZE step 4: a run of adjacent quads under one snapshot, texture and address mode
+// (dialogue glyphs) goes out as one triangle list. Triangles rasterize in list order, so blending
+// matches drawing each quad with present_quad.
+bool same_quad_draw(const SceneD3DQuad& first, const SceneD3DQuad& next)
+{
+    return next.texture == first.texture && next.address_u == first.address_u && next.address_v == first.address_v
+        && next.states.identity() != nullptr && next.states.identity() == first.states.identity();
+}
+
+void present_quads(std::span<const SceneD3DCommand> run, const SceneD3DPresentContext& context)
+{
+    const auto& first = std::get<SceneD3DQuad>(run.front());
+    if (first.texture == nullptr)
+    {
+        return;
+    }
+    thread_local std::vector<GfxNativeVertex> vertices;
+    vertices.clear();
+    for (const auto& command : run)
+    {
+        const auto& quad = std::get<SceneD3DQuad>(command);
+        std::array<GfxNativeVertex, 4> corners{};
+        for (u32 corner = 0; corner < 4; ++corner)
+        {
+            const auto& input = quad.vertices[corner];
+            for (u32 row = 0; row < 4; ++row)
+            {
+                const float* m = quad.transform.data() + row * 4;
+                corners[corner].position[row] = m[0] * input[0] + m[1] * input[1] + m[2] * input[2] + m[3];
+            }
+            corners[corner].diffuse = quad.color;
+            corners[corner].uv[0] = {input[3], input[4]};
+        }
+        vertices.insert(vertices.end(), {corners[0], corners[1], corners[2], corners[0], corners[2], corners[3]});
+    }
+    GfxNativeDraw output;
+    output.vertices = vertices;
+    output.textures[0] = &context.texture(first.texture);
+    output.address_u[0] = first.address_u;
+    output.address_v[0] = first.address_v;
+    apply_states(first.states, output);
+    gfx_draw_native(output);
+}
+#endif
 }
 
 void present_scene_d3d_commands(std::span<const SceneD3DCommand> commands, const SceneD3DPresentContext& context)
@@ -898,15 +1080,32 @@ void present_scene_d3d_commands(std::span<const SceneD3DCommand> commands, const
             gfx_end_native_batch();
         }
     } batch;
-    for (const auto& command : commands)
+    for (size_t index = 0; index < commands.size(); ++index)
     {
+        const auto& command = commands[index];
         if (const auto* draw = std::get_if<SceneD3DIndexedDraw>(&command))
         {
             present_indexed(*draw, context);
         }
         else if (const auto* quad = std::get_if<SceneD3DQuad>(&command))
         {
+#if GBTG_OPTIMIZE
+            // GBTG_OPTIMIZE step 4: merge the run of quads that draw alike.
+            size_t end = index + 1;
+            while (end < commands.size())
+            {
+                const auto* next = std::get_if<SceneD3DQuad>(&commands[end]);
+                if (next == nullptr || !same_quad_draw(*quad, *next))
+                {
+                    break;
+                }
+                ++end;
+            }
+            present_quads(commands.subspan(index, end - index), context);
+            index = end - 1;
+#else
             present_quad(*quad, context);
+#endif
         }
         else if (const auto* draw = std::get_if<SceneD3DInlineDraw>(&command))
         {

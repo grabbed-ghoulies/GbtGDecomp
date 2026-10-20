@@ -1,6 +1,14 @@
 #pragma once
 
-// Host debug UI. Compiled only when CMake defines GBTG_DEBUG_UI (Debug + D3D11).
+// Host debug UI (Dear ImGui). CMake compiles ImGui into every D3D11 gbtg configuration and defines
+// GBTG_DEBUG_UI_AVAILABLE. Set GBTG_DEBUG_UI_ENABLED to 0 to build without the debug UI.
+#ifndef GBTG_DEBUG_UI_ENABLED
+#define GBTG_DEBUG_UI_ENABLED 1
+#endif
+#if GBTG_DEBUG_UI_ENABLED && defined(GBTG_DEBUG_UI_AVAILABLE) && !defined(GBTG_DEBUG_UI)
+#define GBTG_DEBUG_UI
+#endif
+
 #if defined(GBTG_DEBUG_UI)
 
 #include "gbtg/game.h"

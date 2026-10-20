@@ -25,6 +25,7 @@ ghidra_projects/
 # Build
 /build/
 /build-inspector/
+/build-opt/
 cmake-build-*/
 out/
 .vs/

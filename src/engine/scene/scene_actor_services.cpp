@@ -1067,6 +1067,8 @@ struct SceneActorServices::State
     u32 screen_flash = 0; // DAT_00504478 (0x00060BC0 / 0x00060C80 / 0x00060D50).
     u32 screen_capture = 0; // DAT_005044A4 (0x00060C20 / 0x00060C80 / 0x00060D50).
     void view_refresh_slot(Actor& actor); // Actor vtable +0x38 by class (0x00121DC0).
+    // 0x000EF2D0 on an effect node an actor owns (the bone debris' +0x934), with the scene's particle simulation.
+    void tick_owned_effect(ActorEffectNode& effect, float step);
     void draw_anchor_sprites(); // 0x00121EC0.
     void draw_scene_controls(); // DAT_0050E438: each control's vtable +0x14.
     u32 bound_tested = 0; // DAT_00546310
@@ -1849,7 +1851,21 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             return segment_contact_actor(probe);
         },
-        default_euler, navigation_nodes, *weapon_services});
+        default_euler, navigation_nodes, *weapon_services,
+        [this](ActorEffectNode& effect, float step)
+        {
+            tick_owned_effect(effect, step);
+        },
+        effect_collision,
+        [this]() -> RuntimeModelSoundRelease&
+        {
+            if (effect_release == nullptr)
+            {
+                unbound("effect node release before the scene's effect views");
+            }
+            return *effect_release;
+        },
+        pal, pal_override});
     classes->install(scene.types);
     classes->defer_release = true;
     install_runtime_move_action_classes(scene.types, [this](u32 address) -> std::span<u8>
@@ -4935,6 +4951,29 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
         }
         return;
     }
+    if (type == 0x12)
+    {
+        // Getter 0x00067E60: +0x10 is 0x00068060 and +0xC is 0x00068700 (the base 0x0003EF70 first).
+        auto& view = actors->view(object);
+        const u8* bytes = object.bytes.get();
+        actor_updates[&view.bat.actor] = [this, bytes](Actor&)
+        {
+            auto& updated = *object_of(bytes);
+            refresh_shape_poses(updated);
+            auto& updated_view = actors->view(updated);
+            refresh_actor_model_animation_view(updated_view);
+            frame->freeze = pause;
+            frame->dt = frame_delta;
+            frame->scene_scale = time_scale;
+            frame->block_decay = pause_references[1];
+            frame->decay_enabled = decay_enabled[decay_index];
+            classes->update_bone_debris(updated);
+            store_actor_model_animation_view(updated_view);
+        };
+        dispatch_base_actor_word_message(base_of(object).base, message, word_messages); // 0x0003EF70
+        classes->message_bone_debris(object, message);
+        return;
+    }
     if (type == 0x10)
     {
         // Getter 0x000690A0: +0x10 is 0x00069250 and +0xC is 0x00069540 (the base 0x0003EF70 first).
@@ -6147,6 +6186,44 @@ void SceneActorServices::State::background_update(NativeBackgroundInstance& back
     update_runtime_background(background.state, context);
 }
 
+void SceneActorServices::State::tick_owned_effect(ActorEffectNode& effect, float step)
+{
+    if (effect_pass_scratch == nullptr)
+    {
+        throw Error("owned effect update requires the caller's incoming effect scratch bytes");
+    }
+    if (display_view == nullptr)
+    {
+        throw Error("owned effect collision has no DAT_005077A8 display view");
+    }
+    RuntimeEffectDebris debris{{debris_pool->particles, 0x16A8}, debris_pool->types,
+        debris_pool->free_head, game.clock.frame, random};
+    const Vec3 plane{read_f32(data(0x00433FFC, 12), 0), read_f32(data(0x00433FFC, 12), 4),
+        read_f32(data(0x00433FFC, 12), 8)};
+    const Vec3 minimum{g_amb_color_lo[0], g_amb_color_lo[1], g_amb_color_lo[2]};
+    const Vec3 maximum{g_amb_color_hi[0], g_amb_color_hi[1], g_amb_color_hi[2]};
+    RuntimeEffectCollisionContext movement{effect_collision, clock, *display_view, plane,
+        g_amb_volume_enabled, minimum, maximum, random};
+    RuntimeEffectCollisionCommands commands{effect_collision, debris, voices, effects, *footsteps,
+        effect_callback_result};
+    const std::function<std::span<const u8>(u32)> resolve = [this](u32 address)
+    {
+        return std::span<const u8>{resources.memory.tail(address)};
+    };
+    const std::function<u32(const u8*)> address = [this, &effect](const u8* pointer)
+    {
+        return pointer == effect.bytes.data() ? heap_address(pointer, effect.bytes.size())
+            : resources.memory.address_of(pointer);
+    };
+    const u32 script = effect.script.data() == nullptr ? 0 : resources.memory.address_of(effect.script.data());
+    std::memcpy(effect.bytes.data() + 0x134, &script, 4);
+    RuntimeEffectSimulation simulation{movement, commands, resolve, pal, pal_override};
+    const Vec3 direction = display_view->forward;
+    RuntimeEffectTickContext tick{simulation, game.clock.frame, effect_sound_frame, address, direction,
+        *effect_pass_scratch};
+    tick_actor_effect(effect, step, tick); // 0x000EF2D0
+}
+
 std::vector<RuntimeScriptActorQueryView> SceneActorServices::State::case_actors()
 {
     case_actor_views.clear();
@@ -6418,6 +6495,15 @@ void SceneActorServices::State::actor_draw(Actor& actor, i32 view, i32 pass)
                 classes->draw_emitter(*object, pass, draw);
                 return;
             }
+            // Type 0x12 +0x14 is the bone debris draw 0x000686A0 (getter 0x00067E60).
+            if (type == 0x12)
+            {
+                std::unique_ptr<ActorDrawModelView> model;
+                ActorDrawState state = actor_draw_state(*object, actor, model);
+                RuntimeBoneDebrisDraw draw{state.model, read_u32(data(0x00427424, 4), 0), *model_draw};
+                classes->draw_bone_debris(*object, pass, draw);
+                return;
+            }
             // Type 0x10 +0x14 is the after-image draw 0x00069410 (getter 0x000690A0).
             if (type == 0x10)
             {
@@ -6511,7 +6597,8 @@ u32 SceneActorServices::State::actor_visible(Actor& actor, i32 pass, i32 view)
     {
         return classes->emitter_visible(object, u32(pass), u32(view)) ? 1u : 0u;
     }
-    if (object.type != 2 && object.type != 5 && object.type != 0xF && object.type != 0x10 && object.type != 0x15
+    if (object.type != 2 && object.type != 5 && object.type != 0xF && object.type != 0x10 && object.type != 0x12
+        && object.type != 0x15
         && object.type != 0x1A && object.type != 0x1F && object.type != 0x23 && object.type != 0x25
         && object.type != 0xAA
         && object.type != 0xA9 && object.type != 0xA0)
@@ -6523,7 +6610,12 @@ u32 SceneActorServices::State::actor_visible(Actor& actor, i32 pass, i32 view)
         throw Error("actor visibility has no DAT_005077A8 display view");
     }
     ActorMatrixSetup* matrices = nullptr;
-    if (i32(read_u32({object.bytes.get(), object.size}, 0x28C)) > 0)
+    if (object.type == 0x12)
+    {
+        // The bone debris keeps the base slot 0x0003C830; its +0x288 rows are the class's own.
+        matrices = &classes->bone_debris_matrices(object);
+    }
+    else if (i32(read_u32({object.bytes.get(), object.size}, 0x28C)) > 0)
     {
         unbound("actor +0x288 matrix setup for view visibility");
     }
@@ -6932,7 +7024,8 @@ void SceneActorServices::State::view_refresh_slot(Actor& actor)
         {
             const FactoryObject* object = object_of(bytes);
             const u16 type = object == nullptr ? 0 : object->type;
-            if (type == 2 || type == 4 || type == 5 || type == 0xD || type == 0xF || type == 0x10 || type == 0x15
+            if (type == 2 || type == 4 || type == 5 || type == 0xD || type == 0xF || type == 0x10 || type == 0x12
+                || type == 0x15
                 || type == 0x1A || type == 0x1F || type == 0x23 || type == 0x25 || type == 0xAA || type == 0xA9
                 || type == 0xA0)
             {
@@ -7904,7 +7997,20 @@ void SceneActorServices::State::update_first_actors()
         update_actor(scene.address_of(object_of_actor(updated).bytes.get()));
     };
     RuntimeSceneActorUpdates updates{head.next, actor, update};
-    update_runtime_scene_actors(updates);
+    // A new actor's first update can tick an effect it owns (the bone debris' 0x000EF2D0); the frame's scratch
+    // stands for this pass's incoming stack bytes as it does for update_scene_actors.
+    auto* scratch = effect_pass_scratch;
+    effect_pass_scratch = &frame_effect_scratch;
+    try
+    {
+        update_runtime_scene_actors(updates);
+    }
+    catch (...)
+    {
+        effect_pass_scratch = scratch;
+        throw;
+    }
+    effect_pass_scratch = scratch;
     scene_nodes.clear();
 }
 

@@ -77,6 +77,8 @@ bool actor_sound_is_active(const RuntimeActorSound& sound,
     const RuntimeActorSoundQueues& queues); // Xbox 0x0012A970
 void release_actor_sound(RuntimeActorSound& sound,
     RuntimeActorSoundQueues& queues); // Xbox 0x0012A3D0
+// Moves `from` into `to` (its queue place too) for `owner`, then clears `from` (EBX `to`).
+void move_actor_sound(RuntimeActorSound& to, RuntimeActorSound& from, Actor* owner); // Xbox 0x0012A440
 void stop_actor_sound_voice(i16 voice, RuntimeActorSoundQueues& queues); // Xbox 0x00039690 on DAT_004E0CE8[voice]
 void queue_actor_sound(RuntimeActorSound& sound, i32 group, Actor* owner,
     u16 request_id, const Vec3* position, const Vec3* direction, float volume,

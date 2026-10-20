@@ -130,14 +130,16 @@ i32 probe_actor_effect_world(Vec3& source, Vec3& candidate, float radius, i32 ki
 {
     if (grid_only == 0)
     {
+        // EBX (the probes' kept point) is the candidate and the first stack word is the source. ECX (`kind`) is
+        // pushed before EDX (`mask`), so the probes take EDX as their kind and ECX as their mask.
         i32 hit;
         if (radius == 0.f)
         {
-            hit = entity_record_sweep_probe(source, candidate, kind, mask);
+            hit = entity_record_sweep_probe(candidate, source, i32(mask), u32(kind));
         }
         else
         {
-            hit = entity_record_movement_probe(source, candidate, std::bit_cast<u32>(radius), kind, mask);
+            hit = entity_record_movement_probe(candidate, source, std::bit_cast<u32>(radius), i32(mask), u32(kind));
         }
         if (hit != 0)
         {

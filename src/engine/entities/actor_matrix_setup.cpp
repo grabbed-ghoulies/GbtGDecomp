@@ -77,18 +77,10 @@ bool initialize_actor_model_matrices(const Actor& actor, ActorMatrixSetup& state
 {
     if (actor.model != nullptr && actor.model->cpu.data() != nullptr)
     {
-        // Native view of model CPU +0x10 -> +0x10 (directory block 16).
+        // Model CPU +0x10 -> +0x10: the part header's word, which must be set.
         const auto& asset = *actor.model->runtime->source;
-        const u8* animation_header = nullptr;
-        for (const auto& block : asset.blocks)
-        {
-            if (block.type == 16)
-            {
-                animation_header = block.data;
-                break;
-            }
-        }
-        if (animation_header != nullptr)
+        const auto cpu = actor.model->cpu;
+        if (read_u32(cpu, read_u32(cpu, 0x10) + 0x10) != 0)
         {
             state.matrices.instance = actor.model->runtime->tree_storage.bytes;
             auto* node = find_runtime_model_node_by_name(*asset.tree, 0, "ndMtxArray", types);

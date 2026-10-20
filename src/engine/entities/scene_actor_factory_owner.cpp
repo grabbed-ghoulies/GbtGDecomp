@@ -143,6 +143,20 @@ const ObjectFactoryVtable* motion_blur_lifecycle()
         construct_motion_blur_view, release_motion_blur_view};
     return &table;
 }
+bool construct_bone_debris_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    return active_owner->construct_bone_debris(object, parameters);
+}
+void release_bone_debris_view(FactoryObject& object)
+{
+    active_owner->release_bone_debris(object);
+}
+const ObjectFactoryVtable* bone_debris_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00504A18, bone_debris_object_sizes, construct_bone_debris_view,
+        release_bone_debris_view};
+    return &table;
+}
 const ObjectFactoryVtable* afterimage_lifecycle()
 {
     static const ObjectFactoryVtable table{0x00504A54, avatar_afterimage_object_sizes,
@@ -407,6 +421,7 @@ void NativeSceneActorClassOwner::install(std::span<ObjectFactoryType> types)
     types[0xD] = {2, emitter_lifecycle}; // Getter 0x00109DD0.
     types[0xF] = {2, motion_blur_lifecycle}; // Getter 0x00066900.
     types[0x10] = {2, afterimage_lifecycle}; // Getter 0x000690A0.
+    types[0x12] = {2, bone_debris_lifecycle}; // Getter 0x00067E60.
     types[0xB] = {2, weapon_lifecycle}; // Getter 0x00145900.
     types[0xAA] = {0xB, chair_weapon_lifecycle}; // Getter 0x000CEF70.
     types[0xA9] = {0xB, large_projectile_lifecycle}; // Getter 0x000CD640.
@@ -489,7 +504,11 @@ bool NativeSceneActorClassOwner::construct_afterimage(FactoryObject& object, std
             return views(*actor);
         },
         bindings_.actors.bindings.startup, bindings_.actors.bindings.empty_name, bindings_.emitter.clock, view.frame,
-        bindings_.emitter.frame, view.render, view.shape, view.anchors});
+        bindings_.emitter.frame, view.render, view.shape, view.anchors,
+        [this](u32 address) -> std::span<const u8>
+        {
+            return bindings_.bytes_at(address);
+        }});
     auto* afterimage = context.get();
     afterimages_.emplace(object.bytes.get(), std::move(context));
     return initialize_runtime_avatar_afterimage(parameters, *afterimage);
@@ -512,6 +531,78 @@ void NativeSceneActorClassOwner::update_afterimage(FactoryObject& object)
 void NativeSceneActorClassOwner::message_afterimage(FactoryObject& object, u32 id)
 {
     message_runtime_avatar_afterimage(id, *afterimages_.at(object.bytes.get()));
+}
+
+bool NativeSceneActorClassOwner::construct_bone_debris(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto views = [this](FactoryObject& actor)
+    {
+        auto& view = bindings_.actors.view(actor);
+        return RuntimeAvatarActorViews{{actor.bytes.get(), actor.size}, view.bat.actor, view.startup};
+    };
+    auto& view = bindings_.actors.view(object);
+    auto& services = bindings_.weapon_services;
+    Actor& actor = view.bat.actor;
+    auto context = std::make_unique<RuntimeBoneDebris>(RuntimeBoneDebris{views(object),
+        bindings_.address_of(object.bytes.get()),
+        [this, views](u32 address)
+        {
+            auto* source = bindings_.object_at(address);
+            if (source == nullptr)
+            {
+                throw Error("bone debris source actor is outside the scene");
+            }
+            return views(*source);
+        },
+        bindings_.actors.bindings.startup, bindings_.model_types, bindings_.matrix_bindings,
+        bindings_.matrix_boundaries, {}, view.matrices, bindings_.effects, nullptr,
+        [this](const ActorEffectNode& effect)
+        {
+            return bindings_.heap_address(effect.bytes.data(), effect.bytes.size());
+        },
+        bindings_.actors.bindings.resource_address, services.sampling_scratch, services.sampling_active,
+        actor_transform_origin,
+        [&services, &actor](u32 address)
+        {
+            return services.resolve(actor, address);
+        },
+        bindings_.random, bindings_.pal, bindings_.pal_override, bindings_.emitter.clock, view.frame,
+        bindings_.emitter.frame, bindings_.tick_owned_effect, bindings_.effect_collision.normal,
+        bindings_.base_of(object).callouts, bindings_.actors.bindings.factory, bindings_.keep,
+        bindings_.actors.bindings.empty_name, bindings_.effect_release, view.render, view.shape, view.anchors,
+        bindings_.actors.bindings.sounds});
+    auto* debris = context.get();
+    bone_debris_.emplace(object.bytes.get(), std::move(context));
+    return initialize_runtime_bone_debris(parameters, *debris);
+}
+
+void NativeSceneActorClassOwner::release_bone_debris(FactoryObject& object)
+{
+    destroy_runtime_bone_debris(*bone_debris_.at(object.bytes.get()));
+    if (!defer_release)
+    {
+        bone_debris_.erase(object.bytes.get());
+    }
+}
+
+void NativeSceneActorClassOwner::update_bone_debris(FactoryObject& object)
+{
+    update_runtime_bone_debris(*bone_debris_.at(object.bytes.get()));
+}
+
+void NativeSceneActorClassOwner::message_bone_debris(FactoryObject& object, std::span<const u32> message)
+{
+    message_runtime_bone_debris(message, *bone_debris_.at(object.bytes.get()));
+}
+
+u32 NativeSceneActorClassOwner::draw_bone_debris(FactoryObject& object, i32 kind, RuntimeBoneDebrisDraw& draw)
+{
+    return draw_runtime_bone_debris(kind, draw, *bone_debris_.at(object.bytes.get()));
+}
+
+ActorMatrixSetup& NativeSceneActorClassOwner::bone_debris_matrices(FactoryObject& object)
+{
+    return bone_debris_.at(object.bytes.get())->matrices;
 }
 
 bool NativeSceneActorClassOwner::construct_weapon(FactoryObject& object, std::span<const u8> parameters)
@@ -649,6 +740,7 @@ void NativeSceneActorClassOwner::release_view(const u8* bytes)
     emitters_.erase(bytes);
     motion_blurs_.erase(bytes);
     afterimages_.erase(bytes);
+    bone_debris_.erase(bytes);
     weapons_.erase(bytes);
 }
 

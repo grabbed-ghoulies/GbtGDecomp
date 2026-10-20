@@ -134,6 +134,31 @@ void release_actor_sound(RuntimeActorSound& sound, RuntimeActorSoundQueues& queu
     sound.enabled = 1;
 }
 
+// Xbox 0x0012A440
+void move_actor_sound(RuntimeActorSound& to, RuntimeActorSound& from, Actor* owner)
+{
+    RuntimeSoundLink* previous = from.previous;
+    RuntimeSoundLink* next = from.next;
+    if (&to != &from)
+    {
+        to = from; // The 0xB4-byte copy.
+    }
+    to.previous = nullptr;
+    to.next = nullptr;
+    if (previous != nullptr)
+    {
+        previous->next = &to;
+    }
+    to.previous = previous;
+    to.next = next;
+    if (next != nullptr)
+    {
+        next->previous = &to;
+    }
+    to.owner = owner;
+    from = RuntimeActorSound{}; // 0x2D zero words.
+}
+
 // Xbox 0x00106220
 void add_sound_direction(Vec3& direction, float pitch, float yaw, float length)
 {

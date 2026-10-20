@@ -95,6 +95,7 @@ add_library(gbtg_lib STATIC
     src/engine/entities/body_walk_alert_tick.cpp
     src/engine/entities/body_walk_target_state.cpp
     src/engine/entities/body_hold_state.cpp
+    src/engine/entities/bone_debris_actor.cpp
     src/engine/entities/body_hit_state.cpp
     src/engine/entities/body_dizzy_state.cpp
     src/engine/entities/body_die_state.cpp

@@ -278,8 +278,8 @@ queues event 0xB0, the script ends, the book transition shows the chapter title 
 (`aid_script_ghoulies_chapter1_scene2_1viewcam`, "Trophy Heads Super Scary Shock") starts. `--scene6` plays that
 scene to its end, through the trophy heads and their Super Scary challenges, and the script moves on to
 `aid_script_ghoulies_chapter1_scene3_1playcam` (see the scene 6 checkpoint). `--scene3` plays that scene's start,
-walk-in and "Free Play" natively; driven at the skeletons, they walk up and fight Cooper until the first one dies
-(see the scene 3 checkpoints).
+walk-in and "Free Play" natively; driven at the skeletons, they walk up and fight Cooper, fall apart into bones
+when they die, and the scene holds in Free Play with the trophy still on its board (see the scene 3 checkpoints).
 
 | Path | Stop | What it needs |
 |---|---|---|
@@ -288,14 +288,14 @@ walk-in and "Free Play" natively; driven at the skeletons, they walk up and figh
 | Script actions | legacy | `0x00126E10`'s other cases (0x4D, 0x4E, 0x62, 0x67, 0x6E, 0x73, 0x74, 0x8E, 0x9D) and `0x00127BC0`'s cases still compute values and skip their callees; this scene does not reach them |
 | Present (the snapshot) | renders nothing | `0x00116530` records its draws but the texture stays empty |
 | HUD draws (not reached) | `0x0012F110` | Scoreboard rows of kinds 4 and 5 (the formatted counter) |
-| Scene 3, a skeleton dies (`--scene3`, frame ~1700) | factory type 0x12 (getter `0x00067E60`) | The skeleton's bone debris, created by `0x00134C10` (`create_runtime_body_death_effect`) from a knockdown hit. An actor class (parent 2, instance 0xAAC, parameters 0x55C): ctor `0x00067EB0` (with `0x00068850`, `0x00068970`, `0x00140560`, and `0x00040640`, `0x000EFE30`, `0x000EE5C0`, `0x00053170` below them), dtor `0x00068010`, message `0x00068700` (`0x00041D90`), update `0x00068060` (`0x0013AF80`; it steps its own effect node at +0x934 through `0x000EF2D0`), draw `0x000686A0`. The bones are effect particles (+0x390 + 0x150 * n) whose poses go back into the actor's +0x288 joint rows, so the actor visibility and draw paths also need the +0x288 matrix setup, which they reject today |
+| Scene 3, the trophy (`--scene3`) | not driven | The test does not take Cooper to the trophy. Its pickup, flight and throw (`entities/projectile_weapon.cpp`: `0x000CE020`, `0x000CE1F0`, `0x000CDAD0`, `0x000CEBD0`, `0x000CEC70`, `0x000CE7E0`, `0x000CE810`, `0x000CE660`, `0x0001B680`, `0x0003E900`) and its contact test `0x000CE5D0` (`0x00141A30`) still raise when reached; Free Play's ObjectPickedUp condition waits on it |
 | Script condition nodes | partial | `0x00125450` registers only types 0x3D, 0x3E, 0x40, 0x47, 0x48, 0x6A, 0x94, 0x95 and 0x99; retail also takes 0x3F, 0x41..0x44, 0x5A, 0x5B, 0x65, 0x66, 0x68, 0x6C, 0x72, 0x75, 0x8B, 0x8C, 0x92, 0x93 and 0xA3, which still run as ordinary nodes |
 | Script type 0x16 | legacy | Still the old shortcut; retail waits for `0x0004EFE0` with DAT_00512470 set, then releases the cutscenes |
 
 ## Work
 
-1. Scene 3's skeleton fight from its frontier (factory type 0x12, the bone debris; then whatever the trophy's flight
-   and its pickup reach).
+1. Scene 3 from its frontier: drive Cooper to the trophy, then whatever its pickup, flight and throw reach, and the
+   scene's end.
 2. Move the remaining `g_pulse_nodes` callers to the native `DAT_00511AA4` lookups.
 
 ## Acceptance
@@ -335,6 +335,59 @@ walk-in and "Free Play" natively; driven at the skeletons, they walk up and figh
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-20: scene 3, the skeletons fall apart into bones
+
+Driven at the skeletons, `--scene3` now plays the whole fight: the first skeleton dies at about frame 1725, the second
+later, and each one bursts into its bones, which bounce on the floor and settle. The scene then holds in Free Play
+with both skeletons gone and the trophy still on its board, until the run ends at frame 5400 (`PASS`).
+
+- Type 0x12, the bone debris (getter `0x00067E60`, vtable `0x00504A18`, parent 2), in `entities/bone_debris_actor.cpp`.
+  `0x00134C10` creates it when a knockdown hit kills the skeleton.
+  - Slots: sizes `0x00067E40` (0xAAC / 0x55C), ctor `0x00067EB0`, dtor `0x00068010`, message `0x00068700`, update
+    `0x00068060` and draw `0x000686A0` (fade draw `0x00068610`); +0x18 keeps the base `0x0003C830`.
+  - The ctor copies the dead actor through `0x0013AE30`. Then `0x00068850` sets up the joint rows
+    (`0x000400D0`) and an effect node of its own at +0x934 (`0x000ED1C0`, the explodeall stream `0x000ED990`, debris
+    mode `0x000ED6E0`). `0x00068970` gives each group of the model's part header a particle (or one per joint),
+    with an optional push away from a source point and an optional carried effect (`0x00053170`).
+  - The update ticks that node (`0x000EF2D0`) and copies each particle's pose into the joints' +0x288 rows. The
+    first floor hit (DAT_00506928 > 0.75) plays the 0x16 callout. Once every particle rests, the pieces stay for
+    the attributes' +0x194 time (3 s here), then `0x0013AF80` leaves a two-second after-image and `0x00112CC0`
+    takes the copy away.
+  - Message 0x7C for the dead actor moves its playing sounds to the copy: `0x00041D90` with `0x0012A440`
+    (`move_actor_sound`, new in `sound_runtime.cpp`).
+  - Not translated (they raise): the "aid_" sound branch at parameter +0x558 (`0x00140560`, `0x000F8540`, and
+    `0x000F8640` / `0x000F85D0` / `0x00035C00` later), and `0x0012A260` for parameter +0x4C4. The death
+    effect leaves both zero.
+- Scene wiring: the factory class and native instances in `scene_actor_factory_owner.cpp`. In
+  `scene_actor_services.cpp`: the update and message dispatch, the draw, the visibility (with the class's +0x288
+  rows) and the +0x38 slot. The new `tick_owned_effect` runs `0x000EF2D0` with the scene's particle simulation.
+  `update_first_actors` now sets the frame's effect scratch, since a new actor's first update can tick its effect.
+- Fixes on the way:
+  - `0x000400D0` (`initialize_actor_model_matrices`) required a type-16 directory block. Retail tests the part
+    header word (model CPU +0x10 -> +0x10). The skeleton has the header and an `ndMtxArray` (76 rows) but no such
+    block, so the copy got no rows.
+  - `0x000ECA20` (`probe_actor_effect_world`) passed its probe points and kind/mask the wrong way round. Retail's
+    EBX (the probes' kept point) is the particle's next position and the first stack word its current one; EDX
+    (0xC) is the kind and ECX (0) the mask. Before, no effect particle ever hit the room, so the bones fell
+    through the floor.
+  - The after-image ctor (`0x000690F0`) raised whenever parameter +0x350 was set. Retail calls `0x000F8540` only
+    when that record's +8 reads "aid_".
+- Shown (`cache/s3w_captures/`; looked at):
+  - Frame 1758: the first skeleton bursting apart: skull, ribs, arm bones and a hand in the air.
+  - Frames 1878 and 1998: its bones lying on the floor while Cooper fights the second skeleton.
+  - Frame 2178: the bones gone.
+- Heard (log only, not listened to): the fight's hits, punches and skeleton calls; Crivens' satisfied line; Cooper's
+  "yeah".
+- Not shown, heard or checked:
+  - The bone-landing callout (0x16) has not appeared in the log since the probe fix.
+  - The after-image fade of the bones was not seen in a capture (the gap between captures is too wide).
+  - The trophy pickup, the conditions firing and the scene's end.
+  - Whether the bones' bounce, rest time and fade match retail; nothing was compared with xemu.
+- Verified: Release build in `cache/build_s3` with `cache/s3w_regress.sh`. All pass: default, `--player-death` with
+  and without `--retail-step`, `--player-fight` (the chair, whose matrix setup goes through the corrected
+  `0x000400D0`), `--player-opening`, `--player-controls`, `--scene6`, `--scene3` and the 900-frame headless run. Not
+  run: the Debug build, ctest and the other suites.
 
 ### 2026-10-19: scene 3, the skeletons walk and fight
 

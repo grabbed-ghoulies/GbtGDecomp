@@ -450,9 +450,11 @@ bool initialize_runtime_avatar_afterimage(std::span<const u8> parameters, Runtim
     put_word(bytes, 0x950, read_u32(parameters, 0x340));
     put_word(bytes, 0x954, read_u32(parameters, 0x344));
     put_word(bytes, 0x958, read_u32(parameters, 0x348));
-    if (read_u32(parameters, 0x350) != 0)
+    const u32 sound = read_u32(parameters, 0x350);
+    if (sound != 0 && read_u32(context.bytes_at(sound), 8) == 0x5F646961) // "aid_"
     {
-        throw Error("untranslated Xbox 0x000F8540 reached from the after-image 0x000690F0 (parameter +0x350 set)");
+        throw Error("untranslated Xbox 0x000F8540 reached from the after-image 0x000690F0 (parameter +0x350 names "
+            "an aid_ sound)");
     }
     return true;
 }

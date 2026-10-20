@@ -8,6 +8,8 @@
 #include "projectile_weapon.h"
 #include "bob_weapon.h"
 #include "ghouly_cutscene_setup.h"
+#include "bone_debris_actor.h"
+#include "../graphics/effect_collision_response.h"
 
 namespace gbtg
 {
@@ -66,6 +68,13 @@ struct NativeSceneActorClassBindings
     const Vec3& default_euler; // DAT_0050DD74.
     u8* const& navigation_nodes; // DAT_0050E24C.
     RuntimeWeaponServices& weapon_services;
+    // The bone debris (type 0x12): 0x000EF2D0 on its own effect node with the scene's particle simulation, the last
+    // particle collision (DAT_00506918..), 0x000ED2E0's views and the PAL words particles read.
+    std::function<void(ActorEffectNode&, float)> tick_owned_effect;
+    const RuntimeEffectCollision& effect_collision;
+    std::function<RuntimeModelSoundRelease&()> effect_release;
+    const i32& pal; // DAT_005096E0.
+    const i32& pal_override; // DAT_005096E4.
 };
 // Native contexts for the retail area/trigger classes, over the existing
 // actor lifecycle owner. All referenced scene services must outlive this owner.
@@ -111,6 +120,13 @@ public:
     void release_afterimage(FactoryObject& object); // Xbox 0x00069220.
     void update_afterimage(FactoryObject& object); // Type 0x10 vtable +0x10, Xbox 0x00069250.
     void message_afterimage(FactoryObject& object, u32 id); // Type 0x10 vtable +0xC after 0x0003EF70, Xbox 0x00069540.
+    bool construct_bone_debris(FactoryObject& object, std::span<const u8> parameters); // Type 0x12, Xbox 0x00067EB0.
+    void release_bone_debris(FactoryObject& object); // Xbox 0x00068010.
+    void update_bone_debris(FactoryObject& object); // Type 0x12 vtable +0x10, Xbox 0x00068060.
+    // Type 0x12 vtable +0xC after 0x0003EF70, Xbox 0x00068700.
+    void message_bone_debris(FactoryObject& object, std::span<const u32> message);
+    u32 draw_bone_debris(FactoryObject& object, i32 kind, RuntimeBoneDebrisDraw& draw); // Vtable +0x14, 0x000686A0.
+    ActorMatrixSetup& bone_debris_matrices(FactoryObject& object); // Actor +0x288..+0x2A0 of a type 0x12 actor.
     // A weapon's +0x998 collision state slot (0x0013F150); `bytes` must be a weapon of this owner.
     RuntimeBodyCollisionState*& weapon_markers(const u8* bytes);
     bool owns_weapon(const u8* bytes) const;
@@ -129,6 +145,7 @@ private:
     std::unordered_map<const u8*, std::unique_ptr<EmitterInstance>> emitters_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeAvatarMotionBlur>> motion_blurs_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeAvatarAfterimage>> afterimages_;
+    std::unordered_map<const u8*, std::unique_ptr<RuntimeBoneDebris>> bone_debris_;
     std::unordered_map<const u8*, std::unique_ptr<WeaponInstance>> weapons_;
 };
 }

@@ -96,6 +96,7 @@ struct RuntimeAvatarAfterimage
     ActorRenderRegistration& render; // 0x0003E850's probes.
     entity_detail::ShapeProbe& shape; // 0x0003C700's probe.
     entity_detail::ListHead& anchors; // Actor +0x1F4; its next (+0x1F8) is the first anchor.
+    std::function<std::span<const u8>(u32)> bytes_at; // Retail words at an address (parameter +0x350's record).
 };
 void avatar_afterimage_object_sizes(ObjectSizes& output); // Xbox 0x00069080
 bool initialize_runtime_avatar_afterimage(std::span<const u8> parameters,

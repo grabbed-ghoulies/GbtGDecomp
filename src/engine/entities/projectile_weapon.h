@@ -11,6 +11,43 @@ namespace gbtg
 // +0xE7C the collision override pool, +0xE84, +0xE88 the hits counted, +0xEA4 the catcher (message 0xA0),
 // +0xEA8 / +0xEB4 the euler and position at the catch, +0xEC0..+0xED0 the catch's offset and words,
 // +0xED4..+0xEDC parameters +0x5F8..+0x600.
+// The large projectile's own parameters (0x604 bytes in all) and instance fields (0xF08 bytes in all, 0x000CD620),
+// after the weapon's. +0xE7C the collision override pool is RuntimeWeaponActor::collision_overrides.
+namespace large_projectile_parameter
+{
+constexpr RetailField<float, 0x5F8> hold_turn{};
+constexpr RetailField<float, 0x5FC> hold_forward{};
+constexpr RetailField<float, 0x600> hold_up{};
+} // namespace large_projectile_parameter
+namespace large_projectile_field
+{
+constexpr RetailField<Vec3, 0xE54> throw_target{}; // message 0xA5's words; the launch heads at it (0x000CE020)
+constexpr RetailField<float, 0xE60> fall_speed{}; // the vertical speed: -437 at launch (DAT_0032B65C)
+constexpr RetailField<float, 0xE64> heading{}; // the launch's yaw toward throw_target
+constexpr RetailField<Vec3, 0xE68> spin{}; // turns per second; 267 degrees about x at launch, kicked at each bounce
+// The shatter: 0.6 s (DAT_0032B248), ticking down; its reach grows as it runs (0x000CEC70).
+constexpr RetailField<float, 0xE74> shatter_timer{};
+constexpr RetailField<float, 0xE78> shatter_scale{}; // 2 for a scripted player hold, else 1
+constexpr RetailField<u32, 0xE80> shatter_shown{}; // set once the shatter's effect callouts have run (0x000CEB10)
+constexpr RetailField<i16, 0xE84> bounces_left{}; // 3 at launch
+constexpr RetailField<u8, 0xE86> settled{}; // 0x000CE290 sets it; its old value is the result
+constexpr RetailField<u32, 0xE88> hits{}; // the shatter's hits counted (0x00141A30)
+constexpr RetailField<Vec3, 0xE8C> rest_euler{}; // message 0x9D: the root joint's world euler (0x000CE660)
+constexpr RetailField<Vec3, 0xE98> rest_position{}; // and the actor's position less that joint's turned point
+constexpr RetailField<u32, 0xEA4> catcher{}; // the holder that asked (message 0xA0)
+constexpr RetailField<Vec3, 0xEA8> catch_euler{}; // the euler and position when caught
+constexpr RetailField<Vec3, 0xEB4> catch_position{};
+constexpr RetailField<Vec3, 0xEC0> hold_offset{}; // the hold point in the holder's space; x plus hold_forward
+constexpr RetailField<float, 0xECC> rise_elapsed{}; // state 0xF's rise toward the hold point
+constexpr RetailField<float, 0xED0> rise_duration{};
+constexpr RetailField<float, 0xED4> hold_turn{}; // large_projectile_parameter::hold_turn
+constexpr RetailField<float, 0xED8> hold_forward{};
+constexpr RetailField<float, 0xEDC> hold_up{};
+constexpr RetailRecord<0xEE0, 36> command_attachments{}; // the attachments 0x0013B8B0 records at launch
+constexpr RetailField<float, 0xF04> trail_timer{}; // 0x0013B030's trail clock
+constexpr u32 kSize = 0xF08;
+static_assert(retail_fits(kSize, trail_timer));
+} // namespace large_projectile_field
 void large_projectile_weapon_object_sizes(ObjectSizes& sizes); // Xbox 0x000CD620
 bool initialize_runtime_large_projectile(RuntimeWeaponActor& weapon,
     std::span<const u8> parameters); // Xbox 0x000CD6B0

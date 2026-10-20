@@ -205,6 +205,10 @@ All take the game directory, e.g.
 | `--player-fight` | The opening flow, then Cooper fights the imps (see Acceptance), a re-hit during an imp's reaction, the HUD heart in fight captures and not behind the butler's page, the chair's section (the ObjectPickedUp record with the chair's tag, Cooper in region 1, Cooper walks to the chair and A picks it up; event 0xAD with the chair's tag is queued and the section ends before its 5 s timeout; `cache/player_chair_check.bmp`, `player_chair_pickup.bmp`, `player_chair_held.bmp`), then the play-on, which fails if the opening script is still running when it gives up |
 | `--player-death` | The opening flow, then Cooper stands still in the first fight: the imps empty his health, the death state 0x69 plays his dying animations and the fail stream, starts the transition (row 2) and restarts the scene ("Free Play (Fighting Intro)"), whose script then moves past its player wait |
 | `--player-controls` | The opening flow, then run speed at 30/60/144/240 Hz, a right-stick swing with no imp in range (`cache/player_air_swing.bmp`) and the trigger camera turn |
+| `--scene6-save` | `--scene6` from a save: a child `--gameselect-new-game` save pointed at chapter1_scene2_1viewcam, played from game select (Start, A on the slot, A on Play); the trophy heads' award and the rare book collected in a driven scene 3 must write challenges 1 and 2 into its signed progress.xsv; then runs `--scene6-save-reload` |
+| `--scene4` | Boots scene 4 (chapter1_scene4_1book, "Partner and the False Fireplace"): its transition ends, A closes the book cutscene's three pages and the script moves on to chapter1_scene4_2playcam. That transition ends too, and scene 4_2 ("Find The Key") is driven: Cooper walks to the bg-break key's part and swings until it breaks, the key's show must run (type 0x1E), then he walks into the exit volume and the script must move on to chapter1_scene5_1playcam. Captures: `cache/scene4_*.bmp`, `cache/scene4_2_*.bmp`, `cache/scene4_2_key_*.bmp` |
+| `--scene5` | Boots scene 5 (chapter1_scene5_1playcam, the snooker room) and drives it: Cooper walks to a cue (type 0xAA) and presses A beside it, attacks the nearest live skeleton (class 52) while any is up, and walks into the exit volume once it opens. Fails today: the script holds at "stage 2" (see the 2026-10-20 scene 5 checkpoint) |
+| `--scene6-save-reload` | Run by `--scene6-save`: its save, with the script set to scene 3, loads again from game select, both challenge bits must come back, and scene 3 must reach Free Play with no rare book |
 | `--scene6` | Boots scene 6 (chapter1_scene2_1viewcam), A on the chapter title, the transition ends; the trophy heads attack, the first Super Scary challenge fails unanswered into Crivens' page, later ones are won by pressing the shown buttons, the heads' cutscene resumes, and the script moves on to scene 3 (`cache/scene6_c*_s*_*.bmp`); then scene 3's transition ends (no chapter title) and its walk-in and Free Play run with the sticks centred (the scene 3 checks below, passive) |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -295,7 +299,9 @@ the script moves on to scene 4 (see the scene 3 checkpoints).
 
 ## Work
 
-1. Scene 4 (`aid_script_ghoulies_chapter1_scene4_1book`, "Partner and the False Fireplace") from its start.
+1. Scene 5's "stage 2": find what lets its section end (node 0x0F waits for `g_gate_251c`, raised by a 0x11 node or
+   script event 0xAF / 0xB3). The "Required Number" event's step nodes 0x1D and 0x55 (`0x00126140`) are still the
+   old value-only cases.
 2. Move the remaining `g_pulse_nodes` callers to the native `DAT_00511AA4` lookups.
 
 ## Acceptance
@@ -335,6 +341,177 @@ the script moves on to scene 4 (see the scene 3 checkpoints).
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-20: scene 5 plays to its end on its success path: the snooker table swing
+
+- `--scene5` now wins "Required Number" (EVENTCOMPLETE, no FAILPITCHBEND) and moves on to scene 6.
+  - In stage 2 Cooper walks to the uncovered table's nearest pick-up sphere and takes it with A.
+  - He swings it once, killing the skeletons in its path, and it breaks.
+  - The broken table keeps its volume. The run checks Cooper never gets closer than 20 to its centre (he stays at
+    about 25.5), then fights on by hand.
+- Translated or fixed:
+  - Factory type 0x78 (getter `0x00097FB0`) is the huge-weapon swing, in `entities/body_swing_state`:
+    - Lifecycle: sizes `0x00097F90`, construct `0x00098010`, destroy `0x00098370`, tick `0x00098460`, message
+      `0x00098620`.
+    - Phases: phase start `0x00098680`, approach `0x00098780`, attach `0x00098E00`, side `0x00098980`, swing
+      `0x00098B30`, spin `0x00098C10`, release `0x00099280`.
+    - Effects: start `0x00098F40`, update `0x000991B0`, release `0x00099120`. Bob cutscene `0x000993A0`.
+    - Helpers: `0x00026720` and `0x001057F0`.
+  - The scene cutscene stop `0x0004EEA0`. `0x00134180` now takes a narrow `RuntimeBodyNextAction`.
+  - The bob (type 0xA0):
+    - Contact test `0x000C61D0`, and message 0x95 `0x000C6250`.
+    - State 7: its entry tally `0x0012ADC0`, then its end `0x000C62C0`, which plays the break animation and then
+      sets the next state to 0x10 (this was missing, so the end ran every frame).
+    - State 14's start `0x000C63A0`.
+  - The kill statistics (DAT_00512B78) that the script conditions and the "Required Number" step read are now the
+    same table that `0x0012ACF0` tallies into (`g_script_tallies.second`, seven kinds).
+  - `0x0007DEE0` read body +0x84's state byte through an empty view when +0x84 was zero. It crashed mid-fight.
+- Not checked: retail's own swing for comparison. The break is checked from captures only.
+
+### 2026-10-20: scene 5 runs natively into its stage 2 skeleton waves
+
+- `--scene5` (new) drives the snooker room:
+  - Free Play holds on its three conditions. Cooper picks up a cue, and "Skeletons from the Portraits" plays:
+    the skeletons leap out of the portraits.
+  - The "Required Number" event runs, and Cooper beats the skeletons.
+  - Its NumberGhouliesAlive condition starts "snooker table activates": the cloth cutscene plays.
+  - "stage 2" then sends skeleton waves, and Cooper fights them. The section never ends: see Not checked.
+- Translated or fixed on the way:
+  - Free Play's condition nodes 0x3F, 0x41, 0x43 and 0x44 (opcodes 2, 4, 6 and 7) are registered in
+    `0x00125450` (from its jump table at 0x0012593C / 0x001258C8). Free Play ran straight through to scene 6
+    without them: 0x43 (PlayerApproachesDoor) was an ordinary node.
+  - Factory type 0x66 (getter `0x0008D930`) is the body's arc leap from where it stands to the front of its goal
+    ring, between an optional take-off and landing animation. It's `entities/body_arc_state`: sizes `0x0008D910`,
+    construct `0x0008D990`, destroy `0x0008DBF0`, message `0x0008DD30`, tick `0x0008DC70` / `0x0008DD70`.
+  - A player's body graph (its body vtable slots) is now built before a strategy's first message. A
+    just-spawned skeleton's goal reached `body_slot_key` before anything had built it.
+  - Script node 0x59 sends message 1 to the DAT_00511B24 objects with its tag (`0x00122FA0`, new). That wakes the
+    snooker table (the bob weapon), which plays its cloth cutscene.
+  - Script node 0x2B queues its aid spawn record (`0x000F4E50`). It was a no-op, so stage 2 sent no skeletons.
+- Not checked:
+  - How stage 2 ends. Its timeout condition fires and runs its 0x33, then the section's 0x0F holds in mode 0
+    until `g_gate_251c` rises. Nothing native queues 0xAF or 0xB3 here.
+  - The "Required Number" event's steps (nodes 0x1D and 0x55) aren't queued, so its scoreboard and success path
+    haven't run.
+
+### 2026-10-20: scene 4 plays to its end: the key event, and attachments that start their effects
+
+- `--scene4` drives scene 4_2. Cooper walks to the key's part (part 20 of the gaming room's background) and swings
+  until it breaks. The key's show runs, and the event ends. "Free Play" follows, Cooper walks into the exit
+  volume, and the script moves on to chapter1_scene5_1playcam.
+- The event's key step was never queued:
+  - Script node 0x1B now builds step type 1 (`0x00125CC0`, XMM0 0) and queues it (`0x000D05D0`). The other
+    step builders in `0x00126140` are still the old value-only cases.
+  - Step type 1's start is `0x000D0200`: it keeps one of the class 0x47 key candidates at random. Scene 4_2 has
+    one, so nothing is dropped. Dropping a second candidate raises (unbound).
+  - Step type 1's run is `0x000CFA90`: it waits for event 0xAE and the step delay, then drops the event. The
+    step tables at 0x003039C8 hold (start, run) pairs by type.
+  - The 0x81 start broadcast now registers the whole step table (count × 0x88) as a heap block. Its readers
+    resolve heap addresses through `memory_at`: heap_address now records each block's bytes.
+- Attachments never started their effects:
+  - `0x0003D1B0` links new attachment nodes into the pending list (actor +0x1B4, list +8), and `0x0003CD00`
+    starts them and moves them to the active list (+0x1AC).
+  - The translation linked them straight into the active list, so persistent attachments kept slot -1. The
+    update then wrote through `DAT_00506930[-1]`.
+  - `ActorAttachmentList` now carries a view of its pending list; `construct_view` binds it, and creation links
+    there. The update raises on an empty slot instead of writing through it.
+  - The key's sparkle (`aid_fxemitter_ghoulies_misc_bgbreakkey`) is the first visible one. Scenes 3 and 6 show no
+    change: all 90 captures are byte-identical.
+- Shown (`cache/scene4_2_key_*.bmp`; looked at): the "breakkeycam" view, and the key popping out of the broken
+  cabinet with its sparkle. It bounces among the debris, and the HUD's key icon shows.
+- Not checked:
+  - The bg-break setups' own break, their ghoulybox loads and their spawns. No setup's part broke in the driven
+    run: only the key's part did.
+  - The scene 4_2 imps' fight, beyond surviving the walk.
+
+### 2026-10-20: scene 4 starts natively: the door, the false fireplace's imps and the hidden key
+
+- Scene 4's book part (chapter1_scene4_1book) already played natively. `--scene4` (new) shows the comic cutscene
+  and its three dialogue pages (`cache/scene4_*.bmp`; looked at). The script then moves on to
+  chapter1_scene4_2playcam.
+- Scene 4_2's start stopped at three gaps, now translated:
+  - `0x0005B540` sets the state of door 7, which has no row. Retail adds the row through `0x0005B2D0`, with shape
+    12, scale DAT_0042A840 (1, 1, 1), and the origin and default euler (DAT_0050DD80, DAT_0050DD74). It then finds
+    the row with `0x000663B0` / `0x0005B870`. The old error named `0x0005B870`, which is only that search's
+    comparison. The door dimension table (DAT_00424994) now spans 13 rows: shape 12's row sits just before the
+    shape names at 0x00425118.
+  - Factory type 0x24, entityAvatarGhoulySetupBgBreak (getter `0x0006A4F0`), is a ghoulybox held behind a
+    background part. It's in `entities/ghouly_bg_break_setup`.
+    - Construct `0x0006A530`, with `0x0006A350`, `0x0006A120` and `0x0006AF20`. Destroy `0x0006A600`. Update
+      `0x0006ADC0`, with `0x0006A3F0` and the spawn-range check. Messages `0x0006A7B0`.
+    - Message 0x7D finds the nearest background part (`0x0013B980` → `0x00046310`) and can hold it
+      (`0x00046440` / `0x00045E50`).
+    - With the player in range, the update breaks the part itself (message 0x13 → `0x00045D40`). The part's
+      removal broadcast 0xAB then loads the ghoulybox (`0x0006A470` / `0x0006B0A0`, or the shared-group path
+      `0x0006A170`, `0x0006A2C0`, `0x0006A310`) and scares nearby actors (`0x0013B660`).
+    - Spawns 0xA7 / 0xA9 / 0xAA place the imps through `0x0006A760`, `0x0006A630` and `0x0006AE10`.
+  - Factory type 0x1E, entityAvatarMiscBgBreakKey (getter `0x0006CC70`), is the hidden key. It's in
+    `entities/bg_break_key`.
+    - Construct `0x0006CCB0`, destroy `0x0006CD10`, messages `0x0006CD40`, update `0x0006CFD0`.
+    - Message 0x7D links it to its part, and an event start (0x81) with a kind 1 step arms it.
+    - When the armed part breaks: every actor pauses, the key (aid_model_ghoulies_misc_eventkey) jumps out of the
+      class 0x47 actor (`0x00129EA0`, new), bounces three times under the "breakkeycam" view and spins. After 2 s
+      the event 0xAE is queued and the actors resume.
+  - Shared helpers:
+    - `0x0013B660` now takes any actor (`scare_near_runtime_actor`); the weapon calls it through an adapter.
+    - The background message context is built once (`with_background_context`). The setup's part calls reuse it.
+- Shown (`cache/scene4_2_*.bmp`; looked at):
+  - The "Find The Key" challenge starts, and Crivens' pages show.
+  - Imps spawn and fight Cooper, the health HUD counts down, and Crivens' hint page ("searching for the key by
+    breaking things") shows.
+  - Undriven, Cooper loses and the scene restarts every ~800 frames ("Exit Door Closes", then "Free Play").
+- Not checked:
+  - Any breaking. No part has broken, so the bg-break setup's own break, its ghoulybox load and its spawns haven't
+    run. The imps in the captures may come from the scene's ghoulybox node (type 0x2A) instead.
+  - The key's whole path (0xAB, the bounces, the camera, event 0xAE) hasn't run either.
+  - Message 0x81's step records are read through `memory_at` and haven't been seen yet.
+
+### 2026-10-20: the challenge save, and named fields for scenes 6 and 3
+
+- The save write after a challenge award is native. `0x000F24C0` (powerup row 1: the trophy heads' award, and the
+  rare book's) now saves the current game when one is named (DAT_00506C90). The steps:
+  - `0x000F3230` copies the challenge bits (DAT_00506C54) into a temporary block of kind 100.
+  - `0x0010E5B0` copies that block into the save record's challenge block (+0x1AC).
+  - `0x0010DC20` reads the record's +0x184 word; when it is set, `0x0010E2C0` clears it.
+  - `0x0010DA80` queues the write. A failed write calls `0x000F32F0`, which shows the app error
+    "gamesystem_corruptgamemessage" through `0x00032990`. That screen is not translated, so the callback raises, as
+    game select's save errors do.
+- The award context carries the scene's save context (the movie file rows, the profile and the held scene order).
+- `--scene6-save` (new) plays scene 6 from a real save:
+  - A child `--gameselect-new-game` run names and saves a game.
+  - Its progress.xsv's script becomes `aid_script_ghoulies_chapter1_scene2_1viewcam` and the file is signed again.
+  - Start, A on the slot and A on Play start that scene from game select.
+  - The scene 6 driver then plays the trophy heads through to scene 3. The scene 3 driver then plays to the
+    door, and Cooper collects the rare book on the way.
+  - It requires that the file's challenge byte (+0x270: the record, then the 8-byte progress block) goes from 0 to
+    6, and that the file's signature still verifies. The 6 is challenge 1 (the trophy heads, `0x00082440`) plus
+    challenge 2 (the book: its parameters' +0x3C0, awarded by `0x0010A6D0`).
+  - It then runs `--scene6-save-reload` (new) on that save. The save's script is set to
+    `aid_script_ghoulies_chapter1_scene3_1playcam` and signed again, and the challenge bytes are left as written.
+    Game select loads it, and `0x000F3020` must bring both bits back into DAT_00506C54. Scene 3 must then reach Free
+    Play with no rare book: `0x00109FC0` doesn't start a powerup kind 1 emitter whose challenge bit is set.
+- The rare book's emitters used to read a zeroed 0x20-byte `challenge_bits` copy in SceneActorServices that nothing
+  filled, so a won book would come back after any load. `0x00109FC0` and the dialogue measurement's challenge
+  view now read the profile block (`*(DAT_00506C54+8)`), as the trophy heads already did. A consequence: in one
+  session, once the book is collected, scene 3 won't spawn it again.
+- The trophy heads' win (challenge 1) doesn't hide the book. The book has its own challenge, 2. Plain `--scene6`
+  still shows the book in scene 3: the log reports 1 rare book at Free Play, with the profile challenge byte at 2.
+- The retail field rule: the objects the scene 6 and scene 3 work added now read their own fields through named
+  descriptors. They are the trophy heads, the hold, walk-target, pick-up, lift and throw states, the skeleton
+  strategy, the bob, the large projectile, the ghouly cutscene setup and the bone debris. The shared body-state,
+  strategy and factory-parameter headers are named too. See `docs/RETAIL_LAYOUTS.md` for the table, the evidence and
+  what stays literal (the shared body, mind, actor and weapon-base offsets).
+- Checked: `--scene6` and `--scene3` pass, and all 90 of their captures are byte-identical to the captures from
+  before the change, both after the naming and with the save write in place.
+- Checked (the reload): `--scene6-save` passes with its reload. `--scene3` still finds 1 rare book at Free Play and
+  collects it. The reload's undriven scene 3 captures differ from `--scene6`'s only in the skeletons' idle poses.
+  The camera there never frames the book's spot by the sofa, so the book's absence is shown by the emitter count
+  (1, then 0), not by a picture.
+- Not checked:
+  - The save write's failure path (the app error screen).
+  - A reload at the save's own script. The reload test points the script at scene 3. A real save made after these
+    awards still names an earlier scene (`aid_script_ghoulies_chapter1_scene0_1book` from the new game, then the
+    test's scene 6), because the script record is written by scene code that isn't translated yet.
 
 ### 2026-10-20: scene 3 to its end: the throw, the rare book and the door
 
@@ -634,7 +811,8 @@ heads attack, and each attack starts a button challenge. When the cutscene ends,
   - Broadcast 0x8E has a two-word layout.
 - Profile blocks: the two controls read and write the boot-owned `g_runtime_profile` blocks: the story bits
   (DAT_00506C6C) and the challenge bits (DAT_00506C54). The script actions use the same blocks. SceneActorServices
-  still keeps its own `story_bits`, `story_byte` and `challenge_bits` copies, which the older scene code uses.
+  still keeps its own `story_bits` and `story_byte` copies, which the older scene code uses. (Its `challenge_bits`
+  copy was removed on 2026-10-20: the FX emitters and the dialogue measurement now read the profile block too.)
 - `--scene6` (new):
   - Boot and transition: boots scene 6, presses A on the chapter title, and requires the transition to end in the
     scene. The run then plays the scene.

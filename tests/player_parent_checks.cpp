@@ -627,6 +627,9 @@ void check_body_dependencies(SceneExecutableResources& executable)
             "hash cleanup must release all references without clearing resource counts");
 
         ActorAttachmentList first_list{}, second_list{};
+        // Each list here stands for one raw list: new nodes link at its own head.
+        first_list.pending = &first_list.sentinel;
+        second_list.pending = &second_list.sentinel;
         auto* primary = actor_create_attachment(first_list, "primary", 0, 0);
         auto* secondary = actor_create_attachment(second_list, "secondary", 0, 0);
         const u16 secondary_token = 2;

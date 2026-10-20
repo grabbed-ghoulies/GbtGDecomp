@@ -2,6 +2,7 @@
 #include "../audio/bank_streams.h"
 #include "../frontend/scoreboard_messages.h"
 #include "../saves/runtime_profile.h"
+#include "../saves/save_games.h"
 #include "ghouly_spawn_record.h"
 #include "intro_notices.h"
 
@@ -35,6 +36,7 @@ struct RuntimeChallengeAward
     RuntimeIntroNotices& notices; // 0x0013FF70, DAT_00545B38, DAT_00545B44.
     RuntimeBonusCounters& counters; // 0x0012D7E0
     RuntimeScoreboardResources& scoreboard;
+    SaveGameContext& saves; // 0x0010DA80
 };
 // Sets challenge bit `index`, queues the first-bonus-book (one won) or first-challenge (five won) notice, saves the
 // game when one is named, and shows the count on the bonus board; returns the challenges won.

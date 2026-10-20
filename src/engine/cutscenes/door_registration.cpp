@@ -442,8 +442,13 @@ void set_runtime_door_state(u16 ordinal, u16 state, u32 hold, u32 last, RuntimeD
     RuntimeDoorClips* door = find_runtime_door(ordinal, context);
     if (door == nullptr)
     {
-        throw Error("untranslated Xbox 0x0005B870 (0x000663B0 adding door " + std::to_string(ordinal)
-            + " after 0x0005B2D0(0xC))");
+        if (context.added_position == nullptr || context.added_euler == nullptr || context.added_scale == nullptr)
+        {
+            throw Error("0x0005B540 adds a door with no bound DAT_0050DD80 / DAT_0050DD74 / DAT_0042A840");
+        }
+        register_runtime_door(*context.added_position, *context.added_euler, *context.added_scale, 0xC, ordinal,
+            context); // 0x0005B2D0
+        door = find_runtime_door(ordinal, context); // 0x000663B0 over the rows with 0x0005B870 (+4 == ordinal)
     }
     if (state == 6)
     {

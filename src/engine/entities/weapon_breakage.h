@@ -14,5 +14,10 @@ void set_runtime_weapon_piece_pairs(RuntimeWeaponActor& weapon, float fraction);
 bool break_runtime_weapon(RuntimeWeaponActor& weapon); // Xbox 0x001454F0, EAX actor
 bool request_runtime_weapon_variant(RuntimeWeaponActor& weapon, const char* name,
     const char* attributes); // Xbox 0x00148430, EAX name, ECX actor
-void scare_near_runtime_weapon(RuntimeWeaponActor& weapon, float radius); // Xbox 0x0013B660, ESI actor
+// Message 0x37 with the actor's position to the DAT_00511B38 actors within the larger of 60 and `radius`;
+// `send` is an actor's vtable +0xC by retail address.
+void scare_near_runtime_actor(const Actor& actor, float radius, const std::vector<RuntimeDirectorActor>& marks,
+    const std::function<void(u32, std::span<u32>)>& send); // Xbox 0x0013B660, ESI actor
+// 0x0013B660 for a weapon, through the weapon's marks and sends.
+void scare_near_runtime_weapon(RuntimeWeaponActor& weapon, float radius);
 }

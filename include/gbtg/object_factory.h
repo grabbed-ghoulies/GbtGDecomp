@@ -1,10 +1,18 @@
 #pragma once
 
+#include "gbtg/retail_field.h"
 #include "gbtg/types.h"
 #include <memory>
 
 namespace gbtg
 {
+// The header every factory parameter block starts with (docs/RETAIL_LAYOUTS.md).
+namespace object_parameter_field
+{
+constexpr RetailField<u16, 0x0> size{}; // 0x000873A0 writes its block's size, 0x1D8
+constexpr RetailField<u16, 0x2> unk_2{}; // 0x000873A0 writes 0x6D; nothing here reads it
+constexpr RetailField<u16, 0x4> type{}; // the factory type 0x00107520 creates
+} // namespace object_parameter_field
 
 struct ObjectSizes
 {

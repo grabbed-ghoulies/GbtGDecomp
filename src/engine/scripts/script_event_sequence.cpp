@@ -310,6 +310,43 @@ void set_script_event_sequence_state(Game& g, i32 state)
 }
 
 // Xbox 0x000D0B10
+// Xbox 0x000D0200: step type 1 keeps one of the class 0x47 key candidates at random.
+void start_script_event_key_step()
+{
+    auto& services = context();
+    if (services.random == nullptr)
+    {
+        throw Error("0x000D0200 needs DAT_0054DD7C");
+    }
+    const auto actors = services.latch_actors();
+    i32 count = 0;
+    for (const auto& actor : actors)
+    {
+        if (u16(actor[1]) == 0x47)
+        {
+            ++count;
+        }
+    }
+    u32& random = *services.random;
+    random = random * 0x19660Du + 0x3C6EF35Fu;
+    const float fraction = std::bit_cast<float>((random & 0x7FFFFFu) | 0x3F800000u) - 1.f; // DAT_0032B0F8.
+    const i32 kept = i32(fraction * float(count));
+    i32 remaining = count;
+    for (const auto& actor : actors)
+    {
+        if (u16(actor[1]) != 0x47)
+        {
+            continue;
+        }
+        --remaining;
+        if (remaining == kept)
+        {
+            continue;
+        }
+        services.drop_key_candidate(actor[0]);
+    }
+}
+
 void prepare_script_event_steps()
 {
     auto* pool = g_event_sequence.steps;
@@ -319,7 +356,7 @@ void prepare_script_event_steps()
         const u32 type = read_u32(step_at(row), 0);
         if (type == 1)
         {
-            throw Error("untranslated Xbox 0x000D0200 (script event step type 1)");
+            start_script_event_key_step(); // 0x000D0200
         }
         if (type == 0xF)
         {
@@ -553,6 +590,15 @@ void show_script_event_icons()
         u32 count = 0xFFFFFFFFu;
         switch (type)
         {
+        case 3:
+        {
+            // The tag's kills still owed, never below zero.
+            kind = read_u16(step, 0x1C);
+            const i32 left = std::bit_cast<i32>(read_u32(step, 0x18))
+                - script_statistic_at_address(0x00512B78u + u32(kind) * 4u);
+            count = left < 0 ? 0u : u32(left);
+            break;
+        }
         case 6:
             count = 0;
             break;
@@ -572,7 +618,7 @@ void show_script_event_icons()
         if (read_u32(step, 0x10) == 0 && read_u32(step, 0x14) == 0 && g_event_sequence.icon_delay <= 0.f)
         {
             g_event_sequence.icon_delay = services.icon_delay;
-            put_word(step, 0x10, add_script_event_icon(type)); // 0x0012FB80, EDI type
+            put_word(step, 0x10, add_script_event_icon(type, kind)); // 0x0012FB80, EDI type, ESI the tag
             put_word(step, 0x14, 1);
             const i16 voice = allocate_audio_event_voice(0, services.voices); // 0x00039830, EBX 0
             if (voice != -1)
@@ -591,11 +637,13 @@ void show_script_event_icons()
             }
             if (count != 0xFFFFFFFFu)
             {
-                throw Error("untranslated Xbox 0x001318A0 (script event icon count)");
+                set_runtime_scoreboard_count(id, i32(count), *services.board,
+                    services.board_resources.counter_preset); // 0x001318A0, ECX id, EDX count
             }
             if (kind != 0)
             {
-                throw Error("untranslated Xbox 0x00131920 (script event icon picture)");
+                set_runtime_scoreboard_icon(id, runtime_scoreboard_tag_icon(kind), *services.board,
+                    services.board_resources); // 0x00131A30, then 0x00131920
             }
         }
     }
@@ -681,12 +729,23 @@ bool run_script_event_steps(Game& g)
         i32 result = 0;
         if (!services.steps_held())
         {
-            if (type != 0)
+            if (type == 0)
+            {
+                result = run_script_event_kill_step(step); // 0x000CFA10
+            }
+            else if (type == 1)
+            {
+                result = run_script_event_key_step(step); // 0x000CFA90
+            }
+            else if (type == 3)
+            {
+                result = run_script_event_kill_count_step(step); // 0x000CFE20
+            }
+            else
             {
                 throw Error("script event step type " + std::to_string(type)
                     + " (table 0x003039CC) is not translated");
             }
-            result = run_script_event_kill_step(step); // 0x000CFA10
         }
         switch (result)
         {
@@ -823,8 +882,37 @@ i32 run_script_event_kill_step(std::span<u8> step)
     return script_event_step_delay_done(step.subspan(4)) ? 1 : 5; // 0x000D0700, ECX step+4
 }
 
-// Xbox 0x0012FB80
-u32 add_script_event_icon(u32 kind)
+// Xbox 0x000CFE20: the kill-count step holds while DAT_00512B78[+0x1C] kills fall short of +0x18, then waits out
+// its delay.
+i32 run_script_event_kill_count_step(std::span<u8> step)
+{
+    const i32 required = std::bit_cast<i32>(read_u32(step, 0x18));
+    const i32 killed = script_statistic_at_address(0x00512B78u + u32(read_u16(step, 0x1C)) * 4u);
+    const i32 left = required - killed;
+    if (left > 0) // JS / JG
+    {
+        return 0;
+    }
+    return script_event_step_delay_done(step.subspan(4)) ? 1 : 5; // 0x000D0700, ECX step+4
+}
+
+// Xbox 0x000CFA90: the key step waits for event 0xAE (the bg-break key's show has ended), then its delay.
+i32 run_script_event_key_step(std::span<u8> step)
+{
+    if (find_runtime_script_event_type(0xAE) == nullptr) // DAT_0050E4DC walk
+    {
+        return 0;
+    }
+    if (!script_event_step_delay_done(step.subspan(4))) // 0x000D0700, ECX step+4
+    {
+        return 5;
+    }
+    release_runtime_script_events(0xAE); // 0x001168C0, EDI 0xAE
+    return 1;
+}
+
+// Xbox 0x0012FB80, EDI kind, ESI tag
+u32 add_script_event_icon(u32 kind, u16 tag)
 {
     u32 icon = 0;
     u32 word_70 = 1;
@@ -836,6 +924,19 @@ u32 add_script_event_icon(u32 kind)
         break;
     case 1:
         icon = 5;
+        break;
+    case 2:
+    case 0xD:
+        icon = runtime_scoreboard_tag_icon(tag); // 0x00131A30, EAX tag
+        break;
+    case 3:
+    case 0x12:
+        word_70 = 2;
+        icon = runtime_scoreboard_tag_icon(tag); // 0x00131A30, EAX tag
+        break;
+    case 7:
+        icon = runtime_scoreboard_tag_icon(tag); // 0x00131A30, EAX tag
+        word_78 = 1;
         break;
     case 4:
         icon = 0xB;

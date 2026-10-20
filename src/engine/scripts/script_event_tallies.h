@@ -8,12 +8,13 @@
 namespace gbtg
 {
 // DAT_0052C274 and DAT_00512B78: per kind, a 61 x 61 table of event counts by (second tag, first tag), with row 0
-// and column 0 holding the totals. The script filter 0x00116950 records kinds 0 to 4.
+// and column 0 holding the totals. The script filter 0x00116950 records kinds 0 to 4; 0x0012AF10 sums seven kinds,
+// and DAT_00512B78's seven kinds end at DAT_0052C274.
 struct RuntimeScriptTallies
 {
     static constexpr size_t kind_words = 0xE89; // 0x3A24 bytes per kind.
-    std::array<u32, 5 * kind_words> first{}; // DAT_0052C274.
-    std::array<u32, 5 * kind_words> second{}; // DAT_00512B78.
+    std::array<u32, 7 * kind_words> first{}; // DAT_0052C274.
+    std::array<u32, 7 * kind_words> second{}; // DAT_00512B78, which the script conditions read by address.
 };
 extern RuntimeScriptTallies g_script_tallies;
 
@@ -36,6 +37,8 @@ extern std::function<const u8*(u16 door, std::span<u32, 0x42> pose)> g_script_do
 
 void tally_runtime_script_pair(u32 kind, std::span<u32> table, u16 second,
     u16 first); // Xbox 0x0012AF80, EAX kind, EDX table, DI first
+// One event of `kind` by tag `second` in both tables: its row total and the kind's total.
+void tally_runtime_script_kind(u32 kind, u16 second); // Xbox 0x0012ADC0, ECX kind, DX second
 void tally_runtime_script_event(u16 first, u16 second, u32 kind); // Xbox 0x0012ACF0, AX first, BX second, ESI kind
 void tally_runtime_script_hit(u32 source, u32 target, u32 unblocked,
     u32 third); // Xbox 0x00116C10, EDI source, EAX target, EDX unblocked

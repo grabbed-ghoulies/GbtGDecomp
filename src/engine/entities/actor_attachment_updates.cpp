@@ -1,5 +1,6 @@
 #include "actor_attachment_requests.h"
 #include <cstring>
+#include <string>
 
 namespace gbtg
 {
@@ -42,6 +43,14 @@ void update_actor_attachment_effects(Actor& actor, ActorAttachmentList& active,
         i32 slot;
         std::memcpy(&slot, node->bytes.data() + 8, sizeof(slot));
         ActorEffectNode* effect = g_actor_effect_nodes[slot];
+        if (effect == nullptr)
+        {
+            // Retail writes through DAT_00506930[slot] + 0x1C here.
+            throw Error("actor class " + std::to_string(actor.class_key) + " attachment '"
+                + std::string(reinterpret_cast<const char*>(node->bytes.data() + 0x24)) + "' (flags "
+                + std::to_string(node->bytes[0x20]) + ", kind " + std::to_string(node->bytes[0x1C])
+                + ") names effect slot " + std::to_string(slot) + ", which is empty");
+        }
         Vec3 position;
         Vec3 euler;
         actor_attachment_pose(actor, *node, position, euler);

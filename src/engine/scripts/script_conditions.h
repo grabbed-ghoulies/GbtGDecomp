@@ -26,6 +26,8 @@ void script_queue_event(Game& g, std::span<const u8> message); // Xbox 0x0011681
 u32& scene_word(u32 addr);
 
 u32 cond_u32(const ScriptCond& rec, u32 at);
+// The statistics block from DAT_00512B78 (0x0012AE40 / 0x0012AF10) by retail address.
+i32& script_statistic_at_address(u32 addr);
 
 void cond_put_u32(ScriptCond& rec, u32 at, u32 v);
 

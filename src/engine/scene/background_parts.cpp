@@ -1,4 +1,9 @@
 #include "background_parts.h"
+#include "background_part_destruction.h"
+#include "../entities/actor_live_attachments.h"
+#include "../entities/actor_model_anchors.h"
+#include "../entities/model_binding_selection.h"
+#include "../entities/shape_transform.h"
 #include "../navigation/navigation.h"
 #include "../navigation/grid_regions.h"
 #include "../entities/player_mind_events.h"
@@ -266,5 +271,107 @@ void prepare_background_volume_navigation(const Actor& actor, std::span<Backgrou
             record.attachment->flag = u8(navigation_floor_index(point, -1, 0));
         }
     }
+}
+
+// Xbox 0x00046310, EAX actor
+i32 find_background_shape_part(const Actor& actor, const Vec3& position)
+{
+    if (background_part_header(actor).empty())
+    {
+        return -1;
+    }
+    const u8* block = actor_physical_shape_block(actor); // 0x000424C0
+    if (block == nullptr)
+    {
+        throw Error("0x00046310 reads the part shapes through address zero");
+    }
+    const EntityBonePose* pose = nullptr;
+    if (actor.model != nullptr)
+    {
+        pose = actor.model->alternate_shape_pose; // +0x168
+        if (pose == nullptr)
+        {
+            pose = actor.model->primary_shape_pose; // +0x164
+        }
+    }
+    float best = -1.f; // DAT_0032B120.
+    i32 part = -1;
+    const u8* record = block + 8;
+    while (record != nullptr)
+    {
+        if ((record[4] & 0x40) != 0 && record[0] == 3)
+        {
+            Vec3 center;
+            const float radius = shape_sphere_metrics(*reinterpret_cast<const EntityShapeNode*>(record), actor.xform,
+                pose, center); // 0x00056330
+            const float distance = (center.x - position.x) * (center.x - position.x)
+                + (center.y - position.y) * (center.y - position.y)
+                + (center.z - position.z) * (center.z - position.z);
+            if (!(distance > radius * radius * 16.f) && (0.f > best || best > distance)) // DAT_0032B1F4.
+            {
+                part = std::bit_cast<i32>(read_u32({record, 0x24}, 0x20));
+                best = distance;
+            }
+        }
+        if (record[1] == 0)
+        {
+            break;
+        }
+        record += record[1];
+    }
+    return part;
+}
+
+// Xbox 0x0013B980, EBX position
+bool find_background_part_near(const Vec3& position, std::span<const BackgroundListEntry> backgrounds,
+    u32& background, i32& part)
+{
+    for (const auto& entry : backgrounds)
+    {
+        const i32 found = find_background_shape_part(*entry.actor, position); // 0x00046310
+        if (found != -1)
+        {
+            background = entry.address;
+            part = found;
+            return true;
+        }
+    }
+    return false;
+}
+
+// Xbox 0x00045E50
+void release_background_part_links(std::span<BackgroundAnimationVolume> rows, i32 part)
+{
+    if (part < 0 || size_t(part) >= rows.size())
+    {
+        throw Error("0x00045E50 reads a part row outside actor +0x94C");
+    }
+    auto& row = rows[size_t(part)];
+    const u32 zero = 0;
+    if (row.attachment != nullptr)
+    {
+        release_actor_live_attachment(*row.attachment); // 0x0012B0B0
+        row.attachment = nullptr;
+        std::memcpy(row.fields.data() + 0x14, &zero, 4);
+    }
+    if (row.anchor != nullptr)
+    {
+        release_actor_model_anchor(*row.anchor); // 0x0011BDA0
+        row.anchor = nullptr;
+        std::memcpy(row.fields.data() + 0x18, &zero, 4);
+    }
+    const u16 tag = read_u16(row.fields, 0x10);
+    if (tag != 0)
+    {
+        entity_detail::set_all_navigation_regions_blocked(tag, 0); // 0x001117E0, EBX 0
+    }
+}
+
+// Xbox 0x00046440, EAX part
+void hold_background_part(std::span<BackgroundAnimationVolume> rows, i32 part)
+{
+    release_background_part_links(rows, part); // 0x00045E50
+    const u32 one = 1;
+    std::memcpy(rows[size_t(part)].fields.data() + 0xC, &one, 4);
 }
 }

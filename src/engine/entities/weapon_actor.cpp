@@ -395,10 +395,10 @@ RuntimeBodyContactCallback contact_test(RuntimeWeaponActor& weapon)
     }
     if (read_u32(weapon.bytes, 0x99C) == 0x000C61D0)
     {
-        return [](Actor&, RuntimeSegmentContactActor&, const Vec3&, GhoulySpawnPool*,
-            const RuntimeSegmentContactRecord&, const Vec3&, u16) -> u32
+        return [&weapon](Actor&, RuntimeSegmentContactActor& object, const Vec3& point, GhoulySpawnPool* contacts,
+            const RuntimeSegmentContactRecord&, const Vec3& velocity, u16 word) -> u32
         {
-            untranslated(0x000C61D0, "the bob's contact test (+0x99C)");
+            return test_runtime_bob_contact(weapon, object, point, contacts, velocity, word); // 0x000C61D0
         };
     }
     if (read_u32(weapon.bytes, 0x99C) == 0x000CE5D0)

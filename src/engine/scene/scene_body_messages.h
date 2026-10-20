@@ -15,6 +15,8 @@
 #include "../entities/body_knockdown_state.h"
 #include "../entities/body_pickup_state.h"
 #include "../entities/body_throw_state.h"
+#include "../entities/body_arc_state.h"
+#include "../entities/body_swing_state.h"
 #include "../entities/body_player_death_state.h"
 #include "../entities/body_grabbed_state.h"
 #include <optional>
@@ -126,6 +128,12 @@ struct SceneBodyServices
     RuntimeDialogueActivationContext* dialogue{};
     const i32* frontend_state{};
     std::function<void()> begin_transition{};
+    // The swing state (type 0x78): the DAT_00511B38 actors, the scene cutscene stack, the door room names
+    // (0x001410F0) and a cutscene instance's heap word.
+    std::function<std::vector<RuntimeDirectorActor>()> marks{};
+    std::function<SceneCutsceneRuntime&()> cutscenes{};
+    const RuntimeDoorNames* door_names{};
+    std::function<u32(const void*)> heap_address{};
 };
 
 // One body's message graph: the parent body handler 0x000253B0 and the derived slots of types 0x27
@@ -142,6 +150,8 @@ public:
     RuntimePlayerDeathContext& player_death_context(); // The type 0x69 state's views of this body.
     RuntimeGrabbedStateContext& grabbed_context(); // The type 0x70 state's views of this body.
     RuntimeThrowStateContext& throw_context(); // The type 0x8B state's views of this body.
+    RuntimeArcStateContext& arc_context(); // The type 0x66 state's views of this body.
+    RuntimeSwingStateContext& swing_context(); // The type 0x78 state's views of this body.
     SceneBodyMessages(const SceneBodyMessages&) = delete;
     SceneBodyMessages& operator=(const SceneBodyMessages&) = delete;
     void dispatch(FactoryObject& body, std::span<u32> message);
@@ -174,6 +184,12 @@ private:
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> lift_children_; // 0x7D, 0x0009E9F0.
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> throw_children_; // 0x8B, 0x000A3D20.
     std::optional<RuntimeThrowStateContext> throw_;
+    std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> arc_children_; // 0x66, 0x0008DD30.
+    std::optional<RuntimeArcStateContext> arc_;
+    std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> swing_children_; // 0x78, 0x00098620.
+    std::optional<RuntimeBodyStateContext> swing_shape_;
+    std::optional<RuntimeBodyNextAction> swing_next_;
+    std::optional<RuntimeSwingStateContext> swing_;
     std::optional<RuntimeDieStateContext> die_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> die_children_; // 0x62, 0x0008C4D0.
     std::optional<RuntimeAnimStateContext> anim_;

@@ -942,6 +942,27 @@ void set_save_game_slot(const char16_t* name, u8 slot)
     }
 }
 
+// Xbox 0x0010E5B0
+void store_save_game_challenges(const char16_t* name, const RuntimeProfileBlock& block)
+{
+    SaveSlot* slot = find_save_slot(name);
+    if (slot != nullptr)
+    {
+        engine_copy_bytes(slot->save->challenges->block.bytes.data(), block.bytes.data(),
+            u32(block.size)); // 0x000F71F0, EDX the size, ECX the bytes
+    }
+}
+
+// Xbox 0x0010E2C0
+void clear_save_game_word_184(const char16_t* name)
+{
+    SaveSlot* slot = find_save_slot(name);
+    if (slot != nullptr)
+    {
+        set(slot->save->bytes, save_record_field::unk_184, 0);
+    }
+}
+
 // Xbox 0x0010F2D0
 void mark_save_game_dirty(const char16_t* name)
 {

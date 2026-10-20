@@ -202,6 +202,31 @@ void release_scene_cutscenes(SceneCutsceneRuntime& state)
     }
 }
 
+// Xbox 0x0004EEA0, ECX instance
+void stop_scene_cutscene(RuntimeCutsceneInstance* instance, SceneCutsceneRuntime& state)
+{
+    if (state.index <= 0)
+    {
+        state.stop = 1; // Retail stores the instance pointer; only 0x0004EBD0's nonzero test reads it.
+        return;
+    }
+    for (i32 slot = 0; slot < state.index + 1; ++slot)
+    {
+        if (state.instances[size_t(slot)] != instance)
+        {
+            continue;
+        }
+        release_scene_cutscene_instance(*state.instances[size_t(slot)], state); // 0x0004F050, EBX the instance
+        for (i32 above = slot + 1; above < state.index + 1; ++above)
+        {
+            state.instances[size_t(above - 1)] = state.instances[size_t(above)];
+        }
+        state.instances[size_t(state.index)] = nullptr;
+        --state.index;
+        return;
+    }
+}
+
 // Xbox 0x0004F110
 void update_scene_cutscene_camera_event(float dt, SceneCutsceneRuntime& state)
 {

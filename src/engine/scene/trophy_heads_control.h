@@ -55,6 +55,57 @@ struct TrophyHeadsControlServices
     std::function<void(std::span<const u8>)> create_object; // 0x00107520; the scene keeps the object.
     RuntimePowerupAwardContext& powerups; // 0x00123E70
 };
+// The trophy-heads control's construction parameters (0x108 bytes, 0x000816A0).
+namespace trophy_heads_parameter
+{
+constexpr RetailField<std::array<char, 0x80>, 0x08> cutscene{}; // the heads' clip, 0x00081710 starts it
+constexpr RetailField<std::array<char, 0x80>, 0x88> head_events{}; // copied to trophy_heads_field::head_events
+constexpr u32 kSize = 0x108;
+static_assert(retail_fits(kSize, head_events));
+} // namespace trophy_heads_parameter
+
+// The trophy-heads control's state at its retail offsets (0x188 bytes, 0x000816A0; see docs/RETAIL_LAYOUTS.md).
+// +0x20 is the scene-control base's scene_control_field::elapsed. The words that hold pointers are
+// TrophyHeadsControlState members, noted here by offset.
+namespace trophy_heads_field
+{
+constexpr u32 kSize = 0x188;
+// +0x28 the heads' cutscene instance (0x0004EDA0); message 0x7F names it
+// The player state 2 spawns (0x00134920); 0 once message 0x8E 7 or 8 retires the player.
+constexpr RetailField<u32, 0x02C> player{};
+constexpr RetailField<i32, 0x030> attacks{}; // attacks so far; 0x00082370 gets the count before this one
+// The player's health, carried between attacks: 50 (10 in the alternate modes) at construction, less 10 for each
+// lost challenge (message 0x8E 8). State 2 gives it to the spawned player's body +0x94.
+constexpr RetailField<i32, 0x034> health{};
+// A clip position the tick seeks to (0x0004E4A0) once, then clears. Inferred: nothing here writes it.
+constexpr RetailField<float, 0x040> seek_time{};
+// 0x00081CE0 sets it; 0x00081890 switches on it: 1 the heads' clip plays, 2 an attack, 3 the clip has ended (event
+// 0xAF each tick), 4 its end is near (the award, paused), 5 the last challenge lost.
+constexpr RetailField<u16, 0x044> phase{};
+// The heads that may attack: up to four ids, -1 past the last (0x000821A0).
+constexpr RetailField<std::array<std::int8_t, 4>, 0x046> chosen{};
+// By head id (1..21): set once the head has attacked. Entry 0, which would overlap chosen, is never used.
+constexpr RetailField<std::array<u32, 22>, 0x048> attacked{};
+// By head id (1..21): set while its cutscene row is live after an attack, cleared when the row goes quiet.
+constexpr RetailField<std::array<u32, 22>, 0x09C> roaring{};
+constexpr RetailField<u32, 0x0F4> head_id{}; // the attacking head; read as a byte where a track id is wanted
+// +0xF8 the attacking head's actor
+// Set while the control holds DAT_00510CEC and DAT_004DEA24 down (0x00081710); 0x00081AD0 and message 0x7F
+// give them back.
+constexpr RetailField<u32, 0x100> pause_held{};
+constexpr RetailField<std::array<char, 0x80>, 0x104> head_events{}; // trophy_heads_parameter::head_events
+// Set from challenge bit 1 at construction, and by state 4: the end-of-clip state 4 and its award are done.
+constexpr RetailField<u32, 0x184> challenge_won{};
+static_assert(retail_fits(kSize, challenge_won));
+} // namespace trophy_heads_field
+
+// The two fields 0x00082440 reads in each record of a cutscene events resource.
+namespace cutscene_event_field
+{
+constexpr RetailField<u16, 0x0C> kind{}; // 0 ends the list; DAT_00423630 gives each kind's size
+constexpr RetailField<u16, 0x10> value{}; // kind 0xD: a trophy head's id
+} // namespace cutscene_event_field
+
 // Native state of a trophy-heads control whose retail words are pointers.
 struct TrophyHeadsControlState
 {

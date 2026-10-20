@@ -23,10 +23,10 @@ const float pi = std::bit_cast<float>(0x40490FDBu); // DAT_0032B148.
 const float negative_pi = std::bit_cast<float>(0xC0490FDBu); // DAT_0032B29C.
 const float half_pi = std::bit_cast<float>(0x3FC90FDBu); // DAT_0032B140.
 
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
+namespace field = walk_target_field;
+namespace rows_field = walk_target_rows_field;
+namespace row_field = walk_target_row_field;
+namespace parameter = walk_target_parameter;
 
 void put_float(std::span<u8> bytes, size_t offset, float value)
 {
@@ -212,16 +212,16 @@ void walk_target_object_sizes(ObjectSizes& output)
 // Xbox 0x00091820
 void find_runtime_walk_target_records(std::span<u8> rows, RuntimeBodyStateContext& context)
 {
-    auto& records = walk_target_records[rows.data() - 0x18];
+    auto& records = walk_target_records[rows.data() - field::rows.offset]; // The state that holds the rows.
     for (size_t row = 0; row < 4; ++row)
     {
-        const u32 name_address = read_u32(rows, row * 0x10);
+        const u32 name_address = get(record(rows, rows_field::rows, row), row_field::name);
         const char* name = name_address == 0 ? nullptr
             : reinterpret_cast<const char*>(context.resolve(name_address, 0).data());
         // The 0x0003AAA0 pair: the held actor's +0xDB0 variant first, then the plain name.
-        const AnimationRecord* record = find_runtime_body_animation(name, context.actions);
-        records[row] = record;
-        put_word(rows, row * 0x10 + 4, record != nullptr ? 1 : 0);
+        const AnimationRecord* animation = find_runtime_body_animation(name, context.actions);
+        records[row] = animation;
+        set(record(rows, rows_field::rows, row), row_field::found, animation != nullptr ? 1 : 0);
     }
 }
 
@@ -230,13 +230,15 @@ bool initialize_runtime_walk_target(std::span<u8> state, std::span<const u8> par
     RuntimeBodyStateContext& context)
 {
     const auto body = context.body;
-    std::memcpy(state.data() + 0x18, parameters.data() + 0xC, 0x4C);
-    find_runtime_walk_target_records(state.subspan(0x18, 0x4C), context);
-    std::memcpy(state.data() + 0x70, parameters.data() + 0x5C, 2);
-    std::memcpy(state.data() + 0x72, parameters.data() + 0x5E, 2);
-    put_word(state, 0x6C, read_u32(parameters, 0x58));
-    put_word(state, 0x74, 0xFFFFFFFFu);
-    put_word(state, 0x78, 0);
+    const auto rows = record(state, field::rows);
+    const auto source = record(parameters, parameter::rows);
+    std::memcpy(rows.data(), source.data(), rows.size());
+    find_runtime_walk_target_records(rows, context);
+    set(state, field::arrived_key, get(parameters, parameter::arrived_key));
+    set(state, field::stopped_key, get(parameters, parameter::stopped_key));
+    set(state, field::settle_turn, get(parameters, parameter::settle_turn));
+    set(state, field::direction, 0xFFFFFFFFu);
+    set(state, field::band, 0);
     put_float(body, 0x71C, std::bit_cast<float>(0x3F0EFA35u)); // DAT_0032B220.
     put_float(body, 0x720, std::bit_cast<float>(0x40F5BE0Cu)); // DAT_0032B554.
     put_float(body, 0x724, 4.f); // DAT_0032B1B0.
@@ -251,7 +253,7 @@ bool initialize_runtime_walk_target(std::span<u8> state, std::span<const u8> par
     body[0x38] = 1;
     body[0x39] = 1;
     context.bits->bytes[6] |= 0x80;
-    put_float(state, 0x64, 1.f); // DAT_0032B0F8.
+    set(state, field::arrival_delay, 1.f); // DAT_0032B0F8.
     return true;
 }
 
@@ -330,7 +332,8 @@ i32 runtime_walk_target_band(std::span<const u8> rows, RuntimeWalkTargetTick& co
     }
     for (i32 band = 0; band < 2; ++band)
     {
-        if (fraction > read_f32(rows, 0x40 + size_t(band) * 4) && read_f32(rows, 0x44 + size_t(band) * 4) >= fraction)
+        const auto limits = get(rows, rows_field::band_limits);
+        if (fraction > limits.at(size_t(band)) && limits.at(size_t(band) + 1) >= fraction)
         {
             return band;
         }
@@ -405,7 +408,7 @@ void aim_runtime_walk_target(std::span<const u8> state, RuntimeWalkTargetTick& c
     put_float(body, 0x734, 0.f);
     put_float(body, 0x72C, 0.f);
     put_float(body, 0x730, facing);
-    if (read_u32(state, 0x6C) != 0)
+    if (get(state, field::settle_turn) != 0)
     {
         settle_runtime_body_turn(body, context.actor); // 0x00134720, ESI body.
     }
@@ -415,9 +418,9 @@ void aim_runtime_walk_target(std::span<const u8> state, RuntimeWalkTargetTick& c
 // Xbox 0x000A6280
 void select_runtime_walk_target_row(std::span<u8> state, RuntimeWalkTargetTick& context)
 {
-    const i32 band = runtime_walk_target_band(state.subspan(0x18, 0x4C), context);
+    const i32 band = runtime_walk_target_band(record(state, field::rows), context);
     const u32 direction = runtime_walk_target_direction(context);
-    if (read_u32(state, 0x78) != u32(band) || read_u32(state, 0x74) != direction)
+    if (get(state, field::band) != u32(band) || get(state, field::direction) != direction)
     {
         const u32 row = direction + u32(band) * 2;
         const AnimationRecord* record = runtime_walk_target_record(state, row); // State +0x1C + row * 0x10.
@@ -428,21 +431,22 @@ void select_runtime_walk_target_row(std::span<u8> state, RuntimeWalkTargetTick& 
         }
         start_runtime_body_animation_record(*record, context.actions);
     }
-    put_word(state, 0x78, u32(band));
-    put_word(state, 0x74, direction);
+    set(state, field::band, u32(band));
+    set(state, field::direction, direction);
 }
 
 // Xbox 0x000918C0
 float runtime_walk_target_rate(std::span<const u8> rows, u32 direction, u32 band, float speed,
     RuntimeWalkTargetTick& context)
 {
-    const size_t row = size_t(direction + band * 2) * 0x10;
-    const float lower_rate = read_f32(rows, row + 8);
-    const float upper_rate = read_f32(rows, row + 0xC);
+    const auto row = record(rows, rows_field::rows, size_t(direction + band * 2));
+    const float lower_rate = get(row, row_field::lower_rate);
+    const float upper_rate = get(row, row_field::upper_rate);
     const float scale = surface_mode_scale(context.body, context.mode_scales);
     const float base = runtime_body_step_speed(context.body, context.actor, context.tables) * scale;
-    const float lower = read_f32(rows, 0x40 + size_t(band) * 4) * base;
-    const float upper = read_f32(rows, 0x44 + size_t(band) * 4) * base;
+    const auto limits = get(rows, rows_field::band_limits);
+    const float lower = limits.at(band) * base;
+    const float upper = limits.at(size_t(band) + 1) * base;
     if (upper == lower)
     {
         return upper_rate;
@@ -478,8 +482,8 @@ void retime_runtime_walk_target(std::span<const u8> state, RuntimeWalkTargetTick
     float duration;
     if (!runtime_body_stride_duration(speed, context.actor, context.actions.animation, duration))
     {
-        const float rate = runtime_walk_target_rate(state.subspan(0x18, 0x4C), read_u32(state, 0x74),
-            read_u32(state, 0x78), speed, context);
+        const float rate = runtime_walk_target_rate(record(state, field::rows), get(state, field::direction),
+            get(state, field::band), speed, context);
         duration = rate * runtime_body_turn_ratio(context.body, context.actor, 0, context.tables,
             context.mode_scales);
     }
@@ -501,7 +505,7 @@ void settle_runtime_walk_target(std::span<u8> state, RuntimeWalkTargetTick& cont
     const float vy = read_f32(body, 0x31C);
     const float vz = read_f32(body, 0x320);
     const bool alert = !context.mind.empty() && context.mind[0x20] != 0;
-    if (!alert && read_f32(state, 0x64) == 0.f) // DAT_0032B100.
+    if (!alert && get(state, field::arrival_delay) == 0.f) // DAT_0032B100.
     {
         // x87: body +0x730 - actor +0x18, stored as a float.
         const float turn = float(static_cast<long double>(read_f32(body, 0x730))
@@ -509,8 +513,8 @@ void settle_runtime_walk_target(std::span<u8> state, RuntimeWalkTargetTick& cont
         const float magnitude = animation_absolute(wrap_signed(turn));
         if (std::bit_cast<float>(0x3E860A92u) >= magnitude) // DAT_0032B340.
         {
-            put_word(state, 0x68, 1);
-            std::memcpy(state.data() + 0xC, state.data() + 0x70, 2);
+            set(state, field::arrived, 1);
+            set(state, body_state_field::next_key, get(state, field::arrived_key));
         }
         return;
     }
@@ -521,7 +525,7 @@ void settle_runtime_walk_target(std::span<u8> state, RuntimeWalkTargetTick& cont
         * std::bit_cast<float>(0x3C23D70Au); // DAT_0032B124.
     if (desired == 0.f && threshold * threshold >= actor_speed)
     {
-        std::memcpy(state.data() + 0xC, state.data() + 0x72, 2);
+        set(state, body_state_field::next_key, get(state, field::stopped_key));
     }
 }
 
@@ -529,15 +533,15 @@ void settle_runtime_walk_target(std::span<u8> state, RuntimeWalkTargetTick& cont
 void tick_runtime_walk_target(std::span<u8> state, RuntimeWalkTargetTick& context)
 {
     const float step = runtime_actor_rate(context.actor) * runtime_frame_step(context.clock);
-    put_float(state, 0x10, step + read_f32(state, 0x10));
-    const float timer = read_f32(state, 0x64);
+    set(state, body_state_field::elapsed, step + get(state, body_state_field::elapsed));
+    const float timer = get(state, field::arrival_delay);
     if (timer > 0.f)
     {
         const float left = timer - runtime_actor_rate(context.actor) * runtime_frame_step(context.clock);
-        put_float(state, 0x64, left);
+        set(state, field::arrival_delay, left);
         if (0.f >= left)
         {
-            put_float(state, 0x64, 0.f);
+            set(state, field::arrival_delay, 0.f);
         }
     }
     if (const u32 target = alert_mind_target(context.mind); target != 0)
@@ -554,8 +558,8 @@ void tick_runtime_walk_target(std::span<u8> state, RuntimeWalkTargetTick& contex
 // Xbox 0x00091F70
 u16 runtime_walk_target_next_key(std::span<const u8> state, ActorAnimationState& animation)
 {
-    const u16 key = read_u16(state, 0xC);
-    if (key != 0 && read_u32(state, 0x68) != 0)
+    const u16 key = get(state, body_state_field::next_key);
+    if (key != 0 && get(state, field::arrived) != 0)
     {
         animation.retain_position = 1; // State +8 -> body +8 -> actor +0x84.
     }

@@ -74,6 +74,7 @@ public:
     void place_scene_camera(const Vec3& position, const Vec3& euler); // Xbox 0x0013D250, ESI position, stack euler
     u32 find_actor_by_id(u16 key) const; // Xbox 0x00129ED0 over DAT_00511AA4: the actor address, or 0.
     void activate_actor(u32 address); // Xbox 0x00112CC0, ESI actor.
+    void queue_aid_spawns(const char* name); // Xbox 0x000F4E50 with the scene's resource registry, EAX name.
     // Script type 0x9F's walk of DAT_00511B38: 0x000F96F0 (AL value, stack slot) on the +0x204 and +0x310 models
     // of every actor whose +6 tag matches.
     void set_tagged_actor_model_nodes(u16 tag, u8 slot, u8 value);
@@ -84,6 +85,9 @@ public:
     void place_script_player(const Vec3& position, const Vec3& euler);
     const std::unordered_map<u32, Actor*>& actor_addresses() const; // Retail actor address -> native actor.
     size_t player_total() const;
+    // Host inspection: the factory types of a player's body actions (body +0x314 and +0x744), by its actor, and
+    // the second action's bytes.
+    std::pair<u16, u16> player_action_types(const Actor& actor, std::span<const u8>* second = nullptr) const;
     // Script type 0x6F (0x00127BC0) over the scene's player link and actor graph: 0 holds, 2 continues.
     int wait_script_player() const;
     // The frame's views (0x00033A20). Each active camera slot sets its display, then records its actor bins

@@ -138,6 +138,99 @@ bool remove_runtime_scoreboard_message(u32 id, RuntimeScoreboard& board, Animati
     return false;
 }
 
+// Xbox 0x00131920, ECX id
+bool set_runtime_scoreboard_icon(u32 id, u32 index, RuntimeScoreboard& board, RuntimeScoreboardResources& context)
+{
+    if (id == 0)
+    {
+        return false;
+    }
+    for (auto& message : board.messages)
+    {
+        if (message.id != id)
+        {
+            continue;
+        }
+        message.float_c = 2.f; // DAT_0032B110.
+        if (message.icon == index)
+        {
+            return false;
+        }
+        release_animation_resource(context.registry, message.texture); // 0x00035C00, EBX the old texture
+        message.texture = {};
+        message.icon = index;
+        acquire_runtime_scoreboard_icon(index, message.texture, context); // 0x00131BD0, EAX index
+        if (message.texture.data() == nullptr)
+        {
+            throw Error("0x00131920 reads a missing scoreboard icon's width through address zero");
+        }
+        message.width = read_u16(message.texture, 8);
+        message.scaled_width = float(i32(message.width)) * board.icon_scale;
+        return true;
+    }
+    return false;
+}
+
+// Xbox 0x00131A30, AX tag
+u32 runtime_scoreboard_tag_icon(u16 tag)
+{
+    switch (tag)
+    {
+    case 0xC:
+        return 0x21;
+    case 0x10:
+        return 0x22;
+    case 0x11:
+        return 0x23;
+    case 0x12:
+    case 0x13:
+        return 0x24;
+    case 0x14:
+        return 0x25;
+    case 0x15:
+        return 0x26;
+    case 0x16:
+        return 0x27;
+    case 0x17:
+    case 0x18:
+    case 0x1D:
+        return 0x28;
+    case 0x19:
+        return 0x29;
+    case 0x1A:
+        return 0x2A;
+    case 0x1B:
+    case 0x1C:
+        return 0x2B;
+    case 0x1E:
+        return 0x2C;
+    case 0x1F:
+        return 0x2D;
+    case 0x22:
+        return 0x2E;
+    case 0x23:
+        return 0x2F;
+    case 0x24:
+        return 0x30;
+    case 0x25:
+        return 0x31;
+    case 0x34:
+        return 0x32;
+    case 0x36:
+        return 0x33;
+    case 0x38:
+        return 0x34;
+    case 0x39:
+        return 0x35;
+    case 0x3A:
+        return 0x36;
+    case 0x3C:
+        return 0x37;
+    default:
+        return 0;
+    }
+}
+
 // Xbox 0x001318A0
 u32 set_runtime_scoreboard_count(u32 id, i32 count, RuntimeScoreboard& board, std::span<const u8> preset)
 {

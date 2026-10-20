@@ -85,7 +85,7 @@ bool runtime_skeleton_delay_runs(RuntimeSkeletonStrategy& context)
     {
         return false;
     }
-    return read_u16(strategy_of(context), 0xE) != 0x405;
+    return get(strategy_of(context), strategy_field::state) != 0x405;
 }
 
 // Xbox 0x000C0170
@@ -181,15 +181,16 @@ u16 choose_runtime_skeleton_attack(const RuntimeMindTarget& target, RuntimeSkele
     {
         return 0x3EF;
     }
-    if (read_f32(strategy, 0x3C) == 0.f && roll_runtime_actor_attack(context.checks.attributes, goals.random)
-        && read_u32(strategy, 0x38) == 0)
+    if (get(strategy, skeleton_strategy_field::fetch_delay) == 0.f
+        && roll_runtime_actor_attack(context.checks.attributes, goals.random)
+        && get(strategy, skeleton_strategy_field::no_spawn_in_reach) == 0)
     {
         float distance;
         if (find_runtime_player_nearest_spawn(goals.entry.actor, &distance, 0x17) == nullptr)
         {
-            put(strategy, 0x38, 1);
+            set(strategy, skeleton_strategy_field::no_spawn_in_reach, 1);
         }
-        put_float(strategy, 0x3C, context.fetch_delay);
+        set(strategy, skeleton_strategy_field::fetch_delay, context.fetch_delay);
         return 0x405;
     }
     if (runtime_mind_target_requires_action(target, context.views.body_of(target.actor).bytes))
@@ -250,7 +251,7 @@ void dispatch_runtime_skeleton_message(std::span<const u32> message, RuntimeSkel
         {
             clear_runtime_player_mind_requests(*goals.setup.mind);
         }
-        if (retaliated != 0 || read_u16(strategy, 0xE) == 0x405)
+        if (retaliated != 0 || get(strategy, strategy_field::state) == 0x405)
         {
             return;
         }
@@ -274,19 +275,19 @@ void update_runtime_skeleton_strategy(RuntimeSkeletonStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> strategy = strategy_of(context);
-    const u16 state = read_u16(strategy, 0xE);
+    const u16 state = get(strategy, strategy_field::state);
     update_runtime_base_strategy(goals);
     if (runtime_skeleton_delay_runs(context))
     {
         const float step = runtime_frame_step(goals.clock);
-        const float delay = read_f32(strategy, 0x3C);
+        const float delay = get(strategy, skeleton_strategy_field::fetch_delay);
         if (0.f < delay)
         {
             const float remaining = delay - step;
-            put_float(strategy, 0x3C, remaining);
+            set(strategy, skeleton_strategy_field::fetch_delay, remaining);
             if (remaining <= 0.f)
             {
-                put_float(strategy, 0x3C, 0.f);
+                set(strategy, skeleton_strategy_field::fetch_delay, 0.f);
             }
         }
     }

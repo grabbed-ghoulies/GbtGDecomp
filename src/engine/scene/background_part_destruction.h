@@ -35,4 +35,7 @@ std::span<const u8> background_part_header(const Actor& actor);
 // its stage.
 void dispatch_background_part_destruction(Actor& actor, i32 part, const Vec3& source, u32 value,
     BackgroundPartDestruction& context); // Xbox 0x00045170
+// 0x00045CB0, then 0x00045170 when the part can break; `zero` serves the part header reads through address zero.
+void break_background_part_if_ready(Actor& actor, i32 part, const Vec3& source, u32 value, std::span<const u8> zero,
+    BackgroundPartDestruction& context); // Xbox 0x00045D40, EDI actor, ESI part
 }

@@ -321,6 +321,7 @@ NativeActorFactoryInstance& NativeActorFactoryOwner::construct_view(FactoryObjec
 {
     auto instance = std::make_unique<NativeActorFactoryInstance>();
     instance->bytes = {object.bytes.get(), object.size};
+    instance->startup.attachments.pending = &instance->pending; // Actor +0x1B4.
     Actor& actor = instance->bat.actor;
     actor.class_key = read_u16(std::span<const u8>(object.bytes.get(), object.size), 6);
     actor.link = &instance->bind; // Retail embedded actor+0x918 link.

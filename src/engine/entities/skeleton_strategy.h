@@ -1,6 +1,7 @@
 #pragma once
 #include "strategy_target_queue.h"
 #include "strategy_target_selection.h"
+#include "strategy_fields.h"
 
 namespace gbtg
 {
@@ -8,6 +9,12 @@ namespace gbtg
 // Its constructor is the shared 0x000CFFD0 and its destructor the empty 0x001628B0.
 // Strategy bytes: +0x1A attacking, +0x1C pause count, +0x20 target queue link, +0x38 no spawn in reach,
 // +0x3C the delay before the next weapon fetch (state 0x405).
+// The skeleton's own strategy fields at their retail offsets, after the base strategy's.
+namespace skeleton_strategy_field
+{
+constexpr RetailField<u32, 0x38> no_spawn_in_reach{}; // set by 0x000C0430 when no weapon spawn is in reach
+constexpr RetailField<float, 0x3C> fetch_delay{}; // the delay before the next weapon fetch (state 0x405)
+} // namespace skeleton_strategy_field
 struct RuntimeSkeletonStrategy
 {
     RuntimeBaseStrategyMessages& base; // Base goals, entry and strategy link (+0x20).

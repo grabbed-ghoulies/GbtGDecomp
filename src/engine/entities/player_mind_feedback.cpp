@@ -320,7 +320,8 @@ void track_runtime_player_mind_source(std::span<u8> mind,
 {
     if (present != 0)
     {
-        const u8 state = body_state == nullptr ? 0 : (*body_state)[3];
+        // Body +0x84 zero (an empty view) reads as 0.
+        const u8 state = body_state == nullptr || body_state->empty() ? 0 : (*body_state)[3];
         if (state == 3 || state == 5 ||
             (read_u32(mind, 0x84) != 0 && source != read_u32(mind, 0x84)))
         {

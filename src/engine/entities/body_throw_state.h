@@ -3,6 +3,7 @@
 #include "body_state_actions.h"
 #include "actor_clock.h"
 #include "player_attachment.h"
+#include "body_state_fields.h"
 #include "../frontend/dialogue_input.h"
 
 namespace gbtg
@@ -33,6 +34,41 @@ struct RuntimeThrowStateContext
     const RuntimeDialogueInputState& input_state;
     u32& random; // DAT_0054DD7C.
 };
+// The throw state's parameters (0x2C bytes, 0x000A37D0).
+namespace throw_state_parameter
+{
+constexpr RetailField<u32, 0x0C> aim_mode{};
+constexpr RetailField<float, 0x10> spread{};
+constexpr RetailField<float, 0x14> near_range{};
+constexpr RetailField<float, 0x18> aim_angle_degrees{}; // times pi / 180 (DAT_0032B0FC) into the state's aim_angle
+constexpr RetailField<u16, 0x1C> end_key{};
+constexpr RetailField<u32, 0x20> turn_to_aim{};
+constexpr RetailField<u32, 0x24> smooth_launch{};
+constexpr RetailField<u32, 0x28> settle_turn{};
+constexpr u32 kSize = 0x2C;
+static_assert(retail_fits(kSize, settle_turn));
+} // namespace throw_state_parameter
+// The throw state's own fields at their retail offsets (0x68 bytes), after the body-state base (body_state_field).
+namespace throw_state_field
+{
+constexpr RetailField<Vec3, 0x18> entry_euler{}; // the actor's euler at entry (0x00041820)
+constexpr RetailField<Vec3, 0x24> aim{};
+constexpr RetailField<Vec3, 0x30> launch{}; // eased toward aim while smooth_launch is set
+constexpr RetailField<u32, 0x3C> launch_seeded{}; // set once launch has been copied from aim
+constexpr RetailField<float, 0x40> near_range{};
+constexpr RetailField<u32, 0x44> thrown{};
+constexpr RetailField<u32, 0x48> turn_to_aim{};
+constexpr RetailField<u32, 0x4C> smooth_launch{};
+constexpr RetailField<u32, 0x50> settle_turn{};
+constexpr RetailField<float, 0x54> aim_angle{}; // radians, added to the actor's yaw
+// 0..2 at the target's height, 3 along the right stick, 4 at the weapon's height.
+constexpr RetailField<u32, 0x58> aim_mode{};
+constexpr RetailField<float, 0x5C> spread{}; // the launch point's sideways spread (0x000A3FE0)
+constexpr RetailField<u16, 0x60> end_key{}; // next_key when the throw ends; 0 for body slot 0x20's
+constexpr RetailField<u32, 0x64> ended{}; // set when the animation has ended
+constexpr u32 kSize = 0x68;
+static_assert(retail_fits(kSize, ended));
+} // namespace throw_state_field
 void throw_state_object_sizes(ObjectSizes& output); // Xbox 0x000A37D0
 bool initialize_runtime_throw_state(std::span<u8> state, std::span<const u8> parameters,
     RuntimeThrowStateContext& context); // Xbox 0x000A3850

@@ -59,6 +59,17 @@ std::span<const u8> background_part_header(const Actor& actor)
     return cpu.subspan(address);
 }
 
+// Xbox 0x00045D40, EDI actor, ESI part
+void break_background_part_if_ready(Actor& actor, i32 part, const Vec3& source, u32 value, std::span<const u8> zero,
+    BackgroundPartDestruction& context)
+{
+    const std::span<const BackgroundAnimationVolume> live(context.removal.volumes.data(), size_t(context.row_count));
+    if (background_part_can_be_destroyed(actor, live, part, zero)) // 0x00045CB0, EAX part, EDX actor
+    {
+        dispatch_background_part_destruction(actor, part, source, value, context); // 0x00045170
+    }
+}
+
 // Xbox 0x00045170
 void dispatch_background_part_destruction(Actor& actor, i32 part, const Vec3& source, u32 value,
     BackgroundPartDestruction& context)

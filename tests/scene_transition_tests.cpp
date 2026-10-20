@@ -12,6 +12,9 @@
 #include "../src/engine/saves/save_root.h"
 #include "../src/engine/saves/xdk_saves.h"
 #include "../src/engine/scripts/script_conditions.h"
+#include "../src/engine/scripts/script_event_sequence.h"
+#include "../src/engine/entities/bg_break_key.h"
+#include "../src/engine/entities/ghouly_bg_break_setup.h"
 #include "gbtg/gfx.h"
 #include "gbtg/anim.h"
 #include "gbtg/loctext.h"
@@ -144,6 +147,8 @@
 #include "../src/engine/transitions/scene_transition.h"
 #include "../src/engine/transitions/scene_transitions.h"
 #include "../src/engine/scripts/script_conditions.h"
+#include "../src/engine/entities/bg_break_key.h"
+#include "../src/engine/entities/ghouly_bg_break_setup.h"
 
 #include <cstring>
 #include <bit>
@@ -886,6 +891,8 @@ void check_spawn_effect_stream()
     }
     Actor actor;
     ActorAttachmentList attachments;
+    ActorAttachmentNode pending{};
+    attachments.pending = &pending; // Actor +0x1B4, where 0x0003D1B0 links new nodes.
     auto* attachment = create_actor_joint_attachment(attachments, "aid_effect_test", 0, -1, &options);
     Vec3 position;
     std::memcpy(&position, attachment->bytes.data() + 0xA8, sizeof(position));
@@ -914,10 +921,12 @@ void check_spawn_effect_stream()
         }, 3, nullptr);
     ActorAttachmentList active_attachments{};
     ActorAttachmentList pending_attachments{};
-    auto* retained = create_actor_joint_attachment(pending_attachments,
+    // Requests take the +0x1AC list and link into its pending view (+0x1B4).
+    active_attachments.pending = &pending_attachments.sentinel;
+    auto* retained = create_actor_joint_attachment(active_attachments,
         attachment_script.name.c_str(), 7, -1, &options);
-    create_actor_joint_attachment(pending_attachments, "plain_rejected", 0, -1, nullptr);
-    create_actor_joint_attachment(pending_attachments,
+    create_actor_joint_attachment(active_attachments, "plain_rejected", 0, -1, nullptr);
+    create_actor_joint_attachment(active_attachments,
         attachment_script.name.c_str(), 8, -1, &options);
     actor.position = Vec3{10.f, 20.f, 30.f};
     actor.euler = Vec3{0.1f, 0.2f, 0.3f};
@@ -2586,6 +2595,8 @@ void check_spawn_receiver_dependencies()
     source.spawn_point_count = 1;
     ActorAnimationState animation;
     RuntimeActorStartupState state{controller.actor, animation};
+    ActorAttachmentNode pending{};
+    state.attachments.pending = &pending; // Actor +0x1B4.
     ActorLink link;
     link.actor = &controller.actor;
     controller.actor.link = &link;
@@ -4102,6 +4113,7 @@ void check_actor_loading()
         ModelAnimationState model;
         ActorAttachmentList attachments;
         ActorAttachmentNode pending{};
+        attachments.pending = &pending; // Actor +0x1B4.
         entity_detail::ListHead anchors;
         ActorFrameState frame{actor, animation, model, attachments, pending, nullptr, anchors,
             0, {}, {}, 0.f, 0};
@@ -7840,13 +7852,36 @@ void pass_chapter_title(gbtg::Game& game, const std::string& label, const std::s
         : "'s transition ends without a chapter title\n");
 }
 
+// The live rare books: FX anim emitters (type 0xD) holding powerup kind 1 (+0x940) past their start (+0x93C 1 or 2).
+// 0x00109FC0 starts none when the save's challenge bit (+0x3C0 of its parameters) is set.
+int count_rare_books(const gbtg::Game& game)
+{
+    int books = 0;
+    for (const auto& object : game.factory_scene->objects)
+    {
+        if (object.type != 0xD || object.bytes == nullptr || object.size < 0x950)
+        {
+            continue;
+        }
+        const std::span<const gbtg::u8> bytes{object.bytes.get(), object.size};
+        const gbtg::u32 state = gbtg::read_u32(bytes, 0x93C);
+        if (gbtg::read_u32(bytes, 0x940) == 1 && (state == 1 || state == 2))
+        {
+            std::cout << "rare book: challenge " << gbtg::read_u32(bytes, 0x94C) << ", state " << state
+                      << ", profile challenges " << int(gbtg::g_runtime_profile.challenges.bytes[0]) << "\n";
+            ++books;
+        }
+    }
+    return books;
+}
+
 // Scene 3 (chapter1_scene3_1playcam, "Player Enters Room"), from the end of its transition: Cooper's walk-in cutscene
 // (script type 0x53) and the door cutscene play, A closes Crivens' pages, Cooper spawns at the player marker (the
 // walk-in's 0x00127FF0) and "Free Play" holds on its conditions (the trophy's ObjectPickedUp and the skeletons'
 // GhoulyTriggered). Passive, the run holds in Free Play for 600 frames with the sticks centred (the skeletons stay
 // asleep); driven, it walks Cooper to the nearest live skeleton (strategy type 0x51) and flicks the right stick in
-// reach.
-void play_scene3_run(gbtg::Game& game, bool drive)
+// reach. `book` 1 requires the rare book at Free Play, 0 requires it absent (its challenge already won), -1 neither.
+void play_scene3_run(gbtg::Game& game, bool drive, int book)
 {
     std::string title = game.scene_name;
     const std::string scene_script = game.scene_script.name;
@@ -8215,6 +8250,13 @@ void play_scene3_run(gbtg::Game& game, bool drive)
             if (title == "Free Play")
             {
                 free_play = frame;
+                const int books = count_rare_books(game);
+                std::cout << "scene3 frame " << frame << ": " << books << " rare book(s) at Free Play\n";
+                if (book >= 0 && (books > 0) != (book == 1))
+                {
+                    throw gbtg::Error(book == 1 ? "scene 3 starts Free Play with no rare book"
+                        : "scene 3 spawned the rare book although its challenge (bit 1) is won");
+                }
             }
         }
         if (frame % 300 == 0 || (free_play >= 0 && (frame - free_play) % 60 == 59 && frame - free_play < 1200))
@@ -8285,13 +8327,615 @@ void play_scene3_run(gbtg::Game& game, bool drive)
                  "player camera\n";
 }
 
-// A stop inside the scene is reported before the game is torn down: the teardown of a scene stopped mid-frame can
-// raise again (its actors' release messages reach views that are not translated yet), which would terminate the run.
-void play_scene3(gbtg::Game& game, bool drive)
+// The actor at an object, through the scene's retail address map; null when it has none.
+const gbtg::Actor* actor_of_object(gbtg::Game& game, const gbtg::FactoryObject& object)
+{
+    const auto& addresses = game.factory_scene->start_actors(game).actor_addresses();
+    const auto found = addresses.find(game.factory_scene->address_of(object.bytes.get()));
+    return found == addresses.end() ? nullptr : found->second;
+}
+
+// Every scene object with an actor: its factory type, class key and position.
+void log_scene_objects(gbtg::Game& game, const std::string& label, int frame)
+{
+    for (const auto& object : game.factory_scene->objects)
+    {
+        if (object.bytes == nullptr)
+        {
+            continue;
+        }
+        const gbtg::Actor* actor = actor_of_object(game, object);
+        if (actor == nullptr)
+        {
+            continue;
+        }
+        const gbtg::Vec3 at = gbtg::actor_world_position(*actor);
+        std::cout << label << " frame " << frame << ": object type 0x" << std::hex << object.type << " class 0x"
+                  << actor->class_key << std::dec << " at " << at.x << ", " << at.y << ", " << at.z << "\n";
+    }
+}
+
+// Scene 4_2's breakables: the bg-break keys (type 0x1E), the bg-break setups (type 0x24) and Cooper.
+void log_scene4_breakables(gbtg::Game& game, const std::string& label, int frame)
+{
+    namespace key = gbtg::bg_break_key_field;
+    namespace setup = gbtg::ghouly_bg_break_field;
+    if (const auto* steps = gbtg::g_event_sequence.steps; steps != nullptr)
+    {
+        std::cout << label << " frame " << frame << ": event state " << gbtg::g_event_sequence_state << ", steps";
+        for (const gbtg::u8* step = steps->begin; step < steps->end; step += steps->stride)
+        {
+            std::cout << " " << gbtg::read_u32({step, 0x88}, 0);
+        }
+        std::cout << "\n";
+    }
+    for (const auto& object : game.factory_scene->objects)
+    {
+        if (object.bytes == nullptr || (object.type != 0x1E && object.type != 0x24 && object.type != 5))
+        {
+            continue;
+        }
+        const std::span<const gbtg::u8> bytes{object.bytes.get(), object.size};
+        const gbtg::Actor* actor = actor_of_object(game, object);
+        std::cout << label << " frame " << frame << ": type 0x" << std::hex << object.type << std::dec;
+        if (actor != nullptr)
+        {
+            const gbtg::Vec3 at = gbtg::actor_world_position(*actor);
+            std::cout << " at " << at.x << ", " << at.y << ", " << at.z;
+        }
+        if (object.type == 0x1E)
+        {
+            std::cout << " background 0x" << std::hex << gbtg::get(bytes, key::background) << std::dec << " part "
+                      << gbtg::get(bytes, key::part) << " armed " << gbtg::get(bytes, key::armed) << " active "
+                      << gbtg::get(bytes, key::active);
+        }
+        else if (object.type == 0x24)
+        {
+            std::cout << " box '" << gbtg::field_data(bytes, setup::box) << "' background 0x" << std::hex
+                      << gbtg::get(bytes, setup::background) << std::dec << " part " << gbtg::get(bytes, setup::part)
+                      << " broken " << gbtg::get(bytes, setup::broken) << " radius " << gbtg::get(bytes, setup::radius)
+                      << " grouped " << gbtg::get(bytes, setup::grouped) << " hold " << gbtg::get(bytes, setup::hold_part);
+        }
+        std::cout << "\n";
+    }
+}
+
+// Steers Cooper with the camera-relative left stick: it learns the offset between the stick's angle and the
+// direction Cooper actually moved, as scene 3's driver does.
+struct StickSteering
+{
+    std::optional<gbtg::Vec3> last;
+    std::optional<float> commanded;
+    float offset = 0.f;
+    // The stick angle toward `goal`, after learning from the last move.
+    float angle(const gbtg::Vec3& cooper, const gbtg::Vec3& goal)
+    {
+        if (last && commanded)
+        {
+            const float mx = cooper.x - last->x;
+            const float mz = cooper.z - last->z;
+            if (mx * mx + mz * mz > 0.01f)
+            {
+                offset += std::remainder(std::atan2(mx, mz) - (*commanded + offset), 6.2831853f) * 0.5f;
+            }
+        }
+        last = cooper;
+        commanded.reset();
+        return std::atan2(goal.x - cooper.x, goal.z - cooper.z) - offset;
+    }
+    void walk(gbtg::InputState& input, float stick)
+    {
+        input.pads[0].lx = gbtg::i16(std::sin(stick) * 32767.f);
+        input.pads[0].ly = gbtg::i16(-std::cos(stick) * 32767.f);
+        commanded = stick;
+    }
+};
+
+// Scene 4 (chapter1_scene4_1book, "Partner and the False Fireplace"), from the end of its transition: A closes each
+// page, and the run logs its titles and scripts and captures every 300 frames until the script moves on.
+void play_scene4_run(gbtg::Game& game, const std::string& label, bool drive)
+{
+    std::string title = game.scene_name;
+    const std::string scene_script = game.scene_script.name;
+    auto& actors = game.factory_scene->start_actors(game);
+    int pages = 0;
+    bool page_up = false;
+    int page_frame = -1;
+    int moved_on = -1;
+    StickSteering steering;
+    int key_out = -1;
+    for (int frame = 0; frame < 12000 && moved_on < 0; ++frame)
+    {
+        gbtg::InputState input;
+        const bool page = game.script_dialogue != nullptr && game.script_dialogue->dialogue.state.mode != 0;
+        input.accept = page && frame % 30 < 5;
+        // Driven: once the challenge runs, Cooper walks to the key's background part (the bg-break key, type 0x1E,
+        // sits beside it) and swings at it until it breaks; after the key's show, into the exit volume.
+        std::optional<gbtg::Vec3> cooper;
+        for (const auto& mark : actors.marked_actors())
+        {
+            if (mark.actor != nullptr && mark.actor->class_key == 4)
+            {
+                cooper = gbtg::actor_world_position(*mark.actor);
+            }
+        }
+        std::optional<gbtg::Vec3> key_at;
+        bool key_active = false;
+        for (const auto& object : game.factory_scene->objects)
+        {
+            if (object.type == 0x1E && object.bytes != nullptr)
+            {
+                const std::span<const gbtg::u8> bytes{object.bytes.get(), object.size};
+                key_active = gbtg::get(bytes, gbtg::bg_break_key_field::active) != 0;
+                if (const gbtg::Actor* actor = actor_of_object(game, object); actor != nullptr)
+                {
+                    key_at = gbtg::actor_world_position(*actor);
+                }
+            }
+        }
+        if (key_active && key_out < 0)
+        {
+            key_out = frame;
+            std::cout << label << " frame " << frame << ": the key comes out\n";
+        }
+        if (key_out >= 0 && (frame - key_out) % 20 == 0 && frame - key_out <= 140)
+        {
+            capture_readback("cache/" + label + "_key_" + std::to_string(frame - key_out) + ".bmp");
+        }
+        if (drive && !page && cooper && title != "Exit Door Closes" && key_out < 0 && key_at)
+        {
+            const float dx = key_at->x - cooper->x;
+            const float dz = key_at->z - cooper->z;
+            const float stick = steering.angle(*cooper, *key_at);
+            if (dx * dx + dz * dz > 18.f * 18.f)
+            {
+                steering.walk(input, stick);
+            }
+            else if ((frame / 8) % 2 == 0)
+            {
+                // The mind's stick gesture (0x0007D5A0) swings when the stick comes back after a push.
+                input.pads[0].rx = gbtg::i16(std::sin(stick) * 32767.f);
+                input.pads[0].ry = gbtg::i16(-std::cos(stick) * 32767.f);
+            }
+            if (frame % 120 == 0)
+            {
+                std::cout << label << " frame " << frame << ": Cooper at " << cooper->x << ", " << cooper->z
+                          << ", the key's part " << std::sqrt(dx * dx + dz * dz) << " away\n";
+            }
+        }
+        else if (drive && !page && cooper && key_out >= 0 && !key_active && gbtg::g_512344 != nullptr)
+        {
+            const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+            for (const auto* record = pool.begin; record < pool.cursor; ++record)
+            {
+                if ((record->mask & 1) != 0)
+                {
+                    steering.walk(input, steering.angle(*cooper, record->center));
+                    if (frame % 120 == 0)
+                    {
+                        std::cout << label << " frame " << frame << ": Cooper at " << cooper->x << ", " << cooper->z
+                                  << " heads for the exit at " << record->center.x << ", " << record->center.z
+                                  << "\n";
+                    }
+                    break;
+                }
+            }
+        }
+        if (frame % 600 == 150 && label == "scene4_2")
+        {
+            log_scene4_breakables(game, label, frame);
+        }
+        gbtg::gfx_begin_frame();
+        game.tick(1.f / 60.f, input);
+        const bool page_now = game.script_dialogue != nullptr && game.script_dialogue->dialogue.state.mode != 0;
+        if (page_now && !page_up)
+        {
+            ++pages;
+            page_frame = frame;
+            std::cout << label + " frame " << frame << ": page " << pages << "\n";
+        }
+        if (page_now && frame == page_frame + 20)
+        {
+            capture_readback("cache/" + label + "_page" + std::to_string(pages) + ".bmp");
+        }
+        page_up = page_now;
+        if (game.scene_name != title)
+        {
+            title = game.scene_name;
+            std::cout << label + " frame " << frame << ": title " << title << "\n";
+            if (label == "scene5" && title == "Free Play")
+            {
+                log_scene_objects(game, label, frame);
+            }
+        }
+        if (frame % 300 == 0)
+        {
+            capture_readback("cache/" + label + "_" + std::to_string(frame) + ".bmp");
+        }
+        if (game.scene_script.name != scene_script)
+        {
+            moved_on = frame;
+            std::cout << label + " frame " << frame << ": the script moves on to " << game.scene_script.name << "\n";
+        }
+        gbtg::gfx_end_frame();
+    }
+    std::cout << label + ": pages " << pages << ", title " << title << "\n";
+    if (moved_on < 0)
+    {
+        throw gbtg::Error(label + " did not move on: the script holds at " + game.scene_script.name + " (title "
+            + title + ")");
+    }
+    if (drive && key_out < 0)
+    {
+        throw gbtg::Error(label + " moved on without the bg-break key's show (type 0x1E, 0x0006CD40)");
+    }
+    if (drive)
+    {
+        std::cout << "PASS: " + label + "'s key part breaks under Cooper's bat and the key comes out at frame "
+                  << key_out << "\n";
+    }
+    std::cout << "PASS: " + label + " plays to its end and the script moves on to " << game.scene_script.name << "\n";
+}
+
+// Scene 5 (chapter1_scene5_1playcam, the snooker room), from the end of its transition. Free Play holds until a
+// weapon is picked up (ObjectPickedUp on the cue or the trophy); driven, Cooper walks to the nearest cue (type 0xAA)
+// and presses A beside it, then attacks the nearest live skeleton (class 52) while any is up, and once the exit
+// volume (mask 1) is open walks into it. Pages close on A; titles, scripts and every 300th frame are logged.
+void play_scene5_run(gbtg::Game& game, const std::string& label)
+{
+    float closest_to_broken_table = 1e9f;
+    bool table_taken = false; // The bob reached state 3 (held), as the swing state 0x78 takes it.
+    std::string title = game.scene_name;
+    const std::string scene_script = game.scene_script.name;
+    auto& actors = game.factory_scene->start_actors(game);
+    int pages = 0;
+    bool page_up = false;
+    int moved_on = -1;
+    int picked = -1;
+    std::set<std::string> titles;
+    StickSteering steering;
+    for (int frame = 0; frame < 18000 && moved_on < 0; ++frame)
+    {
+        gbtg::InputState input;
+        const bool page = game.script_dialogue != nullptr && game.script_dialogue->dialogue.state.mode != 0;
+        input.accept = page && frame % 30 < 5;
+        std::optional<gbtg::Vec3> cooper;
+        const gbtg::Actor* held = nullptr;
+        std::optional<gbtg::Vec3> skeleton;
+        float nearest = 1e9f;
+        for (const auto& mark : actors.marked_actors())
+        {
+            if (mark.actor == nullptr)
+            {
+                continue;
+            }
+            if (mark.actor->class_key == 4)
+            {
+                cooper = gbtg::actor_world_position(*mark.actor);
+            }
+        }
+        for (const auto& mark : actors.marked_actors())
+        {
+            if (cooper && mark.actor != nullptr && mark.actor->class_key == 52 && !mark.body.empty()
+                && gbtg::read_u16(mark.body, 0x94) != 0)
+            {
+                const gbtg::Vec3 at = gbtg::actor_world_position(*mark.actor);
+                const float d = (at.x - cooper->x) * (at.x - cooper->x) + (at.z - cooper->z) * (at.z - cooper->z);
+                if (d < nearest)
+                {
+                    nearest = d;
+                    skeleton = at;
+                }
+            }
+        }
+        std::optional<gbtg::Vec3> cue;
+        float cue_distance = 1e9f;
+        for (const auto& object : game.factory_scene->objects)
+        {
+            if (object.type != 0xAA || object.bytes == nullptr || !cooper)
+            {
+                continue;
+            }
+            if (const gbtg::Actor* actor = actor_of_object(game, object); actor != nullptr)
+            {
+                const gbtg::Vec3 at = gbtg::actor_world_position(*actor);
+                const float d = (at.x - cooper->x) * (at.x - cooper->x) + (at.z - cooper->z) * (at.z - cooper->z);
+                if (d < cue_distance)
+                {
+                    cue_distance = d;
+                    cue = at;
+                }
+            }
+        }
+        (void)held;
+        if (!page && cooper)
+        {
+            std::optional<gbtg::Vec3> goal;
+            bool swing = false;
+            bool grab = false;
+            // Stage 2's skeleton waves keep coming while its section holds at its end with the exit open
+            // (g_gate_2518): leave through the exit volume, by a waypoint in front of it, rather than fight on.
+            std::optional<gbtg::Vec3> exit;
+            if (gbtg::g_gate_2518 != 0 && gbtg::g_512344 != nullptr)
+            {
+                const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+                for (const auto* record = pool.begin; record < pool.cursor; ++record)
+                {
+                    if ((record->mask & 1) != 0)
+                    {
+                        exit = record->center;
+                        break;
+                    }
+                }
+            }
+            // Stage 2: the uncovered snooker table (the bob, type 0xA0) is the weapon. Cooper takes it with A beside
+            // it, then swings it at the skeletons; its state word (+0xC0C) leaves 0x10 (idle) once it is in use.
+            std::optional<gbtg::Vec3> table;
+            std::optional<gbtg::Vec3> table_grip;
+            gbtg::u8 table_mask = 0;
+            gbtg::u32 table_holders = 0;
+            gbtg::u32 table_blocked = 0;
+            gbtg::u16 table_state = 0;
+            for (const auto& object : game.factory_scene->objects)
+            {
+                if (object.type == 0xA0 && object.bytes != nullptr && object.size > 0xC0E)
+                {
+                    table_state = gbtg::read_u16({object.bytes.get(), object.size}, 0xC0C);
+                    table_mask = object.bytes[0x93C];
+                    table_holders = gbtg::read_u32({object.bytes.get(), object.size}, 0xE54);
+                    table_blocked = gbtg::read_u32({object.bytes.get(), object.size}, 0xAD0);
+                    if (const gbtg::Actor* actor = actor_of_object(game, object); actor != nullptr)
+                    {
+                        table = gbtg::actor_world_position(*actor);
+                        // The pick-up sphere nearest Cooper (0x001476D0), where a player would stand to take it.
+                        gbtg::Vec3 point;
+                        float radius = 0.f;
+                        gbtg::i32 index = 0;
+                        if (gbtg::select_actor_spawn_point(*actor, *cooper, point, radius, index))
+                        {
+                            table_grip = point;
+                        }
+                    }
+                }
+            }
+            if (frame % 300 == 0 && table)
+            {
+                std::cout << label << " frame " << frame << ": table state 0x" << std::hex << table_state << std::dec
+                          << " at " << table->x << ", " << table->z << " mask " << int(table_mask) << " holders "
+                          << table_holders << " blocked " << table_blocked << "\n";
+                if (frame == 0)
+                {
+                    for (const auto& object : game.factory_scene->objects)
+                    {
+                        if (object.type == 0xA0 && object.bytes != nullptr)
+                        {
+                            std::cout << label << ": table names +0xDD0 '"
+                                      << reinterpret_cast<const char*>(object.bytes.get() + 0xDD0) << "' +0xE5C '"
+                                      << reinterpret_cast<const char*>(object.bytes.get() + 0xE5C) << "' +0xEDC '"
+                                      << reinterpret_cast<const char*>(object.bytes.get() + 0xEDC) << "' +0xF60 '"
+                                      << reinterpret_cast<const char*>(object.bytes.get() + 0xF60) << "'\n";
+                        }
+                    }
+                }
+            }
+            if (title == "stage 2" && table)
+            {
+                table_taken = table_taken || table_state == 3;
+                if (table_state == 0x10 && table_mask == 0)
+                {
+                    const float tx = table->x - cooper->x;
+                    const float tz = table->z - cooper->z;
+                    const float gap = std::sqrt(tx * tx + tz * tz);
+                    if (gap < closest_to_broken_table)
+                    {
+                        closest_to_broken_table = gap;
+                        std::cout << label << " frame " << frame << ": Cooper " << gap
+                                  << " from the broken table's centre\n";
+                    }
+                }
+                // A broken table (+0x93C clear after its swing) can't be taken again: fight on by hand.
+                if (table_state == 0x10 && table_mask != 0 && table_grip)
+                {
+                    const float gx = table_grip->x - cooper->x;
+                    const float gz = table_grip->z - cooper->z;
+                    goal = table_grip;
+                    grab = gx * gx + gz * gz < 12.f * 12.f;
+                }
+                else if (skeleton)
+                {
+                    goal = skeleton;
+                    swing = true;
+                }
+            }
+            else if (exit && title == "Free Play" && picked >= 0)
+            {
+                const gbtg::Vec3 front{exit->x, exit->y, exit->z - 60.f};
+                const bool before = cooper->z < front.z - 10.f && std::abs(cooper->x - front.x) > 20.f;
+                goal = before ? front : *exit;
+                swing = skeleton && nearest < 10.f * 10.f;
+            }
+            else if (skeleton)
+            {
+                goal = skeleton;
+                swing = nearest < 16.f * 16.f;
+            }
+            else if (picked < 0 && title == "Free Play" && cue)
+            {
+                goal = cue;
+                grab = cue_distance < 12.f * 12.f;
+            }
+            else if (gbtg::g_gate_2518 != 0 && gbtg::g_512344 != nullptr)
+            {
+                const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+                for (const auto* record = pool.begin; record < pool.cursor; ++record)
+                {
+                    if ((record->mask & 1) != 0)
+                    {
+                        goal = record->center;
+                        break;
+                    }
+                }
+            }
+            if (goal)
+            {
+                const float stick = steering.angle(*cooper, *goal);
+                if (grab)
+                {
+                    if (frame % 40 < 6)
+                    {
+                        input.accept = true;
+                    }
+                    else if (frame % 40 >= 16)
+                    {
+                        const float about = stick + 0.785398f;
+                        input.pads[0].lx = gbtg::i16(std::sin(about) * 16000.f);
+                        input.pads[0].ly = gbtg::i16(-std::cos(about) * 16000.f);
+                    }
+                }
+                else if (swing)
+                {
+                    if ((frame / 8) % 2 == 0)
+                    {
+                        input.pads[0].rx = gbtg::i16(std::sin(stick) * 32767.f);
+                        input.pads[0].ry = gbtg::i16(-std::cos(stick) * 32767.f);
+                    }
+                }
+                else
+                {
+                    steering.walk(input, stick);
+                }
+                if (frame % 120 == 0)
+                {
+                    std::cout << label << " frame " << frame << ": Cooper at " << cooper->x << ", " << cooper->z
+                              << " heads for " << goal->x << ", " << goal->z
+                              << (skeleton ? " (skeleton)" : picked < 0 ? " (cue)" : " (exit)") << "\n";
+                }
+            }
+        }
+        gbtg::gfx_begin_frame();
+        game.tick(1.f / 60.f, input);
+        const bool page_now = game.script_dialogue != nullptr && game.script_dialogue->dialogue.state.mode != 0;
+        if (page_now && !page_up)
+        {
+            ++pages;
+            std::cout << label << " frame " << frame << ": page " << pages << "\n";
+            capture_readback("cache/" + label + "_page" + std::to_string(pages) + ".bmp");
+        }
+        page_up = page_now;
+        if (game.scene_name != title)
+        {
+            title = game.scene_name;
+            titles.insert(title);
+            std::cout << label << " frame " << frame << ": title " << title << "\n";
+            if (picked < 0 && title != "Free Play" && titles.count("Free Play") != 0)
+            {
+                picked = frame;
+            }
+        }
+        if (frame % 300 == 0)
+        {
+            capture_readback("cache/" + label + "_" + std::to_string(frame) + ".bmp");
+            if (label == "scene5")
+            {
+                std::cout << label << " frame " << frame << ": title mode " << gbtg::g_state_248c << ", decay "
+                          << int(gbtg::scene_detail::g_decay_arm) << ", conditions";
+                for (const auto& rec : gbtg::g_script_conds)
+                {
+                    std::cout << " [" << gbtg::cond_u32(rec, 0) << " link +0x" << std::hex << gbtg::cond_u32(rec, 4)
+                              << std::dec << " " << gbtg::cond_f32(rec, 8) << " " << gbtg::cond_u32(rec, 0xC) << "]";
+                }
+                std::cout << "\n";
+                if (const auto* steps = gbtg::g_event_sequence.steps; steps != nullptr)
+                {
+                    std::cout << label << " frame " << frame << ": event state " << gbtg::g_event_sequence_state;
+                    for (const gbtg::u8* step = steps->begin; step < steps->end; step += steps->stride)
+                    {
+                        const std::span<const gbtg::u8> row{step, 0x88};
+                        std::cout << " [type " << gbtg::read_u32(row, 0) << " need " << gbtg::read_u32(row, 0x18)
+                                  << " tag " << gbtg::read_u16(row, 0x1C) << " kills "
+                                  << gbtg::script_statistic_at_address(0x00512B78u + gbtg::read_u16(row, 0x1C) * 4u)
+                                  << "]";
+                    }
+                    std::cout << "\n";
+                }
+                // Cooper's energy (body +0x94) and the body states (factory types 0x5E..0x8F) whose +8 is his body.
+                for (const auto& mark : actors.marked_actors())
+                {
+                    if (mark.actor == nullptr || mark.actor->class_key != 4 || mark.body.empty())
+                    {
+                        continue;
+                    }
+                    const gbtg::u32 body = game.factory_scene->address_of(mark.body.data());
+                    std::cout << label << " frame " << frame << ": Cooper energy " << gbtg::read_u16(mark.body, 0x94)
+                              << ", states";
+                    std::span<const gbtg::u8> second_bytes;
+                    const auto [first_action, second_action] = actors.player_action_types(*mark.actor, &second_bytes);
+                    std::cout << " first 0x" << std::hex << first_action << " second 0x" << second_action << std::dec;
+                    if (auto* stack = gbtg::find_scene_cutscene_runtime(game); stack != nullptr)
+                    {
+                        std::cout << " cutscenes " << stack->index << " stop " << stack->stop << " linked " << stack->linked;
+                    }
+                    std::cout << " bound " << (mark.actor->bind != nullptr && mark.actor->bind->parent != nullptr)
+                              << " held 0x" << std::hex << gbtg::read_u32(mark.body, 0x48) << " +0x4C 0x"
+                              << gbtg::read_u32(mark.body, 0x4C) << std::dec << " +0x30 " << gbtg::read_u16(mark.body, 0x30)
+                              << " +0x258 " << gbtg::read_u32(mark.body, 0x258) << " +0x6A " << int(mark.body[0x6A]);
+                    if (second_action == 0x7A && second_bytes.size() > 0x60)
+                    {
+                        std::cout << " knockdown phase " << gbtg::read_u32(second_bytes, 0x18) << " +0x34 "
+                                  << gbtg::read_u32(second_bytes, 0x34) << " +0x3C " << gbtg::read_u32(second_bytes, 0x3C)
+                                  << " +0x40 " << gbtg::read_u32(second_bytes, 0x40) << " +0x50 "
+                                  << gbtg::read_u32(second_bytes, 0x50) << " +0x20 " << gbtg::read_f32(second_bytes, 0x20)
+                                  << " rate " << mark.actor->animation_rate << " pause " << mark.actor->animation_pause
+                                  << " +0x5E " << gbtg::read_u16(second_bytes, 0x5E) << " +0xC "
+                                  << gbtg::read_u16(second_bytes, 0xC) << " body +0x73C "
+                                  << gbtg::read_u32(mark.body, 0x73C);
+                    }
+                    for (const auto& object : game.factory_scene->objects)
+                    {
+                        const gbtg::u32 at = object.bytes == nullptr ? 0 : game.factory_scene->address_of(object.bytes.get());
+                        if (at != 0 && (at == gbtg::read_u32(mark.body, 0x740) || at == gbtg::read_u32(mark.body, 0x744)))
+                        {
+                            std::cout << " 0x" << std::hex << object.type << std::dec
+                                      << (at == gbtg::read_u32(mark.body, 0x744) ? " (+0x744)" : " (+0x740)");
+                        }
+                    }
+                    std::cout << "\n";
+                }
+            }
+        }
+        if (game.scene_script.name != scene_script)
+        {
+            moved_on = frame;
+            std::cout << label << " frame " << frame << ": the script moves on to " << game.scene_script.name << "\n";
+        }
+        gbtg::gfx_end_frame();
+    }
+    std::cout << label << ": pages " << pages << ", title " << title << "\n";
+    if (moved_on < 0)
+    {
+        throw gbtg::Error(label + " did not move on: the script holds at " + game.scene_script.name + " (title "
+            + title + ")");
+    }
+    if (!table_taken)
+    {
+        throw gbtg::Error(label + ": Cooper never took the snooker table");
+    }
+    // The broken table keeps its volume: Cooper stays outside its radius (about 25) instead of walking into it.
+    if (closest_to_broken_table < 20.f)
+    {
+        throw gbtg::Error(label + ": Cooper walked " + std::to_string(closest_to_broken_table)
+            + " from the broken table's centre");
+    }
+    std::cout << "PASS: " + label + " swings the snooker table, which breaks and stays solid (closest "
+              << closest_to_broken_table << ")\n";
+    std::cout << "PASS: " + label + " plays to its end and the script moves on to " << game.scene_script.name << "\n";
+}
+
+void play_scene5(gbtg::Game& game, const std::string& label)
 {
     try
     {
-        play_scene3_run(game, drive);
+        play_scene5_run(game, label);
     }
     catch (const std::exception& error)
     {
@@ -8300,9 +8944,59 @@ void play_scene3(gbtg::Game& game, bool drive)
     }
 }
 
+void play_scene4(gbtg::Game& game, const std::string& label, bool drive = false)
+{
+    try
+    {
+        play_scene4_run(game, label, drive);
+    }
+    catch (const std::exception& error)
+    {
+        std::cout << "FAIL: " << error.what() << std::endl;
+        std::_Exit(1);
+    }
+}
+
+// A stop inside the scene is reported before the game is torn down: the teardown of a scene stopped mid-frame can
+// raise again (its actors' release messages reach views that are not translated yet), which would terminate the run.
+void play_scene3(gbtg::Game& game, bool drive, int book = -1)
+{
+    try
+    {
+        play_scene3_run(game, drive, book);
+    }
+    catch (const std::exception& error)
+    {
+        std::cout << "FAIL: " << error.what() << std::endl;
+        std::_Exit(1);
+    }
+}
+
+// Byte 0 of the challenge block in the test save's progress.xsv: the record (0x268 bytes), then the progress
+// block (8 bytes), then the challenges (0x0010EB60's layout). 0xFF when there is no save.
+gbtg::u32 saved_challenge_byte()
+{
+    if (!std::filesystem::exists("cache/test_saves"))
+    {
+        return 0xFF;
+    }
+    for (const auto& entry : std::filesystem::recursive_directory_iterator("cache/test_saves"))
+    {
+        if (entry.is_regular_file() && entry.path().filename() == "progress.xsv")
+        {
+            std::ifstream in(entry.path(), std::ios::binary);
+            std::vector<char> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            return bytes.size() > 0x270 ? gbtg::u8(bytes[0x270]) : 0xFF;
+        }
+    }
+    return 0xFF;
+}
+
 // --gameselect-replay-scene's save: a child --gameselect-new-game run saves a new game, then its progress.xsv's
 // record script (+0x102, read by 0x0010DB10) is set to `script` and the file is signed again as 0x0010EB60 signs
 // it (0x000E9AF0, flags 0: the last 0x14 bytes), so the native load (0x0010EF10) verifies it.
+void set_saved_script(const std::string& script);
+
 void write_replay_save(const char* exe, const char* original, const std::string& script)
 {
     const std::string command = "\"\"" + std::string(exe) + "\" \"" + original + "\" --gameselect-new-game\"";
@@ -8310,6 +9004,12 @@ void write_replay_save(const char* exe, const char* original, const std::string&
     {
         throw gbtg::Error("the --gameselect-new-game run that saves the game failed");
     }
+    set_saved_script(script);
+}
+
+// The test save's record script (+0x102) becomes `script` and the file is signed again; its other bytes stay.
+void set_saved_script(const std::string& script)
+{
     std::filesystem::path file;
     for (const auto& entry : std::filesystem::recursive_directory_iterator("cache/test_saves"))
     {
@@ -8320,7 +9020,7 @@ void write_replay_save(const char* exe, const char* original, const std::string&
     }
     if (file.empty())
     {
-        throw gbtg::Error("the new game left no progress.xsv");
+        throw gbtg::Error("the test saves hold no progress.xsv");
     }
     std::vector<gbtg::u8> bytes;
     {
@@ -8345,6 +9045,42 @@ void write_replay_save(const char* exe, const char* original, const std::string&
     std::ofstream(file, std::ios::binary).write(reinterpret_cast<const char*>(bytes.data()),
         std::streamsize(bytes.size()));
     std::cout << "wrote " << file.generic_string() << " with script " << script << "\n";
+}
+
+// Start opens game select; once it is ready, A on the saved game's slot opens its contents and A on Play starts the
+// save's scene (0x000F3020 loads its challenges and progress into the current game).
+void start_saved_game(gbtg::Game& game, const std::string& label)
+{
+    int ready = -1;
+    bool started = false;
+    std::string script = game.scene_script.name;
+    for (int frame = 0; frame < 3000 && !started; ++frame)
+    {
+        if (game.scene_script.name != script)
+        {
+            script = game.scene_script.name;
+            std::cout << label << ": frame " << frame << ", script " << script << "\n";
+        }
+        gbtg::InputState input;
+        input.start = frame == 120;
+        if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_54632c == 0)
+        {
+            ready = frame;
+            std::cout << label << ": game select ready at frame " << frame << "\n";
+        }
+        const int at = ready < 0 ? -1 : frame - ready;
+        input.accept = at == 180 || at == 900;
+        gbtg::gfx_begin_frame();
+        game.tick(1.f / 59.f, input); // Game select's tests step the wall-clock path.
+        gbtg::gfx_end_frame();
+        started = gbtg::g_scene_transition.phase != 0 && at > 900;
+    }
+    const std::u16string name(gbtg::g_runtime_profile.name.data());
+    if (!started || name.empty())
+    {
+        throw gbtg::Error("Play on the saved game did not start its scene with a named game");
+    }
+    std::cout << label << ": Play starts the saved game's scene\n";
 }
 
 int main(int argc, char** argv)
@@ -8422,17 +9158,29 @@ int main(int argc, char** argv)
     const bool scene_start_test = argc == 3 && std::string_view(argv[2]) == "--scene-start";
     const bool spawn_test = (argc == 3 && std::string_view(argv[2]) == "--scene-spawn") || scene_start_test;
     // --scene6 boots straight into scene 6 (chapter1_scene2_1viewcam), presses A on the chapter title and plays on.
-    const bool scene6_test = argc == 3 && std::string_view(argv[2]) == "--scene6";
+    // --scene6-save plays scene 6 from a save: a child --gameselect-new-game run saves a game whose script becomes
+    // chapter1_scene2_1viewcam, game select loads it (A on its slot, A on Play), the trophy heads' award saves
+    // challenge 1 and scene 3's rare book challenge 2 into its progress.xsv (0x000F24C0, 0x000F3230, 0x0010DA80).
+    const bool scene6_save_test = argc == 3 && std::string_view(argv[2]) == "--scene6-save";
+    // --scene6-save-reload (run by --scene6-save after the write): the written save, its script set to scene 3, is
+    // loaded from game select again, and scene 3 must start without the rare book (0x00109FC0 skips a powerup kind 1
+    // emitter whose challenge bit is set).
+    const bool scene6_reload_test = argc == 3 && std::string_view(argv[2]) == "--scene6-save-reload";
+    const bool scene6_test = scene6_save_test || (argc == 3 && std::string_view(argv[2]) == "--scene6");
     // --scene3 boots straight into scene 3 (chapter1_scene3_1playcam), presses A on the chapter title and plays on.
     const bool scene3_test = argc == 3 && std::string_view(argv[2]) == "--scene3";
+    // --scene4 boots scene 4 (chapter1_scene4_1book), closes its pages with A and plays until the script moves on.
+    const bool scene4_test = argc == 3 && std::string_view(argv[2]) == "--scene4";
+    // --scene5 boots scene 5 (chapter1_scene5_1playcam), closes its pages with A and plays until the script moves on.
+    const bool scene5_test = argc == 3 && std::string_view(argv[2]) == "--scene5";
     if (spawn_test)
     {
         std::cout << std::unitbuf;
     }
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
-        && !model_resources_test && !spawn_test && !scene6_test && !scene3_test)
+        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene3_test)
     {
-        std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene3]\n";
+        std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene6-save | --scene6-save-reload | --scene3 | --scene4 | --scene5]\n";
         return 2;
     }
     try
@@ -8501,10 +9249,18 @@ int main(int argc, char** argv)
             check_player_dialogue_resources(aids);
         }
         gbtg::Game game;
-        if (replay_scene_test)
+        if (replay_scene_test || scene6_save_test)
         {
             write_replay_save(argv[0], argv[1], replay_paging_test ? "aid_script_ghoulies_chapter1_scene10_1playcam"
                 : "aid_script_ghoulies_chapter1_scene2_1viewcam");
+        }
+        else if (scene6_reload_test)
+        {
+            if (saved_challenge_byte() == 0xFF || (saved_challenge_byte() & 6) != 6)
+            {
+                throw gbtg::Error("--scene6-save-reload needs --scene6-save's save with challenges 1 and 2");
+            }
+            set_saved_script("aid_script_ghoulies_chapter1_scene3_1playcam");
         }
         else
         {
@@ -8524,18 +9280,58 @@ int main(int argc, char** argv)
             std::cout << "copied the retail saves from " << source.generic_string() << "\n";
         }
         gbtg::set_save_root("cache/test_saves");
-        game.init(argv[1], scene6_test ? "6" : scene3_test ? "7" : player_test || spawn_test ? "chapter1_scene1_2playcam"
+        game.init(argv[1], scene6_save_test || scene6_reload_test ? "" : scene6_test ? "6" : scene3_test ? "7"
+            : scene4_test ? "chapter1_scene4_1book" : scene5_test ? "chapter1_scene5_1playcam"
+            : player_test || spawn_test ? "chapter1_scene1_2playcam"
             : title_test ? "" : "scene0_1book");
+        if (scene5_test)
+        {
+            pass_chapter_title(game, "scene5", "aid_script_ghoulies_chapter1_scene5_1playcam", false);
+            play_scene5(game, "scene5");
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene4_test)
+        {
+            pass_chapter_title(game, "scene4", "aid_script_ghoulies_chapter1_scene4_1book", false);
+            play_scene4(game, "scene4");
+            pass_chapter_title(game, "scene4_to_2", "aid_script_ghoulies_chapter1_scene4_2playcam", false);
+            play_scene4(game, "scene4_2", true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene6_reload_test)
+        {
+            start_saved_game(game, "scene6-save-reload");
+            if ((gbtg::g_runtime_profile.challenges.bytes[0] & 6) != 6)
+            {
+                throw gbtg::Error("loading the save did not bring back challenges 1 and 2");
+            }
+            std::cout << "PASS: loading the saved game brings back challenges 1 and 2\n";
+            pass_chapter_title(game, "scene3_reload", "aid_script_ghoulies_chapter1_scene3_1playcam", false);
+            play_scene3(game, false, 0);
+            std::cout << "PASS: the reloaded game's scene 3 starts without the rare book\n";
+            gbtg::gfx_shutdown();
+            return 0;
+        }
         if (scene3_test)
         {
             pass_chapter_title(game, "scene3", "aid_script_ghoulies_chapter1_scene3_1playcam", false);
-            play_scene3(game, true);
+            play_scene3(game, true, 1);
             gbtg::gfx_shutdown();
             return 0;
         }
         if (scene6_test)
         {
             const auto capture = capture_readback;
+            if (scene6_save_test)
+            {
+                if (saved_challenge_byte() != 0)
+                {
+                    throw gbtg::Error("the new game's save already has challenge bits");
+                }
+                start_saved_game(game, "scene6-save");
+            }
             pass_chapter_title(game, "scene6", "aid_script_ghoulies_chapter1_scene2_1viewcam");
             // The trophy-heads controller (factory type 0x92, entitySceneControlChapter1Scene8) runs the scene.
             if (gbtg::find_runtime_scene_control(0x92) == nullptr)
@@ -8682,6 +9478,61 @@ int main(int argc, char** argv)
             }
             // Scene 6's end runs the book transition into scene 3 ("Player Enters Room").
             pass_chapter_title(game, "scene6_to_3", "aid_script_ghoulies_chapter1_scene3_1playcam", false);
+            if (scene6_save_test)
+            {
+                // Scene 3 is driven to its end: Cooper collects the rare book, whose award (its challenge 2,
+                // 0x0010A6D0 -> 0x000F24C0) saves the game again.
+                play_scene3(game, true, 1);
+                // Each write waits for the save timer (0x0010DA80 / 0x0010F440); play on until the file has both bits.
+                int written = -1;
+                for (int frame = 0; frame < 1200 && written < 0; ++frame)
+                {
+                    gbtg::gfx_begin_frame();
+                    game.tick(1.f / 60.f, {});
+                    gbtg::gfx_end_frame();
+                    if (frame % 30 == 29 && saved_challenge_byte() != 0xFF && (saved_challenge_byte() & 6) == 6)
+                    {
+                        written = frame;
+                    }
+                }
+                std::cout << "scene6-save: challenge byte " << int(saved_challenge_byte()) << " in progress.xsv\n";
+                if (written < 0)
+                {
+                    throw gbtg::Error("the game's save lacks challenge 1 (the trophy heads) or 2 (the rare book)");
+                }
+                // The file is signed as 0x0010EB60 signs it (0x000E9AF0, flags 0: the last 0x14 bytes), so the next
+                // load (0x0010EF10) verifies it.
+                for (const auto& entry : std::filesystem::recursive_directory_iterator("cache/test_saves"))
+                {
+                    if (!entry.is_regular_file() || entry.path().filename() != "progress.xsv")
+                    {
+                        continue;
+                    }
+                    std::ifstream in(entry.path(), std::ios::binary);
+                    std::vector<gbtg::u8> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                    const gbtg::u32 size = gbtg::xbox_signature_size(0);
+                    std::vector<gbtg::u8> signature(size);
+                    const std::uintptr_t handle = gbtg::begin_xbox_signature(0);
+                    if (bytes.size() < size || handle == std::uintptr_t(-1)
+                        || gbtg::update_xbox_signature(handle, bytes.data(), gbtg::u32(bytes.size() - size)) != 0
+                        || gbtg::end_xbox_signature(handle, signature.data()) != 0
+                        || std::memcmp(signature.data(), bytes.data() + (bytes.size() - size), size) != 0)
+                    {
+                        throw gbtg::Error("the saved progress.xsv's signature does not verify");
+                    }
+                }
+                std::cout << "PASS: the trophy heads' and the rare book's awards save challenges 1 and 2 into the "
+                             "saved game's progress.xsv\n";
+                gbtg::gfx_shutdown();
+                const std::string command = "\"\"" + std::string(argv[0]) + "\" \"" + argv[1]
+                    + "\" --scene6-save-reload\"";
+                if (std::system(command.c_str()) != 0)
+                {
+                    std::cout << "FAIL: the --scene6-save-reload run of the written save failed\n";
+                    return 1;
+                }
+                return 0;
+            }
             play_scene3(game, false);
             gbtg::gfx_shutdown();
             return 0;

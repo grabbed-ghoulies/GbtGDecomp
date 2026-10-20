@@ -16,6 +16,21 @@ namespace gbtg
 {
 namespace
 {
+namespace field = bone_debris_field;
+namespace parameter = bone_debris_parameter;
+
+i32 carried_effect(std::span<const u8> bytes, u32 index)
+{
+    return get(bytes, field::carried_effects).at(index);
+}
+
+void set_carried_effect(std::span<u8> bytes, u32 index, i32 slot)
+{
+    auto slots = get(bytes, field::carried_effects);
+    slots.at(index) = slot;
+    set(bytes, field::carried_effects, slots);
+}
+
 void put_word(std::span<u8> bytes, size_t offset, u32 value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);
@@ -99,26 +114,28 @@ void push_debris_particle(std::span<u8> particle, const Vec3& position, const Ve
 void carry_debris_effect(const Vec3& position, u32 particle, RuntimeBoneDebris& context)
 {
     const auto bytes = context.self.bytes;
-    const u32 carried = read_u32(bytes, 0xAA8);
+    const u32 carried = get(bytes, field::carried_count);
     if (i32(carried) >= 8)
     {
         return;
     }
     context.random = context.random * 0x19660Du + 0x3C6EF35Fu;
     const float roll = std::bit_cast<float>((context.random & 0x7FFFFFu) | 0x3F800000u) - 1.f; // DAT_0032B0F8.
-    if (!(read_f32(bytes, 0x9D4) >= roll))
+    if (!(get(bytes, field::carry_chance) >= roll))
     {
         return;
     }
     g_actor_creation_options.position = position;
     g_actor_creation_options.flags = 1;
-    if (load_actor_effect_stream(reinterpret_cast<const char*>(bytes.data() + 0x954), &g_actor_creation_options,
+    if (load_actor_effect_stream(field_data(bytes, field::carried_effect), &g_actor_creation_options,
         context.effects) != 0)
     {
-        put_word(bytes, 0xA68 + size_t(carried) * 4, u32(g_last_actor_effect));
-        put_word(bytes, 0xA88 + size_t(carried) * 4, particle);
+        set_carried_effect(bytes, carried, i32(g_last_actor_effect));
+        auto particles = get(bytes, field::carried_particles);
+        particles.at(carried) = particle;
+        set(bytes, field::carried_particles, particles);
         g_last_actor_effect = -1;
-        put_word(bytes, 0xAA8, carried + 1);
+        set(bytes, field::carried_count, carried + 1);
     }
 }
 
@@ -230,16 +247,17 @@ bool create_runtime_bone_debris_effect(std::span<const u8> parameters, RuntimeBo
     auto& models = context.effects.models;
     context.effect = create_actor_effect_node(nullptr, u16(count), position, euler, models.registry,
         models.error); // 0x000ED1C0
-    interpret_named_actor_effect(context.effect, reinterpret_cast<const char*>(parameters.data() + 0x338), nullptr,
+    interpret_named_actor_effect(context.effect, field_data(parameters, parameter::effect), nullptr,
         context.effects); // 0x000ED990
     reset_actor_effect_to_debris(debris_effect(context), models); // 0x000ED6E0
     i32 rows = 0;
     i32 particles = 0;
-    const Vec3* source = read_u32(parameters, 0x544) == 0 ? nullptr
-        : reinterpret_cast<const Vec3*>(parameters.data() + 0x548);
+    const Vec3* source = get(parameters, parameter::has_push_source) == 0 ? nullptr
+        : field_data(parameters, parameter::push_source);
     for (i32 group = 0; group < i32(groups); ++group)
     {
-        spawn_runtime_bone_debris_group(header, group, rows, particles, source, read_f32(parameters, 0x554),
+        spawn_runtime_bone_debris_group(header, group, rows, particles, source,
+            get(parameters, parameter::push_strength),
             context);
     }
     return true;
@@ -249,13 +267,13 @@ bool create_runtime_bone_debris_effect(std::span<const u8> parameters, RuntimeBo
 bool initialize_runtime_bone_debris(std::span<const u8> parameters, RuntimeBoneDebris& context)
 {
     const auto bytes = context.self.bytes;
-    auto source = context.actor_at(read_u32(parameters, 0x334));
-    copy_runtime_actor_appearance(context.self, source, reinterpret_cast<const char*>(parameters.data() + 0x3B8),
+    auto source = context.actor_at(get(parameters, parameter::dead_actor));
+    copy_runtime_actor_appearance(context.self, source, field_data(parameters, parameter::appearance),
         context.startup); // 0x0013AE30
     actor_refresh_transform(context.self.actor); // 0x00040DE0
-    put_word(bytes, 0x9D4, read_u32(parameters, 0x4B8));
-    const char* name = reinterpret_cast<const char*>(parameters.data() + 0x438);
-    char* copy = reinterpret_cast<char*>(bytes.data() + 0x954);
+    set(bytes, field::carry_chance, get(parameters, parameter::carry_chance));
+    const char* name = field_data(parameters, parameter::carried_effect);
+    char* copy = field_data(bytes, field::carried_effect);
     char character;
     do
     {
@@ -266,21 +284,21 @@ bool initialize_runtime_bone_debris(std::span<const u8> parameters, RuntimeBoneD
     {
         return false;
     }
-    const u32 sound = read_u32(parameters, 0x558);
+    const u32 sound = get(parameters, parameter::sound);
     if (sound != 0)
     {
         throw Error("untranslated Xbox 0x00140560 / 0x000F8540 reached from the bone debris 0x00067EB0 "
             "(parameter +0x558 set)");
     }
-    put_word(bytes, 0x93C, read_u32(parameters, 0x4C0));
-    put_word(bytes, 0x940, read_u32(parameters, 0x4BC));
-    put_word(bytes, 0x944, read_u32(parameters, 0x4BC));
-    put_word(bytes, 0x948, 0xFF);
-    put_word(bytes, 0x950, 0);
-    put_word(bytes, 0x938, read_u32(parameters, 0x334));
+    set(bytes, field::stay_time, get(parameters, parameter::stay_time));
+    set(bytes, field::fade_timer, get(parameters, parameter::fade_length));
+    set(bytes, field::fade_length, get(parameters, parameter::fade_length));
+    set(bytes, field::fade_alpha, 0xFF);
+    set(bytes, field::resting, 0);
+    set(bytes, field::dead_actor, get(parameters, parameter::dead_actor));
     dispatch_actor_attachment_records(context.self.state.resource.resource.data(), 0x18, nullptr, nullptr,
         context.callouts, 0); // 0x0003BE20 over actor +0x8C
-    if (parameters[0x4C4] != 0)
+    if (get(parameters, parameter::unk_4C4) != 0)
     {
         throw Error("untranslated Xbox 0x0012A260 reached from the bone debris 0x00067EB0 (parameter +0x4C4 set)");
     }
@@ -295,11 +313,11 @@ void destroy_runtime_bone_debris(RuntimeBoneDebris& context)
         release_actor_effect_node(*context.effect, context.effect_release()); // 0x000ED2E0
         context.effect = nullptr;
     }
-    if (read_u32(context.self.bytes, 0x9D8) != 0)
+    if (get(context.self.bytes, field::sound) != 0)
     {
         throw Error("untranslated Xbox 0x000F85D0 reached from the bone debris 0x00068010 (+0x9D8 set)");
     }
-    if (read_u32(context.self.bytes, 0xA64) != 0)
+    if (get(context.self.bytes, field::sound_resource) != 0)
     {
         throw Error("untranslated Xbox 0x00035C00 reached from the bone debris 0x00068010 (+0xA64 set)");
     }
@@ -349,11 +367,11 @@ void message_runtime_bone_debris(std::span<const u32> message, RuntimeBoneDebris
         }
         return;
     }
-    if (message[0] == 0x7C && read_u32(bytes, 0x938) == message[1])
+    if (message[0] == 0x7C && get(bytes, field::dead_actor) == message[1])
     {
         auto source = context.actor_at(message[1]);
         take_runtime_actor_sounds(source, context); // 0x00041D90, ECX the dead actor
-        put_word(bytes, 0x938, 0);
+        set(bytes, field::dead_actor, 0);
     }
 }
 
@@ -381,39 +399,40 @@ void update_runtime_bone_debris(RuntimeBoneDebris& context)
     Actor& actor = context.self.actor;
     const float step = runtime_actor_rate(actor) * runtime_frame_step(context.clock);
     update_actor_frame(context.frame, context.frame_context); // 0x000420D0
-    if (read_u32(bytes, 0x9D8) != 0)
+    if (get(bytes, field::sound) != 0)
     {
         throw Error("untranslated Xbox 0x000F8640 reached from the bone debris 0x00068060 (+0x9D8 set)");
     }
-    if (read_u32(bytes, 0x950) != 0)
+    if (get(bytes, field::resting) != 0)
     {
         // At rest: the pieces stay for +0x93C, then fade out as an after-image.
-        const float stay = read_f32(bytes, 0x93C);
+        const float stay = get(bytes, field::stay_time);
         if (stay > 0.f)
         {
             const float left = stay - runtime_actor_rate(actor) * runtime_frame_step(context.clock);
-            put_float(bytes, 0x93C, left);
+            set(bytes, field::stay_time, left);
             if (!(0.f < left))
             {
-                put_float(bytes, 0x93C, 0.f);
-                spawn_runtime_actor_fade(2.f, context.address + 0x9DC, 0, context); // 0x0013AF80, EAX actor
+                set(bytes, field::stay_time, 0.f);
+                // 0x0013AF80, EAX actor, with +0x9DC by address.
+                spawn_runtime_actor_fade(2.f, context.address + 0x9DC, 0, context);
                 activate_actor_bind_tree(actor); // 0x00112CC0
             }
         }
         return;
     }
-    if (read_f32(bytes, 0x940) > 0.f)
+    if (get(bytes, field::fade_timer) > 0.f)
     {
-        const float fade = read_f32(bytes, 0x940);
+        const float fade = get(bytes, field::fade_timer);
         const float rate = runtime_actor_rate(actor) * runtime_frame_step(context.clock);
         bool alpha = true;
         if (fade > 0.f)
         {
             const float left = fade - rate;
-            put_float(bytes, 0x940, left);
+            set(bytes, field::fade_timer, left);
             if (!(0.f < left))
             {
-                put_float(bytes, 0x940, 0.f);
+                set(bytes, field::fade_timer, 0.f);
                 activate_actor_bind_tree(actor); // 0x00112CC0
                 alpha = false;
             }
@@ -422,10 +441,11 @@ void update_runtime_bone_debris(RuntimeBoneDebris& context)
         {
             constexpr float pi = std::bit_cast<float>(0x40490FDBu); // DAT_0032B148.
             constexpr float half_pi = std::bit_cast<float>(0x3FC90FDBu); // DAT_0032B140.
-            const float phase = float(static_cast<long double>(read_f32(bytes, 0x940)) / read_f32(bytes, 0x944)
+            const float phase = float(static_cast<long double>(get(bytes, field::fade_timer))
+                / get(bytes, field::fade_length)
                 * pi - half_pi);
             const long double wave = (retail_sin(phase) + 1.0L) * 127.5L; // 0x00153320, DAT_0032B678.
-            put_word(bytes, 0x948, u32(truncate_runtime_float(wave))); // 0x001673D8
+            set(bytes, field::fade_alpha, u32(truncate_runtime_float(wave))); // 0x001673D8
         }
     }
     if (!(step > 0.f))
@@ -436,7 +456,7 @@ void update_runtime_bone_debris(RuntimeBoneDebris& context)
     context.tick_effect(effect, runtime_frame_step(context.clock)); // 0x000EF2D0
     const auto header = background_part_header(actor);
     const u32 groups = header.data() == nullptr ? 0 : header[0];
-    put_word(bytes, 0x950, 1);
+    set(bytes, field::resting, 1);
     u32 carried = 0;
     i32 particle = 0;
     for (u32 group = 0; group < groups; ++group)
@@ -451,7 +471,7 @@ void update_runtime_bone_debris(RuntimeBoneDebris& context)
         {
             const auto piece = debris_particle(context, particle);
             const u8 resting = piece[0x54];
-            put_word(bytes, 0x950, read_u32(bytes, 0x950) != 0 && resting != 0 ? 1 : 0);
+            set(bytes, field::resting, get(bytes, field::resting) != 0 && resting != 0 ? 1 : 0);
             const Vec3 position = read_vector(piece, 0);
             const Vec3 euler = read_vector(piece, 0xC);
             const auto row = matrix_row(context, joints[index]);
@@ -480,16 +500,17 @@ void update_runtime_bone_debris(RuntimeBoneDebris& context)
             wrap_runtime_euler_angles(wrapped); // 0x001059B0, ESI row +0x10
             put_vector(row, 0x10, wrapped);
             put_word(row, 0x44, 1);
-            if (read_u32(bytes, 0x94C) == 0 && read_u32(piece, 0x5C) != 0 && piece[0x55] == 0
+            if (get(bytes, field::landed) == 0 && read_u32(piece, 0x5C) != 0 && piece[0x55] == 0
                 && context.collision_normal.y > 0.75f) // DAT_00506928, DAT_0032B2AC.
             {
-                put_word(bytes, 0x94C, 1);
+                set(bytes, field::landed, 1);
                 dispatch_actor_attachment_records(context.self.state.resource.resource.data(), 0x16, nullptr,
                     nullptr, context.callouts, 0); // 0x0003BE20 over actor +0x8C
             }
-            if (i32(read_u32(bytes, 0xAA8)) > particle && i32(read_u32(bytes, 0xA88 + size_t(carried) * 4)) == particle)
+            if (i32(get(bytes, field::carried_count)) > particle
+                && i32(get(bytes, field::carried_particles).at(carried)) == particle)
             {
-                const i32 slot = i32(read_u32(bytes, 0xA68 + size_t(carried) * 4));
+                const i32 slot = carried_effect(bytes, carried);
                 if (slot != -1)
                 {
                     ActorEffectNode* follower = g_actor_effect_nodes.at(size_t(slot));
@@ -505,7 +526,7 @@ void update_runtime_bone_debris(RuntimeBoneDebris& context)
                     {
                         follower->bytes[0x18] |= 8;
                         put_float(follower->bytes, 8, -1.f); // DAT_0032B120.
-                        put_word(bytes, 0xA68 + size_t(carried) * 4, 0xFFFFFFFFu);
+                        set_carried_effect(bytes, carried, -1);
                     }
                 }
                 ++carried;
@@ -520,7 +541,7 @@ void update_runtime_bone_debris(RuntimeBoneDebris& context)
             ++particle;
         }
     }
-    if (read_u32(bytes, 0x950) != 0)
+    if (get(bytes, field::resting) != 0)
     {
         refresh_actor_model_matrices(actor, context.matrices.matrices, 1, context.boundaries); // 0x00040200
         bytes[0x298] = 1;
@@ -566,7 +587,7 @@ u32 draw_runtime_bone_debris(i32 kind, RuntimeBoneDebrisDraw& draw, RuntimeBoneD
     {
         refresh_actor_model_matrices(actor, context.matrices.matrices, 0, context.boundaries); // 0x00040200
     }
-    if (read_u32(context.self.bytes, 0x948) != 0xFF)
+    if (get(context.self.bytes, field::fade_alpha) != 0xFF)
     {
         return draw_runtime_bone_debris_fade(kind, draw, context); // Tail jump, EAX actor, ECX kind.
     }

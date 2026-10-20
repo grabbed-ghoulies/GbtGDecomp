@@ -162,12 +162,37 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 |---|---|---|---|
 | Super Scary challenge (factory type 0x98, 0x000842D0) | 0x2C8, parameters 0x1D8 | `super_scary_field`: actor addresses, phase, timers, clip names and placements, shock camera, presses and button row, settle, render swap; `super_scary_parameter`: the construction block | `src/engine/scene/super_scary_control.h` |
 | Scene-control base (factory type 3) | — | `scene_control_field::elapsed` (+0x20) only; the list links at +8, +0x10 and +0x18 are SceneControlInstance members | `src/engine/scene/scene_control_fields.h` |
+| Trophy heads (factory type 0x92, 0x000816A0) | 0x188, parameters 0x108 | `trophy_heads_field`: player, attacks, health, seek time, phase, chosen heads, per-head attacked and roaring flags, attacking head, pause hold, head events name, challenge won; `trophy_heads_parameter`: the clip and events names; `cutscene_event_field`: the two event-record words 0x00082440 reads | `src/engine/scene/trophy_heads_control.h` |
+| Factory parameter header | — | `object_parameter_field`: size, unk_2, type | `include/gbtg/object_factory.h` |
+| Body-state base | — | `body_state_field`: next key (+0xC), unk_E, elapsed (+0x10); +8 is the state's native body view | `src/engine/entities/body_state_fields.h` |
+| Hold state (factory type 0x8A, 0x000A34A0) | 0x24 | `hold_state_field`: timer, settle turn, body bit | `src/engine/entities/body_hold_state.h` |
+| Walk-target state (factory type 0x8F, 0x00091A90) | 0x7C, parameters 0x60 | `walk_target_field`, `walk_target_parameter`; the rows block (`walk_target_rows_field`, 0x4C bytes: four `walk_target_row_field` rows and the band limits) | `src/engine/entities/body_walk_target_state.h` |
+| Pick-up and lift states (factory types 0x7C and 0x7D) | 0x2C / 0x30, parameters 0x10 / 0x1C | `pickup_state_field`, `pickup_state_parameter`, `lift_state_field`, `lift_state_parameter` | `src/engine/entities/body_pickup_state.h` |
+| Throw state (factory type 0x8B, 0x000A37D0) | 0x68, parameters 0x2C | `throw_state_field`, `throw_state_parameter` | `src/engine/entities/body_throw_state.h` |
+| Skeleton strategy (factory type 0x51) | — | `skeleton_strategy_field`: no spawn in reach, fetch delay; and the base strategy's `strategy_field::state` (+0xE, `strategy_fields.h`) | `src/engine/entities/skeleton_strategy.h` |
+| Bob weapon (factory type 0xA0, 0x000C5B90), the bob's own part | 0xFE8, parameters 0x7FC | `bob_weapon_field`: holders, hits, the break animation and its events, state 7 timer, cutscene name, unk_FE4; `bob_weapon_parameter` | `src/engine/entities/bob_weapon.h` |
+| Swing state (factory type 0x78, 0x00097F90) | 0x1AC, parameters 0x128 | `swing_state_field`: phase, the weapon's pose when taken, trail and spin timers, direction, spin and grab poses, four effect slots, the effect and hit-sound names, seven animation records, shape mode, count, cutscene; `swing_state_parameter` | `src/engine/entities/body_swing_state.h` |
+| Large projectile (0x000CD620), its own part | 0xF08, parameters 0x604 | `large_projectile_field`: throw target, fall, heading, spin, shatter, bounces, hits, rest pose, catch, hold offset and rise, command attachments, trail; `large_projectile_parameter` | `src/engine/entities/projectile_weapon.h` |
+| Ghouly cutscene setup (factory type 0x25, 0x0006B0F0), its own part | 0x9DC, parameters 0x3C4 | `ghouly_cutscene_field`, `ghouly_cutscene_parameter` | `src/engine/entities/ghouly_cutscene_setup.h` |
+| Bone debris (factory type 0x12, 0x00067E40), its own part | 0xAAC, parameters 0x55C | `bone_debris_field`, `bone_debris_parameter` | `src/engine/entities/bone_debris_actor.h` |
+| Ghouly bg-break setup (factory type 0x24, 0x0006A4F0), its own part | 0xA7C, parameters 0x460 | `ghouly_bg_break_field`, `ghouly_bg_break_parameter` | `src/engine/entities/ghouly_bg_break_setup.h` |
+| Bg-break key (factory type 0x1E, 0x0006CC70), its own part | 0xA70, parameters 0x3B4 | `bg_break_key_field`, `bg_break_key_parameter` | `src/engine/entities/bg_break_key.h` |
+| Save record, one field | — | `save_record_field::unk_184` (0x0010DC20 / 0x0010E2C0) | `src/engine/saves/save_scan.h` |
 
 Super Scary checked with `--scene6`: it passes, the challenge's phase sequence and the trophy-heads states match the
 log from before the change line for line, and all 45 captures are byte-identical. That run covers phases 1–5 and
 8–11, through both failure and success. It doesn't reach phases 6 and 7 or the DAT_005122F0 auto-press path, and it
-doesn't check which scare modes occur, so the bound-mode (2/3) branches may not have run. The attract and
-trophy-heads controls still read +0x20 directly.
+doesn't check which scare modes occur, so the bound-mode (2/3) branches may not have run. The attract control still
+reads +0x20 directly.
+
+The trophy heads and the scene 3 types above (the code the scene 6 and scene 3 work added) were named in one pass.
+`--scene6` and `--scene3` pass, and all 90 of their captures are byte-identical to the captures from before the
+change. Those runs cover the trophy heads, the walk-target, hold, pick-up, lift and throw states, the skeleton, the
+bob, the large projectile (the trophy) and the bone debris. They don't reach the bound scare modes, the bob's state 7
+or the bone debris' optional sound. Only each type's own fields are named: offsets into the objects these types reach
+but don't own (the player body, mind and actor, the weapon base's +0xC0C..+0xDD0, the mind's target records, the
+matrix rows and effect particles the bone debris drives, and the 0x000426F0 bound record) stay literal until those
+types are named. `strategy_target_selection.cpp` touches only such shared objects and is unchanged.
 
 ## Next
 
@@ -177,7 +202,7 @@ trophy-heads controls still read +0x20 directly.
 - The 0x30-byte screen texture (0x000533A0) is the engine's texture resource (width +8, height +0xA, header offset
   +4, data +0x14, size +0x18), which the widgets' `texture_width` helpers and the presenter also read. It belongs
   with the texture resource's own layout.
-- The other scene controls (`trophy_heads_control`, `attract_control`), starting with
-  `scene_control_field::elapsed`, then the entities. Player body +0x728 (written by Super Scary through
+- The attract control, starting with `scene_control_field::elapsed`, then the entities. The shared objects the
+  scene 3 types reach (the player body, mind, actor and weapon base) are the largest remaining sets. Player body +0x728 (written by Super Scary through
   `set_body_word_728`) waits for the body's layout.
 - `DAT_` globals, with the same evidence rule.

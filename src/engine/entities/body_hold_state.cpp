@@ -10,11 +10,9 @@ namespace gbtg
 {
 namespace
 {
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
+namespace field = hold_state_field;
 
+// Body fields wait for the body's layout.
 void put_float(std::span<u8> bytes, size_t offset, float value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);
@@ -48,11 +46,13 @@ bool initialize_runtime_hold_state(std::span<u8> state, RuntimeBodyStateContext&
     body[0x38] = 1;
     body[0x39] = 1;
     context.bits->bytes[6] |= 4;
-    put_word(state, 0x18, read_u32(body, 0x240));
-    put_word(state, 0x1C, read_u32(state, 0xC));
+    set(state, field::timer, read_f32(body, 0x240)); // The word copied as a float: the same bits.
+    // The base's +0xC word (next_key and the +0xE half), copied whole.
+    set(state, field::settle_turn, u32(get(state, body_state_field::next_key))
+        | u32(get(state, body_state_field::unk_E)) << 16);
     const float scale = std::bit_cast<float>(0x3E19999Au); // DAT_0032B168.
-    put_float(state, 0x18, (1.f - read_f32(body, 0x16C)) * scale + read_f32(state, 0x18)); // DAT_0032B0F8.
-    const u32 bit = read_u32(state, 0x20);
+    set(state, field::timer, (1.f - read_f32(body, 0x16C)) * scale + get(state, field::timer)); // DAT_0032B0F8.
+    const u32 bit = get(state, field::body_bit);
     if (bit != 0)
     {
         context.bits->bytes[bit >> 3] |= u8(1u << (bit & 7));
@@ -65,7 +65,7 @@ void destroy_runtime_hold_state(std::span<const u8> state, RuntimeBodyStateConte
 {
     adjust_hold_counters(context.body, -1);
     context.bits->bytes[6] &= 0xFB;
-    const u32 bit = read_u32(state, 0x20);
+    const u32 bit = get(state, field::body_bit);
     if (bit != 0)
     {
         context.bits->bytes[bit >> 3] &= u8(~(1u << (bit & 7)));
@@ -76,25 +76,25 @@ void destroy_runtime_hold_state(std::span<const u8> state, RuntimeBodyStateConte
 void tick_runtime_hold_state(std::span<u8> state, RuntimeHoldStateTick& context)
 {
     const auto body = context.body;
-    put_float(state, 0x10, runtime_actor_rate(context.actor) * runtime_frame_step(context.clock)
-        + read_f32(state, 0x10));
+    set(state, body_state_field::elapsed, runtime_actor_rate(context.actor) * runtime_frame_step(context.clock)
+        + get(state, body_state_field::elapsed));
     put_float(body, 0x734, 0.f);
     put_float(body, 0x72C, 0.f);
-    if (read_u32(state, 0x1C) != 0)
+    if (get(state, field::settle_turn) != 0)
     {
         settle_runtime_body_turn(body, context.actor); // 0x00134720, ESI body.
     }
-    const float timer = read_f32(state, 0x18);
+    const float timer = get(state, field::timer);
     if (timer > 0.f)
     {
         const float left = timer - runtime_actor_rate(context.actor) * runtime_frame_step(context.clock);
-        put_float(state, 0x18, left);
+        set(state, field::timer, left);
         if (0.f >= left)
         {
-            put_float(state, 0x18, 0.f);
+            set(state, field::timer, 0.f);
         }
     }
-    if (read_f32(state, 0x18) != 0.f) // DAT_0032B100; unordered also returns.
+    if (get(state, field::timer) != 0.f) // DAT_0032B100; unordered also returns.
     {
         return;
     }

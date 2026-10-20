@@ -308,16 +308,18 @@ void reset_runtime_body_turn(u32 brake, std::span<u8> body, RuntimeBodyTimerReci
     put_word(body, 0x278, 1);
 }
 
+RuntimeBodyNextAction runtime_body_next_action(const RuntimeHitStateTick& context)
+{
+    return RuntimeBodyNextAction{context.body, context.settings, context.table, context.first_timer,
+        context.primary_key, context.secondary_key};
+}
+
 // Xbox 0x00134180
-void select_runtime_body_next_action(std::span<u8> state, u32 secondary, RuntimeHitStateTick& context)
+void select_runtime_body_next_action(std::span<u8> state, u32 secondary, RuntimeBodyNextAction& context)
 {
     const auto body = context.body;
-    if (read_u16(body, 0x94) == 0 && read_u32(body, 0x73C) != 0)
+    if (read_u16(body, 0x94) == 0 && context.table != nullptr) // Body +0x73C, held as its native view.
     {
-        if (context.table == nullptr)
-        {
-            throw Error("body +0x73C action table has no native view");
-        }
         u32 output;
         if (find_runtime_script_table_row(context.table, 0x6A, output) != nullptr)
         {
@@ -578,7 +580,8 @@ void finish_runtime_hit_state(std::span<u8> state, u32 secondary, RuntimeHitStat
         put_half(state, 0xC, next);
         return;
     }
-    select_runtime_body_next_action(state, secondary, context);
+    RuntimeBodyNextAction pick = runtime_body_next_action(context);
+    select_runtime_body_next_action(state, secondary, pick);
 }
 
 // Xbox 0x00095940
@@ -690,7 +693,8 @@ void tick_runtime_hit_state(std::span<u8> state, RuntimeHitStateTick& context)
         put_half(state, 0xC, next);
         return;
     }
-    select_runtime_body_next_action(state, 0, context);
+    RuntimeBodyNextAction pick = runtime_body_next_action(context);
+    select_runtime_body_next_action(state, 0, pick);
 }
 
 // Xbox 0x00090410
@@ -785,12 +789,8 @@ void select_runtime_body_recovery_action(std::span<u8> state, u16 key, RuntimeBo
     const auto body = context.body;
     const u16 level = read_u16(body, 0x94);
     bool table_row = false;
-    if (level == 0 && read_u32(body, 0x73C) != 0)
+    if (level == 0 && context.table != nullptr) // Body +0x73C, held as its native view.
     {
-        if (context.table == nullptr)
-        {
-            throw Error("body +0x73C action table has no native view");
-        }
         u32 output;
         table_row = find_runtime_script_table_row(context.table, 0x6A, output) != nullptr;
     }

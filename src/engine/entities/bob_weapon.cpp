@@ -6,6 +6,11 @@
 #include "../cutscenes/event_pause.h"
 #include "../cutscenes/event_runtime.h"
 #include "../cutscenes/instance_construction.h"
+#include "../scripts/script_event_tallies.h"
+#include "weapon_breakage.h"
+#include "entity.h"
+#include "actor_attachment_events.h"
+#include <string>
 
 namespace gbtg
 {
@@ -13,15 +18,22 @@ using namespace weapon_detail;
 
 namespace
 {
+namespace field = bob_weapon_field;
+constexpr u32 kBobScriptHold = 0; // DAT_00512278, BSS that no retail code writes.
+namespace parameter = bob_weapon_parameter;
+
 // The inline strcpy of a parameter name into the instance.
-void copy_name(std::span<u8> bytes, size_t offset, std::span<const u8> parameters, size_t from)
+template <typename To, typename From>
+void copy_name(std::span<u8> bytes, To to, std::span<const u8> parameters, From from)
 {
+    char* target = field_data(bytes, to);
+    const char* source = field_data(parameters, from);
     size_t index = 0;
     do
     {
-        bytes[offset + index] = parameters[from + index];
+        target[index] = source[index];
     }
-    while (parameters[from + index++] != 0);
+    while (source[index++] != 0);
 }
 
 CutsceneEventPauseContext pause_context(RuntimeWeaponActor& weapon, RuntimeCutsceneInstance& instance)
@@ -35,6 +47,32 @@ void set_spawn_blocked(RuntimeWeaponActor& weapon, i32 value)
 {
     weapon.actor.spawn_blocked = value;
     store32(weapon.bytes, 0xAD0, u32(value));
+}
+
+// The mix 0x000C62C0 and 0x000C63A0 build on the stack for 0x0003ADA0: no fades, mode 1, the +0xEDC events.
+AnimationMix bob_mix(std::span<const u8> bytes, std::string& events)
+{
+    AnimationMix mix;
+    mix.duration = 0.f;
+    mix.weight = -10.f; // DAT_0032B1FC.
+    mix.blend_mode = 0x21;
+    mix.fade_duration = 0.f;
+    mix.position = 0.f;
+    mix.mode = 1;
+    mix.priority = 0x31;
+    mix.old_pose_duration = 0.f;
+    events = field_data(bytes, field::animation_events);
+    mix.events = events;
+    mix.borrowed_animation = {};
+    mix.borrowed_events = {};
+    mix.record = nullptr;
+    return mix;
+}
+
+void dispatch_callouts(RuntimeWeaponActor& weapon, i32 id)
+{
+    dispatch_actor_attachment_records(weapon.view.startup.resource.resource.data(), id, nullptr, nullptr,
+        weapon.base().callouts, 0); // 0x0003BE20 over actor +0x8C
 }
 
 // 0x0004D720 on +0xFE0, which is then cleared.
@@ -58,14 +96,14 @@ bool initialize_runtime_bob_weapon(RuntimeWeaponActor& weapon, std::span<const u
     auto bytes = weapon.bytes;
     store32(bytes, 0x99C, 0x000C61D0); // The class's contact test, called through +0x99C.
     store8(bytes, 0x941, 1);
-    store32(bytes, 0xE54, read_u32(parameters, 0x5F8));
-    copy_name(bytes, 0xE5C, parameters, 0x5FC);
-    copy_name(bytes, 0xEDC, parameters, 0x67C);
-    copy_name(bytes, 0xF60, parameters, 0x6FC);
+    set(bytes, field::holders, get(parameters, parameter::holders));
+    copy_name(bytes, field::animation, parameters, parameter::animation);
+    copy_name(bytes, field::animation_events, parameters, parameter::animation_events);
+    copy_name(bytes, field::cutscene, parameters, parameter::cutscene);
     if ((weapon.services.story_flags & 8) != 0) // DAT_0050EA98.
     {
         CutsceneRuntimeContext& runtime = weapon.services.cutscenes();
-        weapon.cutscene = load_runtime_cutscene(reinterpret_cast<const char*>(bytes.data() + 0xF60), 2, nullptr,
+        weapon.cutscene = load_runtime_cutscene(field_data(bytes, field::cutscene), 2, nullptr,
             runtime); // 0x0004D680
         if (weapon.cutscene != nullptr)
         {
@@ -120,7 +158,7 @@ void dispatch_runtime_bob_weapon_message(RuntimeWeaponActor& weapon, std::span<u
         switch (read_u16(bytes, 0xC0C))
         {
         case 3:
-            store32(bytes, 0xE54, read_u32(bytes, 0xE54) + 1);
+            set(bytes, field::holders, get(bytes, field::holders) + 1);
             break;
         case 7:
             change_runtime_weapon_state(weapon, 0x10); // 0x0014A290
@@ -128,7 +166,7 @@ void dispatch_runtime_bob_weapon_message(RuntimeWeaponActor& weapon, std::span<u
         case 0x10:
             if (bytes[0x93C] != 0)
             {
-                store32(bytes, 0xE54, read_u32(bytes, 0xE54) + 1);
+                set(bytes, field::holders, get(bytes, field::holders) + 1);
                 break;
             }
             change_runtime_weapon_state(weapon, 0xE); // 0x0014A290
@@ -138,17 +176,18 @@ void dispatch_runtime_bob_weapon_message(RuntimeWeaponActor& weapon, std::span<u
         }
         break;
     case 0x87:
-        if (message[2] == 0xD && read_u16(bytes, 0xC0C) == 0x10 && read_u32(bytes, 0xFE4) == 0)
+        if (message[2] == 0xD && read_u16(bytes, 0xC0C) == 0x10 && get(bytes, field::unk_FE4) == 0)
         {
-            store32(bytes, 0xE54, read_u32(bytes, 0xE54) - 1);
-            store32(bytes, 0xFE4, 0);
+            set(bytes, field::holders, get(bytes, field::holders) - 1);
+            set(bytes, field::unk_FE4, 0);
         }
         break;
     case 0x91:
         change_runtime_weapon_state(weapon, 3); // 0x0014A290
         break;
     case 0x95:
-        untranslated(0x000C6250, "the bob's message 0x95 (0x000C5EB0)");
+        release_runtime_bob_weapon_holder(weapon); // 0x000C6250, EAX actor
+        break;
     case 0x9D:
         change_runtime_weapon_state(weapon, 7); // 0x0014A290
         break;
@@ -156,6 +195,84 @@ void dispatch_runtime_bob_weapon_message(RuntimeWeaponActor& weapon, std::span<u
         break;
     }
     dispatch_runtime_weapon_message(weapon, message); // 0x001463D0
+}
+
+// Xbox 0x000C61D0
+u32 test_runtime_bob_contact(RuntimeWeaponActor& weapon, RuntimeSegmentContactActor& object, const Vec3& point,
+    GhoulySpawnPool* contacts, const Vec3& velocity, u16 word)
+{
+    auto bytes = weapon.bytes;
+    if (report_runtime_weapon_contact(weapon, weapon_holder(weapon.actor), object, point, contacts, velocity, word,
+        bytes[0xDAC], bytes[0xDAD], bytes[0xDAE], get(bytes, field::hits) == 0) != 0) // 0x00141890
+    {
+        set(bytes, field::hits, get(bytes, field::hits) + 1);
+    }
+    return bytes[0x93C] == 0 ? 1u : 0u;
+}
+
+// Xbox 0x000C6250, EAX actor
+void release_runtime_bob_weapon_holder(RuntimeWeaponActor& weapon)
+{
+    auto bytes = weapon.bytes;
+    set(bytes, field::holders, get(bytes, field::holders) - 1);
+    if (get(bytes, field::holders) == 0)
+    {
+        block_runtime_weapon_spawn(weapon); // 0x00147860, EBX actor
+        set_runtime_weapon_mask(weapon, 0); // The inlined 0x00146230: +0x93C cleared, the +0xD88 voice stopped.
+        return;
+    }
+    if (kBobScriptHold != 0) // DAT_00512278.
+    {
+        set(bytes, field::unk_FE4, 1);
+    }
+}
+
+// Xbox 0x000C62C0, EAX actor
+void finish_runtime_bob_weapon_rest(RuntimeWeaponActor& weapon)
+{
+    auto bytes = weapon.bytes;
+    if (read_u32(bytes, field::animation.offset) != 0x5F646961u) // "aid_"
+    {
+        return;
+    }
+    std::string events;
+    const AnimationMix mix = bob_mix(bytes, events);
+    start_actor_animation_mix(weapon.view.animation, 0, mix, field_data(bytes, field::animation), weapon.registry,
+        weapon.error, weapon.random); // 0x0003ADA0, EBX actor, EDI the mix
+    dispatch_callouts(weapon, 0xD);
+    award_runtime_weapon_points(weapon, 1); // 0x001456D0, ESI actor
+}
+
+// Xbox 0x000C63A0, EAX actor
+void start_runtime_bob_weapon_rest(RuntimeWeaponActor& weapon)
+{
+    auto bytes = weapon.bytes;
+    if (read_u32(bytes, field::animation.offset) != 0x5F646961u) // "aid_"
+    {
+        return;
+    }
+    std::string events;
+    AnimationMix mix = bob_mix(bytes, events);
+    AnimationController* controller = weapon.view.animation.controller.get(); // Actor +0x50.
+    if (controller != nullptr && !controller->slots.empty() && controller->slots[0].player != nullptr)
+    {
+        mix.position = controller->slots[0].player->position;
+    }
+    start_actor_animation_mix(weapon.view.animation, 0, mix, field_data(bytes, field::animation), weapon.registry,
+        weapon.error, weapon.random); // 0x0003ADA0, EBX actor, EDI the mix
+    controller = weapon.view.animation.controller.get();
+    if (controller != nullptr)
+    {
+        if (!controller->slots.empty() && controller->slots[0].player != nullptr)
+        {
+            MinaPlayer& player = *controller->slots[0].player;
+            player.speed = -engine_absolute(player.speed); // 0x00152BB0, FCHS: played backwards
+        }
+        controller->dirty = true; // +0x5C.
+    }
+    set(bytes, field::holders, get(bytes, field::holders) + 1);
+    set(bytes, field::unk_FE4, 1);
+    dispatch_callouts(weapon, 0x4B);
 }
 
 // Xbox 0x000C6100
@@ -175,9 +292,15 @@ void enter_runtime_bob_weapon_state(RuntimeWeaponActor& weapon, u16 state, u16 p
         return;
     case 7:
         weapon.services.runtime_flags &= ~0x20000u;
-        untranslated(0x0012ADC0, "the bob entering state 7 (0x000C6100)");
+        if (weapon.actor.spawn_owner == nullptr)
+        {
+            throw Error("0x000C6100 reads a missing +0xD8C owner's tag through address zero");
+        }
+        tally_runtime_script_kind(6, weapon.actor.spawn_owner->class_key); // 0x0012ADC0, ECX 6, DX owner +6
+        return;
     case 0xE:
-        untranslated(0x000C63A0, "the bob entering state 14 (0x000C6100)");
+        start_runtime_bob_weapon_rest(weapon); // 0x000C63A0, EAX actor
+        return;
     case 0x10:
         start_runtime_weapon_idle(weapon); // 0x00144D00
         return;
@@ -223,17 +346,19 @@ void update_runtime_bob_weapon_state(RuntimeWeaponActor& weapon, u16 state)
         }
         if (weapon.blocked_players > -1) // DAT_004E1C34.
         {
-            store32(bytes, 0xF5C, std::bit_cast<u32>(1.f)); // DAT_0032B0F8.
+            set(bytes, field::state_7_timer, 1.f); // DAT_0032B0F8.
             return;
         }
-        float timer = read_f32(bytes, 0xF5C);
+        float timer = get(bytes, field::state_7_timer);
         runtime_frame_timer_elapsed(timer, weapon.actor, weapon.frame); // 0x00042360
-        store32(bytes, 0xF5C, std::bit_cast<u32>(timer));
+        set(bytes, field::state_7_timer, timer);
         if (timer != 0.f)
         {
             return;
         }
-        untranslated(0x000C62C0, "the bob's state 7 update (0x000C5D50)");
+        finish_runtime_bob_weapon_rest(weapon); // 0x000C62C0, EAX actor
+        store16(bytes, 0xC0E, 0x10);
+        return;
     }
     case 0xE:
         if (actor_animation_completed(weapon.view.animation, 0)) // 0x0003B290

@@ -1,6 +1,7 @@
 #include "powerup_awards.h"
 #include "actor_live_attachments.h"
 #include "body_request_selection.h"
+#include "../saves/save_summary.h"
 #include <cstring>
 
 namespace gbtg
@@ -86,7 +87,18 @@ i32 award_runtime_challenge(u32 index, RuntimeChallengeAward& context)
     }
     if (context.profile.name[0] != 0)
     {
-        throw Error("untranslated 0x000F3230 (the challenge save of DAT_00506C90) from 0x000F24C0");
+        const char16_t* name = context.profile.name.data(); // DAT_00506C90
+        store_runtime_save_challenges(context.profile); // 0x000F3230
+        if (save_game_word(name, save_record_field::unk_184.offset) != 0) // 0x0010DC20, EBX the name
+        {
+            clear_save_game_word_184(name); // 0x0010E2C0
+        }
+        // 0x000F32F0 on a failed write: apperror gamesystem_corruptgamemessage for the name.
+        queue_save_game(name, [](const void*)
+        {
+            throw Error("0x00032990 (the app error screen, apperror gamesystem_corruptgamemessage) is not "
+                "translated");
+        }, context.saves); // 0x0010DA80, EAX the name
     }
     show_runtime_bonus_counter(0, won, context.counters, context.scoreboard); // 0x0012D7E0, EDI 0
     return won;

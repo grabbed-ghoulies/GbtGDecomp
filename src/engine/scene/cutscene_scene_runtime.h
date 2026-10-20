@@ -44,6 +44,10 @@ void push_scene_cutscene(const char* name, i32 interpolation,
 RuntimeCutsceneInstance* start_scene_cutscene(const char* name, i32 view_flags,
     i32 interpolation, SceneCutsceneRuntime& state); // Xbox 0x0004EDA0
 void release_scene_cutscenes(SceneCutsceneRuntime& state); // Xbox 0x0004ECE0
+// Ends one stacked clip: with one clip (or none) on the stack the next tick releases them all (DAT_004E1C48);
+// otherwise the clip is found, released (0x0004F050) and the clips above it move down.
+void stop_scene_cutscene(RuntimeCutsceneInstance* instance,
+    SceneCutsceneRuntime& state); // Xbox 0x0004EEA0, ECX instance
 void update_scene_cutscene_camera_event(float dt,
     SceneCutsceneRuntime& state); // Xbox 0x0004F110
 void tick_scene_cutscenes(SceneCutsceneRuntime& state); // Xbox 0x0004EBD0

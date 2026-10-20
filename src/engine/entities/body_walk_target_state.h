@@ -2,6 +2,7 @@
 
 #include "body_state_actions.h"
 #include "body_walk_alert_tick.h"
+#include "body_state_fields.h"
 
 namespace gbtg
 {
@@ -20,6 +21,51 @@ float runtime_facing_weight(float heading, float target); // Xbox 0x000921E0
 // Type 0x8F (getter 0x000A6220, vtable 0x00505CC0): the walk a woken skeleton takes toward its mind's target.
 // State +0x18 holds four {name, record, rate, rate} rows (2 speed bands x 2 directions) and the band limits at
 // +0x58..+0x60.
+// One walk row (0x10 bytes): the animation's name by address, then the rates at the band's two limits.
+namespace walk_target_row_field
+{
+constexpr RetailField<u32, 0x0> name{}; // the animation's name, a retail address
+constexpr RetailField<u32, 0x4> found{}; // set by 0x00091820 when the name has a record (kept natively)
+constexpr RetailField<float, 0x8> lower_rate{}; // the stride time at the band's lower speed
+constexpr RetailField<float, 0xC> upper_rate{}; // and at its upper speed
+} // namespace walk_target_row_field
+// The rows block (0x4C bytes), copied from the parameters' +0xC. 0x000918C0, 0x00091820 and 0x00091A00 take it by
+// address.
+namespace walk_target_rows_field
+{
+// Row direction + band * 2: band 0 (slow) and 1 (fast), each with two directions (0x000A61B0).
+constexpr RetailRecord<0x00, 0x10, 4> rows{};
+// The bands' speed limits as fractions of the body's step speed: band b runs from limits[b] to limits[b + 1].
+constexpr RetailField<std::array<float, 3>, 0x40> band_limits{};
+constexpr u32 kSize = 0x4C;
+static_assert(retail_fits(kSize, band_limits));
+} // namespace walk_target_rows_field
+// The walk-target parameters (0x60 bytes, 0x00091A90).
+namespace walk_target_parameter
+{
+constexpr RetailRecord<0x0C, walk_target_rows_field::kSize> rows{};
+constexpr RetailField<u32, 0x58> settle_turn{};
+constexpr RetailField<u16, 0x5C> arrived_key{};
+constexpr RetailField<u16, 0x5E> stopped_key{};
+constexpr u32 kSize = 0x60;
+static_assert(retail_fits(kSize, stopped_key));
+} // namespace walk_target_parameter
+// The walk-target state's own fields at their retail offsets (0x7C bytes), after the body-state base
+// (body_state_field).
+namespace walk_target_field
+{
+constexpr RetailRecord<0x18, walk_target_rows_field::kSize> rows{};
+// 1 s at construction (DAT_0032B0F8), ticking down: the walk cannot arrive until it is 0 (0x000A6640).
+constexpr RetailField<float, 0x64> arrival_delay{};
+constexpr RetailField<u32, 0x68> arrived{}; // set by 0x000A6640 once the body faces the target; next_key holds then
+constexpr RetailField<u32, 0x6C> settle_turn{}; // set: 0x000A67C0 settles the body's turn (0x00134720)
+constexpr RetailField<u16, 0x70> arrived_key{}; // next_key once arrived
+constexpr RetailField<u16, 0x72> stopped_key{}; // next_key once the body has stopped
+constexpr RetailField<u32, 0x74> direction{}; // the playing row's direction; -1 (none) at construction
+constexpr RetailField<u32, 0x78> band{}; // the playing row's band
+constexpr u32 kSize = 0x7C;
+static_assert(retail_fits(kSize, band));
+} // namespace walk_target_field
 void walk_target_object_sizes(ObjectSizes& output); // Xbox 0x00091A90
 void find_runtime_walk_target_records(std::span<u8> rows,
     RuntimeBodyStateContext& context); // Xbox 0x00091820

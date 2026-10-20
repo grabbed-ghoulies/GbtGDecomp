@@ -256,6 +256,37 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
             children_[child->bytes.get()] = thrown.get();
             continue;
         }
+        if (child->type == 0x66)
+        {
+            auto& arc = arc_children_[child->bytes.get()];
+            if (arc == nullptr)
+            {
+                arc = std::make_unique<RuntimeBodyMessageChild>();
+                arc->message = [this, child](std::span<u8> message)
+                {
+                    const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
+                    message_runtime_arc_state({child->bytes.get(), child->size}, words, arc_context()); // 0x0008DD30
+                };
+            }
+            children_[child->bytes.get()] = arc.get();
+            continue;
+        }
+        if (child->type == 0x78)
+        {
+            auto& swing = swing_children_[child->bytes.get()];
+            if (swing == nullptr)
+            {
+                swing = std::make_unique<RuntimeBodyMessageChild>();
+                swing->message = [this, child](std::span<u8> message)
+                {
+                    const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
+                    message_runtime_swing_state({child->bytes.get(), child->size}, words,
+                        swing_context()); // 0x00098620
+                };
+            }
+            children_[child->bytes.get()] = swing.get();
+            continue;
+        }
         if (child->type == 0x7D)
         {
             auto& lift = lift_children_[child->bytes.get()];
@@ -558,6 +589,12 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
     case 0x8B:
         tick_runtime_throw_state({action.bytes.get(), action.size}, throw_context()); // 0x000A3990
         return;
+    case 0x66:
+        tick_runtime_arc_state({action.bytes.get(), action.size}, arc_context()); // 0x0008DC70
+        return;
+    case 0x78:
+        tick_runtime_swing_state({action.bytes.get(), action.size}, swing_context()); // 0x00098460
+        return;
     case 0x8A:
     {
         RuntimeHoldStateTick tick{player_.body, player_.actor, player_.actor_address,
@@ -788,6 +825,8 @@ void SceneBodyMessages::action_step(FactoryObject& action)
     case 0x8B:
     case 0x8E:
     case 0x8F:
+    case 0x66:
+    case 0x78:
         // 0x001628B0 (0x000D4179 for 0x69, 0x70 and 0x88) returns at once.
         return;
     default:
@@ -952,6 +991,72 @@ RuntimeThrowStateContext& SceneBodyMessages::throw_context()
         },
         own, player_.scene.input_state, services_.random});
     return *throw_;
+}
+
+RuntimeSwingStateContext& SceneBodyMessages::swing_context()
+{
+    if (!services_.marks || !services_.cutscenes || services_.door_names == nullptr || !services_.heap_address
+        || !services_.weapon_collision)
+    {
+        unbound("swing state without the scene's actor list, cutscene stack, door names or weapon views");
+    }
+    auto& pickup = pickup_context();
+    swing_shape_.reset();
+    swing_shape_.emplace(services_.state_context(services_.address_of(player_.body.data())));
+    swing_next_.reset();
+    swing_next_.emplace(RuntimeBodyNextAction{player_.body, player_.body_attributes, player_.action_table, first_timer_,
+        [this]()
+        {
+            return body_slot_key(0x20);
+        },
+        [this]()
+        {
+            return body_slot_key(0x2C);
+        }});
+    swing_.reset();
+    swing_.emplace(RuntimeSwingStateContext{pickup, *swing_shape_, *swing_next_,
+        [this](std::span<const u32> words)
+        {
+            std::array<u32, 0x42> buffer{};
+            std::copy_n(words.begin(), std::min<size_t>(words.size(), buffer.size()), buffer.begin());
+            dispatch(player_.body_object, buffer); // Body vtable +0xC.
+        },
+        services_.weapon_collision, services_.marks,
+        [this](u32 actor)
+        {
+            return ActorTrailContext{services_.factory, services_.objects, actor, services_.pause,
+                services_.frame_delta, services_.time_scale, services_.pal, services_.pal_override,
+                services_.empty_name};
+        },
+        services_.effects, services_.sounds, services_.cutscenes, services_.effects.models.registry,
+        services_.door_names->room, services_.door_names->aliases, services_.image_string, services_.record_at,
+        services_.actor_at, services_.heap_address, services_.random});
+    return *swing_;
+}
+
+RuntimeArcStateContext& SceneBodyMessages::arc_context()
+{
+    player_.refresh_body_views();
+    arc_.reset();
+    arc_.emplace(RuntimeArcStateContext{player_.body, player_.actor, player_.actor_instance.animation,
+        player_.body_selection, services_.clock, player_.ring, player_.actor_instance.startup.resource,
+        player_.callout, player_.body_lists, services_.latches, services_.image_string,
+        [this](std::span<const u32> words)
+        {
+            std::array<u32, 0x42> buffer{};
+            std::copy_n(words.begin(), std::min<size_t>(words.size(), buffer.size()), buffer.begin());
+            dispatch(player_.body_object, buffer); // Body vtable +0xC.
+        },
+        [this](std::span<const u32> words)
+        {
+            services_.message(player_.actor_address, words);
+        },
+        [this](u32 slot)
+        {
+            return body_slot_key(slot);
+        },
+        services_.address_of});
+    return *arc_;
 }
 
 RuntimePickupStateContext& SceneBodyMessages::pickup_context()
@@ -1513,7 +1618,26 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 }
                 return;
             }
-            if (type != 0x87 && type != 0x88 && type != 0x69 && type != 0x70 && type != 0x5B && type != 0x5C && type != 0x74 && type != 0x7C)
+            if (type == 0x78)
+            {
+                // 0x00098620 acts on ids 0x5A (with words +0x18 / +0x1C) and 0x7F (with +4).
+                if (reply.id == 0x5A || reply.id == 0x7F)
+                {
+                    unbound("collision reply id " + std::to_string(reply.id) + " to the swing state 0x00098620");
+                }
+                return;
+            }
+            if (type == 0x66)
+            {
+                // 0x0008DD30 reads the reply's id: only 0x51 acts.
+                auto& second = player_.body_selection.second;
+                const std::array<u32, 1> words{reply.id};
+                message_runtime_arc_state({second.bytes.get(), second.size}, words, arc_context());
+                return;
+            }
+            // 0x8A (getter 0x000A34C0) keeps the empty 0x001628B0 at +0xC too.
+            if (type != 0x87 && type != 0x88 && type != 0x69 && type != 0x70 && type != 0x5B && type != 0x5C && type != 0x74 && type != 0x7C
+                && type != 0x8A)
             {
                 unbound("collision reply action vtable +0xC of factory type " + std::to_string(type));
             }

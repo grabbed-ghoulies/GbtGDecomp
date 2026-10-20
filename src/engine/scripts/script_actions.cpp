@@ -24,10 +24,13 @@
 #include "../entities/player_state.h"
 #include "../entities/player_mind_messages.h"
 #include "../entities/camera_director.h"
+#include "../entities/actor_spawn_query.h"
+#include "../entities/entity.h"
 #include "../scene/scene_actor_services.h"
 #include "../scene/scene_markers.h"
 #include "../frontend/dialogue_activation.h"
 #include "script_conditions.h"
+#include "../runtime/random_state.h"
 #include "script_event_sequence.h"
 #include "../cutscenes/door_registration.h"
 #include "../cutscenes/actor_tracks.h"
@@ -909,7 +912,7 @@ int script_handle_condition_setup(Game& g, const ScriptNode& node)
 // Xbox 0x00125450. One node of the action walk. Type 0x3C stops the walk.
 // The listed types copy a condition, then 0x000532B0 (ECX = cursor, EDX =
 // 0x3C) moves the cursor to the block's closing 0x3C, so the runner advances
-// past the condition body. Every other type returns 3. Types 0x40, 0x6A, 0x94,
+// past the condition body (types 0x3F, 0x41, 0x43 and 0x44 included). Every other type returns 3. Types 0x40, 0x6A, 0x94,
 // 0x95 and 0x99 store 0x001077B0's tag in the word at +8; 0x6A also copies the
 // float at node+0x4C to +0x10.
 // Xbox 0x00125450
@@ -920,6 +923,8 @@ int script_handle_condition_node(Game& g, const ScriptNode& node, u32& cursor)
     bool word_then_far = false;
     bool payload_at_8 = false;
     bool float_at_10 = false;
+    bool word_and_float = false;
+    bool tag_only = false;
     switch (node.type)
     {
     case 0x3C:
@@ -932,9 +937,24 @@ int script_handle_condition_node(Game& g, const ScriptNode& node, u32& cursor)
         opcode = 1;
         payload_at_8 = true;
         break;
+    case 0x3F:
+        opcode = 2; // 0x001254D3: the link alone.
+        break;
     case 0x40:
         opcode = 3;
         word_then_far = true;
+        break;
+    case 0x41:
+        opcode = 4; // 0x001254F9: the dword at node+8 and the float at node+0xC.
+        payload_at_8 = true;
+        break;
+    case 0x43:
+        opcode = 6; // 0x00125543: the word at node+8 and the float at node+0xC.
+        word_and_float = true;
+        break;
+    case 0x44:
+        opcode = 7; // 0x00125576: 0x001077B0's tag for the name at node+8.
+        tag_only = true;
         break;
     case 0x47:
         opcode = 8;
@@ -982,6 +1002,15 @@ int script_handle_condition_node(Game& g, const ScriptNode& node, u32& cursor)
         {
             cond_put_u32(rec, 0x10, node_u32(g.scene_script, node, 0x4C));
         }
+    }
+    else if (word_and_float)
+    {
+        cond_put_u32(rec, 8, node_u16(g.scene_script, node, 8));
+        cond_put_u32(rec, 0xC, node_u32(g.scene_script, node, 0xC));
+    }
+    else if (tag_only)
+    {
+        cond_put_u32(rec, 8, static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 8).c_str())));
     }
     else if (payload_at_8)
     {
@@ -1340,8 +1369,14 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
         return 2;
     }
     case 0x1b:
-        // 0x00125CC0, XMM0 = 0. 0x000D05D0 is not translated.
+    {
+        // 0x00125CC0 builds step type 1 with XMM0 = 0 at +4, then 0x000D05D0 queues it.
+        std::array<u8, 0x88> step{};
+        const u32 type = 1;
+        std::memcpy(step.data(), &type, 4);
+        queue_script_event_step(step);
         return 2;
+    }
     case 0x1c:
     {
         const std::string key = node_cstr(g.scene_script, node, 8);
@@ -1353,13 +1388,20 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
     }
     case 0x1d:
     {
-        const u32 lo = node_u32(g.scene_script, node, 8);
-        const u32 hi = node_u32(g.scene_script, node, 0xC) + 1u;
-        (void)lo;
-        (void)hi;
-        const std::string key = node_cstr(g.scene_script, node, 0x10);
-        const u16 word = static_cast<u16>(script_find_actor_tag(key.c_str()));
-        (void)word;
+        // 0x00125D40 builds step type 3 with XMM0 = 1.5 (0x0032B210) at +4; +0x18 is the kill count 0x0001BB60
+        // draws from [node+8, node+0xC + 1) and +0x1C the tag of the name at node+0x10. 0x000D05D0 queues it.
+        std::array<u8, 0x88> step{};
+        const u32 type = 3;
+        const float delay = 1.5f;
+        std::memcpy(step.data(), &type, 4);
+        std::memcpy(step.data() + 4, &delay, 4);
+        const i32 low = i32(node_u32(g.scene_script, node, 8));
+        const i32 high = i32(node_u32(g.scene_script, node, 0xC)) + 1;
+        const i32 count = draw_runtime_random_count(high, low, g_shared_random); // 0x0001BB60, ESI DAT_0054DD7C
+        std::memcpy(step.data() + 0x18, &count, 4);
+        const u16 tag = static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 0x10).c_str()));
+        std::memcpy(step.data() + 0x1C, &tag, 2);
+        queue_script_event_step(step);
         return 2;
     }
     case 0x1e:
@@ -1542,7 +1584,7 @@ int script_handle_flag_bits(Game& g, const ScriptNode& node)
 // and returns 0. Nonzero calls 0x001412F0; a ready load clears the flag and
 // returns 2, while an unfinished load returns 0.
 //
-// Type 0x2B would call 0x000F4E50 with EAX = node+8. That call is not
+// Type 0x2B calls 0x000F4E50 with EAX = node+8 (the scene queues the record). That call is
 // translated. The case returns 2.
 //
 // Type 0x51 calls 0x001077B0 with EAX = node+8. It walks DAT_00511B38. A
@@ -1615,8 +1657,12 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
         return 0;
     case 0x2b:
     {
-        const std::string name = node_cstr(g.scene_script, node, 8);
-        (void)name;
+        SceneActorServices* actors = script_scene_actors(g);
+        if (actors == nullptr)
+        {
+            throw Error("script type 0x2B without the native scene's resources (0x000F4E50)");
+        }
+        actors->queue_aid_spawns(node_cstr(g.scene_script, node, 8).c_str()); // 0x000F4E50, EAX node+8
         return 2;
     }
     case 0x51:
@@ -3147,6 +3193,39 @@ int script_handle_world_actions(Game& g, const ScriptNode& node, int param_2, in
 // DAT_00511B28, compares DI with the word at object+6, and calls vtable +0xC
 // with EBX on a match. 0x00122FA0 is not translated. Both paths return 2.
 // Any other type returns 3.
+std::function<void(Actor& actor, std::span<u32> message)> g_script_actor_message;
+
+// Xbox 0x0001BB60, ECX high, EDX low, ESI the random state
+i32 draw_runtime_random_count(i32 high, i32 low, u32& random)
+{
+    random = random * 0x19660Du + 0x3C6EF35Fu;
+    const float fraction = std::bit_cast<float>((random & 0x7FFFFFu) | 0x3F800000u) - 1.f; // DAT_0032B0F8.
+    return i32(float(high - low) * fraction + float(low));
+}
+
+// Xbox 0x00122FA0, DI tag, EBX message
+void message_runtime_tagged_list_actors(u16 tag, std::span<u32> message)
+{
+    auto* node = static_cast<ActorSpawnLink*>(entity_detail::g_world.body_b.next); // DAT_00511B28.
+    while (node != nullptr)
+    {
+        Actor* actor = node->actor; // The object at node - 0x934.
+        node = node->next;
+        if (actor == nullptr)
+        {
+            throw Error("DAT_00511B24 node has no actor");
+        }
+        if (actor->class_key == tag)
+        {
+            if (!g_script_actor_message)
+            {
+                throw Error("0x00122FA0 sends a message with no scene bound");
+            }
+            g_script_actor_message(*actor, message); // Vtable +0xC.
+        }
+    }
+}
+
 // Xbox 0x00128770
 int script_handle_broadcast_actions(Game& g, const ScriptNode& node)
 {
@@ -3160,19 +3239,11 @@ int script_handle_broadcast_actions(Game& g, const ScriptNode& node)
     {
         return 3;
     }
-    const i32 message = 1;
+    std::array<u32, 1> message{1}; // The incoming argument slot, EBX.
     const std::string key = node_cstr(g.scene_script, node, 8);
-    const i32 found = binary_search_names(0xe9, kObjTagActor, key.c_str());
-    if (found == -1)
-    {
-        const u16 tag = 0;
-        (void)tag;
-        (void)message;
-        return 2;
-    }
-    const u16 tag = static_cast<u16>(found + 1);
-    (void)tag;
-    (void)message;
+    const i32 found = binary_search_names(0xe9, kObjTagActor, key.c_str()); // 0x000FBFB0, names 0x0042A854
+    const u16 tag = found == -1 ? 0 : static_cast<u16>(found + 1);
+    message_runtime_tagged_list_actors(tag, message); // 0x00122FA0, DI tag
     return 2;
 }
 

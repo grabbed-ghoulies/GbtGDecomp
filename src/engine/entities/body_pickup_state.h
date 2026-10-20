@@ -4,6 +4,7 @@
 #include "player_attachment.h"
 #include "actor_clock.h"
 #include "actor_live_attachments.h"
+#include "body_state_fields.h"
 #include "../frontend/dialogue_input.h"
 #include "gbtg/actor_runtime.h"
 
@@ -50,6 +51,21 @@ struct RuntimePickupStateContext
     std::span<const u8> address_zero{}; // What a null input word reads (0x0009E6B0's stick).
 };
 
+// The pick-up state's parameters (0x10 bytes) and own fields (0x2C bytes, 0x0009DD80), after the body-state base.
+namespace pickup_state_parameter
+{
+constexpr RetailField<float, 0x0C> release_point{};
+constexpr u32 kSize = 0x10;
+static_assert(retail_fits(kSize, release_point));
+} // namespace pickup_state_parameter
+namespace pickup_state_field
+{
+constexpr RetailField<u32, 0x18> taken{}; // set once the animation passes the weapon's grab point (0x0009DF90)
+constexpr RetailField<Vec3, 0x1C> start_position{}; // the actor's position at entry (0x000412A0)
+constexpr RetailField<float, 0x28> release_point{}; // the animation point after which the stick ends the state
+constexpr u32 kSize = 0x2C;
+static_assert(retail_fits(kSize, release_point));
+} // namespace pickup_state_field
 void pickup_state_object_sizes(ObjectSizes& output); // Xbox 0x0009DD80
 bool initialize_runtime_pickup_state(std::span<u8> state, std::span<const u8> parameters,
     RuntimePickupStateContext& context); // Xbox 0x0009DE00
@@ -61,6 +77,27 @@ void tick_runtime_pickup_state(std::span<u8> state, RuntimePickupStateContext& c
 // State words: +0x18 the animation point that asks the weapon, +0x1C the point it reaches the hands, +0x20 the point
 // after which the stick ends the state, +0x24 the hold height (times actor +0x38), +0x28 the weapon that agreed and
 // +0x2C the stage (1 facing the mind's weapon, 2 asked, 3 the weapon agreed).
+// The lift state's parameters (0x1C bytes) and own fields (0x30 bytes, 0x0009E430), after the body-state base.
+namespace lift_state_parameter
+{
+constexpr RetailField<float, 0x0C> ask_point{};
+constexpr RetailField<float, 0x10> hands_point{};
+constexpr RetailField<float, 0x14> release_point{};
+constexpr RetailField<float, 0x18> hold_height{};
+constexpr u32 kSize = 0x1C;
+static_assert(retail_fits(kSize, hold_height));
+} // namespace lift_state_parameter
+namespace lift_state_field
+{
+constexpr RetailField<float, 0x18> ask_point{}; // the animation point at which the weapon is asked (message 0xA0)
+constexpr RetailField<float, 0x1C> hands_point{}; // the point the weapon reaches the hands
+constexpr RetailField<float, 0x20> release_point{}; // the point after which the stick ends the state
+constexpr RetailField<float, 0x24> hold_height{}; // times actor +0x38 in the ask
+constexpr RetailField<u32, 0x28> weapon{}; // the weapon that agreed; message 0x7C naming it clears it
+constexpr RetailField<u32, 0x2C> stage{}; // 1 facing the mind's weapon, 2 asked, 3 the weapon agreed
+constexpr u32 kSize = 0x30;
+static_assert(retail_fits(kSize, stage));
+} // namespace lift_state_field
 void lift_state_object_sizes(ObjectSizes& output); // Xbox 0x0009E430
 bool initialize_runtime_lift_state(std::span<u8> state, std::span<const u8> parameters,
     RuntimePickupStateContext& context); // Xbox 0x0009E4B0

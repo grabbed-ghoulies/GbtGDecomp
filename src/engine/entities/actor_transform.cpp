@@ -255,8 +255,12 @@ ActorAttachmentNode* actor_create_attachment(ActorAttachmentList& list, const ch
     word(0x1C, u32(mode));
     node->previous = nullptr;
     node->next = nullptr;
-    ActorAttachmentNode* tail = &list.sentinel;
-    ActorAttachmentNode* next = list.sentinel.next;
+    if (list.pending == nullptr)
+    {
+        throw Error("0x0003D1B0 links into an attachment list with no pending view (owner +8)");
+    }
+    ActorAttachmentNode* tail = list.pending;
+    ActorAttachmentNode* next = list.pending->next;
     while (next != nullptr)
     {
         tail = tail->next;

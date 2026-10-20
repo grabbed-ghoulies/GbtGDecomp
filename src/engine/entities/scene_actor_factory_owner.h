@@ -8,6 +8,8 @@
 #include "projectile_weapon.h"
 #include "bob_weapon.h"
 #include "ghouly_cutscene_setup.h"
+#include "ghouly_bg_break_setup.h"
+#include "bg_break_key.h"
 #include "bone_debris_actor.h"
 #include "../graphics/effect_collision_response.h"
 
@@ -75,6 +77,15 @@ struct NativeSceneActorClassBindings
     std::function<RuntimeModelSoundRelease&()> effect_release;
     const i32& pal; // DAT_005096E0.
     const i32& pal_override; // DAT_005096E4.
+    // The ghouly bg-break setup (type 0x24): 0x0013E790's queue state, the +0x934 background list and the
+    // background part calls 0x00045D40 and 0x00046440.
+    std::function<GhoulySpawnContext&()> spawns;
+    std::function<std::vector<BackgroundListEntry>()> backgrounds;
+    std::function<void(u32, i32, const Vec3&, u32)> break_background_part;
+    std::function<void(u32, i32)> hold_background_part;
+    // The bg-break key (type 0x1E): 0x00117400's pause groups and 0x00116810's script event queue.
+    std::function<RuntimeActorPauseGroups&()> pause_groups;
+    std::function<void(std::span<const u8>)> queue_event;
 };
 // Native contexts for the retail area/trigger classes, over the existing
 // actor lifecycle owner. All referenced scene services must outlive this owner.
@@ -91,6 +102,12 @@ public:
     bool construct_cutscene_setup(FactoryObject& object, std::span<const u8> parameters); // Type 0x25.
     void release_cutscene_setup(FactoryObject& object); // Type 0x25, Xbox 0x0006B350.
     void update_cutscene_setup(FactoryObject& object); // Type 0x25, Xbox 0x0006B8B0.
+    bool construct_bg_break_setup(FactoryObject& object, std::span<const u8> parameters); // Type 0x24.
+    void release_bg_break_setup(FactoryObject& object); // Type 0x24, Xbox 0x0006A600.
+    void update_bg_break_setup(FactoryObject& object); // Type 0x24, Xbox 0x0006ADC0.
+    bool construct_bg_break_key(FactoryObject& object, std::span<const u8> parameters); // Type 0x1E.
+    void release_bg_break_key(FactoryObject& object); // Type 0x1E, Xbox 0x0006CD10.
+    void update_bg_break_key(FactoryObject& object); // Type 0x1E, Xbox 0x0006CFD0.
     bool construct_emitter(FactoryObject& object, std::span<const u8> parameters);
     bool construct_motion_blur(FactoryObject& object, std::span<const u8> parameters);
     bool construct_weapon(FactoryObject& object, std::span<const u8> parameters); // Type 0x0B, Xbox 0x00145C80.
@@ -136,12 +153,16 @@ public:
 private:
     struct TriggerInstance;
     struct CutsceneSetupInstance;
+    struct BgBreakSetupInstance;
+    struct BgBreakKeyInstance;
     struct EmitterInstance;
     struct WeaponInstance;
     NativeSceneActorClassBindings bindings_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeAreaActorContext>> areas_;
     std::unordered_map<const u8*, std::unique_ptr<TriggerInstance>> triggers_;
     std::unordered_map<const u8*, std::unique_ptr<CutsceneSetupInstance>> cutscene_setups_;
+    std::unordered_map<const u8*, std::unique_ptr<BgBreakSetupInstance>> bg_break_setups_;
+    std::unordered_map<const u8*, std::unique_ptr<BgBreakKeyInstance>> bg_break_keys_;
     std::unordered_map<const u8*, std::unique_ptr<EmitterInstance>> emitters_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeAvatarMotionBlur>> motion_blurs_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeAvatarAfterimage>> afterimages_;

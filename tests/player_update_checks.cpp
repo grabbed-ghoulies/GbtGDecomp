@@ -121,7 +121,7 @@ struct PlayerUpdateFixture
         second_action, row, table, names, child, registry, error, random, 0xA000};
     entity_detail::ListHead players{};
     ModelAnimationState model{};
-    ActorAttachmentList attachments{};
+    ActorAttachmentList attachments{{}, 0, &pending.sentinel}; // Pending view: actor +0x1B4.
     ActorAttachmentList pending{};
     ActorFrameAttachment frame_update{nullptr, [](ActorFrameAttachment&, Actor&)
         {

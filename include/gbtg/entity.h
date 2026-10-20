@@ -30,10 +30,14 @@ struct ActorAttachmentNode
     std::array<u8, 0xC4> bytes;
     const ModelBoneBinding* binding; // host pointer for node +0x10
 };
+// The attachment lists at actor +0x1AC: the started (active) nodes from +0x1AC (first at +0x1B0), the pending
+// nodes from owner +8 (actor +0x1B4, first at +0x1B8) and the count at owner +0x10. 0x0003D1B0 links new nodes
+// into the pending list; 0x0003CD00 starts them and moves them to the active one.
 struct ActorAttachmentList
 {
-    ActorAttachmentNode sentinel{}; // owner +8
+    ActorAttachmentNode sentinel{}; // The active list, owner +0.
     u16 count = 0; // owner +0x10
+    ActorAttachmentNode* pending = nullptr; // owner +8, native view of the pending list's sentinel.
 };
 ActorAttachmentNode* actor_create_attachment(ActorAttachmentList& list, const char* name,
     i32 mode, i32 kind); // Xbox 0x0003D1B0

@@ -856,12 +856,8 @@ void finish_runtime_knockdown(std::span<u8> state, RuntimeKnockdownContext& cont
     const auto body = context.body;
     if (read_u16(body, 0x94) != 0)
     {
-        if (read_u32(body, 0x73C) != 0)
+        if (context.table != nullptr) // Body +0x73C, held as its native view.
         {
-            if (context.table == nullptr)
-            {
-                throw Error("body +0x73C action table has no native view");
-            }
             const u16 key = read_u16(state, 0x5E);
             u32 output;
             if (find_runtime_script_table_row(context.table, key, output) != nullptr)

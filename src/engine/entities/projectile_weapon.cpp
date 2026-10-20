@@ -33,6 +33,9 @@ using namespace weapon_detail;
 
 namespace
 {
+namespace field = large_projectile_field;
+namespace parameter = large_projectile_parameter;
+
 // 0x0003C040 with the actor's +0x8C resource: its callout records for an id.
 void send_callout(RuntimeWeaponActor& weapon, i32 id)
 {
@@ -102,10 +105,10 @@ bool initialize_runtime_large_projectile(RuntimeWeaponActor& weapon, std::span<c
 {
     auto bytes = weapon.bytes;
     store32(bytes, 0x99C, 0x000CE5D0); // The class's contact test, called through +0x99C.
-    store16(bytes, 0xE84, 0);
-    store32(bytes, 0xED4, read_u32(parameters, 0x5F8));
-    store32(bytes, 0xED8, read_u32(parameters, 0x5FC));
-    store32(bytes, 0xEDC, read_u32(parameters, 0x600));
+    set(bytes, field::bounces_left, i16(0));
+    set(bytes, field::hold_turn, get(parameters, parameter::hold_turn));
+    set(bytes, field::hold_forward, get(parameters, parameter::hold_forward));
+    set(bytes, field::hold_up, get(parameters, parameter::hold_up));
     return true;
 }
 
@@ -166,7 +169,7 @@ void dispatch_runtime_large_projectile_message(RuntimeWeaponActor& weapon, std::
             break;
         }
         send_callout(weapon, 0x35); // 0x0003C040
-        if (message[0xD] == 0 || read_f32(bytes, 0xE74) != 0.f) // DAT_0032B100.
+        if (message[0xD] == 0 || get(bytes, field::shatter_timer) != 0.f) // DAT_0032B100.
         {
             break;
         }
@@ -194,7 +197,9 @@ void dispatch_runtime_large_projectile_message(RuntimeWeaponActor& weapon, std::
         change_runtime_weapon_state(weapon, 7); // 0x0014A290
         break;
     case 0x9D:
-        record_runtime_large_projectile_root(weapon, bytes.subspan(0xE8C, 12), bytes.subspan(0xE98, 12)); // 0x000CE660
+        record_runtime_large_projectile_root(weapon,
+            {reinterpret_cast<u8*>(field_data(bytes, field::rest_euler)), field::rest_euler.size},
+            {reinterpret_cast<u8*>(field_data(bytes, field::rest_position)), field::rest_position.size}); // 0x000CE660
         break;
     case 0xA0:
     {
@@ -202,18 +207,17 @@ void dispatch_runtime_large_projectile_message(RuntimeWeaponActor& weapon, std::
         {
             break;
         }
-        store32(bytes, 0xEC0, message[3]);
-        store32(bytes, 0xEC4, message[4]);
-        store32(bytes, 0xEC8, message[5]);
-        const float offset = read_f32(bytes, 0xED8) + read_f32(bytes, 0xEC0);
-        store32(bytes, 0xEC0, std::bit_cast<u32>(offset));
-        store32(bytes, 0xECC, 0);
-        store32(bytes, 0xED0, message[6]);
-        store32(bytes, 0xEA4, message[2]);
+        Vec3 hold{std::bit_cast<float>(message[3]), std::bit_cast<float>(message[4]),
+            std::bit_cast<float>(message[5])};
+        hold.x = get(bytes, field::hold_forward) + hold.x;
+        set(bytes, field::hold_offset, hold);
+        set(bytes, field::rise_elapsed, 0.f);
+        set(bytes, field::rise_duration, std::bit_cast<float>(message[6]));
+        set(bytes, field::catcher, message[2]);
         const Vec3 position = actor_world_position(weapon.actor); // 0x000412A0
-        std::memcpy(bytes.data() + 0xEB4, &position, 12);
+        set(bytes, field::catch_position, position);
         const Vec3 euler = actor_world_euler(weapon.actor); // 0x00041820
-        std::memcpy(bytes.data() + 0xEA8, &euler, 12);
+        set(bytes, field::catch_euler, euler);
         change_runtime_weapon_state(weapon, 0xF); // 0x0014A290
         store32(weapon.bytes_at(message[2]), 0x314, weapon.self_address());
         message[1] = 1;
@@ -228,9 +232,8 @@ void dispatch_runtime_large_projectile_message(RuntimeWeaponActor& weapon, std::
         {
             show_weapon_counter(weapon, 0);
         }
-        store32(bytes, 0xE54, message[1]);
-        store32(bytes, 0xE58, message[2]);
-        store32(bytes, 0xE5C, message[3]);
+        set(bytes, field::throw_target, Vec3{std::bit_cast<float>(message[1]), std::bit_cast<float>(message[2]),
+            std::bit_cast<float>(message[3])});
         change_runtime_weapon_state(weapon, 2); // 0x0014A290
         send_callout(weapon, 0x4F); // 0x0003C040
         break;
@@ -422,23 +425,24 @@ void launch_runtime_large_projectile(RuntimeWeaponActor& weapon)
     const auto bytes = weapon.bytes;
     Actor& actor = weapon.actor;
     const Vec3 spin = runtime_degrees_to_turns(Vec3{267.f, 0.f, 0.f}); // 0x003037F8
-    store32(bytes, 0xE60, std::bit_cast<u32>(-437.f)); // DAT_0032B65C, the fall.
-    std::memcpy(bytes.data() + 0xE68, &spin, 12);
-    store16(bytes, 0xE84, 3); // Bounces left.
+    set(bytes, field::fall_speed, -437.f); // DAT_0032B65C, the fall.
+    set(bytes, field::spin, spin);
+    set(bytes, field::bounces_left, i16(3)); // Bounces left.
     const Vec3 position = actor_world_position(actor); // 0x000412A0
-    const Vec3 direction{read_f32(bytes, 0xE54) - position.x, read_f32(bytes, 0xE58) - position.y,
-        read_f32(bytes, 0xE5C) - position.z};
-    float yaw = read_f32(bytes, 0xE64);
+    const Vec3 target = get(bytes, field::throw_target);
+    const Vec3 direction{target.x - position.x, target.y - position.y, target.z - position.z};
+    float yaw = get(bytes, field::heading);
     runtime_direction_angle(direction, yaw); // 0x00105F90, EBX +0xE64
-    store32(bytes, 0xE64, std::bit_cast<u32>(yaw));
+    set(bytes, field::heading, yaw);
     Vec3 velocity{0.f, 0.f, 0.f};
     add_sound_direction(velocity, 0.f, yaw, 167.f); // 0x00106220
     actor.anchor = velocity; // +0x3C..+0x44.
     // 0x0003BE20 over actor +0x8C, id 0x4A, with 0x0013B8B0 recording the attachments at +0xEE0.
     ActorAttachmentEventContext events = weapon.base().callouts;
-    events.command_attachments = bytes.subspan(0xEE0, 36);
+    events.command_attachments = record(bytes, field::command_attachments);
     dispatch_actor_attachment_records(weapon.view.startup.resource.resource.data(), 0x4A,
-        record_runtime_body_attachment_event, nullptr, events, weapon.self_address() + 0xEE0);
+        record_runtime_body_attachment_event, nullptr, events,
+        weapon.self_address() + field::command_attachments.offset);
 }
 
 // Xbox 0x000CE150, EAX the bounce record, EDI actor
@@ -451,7 +455,7 @@ void bounce_runtime_large_projectile_velocity(RuntimeWeaponActor& weapon, float 
         + static_cast<long double>(v.x) * v.x);
     const float length = float(speed * keep);
     Vec3 velocity{0.f, 0.f, 0.f};
-    add_sound_direction(velocity, pitch_degrees * std::bit_cast<float>(0x3C8EFA35u), read_f32(weapon.bytes, 0xE64),
+    add_sound_direction(velocity, pitch_degrees * std::bit_cast<float>(0x3C8EFA35u), get(weapon.bytes, field::heading),
         length); // 0x00106220, DAT_0032B0FC
     actor.anchor = velocity;
 }
@@ -460,11 +464,13 @@ void bounce_runtime_large_projectile_velocity(RuntimeWeaponActor& weapon, float 
 void bounce_runtime_large_projectile(RuntimeWeaponActor& weapon)
 {
     const auto bytes = weapon.bytes;
-    store32(bytes, 0xE68, std::bit_cast<u32>(read_f32(bytes, 0xE68) * 0.8f)); // DAT_0032B244.
+    Vec3 spin = get(bytes, field::spin);
+    spin.x = spin.x * 0.8f; // DAT_0032B244.
     const Vec3 kick = runtime_degrees_to_turns(Vec3{0.f, 73.f, 0.f}); // 0x00303818
-    store32(bytes, 0xE68, std::bit_cast<u32>(kick.x + read_f32(bytes, 0xE68)));
-    store32(bytes, 0xE6C, std::bit_cast<u32>(read_f32(bytes, 0xE6C) + kick.y));
-    store32(bytes, 0xE70, std::bit_cast<u32>(read_f32(bytes, 0xE70) + kick.z));
+    spin.x = kick.x + spin.x;
+    spin.y = spin.y + kick.y;
+    spin.z = spin.z + kick.z;
+    set(bytes, field::spin, spin);
     bounce_runtime_large_projectile_velocity(weapon, 320.f, 0.8f); // 0x000CE150 with the 0x003037E8 record
 }
 
@@ -475,9 +481,10 @@ void spin_runtime_large_projectile(RuntimeWeaponActor& weapon)
     Actor& actor = weapon.actor;
     const float step = runtime_actor_step(actor, weapon.clock);
     Vec3 euler = actor_world_euler(actor); // 0x00041820, ESI actor
-    euler.x = read_f32(bytes, 0xE68) * step + euler.x;
-    euler.y = read_f32(bytes, 0xE6C) * step + euler.y;
-    euler.z = read_f32(bytes, 0xE70) * step + euler.z;
+    const Vec3 spin = get(bytes, field::spin);
+    euler.x = spin.x * step + euler.x;
+    euler.y = spin.y * step + euler.y;
+    euler.z = spin.z * step + euler.z;
     normalize_euler_angles(actor.euler, euler); // 0x00105AA0
     actor.xform_valid = 0; // +0x2A8.
 }
@@ -486,8 +493,8 @@ void spin_runtime_large_projectile(RuntimeWeaponActor& weapon)
 i32 collide_runtime_large_projectile(RuntimeWeaponActor& weapon, Vec3& last, Vec3& next, float radius)
 {
     const auto bytes = weapon.bytes;
-    const u8 settled = bytes[0xE86];
-    bytes[0xE86] = 1;
+    const u8 settled = get(bytes, field::settled);
+    set(bytes, field::settled, 1);
     if (settled == 0)
     {
         if (Actor* holder = weapon.actor.spawn_owner; holder != nullptr) // +0xD8C.
@@ -530,7 +537,7 @@ i32 step_runtime_large_projectile(RuntimeWeaponActor& weapon, bool last_bounce)
     const float drift = step * 0.f;
     const float half = step * 0.5f; // DAT_0032B0F4.
     const Vec3 v = actor.anchor;
-    const float vy = read_f32(bytes, 0xE60) * step + v.y;
+    const float vy = get(bytes, field::fall_speed) * step + v.y;
     const float vx = drift + v.x;
     const float vz = drift + v.z;
     next.x = (v.x + vx) * half + next.x;
@@ -559,7 +566,8 @@ void fly_runtime_large_projectile(RuntimeWeaponActor& weapon)
 {
     const auto bytes = weapon.bytes;
     const float most = std::bit_cast<float>(0x3D6147AEu); // DAT_0032B5D0.
-    const float trail = float(i32(i16(read_u16(bytes, 0xE84)))) * std::bit_cast<float>(0x3EAAAAABu) * most; // DAT_0032B3D4
+    // DAT_0032B3D4.
+    const float trail = float(i32(get(bytes, field::bounces_left))) * std::bit_cast<float>(0x3EAAAAABu) * most;
     float scale;
     if (trail > most)
     {
@@ -579,19 +587,19 @@ void fly_runtime_large_projectile(RuntimeWeaponActor& weapon)
     }
     const i32 rate = *weapon.services.pal == 0 || *weapon.services.pal_override != 0 ? 0x3C : 0x32;
     auto trails = weapon.services.trail(weapon.self_address());
-    float timer = read_f32(bytes, 0xF04);
+    float timer = get(bytes, field::trail_timer);
     request_actor_trail(weapon.actor, scale, timer, rate / 2, trails); // 0x0013B030
-    store32(bytes, 0xF04, std::bit_cast<u32>(timer));
-    const i32 result = step_runtime_large_projectile(weapon, read_u16(bytes, 0xE84) == 0); // 0x000CE380
+    set(bytes, field::trail_timer, timer);
+    const i32 result = step_runtime_large_projectile(weapon, u16(get(bytes, field::bounces_left)) == 0); // 0x000CE380
     if (result == 2)
     {
-        const i16 left = i16(read_u16(bytes, 0xE84));
+        const i16 left = i16(u16(get(bytes, field::bounces_left)));
         if (left < 1)
         {
             change_runtime_weapon_state(weapon, 4); // 0x0014A290
             return;
         }
-        store16(bytes, 0xE84, u16(left - 1));
+        set(bytes, field::bounces_left, i16(u16(left - 1)));
         change_runtime_weapon_state(weapon, 2); // 0x0014A290: bounce
     }
     else if (result == 3)
@@ -624,8 +632,8 @@ void start_runtime_large_projectile_shatter(RuntimeWeaponActor& weapon)
             scale = 2.f; // DAT_0032B110.
         }
     }
-    store32(bytes, 0xE78, std::bit_cast<u32>(scale));
-    store32(bytes, 0xE74, std::bit_cast<u32>(0.6f)); // DAT_0032B248.
+    set(bytes, field::shatter_scale, scale);
+    set(bytes, field::shatter_timer, 0.6f); // DAT_0032B248.
 }
 
 // Xbox 0x000CEB10, EAX actor
@@ -635,7 +643,7 @@ void show_runtime_large_projectile_shatter(RuntimeWeaponActor& weapon)
     Vec3 position = actor_world_position(weapon.actor); // 0x000412A0
     // x87: the sweep radius times 0 (DAT_0032B100) plus the height, stored as a float.
     position.y = float(actor_model_sweep_radius(weapon.actor) * 0.0L + static_cast<long double>(position.y));
-    const float scale = read_f32(bytes, 0xE78);
+    const float scale = get(bytes, field::shatter_scale);
     const i32 id = scale > 1.f ? 0xB : 0xA; // DAT_0032B0F8.
     g_actor_creation_options.position = position;
     g_actor_creation_options.scale = scale;
@@ -645,14 +653,15 @@ void show_runtime_large_projectile_shatter(RuntimeWeaponActor& weapon)
         dispatch_actor_attachment_records(weapon.view.startup.resource.resource.data(), id, nullptr,
             &g_actor_creation_options, weapon.base().callouts, 0); // 0x0003BE20
     }
-    store32(bytes, 0xE80, 1);
+    set(bytes, field::shatter_shown, 1);
 }
 
 // Xbox 0x000CEC70, EAX actor
 bool update_runtime_large_projectile_shatter(RuntimeWeaponActor& weapon)
 {
     const auto bytes = weapon.bytes;
-    float reach = 30.f - read_f32(bytes, 0xE74) * 1.6666666f * 22.f; // DAT_0032B108, DAT_0032B118, DAT_0032B300.
+    // DAT_0032B108, DAT_0032B118, DAT_0032B300.
+    float reach = 30.f - get(bytes, field::shatter_timer) * 1.6666666f * 22.f;
     if (8.f > reach) // DAT_0032B26C.
     {
         reach = 8.f;
@@ -661,8 +670,9 @@ bool update_runtime_large_projectile_shatter(RuntimeWeaponActor& weapon)
     {
         reach = 30.f;
     }
-    const float radius = read_f32(bytes, 0xE78) * reach;
-    if (0.6f - read_f32(bytes, 0xE74) > 0.1f && read_u32(bytes, 0xE80) == 0) // DAT_0032B248, DAT_0032B254.
+    const float radius = get(bytes, field::shatter_scale) * reach;
+    // DAT_0032B248, DAT_0032B254.
+    if (0.6f - get(bytes, field::shatter_timer) > 0.1f && get(bytes, field::shatter_shown) == 0)
     {
         show_runtime_large_projectile_shatter(weapon); // 0x000CEB10
     }
@@ -687,21 +697,21 @@ bool update_runtime_large_projectile_shatter(RuntimeWeaponActor& weapon)
     {
         RuntimeSegmentContactActor& object = weapon.contact_actor(*probe);
         if (report_runtime_projectile_contact(weapon, weapon.actor.spawn_owner, object, position, records, still, 0,
-                bytes[0xDAC], bytes[0xDAD], bytes[0xDAE], read_u32(bytes, 0xE88) == 0, 0) != 0) // 0x00141A30
+                bytes[0xDAC], bytes[0xDAD], bytes[0xDAE], get(bytes, field::hits) == 0, 0) != 0) // 0x00141A30
         {
-            store32(bytes, 0xE88, read_u32(bytes, 0xE88) + 1);
+            set(bytes, field::hits, get(bytes, field::hits) + 1);
         }
         insert_runtime_body_contact_override(weapon.collision_overrides, object, 0, weapon.players); // 0x0013EBE0
         engine_heap_free(records); // 0x0014D360 on the block's heap.
     }
-    const float timer = read_f32(bytes, 0xE74);
+    const float timer = get(bytes, field::shatter_timer);
     if (timer > 0.f)
     {
         const float left = timer - runtime_actor_rate(weapon.actor) * runtime_frame_step(weapon.clock);
-        store32(bytes, 0xE74, std::bit_cast<u32>(left));
+        set(bytes, field::shatter_timer, left);
         if (left <= 0.f) // COMISS 0, left; JC keeps it.
         {
-            store32(bytes, 0xE74, 0);
+            set(bytes, field::shatter_timer, 0.f);
             return true;
         }
     }
@@ -744,10 +754,10 @@ void record_runtime_large_projectile_root(RuntimeWeaponActor& weapon, std::span<
 void restore_runtime_large_projectile_root(RuntimeWeaponActor& weapon)
 {
     Vec3 position;
-    std::memcpy(&position, weapon.bytes.data() + 0xE98, 12);
+    position = get(weapon.bytes, field::rest_position);
     actor_set_world_position(weapon.actor, position); // 0x00041730, EDI actor, ESI +0xE98
     Vec3 euler;
-    std::memcpy(&euler, weapon.bytes.data() + 0xE8C, 12);
+    euler = get(weapon.bytes, field::rest_euler);
     normalize_euler_angles(weapon.actor.euler, euler); // 0x00105AA0, EDI actor +0x14, ESI +0xE8C
     weapon.actor.xform_valid = 0; // +0x2A8.
 }
@@ -757,37 +767,39 @@ void lift_runtime_large_projectile(RuntimeWeaponActor& weapon)
 {
     const auto bytes = weapon.bytes;
     Actor& actor = weapon.actor;
-    const u32 holder_address = read_u32(bytes, 0xEA4);
+    const u32 holder_address = get(bytes, field::catcher);
     const Actor& holder = *weapon.actor_at(holder_address);
     actor.animation_rate = runtime_actor_rate(holder); // +0x92C from the holder's +0x92C / +0x930.
-    const float x = read_f32(bytes, 0xEC0);
-    const float y = read_f32(bytes, 0xEC4);
-    const float z = read_f32(bytes, 0xEC8);
+    const Vec3 hold = get(bytes, field::hold_offset);
+    const float x = hold.x;
+    const float y = hold.y;
+    const float z = hold.z;
     const float* m = holder.xform; // Holder +0x2AC.
     const Vec3 target{((m[2] * z + m[1] * y) + m[0] * x) + m[3],
-        read_f32(bytes, 0xEDC) + (((m[6] * z + m[4] * x) + m[5] * y) + m[7]),
+        get(bytes, field::hold_up) + (((m[6] * z + m[4] * x) + m[5] * y) + m[7]),
         ((m[10] * z + m[8] * x) + m[9] * y) + m[11]};
     Vec3 facing = actor_world_euler(holder); // 0x00041820, ESI holder
-    facing.z = read_f32(bytes, 0xED4) + facing.z;
-    float elapsed = runtime_actor_step(actor, weapon.clock) + read_f32(bytes, 0xECC);
-    store32(bytes, 0xECC, std::bit_cast<u32>(elapsed));
-    const bool arrived = elapsed >= read_f32(bytes, 0xED0);
+    facing.z = get(bytes, field::hold_turn) + facing.z;
+    float elapsed = runtime_actor_step(actor, weapon.clock) + get(bytes, field::rise_elapsed);
+    set(bytes, field::rise_elapsed, elapsed);
+    const bool arrived = elapsed >= get(bytes, field::rise_duration);
     if (arrived)
     {
-        store32(bytes, 0xECC, read_u32(bytes, 0xED0));
+        set(bytes, field::rise_elapsed, get(bytes, field::rise_duration));
     }
-    const float fraction = read_f32(bytes, 0xECC) / read_f32(bytes, 0xED0);
-    Vec3 position{(target.x - read_f32(bytes, 0xEB4)) * fraction + read_f32(bytes, 0xEB4),
-        (target.y - read_f32(bytes, 0xEB8)) * fraction + read_f32(bytes, 0xEB8),
-        (target.z - read_f32(bytes, 0xEBC)) * fraction + read_f32(bytes, 0xEBC)};
+    const float fraction = get(bytes, field::rise_elapsed) / get(bytes, field::rise_duration);
+    const Vec3 caught = get(bytes, field::catch_position);
+    Vec3 position{(target.x - caught.x) * fraction + caught.x, (target.y - caught.y) * fraction + caught.y,
+        (target.z - caught.z) * fraction + caught.z};
     const float arc = fraction * std::bit_cast<float>(0x40490FDBu); // DAT_0032B148.
     const float rise = float(retail_sin(arc)); // 0x00153320
     static_cast<void>(retail_cos(arc)); // 0x00153230, popped unused.
     position.y = rise * 15.f + position.y; // DAT_0032B214.
     actor_set_world_position(actor, position); // 0x00041730, EDI actor, ESI position
-    const Vec3 turned{step_runtime_angle_toward(facing.x, read_f32(bytes, 0xEA8), fraction),
-        step_runtime_angle_toward(facing.y, read_f32(bytes, 0xEAC), fraction),
-        step_runtime_angle_toward(facing.z, read_f32(bytes, 0xEB0), fraction)}; // 0x001013A0
+    const Vec3 caught_euler = get(bytes, field::catch_euler);
+    const Vec3 turned{step_runtime_angle_toward(facing.x, caught_euler.x, fraction),
+        step_runtime_angle_toward(facing.y, caught_euler.y, fraction),
+        step_runtime_angle_toward(facing.z, caught_euler.z, fraction)}; // 0x001013A0
     normalize_euler_angles(actor.euler, turned); // 0x00105AA0, EDI actor +0x14
     actor.xform_valid = 0; // +0x2A8.
     if (arrived)

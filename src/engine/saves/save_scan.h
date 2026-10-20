@@ -1,4 +1,5 @@
 #pragma once
+#include "gbtg/retail_field.h"
 #include "gbtg/types.h"
 #include "runtime_profile.h"
 
@@ -34,6 +35,12 @@ struct SaveBlock
 };
 // A save game record (0x268 bytes, 0x0010E9D0). The bytes are the record as written; the three blocks at
 // +0x1A8, +0x1AC and +0x1B0 are pointers in the record, kept here (their words are written as 0).
+// The save record's fields the challenge save reads and writes, at their retail offsets (docs/RETAIL_LAYOUTS.md).
+namespace save_record_field
+{
+// 0x0010DC20 returns it and 0x0010E2C0 clears it; the challenge save (0x000F24C0) clears it when it is set.
+constexpr RetailField<u32, 0x184> unk_184{};
+} // namespace save_record_field
 struct SaveGameRecord
 {
     std::array<u8, 0x268> bytes{};

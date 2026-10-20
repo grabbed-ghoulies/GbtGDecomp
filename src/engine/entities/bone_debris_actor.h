@@ -21,6 +21,45 @@ namespace gbtg
 // optional fade timer and its length, +0x948 the fade alpha (0xFF while opaque), +0x94C the landing call made, +0x950
 // set once every particle rests, +0x954 the name of an effect each piece may carry (chance +0x9D4), +0x9D8 / +0xA64 /
 // +0x9DC an optional sound, +0xA68 / +0xA88 / +0xAA8 the carried effects, their particles and their count.
+// The bone debris' own parameters (0x55C bytes in all) and instance fields (0xAAC bytes in all, 0x00067E40), after
+// the actor's. +0x934 the effect node is RuntimeBoneDebris::effect.
+namespace bone_debris_parameter
+{
+constexpr RetailField<u32, 0x334> dead_actor{};
+constexpr RetailField<std::array<char, 0x80>, 0x338> effect{}; // the debris effect (0x000ED990)
+constexpr RetailField<std::array<char, 0x80>, 0x3B8> appearance{}; // 0x0013AE30's model source name
+constexpr RetailField<std::array<char, 0x80>, 0x438> carried_effect{};
+constexpr RetailField<float, 0x4B8> carry_chance{};
+constexpr RetailField<float, 0x4BC> fade_length{};
+constexpr RetailField<float, 0x4C0> stay_time{};
+constexpr RetailField<u8, 0x4C4> unk_4C4{}; // set, 0x00067EB0 calls 0x0012A260, which is not translated
+constexpr RetailField<u32, 0x544> has_push_source{};
+constexpr RetailField<Vec3, 0x548> push_source{}; // the pieces are pushed away from it
+constexpr RetailField<float, 0x554> push_strength{};
+constexpr RetailField<u32, 0x558> sound{}; // set, 0x00067EB0 calls 0x00140560 / 0x000F8540, not translated
+constexpr u32 kSize = 0x55C;
+static_assert(retail_fits(kSize, sound));
+} // namespace bone_debris_parameter
+namespace bone_debris_field
+{
+constexpr RetailField<u32, 0x938> dead_actor{}; // the dead actor; message 0x7C naming it clears it
+constexpr RetailField<float, 0x93C> stay_time{}; // seconds the pieces stay once at rest, then fade (0x0013AF80)
+constexpr RetailField<float, 0x940> fade_timer{}; // an optional fade, ticking down
+constexpr RetailField<float, 0x944> fade_length{};
+constexpr RetailField<u32, 0x948> fade_alpha{}; // 0xFF while opaque; under it the fade draw runs (0x00068610)
+constexpr RetailField<u32, 0x94C> landed{}; // the landing callouts (0x16) have run
+constexpr RetailField<u32, 0x950> resting{}; // every particle rests
+constexpr RetailField<std::array<char, 0x80>, 0x954> carried_effect{}; // an effect each piece may carry
+constexpr RetailField<float, 0x9D4> carry_chance{};
+constexpr RetailField<u32, 0x9D8> sound{}; // the optional sound's handle (only with bone_debris_parameter::sound)
+// +0x9DC the fade's after-image source, passed by address to 0x0013AF80
+constexpr RetailField<u32, 0xA64> sound_resource{}; // the optional sound's resource
+constexpr RetailField<std::array<i32, 8>, 0xA68> carried_effects{}; // the carried effects' node slots, -1 once let go
+constexpr RetailField<std::array<u32, 8>, 0xA88> carried_particles{}; // the particle each carried effect follows
+constexpr RetailField<u32, 0xAA8> carried_count{};
+constexpr u32 kSize = 0xAAC;
+static_assert(retail_fits(kSize, carried_count));
+} // namespace bone_debris_field
 struct RuntimeBoneDebris
 {
     RuntimeAvatarActorViews self;

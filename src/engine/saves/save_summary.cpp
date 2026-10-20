@@ -66,6 +66,18 @@ void refresh_runtime_save_summary(GameSelectControlServices& services)
     save_game_word(name, 0x1A0); // 0x0010E050, its result unused here.
 }
 
+// Xbox 0x000F3230
+void store_runtime_save_challenges(RuntimeProfile& profile)
+{
+    // 0x000F72D0(0x19): kind 100, size 13 and the bytes inline after the header, zeroed.
+    std::array<u8, 13> bytes{};
+    RuntimeProfileBlock copy{100, 13, bytes};
+    engine_copy_bytes(copy.bytes.data(), profile.challenges.bytes.data(),
+        u32(profile.challenges.size)); // 0x000F71F0, EAX the copy's +8
+    store_save_game_challenges(profile.name.data(), copy); // 0x0010E5B0, EBX DAT_00506C90
+    // 0x000663E0 frees the copy.
+}
+
 // Xbox 0x000F3020, EAX the name: the save's challenges and progress words become the current game's.
 void load_runtime_save_progress(const char16_t* name, GameSelectControlServices& services)
 {

@@ -627,14 +627,16 @@ u32 g_4e1c34 = 0;
 // later. 0x0012AF10 walks seven categories, so the last read is category 6.
 constexpr u32 kStat512c6c = 0x00512B78u;
 
-constexpr u32 kStat512c6cLast = 0x0051303Cu + 6u * 0x3A24u + 9u * 0x5B8u + 0xF4u;
 
-i32 g_stat_512c6c[(kStat512c6cLast + 4u - kStat512c6c) / 4u]{};
-
-
+// The DAT_00512B78 tallies 0x0012ACF0 raises (g_script_tallies.second).
 i32& script_statistic_at_address(u32 addr)
 {
-    return g_stat_512c6c[(addr - kStat512c6c) / 4u];
+    const u32 index = (addr - kStat512c6c) / 4u;
+    if (addr < kStat512c6c || index >= g_script_tallies.second.size())
+    {
+        throw Error("script statistic address lies outside DAT_00512B78");
+    }
+    return reinterpret_cast<i32&>(g_script_tallies.second[index]);
 }
 
 

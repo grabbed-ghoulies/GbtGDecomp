@@ -644,6 +644,11 @@ int script_handle_world_actions(Game& g, const ScriptNode& node, int param_2, in
 // Any other type returns 3.
 // Xbox 0x00128770
 int script_handle_broadcast_actions(Game& g, const ScriptNode& node); // Xbox 0x00128770
+// An actor's vtable +0xC with the retail message words; the scene binds it while it runs.
+extern std::function<void(Actor& actor, std::span<u32> message)> g_script_actor_message;
+i32 draw_runtime_random_count(i32 high, i32 low, u32& random); // Xbox 0x0001BB60, ECX high, EDX low
+// The DAT_00511B24 objects (their +0x934 nodes from DAT_00511B28) whose +6 class key is `tag` hear `message`.
+void message_runtime_tagged_list_actors(u16 tag, std::span<u32> message); // Xbox 0x00122FA0, DI tag, EBX message
 // The scene's player character: its 0x00430DA0 override, else 2 with the alternate flags, else 1.
 i32 scene_player_character(const Game& g); // Xbox 0x00087830
 

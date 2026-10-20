@@ -273,10 +273,16 @@ bool request_runtime_weapon_variant(RuntimeWeaponActor& weapon, const char* name
     return weapon.spawn_record != nullptr;
 }
 
-// Xbox 0x0013B660, ESI actor
 void scare_near_runtime_weapon(RuntimeWeaponActor& weapon, float radius)
 {
-    const Vec3 position = actor_world_position(weapon.actor); // 0x000412A0
+    scare_near_runtime_actor(weapon.actor, radius, weapon.marks(), weapon.send);
+}
+
+// Xbox 0x0013B660, ESI actor
+void scare_near_runtime_actor(const Actor& actor, float radius, const std::vector<RuntimeDirectorActor>& marks,
+    const std::function<void(u32, std::span<u32>)>& send)
+{
+    const Vec3 position = actor_world_position(actor); // 0x000412A0
     const std::array<u32, 4> message{0x37, std::bit_cast<u32>(position.x), std::bit_cast<u32>(position.y),
         std::bit_cast<u32>(position.z)};
     float reach = 60.f; // DAT_0032B28C.
@@ -285,17 +291,16 @@ void scare_near_runtime_weapon(RuntimeWeaponActor& weapon, float radius)
         reach = radius;
     }
     // DAT_00511B38's player nodes, in list order, for 0x00122D80.
-    const auto marks = weapon.marks();
     std::vector<RuntimeActorProximityNode> nodes;
     nodes.reserve(marks.size());
     for (const auto& mark : marks)
     {
         nodes.push_back(RuntimeActorProximityNode{nullptr, *mark.actor,
-            [&weapon, address = mark.address](std::span<const u32> words)
+            [&send, address = mark.address](std::span<const u32> words)
             {
                 std::array<u32, 0x42> buffer{};
                 std::copy_n(words.begin(), std::min<size_t>(words.size(), buffer.size()), buffer.begin());
-                weapon.send(address, buffer);
+                send(address, buffer);
             }});
     }
     for (size_t index = 1; index < nodes.size(); ++index)

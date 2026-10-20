@@ -79,9 +79,20 @@ struct RuntimeHitStateTick
     std::function<u16()> secondary_key; // Body vtable +0x2C.
 };
 bool runtime_actor_has_render_bins(const ActorRenderRegistration& render, u8 hidden); // Xbox 0x0003CCB0
+// The body views 0x00134180 reads.
+struct RuntimeBodyNextAction
+{
+    std::span<u8> body;
+    std::span<const u8> settings; // Body +0x268.
+    const RuntimeScriptLookupTable* table; // Body +0x73C.
+    RuntimeBodyTimerRecipient* first_timer; // Body +0x760.
+    std::function<u16()> primary_key; // Body vtable +0x20.
+    std::function<u16()> secondary_key; // Body vtable +0x2C.
+};
 // Picks the body's next action into state +0xC (EAX body, EBX state).
 void select_runtime_body_next_action(std::span<u8> state, u32 secondary,
-    RuntimeHitStateTick& context); // Xbox 0x00134180
+    RuntimeBodyNextAction& context); // Xbox 0x00134180
+RuntimeBodyNextAction runtime_body_next_action(const RuntimeHitStateTick& context);
 void reset_runtime_body_turn(u32 brake, std::span<u8> body,
     RuntimeBodyTimerRecipient* first_timer); // Xbox 0x001346B0, ESI body
 float runtime_hit_target_gap(float& angle, RuntimeHitStateTick& context); // Xbox 0x00096260

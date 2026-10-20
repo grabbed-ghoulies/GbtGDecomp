@@ -45,6 +45,11 @@ struct ScriptEventSequenceContext
     float icon_fade; // DAT_0032B210.
     std::function<bool()> steps_held; // DAT_00511B40 null, or its player's body +0x15C byte 3 bit 8.
     std::function<i32()> cutscene_index; // DAT_004E1C34.
+    // Step type 1's start (0x000D0200): the DAT_00511AA4 actors' retail addresses in list order, each with its +6
+    // class key and its +0x908 word; and the drop of a key candidate it does not keep.
+    std::function<std::vector<std::array<u32, 3>>()> latch_actors;
+    std::function<void(u32)> drop_key_candidate; // 0x00112D10 on +0x920, then message 0x80 and 0x0003ED70.
+    u32* random = nullptr; // DAT_0054DD7C.
 };
 // Message 0x81 from 0x000D09A0: {id, door word, step count, steps}; the steps travel by address.
 struct ScriptEventStartMessage
@@ -77,8 +82,10 @@ bool run_script_event_steps(Game& g); // Xbox 0x000D0B40
 // ECX the step's +4 timer block: the step waits on a running cutscene, or counts its +4 delay down.
 bool script_event_step_delay_done(std::span<u8> timer); // Xbox 0x000D0700
 i32 run_script_event_kill_step(std::span<u8> step); // Xbox 0x000CFA10, step type 0
+i32 run_script_event_key_step(std::span<u8> step); // Xbox 0x000CFA90, step type 1
+i32 run_script_event_kill_count_step(std::span<u8> step); // Xbox 0x000CFE20, step type 3
 // EDI kind: adds the step's scoreboard icon and returns its message id.
-u32 add_script_event_icon(u32 kind); // Xbox 0x0012FB80
+u32 add_script_event_icon(u32 kind, u16 tag); // Xbox 0x0012FB80, EDI kind, ESI tag
 // EDX id: the scoreboard message fades out.
 bool fade_script_event_icon(u32 id); // Xbox 0x0012FDC0
 }

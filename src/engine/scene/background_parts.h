@@ -44,4 +44,20 @@ const char* background_part_rumble(const Actor& actor, i32 part,
     std::span<const u8> zero); // Xbox 0x00046470
 void prepare_background_volume_navigation(const Actor& actor,
     std::span<BackgroundAnimationVolume> records); // Xbox 0x00045EC0
+// The nearest part sphere (shape kind 3 with flag 0x40) whose centre lies within four radii of `position`: the
+// shape's +0x20 part, or -1 (also when the actor has no part header).
+i32 find_background_shape_part(const Actor& actor, const Vec3& position); // Xbox 0x00046310, EAX actor
+// One background on the +0x934 list (DAT_00511B20 order): its retail address and actor.
+struct BackgroundListEntry
+{
+    u32 address;
+    const Actor* actor;
+};
+// The first background with a part near `position` (0x00046310): its address and part.
+bool find_background_part_near(const Vec3& position, std::span<const BackgroundListEntry> backgrounds,
+    u32& background, i32& part); // Xbox 0x0013B980, EBX position
+// Releases row `part`'s live attachment (+0x14) and model anchor (+0x18) and frees its navigation regions (+0x10).
+void release_background_part_links(std::span<BackgroundAnimationVolume> rows, i32 part); // Xbox 0x00045E50
+// 0x00045E50, then the row's +0xC hold: hits no longer break the part.
+void hold_background_part(std::span<BackgroundAnimationVolume> rows, i32 part); // Xbox 0x00046440, EAX part
 }

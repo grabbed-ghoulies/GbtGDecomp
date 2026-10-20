@@ -41,6 +41,21 @@ u32 find_runtime_actor_by_id(u16 key, const std::function<u32(const entity_detai
     return 0;
 }
 
+// Xbox 0x00129EA0, DX key
+u32 find_runtime_actor_by_class(u16 key, const std::function<u32(const entity_detail::LatchNode&)>& owner,
+    const std::function<std::span<u8>(u32)>& bytes_at)
+{
+    for (const auto* node = entity_detail::g_world.latch; node != nullptr; node = node->next) // DAT_00511AA4.
+    {
+        const u32 address = owner(*node); // The node sits at the object's +0x900.
+        if (read_u16(bytes_at(address), 6) == key)
+        {
+            return address;
+        }
+    }
+    return 0;
+}
+
 // Xbox 0x00129F00
 scene_detail::PulseNode* find_actor_by_group(u16 caller_key)
 {

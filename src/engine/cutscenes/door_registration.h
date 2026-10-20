@@ -53,6 +53,10 @@ struct RuntimeDoorContext
     u32* camera_hold = nullptr; // DAT_004DEA24.
     u32* runtime_flags = nullptr; // DAT_0050EA9C.
     const char* camera_name = nullptr; // 0x00323C40.
+    // The vectors 0x0005B540 gives the door it adds when the ordinal has no row (0x0005B2D0's EDX, ECX and EAX).
+    const Vec3* added_position = nullptr; // DAT_0050DD80.
+    const Vec3* added_euler = nullptr; // DAT_0050DD74.
+    const Vec3* added_scale = nullptr; // DAT_0042A840.
 };
 struct RuntimeDoorRelease
 {

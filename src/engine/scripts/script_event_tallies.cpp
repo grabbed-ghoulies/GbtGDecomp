@@ -13,7 +13,7 @@ u32& tally_word(std::span<u32> table, size_t index)
 {
     if (index >= table.size())
     {
-        throw Error("script tally index lies outside the 5-kind table");
+        throw Error("script tally index lies outside the 7-kind table");
     }
     return table[index];
 }
@@ -44,6 +44,16 @@ void tally_runtime_script_pair(u32 kind, std::span<u32> table, u16 second, u16 f
         ++tally_word(table, row * 0x3D + first);
         ++tally_word(table, size_t(kind) * 0xE89 + first);
     }
+}
+
+// Xbox 0x0012ADC0, ECX kind, DX second
+void tally_runtime_script_kind(u32 kind, u16 second)
+{
+    const size_t row = (size_t(kind) * 0x3D + second) * 0x3D;
+    ++tally_word(g_script_tallies.first, row);
+    ++tally_word(g_script_tallies.first, size_t(kind) * 0xE89);
+    ++tally_word(g_script_tallies.second, row);
+    ++tally_word(g_script_tallies.second, size_t(kind) * 0xE89);
 }
 
 // Xbox 0x0012ACF0

@@ -17,10 +17,8 @@ namespace gbtg
 {
 namespace
 {
-void word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
+namespace field = ghouly_cutscene_field;
+namespace parameter = ghouly_cutscene_parameter;
 
 CutsceneEventPauseContext pause_context(RuntimeGhoulyCutsceneSetup& context, RuntimeCutsceneInstance& instance)
 {
@@ -46,7 +44,7 @@ void ghouly_cutscene_setup_object_sizes(ObjectSizes& sizes)
 bool initialize_runtime_ghouly_cutscene_setup(RuntimeGhoulyCutsceneSetup& context, std::span<const u8> parameters)
 {
     const auto bytes = context.bytes;
-    const u32 key = read_u32(parameters, 0x334);
+    const u32 key = get(parameters, parameter::controller_key);
     if (key != 0)
     {
         if (g_ghouly_controllers.size() == g_ghouly_controllers.capacity())
@@ -55,28 +53,29 @@ bool initialize_runtime_ghouly_cutscene_setup(RuntimeGhoulyCutsceneSetup& contex
         }
         g_ghouly_controllers.push_back({key, &context.controller});
     }
-    std::memcpy(bytes.data() + 0x934, parameters.data() + 0x338, 2);
-    word(bytes, 0x938, read_u32(parameters, 0x3BC));
-    word(bytes, 0x93C, read_u32(parameters, 0x3C0));
-    initialize_camera_view(context.camera, reinterpret_cast<const char*>(bytes.data() + 0x9AC), 0); // 0x000496C0
+    set(bytes, field::spawn_tag, get(parameters, parameter::spawn_tag));
+    set(bytes, field::hold_last_frame, get(parameters, parameter::hold_last_frame));
+    set(bytes, field::camera_mode, get(parameters, parameter::camera_mode));
+    initialize_camera_view(context.camera, field_data(bytes, field::camera_name), 0); // 0x000496C0
     CutsceneRuntimeContext& runtime = context.cutscenes();
-    context.cutscene = load_runtime_cutscene(reinterpret_cast<const char*>(parameters.data() + 0x33A), 2,
+    context.cutscene = load_runtime_cutscene(field_data(parameters, parameter::cutscene), 2,
         &context.camera, runtime); // 0x0004D680
     RuntimeCutsceneInstance& instance = *context.cutscene;
     instance.pending[0] = 0x0006BA60; // +0x150, the spawn event callback.
     instance.pending[1] = context.self_address(); // +0x154.
-    word(bytes, 0x9D4, 0);
-    word(bytes, 0x9D0, 0);
+    set(bytes, field::running, 0);
+    set(bytes, field::ended, 0);
     // The body of 0x0004E640 with one pause, inlined.
     CutsceneEventPauseContext pause = pause_context(context, instance);
     pause_cutscene_events(instance, 1, pause);
-    if (read_u32(bytes, 0x93C) != 0)
+    if (get(bytes, field::camera_mode) != 0)
     {
-        std::snprintf(reinterpret_cast<char*>(bytes.data() + 0x9AC), 0x24, "spawnId%d", i32(key)); // 0x00323E08
+        std::snprintf(field_data(bytes, field::camera_name), field::camera_name.size, "spawnId%d",
+            i32(key)); // 0x00323E08
         link_camera_view(0, context.camera); // 0x00048C20, ESI 0
     }
-    word(bytes, 0x940, 0);
-    word(bytes, 0x9D8, 0);
+    set(bytes, field::anchor, 0);
+    set(bytes, field::pending_spawns, 0);
     return true;
 }
 
@@ -89,7 +88,7 @@ void destroy_runtime_ghouly_cutscene_setup(RuntimeGhoulyCutsceneSetup& context)
         release_ghouly_spawn_record(*context.load); // 0x000F3A00
         context.load = nullptr;
     }
-    if (read_u32(context.bytes, 0x93C) != 0)
+    if (get(context.bytes, field::camera_mode) != 0)
     {
         camera_unlink_view(&context.camera); // 0x00048C70
     }
@@ -119,12 +118,12 @@ i32 query_runtime_ghouly_cutscene_pose(RuntimeGhoulyCutsceneSetup& context, i32 
 bool query_runtime_ghouly_cutscene_spawn_pose(RuntimeGhoulyCutsceneSetup& context, Vec3& source_position,
     Vec3& source_euler, Vec3& position, Vec3& euler)
 {
-    const i32 select = read_u16(context.bytes, 0x934) == 0 ? 1 : 0;
+    const i32 select = get(context.bytes, field::spawn_tag) == 0 ? 1 : 0;
     if (query_runtime_ghouly_cutscene_pose(context, select, source_position, source_euler) == 0)
     {
         return false;
     }
-    const u32 anchor = read_u32(context.bytes, 0x940);
+    const u32 anchor = get(context.bytes, field::anchor);
     if (anchor == 0)
     {
         position = source_position;
@@ -148,7 +147,7 @@ bool query_runtime_ghouly_cutscene_spawn_pose(RuntimeGhoulyCutsceneSetup& contex
 // Xbox 0x0006BA60, cutscene event 0x13
 void release_runtime_ghouly_cutscene_spawn(std::span<u8> bytes)
 {
-    word(bytes, 0x9D8, read_u32(bytes, 0x9D8) + 1);
+    set(bytes, field::pending_spawns, get(bytes, field::pending_spawns) + 1);
 }
 
 // Xbox 0x0006B4C0
@@ -160,15 +159,15 @@ void dispatch_runtime_ghouly_cutscene_setup_message(RuntimeGhoulyCutsceneSetupMe
     switch (message[0])
     {
     case 0x7C:
-        if (message[1] == read_u32(bytes, 0x940))
+        if (message[1] == get(bytes, field::anchor))
         {
-            word(bytes, 0x940, 0);
+            set(bytes, field::anchor, 0);
         }
         break;
     case 0x7D:
         if (read_u16(bytes, 0x1FE) != 0)
         {
-            word(bytes, 0x940, find_runtime_actor_by_id(read_u16(bytes, 0x1FE), context.latch_owner,
+            set(bytes, field::anchor, find_runtime_actor_by_id(read_u16(bytes, 0x1FE), context.latch_owner,
                 context.bytes_at)); // 0x00129ED0
         }
         break;
@@ -192,7 +191,7 @@ void dispatch_runtime_ghouly_cutscene_setup_message(RuntimeGhoulyCutsceneSetupMe
     }
     case 0xA7:
     {
-        if (read_u32(bytes, 0x9D8) == 0)
+        if (get(bytes, field::pending_spawns) == 0)
         {
             break;
         }
@@ -206,18 +205,18 @@ void dispatch_runtime_ghouly_cutscene_setup_message(RuntimeGhoulyCutsceneSetupMe
             return message[index] == 0x5F646961 ? name_at(message, index) : nullptr;
         };
         FactoryObject* object = create_runtime_marker_actor(name_at(message, 1), source_position, source_euler, 1.f,
-            aid(0x21), aid(0x61), aid(0x41), read_u16(bytes, 0x934), 0, position, euler, nullptr, 0, 0,
+            aid(0x21), aid(0x61), aid(0x41), get(bytes, field::spawn_tag), 0, position, euler, nullptr, 0, 0,
             context.objects); // 0x001349E0, EDX +0x184, ECX +0x104
         message[0x81] = object != nullptr ? 1 : 0;
         if (object != nullptr)
         {
-            word(bytes, 0x9D8, read_u32(bytes, 0x9D8) - 1);
+            set(bytes, field::pending_spawns, get(bytes, field::pending_spawns) - 1);
         }
         break;
     }
     case 0xA8:
     {
-        if (setup.load != nullptr || read_u32(bytes, 0x9D4) != 0)
+        if (setup.load != nullptr || get(bytes, field::running) != 0)
         {
             break;
         }
@@ -232,27 +231,27 @@ void dispatch_runtime_ghouly_cutscene_setup_message(RuntimeGhoulyCutsceneSetupMe
         std::strcpy(setup.load->attributes_30, name_at(message, 0x21));
         link_actor_load_record(&g_side_list, *setup.load); // 0x000F3C30, DAT_00510568
         message[0x41] = 1;
-        if (read_u32(bytes, 0x9D0) != 0 && read_u32(bytes, 0x938) != 0)
+        if (get(bytes, field::ended) != 0 && get(bytes, field::hold_last_frame) != 0)
         {
             break;
         }
-        if (read_u32(bytes, 0x9D4) == 0)
+        if (get(bytes, field::running) == 0)
         {
-            word(bytes, 0x9D4, 1);
+            set(bytes, field::running, 1);
             CutsceneEventPauseContext pause = pause_context(setup, *setup.cutscene);
             pause_cutscene_events(*setup.cutscene, 0, pause); // 0x0004E640, EAX 0
         }
-        const u32 mode = read_u32(bytes, 0x93C);
-        if (mode != 0 && (mode == 2 || read_u32(bytes, 0x9D0) == 0))
+        const u32 mode = get(bytes, field::camera_mode);
+        if (mode != 0 && (mode == 2 || get(bytes, field::ended) == 0))
         {
-            camera_bind_named_view(0, reinterpret_cast<const char*>(bytes.data() + 0x9AC)); // 0x00048CF0
+            camera_bind_named_view(0, field_data(bytes, field::camera_name)); // 0x00048CF0
         }
         break;
     }
     case 0xA9:
     case 0xAA:
     {
-        if (read_u32(bytes, 0x9D8) == 0)
+        if (get(bytes, field::pending_spawns) == 0)
         {
             break;
         }
@@ -277,13 +276,14 @@ void dispatch_runtime_ghouly_cutscene_setup_message(RuntimeGhoulyCutsceneSetupMe
             Actor& actor = context.actor_of(*object);
             actor_set_world_position(actor, position); // 0x00041730
             normalize_euler_angles(actor.euler, euler); // 0x00105AA0
-            word({object->bytes.get(), object->size}, 0x2A8, 0);
+            const u32 stale = 0;
+            std::memcpy(object->bytes.get() + 0x2A8, &stale, 4); // Actor +0x2A8, which waits for the actor's layout.
             actor.xform_valid = 0;
         }
         message[0x21] = object != nullptr ? 1 : 0;
         if (object != nullptr)
         {
-            word(bytes, 0x9D8, read_u32(bytes, 0x9D8) - 1);
+            set(bytes, field::pending_spawns, get(bytes, field::pending_spawns) - 1);
         }
         break;
     }
@@ -302,11 +302,11 @@ void update_runtime_ghouly_cutscene_setup(RuntimeGhoulyCutsceneSetup& context)
         release_ghouly_spawn_record(*context.load); // 0x000F3A00
         context.load = nullptr;
     }
-    if (read_u32(bytes, 0x9D4) == 0 || context.cutscene == nullptr)
+    if (get(bytes, field::running) == 0 || context.cutscene == nullptr)
     {
         return;
     }
-    EntityCamNode* camera = read_u32(bytes, 0x93C) != 0 ? &context.camera : nullptr;
+    EntityCamNode* camera = get(bytes, field::camera_mode) != 0 ? &context.camera : nullptr;
     CutsceneRuntimeContext& runtime = context.cutscenes();
     const float rate = context.actor.animation_pause > 0.f ? 0.f : context.actor.animation_rate;
     const float step = rate * runtime_frame_step(context.clock);
@@ -314,15 +314,15 @@ void update_runtime_ghouly_cutscene_setup(RuntimeGhoulyCutsceneSetup& context)
     {
         return;
     }
-    word(bytes, 0x9D0, 1);
-    word(bytes, 0x9D4, 0);
-    if (read_u32(bytes, 0x938) == 0)
+    set(bytes, field::ended, 1);
+    set(bytes, field::running, 0);
+    if (get(bytes, field::hold_last_frame) == 0)
     {
         seek_runtime_cutscene(*context.cutscene, 0.f, -1.f, 0, runtime); // 0x0004E4A0
         CutsceneEventPauseContext pause = pause_context(context, *context.cutscene);
         pause_cutscene_events(*context.cutscene, 1, pause); // 0x0004E640, EAX 1
     }
-    if (read_u32(bytes, 0x93C) != 0)
+    if (get(bytes, field::camera_mode) != 0)
     {
         camera_rebind_view(&context.camera); // 0x00048EB0
     }

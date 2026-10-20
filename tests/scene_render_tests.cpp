@@ -301,6 +301,7 @@ void check_attachment_draw_walk()
     ModelAnimationState model{};
     ActorAttachmentList attachments{};
     ActorAttachmentNode pending{};
+    attachments.pending = &pending; // Actor +0x1B4.
     entity_detail::ListHead anchors{};
     ActorFrameState state{actor, animation, model, attachments, pending, nullptr, anchors};
     struct DrawRow : ActorFrameAttachment
@@ -570,6 +571,7 @@ void check_environment_matrices()
     ModelAnimationState model_animation{};
     ActorAttachmentList attachments{};
     ActorAttachmentNode pending{};
+    attachments.pending = &pending; // Actor +0x1B4.
     entity_detail::ListHead anchors{};
     ActorFrameState frame{actor, actor_animation, model_animation, attachments, pending, nullptr, anchors};
     RuntimeActorMatrixState actor_matrices;

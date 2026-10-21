@@ -141,6 +141,18 @@ void decrement_runtime_body_latches(std::span<u8> body, Actor& owner,
     notify_latch_change(before, body, owner, first);
 }
 
+// Xbox 0x0001F4F0, ESI body
+void hold_runtime_body_latch_timer(std::span<u8> body, float seconds, Actor& owner,
+    entity_detail::LatchNode*& first)
+{
+    if (read_f32(body, 0x25C) == 0.f) // DAT_0032B100.
+    {
+        // 0x0001FC40's six raises and their {0x47, actor} notice, inlined.
+        increment_runtime_body_latches(body, owner, first);
+    }
+    std::memcpy(body.data() + 0x25C, &seconds, 4);
+}
+
 // Xbox 0x000283D0
 bool runtime_goal_requires_latches(u16 kind)
 {

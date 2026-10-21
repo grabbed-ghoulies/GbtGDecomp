@@ -9,6 +9,7 @@
 #include "../navigation/player_avoidance.h"
 #include "../scripts/script_conditions.h"
 #include <bit>
+#include <cmath>
 #include <cstring>
 
 namespace gbtg
@@ -345,6 +346,13 @@ bool roll_runtime_actor_attack(std::span<const u8> attributes, u32& random)
     return roll(random, chance);
 }
 
+// Xbox 0x00019750
+bool roll_runtime_actor_knockdown(std::span<const u8> attributes, u32& random)
+{
+    const float chance = attributes.data() == nullptr ? 0.f : read_f32(attributes, 0xC);
+    return roll(random, chance);
+}
+
 // Xbox 0x00129280
 i32 count_runtime_energy_actors(const RuntimeActiveActorLink* first, std::span<const u8> address_zero)
 {
@@ -418,6 +426,33 @@ bool runtime_message_names_mind_target(std::span<const u32> message, std::span<c
         return false;
     }
     return message[2] == read_u32(target->bytes, 0x10);
+}
+
+// Xbox 0x00140980
+bool runtime_message_hits_mind_target(std::span<const u32> message, u32 actor, std::span<const u8> mind,
+    const std::function<RuntimeMindTarget*(u32)>& target_at)
+{
+    if (mind.data() == nullptr || read_u32(mind, 0x10) == 0)
+    {
+        return false;
+    }
+    const RuntimeMindTarget* target = target_at(read_u32(mind, 0x10));
+    return read_u32(target->bytes, 0x10) == message[1] && message[4] != 0 && message[2] != actor;
+}
+
+// Xbox 0x0013A540
+bool runtime_strategy_target_within(float range, const RuntimeMindTarget& target, const Actor& actor)
+{
+    if (range == 100000.f) // DAT_0032B4AC.
+    {
+        return true;
+    }
+    const Vec3 position = actor_world_position(actor); // 0x000412A0, ESI actor.
+    const long double dx = static_cast<long double>(position.x) - read_f32(target.bytes, 0x20);
+    const long double dy = static_cast<long double>(position.y) - read_f32(target.bytes, 0x24);
+    const long double dz = static_cast<long double>(position.z) - read_f32(target.bytes, 0x28);
+    const long double distance = std::sqrt(dy * dy + dx * dx + dz * dz);
+    return static_cast<long double>(range) > distance;
 }
 
 // Xbox 0x000F4E10

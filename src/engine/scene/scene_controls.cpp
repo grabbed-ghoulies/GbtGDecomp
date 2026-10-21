@@ -194,6 +194,33 @@ const ObjectFactoryVtable* trophy_heads_control_lifecycle()
     return &table;
 }
 
+// Xbox 0x000840B0
+void movie_volume_control_object_sizes(ObjectSizes& output)
+{
+    output.instance = 0x58;
+    output.parameters = 0x1C;
+}
+
+// Xbox 0x00055A90: entitySceneControlMovieVolume's constructor returns 0, so the factory destroys every one it makes
+// (its message 0x00084120 and tick 0x00084220 never run).
+bool construct_movie_volume_control_view(FactoryObject&, std::span<const u8>)
+{
+    return false;
+}
+
+// Retail 0x001628B0 is the movie volume's empty destructor.
+void destroy_movie_volume_control_view(FactoryObject&)
+{
+}
+
+// Getter 0x000840D0.
+const ObjectFactoryVtable* movie_volume_control_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505650, movie_volume_control_object_sizes,
+        construct_movie_volume_control_view, destroy_movie_volume_control_view};
+    return &table;
+}
+
 const ObjectFactoryVtable* super_scary_control_lifecycle()
 {
     static const ObjectFactoryVtable table{0x00505668, super_scary_control_object_sizes, construct_super_scary_view,
@@ -279,6 +306,7 @@ void NativeSceneControlOwner::install(std::span<ObjectFactoryType> types)
     types[0x9A] = ObjectFactoryType{3, gameselect_control_lifecycle};
     types[0x92] = ObjectFactoryType{3, trophy_heads_control_lifecycle};
     types[0x98] = ObjectFactoryType{3, super_scary_control_lifecycle};
+    types[0x96] = ObjectFactoryType{3, movie_volume_control_lifecycle};
 }
 
 SceneControlInstance& NativeSceneControlOwner::instance(const FactoryObject& object)

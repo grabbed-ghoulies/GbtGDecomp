@@ -1,5 +1,6 @@
 #include "strategy_target_queue.h"
 #include "../runtime/link_exchange.h"
+#include "body_message_helpers.h"
 
 namespace gbtg
 {
@@ -206,5 +207,50 @@ bool join_runtime_strategy_target_queue(RuntimeStrategyLink& link, ActorLiveAtta
         queue_runtime_strategy_link(link, record, actor, context);
     }
     return runtime_strategy_link_target(link, context) != nullptr;
+}
+
+// Xbox 0x0002B9D0
+bool hold_runtime_strategy_target_queue(RuntimeStrategyLink& link, ActorLiveAttachment* record, Actor* actor,
+    RuntimeStrategyTargetQueue& context)
+{
+    if (join_runtime_strategy_target_queue(link, record, actor, context))
+    {
+        return true;
+    }
+    detach_runtime_strategy_link(link);
+    return false;
+}
+
+// Xbox 0x0013A330
+bool runtime_strategy_target_attackable(float range, RuntimeStrategyLink& link, RuntimeStrategyTargetChecks& checks,
+    RuntimeStrategyTargetQueue& context)
+{
+    RuntimePlayerStrategyGoals& goals = checks.goals;
+    const std::span<const u8> body = goals.entry.body;
+    const EntityBitBlock& bits = *goals.body_bits;
+    if (body[0x6B] != 0 || body[0x6A] != 0 || read_f32(body, 0x70) > 0.f || read_u16(body, 0x30) != 0
+        || read_f32(body, 0x34) != 0.f || (bits.bytes[3] & 8) != 0)
+    {
+        return false;
+    }
+    if (runtime_body_bit_set(bits, 0x2C) || runtime_body_bit_set(bits, 0x2A))
+    {
+        return false;
+    }
+    const std::span<const u8> mind = goals.entry.events.mind;
+    if (read_u32(mind, 0x10) == 0)
+    {
+        return false;
+    }
+    RuntimeMindTarget* target = goals.target_at(read_u32(mind, 0x10));
+    if (target->bytes[0x15] != 0 || runtime_strategy_abandons_target(*target, checks) != 0)
+    {
+        return false;
+    }
+    if (!runtime_strategy_target_within(range, *target, goals.entry.actor))
+    {
+        return false;
+    }
+    return hold_runtime_strategy_target_queue(link, target->record, &goals.entry.actor, context);
 }
 }

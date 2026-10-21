@@ -10,6 +10,9 @@
 #include "player_strategy.h"
 #include "imp_fire_strategy.h"
 #include "skeleton_strategy.h"
+#include "zombie_strategy.h"
+#include "spider_strategy.h"
+#include "haunted_tv_strategy.h"
 #include "butler_strategy.h"
 #include "camera_actor_classes.h"
 
@@ -144,6 +147,15 @@ struct NativePlayerSceneBindings
     // Skeleton strategy (type 0x51, vtable 0x00505FD8).
     std::function<Actor*(u32)> actor_at; // A scene actor by retail address.
     const float& skeleton_fetch_delay; // DAT_004288AC.
+    // Zombie strategy (type 0x58, vtable 0x0050609C).
+    std::span<const u8> zombie_parameters; // DAT_004288B0.
+    // Haunted TV strategy (type 0x44, vtable 0x00505E6C).
+    RuntimeActorSoundQueues& sounds;
+    std::function<u8*(u32)> texture_bytes; // A texture's bytes by its native address.
+    const std::unordered_map<const u8*, const RuntimeAttachmentRequestTables*>& attack_tables;
+    std::function<bool(Actor&, u32)> release_frame_object; // 0x0003DE30 over an actor's +0x1D8 objects.
+    std::function<GhoulySpawnContext&()> spawns;
+    std::function<std::span<const u8>()> story_bits; // **(DAT_00506C6C + 8).
 };
 
 // Native state and contexts of one player (type 5) and its body, mind and strategy children.
@@ -277,6 +289,9 @@ struct NativePlayerInstance
     RuntimeButlerStrategy butler; // Type 0x3B.
     RuntimeStrategyActorViews strategy_views; // Other actors for the 0x00139xxx reactions.
     RuntimeSkeletonStrategy skeleton; // Type 0x51.
+    RuntimeZombieStrategy zombie; // Type 0x58.
+    RuntimeSpiderStrategy spider; // Type 0x52.
+    RuntimeHauntedTvStrategy haunted_tv; // Type 0x44.
     void refresh_input_views(); // After the player constructor allocates actor +0x960.
     void refresh_views(); // Body, input, mind and strategy value views before a method runs.
 };
@@ -287,8 +302,8 @@ struct NativePlayerFactoryBindings
     NativePlayerSceneBindings scene;
 };
 
-// Installs the player (type 5), body (6, 0x27, 0x28, 0x2A), mind (7, 0x34, 0x36) and strategy (8, 0x4F, 0x46,
-// 0x39) classes
+// Installs the player (type 5), body (6, 0x27, 0x28, 0x2A, 0x2D), mind (7, 0x34, 0x36) and strategy (8, 0x4F,
+// 0x46, 0x39, 0x3B, 0x51, 0x52, 0x58) classes
 // over the actor owner's types 1 and 2, and keeps one NativePlayerInstance per player actor.
 class NativePlayerFactoryOwner
 {
@@ -319,6 +334,12 @@ public:
     void butler_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000AB0C0.
     void skeleton_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000BFE10.
     void skeleton_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000BFAC0.
+    void zombie_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000C5920.
+    void zombie_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000C5810.
+    void spider_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000C0F00.
+    void spider_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000C0BB0.
+    void haunted_tv_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000B23F0.
+    void haunted_tv_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000B1F60.
     NativePlayerFactoryBindings bindings;
     NativePlayerMindOwner minds;
     // Retail keeps the type 5 vtable through the whole destructor chain, so the base actor destructor still

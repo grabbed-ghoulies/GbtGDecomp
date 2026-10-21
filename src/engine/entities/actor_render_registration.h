@@ -21,6 +21,8 @@ struct ActorRenderRegistration
 };
 void register_actor_render_bins(ActorRenderRegistration& state); // Xbox 0x0003CAE0
 void unlink_actor_view(RuntimeActorLink& link); // Xbox 0x0003EE70
+// Appends the actor's +0x900 link at the tail of the DAT_00511B08 live list.
+void link_actor_view(RuntimeActorLink& live, RuntimeActorLink& link); // Xbox 0x0003EE30, EDX actor
 void unregister_actor_render_bins(ActorRenderRegistration& state); // Xbox 0x0003CBB0
 void unregister_actor_segment_probes(ActorRenderRegistration& state); // Xbox 0x0003E850
 void unlink_actor_segment_lists(ActorRenderRegistration& state); // Xbox 0x0003E7A0

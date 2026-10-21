@@ -40,6 +40,9 @@ struct RuntimeRenderLight
     float range = 0; // +0x34
     float range_reciprocal = 0; // +0x38
     u32 reserved = 0; // +0x3C
+    // The spot words 0x00158F20 uploads for a type-3 light (its +0x34 row's fourth word too); no setter writes them,
+    // so the static and boot-built lights keep their zero fill.
+    std::array<u32, 4> spot{}; // +0x40
 };
 struct RuntimeModelRenderFrame
 {

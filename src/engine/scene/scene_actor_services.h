@@ -50,6 +50,7 @@ public:
     // +0x934 list from DAT_00511B20 (0x00122FE0).
     void update_scene_actors();
     void update_sounds(); // Native context binding for Xbox 0x0012A150.
+    void reset_sound_queues(); // Xbox 0x00129F70 in the scene teardown.
     void select_frame_display(); // 0x00033B50 sets DAT_005077A8 to DAT_00507018 before the frame's work.
     // The scene pass after the scene tick: controls and actors created since the last frame are activated and
     // given their first update, then scare timers, effects and scene times (run states 1 and 2), actor sounds,

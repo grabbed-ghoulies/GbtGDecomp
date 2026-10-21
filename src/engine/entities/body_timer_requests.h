@@ -12,10 +12,10 @@ struct RuntimeBodyTimerObject
 };
 struct RuntimeBodyTimerCreation
 {
-    RuntimeBodyTimerRecipient*& recipient; // Body +0x760.
-    FactoryObject& object;
+    RuntimeBodyTimerRecipient*& recipient; // Body +0x760 (or +0x7F0).
     RuntimePlayerChildContext& child;
-    const std::unordered_map<const u8*, RuntimeBodyTimerObject*>& created;
+    // The scene keeps the object 0x00107520 made and gives its native recipient view and retail address.
+    std::function<RuntimeBodyTimerObject&(FactoryObject)> keep;
 };
 void request_runtime_body_hit_timer(std::span<u8> body, float duration,
     u32 mode, RuntimeBodyTimerCreation& context); // Xbox 0x00027B60

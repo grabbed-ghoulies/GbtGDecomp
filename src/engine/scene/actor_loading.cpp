@@ -27,10 +27,15 @@ std::vector<RuntimeLoadingActor> host_loading_actors()
             // Retail also dereferences a null element when end == mark.
             state = *element;
         }
-        actors.push_back({state, u32(actor.at_984), u32(actor.at_98c)});
+        actors.push_back({actor.tag_6, state, u32(actor.at_984), u32(actor.at_98c)});
     }
     return actors;
 }
+}
+
+std::vector<RuntimeLoadingActor> runtime_loading_actors()
+{
+    return g_loading_actors ? g_loading_actors() : host_loading_actors();
 }
 
 // Xbox 0x001412F0
@@ -52,7 +57,7 @@ bool actor_loading_complete()
     {
         return false;
     }
-    const std::vector<RuntimeLoadingActor> actors = g_loading_actors ? g_loading_actors() : host_loading_actors();
+    const std::vector<RuntimeLoadingActor> actors = runtime_loading_actors();
     for (const RuntimeLoadingActor& actor : actors)
     {
         switch (actor.goal)

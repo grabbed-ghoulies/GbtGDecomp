@@ -7,6 +7,7 @@
 #include "gbtg/resource.h"
 #include "../scene/factory_scene_runtime.h"
 #include "../scene/scene_loading.h"
+#include "../scene/actor_loading.h"
 #include "../runtime/name_lookup.h"
 #include <iostream>
 
@@ -623,6 +624,51 @@ void script_tick_condition_timer(ScriptCond& rec)
 }
 
 
+// Xbox 0x001336A0. Opcode 16 in the update table at 0x00314334. Walks DAT_00511B38 for actors whose +6 tag is the
+// word at +8. One whose +0x980 goal ring front is nonzero with +0x984 clear ends the walk when +0x98C is clear and is
+// passed over otherwise; for every other match, while DAT_0050E768 is clear and the byte at [DAT_0051248C]+0x30F144
+// is set, the float at +0xC counts down by the frame step, stopping at 0.
+// Xbox 0x001336A0
+void script_tick_ghouly_exists_condition(ScriptCond& rec)
+{
+    const u16 want = u16(cond_u32(rec, 8));
+    for (const RuntimeLoadingActor& actor : runtime_loading_actors())
+    {
+        if (actor.tag != want)
+        {
+            continue;
+        }
+        if (actor.goal != 0 && actor.word_984 == 0)
+        {
+            if (actor.word_98c == 0)
+            {
+                return;
+            }
+            continue;
+        }
+        if (g_block_decay != 0 || g_decay_arm == 0)
+        {
+            continue;
+        }
+        float step = 0.f;
+        if (g_sim_freeze <= 0.f)
+        {
+            step = g_sim_dt * g_sim_scale;
+        }
+        const float left = cond_f32(rec, 0xc);
+        if (0.f < left)
+        {
+            const float next = left - step;
+            cond_put_f32(rec, 0xc, next);
+            if (next <= 0.f)
+            {
+                cond_put_f32(rec, 0xc, 0.f);
+            }
+        }
+    }
+}
+
+
 // Xbox 0x001330E0. Opcode 1 in the update table at 0x00314334. While the
 // DAT_00511B48 actors whose body +0x94 is nonzero number at most the int at
 // +8, DAT_0050E768 is clear and the byte at [DAT_0051248C]+0x30F144 is set,
@@ -963,8 +1009,8 @@ void script_queue_scene_start(Game& g)
 
 
 // Xbox 0x00117100: 0x00140E30, then the condition updates and the eval at 0x00117140. The update walk calls the
-// table at 0x00314334: opcode 0 is 0x00133070, opcode 1 is 0x001330E0, opcode 3 is 0x00133170 and opcode 15 is
-// 0x00133770.
+// table at 0x00314334: opcode 0 is 0x00133070, opcode 1 is 0x001330E0, opcode 3 is 0x00133170, opcode 15 is
+// 0x00133770 and opcode 16 is 0x001336A0.
 // Opcodes 2, 6..9 and 20..26 have the empty 0x001628B0; the others' updates
 // are not translated and raise when a record reaches them.
 void script_vm_tick(Game& g, float dt)
@@ -997,6 +1043,10 @@ void script_vm_tick(Game& g, float dt)
         else if (opcode == 15)
         {
             script_tick_ghouly_signal_condition(rec);
+        }
+        else if (opcode == 16)
+        {
+            script_tick_ghouly_exists_condition(rec);
         }
         else if (kUpdates[opcode] != 0x001628B0)
         {

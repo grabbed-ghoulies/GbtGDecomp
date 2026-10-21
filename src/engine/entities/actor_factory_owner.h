@@ -42,7 +42,7 @@ struct NativeActorFactoryBindings
     RuntimeActorStartupContext& startup;
     ObjectFactoryRegistry& factory;
     RuntimeActorSoundQueues& sounds;
-    const std::unordered_map<ActorFrameAttachment*, FactoryObject*>& frame_objects;
+    const std::unordered_map<ActorFrameAttachment*, const u8*>& frame_objects; // Actor +0x1D8 objects' bytes.
     std::function<void(Actor&, const void*)> message; // Actual actor vtable+0xC mapping.
     const char* empty_name; // DAT_00546208.
     std::function<u32(const void*)> resource_address;
@@ -51,6 +51,7 @@ struct NativeActorFactoryBindings
     std::function<void(const u8*)> unlink_active_node; // 0x0003EBA0's +0x900 unlink, by the object's bytes.
     // 0x0003B3C0: an animation event as message {7, position, slot, event, phase} to the actor's vtable +0xC.
     std::function<void(Actor&, const ActorAnimationMessage&)> animation_message;
+    std::function<FactoryObject*(const u8*)> object_of; // The scene object holding an object's bytes.
 };
 class NativeActorFactoryOwner
 {

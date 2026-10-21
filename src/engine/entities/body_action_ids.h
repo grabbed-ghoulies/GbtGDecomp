@@ -53,6 +53,12 @@ u16 runtime_body_secondary_parameter_id(const RuntimeBodyActionIds& context,
 u16 runtime_player_body_secondary_parameter_id(const RuntimeBodyActionIds& context,
     const u8* parameters, const EntityBitBlock& bits,
     const RuntimeScriptLookupTable* table, u16 retained_key); // Xbox 0x00075C30
+u16 runtime_zombie_body_primary_parameter_id(std::span<const u8> body, const RuntimeBodyActionIds& context,
+    const u8* parameters, const EntityBitBlock& bits,
+    const RuntimeScriptLookupTable* table, u16 retained_key); // Xbox 0x00076210
+u16 runtime_zombie_body_secondary_parameter_id(std::span<const u8> body, const RuntimeBodyActionIds& context,
+    const u8* parameters, const EntityBitBlock& bits,
+    const RuntimeScriptLookupTable* table, u16 retained_key); // Xbox 0x00076250
 u16 runtime_body_death_action_key(); // Xbox 0x00027500
 u16 runtime_body_near_action_id(std::span<const u8> body, Actor& owner,
     RuntimeBodyAttachedActor& attached, const RuntimeScriptLookupTable* table); // Xbox 0x00026C60

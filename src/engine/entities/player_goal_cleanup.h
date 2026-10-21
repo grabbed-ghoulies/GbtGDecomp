@@ -25,6 +25,10 @@ void increment_runtime_body_latches(std::span<u8> body, Actor& owner,
     entity_detail::LatchNode*& first); // Xbox 0x0001FC40
 void decrement_runtime_body_latches(std::span<u8> body, Actor& owner,
     entity_detail::LatchNode*& first); // Xbox 0x0001FD20
+// Holds all six latches while the body +0x25C timer runs (body_timers drops them when it ends): raised only when the
+// timer is not already running, then the timer is set to `seconds`.
+void hold_runtime_body_latch_timer(std::span<u8> body, float seconds, Actor& owner,
+    entity_detail::LatchNode*& first); // Xbox 0x0001F4F0, ESI body
 bool runtime_goal_requires_latches(u16 kind); // Xbox 0x000283D0
 bool restore_runtime_player_script_overrides(RuntimeBodyAttachedActor& actor,
     RuntimePlayerScriptOverrides& context); // Xbox 0x00138030

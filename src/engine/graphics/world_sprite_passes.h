@@ -16,7 +16,14 @@ void set_world_sprite_depth_mode(u32 mode, RuntimeDisplaySetupContext& context);
 void draw_world_sprite_quad(i32 frame, u8* texture, const Vec3* position, const Vec3* euler, const float* size,
     u32 color, RuntimeDisplaySetupContext& context); // Xbox 0x0005CF90, ECX texture, EDI position, EBX euler
 // The debris records (DAT_005068EC, 50 of 0x74 bytes) drawn as textured quads; nothing without the pool.
-void draw_effect_debris(std::span<const u8> particles, RuntimeDisplaySetupContext& context); // Xbox 0x000EC470
+// `textures` are the type rows' +0x80 textures (RuntimeEffectDebrisStorage::textures).
+void draw_effect_debris(std::span<const u8> particles, std::span<const std::span<const u8>, 10> textures,
+    RuntimeDisplaySetupContext& context); // Xbox 0x000EC470
+// The bound projection and view, the sprite render states with depth writes and the line texture's frame (EDI).
+void begin_world_line_draw(u8 frame, u8* texture, RuntimeDisplaySetupContext& context); // Xbox 0x00065460
+// A quad `width` across from `from` to `to`, square to the view's forward, each end pulled `inset` toward the other.
+void draw_world_line_quad(const Vec3& to, const Vec3& from, float width, float inset, u32 color,
+    RuntimeDisplaySetupContext& context); // Xbox 0x000654E0, EAX to, EDI from
 // Full-view flash (DAT_00504478), back-buffer capture overlay (DAT_005044A4) and retained lines (DAT_005044B0).
 struct RuntimeScreenEffects
 {

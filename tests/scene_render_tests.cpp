@@ -467,7 +467,6 @@ void check_environment_matrices()
     u32 override_count = 0;
     SceneAmbientContext ambient{{}, 0, override_count, {.7f, .8f, .9f, 1.f}, {.2f, .3f, .4f}, 0, points};
     std::array<u32, 20> records{};
-    std::unordered_map<const RuntimeRenderLight*, std::array<u32, 4>> spot;
     SceneLightUploadBoundaries boundaries;
     int constants = 0;
     std::array<u32, 4> shader_scene_color{};
@@ -481,7 +480,7 @@ void check_environment_matrices()
     };
     u8 world_space = 1;
     std::array<float, 4> retained{1.f, 1.f, 1.f, 1.f};
-    SceneLightUploadContext upload{renderer, world_space, retained, records, spot, boundaries};
+    SceneLightUploadContext upload{renderer, world_space, retained, records, boundaries};
     const std::array<float, 4> base{.1f, .2f, .3f, .4f};
     const std::array<float, 4> override_base{.5f, .6f, .7f, .8f};
     std::array<u32, 16> primary_output{}, secondary_output{};
@@ -525,8 +524,8 @@ void check_environment_matrices()
         && shader_scene_color == std::bit_cast<std::array<u32, 4>>(retained),
         "scene light construction scans empty forty-slot list and selects override intensity");
     // These words are the actual trailing fields of the temporary light views.
-    spot[&temporary[0]] = {0x12345678, 0, 0, 0};
-    spot[&temporary[1]] = {0x87654321, 0, 0, 0};
+    temporary[0].spot = {0x12345678, 0, 0, 0};
+    temporary[1].spot = {0x87654321, 0, 0, 0};
     // 0x98-byte light records as 0x000FDF60 registers them: position +0x40, radius +0x70, color +0x78.
     auto light_record = [](const Vec3& position, float radius, u32 color)
     {
@@ -905,7 +904,6 @@ void check_scene_render()
         u8 world_space = 0xCC;
         std::array<u32, 20> records;
         records.fill(0xAABBCCDD);
-        std::unordered_map<const RuntimeRenderLight*, std::array<u32, 4>> spot;
         std::vector<std::pair<u32, std::array<u32, 4>>> uploads;
         SceneLightUploadBoundaries boundaries;
         boundaries.set_constant = [&uploads](u32 slot, const u32* data)
@@ -915,7 +913,7 @@ void check_scene_render()
             uploads.emplace_back(slot, copy);
         };
         const std::array<float, 4> retained_color{1.f, 1.f, 1.f, 1.f};
-        SceneLightUploadContext context{renderer, world_space, retained_color, records, spot, boundaries};
+        SceneLightUploadContext context{renderer, world_space, retained_color, records, boundaries};
         upload_runtime_scene_lights(nullptr, context);
         require(uploads.empty() && world_space == 0xCC,
             "null matrix with local lights bypasses all shader and state writes");
@@ -940,14 +938,14 @@ void check_scene_render()
         point.range = 7.f;
         point.range_reciprocal = 8.f;
         point.reserved = 0x12345678;
-        spot[&point] = {0xCAFEBABE, 0, 0, 0};
+        point.spot = {0xCAFEBABE, 0, 0, 0};
         append_runtime_light(renderer.lights, point);
         RuntimeRenderLight cone;
         cone.type = 3;
         cone.direction = {9.f, 10.f, 11.f};
         cone.position = {12.f, 13.f, 14.f};
         cone.range = 15.f;
-        spot[&cone] = {1, 2, 3, 4};
+        cone.spot = {1, 2, 3, 4};
         append_runtime_light(renderer.lights, cone);
         upload_runtime_scene_lights(nullptr, context);
         require(uploads.size() == 11 && uploads[2].first == 189 && uploads[10].first == 181,
@@ -955,7 +953,7 @@ void check_scene_render()
         require(uploads[3].second == std::array<u32, 4>{0xBF800000, 0xC0000000, 0xC0400000, 0}
             && uploads[5].second[3] == std::bit_cast<u32>(7.f)
             && uploads[6].second[2] == 0x12345678 && uploads[6].second[3] == 0xCAFEBABE
-            && uploads[10].second == spot[&cone],
+            && uploads[10].second == cone.spot,
             "shader uploads preserve negation, adjoining fields and spot raw words");
         require(renderer.state.directional_light_count == 1
             && renderer.state.directional_lights[0] == 0xFFC17E7F

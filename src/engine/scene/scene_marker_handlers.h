@@ -83,11 +83,15 @@ void create_runtime_marker_area(const u8* record, RuntimeMarkerObjects& context)
 struct RuntimeMarkerAdditionalBindings
 {
     std::span<u8> names; // DAT_0051254C, 0x90-byte rows.
-    u32& name_count; // DAT_00512548.
+    i32& name_count; // DAT_00512548.
     const u8* scare_templates; // DAT_0030CB18, 0x80-byte names.
     const u8* dropper_templates; // DAT_0030D098, 0x80-byte names.
     Vec3& nearest_retained_position; // Retained local stack bytes in 0x0011EFA0.
     Vec3& dropper_retained_position; // Retained local stack bytes in 0x00100600.
+};
+// Kind 0x19's player shape.
+struct RuntimeMarkerPlayerShapeBindings
+{
     Actor*& player; // DAT_00511B20 points to actor +0x934.
     entity_detail::ListHead& player_attachments; // Actor +0x8F4.
     entity_detail::ListHead& global_attachments; // DAT_00545984.
@@ -108,7 +112,7 @@ void create_runtime_marker_scare(const u8* record, RuntimeMarkerObjects& objects
 void create_runtime_marker_dropper(const u8* record, RuntimeMarkerObjects& objects,
     RuntimeMarkerAdditionalBindings& context); // Xbox 0x00100600, kind 0x17
 void attach_runtime_marker_player_shape(const u8* record,
-    RuntimeMarkerAdditionalBindings& context); // Xbox 0x000FFA30, kind 0x19
+    RuntimeMarkerPlayerShapeBindings& context); // Xbox 0x000FFA30, kind 0x19
 void build_runtime_marker_effect_parameters(std::span<u8, 0x460> parameters, const Vec3& position,
     const Vec3& euler, u16 id, u16 next, u32 value, const char* first, const char* second, u16 key,
     std::span<const u32, 9> values, const char* default_name); // Xbox 0x0006AF70
@@ -128,6 +132,7 @@ struct RuntimeSceneMarkerBindings
     const char* const* tags; // DAT_0042A854.
     RuntimeMarkerCameraStart& camera;
     RuntimeMarkerAdditionalBindings* additional = nullptr;
+    RuntimeMarkerPlayerShapeBindings* player_shape = nullptr;
 };
 // Native mapping of DAT_0042A720. Bindings must outlive the returned callbacks.
 RuntimeSceneMarkerHandlers bind_runtime_scene_marker_handlers(RuntimeSceneMarkerBindings& bindings);

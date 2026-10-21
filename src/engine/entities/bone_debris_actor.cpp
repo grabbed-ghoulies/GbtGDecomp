@@ -376,18 +376,21 @@ void message_runtime_bone_debris(std::span<const u32> message, RuntimeBoneDebris
 }
 
 // Xbox 0x0013AF80
-bool spawn_runtime_actor_fade(float duration, u32 sound, u32 glow, RuntimeBoneDebris& context)
+bool spawn_runtime_actor_fade(float duration, u32 sound, u32 glow, const float* tint, RuntimeActorFade& context)
 {
     if (!(duration > 0.f))
     {
         return false;
     }
     std::array<u8, 0x354> parameters{};
-    build_runtime_emitter_burst_parameters(parameters, context.self.actor, context.address, duration,
+    build_runtime_emitter_burst_parameters(parameters, context.actor, context.address, duration,
         context.default_name); // 0x00069590, ESI actor
-    parameters[0x33C] = context.self.bytes[0x19B];
+    parameters[0x33C] = context.bytes[0x19B];
     put_word(parameters, 0x350, sound);
-    // EDI is zero at the bone debris' call: no colour at parameters +0x340.
+    if (tint != nullptr)
+    {
+        std::memcpy(parameters.data() + 0x340, tint, 12);
+    }
     put_word(parameters, 0x34C, glow);
     return context.keep(create_factory_object(context.factory, parameters)) != nullptr; // 0x00107520
 }
@@ -415,7 +418,8 @@ void update_runtime_bone_debris(RuntimeBoneDebris& context)
             {
                 set(bytes, field::stay_time, 0.f);
                 // 0x0013AF80, EAX actor, with +0x9DC by address.
-                spawn_runtime_actor_fade(2.f, context.address + 0x9DC, 0, context);
+                RuntimeActorFade fade{actor, bytes, context.address, context.factory, context.keep, context.default_name};
+                spawn_runtime_actor_fade(2.f, context.address + 0x9DC, 0, nullptr, fade); // EDI 0
                 activate_actor_bind_tree(actor); // 0x00112CC0
             }
         }

@@ -1,5 +1,6 @@
 #pragma once
 #include "player_mind_targets.h"
+#include "strategy_target_selection.h"
 
 namespace gbtg
 {
@@ -23,4 +24,8 @@ ActorLiveAttachment* runtime_strategy_link_target(RuntimeStrategyLink& link,
     const RuntimeStrategyTargetQueue& context); // Xbox 0x00112A70
 bool join_runtime_strategy_target_queue(RuntimeStrategyLink& link, ActorLiveAttachment* record, Actor* actor,
     RuntimeStrategyTargetQueue& context); // Xbox 0x0002B910, EBX strategy, EDI record
+bool hold_runtime_strategy_target_queue(RuntimeStrategyLink& link, ActorLiveAttachment* record, Actor* actor,
+    RuntimeStrategyTargetQueue& context); // Xbox 0x0002B9D0, EAX strategy, EDI record
+bool runtime_strategy_target_attackable(float range, RuntimeStrategyLink& link, RuntimeStrategyTargetChecks& checks,
+    RuntimeStrategyTargetQueue& context); // Xbox 0x0013A330
 }

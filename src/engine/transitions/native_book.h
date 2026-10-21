@@ -1,5 +1,6 @@
 #pragma once
 #include "gbtg/entity.h"
+#include "../graphics/shader_parameters.h"
 #include "gbtg/types.h"
 
 #include <array>
@@ -25,17 +26,6 @@ struct LocalTextResourceContext;
 struct GhoulySpawnPool;
 struct AudioEventVoices;
 class SceneExecutableResources;
-// A shader parameter a book page binds its texture to (0x18 bytes, 0x000F8540): the model, the shader's
-// instance (model +0x2A4 + the node's offset), the parameter's texture index, the texture and two words.
-struct BookShaderParameter
-{
-    RuntimeModelInstance* model = nullptr; // +0
-    RuntimeShaderInstance* shader = nullptr; // +4
-    u32 index = 0; // +8
-    u32 texture = 0; // +0xC, a texture object's native address.
-    u32 word_10 = 0; // +0x10
-    u32 word_14 = 0; // +0x14
-};
 // The transition book (0x1E2A4 bytes, 0x00048260): a row of the clip table at 0x00422078 (stride 0x124), its
 // cutscene and camera, the book model's four page shaders and the map state 0x00046F40 fills.
 struct RuntimeTransitionBook
@@ -54,7 +44,7 @@ struct RuntimeTransitionBook
     float real_88 = 0.f; // +0x88
     struct Page
     {
-        BookShaderParameter* parameter = nullptr; // +0x8C
+        RuntimeShaderTextureParameter* parameter = nullptr; // +0x8C
         u32 texture = 0; // +0x90, DAT_005047E4 or DAT_005047D8.
         u32 capture = 0; // +0x94, copy the back buffer into the page at the next draw.
         u32 copy = 0; // +0x98

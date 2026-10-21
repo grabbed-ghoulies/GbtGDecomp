@@ -57,6 +57,19 @@ void unlink_actor_view(RuntimeActorLink& link)
     link.next = nullptr;
 }
 
+// Xbox 0x0003EE30, EDX actor
+void link_actor_view(RuntimeActorLink& live, RuntimeActorLink& link)
+{
+    RuntimeActorLink* tail = &live;
+    while (tail->next != nullptr)
+    {
+        tail = tail->next;
+    }
+    tail->next = &link;
+    link.previous = tail;
+    link.next = nullptr;
+}
+
 // Xbox 0x00112D10
 void activate_actor_bind_children(ActorLink* node, Actor& source)
 {

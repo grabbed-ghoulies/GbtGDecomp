@@ -6,10 +6,12 @@
 #include "avatar_motion_blur.h"
 #include "weapon_actor.h"
 #include "projectile_weapon.h"
+#include "thrown_projectile.h"
 #include "bob_weapon.h"
 #include "ghouly_cutscene_setup.h"
 #include "ghouly_bg_break_setup.h"
 #include "bg_break_key.h"
+#include "scare_figure.h"
 #include "bone_debris_actor.h"
 #include "../graphics/effect_collision_response.h"
 
@@ -105,6 +107,12 @@ public:
     bool construct_bg_break_setup(FactoryObject& object, std::span<const u8> parameters); // Type 0x24.
     void release_bg_break_setup(FactoryObject& object); // Type 0x24, Xbox 0x0006A600.
     void update_bg_break_setup(FactoryObject& object); // Type 0x24, Xbox 0x0006ADC0.
+    bool construct_scare_figure(FactoryObject& object, std::span<const u8> parameters); // Type 0x1D.
+    void release_scare_figure(FactoryObject& object); // Type 0x1D, the empty 0x001628B0.
+    void update_scare_figure(FactoryObject& object); // Type 0x1D, Xbox 0x0006F1C0.
+    u32 draw_scare_figure(FactoryObject& object, ActorDrawState& state, i32 kind,
+        const ActorFrameDrawContext& attachments, SceneModelDrawContext& draw,
+        RuntimeGlowPass& glow); // Type 0x1D, Xbox 0x0006F600.
     bool construct_bg_break_key(FactoryObject& object, std::span<const u8> parameters); // Type 0x1E.
     void release_bg_break_key(FactoryObject& object); // Type 0x1E, Xbox 0x0006CD10.
     void update_bg_break_key(FactoryObject& object); // Type 0x1E, Xbox 0x0006CFD0.
@@ -115,6 +123,9 @@ public:
     bool construct_large_projectile(FactoryObject& object,
         std::span<const u8> parameters); // Type 0xA9, Xbox 0x000CD6B0.
     void release_large_projectile(FactoryObject& object); // Type 0xA9, Xbox 0x000CDAA0.
+    bool construct_thrown_projectile(FactoryObject& object,
+        std::span<const u8> parameters); // Type 0xA7, Xbox 0x000CB5E0.
+    void release_thrown_projectile(FactoryObject& object); // Type 0xA7, Xbox 0x000CB6A0.
     bool construct_bob_weapon(FactoryObject& object, std::span<const u8> parameters); // Type 0xA0, Xbox 0x000C5C20.
     void release_bob_weapon(FactoryObject& object); // Type 0xA0, Xbox 0x000C5D30.
     void release_weapon(FactoryObject& object); // Type 0x0B, Xbox 0x00145E80.
@@ -155,6 +166,7 @@ private:
     struct CutsceneSetupInstance;
     struct BgBreakSetupInstance;
     struct BgBreakKeyInstance;
+    struct ScareFigureInstance;
     struct EmitterInstance;
     struct WeaponInstance;
     NativeSceneActorClassBindings bindings_;
@@ -163,6 +175,7 @@ private:
     std::unordered_map<const u8*, std::unique_ptr<CutsceneSetupInstance>> cutscene_setups_;
     std::unordered_map<const u8*, std::unique_ptr<BgBreakSetupInstance>> bg_break_setups_;
     std::unordered_map<const u8*, std::unique_ptr<BgBreakKeyInstance>> bg_break_keys_;
+    std::unordered_map<const u8*, std::unique_ptr<ScareFigureInstance>> scare_figures_;
     std::unordered_map<const u8*, std::unique_ptr<EmitterInstance>> emitters_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeAvatarMotionBlur>> motion_blurs_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeAvatarAfterimage>> afterimages_;

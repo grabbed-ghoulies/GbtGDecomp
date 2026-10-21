@@ -1,4 +1,5 @@
 #include "weapon_actor.h"
+#include "thrown_projectile.h"
 #include "weapon_actor_detail.h"
 #include "projectile_weapon.h"
 #include "bob_weapon.h"
@@ -323,6 +324,11 @@ void update_state(RuntimeWeaponActor& weapon, u16 state)
         update_runtime_large_projectile_state(weapon, state);
         return;
     }
+    if (weapon.type == 0xA7)
+    {
+        update_runtime_thrown_projectile_state(weapon, state);
+        return;
+    }
     if (weapon.type == 0xA0)
     {
         update_runtime_bob_weapon_state(weapon, state);
@@ -331,10 +337,10 @@ void update_state(RuntimeWeaponActor& weapon, u16 state)
     throw Error("weapon factory type " + std::to_string(weapon.type) + " vtable +0x44 is not translated");
 }
 
-// Vtable +0x48 of the weapon's class: the chair and the large projectile keep the empty base slot.
+// Vtable +0x48 of the weapon's class: the chair and both projectiles keep the empty base slot.
 void late_update_state(RuntimeWeaponActor& weapon, u16)
 {
-    if (weapon.type == 0xAA || weapon.type == 0xA9 || weapon.type == 0xA0)
+    if (weapon.type == 0xAA || weapon.type == 0xA9 || weapon.type == 0xA7 || weapon.type == 0xA0)
     {
         return;
     }
@@ -352,6 +358,11 @@ void leave_state(RuntimeWeaponActor& weapon, u16 state, u16 next)
     if (weapon.type == 0xA9)
     {
         leave_runtime_large_projectile_state(weapon, state, next);
+        return;
+    }
+    if (weapon.type == 0xA7)
+    {
+        leave_runtime_thrown_projectile_state(weapon, state, next);
         return;
     }
     if (weapon.type == 0xA0)
@@ -373,6 +384,11 @@ void enter_state(RuntimeWeaponActor& weapon, u16 state, u16 previous)
     if (weapon.type == 0xA9)
     {
         enter_runtime_large_projectile_state(weapon, state, previous);
+        return;
+    }
+    if (weapon.type == 0xA7)
+    {
+        enter_runtime_thrown_projectile_state(weapon, state, previous);
         return;
     }
     if (weapon.type == 0xA0)
@@ -407,6 +423,14 @@ RuntimeBodyContactCallback contact_test(RuntimeWeaponActor& weapon)
             const RuntimeSegmentContactRecord&, const Vec3& velocity, u16 word) -> u32
         {
             return test_runtime_projectile_contact(weapon, object, point, contacts, velocity, word); // 0x000CE5D0
+        };
+    }
+    if (read_u32(weapon.bytes, 0x99C) == 0x000CBF80)
+    {
+        return [&weapon](Actor&, RuntimeSegmentContactActor& object, const Vec3& point, GhoulySpawnPool* contacts,
+            const RuntimeSegmentContactRecord&, const Vec3& velocity, u16 word) -> u32
+        {
+            return test_runtime_thrown_projectile_contact(weapon, object, point, contacts, velocity, word); // 0x000CBF80
         };
     }
     throw Error("weapon contact test at +0x99C is not translated");
@@ -1509,7 +1533,11 @@ bool release_runtime_actor_frame_object(RuntimeWeaponActor& weapon, u32 object)
 {
     for (auto* update = weapon.view.frame.updates; update != nullptr; update = update->next) // Actor +0x1D8.
     {
-        FactoryObject* owned = weapon.services.frame_objects.at(update);
+        FactoryObject* owned = weapon.services.object_of(weapon.services.frame_objects.at(update));
+        if (owned == nullptr)
+        {
+            throw Error("0x0003DE30 reads a frame object the scene does not hold");
+        }
         if (weapon.object_address(*owned) != object)
         {
             continue;
@@ -2146,7 +2174,7 @@ void update_runtime_weapon_variant(RuntimeWeaponActor& weapon)
     if (bytes[0x93C] != 0)
     {
         const i32 result = check_ghouly_spawn_trigger(position, read_f32(bytes, 0xBF0), read_f32(bytes, 0xBF4),
-            weapon.blocked_players, weapon.random); // 0x0013E980
+            weapon.random); // 0x0013E980
         if (result == 1)
         {
             request_runtime_weapon_variant(weapon, reinterpret_cast<const char*>(bytes.data() + 0xAEC),

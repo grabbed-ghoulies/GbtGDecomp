@@ -210,6 +210,8 @@ All take the game directory, e.g.
 | `--scene5` | Boots scene 5 (chapter1_scene5_1playcam, the snooker room) and drives it: Cooper walks to a cue (type 0xAA) and presses A beside it, attacks the nearest live skeleton (class 52) while any is up, and walks into the exit volume once it opens. Fails today: the script holds at "stage 2" (see the 2026-10-20 scene 5 checkpoint) |
 | `--scene6-save-reload` | Run by `--scene6-save`: its save, with the script set to scene 3, loads again from game select, both challenge bits must come back, and scene 3 must reach Free Play with no rare book |
 | `--scene6` | Boots scene 6 (chapter1_scene2_1viewcam), A on the chapter title, the transition ends; the trophy heads attack, the first Super Scary challenge fails unanswered into Crivens' page, later ones are won by pressing the shown buttons, the heads' cutscene resumes, and the script moves on to scene 3 (`cache/scene6_c*_s*_*.bmp`); then scene 3's transition ends (no chapter title) and its walk-in and Free Play run with the sticks centred (the scene 3 checks below, passive) |
+| `--scene6-1` | Boots scene 6 (chapter1_scene6_1playcam, the Lower Corridors): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper walks to the scare figure (type 0x1D, its +0x934 trigger), then, in "Ghouly Generator Introduction", to the nearest ghouly setup with a radius (type 0x24, +0xA38) and fights any live ghouly within 50 units. Once the section holds at its end (type 0xF, DAT_00512518), he walks down the corridor (south along x -168, east along z -620) into the exit volume (mask 1), fighting off any spider within 20 units. The scene's objects are logged at each title, the section gate every 300 frames, and the volumes, pending conditions and live script nodes on a failure. Passes when the script moves on to scene 7 |
+| `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
 Headless captures: `gbtg --headless --frames N --scene chapter1_scene1_2playcam
@@ -243,7 +245,9 @@ step 1/30 s, so frame N is N/30 s; the references in `cache/player_ref/` were ta
   host `g_alt_links` instead of `DAT_00511B48`.
 - **Class and state names can mislead.** The factory type table
   `DAT_0030D420` (getter, name, parent per 0xC-byte row) and the body state
-  names `0x003390E4` look one entry off from what the rows do: the imp's
+  names `0x003390E4` look one entry off from what the rows do. A type's parent is the word just before its getter
+  (`DAT_0030D41C`, the previous row's third word), and its real name is the previous row's: type 0x2D (getter
+  `0x000761A0`) is entityBodyZombie, not the entityFxCustomElectric its row names. For example, the imp's
   `actorstate_imp_stand` / `_walk` / `_hit` / `_dizzy` objparams build types
   0x87 / 0x8E / 0x74 / 0x64, named StandAlert / WalkAlert / HitFurnace /
   DroneAppear. Go by the row's objparams and the getter, not the name.
@@ -284,7 +288,18 @@ scene to its end, through the trophy heads and their Super Scary challenges, and
 `aid_script_ghoulies_chapter1_scene3_1playcam` (see the scene 6 checkpoint). `--scene3` plays that scene's start,
 walk-in and "Free Play" natively. Driven at the skeletons, they walk up and fight Cooper and fall apart into bones
 when they die. Cooper then lifts and throws the trophy, collects the rare book and leaves through the open door, and
-the script moves on to scene 4 (see the scene 3 checkpoints).
+the script moves on to scene 4 (see the scene 3 checkpoints). `--scene4` and `--scene5` play scenes 4 and 5 to their
+ends. `--scene6-1` plays scene 6 (`aid_script_ghoulies_chapter1_scene6_1playcam`, the Lower Corridors) from its
+walk-in through the telephone's scare and Crivens' scare page into "Ghouly Generator Introduction", where the ghouly
+setups spawn spiders that hunt and leap at Cooper. Cooper fights his way down the corridor and out through its south
+doorway, and the script moves on to `aid_script_ghoulies_chapter1_scene7_1playcam` (see the 2026-10-21 checkpoints).
+`--scene7` plays that scene (the east wing's cinema): up the stairs to the projection booth, where the film-reel
+prisoner's page plays, down into the cinema to fight its skeletons and imps, and out. The script moves on to
+`aid_script_ghoulies_chapter1_scene7_2book` ("Partner Down the Trapdoor"). The book's three pages play and the
+script moves on to `aid_script_ghoulies_chapter1_scene7_3playcam`. That scene plays natively to its end: the haunted
+TV's ghoul intro, its electric attack that shocks Cooper, the ghoulies it summons through its beam, and the exit. The
+script moves on to `aid_script_ghoulies_chapter1_scene8_1playcam`, which `--scene7` does not drive yet (see the
+frontier).
 
 | Path | Stop | What it needs |
 |---|---|---|
@@ -294,14 +309,14 @@ the script moves on to scene 4 (see the scene 3 checkpoints).
 | Present (the snapshot) | renders nothing | `0x00116530` records its draws but the texture stays empty |
 | HUD draws (not reached) | `0x0012F110` | Scoreboard rows of kinds 4 and 5 (the formatted counter) |
 | Scene 3's Free Play branches (`--scene3`) | legacy | Free Play's node 0x51 on the skeletons still goes through the legacy `g_range_links` |
-| Script condition nodes | partial | `0x00125450` registers only types 0x3D, 0x3E, 0x40, 0x47, 0x48, 0x6A, 0x94, 0x95 and 0x99; retail also takes 0x3F, 0x41..0x44, 0x5A, 0x5B, 0x65, 0x66, 0x68, 0x6C, 0x72, 0x75, 0x8B, 0x8C, 0x92, 0x93 and 0xA3, which still run as ordinary nodes |
+| Script condition nodes | partial | `0x00125450` registers types 0x3D..0x3F, 0x40, 0x41, 0x43, 0x44, 0x47, 0x48, 0x6A, 0x6C, 0x94, 0x95 and 0x99; retail also takes 0x42, 0x5A, 0x5B, 0x65, 0x66, 0x68, 0x72, 0x75, 0x8B, 0x8C, 0x92, 0x93 and 0xA3, which still run as ordinary nodes |
 | Script type 0x16 | legacy | Still the old shortcut; retail waits for `0x0004EFE0` with DAT_00512470 set, then releases the cutscenes |
+| Scene 8 (`aid_script_ghoulies_chapter1_scene8_1playcam`) | not driven | `--scene7` stops once the script moves on to it; it has the haunted chairs (`aid_ghoulybox_ghoulies_chapter1_scene8_hauntedchair`) and the chairs-flip-off cutscene |
 
 ## Work
 
-1. Scene 5's "stage 2": find what lets its section end (node 0x0F waits for `g_gate_251c`, raised by a 0x11 node or
-   script event 0xAF / 0xB3). The "Required Number" event's step nodes 0x1D and 0x55 (`0x00126140`) are still the
-   old value-only cases.
+1. Scene 8 (`aid_script_ghoulies_chapter1_scene8_1playcam`): drive it after scene 7_3 and translate what its
+   start and its haunted chairs reach.
 2. Move the remaining `g_pulse_nodes` callers to the native `DAT_00511AA4` lookups.
 
 ## Acceptance
@@ -341,6 +356,205 @@ the script moves on to scene 4 (see the scene 3 checkpoints).
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-21: scene 7_3 plays to its end: the TV's shock, its ghouly generator and the exit
+
+`--scene7` now plays `aid_script_ghoulies_chapter1_scene7_3playcam` to its end. Cooper loses to the TV three times
+(each loss restarts the scene at Free Play); on the fourth try the script moves on to
+`aid_script_ghoulies_chapter1_scene8_1playcam` at frame 7786.
+
+- **fxCustom and entityFxCustomElectric** (types 0xC and 0x2E, `entities/fx_custom_electric`):
+  - fxCustom (getter `0x000EC650`, vtable `0x005068F4`): sizes `0x00095530`, construct `0x000EC6A0`, destroy
+    `0x000EC6E0`, update `0x000EC710`. It joins its actor's +0x1D8 frame list; the frame walks run its update and draw.
+  - The electric effect (getter `0x00076590`, vtable `0x005053E0`): sizes `0x00076570`, construct `0x000765E0` (the
+    sparks `0x000769D0` and the light `0x00076B00`), destroy `0x00076690`, update `0x00076720`, draw `0x00076850`.
+  - Light records: `0x000FE080` (with `0x00051BC0`), `0x000FE0F0` and `0x00056C80`.
+- **entityFxCustomSolidFadeIn** (type 0x32, getter `0x00077DB0`, vtable `0x00505440`, same module): sizes
+  `0x00077D90`, construct `0x00077E00`, destroy `0x00077E90`, message `0x000780C0`, update `0x00077ED0`, restart
+  `0x00078110`. It fades the actor's tint (+0x198 and the +0x19C levels) in, holds and fades it out, then releases
+  itself. It is both the generator's release effect and the body's hold-timer object (`0x00027BE0` sends it 3; the
+  timer's end, `0x0013B240`, sends it 5).
+- **entityStateGenerateGhouly** (type 0x6F, getter `0x00093B60`, vtable `0x005058C0`, `entities/generate_ghouly_state`):
+  - Slots: sizes `0x00093B40` (0x4A0 / 0x318), construct `0x00093BC0`, destroy `0x00093DF0`, message `0x00094150`,
+    tick `0x00093EC0`, draw `0x00094130`.
+  - Phase 1 plays the intro and its bolts (`0x000925C0`, `0x00092840`, `0x00092D50`, `0x00092F80`). When the
+    animation ends, the beam actor and its light stand at the spawn point (`0x00093700`, `0x00093800`, `0x00093A60`,
+    `0x00093AD0`).
+  - Phase 2 (`0x000941A0`) lets out the ghouly the TV's box names (`0x00093190`, `0x000933C0`) and grows it over half a
+    second (`0x00093540`). Phase 3 fades the beam (`0x00093780`, `0x000936A0`) and drains the ghouly's goals
+    (`0x00093660`).
+  - The bolts draw as view-facing quads (`0x00092D10`, `0x00092FF0`, and the new `0x00065460` / `0x000654E0` in
+    `graphics/world_sprite_passes`). `0x0003EE30` relinks an actor into the live list.
+- **entityStateShocked** (type 0x80, getter `0x0009F420`, vtable `0x00505AE0`, `entities/body_shocked_state`):
+  - Slots: sizes `0x0009F400`, construct `0x0009F480`, destroy `0x0009F550`, tick `0x0009F5F0`.
+  - Cooper drops what he holds and freezes with every latch held while the shock effect plays, then recovers
+    (`0x00133F50`). `0x0001F4F0` (the latch hold timer) is new in `player_goal_cleanup`.
+- **Door state 6** (`0x0005B540`): releases the row's two clips and moves the last row into its place (`0x000F71F0`).
+- Fixes found on the way:
+  - The actor frame list's objects are now keyed by their bytes and found in the scene when used. A
+    `FactoryObject*` taken at construction pointed at the factory's stack copy.
+  - Render lights carry their +0x40 spot words (`RuntimeRenderLight::spot`) in place of a side map that nothing
+    filled. The TV's light was the first point light to reach the upload.
+  - The debris and trail pools (`0x000EC2D0`, `0x000EBB80`) are now built at each scene's start, as `0x0011CBD0`
+    does; `0x000ED450` frees them at each scene's end. Before, they were built once at boot, so the second scene had
+    none.
+  - The body timers' objects (`0x00027B60`, `0x00027BE0`) are kept by the scene and messaged through it. Their native
+    views came from a map nothing filled.
+  - `0x0003DE30` is one scene function, used by the TV, the shock state and the fade-in.
+  - `0x0013AF80` takes its EDI tint (the generator's beam fades with {1, 100, 1}).
+- Shown (looked at): Cooper knocked back by the TV's sparks with a spider in mid-air (`cache/scene7_3_900.bmp`),
+  Cooper shocked in a blue glow beside the TV (`scene7_3_2400.bmp`, `scene7_3_6900.bmp`), and Cooper kicking a spider
+  while the TV crackles in the corner (`scene7_3_7500.bmp`).
+- Not shown: no capture caught the generator's bolts, beam or light, so they are not confirmed on screen. The
+  shocked tint is not compared with retail.
+
+### 2026-10-21: scene 7_3 starts: the haunted TV and the knock-down sphere
+
+`--scene7`'s third leg, `aid_script_ghoulies_chapter1_scene7_3playcam`, now starts natively. Cooper walks in, the
+haunted TV plays its ghoul intro (looked at: `cache/scene7_3_600.bmp`, the "Haunted Television" card over the TV
+with static on its screen), and he fights it. Around frame 600 its attack makes the electric effect object
+(type 0x2E), which is not translated (see the frontier).
+
+- **entityStrategyHauntedTV** (type 0x44, getter `0x000B1EC0`, vtable `0x00505E6C`,
+  `entities/haunted_tv_strategy`):
+  - Slots: sizes `0x000B1EA0` (0x11C / 0x498), construct `0x000B1F10` (`0x000B1AD0` the screen, `0x000B1490` the
+    timeline), destroy `0x000B1F40` (`0x000B1B50`, `0x000B1530`), message `0x000B23F0`, update `0x000B1F60`, enter
+    `0x000B2650`, leave `0x000B2900`.
+  - The screen is the model's shader_blinn22 colour0 parameter. `0x000B1BA0` gives it one of six parameter textures
+    per mode (2 and 3 loop the STATIC sound in actor sound slot 6; 1 clicks, 5 turns off). Mode 4 (`0x000B1D30`)
+    shows "aid_texture_ghoulies_actor_hauntedtv_<tag>" for the ghouly in the actor's box (+0xBA0), dispatching a
+    spawn when the box name is not an AID.
+  - The attack timeline (+0x108) is a list of {on, seconds} rows. `0x000B1710` / `0x000B1780` start and stop it,
+    `0x000B1590` steps it behind the gate `0x000B1A90`, and `0x000B17B0` / `0x000B1940` switch the attack on and off:
+    latch bytes 0..2 and 5, tag-0 contact shapes, the body's 0x65 attack row (`0x0001C560`) at +0x84, the live
+    attachments' +0x15 holds, and the parameters' effect object (the inlined `0x0003DF40`, released by `0x0003DE30`).
+  - States 0x3EE (near the target), 0x3EF (let a ghouly out), 0x3FE (`0x000B2A60`: mind request 0xD), 0x409 (knocked
+    down), 0x40F, 0x413 (asleep), 0x416 (wait) and 0x417 (wake). Their inlined state changes are `0x0002B8D0`. Other
+    helpers: `0x000B29D0` (target range), `0x00141530`, `0x00042450`, `0x000415A0`, `0x0013A400`.
+- **Shared shader parameters** (`graphics/shader_parameters`): the book's `0x000F8540`, `0x000F85D0`, `0x000F86F0`
+  and `0x0015B2B0` moved here (the struct is now `RuntimeShaderTextureParameter`). `0x000F8640` and `0x00053640`
+  (stepping an animated texture's frame) are new.
+- **entityAvatarMiscKnockDownSphere** (type 0x19, getter `0x0006EB40`, vtable `0x00504D60`,
+  `entities/contact_prop_actor`): sizes `0x0006EB20`, construct `0x0006EB80`, message `0x0006EBD0`, update `0x0006EBA0`
+  and `0x0006EC10`, destroy the contact prop's `0x0006EEA0`. Once message 1 switches it on, every frame it tells each
+  actor its sphere touches {0x17, reply, sender, contacts, point}; both contact views now carry that notice.
+- Bindings: the scene's `create_effect` (`0x0003DF40`) is now real, and a player's ghoulybox spawn controller
+  (record +0x24) sends its 0xA7 / 0xA9 / 0xAA requests to the actor's vtable +0xC. It had no message function, so the
+  TV's first spawn dispatch crashed.
+
+### 2026-10-21: scene 7 (the cinema) and its book play to their ends
+
+`--scene7` (new) boots `aid_script_ghoulies_chapter1_scene7_1playcam`, the scene `--scene6-1` moves on to:
+
+- The walk-in and "Free Play" start natively. Free Play waits for region 1 (PlayerEntersRegion), the projection booth
+  up the stairs. There the film-reel prisoner's page plays ("What's she doing here?", looked at:
+  `cache/scene7_page1.bmp`).
+- Its section then holds at its end (DAT_00512518) with the exit volume open. Cooper takes the booth's far stairs down
+  into the cinema, where skeletons and imps fight him; once none is within 50 units he walks into the exit. The
+  script moves on to `aid_script_ghoulies_chapter1_scene7_2book` ("Partner Down the Trapdoor") at frame 2311.
+- The book plays natively: three pages over its comic panels (Amber stuck on her chair, Cooper's "Okay, don't panic!",
+  Crivens' "Oh no! She must have fallen into the Archives!", looked at: `cache/scene7_2_page1..3.bmp`). The script
+  moves on to `aid_script_ghoulies_chapter1_scene7_3playcam` at frame 2081, whose native start stops at type 0x44.
+- New class: **entitySceneControlMovieVolume** (type 0x96, getter `0x000840D0`, vtable `0x00505650`,
+  `scene/scene_controls.cpp`): sizes `0x000840B0` (0x58 / 0x1C) and the constructor `0x00055A90`. That constructor
+  returns 0, so the factory destroys the scene's movie volume as soon as it is made, and its message (`0x00084120`)
+  and tick (`0x00084220`) never run.
+- Shown (looked at): Cooper at the top of the walk-in corridor, in the booth beside the projector, and among the
+  cinema's skeletons with hit sparks and a falling skeleton (`cache/scene7_600.bmp`, `scene7_2100.bmp`,
+  `scene7_1800.bmp`).
+- Test steering: `nav_waypoint` (tests) steps Cooper along the navigation grid. Scene 3's trophy walk now steers each
+  leg by it: since the 2026-10-21 spawn-trigger fix the skeletons can end their fight below the room's floor, where
+  the old straight legs pinned Cooper against a wall (`--scene6-save` failed there).
+- Fixed test: `--actor-loading`'s matrix-setup check gives its model the gate word `0x000400D0` has read since the
+  2026-10-20 bone debris commit (model CPU +0x10 -> +0x10).
+
+### 2026-10-21: scene 6 plays to its end: the spiders' arc attack and the corridor exit
+
+`--scene6-1` now plays the Lower Corridors to its end. The generator's spiders crouch, rise, spin and leap at Cooper,
+and he fights them off down the corridor. The section has held at its end since about frame 1200 (DAT_00512518), so he
+walks out through the doorway in the corridor's south wall. The script moves on to
+`aid_script_ghoulies_chapter1_scene7_1playcam` at frame 2831.
+
+- **entityStateArcAttack** (type 0x5F, getter `0x000889B0`, vtable `0x005056C0`, `entities/body_arc_attack_state`):
+  - Slots: sizes `0x00088990` (0x268 / 0x214), construct `0x00088A10`, destroy `0x00088ED0`, tick `0x00089060`,
+    message `0x00089530`. +0x14 and +0x18 are the empty `0x001628B0` and +0x1C is `0x0002B620`.
+  - Phases: take-off (until the take-off animation passes the parameters' time), rise (`0x00089AB0`: body +0x18
+    lifted by a random height, or the target record's +0x30 by the height scale), hold (`0x00089BA0`, spinning about
+    x, `0x00089C00`), leap (`0x00089760`, a `0x00140D80` arc at the mind's target record or 40 ahead, with the
+    contact shapes, `0x0001F800`, and the six latches held) and retreat (`0x000898C0`, message 0x41: back toward the
+    start by half the way, between 3 and 6 reaches).
+  - The leap ends in `0x00089300` on a contact bit: a landing (`0x0008A1A0`, the end key or body slot +0x34 after
+    the class's 0x11 value), or `0x00089DB0`. That one either hurts the target (body +0x26C..+0x280, +0x220..+0x22C,
+    `0x00021120`, the body's +0x4C key) or reflects the velocity off the contact's normal. Message 0x62's contact
+    record (`0x0008A030`, head-on below -0.7) and message 0x6E (`0x00140940`) reach the same paths. The face turn is
+    the tail `0x00089D20` (exported with `range-function-force`).
+  - Body slot +0x4C (`0x00027500`) is bound for types 0x27, 0x2A and 0x2D.
+- **The debris draw** (`0x000EC470`): each live record (+0x68 == -2) is a textured quad (`0x0005CF90`, frame 0) at its
+  position and euler. Its size is +0x20 x +0x18 and its colour is four `0x001673D8` bytes from +0x24..+0x30. The
+  texture is its type row's +0x80 (`RuntimeEffectDebrisStorage::textures`).
+- **The base strategy messages' actor view** (`message_actor`): the actor's +0x1FC / +0x1FE words, its +0x8F8 target
+  record (the first live attachment's mind target) and, for a player, the actor its body +0x274 names. Message 0x8F
+  (`0x00138EF0`) reads it when a zombie strategy hears the scene's script.
+- **Mind target body views**: a target actor whose +0x95C word is not in the scene arena now gets the empty view a zero
+  word gets. A wielded weapon's (type 0xAA) holds 3; retail would fault if it read it as a body.
+- Shown (`cache/scene6_1_2400.bmp`, looked at): Cooper knocked back in the corridor by a spider, three spiders on
+  the floor, a smashed vase's debris and a dropped heart pickup.
+- Verified (with the scene 7 work): Release build; ctest 7/7; the Debug build compiles (not run). Passing modes:
+  - default, `--player-death` with and without `--retail-step`, `--player-fight`, `--player-opening` and
+    `--player-controls`;
+  - `--scene3`, `--scene4`, `--scene5`, `--scene6`, `--scene6-save` and `--scene6-save-reload` (run back to back:
+    every other mode empties `cache/test_saves`), `--scene6-1`, and `--scene7` to the end of scene 7_1;
+  - `--gameselect-new-game` and `--gameselect-replay-scene`;
+  - the six transition suites (`--actor-loading` after its test fix), `--title`, `--title-a`, `--attract`, `--goop`,
+    `--ui` and `--audio-preparation`.
+  `gbtg --headless --frames 900` exits 0 with and without `--scene chapter1_scene1_2playcam`. `git diff --check` is
+  clean.
+- Not matching: `player_opening_check` and `player_walk_check` differ from `cache/player_ref`. The tutorial page's
+  lines sit a few pixels apart in word spacing; the walk check differs in 32 pixels. These checks last matched on
+  2026-10-18, and the dialogue text code changed on 2026-10-19 (`63e6ad8`); this work does not touch it. Not
+  bisected.
+
+### 2026-10-21: scene 6 (the Lower Corridors) runs into its Ghouly Generator Introduction
+
+- `--scene6-1` (new) boots `aid_script_ghoulies_chapter1_scene6_1playcam`, the scene `--scene5` moves on to (scene
+  order 11). The scene starts natively; then:
+  - The walk-in and Crivens' guide page play.
+  - In "Free Play", Cooper walks to the telephone scare figure. It fades in and scares him (headless frame 900,
+    looked at: Cooper's scared pose, the HUD heart at 15 with the scare head).
+  - "Scare Introduction" plays the shock1 cutscene, then Crivens' "Sir has suffered a bit of a Scare!" page.
+  - In "Ghouly Generator Introduction", the setup Cooper walks under spawns its ghoulybox. Its spiders hunt and
+    flank him and back off as he chases them.
+  - It stops at the spiders' arc attack (type 0x5F); see the frontier.
+- New classes, from their dumps:
+  - **entityBodyZombie** (type 0x2D, getter `0x000761A0`): the 0x27 parent's sizes and message slot. Its next-action
+    slots `0x00076210` / `0x00076250` return 0x116 / 0x16D while the body's model-node state is shown (+0x2D0 mode 1,
+    +0x2D2 set).
+  - **entityStrategyZombie** (type 0x58, getter `0x000C57A0`, `entities/zombie_strategy`): the approach, swipe,
+    kick, special attack and weapon fetch, from `0x000C4E70` to `0x000C5AD0`.
+  - **entityStrategySpider** (type 0x52, getter `0x000C0B60`, `entities/spider_strategy`): the flank 30 units
+    beside the target, the bite, the sticky web spit and the roam (`0x000C0620`..`0x000C1290`, leave `0x000B5AF0`).
+  - **entityWeaponProjectile** (type 0xA7, getter `0x000CB570`, `entities/thrown_projectile`): the thrown weapon
+    that spins, shatters or breaks, and spawns the actor its parameters name where it lands (`0x000CB550`..
+    `0x000CC910`, the flight set-up `0x00148E60`, the ballistic launch `0x00140D80`).
+  - **entityAvatarMiscScareFigure** (type 0x1D, getter `0x0006EFB0`, `entities/scare_figure`): its states and timers,
+    the player-facing turn, the glow-pass fade draw and the trigger (`0x0006EF90`..`0x0006FC70`, `0x0013D510`,
+    `0x000423D0`).
+- Shared fixes:
+  - `0x0013E980` (spawn triggers) walked `g_world.slot` as a fake node struct that read past each 16-byte node. It
+    also tested `DAT_004E1C34` (the prompt lock, -1) where retail tests the never-written `DAT_00512218`, so it never
+    saw Cooper. It now walks the native DAT_00511B50 view (`g_spawn_trigger_players`). Ghouly setups, triggers and
+    weapons now see a player enter their radius, as in retail. `--scene4` still passes.
+  - `0x00122CE0` (message to every DAT_00511B38 actor) used the same fake-node pattern. It now goes through
+    `g_marked_actor_message`.
+  - Marker kinds 7 (named sounds) and 0x16 (scare figures) are bound. The names live in DAT_0051254C's rows, whose
+    count `0x00129F70` now resets at the scene teardown.
+  - Node 0x6C (`0x00125748`) registers condition opcode 16 (GhoulyExistsInScene). Its test `0x00132C70` and its
+    update `0x001336A0` walk the native DAT_00511B38 (`runtime_loading_actors`).
+  - The stand-alert and walk-alert ticks' turn settle (`0x00134720`) is bound, with its `0x001068E0` lean. The state
+    destroy's body message slot and the boost's +0x44 / +0x48 slots are bound too.
+- Not checked: the scare figure's fade and the spiders' moves against xemu, and the thrown projectile, which nobody
+  throws yet. The full regression set (the shared fixes change other scenes' paths) has not been run; `--scene4`,
+  the animation unit tests and `gbtg --headless --frames 900` (with and without the opening scene) pass.
 
 ### 2026-10-20: finishing reacting imps, scene music, and scene 5's entry
 

@@ -1133,14 +1133,18 @@ int main()
         second_sound.previous = &sound_queues.groups[1].pending;
         second_sound.enabled = 0;
         sound_queues.groups[1].pending.next = &second_sound;
-        std::array<i16, 2> static_sounds{0, -1};
-        sound_queues.static_voice_indices = static_sounds;
+        std::array<u8, 2 * 0x90> static_sounds{};
+        const i16 first_voice = 0;
+        const i16 no_voice = -1;
+        std::memcpy(static_sounds.data() + 0x8C, &first_voice, 2);
+        std::memcpy(static_sounds.data() + 0x90 + 0x8C, &no_voice, 2);
+        sound_queues.static_voice_rows = static_sounds;
         sound_queues.static_voice_count = 2;
         reset_actor_sound_queues(sound_queues);
         require(queue_voices[1].state == 10 && first_sound.enabled == 1 && second_sound.enabled == 0 &&
             first_sound.previous_bone == 0xFFFF && sound_queues.groups[1].active.next == nullptr &&
             second_sound.previous == nullptr && sound_queues.groups[1].pending.next == nullptr &&
-            static_sounds[0] == -1 && sound_queues.static_voice_count == 0,
+            static_sounds[0x8C] == 0xFF && static_sounds[0x8D] == 0xFF && sound_queues.static_voice_count == 0,
             "sound reset lost active/pending distinction or static voice retirement");
         add_sound_direction(sound_direction, 0.f, 0.f, 2.f);
         require(sound_direction.x == 3.f && sound_direction.y == 4.f && sound_direction.z == 7.f,

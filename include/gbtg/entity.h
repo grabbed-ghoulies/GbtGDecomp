@@ -800,6 +800,7 @@ bool save_next_slot_name(char16_t* name); // Xbox 0x0010D7A0, EBX the name: adva
 // The lists inside those two stride-0x14 bins, the names in the records,
 // and the count at DAT_00512548 stay as they are.
 void scene_initialize_handle_slots(); // Xbox 0x00129F30
+std::span<u8> scene_named_sound_records(); // DAT_0051254C: ten 0x90-byte rows (name, +0x80 position, +0x8C id).
 
 // cam_11c480 calls this after 0x00129F30. Each of the twenty slots at
 // DAT_00512140 (stride 0x18) drops its voice key through 0x001319C0 when

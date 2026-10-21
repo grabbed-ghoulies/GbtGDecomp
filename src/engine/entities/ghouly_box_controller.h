@@ -31,7 +31,7 @@ struct GhoulyBoxController : GhoulyController
     u32 value_a50 = 0;
 };
 
-void tick_ghouly_box_controller(GhoulyBoxController& controller, i32 blocked_players,
+void tick_ghouly_box_controller(GhoulyBoxController& controller,
     u32& random_state); // Xbox 0x0006C0A0
 
 void destroy_ghouly_box_controller(GhoulyBoxController& controller); // Xbox 0x0006BC70

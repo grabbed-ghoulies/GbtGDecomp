@@ -452,7 +452,45 @@ void set_runtime_door_state(u16 ordinal, u16 state, u32 hold, u32 last, RuntimeD
     }
     if (state == 6)
     {
-        throw Error("door state 6 removes the row (0x000F71F0), which is not translated here");
+        if (door == nullptr)
+        {
+            throw Error("0x0005B540 writes +0x148 of a missing door row (ESI 0)");
+        }
+        if (door->primary != nullptr || door->camera != nullptr)
+        {
+            if (context.cutscenes == nullptr)
+            {
+                throw Error("door clips need the scene cutscene runtime, which is not bound");
+            }
+        }
+        if (door->primary != nullptr)
+        {
+            release_runtime_cutscene(door->primary, *context.cutscenes); // 0x0004D720
+            door->primary = nullptr;
+            store(door->fields, 0x140, 0);
+        }
+        if (door->camera != nullptr)
+        {
+            release_runtime_cutscene(door->camera, *context.cutscenes); // 0x0004D720
+            door->camera = nullptr;
+            store(door->fields, 0x144, 0);
+        }
+        // The last row moves into this one (0x000F71F0, EAX the row, ECX the last, EDX the stride) and the pool
+        // loses a row; the native clip views move with it.
+        auto* pool = context.pool;
+        u8* row = door->fields.data();
+        u8* last = pool->end - pool->stride;
+        const size_t count = size_t(pool->end - pool->begin) / pool->stride;
+        if (row < last)
+        {
+            std::memmove(row, last, pool->stride);
+            RuntimeDoorClips& moved = context.rows.at(count - 1);
+            door->primary = moved.primary;
+            door->camera = moved.camera;
+        }
+        pool->end -= pool->stride;
+        context.rows.resize(count - 1);
+        return;
     }
     if (state == 7)
     {

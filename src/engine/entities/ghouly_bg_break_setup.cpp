@@ -530,7 +530,7 @@ void update_runtime_ghouly_bg_break_setup(RuntimeGhoulyBgBreakSetup& context)
             const Vec3 position = actor_world_position(context.actor); // 0x000412A0
             if (spawn_queue_below_maximum(context.spawns()) // 0x0013E790
                 && check_ghouly_spawn_trigger(position, get(bytes, field::radius), get(bytes, field::chance),
-                    context.blocked_players, context.random) == 1) // 0x0013E980
+                    context.random) == 1) // 0x0013E980
             {
                 send_runtime_bg_break_self_message(context); // 0x0006B080
             }

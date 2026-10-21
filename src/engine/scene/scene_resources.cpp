@@ -366,6 +366,11 @@ IdRecord g_id_records[kIdRecordCount]{};
 
 } // namespace
 
+std::span<u8> scene_named_sound_records()
+{
+    return {reinterpret_cast<u8*>(g_id_records), sizeof(g_id_records)};
+}
+
 // Xbox 0x00129F30
 void scene_initialize_handle_slots()
 {

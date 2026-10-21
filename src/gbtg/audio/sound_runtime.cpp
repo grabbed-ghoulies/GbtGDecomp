@@ -1,4 +1,5 @@
 #include "gbtg/sound_runtime.h"
+#include <cstring>
 #include "gbtg/anim.h"
 
 namespace gbtg
@@ -198,12 +199,15 @@ void reset_actor_sound_queues(RuntimeActorSoundQueues& queues)
     }
     for (i32 index = 0; index < queues.static_voice_count; ++index)
     {
-        i16& voice = queues.static_voice_indices[index];
+        const size_t offset = size_t(index) * 0x90 + 0x8C;
+        i16 voice;
+        std::memcpy(&voice, queues.static_voice_rows.subspan(offset, 2).data(), 2);
         if (voice != -1)
         {
             stop_actor_sound_voice(voice, queues);
         }
-        voice = -1;
+        const i16 none = -1;
+        std::memcpy(queues.static_voice_rows.subspan(offset, 2).data(), &none, 2);
     }
     queues.static_voice_count = 0;
 }

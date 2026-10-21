@@ -62,7 +62,7 @@ void check_player_factory_owner()
     std::vector<ObjectFactoryType> types(0x60);
     ObjectFactoryRegistry factory{types};
     RuntimeActorSoundQueues sounds{};
-    std::unordered_map<ActorFrameAttachment*, FactoryObject*> frames;
+    std::unordered_map<ActorFrameAttachment*, const u8*> frames;
     const char empty[4]{};
     NativeActorFactoryOwner actors{NativeActorFactoryBindings{startup, factory, sounds, frames,
         [](Actor&, const void*)
@@ -207,6 +207,7 @@ void check_player_factory_owner()
     std::array<u8, 0x40> imp_fire_parameters{};
     const i32 attachment_limit = 0;
     const float skeleton_fetch_delay = 0.f;
+    const std::unordered_map<const u8*, const RuntimeAttachmentRequestTables*> attack_tables;
     NativePlayerFactoryOwner players{NativePlayerFactoryBindings{actors, NativePlayerSceneBindings{factory, pools,
         registry, error, random, release, activation, runtime_flags, story_flags, player_count, active_strategies,
         address_zero, address_of, actor_tags.data(), actor_tags.data(), tag_rows.data(), tag_rows, weapon_names, class_names, 0,
@@ -269,7 +270,7 @@ void check_player_factory_owner()
         {
             throw Error("test scene has no target models");
         },
-        attachment_limit, {}, {}, {}, {}, {}, skeleton_fetch_delay}}};
+        attachment_limit, {}, {}, {}, {}, {}, skeleton_fetch_delay, {}, sounds, {}, attack_tables, {}, {}, {}}}};
     players.install(types);
     require(types[5].parent == 2 && types[6].parent == 1 && types[0x27].parent == 6 && types[0x2A].parent == 0x27
         && types[8].parent == 1 && types[0x4F].parent == 8 && types[0x46].parent == 8 && types[7].parent == 1

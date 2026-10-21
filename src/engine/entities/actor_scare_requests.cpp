@@ -1,4 +1,6 @@
 #include "actor_scare_requests.h"
+#include <array>
+#include <bit>
 #include "entity.h"
 #include "actor_model_anchors.h"
 #include "actor_transform.h"
@@ -25,15 +27,15 @@ Vec3 transform_scare_point(const float* matrix, const Vec3& point)
 }
 
 // Xbox 0x00122CE0
-void broadcast_actor_world_message(const void* message)
+std::function<void(std::span<const u32>)> g_marked_actor_message;
+
+void broadcast_actor_world_message(std::span<const u32> message)
 {
-    auto* node = static_cast<ActorWorldMessageNode*>(g_world.mark.next);
-    while (node != nullptr)
+    if (!g_marked_actor_message)
     {
-        auto* owner = node;
-        node = static_cast<ActorWorldMessageNode*>(node->link.next);
-        owner->message(*owner, message);
+        throw Error("0x00122CE0 walks DAT_00511B38 outside a native scene");
     }
+    g_marked_actor_message(message);
 }
 
 // Xbox 0x0003DB90
@@ -97,12 +99,9 @@ void request_actor_scare_at(const Vec3& position, u32 actor_address, float inten
                 parameters.bytes.reset();
                 if (broadcast != 0)
                 {
-                    struct ScareMessage
-                    {
-                        u32 id;
-                        Vec3 position;
-                    } message{0x37, position};
-                    broadcast_actor_world_message(&message);
+                    const std::array<u32, 4> message{0x37, std::bit_cast<u32>(position.x),
+                        std::bit_cast<u32>(position.y), std::bit_cast<u32>(position.z)};
+                    broadcast_actor_world_message(message);
                 }
                 context.objects.push_back(create_resource_object_with_data(context.factory,
                     context.resources, "aid_objparams_ghoulies_fx_solidredflash", actor_address));

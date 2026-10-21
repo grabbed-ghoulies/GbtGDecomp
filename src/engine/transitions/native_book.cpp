@@ -1,4 +1,5 @@
 #include "native_book.h"
+#include "../graphics/shader_parameters.h"
 #include "book_map.h"
 #include "../camera/display_view.h"
 #include "../camera/runtime_display_setup.h"
@@ -49,71 +50,6 @@ float frame_step(const TransitionBookServices& s)
     throw Error(std::string(what) + " is not translated");
 }
 
-// Xbox 0x000F8540, EBX the model: the named shader's texture parameter of that name, or null.
-BookShaderParameter* create_shader_parameter(RuntimeModelInstance& model, const char* shader, const char* name)
-{
-    const RuntimeModelTree* tree = model.source->tree; // *(*(model + 0) + 0x10) + 0x24
-    if (tree == nullptr)
-    {
-        return nullptr;
-    }
-    RuntimeModelNode* node = nullptr;
-    if (!find_runtime_model_named_node(*tree, shader, node) || node == nullptr) // 0x001568E0
-    {
-        return nullptr;
-    }
-    const RuntimeShaderCpuEntry* entry = nullptr;
-    if (node->shader_cpu == nullptr || !find_runtime_shader_entry(*node->shader_cpu, name, entry)) // 0x0015B160
-    {
-        return nullptr;
-    }
-    if (entry->value == -1)
-    {
-        return nullptr;
-    }
-    auto* parameter = new BookShaderParameter; // 0x000F72D0(0x18)
-    parameter->model = &model;
-    parameter->shader = model.tree_storage.shader_nodes.at(node->copy_offset).primary; // model + node +0xC + 0x2A4
-    parameter->index = u32(entry->value);
-    return parameter;
-}
-
-// Xbox 0x0015B2B0: the shader instance's texture word for the parameter.
-void set_shader_texture(RuntimeShaderInstance& shader, u32 index, u32 texture)
-{
-    shader.zero_words[index] = texture;
-}
-
-// Xbox 0x000F85D0, EAX the parameter.
-void release_shader_parameter(BookShaderParameter* parameter)
-{
-    parameter->texture = 0;
-    parameter->word_10 = 0;
-    parameter->word_14 = 0;
-    set_shader_texture(*parameter->shader, parameter->index, 0); // 0x0015B2B0
-    delete parameter; // HeapFree
-}
-
-// Xbox 0x000F86F0, EAX the parameter, ECX the texture, EDX the +0x10 word.
-void set_shader_parameter_texture(BookShaderParameter& parameter, u32 texture, u32 word,
-    const std::function<u8*(u32)>& texture_bytes)
-{
-    parameter.texture = texture;
-    parameter.word_10 = word;
-    parameter.word_14 = 0;
-    if (texture != 0)
-    {
-        u8* bytes = texture_bytes(texture);
-        if (bytes[0x11] != 0)
-        {
-            bytes[0x13] = 0;
-        }
-        set_shader_texture(*parameter.shader, parameter.index, parameter.texture); // 0x0015B2B0
-        return;
-    }
-    set_shader_texture(*parameter.shader, parameter.index, 0); // 0x0015B2B0
-}
-
 // Xbox 0x00048110: each page shader's colour0 gets a page texture (pages 2 and 3 DAT_005047E4, 1 and 4
 // DAT_005047D8).
 void bind_book_pages(RuntimeTransitionBook& book, TransitionBookServices& s)
@@ -133,14 +69,14 @@ void bind_book_pages(RuntimeTransitionBook& book, TransitionBookServices& s)
         {
             continue;
         }
-        BookShaderParameter* parameter = create_shader_parameter(model, kPages[index].first, "colour0"); // 0x000F8540
+        RuntimeShaderTextureParameter* parameter = create_shader_parameter(model, kPages[index].first, "colour0"); // 0x000F8540
         auto& page = book.pages[index];
         page.parameter = parameter;
         const u32 texture = kPages[index].second != 0 ? s.page_textures[1] : s.page_textures[0];
         page.texture = texture;
         parameter->texture = texture;
-        parameter->word_10 = 0;
-        parameter->word_14 = 0;
+        parameter->mode = 0;
+        parameter->time = 0.f;
         u32 bound = 0;
         if (texture != 0)
         {
@@ -260,7 +196,7 @@ RuntimeTransitionBook* create_transition_book(i32 clip, u32 flags, const char* t
         {
             book->texture = {};
         }
-        BookShaderParameter* parameter = book->pages.at(size_t(texture_page)).parameter;
+        RuntimeShaderTextureParameter* parameter = book->pages.at(size_t(texture_page)).parameter;
         if (parameter == nullptr)
         {
             throw Error("transition book page " + std::to_string(texture_page) + " has no colour0 parameter");

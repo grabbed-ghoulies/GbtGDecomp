@@ -110,11 +110,11 @@ RuntimeSceneMarkerHandlers bind_runtime_scene_marker_handlers(RuntimeSceneMarker
     };
     handlers.handlers[0x19] = [&bindings](u8* record)
     {
-        if (bindings.additional == nullptr)
+        if (bindings.player_shape == nullptr)
         {
             throw Error("scene marker player attachment lists are not bound");
         }
-        attach_runtime_marker_player_shape(record, *bindings.additional);
+        attach_runtime_marker_player_shape(record, *bindings.player_shape);
     };
     return handlers;
 }
@@ -654,7 +654,7 @@ void create_runtime_marker_dropper(const u8* record, RuntimeMarkerObjects& objec
 }
 
 // Xbox 0x000FFA30
-void attach_runtime_marker_player_shape(const u8* record, RuntimeMarkerAdditionalBindings& context)
+void attach_runtime_marker_player_shape(const u8* record, RuntimeMarkerPlayerShapeBindings& context)
 {
     if (context.player != nullptr)
     {

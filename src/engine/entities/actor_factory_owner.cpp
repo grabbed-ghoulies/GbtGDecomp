@@ -212,6 +212,19 @@ const ObjectFactoryVtable* contact_prop_lifecycle()
     return &table;
 }
 
+bool construct_knockdown_sphere_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    return initialize_runtime_knockdown_sphere({object.bytes.get(), object.size}, parameters); // 0x0006EB80
+}
+
+// Getter 0x0006EB40 (vtable 0x00504D60): +8 is the contact prop's 0x0006EEA0.
+const ObjectFactoryVtable* knockdown_sphere_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00504D60, runtime_knockdown_sphere_sizes,
+        construct_knockdown_sphere_view, destroy_contact_prop_view};
+    return &table;
+}
+
 const ObjectFactoryVtable* base_lifecycle()
 {
     static const ObjectFactoryVtable table{0x0050E0C0, base_object_sizes,
@@ -314,6 +327,7 @@ void NativeActorFactoryOwner::install(std::span<ObjectFactoryType> types)
     types[2] = ObjectFactoryType{1, actor_lifecycle};
     types[0x15] = ObjectFactoryType{2, button_bat_lifecycle};
     types[0x1A] = ObjectFactoryType{2, contact_prop_lifecycle}; // Getter 0x0006EE20.
+    types[0x19] = ObjectFactoryType{2, knockdown_sphere_lifecycle}; // Getter 0x0006EB40.
     active_owner = this;
 }
 
@@ -387,7 +401,7 @@ void NativeActorFactoryOwner::release_view(FactoryObject& object)
 {
     auto& instance = view(object);
     Actor& actor = instance.bat.actor;
-    ActorFrameReleaseContext frames{bindings.factory, bindings.frame_objects,
+    ActorFrameReleaseContext frames{bindings.factory, bindings.frame_objects, bindings.object_of,
         [&](const ActorReferenceMessage& message)
         {
             bindings.message(actor, &message);

@@ -77,7 +77,7 @@ struct RuntimeWeaponServices
     std::span<u32> contact_totals; // DAT_0053E528, 0x3D words per tag.
     std::span<u32> contact_session; // DAT_00524E2C.
     std::function<ActorAnimationState*(Actor&)> animation_of; // A scene actor's +0x50 views.
-    const std::unordered_map<ActorFrameAttachment*, FactoryObject*>& frame_objects; // Actor +0x1D8 objects.
+    const std::unordered_map<ActorFrameAttachment*, const u8*>& frame_objects; // Actor +0x1D8 objects.
     AudioEventVoices& voices; // DAT_004E0CE8.
     const u32& story_flags; // DAT_0050EA98.
     std::function<CutsceneRuntimeContext&()> cutscenes; // 0x0004D680's scene cutscene runtime.
@@ -91,6 +91,7 @@ struct RuntimeWeaponServices
     std::function<RuntimeActorStartupContext&()> startup{};
     const i32* pal = nullptr;
     const i32* pal_override = nullptr;
+    std::function<FactoryObject*(const u8*)> object_of{}; // The scene object holding an object's bytes.
 };
 // Message 0x1D from a weapon's contact test (0x00141890) to the actor it hit.
 struct RuntimeWeaponHitNotice
@@ -148,7 +149,7 @@ struct RuntimeWeaponActor
     std::function<void(u32, std::span<u32>)> send; // Vtable +0xC of the object at an address.
     std::function<u32()> self_address; // This weapon's retail address.
     ActorFrameContext& frame; // The base update's scene values (0x000420D0's steps).
-    const i32& blocked_players; // DAT_004E1C34 for 0x0013E980.
+    const i32& blocked_players; // DAT_004E1C34, the prompt lock.
     std::function<std::vector<RuntimeDirectorActor>()> marks; // DAT_00511B38 nodes in list order.
     // DAT_00511B40 actors in list order, as 0x00129420 reads them; only the 0x1A000 tests are viewed.
     std::function<std::vector<RuntimeScriptActorQueryView>()> case_actors;
@@ -175,7 +176,9 @@ struct RuntimeWeaponActor
     entity_detail::NavigationCellRegistration* cells = nullptr; // +0xCFC, grid +0xD00.
     entity_detail::NavigationPathSearch* path_search = nullptr; // +0xD04.
     GhoulySpawnRecord* spawn_record = nullptr; // +0xC04, 0x00148430's ghoulybox.
-    GhoulySpawnPool* collision_overrides = nullptr; // +0xE7C of type 0xA9, 0x0013EBE0's pool.
+    GhoulySpawnPool* collision_overrides = nullptr; // +0xE7C of type 0xA9, +0xF40 of type 0xA7: 0x0013EBE0's pool.
+    const AnimationRecord* flight_animation = nullptr; // +0xE64 of type 0xA7, 0x0003AAA0's record.
+    RuntimeBodyAttachmentLists* attachment_lists = nullptr; // Actor +0x1B8 / +0x1B0 and DAT_00506930 for 0x0013B810.
     RuntimeCutsceneInstance* cutscene = nullptr; // +0xFE0 of type 0xA0, 0x0004D680's instance.
     std::function<std::span<const u8>(u32)> model_source; // Retail words in this actor's model space.
     std::function<RuntimeSegmentContactActor&(u32)> contact_actor_at; // The contact view of the actor at an address.

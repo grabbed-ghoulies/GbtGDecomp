@@ -10,7 +10,8 @@ namespace gbtg
 struct ActorFrameReleaseContext
 {
     ObjectFactoryRegistry& factory;
-    const std::unordered_map<ActorFrameAttachment*, FactoryObject*>& objects;
+    const std::unordered_map<ActorFrameAttachment*, const u8*>& objects; // Each node's object bytes.
+    const std::function<FactoryObject*(const u8*)>& object_of; // The scene's object holding those bytes.
     std::function<void(const ActorReferenceMessage&)> message; // Actual actor vtable+0xC.
 };
 struct ActorReleaseContext

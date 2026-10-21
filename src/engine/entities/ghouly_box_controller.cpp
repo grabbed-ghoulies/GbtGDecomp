@@ -78,13 +78,13 @@ void destroy_ghouly_box_controller(GhoulyBoxController& controller)
 
 
 // Xbox 0x0006C0A0
-void tick_ghouly_box_controller(GhoulyBoxController& controller, i32 blocked_players,
+void tick_ghouly_box_controller(GhoulyBoxController& controller,
     u32& random_state)
 {
     const Vec3 position = actor_world_position(controller.actor);
     if (controller.spawned_940 == 0 && check_ghouly_spawn_trigger(position,
         std::bit_cast<float>(controller.value_a48), std::bit_cast<float>(controller.value_a4c),
-        blocked_players, random_state) == 1)
+        random_state) == 1)
     {
         GhoulyRequest message;
         std::strcpy(message.box, controller.box_944);

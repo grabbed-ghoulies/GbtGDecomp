@@ -95,7 +95,7 @@ void upload_runtime_scene_lights(const float* matrix, SceneLightUploadContext& c
                     }
                     upload_vector(slot, direction, 0);
                     --slot;
-                    c.boundaries.set_constant(slot, c.spot_parameters.at(light).data());
+                    c.boundaries.set_constant(slot, light->spot.data());
                     --slot;
                 }
                 if ((light->type & 0xC) != 0)
@@ -103,7 +103,7 @@ void upload_runtime_scene_lights(const float* matrix, SceneLightUploadContext& c
                     const std::array<u32, 4> range
                     {
                         std::bit_cast<u32>(light->range), std::bit_cast<u32>(light->range_reciprocal),
-                        light->reserved, c.spot_parameters.at(light)[0]
+                        light->reserved, light->spot[0]
                     };
                     c.boundaries.set_constant(slot, range.data());
                     --slot;

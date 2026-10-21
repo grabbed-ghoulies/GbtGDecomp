@@ -70,13 +70,21 @@ SceneMindMessages::SceneMindMessages(SceneMindServices& services, NativePlayerIn
       boost_{tail(player.mind, slots.cinema != nullptr ? 0x94 : 0x158), player.actor_bytes, player.actor, player.actor,
           *player.body_flags, player.attachment, services.resume, services.story_bits, services.story_word,
           player.actor_address,
-          []() -> u16
+          [&player]() -> u16
           {
-              unbound("body range action (vtable +0x48)");
+              if (!player.body_slot_key)
+              {
+                  unbound("body range action (vtable +0x48)");
+              }
+              return player.body_slot_key(0x48);
           },
-          []() -> u16
+          [&player]() -> u16
           {
-              unbound("body contact action (vtable +0x44)");
+              if (!player.body_slot_key)
+              {
+                  unbound("body contact action (vtable +0x44)");
+              }
+              return player.body_slot_key(0x44);
           }},
       cinema_{parent_, boost_, player.actor_bytes, player.actor_address, services.allowed_count, services.allowed_rows,
           [&services](u32 address) -> RuntimeMindTarget&
@@ -174,7 +182,7 @@ SceneMindMessages::SceneMindMessages(SceneMindServices& services, NativePlayerIn
           },
           [&player](RuntimeBodyAttachedActor& attached) -> u16
           {
-              // Body vtable +0x5C: the base 0x00026C60 for types 0x27 and 0x2A (neither getter replaces it).
+              // Body vtable +0x5C: the base 0x00026C60 for types 0x27, 0x2A and 0x2D (no getter replaces it).
               return runtime_body_near_action_id(player.body, player.actor, attached, player.action_table);
           }},
       boost_preset_(services.boost_preset),
@@ -197,7 +205,7 @@ SceneMindMessages::SceneMindMessages(SceneMindServices& services, NativePlayerIn
           player.body_selection, player.input_device, services.input_state, attachment_links_,
           [&player](RuntimeBodyAttachedActor& attached) -> u32
           {
-              // Body vtable +0x5C: the base 0x00026C60 for types 0x27 and 0x2A (neither getter replaces it).
+              // Body vtable +0x5C: the base 0x00026C60 for types 0x27, 0x2A and 0x2D (no getter replaces it).
               return runtime_body_near_action_id(player.body, player.actor, attached, player.action_table);
           }},
       inactivity_{player.mind, body_bits(player), services.clock, player.input_device, services.input_state},

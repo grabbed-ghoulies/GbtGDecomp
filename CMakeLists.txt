@@ -206,12 +206,22 @@ add_library(gbtg_lib STATIC
     src/engine/entities/body_grabbed_state.cpp
     src/engine/entities/imp_fire_strategy.cpp
     src/engine/entities/skeleton_strategy.cpp
+    src/engine/entities/zombie_strategy.cpp
+    src/engine/entities/spider_strategy.cpp
+    src/engine/entities/scare_figure.cpp
     src/engine/entities/projectile_weapon.cpp
+    src/engine/entities/thrown_projectile.cpp
     src/engine/entities/bob_weapon.cpp
     src/engine/entities/ghouly_cutscene_setup.cpp
     src/engine/entities/ghouly_bg_break_setup.cpp
     src/engine/entities/bg_break_key.cpp
     src/engine/entities/body_arc_state.cpp
+    src/engine/entities/body_arc_attack_state.cpp
+    src/engine/graphics/shader_parameters.cpp
+    src/engine/entities/haunted_tv_strategy.cpp
+    src/engine/entities/fx_custom_electric.cpp
+    src/engine/entities/generate_ghouly_state.cpp
+    src/engine/entities/body_shocked_state.cpp
     src/engine/entities/body_swing_state.cpp
     src/engine/entities/actor_runtime_queries.cpp
     src/engine/entities/actor_view_visibility.cpp

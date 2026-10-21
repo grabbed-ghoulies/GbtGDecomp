@@ -16,7 +16,6 @@ struct RuntimeTriggerActorContext
     float occupancy_initial;
     std::function<void(u32, std::span<u32>)> message; // Native actor vtable +0xC mapping.
     GhoulySpawnRecord*& load; // Actor +0xB44, native pointer view.
-    const i32& blocked_players; // DAT_004E1C34 for 0x0013E980.
     std::function<void(std::span<u32>)> self_message; // This actor's actual vtable +0xC.
 };
 void copy_runtime_trigger_attributes(u8* destination, const u8* source); // Xbox 0x000280D0

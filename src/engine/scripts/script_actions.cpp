@@ -913,7 +913,7 @@ int script_handle_condition_setup(Game& g, const ScriptNode& node)
 // Xbox 0x00125450. One node of the action walk. Type 0x3C stops the walk.
 // The listed types copy a condition, then 0x000532B0 (ECX = cursor, EDX =
 // 0x3C) moves the cursor to the block's closing 0x3C, so the runner advances
-// past the condition body (types 0x3F, 0x41, 0x43 and 0x44 included). Every other type returns 3. Types 0x40, 0x6A, 0x94,
+// past the condition body (types 0x3F, 0x41, 0x43, 0x44 and 0x6C included). Every other type returns 3. Types 0x40, 0x6A, 0x94,
 // 0x95 and 0x99 store 0x001077B0's tag in the word at +8; 0x6A also copies the
 // float at node+0x4C to +0x10.
 // Xbox 0x00125450
@@ -964,6 +964,10 @@ int script_handle_condition_node(Game& g, const ScriptNode& node, u32& cursor)
     case 0x48:
         opcode = 9;
         payload_at_8 = true;
+        break;
+    case 0x6C:
+        opcode = 16; // 0x00125748, scriptConditionId_GhoulyExistsInScene: the tag and the float at node+0x48.
+        word_then_far = true;
         break;
     case 0x6A:
         opcode = 15; // scriptConditionId_GhoulyTriggered: the tag, node+0x48 and the float at node+0x4C.

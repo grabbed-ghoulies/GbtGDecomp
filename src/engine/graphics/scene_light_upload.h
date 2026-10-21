@@ -18,7 +18,6 @@ struct SceneLightUploadContext
     u8& environment_world_space; // DAT_004D9668
     const std::array<float, 4>& retained_scene_color; // DAT_0032E4E4..F0
     std::span<u32, 20> records; // borrowed retail local_50 storage, untouched bytes retained
-    const std::unordered_map<const RuntimeRenderLight*, std::array<u32, 4>>& spot_parameters; // +0x40
     const SceneLightUploadBoundaries& boundaries;
 };
 void store_runtime_vector4(u32* output, u32 x, u32 y, u32 z, u32 w); // Xbox 0x00170250

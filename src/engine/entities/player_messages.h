@@ -82,7 +82,7 @@ struct RuntimePlayerActivation
     RuntimeBodyAttachedActor& self;
     Actor& actor; // Native world transform and Actor +0x93C/+0xCC0 aliases.
     // Native list nodes for actor +0x934/+0x93C/+0x944/+0x94C. Node +0x934 is linked into
-    // DAT_00511B34 and must be the link of an ActorWorldMessageNode.
+    // DAT_00511B34.
     std::span<entity_detail::ListHead, 4> links;
     entity_detail::WorldLists& world;
     std::function<u32(const void*)> address_of; // Retail address of a list head or node.

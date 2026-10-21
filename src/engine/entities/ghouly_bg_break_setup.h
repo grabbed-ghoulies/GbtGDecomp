@@ -62,7 +62,6 @@ struct RuntimeGhoulyBgBreakSetup
     std::function<u32(const void*)> address_of;
     std::function<void(u32, std::span<u32>)> message; // An actor's actual vtable +0xC by address.
     std::function<void(std::span<u32>)> self_message; // This actor's actual vtable +0xC.
-    const i32& blocked_players; // DAT_004E1C34 for 0x0013E980.
     std::function<GhoulySpawnContext&()> spawns; // 0x0013E790's queue state.
     const u8*& records; // DAT_0051108C; 0x0006AF20 and 0x0006A170 write its rows.
     // The +0x934 list (DAT_00511B20 order) for 0x0013B980.

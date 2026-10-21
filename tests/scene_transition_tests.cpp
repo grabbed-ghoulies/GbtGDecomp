@@ -1352,33 +1352,35 @@ void check_spawn_trigger_and_lifecycle()
     using namespace gbtg;
     Actor player;
     player.position = Vec3{1.f, 0.f, 0.f};
-    Vec3 previous{3.f, 0.f, 0.f};
     GhoulySpawnPlayerLink link;
     link.actor = &player;
-    link.previous_position = &previous;
-    auto& world = entity_detail::g_world;
-    const auto saved = world.slot;
-    world.slot.next = &link;
+    link.previous_position = Vec3{3.f, 0.f, 0.f};
+    const auto saved = g_spawn_trigger_players;
+    g_spawn_trigger_players = [&link]()
+    {
+        return std::vector<GhoulySpawnPlayerLink>{link};
+    };
     u32 random = 7;
-    if (check_ghouly_spawn_trigger(Vec3{}, 2.f, 1.f, 0, random) != 1 || random == 7)
+    if (check_ghouly_spawn_trigger(Vec3{}, 2.f, 1.f, random) != 1 || random == 7)
     {
         throw Error("spawn trigger failed to detect a player entering its radius");
     }
-    const u32 advanced = random;
-    previous = player.position;
-    if (check_ghouly_spawn_trigger(Vec3{}, 2.f, 1.f, 0, random) != 0 || random != advanced)
+    u32 advanced = random;
+    link.previous_position = player.position;
+    if (check_ghouly_spawn_trigger(Vec3{}, 2.f, 1.f, random) != 0 || random != advanced)
     {
         throw Error("spawn trigger fired again for a player already inside");
     }
-    previous = Vec3{3.f, 0.f, 0.f};
+    // A disabled mode-2 player is skipped only while DAT_00512218 is set, which no retail code does.
+    link.previous_position = Vec3{3.f, 0.f, 0.f};
     link.disabled_ce0 = 1;
     link.mode_cdc = 2;
-    if (check_ghouly_spawn_trigger(Vec3{}, 2.f, 1.f, 1, random) != 0 || random != advanced)
+    if (check_ghouly_spawn_trigger(Vec3{}, 2.f, 1.f, random) != 1 || random == advanced)
     {
-        throw Error("spawn trigger ignored the disabled player gate");
+        throw Error("spawn trigger skipped a disabled player with DAT_00512218 clear");
     }
     link.disabled_ce0 = 0;
-    if (check_ghouly_spawn_trigger(Vec3{}, 2.f, -1.f, 0, random) != -1)
+    if (check_ghouly_spawn_trigger(Vec3{}, 2.f, -1.f, random) != -1)
     {
         throw Error("spawn trigger fabricated a successful probability test");
     }
@@ -1399,19 +1401,19 @@ void check_spawn_trigger_and_lifecycle()
     controller.value_a4c = std::bit_cast<u32>(1.f);
     std::strcpy(controller.box_944, "aid_ghoulybox_trigger_test");
     std::strcpy(controller.attributes_9c4, "attributes");
-    tick_ghouly_box_controller(controller, 0, random);
+    tick_ghouly_box_controller(controller, random);
     if (controller.calls != 1 || std::strcmp(controller.received.box, controller.box_944) != 0)
     {
         throw Error("controller tick did not send its actual queued request");
     }
     controller.spawned_940 = 1;
-    tick_ghouly_box_controller(controller, 0, random);
+    tick_ghouly_box_controller(controller, random);
     if (controller.calls != 1)
     {
         throw Error("controller tick retriggered after successful live spawning");
     }
     controller.load_938 = allocate_ghouly_spawn_record();
-    tick_ghouly_box_controller(controller, 0, random);
+    tick_ghouly_box_controller(controller, random);
     if (controller.load_938 != nullptr)
     {
         throw Error("controller tick retained a completed spawn record");
@@ -1424,7 +1426,7 @@ void check_spawn_trigger_and_lifecycle()
     {
         throw Error("controller shutdown retained its record or registration");
     }
-    world.slot = saved;
+    g_spawn_trigger_players = saved;
 }
 
 void check_spawn_shape_registration()
@@ -1814,34 +1816,21 @@ void check_spawn_scheduler()
         {
             throw Error("scare height accepted another model block type");
         }
-        static i32 calls;
-        calls = 0;
-        const auto saved_mark = entity_detail::g_world.mark;
-        ActorWorldMessageNode first{};
-        ActorWorldMessageNode second{};
-        first.link.next = &second;
-        first.message = [](ActorWorldMessageNode& node, const void* raw)
+        i32 calls = 0;
+        const auto saved = g_marked_actor_message;
+        g_marked_actor_message = [&calls](std::span<const u32> raw)
         {
-            if (*static_cast<const u32*>(raw) == 0x37)
-            {
-                ++calls;
-            }
-            node.link.next = nullptr;
-        };
-        second.message = [](ActorWorldMessageNode&, const void* raw)
-        {
-            if (*static_cast<const u32*>(raw) == 0x37)
+            if (raw[0] == 0x37)
             {
                 ++calls;
             }
         };
-        entity_detail::g_world.mark.next = &first;
-        const u32 message = 0x37;
-        broadcast_actor_world_message(&message);
-        entity_detail::g_world.mark = saved_mark;
-        if (calls != 2)
+        const std::array<u32, 1> message{0x37};
+        broadcast_actor_world_message(message);
+        g_marked_actor_message = saved;
+        if (calls != 1)
         {
-            throw Error("world actor broadcast did not preserve its next node across receiver mutation");
+            throw Error("world actor broadcast did not reach the DAT_00511B38 view");
         }
     }
     {
@@ -2906,7 +2895,7 @@ void check_actor_loading()
         std::array<ObjectFactoryType, 0x1B> types{};
         ObjectFactoryRegistry factory{types};
         RuntimeActorSoundQueues sounds{};
-        std::unordered_map<ActorFrameAttachment*, FactoryObject*> frames;
+        std::unordered_map<ActorFrameAttachment*, const u8*> frames;
         const char empty[4]{};
         NativeActorFactoryOwner owner{NativeActorFactoryBindings{startup, factory,
             sounds, frames,
@@ -6291,6 +6280,8 @@ void check_actor_loading()
         };
         word(0x24, 3);
         word(0x30, 2);
+        // 0x000400D0's gate: model CPU +0x10 -> +0x10 (here +0x14 + 0x10, the 3 at +0x24) must be set.
+        word(0x10, 0x14);
         std::array<u8, 24> bindings{};
         bindings[0] = 9;
         bindings[5] = 1;
@@ -7875,6 +7866,79 @@ int count_rare_books(const gbtg::Game& game)
     return books;
 }
 
+// A point a few cells along the shortest walk from `from` to `to` over the scene's navigation grid (the floor under
+// `from`, cells joined by their connection bits, blocked cells skipped), or nothing when the grid has no such walk.
+// Test-side steering only: the game's own path search is not involved.
+std::optional<gbtg::Vec3> nav_waypoint(const gbtg::Vec3& from, const gbtg::Vec3& to, int ahead = 3)
+{
+    using namespace gbtg::entity_detail;
+    if (g_nav_count <= 0)
+    {
+        return std::nullopt;
+    }
+    const gbtg::i32 floor = navigation_floor_index(from, -1, 0);
+    const NavGrid* grid = g_nav_grids[floor];
+    if (grid == nullptr)
+    {
+        return std::nullopt;
+    }
+    const gbtg::i32 start = navigation_cell_index(floor, from);
+    const gbtg::i32 goal = navigation_cell_index(floor, to);
+    if (start < 0 || goal < 0)
+    {
+        return std::nullopt;
+    }
+    static constexpr int dx[8] = {-1, 1, 0, 0, -1, 1, -1, 1};
+    static constexpr int dz[8] = {0, 0, 1, -1, 1, 1, -1, -1};
+    std::vector<gbtg::i32> parent(grid->cells.size(), -2);
+    std::deque<gbtg::i32> open{start};
+    parent[size_t(start)] = -1;
+    while (!open.empty() && parent[size_t(goal)] == -2)
+    {
+        const gbtg::i32 cell = open.front();
+        open.pop_front();
+        const int x = cell % grid->width;
+        const int z = cell / grid->width;
+        for (int direction = 0; direction < 8; ++direction)
+        {
+            if ((grid->cells[size_t(cell)].connections & (1u << direction)) == 0)
+            {
+                continue;
+            }
+            const int nx = x + dx[direction];
+            const int nz = z + dz[direction];
+            if (nx < 0 || nx >= grid->width || nz < 0 || nz >= grid->depth)
+            {
+                continue;
+            }
+            const gbtg::i32 next = nz * grid->width + nx;
+            if (parent[size_t(next)] != -2 || (grid->cells[size_t(next)].flags_7 & 2) != 0)
+            {
+                continue;
+            }
+            parent[size_t(next)] = cell;
+            open.push_back(next);
+        }
+    }
+    if (parent[size_t(goal)] == -2)
+    {
+        return std::nullopt;
+    }
+    std::vector<gbtg::i32> path;
+    for (gbtg::i32 cell = goal; cell != -1; cell = parent[size_t(cell)])
+    {
+        path.push_back(cell);
+    }
+    const gbtg::i32 cell = path[path.size() > size_t(ahead) ? path.size() - 1 - size_t(ahead) : 0];
+    if (cell == goal)
+    {
+        return to;
+    }
+    const float half = float(grid->cell) * 0.5f;
+    return gbtg::Vec3{float(g_nav_origin_x + (cell % grid->width) * grid->cell) + half, from.y,
+        float(g_nav_origin_z + (cell / grid->width) * grid->cell) + half};
+}
+
 // Scene 3 (chapter1_scene3_1playcam, "Player Enters Room"), from the end of its transition: Cooper's walk-in cutscene
 // (script type 0x53) and the door cutscene play, A closes Crivens' pages, Cooper spawns at the player marker (the
 // walk-in's 0x00127FF0) and "Free Play" holds on its conditions (the trophy's ObjectPickedUp and the skeletons'
@@ -8068,7 +8132,17 @@ void play_scene3_run(gbtg::Game& game, bool drive, int book)
             const float dx = nearest->x - cooper->x;
             const float dz = nearest->z - cooper->z;
             const float length = std::sqrt(dx * dx + dz * dz);
-            const float stick = std::atan2(dx, dz) - walk_offset;
+            // With the skeletons down, each leg follows the navigation grid's walk (a fight can end below the room's
+            // floor, where a straight leg runs into a wall); the leg's own target still decides when it is reached.
+            gbtg::Vec3 heading = *nearest;
+            if (skeletons.empty())
+            {
+                if (const auto step = nav_waypoint(*cooper, *nearest); step)
+                {
+                    heading = *step;
+                }
+            }
+            const float stick = std::atan2(heading.x - cooper->x, heading.z - cooper->z) - walk_offset;
             if (skeletons.empty() && frame % 120 == 0)
             {
                 std::cout << "scene3 frame " << frame << ": Cooper at " << cooper->x << ", " << cooper->y << ", "
@@ -8934,6 +9008,488 @@ void play_scene5_run(gbtg::Game& game, const std::string& label)
     std::cout << "PASS: " + label + " plays to its end and the script moves on to " << game.scene_script.name << "\n";
 }
 
+// Scene 6 (chapter1_scene6_1playcam, the Lower Corridors), from the end of its transition. Pages close on A; titles,
+// scripts, Cooper's position and every 300th frame are logged until the script moves on.
+void play_scene6_1_run(gbtg::Game& game, const std::string& label)
+{
+    std::string title = game.scene_name;
+    const std::string scene_script = game.scene_script.name;
+    auto& actors = game.factory_scene->start_actors(game);
+    int pages = 0;
+    bool page_up = false;
+    int page_shown = -1;
+    int moved_on = -1;
+    StickSteering steering;
+    for (int frame = 0; frame < 9000 && moved_on < 0; ++frame)
+    {
+        gbtg::InputState input;
+        const bool page = game.script_dialogue != nullptr && game.script_dialogue->dialogue.state.mode != 0;
+        // A closes a page once it has been up a second.
+        input.accept = page && page_shown >= 0 && frame > page_shown + 60 && frame % 30 < 5;
+        std::optional<gbtg::Vec3> cooper;
+        for (const auto& mark : actors.marked_actors())
+        {
+            if (mark.actor != nullptr && mark.actor->class_key == 4)
+            {
+                cooper = gbtg::actor_world_position(*mark.actor);
+            }
+        }
+        // Free Play waits for the scare figure (type 0x1D) to see Cooper: walk him to its trigger point (+0x934).
+        std::optional<gbtg::Vec3> scare;
+        for (const auto& object : game.factory_scene->objects)
+        {
+            if (object.type == 0x1D && object.bytes != nullptr && object.size >= 0xB84)
+            {
+                const std::span<const gbtg::u8> bytes{object.bytes.get(), object.size};
+                if (gbtg::read_u32(bytes, 0x960) == 0)
+                {
+                    scare = gbtg::Vec3{gbtg::read_f32(bytes, 0x934), gbtg::read_f32(bytes, 0x938),
+                        gbtg::read_f32(bytes, 0x93C)};
+                }
+            }
+        }
+        // The Ghouly Generator Introduction waits for a spider: the bg-break setups (type 0x24) break their part and
+        // spawn their ghoulybox once Cooper is inside their radius (+0xA38). Walk him under the nearest unbroken one.
+        std::optional<gbtg::Vec3> generator;
+        if (cooper && title == "Ghouly Generator Introduction")
+        {
+            float nearest = 1e9f;
+            for (const auto& object : game.factory_scene->objects)
+            {
+                if (object.type != 0x24 || object.bytes == nullptr || object.size < 0xA60
+                    || gbtg::read_u32({object.bytes.get(), object.size}, 0xA50) != 0
+                    || gbtg::read_f32({object.bytes.get(), object.size}, 0xA38) == 0.f)
+                {
+                    continue;
+                }
+                if (const gbtg::Actor* actor = actor_of_object(game, object); actor != nullptr)
+                {
+                    const gbtg::Vec3 at = gbtg::actor_world_position(*actor);
+                    const float d = (at.x - cooper->x) * (at.x - cooper->x) + (at.z - cooper->z) * (at.z - cooper->z);
+                    if (d < nearest)
+                    {
+                        nearest = d;
+                        generator = at;
+                    }
+                }
+            }
+        }
+        // Any live ghouly (a player actor other than Cooper with body +0x94 energy) within 50 units is fought first.
+        std::optional<gbtg::Vec3> ghouly;
+        if (cooper && title == "Ghouly Generator Introduction")
+        {
+            float nearest = 50.f * 50.f;
+            for (const auto& mark : actors.marked_actors())
+            {
+                if (mark.actor == nullptr || mark.actor->class_key == 4 || mark.body.empty()
+                    || gbtg::read_u16(mark.body, 0x94) == 0)
+                {
+                    continue;
+                }
+                const gbtg::Vec3 at = gbtg::actor_world_position(*mark.actor);
+                const float d = (at.x - cooper->x) * (at.x - cooper->x) + (at.z - cooper->z) * (at.z - cooper->z);
+                if (d < nearest)
+                {
+                    nearest = d;
+                    ghouly = at;
+                }
+            }
+        }
+        // A section held at its end (type 0xF, DAT_00512518) waits for the player to leave: walk into the exit volume
+        // (mask 1), lined up with it across x first, rather than fight the generator's spiders on.
+        std::optional<gbtg::Vec3> exit;
+        if (cooper && title == "Ghouly Generator Introduction" && gbtg::g_gate_2518 != 0 && gbtg::g_512344 != nullptr)
+        {
+            const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+            for (const auto* record = pool.begin; record < pool.cursor; ++record)
+            {
+                if ((record->mask & 1) != 0)
+                {
+                    // The corridor from the scare figure runs south along x -168, then east along z -620; the exit is
+                    // a doorway in its south wall.
+                    exit = record->center;
+                    if (cooper->z > -600.f)
+                    {
+                        exit = gbtg::Vec3{-168.f, record->center.y, -620.f};
+                    }
+                    else if (std::abs(cooper->x - record->center.x) > record->extent_x * 0.5f)
+                    {
+                        exit = gbtg::Vec3{record->center.x, record->center.y, -620.f};
+                    }
+                    break;
+                }
+            }
+        }
+        // On the way out, a spider within 20 units is fought off first.
+        const bool close = ghouly && (ghouly->x - cooper->x) * (ghouly->x - cooper->x)
+            + (ghouly->z - cooper->z) * (ghouly->z - cooper->z) < 20.f * 20.f;
+        if (!page && cooper && exit && !close)
+        {
+            steering.walk(input, steering.angle(*cooper, *exit));
+            if (frame % 120 == 0)
+            {
+                std::cout << label << " frame " << frame << ": Cooper at " << cooper->x << ", " << cooper->z
+                          << " heads for the exit at " << exit->x << ", " << exit->z << "\n";
+            }
+        }
+        else if (!page && cooper && ghouly)
+        {
+            const float stick = steering.angle(*cooper, *ghouly);
+            const float dx = ghouly->x - cooper->x;
+            const float dz = ghouly->z - cooper->z;
+            if (dx * dx + dz * dz < 16.f * 16.f)
+            {
+                if ((frame / 8) % 2 == 0)
+                {
+                    input.pads[0].rx = gbtg::i16(std::sin(stick) * 32767.f);
+                    input.pads[0].ry = gbtg::i16(-std::cos(stick) * 32767.f);
+                }
+            }
+            else
+            {
+                steering.walk(input, stick);
+            }
+            if (frame % 120 == 0)
+            {
+                std::cout << label << " frame " << frame << ": Cooper at " << cooper->x << ", " << cooper->z
+                          << " fights a ghouly at " << ghouly->x << ", " << ghouly->z << "\n";
+            }
+        }
+        else if (!page && cooper && generator)
+        {
+            const float dx = generator->x - cooper->x;
+            const float dz = generator->z - cooper->z;
+            if (dx * dx + dz * dz > 9.f)
+            {
+                steering.walk(input, steering.angle(*cooper, *generator));
+            }
+            if (frame % 120 == 0)
+            {
+                std::cout << label << " frame " << frame << ": Cooper at " << cooper->x << ", " << cooper->z
+                          << " heads for the ghouly setup at " << generator->x << ", " << generator->z << "\n";
+                for (const auto& object : game.factory_scene->objects)
+                {
+                    if (object.type == 0x24 && object.bytes != nullptr && object.size >= 0xA60)
+                    {
+                        const std::span<const gbtg::u8> bytes{object.bytes.get(), object.size};
+                        std::cout << label << " frame " << frame << ": ghouly setup radius "
+                                  << gbtg::read_f32(bytes, 0xA38) << " chance " << gbtg::read_f32(bytes, 0xA3C)
+                                  << " broken " << gbtg::read_u32(bytes, 0xA50) << " box '"
+                                  << reinterpret_cast<const char*>(bytes.data() + 0x934) << "'\n";
+                    }
+                }
+            }
+        }
+        if (!page && cooper && scare && title == "Free Play")
+        {
+            const float dx = scare->x - cooper->x;
+            const float dz = scare->z - cooper->z;
+            if (dx * dx + dz * dz > 4.f)
+            {
+                steering.walk(input, steering.angle(*cooper, *scare));
+            }
+            if (frame % 120 == 0)
+            {
+                std::cout << label << " frame " << frame << ": Cooper at " << cooper->x << ", " << cooper->z
+                          << " heads for the scare figure at " << scare->x << ", " << scare->z << "\n";
+            }
+        }
+        gbtg::gfx_begin_frame();
+        game.tick(1.f / 60.f, input);
+        const bool page_now = game.script_dialogue != nullptr && game.script_dialogue->dialogue.state.mode != 0;
+        if (page_now && !page_up)
+        {
+            ++pages;
+            page_shown = frame;
+            std::cout << label << " frame " << frame << ": page " << pages << "\n";
+        }
+        if (page_now && frame == page_shown + 60)
+        {
+            capture_readback("cache/" + label + "_page" + std::to_string(pages) + ".bmp");
+        }
+        page_up = page_now;
+        if (game.scene_name != title)
+        {
+            title = game.scene_name;
+            std::cout << label << " frame " << frame << ": title " << title << "\n";
+            log_scene_objects(game, label, frame);
+        }
+        if (frame % 300 == 0)
+        {
+            capture_readback("cache/" + label + "_" + std::to_string(frame) + ".bmp");
+            if (frame == 0)
+            {
+                log_scene_objects(game, label, frame);
+            }
+            for (const auto& mark : actors.marked_actors())
+            {
+                if (mark.actor != nullptr && mark.actor->class_key == 4)
+                {
+                    const gbtg::Vec3 at = gbtg::actor_world_position(*mark.actor);
+                    std::cout << label << " frame " << frame << ": Cooper at " << at.x << ", " << at.y << ", " << at.z
+                              << "\n";
+                }
+            }
+            std::cout << label << " frame " << frame << ": section end gate " << gbtg::g_gate_2518 << "\n";
+        }
+        if (game.scene_script.name != scene_script)
+        {
+            moved_on = frame;
+            std::cout << label << " frame " << frame << ": the script moves on to " << game.scene_script.name << "\n";
+        }
+        gbtg::gfx_end_frame();
+    }
+    std::cout << label << ": pages " << pages << ", title " << title << "\n";
+    if (moved_on < 0)
+    {
+        if (gbtg::g_512344 != nullptr)
+        {
+            const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+            for (const auto* record = pool.begin; record < pool.cursor; ++record)
+            {
+                std::cout << label << " volume mask " << int(record->mask) << " value " << record->value_0 << " at "
+                          << record->center.x << ", " << record->center.y << ", " << record->center.z << " extent "
+                          << record->extent_x << ", " << record->extent_z << "\n";
+            }
+        }
+        for (const auto& condition : gbtg::g_script_conds)
+        {
+            std::cout << label << " end condition opcode " << gbtg::cond_u32(condition, 0) << " words " << std::hex
+                      << gbtg::cond_u32(condition, 4) << " " << gbtg::cond_u32(condition, 8) << " "
+                      << gbtg::cond_u32(condition, 0xC) << std::dec << "\n";
+        }
+        for (const gbtg::LiveScript* node = gbtg::g_live_scripts; node != nullptr; node = node->next)
+        {
+            std::cout << label << " live script type 0x" << std::hex << node->type << " word_c 0x" << node->word_c
+                      << std::dec << "\n";
+        }
+        throw gbtg::Error(label + " did not move on: the script holds at " + game.scene_script.name + " (title "
+            + title + ")");
+    }
+    std::cout << "PASS: " + label + " plays to its end and the script moves on to " << game.scene_script.name << "\n";
+}
+
+// Scene 7 (chapter1_scene7_1playcam), from the end of its transition. Pages close on A; titles, the scene's objects,
+// Cooper's position and the section gate are logged, and every 300th frame is captured, until the script moves on.
+void play_scene7_run(gbtg::Game& game, const std::string& label)
+{
+    std::string title = game.scene_name;
+    const std::string scene_script = game.scene_script.name;
+    auto& actors = game.factory_scene->start_actors(game);
+    int pages = 0;
+    bool page_up = false;
+    int page_shown = -1;
+    int moved_on = -1;
+    StickSteering steering;
+    for (int frame = 0; frame < 9000 && moved_on < 0; ++frame)
+    {
+        gbtg::InputState input;
+        const bool page = game.script_dialogue != nullptr && game.script_dialogue->dialogue.state.mode != 0;
+        // A closes a page once it has been up a second.
+        input.accept = page && page_shown >= 0 && frame > page_shown + 60 && frame % 30 < 5;
+        std::optional<gbtg::Vec3> cooper;
+        for (const auto& mark : actors.marked_actors())
+        {
+            if (mark.actor != nullptr && mark.actor->class_key == 4)
+            {
+                cooper = gbtg::actor_world_position(*mark.actor);
+            }
+        }
+        // Walk Cooper into the region a live PlayerEntersRegion (condition 8, its +8 word) names; with none, into the
+        // exit volume (mask 1) while a section holds at its end (type 0xF, DAT_00512518).
+        std::optional<gbtg::Vec3> goal;
+        std::string goal_name;
+        if (cooper && !page && gbtg::g_512344 != nullptr)
+        {
+            const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+            for (const auto& condition : gbtg::g_script_conds)
+            {
+                if (gbtg::cond_u32(condition, 0) != 8)
+                {
+                    continue;
+                }
+                const gbtg::u32 region = gbtg::cond_u32(condition, 8);
+                for (const auto* record = pool.begin; record < pool.cursor && !goal; ++record)
+                {
+                    if ((record->mask & 1) == 0 && gbtg::u32(record->value_0) == region)
+                    {
+                        goal = record->center;
+                        goal_name = "region " + std::to_string(region);
+                    }
+                }
+            }
+            if (!goal && gbtg::g_gate_2518 != 0)
+            {
+                for (const auto* record = pool.begin; record < pool.cursor && !goal; ++record)
+                {
+                    if ((record->mask & 1) != 0)
+                    {
+                        goal = record->center;
+                        goal_name = "the exit";
+                    }
+                }
+            }
+        }
+        // Any live ghouly (a player actor other than Cooper with body +0x94 energy) within 50 units is fought first.
+        // The prisoners (tags 0x26..0x30, objTag_Actor_PrisonerChestChap..ThornGirl) are not ghoulies.
+        std::optional<gbtg::Vec3> ghouly;
+        if (cooper && !page)
+        {
+            float nearest = 50.f * 50.f;
+            for (const auto& mark : actors.marked_actors())
+            {
+                if (mark.actor == nullptr || mark.actor->class_key == 4 || mark.body.empty()
+                    || gbtg::read_u16(mark.body, 0x94) == 0
+                    || (mark.actor->class_key >= 0x26 && mark.actor->class_key <= 0x30))
+                {
+                    continue;
+                }
+                const gbtg::Vec3 at = gbtg::actor_world_position(*mark.actor);
+                const float d = (at.x - cooper->x) * (at.x - cooper->x) + (at.z - cooper->z) * (at.z - cooper->z);
+                if (d < nearest && std::abs(at.y - cooper->y) < 10.f)
+                {
+                    nearest = d;
+                    ghouly = at;
+                }
+            }
+        }
+        if (ghouly)
+        {
+            const float stick = steering.angle(*cooper, *ghouly);
+            const float dx = ghouly->x - cooper->x;
+            const float dz = ghouly->z - cooper->z;
+            if (dx * dx + dz * dz < 16.f * 16.f)
+            {
+                if ((frame / 8) % 2 == 0)
+                {
+                    input.pads[0].rx = gbtg::i16(std::sin(stick) * 32767.f);
+                    input.pads[0].ry = gbtg::i16(-std::cos(stick) * 32767.f);
+                }
+            }
+            else
+            {
+                const std::optional<gbtg::Vec3> step = nav_waypoint(*cooper, *ghouly);
+                steering.walk(input, steering.angle(*cooper, step ? *step : *ghouly));
+            }
+            if (frame % 120 == 0)
+            {
+                std::cout << label << " frame " << frame << ": Cooper at " << cooper->x << ", " << cooper->z
+                          << " fights a ghouly at " << ghouly->x << ", " << ghouly->z << "\n";
+            }
+        }
+        else if (goal)
+        {
+            // Follow the navigation grid's walk where it has one; otherwise head straight for the goal.
+            const std::optional<gbtg::Vec3> step = nav_waypoint(*cooper, *goal);
+            const gbtg::Vec3 toward = step ? *step : *goal;
+            const float dx = toward.x - cooper->x;
+            const float dz = toward.z - cooper->z;
+            if (dx * dx + dz * dz > 4.f)
+            {
+                steering.walk(input, steering.angle(*cooper, toward));
+            }
+            if (frame % 120 == 0)
+            {
+                std::cout << label << " frame " << frame << ": Cooper at " << cooper->x << ", " << cooper->y << ", "
+                          << cooper->z << " (floor " << gbtg::entity_detail::navigation_floor_index(*cooper, -1, 0)
+                          << " of " << gbtg::entity_detail::g_nav_count << ") heads for " << goal_name << " at "
+                          << goal->x << ", " << goal->z << " (floor "
+                          << gbtg::entity_detail::navigation_floor_index(*goal, -1, 0) << ")"
+                          << (step ? " by the grid" : " straight") << "\n";
+            }
+        }
+        gbtg::gfx_begin_frame();
+        game.tick(1.f / 60.f, input);
+        const bool page_now = game.script_dialogue != nullptr && game.script_dialogue->dialogue.state.mode != 0;
+        if (page_now && !page_up)
+        {
+            ++pages;
+            page_shown = frame;
+            std::cout << label << " frame " << frame << ": page " << pages << "\n";
+        }
+        if (page_now && frame == page_shown + 60)
+        {
+            capture_readback("cache/" + label + "_page" + std::to_string(pages) + ".bmp");
+        }
+        page_up = page_now;
+        if (game.scene_name != title)
+        {
+            title = game.scene_name;
+            std::cout << label << " frame " << frame << ": title " << title << "\n";
+            log_scene_objects(game, label, frame);
+        }
+        if (frame % 300 == 0)
+        {
+            capture_readback("cache/" + label + "_" + std::to_string(frame) + ".bmp");
+            if (frame == 0)
+            {
+                log_scene_objects(game, label, frame);
+            }
+            if (cooper)
+            {
+                std::cout << label << " frame " << frame << ": Cooper at " << cooper->x << ", " << cooper->y << ", "
+                          << cooper->z << "\n";
+            }
+            std::cout << label << " frame " << frame << ": section end gate " << gbtg::g_gate_2518 << "\n";
+        }
+        if (game.scene_script.name != scene_script)
+        {
+            moved_on = frame;
+            std::cout << label << " frame " << frame << ": the script moves on to " << game.scene_script.name << "\n";
+        }
+        gbtg::gfx_end_frame();
+    }
+    std::cout << label << ": pages " << pages << ", title " << title << "\n";
+    if (moved_on < 0)
+    {
+        if (gbtg::g_512344 != nullptr)
+        {
+            const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+            for (const auto* record = pool.begin; record < pool.cursor; ++record)
+            {
+                std::cout << label << " volume mask " << int(record->mask) << " value " << record->value_0 << " at "
+                          << record->center.x << ", " << record->center.y << ", " << record->center.z << " extent "
+                          << record->extent_x << ", " << record->extent_z << "\n";
+            }
+        }
+        for (const auto& condition : gbtg::g_script_conds)
+        {
+            std::cout << label << " end condition opcode " << gbtg::cond_u32(condition, 0) << " words " << std::hex
+                      << gbtg::cond_u32(condition, 4) << " " << gbtg::cond_u32(condition, 8) << " "
+                      << gbtg::cond_u32(condition, 0xC) << std::dec << "\n";
+        }
+        throw gbtg::Error(label + " did not move on: the script holds at " + game.scene_script.name + " (title "
+            + title + ")");
+    }
+    std::cout << "PASS: " + label + " plays to its end and the script moves on to " << game.scene_script.name << "\n";
+}
+
+void play_scene7(gbtg::Game& game, const std::string& label)
+{
+    try
+    {
+        play_scene7_run(game, label);
+    }
+    catch (const std::exception& error)
+    {
+        std::cout << "FAIL: " << error.what() << std::endl;
+        std::_Exit(1);
+    }
+}
+
+void play_scene6_1(gbtg::Game& game, const std::string& label)
+{
+    try
+    {
+        play_scene6_1_run(game, label);
+    }
+    catch (const std::exception& error)
+    {
+        std::cout << "FAIL: " << error.what() << std::endl;
+        std::_Exit(1);
+    }
+}
+
 void play_scene5(gbtg::Game& game, const std::string& label)
 {
     try
@@ -9176,14 +9732,19 @@ int main(int argc, char** argv)
     const bool scene4_test = argc == 3 && std::string_view(argv[2]) == "--scene4";
     // --scene5 boots scene 5 (chapter1_scene5_1playcam), closes its pages with A and plays until the script moves on.
     const bool scene5_test = argc == 3 && std::string_view(argv[2]) == "--scene5";
+    // --scene6-1 boots scene 6 (chapter1_scene6_1playcam, the Lower Corridors), closes its pages with A and plays until
+    // the script moves on.
+    const bool scene6_1_test = argc == 3 && std::string_view(argv[2]) == "--scene6-1";
+    // --scene7 boots scene 7 (chapter1_scene7_1playcam), closes its pages with A and plays until the script moves on.
+    const bool scene7_test = argc == 3 && std::string_view(argv[2]) == "--scene7";
     if (spawn_test)
     {
         std::cout << std::unitbuf;
     }
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
-        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene3_test)
+        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene3_test)
     {
-        std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene6-save | --scene6-save-reload | --scene3 | --scene4 | --scene5]\n";
+        std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene6-save | --scene6-save-reload | --scene3 | --scene4 | --scene5 | --scene6-1 | --scene7]\n";
         return 2;
     }
     try
@@ -9285,8 +9846,28 @@ int main(int argc, char** argv)
         gbtg::set_save_root("cache/test_saves");
         game.init(argv[1], scene6_save_test || scene6_reload_test ? "" : scene6_test ? "6" : scene3_test ? "7"
             : scene4_test ? "chapter1_scene4_1book" : scene5_test ? "chapter1_scene5_1playcam"
+            : scene6_1_test ? "chapter1_scene6_1playcam"
+            : scene7_test ? "chapter1_scene7_1playcam"
             : player_test || spawn_test ? "chapter1_scene1_2playcam"
             : title_test ? "" : "scene0_1book");
+        if (scene7_test)
+        {
+            pass_chapter_title(game, "scene7", "aid_script_ghoulies_chapter1_scene7_1playcam", false);
+            play_scene7(game, "scene7");
+            pass_chapter_title(game, "scene7_to_2", "aid_script_ghoulies_chapter1_scene7_2book", false);
+            play_scene7(game, "scene7_2");
+            pass_chapter_title(game, "scene7_to_3", "aid_script_ghoulies_chapter1_scene7_3playcam", false);
+            play_scene7(game, "scene7_3");
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene6_1_test)
+        {
+            pass_chapter_title(game, "scene6_1", "aid_script_ghoulies_chapter1_scene6_1playcam", false);
+            play_scene6_1(game, "scene6_1");
+            gbtg::gfx_shutdown();
+            return 0;
+        }
         if (scene5_test)
         {
             pass_chapter_title(game, "scene5", "aid_script_ghoulies_chapter1_scene5_1playcam", false);

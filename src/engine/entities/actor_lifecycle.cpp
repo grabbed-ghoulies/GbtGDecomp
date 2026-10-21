@@ -11,7 +11,12 @@ void release_actor_frame_attachments(ActorFrameAttachment* head,
     while (head != nullptr)
     {
         ActorFrameAttachment* next = head->next;
-        FactoryObject& object = *context.objects.at(head);
+        FactoryObject* owned = context.object_of(context.objects.at(head));
+        if (owned == nullptr)
+        {
+            throw Error("0x0003DE90 releases a frame object the scene does not hold");
+        }
+        FactoryObject& object = *owned;
         const ActorReferenceMessage message{0x14, object.bytes.get()};
         context.message(message);
         release_factory_object(context.factory, object);

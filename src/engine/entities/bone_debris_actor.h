@@ -110,8 +110,19 @@ void destroy_runtime_bone_debris(RuntimeBoneDebris& context); // Xbox 0x00068010
 void take_runtime_actor_sounds(RuntimeAvatarActorViews& source, RuntimeBoneDebris& context); // Xbox 0x00041D90
 // The part after the base actor message 0x0003EF70.
 void message_runtime_bone_debris(std::span<const u32> message, RuntimeBoneDebris& context); // Xbox 0x00068700
-// An after-image of the actor that fades over `duration` (EAX actor, EDI an optional colour).
-bool spawn_runtime_actor_fade(float duration, u32 sound, u32 glow, RuntimeBoneDebris& context); // Xbox 0x0013AF80
+// The views 0x0013AF80 reads: the actor (EAX), its bytes (+0x19B) and address, and the scene's factory.
+struct RuntimeActorFade
+{
+    const Actor& actor;
+    std::span<const u8> bytes;
+    u32 address;
+    ObjectFactoryRegistry& factory;
+    const std::function<FactoryObject*(FactoryObject)>& keep;
+    const char* default_name; // DAT_00546208.
+};
+// An after-image of the actor that fades over `duration`; `tint` (EDI) is three words for parameters +0x340, or null.
+bool spawn_runtime_actor_fade(float duration, u32 sound, u32 glow, const float* tint,
+    RuntimeActorFade& context); // Xbox 0x0013AF80
 void update_runtime_bone_debris(RuntimeBoneDebris& context); // Xbox 0x00068060
 struct RuntimeBoneDebrisDraw
 {

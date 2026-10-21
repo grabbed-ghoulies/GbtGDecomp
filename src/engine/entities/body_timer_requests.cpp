@@ -26,7 +26,7 @@ void request_runtime_body_hit_timer(std::span<u8> body, float duration,
             auto object = create_factory_object(context.child.factory, {clone.bytes.get(), clone.size});
             if (object.bytes != nullptr)
             {
-                auto& native = *context.created.at(object.bytes.get());
+                auto& native = context.keep(std::move(object));
                 context.recipient = &native.recipient;
                 address = native.address;
             }
@@ -35,7 +35,6 @@ void request_runtime_body_hit_timer(std::span<u8> body, float duration,
                 context.recipient = nullptr;
                 address = 0;
             }
-            context.object = std::move(object);
             clone.bytes.reset();
         }
         std::memcpy(body.data() + 0x760, &address, 4);
@@ -70,11 +69,10 @@ void hold_runtime_body_latches(std::span<u8> body, RuntimeBodyHoldTimerContext& 
                 auto object = create_factory_object(context.timer.child.factory, {clone.bytes.get(), clone.size});
                 if (object.bytes != nullptr)
                 {
-                    auto& native = *context.timer.created.at(object.bytes.get());
+                    auto& native = context.timer.keep(std::move(object));
                     context.timer.recipient = &native.recipient;
                     address = native.address;
                 }
-                context.timer.object = std::move(object);
                 clone.bytes.reset();
             }
             std::memcpy(body.data() + 0x7F0, &address, 4);

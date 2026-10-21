@@ -16,6 +16,9 @@
 #include "../entities/body_pickup_state.h"
 #include "../entities/body_throw_state.h"
 #include "../entities/body_arc_state.h"
+#include "../entities/body_arc_attack_state.h"
+#include "../entities/generate_ghouly_state.h"
+#include "../entities/body_shocked_state.h"
 #include "../entities/body_swing_state.h"
 #include "../entities/body_player_death_state.h"
 #include "../entities/body_grabbed_state.h"
@@ -134,6 +137,9 @@ struct SceneBodyServices
     std::function<SceneCutsceneRuntime&()> cutscenes{};
     const RuntimeDoorNames* door_names{};
     std::function<u32(const void*)> heap_address{};
+    // The haunted TV's ghouly generator (type 0x6F): the scene's lights, display, live list and actor views.
+    std::function<RuntimeGenerateGhoulyScene&()> generate_ghouly{};
+    std::function<bool(Actor& actor, u32 object)> release_frame_object{}; // 0x0003DE30, ECX actor, ESI object.
 };
 
 // One body's message graph: the parent body handler 0x000253B0 and the derived slots of types 0x27
@@ -151,6 +157,9 @@ public:
     RuntimeGrabbedStateContext& grabbed_context(); // The type 0x70 state's views of this body.
     RuntimeThrowStateContext& throw_context(); // The type 0x8B state's views of this body.
     RuntimeArcStateContext& arc_context(); // The type 0x66 state's views of this body.
+    RuntimeArcAttackStateContext& arc_attack_context(); // The type 0x5F state's views of this body.
+    RuntimeGenerateGhoulyContext& generate_ghouly_context(); // The type 0x6F state's views of this body.
+    RuntimeShockedStateContext& shocked_context(); // The type 0x80 state's views of this body.
     RuntimeSwingStateContext& swing_context(); // The type 0x78 state's views of this body.
     SceneBodyMessages(const SceneBodyMessages&) = delete;
     SceneBodyMessages& operator=(const SceneBodyMessages&) = delete;
@@ -186,6 +195,12 @@ private:
     std::optional<RuntimeThrowStateContext> throw_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> arc_children_; // 0x66, 0x0008DD30.
     std::optional<RuntimeArcStateContext> arc_;
+    std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> arc_attack_children_; // 0x5F, 0x00089530.
+    std::optional<RuntimeBodyStateContext> arc_attack_shape_;
+    std::optional<RuntimeArcAttackStateContext> arc_attack_;
+    std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> generate_ghouly_children_; // 0x6F.
+    std::optional<RuntimeGenerateGhoulyContext> generate_ghouly_;
+    std::optional<RuntimeShockedStateContext> shocked_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> swing_children_; // 0x78, 0x00098620.
     std::optional<RuntimeBodyStateContext> swing_shape_;
     std::optional<RuntimeBodyNextAction> swing_next_;
@@ -207,9 +222,18 @@ private:
     u32 effect_flags_ = 0;
     RuntimeActorProximityNode* proximity_ = nullptr;
     std::unordered_map<const u8*, RuntimeBodyAttachedActor*> created_;
-    std::unordered_map<const u8*, RuntimeBodyTimerObject*> timers_;
-    FactoryObject timer_object_;
-    FactoryObject hold_timer_object_; // Body +0x7F0's object.
+    // The objects the body's timers made (0x00027B60, 0x00027BE0), kept by the scene; their messages go through it.
+    struct KeptTimer
+    {
+        KeptTimer(RuntimeBodyTimerRecipient message, u32 address)
+            : recipient(std::move(message)), view{recipient, address}
+        {
+        }
+        RuntimeBodyTimerRecipient recipient;
+        RuntimeBodyTimerObject view;
+    };
+    std::unordered_map<const u8*, std::unique_ptr<KeptTimer>> timers_;
+    RuntimeBodyTimerObject& keep_timer(FactoryObject object);
     std::optional<RuntimeBodyTimerCreation> hold_timer_creation_;
     std::optional<RuntimeBodyHoldTimerContext> hold_timer_;
     RuntimeBodyHoldTimerContext& hold_timer(); // 0x00027BE0's views: body +0x7F0, the actor and DAT_00511AA4.

@@ -1220,8 +1220,8 @@ i32 g_50ec00 = 0;
 // translated. 0x000FD710 runs in the actor services' end of scene.
 //
 // Bit 8 of DAT_0050EA9C is written back as 0x100 after the dword is cleared.
-// DAT_0050EA98 is cleared. 0x000ED450 is not translated. 0x00129F70 is not
-// translated. 0x0003A1F0 is not translated: ESI is 0xD. 0x00118560 is not
+// DAT_0050EA98 is cleared. 0x000ED450 is not translated. 0x00129F70 runs.
+// 0x0003A1F0 is not translated: ESI is 0xD. 0x00118560 is not
 // translated.
 //
 // A nonzero DAT_00512344 is released through 0x000663E0. DAT_00512348 is
@@ -1240,7 +1240,7 @@ i32 g_50ec00 = 0;
 // the two 0x00036180 calls in that loop are not made. 0x00034880 is not
 // translated.
 // Xbox 0x0011C5A0
-void scene_teardown(u8* scene)
+void scene_teardown(Game& g, u8* scene)
 {
     // Xbox 0x0011C5A0
     g_51065c = 1;
@@ -1291,7 +1291,10 @@ void scene_teardown(u8* scene)
     *reinterpret_cast<i32*>(scene + 0x118) = 0;
     // 0x000ED450 is not translated.
     g_504330 = 0;
-    // 0x00129F70 is not translated.
+    if (g.factory_scene != nullptr && g.factory_scene->actor_services != nullptr)
+    {
+        g.factory_scene->actor_services->reset_sound_queues(); // 0x00129F70
+    }
     // 0x0003A1F0 is not translated. ESI is 0xD.
     // 0x00118560 is not translated.
     if (g_512344 != nullptr)
@@ -1374,7 +1377,7 @@ void scene_teardown(u8* scene)
 // and stores 1 at +0x120. That path, state 5, and every other entry store
 // EBX at +0x104.
 // Xbox 0x0011E6A0
-void scene_set_state(u8* scene, i32 next)
+void scene_set_state(Game& g, u8* scene, i32 next)
 {
     // Xbox 0x0011E6A0
     const i32 state = *reinterpret_cast<i32*>(scene + 0x104);
@@ -1417,7 +1420,7 @@ void scene_set_state(u8* scene, i32 next)
             *reinterpret_cast<i32*>(scene + 0x104) = next;
             return;
         case 4:
-            scene_teardown(scene);
+            scene_teardown(g, scene);
             g_510cec = g_510cec + 1;
             g_4dea24 = g_4dea24 + 1;
             {
@@ -1480,7 +1483,7 @@ void script_pump(Game& g)
     if (*reinterpret_cast<i32*>(scene + 0x110) == 0 &&
         *reinterpret_cast<u32*>(scene + 0x80) == kAidPrefixEd8)
     {
-        scene_set_state(scene, 3);
+        scene_set_state(g, scene, 3);
         if (g_54632c != 1 && g_54632c != 2)
         {
             begin_scene_transition(reinterpret_cast<const char*>(scene + 0x80)); // 0x0012C5D0
@@ -1491,7 +1494,7 @@ void script_pump(Game& g)
     *reinterpret_cast<i32*>(scene + 0x10c) = state;
     if (queued != state && *reinterpret_cast<i32*>(scene + 0x110) == 0 && g_510ce8 == 0)
     {
-        scene_set_state(scene, queued);
+        scene_set_state(g, scene, queued);
     }
     void* object = *reinterpret_cast<void**>(scene + 0x230);
     script_refresh_object_record(object);
@@ -1506,7 +1509,7 @@ void script_pump(Game& g)
     case 3:
         if (*reinterpret_cast<i32*>(scene + 0x114) != 0)
         {
-            scene_set_state(scene, 4);
+            scene_set_state(g, scene, 4);
             // 0x0011E6A0 copied the requested aid onto the scene record and
             // 0x001162D0 points the directory slot at it. That slot is a file,
             // so the host load runs with the name now at the record.

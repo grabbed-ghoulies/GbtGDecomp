@@ -213,6 +213,15 @@ const ObjectFactoryVtable* player_body_lifecycle()
     return &table;
 }
 
+// Getter 0x000761A0: entityBodyZombie keeps the 0x27 parent's sizes (0x00076180) and message slot (0x00075A60 jumps
+// to 0x00074080); its own construct and destroy are 0x000CFFD0 and the empty 0x001628B0.
+const ObjectFactoryVtable* zombie_body_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505368, parent_player_body_object_sizes,
+        accept_runtime_object_construction, destroy_empty_player_object};
+    return &table;
+}
+
 const ObjectFactoryVtable* base_strategy_lifecycle()
 {
     static const ObjectFactoryVtable table{0x004DD74C, base_strategy_object_sizes, construct_base_strategy_view,
@@ -250,6 +259,61 @@ bool construct_skeleton_strategy_view(FactoryObject& object, std::span<const u8>
     player->strategy_type = 0x51;
     player->refresh_views();
     return accept_runtime_object_construction(object, parameters);
+}
+
+bool construct_spider_strategy_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto* player = active_owner->find_player(object);
+    player->strategy_type = 0x52;
+    player->refresh_views();
+    return accept_runtime_object_construction(object, parameters);
+}
+
+const ObjectFactoryVtable* spider_strategy_lifecycle()
+{
+    // Sizes are the skeleton's 0x000A9FC0; vtable +8 is the empty 0x001628B0.
+    static const ObjectFactoryVtable table{0x00505FF4, skeleton_strategy_object_sizes,
+        construct_spider_strategy_view, destroy_empty_player_object};
+    return &table;
+}
+
+bool construct_zombie_strategy_view(FactoryObject& object, std::span<const u8>)
+{
+    auto* player = active_owner->find_player(object);
+    player->strategy_type = 0x58;
+    player->refresh_views();
+    return initialize_runtime_zombie_strategy(bytes_of(object));
+}
+
+const ObjectFactoryVtable* zombie_strategy_lifecycle()
+{
+    // Sizes are the director's 0x000AAE40; vtable +8 is the empty 0x001628B0.
+    static const ObjectFactoryVtable table{0x0050609C, director_strategy_object_sizes,
+        construct_zombie_strategy_view, destroy_empty_player_object};
+    return &table;
+}
+
+bool construct_haunted_tv_strategy_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto* player = active_owner->find_player(object);
+    player->strategy_type = 0x44;
+    player->refresh_views();
+    return initialize_runtime_haunted_tv_strategy(parameters, player->haunted_tv); // 0x000B1F10
+}
+
+void destroy_haunted_tv_strategy_view(FactoryObject& object)
+{
+    auto* player = active_owner->find_player(object);
+    player->refresh_views();
+    destroy_runtime_haunted_tv_strategy(player->haunted_tv); // 0x000B1F40
+}
+
+// Getter 0x000B1EC0.
+const ObjectFactoryVtable* haunted_tv_strategy_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505E6C, haunted_tv_strategy_object_sizes,
+        construct_haunted_tv_strategy_view, destroy_haunted_tv_strategy_view};
+    return &table;
 }
 
 const ObjectFactoryVtable* skeleton_strategy_lifecycle()
@@ -334,6 +398,27 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
                   leave_runtime_skeleton_state(old_state, skeleton);
                   return;
               }
+              if (strategy_type == 0x44)
+              {
+                  // Haunted TV strategy vtable +0x18, 0x000B2900.
+                  refresh_views();
+                  leave_runtime_haunted_tv_state(old_state, next_state, haunted_tv);
+                  return;
+              }
+              if (strategy_type == 0x52)
+              {
+                  // Spider strategy vtable +0x18, 0x000B5AF0.
+                  refresh_views();
+                  leave_runtime_spider_state(old_state, spider);
+                  return;
+              }
+              if (strategy_type == 0x58)
+              {
+                  // Zombie strategy vtable +0x18, 0x000C5AD0.
+                  refresh_views();
+                  leave_runtime_zombie_state(old_state, next_state, zombie);
+                  return;
+              }
               if (strategy_type == 0x3B)
               {
                   // Butler strategy vtable +0x18, 0x000AB220.
@@ -364,6 +449,24 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
               {
                   // Skeleton strategy vtable +0x14, 0x000BFF80.
                   enter_runtime_skeleton_state(state, previous, skeleton);
+                  return;
+              }
+              if (strategy_type == 0x44)
+              {
+                  // Haunted TV strategy vtable +0x14, 0x000B2650.
+                  enter_runtime_haunted_tv_state(state, previous, haunted_tv);
+                  return;
+              }
+              if (strategy_type == 0x52)
+              {
+                  // Spider strategy vtable +0x14, 0x000C1040.
+                  enter_runtime_spider_state(state, previous, spider);
+                  return;
+              }
+              if (strategy_type == 0x58)
+              {
+                  // Zombie strategy vtable +0x14, 0x000C5970.
+                  enter_runtime_zombie_state(state, previous, zombie);
                   return;
               }
               if (strategy_type == 0x3B)
@@ -458,7 +561,22 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
       strategy_views{scene_bindings.actor_at, scene_bindings.actor_bytes_at, scene_bindings.body_of,
           scene_bindings.query, scene_bindings.story_flags},
       skeleton{strategy_messages, target_checks, target_queue, strategy_views, scene_bindings.skeleton_fetch_delay,
-          "attack", "knockdown", "attackwithprojectile", "attackwithweapon", "duckndodge?", "far", "getweapon"}
+          "attack", "knockdown", "attackwithprojectile", "attackwithweapon", "duckndodge?", "far", "getweapon"},
+      zombie{strategy_messages, target_checks, target_queue, strategy_views, scene_bindings.zombie_parameters,
+          "swipeaimless", "swipe", "special_attack", "kickbig", "getweapon"},
+      spider{strategy_messages, target_checks, target_queue, strategy_views, "attack", "attack_nodelay",
+          "stickywebspit"},
+      haunted_tv{strategy_messages, target_checks, strategy_views, scene_bindings.registry, scene_bindings.error,
+          scene_bindings.resources, scene_bindings.object_tags, scene_bindings.sounds, scene_bindings.latches,
+          collision, spawn.record, spawn.active, actor_instance.live_attachments, animation_resource,
+          scene_bindings.loaded_sizes, scene_bindings.attack_tables, scene_bindings.address_of,
+          scene_bindings.texture_bytes, scene_bindings.create_effect,
+          [this](u32 object)
+          {
+              return scene.release_frame_object(actor, object);
+          },
+          scene_bindings.spawns, scene_bindings.story_bits, "generateghouly", "knocked_down", "sleep", "wakeup",
+          "wait"}
 {
 }
 
@@ -596,6 +714,72 @@ void NativePlayerFactoryOwner::skeleton_update(FactoryObject& strategy)
     update_runtime_skeleton_strategy(player->skeleton);
 }
 
+void NativePlayerFactoryOwner::spider_message(FactoryObject& strategy, std::span<const u32> message)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x52)
+    {
+        throw Error("spider strategy method has no owning instance");
+    }
+    player->refresh_views();
+    dispatch_runtime_spider_message(message, player->spider);
+}
+
+void NativePlayerFactoryOwner::spider_update(FactoryObject& strategy)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x52)
+    {
+        throw Error("spider strategy method has no owning instance");
+    }
+    player->refresh_views();
+    update_runtime_spider_strategy(player->spider);
+}
+
+void NativePlayerFactoryOwner::haunted_tv_message(FactoryObject& strategy, std::span<const u32> message)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x44)
+    {
+        throw Error("haunted TV strategy method has no owning instance");
+    }
+    player->refresh_views();
+    dispatch_runtime_haunted_tv_message(message, player->haunted_tv);
+}
+
+void NativePlayerFactoryOwner::haunted_tv_update(FactoryObject& strategy)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x44)
+    {
+        throw Error("haunted TV strategy method has no owning instance");
+    }
+    player->refresh_views();
+    update_runtime_haunted_tv_strategy(player->haunted_tv);
+}
+
+void NativePlayerFactoryOwner::zombie_message(FactoryObject& strategy, std::span<const u32> message)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x58)
+    {
+        throw Error("zombie strategy method has no owning instance");
+    }
+    player->refresh_views();
+    dispatch_runtime_zombie_message(message, player->zombie);
+}
+
+void NativePlayerFactoryOwner::zombie_update(FactoryObject& strategy)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x58)
+    {
+        throw Error("zombie strategy method has no owning instance");
+    }
+    player->refresh_views();
+    update_runtime_zombie_strategy(player->zombie);
+}
+
 void NativePlayerFactoryOwner::butler_update(FactoryObject& strategy)
 {
     auto* player = find_player(strategy);
@@ -670,17 +854,21 @@ void NativePlayerFactoryOwner::install(std::span<ObjectFactoryType> types)
     {
         throw Error("native player factory already has an owner");
     }
-    // Lifecycle views of retail getters 0x00027F60, 0x0001DA50, 0x000733F0, 0x00075AF0, 0x0002B6C0,
+    // Lifecycle views of retail getters 0x00027F60, 0x0001DA50, 0x000733F0, 0x00075AF0, 0x000761A0, 0x0002B6C0, 0x000C57A0, 0x000C0B60,
     // 0x000BED40, 0x000B4480 and 0x000AB040; types 1 and 2 stay with the actor owner, types 7 and 0x34 with the mind owner.
     types[5] = ObjectFactoryType{2, player_lifecycle};
     types[6] = ObjectFactoryType{1, parent_body_lifecycle};
     types[0x27] = ObjectFactoryType{6, player_body_parent_lifecycle};
     types[0x2A] = ObjectFactoryType{0x27, player_body_lifecycle};
+    types[0x2D] = ObjectFactoryType{0x27, zombie_body_lifecycle};
     types[8] = ObjectFactoryType{1, base_strategy_lifecycle};
     types[0x4F] = ObjectFactoryType{8, player_strategy_lifecycle};
     types[0x46] = ObjectFactoryType{8, imp_fire_strategy_lifecycle};
     types[0x3B] = ObjectFactoryType{8, butler_strategy_lifecycle};
     types[0x51] = ObjectFactoryType{8, skeleton_strategy_lifecycle};
+    types[0x58] = ObjectFactoryType{8, zombie_strategy_lifecycle};
+    types[0x52] = ObjectFactoryType{8, spider_strategy_lifecycle};
+    types[0x44] = ObjectFactoryType{8, haunted_tv_strategy_lifecycle};
     types[0x28] = ObjectFactoryType{6, camera_body_lifecycle};
     types[0x39] = ObjectFactoryType{8, director_strategy_lifecycle};
     minds.install(types);

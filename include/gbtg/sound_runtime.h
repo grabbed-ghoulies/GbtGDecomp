@@ -64,7 +64,7 @@ struct RuntimeActorSoundQueues
     std::function<void(i16)> stop_voice;
     u32 stopped_count = 0;
     RuntimeSoundBoundaries boundaries;
-    std::span<i16> static_voice_indices; // DAT_005125D8, host view of stride 0x90
+    std::span<u8> static_voice_rows; // DAT_0051254C: 0x90-byte rows, each one's voice id at +0x8C (DAT_005125D8)
     i32 static_voice_count = 0; // DAT_00512548
 };
 // The callbacks translate voice allocation/play and actor message 0x89 at

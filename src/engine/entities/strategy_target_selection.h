@@ -63,12 +63,17 @@ Actor* runtime_mind_target_case_actor(const RuntimeMindTarget& target); // Xbox 
 bool runtime_mind_target_case_unavailable(const RuntimeMindTarget& target); // Xbox 0x00141470, EAX target
 u32 runtime_actor_attack_limit(std::span<const u8> attributes); // Xbox 0x000196B0, EAX actor
 bool roll_runtime_actor_attack(std::span<const u8> attributes, u32& random); // Xbox 0x000196F0, EAX actor
+bool roll_runtime_actor_knockdown(std::span<const u8> attributes, u32& random); // Xbox 0x00019750, EAX actor
 i32 count_runtime_energy_actors(const RuntimeActiveActorLink* first,
     std::span<const u8> address_zero); // Xbox 0x00129280
 u32 runtime_strategy_abandons_target(const RuntimeMindTarget& target,
     RuntimeStrategyTargetChecks& context); // Xbox 0x00138410, EAX strategy, EDX target
 bool runtime_message_names_mind_target(std::span<const u32> message, std::span<const u8> mind,
     const std::function<RuntimeMindTarget*(u32)>& target_at); // Xbox 0x001409C0, EDX message
+bool runtime_message_hits_mind_target(std::span<const u32> message, u32 actor, std::span<const u8> mind,
+    const std::function<RuntimeMindTarget*(u32)>& target_at); // Xbox 0x00140980, ECX message, EDX actor
+bool runtime_strategy_target_within(float range, const RuntimeMindTarget& target,
+    const Actor& actor); // Xbox 0x0013A540, EBX target, ESI actor
 void keep_nearer_tutorial_actor(RuntimeTutorialNotice& notice, const Actor& actor,
     const Actor* player); // Xbox 0x000F4E10, EBX notice, EDI actor
 void queue_runtime_tutorial_notice(const Actor& actor, u32 id,

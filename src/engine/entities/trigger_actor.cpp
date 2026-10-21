@@ -223,7 +223,7 @@ void update_runtime_trigger_actor(RuntimeTriggerActorContext& context)
 {
     const Vec3 position = actor_world_position(context.actor);
     if (check_ghouly_spawn_trigger(position, read_f32(context.bytes, 0xC50),
-        read_f32(context.bytes, 0xC54), context.blocked_players, context.random) == 1)
+        read_f32(context.bytes, 0xC54), context.random) == 1)
     {
         std::array<u32, 0x42> message{};
         message[0] = 0xA8;

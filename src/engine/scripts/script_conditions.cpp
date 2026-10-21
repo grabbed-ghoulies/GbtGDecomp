@@ -73,6 +73,7 @@ extern "C"
 #include "../navigation/occupancy.h"
 #include "gbtg/actor_spawn_factory.h"
 #include "../scene/scene_actor_services.h"
+#include "../scene/actor_loading.h"
 
 namespace gbtg
 {
@@ -1142,40 +1143,20 @@ int script_condition_total_count(const ScriptCond& rec)
 int script_condition_actor_state(const ScriptCond& rec)
 {
     int result = 0;
-    if (g_range_links == nullptr)
-    {
-        return 0;
-    }
     const u16 want = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
-    for (RangeLink* link = g_range_links; link != nullptr; link = link->next)
+    for (const RuntimeLoadingActor& actor : runtime_loading_actors()) // DAT_00511B38.
     {
-        CamFocus* obj = link->host;
-        if (obj->tag_6 != want)
+        if (actor.tag != want)
         {
             continue;
         }
-        EntityMaskSpan* span = obj->span_980;
-        if (span != nullptr)
+        if (actor.goal != 0 && actor.word_984 == 0)
         {
-            const u16* elem;
-            if (span->end == span->mark)
+            if (actor.word_98c == 0)
             {
-                elem = nullptr;
+                return 0;
             }
-            else
-            {
-                const std::uintptr_t base = reinterpret_cast<std::uintptr_t>(span->data);
-                const std::uintptr_t at = base + std::uintptr_t(span->index) * std::uintptr_t(span->stride);
-                elem = reinterpret_cast<const u16*>(at);
-            }
-            if (*elem != 0 && obj->at_984 == 0)
-            {
-                if (obj->at_98c == 0)
-                {
-                    return 0;
-                }
-                continue;
-            }
+            continue;
         }
         if (cond_f32(rec, 0xc) == 0.f)
         {

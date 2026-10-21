@@ -1,4 +1,5 @@
 #include "scene_body_messages.h"
+#include "../entities/body_orientation.h"
 #include "../camera/display_view.h"
 #include "../entities/body_move_action_slots.h"
 #include "../entities/body_gravity_motion.h"
@@ -78,11 +79,15 @@ SceneBodyMessages::SceneBodyMessages(SceneBodyServices& services, NativePlayerIn
           services.death_actions, damage_rows_, std::span<char>(), death_, services.random, parameter_scratch_,
           []() -> u16
           {
-              // Body vtable +0x4C is the parent's 0x00027500 for types 0x27 and 0x2A (neither getter overrides it).
+              // Body vtable +0x4C is the parent's 0x00027500 for types 0x27, 0x2A and 0x2D (no getter overrides it).
               return runtime_body_death_action_key();
           },
           first_timer_},
-      timer_creation_{first_timer_, timer_object_, player.child, timers_},
+      timer_creation_{first_timer_, player.child,
+          [this](FactoryObject object) -> RuntimeBodyTimerObject&
+          {
+              return keep_timer(std::move(object));
+          }},
       damage_{services.game, processor_, nullptr, timer_creation_},
       messages_{parent_, damage_, player.ring, services.address_zero, mask_,
           *reinterpret_cast<const i32*>(player.actor_bytes.data() + 0xCEC), player.actor_instance.render,
@@ -271,6 +276,41 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
             children_[child->bytes.get()] = arc.get();
             continue;
         }
+        if (child->type == 0x5F)
+        {
+            auto& arc_attack = arc_attack_children_[child->bytes.get()];
+            if (arc_attack == nullptr)
+            {
+                arc_attack = std::make_unique<RuntimeBodyMessageChild>();
+                arc_attack->message = [this, child](std::span<u8> message)
+                {
+                    const std::span<u32> words{reinterpret_cast<u32*>(message.data()), message.size() / 4};
+                    if (!words.empty() && words[0] == 0x62)
+                    {
+                        unbound("arc attack state word message 0x62 without the collision reply's contact record");
+                    }
+                    message_runtime_arc_attack_state({child->bytes.get(), child->size}, words, {},
+                        arc_attack_context()); // 0x00089530
+                };
+            }
+            children_[child->bytes.get()] = arc_attack.get();
+            continue;
+        }
+        if (child->type == 0x6F)
+        {
+            auto& generate = generate_ghouly_children_[child->bytes.get()];
+            if (generate == nullptr)
+            {
+                generate = std::make_unique<RuntimeBodyMessageChild>();
+                generate->message = [child](std::span<u8> message)
+                {
+                    const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
+                    message_runtime_generate_ghouly_state({child->bytes.get(), child->size}, words); // 0x00094150
+                };
+            }
+            children_[child->bytes.get()] = generate.get();
+            continue;
+        }
         if (child->type == 0x78)
         {
             auto& swing = swing_children_[child->bytes.get()];
@@ -305,7 +345,8 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
         }
         // 0x59, 0x74, 0x7C and 0x8A have the empty 0x001628B0 message slot (0x59's getter 0x0007FCE0 stores it at
         // 0x005054C4, 0x8A's getter 0x000A34C0 at 0x00505C2C).
-        if (child->type != 0x59 && child->type != 0x8A && child->type != 0x5A && child->type != 0x5B && child->type != 0x5C && child->type != 0x74
+        // 0x80's getter 0x0009F420 stores it at 0x00505AEC.
+        if (child->type != 0x59 && child->type != 0x8A && child->type != 0x80 && child->type != 0x5A && child->type != 0x5B && child->type != 0x5C && child->type != 0x74
             && child->type != 0x7C && child->type != 0x87 && child->type != 0x88 && child->type != 0x69
             && child->type != 0x70)
         {
@@ -479,6 +520,7 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
     switch (body.type)
     {
     case 0x27:
+    case 0x2D: // Vtable 0x00505368 +0xC, 0x00075A60, jumps to the parent's 0x00074080.
         dispatch_runtime_player_body_message(body_bytes, bytes, views, messages_); // Vtable 0x00504FE0 +0xC.
         break;
     case 0x2A:
@@ -526,9 +568,9 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
                     services_.address_of(player_.body.data())};
                 return runtime_body_damage_gated_id(ids, player_.action_table);
             },
-            []()
+            [this]()
             {
-                unbound("stand-alert orientation 0x00134720");
+                settle_runtime_body_turn(player_.body, player_.actor); // 0x00134720, ESI body
             }};
         tick_runtime_stand_alert({action.bytes.get(), action.size}, tick);
         return;
@@ -579,9 +621,9 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         RuntimeWalkAlertTick tick{player_.body, player_.actor, *player_.body_bits, player_.body_selection,
             services_.clock, device, player_.scene.input_state, services_.damage_tables, services_.mode_scales,
             !player_.mind.empty(), player_.mind.empty() ? u8(0) : player_.mind[0x20],
-            []()
+            [this]()
             {
-                unbound("walk-alert orientation 0x00134720");
+                settle_runtime_body_turn(player_.body, player_.actor); // 0x00134720, ESI body
             }};
         tick_runtime_walk_alert({action.bytes.get(), action.size}, tick);
         return;
@@ -591,6 +633,15 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         return;
     case 0x66:
         tick_runtime_arc_state({action.bytes.get(), action.size}, arc_context()); // 0x0008DC70
+        return;
+    case 0x5F:
+        tick_runtime_arc_attack_state({action.bytes.get(), action.size}, arc_attack_context()); // 0x00089060
+        return;
+    case 0x6F:
+        tick_runtime_generate_ghouly_state({action.bytes.get(), action.size}, generate_ghouly_context()); // 0x00093EC0
+        return;
+    case 0x80:
+        tick_runtime_shocked_state({action.bytes.get(), action.size}, shocked_context()); // 0x0009F5F0
         return;
     case 0x78:
         tick_runtime_swing_state({action.bytes.get(), action.size}, swing_context()); // 0x00098460
@@ -827,6 +878,9 @@ void SceneBodyMessages::action_step(FactoryObject& action)
     case 0x8F:
     case 0x66:
     case 0x78:
+    case 0x5F:
+    case 0x6F:
+    case 0x80:
         // 0x001628B0 (0x000D4179 for 0x69, 0x70 and 0x88) returns at once.
         return;
     default:
@@ -1059,6 +1113,82 @@ RuntimeArcStateContext& SceneBodyMessages::arc_context()
     return *arc_;
 }
 
+RuntimeArcAttackStateContext& SceneBodyMessages::arc_attack_context()
+{
+    player_.refresh_body_views();
+    if (player_.body_bits == nullptr)
+    {
+        unbound("arc attack state without the body +0x15C bit block");
+    }
+    arc_attack_shape_.reset();
+    arc_attack_shape_.emplace(services_.state_context(services_.address_of(player_.body.data())));
+    arc_attack_.reset();
+    arc_attack_.emplace(RuntimeArcAttackStateContext{player_.body, player_.actor, player_.actor_address,
+        player_.actor_instance.animation, player_.body_selection, services_.clock, *player_.body_bits,
+        *arc_attack_shape_, player_.collision, player_.mind, services_.target_at, services_.actor_at,
+        services_.bytes_at, player_.actor_instance.startup.resource, player_.callout, services_.latches,
+        services_.sounds,
+        ActorTrailContext{services_.factory, services_.objects, player_.actor_address, services_.pause,
+            services_.frame_delta, services_.time_scale, services_.pal, services_.pal_override,
+            services_.empty_name},
+        services_.damage_tables, services_.player_damage, services_.player_blocked, services_.player_modes,
+        services_.player_mode, services_.image_string,
+        [this](std::span<u32> words)
+        {
+            services_.message(player_.actor_address, words);
+        },
+        [this](u32 slot)
+        {
+            return body_slot_key(slot);
+        },
+        services_.random});
+    return *arc_attack_;
+}
+
+RuntimeGenerateGhoulyContext& SceneBodyMessages::generate_ghouly_context()
+{
+    player_.refresh_body_views();
+    if (!services_.generate_ghouly)
+    {
+        unbound("generate ghouly state without the scene's light, display and actor list views");
+    }
+    generate_ghouly_.reset();
+    generate_ghouly_.emplace(RuntimeGenerateGhoulyContext{services_.generate_ghouly(), player_.body, player_.actor,
+        player_.actor_bytes, player_.actor_instance.animation, player_.body_selection, services_.clock,
+        player_.actor_instance.live_attachments, hold_timer(), services_.sounds, services_.random,
+        services_.occupancy_initial, services_.resources, services_.factory, services_.default_position,
+        services_.default_euler, player_.spawn.record, services_.empty_name, services_.image_string,
+        services_.actor_at,
+        [this](u32 actor, std::span<const u32> words)
+        {
+            services_.message(actor, words);
+        },
+        [this](u32 slot)
+        {
+            return body_slot_key(slot);
+        }});
+    return *generate_ghouly_;
+}
+
+RuntimeShockedStateContext& SceneBodyMessages::shocked_context()
+{
+    player_.refresh_body_views();
+    if (player_.body_bits == nullptr)
+    {
+        unbound("shocked state without the body +0x15C bit block");
+    }
+    if (!services_.release_frame_object)
+    {
+        unbound("shocked state without the scene's 0x0003DE30 frame object release");
+    }
+    shocked_.reset();
+    shocked_.emplace(RuntimeShockedStateContext{player_.body, player_.actor, player_.actor_address,
+        *player_.body_bits, player_.attachment, services_.latches, services_.clock,
+        player_.actor_instance.animation, services_.resources, services_.create_object,
+        services_.release_frame_object, recovery_action()});
+    return *shocked_;
+}
+
 RuntimePickupStateContext& SceneBodyMessages::pickup_context()
 {
     // Body views only, as for the dizzy state: a state destroyed with its player outlives the input device.
@@ -1215,11 +1345,29 @@ RuntimeDieStateContext& SceneBodyMessages::die_context()
     return *die_;
 }
 
+RuntimeBodyTimerObject& SceneBodyMessages::keep_timer(FactoryObject object)
+{
+    const u8* bytes = object.bytes.get();
+    services_.objects.push_back(std::move(object)); // The scene keeps what 0x00107520 made.
+    const u32 address = services_.address_of(bytes);
+    auto& kept = timers_[bytes];
+    kept = std::make_unique<KeptTimer>(RuntimeBodyTimerRecipient{
+        [this, address](std::span<const u32> words)
+        {
+            services_.message(address, words); // The object's vtable +0xC.
+        }}, address);
+    return kept->view;
+}
+
 RuntimeBodyHoldTimerContext& SceneBodyMessages::hold_timer()
 {
     if (!hold_timer_)
     {
-        hold_timer_creation_.emplace(RuntimeBodyTimerCreation{second_timer_, hold_timer_object_, player_.child, timers_});
+        hold_timer_creation_.emplace(RuntimeBodyTimerCreation{second_timer_, player_.child,
+            [this](FactoryObject object) -> RuntimeBodyTimerObject&
+            {
+                return keep_timer(std::move(object));
+            }});
         hold_timer_.emplace(RuntimeBodyHoldTimerContext{*hold_timer_creation_, player_.actor, services_.latches});
     }
     return *hold_timer_;
@@ -1261,12 +1409,13 @@ std::span<const u8> SceneBodyMessages::mind_target()
 }
 
 // Body vtable +0x20 and +0x2C: 0x00075B90 / 0x00075C30 for type 0x2A (getter 0x00075AF0), the parent
-// 0x00026950 / 0x00026A90 for type 0x27 (getter 0x000733F0 keeps the parent's slots from +0x20). +0x30 and +0x34
-// are the parent's 0x00026B00 / 0x00026BB0 (parent table 0x0001DA60) in both.
+// 0x00026950 / 0x00026A90 for type 0x27 (getter 0x000733F0 keeps the parent's slots from +0x20), and 0x00076210 /
+// 0x00076250 for type 0x2D (getter 0x000761A0), which fall through to the 0x27 parent's. +0x30 and +0x34 are the
+// parent's 0x00026B00 / 0x00026BB0 (parent table 0x0001DA60) in all three.
 u16 SceneBodyMessages::body_slot_key(u32 slot)
 {
     const u32 type = player_.body_object.type;
-    if (type != 0x27 && type != 0x2A)
+    if (type != 0x27 && type != 0x2A && type != 0x2D)
     {
         unbound("body next-action slot " + std::to_string(slot) + " of factory type " + std::to_string(type));
     }
@@ -1291,6 +1440,11 @@ u16 SceneBodyMessages::body_slot_key(u32 slot)
                 },
                 retained);
         }
+        if (type == 0x2D)
+        {
+            return runtime_zombie_body_primary_parameter_id(player_.body, ids, mind, *player_.body_bits,
+                player_.action_table, retained);
+        }
         return runtime_body_primary_parameter_id(ids, mind, *player_.body_bits, player_.action_table, retained);
     }
     // Slots +0x30 and +0x34 are the parent's 0x00026B00 / 0x00026BB0 in both classes.
@@ -1309,9 +1463,15 @@ u16 SceneBodyMessages::body_slot_key(u32 slot)
             return runtime_player_body_secondary_parameter_id(ids, mind, *player_.body_bits, player_.action_table,
                 retained);
         }
+        if (type == 0x2D)
+        {
+            return runtime_zombie_body_secondary_parameter_id(player_.body, ids, mind, *player_.body_bits,
+                player_.action_table, retained);
+        }
         return runtime_body_secondary_parameter_id(ids, mind, *player_.body_bits, player_.action_table, retained);
     }
-    // Neither getter (0x000733F0 for 0x27, 0x00075AF0 for 0x2A) replaces these base slots (0x0001DA60).
+    // No getter (0x000733F0 for 0x27, 0x00075AF0 for 0x2A, 0x000761A0 for 0x2D) replaces these base slots
+    // (0x0001DA60).
     if (slot == 0x28)
     {
         return u16(runtime_body_idle_action_id(ids));
@@ -1351,6 +1511,10 @@ u16 SceneBodyMessages::body_slot_key(u32 slot)
     if (slot == 0x58)
     {
         return u16(runtime_body_attachment_action_id(ids)); // 0x00027480
+    }
+    if (slot == 0x4C)
+    {
+        return runtime_body_death_action_key(); // 0x00027500
     }
     unbound("body next-action slot " + std::to_string(slot));
 }
@@ -1424,7 +1588,7 @@ RuntimeBodyChannelContext SceneBodyMessages::channel_context()
 // Xbox 0x00025EC0 for the camera body (type 0x28).
 void SceneBodyMessages::tick(FactoryObject& body, u32 input)
 {
-    if (body.type != 0x28 && body.type != 0x27 && body.type != 0x2A)
+    if (body.type != 0x28 && body.type != 0x27 && body.type != 0x2A && body.type != 0x2D)
     {
         unbound("body vtable +0x10 of factory type " + std::to_string(body.type));
     }
@@ -1460,7 +1624,7 @@ void SceneBodyMessages::tick(FactoryObject& body, u32 input)
 // Xbox 0x00072AC0 for the camera body.
 void SceneBodyMessages::animate(FactoryObject& body)
 {
-    if (body.type != 0x28 && body.type != 0x27 && body.type != 0x2A)
+    if (body.type != 0x28 && body.type != 0x27 && body.type != 0x2A && body.type != 0x2D)
     {
         unbound("body vtable +0x14 of factory type " + std::to_string(body.type));
     }
@@ -1477,7 +1641,7 @@ void SceneBodyMessages::animate(FactoryObject& body)
 // Xbox 0x00072B10 for the camera body.
 void SceneBodyMessages::settle(FactoryObject& body)
 {
-    if (body.type != 0x28 && body.type != 0x27 && body.type != 0x2A)
+    if (body.type != 0x28 && body.type != 0x27 && body.type != 0x2A && body.type != 0x2D)
     {
         unbound("body vtable +0x18 of factory type " + std::to_string(body.type));
     }
@@ -1545,7 +1709,7 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
 {
     if (body.type != 0x28)
     {
-        if (body.type != 0x27 && body.type != 0x2A)
+        if (body.type != 0x27 && body.type != 0x2A && body.type != 0x2D)
         {
             unbound("body vtable +0x1C of factory type " + std::to_string(body.type));
         }
@@ -1627,6 +1791,19 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 }
                 return;
             }
+            if (type == 0x5F)
+            {
+                // 0x00089530: id 0x62 writes the reply's accepted / handled words and reads its +0x1C contact.
+                auto& second = player_.body_selection.second;
+                std::array<u32, 3> words{reply.id, reply.accepted, reply.handled};
+                const std::span<const u8> contact = reply.contact == nullptr ? std::span<const u8>()
+                                                                             : std::span<const u8>(reply.contact, 0x18);
+                message_runtime_arc_attack_state({second.bytes.get(), second.size}, words, contact,
+                    arc_attack_context());
+                reply.accepted = words[1];
+                reply.handled = words[2];
+                return;
+            }
             if (type == 0x66)
             {
                 // 0x0008DD30 reads the reply's id: only 0x51 acts.
@@ -1637,7 +1814,7 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
             }
             // 0x8A (getter 0x000A34C0) keeps the empty 0x001628B0 at +0xC too.
             if (type != 0x87 && type != 0x88 && type != 0x69 && type != 0x70 && type != 0x5B && type != 0x5C && type != 0x74 && type != 0x7C
-                && type != 0x8A)
+                && type != 0x8A && type != 0x80)
             {
                 unbound("collision reply action vtable +0xC of factory type " + std::to_string(type));
             }

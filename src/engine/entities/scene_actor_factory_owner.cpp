@@ -3,6 +3,7 @@
 #include "gbtg/actor_spawn_factory.h"
 #include "entity.h"
 #include "ghouly_spawn_scheduler.h"
+#include "actor_lookup.h"
 
 namespace gbtg
 {
@@ -40,6 +41,14 @@ bool construct_bg_break_setup_view(FactoryObject& object, std::span<const u8> pa
 void release_bg_break_setup_view(FactoryObject& object)
 {
     active_owner->release_bg_break_setup(object);
+}
+bool construct_scare_figure_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    return active_owner->construct_scare_figure(object, parameters);
+}
+void release_scare_figure_view(FactoryObject& object)
+{
+    active_owner->release_scare_figure(object);
 }
 bool construct_bg_break_key_view(FactoryObject& object, std::span<const u8> parameters)
 {
@@ -117,6 +126,20 @@ const ObjectFactoryVtable* chair_weapon_lifecycle()
         construct_chair_weapon_view, release_chair_weapon_view};
     return &table;
 }
+bool construct_thrown_projectile_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    return active_owner->construct_thrown_projectile(object, parameters);
+}
+void release_thrown_projectile_view(FactoryObject& object)
+{
+    active_owner->release_thrown_projectile(object);
+}
+const ObjectFactoryVtable* thrown_projectile_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00506348, thrown_projectile_object_sizes,
+        construct_thrown_projectile_view, release_thrown_projectile_view};
+    return &table;
+}
 const ObjectFactoryVtable* large_projectile_lifecycle()
 {
     static const ObjectFactoryVtable table{0x005063E8, large_projectile_weapon_object_sizes,
@@ -139,6 +162,13 @@ const ObjectFactoryVtable* bg_break_setup_lifecycle()
 {
     static const ObjectFactoryVtable table{0x00504ACC, ghouly_bg_break_setup_object_sizes,
         construct_bg_break_setup_view, release_bg_break_setup_view};
+    return &table;
+}
+const ObjectFactoryVtable* scare_figure_lifecycle()
+{
+    // Vtable +8 is the empty 0x001628B0.
+    static const ObjectFactoryVtable table{0x00504E14, scare_figure_object_sizes, construct_scare_figure_view,
+        release_scare_figure_view};
     return &table;
 }
 const ObjectFactoryVtable* bg_break_key_lifecycle()
@@ -201,7 +231,7 @@ struct NativeSceneActorClassOwner::TriggerInstance : GhoulyController
     TriggerInstance(NativeSceneActorClassBindings& bindings, FactoryObject& object)
         : context{{object.bytes.get(), object.size}, bindings.actors.view(object).bat.actor,
             *this, bindings.random, bindings.occupancy_initial, bindings.message, load,
-            bindings.prompt_lock, [this](std::span<u32> message)
+            [this](std::span<u32> message)
             {
                 dispatch_runtime_trigger_message(messages, message);
             }},
@@ -310,7 +340,7 @@ struct NativeSceneActorClassOwner::BgBreakSetupInstance : GhoulyController
             {
                 dispatch_runtime_ghouly_bg_break_setup_message(messages, message);
             },
-            bindings.prompt_lock, bindings.spawns, bindings.objects.records, bindings.backgrounds,
+            bindings.spawns, bindings.objects.records, bindings.backgrounds,
             bindings.break_background_part, bindings.hold_background_part, bindings.marks},
           messages{context, bindings.base_of(object), bindings.objects, bindings.bytes_at,
             [&bindings](FactoryObject& actor) -> Actor&
@@ -337,6 +367,59 @@ struct NativeSceneActorClassOwner::BgBreakSetupInstance : GhoulyController
             }
             dispatch_runtime_ghouly_bg_break_setup_message(instance.messages, {words, count});
         };
+    }
+};
+
+struct NativeSceneActorClassOwner::ScareFigureInstance
+{
+    RuntimeScareFigure context;
+    ScareFigureInstance(NativeSceneActorClassBindings& bindings, FactoryObject& object)
+        : context{{object.bytes.get(), object.size}, bindings.actors.view(object).bat.actor,
+            bindings.actors.view(object).animation, bindings.base_of(object),
+            [&bindings](ActorBaseContext& base, std::span<u32> message)
+            {
+                dispatch_base_actor_word_message(base, message, bindings.word_messages);
+            },
+            bindings.actors.bindings.startup.registry,
+            bindings.actors.bindings.startup.error, bindings.random, bindings.emitter.clock,
+            bindings.emitter.runtime_flags,
+            [&bindings]() -> const Actor*
+            {
+                const auto players = bindings.case_actors(); // DAT_00511B40.
+                return players.empty() ? nullptr : &players.front().actor;
+            },
+            [&bindings](std::span<const u32> message)
+            {
+                // 0x00122D10: each DAT_00511B40 actor's vtable +0xC, the next node read before the call.
+                for (const auto& player : bindings.case_actors())
+                {
+                    std::array<u32, 0x42> words{};
+                    std::copy_n(message.begin(), std::min<size_t>(message.size(), words.size()), words.begin());
+                    bindings.message(bindings.weapon_services.actor_address(player.actor), words);
+                }
+            },
+            bindings.queue_event,
+            [&bindings](u16 tag) -> Actor*
+            {
+                const u32 address = find_runtime_actor_by_class(tag, bindings.latch_owner, bindings.bytes_at);
+                if (address == 0)
+                {
+                    return nullptr;
+                }
+                FactoryObject* found = bindings.object_at(address);
+                if (found == nullptr)
+                {
+                    throw Error("scare figure finds a tagged actor outside the scene");
+                }
+                return &bindings.actors.view(*found).bat.actor;
+            },
+            [&bindings](Actor& actor, std::span<const u32> message)
+            {
+                std::array<u32, 0x42> words{};
+                std::copy_n(message.begin(), std::min<size_t>(message.size(), words.size()), words.begin());
+                bindings.message(bindings.weapon_services.actor_address(actor), words);
+            }}
+    {
     }
 };
 
@@ -416,6 +499,7 @@ struct NativeSceneActorClassOwner::EmitterInstance
 struct NativeSceneActorClassOwner::WeaponInstance : GhoulyController
 {
     RuntimeWeaponActor context;
+    std::unique_ptr<RuntimeBodyAttachmentLists> lists; // Actor +0x1B8 / +0x1B0 and DAT_00506930.
     WeaponInstance(NativeSceneActorClassBindings& bindings, FactoryObject& object)
         : context{{object.bytes.get(), object.size}, bindings.actors.view(object).bat.actor,
             bindings.actors.view(object), object.type, *this, bindings.random, bindings.executable,
@@ -492,6 +576,10 @@ struct NativeSceneActorClassOwner::WeaponInstance : GhoulyController
             },
             bindings.default_euler, bindings.navigation_nodes, bindings.weapon_services}
     {
+        auto& view = bindings.actors.view(object);
+        lists = std::make_unique<RuntimeBodyAttachmentLists>(RuntimeBodyAttachmentLists{view.pending.next,
+            view.startup.attachments.sentinel.next, bindings.emitter.timed_attachments});
+        context.attachment_lists = lists.get();
         context.animation_tables = &bindings.actors.bindings.startup.tables;
         context.model_source = [this](u32 address)
         {
@@ -540,6 +628,7 @@ void NativeSceneActorClassOwner::install(std::span<ObjectFactoryType> types)
     types[0x23] = {2, trigger_lifecycle};
     types[0x25] = {2, cutscene_setup_lifecycle}; // Getter 0x0006B110.
     types[0x24] = {2, bg_break_setup_lifecycle}; // Getter 0x0006A4F0.
+    types[0x1D] = {2, scare_figure_lifecycle}; // Getter 0x0006EFB0.
     types[0x1E] = {2, bg_break_key_lifecycle}; // Getter 0x0006CC70.
     types[0xD] = {2, emitter_lifecycle}; // Getter 0x00109DD0.
     types[0xF] = {2, motion_blur_lifecycle}; // Getter 0x00066900.
@@ -547,6 +636,7 @@ void NativeSceneActorClassOwner::install(std::span<ObjectFactoryType> types)
     types[0x12] = {2, bone_debris_lifecycle}; // Getter 0x00067E60.
     types[0xB] = {2, weapon_lifecycle}; // Getter 0x00145900.
     types[0xAA] = {0xB, chair_weapon_lifecycle}; // Getter 0x000CEF70.
+    types[0xA7] = {0xB, thrown_projectile_lifecycle}; // Getter 0x000CB570.
     types[0xA9] = {0xB, large_projectile_lifecycle}; // Getter 0x000CD640.
     types[0xA0] = {0xB, bob_weapon_lifecycle}; // Getter 0x000C5BB0.
     active_owner = this;
@@ -752,6 +842,16 @@ void NativeSceneActorClassOwner::release_large_projectile(FactoryObject& object)
     destroy_runtime_large_projectile(weapons_.at(object.bytes.get())->context);
 }
 
+bool NativeSceneActorClassOwner::construct_thrown_projectile(FactoryObject& object, std::span<const u8> parameters)
+{
+    return initialize_runtime_thrown_projectile(weapons_.at(object.bytes.get())->context, parameters);
+}
+
+void NativeSceneActorClassOwner::release_thrown_projectile(FactoryObject& object)
+{
+    destroy_runtime_thrown_projectile(weapons_.at(object.bytes.get())->context);
+}
+
 bool NativeSceneActorClassOwner::construct_bob_weapon(FactoryObject& object, std::span<const u8> parameters)
 {
     return initialize_runtime_bob_weapon(weapons_.at(object.bytes.get())->context, parameters);
@@ -859,6 +959,34 @@ void NativeSceneActorClassOwner::update_bg_break_setup(FactoryObject& object)
     update_runtime_ghouly_bg_break_setup(bg_break_setups_.at(object.bytes.get())->context);
 }
 
+bool NativeSceneActorClassOwner::construct_scare_figure(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto instance = std::make_unique<ScareFigureInstance>(bindings_, object);
+    auto* figure = instance.get();
+    scare_figures_.emplace(object.bytes.get(), std::move(instance));
+    return initialize_runtime_scare_figure(figure->context, parameters);
+}
+
+void NativeSceneActorClassOwner::release_scare_figure(FactoryObject& object)
+{
+    if (!defer_release)
+    {
+        scare_figures_.erase(object.bytes.get());
+    }
+}
+
+void NativeSceneActorClassOwner::update_scare_figure(FactoryObject& object)
+{
+    update_runtime_scare_figure(scare_figures_.at(object.bytes.get())->context);
+}
+
+u32 NativeSceneActorClassOwner::draw_scare_figure(FactoryObject& object, ActorDrawState& state, i32 kind,
+    const ActorFrameDrawContext& attachments, SceneModelDrawContext& draw, RuntimeGlowPass& glow)
+{
+    return draw_runtime_scare_figure(scare_figures_.at(object.bytes.get())->context, state, kind, attachments, draw,
+        glow);
+}
+
 bool NativeSceneActorClassOwner::construct_bg_break_key(FactoryObject& object, std::span<const u8> parameters)
 {
     auto instance = std::make_unique<BgBreakKeyInstance>(bindings_, object);
@@ -906,6 +1034,7 @@ void NativeSceneActorClassOwner::release_view(const u8* bytes)
     cutscene_setups_.erase(bytes);
     bg_break_setups_.erase(bytes);
     bg_break_keys_.erase(bytes);
+    scare_figures_.erase(bytes);
     emitters_.erase(bytes);
     motion_blurs_.erase(bytes);
     afterimages_.erase(bytes);
@@ -935,6 +1064,10 @@ void NativeSceneActorClassOwner::message(FactoryObject& object, std::span<u32> m
     {
         dispatch_runtime_bg_break_key_message(bg_break_keys_.at(object.bytes.get())->context, message);
     }
+    else if (object.type == 0x1D)
+    {
+        dispatch_runtime_scare_figure_message(scare_figures_.at(object.bytes.get())->context, message);
+    }
     else if (object.type == 0xAA)
     {
         dispatch_runtime_chair_weapon_message(weapons_.at(object.bytes.get())->context, message);
@@ -942,6 +1075,10 @@ void NativeSceneActorClassOwner::message(FactoryObject& object, std::span<u32> m
     else if (object.type == 0xA9)
     {
         dispatch_runtime_large_projectile_message(weapons_.at(object.bytes.get())->context, message);
+    }
+    else if (object.type == 0xA7)
+    {
+        dispatch_runtime_thrown_projectile_message(weapons_.at(object.bytes.get())->context, message);
     }
     else if (object.type == 0xA0)
     {

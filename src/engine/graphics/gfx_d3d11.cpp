@@ -4205,9 +4205,14 @@ void gfx_draw_sprite(const RgbaImage& image, const GfxRect& rect)
     g.context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     g.context->VSSetShader(g.vs.Get(), nullptr, 0);
     g.context->PSSetShader(g.ps.Get(), nullptr, 0);
+    g.context->RSSetState(g.rast.Get());
     g.context->IASetVertexBuffers(0, 1, g.ui_vb.GetAddressOf(), &stride, &offset);
+    ID3D11Buffer* constant_buffers[2] = {g.cb.Get(), g.bone_cb.Get()};
+    g.context->VSSetConstantBuffers(0, 2, constant_buffers);
+    g.context->PSSetConstantBuffers(0, 1, constant_buffers);
     g.context->OMSetDepthStencilState(g.depth_off.Get(), 0);
     g.context->OMSetBlendState(g.blend_alpha.Get(), nullptr, 0xFFFFFFFFu);
+    g.context->PSSetSamplers(0, 1, g.sampler.GetAddressOf());
     ID3D11ShaderResourceView* unbound = nullptr;
     ID3D11ShaderResourceView* srvs[2] = {it->second.srv.Get(), unbound};
     g.context->PSSetShaderResources(0, 2, srvs);
@@ -4840,6 +4845,38 @@ void present_draw_frame()
 }
 
 } // namespace
+
+void gfx_show_startup_loading_screen(const RgbaImage& text)
+{
+    if (!g.ok || !g.swap || g.cfg.width <= 0 || g.cfg.height <= 0 || text.width <= 0 || text.height <= 0)
+    {
+        return;
+    }
+
+    const float black[4] = {0.f, 0.f, 0.f, 1.f};
+    g.context->OMSetRenderTargets(1, g.rtv.GetAddressOf(), g.dsv.Get());
+    g.context->ClearRenderTargetView(g.rtv.Get(), black);
+    if (g.dsv)
+    {
+        g.context->ClearDepthStencilView(g.dsv.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.f, 0);
+    }
+    D3D11_VIEWPORT viewport{};
+    viewport.Width = float(g.cfg.width);
+    viewport.Height = float(g.cfg.height);
+    viewport.MaxDepth = 1.f;
+    g.context->RSSetViewports(1, &viewport);
+
+    const float text_height_pixels = 42.f * float(g.cfg.height) / 540.f;
+    const float text_width_pixels = text_height_pixels * float(text.width) / float(text.height);
+    GfxRect rectangle;
+    rectangle.x = (float(g.cfg.width) - text_width_pixels) / (2.f * float(g.cfg.width));
+    rectangle.y = (float(g.cfg.height) - text_height_pixels) / (2.f * float(g.cfg.height));
+    rectangle.w = text_width_pixels / float(g.cfg.width);
+    rectangle.h = text_height_pixels / float(g.cfg.height);
+    gfx_draw_sprite(text, rectangle);
+    gfx_release_sprite(text);
+    present_swap();
+}
 
 void gfx_sprite_clear()
 {

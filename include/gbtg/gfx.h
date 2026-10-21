@@ -24,6 +24,7 @@ bool gfx_init(const GfxConfig& cfg);
 void gfx_shutdown();
 const char* gfx_backend_name();
 bool gfx_has_window();
+void gfx_show_startup_loading_screen(const RgbaImage& text);
 void gfx_warmup_shader_permutations(const std::filesystem::path& path);
 void gfx_capture_shader_permutations(const std::filesystem::path& path);
 

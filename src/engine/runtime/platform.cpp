@@ -1,4 +1,5 @@
 #include "gbtg/gfx.h"
+#include "gbtg/font.h"
 #include "../graphics/render_profile.h"
 #include "gbtg/platform.h"
 #include "gbtg/texture.h"
@@ -29,6 +30,63 @@ namespace
 constexpr std::chrono::duration<double> kLogicStep{1.0 / 60.0};
 // D3DPRESENT_INTERVAL_TWO: the fewest fields between two swaps, so the usual step is 1/30 s.
 constexpr int kSwapInterval = 2;
+
+RgbaImage startup_text_image(const GloopyFont& font, std::string_view text)
+{
+    int cursor = 0;
+    int left = 0;
+    int right = 0;
+    int height = 0;
+    for (char character : text)
+    {
+        const char32_t codepoint = static_cast<unsigned char>(character);
+        const RgbaImage* glyph = font.image(codepoint, font.glyph_frame_count(codepoint) - 1);
+        if (glyph != nullptr)
+        {
+            left = (std::min)(left, cursor - font.bearing(codepoint));
+            right = (std::max)(right, cursor - font.bearing(codepoint) + glyph->width);
+            height = (std::max)(height, glyph->height);
+        }
+        cursor += font.advance(codepoint);
+    }
+
+    RgbaImage image;
+    image.width = right - left;
+    image.height = height;
+    if (image.width <= 0 || image.height <= 0)
+    {
+        return image;
+    }
+    image.bgra.resize(size_t(image.width) * size_t(image.height) * 4);
+
+    cursor = 0;
+    for (char character : text)
+    {
+        const char32_t codepoint = static_cast<unsigned char>(character);
+        const RgbaImage* glyph = font.image(codepoint, font.glyph_frame_count(codepoint) - 1);
+        if (glyph != nullptr)
+        {
+            const int x0 = cursor - font.bearing(codepoint) - left;
+            for (int y = 0; y < glyph->height; ++y)
+            {
+                for (int x = 0; x < glyph->width; ++x)
+                {
+                    const size_t source = (size_t(y) * size_t(glyph->width) + size_t(x)) * 4;
+                    if (glyph->bgra[source + 3] == 0)
+                    {
+                        continue;
+                    }
+                    const size_t destination =
+                        (size_t(y) * size_t(image.width) + size_t(x0 + x)) * 4;
+                    std::copy_n(glyph->bgra.begin() + std::ptrdiff_t(source), 4,
+                        image.bgra.begin() + std::ptrdiff_t(destination));
+                }
+            }
+        }
+        cursor += font.advance(codepoint);
+    }
+    return image;
+}
 
 // Waits until `deadline`: a high-resolution timer sleep until about a millisecond before it, then a short spin.
 void wait_until(std::chrono::steady_clock::time_point deadline)
@@ -98,6 +156,22 @@ int run_platform(Game& game, const PlatformConfig& cfg)
 #endif
     std::cout << "gfx: " << (gfx_ok ? gfx_backend_name() : "unavailable") << (gfx_has_window() ? " window" : " offscreen")
               << "\n";
+
+    if (gfx_ok && gfx_has_window())
+    {
+        GloopyFont font;
+        if (!font.load(cfg.game_dir / "font" / "069563d4"))
+        {
+            throw Error("could not load startup font " + (cfg.game_dir / "font" / "069563d4").string());
+        }
+        const RgbaImage text = startup_text_image(font, "Compiling Shaders");
+        if (text.width <= 0 || text.height <= 0)
+        {
+            throw Error("startup font has no drawable glyphs");
+        }
+        gfx_show_startup_loading_screen(text);
+        render_profile::frame = {};
+    }
 
     if (gfx_ok && std::filesystem::exists(shader_permutations)
         && !render_profile::reference && !render_profile::cpu_vertex)

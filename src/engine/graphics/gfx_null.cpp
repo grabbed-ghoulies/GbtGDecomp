@@ -25,6 +25,10 @@ bool gfx_has_window()
     return false;
 }
 
+void gfx_show_startup_loading_screen(const RgbaImage&)
+{
+}
+
 void gfx_warmup_shader_permutations(const std::filesystem::path&)
 {
 }

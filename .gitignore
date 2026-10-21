@@ -18,6 +18,7 @@ cache/
 
 # Ghidra (keep scripts, not project databases)
 ghidra_projects/
+tools/ghidra
 *.gpr
 *.rep/
 *.lock

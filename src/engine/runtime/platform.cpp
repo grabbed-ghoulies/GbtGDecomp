@@ -72,6 +72,7 @@ void wait_until(std::chrono::steady_clock::time_point deadline)
 
 int run_platform(Game& game, const PlatformConfig& cfg)
 {
+    const std::filesystem::path shader_permutations = "cache/shaders.gbtg";
     int remaining = cfg.frames;
     if ((cfg.headless || !cfg.screenshot.empty()) && remaining <= 0)
     {
@@ -97,6 +98,13 @@ int run_platform(Game& game, const PlatformConfig& cfg)
 #endif
     std::cout << "gfx: " << (gfx_ok ? gfx_backend_name() : "unavailable") << (gfx_has_window() ? " window" : " offscreen")
               << "\n";
+
+    if (gfx_ok && std::filesystem::exists(shader_permutations)
+        && !render_profile::reference && !render_profile::cpu_vertex)
+    {
+        gfx_warmup_shader_permutations(shader_permutations);
+        render_profile::frame = {};
+    }
 
 #if !defined(GBTG_WITH_SDL)
     if (!gfx_has_window() && remaining <= 0)
@@ -458,6 +466,8 @@ int run_platform(Game& game, const PlatformConfig& cfg)
                   << q.w;
     }
     std::cout << "\n";
+
+    gfx_capture_shader_permutations(shader_permutations);
 
     // The Game still owns every captured resource here; release replay commands before unloading it.
     render_profile::replay = {};

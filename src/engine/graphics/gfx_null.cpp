@@ -25,6 +25,14 @@ bool gfx_has_window()
     return false;
 }
 
+void gfx_warmup_shader_permutations(const std::filesystem::path&)
+{
+}
+
+void gfx_capture_shader_permutations(const std::filesystem::path&)
+{
+}
+
 void gfx_pump(bool&)
 {
 }

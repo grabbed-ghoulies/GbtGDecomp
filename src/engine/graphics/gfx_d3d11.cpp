@@ -32,8 +32,10 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <fstream>
 #include <iostream>
 #include <map>
+#include <sstream>
 #include <unordered_map>
 #include <vector>
 
@@ -43,6 +45,155 @@ namespace gbtg
 {
 namespace
 {
+constexpr u32 kShaderPermutationFileVersion = 1;
+constexpr u32 kShaderTranslatorVersion = 1; // Bump when shader generation or permutation normalization changes.
+
+struct ShaderPermutationManifest
+{
+    std::vector<std::vector<u32>> vertex_programs;
+    std::vector<std::array<u32, 60>> pixel_definitions;
+};
+
+bool contains_program(const std::vector<std::vector<u32>>& programs, const std::vector<u32>& program)
+{
+    return std::find(programs.begin(), programs.end(), program) != programs.end();
+}
+
+void read_shader_permutation_manifest(const std::filesystem::path& path, ShaderPermutationManifest& manifest)
+{
+    std::ifstream input(path);
+    if (!input)
+    {
+        throw Error("cannot open shader permutation manifest: " + path.string());
+    }
+    std::string line;
+    std::string magic;
+    u32 version = 0;
+    if (!std::getline(input, line))
+    {
+        throw Error("unsupported or invalid shader permutation manifest header: " + path.string());
+    }
+    std::istringstream header(line);
+    std::string extra;
+    if (!(header >> magic >> version) || magic != "GBTG_SHADER_PERMUTATIONS"
+        || version != kShaderPermutationFileVersion || (header >> extra))
+    {
+        throw Error("unsupported or invalid shader permutation manifest header: " + path.string());
+    }
+    if (!std::getline(input, line))
+    {
+        throw Error("shader permutation manifest is missing its translator version: " + path.string());
+    }
+    std::istringstream translator(line);
+    std::string label;
+    if (!(translator >> label >> version) || label != "translator" || version != kShaderTranslatorVersion
+        || (translator >> extra))
+    {
+        throw Error("shader permutation manifest translator version mismatch: " + path.string());
+    }
+    size_t line_number = 2;
+    while (std::getline(input, line))
+    {
+        ++line_number;
+        if (line.empty())
+        {
+            continue;
+        }
+        std::istringstream record(line);
+        std::string kind;
+        size_t count = 0;
+        if (!(record >> kind))
+        {
+            continue;
+        }
+        if (kind == "pixel")
+        {
+            std::array<u32, 60> definition{};
+            for (u32& word : definition)
+            {
+                if (!(record >> std::hex >> word))
+                {
+                    throw Error("invalid pixel permutation at " + path.string() + ":" + std::to_string(line_number));
+                }
+            }
+            if (std::find(manifest.pixel_definitions.begin(), manifest.pixel_definitions.end(), definition)
+                == manifest.pixel_definitions.end())
+            {
+                manifest.pixel_definitions.push_back(definition);
+            }
+        }
+        else if (kind == "vertex")
+        {
+            if (!(record >> std::dec >> count) || count == 0 || count > 65536)
+            {
+                throw Error("invalid vertex permutation length at " + path.string() + ":" + std::to_string(line_number));
+            }
+            std::vector<u32> program(count);
+            for (u32& word : program)
+            {
+                if (!(record >> std::hex >> word))
+                {
+                    throw Error("invalid vertex permutation at " + path.string() + ":" + std::to_string(line_number));
+                }
+            }
+            if (!contains_program(manifest.vertex_programs, program))
+            {
+                manifest.vertex_programs.push_back(std::move(program));
+            }
+        }
+        else
+        {
+            throw Error("unknown shader permutation record at " + path.string() + ":" + std::to_string(line_number));
+        }
+        std::string extra;
+        if (record >> extra)
+        {
+            throw Error("extra shader permutation data at " + path.string() + ":" + std::to_string(line_number));
+        }
+    }
+    if (!input.eof())
+    {
+        throw Error("failed reading shader permutation manifest: " + path.string());
+    }
+}
+
+void write_shader_permutation_manifest(const std::filesystem::path& path, const ShaderPermutationManifest& manifest)
+{
+    if (!path.parent_path().empty())
+    {
+        std::filesystem::create_directories(path.parent_path());
+    }
+    std::ofstream output(path, std::ios::trunc);
+    if (!output)
+    {
+        throw Error("cannot write shader permutation manifest: " + path.string());
+    }
+    output << "GBTG_SHADER_PERMUTATIONS " << kShaderPermutationFileVersion << "\n";
+    output << "translator " << kShaderTranslatorVersion << "\n";
+    for (const auto& definition : manifest.pixel_definitions)
+    {
+        output << "pixel";
+        for (u32 word : definition)
+        {
+            output << ' ' << std::hex << word;
+        }
+        output << std::dec << '\n';
+    }
+    for (const auto& program : manifest.vertex_programs)
+    {
+        output << "vertex " << std::dec << program.size();
+        for (u32 word : program)
+        {
+            output << ' ' << std::hex << word;
+        }
+        output << std::dec << '\n';
+    }
+    if (!output)
+    {
+        throw Error("failed writing shader permutation manifest: " + path.string());
+    }
+}
+
 void present_hud_viewport();
 void present_camera_viewport();
 void present_hud_sprites();
@@ -2967,6 +3118,78 @@ bool gfx_native_vertex_program_supported(std::span<const u32> program)
     const bool supported = gpu.shader != nullptr;
     g.native_programs.emplace(std::vector<u32>(program.begin(), program.end()), std::move(gpu));
     return supported;
+}
+
+void gfx_warmup_shader_permutations(const std::filesystem::path& path)
+{
+    if (!g.ok)
+    {
+        throw Error("shader permutation warm-up requires an initialized D3D11 device");
+    }
+    if (render_profile::reference)
+    {
+        throw Error("shader permutation warm-up is unavailable with --render-reference");
+    }
+    ShaderPermutationManifest manifest;
+    read_shader_permutation_manifest(path, manifest);
+    size_t vertex_count = 0;
+    size_t pixel_fallbacks = 0;
+    const auto start = std::chrono::steady_clock::now();
+    for (const auto& program : manifest.vertex_programs)
+    {
+        if (!gfx_native_vertex_program_supported(program))
+        {
+            throw Error("shader warm-up encountered an unsupported vertex program");
+        }
+        ++vertex_count;
+    }
+    for (const auto& definition : manifest.pixel_definitions)
+    {
+        if (native_pixel_shader(definition.data()) == g.model_ps.Get())
+        {
+            ++pixel_fallbacks;
+        }
+    }
+    const double elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    std::cout << "shader warm-up: " << vertex_count << " vertex, " << manifest.pixel_definitions.size()
+              << " pixel permutations in " << elapsed << " ms";
+    if (pixel_fallbacks != 0)
+    {
+        std::cout << " (" << pixel_fallbacks << " generic pixel fallbacks)";
+    }
+    std::cout << "\n";
+}
+
+void gfx_capture_shader_permutations(const std::filesystem::path& path)
+{
+    if (!g.ok)
+    {
+        return;
+    }
+    ShaderPermutationManifest manifest;
+    if (std::filesystem::exists(path))
+    {
+        read_shader_permutation_manifest(path, manifest);
+    }
+    for (const auto& [program, gpu] : g.native_programs)
+    {
+        if (gpu.shader && !contains_program(manifest.vertex_programs, program))
+        {
+            manifest.vertex_programs.push_back(program);
+        }
+    }
+    for (const auto& [definition, shader] : g.specialized_pixels)
+    {
+        (void)shader;
+        if (std::find(manifest.pixel_definitions.begin(), manifest.pixel_definitions.end(), definition)
+            == manifest.pixel_definitions.end())
+        {
+            manifest.pixel_definitions.push_back(definition);
+        }
+    }
+    write_shader_permutation_manifest(path, manifest);
+    std::cout << "shader capture: " << manifest.vertex_programs.size() << " vertex, "
+              << manifest.pixel_definitions.size() << " pixel permutations -> " << path.string() << "\n";
 }
 
 namespace

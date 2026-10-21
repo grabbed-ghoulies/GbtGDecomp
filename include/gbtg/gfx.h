@@ -2,6 +2,8 @@
 
 #include "gbtg/model.h"
 
+#include <filesystem>
+
 namespace gbtg
 {
 
@@ -22,6 +24,8 @@ bool gfx_init(const GfxConfig& cfg);
 void gfx_shutdown();
 const char* gfx_backend_name();
 bool gfx_has_window();
+void gfx_warmup_shader_permutations(const std::filesystem::path& path);
+void gfx_capture_shader_permutations(const std::filesystem::path& path);
 
 // PC window messages. Sets quit on close / Escape. No-op without a window.
 void gfx_pump(bool& quit);

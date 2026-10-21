@@ -169,15 +169,19 @@ int run_platform(Game& game, const PlatformConfig& cfg)
         {
             throw Error("startup font has no drawable glyphs");
         }
-        gfx_show_startup_loading_screen(text);
+        const auto show_progress = [&text](float progress)
+        {
+            gfx_show_startup_loading_screen(text, progress);
+        };
+        show_progress(0.f);
         render_profile::frame = {};
-    }
 
-    if (gfx_ok && std::filesystem::exists(shader_permutations)
-        && !render_profile::reference && !render_profile::cpu_vertex)
-    {
-        gfx_warmup_shader_permutations(shader_permutations);
-        render_profile::frame = {};
+        if (std::filesystem::exists(shader_permutations)
+            && !render_profile::reference && !render_profile::cpu_vertex)
+        {
+            gfx_warmup_shader_permutations(shader_permutations, show_progress);
+            render_profile::frame = {};
+        }
     }
 
 #if !defined(GBTG_WITH_SDL)

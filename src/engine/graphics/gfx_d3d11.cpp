@@ -3120,7 +3120,7 @@ bool gfx_native_vertex_program_supported(std::span<const u32> program)
     return supported;
 }
 
-void gfx_warmup_shader_permutations(const std::filesystem::path& path)
+void gfx_warmup_shader_permutations(const std::filesystem::path& path, const std::function<void(float)>& progress)
 {
     if (!g.ok)
     {
@@ -3134,6 +3134,12 @@ void gfx_warmup_shader_permutations(const std::filesystem::path& path)
     read_shader_permutation_manifest(path, manifest);
     size_t vertex_count = 0;
     size_t pixel_fallbacks = 0;
+    const size_t total = manifest.vertex_programs.size() + manifest.pixel_definitions.size();
+    size_t completed = 0;
+    if (progress)
+    {
+        progress(total == 0 ? 1.f : 0.f);
+    }
     const auto start = std::chrono::steady_clock::now();
     for (const auto& program : manifest.vertex_programs)
     {
@@ -3142,12 +3148,22 @@ void gfx_warmup_shader_permutations(const std::filesystem::path& path)
             throw Error("shader warm-up encountered an unsupported vertex program");
         }
         ++vertex_count;
+        ++completed;
+        if (progress)
+        {
+            progress(float(completed) / float(total));
+        }
     }
     for (const auto& definition : manifest.pixel_definitions)
     {
         if (native_pixel_shader(definition.data()) == g.model_ps.Get())
         {
             ++pixel_fallbacks;
+        }
+        ++completed;
+        if (progress)
+        {
+            progress(float(completed) / float(total));
         }
     }
     const double elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
@@ -4846,7 +4862,7 @@ void present_draw_frame()
 
 } // namespace
 
-void gfx_show_startup_loading_screen(const RgbaImage& text)
+void gfx_show_startup_loading_screen(const RgbaImage& text, float progress)
 {
     if (!g.ok || !g.swap || g.cfg.width <= 0 || g.cfg.height <= 0 || text.width <= 0 || text.height <= 0)
     {
@@ -4875,6 +4891,50 @@ void gfx_show_startup_loading_screen(const RgbaImage& text)
     rectangle.h = text_height_pixels / float(g.cfg.height);
     gfx_draw_sprite(text, rectangle);
     gfx_release_sprite(text);
+
+    constexpr float bar_width_pixels = 280.f;
+    constexpr float bar_height_pixels = 8.f;
+    constexpr float bar_gap_pixels = 18.f;
+    const float bar_width = bar_width_pixels * float(g.cfg.height) / 540.f;
+    const float bar_height = bar_height_pixels * float(g.cfg.height) / 540.f;
+    const float bar_y = rectangle.y + rectangle.h + bar_gap_pixels / 540.f;
+    RgbaImage pixel;
+    pixel.width = 1;
+    pixel.height = 1;
+    pixel.bgra = {255, 255, 255, 255};
+    std::array<u64, 3> color_total{};
+    u64 color_samples = 0;
+    for (size_t offset = 0; offset + 3 < text.bgra.size(); offset += 4)
+    {
+        if (text.bgra[offset + 3] == 0)
+        {
+            continue;
+        }
+        color_total[0] += text.bgra[offset + 2];
+        color_total[1] += text.bgra[offset + 1];
+        color_total[2] += text.bgra[offset + 0];
+        ++color_samples;
+    }
+    const std::array<float, 4> font_color = color_samples == 0
+        ? std::array<float, 4>{0.f, 1.f, 0.f, 1.f}
+        : std::array<float, 4>{float(color_total[0]) / float(color_samples) / 255.f,
+              float(color_total[1]) / float(color_samples) / 255.f,
+              float(color_total[2]) / float(color_samples) / 255.f, 1.f};
+    GfxRect bar;
+    bar.x = (float(g.cfg.width) - bar_width) / (2.f * float(g.cfg.width));
+    bar.y = bar_y;
+    bar.w = bar_width / float(g.cfg.width);
+    bar.h = bar_height / float(g.cfg.height);
+    bar.color = {0.22f, 0.22f, 0.22f, 1.f};
+    gfx_draw_sprite(pixel, bar);
+    bar.x += 1.f / float(g.cfg.width);
+    bar.y += 1.f / float(g.cfg.height);
+    bar.w = std::max(0.f, bar_width - 2.f) / float(g.cfg.width);
+    bar.h = std::max(0.f, bar_height - 2.f) / float(g.cfg.height);
+    bar.w *= std::clamp(progress, 0.f, 1.f);
+    bar.color = font_color;
+    gfx_draw_sprite(pixel, bar);
+    gfx_release_sprite(pixel);
     present_swap();
 }
 

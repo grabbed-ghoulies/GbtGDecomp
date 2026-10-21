@@ -3,6 +3,7 @@
 #include "gbtg/model.h"
 
 #include <filesystem>
+#include <functional>
 
 namespace gbtg
 {
@@ -24,8 +25,9 @@ bool gfx_init(const GfxConfig& cfg);
 void gfx_shutdown();
 const char* gfx_backend_name();
 bool gfx_has_window();
-void gfx_show_startup_loading_screen(const RgbaImage& text);
-void gfx_warmup_shader_permutations(const std::filesystem::path& path);
+void gfx_show_startup_loading_screen(const RgbaImage& text, float progress);
+void gfx_warmup_shader_permutations(const std::filesystem::path& path,
+                                    const std::function<void(float)>& progress = {});
 void gfx_capture_shader_permutations(const std::filesystem::path& path);
 
 // PC window messages. Sets quit on close / Escape. No-op without a window.

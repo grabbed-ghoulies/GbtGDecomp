@@ -9830,12 +9830,13 @@ int main(int argc, char** argv)
     const bool scene7_test = argc == 3 && std::string_view(argv[2]) == "--scene7";
     const bool scene8_test = argc == 3 && std::string_view(argv[2]) == "--scene8";
     const bool scene9_test = argc == 3 && std::string_view(argv[2]) == "--scene9";
+    const bool scene10_test = argc == 3 && std::string_view(argv[2]) == "--scene10";
     if (spawn_test)
     {
         std::cout << std::unitbuf;
     }
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
-        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene3_test)
+        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene3_test)
     {
         std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene6-save | --scene6-save-reload | --scene3 | --scene4 | --scene5 | --scene6-1 | --scene7]\n";
         return 2;
@@ -9943,8 +9944,17 @@ int main(int argc, char** argv)
             : scene7_test ? "chapter1_scene7_1playcam"
             : scene8_test ? "chapter1_scene8_1playcam"
             : scene9_test ? "chapter1_scene9_1playcam"
+            : scene10_test ? "chapter1_scene10_1playcam"
             : player_test || spawn_test ? "chapter1_scene1_2playcam"
             : title_test ? "" : "scene0_1book");
+        if (scene10_test)
+        {
+            pass_chapter_title(game, "scene10", "aid_script_ghoulies_chapter1_scene10_1playcam", false);
+            // "Event: Kill All" waits for a knockdown of the ghouly across the store; outside it nothing is fought.
+            play_scene7(game, "scene10", 1000.f, "Event: Kill All", true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
         if (scene9_test)
         {
             pass_chapter_title(game, "scene9", "aid_script_ghoulies_chapter1_scene9_1playcam", false);

@@ -526,8 +526,10 @@ struct SceneActorServices::State
     // Player construction and children.
     u32 player_count = 0; // DAT_00510578.
     u32& active_strategies = reinterpret_cast<u32&>(g_510cec); // DAT_00510CEC.
-    // The object create_runtime_player_attachment (0x0013A720) and its kin are attaching, before the scene keeps it.
+    // The object create_runtime_player_attachment (0x0013A720) and its kin are attaching, before the scene keeps it,
+    // and its bytes. object_of consults it only when no kept object owns the bytes.
     FactoryObject* attaching_object = nullptr;
+    const u8* attaching_bytes = nullptr;
     std::unordered_map<RuntimeBodyAttachedActor*, RuntimePlayerAttachmentActor*> attachment_actors;
     std::array<u16, 8> scale_exclusions{}; // DAT_0050E1B4.
     std::array<u8, 0x40> animation_classes{}; // DAT_0050E170.
@@ -776,6 +778,7 @@ struct SceneActorServices::State
     std::vector<TrophyHeadRow> trophy_head_rows; // DAT_00301920.
     std::unique_ptr<TrophyHeadsControlServices> trophy_heads_services; // Factory type 0x92.
     std::unique_ptr<HauntedChairsControlServices> haunted_chairs_services; // Factory type 0x93.
+    std::unique_ptr<RelicsStoreControlServices> relics_store_services; // Factory type 0x94.
     std::unique_ptr<SceneFxControlServices> fx_services; // Factory type 0x97.
     std::unique_ptr<SuperScaryControlServices> super_scary_services; // Factory type 0x98.
     std::vector<const char*> powerup_names; // DAT_0042ABF8, twenty "powerupId_" names.
@@ -1424,6 +1427,10 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     {
         return object_of(bytes);
     };
+    actors->bindings.object_address = [this](const u8* bytes)
+    {
+        return address_of(bytes);
+    };
     actors->bindings.animation_message = [this](Actor& actor, const ActorAnimationMessage& message)
     {
         auto* event = const_cast<u8*>(message.event.data());
@@ -1473,7 +1480,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         unlink_active_node(bytes);
     };
     actors->install(scene.types);
-    players =std::make_unique<NativePlayerFactoryOwner>(NativePlayerFactoryBindings{*actors,
+    players = std::make_unique<NativePlayerFactoryOwner>(NativePlayerFactoryBindings{*actors,
         NativePlayerSceneBindings{scene.factory, image.pools, resources.registry, resources.error, random,
         input_release, input_activation, g_flags_ea9c, g_flag_ea98, player_count, active_strategies,
         address_zero,
@@ -1486,6 +1493,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         [this](FactoryObject& object) -> RuntimePlayerAttachmentActor&
         {
             attaching_object = &object;
+            attaching_bytes = object.bytes.get();
             return weapon_attachment_at(scene.find_address(object.bytes.get()));
         },
         attachment_actors,
@@ -1638,6 +1646,17 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         },
         data(0x00428734, 0x40)}});
     players->install(scene.types);
+    players->bindings.scene.attach_actor_messages = [this](FactoryObject& object, NativePlayerInstance& player)
+    {
+        attach_player_messages(object, player);
+    };
+    players->bindings.scene.attach_body_methods = [this](NativePlayerInstance& player)
+    {
+        if (!player.body.empty())
+        {
+            body_graph(player);
+        }
+    };
     fx_custom = std::make_unique<RuntimeFxCustomContext>(RuntimeFxCustomContext{
         [this](u32 address) -> Actor*
         {
@@ -1854,7 +1873,9 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
                 actors->bindings.object_of,
                 [this, &actor](const ActorReferenceMessage& message)
                 {
-                    actors->bindings.message(actor, &message);
+                    // Message 0x14 names the released object by its retail address (0x00027B20 reads it).
+                    std::array<u32, 0x42> words{message.id, address_of(message.value)};
+                    actors->bindings.message(actor, words.data());
                 }};
             release_actor_frame_attachments(head, frames); // 0x0003DE90
         },
@@ -2997,6 +3018,91 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             return actors->view(object_of_actor(actor)).render;
         }});
     scene.controls->context.haunted_chairs = haunted_chairs_services.get();
+    // The relics store's Super Scary mummy (factory type 0x94).
+    const auto scene_actor_at = [this](u32 address) -> Actor*
+    {
+        auto* object = object_of(scene.resolve_address(address, 0).data());
+        if (object == nullptr || !actors->actors.contains(object->bytes.get()))
+        {
+            unbound("relics store control: an address that is not a scene actor");
+        }
+        return actors->actors.at(object->bytes.get());
+    };
+    const auto latch_owner = [this](const entity_detail::LatchNode& node) -> u32
+    {
+        for (const auto& [address, latch] : active_nodes)
+        {
+            if (latch.get() == &node)
+            {
+                return address;
+            }
+        }
+        unbound("DAT_00511AA4 node with no scene actor");
+    };
+    const auto latch_bytes = [this](u32 address)
+    {
+        return scene.resolve_address(address, 0x200);
+    };
+    relics_store_services = std::make_unique<RelicsStoreControlServices>(RelicsStoreControlServices{
+        scene_cutscene_runtime(game), *candle_services, resources.registry, resources.error, sounds, random,
+        g_510cec, g_4dea24, g_flags_ea9c, pal, pal_override, g_4312d0, g_4312d4, g_4312d8, g_sim_freeze, g_sim_dt,
+        g_sim_scale, display_view, data(0x00427600, 0x18),
+        [this](Actor& actor) -> const float&
+        {
+            return actors->view(object_of_actor(actor)).frame.elapsed;
+        },
+        [latch_owner, latch_bytes](u16 key)
+        {
+            return find_runtime_actor_by_class(key, latch_owner, latch_bytes); // 0x00129EA0
+        },
+        [latch_owner, latch_bytes](u16 key)
+        {
+            return find_runtime_actor_by_id(key, latch_owner, latch_bytes); // 0x00129ED0
+        },
+        scene_actor_at,
+        [this](u32 address) -> std::span<const u8>
+        {
+            return scene.resolve_address(address, 0x200);
+        },
+        [this](const void* pointer)
+        {
+            return address_of(pointer);
+        },
+        [this](u32 address, std::span<u32> message)
+        {
+            auto* object = object_of(scene.resolve_address(address, 0).data());
+            if (object == nullptr)
+            {
+                unbound("relics store control message to an address that is not a scene object");
+            }
+            object_message(*object, message);
+        },
+        [this](const char* name, const Vec3& position) -> u32
+        {
+            const Vec3 euler{};
+            FactoryObject* object = scene.keep_object(create_runtime_player_actor(name, position, euler, *spawn));
+            return object == nullptr ? 0 : address_of(object->bytes.get());
+        },
+        [this](std::span<const u8> parameters)
+        {
+            scene.keep_object(create_factory_object(scene.factory, parameters));
+        },
+        [this](std::span<const u8> message)
+        {
+            script_queue_event(game, message);
+        }});
+    scene.controls->context.relics_store = relics_store_services.get();
+    // Cutscene event 0x13 calls the walk cutscene's +0x150 (0x00081630) with +0x154, the control's address.
+    weapon_services->cutscenes().event_callbacks[0x00081630] = [this](RuntimeCutsceneInstance&, u32 owner, u32)
+    {
+        auto* object = object_of(scene.resolve_address(owner, 0).data());
+        if (object == nullptr)
+        {
+            unbound("relics store pulse for an object outside the scene");
+        }
+        auto& control = scene.controls->instance(*object);
+        pulse_runtime_relics_store_control(control.state, *control.relics_store, *relics_store_services); // 0x00081630
+    };
     // The scene's effect emitters (factory type 0x97, entitySceneControlFx).
     fx_services = std::make_unique<SceneFxControlServices>(SceneFxControlServices{clock, random, effects,
         [this](ActorEffectNode& effect, float step)
@@ -3051,15 +3157,13 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             auto& player = case_player(address);
             player.refresh_views();
-            if (player.attached == nullptr)
-            {
-                return nullptr;
-            }
-            throw Error("Super Scary challenge reads a held actor (body +0x48); its native actor view is not bound");
+            return player.attached == nullptr ? nullptr : player.attached->actor; // Body +0x48
         },
-        [](u32)
+        [this](u32 address)
         {
-            throw Error("untranslated 0x0001B810 call from the Super Scary challenge (the player drops a held actor)");
+            auto& player = case_player(address);
+            player.refresh_views();
+            release_runtime_player_attachment(0, 0, player.attachment); // 0x0001B810(0, 0)
         },
         [this](u32 address, std::span<u32> message)
         {
@@ -5148,6 +5252,11 @@ SceneActorServices::State::~State()
     {
         scene.controls->context.haunted_chairs = nullptr;
     }
+    if (scene.controls != nullptr && relics_store_services != nullptr
+        && scene.controls->context.relics_store == relics_store_services.get())
+    {
+        scene.controls->context.relics_store = nullptr;
+    }
     if (scene.controls != nullptr && fx_services != nullptr && scene.controls->context.fx == fx_services.get())
     {
         scene.controls->context.fx = nullptr;
@@ -5515,8 +5624,9 @@ bool SceneActorServices::State::release_actor_frame_object(Actor& actor, u32 obj
         {
             continue;
         }
-        const ActorReferenceMessage notice{0x14, owned->bytes.get()};
-        actors->bindings.message(actor, &notice);
+        // Message 0x14 names the released object by its retail address (the owner's body reads it, 0x00027B20).
+        std::array<u32, 0x42> notice{0x14, object};
+        actors->bindings.message(actor, notice.data());
         release_factory_object(scene.factory, *owned); // 0x001075C0
         return true;
     }
@@ -5525,9 +5635,10 @@ bool SceneActorServices::State::release_actor_frame_object(Actor& actor, u32 obj
 
 FactoryObject* SceneActorServices::State::object_of(const u8* bytes)
 {
-    if (attaching_object != nullptr && attaching_object->bytes.get() == bytes)
+    // A moved-from object keeps null bytes; an unresolved address must not match it.
+    if (bytes == nullptr)
     {
-        return attaching_object;
+        return nullptr;
     }
     for (auto* owned : {&scene.objects, &cameras, &callout_objects, &cutscene_actors, &dialogue_bats})
     {
@@ -5550,6 +5661,11 @@ FactoryObject* SceneActorServices::State::object_of(const u8* bytes)
                 return object;
             }
         }
+    }
+    // Only while its creation runs: the comparison never reads the pending object itself.
+    if (attaching_bytes == bytes)
+    {
+        return attaching_object;
     }
     return nullptr;
 }
@@ -5852,6 +5968,23 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
             auto& graph = *player_messages.at(object.bytes.get());
             ActorReferenceMessage native{message[0], message[1] == 0 ? nullptr :
                 word_messages.reference_at(message[1])};
+            handle_runtime_player_message(&native, graph.context);
+            for (FactoryObject* child : {&graph.children.strategy, &graph.children.mind, &graph.children.body})
+            {
+                if (child->bytes != nullptr)
+                {
+                    child_message(*child, message.data());
+                }
+            }
+            input_state.devices = input_activation.entries;
+            input_state.selected = input_selected;
+            return;
+        }
+        if (message[0] == 0xB)
+        {
+            // Retail words {0xB, slot, mix, name}: the player's handler and the base actor read the native message.
+            auto& graph = *player_messages.at(object.bytes.get());
+            ActorAnimationMixMessage native = decode_actor_animation_mix_message(message, word_messages);
             handle_runtime_player_message(&native, graph.context);
             for (FactoryObject* child : {&graph.children.strategy, &graph.children.mind, &graph.children.body})
             {
@@ -9830,6 +9963,7 @@ void SceneActorServices::give_script_player_weapon(const char* name)
     instance.refresh_views();
     FactoryObject weapon = create_runtime_player_attachment(name, 1, instance.attachment_creation); // 0x0013A720
     state.attaching_object = nullptr;
+    state.attaching_bytes = nullptr;
     if (weapon.bytes != nullptr)
     {
         state.scene.keep_object(std::move(weapon));

@@ -113,6 +113,7 @@ add_library(gbtg_lib STATIC
     src/engine/scene/attract_control.cpp
     src/engine/scene/trophy_heads_control.cpp
     src/engine/scene/haunted_chairs_control.cpp
+    src/engine/scene/relics_store_control.cpp
     src/engine/scene/scene_fx_control.cpp
     src/engine/scene/scene_point_lights.cpp
     src/engine/graphics/scene_point_light_pass.cpp

@@ -404,7 +404,9 @@ void NativeActorFactoryOwner::release_view(FactoryObject& object)
     ActorFrameReleaseContext frames{bindings.factory, bindings.frame_objects, bindings.object_of,
         [&](const ActorReferenceMessage& message)
         {
-            bindings.message(actor, &message);
+            // Message 0x14 names the released object by its retail address, as the owner's body reads it (0x00027B20).
+            std::array<u32, 0x42> words{message.id, bindings.object_address(static_cast<const u8*>(message.value))};
+            bindings.message(actor, words.data());
         }};
     ActorReleaseContext context{instance.startup, bindings.startup, instance.render,
         frames, instance.frame.updates, instance.pending, instance.anchors,

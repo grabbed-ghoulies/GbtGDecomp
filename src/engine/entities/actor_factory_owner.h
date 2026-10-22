@@ -52,6 +52,7 @@ struct NativeActorFactoryBindings
     // 0x0003B3C0: an animation event as message {7, position, slot, event, phase} to the actor's vtable +0xC.
     std::function<void(Actor&, const ActorAnimationMessage&)> animation_message;
     std::function<FactoryObject*(const u8*)> object_of; // The scene object holding an object's bytes.
+    std::function<u32(const u8*)> object_address{}; // An object's retail address, for messages that name it.
 };
 class NativeActorFactoryOwner
 {

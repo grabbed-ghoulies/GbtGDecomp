@@ -9,6 +9,7 @@
 #include "super_scary_control.h"
 #include "trophy_heads_control.h"
 #include "haunted_chairs_control.h"
+#include "relics_store_control.h"
 #include "scene_fx_control.h"
 #include <unordered_map>
 #include <vector>
@@ -36,6 +37,7 @@ struct SceneControlInstance
     std::unique_ptr<GameSelectControlState> gameselect; // Type 0x9A's pointer words.
     std::unique_ptr<TrophyHeadsControlState> trophy_heads; // Type 0x92's pointer words.
     std::unique_ptr<HauntedChairsControlState> haunted_chairs; // Type 0x93's pointer words.
+    std::unique_ptr<RelicsStoreControlState> relics_store; // Type 0x94's pointer words.
     std::unique_ptr<SuperScaryControlState> super_scary; // Type 0x98's pointer words.
 };
 struct SceneControlContext
@@ -52,6 +54,7 @@ struct SceneControlContext
     GameSelectControlServices* gameselect = nullptr;
     TrophyHeadsControlServices* trophy_heads = nullptr;
     HauntedChairsControlServices* haunted_chairs = nullptr;
+    RelicsStoreControlServices* relics_store = nullptr;
     SceneFxControlServices* fx = nullptr;
     SuperScaryControlServices* super_scary = nullptr;
     const RuntimeActorClock& frame_clock() const;
@@ -60,6 +63,7 @@ struct SceneControlContext
     GameSelectControlServices& gameselect_services() const;
     TrophyHeadsControlServices& trophy_heads_services() const;
     HauntedChairsControlServices& haunted_chairs_services() const;
+    RelicsStoreControlServices& relics_store_services() const;
     SceneFxControlServices& fx_services() const;
     SuperScaryControlServices& super_scary_services() const;
 };

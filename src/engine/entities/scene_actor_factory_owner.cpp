@@ -1016,7 +1016,8 @@ void NativeSceneActorClassOwner::release_candle_weapon(FactoryObject& object)
 
 void NativeSceneActorClassOwner::queue_candle_flame(FactoryObject& object)
 {
-    queue_runtime_candle_flame(weapons_.at(object.bytes.get())->context);
+    RuntimeCandleFlame flame = runtime_candle_weapon_flame(weapons_.at(object.bytes.get())->context);
+    queue_runtime_candle_flame(flame); // 0x000C6C80, EDI +0xE5C
 }
 
 void NativeSceneActorClassOwner::release_weapon(FactoryObject& object)

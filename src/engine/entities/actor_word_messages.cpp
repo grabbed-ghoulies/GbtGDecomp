@@ -4,6 +4,30 @@
 
 namespace gbtg
 {
+ActorAnimationMixMessage decode_actor_animation_mix_message(std::span<const u32> message,
+    const RuntimeActorWordBindings& bindings)
+{
+    const auto bytes = std::as_bytes(message);
+    const std::span<const u8> options{reinterpret_cast<const u8*>(bytes.data()) + 8, bytes.size() - 8};
+    AnimationMix mix;
+    mix.duration = read_f32(options, 4);
+    mix.weight = read_f32(options, 8);
+    mix.blend_mode = i32(read_u32(options, 0xC));
+    mix.fade_duration = read_f32(options, 0x10);
+    mix.position = read_f32(options, 0x14);
+    mix.mode = i16(read_u16(options, 0x18));
+    mix.priority = i32(read_u32(options, 0x1C));
+    mix.old_pose_duration = read_f32(options, 0x20);
+    mix.events = reinterpret_cast<const char*>(options.data() + 0x24);
+    const u32 animation = read_u32(options, 0xA4);
+    const u32 events = read_u32(options, 0xA8);
+    const u32 record = read_u32(options, 0xAC);
+    mix.borrowed_animation = animation == 0 ? std::span<const u8>{} : bindings.memory_at(animation);
+    mix.borrowed_events = events == 0 ? std::span<const u8>{} : bindings.memory_at(events);
+    mix.record = record == 0 ? nullptr : bindings.animation_record_at(record);
+    return ActorAnimationMixMessage{message[0], message[1], mix, reinterpret_cast<const char*>(message.data()) + 0xB8};
+}
+
 void dispatch_base_actor_word_message(ActorBaseContext& context, std::span<u32> message,
     const RuntimeActorWordBindings& bindings)
 {
@@ -16,26 +40,7 @@ void dispatch_base_actor_word_message(ActorBaseContext& context, std::span<u32> 
     }
     else if (id == 0xB)
     {
-        const auto bytes = std::as_bytes(message);
-        const std::span<const u8> options{reinterpret_cast<const u8*>(bytes.data()) + 8, bytes.size() - 8};
-        AnimationMix mix;
-        mix.duration = read_f32(options, 4);
-        mix.weight = read_f32(options, 8);
-        mix.blend_mode = i32(read_u32(options, 0xC));
-        mix.fade_duration = read_f32(options, 0x10);
-        mix.position = read_f32(options, 0x14);
-        mix.mode = i16(read_u16(options, 0x18));
-        mix.priority = i32(read_u32(options, 0x1C));
-        mix.old_pose_duration = read_f32(options, 0x20);
-        mix.events = reinterpret_cast<const char*>(options.data() + 0x24);
-        const u32 animation = read_u32(options, 0xA4);
-        const u32 events = read_u32(options, 0xA8);
-        const u32 record = read_u32(options, 0xAC);
-        mix.borrowed_animation = animation == 0 ? std::span<const u8>{} : bindings.memory_at(animation);
-        mix.borrowed_events = events == 0 ? std::span<const u8>{} : bindings.memory_at(events);
-        mix.record = record == 0 ? nullptr : bindings.animation_record_at(record);
-        const ActorAnimationMixMessage native{id, message[1], mix,
-            reinterpret_cast<const char*>(message.data()) + 0xB8};
+        const ActorAnimationMixMessage native = decode_actor_animation_mix_message(message, bindings);
         dispatch_base_actor_message(&native, context);
     }
     else if (id == 0xC || id == 0xD)

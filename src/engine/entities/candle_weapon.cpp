@@ -20,6 +20,7 @@ using namespace weapon_detail;
 namespace
 {
 namespace field = candle_weapon_field;
+namespace flame_field = candle_flame_field;
 constexpr u32 kScriptHold = 0; // DAT_00512278, BSS that no retail code writes.
 constexpr u32 kColor = 0xC8CE93FFu; // DAT_00303588.
 constexpr u32 kSecondColor = 0xC800BFBFu; // DAT_0030358C.
@@ -60,9 +61,9 @@ Actor* holder_of(const RuntimeWeaponActor& weapon)
 }
 
 // The model's selected pose (+0x204's +0x168, else +0x164) for the binding's joint.
-const ModelPoseBuffer& binding_pose(const RuntimeWeaponActor& weapon)
+const ModelPoseBuffer& binding_pose(const Actor& actor)
 {
-    const RuntimeModelInstance* model = weapon.actor.model == nullptr ? nullptr : weapon.actor.model->runtime;
+    const RuntimeModelInstance* model = actor.model == nullptr ? nullptr : actor.model->runtime;
     const ModelPoseBuffer* pose = model == nullptr ? nullptr
         : model->alternate != nullptr ? model->alternate : model->primary;
     if (pose == nullptr)
@@ -73,12 +74,11 @@ const ModelPoseBuffer& binding_pose(const RuntimeWeaponActor& weapon)
 }
 
 // The binding's position (+0x10, +0x20, +0x30) and joint (+2).
-Vec3 binding_local(const RuntimeWeaponActor& weapon, i16& joint)
+Vec3 binding_local(const u8* binding, i16& joint)
 {
-    const u8* binding = weapon.candle_binding;
     if (binding == nullptr)
     {
-        throw Error("the candle reads its flame binding (+0xE60), which its model does not have");
+        throw Error("the candle reads its flame binding, which its model does not have");
     }
     Vec3 local{};
     std::memcpy(&local.x, binding + 0x10, 4);
@@ -110,30 +110,29 @@ Vec3 draw_transform(const float* m, const Vec3& p)
 }
 
 // The flame point: the binding through its joint (when not negative), then through the actor transform at +0x2AC.
-Vec3 flame_point(const RuntimeWeaponActor& weapon, Vec3 (*transform)(const float*, const Vec3&))
+Vec3 flame_point(const Actor& actor, const u8* binding, Vec3 (*transform)(const float*, const Vec3&))
 {
     i16 joint = 0;
-    Vec3 point = binding_local(weapon, joint);
+    Vec3 point = binding_local(binding, joint);
     if (joint >= 0)
     {
-        point = transform(model_pose_matrix(binding_pose(weapon), joint).data(), point); // 0x00031530
+        point = transform(model_pose_matrix(binding_pose(actor), joint).data(), point); // 0x00031530
     }
-    return transform(weapon.actor.xform, point); // Actor +0x2AC.
+    return transform(actor.xform, point); // Actor +0x2AC.
 }
 
 // The inline release of a DAT_00511B70 record.
-void release_point_light(RuntimeWeaponActor& weapon)
+void release_point_light(RuntimeCandleFlame& flame)
 {
-    release_runtime_scene_point_light(get(weapon.bytes, field::point_light), candle_of(weapon).point_lights);
+    release_runtime_scene_point_light(get(flame.block, flame_field::point_light), flame.services.point_lights);
 }
 
 // Xbox 0x000C6C10: a kind-2 light at the origin (DAT_0050DD80), 78..268 with the candle's colour.
-std::int8_t start_candle_light(RuntimeWeaponActor& weapon)
+std::int8_t start_candle_light(RuntimeCandleFlame& flame)
 {
-    RuntimeCandleServices& candle = candle_of(weapon);
-    weapon.candle_light = std::make_unique<std::array<u8, 0x98>>(); // 0x000F72D0(0x98) in 0x000FE080.
-    u8* record = weapon.candle_light->data();
-    const std::int8_t slot = allocate_runtime_light(2, Vec3{}, record, candle.lights); // 0x000FE080, ESI DAT_0050DD80
+    flame.light = std::make_unique<std::array<u8, 0x98>>(); // 0x000F72D0(0x98) in 0x000FE080.
+    u8* record = flame.light->data();
+    const std::int8_t slot = allocate_runtime_light(2, Vec3{}, record, flame.services.lights); // 0x000FE080, ESI DAT_0050DD80
     record[0x66] |= 0x48;
     put_float(record, 0x6C, kNear);
     mark_light(record);
@@ -148,7 +147,7 @@ std::int8_t start_candle_light(RuntimeWeaponActor& weapon)
 }
 
 // 0x0005C1A0 for one of the flame's sprites: its frame from the actor's run time (+0x924) when it animates.
-void queue_flame_sprite(RuntimeWeaponActor& weapon, std::span<const u8> sprite, u32 color, float size,
+void queue_flame_sprite(RuntimeCandleFlame& flame, std::span<const u8> sprite, u32 color, float size,
     const Vec3& position)
 {
     const std::array<float, 2> extent{size, size};
@@ -156,12 +155,18 @@ void queue_flame_sprite(RuntimeWeaponActor& weapon, std::span<const u8> sprite, 
     const float rate = float(sprite[0x10]);
     if (rate != 0.f) // UCOMISS DAT_0032B100.
     {
-        const auto frames = u32(truncate_runtime_float(static_cast<long double>(rate)
-            * weapon.view.frame.elapsed)); // 0x001673D8
+        const auto frames = u32(truncate_runtime_float(static_cast<long double>(rate) * flame.elapsed)); // 0x001673D8
         frame = u8(frames % sprite[0x11]);
     }
-    queue_billboard(candle_of(weapon).billboards, sprite.data(), color, frame, position, extent.data(), 0.f);
+    queue_billboard(flame.services.billboards, sprite.data(), color, frame, position, extent.data(), 0.f);
 }
+}
+
+RuntimeCandleFlame runtime_candle_weapon_flame(RuntimeWeaponActor& weapon)
+{
+    return RuntimeCandleFlame{weapon.bytes.subspan(field::kFlame, flame_field::kSize), weapon.actor,
+        weapon.candle_binding, weapon.candle_light, weapon.candle_flame, weapon.candle_glow, weapon.view.frame.elapsed,
+        candle_of(weapon), weapon.registry, weapon.error, weapon.services.sounds};
 }
 
 // Xbox 0x000C64D0
@@ -174,20 +179,20 @@ void candle_weapon_object_sizes(ObjectSizes& sizes)
 // Xbox 0x000C6560
 bool initialize_runtime_candle_weapon(RuntimeWeaponActor& weapon)
 {
-    RuntimeCandleServices& candle = candle_of(weapon);
+    RuntimeCandleFlame flame = runtime_candle_weapon_flame(weapon);
     store32(weapon.bytes, 0x99C, 0x000C6F10);
-    weapon.candle_binding = find_actor_model_binding(weapon.actor, 0); // 0x000408D0, EDI 0
-    set(weapon.bytes, field::lit, 0u);
-    weapon.candle_flame = {};
-    weapon.candle_glow = {};
-    set(weapon.bytes, field::light, std::int8_t(-1));
-    set(weapon.bytes, field::point_light, -1);
+    flame.binding = find_actor_model_binding(weapon.actor, 0); // 0x000408D0, EDI 0
+    set(flame.block, flame_field::lit, 0u);
+    flame.flame = {};
+    flame.glow = {};
+    set(flame.block, flame_field::light, std::int8_t(-1));
+    set(flame.block, flame_field::point_light, -1);
     set(weapon.bytes, field::fuel, 1.f); // DAT_0032B0F8.
-    if (get(weapon.bytes, field::point_light) < 0 && candle.point_lights_on != 0)
+    if (get(flame.block, flame_field::point_light) < 0 && flame.services.point_lights_on != 0)
     {
-        const Vec3 position = flame_point(weapon, construct_transform);
-        set(weapon.bytes, field::point_light, add_runtime_scene_point_light(position, kColor, kSecondColor,
-            kPointNear, kPointFar, kNear, kFar, 0, candle.point_lights)); // 0x00123720, ECX position
+        const Vec3 position = flame_point(weapon.actor, flame.binding, construct_transform);
+        set(flame.block, flame_field::point_light, add_runtime_scene_point_light(position, kColor, kSecondColor,
+            kPointNear, kPointFar, kNear, kFar, 0, flame.services.point_lights)); // 0x00123720, ECX position
     }
     return true;
 }
@@ -195,9 +200,10 @@ bool initialize_runtime_candle_weapon(RuntimeWeaponActor& weapon)
 // Xbox 0x000C67A0
 void destroy_runtime_candle_weapon(RuntimeWeaponActor& weapon)
 {
-    put_out_runtime_candle(weapon); // 0x000C7260
-    release_point_light(weapon); // The inlined release.
-    set(weapon.bytes, field::point_light, -1);
+    RuntimeCandleFlame flame = runtime_candle_weapon_flame(weapon);
+    put_out_runtime_candle(flame); // 0x000C7260
+    release_point_light(flame); // The inlined release.
+    set(flame.block, flame_field::point_light, -1);
 }
 
 // Xbox 0x000C7500, XMM0 fuel
@@ -214,97 +220,96 @@ i32 runtime_candle_strength(float fuel)
     return 1 - i32(fuel * -4.f); // DAT_0032B2A4; CVTTSS2SI.
 }
 
-// Xbox 0x000C6FB0, EAX +0xE5C, ECX actor
-void light_runtime_candle(RuntimeWeaponActor& weapon)
+// Xbox 0x000C6FB0, EAX block, ECX actor
+void light_runtime_candle(RuntimeCandleFlame& flame)
 {
-    if (get(weapon.bytes, field::lit) != 0)
+    if (get(flame.block, flame_field::lit) != 0)
     {
         return;
     }
-    Actor& actor = weapon.actor;
+    Actor& actor = flame.actor;
     queue_actor_sound(actor.sound_slots[4], 0, &actor, 4, nullptr, nullptr, 1.f, "XACT_SOUNDBANK_GMISC_TORCHBURN",
-        weapon.services.sounds); // 0x0012A260, EBX actor +0x614
-    set(weapon.bytes, field::light, start_candle_light(weapon)); // 0x000C6C10
-    weapon.candle_flame = acquire_animation_resource(weapon.registry,
-        "aid_texture_particles_candlefinalflame"); // 0x00035E90
-    if (weapon.candle_flame.data() == nullptr)
+        flame.sounds); // 0x0012A260, EBX actor +0x614
+    set(flame.block, flame_field::light, start_candle_light(flame)); // 0x000C6C10
+    flame.flame = acquire_animation_resource(flame.registry, "aid_texture_particles_candlefinalflame"); // 0x00035E90
+    if (flame.flame.data() == nullptr)
     {
-        resource_error(weapon.error, 2); // 0x00032700
+        resource_error(flame.error, 2); // 0x00032700
     }
-    weapon.candle_glow = acquire_animation_resource(weapon.registry, "aid_texture_particles_candlefinalglow");
-    if (weapon.candle_glow.data() == nullptr)
+    flame.glow = acquire_animation_resource(flame.registry, "aid_texture_particles_candlefinalglow");
+    if (flame.glow.data() == nullptr)
     {
-        resource_error(weapon.error, 2);
+        resource_error(flame.error, 2);
     }
-    set(weapon.bytes, field::lit, 1u);
+    set(flame.block, flame_field::lit, 1u);
     (void)actor_world_position(actor); // 0x000412A0 into a stack vector nothing reads.
-    candle_of(weapon).script_lights = 0;
+    flame.services.script_lights = 0;
 }
 
-// Xbox 0x000C7260, EDI +0xE5C
-void put_out_runtime_candle(RuntimeWeaponActor& weapon)
+// Xbox 0x000C7260, EDI block, stack actor
+void put_out_runtime_candle(RuntimeCandleFlame& flame)
 {
-    if (get(weapon.bytes, field::lit) == 0)
+    if (get(flame.block, flame_field::lit) == 0)
     {
         return;
     }
-    RuntimeCandleServices& candle = candle_of(weapon);
-    const std::int8_t slot = get(weapon.bytes, field::light);
+    RuntimeCandleServices& services = flame.services;
+    const std::int8_t slot = get(flame.block, flame_field::light);
     if (slot != -1)
     {
-        u8* record = candle.lights.records[size_t(slot)];
+        u8* record = services.lights.records[size_t(slot)];
         if ((record[0x66] & 0x10) == 0)
         {
-            weapon.candle_light.reset(); // 0x000663E0
+            flame.light.reset(); // 0x000663E0
         }
-        candle.lights.records[size_t(slot)] = nullptr;
-        --candle.lights.count;
-        set(weapon.bytes, field::light, std::int8_t(-1));
+        services.lights.records[size_t(slot)] = nullptr;
+        --services.lights.count;
+        set(flame.block, flame_field::light, std::int8_t(-1));
     }
-    if (weapon.candle_flame.data() != nullptr)
+    if (flame.flame.data() != nullptr)
     {
-        release_animation_resource(weapon.registry, weapon.candle_flame); // 0x00035C00
-        weapon.candle_flame = {};
+        release_animation_resource(flame.registry, flame.flame); // 0x00035C00
+        flame.flame = {};
     }
-    if (weapon.candle_glow.data() != nullptr)
+    if (flame.glow.data() != nullptr)
     {
-        release_animation_resource(weapon.registry, weapon.candle_glow);
-        weapon.candle_glow = {};
+        release_animation_resource(flame.registry, flame.glow);
+        flame.glow = {};
     }
-    release_actor_sound(weapon.actor.sound_slots[4], weapon.services.sounds); // 0x0012A3D0, ESI actor +0x614
-    set(weapon.bytes, field::lit, 0u);
-    if (get(weapon.bytes, field::point_light) >= 0)
+    release_actor_sound(flame.actor.sound_slots[4], flame.sounds); // 0x0012A3D0, ESI actor +0x614
+    set(flame.block, flame_field::lit, 0u);
+    if (get(flame.block, flame_field::point_light) >= 0)
     {
-        release_point_light(weapon); // The inlined release.
-        candle.script_lights = 1;
+        release_point_light(flame); // The inlined release.
+        services.script_lights = 1;
     }
-    set(weapon.bytes, field::point_light, -1);
+    set(flame.block, flame_field::point_light, -1);
 }
 
-// Xbox 0x000C7540, EAX +0xE5C
-i32 tend_runtime_candle(float fuel, u32 burning, RuntimeWeaponActor& weapon)
+// Xbox 0x000C7540, EAX block, ECX actor
+i32 tend_runtime_candle(float fuel, u32 burning, RuntimeCandleFlame& flame)
 {
     const i32 strength = runtime_candle_strength(fuel); // The inlined 0x000C7500.
     if (strength > 0 && burning != 0)
     {
-        if (get(weapon.bytes, field::lit) == 0)
+        if (get(flame.block, flame_field::lit) == 0)
         {
-            light_runtime_candle(weapon); // 0x000C6FB0
+            light_runtime_candle(flame); // 0x000C6FB0
         }
         return strength;
     }
-    if (get(weapon.bytes, field::lit) != 0)
+    if (get(flame.block, flame_field::lit) != 0)
     {
-        put_out_runtime_candle(weapon); // 0x000C7260
+        put_out_runtime_candle(flame); // 0x000C7260
     }
     return strength;
 }
 
-// Xbox 0x000C7310, EBX position
-void place_runtime_candle_lights(RuntimeWeaponActor& weapon, const Vec3& position)
+// Xbox 0x000C7310, EAX block, EBX position
+void place_runtime_candle_lights(RuntimeCandleFlame& flame, const Vec3& position)
 {
-    RuntimeCandleServices& candle = candle_of(weapon);
-    u8* record = candle.lights.records[size_t(get(weapon.bytes, field::light))];
+    RuntimeCandleServices& services = flame.services;
+    u8* record = services.lights.records[size_t(get(flame.block, flame_field::light))];
     std::memcpy(record + 0x40, &position, 12);
     if (record[0x64] == 2)
     {
@@ -321,18 +326,18 @@ void place_runtime_candle_lights(RuntimeWeaponActor& weapon, const Vec3& positio
     mark_light(record);
     put_word(record, 0x80, kColor);
     put_word(record, 0x84, kColor);
-    if (get(weapon.bytes, field::point_light) < 0 && candle.point_lights_on != 0)
+    if (get(flame.block, flame_field::point_light) < 0 && services.point_lights_on != 0)
     {
-        set(weapon.bytes, field::point_light, add_runtime_scene_point_light(position, kColor, kSecondColor,
-            kPointNear, kPointFar, kNear, kFar, 0, candle.point_lights)); // 0x00123720, ECX position
+        set(flame.block, flame_field::point_light, add_runtime_scene_point_light(position, kColor, kSecondColor,
+            kPointNear, kPointFar, kNear, kFar, 0, services.point_lights)); // 0x00123720, ECX position
     }
-    const i32 index = get(weapon.bytes, field::point_light);
+    const i32 index = get(flame.block, flame_field::point_light);
     if (index >= 0)
     {
-        SceneAmbientPoint& point = candle.point_lights.points.at(size_t(index));
+        SceneAmbientPoint& point = services.point_lights.points.at(size_t(index));
         if (point.active == 0)
         {
-            set(weapon.bytes, field::point_light, -1);
+            set(flame.block, flame_field::point_light, -1);
         }
         else
         {
@@ -345,47 +350,46 @@ void place_runtime_candle_lights(RuntimeWeaponActor& weapon, const Vec3& positio
             point.unk_20 = kFar;
         }
     }
-    candle.spot.active = 1;
-    candle.spot.position = Vec3{position.x, position.y + 40.f, position.z}; // DAT_0032B1B8.
+    services.spot.active = 1;
+    services.spot.position = Vec3{position.x, position.y + 40.f, position.z}; // DAT_0032B1B8.
 }
 
-// Xbox 0x000C7060, EDI +0xE5C, ECX actor
-void update_runtime_candle_flame(RuntimeWeaponActor& weapon)
+// Xbox 0x000C7060, EDI block, ECX actor, XMM0 fuel, EAX burning
+void update_runtime_candle_flame(float fuel, u32 burning, RuntimeCandleFlame& flame)
 {
-    const i32 strength = tend_runtime_candle(get(weapon.bytes, field::fuel), get(weapon.bytes, field::burning),
-        weapon); // 0x000C7540
-    const Vec3 position = flame_point(weapon, update_transform);
+    const i32 strength = tend_runtime_candle(fuel, burning, flame); // 0x000C7540
+    const Vec3 position = flame_point(flame.actor, flame.binding, update_transform);
     if (strength > 0)
     {
-        if (get(weapon.bytes, field::light) != -1)
+        if (get(flame.block, flame_field::light) != -1)
         {
-            place_runtime_candle_lights(weapon, position); // 0x000C7310
+            place_runtime_candle_lights(flame, position); // 0x000C7310
         }
         return;
     }
-    if (get(weapon.bytes, field::point_light) >= 0)
+    if (get(flame.block, flame_field::point_light) >= 0)
     {
-        release_point_light(weapon); // The inlined release.
+        release_point_light(flame); // The inlined release.
     }
-    set(weapon.bytes, field::point_light, -1);
-    candle_of(weapon).script_lights = 1;
+    set(flame.block, flame_field::point_light, -1);
+    flame.services.script_lights = 1;
 }
 
-// Xbox 0x000C6C80, EBX actor, EDI +0xE5C
-void queue_runtime_candle_flame(RuntimeWeaponActor& weapon)
+// Xbox 0x000C6C80, EBX actor, EDI block
+void queue_runtime_candle_flame(RuntimeCandleFlame& flame)
 {
-    if (get(weapon.bytes, field::lit) == 0)
+    if (get(flame.block, flame_field::lit) == 0)
     {
         return;
     }
-    const Vec3 position = flame_point(weapon, draw_transform);
-    if (weapon.candle_flame.data() != nullptr)
+    const Vec3 position = flame_point(flame.actor, flame.binding, draw_transform);
+    if (flame.flame.data() != nullptr)
     {
-        queue_flame_sprite(weapon, weapon.candle_flame, 0xFFFFFFFFu, 5.f, position); // DAT_0032B184.
+        queue_flame_sprite(flame, flame.flame, 0xFFFFFFFFu, 5.f, position); // DAT_0032B184.
     }
-    if (weapon.candle_glow.data() != nullptr)
+    if (flame.glow.data() != nullptr)
     {
-        queue_flame_sprite(weapon, weapon.candle_glow, 0x37FFFFFFu, 7.f, position); // DAT_0032B284.
+        queue_flame_sprite(flame, flame.glow, 0x37FFFFFFu, 7.f, position); // DAT_0032B284.
     }
 }
 
@@ -394,7 +398,7 @@ u32 test_runtime_candle_contact(RuntimeWeaponActor& weapon, RuntimeSegmentContac
     GhoulySpawnPool* contacts, const Vec3& velocity, u16 word)
 {
     auto bytes = weapon.bytes;
-    const bool lit = get(bytes, field::lit) != 0;
+    const bool lit = get(bytes.subspan(field::kFlame), flame_field::lit) != 0;
     report_runtime_weapon_contact(weapon, holder_of(weapon), object, point, contacts, velocity, word,
         lit ? bytes[0xDAC] : u8(7), lit ? bytes[0xDAD] : u8(0x3F), bytes[0xDAE],
         get(bytes, field::spent) == 0); // 0x00141890
@@ -459,8 +463,11 @@ void dispatch_runtime_candle_weapon_message(RuntimeWeaponActor& weapon, std::spa
         return;
     }
     case 0x7D:
-        light_runtime_candle(weapon); // The tail jump to 0x000C6FB0, EAX +0xE5C.
+    {
+        RuntimeCandleFlame flame = runtime_candle_weapon_flame(weapon);
+        light_runtime_candle(flame); // The tail jump to 0x000C6FB0, EAX +0xE5C.
         return;
+    }
     case 0x91:
         change_runtime_weapon_state(weapon, 3); // 0x0014A290, EDI 3
         return;
@@ -484,7 +491,9 @@ void update_runtime_candle_weapon_state(RuntimeWeaponActor& weapon, u16 state)
     RuntimeCandleServices& candle = candle_of(weapon);
     auto bytes = weapon.bytes;
     Actor* holder = holder_of(weapon);
-    update_runtime_candle_flame(weapon); // 0x000C7060, EAX +0xE74, XMM0 fuel
+    RuntimeCandleFlame flame = runtime_candle_weapon_flame(weapon);
+    update_runtime_candle_flame(get(bytes, field::fuel), get(bytes, field::burning),
+        flame); // 0x000C7060, EAX +0xE74, XMM0 fuel
     const RuntimeActorClock& clock = weapon.clock;
     bool tick = true;
     if (holder != nullptr)

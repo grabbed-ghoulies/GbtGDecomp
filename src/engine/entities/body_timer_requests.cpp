@@ -8,7 +8,8 @@ namespace gbtg
 void request_runtime_body_hit_timer(std::span<u8> body, float duration,
     u32 mode, RuntimeBodyTimerCreation& context)
 {
-    auto* recipient = context.recipient;
+    // Body +0x760 decides, as retail reads it; a timer's 0x14 (0x00027B20) may have cleared it after the native view.
+    auto* recipient = read_u32(body, 0x760) == 0 ? nullptr : context.recipient;
     const u32 actor = read_u32(body, 8);
     if (recipient == nullptr)
     {
@@ -54,7 +55,7 @@ void request_runtime_body_hit_timer(std::span<u8> body, float duration,
 // Xbox 0x00027BE0
 void hold_runtime_body_latches(std::span<u8> body, RuntimeBodyHoldTimerContext& context)
 {
-    auto* recipient = context.timer.recipient;
+    auto* recipient = read_u32(body, 0x7F0) == 0 ? nullptr : context.timer.recipient; // Body +0x7F0 decides.
     const u32 actor = read_u32(body, 8);
     if (recipient == nullptr)
     {

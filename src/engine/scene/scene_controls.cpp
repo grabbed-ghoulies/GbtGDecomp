@@ -156,6 +156,23 @@ void destroy_haunted_chairs_view(FactoryObject&)
     // 0x001628B0 returns at once.
 }
 
+bool construct_relics_store_view(FactoryObject& object, std::span<const u8>)
+{
+    auto& control = installing->instance(object);
+    control.state = state_of(object);
+    control.type = object.type;
+    control.relics_store = std::make_unique<RelicsStoreControlState>();
+    return construct_runtime_relics_store_control(state_of(object), *control.relics_store,
+        installing->context.relics_store_services()); // 0x00081060
+}
+
+void destroy_relics_store_view(FactoryObject& object)
+{
+    auto& control = installing->instance(object);
+    destroy_runtime_relics_store_control(state_of(object), *control.relics_store,
+        installing->context.relics_store_services()); // 0x00081150
+}
+
 bool construct_scene_fx_view(FactoryObject& object, std::span<const u8> parameters)
 {
     auto& control = installing->instance(object);
@@ -225,6 +242,13 @@ const ObjectFactoryVtable* haunted_chairs_control_lifecycle()
 {
     static const ObjectFactoryVtable table{0x005055A8, haunted_chairs_control_object_sizes,
         construct_haunted_chairs_view, destroy_haunted_chairs_view};
+    return &table;
+}
+
+const ObjectFactoryVtable* relics_store_control_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505578, relics_store_control_object_sizes,
+        construct_relics_store_view, destroy_relics_store_view};
     return &table;
 }
 
@@ -329,6 +353,15 @@ HauntedChairsControlServices& SceneControlContext::haunted_chairs_services() con
     return *haunted_chairs;
 }
 
+RelicsStoreControlServices& SceneControlContext::relics_store_services() const
+{
+    if (relics_store == nullptr)
+    {
+        throw Error("relics-store control before the scene's actor services bind its services");
+    }
+    return *relics_store;
+}
+
 SceneFxControlServices& SceneControlContext::fx_services() const
 {
     if (fx == nullptr)
@@ -365,6 +398,7 @@ void NativeSceneControlOwner::install(std::span<ObjectFactoryType> types)
     types[0x9A] = ObjectFactoryType{3, gameselect_control_lifecycle};
     types[0x92] = ObjectFactoryType{3, trophy_heads_control_lifecycle};
     types[0x93] = ObjectFactoryType{3, haunted_chairs_control_lifecycle}; // Getter 0x000824F0.
+    types[0x94] = ObjectFactoryType{3, relics_store_control_lifecycle}; // Getter 0x00081010.
     types[0x97] = ObjectFactoryType{3, scene_fx_control_lifecycle}; // Getter 0x00082FA0.
     types[0x98] = ObjectFactoryType{3, super_scary_control_lifecycle};
     types[0x96] = ObjectFactoryType{3, movie_volume_control_lifecycle};
@@ -448,6 +482,12 @@ void NativeSceneControlOwner::message(SceneControlInstance& control, std::span<c
             context.lists, context.haunted_chairs_services());
         return;
     }
+    if (control.type == 0x94)
+    {
+        message_runtime_relics_store_control(control.state, words, reference, *control.relics_store, control,
+            context.lists, context.relics_store_services()); // 0x000811A0
+        return;
+    }
     if (control.type == 0x98)
     {
         message_runtime_super_scary_control(control.state, words, *control.super_scary, control, context.lists);
@@ -480,6 +520,10 @@ void NativeSceneControlOwner::tick(SceneControlInstance& control)
         tick_runtime_haunted_chairs_control(control.state, *control.haunted_chairs, control, context.lists,
             context.haunted_chairs_services());
         return;
+    case 0x94:
+        tick_runtime_relics_store_control(control.state, *control.relics_store,
+            context.relics_store_services()); // 0x00081080
+        return;
     case 0x97:
         tick_runtime_scene_fx_control(control.state, context.fx_services()); // 0x00083570
         return;
@@ -507,6 +551,10 @@ void NativeSceneControlOwner::draw(SceneControlInstance& control)
         return;
     case 0x9A:
         draw_runtime_gameselect_control(control.state, *control.gameselect, context.gameselect_services());
+        return;
+    case 0x94:
+        draw_runtime_relics_store_control(control.state, *control.relics_store,
+            context.relics_store_services()); // 0x00081310
         return;
     case 0x98:
         draw_runtime_super_scary_control(control.state, *control.super_scary, context.super_scary_services());

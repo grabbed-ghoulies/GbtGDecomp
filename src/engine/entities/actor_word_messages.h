@@ -13,4 +13,8 @@ struct RuntimeActorWordBindings
 // base message handler. These mappings never create missing actors/resources.
 void dispatch_base_actor_word_message(ActorBaseContext& context, std::span<u32> message,
     const RuntimeActorWordBindings& bindings);
+// Message 0xB's words {0xB, slot, the 0x000306E0 mix at +8, the animation's name at +0xB8} as the native message;
+// its events name and animation name point into `message`.
+ActorAnimationMixMessage decode_actor_animation_mix_message(std::span<const u32> message,
+    const RuntimeActorWordBindings& bindings);
 }

@@ -36,6 +36,15 @@ void player_sizes(ObjectSizes& output)
 bool construct_player_view(FactoryObject& object, std::span<const u8> parameters)
 {
     auto& player = active_owner->construct_player(object);
+    player.constructing = &object;
+    struct ConstructionEnd
+    {
+        NativePlayerInstance& player;
+        ~ConstructionEnd()
+        {
+            player.constructing = nullptr;
+        }
+    } end{player};
 #if defined(GBTG_INSPECTOR_APP)
     try
     {
@@ -375,6 +384,10 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
       self{actor_bytes, actor_address,
           [this](std::span<const u32> message)
           {
+              if (!actor_message && constructing != nullptr && scene.attach_actor_messages)
+              {
+                  scene.attach_actor_messages(*constructing, *this);
+              }
               if (!actor_message)
               {
                   throw Error("player actor message slot 0x00028F60 is not attached");
@@ -548,6 +561,10 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
           scene_bindings.class_names,
           [this]()
           {
+              if (!body_action_key && scene.attach_body_methods)
+              {
+                  scene.attach_body_methods(*this);
+              }
               if (!body_action_key)
               {
                   throw Error("player body vtable +0x20 (0x00075B90) is not attached");

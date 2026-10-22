@@ -28,6 +28,7 @@ struct NativePlayerModelViews
 };
 
 // Scene state the player classes share. Every member outlives the owner.
+struct NativePlayerInstance;
 struct NativePlayerSceneBindings
 {
     // Engine state.
@@ -160,6 +161,12 @@ struct NativePlayerSceneBindings
     std::function<std::span<const u8>()> story_bits; // **(DAT_00506C6C + 8).
     // Haunted chair strategy (type 0x40, vtable 0x00505DFC).
     std::span<const u8> haunted_chair_parameters{}; // DAT_00428734.
+    // Attaches a player's body methods (vtable +0x20 among them) when a weapon is attached before the scene first
+    // messages its body, as the player 0x00134920 spawns holding the relics store's candle does.
+    std::function<void(NativePlayerInstance&)> attach_body_methods{};
+    // Attaches the player's message slot (0x00028F60) when it is messaged while still being constructed (its weapon's
+    // 0x0001B2B0 notifies it), before the scene first routes a message to it.
+    std::function<void(FactoryObject&, NativePlayerInstance&)> attach_actor_messages{};
 };
 
 // Native state and contexts of one player (type 5) and its body, mind and strategy children.
@@ -259,6 +266,7 @@ struct NativePlayerInstance
     RuntimeBodyAttachedActor* mind_action = nullptr; // Mind +0x18.
     bool mind_present = false; // Actor +0x958 is set.
     std::function<u16()> body_action_key; // Actual body vtable +0x20, attached with the body methods.
+    FactoryObject* constructing = nullptr; // The player's object while 0x00134920 constructs it.
     RuntimePlayerAttachment attachment;
     RuntimePlayerAttachmentCreation attachment_creation;
     RuntimePlayerConstruction construction;

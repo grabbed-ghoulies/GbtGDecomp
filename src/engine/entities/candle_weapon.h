@@ -18,16 +18,22 @@ namespace candle_weapon_field
 {
 constexpr RetailField<float, 0xE54> fuel{}; // 1 at construction
 constexpr RetailField<float, 0xE58> relight{}; // seconds before the fuel refills, 5 once it runs out
-// +0xE5C..+0xE73, the flame (0x000C6FB0 / 0x000C7260); +0xE60 the binding, +0xE6C / +0xE70 the flame and glow sprites
-// (host: RuntimeWeaponActor::candle_binding, candle_flame, candle_glow).
-constexpr RetailField<u32, 0xE5C> lit{};
-constexpr RetailField<std::int8_t, 0xE64> light{}; // its DAT_00509B7C slot, -1 for none (host record: candle_light)
-constexpr RetailField<i32, 0xE68> point_light{}; // its DAT_00511B70 record, -1 for none
+constexpr u32 kFlame = 0xE5C; // The flame block (candle_flame_field), 0x18 bytes.
 constexpr RetailField<u32, 0xE74> burning{}; // messages 0x11 / 0x12: the flame may burn
 constexpr RetailField<u32, 0xE78> spent{}; // a landed swing took its fuel; message 0x92 (a new swing) clears it
 constexpr u32 kSize = 0xE7C;
 static_assert(retail_fits(kSize, spent));
 } // namespace candle_weapon_field
+// The flame block 0x000C6C80..0x000C7540 work on (EDI): the candle's +0xE5C and the scene 10 control's +0x40. +4 is
+// the model binding and +0x10 / +0x14 the flame and glow sprites (host: RuntimeCandleFlame's references).
+namespace candle_flame_field
+{
+constexpr RetailField<u32, 0x00> lit{};
+constexpr RetailField<std::int8_t, 0x08> light{}; // its DAT_00509B7C slot, -1 for none (host record: light)
+constexpr RetailField<i32, 0x0C> point_light{}; // its DAT_00511B70 record, -1 for none
+constexpr u32 kSize = 0x18;
+static_assert(retail_fits(kSize, point_light));
+} // namespace candle_flame_field
 // DAT_0050D740..DAT_0050D74C: set while the candle's flame burns, the flame point raised 40.
 struct RuntimeCandleFlameSpot
 {
@@ -47,6 +53,23 @@ struct RuntimeCandleServices
     RuntimeActorCreationOptions& hit; // DAT_004E1C5C, the burst callout's position.
     RuntimeCandleFlameSpot& spot;
 };
+// One flame block and the actor whose model binding carries it (ECX / EBX in the flame functions).
+struct RuntimeCandleFlame
+{
+    std::span<u8> block; // candle_flame_field.
+    Actor& actor;
+    const u8*& binding; // +4, 0x000408D0's binding 0 of the actor.
+    std::unique_ptr<std::array<u8, 0x98>>& light; // The +8 slot's record.
+    std::span<const u8>& flame; // +0x10.
+    std::span<const u8>& glow; // +0x14.
+    const float& elapsed; // Actor +0x924, the sprites' clock.
+    RuntimeCandleServices& services;
+    AnimationResourceRegistry& registry;
+    ResourceErrorState& error;
+    RuntimeActorSoundQueues& sounds;
+};
+// The candle weapon's own flame block (+0xE5C).
+RuntimeCandleFlame runtime_candle_weapon_flame(RuntimeWeaponActor& weapon);
 void candle_weapon_object_sizes(ObjectSizes& sizes); // Xbox 0x000C64D0
 bool initialize_runtime_candle_weapon(RuntimeWeaponActor& weapon); // Xbox 0x000C6560
 void destroy_runtime_candle_weapon(RuntimeWeaponActor& weapon); // Xbox 0x000C67A0
@@ -57,16 +80,17 @@ u32 test_runtime_candle_contact(RuntimeWeaponActor& weapon, RuntimeSegmentContac
 // The flame's strength from its fuel: 0 when empty, else 1 + 4 * fuel (fuel kept below 0.999).
 i32 runtime_candle_strength(float fuel); // Xbox 0x000C7500, XMM0 fuel
 // The flame lights (the torch sound, the scene light, the sprites) the first time.
-void light_runtime_candle(RuntimeWeaponActor& weapon); // Xbox 0x000C6FB0, EAX +0xE5C, ECX actor
+void light_runtime_candle(RuntimeCandleFlame& flame); // Xbox 0x000C6FB0, EAX block, ECX actor
 // The flame goes out: its light, sprites, sound and point light released.
-void put_out_runtime_candle(RuntimeWeaponActor& weapon); // Xbox 0x000C7260, EDI +0xE5C
+void put_out_runtime_candle(RuntimeCandleFlame& flame); // Xbox 0x000C7260, EDI block, stack actor
 // The flame's strength, lighting or putting it out as `burning` and the fuel allow.
-i32 tend_runtime_candle(float fuel, u32 burning, RuntimeWeaponActor& weapon); // Xbox 0x000C7540, EAX +0xE5C
+i32 tend_runtime_candle(float fuel, u32 burning, RuntimeCandleFlame& flame); // Xbox 0x000C7540, EAX block, ECX actor
 // The flame follows the binding: its lights at the flame point, or out once the strength is gone.
-void update_runtime_candle_flame(RuntimeWeaponActor& weapon); // Xbox 0x000C7060, EDI +0xE5C, ECX actor
-void place_runtime_candle_lights(RuntimeWeaponActor& weapon, const Vec3& position); // Xbox 0x000C7310, EBX position
-// After the weapon draw 0x001459C0: the flame and glow billboards at the flame point.
-void queue_runtime_candle_flame(RuntimeWeaponActor& weapon); // Xbox 0x000C6C80, EBX actor, EDI +0xE5C
+void update_runtime_candle_flame(float fuel, u32 burning,
+    RuntimeCandleFlame& flame); // Xbox 0x000C7060, EDI block, ECX actor, XMM0 fuel, EAX burning
+void place_runtime_candle_lights(RuntimeCandleFlame& flame, const Vec3& position); // Xbox 0x000C7310, EAX block, EBX position
+// The flame and glow billboards at the flame point.
+void queue_runtime_candle_flame(RuntimeCandleFlame& flame); // Xbox 0x000C6C80, EBX actor, EDI block
 void update_runtime_candle_weapon_state(RuntimeWeaponActor& weapon, u16 state); // Xbox 0x000C6800, vtable +0x44
 void leave_runtime_candle_weapon_state(RuntimeWeaponActor& weapon, u16 state, u16 next); // Xbox 0x000C6BC0, vtable +0x40
 }

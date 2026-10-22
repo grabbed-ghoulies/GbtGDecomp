@@ -5,6 +5,9 @@
 namespace gbtg
 {
 float approach_runtime_scalar(float current, float target, float amount); // Xbox 0x00101B90
+// `value` less the whole multiples of `divisor` (the quotient truncated, x87 product), or `value` when the divisor's
+// magnitude is the larger.
+long double runtime_float_remainder(float value, float divisor); // Xbox 0x00152BE0
 void set_runtime_bounded_channel_limits(std::span<u8> channel, float first,
     float second, const i32& pal, const i32& override_pal); // Xbox 0x00101B00
 void approach_runtime_scalar_rate(float& current, float& rate, float target,

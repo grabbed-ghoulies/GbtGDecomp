@@ -155,16 +155,6 @@ bool count_down_repeat(float& counter, float reset, RuntimeHauntedTvStrategy& co
     return false;
 }
 
-// Xbox 0x000415A0, ESI actor, EBX target: the squared distance from the actor to the target record's point.
-float squared_target_distance(const Actor& actor, std::span<const u8> target)
-{
-    const Vec3 position = actor_world_position(actor); // 0x000412A0
-    const float dz = position.z - read_f32(target, 0x28);
-    const float dx = position.x - read_f32(target, 0x20);
-    const float dy = position.y - read_f32(target, 0x24);
-    return (dz * dz + dx * dx) + dy * dy;
-}
-
 // Xbox 0x0015B2B0's caller 0x000B1CE0, EAX strategy, ECX texture, EDX mode: 0x000F86F0, inlined, when the screen
 // parameter exists.
 void show_screen_texture(u32 texture, u32 mode, RuntimeHauntedTvStrategy& context)
@@ -829,7 +819,7 @@ void update_runtime_haunted_tv_strategy(RuntimeHauntedTvStrategy& context)
         {
             break;
         }
-        if (3600.f > squared_target_distance(actor, target->bytes)) // 0x000415A0, DAT_0032B410
+        if (3600.f > runtime_squared_target_distance(actor, target->bytes)) // 0x000415A0, DAT_0032B410
         {
             goals.room = nullptr; // Actor +0xCA0.
             change_state(0x417, context);

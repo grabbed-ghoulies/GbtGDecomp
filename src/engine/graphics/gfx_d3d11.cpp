@@ -242,11 +242,14 @@ struct GpuCB
     float alpha_pad = 0.f;
     std::array<float, 4> tint{1.f, 1.f, 1.f, 1.f};
     std::array<float, 4> skin_mask{1.f, 1.f, 0.f, 0.f};
+    // native_ps without a combiner definition: 1/width and 1/height of a linear texture 0, which the NV2A samples
+    // in texels; zero leaves the coordinates normalized.
+    std::array<float, 4> native_uv_scale{0.f, 0.f, 0.f, 0.f};
 };
 
 static_assert(sizeof(GpuVert) == 96 && offsetof(GpuVert, diffuse) == 64 &&
               offsetof(GpuVert, u3) == 72 && offsetof(GpuVert, bone3) == 80 && offsetof(GpuVert, w2) == 88);
-static_assert(sizeof(GpuCB) == 144 && offsetof(GpuCB, skin_mask) == 128);
+static_assert(sizeof(GpuCB) == 160 && offsetof(GpuCB, skin_mask) == 128 && offsetof(GpuCB, native_uv_scale) == 144);
 
 struct DrawRange
 {
@@ -1433,6 +1436,7 @@ cbuffer Camera : register(b0) {
     float4 alpha_rs; // x = ALPHATESTENABLE, y = ALPHAREF, z = ALPHAFUNC (0x0005E0C0)
     float4 tint;
     float4 skin_mask;
+    float4 native_uv_scale;
 };
 cbuffer Bones : register(b1) {
     float4x4 joints[128];
@@ -1442,7 +1446,7 @@ Texture2D g_light : register(t1);
 SamplerState g_samp : register(s0);
 SamplerState g_light_samp : register(s1);
 struct VSIn { float3 pos : POSITION; float2 uv0 : TEXCOORD0; float2 uv1 : TEXCOORD1; float3 nrm : NORMAL; float2 bone : TEXCOORD2; float2 wt : TEXCOORD3; float2 uv2 : TEXCOORD4; float4 diffuse : COLOR0; float4 specular : COLOR1; float2 uv3 : TEXCOORD5; float2 extra_bone : TEXCOORD6; float2 extra_wt : TEXCOORD7; };
-struct VSOut { float4 pos : SV_Position; float2 uv0 : TEXCOORD0; float2 uv1 : TEXCOORD1; float3 nrm : TEXCOORD2; float2 uv2 : TEXCOORD3; float4 diffuse : COLOR0; float4 specular : COLOR1; float2 uv3 : TEXCOORD4; float4 tq2 : TEXCOORD5; float4 tq3 : TEXCOORD6; float fog : TEXCOORD7; };
+struct VSOut { float4 pos : SV_Position; float2 uv0 : TEXCOORD0; float2 uv1 : TEXCOORD1; float3 nrm : TEXCOORD2; float2 uv2 : TEXCOORD3; float4 diffuse : COLOR0; float4 specular : COLOR1; float2 uv3 : TEXCOORD4; float4 tq2 : TEXCOORD5; float4 tq3 : TEXCOORD6; float fog : TEXCOORD7; float4 tq0 : TEXCOORD8; float4 tq1 : TEXCOORD9; };
 VSOut vs_main(VSIn i) {
     VSOut o;
     float3 p = i.pos;
@@ -1471,6 +1475,8 @@ VSOut vs_main(VSIn i) {
     o.uv3 = i.uv3;
     o.tq2 = float4(i.uv2, 0, 1);
     o.tq3 = float4(i.uv3, 0, 1);
+    o.tq0 = float4(i.uv0, 0, 1);
+    o.tq1 = float4(i.uv1, 0, 1);
     o.nrm = nrm;
     o.diffuse = i.diffuse;
     o.specular = i.specular;
@@ -1687,6 +1693,23 @@ float4 ps_model_core(VSOut i, inout float depth)
     {
         regs[11] = stage_tex[3].Sample(stage_samp[3], stage_coord(i, 3));
     }
+    // PASSTHRU (4): the stage's texture register is its texture coordinates, clamped to [0, 1].
+    if ((ps_word(54) & 31) == 4)
+    {
+        regs[8] = saturate(i.tq0);
+    }
+    if (((ps_word(54) >> 5) & 31) == 4)
+    {
+        regs[9] = saturate(i.tq1);
+    }
+    if (((ps_word(54) >> 10) & 31) == 4)
+    {
+        regs[10] = saturate(i.tq2);
+    }
+    if (((ps_word(54) >> 15) & 31) == 4)
+    {
+        regs[11] = saturate(i.tq3);
+    }
     // DOTPRODUCT (17) on stage 2 and DOT_ZW (10) on stage 3 take their input texture from PSInputTexture
     // (word 56, stage 2 at bits 16, stage 3 at bits 20) and the full texture coordinates.
     float dot_w = 1;
@@ -1812,6 +1835,8 @@ VSOut native_vs(NativeIn i)
     o.uv3 = i.uv3;
     o.tq2 = float4(i.uv2, 0, 1);
     o.tq3 = float4(i.uv3, 0, 1);
+    o.tq0 = float4(i.uv0, 0, 1);
+    o.tq1 = float4(i.uv1, 0, 1);
     o.nrm = float3(0, 0, 0);
     o.diffuse = i.diffuse;
     o.specular = i.specular;
@@ -1823,7 +1848,8 @@ float4 native_ps(VSOut i) : SV_Target
     float4 color = i.diffuse;
     if (alpha_rs.w > 0.5)
     {
-        color *= g_tex.Sample(g_samp, i.uv0);
+        float2 uv = any(native_uv_scale.xy != 0) ? i.uv0 * native_uv_scale.xy : i.uv0;
+        color *= g_tex.Sample(g_samp, uv);
     }
     color = saturate(color) * tint;
     if (alpha_rs.x > 0.5 && !native_alpha_pass(color.a))
@@ -2967,7 +2993,7 @@ ID3D11PixelShader* native_pixel_shader(const u32* definition)
     {
         const u32 mode = (definition[54] >> (stage * 5)) & 31;
         const bool dot = (stage == 2 && mode == 17) || (stage == 3 && mode == 10 && ((definition[54] >> 10) & 31) == 17);
-        if (mode > 1 && !dot)
+        if (mode > 1 && mode != 4 && !dot)
         {
             throw Error("native pixel shader uses unsupported texture mode " + std::to_string(mode));
         }
@@ -3528,6 +3554,11 @@ void gfx_draw_native(const GfxNativeDraw& draw)
     cb.alpha_ref = float(draw.alpha_reference & 0xFF);
     cb.alpha_func = float(draw.alpha_function);
     cb.alpha_pad = draw.textures[0] != nullptr ? 1.f : 0.f;
+    if (draw.pixel_shader == nullptr && draw.textures[0] != nullptr && draw.textures[0]->linear
+        && draw.textures[0]->width > 0 && draw.textures[0]->height > 0)
+    {
+        cb.native_uv_scale = {1.f / float(draw.textures[0]->width), 1.f / float(draw.textures[0]->height), 0.f, 0.f};
+    }
     if (!cb_current || std::memcmp(&bound.cb, &cb, sizeof(cb)) != 0)
     {
         if (FAILED(g.context->Map(g.cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
@@ -3549,6 +3580,11 @@ void gfx_draw_native(const GfxNativeDraw& draw)
     cb.alpha_ref = float(draw.alpha_reference & 0xFF);
     cb.alpha_func = float(draw.alpha_function);
     cb.alpha_pad = draw.textures[0] != nullptr ? 1.f : 0.f;
+    if (draw.pixel_shader == nullptr && draw.textures[0] != nullptr && draw.textures[0]->linear
+        && draw.textures[0]->width > 0 && draw.textures[0]->height > 0)
+    {
+        cb.native_uv_scale = {1.f / float(draw.textures[0]->width), 1.f / float(draw.textures[0]->height), 0.f, 0.f};
+    }
     std::memcpy(mapped.pData, &cb, sizeof(cb));
     g.context->Unmap(g.cb.Get(), 0);
 #endif
@@ -3725,10 +3761,6 @@ void gfx_draw_native(const GfxNativeDraw& draw)
         }
         pixel_shader = native_pixel_shader(draw.pixel_shader);
     }
-    else if (draw.textures[0] != nullptr && draw.textures[0]->linear)
-    {
-        throw Error("native draw without a pixel shader binds a linear texture, which needs texel coordinates");
-    }
     if (bound.pixel_shader != pixel_shader)
     {
         g.context->PSSetShader(pixel_shader, nullptr, 0);
@@ -3869,10 +3901,7 @@ void gfx_draw_native(const GfxNativeDraw& draw)
     }
     else
     {
-        if (draw.textures[0] != nullptr && draw.textures[0]->linear)
-        {
-            throw Error("native draw without a pixel shader binds a linear texture, which needs texel coordinates");
-        }
+        // A linear texture 0 takes its texel coordinates through native_uv_scale.
         g.context->PSSetShader(g.native_ps.Get(), nullptr, 0);
     }
     const D3D11_RECT scissor = native_rectangle(draw.scissor);

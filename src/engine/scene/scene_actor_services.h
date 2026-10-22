@@ -81,6 +81,9 @@ public:
     void set_tagged_actor_model_nodes(u16 tag, u8 slot, u8 value);
     // Script type 0x46 with a live 0x7D: the 0x001292D0 player drops its weapon (0x0013A7C0), then 0x0012ECC0.
     void release_script_player_weapon();
+    // Script type 0x31 with a live 0x7D: the 0x001292D0 player is given the named weapon (0x0013A720, replacing the
+    // held one), which the scene keeps.
+    void give_script_player_weapon(const char* name);
     Actor* first_latched_actor(u16 tag) const; // Xbox 0x0013D610 for tag 6: the first DAT_00511AA4 actor with the tag.
     // Script type 0x96's 0x0002B430 / 0x0002B560 on the DAT_00511B40 player.
     void place_script_player(const Vec3& position, const Vec3& euler);

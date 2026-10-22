@@ -97,6 +97,19 @@ i32 runtime_mind_contact_count(const RuntimeMindEvents& events,
     u32 attacker); // Xbox 0x001372A0, EAX mind, ESI attacker
 bool runtime_mind_watches_actor(const RuntimeMindEvents& events, u32 actor); // Xbox 0x001372F0, EAX mind, EDX actor
 bool runtime_message_lands_on_actor(std::span<const u32> message, u32 actor); // Xbox 0x001408A0, EAX message, EDX actor
+// The mind's target (+0x10) is the message's first actor (+4).
+bool runtime_message_names_mind_target_actor(std::span<const u32> message, std::span<const u8> mind,
+    const std::function<RuntimeMindTarget*(u32)>& target_at); // Xbox 0x001408C0, EAX actor, ECX message
+// As 0x001408C0, and the message's second actor (+8) is `actor`.
+bool runtime_message_from_mind_target(std::span<const u32> message, u32 actor, std::span<const u8> mind,
+    const std::function<RuntimeMindTarget*(u32)>& target_at); // Xbox 0x001408E0, ECX message, EDX actor
+// The message names `actor` first (+4) and its second actor's target (+0x8F8, set) is the mind's target (+0x10).
+bool runtime_message_source_targets_mind_target(std::span<const u32> message, u32 actor, std::span<const u8> mind,
+    RuntimeStrategyActorViews& views); // Xbox 0x00140A00, EAX message, ECX actor
+// The squared distance from the actor to the target record's point (+0x20).
+float runtime_squared_target_distance(const Actor& actor, std::span<const u8> target); // Xbox 0x000415A0, ESI actor, EBX target
+// The inlined resume gate: strategy +0x1C clear, 0x0002B7F0 and an empty or idle goal ring (actor +0x980).
+bool runtime_strategy_reactions_enabled(RuntimePlayerStrategyGoals& context);
 float runtime_actor_body_gap(const Actor& first, const Actor& second,
     RuntimeStrategyActorViews& views); // Xbox 0x001363E0, EAX first, ECX second
 u32 retaliate_runtime_strategy_contact(std::span<const u32> message, i32 minimum, RuntimeStrategyTargetChecks& context,

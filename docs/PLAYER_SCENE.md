@@ -212,6 +212,7 @@ All take the game directory, e.g.
 | `--scene6` | Boots scene 6 (chapter1_scene2_1viewcam), A on the chapter title, the transition ends; the trophy heads attack, the first Super Scary challenge fails unanswered into Crivens' page, later ones are won by pressing the shown buttons, the heads' cutscene resumes, and the script moves on to scene 3 (`cache/scene6_c*_s*_*.bmp`); then scene 3's transition ends (no chapter title) and its walk-in and Free Play run with the sticks centred (the scene 3 checks below, passive) |
 | `--scene6-1` | Boots scene 6 (chapter1_scene6_1playcam, the Lower Corridors): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper walks to the scare figure (type 0x1D, its +0x934 trigger), then, in "Ghouly Generator Introduction", to the nearest ghouly setup with a radius (type 0x24, +0xA38) and fights any live ghouly within 50 units. Once the section holds at its end (type 0xF, DAT_00512518), he walks down the corridor (south along x -168, east along z -620) into the exit volume (mask 1), fighting off any spider within 20 units. The scene's objects are logged at each title, the section gate every 300 frames, and the volumes, pending conditions and live script nodes on a failure. Passes when the script moves on to scene 7 |
 | `--scene8` | Boots scene 8 (chapter1_scene8_1playcam, the gaming room) and plays it with the scene 7 driver: during "Event 'Kill All'" Cooper fights any live ghouly in the room, and in "Player Leaves Through Door N" he lines up in front of that door before walking into the exit volume. Passes when the script moves on to scene 9 (frame 4644 in the 2026-10-22 run) |
+| `--scene9` | Boots scene 9 (chapter1_scene9_1playcam, the basement cellar) and plays it with the scene 7 driver, doors first: a live PlayerApproachesDoor sends Cooper to that door before any region, and a walk held in place for 1.5 s avoids the grid cell it was walking into (coffins and crates the grid leaves open). Cooper fights the mummy in its room, burns it with the candle Crivens hands over, and leaves through door 8. Passes when the script moves on to scene 10 (frame 9600 in the 2026-10-22 run; up to 18000 frames are allowed) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -302,8 +303,11 @@ TV's ghoul intro, its electric attack that shocks Cooper, the ghoulies it summon
 script moves on to `aid_script_ghoulies_chapter1_scene8_1playcam` (the gaming room). `--scene8` plays that scene to
 its end: Cooper walks in, the door shuts behind him, the chairs flip off their spots and "Kill All" asks him to
 break every haunted chair. Its event completes, the exit door opens, Cooper leaves through it and the script moves
-on to `aid_script_ghoulies_chapter1_scene9_1playcam`, which nothing drives yet (see the 2026-10-22 checkpoint and the
-frontier).
+on to `aid_script_ghoulies_chapter1_scene9_1playcam`. `--scene9` plays that scene (the basement cellar) to its end:
+Cooper walks the long way round to the mummy's room, the mummy comes through its door, Crivens hands over the special
+candle, and its fire burns the mummy; the exit door opens and the script moves on to
+`aid_script_ghoulies_chapter1_scene10_1playcam` ("Relics Store"), which nothing drives yet (see the 2026-10-22
+checkpoints).
 
 | Path | Stop | What it needs |
 |---|---|---|
@@ -316,11 +320,12 @@ frontier).
 | Script condition nodes | partial | `0x00125450` registers types 0x3D..0x3F, 0x40..0x44, 0x47, 0x48, 0x5A, 0x5B, 0x6A, 0x6C, 0x72, 0x94, 0x95 and 0x99; retail also takes 0x65, 0x66, 0x68, 0x75, 0x8B, 0x8C, 0x92, 0x93 and 0xA3, which still run as ordinary nodes |
 | Script event steps | partial | `0x00126140` queues step types 0 to 3 (script types 0x19, 0x1B, 0x1C, 0x1D) and `0x000D0B40` runs them; the other builders (`0x00125D80`..`0x00126100`) are not translated, so those script types queue nothing |
 | Script type 0x16 | legacy | Still the old shortcut; retail waits for `0x0004EFE0` with DAT_00512470 set, then releases the cutscenes |
-| Scene 9 (`aid_script_ghoulies_chapter1_scene9_1playcam`) | not driven | `--scene8` stops once the script moves on to it |
+| Scene 10 (`aid_script_ghoulies_chapter1_scene10_1playcam`) | not driven | `--scene9` stops once the script moves on to it |
+| The camera near scene 9's door 8 | unchecked | From frame ~11400 of a long scene 9 run the camera looked down on the cellar from outside its walls; not compared with retail |
 
 ## Work
 
-1. Scene 9 (`aid_script_ghoulies_chapter1_scene9_1playcam`): drive it after scene 8 and translate what it
+1. Scene 10 (`aid_script_ghoulies_chapter1_scene10_1playcam`): drive it after scene 9 and translate what it
    reaches.
 2. Move the remaining `g_pulse_nodes` callers to the native `DAT_00511AA4` lookups.
 
@@ -361,6 +366,33 @@ frontier).
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-22: scene 9 (the basement cellar's mummy) plays to its end
+
+`--scene9` (new) boots `aid_script_ghoulies_chapter1_scene9_1playcam` and plays it to its end. The cellar renders with
+its light grid and point lights; "Free Play" holds on PlayerApproachesDoor (door 8) and PlayerEntersRegion. Cooper
+walks to region 1 (frame ~7200), "Mummy Enters Room" plays the mummy's walk-in and Crivens' "Blimey, a mummy!" page, and
+"Event 'One Type' (Mummies)" starts. Ordinary hits do not harm the mummy; after the knockdown count (condition opcode 5)
+Crivens' second page gives the special candle, Cooper burns the mummy with it, "Player Leaves Through Door 8" opens the
+exit and the script moves on to `aid_script_ghoulies_chapter1_scene10_1playcam` at frame ~9600.
+
+- New translations: the mummy strategy (type 0x4C, `mummy_strategy.cpp`: `0x000BB8E0`..`0x000BC580`); the candle
+  weapon (type 0xA1, `candle_weapon.cpp`: `0x000C64D0`..`0x000C7540`, its flame, scene and point lights, fuel and
+  burning hits); the burn outline (type 0x31, `fx_custom_electric.cpp`: `0x000772E0`..`0x00077D30`); the scene's point
+  lights and light grid (`scene_point_lights.cpp`, `scene_light_grid.cpp`, `scene_point_light_pass.cpp`), the
+  animated light (type 0x13) and the scene fx control (type 0x97); script type 0x31 (`0x00123AD0` and the
+  `0x0013A720` weapon give) and condition opcode 5's update (`0x001332B0`); the scoreboard meter's level, textures,
+  shown update, buzzer and draw (`0x0012E770`, `0x0012EC70`, `0x0012E900`, `0x0012ED30`, `0x0012ED90`,
+  `0x0012EA50`); `0x00140A00`, `0x001408C0`, `0x001408E0`, `0x00134620` and the truncating remainder `0x00152BE0`.
+- Host fixes: the body attachment lists named the empty host copy of DAT_00506930 (`timed_attachments`) instead of
+  the live effect table `g_actor_effect_nodes`, so the first knockdown crashed. A weapon created through
+  `create_runtime_player_attachment` (and `0x0001A6D0`, the player's starting weapon) was looked up in a map nothing
+  filled; the creation context now asks the scene for the new object's attachment view (`view_of`). DAT_00430D14 is
+  the 0x8C-byte weapon name it is in retail, not one byte.
+- Driver: `play_scene7` takes `doors_first`; the walk avoids cells where Cooper is held (`nav_waypoint`'s `avoid`).
+- Shown (looked at): the mummy at its door with its HUD portrait (`cache/scene9_7500.bmp`), both Crivens pages
+  (`scene9_page1.bmp`, `scene9_page2.bmp`), the lit candle with its glow, the burn sparks and the fuel meter
+  (`scene9_9000.bmp`) and the meter after the burn by the exit (`scene9_9300.bmp`).
 
 ### 2026-10-22: scene 8 (the gaming room's haunted chairs) plays to its end
 

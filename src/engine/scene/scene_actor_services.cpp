@@ -8,6 +8,9 @@
 #include "../entities/actor_lookup.h"
 #include "../entities/actor_render_registration.h"
 #include "../entities/bone_debris_actor.h"
+#include "scene_point_lights.h"
+#include "scene_light_grid.h"
+#include "../graphics/scene_point_light_pass.h"
 #include "../video/movie_startup.h"
 #include "attract_control.h"
 #include "gameselect_control.h"
@@ -523,7 +526,8 @@ struct SceneActorServices::State
     // Player construction and children.
     u32 player_count = 0; // DAT_00510578.
     u32& active_strategies = reinterpret_cast<u32&>(g_510cec); // DAT_00510CEC.
-    std::unordered_map<const u8*, RuntimePlayerAttachmentActor*> attachment_objects;
+    // The object create_runtime_player_attachment (0x0013A720) and its kin are attaching, before the scene keeps it.
+    FactoryObject* attaching_object = nullptr;
     std::unordered_map<RuntimeBodyAttachedActor*, RuntimePlayerAttachmentActor*> attachment_actors;
     std::array<u16, 8> scale_exclusions{}; // DAT_0050E1B4.
     std::array<u8, 0x40> animation_classes{}; // DAT_0050E170.
@@ -654,7 +658,6 @@ struct SceneActorServices::State
     std::unique_ptr<RuntimeGhoulIntroContext> ghoul_intro_context;
     i32 attachment_limit = 0; // DAT_00428684.
     float skeleton_fetch_delay = 0.f; // DAT_004288AC.
-    std::array<u8*, 200> timed_attachments{}; // DAT_00506930, cleared by 0x0011C480.
     std::unordered_map<const Actor*, std::unique_ptr<SceneActorModelViews>> model_views;
     // HUD meters the player strategy drives.
     i32 next_widget_id = 0;
@@ -699,6 +702,9 @@ struct SceneActorServices::State
     std::unique_ptr<NativeSceneActorClassOwner> classes;
     RuntimeWeaponStatTables weapon_stats; // DAT_005461F4..DAT_005461FC, boot-loaded (0x00033030 -> 0x001486C0).
     std::unique_ptr<RuntimeWeaponServices> weapon_services;
+    RuntimeActorCreationOptions candle_hit{}; // DAT_004E1C5C.
+    RuntimeCandleFlameSpot candle_spot{}; // DAT_0050D740..DAT_0050D74C.
+    std::unique_ptr<RuntimeCandleServices> candle_services;
     std::unordered_set<const void*> weapon_bound; // Native blocks a weapon message bound for its words.
     // Backgrounds (factory type 4, vtable 0x004E1644) and the scene globals their constructor and message
     // slot use. The part tables (0x00044CA0, boot) and sector settings (0x000FEF60) load with the services.
@@ -770,6 +776,7 @@ struct SceneActorServices::State
     std::vector<TrophyHeadRow> trophy_head_rows; // DAT_00301920.
     std::unique_ptr<TrophyHeadsControlServices> trophy_heads_services; // Factory type 0x92.
     std::unique_ptr<HauntedChairsControlServices> haunted_chairs_services; // Factory type 0x93.
+    std::unique_ptr<SceneFxControlServices> fx_services; // Factory type 0x97.
     std::unique_ptr<SuperScaryControlServices> super_scary_services; // Factory type 0x98.
     std::vector<const char*> powerup_names; // DAT_0042ABF8, twenty "powerupId_" names.
     std::unique_ptr<RuntimePowerupTable> powerup_table;
@@ -883,6 +890,15 @@ struct SceneActorServices::State
     std::array<const u8*, 4> ambient_grids{}; // DAT_0050D770 as the ambient sampler reads it.
     std::array<SceneAmbientPoint, 32> ambient_points{}; // DAT_00511B70.
     u32 ambient_points_enabled = 0; // DAT_005120F0.
+    i32 ambient_point_free = 0; // DAT_005120F4.
+    u32 ambient_point_fc = 0; // DAT_005120FC.
+    u32 ambient_point_100 = 0; // DAT_00512100.
+    RuntimeScenePointLights point_lights{ambient_points, ambient_points_enabled, ambient_point_free,
+        ambient_point_draw, ambient_point_fc, ambient_point_100};
+    RuntimeSceneLightGrid light_grid; // DAT_0050E374..DAT_0050E384.
+    RuntimeSceneLightGridD3D light_grid_d3d;
+    RuntimeScenePointLightTargets point_light_targets; // DAT_00504850..DAT_00504878.
+    std::unique_ptr<RuntimeScenePointLightPass> point_light_pass;
     std::array<float, 3> ambient_scale{}; // DAT_00509B20.
     u8 environment_world_space = 0; // DAT_004D9668.
     std::array<float, 4> retained_scene_color{}; // DAT_0032E4E4.
@@ -1369,7 +1385,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
                     object_message(*object_of(owner->actor_bytes.data()), message);
                 }
             },
-            intro_scale, story_byte, random});
+            intro_scale, story_byte, random, clock});
     }
     // Boot registers the callout hook (0x0004F610) with the other resource hooks.
     callout_resources = std::make_unique<RuntimeCalloutResources>(RuntimeCalloutResources{resources.registry,
@@ -1466,9 +1482,15 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             return address_of(pointer);
         },
         actor_tags.data(), object_tags.data(), statsheet.data(), statsheet, weapon_names.data(), class_names.data(),
-        read_u32(data(0x00338EE0, 4), 0), matrix_boundaries, attachment_objects, attachment_actors,
+        read_u32(data(0x00338EE0, 4), 0), matrix_boundaries,
+        [this](FactoryObject& object) -> RuntimePlayerAttachmentActor&
+        {
+            attaching_object = &object;
+            return weapon_attachment_at(scene.find_address(object.bytes.get()));
+        },
+        attachment_actors,
         {}, 0, {}, 0, data(0x00433D68, 0x10), data(0x00433CA8, 0x10), resources.loaded_sizes, image.state_tables, image.attack_sequences,
-        animation_cache, animation_cache_count, image.state_row_names, timed_attachments,
+        animation_cache, animation_cache_count, image.state_row_names, g_actor_effect_nodes,
         [this](const Actor& actor)
         {
             return model_views_of(actor);
@@ -1709,7 +1731,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     frame = std::make_unique<ActorFrameContext>(ActorFrameContext{effects, nullptr, node_cache, reset_matrix,
         matrix_boundaries, pause, frame_delta, time_scale, 0, pause_references[1], decay_enabled[decay_index]});
     emitter = std::make_unique<NativeSceneEmitterBindings>(NativeSceneEmitterBindings{*frame,
-        timed_attachments, clock, display_view, g_runtime_profile.challenges.bytes, g_scene_flags->bytes[0],
+        g_actor_effect_nodes, clock, display_view, g_runtime_profile.challenges.bytes, g_scene_flags->bytes[0],
         g_flags_ea9c,
         emitter_players, resume, story_byte, intro_notices, emitters,
         [this](u32 id, RuntimeFxEmitterPlayer& player, u32 kind, float amount, u32 extra)
@@ -1911,6 +1933,12 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         return startup;
     };
     weapon_services->pal = &pal;
+    candle_services = std::make_unique<RuntimeCandleServices>(RuntimeCandleServices{shaders, point_lights, g_flag_2138,
+        g_flag_2104, g_billboard_queue, pause_references, decay_enabled, decay_index, candle_hit, candle_spot});
+    weapon_services->candle = [this]() -> RuntimeCandleServices&
+    {
+        return *candle_services;
+    };
     weapon_services->object_of = [this](const u8* bytes)
     {
         return object_of(bytes);
@@ -2119,7 +2147,8 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         [this](std::span<const u8> message)
         {
             script_queue_event(game, message); // 0x00116810
-        }});
+        },
+        point_lights});
     classes->install(scene.types);
     classes->defer_release = true;
     install_runtime_move_action_classes(scene.types, [this](u32 address) -> std::span<u8>
@@ -2375,7 +2404,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     // The kind handlers (DAT_0042A720) over the markers each scene loads (begin_scene).
     spawn = std::make_unique<RuntimePlayerSpawnContext>(RuntimePlayerSpawnContext{scene.factory, image.pools,
         scene_name.data(), std::span<const u8, 0x210>(data(0x00430DA0, 0x210).data(), 0x210),
-        g_scene_flags->bytes[0], g_flags_ea9c, reinterpret_cast<const char*>(&g_byte_30d14)});
+        g_scene_flags->bytes[0], g_flags_ea9c, g_byte_30d14});
     player_start = std::make_unique<RuntimeMarkerPlayerStart>(RuntimeMarkerPlayerStart{*spawn, markers,
         address_zero, reinterpret_cast<const u32&>(g_5462fc), g_script_30d0c, g_scene_flags->bytes[0],
         g_flags_ea9c,
@@ -2968,6 +2997,13 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             return actors->view(object_of_actor(actor)).render;
         }});
     scene.controls->context.haunted_chairs = haunted_chairs_services.get();
+    // The scene's effect emitters (factory type 0x97, entitySceneControlFx).
+    fx_services = std::make_unique<SceneFxControlServices>(SceneFxControlServices{clock, random, effects,
+        [this](ActorEffectNode& effect, float step)
+        {
+            tick_owned_effect(effect, step); // 0x000EF2D0
+        }});
+    scene.controls->context.fx = fx_services.get();
     // The Super Scary challenge (factory type 0x98) a trophy head's attack creates.
     super_scary_services = std::make_unique<SuperScaryControlServices>(SuperScaryControlServices{
         resources.registry, resources.error, scene_cutscene_runtime(game), voices, audio.streams, random, g_510cec,
@@ -3182,6 +3218,80 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             return read_u32(data(address, 4), 0);
         }});
+    // The light grid's part vertex buffers (0x00112D70): a resource header and its data in the resource arena.
+    light_grid_d3d.create_vertex_buffer = [this](u32 length) -> u32
+    {
+        const u32 header = resources.memory.allocate(0x14, 4).address;
+        const u32 vertices = resources.memory.allocate(length, 0x10).address;
+        auto& record = resources.d3d.resources[header];
+        record.kind = 1;
+        record.data = vertices;
+        record.header = {length, 0, 0, 0, vertices, 0};
+        return header;
+    };
+    light_grid_d3d.lock = [this](u32 buffer) -> std::span<u8>
+    {
+        return resources.memory.tail(resources.d3d.resources.at(buffer).data);
+    };
+    light_grid_d3d.release = [this](u32 resource)
+    {
+        resources.d3d.resources.erase(resource);
+    };
+    point_light_pass = std::make_unique<RuntimeScenePointLightPass>(RuntimeScenePointLightPass{*dialogue_outer,
+        point_light_targets, glow_targets, light_grid, point_lights,
+        RuntimeSceneCameraLight{g_flag_2104, g_camera_light_color, g_camera_light_second_color, g_camera_light_1c,
+            g_camera_light_20, g_camera_light_24, g_camera_light_28, g_color_2134},
+        display_view, model_renderer.fog_render_state, hud_size[0], hud_size[1],
+        [this](u32 width, u32 height, u32 levels, u32 usage, u32 format, u32 pool)
+        {
+            return snapshot_d3d.create_texture(width, height, levels, usage, format, pool); // D3D 0x00177840
+        },
+        [this](u32 stream, u32 buffer, u32 stride)
+        {
+            d3d_device.set_vertex_stream(stream, buffer, stride); // D3D 0x00173610
+        },
+        [this](u32 primitive, u32 first, u32 count)
+        {
+            d3d_device.draw_vertices(primitive, first, count); // D3D 0x00172920
+        },
+        [this](u32 stage, u32 texture)
+        {
+            d3d_device.dialogue().texture(stage, texture == 0 ? nullptr : resources.memory.pointer(texture));
+        },
+        [this](u32 value)
+        {
+            d3d_device.set_state(SceneD3DDevice::kZBias, value); // D3D 0x00171660
+        },
+        [this](u32 value)
+        {
+            d3d_device.set_state(SceneD3DDevice::kMultiSampleAntiAlias, value); // D3D 0x00172600
+        },
+        [this](u32 value)
+        {
+            d3d_device.set_state(SceneD3DDevice::kMultiSampleRenderTargetMode, value); // D3D 0x001725D0
+        },
+        [this](u32 address)
+        {
+            return read_u32(data(address, 4), 0);
+        },
+        [this](u32 address)
+        {
+            return reinterpret_cast<const float*>(data(address, 0xC * 16).data());
+        },
+        [this](u32 part) -> const Vec3&
+        {
+            // The first background's +0x950 row's +4: its point rows (stride 0x30), the first one's position.
+            auto* first = backgrounds->first_background();
+            if (first == nullptr || part >= first->state.graphs.size() || first->state.graphs[part].points.size() < 12)
+            {
+                unbound("point-light part centre without the background's point graph");
+            }
+            return *reinterpret_cast<const Vec3*>(first->state.graphs[part].points.data());
+        },
+        [this](const u8* record)
+        {
+            return resources.memory.address_of(record);
+        }});
     bind_gameselect_services();
     bind_transition_services();
     // The scene model renderer over the relocated resources and the host D3D device.
@@ -3230,8 +3340,9 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     };
     snapshot_d3d.create_texture = [this](u32 width, u32 height, u32 levels, u32 usage, u32 format, u32 pool)
     {
-        // D3DDevice_CreateTexture2: one level of 32-bit texels behind a resource header.
-        if (levels != 1 || (format != 6 && format != 0x12))
+        // D3DDevice_CreateTexture2: one level of 32-bit texels behind a resource header (LIN_D24S8, 0x2E, keeps
+        // depth-stencil words).
+        if (levels != 1 || (format != 6 && format != 0x12 && format != 0x2E))
         {
             unbound("D3DDevice_CreateTexture2 of a format or level count other than one 32-bit level");
         }
@@ -4434,7 +4545,6 @@ void SceneActorServices::State::reset_scene_data()
     notice_queue = {};
     notice_count = 0;
     notice_player = nullptr;
-    timed_attachments = {};
     brew_state = 0;
     brew_intensity = 0.f;
     brew_counter = {};
@@ -4476,6 +4586,10 @@ void SceneActorServices::State::reset_scene_data()
     frontend_pause = 0;
     ambient_points = {};
     ambient_points_enabled = 0;
+    ambient_point_free = 0;
+    ambient_point_draw = 0;
+    ambient_point_fc = 0;
+    ambient_point_100 = 0;
     ambient_scale = {};
     environment_world_space = 0;
     light_records = {};
@@ -4559,6 +4673,19 @@ void SceneActorServices::State::end_scene()
     unload_runtime_ghoul_intro(*ghoul_intro_context); // 0x000F44B0
     // 0x0011C5A0 later tears the scoreboard down.
     tear_down_runtime_scoreboard(*scoreboard_hud); // 0x00132100
+    // 0x0011C5A0's 0x00123640 (0x001199F0, which also clears DAT_0050EC24..DAT_0050EF18, is not translated) and
+    // 0x001133B0.
+    reset_runtime_scene_point_light_pass(*point_light_pass, g_flag_2104, g_color_2134, [this](std::uintptr_t resource)
+    {
+        if (d3d_device.surface_textures.contains(resource))
+        {
+            d3d_device.outer().release(DialogueSurfaceHandle(resource));
+            return;
+        }
+        resources.d3d.resources.erase(u32(resource));
+        created_textures.erase(u32(resource));
+    });
+    release_runtime_scene_light_grid(light_grid, light_grid_d3d); // 0x001133B0
     // The scene's cutscenes released their track actors (0x0004D720). Track actors a live cutscene still holds (one
     // that outlives the scene, as a transition's book does) stay; any other goes with the scene.
     std::unordered_set<const Actor*> held;
@@ -5016,6 +5143,15 @@ SceneActorServices::State::~State()
     {
         scene.controls->context.gameselect = nullptr;
     }
+    if (scene.controls != nullptr && haunted_chairs_services != nullptr
+        && scene.controls->context.haunted_chairs == haunted_chairs_services.get())
+    {
+        scene.controls->context.haunted_chairs = nullptr;
+    }
+    if (scene.controls != nullptr && fx_services != nullptr && scene.controls->context.fx == fx_services.get())
+    {
+        scene.controls->context.fx = nullptr;
+    }
     if (frontend_input.data() != nullptr)
     {
         input_views.erase(frontend_input_address);
@@ -5389,6 +5525,10 @@ bool SceneActorServices::State::release_actor_frame_object(Actor& actor, u32 obj
 
 FactoryObject* SceneActorServices::State::object_of(const u8* bytes)
 {
+    if (attaching_object != nullptr && attaching_object->bytes.get() == bytes)
+    {
+        return attaching_object;
+    }
     for (auto* owned : {&scene.objects, &cameras, &callout_objects, &cutscene_actors, &dialogue_bats})
     {
         for (auto& object : *owned)
@@ -5494,6 +5634,11 @@ void SceneActorServices::State::object_message(FactoryObject& object, std::span<
 void SceneActorServices::State::route_object_message(FactoryObject& object, std::span<u32> message)
 {
     const u16 type = object.type;
+    if (type == 0x31)
+    {
+        message_fx_custom_outline({object.bytes.get(), object.size}, message); // 0x00077A80
+        return;
+    }
     if (type == 0x32)
     {
         message_fx_custom_solid_fade_in({object.bytes.get(), object.size}, message); // 0x000780C0
@@ -5555,7 +5700,7 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
             message, actor_at, base_of(object).base, bindings);
         return;
     }
-    if (type == 0xAA || type == 0xA9 || type == 0xA7 || type == 0xA0)
+    if (type == 0xAA || type == 0xA9 || type == 0xA7 || type == 0xA0 || type == 0xA1)
     {
         // Getters 0x000CEF70, 0x000CD640 and 0x000CB570: +0x10 is the weapon update 0x0014A2E0; +0xC is the chair message
         // 0x000CF0D0 or the large projectile's 0x000CDBE0.
@@ -5746,7 +5891,7 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
         player.self.message(message);
         return;
     }
-    if (type == 3 || type == 0x91 || type == 0x92 || type == 0x98 || type == 0x9A)
+    if (type == 3 || type == 0x91 || type == 0x92 || type == 0x93 || type == 0x97 || type == 0x98 || type == 0x9A)
     {
         scene.controls->message(object, message);
         return;
@@ -5777,6 +5922,21 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
             unregister_actor_segment_probes(view.render);
             clear_actor_shape_probe(view.bat.actor, view.shape);
         }
+        return;
+    }
+    if (type == 0x13)
+    {
+        // Getter 0x0006C260: +0x10 is 0x0006C5A0 (the actor update 0x000420D0 first) and +0xC is 0x0006C9B0, a jump
+        // to the actor's 0x0003EF70.
+        auto& view = actors->view(object);
+        const u8* bytes = object.bytes.get();
+        actor_updates[&view.bat.actor] = [this, bytes](Actor&)
+        {
+            auto& updated = *object_of(bytes);
+            update_base_actor(updated); // 0x000420D0
+            classes->update_animated_light(updated);
+        };
+        dispatch_base_actor_word_message(base_of(object).base, message, word_messages); // 0x0003EF70
         return;
     }
     if (type == 0x12)
@@ -6402,7 +6562,7 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
     // A strategy's goals read the body's vtable slots (body_slot_key), which a just-spawned player's body graph
     // has not attached yet.
     if (child.type == 0x4F || child.type == 0x46 || child.type == 0x3B || child.type == 0x51 || child.type == 0x52
-        || child.type == 0x58 || child.type == 0x44 || child.type == 0x40)
+        || child.type == 0x58 || child.type == 0x44 || child.type == 0x40 || child.type == 0x4C)
     {
         if (auto* player = players->find_player(child); player != nullptr && !player->body.empty())
         {
@@ -6434,6 +6594,9 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
         return;
     case 0x40:
         players->haunted_chair_message(child, words);
+        return;
+    case 0x4C:
+        players->mummy_message(child, words);
         return;
     case 0x39:
     {
@@ -6651,7 +6814,7 @@ RuntimeBodyAttachedActor& SceneActorServices::State::attached_actor_at(u32 addre
     const auto bytes = scene.resolve_address(address, 0);
     FactoryObject* object = object_of(bytes.data());
     if (object == nullptr || (object->type != 0x0B && object->type != 0xAA && object->type != 0xA9
-        && object->type != 0xA7 && object->type != 0xA0))
+        && object->type != 0xA7 && object->type != 0xA0 && object->type != 0xA1))
     {
         unbound("attached actor at an address that is neither a player nor a weapon");
     }
@@ -6887,6 +7050,9 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
                 return;
             case 0x40:
                 players->haunted_chair_update(strategy);
+                return;
+            case 0x4C:
+                players->mummy_update(strategy);
                 return;
             case 0x39:
             {
@@ -7493,9 +7659,31 @@ void SceneActorServices::State::start_background()
     }
     build_scene_navigation(background, {reinterpret_cast<const float*>(data(0x002FCFB8, 0x400).data()), 0x100},
         navigation, navigation_nodes);
-    // 0x0011CBD0 runs 0x001153A0, 0x00123560 and 0x00119990 next (not translated), then 0x0011F450.
+    // 0x0011CBD0 runs 0x001153A0 (not translated), 0x00123560, 0x00119990 (not translated), then 0x0011F450.
+    reset_runtime_scene_point_lights(background != nullptr && background->model != nullptr ? background->model->cpu
+        : std::span<const u8>{}, point_lights); // 0x00123560
     setup_runtime_scene_mirrors(background != nullptr && background->model != nullptr ? background->model->cpu
         : std::span<const u8>{}, mirrors);
+    // 0x00112D70 (after 0x0011F450 and the queue builds): the first background's light grid and parts.
+    light_grid = {};
+    if (auto* first = backgrounds->first_background(); first != nullptr && first->state.actor.model != nullptr)
+    {
+        light_grid.background = true;
+        light_grid.model = first->state.actor.model->cpu;
+        // The serialized header keeps offsets; the relocated original (the model instance's source) gives the cells'
+        // vertex buffer headers their retail addresses.
+        const auto* runtime = first->state.actor.model->runtime;
+        if (runtime == nullptr || runtime->source == nullptr)
+        {
+            unbound("light grid of a background without a model instance");
+        }
+        light_grid.model_address = resources.memory.address_of(runtime->source->cpu.data());
+        if (first->state.lifetime.animation != nullptr)
+        {
+            light_grid.parts = {first->state.lifetime.animation, first->state.graphs.size() * 0x1E0};
+        }
+    }
+    build_runtime_scene_light_grid(light_grid, light_grid_d3d); // 0x00112D70
 }
 
 SceneActorServices::SceneActorServices(SceneFactoryRuntime& scene, Game& game)
@@ -7599,6 +7787,13 @@ void SceneActorServices::State::actor_draw(Actor& actor, i32 view, i32 pass)
                 classes->draw_bone_debris(*object, pass, draw);
                 return;
             }
+            // Type 0x13 +0x14 is 0x0006C7C0: the light's glow billboard, then the actor draw 0x0003C9E0.
+            if (type == 0x13)
+            {
+                classes->queue_animated_light_glow(*object);
+                draw_scene_actor(*object, actor, pass);
+                return;
+            }
             // Type 0x1D +0x14 is the scare figure draw 0x0006F600 (getter 0x0006EFB0).
             if (type == 0x1D)
             {
@@ -7619,14 +7814,17 @@ void SceneActorServices::State::actor_draw(Actor& actor, i32 view, i32 pass)
                 return;
             }
             // Types 0xAA and 0xA9 +0x14 is the weapon draw 0x001459C0: the actor draw 0x0003C9E0, then the hand prompt.
-            if (type == 0xAA || type == 0xA9 || type == 0xA7 || type == 0xA0)
+            if (type == 0xAA || type == 0xA9 || type == 0xA7 || type == 0xA0 || type == 0xA1)
             {
-                if (classes->weapon_draw_hidden(*object))
+                if (!classes->weapon_draw_hidden(*object))
                 {
-                    return;
+                    draw_scene_actor(*object, actor, pass);
+                    classes->draw_weapon_prompt(*object, pass); // 0x00147560
                 }
-                draw_scene_actor(*object, actor, pass);
-                classes->draw_weapon_prompt(*object, pass); // 0x00147560
+                if (type == 0xA1)
+                {
+                    classes->queue_candle_flame(*object); // 0x000C6BE0's 0x000C6C80 after 0x001459C0
+                }
                 return;
             }
             // Type 0x1A (vtable 0x00504DD8) +0x14 is 0x0006EF20, a jump to the actor draw 0x0003C9E0; types 2, 0x1F
@@ -7719,11 +7917,11 @@ u32 SceneActorServices::State::actor_visible(Actor& actor, i32 pass, i32 view)
         return classes->emitter_visible(object, u32(pass), u32(view)) ? 1u : 0u;
     }
     if (object.type != 2 && object.type != 5 && object.type != 0xF && object.type != 0x10 && object.type != 0x12
-        && object.type != 0x15
+        && object.type != 0x13 && object.type != 0x15
         && object.type != 0x1A && object.type != 0x1F && object.type != 0x23 && object.type != 0x25
         && object.type != 0x24 && object.type != 0x26 && object.type != 0x1E && object.type != 0x1D
         && object.type != 0x19 && object.type != 0xAA
-        && object.type != 0xA9 && object.type != 0xA7 && object.type != 0xA0)
+        && object.type != 0xA9 && object.type != 0xA7 && object.type != 0xA0 && object.type != 0xA1)
     {
         unbound("actor vtable +0x18 visibility for factory type " + std::to_string(object.type));
     }
@@ -7934,10 +8132,7 @@ void SceneActorServices::State::present_view(i32 view)
         },
         [this]()
         {
-            if (ambient_point_draw != 0 && (ambient_points_enabled != 0 || g_flag_2104 != 0))
-            {
-                unbound("ambient point draw 0x001237E0");
-            }
+            draw_runtime_scene_point_lights(*point_light_pass); // 0x001237E0
         },
         [this, first_background_model](u32 layer)
         {
@@ -8150,11 +8345,11 @@ void SceneActorServices::State::view_refresh_slot(Actor& actor)
             const FactoryObject* object = object_of(bytes);
             const u16 type = object == nullptr ? 0 : object->type;
             if (type == 2 || type == 4 || type == 5 || type == 0xD || type == 0xF || type == 0x10 || type == 0x12
-                || type == 0x15
+                || type == 0x13 || type == 0x15
                 || type == 0x1A || type == 0x1F || type == 0x23 || type == 0x25 || type == 0x24 || type == 0x26
                 || type == 0x1E || type == 0x1D || type == 0x19
                 || type == 0xAA || type == 0xA9 || type == 0xA7
-                || type == 0xA0)
+                || type == 0xA0 || type == 0xA1)
             {
                 return;
             }
@@ -8318,9 +8513,9 @@ void SceneActorServices::State::present_render_target(std::uintptr_t color, std:
         const size_t count = size_t(record.header[0]) * record.header[1];
         if (!words.empty())
         {
-            if (words.size() != count || record.header[4] != 0x12)
+            if (words.size() != count || (record.header[4] != 0x12 && record.header[4] != 0x2E))
             {
-                throw Error("render target depth texture is not a LIN_A8R8G8B8 texture of the target's size");
+                throw Error("render target depth texture is not a LIN_A8R8G8B8 or LIN_D24S8 texture of the target's size");
             }
             std::memcpy(resources.memory.tail(record.data).data(), words.data(), count * 4);
         }
@@ -9621,6 +9816,24 @@ void SceneActorServices::release_script_player_weapon()
     instance.refresh_views();
     replace_runtime_player_attachment(instance.attachment); // 0x0013A7C0
     reset_runtime_meter(*state.scoreboard_update); // 0x0012ECC0
+}
+
+void SceneActorServices::give_script_player_weapon(const char* name)
+{
+    auto& state = *state_;
+    Actor* player = find_runtime_script_player(player_link(), actor_addresses()); // 0x001292D0
+    if (player == nullptr)
+    {
+        return;
+    }
+    auto& instance = state.players->player(state.object_of_actor(*player));
+    instance.refresh_views();
+    FactoryObject weapon = create_runtime_player_attachment(name, 1, instance.attachment_creation); // 0x0013A720
+    state.attaching_object = nullptr;
+    if (weapon.bytes != nullptr)
+    {
+        state.scene.keep_object(std::move(weapon));
+    }
 }
 
 Actor* SceneActorServices::first_latched_actor(u16 tag) const

@@ -1,4 +1,5 @@
 #pragma once
+#include "../scene/scene_point_lights.h"
 
 #include "actor_factory_owner.h"
 #include "actor_clock.h"
@@ -40,7 +41,7 @@ struct RuntimeAvatarMotionBlur
     RuntimeActorSoundQueues& sounds;
     ActorFrameState& frame; // 0x000420D0's views of the avatar.
     ActorFrameContext& frame_context;
-    const u32& lights_enabled; // DAT_005120F0.
+    RuntimeScenePointLights& lights; // DAT_00511B70..; its count is DAT_005120F0.
     const u32& script_lights; // DAT_00512104.
 };
 

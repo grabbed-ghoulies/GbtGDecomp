@@ -22,6 +22,7 @@
 #include "../src/engine/entities/entity_heap.h"
 #include "gbtg/model_runtime.h"
 #include <bit>
+#include "../src/engine/graphics/actor_effect_nodes.h"
 #include <new>
 #include <memory>
 #include <cmath>
@@ -417,7 +418,11 @@ void check_body_dependencies(SceneExecutableResources& executable)
         std::unordered_map<const u8*, RuntimePlayerAttachmentActor*> created_views;
         PlayerConstructionFactoryFixture fixture{context, actor_view, created_views};
         construction_factory_fixture = &fixture;
-        RuntimePlayerAttachmentCreation creation{context, child, created_views};
+        RuntimePlayerAttachmentCreation creation{context, child,
+            [&created_views](FactoryObject& object) -> RuntimePlayerAttachmentActor&
+            {
+                return *created_views.at(object.bytes.get());
+            }};
         require(create_runtime_player_attachment("missing_prefix", 0, creation).bytes == nullptr,
             "attachment creation must preserve clone prefix rejection");
         fixture.reject_attachment = true;
@@ -636,7 +641,8 @@ void check_body_dependencies(SceneExecutableResources& executable)
         std::memcpy(secondary->bytes.data() + 0x18, &secondary_token, 2);
         put(secondary->bytes, 8, 0);
         std::array<u8, 32> timed{};
-        std::array<u8*, 1> timed_rows{timed.data()};
+        ActorEffectNode timed_effect{std::span<u8>(timed), {}, {}, nullptr, 0};
+        std::array<ActorEffectNode*, 1> timed_rows{&timed_effect};
         auto* first_head = &first_list.sentinel;
         auto* second_head = &second_list.sentinel;
         RuntimeBodyAttachmentLists lists{first_head, second_head, timed_rows};

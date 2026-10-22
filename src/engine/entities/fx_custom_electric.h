@@ -57,6 +57,10 @@ struct RuntimeFxCustomContext
 void fx_custom_object_sizes(ObjectSizes& output); // Xbox 0x00095530
 void fx_custom_electric_object_sizes(ObjectSizes& output); // Xbox 0x00076570
 void fx_custom_solid_fade_in_object_sizes(ObjectSizes& output); // Xbox 0x00077D90
+// entityFxCustomOutline (type 0x31, getter 0x00077300, vtable 0x00505428): a candle hit's burning outline.
+void fx_custom_outline_object_sizes(ObjectSizes& output); // Xbox 0x000772E0
+// Message 3 holds the outline at full level again, 5 lets its hold end.
+void message_fx_custom_outline(std::span<u8> effect, std::span<const u32> message); // Xbox 0x00077A80
 // Message 3 restarts the hold, 5 ends it.
 void message_fx_custom_solid_fade_in(std::span<u8> effect, std::span<const u32> message); // Xbox 0x000780C0
 // A light record (0x98 bytes, 0x00051BC0) of the kind at the position in the first free DAT_00509B7C slot.

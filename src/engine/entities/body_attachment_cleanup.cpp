@@ -1,5 +1,6 @@
 #include "body_attachment_cleanup.h"
 #include "entity_heap.h"
+#include "../graphics/actor_effect_nodes.h"
 #include <bit>
 #include <cstring>
 
@@ -27,10 +28,15 @@ bool remove_runtime_body_attachment(u16 token, RuntimeBodyAttachmentLists& lists
         const u32 index = read_u32(node->bytes, 8);
         if (index != 0xFFFFFFFFu)
         {
-            u8* timed = lists.timed[index];
-            timed[0x18] |= 8;
+            ActorEffectNode* effect = lists.timed[index];
+            if (effect == nullptr)
+            {
+                throw Error("body attachment " + std::to_string(token) + " names DAT_00506930 slot "
+                    + std::to_string(index) + ", which holds no effect");
+            }
+            effect->bytes[0x18] |= 8;
             const u32 minus_one = 0xBF800000;
-            std::memcpy(timed + 8, &minus_one, 4);
+            std::memcpy(effect->bytes.data() + 8, &minus_one, 4);
         }
     }
     if (node->previous != nullptr)

@@ -3,10 +3,18 @@
 
 namespace gbtg
 {
+// One of the scene's 32 point lights (DAT_00511B70, stride 0x2C), filled by 0x00123720.
 struct SceneAmbientPoint
 {
-    Vec3 position; // DAT_00511B70, original stride 0x2C.
-    u32 active; // +0x28, DAT_00511B98.
+    Vec3 position; // +0, DAT_00511B70.
+    u32 color = 0; // +0xC, DAT_00511B7C.
+    u32 second_color = 0; // +0x10, DAT_00511B80.
+    float unk_14 = 0.f; // DAT_00511B84 (0x00123720's XMM0).
+    float unk_18 = 0.f; // DAT_00511B88.
+    float unk_1C = 0.f; // DAT_00511B8C.
+    float unk_20 = 0.f; // DAT_00511B90.
+    u32 unk_24 = 0; // DAT_00511B94.
+    u32 active = 0; // +0x28, DAT_00511B98.
 };
 struct SceneAmbientContext
 {

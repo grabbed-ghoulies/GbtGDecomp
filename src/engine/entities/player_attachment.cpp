@@ -295,7 +295,7 @@ FactoryObject create_runtime_player_attachment(const char* name, i32 replace,
         {
             replace_runtime_player_attachment(context.attachment);
         }
-        auto& attached = *context.created.at(object.bytes.get());
+        auto& attached = context.view_of(object);
         if (!attach_runtime_player_actor(attached, 1, context.attachment))
         {
             release_factory_object(context.child.factory, object);
@@ -349,7 +349,7 @@ FactoryObject command_runtime_body_create_secondary(std::span<const u8> command,
                 clone.bytes.reset();
                 if (object.bytes != nullptr)
                 {
-                    auto& attached = *context.created.at(object.bytes.get());
+                    auto& attached = context.view_of(object);
                     if (!attach_runtime_player_secondary(attached, context.attachment))
                     {
                         release_factory_object(context.child.factory, object);
@@ -373,7 +373,7 @@ FactoryObject command_runtime_body_create_attachment(const char* name,
         clone.bytes.reset();
         if (object.bytes != nullptr)
         {
-            auto& attached = *context.created.at(object.bytes.get());
+            auto& attached = context.view_of(object);
             if (!attach_runtime_player_actor(attached, 0, context.attachment))
             {
                 release_factory_object(context.child.factory, object);

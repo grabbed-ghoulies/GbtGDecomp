@@ -45,6 +45,7 @@ struct RuntimeScoreboardGlobals
     u32 meter_bc8 = 0; // DAT_00433BC8 (written by code not yet translated).
     u32 meter_drawn = 0; // DAT_00433BCC.
     u32 meter_bd0 = 0; // DAT_00433BD0.
+    float meter_bd4 = 0.f; // DAT_00433BD4, half the gauge texture's +8 width.
     float meter_bd8 = 0.f; // DAT_00433BD8.
     // DAT_00433BE4..DAT_00433C6C: the health display's words that RuntimePlayerHealthDisplay does not view.
     u16 health_voice = 0xFFFF; // DAT_00433BE4.

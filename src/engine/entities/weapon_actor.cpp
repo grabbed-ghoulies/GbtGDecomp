@@ -3,6 +3,7 @@
 #include "weapon_actor_detail.h"
 #include "projectile_weapon.h"
 #include "bob_weapon.h"
+#include "candle_weapon.h"
 #include "../audio/core_source.h"
 #include "euler_wrapping.h"
 #include "gbtg/sound_runtime.h"
@@ -334,13 +335,18 @@ void update_state(RuntimeWeaponActor& weapon, u16 state)
         update_runtime_bob_weapon_state(weapon, state);
         return;
     }
+    if (weapon.type == 0xA1)
+    {
+        update_runtime_candle_weapon_state(weapon, state); // 0x000C6800
+        return;
+    }
     throw Error("weapon factory type " + std::to_string(weapon.type) + " vtable +0x44 is not translated");
 }
 
 // Vtable +0x48 of the weapon's class: the chair and both projectiles keep the empty base slot.
 void late_update_state(RuntimeWeaponActor& weapon, u16)
 {
-    if (weapon.type == 0xAA || weapon.type == 0xA9 || weapon.type == 0xA7 || weapon.type == 0xA0)
+    if (weapon.type == 0xAA || weapon.type == 0xA9 || weapon.type == 0xA7 || weapon.type == 0xA0 || weapon.type == 0xA1)
     {
         return;
     }
@@ -370,6 +376,11 @@ void leave_state(RuntimeWeaponActor& weapon, u16 state, u16 next)
         leave_runtime_bob_weapon_state(weapon, state, next);
         return;
     }
+    if (weapon.type == 0xA1)
+    {
+        leave_runtime_candle_weapon_state(weapon, state, next); // 0x000C6BC0
+        return;
+    }
     throw Error("weapon factory type " + std::to_string(weapon.type) + " vtable +0x40 is not translated");
 }
 
@@ -396,6 +407,11 @@ void enter_state(RuntimeWeaponActor& weapon, u16 state, u16 previous)
         enter_runtime_bob_weapon_state(weapon, state, previous);
         return;
     }
+    if (weapon.type == 0xA1)
+    {
+        enter_runtime_weapon_state(weapon, state, previous); // 0x000C6BB0 jumps to 0x0014A120.
+        return;
+    }
     throw Error("weapon factory type " + std::to_string(weapon.type) + " vtable +0x3C is not translated");
 }
 // Actor +0x99C, the class's contact test: the chair sets 0x000CF5F0.
@@ -407,6 +423,14 @@ RuntimeBodyContactCallback contact_test(RuntimeWeaponActor& weapon)
             const RuntimeSegmentContactRecord&, const Vec3& velocity, u16 word) -> u32
         {
             return test_runtime_chair_contact(weapon, object, point, contacts, velocity, word); // 0x000CF5F0
+        };
+    }
+    if (read_u32(weapon.bytes, 0x99C) == 0x000C6F10)
+    {
+        return [&weapon](Actor&, RuntimeSegmentContactActor& object, const Vec3& point, GhoulySpawnPool* contacts,
+            const RuntimeSegmentContactRecord&, const Vec3& velocity, u16 word) -> u32
+        {
+            return test_runtime_candle_contact(weapon, object, point, contacts, velocity, word); // 0x000C6F10
         };
     }
     if (read_u32(weapon.bytes, 0x99C) == 0x000C61D0)

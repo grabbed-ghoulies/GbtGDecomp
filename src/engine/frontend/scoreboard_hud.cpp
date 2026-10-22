@@ -1,6 +1,9 @@
 #include "scoreboard_hud.h"
 #include "scoreboard_draw.h"
 #include "../camera/camera.h"
+#include "../entities/body_hit_state.h"
+#include "../entities/bounded_channels.h"
+#include "../graphics/color_blend.h"
 #include "dialogue_widget_state.h"
 #include "../audio/listener_settings.h"
 #include <algorithm>
@@ -806,7 +809,48 @@ void draw_runtime_meter(RuntimeScoreboardHud& context)
     {
         return;
     }
-    untranslated("0x00131F00", "the meter draw 0x0012EA50");
+    auto& globals = context.globals;
+    auto& draw = draw_views(context);
+    const auto& layout = context.layout;
+    const float half = globals.meter_bd4; // Half the gauge's width.
+    const float y = layout.inner_bottom - half + 54.f; // DAT_0050974C, DAT_0032B4C0
+    const float shown[2]{layout.inner_right - half + 4.5f, y}; // DAT_00509748, DAT_0032B3B0
+    const float hidden[2]{float(i32(context.width)) + 100.f, y}; // DAT_005096E8, DAT_0032B12C
+    const RuntimeHudFade fade{globals.meter_visible, *reinterpret_cast<float*>(&globals.meter_b8c),
+        *reinterpret_cast<float*>(&globals.meter_b90), globals.meter_b94, globals.meter_b98}; // DAT_00433B88..
+    float at[2];
+    if (!place_runtime_hud_element(fade, hidden, shown, at)) // 0x00131F00, EBX hidden, ESI shown, EDI at
+    {
+        return;
+    }
+    constexpr u32 kScriptHold = 0; // DAT_00512278, BSS that no retail code writes.
+    u32 color = 0x00FFFFFFu;
+    if (kScriptHold != 0)
+    {
+        const float scale[2]{1.8f, 1.8f}; // DAT_0032B4BC
+        const u32 alpha = u32(truncate_runtime_float(static_cast<long double>(globals.meter_bd8) * 192.f)); // DAT_0032B454
+        color = (color & 0x00FFFFFFu) | (u32(u8(alpha)) << 24);
+        queue_runtime_hud_sprite(globals.meter_textures[1].data(), at, scale, 0.f, color, 0, draw); // 0x001221B0
+    }
+    color = (color & 0x00FFFFFFu) | 0xC0000000u;
+    const float scale[2]{1.f, 1.f}; // DAT_0032B0F8
+    queue_runtime_hud_sprite(globals.meter_textures[0].data(), at, scale, 0.f, color, 0, draw); // 0x001221B0
+    const float level = globals.meter_level; // DAT_00433B80
+    const float swing = std::bit_cast<float>(0x3FC6D3F2u); // DAT_0032B4B8, 89 degrees.
+    const float turned = step_runtime_angle_toward(swing, std::bit_cast<float>(0xBFC6D3F2u), level); // 0x001013A0
+    const float angle = float(static_cast<long double>(turned)
+        - runtime_float_remainder(turned, std::bit_cast<float>(0x3DB2B8C2u))); // 0x00152BE0, 5 degrees; FSUBR
+    if (level == 0.f) // UCOMISS DAT_0032B100.
+    {
+        color = (0xC00000C0u & 0x00FFFFFFu) | 0xC0000000u; // DAT_00313188.
+    }
+    else if (!(0.25f < level)) // DAT_0032B104; COMISS; JC keeps the gauge colour.
+    {
+        color = (menu_color(0xC00000C0u, 0xFFFFFFFFu, globals.meter_scales[0] - 1.f) & 0x00FFFFFFu)
+            | 0xC0000000u; // 0x00101730, DAT_00313188, DAT_00314F48
+    }
+    queue_runtime_hud_sprite(globals.meter_textures[2].data(), at, scale, angle, color, 0, draw); // 0x001221B0
+    globals.meter_drawn = 1;
 }
 
 // Xbox 0x0012D300

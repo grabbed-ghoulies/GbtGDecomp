@@ -121,6 +121,11 @@ void check_player_factory_owner()
     const char* class_names[]{""};
     const RuntimeShaderMatrixBoundaries matrix_boundaries{};
     const std::unordered_map<const u8*, RuntimePlayerAttachmentActor*> attachment_objects;
+    const std::function<RuntimePlayerAttachmentActor&(FactoryObject&)> attachment_view =
+        [&attachment_objects](FactoryObject& object) -> RuntimePlayerAttachmentActor&
+        {
+            return *attachment_objects.at(object.bytes.get());
+        };
     const std::unordered_map<RuntimeBodyAttachedActor*, RuntimePlayerAttachmentActor*> attachment_actors;
     std::array<u8, 12> curve{};
     const std::unordered_map<const u8*, const RuntimeScriptLookupTable*> action_tables;
@@ -211,7 +216,7 @@ void check_player_factory_owner()
     NativePlayerFactoryOwner players{NativePlayerFactoryBindings{actors, NativePlayerSceneBindings{factory, pools,
         registry, error, random, release, activation, runtime_flags, story_flags, player_count, active_strategies,
         address_zero, address_of, actor_tags.data(), actor_tags.data(), tag_rows.data(), tag_rows, weapon_names, class_names, 0,
-        matrix_boundaries, attachment_objects, attachment_actors, {}, 0, {}, 0, curve, curve, {}, action_tables,
+        matrix_boundaries, attachment_view, attachment_actors, {}, 0, {}, 0, curve, curve, {}, action_tables,
         sequences, {}, cache_count, action_names, {},
         [](const Actor&)
         {

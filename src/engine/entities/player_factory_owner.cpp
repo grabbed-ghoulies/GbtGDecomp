@@ -332,6 +332,22 @@ const ObjectFactoryVtable* haunted_chair_strategy_lifecycle()
     return &table;
 }
 
+bool construct_mummy_strategy_view(FactoryObject& object, std::span<const u8>)
+{
+    auto* player = active_owner->find_player(object);
+    player->strategy_type = 0x4C;
+    player->refresh_views();
+    return initialize_runtime_mummy_strategy(bytes_of(object), player->actor_bytes); // 0x000BBC70
+}
+
+// Getter 0x000BBC20; vtable +8 is the empty 0x001628B0.
+const ObjectFactoryVtable* mummy_strategy_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505F4C, mummy_strategy_object_sizes, construct_mummy_strategy_view,
+        destroy_empty_player_object};
+    return &table;
+}
+
 const ObjectFactoryVtable* skeleton_strategy_lifecycle()
 {
     // Vtable +8 is the empty 0x001628B0.
@@ -428,6 +444,13 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
                   leave_runtime_haunted_chair_state(old_state, next_state, haunted_chair);
                   return;
               }
+              if (strategy_type == 0x4C)
+              {
+                  // Mummy strategy vtable +0x18, 0x000BC520.
+                  refresh_views();
+                  leave_runtime_mummy_state(old_state, mummy);
+                  return;
+              }
               if (strategy_type == 0x52)
               {
                   // Spider strategy vtable +0x18, 0x000B5AF0.
@@ -486,6 +509,12 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
                   enter_runtime_haunted_chair_state(state, previous, haunted_chair);
                   return;
               }
+              if (strategy_type == 0x4C)
+              {
+                  // Mummy strategy vtable +0x14, 0x000BC350.
+                  enter_runtime_mummy_state(state, previous, mummy);
+                  return;
+              }
               if (strategy_type == 0x52)
               {
                   // Spider strategy vtable +0x14, 0x000C1040.
@@ -525,7 +554,7 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
               }
               return body_action_key();
           }},
-      attachment_creation{attachment, child, scene_bindings.attachment_objects},
+      attachment_creation{attachment, child, scene_bindings.attachment_view},
       construction{owner_instance.bat.actor, attributes, spawn, body_object, mind_object, strategy_object,
           strategy_setup, input, scene_bindings.input_release, scene_bindings.tag_rows, scene_bindings.object_tags,
           attachment_creation, created_attachment, scene_bindings.initial_channel_word, scene_bindings.player_count,
@@ -608,7 +637,18 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
           "wait"},
       haunted_chair{strategy_messages, target_checks, target_queue, strategy_views,
           scene_bindings.haunted_chair_parameters, attributes.resource, "swingkick", "wakeup", "slide",
-          "slideattarget", "mimic"}
+          "slideattarget", "mimic"},
+      mummy{strategy_messages, target_checks, target_queue, strategy_views,
+          [&tables = scene_bindings.action_tables](std::span<const u8> body) -> const RuntimeScriptLookupTable*
+          {
+              const auto found = tables.find(body.data());
+              if (found == tables.end())
+              {
+                  throw Error("mummy strategy: a target body's action table (+0x73C) is not loaded");
+              }
+              return found->second;
+          },
+          "attack", "ankh_getout", "ankh_whack", "bondage_bandage", "far", "scared"}
 {
 }
 
@@ -801,6 +841,28 @@ void NativePlayerFactoryOwner::haunted_chair_update(FactoryObject& strategy)
     update_runtime_haunted_chair_strategy(player->haunted_chair);
 }
 
+void NativePlayerFactoryOwner::mummy_message(FactoryObject& strategy, std::span<const u32> message)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x4C)
+    {
+        throw Error("mummy strategy method has no owning instance");
+    }
+    player->refresh_views();
+    dispatch_runtime_mummy_message(message, player->mummy);
+}
+
+void NativePlayerFactoryOwner::mummy_update(FactoryObject& strategy)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x4C)
+    {
+        throw Error("mummy strategy method has no owning instance");
+    }
+    player->refresh_views();
+    update_runtime_mummy_strategy(player->mummy);
+}
+
 void NativePlayerFactoryOwner::haunted_tv_update(FactoryObject& strategy)
 {
     auto* player = find_player(strategy);
@@ -924,6 +986,7 @@ void NativePlayerFactoryOwner::install(std::span<ObjectFactoryType> types)
     types[0x52] = ObjectFactoryType{8, spider_strategy_lifecycle};
     types[0x44] = ObjectFactoryType{8, haunted_tv_strategy_lifecycle};
     types[0x40] = ObjectFactoryType{8, haunted_chair_strategy_lifecycle};
+    types[0x4C] = ObjectFactoryType{8, mummy_strategy_lifecycle};
     types[0x28] = ObjectFactoryType{6, camera_body_lifecycle};
     types[0x39] = ObjectFactoryType{8, director_strategy_lifecycle};
     minds.install(types);

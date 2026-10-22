@@ -14,6 +14,7 @@
 #include "spider_strategy.h"
 #include "haunted_tv_strategy.h"
 #include "haunted_chair_strategy.h"
+#include "mummy_strategy.h"
 #include "butler_strategy.h"
 #include "camera_actor_classes.h"
 
@@ -53,7 +54,7 @@ struct NativePlayerSceneBindings
     const char* const* class_names; // DAT_004340EC.
     u32 initial_channel_word; // DAT_00338EE0.
     const RuntimeShaderMatrixBoundaries& matrix_boundaries;
-    const std::unordered_map<const u8*, RuntimePlayerAttachmentActor*>& attachment_objects;
+    std::function<RuntimePlayerAttachmentActor&(FactoryObject&)> attachment_view; // A just-created weapon's view.
     const std::unordered_map<RuntimeBodyAttachedActor*, RuntimePlayerAttachmentActor*>& attachment_actors;
     // Body construction (0x00024C50 and 0x00073450).
     std::span<const u16> scale_exclusions; // DAT_0050E1B4.
@@ -68,7 +69,7 @@ struct NativePlayerSceneBindings
     std::span<RuntimeBodyResourceCacheEntry> animation_cache; // DAT_004DD554.
     i32& animation_cache_count; // DAT_004DD550.
     const std::unordered_map<u32, const char*>& action_names;
-    std::span<u8*> timed_attachments; // DAT_00506930.
+    std::span<ActorEffectNode*> timed_attachments; // DAT_00506930.
     std::function<NativePlayerModelViews(const Actor&)> model_views;
     // Mind construction (0x00029F20 and 0x0007EF10).
     const RuntimeMindClassSettings& mind_settings;
@@ -296,6 +297,7 @@ struct NativePlayerInstance
     RuntimeSpiderStrategy spider; // Type 0x52.
     RuntimeHauntedTvStrategy haunted_tv; // Type 0x44.
     RuntimeHauntedChairStrategy haunted_chair; // Type 0x40.
+    RuntimeMummyStrategy mummy; // Type 0x4C.
     void refresh_input_views(); // After the player constructor allocates actor +0x960.
     void refresh_views(); // Body, input, mind and strategy value views before a method runs.
 };
@@ -346,6 +348,8 @@ public:
     void haunted_tv_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000B1F60.
     void haunted_chair_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000AE8B0.
     void haunted_chair_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000AE790.
+    void mummy_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000BBFA0.
+    void mummy_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000BBCB0.
     NativePlayerFactoryBindings bindings;
     NativePlayerMindOwner minds;
     // Retail keeps the type 5 vtable through the whole destructor chain, so the base actor destructor still

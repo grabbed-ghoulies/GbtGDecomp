@@ -1,6 +1,7 @@
 #pragma once
 #include "scoreboard_hud.h"
 #include "../audio/event_voices.h"
+#include "../entities/actor_clock.h"
 
 namespace gbtg
 {
@@ -52,6 +53,7 @@ struct RuntimeScoreboardUpdate
     float& intro_timer; // DAT_00433BEC: the randomizer's run time, set by 0x001307D0.
     u8& story_byte; // **(DAT_00506C6C+8): bit 0x40 once the randomizer has been shown.
     u32& random; // DAT_0054DD7C.
+    const RuntimeActorClock& clock; // The frame step and the decay gate the meter (0x0012E900, 0x0012ED30) reads.
 };
 
 void set_runtime_hud_fade(RuntimeHudFade fade, u32 state, const RuntimeScoreboardUpdate& context); // Xbox 0x00131FC0
@@ -85,9 +87,22 @@ void update_runtime_meter_view(RuntimeScoreboardUpdate& context); // Xbox 0x0012
 void update_runtime_meter(RuntimeScoreboardUpdate& context); // Xbox 0x0012E900
 void release_runtime_meter_voice(RuntimeScoreboardUpdate& context); // Xbox 0x0012EE00
 void reset_runtime_meter(RuntimeScoreboardUpdate& context); // Xbox 0x0012ECC0
+// The meter's voice plays `name` (DAT_00433B84), stopping the one it had.
+void play_runtime_meter_voice(const char* name, RuntimeScoreboardUpdate& context); // Xbox 0x0012ED90
+// Each meter pulse: the buzzer once a level fell to zero (DAT_00433BD0) while the meter was drawn and decay runs,
+// else the voice is released once idle (0x0012EE00).
+void end_runtime_meter_pulse(RuntimeScoreboardUpdate& context); // Xbox 0x0012ED30
 void update_runtime_scoreboard_hud(RuntimeScoreboardUpdate& context); // Xbox 0x00132210
 // The weapon-only icons of the damage counter (DAT_004326D4 and its half width DAT_004326D8) and the head glow
 // (DAT_004326DC, its phase DAT_004326E4), loaded when first needed.
 void load_runtime_scoreboard_weapon_icons(RuntimeScoreboardGlobals& globals, AnimationResourceRegistry& registry,
     ResourceErrorState& error); // Xbox 0x0012D8A0
+// The meter's ammo gauge, its glow and its pointer (DAT_00433B9C..DAT_00433BA4, the gauge's half width DAT_00433BD4),
+// loaded when first needed.
+void load_runtime_meter_textures(RuntimeScoreboardGlobals& globals, AnimationResourceRegistry& registry,
+    ResourceErrorState& error); // Xbox 0x0012E770
+// The meter shows `level` (DAT_00433B80) for two seconds (DAT_00433B8C, DAT_00433BC8 2); a level falling to zero
+// from above sets DAT_00433BD0.
+void show_runtime_meter_level(float level, RuntimeScoreboardGlobals& globals, AnimationResourceRegistry& registry,
+    ResourceErrorState& error); // Xbox 0x0012EC70
 }

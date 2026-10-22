@@ -278,7 +278,7 @@ void request_scene_aid(const char* src, i32 mode)
     g_flag_30d08 = 0;
     g_script_30d0c = 0;
     g_script_30d10 = 0;
-    g_byte_30d14 = 0;
+    g_byte_30d14[0] = 0;
     if (g_script_30d94 == 0)
     {
         g_506c8c = 0;

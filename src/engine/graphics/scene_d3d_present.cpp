@@ -523,7 +523,8 @@ void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentConte
         const auto bytes = context.memory.tail(resource->second.data);
         stream = {bytes.data(), bytes.size(), binding->second.stride};
     }
-    const auto indices = context.memory.resolve(draw.indices, size_t(draw.count) * 2);
+    const auto indices = draw.sequential ? std::span<const u8>{}
+                                         : context.memory.resolve(draw.indices, size_t(draw.count) * 2);
     const bool gpu_vertex = gfx_native_vertex_program_supported(shader->second.program);
 #if GBTG_OPTIMIZE
     // GBTG_OPTIMIZE step 3: the address checks depend only on the program's words.
@@ -633,7 +634,14 @@ void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentConte
     for (const u32 position : triangle_order(draw.primitive, draw.count))
     {
         u16 index;
-        std::memcpy(&index, indices.data() + position * 2, 2);
+        if (draw.sequential)
+        {
+            index = u16(draw.first + position);
+        }
+        else
+        {
+            std::memcpy(&index, indices.data() + position * 2, 2);
+        }
         const auto& value = vertex(index);
         if (render_profile::reference)
         {

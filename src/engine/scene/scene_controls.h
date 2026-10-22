@@ -9,6 +9,7 @@
 #include "super_scary_control.h"
 #include "trophy_heads_control.h"
 #include "haunted_chairs_control.h"
+#include "scene_fx_control.h"
 #include <unordered_map>
 #include <vector>
 
@@ -51,6 +52,7 @@ struct SceneControlContext
     GameSelectControlServices* gameselect = nullptr;
     TrophyHeadsControlServices* trophy_heads = nullptr;
     HauntedChairsControlServices* haunted_chairs = nullptr;
+    SceneFxControlServices* fx = nullptr;
     SuperScaryControlServices* super_scary = nullptr;
     const RuntimeActorClock& frame_clock() const;
     AudioBankStreams& streams() const;
@@ -58,6 +60,7 @@ struct SceneControlContext
     GameSelectControlServices& gameselect_services() const;
     TrophyHeadsControlServices& trophy_heads_services() const;
     HauntedChairsControlServices& haunted_chairs_services() const;
+    SceneFxControlServices& fx_services() const;
     SuperScaryControlServices& super_scary_services() const;
 };
 class NativeSceneControlOwner

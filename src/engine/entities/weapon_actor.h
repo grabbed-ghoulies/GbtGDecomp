@@ -46,6 +46,7 @@ struct RuntimeWeaponStatTables
 };
 void load_runtime_weapon_stat_tables(RuntimeWeaponStatTables& tables, AnimationResourceRegistry& registry,
     ResourceErrorState& error); // Xbox 0x001486C0
+struct RuntimeCandleServices;
 // Scene services every weapon shares.
 struct RuntimeWeaponServices
 {
@@ -92,6 +93,7 @@ struct RuntimeWeaponServices
     const i32* pal = nullptr;
     const i32* pal_override = nullptr;
     std::function<FactoryObject*(const u8*)> object_of{}; // The scene object holding an object's bytes.
+    std::function<RuntimeCandleServices&()> candle{}; // Type 0xA1's lights, billboards and burst callout.
 };
 // Message 0x1D from a weapon's contact test (0x00141890) to the actor it hit.
 struct RuntimeWeaponHitNotice
@@ -180,6 +182,10 @@ struct RuntimeWeaponActor
     const AnimationRecord* flight_animation = nullptr; // +0xE64 of type 0xA7, 0x0003AAA0's record.
     RuntimeBodyAttachmentLists* attachment_lists = nullptr; // Actor +0x1B8 / +0x1B0 and DAT_00506930 for 0x0013B810.
     RuntimeCutsceneInstance* cutscene = nullptr; // +0xFE0 of type 0xA0, 0x0004D680's instance.
+    const u8* candle_binding = nullptr; // +0xE60 of type 0xA1, 0x000408D0's binding 0.
+    std::unique_ptr<std::array<u8, 0x98>> candle_light; // +0xE64 of type 0xA1: its DAT_00509B7C record.
+    std::span<const u8> candle_flame; // +0xE6C of type 0xA1.
+    std::span<const u8> candle_glow; // +0xE70 of type 0xA1.
     std::function<std::span<const u8>(u32)> model_source; // Retail words in this actor's model space.
     std::function<RuntimeSegmentContactActor&(u32)> contact_actor_at; // The contact view of the actor at an address.
     std::function<u32(const FactoryObject&)> object_address; // A scene object's retail address.

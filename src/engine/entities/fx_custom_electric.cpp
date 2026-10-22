@@ -31,6 +31,7 @@ struct FxCustomInstance
     {
         const u8* shape;
         i32 frame;
+        float time = 0.f; // Type 0x31's rows (0xC bytes): +4 the row's own seconds.
     };
     std::vector<Spark> sparks;
     std::unique_ptr<std::array<u8, 0x98>> light;
@@ -309,9 +310,186 @@ void update_fx_solid_fade_in(FxCustomInstance& instance, Actor& actor)
     }
 }
 
+// The frame of a sprite at `time` seconds: 0 for a still sprite (+0x10 0), else its frames (+0x11) cycled at +0x10.
+i32 sprite_frame(std::span<const u8> sprite, long double time)
+{
+    const float rate = float(sprite[0x10]);
+    if (rate == 0.f) // UCOMISS DAT_0032B100.
+    {
+        return 0;
+    }
+    return u8(u32(truncate_runtime_float(time * rate)) % sprite[0x11]); // 0x001673D8
+}
+
+// The actor's step (+0x930 / +0x92C) times the frame step.
+float actor_step(const Actor& actor)
+{
+    const float rate = actor.animation_pause > 0.f ? 0.f : actor.animation_rate;
+    return rate * frame_step(*fx_context);
+}
+
+// The outline's level (+0xBC) as a phase runs: from 0.01 up to 1 over the fade-in, 1 down to 0.01 over the fade-out.
+float outline_level(float time, float length, bool rising)
+{
+    if (length == 0.f) // UCOMISS DAT_0032B100.
+    {
+        return rising ? 0.01f : 1.f; // DAT_0032B124, DAT_0032B0F8.
+    }
+    if (rising)
+    {
+        const float level = 1.f - time / length * 0.99f; // DAT_0032B228.
+        if (0.01f > level)
+        {
+            return 0.01f;
+        }
+        return level > 1.f ? 1.f : level;
+    }
+    const float level = time / length * 0.99f + 0.01f;
+    if (level > 1.f)
+    {
+        return 1.f;
+    }
+    return 0.01f > level ? 0.01f : level;
+}
+
+// Xbox 0x00077520: the light follows the actor at its level, the rows' frames run on, and the phases fade the outline
+// in (1), hold it (2, until its time or message 5) and fade it out (3) before the effect releases itself.
+void update_fx_custom_outline(FxCustomInstance& instance, Actor& actor)
+{
+    RuntimeFxCustomContext& context = *fx_context;
+    u8* bytes = instance.bytes;
+    const std::span<const u8> view{bytes, 0xD0};
+    put_float(bytes, 0x10, read_f32(view, 0x10) + frame_step(context));
+    const std::int8_t slot = std::int8_t(bytes[0xCC]);
+    if (slot != -1)
+    {
+        const float reach = runtime_actor_view_radius(actor, context.actor_bytes(actor)) * read_f32(view, 0xBC)
+            * 2.f; // 0x0003D860, DAT_0032B110
+        move_runtime_light(slot, light_position(actor), context.lights); // 0x000FE0F0
+        u8* record = context.lights.records.at(size_t(slot));
+        put_float(record, 0x6C, reach);
+        record[0x66] |= 1;
+        put_float(record, 0x70, reach * 2.f);
+        record[0x66] |= 1;
+    }
+    const float step = actor_step(actor);
+    const float time = read_f32(view, 0x10);
+    for (auto& row : instance.sparks)
+    {
+        row.time += step;
+        row.frame = sprite_frame(instance.texture, static_cast<long double>(row.time) + time);
+    }
+    const float left = read_f32(view, 0x20);
+    switch (read_u32(view, 0x18))
+    {
+    case 1:
+        put_float(bytes, 0xBC, outline_level(left, read_f32(view, 0x28), true));
+        if (0.f < left)
+        {
+            const float next = left - actor_step(actor);
+            put_float(bytes, 0x20, next);
+            if (!(0.f < next)) // COMISS; JC keeps a positive time.
+            {
+                put_float(bytes, 0x20, 0.f);
+                put_word(bytes, 0x18, 2);
+                put_word(bytes, 0x20, read_u32(view, 0x24));
+            }
+        }
+        return;
+    case 2:
+    {
+        bool ended = false;
+        if (0.f < left)
+        {
+            const float next = left - actor_step(actor);
+            put_float(bytes, 0x20, next);
+            if (!(0.f < next))
+            {
+                put_float(bytes, 0x20, 0.f);
+                ended = true;
+            }
+        }
+        if (!ended && read_u32(view, 0x1C) == 0)
+        {
+            return;
+        }
+        if (0.f < read_f32(view, 0x2C))
+        {
+            put_word(bytes, 0x18, 3);
+            put_word(bytes, 0x20, read_u32(view, 0x2C));
+            return;
+        }
+        context.release_frame_object(actor, context.address_of(bytes)); // 0x0003DE30, ESI effect
+        return;
+    }
+    case 3:
+        put_float(bytes, 0xBC, outline_level(left, read_f32(view, 0x2C), false));
+        if (0.f < left)
+        {
+            const float next = left - actor_step(actor);
+            put_float(bytes, 0x20, next);
+            if (!(0.f < next))
+            {
+                put_float(bytes, 0x20, 0.f);
+                context.release_frame_object(actor, context.address_of(bytes)); // 0x0003DE30, ESI effect
+            }
+        }
+        return;
+    default:
+        return;
+    }
+}
+
+// Xbox 0x00077920: each row a billboard on its shape's sphere, the radius by the level and the scale (+0xB4), in
+// the effect's colour (+0xB8), in the opaque pass.
+void draw_fx_custom_outline(FxCustomInstance& instance, Actor& actor, i32 kind)
+{
+    if (kind != 0 || actor.model == nullptr) // Actor +0x204.
+    {
+        return;
+    }
+    const std::span<const u8> view{instance.bytes, 0xD0};
+    const float factor = read_f32(view, 0xBC) * read_f32(view, 0xB4);
+    BillboardFlushContext pass = fx_context->billboards();
+    begin_billboard_draw(pass); // 0x0005C410
+    pass.draw.d3d.simple_state(0x40354, 0x203);
+    deferred(pass.draw, 0x181C54) = 0x203;
+    pass.draw.d3d.simple_state(0x4035C, 0);
+    deferred(pass.draw, 0x181C70) = 0;
+    pass.draw.d3d.depth(1);
+    for (const auto& row : instance.sparks)
+    {
+        const EntityBonePose* pose = actor.model->alternate_shape_pose; // Model +0x168, else +0x164.
+        if (pose == nullptr)
+        {
+            pose = actor.model->primary_shape_pose;
+        }
+        Vec3 center;
+        const float radius = shape_sphere_metrics(*reinterpret_cast<const EntityShapeNode*>(row.shape),
+            actor.xform, pose, center); // 0x00056330, actor +0x2AC
+        const float across = float(static_cast<long double>(radius) * factor); // FMUL; FST; FSTP
+        const std::array<float, 2> size{across, across};
+        set_billboard_transform(center, 0.f, pass); // 0x0005C580
+        float width;
+        float height;
+        bind_billboard_sprite(instance.texture.data(), row.frame, read_u32(view, 0xB8), width, height,
+            pass); // 0x0005C7F0
+        push_billboard_quad(size.data(), width, height, pass); // 0x0005C8C0
+    }
+    if (--pass.draw.override_count == 0) // DAT_00509B5C.
+    {
+        pass.draw.fog_disabled = 0; // DAT_00509B00.
+    }
+}
+
 void update_fx_node(ActorFrameAttachment& node, Actor& actor)
 {
     FxCustomInstance& instance = *fx_nodes.at(&node);
+    if (instance.type == 0x31)
+    {
+        update_fx_custom_outline(instance, actor); // 0x00077520
+        return;
+    }
     if (instance.type == 0x2E)
     {
         update_fx_custom_electric(instance); // 0x00076720
@@ -331,6 +509,10 @@ void draw_fx_node(ActorFrameAttachment& node, Actor& actor, i32 kind)
     if (instance.type == 0x2E)
     {
         draw_fx_custom_electric(instance, actor, kind); // 0x00076850
+    }
+    if (instance.type == 0x31)
+    {
+        draw_fx_custom_outline(instance, actor, kind); // 0x00077920
     }
     // fxCustom's own +0x14 is the empty 0x001628B0.
 }
@@ -539,6 +721,206 @@ void destroy_fx_custom_electric_view(FactoryObject& object)
     }
 }
 
+// Xbox 0x00077AD0, EAX actor, ESI effect: a {shape, random time, frame} row for each shape of the actor's kind-4
+// block that carries the first of 0x80, 0x20002 and 1 its list has (0x00077D30), is of kind 0 and passes the
+// effect's shape filter (+0xC0, -1 for any).
+void collect_fx_outline_rows(FxCustomInstance& instance, u8* bytes)
+{
+    const u8* block = runtime_actor_model_block(*instance.actor, 4); // Actor +0x204's kind-4 block.
+    if (block == nullptr)
+    {
+        return;
+    }
+    const u32 carried = runtime_shape_list_mask(block); // 0x00077D30's OR, as 0x00056C80 takes it.
+    u32 mask = 0;
+    for (const u32 candidate : {0x80u, 0x20002u, 1u}) // DAT_002FFEA8.
+    {
+        if ((candidate & carried) != 0)
+        {
+            mask = candidate;
+            break;
+        }
+    }
+    i16 filter;
+    std::memcpy(&filter, bytes + 0xC0, 2);
+    const auto wanted = [mask, filter](const u8* record)
+    {
+        i16 group;
+        std::memcpy(&group, record + 2, 2);
+        return (read_u32({record, 8}, 4) & mask) != 0 && record[0] == 0 && (filter == -1 || group == filter);
+    };
+    u32 count = 0;
+    for (const u8* record = block + 8; record != nullptr; record = record + record[1])
+    {
+        if (wanted(record))
+        {
+            ++count;
+        }
+        if (record[1] == 0)
+        {
+            break;
+        }
+    }
+    put_word(bytes, 0xC4, count);
+    if (count == 0)
+    {
+        return;
+    }
+    put_word(bytes, 0xC8, 1); // 0x000F72D0(count * 0xC): the rows live on the host.
+    for (const u8* record = block + 8; record != nullptr; record = record + record[1])
+    {
+        if (wanted(record))
+        {
+            const float time = random_fraction(*fx_context);
+            instance.sparks.push_back({record, sprite_frame(instance.texture, time), time});
+        }
+        if (record[1] == 0)
+        {
+            break;
+        }
+    }
+}
+
+// Xbox 0x00077C70, EAX parameters, ECX actor: with +0x124 set, a kind-2 light at the actor half its height up, 20
+// across, its flags (+0x128) and colours (+0x12A, +0x12E, +0x132) from the parameters; else no light (-1).
+std::int8_t start_fx_outline_light(FxCustomInstance& instance, std::span<const u8> parameters)
+{
+    if (read_u32(parameters, 0x124) == 0)
+    {
+        return -1;
+    }
+    RuntimeFxCustomContext& context = *fx_context;
+    instance.light = std::make_unique<std::array<u8, 0x98>>(); // 0x000F72D0(0x98) in 0x000FE080.
+    u8* record = instance.light->data();
+    const std::int8_t slot = allocate_runtime_light(2, light_position(*instance.actor), record,
+        context.lights); // 0x000FE080
+    u16 flags;
+    std::memcpy(&flags, record + 0x66, 2);
+    flags |= read_u16(parameters, 0x128);
+    std::memcpy(record + 0x66, &flags, 2);
+    put_float(record, 0x6C, 10.f); // DAT_0032B10C.
+    record[0x66] |= 1;
+    put_float(record, 0x6C, 20.f); // DAT_0032B234.
+    record[0x66] |= 1;
+    put_word(record, 0x78, read_u32(parameters, 0x12A));
+    record[0x66] |= 1;
+    put_word(record, 0x80, read_u32(parameters, 0x12E));
+    put_word(record, 0x84, read_u32(parameters, 0x132));
+    put_float(record, 0x88, 2.f); // DAT_0032B110.
+    return slot;
+}
+
+// Xbox 0x00077350
+bool construct_fx_outline_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    RuntimeFxCustomContext& context = *fx_context;
+    FxCustomInstance& instance = instance_of(object);
+    instance.type = 0x31;
+    u8* bytes = object.bytes.get();
+    bytes[0xCC] = 0xFF;
+    instance.texture = {};
+    if (read_u32(parameters, 0x8C) == 0x5F646961) // "aid_".
+    {
+        instance.texture = acquire_animation_resource(context.registry,
+            reinterpret_cast<const char*>(parameters.data() + 0x8C)); // 0x00035E90
+        if (instance.texture.data() == nullptr)
+        {
+            resource_error(context.error, 2); // 0x00032700
+        }
+    }
+    put_word(bytes, 0xB0, instance.texture.data() != nullptr ? 1u : 0u);
+    if (instance.texture.data() == nullptr)
+    {
+        return false;
+    }
+    std::memcpy(bytes + 0xC0, parameters.data() + 0x120, 2);
+    put_word(bytes, 0xB4, read_u32(parameters, 0x118));
+    put_word(bytes, 0xB8, read_u32(parameters, 0x11C));
+    put_word(bytes, 0x24, read_u32(parameters, 0x110));
+    put_word(bytes, 0x28, read_u32(parameters, 0x10C));
+    put_word(bytes, 0x2C, read_u32(parameters, 0x114));
+    float level = 1.f; // DAT_0032B0F8.
+    if (read_f32(parameters, 0x10C) > 0.f) // DAT_0032B100.
+    {
+        put_word(bytes, 0x18, 1);
+        put_word(bytes, 0x20, read_u32(parameters, 0x10C));
+        level = 0.01f; // DAT_0032B124.
+    }
+    else
+    {
+        put_word(bytes, 0x18, 2);
+        put_word(bytes, 0x20, read_u32(parameters, 0x110));
+    }
+    put_float(bytes, 0xBC, level);
+    collect_fx_outline_rows(instance, bytes); // 0x00077AD0
+    if (read_u32(bytes_of(object), 0xC4) == 0)
+    {
+        return false;
+    }
+    bytes[0xCC] = u8(start_fx_outline_light(instance, parameters)); // 0x00077C70
+    const char* sound = reinterpret_cast<const char*>(parameters.data() + 0xC);
+    char* name = reinterpret_cast<char*>(bytes + 0x30);
+    size_t index = 0;
+    do
+    {
+        name[index] = sound[index];
+    }
+    while (sound[index++] != 0);
+    if (name[0] != 0)
+    {
+        request_actor_sound(*instance.actor, 4, name, context.sounds); // 0x00041D00
+    }
+    return true;
+}
+
+// Xbox 0x00077490
+void destroy_fx_outline_view(FactoryObject& object)
+{
+    RuntimeFxCustomContext& context = *fx_context;
+    const auto found = fx_instances.find(object.bytes.get());
+    if (found == fx_instances.end())
+    {
+        return;
+    }
+    FxCustomInstance& instance = *found->second;
+    u8* bytes = object.bytes.get();
+    if (read_u32(bytes_of(object), 0xB0) != 0)
+    {
+        release_animation_resource(context.registry, instance.texture); // 0x00035C00
+        instance.texture = {};
+        put_word(bytes, 0xB0, 0);
+    }
+    if (read_u32(bytes_of(object), 0xC8) != 0)
+    {
+        instance.sparks.clear(); // 0x000663E0
+        put_word(bytes, 0xC8, 0);
+    }
+    const std::int8_t slot = std::int8_t(bytes[0xCC]);
+    if (slot != -1)
+    {
+        u8*& record = context.lights.records.at(size_t(slot));
+        // The host keeps the record in the instance; the scene's light reset (0x000FDED0) may have emptied the slot.
+        if (record != nullptr && (record[0x66] & 0x10) == 0)
+        {
+            instance.light.reset(); // 0x000663E0
+        }
+        record = nullptr;
+        --context.lights.count;
+        bytes[0xCC] = 0xFF;
+    }
+    if (bytes[0x30] != 0)
+    {
+        release_actor_sound(instance.actor->sound_slots[4], context.sounds); // 0x0012A3D0, actor +0x614
+    }
+}
+
+const ObjectFactoryVtable* fx_outline_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505428, fx_custom_outline_object_sizes, construct_fx_outline_view,
+        destroy_fx_outline_view};
+    return &table;
+}
+
 const ObjectFactoryVtable* fx_custom_lifecycle()
 {
     static const ObjectFactoryVtable table{0x005068F4, fx_custom_object_sizes, construct_fx_custom_view,
@@ -596,6 +978,30 @@ const ObjectFactoryVtable* fx_solid_fade_in_lifecycle()
         construct_fx_solid_fade_in_view, destroy_fx_solid_fade_in_view};
     return &table;
 }
+}
+
+// Xbox 0x000772E0
+void fx_custom_outline_object_sizes(ObjectSizes& output)
+{
+    output.instance = 0xD0;
+    output.parameters = 0x138;
+}
+
+// Xbox 0x00077A80
+void message_fx_custom_outline(std::span<u8> effect, std::span<const u32> message)
+{
+    if (message[0] == 3)
+    {
+        put_float(effect.data(), 0xBC, 1.f); // DAT_0032B0F8.
+        put_word(effect.data(), 0x18, 2);
+        put_word(effect.data(), 0x20, read_u32(effect, 0x24));
+        put_word(effect.data(), 0x1C, 0);
+        return;
+    }
+    if (message[0] == 5)
+    {
+        put_word(effect.data(), 0x1C, 1);
+    }
 }
 
 // Xbox 0x00077D90
@@ -710,6 +1116,7 @@ void install_runtime_fx_custom_classes(std::span<ObjectFactoryType> types, Runti
     fx_context = &context;
     types[0xC] = ObjectFactoryType{1, fx_custom_lifecycle}; // Getter 0x000EC650.
     types[0x2E] = ObjectFactoryType{0xC, fx_custom_electric_lifecycle}; // Getter 0x00076590.
+    types[0x31] = ObjectFactoryType{0xC, fx_outline_lifecycle}; // Getter 0x00077300.
     types[0x32] = ObjectFactoryType{0xC, fx_solid_fade_in_lifecycle}; // Getter 0x00077DB0.
 }
 }

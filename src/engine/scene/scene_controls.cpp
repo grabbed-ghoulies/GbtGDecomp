@@ -156,6 +156,19 @@ void destroy_haunted_chairs_view(FactoryObject&)
     // 0x001628B0 returns at once.
 }
 
+bool construct_scene_fx_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto& control = installing->instance(object);
+    control.state = state_of(object);
+    control.type = object.type;
+    return construct_runtime_scene_fx_control(state_of(object), parameters, installing->context.fx_services());
+}
+
+void destroy_scene_fx_view(FactoryObject&)
+{
+    // 0x001628B0 returns at once.
+}
+
 bool construct_super_scary_view(FactoryObject& object, std::span<const u8> parameters)
 {
     auto& control = installing->instance(object);
@@ -212,6 +225,13 @@ const ObjectFactoryVtable* haunted_chairs_control_lifecycle()
 {
     static const ObjectFactoryVtable table{0x005055A8, haunted_chairs_control_object_sizes,
         construct_haunted_chairs_view, destroy_haunted_chairs_view};
+    return &table;
+}
+
+const ObjectFactoryVtable* scene_fx_control_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505608, scene_fx_control_object_sizes, construct_scene_fx_view,
+        destroy_scene_fx_view};
     return &table;
 }
 
@@ -309,6 +329,15 @@ HauntedChairsControlServices& SceneControlContext::haunted_chairs_services() con
     return *haunted_chairs;
 }
 
+SceneFxControlServices& SceneControlContext::fx_services() const
+{
+    if (fx == nullptr)
+    {
+        throw Error("Fx control before the scene's actor services bind its services");
+    }
+    return *fx;
+}
+
 SuperScaryControlServices& SceneControlContext::super_scary_services() const
 {
     if (super_scary == nullptr)
@@ -336,6 +365,7 @@ void NativeSceneControlOwner::install(std::span<ObjectFactoryType> types)
     types[0x9A] = ObjectFactoryType{3, gameselect_control_lifecycle};
     types[0x92] = ObjectFactoryType{3, trophy_heads_control_lifecycle};
     types[0x93] = ObjectFactoryType{3, haunted_chairs_control_lifecycle}; // Getter 0x000824F0.
+    types[0x97] = ObjectFactoryType{3, scene_fx_control_lifecycle}; // Getter 0x00082FA0.
     types[0x98] = ObjectFactoryType{3, super_scary_control_lifecycle};
     types[0x96] = ObjectFactoryType{3, movie_volume_control_lifecycle};
 }
@@ -450,6 +480,9 @@ void NativeSceneControlOwner::tick(SceneControlInstance& control)
         tick_runtime_haunted_chairs_control(control.state, *control.haunted_chairs, control, context.lists,
             context.haunted_chairs_services());
         return;
+    case 0x97:
+        tick_runtime_scene_fx_control(control.state, context.fx_services()); // 0x00083570
+        return;
     case 0x98:
         tick_runtime_super_scary_control(control.state, *control.super_scary, control, context.lists,
             context.super_scary_services());
@@ -467,9 +500,10 @@ void NativeSceneControlOwner::draw(SceneControlInstance& control)
     case 0x91:
     case 0x92:
     case 0x93:
+    case 0x97:
     case 0x9B:
-        // Types 3 (getter 0x00115D50), 0x91 (getter 0x00080520), 0x92 (getter 0x000816C0), 0x93 (getter 0x000824F0)
-        // and 0x9B (getter 0x00080970) have the empty 0x001628B0 at +0x14.
+        // Types 3 (getter 0x00115D50), 0x91 (getter 0x00080520), 0x92 (getter 0x000816C0), 0x93 (getter 0x000824F0),
+        // 0x97 (getter 0x00082FA0) and 0x9B (getter 0x00080970) have the empty 0x001628B0 at +0x14.
         return;
     case 0x9A:
         draw_runtime_gameselect_control(control.state, *control.gameselect, context.gameselect_services());

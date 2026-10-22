@@ -416,7 +416,9 @@ int script_handle_cutscene_actions(Game& g, const ScriptNode& node, int param_3)
 // from entity.cpp; that copy is private to that file.
 extern i32 g_flag_30d08;
 
-extern u8 g_byte_30d14;
+extern char g_byte_30d14[0x8C];
+// DAT_00430D08 takes `value` and DAT_00430D14 the name (empty for none): the weapon the player spawns holding.
+void remember_script_player_weapon(const char* name, i32 value); // Xbox 0x00123AD0, EAX name, ECX value
 
 // Xbox 0x00127BC0. Handler 14. The dword at node+4 is the type. The byte map
 // at 0x00127F6C covers types 0x2C through 0xA6. Slot 14 of the table at
@@ -445,7 +447,7 @@ extern u8 g_byte_30d14;
 // vtable +0xC with message id 0x32 and a second dword of 0.
 //
 // Type 0x31 with a zero second argument calls 0x00123AD0. EAX is node+8 and
-// ECX is 0. That call is not translated. A nonzero second argument calls
+// ECX is 0 (the weapon the player spawns with). A nonzero second argument calls
 // 0x001292D0. A null return returns 2. A live object calls 0x0013A720 with
 // EAX = node+8, ECX = the object, and a stack 1, then returns 2.
 //
@@ -547,6 +549,17 @@ extern u32 g_flag_0650;
 
 // DAT_00512104. Type 0x64 copies node+8; 0x001237E0 tests it.
 extern u32 g_flag_2104;
+// DAT_00512138. Type 0x64 sets it while node+8 is nonzero; the candle (type 0xA1) adds its point light only then.
+extern u32 g_flag_2138;
+// The camera light 0x001236D0 stores for script type 0x64: DAT_00512114 / DAT_00512118 its colours and
+// DAT_0051211C..DAT_00512128 its four floats.
+extern u32 g_color_2134; // DAT_00512134, the point-light texture's clear colour (bytes R, G, B, 0).
+extern u32 g_camera_light_color;
+extern u32 g_camera_light_second_color;
+extern float g_camera_light_1c;
+extern float g_camera_light_20;
+extern float g_camera_light_24;
+extern float g_camera_light_28;
 
 // Xbox 0x00128050. Handler 15. The dword at node+4 is the type. The byte map
 // at 0x001286BC covers types 0x1 through 0xA5. Any other type, and the holes

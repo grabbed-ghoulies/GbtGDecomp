@@ -122,6 +122,9 @@ struct SceneD3DIndexedDraw
     u32 pixel_constants_set; // Bit n: SetPixelShaderConstant wrote register n.
     std::array<u32, 4> address_u{1, 1, 1, 1}; // D3DTSS_ADDRESSU / ADDRESSV at the draw.
     std::array<u32, 4> address_v{1, 1, 1, 1};
+    // D3DDevice_DrawVertices: the vertices are read in order from `first`, with no index buffer.
+    bool sequential = false;
+    u32 first = 0;
 };
 struct SceneD3DClear
 {
@@ -185,6 +188,9 @@ public:
     static constexpr u32 kViewport = 0x10030; // Six words: X, Y, Width, Height, MinZ, MaxZ.
     static constexpr u32 kVertexDataColor = 0x100A0; // Plus the D3DVSDE register.
     static constexpr u32 kMultiSampleMode = 0x100C0; // D3DDevice_SetRenderState_MultiSampleMode.
+    static constexpr u32 kMultiSampleAntiAlias = 0x100C1; // D3DDevice_SetRenderState_MultiSampleAntiAlias.
+    static constexpr u32 kMultiSampleRenderTargetMode = 0x100C2; // D3DDevice_SetRenderState_MultiSampleRenderTargetMode.
+    static constexpr u32 kZBias = 0x10063; // D3DDevice_SetRenderState_ZBias.
     static constexpr u32 kPSTextureModes = 0x10070; // D3DDevice_SetRenderState_PSTextureModes.
     static constexpr u32 kStencilEnable = 0x4032C; // NV097_SET_STENCIL_TEST_ENABLE.
     // The NV2A combiner registers behind pixel-shader definition words 0..56 (the table at 0x0020A368). Raw writes
@@ -211,6 +217,8 @@ public:
     void set_state(u32 key, u32 value);
     void set_constant_words(u32 reg, const u32* data, u32 count);
     SceneD3DIndexedDraw& draw_indexed(u32 primitive, u32 count, u32 indices);
+    // D3DDevice_DrawVertices (0x00172920): `count` vertices of the bound streams from `first`.
+    SceneD3DIndexedDraw& draw_vertices(u32 primitive, u32 first, u32 count);
     std::map<u32, SceneD3DVertexShader> vertex_shaders;
     // D3DTexture_GetSurfaceLevel: each surface handle and the texture (resource address) it belongs to.
     std::map<std::uintptr_t, std::uintptr_t> surface_textures;

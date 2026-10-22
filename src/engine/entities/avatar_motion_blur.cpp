@@ -294,18 +294,25 @@ void ignite_runtime_avatar(RuntimeAvatarMotionBlur& context)
 }
 
 // Xbox 0x000669D0
-void light_runtime_avatar(RuntimeAvatarMotionBlur&)
+void light_runtime_avatar(RuntimeAvatarMotionBlur& context)
 {
-    throw Error("untranslated Xbox 0x00123720 (a scene point light) reached from the avatar light 0x000669D0");
+    Actor& actor = context.self.actor;
+    float reach = runtime_actor_view_radius(actor, context.self.bytes) * 4.f; // 0x0003D860, DAT_0032B1B0.
+    if (reach > 60.f) // DAT_0032B28C.
+    {
+        reach = 60.f;
+    }
+    Vec3 position = actor_world_position(actor); // 0x000412A0, EDI the stack vector
+    position.y += 10.f; // DAT_0032B10C.
+    const i32 index = add_runtime_scene_point_light(position, 0xC800C800u, 0xC8006400u, 2.f, 2.f, reach, reach, 1,
+        context.lights); // 0x00123720, XMM0 DAT_0032B110
+    std::memcpy(context.self.bytes.data() + 0x940, &index, 4);
 }
 
 // Xbox 0x00066A80
 void release_runtime_avatar_light(RuntimeAvatarMotionBlur& context)
 {
-    if (-1 < i32(read_u32(context.self.bytes, 0x940)))
-    {
-        throw Error("avatar light release 0x00066A80 needs the DAT_00511B98 point light records");
-    }
+    release_runtime_scene_point_light(i32(read_u32(context.self.bytes, 0x940)), context.lights); // The inlined release.
 }
 
 // Xbox 0x00066FE0
@@ -346,7 +353,7 @@ void tick_runtime_avatar_motion_blur(RuntimeAvatarMotionBlur& context)
         if (phase == 0)
         {
             ignite_runtime_avatar(context);
-            if (context.lights_enabled != 0 || context.script_lights != 0)
+            if (context.lights.count != 0 || context.script_lights != 0)
             {
                 light_runtime_avatar(context);
             }
@@ -383,7 +390,24 @@ void tick_runtime_avatar_motion_blur(RuntimeAvatarMotionBlur& context)
         }
         if (-1 < i32(read_u32(bytes, 0x940)))
         {
-            throw Error("avatar light radius needs the DAT_00511B8C point light records");
+            // Phase 3 scales the light by its time left, clamped to [0, 1].
+            float scale = 1.f; // DAT_0032B0F8.
+            if (read_u32(bytes, 0x944) == 3)
+            {
+                const float left = read_f32(bytes, 0x938);
+                if (!(left > 1.f))
+                {
+                    scale = 0.f > left ? 0.f : left;
+                }
+            }
+            float reach = runtime_actor_view_radius(actor, bytes) * scale * 4.f; // 0x0003D860, DAT_0032B1B0.
+            if (reach > 60.f) // DAT_0032B28C.
+            {
+                reach = 60.f;
+            }
+            auto& point = context.lights.points.at(read_u32(bytes, 0x940));
+            point.unk_1C = reach; // DAT_00511B8C.
+            point.unk_20 = reach * 2.f; // DAT_00511B90, DAT_0032B110.
         }
     }
     const float span = length(read_u32(bytes, 0x944));

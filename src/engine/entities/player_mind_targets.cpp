@@ -21,6 +21,20 @@ bool runtime_body_target_state_active(std::span<const u8> body)
     return false;
 }
 
+// Xbox 0x00134620, ECX body
+bool runtime_body_target_state_flagged(std::span<const u8> body, const EntityBitBlock& bits)
+{
+    if ((bits.bytes[3] & 2) != 0)
+    {
+        return true;
+    }
+    if ((bits.bytes[2] & 2) != 0)
+    {
+        return runtime_body_target_state_active(body); // The tail jump to 0x00134650.
+    }
+    return false;
+}
+
 // Xbox 0x001413C0
 bool runtime_mind_target_requires_action(const RuntimeMindTarget& target, std::span<const u8> body)
 {

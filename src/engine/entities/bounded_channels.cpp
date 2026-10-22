@@ -53,6 +53,19 @@ void set_runtime_bounded_channel_limits(std::span<u8> channel, float first,
     }
 }
 
+// Xbox 0x00152BE0
+long double runtime_float_remainder(float value, float divisor)
+{
+    const float divisor_magnitude = divisor < 0.f ? 0.f - divisor : divisor; // DAT_002038F0; COMISS; JC
+    const float value_magnitude = value < 0.f ? 0.f - value : value;
+    if (divisor_magnitude > value_magnitude)
+    {
+        return value;
+    }
+    const i32 quotient = i32(value / divisor); // DIVSS; CVTTSS2SI
+    return static_cast<long double>(value) - static_cast<long double>(quotient) * divisor; // FILD; FMUL; FSUBR
+}
+
 // Xbox 0x00101B90
 float approach_runtime_scalar(float current, float target, float amount)
 {

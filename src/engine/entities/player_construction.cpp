@@ -89,7 +89,7 @@ bool initialize_runtime_player(std::span<u8> actor, std::span<const u8> paramete
         ++context.player_count;
         if (attached.bytes != nullptr && (context.story_flags & 0x10) != 0)
         {
-            auto& attached_actor = *context.attachments.created.at(attached.bytes.get());
+            auto& attached_actor = context.attachments.view_of(attached);
             put(attached_actor.object.bytes, 0xDA0, 1);
         }
     }

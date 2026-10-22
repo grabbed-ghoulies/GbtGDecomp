@@ -7870,7 +7870,8 @@ int count_rare_books(const gbtg::Game& game)
 // A point a few cells along the shortest walk from `from` to `to` over the scene's navigation grid (the floor under
 // `from`, cells joined by their connection bits, blocked cells skipped), or nothing when the grid has no such walk.
 // Test-side steering only: the game's own path search is not involved.
-std::optional<gbtg::Vec3> nav_waypoint(const gbtg::Vec3& from, const gbtg::Vec3& to, int ahead = 3)
+std::optional<gbtg::Vec3> nav_waypoint(const gbtg::Vec3& from, const gbtg::Vec3& to, int ahead = 3,
+    const std::set<gbtg::i32>* avoid = nullptr)
 {
     using namespace gbtg::entity_detail;
     if (g_nav_count <= 0)
@@ -7913,7 +7914,9 @@ std::optional<gbtg::Vec3> nav_waypoint(const gbtg::Vec3& from, const gbtg::Vec3&
                 continue;
             }
             const gbtg::i32 next = nz * grid->width + nx;
-            if (parent[size_t(next)] != -2 || (grid->cells[size_t(next)].flags_7 & 2) != 0)
+            // Cells in `avoid` (where the walk was found stuck on something the grid does not mark) are skipped.
+            if (parent[size_t(next)] != -2 || (grid->cells[size_t(next)].flags_7 & 2) != 0
+                || (avoid != nullptr && next != goal && avoid->contains(next)))
             {
                 continue;
             }
@@ -9273,8 +9276,10 @@ void play_scene6_1_run(gbtg::Game& game, const std::string& label)
 // Scene 7 (chapter1_scene7_1playcam), from the end of its transition. Pages close on A; titles, the scene's objects,
 // Cooper's position and the section gate are logged, and every 300th frame is captured, until the script moves on.
 // `fight_range` is how far a live ghouly may be from Cooper to be fought before he walks to a goal; with a
-// `range_title`, ghoulies are fought only while the scene title is that one.
-void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_range, const std::string& range_title)
+// `range_title`, ghoulies are fought only while the scene title is that one. `doors_first` walks to a door a live
+// PlayerApproachesDoor names before any region.
+void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_range, const std::string& range_title,
+    bool doors_first)
 {
     std::string title = game.scene_name;
     const std::string scene_script = game.scene_script.name;
@@ -9290,7 +9295,11 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
     int moved_on = -1;
     bool reached_door = false;
     StickSteering steering;
-    for (int frame = 0; frame < 9000 && moved_on < 0; ++frame)
+    std::set<gbtg::i32> avoided;
+    gbtg::Vec3 stuck_at{};
+    int stuck_since = -1;
+    // Scene 9's walk to the mummy's room takes some 7200 frames on its own.
+    for (int frame = 0; frame < 18000 && moved_on < 0; ++frame)
     {
         gbtg::InputState input;
         const bool page = game.script_dialogue != nullptr && game.script_dialogue->dialogue.state.mode != 0;
@@ -9311,9 +9320,26 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
         if (cooper && !page && gbtg::g_512344 != nullptr)
         {
             const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+            // With `doors_first`, a live PlayerApproachesDoor (condition 6, its +8 word the door) sends Cooper to the
+            // door's actor (its clip's first track, 0x0005BEC0) before any region.
             for (const auto& condition : gbtg::g_script_conds)
             {
-                if (gbtg::cond_u32(condition, 0) != 8)
+                if (!doors_first || goal || gbtg::cond_u32(condition, 0) != 6 || gbtg::g_event_sequence_context == nullptr)
+                {
+                    continue;
+                }
+                const auto door = gbtg::u16(gbtg::cond_u32(condition, 8));
+                gbtg::Vec3 at{};
+                float distance = 0.f;
+                if (gbtg::runtime_door_distance(door, *cooper, at, distance, gbtg::g_event_sequence_context->doors))
+                {
+                    goal = at;
+                    goal_name = "door " + std::to_string(door);
+                }
+            }
+            for (const auto& condition : gbtg::g_script_conds)
+            {
+                if (goal || gbtg::cond_u32(condition, 0) != 8)
                 {
                     continue;
                 }
@@ -9417,8 +9443,34 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
         }
         else if (goal)
         {
-            // Follow the navigation grid's walk where it has one; otherwise head straight for the goal.
-            const std::optional<gbtg::Vec3> step = nav_waypoint(*cooper, *goal);
+            // Follow the navigation grid's walk where it has one; otherwise head straight for the goal. Held in
+            // place for a second and a half (a coffin or crate the grid leaves open), the walk's next cell is
+            // avoided from then on and the walk is searched again.
+            const float moved_x = cooper->x - stuck_at.x;
+            const float moved_z = cooper->z - stuck_at.z;
+            if (stuck_since < 0 || moved_x * moved_x + moved_z * moved_z > 6.f * 6.f)
+            {
+                stuck_at = *cooper;
+                stuck_since = frame;
+            }
+            else if (frame > stuck_since + 90)
+            {
+                using namespace gbtg::entity_detail;
+                if (const auto next = nav_waypoint(*cooper, *goal, 1, &avoided); next && g_nav_count > 0)
+                {
+                    const gbtg::i32 floor = navigation_floor_index(*cooper, -1, 0);
+                    const gbtg::i32 cell = navigation_cell_index(floor, *next);
+                    if (cell >= 0)
+                    {
+                        avoided.insert(cell);
+                        std::cout << label << " frame " << frame << ": Cooper held at " << cooper->x << ", "
+                                  << cooper->z << "; the walk avoids the cell at " << next->x << ", " << next->z
+                                  << "\n";
+                    }
+                }
+                stuck_since = frame;
+            }
+            const std::optional<gbtg::Vec3> step = nav_waypoint(*cooper, *goal, 3, &avoided);
             const gbtg::Vec3 toward = step ? *step : *goal;
             const float dx = toward.x - cooper->x;
             const float dz = toward.z - cooper->z;
@@ -9503,11 +9555,11 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
 }
 
 void play_scene7(gbtg::Game& game, const std::string& label, float fight_range = 50.f,
-    const std::string& range_title = {})
+    const std::string& range_title = {}, bool doors_first = false)
 {
     try
     {
-        play_scene7_run(game, label, fight_range, range_title);
+        play_scene7_run(game, label, fight_range, range_title, doors_first);
     }
     catch (const std::exception& error)
     {
@@ -9777,12 +9829,13 @@ int main(int argc, char** argv)
     // --scene7 boots scene 7 (chapter1_scene7_1playcam), closes its pages with A and plays until the script moves on.
     const bool scene7_test = argc == 3 && std::string_view(argv[2]) == "--scene7";
     const bool scene8_test = argc == 3 && std::string_view(argv[2]) == "--scene8";
+    const bool scene9_test = argc == 3 && std::string_view(argv[2]) == "--scene9";
     if (spawn_test)
     {
         std::cout << std::unitbuf;
     }
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
-        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene3_test)
+        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene3_test)
     {
         std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene6-save | --scene6-save-reload | --scene3 | --scene4 | --scene5 | --scene6-1 | --scene7]\n";
         return 2;
@@ -9889,8 +9942,17 @@ int main(int argc, char** argv)
             : scene6_1_test ? "chapter1_scene6_1playcam"
             : scene7_test ? "chapter1_scene7_1playcam"
             : scene8_test ? "chapter1_scene8_1playcam"
+            : scene9_test ? "chapter1_scene9_1playcam"
             : player_test || spawn_test ? "chapter1_scene1_2playcam"
             : title_test ? "" : "scene0_1book");
+        if (scene9_test)
+        {
+            pass_chapter_title(game, "scene9", "aid_script_ghoulies_chapter1_scene9_1playcam", false);
+            // The cellar's regions lie past the mummy's door, so Cooper heads for door 8 first.
+            play_scene7(game, "scene9", 50.f, {}, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
         if (scene8_test)
         {
             pass_chapter_title(game, "scene8", "aid_script_ghoulies_chapter1_scene8_1playcam", false);

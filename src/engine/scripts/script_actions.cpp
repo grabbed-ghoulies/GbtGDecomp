@@ -2621,7 +2621,19 @@ int script_handle_cutscene_actions(Game& g, const ScriptNode& node, int param_3)
 // from entity.cpp; that copy is private to that file.
 i32 g_flag_30d08 = 0;
 
-u8 g_byte_30d14 = 0;
+char g_byte_30d14[0x8C] = {}; // DAT_00430D14..DAT_00430DA0.
+
+// Xbox 0x00123AD0, EAX name, ECX value
+void remember_script_player_weapon(const char* name, i32 value)
+{
+    g_flag_30d08 = value;
+    if (name != nullptr)
+    {
+        std::strcpy(g_byte_30d14, name);
+        return;
+    }
+    g_byte_30d14[0] = 0;
+}
 
 
 // Xbox 0x00127BC0. Handler 14. The dword at node+4 is the type. The byte map
@@ -2651,7 +2663,7 @@ u8 g_byte_30d14 = 0;
 // vtable +0xC with message id 0x32 and a second dword of 0.
 //
 // Type 0x31 with a zero second argument calls 0x00123AD0. EAX is node+8 and
-// ECX is 0. That call is not translated. A nonzero second argument calls
+// ECX is 0 (the weapon the player spawns with). A nonzero second argument calls
 // 0x001292D0. A null return returns 2. A live object calls 0x0013A720 with
 // EAX = node+8, ECX = the object, and a stack 1, then returns 2.
 //
@@ -2745,18 +2757,24 @@ int script_handle_actor_effects(Game& g, const ScriptNode& node, int param_2, in
         return 2;
     }
     case 0x31:
+    {
+        const std::string name = node_cstr(g.scene_script, node, 8);
         if (param_2 == 0)
         {
-            const u32 at_8 = node_u32(g.scene_script, node, 8);
-            (void)at_8;
+            remember_script_player_weapon(name.c_str(), 0); // 0x00123AD0, EAX node+8, ECX 0
             return 2;
         }
+        if (SceneActorServices* actors = script_scene_actors(g); actors != nullptr)
+        {
+            actors->give_script_player_weapon(name.c_str()); // 0x001292D0, 0x0013A720 with 1
+        }
         return 2;
+    }
     case 0x46:
         if (param_2 == 0)
         {
             g_flag_30d08 = 0;
-            g_byte_30d14 = 0;
+            g_byte_30d14[0] = 0;
             return 2;
         }
         if (SceneActorServices* actors = script_scene_actors(g); actors != nullptr)
@@ -2830,7 +2848,7 @@ int script_handle_actor_effects(Game& g, const ScriptNode& node, int param_2, in
         if (param_2 == 0)
         {
             g_flag_30d08 = 0;
-            g_byte_30d14 = 0;
+            g_byte_30d14[0] = 0;
             return 2;
         }
         return 2;
@@ -2940,6 +2958,12 @@ u32 g_color_2134 = 0;
 u32 g_flag_2138 = 0;
 
 u32 g_flag_2104 = 0;
+u32 g_camera_light_color = 0;
+u32 g_camera_light_second_color = 0;
+float g_camera_light_1c = 0.f;
+float g_camera_light_20 = 0.f;
+float g_camera_light_24 = 0.f;
+float g_camera_light_28 = 0.f;
 
 // DAT_0050E1B4. DAT_0050E1B0 is the count, 4 bytes in front of the words.
 // The next dword is DAT_0050E1C4.
@@ -3188,14 +3212,14 @@ int script_handle_world_actions(Game& g, const ScriptNode& node, int param_2, in
         const u32 at_8 = node_u32(g.scene_script, node, 8);
         g_flag_2138 = at_8 != 0 ? 1u : 0u;
         g_flag_2104 = at_8;
-        const u32 at_1c = node_u32(g.scene_script, node, 0x1c);
-        const u32 at_20 = node_u32(g.scene_script, node, 0x20);
-        const u32 at_24 = node_u32(g.scene_script, node, 0x24);
-        const float xmm0 = std::bit_cast<float>(at_1c);
-        (void)color;
-        (void)at_20;
-        (void)at_24;
-        (void)xmm0;
+        // 0x001236D0 with the colour twice, XMM0 and the third argument the float at +0x1C, then +0x20 and +0x24.
+        const float at_1c = std::bit_cast<float>(node_u32(g.scene_script, node, 0x1c));
+        g_camera_light_1c = at_1c;
+        g_camera_light_20 = at_1c;
+        g_camera_light_24 = std::bit_cast<float>(node_u32(g.scene_script, node, 0x20));
+        g_camera_light_color = color;
+        g_camera_light_second_color = color;
+        g_camera_light_28 = std::bit_cast<float>(node_u32(g.scene_script, node, 0x24));
         return 2;
     }
     case 0x6d:

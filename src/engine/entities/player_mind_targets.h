@@ -63,6 +63,8 @@ RuntimeMindTarget* select_runtime_player_shape_target(RuntimePlayerTargetSearch&
 bool runtime_mind_target_allowed(const RuntimeMindTarget& target,
     u32 flags); // Xbox 0x00129920
 bool runtime_body_target_state_active(std::span<const u8> body); // Xbox 0x00134650
+// The body's bit block (+0x15C) bit 25, else bit 17 with 0x00134650.
+bool runtime_body_target_state_flagged(std::span<const u8> body, const EntityBitBlock& bits); // Xbox 0x00134620, ECX body
 // `body` is the target's own body (record +0x10 actor +0x95C).
 bool runtime_mind_target_requires_action(const RuntimeMindTarget& target,
     std::span<const u8> body); // Xbox 0x001413C0

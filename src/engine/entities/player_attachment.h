@@ -50,7 +50,8 @@ struct RuntimePlayerAttachmentCreation
 {
     RuntimePlayerAttachment& attachment;
     RuntimePlayerChildContext& child;
-    const std::unordered_map<const u8*, RuntimePlayerAttachmentActor*>& created;
+    // A just-created object's attachment view (0x0001B2B0's EAX), before the scene keeps the object.
+    std::function<RuntimePlayerAttachmentActor&(FactoryObject&)> view_of;
 };
 FactoryObject create_runtime_player_attachment(const char* name, i32 replace,
     RuntimePlayerAttachmentCreation& context); // Xbox 0x0013A720

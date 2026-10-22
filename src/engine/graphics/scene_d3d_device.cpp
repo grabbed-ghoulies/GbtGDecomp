@@ -179,6 +179,11 @@ SceneD3DDevice::SceneD3DDevice()
     // the block draws as D3DFVF_XYZ | D3DFVF_TEX1.
     dialogue_.vertex_data2f = [this](i32 reg, float a, float b)
     {
+        // Register 10 (D3DVSDE_TEXCOORD1) is the second set, which no format the blocks draw under reads.
+        if (reg == 10 && !immediate_.empty())
+        {
+            return;
+        }
         if (reg != 9 || immediate_.empty())
         {
             throw Error("D3D immediate 2f data other than texture coordinate 0, or outside Begin/End");
@@ -199,11 +204,12 @@ SceneD3DDevice::SceneD3DDevice()
         }
         const auto bound = render_states_.find(kVertexShader);
         const u32 format = bound == render_states_.end() ? 0u : bound->second;
-        if (format != 0x2 && format != 0x42 && format != 0x44)
+        // D3DFVF_XYZ | D3DFVF_TEX1 (0x102) bound takes the textured block too (the point-light composite, 0x00063320).
+        if (format != 0x2 && format != 0x42 && format != 0x44 && format != 0x102)
         {
             throw Error("D3D immediate vertices under vertex format " + std::to_string(format));
         }
-        if (immediate_textured_ && format != 0x2)
+        if ((immediate_textured_ && format != 0x2 && format != 0x102) || (format == 0x102 && !immediate_textured_))
         {
             throw Error("D3D immediate texture coordinates under vertex format " + std::to_string(format));
         }
@@ -509,6 +515,14 @@ SceneD3DIndexedDraw& SceneD3DDevice::draw_indexed(u32 primitive, u32 count, u32 
     commands.push_back(SceneD3DIndexedDraw{primitive, count, indices, constants_, textures_, snapshot(),
         vertex_streams_, pixel_constants_, pixel_constants_set_, address_u_, address_v_});
     return std::get<SceneD3DIndexedDraw>(commands.back());
+}
+
+SceneD3DIndexedDraw& SceneD3DDevice::draw_vertices(u32 primitive, u32 first, u32 count)
+{
+    auto& draw = draw_indexed(primitive, count, 0);
+    draw.sequential = true;
+    draw.first = first;
+    return draw;
 }
 
 std::vector<SceneD3DCommand> SceneD3DDevice::take_commands()

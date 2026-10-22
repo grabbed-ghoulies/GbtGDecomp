@@ -113,6 +113,10 @@ add_library(gbtg_lib STATIC
     src/engine/scene/attract_control.cpp
     src/engine/scene/trophy_heads_control.cpp
     src/engine/scene/haunted_chairs_control.cpp
+    src/engine/scene/scene_fx_control.cpp
+    src/engine/scene/scene_point_lights.cpp
+    src/engine/graphics/scene_point_light_pass.cpp
+    src/engine/scene/scene_light_grid.cpp
     src/engine/scene/super_scary_control.cpp
     src/engine/scene/gameselect_control.cpp
     src/engine/scene/scene_actor_removal.cpp
@@ -222,11 +226,14 @@ add_library(gbtg_lib STATIC
     src/engine/graphics/shader_parameters.cpp
     src/engine/entities/haunted_tv_strategy.cpp
     src/engine/entities/haunted_chair_strategy.cpp
+    src/engine/entities/mummy_strategy.cpp
+    src/engine/entities/candle_weapon.cpp
     src/engine/entities/fx_custom_electric.cpp
     src/engine/entities/generate_ghouly_state.cpp
     src/engine/entities/body_shocked_state.cpp
     src/engine/entities/body_scrabble_state.cpp
     src/engine/entities/body_slide_state.cpp
+    src/engine/entities/animated_light.cpp
     src/engine/entities/body_swing_state.cpp
     src/engine/entities/actor_runtime_queries.cpp
     src/engine/entities/actor_view_visibility.cpp

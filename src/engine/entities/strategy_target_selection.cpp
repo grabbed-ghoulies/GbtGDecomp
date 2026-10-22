@@ -817,6 +817,56 @@ bool runtime_message_lands_on_actor(std::span<const u32> message, u32 actor)
     return message[1] == actor && message[4] != 0;
 }
 
+// Xbox 0x001408C0, EAX actor, ECX message
+bool runtime_message_names_mind_target_actor(std::span<const u32> message, std::span<const u8> mind,
+    const std::function<RuntimeMindTarget*(u32)>& target_at)
+{
+    if (mind.data() == nullptr || read_u32(mind, 0x10) == 0)
+    {
+        return false;
+    }
+    return read_u32(target_at(read_u32(mind, 0x10))->bytes, 0x10) == message[1];
+}
+
+// Xbox 0x001408E0, ECX message, EDX actor
+bool runtime_message_from_mind_target(std::span<const u32> message, u32 actor, std::span<const u8> mind,
+    const std::function<RuntimeMindTarget*(u32)>& target_at)
+{
+    return runtime_message_names_mind_target_actor(message, mind, target_at) && message[2] == actor;
+}
+
+// Xbox 0x00140A00, EAX message, ECX actor
+bool runtime_message_source_targets_mind_target(std::span<const u32> message, u32 actor, std::span<const u8> mind,
+    RuntimeStrategyActorViews& views)
+{
+    if (message[1] != actor || message[2] == 0)
+    {
+        return false;
+    }
+    const u32 source_target = read_u32(views.actor_bytes_at(message[2]), 0x8F8);
+    if (source_target == 0)
+    {
+        return false;
+    }
+    const u32 target = mind.data() == nullptr ? 0 : read_u32(mind, 0x10);
+    return target == source_target;
+}
+
+// Xbox 0x000415A0, ESI actor, EBX target
+float runtime_squared_target_distance(const Actor& actor, std::span<const u8> target)
+{
+    const Vec3 position = actor_world_position(actor); // 0x000412A0
+    const float dz = position.z - read_f32(target, 0x28);
+    const float dx = position.x - read_f32(target, 0x20);
+    const float dy = position.y - read_f32(target, 0x24);
+    return (dz * dz + dx * dx) + dy * dy;
+}
+
+bool runtime_strategy_reactions_enabled(RuntimePlayerStrategyGoals& context)
+{
+    return reactions_enabled(context);
+}
+
 // Xbox 0x001363E0
 float runtime_actor_body_gap(const Actor& first, const Actor& second, RuntimeStrategyActorViews& views)
 {

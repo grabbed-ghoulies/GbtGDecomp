@@ -742,7 +742,59 @@ void update_runtime_meter(RuntimeScoreboardUpdate& context)
         release_runtime_meter_voice(context); // 0x0012EE00
         return;
     }
-    throw Error("untranslated Xbox 0x0012ED30 path: the shown meter (0x0012E900)");
+    const RuntimeActorClock& clock = context.clock;
+    constexpr u32 kScriptHold = 0; // DAT_00512278, BSS that no retail code writes.
+    globals.meter_bd8 = approach_runtime_scalar(globals.meter_bd8, kScriptHold != 0 ? 1.f : 0.f,
+        runtime_frame_step(clock)); // 0x00101B90
+    if (context.paused == 0)
+    {
+        globals.meter_bb8 = 0.25f; // DAT_0032B104.
+        globals.meter_bc0 = std::bit_cast<float>(0x4036DB6Eu); // DAT_0032B25C.
+        animate_runtime_hud_pulse({globals.meter_scales[0], globals.meter_scales[1], globals.meter_scales[2],
+            as_float(globals.meter_bb4), globals.meter_bb8, as_float(globals.meter_bbc), globals.meter_bc0},
+            runtime_frame_step(clock), [&context]()
+            {
+                end_runtime_meter_pulse(context);
+            }); // 0x00104DF0, ESI DAT_00433BA8, EAX 0x0012ED30
+        globals.meter_drawn = 0;
+        return;
+    }
+    release_runtime_meter_voice(context); // 0x0012EE00
+    globals.meter_drawn = 0;
+}
+
+// Xbox 0x0012ED90
+void play_runtime_meter_voice(const char* name, RuntimeScoreboardUpdate& context)
+{
+    auto& voice = context.hud.globals.meter_voice; // DAT_00433B84
+    if (voice != 0xFFFF)
+    {
+        stop_voice(voice, context); // 0x00039690 with stack 0, then DAT_00433B84 = -1
+    }
+    const i16 index = allocate_audio_event_voice(0, context.voices); // 0x00039830
+    if (index != -1)
+    {
+        context.voices.voices.at(size_t(index)).stop = 0; // DAT_004E0CEC
+        prepare_audio_event_voice(index, name, context.voices); // 0x00039A20
+    }
+    voice = u16(index);
+}
+
+// Xbox 0x0012ED30
+void end_runtime_meter_pulse(RuntimeScoreboardUpdate& context)
+{
+    auto& globals = context.hud.globals;
+    const bool sound = globals.meter_drawn != 0 && runtime_decay_enabled(context.clock); // DAT_0050E768, DAT_0030F144
+    if (globals.meter_bd0 != 0)
+    {
+        if (sound)
+        {
+            play_runtime_meter_voice("XACT_SOUNDBANK_GPROPS_BUZZER", context); // 0x0012ED90, 0x00313310
+        }
+        globals.meter_bd0 = 0;
+        return;
+    }
+    release_runtime_meter_voice(context); // The tail jump to 0x0012EE00.
 }
 
 // Xbox 0x00132210
@@ -798,5 +850,58 @@ void load_runtime_scoreboard_weapon_icons(RuntimeScoreboardGlobals& globals, Ani
         globals.damage_flash_texture = texture;
         globals.damage_6e4 = 0.f;
     }
+}
+
+// Xbox 0x0012E770
+void load_runtime_meter_textures(RuntimeScoreboardGlobals& globals, AnimationResourceRegistry& registry,
+    ResourceErrorState& error)
+{
+    auto& [gauge, glow, pointer] = globals.meter_textures;
+    if (gauge.data() == nullptr)
+    {
+        const auto texture = acquire_animation_resource(registry,
+            "aid_texture_ghoulies_scoreboard_energy_ammometer"); // 0x00035E90
+        if (texture.data() == nullptr)
+        {
+            resource_error(error, 2); // 0x00032700
+        }
+        gauge = texture;
+        globals.meter_bd4 = float(read_u16(texture, 8)) * 0.5f; // DAT_0032B0F4.
+    }
+    if (glow.data() == nullptr)
+    {
+        const auto texture = acquire_animation_resource(registry,
+            "aid_texture_ghoulies_scoreboard_energy_ammometerglow");
+        if (texture.data() == nullptr)
+        {
+            resource_error(error, 2);
+        }
+        glow = texture;
+        globals.meter_bd8 = 0.f;
+    }
+    if (pointer.data() == nullptr)
+    {
+        const auto texture = acquire_animation_resource(registry,
+            "aid_texture_ghoulies_scoreboard_energy_ammopointer");
+        if (texture.data() == nullptr)
+        {
+            resource_error(error, 2);
+        }
+        pointer = texture;
+    }
+}
+
+// Xbox 0x0012EC70
+void show_runtime_meter_level(float level, RuntimeScoreboardGlobals& globals, AnimationResourceRegistry& registry,
+    ResourceErrorState& error)
+{
+    as_float(globals.meter_b8c) = 2.f; // DAT_0032B110.
+    if (globals.meter_level > 0.f && level == 0.f) // COMISS; UCOMISS
+    {
+        globals.meter_bd0 = 1;
+    }
+    globals.meter_level = level;
+    globals.meter_bc8 = 2;
+    load_runtime_meter_textures(globals, registry, error); // The tail jump to 0x0012E770.
 }
 }

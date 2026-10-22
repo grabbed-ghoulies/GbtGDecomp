@@ -6,11 +6,12 @@
 
 namespace gbtg
 {
+struct ActorEffectNode;
 struct RuntimeBodyAttachmentLists
 {
     ActorAttachmentNode*& first; // Actor +0x1B8.
     ActorAttachmentNode*& second; // Actor +0x1B0.
-    std::span<u8*> timed; // DAT_00506930.
+    std::span<ActorEffectNode*> timed; // DAT_00506930.
 };
 bool remove_runtime_body_attachment(u16 token, RuntimeBodyAttachmentLists& lists); // Xbox 0x0003CFD0
 void clear_runtime_body_command_attachments(std::span<u8> body,

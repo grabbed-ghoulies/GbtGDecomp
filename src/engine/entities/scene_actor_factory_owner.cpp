@@ -115,6 +115,14 @@ void release_bob_weapon_view(FactoryObject& object)
 {
     active_owner->release_bob_weapon(object);
 }
+bool construct_candle_weapon_view(FactoryObject& object, std::span<const u8>)
+{
+    return active_owner->construct_candle_weapon(object);
+}
+void release_candle_weapon_view(FactoryObject& object)
+{
+    active_owner->release_candle_weapon(object);
+}
 void release_weapon_view(FactoryObject& object)
 {
     active_owner->release_weapon(object);
@@ -159,6 +167,12 @@ const ObjectFactoryVtable* bob_weapon_lifecycle()
 {
     static const ObjectFactoryVtable table{0x005060B8, bob_weapon_object_sizes, construct_bob_weapon_view,
         release_bob_weapon_view};
+    return &table;
+}
+const ObjectFactoryVtable* candle_weapon_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00506108, candle_weapon_object_sizes, construct_candle_weapon_view,
+        release_candle_weapon_view};
     return &table;
 }
 const ObjectFactoryVtable* cutscene_setup_lifecycle()
@@ -223,6 +237,20 @@ bool construct_bone_debris_view(FactoryObject& object, std::span<const u8> param
 void release_bone_debris_view(FactoryObject& object)
 {
     active_owner->release_bone_debris(object);
+}
+bool construct_animated_light_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    return active_owner->construct_animated_light(object, parameters);
+}
+void release_animated_light_view(FactoryObject& object)
+{
+    active_owner->release_animated_light(object);
+}
+const ObjectFactoryVtable* animated_light_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00504B80, animated_light_object_sizes, construct_animated_light_view,
+        release_animated_light_view};
+    return &table;
 }
 const ObjectFactoryVtable* bone_debris_lifecycle()
 {
@@ -715,11 +743,13 @@ void NativeSceneActorClassOwner::install(std::span<ObjectFactoryType> types)
     types[0xF] = {2, motion_blur_lifecycle}; // Getter 0x00066900.
     types[0x10] = {2, afterimage_lifecycle}; // Getter 0x000690A0.
     types[0x12] = {2, bone_debris_lifecycle}; // Getter 0x00067E60.
+    types[0x13] = {2, animated_light_lifecycle}; // Getter 0x0006C260.
     types[0xB] = {2, weapon_lifecycle}; // Getter 0x00145900.
     types[0xAA] = {0xB, chair_weapon_lifecycle}; // Getter 0x000CEF70.
     types[0xA7] = {0xB, thrown_projectile_lifecycle}; // Getter 0x000CB570.
     types[0xA9] = {0xB, large_projectile_lifecycle}; // Getter 0x000CD640.
     types[0xA0] = {0xB, bob_weapon_lifecycle}; // Getter 0x000C5BB0.
+    types[0xA1] = {0xB, candle_weapon_lifecycle}; // Getter 0x000C64F0.
     active_owner = this;
 }
 
@@ -773,7 +803,7 @@ bool NativeSceneActorClassOwner::construct_motion_blur(FactoryObject& object, st
         bindings_.actors.bindings.startup, bindings_.effects, bindings_.snapshots(), bindings_.actors.bindings.empty_name,
         bindings_.address_of(object.bytes.get()), bindings_.actors.bindings.resource_address, {},
         bindings_.emitter.clock, bindings_.actors.bindings.sounds, bindings_.actors.view(object).frame,
-        bindings_.emitter.frame, bindings_.lights_enabled, bindings_.script_lights});
+        bindings_.emitter.frame, bindings_.point_lights, bindings_.script_lights});
     auto* blur = context.get();
     motion_blurs_.emplace(object.bytes.get(), std::move(context));
     return initialize_runtime_avatar_motion_blur(parameters, *blur);
@@ -899,6 +929,37 @@ ActorMatrixSetup& NativeSceneActorClassOwner::bone_debris_matrices(FactoryObject
     return bone_debris_.at(object.bytes.get())->matrices;
 }
 
+bool NativeSceneActorClassOwner::construct_animated_light(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto& view = bindings_.actors.view(object);
+    auto& startup = bindings_.actors.bindings.startup;
+    auto context = std::make_unique<RuntimeAnimatedLight>(RuntimeAnimatedLight{{object.bytes.get(), object.size},
+        view.bat.actor, view.animation, bindings_.point_lights, startup.registry, startup.error, bindings_.random,
+        g_billboard_queue});
+    auto* light = context.get();
+    animated_lights_.emplace(object.bytes.get(), std::move(context));
+    return initialize_runtime_animated_light(*light, parameters);
+}
+
+void NativeSceneActorClassOwner::release_animated_light(FactoryObject& object)
+{
+    destroy_runtime_animated_light(*animated_lights_.at(object.bytes.get()));
+    if (!defer_release)
+    {
+        animated_lights_.erase(object.bytes.get());
+    }
+}
+
+void NativeSceneActorClassOwner::update_animated_light(FactoryObject& object)
+{
+    update_runtime_animated_light(*animated_lights_.at(object.bytes.get()));
+}
+
+void NativeSceneActorClassOwner::queue_animated_light_glow(FactoryObject& object)
+{
+    queue_runtime_animated_light_glow(*animated_lights_.at(object.bytes.get()));
+}
+
 bool NativeSceneActorClassOwner::construct_weapon(FactoryObject& object, std::span<const u8> parameters)
 {
     auto instance = std::make_unique<WeaponInstance>(bindings_, object);
@@ -941,6 +1002,21 @@ bool NativeSceneActorClassOwner::construct_bob_weapon(FactoryObject& object, std
 void NativeSceneActorClassOwner::release_bob_weapon(FactoryObject& object)
 {
     destroy_runtime_bob_weapon(weapons_.at(object.bytes.get())->context);
+}
+
+bool NativeSceneActorClassOwner::construct_candle_weapon(FactoryObject& object)
+{
+    return initialize_runtime_candle_weapon(weapons_.at(object.bytes.get())->context);
+}
+
+void NativeSceneActorClassOwner::release_candle_weapon(FactoryObject& object)
+{
+    destroy_runtime_candle_weapon(weapons_.at(object.bytes.get())->context);
+}
+
+void NativeSceneActorClassOwner::queue_candle_flame(FactoryObject& object)
+{
+    queue_runtime_candle_flame(weapons_.at(object.bytes.get())->context);
 }
 
 void NativeSceneActorClassOwner::release_weapon(FactoryObject& object)
@@ -1143,6 +1219,7 @@ void NativeSceneActorClassOwner::release_view(const u8* bytes)
     motion_blurs_.erase(bytes);
     afterimages_.erase(bytes);
     bone_debris_.erase(bytes);
+    animated_lights_.erase(bytes);
     weapons_.erase(bytes);
 }
 
@@ -1191,6 +1268,10 @@ void NativeSceneActorClassOwner::message(FactoryObject& object, std::span<u32> m
     else if (object.type == 0xA0)
     {
         dispatch_runtime_bob_weapon_message(weapons_.at(object.bytes.get())->context, message);
+    }
+    else if (object.type == 0xA1)
+    {
+        dispatch_runtime_candle_weapon_message(weapons_.at(object.bytes.get())->context, message);
     }
     else if (object.type == 0xD)
     {

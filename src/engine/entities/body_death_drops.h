@@ -1,6 +1,7 @@
 #pragma once
 #include "body_action_selection.h"
 #include "actor_template_creation.h"
+#include <functional>
 #include <vector>
 
 namespace gbtg
@@ -11,8 +12,8 @@ struct RuntimeBodyDeathDrops
     std::span<u8> actor_bytes;
     std::span<ExecutableResourcePool> resources;
     ObjectFactoryRegistry& factory;
-    std::vector<FactoryObject>& objects;
-    const std::unordered_map<const u8*, RuntimeBodyAttachedActor*>& created;
+    std::function<u32(FactoryObject)> keep; // The scene keeps a created object; its address, or 0 for none.
+    std::function<void(u32 actor, std::span<const u32>)> message; // The created actor's vtable +0xC.
     const Vec3& default_position;
     const Vec3& default_euler;
     u32& random;

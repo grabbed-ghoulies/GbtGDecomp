@@ -64,7 +64,7 @@ MSVC RTTI (`.?AV`) is almost absent — only `std::exception` family. Game types
 
 ## Recovered functions (Ghidra)
 
-Addresses are Xbox virtual. Names are from Code Browser / headless export. Reconstruction lives under `src/engine/`. Re-export with `tools/ghidra/ghidra_scripts/ExportEngine.java`.
+Addresses are Xbox virtual. Names are from Code Browser / headless export. Reconstruction lives under `src/engine/`. Re-export with `tools/ghidra_scripts/ExportEngine.java`.
 
 ### Boot
 
@@ -166,7 +166,7 @@ Body types in `.rdata`: `entityBodyPlayer`, `Human`, `Camera`, `Zombie`, `Vampir
 3. Xrefs to `audioLoadFile` and `There is no script for this scene!`.
 4. Kernel import thunk at `0x00202EA0` for XAPI / Nt / D3D.
 
-Named functions: [`docs/generated/ghidra_functions.txt`](generated/ghidra_functions.txt). Do not commit the Ghidra database. Headless scripts live in `tools/ghidra/ghidra_scripts/`.
+Named functions: [`docs/generated/ghidra_functions.txt`](generated/ghidra_functions.txt). Do not commit the Ghidra database. Headless scripts live in `tools/ghidra_scripts/`.
 
 ## Supervisor log
 

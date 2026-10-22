@@ -953,6 +953,38 @@ int script_handle_condition_node(Game& g, const ScriptNode& node, u32& cursor)
         opcode = 6; // 0x00125543: the word at node+8 and the float at node+0xC.
         word_and_float = true;
         break;
+    case 0x42:
+    case 0x5A:
+    case 0x5B:
+    {
+        // 0x00125536 / 0x001255F4 / 0x0012561B: opcode 5 (NumberOfKnockdowns), 0xB (SpecificGhouliesAlive) or 0xA
+        // (SpecificGhouliesKilled), the link, the dword at node+8, 0x001077B0's tag for the name at node+0xC as a word
+        // at +0xC and the float at node+0x4C at +0x10.
+        const u32 code = node.type == 0x42 ? 5u : node.type == 0x5A ? 11u : 10u;
+        ScriptCond rec{};
+        cond_put_u32(rec, 0, code);
+        cond_put_u32(rec, 4, node.link);
+        cond_put_u32(rec, 8, node_u32(g.scene_script, node, 8));
+        cond_put_u32(rec, 0xC, static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 0xC).c_str())));
+        cond_put_u32(rec, 0x10, node_u32(g.scene_script, node, 0x4C));
+        script_append_condition(rec, kScriptCondSize[code], code); // 0x00124C80, EDI the record
+        script_seek_node_type(g.scene_script, cursor, 0x3C); // 0x000532B0
+        return 2;
+    }
+    case 0x72:
+    {
+        // 0x001256CB: 0x001253F0 clears the record and stores opcode 0x11 (ObjectByMarkerBroken) and the link, then
+        // the dword at node+8, the float at node+0xC and the dword at node+0x10.
+        ScriptCond rec{};
+        cond_put_u32(rec, 0, 17);
+        cond_put_u32(rec, 4, node.link);
+        cond_put_u32(rec, 8, node_u32(g.scene_script, node, 8));
+        cond_put_u32(rec, 0xC, node_u32(g.scene_script, node, 0xC));
+        cond_put_u32(rec, 0x10, node_u32(g.scene_script, node, 0x10));
+        script_append_condition(rec, kScriptCondSize[17], 17); // 0x00124C80, EDI the record
+        script_seek_node_type(g.scene_script, cursor, 0x3C); // 0x000532B0
+        return 2;
+    }
     case 0x44:
         opcode = 7; // 0x00125576: 0x001077B0's tag for the name at node+8.
         tag_only = true;
@@ -1384,11 +1416,19 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
     }
     case 0x1c:
     {
-        const std::string key = node_cstr(g.scene_script, node, 8);
-        const u16 word = static_cast<u16>(script_find_actor_tag(key.c_str()));
+        // 0x00125D00 builds step type 2 with XMM0 = 1.5 (0x0032B210) at +4, clearing it from +0x18 to the type's
+        // size (DAT_00428934); +0x18 is the tag of the name at node+8 and +0x1C is set when the dword at node+0x48
+        // is 0. 0x000D05D0 queues it.
+        std::array<u8, 0x88> step{};
+        const u32 type = 2;
+        const float delay = 1.5f;
+        std::memcpy(step.data(), &type, 4);
+        std::memcpy(step.data() + 4, &delay, 4);
+        const u16 tag = static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 8).c_str()));
+        std::memcpy(step.data() + 0x18, &tag, 2);
         const u32 absent = node_u32(g.scene_script, node, 0x48) == 0 ? 1u : 0u;
-        (void)word;
-        (void)absent;
+        std::memcpy(step.data() + 0x1C, &absent, 4);
+        queue_script_event_step(step);
         return 2;
     }
     case 0x1d:
@@ -1849,8 +1889,8 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
 // Type 0x73 would call 0x001400D0. CX is the word at node+8. The nine stack
 // words are node+0xC through node+0x2C. That call is not translated.
 //
-// Type 0x74 would call 0x00115F40 with EDI pointing at message id 1. That
-// call is not translated.
+// Type 0x74 calls 0x00115F40 with EDI pointing at message id 1: each active
+// scene control (DAT_0050E438) gets it through vtable +0xC.
 //
 // Type 0x8E would call 0x001189D0. XMM0 is the float at node+0xC, ECX is the
 // dword at node+8, EAX points at node+0x1C, and the stack dwords are node+0x10,
@@ -1998,7 +2038,21 @@ int script_handle_resource_actions(Game& g, const ScriptNode& node, int param_2)
         return 2;
     }
     case 0x74:
+    {
+        // 0x00115F40, EDI the one-word stack message {1}: vtable +0xC of each DAT_0050E438 scene control.
+        if (g_scene_control_owner == nullptr)
+        {
+            throw Error("script type 0x74 without the scene's controls");
+        }
+        const std::array<u32, 1> message{1};
+        for (RuntimeActorLink* link = g_scene_controls.active.next; link != nullptr;)
+        {
+            RuntimeActorLink* next = link->next;
+            g_scene_control_owner->message(g_scene_control_owner->instance_of(*link), message);
+            link = next;
+        }
         return 2;
+    }
     case 0x8e:
     {
         const float xmm0 = std::bit_cast<float>(node_u32(g.scene_script, node, 0xc));
@@ -2653,7 +2707,12 @@ int script_handle_actor_effects(Game& g, const ScriptNode& node, int param_2, in
     case 0x2d:
         if (param_3 == 0)
         {
-            // 0x00127FF0 is not translated.
+            SceneActorServices* actors = script_scene_actors(g);
+            if (actors == nullptr)
+            {
+                throw Error("script type 0x2D (0x00127FF0) runs the player marker with no native scene");
+            }
+            actors->restart_marker_player(); // 0x00127FF0
             return 2;
         }
         return 2;

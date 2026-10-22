@@ -112,6 +112,7 @@ add_library(gbtg_lib STATIC
     src/engine/scene/scene_controls.cpp
     src/engine/scene/attract_control.cpp
     src/engine/scene/trophy_heads_control.cpp
+    src/engine/scene/haunted_chairs_control.cpp
     src/engine/scene/super_scary_control.cpp
     src/engine/scene/gameselect_control.cpp
     src/engine/scene/scene_actor_removal.cpp
@@ -214,14 +215,18 @@ add_library(gbtg_lib STATIC
     src/engine/entities/bob_weapon.cpp
     src/engine/entities/ghouly_cutscene_setup.cpp
     src/engine/entities/ghouly_bg_break_setup.cpp
+    src/engine/entities/ghouly_swap_setup.cpp
     src/engine/entities/bg_break_key.cpp
     src/engine/entities/body_arc_state.cpp
     src/engine/entities/body_arc_attack_state.cpp
     src/engine/graphics/shader_parameters.cpp
     src/engine/entities/haunted_tv_strategy.cpp
+    src/engine/entities/haunted_chair_strategy.cpp
     src/engine/entities/fx_custom_electric.cpp
     src/engine/entities/generate_ghouly_state.cpp
     src/engine/entities/body_shocked_state.cpp
+    src/engine/entities/body_scrabble_state.cpp
+    src/engine/entities/body_slide_state.cpp
     src/engine/entities/body_swing_state.cpp
     src/engine/entities/actor_runtime_queries.cpp
     src/engine/entities/actor_view_visibility.cpp

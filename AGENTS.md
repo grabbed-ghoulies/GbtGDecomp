@@ -43,7 +43,7 @@ behavior.
 
 - Read the decompile from `cache/ghidra_frontier/<VA>.txt`. If it is missing,
   export it with the read-only Ghidra command (the project is never written):
-  `cmd /c "tools\ghidra\support\analyzeHeadless.bat Z:\GhouliesStuff\ghidra_projects GbtG -process default.xbe.original -readOnly -noanalysis -scriptPath tools\ghidra\ghidra_scripts -postScript ExportPlayerScene.java <VA...>"`
+  `cmd /c "tools\ghidra\support\analyzeHeadless.bat Z:\GhouliesStuff\ghidra_projects GbtG -process default.xbe.original -readOnly -noanalysis -scriptPath tools\ghidra_scripts -postScript ExportPlayerScene.java <VA...>"`
 - Work from a live entry point inward: run the scene, find the first
   untranslated or unbound callee it reaches, and translate that. Do not work
   through isolated addresses that nothing native calls yet.

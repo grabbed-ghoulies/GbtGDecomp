@@ -75,6 +75,11 @@ void register_runtime_door(const Vec3& position, const Vec3& euler, const Vec3& 
 // SI ordinal: whether the event door has reached its event state 5 (door 2), or is moving to it past the
 // DAT_0032B0F4 fraction of its clip.
 bool runtime_door_at_event(u16 ordinal, RuntimeDoorContext& context); // Xbox 0x0005B7C0
+// The straight-line distance between two points (x87, as the dump computes it).
+long double runtime_point_distance(const Vec3& from, const Vec3& to); // Xbox 0x00146CE0, EAX from, ECX to
+// The door's clip (+0x140) first track actor's position and its distance from `from`; false without that actor.
+bool runtime_door_distance(u16 ordinal, const Vec3& from, Vec3& door_position, float& distance,
+    RuntimeDoorContext& context); // Xbox 0x0005BEC0, CX ordinal, EAX door position
 // The door whose +4 ordinal is `ordinal` (SI): its +6 state in `state` and true, or false when none matches.
 bool runtime_door_state(u16 ordinal, u16& state, RuntimeDoorContext& context); // Xbox 0x0005B780
 // AX ordinal: moves the door to `state` (6 removes it, 7 closes its clips), loading the clips the move needs;

@@ -394,6 +394,44 @@ void put_half(std::span<u8> row, size_t offset, u16 value)
 }
 }
 
+// Xbox 0x00146CE0, EAX from, ECX to
+long double runtime_point_distance(const Vec3& from, const Vec3& to)
+{
+    const long double dx = static_cast<long double>(to.x) - from.x;
+    const long double dy = static_cast<long double>(to.y) - from.y;
+    const long double dz = static_cast<long double>(to.z) - from.z;
+    return std::sqrt((dz * dz + dx * dx) + dy * dy);
+}
+
+// Xbox 0x0005BEC0, CX ordinal, EAX door position
+bool runtime_door_distance(u16 ordinal, const Vec3& from, Vec3& door_position, float& distance,
+    RuntimeDoorContext& context)
+{
+    RuntimeDoorClips* door = find_runtime_door(ordinal, context);
+    if (door == nullptr || door->primary == nullptr) // Row +0x140.
+    {
+        return false;
+    }
+    RuntimeCutsceneInstance& clip = *door->primary;
+    if (clip.resource[3] == 0) // Clip +0x3C -> +3.
+    {
+        return false;
+    }
+    if (context.cutscenes == nullptr)
+    {
+        throw Error("0x0005BEC0 reads a door clip's track rows with no scene cutscene runtime");
+    }
+    const auto& rows = context.cutscenes->instances.at(&clip).actors; // Clip +0x44.
+    Actor* actor = rows.empty() ? nullptr : rows.front().actor;
+    if (actor == nullptr)
+    {
+        return false;
+    }
+    door_position = actor_world_position(*actor); // 0x000412A0, ESI the actor, EDI the output
+    distance = float(runtime_point_distance(from, door_position)); // 0x00146CE0, EAX from, ECX the door
+    return true;
+}
+
 // Xbox 0x0005B7C0
 bool runtime_door_at_event(u16 ordinal, RuntimeDoorContext& context)
 {

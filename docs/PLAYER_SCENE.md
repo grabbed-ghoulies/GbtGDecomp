@@ -211,6 +211,7 @@ All take the game directory, e.g.
 | `--scene6-save-reload` | Run by `--scene6-save`: its save, with the script set to scene 3, loads again from game select, both challenge bits must come back, and scene 3 must reach Free Play with no rare book |
 | `--scene6` | Boots scene 6 (chapter1_scene2_1viewcam), A on the chapter title, the transition ends; the trophy heads attack, the first Super Scary challenge fails unanswered into Crivens' page, later ones are won by pressing the shown buttons, the heads' cutscene resumes, and the script moves on to scene 3 (`cache/scene6_c*_s*_*.bmp`); then scene 3's transition ends (no chapter title) and its walk-in and Free Play run with the sticks centred (the scene 3 checks below, passive) |
 | `--scene6-1` | Boots scene 6 (chapter1_scene6_1playcam, the Lower Corridors): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper walks to the scare figure (type 0x1D, its +0x934 trigger), then, in "Ghouly Generator Introduction", to the nearest ghouly setup with a radius (type 0x24, +0xA38) and fights any live ghouly within 50 units. Once the section holds at its end (type 0xF, DAT_00512518), he walks down the corridor (south along x -168, east along z -620) into the exit volume (mask 1), fighting off any spider within 20 units. The scene's objects are logged at each title, the section gate every 300 frames, and the volumes, pending conditions and live script nodes on a failure. Passes when the script moves on to scene 7 |
+| `--scene8` | Boots scene 8 (chapter1_scene8_1playcam, the gaming room) and plays it with the scene 7 driver: during "Event 'Kill All'" Cooper fights any live ghouly in the room, and in "Player Leaves Through Door N" he lines up in front of that door before walking into the exit volume. Passes when the script moves on to scene 9 (frame 4644 in the 2026-10-22 run) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -298,25 +299,29 @@ prisoner's page plays, down into the cinema to fight its skeletons and imps, and
 `aid_script_ghoulies_chapter1_scene7_2book` ("Partner Down the Trapdoor"). The book's three pages play and the
 script moves on to `aid_script_ghoulies_chapter1_scene7_3playcam`. That scene plays natively to its end: the haunted
 TV's ghoul intro, its electric attack that shocks Cooper, the ghoulies it summons through its beam, and the exit. The
-script moves on to `aid_script_ghoulies_chapter1_scene8_1playcam`, which `--scene7` does not drive yet (see the
+script moves on to `aid_script_ghoulies_chapter1_scene8_1playcam` (the gaming room). `--scene8` plays that scene to
+its end: Cooper walks in, the door shuts behind him, the chairs flip off their spots and "Kill All" asks him to
+break every haunted chair. Its event completes, the exit door opens, Cooper leaves through it and the script moves
+on to `aid_script_ghoulies_chapter1_scene9_1playcam`, which nothing drives yet (see the 2026-10-22 checkpoint and the
 frontier).
 
 | Path | Stop | What it needs |
 |---|---|---|
 | The brew offer after a death | not reached | The death state's state 4 (`0x0008F290` with the unlock bit 3, enough brews and a chapter below 8): "intros_brewoffer" and its answer; the opening scene's runs have no brews |
 | Actor id lookups | legacy | `find_actor_by_id` / `find_actor_by_group` over the unfilled `g_pulse_nodes` still serve script actions, conditions and the ghoulybox controller; see `docs/LEGACY_HOST_CODE.md` |
-| Script actions | legacy | `0x00126E10`'s other cases (0x4D, 0x4E, 0x62, 0x67, 0x6E, 0x73, 0x74, 0x8E, 0x9D) and `0x00127BC0`'s cases still compute values and skip their callees; this scene does not reach them |
+| Script actions | legacy | `0x00126E10`'s other cases (0x4D, 0x4E, 0x62, 0x67, 0x6E, 0x73, 0x8E, 0x9D) and `0x00127BC0`'s cases still compute values and skip their callees; this scene does not reach them |
 | Present (the snapshot) | renders nothing | `0x00116530` records its draws but the texture stays empty |
 | HUD draws (not reached) | `0x0012F110` | Scoreboard rows of kinds 4 and 5 (the formatted counter) |
 | Scene 3's Free Play branches (`--scene3`) | legacy | Free Play's node 0x51 on the skeletons still goes through the legacy `g_range_links` |
-| Script condition nodes | partial | `0x00125450` registers types 0x3D..0x3F, 0x40, 0x41, 0x43, 0x44, 0x47, 0x48, 0x6A, 0x6C, 0x94, 0x95 and 0x99; retail also takes 0x42, 0x5A, 0x5B, 0x65, 0x66, 0x68, 0x72, 0x75, 0x8B, 0x8C, 0x92, 0x93 and 0xA3, which still run as ordinary nodes |
+| Script condition nodes | partial | `0x00125450` registers types 0x3D..0x3F, 0x40..0x44, 0x47, 0x48, 0x5A, 0x5B, 0x6A, 0x6C, 0x72, 0x94, 0x95 and 0x99; retail also takes 0x65, 0x66, 0x68, 0x75, 0x8B, 0x8C, 0x92, 0x93 and 0xA3, which still run as ordinary nodes |
+| Script event steps | partial | `0x00126140` queues step types 0 to 3 (script types 0x19, 0x1B, 0x1C, 0x1D) and `0x000D0B40` runs them; the other builders (`0x00125D80`..`0x00126100`) are not translated, so those script types queue nothing |
 | Script type 0x16 | legacy | Still the old shortcut; retail waits for `0x0004EFE0` with DAT_00512470 set, then releases the cutscenes |
-| Scene 8 (`aid_script_ghoulies_chapter1_scene8_1playcam`) | not driven | `--scene7` stops once the script moves on to it; it has the haunted chairs (`aid_ghoulybox_ghoulies_chapter1_scene8_hauntedchair`) and the chairs-flip-off cutscene |
+| Scene 9 (`aid_script_ghoulies_chapter1_scene9_1playcam`) | not driven | `--scene8` stops once the script moves on to it |
 
 ## Work
 
-1. Scene 8 (`aid_script_ghoulies_chapter1_scene8_1playcam`): drive it after scene 7_3 and translate what its
-   start and its haunted chairs reach.
+1. Scene 9 (`aid_script_ghoulies_chapter1_scene9_1playcam`): drive it after scene 8 and translate what it
+   reaches.
 2. Move the remaining `g_pulse_nodes` callers to the native `DAT_00511AA4` lookups.
 
 ## Acceptance
@@ -356,6 +361,46 @@ frontier).
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-22: scene 8 (the gaming room's haunted chairs) plays to its end
+
+`--scene8` (new) boots `aid_script_ghoulies_chapter1_scene8_1playcam` and plays it to its end with the scene 7
+driver. Cooper is spawned at the door marker (type 0x2D, `0x00127FF0`), "Exit Door Closes" fires on
+PlayerApproachesDoor (condition 6, `0x00132840`), the chairs-flip-off cutscene and Crivens' "Crikey, haunted chairs!"
+page play, and "Kill All" runs its event: the haunted chairs (type 0x40, `entityStrategyHauntedChair`) wake, swing,
+slide at Cooper and mimic him, and break apart when beaten. The event completes once every chair is broken (about
+frame 4250, EVENTCOMPLETE), the exit door opens, Cooper lines up with it and leaves, and the script moves on to
+`aid_script_ghoulies_chapter1_scene9_1playcam` at frame 4644.
+
+- New translations: the scene control (type 0x93, `haunted_chairs_control.cpp`), the ghouly swap setup (type 0x26,
+  `ghouly_swap_setup.cpp`), the haunted chair strategy (type 0x40, `haunted_chair_strategy.cpp`), the scrabble state
+  (type 0x7F, `body_scrabble_state.cpp`) and the slide state (type 0x83, `body_slide_state.cpp`: `0x000A0C10`..
+  `0x000A1370`); the model copy by AID (`0x000F8A10`, from the actor model copy `0x00040CA0`); the type-4 effect
+  particle model (`0x000F0160`) and its matrix build (`0x000F8EA0`); script condition nodes 0x42, 0x5A, 0x5B and
+  0x72, their updates (`0x001333A0`, `0x001334B0`) and evaluators (opcode 6, opcode 17); and event step type 2 (script
+  type 0x1C: `0x00125D00`, its runner `0x000CFDA0` and its icon arm in `0x000D0F20`).
+- "Kill All" used to hold for ever: script type 0x1C computed its tag and queued nothing, so the event's step pool
+  stayed empty, the event never ended and its end notice (0x83, the section's credit) never came. Its step then
+  completed after the first kill, because the class count `0x00129240` walked the unfilled host `g_alt_links`; it now
+  walks the native `DAT_00511B48` list (`g_alt_node_body`, `g_alt_node_class`).
+- The chairs showed twice during the chairs-flip-off cutscene (the static chairs stayed while the cutscene's chairs
+  left the table): script type 0x74 skipped `0x00115F40`, the {1} broadcast to the scene controls, so the chairs
+  control (type 0x93) never armed and its 0x7E hide (`0x00082780`) never ran. Once armed, the hide's "bound" test
+  (shared with `0x00082810`) read only the +0x918 link; retail also needs that parent link's own +0 word, so every
+  chair on a table counted as bound and lost its cutscene row, and the chairs stopped animating. Looked at: frames
+  620..680 of the flip, the chairs tipping off the tables and standing on the floor with none left behind.
+- Host fixes: the death drop and death effects now hand their objects to the scene and message them through it
+  (`RuntimeBodyDeathDrops::keep` / `message`; the old `created` map was never filled). The prop contact views are
+  dropped when their object is released, since a later object at the same actor address crashed through the
+  stale bytes after a retry.
+- Driver: `play_scene7` takes a fight range and a title. Scene 8 fights any live ghouly in the room only during
+  "Event 'Kill All'" (the room's other chairs sleep until hit), and in a "Player Leaves Through Door N" section
+  Cooper lines up 8 units in front of the door's actor (`0x0005BEC0`) on the exit volume's z before walking in,
+  because the open door panel blocks a straight walk to the volume.
+- Shown (looked at): Cooper fighting the chairs in the gaming room (`cache/scene8_1800.bmp`), Crivens' page
+  (`scene8_page1.bmp`), the exit door's cutscene (`scene8_2100.bmp`) and the "Energy Boost!" pickup with chair debris
+  (`scene8_2400.bmp`). A Cooper knocked out by the chairs (`scene8_4200.bmp`, an earlier run) restarts the scene at
+  Free Play.
 
 ### 2026-10-21: scene 7_3 plays to its end: the TV's shock, its ghouly generator and the exit
 

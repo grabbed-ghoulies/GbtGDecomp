@@ -88,9 +88,12 @@ void spawn_runtime_body_death_drop(RuntimeBodyDeathDrops& context)
                     std::bit_cast<u32>(position.y), std::bit_cast<u32>(position.z),
                     std::bit_cast<u32>(euler.x), std::bit_cast<u32>(euler.y),
                     std::bit_cast<u32>(euler.z), 0};
-                auto* attached = context.created.at(object.bytes.get());
-                context.objects.push_back(std::move(object));
-                attached->message(message);
+                const u32 drop = context.keep(std::move(object));
+                if (drop == 0)
+                {
+                    throw Error("0x00135080 messages a drop actor it could not create");
+                }
+                context.message(drop, message); // Drop vtable +0xC.
             }
             else
             {
@@ -111,9 +114,7 @@ void spawn_runtime_body_death_drop(RuntimeBodyDeathDrops& context)
                 {
                     message[5] = 0;
                 }
-                auto* attached = context.created.at(object.bytes.get());
-                context.objects.push_back(std::move(object));
-                attached->message(message);
+                context.message(context.keep(std::move(object)), message); // Drop vtable +0xC.
             }
         }
     }

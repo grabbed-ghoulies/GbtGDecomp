@@ -316,6 +316,22 @@ const ObjectFactoryVtable* haunted_tv_strategy_lifecycle()
     return &table;
 }
 
+bool construct_haunted_chair_strategy_view(FactoryObject& object, std::span<const u8>)
+{
+    auto* player = active_owner->find_player(object);
+    player->strategy_type = 0x40;
+    player->refresh_views();
+    return initialize_runtime_haunted_chair_strategy(bytes_of(object)); // 0x000AE770
+}
+
+// Getter 0x000AE720; vtable +8 is the empty 0x001628B0.
+const ObjectFactoryVtable* haunted_chair_strategy_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505DFC, haunted_chair_strategy_object_sizes,
+        construct_haunted_chair_strategy_view, destroy_empty_player_object};
+    return &table;
+}
+
 const ObjectFactoryVtable* skeleton_strategy_lifecycle()
 {
     // Vtable +8 is the empty 0x001628B0.
@@ -405,6 +421,13 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
                   leave_runtime_haunted_tv_state(old_state, next_state, haunted_tv);
                   return;
               }
+              if (strategy_type == 0x40)
+              {
+                  // Haunted chair strategy vtable +0x18, 0x000AEB30.
+                  refresh_views();
+                  leave_runtime_haunted_chair_state(old_state, next_state, haunted_chair);
+                  return;
+              }
               if (strategy_type == 0x52)
               {
                   // Spider strategy vtable +0x18, 0x000B5AF0.
@@ -455,6 +478,12 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
               {
                   // Haunted TV strategy vtable +0x14, 0x000B2650.
                   enter_runtime_haunted_tv_state(state, previous, haunted_tv);
+                  return;
+              }
+              if (strategy_type == 0x40)
+              {
+                  // Haunted chair strategy vtable +0x14, 0x000AEA10.
+                  enter_runtime_haunted_chair_state(state, previous, haunted_chair);
                   return;
               }
               if (strategy_type == 0x52)
@@ -576,7 +605,10 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
               return scene.release_frame_object(actor, object);
           },
           scene_bindings.spawns, scene_bindings.story_bits, "generateghouly", "knocked_down", "sleep", "wakeup",
-          "wait"}
+          "wait"},
+      haunted_chair{strategy_messages, target_checks, target_queue, strategy_views,
+          scene_bindings.haunted_chair_parameters, attributes.resource, "swingkick", "wakeup", "slide",
+          "slideattarget", "mimic"}
 {
 }
 
@@ -747,6 +779,28 @@ void NativePlayerFactoryOwner::haunted_tv_message(FactoryObject& strategy, std::
     dispatch_runtime_haunted_tv_message(message, player->haunted_tv);
 }
 
+void NativePlayerFactoryOwner::haunted_chair_message(FactoryObject& strategy, std::span<const u32> message)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x40)
+    {
+        throw Error("haunted chair strategy method has no owning instance");
+    }
+    player->refresh_views();
+    dispatch_runtime_haunted_chair_message(message, player->haunted_chair);
+}
+
+void NativePlayerFactoryOwner::haunted_chair_update(FactoryObject& strategy)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x40)
+    {
+        throw Error("haunted chair strategy method has no owning instance");
+    }
+    player->refresh_views();
+    update_runtime_haunted_chair_strategy(player->haunted_chair);
+}
+
 void NativePlayerFactoryOwner::haunted_tv_update(FactoryObject& strategy)
 {
     auto* player = find_player(strategy);
@@ -869,6 +923,7 @@ void NativePlayerFactoryOwner::install(std::span<ObjectFactoryType> types)
     types[0x58] = ObjectFactoryType{8, zombie_strategy_lifecycle};
     types[0x52] = ObjectFactoryType{8, spider_strategy_lifecycle};
     types[0x44] = ObjectFactoryType{8, haunted_tv_strategy_lifecycle};
+    types[0x40] = ObjectFactoryType{8, haunted_chair_strategy_lifecycle};
     types[0x28] = ObjectFactoryType{6, camera_body_lifecycle};
     types[0x39] = ObjectFactoryType{8, director_strategy_lifecycle};
     minds.install(types);

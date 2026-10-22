@@ -83,6 +83,8 @@ bool run_script_event_steps(Game& g); // Xbox 0x000D0B40
 bool script_event_step_delay_done(std::span<u8> timer); // Xbox 0x000D0700
 i32 run_script_event_kill_step(std::span<u8> step); // Xbox 0x000CFA10, step type 0
 i32 run_script_event_key_step(std::span<u8> step); // Xbox 0x000CFA90, step type 1
+// +0x18 the tag, +0x1C set once an actor of it has been seen (or none needs to be).
+i32 run_script_event_tag_step(std::span<u8> step); // Xbox 0x000CFDA0, step type 2
 i32 run_script_event_kill_count_step(std::span<u8> step); // Xbox 0x000CFE20, step type 3
 // EDI kind: adds the step's scoreboard icon and returns its message id.
 u32 add_script_event_icon(u32 kind, u16 tag); // Xbox 0x0012FB80, EDI kind, ESI tag

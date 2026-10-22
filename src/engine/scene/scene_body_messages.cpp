@@ -64,7 +64,20 @@ SceneBodyMessages::SceneBodyMessages(SceneBodyServices& services, NativePlayerIn
           services.default_position},
       death_notice_{services.game, body_view_, player.actor_address,
           reinterpret_cast<const char*>(player.actor_bytes.data() + 0xBA0), player.spawn.record, services.resources},
-      death_drops_{player.actor, player.actor_bytes, services.resources, services.factory, services.objects, created_,
+      death_drops_{player.actor, player.actor_bytes, services.resources, services.factory,
+          [this](FactoryObject object) -> u32
+          {
+              if (object.bytes == nullptr)
+              {
+                  return 0u;
+              }
+              services_.objects.push_back(std::move(object));
+              return services_.address_of(services_.objects.back().bytes.get());
+          },
+          [this](u32 actor, std::span<const u32> words)
+          {
+              services_.message(actor, words);
+          },
           services.default_position, services.default_euler, services.random, services.occupancy_initial},
       death_{death_notice_, death_drops_, player.body_attributes,
           *reinterpret_cast<u32*>(player.actor_bytes.data() + 0xCE0), services.story_flags, services.empty_name,
@@ -327,6 +340,21 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
             children_[child->bytes.get()] = swing.get();
             continue;
         }
+        if (child->type == 0x83)
+        {
+            auto& slide = slide_children_[child->bytes.get()];
+            if (slide == nullptr)
+            {
+                slide = std::make_unique<RuntimeBodyMessageChild>();
+                slide->message = [this, child](std::span<u8> message)
+                {
+                    message_runtime_slide_state({child->bytes.get(), child->size}, message,
+                        slide_context()); // 0x000A1070
+                };
+            }
+            children_[child->bytes.get()] = slide.get();
+            continue;
+        }
         if (child->type == 0x7D)
         {
             auto& lift = lift_children_[child->bytes.get()];
@@ -346,7 +374,8 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
         // 0x59, 0x74, 0x7C and 0x8A have the empty 0x001628B0 message slot (0x59's getter 0x0007FCE0 stores it at
         // 0x005054C4, 0x8A's getter 0x000A34C0 at 0x00505C2C).
         // 0x80's getter 0x0009F420 stores it at 0x00505AEC.
-        if (child->type != 0x59 && child->type != 0x8A && child->type != 0x80 && child->type != 0x5A && child->type != 0x5B && child->type != 0x5C && child->type != 0x74
+        if (child->type != 0x59 && child->type != 0x8A && child->type != 0x80 && child->type != 0x7F
+            && child->type != 0x5A && child->type != 0x5B && child->type != 0x5C && child->type != 0x74
             && child->type != 0x7C && child->type != 0x87 && child->type != 0x88 && child->type != 0x69
             && child->type != 0x70)
         {
@@ -643,6 +672,12 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
     case 0x80:
         tick_runtime_shocked_state({action.bytes.get(), action.size}, shocked_context()); // 0x0009F5F0
         return;
+    case 0x7F:
+        tick_runtime_scrabble_state({action.bytes.get(), action.size}, scrabble_context()); // 0x0009F170
+        return;
+    case 0x83:
+        tick_runtime_slide_state({action.bytes.get(), action.size}, slide_context()); // 0x000A0F90
+        return;
     case 0x78:
         tick_runtime_swing_state({action.bytes.get(), action.size}, swing_context()); // 0x00098460
         return;
@@ -881,6 +916,8 @@ void SceneBodyMessages::action_step(FactoryObject& action)
     case 0x5F:
     case 0x6F:
     case 0x80:
+    case 0x7F:
+    case 0x83:
         // 0x001628B0 (0x000D4179 for 0x69, 0x70 and 0x88) returns at once.
         return;
     default:
@@ -1187,6 +1224,46 @@ RuntimeShockedStateContext& SceneBodyMessages::shocked_context()
         player_.actor_instance.animation, services_.resources, services_.create_object,
         services_.release_frame_object, recovery_action()});
     return *shocked_;
+}
+
+RuntimeScrabbleStateContext& SceneBodyMessages::scrabble_context()
+{
+    player_.refresh_body_views();
+    scrabble_.reset();
+    scrabble_.emplace(RuntimeScrabbleStateContext{player_.body, player_.actor, player_.actor_bytes, player_.mind,
+        player_.actor_instance.animation, services_.clock, services_.damage_tables, services_.mode_scales,
+        services_.random,
+        [this](u32 slot)
+        {
+            return body_slot_key(slot);
+        }});
+    return *scrabble_;
+}
+
+RuntimeSlideStateContext& SceneBodyMessages::slide_context()
+{
+    player_.refresh_body_views();
+    if (player_.body_bits == nullptr)
+    {
+        unbound("slide state without the body +0x15C bit block");
+    }
+    slide_.reset();
+    slide_.emplace(RuntimeSlideStateContext{player_.body, player_.actor, player_.actor_address, player_.actor_bytes,
+        player_.body_selection, services_.clock, *player_.body_bits, player_.collision, services_.latches,
+        services_.sounds,
+        ActorTrailContext{services_.factory, services_.objects, player_.actor_address, services_.pause,
+            services_.frame_delta, services_.time_scale, services_.pal, services_.pal_override,
+            services_.empty_name},
+        services_.damage_tables, services_.mode_scales, services_.image_string,
+        [this](u32 actor, u32 id, const RuntimeActorCreationOptions* options)
+        {
+            services_.actor_callouts_with(actor, id, options);
+        },
+        [this](u32 slot)
+        {
+            return body_slot_key(slot);
+        }});
+    return *slide_;
 }
 
 RuntimePickupStateContext& SceneBodyMessages::pickup_context()
@@ -1791,6 +1868,15 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 }
                 return;
             }
+            if (type == 0x83)
+            {
+                // 0x000A1070 acts on ids 0x41 (with +0x14 and the position at +0x1C) and 0x70 (with +4 / +8).
+                if (reply.id == 0x41 || reply.id == 0x70)
+                {
+                    unbound("collision reply id " + std::to_string(reply.id) + " to the slide state 0x000A1070");
+                }
+                return;
+            }
             if (type == 0x5F)
             {
                 // 0x00089530: id 0x62 writes the reply's accepted / handled words and reads its +0x1C contact.
@@ -1814,7 +1900,7 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
             }
             // 0x8A (getter 0x000A34C0) keeps the empty 0x001628B0 at +0xC too.
             if (type != 0x87 && type != 0x88 && type != 0x69 && type != 0x70 && type != 0x5B && type != 0x5C && type != 0x74 && type != 0x7C
-                && type != 0x8A && type != 0x80)
+                && type != 0x8A && type != 0x80 && type != 0x7F)
             {
                 unbound("collision reply action vtable +0xC of factory type " + std::to_string(type));
             }

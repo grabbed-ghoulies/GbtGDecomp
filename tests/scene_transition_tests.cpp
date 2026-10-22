@@ -13,6 +13,7 @@
 #include "../src/engine/saves/xdk_saves.h"
 #include "../src/engine/scripts/script_conditions.h"
 #include "../src/engine/scripts/script_event_sequence.h"
+#include "../src/engine/cutscenes/door_registration.h"
 #include "../src/engine/entities/bg_break_key.h"
 #include "../src/engine/entities/ghouly_bg_break_setup.h"
 #include "gbtg/gfx.h"
@@ -9271,15 +9272,23 @@ void play_scene6_1_run(gbtg::Game& game, const std::string& label)
 
 // Scene 7 (chapter1_scene7_1playcam), from the end of its transition. Pages close on A; titles, the scene's objects,
 // Cooper's position and the section gate are logged, and every 300th frame is captured, until the script moves on.
-void play_scene7_run(gbtg::Game& game, const std::string& label)
+// `fight_range` is how far a live ghouly may be from Cooper to be fought before he walks to a goal; with a
+// `range_title`, ghoulies are fought only while the scene title is that one.
+void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_range, const std::string& range_title)
 {
     std::string title = game.scene_name;
     const std::string scene_script = game.scene_script.name;
     auto& actors = game.factory_scene->start_actors(game);
+    if (game.factory_scene->actor_start < 0)
+    {
+        // The scene would fall back to the legacy script path, which skips what the native start did not reach.
+        throw gbtg::Error(label + ": the native scene start stopped (see the log above)");
+    }
     int pages = 0;
     bool page_up = false;
     int page_shown = -1;
     int moved_on = -1;
+    bool reached_door = false;
     StickSteering steering;
     for (int frame = 0; frame < 9000 && moved_on < 0; ++frame)
     {
@@ -9328,14 +9337,41 @@ void play_scene7_run(gbtg::Game& game, const std::string& label)
                         goal_name = "the exit";
                     }
                 }
+                // A "Player Leaves Through Door N" section: the exit volume sits behind the wall and the open door
+                // panel swings into the room, so Cooper first lines up 8 units in front of the door's actor (its
+                // clip's first track, 0x0005BEC0) on the exit's z, then walks straight through.
+                const std::string leaves = "Player Leaves Through Door ";
+                if (goal && !reached_door && title.rfind(leaves, 0) == 0 && gbtg::g_event_sequence_context != nullptr)
+                {
+                    const auto door = gbtg::u16(std::stoi(title.substr(leaves.size())));
+                    gbtg::Vec3 at{};
+                    float distance = 0.f;
+                    if (gbtg::runtime_door_distance(door, *cooper, at, distance, gbtg::g_event_sequence_context->doors))
+                    {
+                        const gbtg::Vec3 front{at.x + (cooper->x < at.x ? -8.f : 8.f), at.y, goal->z};
+                        const float dx = front.x - cooper->x;
+                        const float dz = front.z - cooper->z;
+                        if (dx * dx + dz * dz > 3.f * 3.f)
+                        {
+                            goal = front;
+                            goal_name = "the front of door " + std::to_string(door);
+                        }
+                        else
+                        {
+                            reached_door = true;
+                        }
+                    }
+                }
             }
         }
-        // Any live ghouly (a player actor other than Cooper with body +0x94 energy) within 50 units is fought first.
-        // The prisoners (tags 0x26..0x30, objTag_Actor_PrisonerChestChap..ThornGirl) are not ghoulies.
+        // Any live ghouly (a player actor other than Cooper with body +0x94 energy) within the fight range is fought
+        // first. The prisoners (tags 0x26..0x30, objTag_Actor_PrisonerChestChap..ThornGirl) are not ghoulies.
         std::optional<gbtg::Vec3> ghouly;
+        gbtg::u16 ghouly_class = 0;
         if (cooper && !page)
         {
-            float nearest = 50.f * 50.f;
+            const float range = range_title.empty() || title == range_title ? fight_range : 0.f;
+            float nearest = range * range;
             for (const auto& mark : actors.marked_actors())
             {
                 if (mark.actor == nullptr || mark.actor->class_key == 4 || mark.body.empty()
@@ -9350,6 +9386,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label)
                 {
                     nearest = d;
                     ghouly = at;
+                    ghouly_class = mark.actor->class_key;
                 }
             }
         }
@@ -9374,7 +9411,8 @@ void play_scene7_run(gbtg::Game& game, const std::string& label)
             if (frame % 120 == 0)
             {
                 std::cout << label << " frame " << frame << ": Cooper at " << cooper->x << ", " << cooper->z
-                          << " fights a ghouly at " << ghouly->x << ", " << ghouly->z << "\n";
+                          << " fights a ghouly (class 0x" << std::hex << ghouly_class << std::dec << ") at "
+                          << ghouly->x << ", " << ghouly->z << "\n";
             }
         }
         else if (goal)
@@ -9464,11 +9502,12 @@ void play_scene7_run(gbtg::Game& game, const std::string& label)
     std::cout << "PASS: " + label + " plays to its end and the script moves on to " << game.scene_script.name << "\n";
 }
 
-void play_scene7(gbtg::Game& game, const std::string& label)
+void play_scene7(gbtg::Game& game, const std::string& label, float fight_range = 50.f,
+    const std::string& range_title = {})
 {
     try
     {
-        play_scene7_run(game, label);
+        play_scene7_run(game, label, fight_range, range_title);
     }
     catch (const std::exception& error)
     {
@@ -9737,12 +9776,13 @@ int main(int argc, char** argv)
     const bool scene6_1_test = argc == 3 && std::string_view(argv[2]) == "--scene6-1";
     // --scene7 boots scene 7 (chapter1_scene7_1playcam), closes its pages with A and plays until the script moves on.
     const bool scene7_test = argc == 3 && std::string_view(argv[2]) == "--scene7";
+    const bool scene8_test = argc == 3 && std::string_view(argv[2]) == "--scene8";
     if (spawn_test)
     {
         std::cout << std::unitbuf;
     }
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
-        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene3_test)
+        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene3_test)
     {
         std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene6-save | --scene6-save-reload | --scene3 | --scene4 | --scene5 | --scene6-1 | --scene7]\n";
         return 2;
@@ -9848,8 +9888,18 @@ int main(int argc, char** argv)
             : scene4_test ? "chapter1_scene4_1book" : scene5_test ? "chapter1_scene5_1playcam"
             : scene6_1_test ? "chapter1_scene6_1playcam"
             : scene7_test ? "chapter1_scene7_1playcam"
+            : scene8_test ? "chapter1_scene8_1playcam"
             : player_test || spawn_test ? "chapter1_scene1_2playcam"
             : title_test ? "" : "scene0_1book");
+        if (scene8_test)
+        {
+            pass_chapter_title(game, "scene8", "aid_script_ghoulies_chapter1_scene8_1playcam", false);
+            // The haunted chairs wait round the whole room after a retry, so during the event any live one is fought;
+            // outside it the room's chairs sleep until hit, so none is.
+            play_scene7(game, "scene8", 1000.f, "Event 'Kill All'");
+            gbtg::gfx_shutdown();
+            return 0;
+        }
         if (scene7_test)
         {
             pass_chapter_title(game, "scene7", "aid_script_ghoulies_chapter1_scene7_1playcam", false);

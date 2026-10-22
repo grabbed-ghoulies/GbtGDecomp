@@ -142,6 +142,20 @@ void destroy_trophy_heads_view(FactoryObject& object)
     destroy_runtime_trophy_heads_control(state_of(object), installing->context.trophy_heads_services());
 }
 
+bool construct_haunted_chairs_view(FactoryObject& object, std::span<const u8>)
+{
+    auto& control = installing->instance(object);
+    control.state = state_of(object);
+    control.type = object.type;
+    control.haunted_chairs = std::make_unique<HauntedChairsControlState>();
+    return construct_runtime_haunted_chairs_control(state_of(object));
+}
+
+void destroy_haunted_chairs_view(FactoryObject&)
+{
+    // 0x001628B0 returns at once.
+}
+
 bool construct_super_scary_view(FactoryObject& object, std::span<const u8> parameters)
 {
     auto& control = installing->instance(object);
@@ -191,6 +205,13 @@ const ObjectFactoryVtable* trophy_heads_control_lifecycle()
 {
     static const ObjectFactoryVtable table{0x00505590, trophy_heads_control_object_sizes,
         construct_trophy_heads_view, destroy_trophy_heads_view};
+    return &table;
+}
+
+const ObjectFactoryVtable* haunted_chairs_control_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x005055A8, haunted_chairs_control_object_sizes,
+        construct_haunted_chairs_view, destroy_haunted_chairs_view};
     return &table;
 }
 
@@ -279,6 +300,15 @@ TrophyHeadsControlServices& SceneControlContext::trophy_heads_services() const
     return *trophy_heads;
 }
 
+HauntedChairsControlServices& SceneControlContext::haunted_chairs_services() const
+{
+    if (haunted_chairs == nullptr)
+    {
+        throw Error("haunted-chairs control before the scene's actor services bind its services");
+    }
+    return *haunted_chairs;
+}
+
 SuperScaryControlServices& SceneControlContext::super_scary_services() const
 {
     if (super_scary == nullptr)
@@ -305,6 +335,7 @@ void NativeSceneControlOwner::install(std::span<ObjectFactoryType> types)
     types[0x9B] = ObjectFactoryType{3, attract_control_lifecycle};
     types[0x9A] = ObjectFactoryType{3, gameselect_control_lifecycle};
     types[0x92] = ObjectFactoryType{3, trophy_heads_control_lifecycle};
+    types[0x93] = ObjectFactoryType{3, haunted_chairs_control_lifecycle}; // Getter 0x000824F0.
     types[0x98] = ObjectFactoryType{3, super_scary_control_lifecycle};
     types[0x96] = ObjectFactoryType{3, movie_volume_control_lifecycle};
 }
@@ -381,6 +412,12 @@ void NativeSceneControlOwner::message(SceneControlInstance& control, std::span<c
             context.lists, context.trophy_heads_services());
         return;
     }
+    if (control.type == 0x93)
+    {
+        message_runtime_haunted_chairs_control(control.state, words, *control.haunted_chairs, control,
+            context.lists, context.haunted_chairs_services());
+        return;
+    }
     if (control.type == 0x98)
     {
         message_runtime_super_scary_control(control.state, words, *control.super_scary, control, context.lists);
@@ -409,6 +446,10 @@ void NativeSceneControlOwner::tick(SceneControlInstance& control)
     case 0x92:
         tick_runtime_trophy_heads_control(control.state, *control.trophy_heads, context.trophy_heads_services());
         return;
+    case 0x93:
+        tick_runtime_haunted_chairs_control(control.state, *control.haunted_chairs, control, context.lists,
+            context.haunted_chairs_services());
+        return;
     case 0x98:
         tick_runtime_super_scary_control(control.state, *control.super_scary, control, context.lists,
             context.super_scary_services());
@@ -425,9 +466,10 @@ void NativeSceneControlOwner::draw(SceneControlInstance& control)
     case 3:
     case 0x91:
     case 0x92:
+    case 0x93:
     case 0x9B:
-        // Types 3 (getter 0x00115D50), 0x91 (getter 0x00080520), 0x92 (getter 0x000816C0) and 0x9B (getter
-        // 0x00080970) have the empty 0x001628B0 at +0x14.
+        // Types 3 (getter 0x00115D50), 0x91 (getter 0x00080520), 0x92 (getter 0x000816C0), 0x93 (getter 0x000824F0)
+        // and 0x9B (getter 0x00080970) have the empty 0x001628B0 at +0x14.
         return;
     case 0x9A:
         draw_runtime_gameselect_control(control.state, *control.gameselect, context.gameselect_services());

@@ -590,6 +590,11 @@ void show_script_event_icons()
         u32 count = 0xFFFFFFFFu;
         switch (type)
         {
+        case 2:
+        case 7:
+        case 0xD:
+            kind = read_u16(step, 0x18); // The step's tag; no count.
+            break;
         case 3:
         {
             // The tag's kills still owed, never below zero.
@@ -737,6 +742,10 @@ bool run_script_event_steps(Game& g)
             {
                 result = run_script_event_key_step(step); // 0x000CFA90
             }
+            else if (type == 2)
+            {
+                result = run_script_event_tag_step(step); // 0x000CFDA0
+            }
             else if (type == 3)
             {
                 result = run_script_event_kill_count_step(step); // 0x000CFE20
@@ -880,6 +889,27 @@ i32 run_script_event_kill_step(std::span<u8> step)
         return 0;
     }
     return script_event_step_delay_done(step.subspan(4)) ? 1 : 5; // 0x000D0700, ECX step+4
+}
+
+// Xbox 0x000CFDA0: the tag step holds while an actor of its +0x18 tag lives (0x00129240, DX the tag), marking +0x1C
+// once one has been seen or the DAT_00512B78 tally for the tag is nonzero; once marked and none lives, it waits out
+// its delay.
+i32 run_script_event_tag_step(std::span<u8> step)
+{
+    const u16 tag = read_u16(step, 0x18);
+    if (script_count_actors_by_class(tag) == 0) // 0x00129240, DX kept for the tally below
+    {
+        if (read_u32(step, 0x1C) != 0)
+        {
+            return script_event_step_delay_done(step.subspan(4)) ? 1 : 5; // 0x000D0700, ECX step+4
+        }
+        if (script_statistic_at_address(0x00512B78u + u32(tag) * 4u) == 0)
+        {
+            return 0;
+        }
+    }
+    put_word(step, 0x1C, 1);
+    return 0;
 }
 
 // Xbox 0x000CFE20: the kill-count step holds while DAT_00512B78[+0x1C] kills fall short of +0x18, then waits out

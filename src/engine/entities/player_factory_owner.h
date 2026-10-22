@@ -13,6 +13,7 @@
 #include "zombie_strategy.h"
 #include "spider_strategy.h"
 #include "haunted_tv_strategy.h"
+#include "haunted_chair_strategy.h"
 #include "butler_strategy.h"
 #include "camera_actor_classes.h"
 
@@ -156,6 +157,8 @@ struct NativePlayerSceneBindings
     std::function<bool(Actor&, u32)> release_frame_object; // 0x0003DE30 over an actor's +0x1D8 objects.
     std::function<GhoulySpawnContext&()> spawns;
     std::function<std::span<const u8>()> story_bits; // **(DAT_00506C6C + 8).
+    // Haunted chair strategy (type 0x40, vtable 0x00505DFC).
+    std::span<const u8> haunted_chair_parameters{}; // DAT_00428734.
 };
 
 // Native state and contexts of one player (type 5) and its body, mind and strategy children.
@@ -292,6 +295,7 @@ struct NativePlayerInstance
     RuntimeZombieStrategy zombie; // Type 0x58.
     RuntimeSpiderStrategy spider; // Type 0x52.
     RuntimeHauntedTvStrategy haunted_tv; // Type 0x44.
+    RuntimeHauntedChairStrategy haunted_chair; // Type 0x40.
     void refresh_input_views(); // After the player constructor allocates actor +0x960.
     void refresh_views(); // Body, input, mind and strategy value views before a method runs.
 };
@@ -340,6 +344,8 @@ public:
     void spider_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000C0BB0.
     void haunted_tv_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000B23F0.
     void haunted_tv_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000B1F60.
+    void haunted_chair_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000AE8B0.
+    void haunted_chair_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000AE790.
     NativePlayerFactoryBindings bindings;
     NativePlayerMindOwner minds;
     // Retail keeps the type 5 vtable through the whole destructor chain, so the base actor destructor still

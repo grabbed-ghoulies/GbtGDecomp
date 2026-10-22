@@ -8,6 +8,7 @@
 #include "gameselect_control.h"
 #include "super_scary_control.h"
 #include "trophy_heads_control.h"
+#include "haunted_chairs_control.h"
 #include <unordered_map>
 #include <vector>
 
@@ -33,6 +34,7 @@ struct SceneControlInstance
     std::unique_ptr<AttractControlState> attract; // Type 0x9B's pointer words.
     std::unique_ptr<GameSelectControlState> gameselect; // Type 0x9A's pointer words.
     std::unique_ptr<TrophyHeadsControlState> trophy_heads; // Type 0x92's pointer words.
+    std::unique_ptr<HauntedChairsControlState> haunted_chairs; // Type 0x93's pointer words.
     std::unique_ptr<SuperScaryControlState> super_scary; // Type 0x98's pointer words.
 };
 struct SceneControlContext
@@ -48,12 +50,14 @@ struct SceneControlContext
     AttractControlServices* attract = nullptr;
     GameSelectControlServices* gameselect = nullptr;
     TrophyHeadsControlServices* trophy_heads = nullptr;
+    HauntedChairsControlServices* haunted_chairs = nullptr;
     SuperScaryControlServices* super_scary = nullptr;
     const RuntimeActorClock& frame_clock() const;
     AudioBankStreams& streams() const;
     AttractControlServices& attract_services() const;
     GameSelectControlServices& gameselect_services() const;
     TrophyHeadsControlServices& trophy_heads_services() const;
+    HauntedChairsControlServices& haunted_chairs_services() const;
     SuperScaryControlServices& super_scary_services() const;
 };
 class NativeSceneControlOwner

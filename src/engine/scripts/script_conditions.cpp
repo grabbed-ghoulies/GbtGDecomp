@@ -81,6 +81,11 @@ using namespace scene_detail;
 
 
 std::function<std::span<const u8>(const void* node)> g_alt_node_body;
+std::function<u16(const void* node)> g_alt_node_class;
+std::function<u32(u16 key)> g_script_actor_by_id;
+std::function<void(u32 address, std::span<u32> message)> g_script_object_message;
+std::function<bool(Vec3& position)> g_script_live_player_position;
+std::function<bool(u16 door, const Vec3& from, float& distance)> g_script_door_distance;
 
 constexpr const char* kScriptCondName[27] = {
     "scriptConditionId_TimeOut",
@@ -724,25 +729,32 @@ int script_condition_pair_count(const ScriptCond& rec)
 }
 
 
-// Xbox 0x00132840. Opcode 6 in the table at 0x00314330. DAT_00511B40 null,
-// or equal to the sentinel 0x93C, returns 0. The word at node+0x20 + 0x94
-// must be nonzero. 0x000412A0 then writes that actor's world position.
-// 0x0005BEC0 takes the word at record+8, that position, and the address of
-// the stack slot that held the record. A nonzero return comiss the float
-// at record+0xC with the 0 at 0x0032B100. Below or equal, including
-// unordered, replaces it with the 50 at 0x0032B1E0. A second comiss returns
-// 1 only when that limit is above the float 0x0005BEC0 stored. 0x0005BEC0
-// is not translated, so its nonzero return is not taken.
-// Xbox 0x00132840
-int script_condition_actor_limit(const ScriptCond&)
+// Xbox 0x00132840. Opcode 6 (PlayerApproachesDoor) in the table at 0x00314330. With a DAT_00511B40 player whose body
+// (+0x95C) +0x94 is nonzero, 0x0005BEC0 measures the player's world position against the door the word at record+8
+// names. A measured door fires when the limit, the float at record+0xC or the 50 at 0x0032B1E0 when that is not above
+// 0, is above the distance.
+int script_condition_actor_limit(const ScriptCond& rec)
 {
-    if (g_actor_mark != nullptr && reinterpret_cast<std::uintptr_t>(g_actor_mark) != 0x93cu &&
-        g_actor_mark->at_20->word_94 != 0)
+    if (!g_script_live_player_position || !g_script_door_distance)
     {
-        const Vec3 world = actor_world_position(*g_actor_mark->actor);
-        (void)world;
+        throw Error("0x00132840 reads DAT_00511B40 with no scene bound");
     }
-    return 0;
+    Vec3 position;
+    if (!g_script_live_player_position(position)) // 0x000412A0
+    {
+        return 0;
+    }
+    float distance = 0.f; // The stack slot that held the record.
+    if (!g_script_door_distance(u16(cond_u32(rec, 8)), position, distance)) // 0x0005BEC0, CX the door
+    {
+        return 0;
+    }
+    float limit = cond_f32(rec, 0xC);
+    if (!(limit > 0.f)) // DAT_0032B100.
+    {
+        limit = 50.f; // DAT_0032B1E0.
+    }
+    return limit > distance ? 1 : 0;
 }
 
 
@@ -868,13 +880,18 @@ int script_condition_actor_query_clear(Game& g, const ScriptCond& rec)
 int script_count_actors_by_class(u16 key)
 {
     int count = 0;
-    for (AltLink* link = g_alt_links; link != nullptr; link = link->next)
+    for (const auto* node = static_cast<const entity_detail::ListHead*>(entity_detail::g_world.alt.next);
+         node != nullptr; node = static_cast<const entity_detail::ListHead*>(node->next))
     {
-        if (key != 0 && link->actor->class_key != key)
+        if (!g_alt_node_body || !g_alt_node_class)
+        {
+            throw Error("DAT_00511B48 node has no body or class view");
+        }
+        if (key != 0 && g_alt_node_class(node) != key)
         {
             continue;
         }
-        if (link->at_18->word_94 != 0)
+        if (read_u16(g_alt_node_body(node), 0x94) != 0)
         {
             count = count + 1;
         }
@@ -961,22 +978,18 @@ int script_condition_actor_absent(const ScriptCond& rec)
 int script_condition_actor_message_latch(ScriptCond& rec)
 {
     const u16 want = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
-    PulseNode* obj = nullptr;
-    if (want != 0)
+    if (!g_script_actor_by_id || !g_script_object_message)
     {
-        for (PulseNode* node = g_pulse_nodes; node != nullptr; node = node->next)
-        {
-            if (node->word_1fc == want)
-            {
-                obj = node;
-                break;
-            }
-        }
+        throw Error("0x00132AB0 walks DAT_00511AA4 with no scene bound");
     }
-    i32 message[2];
-    message[0] = 0x20;
-    message[1] = 0;
-    reinterpret_cast<void (*)(PulseNode*, i32*)>(obj->on_message)(obj, message);
+    const u32 object = want == 0 ? 0u : g_script_actor_by_id(want); // The DAT_00511AA4 walk (+0x1FC).
+    if (object == 0)
+    {
+        throw Error("0x00132AB0 calls vtable +0xC of a null object: no DAT_00511AA4 actor has +0x1FC "
+            + std::to_string(want));
+    }
+    std::array<u32, 2> message{0x20, 0};
+    g_script_object_message(object, message); // Vtable +0xC.
     if (static_cast<i32>(cond_u32(rec, 0x14)) == 0)
     {
         cond_put_u32(rec, 0x14, 1u);

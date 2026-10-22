@@ -55,7 +55,7 @@ public class ExportGbtg extends GhidraScript {
                 for (Reference r : refs) {
                     println("  " + r.getFromAddress());
                 }
-                found = find(found.add(1), needle);
+                found = find(found.add(1), needle.getBytes());
                 count++;
             }
         }

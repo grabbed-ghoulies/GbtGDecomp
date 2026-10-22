@@ -157,22 +157,22 @@ void script_apply_scene_door_states(ScriptDoorStartContext& context); // Xbox 0x
 // range, return 3.
 //
 // Type 0x17 returns 0 when the third argument is nonzero. Zero tests the
-// dword at node+0x10. Nonzero would call 0x000D0530. The word at node+8,
-// the dword at node+0xC, and ESI = node+0x14 would then go to 0x000D0550,
-// and the case returns 2. Those two calls are not translated.
+// dword at node+0x10 (nonzero calls 0x000D0530), then passes the word at
+// node+8, the dword at node+0xC and ESI = node+0x14 to 0x000D0550 and
+// returns 2.
 //
-// Type 0x18 tests DAT_00512414. Zero would call 0x000D0680, stores 1, and
+// Type 0x18 tests DAT_00512414. Zero calls 0x000D0680, stores 1, and
 // returns 0. Nonzero compares DAT_005064D8 with 3. Equal stores 0 and
-// returns 2. Otherwise it returns 0. 0x000D0680 is not translated.
+// returns 2. Otherwise it returns 0.
 //
 // Type 0x54 copies five fields into DAT_00506540 and returns 2.
 //
-// Every other handled type would build a stack message and pass it to
-// 0x000D05D0 in EDI. The header calls 0x00125C80, 0x00125CC0, 0x00125D00,
-// 0x00125D40, 0x00125D80, 0x00125DC0, 0x00125E00, 0x00125E40, 0x00125E80,
-// 0x00125EC0, 0x00125F00, 0x00125F40, 0x00125F80, 0x00125FC0, 0x00126000,
-// 0x00126040, 0x00126080, 0x001260C0, and 0x00126100 are not translated, and
-// neither is 0x000D05D0, so those calls are not made. 0x001077B0 runs where
+// The step types build a stack step and pass it to 0x000D05D0 in EDI:
+// 0x19 (0x00125C80, step 0), 0x1B (0x00125CC0, step 1), 0x1C (0x00125D00,
+// step 2) and 0x1D (0x00125D40, step 3) do. The builders 0x00125D80,
+// 0x00125DC0, 0x00125E00, 0x00125E40, 0x00125E80, 0x00125EC0, 0x00125F00,
+// 0x00125F40, 0x00125F80, 0x00125FC0, 0x00126000, 0x00126040, 0x00126080,
+// 0x001260C0 and 0x00126100 are not translated. 0x001077B0 runs where
 // the dump calls it: EAX is the cstring at the listed node offset.
 // 0x0001BB60, 0x00126940, and 0x00116C50 are not translated, so no index is
 // invented and those calls are not made. A handled type returns 2. Type
@@ -286,8 +286,8 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node); // Xbox 0x0012
 // Type 0x73 would call 0x001400D0. CX is the word at node+8. The nine stack
 // words are node+0xC through node+0x2C. That call is not translated.
 //
-// Type 0x74 would call 0x00115F40 with EDI pointing at message id 1. That
-// call is not translated.
+// Type 0x74 calls 0x00115F40 with EDI pointing at message id 1: each active
+// scene control (DAT_0050E438) gets it through vtable +0xC.
 //
 // Type 0x8E would call 0x001189D0. XMM0 is the float at node+0xC, ECX is the
 // dword at node+8, EAX points at node+0x1C, and the stack dwords are node+0x10,

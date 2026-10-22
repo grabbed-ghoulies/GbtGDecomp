@@ -78,7 +78,7 @@ void finish_runtime_body_death(u32 create_effect, u32& scene_flags,
             std::memcpy(clone.bytes.get() + 0x334, &context.notices.actor_address, 4);
             auto object = create_factory_object(drops.factory, {clone.bytes.get(), clone.size});
             clone.bytes.reset();
-            drops.objects.push_back(std::move(object));
+            drops.keep(std::move(object)); // The scene keeps the effect.
             spawn_runtime_body_death_drop(drops);
         }
     }
@@ -126,7 +126,7 @@ void create_runtime_body_death_effect(const char* name, u32 activate,
         }
     }
     auto object = create_factory_object(drops.factory, parameters);
-    drops.objects.push_back(std::move(object));
+    drops.keep(std::move(object)); // The scene keeps the effect.
     spawn_runtime_body_death_drop(drops);
     if (activate != 0)
     {
@@ -176,7 +176,7 @@ void create_runtime_body_named_death_effect(const char* name, const char* varian
         }
     }
     auto object = create_factory_object(drops.factory, parameters);
-    drops.objects.push_back(std::move(object));
+    drops.keep(std::move(object)); // The scene keeps the effect.
     spawn_runtime_body_death_drop(drops);
     if (activate != 0)
     {

@@ -342,6 +342,12 @@ struct RuntimeModelResourceViews
     // untranslated resource-loader dependency, never a substitute model.
     std::unordered_map<const u8*, const RuntimeModelAsset*> assets;
 };
+// A fresh instance of the model an AID names, with each of the source skeleton's joints that the new model names
+// too taking the source's pose matrix; null (after error 2) when the AID has no resource.
+std::unique_ptr<RuntimeModelInstance> make_runtime_model_copy_by_name(const char* name,
+    const RuntimeModelInstance& source, AnimationResourceRegistry& registry, ResourceErrorState& error,
+    const RuntimeModelResourceViews& views, std::span<const RuntimeModelNodeType> types,
+    RuntimeShaderRegistrationState& registration, RuntimeShaderAnimationScratch& scratch); // Xbox 0x000F8A10
 bool set_runtime_actor_model(RuntimeActorModelState& actor, const char* name,
     AnimationResourceRegistry& registry, ResourceErrorState& error, const RuntimeModelResourceViews& views,
     RuntimeModelDeferredPool& deferred, u32 fence, std::span<const RuntimeModelNodeType> types,

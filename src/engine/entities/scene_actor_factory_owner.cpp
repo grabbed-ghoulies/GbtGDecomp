@@ -1,4 +1,5 @@
 #include "scene_actor_factory_owner.h"
+#include "../scripts/script_actions.h"
 #include "../cutscenes/event_runtime.h"
 #include "gbtg/actor_spawn_factory.h"
 #include "entity.h"
@@ -41,6 +42,14 @@ bool construct_bg_break_setup_view(FactoryObject& object, std::span<const u8> pa
 void release_bg_break_setup_view(FactoryObject& object)
 {
     active_owner->release_bg_break_setup(object);
+}
+bool construct_swap_setup_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    return active_owner->construct_swap_setup(object, parameters);
+}
+void release_swap_setup_view(FactoryObject& object)
+{
+    active_owner->release_swap_setup(object);
 }
 bool construct_scare_figure_view(FactoryObject& object, std::span<const u8> parameters)
 {
@@ -162,6 +171,12 @@ const ObjectFactoryVtable* bg_break_setup_lifecycle()
 {
     static const ObjectFactoryVtable table{0x00504ACC, ghouly_bg_break_setup_object_sizes,
         construct_bg_break_setup_view, release_bg_break_setup_view};
+    return &table;
+}
+const ObjectFactoryVtable* swap_setup_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00504B44, ghouly_swap_setup_object_sizes, construct_swap_setup_view,
+        release_swap_setup_view};
     return &table;
 }
 const ObjectFactoryVtable* scare_figure_lifecycle()
@@ -366,6 +381,71 @@ struct NativeSceneActorClassOwner::BgBreakSetupInstance : GhoulyController
                 count = sizeof(GhoulyVariantMessage) / 4;
             }
             dispatch_runtime_ghouly_bg_break_setup_message(instance.messages, {words, count});
+        };
+    }
+};
+
+struct NativeSceneActorClassOwner::SwapSetupInstance : GhoulyController
+{
+    GhoulySpawnRecord* load = nullptr; // +0x938.
+    RuntimeGhoulySwapSetup context;
+    RuntimeGhoulySwapSetupMessages messages;
+    SwapSetupInstance(NativeSceneActorClassBindings& bindings, FactoryObject& object)
+        : context{{object.bytes.get(), object.size}, bindings.actors.view(object).bat.actor, *this, bindings.random,
+            load,
+            [this, &bindings](const void* pointer) -> u32
+            {
+                // 0x000F39A0's record is a heap block the setup keeps at +0x938.
+                if (pointer != nullptr && pointer == load)
+                {
+                    return bindings.heap_address(load, sizeof(GhoulySpawnRecord));
+                }
+                return bindings.address_of(pointer);
+            },
+            bindings.message,
+            [this](std::span<u32> message)
+            {
+                dispatch_runtime_ghouly_swap_setup_message(messages, message);
+            },
+            [&bindings](u32 address) -> Actor*
+            {
+                FactoryObject* object = address == 0 ? nullptr : bindings.object_at(address);
+                return object == nullptr ? nullptr : &bindings.actors.view(*object).bat.actor;
+            }},
+          messages{context, bindings.base_of(object), bindings.objects, bindings.bytes_at, bindings.keep,
+            [&bindings](ActorBaseContext& base, std::span<u32> message)
+            {
+                dispatch_base_actor_word_message(base, message, bindings.word_messages);
+            }, bindings.latch_owner,
+            [&bindings](const Actor& actor) -> u32
+            {
+                return bindings.weapon_services.actor_address(actor);
+            }, g_flags_ea9c, // DAT_0050EA9C.
+            [&bindings](u32 address)
+            {
+                FactoryObject* object = bindings.object_at(address);
+                if (object == nullptr)
+                {
+                    throw Error("0x00112CC0 retires an address that is not a scene actor");
+                }
+                activate_actor_bind_tree(bindings.actors.view(*object).bat.actor); // 0x00112CC0
+            }}
+    {
+        message = [](GhoulyController& controller, void* data)
+        {
+            auto& instance = static_cast<SwapSetupInstance&>(controller);
+            // As the trigger's: the 0x108-byte A8 request, and the scheduler's 0xA7 / 0xA9 / 0xAA requests.
+            auto* words = static_cast<u32*>(data);
+            size_t count = 0x42;
+            if (words[0] == 0xA7)
+            {
+                count = sizeof(GhoulySpawnMessage) / 4;
+            }
+            else if (words[0] == 0xA9 || words[0] == 0xAA)
+            {
+                count = sizeof(GhoulyVariantMessage) / 4;
+            }
+            dispatch_runtime_ghouly_swap_setup_message(instance.messages, {words, count});
         };
     }
 };
@@ -628,6 +708,7 @@ void NativeSceneActorClassOwner::install(std::span<ObjectFactoryType> types)
     types[0x23] = {2, trigger_lifecycle};
     types[0x25] = {2, cutscene_setup_lifecycle}; // Getter 0x0006B110.
     types[0x24] = {2, bg_break_setup_lifecycle}; // Getter 0x0006A4F0.
+    types[0x26] = {2, swap_setup_lifecycle}; // Getter 0x0006BB30.
     types[0x1D] = {2, scare_figure_lifecycle}; // Getter 0x0006EFB0.
     types[0x1E] = {2, bg_break_key_lifecycle}; // Getter 0x0006CC70.
     types[0xD] = {2, emitter_lifecycle}; // Getter 0x00109DD0.
@@ -959,6 +1040,28 @@ void NativeSceneActorClassOwner::update_bg_break_setup(FactoryObject& object)
     update_runtime_ghouly_bg_break_setup(bg_break_setups_.at(object.bytes.get())->context);
 }
 
+bool NativeSceneActorClassOwner::construct_swap_setup(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto instance = std::make_unique<SwapSetupInstance>(bindings_, object);
+    auto* setup = instance.get();
+    swap_setups_.emplace(object.bytes.get(), std::move(instance));
+    return initialize_runtime_ghouly_swap_setup(setup->context, parameters);
+}
+
+void NativeSceneActorClassOwner::release_swap_setup(FactoryObject& object)
+{
+    destroy_runtime_ghouly_swap_setup(swap_setups_.at(object.bytes.get())->context);
+    if (!defer_release)
+    {
+        swap_setups_.erase(object.bytes.get());
+    }
+}
+
+void NativeSceneActorClassOwner::update_swap_setup(FactoryObject& object)
+{
+    update_runtime_ghouly_swap_setup(swap_setups_.at(object.bytes.get())->context);
+}
+
 bool NativeSceneActorClassOwner::construct_scare_figure(FactoryObject& object, std::span<const u8> parameters)
 {
     auto instance = std::make_unique<ScareFigureInstance>(bindings_, object);
@@ -1033,6 +1136,7 @@ void NativeSceneActorClassOwner::release_view(const u8* bytes)
     triggers_.erase(bytes);
     cutscene_setups_.erase(bytes);
     bg_break_setups_.erase(bytes);
+    swap_setups_.erase(bytes);
     bg_break_keys_.erase(bytes);
     scare_figures_.erase(bytes);
     emitters_.erase(bytes);
@@ -1059,6 +1163,10 @@ void NativeSceneActorClassOwner::message(FactoryObject& object, std::span<u32> m
     else if (object.type == 0x24)
     {
         dispatch_runtime_ghouly_bg_break_setup_message(bg_break_setups_.at(object.bytes.get())->messages, message);
+    }
+    else if (object.type == 0x26)
+    {
+        dispatch_runtime_ghouly_swap_setup_message(swap_setups_.at(object.bytes.get())->messages, message);
     }
     else if (object.type == 0x1E)
     {
@@ -1131,6 +1239,10 @@ void NativeSceneActorClassOwner::controller_actors(std::unordered_map<const Ghou
         output[setup.get()] = &setup->context.actor;
     }
     for (auto& [bytes, setup] : bg_break_setups_)
+    {
+        output[setup.get()] = &setup->context.actor;
+    }
+    for (auto& [bytes, setup] : swap_setups_)
     {
         output[setup.get()] = &setup->context.actor;
     }

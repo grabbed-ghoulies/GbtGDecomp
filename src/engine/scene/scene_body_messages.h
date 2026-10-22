@@ -19,6 +19,8 @@
 #include "../entities/body_arc_attack_state.h"
 #include "../entities/generate_ghouly_state.h"
 #include "../entities/body_shocked_state.h"
+#include "../entities/body_scrabble_state.h"
+#include "../entities/body_slide_state.h"
 #include "../entities/body_swing_state.h"
 #include "../entities/body_player_death_state.h"
 #include "../entities/body_grabbed_state.h"
@@ -160,6 +162,8 @@ public:
     RuntimeArcAttackStateContext& arc_attack_context(); // The type 0x5F state's views of this body.
     RuntimeGenerateGhoulyContext& generate_ghouly_context(); // The type 0x6F state's views of this body.
     RuntimeShockedStateContext& shocked_context(); // The type 0x80 state's views of this body.
+    RuntimeScrabbleStateContext& scrabble_context(); // The type 0x7F state's views of this body.
+    RuntimeSlideStateContext& slide_context(); // The type 0x83 state's views of this body.
     RuntimeSwingStateContext& swing_context(); // The type 0x78 state's views of this body.
     SceneBodyMessages(const SceneBodyMessages&) = delete;
     SceneBodyMessages& operator=(const SceneBodyMessages&) = delete;
@@ -201,6 +205,9 @@ private:
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> generate_ghouly_children_; // 0x6F.
     std::optional<RuntimeGenerateGhoulyContext> generate_ghouly_;
     std::optional<RuntimeShockedStateContext> shocked_;
+    std::optional<RuntimeScrabbleStateContext> scrabble_;
+    std::optional<RuntimeSlideStateContext> slide_;
+    std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> slide_children_; // 0x83, 0x000A1070.
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> swing_children_; // 0x78, 0x00098620.
     std::optional<RuntimeBodyStateContext> swing_shape_;
     std::optional<RuntimeBodyNextAction> swing_next_;

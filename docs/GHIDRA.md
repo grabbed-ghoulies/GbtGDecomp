@@ -20,7 +20,7 @@ XBE sections are not contiguous in the file. A flat load puts every pointer on t
 
 ## Headless export
 
-Scripts in `tools/ghidra/ghidra_scripts/` run against the existing `ghidra_projects/GbtG` program `default.xbe.original` (import once in the GUI with **ghidra-xbe**). From this repo, using the in-tree Ghidra. Output paths follow the script file up to the repo root (override with `GBTG_ROOT`):
+Scripts in `tools/ghidra_scripts/` run against the existing `ghidra_projects/GbtG` program `default.xbe.original` (import once in the GUI with **ghidra-xbe**). From this repo, using the in-tree Ghidra. Output paths follow the script file up to the repo root (override with `GBTG_ROOT`):
 
 ```text
 .\tools\ghidra\support\analyzeHeadless.bat ghidra_projects GbtG -process default.xbe.original -readOnly -noanalysis -scriptPath tools\ghidra\ghidra_scripts -postScript ExportEngine.java
@@ -51,7 +51,7 @@ recorded as the Windows user, so pass that name to Java:
 export JAVA_HOME=<jdk-21>
 export JAVA_TOOL_OPTIONS="-Duser.name=<project owner>"
 <ghidra>/support/analyzeHeadless <copy of ghidra_projects> GbtG -process default.xbe.original -readOnly -noanalysis \
-    -scriptPath tools/ghidra/ghidra_scripts -postScript CalleeTree.java <out dir> <translated list> 0019723C
+    -scriptPath tools/ghidra_scripts -postScript CalleeTree.java <out dir> <translated list> 0019723C
 ```
 
 `CalleeTree.java` walks callees breadth-first from the given roots (and from

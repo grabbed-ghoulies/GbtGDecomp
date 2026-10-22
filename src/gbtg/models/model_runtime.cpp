@@ -1196,6 +1196,74 @@ std::unique_ptr<RuntimeModelInstance> clone_runtime_model_instance(const Runtime
     return result;
 }
 
+// Xbox 0x000F8A10, EAX name. The joint loop runs over the source skeleton's count and reads the source tree's named
+// entry at each index; the new model's entry of that name gives the joint (its +0 word) the matrix is copied to.
+std::unique_ptr<RuntimeModelInstance> make_runtime_model_copy_by_name(const char* name,
+    const RuntimeModelInstance& source, AnimationResourceRegistry& registry, ResourceErrorState& error,
+    const RuntimeModelResourceViews& views, std::span<const RuntimeModelNodeType> types,
+    RuntimeShaderRegistrationState& registration, RuntimeShaderAnimationScratch& scratch)
+{
+    u32 prefix;
+    std::memcpy(&prefix, name, 4);
+    if (prefix != 0x5F646961)
+    {
+        return nullptr;
+    }
+    const auto resource = acquire_animation_resource(registry, name); // 0x00035E90
+    if (resource.data() == nullptr)
+    {
+        resource_error(error, 2); // 0x00032700
+        return nullptr;
+    }
+    const RuntimeModelAsset& asset = *views.assets.at(resource.data());
+    std::unique_ptr<RuntimeModelInstance> result = make_runtime_model_instance(asset, 1, 1, types, registration,
+        scratch); // 0x000F9840
+    const RuntimeModelTree* source_tree = source.source->tree;
+    i32 index = 0;
+    while (true)
+    {
+        const i32 count = source.skeleton_node == nullptr ? 0
+                                                           : i32(source.skeleton_node->joints.size()); // 0x00156A20
+        if (count <= index)
+        {
+            break;
+        }
+        const char* joint = nullptr;
+        if (source_tree != nullptr)
+        {
+            if (source_tree->names == nullptr || size_t(index) >= source_tree->names->entries.size())
+            {
+                throw Error("0x00156970 reads a named entry the source model's tree does not have");
+            }
+            RuntimeModelNode* node;
+            runtime_model_named_entry(*source_tree, index, joint, node); // 0x00156970
+        }
+        RuntimeModelNode* found = nullptr;
+        if (asset.tree != nullptr && find_runtime_model_named_node(*asset.tree, joint, found) // 0x001568E0
+            && found != nullptr)
+        {
+            ModelPoseBuffer* to = result->alternate != nullptr ? result->alternate : result->primary;
+            const ModelPoseBuffer* from = source.alternate != nullptr ? source.alternate : source.primary;
+            if (to == nullptr || from == nullptr)
+            {
+                throw Error("0x00031530 reads a pose the model copy 0x000F8A10 does not have");
+            }
+            // 0x00031530 twice: the target's matrix (DAT_004DD798 when the pose is packed), then the source's.
+            static AnimationMatrix scratch_matrix;
+            AnimationMatrix& target = to->dirty ? to->matrices.at(size_t(found->instance_offset)) : scratch_matrix;
+            target = model_pose_matrix(*from, index);
+        }
+        ++index;
+    }
+    ModelPoseBuffer* pose = result->alternate != nullptr ? result->alternate : result->primary;
+    if (pose != nullptr)
+    {
+        pose->dirty = true;
+    }
+    std::memset(result->allocation.get() + 4, 0, 0x56 * 4);
+    return result;
+}
+
 // Xbox 0x001574B0.
 void release_runtime_blendshape_node(const RuntimeModelNode& node,
     RuntimeModelInstanceStorage& instance, const RuntimeBlendshapeBoundaries& boundaries)

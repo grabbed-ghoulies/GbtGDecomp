@@ -139,7 +139,14 @@ bool copy_runtime_actor_model(RuntimeAvatarActorViews& actor, RuntimeAvatarActor
     if (name != nullptr && std::memcmp(name, "aid_", 4) == 0)
     {
         copy_string(actor.state.models.name.data(), name);
-        throw Error("untranslated Xbox 0x000F8A10 reached from the actor model copy 0x00040CA0");
+        if (source.state.models.model == nullptr)
+        {
+            throw Error("0x000F8A10 reads the source actor's model, which it does not have");
+        }
+        actor.state.models.model = make_runtime_model_copy_by_name(name, *source.state.models.model, startup.registry,
+            startup.error, startup.models, startup.types, startup.shaders, startup.scratch); // 0x000F8A10
+        bind_actor_model_view(actor.state, startup);
+        return true;
     }
     copy_string(actor.state.models.name.data(), source.state.models.name.data());
     if (source.state.models.model != nullptr)

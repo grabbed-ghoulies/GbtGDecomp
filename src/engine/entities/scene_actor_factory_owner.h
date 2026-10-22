@@ -10,6 +10,7 @@
 #include "bob_weapon.h"
 #include "ghouly_cutscene_setup.h"
 #include "ghouly_bg_break_setup.h"
+#include "ghouly_swap_setup.h"
 #include "bg_break_key.h"
 #include "scare_figure.h"
 #include "bone_debris_actor.h"
@@ -107,6 +108,9 @@ public:
     bool construct_bg_break_setup(FactoryObject& object, std::span<const u8> parameters); // Type 0x24.
     void release_bg_break_setup(FactoryObject& object); // Type 0x24, Xbox 0x0006A600.
     void update_bg_break_setup(FactoryObject& object); // Type 0x24, Xbox 0x0006ADC0.
+    bool construct_swap_setup(FactoryObject& object, std::span<const u8> parameters); // Type 0x26.
+    void release_swap_setup(FactoryObject& object); // Type 0x26, Xbox 0x0006BC70.
+    void update_swap_setup(FactoryObject& object); // Type 0x26, Xbox 0x0006C0A0.
     bool construct_scare_figure(FactoryObject& object, std::span<const u8> parameters); // Type 0x1D.
     void release_scare_figure(FactoryObject& object); // Type 0x1D, the empty 0x001628B0.
     void update_scare_figure(FactoryObject& object); // Type 0x1D, Xbox 0x0006F1C0.
@@ -165,6 +169,7 @@ private:
     struct TriggerInstance;
     struct CutsceneSetupInstance;
     struct BgBreakSetupInstance;
+    struct SwapSetupInstance;
     struct BgBreakKeyInstance;
     struct ScareFigureInstance;
     struct EmitterInstance;
@@ -174,6 +179,7 @@ private:
     std::unordered_map<const u8*, std::unique_ptr<TriggerInstance>> triggers_;
     std::unordered_map<const u8*, std::unique_ptr<CutsceneSetupInstance>> cutscene_setups_;
     std::unordered_map<const u8*, std::unique_ptr<BgBreakSetupInstance>> bg_break_setups_;
+    std::unordered_map<const u8*, std::unique_ptr<SwapSetupInstance>> swap_setups_;
     std::unordered_map<const u8*, std::unique_ptr<BgBreakKeyInstance>> bg_break_keys_;
     std::unordered_map<const u8*, std::unique_ptr<ScareFigureInstance>> scare_figures_;
     std::unordered_map<const u8*, std::unique_ptr<EmitterInstance>> emitters_;

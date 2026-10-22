@@ -13,6 +13,16 @@ extern std::vector<u32> g_script_fired;
 extern LiveScript*& g_live_scripts;
 // The body (node +0x18, actor +0x95C) of a DAT_00511B48 node (actor +0x944), bound by the scene's actor services.
 extern std::function<std::span<const u8>(const void* node)> g_alt_node_body;
+// The class key (node - 0x93E, actor +6) of a DAT_00511B48 node, bound with g_alt_node_body.
+extern std::function<u16(const void* node)> g_alt_node_class;
+// The DAT_00511AA4 object whose +0x1FC word is the key, as its retail address (0 for none), and any scene object's
+// vtable +0xC by address; bound by the scene's actor services.
+extern std::function<u32(u16 key)> g_script_actor_by_id;
+extern std::function<void(u32 address, std::span<u32> message)> g_script_object_message;
+// The DAT_00511B40 player's world position when it is set and its body (+0x95C) +0x94 is nonzero; and 0x0005BEC0 over
+// the scene's doors. Bound by the scene's actor services.
+extern std::function<bool(Vec3& position)> g_script_live_player_position;
+extern std::function<bool(u16 door, const Vec3& from, float& distance)> g_script_door_distance;
 // DAT_00511B48 nodes whose body +0x94 (health) is nonzero.
 i32 count_runtime_live_actors(); // Xbox 0x00129210
 const u32* find_runtime_script_event_type(u32 type); // Xbox 0x00116890
@@ -28,6 +38,8 @@ u32& scene_word(u32 addr);
 u32 cond_u32(const ScriptCond& rec, u32 at);
 // The statistics block from DAT_00512B78 (0x0012AE40 / 0x0012AF10) by retail address.
 i32& script_statistic_at_address(u32 addr);
+// The DAT_00511B48 actors with body +0x94 energy, of class `key` (any class for 0).
+int script_count_actors_by_class(u16 key); // Xbox 0x00129240, DX key
 
 void cond_put_u32(ScriptCond& rec, u32 at, u32 v);
 

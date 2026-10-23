@@ -158,6 +158,26 @@ u32 query_runtime_actor_model_sweep(RuntimeActorCollision& context)
     return 0;
 }
 
+// Xbox 0x0003E2E0
+u32 query_runtime_actor_model_segment(RuntimeActorCollision& context)
+{
+    const auto list = model_list(context.actor);
+    if (list.data() != nullptr)
+    {
+        auto& call = context.shapes.call;
+        call.mask &= context.actor.model_flags;
+        if (call.mask != 0)
+        {
+            if (!runtime_actor_culls_segment(context.actor, context.bytes, call.candidate, call.kept)) // 0x0003E4A0
+            {
+                bind_actor_pose(context);
+                return dispatch_runtime_model_segment_shapes(list, context.shapes); // 0x000568E0
+            }
+        }
+    }
+    return 0;
+}
+
 // Xbox 0x0003E3C0
 u32 collect_runtime_actor_model_contacts(RuntimeActorCollision& context)
 {

@@ -119,6 +119,7 @@ add_library(gbtg_lib STATIC
     src/engine/graphics/scene_point_light_pass.cpp
     src/engine/scene/scene_light_grid.cpp
     src/engine/scene/super_scary_control.cpp
+    src/engine/scene/map_view_control.cpp
     src/engine/scene/gameselect_control.cpp
     src/engine/scene/scene_actor_removal.cpp
     src/engine/scene/ghoul_intro.cpp
@@ -243,6 +244,8 @@ add_library(gbtg_lib STATIC
     src/engine/entities/body_scoop_whack_state.cpp
     src/engine/entities/body_flip_state.cpp
     src/engine/entities/body_hover_state.cpp
+    src/engine/entities/body_flamethrower_state.cpp
+    src/engine/entities/body_shoot_state.cpp
     src/engine/entities/body_slide_state.cpp
     src/engine/entities/animated_light.cpp
     src/engine/entities/body_swing_state.cpp

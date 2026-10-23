@@ -5,6 +5,13 @@
 #include "../frontend/dialogue_draw_context.h"
 #include "../frontend/dialogue_text_metrics.h"
 #include "../frontend/dialogue_text_pool.h"
+#include "../frontend/dialogue_draw_outer.h"
+#include "../frontend/dialogue_input.h"
+#include "../frontend/dialogue_widget_bat.h"
+#include "../frontend/dialogue_widget_construction.h"
+#include "../frontend/dialogue_widget_state.h"
+#include "../frontend/dialogue_widget_update.h"
+#include "../frontend/input_activation.h"
 #include "../scene/executable_resources.h"
 #include "../../gbtg/text/localtext_resources.h"
 #include "gbtg/anim.h"
@@ -24,6 +31,17 @@ constexpr u32 kMarkers = 0x002FD408; // 6 records of 0x88: the texture aid, +0x8
 [[noreturn]] void untranslated(const char* what)
 {
     throw Error(std::string(what) + " is not translated");
+}
+
+// The map menu's scene views; the menu needs the scene's widget and input contexts.
+void require_menu(const TransitionBookServices& s)
+{
+    if (s.widget_allocation == nullptr || s.widget_bats == nullptr || s.widget_update == nullptr
+        || s.widget_draw == nullptr || s.input == nullptr || s.input_release == nullptr
+        || s.input_addresses == nullptr || s.input_views == nullptr || !s.frame || s.viewport_bottom == nullptr)
+    {
+        throw Error("the book's map menu has no scene widget and input views");
+    }
 }
 
 float real(const TransitionBookServices& s, u32 address)
@@ -396,7 +414,22 @@ void begin_book_map(RuntimeTransitionBook& book, i32 route, TransitionBookServic
     }
     if (book.map_menu != 0)
     {
-        untranslated("0x00046F40's map menu (0x00107D60, 0x00109340, 0x00141DA0, 0x00142860)");
+        require_menu(s);
+        std::array<char, 0x80> text{};
+        std::strncpy(text.data(), s.image.string(0x003225E8), text.size() - 1); // aid_loctext_ghoulies_menu_menutext
+        book.map_input = create_runtime_selected_input(*s.input_release); // 0x00107D60, ESI +0x15C
+        // Native pointer mapping; the retail entry stores the allocated address.
+        book.map_input_address = static_cast<u32>(reinterpret_cast<std::uintptr_t>(book.map_input.data()));
+        (*s.input_addresses)[book.map_input_address] = book.map_input;
+        (*s.input_views)[book.map_input_address] = {book.map_input, {nullptr, nullptr, nullptr, nullptr}};
+        push_runtime_input_entry(book.map_input_address, s.image.string(0x003225DC), *s.input); // 0x00109340, "Map Screen"
+        // Anchor (DAT_005096E8 * 0.5, DAT_0050974C - 16), rows and origin (0, 0).
+        create_resource_dialogue_widget(book.map_widget, 0, s.image.memory(0x002FD738, 0x310).data(),
+            {float(s.screen[0]) * 0.5f, *s.viewport_bottom - 16.f}, {0.f, 0.f}, {0.f, 0.f}, nullptr, 1.5f, 0.75f,
+            s.image.string(0x003225D0), text.data(), 0x80, *s.widget_allocation); // 0x00141DA0, "menutext"
+        attach_dialogue_widget_bat(*book.map_widget, 2.f, 0, *s.widget_bats); // 0x00142860
+        std::snprintf(book.map_widget->sound_name.data(), book.map_widget->sound_name.size(), "%s",
+            s.image.string(0x00421FE0)); // +0x1034, XACT_SOUNDBANK_GGRIMREAPER_DEATHBELLFRONTEND
     }
 }
 
@@ -450,11 +483,34 @@ void release_book_map(RuntimeTransitionBook& book, TransitionBookServices& servi
     book.map_points = 0;
     if (book.map_widget != nullptr)
     {
-        untranslated("0x000473D0's map widget release (0x00142070)");
+        require_menu(s);
+        destroy_dialogue_widget(book.map_widget, s.resources, *s.widget_allocation->pools); // 0x00142070
+        book.map_widget = nullptr;
     }
     if (book.map_input.data() != nullptr)
     {
-        untranslated("0x000473D0's map input release (0x001093C0)");
+        require_menu(s);
+        pop_runtime_input_entry(*s.input); // 0x001093C0
+        switch (read_u32(book.map_input, 0))
+        {
+        case 1:
+        case 2:
+        case 3:
+            release_runtime_simple_input(book.map_input); // 0x00107DD0
+            break;
+        case 4:
+            release_runtime_composite_input(book.map_input, *s.input_release); // 0x00107960
+            break;
+        case 5:
+            release_runtime_actor_input(book.map_input, *s.input_release); // The inlined 0x00107B60.
+            break;
+        default:
+            break;
+        }
+        s.input_addresses->erase(book.map_input_address);
+        s.input_views->erase(book.map_input_address);
+        book.map_input = {};
+        book.map_input_address = 0;
     }
     if (book.voice == -1)
     {
@@ -533,7 +589,17 @@ u32 tick_book_map(RuntimeTransitionBook& book, TransitionBookServices& services)
     }
     if (book.map_input.data() != nullptr)
     {
-        untranslated("0x000475B0's map menu input (0x00109470, 0x00142460)");
+        require_menu(s);
+        refresh_runtime_input_device(book.map_input_address, s.frame(), *s.input, *s.input_release); // 0x00109470
+        if (book.map_widget == nullptr)
+        {
+            throw Error("0x000475B0 updates the map menu through address zero");
+        }
+        s.widget_update->input.devices = s.input->entries;
+        s.widget_update->input.selected = s.input->selected;
+        s.widget_update->input.device_views = s.input_views;
+        const RuntimeDialogueInputDevice device{book.map_input, {nullptr, nullptr, nullptr, nullptr}};
+        done = update_dialogue_widget(*book.map_widget, &device, *s.widget_update); // 0x00142460, EAX +0x15C
     }
     if (book.map_timer_d4 <= 0.f)
     {
@@ -609,7 +675,9 @@ void draw_book_map(RuntimeTransitionBook& book, TransitionBookServices& services
     end_sprite_draw(s);
     if (book.map_widget != nullptr)
     {
-        untranslated("0x00047770's map menu draw (0x00142720)");
+        require_menu(s);
+        draw_runtime_dialogue_widget(*book.map_widget, 1, *s.widget_draw); // 0x00142720
+        return;
     }
     begin_dialogue_sprite_draw(s.draw); // 0x0005CDC0
     std::array<float, 2> position{};

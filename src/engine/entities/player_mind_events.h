@@ -21,6 +21,8 @@ RuntimeMindEvent* allocate_runtime_mind_event(RuntimeMindEvents& context,
 RuntimeMindEvent* refresh_runtime_mind_event(RuntimeMindEvents& context,
     RuntimeMindEvent& event); // Xbox 0x0002A280
 void refresh_runtime_mind_target_event(RuntimeMindEvents& context); // Xbox 0x0002A0C0
+// The +0x20 word of the mind's first kind 3 event (the actor it is engaged with), or 0; 0 without a mind.
+u32 runtime_mind_engaged_actor(const RuntimeMindEvents* context); // Xbox 0x00028C50, EAX actor
 void set_runtime_mind_target(RuntimeMindEvents& context, u32 target); // Xbox 0x0002A030
 void record_runtime_mind_contact(RuntimeMindEvents& context, u32 first, u32 second,
     u32 payload); // Xbox 0x0002A3E0

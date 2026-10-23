@@ -9,6 +9,8 @@
 #include "../scene/scene_loading.h"
 #include "../scene/actor_loading.h"
 #include "../runtime/name_lookup.h"
+#include "script_event_sequence.h"
+#include "script_event_tallies.h"
 #include <iostream>
 
 #include <algorithm>
@@ -177,17 +179,12 @@ bool script_end_gate_set()
 }
 
 
-// Xbox 0x0012AF10. Seven counters, each followed by 60 counters and a
-// 60-by-61 matrix. This is the statistics block passed in EAX.
-std::array<u32, 7 * 0xe89> g_script_statistics{};
-
 i32 g_545978 = 0;
 
 i32 g_545980 = 0;
 
-i32 g_5064d8 = 0;
-
-// Xbox 0x0012AF10
+// Xbox 0x0012AF10. Seven counters, each followed by 60 counters and a 60-by-61 matrix: the statistics block passed
+// in EAX.
 void script_initialize_statistics(std::span<u32> statistics)
 {
     for (int group = 0; group < 7; ++group)
@@ -233,9 +230,9 @@ void script_activate_title(Game& g, std::string_view title, i32 mode, i32 id)
                 live = next;
             }
         }
-        if (g_5064d8 != 3)
+        if (g_event_sequence_state != 3) // DAT_005064D8
         {
-            script_initialize_statistics(g_script_statistics);
+            script_initialize_statistics(g_script_tallies.second); // EAX DAT_00512B78
             g_545980 = 0;
         }
         g_decay_arm = new_decay;

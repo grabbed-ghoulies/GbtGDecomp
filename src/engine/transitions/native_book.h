@@ -6,6 +6,7 @@
 #include <array>
 #include <functional>
 #include <span>
+#include <unordered_map>
 
 namespace gbtg
 {
@@ -22,6 +23,14 @@ struct RuntimeDialogueDrawContext;
 struct RuntimeDialogueTextPool;
 struct RuntimeTextMetrics;
 struct RuntimeTextFont;
+struct RuntimeDialogueWidget;
+struct RuntimeDialogueInputDevice;
+struct DialogueWidgetAllocationContext;
+struct DialogueWidgetBatFactoryContext;
+struct DialogueWidgetUpdateContext;
+struct RuntimeDialogueOuterDrawContext;
+struct RuntimeInputActivationContext;
+struct RuntimeInputReleaseContext;
 struct LocalTextResourceContext;
 struct GhoulySpawnPool;
 struct AudioEventVoices;
@@ -71,8 +80,9 @@ struct RuntimeTransitionBook
     std::array<char, 0x20> map_from{}; // +0x118, the route's starting spot name.
     std::array<char, 0x20> map_to{}; // +0x138, the route's ending spot name.
     i32 map_points = 0; // +0x158, the labels placed.
-    std::span<u8> map_input; // +0x15C
-    void* map_widget = nullptr; // +0x160
+    std::span<u8> map_input; // +0x15C, the map menu's input (0x00107D60).
+    u32 map_input_address = 0; // Host: the word the input entry (0x00109340) names map_input by.
+    RuntimeDialogueWidget* map_widget = nullptr; // +0x160, the map menu (0x00141DA0).
     float map_footstep = 0.f; // +0x164
     i16 voice = -1; // +0x168
     struct MapLabel
@@ -131,6 +141,17 @@ struct TransitionBookServices
     std::span<const u8> story_bits; // *(DAT_00506C6C+8)
     const u8& scene_flags; // **(DAT_00506C74+8)
     const std::array<u16, 2>& screen; // DAT_005096E8 / DAT_005096EA
+    // The map menu's prompt and input (0x00046F40, 0x000473D0, 0x000475B0, 0x00047770), bound by the scene.
+    DialogueWidgetAllocationContext* widget_allocation = nullptr; // 0x00141DA0, 0x00142070
+    DialogueWidgetBatFactoryContext* widget_bats = nullptr; // 0x00142860
+    DialogueWidgetUpdateContext* widget_update = nullptr; // 0x00142460
+    RuntimeDialogueOuterDrawContext* widget_draw = nullptr; // 0x00142720
+    RuntimeInputActivationContext* input = nullptr; // 0x00109340, 0x001093C0, 0x00109470
+    RuntimeInputReleaseContext* input_release = nullptr; // 0x00107D60 and the device releases
+    std::unordered_map<u32, std::span<u8>>* input_addresses = nullptr;
+    std::unordered_map<u32, RuntimeDialogueInputDevice>* input_views = nullptr;
+    std::function<u32()> frame{}; // DAT_004DEA58
+    const float* viewport_bottom = nullptr; // DAT_0050974C
 };
 extern RuntimeTransitionBook* g_capture_book; // DAT_005462A0
 extern u32 g_book_viewport_reset; // DAT_005077FC, read by the present (0x000F6F70).

@@ -216,6 +216,8 @@ All take the game directory, e.g.
 | `--scene10` | Boots scene 10 (chapter1_scene10_1playcam, the relics store) and plays it with the scene 7 driver, doors first. The walk cutscene and the mummy's Super Scary challenge play by themselves; during "Event: Kill All" Cooper fights any live ghouly at any range (1000), and nothing outside it. Passes when the script moves on to `aid_script_ghoulies_chapter1_scene11_2book` (frame 6078 in the 2026-10-22 run). The mummy's marker is drawn at random, so runs differ |
 | `--scene11` | Boots scene 11 (chapter1_scene11_2book) and passes its book to `aid_script_ghoulies_chapter1_scene11_3viewcam`, then plays that scene with the scene 7 driver: it presses the shown buttons of a running Super Scary challenge (type 0x98, states 5 and 6), fights any live ghouly at any range (1000) except the ugly girl (tag 0x37, Cooper's partner) and otherwise walks to the regions and the exit. Passes when the script moves on to `aid_script_ghoulies_chapter1_scene12_1playcam` (frame 3041 in the 2026-10-22 run) |
 | `--scene12` | Boots scene 12 (chapter1_scene12_1playcam, the wine cellar) and plays it with the scene 7 driver, doors first: Cooper fights any live ghouly at any range (1000), and a ghouly too far for the right stick is walked to like a goal (held cells avoided). The sleeping haunted door wakes as he comes near, and the fight ends with Cooper's one-liner. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene1_1playcam` (frame 5837 in the 2026-10-23 run) |
+| `--scene2a1` | Boots chapter 2a scene 1 (chapter2a_scene1_1playcam, the kitchen stairwell) and plays it with the scene 7 driver, doors first, at any fight range. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book` ("Fire extinguihser weapon Intro"; frame 9132 in the 2026-10-23 run) |
+| `--scene2a1b` | Boots the extinguisher's book (chapter2a_scene1_2book), plays it to `aid_script_ghoulies_chapter2a_scene1_3playcam` (the kitchen) and plays that with the scene 7 driver, doors first, fighting only in "Event - Kill All". A held weapon is aimed with the right stick held (the extinguisher's spray), bare hands tap it. Does not pass yet (see the 2026-10-23 kitchen checkpoint) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -316,7 +318,8 @@ the archives after it: the ugly girl's Super Scary shock is won, she joins Coope
 skeletons come in and are beaten, and the script moves on to `aid_script_ghoulies_chapter1_scene12_1playcam`.
 `--scene12` plays the wine cellar: the spiders on the walls are fought, the haunted door by the exit wakes, knocks
 Cooper flying and is beaten, and the script moves on to `aid_script_ghoulies_chapter2a_scene1_1playcam` (chapter 2a's
-kitchen), which nothing drives yet (see the 2026-10-23 checkpoint).
+kitchen). `--scene2a1` plays that scene: Cooper climbs the stairwell in Free Play while the fire imps fly about, and
+the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothing drives yet.
 
 | Path | Stop | What it needs |
 |---|---|---|
@@ -329,13 +332,15 @@ kitchen), which nothing drives yet (see the 2026-10-23 checkpoint).
 | Script condition nodes | partial | `0x00125450` registers types 0x3D..0x3F, 0x40..0x44, 0x47, 0x48, 0x5A, 0x5B, 0x6A, 0x6C, 0x72, 0x92, 0x93, 0x94, 0x95 and 0x99; retail also takes 0x65, 0x66, 0x68, 0x75, 0x8B, 0x8C and 0xA3, which still run as ordinary nodes |
 | Script event steps | partial | `0x00126140` queues step types 0 to 3 (script types 0x19, 0x1B, 0x1C, 0x1D) and `0x000D0B40` runs them; the other builders (`0x00125D80`..`0x00126100`) are not translated, so those script types queue nothing |
 | Script type 0x16 | legacy | Still the old shortcut; retail waits for `0x0004EFE0` with DAT_00512470 set, then releases the cutscenes |
-| Chapter 2a scene 1 (`aid_script_ghoulies_chapter2a_scene1_1playcam`) | not driven | `--scene12` stops once the script moves on to it |
+| The kitchen's "Event - Kill All" (`--scene2a1b`) | stops | The spray reaches the fire imps and their body takes `entityStateHitStream` (type 0x76, getter `0x00097200`: `0x000971E0`..`0x00097B00`), which is not translated |
+| The scene 2a1 stairwell walk | slow | The driver finds no grid route from the stairwell floor (y -40) and walks "straight" into the wall until about frame 8000 |
+| A death during an event | as dumped | `0x00134AE0` sets DAT_00430D0C with the restart, so the reloaded script passes its handlers through (0x00128A00's third argument) and skips the event; the kitchen's exit door then stays shut because the event's end (state 4) never opens it. Not compared with retail |
 | The camera near scene 9's door 8 | unchecked | From frame ~11400 of a long scene 9 run the camera looked down on the cellar from outside its walls; not compared with retail |
 
 ## Work
 
-1. Chapter 2a scene 1 (`aid_script_ghoulies_chapter2a_scene1_1playcam`): drive it after scene 12 and translate
-   what it reaches.
+1. The kitchen's Kill All (`--scene2a1b`): translate `entityStateHitStream` (type 0x76) and what follows until the
+   imps die to the spray and the scene moves on.
 2. Move the remaining `g_pulse_nodes` callers to the native `DAT_00511AA4` lookups.
 
 ## Acceptance
@@ -375,6 +380,50 @@ kitchen), which nothing drives yet (see the 2026-10-23 checkpoint).
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-23: the extinguisher's book and the kitchen's Kill All (in progress)
+
+`--scene2a1b` (new) plays `aid_script_ghoulies_chapter2a_scene1_2book` ("Fire extinguihser weapon Intro") to its end
+and boots `aid_script_ghoulies_chapter2a_scene1_3playcam`. Cooper holds the extinguisher; the scene's first pass has
+the fire imps (fly state, type 0x6D) swarm him, the map view (type 0x9E) runs after a death, and with the right stick
+held Cooper now aims and sprays (entityStateShoot, type 0x81). The run stops when the spray's hit reaches an imp's body
+(type 0x76, not translated).
+
+- New translations: the extinguisher's spray (`extinguisher_weapon.cpp`: `0x000C7C60`..`0x000C8D30`: emission, the
+  particle blocks, their billboards and the wall bounce and five-sphere hit query), the gun's 0xA2 / 0xA3 and hit
+  report (`0x000CAB40`, `0x000CB0B0`), the spray's contact report `0x00141C00` (message 0x18 / 0x3F), the model
+  segment probe `0x001228F0` with the actor's vtable +0x28 `0x0003E2E0`; the fly state (type 0x6D,
+  `0x00090D10`..`0x000916C0`, beside the walk alert); the map view scene control (type 0x9E, `map_view_control.cpp`:
+  `0x00083E80`..`0x00083FE0`) and the book map's menu (`0x00046F40`, `0x000473D0`, `0x000475B0`, `0x00047770`);
+  entityStateShoot (type 0x81, `body_shoot_state.cpp`: `0x0009F6C0`..`0x000A0320`, `0x00140A60`); the mind's
+  engaged actor `0x00028C50`.
+- Host fixes: the scene's disposal walk finds controls the dialogue made (`0x000584A0`'s map view); the kill tallies
+  `script_activate_title` (`0x00128AB0`) clears are the block the conditions read (DAT_00512B78), and it tests the
+  event state (DAT_005064D8) rather than an unset copy; scene start clears the event sequence and DAT_0052C274
+  (`0x00116E00`) and the script reset clears DAT_00512378 / DAT_00512414 / DAT_00512418 (`0x001287F0`).
+- Shown (looked at): the fire imps glowing around Cooper and the cook (`cache/scene2a1_3_6600.bmp`), Cooper holding
+  the extinguisher with its charge gauge (`scene2a1_3_900.bmp`), the cook's potion page (`scene2a1_3_5400.bmp`), the
+  shut "?" exit door after a retry (`scene2a1_3_13200.bmp`). Not shown yet: the spray's particles.
+
+### 2026-10-23: chapter 2a scene 1 (the kitchen stairwell) plays to its end
+
+`--scene2a1` (new) boots `aid_script_ghoulies_chapter2a_scene1_1playcam`. The chapter title moves on after A, Free
+Play starts at frame 400 and the fire imps (strategy type 0x47) hover and breathe fire while Cooper climbs the
+stairwell; the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book` ("Fire extinguihser weapon Intro") at
+frame 9132.
+
+- New translations: the imp's flamethrower strategy (type 0x47, `imp_flamethrower_strategy.cpp`: `0x000AAE40`,
+  `0x000B1350`, `0x000B4FE0`..`0x000B58F0`, leaving through the spider's `0x000B5AF0`); the hover state (type 0x77,
+  `body_hover_state.cpp`: `0x00097B00`..`0x00097E60`); the fly alert (type 0x6E, `body_walk_target_state.cpp`:
+  `0x000917B0`..`0x000923B0`); the flamethrower state (type 0x6A, `body_flamethrower_state.cpp`: `0x0008F6D0`..
+  `0x000902A0`: the aim, the sway, the flame effect on locator kind 5 and the five-sphere sweep that sends 0x15 to the
+  touched actors and 0x41 to the imp); the gun (type 0xA4, `gun_weapon.cpp`) and the fire extinguisher's
+  construction, update and draw (type 0xA3, `extinguisher_weapon.cpp`); the third stick pair `0x00108AB0`; body
+  message 0x19's contact views.
+- Host fixes: the scene services find a constructing player's views by actor rather than by object.
+- Shown (looked at): Cooper at the stairwell wall (`cache/scene2a1_2100.bmp`), climbing (`scene2a1_8700.bmp`) and at
+  the kitchen with the cook in view (`scene2a1_9000.bmp`). Not shown: no capture has an imp or its flame on screen;
+  the flamethrower is heard (XACT_SOUNDBANK_GIMPFIRE_FLAMETHROWER) but its effect has not been looked at.
 
 ### 2026-10-23: scene 12 (the wine cellar's haunted door) plays to its end
 

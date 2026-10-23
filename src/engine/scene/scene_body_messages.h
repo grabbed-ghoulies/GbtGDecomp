@@ -23,6 +23,8 @@
 #include "../entities/body_scoop_whack_state.h"
 #include "../entities/body_flip_state.h"
 #include "../entities/body_hover_state.h"
+#include "../entities/body_flamethrower_state.h"
+#include "../entities/body_shoot_state.h"
 #include "../entities/body_slide_state.h"
 #include "../entities/body_swing_state.h"
 #include "../entities/body_player_death_state.h"
@@ -145,6 +147,11 @@ struct SceneBodyServices
     // The haunted TV's ghouly generator (type 0x6F): the scene's lights, display, live list and actor views.
     std::function<RuntimeGenerateGhoulyScene&()> generate_ghouly{};
     std::function<bool(Actor& actor, u32 object)> release_frame_object{}; // 0x0003DE30, ECX actor, ESI object.
+    // The flamethrower state (type 0x6A): a segment probe's actor (probe - 0x1E0), and a player's actor message
+    // whose `contacts_word` is a contact pool.
+    std::function<RuntimeSegmentContactActor&(entity_detail::SegmentProbe&)> contact_actor{};
+    std::function<void(NativePlayerInstance&, std::span<u32> words, GhoulySpawnPool* contacts,
+        size_t contacts_word)> contact_words{};
 };
 
 // One body's message graph: the parent body handler 0x000253B0 and the derived slots of types 0x27
@@ -172,6 +179,9 @@ public:
     // The type 0x77 state's views of this body; `input` is the tick's input word (actor +0x960 or zero).
     RuntimeHoverStateContext& hover_context(u32 input = 0);
     RuntimeSlideStateContext& slide_context(); // The type 0x83 state's views of this body.
+    RuntimeFlamethrowerStateContext& flamethrower_context(); // The type 0x6A state's views of this body.
+    // The type 0x81 state's views of this body; `input` is the tick's input word (actor +0x960 or zero).
+    RuntimeShootStateContext& shoot_context(u32 input = 0);
     RuntimeSwingStateContext& swing_context(); // The type 0x78 state's views of this body.
     SceneBodyMessages(const SceneBodyMessages&) = delete;
     SceneBodyMessages& operator=(const SceneBodyMessages&) = delete;
@@ -217,6 +227,9 @@ private:
     std::optional<RuntimeScoopWhackStateContext> scoop_whack_;
     std::optional<RuntimeFlipStateContext> flip_;
     std::optional<RuntimeHoverStateContext> hover_;
+    std::optional<RuntimeFlamethrowerStateContext> flamethrower_;
+    std::optional<RuntimeShootStateContext> shoot_;
+    std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> flamethrower_children_; // 0x6A, 0x0008FBF0.
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> scoop_whack_children_; // 0x7E, 0x0009EED0.
     std::optional<RuntimeSlideStateContext> slide_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> slide_children_; // 0x83, 0x000A1070.

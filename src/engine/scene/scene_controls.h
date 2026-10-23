@@ -11,6 +11,7 @@
 #include "haunted_chairs_control.h"
 #include "relics_store_control.h"
 #include "scene_fx_control.h"
+#include "map_view_control.h"
 #include <unordered_map>
 #include <vector>
 
@@ -39,6 +40,7 @@ struct SceneControlInstance
     std::unique_ptr<HauntedChairsControlState> haunted_chairs; // Type 0x93's pointer words.
     std::unique_ptr<RelicsStoreControlState> relics_store; // Type 0x94's pointer words.
     std::unique_ptr<SuperScaryControlState> super_scary; // Type 0x98's pointer words.
+    std::unique_ptr<MapViewControlState> map_view; // Type 0x9E's pointer words.
 };
 struct SceneControlContext
 {
@@ -57,6 +59,7 @@ struct SceneControlContext
     RelicsStoreControlServices* relics_store = nullptr;
     SceneFxControlServices* fx = nullptr;
     SuperScaryControlServices* super_scary = nullptr;
+    MapViewControlServices* map_view = nullptr;
     const RuntimeActorClock& frame_clock() const;
     AudioBankStreams& streams() const;
     AttractControlServices& attract_services() const;
@@ -66,6 +69,7 @@ struct SceneControlContext
     RelicsStoreControlServices& relics_store_services() const;
     SceneFxControlServices& fx_services() const;
     SuperScaryControlServices& super_scary_services() const;
+    MapViewControlServices& map_view_services() const;
 };
 class NativeSceneControlOwner
 {
@@ -81,8 +85,10 @@ public:
     SceneControlInstance& instance(const FactoryObject& object);
     SceneControlInstance& instance_of(RuntimeActorLink& link); // By the +8 link.
     SceneControlInstance& instance_of_update(RuntimeActorLink& link); // By the +0x10 link.
-    // The scene object that owns a +0x18 disposal link.
-    FactoryObject& object_of_disposal(RuntimeActorLink& link, std::vector<FactoryObject>& objects);
+    // The scene object that owns a +0x18 disposal link, from the first of `lists` that holds it (the scene's
+    // objects, or the dialogue's: 0x000584A0 makes the map view there).
+    FactoryObject& object_of_disposal(RuntimeActorLink& link,
+        std::initializer_list<std::vector<FactoryObject>*> lists);
     void forget(const FactoryObject& object); // After its type 3 destructor.
     void message(FactoryObject& object, std::span<const u32> message); // Vtable +0xC.
     // Vtable +0xC; `reference` is the native pointer a message's second word carries (0x7E, 0x7F).

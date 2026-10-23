@@ -203,6 +203,21 @@ void destroy_super_scary_view(FactoryObject& object)
         installing->context.super_scary_services());
 }
 
+bool construct_map_view_view(FactoryObject& object, std::span<const u8>)
+{
+    auto& control = installing->instance(object);
+    control.state = state_of(object);
+    control.type = object.type;
+    control.map_view = std::make_unique<MapViewControlState>();
+    return construct_runtime_map_view_control(*control.map_view, installing->context.map_view_services());
+}
+
+void destroy_map_view_view(FactoryObject& object)
+{
+    auto& control = installing->instance(object);
+    destroy_runtime_map_view_control(*control.map_view, installing->context.map_view_services());
+}
+
 const ObjectFactoryVtable* scene_control_lifecycle()
 {
     static const ObjectFactoryVtable table{0x0050E41C, scene_control_object_sizes, construct_scene_control_view,
@@ -283,6 +298,13 @@ const ObjectFactoryVtable* movie_volume_control_lifecycle()
 {
     static const ObjectFactoryVtable table{0x00505650, movie_volume_control_object_sizes,
         construct_movie_volume_control_view, destroy_movie_volume_control_view};
+    return &table;
+}
+
+const ObjectFactoryVtable* map_view_control_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505638, map_view_control_object_sizes, construct_map_view_view,
+        destroy_map_view_view};
     return &table;
 }
 
@@ -371,6 +393,15 @@ SceneFxControlServices& SceneControlContext::fx_services() const
     return *fx;
 }
 
+MapViewControlServices& SceneControlContext::map_view_services() const
+{
+    if (map_view == nullptr)
+    {
+        throw Error("map view control before the scene's actor services bind its services");
+    }
+    return *map_view;
+}
+
 SuperScaryControlServices& SceneControlContext::super_scary_services() const
 {
     if (super_scary == nullptr)
@@ -401,6 +432,7 @@ void NativeSceneControlOwner::install(std::span<ObjectFactoryType> types)
     types[0x94] = ObjectFactoryType{3, relics_store_control_lifecycle}; // Getter 0x00081010.
     types[0x97] = ObjectFactoryType{3, scene_fx_control_lifecycle}; // Getter 0x00082FA0.
     types[0x98] = ObjectFactoryType{3, super_scary_control_lifecycle};
+    types[0x9E] = ObjectFactoryType{3, map_view_control_lifecycle}; // Getter 0x00083EA0.
     types[0x96] = ObjectFactoryType{3, movie_volume_control_lifecycle};
 }
 
@@ -439,13 +471,17 @@ SceneControlInstance& NativeSceneControlOwner::instance_of_update(RuntimeActorLi
 }
 
 FactoryObject& NativeSceneControlOwner::object_of_disposal(RuntimeActorLink& link,
-    std::vector<FactoryObject>& objects)
+    std::initializer_list<std::vector<FactoryObject>*> lists)
 {
     for (auto& [bytes, control] : instances_)
     {
-        if (&control->disposal == &link)
+        if (&control->disposal != &link)
         {
-            for (auto& object : objects)
+            continue;
+        }
+        for (auto* objects : lists)
+        {
+            for (auto& object : *objects)
             {
                 if (object.bytes.get() == bytes)
                 {
@@ -493,7 +529,7 @@ void NativeSceneControlOwner::message(SceneControlInstance& control, std::span<c
         message_runtime_super_scary_control(control.state, words, *control.super_scary, control, context.lists);
         return;
     }
-    // Types 3, 0x91, 0x9A and 0x9B share 0x00115EE0.
+    // Types 3, 0x91, 0x9A, 0x9B and 0x9E share 0x00115EE0.
     message_runtime_scene_control(control, words, context.lists);
 }
 
@@ -531,6 +567,10 @@ void NativeSceneControlOwner::tick(SceneControlInstance& control)
         tick_runtime_super_scary_control(control.state, *control.super_scary, control, context.lists,
             context.super_scary_services());
         return;
+    case 0x9E:
+        tick_runtime_map_view_control(*control.map_view, control, context.lists,
+            context.map_view_services()); // 0x00083FE0
+        return;
     default:
         throw Error("scene control tick for factory type " + std::to_string(control.type));
     }
@@ -546,8 +586,10 @@ void NativeSceneControlOwner::draw(SceneControlInstance& control)
     case 0x93:
     case 0x97:
     case 0x9B:
+    case 0x9E:
         // Types 3 (getter 0x00115D50), 0x91 (getter 0x00080520), 0x92 (getter 0x000816C0), 0x93 (getter 0x000824F0),
-        // 0x97 (getter 0x00082FA0) and 0x9B (getter 0x00080970) have the empty 0x001628B0 at +0x14.
+        // 0x97 (getter 0x00082FA0), 0x9B (getter 0x00080970) and 0x9E (getter 0x00083EA0) have the empty
+        // 0x001628B0 at +0x14.
         return;
     case 0x9A:
         draw_runtime_gameselect_control(control.state, *control.gameselect, context.gameselect_services());

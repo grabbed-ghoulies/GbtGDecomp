@@ -9308,11 +9308,13 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
         // A closes a page once it has been up a second.
         input.accept = page && page_shown >= 0 && frame > page_shown + 60 && frame % 30 < 5;
         std::optional<gbtg::Vec3> cooper;
+        bool holding = false;
         for (const auto& mark : actors.marked_actors())
         {
             if (mark.actor != nullptr && mark.actor->class_key == 4)
             {
                 cooper = gbtg::actor_world_position(*mark.actor);
+                holding = !mark.body.empty() && gbtg::read_u32(mark.body, 0x48) != 0; // Body +0x48, the held weapon.
             }
         }
         // Walk Cooper into the region a live PlayerEntersRegion (condition 8, its +8 word) names; with none, into the
@@ -9433,8 +9435,10 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
         }
         if (ghouly && close)
         {
+            // Bare-handed, the right stick is tapped for punches; a held weapon (the extinguisher's spray) is aimed
+            // with the stick held.
             const float stick = steering.angle(*cooper, *ghouly);
-            if ((frame / 8) % 2 == 0)
+            if (holding || (frame / 8) % 2 == 0)
             {
                 input.pads[0].rx = gbtg::i16(std::sin(stick) * 32767.f);
                 input.pads[0].ry = gbtg::i16(-std::cos(stick) * 32767.f);
@@ -9861,13 +9865,14 @@ int main(int argc, char** argv)
     const bool scene10_test = argc == 3 && std::string_view(argv[2]) == "--scene10";
     const bool scene11_test = argc == 3 && std::string_view(argv[2]) == "--scene11";
     const bool scene12_test = argc == 3 && std::string_view(argv[2]) == "--scene12";
+    const bool scene2a1b_test = argc == 3 && std::string_view(argv[2]) == "--scene2a1b";
     const bool scene2a1_test = argc == 3 && std::string_view(argv[2]) == "--scene2a1";
     if (spawn_test)
     {
         std::cout << std::unitbuf;
     }
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
-        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene3_test)
+        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene3_test)
     {
         std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene6-save | --scene6-save-reload | --scene3 | --scene4 | --scene5 | --scene6-1 | --scene7]\n";
         return 2;
@@ -9979,8 +9984,18 @@ int main(int argc, char** argv)
             : scene11_test ? "chapter1_scene11_2book"
             : scene12_test ? "chapter1_scene12_1playcam"
             : scene2a1_test ? "chapter2a_scene1_1playcam"
+            : scene2a1b_test ? "chapter2a_scene1_2book"
             : player_test || spawn_test ? "chapter1_scene1_2playcam"
             : title_test ? "" : "scene0_1book");
+        if (scene2a1b_test)
+        {
+            pass_chapter_title(game, "scene2a1b", "aid_script_ghoulies_chapter2a_scene1_2book", false);
+            play_scene7(game, "scene2a1_2");
+            pass_chapter_title(game, "scene2a1_to_3", "aid_script_ghoulies_chapter2a_scene1_3playcam", false);
+            play_scene7(game, "scene2a1_3", 1000.f, "Event - Kill All", true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
         if (scene2a1_test)
         {
             pass_chapter_title(game, "scene2a1", "aid_script_ghoulies_chapter2a_scene1_1playcam", false);

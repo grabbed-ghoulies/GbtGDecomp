@@ -18,6 +18,9 @@ void store_scene_entry_pose(const Vec3& position, const Vec3& euler); // Xbox 0x
 
 extern bool g_scene_script_started;
 
+// Seven counters, each followed by 60 counters and a 60-by-61 matrix (DAT_0052C274, DAT_00512B78).
+void script_initialize_statistics(std::span<u32> statistics); // Xbox 0x0012AF10, EAX statistics
+
 // DAT_00509B20..DAT_00509B28, the scene ambient tint 0x0011CAC0 resets to 1.
 extern float g_509b20;
 extern float g_509b24;

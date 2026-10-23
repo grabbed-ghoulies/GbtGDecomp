@@ -293,6 +293,9 @@ void script_set_default_name(Game& g)
     g_gate_251c = 0;
     g_flag_2470 = 0;
     g_flag_2474 = 0;
+    g_flag_2378 = 0; // DAT_00512378
+    g_flag_2414 = 0; // DAT_00512414
+    g_flag_2418 = 0; // DAT_00512418
     g.scene_name = kNoScript;
     g.scene_script = {};
     g.script_aidlists.clear();

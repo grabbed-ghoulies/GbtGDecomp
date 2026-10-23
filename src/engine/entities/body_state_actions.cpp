@@ -36,6 +36,8 @@ std::function<RuntimeAnimStateContext&(u32)> anim_context_of;
 std::function<RuntimePickupStateContext&(u32)> pickup_context_of;
 // Walk-alert speed-band records by state, the host side of state +0x30 + 0x10 * index.
 std::unordered_map<const u8*, std::vector<const AnimationRecord*>> walk_alert_records;
+// The fly state's looping animation record (+0x74), by the state's bytes.
+std::unordered_map<const u8*, const AnimationRecord*> fly_loop_records;
 
 u32 word(std::span<const u8> bytes, size_t offset)
 {
@@ -99,6 +101,20 @@ void destroy_walk_alert_view(FactoryObject& object)
     const std::span<u8> state{object.bytes.get(), object.size};
     auto context = body_context_of(word(state, 8));
     destroy_runtime_walk_alert(state, context);
+}
+
+bool construct_fly_state_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    const std::span<u8> state{object.bytes.get(), object.size};
+    auto context = body_context_of(word(state, 8));
+    return initialize_runtime_fly_state(state, parameters, context);
+}
+
+void destroy_fly_state_view(FactoryObject& object)
+{
+    const std::span<u8> state{object.bytes.get(), object.size};
+    auto context = body_context_of(word(state, 8));
+    destroy_runtime_fly_state(state, context);
 }
 
 // Body +0x15C: the bit block whose +8 bytes the furnace state sets.
@@ -423,6 +439,13 @@ const ObjectFactoryVtable* walk_target_lifecycle()
     return &table;
 }
 
+const ObjectFactoryVtable* fly_state_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505880, fly_state_object_sizes, construct_fly_state_view,
+        destroy_fly_state_view};
+    return &table;
+}
+
 const ObjectFactoryVtable* walk_alert_lifecycle()
 {
     static const ObjectFactoryVtable table{0x00505CA0, walk_alert_object_sizes, construct_walk_alert_view,
@@ -692,6 +715,108 @@ void destroy_runtime_walk_alert(std::span<u8> state, RuntimeBodyStateContext& co
     walk_alert_records.erase(state.data());
 }
 
+// Xbox 0x00090D10
+void fly_state_object_sizes(ObjectSizes& output)
+{
+    output.instance = 0x78;
+    output.parameters = 0xA8;
+}
+
+// Xbox 0x00090D90
+bool initialize_runtime_fly_state(std::span<u8> state, std::span<const u8> parameters,
+    RuntimeBodyStateContext& context)
+{
+    const auto body = context.body;
+    const i16 count = i16(read_u16(parameters, 0xC));
+    std::memcpy(state.data() + 0x2C, &count, 2);
+    auto& records = walk_alert_records[state.data()];
+    records.assign(count > 0 ? size_t(count) : 0, nullptr);
+    for (i16 index = 0; index < count; ++index)
+    {
+        const auto entry = context.resolve(word(parameters, 0x10) + u32(index) * 0x10, 0x10);
+        const u32 name_address = word(entry, 0);
+        const char* name = name_address == 0 ? nullptr
+            : reinterpret_cast<const char*>(context.resolve(name_address, 0).data());
+        // The inlined 0x0003AAA0 pair: the attached actor's +0xDB0 variant first, then the plain name.
+        const AnimationRecord* record = find_runtime_body_animation(name, context.actions);
+        records[size_t(index)] = record;
+        put_word(state, 0x30 + size_t(index) * 0x10, record != nullptr ? 1 : 0);
+        put_word(state, 0x34 + size_t(index) * 0x10, word(entry, 4));
+        put_word(state, 0x38 + size_t(index) * 0x10, word(entry, 8));
+        put_word(state, 0x3C + size_t(index) * 0x10, word(entry, 0xC));
+    }
+    std::memset(state.data() + 0x2E, 0, 2);
+    std::memcpy(state.data() + 0x1A, parameters.data() + 0x94, 2);
+    std::memcpy(state.data() + 0x1C, parameters.data() + 0x96, 2);
+    put_word(state, 0x20, word(parameters, 0x98));
+    put_word(state, 0x24, word(parameters, 0x9C));
+    put_word(state, 0x28, word(parameters, 0xA0));
+    if (parameters[0x14] != 0)
+    {
+        if (parameters[0x14] != 0)
+        {
+            queue_actor_sound(context.actor.sound_slots[4], 0, &context.actor, 4, nullptr, nullptr, 1.f,
+                reinterpret_cast<const char*>(parameters.data() + 0x14), context.sounds); // 0x0012A260
+        }
+        put_word(state, 0x70, 1);
+    }
+    // The looping animation (+0xA4): the inlined 0x0003AAA0 pair, then the inlined 0x0001AFA0.
+    const u32 loop_address = word(parameters, 0xA4);
+    const char* loop_name = loop_address == 0 ? nullptr
+        : reinterpret_cast<const char*>(context.resolve(loop_address, 0).data());
+    const AnimationRecord* loop = find_runtime_body_animation(loop_name, context.actions);
+    fly_loop_records[state.data()] = loop;
+    put_word(state, 0x74, loop != nullptr ? 1 : 0);
+    if (loop != nullptr)
+    {
+        start_actor_animation(context.actions.animation, *loop, context.actions.registry, context.actions.error,
+            context.actions.random);
+        notify_runtime_body_animation(context.actions); // 0x0001B020
+    }
+    // The inlined 0x0001AFA0 for band +0x2E (0).
+    const u16 band = read_u16(state, 0x2E);
+    if (band >= records.size() || records[band] == nullptr)
+    {
+        throw Error("fly band record is null; 0x00090D90 reads its +0x117");
+    }
+    start_actor_animation(context.actions.animation, *records[band], context.actions.registry,
+        context.actions.error, context.actions.random);
+    notify_runtime_body_animation(context.actions); // 0x0001B020
+    body[0x38] = 1;
+    body[0x39] = 1;
+    context.bits->bytes[6] |= 0x80;
+    return true;
+}
+
+// Xbox 0x00091110
+void destroy_runtime_fly_state(std::span<u8> state, RuntimeBodyStateContext& context)
+{
+    if (word(state, 0x70) != 0)
+    {
+        release_actor_sound(context.actor.sound_slots[4], context.sounds); // 0x0012A3D0
+    }
+    if (word(state, 0x74) != 0)
+    {
+        // The loop's slot fades out over 0.25 s (DAT_0032B104).
+        const AnimationRecord* loop = fly_loop_records[state.data()];
+        AnimationController* controller = context.animation; // Actor +0x50.
+        const i32 slot = loop == nullptr ? 0 : i32(loop->slot); // Record +0x117.
+        if (controller != nullptr && slot != 0)
+        {
+            AnimationControllerSlot& entry = controller->slots.at(size_t(slot));
+            if (entry.player != nullptr)
+            {
+                entry.fade_duration = 0.25f; // +0x1C.
+                entry.fade_mode = 3; // +0x18.
+            }
+            controller->dirty = true; // +0x5C.
+        }
+    }
+    context.bits->bytes[6] &= 0x7F;
+    walk_alert_records.erase(state.data());
+    fly_loop_records.erase(state.data());
+}
+
 const AnimationRecord* runtime_walk_alert_record(std::span<const u8> state, u16 index)
 {
     const auto found = walk_alert_records.find(state.data());
@@ -741,6 +866,7 @@ void install_runtime_body_state_classes(std::span<ObjectFactoryType> types,
     types[0x8E] = ObjectFactoryType{9, walk_alert_lifecycle};
     types[0x8F] = ObjectFactoryType{9, walk_target_lifecycle};
     types[0x6E] = ObjectFactoryType{9, fly_alert_lifecycle};
+    types[0x6D] = ObjectFactoryType{9, fly_state_lifecycle};
     types[0x8A] = ObjectFactoryType{9, hold_state_lifecycle};
 }
 }

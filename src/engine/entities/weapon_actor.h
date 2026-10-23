@@ -256,6 +256,11 @@ u32 test_runtime_chair_contact(RuntimeWeaponActor& weapon, RuntimeSegmentContact
 u32 report_runtime_weapon_contact(RuntimeWeaponActor& weapon, Actor* holder, RuntimeSegmentContactActor& object,
     const Vec3& point, GhoulySpawnPool* contacts, const Vec3& velocity, u16 word, u8 kind, u8 strength, u8 style,
     bool count); // Xbox 0x00141890, EAX velocity, EBX point
+// A spray's report: message 0x18 to the actor touched, then {0x3F, weapon, velocity, actor, contacts, point, reply} to
+// the holder and the weapon; with `count` an answered hit adds to the holder's contact totals.
+u32 report_runtime_weapon_spray_contact(RuntimeWeaponActor& weapon, Actor* holder, RuntimeSegmentContactActor& object,
+    const Vec3& point, GhoulySpawnPool* contacts, const Vec3& velocity, u8 kind, u8 strength, u8 style,
+    bool count); // Xbox 0x00141C00, EAX velocity, EBX point, EDX style
 // The large projectile's report: message 0x19 to the actor hit, then {0x49, ...} to the holder and the weapon.
 u32 report_runtime_projectile_contact(RuntimeWeaponActor& weapon, Actor* holder, RuntimeSegmentContactActor& object,
     const Vec3& point, GhoulySpawnPool* contacts, const Vec3& velocity, u16 word, u8 kind, u8 strength, u8 style,

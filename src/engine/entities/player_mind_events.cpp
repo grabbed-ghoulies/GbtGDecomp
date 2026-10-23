@@ -83,6 +83,23 @@ RuntimeMindEvent* refresh_runtime_mind_event(RuntimeMindEvents& context, Runtime
     return &event;
 }
 
+// Xbox 0x00028C50, EAX actor
+u32 runtime_mind_engaged_actor(const RuntimeMindEvents* context)
+{
+    if (context == nullptr)
+    {
+        return 0;
+    }
+    for (const LiveScript* event = context->anchor.next; event != nullptr; event = event->next)
+    {
+        if (u16(event->type) == 3)
+        {
+            return read_u32(static_cast<const RuntimeMindEvent*>(event)->bytes, 0x20);
+        }
+    }
+    return 0;
+}
+
 // Xbox 0x0002A0C0
 void refresh_runtime_mind_target_event(RuntimeMindEvents& context)
 {

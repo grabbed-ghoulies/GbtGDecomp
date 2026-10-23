@@ -32,6 +32,8 @@ extern float g_slide_param;
 i32 entity_record_movement_probe(Vec3& kept, Vec3& candidate, u32 param, i32 kind, u32 mask); // Xbox 0x001226C0
 i32 entity_record_sweep_probe(Vec3& kept, Vec3& candidate, i32 kind, u32 mask); // Xbox 0x00122480, EBX kept
 i32 entity_record_point_probe(Vec3& kept, Vec3& candidate, float radius, u32 mask); // Xbox 0x001229F0, EBX kept
+// The segment from kept to candidate against each probe's model shapes (vtable +0x28); the last probe hit is slot 0.
+i32 entity_record_model_segment_probe(Vec3& kept, Vec3& candidate, u32 mask); // Xbox 0x001228F0, EBX kept
 // A sphere of the radius moved from start to target: the target is held back by the radius at a hit.
 i32 entity_record_sphere_probe(Vec3& target, Vec3& start, float radius, i32 kind,
     u32 mask); // Xbox 0x001225A0, ESI target, EDI start

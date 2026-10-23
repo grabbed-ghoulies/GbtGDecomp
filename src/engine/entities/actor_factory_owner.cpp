@@ -69,6 +69,8 @@ u32 actor_query(entity_detail::SegmentProbe& probe, Vec3& candidate, Vec3& kept,
         return query_runtime_actor_physical_sweep(context);
     case 0x3E200:
         return query_runtime_actor_model_sweep(context);
+    case 0x3E2E0:
+        return query_runtime_actor_model_segment(context);
     case 0x3E3C0:
         return collect_runtime_actor_model_contacts(context);
     case 0x3E050:
@@ -95,6 +97,10 @@ i32 actor_segment_point(entity_detail::SegmentProbe& probe, Vec3& candidate, Vec
     float radius, u32 mask, u8* record)
 {
     return i32(actor_query(probe, candidate, kept, radius, 0, mask, record, 0x3E200));
+}
+i32 actor_segment_model(entity_detail::SegmentProbe& probe, Vec3& candidate, Vec3& kept, u32 mask, u8* record)
+{
+    return i32(actor_query(probe, candidate, kept, 0.f, 0, mask, record, 0x3E2E0));
 }
 // SegmentPool stores a 32-bit retail header separately from its native pointer view.
 // Copy the complete capacity through the native pool boundary, retaining untouched bytes.
@@ -346,6 +352,7 @@ NativeActorFactoryInstance& NativeActorFactoryOwner::construct_view(FactoryObjec
     instance->segment.point = actor_segment_point;
     instance->segment.contacts = actor_segment_contacts;
     instance->segment.sphere_contacts = actor_segment_sphere_contacts;
+    instance->segment.model_segment = actor_segment_model;
     instance->shape.push = actor_shape_push;
     instance->render.message = [](ActorRenderRegistration& registration, u32 id)
     {

@@ -550,6 +550,46 @@ u8* bump_segment_record(SegmentPool& pool)
 } // namespace entity_detail
  // namespace
 
+// Xbox 0x001228F0, EBX kept
+i32 entity_record_model_segment_probe(Vec3& kept, Vec3& candidate, u32 mask)
+{
+    g_segment_count = 0;
+    const float dz = candidate.z - kept.z;
+    const float dy = candidate.y - kept.y;
+    const float dx = candidate.x - kept.x;
+    const float dist2 = dz * dz + dy * dy + dx * dx;
+    if (kLookEps < dist2 || dist2 != dist2)
+    {
+        SegmentPool& pool = *prepare_segment_pool(); // 0x00122C10
+        if (pool.cursor == pool.limit)
+        {
+            grow_segment_pool(pool); // 0x000662A0
+        }
+        u8* record = pool.cursor;
+        pool.cursor = record + pool.stride;
+        record[0x26] = 0;
+        SegmentProbe* found = nullptr;
+        for (SegmentProbe* probe = g_world.segment; probe != nullptr; probe = probe->next)
+        {
+            if (probe->model_segment(*probe, candidate, kept, mask, record) != 0)
+            {
+                found = probe;
+            }
+        }
+        if (found != nullptr)
+        {
+            g_segment_slots[g_segment_count].object = found;
+            ++g_segment_count;
+            return 1;
+        }
+        return 0;
+    }
+    kept.x = candidate.x;
+    kept.y = candidate.y;
+    kept.z = candidate.z;
+    return 0;
+}
+
 // Xbox 0x001227E0
 i32 entity_collect_sphere_contacts(Vec3& origin, float radius, i32 kind, u32 mask)
 {

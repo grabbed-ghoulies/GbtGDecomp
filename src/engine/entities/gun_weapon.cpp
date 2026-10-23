@@ -61,10 +61,15 @@ void stop_weapon_sound(RuntimeWeaponActor& weapon)
     }
 }
 
-[[noreturn]] void untranslated_hook(const RuntimeWeaponActor& weapon, const char* address, const char* slot)
+// Vtable +0x4C: firing starts (message 0xA2, with the message's +8 words).
+void fire_start_hook(RuntimeWeaponActor& weapon, const Vec3&, const Vec3&, std::span<const u32>)
 {
-    throw Error("untranslated Xbox " + std::string(address) + " (gun class " + std::to_string(weapon.type)
-        + " vtable " + slot + ")");
+    if (weapon.type == 0xA3)
+    {
+        start_runtime_extinguisher_spray(weapon); // 0x000C7D10
+        return;
+    }
+    throw Error("gun factory type " + std::to_string(weapon.type) + " vtable +0x4C is not translated");
 }
 
 // Vtable +0x50: firing ends.
@@ -72,7 +77,8 @@ void fire_end_hook(RuntimeWeaponActor& weapon, const Vec3&, const Vec3&)
 {
     if (weapon.type == 0xA3)
     {
-        untranslated_hook(weapon, "0x000C7D50", "+0x50");
+        end_runtime_extinguisher_spray(weapon); // 0x000C7D50
+        return;
     }
     throw Error("gun factory type " + std::to_string(weapon.type) + " vtable +0x50 is not translated");
 }
@@ -89,21 +95,22 @@ void update_hook(RuntimeWeaponActor& weapon, float step)
 }
 
 // Vtable +0x5C: the fire tick while held.
-void fire_tick_hook(RuntimeWeaponActor& weapon, u32, const Vec3&, const Vec3&)
+void fire_tick_hook(RuntimeWeaponActor& weapon, u32 firing, const Vec3& point, const Vec3& direction)
 {
     if (weapon.type == 0xA3)
     {
-        untranslated_hook(weapon, "0x000C8030", "+0x5C");
+        emit_runtime_extinguisher_spray(weapon, firing, point, direction); // 0x000C8030
+        return;
     }
     throw Error("gun factory type " + std::to_string(weapon.type) + " vtable +0x5C is not translated");
 }
 
-// Vtable +0x60: the hit query.
-void hit_query_hook(RuntimeWeaponActor& weapon, const Vec3&)
+// Vtable +0x60: the hit query, a pool of RuntimeSprayHit records or null.
+GhoulySpawnPool* hit_query_hook(RuntimeWeaponActor& weapon, const Vec3& point, const Vec3& direction)
 {
     if (weapon.type == 0xA3)
     {
-        untranslated_hook(weapon, "0x000C8590", "+0x60");
+        return query_runtime_extinguisher_spray(weapon, point, direction); // 0x000C8590
     }
     throw Error("gun factory type " + std::to_string(weapon.type) + " vtable +0x60 is not translated");
 }
@@ -177,10 +184,32 @@ void dispatch_runtime_gun_weapon_message(RuntimeWeaponActor& weapon, std::span<u
         set(bytes, field::unk_EE8, message[1]);
         break;
     case 0xA2:
-        throw Error("untranslated Xbox 0x00041D00 (gun message 0xA2's fire sound for "
-            + std::string(field_data(bytes, field::name)) + ")");
+    {
+        request_actor_sound(weapon.actor, 4, field_data(bytes, field::name), weapon.services.sounds); // 0x00041D00
+        set(bytes, field::firing, 1u);
+        Vec3 point{};
+        Vec3 direction{};
+        if (runtime_gun_muzzle(weapon, point, direction)) // 0x000CB330
+        {
+            fire_start_hook(weapon, point, direction, std::span<const u32>(message).subspan(2)); // Vtable +0x4C
+            set(bytes, field::hits, 0u);
+        }
+        break;
+    }
     case 0xA3:
-        throw Error("untranslated Xbox 0x0012A3D0 (gun message 0xA3's sound slot +0x614)");
+    {
+        release_actor_sound(weapon.actor.sound_slots[4], weapon.services.sounds); // 0x0012A3D0, ESI actor +0x614
+        set_runtime_weapon_mask(weapon, get(bytes, field::charge) > 0.f ? 1 : 0); // 0x00146230
+        set(bytes, field::firing, 0u);
+        Vec3 point{};
+        Vec3 direction{};
+        if (runtime_gun_muzzle(weapon, point, direction)) // 0x000CB330
+        {
+            fire_end_hook(weapon, point, direction); // Vtable +0x50
+            set(bytes, field::hits, 0u);
+        }
+        break;
+    }
     default:
         break;
     }
@@ -297,7 +326,7 @@ void late_update_runtime_gun_weapon_state(RuntimeWeaponActor& weapon, u16 state)
         return;
     }
     auto bytes = weapon.bytes;
-    const Actor* holder = holder_of(weapon);
+    Actor* holder = holder_of(weapon);
     Vec3 point{};
     Vec3 direction{};
     if (!runtime_gun_muzzle(weapon, point, direction)) // 0x000CB330
@@ -326,7 +355,7 @@ void late_update_runtime_gun_weapon_state(RuntimeWeaponActor& weapon, u16 state)
         }
     }
     fire_tick_hook(weapon, get(bytes, field::firing), point, direction); // Vtable +0x5C
-    report_runtime_gun_weapon_hits(weapon, holder, direction); // 0x000CB0B0
+    report_runtime_gun_weapon_hits(weapon, *holder, point, direction); // 0x000CB0B0, EDX point
 }
 
 // Xbox 0x000CB330, ECX actor, EAX point
@@ -413,10 +442,32 @@ void exhaust_runtime_gun_weapon(RuntimeWeaponActor& weapon, const Vec3& point, c
     fire_end_hook(weapon, point, direction); // Vtable +0x50
 }
 
-// Xbox 0x000CB0B0
-void report_runtime_gun_weapon_hits(RuntimeWeaponActor& weapon, const Actor*, const Vec3& direction)
+// Xbox 0x000CB0B0, EDX point
+void report_runtime_gun_weapon_hits(RuntimeWeaponActor& weapon, Actor& holder, const Vec3& point,
+    const Vec3& direction)
 {
-    hit_query_hook(weapon, direction); // Vtable +0x60; its hits go to 0x00141C00, then the list is freed.
+    auto bytes = weapon.bytes;
+    // The holder's own shapes are out of the query.
+    const u32 filter = holder.model_flags;
+    holder.model_flags = 0;
+    GhoulySpawnPool* hits = hit_query_hook(weapon, point, direction); // Vtable +0x60
+    holder.model_flags = filter;
+    if (hits == nullptr)
+    {
+        return;
+    }
+    for (u8* at = hits->begin; at < hits->cursor; at += sizeof(RuntimeSprayHit))
+    {
+        auto& hit = *reinterpret_cast<RuntimeSprayHit*>(at);
+        RuntimeSegmentContactActor& object = weapon.contact_actor(*hit.object);
+        if (report_runtime_weapon_spray_contact(weapon, &holder, object, hit.point, hit.contacts, hit.velocity,
+                bytes[0xDAC], bytes[0xDAD], bytes[0xDAE], get(bytes, field::hits) == 0) != 0) // 0x00141C00
+        {
+            set(bytes, field::hits, get(bytes, field::hits) + 1);
+        }
+        engine_heap_free(hit.contacts); // HeapFree on the block's heap (0x000F7100).
+    }
+    engine_heap_free(hits);
 }
 
 // Xbox 0x000CB040

@@ -1318,6 +1318,43 @@ u32 report_runtime_weapon_contact(RuntimeWeaponActor& weapon, Actor* holder, Run
     return notice.reply;
 }
 
+// Xbox 0x00141C00, EAX velocity, EBX point, EDX style
+u32 report_runtime_weapon_spray_contact(RuntimeWeaponActor& weapon, Actor* holder, RuntimeSegmentContactActor& object,
+    const Vec3& point, GhoulySpawnPool* contacts, const Vec3& velocity, u8 kind, u8 strength, u8 style, bool count)
+{
+    RuntimeWeaponHitNotice notice{0x18, kind, strength, style, 0, &weapon.actor, velocity, contacts, point};
+    object.message(&notice); // Vtable +0xC of the actor touched.
+    if (holder != nullptr)
+    {
+        auto& services = weapon.services;
+        std::array<u32, 0x42> report{};
+        report[0] = 0x3F;
+        report[1] = weapon.self_address();
+        std::memcpy(report.data() + 2, &velocity, 12);
+        report[5] = services.actor_address(object.actor);
+        report[6] = contacts != nullptr ? services.bind_address(contacts, sizeof(GhoulySpawnPool)) : 0;
+        std::memcpy(report.data() + 7, &point, 12);
+        report[0xA] = notice.reply;
+        const u32 holder_address = services.actor_address(*holder);
+        weapon.send(holder_address, report); // The holder's vtable +0xC.
+        weapon.message(report); // This weapon's.
+        if (contacts != nullptr)
+        {
+            services.unbind_address(contacts);
+        }
+        if (count && notice.reply != 0)
+        {
+            // DAT_0053E528 and DAT_00524E2C: the holder's tag row and the totals at row 0.
+            const u16 tag = read_u16(weapon.bytes_at(holder_address), 6);
+            ++services.contact_totals[size_t(tag) * 0x3D];
+            ++services.contact_totals[0];
+            ++services.contact_session[size_t(tag) * 0x3D];
+            ++services.contact_session[0];
+        }
+    }
+    return notice.reply;
+}
+
 // Xbox 0x00141A30, EAX velocity, EBX point, EDX style
 u32 report_runtime_projectile_contact(RuntimeWeaponActor& weapon, Actor* holder, RuntimeSegmentContactActor& object,
     const Vec3& point, GhoulySpawnPool* contacts, const Vec3& velocity, u16 word, u8 kind, u8 strength, u8 style,

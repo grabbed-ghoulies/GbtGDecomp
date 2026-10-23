@@ -33,6 +33,7 @@
 #include "script_conditions.h"
 #include "../runtime/random_state.h"
 #include "script_event_sequence.h"
+#include "script_event_tallies.h"
 #include "../cutscenes/door_registration.h"
 #include "../cutscenes/actor_tracks.h"
 #include "gbtg/actor_spawn_factory.h"
@@ -2313,14 +2314,22 @@ void create_scene_ambient_tune(Game& g)
 // Xbox 0x00116E00 (part)
 // 0x00116E00 releases the stream the last scene's script left in DAT_0050E4E0, inline, as 0x00116D20's first
 // half does, and clears the name. DAT_004DF370 is the boot-owned table, so the release does not need the new
-// scene. The rest of 0x00116E00 (DAT_0050E764..DAT_0050E79C, 0x00116DA0, the DAT_00512B74 and DAT_0051234C
-// pools, 0x0012AF10 and 0x001287F0) is not made here.
+// scene. It then clears the event sequence (DAT_005064D8.., so a scene restarted mid-event runs its event again)
+// and the DAT_0052C274 statistics (0x0012AF10). The rest of 0x00116E00 (DAT_0050E764..DAT_0050E79C, 0x00116DA0,
+// the DAT_00512B74 and DAT_0051234C pools, DAT_00545970..DAT_00545980, DAT_004E17C8..DAT_004E1A34 and 0x001287F0)
+// is not made here.
 void release_scene_music_at_start()
 {
     if (g_name_e4e0[0] != 0)
     {
         play_scene_music_stream(nullptr, 0, g_name_e4e0, native_audio_runtime().streams);
     }
+    g_event_sequence_state = 0; // DAT_005064D8
+    g_event_sequence.door = 0; // DAT_005064DC
+    g_event_sequence.door_delay = 0.f; // DAT_00506534
+    g_event_sequence.icon_delay = 0.f; // DAT_00506538
+    g_event_sequence.waiting = 0; // DAT_0050653C
+    script_initialize_statistics(g_script_tallies.first); // 0x0012AF10, EAX DAT_0052C274
 }
 
 // The native scene's bank streams (DAT_004DF370..), bound once its actor services start.

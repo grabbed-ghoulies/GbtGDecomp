@@ -781,6 +781,7 @@ struct SceneActorServices::State
     std::unique_ptr<RelicsStoreControlServices> relics_store_services; // Factory type 0x94.
     std::unique_ptr<SceneFxControlServices> fx_services; // Factory type 0x97.
     std::unique_ptr<SuperScaryControlServices> super_scary_services; // Factory type 0x98.
+    std::unique_ptr<MapViewControlServices> map_view_services; // Factory type 0x9E.
     std::vector<const char*> powerup_names; // DAT_0042ABF8, twenty "powerupId_" names.
     std::unique_ptr<RuntimePowerupTable> powerup_table;
     std::unique_ptr<RuntimePowerupCaption> powerup_caption;
@@ -2392,6 +2393,36 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         }
         return graph->scrabble_context();
     });
+    install_runtime_shoot_state_class(scene.types, [this](u32 body_address) -> RuntimeShootStateContext&
+    {
+        const auto bytes = scene.resolve_address(body_address, 0);
+        auto* player = players->find_child_owner(bytes.data());
+        if (player == nullptr || player->body.data() != bytes.data())
+        {
+            unbound("shoot state whose body has no player owner");
+        }
+        auto& graph = body_messages[player->body.data()];
+        if (graph == nullptr)
+        {
+            graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
+        }
+        return graph->shoot_context();
+    });
+    install_runtime_flamethrower_state_class(scene.types, [this](u32 body_address) -> RuntimeFlamethrowerStateContext&
+    {
+        const auto bytes = scene.resolve_address(body_address, 0);
+        auto* player = players->find_child_owner(bytes.data());
+        if (player == nullptr || player->body.data() != bytes.data())
+        {
+            unbound("flamethrower state whose body has no player owner");
+        }
+        auto& graph = body_messages[player->body.data()];
+        if (graph == nullptr)
+        {
+            graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
+        }
+        return graph->flamethrower_context();
+    });
     install_runtime_hover_state_class(scene.types, [this](u32 body_address) -> RuntimeHoverStateContext&
     {
         const auto bytes = scene.resolve_address(body_address, 0);
@@ -3329,6 +3360,19 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         }});
     scene.controls->context.super_scary = super_scary_services.get();
     bind_book_services();
+    map_view_services = std::make_unique<MapViewControlServices>(MapViewControlServices{*book_services,
+        std::span<const MapViewRoom, 6>(reinterpret_cast<const MapViewRoom*>(data(0x00427628, 0x330).data()), 6),
+        scene_name.data(),
+        [this](u32 address) -> const char*
+        {
+            return address == 0 ? nullptr : image.string(address);
+        },
+        [this]() -> RuntimeActorPauseGroups&
+        {
+            return refresh_pause_groups();
+        },
+        dialogue_state.map_retained});
+    scene.controls->context.map_view = map_view_services.get();
     // Boot 0x000620C0's glow targets over the book pages: book page 0's surface (DAT_005047E0) and, for the depth
     // surface (DAT_005047FC) and its texture alias (DAT_005047E8), book page 1, the scene's stand-in for the depth
     // memory DAT_005047E4 aliases as LIN_A8R8G8B8.
@@ -4062,6 +4106,15 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         return classes->weapon_markers(bytes);
     };
     std::memcpy(&body_services->dizzy_input_scale, data(0x00428670, 4).data(), 4);
+    body_services->contact_actor = [this](entity_detail::SegmentProbe& probe) -> RuntimeSegmentContactActor&
+    {
+        return segment_contact_actor(probe);
+    };
+    body_services->contact_words = [this](NativePlayerInstance& player, std::span<u32> words, GhoulySpawnPool* contacts,
+        size_t contacts_word)
+    {
+        dispatch_contact_words(player, words, contacts, contacts_word);
+    };
     generate_ghouly = std::make_unique<RuntimeGenerateGhoulyScene>(RuntimeGenerateGhoulyScene{resources.registry,
         resources.error, shaders, live_actors,
         [this]() -> GhoulySpawnContext&
@@ -4974,6 +5027,20 @@ void SceneActorServices::State::bind_transition_services()
         },
         hud.inner_bottom});
     g_transition_services = transition_services.get();
+    // The book's map menu shares the transition's prompt and input contexts.
+    book_services->widget_allocation = widget_allocation.get();
+    book_services->widget_bats = widget_bats.get();
+    book_services->widget_update = widget_update.get();
+    book_services->widget_draw = dialogue_outer.get();
+    book_services->input = &input_activation;
+    book_services->input_release = &input_release;
+    book_services->input_addresses = &input_addresses;
+    book_services->input_views = &input_views;
+    book_services->frame = [this]() -> u32
+    {
+        return game.frame; // DAT_004DEA58
+    };
+    book_services->viewport_bottom = &hud.inner_bottom;
     initialize_scene_transition(); // Boot 0x0011C3F0's loop over the handlers' +0 slots.
 }
 
@@ -5296,6 +5363,11 @@ SceneActorServices::State::~State()
         && scene.controls->context.super_scary == super_scary_services.get())
     {
         scene.controls->context.super_scary = nullptr;
+    }
+    if (scene.controls != nullptr && map_view_services != nullptr
+        && scene.controls->context.map_view == map_view_services.get())
+    {
+        scene.controls->context.map_view = nullptr;
     }
     if (scene.controls != nullptr && gameselect_services != nullptr
         && scene.controls->context.gameselect == gameselect_services.get())
@@ -6362,10 +6434,11 @@ RuntimeSegmentContactActor& SceneActorServices::State::prop_contact_actor(entity
                     notice.unused_18 = words[6];
                     return;
                 }
-                if (id == 0x1D)
+                if (id == 0x1D || id == 0x18)
                 {
                     // {0x1D, kind, strength, style, reply, weapon, velocity, contacts, point} from a weapon's
-                    // contact test (0x00141890), as the player route lays it out.
+                    // contact test (0x00141890), or 0x18 in the same layout from a spray (0x00141C00), as the player
+                    // route lays it out.
                     auto& notice = *static_cast<RuntimeWeaponHitNotice*>(payload);
                     const u32 records = bind_pool(notice.contacts);
                     std::array<u32, 0x42> words{};
@@ -6519,10 +6592,10 @@ RuntimeSegmentContactActor& SceneActorServices::State::segment_contact_actor(ent
                         notice.unused_18 = words[6];
                         return;
                     }
-                    if (*static_cast<const u32*>(payload) == 0x1D)
+                    if (*static_cast<const u32*>(payload) == 0x1D || *static_cast<const u32*>(payload) == 0x18)
                     {
                         // {0x1D, kind, strength, style, reply, weapon, velocity, contacts, point} from a weapon's
-                        // contact test (0x00141890).
+                        // contact test (0x00141890), or 0x18 in the same layout from a spray (0x00141C00).
                         auto& notice = *static_cast<RuntimeWeaponHitNotice*>(payload);
                         std::array<u32, 0x42> words{};
                         words[0] = notice.id;
@@ -7383,6 +7456,9 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
             case 0x7E: // And getter 0x0009EB40.
             case 0x6B: // And getter 0x00090430.
             case 0x77: // And getter 0x00097B20.
+            case 0x6A: // And getter 0x0008F6F0.
+            case 0x6D: // And getter 0x00090D30.
+            case 0x81: // And getter 0x0009F6E0.
             case 0x83: // And getter 0x000A0C30.
                 return runtime_body_action_next_key(action);
             case 0x5A:
@@ -8137,7 +8213,7 @@ void SceneActorServices::State::draw_player(FactoryObject& object, NativePlayerI
                 && type != 0x87 && type != 0x88 && type != 0x8A && type != 0x8B && type != 0x8E && type != 0x8F && type != 0x69 && type != 0x70
                 && type != 0x66 && type != 0x78 && type != 0x5F && type != 0x80 && type != 0x7F && type != 0x83
                 && type != 0x7E && type != 0x6B && type != 0x77
-                && type != 0x6E)
+                && type != 0x6E && type != 0x6A && type != 0x6D && type != 0x81)
             {
                 unbound("body +0x744 object vtable +0x18 draw for factory type "
                     + std::to_string(player.second_action.type));
@@ -9789,7 +9865,8 @@ void SceneActorServices::run_scene_pass()
     std::vector<FactoryObject*> disposed;
     for (RuntimeActorLink* node = g_scene_controls.disposal.next; node != nullptr; node = node->next)
     {
-        disposed.push_back(&state.scene.controls->object_of_disposal(*node, state.scene.objects));
+        disposed.push_back(&state.scene.controls->object_of_disposal(*node,
+            {&state.scene.objects, &state.dialogue_bats}));
     }
     std::vector<std::unique_ptr<RuntimeSceneObjectDisposalLink>> links;
     for (auto object = disposed.rbegin(); object != disposed.rend(); ++object)

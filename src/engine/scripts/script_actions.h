@@ -316,6 +316,9 @@ extern u32 g_flag_10b4; // DAT_005110B4, the mirror pass gate.
 // DAT_00512474. Shared with the scene-bound translated type-0x14 context;
 // it remains set until native dialogue mode returns to zero.
 extern i32 g_flag_2474;
+extern i32 g_flag_2378; // DAT_00512378, type 0x29's held door.
+extern i32 g_flag_2414; // DAT_00512414, type 0x18's started event.
+extern i32 g_flag_2418; // DAT_00512418, type 0x2A's started ghoulybox.
 
 // DAT_0051248C. Type 0x13 compares this dword with 3 and would pass that
 // flag twice to 0x0004EDA0. The byte at [DAT_0051248C]+0x30F144 is g_decay_arm.

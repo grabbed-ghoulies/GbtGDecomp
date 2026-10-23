@@ -41,6 +41,14 @@ void walk_alert_object_sizes(ObjectSizes& output); // Xbox 0x000A55D0
 bool initialize_runtime_walk_alert(std::span<u8> state, std::span<const u8> parameters,
     RuntimeBodyStateContext& context); // Xbox 0x000A5650
 void destroy_runtime_walk_alert(std::span<u8> state, RuntimeBodyStateContext& context); // Xbox 0x000A5950
+// Type 0x6D, entityStateFly (getter 0x00090D30, vtable 0x00505880): the walk alert's rows (+0x2C count, +0x30 rows,
+// +0x2E band) steered in the air, with a looping animation (the parameters' +0xA4 name, +0x74) under them. +0x1A is
+// the key once the body stops, +0x1C the key while the mind is alert, +0x20 the stick's limit and +0x24 / +0x28 hold
+// the heading above that magnitude.
+void fly_state_object_sizes(ObjectSizes& output); // Xbox 0x00090D10
+bool initialize_runtime_fly_state(std::span<u8> state, std::span<const u8> parameters,
+    RuntimeBodyStateContext& context); // Xbox 0x00090D90
+void destroy_runtime_fly_state(std::span<u8> state, RuntimeBodyStateContext& context); // Xbox 0x00091110
 // Walk-alert state +0x30 + 0x10 * index: the animation record 0x000A5650 found for speed band `index`. The
 // record lives on the host, so the native word only says whether one was found.
 const AnimationRecord* runtime_walk_alert_record(std::span<const u8> state, u16 index);

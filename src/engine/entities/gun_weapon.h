@@ -47,9 +47,9 @@ void recharge_runtime_gun_weapon(RuntimeWeaponActor& weapon, const Actor* holder
 // The charge ran out while firing: firing stops and the gun waits 5 s.
 void exhaust_runtime_gun_weapon(RuntimeWeaponActor& weapon, const Vec3& point,
     const Vec3& direction); // Xbox 0x000CAE00, ESI actor
-// The class's hit query (+0x60), each hit reported (0x00141C00) and the list freed.
-void report_runtime_gun_weapon_hits(RuntimeWeaponActor& weapon, const Actor* holder,
-    const Vec3& direction); // Xbox 0x000CB0B0
+// The class's hit query (+0x60) with the holder's shapes left out, each hit reported (0x00141C00) and the list freed.
+void report_runtime_gun_weapon_hits(RuntimeWeaponActor& weapon, Actor& holder, const Vec3& point,
+    const Vec3& direction); // Xbox 0x000CB0B0, EDX point
 // Actor +0x99C 0x000CB040: a contact reports kind 7, strength 0x3A, style 0x68.
 u32 test_runtime_gun_contact(RuntimeWeaponActor& weapon, RuntimeSegmentContactActor& object, const Vec3& point,
     GhoulySpawnPool* contacts, const Vec3& velocity, u16 word); // Xbox 0x000CB040

@@ -33,6 +33,8 @@ struct RuntimeBackgroundClothScene
     std::function<std::span<const float, 42>()> frustum; // DAT_005077A8 +0x138.
     std::function<u8&()> frustum_hint; // DAT_005077A8 +0x1E0.
     AudioEventVoices& voices; // 0x00039580's voices.
+    const float* room_low; // DAT_0050EA04..DAT_0050EA0C.
+    const float* room_high; // DAT_0050EA10..DAT_0050EA18.
 };
 // The cloth list, plane list and curtain pairs, and the ramp texture.
 void create_runtime_background_cloth_pools(RuntimeBackgroundClothScene& scene); // Xbox 0x00114180

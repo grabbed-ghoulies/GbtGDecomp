@@ -337,7 +337,7 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 | The Grim Reaper's dizziness | no writer | `0x000AD600` turns him dizzy (0x3EA) while DAT_00512170 is set; no translated code writes it (`g_grim_reaper_dizzy`) |
 | Blob shadows | off | DAT_0050EF18 is never set, so 0x00119A60 hands out no shadow (the reaper's included) and the draw 0x00119AD0 is not reached |
 | The spider web in captures | unchecked | The web (type 0x1B) lands and snares by its messages; no capture has caught one yet |
-| Background cloths | partial | 0x001153A0 builds the background model's parts at scene load: kind 5 (curtain pairs) and kind 4 (collision planes) are translated; kinds 1, 2, 3 and 8 (0x00050880), 6 (0x000509E0) and 7 (0x00050940) raise, as do the hooks 0x00114910, 0x001145F0 and 0x00114580, the specular shading 0x0004BA90, the second strip draw 0x0005D710 and 0x00064820's part pass. Any scene whose background has those kinds now stops at load; only scene 2a4 has been run |
+| Background cloths | partial | 0x001153A0 builds the background model's parts at scene load: kinds 1, 2 and 8 (flags, 0x00050880, with the player and actor push hook 0x00114910), kind 3 (no cloth), kind 4 (collision planes) and kind 5 (curtain pairs) are translated; kinds 6 (0x000509E0) and 7 (0x00050940) raise, as do the hooks 0x001145F0 and 0x00114580, the specular shading 0x0004BA90, the second strip draw 0x0005D710 and 0x00064820's part pass. The 2026-10-23 full regression found only kinds 2 and 5 in use (scenes 3, 4, 5, 6 and 8 have kind 2) |
 | Script type 0x16 | legacy | Still the old shortcut; retail waits for `0x0004EFE0` with DAT_00512470 set, then releases the cutscenes |
 | Chapter 2a scene 3 (`aid_script_ghoulies_chapter2a_scene3_1playcam`) | not driven | `--scene2a2` stops once the script moves on to it |
 | The coward zombie on the plates | unchecked | Hurt, scene 2a2's zombie climbs onto a plate stack and stays there without moving (y about 8.6) until Cooper comes within reach; not compared with retail |
@@ -388,6 +388,15 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-23: background flags (cloth kinds 1, 2 and 8)
+
+The full regression after the ballroom's curtains found kind 2 parts in scenes 3, 4, 5, 6 and 8, which then stopped at
+load. `0x00050880` now builds kinds 1, 2 and 8 as 20 x 16 cloths, shaded from the room's centre, and their hook
+`0x00114910` pushes the points out of the player's capsule (within 60) and the nearest other actor's (`0x001025E0`,
+`0x00102860`, over `0x000426F0`'s bound) and then out of the cloth's collision planes. `--scene3`, `--scene4`,
+`--scene5`, `--scene6`, `--scene6-save`, `--scene6-save-reload` and `--scene8` pass again. Scene 8's captures show the
+room as before (curtains by the windows); which drapes are the cloth was not picked out.
 
 ### 2026-10-23: the ballroom's curtains (background cloth)
 

@@ -99,6 +99,12 @@ struct RuntimeBackgroundClothContext
     std::function<const Actor*(const void* node)> wide_actor; // The actor whose +0x1E8 node this is.
     void* const& wide_first; // DAT_00511AFC.
     std::function<std::span<const u8>(u32, size_t)> resolve; // Model memory by retail address.
+    // 0x000426F0 with mask -1, not averaged, over the actor's +0x8FC shape pool: start +4, axis +0x10, radius +0x1C.
+    std::function<void(const Actor&, u8* output)> actor_bound;
+    // DAT_0050E398 (the player's) and DAT_0050E3D8 (the nearest actor's): the bound, then its start (+0x20), end
+    // (+0x2C) and 0.6 of its radius (+0x38), as 0x00114910 leaves them.
+    std::array<u8, 0x40> player_capsule{};
+    std::array<u8, 0x40> nearest_capsule{};
 };
 // The block for `rows` x `columns` points and `edges` edges (AX columns).
 RuntimeBackgroundCloth* create_runtime_background_cloth(u16 rows, u16 columns, u16 edges,
@@ -123,6 +129,20 @@ int compare_runtime_cloth_corners(const void* left, const void* right); // Xbox 
 RuntimeBackgroundCloth* build_runtime_background_cloth(u16 rows, u16 columns, u16 edges, std::span<const u8> part,
     u16 pin_step, const Vec3& gravity, std::span<const u8> part_table, const float* quad,
     RuntimeBackgroundClothContext& context); // Xbox 0x0004FB30, EAX part table, EDI quad
+// A hanging flag or banner (kinds 1, 2 and 8; none for kind 3): 20 x 16 points over the part's quad, pinned every
+// 19 rows (kind 1) or 5 rows (kinds 2 and 8).
+RuntimeBackgroundCloth* build_runtime_background_flag(std::span<const u8> part, std::span<const u8> part_table,
+    RuntimeBackgroundClothContext& context); // Xbox 0x00050880, EAX part, EBX model
+// The point (ESI) pushed out of the capsule from `start` (ECX) to `end` (EDI); true when it was inside.
+bool push_runtime_point_from_capsule(float* point, const Vec3& start, const Vec3& end,
+    float radius); // Xbox 0x001025E0
+// The cloth's point (EAX) pushed out of the sphere at `center` (EDI).
+void push_runtime_cloth_point_from_sphere(RuntimeBackgroundCloth& cloth, u32 index, const Vec3& center,
+    float radius); // Xbox 0x00102860
+// The flag hook: points pushed out of the player's capsule (within 60 of the cloth) and the nearest other actor's,
+// then out of the cloth's collision planes.
+void constrain_runtime_background_cloth(RuntimeBackgroundCloth& cloth,
+    RuntimeBackgroundClothContext& context); // Xbox 0x00114910
 // The part's two overlapping curtain halves (kind 5), the second a unit along the quad's normal.
 void build_runtime_background_curtains(std::span<const u8> part, std::span<const u8> part_table,
     RuntimeBackgroundCloth*& first, RuntimeBackgroundCloth*& second,

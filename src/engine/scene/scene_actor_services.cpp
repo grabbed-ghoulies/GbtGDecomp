@@ -8230,30 +8230,6 @@ void SceneActorServices::State::start_background()
         }
     }
     build_runtime_scene_light_grid(light_grid, light_grid_d3d); // 0x00112D70
-    // TEMP DEBUG: background part kinds.
-    if (auto* first = backgrounds->first_background(); first != nullptr && first->state.actor.model != nullptr
-        && first->state.actor.model->runtime != nullptr)
-    {
-        const auto cpu = first->state.actor.model->runtime->source->cpu;
-        const u32 header = read_u32(cpu, 0x10);
-        std::fprintf(stderr, "PARTDBG header 0x%08X\n", header);
-        if (header != 0)
-        {
-            const auto record = resources.memory.resolve(header, 0x10);
-            const u32 table = read_u32(record, 0xC);
-            std::fprintf(stderr, "PARTDBG table 0x%08X\n", table);
-            if (table != 0)
-            {
-                const auto words = resources.memory.resolve(table, 8);
-                const u32 count = read_u32(words, 0);
-                const auto rows = resources.memory.resolve(read_u32(words, 4), count * 0x34);
-                for (u32 index = 0; index < count; ++index)
-                {
-                    std::fprintf(stderr, "PARTDBG row %u kind %u\n", index, rows[index * 0x34 + 0x30]);
-                }
-            }
-        }
-    }
 }
 
 SceneActorServices::SceneActorServices(SceneFactoryRuntime& scene, Game& game)
@@ -10605,6 +10581,22 @@ RuntimeBackgroundClothScene& SceneActorServices::State::background_cloth_scene()
         [this](u32 address, size_t size)
         {
             return resources.memory.resolve(address, size);
+        },
+        [this](const Actor& actor, u8* output)
+        {
+            for (const auto& [bytes, native] : actors->actors)
+            {
+                if (native != &actor)
+                {
+                    continue;
+                }
+                FactoryObject* object = object_of(bytes);
+                auto& view = actors->view(*object);
+                build_runtime_actor_bound(view.bat.actor, output, 0xFFFFFFFFu, false,
+                    reinterpret_cast<GhoulySpawnPool*&>(view.allocation_8fc)); // 0x000426F0, actor +0x8FC
+                return;
+            }
+            unbound("0x000426F0 bound of an actor outside the scene");
         }});
     cloth_scene = std::make_unique<RuntimeBackgroundClothScene>(RuntimeBackgroundClothScene{background_cloths,
         background_morphs, cloth_ramp_texture, *cloth_context,
@@ -10639,7 +10631,7 @@ RuntimeBackgroundClothScene& SceneActorServices::State::background_cloth_scene()
         {
             return display_view->mark; // +0x1E0.
         },
-        voices});
+        voices, g_amb_color_lo, g_amb_color_hi});
     return *cloth_scene;
 }
 

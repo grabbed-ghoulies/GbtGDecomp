@@ -5,6 +5,7 @@
 #include "../entities/actor_transform.h"
 #include "../entities/entity_heap.h"
 #include "../entities/entity_types.h"
+#include "../cutscenes/door_registration.h"
 #include "../runtime/crt_sort.h"
 #include "gbtg/anim.h"
 
@@ -519,6 +520,206 @@ void build_runtime_background_curtains(std::span<const u8> part, std::span<const
         context); // 0x0004FB30
 }
 
+// Xbox 0x00050880, EAX part, EBX model
+RuntimeBackgroundCloth* build_runtime_background_flag(std::span<const u8> part, std::span<const u8> part_table,
+    RuntimeBackgroundClothContext& context)
+{
+    const u8 kind = part[0x30];
+    u16 pin_step;
+    if (kind == 2 || kind == 8)
+    {
+        pin_step = 5;
+    }
+    else if (kind == 1)
+    {
+        pin_step = 0x13;
+    }
+    else
+    {
+        return nullptr;
+    }
+    const Vec3 gravity{0.f, -2.5f, 0.f}; // DAT_0032B4E4
+    std::array<float, 12> quad;
+    order_runtime_cloth_quad(reinterpret_cast<const float*>(part.data()), quad.data()); // 0x0004FA40
+    return build_runtime_background_cloth(0x14, 0x10, 0x25C, part, pin_step, gravity, part_table, quad.data(),
+        context); // 0x0004FB30
+}
+
+// Xbox 0x001025E0
+bool push_runtime_point_from_capsule(float* point, const Vec3& start, const Vec3& end, float radius)
+{
+    const float dx = start.x - end.x;
+    const float dz = start.z - end.z;
+    const float dy = start.y - end.y;
+    const float squared = (dz * dz + dx * dx) + dy * dy;
+    if (squared == 0.f)
+    {
+        return false;
+    }
+    const Vec3 p{point[0], point[1], point[2]};
+    const float along = (((start.x * start.x + start.y * start.y) + start.z * start.z)
+        - ((p.z * dz + p.y * dy) + p.x * dx)
+        - ((start.x * end.x + end.z * start.z) + end.y * start.y)) / squared;
+    if (along < 0.f || 1.f < along)
+    {
+        return false;
+    }
+    const float back = 0.f - along;
+    const Vec3 nearest{start.x + dx * back, start.y + dy * back, start.z + dz * back};
+    const float qz = nearest.z - p.z;
+    const float qy = nearest.y - p.y;
+    const float qx = nearest.x - p.x;
+    if (!(radius * radius > (qz * qz + qy * qy) + qx * qx))
+    {
+        return false;
+    }
+    const Vec3& tip = along <= 0.5f ? end : start; // DAT_0032B0F4, CMOVBE
+    const float ex = tip.x - nearest.x;
+    const float ey = tip.y - nearest.y;
+    const float ez = tip.z - nearest.z;
+    const float reach = float((long double)radius - runtime_point_distance(p, nearest)); // 0x00146CE0
+    if (reach * reach > (ez * ez + ey * ey) + ex * ex)
+    {
+        point[0] = p.x + ex;
+        point[1] = p.y + ey;
+        point[2] = p.z + ez;
+        return true;
+    }
+    Vec3 away{p.x - nearest.x, p.y - nearest.y, p.z - nearest.z};
+    normalize_runtime_graphics_vector(away, away); // 0x00184F99
+    point[0] = away.x * radius + nearest.x;
+    point[1] = away.y * radius + nearest.y;
+    point[2] = radius * away.z + nearest.z;
+    return true;
+}
+
+// Xbox 0x00102860
+void push_runtime_cloth_point_from_sphere(RuntimeBackgroundCloth& cloth, u32 index, const Vec3& center, float radius)
+{
+    float* point = cloth.point(index);
+    const float dy = point[1] - center.y;
+    const float dx = point[0] - center.x;
+    const float dz = point[2] - center.z;
+    if (!(dx * dx + dy * dy + dz * dz < radius * radius))
+    {
+        return;
+    }
+    point[0] = dx;
+    point[1] = point[1] - center.y;
+    const float z = point[2] - center.z;
+    point[2] = z;
+    if (dx == 0.f && point[1] == 0.f && z == 0.f)
+    {
+        return;
+    }
+    Vec3 away{point[0], point[1], point[2]};
+    normalize_runtime_graphics_vector(away, away); // 0x00184F99
+    point[0] = center.x + away.x * radius;
+    point[1] = center.y + away.y * radius;
+    point[2] = center.z + away.z * radius;
+}
+
+namespace
+{
+// 0x000426F0 into the record, then its start, end and the push radius (0.6 of its radius, DAT_0032B248).
+void build_capsule(const Actor& actor, std::array<u8, 0x40>& record, RuntimeBackgroundClothContext& context)
+{
+    context.actor_bound(actor, record.data()); // 0x000426F0, mask -1
+    const Vec3 start{read_f32(record, 4), read_f32(record, 8), read_f32(record, 0xC)};
+    const Vec3 axis{read_f32(record, 0x10), read_f32(record, 0x14), read_f32(record, 0x18)};
+    const float values[7]{start.x, start.y, start.z, axis.x + start.x, axis.y + start.y, axis.z + start.z,
+        read_f32(record, 0x1C) * 0.6f};
+    std::memcpy(record.data() + 0x20, values, sizeof(values));
+}
+
+Vec3 capsule_vec(const std::array<u8, 0x40>& record, size_t offset)
+{
+    return {read_f32(record, offset), read_f32(record, offset + 4), read_f32(record, offset + 8)};
+}
+
+// Each collision plane the point lies behind moves it onto the plane. `y_first` sums the distance y, z, x (the
+// pushing pass), else x, y, z.
+void push_from_planes(RuntimeBackgroundCloth& cloth, u32 index, bool y_first)
+{
+    float* point = cloth.point(index);
+    for (const auto& plane : cloth.planes)
+    {
+        const float distance = y_first
+            ? point[1] * plane[1] + point[2] * plane[2] + point[0] * plane[0] + plane[3]
+            : point[0] * plane[0] + point[1] * plane[1] + point[2] * plane[2] + plane[3];
+        if (distance < 0.f)
+        {
+            const float depth = 0.f - distance;
+            point[0] = depth * plane[0] + point[0];
+            point[1] = depth * plane[1] + point[1];
+            point[2] = depth * plane[2] + point[2];
+        }
+    }
+}
+}
+
+// Xbox 0x00114910
+void constrain_runtime_background_cloth(RuntimeBackgroundCloth& cloth, RuntimeBackgroundClothContext& context)
+{
+    auto bytes = cloth.bytes;
+    const Vec3 low = get(bytes, field::low);
+    const Vec3 high = get(bytes, field::high);
+    const Vec3 center{(high.x + low.x) * 0.5f, (high.y + low.y) * 0.5f, (high.z + low.z) * 0.5f}; // DAT_0032B0F4
+    bool player_near = false;
+    if (const Actor* player = context.player(); player != nullptr)
+    {
+        const Vec3 position = actor_world_position(*player); // 0x000412A0
+        const float dz = position.z - center.z;
+        const float dy = position.y - center.y;
+        const float dx = position.x - center.x;
+        if (3600.f > (dz * dz + dy * dy) + dx * dx) // DAT_0032B410
+        {
+            player_near = true;
+            build_capsule(*player, context.player_capsule, context);
+        }
+    }
+    const Actor* nearest = nullptr;
+    float distance = 0.f;
+    const bool other_near = find_runtime_nearest_wide_actor(center, nearest, distance, true, context); // 0x00114490
+    if (other_near)
+    {
+        build_capsule(*nearest, context.nearest_capsule, context);
+    }
+    const u32 count = u32(get(bytes, field::columns)) * u32(get(bytes, field::rows));
+    if (!player_near && !other_near)
+    {
+        for (u32 index = 0; i32(index) < i32(count); index = (index + 1) & 0xFFFF)
+        {
+            if (reinterpret_cast<const u8*>(cloth.point(index))[0x28] == 0)
+            {
+                push_from_planes(cloth, index, false);
+            }
+        }
+        return;
+    }
+    for (u32 index = 0; i32(index) < i32(count); index = (index + 1) & 0xFFFF)
+    {
+        if (reinterpret_cast<const u8*>(cloth.point(index))[0x28] != 0)
+        {
+            continue;
+        }
+        if (other_near)
+        {
+            push_runtime_point_from_capsule(cloth.point(index), capsule_vec(context.nearest_capsule, 0x20),
+                capsule_vec(context.nearest_capsule, 0x2C), read_f32(context.nearest_capsule, 0x38)); // 0x001025E0
+        }
+        if (player_near)
+        {
+            const Vec3 end = capsule_vec(context.player_capsule, 0x2C);
+            const float radius = read_f32(context.player_capsule, 0x38);
+            push_runtime_point_from_capsule(cloth.point(index), capsule_vec(context.player_capsule, 0x20), end,
+                radius); // 0x001025E0
+            push_runtime_cloth_point_from_sphere(cloth, index, end, radius); // 0x00102860, EDI the end
+        }
+        push_from_planes(cloth, index, true);
+    }
+}
+
 void call_runtime_background_cloth_hook(u32 hook, RuntimeBackgroundCloth& cloth,
     RuntimeBackgroundClothContext& context)
 {
@@ -529,6 +730,9 @@ void call_runtime_background_cloth_hook(u32 hook, RuntimeBackgroundCloth& cloth,
         return;
     case 0x001152C0:
         wake_when_near(cloth, context);
+        return;
+    case 0x00114910:
+        constrain_runtime_background_cloth(cloth, context);
         return;
     default:
     {

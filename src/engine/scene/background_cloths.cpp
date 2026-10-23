@@ -4,6 +4,7 @@
 #include "../entities/entity_heap.h"
 #include "../entities/mesh_sphere_geometry.h"
 #include "../graphics/vector_normalize.h"
+#include "gbtg/anim.h"
 
 #include <cstdio>
 #include <cstring>
@@ -151,7 +152,8 @@ void build_runtime_background_cloths(RuntimeBackgroundClothScene& scene)
     {
         return;
     }
-    // DAT_0050EA04..DAT_0050EA18's centre is read here for kinds 1, 2, 3 and 8, which are not translated.
+    const Vec3 room{(scene.room_high[0] + scene.room_low[0]) * 0.5f, (scene.room_high[1] + scene.room_low[1]) * 0.5f,
+        (scene.room_high[2] + scene.room_low[2]) * 0.5f}; // DAT_0050EA04..DAT_0050EA18, DAT_0032B0F4
     const auto table = part_table_of(model, scene);
     if (table.empty())
     {
@@ -165,7 +167,32 @@ void build_runtime_background_cloths(RuntimeBackgroundClothScene& scene)
         const u8 kind = part[0x30];
         if (kind == 1 || kind == 2 || kind == 3 || kind == 8)
         {
-            kind_not_translated(kind, 0x00050880);
+            RuntimeBackgroundCloth* cloth = build_runtime_background_flag(part, part_table_of(model, scene),
+                scene.cloth); // 0x00050880
+            if (cloth == nullptr)
+            {
+                continue;
+            }
+            auto bytes = cloth->bytes;
+            set(bytes, field::constrain_hook, 0x00114910u);
+            set(bytes, field::constrain_enabled, 1u);
+            set(bytes, field::awake_hook, 0x001151F0u);
+            set(bytes, field::asleep_hook, 0x001152C0u);
+            const Vec3 center = get(bytes, field::center);
+            Vec3 light{center.x - room.x, center.y - room.y, center.z - room.z};
+            const float squared = (light.z * light.z + light.y * light.y) + light.x * light.x;
+            if (squared != 0.f) // DAT_0032B100
+            {
+                const long double scale = retail_reciprocal_sqrt(squared); // 0x001534C0
+                light = {float(light.x * scale), float(light.y * scale), float(light.z * scale)};
+            }
+            set(bytes, field::faces_room, u8(1));
+            set(bytes, field::light, light);
+            if (part[0x30] == 8)
+            {
+                set(bytes, field::casts_shadow, u8(0));
+            }
+            register_runtime_background_cloth(*cloth, scene); // 0x00115A40
         }
         else if (kind == 7)
         {

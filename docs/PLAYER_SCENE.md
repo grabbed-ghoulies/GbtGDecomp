@@ -220,6 +220,8 @@ All take the game directory, e.g.
 | `--scene2a1b` | Boots the extinguisher's book (chapter2a_scene1_2book), plays it to `aid_script_ghoulies_chapter2a_scene1_3playcam` (the kitchen) and plays that with the scene 7 driver, doors first, fighting only in "Event - Kill All" (the cook, tag 8, is not a ghouly). A held weapon is aimed with the right stick held (the extinguisher's spray), bare hands tap it. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene2_1playcam` (frame 4115 in the 2026-10-23 run) |
 | `--scene2a2` | Boots chapter 2a scene 2 (chapter2a_scene2_1playcam, the dishwashing room) and plays it with the scene 7 driver, doors first, at any fight range: "Event - 'Kill All/Time Limit'" is one coward zombie against the reaper's countdown. The driver fights a ghouly within 15 in height (the hurt zombie climbs onto the plate stacks). Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene3_1playcam` (frame 5976 in the 2026-10-23 run) |
 | `--scene2a2-reaper` | Chapter 2a scene 2 with no fighting (fight range 0), so the time limit runs out and the Grim Reaper comes. Fails by design once its 18000 frames are up: the reaper takes Cooper's life, the retry restarts the scene and the time limit runs out again (four times in the 2026-10-23 run). It is for looking at the spider web, the reaper and the fade to grey |
+| `--scene2a3` | Boots chapter 2a scene 3 (chapter2a_scene3_1playcam) and plays it with the scene 7 driver. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene4_2playcam` (frame 2037 in the 2026-10-23 run) |
+| `--scene2a4` | Boots chapter 2a scene 4 (chapter2a_scene4_2playcam, the ballroom) and plays it with the scene 7 driver. Fails for now once its intro cutscene ends: the scene control (type 0x95) reads the background morph pool, which nothing makes yet |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -335,6 +337,7 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 | The Grim Reaper's dizziness | no writer | `0x000AD600` turns him dizzy (0x3EA) while DAT_00512170 is set; no translated code writes it (`g_grim_reaper_dizzy`) |
 | Blob shadows | off | DAT_0050EF18 is never set, so 0x00119A60 hands out no shadow (the reaper's included) and the draw 0x00119AD0 is not reached |
 | The spider web in captures | unchecked | The web (type 0x1B) lands and snares by its messages; no capture has caught one yet |
+| Background morphs | missing | DAT_0050E388's morph pairs: 0x00114180 makes the pool (with the portal and plane pools) at scene load, 0x001153A0 sets up every background part kind (kind 5 adds a pair through 0x00113620), and 0x001137E0 blends each pair's vertices over 100 steps and clears its +0x28 flag. None is translated; scene 2a4's control waits on that flag |
 | Script type 0x16 | legacy | Still the old shortcut; retail waits for `0x0004EFE0` with DAT_00512470 set, then releases the cutscenes |
 | Chapter 2a scene 3 (`aid_script_ghoulies_chapter2a_scene3_1playcam`) | not driven | `--scene2a2` stops once the script moves on to it |
 | The coward zombie on the plates | unchecked | Hurt, scene 2a2's zombie climbs onto a plate stack and stays there without moving (y about 8.6) until Cooper comes within reach; not compared with retail |
@@ -385,6 +388,24 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-23: chapter 2a scene 4 (the ballroom) starts
+
+`--scene2a3` (new) passes; `--scene2a4` (new) boots the ballroom, whose start needed three classes:
+
+- `entityStateDroneDance` (type 0x67, `body_drone_dance_state.cpp`, `0x0008DFF0`..`0x0008E500`): a body idles on its
+  dance for one to two seconds, glides to a random point of its room (actor +0xCA0, `0x00110F50` with its box cells
+  `0x0010FBE0` and settle `0x00111B40` in `spawn_candidates.cpp`) while turning to a random yaw, and reacts to 0x2D.
+- `entityAvatarMiscSSSDropper` (type 0x21, `sss_dropper.cpp`, `0x00071800`..`0x00072200`): a Super Scary figure that
+  drops onto a free player within reach, leaving after-images, lands into the Super Scary challenge (type 0x98), and
+  leaps off again on 0x8E 7 or 8. Its draw goes through the glow capture.
+- `entitySceneControlChapter2Scene4` (type 0x95, `chapter2_scene4_control.cpp`, `0x00082980`..`0x00082BC0`): plays
+  the intro cutscene, then sets the background morphs playing and waits for the first to stop before letting the
+  script go on.
+
+Shown (looked at): the intro cutscene's view up the stairs into the ballroom (`scene2a4_300.bmp`). The run then stops
+where the control reads the morph pool (see Background morphs above). The drone dancers and the dropper are not seen
+in a capture yet.
 
 ### 2026-10-23: the Grim Reaper
 

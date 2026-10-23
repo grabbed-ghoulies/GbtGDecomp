@@ -785,6 +785,8 @@ struct SceneActorServices::State
     std::unique_ptr<HauntedChairsControlServices> haunted_chairs_services; // Factory type 0x93.
     std::unique_ptr<RelicsStoreControlServices> relics_store_services; // Factory type 0x94.
     std::unique_ptr<SceneFxControlServices> fx_services; // Factory type 0x97.
+    std::unique_ptr<Chapter2Scene4ControlServices> chapter2_scene4_services; // Factory type 0x95.
+    RuntimeBackgroundMorphs* background_morphs = nullptr; // DAT_0050E388, made by the untranslated 0x00114180.
     std::unique_ptr<SuperScaryControlServices> super_scary_services; // Factory type 0x98.
     std::unique_ptr<MapViewControlServices> map_view_services; // Factory type 0x9E.
     std::vector<const char*> powerup_names; // DAT_0042ABF8, twenty "powerupId_" names.
@@ -2193,7 +2195,20 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             script_queue_event(game, message); // 0x00116810
         },
-        point_lights, audio.streams});
+        point_lights, audio.streams,
+        [this](const Actor& actor) -> std::span<const u8>
+        {
+            for (auto* player : players->instances())
+            {
+                if (&player->actor == &actor)
+                {
+                    player->refresh_body_views();
+                    return player->body;
+                }
+            }
+            unbound("Super Scary dropper reads +0x95C of an actor that is not a player");
+        },
+        empty_name});
     classes->install(scene.types);
     classes->defer_release = true;
     install_runtime_move_action_classes(scene.types, [this](u32 address) -> std::span<u8>
@@ -2430,6 +2445,21 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             }
             return graph->look_for_weapon_context();
         });
+    install_runtime_drone_dance_state_class(scene.types, [this](u32 body_address) -> RuntimeDroneDanceStateContext&
+    {
+        const auto bytes = scene.resolve_address(body_address, 0);
+        auto* player = players->find_child_owner(bytes.data());
+        if (player == nullptr || player->body.data() != bytes.data())
+        {
+            unbound("drone dance state whose body has no player owner");
+        }
+        auto& graph = body_messages[player->body.data()];
+        if (graph == nullptr)
+        {
+            graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
+        }
+        return graph->drone_dance_context();
+    });
     install_runtime_hit_stream_state_class(scene.types, [this](u32 body_address) -> RuntimeHitStreamStateContext&
     {
         const auto bytes = scene.resolve_address(body_address, 0);
@@ -3285,6 +3315,11 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             tick_owned_effect(effect, step); // 0x000EF2D0
         }});
     scene.controls->context.fx = fx_services.get();
+    // Chapter 2 scene 4's cutscene and background morphs (factory type 0x95).
+    chapter2_scene4_services = std::make_unique<Chapter2Scene4ControlServices>(Chapter2Scene4ControlServices{
+        scene_cutscene_runtime(game), clock, random, g_script_30d0c, g_scene_flags->bytes[0], g_flags_ea9c,
+        voices.reverb_index, g_gate_251c, background_morphs});
+    scene.controls->context.chapter2_scene4 = chapter2_scene4_services.get();
     // The Super Scary challenge (factory type 0x98) a trophy head's attack creates.
     super_scary_services = std::make_unique<SuperScaryControlServices>(SuperScaryControlServices{
         resources.registry, resources.error, scene_cutscene_runtime(game), voices, audio.streams, random, g_510cec,
@@ -5481,6 +5516,11 @@ SceneActorServices::State::~State()
     {
         scene.controls->context.relics_store = nullptr;
     }
+    if (scene.controls != nullptr && chapter2_scene4_services != nullptr
+        && scene.controls->context.chapter2_scene4 == chapter2_scene4_services.get())
+    {
+        scene.controls->context.chapter2_scene4 = nullptr;
+    }
     if (scene.controls != nullptr && fx_services != nullptr && scene.controls->context.fx == fx_services.get())
     {
         scene.controls->context.fx = nullptr;
@@ -6111,6 +6151,32 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
             update_base_actor(updated); // 0x000420D0
             measure_runtime_actor_bound_size(actor, 0x200,
                 reinterpret_cast<GhoulySpawnPool*&>(actors->view(updated).allocation_8fc)); // 0x0003D670
+        };
+        refresh_actor_model_animation_view(view);
+        classes->message(object, message);
+        store_actor_model_animation_view(view);
+        return;
+    }
+    if (type == 0x21)
+    {
+        // Getter 0x00071820: +0x10 is 0x00071960, which ends each phase with the actor update 0x000420D0.
+        auto& view = actors->view(object);
+        const u8* bytes = object.bytes.get();
+        actor_updates[&view.bat.actor] = [this, bytes](Actor&)
+        {
+            auto& updated = *object_of(bytes);
+            auto& updated_view = actors->view(updated);
+            refresh_actor_model_animation_view(updated_view);
+            frame->freeze = pause;
+            frame->dt = frame_delta;
+            frame->scene_scale = time_scale;
+            frame->block_decay = pause_references[1];
+            frame->decay_enabled = decay_enabled[decay_index];
+            classes->update_sss_dropper(updated, [this, &updated_view]()
+                {
+                    update_actor_frame(updated_view.frame, *frame); // 0x000420D0
+                });
+            store_actor_model_animation_view(updated_view);
         };
         refresh_actor_model_animation_view(view);
         classes->message(object, message);
@@ -7621,6 +7687,7 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
             case 0x76: // And getter 0x00097200.
             case 0x7B: // And getter 0x0009D8C0.
             case 0x83: // And getter 0x000A0C30.
+            case 0x67: // And getter 0x0008E010.
                 return runtime_body_action_next_key(action);
             case 0x5A:
             case 0x5C:
@@ -8263,6 +8330,15 @@ void SceneActorServices::State::actor_draw(Actor& actor, i32 view, i32 pass)
                 draw_scene_actor(*object, actor, pass);
                 return;
             }
+            // Type 0x21 +0x14 is the Super Scary dropper's glow draw 0x00071DF0 (getter 0x00071820).
+            if (type == 0x21)
+            {
+                std::unique_ptr<ActorDrawModelView> model;
+                ActorDrawState state = actor_draw_state(*object, actor, model);
+                ActorFrameDrawContext attachments{attachment_draws};
+                classes->draw_sss_dropper(state, pass, attachments, *model_draw, *glow_pass);
+                return;
+            }
             // Type 0x1D +0x14 is the scare figure draw 0x0006F600 (getter 0x0006EFB0).
             if (type == 0x1D)
             {
@@ -8374,7 +8450,8 @@ void SceneActorServices::State::draw_player(FactoryObject& object, NativePlayerI
                 && type != 0x87 && type != 0x88 && type != 0x8A && type != 0x8B && type != 0x8E && type != 0x8F && type != 0x69 && type != 0x70
                 && type != 0x66 && type != 0x78 && type != 0x5F && type != 0x80 && type != 0x7F && type != 0x83
                 && type != 0x7E && type != 0x6B && type != 0x77
-                && type != 0x6E && type != 0x6A && type != 0x6D && type != 0x81 && type != 0x76 && type != 0x7B)
+                && type != 0x6E && type != 0x6A && type != 0x6D && type != 0x81 && type != 0x76 && type != 0x7B
+                && type != 0x67) // Getter 0x0008E010 keeps the empty 0x001628B0 at +0x18 too.
             {
                 unbound("body +0x744 object vtable +0x18 draw for factory type "
                     + std::to_string(player.second_action.type));
@@ -8397,7 +8474,7 @@ u32 SceneActorServices::State::actor_visible(Actor& actor, i32 pass, i32 view)
         && object.type != 0x13 && object.type != 0x15
         && object.type != 0x1A && object.type != 0x1F && object.type != 0x23 && object.type != 0x25
         && object.type != 0x24 && object.type != 0x26 && object.type != 0x1E && object.type != 0x1D
-        && object.type != 0x19 && object.type != 0x1B && object.type != 0xAA
+        && object.type != 0x19 && object.type != 0x1B && object.type != 0x21 && object.type != 0xAA
         && object.type != 0xA9 && object.type != 0xA7 && object.type != 0xA0 && object.type != 0xA1
         && object.type != 0xA2 && object.type != 0xA3)
     {
@@ -8825,7 +8902,7 @@ void SceneActorServices::State::view_refresh_slot(Actor& actor)
             if (type == 2 || type == 4 || type == 5 || type == 0xD || type == 0xF || type == 0x10 || type == 0x12
                 || type == 0x13 || type == 0x15
                 || type == 0x1A || type == 0x1F || type == 0x23 || type == 0x25 || type == 0x24 || type == 0x26
-                || type == 0x1E || type == 0x1D || type == 0x19 || type == 0x1B
+                || type == 0x1E || type == 0x1D || type == 0x19 || type == 0x1B || type == 0x21
                 || type == 0xAA || type == 0xA9 || type == 0xA7
                 || type == 0xA0 || type == 0xA1 || type == 0xA2 || type == 0xA3)
             {

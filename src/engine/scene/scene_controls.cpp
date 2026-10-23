@@ -156,6 +156,20 @@ void destroy_haunted_chairs_view(FactoryObject&)
     // 0x001628B0 returns at once.
 }
 
+bool construct_chapter2_scene4_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto& control = installing->instance(object);
+    control.state = state_of(object);
+    control.type = object.type;
+    return construct_runtime_chapter2_scene4_control(state_of(object), parameters, control, installing->context.lists,
+        installing->context.chapter2_scene4_services());
+}
+
+void destroy_chapter2_scene4_view(FactoryObject&)
+{
+    destroy_runtime_chapter2_scene4_control(installing->context.chapter2_scene4_services()); // 0x00082BB0
+}
+
 bool construct_relics_store_view(FactoryObject& object, std::span<const u8>)
 {
     auto& control = installing->instance(object);
@@ -257,6 +271,13 @@ const ObjectFactoryVtable* haunted_chairs_control_lifecycle()
 {
     static const ObjectFactoryVtable table{0x005055A8, haunted_chairs_control_object_sizes,
         construct_haunted_chairs_view, destroy_haunted_chairs_view};
+    return &table;
+}
+
+const ObjectFactoryVtable* chapter2_scene4_control_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x005055C0, chapter2_scene4_control_object_sizes,
+        construct_chapter2_scene4_view, destroy_chapter2_scene4_view};
     return &table;
 }
 
@@ -375,6 +396,15 @@ HauntedChairsControlServices& SceneControlContext::haunted_chairs_services() con
     return *haunted_chairs;
 }
 
+Chapter2Scene4ControlServices& SceneControlContext::chapter2_scene4_services() const
+{
+    if (chapter2_scene4 == nullptr)
+    {
+        throw Error("scene 2a4 control before the scene's actor services bind its services");
+    }
+    return *chapter2_scene4;
+}
+
 RelicsStoreControlServices& SceneControlContext::relics_store_services() const
 {
     if (relics_store == nullptr)
@@ -430,6 +460,7 @@ void NativeSceneControlOwner::install(std::span<ObjectFactoryType> types)
     types[0x92] = ObjectFactoryType{3, trophy_heads_control_lifecycle};
     types[0x93] = ObjectFactoryType{3, haunted_chairs_control_lifecycle}; // Getter 0x000824F0.
     types[0x94] = ObjectFactoryType{3, relics_store_control_lifecycle}; // Getter 0x00081010.
+    types[0x95] = ObjectFactoryType{3, chapter2_scene4_control_lifecycle}; // Getter 0x000829A0.
     types[0x97] = ObjectFactoryType{3, scene_fx_control_lifecycle}; // Getter 0x00082FA0.
     types[0x98] = ObjectFactoryType{3, super_scary_control_lifecycle};
     types[0x9E] = ObjectFactoryType{3, map_view_control_lifecycle}; // Getter 0x00083EA0.
@@ -529,7 +560,7 @@ void NativeSceneControlOwner::message(SceneControlInstance& control, std::span<c
         message_runtime_super_scary_control(control.state, words, *control.super_scary, control, context.lists);
         return;
     }
-    // Types 3, 0x91, 0x9A, 0x9B and 0x9E share 0x00115EE0.
+    // Types 3, 0x91, 0x95, 0x9A, 0x9B and 0x9E share 0x00115EE0.
     message_runtime_scene_control(control, words, context.lists);
 }
 
@@ -560,6 +591,10 @@ void NativeSceneControlOwner::tick(SceneControlInstance& control)
         tick_runtime_relics_store_control(control.state, *control.relics_store,
             context.relics_store_services()); // 0x00081080
         return;
+    case 0x95:
+        tick_runtime_chapter2_scene4_control(control.state, control, context.lists,
+            context.chapter2_scene4_services()); // 0x00082A90
+        return;
     case 0x97:
         tick_runtime_scene_fx_control(control.state, context.fx_services()); // 0x00083570
         return;
@@ -584,10 +619,11 @@ void NativeSceneControlOwner::draw(SceneControlInstance& control)
     case 0x91:
     case 0x92:
     case 0x93:
+    case 0x95:
     case 0x97:
     case 0x9B:
     case 0x9E:
-        // Types 3 (getter 0x00115D50), 0x91 (getter 0x00080520), 0x92 (getter 0x000816C0), 0x93 (getter 0x000824F0),
+        // Type 0x95 (getter 0x000829A0) too. Types 3 (getter 0x00115D50), 0x91 (getter 0x00080520), 0x92 (getter 0x000816C0), 0x93 (getter 0x000824F0),
         // 0x97 (getter 0x00082FA0), 0x9B (getter 0x00080970) and 0x9E (getter 0x00083EA0) have the empty
         // 0x001628B0 at +0x14.
         return;

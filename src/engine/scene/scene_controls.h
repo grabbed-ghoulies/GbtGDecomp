@@ -11,6 +11,7 @@
 #include "haunted_chairs_control.h"
 #include "relics_store_control.h"
 #include "scene_fx_control.h"
+#include "chapter2_scene4_control.h"
 #include "map_view_control.h"
 #include <unordered_map>
 #include <vector>
@@ -58,6 +59,7 @@ struct SceneControlContext
     HauntedChairsControlServices* haunted_chairs = nullptr;
     RelicsStoreControlServices* relics_store = nullptr;
     SceneFxControlServices* fx = nullptr;
+    Chapter2Scene4ControlServices* chapter2_scene4 = nullptr;
     SuperScaryControlServices* super_scary = nullptr;
     MapViewControlServices* map_view = nullptr;
     const RuntimeActorClock& frame_clock() const;
@@ -68,6 +70,7 @@ struct SceneControlContext
     HauntedChairsControlServices& haunted_chairs_services() const;
     RelicsStoreControlServices& relics_store_services() const;
     SceneFxControlServices& fx_services() const;
+    Chapter2Scene4ControlServices& chapter2_scene4_services() const;
     SuperScaryControlServices& super_scary_services() const;
     MapViewControlServices& map_view_services() const;
 };

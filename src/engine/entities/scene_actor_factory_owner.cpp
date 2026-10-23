@@ -1,5 +1,6 @@
 #include "scene_actor_factory_owner.h"
 #include "../scripts/script_actions.h"
+#include "../scene/scene.h"
 #include "../cutscenes/event_runtime.h"
 #include "gbtg/actor_spawn_factory.h"
 #include "entity.h"
@@ -66,6 +67,14 @@ bool construct_super_scary_shock_view(FactoryObject& object, std::span<const u8>
 void release_super_scary_shock_view(FactoryObject& object)
 {
     active_owner->release_super_scary_shock(object);
+}
+bool construct_sss_dropper_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    return active_owner->construct_sss_dropper(object, parameters);
+}
+void release_sss_dropper_view(FactoryObject&)
+{
+    // 0x001628B0 returns at once.
 }
 bool construct_bg_break_key_view(FactoryObject& object, std::span<const u8> parameters)
 {
@@ -247,6 +256,12 @@ const ObjectFactoryVtable* super_scary_shock_lifecycle()
 {
     static const ObjectFactoryVtable table{0x00504F40, super_scary_shock_object_sizes,
         construct_super_scary_shock_view, release_super_scary_shock_view};
+    return &table;
+}
+const ObjectFactoryVtable* sss_dropper_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00504F04, sss_dropper_object_sizes, construct_sss_dropper_view,
+        release_sss_dropper_view};
     return &table;
 }
 const ObjectFactoryVtable* scare_figure_lifecycle()
@@ -590,6 +605,54 @@ struct NativeSceneActorClassOwner::SuperScaryShockInstance
     }
 };
 
+struct NativeSceneActorClassOwner::SssDropperInstance
+{
+    RuntimeSssDropper context;
+    SssDropperInstance(NativeSceneActorClassBindings& bindings, FactoryObject& object)
+        : context{{object.bytes.get(), object.size}, bindings.actors.view(object),
+            bindings.actors.bindings.startup.registry, bindings.actors.bindings.startup.error, bindings.random,
+            bindings.emitter.clock, g_script_30d0c, g_flags_ea9c, bindings.default_name,
+            [&bindings, bytes = object.bytes.get()](std::span<u32> message)
+            {
+                auto* self = bindings.object_at(bindings.address_of(bytes));
+                if (self == nullptr)
+                {
+                    throw Error("Super Scary dropper base message for an object outside the scene");
+                }
+                dispatch_base_actor_word_message(bindings.base_of(*self), message, bindings.word_messages);
+            },
+            [&bindings]() -> const Actor*
+            {
+                const auto players = bindings.case_actors(); // DAT_00511B40.
+                return players.empty() ? nullptr : &players.front().actor;
+            },
+            bindings.player_body,
+            [&bindings](const Actor& actor) -> u32
+            {
+                for (const auto& [bytes, native] : bindings.actors.actors)
+                {
+                    if (native == &actor)
+                    {
+                        return bindings.address_of(bytes);
+                    }
+                }
+                throw Error("Super Scary dropper addresses an actor outside the scene");
+            },
+            bindings.message,
+            [&bindings](std::span<const u8> parameters)
+            {
+                bindings.keep(create_factory_object(bindings.actors.bindings.factory, parameters)); // 0x00107520
+            },
+            bindings.pause_groups,
+            [&bindings, &actor = bindings.actors.view(object).bat.actor](float& timer)
+            {
+                const auto& clock = bindings.emitter.clock;
+                return actor_tick_timer(actor, timer, clock.freeze, clock.dt, clock.scale); // 0x00042360
+            }}
+    {
+    }
+};
+
 struct NativeSceneActorClassOwner::ScareFigureInstance
 {
     RuntimeScareFigure context;
@@ -851,6 +914,7 @@ void NativeSceneActorClassOwner::install(std::span<ObjectFactoryType> types)
     types[0x26] = {2, swap_setup_lifecycle}; // Getter 0x0006BB30.
     types[0x1D] = {2, scare_figure_lifecycle}; // Getter 0x0006EFB0.
     types[0x22] = {2, super_scary_shock_lifecycle}; // Getter 0x00072270.
+    types[0x21] = {2, sss_dropper_lifecycle}; // Getter 0x00071820.
     types[0x1E] = {2, bg_break_key_lifecycle}; // Getter 0x0006CC70.
     types[0xD] = {2, emitter_lifecycle}; // Getter 0x00109DD0.
     types[0xF] = {2, motion_blur_lifecycle}; // Getter 0x00066900.
@@ -1318,6 +1382,25 @@ void NativeSceneActorClassOwner::release_super_scary_shock(FactoryObject& object
     }
 }
 
+bool NativeSceneActorClassOwner::construct_sss_dropper(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto instance = std::make_unique<SssDropperInstance>(bindings_, object);
+    auto* dropper = instance.get();
+    sss_droppers_.emplace(object.bytes.get(), std::move(instance));
+    return initialize_runtime_sss_dropper(dropper->context, parameters);
+}
+
+void NativeSceneActorClassOwner::update_sss_dropper(FactoryObject& object, const std::function<void()>& update_actor)
+{
+    update_runtime_sss_dropper(sss_droppers_.at(object.bytes.get())->context, update_actor);
+}
+
+u32 NativeSceneActorClassOwner::draw_sss_dropper(ActorDrawState& state, i32 kind,
+    const ActorFrameDrawContext& attachments, SceneModelDrawContext& draw, RuntimeGlowPass& glow)
+{
+    return draw_runtime_sss_dropper(state, kind, attachments, draw, glow);
+}
+
 void NativeSceneActorClassOwner::update_super_scary_shock(FactoryObject& object,
     const std::function<void()>& update_actor)
 {
@@ -1386,6 +1469,7 @@ void NativeSceneActorClassOwner::release_view(const u8* bytes)
     bg_break_keys_.erase(bytes);
     scare_figures_.erase(bytes);
     super_scary_shocks_.erase(bytes);
+    sss_droppers_.erase(bytes);
     emitters_.erase(bytes);
     motion_blurs_.erase(bytes);
     afterimages_.erase(bytes);
@@ -1427,6 +1511,10 @@ void NativeSceneActorClassOwner::message(FactoryObject& object, std::span<u32> m
     else if (object.type == 0x22)
     {
         dispatch_runtime_super_scary_shock_message(super_scary_shocks_.at(object.bytes.get())->context, message);
+    }
+    else if (object.type == 0x21)
+    {
+        dispatch_runtime_sss_dropper_message(sss_droppers_.at(object.bytes.get())->context, message);
     }
     else if (object.type == 0xAA)
     {

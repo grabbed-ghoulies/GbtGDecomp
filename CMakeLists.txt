@@ -115,6 +115,8 @@ add_library(gbtg_lib STATIC
     src/engine/scene/haunted_chairs_control.cpp
     src/engine/scene/relics_store_control.cpp
     src/engine/scene/scene_fx_control.cpp
+    src/engine/scene/chapter2_scene4_control.cpp
+    src/engine/scene/background_morphs.cpp
     src/engine/scene/scene_point_lights.cpp
     src/engine/graphics/scene_point_light_pass.cpp
     src/engine/scene/scene_light_grid.cpp
@@ -250,6 +252,8 @@ add_library(gbtg_lib STATIC
     src/engine/entities/body_flamethrower_state.cpp
     src/engine/entities/body_shoot_state.cpp
     src/engine/entities/body_hit_stream_state.cpp
+    src/engine/entities/body_drone_dance_state.cpp
+    src/engine/entities/sss_dropper.cpp
     src/engine/entities/body_look_for_weapon_state.cpp
     src/engine/entities/body_slide_state.cpp
     src/engine/entities/animated_light.cpp

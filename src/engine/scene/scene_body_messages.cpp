@@ -356,6 +356,22 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
             children_[child->bytes.get()] = scoop.get();
             continue;
         }
+        if (child->type == 0x67)
+        {
+            auto& dance = drone_dance_children_[child->bytes.get()];
+            if (dance == nullptr)
+            {
+                dance = std::make_unique<RuntimeBodyMessageChild>();
+                dance->message = [this, child](std::span<u8> message)
+                {
+                    const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
+                    message_runtime_drone_dance_state({child->bytes.get(), child->size}, words,
+                        drone_dance_context()); // 0x0008E480
+                };
+            }
+            children_[child->bytes.get()] = dance.get();
+            continue;
+        }
         if (child->type == 0x76)
         {
             auto& stream = hit_stream_children_[child->bytes.get()];
@@ -773,6 +789,9 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
     case 0x76:
         tick_runtime_hit_stream_state({action.bytes.get(), action.size}, hit_stream_context()); // 0x00097500
         return;
+    case 0x67:
+        tick_runtime_drone_dance_state({action.bytes.get(), action.size}, drone_dance_context()); // 0x0008E130
+        return;
     case 0x7B:
         tick_runtime_look_for_weapon_state({action.bytes.get(), action.size}, look_for_weapon_context()); // 0x0009DB30
         return;
@@ -1059,6 +1078,7 @@ void SceneBodyMessages::action_step(FactoryObject& action)
     case 0x76:
     case 0x7B:
     case 0x83:
+    case 0x67:
         // 0x001628B0 (0x000D4179 for 0x69, 0x70 and 0x88) returns at once.
         return;
     default:
@@ -1458,6 +1478,16 @@ RuntimeLookForWeaponStateContext& SceneBodyMessages::look_for_weapon_context()
             return body_slot_key(0x20);
         }});
     return *look_for_weapon_;
+}
+
+RuntimeDroneDanceStateContext& SceneBodyMessages::drone_dance_context()
+{
+    player_.refresh_body_views();
+    drone_dance_.reset();
+    drone_dance_.emplace(RuntimeDroneDanceStateContext{player_.body, player_.actor,
+        player_.actor_instance.animation, services_.clock, player_.body_selection, services_.random, player_.room,
+        services_.image_string, services_.actor_at});
+    return *drone_dance_;
 }
 
 RuntimeHitStreamStateContext& SceneBodyMessages::hit_stream_context()
@@ -2225,6 +2255,15 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 auto& second = player_.body_selection.second;
                 const std::array<u32, 1> words{reply.id};
                 message_runtime_arc_state({second.bytes.get(), second.size}, words, arc_context());
+                return;
+            }
+            if (type == 0x67)
+            {
+                // 0x0008E480 acts only on 0x2D (reading its +8 actor) and 0x7C (its +4).
+                if (reply.id == 0x2D || reply.id == 0x7C)
+                {
+                    unbound("collision reply id " + std::to_string(reply.id) + " to the drone dance state 0x0008E480");
+                }
                 return;
             }
             if (type == 0x76)

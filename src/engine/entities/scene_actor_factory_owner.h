@@ -17,6 +17,7 @@
 #include "bg_break_key.h"
 #include "scare_figure.h"
 #include "super_scary_shock.h"
+#include "sss_dropper.h"
 #include "bone_debris_actor.h"
 #include "animated_light.h"
 #include "../graphics/effect_collision_response.h"
@@ -98,6 +99,10 @@ struct NativeSceneActorClassBindings
     RuntimeScenePointLights& point_lights;
     // The Super Scary shock (type 0x22): its ditty's tracked bank (DAT_004DF370).
     AudioBankStreams& streams;
+    // The Super Scary dropper (type 0x21): a player actor's +0x95C body, and 0x00069590's default name
+    // (DAT_00546208).
+    std::function<std::span<const u8>(const Actor&)> player_body;
+    const char* default_name;
 };
 // Native contexts for the retail area/trigger classes, over the existing
 // actor lifecycle owner. All referenced scene services must outlive this owner.
@@ -127,6 +132,11 @@ public:
     void release_super_scary_shock(FactoryObject& object); // Type 0x22, Xbox 0x00072420.
     void update_super_scary_shock(FactoryObject& object,
         const std::function<void()>& update_actor); // Type 0x22, Xbox 0x00072480.
+    bool construct_sss_dropper(FactoryObject& object, std::span<const u8> parameters); // Type 0x21.
+    void update_sss_dropper(FactoryObject& object,
+        const std::function<void()>& update_actor); // Type 0x21, Xbox 0x00071960.
+    u32 draw_sss_dropper(ActorDrawState& state, i32 kind, const ActorFrameDrawContext& attachments,
+        SceneModelDrawContext& draw, RuntimeGlowPass& glow); // Type 0x21, Xbox 0x00071DF0.
     u32 draw_scare_figure(FactoryObject& object, ActorDrawState& state, i32 kind,
         const ActorFrameDrawContext& attachments, SceneModelDrawContext& draw,
         RuntimeGlowPass& glow); // Type 0x1D, Xbox 0x0006F600.
@@ -200,6 +210,7 @@ private:
     struct BgBreakKeyInstance;
     struct ScareFigureInstance;
     struct SuperScaryShockInstance;
+    struct SssDropperInstance;
     struct EmitterInstance;
     struct WeaponInstance;
     NativeSceneActorClassBindings bindings_;
@@ -211,6 +222,7 @@ private:
     std::unordered_map<const u8*, std::unique_ptr<BgBreakKeyInstance>> bg_break_keys_;
     std::unordered_map<const u8*, std::unique_ptr<ScareFigureInstance>> scare_figures_;
     std::unordered_map<const u8*, std::unique_ptr<SuperScaryShockInstance>> super_scary_shocks_;
+    std::unordered_map<const u8*, std::unique_ptr<SssDropperInstance>> sss_droppers_;
     std::unordered_map<const u8*, std::unique_ptr<EmitterInstance>> emitters_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeAvatarMotionBlur>> motion_blurs_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeAvatarAfterimage>> afterimages_;

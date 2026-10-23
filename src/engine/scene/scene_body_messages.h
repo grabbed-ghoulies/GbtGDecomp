@@ -26,6 +26,7 @@
 #include "../entities/body_flamethrower_state.h"
 #include "../entities/body_shoot_state.h"
 #include "../entities/body_hit_stream_state.h"
+#include "../entities/body_drone_dance_state.h"
 #include "../entities/body_look_for_weapon_state.h"
 #include "../entities/body_slide_state.h"
 #include "../entities/body_swing_state.h"
@@ -185,6 +186,7 @@ public:
     // The type 0x81 state's views of this body; `input` is the tick's input word (actor +0x960 or zero).
     RuntimeShootStateContext& shoot_context(u32 input = 0);
     RuntimeHitStreamStateContext& hit_stream_context(); // The type 0x76 state's views of this body.
+    RuntimeDroneDanceStateContext& drone_dance_context(); // The type 0x67 state's views of this body.
     RuntimeLookForWeaponStateContext& look_for_weapon_context(); // The type 0x7B state's views of this body.
     RuntimeSwingStateContext& swing_context(); // The type 0x78 state's views of this body.
     SceneBodyMessages(const SceneBodyMessages&) = delete;
@@ -234,8 +236,10 @@ private:
     std::optional<RuntimeFlamethrowerStateContext> flamethrower_;
     std::optional<RuntimeShootStateContext> shoot_;
     std::optional<RuntimeHitStreamStateContext> hit_stream_;
+    std::optional<RuntimeDroneDanceStateContext> drone_dance_;
     std::optional<RuntimeLookForWeaponStateContext> look_for_weapon_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> hit_stream_children_; // 0x76, 0x00097890.
+    std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> drone_dance_children_; // 0x67, 0x0008E480.
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> flamethrower_children_; // 0x6A, 0x0008FBF0.
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> scoop_whack_children_; // 0x7E, 0x0009EED0.
     std::optional<RuntimeSlideStateContext> slide_;

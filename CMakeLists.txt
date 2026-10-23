@@ -117,6 +117,9 @@ add_library(gbtg_lib STATIC
     src/engine/scene/scene_fx_control.cpp
     src/engine/scene/chapter2_scene4_control.cpp
     src/engine/scene/background_morphs.cpp
+    src/engine/scene/background_cloths.cpp
+    src/engine/graphics/background_cloth.cpp
+    src/engine/graphics/background_cloth_draw.cpp
     src/engine/scene/scene_point_lights.cpp
     src/engine/graphics/scene_point_light_pass.cpp
     src/engine/scene/scene_light_grid.cpp

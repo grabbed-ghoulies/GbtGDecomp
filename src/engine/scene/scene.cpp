@@ -668,7 +668,7 @@ void scene_begin_audio_pause()
 // DAT_004312DC above 0 leaves the step at 0. Otherwise the step is
 // DAT_005096C0 * DAT_004312C4, capped at DAT_0032B150 when that product is
 // greater. The stack float for 0x00115BB0 is the step times DAT_0032B6E0.
-// 0x00115BB0 and 0x001162F0 are not translated.
+// 0x001162F0 is not translated.
 //
 // DAT_00510580 nonzero and DAT_00510650 clear adds DAT_0032B314 to
 // DAT_00510648 and DAT_0051064C, then would call 0x0011B7F0. That call is
@@ -770,9 +770,11 @@ void scene_tick_pause_counter(Game& g, u8* scene)
         }
     }
     const float paced = step * std::bit_cast<float>(0x40e66666u);
-    // 0x00115BB0 is not translated. The stack float is paced.
+    if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1)
+    {
+        g.factory_scene->start_actors(g).tick_background_cloths(paced); // 0x00115BB0
+    }
     // 0x001162F0 is not translated.
-    (void)paced;
 
     if (g_510580 != 0 && g_flag_0650 == 0)
     {

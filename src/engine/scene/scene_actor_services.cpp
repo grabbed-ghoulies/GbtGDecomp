@@ -55,6 +55,8 @@
 #include "../entities/actor_runtime_queries.h"
 #include "../entities/actor_pose_updates.h"
 #include "scene_controls.h"
+#include "background_cloths.h"
+#include "../graphics/background_cloth_draw.h"
 #include "lighting.h"
 #include "../graphics/light_volume_draw.h"
 #include "../entities/actor_view_visibility.h"
@@ -409,7 +411,6 @@ struct SceneActorServices::State
     RuntimeBlobShadows blob_shadows{blob_shadow_entries, blob_shadow_count, blob_shadow_free, blob_shadow_enable};
     u32 decal_enable = 0; // DAT_005462EC.
     u32 ambient_point_draw = 0; // DAT_005120F8.
-    void* portal_list = nullptr; // DAT_0050E390.
     // The boot-owned audio core (DAT_004E0CE8 and the rest); every scene requests through the same voices.
     NativeAudioRuntime& audio = native_audio_runtime();
     AudioEventVoices& voices = audio.voices;
@@ -786,7 +787,13 @@ struct SceneActorServices::State
     std::unique_ptr<RelicsStoreControlServices> relics_store_services; // Factory type 0x94.
     std::unique_ptr<SceneFxControlServices> fx_services; // Factory type 0x97.
     std::unique_ptr<Chapter2Scene4ControlServices> chapter2_scene4_services; // Factory type 0x95.
-    RuntimeBackgroundMorphs* background_morphs = nullptr; // DAT_0050E388, made by the untranslated 0x00114180.
+    RuntimeBackgroundMorphs* background_morphs = nullptr; // DAT_0050E388 while the scene's cloths exist.
+    RuntimeBackgroundCloths background_cloths; // DAT_0050E390, DAT_0050E394, DAT_0050E388 and DAT_0050E418.
+    u32 cloth_ramp_texture = 0; // DAT_005043B8.
+    RuntimeShadowProjector shadow_projector; // DAT_00504880..DAT_00504950.
+    std::unique_ptr<RuntimeBackgroundClothContext> cloth_context;
+    std::unique_ptr<RuntimeBackgroundClothScene> cloth_scene;
+    RuntimeBackgroundClothScene& background_cloth_scene();
     std::unique_ptr<SuperScaryControlServices> super_scary_services; // Factory type 0x98.
     std::unique_ptr<MapViewControlServices> map_view_services; // Factory type 0x9E.
     std::vector<const char*> powerup_names; // DAT_0042ABF8, twenty "powerupId_" names.
@@ -5017,6 +5024,7 @@ void SceneActorServices::State::end_scene()
     unload_runtime_ghoul_intro(*ghoul_intro_context); // 0x000F44B0
     // 0x0011C5A0 later tears the scoreboard down.
     tear_down_runtime_scoreboard(*scoreboard_hud); // 0x00132100
+    release_runtime_background_cloths(background_cloth_scene()); // 0x0011C5A0's 0x001143A0
     // 0x0011C5A0's 0x00123640 (0x001199F0, which also clears DAT_0050EC24..DAT_0050EF18, is not translated) and
     // 0x001133B0.
     reset_runtime_scene_point_light_pass(*point_light_pass, g_flag_2104, g_color_2134, [this](std::uintptr_t resource)
@@ -8161,6 +8169,7 @@ void SceneActorServices::State::start_background()
     door_pool->capacity = rows + 4 * 0x154;
     door_pool->stride = 0x154;
     door_pool->growth = 4;
+    create_runtime_background_cloth_pools(background_cloth_scene()); // 0x00114180
     auto& requests = g_scene_object_requests;
     u32 head;
     std::memcpy(&head, requests.background.data(), 4);
@@ -8195,7 +8204,8 @@ void SceneActorServices::State::start_background()
     }
     build_scene_navigation(background, {reinterpret_cast<const float*>(data(0x002FCFB8, 0x400).data()), 0x100},
         navigation, navigation_nodes);
-    // 0x0011CBD0 runs 0x001153A0 (not translated), 0x00123560, 0x00119990 (not translated), then 0x0011F450.
+    // 0x0011CBD0 runs 0x001153A0, 0x00123560, 0x00119990 (not translated), then 0x0011F450.
+    build_runtime_background_cloths(background_cloth_scene()); // 0x001153A0
     reset_runtime_scene_point_lights(background != nullptr && background->model != nullptr ? background->model->cpu
         : std::span<const u8>{}, point_lights); // 0x00123560
     setup_runtime_scene_mirrors(background != nullptr && background->model != nullptr ? background->model->cpu
@@ -8220,6 +8230,30 @@ void SceneActorServices::State::start_background()
         }
     }
     build_runtime_scene_light_grid(light_grid, light_grid_d3d); // 0x00112D70
+    // TEMP DEBUG: background part kinds.
+    if (auto* first = backgrounds->first_background(); first != nullptr && first->state.actor.model != nullptr
+        && first->state.actor.model->runtime != nullptr)
+    {
+        const auto cpu = first->state.actor.model->runtime->source->cpu;
+        const u32 header = read_u32(cpu, 0x10);
+        std::fprintf(stderr, "PARTDBG header 0x%08X\n", header);
+        if (header != 0)
+        {
+            const auto record = resources.memory.resolve(header, 0x10);
+            const u32 table = read_u32(record, 0xC);
+            std::fprintf(stderr, "PARTDBG table 0x%08X\n", table);
+            if (table != 0)
+            {
+                const auto words = resources.memory.resolve(table, 8);
+                const u32 count = read_u32(words, 0);
+                const auto rows = resources.memory.resolve(read_u32(words, 4), count * 0x34);
+                for (u32 index = 0; index < count; ++index)
+                {
+                    std::fprintf(stderr, "PARTDBG row %u kind %u\n", index, rows[index * 0x34 + 0x30]);
+                }
+            }
+        }
+    }
 }
 
 SceneActorServices::SceneActorServices(SceneFactoryRuntime& scene, Game& game)
@@ -8691,9 +8725,19 @@ void SceneActorServices::State::present_view(i32 view)
         },
         [this, first_background_model](u32 layer)
         {
-            if (first_background_model().data() != nullptr && portal_list != nullptr)
+            if (first_background_model().data() != nullptr && background_cloths.created)
             {
-                unbound("portal draw 0x00115A80 layer " + std::to_string(layer));
+                RuntimeBackgroundClothDraw draw{*point_light_pass, *display_setup, shadow_projector,
+                    cloth_ramp_texture,
+                    [this](u32 address)
+                    {
+                        return resources.memory.pointer(address);
+                    },
+                    [this]()
+                    {
+                        return background_cloth_scene().background_model();
+                    }};
+                draw_runtime_background_cloths(layer, background_cloths.list, draw); // 0x00115A80
             }
         },
         [this]()
@@ -10527,6 +10571,81 @@ void SceneActorServices::start_pending_ghoul_intro()
     {
         start_runtime_ghoul_intro(*state_->ghoul_intro_context); // 0x000F4A00
     }
+}
+
+RuntimeBackgroundClothScene& SceneActorServices::State::background_cloth_scene()
+{
+    if (cloth_scene != nullptr)
+    {
+        return *cloth_scene;
+    }
+    cloth_context = std::make_unique<RuntimeBackgroundClothContext>(RuntimeBackgroundClothContext{
+        [this](const void* block, size_t size)
+        {
+            return heap_address(block, size);
+        },
+        [this]() -> const Actor*
+        {
+            const auto listed = case_actors(); // DAT_00511B40.
+            return listed.empty() ? nullptr : &listed.front().actor;
+        },
+        [this](const void* node) -> const Actor*
+        {
+            for (const auto& [bytes, native] : actors->actors)
+            {
+                FactoryObject* object = object_of(bytes);
+                if (object != nullptr && &actors->view(*object).render.wide == node)
+                {
+                    return native;
+                }
+            }
+            unbound("DAT_00511AFC node of no scene actor");
+        },
+        entity_detail::g_world.wide.next,
+        [this](u32 address, size_t size)
+        {
+            return resources.memory.resolve(address, size);
+        }});
+    cloth_scene = std::make_unique<RuntimeBackgroundClothScene>(RuntimeBackgroundClothScene{background_cloths,
+        background_morphs, cloth_ramp_texture, *cloth_context,
+        [this](u32 width, u32 height, u32 levels, u32 usage, u32 format, u32 pool)
+        {
+            return snapshot_d3d.create_texture(width, height, levels, usage, format, pool); // D3D 0x00177840
+        },
+        [this](u32 texture) -> u8*
+        {
+            return resources.memory.pointer(resources.d3d.resources.at(texture).data); // D3DTexture_LockRect
+        },
+        [this](u32 texture)
+        {
+            resources.d3d.resources.erase(texture); // D3DResource_Release
+            created_textures.erase(texture);
+        },
+        [this]() -> u32
+        {
+            auto* first = backgrounds->first_background();
+            if (first == nullptr || first->state.actor.model == nullptr || first->state.actor.model->runtime == nullptr
+                || first->state.actor.model->runtime->source == nullptr)
+            {
+                return 0;
+            }
+            return resources.memory.address_of(first->state.actor.model->runtime->source->cpu.data());
+        },
+        [this]() -> std::span<const float, 42>
+        {
+            return std::span<const float, 42>(display_view->frustum);
+        },
+        [this]() -> u8&
+        {
+            return display_view->mark; // +0x1E0.
+        },
+        voices});
+    return *cloth_scene;
+}
+
+void SceneActorServices::tick_background_cloths(float step)
+{
+    tick_runtime_background_cloths(step, state_->background_cloth_scene()); // 0x00115BB0
 }
 
 void SceneActorServices::configure_scene_fog()

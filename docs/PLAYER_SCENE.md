@@ -221,7 +221,7 @@ All take the game directory, e.g.
 | `--scene2a2` | Boots chapter 2a scene 2 (chapter2a_scene2_1playcam, the dishwashing room) and plays it with the scene 7 driver, doors first, at any fight range: "Event - 'Kill All/Time Limit'" is one coward zombie against the reaper's countdown. The driver fights a ghouly within 15 in height (the hurt zombie climbs onto the plate stacks). Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene3_1playcam` (frame 5976 in the 2026-10-23 run) |
 | `--scene2a2-reaper` | Chapter 2a scene 2 with no fighting (fight range 0), so the time limit runs out and the Grim Reaper comes. Fails by design once its 18000 frames are up: the reaper takes Cooper's life, the retry restarts the scene and the time limit runs out again (four times in the 2026-10-23 run). It is for looking at the spider web, the reaper and the fade to grey |
 | `--scene2a3` | Boots chapter 2a scene 3 (chapter2a_scene3_1playcam) and plays it with the scene 7 driver. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene4_2playcam` (frame 2037 in the 2026-10-23 run) |
-| `--scene2a4` | Boots chapter 2a scene 4 (chapter2a_scene4_2playcam, the ballroom) and plays it with the scene 7 driver. Fails for now once its intro cutscene ends: the scene control (type 0x95) reads the background morph pool, which nothing makes yet |
+| `--scene2a4` | Boots chapter 2a scene 4 (chapter2a_scene4_2playcam, the ballroom) and plays it with the scene 7 driver. The intro (curtains opening onto the dance floor) plays and free play starts at frame 1271; the run then fails at its frame limit because the driver walks Cooper straight into the balcony railing toward a ghouly on the floor below (2026-10-23 run) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -337,7 +337,7 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 | The Grim Reaper's dizziness | no writer | `0x000AD600` turns him dizzy (0x3EA) while DAT_00512170 is set; no translated code writes it (`g_grim_reaper_dizzy`) |
 | Blob shadows | off | DAT_0050EF18 is never set, so 0x00119A60 hands out no shadow (the reaper's included) and the draw 0x00119AD0 is not reached |
 | The spider web in captures | unchecked | The web (type 0x1B) lands and snares by its messages; no capture has caught one yet |
-| Background morphs | missing | DAT_0050E388's morph pairs: 0x00114180 makes the pool (with the portal and plane pools) at scene load, 0x001153A0 sets up every background part kind (kind 5 adds a pair through 0x00113620), and 0x001137E0 blends each pair's vertices over 100 steps and clears its +0x28 flag. None is translated; scene 2a4's control waits on that flag |
+| Background cloths | partial | 0x001153A0 builds the background model's parts at scene load: kind 5 (curtain pairs) and kind 4 (collision planes) are translated; kinds 1, 2, 3 and 8 (0x00050880), 6 (0x000509E0) and 7 (0x00050940) raise, as do the hooks 0x00114910, 0x001145F0 and 0x00114580, the specular shading 0x0004BA90, the second strip draw 0x0005D710 and 0x00064820's part pass. Any scene whose background has those kinds now stops at load; only scene 2a4 has been run |
 | Script type 0x16 | legacy | Still the old shortcut; retail waits for `0x0004EFE0` with DAT_00512470 set, then releases the cutscenes |
 | Chapter 2a scene 3 (`aid_script_ghoulies_chapter2a_scene3_1playcam`) | not driven | `--scene2a2` stops once the script moves on to it |
 | The coward zombie on the plates | unchecked | Hurt, scene 2a2's zombie climbs onto a plate stack and stays there without moving (y about 8.6) until Cooper comes within reach; not compared with retail |
@@ -388,6 +388,22 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-23: the ballroom's curtains (background cloth)
+
+The ballroom's background part table holds one kind 5 part: a pair of curtain halves. The scene load now makes the
+cloth pools and a 256 x 1 grey ramp (`0x00114180`), builds the parts (`0x001153A0`, `background_cloths.cpp`) and
+releases them with the scene (`0x001143A0`). Each half is a 17 x 16 particle grid on the existing point-graph solver
+(`background_cloth.cpp`: `0x0004B5F0`, `0x0004FB30`, `0x00050CC0`, the step `0x0004C000`, the shading `0x0004B800`
+and the sleep and wake hooks `0x001151F0` / `0x001152C0`). The scene tick steps them (`0x00115BB0`) and opens or
+closes the pairs (`0x001137E0`, `background_morphs.cpp`), which is what scene 2a4's control waits on. The view pass draws
+them (`0x00115A80`, `background_cloth_draw.cpp`): each in-view cloth's silhouette is captured on the page target and
+projected onto the light grid's cells (`0x0005DA50`, `0x000644F0`, `0x00064820` with its frustum `0x00064030`), then
+the cloths are drawn as pushed triangle strips (`0x0005D250`, `0x0005D470`).
+
+- Shown (looked at): the curtains drawing apart in the intro (`scene2a4_600.bmp`), the dancers on the floor
+  (`scene2a4_900.bmp`), the mummy DJ and the Super Scary dropper falling on Cooper (`scene2a4_1500.bmp`). The cloth
+  shadow on the floor has not been picked out in a capture.
 
 ### 2026-10-23: chapter 2a scene 4 (the ballroom) starts
 

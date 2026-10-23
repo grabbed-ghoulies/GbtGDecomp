@@ -192,6 +192,8 @@ public:
     static constexpr u32 kMultiSampleRenderTargetMode = 0x100C2; // D3DDevice_SetRenderState_MultiSampleRenderTargetMode.
     static constexpr u32 kZBias = 0x10063; // D3DDevice_SetRenderState_ZBias.
     static constexpr u32 kPSTextureModes = 0x10070; // D3DDevice_SetRenderState_PSTextureModes.
+    static constexpr u32 kTwoSidedLighting = 0x10064; // D3DDevice_SetRenderState_TwoSidedLighting (0x001717F0).
+    static constexpr u32 kBorderColor = 0x100D0; // D3DDevice_SetTextureState_BorderColor (0x00171A40), plus the stage.
     static constexpr u32 kStencilEnable = 0x4032C; // NV097_SET_STENCIL_TEST_ENABLE.
     // The NV2A combiner registers behind pixel-shader definition words 0..56 (the table at 0x0020A368). Raw writes
     // to them (the model shader overrides, 0x000F7420 / 0x000F7FA0) stand until the next SetPixelShader uploads a

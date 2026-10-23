@@ -86,6 +86,8 @@ i32 run_script_event_key_step(std::span<u8> step); // Xbox 0x000CFA90, step type
 // +0x18 the tag, +0x1C set once an actor of it has been seen (or none needs to be).
 i32 run_script_event_tag_step(std::span<u8> step); // Xbox 0x000CFDA0, step type 2
 i32 run_script_event_kill_count_step(std::span<u8> step); // Xbox 0x000CFE20, step type 3
+i32 run_script_event_time_limit_step(std::span<u8> step); // Xbox 0x000CFE50, step type 4
+i32 run_script_event_survive_step(std::span<u8> step); // Xbox 0x000CFEE0, step type 5
 // EDI kind: adds the step's scoreboard icon and returns its message id.
 u32 add_script_event_icon(u32 kind, u16 tag); // Xbox 0x0012FB80, EDI kind, ESI tag
 // EDX id: the scoreboard message fades out.

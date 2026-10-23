@@ -604,6 +604,11 @@ void show_script_event_icons()
             count = left < 0 ? 0u : u32(left);
             break;
         }
+        case 4:
+        case 5:
+            // The seconds left, truncated; none once they have run out (DAT_0032B100, 0).
+            count = read_f32(step, 0x18) <= 0.f ? 0u : u32(read_f32(step, 0x18));
+            break;
         case 6:
             count = 0;
             break;
@@ -749,6 +754,14 @@ bool run_script_event_steps(Game& g)
             else if (type == 3)
             {
                 result = run_script_event_kill_count_step(step); // 0x000CFE20
+            }
+            else if (type == 4)
+            {
+                result = run_script_event_time_limit_step(step); // 0x000CFE50
+            }
+            else if (type == 5)
+            {
+                result = run_script_event_survive_step(step); // 0x000CFEE0
             }
             else
             {
@@ -924,6 +937,49 @@ i32 run_script_event_kill_count_step(std::span<u8> step)
         return 0;
     }
     return script_event_step_delay_done(step.subspan(4)) ? 1 : 5; // 0x000D0700, ECX step+4
+}
+
+namespace
+{
+// The time steps' clock: none while bit 4 of DAT_0050EA9C is set or the decay latches hold (DAT_0050E768, the
+// byte at [DAT_0051248C]+0x30F144), and none while the simulation is frozen (DAT_004312DC).
+float script_event_step_time()
+{
+    if ((g_flags_ea9c & 4u) != 0 || g_block_decay != 0 || g_decay_arm == 0)
+    {
+        return 0.f;
+    }
+    return frame_step();
+}
+}
+
+// Xbox 0x000CFE50: the time-limit step counts its +0x18 seconds down unless the steps wait (DAT_0050653C); it
+// fails once they run out.
+i32 run_script_event_time_limit_step(std::span<u8> step)
+{
+    if (g_event_sequence.waiting != 0)
+    {
+        return 2;
+    }
+    const float left = read_f32(step, 0x18) - script_event_step_time();
+    put_float(step, 0x18, left);
+    if (left <= 0.f)
+    {
+        return 3;
+    }
+    return 2;
+}
+
+// Xbox 0x000CFEE0: the survive step counts its +0x18 seconds down and succeeds once they run out.
+i32 run_script_event_survive_step(std::span<u8> step)
+{
+    const float left = read_f32(step, 0x18) - script_event_step_time();
+    put_float(step, 0x18, left);
+    if (left <= 0.f)
+    {
+        return 1;
+    }
+    return 0;
 }
 
 // Xbox 0x000CFA90: the key step waits for event 0xAE (the bg-break key's show has ended), then its delay.

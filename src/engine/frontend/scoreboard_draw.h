@@ -34,4 +34,7 @@ void draw_runtime_hud_two_digits(float* position, RuntimeHudCounter& counter, st
 // EAX position, EBX counter, ECX preset: the dollar sign, then the counter.
 void draw_runtime_hud_money(float* position, RuntimeHudCounter& counter, std::span<const u8> preset, u32 now,
     RuntimeScoreboardHud& hud, RuntimeScoreboardDraw& draw); // Xbox 0x0012F0D0
+// EAX counter, then preset, position and now: the counter's seconds as [H:]MM:SS.
+void draw_runtime_hud_time(RuntimeHudCounter& counter, std::span<const u8> preset, float* position, u32 now,
+    RuntimeScoreboardHud& hud, RuntimeScoreboardDraw& draw); // Xbox 0x0012F110
 }

@@ -683,8 +683,7 @@ void draw_runtime_scoreboard(RuntimeScoreboard* board, RuntimeScoreboardHud& con
                         }
                         else
                         {
-                            throw Error("untranslated Xbox 0x0012F110 (scoreboard row kind "
-                                + std::to_string(row.word_70) + ")");
+                            draw_runtime_hud_time(row.counter, preset, digits, 0, context, draw); // 0x0012F110
                         }
                     }
                     shown[0] -= offset;

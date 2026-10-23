@@ -10083,7 +10083,20 @@ void SceneActorServices::start_markers()
             };
         }
     }
-    start_runtime_scene_markers(state.markers, randomizer, handlers);
+    // A marker's scene effect emitter (factory type 0x97) ticks its effect once as it starts (0x000EF2D0); the
+    // frame's scratch stands for this pass's incoming stack bytes as it does for update_scene_actors.
+    auto* scratch = state.effect_pass_scratch;
+    state.effect_pass_scratch = &state.frame_effect_scratch;
+    try
+    {
+        start_runtime_scene_markers(state.markers, randomizer, handlers);
+    }
+    catch (...)
+    {
+        state.effect_pass_scratch = scratch;
+        throw;
+    }
+    state.effect_pass_scratch = scratch;
 }
 
 bool SceneActorServices::activation_pending() const

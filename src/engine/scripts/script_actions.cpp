@@ -1406,12 +1406,18 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
     }
     case 0x1a:
     {
-        const float value = std::bit_cast<float>(node_u32(g.scene_script, node, 8));
-        (void)value;
+        // 0x00125D80 builds step type 4 with XMM0 = 0 at +4; +0x18 is the time limit at node+8. 0x000D05D0 queues it
+        // unless bit 0x10 of DAT_0050EA9C is set.
+        std::array<u8, 0x88> step{};
+        const u32 type = 4;
+        std::memcpy(step.data(), &type, 4);
+        const u32 seconds = node_u32(g.scene_script, node, 8);
+        std::memcpy(step.data() + 0x18, &seconds, 4);
         if ((g_flags_ea9c & 0x10u) != 0)
         {
             return 2;
         }
+        queue_script_event_step(step);
         return 2;
     }
     case 0x1b:
@@ -1460,13 +1466,27 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
     }
     case 0x1e:
     {
-        const float value = std::bit_cast<float>(node_u32(g.scene_script, node, 8));
-        (void)value;
+        // 0x00125DC0 builds step type 5 with XMM0 = 0 at +4; +0x18 is the time to survive at node+8. 0x000D05D0
+        // queues it.
+        std::array<u8, 0x88> step{};
+        const u32 type = 5;
+        std::memcpy(step.data(), &type, 4);
+        const u32 seconds = node_u32(g.scene_script, node, 8);
+        std::memcpy(step.data() + 0x18, &seconds, 4);
+        queue_script_event_step(step);
         return 2;
     }
     case 0x1f:
-        // 0x00126040, XMM0 = 2.0 (0x0032B110). 0x000D05D0 is not translated.
+    {
+        // 0x00126040 builds step type 0xF with XMM0 = 2.0 (0x0032B110) at +4, then 0x000D05D0 queues it.
+        std::array<u8, 0x88> step{};
+        const u32 type = 0xF;
+        const float delay = 2.f;
+        std::memcpy(step.data(), &type, 4);
+        std::memcpy(step.data() + 4, &delay, 4);
+        queue_script_event_step(step);
         return 2;
+    }
     case 0x20:
     {
         const u32 word = u32(node_u16(g.scene_script, node, 8));

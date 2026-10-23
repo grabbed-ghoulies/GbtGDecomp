@@ -1,4 +1,5 @@
 #include "scoreboard_draw.h"
+#include "player_health_display.h"
 #include "gbtg/anim.h"
 
 #include <bit>
@@ -135,5 +136,47 @@ void draw_runtime_hud_money(float* position, RuntimeHudCounter& counter, std::sp
     const float scale[2]{swell, swell};
     draw_runtime_hud_dollar(now, 0, scale, position, preset, hud, draw); // 0x0012F850, EAX the stack flag
     draw_runtime_hud_counter(counter, position, preset, 0, hud, draw); // 0x0012F000 with a pushed 0
+}
+
+// Xbox 0x0012F110
+void draw_runtime_hud_time(RuntimeHudCounter& counter, std::span<const u8> preset, float* position, u32 now,
+    RuntimeScoreboardHud& hud, RuntimeScoreboardDraw& draw)
+{
+    const i32 total_minutes = counter.value / 60;
+    const i32 hours = total_minutes / 60;
+    const i32 minutes = total_minutes % 60;
+    const i32 seconds = counter.value % 60;
+    // The colon's scale is the preset's first float on both axes.
+    const float size = read_f32(preset, 0);
+    const float scale[2]{size, size};
+    // Each part is a copy of the counter holding its own value, its digits refreshed (0x0012F990).
+    const auto part = [&](i32 value)
+    {
+        RuntimeHudCounter copy = counter;
+        copy.value = value < 0 ? 0 : value;
+        copy.target = copy.value;
+        update_runtime_hud_counter_digits(copy, preset); // 0x0012F990, ESI preset
+        return copy;
+    };
+    RuntimeHudCounter second_part = part(seconds);
+    RuntimeHudCounter minute_part = part(minutes);
+    RuntimeHudCounter zero = part(0);
+    if (hours != 0)
+    {
+        RuntimeHudCounter hour_part = part(hours);
+        draw_runtime_hud_counter(hour_part, position, preset, now, hud, draw); // 0x0012F000
+        draw_runtime_hud_dollar(now, 1, scale, position, preset, hud, draw); // 0x0012F850, the colon
+        if (minutes < 10)
+        {
+            draw_runtime_hud_counter(zero, position, preset, now, hud, draw);
+        }
+    }
+    draw_runtime_hud_counter(minute_part, position, preset, now, hud, draw);
+    draw_runtime_hud_dollar(now, 1, scale, position, preset, hud, draw);
+    if (seconds < 10)
+    {
+        draw_runtime_hud_counter(zero, position, preset, now, hud, draw);
+    }
+    draw_runtime_hud_counter(second_part, position, preset, now, hud, draw);
 }
 }

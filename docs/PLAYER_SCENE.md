@@ -218,6 +218,7 @@ All take the game directory, e.g.
 | `--scene12` | Boots scene 12 (chapter1_scene12_1playcam, the wine cellar) and plays it with the scene 7 driver, doors first: Cooper fights any live ghouly at any range (1000), and a ghouly too far for the right stick is walked to like a goal (held cells avoided). The sleeping haunted door wakes as he comes near, and the fight ends with Cooper's one-liner. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene1_1playcam` (frame 5837 in the 2026-10-23 run) |
 | `--scene2a1` | Boots chapter 2a scene 1 (chapter2a_scene1_1playcam, the kitchen stairwell) and plays it with the scene 7 driver, doors first, at any fight range. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book` ("Fire extinguihser weapon Intro"; frame 9132 in the 2026-10-23 run) |
 | `--scene2a1b` | Boots the extinguisher's book (chapter2a_scene1_2book), plays it to `aid_script_ghoulies_chapter2a_scene1_3playcam` (the kitchen) and plays that with the scene 7 driver, doors first, fighting only in "Event - Kill All" (the cook, tag 8, is not a ghouly). A held weapon is aimed with the right stick held (the extinguisher's spray), bare hands tap it. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene2_1playcam` (frame 4115 in the 2026-10-23 run) |
+| `--scene2a2` | Boots chapter 2a scene 2 (chapter2a_scene2_1playcam, the dishwashing room) and plays it with the scene 7 driver, doors first, at any fight range: "Event - 'Kill All/Time Limit'" is one coward zombie against the reaper's countdown. The driver fights a ghouly within 15 in height (the hurt zombie climbs onto the plate stacks). Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene3_1playcam` (frame 5976 in the 2026-10-23 run) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -327,19 +328,19 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 | Actor id lookups | legacy | `find_actor_by_id` / `find_actor_by_group` over the unfilled `g_pulse_nodes` still serve script actions, conditions and the ghoulybox controller; see `docs/LEGACY_HOST_CODE.md` |
 | Script actions | legacy | `0x00126E10`'s other cases (0x4D, 0x4E, 0x62, 0x67, 0x6E, 0x73, 0x8E, 0x9D) and `0x00127BC0`'s cases still compute values and skip their callees; this scene does not reach them |
 | Present (the snapshot) | renders nothing | `0x00116530` records its draws but the texture stays empty |
-| HUD draws (not reached) | `0x0012F110` | Scoreboard rows of kinds 4 and 5 (the formatted counter) |
 | Scene 3's Free Play branches (`--scene3`) | legacy | Free Play's node 0x51 on the skeletons still goes through the legacy `g_range_links` |
 | Script condition nodes | partial | `0x00125450` registers types 0x3D..0x3F, 0x40..0x44, 0x47, 0x48, 0x5A, 0x5B, 0x6A, 0x6C, 0x72, 0x92, 0x93, 0x94, 0x95 and 0x99; retail also takes 0x65, 0x66, 0x68, 0x75, 0x8B, 0x8C and 0xA3, which still run as ordinary nodes |
-| Script event steps | partial | `0x00126140` queues step types 0 to 3 (script types 0x19, 0x1B, 0x1C, 0x1D) and `0x000D0B40` runs them; the other builders (`0x00125D80`..`0x00126100`) are not translated, so those script types queue nothing |
+| Script event steps | partial | `0x00126140` queues step types 0 to 5 and 0xF (script types 0x19..0x1F) and `0x000D0B40` runs types 0 to 5; the builders from `0x00125E00` on (script types 0x20 and up) and the ticks of types 6 and up are not translated. A time limit that runs out (step result 3) reaches the untranslated reward `0x000CF7B0` (the Grim Reaper) |
 | Script type 0x16 | legacy | Still the old shortcut; retail waits for `0x0004EFE0` with DAT_00512470 set, then releases the cutscenes |
-| Chapter 2a scene 2 (`aid_script_ghoulies_chapter2a_scene2_1playcam`) | not driven | `--scene2a1b` stops once the script moves on to it |
+| Chapter 2a scene 3 (`aid_script_ghoulies_chapter2a_scene3_1playcam`) | not driven | `--scene2a2` stops once the script moves on to it |
+| The coward zombie on the plates | unchecked | Hurt, scene 2a2's zombie climbs onto a plate stack and stays there without moving (y about 8.6) until Cooper comes within reach; not compared with retail |
 | The scene 2a1 stairwell walk | slow | The driver finds no grid route from the stairwell floor (y -40) and walks "straight" into the wall until about frame 8000 |
 | A death during an event | as dumped | `0x00134AE0` sets DAT_00430D0C with the restart, so the reloaded script passes its handlers through (0x00128A00's third argument) and skips the event; the kitchen's exit door then stays shut because the event's end (state 4) never opens it. Not compared with retail |
 | The camera near scene 9's door 8 | unchecked | From frame ~11400 of a long scene 9 run the camera looked down on the cellar from outside its walls; not compared with retail |
 
 ## Work
 
-1. Chapter 2a scene 2 (`aid_script_ghoulies_chapter2a_scene2_1playcam`): drive it after `--scene2a1b` and
+1. Chapter 2a scene 3 (`aid_script_ghoulies_chapter2a_scene3_1playcam`): drive it after `--scene2a2` and
    translate what it reaches.
 2. Move the remaining `g_pulse_nodes` callers to the native `DAT_00511AA4` lookups.
 
@@ -380,6 +381,23 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-23: chapter 2a scene 2 (the dishwashing room) plays to its end
+
+`--scene2a2` (new) boots `aid_script_ghoulies_chapter2a_scene2_1playcam`: Free Play, "Exit Door Closes", the
+time-limit page, then "Event - 'Kill All/Time Limit'" with one coward zombie. Cooper beats it with 9 seconds left on
+the reaper's countdown (`scene2a2_3600.bmp`), Free Play takes him out and the script moves on to
+`aid_script_ghoulies_chapter2a_scene3_1playcam` at frame 5976.
+
+- The scene's effect emitter (factory type 0x97, a kind 0xA marker) ticks its effect once as it starts
+  (`0x000EF2D0`); the marker pass now lends it the frame's effect scratch, as the actor passes do.
+- Script types 0x1A, 0x1E and 0x1F queued nothing. They now build their steps as `0x00125D80`, `0x00125DC0` and
+  `0x00126040` do (time limit, type 4; survive, type 5; type 0xF) and queue them (`0x000D05D0`). The time-limit
+  and survive ticks (`0x000CFE50`, `0x000CFEE0`) count +0x18 down; the event icons show their seconds.
+- The scoreboard draws its time rows (kinds 4 and 5) as [H:]MM:SS (`0x0012F110`, `scoreboard_draw.cpp`).
+- Shown (looked at): the time-limit page (`scene2a2_page1.bmp`), the reaper's countdown 0:24 / 0:14 / 0:09 beside the
+  zombie icon (`scene2a2_2700.bmp`, `_3300`, `_3600`). Not shown: the reaper itself (the time never ran out). Not
+  listened to.
 
 ### 2026-10-23: the extinguisher's book and the kitchen's Kill All play to their end
 

@@ -152,6 +152,18 @@ u32 scale_runtime_color(u32 color, float scale)
     return result;
 }
 
+// Xbox 0x001016C0
+u32 scale_runtime_color_rgb(u32 color, float scale)
+{
+    u32 result = color & 0xFF000000u;
+    for (u32 channel = 0; channel < 3; ++channel)
+    {
+        const long double value = static_cast<long double>(i32((color >> (channel * 8)) & 0xFF)) * scale;
+        result |= u32(u8(truncate_runtime_float(value))) << (channel * 8); // 0x001673D8
+    }
+    return result;
+}
+
 // Xbox 0x00062220
 void begin_runtime_glow_capture(const float* minimum, const float* maximum, RuntimeGlowPass& context)
 {
@@ -394,5 +406,92 @@ void composite_runtime_glow(u32 first_texture, u32 pixel_shader, u32 second_text
     {
         d3d.texture(stage, nullptr);
     }
+}
+
+// Xbox 0x00062580
+void composite_runtime_glow_texture(u32 texture, u32 pixel_shader, u32 color, RuntimeGlowPass& context)
+{
+    if (begin_runtime_glow_composite(color, 3, pixel_shader, context) == 0)
+    {
+        return;
+    }
+    auto& draw = context.outer.draw;
+    if (texture != 0)
+    {
+        bind_dialogue_texture(context.texture_at(texture), 1, draw); // 0x00053550, ESI texture
+    }
+    const auto channels = color_channels(color);
+    context.outer.d3d.pixel_constants(1, channels.data(), 1);
+    // DAT_0042516C..DAT_00425188: each corner's texture coordinates.
+    std::array<u32, 8> coordinates;
+    for (u32 index = 0; index < 8; ++index)
+    {
+        coordinates[index] = context.word_at(0x0042516C + index * 4);
+    }
+    auto& d3d = draw.d3d;
+    u32* push = d3d.begin_push(0x15);
+    push[0] = 0x417FC;
+    push[1] = 8;
+    push[2] = 0x40401818;
+    for (u32 corner = 0; corner < 4; ++corner)
+    {
+        u32* vertex = push + 3 + corner * 4;
+        vertex[0] = std::bit_cast<u32>(context.targets.corners[corner * 2]);
+        vertex[1] = std::bit_cast<u32>(context.targets.corners[corner * 2 + 1]);
+        vertex[2] = coordinates[corner * 2];
+        vertex[3] = coordinates[corner * 2 + 1];
+    }
+    push[19] = 0x417FC;
+    push[20] = 0;
+    d3d.end_push(push + 0x15);
+    deferred(context, 0x00181968) |= 1;
+    deferred(context, 0x0018199C) = 0;
+    d3d.depth(1);
+    d3d.stencil_enable(0);
+    d3d.vertex_shader(0);
+    d3d.pixel_shader(0);
+    for (u32 stage = 0; stage < 4; ++stage)
+    {
+        d3d.texture(stage, nullptr);
+    }
+}
+
+// Xbox 0x000770F0
+void begin_runtime_fade_to_grey(RuntimeGlowPass& context)
+{
+    begin_runtime_glow_capture(nullptr, nullptr, context); // The inlined 0x00062220 over the whole view.
+}
+
+// Xbox 0x000771F0
+void end_runtime_fade_to_grey(std::span<const u8> effect, RuntimeGlowPass& context)
+{
+    const u32 white = context.word_at(0x00314F48);
+    const u32 texture = read_u32(effect, 0x24);
+    const float level = read_f32(effect, 0x18);
+    if (texture == 0)
+    {
+        stamp_runtime_glow(scale_runtime_color_rgb(white, level), 3, context); // 0x001016C0, 0x00062490 EAX 3
+        return;
+    }
+    const auto clamp_unit = [](float value)
+    {
+        if (value > 1.f) // DAT_0032B0F8.
+        {
+            return 1.f;
+        }
+        return 0.f > value ? 0.f : value;
+    };
+    u32 color;
+    if (0.5f > level) // DAT_0032B0F4.
+    {
+        color = scale_runtime_color_rgb(white, clamp_unit(level * 2.f)); // DAT_0032B110
+    }
+    else
+    {
+        color = white;
+        // The second stack word 0x00062580 does not read: white greyed by the level past one half.
+        (void)scale_runtime_color_rgb(white, clamp_unit((level - 0.5f) * 2.f)); // 0x001016C0
+    }
+    composite_runtime_glow_texture(texture, 5, color, context); // 0x00062580, EAX 5, ECX texture
 }
 }

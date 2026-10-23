@@ -836,6 +836,13 @@ bool runtime_message_from_mind_target(std::span<const u32> message, u32 actor, s
     return runtime_message_names_mind_target_actor(message, mind, target_at) && message[2] == actor;
 }
 
+// Xbox 0x00140910, EAX actor, ECX message
+bool runtime_message_lands_from_mind_target(std::span<const u32> message, std::span<const u8> mind,
+    const std::function<RuntimeMindTarget*(u32)>& target_at)
+{
+    return runtime_message_names_mind_target_actor(message, mind, target_at) && message[4] != 0;
+}
+
 // Xbox 0x00140A00, EAX message, ECX actor
 bool runtime_message_source_targets_mind_target(std::span<const u32> message, u32 actor, std::span<const u8> mind,
     RuntimeStrategyActorViews& views)

@@ -52,11 +52,17 @@ struct RuntimeFxCustomContext
     std::function<RuntimeActorStartupState&(Actor&)> startup_of; // The actor's +0x198 colour and +0x19C levels.
     std::function<std::span<u8>(Actor&)> object_bytes; // The actor's own bytes (+0x1A0..+0x1A8).
     std::function<u32(const u8*)> address_of; // An effect's retail address.
+    std::function<u32(const u8*)> resource_address; // A loaded resource's retail address.
     std::function<bool(Actor&, u32)> release_frame_object; // 0x0003DE30, ECX actor, ESI object.
 };
 void fx_custom_object_sizes(ObjectSizes& output); // Xbox 0x00095530
 void fx_custom_electric_object_sizes(ObjectSizes& output); // Xbox 0x00076570
 void fx_custom_solid_fade_in_object_sizes(ObjectSizes& output); // Xbox 0x00077D90
+// entityFxCustomFadeToGrey (type 0x30, getter 0x00076E80, vtable 0x00505410) over fxCustom: the actor fades to grey
+// (its draw hooks +0x1A0 / +0x1A4 are 0x000770F0 / 0x000771F0 with the effect at +0x1A8). The level (+0x18) moves
+// toward +0x1C at +0x20 a second; message 0xAC {level, seconds} sets a new target. +0x24 is the texture's address.
+void fx_custom_fade_to_grey_object_sizes(ObjectSizes& output); // Xbox 0x00076E60
+void message_fx_custom_fade_to_grey(std::span<u8> effect, std::span<const u32> message); // Xbox 0x00076DF0
 // entityFxCustomOutline (type 0x31, getter 0x00077300, vtable 0x00505428): a candle hit's burning outline.
 void fx_custom_outline_object_sizes(ObjectSizes& output); // Xbox 0x000772E0
 // Message 3 holds the outline at full level again, 5 lets its hold end.
@@ -70,6 +76,6 @@ void move_runtime_light(std::int8_t slot, const Vec3& position,
     RuntimeShaderRegistrationState& lights); // Xbox 0x000FE0F0, AL slot, ECX position
 // Every mask a shape list's records carry, ORed.
 u32 runtime_shape_list_mask(const u8* list); // Xbox 0x00056C80, EDX the list
-// Types 0xC (base 1), 0x2E and 0x32 (base 0xC) with their lifecycles.
+// Types 0xC (base 1), 0x2E, 0x30, 0x31 and 0x32 (base 0xC) with their lifecycles.
 void install_runtime_fx_custom_classes(std::span<ObjectFactoryType> types, RuntimeFxCustomContext& context);
 }

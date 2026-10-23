@@ -333,6 +333,41 @@ u8* find_runtime_marker(const u8* records, i16 id)
     return find_marker_row(const_cast<u8*>(records), id);
 }
 
+// Xbox 0x0011F0B0
+u16 farthest_runtime_marker(i16 kind, const Vec3& point, const u8* records)
+{
+    u16 chosen = 0;
+    float farthest = -1000000000.f; // DAT_0032B308.
+    const i32 count = count_runtime_markers(kind, records); // 0x0011EF50, ESI kind
+    if (count < 1)
+    {
+        return 0;
+    }
+    for (i32 index = 0; index < count; ++index)
+    {
+        u16 id = next_runtime_marker_id(0, kind, 1, records); // 0x0011F1C0, AX 0
+        for (i32 step = index; step > 0; --step)
+        {
+            id = next_runtime_marker_id(id, kind, 1, records);
+        }
+        const u8* row = find_runtime_marker(records, i16(id));
+        if (row == nullptr)
+        {
+            throw Error("0x0011F0B0 reads the position of a marker with no row");
+        }
+        Vec3 at;
+        std::memcpy(&at, row + 0xC, sizeof(at));
+        const float distance = (point.z - at.z) * (point.z - at.z) + (point.y - at.y) * (point.y - at.y)
+            + (point.x - at.x) * (point.x - at.x);
+        if (farthest < distance)
+        {
+            farthest = distance;
+            chosen = id;
+        }
+    }
+    return chosen;
+}
+
 // Xbox 0x0011EF50
 i32 count_runtime_markers(i16 kind, const u8* records)
 {

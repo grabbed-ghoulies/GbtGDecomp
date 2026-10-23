@@ -220,6 +220,9 @@ add_library(gbtg_lib STATIC
     src/engine/entities/imp_flamethrower_strategy.cpp
     src/engine/entities/scare_figure.cpp
     src/engine/entities/super_scary_shock.cpp
+    src/engine/entities/spider_web.cpp
+    src/engine/entities/grim_reaper_strategy.cpp
+    src/engine/graphics/blob_shadows.cpp
     src/engine/entities/projectile_weapon.cpp
     src/engine/entities/thrown_projectile.cpp
     src/engine/entities/bob_weapon.cpp

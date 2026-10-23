@@ -17,6 +17,23 @@
 
 namespace gbtg
 {
+// Xbox 0x00052F80
+bool actor_model_record_bit(std::span<const u8> cpu, u32 bit)
+{
+    u32 value = 0;
+    const u32 count = read_u32(cpu, 4);
+    const u32 table = read_u32(cpu, 0);
+    for (u32 index = 0; index < count; ++index)
+    {
+        if (read_u32(cpu, table + index * 8) == 1)
+        {
+            value = read_u32(cpu, table + index * 8 + 4);
+            break;
+        }
+    }
+    return ((1u << (bit & 0x1F)) & value) != 0;
+}
+
 // Xbox 0x00052FC0
 u32 actor_lookup_joint_index(std::span<const u8> cpu, i16 index)
 {

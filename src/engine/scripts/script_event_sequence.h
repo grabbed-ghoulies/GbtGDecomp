@@ -23,6 +23,7 @@ struct ScriptEventSequence
     u32 hold = 0; // DAT_005064E4.
     std::array<char, 0x40> name{}; // DAT_005064E8, the event's page key.
     u32 page_shown = 0; // DAT_00506528.
+    u32 unk_52c = 0; // DAT_0050652C, cleared before a step's reward Grim Reaper (0x000D0B40 result 4).
     float door_delay = 0.f; // DAT_00506534.
     float icon_delay = 0.f; // DAT_00506538.
     u32 waiting = 0; // DAT_0050653C.
@@ -50,6 +51,16 @@ struct ScriptEventSequenceContext
     std::function<std::vector<std::array<u32, 3>>()> latch_actors;
     std::function<void(u32)> drop_key_candidate; // 0x00112D10 on +0x920, then message 0x80 and 0x0003ED70.
     u32* random = nullptr; // DAT_0054DD7C.
+    // The Grim Reaper's summons (0x000CF7B0).
+    std::function<const Actor*()> first_player; // DAT_00511B40 minus 0x93C, null without one.
+    std::function<const u8*()> markers; // DAT_0051108C.
+    const float* occupancy_initial = nullptr; // 0x00111420's occupancy start.
+    // 0x00107720 clones the named template, the patch is applied, 0x00107520 creates it (the scene keeps it) and
+    // 0x000663E0 frees the clone: the new object's address, or 0 with none.
+    std::function<u32(const char*, const std::function<void(std::span<u8>)>&)> create_from_template;
+    std::function<void(u32, std::span<u32>)> message; // Vtable +0xC of the object at an address.
+    std::function<std::span<u8>(u32, size_t)> bytes_at; // Scene bytes at an address.
+    std::function<std::span<u8>(u32)> strategy_at; // A player actor's strategy (+0x954) bytes by its address.
 };
 // Message 0x81 from 0x000D09A0: {id, door word, step count, steps}; the steps travel by address.
 struct ScriptEventStartMessage
@@ -77,6 +88,12 @@ void tick_script_event_sequence(Game& g); // Xbox 0x000D0300
 void pulse_script_event_icons(); // Xbox 0x000D1200
 bool script_event_icons_ready(); // Xbox 0x000D1260
 void show_script_event_icons(); // Xbox 0x000D0F20
+// EAX the point, EBX the euler, the stack position: the kind 0x12 marker farthest from the point gives the euler,
+// and a free spot within 15 of it on its floor the position.
+void place_runtime_grim_reaper(const Vec3& point, Vec3& position, Vec3& euler); // Xbox 0x000CF950
+// A failed or timed-out step's Grim Reaper beside the player; nonzero floats replace its +0x954 record's +0x40 and
+// +0x3C.
+u32 summon_runtime_grim_reaper(float first, float second); // Xbox 0x000CF7B0
 bool show_script_event_page(Game& g); // Xbox 0x000D1190
 bool run_script_event_steps(Game& g); // Xbox 0x000D0B40
 // ECX the step's +4 timer block: the step waits on a running cutscene, or counts its +4 delay down.

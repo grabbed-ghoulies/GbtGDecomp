@@ -103,6 +103,9 @@ bool runtime_message_names_mind_target_actor(std::span<const u32> message, std::
 // As 0x001408C0, and the message's second actor (+8) is `actor`.
 bool runtime_message_from_mind_target(std::span<const u32> message, u32 actor, std::span<const u8> mind,
     const std::function<RuntimeMindTarget*(u32)>& target_at); // Xbox 0x001408E0, ECX message, EDX actor
+// The mind's target (+0x10) is the message's sender (+4) and the message landed (+0x10).
+bool runtime_message_lands_from_mind_target(std::span<const u32> message, std::span<const u8> mind,
+    const std::function<RuntimeMindTarget*(u32)>& target_at); // Xbox 0x00140910, EAX actor, ECX message
 // The message names `actor` first (+4) and its second actor's target (+0x8F8, set) is the mind's target (+0x10).
 bool runtime_message_source_targets_mind_target(std::span<const u32> message, u32 actor, std::span<const u8> mind,
     RuntimeStrategyActorViews& views); // Xbox 0x00140A00, EAX message, ECX actor

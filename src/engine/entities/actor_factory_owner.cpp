@@ -5,6 +5,7 @@
 #include "actor_shape_push.h"
 #include "entity_collision.h"
 #include "contact_prop_actor.h"
+#include "spider_web.h"
 #include "../graphics/vector_normalize.h"
 #include <cstring>
 #include "gbtg/model_runtime.h"
@@ -231,6 +232,23 @@ const ObjectFactoryVtable* knockdown_sphere_lifecycle()
     return &table;
 }
 
+bool construct_spider_web_view(FactoryObject& object, std::span<const u8>)
+{
+    auto& instance = active_owner->view(object);
+    auto& startup = active_owner->bindings.startup;
+    RuntimeSpiderWeb context{{object.bytes.get(), object.size}, instance.bat.actor, instance.animation,
+        startup.registry, startup.error, startup.random_state};
+    return initialize_runtime_spider_web(context); // 0x00070510
+}
+
+// Getter 0x000704D0 (vtable 0x00504E8C): +8 is the empty 0x001628B0.
+const ObjectFactoryVtable* spider_web_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00504E8C, spider_web_object_sizes, construct_spider_web_view,
+        destroy_empty_factory_object};
+    return &table;
+}
+
 const ObjectFactoryVtable* base_lifecycle()
 {
     static const ObjectFactoryVtable table{0x0050E0C0, base_object_sizes,
@@ -334,6 +352,7 @@ void NativeActorFactoryOwner::install(std::span<ObjectFactoryType> types)
     types[0x15] = ObjectFactoryType{2, button_bat_lifecycle};
     types[0x1A] = ObjectFactoryType{2, contact_prop_lifecycle}; // Getter 0x0006EE20.
     types[0x19] = ObjectFactoryType{2, knockdown_sphere_lifecycle}; // Getter 0x0006EB40.
+    types[0x1B] = ObjectFactoryType{2, spider_web_lifecycle}; // Getter 0x000704D0.
     active_owner = this;
 }
 

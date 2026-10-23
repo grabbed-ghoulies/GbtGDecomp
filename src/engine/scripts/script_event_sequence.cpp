@@ -15,6 +15,9 @@
 #include "../scene/dialogue_scene_runtime.h"
 #include "../frontend/dialogue_activation.h"
 #include "../camera/camera.h"
+#include "../entities/actor_transform.h"
+#include "../navigation/spawn_candidates.h"
+#include "../scene/scene_markers.h"
 #include "gbtg/engine_internal.h"
 
 #include <bit>
@@ -573,6 +576,80 @@ bool script_event_icons_ready()
     return ready;
 }
 
+// Xbox 0x000CF950
+void place_runtime_grim_reaper(const Vec3& point, Vec3& position, Vec3& euler)
+{
+    auto& services = context();
+    const u8* records = services.markers();
+    const u16 id = farthest_runtime_marker(0x12, point, records); // 0x0011F0B0, EAX 0x12
+    const u8* row = find_runtime_marker(records, i16(id));
+    if (row == nullptr)
+    {
+        throw Error("0x000CF950 finds no row for the Grim Reaper's kind 0x12 marker");
+    }
+    Vec3 marker;
+    std::memcpy(&marker, row + 0xC, sizeof(marker));
+    std::memcpy(&euler, row + 0x18, sizeof(euler));
+    const i32 floor = entity_detail::navigation_floor_index(marker, -1, 0); // 0x00110BF0
+    if (services.random == nullptr || services.occupancy_initial == nullptr)
+    {
+        throw Error("0x00111420 has no DAT_0054DD7C or occupancy start for the Grim Reaper");
+    }
+    if (!entity_detail::select_navigation_spawn_position(floor, nullptr, marker, 0.f, 15.f, nullptr, nullptr, 0, 0,
+            position, *services.random, *services.occupancy_initial)) // 0x00111420, ESI position
+    {
+        throw Error("0x00111420 found no spot for the Grim Reaper; retail leaves its position unwritten");
+    }
+}
+
+// Xbox 0x000CF7B0
+u32 summon_runtime_grim_reaper(float first, float second)
+{
+    auto& services = context();
+    const Actor* player = services.first_player(); // DAT_00511B40 minus 0x93C
+    if (player == nullptr)
+    {
+        throw Error("0x000CF7B0 reads the position of a missing player (address zero)");
+    }
+    const Vec3 point = actor_world_position(*player); // 0x000412A0, ESI player
+    Vec3 position{};
+    Vec3 euler{};
+    place_runtime_grim_reaper(point, position, euler); // 0x000CF950
+    const u32 reaper = services.create_from_template("aid_objparams_ghoulies_actor_grimreaper",
+        [&position, &euler](std::span<u8> clone)
+        {
+            std::memcpy(clone.data() + 8, &position, sizeof(position));
+            std::memcpy(clone.data() + 0x14, &euler, sizeof(euler));
+            const float scale = 1.f; // DAT_0032B0F8.
+            std::memcpy(clone.data() + 0x20, &scale, 4);
+            const u16 zero = 0;
+            std::memcpy(clone.data() + 0x2AA, &zero, 2);
+            std::memcpy(clone.data() + 0x2AC, &zero, 2);
+        }); // 0x00107720, 0x00107520, 0x000663E0
+    if (reaper == 0)
+    {
+        throw Error("0x000CF7B0 reads +0x954 of a Grim Reaper that was not created (address zero)");
+    }
+    const u16 cleared = 0;
+    std::memcpy(services.bytes_at(reaper, 0x992).data() + 0x990, &cleared, 2);
+    std::array<u32, 0x42> appear{};
+    appear[0] = 0x4D;
+    appear[1] = 4;
+    std::memcpy(&appear[2], &position, sizeof(position));
+    std::memcpy(&appear[5], &euler, sizeof(euler));
+    services.message(reaper, appear); // Vtable +0xC.
+    const std::span<u8> target = services.strategy_at(reaper); // +0x954.
+    if (first != 0.f)
+    {
+        put_float(target, 0x40, first);
+    }
+    if (second != 0.f)
+    {
+        put_float(target, 0x3C, second);
+    }
+    return reaper;
+}
+
 // Xbox 0x000D0F20
 void show_script_event_icons()
 {
@@ -789,7 +866,7 @@ bool run_script_event_steps(Game& g)
             put_word(step, 0x10, 0);
             if ((g_flags_ea9c & 0x10u) == 0)
             {
-                throw Error("untranslated Xbox 0x000CF7B0 (script event step failure reward)");
+                summon_runtime_grim_reaper(g_script_6540, g_script_6544); // 0x000CF7B0
             }
             release_step_camera(step);
             remove_step(row, end);
@@ -798,7 +875,8 @@ bool run_script_event_steps(Game& g)
         case 4:
             if ((g_flags_ea9c & 0x10u) == 0)
             {
-                throw Error("untranslated Xbox 0x000CF7B0 (script event step reward)");
+                g_event_sequence.unk_52c = 0; // DAT_0050652C
+                summon_runtime_grim_reaper(g_script_6540, g_script_6544); // 0x000CF7B0
             }
             break;
         case 5:

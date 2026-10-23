@@ -17,6 +17,7 @@
 #include "imp_flamethrower_strategy.h"
 #include "haunted_tv_strategy.h"
 #include "haunted_chair_strategy.h"
+#include "grim_reaper_strategy.h"
 #include "mummy_strategy.h"
 #include "butler_strategy.h"
 #include "camera_actor_classes.h"
@@ -164,6 +165,10 @@ struct NativePlayerSceneBindings
     std::function<std::span<const u8>()> story_bits; // **(DAT_00506C6C + 8).
     // Haunted chair strategy (type 0x40, vtable 0x00505DFC).
     std::span<const u8> haunted_chair_parameters{}; // DAT_00428734.
+    // Grim Reaper strategy (type 0x3F, vtable 0x00505DE0); the scene sets these once it has them.
+    std::span<const u8> grim_reaper_parameters{}; // DAT_00302B7C.
+    AudioBankStreams* audio_banks = nullptr; // DAT_004DF370.
+    RuntimeBlobShadows* blob_shadows = nullptr; // DAT_0050EC10.
     // Attaches a player's body methods (vtable +0x20 among them) when a weapon is attached before the scene first
     // messages its body, as the player 0x00134920 spawns holding the relics store's candle does.
     std::function<void(NativePlayerInstance&)> attach_body_methods{};
@@ -308,6 +313,7 @@ struct NativePlayerInstance
     RuntimeSpiderStrategy spider; // Type 0x52.
     RuntimeHauntedTvStrategy haunted_tv; // Type 0x44.
     RuntimeHauntedChairStrategy haunted_chair; // Type 0x40.
+    RuntimeGrimReaperStrategy grim_reaper; // Type 0x3F.
     RuntimeMummyStrategy mummy; // Type 0x4C.
     RuntimeUglyGirlStrategy ugly_girl; // Type 0x53.
     RuntimeHauntedDoorStrategy haunted_door; // Type 0x42.
@@ -362,6 +368,8 @@ public:
     void haunted_tv_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000B1F60.
     void haunted_chair_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000AE8B0.
     void haunted_chair_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000AE790.
+    void grim_reaper_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000AD7D0.
+    void grim_reaper_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000AD600.
     void mummy_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000BBFA0.
     void mummy_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000BBCB0.
     void ugly_girl_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000C1420.

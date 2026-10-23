@@ -176,6 +176,8 @@ void actor_initialize_sound_slots(Actor& actor); // Xbox 0x00041BE0
 void actor_collect_model_flags(Actor& actor); // Xbox 0x0003E6D0
 void normalize_euler_angles(Vec3& output, const Vec3& input); // Xbox 0x00105AA0
 u32 actor_lookup_joint_index(std::span<const u8> cpu, i16 index); // Xbox 0x00052FC0
+// EDX the model data, the stack bit: the bit of the model's kind 1 record (0 without one).
+bool actor_model_record_bit(std::span<const u8> cpu, u32 bit); // Xbox 0x00052F80
 void actor_transform_joint_point(const Actor& actor, u16 joint, const Vec3& point, Vec3& output); // Xbox 0x0003AEB0
 bool actor_marker_world_position(const Actor& actor, i32 index, Vec3& output); // Xbox 0x0003AE60
 void actor_joint_world_euler(const Actor& actor, u16 joint, Vec3& output); // Xbox 0x0003B050

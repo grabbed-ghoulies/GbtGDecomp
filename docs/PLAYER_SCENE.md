@@ -219,6 +219,7 @@ All take the game directory, e.g.
 | `--scene2a1` | Boots chapter 2a scene 1 (chapter2a_scene1_1playcam, the kitchen stairwell) and plays it with the scene 7 driver, doors first, at any fight range. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book` ("Fire extinguihser weapon Intro"; frame 9132 in the 2026-10-23 run) |
 | `--scene2a1b` | Boots the extinguisher's book (chapter2a_scene1_2book), plays it to `aid_script_ghoulies_chapter2a_scene1_3playcam` (the kitchen) and plays that with the scene 7 driver, doors first, fighting only in "Event - Kill All" (the cook, tag 8, is not a ghouly). A held weapon is aimed with the right stick held (the extinguisher's spray), bare hands tap it. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene2_1playcam` (frame 4115 in the 2026-10-23 run) |
 | `--scene2a2` | Boots chapter 2a scene 2 (chapter2a_scene2_1playcam, the dishwashing room) and plays it with the scene 7 driver, doors first, at any fight range: "Event - 'Kill All/Time Limit'" is one coward zombie against the reaper's countdown. The driver fights a ghouly within 15 in height (the hurt zombie climbs onto the plate stacks). Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene3_1playcam` (frame 5976 in the 2026-10-23 run) |
+| `--scene2a2-reaper` | Chapter 2a scene 2 with no fighting (fight range 0), so the time limit runs out and the Grim Reaper comes. Fails by design once its 18000 frames are up: the reaper takes Cooper's life, the retry restarts the scene and the time limit runs out again (four times in the 2026-10-23 run). It is for looking at the spider web, the reaper and the fade to grey |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -330,7 +331,10 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 | Present (the snapshot) | renders nothing | `0x00116530` records its draws but the texture stays empty |
 | Scene 3's Free Play branches (`--scene3`) | legacy | Free Play's node 0x51 on the skeletons still goes through the legacy `g_range_links` |
 | Script condition nodes | partial | `0x00125450` registers types 0x3D..0x3F, 0x40..0x44, 0x47, 0x48, 0x5A, 0x5B, 0x6A, 0x6C, 0x72, 0x92, 0x93, 0x94, 0x95 and 0x99; retail also takes 0x65, 0x66, 0x68, 0x75, 0x8B, 0x8C and 0xA3, which still run as ordinary nodes |
-| Script event steps | partial | `0x00126140` queues step types 0 to 5 and 0xF (script types 0x19..0x1F) and `0x000D0B40` runs types 0 to 5; the builders from `0x00125E00` on (script types 0x20 and up) and the ticks of types 6 and up are not translated. A time limit that runs out (step result 3) reaches the untranslated reward `0x000CF7B0` (the Grim Reaper) |
+| Script event steps | partial | `0x00126140` queues step types 0 to 5 and 0xF (script types 0x19..0x1F) and `0x000D0B40` runs types 0 to 5; the builders from `0x00125E00` on (script types 0x20 and up) and the ticks of types 6 and up are not translated. Script types 0x5F and 0x87 are still empty stand-ins of the same kind |
+| The Grim Reaper's dizziness | no writer | `0x000AD600` turns him dizzy (0x3EA) while DAT_00512170 is set; no translated code writes it (`g_grim_reaper_dizzy`) |
+| Blob shadows | off | DAT_0050EF18 is never set, so 0x00119A60 hands out no shadow (the reaper's included) and the draw 0x00119AD0 is not reached |
+| The spider web in captures | unchecked | The web (type 0x1B) lands and snares by its messages; no capture has caught one yet |
 | Script type 0x16 | legacy | Still the old shortcut; retail waits for `0x0004EFE0` with DAT_00512470 set, then releases the cutscenes |
 | Chapter 2a scene 3 (`aid_script_ghoulies_chapter2a_scene3_1playcam`) | not driven | `--scene2a2` stops once the script moves on to it |
 | The coward zombie on the plates | unchecked | Hurt, scene 2a2's zombie climbs onto a plate stack and stays there without moving (y about 8.6) until Cooper comes within reach; not compared with retail |
@@ -381,6 +385,24 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-23: the Grim Reaper
+
+`--scene2a2-reaper` (new) lets scene 2a2's time limit run out. The step's failure (result 3) summons the Grim Reaper
+(`0x000CF7B0`): `aid_objparams_ghoulies_actor_grimreaper` at a free spot within 15 of the kind 0x12 marker farthest
+from Cooper (`0x000CF950`, `0x0011F0B0`), told to appear (0x4D) and given script type 0x54's speeds. His strategy
+(`grim_reaper_strategy.cpp`, type 0x3F, `0x000AD390`..`0x000AE135`) chases ever faster, points and laughs, swings
+when near (his hands' contact shapes 3 and 0xD on for the swing's second half) and plays the reaper stream; a hit
+slows him, a landed one knocks him down. When Cooper dies to him he sucks the life out (0x3F2), and Cooper fades to
+grey (`entityFxCustomFadeToGrey`, type 0x30, and its glow draw hooks `0x000770F0` / `0x000771F0` with the one-texture
+composite `0x00062580`) before the retry.
+
+- On the way, the spider's spit leaves a web (`entityAvatarMiscSpiderWeb`, type 0x1B, `spider_web.cpp`); the flight
+  message 0x93 now carries the velocity's address at word 0x16, which the landing (0x7A) passes to the web.
+- Shown (looked at): the countdown at 0:01, "The Reaper" caption, his swing at Cooper by the door
+  (`scene2a2r_4500.bmp` in the run), Cooper grey under the scythe and lying grey, then the retry's book page with Cooper
+  on the floor (`scene2a2r_4800.bmp`). Heard in the log: the stream, scrape, laughs, guitar, SUCKLIFE and the fail
+  ditty. Not listened to.
 
 ### 2026-10-23: chapter 2a scene 2 (the dishwashing room) plays to its end
 

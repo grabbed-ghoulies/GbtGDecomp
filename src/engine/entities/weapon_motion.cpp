@@ -128,8 +128,11 @@ void update_runtime_weapon_flight(RuntimeWeaponActor& weapon)
         std::array<u32, 0x42> message{};
         message[0] = 0x93;
         entity_copy_match_block(message.data() + 1, bytes.data() + 0xC48); // 0x000FCD70
-        // Word 0x16 holds the stack velocity's address; the class message (0x001463D0 case 0x93) does not read it.
+        // Word 0x16 is the address of the stack copy of +0x3C, the velocity; a thrown projectile's landing
+        // (0x000CC340) passes it on to what it spawns (a spider web's 0x7A).
+        message[0x16] = weapon.services.bind_address(&velocity, 12);
         weapon.message(message);
+        weapon.services.unbind_address(&velocity);
         return;
     }
     const float dt = frame_rate(actor) * frame_step(weapon.frame);

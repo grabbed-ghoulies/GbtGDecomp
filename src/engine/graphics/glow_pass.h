@@ -31,6 +31,7 @@ struct RuntimeGlowPass
 bool runtime_screen_cylinder_rect(const Vec3& center, float radius, float height, float* minimum, float* maximum,
     const entity_detail::DisplayView& view); // Xbox 0x0013BCC0
 u32 scale_runtime_color(u32 color, float scale); // Xbox 0x00101640
+u32 scale_runtime_color_rgb(u32 color, float scale); // Xbox 0x001016C0: red, green and blue; alpha kept
 // Draws go to book page 0 and its depth surface; the rectangle (or the viewport when either corner is null) is
 // cleared.
 void begin_runtime_glow_capture(const float* minimum, const float* maximum,
@@ -46,4 +47,13 @@ u32 begin_runtime_glow_composite(u32 color, u32 vertex_shader, u32 pixel_shader,
 void stamp_runtime_glow(u32 color, u32 pixel_shader, RuntimeGlowPass& context); // Xbox 0x00062490, EAX pixel shader
 void composite_runtime_glow(u32 first_texture, u32 pixel_shader, u32 second_texture, u32 first, u32 second,
     RuntimeGlowPass& context); // Xbox 0x00062750, ECX first texture, EAX pixel shader, EBX second texture
+// ECX texture (0 for none), EAX pixel shader, the stack colour (a second stack word is unread): the capture
+// composited as one quad (vertex shader 3) with the texture in stage 1, then plain depth-tested states with no shaders
+// or textures.
+void composite_runtime_glow_texture(u32 texture, u32 pixel_shader, u32 color,
+    RuntimeGlowPass& context); // Xbox 0x00062580
+// entityFxCustomFadeToGrey's actor draw hooks (+0x1A0 / +0x1A4, +0x1A8 the effect): the whole view is captured, then
+// composited greyed by the effect's level (+0x18) through its texture (+0x24), or stamped without one.
+void begin_runtime_fade_to_grey(RuntimeGlowPass& context); // Xbox 0x000770F0
+void end_runtime_fade_to_grey(std::span<const u8> effect, RuntimeGlowPass& context); // Xbox 0x000771F0
 }

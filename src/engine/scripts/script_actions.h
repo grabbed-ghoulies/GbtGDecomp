@@ -117,6 +117,9 @@ bool script_seek_node_type(const SceneScript& script, u32& cursor, u32 type); //
 
 // DAT_0050EA9C. Type 0x1A tests bit 0x10 of the low byte.
 extern u32 g_flags_ea9c;
+// DAT_00506540 / DAT_00506544: script type 0x54's first two floats, the Grim Reaper's (0x000CF7B0).
+extern float g_script_6540;
+extern float g_script_6544;
 
 // DAT_004DEA58, the input refresh frame.
 

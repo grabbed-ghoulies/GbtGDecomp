@@ -344,6 +344,29 @@ const ObjectFactoryVtable* haunted_chair_strategy_lifecycle()
     return &table;
 }
 
+bool construct_grim_reaper_strategy_view(FactoryObject& object, std::span<const u8>)
+{
+    auto* player = active_owner->find_player(object);
+    player->strategy_type = 0x3F;
+    player->refresh_views();
+    return initialize_runtime_grim_reaper_strategy(player->grim_reaper); // 0x000AD400
+}
+
+void destroy_grim_reaper_strategy_view(FactoryObject& object)
+{
+    auto* player = active_owner->find_player(object);
+    player->refresh_views();
+    destroy_runtime_grim_reaper_strategy(player->grim_reaper); // 0x000AD570
+}
+
+// Getter 0x000AD3B0.
+const ObjectFactoryVtable* grim_reaper_strategy_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505DE0, grim_reaper_strategy_object_sizes,
+        construct_grim_reaper_strategy_view, destroy_grim_reaper_strategy_view};
+    return &table;
+}
+
 bool construct_mummy_strategy_view(FactoryObject& object, std::span<const u8>)
 {
     auto* player = active_owner->find_player(object);
@@ -508,6 +531,13 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
                   leave_runtime_haunted_tv_state(old_state, next_state, haunted_tv);
                   return;
               }
+              if (strategy_type == 0x3F)
+              {
+                  // Grim Reaper strategy vtable +0x18, 0x000ADB10.
+                  refresh_views();
+                  leave_runtime_grim_reaper_state(old_state, next_state, grim_reaper);
+                  return;
+              }
               if (strategy_type == 0x40)
               {
                   // Haunted chair strategy vtable +0x18, 0x000AEB30.
@@ -593,6 +623,12 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
               {
                   // Haunted TV strategy vtable +0x14, 0x000B2650.
                   enter_runtime_haunted_tv_state(state, previous, haunted_tv);
+                  return;
+              }
+              if (strategy_type == 0x3F)
+              {
+                  // Grim Reaper strategy vtable +0x14, 0x000ADA70.
+                  enter_runtime_grim_reaper_state(state, previous, grim_reaper);
                   return;
               }
               if (strategy_type == 0x40)
@@ -749,6 +785,23 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
           },
           scene_bindings.spawns, scene_bindings.story_bits, "generateghouly", "knocked_down", "sleep", "wakeup",
           "wait"},
+      grim_reaper{strategy_messages, target_checks, strategy_views, scene_bindings.grim_reaper_parameters, 0x00302B7Cu,
+          scene_bindings.sounds, scene_bindings.audio_banks, scene_bindings.blob_shadows, collision, animation_resource,
+          scene_bindings.attack_tables, scene_bindings.address_of, actor_instance.startup.resource,
+          callout, body_lists,
+          [this](u32 slot, u8 value)
+          {
+              // 0x000F96F0 on the +0x204 and +0x310 models (AL value, stack slot).
+              if (actor.model != nullptr && actor.model->runtime != nullptr)
+              {
+                  set_runtime_model_node_state(*actor.model->runtime, u8(slot), value, scene.node_cache);
+              }
+              if (auto* secondary = actor_instance.startup.models.secondary.get())
+              {
+                  set_runtime_model_node_state(*secondary, u8(slot), value, scene.node_cache);
+              }
+          },
+          "dizzy", "knockeddown"},
       haunted_chair{strategy_messages, target_checks, target_queue, strategy_views,
           scene_bindings.haunted_chair_parameters, attributes.resource, "swingkick", "wakeup", "slide",
           "slideattarget", "mimic"},
@@ -982,6 +1035,28 @@ void NativePlayerFactoryOwner::haunted_chair_update(FactoryObject& strategy)
     update_runtime_haunted_chair_strategy(player->haunted_chair);
 }
 
+void NativePlayerFactoryOwner::grim_reaper_message(FactoryObject& strategy, std::span<const u32> message)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x3F)
+    {
+        throw Error("Grim Reaper strategy method has no owning instance");
+    }
+    player->refresh_views();
+    dispatch_runtime_grim_reaper_message(message, player->grim_reaper);
+}
+
+void NativePlayerFactoryOwner::grim_reaper_update(FactoryObject& strategy)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x3F)
+    {
+        throw Error("Grim Reaper strategy method has no owning instance");
+    }
+    player->refresh_views();
+    update_runtime_grim_reaper_strategy(player->grim_reaper);
+}
+
 void NativePlayerFactoryOwner::mummy_message(FactoryObject& strategy, std::span<const u32> message)
 {
     auto* player = find_player(strategy);
@@ -1193,6 +1268,7 @@ void NativePlayerFactoryOwner::install(std::span<ObjectFactoryType> types)
     types[0x52] = ObjectFactoryType{8, spider_strategy_lifecycle};
     types[0x44] = ObjectFactoryType{8, haunted_tv_strategy_lifecycle};
     types[0x40] = ObjectFactoryType{8, haunted_chair_strategy_lifecycle};
+    types[0x3F] = ObjectFactoryType{8, grim_reaper_strategy_lifecycle};
     types[0x4C] = ObjectFactoryType{8, mummy_strategy_lifecycle};
     types[0x53] = ObjectFactoryType{8, ugly_girl_strategy_lifecycle};
     types[0x42] = ObjectFactoryType{8, haunted_door_strategy_lifecycle};

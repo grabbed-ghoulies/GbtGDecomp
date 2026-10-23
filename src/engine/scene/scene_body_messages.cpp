@@ -340,6 +340,22 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
             children_[child->bytes.get()] = swing.get();
             continue;
         }
+        if (child->type == 0x7E)
+        {
+            auto& scoop = scoop_whack_children_[child->bytes.get()];
+            if (scoop == nullptr)
+            {
+                scoop = std::make_unique<RuntimeBodyMessageChild>();
+                scoop->message = [this, child](std::span<u8> message)
+                {
+                    const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
+                    message_runtime_scoop_whack_state({child->bytes.get(), child->size}, words,
+                        scoop_whack_context()); // 0x0009EED0
+                };
+            }
+            children_[child->bytes.get()] = scoop.get();
+            continue;
+        }
         if (child->type == 0x83)
         {
             auto& slide = slide_children_[child->bytes.get()];
@@ -374,7 +390,7 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
         // 0x59, 0x74, 0x7C and 0x8A have the empty 0x001628B0 message slot (0x59's getter 0x0007FCE0 stores it at
         // 0x005054C4, 0x8A's getter 0x000A34C0 at 0x00505C2C).
         // 0x80's getter 0x0009F420 stores it at 0x00505AEC.
-        if (child->type != 0x59 && child->type != 0x8A && child->type != 0x80 && child->type != 0x7F
+        if (child->type != 0x59 && child->type != 0x8A && child->type != 0x80 && child->type != 0x7F && child->type != 0x6B
             && child->type != 0x5A && child->type != 0x5B && child->type != 0x5C && child->type != 0x74
             && child->type != 0x7C && child->type != 0x87 && child->type != 0x88 && child->type != 0x69
             && child->type != 0x70)
@@ -675,6 +691,12 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
     case 0x7F:
         tick_runtime_scrabble_state({action.bytes.get(), action.size}, scrabble_context()); // 0x0009F170
         return;
+    case 0x7E:
+        tick_runtime_scoop_whack_state({action.bytes.get(), action.size}, scoop_whack_context()); // 0x0009EC90
+        return;
+    case 0x6B:
+        tick_runtime_flip_state({action.bytes.get(), action.size}, flip_context(input)); // 0x00090760
+        return;
     case 0x83:
         tick_runtime_slide_state({action.bytes.get(), action.size}, slide_context()); // 0x000A0F90
         return;
@@ -917,6 +939,8 @@ void SceneBodyMessages::action_step(FactoryObject& action)
     case 0x6F:
     case 0x80:
     case 0x7F:
+    case 0x7E:
+    case 0x6B:
     case 0x83:
         // 0x001628B0 (0x000D4179 for 0x69, 0x70 and 0x88) returns at once.
         return;
@@ -1264,6 +1288,48 @@ RuntimeSlideStateContext& SceneBodyMessages::slide_context()
             return body_slot_key(slot);
         }});
     return *slide_;
+}
+
+RuntimeFlipStateContext& SceneBodyMessages::flip_context(u32 input)
+{
+    player_.refresh_body_views();
+    if (player_.body_bits == nullptr)
+    {
+        unbound("flip state without the body +0x15C bit block");
+    }
+    // ECX of 0x000908D0 is the tick's input word: the player's input record (actor +0x960) or zero.
+    const RuntimeDialogueInputDevice* device = nullptr;
+    if (input != 0)
+    {
+        if (player_.input.empty() || input != services_.address_of(player_.input.data()))
+        {
+            unbound("flip input word that is not this player's input record");
+        }
+        device = &player_.input_device;
+    }
+    flip_.reset();
+    flip_.emplace(RuntimeFlipStateContext{player_.body, player_.actor, *player_.body_bits, player_.attachment,
+        player_.body_selection, services_.latches, services_.clock, player_.actor_instance.animation, device,
+        player_.scene.input_state, services_.default_position, recovery_action(), services_.image_string});
+    return *flip_;
+}
+
+RuntimeScoopWhackStateContext& SceneBodyMessages::scoop_whack_context()
+{
+    player_.refresh_body_views();
+    scoop_whack_.reset();
+    scoop_whack_.emplace(RuntimeScoopWhackStateContext{player_.body, player_.actor, player_.actor_address,
+        player_.mind, player_.actor_instance.animation, services_.clock, player_.actor_instance.live_attachments,
+        services_.target_at, services_.actor_at, services_.message,
+        [this](u32 actor, u32 id, const RuntimeActorCreationOptions* options)
+        {
+            services_.actor_callouts_with(actor, id, options);
+        },
+        [this](u32 slot)
+        {
+            return body_slot_key(slot);
+        }});
+    return *scoop_whack_;
 }
 
 RuntimePickupStateContext& SceneBodyMessages::pickup_context()
@@ -1868,6 +1934,15 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 }
                 return;
             }
+            if (type == 0x7E)
+            {
+                // 0x0009EED0 acts on ids 0x41 (with +0x14 and the position at +0x1C) and 0x70 (with +4 / +8).
+                if (reply.id == 0x41 || reply.id == 0x70)
+                {
+                    unbound("collision reply id " + std::to_string(reply.id) + " to the scoop and whack state 0x0009EED0");
+                }
+                return;
+            }
             if (type == 0x83)
             {
                 // 0x000A1070 acts on ids 0x41 (with +0x14 and the position at +0x1C) and 0x70 (with +4 / +8).
@@ -1900,7 +1975,7 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
             }
             // 0x8A (getter 0x000A34C0) keeps the empty 0x001628B0 at +0xC too.
             if (type != 0x87 && type != 0x88 && type != 0x69 && type != 0x70 && type != 0x5B && type != 0x5C && type != 0x74 && type != 0x7C
-                && type != 0x8A && type != 0x80 && type != 0x7F)
+                && type != 0x8A && type != 0x80 && type != 0x7F && type != 0x6B)
             {
                 unbound("collision reply action vtable +0xC of factory type " + std::to_string(type));
             }

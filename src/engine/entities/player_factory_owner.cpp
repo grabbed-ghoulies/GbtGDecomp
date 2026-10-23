@@ -1,5 +1,8 @@
 #include "player_factory_owner.h"
 #include "player_state.h"
+#include "actor_attachment_events.h"
+#include "body_request_selection.h"
+#include "player_attachment_helpers.h"
 
 namespace gbtg
 {
@@ -357,6 +360,29 @@ const ObjectFactoryVtable* mummy_strategy_lifecycle()
     return &table;
 }
 
+bool construct_haunted_door_strategy_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto* player = active_owner->find_player(object);
+    player->strategy_type = 0x42;
+    player->refresh_views();
+    return initialize_runtime_haunted_door_strategy(parameters, player->haunted_door); // 0x000AFD80
+}
+
+void destroy_haunted_door_strategy_view(FactoryObject& object)
+{
+    auto* player = active_owner->find_player(object);
+    player->refresh_views();
+    destroy_runtime_haunted_door_strategy(player->haunted_door); // 0x000AFDA0
+}
+
+// Getter 0x000AFD30.
+const ObjectFactoryVtable* haunted_door_strategy_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505E34, haunted_door_strategy_object_sizes,
+        construct_haunted_door_strategy_view, destroy_haunted_door_strategy_view};
+    return &table;
+}
+
 bool construct_ugly_girl_strategy_view(FactoryObject& object, std::span<const u8> parameters)
 {
     auto* player = active_owner->find_player(object);
@@ -487,6 +513,13 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
                   leave_runtime_ugly_girl_state(old_state, ugly_girl);
                   return;
               }
+              if (strategy_type == 0x42)
+              {
+                  // Haunted door strategy vtable +0x18, 0x000B0520.
+                  refresh_views();
+                  leave_runtime_haunted_door_state(old_state, haunted_door);
+                  return;
+              }
               if (strategy_type == 0x52)
               {
                   // Spider strategy vtable +0x18, 0x000B5AF0.
@@ -555,6 +588,12 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
               {
                   // Ugly girl strategy vtable +0x14, 0x000C1430.
                   enter_runtime_ugly_girl_state(state, previous, ugly_girl);
+                  return;
+              }
+              if (strategy_type == 0x42)
+              {
+                  // Haunted door strategy vtable +0x14, 0x000B0340.
+                  enter_runtime_haunted_door_state(state, previous, haunted_door);
                   return;
               }
               if (strategy_type == 0x52)
@@ -695,7 +734,32 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
               return found->second;
           },
           "attack", "ankh_getout", "ankh_whack", "bondage_bandage", "far", "scared"},
-      ugly_girl{strategy_messages, owner_instance.startup.attachments, body_lists, "attack", "far"}
+      ugly_girl{strategy_messages, owner_instance.startup.attachments, body_lists, "attack", "far"},
+      haunted_door{strategy_messages, target_checks, target_queue, strategy_views, body_selection,
+          scene_bindings.registry, scene_bindings.error, scene_bindings.loaded_sizes, animation_resource,
+          scene_bindings.attack_tables, attributes.resource, scene_bindings.latches, actor_instance.live_attachments,
+          self, scene_bindings.overrides, scene_bindings.address_of,
+          [this](std::span<const u8> target)
+          {
+              if (body_bits == nullptr)
+              {
+                  throw Error("haunted door strategy: 0x0013A5B0 without the body +0x15C bit block");
+              }
+              const RuntimePlayerAttachmentEligibility eligibility{body, *body_bits, actor, attached};
+              return runtime_body_target_surface_distance(actor, eligibility, target);
+          },
+          [](u32 address, i32 id, const RuntimeActorCreationOptions* options)
+          {
+              NativePlayerInstance* other = active_owner->find_player_at(address);
+              if (other == nullptr)
+              {
+                  throw Error("haunted door hit callout names an actor that is not a scene player");
+              }
+              dispatch_actor_resource_callout(other->actor_instance.startup.resource, id, options,
+                  other->callout); // 0x0003C040
+          },
+          "knobattack_overlay", "knockdown", "attack_special", "knocked_down", "knocked_down_wait", "sleep",
+          "wakeup", "celebrate_knockdown"}
 {
 }
 
@@ -910,6 +974,28 @@ void NativePlayerFactoryOwner::mummy_update(FactoryObject& strategy)
     update_runtime_mummy_strategy(player->mummy);
 }
 
+void NativePlayerFactoryOwner::haunted_door_message(FactoryObject& strategy, std::span<const u32> message)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x42)
+    {
+        throw Error("haunted door strategy method has no owning instance");
+    }
+    player->refresh_views();
+    dispatch_runtime_haunted_door_message(message, player->haunted_door);
+}
+
+void NativePlayerFactoryOwner::haunted_door_update(FactoryObject& strategy)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x42)
+    {
+        throw Error("haunted door strategy method has no owning instance");
+    }
+    player->refresh_views();
+    update_runtime_haunted_door_strategy(player->haunted_door);
+}
+
 void NativePlayerFactoryOwner::ugly_girl_message(FactoryObject& strategy, std::span<const u32> message)
 {
     auto* player = find_player(strategy);
@@ -1057,6 +1143,7 @@ void NativePlayerFactoryOwner::install(std::span<ObjectFactoryType> types)
     types[0x40] = ObjectFactoryType{8, haunted_chair_strategy_lifecycle};
     types[0x4C] = ObjectFactoryType{8, mummy_strategy_lifecycle};
     types[0x53] = ObjectFactoryType{8, ugly_girl_strategy_lifecycle};
+    types[0x42] = ObjectFactoryType{8, haunted_door_strategy_lifecycle};
     types[0x28] = ObjectFactoryType{6, camera_body_lifecycle};
     types[0x39] = ObjectFactoryType{8, director_strategy_lifecycle};
     minds.install(types);

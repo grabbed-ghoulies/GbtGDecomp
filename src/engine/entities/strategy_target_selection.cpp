@@ -63,9 +63,10 @@ u16 front_goal_kind(const RuntimePlayerGoalRing* ring, std::span<const u8> addre
 }
 
 // The inlined resume gate: strategy +0x1C clear, 0x0002B7F0 and an empty or idle goal ring.
-bool reactions_enabled(RuntimePlayerStrategyGoals& context)
+// 0x0002B840, EAX strategy, ECX force.
+bool reactions_enabled(RuntimePlayerStrategyGoals& context, u32 force = 0)
 {
-    if (strategy_of(context)[0x1C] != 0)
+    if (force == 0 && strategy_of(context)[0x1C] != 0)
     {
         return false;
     }
@@ -850,6 +851,63 @@ bool runtime_message_source_targets_mind_target(std::span<const u32> message, u3
     }
     const u32 target = mind.data() == nullptr ? 0 : read_u32(mind, 0x10);
     return target == source_target;
+}
+
+// Xbox 0x00041560, ESI actor, EBX target
+long double runtime_target_distance(const Actor& actor, std::span<const u8> target)
+{
+    const Vec3 position = actor_world_position(actor); // 0x000412A0
+    const long double dx = static_cast<long double>(position.x) - read_f32(target, 0x20);
+    const long double dy = static_cast<long double>(position.y) - read_f32(target, 0x24);
+    const long double dz = static_cast<long double>(position.z) - read_f32(target, 0x28);
+    return std::sqrt(dz * dz + dx * dx + dy * dy);
+}
+
+// Xbox 0x0002B9F0, EAX strategy, ECX timer
+bool count_down_runtime_strategy_timer(float& timer, RuntimePlayerStrategyGoals& context)
+{
+    const float step = runtime_frame_step(context.clock);
+    const float rate = runtime_actor_rate(context.entry.actor);
+    if (!(timer > 0.f))
+    {
+        return false;
+    }
+    timer = timer - rate * step;
+    if (0.f < timer)
+    {
+        return false;
+    }
+    timer = 0.f;
+    return true;
+}
+
+// Xbox 0x00139550, EAX strategy, EBX message, ECX force
+u32 adopt_runtime_strategy_message_attacker(std::span<const u32> message, u32 force,
+    RuntimeStrategyTargetChecks& context, RuntimeStrategyActorViews& views)
+{
+    RuntimePlayerStrategyGoals& goals = context.goals;
+    RuntimeMindEvents& events = goals.entry.events;
+    const u32 actor = read_u32(goals.entry.strategy, 8);
+    if (!reactions_enabled(goals, force) || message[1] != actor || message[2] == 0) // 0x0002B840
+    {
+        return 0;
+    }
+    const u32 record = read_u32(views.actor_bytes_at(message[2]), 0x8F8);
+    if (record == 0)
+    {
+        return 0;
+    }
+    RuntimeMindTarget* target = goals.target_at(record);
+    std::span<const u8> actor_bytes = goals.entry.actor_bytes;
+    if (target->bytes[0x18] != 0
+        || !runtime_mind_target_is_eligible(events.mind, actor_bytes, goals.entry.actor,
+            goals.address_of(actor_bytes.data()), *target, true)) // 0x00029C80, EDX 1
+    {
+        return 0;
+    }
+    set_runtime_mind_target(events, record); // 0x0002A030
+    put(events.mind, 0xC, message[2]);
+    return 1;
 }
 
 // Xbox 0x000415A0, ESI actor, EBX target

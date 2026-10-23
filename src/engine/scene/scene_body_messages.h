@@ -20,6 +20,8 @@
 #include "../entities/generate_ghouly_state.h"
 #include "../entities/body_shocked_state.h"
 #include "../entities/body_scrabble_state.h"
+#include "../entities/body_scoop_whack_state.h"
+#include "../entities/body_flip_state.h"
 #include "../entities/body_slide_state.h"
 #include "../entities/body_swing_state.h"
 #include "../entities/body_player_death_state.h"
@@ -163,6 +165,9 @@ public:
     RuntimeGenerateGhoulyContext& generate_ghouly_context(); // The type 0x6F state's views of this body.
     RuntimeShockedStateContext& shocked_context(); // The type 0x80 state's views of this body.
     RuntimeScrabbleStateContext& scrabble_context(); // The type 0x7F state's views of this body.
+    RuntimeScoopWhackStateContext& scoop_whack_context(); // The type 0x7E state's views of this body.
+    // The type 0x6B state's views of this body; `input` is the tick's input word (actor +0x960 or zero).
+    RuntimeFlipStateContext& flip_context(u32 input = 0);
     RuntimeSlideStateContext& slide_context(); // The type 0x83 state's views of this body.
     RuntimeSwingStateContext& swing_context(); // The type 0x78 state's views of this body.
     SceneBodyMessages(const SceneBodyMessages&) = delete;
@@ -206,6 +211,9 @@ private:
     std::optional<RuntimeGenerateGhoulyContext> generate_ghouly_;
     std::optional<RuntimeShockedStateContext> shocked_;
     std::optional<RuntimeScrabbleStateContext> scrabble_;
+    std::optional<RuntimeScoopWhackStateContext> scoop_whack_;
+    std::optional<RuntimeFlipStateContext> flip_;
+    std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> scoop_whack_children_; // 0x7E, 0x0009EED0.
     std::optional<RuntimeSlideStateContext> slide_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> slide_children_; // 0x83, 0x000A1070.
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> swing_children_; // 0x78, 0x00098620.

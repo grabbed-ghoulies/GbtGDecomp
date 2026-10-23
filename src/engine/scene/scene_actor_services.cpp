@@ -1092,6 +1092,7 @@ struct SceneActorServices::State
     FactoryObject& object_of_actor(Actor& actor);
     void start_background();
     void notify_body_list(u32 id); // Message {id} to each DAT_00511B20 (+0x934 list) node's actor.
+    void message_body_list(std::span<const u32> words); // 0x00122F70 over DAT_00511B20.
     void actor_draw(Actor& actor, i32 view, i32 pass); // Actor vtable +0x14 by class.
     u32 actor_visible(Actor& actor, i32 pass, i32 view); // Actor vtable +0x18 by class.
     void draw_scene_actor(FactoryObject& object, Actor& actor, i32 kind); // 0x0003C9E0.
@@ -2389,6 +2390,36 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
         }
         return graph->scrabble_context();
+    });
+    install_runtime_flip_state_class(scene.types, [this](u32 body_address) -> RuntimeFlipStateContext&
+    {
+        const auto bytes = scene.resolve_address(body_address, 0);
+        auto* player = players->find_child_owner(bytes.data());
+        if (player == nullptr || player->body.data() != bytes.data())
+        {
+            unbound("flip state whose body has no player owner");
+        }
+        auto& graph = body_messages[player->body.data()];
+        if (graph == nullptr)
+        {
+            graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
+        }
+        return graph->flip_context();
+    });
+    install_runtime_scoop_whack_state_class(scene.types, [this](u32 body_address) -> RuntimeScoopWhackStateContext&
+    {
+        const auto bytes = scene.resolve_address(body_address, 0);
+        auto* player = players->find_child_owner(bytes.data());
+        if (player == nullptr || player->body.data() != bytes.data())
+        {
+            unbound("scoop and whack state whose body has no player owner");
+        }
+        auto& graph = body_messages[player->body.data()];
+        if (graph == nullptr)
+        {
+            graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
+        }
+        return graph->scoop_whack_context();
     });
     install_runtime_shocked_state_class(scene.types, [this](u32 body_address) -> RuntimeShockedStateContext&
     {
@@ -4470,6 +4501,14 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         return RuntimeScriptKillCounters{&measurement->second_count, &brews_owned, &measurement->first_additional};
     };
     // DAT_00511B48 nodes are player actor +0x944 (links[2]); node +0x18 is actor +0x95C.
+    g_script_body_list_message = [this](std::span<const u32> message)
+    {
+        message_body_list(message);
+    };
+    g_script_ghoul_intro_caption = [this](u16 tag, float delay, float lifetime)
+    {
+        queue_runtime_ghoul_intro_caption(tag, delay, lifetime, ghoul_intro); // 0x000F4930
+    };
     g_script_actor_message = [this](Actor& actor, std::span<u32> message)
     {
         std::array<u32, 0x42> words{};
@@ -5305,6 +5344,8 @@ SceneActorServices::State::~State()
         g_alt_node_class = nullptr;
         g_script_actor_bytes = nullptr;
         g_script_actor_message = nullptr;
+        g_script_body_list_message = nullptr;
+        g_script_ghoul_intro_caption = nullptr;
         g_script_actor_by_id = nullptr;
         g_script_live_player_position = nullptr;
         g_script_door_distance = nullptr;
@@ -6712,7 +6753,8 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
     // A strategy's goals read the body's vtable slots (body_slot_key), which a just-spawned player's body graph
     // has not attached yet.
     if (child.type == 0x4F || child.type == 0x46 || child.type == 0x3B || child.type == 0x51 || child.type == 0x52
-        || child.type == 0x58 || child.type == 0x44 || child.type == 0x40 || child.type == 0x4C || child.type == 0x53)
+        || child.type == 0x58 || child.type == 0x44 || child.type == 0x40 || child.type == 0x4C || child.type == 0x53
+        || child.type == 0x42)
     {
         if (auto* player = players->find_player(child); player != nullptr && !player->body.empty())
         {
@@ -6750,6 +6792,9 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
         return;
     case 0x53:
         players->ugly_girl_message(child, words);
+        return;
+    case 0x42:
+        players->haunted_door_message(child, words);
         return;
     case 0x39:
     {
@@ -7210,6 +7255,9 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
             case 0x53:
                 players->ugly_girl_update(strategy);
                 return;
+            case 0x42:
+                players->haunted_door_update(strategy);
+                return;
             case 0x39:
             {
                 RuntimeDirectorUpdate director{strategy, player.actor, player.actor_address, player.mind, player.body,
@@ -7307,6 +7355,8 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
             case 0x6F: // And getter 0x00093B60.
             case 0x80: // And getter 0x0009F420.
             case 0x7F: // And getter 0x0009F060.
+            case 0x7E: // And getter 0x0009EB40.
+            case 0x6B: // And getter 0x00090430.
             case 0x83: // And getter 0x000A0C30.
                 return runtime_body_action_next_key(action);
             case 0x5A:
@@ -8047,13 +8097,15 @@ void SceneActorServices::State::draw_player(FactoryObject& object, NativePlayerI
             }
             // States 0x5E (getter 0x00088520), 0x62 (entityStateDie, getter 0x0008C1E0), 0x64 (getter 0x0008C940), 0x73 (entityStateHit, getter 0x00095740), 0x74
             // (entityStateHitFurnace, getter 0x000966B0), 0x7A (getter 0x0009C570), 0x7C (getter 0x0009DDA0), 0x87 (entityStateStandAlert,
-            // getter 0x000A2530), 0x8E (entityStateWalkAlert, getter 0x000A55F0), 0x8F (getter 0x000A6220) and 0x5F (entityStateArcAttack,
-            // getter 0x000889B0) have the empty slot 0x001628B0 at
+            // getter 0x000A2530), 0x8E (entityStateWalkAlert, getter 0x000A55F0), 0x8F (getter 0x000A6220), 0x7E
+            // (entityStateScoopAndWhack, getter 0x0009EB40) and 0x5F (entityStateArcAttack, getter 0x000889B0) have the
+            // empty slot 0x001628B0 at
             // +0x18; 0x88 (entityStateStruggle, getter 0x000A2B30) has the empty 0x000D4179 case there.
             const u32 type = player.second_action.type;
             if (type != 0x5E && type != 0x62 && type != 0x64 && type != 0x73 && type != 0x74 && type != 0x7A && type != 0x7C && type != 0x7D
                 && type != 0x87 && type != 0x88 && type != 0x8A && type != 0x8B && type != 0x8E && type != 0x8F && type != 0x69 && type != 0x70
-                && type != 0x66 && type != 0x78 && type != 0x5F && type != 0x80 && type != 0x7F && type != 0x83)
+                && type != 0x66 && type != 0x78 && type != 0x5F && type != 0x80 && type != 0x7F && type != 0x83
+                && type != 0x7E && type != 0x6B)
             {
                 unbound("body +0x744 object vtable +0x18 draw for factory type "
                     + std::to_string(player.second_action.type));
@@ -9235,12 +9287,18 @@ void SceneActorServices::start_scene(const std::function<void()>& script_event)
 
 void SceneActorServices::State::notify_body_list(u32 id)
 {
+    const std::array<u32, 1> message{id};
+    message_body_list(message);
+}
+
+void SceneActorServices::State::message_body_list(std::span<const u32> words)
+{
     for (auto* node = static_cast<entity_detail::ListHead*>(entity_detail::g_world.body_a.next); node != nullptr;)
     {
         auto* current = node;
         node = static_cast<entity_detail::ListHead*>(node->next);
         std::array<u32, 0x42> message{};
-        message[0] = id;
+        std::copy_n(words.begin(), std::min<size_t>(words.size(), message.size()), message.begin());
         if (auto* background = backgrounds->owner_of(*current); background != nullptr)
         {
             background_message(*background, message);

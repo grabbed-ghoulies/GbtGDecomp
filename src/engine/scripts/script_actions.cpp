@@ -1018,6 +1018,12 @@ int script_handle_condition_node(Game& g, const ScriptNode& node, u32& cursor)
         opcode = 25;
         word_then_far = true;
         break;
+    case 0x92:
+        opcode = 21; // 0x001257F6, scriptConditionId_IsChallenge21Active: the link alone.
+        break;
+    case 0x93:
+        opcode = 22; // 0x0012580F, scriptConditionId_IsChallenge21NotActive: the link alone.
+        break;
     default:
         return 3;
     }
@@ -1166,9 +1172,9 @@ u32 g_script_6550 = 0;
 // at node+0xC. A hit compares the written word. A match calls
 // 0x00117400(0xffff, 1), clears DAT_00512378, and returns 2. The other path
 // stores those two words in the 4-byte record at DAT_0051237C and grows
-// DAT_005123AC when the index has reached the count. 0x001117E0 and
-// 0x00122F70 (types 0x4F and 0x56) are not translated, so those calls are not
-// made. Any other type returns 3. A handled store returns 2.
+// DAT_005123AC when the index has reached the count. 0x001117E0 (type 0x4F)
+// is not translated, so that call is not made. Any other type returns 3. A
+// handled store returns 2.
 // Xbox 0x00125B80. Scene start (0x0011CBD0): every door's navigation regions follow its state (0x0005C020), the
 // door pairs the script's head recorded set their doors (0x0005B540 with no hold), the queued 0x4F tags set their
 // regions on every grid, both lists empty, and each DAT_00511B20 actor gets message 0x66.
@@ -1247,10 +1253,12 @@ int script_handle_action_links(Game& g, const ScriptNode& node, int param_2, int
         }
         if (type == 0x56)
         {
-            const u32 message_0 = 0x67;
-            const u32 message_1 = u32(node_u16(g.scene_script, node, 8));
-            (void)message_0;
-            (void)message_1;
+            const std::array<u32, 2> message{0x67, u32(node_u16(g.scene_script, node, 8))};
+            if (!g_script_body_list_message)
+            {
+                throw Error("script node 0x56 sends message 0x67 to DAT_00511B20 outside a native scene");
+            }
+            g_script_body_list_message(message); // 0x00122F70, EDI the message
             return 2;
         }
         return 3;
@@ -1647,9 +1655,9 @@ int script_handle_flag_bits(Game& g, const ScriptNode& node)
 // passes that tag in EDI with the message in EBX to 0x00122D40, which sends
 // it to each DAT_00511B38 actor with that tag. The case returns 2.
 //
-// Type 0x5E calls 0x001077B0 with EAX = node+8 and the dword at node+0x4c
-// on the stack. XMM0 is the float at node+0x48. 0x000F4930 would take the
-// tag, that dword, and XMM0. That call is not translated. The case returns 2.
+// Type 0x5E calls 0x001077B0 with EAX = node+8 and passes the tag, the
+// dword at node+0x4c and XMM0 (the float at node+0x48) to 0x000F4930, the
+// ghoul intro's caption. The case returns 2.
 //
 // Type 0x6B calls 0x001077B0 with EAX = node+8 and walks DAT_00511B48. A tag
 // below 2, or a word at object+6 equal to the tag, stores the byte at
@@ -1755,12 +1763,13 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
     }
     case 0x5e:
     {
-        const u32 arg = node_u32(g.scene_script, node, 0x4c);
         const u16 tag = static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 8).c_str()));
-        const float value = std::bit_cast<float>(node_u32(g.scene_script, node, 0x48));
-        (void)arg;
-        (void)tag;
-        (void)value;
+        if (!g_script_ghoul_intro_caption)
+        {
+            throw Error("script node 0x5E queues a ghoul intro caption outside a native scene");
+        }
+        g_script_ghoul_intro_caption(tag, std::bit_cast<float>(node_u32(g.scene_script, node, 0x48)),
+            std::bit_cast<float>(node_u32(g.scene_script, node, 0x4c))); // 0x000F4930, XMM0 node+0x48
         return 2;
     }
     case 0x6b:
@@ -3305,6 +3314,8 @@ int script_handle_world_actions(Game& g, const ScriptNode& node, int param_2, in
 // with EBX on a match. 0x00122FA0 is not translated. Both paths return 2.
 // Any other type returns 3.
 std::function<void(Actor& actor, std::span<u32> message)> g_script_actor_message;
+std::function<void(std::span<const u32> message)> g_script_body_list_message;
+std::function<void(u16 tag, float delay, float lifetime)> g_script_ghoul_intro_caption;
 
 // Xbox 0x0001BB60, ECX high, EDX low, ESI the random state
 i32 draw_runtime_random_count(i32 high, i32 low, u32& random)

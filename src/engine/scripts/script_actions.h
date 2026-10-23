@@ -136,9 +136,9 @@ extern u32 g_flags_ea9c;
 // at node+0xC. A hit compares the written word. A match calls
 // 0x00117400(0xffff, 1), clears DAT_00512378, and returns 2. The other path
 // stores those two words in the 4-byte record at DAT_0051237C and grows
-// DAT_005123AC when the index has reached the count. 0x001117E0, 0x00122F70,
-// 0x000532E0, 0x0005B540, and 0x0005B780 are not translated, so those calls
-// are not made. The 0x0005B780 match is not taken. Any other type returns 3.
+// DAT_005123AC when the index has reached the count. 0x001117E0 (type 0x4F
+// with a nonzero second argument) is not translated, so that call is not made.
+// Any other type returns 3.
 // A handled store returns 2.
 // Xbox 0x001259B0
 int script_handle_action_links(Game& g, const ScriptNode& node, int param_2, int param_3); // Xbox 0x001259B0
@@ -215,9 +215,9 @@ int script_handle_flag_bits(Game& g, const ScriptNode& node); // Xbox 0x001269D0
 // passes that tag in EDI with the message in EBX to 0x00122D40, which sends
 // it to each DAT_00511B38 actor with that tag. The case returns 2.
 //
-// Type 0x5E calls 0x001077B0 with EAX = node+8 and the dword at node+0x4c
-// on the stack. XMM0 is the float at node+0x48. 0x000F4930 would take the
-// tag, that dword, and XMM0. That call is not translated. The case returns 2.
+// Type 0x5E calls 0x001077B0 with EAX = node+8 and passes the tag, the
+// dword at node+0x4c and XMM0 (the float at node+0x48) to 0x000F4930, the
+// ghoul intro's caption. The case returns 2.
 //
 // Type 0x6B calls 0x001077B0 with EAX = node+8 and walks DAT_00511B48. A tag
 // below 2, or a word at object+6 equal to the tag, stores the byte at
@@ -663,6 +663,10 @@ int script_handle_world_actions(Game& g, const ScriptNode& node, int param_2, in
 int script_handle_broadcast_actions(Game& g, const ScriptNode& node); // Xbox 0x00128770
 // An actor's vtable +0xC with the retail message words; the scene binds it while it runs.
 extern std::function<void(Actor& actor, std::span<u32> message)> g_script_actor_message;
+// 0x00122F70, EDI the message: vtable +0xC of each DAT_00511B20 node's actor (node - 0x934), the next node read first.
+extern std::function<void(std::span<const u32> message)> g_script_body_list_message;
+// 0x000F4930: the ghoul intro's caption for a tag after a delay (XMM0), shown for its lifetime.
+extern std::function<void(u16 tag, float delay, float lifetime)> g_script_ghoul_intro_caption;
 i32 draw_runtime_random_count(i32 high, i32 low, u32& random); // Xbox 0x0001BB60, ECX high, EDX low
 // The DAT_00511B24 objects (their +0x934 nodes from DAT_00511B28) whose +6 class key is `tag` hear `message`.
 void message_runtime_tagged_list_actors(u16 tag, std::span<u32> message); // Xbox 0x00122FA0, DI tag, EBX message

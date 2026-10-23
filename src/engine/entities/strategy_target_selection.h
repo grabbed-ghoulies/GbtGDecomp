@@ -108,6 +108,15 @@ bool runtime_message_source_targets_mind_target(std::span<const u32> message, u3
     RuntimeStrategyActorViews& views); // Xbox 0x00140A00, EAX message, ECX actor
 // The squared distance from the actor to the target record's point (+0x20).
 float runtime_squared_target_distance(const Actor& actor, std::span<const u8> target); // Xbox 0x000415A0, ESI actor, EBX target
+// The distance from the actor to the target record's point (+0x20).
+long double runtime_target_distance(const Actor& actor, std::span<const u8> target); // Xbox 0x00041560, ESI actor, EBX target
+// A running timer (above zero) counts down by the actor's step; true once it reaches zero, where it stops.
+bool count_down_runtime_strategy_timer(float& timer,
+    RuntimePlayerStrategyGoals& context); // Xbox 0x0002B9F0, EAX strategy, ECX timer
+// The message hits this actor (+4) and its attacker's target record (+8 -> +0x8F8) is free and eligible: the mind
+// takes it as its target (+0x10) and the attacker as +0xC. `force` skips the strategy's pause count (+0x1C).
+u32 adopt_runtime_strategy_message_attacker(std::span<const u32> message, u32 force,
+    RuntimeStrategyTargetChecks& context, RuntimeStrategyActorViews& views); // Xbox 0x00139550, EAX strategy, EBX message, ECX force
 // The inlined resume gate: strategy +0x1C clear, 0x0002B7F0 and an empty or idle goal ring (actor +0x980).
 bool runtime_strategy_reactions_enabled(RuntimePlayerStrategyGoals& context);
 float runtime_actor_body_gap(const Actor& first, const Actor& second,

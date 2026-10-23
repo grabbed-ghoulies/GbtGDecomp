@@ -81,6 +81,9 @@ void load_runtime_ghoul_intro_rows(RuntimeGhoulIntroContext& context); // Xbox 0
 void unload_runtime_ghoul_intro(RuntimeGhoulIntroContext& context); // Xbox 0x000F44B0
 void update_runtime_ghoul_intro(RuntimeGhoulIntroContext& context); // Xbox 0x000F4560
 void start_runtime_ghoul_intro(RuntimeGhoulIntroContext& context); // Xbox 0x000F4A00
+// Unless a caption is already queued: the tag's caption after `delay`, shown for `lifetime`.
+void queue_runtime_ghoul_intro_caption(u16 tag, float delay, float lifetime,
+    RuntimeGhoulIntro& intro); // Xbox 0x000F4930, XMM0 delay
 void finish_runtime_ghoul_intro(RuntimeGhoulIntroContext& context); // Xbox 0x000F4B90
 void stop_runtime_ghoul_intro(RuntimeGhoulIntroContext& context); // Xbox 0x000F4C10
 u32 start_next_runtime_ghoul_intro(RuntimeGhoulIntroContext& context); // Xbox 0x000F4CC0

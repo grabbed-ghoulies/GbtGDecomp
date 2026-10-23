@@ -679,6 +679,33 @@ void script_tick_pair_count_condition(ScriptCond& rec)
     }
 }
 
+// Xbox 0x00133330. Opcode 11 (SpecificGhouliesAlive) in the update table at 0x00314334: once no more actors of the
+// class the word at +0xC names are alive (0x00129240) than the int at +8, while DAT_0050E768 is clear and the byte at
+// [DAT_0051248C]+0x30F144 is set, the float at +0x10 counts down by the frame step, stopping at 0.
+void script_tick_ghoulies_alive_condition(ScriptCond& rec)
+{
+    if (script_count_actors_by_class(u16(cond_u32(rec, 0xC))) > static_cast<i32>(cond_u32(rec, 8))
+        || g_block_decay != 0 || g_decay_arm == 0)
+    {
+        return;
+    }
+    float step = 0.f;
+    if (g_sim_freeze <= 0.f)
+    {
+        step = g_sim_dt * g_sim_scale;
+    }
+    const float left = cond_f32(rec, 0x10);
+    if (0.f < left)
+    {
+        const float next = left - step;
+        cond_put_f32(rec, 0x10, next);
+        if (!(0.f < next)) // COMISS; JC keeps a positive time.
+        {
+            cond_put_f32(rec, 0x10, 0.f);
+        }
+    }
+}
+
 // Xbox 0x001333A0. Opcode 10 (SpecificGhouliesKilled) in the update table at 0x00314334: once the DAT_00512B78 kill
 // count the word at +0xC indexes reaches the int at +8, while DAT_0050E768 is clear and the byte at
 // [DAT_0051248C]+0x30F144 is set, the float at +0x10 counts down by the frame step, stopping at 0.
@@ -1132,7 +1159,8 @@ void script_queue_scene_start(Game& g)
 
 // Xbox 0x00117100: 0x00140E30, then the condition updates and the eval at 0x00117140. The update walk calls the
 // table at 0x00314334: opcode 0 is 0x00133070, opcode 1 is 0x001330E0, opcode 3 is 0x00133170, opcode 15 is
-// 0x00133770, opcode 16 is 0x001336A0, opcode 4 is 0x00133230, opcode 5 is 0x001332B0, opcode 10 is 0x001333A0 and opcode 17 is 0x001334B0.
+// 0x00133770, opcode 16 is 0x001336A0, opcode 4 is 0x00133230, opcode 5 is 0x001332B0, opcode 10 is 0x001333A0, opcode 11 is 0x00133330 and opcode 17 is
+// 0x001334B0.
 // Opcodes 2, 6..9 and 20..26 have the empty 0x001628B0; the others' updates
 // are not translated and raise when a record reaches them.
 void script_vm_tick(Game& g, float dt)
@@ -1181,6 +1209,10 @@ void script_vm_tick(Game& g, float dt)
         else if (opcode == 10)
         {
             script_tick_ghoulies_killed_condition(rec);
+        }
+        else if (opcode == 11)
+        {
+            script_tick_ghoulies_alive_condition(rec);
         }
         else if (opcode == 17)
         {

@@ -212,6 +212,19 @@ void finish_runtime_ghoul_intro(RuntimeGhoulIntroContext& context)
     start_next_runtime_ghoul_intro(context);
 }
 
+// Xbox 0x000F4930, XMM0 delay
+void queue_runtime_ghoul_intro_caption(u16 tag, float delay, float lifetime, RuntimeGhoulIntro& intro)
+{
+    if (intro.caption_state != 0)
+    {
+        return;
+    }
+    intro.caption_time = delay;
+    intro.caption_tag = tag;
+    intro.caption_lifetime = lifetime;
+    intro.caption_state = 1;
+}
+
 // Xbox 0x000F4C10
 void stop_runtime_ghoul_intro(RuntimeGhoulIntroContext& context)
 {

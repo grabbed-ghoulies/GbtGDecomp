@@ -215,6 +215,7 @@ add_library(gbtg_lib STATIC
     src/engine/entities/zombie_strategy.cpp
     src/engine/entities/spider_strategy.cpp
     src/engine/entities/ugly_girl_strategy.cpp
+    src/engine/entities/haunted_door_strategy.cpp
     src/engine/entities/scare_figure.cpp
     src/engine/entities/super_scary_shock.cpp
     src/engine/entities/projectile_weapon.cpp
@@ -236,6 +237,8 @@ add_library(gbtg_lib STATIC
     src/engine/entities/generate_ghouly_state.cpp
     src/engine/entities/body_shocked_state.cpp
     src/engine/entities/body_scrabble_state.cpp
+    src/engine/entities/body_scoop_whack_state.cpp
+    src/engine/entities/body_flip_state.cpp
     src/engine/entities/body_slide_state.cpp
     src/engine/entities/animated_light.cpp
     src/engine/entities/body_swing_state.cpp

@@ -100,6 +100,7 @@
 #include <map>
 #include <optional>
 #include <set>
+#include <sstream>
 #include "../src/engine/audio/bank_lookup.h"
 #include "../src/engine/audio/core_source.h"
 #include "../src/engine/audio/core_cue.h"
@@ -9418,23 +9419,25 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                 }
             }
         }
-        if (ghouly)
+        // A ghouly within 16 is attacked with the right stick; a farther one is walked to like a goal, so the walk's
+        // held-cell avoidance applies to it too.
+        const bool close = ghouly
+            && (ghouly->x - cooper->x) * (ghouly->x - cooper->x) + (ghouly->z - cooper->z) * (ghouly->z - cooper->z)
+                < 16.f * 16.f;
+        if (ghouly && !close)
+        {
+            goal = ghouly;
+            std::ostringstream name;
+            name << "a ghouly (class 0x" << std::hex << ghouly_class << ")";
+            goal_name = name.str();
+        }
+        if (ghouly && close)
         {
             const float stick = steering.angle(*cooper, *ghouly);
-            const float dx = ghouly->x - cooper->x;
-            const float dz = ghouly->z - cooper->z;
-            if (dx * dx + dz * dz < 16.f * 16.f)
+            if ((frame / 8) % 2 == 0)
             {
-                if ((frame / 8) % 2 == 0)
-                {
-                    input.pads[0].rx = gbtg::i16(std::sin(stick) * 32767.f);
-                    input.pads[0].ry = gbtg::i16(-std::cos(stick) * 32767.f);
-                }
-            }
-            else
-            {
-                const std::optional<gbtg::Vec3> step = nav_waypoint(*cooper, *ghouly);
-                steering.walk(input, steering.angle(*cooper, step ? *step : *ghouly));
+                input.pads[0].rx = gbtg::i16(std::sin(stick) * 32767.f);
+                input.pads[0].ry = gbtg::i16(-std::cos(stick) * 32767.f);
             }
             if (frame % 120 == 0)
             {
@@ -9857,12 +9860,13 @@ int main(int argc, char** argv)
     const bool scene9_test = argc == 3 && std::string_view(argv[2]) == "--scene9";
     const bool scene10_test = argc == 3 && std::string_view(argv[2]) == "--scene10";
     const bool scene11_test = argc == 3 && std::string_view(argv[2]) == "--scene11";
+    const bool scene12_test = argc == 3 && std::string_view(argv[2]) == "--scene12";
     if (spawn_test)
     {
         std::cout << std::unitbuf;
     }
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
-        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene3_test)
+        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene3_test)
     {
         std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene6-save | --scene6-save-reload | --scene3 | --scene4 | --scene5 | --scene6-1 | --scene7]\n";
         return 2;
@@ -9972,8 +9976,16 @@ int main(int argc, char** argv)
             : scene9_test ? "chapter1_scene9_1playcam"
             : scene10_test ? "chapter1_scene10_1playcam"
             : scene11_test ? "chapter1_scene11_2book"
+            : scene12_test ? "chapter1_scene12_1playcam"
             : player_test || spawn_test ? "chapter1_scene1_2playcam"
             : title_test ? "" : "scene0_1book");
+        if (scene12_test)
+        {
+            pass_chapter_title(game, "scene12", "aid_script_ghoulies_chapter1_scene12_1playcam", false);
+            play_scene7(game, "scene12", 1000.f, {}, true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
         if (scene11_test)
         {
             pass_chapter_title(game, "scene11", "aid_script_ghoulies_chapter1_scene11_2book", false);

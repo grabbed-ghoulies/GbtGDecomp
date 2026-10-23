@@ -2169,7 +2169,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             script_queue_event(game, message); // 0x00116810
         },
-        point_lights});
+        point_lights, audio.streams});
     classes->install(scene.types);
     classes->defer_release = true;
     install_runtime_move_action_classes(scene.types, [this](u32 address) -> std::span<u8>
@@ -3888,7 +3888,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             return door_pool == nullptr ? std::span<const u8>()
                 : std::span<const u8>(door_pool->begin, size_t(door_pool->end - door_pool->begin));
-        }, body_slide_contacts, {reinterpret_cast<const float*>(data(0x00217EC0, 0x20).data()), 8},
+        }, body_slide_contacts, {reinterpret_cast<const float*>(data(0x00217EC0, 0x48).data()), 18},
         [this](u32 address) -> std::span<const u8>
         {
             return scene.resolve_tail(address);
@@ -4169,7 +4169,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             return players->minds.initialize_request(mind, request);
         },
         pause_references, *health_display, script_records, sounds, *damage_tables,
-        {reinterpret_cast<const float*>(data(0x00217EC0, 0x20).data()), 8},
+        {reinterpret_cast<const float*>(data(0x00217EC0, 0x48).data()), 18},
         [this](u32 address) -> RuntimeBodyAttachedActor&
         {
             return attached_actor_at(address);
@@ -5816,7 +5816,7 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
             message, actor_at, base_of(object).base, bindings);
         return;
     }
-    if (type == 0xAA || type == 0xA9 || type == 0xA7 || type == 0xA0 || type == 0xA1)
+    if (type == 0xAA || type == 0xA9 || type == 0xA7 || type == 0xA0 || type == 0xA1 || type == 0xA2)
     {
         // Getters 0x000CEF70, 0x000CD640 and 0x000CB570: +0x10 is the weapon update 0x0014A2E0; +0xC is the chair message
         // 0x000CF0D0 or the large projectile's 0x000CDBE0.
@@ -5861,6 +5861,23 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
         refresh_actor_model_animation_view(view);
         classes->message(object, message);
         store_actor_model_animation_view(view);
+        return;
+    }
+    if (type == 0x22)
+    {
+        // Getter 0x00072270: +0x10 is 0x00072480, which runs the actor update 0x000420D0 between the ditty and the
+        // watch for the player.
+        auto& view = actors->view(object);
+        const u8* bytes = object.bytes.get();
+        actor_updates[&view.bat.actor] = [this, bytes](Actor&)
+        {
+            auto& updated = *object_of(bytes);
+            classes->update_super_scary_shock(updated, [this, &updated]()
+                {
+                    update_base_actor(updated); // 0x000420D0
+                });
+        };
+        classes->message(object, message);
         return;
     }
     if (type == 0x26)
@@ -6695,7 +6712,7 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
     // A strategy's goals read the body's vtable slots (body_slot_key), which a just-spawned player's body graph
     // has not attached yet.
     if (child.type == 0x4F || child.type == 0x46 || child.type == 0x3B || child.type == 0x51 || child.type == 0x52
-        || child.type == 0x58 || child.type == 0x44 || child.type == 0x40 || child.type == 0x4C)
+        || child.type == 0x58 || child.type == 0x44 || child.type == 0x40 || child.type == 0x4C || child.type == 0x53)
     {
         if (auto* player = players->find_player(child); player != nullptr && !player->body.empty())
         {
@@ -6730,6 +6747,9 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
         return;
     case 0x4C:
         players->mummy_message(child, words);
+        return;
+    case 0x53:
+        players->ugly_girl_message(child, words);
         return;
     case 0x39:
     {
@@ -6947,7 +6967,7 @@ RuntimeBodyAttachedActor& SceneActorServices::State::attached_actor_at(u32 addre
     const auto bytes = scene.resolve_address(address, 0);
     FactoryObject* object = object_of(bytes.data());
     if (object == nullptr || (object->type != 0x0B && object->type != 0xAA && object->type != 0xA9
-        && object->type != 0xA7 && object->type != 0xA0 && object->type != 0xA1))
+        && object->type != 0xA7 && object->type != 0xA0 && object->type != 0xA1 && object->type != 0xA2))
     {
         unbound("attached actor at an address that is neither a player nor a weapon");
     }
@@ -7186,6 +7206,9 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
                 return;
             case 0x4C:
                 players->mummy_update(strategy);
+                return;
+            case 0x53:
+                players->ugly_girl_update(strategy);
                 return;
             case 0x39:
             {
@@ -7947,7 +7970,7 @@ void SceneActorServices::State::actor_draw(Actor& actor, i32 view, i32 pass)
                 return;
             }
             // Types 0xAA and 0xA9 +0x14 is the weapon draw 0x001459C0: the actor draw 0x0003C9E0, then the hand prompt.
-            if (type == 0xAA || type == 0xA9 || type == 0xA7 || type == 0xA0 || type == 0xA1)
+            if (type == 0xAA || type == 0xA9 || type == 0xA7 || type == 0xA0 || type == 0xA1 || type == 0xA2)
             {
                 if (!classes->weapon_draw_hidden(*object))
                 {
@@ -8054,7 +8077,8 @@ u32 SceneActorServices::State::actor_visible(Actor& actor, i32 pass, i32 view)
         && object.type != 0x1A && object.type != 0x1F && object.type != 0x23 && object.type != 0x25
         && object.type != 0x24 && object.type != 0x26 && object.type != 0x1E && object.type != 0x1D
         && object.type != 0x19 && object.type != 0xAA
-        && object.type != 0xA9 && object.type != 0xA7 && object.type != 0xA0 && object.type != 0xA1)
+        && object.type != 0xA9 && object.type != 0xA7 && object.type != 0xA0 && object.type != 0xA1
+        && object.type != 0xA2)
     {
         unbound("actor vtable +0x18 visibility for factory type " + std::to_string(object.type));
     }
@@ -8482,7 +8506,7 @@ void SceneActorServices::State::view_refresh_slot(Actor& actor)
                 || type == 0x1A || type == 0x1F || type == 0x23 || type == 0x25 || type == 0x24 || type == 0x26
                 || type == 0x1E || type == 0x1D || type == 0x19
                 || type == 0xAA || type == 0xA9 || type == 0xA7
-                || type == 0xA0 || type == 0xA1)
+                || type == 0xA0 || type == 0xA1 || type == 0xA2)
             {
                 return;
             }

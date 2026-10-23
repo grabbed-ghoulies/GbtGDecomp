@@ -59,6 +59,14 @@ void release_scare_figure_view(FactoryObject& object)
 {
     active_owner->release_scare_figure(object);
 }
+bool construct_super_scary_shock_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    return active_owner->construct_super_scary_shock(object, parameters);
+}
+void release_super_scary_shock_view(FactoryObject& object)
+{
+    active_owner->release_super_scary_shock(object);
+}
 bool construct_bg_break_key_view(FactoryObject& object, std::span<const u8> parameters)
 {
     return active_owner->construct_bg_break_key(object, parameters);
@@ -123,6 +131,14 @@ void release_candle_weapon_view(FactoryObject& object)
 {
     active_owner->release_candle_weapon(object);
 }
+bool construct_container_weapon_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    return active_owner->construct_container_weapon(object, parameters);
+}
+void release_container_weapon_view(FactoryObject&)
+{
+    // 0x001628B0 returns at once.
+}
 void release_weapon_view(FactoryObject& object)
 {
     active_owner->release_weapon(object);
@@ -169,6 +185,12 @@ const ObjectFactoryVtable* bob_weapon_lifecycle()
         release_bob_weapon_view};
     return &table;
 }
+const ObjectFactoryVtable* container_weapon_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00506158, container_weapon_object_sizes, construct_container_weapon_view,
+        release_container_weapon_view};
+    return &table;
+}
 const ObjectFactoryVtable* candle_weapon_lifecycle()
 {
     static const ObjectFactoryVtable table{0x00506108, candle_weapon_object_sizes, construct_candle_weapon_view,
@@ -191,6 +213,12 @@ const ObjectFactoryVtable* swap_setup_lifecycle()
 {
     static const ObjectFactoryVtable table{0x00504B44, ghouly_swap_setup_object_sizes, construct_swap_setup_view,
         release_swap_setup_view};
+    return &table;
+}
+const ObjectFactoryVtable* super_scary_shock_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00504F40, super_scary_shock_object_sizes,
+        construct_super_scary_shock_view, release_super_scary_shock_view};
     return &table;
 }
 const ObjectFactoryVtable* scare_figure_lifecycle()
@@ -478,6 +506,62 @@ struct NativeSceneActorClassOwner::SwapSetupInstance : GhoulyController
     }
 };
 
+struct NativeSceneActorClassOwner::SuperScaryShockInstance
+{
+    RuntimeSuperScaryShock context;
+    SuperScaryShockInstance(NativeSceneActorClassBindings& bindings, FactoryObject& object)
+        : context{{object.bytes.get(), object.size}, bindings.actors.view(object), bindings.random, bindings.streams,
+            bindings.prompt_lock, bindings.dialogue, g_flags_ea9c,
+            [&bindings, bytes = object.bytes.get()](std::span<u32> message)
+            {
+                auto* self = bindings.object_at(bindings.address_of(bytes));
+                if (self == nullptr)
+                {
+                    throw Error("Super Scary shock base message for an object outside the scene");
+                }
+                dispatch_base_actor_word_message(bindings.base_of(*self), message, bindings.word_messages);
+            },
+            [&bindings]() -> const Actor*
+            {
+                const auto players = bindings.case_actors(); // DAT_00511B40.
+                return players.empty() ? nullptr : &players.front().actor;
+            },
+            [&bindings](const char* name, const std::function<void(std::span<u8>)>& patch) -> u32
+            {
+                auto parameters = clone_executable_resource(bindings.pools, name); // 0x00107720
+                if (parameters.bytes == nullptr)
+                {
+                    return 0;
+                }
+                patch({parameters.bytes.get(), parameters.size});
+                FactoryObject* created = bindings.keep(create_factory_object(bindings.actors.bindings.factory,
+                    {parameters.bytes.get(), parameters.size})); // 0x00107520
+                parameters.bytes.reset(); // 0x000663E0
+                if (created == nullptr || created->bytes == nullptr)
+                {
+                    return 0;
+                }
+                return bindings.address_of(created->bytes.get());
+            },
+            [&bindings](std::span<const u8> parameters)
+            {
+                bindings.keep(create_factory_object(bindings.actors.bindings.factory, parameters)); // 0x00107520
+            },
+            bindings.message,
+            [&bindings](u32 address) -> NativeActorFactoryInstance&
+            {
+                FactoryObject* found = bindings.object_at(address);
+                if (found == nullptr)
+                {
+                    throw Error("Super Scary shock's ghouly is outside the scene");
+                }
+                return bindings.actors.view(*found);
+            },
+            bindings.queue_event}
+    {
+    }
+};
+
 struct NativeSceneActorClassOwner::ScareFigureInstance
 {
     RuntimeScareFigure context;
@@ -738,6 +822,7 @@ void NativeSceneActorClassOwner::install(std::span<ObjectFactoryType> types)
     types[0x24] = {2, bg_break_setup_lifecycle}; // Getter 0x0006A4F0.
     types[0x26] = {2, swap_setup_lifecycle}; // Getter 0x0006BB30.
     types[0x1D] = {2, scare_figure_lifecycle}; // Getter 0x0006EFB0.
+    types[0x22] = {2, super_scary_shock_lifecycle}; // Getter 0x00072270.
     types[0x1E] = {2, bg_break_key_lifecycle}; // Getter 0x0006CC70.
     types[0xD] = {2, emitter_lifecycle}; // Getter 0x00109DD0.
     types[0xF] = {2, motion_blur_lifecycle}; // Getter 0x00066900.
@@ -750,6 +835,7 @@ void NativeSceneActorClassOwner::install(std::span<ObjectFactoryType> types)
     types[0xA9] = {0xB, large_projectile_lifecycle}; // Getter 0x000CD640.
     types[0xA0] = {0xB, bob_weapon_lifecycle}; // Getter 0x000C5BB0.
     types[0xA1] = {0xB, candle_weapon_lifecycle}; // Getter 0x000C64F0.
+    types[0xA2] = {0xB, container_weapon_lifecycle}; // Getter 0x000C75D0.
     active_owner = this;
 }
 
@@ -1004,6 +1090,11 @@ void NativeSceneActorClassOwner::release_bob_weapon(FactoryObject& object)
     destroy_runtime_bob_weapon(weapons_.at(object.bytes.get())->context);
 }
 
+bool NativeSceneActorClassOwner::construct_container_weapon(FactoryObject& object, std::span<const u8> parameters)
+{
+    return initialize_runtime_container_weapon(weapons_.at(object.bytes.get())->context, parameters);
+}
+
 bool NativeSceneActorClassOwner::construct_candle_weapon(FactoryObject& object)
 {
     return initialize_runtime_candle_weapon(weapons_.at(object.bytes.get())->context);
@@ -1155,6 +1246,34 @@ void NativeSceneActorClassOwner::release_scare_figure(FactoryObject& object)
     }
 }
 
+bool NativeSceneActorClassOwner::construct_super_scary_shock(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto instance = std::make_unique<SuperScaryShockInstance>(bindings_, object);
+    auto* shock = instance.get();
+    super_scary_shocks_.emplace(object.bytes.get(), std::move(instance));
+    return initialize_runtime_super_scary_shock(shock->context, parameters);
+}
+
+void NativeSceneActorClassOwner::release_super_scary_shock(FactoryObject& object)
+{
+    const auto found = super_scary_shocks_.find(object.bytes.get());
+    if (found == super_scary_shocks_.end())
+    {
+        return;
+    }
+    destroy_runtime_super_scary_shock(found->second->context);
+    if (!defer_release)
+    {
+        super_scary_shocks_.erase(found);
+    }
+}
+
+void NativeSceneActorClassOwner::update_super_scary_shock(FactoryObject& object,
+    const std::function<void()>& update_actor)
+{
+    update_runtime_super_scary_shock(super_scary_shocks_.at(object.bytes.get())->context, update_actor);
+}
+
 void NativeSceneActorClassOwner::update_scare_figure(FactoryObject& object)
 {
     update_runtime_scare_figure(scare_figures_.at(object.bytes.get())->context);
@@ -1216,6 +1335,7 @@ void NativeSceneActorClassOwner::release_view(const u8* bytes)
     swap_setups_.erase(bytes);
     bg_break_keys_.erase(bytes);
     scare_figures_.erase(bytes);
+    super_scary_shocks_.erase(bytes);
     emitters_.erase(bytes);
     motion_blurs_.erase(bytes);
     afterimages_.erase(bytes);
@@ -1254,6 +1374,10 @@ void NativeSceneActorClassOwner::message(FactoryObject& object, std::span<u32> m
     {
         dispatch_runtime_scare_figure_message(scare_figures_.at(object.bytes.get())->context, message);
     }
+    else if (object.type == 0x22)
+    {
+        dispatch_runtime_super_scary_shock_message(super_scary_shocks_.at(object.bytes.get())->context, message);
+    }
     else if (object.type == 0xAA)
     {
         dispatch_runtime_chair_weapon_message(weapons_.at(object.bytes.get())->context, message);
@@ -1273,6 +1397,10 @@ void NativeSceneActorClassOwner::message(FactoryObject& object, std::span<u32> m
     else if (object.type == 0xA1)
     {
         dispatch_runtime_candle_weapon_message(weapons_.at(object.bytes.get())->context, message);
+    }
+    else if (object.type == 0xA2)
+    {
+        dispatch_runtime_container_weapon_message(weapons_.at(object.bytes.get())->context, message);
     }
     else if (object.type == 0xD)
     {

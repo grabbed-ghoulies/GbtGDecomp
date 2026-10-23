@@ -12,6 +12,7 @@
 #include "skeleton_strategy.h"
 #include "zombie_strategy.h"
 #include "spider_strategy.h"
+#include "ugly_girl_strategy.h"
 #include "haunted_tv_strategy.h"
 #include "haunted_chair_strategy.h"
 #include "mummy_strategy.h"
@@ -306,6 +307,7 @@ struct NativePlayerInstance
     RuntimeHauntedTvStrategy haunted_tv; // Type 0x44.
     RuntimeHauntedChairStrategy haunted_chair; // Type 0x40.
     RuntimeMummyStrategy mummy; // Type 0x4C.
+    RuntimeUglyGirlStrategy ugly_girl; // Type 0x53.
     void refresh_input_views(); // After the player constructor allocates actor +0x960.
     void refresh_views(); // Body, input, mind and strategy value views before a method runs.
 };
@@ -358,6 +360,8 @@ public:
     void haunted_chair_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000AE790.
     void mummy_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000BBFA0.
     void mummy_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000BBCB0.
+    void ugly_girl_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000C1420.
+    void ugly_girl_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000C1390.
     NativePlayerFactoryBindings bindings;
     NativePlayerMindOwner minds;
     // Retail keeps the type 5 vtable through the whole destructor chain, so the base actor destructor still

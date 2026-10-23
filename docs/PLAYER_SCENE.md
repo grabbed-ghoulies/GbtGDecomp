@@ -214,6 +214,7 @@ All take the game directory, e.g.
 | `--scene8` | Boots scene 8 (chapter1_scene8_1playcam, the gaming room) and plays it with the scene 7 driver: during "Event 'Kill All'" Cooper fights any live ghouly in the room, and in "Player Leaves Through Door N" he lines up in front of that door before walking into the exit volume. Passes when the script moves on to scene 9 (frame 4644 in the 2026-10-22 run) |
 | `--scene9` | Boots scene 9 (chapter1_scene9_1playcam, the basement cellar) and plays it with the scene 7 driver, doors first: a live PlayerApproachesDoor sends Cooper to that door before any region, and a walk held in place for 1.5 s avoids the grid cell it was walking into (coffins and crates the grid leaves open). Cooper fights the mummy in its room, burns it with the candle Crivens hands over, and leaves through door 8. Passes when the script moves on to scene 10 (frame 9600 in the 2026-10-22 run; up to 18000 frames are allowed) |
 | `--scene10` | Boots scene 10 (chapter1_scene10_1playcam, the relics store) and plays it with the scene 7 driver, doors first. The walk cutscene and the mummy's Super Scary challenge play by themselves; during "Event: Kill All" Cooper fights any live ghouly at any range (1000), and nothing outside it. Passes when the script moves on to `aid_script_ghoulies_chapter1_scene11_2book` (frame 6078 in the 2026-10-22 run). The mummy's marker is drawn at random, so runs differ |
+| `--scene11` | Boots scene 11 (chapter1_scene11_2book) and passes its book to `aid_script_ghoulies_chapter1_scene11_3viewcam`, then plays that scene with the scene 7 driver: it presses the shown buttons of a running Super Scary challenge (type 0x98, states 5 and 6), fights any live ghouly at any range (1000) except the ugly girl (tag 0x37, Cooper's partner) and otherwise walks to the regions and the exit. Passes when the script moves on to `aid_script_ghoulies_chapter1_scene12_1playcam` (frame 3041 in the 2026-10-22 run) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -309,8 +310,10 @@ Cooper walks the long way round to the mummy's room, the mummy comes through its
 candle, and its fire burns the mummy; the exit door opens and the script moves on to
 `aid_script_ghoulies_chapter1_scene10_1playcam` ("Relics Store"). `--scene10` plays that scene to its end: the walk
 cutscene carries the lit relic candle, the mummy's Super Scary challenge plays, "Event: Kill All" is won with the
-candle and the script moves on to `aid_script_ghoulies_chapter1_scene11_2book`, which nothing drives yet (see the
-2026-10-22 checkpoints).
+candle and the script moves on to `aid_script_ghoulies_chapter1_scene11_2book`. `--scene11` plays that book and
+the archives after it: the ugly girl's Super Scary shock is won, she joins Cooper for "Ugly Partner Kickabout", the
+skeletons come in and are beaten, and the script moves on to `aid_script_ghoulies_chapter1_scene12_1playcam`, which
+nothing drives yet (see the 2026-10-22 checkpoints).
 
 | Path | Stop | What it needs |
 |---|---|---|
@@ -323,12 +326,12 @@ candle and the script moves on to `aid_script_ghoulies_chapter1_scene11_2book`, 
 | Script condition nodes | partial | `0x00125450` registers types 0x3D..0x3F, 0x40..0x44, 0x47, 0x48, 0x5A, 0x5B, 0x6A, 0x6C, 0x72, 0x94, 0x95 and 0x99; retail also takes 0x65, 0x66, 0x68, 0x75, 0x8B, 0x8C, 0x92, 0x93 and 0xA3, which still run as ordinary nodes |
 | Script event steps | partial | `0x00126140` queues step types 0 to 3 (script types 0x19, 0x1B, 0x1C, 0x1D) and `0x000D0B40` runs them; the other builders (`0x00125D80`..`0x00126100`) are not translated, so those script types queue nothing |
 | Script type 0x16 | legacy | Still the old shortcut; retail waits for `0x0004EFE0` with DAT_00512470 set, then releases the cutscenes |
-| Scene 11 (`aid_script_ghoulies_chapter1_scene11_2book`) | not driven | `--scene10` stops once the script moves on to it |
+| Scene 12 (`aid_script_ghoulies_chapter1_scene12_1playcam`) | not driven | `--scene11` stops once the script moves on to it |
 | The camera near scene 9's door 8 | unchecked | From frame ~11400 of a long scene 9 run the camera looked down on the cellar from outside its walls; not compared with retail |
 
 ## Work
 
-1. Scene 11 (`aid_script_ghoulies_chapter1_scene11_2book`): drive it after scene 10 and translate what it
+1. Scene 12 (`aid_script_ghoulies_chapter1_scene12_1playcam`): drive it after scene 11 and translate what it
    reaches.
 2. Move the remaining `g_pulse_nodes` callers to the native `DAT_00511AA4` lookups.
 
@@ -369,6 +372,27 @@ candle and the script moves on to `aid_script_ghoulies_chapter1_scene11_2book`, 
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-22: scene 11 (the ugly girl's Super Scary shock and the kickabout) plays to its end
+
+`--scene11` (new) boots `aid_script_ghoulies_chapter1_scene11_2book`; its book's five pages pass to
+`aid_script_ghoulies_chapter1_scene11_3viewcam` (the archives). The Super Scary shock (type 0x22) waiting at its marker
+starts the "uglygirlturnaround" ditty; message 0x88 finds Cooper within its reach, so it spawns the ugly girl from its
+template and starts the Super Scary challenge (type 0x98). The driver presses the shown buttons, Crivens' "successfully
+overcome it!" page follows, Free Play and "Ugly Partner Kickabout" play with the ugly girl at Cooper's side, the
+skeletons come in and are beaten, and Cooper leaves through the exit; the script moves on to
+`aid_script_ghoulies_chapter1_scene12_1playcam` at frame 3041. Left unanswered, the challenge fails into Crivens'
+page and the scene restarts.
+
+- New translations: the Super Scary shock (type 0x22, `super_scary_shock.cpp`: `0x00072250`..`0x00072980`) and the
+  ugly girl's strategy (type 0x53, `ugly_girl_strategy.cpp`: `0x000C1300`..`0x000C14E0`), which starts its named
+  attachment (`0x0003D1B0`) in state 0x3EC and removes it (`0x0003CFD0`) on leaving. The archives' carried
+  container (type 0xA2, `container_weapon.cpp`: `0x000C75B0`..`0x000C7AF0`) is built over the weapon.
+- Host fixes: the surface-mode scales (DAT_00217EC0) are bound as the retail table's 18 floats, not 8; mode 12
+  (0.15) lay outside the old view once the skeletons walked.
+- Shown (looked at): the ugly girl's shock close-up (`cache/scene11_3_300.bmp`), Crivens' page
+  (`scene11_3_page1.bmp`), the kickabout with the ugly girl beside Cooper (`scene11_3_1500.bmp`) and Cooper on his
+  way to the exit (`scene11_3_2700.bmp`). The skeletons' fight was not captured.
 
 ### 2026-10-22: scene 10 (the relics store's Super Scary mummy) plays to its end
 

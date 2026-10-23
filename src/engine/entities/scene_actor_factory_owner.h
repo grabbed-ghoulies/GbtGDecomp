@@ -9,11 +9,13 @@
 #include "thrown_projectile.h"
 #include "bob_weapon.h"
 #include "candle_weapon.h"
+#include "container_weapon.h"
 #include "ghouly_cutscene_setup.h"
 #include "ghouly_bg_break_setup.h"
 #include "ghouly_swap_setup.h"
 #include "bg_break_key.h"
 #include "scare_figure.h"
+#include "super_scary_shock.h"
 #include "bone_debris_actor.h"
 #include "animated_light.h"
 #include "../graphics/effect_collision_response.h"
@@ -93,6 +95,8 @@ struct NativeSceneActorClassBindings
     std::function<void(std::span<const u8>)> queue_event;
     // The animated light (type 0x13): the scene's point lights (DAT_00511B70..DAT_00512100).
     RuntimeScenePointLights& point_lights;
+    // The Super Scary shock (type 0x22): its ditty's tracked bank (DAT_004DF370).
+    AudioBankStreams& streams;
 };
 // Native contexts for the retail area/trigger classes, over the existing
 // actor lifecycle owner. All referenced scene services must outlive this owner.
@@ -118,6 +122,10 @@ public:
     bool construct_scare_figure(FactoryObject& object, std::span<const u8> parameters); // Type 0x1D.
     void release_scare_figure(FactoryObject& object); // Type 0x1D, the empty 0x001628B0.
     void update_scare_figure(FactoryObject& object); // Type 0x1D, Xbox 0x0006F1C0.
+    bool construct_super_scary_shock(FactoryObject& object, std::span<const u8> parameters); // Type 0x22.
+    void release_super_scary_shock(FactoryObject& object); // Type 0x22, Xbox 0x00072420.
+    void update_super_scary_shock(FactoryObject& object,
+        const std::function<void()>& update_actor); // Type 0x22, Xbox 0x00072480.
     u32 draw_scare_figure(FactoryObject& object, ActorDrawState& state, i32 kind,
         const ActorFrameDrawContext& attachments, SceneModelDrawContext& draw,
         RuntimeGlowPass& glow); // Type 0x1D, Xbox 0x0006F600.
@@ -137,6 +145,7 @@ public:
     bool construct_bob_weapon(FactoryObject& object, std::span<const u8> parameters); // Type 0xA0, Xbox 0x000C5C20.
     void release_bob_weapon(FactoryObject& object); // Type 0xA0, Xbox 0x000C5D30.
     bool construct_candle_weapon(FactoryObject& object); // Type 0xA1, Xbox 0x000C6560.
+    bool construct_container_weapon(FactoryObject& object, std::span<const u8> parameters); // Type 0xA2, Xbox 0x000C7640.
     void release_candle_weapon(FactoryObject& object); // Type 0xA1, Xbox 0x000C67A0.
     // Type 0xA1's draw (0x000C6BE0) after the weapon draw 0x001459C0: the flame billboards (0x000C6C80).
     void queue_candle_flame(FactoryObject& object);
@@ -184,6 +193,7 @@ private:
     struct SwapSetupInstance;
     struct BgBreakKeyInstance;
     struct ScareFigureInstance;
+    struct SuperScaryShockInstance;
     struct EmitterInstance;
     struct WeaponInstance;
     NativeSceneActorClassBindings bindings_;
@@ -194,6 +204,7 @@ private:
     std::unordered_map<const u8*, std::unique_ptr<SwapSetupInstance>> swap_setups_;
     std::unordered_map<const u8*, std::unique_ptr<BgBreakKeyInstance>> bg_break_keys_;
     std::unordered_map<const u8*, std::unique_ptr<ScareFigureInstance>> scare_figures_;
+    std::unordered_map<const u8*, std::unique_ptr<SuperScaryShockInstance>> super_scary_shocks_;
     std::unordered_map<const u8*, std::unique_ptr<EmitterInstance>> emitters_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeAvatarMotionBlur>> motion_blurs_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeAvatarAfterimage>> afterimages_;

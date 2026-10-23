@@ -9279,7 +9279,7 @@ void play_scene6_1_run(gbtg::Game& game, const std::string& label)
 // `range_title`, ghoulies are fought only while the scene title is that one. `doors_first` walks to a door a live
 // PlayerApproachesDoor names before any region.
 void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_range, const std::string& range_title,
-    bool doors_first)
+    bool doors_first, bool answer_challenges)
 {
     std::string title = game.scene_name;
     const std::string scene_script = game.scene_script.name;
@@ -9298,6 +9298,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
     std::set<gbtg::i32> avoided;
     gbtg::Vec3 stuck_at{};
     int stuck_since = -1;
+    gbtg::u32 last_challenge = 0xFFFFFFFFu;
     // Scene 9's walk to the mummy's room takes some 7200 frames on its own.
     for (int frame = 0; frame < 18000 && moved_on < 0; ++frame)
     {
@@ -9391,7 +9392,8 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
             }
         }
         // Any live ghouly (a player actor other than Cooper with body +0x94 energy) within the fight range is fought
-        // first. The prisoners (tags 0x26..0x30, objTag_Actor_PrisonerChestChap..ThornGirl) are not ghoulies.
+        // first. The prisoners (tags 0x26..0x30, objTag_Actor_PrisonerChestChap..ThornGirl) are not ghoulies, and the
+        // ugly girl (tag 0x37, objTag_Actor_UglyGirl) is Cooper's partner from scene 11 on.
         std::optional<gbtg::Vec3> ghouly;
         gbtg::u16 ghouly_class = 0;
         if (cooper && !page)
@@ -9402,7 +9404,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
             {
                 if (mark.actor == nullptr || mark.actor->class_key == 4 || mark.body.empty()
                     || gbtg::read_u16(mark.body, 0x94) == 0
-                    || (mark.actor->class_key >= 0x26 && mark.actor->class_key <= 0x30))
+                    || (mark.actor->class_key >= 0x26 && mark.actor->class_key <= 0x30) || mark.actor->class_key == 0x37)
                 {
                     continue;
                 }
@@ -9488,8 +9490,31 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                           << (step ? " by the grid" : " straight") << "\n";
             }
         }
+        // With `answer_challenges`, a Super Scary challenge (factory type 0x98) waiting on Cooper (states 5 and 6)
+        // gets the next button in its row, as A..Y (0x100 << button).
+        namespace challenge_field = gbtg::super_scary_field;
+        if (const auto* challenge = gbtg::find_runtime_scene_control(0x98); answer_challenges && challenge != nullptr)
+        {
+            const gbtg::u32 phase = gbtg::u32(gbtg::get(challenge->state, challenge_field::phase));
+            if ((phase == 5 || phase == 6) && frame % 8 < 3)
+            {
+                const gbtg::i32 presses = gbtg::get(challenge->state, challenge_field::presses);
+                const gbtg::u32 button = gbtg::field_data(challenge->state, challenge_field::buttons)[size_t(presses)];
+                input.pads[0].buttons = gbtg::u16(0x100u << button);
+            }
+        }
         gbtg::gfx_begin_frame();
         game.tick(1.f / 60.f, input);
+        {
+            const auto* challenge = gbtg::find_runtime_scene_control(0x98);
+            const gbtg::u32 now =
+                challenge == nullptr ? 0xFFFFFFFFu : gbtg::u32(gbtg::get(challenge->state, challenge_field::phase));
+            if (now != last_challenge)
+            {
+                std::cout << label << " frame " << frame << ": Super Scary state " << int(now) << "\n";
+                last_challenge = now;
+            }
+        }
         const bool page_now = game.script_dialogue != nullptr && game.script_dialogue->dialogue.state.mode != 0;
         if (page_now && !page_up)
         {
@@ -9555,11 +9580,11 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
 }
 
 void play_scene7(gbtg::Game& game, const std::string& label, float fight_range = 50.f,
-    const std::string& range_title = {}, bool doors_first = false)
+    const std::string& range_title = {}, bool doors_first = false, bool answer_challenges = false)
 {
     try
     {
-        play_scene7_run(game, label, fight_range, range_title, doors_first);
+        play_scene7_run(game, label, fight_range, range_title, doors_first, answer_challenges);
     }
     catch (const std::exception& error)
     {
@@ -9831,12 +9856,13 @@ int main(int argc, char** argv)
     const bool scene8_test = argc == 3 && std::string_view(argv[2]) == "--scene8";
     const bool scene9_test = argc == 3 && std::string_view(argv[2]) == "--scene9";
     const bool scene10_test = argc == 3 && std::string_view(argv[2]) == "--scene10";
+    const bool scene11_test = argc == 3 && std::string_view(argv[2]) == "--scene11";
     if (spawn_test)
     {
         std::cout << std::unitbuf;
     }
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
-        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene3_test)
+        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene3_test)
     {
         std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene6-save | --scene6-save-reload | --scene3 | --scene4 | --scene5 | --scene6-1 | --scene7]\n";
         return 2;
@@ -9945,8 +9971,18 @@ int main(int argc, char** argv)
             : scene8_test ? "chapter1_scene8_1playcam"
             : scene9_test ? "chapter1_scene9_1playcam"
             : scene10_test ? "chapter1_scene10_1playcam"
+            : scene11_test ? "chapter1_scene11_2book"
             : player_test || spawn_test ? "chapter1_scene1_2playcam"
             : title_test ? "" : "scene0_1book");
+        if (scene11_test)
+        {
+            pass_chapter_title(game, "scene11", "aid_script_ghoulies_chapter1_scene11_2book", false);
+            play_scene7(game, "scene11_2");
+            pass_chapter_title(game, "scene11_to_3", "aid_script_ghoulies_chapter1_scene11_3viewcam", false);
+            play_scene7(game, "scene11_3", 1000.f, {}, false, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
         if (scene10_test)
         {
             pass_chapter_title(game, "scene10", "aid_script_ghoulies_chapter1_scene10_1playcam", false);

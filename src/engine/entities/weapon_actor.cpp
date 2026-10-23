@@ -4,6 +4,7 @@
 #include "projectile_weapon.h"
 #include "bob_weapon.h"
 #include "candle_weapon.h"
+#include "container_weapon.h"
 #include "../audio/core_source.h"
 #include "euler_wrapping.h"
 #include "gbtg/sound_runtime.h"
@@ -340,13 +341,19 @@ void update_state(RuntimeWeaponActor& weapon, u16 state)
         update_runtime_candle_weapon_state(weapon, state); // 0x000C6800
         return;
     }
+    if (weapon.type == 0xA2)
+    {
+        update_runtime_container_weapon_state(weapon, state); // 0x000C76A0
+        return;
+    }
     throw Error("weapon factory type " + std::to_string(weapon.type) + " vtable +0x44 is not translated");
 }
 
 // Vtable +0x48 of the weapon's class: the chair and both projectiles keep the empty base slot.
 void late_update_state(RuntimeWeaponActor& weapon, u16)
 {
-    if (weapon.type == 0xAA || weapon.type == 0xA9 || weapon.type == 0xA7 || weapon.type == 0xA0 || weapon.type == 0xA1)
+    if (weapon.type == 0xAA || weapon.type == 0xA9 || weapon.type == 0xA7 || weapon.type == 0xA0 || weapon.type == 0xA1
+        || weapon.type == 0xA2)
     {
         return;
     }
@@ -381,6 +388,11 @@ void leave_state(RuntimeWeaponActor& weapon, u16 state, u16 next)
         leave_runtime_candle_weapon_state(weapon, state, next); // 0x000C6BC0
         return;
     }
+    if (weapon.type == 0xA2)
+    {
+        leave_runtime_container_weapon_state(weapon, state, next); // 0x000C7990
+        return;
+    }
     throw Error("weapon factory type " + std::to_string(weapon.type) + " vtable +0x40 is not translated");
 }
 
@@ -410,6 +422,11 @@ void enter_state(RuntimeWeaponActor& weapon, u16 state, u16 previous)
     if (weapon.type == 0xA1)
     {
         enter_runtime_weapon_state(weapon, state, previous); // 0x000C6BB0 jumps to 0x0014A120.
+        return;
+    }
+    if (weapon.type == 0xA2)
+    {
+        enter_runtime_container_weapon_state(weapon, state, previous); // 0x000C7870
         return;
     }
     throw Error("weapon factory type " + std::to_string(weapon.type) + " vtable +0x3C is not translated");

@@ -38,6 +38,10 @@ void runtime_input_axes(const RuntimeDialogueInputDevice& device,
     std::array<float, 2>& output, const RuntimeDialogueInputState& state); // Xbox 0x001085F0
 void runtime_input_secondary_axes(const RuntimeDialogueInputDevice& device,
     std::array<float, 2>& output, const RuntimeDialogueInputState& state); // Xbox 0x001088D0
+// The pair at the button state's +0x10 / +0x14; a group (kind 4) takes its children's, each clamped to -1..1, the
+// last child's kept; any other kind gives zeros.
+void runtime_input_tertiary_axes(const RuntimeDialogueInputDevice& device,
+    std::array<float, 2>& output, const RuntimeDialogueInputState& state); // Xbox 0x00108AB0, EAX device, EDI output
 // The analog levels at state +0x30 and +0x34. A single device returns the raw value; a group (kind 4)
 // sums its connected children, clamps at 140 and scales by 1/140; any other kind returns -1.
 float runtime_input_first_analog_level(const RuntimeDialogueInputDevice& device,

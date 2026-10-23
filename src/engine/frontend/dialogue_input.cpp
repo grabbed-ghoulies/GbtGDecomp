@@ -252,6 +252,64 @@ negative:
     return value;
 }
 
+// Xbox 0x00108AB0, EAX device, EDI output
+void runtime_input_tertiary_axes(const RuntimeDialogueInputDevice& device,
+    std::array<float, 2>& output, const RuntimeDialogueInputState& state)
+{
+    const auto clamp = [](float value)
+    {
+        if (value > 1.f) // DAT_0032B0F8.
+        {
+            return 1.f;
+        }
+        if (-1.f > value) // DAT_0032B120.
+        {
+            return -1.f;
+        }
+        return value;
+    };
+    switch (read_u32(device.record, 0))
+    {
+    case 1:
+    case 2:
+    case 3:
+    case 5:
+        std::memcpy(output.data(), button_state(device, state) + 0x10, sizeof(output));
+        return;
+    case 4:
+    {
+        i32 index = 0;
+        i32 remaining = 4;
+        do
+        {
+            const auto& child = *device.children[index];
+            float horizontal = 0.f;
+            float vertical = 0.f;
+            if (read_u32(child.record, 8) != 0xFFFFFFFFu)
+            {
+                const u8* block = button_state(child, state);
+                if (block == nullptr)
+                {
+                    throw Error("0x00108AB0 reads +0x10 of a group child's input state through address zero");
+                }
+                horizontal = clamp(read_f32({block + 0x10, 8}, 0));
+                vertical = clamp(read_f32({block + 0x10, 8}, 4));
+            }
+            ++index;
+            --remaining;
+            output[0] = horizontal;
+            output[1] = vertical;
+        }
+        while (remaining != 0);
+        return;
+    }
+    default:
+        output[1] = 0.f;
+        output[0] = 0.f;
+        return;
+    }
+}
+
 // Xbox 0x001088D0
 void runtime_input_secondary_axes(const RuntimeDialogueInputDevice& device,
     std::array<float, 2>& output, const RuntimeDialogueInputState& state)

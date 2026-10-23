@@ -17,6 +17,8 @@ namespace
 {
 // Walk-target row records by state, the host side of state +0x1C + 0x10 * row.
 std::unordered_map<const u8*, std::array<const AnimationRecord*, 4>> walk_target_records;
+// Fly-alert hover records (+0x78), by state.
+std::unordered_map<const u8*, const AnimationRecord*> fly_alert_hovers;
 
 const float tau = std::bit_cast<float>(0x40C90FDBu); // DAT_0032B298.
 const float pi = std::bit_cast<float>(0x40490FDBu); // DAT_0032B148.
@@ -553,6 +555,287 @@ void tick_runtime_walk_target(std::span<u8> state, RuntimeWalkTargetTick& contex
     select_runtime_walk_target_row(state, context);
     retime_runtime_walk_target(state, context);
     settle_runtime_walk_target(state, context);
+}
+
+// Xbox 0x00091C10
+bool initialize_runtime_fly_alert(std::span<u8> state, std::span<const u8> parameters,
+    RuntimeBodyStateContext& context)
+{
+    namespace fly = fly_alert_field;
+    namespace fly_parameter = fly_alert_parameter;
+    const auto body = context.body;
+    const auto rows = record(state, fly::rows);
+    const auto source = record(parameters, fly_parameter::rows);
+    std::memcpy(rows.data(), source.data(), rows.size());
+    find_runtime_walk_target_records(rows, context); // 0x00091820
+    set(state, fly::arrived_key, get(parameters, fly_parameter::arrived_key));
+    set(state, fly::stopped_key, get(parameters, fly_parameter::stopped_key));
+    set(state, fly::direction, 0xFFFFFFFFu);
+    set(state, fly::band, 0);
+    put_float(body, 0x71C, std::bit_cast<float>(0x3F0EFA35u)); // DAT_0032B220.
+    put_float(body, 0x720, std::bit_cast<float>(0x4075BE0Cu)); // DAT_0032B640.
+    put_float(body, 0x724, 4.f); // DAT_0032B1B0.
+    if (const u32 target = alert_mind_target(context.mind); target != 0)
+    {
+        if (!context.actor_position)
+        {
+            throw Error("fly-alert state has no actor position view for the mind target");
+        }
+        store_target_position(body, context.actor_position(target)); // 0x000412A0, EDI body +0x3C.
+    }
+    body[0x38] = 1;
+    body[0x39] = 1;
+    set(state, fly::arrival_delay, 1.f); // DAT_0032B0F8.
+    // The inlined 0x0003AAA0 pair: the held actor's +0xDB0 variant first, then the plain name.
+    const u32 name_address = get(parameters, fly_parameter::hover);
+    const char* name = name_address == 0 ? nullptr
+        : reinterpret_cast<const char*>(context.resolve(name_address, 0).data());
+    const AnimationRecord* hover = find_runtime_body_animation(name, context.actions);
+    fly_alert_hovers[state.data()] = hover;
+    set(state, fly::hover, hover != nullptr ? 1u : 0u);
+    if (hover != nullptr)
+    {
+        start_runtime_body_animation_record(*hover, context.actions); // 0x0001AFA0, ESI body
+    }
+    return true;
+}
+
+// Xbox 0x00091D90
+void destroy_runtime_fly_alert(std::span<const u8> state, RuntimeBodyStateContext& context)
+{
+    const auto body = context.body;
+    put_float(body, 0x71C, std::bit_cast<float>(0x3F0EFA35u)); // DAT_0032B220.
+    put_float(body, 0x720, std::bit_cast<float>(0x41490FDBu)); // DAT_0032B21C.
+    put_float(body, 0x724, 6.f); // DAT_0032B218.
+    if (get(state, fly_alert_field::hover) != 0)
+    {
+        const AnimationRecord* hover = fly_alert_hovers[state.data()];
+        AnimationController* controller = context.actions.animation.controller.get(); // Actor +0x50.
+        const i32 slot = hover == nullptr ? 0 : i32(hover->slot); // Record +0x117.
+        if (controller != nullptr && slot != 0)
+        {
+            AnimationControllerSlot& entry = controller->slots.at(size_t(slot));
+            if (entry.player != nullptr)
+            {
+                entry.fade_duration = 0.25f; // +0x1C, DAT_0032B104.
+                entry.fade_mode = 3; // +0x18.
+            }
+            controller->dirty = true; // +0x5C.
+        }
+    }
+    fly_alert_hovers.erase(state.data());
+    walk_target_records.erase(state.data());
+}
+
+// Xbox 0x000917B0
+u32 runtime_fly_alert_side(float turn)
+{
+    // DAT_00428674: {pi/2, -pi/2}.
+    static const std::array<float, 2> bounds{half_pi, -half_pi};
+    for (u32 side = 0; side < 2; ++side)
+    {
+        if (runtime_angle_in_arc(turn, bounds[(side + 1) & 1], bounds[side])) // 0x001009A0
+        {
+            return side;
+        }
+    }
+    return 0;
+}
+
+// Xbox 0x00091990, EAX body
+u32 runtime_fly_alert_direction(RuntimeWalkTargetTick& context)
+{
+    // x87: body +0x33C - actor +0x18, stored as a float.
+    const float turn = float(static_cast<long double>(read_f32(context.body, 0x33C))
+        - static_cast<long double>(context.actor.euler.y));
+    return runtime_fly_alert_side(wrap_signed(turn));
+}
+
+// Xbox 0x000923B0
+void steer_runtime_fly_alert(RuntimeWalkTargetTick& context)
+{
+    const auto body = context.body;
+    const bool settled = read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f;
+    std::array<float, 2> axes{};
+    if (context.input != nullptr && settled)
+    {
+        runtime_input_axes(*context.input, axes, context.input_state); // 0x001085F0, EAX input
+    }
+    const long double root = retail_square_root(axes[1] * axes[1] + axes[0] * axes[0]); // 0x00152B30
+    float magnitude = float(root);
+    if (!(1.0L > root)) // DAT_0032B0F8.
+    {
+        magnitude = 1.f;
+    }
+    float heading = 0.f;
+    if (axes[0] != 0.f || axes[1] != 0.f)
+    {
+        heading = float(retail_atan2(axes[1], axes[0])); // 0x001530E0
+    }
+    float lift = 0.f;
+    if (settled)
+    {
+        if (context.input == nullptr)
+        {
+            throw Error("0x000923B0 reads the third input pair through address zero");
+        }
+        std::array<float, 2> third{};
+        runtime_input_tertiary_axes(*context.input, third, context.input_state); // 0x00108AB0
+        lift = third[1];
+    }
+    float side = 0.f;
+    float forward = 0.f;
+    if (magnitude > 0.f)
+    {
+        const float scale = surface_mode_scale(body, context.mode_scales);
+        const float speed = runtime_body_step_speed(body, context.actor, context.tables) * scale * magnitude; // 0x000259C0
+        side = float(retail_sin(heading) * speed); // 0x00153320
+        forward = float(retail_cos(heading) * speed); // 0x00153230
+    }
+    const float scale = surface_mode_scale(body, context.mode_scales);
+    const float rise = runtime_body_step_speed(body, context.actor, context.tables) * scale * lift; // 0x000259C0
+    put_float(body, 0x318, side);
+    put_float(body, 0x31C, rise);
+    put_float(body, 0x320, forward);
+}
+
+// Xbox 0x00092280, EBX body
+void aim_runtime_fly_alert(RuntimeWalkTargetTick& context)
+{
+    const auto body = context.body;
+    if (const u32 target = alert_mind_target(context.mind); target != 0)
+    {
+        store_target_position(body, context.actor_position(target)); // 0x000412A0, EDI body +0x3C.
+        const float yaw = context.actor.euler.y; // Actor +0x18.
+        const float heading = runtime_body_point_heading(body, context.actor); // 0x000197B0, EAX body
+        static_cast<void>(animation_remainder(heading - yaw, tau)); // 0x00152BE0; the result is discarded.
+        put_float(body, 0x734, 0.f);
+        put_float(body, 0x72C, 0.f);
+        put_float(body, 0x730, heading);
+        float limit = float((runtime_walk_target_distance(context) - 12.0L) // 0x000A6950, DAT_0032B470.
+            * static_cast<long double>(std::bit_cast<float>(0x3F490FDBu)) // DAT_0032B2D0.
+            + static_cast<long double>(std::bit_cast<float>(0x3E32B8C2u))); // DAT_0032B46C.
+        const float upper = std::bit_cast<float>(0x3F75BE0Bu); // DAT_0032B468.
+        const float lower = std::bit_cast<float>(0x3E32B8C2u); // DAT_0032B46C.
+        if (limit > upper)
+        {
+            limit = upper;
+        }
+        else if (lower > limit)
+        {
+            limit = lower;
+        }
+        const float facing = read_f32(body, 0x33C);
+        static_cast<void>(runtime_turn_within_arc(facing, heading, limit)); // 0x00092120; the result is discarded.
+        static_cast<void>(runtime_facing_weight(facing, heading)); // 0x000921E0; the result is discarded.
+    }
+    put_float(body, 0x734, 0.f);
+    put_float(body, 0x72C, 0.f);
+}
+
+// Xbox 0x00091B10, EAX body, EDI state
+void select_runtime_fly_alert_row(std::span<u8> state, RuntimeWalkTargetTick& context)
+{
+    namespace fly = fly_alert_field;
+    const i32 band = runtime_walk_target_band(record(state, fly::rows), context); // 0x00091A00
+    const u32 direction = runtime_fly_alert_direction(context); // 0x00091990
+    if (get(state, fly::band) != u32(band) || get(state, fly::direction) != direction)
+    {
+        const AnimationRecord* row = runtime_walk_target_record(state, direction + u32(band) * 2); // State +0x1C.
+        context.actions.animation.retain_position = 1; // Actor +0x84.
+        if (row == nullptr)
+        {
+            throw Error("fly-alert row record is null; 0x0001AFA0 reads its +0x117");
+        }
+        start_runtime_body_animation_record(*row, context.actions); // 0x0001AFA0
+    }
+    set(state, fly::band, u32(band));
+    set(state, fly::direction, direction);
+}
+
+// Xbox 0x00091B60, ESI body
+void retime_runtime_fly_alert(std::span<const u8> state, RuntimeWalkTargetTick& context)
+{
+    namespace fly = fly_alert_field;
+    const float speed = actor_flat_speed(context.actor);
+    float duration;
+    if (!runtime_body_stride_duration(speed, context.actor, context.actions.animation, duration)) // 0x00133C90
+    {
+        const float rate = runtime_walk_target_rate(record(state, fly::rows), get(state, fly::direction),
+            get(state, fly::band), speed, context); // 0x000918C0
+        duration = rate * runtime_body_turn_ratio(context.body, context.actor, 0, context.tables,
+            context.mode_scales); // 0x00133D50
+    }
+    if (context.actions.animation.controller != nullptr)
+    {
+        auto& controller = *context.actions.animation.controller;
+        retime_mina_playback(controller.slots.at(0).player.get(), duration, controller.dirty); // 0x00030DB0, EAX 0
+    }
+}
+
+// Xbox 0x00091FA0, EAX body, EDI state
+void settle_runtime_fly_alert(std::span<u8> state, RuntimeWalkTargetTick& context)
+{
+    namespace fly = fly_alert_field;
+    const auto body = context.body;
+    const float x = context.actor.anchor.x;
+    const float z = context.actor.anchor.z;
+    const float vx = read_f32(body, 0x318);
+    const float vy = read_f32(body, 0x31C);
+    const float vz = read_f32(body, 0x320);
+    const bool alert = !context.mind.empty() && context.mind[0x20] != 0;
+    if (!alert && get(state, fly::arrival_delay) == 0.f) // DAT_0032B100.
+    {
+        // x87: body +0x730 - actor +0x18, stored as a float.
+        const float turn = float(static_cast<long double>(read_f32(body, 0x730))
+            - static_cast<long double>(context.actor.euler.y));
+        const float magnitude = animation_absolute(wrap_signed(turn));
+        if (std::bit_cast<float>(0x3E860A92u) >= magnitude) // DAT_0032B340.
+        {
+            set(state, fly::arrived, 1);
+            set(state, body_state_field::next_key, get(state, fly::arrived_key));
+        }
+        return;
+    }
+    const float actor_speed = z * z + x * x;
+    const float desired = (vz * vz + vy * vy) + vx * vx;
+    const float scale = surface_mode_scale(body, context.mode_scales);
+    const float threshold = runtime_body_step_speed(body, context.actor, context.tables) * scale
+        * std::bit_cast<float>(0x3C23D70Au); // DAT_0032B124.
+    if (desired == 0.f && threshold * threshold >= actor_speed)
+    {
+        set(state, body_state_field::next_key, get(state, fly::stopped_key));
+    }
+}
+
+// Xbox 0x00091E10
+void tick_runtime_fly_alert(std::span<u8> state, RuntimeWalkTargetTick& context, u8 ground)
+{
+    namespace fly = fly_alert_field;
+    const float step = runtime_actor_rate(context.actor) * runtime_frame_step(context.clock);
+    set(state, body_state_field::elapsed, step + get(state, body_state_field::elapsed));
+    const float timer = get(state, fly::arrival_delay);
+    if (timer > 0.f)
+    {
+        const float left = timer - runtime_actor_rate(context.actor) * runtime_frame_step(context.clock);
+        set(state, fly::arrival_delay, left);
+        if (0.f >= left)
+        {
+            set(state, fly::arrival_delay, 0.f);
+        }
+    }
+    if (const u32 target = alert_mind_target(context.mind); target != 0)
+    {
+        store_target_position(context.body, context.actor_position(target)); // 0x000412A0, EDI body +0x3C.
+    }
+    steer_runtime_fly_alert(context); // 0x000923B0, EBX input
+    if (read_u16(context.body, 0x30) == 0 && read_f32(context.body, 0x34) == 0.f && (ground & 0x40) == 0)
+    {
+        aim_runtime_fly_alert(context); // 0x00092280
+    }
+    select_runtime_fly_alert_row(state, context); // 0x00091B10
+    retime_runtime_fly_alert(state, context); // 0x00091B60
+    settle_runtime_fly_alert(state, context); // 0x00091FA0
 }
 
 // Xbox 0x00091F70

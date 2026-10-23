@@ -131,6 +131,22 @@ void release_candle_weapon_view(FactoryObject& object)
 {
     active_owner->release_candle_weapon(object);
 }
+bool construct_gun_weapon_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    return active_owner->construct_gun_weapon(object, parameters);
+}
+void release_gun_weapon_view(FactoryObject&)
+{
+    // The gun's vtable +8 is 0x001628B0, which returns at once.
+}
+bool construct_extinguisher_weapon_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    return active_owner->construct_extinguisher_weapon(object, parameters);
+}
+void release_extinguisher_weapon_view(FactoryObject& object)
+{
+    active_owner->release_extinguisher_weapon(object);
+}
 bool construct_container_weapon_view(FactoryObject& object, std::span<const u8> parameters)
 {
     return active_owner->construct_container_weapon(object, parameters);
@@ -183,6 +199,18 @@ const ObjectFactoryVtable* bob_weapon_lifecycle()
 {
     static const ObjectFactoryVtable table{0x005060B8, bob_weapon_object_sizes, construct_bob_weapon_view,
         release_bob_weapon_view};
+    return &table;
+}
+const ObjectFactoryVtable* gun_weapon_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x005062E0, gun_weapon_object_sizes, construct_gun_weapon_view,
+        release_gun_weapon_view};
+    return &table;
+}
+const ObjectFactoryVtable* extinguisher_weapon_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x005061A8, extinguisher_weapon_object_sizes,
+        construct_extinguisher_weapon_view, release_extinguisher_weapon_view};
     return &table;
 }
 const ObjectFactoryVtable* container_weapon_lifecycle()
@@ -836,6 +864,8 @@ void NativeSceneActorClassOwner::install(std::span<ObjectFactoryType> types)
     types[0xA0] = {0xB, bob_weapon_lifecycle}; // Getter 0x000C5BB0.
     types[0xA1] = {0xB, candle_weapon_lifecycle}; // Getter 0x000C64F0.
     types[0xA2] = {0xB, container_weapon_lifecycle}; // Getter 0x000C75D0.
+    types[0xA4] = {0xB, gun_weapon_lifecycle}; // Getter 0x000CA980.
+    types[0xA3] = {0xA4, extinguisher_weapon_lifecycle}; // Getter 0x000C7B70.
     active_owner = this;
 }
 
@@ -1088,6 +1118,26 @@ bool NativeSceneActorClassOwner::construct_bob_weapon(FactoryObject& object, std
 void NativeSceneActorClassOwner::release_bob_weapon(FactoryObject& object)
 {
     destroy_runtime_bob_weapon(weapons_.at(object.bytes.get())->context);
+}
+
+bool NativeSceneActorClassOwner::construct_gun_weapon(FactoryObject& object, std::span<const u8> parameters)
+{
+    return initialize_runtime_gun_weapon(weapons_.at(object.bytes.get())->context, parameters);
+}
+
+bool NativeSceneActorClassOwner::construct_extinguisher_weapon(FactoryObject& object, std::span<const u8> parameters)
+{
+    return initialize_runtime_extinguisher_weapon(weapons_.at(object.bytes.get())->context, parameters);
+}
+
+void NativeSceneActorClassOwner::release_extinguisher_weapon(FactoryObject& object)
+{
+    destroy_runtime_extinguisher_weapon(weapons_.at(object.bytes.get())->context);
+}
+
+void NativeSceneActorClassOwner::draw_gun_effects(FactoryObject& object, u32 pass)
+{
+    draw_runtime_gun_weapon_effects(weapons_.at(object.bytes.get())->context, pass); // 0x000CAD90
 }
 
 bool NativeSceneActorClassOwner::construct_container_weapon(FactoryObject& object, std::span<const u8> parameters)
@@ -1401,6 +1451,10 @@ void NativeSceneActorClassOwner::message(FactoryObject& object, std::span<u32> m
     else if (object.type == 0xA2)
     {
         dispatch_runtime_container_weapon_message(weapons_.at(object.bytes.get())->context, message);
+    }
+    else if (object.type == 0xA3)
+    {
+        dispatch_runtime_gun_weapon_message(weapons_.at(object.bytes.get())->context, message); // 0x000CAB40
     }
     else if (object.type == 0xD)
     {

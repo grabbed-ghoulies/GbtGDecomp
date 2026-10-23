@@ -5,6 +5,7 @@
 #include "bob_weapon.h"
 #include "candle_weapon.h"
 #include "container_weapon.h"
+#include "extinguisher_weapon.h"
 #include "../audio/core_source.h"
 #include "euler_wrapping.h"
 #include "gbtg/sound_runtime.h"
@@ -346,15 +347,25 @@ void update_state(RuntimeWeaponActor& weapon, u16 state)
         update_runtime_container_weapon_state(weapon, state); // 0x000C76A0
         return;
     }
+    if (weapon.type == 0xA3)
+    {
+        update_runtime_gun_weapon_state(weapon, state); // The gun's 0x000CAA80
+        return;
+    }
     throw Error("weapon factory type " + std::to_string(weapon.type) + " vtable +0x44 is not translated");
 }
 
 // Vtable +0x48 of the weapon's class: the chair and both projectiles keep the empty base slot.
-void late_update_state(RuntimeWeaponActor& weapon, u16)
+void late_update_state(RuntimeWeaponActor& weapon, u16 state)
 {
     if (weapon.type == 0xAA || weapon.type == 0xA9 || weapon.type == 0xA7 || weapon.type == 0xA0 || weapon.type == 0xA1
         || weapon.type == 0xA2)
     {
+        return;
+    }
+    if (weapon.type == 0xA3)
+    {
+        late_update_runtime_gun_weapon_state(weapon, state); // The gun's 0x000CAF10
         return;
     }
     throw Error("weapon factory type " + std::to_string(weapon.type) + " vtable +0x48 is not translated");
@@ -393,6 +404,11 @@ void leave_state(RuntimeWeaponActor& weapon, u16 state, u16 next)
         leave_runtime_container_weapon_state(weapon, state, next); // 0x000C7990
         return;
     }
+    if (weapon.type == 0xA3)
+    {
+        leave_runtime_gun_weapon_state(weapon, state); // The gun's 0x000CAEB0
+        return;
+    }
     throw Error("weapon factory type " + std::to_string(weapon.type) + " vtable +0x40 is not translated");
 }
 
@@ -429,6 +445,11 @@ void enter_state(RuntimeWeaponActor& weapon, u16 state, u16 previous)
         enter_runtime_container_weapon_state(weapon, state, previous); // 0x000C7870
         return;
     }
+    if (weapon.type == 0xA3)
+    {
+        enter_runtime_gun_weapon_state(weapon, state); // The gun's 0x000CAE90
+        return;
+    }
     throw Error("weapon factory type " + std::to_string(weapon.type) + " vtable +0x3C is not translated");
 }
 // Actor +0x99C, the class's contact test: the chair sets 0x000CF5F0.
@@ -440,6 +461,14 @@ RuntimeBodyContactCallback contact_test(RuntimeWeaponActor& weapon)
             const RuntimeSegmentContactRecord&, const Vec3& velocity, u16 word) -> u32
         {
             return test_runtime_chair_contact(weapon, object, point, contacts, velocity, word); // 0x000CF5F0
+        };
+    }
+    if (read_u32(weapon.bytes, 0x99C) == 0x000CB040)
+    {
+        return [&weapon](Actor&, RuntimeSegmentContactActor& object, const Vec3& point, GhoulySpawnPool* contacts,
+            const RuntimeSegmentContactRecord&, const Vec3& velocity, u16 word) -> u32
+        {
+            return test_runtime_gun_contact(weapon, object, point, contacts, velocity, word); // 0x000CB040
         };
     }
     if (read_u32(weapon.bytes, 0x99C) == 0x000C6F10)

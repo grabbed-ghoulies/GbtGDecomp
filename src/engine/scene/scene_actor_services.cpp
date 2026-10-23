@@ -1669,7 +1669,8 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         },
         [this](Actor& actor) -> ActorFrameState&
         {
-            return actors->view(object_of_actor(actor)).frame;
+            // By the actor itself: a player's body action is made while the player is still being constructed.
+            return actors->view(actor).frame;
         },
         [this](const Actor& actor) -> std::span<const u8>
         {
@@ -1684,7 +1685,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         },
         [this](Actor& actor) -> RuntimeActorStartupState&
         {
-            return actors->view(object_of_actor(actor)).startup;
+            return actors->view(actor).startup;
         },
         [this](Actor& actor) -> std::span<u8>
         {
@@ -2390,6 +2391,21 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
         }
         return graph->scrabble_context();
+    });
+    install_runtime_hover_state_class(scene.types, [this](u32 body_address) -> RuntimeHoverStateContext&
+    {
+        const auto bytes = scene.resolve_address(body_address, 0);
+        auto* player = players->find_child_owner(bytes.data());
+        if (player == nullptr || player->body.data() != bytes.data())
+        {
+            unbound("hover state whose body has no player owner");
+        }
+        auto& graph = body_messages[player->body.data()];
+        if (graph == nullptr)
+        {
+            graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
+        }
+        return graph->hover_context();
     });
     install_runtime_flip_state_class(scene.types, [this](u32 body_address) -> RuntimeFlipStateContext&
     {
@@ -5857,7 +5873,8 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
             message, actor_at, base_of(object).base, bindings);
         return;
     }
-    if (type == 0xAA || type == 0xA9 || type == 0xA7 || type == 0xA0 || type == 0xA1 || type == 0xA2)
+    if (type == 0xAA || type == 0xA9 || type == 0xA7 || type == 0xA0 || type == 0xA1 || type == 0xA2
+        || type == 0xA3)
     {
         // Getters 0x000CEF70, 0x000CD640 and 0x000CB570: +0x10 is the weapon update 0x0014A2E0; +0xC is the chair message
         // 0x000CF0D0 or the large projectile's 0x000CDBE0.
@@ -6754,7 +6771,7 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
     // has not attached yet.
     if (child.type == 0x4F || child.type == 0x46 || child.type == 0x3B || child.type == 0x51 || child.type == 0x52
         || child.type == 0x58 || child.type == 0x44 || child.type == 0x40 || child.type == 0x4C || child.type == 0x53
-        || child.type == 0x42)
+        || child.type == 0x42 || child.type == 0x47)
     {
         if (auto* player = players->find_player(child); player != nullptr && !player->body.empty())
         {
@@ -6795,6 +6812,9 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
         return;
     case 0x42:
         players->haunted_door_message(child, words);
+        return;
+    case 0x47:
+        players->imp_flamethrower_message(child, words);
         return;
     case 0x39:
     {
@@ -7012,7 +7032,8 @@ RuntimeBodyAttachedActor& SceneActorServices::State::attached_actor_at(u32 addre
     const auto bytes = scene.resolve_address(address, 0);
     FactoryObject* object = object_of(bytes.data());
     if (object == nullptr || (object->type != 0x0B && object->type != 0xAA && object->type != 0xA9
-        && object->type != 0xA7 && object->type != 0xA0 && object->type != 0xA1 && object->type != 0xA2))
+        && object->type != 0xA7 && object->type != 0xA0 && object->type != 0xA1 && object->type != 0xA2
+        && object->type != 0xA3))
     {
         unbound("attached actor at an address that is neither a player nor a weapon");
     }
@@ -7258,6 +7279,9 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
             case 0x42:
                 players->haunted_door_update(strategy);
                 return;
+            case 0x47:
+                players->imp_flamethrower_update(strategy);
+                return;
             case 0x39:
             {
                 RuntimeDirectorUpdate director{strategy, player.actor, player.actor_address, player.mind, player.body,
@@ -7332,6 +7356,7 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
             switch (action.type)
             {
             case 0x8F:
+            case 0x6E: // Getter 0x00091AB0 keeps 0x00091F70 at +0x1C too.
                 return runtime_walk_target_next_key({action.bytes.get(), action.size},
                     player.body_selection.animation);
             case 0x5E:
@@ -7357,6 +7382,7 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
             case 0x7F: // And getter 0x0009F060.
             case 0x7E: // And getter 0x0009EB40.
             case 0x6B: // And getter 0x00090430.
+            case 0x77: // And getter 0x00097B20.
             case 0x83: // And getter 0x000A0C30.
                 return runtime_body_action_next_key(action);
             case 0x5A:
@@ -8020,12 +8046,17 @@ void SceneActorServices::State::actor_draw(Actor& actor, i32 view, i32 pass)
                 return;
             }
             // Types 0xAA and 0xA9 +0x14 is the weapon draw 0x001459C0: the actor draw 0x0003C9E0, then the hand prompt.
-            if (type == 0xAA || type == 0xA9 || type == 0xA7 || type == 0xA0 || type == 0xA1 || type == 0xA2)
+            if (type == 0xAA || type == 0xA9 || type == 0xA7 || type == 0xA0 || type == 0xA1 || type == 0xA2
+                || type == 0xA3)
             {
                 if (!classes->weapon_draw_hidden(*object))
                 {
                     draw_scene_actor(*object, actor, pass);
                     classes->draw_weapon_prompt(*object, pass); // 0x00147560
+                }
+                if (type == 0xA3)
+                {
+                    classes->draw_gun_effects(*object, u32(pass)); // 0x000CAD90 after 0x001459C0
                 }
                 if (type == 0xA1)
                 {
@@ -8105,7 +8136,8 @@ void SceneActorServices::State::draw_player(FactoryObject& object, NativePlayerI
             if (type != 0x5E && type != 0x62 && type != 0x64 && type != 0x73 && type != 0x74 && type != 0x7A && type != 0x7C && type != 0x7D
                 && type != 0x87 && type != 0x88 && type != 0x8A && type != 0x8B && type != 0x8E && type != 0x8F && type != 0x69 && type != 0x70
                 && type != 0x66 && type != 0x78 && type != 0x5F && type != 0x80 && type != 0x7F && type != 0x83
-                && type != 0x7E && type != 0x6B)
+                && type != 0x7E && type != 0x6B && type != 0x77
+                && type != 0x6E)
             {
                 unbound("body +0x744 object vtable +0x18 draw for factory type "
                     + std::to_string(player.second_action.type));
@@ -8130,7 +8162,7 @@ u32 SceneActorServices::State::actor_visible(Actor& actor, i32 pass, i32 view)
         && object.type != 0x24 && object.type != 0x26 && object.type != 0x1E && object.type != 0x1D
         && object.type != 0x19 && object.type != 0xAA
         && object.type != 0xA9 && object.type != 0xA7 && object.type != 0xA0 && object.type != 0xA1
-        && object.type != 0xA2)
+        && object.type != 0xA2 && object.type != 0xA3)
     {
         unbound("actor vtable +0x18 visibility for factory type " + std::to_string(object.type));
     }
@@ -8558,7 +8590,7 @@ void SceneActorServices::State::view_refresh_slot(Actor& actor)
                 || type == 0x1A || type == 0x1F || type == 0x23 || type == 0x25 || type == 0x24 || type == 0x26
                 || type == 0x1E || type == 0x1D || type == 0x19
                 || type == 0xAA || type == 0xA9 || type == 0xA7
-                || type == 0xA0 || type == 0xA1 || type == 0xA2)
+                || type == 0xA0 || type == 0xA1 || type == 0xA2 || type == 0xA3)
             {
                 return;
             }

@@ -22,6 +22,7 @@
 #include "../entities/body_scrabble_state.h"
 #include "../entities/body_scoop_whack_state.h"
 #include "../entities/body_flip_state.h"
+#include "../entities/body_hover_state.h"
 #include "../entities/body_slide_state.h"
 #include "../entities/body_swing_state.h"
 #include "../entities/body_player_death_state.h"
@@ -168,6 +169,8 @@ public:
     RuntimeScoopWhackStateContext& scoop_whack_context(); // The type 0x7E state's views of this body.
     // The type 0x6B state's views of this body; `input` is the tick's input word (actor +0x960 or zero).
     RuntimeFlipStateContext& flip_context(u32 input = 0);
+    // The type 0x77 state's views of this body; `input` is the tick's input word (actor +0x960 or zero).
+    RuntimeHoverStateContext& hover_context(u32 input = 0);
     RuntimeSlideStateContext& slide_context(); // The type 0x83 state's views of this body.
     RuntimeSwingStateContext& swing_context(); // The type 0x78 state's views of this body.
     SceneBodyMessages(const SceneBodyMessages&) = delete;
@@ -213,6 +216,7 @@ private:
     std::optional<RuntimeScrabbleStateContext> scrabble_;
     std::optional<RuntimeScoopWhackStateContext> scoop_whack_;
     std::optional<RuntimeFlipStateContext> flip_;
+    std::optional<RuntimeHoverStateContext> hover_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> scoop_whack_children_; // 0x7E, 0x0009EED0.
     std::optional<RuntimeSlideStateContext> slide_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> slide_children_; // 0x83, 0x000A1070.

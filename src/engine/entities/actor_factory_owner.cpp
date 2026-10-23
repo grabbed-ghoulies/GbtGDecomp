@@ -373,6 +373,18 @@ NativeActorFactoryInstance& NativeActorFactoryOwner::view(const FactoryObject& o
     return *instances_.at(object.bytes.get());
 }
 
+NativeActorFactoryInstance& NativeActorFactoryOwner::view(const Actor& actor)
+{
+    for (const auto& [address, instance] : instances_)
+    {
+        if (&instance->bat.actor == &actor)
+        {
+            return *instance;
+        }
+    }
+    throw Error("actor view for an actor no instance owns");
+}
+
 NativeActorFactoryInstance& NativeActorFactoryOwner::view(const entity_detail::SegmentProbe& probe)
 {
     for (const auto& [address, instance] : instances_)

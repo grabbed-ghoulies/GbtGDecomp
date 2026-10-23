@@ -67,6 +67,8 @@ public:
     void release_view(FactoryObject& object);
     NativeActorFactoryInstance& view(const entity_detail::SegmentProbe& probe);
     NativeActorFactoryInstance& view(const entity_detail::ShapeProbe& probe);
+    // The instance whose actor this is, also while its object is still being constructed.
+    NativeActorFactoryInstance& view(const Actor& actor);
     NativeActorFactoryBindings bindings;
     std::unordered_map<const u8*, Actor*> actors;
     std::unordered_map<Actor*, ActorAnimationState*> animations;

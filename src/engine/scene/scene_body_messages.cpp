@@ -391,6 +391,7 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
         // 0x005054C4, 0x8A's getter 0x000A34C0 at 0x00505C2C).
         // 0x80's getter 0x0009F420 stores it at 0x00505AEC.
         if (child->type != 0x59 && child->type != 0x8A && child->type != 0x80 && child->type != 0x7F && child->type != 0x6B
+            && child->type != 0x77 && child->type != 0x6E
             && child->type != 0x5A && child->type != 0x5B && child->type != 0x5C && child->type != 0x74
             && child->type != 0x7C && child->type != 0x87 && child->type != 0x88 && child->type != 0x69
             && child->type != 0x70)
@@ -425,7 +426,6 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
     case 0x16:
     case 0x17:
     case 0x18:
-    case 0x19:
     case 0x2A:
         unbound("body message views for id " + std::to_string(id));
     default:
@@ -523,6 +523,20 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
             request == 0 ? std::span<const u8>() : services_.record_at(request, 0x24), bound_view, player_.ring,
             services_.address_zero, player_.self, damage_, services_.damage_at(holder)});
         views.source_contact = &*source_contact;
+    }
+    if (id == 0x19)
+    {
+        // {0x19, kind, strength, style, reply, 0, 0, weapon, velocity, contacts, point, quiet} from the large
+        // projectile's contact test (0x00141A30); the contacts are a copied segment pool and the weapon is the sender.
+        const auto& pool = *reinterpret_cast<const GhoulySpawnPool*>(services_.event_at(message[0xB]).data());
+        contact_pool.emplace(entity_detail::SegmentPool{pool.stride, pool.grow, pool.begin, pool.cursor, pool.limit});
+        if (!services_.weapon_attachment_at)
+        {
+            unbound("projectile contact 0x19 without the scene weapon views");
+        }
+        auto& weapon = services_.weapon_attachment_at(message[7]).object;
+        impact.emplace(RuntimeBodyContactHitViews{*contact_pool, message[0xB], weapon, nullptr});
+        views.impact = &*impact;
     }
     if (id == 0x1B)
     {
@@ -697,6 +711,40 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
     case 0x6B:
         tick_runtime_flip_state({action.bytes.get(), action.size}, flip_context(input)); // 0x00090760
         return;
+    case 0x77:
+        tick_runtime_hover_state({action.bytes.get(), action.size}, hover_context(input)); // 0x00097CF0
+        return;
+    case 0x6E:
+    {
+        // EBX of 0x000923B0 is the tick's input word: the player's input record (actor +0x960) or zero.
+        const RuntimeDialogueInputDevice* device = nullptr;
+        if (input != 0)
+        {
+            if (player_.input.empty() || input != services_.address_of(player_.input.data()))
+            {
+                unbound("fly-alert input word that is not this player's input record");
+            }
+            device = &player_.input_device;
+        }
+        player_.refresh_body_views();
+        if (player_.body_bits == nullptr)
+        {
+            unbound("fly-alert state without the body +0x15C bit block");
+        }
+        RuntimeWalkTargetTick tick{player_.body, player_.actor, player_.body_selection, services_.clock, device,
+            player_.scene.input_state, services_.damage_tables, services_.mode_scales, player_.mind,
+            [this](u32 address) -> Vec3
+            {
+                Actor* target = services_.actor_at ? services_.actor_at(address) : nullptr;
+                if (target == nullptr)
+                {
+                    unbound("fly-alert mind target actor view (mind +0xC)");
+                }
+                return actor_world_position(*target);
+            }};
+        tick_runtime_fly_alert({action.bytes.get(), action.size}, tick, player_.body_bits->bytes[0]); // 0x00091E10
+        return;
+    }
     case 0x83:
         tick_runtime_slide_state({action.bytes.get(), action.size}, slide_context()); // 0x000A0F90
         return;
@@ -941,6 +989,8 @@ void SceneBodyMessages::action_step(FactoryObject& action)
     case 0x7F:
     case 0x7E:
     case 0x6B:
+    case 0x77:
+    case 0x6E:
     case 0x83:
         // 0x001628B0 (0x000D4179 for 0x69, 0x70 and 0x88) returns at once.
         return;
@@ -1288,6 +1338,30 @@ RuntimeSlideStateContext& SceneBodyMessages::slide_context()
             return body_slot_key(slot);
         }});
     return *slide_;
+}
+
+RuntimeHoverStateContext& SceneBodyMessages::hover_context(u32 input)
+{
+    player_.refresh_body_views();
+    if (player_.body_bits == nullptr)
+    {
+        unbound("hover state without the body +0x15C bit block");
+    }
+    // ESI of 0x00097DC0 is the tick's input word: the player's input record (actor +0x960) or zero.
+    const RuntimeDialogueInputDevice* device = nullptr;
+    if (input != 0)
+    {
+        if (player_.input.empty() || input != services_.address_of(player_.input.data()))
+        {
+            unbound("hover input word that is not this player's input record");
+        }
+        device = &player_.input_device;
+    }
+    hover_.reset();
+    hover_.emplace(RuntimeHoverStateContext{player_.body, player_.actor, *player_.body_bits, player_.body_selection,
+        services_.clock, player_.actor_instance.animation, player_.mind, device, player_.scene.input_state,
+        services_.actor_at, services_.image_string});
+    return *hover_;
 }
 
 RuntimeFlipStateContext& SceneBodyMessages::flip_context(u32 input)
@@ -1975,7 +2049,8 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
             }
             // 0x8A (getter 0x000A34C0) keeps the empty 0x001628B0 at +0xC too.
             if (type != 0x87 && type != 0x88 && type != 0x69 && type != 0x70 && type != 0x5B && type != 0x5C && type != 0x74 && type != 0x7C
-                && type != 0x8A && type != 0x80 && type != 0x7F && type != 0x6B)
+                && type != 0x8A && type != 0x80 && type != 0x7F && type != 0x6B && type != 0x77
+                && type != 0x6E)
             {
                 unbound("collision reply action vtable +0xC of factory type " + std::to_string(type));
             }

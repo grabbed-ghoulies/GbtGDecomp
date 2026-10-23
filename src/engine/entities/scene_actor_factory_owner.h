@@ -10,6 +10,7 @@
 #include "bob_weapon.h"
 #include "candle_weapon.h"
 #include "container_weapon.h"
+#include "extinguisher_weapon.h"
 #include "ghouly_cutscene_setup.h"
 #include "ghouly_bg_break_setup.h"
 #include "ghouly_swap_setup.h"
@@ -146,6 +147,11 @@ public:
     void release_bob_weapon(FactoryObject& object); // Type 0xA0, Xbox 0x000C5D30.
     bool construct_candle_weapon(FactoryObject& object); // Type 0xA1, Xbox 0x000C6560.
     bool construct_container_weapon(FactoryObject& object, std::span<const u8> parameters); // Type 0xA2, Xbox 0x000C7640.
+    bool construct_gun_weapon(FactoryObject& object, std::span<const u8> parameters); // Type 0xA4, Xbox 0x000CA9F0.
+    bool construct_extinguisher_weapon(FactoryObject& object,
+        std::span<const u8> parameters); // Type 0xA3, Xbox 0x000C7BE0.
+    void release_extinguisher_weapon(FactoryObject& object); // Type 0xA3, Xbox 0x000C7C60.
+    void draw_gun_effects(FactoryObject& object, u32 pass); // The rest of the gun draw 0x000CAD90.
     void release_candle_weapon(FactoryObject& object); // Type 0xA1, Xbox 0x000C67A0.
     // Type 0xA1's draw (0x000C6BE0) after the weapon draw 0x001459C0: the flame billboards (0x000C6C80).
     void queue_candle_flame(FactoryObject& object);

@@ -111,4 +111,45 @@ void settle_runtime_walk_target(std::span<u8> state,
 void tick_runtime_walk_target(std::span<u8> state, RuntimeWalkTargetTick& context); // Xbox 0x000A6520
 // Vtable +0x1C: the next key (+0xC), with actor +0x84 set when the walk has arrived (+0x68).
 u16 runtime_walk_target_next_key(std::span<const u8> state, ActorAnimationState& animation); // Xbox 0x00091F70
+
+// Type 0x6E, entityStateFlyAlert (getter 0x00091AB0, vtable 0x005058A0): the walk-target rows flown rather than
+// walked. It keeps the walk target's sizes (0x00091A90), rows (+0x18) and next key (0x00091F70); the stick steers it
+// level with the third input pair lifting it, and it plays the parameters' hover animation (+0x58) from the start.
+namespace fly_alert_parameter
+{
+constexpr RetailRecord<0x0C, walk_target_rows_field::kSize> rows{};
+constexpr RetailField<u32, 0x58> hover{}; // the hover animation's name, a retail address
+constexpr RetailField<u16, 0x5C> arrived_key{};
+constexpr RetailField<u16, 0x5E> stopped_key{};
+constexpr u32 kSize = 0x60;
+static_assert(retail_fits(kSize, stopped_key));
+} // namespace fly_alert_parameter
+namespace fly_alert_field
+{
+constexpr RetailRecord<0x18, walk_target_rows_field::kSize> rows{};
+constexpr RetailField<float, 0x64> arrival_delay{}; // 1 s at construction, ticking down
+constexpr RetailField<u32, 0x68> arrived{}; // set once the body faces its heading; read by 0x00091F70
+constexpr RetailField<u16, 0x6C> arrived_key{};
+constexpr RetailField<u16, 0x6E> stopped_key{};
+constexpr RetailField<u32, 0x70> direction{}; // -1 (none) at construction
+constexpr RetailField<u32, 0x74> band{};
+constexpr RetailField<u32, 0x78> hover{}; // set when the hover animation's record was found
+constexpr u32 kSize = 0x7C;
+static_assert(retail_fits(kSize, hover));
+} // namespace fly_alert_field
+bool initialize_runtime_fly_alert(std::span<u8> state, std::span<const u8> parameters,
+    RuntimeBodyStateContext& context); // Xbox 0x00091C10
+void destroy_runtime_fly_alert(std::span<const u8> state, RuntimeBodyStateContext& context); // Xbox 0x00091D90
+// 0 or 1: which half-circle the turn lies in, over DAT_00428674's bounds.
+u32 runtime_fly_alert_side(float turn); // Xbox 0x000917B0
+u32 runtime_fly_alert_direction(RuntimeWalkTargetTick& context); // Xbox 0x00091990, EAX body
+// The stick's level flight and the third pair's lift (EAX body, EBX input).
+void steer_runtime_fly_alert(RuntimeWalkTargetTick& context); // Xbox 0x000923B0
+// With an alert mind target the body faces it (body +0x3C, +0x730).
+void aim_runtime_fly_alert(RuntimeWalkTargetTick& context); // Xbox 0x00092280, EBX body
+void select_runtime_fly_alert_row(std::span<u8> state, RuntimeWalkTargetTick& context); // Xbox 0x00091B10, EAX body, EDI state
+void retime_runtime_fly_alert(std::span<const u8> state, RuntimeWalkTargetTick& context); // Xbox 0x00091B60, ESI body
+void settle_runtime_fly_alert(std::span<u8> state, RuntimeWalkTargetTick& context); // Xbox 0x00091FA0, EAX body, EDI state
+// `ground` is body +0x15C byte 0: bit 0x40 holds the aim.
+void tick_runtime_fly_alert(std::span<u8> state, RuntimeWalkTargetTick& context, u8 ground); // Xbox 0x00091E10
 }

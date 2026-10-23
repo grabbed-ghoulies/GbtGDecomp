@@ -360,6 +360,22 @@ const ObjectFactoryVtable* mummy_strategy_lifecycle()
     return &table;
 }
 
+bool construct_imp_flamethrower_strategy_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto* player = active_owner->find_player(object);
+    player->strategy_type = 0x47;
+    player->refresh_views();
+    return accept_runtime_object_construction(object, parameters); // 0x000CFFD0
+}
+
+// Getter 0x000B5520: the director's sizes 0x000AAE40, the shared constructor and the empty 0x001628B0.
+const ObjectFactoryVtable* imp_flamethrower_strategy_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505EC0, director_strategy_object_sizes,
+        construct_imp_flamethrower_strategy_view, destroy_empty_player_object};
+    return &table;
+}
+
 bool construct_haunted_door_strategy_view(FactoryObject& object, std::span<const u8> parameters)
 {
     auto* player = active_owner->find_player(object);
@@ -513,6 +529,13 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
                   leave_runtime_ugly_girl_state(old_state, ugly_girl);
                   return;
               }
+              if (strategy_type == 0x47)
+              {
+                  // Flying imp strategy vtable +0x18, the spider's 0x000B5AF0.
+                  refresh_views();
+                  leave_runtime_spider_state(old_state, spider);
+                  return;
+              }
               if (strategy_type == 0x42)
               {
                   // Haunted door strategy vtable +0x18, 0x000B0520.
@@ -588,6 +611,12 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
               {
                   // Ugly girl strategy vtable +0x14, 0x000C1430.
                   enter_runtime_ugly_girl_state(state, previous, ugly_girl);
+                  return;
+              }
+              if (strategy_type == 0x47)
+              {
+                  // Flying imp strategy vtable +0x14, 0x000B58F0.
+                  enter_runtime_imp_flamethrower_state(state, previous, imp_flamethrower);
                   return;
               }
               if (strategy_type == 0x42)
@@ -759,7 +788,8 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
                   other->callout); // 0x0003C040
           },
           "knobattack_overlay", "knockdown", "attack_special", "knocked_down", "knocked_down_wait", "sleep",
-          "wakeup", "celebrate_knockdown"}
+          "wakeup", "celebrate_knockdown"},
+      imp_flamethrower{spider, "fireball", "flamethrower", "wait"}
 {
 }
 
@@ -974,6 +1004,28 @@ void NativePlayerFactoryOwner::mummy_update(FactoryObject& strategy)
     update_runtime_mummy_strategy(player->mummy);
 }
 
+void NativePlayerFactoryOwner::imp_flamethrower_message(FactoryObject& strategy, std::span<const u32> message)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x47)
+    {
+        throw Error("flying imp strategy method has no owning instance");
+    }
+    player->refresh_views();
+    dispatch_runtime_imp_flamethrower_message(message, player->imp_flamethrower);
+}
+
+void NativePlayerFactoryOwner::imp_flamethrower_update(FactoryObject& strategy)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x47)
+    {
+        throw Error("flying imp strategy method has no owning instance");
+    }
+    player->refresh_views();
+    update_runtime_imp_flamethrower_strategy(player->imp_flamethrower);
+}
+
 void NativePlayerFactoryOwner::haunted_door_message(FactoryObject& strategy, std::span<const u32> message)
 {
     auto* player = find_player(strategy);
@@ -1144,6 +1196,7 @@ void NativePlayerFactoryOwner::install(std::span<ObjectFactoryType> types)
     types[0x4C] = ObjectFactoryType{8, mummy_strategy_lifecycle};
     types[0x53] = ObjectFactoryType{8, ugly_girl_strategy_lifecycle};
     types[0x42] = ObjectFactoryType{8, haunted_door_strategy_lifecycle};
+    types[0x47] = ObjectFactoryType{8, imp_flamethrower_strategy_lifecycle};
     types[0x28] = ObjectFactoryType{6, camera_body_lifecycle};
     types[0x39] = ObjectFactoryType{8, director_strategy_lifecycle};
     minds.install(types);

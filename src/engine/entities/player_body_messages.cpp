@@ -178,7 +178,11 @@ void dispatch_runtime_player_body_message(std::span<u8>& body, std::span<u8> mes
         return;
     case 0x19:
         dispatch_runtime_parent_body_message(body, message, views.parent, parent);
-        receive_runtime_body_moving_contact(body, message, views.source_contact->contacts, context.damage);
+        if (views.impact == nullptr)
+        {
+            throw Error("body message 0x19 has no contact views");
+        }
+        receive_runtime_body_moving_contact(body, message, *views.impact, context.damage);
         return;
     case 0x1B:
         dispatch_runtime_parent_body_message(body, message, views.parent, parent);

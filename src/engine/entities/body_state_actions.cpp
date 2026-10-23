@@ -354,6 +354,20 @@ void destroy_walk_target_view(FactoryObject& object)
     destroy_runtime_walk_target(state, context);
 }
 
+bool construct_fly_alert_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    const std::span<u8> state{object.bytes.get(), object.size};
+    auto context = body_context_of(word(state, 8));
+    return initialize_runtime_fly_alert(state, parameters, context);
+}
+
+void destroy_fly_alert_view(FactoryObject& object)
+{
+    const std::span<u8> state{object.bytes.get(), object.size};
+    auto context = body_context_of(word(state, 8));
+    destroy_runtime_fly_alert(state, context);
+}
+
 bool construct_throw_state_view(FactoryObject& object, std::span<const u8> parameters)
 {
     const std::span<u8> state{object.bytes.get(), object.size};
@@ -391,6 +405,14 @@ const ObjectFactoryVtable* hold_state_lifecycle()
 {
     static const ObjectFactoryVtable table{0x00505C20, hold_state_object_sizes, construct_hold_state_view,
         destroy_hold_state_view};
+    return &table;
+}
+
+// Getter 0x00091AB0: the walk target's sizes 0x00091A90.
+const ObjectFactoryVtable* fly_alert_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x005058A0, walk_target_object_sizes, construct_fly_alert_view,
+        destroy_fly_alert_view};
     return &table;
 }
 
@@ -718,6 +740,7 @@ void install_runtime_body_state_classes(std::span<ObjectFactoryType> types,
     types[0x88] = ObjectFactoryType{9, struggle_state_lifecycle};
     types[0x8E] = ObjectFactoryType{9, walk_alert_lifecycle};
     types[0x8F] = ObjectFactoryType{9, walk_target_lifecycle};
+    types[0x6E] = ObjectFactoryType{9, fly_alert_lifecycle};
     types[0x8A] = ObjectFactoryType{9, hold_state_lifecycle};
 }
 }

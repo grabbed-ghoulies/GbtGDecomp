@@ -32,7 +32,7 @@ struct RuntimePlayerBodyMessageViews
     RuntimeBodyAttachedActor* source;
     std::span<const u8> source_body;
     std::span<const u8> bound;
-    const RuntimeBodyContactHitViews* impact = nullptr; // Id 0x1B: the contacts and their sender.
+    const RuntimeBodyContactHitViews* impact = nullptr; // Ids 0x19 and 0x1B: the contacts and their sender.
 };
 struct RuntimePlayerBodyMessages
 {

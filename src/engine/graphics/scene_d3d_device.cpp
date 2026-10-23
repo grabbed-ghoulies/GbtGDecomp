@@ -111,8 +111,14 @@ SceneD3DDevice::SceneD3DDevice()
         constants_[96 - 38] = {width, -height, kDepthScale * (far_z - near_z), 0.f};
         constants_[96 - 37] = {float(viewport[0]) + width, float(viewport[1]) + height, kDepthScale * near_z, 0.f};
     };
-    dialogue_.constants_not_inline = [](u32, u32)
+    dialogue_.constants_not_inline = [this](u32 reg, const u32* data, u32 count)
     {
+        // Xbox D3D 0x001735D0 copies the dwords from the register's first component on.
+        if (reg * 4 + count > constants_.size() * 4)
+        {
+            throw Error("D3D vertex constant outside the device");
+        }
+        std::memcpy(constants_[reg].data(), data, count * 4);
     };
     dialogue_.constants = [this](u32 reg, const float* data, u32 count)
     {

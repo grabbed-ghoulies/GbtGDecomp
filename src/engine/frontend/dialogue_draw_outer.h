@@ -57,7 +57,7 @@ struct RuntimeDialogueOuterDrawContext
     u32& current_display_address; // DAT_005077A8, retail address for view index
     u32 line_vertex_shader; // DAT_004271F4
     u32 line_pixel_shader; // DAT_00425E0C
-    u32 line_shader_constants; // PTR_DAT_004271E8
+    const u32* line_shader_constants; // PTR_DAT_004271E8's data, null when it is 0.
     u32& line_retained; // DAT_005044B0
     u32 panel_line_width = 0x3F800000u; // DAT_00425168, the panel caps' line width (bits of a float).
 };

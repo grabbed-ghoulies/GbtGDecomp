@@ -998,6 +998,12 @@ struct SceneActorServices::State
     {
         return image.memory(address, size);
     }
+    // A shader record's constant pointer as its 0xC dwords in the image, or null when the pointer is 0.
+    const u32* shader_constants_at(u32 pointer) const
+    {
+        const u32 address = read_u32(data(pointer, 4), 0);
+        return address == 0 ? nullptr : reinterpret_cast<const u32*>(data(address, 0x30).data());
+    }
     std::vector<const char*> strings(u32 table, size_t count) const
     {
         std::vector<const char*> names(count);
@@ -2393,6 +2399,37 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         }
         return graph->scrabble_context();
     });
+    install_runtime_look_for_weapon_state_class(scene.types,
+        [this](u32 body_address) -> RuntimeLookForWeaponStateContext&
+        {
+            const auto bytes = scene.resolve_address(body_address, 0);
+            auto* player = players->find_child_owner(bytes.data());
+            if (player == nullptr || player->body.data() != bytes.data())
+            {
+                unbound("look-for-weapon state whose body has no player owner");
+            }
+            auto& graph = body_messages[player->body.data()];
+            if (graph == nullptr)
+            {
+                graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
+            }
+            return graph->look_for_weapon_context();
+        });
+    install_runtime_hit_stream_state_class(scene.types, [this](u32 body_address) -> RuntimeHitStreamStateContext&
+    {
+        const auto bytes = scene.resolve_address(body_address, 0);
+        auto* player = players->find_child_owner(bytes.data());
+        if (player == nullptr || player->body.data() != bytes.data())
+        {
+            unbound("hit-stream state whose body has no player owner");
+        }
+        auto& graph = body_messages[player->body.data()];
+        if (graph == nullptr)
+        {
+            graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
+        }
+        return graph->hit_stream_context();
+    });
     install_runtime_shoot_state_class(scene.types, [this](u32 body_address) -> RuntimeShootStateContext&
     {
         const auto bytes = scene.resolve_address(body_address, 0);
@@ -2959,7 +2996,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         dialogue_world, sprite_world,
         std::span<const u32, 4>(reinterpret_cast<const u32*>(&entity_detail::g_display_records[0].fitted_x), 4),
         render_height, render_width, hud_size[0], hud_size[1], read_u32(data(0x00314F48, 4), 0),
-        read_u32(data(0x004273D4, 4), 0), read_u32(data(0x00425E6C, 4), 0), read_u32(data(0x004273C8, 4), 0),
+        read_u32(data(0x004273D4, 4), 0), read_u32(data(0x00425E6C, 4), 0), shader_constants_at(0x004273C8),
         {0, 0, 0}, read_u32(data(0x0042515C, 4), 0), {read_f32(data(0x0042514C, 8), 0), read_f32(data(0x0042514C, 8), 4)},
         {read_f32(data(0x00425154, 8), 0), read_f32(data(0x00425154, 8), 4)}, fallback_texture.data(), 0.f, 0,
         []() -> std::int64_t
@@ -2980,7 +3017,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     dialogue_outer = std::make_unique<RuntimeDialogueOuterDrawContext>(RuntimeDialogueOuterDrawContext{*dialogue_draw,
         render_targets, d3d_device.outer(), *sprites, &resources.special_textures, *display_setup, text_draw_count, capture_enabled,
         std::bit_cast<u8>(u8(0)), g_flags_ea9c, display_address, read_u32(data(0x004271F4, 4), 0),
-        read_u32(data(0x00425E0C, 4), 0), read_u32(data(0x004271E8, 4), 0), line_retained});
+        read_u32(data(0x00425E0C, 4), 0), shader_constants_at(0x004271E8), line_retained});
     dialogue_outer->panel_line_width = read_u32(data(0x00425168, 4), 0);
     bind_scene_dialogue(game, *script_dialogue, *dialogue_outer);
     // The scene cutscene stack (DAT_004E1B40..DAT_004E1C54) that script node 0x13 starts (0x0004EDA0) and the
@@ -7459,6 +7496,8 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
             case 0x6A: // And getter 0x0008F6F0.
             case 0x6D: // And getter 0x00090D30.
             case 0x81: // And getter 0x0009F6E0.
+            case 0x76: // And getter 0x00097200.
+            case 0x7B: // And getter 0x0009D8C0.
             case 0x83: // And getter 0x000A0C30.
                 return runtime_body_action_next_key(action);
             case 0x5A:
@@ -8213,7 +8252,7 @@ void SceneActorServices::State::draw_player(FactoryObject& object, NativePlayerI
                 && type != 0x87 && type != 0x88 && type != 0x8A && type != 0x8B && type != 0x8E && type != 0x8F && type != 0x69 && type != 0x70
                 && type != 0x66 && type != 0x78 && type != 0x5F && type != 0x80 && type != 0x7F && type != 0x83
                 && type != 0x7E && type != 0x6B && type != 0x77
-                && type != 0x6E && type != 0x6A && type != 0x6D && type != 0x81)
+                && type != 0x6E && type != 0x6A && type != 0x6D && type != 0x81 && type != 0x76 && type != 0x7B)
             {
                 unbound("body +0x744 object vtable +0x18 draw for factory type "
                     + std::to_string(player.second_action.type));

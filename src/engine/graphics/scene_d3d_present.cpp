@@ -620,6 +620,7 @@ void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentConte
         for (u32 stage = 0; stage < 4; ++stage)
         {
             output.uv[stage] = {program.outputs[9 + stage][0], program.outputs[9 + stage][1]};
+            output.uv_zw[stage] = {program.outputs[9 + stage][2], program.outputs[9 + stage][3]};
         }
         output.fog = std::clamp(program.outputs[5][0], 0.f, 1.f); // oFog.x, the fog factor.
         stamps[index] = generation;
@@ -778,6 +779,7 @@ void present_inline(const SceneD3DInlineDraw& inline_draw, const SceneD3DPresent
         for (u32 stage = 0; stage < 4; ++stage)
         {
             vertex.uv[stage] = {program.outputs[9 + stage][0], program.outputs[9 + stage][1]};
+            vertex.uv_zw[stage] = {program.outputs[9 + stage][2], program.outputs[9 + stage][3]};
         }
         vertex.fog = std::clamp(program.outputs[5][0], 0.f, 1.f); // oFog.x, the fog factor.
         shaded.push_back(vertex);

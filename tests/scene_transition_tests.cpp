@@ -9395,8 +9395,9 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
             }
         }
         // Any live ghouly (a player actor other than Cooper with body +0x94 energy) within the fight range is fought
-        // first. The prisoners (tags 0x26..0x30, objTag_Actor_PrisonerChestChap..ThornGirl) are not ghoulies, and the
-        // ugly girl (tag 0x37, objTag_Actor_UglyGirl) is Cooper's partner from scene 11 on.
+        // first. The prisoners (tags 0x26..0x30, objTag_Actor_PrisonerChestChap..ThornGirl) and the cook (tag 8,
+        // objTag_Actor_Cook) are not ghoulies, and the ugly girl (tag 0x37, objTag_Actor_UglyGirl) is Cooper's partner
+        // from scene 11 on.
         std::optional<gbtg::Vec3> ghouly;
         gbtg::u16 ghouly_class = 0;
         if (cooper && !page)
@@ -9407,7 +9408,8 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
             {
                 if (mark.actor == nullptr || mark.actor->class_key == 4 || mark.body.empty()
                     || gbtg::read_u16(mark.body, 0x94) == 0
-                    || (mark.actor->class_key >= 0x26 && mark.actor->class_key <= 0x30) || mark.actor->class_key == 0x37)
+                    || (mark.actor->class_key >= 0x26 && mark.actor->class_key <= 0x30) || mark.actor->class_key == 0x37
+                    || mark.actor->class_key == 8)
                 {
                     continue;
                 }

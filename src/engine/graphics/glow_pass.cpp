@@ -2,6 +2,7 @@
 #include "../audio/listener_settings.h"
 #include "gbtg/anim.h"
 
+#include <array>
 #include <bit>
 
 namespace gbtg
@@ -187,6 +188,20 @@ void begin_runtime_glow_capture(const float* minimum, const float* maximum, Runt
     state.active = 1;
 }
 
+namespace
+{
+// The 0xC dwords a shader record's constant pointer holds, read from the image.
+std::array<u32, 0xC> constant_words(u32 address, RuntimeGlowPass& context)
+{
+    std::array<u32, 0xC> words;
+    for (u32 index = 0; index < words.size(); ++index)
+    {
+        words[index] = context.word_at(address + index * 4);
+    }
+    return words;
+}
+} // namespace
+
 // Xbox 0x00061D00
 void set_runtime_glow_depth_states(RuntimeGlowPass& context)
 {
@@ -219,9 +234,10 @@ void set_runtime_glow_depth_states(RuntimeGlowPass& context)
     simple(context, 0x40340, 5, 0x00181C64);
     simple(context, 0x40304, 1, 0x00181C5C);
     d3d.vertex_shader(context.word_at(0x0042720C));
-    if (context.word_at(0x00427200) != 0)
+    if (const u32 constants = context.word_at(0x00427200); constants != 0)
     {
-        d3d.constants_not_inline(0x60, 0xC);
+        const auto words = constant_words(constants, context);
+        d3d.constants_not_inline(0x60, words.data(), 0xC);
     }
     d3d.pixel_shader(context.word_at(0x00425DEC));
     context.texture_modes(0x54420);
@@ -254,9 +270,10 @@ void set_runtime_glow_color_states(u32 vertex_shader, u32 pixel_shader, u32 colo
     simple(context, 0x4036C, 0xFFFFFFFFu, 0x00181C90);
     simple(context, 0x40368, 0, 0x00181C8C);
     d3d.vertex_shader(context.word_at(0x004271F4 + vertex_shader * 0x18));
-    if (context.word_at(0x004271E8 + vertex_shader * 0x18) != 0)
+    if (const u32 constants = context.word_at(0x004271E8 + vertex_shader * 0x18); constants != 0)
     {
-        d3d.constants_not_inline(0x60, 0xC);
+        const auto words = constant_words(constants, context);
+        d3d.constants_not_inline(0x60, words.data(), 0xC);
     }
     d3d.texture(0, context.targets.page_texture);
     d3d.pixel_shader(context.word_at(0x00425DEC + pixel_shader * 0x10));

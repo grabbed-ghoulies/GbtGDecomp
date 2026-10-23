@@ -1618,10 +1618,12 @@ float4 output_map(float4 value, uint output)
     }
     return clamp(value, -1, 1);
 }
+// PROJECT2D samples at (s / q, t / q): q is the coordinate's w, 1 unless a vertex program writes it.
 float2 stage_coord(VSOut i, uint stage)
 {
     uint uv = ps_uv[stage];
-    float2 coord = uv == 0 ? i.uv0 : (uv == 1 ? i.uv1 : (uv == 2 ? i.uv2 : i.uv3));
+    float4 full = uv == 0 ? i.tq0 : (uv == 1 ? i.tq1 : (uv == 2 ? i.tq2 : i.tq3));
+    float2 coord = full.xy / full.w;
     float4 pair = ps_uv_scale[stage / 2];
     float2 scale = (stage & 1) != 0 ? pair.zw : pair.xy;
     return any(scale != 0) ? coord * scale : coord;
@@ -1677,6 +1679,15 @@ float4 ps_model_core(VSOut i, inout float depth)
     {
         regs[5] = ps_control.y == 0 ? i.diffuse : i.specular;
     }
+    // NONE (0): the stage's texture register is opaque black (the glow depth stamp's alpha comes from t0).
+    [unroll]
+    for (uint stage_none = 0; stage_none < 4; ++stage_none)
+    {
+        if (((ps_word(54) >> (stage_none * 5)) & 31) == 0)
+        {
+            regs[8 + stage_none] = float4(0, 0, 0, 1);
+        }
+    }
     if ((ps_word(54) & 31) == 1)
     {
         regs[8] = stage_tex[0].Sample(stage_samp[0], stage_coord(i, 0));
@@ -1711,17 +1722,18 @@ float4 ps_model_core(VSOut i, inout float depth)
         regs[11] = saturate(i.tq3);
     }
     // DOTPRODUCT (17) on stage 2 and DOT_ZW (10) on stage 3 take their input texture from PSInputTexture
-    // (word 56, stage 2 at bits 16, stage 3 at bits 20) and the full texture coordinates.
-    float dot_w = 1;
+    // (word 56, stage 2 at bits 16, stage 3 at bits 20) and the full texture coordinates. As texm3x2depth, the
+    // first dot product is z and the second w; z / w is in Z-buffer units.
+    float dot_z = 0;
     if (((ps_word(54) >> 10) & 31) == 17)
     {
-        dot_w = dot(i.tq2.xyz, ps_dotmap(2, regs[8 + ((ps_word(56) >> 16) & 3)]));
+        dot_z = dot(i.tq2.xyz, ps_dotmap(2, regs[8 + ((ps_word(56) >> 16) & 3)]));
         regs[10] = 0;
     }
     if (((ps_word(54) >> 15) & 31) == 10)
     {
-        float z = dot(i.tq3.xyz, ps_dotmap(3, regs[8 + ((ps_word(56) >> 20) & 3)]));
-        depth = saturate(z / dot_w / 16777215.0);
+        float w = dot(i.tq3.xyz, ps_dotmap(3, regs[8 + ((ps_word(56) >> 20) & 3)]));
+        depth = saturate(dot_z / w / 16777215.0);
         regs[11] = 0;
     }
     regs[12].a = regs[8].a;
@@ -1824,7 +1836,7 @@ float4 ps_model_core(VSOut i, inout float depth)
     // four texture coordinates. Their pixel stage is ps_model (the combiner definition) or, without one,
     // texture 0 modulated by the diffuse colour.
     const char* native_hlsl = R"(
-struct NativeIn { float4 pos : POSITION; float4 diffuse : COLOR0; float4 specular : COLOR1; float2 uv0 : TEXCOORD0; float2 uv1 : TEXCOORD1; float2 uv2 : TEXCOORD2; float2 uv3 : TEXCOORD3; float fog : TEXCOORD4; };
+struct NativeIn { float4 pos : POSITION; float4 diffuse : COLOR0; float4 specular : COLOR1; float2 uv0 : TEXCOORD0; float2 uv1 : TEXCOORD1; float2 uv2 : TEXCOORD2; float2 uv3 : TEXCOORD3; float fog : TEXCOORD4; float2 zw0 : TEXCOORD5; float2 zw1 : TEXCOORD6; float2 zw2 : TEXCOORD7; float2 zw3 : TEXCOORD8; };
 VSOut native_vs(NativeIn i)
 {
     VSOut o;
@@ -1833,10 +1845,10 @@ VSOut native_vs(NativeIn i)
     o.uv1 = i.uv1;
     o.uv2 = i.uv2;
     o.uv3 = i.uv3;
-    o.tq2 = float4(i.uv2, 0, 1);
-    o.tq3 = float4(i.uv3, 0, 1);
-    o.tq0 = float4(i.uv0, 0, 1);
-    o.tq1 = float4(i.uv1, 0, 1);
+    o.tq2 = float4(i.uv2, i.zw2);
+    o.tq3 = float4(i.uv3, i.zw3);
+    o.tq0 = float4(i.uv0, i.zw0);
+    o.tq1 = float4(i.uv1, i.zw1);
     o.nrm = float3(0, 0, 0);
     o.diffuse = i.diffuse;
     o.specular = i.specular;
@@ -1899,8 +1911,12 @@ bool native_alpha_pass(float alpha)
         {"TEXCOORD", 2, DXGI_FORMAT_R32G32_FLOAT, 0, 64, D3D11_INPUT_PER_VERTEX_DATA, 0},
         {"TEXCOORD", 3, DXGI_FORMAT_R32G32_FLOAT, 0, 72, D3D11_INPUT_PER_VERTEX_DATA, 0},
         {"TEXCOORD", 4, DXGI_FORMAT_R32_FLOAT, 0, 80, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 5, DXGI_FORMAT_R32G32_FLOAT, 0, 84, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 6, DXGI_FORMAT_R32G32_FLOAT, 0, 92, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 7, DXGI_FORMAT_R32G32_FLOAT, 0, 100, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 8, DXGI_FORMAT_R32G32_FLOAT, 0, 108, D3D11_INPUT_PER_VERTEX_DATA, 0},
     };
-    static_assert(sizeof(GfxNativeVertex) == 84);
+    static_assert(sizeof(GfxNativeVertex) == 116);
     g.device->CreateInputLayout(native_layout, UINT(std::size(native_layout)), native_vs_blob->GetBufferPointer(),
         native_vs_blob->GetBufferSize(), g.native_layout.GetAddressOf());
     D3D11_BUFFER_DESC native_material{};

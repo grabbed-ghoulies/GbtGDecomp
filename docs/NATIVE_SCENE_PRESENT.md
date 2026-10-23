@@ -186,6 +186,9 @@ The new references are the `cache/view_present/scene_N.png` captures.
   Leave the keyboard alone during captures.
 - The port's `0x000F5E50` (`rebuild_display_view`) stops before the retail
   function's frustum rebuild. Nothing on this path depends on it.
+- Native vertices carry each stage's whole oT register (`GfxNativeVertex::uv_zw` holds z and w), so programs run
+  on the CPU feed the dot-product stages as GPU-compiled ones do. PROJECT2D samples at (s / q, t / q), and a NONE
+  stage's texture register is (0, 0, 0, 1) (xemu's `psh.c`).
 - `cache/player_walk_check.bmp` from `--player-opening` is still letterboxed.
   The harness reaches the display fit outside the State constructor. Not
   investigated.

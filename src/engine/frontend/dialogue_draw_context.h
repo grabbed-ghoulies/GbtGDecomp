@@ -17,7 +17,8 @@ struct DialogueD3DBoundaries
     std::function<void(u32, const float*)> set_transform;
     std::function<void(u32, float*)> get_transform;
     std::function<void(std::span<const u32, 6>)> viewport;
-    std::function<void(u32, u32)> constants_not_inline;
+    // D3D 0x001735D0 (register, data, count in dwords): the dwords fill the constants from the register on.
+    std::function<void(u32, const u32*, u32)> constants_not_inline;
     std::function<void(u32, const float*, u32)> constants;
     std::function<void(float*, const float*, const float*)> multiply;
     std::function<void(float*, const float*)> transpose;
@@ -94,7 +95,7 @@ struct RuntimeDialogueDrawContext
     u32 white; // DAT_00314F48
     u32 vertex_shader; // DAT_004273D4
     u32 pixel_shader; // DAT_00425E6C
-    u32 shader_constants; // DAT_004273C8
+    const u32* shader_constants; // PTR_DAT_004273C8's data, null when it is 0.
     std::array<u32, 3> quad_zero; // DAT_005462B4/B8/BC
     u32 quad_one; // DAT_0042515C
     std::array<float, 2> quad_top; // DAT_0042514C

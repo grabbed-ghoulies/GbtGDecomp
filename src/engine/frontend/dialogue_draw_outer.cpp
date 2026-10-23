@@ -94,9 +94,9 @@ void draw_runtime_dialogue_lines(const float* positions, float width, u32 color,
 {
     c.d3d.line_width(width);
     c.draw.d3d.vertex_shader(c.line_vertex_shader);
-    if (c.line_shader_constants != 0)
+    if (c.line_shader_constants != nullptr)
     {
-        c.draw.d3d.constants_not_inline(0x60, 0xC);
+        c.draw.d3d.constants_not_inline(0x60, c.line_shader_constants, 0xC);
     }
     c.draw.d3d.pixel_shader(c.line_pixel_shader);
     const float channels[4]{

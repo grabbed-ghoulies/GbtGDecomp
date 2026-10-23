@@ -20,9 +20,9 @@ void prepare_quad(u32 color, RuntimeDialogueDrawContext& c)
         channels[i] = static_cast<float>((color >> (i * 8)) & 255) * (1.f / 255.f);
     }
     c.d3d.vertex_shader(c.vertex_shader);
-    if (c.shader_constants != 0)
+    if (c.shader_constants != nullptr)
     {
-        c.d3d.constants_not_inline(0x60, 0xC);
+        c.d3d.constants_not_inline(0x60, c.shader_constants, 0xC);
     }
     c.d3d.pixel_shader(c.pixel_shader);
     std::array<float, 16> world, view, projection, combined;

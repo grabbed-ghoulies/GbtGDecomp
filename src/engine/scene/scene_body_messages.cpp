@@ -356,6 +356,22 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
             children_[child->bytes.get()] = scoop.get();
             continue;
         }
+        if (child->type == 0x76)
+        {
+            auto& stream = hit_stream_children_[child->bytes.get()];
+            if (stream == nullptr)
+            {
+                stream = std::make_unique<RuntimeBodyMessageChild>();
+                stream->message = [this, child](std::span<u8> message)
+                {
+                    const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
+                    message_runtime_hit_stream_state({child->bytes.get(), child->size}, words,
+                        hit_stream_context()); // 0x00097890
+                };
+            }
+            children_[child->bytes.get()] = stream.get();
+            continue;
+        }
         if (child->type == 0x6A)
         {
             auto& flame = flamethrower_children_[child->bytes.get()];
@@ -408,6 +424,7 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
         // 0x80's getter 0x0009F420 stores it at 0x00505AEC.
         if (child->type != 0x59 && child->type != 0x8A && child->type != 0x80 && child->type != 0x7F && child->type != 0x6B
             && child->type != 0x77 && child->type != 0x6E && child->type != 0x6D && child->type != 0x81
+            && child->type != 0x7B
             && child->type != 0x5A && child->type != 0x5B && child->type != 0x5C && child->type != 0x74
             && child->type != 0x7C && child->type != 0x87 && child->type != 0x88 && child->type != 0x69
             && child->type != 0x70)
@@ -753,6 +770,12 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
     case 0x81:
         tick_runtime_shoot_state({action.bytes.get(), action.size}, shoot_context(input)); // 0x0009FA80
         return;
+    case 0x76:
+        tick_runtime_hit_stream_state({action.bytes.get(), action.size}, hit_stream_context()); // 0x00097500
+        return;
+    case 0x7B:
+        tick_runtime_look_for_weapon_state({action.bytes.get(), action.size}, look_for_weapon_context()); // 0x0009DB30
+        return;
     case 0x6E:
     {
         // EBX of 0x000923B0 is the tick's input word: the player's input record (actor +0x960) or zero.
@@ -1033,6 +1056,8 @@ void SceneBodyMessages::action_step(FactoryObject& action)
     case 0x6A:
     case 0x6D:
     case 0x81:
+    case 0x76:
+    case 0x7B:
     case 0x83:
         // 0x001628B0 (0x000D4179 for 0x69, 0x70 and 0x88) returns at once.
         return;
@@ -1415,6 +1440,49 @@ RuntimeFlamethrowerStateContext& SceneBodyMessages::flamethrower_context()
         },
         services_.actor_at});
     return *flamethrower_;
+}
+
+RuntimeLookForWeaponStateContext& SceneBodyMessages::look_for_weapon_context()
+{
+    player_.refresh_body_views();
+    look_for_weapon_.reset();
+    look_for_weapon_.emplace(RuntimeLookForWeaponStateContext{player_.body, player_.actor, services_.clock,
+        player_.mind, player_.body_selection, services_.image_string, services_.effects.models.registry,
+        player_.body_selection.error, services_.sounds, services_.random, services_.actor_at, services_.bytes_at,
+        [this](const Actor& actor)
+        {
+            return services_.address_of(&actor);
+        },
+        [this]()
+        {
+            return body_slot_key(0x20);
+        }});
+    return *look_for_weapon_;
+}
+
+RuntimeHitStreamStateContext& SceneBodyMessages::hit_stream_context()
+{
+    player_.refresh_body_views();
+    if (player_.body_bits == nullptr)
+    {
+        unbound("hit-stream state without the body +0x15C bit block");
+    }
+    hit_stream_.reset();
+    hit_stream_.emplace(RuntimeHitStreamStateContext{player_.body, player_.actor, player_.actor_address,
+        player_.actor_bytes, *player_.body_bits, services_.clock, services_.sounds, player_.callout,
+        player_.actor_instance.startup.resource.resource.data(), player_.body_lists, services_.resources,
+        services_.create_object, services_.release_frame_object, services_.address_of, services_.actor_at,
+        [this]() -> bool
+        {
+            return runtime_player_damage_enabled(player_.actor, services_.player_blocked, services_.player_modes,
+                services_.player_mode) != 0; // 0x00028D50
+        },
+        [this](u32 slot)
+        {
+            return body_slot_key(slot);
+        },
+        first_timer_});
+    return *hit_stream_;
 }
 
 RuntimeShootStateContext& SceneBodyMessages::shoot_context(u32 input)
@@ -2159,6 +2227,15 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 message_runtime_arc_state({second.bytes.get(), second.size}, words, arc_context());
                 return;
             }
+            if (type == 0x76)
+            {
+                // 0x00097890 acts only on 0x18, reading its velocity and point.
+                if (reply.id == 0x18)
+                {
+                    unbound("collision reply id 0x18 to the hit-stream state 0x00097890");
+                }
+                return;
+            }
             if (type == 0x6A)
             {
                 // 0x0008FBF0 acts only on 0x7C, reading its +4 actor.
@@ -2171,7 +2248,7 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
             // 0x8A (getter 0x000A34C0) keeps the empty 0x001628B0 at +0xC too.
             if (type != 0x87 && type != 0x88 && type != 0x69 && type != 0x70 && type != 0x5B && type != 0x5C && type != 0x74 && type != 0x7C
                 && type != 0x8A && type != 0x80 && type != 0x7F && type != 0x6B && type != 0x77
-                && type != 0x6E && type != 0x6D && type != 0x81)
+                && type != 0x6E && type != 0x6D && type != 0x81 && type != 0x7B)
             {
                 unbound("collision reply action vtable +0xC of factory type " + std::to_string(type));
             }

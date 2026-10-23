@@ -89,6 +89,8 @@ struct GfxNativeVertex
     std::array<float, 4> specular;
     std::array<std::array<float, 2>, 4> uv;
     float fog = 1.f; // oFog.x: 1 leaves the colour, 0 is all fog colour.
+    // Each stage's oT z and w: the dot-product stages (DOTPRODUCT, DOT_ZW) dot the whole coordinate.
+    std::array<std::array<float, 2>, 4> uv_zw{{{0.f, 1.f}, {0.f, 1.f}, {0.f, 1.f}, {0.f, 1.f}}};
 };
 using GfxNativeInputs = std::array<std::array<float, 4>, 16>;
 bool gfx_native_vertex_program_supported(std::span<const u32> program);

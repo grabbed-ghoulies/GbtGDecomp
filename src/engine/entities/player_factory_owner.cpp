@@ -431,6 +431,22 @@ const ObjectFactoryVtable* medusa_strategy_lifecycle()
     return &table;
 }
 
+bool construct_pirate_strategy_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto* player = active_owner->find_player(object);
+    player->strategy_type = 0x4E;
+    player->refresh_views();
+    return initialize_runtime_pirate_strategy(bytes_of(object), parameters); // 0x000BE130
+}
+
+// Getter 0x000BE0E0; vtable +8 is the empty 0x001628B0.
+const ObjectFactoryVtable* pirate_strategy_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505F84, pirate_strategy_object_sizes, construct_pirate_strategy_view,
+        destroy_empty_player_object};
+    return &table;
+}
+
 bool construct_haunted_door_strategy_view(FactoryObject& object, std::span<const u8> parameters)
 {
     auto* player = active_owner->find_player(object);
@@ -612,6 +628,13 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
                   leave_runtime_medusa_state(old_state, medusa);
                   return;
               }
+              if (strategy_type == 0x4E)
+              {
+                  // Pirate strategy vtable +0x18, 0x000BEA60.
+                  refresh_views();
+                  leave_runtime_pirate_state(old_state, pirate);
+                  return;
+              }
               if (strategy_type == 0x42)
               {
                   // Haunted door strategy vtable +0x18, 0x000B0520.
@@ -715,6 +738,12 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
               {
                   // Medusa strategy vtable +0x14, 0x000BB720.
                   enter_runtime_medusa_state(state, previous, medusa);
+                  return;
+              }
+              if (strategy_type == 0x4E)
+              {
+                  // Pirate strategy vtable +0x14, 0x000BE820.
+                  enter_runtime_pirate_state(state, previous, pirate);
                   return;
               }
               if (strategy_type == 0x42)
@@ -955,7 +984,11 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
               scene.create_object(parameters);
           },
           scene_bindings.runtime_flags, "specialattack", "spin", "specialattackwalk", "specialattacksucceed",
-          "backtonormal", "randomwalk", "attack", "shockcam1", "shockcam2"}
+          "backtonormal", "randomwalk", "attack", "shockcam1", "shockcam2"},
+      pirate{strategy_messages, target_checks, target_queue, strategy_views, attachment, scene_bindings.latches,
+          scene_bindings.create_effect, scene_bindings.object_message, scene_bindings.actor_address, "attack",
+          "attack_knockdown", "attack_knockdown_confused", "angry", "attack_special", "attack_specialnosword",
+          "throw_multiplechests", "throw_singlechest", "drink", "far", "getweapon", "getweapon_confused"}
 {
 }
 
@@ -1258,6 +1291,28 @@ void NativePlayerFactoryOwner::medusa_update(FactoryObject& strategy)
     update_runtime_medusa_strategy(player->medusa);
 }
 
+void NativePlayerFactoryOwner::pirate_message(FactoryObject& strategy, std::span<const u32> message)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x4E)
+    {
+        throw Error("pirate strategy method has no owning instance");
+    }
+    player->refresh_views();
+    dispatch_runtime_pirate_message(message, player->pirate);
+}
+
+void NativePlayerFactoryOwner::pirate_update(FactoryObject& strategy)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x4E)
+    {
+        throw Error("pirate strategy method has no owning instance");
+    }
+    player->refresh_views();
+    update_runtime_pirate_strategy(player->pirate);
+}
+
 void NativePlayerFactoryOwner::haunted_door_message(FactoryObject& strategy, std::span<const u32> message)
 {
     auto* player = find_player(strategy);
@@ -1432,6 +1487,7 @@ void NativePlayerFactoryOwner::install(std::span<ObjectFactoryType> types)
     types[0x47] = ObjectFactoryType{8, imp_flamethrower_strategy_lifecycle};
     types[0x49] = ObjectFactoryType{8, imp_ninja_strategy_lifecycle};
     types[0x4B] = ObjectFactoryType{8, medusa_strategy_lifecycle};
+    types[0x4E] = ObjectFactoryType{8, pirate_strategy_lifecycle};
     types[0x28] = ObjectFactoryType{6, camera_body_lifecycle};
     types[0x39] = ObjectFactoryType{8, director_strategy_lifecycle};
     minds.install(types);

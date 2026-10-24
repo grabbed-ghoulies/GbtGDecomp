@@ -6063,6 +6063,11 @@ FactoryObject* SceneActorServices::State::object_of(const u8* bytes)
                 return object;
             }
         }
+        // A player still in its constructor: a weapon it attaches there (0x0001B2B0) names it in message 0x91.
+        if (player->constructing != nullptr && player->constructing->bytes.get() == bytes)
+        {
+            return player->constructing;
+        }
     }
     // Only while its creation runs: the comparison never reads the pending object itself.
     if (attaching_bytes == bytes)
@@ -7219,7 +7224,8 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
     // has not attached yet.
     if (child.type == 0x4F || child.type == 0x46 || child.type == 0x3B || child.type == 0x51 || child.type == 0x52
         || child.type == 0x58 || child.type == 0x44 || child.type == 0x40 || child.type == 0x4C || child.type == 0x53
-        || child.type == 0x42 || child.type == 0x47 || child.type == 0x49 || child.type == 0x4B)
+        || child.type == 0x42 || child.type == 0x47 || child.type == 0x49 || child.type == 0x4B
+        || child.type == 0x4E)
     {
         if (auto* player = players->find_player(child); player != nullptr && !player->body.empty())
         {
@@ -7272,6 +7278,9 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
         return;
     case 0x4B:
         players->medusa_message(child, words);
+        return;
+    case 0x4E:
+        players->pirate_message(child, words);
         return;
     case 0x39:
     {
@@ -7747,6 +7756,9 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
                 return;
             case 0x4B:
                 players->medusa_update(strategy);
+                return;
+            case 0x4E:
+                players->pirate_update(strategy);
                 return;
             case 0x39:
             {

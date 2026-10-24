@@ -103,6 +103,20 @@ RuntimeBodyAttachedActor* detach_runtime_body_secondary(std::span<u8> body,
     return attached;
 }
 
+// Xbox 0x0001B6E0
+void drop_runtime_body_secondary(std::span<u8> body, RuntimeBodyAttachedActor*& secondary,
+    RuntimeBodyAnimationReceiver*& receiver)
+{
+    RuntimeBodyAttachedActor* held = secondary;
+    if (held == nullptr)
+    {
+        return;
+    }
+    detach_runtime_body_secondary(body, secondary, receiver); // 0x0001B570
+    const std::array<u32, 2> drop{0x97, 0};
+    held->message(drop);
+}
+
 // Xbox 0x0001B100
 void clear_runtime_body_actor_reference(std::span<u8> body, u32 address,
     RuntimeBodyActorAttachment& primary, RuntimeBodyAttachedActor*& secondary,

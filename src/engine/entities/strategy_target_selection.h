@@ -118,6 +118,9 @@ long double runtime_target_distance(const Actor& actor, std::span<const u8> targ
 // A running timer (above zero) counts down by the actor's step; true once it reaches zero, where it stops.
 bool count_down_runtime_strategy_timer(float& timer,
     RuntimePlayerStrategyGoals& context); // Xbox 0x0002B9F0, EAX strategy, ECX timer
+// 0x0002B9F0 held while a pause reference (DAT_0050E768) is open or the decay table's entry is off.
+bool count_down_runtime_strategy_live_timer(float& timer,
+    RuntimePlayerStrategyGoals& context); // Xbox 0x0002BA60, EAX strategy, EDX timer
 // The message hits this actor (+4) and its attacker's target record (+8 -> +0x8F8) is free and eligible: the mind
 // takes it as its target (+0x10) and the attacker as +0xC. `force` skips the strategy's pause count (+0x1C).
 u32 adopt_runtime_strategy_message_attacker(std::span<const u32> message, u32 force,

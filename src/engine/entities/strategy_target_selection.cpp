@@ -888,6 +888,28 @@ bool count_down_runtime_strategy_timer(float& timer, RuntimePlayerStrategyGoals&
     return true;
 }
 
+// Xbox 0x0002BA60
+bool count_down_runtime_strategy_live_timer(float& timer, RuntimePlayerStrategyGoals& context)
+{
+    if (context.resume.references[1] != 0 || context.resume.decay_enabled[context.resume.decay_index] == 0)
+    {
+        return false;
+    }
+    const float step = runtime_frame_step(context.clock);
+    const float rate = runtime_actor_rate(context.entry.actor);
+    if (!(timer > 0.f))
+    {
+        return false;
+    }
+    timer = timer - rate * step;
+    if (0.f < timer)
+    {
+        return false;
+    }
+    timer = 0.f;
+    return true;
+}
+
 // Xbox 0x00139550, EAX strategy, EBX message, ECX force
 u32 adopt_runtime_strategy_message_attacker(std::span<const u32> message, u32 force,
     RuntimeStrategyTargetChecks& context, RuntimeStrategyActorViews& views)

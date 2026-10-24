@@ -17,6 +17,7 @@
 #include "imp_flamethrower_strategy.h"
 #include "imp_ninja_strategy.h"
 #include "medusa_strategy.h"
+#include "pirate_strategy.h"
 #include "haunted_tv_strategy.h"
 #include "haunted_chair_strategy.h"
 #include "grim_reaper_strategy.h"
@@ -334,6 +335,7 @@ struct NativePlayerInstance
     RuntimeImpFlamethrowerStrategy imp_flamethrower; // Type 0x47, over `spider`'s views.
     RuntimeImpNinjaStrategy imp_ninja; // Type 0x49, over `spider`'s views.
     RuntimeMedusaStrategy medusa; // Type 0x4B, over `spider`'s views.
+    RuntimePirateStrategy pirate; // Type 0x4E.
     void refresh_input_views(); // After the player constructor allocates actor +0x960.
     void refresh_views(); // Body, input, mind and strategy value views before a method runs.
 };
@@ -398,6 +400,8 @@ public:
     void imp_ninja_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000B7B40.
     void medusa_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000BB400.
     void medusa_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000BB340.
+    void pirate_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000BE520.
+    void pirate_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000BE160.
     NativePlayerFactoryBindings bindings;
     NativePlayerMindOwner minds;
     // Retail keeps the type 5 vtable through the whole destructor chain, so the base actor destructor still

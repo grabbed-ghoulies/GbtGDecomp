@@ -15,6 +15,9 @@ void clear_runtime_body_damage_sources(std::span<u8> body, u32 address); // Xbox
 void clear_runtime_body_timer_recipient(std::span<u8> body, u32 address); // Xbox 0x00027B20
 RuntimeBodyAttachedActor* detach_runtime_body_secondary(std::span<u8> body,
     RuntimeBodyAttachedActor*& secondary, RuntimeBodyAnimationReceiver*& receiver); // Xbox 0x0001B570
+// Body +0x4C, when set, let go (0x0001B570) and told {0x97, 0}.
+void drop_runtime_body_secondary(std::span<u8> body, RuntimeBodyAttachedActor*& secondary,
+    RuntimeBodyAnimationReceiver*& receiver); // Xbox 0x0001B6E0, EAX body
 void clear_runtime_body_actor_reference(std::span<u8> body, u32 address,
     RuntimeBodyActorAttachment& primary, RuntimeBodyAttachedActor*& secondary,
     RuntimeBodyAnimationReceiver*& receiver); // Xbox 0x0001B100

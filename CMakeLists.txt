@@ -260,6 +260,7 @@ add_library(gbtg_lib STATIC
     src/engine/entities/body_flip_state.cpp
     src/engine/entities/body_hover_state.cpp
     src/engine/entities/body_jump_on_state.cpp
+    src/engine/entities/body_walk_state.cpp
     src/engine/entities/body_flamethrower_state.cpp
     src/engine/entities/body_shoot_state.cpp
     src/engine/entities/body_hit_stream_state.cpp

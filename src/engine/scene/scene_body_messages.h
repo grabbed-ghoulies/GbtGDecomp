@@ -25,6 +25,7 @@
 #include "../entities/body_flip_state.h"
 #include "../entities/body_hover_state.h"
 #include "../entities/body_jump_on_state.h"
+#include "../entities/body_walk_state.h"
 #include "../entities/body_flamethrower_state.h"
 #include "../entities/body_shoot_state.h"
 #include "../entities/body_hit_stream_state.h"
@@ -183,6 +184,7 @@ public:
     RuntimeThrowStateContext& throw_context(); // The type 0x8B state's views of this body.
     RuntimeArcStateContext& arc_context(); // The type 0x66 state's views of this body.
     RuntimeJumpOnStateContext& jump_on_context(); // The type 0x79 state's views of this body.
+    RuntimeWalkStateContext& walk_context(); // The type 0x8D state's views of this body.
     RuntimeArcAttackStateContext& arc_attack_context(); // The type 0x5F state's views of this body.
     RuntimeGenerateGhoulyContext& generate_ghouly_context(); // The type 0x6F state's views of this body.
     RuntimeShockedStateContext& shocked_context(); // The type 0x80 state's views of this body.
@@ -236,6 +238,8 @@ private:
     std::optional<RuntimeArcStateContext> arc_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> jump_on_children_; // 0x79, 0x0009AE60.
     std::optional<RuntimeJumpOnStateContext> jump_on_;
+    std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> walk_children_; // 0x8D, 0x000A5270.
+    std::optional<RuntimeWalkStateContext> walk_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> arc_attack_children_; // 0x5F, 0x00089530.
     std::optional<RuntimeBodyStateContext> arc_attack_shape_;
     std::optional<RuntimeArcAttackStateContext> arc_attack_;

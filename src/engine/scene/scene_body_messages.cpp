@@ -289,6 +289,21 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
             children_[child->bytes.get()] = arc.get();
             continue;
         }
+        if (child->type == 0x8D)
+        {
+            auto& walk = walk_children_[child->bytes.get()];
+            if (walk == nullptr)
+            {
+                walk = std::make_unique<RuntimeBodyMessageChild>();
+                walk->message = [this, child](std::span<u8> message)
+                {
+                    const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
+                    message_runtime_walk_state({child->bytes.get(), child->size}, words, walk_context()); // 0x000A5270
+                };
+            }
+            children_[child->bytes.get()] = walk.get();
+            continue;
+        }
         if (child->type == 0x79)
         {
             auto& jump_on = jump_on_children_[child->bytes.get()];
@@ -779,6 +794,9 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
     case 0x79:
         tick_runtime_jump_on_state({action.bytes.get(), action.size}, jump_on_context()); // 0x0009AB00
         return;
+    case 0x8D:
+        tick_runtime_walk_state({action.bytes.get(), action.size}, walk_context()); // 0x000A5100
+        return;
     case 0x5F:
         tick_runtime_arc_attack_state({action.bytes.get(), action.size}, arc_attack_context()); // 0x00089060
         return;
@@ -1104,6 +1122,7 @@ void SceneBodyMessages::action_step(FactoryObject& action)
     case 0x83:
     case 0x67:
     case 0x79:
+    case 0x8D:
         // 0x001628B0 (0x000D4179 for 0x69, 0x70 and 0x88) returns at once.
         return;
     default:
@@ -1342,6 +1361,48 @@ RuntimeArcStateContext& SceneBodyMessages::arc_context()
         },
         services_.address_of});
     return *arc_;
+}
+
+RuntimeWalkStateContext& SceneBodyMessages::walk_context()
+{
+    player_.refresh_body_views();
+    if (player_.body_flags == nullptr || player_.body_bits == nullptr)
+    {
+        unbound("walk state without the body +0x15C bit block");
+    }
+    dizzy_stars_.create = [this](std::span<const u8> parameters)
+    {
+        return services_.create_object(parameters);
+    };
+    dizzy_stars_.actor = [this](u32 address) -> Actor&
+    {
+        return services_.actor_view(address).bat.actor;
+    };
+    dizzy_stars_.animation = [this](u32 address) -> ActorAnimationState&
+    {
+        return services_.actor_view(address).animation;
+    };
+    dizzy_stars_.render = [this](u32 address) -> ActorRenderRegistration&
+    {
+        return services_.actor_view(address).render;
+    };
+    dizzy_stars_.message = [this](u32 address, std::span<u32> message)
+    {
+        services_.message(address, message);
+    };
+    walk_.reset();
+    walk_.emplace(RuntimeWalkStateContext{player_.body, player_.actor, *player_.body_flags, services_.clock,
+        player_.strategy, dizzy_stars_, services_.default_position, services_.default_euler, services_.empty_name,
+        services_.random,
+        [this]()
+        {
+            // 0x00026950 on the body; the caller's ECX is read only when the attached class leaves the pair unset.
+            const RuntimeBodyActionIds ids{player_.attached, read_u16(player_.actor_bytes, 6),
+                services_.address_of(player_.body.data())};
+            const u8* mind = player_.mind.empty() ? nullptr : player_.mind.data();
+            return runtime_body_primary_parameter_id(ids, mind, *player_.body_bits, player_.action_table, 0);
+        }});
+    return *walk_;
 }
 
 RuntimeJumpOnStateContext& SceneBodyMessages::jump_on_context()

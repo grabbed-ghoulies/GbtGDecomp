@@ -9379,6 +9379,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
     int page_shown = -1;
     int moved_on = -1;
     bool reached_door = false;
+    gbtg::i32 last_door = -1; // The last PlayerApproachesDoor door walked to; the exit is lined up through it.
     StickSteering steering;
     std::set<gbtg::i32> avoided;
     gbtg::Vec3 stuck_at{};
@@ -9423,6 +9424,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                 {
                     goal = at;
                     goal_name = "door " + std::to_string(door);
+                    last_door = door;
                 }
             }
             for (const auto& condition : gbtg::g_script_conds)
@@ -9453,14 +9455,17 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                 }
                 // A "Player Leaves Through Door N" section: the exit volume sits behind the wall and the open door
                 // panel swings into the room, so Cooper first lines up 8 units in front of the door's actor (its
-                // clip's first track, 0x0005BEC0) on the exit's z, then walks straight through.
+                // clip's first track, 0x0005BEC0) on the exit's z, then walks straight through. A section that names
+                // no door (scene 2a10's second "Free Play") uses the door Cooper came in by.
                 const std::string leaves = "Player Leaves Through Door ";
-                if (goal && !reached_door && title.rfind(leaves, 0) == 0 && gbtg::g_event_sequence_context != nullptr)
+                const bool named = title.rfind(leaves, 0) == 0;
+                if (goal && !reached_door && (named || last_door >= 0) && gbtg::g_event_sequence_context != nullptr)
                 {
-                    const auto door = gbtg::u16(std::stoi(title.substr(leaves.size())));
+                    const auto door = gbtg::u16(named ? std::stoi(title.substr(leaves.size())) : last_door);
                     gbtg::Vec3 at{};
                     float distance = 0.f;
-                    if (gbtg::runtime_door_distance(door, *cooper, at, distance, gbtg::g_event_sequence_context->doors))
+                    if (gbtg::runtime_door_distance(door, *cooper, at, distance, gbtg::g_event_sequence_context->doors)
+                        && (named || (at.x - goal->x) * (at.x - goal->x) + (at.z - goal->z) * (at.z - goal->z) < 25.f * 25.f))
                     {
                         const gbtg::Vec3 front{at.x + (cooper->x < at.x ? -8.f : 8.f), at.y, goal->z};
                         const float dx = front.x - cooper->x;
@@ -9480,7 +9485,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
         }
         // Any live ghouly (a player actor other than Cooper with body +0x94 energy) within the fight range is fought
         // first. The prisoners (tags 0x26..0x30, objTag_Actor_PrisonerChestChap..ThornGirl) and the cook (tag 8,
-        // objTag_Actor_Cook) are not ghoulies, nor is scene 2a9's chicken (tag 6, objTag_Actor_Chicken), and the ugly
+        // objTag_Actor_Cook) are not ghoulies, nor is scene 2a9's Cameron (tag 6, objTag_Actor_Cameron), and the ugly
         // girl (tag 0x37, objTag_Actor_UglyGirl) is Cooper's partner from scene 11 on.
         std::optional<gbtg::Vec3> ghouly;
         gbtg::u16 ghouly_class = 0;
@@ -9490,8 +9495,9 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                 && (calm_title.empty() || title != calm_title);
             const float range = fights ? fight_range : 0.f;
             float nearest = range * range;
-            // A queued one-type step (type 0xD, its tag at +0x18) sends Cooper after that class; another ghouly within 10
-            // is fought off first (the step only waits for the class to be gone, so other kills cost nothing).
+            // A queued one-type step (type 0xD, its tag at +0x18) or kill-count step (type 3, its tag at +0x1C) sends
+            // Cooper after that class; another ghouly within 10 is fought off first (the step only counts that class, so
+            // other kills cost nothing, and a time limit leaves none for the rest).
             gbtg::u16 one_type = 0;
             if (const auto* pool = gbtg::g_event_sequence.steps; pool != nullptr)
             {
@@ -9500,6 +9506,10 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                     if (gbtg::read_u32({row, 0x88}, 0) == 0xD)
                     {
                         one_type = gbtg::read_u16({row, 0x88}, 0x18);
+                    }
+                    if (gbtg::read_u32({row, 0x88}, 0) == 3)
+                    {
+                        one_type = gbtg::read_u16({row, 0x88}, 0x1C);
                     }
                 }
             }
@@ -10026,12 +10036,14 @@ int main(int argc, char** argv)
     const bool scene2a8_test = argc == 3 && std::string_view(argv[2]) == "--scene2a8";
     // --scene2a9 boots chapter 2a scene 9 (chapter2a_scene9_1playcam) and plays it until the script moves on.
     const bool scene2a9_test = argc == 3 && std::string_view(argv[2]) == "--scene2a9";
+    // --scene2a10 boots chapter2a_scene10_1playcam and plays it until the script moves on.
+    const bool scene2a10_test = argc == 3 && std::string_view(argv[2]) == "--scene2a10";
     if (spawn_test)
     {
         std::cout << std::unitbuf;
     }
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
-        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene3_test)
+        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene3_test)
     {
         std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene6-save | --scene6-save-reload | --scene3 | --scene4 | --scene5 | --scene6-1 | --scene7]\n";
         return 2;
@@ -10152,6 +10164,7 @@ int main(int argc, char** argv)
             : scene2a7_test ? "chapter2a_scene7_2playcam"
             : scene2a8_test ? "chapter2a_scene8_1playcam"
             : scene2a9_test ? "chapter2a_scene9_1playcam"
+            : scene2a10_test ? "chapter2a_scene10_1playcam"
             : player_test || spawn_test ? "chapter1_scene1_2playcam"
             : title_test ? "" : "scene0_1book");
         if (scene2a1b_test)
@@ -10160,6 +10173,13 @@ int main(int argc, char** argv)
             play_scene7(game, "scene2a1_2");
             pass_chapter_title(game, "scene2a1_to_3", "aid_script_ghoulies_chapter2a_scene1_3playcam", false);
             play_scene7(game, "scene2a1_3", 1000.f, "Event - Kill All", true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene2a10_test)
+        {
+            pass_chapter_title(game, "scene2a10", "aid_script_ghoulies_chapter2a_scene10_1playcam", false);
+            play_scene7(game, "scene2a10", 1000.f, {}, true, true);
             gbtg::gfx_shutdown();
             return 0;
         }

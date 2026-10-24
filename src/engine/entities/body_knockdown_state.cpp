@@ -198,7 +198,13 @@ void aim_runtime_knockdown(std::span<u8> state, RuntimeKnockdownContext& context
     }
     if (source != 0)
     {
-        throw Error("knockdown aim toward body +0x26C (0x00041900) is not bound");
+        // 0x00041900 with EAX the source and this actor pushed: the angle from this actor toward the source.
+        const Vec3 first = context.actor_position(source);
+        const Vec3 second = actor_world_position(context.actor);
+        const Vec3 toward{first.x - second.x, first.y - second.y, first.z - second.z};
+        float aim;
+        runtime_direction_angle(toward, aim);
+        put_float(state, 0xA8, aim);
     }
 }
 

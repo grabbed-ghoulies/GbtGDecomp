@@ -165,6 +165,12 @@ struct SceneBodyServices
     RuntimeIntroNotices* intro{};
     u8* story_byte{};
     std::function<RuntimeJumpOnPeer(u32 actor_address)> jump_peer{};
+    // A retail word for a host block a message names (as a weapon's 0x99 name buffer), and its release.
+    std::function<u32(void* block, size_t size)> bind_block{};
+    std::function<void(void* block)> unbind_block{};
+    // A released scene actor's last world position by its retail address, or null. Retail never clears a body's +0x26C
+    // source, and reads a source freed since its hit from the freed actor's memory; scene addresses are never reused.
+    std::function<const Vec3*(u32 address)> released_position{};
 };
 
 // One body's message graph: the parent body handler 0x000253B0 and the derived slots of types 0x27

@@ -230,6 +230,7 @@ All take the game directory, e.g.
 | `--scene2a10` | Boots chapter 2a scene 10 (chapter2a_scene10_1playcam, the lighthouse living quarters again) and plays it with the scene 7 driver: "Event: Required Number (Zombies)" counts zombie kills against a time limit while the haunted TV makes more, then the second "Free Play" waits for every ghouly to be gone. The driver goes after a kill-count step's class (step type 3, its tag at +0x1C) and lines the exit up through the door it came in by. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene11_1playcam` (frame 5493 in the 2026-10-24 run) |
 | `--scene2a11` | Boots chapter 2a scene 11 (chapter2a_scene11_1playcam, the lighthouse store) and plays it with the scene 7 driver: Cooper loses the water pistol, comes down from the balcony (the driver's walk keeps to steps of 8 in floor height), fights the Medusas bare-handed through a Super Scary shock and leaves by the exit; the groundskeeper (tag 0xB) is not fought. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene12_2playcam` (frame 3383 in the 2026-10-24 run) |
 | `--scene2a12` | Boots chapter 2a scene 12 (chapter2a_scene12_2playcam, the boathouse) and plays it with the scene 7 driver: "EVENT - ONE TYPE" is the hunchback (factory type 0x45), who taunts, evades, blocks and charges his special attack until Cooper beats him. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene13_2playcam` (frame 6527 in the 2026-10-24 run) |
+| `--scene2a13` | Boots chapter 2a scene 13 (chapter2a_scene13_2playcam, the dining room) and plays it with the scene 7 driver: "EVENT - NUMBER" wants the pirate leader (tag 0x25), who holds a chest, and the pirates (tag 0x24) that keep bursting in through the windows. The driver goes for the leader first and, with no ghouly within reach, drinks soups from the smashed ghoulyboxes when Cooper is below half his health. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene14_1playcam` (frames 11420, 12005 and 18075 in three 2026-10-24 runs; the waves vary) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -396,6 +397,34 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-24: chapter 2a scene 13 plays to its end
+
+- The pirate leader's chest: the secondary item `0x0001A2D0` creates asks the held container its contents' name with
+  actor message 0x99. The name buffer is bound to a retail address through new body services (`bind_block` /
+  `unbind_block`) for the message and released afterwards.
+- `0x0009C150` (the knockdown's aim) now turns toward the body's +0x26C source through `0x00041900` when the push has
+  no direction, instead of raising. Retail never clears +0x26C, and a knockdown from message 0x19 does not set it, so
+  a source released since its hit (a dead pirate, a smashed prop) is read from its freed memory. The scene keeps a
+  copy of each released actor's bytes and its last world position by address (addresses are never reused); the
+  knockdown's position lookup, the script tallies' tag read and the body services' byte reads use it for such a source.
+- A released player's held weapon (the pirates' swords) is kept by the scene until teardown (the `keep_object`
+  binding, a deque so release walks never see it move), as retail keeps the object alive after its holder.
+- `0x001232D0`'s 0x7C notice (an actor going away) also goes to the weapons players make, which retail activates
+  onto DAT_00511AA4 but the host keeps off it. A held sword clears its +0xD8C holder (`0x001462B0`) when its pirate dies.
+- Powerup kind 7 (`0x00123E70`) sets +0x930 on each marked actor whose +0xCDC is 1 or 5.
+- Driver: once several kill-all steps (type 2, tag at +0x18) were queued together, the first one's class is chased
+  like a one-type step's (scene 2a12's single kill-all step keeps the nearest-ghouly fight). Below half his health,
+  with no ghouly within 16, Cooper walks to the nearest floor soup (FX emitter type 0xD, powerup kinds 3, 7, 8, 0xA,
+  0xB, 0xD). Without this, the pirate waves wear him down bare-handed and the scene restarts. The scene 7 driver's
+  frame cap went from 18000 to 24000 for the slower runs.
+- Shown (looked at): Cooper fighting beside the leader and his chest (`scene2a13_3600.bmp`) and the cleared dining
+  room on the way out (`scene2a13_13800.bmp`). Not checked: whether the chest's contents appear when the leader
+  drops it.
+- Not reliable yet. In 6 runs after the last change, 4 passed. One timed out after Cooper died twice (the bare-handed
+  fight is luck), and one crashed in `0x00020F80` (`dispatch_runtime_body_damage_reply`): a moving-contact hit still
+  named a holder (+0xD8C) whose view was gone, so `second_source` was null. That weapon's path past the 0x7C notice is
+  not yet found.
 
 ### 2026-10-24: chapter 2a scene 12 plays to its end
 

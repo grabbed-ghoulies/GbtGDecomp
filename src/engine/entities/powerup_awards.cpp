@@ -163,7 +163,19 @@ void award_runtime_powerup(i32 id, u32 player, u32 kind, float amount, u32 extra
         throw Error("0x00123E70's powerup kind 6 reads the DAT_005064E0 challenges and DAT_004E17D8 timers; "
             "their native views are not bound");
     case 7:
-        throw Error("0x00123E70's powerup kind 7 writes DAT_00511B38's actors; their native views are not bound");
+        if (!context.marked_actors)
+        {
+            throw Error("0x00123E70's powerup kind 7 walks DAT_00511B38 without its actors bound");
+        }
+        // Each listed actor whose +0xCDC is 1 or 5 has its +0x930 (the node's -4) set to the amount.
+        for (Actor* actor : context.marked_actors())
+        {
+            if (actor->mask_mode == 1 || actor->mask_mode == 5)
+            {
+                actor->animation_pause = amount;
+            }
+        }
+        break;
     case 8:
     case 9:
     case 0xA:

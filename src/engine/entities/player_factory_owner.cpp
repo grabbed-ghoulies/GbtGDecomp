@@ -1613,6 +1613,15 @@ void NativePlayerFactoryOwner::release_player(const u8* bytes)
     const auto found = players_.find(bytes);
     if (found != players_.end())
     {
+        FactoryObject& weapon = found->second->created_attachment;
+        if (weapon.bytes != nullptr)
+        {
+            if (!bindings.scene.keep_object)
+            {
+                throw Error("a released player's created weapon has no scene object list to go to");
+            }
+            bindings.scene.keep_object(std::move(weapon));
+        }
         addresses_.erase(found->second->actor_address);
         players_.erase(found);
     }

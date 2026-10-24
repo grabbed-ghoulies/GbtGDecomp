@@ -434,6 +434,14 @@ struct SceneActorServices::State
     RuntimeShaderMatrixBoundaries matrix_boundaries = d3dx_matrix_boundaries();
     std::unordered_map<const u8*, std::unique_ptr<SceneActorBase>> bases;
     std::unordered_map<const u8*, std::unique_ptr<ScenePlayerMessages>> player_messages;
+    // Released scene actors as their freed memory last held them, by address (never reused): retail keeps reading a
+    // stale body +0x26C source, or a kept weapon's dead holder, from the freed actor.
+    struct ReleasedActor
+    {
+        std::vector<u8> bytes;
+        Vec3 position;
+    };
+    std::unordered_map<u32, ReleasedActor> released_actors;
     // Body message graphs (parent body handler 0x000253B0 and its derived slots).
     std::vector<const char*> callout_names; // 0x00421C9C.
     std::vector<const char*> flag_names; // 0x00338FB0.
@@ -625,6 +633,9 @@ struct SceneActorServices::State
     const void* script_records = nullptr; // DAT_0051108C.
     std::string goal_scratch; // DAT_00508EB8.
     std::vector<FactoryObject> callout_objects;
+    // Weapons a released player made (0x0013A720 into the object list): they outlive their holder. A deque, as they
+    // arrive while the factory walks and releases other objects by reference.
+    std::deque<FactoryObject> released_weapons;
     RuntimeDialogueInputState input_state{keyboard, {}, 0, 0, 0, input_pool, 0, nullptr};
     u32 brews_taken = 0; // DAT_00506C88.
     u32 brew_accepted = 0; // DAT_00430D98.
@@ -1692,6 +1703,10 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     };
     players->bindings.scene.medusa_parameters = data(0x004287F0, 0x58);
     players->bindings.scene.hunchback_parameters = data(0x00428770, 0x50);
+    players->bindings.scene.keep_object = [this](FactoryObject object)
+    {
+        released_weapons.push_back(std::move(object));
+    };
     players->bindings.scene.actor_callouts = [this](u32 actor, u32 id, const RuntimeActorCreationOptions* options)
     {
         actor_callouts(actor, id, options);
@@ -1786,6 +1801,22 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     released_binding = [this](const u8* bytes)
     {
         const u32 address = scene.address_of(bytes);
+        if (const auto actor = actors->actors.find(bytes); actor != actors->actors.end())
+        {
+            const FactoryObject* object = object_of(bytes);
+            const size_t size = object != nullptr ? object->size : 0;
+            released_actors[address] = ReleasedActor{std::vector<u8>(bytes, bytes + size),
+                actor_world_position(*actor->second)};
+        }
+        for (auto* player : players->instances())
+        {
+            if (player->actor_bytes.data() == bytes)
+            {
+                released_actors[address] = ReleasedActor{
+                    std::vector<u8>(player->actor_bytes.begin(), player->actor_bytes.end()),
+                    actor_world_position(player->actor)};
+            }
+        }
         if (const auto found = active_nodes.find(address); found != active_nodes.end())
         {
             auto** link = &latches;
@@ -3271,6 +3302,15 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         intro_notices, *bonus_counters, *scoreboard_resources, *challenge_saves});
     powerup_awards = std::make_unique<RuntimePowerupAwardContext>(RuntimePowerupAwardContext{*powerup_table,
         *powerup_caption, *scoreboard_resources, *challenge_award, audio.streams, data(0x003121D0, 6 * 0x80)});
+    powerup_awards->marked_actors = [this]()
+    {
+        std::vector<Actor*> actors;
+        for (const auto& mark : marked_actors())
+        {
+            actors.push_back(mark.actor);
+        }
+        return actors;
+    };
     // The trophy-heads control (factory type 0x92) over the cutscene stack, the scene's players and its objects.
     for (u32 row = 0; row < 22; ++row)
     {
@@ -4178,6 +4218,10 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         },
         [this](u32 address) -> std::span<const u8>
         {
+            if (const auto released = released_actors.find(address); released != released_actors.end())
+            {
+                return released->second.bytes;
+            }
             auto* object = object_of(scene.resolve_address(address, 0).data());
             return {object->bytes.get(), object->size};
         },
@@ -4371,6 +4415,28 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         dispatch_contact_words(player, words, contacts, contacts_word);
     };
     body_services->jump_globals = jump_globals;
+    body_services->released_position = [this](u32 address) -> const Vec3*
+    {
+        const auto found = released_actors.find(address);
+        return found == released_actors.end() ? nullptr : &found->second.position;
+    };
+    body_services->bind_block = [this](void* block, size_t size) -> u32
+    {
+        const u32 found = scene.find_address(block);
+        if (found != 0)
+        {
+            return found;
+        }
+        weapon_bound.insert(block);
+        return scene.bind_address({static_cast<u8*>(block), size});
+    };
+    body_services->unbind_block = [this](void* block)
+    {
+        if (weapon_bound.erase(block) != 0)
+        {
+            scene.unbind_address(block);
+        }
+    };
     body_services->intro = &intro_notices;
     body_services->story_byte = &story_bits[0];
     body_services->reply_message = [this](u32 address, std::span<u32> words)
@@ -4805,6 +4871,10 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     };
     g_script_actor_bytes = [this](u32 address) -> std::span<const u8>
     {
+        if (const auto released = released_actors.find(address); released != released_actors.end())
+        {
+            return released->second.bytes;
+        }
         auto* object = object_of(scene.resolve_address(address, 0).data());
         if (object == nullptr)
         {
@@ -5288,6 +5358,15 @@ void SceneActorServices::State::end_scene()
         }
         owned->clear();
     }
+    released_actors.clear();
+    for (auto object = released_weapons.rbegin(); object != released_weapons.rend(); ++object)
+    {
+        if (object->bytes != nullptr)
+        {
+            release_factory_object(scene.factory, *object);
+        }
+    }
+    released_weapons.clear();
     // DAT_004EE2B8, which 0x0011CBD0 allocates for each scene.
     if (door_pool != nullptr)
     {
@@ -6128,6 +6207,13 @@ FactoryObject* SceneActorServices::State::object_of(const u8* bytes)
             {
                 return &object;
             }
+        }
+    }
+    for (auto& object : released_weapons)
+    {
+        if (object.bytes.get() == bytes)
+        {
+            return &object;
         }
     }
     for (auto* player : players->instances())
@@ -10112,7 +10198,7 @@ FactoryObject& SceneActorServices::State::object_of_actor(Actor& actor)
             }
         }
     }
-    throw Error("scene actor update for an actor outside the scene");
+    throw Error("scene actor update for an actor outside the scene (class " + std::to_string(actor.class_key) + ")");
 }
 
 void SceneActorServices::update_scene_actors()
@@ -10283,7 +10369,7 @@ void SceneActorServices::State::remove_retired_actors()
             finish_runtime_ghoul_intro(*ghoul_intro_context); // 0x000F4B90
         }};
     RuntimeSceneActorRemoval removal{entity_detail::g_world.child, owner,
-        [this](const Actor& actor)
+        [this, address](const Actor& actor)
         {
             Message message;
             message.id = 0x7C;
@@ -10293,6 +10379,30 @@ void SceneActorServices::State::remove_retired_actors()
                 auto* current = recipient;
                 recipient = recipient->next;
                 current->handle_message(*current, message);
+            }
+            // The weapons players make (0x0013A720 into the object list) are activated actors in retail, so their
+            // +0x900 nodes are on DAT_00511AA4 too; here they have none, and get the notice by their own message.
+            // A held weapon clears +0xD8C when its holder goes (0x001462B0).
+            const u32 gone = address(actor);
+            std::vector<FactoryObject*> weapons;
+            for (auto* player : players->instances())
+            {
+                if (player->created_attachment.bytes != nullptr)
+                {
+                    weapons.push_back(&player->created_attachment);
+                }
+            }
+            for (auto& weapon : released_weapons)
+            {
+                if (weapon.bytes != nullptr)
+                {
+                    weapons.push_back(&weapon);
+                }
+            }
+            for (FactoryObject* weapon : weapons)
+            {
+                std::array<u32, 0x42> words{0x7C, gone};
+                object_message(*weapon, words);
             }
         },
         [](std::span<const u32> words)

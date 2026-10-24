@@ -185,6 +185,8 @@ struct NativePlayerSceneBindings
     // Hunchback strategy (type 0x45, vtable 0x00505E88): DAT_00428770, and an actor's callout records (0x0003BE20).
     std::span<const u8> hunchback_parameters{};
     std::function<void(u32 actor, u32 id, const RuntimeActorCreationOptions* options)> actor_callouts{};
+    // The scene's object list: a player's created weapon (0x0013A720 made it there through 0x00107520) outlives it.
+    std::function<void(FactoryObject object)> keep_object{};
     const RuntimeBodyDamageTables* damage_tables = nullptr; // 0x00028DA0's tables.
     AudioBankStreams* audio_banks = nullptr; // DAT_004DF370.
     RuntimeBlobShadows* blob_shadows = nullptr; // DAT_0050EC10.

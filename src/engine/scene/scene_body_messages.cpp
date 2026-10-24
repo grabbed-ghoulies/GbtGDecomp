@@ -48,9 +48,17 @@ SceneBodyMessages::SceneBodyMessages(SceneBodyServices& services, NativePlayerIn
       effect_commands_{player.actor, i32(read_u32(player.actor_bytes, 0xCEC)), services.effect_scene,
           services.surfaces, services.effect_tags, services.effect_suffixes[0], services.effect_suffixes[1],
           services.effect_suffixes[2], services.effect_suffixes[3], services.effects},
-      query_name_([](RuntimeBodyAttachedActor&, std::span<char, 128>)
+      query_name_([this](RuntimeBodyAttachedActor& attached, std::span<char, 128> name)
           {
-              unbound("attached actor name query (actor message 0x99)");
+              // Actual actor vtable +0xC with {0x99, the name buffer}: a container writes its contents' name.
+              if (!services_.bind_block || !services_.unbind_block)
+              {
+                  unbound("attached actor name query (actor message 0x99)");
+              }
+              const u32 buffer = services_.bind_block(name.data(), name.size());
+              const std::array<u32, 2> message{0x99, buffer};
+              attached.message(message);
+              services_.unbind_block(name.data());
           }),
       animation_{player.actor, *player.body_flags, player.collision, services.latches, nullptr, nullptr,
           sound_commands_, player.attachment_creation, projectiles_, services.objects, command_name_, query_name_,
@@ -1248,6 +1256,11 @@ RuntimeKnockdownContext& SceneBodyMessages::knockdown_context()
         services_.probe_messages, services_.record_at,
         [this](u32 actor) -> Vec3
         {
+            if (const Vec3* last = services_.released_position ? services_.released_position(actor) : nullptr;
+                last != nullptr)
+            {
+                return *last;
+            }
             Actor* other = services_.actor_at(actor);
             if (other == nullptr)
             {

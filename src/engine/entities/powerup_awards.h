@@ -50,6 +50,7 @@ struct RuntimePowerupAwardContext
     RuntimeChallengeAward& challenge; // 0x000F24C0
     AudioBankStreams& streams; // 0x00038880
     std::span<const u8> sounds; // 0x003121D0: rows of 0x80 from index -1 (0x00312250 is row 0).
+    std::function<std::vector<Actor*>()> marked_actors{}; // DAT_00511B38's actors (node - 0x934) in list order.
 };
 // Awards powerup `kind` (a row of DAT_00512140): its amount, extra word, player and id, the caption and its
 // scoreboard message, the kind's own effect, its sound (stream 0x12) and, for a player, broadcast 0x86.

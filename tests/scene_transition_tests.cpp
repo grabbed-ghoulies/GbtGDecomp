@@ -9391,8 +9391,10 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
     gbtg::Vec3 stuck_at{};
     int stuck_since = -1;
     gbtg::u32 last_challenge = 0xFFFFFFFFu;
-    // Scene 9's walk to the mummy's room takes some 7200 frames on its own.
-    for (int frame = 0; frame < 18000 && moved_on < 0; ++frame)
+    bool kill_all = false; // Several kill-all steps were queued at once (see below).
+    // Scene 9's walk to the mummy's room takes some 7200 frames on its own; scene 2a13's pirate waves, with Cooper's
+    // walks to the soups between them, up to some 17500.
+    for (int frame = 0; frame < 24000 && moved_on < 0; ++frame)
     {
         gbtg::InputState input;
         const bool page = game.script_dialogue != nullptr && game.script_dialogue->dialogue.state.mode != 0;
@@ -9506,6 +9508,8 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
             // Cooper after that class; another ghouly within 10 is fought off first (the step only counts that class, so
             // other kills cost nothing, and a time limit leaves none for the rest).
             gbtg::u16 one_type = 0;
+            std::optional<gbtg::u16> kill_type;
+            int kill_steps = 0;
             if (const auto* pool = gbtg::g_event_sequence.steps; pool != nullptr)
             {
                 for (const gbtg::u8* row = pool->begin; row < pool->end; row += 0x88)
@@ -9518,7 +9522,23 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                     {
                         one_type = gbtg::read_u16({row, 0x88}, 0x1C);
                     }
+                    if (gbtg::read_u32({row, 0x88}, 0) == 2)
+                    {
+                        // Once several kill-all steps (type 2, its tag at +0x18) were queued together, the first one's
+                        // class is gone after: scene 2a13's pirate leader, whose pirates keep coming while he stands,
+                        // then the pirates. With only ever one (scene 2a12's hunchback) the nearest ghouly is fought.
+                        ++kill_steps;
+                        if (!kill_type)
+                        {
+                            kill_type = gbtg::read_u16({row, 0x88}, 0x18);
+                        }
+                    }
                 }
+            }
+            kill_all = kill_all || kill_steps > 1;
+            if (one_type == 0 && kill_all && kill_type)
+            {
+                one_type = *kill_type;
             }
             for (const auto& mark : actors.marked_actors())
             {
@@ -9549,6 +9569,59 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                     ghouly = at;
                     ghouly_class = mark.actor->class_key;
                 }
+            }
+        }
+        // Below half his health, Cooper leaves the fight for the nearest soup on the floor: an FX anim emitter (type
+        // 0xD) holding a powerup (+0x940) past its start (+0x93C 1 or 2) whose 0x00123E70 award is translated: kind 3
+        // (more energy), 7 (the ghoulies frozen) or 8, 0xA, 0xB, 0xD (timed powers). Scene 2a13's pirates keep coming
+        // in waves that wear him down otherwise. A ghouly within 16 is fought off first: walking away from one leaves
+        // Cooper's back to its hits.
+        const bool engaged = ghouly
+            && (ghouly->x - cooper->x) * (ghouly->x - cooper->x) + (ghouly->z - cooper->z) * (ghouly->z - cooper->z)
+                < 16.f * 16.f;
+        if (cooper && !page && !engaged)
+        {
+            int health = -1;
+            int full = 0;
+            for (const auto& mark : actors.marked_actors())
+            {
+                if (mark.actor != nullptr && mark.actor->class_key == 4 && !mark.body.empty())
+                {
+                    health = gbtg::read_u16(mark.body, 0x94);
+                    full = gbtg::read_u16(mark.body, 0x96);
+                }
+            }
+            std::optional<gbtg::Vec3> soup;
+            float nearest = 0.f;
+            for (const auto& object : game.factory_scene->objects)
+            {
+                if (health < 0 || health * 2 >= full || object.type != 0xD || object.bytes == nullptr
+                    || object.size < 0x950)
+                {
+                    continue;
+                }
+                const std::span<const gbtg::u8> bytes{object.bytes.get(), object.size};
+                const gbtg::u32 state = gbtg::read_u32(bytes, 0x93C);
+                const gbtg::Actor* actor = actor_of_object(game, object);
+                const gbtg::u32 kind = gbtg::read_u32(bytes, 0x940);
+                if (actor == nullptr || (state != 1 && state != 2)
+                    || (kind != 3 && kind != 7 && kind != 8 && kind != 0xA && kind != 0xB && kind != 0xD))
+                {
+                    continue;
+                }
+                const gbtg::Vec3 at = gbtg::actor_world_position(*actor);
+                const float d = (at.x - cooper->x) * (at.x - cooper->x) + (at.z - cooper->z) * (at.z - cooper->z);
+                if (std::abs(at.y - cooper->y) < 5.f && (!soup || d < nearest))
+                {
+                    soup = at;
+                    nearest = d;
+                }
+            }
+            if (soup)
+            {
+                ghouly.reset();
+                goal = soup;
+                goal_name = "a soup";
             }
         }
         // A ghouly within 16 is attacked with the right stick; a farther one is walked to like a goal, so the walk's
@@ -10049,12 +10122,14 @@ int main(int argc, char** argv)
     const bool scene2a11_test = argc == 3 && std::string_view(argv[2]) == "--scene2a11";
     // --scene2a12 boots chapter2a_scene12_2playcam and plays it until the script moves on.
     const bool scene2a12_test = argc == 3 && std::string_view(argv[2]) == "--scene2a12";
+    // --scene2a13 boots chapter2a_scene13_2playcam and plays it until the script moves on.
+    const bool scene2a13_test = argc == 3 && std::string_view(argv[2]) == "--scene2a13";
     if (spawn_test)
     {
         std::cout << std::unitbuf;
     }
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
-        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene3_test)
+        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene3_test)
     {
         std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene6-save | --scene6-save-reload | --scene3 | --scene4 | --scene5 | --scene6-1 | --scene7]\n";
         return 2;
@@ -10178,6 +10253,7 @@ int main(int argc, char** argv)
             : scene2a10_test ? "chapter2a_scene10_1playcam"
             : scene2a11_test ? "chapter2a_scene11_1playcam"
             : scene2a12_test ? "chapter2a_scene12_2playcam"
+            : scene2a13_test ? "chapter2a_scene13_2playcam"
             : player_test || spawn_test ? "chapter1_scene1_2playcam"
             : title_test ? "" : "scene0_1book");
         if (scene2a1b_test)
@@ -10186,6 +10262,13 @@ int main(int argc, char** argv)
             play_scene7(game, "scene2a1_2");
             pass_chapter_title(game, "scene2a1_to_3", "aid_script_ghoulies_chapter2a_scene1_3playcam", false);
             play_scene7(game, "scene2a1_3", 1000.f, "Event - Kill All", true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene2a13_test)
+        {
+            pass_chapter_title(game, "scene2a13", "aid_script_ghoulies_chapter2a_scene13_2playcam", false);
+            play_scene7(game, "scene2a13", 1000.f, {}, true, true);
             gbtg::gfx_shutdown();
             return 0;
         }

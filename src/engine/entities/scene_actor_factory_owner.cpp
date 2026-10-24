@@ -84,6 +84,14 @@ void release_bg_break_key_view(FactoryObject& object)
 {
     active_owner->release_bg_break_key(object);
 }
+bool construct_ghouly_key_view(FactoryObject& object, std::span<const u8>)
+{
+    return active_owner->construct_ghouly_key(object);
+}
+void release_ghouly_key_view(FactoryObject& object)
+{
+    active_owner->release_ghouly_key(object);
+}
 bool construct_emitter_view(FactoryObject& object, std::span<const u8> parameters)
 {
     return active_owner->construct_emitter(object, parameters);
@@ -271,6 +279,14 @@ const ObjectFactoryVtable* scare_figure_lifecycle()
         release_scare_figure_view};
     return &table;
 }
+// Getter 0x0006E950 (vtable 0x00504D24) over the actor's (0x0003C080); +8 is the empty 0x001628B0.
+const ObjectFactoryVtable* ghouly_key_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00504D24, ghouly_key_object_sizes, construct_ghouly_key_view,
+        release_ghouly_key_view};
+    return &table;
+}
+
 const ObjectFactoryVtable* bg_break_key_lifecycle()
 {
     static const ObjectFactoryVtable table{0x00504BF8, bg_break_key_object_sizes, construct_bg_break_key_view,
@@ -916,6 +932,7 @@ void NativeSceneActorClassOwner::install(std::span<ObjectFactoryType> types)
     types[0x22] = {2, super_scary_shock_lifecycle}; // Getter 0x00072270.
     types[0x21] = {2, sss_dropper_lifecycle}; // Getter 0x00071820.
     types[0x1E] = {2, bg_break_key_lifecycle}; // Getter 0x0006CC70.
+    types[0x18] = {2, ghouly_key_lifecycle}; // Getter 0x0006E950.
     types[0xD] = {2, emitter_lifecycle}; // Getter 0x00109DD0.
     types[0xF] = {2, motion_blur_lifecycle}; // Getter 0x00066900.
     types[0x10] = {2, afterimage_lifecycle}; // Getter 0x000690A0.
@@ -1439,6 +1456,34 @@ void NativeSceneActorClassOwner::release_bg_break_key(FactoryObject& object)
 void NativeSceneActorClassOwner::update_bg_break_key(FactoryObject& object)
 {
     update_runtime_bg_break_key(bg_break_keys_.at(object.bytes.get())->context);
+}
+
+bool NativeSceneActorClassOwner::construct_ghouly_key(FactoryObject& object)
+{
+    auto& view = bindings_.actors.view(object);
+    auto context = std::make_unique<RuntimeGhoulyKey>(RuntimeGhoulyKey{{object.bytes.get(), object.size},
+        view.bat.actor, bindings_.emitter.clock, bindings_.weapon_services.voices,
+        [this, &object](i32 id)
+        {
+            dispatch_actor_attachment_records(bindings_.actors.view(object).startup.resource.resource.data(), id,
+                nullptr, nullptr, bindings_.base_of(object).callouts, 0); // 0x0003BE20
+        }});
+    auto* key = context.get();
+    ghouly_keys_.emplace(object.bytes.get(), std::move(context));
+    return initialize_runtime_ghouly_key(*key);
+}
+
+void NativeSceneActorClassOwner::release_ghouly_key(FactoryObject& object)
+{
+    if (!defer_release)
+    {
+        ghouly_keys_.erase(object.bytes.get());
+    }
+}
+
+void NativeSceneActorClassOwner::update_ghouly_key(FactoryObject& object)
+{
+    update_runtime_ghouly_key(*ghouly_keys_.at(object.bytes.get()));
 }
 
 void NativeSceneActorClassOwner::release_trigger(FactoryObject& object)

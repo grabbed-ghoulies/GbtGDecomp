@@ -7870,9 +7870,10 @@ int count_rare_books(const gbtg::Game& game)
 
 // A point a few cells along the shortest walk from `from` to `to` over the scene's navigation grid (the floor under
 // `from`, cells joined by their connection bits, blocked cells skipped), or nothing when the grid has no such walk.
+// With `closed_goal` the goal's own cell is entered even when it is closed (a door's point lies on the door's cell).
 // Test-side steering only: the game's own path search is not involved.
 std::optional<gbtg::Vec3> nav_waypoint(const gbtg::Vec3& from, const gbtg::Vec3& to, int ahead = 3,
-    const std::set<gbtg::i32>* avoid = nullptr)
+    const std::set<gbtg::i32>* avoid = nullptr, bool closed_goal = false)
 {
     using namespace gbtg::entity_detail;
     if (g_nav_count <= 0)
@@ -7918,8 +7919,11 @@ std::optional<gbtg::Vec3> nav_waypoint(const gbtg::Vec3& from, const gbtg::Vec3&
             // Cells in `avoid` (where the walk was found stuck on something the grid does not mark) are skipped.
             const auto closed = [&](gbtg::i32 index)
             {
-                return (grid->cells[size_t(index)].flags_7 & 2) != 0
-                    || (avoid != nullptr && index != goal && avoid->contains(index));
+                if (index == goal)
+                {
+                    return !closed_goal && (grid->cells[size_t(index)].flags_7 & 2) != 0;
+                }
+                return (grid->cells[size_t(index)].flags_7 & 2) != 0 || (avoid != nullptr && avoid->contains(index));
             };
             if (parent[size_t(next)] != -2 || closed(next))
             {
@@ -8117,7 +8121,10 @@ void play_scene3_run(gbtg::Game& game, bool drive, int book)
                 {
                     const float wx = waypoints[trophy_waypoint].x - cooper->x;
                     const float wz = waypoints[trophy_waypoint].z - cooper->z;
-                    if (wx * wx + wz * wz > 100.f)
+                    // The leg into the trophy starts from (-104, -30) itself: begun 10 short of it, it runs into the
+                    // cabinet's corner.
+                    const float reach = trophy_waypoint + 1 == waypoints.size() ? 16.f : 100.f;
+                    if (wx * wx + wz * wz > reach)
                     {
                         break;
                     }
@@ -9486,7 +9493,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
             else if (frame > stuck_since + 90)
             {
                 using namespace gbtg::entity_detail;
-                if (const auto next = nav_waypoint(*cooper, *goal, 1, &avoided); next && g_nav_count > 0)
+                if (const auto next = nav_waypoint(*cooper, *goal, 1, &avoided, true); next && g_nav_count > 0)
                 {
                     const gbtg::i32 floor = navigation_floor_index(*cooper, -1, 0);
                     const gbtg::i32 cell = navigation_cell_index(floor, *next);
@@ -9500,15 +9507,15 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                 }
                 stuck_since = frame;
             }
-            std::optional<gbtg::Vec3> step = nav_waypoint(*cooper, *goal, 3, &avoided);
-            if (!step && !avoided.empty() && nav_waypoint(*cooper, *goal, 3))
+            std::optional<gbtg::Vec3> step = nav_waypoint(*cooper, *goal, 3, &avoided, true);
+            if (!step && !avoided.empty() && nav_waypoint(*cooper, *goal, 3, nullptr, true))
             {
                 // The cells avoided so far (in a long fight, around many held spots) leave no walk at all: they are
                 // forgotten and the walk searched again.
                 std::cout << label << " frame " << frame << ": the walk forgets " << avoided.size()
                           << " avoided cells\n";
                 avoided.clear();
-                step = nav_waypoint(*cooper, *goal, 3, &avoided);
+                step = nav_waypoint(*cooper, *goal, 3, &avoided, true);
             }
             const gbtg::Vec3 toward = step ? *step : *goal;
             const float dx = toward.x - cooper->x;
@@ -9911,12 +9918,15 @@ int main(int argc, char** argv)
     // --scene2a4 boots chapter 2a scene 4 (chapter2a_scene4_2playcam), closes its pages with A and plays until the
     // script moves on.
     const bool scene2a4_test = argc == 3 && std::string_view(argv[2]) == "--scene2a4";
+    // --scene2a5 boots chapter 2a scene 5 (chapter2a_scene5_1playcam), closes its pages with A and plays until the
+    // script moves on.
+    const bool scene2a5_test = argc == 3 && std::string_view(argv[2]) == "--scene2a5";
     if (spawn_test)
     {
         std::cout << std::unitbuf;
     }
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
-        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene3_test)
+        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene3_test)
     {
         std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene6-save | --scene6-save-reload | --scene3 | --scene4 | --scene5 | --scene6-1 | --scene7]\n";
         return 2;
@@ -10032,6 +10042,7 @@ int main(int argc, char** argv)
             : scene2a2_test || scene2a2_reaper_test ? "chapter2a_scene2_1playcam"
             : scene2a3_test ? "chapter2a_scene3_1playcam"
             : scene2a4_test ? "chapter2a_scene4_2playcam"
+            : scene2a5_test ? "chapter2a_scene5_1playcam"
             : player_test || spawn_test ? "chapter1_scene1_2playcam"
             : title_test ? "" : "scene0_1book");
         if (scene2a1b_test)
@@ -10040,6 +10051,14 @@ int main(int argc, char** argv)
             play_scene7(game, "scene2a1_2");
             pass_chapter_title(game, "scene2a1_to_3", "aid_script_ghoulies_chapter2a_scene1_3playcam", false);
             play_scene7(game, "scene2a1_3", 1000.f, "Event - Kill All", true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene2a5_test)
+        {
+            pass_chapter_title(game, "scene2a5", "aid_script_ghoulies_chapter2a_scene5_1playcam", false);
+            // Free play ends at door 0xF (or on a kill); the driver walks to the door rather than fight the ninja imp.
+            play_scene7(game, "scene2a5", 1000.f, {}, true, true, "FREE PLAY");
             gbtg::gfx_shutdown();
             return 0;
         }

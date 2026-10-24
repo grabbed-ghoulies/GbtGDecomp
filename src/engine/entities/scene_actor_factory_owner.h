@@ -15,6 +15,7 @@
 #include "ghouly_bg_break_setup.h"
 #include "ghouly_swap_setup.h"
 #include "bg_break_key.h"
+#include "ghouly_key_actor.h"
 #include "scare_figure.h"
 #include "super_scary_shock.h"
 #include "sss_dropper.h"
@@ -143,6 +144,9 @@ public:
     bool construct_bg_break_key(FactoryObject& object, std::span<const u8> parameters); // Type 0x1E.
     void release_bg_break_key(FactoryObject& object); // Type 0x1E, Xbox 0x0006CD10.
     void update_bg_break_key(FactoryObject& object); // Type 0x1E, Xbox 0x0006CFD0.
+    bool construct_ghouly_key(FactoryObject& object); // Type 0x18, Xbox 0x0006E990.
+    void release_ghouly_key(FactoryObject& object); // Type 0x18, the empty 0x001628B0.
+    void update_ghouly_key(FactoryObject& object); // Type 0x18, Xbox 0x0006EA00.
     bool construct_emitter(FactoryObject& object, std::span<const u8> parameters);
     bool construct_motion_blur(FactoryObject& object, std::span<const u8> parameters);
     bool construct_weapon(FactoryObject& object, std::span<const u8> parameters); // Type 0x0B, Xbox 0x00145C80.
@@ -220,6 +224,7 @@ private:
     std::unordered_map<const u8*, std::unique_ptr<BgBreakSetupInstance>> bg_break_setups_;
     std::unordered_map<const u8*, std::unique_ptr<SwapSetupInstance>> swap_setups_;
     std::unordered_map<const u8*, std::unique_ptr<BgBreakKeyInstance>> bg_break_keys_;
+    std::unordered_map<const u8*, std::unique_ptr<RuntimeGhoulyKey>> ghouly_keys_;
     std::unordered_map<const u8*, std::unique_ptr<ScareFigureInstance>> scare_figures_;
     std::unordered_map<const u8*, std::unique_ptr<SuperScaryShockInstance>> super_scary_shocks_;
     std::unordered_map<const u8*, std::unique_ptr<SssDropperInstance>> sss_droppers_;

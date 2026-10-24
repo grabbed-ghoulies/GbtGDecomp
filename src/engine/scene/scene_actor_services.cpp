@@ -1586,9 +1586,17 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             clone.bytes.reset(); // 0x000663E0.
             return made == nullptr || made->bytes == nullptr ? 0u : address_of(made->bytes.get());
         },
-        [](u32, std::span<const u32>)
+        [this](u32 address, std::span<const u32> message)
         {
-            unbound("imp fire effect messages");
+            // The object's vtable +0xC.
+            auto* object = object_of(scene.resolve_address(address, 0).data());
+            if (object == nullptr)
+            {
+                unbound("strategy message to an address that is not a scene object");
+            }
+            std::array<u32, 0x42> words{};
+            std::copy(message.begin(), message.end(), words.begin());
+            object_message(*object, words);
         },
         [this](u32 address) -> RuntimeStrategyBodyView
         {
@@ -1673,6 +1681,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         data(0x00428734, 0x40)}});
     players->install(scene.types);
     players->bindings.scene.grim_reaper_parameters = data(0x00302B7C, 0x38);
+    players->bindings.scene.imp_ninja_parameters = data(0x00303198, 0x18);
     players->bindings.scene.audio_banks = &audio.streams;
     players->bindings.scene.blob_shadows = &blob_shadows;
     players->bindings.scene.attach_actor_messages = [this](FactoryObject& object, NativePlayerInstance& player)
@@ -2625,6 +2634,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     // DAT_00433C9C holds 0x48 rows of 0xC, one per statsheet key.
     damage_tables = std::make_unique<RuntimeBodyDamageTables>(RuntimeBodyDamageTables{data(0x00433C9C, 0xC * 0x48),
         statsheet});
+    players->bindings.scene.damage_tables = damage_tables.get();
     footstep_kinds = strings(0x00423620, 1);
     footsteps = std::make_unique<FootstepSoundNames>(FootstepSoundNames{data(0x00314FBC, 0x20), surface_names});
     load_background_part_tables(part_tables, resources.registry, resources.loaded_sizes, resources.error);
@@ -2842,6 +2852,22 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
                     unbound("0x000CF7B0 reads +0x954 of an actor with no native strategy");
                 }
                 return player->strategy;
+            },
+            [this](const void* node) -> u32
+            {
+                // DAT_00511B48 nodes are player actor +0x944 (links[2]).
+                for (auto* player : players->instances())
+                {
+                    if (&player->links[2] == node)
+                    {
+                        return player->actor_address;
+                    }
+                }
+                unbound("DAT_00511B48 node without a native player");
+            },
+            [this](u32 address)
+            {
+                activate_actor_bind_tree(*actors->actors.at(scene.resolve_address(address, 0).data())); // 0x00112CC0
             }});
     }
     g_event_sequence_context = event_sequence.get();
@@ -6068,6 +6094,26 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
             message, actor_at, base_of(object).base, bindings); // 0x0006EBD0
         return;
     }
+    if (type == 0x18)
+    {
+        // Getter 0x0006E950: +0x10 is 0x0006EA00 (the actor update 0x000420D0 first) and +0xC is 0x0006C9B0, a
+        // jump to the actor's 0x0003EF70.
+        auto& view = actors->view(object);
+        const u8* bytes = object.bytes.get();
+        actor_updates[&view.bat.actor] = [this, bytes](Actor&)
+        {
+            auto& updated = *object_of(bytes);
+            update_base_actor(updated); // 0x000420D0
+            frame->freeze = pause;
+            frame->dt = frame_delta;
+            frame->scene_scale = time_scale;
+            frame->block_decay = pause_references[1];
+            frame->decay_enabled = decay_enabled[decay_index];
+            classes->update_ghouly_key(updated);
+        };
+        dispatch_base_actor_word_message(base_of(object).base, message, word_messages); // 0x0003EF70
+        return;
+    }
     if (type == 0x1B)
     {
         // Getter 0x000704D0: +0x10 is 0x000705B0 (the actor update 0x000420D0 first) and +0xC is 0x000706E0.
@@ -7072,7 +7118,7 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
     // has not attached yet.
     if (child.type == 0x4F || child.type == 0x46 || child.type == 0x3B || child.type == 0x51 || child.type == 0x52
         || child.type == 0x58 || child.type == 0x44 || child.type == 0x40 || child.type == 0x4C || child.type == 0x53
-        || child.type == 0x42 || child.type == 0x47)
+        || child.type == 0x42 || child.type == 0x47 || child.type == 0x49)
     {
         if (auto* player = players->find_player(child); player != nullptr && !player->body.empty())
         {
@@ -7119,6 +7165,9 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
         return;
     case 0x47:
         players->imp_flamethrower_message(child, words);
+        return;
+    case 0x49:
+        players->imp_ninja_message(child, words);
         return;
     case 0x39:
     {
@@ -7588,6 +7637,9 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
                 return;
             case 0x47:
                 players->imp_flamethrower_update(strategy);
+                return;
+            case 0x49:
+                players->imp_ninja_update(strategy);
                 return;
             case 0x39:
             {
@@ -8390,10 +8442,10 @@ void SceneActorServices::State::actor_draw(Actor& actor, i32 view, i32 pass)
             }
             // Type 0x1A (vtable 0x00504DD8) +0x14 is 0x0006EF20, a jump to the actor draw 0x0003C9E0; types 2, 0x1F
             // and 0x23 keep the base slot 0x0003C9E0 (getters 0x0003C080, 0x0006DBD0 and 0x00069620), as do the
-            // ghouly setups 0x24, 0x25 and 0x26, the bg-break key 0x1E and the spider web 0x1B (getters 0x0006A4F0,
-            // 0x0006B110, 0x0006BB30, 0x0006CC70 and 0x000704D0).
+            // ghouly setups 0x24, 0x25 and 0x26, the bg-break key 0x1E, the ghouly key 0x18 and the spider web 0x1B
+            // (getters 0x0006A4F0, 0x0006B110, 0x0006BB30, 0x0006CC70, 0x0006E950 and 0x000704D0).
             if (type != 0x1A && type != 2 && type != 0xF && type != 0x1F && type != 0x23 && type != 0x25
-                && type != 0x24 && type != 0x26 && type != 0x1E && type != 0x19 && type != 0x1B)
+                && type != 0x24 && type != 0x26 && type != 0x1E && type != 0x18 && type != 0x19 && type != 0x1B)
             {
                 char vtable[16];
                 std::snprintf(vtable, sizeof(vtable), "0x%08X",
@@ -8471,8 +8523,9 @@ void SceneActorServices::State::draw_player(FactoryObject& object, NativePlayerI
     draw_runtime_player({object.bytes.get(), object.size}, kind, draw);
 }
 
-// Actor vtable +0x18 by class. Types 2, 5, 0x15, 0x1A, 0x1B, 0x1F, 0x23 and 0xAA keep the base actor slot 0x0003C830
-// (getters 0x0003C080, 0x00027F60, 0x0006D4A0, 0x0006EE20, 0x000704D0, 0x0006DBD0, 0x00069620 and 0x000CEF70); the FX emitter (type 0xD, getter
+// Actor vtable +0x18 by class. Types 2, 5, 0x15, 0x18, 0x1A, 0x1B, 0x1F, 0x23 and 0xAA keep the base actor slot
+// 0x0003C830 (getters 0x0003C080, 0x00027F60, 0x0006D4A0, 0x0006E950, 0x0006EE20, 0x000704D0, 0x0006DBD0, 0x00069620
+// and 0x000CEF70); the FX emitter (type 0xD, getter
 // 0x00109DD0) uses 0x00109E30.
 u32 SceneActorServices::State::actor_visible(Actor& actor, i32 pass, i32 view)
 {
@@ -8485,7 +8538,8 @@ u32 SceneActorServices::State::actor_visible(Actor& actor, i32 pass, i32 view)
         && object.type != 0x13 && object.type != 0x15
         && object.type != 0x1A && object.type != 0x1F && object.type != 0x23 && object.type != 0x25
         && object.type != 0x24 && object.type != 0x26 && object.type != 0x1E && object.type != 0x1D
-        && object.type != 0x19 && object.type != 0x1B && object.type != 0x21 && object.type != 0xAA
+        && object.type != 0x18 && object.type != 0x19 && object.type != 0x1B && object.type != 0x21
+        && object.type != 0xAA
         && object.type != 0xA9 && object.type != 0xA7 && object.type != 0xA0 && object.type != 0xA1
         && object.type != 0xA2 && object.type != 0xA3)
     {
@@ -8923,7 +8977,7 @@ void SceneActorServices::State::view_refresh_slot(Actor& actor)
             if (type == 2 || type == 4 || type == 5 || type == 0xD || type == 0xF || type == 0x10 || type == 0x12
                 || type == 0x13 || type == 0x15
                 || type == 0x1A || type == 0x1F || type == 0x23 || type == 0x25 || type == 0x24 || type == 0x26
-                || type == 0x1E || type == 0x1D || type == 0x19 || type == 0x1B || type == 0x21
+                || type == 0x1E || type == 0x1D || type == 0x18 || type == 0x19 || type == 0x1B || type == 0x21
                 || type == 0xAA || type == 0xA9 || type == 0xA7
                 || type == 0xA0 || type == 0xA1 || type == 0xA2 || type == 0xA3)
             {

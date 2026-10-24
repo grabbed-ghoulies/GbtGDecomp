@@ -15,6 +15,8 @@
 #include "../scene/dialogue_scene_runtime.h"
 #include "../frontend/dialogue_activation.h"
 #include "../camera/camera.h"
+#include "../camera/display_view.h"
+#include "../camera/view_initialization.h"
 #include "../entities/actor_transform.h"
 #include "../navigation/spawn_candidates.h"
 #include "../scene/scene_markers.h"
@@ -120,11 +122,13 @@ void remove_step(u8*& row, u8*& end)
     row -= kStepStride;
 }
 
+// Xbox 0x000CFD80, ESI step: a linked type 0xF view (+0x84) is unlinked.
 void release_step_camera(std::span<u8> step)
 {
     if (read_u32(step, 0) == 0xF && read_u32(step, 0x84) != 0)
     {
-        throw Error("script event step type 0xF with a bound camera (0x00048C70 on its view)");
+        camera_unlink_view(&g_event_sequence.key_camera); // 0x00048C70, EAX step +0x24
+        put_word(step, 0x84, 0);
     }
 }
 
@@ -350,6 +354,107 @@ void start_script_event_key_step()
     }
 }
 
+// Xbox 0x000CFAE0
+i32 run_script_event_key_carrier_step(std::span<u8> step)
+{
+    auto& services = context();
+    if (read_u32(step, 0x18) == 0)
+    {
+        for (const auto* node = static_cast<const entity_detail::ListHead*>(entity_detail::g_world.alt.next);
+             node != nullptr; node = static_cast<const entity_detail::ListHead*>(node->next))
+        {
+            const u32 actor = services.active_actor_of(node); // DAT_00511B48 node - 0x944.
+            const auto bytes = services.bytes_at(actor, 0xCE8);
+            if (bytes[0x96D] == 0) // Node +0x29.
+            {
+                continue;
+            }
+            put_word(step, 0x18, 1);
+            put_word(bytes, 0xCE4, 1);
+            services.create_from_template("aid_objparams_ghoulies_fx_keycarrier", // 0x003038C8
+                [actor](std::span<u8> clone)
+                {
+                    put_word(clone, 8, actor);
+                });
+            return 0;
+        }
+        return 0;
+    }
+    const LiveScript* event = g_live_scripts; // DAT_0050E4DC.
+    while (event != nullptr && event->type != 0xB5)
+    {
+        event = event->next;
+    }
+    if (event == nullptr)
+    {
+        return 0;
+    }
+    const std::span<const u8> message{event->message.data(), event->message.size()}; // Node +8.
+    const Vec3 point{read_f32(message, 8), read_f32(message, 0xC), read_f32(message, 0x10)};
+    if (read_u32(step, 0x1C) == 0)
+    {
+        script_update_decay_latches(0xFFFF, 0); // 0x00117400
+        put_word(step, 0x1C, 1);
+        const u32 key = services.create_from_template("aid_objparams_ghoulies_misc_ghoulykey", // 0x00303948
+            [&point](std::span<u8> clone)
+            {
+                put_float(clone, 8, point.x);
+                put_float(clone, 0xC, point.y);
+                put_float(clone, 0x10, point.z);
+                put_float(clone, 0x14, 0.f);
+                put_float(clone, 0x18, 0.f);
+                put_float(clone, 0x1C, 0.f);
+            });
+        put_word(step, 0x20, key);
+        if (entity_detail::g_display_view == nullptr)
+        {
+            throw Error("0x000CFAE0 reads the display view (DAT_005077A8) through address zero");
+        }
+        const Vec3 eye = entity_detail::g_display_view->position;
+        EntityCamNode& camera = g_event_sequence.key_camera;
+        if (camera.prev != nullptr || camera.next != nullptr)
+        {
+            throw Error("0x000CFAE0 links a second step 0xF view while one is linked");
+        }
+        initialize_camera_view(camera, "ghoulykeycam", 1); // 0x000496C0, CL 1, EDX step +0x24
+        link_camera_view(0, camera); // 0x00048C20, ESI 0
+        put_word(step, 0x84, 1);
+        camera_bind_named_view(0, "ghoulykeycam"); // 0x00048CF0
+        camera.position = eye; // Step +0x2C.
+        float yaw = 0.f;
+        float pitch = 0.f;
+        direction_to_yaw_pitch(point.x - eye.x, point.y - eye.y, point.z - eye.z, yaw, pitch); // 0x00105E20
+        camera.rotation.x = 0.f - pitch; // Step +0x38.
+        camera.rotation.y = yaw + std::bit_cast<float>(0x40490FDBu); // Step +0x3C, DAT_0032B148.
+        camera.rotation.z = 0.f; // Step +0x40.
+        return 5;
+    }
+    const float left = read_f32(step, 4) - frame_step(); // DAT_004312DC, DAT_005096C0, DAT_004312C4.
+    put_float(step, 4, left);
+    if (0.f < left)
+    {
+        return 5;
+    }
+    script_update_decay_latches(0xFFFF, 1); // 0x00117400
+    release_runtime_script_events(0xB5); // 0x001168C0, EDI 0xB5
+    const u32 key = read_u32(step, 0x20);
+    if (key != 0)
+    {
+        services.activate_object(key); // 0x00112CC0, ESI the key
+        put_word(step, 0x20, 0);
+    }
+    release_step_camera(step); // 0x000CFD80
+    return 1;
+}
+
+// Xbox 0x000D02E0: step type 0xF starts with no camera (+0x84) and +0x18 / +0x1C clear.
+void start_script_event_camera_step(std::span<u8> step)
+{
+    put_word(step, 0x18, 0);
+    put_word(step, 0x1C, 0);
+    put_word(step, 0x84, 0);
+}
+
 void prepare_script_event_steps()
 {
     auto* pool = g_event_sequence.steps;
@@ -363,7 +468,7 @@ void prepare_script_event_steps()
         }
         if (type == 0xF)
         {
-            throw Error("untranslated Xbox 0x000D02E0 (script event step type 0xF)");
+            start_script_event_camera_step(step_at(row)); // 0x000D02E0
         }
     }
 }
@@ -839,6 +944,10 @@ bool run_script_event_steps(Game& g)
             else if (type == 5)
             {
                 result = run_script_event_survive_step(step); // 0x000CFEE0
+            }
+            else if (type == 0xF)
+            {
+                result = run_script_event_key_carrier_step(step); // 0x000CFAE0
             }
             else
             {

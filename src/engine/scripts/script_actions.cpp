@@ -1756,24 +1756,26 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
     }
     case 0x51:
     {
+        // Message 1 to each DAT_00511B38 actor (node - 0x934) of the tag whose +0x1FC word is node+0x48, or any.
         const u16 tag = static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 8).c_str()));
         const u32 mark = node_u32(g.scene_script, node, 0x48);
-        for (RangeLink* link = g_range_links; link != nullptr; link = link->next)
+        SceneActorServices* actors = script_scene_actors(g);
+        if (actors == nullptr)
         {
-            CamFocus* obj = link->host;
-            if (obj == nullptr || obj->tag_6 != tag)
+            throw Error("script type 0x51 without the native scene's actors (DAT_00511B38)");
+        }
+        for (const auto& marked : actors->marked_actors())
+        {
+            if (read_u16(marked.bytes, 6) != tag)
             {
                 continue;
             }
-            if (mark != 0 && mark != u32(obj->word_1fc))
+            if (mark != 0 && mark != u32(read_u16(marked.bytes, 0x1FC)))
             {
                 continue;
             }
-            i32 message = 1;
-            if (obj->on_note != nullptr)
-            {
-                obj->on_note(obj, message);
-            }
+            const std::array<u32, 1> message{1};
+            actors->send_actor_message(marked.address, message); // Vtable +0xC.
         }
         return 2;
     }

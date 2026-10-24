@@ -15,6 +15,7 @@
 #include "ugly_girl_strategy.h"
 #include "haunted_door_strategy.h"
 #include "imp_flamethrower_strategy.h"
+#include "imp_ninja_strategy.h"
 #include "haunted_tv_strategy.h"
 #include "haunted_chair_strategy.h"
 #include "grim_reaper_strategy.h"
@@ -167,6 +168,9 @@ struct NativePlayerSceneBindings
     std::span<const u8> haunted_chair_parameters{}; // DAT_00428734.
     // Grim Reaper strategy (type 0x3F, vtable 0x00505DE0); the scene sets these once it has them.
     std::span<const u8> grim_reaper_parameters{}; // DAT_00302B7C.
+    // Ninja imp strategy (type 0x49, vtable 0x00505EF8).
+    std::span<const u8> imp_ninja_parameters{}; // DAT_00303198.
+    const RuntimeBodyDamageTables* damage_tables = nullptr; // 0x00028DA0's tables.
     AudioBankStreams* audio_banks = nullptr; // DAT_004DF370.
     RuntimeBlobShadows* blob_shadows = nullptr; // DAT_0050EC10.
     // Attaches a player's body methods (vtable +0x20 among them) when a weapon is attached before the scene first
@@ -318,6 +322,7 @@ struct NativePlayerInstance
     RuntimeUglyGirlStrategy ugly_girl; // Type 0x53.
     RuntimeHauntedDoorStrategy haunted_door; // Type 0x42.
     RuntimeImpFlamethrowerStrategy imp_flamethrower; // Type 0x47, over `spider`'s views.
+    RuntimeImpNinjaStrategy imp_ninja; // Type 0x49, over `spider`'s views.
     void refresh_input_views(); // After the player constructor allocates actor +0x960.
     void refresh_views(); // Body, input, mind and strategy value views before a method runs.
 };
@@ -378,6 +383,8 @@ public:
     void haunted_door_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000AFDD0.
     void imp_flamethrower_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000B5860.
     void imp_flamethrower_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000B5570.
+    void imp_ninja_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000B7C50.
+    void imp_ninja_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000B7B40.
     NativePlayerFactoryBindings bindings;
     NativePlayerMindOwner minds;
     // Retail keeps the type 5 vtable through the whole destructor chain, so the base actor destructor still

@@ -399,6 +399,22 @@ const ObjectFactoryVtable* imp_flamethrower_strategy_lifecycle()
     return &table;
 }
 
+bool construct_imp_ninja_strategy_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto* player = active_owner->find_player(object);
+    player->strategy_type = 0x49;
+    player->refresh_views();
+    return initialize_runtime_imp_ninja_strategy(bytes_of(object), parameters); // 0x000B7B00
+}
+
+// Getter 0x000B7AB0; vtable +8 is the empty 0x001628B0.
+const ObjectFactoryVtable* imp_ninja_strategy_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505EF8, imp_ninja_strategy_object_sizes,
+        construct_imp_ninja_strategy_view, destroy_empty_player_object};
+    return &table;
+}
+
 bool construct_haunted_door_strategy_view(FactoryObject& object, std::span<const u8> parameters)
 {
     auto* player = active_owner->find_player(object);
@@ -566,6 +582,13 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
                   leave_runtime_spider_state(old_state, spider);
                   return;
               }
+              if (strategy_type == 0x49)
+              {
+                  // Ninja imp strategy vtable +0x18, 0x000B7F20.
+                  refresh_views();
+                  leave_runtime_imp_ninja_state(old_state, imp_ninja);
+                  return;
+              }
               if (strategy_type == 0x42)
               {
                   // Haunted door strategy vtable +0x18, 0x000B0520.
@@ -653,6 +676,12 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
               {
                   // Flying imp strategy vtable +0x14, 0x000B58F0.
                   enter_runtime_imp_flamethrower_state(state, previous, imp_flamethrower);
+                  return;
+              }
+              if (strategy_type == 0x49)
+              {
+                  // Ninja imp strategy vtable +0x14, 0x000B7E60.
+                  enter_runtime_imp_ninja_state(state, previous, imp_ninja);
                   return;
               }
               if (strategy_type == 0x42)
@@ -842,7 +871,20 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
           },
           "knobattack_overlay", "knockdown", "attack_special", "knocked_down", "knocked_down_wait", "sleep",
           "wakeup", "celebrate_knockdown"},
-      imp_flamethrower{spider, "fireball", "flamethrower", "wait"}
+      imp_flamethrower{spider, "fireball", "flamethrower", "wait"},
+      imp_ninja{spider, scene_bindings.imp_ninja_parameters, scene_bindings.damage_tables,
+          scene_bindings.tag_rows, scene_bindings.object_tags, scene_bindings.create_effect,
+          scene_bindings.object_message,
+          [this](std::span<const u32> message)
+          {
+              if (!actor_message)
+              {
+                  throw Error("Ninja imp strategy: the actor's message slot (vtable +0xC) is not attached");
+              }
+              actor_message(message);
+          },
+          "psycheup", "psycheuptraitor", "spinkick", "jumpkickbig", "jumpkick", "innerforce", "innerforceoutof",
+          "randommove", "randomwalk", "meditate", "meditateoutof"}
 {
 }
 
@@ -1101,6 +1143,28 @@ void NativePlayerFactoryOwner::imp_flamethrower_update(FactoryObject& strategy)
     update_runtime_imp_flamethrower_strategy(player->imp_flamethrower);
 }
 
+void NativePlayerFactoryOwner::imp_ninja_message(FactoryObject& strategy, std::span<const u32> message)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x49)
+    {
+        throw Error("Ninja imp strategy method has no owning instance");
+    }
+    player->refresh_views();
+    dispatch_runtime_imp_ninja_message(message, player->imp_ninja);
+}
+
+void NativePlayerFactoryOwner::imp_ninja_update(FactoryObject& strategy)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x49)
+    {
+        throw Error("Ninja imp strategy method has no owning instance");
+    }
+    player->refresh_views();
+    update_runtime_imp_ninja_strategy(player->imp_ninja);
+}
+
 void NativePlayerFactoryOwner::haunted_door_message(FactoryObject& strategy, std::span<const u32> message)
 {
     auto* player = find_player(strategy);
@@ -1273,6 +1337,7 @@ void NativePlayerFactoryOwner::install(std::span<ObjectFactoryType> types)
     types[0x53] = ObjectFactoryType{8, ugly_girl_strategy_lifecycle};
     types[0x42] = ObjectFactoryType{8, haunted_door_strategy_lifecycle};
     types[0x47] = ObjectFactoryType{8, imp_flamethrower_strategy_lifecycle};
+    types[0x49] = ObjectFactoryType{8, imp_ninja_strategy_lifecycle};
     types[0x28] = ObjectFactoryType{6, camera_body_lifecycle};
     types[0x39] = ObjectFactoryType{8, director_strategy_lifecycle};
     minds.install(types);

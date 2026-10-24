@@ -3,6 +3,7 @@
 #include "../navigation/cell_registration.h"
 #include "../frontend/scoreboard_messages.h"
 #include "../audio/event_voices.h"
+#include "gbtg/entity.h"
 
 #include <array>
 #include <functional>
@@ -27,6 +28,9 @@ struct ScriptEventSequence
     float door_delay = 0.f; // DAT_00506534.
     float icon_delay = 0.f; // DAT_00506538.
     u32 waiting = 0; // DAT_0050653C.
+    // Step type 0xF's camera view (its +0x24..+0x83). The step rows move as steps end, so the native view (linked
+    // into the camera list) stays here; one step 0xF links it at a time.
+    EntityCamNode key_camera{};
 };
 extern i32 g_event_sequence_state; // DAT_005064D8.
 extern ScriptEventSequence g_event_sequence;
@@ -61,6 +65,10 @@ struct ScriptEventSequenceContext
     std::function<void(u32, std::span<u32>)> message; // Vtable +0xC of the object at an address.
     std::function<std::span<u8>(u32, size_t)> bytes_at; // Scene bytes at an address.
     std::function<std::span<u8>(u32)> strategy_at; // A player actor's strategy (+0x954) bytes by its address.
+    // Step type 0xF (0x000CFAE0): the actor a DAT_00511B48 node sits in (node - 0x944), by retail address, and
+    // 0x00112CC0 on the object at an address.
+    std::function<u32(const void*)> active_actor_of;
+    std::function<void(u32)> activate_object;
 };
 // Message 0x81 from 0x000D09A0: {id, door word, step count, steps}; the steps travel by address.
 struct ScriptEventStartMessage
@@ -105,6 +113,10 @@ i32 run_script_event_tag_step(std::span<u8> step); // Xbox 0x000CFDA0, step type
 i32 run_script_event_kill_count_step(std::span<u8> step); // Xbox 0x000CFE20, step type 3
 i32 run_script_event_time_limit_step(std::span<u8> step); // Xbox 0x000CFE50, step type 4
 i32 run_script_event_survive_step(std::span<u8> step); // Xbox 0x000CFEE0, step type 5
+// The key carrier: the first DAT_00511B48 actor whose +0x96D is set carries the key (+0xCE4) and its effect; once its
+// death queues event 0xB5, the key object appears at the event's point and "ghoulykeycam" looks at it until the +4
+// delay runs out.
+i32 run_script_event_key_carrier_step(std::span<u8> step); // Xbox 0x000CFAE0, step type 0xF
 // EDI kind: adds the step's scoreboard icon and returns its message id.
 u32 add_script_event_icon(u32 kind, u16 tag); // Xbox 0x0012FB80, EDI kind, ESI tag
 // EDX id: the scoreboard message fades out.

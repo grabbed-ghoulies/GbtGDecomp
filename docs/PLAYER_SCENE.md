@@ -222,6 +222,7 @@ All take the game directory, e.g.
 | `--scene2a2-reaper` | Chapter 2a scene 2 with no fighting (fight range 0), so the time limit runs out and the Grim Reaper comes. Fails by design once its 18000 frames are up: the reaper takes Cooper's life, the retry restarts the scene and the time limit runs out again (four times in the 2026-10-23 run). It is for looking at the spider web, the reaper and the fade to grey |
 | `--scene2a3` | Boots chapter 2a scene 3 (chapter2a_scene3_1playcam) and plays it with the scene 7 driver. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene4_2playcam` (frame 2037 in the 2026-10-23 run) |
 | `--scene2a4` | Boots chapter 2a scene 4 (chapter2a_scene4_2playcam, the ballroom) and plays it with the scene 7 driver, not fighting during "free play". Script type 0x67 opens the balcony gate's collision (category 0xFE) through 0x0012C8A0, Cooper walks onto the dance floor (region 11), the skeleton and zombie event is fought to its end and he leaves through the exit. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene5_1playcam` (frame 12503 in the 2026-10-24 run) |
+| `--scene2a5` | Boots chapter 2a scene 5 (chapter2a_scene5_1playcam, the conservatory) and plays it with the scene 7 driver, not fighting during "FREE PLAY" (it ends at door 0xF): the door closes, the ninja imps (factory type 0x49) come, the key carrier's death drops the ghouly key (type 0x18) under "ghoulykeycam" and Cooper leaves through the exit. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene6_1book` (frame 7164 in the 2026-10-24 run) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -331,9 +332,9 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 | Actor id lookups | legacy | `find_actor_by_id` / `find_actor_by_group` over the unfilled `g_pulse_nodes` still serve script actions, conditions and the ghoulybox controller; see `docs/LEGACY_HOST_CODE.md` |
 | Script actions | legacy | `0x00126E10`'s other cases (0x4D, 0x4E, 0x62, 0x67, 0x6E, 0x73, 0x8E, 0x9D) and `0x00127BC0`'s cases still compute values and skip their callees; this scene does not reach them |
 | Present (the snapshot) | renders nothing | `0x00116530` records its draws but the texture stays empty |
-| Scene 3's Free Play branches (`--scene3`) | legacy | Free Play's node 0x51 on the skeletons still goes through the legacy `g_range_links` |
-| Script condition nodes | partial | `0x00125450` registers types 0x3D..0x3F, 0x40..0x44, 0x47, 0x48, 0x5A, 0x5B, 0x6A, 0x6C, 0x72, 0x92, 0x93, 0x94, 0x95 and 0x99; retail also takes 0x65, 0x66, 0x68, 0x75, 0x8B, 0x8C and 0xA3, which still run as ordinary nodes |
-| Script event steps | partial | `0x00126140` queues step types 0 to 5 and 0xF (script types 0x19..0x1F) and `0x000D0B40` runs types 0 to 5; the builders from `0x00125E00` on (script types 0x20 and up) and the ticks of types 6 and up are not translated. Script types 0x5F and 0x87 are still empty stand-ins of the same kind |
+| Scene 3's Free Play branches (`--scene3`) | native | Free Play's node 0x51 on the skeletons sends message 1 over the native DAT_00511B38 walk (2026-10-24) |
+| Script condition nodes | partial | `0x00125450` registers types 0x3D..0x3F, 0x40..0x44, 0x47, 0x48, 0x5A, 0x5B, 0x66, 0x68, 0x6A, 0x6C, 0x72, 0x92, 0x93, 0x94, 0x95 and 0x99; retail also takes 0x65, 0x75, 0x8B, 0x8C and 0xA3, which raise |
+| Script event steps | partial | `0x00126140` queues step types 0 to 5 and 0xF (script types 0x19..0x1F) and `0x000D0B40` runs types 0 to 5 and 0xF (the key carrier, `0x000CFAE0`); the builders from `0x00125E00` on (script types 0x20 and up) and the ticks of types 6 to 0xE and 0x10 up are not translated. Script types 0x5F and 0x87 are still empty stand-ins of the same kind |
 | The Grim Reaper's dizziness | no writer | `0x000AD600` turns him dizzy (0x3EA) while DAT_00512170 is set; no translated code writes it (`g_grim_reaper_dizzy`) |
 | Blob shadows | off | DAT_0050EF18 is never set, so 0x00119A60 hands out no shadow (the reaper's included) and the draw 0x00119AD0 is not reached |
 | The spider web in captures | unchecked | The web (type 0x1B) lands and snares by its messages; no capture has caught one yet |
@@ -388,6 +389,31 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-24: chapter 2a scene 5 (the conservatory) plays to its end
+
+- The ninja imp's strategy (factory type 0x49, `imp_ninja_strategy.cpp`, vtable 0x00505EF8) is translated: the tick
+  `0x000B7B40` and its states (psych-up 0x3ED, kick 0x3EE, inner force 0x3EF, idle 0x401, meditation 0x412), the
+  message `0x000B7C50`, the enter and leave slots `0x000B7E60` / `0x000B7F20` and their helpers `0x000B7140` ..
+  `0x000B7FE0`. The factory table's names are one row off (each type's name sits in the next row): type 0x49 is
+  `entityStrategyImpNinja` and type 0x18 `entityAvatarMiscGhoulyKey`. Several Ghidra decompiles of this range
+  (forced, unanalysed) disagree with the instructions; the translation follows the instructions.
+- The player strategy bindings gain the scene's damage tables (for the inner force's health refill, `0x00028DA0`)
+  and the parameters at 0x00303198; the strategies' object messages (vtable +0xC by address) now reach scene
+  objects instead of raising.
+- Script type 0x51 walks the native DAT_00511B38 list (message 1), which wakes the imp parked in the room.
+- Event step type 0xF (the key carrier): its start `0x000D02E0` and run `0x000CFAE0`. The step's camera view lives
+  beside the sequence (`ScriptEventSequence::key_camera`) since step rows move.
+- The ghouly key (type 0x18, `ghouly_key_actor.cpp`): sizes, constructor and update `0x0006E930` / `0x0006E990` /
+  `0x0006EA00`; its message is the actor's.
+- The scene 7 driver's grid search may end on a closed goal cell (a door's point lies on the door's own cell).
+- Scene 3 now plays the skeletons' ghoul intro when Free Play's node 0x51 wakes them, which moves the fight; its
+  trophy walk now reaches the waypoint at (-104, -30) within 4 rather than 10, which had sent it into the cabinet's
+  corner.
+- Full regression (2026-10-24, after these changes): every mode passes except `--actor-loading` (failing before).
+- Shown (looked at): Cooper among the ninja imps with the key event's icon (`scene2a5_2100.bmp`,
+  `scene2a5_3300.bmp`) and the key in the door (`scene2a5_6600.bmp`). The big imp (the inner force) was not caught
+  in a capture.
 
 ### 2026-10-24: chapter 2a scene 4 (the ballroom) plays to its end
 

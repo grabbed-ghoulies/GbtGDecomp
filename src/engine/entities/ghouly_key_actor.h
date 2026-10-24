@@ -10,7 +10,7 @@ namespace gbtg
 {
 struct Actor;
 
-// entityAvatarMiscGhoulyKey (factory type 0x18, getter 0x0006E950, vtable 0x00504D24; the factory table's row 0x19
+// entityAvatarMiscGhoulyKey (factory type 0x18, getter 0x0006E950, vtable 0x00504D24; the factory table's row 0x17
 // carries the name) over the actor (type 2): the key a key-carrying ghouly drops ("misc_ghoulykey"). It rises and
 // spins, and its find-key ditty starts 0.4 s after it appears. Its message slot is the actor's (0x0006C9B0 jumps
 // to 0x0003EF70).

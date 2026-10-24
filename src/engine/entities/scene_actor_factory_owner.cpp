@@ -164,6 +164,14 @@ void release_extinguisher_weapon_view(FactoryObject& object)
 {
     active_owner->release_extinguisher_weapon(object);
 }
+bool construct_water_pistol_weapon_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    return active_owner->construct_water_pistol_weapon(object, parameters);
+}
+void release_water_pistol_weapon_view(FactoryObject& object)
+{
+    active_owner->release_water_pistol_weapon(object);
+}
 bool construct_container_weapon_view(FactoryObject& object, std::span<const u8> parameters)
 {
     return active_owner->construct_container_weapon(object, parameters);
@@ -224,6 +232,14 @@ const ObjectFactoryVtable* gun_weapon_lifecycle()
         release_gun_weapon_view};
     return &table;
 }
+// Getter 0x000C9210 (vtable 0x00506278) over the gun's 0x000CA990.
+const ObjectFactoryVtable* water_pistol_weapon_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00506278, water_pistol_weapon_object_sizes,
+        construct_water_pistol_weapon_view, release_water_pistol_weapon_view};
+    return &table;
+}
+
 const ObjectFactoryVtable* extinguisher_weapon_lifecycle()
 {
     static const ObjectFactoryVtable table{0x005061A8, extinguisher_weapon_object_sizes,
@@ -947,6 +963,7 @@ void NativeSceneActorClassOwner::install(std::span<ObjectFactoryType> types)
     types[0xA2] = {0xB, container_weapon_lifecycle}; // Getter 0x000C75D0.
     types[0xA4] = {0xB, gun_weapon_lifecycle}; // Getter 0x000CA980.
     types[0xA3] = {0xA4, extinguisher_weapon_lifecycle}; // Getter 0x000C7B70.
+    types[0xA6] = {0xA4, water_pistol_weapon_lifecycle}; // Getter 0x000C9210.
     active_owner = this;
 }
 
@@ -1214,6 +1231,16 @@ bool NativeSceneActorClassOwner::construct_extinguisher_weapon(FactoryObject& ob
 void NativeSceneActorClassOwner::release_extinguisher_weapon(FactoryObject& object)
 {
     destroy_runtime_extinguisher_weapon(weapons_.at(object.bytes.get())->context);
+}
+
+bool NativeSceneActorClassOwner::construct_water_pistol_weapon(FactoryObject& object, std::span<const u8> parameters)
+{
+    return initialize_runtime_water_pistol_weapon(weapons_.at(object.bytes.get())->context, parameters);
+}
+
+void NativeSceneActorClassOwner::release_water_pistol_weapon(FactoryObject& object)
+{
+    destroy_runtime_water_pistol_weapon(weapons_.at(object.bytes.get())->context);
 }
 
 void NativeSceneActorClassOwner::draw_gun_effects(FactoryObject& object, u32 pass)
@@ -1585,7 +1612,7 @@ void NativeSceneActorClassOwner::message(FactoryObject& object, std::span<u32> m
     {
         dispatch_runtime_container_weapon_message(weapons_.at(object.bytes.get())->context, message);
     }
-    else if (object.type == 0xA3)
+    else if (object.type == 0xA3 || object.type == 0xA6)
     {
         dispatch_runtime_gun_weapon_message(weapons_.at(object.bytes.get())->context, message); // 0x000CAB40
     }

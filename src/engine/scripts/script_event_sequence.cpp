@@ -929,9 +929,9 @@ bool run_script_event_steps(Game& g)
             {
                 result = run_script_event_key_step(step); // 0x000CFA90
             }
-            else if (type == 2)
+            else if (type == 2 || type == 0xD)
             {
-                result = run_script_event_tag_step(step); // 0x000CFDA0
+                result = run_script_event_tag_step(step); // 0x000CFDA0 (the table holds it for both types)
             }
             else if (type == 3)
             {

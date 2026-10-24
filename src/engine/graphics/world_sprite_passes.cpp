@@ -306,4 +306,63 @@ void draw_screen_effects(const RuntimeScreenEffects& effects, RuntimeDialogueOut
         throw Error("retained line draw 0x00061250 from 0x000615E0 (DAT_005044B0) is not bound");
     }
 }
+
+// Xbox 0x000659F0, EAX points, EBX count, ECX texture
+void draw_world_line_strip(const Vec3* points, i32 count, u8* texture, u32 depth_mode, float width, u32 color,
+    RuntimeDisplaySetupContext& c)
+{
+    begin_world_line_draw(0, texture, c); // 0x00065460, EDI texture
+    set_world_sprite_depth_mode(depth_mode, c); // 0x0005DFF0, EAX mode
+    const entity_detail::DisplayView& view = *entity_detail::g_display_view; // DAT_005077A8.
+    const float fx = view.forward.x; // +0x1C.
+    const float fy = view.forward.y;
+    const float fz = view.forward.z;
+    auto& d3d = c.draw.d3d;
+    // Bytes 0 and 2 swap: byte 3 stays the alpha, byte 0 becomes red.
+    const u32 swapped = (color & 0xFF000000u) | ((color & 0xFFu) << 16) | (color & 0xFF00u) | ((color >> 16) & 0xFFu);
+    d3d.vertex_data_color(3, swapped); // D3D 0x00172CC0
+    const float half = width * 0.5f; // DAT_0032B0F4.
+    const float back = 0.f - half;
+    // The side across a segment and the view's forward, unit length.
+    const auto side_of = [&](const Vec3& to, const Vec3& from)
+    {
+        const float dx = to.x - from.x;
+        const float dy = to.y - from.y;
+        const float dz = to.z - from.z;
+        Vec3 side{dz * fy - dy * fz, fz * dx - dz * fx, dy * fx - fy * dx};
+        const float square = side.z * side.z + side.y * side.y + side.x * side.x;
+        if (square != 0.f) // DAT_0032B100.
+        {
+            const long double scale = retail_reciprocal_sqrt(square); // 0x001534C0
+            side = Vec3{float(side.x * scale), float(side.y * scale), float(side.z * scale)};
+        }
+        return side;
+    };
+    if (count <= 1)
+    {
+        return;
+    }
+    Vec3 side = side_of(points[1], points[0]);
+    Vec3 left{points[0].x + side.x * half, points[0].y + side.y * half, points[0].z + side.z * half};
+    Vec3 right{points[0].x + back * side.x, points[0].y + side.y * back, points[0].z + side.z * back};
+    for (i32 index = 1; index < count; ++index)
+    {
+        const Vec3& point = points[index];
+        side = side_of(point, points[index - 1]);
+        const Vec3 next_left{point.x + side.x * half, point.y + side.y * half, point.z + side.z * half};
+        const Vec3 next_right{point.x + back * side.x, point.y + side.y * back, point.z + side.z * back};
+        d3d.begin(8); // D3D 0x00172D10
+        d3d.vertex_data2f(9, 0.f, 0.f); // D3D 0x00172C20
+        d3d.vertex_data4f(-1, left.x, left.y, left.z, 1.f); // D3D 0x00172C60
+        d3d.vertex_data2f(9, 0.f, 1.f);
+        d3d.vertex_data4f(-1, next_left.x, next_left.y, next_left.z, 1.f);
+        d3d.vertex_data2f(9, 1.f, 1.f);
+        d3d.vertex_data4f(-1, next_right.x, next_right.y, next_right.z, 1.f);
+        d3d.vertex_data2f(9, 1.f, 0.f);
+        d3d.vertex_data4f(-1, right.x, right.y, right.z, 1.f);
+        d3d.end(); // D3D 0x00172D50
+        left = next_left;
+        right = next_right;
+    }
+}
 }

@@ -9429,8 +9429,32 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                 && (calm_title.empty() || title != calm_title);
             const float range = fights ? fight_range : 0.f;
             float nearest = range * range;
+            // A queued one-type step (type 0xD, its tag at +0x18) sends Cooper after that class; another ghouly within 10
+            // is fought off first (the step only waits for the class to be gone, so other kills cost nothing).
+            gbtg::u16 one_type = 0;
+            if (const auto* pool = gbtg::g_event_sequence.steps; pool != nullptr)
+            {
+                for (const gbtg::u8* row = pool->begin; row < pool->end; row += 0x88)
+                {
+                    if (gbtg::read_u32({row, 0x88}, 0) == 0xD)
+                    {
+                        one_type = gbtg::read_u16({row, 0x88}, 0x18);
+                    }
+                }
+            }
             for (const auto& mark : actors.marked_actors())
             {
+                const bool other_type = one_type != 0 && mark.actor != nullptr && mark.actor->class_key != one_type;
+                if (other_type)
+                {
+                    const gbtg::Vec3 at = gbtg::actor_world_position(*mark.actor);
+                    const float dx = at.x - cooper->x;
+                    const float dz = at.z - cooper->z;
+                    if (dx * dx + dz * dz >= 10.f * 10.f)
+                    {
+                        continue;
+                    }
+                }
                 if (mark.actor == nullptr || mark.actor->class_key == 4 || mark.body.empty()
                     || gbtg::read_u16(mark.body, 0x94) == 0
                     || (mark.actor->class_key >= 0x26 && mark.actor->class_key <= 0x30) || mark.actor->class_key == 0x37
@@ -9921,12 +9945,15 @@ int main(int argc, char** argv)
     // --scene2a5 boots chapter 2a scene 5 (chapter2a_scene5_1playcam), closes its pages with A and plays until the
     // script moves on.
     const bool scene2a5_test = argc == 3 && std::string_view(argv[2]) == "--scene2a5";
+    // --scene2a6 boots chapter 2a scene 6 (chapter2a_scene6_1book), passes its book and plays the scene it moves on
+    // to until the script moves on again.
+    const bool scene2a6_test = argc == 3 && std::string_view(argv[2]) == "--scene2a6";
     if (spawn_test)
     {
         std::cout << std::unitbuf;
     }
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
-        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene3_test)
+        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene3_test)
     {
         std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene6-save | --scene6-save-reload | --scene3 | --scene4 | --scene5 | --scene6-1 | --scene7]\n";
         return 2;
@@ -10043,6 +10070,7 @@ int main(int argc, char** argv)
             : scene2a3_test ? "chapter2a_scene3_1playcam"
             : scene2a4_test ? "chapter2a_scene4_2playcam"
             : scene2a5_test ? "chapter2a_scene5_1playcam"
+            : scene2a6_test ? "chapter2a_scene6_1book"
             : player_test || spawn_test ? "chapter1_scene1_2playcam"
             : title_test ? "" : "scene0_1book");
         if (scene2a1b_test)
@@ -10051,6 +10079,15 @@ int main(int argc, char** argv)
             play_scene7(game, "scene2a1_2");
             pass_chapter_title(game, "scene2a1_to_3", "aid_script_ghoulies_chapter2a_scene1_3playcam", false);
             play_scene7(game, "scene2a1_3", 1000.f, "Event - Kill All", true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene2a6_test)
+        {
+            pass_chapter_title(game, "scene2a6", "aid_script_ghoulies_chapter2a_scene6_1book", false);
+            play_scene7(game, "scene2a6_1");
+            pass_chapter_title(game, "scene2a6_to_2", "aid_script_ghoulies_chapter2a_scene6_2playcam", false);
+            play_scene7(game, "scene2a6_2", 1000.f, {}, true, true);
             gbtg::gfx_shutdown();
             return 0;
         }

@@ -1367,6 +1367,43 @@ int script_handle_action_links(Game& g, const ScriptNode& node, int param_2, int
 // invented and those calls are not made. A handled type returns 2. Type
 // 0x1A returns 2 before 0x000D05D0 when bit 0x10 of DAT_0050EA9C is set.
 // The second argument is unused.
+// Xbox 0x00126940, DI tag: the DAT_00511B48 actors of the tag (any for a tag below 2) get +0x96D set and +0x96F /
+// +0x970 cleared; one whose +0x974 timer runs is stopped and sent message 0x55. With `keep` 0 the tag joins
+// DAT_0050E22C.
+void mark_runtime_one_type_actors(u16 tag, i32 keep)
+{
+    for (const auto* node = static_cast<const entity_detail::ListHead*>(entity_detail::g_world.alt.next);
+         node != nullptr; node = static_cast<const entity_detail::ListHead*>(node->next))
+    {
+        if (!g_alt_node_class || !g_alt_node_actor || !g_alt_node_actor_bytes)
+        {
+            throw Error("0x00126940 walks DAT_00511B48 without the scene's actor views");
+        }
+        if (tag >= 2 && g_alt_node_class(node) != tag)
+        {
+            continue;
+        }
+        const std::span<u8> actor = g_alt_node_actor_bytes(node);
+        actor[0x96D] = 1; // Node +0x29.
+        actor[0x96F] = 0;
+        actor[0x970] = 0;
+        if (0.f < read_f32(actor, 0x974)) // Node +0x30.
+        {
+            std::memset(actor.data() + 0x974, 0, 4);
+            std::array<u32, 0x42> message{0x55};
+            g_script_actor_message(g_alt_node_actor(node), message); // Node - 0x944 vtable +0xC.
+        }
+    }
+    if (keep == 0)
+    {
+        if (!g_script_exclude_actor_tag)
+        {
+            throw Error("0x00126940 appends to DAT_0050E22C outside a native scene");
+        }
+        g_script_exclude_actor_tag(tag);
+    }
+}
+
 // Xbox 0x00126140
 int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, int param_3)
 {
@@ -1555,6 +1592,9 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
         return 2;
     case 0x50:
     {
+        // 0x00125FC0 builds step type 0xD (one type) with XMM0 = 1.5 (0x0032B210) at +4; +0x18 is one of the named
+        // tags drawn at random (0x0001BB60) and +0x1C 0. 0x000D05D0 queues it and 0x00116C50 plays the tag's fight
+        // music.
         u16 words[5]{};
         u32 count = 0;
         push_named(0x48, 8, words, count);
@@ -1562,12 +1602,21 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
         push_named(0xd0, 0x90, words, count);
         push_named(0x114, 0xd4, words, count);
         push_named(0x158, 0x118, words, count);
+        std::array<u8, 0x88> step{};
+        const u32 type = 0xD;
+        const float delay = 1.5f;
+        std::memcpy(step.data(), &type, 4);
+        std::memcpy(step.data() + 4, &delay, 4);
+        const i32 index = draw_runtime_random_count(i32(u16(count)), 0, g_shared_random); // 0x0001BB60, ECX count
+        const u16 tag = words[size_t(index)];
+        std::memcpy(step.data() + 0x18, &tag, 2);
         if (node_u32(g.scene_script, node, 0x15c) != 0)
         {
-            // 0x00126940(0) is not translated. EDI would be the chosen word.
+            mark_runtime_one_type_actors(tag, 0); // 0x00126940, DI the tag
         }
-        (void)words;
-        (void)count;
+        queue_script_event_step(step);
+        play_scene_fight_music(i16(tag), g.executable_resources->memory(0x0030E490, 0xCB2), g_name_e4e0,
+            scene_music_streams(g)); // 0x00116C50, CX the tag
         return 2;
     }
     case 0x54:

@@ -225,6 +225,8 @@ add_library(gbtg_lib STATIC
     src/engine/entities/imp_flamethrower_strategy.cpp
     src/engine/entities/imp_ninja_strategy.cpp
     src/engine/entities/ghouly_key_actor.cpp
+    src/engine/entities/water_pistol_weapon.cpp
+    src/engine/entities/body_death_state.cpp
     src/engine/entities/scare_figure.cpp
     src/engine/entities/super_scary_shock.cpp
     src/engine/entities/spider_web.cpp

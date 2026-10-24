@@ -63,7 +63,7 @@ void notify_runtime_player_mind_attachment_callout(RuntimeParentMindRequests& co
 {
     const auto* attached = context.attachment.actions.attached;
     if (attached != nullptr && attached->bytes[0x93D] == 4
-        && (context.flags.bytes[5] & 0x80) != 0 && action_target != nullptr
+        && (context.flags.bytes[5] & 0x80) != 0 && action_target != nullptr && !action_target->empty() // Mind +0x14.
         && read_u32(*action_target, 0x10) == sender)
     {
         if (actor_event_chance(context.random, 0.5f))

@@ -4,7 +4,7 @@
 
 namespace gbtg
 {
-// entityStrategyImpNinja (factory type 0x49, getter 0x000B7AB0, vtable 0x00505EF8; the factory table's row 0x4A
+// entityStrategyImpNinja (factory type 0x49, getter 0x000B7AB0, vtable 0x00505EF8; the factory table's row 0x48
 // carries the name) over the base strategy (type 8): the ninja imp. It wanders ("randommove" / "randomwalk") or
 // meditates ("meditate", 0x412) while nothing is near, and once queued on its target psychs up (0x3ED), then kicks
 // (0x3EE: a spin kick, a jump kick or a big jump kick) or gathers its inner force (0x3EF). The inner force's first

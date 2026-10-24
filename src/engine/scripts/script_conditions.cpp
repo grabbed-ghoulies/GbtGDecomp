@@ -82,6 +82,9 @@ using namespace scene_detail;
 
 std::function<std::span<const u8>(const void* node)> g_alt_node_body;
 std::function<u16(const void* node)> g_alt_node_class;
+std::function<Actor&(const void* node)> g_alt_node_actor;
+std::function<std::span<u8>(const void* node)> g_alt_node_actor_bytes;
+std::function<void(u16 tag)> g_script_exclude_actor_tag;
 std::function<u32(u16 key)> g_script_actor_by_id;
 std::function<void(u32 address, std::span<u32> message)> g_script_object_message;
 std::function<bool(Vec3& position)> g_script_live_player_position;

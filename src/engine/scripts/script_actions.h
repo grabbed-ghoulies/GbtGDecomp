@@ -674,6 +674,8 @@ extern std::function<void(std::span<const u32> message)> g_script_body_list_mess
 // 0x000F4930: the ghoul intro's caption for a tag after a delay (XMM0), shown for its lifetime.
 extern std::function<void(u16 tag, float delay, float lifetime)> g_script_ghoul_intro_caption;
 i32 draw_runtime_random_count(i32 high, i32 low, u32& random); // Xbox 0x0001BB60, ECX high, EDX low
+// The DAT_00511B48 actors of the tag are marked for a one-type event; with `keep` 0 the tag joins DAT_0050E22C.
+void mark_runtime_one_type_actors(u16 tag, i32 keep); // Xbox 0x00126940, DI tag
 // The DAT_00511B24 objects (their +0x934 nodes from DAT_00511B28) whose +6 class key is `tag` hear `message`.
 void message_runtime_tagged_list_actors(u16 tag, std::span<u32> message); // Xbox 0x00122FA0, DI tag, EBX message
 // The scene's player character: its 0x00430DA0 override, else 2 with the alternate flags, else 1.

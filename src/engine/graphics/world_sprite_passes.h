@@ -24,6 +24,10 @@ void begin_world_line_draw(u8 frame, u8* texture, RuntimeDisplaySetupContext& co
 // A quad `width` across from `from` to `to`, square to the view's forward, each end pulled `inset` toward the other.
 void draw_world_line_quad(const Vec3& to, const Vec3& from, float width, float inset, u32 color,
     RuntimeDisplaySetupContext& context); // Xbox 0x000654E0, EAX to, EDI from
+// The points (stride 12) as one strip of view-facing quads `width` wide, the texture bound (frame 0) and the depth
+// mode set first.
+void draw_world_line_strip(const Vec3* points, i32 count, u8* texture, u32 depth_mode, float width, u32 color,
+    RuntimeDisplaySetupContext& context); // Xbox 0x000659F0, EAX points, EBX count, ECX texture
 // Full-view flash (DAT_00504478), back-buffer capture overlay (DAT_005044A4) and retained lines (DAT_005044B0).
 struct RuntimeScreenEffects
 {

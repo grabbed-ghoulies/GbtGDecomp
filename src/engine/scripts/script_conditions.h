@@ -15,6 +15,11 @@ extern LiveScript*& g_live_scripts;
 extern std::function<std::span<const u8>(const void* node)> g_alt_node_body;
 // The class key (node - 0x93E, actor +6) of a DAT_00511B48 node, bound with g_alt_node_body.
 extern std::function<u16(const void* node)> g_alt_node_class;
+// The actor (node - 0x944) of a DAT_00511B48 node, with its bytes; bound with g_alt_node_body.
+extern std::function<Actor&(const void* node)> g_alt_node_actor;
+extern std::function<std::span<u8>(const void* node)> g_alt_node_actor_bytes;
+// Appends a tag to DAT_0050E22C (count DAT_0050E228), the classes the player's targeting skips.
+extern std::function<void(u16 tag)> g_script_exclude_actor_tag;
 // The DAT_00511AA4 object whose +0x1FC word is the key, as its retail address (0 for none), and any scene object's
 // vtable +0xC by address; bound by the scene's actor services.
 extern std::function<u32(u16 key)> g_script_actor_by_id;

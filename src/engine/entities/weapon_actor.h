@@ -48,6 +48,7 @@ void load_runtime_weapon_stat_tables(RuntimeWeaponStatTables& tables, AnimationR
     ResourceErrorState& error); // Xbox 0x001486C0
 struct RuntimeCandleServices;
 // Scene services every weapon shares.
+struct RuntimeDisplaySetupContext;
 struct RuntimeWeaponServices
 {
     RuntimeWeaponStatTables& stats;
@@ -94,6 +95,8 @@ struct RuntimeWeaponServices
     const i32* pal_override = nullptr;
     std::function<FactoryObject*(const u8*)> object_of{}; // The scene object holding an object's bytes.
     std::function<RuntimeCandleServices&()> candle{}; // Type 0xA1's lights, billboards and burst callout.
+    ActorEffectStreamContext* effects = nullptr; // 0x00053170's context (type 0xA6's droplet effects).
+    std::function<RuntimeDisplaySetupContext&()> display{}; // Type 0xA6's strip draw (0x000659F0).
 };
 // Message 0x1D from a weapon's contact test (0x00141890) to the actor it hit.
 struct RuntimeWeaponHitNotice

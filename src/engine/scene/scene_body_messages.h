@@ -19,6 +19,7 @@
 #include "../entities/body_arc_attack_state.h"
 #include "../entities/generate_ghouly_state.h"
 #include "../entities/body_shocked_state.h"
+#include "../entities/body_death_state.h"
 #include "../entities/body_scrabble_state.h"
 #include "../entities/body_scoop_whack_state.h"
 #include "../entities/body_flip_state.h"
@@ -169,6 +170,7 @@ public:
     RuntimeKnockdownContext& knockdown_context(); // The type 0x7A state's views of this body.
     RuntimePickupStateContext& pickup_context(); // The type 0x7C state's views of this body.
     RuntimePlayerDeathContext& player_death_context(); // The type 0x69 state's views of this body.
+    RuntimeDeathStateContext& death_context(); // The type 0x63 state's views of this body.
     RuntimeGrabbedStateContext& grabbed_context(); // The type 0x70 state's views of this body.
     RuntimeThrowStateContext& throw_context(); // The type 0x8B state's views of this body.
     RuntimeArcStateContext& arc_context(); // The type 0x66 state's views of this body.
@@ -257,6 +259,7 @@ private:
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> knockdown_children_; // 0x7A, 0x0009D0E0.
     std::optional<RuntimePickupStateContext> pickup_;
     std::optional<RuntimePlayerDeathContext> player_death_;
+    std::optional<RuntimeDeathStateContext> death_state_;
     std::optional<RuntimeGrabbedStateContext> grabbed_;
     std::array<u8, 0x20> shape_scratch_{};
     RuntimeBodyTimerRecipient* first_timer_ = nullptr; // Body +0x760.

@@ -437,8 +437,9 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
         }
         // 0x59, 0x74, 0x7C and 0x8A have the empty 0x001628B0 message slot (0x59's getter 0x0007FCE0 stores it at
         // 0x005054C4, 0x8A's getter 0x000A34C0 at 0x00505C2C).
-        // 0x80's getter 0x0009F420 stores it at 0x00505AEC.
-        if (child->type != 0x59 && child->type != 0x8A && child->type != 0x80 && child->type != 0x7F && child->type != 0x6B
+        // 0x80's getter 0x0009F420 stores it at 0x00505AEC, 0x63's getter 0x0008C5A0 at 0x0050574C.
+        if (child->type != 0x59 && child->type != 0x8A && child->type != 0x80 && child->type != 0x63
+            && child->type != 0x7F && child->type != 0x6B
             && child->type != 0x77 && child->type != 0x6E && child->type != 0x6D && child->type != 0x81
             && child->type != 0x7B
             && child->type != 0x5A && child->type != 0x5B && child->type != 0x5C && child->type != 0x74
@@ -768,6 +769,9 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
     case 0x80:
         tick_runtime_shocked_state({action.bytes.get(), action.size}, shocked_context()); // 0x0009F5F0
         return;
+    case 0x63:
+        tick_runtime_death_state({action.bytes.get(), action.size}, death_context()); // 0x0008C7E0
+        return;
     case 0x7F:
         tick_runtime_scrabble_state({action.bytes.get(), action.size}, scrabble_context()); // 0x0009F170
         return;
@@ -1048,6 +1052,7 @@ void SceneBodyMessages::action_step(FactoryObject& action)
     }
     case 0x5E:
     case 0x62:
+    case 0x63:
     case 0x64:
     case 0x73:
     case 0x74:
@@ -1833,6 +1838,15 @@ RuntimePlayerDeathContext& SceneBodyMessages::player_death_context()
     return *player_death_;
 }
 
+RuntimeDeathStateContext& SceneBodyMessages::death_context()
+{
+    auto& knockdown = knockdown_context();
+    death_state_.reset();
+    death_state_.emplace(RuntimeDeathStateContext{knockdown, services_.latches, player_.mind,
+        player_.mind.empty() ? nullptr : &player_.mind_events.anchor});
+    return *death_state_;
+}
+
 std::span<const u8> SceneBodyMessages::mind_target()
 {
     if (player_.mind.empty())
@@ -2300,9 +2314,9 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 }
                 return;
             }
-            // 0x8A (getter 0x000A34C0) keeps the empty 0x001628B0 at +0xC too.
+            // 0x8A (getter 0x000A34C0) and 0x63 (getter 0x0008C5A0) keep the empty 0x001628B0 at +0xC too.
             if (type != 0x87 && type != 0x88 && type != 0x69 && type != 0x70 && type != 0x5B && type != 0x5C && type != 0x74 && type != 0x7C
-                && type != 0x8A && type != 0x80 && type != 0x7F && type != 0x6B && type != 0x77
+                && type != 0x8A && type != 0x63 && type != 0x80 && type != 0x7F && type != 0x6B && type != 0x77
                 && type != 0x6E && type != 0x6D && type != 0x81 && type != 0x7B)
             {
                 unbound("collision reply action vtable +0xC of factory type " + std::to_string(type));

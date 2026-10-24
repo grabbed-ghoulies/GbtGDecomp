@@ -53,7 +53,7 @@ void remove_background_part_volume(Actor& actor, i32 row, u32 value,
         {
             return clear_physical_shape_event_bits({const_cast<u8*>(event), 0x14}, u32(reinterpret_cast<uintptr_t>(user)));
         }, reinterpret_cast<void*>(uintptr_t(12)), context.shape_lists};
-    visit_scene_script_shape_events(context.first_shape_object, u8(u32(row) + 1u), context.resolve, events);
+    visit_scene_script_shape_events(context.first_shape_object, u8(u32(row) + 1u), context.actor_of, events);
     auto& options = g_actor_creation_options;
     options.flags = 0;
     options.position = position;

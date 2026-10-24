@@ -221,7 +221,7 @@ All take the game directory, e.g.
 | `--scene2a2` | Boots chapter 2a scene 2 (chapter2a_scene2_1playcam, the dishwashing room) and plays it with the scene 7 driver, doors first, at any fight range: "Event - 'Kill All/Time Limit'" is one coward zombie against the reaper's countdown. The driver fights a ghouly within 15 in height (the hurt zombie climbs onto the plate stacks). Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene3_1playcam` (frame 5976 in the 2026-10-23 run) |
 | `--scene2a2-reaper` | Chapter 2a scene 2 with no fighting (fight range 0), so the time limit runs out and the Grim Reaper comes. Fails by design once its 18000 frames are up: the reaper takes Cooper's life, the retry restarts the scene and the time limit runs out again (four times in the 2026-10-23 run). It is for looking at the spider web, the reaper and the fade to grey |
 | `--scene2a3` | Boots chapter 2a scene 3 (chapter2a_scene3_1playcam) and plays it with the scene 7 driver. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene4_2playcam` (frame 2037 in the 2026-10-23 run) |
-| `--scene2a4` | Boots chapter 2a scene 4 (chapter2a_scene4_2playcam, the ballroom) and plays it with the scene 7 driver. The intro (curtains opening onto the dance floor) plays and free play starts at frame 1271; the run then fails at its frame limit because the driver walks Cooper straight into the balcony railing toward a ghouly on the floor below (2026-10-23 run) |
+| `--scene2a4` | Boots chapter 2a scene 4 (chapter2a_scene4_2playcam, the ballroom) and plays it with the scene 7 driver, not fighting during "free play". Script type 0x67 opens the balcony gate's collision (category 0xFE) through 0x0012C8A0, Cooper walks onto the dance floor (region 11), the skeleton and zombie event is fought to its end and he leaves through the exit. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene5_1playcam` (frame 12503 in the 2026-10-24 run) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -388,6 +388,38 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-24: chapter 2a scene 4 (the ballroom) plays to its end
+
+The balcony's railing gap carries an invisible face (flags 0x144004, category 0xFE in the event byte +0x10) that
+blocks the player (mode 2's mask 0xC0000). Script type 0x67 opens and shuts such categories: with a live 0x7D it now
+calls `0x0012C8A0` with the category and `0x0012C950` (open) or `0x0012C930` plus message 0x4A (shut), clearing or
+setting bit 4 of every matching collision event. `0x0012C8A0` walks the native DAT_00511AF4 probe list and each actor's
+model shape list; it had walked retail words the port does not keep, so the background part removal `0x00044EF0` that
+shares it never reached a shape either.
+
+The section after the gate needed more of the script and the body:
+
+- Handler 6 (`0x00125450`) registers types 0x66 (PlayerDeflectionContact, opcode 13) and 0x68 (PlayerHitGhouly,
+  opcode 14) as conditions and skips their blocks; before, they fell through and ran their blocks at once, which ended
+  the script. Its other untranslated types (0x65, 0x75, 0x8B, 0x8C, 0xA3) now raise.
+- The condition updates `0x00133570` (opcode 13) and `0x001335E0` (opcode 14) count their timers down.
+- A body's recovery (`0x00134060`) takes the front goal's action through `0x00135790` / `0x00135540`.
+- The body relay (`0x000744A0`) reads +0x744 and +0x314 as it reaches each, so an action the first tick ends is not
+  ticked again.
+
+The scene 7 driver learns its stick offset only from moves near the recent top speed (a wall slide no longer turns it),
+forgets its avoided cells when they leave no walk, and takes a `calm_title` in which it does not fight. Its grid
+search (`nav_waypoint`) no longer steps diagonally past a closed cell: with the forgetting, scene 12's walk to its exit
+cut the doorway's corner from (270, 306) and stood against the jamb for good.
+
+- Full regression (2026-10-24): every mode passes except `--actor-loading` (the ambient point check, failing before
+  this work). `--scene9`, which failed before, now passes. `--scene2a2-reaper` (fails by design) and
+  `--scene6-save-reload` (run by `--scene6-save`) were not run on their own.
+
+- Shown (looked at): Cooper in the railing gap (`scene2a4_2400.bmp`), the gate-shut cutscene from above
+  (`scene2a4_2700.bmp`), the skeleton and zombie fight with its event icons (`scene2a4_6000.bmp`) and Cooper leaving
+  through the curtains (`scene2a4_12300.bmp`).
 
 ### 2026-10-23: background flags (cloth kinds 1, 2 and 8)
 

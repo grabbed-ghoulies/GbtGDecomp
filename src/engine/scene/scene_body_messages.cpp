@@ -1143,13 +1143,21 @@ RuntimeBodyRecoveryAction& SceneBodyMessages::recovery_action()
 {
     recovery_.emplace(RuntimeBodyRecoveryAction{player_.body, player_.body_attributes, player_.action_table,
         first_timer_, player_.ring, read_u16(player_.actor_bytes, 0x990), services_.address_zero,
-        [](u32&)
+        [this](u32& output)
         {
-            unbound("recovery goal action 0x00028360 / 0x00135790");
+            // 0x00028360: the front goal's kind in AX (0 without a ring; an empty ring reads address zero).
+            const RuntimePlayerGoalRing* ring = player_.ring;
+            u16 kind = 0;
+            if (ring != nullptr)
+            {
+                kind = ring->tail == ring->capacity ? read_u16(services_.address_zero, 0)
+                    : read_u16(ring->rows, size_t(ring->head) * ring->stride);
+            }
+            select_runtime_goal_kind_action(kind, output, player_.strategy_goals); // 0x00135790
         },
-        [](u32&)
+        [this](u32& output)
         {
-            unbound("recovery goal action 0x00135540");
+            select_runtime_player_goal_action(output, player_.strategy_goals); // 0x00135540
         },
         [this]()
         {
@@ -2022,16 +2030,24 @@ void SceneBodyMessages::tick(FactoryObject& body, u32 input)
     auto& actions = player_.body_selection;
     if (body.type != 0x28)
     {
+        // 0x000744A0 reads body +0x744 and then +0x314 when it reaches each, so a slot the first tick empties or
+        // fills is seen by the second; each view tests its slot as it is called.
         RuntimePlayerBodyRelayChild action{[this](u32 input)
         {
-            action_tick(player_.body_selection.second, input);
+            if (player_.body_selection.second.bytes != nullptr)
+            {
+                action_tick(player_.body_selection.second, input);
+            }
         }};
         RuntimePlayerBodyRelayChild attachment{[this](u32 input)
         {
-            action_tick(player_.body_selection.first, input);
+            if (player_.body_selection.first.bytes != nullptr)
+            {
+                action_tick(player_.body_selection.first, input);
+            }
         }};
-        RuntimePlayerBodyRelayChild* action_view = actions.second.bytes != nullptr ? &action : nullptr;
-        RuntimePlayerBodyRelayChild* attachment_view = actions.first.bytes != nullptr ? &attachment : nullptr;
+        RuntimePlayerBodyRelayChild* action_view = &action;
+        RuntimePlayerBodyRelayChild* attachment_view = &attachment;
         RuntimePlayerJointTargets joints{player_.actor, player_.body_flags, player_.joint_records, services_.clock,
             services_.address_of(player_.body.data())};
         relay_runtime_player_body(player_.body, input, action_view, attachment_view, joints);

@@ -1,6 +1,7 @@
 #include "scene_actor_services.h"
 #include "../entities/ghouly_spawn_trigger.h"
 #include "../entities/actor_scare_requests.h"
+#include "../entities/physical_shape_events.h"
 #include "../frontend/frontend_sounds.h"
 #include "../frontend/frontend_state.h"
 #include "../frontend/gameselect_slots.h"
@@ -7874,14 +7875,14 @@ void SceneActorServices::State::with_background_context(NativeBackgroundInstance
         sampling_active, origin, views.source};
     BackgroundPartDispatch dispatch{part_settings, part_setting_count, part_sound_slot,
         std::span<const u8, 5>(data(0x002FD200, 5).data(), 5), sounds, effects};
-    // DAT_00511AF4: the first segment probe, stored at its actor +0x1E0.
-    u32 first_segment = 0;
-    if (entity_detail::g_world.segment != nullptr)
+    const std::function<const Actor&(const entity_detail::SegmentProbe&)> probe_actor =
+        [this](const entity_detail::SegmentProbe& probe) -> const Actor&
     {
-        first_segment = scene.address_of(actors->view(*entity_detail::g_world.segment).bytes.data()) + 0x1E0;
-    }
-    BackgroundPartRemoval removal{background.state.volumes, background.animation.header, first_segment, views.source,
-        resources.shape_lists, view.startup.resource.resource.data(), base.callouts};
+        return actors->view(probe).bat.actor;
+    };
+    BackgroundPartRemoval removal{background.state.volumes, background.animation.header,
+        entity_detail::g_world.segment, probe_actor, resources.shape_lists, view.startup.resource.resource.data(),
+        base.callouts};
     auto* first = backgrounds->first_background();
     if (first == nullptr)
     {
@@ -10488,6 +10489,23 @@ void SceneActorServices::set_tagged_actor_model_nodes(u16 tag, u8 slot, u8 value
             set_runtime_model_node_state(*secondary, slot, value, state.node_cache); // 0x000F96F0
         }
     }
+}
+
+void SceneActorServices::change_script_shape_events(u8 category, bool set)
+{
+    auto& state = *state_;
+    PhysicalShapeEventContext events{0, 0, 0,
+        [set](const u8* event, void* user)
+        {
+            const std::span<u8> bytes{const_cast<u8*>(event), 0x14};
+            const u32 mask = u32(reinterpret_cast<uintptr_t>(user));
+            return set ? set_physical_shape_event_bits(bytes, mask) : clear_physical_shape_event_bits(bytes, mask);
+        }, reinterpret_cast<void*>(uintptr_t(4)), state.resources.shape_lists};
+    visit_scene_script_shape_events(entity_detail::g_world.segment, category,
+        [&state](const entity_detail::SegmentProbe& probe) -> const Actor&
+        {
+            return state.actors->view(probe).bat.actor;
+        }, events); // 0x0012C8A0
 }
 
 // Xbox 0x0013D250

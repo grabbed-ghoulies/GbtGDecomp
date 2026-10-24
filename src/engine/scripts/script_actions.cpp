@@ -26,6 +26,7 @@
 #include "../entities/player_mind_messages.h"
 #include "../entities/camera_director.h"
 #include "../entities/actor_spawn_query.h"
+#include "../entities/actor_scare_requests.h"
 #include "../entities/entity.h"
 #include "../scene/scene_actor_services.h"
 #include "../scene/scene_markers.h"
@@ -1025,6 +1026,20 @@ int script_handle_condition_node(Game& g, const ScriptNode& node, u32& cursor)
     case 0x93:
         opcode = 22; // 0x0012580F, scriptConditionId_IsChallenge21NotActive: the link alone.
         break;
+    case 0x66:
+        opcode = 13; // 0x00125726, scriptConditionId_PlayerDeflectionContact: the tag and the float at node+0x48.
+        word_then_far = true;
+        break;
+    case 0x68:
+        opcode = 14; // 0x0012573E, scriptConditionId_PlayerHitGhouly: the tag and the float at node+0x48.
+        word_then_far = true;
+        break;
+    case 0x65:
+    case 0x75:
+    case 0x8B:
+    case 0x8C:
+    case 0xA3:
+        throw Error("script condition node type " + std::to_string(node.type) + " (0x00125450) is not translated");
     default:
         return 3;
     }
@@ -1908,10 +1923,10 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
 //
 // Type 0x67 with a zero second argument stores the byte at node+8 and the
 // word at node+0xC into DAT_00512420 and increments DAT_00512440. Nonzero
-// with a zero dword at node+0xC would call 0x0012C8A0 with the byte at node+8
-// and 0x0012C950. Any other dword would call 0x0012C8A0 with 0x0012C930, then
-// 0x00122CE0 with EDI pointing at message id 0x4A. Those calls are not
-// translated.
+// with a zero dword at node+0xC calls 0x0012C8A0 with the byte at node+8,
+// 0x0012C950 and 4, which opens that category's collision events to the
+// player. Any other dword calls 0x0012C8A0 with 0x0012C930 and 4, then
+// 0x00122CE0 with EDI pointing at message id 0x4A.
 //
 // Type 0x6E would call 0x001249B0 with EDI = the dword at node+8 and EAX = 8.
 // That call is not translated.
@@ -2026,17 +2041,23 @@ int script_handle_resource_actions(Game& g, const ScriptNode& node, int param_2)
             g_gate_2440 = g_gate_2440 + 1;
             return 2;
         }
+    {
+        SceneActorServices* actors = script_scene_actors(g);
+        if (actors == nullptr)
+        {
+            throw Error("script type 0x67 without the native scene's actors (0x0012C8A0)");
+        }
+        const u8 category = node_u8(g.scene_script, node, 8);
         if (node_u32(g.scene_script, node, 0xc) == 0)
         {
-            const u8 index = node_u8(g.scene_script, node, 8);
-            (void)index;
+            actors->change_script_shape_events(category, false); // 0x0012C8A0 with 0x0012C950
             return 2;
         }
-        {
-            const u8 index = node_u8(g.scene_script, node, 8);
-            (void)index;
-        }
+        actors->change_script_shape_events(category, true); // 0x0012C8A0 with 0x0012C930
+        const std::array<u32, 1> message{0x4A};
+        broadcast_actor_world_message(message); // 0x00122CE0, EDI the message
         return 2;
+    }
     case 0x6e:
     {
         const u32 key = node_u32(g.scene_script, node, 8);

@@ -10,8 +10,8 @@ struct BackgroundPartRemoval
 {
     std::span<BackgroundAnimationVolume> volumes;
     std::span<const u8> header;
-    u32& first_shape_object; // DAT_00511AF4.
-    const std::function<std::span<const u8>(u32)>& resolve;
+    const entity_detail::SegmentProbe* first_shape_object; // DAT_00511AF4.
+    const std::function<const Actor&(const entity_detail::SegmentProbe&)>& actor_of;
     const std::unordered_map<const u8*, PhysicalShapeEventList>& shape_lists;
     const u8* attachment_records; // Actor +0x8C contents.
     ActorAttachmentEventContext& attachments;

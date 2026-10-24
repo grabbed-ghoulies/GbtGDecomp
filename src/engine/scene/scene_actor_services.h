@@ -81,6 +81,9 @@ public:
     // Script type 0x9F's walk of DAT_00511B38: 0x000F96F0 (AL value, stack slot) on the +0x204 and +0x310 models
     // of every actor whose +6 tag matches.
     void set_tagged_actor_model_nodes(u16 tag, u8 slot, u8 value);
+    // Script type 0x67 with a live 0x7D: 0x0012C8A0 over DAT_00511AF4 for the category byte, setting (0x0012C930) or
+    // clearing (0x0012C950) the player bit 4 in each matching collision event's +0xC flags.
+    void change_script_shape_events(u8 category, bool set);
     // Script type 0x46 with a live 0x7D: the 0x001292D0 player drops its weapon (0x0013A7C0), then 0x0012ECC0.
     void release_script_player_weapon();
     // Script type 0x31 with a live 0x7D: the 0x001292D0 player is given the named weapon (0x0013A720, replacing the

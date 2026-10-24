@@ -7916,8 +7916,18 @@ std::optional<gbtg::Vec3> nav_waypoint(const gbtg::Vec3& from, const gbtg::Vec3&
             }
             const gbtg::i32 next = nz * grid->width + nx;
             // Cells in `avoid` (where the walk was found stuck on something the grid does not mark) are skipped.
-            if (parent[size_t(next)] != -2 || (grid->cells[size_t(next)].flags_7 & 2) != 0
-                || (avoid != nullptr && next != goal && avoid->contains(next)))
+            const auto closed = [&](gbtg::i32 index)
+            {
+                return (grid->cells[size_t(index)].flags_7 & 2) != 0
+                    || (avoid != nullptr && index != goal && avoid->contains(index));
+            };
+            if (parent[size_t(next)] != -2 || closed(next))
+            {
+                continue;
+            }
+            // A diagonal step needs both cells beside it open, so the walk does not cut a wall's corner (a doorway
+            // entered at a slant catches its jamb).
+            if (direction >= 4 && (closed(z * grid->width + nx) || closed(nz * grid->width + x)))
             {
                 continue;
             }
@@ -8489,14 +8499,19 @@ struct StickSteering
     std::optional<gbtg::Vec3> last;
     std::optional<float> commanded;
     float offset = 0.f;
-    // The stick angle toward `goal`, after learning from the last move.
+    float fastest = 0.f;
+    // The stick angle toward `goal`, after learning from the last move. Only a move at nearly the recent fastest speed
+    // is learned from: a slide along a wall is slower and turned off the stick's line, and learning it steers Cooper
+    // back along the wall. The fastest speed fades, so a knockback's burst does not stop the learning for good.
     float angle(const gbtg::Vec3& cooper, const gbtg::Vec3& goal)
     {
         if (last && commanded)
         {
             const float mx = cooper.x - last->x;
             const float mz = cooper.z - last->z;
-            if (mx * mx + mz * mz > 0.01f)
+            const float moved = mx * mx + mz * mz;
+            fastest = std::max(moved, fastest * 0.98f);
+            if (moved > 0.01f && moved >= fastest * 0.5f)
             {
                 offset += std::remainder(std::atan2(mx, mz) - (*commanded + offset), 6.2831853f) * 0.5f;
             }
@@ -9254,7 +9269,8 @@ void play_scene6_1_run(gbtg::Game& game, const std::string& label)
             {
                 std::cout << label << " volume mask " << int(record->mask) << " value " << record->value_0 << " at "
                           << record->center.x << ", " << record->center.y << ", " << record->center.z << " extent "
-                          << record->extent_x << ", " << record->extent_z << "\n";
+                          << record->extent_x << ", " << record->extent_z << " kind " << record->kind << " yaw "
+                          << record->yaw << "\n";
             }
         }
         for (const auto& condition : gbtg::g_script_conds)
@@ -9277,10 +9293,10 @@ void play_scene6_1_run(gbtg::Game& game, const std::string& label)
 // Scene 7 (chapter1_scene7_1playcam), from the end of its transition. Pages close on A; titles, the scene's objects,
 // Cooper's position and the section gate are logged, and every 300th frame is captured, until the script moves on.
 // `fight_range` is how far a live ghouly may be from Cooper to be fought before he walks to a goal; with a
-// `range_title`, ghoulies are fought only while the scene title is that one. `doors_first` walks to a door a live
-// PlayerApproachesDoor names before any region.
+// `range_title`, ghoulies are fought only while the scene title is that one, and never while it is `calm_title`.
+// `doors_first` walks to a door a live PlayerApproachesDoor names before any region.
 void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_range, const std::string& range_title,
-    bool doors_first, bool answer_challenges)
+    bool doors_first, bool answer_challenges, const std::string& calm_title)
 {
     std::string title = game.scene_name;
     const std::string scene_script = game.scene_script.name;
@@ -9402,7 +9418,9 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
         gbtg::u16 ghouly_class = 0;
         if (cooper && !page)
         {
-            const float range = range_title.empty() || title == range_title ? fight_range : 0.f;
+            const bool fights = (range_title.empty() || title == range_title)
+                && (calm_title.empty() || title != calm_title);
+            const float range = fights ? fight_range : 0.f;
             float nearest = range * range;
             for (const auto& mark : actors.marked_actors())
             {
@@ -9482,7 +9500,16 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                 }
                 stuck_since = frame;
             }
-            const std::optional<gbtg::Vec3> step = nav_waypoint(*cooper, *goal, 3, &avoided);
+            std::optional<gbtg::Vec3> step = nav_waypoint(*cooper, *goal, 3, &avoided);
+            if (!step && !avoided.empty() && nav_waypoint(*cooper, *goal, 3))
+            {
+                // The cells avoided so far (in a long fight, around many held spots) leave no walk at all: they are
+                // forgotten and the walk searched again.
+                std::cout << label << " frame " << frame << ": the walk forgets " << avoided.size()
+                          << " avoided cells\n";
+                avoided.clear();
+                step = nav_waypoint(*cooper, *goal, 3, &avoided);
+            }
             const gbtg::Vec3 toward = step ? *step : *goal;
             const float dx = toward.x - cooper->x;
             const float dz = toward.z - cooper->z;
@@ -9574,7 +9601,8 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
             {
                 std::cout << label << " volume mask " << int(record->mask) << " value " << record->value_0 << " at "
                           << record->center.x << ", " << record->center.y << ", " << record->center.z << " extent "
-                          << record->extent_x << ", " << record->extent_z << "\n";
+                          << record->extent_x << ", " << record->extent_z << " kind " << record->kind << " yaw "
+                          << record->yaw << "\n";
             }
         }
         for (const auto& condition : gbtg::g_script_conds)
@@ -9590,11 +9618,12 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
 }
 
 void play_scene7(gbtg::Game& game, const std::string& label, float fight_range = 50.f,
-    const std::string& range_title = {}, bool doors_first = false, bool answer_challenges = false)
+    const std::string& range_title = {}, bool doors_first = false, bool answer_challenges = false,
+    const std::string& calm_title = {})
 {
     try
     {
-        play_scene7_run(game, label, fight_range, range_title, doors_first, answer_challenges);
+        play_scene7_run(game, label, fight_range, range_title, doors_first, answer_challenges, calm_title);
     }
     catch (const std::exception& error)
     {
@@ -10017,7 +10046,9 @@ int main(int argc, char** argv)
         if (scene2a4_test)
         {
             pass_chapter_title(game, "scene2a4", "aid_script_ghoulies_chapter2a_scene4_2playcam", false);
-            play_scene7(game, "scene2a4", 1000.f, {}, true, true);
+            // The first free play ends on region 11, through the balcony gate the script opens, and the second at the
+            // exit; the dancing skeletons are not fought in either.
+            play_scene7(game, "scene2a4", 1000.f, {}, true, true, "free play");
             gbtg::gfx_shutdown();
             return 0;
         }

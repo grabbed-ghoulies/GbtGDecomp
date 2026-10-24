@@ -815,6 +815,75 @@ void script_tick_ghouly_exists_condition(ScriptCond& rec)
 }
 
 
+// Xbox 0x00133570. Opcode 13 in the update table at 0x00314334: once 0x001168F0 finds the tagged 0xB6 event for the
+// word at +8, while DAT_0050E768 is clear and the byte at [DAT_0051248C]+0x30F144 is set, the float at +0xC counts
+// down by the frame step, stopping at 0.
+// Xbox 0x00133570
+void script_tick_tagged_event_condition(ScriptCond& rec)
+{
+    if (script_has_tagged_event(u16(cond_u32(rec, 8))) == 0 || g_block_decay != 0 || g_decay_arm == 0)
+    {
+        return;
+    }
+    float step = 0.f;
+    if (g_sim_freeze <= 0.f)
+    {
+        step = g_sim_dt * g_sim_scale;
+    }
+    const float left = cond_f32(rec, 0xc);
+    if (0.f < left)
+    {
+        const float next = left - step;
+        cond_put_f32(rec, 0xc, next);
+        if (next <= 0.f)
+        {
+            cond_put_f32(rec, 0xc, 0.f);
+        }
+    }
+}
+
+
+// Xbox 0x001335E0. Opcode 14 in the update table at 0x00314334: once the DAT_0051696C, DAT_005172F4, DAT_0051AD18 and
+// DAT_0051A390 counts (all four totals for a word at +8 at or below 1, otherwise that word's row) are nonzero, the
+// float at +0xC counts down like opcode 13's.
+// Xbox 0x001335E0
+void script_tick_total_count_condition(ScriptCond& rec)
+{
+    const u16 index = u16(cond_u32(rec, 8));
+    i32 sum = 0;
+    if (index < 2)
+    {
+        sum = script_statistic_at_address(0x0051696Cu) + script_statistic_at_address(0x005172F4u)
+            + script_statistic_at_address(0x0051AD18u) + script_statistic_at_address(0x0051A390u);
+    }
+    else
+    {
+        const u32 scaled = u32(index) * 4u;
+        sum = script_statistic_at_address(0x0051AD18u + scaled) + script_statistic_at_address(0x0051A390u + scaled)
+            + script_statistic_at_address(0x005172F4u + scaled) + script_statistic_at_address(0x0051696Cu + scaled);
+    }
+    if (sum == 0 || g_block_decay != 0 || g_decay_arm == 0)
+    {
+        return;
+    }
+    float step = 0.f;
+    if (g_sim_freeze <= 0.f)
+    {
+        step = g_sim_dt * g_sim_scale;
+    }
+    const float left = cond_f32(rec, 0xc);
+    if (0.f < left)
+    {
+        const float next = left - step;
+        cond_put_f32(rec, 0xc, next);
+        if (next <= 0.f)
+        {
+            cond_put_f32(rec, 0xc, 0.f);
+        }
+    }
+}
+
+
 // Xbox 0x001330E0. Opcode 1 in the update table at 0x00314334. While the
 // DAT_00511B48 actors whose body +0x94 is nonzero number at most the int at
 // +8, DAT_0050E768 is clear and the byte at [DAT_0051248C]+0x30F144 is set,
@@ -1156,8 +1225,8 @@ void script_queue_scene_start(Game& g)
 
 // Xbox 0x00117100: 0x00140E30, then the condition updates and the eval at 0x00117140. The update walk calls the
 // table at 0x00314334: opcode 0 is 0x00133070, opcode 1 is 0x001330E0, opcode 3 is 0x00133170, opcode 15 is
-// 0x00133770, opcode 16 is 0x001336A0, opcode 4 is 0x00133230, opcode 5 is 0x001332B0, opcode 10 is 0x001333A0, opcode 11 is 0x00133330 and opcode 17 is
-// 0x001334B0.
+// 0x00133770, opcode 16 is 0x001336A0, opcode 4 is 0x00133230, opcode 5 is 0x001332B0, opcode 10 is 0x001333A0, opcode 11 is 0x00133330, opcode 13 is
+// 0x00133570, opcode 14 is 0x001335E0 and opcode 17 is 0x001334B0.
 // Opcodes 2, 6..9 and 20..26 have the empty 0x001628B0; the others' updates
 // are not translated and raise when a record reaches them.
 void script_vm_tick(Game& g, float dt)
@@ -1194,6 +1263,14 @@ void script_vm_tick(Game& g, float dt)
         else if (opcode == 16)
         {
             script_tick_ghouly_exists_condition(rec);
+        }
+        else if (opcode == 13)
+        {
+            script_tick_tagged_event_condition(rec);
+        }
+        else if (opcode == 14)
+        {
+            script_tick_total_count_condition(rec);
         }
         else if (opcode == 4)
         {

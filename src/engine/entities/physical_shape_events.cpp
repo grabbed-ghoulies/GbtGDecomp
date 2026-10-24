@@ -1,4 +1,6 @@
 #include "physical_shape_events.h"
+#include "entity_types.h"
+#include "gbtg/entity.h"
 #include <cstring>
 
 namespace gbtg
@@ -20,57 +22,50 @@ u32 clear_physical_shape_event_bits(std::span<u8> event, u32 mask)
 }
 
 // Xbox 0x0012C8A0
-void visit_scene_script_shape_events(u32 first, u8 category,
-    const std::function<std::span<const u8>(u32)>& resolve,
+void visit_scene_script_shape_events(const entity_detail::SegmentProbe* first, u8 category,
+    const std::function<const Actor&(const entity_detail::SegmentProbe&)>& actor_of,
     PhysicalShapeEventContext& context)
 {
-    u32 address = first; // DAT_00511AF4.
-    while (true)
+    // DAT_00511AF4: the segment probes (object +0x1E0, next at +4).
+    for (const entity_detail::SegmentProbe* probe = first; probe != nullptr; probe = probe->next)
     {
-        if (address == 0)
+        // Object +0x204 is the model; its +0x10 header's +4 is the physical shape list.
+        const Actor& actor = actor_of(*probe);
+        if (actor.model == nullptr || actor.model->cpu.data() == nullptr)
         {
-            return;
+            continue;
         }
-        const auto object = resolve(address);
-        const u32 reference = read_u32(object, 0x24);
-        if (reference != 0)
+        const auto cpu = actor.model->cpu;
+        const u32 shape_address = read_u32(cpu, read_u32(cpu, 0x10) + 4);
+        if (shape_address == 0)
         {
-            const u32 cpu = read_u32(resolve(reference), 0);
-            if (cpu != 0)
+            continue;
+        }
+        const auto shapes = cpu.subspan(shape_address);
+        i32 index = 0;
+        auto shape = shapes.subspan(0x10);
+        bool found = false;
+        if (i32(read_u32(shapes, 0)) > 0)
+        {
+            do
             {
-                const u32 runtime = read_u32(resolve(cpu), 0x10);
-                const u32 shape_address = read_u32(resolve(runtime), 4);
-                if (shape_address != 0)
+                if (read_u32(shape, 0xC) == 0x1235 && shape[0] < 3)
                 {
-                    const auto shapes = resolve(shape_address);
-                    i32 index = 0;
-                    auto shape = shapes.subspan(0x10);
-                    bool found = false;
-                    if (i32(read_u32(shapes, 0)) > 0)
-                    {
-                        do
-                        {
-                            if (read_u32(shape, 0xC) == 0x1235 && shape[0] < 3)
-                            {
-                                found = true;
-                                break;
-                            }
-                            ++index;
-                            shape = shape.subspan(read_u32(shape, 8));
-                        }
-                        while (index < i32(read_u32(shapes, 0)));
-                    }
-                    if (found)
-                    {
-                        context.category = category;
-                        context.subtype = 0;
-                        context.mask = 0;
-                        visit_model_physical_shape_events(shapes, context);
-                    }
+                    found = true;
+                    break;
                 }
+                ++index;
+                shape = shape.subspan(read_u32(shape, 8));
             }
+            while (index < i32(read_u32(shapes, 0)));
         }
-        address = read_u32(resolve(address), 4);
+        if (found)
+        {
+            context.category = category;
+            context.subtype = 0;
+            context.mask = 0;
+            visit_model_physical_shape_events(shapes, context);
+        }
     }
 }
 

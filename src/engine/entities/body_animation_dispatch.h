@@ -28,7 +28,7 @@ struct RuntimeBodyAnimationDispatch
     std::span<const char* const, 0x41> flag_names;
     RuntimeActorProximityNode*& proximity;
     u32 body_address;
-    const u8* attachment_record; // Native view of body +0x2D8.
+    const u8* attachment_record; // Actor +0x8C, the callout records 0x0001AE00 walks into body +0x2D8.
     ActorAttachmentEventContext& attachment_events;
     RuntimeBodyAttachmentLists& attachment_lists;
 };

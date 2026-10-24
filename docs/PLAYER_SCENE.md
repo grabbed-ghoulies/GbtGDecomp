@@ -231,6 +231,7 @@ All take the game directory, e.g.
 | `--scene2a11` | Boots chapter 2a scene 11 (chapter2a_scene11_1playcam, the lighthouse store) and plays it with the scene 7 driver: Cooper loses the water pistol, comes down from the balcony (the driver's walk keeps to steps of 8 in floor height), fights the Medusas bare-handed through a Super Scary shock and leaves by the exit; the groundskeeper (tag 0xB) is not fought. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene12_2playcam` (frame 3383 in the 2026-10-24 run) |
 | `--scene2a12` | Boots chapter 2a scene 12 (chapter2a_scene12_2playcam, the boathouse) and plays it with the scene 7 driver: "EVENT - ONE TYPE" is the hunchback (factory type 0x45), who taunts, evades, blocks and charges his special attack until Cooper beats him. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene13_2playcam` (frame 6527 in the 2026-10-24 run) |
 | `--scene2a13` | Boots chapter 2a scene 13 (chapter2a_scene13_2playcam, the dining room) and plays it with the scene 7 driver: "EVENT - NUMBER" wants the pirate leader (tag 0x25), who holds a chest, and the pirates (tag 0x24) that keep bursting in through the windows. The driver goes for the leader first and, with no ghouly within reach, drinks soups from the smashed ghoulyboxes when Cooper is below half his health. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene14_1playcam` (frames 11420, 12005 and 18075 in three 2026-10-24 runs; the waves vary) |
+| `--scene2a14` | Boots chapter 2a scene 14 (chapter2a_scene14_1playcam, the ballroom) and plays it with the scene 7 driver. Does not pass yet: "Event - One type (Skeleton) and one type (zombie)" puts eight skeletons (tag 0x34) and eight zombies (tag 0x3C) on the dance floor against Cooper's 15 energy, and the driver dies before both kill-all steps are done; the event then restarts from "free play" |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -397,6 +398,20 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-24: chapter 2a scene 14 runs natively but is not won
+
+- `0x0001AE00` (body animation command 0x19, the attachment list) walks the actor's +0x8C callout records into body
+  +0x2D8, as the dump does. The binding passed body +0x2D8 itself as the record list, and the zombies' animation
+  events walked body bytes as records until a "record" had no +0xC8 link.
+- Driver: the first kill-all step's class is still chased after that step is done, because scene 2a14's done skeleton
+  step stays in the list. Choosing by step +8 (0 until the step's delay starts) fixed that here but broke scene 2a13,
+  so it was not kept.
+- The event's fight is not won. Its NumberGhouliesAlive and dance-floor conditions run, the skeletons collapse and
+  stand up, and the attacker queue (`0x00112A70`, depth 3 and 3 per class from the script) matches the dump. Cooper
+  still dies in each attempt, and the event restarts after the death ditty (`FAILPITCHBEND`). Tried and dropped: the
+  guitar (holding a weapon lets attackers with +0x96C skip the queue), stepping away from crowds, and striking
+  downed skeletons.
 
 ### 2026-10-24: chapter 2a scene 13 plays to its end
 

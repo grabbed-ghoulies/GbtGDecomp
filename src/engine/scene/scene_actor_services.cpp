@@ -1691,6 +1691,11 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         refresh_pause_groups();
     };
     players->bindings.scene.medusa_parameters = data(0x004287F0, 0x58);
+    players->bindings.scene.hunchback_parameters = data(0x00428770, 0x50);
+    players->bindings.scene.actor_callouts = [this](u32 actor, u32 id, const RuntimeActorCreationOptions* options)
+    {
+        actor_callouts(actor, id, options);
+    };
     players->bindings.scene.light_cones = &light_cones;
     players->bindings.scene.contact_actor = [this](entity_detail::SegmentProbe& probe) -> RuntimeSegmentContactActor&
     {
@@ -7298,7 +7303,7 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
     if (child.type == 0x4F || child.type == 0x46 || child.type == 0x3B || child.type == 0x51 || child.type == 0x52
         || child.type == 0x58 || child.type == 0x44 || child.type == 0x40 || child.type == 0x4C || child.type == 0x53
         || child.type == 0x42 || child.type == 0x47 || child.type == 0x49 || child.type == 0x4B
-        || child.type == 0x4E)
+        || child.type == 0x4E || child.type == 0x45)
     {
         if (auto* player = players->find_player(child); player != nullptr && !player->body.empty())
         {
@@ -7354,6 +7359,9 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
         return;
     case 0x4E:
         players->pirate_message(child, words);
+        return;
+    case 0x45:
+        players->hunchback_message(child, words);
         return;
     case 0x39:
     {
@@ -7832,6 +7840,9 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
                 return;
             case 0x4E:
                 players->pirate_update(strategy);
+                return;
+            case 0x45:
+                players->hunchback_update(strategy);
                 return;
             case 0x39:
             {

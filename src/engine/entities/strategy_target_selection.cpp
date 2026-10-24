@@ -888,6 +888,29 @@ bool count_down_runtime_strategy_timer(float& timer, RuntimePlayerStrategyGoals&
     return true;
 }
 
+// Xbox 0x000BABF0, EAX actor
+bool runtime_mind_target_within(float reach, RuntimePlayerStrategyGoals& context)
+{
+    const std::span<const u8> mind = context.entry.events.mind;
+    const u32 target = mind.empty() ? 0u : read_u32(mind, 0x10);
+    if (target == 0)
+    {
+        return false;
+    }
+    const std::span<const u8> record = context.target_at(target)->bytes;
+    const Vec3 position = actor_world_position(context.entry.actor); // 0x000412A0
+    const float dx = position.x - read_f32(record, 0x20);
+    const float dz = position.z - read_f32(record, 0x28);
+    const float dy = position.y - read_f32(record, 0x24);
+    return dx * dx + dz * dz + dy * dy < reach * reach;
+}
+
+// Xbox 0x000B5C50, EAX actor
+bool runtime_mind_target_within_second(float reach, RuntimePlayerStrategyGoals& context)
+{
+    return runtime_mind_target_within(reach, context);
+}
+
 // Xbox 0x0002BA60
 bool count_down_runtime_strategy_live_timer(float& timer, RuntimePlayerStrategyGoals& context)
 {

@@ -119,6 +119,11 @@ long double runtime_target_distance(const Actor& actor, std::span<const u8> targ
 bool count_down_runtime_strategy_timer(float& timer,
     RuntimePlayerStrategyGoals& context); // Xbox 0x0002B9F0, EAX strategy, ECX timer
 // 0x0002B9F0 held while a pause reference (DAT_0050E768) is open or the decay table's entry is off.
+// The mind's target (+0x10) lies within `reach` of the actor (its point at record +0x20).
+bool runtime_mind_target_within(float reach, RuntimePlayerStrategyGoals& context); // Xbox 0x000BABF0, EAX actor
+// The same test 0x000B5C50 makes against its strategy's second reach.
+bool runtime_mind_target_within_second(float reach,
+    RuntimePlayerStrategyGoals& context); // Xbox 0x000B5C50, EAX actor
 bool count_down_runtime_strategy_live_timer(float& timer,
     RuntimePlayerStrategyGoals& context); // Xbox 0x0002BA60, EAX strategy, EDX timer
 // The message hits this actor (+4) and its attacker's target record (+8 -> +0x8F8) is free and eligible: the mind

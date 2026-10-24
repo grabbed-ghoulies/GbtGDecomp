@@ -229,6 +229,7 @@ All take the game directory, e.g.
 | `--scene2a9` | Boots chapter 2a scene 9 (chapter2a_scene9_1playcam, the lighthouse lantern room) and plays it with the scene 7 driver: Cooper climbs the spiral stair to the glow worms (the driver walks a goal on another floor through the stair's end), the exit door opens and the imp from the ghoulybox jumps onto Cooper's head (factory type 0x79), which the driver shakes off with the left stick. Cameron (tag 6) is not fought. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene10_1playcam` (frame 2593 in the 2026-10-24 run) |
 | `--scene2a10` | Boots chapter 2a scene 10 (chapter2a_scene10_1playcam, the lighthouse living quarters again) and plays it with the scene 7 driver: "Event: Required Number (Zombies)" counts zombie kills against a time limit while the haunted TV makes more, then the second "Free Play" waits for every ghouly to be gone. The driver goes after a kill-count step's class (step type 3, its tag at +0x1C) and lines the exit up through the door it came in by. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene11_1playcam` (frame 5493 in the 2026-10-24 run) |
 | `--scene2a11` | Boots chapter 2a scene 11 (chapter2a_scene11_1playcam, the lighthouse store) and plays it with the scene 7 driver: Cooper loses the water pistol, comes down from the balcony (the driver's walk keeps to steps of 8 in floor height), fights the Medusas bare-handed through a Super Scary shock and leaves by the exit; the groundskeeper (tag 0xB) is not fought. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene12_2playcam` (frame 3383 in the 2026-10-24 run) |
+| `--scene2a12` | Boots chapter 2a scene 12 (chapter2a_scene12_2playcam, the boathouse) and plays it with the scene 7 driver: "EVENT - ONE TYPE" is the hunchback (factory type 0x45), who taunts, evades, blocks and charges his special attack until Cooper beats him. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene13_2playcam` (frame 6527 in the 2026-10-24 run) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -395,6 +396,19 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-24: chapter 2a scene 12 plays to its end
+
+- The hunchback's strategy (factory type 0x45, entityStrategyHunchback, `hunchback_strategy.cpp`, vtable 0x00505E88,
+  parameters at 0x00428770) is translated: sizes and constructor `0x000B3A70` / `0x000B3AE0`, the update `0x000B3B40`
+  and its states (special attack 0x3EF `0x000B3530`, evade 0x3FE `0x000B2BF0`, idle and taunts 0x401 `0x000B2DD0`,
+  dizzy 0x409 `0x000B3220`, block 0x40C `0x000B33B0`), the message `0x000B3BF0`, the enter and leave slots
+  `0x000B3DD0` / `0x000B3E70` and their helpers (`0x000B2B70` .. `0x000B3F10`). The special attack arms the 0xFD
+  attack row and the hands' contact shapes (tag 3) and holds the latches; `0x000B39D0` undoes it.
+- `0x000BABF0` (the mind's target within reach) moved from the Medusa into `strategy_target_selection` for both, with
+  `0x000B5C50` beside it. Message 0x41's position callout goes through a new scene binding over 0x0003BE20.
+- Shown (looked at): the hunchback's introduction page, his block (`scene2a12_block_2100.bmp`), his special attack
+  (`scene2a12_special_3000.bmp`) and his dizzy stars.
 
 ### 2026-10-24: chapter 2a scene 11 plays to its end
 

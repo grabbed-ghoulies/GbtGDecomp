@@ -18,6 +18,7 @@
 #include "imp_ninja_strategy.h"
 #include "medusa_strategy.h"
 #include "pirate_strategy.h"
+#include "hunchback_strategy.h"
 #include "haunted_tv_strategy.h"
 #include "haunted_chair_strategy.h"
 #include "grim_reaper_strategy.h"
@@ -181,6 +182,9 @@ struct NativePlayerSceneBindings
     std::function<void(std::span<const u8>)> create_object{}; // 0x00107520 into the scene's objects.
     // Rebuilds `pause` over the current DAT_00511B38 list (players destroyed since leave it) before 0x000BF410 walks it.
     std::function<void()> refresh_pause{};
+    // Hunchback strategy (type 0x45, vtable 0x00505E88): DAT_00428770, and an actor's callout records (0x0003BE20).
+    std::span<const u8> hunchback_parameters{};
+    std::function<void(u32 actor, u32 id, const RuntimeActorCreationOptions* options)> actor_callouts{};
     const RuntimeBodyDamageTables* damage_tables = nullptr; // 0x00028DA0's tables.
     AudioBankStreams* audio_banks = nullptr; // DAT_004DF370.
     RuntimeBlobShadows* blob_shadows = nullptr; // DAT_0050EC10.
@@ -336,6 +340,7 @@ struct NativePlayerInstance
     RuntimeImpNinjaStrategy imp_ninja; // Type 0x49, over `spider`'s views.
     RuntimeMedusaStrategy medusa; // Type 0x4B, over `spider`'s views.
     RuntimePirateStrategy pirate; // Type 0x4E.
+    RuntimeHunchbackStrategy hunchback; // Type 0x45.
     void refresh_input_views(); // After the player constructor allocates actor +0x960.
     void refresh_views(); // Body, input, mind and strategy value views before a method runs.
 };
@@ -402,6 +407,8 @@ public:
     void medusa_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000BB340.
     void pirate_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000BE520.
     void pirate_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000BE160.
+    void hunchback_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000B3BF0.
+    void hunchback_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000B3B40.
     NativePlayerFactoryBindings bindings;
     NativePlayerMindOwner minds;
     // Retail keeps the type 5 vtable through the whole destructor chain, so the base actor destructor still

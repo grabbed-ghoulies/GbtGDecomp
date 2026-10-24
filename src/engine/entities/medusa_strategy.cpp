@@ -417,20 +417,10 @@ void gaze(RuntimeMedusaStrategy& context, u32 attacking)
     actor.model_flags = saved_flags;
 }
 
-// Xbox 0x000BABF0, EAX actor: the target's point lies within the parameters' reach (+0).
+// The target's point lies within the parameters' reach (+0).
 bool target_near(RuntimeMedusaStrategy& context)
 {
-    const RuntimeMindTarget* target = mind_target(context);
-    if (target == nullptr)
-    {
-        return false;
-    }
-    const float reach = parameter(context, 0);
-    const Vec3 position = actor_world_position(actor_of(context)); // 0x000412A0
-    const float dx = position.x - read_f32(target->bytes, 0x20);
-    const float dz = position.z - read_f32(target->bytes, 0x28);
-    const float dy = position.y - read_f32(target->bytes, 0x24);
-    return dx * dx + dz * dz + dy * dy < reach * reach;
+    return runtime_mind_target_within(parameter(context, 0), goals_of(context)); // 0x000BABF0
 }
 
 // Xbox 0x000BAC90, ECX strategy, EBX actor: a live, standing target near enough and in a clear walk, with no attack

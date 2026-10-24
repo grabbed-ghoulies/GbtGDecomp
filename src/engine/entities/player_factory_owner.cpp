@@ -447,6 +447,22 @@ const ObjectFactoryVtable* pirate_strategy_lifecycle()
     return &table;
 }
 
+bool construct_hunchback_strategy_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto* player = active_owner->find_player(object);
+    player->strategy_type = 0x45;
+    player->refresh_views();
+    return initialize_runtime_hunchback_strategy(bytes_of(object), parameters, player->actor); // 0x000B3AE0
+}
+
+// Getter 0x000B3A90; vtable +8 is the empty 0x001628B0.
+const ObjectFactoryVtable* hunchback_strategy_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505E88, hunchback_strategy_object_sizes,
+        construct_hunchback_strategy_view, destroy_empty_player_object};
+    return &table;
+}
+
 bool construct_haunted_door_strategy_view(FactoryObject& object, std::span<const u8> parameters)
 {
     auto* player = active_owner->find_player(object);
@@ -635,6 +651,13 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
                   leave_runtime_pirate_state(old_state, pirate);
                   return;
               }
+              if (strategy_type == 0x45)
+              {
+                  // Hunchback strategy vtable +0x18, 0x000B3E70.
+                  refresh_views();
+                  leave_runtime_hunchback_state(old_state, hunchback);
+                  return;
+              }
               if (strategy_type == 0x42)
               {
                   // Haunted door strategy vtable +0x18, 0x000B0520.
@@ -744,6 +767,12 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
               {
                   // Pirate strategy vtable +0x14, 0x000BE820.
                   enter_runtime_pirate_state(state, previous, pirate);
+                  return;
+              }
+              if (strategy_type == 0x45)
+              {
+                  // Hunchback strategy vtable +0x14, 0x000B3DD0.
+                  enter_runtime_hunchback_state(state, previous, hunchback);
                   return;
               }
               if (strategy_type == 0x42)
@@ -988,7 +1017,20 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
       pirate{strategy_messages, target_checks, target_queue, strategy_views, attachment, scene_bindings.latches,
           scene_bindings.create_effect, scene_bindings.object_message, scene_bindings.actor_address, "attack",
           "attack_knockdown", "attack_knockdown_confused", "angry", "attack_special", "attack_specialnosword",
-          "throw_multiplechests", "throw_singlechest", "drink", "far", "getweapon", "getweapon_confused"}
+          "throw_multiplechests", "throw_singlechest", "drink", "far", "getweapon", "getweapon_confused"},
+      hunchback{strategy_messages, target_checks, strategy_views, scene_bindings.hunchback_parameters, collision,
+          animation_resource, scene_bindings.attack_tables, actor_instance.live_attachments, scene_bindings.latches,
+          axis_device, scene_bindings.keyboard, scene_bindings.create_effect, scene_bindings.object_message,
+          [this](u32 actor, u32 id, const RuntimeActorCreationOptions* options)
+          {
+              if (!scene.actor_callouts)
+              {
+                  throw Error("hunchback strategy: 0x0003BE20 over an actor's callouts is not bound");
+              }
+              scene.actor_callouts(actor, id, options);
+          },
+          "evade", "intofar", "randomrun", "tauntnoturn", "intoblock", "specialattackprepare",
+          "specialattackprepare2", "specialattack", "specialattackfinish"}
 {
 }
 
@@ -1313,6 +1355,28 @@ void NativePlayerFactoryOwner::pirate_update(FactoryObject& strategy)
     update_runtime_pirate_strategy(player->pirate);
 }
 
+void NativePlayerFactoryOwner::hunchback_message(FactoryObject& strategy, std::span<const u32> message)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x45)
+    {
+        throw Error("hunchback strategy method has no owning instance");
+    }
+    player->refresh_views();
+    dispatch_runtime_hunchback_message(message, player->hunchback);
+}
+
+void NativePlayerFactoryOwner::hunchback_update(FactoryObject& strategy)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x45)
+    {
+        throw Error("hunchback strategy method has no owning instance");
+    }
+    player->refresh_views();
+    update_runtime_hunchback_strategy(player->hunchback);
+}
+
 void NativePlayerFactoryOwner::haunted_door_message(FactoryObject& strategy, std::span<const u32> message)
 {
     auto* player = find_player(strategy);
@@ -1488,6 +1552,7 @@ void NativePlayerFactoryOwner::install(std::span<ObjectFactoryType> types)
     types[0x49] = ObjectFactoryType{8, imp_ninja_strategy_lifecycle};
     types[0x4B] = ObjectFactoryType{8, medusa_strategy_lifecycle};
     types[0x4E] = ObjectFactoryType{8, pirate_strategy_lifecycle};
+    types[0x45] = ObjectFactoryType{8, hunchback_strategy_lifecycle};
     types[0x28] = ObjectFactoryType{6, camera_body_lifecycle};
     types[0x39] = ObjectFactoryType{8, director_strategy_lifecycle};
     minds.install(types);

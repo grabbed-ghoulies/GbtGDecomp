@@ -224,6 +224,7 @@ All take the game directory, e.g.
 | `--scene2a4` | Boots chapter 2a scene 4 (chapter2a_scene4_2playcam, the ballroom) and plays it with the scene 7 driver, not fighting during "free play". Script type 0x67 opens the balcony gate's collision (category 0xFE) through 0x0012C8A0, Cooper walks onto the dance floor (region 11), the skeleton and zombie event is fought to its end and he leaves through the exit. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene5_1playcam` (frame 12503 in the 2026-10-24 run) |
 | `--scene2a5` | Boots chapter 2a scene 5 (chapter2a_scene5_1playcam, the conservatory) and plays it with the scene 7 driver, not fighting during "FREE PLAY" (it ends at door 0xF): the door closes, the ninja imps (factory type 0x49) come, the key carrier's death drops the ghouly key (type 0x18) under "ghoulykeycam" and Cooper leaves through the exit. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene6_1book` (frame 7164 in the 2026-10-24 run) |
 | `--scene2a6` | Boots chapter 2a scene 6's book (chapter2a_scene6_1book), passes it to `chapter2a_scene6_2playcam` (the boathouse) and plays that with the scene 7 driver. In a one-type event (step type 0xD) the driver goes for that class and fights off any other ghouly within 10. Fails today: Cooper is mobbed in a pocket by the barrels (around 28, -49) during "EVENT - ONE TYPE" and dies, and the scene restarts (2026-10-24). Played by hand the same day, the scene completes and moves on to the next one |
+| `--scene2a7` | Boots chapter 2a scene 7 (chapter2a_scene7_2playcam) and plays it with the scene 7 driver at any fight range: the Medusa (factory type 0x4B) gazes at Cooper, whose shock starts the Super Scary challenge, and the event's key candidates are thinned by step type 1. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene8_1playcam` (frame 4504 in the 2026-10-24 run) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -390,6 +391,29 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-24: chapter 2a scene 7 plays to its end
+
+- The Medusa's strategy (factory type 0x4B, `medusa_strategy.cpp`, vtable 0x00505F30, parameters at 0x004287F0) is
+  translated: sizes and constructor `0x000BB1B0` / `0x000BB220`, the tick `0x000BB340` and its states (gaze 0x3EF,
+  its end 0x3F0, walking 0x401, 0x403, dizzy 0x409), the message `0x000BB400`, the enter and leave slots `0x000BB720` /
+  `0x000BB7D0` and their helpers `0x000B9C00` .. `0x000BB870`. Her gaze is two light cones from markers 7 and 6; a
+  ray along it that reaches a watching player starts the Super Scary challenge (`0x000873A0`) and sends message 0x15
+  to the target and 0x41 to herself. Shared helpers: `0x0001D9D0` (body flinch reset), `0x00106140` (the angle
+  between two horizontal vectors) and `0x00152C40` (`retail_acos`). `0x001414F0` moved from the ninja imp to
+  `strategy_target_selection` for both.
+- The light cones (DAT_0050EF20, `light_cones.cpp`): add, clear, the axis rotation `0x001047E0`, the cone builder
+  `0x00119F40`, the sort `0x00119BE0` and the draw `0x0011AF90`, which projects each cone's spot onto the background
+  grid with the shadow projector's alternate shaders (`0x000644F0` / `0x00064820`) and pushes each cone's rim as a
+  strip. The D3D11 presenter now supports pixel shader texture mode 5 (clip plane), as xemu implements it.
+- Event step type 1's key-candidate drop (`0x000D0200`) retires each dropped candidate through the inlined
+  `0x00112CC0`; the Super Scary challenge's render toggles (`0x0003CBB0` / `0x0003CAE0`) now reach the actors.
+- The player strategy's leave (`0x000BF410`) rebuilds the scene's DAT_00511B38 pause list first: at scene end it
+  walked a list built before some of its players were destroyed.
+- Shown (looked at): the gaze's spot, green on the floor and crates near Cooper (`scene2a7_2090.bmp` ..
+  `scene2a7_2120.bmp`), then Cooper's shock (`scene2a7_2400.bmp`) and the Medusa's close-up (`scene2a7_2130.bmp`).
+  Not confirmed: the spot shows as hard-edged green patches the shape of the grid cells rather than a soft spot, and
+  the cones' rim strips were not seen in any capture. Both need an xemu comparison.
 
 ### 2026-10-24: chapter 2a scene 6 (the boathouse), in progress
 

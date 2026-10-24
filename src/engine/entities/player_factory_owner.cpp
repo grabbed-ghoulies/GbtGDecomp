@@ -415,6 +415,22 @@ const ObjectFactoryVtable* imp_ninja_strategy_lifecycle()
     return &table;
 }
 
+bool construct_medusa_strategy_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto* player = active_owner->find_player(object);
+    player->strategy_type = 0x4B;
+    player->refresh_views();
+    return initialize_runtime_medusa_strategy(bytes_of(object), parameters, player->medusa); // 0x000BB220
+}
+
+// Getter 0x000BB1D0; vtable +8 is the empty 0x001628B0.
+const ObjectFactoryVtable* medusa_strategy_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505F30, medusa_strategy_object_sizes, construct_medusa_strategy_view,
+        destroy_empty_player_object};
+    return &table;
+}
+
 bool construct_haunted_door_strategy_view(FactoryObject& object, std::span<const u8> parameters)
 {
     auto* player = active_owner->find_player(object);
@@ -589,6 +605,13 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
                   leave_runtime_imp_ninja_state(old_state, imp_ninja);
                   return;
               }
+              if (strategy_type == 0x4B)
+              {
+                  // Medusa strategy vtable +0x18, 0x000BB7D0.
+                  refresh_views();
+                  leave_runtime_medusa_state(old_state, medusa);
+                  return;
+              }
               if (strategy_type == 0x42)
               {
                   // Haunted door strategy vtable +0x18, 0x000B0520.
@@ -624,6 +647,10 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
                   return;
               }
               // Player strategy vtable +0x18, 0x000BF410.
+              if (scene.refresh_pause)
+              {
+                  scene.refresh_pause();
+              }
               leave_runtime_player_strategy(bytes_of(object), old_state, next_state, body, scene.active_strategies,
                   scene.pause);
           },
@@ -682,6 +709,12 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
               {
                   // Ninja imp strategy vtable +0x14, 0x000B7E60.
                   enter_runtime_imp_ninja_state(state, previous, imp_ninja);
+                  return;
+              }
+              if (strategy_type == 0x4B)
+              {
+                  // Medusa strategy vtable +0x14, 0x000BB720.
+                  enter_runtime_medusa_state(state, previous, medusa);
                   return;
               }
               if (strategy_type == 0x42)
@@ -884,7 +917,45 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
               actor_message(message);
           },
           "psycheup", "psycheuptraitor", "spinkick", "jumpkickbig", "jumpkick", "innerforce", "innerforceoutof",
-          "randommove", "randomwalk", "meditate", "meditateoutof"}
+          "randommove", "randomwalk", "meditate", "meditateoutof"},
+      medusa{spider, scene_bindings.medusa_parameters, scene_bindings.light_cones, animation_resource,
+          scene_bindings.attack_tables, scene_bindings.address_of, scene_bindings.sounds, body_selection,
+          scene_bindings.latches,
+          [this]()
+          {
+              if (body_bits == nullptr)
+              {
+                  throw Error("Medusa strategy: 0x0001D3D0 without the body +0x15C bit block");
+              }
+              const RuntimePlayerAttachmentEligibility eligibility{body, *body_bits, actor, attached};
+              return runtime_player_body_attachment_radius(eligibility); // 0x0001D3D0
+          },
+          [this](entity_detail::SegmentProbe& probe) -> RuntimeSegmentContactActor&
+          {
+              if (!scene.contact_actor)
+              {
+                  throw Error("Medusa strategy: the scene's segment probe actors are not bound");
+              }
+              return scene.contact_actor(probe);
+          },
+          [this](RuntimeContactReport& report)
+          {
+              if (!scene.contact_report)
+              {
+                  throw Error("Medusa strategy: the actor's message slot (vtable +0xC) is not bound");
+              }
+              scene.contact_report(*this, report);
+          },
+          [this](std::span<const u8> parameters)
+          {
+              if (!scene.create_object)
+              {
+                  throw Error("Medusa strategy: 0x00107520 is not bound");
+              }
+              scene.create_object(parameters);
+          },
+          scene_bindings.runtime_flags, "specialattack", "spin", "specialattackwalk", "specialattacksucceed",
+          "backtonormal", "randomwalk", "attack", "shockcam1", "shockcam2"}
 {
 }
 
@@ -1165,6 +1236,28 @@ void NativePlayerFactoryOwner::imp_ninja_update(FactoryObject& strategy)
     update_runtime_imp_ninja_strategy(player->imp_ninja);
 }
 
+void NativePlayerFactoryOwner::medusa_message(FactoryObject& strategy, std::span<const u32> message)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x4B)
+    {
+        throw Error("Medusa strategy method has no owning instance");
+    }
+    player->refresh_views();
+    dispatch_runtime_medusa_message(message, player->medusa);
+}
+
+void NativePlayerFactoryOwner::medusa_update(FactoryObject& strategy)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x4B)
+    {
+        throw Error("Medusa strategy method has no owning instance");
+    }
+    player->refresh_views();
+    update_runtime_medusa_strategy(player->medusa);
+}
+
 void NativePlayerFactoryOwner::haunted_door_message(FactoryObject& strategy, std::span<const u32> message)
 {
     auto* player = find_player(strategy);
@@ -1338,6 +1431,7 @@ void NativePlayerFactoryOwner::install(std::span<ObjectFactoryType> types)
     types[0x42] = ObjectFactoryType{8, haunted_door_strategy_lifecycle};
     types[0x47] = ObjectFactoryType{8, imp_flamethrower_strategy_lifecycle};
     types[0x49] = ObjectFactoryType{8, imp_ninja_strategy_lifecycle};
+    types[0x4B] = ObjectFactoryType{8, medusa_strategy_lifecycle};
     types[0x28] = ObjectFactoryType{6, camera_body_lifecycle};
     types[0x39] = ObjectFactoryType{8, director_strategy_lifecycle};
     minds.install(types);

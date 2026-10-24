@@ -107,21 +107,6 @@ EntityBitBlock& body_bits(RuntimeImpNinjaStrategy& context, const char* caller)
     return *bits;
 }
 
-// Xbox 0x001414F0, EAX target: a player (+0xCDC 2, or +0x93C set) with +0xCE0 set, and the record's +0x14 clear.
-bool target_is_watching_player(const RuntimeMindTarget& target)
-{
-    if (target.bytes[0x14] != 0)
-    {
-        return false;
-    }
-    const std::span<const u8> actor = target.actor_bytes;
-    if (read_u32(actor, 0xCE0) == 0)
-    {
-        return false;
-    }
-    return read_u16(actor, 0xCDC) == 2 || read_u32(actor, 0x93C) != 0;
-}
-
 // Xbox 0x000B7360, EBX strategy: the inner force's effect, made once from the template named at +0x3C.
 void make_inner_force_effect(RuntimeImpNinjaStrategy& context)
 {
@@ -442,7 +427,7 @@ void update_runtime_imp_ninja_strategy(RuntimeImpNinjaStrategy& context)
     u32 open = 0;
     if (target != nullptr)
     {
-        open = provoked || !target_is_watching_player(*target) ? 1u : 0u; // 0x001414F0
+        open = provoked || !runtime_strategy_target_watching_player(*target) ? 1u : 0u; // 0x001414F0
     }
     else
     {

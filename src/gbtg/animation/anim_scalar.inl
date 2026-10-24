@@ -70,6 +70,42 @@ long double retail_asin(float value)
         ((((argument * a + b) * argument + c) * argument + d) * argument + e) * root * 2.f;
 }
 
+// Xbox 0x00152C40
+long double retail_acos(float value)
+{
+    constexpr float a = animation_float(0x3D59C381);
+    constexpr float b = animation_float(0x3D1C91EF);
+    constexpr float c = animation_float(0x3D9B205A);
+    constexpr float d = animation_float(0x3E2AA19F);
+    constexpr float e = animation_float(0x3F800004);
+    const float square = value * value;
+    if (square <= 0.25f)
+    {
+        return animation_float(0x3FC90FDB) - ((((square * a + b) * square + c) * square + d) * square + e) * value;
+    }
+    if (value > 0.5f)
+    {
+        const float argument = 0.5f - value * 0.5f;
+        float estimate = float(animation_rsqrt_estimate(argument));
+        estimate = (1.5f - argument * 0.5f * estimate * estimate) * estimate;
+        float root = argument;
+        if (0.f - argument < 0.f)
+        {
+            root = (1.5f - argument * 0.5f * estimate * estimate) * estimate * argument;
+        }
+        return ((((argument * a + b) * argument + c) * argument + d) * argument + e) * root * 2.f;
+    }
+    const float argument = (value + 1.f) * 0.5f;
+    float estimate = float(animation_rsqrt_estimate(argument));
+    estimate = (1.5f - argument * 0.5f * estimate * estimate) * estimate;
+    float root = argument;
+    if (0.f - argument < 0.f)
+    {
+        root = (1.5f - argument * 0.5f * estimate * estimate) * estimate * argument;
+    }
+    return animation_float(0x40490FDB) - ((((argument * a + b) * argument + c) * argument + d) * argument + e) * root * 2.f;
+}
+
 // Xbox 0x001530E0
 long double retail_atan2(float y, float x)
 {

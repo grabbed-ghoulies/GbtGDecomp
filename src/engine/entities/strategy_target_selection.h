@@ -61,6 +61,8 @@ bool select_runtime_strategy_hostile_target(RuntimeMindTarget*& output, u32 forc
     RuntimePlayerStrategyGoals& context); // Xbox 0x00139C70, EAX strategy, EDX force
 Actor* runtime_mind_target_case_actor(const RuntimeMindTarget& target); // Xbox 0x00141450, EAX target
 bool runtime_mind_target_case_unavailable(const RuntimeMindTarget& target); // Xbox 0x00141470, EAX target
+// A player (+0xCDC 2, or +0x93C set) with +0xCE0 set, and the record's +0x14 clear.
+bool runtime_strategy_target_watching_player(const RuntimeMindTarget& target); // Xbox 0x001414F0, EAX target
 u32 runtime_actor_attack_limit(std::span<const u8> attributes); // Xbox 0x000196B0, EAX actor
 bool roll_runtime_actor_attack(std::span<const u8> attributes, u32& random); // Xbox 0x000196F0, EAX actor
 bool roll_runtime_actor_knockdown(std::span<const u8> attributes, u32& random); // Xbox 0x00019750, EAX actor

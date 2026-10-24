@@ -16,6 +16,7 @@
 #include "haunted_door_strategy.h"
 #include "imp_flamethrower_strategy.h"
 #include "imp_ninja_strategy.h"
+#include "medusa_strategy.h"
 #include "haunted_tv_strategy.h"
 #include "haunted_chair_strategy.h"
 #include "grim_reaper_strategy.h"
@@ -44,7 +45,7 @@ struct NativePlayerSceneBindings
     u32& random; // DAT_0054DD7C.
     const RuntimeInputReleaseContext& input_release;
     RuntimeInputActivationContext& input_activation;
-    const u32& runtime_flags; // DAT_0050EA9C.
+    u32& runtime_flags; // DAT_0050EA9C.
     const u32& story_flags; // DAT_0050EA98.
     u32& player_count; // DAT_00510578.
     u32& active_strategies; // DAT_00510CEC.
@@ -170,6 +171,15 @@ struct NativePlayerSceneBindings
     std::span<const u8> grim_reaper_parameters{}; // DAT_00302B7C.
     // Ninja imp strategy (type 0x49, vtable 0x00505EF8).
     std::span<const u8> imp_ninja_parameters{}; // DAT_00303198.
+    // Medusa strategy (type 0x4B, vtable 0x00505F30).
+    std::span<const u8> medusa_parameters{}; // DAT_004287F0.
+    RuntimeLightCones* light_cones = nullptr; // DAT_0050EF20.
+    std::function<RuntimeSegmentContactActor&(entity_detail::SegmentProbe&)> contact_actor{}; // Probe - 0x1E0.
+    // A contact report (message 0x41) through the player's actor vtable +0xC.
+    std::function<void(NativePlayerInstance&, RuntimeContactReport&)> contact_report{};
+    std::function<void(std::span<const u8>)> create_object{}; // 0x00107520 into the scene's objects.
+    // Rebuilds `pause` over the current DAT_00511B38 list (players destroyed since leave it) before 0x000BF410 walks it.
+    std::function<void()> refresh_pause{};
     const RuntimeBodyDamageTables* damage_tables = nullptr; // 0x00028DA0's tables.
     AudioBankStreams* audio_banks = nullptr; // DAT_004DF370.
     RuntimeBlobShadows* blob_shadows = nullptr; // DAT_0050EC10.
@@ -323,6 +333,7 @@ struct NativePlayerInstance
     RuntimeHauntedDoorStrategy haunted_door; // Type 0x42.
     RuntimeImpFlamethrowerStrategy imp_flamethrower; // Type 0x47, over `spider`'s views.
     RuntimeImpNinjaStrategy imp_ninja; // Type 0x49, over `spider`'s views.
+    RuntimeMedusaStrategy medusa; // Type 0x4B, over `spider`'s views.
     void refresh_input_views(); // After the player constructor allocates actor +0x960.
     void refresh_views(); // Body, input, mind and strategy value views before a method runs.
 };
@@ -385,6 +396,8 @@ public:
     void imp_flamethrower_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000B5570.
     void imp_ninja_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000B7C50.
     void imp_ninja_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000B7B40.
+    void medusa_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000BB400.
+    void medusa_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000BB340.
     NativePlayerFactoryBindings bindings;
     NativePlayerMindOwner minds;
     // Retail keeps the type 5 vtable through the whole destructor chain, so the base actor destructor still

@@ -316,7 +316,6 @@ void set_script_event_sequence_state(Game& g, i32 state)
     }
 }
 
-// Xbox 0x000D0B10
 // Xbox 0x000D0200: step type 1 keeps one of the class 0x47 key candidates at random.
 void start_script_event_key_step()
 {
@@ -455,6 +454,7 @@ void start_script_event_camera_step(std::span<u8> step)
     put_word(step, 0x84, 0);
 }
 
+// Xbox 0x000D0B10
 void prepare_script_event_steps()
 {
     auto* pool = g_event_sequence.steps;

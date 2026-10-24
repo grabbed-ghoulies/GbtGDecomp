@@ -147,7 +147,7 @@ Gates translated, bodies raise when they open (none open in the opening):
 | `0x0012AB10` post models | `DAT_00512AF0` | `0x0012A9B0` / `0x0012A9E0` / `0x0012AA70` not called natively |
 | `0x000ED390` effect draw | each `DAT_00506930` word | The port's table has 150 entries; retail loops to `0x00506C50` (200) |
 | `0x000EBCB0` trails | live type-2 trail records | Pool is native |
-| `0x0011AF90` decals | `DAT_00510560` and a background | `0x0011AEA0` / `0x0011AEE0` / `0x000BA840` not translated |
+| `0x0011AF90` light cones | `DAT_00510560` and a background | Translated (`light_cones.cpp`); the Medusa's gaze opens it |
 | `0x00119230` shadow volumes | `DAT_0050EC00`, `DAT_0050484C < 1` | Only cleared natively |
 | `0x0011BA50` refraction | `DAT_00510580`, `DAT_00510650 == 0` | `0x0011B7A0` (scene start) not run |
 | `0x000615E0` screen effects | `DAT_00504478`, `DAT_005044A4`, `DAT_005044B0` | `0x00060BC0`..`0x000619D0` not translated |

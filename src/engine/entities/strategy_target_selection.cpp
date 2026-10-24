@@ -1052,4 +1052,19 @@ u32 react_runtime_strategy_watched_actor(std::span<const u32> message, RuntimeSt
     change_state(0x3F2, goals);
     return 1;
 }
+
+// Xbox 0x001414F0, EAX target
+bool runtime_strategy_target_watching_player(const RuntimeMindTarget& target)
+{
+    if (target.bytes[0x14] != 0)
+    {
+        return false;
+    }
+    const std::span<const u8> actor = target.actor_bytes;
+    if (read_u32(actor, 0xCE0) == 0)
+    {
+        return false;
+    }
+    return read_u16(actor, 0xCDC) == 2 || read_u32(actor, 0x93C) != 0;
+}
 }

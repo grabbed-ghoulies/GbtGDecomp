@@ -88,6 +88,7 @@ add_library(gbtg_lib STATIC
     src/engine/scene/scene_view_present.cpp
     src/engine/graphics/light_volume_draw.cpp
     src/engine/graphics/light_volume_records.cpp
+    src/engine/graphics/light_cones.cpp
     src/engine/graphics/door_shadow_draw.cpp
     src/engine/graphics/xg_shader_assembly.cpp
     src/engine/graphics/xg_pixel_shader.cpp
@@ -224,6 +225,7 @@ add_library(gbtg_lib STATIC
     src/engine/entities/haunted_door_strategy.cpp
     src/engine/entities/imp_flamethrower_strategy.cpp
     src/engine/entities/imp_ninja_strategy.cpp
+    src/engine/entities/medusa_strategy.cpp
     src/engine/entities/ghouly_key_actor.cpp
     src/engine/entities/water_pistol_weapon.cpp
     src/engine/entities/body_death_state.cpp

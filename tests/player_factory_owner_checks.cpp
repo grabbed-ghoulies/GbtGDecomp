@@ -98,7 +98,7 @@ void check_player_factory_owner()
     std::array<u8, 0x3C> keyboard{};
     std::array<u32, 5> ports{};
     RuntimeInputActivationContext activation{entries, selected, {}, keyboard, ports.data() + 1, input_addresses};
-    const u32 runtime_flags = 0;
+    u32 runtime_flags = 0;
     const u32 story_flags = 0;
     u32 player_count = 0;
     u32 active_strategies = 0;

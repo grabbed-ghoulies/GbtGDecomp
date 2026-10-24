@@ -1006,6 +1006,8 @@ struct SceneActorServices::State
     void begin_scene();
     void begin_teardown(); // 0x0011C5A0's 0x000584D0, 0x0004ECE0 and 0x0005B1E0
     void retire_actors(); // 0x0011C5A0's 0x00122C70 and 0x001232D0
+    // A scene actor's render registration by its address, for the Super Scary challenge's player and head (+0x2BC).
+    ActorRenderRegistration& super_scary_render(u32 address);
     void end_scene();
     void reset_scene_data();
 
@@ -1134,7 +1136,7 @@ struct SceneActorServices::State
     u32 mirror_pass = 0; // DAT_0051120C.
     // Gates of 0x0011C240's passes whose writers are not translated; they hold their BSS value.
     u32 post_model_count = 0; // DAT_00512AF0 (0x0012A9B0 / 0x0012A9E0 / 0x0012AA70).
-    u32 decal_count = 0; // DAT_00510560 (0x0011AEA0 / 0x0011AEE0 / 0x000BA840).
+    RuntimeLightCones light_cones{}; // DAT_0050EF20 / DAT_00510560 (0x0011AEA0 / 0x0011AEE0 / 0x000BA840).
     u32 caption_camera = 0; // DAT_004DE9AC (0x00032AB0).
     u32 caption_widget = 0; // DAT_004DE9A0 (0x00032AB0).
     i32 frontend_state = 0; // DAT_004E17C8 (0x00033030, 0x0004A4D0).
@@ -1682,6 +1684,36 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     players->install(scene.types);
     players->bindings.scene.grim_reaper_parameters = data(0x00302B7C, 0x38);
     players->bindings.scene.imp_ninja_parameters = data(0x00303198, 0x18);
+    players->bindings.scene.refresh_pause = [this]()
+    {
+        refresh_pause_groups();
+    };
+    players->bindings.scene.medusa_parameters = data(0x004287F0, 0x58);
+    players->bindings.scene.light_cones = &light_cones;
+    players->bindings.scene.contact_actor = [this](entity_detail::SegmentProbe& probe) -> RuntimeSegmentContactActor&
+    {
+        return segment_contact_actor(probe);
+    };
+    players->bindings.scene.contact_report = [this](NativePlayerInstance& player, RuntimeContactReport& report)
+    {
+        // {0x41, word, velocity, object, contacts, point, reply}.
+        std::array<u32, 0x42> words{};
+        words[0] = report.id;
+        words[1] = u32(report.word);
+        words[2] = std::bit_cast<u32>(report.velocity.x);
+        words[3] = std::bit_cast<u32>(report.velocity.y);
+        words[4] = std::bit_cast<u32>(report.velocity.z);
+        words[5] = address_of(&report.object->actor);
+        words[7] = std::bit_cast<u32>(report.point.x);
+        words[8] = std::bit_cast<u32>(report.point.y);
+        words[9] = std::bit_cast<u32>(report.point.z);
+        words[10] = report.reply;
+        dispatch_contact_words(player, words, report.contacts, 6);
+    };
+    players->bindings.scene.create_object = [this](std::span<const u8> parameters)
+    {
+        scene.keep_object(create_factory_object(scene.factory, parameters)); // 0x00107520
+    };
     players->bindings.scene.audio_banks = &audio.streams;
     players->bindings.scene.blob_shadows = &blob_shadows;
     players->bindings.scene.attach_actor_messages = [this](FactoryObject& object, NativePlayerInstance& player)
@@ -2824,8 +2856,8 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             },
             [this](u32 address)
             {
-                unbound("0x000D0200 dropping key candidate " + std::to_string(address)
-                    + " (0x00112D10, message 0x80 and 0x0003ED70 on a scene actor)");
+                // 0x000D0200 inlines 0x00112CC0: 0x00112D10 on +0x920, then message 0x80 and 0x0003ED70.
+                activate_actor_bind_tree(*actors->actors.at(scene.resolve_address(address, 0).data()));
             },
             &random,
             [this]() -> const Actor*
@@ -3452,13 +3484,13 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             }
             throw Error("Super Scary challenge retires an address that is not a scene actor");
         },
-        [](u32)
+        [this](u32 address)
         {
-            throw Error("untranslated 0x0003CBB0 render toggle from the Super Scary challenge (+0x2BC)");
+            unregister_actor_render_bins(super_scary_render(address)); // 0x0003CBB0, EDI the actor
         },
-        [](u32)
+        [this](u32 address)
         {
-            throw Error("untranslated 0x0003CAE0 render toggle from the Super Scary challenge (+0x2BC)");
+            register_actor_render_bins(super_scary_render(address)); // 0x0003CAE0, EDI the actor
         },
         [this](const std::array<float, 2>& position, float scale, float depth) -> u32
         {
@@ -5028,7 +5060,10 @@ void SceneActorServices::State::reset_scene_data()
     mirrors = {};
     mirror_pass = 0;
     post_model_count = 0;
-    decal_count = 0;
+    clear_runtime_light_cones(light_cones, [this](std::span<const u8> texture)
+    {
+        release_animation_resource(resources.registry, texture); // 0x00035C00
+    }); // 0x0011AEA0
     caption_camera = 0;
     caption_widget = 0;
     frontend_state = 0;
@@ -5063,6 +5098,18 @@ void SceneActorServices::State::begin_teardown()
 // 0x0011C5A0's 0x00122C70: message 0x80 to every active actor (DAT_00511AA4, the +0x900 node's vtable +0xC), which
 // retires it into the child list; 0x001232D0 then takes the retired actors out of the scene's lists. A retired
 // actor is not freed: a cutscene that outlives the scene (a transition's book) still ticks and draws its own.
+ActorRenderRegistration& SceneActorServices::State::super_scary_render(u32 address)
+{
+    for (const auto& [bytes, actor] : actors->actors)
+    {
+        if (scene.address_of(bytes) == address && actor != nullptr && actor->render_registration != nullptr)
+        {
+            return *actor->render_registration;
+        }
+    }
+    unbound("Super Scary challenge renders an address that is not a registered scene actor");
+}
+
 void SceneActorServices::State::retire_actors()
 {
     if (!in_scene || actors == nullptr)
@@ -7172,7 +7219,7 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
     // has not attached yet.
     if (child.type == 0x4F || child.type == 0x46 || child.type == 0x3B || child.type == 0x51 || child.type == 0x52
         || child.type == 0x58 || child.type == 0x44 || child.type == 0x40 || child.type == 0x4C || child.type == 0x53
-        || child.type == 0x42 || child.type == 0x47 || child.type == 0x49)
+        || child.type == 0x42 || child.type == 0x47 || child.type == 0x49 || child.type == 0x4B)
     {
         if (auto* player = players->find_player(child); player != nullptr && !player->body.empty())
         {
@@ -7222,6 +7269,9 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
         return;
     case 0x49:
         players->imp_ninja_message(child, words);
+        return;
+    case 0x4B:
+        players->medusa_message(child, words);
         return;
     case 0x39:
     {
@@ -7694,6 +7744,9 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
                 return;
             case 0x49:
                 players->imp_ninja_update(strategy);
+                return;
+            case 0x4B:
+                players->medusa_update(strategy);
                 return;
             case 0x39:
             {
@@ -8942,11 +8995,25 @@ void SceneActorServices::State::present_view(i32 view)
         },
         [this]()
         {
-            // 0x0011AF90. DAT_00510560 is written by 0x0011AEA0 / 0x0011AEE0 / 0x000BA840 (not translated) and
-            // cleared by 0x0011CBD0.
-            if (decal_count != 0 && backgrounds->first_background() != nullptr)
+            // 0x0011AF90 draws only with cones in use (DAT_00510560) and a first background (DAT_00511B20).
+            if (light_cones.count != 0 && backgrounds->first_background() != nullptr)
             {
-                unbound("decal draw 0x0011AF90 body");
+                RuntimeBackgroundClothDraw projector{*point_light_pass, *display_setup, shadow_projector,
+                    cloth_ramp_texture,
+                    [this](u32 address)
+                    {
+                        return resources.memory.pointer(address);
+                    },
+                    [this]()
+                    {
+                        return background_cloth_scene().background_model();
+                    }};
+                RuntimeLightConeDraw draw{light_cones, projector,
+                    [this](const char* name)
+                    {
+                        return acquire_named_animation_resource(resources.registry, name, resources.error);
+                    }};
+                draw_runtime_light_cones(draw); // 0x0011AF90
             }
         },
         []()

@@ -1721,6 +1721,26 @@ float4 ps_model_core(VSOut i, inout float depth)
     {
         regs[11] = saturate(i.tq3);
     }
+    // CLIPPLANE (5): the stage's texture register is zero, and the pixel is discarded when one of the stage's texture
+    // coordinates fails its PSCompareMode (word 42) bit: set, at or above zero; clear, below zero.
+    [unroll]
+    for (uint stage_clip = 0; stage_clip < 4; ++stage_clip)
+    {
+        if (((ps_word(54) >> (stage_clip * 5)) & 31) == 5)
+        {
+            float4 clip_coord = stage_clip == 0 ? i.tq0 : stage_clip == 1 ? i.tq1 : stage_clip == 2 ? i.tq2 : i.tq3;
+            uint compare = ps_word(42) >> (stage_clip * 4);
+            [unroll]
+            for (uint axis = 0; axis < 4; ++axis)
+            {
+                if (((compare >> axis) & 1) != 0 ? clip_coord[axis] >= 0 : clip_coord[axis] < 0)
+                {
+                    discard;
+                }
+            }
+            regs[8 + stage_clip] = 0;
+        }
+    }
     // DOTPRODUCT (17) on stage 2 and DOT_ZW (10) on stage 3 take their input texture from PSInputTexture
     // (word 56, stage 2 at bits 16, stage 3 at bits 20) and the full texture coordinates. As texm3x2depth, the
     // first dot product is z and the second w; z / w is in Z-buffer units.
@@ -3009,7 +3029,7 @@ ID3D11PixelShader* native_pixel_shader(const u32* definition)
     {
         const u32 mode = (definition[54] >> (stage * 5)) & 31;
         const bool dot = (stage == 2 && mode == 17) || (stage == 3 && mode == 10 && ((definition[54] >> 10) & 31) == 17);
-        if (mode > 1 && mode != 4 && !dot)
+        if (mode > 1 && mode != 4 && mode != 5 && !dot)
         {
             throw Error("native pixel shader uses unsupported texture mode " + std::to_string(mode));
         }

@@ -17,6 +17,7 @@ long double animation_remainder(float value, float divisor); // Xbox 0x00152BE0
 long double retail_sin(float value); // typed entry to Xbox 0x00153320
 long double retail_cos(float value); // Xbox 0x00153230
 long double retail_asin(float value); // Xbox 0x00152E90
+long double retail_acos(float value); // Xbox 0x00152C40
 long double retail_atan2(float y, float x); // Xbox 0x001530E0
 long double retail_reciprocal_sqrt(float value); // Typed entry to Xbox 0x001534C0
 long double retail_square_root(float value); // Typed entry to Xbox 0x00152B30

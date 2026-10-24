@@ -7871,6 +7871,8 @@ int count_rare_books(const gbtg::Game& game)
 // A point a few cells along the shortest walk from `from` to `to` over the scene's navigation grid (the floor under
 // `from`, cells joined by their connection bits, blocked cells skipped), or nothing when the grid has no such walk.
 // With `closed_goal` the goal's own cell is entered even when it is closed (a door's point lies on the door's cell).
+// A goal on another floor (scene 2a9's lantern room, up a spiral stair) is walked towards through the reachable cell
+// of `from`'s floor that climbs (or drops) furthest towards it, the stair's end, until the floor under `from` changes.
 // Test-side steering only: the game's own path search is not involved.
 std::optional<gbtg::Vec3> nav_waypoint(const gbtg::Vec3& from, const gbtg::Vec3& to, int ahead = 3,
     const std::set<gbtg::i32>* avoid = nullptr, bool closed_goal = false)
@@ -7887,8 +7889,9 @@ std::optional<gbtg::Vec3> nav_waypoint(const gbtg::Vec3& from, const gbtg::Vec3&
         return std::nullopt;
     }
     const gbtg::i32 start = navigation_cell_index(floor, from);
-    const gbtg::i32 goal = navigation_cell_index(floor, to);
-    if (start < 0 || goal < 0)
+    const gbtg::i32 goal_floor = navigation_floor_index(to, -1, 0);
+    gbtg::i32 goal = navigation_cell_index(floor, to);
+    if (start < 0 || (goal < 0 && goal_floor == floor))
     {
         return std::nullopt;
     }
@@ -7897,7 +7900,12 @@ std::optional<gbtg::Vec3> nav_waypoint(const gbtg::Vec3& from, const gbtg::Vec3&
     std::vector<gbtg::i32> parent(grid->cells.size(), -2);
     std::deque<gbtg::i32> open{start};
     parent[size_t(start)] = -1;
-    while (!open.empty() && parent[size_t(goal)] == -2)
+    const bool other_floor = goal_floor != floor;
+    if (other_floor)
+    {
+        goal = -1;
+    }
+    while (!open.empty() && (goal < 0 || parent[size_t(goal)] == -2))
     {
         const gbtg::i32 cell = open.front();
         open.pop_front();
@@ -7939,9 +7947,62 @@ std::optional<gbtg::Vec3> nav_waypoint(const gbtg::Vec3& from, const gbtg::Vec3&
             open.push_back(next);
         }
     }
-    if (parent[size_t(goal)] == -2)
+    if (other_floor)
+    {
+        // The reached cell nearest the goal's floor in height, then nearest the goal across.
+        const bool up = goal_floor > floor;
+        float best_height = 0.f;
+        float best_distance = 0.f;
+        for (gbtg::i32 index = 0; index < gbtg::i32(grid->cells.size()); ++index)
+        {
+            if (parent[size_t(index)] == -2)
+            {
+                continue;
+            }
+            const float height = up ? float(grid->cells[size_t(index)].top) : -float(grid->cells[size_t(index)].bottom);
+            const float cx = float(g_nav_origin_x + (index % grid->width) * grid->cell) - to.x;
+            const float cz = float(g_nav_origin_z + (index / grid->width) * grid->cell) - to.z;
+            const float distance = cx * cx + cz * cz;
+            if (goal < 0 || height > best_height || (height == best_height && distance < best_distance))
+            {
+                goal = index;
+                best_height = height;
+                best_distance = distance;
+            }
+        }
+    }
+    if (goal < 0 || parent[size_t(goal)] == -2)
     {
         return std::nullopt;
+    }
+    if (other_floor && goal == start)
+    {
+        // Already at the stair's end of this floor's grid: the open cell of the goal's floor nearest across, its
+        // floor within a step of `from`, where the stair goes on.
+        const NavGrid* next_grid = g_nav_grids[goal_floor];
+        const bool up = goal_floor > floor;
+        std::optional<gbtg::Vec3> best;
+        float best_distance = 0.f;
+        for (gbtg::i32 index = 0; next_grid != nullptr && index < gbtg::i32(next_grid->cells.size()); ++index)
+        {
+            const NavCell& candidate = next_grid->cells[size_t(index)];
+            const float height = float(candidate.bottom);
+            if ((candidate.flags_7 & 2) != 0 || (up ? height < from.y - 2.f || height > from.y + 16.f
+                                                     : height > from.y + 2.f || height < from.y - 16.f))
+            {
+                continue;
+            }
+            const float half = float(next_grid->cell) * 0.5f;
+            const gbtg::Vec3 centre{float(g_nav_origin_x + (index % next_grid->width) * next_grid->cell) + half, height,
+                float(g_nav_origin_z + (index / next_grid->width) * next_grid->cell) + half};
+            const float distance = (centre.x - from.x) * (centre.x - from.x) + (centre.z - from.z) * (centre.z - from.z);
+            if (!best || distance < best_distance)
+            {
+                best = centre;
+                best_distance = distance;
+            }
+        }
+        return best;
     }
     std::vector<gbtg::i32> path;
     for (gbtg::i32 cell = goal; cell != -1; cell = parent[size_t(cell)])
@@ -7949,7 +8010,7 @@ std::optional<gbtg::Vec3> nav_waypoint(const gbtg::Vec3& from, const gbtg::Vec3&
         path.push_back(cell);
     }
     const gbtg::i32 cell = path[path.size() > size_t(ahead) ? path.size() - 1 - size_t(ahead) : 0];
-    if (cell == goal)
+    if (cell == goal && !other_floor)
     {
         return to;
     }
@@ -9419,8 +9480,8 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
         }
         // Any live ghouly (a player actor other than Cooper with body +0x94 energy) within the fight range is fought
         // first. The prisoners (tags 0x26..0x30, objTag_Actor_PrisonerChestChap..ThornGirl) and the cook (tag 8,
-        // objTag_Actor_Cook) are not ghoulies, and the ugly girl (tag 0x37, objTag_Actor_UglyGirl) is Cooper's partner
-        // from scene 11 on.
+        // objTag_Actor_Cook) are not ghoulies, nor is scene 2a9's chicken (tag 6, objTag_Actor_Chicken), and the ugly
+        // girl (tag 0x37, objTag_Actor_UglyGirl) is Cooper's partner from scene 11 on.
         std::optional<gbtg::Vec3> ghouly;
         gbtg::u16 ghouly_class = 0;
         if (cooper && !page)
@@ -9458,7 +9519,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                 if (mark.actor == nullptr || mark.actor->class_key == 4 || mark.body.empty()
                     || gbtg::read_u16(mark.body, 0x94) == 0
                     || (mark.actor->class_key >= 0x26 && mark.actor->class_key <= 0x30) || mark.actor->class_key == 0x37
-                    || mark.actor->class_key == 8)
+                    || mark.actor->class_key == 8 || mark.actor->class_key == 6)
                 {
                     continue;
                 }
@@ -9569,6 +9630,17 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                 const gbtg::i32 presses = gbtg::get(challenge->state, challenge_field::presses);
                 const gbtg::u32 button = gbtg::field_data(challenge->state, challenge_field::buttons)[size_t(presses)];
                 input.pads[0].buttons = gbtg::u16(0x100u << button);
+            }
+        }
+        // An imp riding Cooper's head (body +0x718, the jump on/off state type 0x79) is shaken off by swinging the left
+        // stick from side to side; its 0x00109810 tracking reads the stick's change each frame.
+        for (const auto& mark : actors.marked_actors())
+        {
+            if (mark.actor != nullptr && mark.actor->class_key == 4 && !mark.body.empty()
+                && gbtg::read_u32(mark.body, 0x718) != 0)
+            {
+                input.pads[0].lx = frame % 2 == 0 ? gbtg::i16(32767) : gbtg::i16(-32767);
+                input.pads[0].ly = 0;
             }
         }
         gbtg::gfx_begin_frame();
@@ -9952,12 +10024,14 @@ int main(int argc, char** argv)
     const bool scene2a7_test = argc == 3 && std::string_view(argv[2]) == "--scene2a7";
     // --scene2a8 boots chapter 2a scene 8 (chapter2a_scene8_1playcam) and plays it until the script moves on.
     const bool scene2a8_test = argc == 3 && std::string_view(argv[2]) == "--scene2a8";
+    // --scene2a9 boots chapter 2a scene 9 (chapter2a_scene9_1playcam) and plays it until the script moves on.
+    const bool scene2a9_test = argc == 3 && std::string_view(argv[2]) == "--scene2a9";
     if (spawn_test)
     {
         std::cout << std::unitbuf;
     }
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
-        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene3_test)
+        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene3_test)
     {
         std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene6-save | --scene6-save-reload | --scene3 | --scene4 | --scene5 | --scene6-1 | --scene7]\n";
         return 2;
@@ -10077,6 +10151,7 @@ int main(int argc, char** argv)
             : scene2a6_test ? "chapter2a_scene6_1book"
             : scene2a7_test ? "chapter2a_scene7_2playcam"
             : scene2a8_test ? "chapter2a_scene8_1playcam"
+            : scene2a9_test ? "chapter2a_scene9_1playcam"
             : player_test || spawn_test ? "chapter1_scene1_2playcam"
             : title_test ? "" : "scene0_1book");
         if (scene2a1b_test)
@@ -10085,6 +10160,13 @@ int main(int argc, char** argv)
             play_scene7(game, "scene2a1_2");
             pass_chapter_title(game, "scene2a1_to_3", "aid_script_ghoulies_chapter2a_scene1_3playcam", false);
             play_scene7(game, "scene2a1_3", 1000.f, "Event - Kill All", true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene2a9_test)
+        {
+            pass_chapter_title(game, "scene2a9", "aid_script_ghoulies_chapter2a_scene9_1playcam", false);
+            play_scene7(game, "scene2a9", 1000.f, {}, true, true);
             gbtg::gfx_shutdown();
             return 0;
         }

@@ -261,13 +261,17 @@ void reset_runtime_body_action(std::span<u8> body, std::span<const u8> settings,
     {
         const u32 second = read_u32(settings, 0x1AC);
         const u32 first = read_u32(settings, 0x1A8);
+        const auto name = [&](u32 address)
+        {
+            return context.image_string ? context.image_string(address) : context.actions.names.at(address);
+        };
         if (first != 0)
         {
-            select_runtime_body_animation(context.actions.names.at(first), context.actions);
+            select_runtime_body_animation(name(first), context.actions);
         }
         if (second != 0)
         {
-            select_runtime_body_animation(context.actions.names.at(second), context.actions);
+            select_runtime_body_animation(name(second), context.actions);
         }
         release_runtime_player_attachment(0, 0, context.attachment);
         const u16 key = context.attachment.body_action_key();

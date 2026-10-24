@@ -226,6 +226,7 @@ All take the game directory, e.g.
 | `--scene2a6` | Boots chapter 2a scene 6's book (chapter2a_scene6_1book), passes it to `chapter2a_scene6_2playcam` (the boathouse) and plays that with the scene 7 driver. In a one-type event (step type 0xD) the driver goes for that class and fights off any other ghouly within 10. Fails today: Cooper is mobbed in a pocket by the barrels (around 28, -49) during "EVENT - ONE TYPE" and dies, and the scene restarts (2026-10-24). Played by hand the same day, the scene completes and moves on to the next one |
 | `--scene2a7` | Boots chapter 2a scene 7 (chapter2a_scene7_2playcam) and plays it with the scene 7 driver at any fight range: the Medusa (factory type 0x4B) gazes at Cooper, whose shock starts the Super Scary challenge, and the event's key candidates are thinned by step type 1. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene8_1playcam` (frame 4504 in the 2026-10-24 run) |
 | `--scene2a8` | Boots chapter 2a scene 8 (chapter2a_scene8_1playcam, the lighthouse living quarters) and plays it with the scene 7 driver: after the zombies, region 1's ghoulybox spawns the pirate (factory type 0x4E), whom Cooper beats with the water pistol. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene9_1playcam` (frame 4205 in the 2026-10-24 run) |
+| `--scene2a9` | Boots chapter 2a scene 9 (chapter2a_scene9_1playcam, the lighthouse lantern room) and plays it with the scene 7 driver: Cooper climbs the spiral stair to the glow worms (the driver walks a goal on another floor through the stair's end), the exit door opens and the imp from the ghoulybox jumps onto Cooper's head (factory type 0x79), which the driver shakes off with the left stick. The chicken (tag 6) is not fought. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene10_1playcam` (frame 2593 in the 2026-10-24 run) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -392,6 +393,25 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-24: chapter 2a scene 9 plays to its end
+
+- The imp's jump onto a head (factory type 0x79, entityStateJumpOnOff, `body_jump_on_state.cpp`, vtable 0x00505A00) is
+  translated: sizes, constructor, destructor, tick and message `0x0009A0F0` / `0x0009A4C0` / `0x0009A710` /
+  `0x0009AB00` / `0x0009AE60` and their helpers `0x0009A170` .. `0x0009B300`; the ride record (state +0x80)
+  `0x000994E0` .. `0x0009A060`: it binds the imp under the target's head marker (bind mode 3, `0x0003B500`), steers
+  its host (mind +0x3C), hits it (message 0x2A) and is shaken off by the host's left stick (`0x001087D0` into
+  `0x00109810`). Shared helpers: the random timer `0x001050A0`, the leap `0x00103650` / `0x001036D0`, the rider claim
+  `0x000265A0` / `0x00138140` / `0x00138190`, the landing search `0x00138220` and the "intros_imphat" notice
+  `0x0013FE60`.
+- A player's body resolves its settings' +0x1A8 / +0x1AC animation names (message 0x44's `0x00020920`) through the
+  XBE strings, as they are not action-table rows.
+- Driver: a goal on another floor is walked to through the reachable cell nearest its floor, then onto the next
+  floor's grid; the chicken is not a ghouly; a rider on Cooper's head (body +0x718) is shaken off.
+- Shown (looked at): the imp's leap at Cooper (`scene2a9_leap_2220.bmp`), riding his head (`scene2a9_ride_2240.bmp`)
+  and, shaken off, beside him (`scene2a9_off_2300.bmp`).
+- Not settled: two early runs of this mode diverged during "EXIT DOOR OPENS" (once the script reloaded the scene,
+  once Cooper vanished and the screen went black); later runs did not repeat it.
 
 ### 2026-10-24: chapter 2a scene 8 plays to its end
 

@@ -35,6 +35,8 @@ struct RuntimeBodyActionMessages
     std::function<void(std::span<const u32>)> actor_message; // Actor vtable +0xC.
     const u8*& event_record; // Actual actor +0x8C.
     ActorAttachmentEventContext& events;
+    // An XBE string by address (the settings' +0x1A8 / +0x1AC names are not action rows); empty uses `actions.names`.
+    std::function<const char*(u32 address)> image_string{};
 };
 bool notify_runtime_body_action_key(std::span<u8> body, u16 key,
     RuntimeBodyActionMessages& context); // Xbox 0x00024B20

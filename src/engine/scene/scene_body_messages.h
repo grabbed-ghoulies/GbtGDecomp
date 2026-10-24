@@ -24,6 +24,7 @@
 #include "../entities/body_scoop_whack_state.h"
 #include "../entities/body_flip_state.h"
 #include "../entities/body_hover_state.h"
+#include "../entities/body_jump_on_state.h"
 #include "../entities/body_flamethrower_state.h"
 #include "../entities/body_shoot_state.h"
 #include "../entities/body_hit_stream_state.h"
@@ -156,6 +157,13 @@ struct SceneBodyServices
     std::function<RuntimeSegmentContactActor&(entity_detail::SegmentProbe&)> contact_actor{};
     std::function<void(NativePlayerInstance&, std::span<u32> words, GhoulySpawnPool* contacts,
         size_t contacts_word)> contact_words{};
+    // The jump on/off state (type 0x79): its globals (DAT_00428680, 0x60 bytes, +0x30 written), any actor's
+    // vtable +0xC with the reply left in the words, the intro notices and the story byte, and another actor's views.
+    std::span<u8> jump_globals{};
+    std::function<void(u32 address, std::span<u32> words)> reply_message{};
+    RuntimeIntroNotices* intro{};
+    u8* story_byte{};
+    std::function<RuntimeJumpOnPeer(u32 actor_address)> jump_peer{};
 };
 
 // One body's message graph: the parent body handler 0x000253B0 and the derived slots of types 0x27
@@ -174,6 +182,7 @@ public:
     RuntimeGrabbedStateContext& grabbed_context(); // The type 0x70 state's views of this body.
     RuntimeThrowStateContext& throw_context(); // The type 0x8B state's views of this body.
     RuntimeArcStateContext& arc_context(); // The type 0x66 state's views of this body.
+    RuntimeJumpOnStateContext& jump_on_context(); // The type 0x79 state's views of this body.
     RuntimeArcAttackStateContext& arc_attack_context(); // The type 0x5F state's views of this body.
     RuntimeGenerateGhoulyContext& generate_ghouly_context(); // The type 0x6F state's views of this body.
     RuntimeShockedStateContext& shocked_context(); // The type 0x80 state's views of this body.
@@ -225,6 +234,8 @@ private:
     std::optional<RuntimeThrowStateContext> throw_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> arc_children_; // 0x66, 0x0008DD30.
     std::optional<RuntimeArcStateContext> arc_;
+    std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> jump_on_children_; // 0x79, 0x0009AE60.
+    std::optional<RuntimeJumpOnStateContext> jump_on_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> arc_attack_children_; // 0x5F, 0x00089530.
     std::optional<RuntimeBodyStateContext> arc_attack_shape_;
     std::optional<RuntimeArcAttackStateContext> arc_attack_;

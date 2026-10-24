@@ -666,6 +666,7 @@ struct SceneActorServices::State
     std::unique_ptr<RuntimeGhoulIntroTunables> ghoul_intro_tunables;
     std::unique_ptr<RuntimeGhoulIntroContext> ghoul_intro_context;
     i32 attachment_limit = 0; // DAT_00428684.
+    std::array<u8, 0x60> jump_globals{}; // DAT_00428680.., the jump on/off state's tunables (+0x30 written).
     float skeleton_fetch_delay = 0.f; // DAT_004288AC.
     std::unordered_map<const Actor*, std::unique_ptr<SceneActorModelViews>> model_views;
     // HUD meters the player strategy drives.
@@ -1280,6 +1281,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     decay_enabled = data(0x0030F144, 4);
     std::memcpy(&intro_scale, data(0x00433BEC, 4).data(), 4);
     std::memcpy(&attachment_limit, data(0x00428684, 4).data(), 4);
+    std::memcpy(jump_globals.data(), data(0x00428680, jump_globals.size()).data(), jump_globals.size());
     std::memcpy(&skeleton_fetch_delay, data(0x004288AC, 4).data(), 4);
     // 0x00116DA0, from 0x0011CAC0 before scene startup.
     queue_limits[0] = 3;
@@ -2422,6 +2424,21 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
         }
         return graph->arc_context();
+    });
+    install_runtime_jump_on_state_class(scene.types, [this](u32 body_address) -> RuntimeJumpOnStateContext&
+    {
+        const auto bytes = scene.resolve_address(body_address, 0);
+        auto* player = players->find_child_owner(bytes.data());
+        if (player == nullptr || player->body.data() != bytes.data())
+        {
+            unbound("jump on/off state whose body has no player owner");
+        }
+        auto& graph = body_messages[player->body.data()];
+        if (graph == nullptr)
+        {
+            graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
+        }
+        return graph->jump_on_context();
     });
     install_runtime_arc_attack_state_class(scene.types, [this](u32 body_address) -> RuntimeArcAttackStateContext&
     {
@@ -4332,6 +4349,47 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         size_t contacts_word)
     {
         dispatch_contact_words(player, words, contacts, contacts_word);
+    };
+    body_services->jump_globals = jump_globals;
+    body_services->intro = &intro_notices;
+    body_services->story_byte = &story_bits[0];
+    body_services->reply_message = [this](u32 address, std::span<u32> words)
+    {
+        auto* object = object_of(scene.resolve_address(address, 0).data());
+        if (object == nullptr)
+        {
+            unbound("jump on/off message to an address that is not a scene object");
+        }
+        std::array<u32, 0x42> buffer{};
+        std::copy_n(words.begin(), std::min<size_t>(words.size(), buffer.size()), buffer.begin());
+        object_message(*object, buffer);
+        std::copy_n(buffer.begin(), std::min<size_t>(words.size(), buffer.size()), words.begin());
+    };
+    body_services->jump_peer = [this](u32 address) -> RuntimeJumpOnPeer
+    {
+        auto* object = object_of(scene.resolve_address(address, 0).data());
+        if (object == nullptr || !actors->actors.contains(object->bytes.get()))
+        {
+            unbound("jump on/off peer at an address that is not a scene actor");
+        }
+        RuntimeJumpOnPeer peer;
+        peer.actor = &actors->view(*object).bat.actor;
+        peer.address = address;
+        peer.bytes = {object->bytes.get(), object->size};
+        if (auto* player = players->find_player_at(address); player != nullptr)
+        {
+            player->refresh_views();
+            peer.body = player->body;
+            peer.bits = player->body_bits;
+            peer.mind = player->mind;
+            peer.model = model_views_of(*peer.actor).nodes;
+            peer.input = player->input.empty() ? nullptr : &player->input_device;
+            if (peer.body.empty() || peer.bits == nullptr)
+            {
+                unbound("jump on/off peer whose body has no +0x15C bit block");
+            }
+        }
+        return peer;
     };
     generate_ghouly = std::make_unique<RuntimeGenerateGhoulyScene>(RuntimeGenerateGhoulyScene{resources.registry,
         resources.error, shaders, live_actors,
@@ -7860,6 +7918,7 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
             case 0x63: // And getter 0x0008C5A0.
             case 0x7F: // And getter 0x0009F060.
             case 0x7E: // And getter 0x0009EB40.
+            case 0x79: // And getter 0x0009A110.
             case 0x6B: // And getter 0x00090430.
             case 0x77: // And getter 0x00097B20.
             case 0x6A: // And getter 0x0008F6F0.
@@ -8632,7 +8691,7 @@ void SceneActorServices::State::draw_player(FactoryObject& object, NativePlayerI
             if (type != 0x5E && type != 0x62 && type != 0x64 && type != 0x73 && type != 0x74 && type != 0x7A && type != 0x7C && type != 0x7D
                 && type != 0x87 && type != 0x88 && type != 0x8A && type != 0x8B && type != 0x8E && type != 0x8F && type != 0x69 && type != 0x70
                 && type != 0x66 && type != 0x78 && type != 0x5F && type != 0x80 && type != 0x7F && type != 0x83
-                && type != 0x7E && type != 0x6B && type != 0x77
+                && type != 0x7E && type != 0x6B && type != 0x77 && type != 0x79
                 && type != 0x6E && type != 0x6A && type != 0x6D && type != 0x81 && type != 0x76 && type != 0x7B
                 && type != 0x67 // Getter 0x0008E010 keeps the empty 0x001628B0 at +0x18 too.
                 && type != 0x63) // So does getter 0x0008C5A0.

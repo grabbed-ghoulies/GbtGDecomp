@@ -39,7 +39,7 @@ SceneBodyMessages::SceneBodyMessages(SceneBodyServices& services, NativePlayerIn
           {
               player.self.message(message);
           },
-          event_record_, player.callout},
+          event_record_, player.callout, services.image_string},
       // Actor +0x6CC is sound slot 5 (slots of 0xB8 from +0x334).
       sound_commands_{player.actor, player.actor, player.body, services.damage_tables, services.effect_tags,
           services.footsteps, player.actor.sound_slots[5], services.sounds},
@@ -287,6 +287,22 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
                 };
             }
             children_[child->bytes.get()] = arc.get();
+            continue;
+        }
+        if (child->type == 0x79)
+        {
+            auto& jump_on = jump_on_children_[child->bytes.get()];
+            if (jump_on == nullptr)
+            {
+                jump_on = std::make_unique<RuntimeBodyMessageChild>();
+                jump_on->message = [this, child](std::span<u8> message)
+                {
+                    const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
+                    message_runtime_jump_on_state({child->bytes.get(), child->size}, words,
+                        jump_on_context()); // 0x0009AE60
+                };
+            }
+            children_[child->bytes.get()] = jump_on.get();
             continue;
         }
         if (child->type == 0x5F)
@@ -760,6 +776,9 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
     case 0x66:
         tick_runtime_arc_state({action.bytes.get(), action.size}, arc_context()); // 0x0008DC70
         return;
+    case 0x79:
+        tick_runtime_jump_on_state({action.bytes.get(), action.size}, jump_on_context()); // 0x0009AB00
+        return;
     case 0x5F:
         tick_runtime_arc_attack_state({action.bytes.get(), action.size}, arc_attack_context()); // 0x00089060
         return;
@@ -1084,6 +1103,7 @@ void SceneBodyMessages::action_step(FactoryObject& action)
     case 0x7B:
     case 0x83:
     case 0x67:
+    case 0x79:
         // 0x001628B0 (0x000D4179 for 0x69, 0x70 and 0x88) returns at once.
         return;
     default:
@@ -1322,6 +1342,46 @@ RuntimeArcStateContext& SceneBodyMessages::arc_context()
         },
         services_.address_of});
     return *arc_;
+}
+
+RuntimeJumpOnStateContext& SceneBodyMessages::jump_on_context()
+{
+    player_.refresh_body_views();
+    if (player_.body_bits == nullptr)
+    {
+        unbound("jump on/off state of a body with no +0x15C bit block");
+    }
+    if (services_.intro == nullptr || services_.story_byte == nullptr || !services_.jump_peer
+        || !services_.reply_message || services_.jump_globals.empty())
+    {
+        unbound("jump on/off state services");
+    }
+    jump_on_.reset();
+    jump_on_.emplace(RuntimeJumpOnStateContext{player_.body, player_.actor, player_.actor_address,
+        player_.actor_bytes, *player_.body_bits, player_.body_selection, services_.clock,
+        player_.actor_instance.animation, player_.mind, player_.actor_instance.live_attachments, services_.latches,
+        spatial_, services_.state_context(services_.address_of(player_.body.data())), services_.sounds,
+        services_.jump_globals, services_.default_position, services_.default_euler, services_.random,
+        services_.scene_flags, services_.player_blocked, services_.player_modes, services_.player_mode,
+        *services_.intro, *services_.story_byte, player_.scene.input_state, services_.occupancy_initial,
+        services_.image_string,
+        [this](u32 slot)
+        {
+            return body_slot_key(slot);
+        },
+        [this](std::span<const u32> words)
+        {
+            std::array<u32, 0x42> buffer{};
+            std::copy_n(words.begin(), std::min<size_t>(words.size(), buffer.size()), buffer.begin());
+            dispatch(player_.body_object, buffer); // Body vtable +0xC.
+        },
+        services_.reply_message,
+        [this](u32 actor, u32 id)
+        {
+            services_.actor_callouts_with(actor, id, nullptr);
+        },
+        services_.target_at, services_.jump_peer, services_.address_of});
+    return *jump_on_;
 }
 
 RuntimeArcAttackStateContext& SceneBodyMessages::arc_attack_context()
@@ -2285,6 +2345,18 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 auto& second = player_.body_selection.second;
                 const std::array<u32, 1> words{reply.id};
                 message_runtime_arc_state({second.bytes.get(), second.size}, words, arc_context());
+                return;
+            }
+            if (type == 0x79)
+            {
+                // 0x0009AE60 reads past the id only for 0x7C (+4), 0x86 (+8) and 0x6E (+4, +0x10).
+                if (reply.id == 0x7C || reply.id == 0x86 || reply.id == 0x6E || reply.id == 0x31)
+                {
+                    unbound("collision reply id " + std::to_string(reply.id) + " to the jump on/off state 0x0009AE60");
+                }
+                auto& second = player_.body_selection.second;
+                const std::array<u32, 1> words{reply.id};
+                message_runtime_jump_on_state({second.bytes.get(), second.size}, words, jump_on_context());
                 return;
             }
             if (type == 0x67)

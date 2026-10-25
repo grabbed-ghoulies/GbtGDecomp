@@ -1,5 +1,6 @@
 #include "gbtg/engine_internal.h"
 #include "scripts/script_actions.h"
+#include "scene/ambient.h"
 #include "scene/dialogue_scene_runtime.h"
 #include "scene/executable_resources.h"
 #include "scene/factory_scene_runtime.h"
@@ -8,11 +9,13 @@
 #include "scripts/script_chapter.h"
 #include "frontend/frontend_sounds.h"
 #include "frontend/frontend_state.h"
+#include "audio/native_audio.h"
 #include "audio/pcm_backend.h"
 #include "video/native_movies.h"
 #include "saves/save_games.h"
 #include "frontend/input_stack.h"
 #include "camera/camera.h"
+#include "camera/actor_camera_effects.h"
 #include "gbtg/gfx.h"
 #include "gbtg/movie.h"
 
@@ -50,6 +53,8 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
     // Boot 0x00033030 -> 0x00035A90 and the provider and hook registrations.
     native_resources = std::make_shared<SceneDialogueResourceOwner>(aids, executable_resources->pools);
     native_audio = boot_native_audio(*this); // Boot 0x00033030 -> 0x0003A280.
+    load_audio_general_settings(native_resources->registry, native_resources->error); // Boot 0x00033030
+    boot_actor_camera_shakes(runtime_pad_rumble_commands()); // Boot 0x00033030 -> 0x000FADE0
     native_movies = boot_native_movies(*this); // Boot 0x00033030 -> 0x000E9CE0, 0x000E9E60.
     native_input = boot_native_input_stack(); // Boot 0x00033030 -> 0x00033248, 0x00033274; 0x0011C3F0's push.
     reset_runtime_frontend(g_frontend, g_pause_ditty); // Boot 0x00033030 -> 0x000E5A80.
@@ -60,9 +65,10 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
         return script_chapter_index(scene_script.name); // 0x0004B4D0
     };
     factory_scene->start_services(*this);
-    // Boot 0x00033030 -> 0x0011EA50 -> 0x0011C3F0 -> 0x000FD620 (the light defaults). The rest of 0x0011C3F0 is
-    // not translated.
+    // Boot 0x00033030 -> 0x0011EA50 -> 0x0011C3F0 -> 0x000FD620 (the light defaults) and 0x00118470 (the ambience
+    // beds). The rest of 0x0011C3F0 is not translated.
     lighting_initialize_volume();
+    ambient_initialize_beds(); // 0x0011C3F0 -> 0x0011C480 -> 0x00118470
     factory_scene->actor_services->hold_boot_scene_order(); // 0x0011C3F0 -> 0x0011C480 -> 0x001234B0
     save_initialize_name_scan(); // 0x0011C3F0 -> 0x0011C480 -> 0x0010D3B0: the saved games on drive U.
     movie_set_root(game_dir);
@@ -162,6 +168,8 @@ void frame_tick(Game& g, float dt, const InputState& in)
     {
         g.factory_scene->start_actors(g).run_scene_pass(); // 0x0011E640 after 0x0011E4C0.
         g.factory_scene->start_actors(g).update_scoreboard_hud(); // 0x00132210
+        // 0x00060D50 is not translated here; 0x00048F90 ticks the camera effects after it.
+        tick_actor_camera_effects(g_sim_freeze <= 0.f ? g_sim_dt * g_sim_scale : 0.f); // 0x00048F90
     }
     tick_native_audio(g.clock.dt, g_4e02e8); // 0x0015B780, 0x0003A040, 0x000396F0, 0x00038640, 0x00038C20
     for (auto& e : g.entities)
@@ -175,6 +183,10 @@ void frame_tick(Game& g, float dt, const InputState& in)
     // movie event slots (0x00106C70).
     auto& movies = *g.native_movies;
     pump_runtime_movie_files(movies.session->files());
+    // 0x000FAF70: the camera shakes into the pads' rumble commands, measured from the frame's view.
+    tick_actor_camera_shakes(g_sim_freeze <= 0.f ? g_sim_dt * g_sim_scale : 0.f,
+        native_audio_runtime().streams.voices.listener, g.native_input->port_masks[1], // DAT_005077A8, DAT_0050E0F8
+        runtime_pad_rumble_commands(), g.native_resources->registry);
     tick_native_movie_list(movies);
     release_finished_movie_events(movies.session->slots, movies.session->startup());
     // 0x00033BF2: the save timer and the queued saves (0x0010F440).

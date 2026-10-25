@@ -20,4 +20,7 @@ struct RuntimeScoreAwards
 // Scales the points by the category multiplier, adds them to both totals and, unless quiet, queues the caption.
 void award_runtime_score(i32 points, u32 category, const char16_t* text, i32 quiet,
     RuntimeScoreAwards& context); // Xbox 0x0012DE90, EAX points, EBX category
+// The scene teardown's: the ten captions are cleared (category, first text unit and points) and the scoreboard
+// refreshes them (DAT_004326E8 2).
+void clear_runtime_score_awards(RuntimeScoreAwards& context); // Xbox 0x0012DF90
 }

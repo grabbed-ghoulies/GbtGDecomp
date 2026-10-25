@@ -3,6 +3,7 @@
 #include "gbtg/types.h"
 
 #include <array>
+#include <span>
 
 namespace gbtg
 {
@@ -63,5 +64,17 @@ struct RuntimePadStateViews
 };
 // Native byte views of the samples already produced by pad_tick.
 RuntimePadStateViews runtime_pad_state_views();
+
+// DAT_00507D40, stride 0x10, one per port: the rumble 0x000FAD80 submits while +0x0C is set. The camera shakes
+// (0x000FAF70) write the motors while +0x08 lets them.
+struct RuntimePadRumbleCommand
+{
+    float left = 0.f; // +0x00
+    float right = 0.f; // +0x04
+    i32 shakes_allowed = 0; // +0x08
+    i32 active = 0; // +0x0C
+};
+static_assert(sizeof(RuntimePadRumbleCommand) == 0x10);
+std::span<RuntimePadRumbleCommand, 4> runtime_pad_rumble_commands();
 
 } // namespace gbtg

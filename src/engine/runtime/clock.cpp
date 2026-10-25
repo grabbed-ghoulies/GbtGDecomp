@@ -181,15 +181,6 @@ PadSlot g_pads[kPadPorts + 1];
 // 0x000FAD80 reads +0x00 and +0x04, and submits when the dword at +0x0C is set.
 constexpr float kRumbleScale = 0.01f;
 
-struct RumbleSlot
-{
-    float left = 0.f;
-    float right = 0.f;
-    i32 gate = 0;
-    i32 active = 0;
-};
-
-static_assert(sizeof(RumbleSlot) == 0x10);
 
 // Device records at 0x00434910, stride 0x14. Boot 0x000FAD20 calls 0x001558F0(1)
 // before the first frame, so the ports are present when this pass runs.
@@ -210,7 +201,7 @@ struct RumbleDevice
 static_assert(sizeof(RumbleDevice) == 0x14);
 static_assert(offsetof(RumbleDevice, left) == 8);
 
-RumbleSlot g_rumble[kPadPorts];
+RuntimePadRumbleCommand g_rumble[kPadPorts]; // DAT_00507D40
 RumbleDevice g_rumble_dev[kPadPorts];
 
 // Xbox 0x000FA4F0. ±9800 is zero; ±32700 is ±1.
@@ -447,7 +438,7 @@ void pad_buttons()
     // is 0, which arms the device. Both motors at 0 clear motors_on.
     for (int port = 0; port < kPadPorts; ++port)
     {
-        const RumbleSlot& slot = g_rumble[port];
+        const RuntimePadRumbleCommand& slot = g_rumble[port];
         if (slot.active == 0)
         {
             continue;
@@ -475,6 +466,11 @@ void pad_tick(Game& g, const InputState& in)
     // Xbox 0x000FA3C0, then rumble submit 0x000FAD80.
     pad_process(g.clock.dt, in);
     pad_buttons();
+}
+
+std::span<RuntimePadRumbleCommand, 4> runtime_pad_rumble_commands()
+{
+    return std::span<RuntimePadRumbleCommand, 4>(g_rumble);
 }
 
 RuntimePadStateViews runtime_pad_state_views()

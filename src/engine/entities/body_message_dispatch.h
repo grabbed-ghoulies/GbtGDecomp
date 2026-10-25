@@ -31,6 +31,8 @@ struct RuntimeBodyMessageDispatch
     RuntimeBodyTimerRecipient*& second_timer; // Native view of body +0x7F0.
     const entity_detail::ListHead& players;
     const Vec3& default_position; // DAT_0050DD80.
+    // Host: binds `children` to the current actions, which the second action's message can replace.
+    std::function<void()> bind_children{};
 };
 void dispatch_runtime_parent_body_message(std::span<u8> body, std::span<u8> message,
     const RuntimeBodyMessageViews& views,

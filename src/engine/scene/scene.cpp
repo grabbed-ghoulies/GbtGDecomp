@@ -650,8 +650,6 @@ float g_50ea90 = 0.f;
 
 i32 g_50ea94 = 0;
 
-i32 g_50ea98 = 0;
- // DAT_0050EA98
 i32 g_504330 = 0;
  // DAT_00504330
 // DAT_00512344 is the block 0x000663E0 releases. DAT_00512348 is cleared with it.
@@ -716,8 +714,7 @@ i32 g_50ec00 = 0;
 // ESI is the scene record. The dword at +0x118 is cleared. DAT_0051065C is 1 for the body and 0 on the way out. The
 // host splits the teardown: the globals below run here as the scene state enters 4, and the scene's actors, controls,
 // cutscenes, doors, effects and passes go in SceneFactoryRuntime::end_scene and load_scene_contents as the next scene
-// loads; each step's note below names where it runs. Still not translated: 0x00117330's other calls, 0x00057DC0 and
-// 0x001163D0; 0x001593D0 only clears D3D device state (the presenter's).
+// loads; each step's note below names where it runs. Still not translated: 0x00117330's other calls and 0x001163D0; 0x001593D0 only clears D3D device state (the presenter's).
 // Xbox 0x0011C5A0
 void scene_teardown(Game& g, u8* scene)
 {
@@ -763,7 +760,7 @@ void scene_teardown(Game& g, u8* scene)
     g_50ea94 = 0;
     // 0x000FD710 runs in the actor services' end of scene (SceneActorServices::State::end_scene).
     const u32 kept = (g_flags_ea9c >> 8) & 1u;
-    g_50ea98 = 0;
+    g_flag_ea98 = 0; // DAT_0050EA98
     g_flags_ea9c = 0;
     if (kept != 0)
     {
@@ -777,7 +774,7 @@ void scene_teardown(Game& g, u8* scene)
         g.factory_scene->actor_services->reset_sound_queues(); // 0x00129F70
     }
     g.factory_scene->actor_services->set_reverb_preset(0xD); // 0x0003A1F0, ESI 0xD
-    reset_ambient_scene(); // 0x00118560
+    reset_ambient_scene(native_audio_runtime().streams.voices); // 0x00118560
     if (g_512344 != nullptr)
     {
         engine_heap_free(g_512344);
@@ -806,12 +803,16 @@ void scene_teardown(Game& g, u8* scene)
         engine_heap_free(g_51108c);
         g_51108c = nullptr;
     }
-    // 0x00117330 is not translated, except its clear of DAT_0050E560 (after its 0x00116790 call), so the next
-    // scene's node 0x45 makes that scene's ambient tune again.
+    // 0x00117330: the event steps go and DAT_0050EA9C's bit 0x800000 clears; its 0x000F2BE0 (the profile times),
+    // 0x00049FF0, 0x001289A0, 0x00116790 and DAT_0050E760 release are not translated. Its clear of DAT_0050E560
+    // lets the next scene's node 0x45 make that scene's ambient tune again, and the score captions clear.
+    release_script_event_steps(); // 0x000D0490
+    g_flags_ea9c = g_flags_ea9c & 0xFF7FFFFFu;
     if (g_flag_e560 != 0)
     {
         g_flag_e560 = 0;
     }
+    g.factory_scene->actor_services->clear_score_awards(); // 0x0012DF90
     restore_script_story_bits(g_script_30d0c == 1); // 0x001272B0, EAX 1 when DAT_00430D0C is 1
     g_4312cc = 0.f;
     g_4312d0 = 0.f;
@@ -819,7 +820,7 @@ void scene_teardown(Game& g, u8* scene)
     g_4312d4 = 0;
     g_sim_scale = 1.f;
     release_actor_camera_effects(); // 0x00048F10
-    // 0x00057DC0 is not translated.
+    g.factory_scene->actor_services->release_scene_dialogue(); // 0x00057DC0
     reset_scene_pause(scene_pause_services(g)); // 0x0011CD90
     release_movie_events(native_movie_runtime()); // 0x00106E30
     g_511a10 = 0;

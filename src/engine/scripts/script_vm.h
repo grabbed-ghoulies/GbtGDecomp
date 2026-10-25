@@ -55,10 +55,10 @@ void script_tick_fired_vm(Game& g); // Xbox 0x00117140
 // DAT_00509b24, DAT_00509b28, and DAT_00509b4c. DAT_00509b50 becomes
 // 0x3eb2b8c3. DAT_005462FC becomes 1. DAT_00509b54 becomes 0x3f32b8c3.
 // DAT_00509b58 becomes 1. DAT_00509b70 becomes 0. DAT_00509b74 becomes 1.
-// 0x000FAEE0, 0x0013CBD0, 0x00116E00, and 0x00124420 are not translated, so
-// those calls are not made. DAT_00545D1C and DAT_00545CC8 are cleared after
-// the 0x000FAEE0 call.
-// Xbox 0x0011CAC0
+// It then makes a fresh camera shake pool (0x000FAEE0), resets the camera view
+// tunables (0x0013CBD0) and releases the music (part of 0x00116E00); 0x00124420
+// is not translated. DAT_00545D1C and DAT_00545CC8 are cleared after the
+// 0x000FAEE0 call.
 void scene_reset_runtime_parameters(); // Xbox 0x0011CAC0
 
 // Xbox 0x0011CB60. Start the loaded scene and run its script latch.

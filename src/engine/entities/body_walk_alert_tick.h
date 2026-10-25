@@ -56,4 +56,9 @@ void tick_runtime_fly_state(std::span<u8> state, RuntimeWalkAlertTick& context);
 // Message 0x53 calls 0x00023890 with ECX 1 and the state's body.
 void message_runtime_walk_alert(std::span<const u8> message,
     const std::function<void()>& stop); // Xbox 0x000A5A40
+struct RuntimeBodyActionMessages;
+// Message 0x53's answer when its +4 word matches `key`: +8 is 0 for a body with no energy (+0x94); otherwise the
+// body takes action 0x117 (for a nonzero word) or its own action key (vtable +0x20) through 0x00024B20, and +8 is 1.
+void stop_runtime_walk_alert(std::span<u8> body, std::span<u8> message, u32 key,
+    const std::function<u16()>& action_key, RuntimeBodyActionMessages& actions); // Xbox 0x00023890, EAX body, ECX key
 }

@@ -82,6 +82,8 @@ public:
     void refresh_master_pad(); // 0x00109470 on the boot "Scene Master Pad" (the scene record's +0x230)
     void collect_model_releases(); // 0x000F9780 in the present: models released two fences ago go.
     void flush_model_releases(); // 0x000F97F0, the scene teardown's: every deferred model goes.
+    void release_scene_dialogue(); // 0x00057DC0, the teardown's: the speaker, icon, input device and widget go.
+    void clear_score_awards(); // 0x0012DF90, the teardown's: the pending score captions go.
     void update_actor(u32 address, RuntimeEffectPassScratch& scratch); // Native vtable +0x10 adapter; caller's incoming effect stack state.
     // The scene tick 0x0011E7F0's recurring actor updates: the bind tree under DAT_00511B10 (0x00123020), then the
     // +0x934 list from DAT_00511B20 (0x00122FE0).

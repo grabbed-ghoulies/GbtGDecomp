@@ -950,15 +950,13 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
               const RuntimePlayerAttachmentEligibility eligibility{body, *body_bits, actor, attached};
               return runtime_body_target_surface_distance(actor, eligibility, target);
           },
-          [](u32 address, i32 id, const RuntimeActorCreationOptions* options)
+          [this](u32 address, i32 id, const RuntimeActorCreationOptions* options)
           {
-              NativePlayerInstance* other = active_owner->find_player_at(address);
-              if (other == nullptr)
+              if (!scene.actor_callouts)
               {
-                  throw Error("haunted door hit callout names an actor that is not a scene player");
+                  throw Error("haunted door strategy: 0x0003C040 over an actor's callouts is not bound");
               }
-              dispatch_actor_resource_callout(other->actor_instance.startup.resource, id, options,
-                  other->callout); // 0x0003C040
+              scene.actor_callouts(address, u32(id), options); // 0x0003C040
           },
           "knobattack_overlay", "knockdown", "attack_special", "knocked_down", "knocked_down_wait", "sleep",
           "wakeup", "celebrate_knockdown"},

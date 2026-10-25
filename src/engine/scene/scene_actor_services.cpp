@@ -198,7 +198,6 @@ extern float g_50ea84; // DAT_0050EA84.
 extern float g_50ea88; // DAT_0050EA88.
 extern float g_50ea8c; // DAT_0050EA8C.
 extern float g_50ea90; // DAT_0050EA90.
-extern u32 g_flag_ea98; // DAT_0050EA98.
 extern i32 g_5462fc; // DAT_005462FC.
 extern i32 g_545d1c; // DAT_00545D1C.
 extern i32 g_545cc8; // DAT_00545CC8.
@@ -2623,6 +2622,21 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
         }
         return graph->spin_dizzy_context();
+    });
+    install_runtime_stunned_state_class(scene.types, [this](u32 body_address) -> RuntimeStunnedStateContext&
+    {
+        const auto bytes = scene.resolve_address(body_address, 0);
+        auto* player = players->find_child_owner(bytes.data());
+        if (player == nullptr || player->body.data() != bytes.data())
+        {
+            unbound("type 0x89 state whose body has no player owner");
+        }
+        auto& graph = body_messages[player->body.data()];
+        if (graph == nullptr)
+        {
+            graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
+        }
+        return graph->stunned_context();
     });
     install_runtime_endure_state_class(scene.types, [this](u32 body_address) -> RuntimeEndureStateContext&
     {
@@ -8193,6 +8207,7 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
             case 0x67: // And getter 0x0008E010.
             case 0x84: // And getter 0x000A1450.
             case 0x86: // And getter 0x000A21F0.
+            case 0x89: // And getter 0x000A31A0.
                 return runtime_body_action_next_key(action);
             case 0x5A:
             case 0x5C:
@@ -8961,7 +8976,8 @@ void SceneActorServices::State::draw_player(FactoryObject& object, NativePlayerI
                 && type != 0x67 // Getter 0x0008E010 keeps the empty 0x001628B0 at +0x18 too.
                 && type != 0x63 // So does getter 0x0008C5A0.
                 && type != 0x84 // And getter 0x000A1450.
-                && type != 0x86) // And getter 0x000A21F0.
+                && type != 0x86 // And getter 0x000A21F0.
+                && type != 0x89) // And getter 0x000A31A0.
             {
                 unbound("body +0x744 object vtable +0x18 draw for factory type "
                     + std::to_string(player.second_action.type));
@@ -11124,6 +11140,48 @@ void SceneActorServices::release_script_title_pool()
     {
         release_dialogue_text_pool(pool, *state.text_registry); // 0x0005F460
         state.script_title_pool = nullptr;
+    }
+}
+
+void SceneActorServices::clear_score_awards()
+{
+    clear_runtime_score_awards(*state_->score); // 0x0012DF90
+}
+
+void SceneActorServices::release_scene_dialogue()
+{
+    auto& state = *state_;
+    auto& dialogue = state.dialogue_state;
+    release_dialogue_speaker(state.dialogue_owned, state.resources.registry, 0, state.dialogue->mode_flags,
+        state.dialogue->scene_flags); // 0x00057400
+    release_dialogue_icon(state.dialogue_owned, state.resources.registry); // DAT_004E60C4, DAT_004E60C0 0x36
+    if (dialogue.input.data() != nullptr) // DAT_004EE1F8
+    {
+        switch (read_u32(dialogue.input, 0))
+        {
+        case 1:
+        case 2:
+        case 3:
+            release_runtime_simple_input(dialogue.input); // 0x00107DD0
+            break;
+        case 4:
+            release_runtime_composite_input(dialogue.input, state.input_release); // 0x00107960
+            break;
+        case 5:
+            release_runtime_actor_input(dialogue.input, state.input_release); // 0x00107B60
+            break;
+        default:
+            break;
+        }
+        state.input_addresses.erase(dialogue.input_address);
+        state.input_views.erase(dialogue.input_address);
+        dialogue.input = {};
+        dialogue.input_address = 0;
+    }
+    if (dialogue.widget != nullptr) // DAT_004EE2A8
+    {
+        destroy_dialogue_widget(dialogue.widget, state.resources.registry, *state.text_registry); // 0x00142070
+        dialogue.widget = nullptr;
     }
 }
 

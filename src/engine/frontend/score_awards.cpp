@@ -42,4 +42,19 @@ void award_runtime_score(i32 points, u32 category, const char16_t* text, i32 qui
         }
     }
 }
+
+// Xbox 0x0012DF90
+void clear_runtime_score_awards(RuntimeScoreAwards& context)
+{
+    for (size_t slot = 0; slot < 10; ++slot)
+    {
+        context.categories[slot] = 0; // DAT_004326FC
+        context.texts[slot * 0x100] = 0; // DAT_00432724
+        context.points[slot] = 0; // DAT_00433B24
+    }
+    if (context.refresh != 2)
+    {
+        context.refresh = 2; // DAT_004326E8
+    }
+}
 }

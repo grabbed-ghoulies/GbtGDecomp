@@ -8779,6 +8779,7 @@ void play_scene5_run(gbtg::Game& game, const std::string& label)
     bool page_up = false;
     int moved_on = -1;
     int picked = -1;
+    bool fainted = false;
     std::set<std::string> titles;
     StickSteering steering;
     for (int frame = 0; frame < 18000 && moved_on < 0; ++frame)
@@ -8799,6 +8800,8 @@ void play_scene5_run(gbtg::Game& game, const std::string& label)
             if (mark.actor->class_key == 4)
             {
                 cooper = gbtg::actor_world_position(*mark.actor);
+                // A lost skeleton fight: Cooper's energy (body +0x94) runs out and the event goes back to Free Play.
+                fainted = fainted || (picked >= 0 && !mark.body.empty() && gbtg::read_u16(mark.body, 0x94) == 0);
             }
         }
         for (const auto& mark : actors.marked_actors())
@@ -9011,12 +9014,21 @@ void play_scene5_run(gbtg::Game& game, const std::string& label)
         page_up = page_now;
         if (game.scene_name != title)
         {
+            const std::string previous = title;
             title = game.scene_name;
             titles.insert(title);
             std::cout << label << " frame " << frame << ": title " << title << "\n";
             if (picked < 0 && title != "Free Play" && titles.count("Free Play") != 0)
             {
                 picked = frame;
+            }
+            else if (title == "Free Play" && (fainted || previous == "stage 2"))
+            {
+                // The event was lost (Cooper fainted, or its time ran out in stage 2): take the cue again to
+                // restart it.
+                std::cout << label << " frame " << frame << ": the event was lost, the cue is taken again\n";
+                picked = -1;
+                fainted = false;
             }
         }
         if (frame % 300 == 0)

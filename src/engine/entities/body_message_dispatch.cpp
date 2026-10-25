@@ -11,6 +11,10 @@ void dispatch_runtime_parent_body_message(std::span<u8> body, std::span<u8> mess
     if (actions.second.bytes != nullptr)
     {
         context.children.at(actions.second.bytes.get())->message(message);
+        if (context.bind_children)
+        {
+            context.bind_children();
+        }
     }
     if (actions.first.bytes != nullptr)
     {

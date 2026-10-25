@@ -3,14 +3,19 @@
 #include "gbtg/model_runtime.h"
 #include "gbtg/actor_runtime.h"
 #include "gbtg/gfx.h"
+#include "gbtg/resource_error.h"
+#include "gbtg/retail_field.h"
 #include "background_geometry.h"
 #include "background_ambient.h"
 #include "ambient.h"
+#include "../runtime/random_state.h"
 #include "executable_resources.h"
 #include "scene.h"
 #include "../transitions/scene_transitions.h"
 #include "../audio/core_source.h"
+#include "../scripts/script_actions.h"
 
+#include <array>
 #include <bit>
 #include <cmath>
 #include <cstddef>
@@ -35,52 +40,54 @@ Vec3 g_amb_palette[8]{}; // DAT_0050ea1c, stride 12
 namespace
 {
 
-// DAT_0054dd7c. Shared LCG. The float is the mantissa of 1.0, so the unit
-// value sits in [0, 1).
-u32 g_amb_rng = 0;
-
+// The game's shared random word (DAT_0054DD7C), stepped inline as each ambience function does. The float is the
+// mantissa of 1.0, so the unit value sits in [0, 1).
 u32 amb_lcg()
 {
-    // Xbox 0x00118470
-    g_amb_rng = g_amb_rng * 0x19660Du + 0x3C6EF35Fu;
-    return g_amb_rng;
+    g_shared_random = g_shared_random * 0x19660Du + 0x3C6EF35Fu;
+    return g_shared_random;
 }
 
 float amb_rand01()
 {
-    // Xbox 0x00118470
     const u32 bits = (amb_lcg() & 0x7fffffu) | 0x3f800000u;
     return std::bit_cast<float>(bits) - 1.f;
 }
 
-// DAT_004df358. The 0x44-byte misc record
-// aid_misc_ghoulies_audio_generalsettings. Game init loads it before cam_11c480.
-struct AudioGeneralSettings
+// DAT_004DF358: the misc record aid_misc_ghoulies_audio_generalsettings, which boot 0x00033030 acquires after the
+// audio boot (0x0003A280).
+std::span<const u8> g_audio_general_settings;
+
+namespace audio_general_settings
 {
-    float wind_lo = 12.f; // +0x1c
-    float wind_hi = 20.f; // +0x20
-    float step_lo = 80.f; // +0x24
-    float step_hi = 90.f; // +0x28
-    float span_lo = 1.f;  // +0x2c
-    float span_hi = 1.5f; // +0x30
-    i32 count_lo = 5;     // +0x34
-    i32 count_hi = 10;    // +0x38
-};
+using wind_lo = RetailField<float, 0x1C>;
+using wind_hi = RetailField<float, 0x20>;
+using step_lo = RetailField<float, 0x24>;
+using step_hi = RetailField<float, 0x28>;
+using span_lo = RetailField<float, 0x2C>;
+using span_hi = RetailField<float, 0x30>;
+using count_lo = RetailField<i32, 0x34>;
+using count_hi = RetailField<i32, 0x38>;
+using thunder_wait_lo = RetailField<float, 0x3C>; // 0x00117A50's next flash delay
+using thunder_wait_hi = RetailField<float, 0x40>;
+}
 
-constexpr AudioGeneralSettings kAudioGeneral{};
+std::span<const u8> audio_general()
+{
+    if (g_audio_general_settings.data() == nullptr)
+    {
+        throw Error("DAT_004DF358 (aid_misc_ghoulies_audio_generalsettings) is not loaded");
+    }
+    return g_audio_general_settings;
+}
 
-static_assert(std::bit_cast<u32>(kAudioGeneral.wind_lo) == 0x41400000u);
-static_assert(std::bit_cast<u32>(kAudioGeneral.wind_hi) == 0x41a00000u);
-static_assert(std::bit_cast<u32>(kAudioGeneral.step_lo) == 0x42a00000u);
-static_assert(std::bit_cast<u32>(kAudioGeneral.step_hi) == 0x42b40000u);
-static_assert(std::bit_cast<u32>(kAudioGeneral.span_hi) == 0x3fc00000u);
 static_assert(std::bit_cast<u32>(120.f) == 0x42f00000u);
 static_assert(std::bit_cast<u32>(300.f) == 0x43960000u);
 static_assert(std::bit_cast<u32>(1.5f) == 0x3fc00000u);
 
 // Wind and rain bed at DAT_0050e7a0. The two words are voice indices into
 // the table at 0x004E0CE8 (stride 0x24). 0xFFFF means no voice.
-i32 g_amb_counter = 0;     // DAT_0050e7a0. cam_11c480 increments this after the call.
+// DAT_0050e7a0 is g_50e7a0 (scene_transitions): cam_11c480 increments it after the call.
 i32 g_amb_hold = 0;        // DAT_0050e7a4
 i32 g_amb_armed = 0;       // DAT_0050e7a8
 float g_amb_wait = 0.f;    // DAT_0050e7ac
@@ -116,6 +123,10 @@ Vec3 g_amb_step_now{};        // DAT_0050e828
 // Phase block. 0x001185E0 advances DAT_0050e968 under the two gates.
 i32 g_amb_count = 0;          // DAT_0050e930
 Vec3 g_amb_emitters[21]{}; // DAT_0050E834..DAT_0050E92F.
+// DAT_0050E924: the bed's sound point, the emitter nearest the view (0x001188C0) or the view. It is the last of the
+// 21 slots above, as in retail, which no bound keeps the emitter count from reaching.
+Vec3& g_amb_bed_point = g_amb_emitters[20];
+float g_amb_bed_scale = 0.f; // DAT_0050E934, the bed's distance scale.
 Vec3 g_amb_vary_point{}; // DAT_0050E938.
 float g_amb_light_color[4]{}; // DAT_00509B3C.
 Vec3 g_amb_phase_point{}; // DAT_0050E958.
@@ -133,24 +144,27 @@ float g_amb_phase_rate = 0.f; // DAT_0050e974
 u32 g_amb_phase_color = 0;    // DAT_0050e978. Dword at DAT_00314f4c.
 char g_amb_phase_name[0x80]{}; // DAT_0050E97C, the phase sound 0x001189D0 copies in.
 
-// 0x00039690. A live voice in states 2..7 is moved toward stop. The voice
-// table is the XACT block, which this file does not hold. The init writes
-// 0xFFFF first, so the call is skipped.
-void amb_release(u16& handle)
+// A live voice word is stopped (0x00039690 with stack 0) and becomes 0xFFFF. The boot init (0x00118470) writes
+// 0xFFFF first, so it has no voices to pass.
+void amb_release(u16& handle, AudioEventVoices* voices)
 {
-    // Xbox 0x00118470
     if (handle == 0xFFFF)
     {
         return;
     }
+    if (voices == nullptr)
+    {
+        throw Error("0x00039690 has no DAT_004E0CE8 voices for an ambient voice word");
+    }
+    stop_audio_event_voice(i16(handle), 0, *voices); // 0x00039690
     handle = 0xFFFF;
 }
 
-// 0x00117980. One unit random times the 120 scale, then the bed floats drop
-// to zero. A live wind or rain voice is released and the word becomes 0xFFFF.
-void amb_reset_beds()
+// One unit random times the 120 scale, then the bed floats drop to zero. A live wind or rain voice is stopped and
+// its word becomes 0xFFFF.
+// Xbox 0x00117980
+void amb_reset_beds(AudioEventVoices* voices)
 {
-    // Xbox 0x00118470
     g_amb_wait = amb_rand01() * g_amb_wait_scale;
     g_amb_armed = 0;
     g_amb_level = 0.f;
@@ -158,14 +172,13 @@ void amb_reset_beds()
     g_amb_blend = 0.f;
     g_amb_fade = 0.f;
     g_amb_goal = 0.f;
-    amb_release(g_amb_wind);
-    amb_release(g_amb_rain);
+    amb_release(g_amb_wind, voices); // DAT_0050E7D8
+    amb_release(g_amb_rain, voices); // DAT_0050E7D4
 }
 
 // rand <= 0.5 keeps the low endpoint. COMISS of 0.5 against the unit random.
 float amb_endpoint(float lo, float hi)
 {
-    // Xbox 0x00118470
     if (0.5f >= amb_rand01())
     {
         return lo;
@@ -176,9 +189,9 @@ float amb_endpoint(float lo, float hi)
 // 0x00118D10. ECX is the colour. trunc(rand * 3) picks the axis that is
 // lerped; the other two take one endpoint. EAX returns the byte at
 // DAT_0050ea00, which 0x00118290 ignores.
+// Xbox 0x00118D10
 void amb_pick_color(Vec3& out)
 {
-    // Xbox 0x00118470
     const float* lo = g_amb_color_lo;
     const float* hi = g_amb_color_hi;
     const i32 choice = static_cast<i32>(amb_rand01() * 3.f);
@@ -207,16 +220,20 @@ void amb_pick_color(Vec3& out)
 
 // 0x00117F20. Lerps the step delay, span, and count out of the general
 // settings, then copies two different palette rows (stride 12, eight rows).
+// Xbox 0x00117F20
 void amb_sample_step()
 {
-    // Xbox 0x00118470
-    const AudioGeneralSettings& settings = kAudioGeneral;
-    g_amb_step_wait = (settings.step_hi - settings.step_lo) * amb_rand01() + settings.step_lo;
-    const float span = (settings.span_hi - settings.span_lo) * amb_rand01() + settings.span_lo;
+    namespace settings = audio_general_settings;
+    const std::span<const u8> general = audio_general(); // DAT_004DF358
+    const float step_lo = get(general, settings::step_lo{});
+    g_amb_step_wait = (get(general, settings::step_hi{}) - step_lo) * amb_rand01() + step_lo;
+    const float span_lo = get(general, settings::span_lo{});
+    const float span = (get(general, settings::span_hi{}) - span_lo) * amb_rand01() + span_lo;
     g_amb_step_span = span;
     g_amb_step_timer = span;
-    const float count = static_cast<float>(settings.count_hi - settings.count_lo) * amb_rand01()
-        + static_cast<float>(settings.count_lo);
+    const i32 count_lo = get(general, settings::count_lo{});
+    const float count = static_cast<float>(get(general, settings::count_hi{}) - count_lo) * amb_rand01()
+        + static_cast<float>(count_lo);
     const i32 count_i = static_cast<i32>(count);
     g_amb_step_count = count_i;
     g_amb_step_left = count_i;
@@ -234,12 +251,14 @@ void amb_sample_step()
 
 // 0x00118290. Lerps the wind-extra delay, then draws a cue index in [3, 11)
 // that differs from the previous one. DAT_0050e7f0 is filled by 0x00118D10.
-// The voice word is cleared to 0xFFFF.
-void amb_sample_extra()
+// A live voice word is stopped and cleared to 0xFFFF.
+// Xbox 0x00118290
+void amb_sample_extra(AudioEventVoices* voices)
 {
-    // Xbox 0x00118470
-    const AudioGeneralSettings& settings = kAudioGeneral;
-    g_amb_extra_wait = (settings.wind_hi - settings.wind_lo) * amb_rand01() + settings.wind_lo;
+    namespace settings = audio_general_settings;
+    const std::span<const u8> general = audio_general(); // DAT_004DF358
+    const float wind_lo = get(general, settings::wind_lo{});
+    g_amb_extra_wait = (get(general, settings::wind_hi{}) - wind_lo) * amb_rand01() + wind_lo;
     const i32 previous = g_amb_extra_prev;
     i32 index = previous;
     do
@@ -250,7 +269,7 @@ void amb_sample_extra()
     while (index == previous);
     g_amb_extra_prev = index;
     amb_pick_color(g_amb_extra_color);
-    amb_release(g_amb_extra);
+    amb_release(g_amb_extra, voices); // 0x00039690
     g_amb_extra = 0xFFFF;
 }
 
@@ -315,7 +334,7 @@ void initialize_background_volume(const Vec3& low, const Vec3& high)
 }
 
 // Xbox 0x00118560
-void reset_ambient_scene()
+void reset_ambient_scene(AudioEventVoices& voices)
 {
     g_amb_vary_scale = 0.f; // DAT_0050E948
     g_amb_phase = 0.f; // DAT_0050E968
@@ -329,8 +348,20 @@ void reset_ambient_scene()
     g_amb_phase_rate = 1.f;
     g_amb_phase_name[0] = 0; // DAT_0050E97C
     amb_sample_step(); // 0x00117F20
-    amb_sample_extra(); // 0x00118290
+    amb_sample_extra(&voices); // 0x00118290
     g_amb_extra_wait = 1.5f; // DAT_0032B210, DAT_0050E7E4
+}
+
+// Xbox 0x00033030, after 0x0003A280
+void load_audio_general_settings(AnimationResourceRegistry& registry, ResourceErrorState& error)
+{
+    const std::span<const u8> resource =
+        acquire_animation_resource(registry, "aid_misc_ghoulies_audio_generalsettings"); // 0x00035E90
+    if (resource.data() == nullptr)
+    {
+        resource_error(error, 2); // 0x00032700
+    }
+    g_audio_general_settings = resource; // DAT_004DF358
 }
 
 // Xbox 0x00118CB0, ECX low, EAX high
@@ -344,7 +375,6 @@ u8 read_background_volume(Vec3& low, Vec3& high)
 // Xbox 0x00118470
 void ambient_initialize_beds()
 {
-    // Xbox 0x00118470
     g_amb_wait_scale = 120.f;
     g_amb_span = 300.f;
     g_amb_rate = 1.5f;
@@ -353,7 +383,7 @@ void ambient_initialize_beds()
     g_amb_vary_scale = 0.f;
     g_amb_phase = 0.f;
     g_amb_phase_a = 0.f;
-    g_amb_counter = 0;
+    g_50e7a0 = 0; // DAT_0050E7A0
     g_amb_hold = 0;
     g_amb_mark = 0;
     g_amb_gate = 0;
@@ -370,9 +400,9 @@ void ambient_initialize_beds()
     g_amb_phase_name[0] = 0;
     g_amb_extra = 0xFFFF;
     g_amb_extra_prev = -1;
-    amb_reset_beds();
-    amb_sample_step();
-    amb_sample_extra();
+    amb_reset_beds(nullptr); // 0x00117980
+    amb_sample_step(); // 0x00117F20
+    amb_sample_extra(nullptr); // 0x00118290
 }
 
 // Xbox 0x00119160
@@ -439,14 +469,263 @@ void start_ambient_phase(u32 gate, float length, float jitter, float rate, u32 c
 
 namespace
 {
-[[noreturn]] void ambient_unbound(const char* what)
+// The emitter nearest the point (EBX out) and its distance; 0 when the scene has none.
+// Xbox 0x001188C0, ECX the point, EBX the nearest emitter
+u32 find_nearest_ambient_emitter(const Vec3& point, float* distance, Vec3& nearest)
 {
-    throw Error(std::string("ambient tick: ") + what + " is not translated");
+    if (g_amb_count == 0) // DAT_0050E930
+    {
+        return 0;
+    }
+    i32 best = 0;
+    float best_square = (point.z - g_amb_emitters[0].z) * (point.z - g_amb_emitters[0].z)
+        + (point.y - g_amb_emitters[0].y) * (point.y - g_amb_emitters[0].y)
+        + (point.x - g_amb_emitters[0].x) * (point.x - g_amb_emitters[0].x);
+    for (i32 index = 1; index < g_amb_count; ++index)
+    {
+        const Vec3& emitter = g_amb_emitters[index];
+        const float square = (point.z - emitter.z) * (point.z - emitter.z) + (point.y - emitter.y) * (point.y - emitter.y)
+            + (point.x - emitter.x) * (point.x - emitter.x);
+        if (square < best_square)
+        {
+            best = index;
+            best_square = square;
+        }
+    }
+    nearest = g_amb_emitters[best];
+    if (distance != nullptr)
+    {
+        *distance = float(retail_square_root(best_square)); // 0x00152B30
+    }
+    return 1;
 }
 
-// Xbox 0x00117A50: the wind and rain bed. Its wait arms the bed (or 0x00117980 resets it); an armed bed's body runs
-// past here.
-void tick_ambient_bed(float step)
+// The bed runs: nothing holds it (DAT_0050E7A4), nothing overlays the scene (DAT_0050E7A0) and the scene has emitters.
+bool ambient_bed_live()
+{
+    return g_amb_hold == 0 && g_50e7a0 == 0 && 0 < g_amb_count;
+}
+
+// The bed's progress through its wait (DAT_0050E7AC), 0 at the start and 1 at the end, over the armed span or the
+// idle scale. 0x001175E0, 0x001176C0 and 0x001177A0 each inline it.
+float ambient_bed_progress()
+{
+    const float span = g_amb_armed != 0 ? g_amb_span : g_amb_wait_scale; // DAT_0050E7B4, DAT_0050E7B0
+    if (span == 0.f)
+    {
+        return 1.f; // DAT_0032B0F8
+    }
+    const float progress = (g_amb_wait - span) / (0.f - span);
+    if (progress > 1.f)
+    {
+        return 1.f;
+    }
+    if (0.f > progress)
+    {
+        return 0.f;
+    }
+    return progress;
+}
+
+float ambient_bed_unit(float value)
+{
+    if (value > 1.f)
+    {
+        return 1.f;
+    }
+    if (0.f > value)
+    {
+        return 0.f;
+    }
+    return value;
+}
+
+// The wind level: up over the first half of the wait and down over the second.
+// Xbox 0x001175E0
+float ambient_bed_wind_level()
+{
+    if (!ambient_bed_live())
+    {
+        return 0.f;
+    }
+    const float progress = ambient_bed_progress();
+    const float curve = 0.5f > progress ? progress * 2.f // DAT_0032B0F4, DAT_0032B110
+        : (progress - 1.f) * -2.f; // DAT_0032B14C
+    return g_amb_bed_scale * ambient_bed_unit(curve);
+}
+
+// The thunder level: up from 0.2 to 0.5 of the wait and down from 0.5 to 0.8.
+// Xbox 0x001176C0
+float ambient_bed_thunder_level()
+{
+    if (!ambient_bed_live())
+    {
+        return 0.f;
+    }
+    const float progress = ambient_bed_progress();
+    const float curve = 0.5f > progress
+        ? (progress - std::bit_cast<float>(0x3E4CCCCDu)) * std::bit_cast<float>(0x40555555u) // DAT_0032B1AC, DAT_0032B3B4
+        : (progress - std::bit_cast<float>(0x3F4CCCCDu)) * std::bit_cast<float>(0xC0555555u); // DAT_0032B244, DAT_0032B408
+    return g_amb_bed_scale * ambient_bed_unit(curve);
+}
+
+// The rain level: up from 0.3 to 0.5 of the wait and down from 0.5 to 0.7.
+// Xbox 0x001177A0
+float ambient_bed_rain_level()
+{
+    if (!ambient_bed_live())
+    {
+        return 0.f;
+    }
+    const float progress = ambient_bed_progress();
+    const float curve = 0.5f > progress
+        ? (progress - std::bit_cast<float>(0x3E99999Au)) * std::bit_cast<float>(0x40A00001u) // DAT_0032B268, DAT_0032B3A8
+        : (progress - std::bit_cast<float>(0x3F333333u)) * std::bit_cast<float>(0xC0A00001u); // DAT_0032B264, DAT_0032B404
+    return g_amb_bed_scale * ambient_bed_unit(curve);
+}
+
+// A bed voice at the bed's point: stopped when its level is not above zero or it is switched off, otherwise started
+// (once) and moved to the point.
+// Xbox 0x00117880, EAX off, EBX the point, EDI the voice word, XMM0 the level
+void update_ambient_bed_voice(const char* name, u32 off, const Vec3& point, u16& word, float level,
+    AudioEventVoices& voices)
+{
+    i16 index = i16(word);
+    if (!(level > 0.f) || off != 0) // DAT_0032B100
+    {
+        if (index != -1)
+        {
+            stop_audio_event_voice(index, 0, voices); // 0x00039690
+            word = 0xFFFF;
+        }
+        return;
+    }
+    if (index == -1)
+    {
+        index = request_positioned_audio_event_voice(name, 0, point, voices); // 0x00039580
+        if (index == -1)
+        {
+            word = u16(index);
+            return;
+        }
+    }
+    if (AudioCoreSource* source = voices.voices[size_t(index)].source; source != nullptr) // DAT_004E0D04
+    {
+        set_audio_core_source_position(*source, point, voices.core.sources); // 0x0015C800
+    }
+    word = u16(index);
+}
+
+// Xbox 0x00117900
+void play_ambient_thunder(const Vec3& point, AudioEventVoices& voices)
+{
+    if (ambient_bed_live())
+    {
+        request_positioned_audio_event_voice("XACT_SOUNDBANK_GENVIRONMENT_THUNDER", 1, point, voices); // 0x00039580
+    }
+}
+
+// A flash: its thunder lands at the rate times the level, kept within [1/15, 1] of the flash.
+// Xbox 0x00117930, EAX the gate
+void start_ambient_flash(float level, i32 gate)
+{
+    g_amb_goal = g_amb_rate * level; // DAT_0050E7C8, DAT_0050E7CC
+    g_amb_fade = 1.f; // DAT_0032B0F8
+    g_amb_blend = 1.f;
+    if (1.f < g_amb_goal)
+    {
+        g_amb_goal = 1.f;
+    }
+    else if (g_amb_goal < std::bit_cast<float>(0x3D888889u)) // DAT_0032B128
+    {
+        g_amb_goal = std::bit_cast<float>(0x3D888889u);
+    }
+    g_amb_gate = gate; // DAT_0050E7D0
+}
+
+// The countdown helper: true on the step that brings a running wait to zero.
+// Xbox 0x0012B2A0, EAX the wait
+u32 ambient_wait_expired(float& wait, float step)
+{
+    if (0.f < wait && (wait = wait - step, wait <= 0.f))
+    {
+        wait = 0.f;
+        return 1;
+    }
+    return 0;
+}
+
+// The flash light level over the flash (DAT_0030F6C8): eight (time, level) keys, searched and lerped.
+float ambient_flash_light(float along, const SceneExecutableResources& image)
+{
+    std::array<float, 16> keys;
+    std::memcpy(keys.data(), image.memory(0x0030F6C8, sizeof(keys)).data(), sizeof(keys));
+    i32 low = 0;
+    i32 high = 7;
+    float key_high = std::bit_cast<float>(0x3C23D70Au); // DAT_0032B124
+    float key_low = std::bit_cast<float>(0x3F7D70A4u); // DAT_0032B228
+    if (key_high > along)
+    {
+        low = 7;
+        high = 0;
+    }
+    else if (along > key_low)
+    {
+        low = 7;
+        high = 0;
+    }
+    else
+    {
+        do
+        {
+            const i32 middle = (high - low) / 2 + low;
+            if (along < keys[size_t(middle) * 2])
+            {
+                high = middle;
+            }
+            else
+            {
+                low = middle;
+            }
+        }
+        while (low + 1 < high);
+        key_low = keys[size_t(low) * 2];
+        key_high = keys[size_t(high) * 2];
+    }
+    const float value_high = keys[size_t(high) * 2 + 1];
+    const float value_low = keys[size_t(low) * 2 + 1];
+    if (key_high == key_low)
+    {
+        return value_high;
+    }
+    const float value = (along - key_low) / (key_high - key_low) * (value_high - value_low) + value_low;
+    if (value_high > value_low)
+    {
+        if (value > value_high)
+        {
+            return value_high;
+        }
+        if (value_low > value)
+        {
+            return value_low;
+        }
+        return value;
+    }
+    if (value_high > value)
+    {
+        return value_high;
+    }
+    if (value > value_low)
+    {
+        return value_low;
+    }
+    return value;
+}
+
+// The wind and rain bed. Its wait arms the bed for its span (or 0x00117980 resets it); an armed bed scales its
+// wind, rain and thunder by the view's distance to the nearest emitter, and flashes the light with thunder.
+// Xbox 0x00117A50
+void tick_ambient_bed(float step, AudioEventVoices& voices, const SceneExecutableResources& image)
 {
     if (0.f < g_amb_wait && (g_amb_wait = g_amb_wait - step, g_amb_wait <= 0.f))
     {
@@ -461,15 +740,101 @@ void tick_ambient_bed(float step)
             g_amb_blend = 0.f;
             g_amb_fade = 0.f;
             g_amb_gate = 0;
-            ambient_unbound("0x00117A50's armed bed (the view's wind and rain voices)");
         }
-        amb_reset_beds(); // 0x00117980
+        else
+        {
+            amb_reset_beds(&voices); // 0x00117980
+        }
     }
     if (g_amb_armed == 0)
     {
         return;
     }
-    ambient_unbound("0x00117A50's armed bed (the view's wind and rain voices)");
+    if (voices.listener == nullptr)
+    {
+        throw Error("0x00117A50 has no DAT_005077A8 view");
+    }
+    const Vec3 view{voices.listener[0], voices.listener[1], voices.listener[2]};
+    float scale;
+    if (find_nearest_ambient_emitter(view, &g_amb_bed_scale, g_amb_bed_point) == 0) // 0x001188C0
+    {
+        g_amb_bed_point = view;
+        scale = 0.75f; // DAT_0032B2AC
+    }
+    else if (g_amb_bed_scale > 100.f) // DAT_0032B12C
+    {
+        scale = 0.5f; // DAT_0032B0F4
+    }
+    else if (0.f > g_amb_bed_scale)
+    {
+        scale = 1.f; // DAT_0032B0F8
+    }
+    else
+    {
+        scale = 1.f - g_amb_bed_scale * std::bit_cast<float>(0x3C23D70Au) * 0.5f; // DAT_0032B124
+        if (0.5f > scale)
+        {
+            scale = 0.5f;
+        }
+        else if (scale > 1.f)
+        {
+            scale = 1.f;
+        }
+    }
+    g_amb_bed_scale = scale;
+    const float thunder = ambient_bed_thunder_level(); // 0x001176C0
+    const u32 wind_off = (ambient_bed_live() && (g_flag_ea98 & 4) == 0) ? 0 : 1; // DAT_0050EA98
+    update_ambient_bed_voice("XACT_SOUNDBANK_GENVIRONMENT_WINDEXTRA", wind_off, g_amb_bed_point, g_amb_wind,
+        ambient_bed_wind_level(), voices); // 0x00117880, 0x001175E0, the name at 0x0030F148
+    const u32 rain_off = (ambient_bed_live() && (g_flag_ea98 & 2) == 0) ? 0 : 1;
+    update_ambient_bed_voice("XACT_SOUNDBANK_GENVIRONMENT_RAINEXTRA", rain_off, g_amb_bed_point, g_amb_rain,
+        ambient_bed_rain_level(), voices); // 0x00117880, 0x001177A0, the name at 0x0030F1C8
+    const float fade = g_amb_fade; // DAT_0050E7C0
+    if (!(g_amb_fade > 0.f))
+    {
+        if (0.f < g_amb_pitch && 0.f < thunder && ambient_wait_expired(g_amb_pitch, step) != 0) // 0x0012B2A0
+        {
+            start_ambient_flash(thunder, 0); // 0x00117930
+        }
+        return;
+    }
+    g_amb_fade = g_amb_fade - step;
+    bool ended = false;
+    if (!(0.f < g_amb_fade))
+    {
+        g_amb_fade = 0.f;
+        ended = true;
+    }
+    if (!(g_amb_goal < g_amb_fade) && fade > g_amb_goal)
+    {
+        play_ambient_thunder(g_amb_bed_point, voices); // 0x00117900
+    }
+    if (ended)
+    {
+        if (g_amb_gate != 0)
+        {
+            g_amb_gate = 0;
+            g_amb_level = 0.f;
+            return;
+        }
+        namespace settings = audio_general_settings;
+        const std::span<const u8> general = audio_general(); // DAT_004DF358
+        const float wait_lo = get(general, settings::thunder_wait_lo{});
+        const float wait_hi = get(general, settings::thunder_wait_hi{});
+        g_amb_pitch = (wait_hi - wait_lo) * amb_rand01() + wait_lo; // DAT_0050E7C4
+        g_amb_level = 0.f;
+        return;
+    }
+    float along = 1.f;
+    if (g_amb_blend != 0.f)
+    {
+        const float place = (g_amb_fade - g_amb_blend) / (0.f - g_amb_blend);
+        if (!(place > 1.f))
+        {
+            along = 0.f > place ? 0.f : place;
+        }
+    }
+    g_amb_level = ambient_flash_light(along, image); // DAT_0050E7B8
 }
 
 // Xbox 0x00118800: an ambient sound may start: the scene runs (state 1 or 2), nothing overlays it (DAT_0050E7A0) and
@@ -531,7 +896,7 @@ void tick_ambient_extra(float step, AudioBankStreams& banks, const SceneExecutab
             g_amb_extra_wait = 0.f;
             if (!ambient_voice_allowed(banks)) // 0x00118800
             {
-                amb_sample_extra(); // 0x00118290
+                amb_sample_extra(&voices); // 0x00118290
                 return;
             }
             const i16 voice = allocate_audio_event_voice(1, voices); // 0x00039830, EBX 1
@@ -552,7 +917,7 @@ void tick_ambient_extra(float step, AudioBankStreams& banks, const SceneExecutab
     if (playing.cue == nullptr || (playing.state != 2 && playing.state != 3 && playing.state != 5
         && playing.state != 6 && playing.state != 7))
     {
-        amb_sample_extra(); // 0x00118290
+        amb_sample_extra(&voices); // 0x00118290
     }
 }
 }
@@ -561,7 +926,7 @@ void tick_ambient_extra(float step, AudioBankStreams& banks, const SceneExecutab
 void tick_ambient(float step, u32& random, AudioBankStreams& banks, const SceneExecutableResources& image)
 {
     AudioEventVoices& voices = banks.voices;
-    tick_ambient_bed(step); // 0x00117A50
+    tick_ambient_bed(step, voices, image); // 0x00117A50
     tick_ambient_steps(step, banks); // 0x00118120
     tick_ambient_extra(step, banks, image); // 0x00118380
     if (g_amb_vary != 0 && (g_amb_vary_wait = g_amb_vary_wait - 1, g_amb_vary_wait < 1))
@@ -605,7 +970,7 @@ void tick_ambient(float step, u32& random, AudioBankStreams& banks, const SceneE
     float level;
     if (g_amb_vary == 0 && g_amb_phase_on == 0)
     {
-        level = (g_amb_hold != 0 || g_amb_counter != 0 || g_amb_count < 1) ? 0.f : g_amb_level;
+        level = (g_amb_hold != 0 || g_50e7a0 != 0 || g_amb_count < 1) ? 0.f : g_amb_level;
     }
     else
     {

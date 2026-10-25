@@ -1,5 +1,6 @@
 #include "body_walk_alert_tick.h"
 #include "body_state_actions.h"
+#include "body_message_helpers.h"
 #include "../audio/body_sound_commands.h"
 #include "gbtg/anim.h"
 
@@ -526,5 +527,32 @@ void message_runtime_walk_alert(std::span<const u8> message, const std::function
     {
         stop();
     }
+}
+
+// Xbox 0x00023890, EAX body, ECX key, ESI the message
+void stop_runtime_walk_alert(std::span<u8> body, std::span<u8> message, u32 key,
+    const std::function<u16()>& action_key, RuntimeBodyActionMessages& actions)
+{
+    const u32 asked = read_u32(message, 4);
+    if (key != asked)
+    {
+        return;
+    }
+    if (read_u16(body, 0x94) == 0)
+    {
+        const u32 none = 0;
+        std::memcpy(message.data() + 8, &none, 4);
+        return;
+    }
+    if (asked != 0)
+    {
+        notify_runtime_body_action_key(body, 0x117, actions); // 0x00024B20, EAX 0x117
+    }
+    else
+    {
+        notify_runtime_body_action_key(body, action_key(), actions); // body vtable +0x20, then 0x00024B20
+    }
+    const u32 taken = 1;
+    std::memcpy(message.data() + 8, &taken, 4);
 }
 }

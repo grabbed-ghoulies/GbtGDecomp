@@ -70,7 +70,10 @@ SceneBodyMessages::SceneBodyMessages(SceneBodyServices& services, NativePlayerIn
           player.actor_instance.live_attachments, services.global_attachments},
       parent_{player.actor, player.actor_bytes, actions_, children_, animation_, spatial_, shape_scratch_,
           services.latches, player.collision, first_timer_, second_timer_, services.contact_players,
-          services.default_position},
+          services.default_position, [this]()
+          {
+              bind_action_children();
+          }},
       death_notice_{services.game, body_view_, player.actor_address,
           reinterpret_cast<const char*>(player.actor_bytes.data() + 0xBA0), player.spawn.record, services.resources},
       death_drops_{player.actor, player.actor_bytes, services.resources, services.factory,
@@ -133,16 +136,19 @@ SceneBodyMessages::SceneBodyMessages(SceneBodyServices& services, NativePlayerIn
     empty_child_.message = [](std::span<u8>)
     {
     };
-    walk_alert_child_.message = [](std::span<u8> message)
+    walk_alert_child_.message = [this](std::span<u8> message)
     {
-        message_runtime_walk_alert(message, []()
+        message_runtime_walk_alert(message, [this, message]()
         {
-            unbound("walk-alert stop 0x00023890 (message 0x53)");
+            stop_runtime_walk_alert(player_.body, message, 1, [this]()
+            {
+                return u16(body_slot_key(0x20));
+            }, parent_.actions); // 0x00023890, ECX 1
         });
     };
 }
 
-void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
+void SceneBodyMessages::bind_action_children()
 {
     auto& actions = player_.body_selection;
     for (FactoryObject* child : {&actions.first, &actions.second})
@@ -443,6 +449,21 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
             children_[child->bytes.get()] = endure.get();
             continue;
         }
+        if (child->type == 0x89)
+        {
+            auto& stunned = stunned_children_[child->bytes.get()];
+            if (stunned == nullptr)
+            {
+                stunned = std::make_unique<RuntimeBodyMessageChild>();
+                stunned->message = [this, child](std::span<u8> message)
+                {
+                    message_runtime_stunned_state({child->bytes.get(), child->size}, message,
+                        stunned_context()); // 0x000A3460
+                };
+            }
+            children_[child->bytes.get()] = stunned.get();
+            continue;
+        }
         if (child->type == 0x76)
         {
             auto& stream = hit_stream_children_[child->bytes.get()];
@@ -521,6 +542,11 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
         }
         children_[child->bytes.get()] = &empty_child_;
     }
+}
+
+void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
+{
+    bind_action_children();
     body_view_ = player_.body;
     mask_ = EntityMaskHost{player_.actor.mask_flag, player_.actor.mask_span, player_.actor.mask_mode};
     processor_.attributes = player_.body_attributes; // Body +0x268.
@@ -885,6 +911,9 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
     case 0x84:
         tick_runtime_endure_state({action.bytes.get(), action.size}, endure_context()); // 0x000A1710
         return;
+    case 0x89:
+        tick_runtime_stunned_state({action.bytes.get(), action.size}, stunned_context()); // 0x000A3380
+        return;
     case 0x67:
         tick_runtime_drone_dance_state({action.bytes.get(), action.size}, drone_dance_context()); // 0x0008E130
         return;
@@ -1197,6 +1226,7 @@ void SceneBodyMessages::action_step(FactoryObject& action)
     case 0x8D:
     case 0x84:
     case 0x86:
+    case 0x89:
         // 0x001628B0 (0x000D4179 for 0x69, 0x70 and 0x88) returns at once.
         return;
     default:
@@ -1720,6 +1750,31 @@ RuntimeSpinDizzyStateContext& SceneBodyMessages::spin_dizzy_context()
             return runtime_body_primary_parameter_id(ids, mind, *player_.body_bits, player_.action_table, 0);
         }});
     return *spin_dizzy_;
+}
+
+RuntimeStunnedStateContext& SceneBodyMessages::stunned_context()
+{
+    player_.refresh_body_views();
+    stunned_shape_.emplace(services_.state_context(services_.address_of(player_.body.data())));
+    stunned_.reset();
+    stunned_.emplace(RuntimeStunnedStateContext{player_.body, player_.actor, *stunned_shape_, services_.clock,
+        services_.sounds, player_.mind, player_.mind.empty() ? nullptr : &player_.mind_events.anchor,
+        [this](std::span<const u32> message)
+        {
+            std::array<u32, 0x42> buffer{};
+            std::copy_n(message.begin(), std::min<size_t>(message.size(), buffer.size()), buffer.begin());
+            player_.self.message(buffer);
+        },
+        [this](u32 address, std::span<u32> words)
+        {
+            services_.message(address, words);
+        },
+        [this]()
+        {
+            return u16(body_slot_key(0x20));
+        },
+        parent_.actions});
+    return *stunned_;
 }
 
 RuntimeEndureStateContext& SceneBodyMessages::endure_context()
@@ -2415,9 +2470,13 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
             const u32 type = player_.body_selection.second.type;
             if (type == 0x8E || type == 0x8F)
             {
-                message_runtime_walk_alert({reinterpret_cast<const u8*>(&reply.id), 4}, []()
+                const std::span<u8> words{reinterpret_cast<u8*>(&reply.id), 12}; // id, accepted, handled
+                message_runtime_walk_alert(words, [this, words]()
                 {
-                    unbound("walk-alert stop 0x00023890 (message 0x53)");
+                    stop_runtime_walk_alert(player_.body, words, 1, [this]()
+                    {
+                        return u16(body_slot_key(0x20));
+                    }, parent_.actions); // 0x00023890, ECX 1
                 });
                 return;
             }
@@ -2457,6 +2516,30 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 // 0x0008C4D0 reads the reply's id and, for 0x7C, its next word.
                 auto& second = player_.body_selection.second;
                 message_runtime_die_state({second.bytes.get(), second.size}, {reinterpret_cast<const u8*>(&reply.id), 8});
+                return;
+            }
+            if (type == 0x89)
+            {
+                // 0x000A3460 reads the reply's id; for 0x53 0x00023890 reads +4 and writes +8.
+                auto& second = player_.body_selection.second;
+                message_runtime_stunned_state({second.bytes.get(), second.size},
+                    {reinterpret_cast<u8*>(&reply.id), 12}, stunned_context());
+                return;
+            }
+            if (type == 0x84)
+            {
+                // 0x000A1850 reads the reply's id and its next word.
+                auto& second = player_.body_selection.second;
+                const std::array<u32, 2> words{reply.id, read_u32({reinterpret_cast<const u8*>(&reply.id), 8}, 4)};
+                message_runtime_endure_state({second.bytes.get(), second.size}, words, endure_context());
+                return;
+            }
+            if (type == 0x86)
+            {
+                // 0x000A24B0 reads the reply's id and, for 0x7C, its next word.
+                auto& second = player_.body_selection.second;
+                const std::array<u32, 2> words{reply.id, read_u32({reinterpret_cast<const u8*>(&reply.id), 8}, 4)};
+                message_runtime_spin_dizzy_state({second.bytes.get(), second.size}, words, spin_dizzy_context());
                 return;
             }
             if (type == 0x64)

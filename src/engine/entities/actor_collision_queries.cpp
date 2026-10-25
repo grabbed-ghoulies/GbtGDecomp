@@ -121,16 +121,21 @@ u32 query_runtime_actor_physical_sweep(RuntimeActorCollision& context)
     return 0;
 }
 
-// Xbox 0x0003E050
+// Xbox 0x0003E050. The caller's kind (`filter`, stack +0x10) ANDed with actor +0x1F0 becomes the shape and
+// triangle mask (EBX into 0x00055960); the caller's mask (stack +0x14, held in call.mask) goes on as the
+// excluded flags.
 u32 collect_runtime_actor_physical_contacts(RuntimeActorCollision& context, u32 filter)
 {
     const auto list = physical_list(context.actor);
-    if (list.data() != nullptr && (filter & context.actor.model_flags) != 0)
+    const u32 shapes = filter & context.actor.model_flags;
+    if (list.data() != nullptr && shapes != 0)
     {
         auto& call = context.shapes.call;
         if (!runtime_actor_culls_sphere(context.actor, context.bytes, call.candidate, call.radius))
         {
             bind_actor_pose(context);
+            call.mode = i32(call.mask);
+            call.mask = shapes;
             return dispatch_runtime_physical_contact_shapes(list, context.shapes);
         }
         return 0;

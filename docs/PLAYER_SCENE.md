@@ -399,6 +399,81 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 
 ## Checkpoints
 
+### 2026-10-25: stuck in the snooker table; the camera above the level
+
+- **Stuck in the snooker table (scene 5).** The room's collision has a box where the table stands (x ±30,
+  z ±20, 11.25 high, triangle flags 0x4). The swing's approach puts Cooper on the pick-up point, whose radius-4
+  sphere overlaps that box. The swing's end sends body message 0x4A, whose contact separation (`0x000744F0`)
+  should push him out, but `0x0003E050` had its two masks swapped: it tested shapes and triangles against the
+  caller's mask (0xC0000) and excluded the kind (4). The dump ANDs the kind with actor +0x1F0 for the shape and
+  triangle mask (EBX into `0x00055960`) and passes the caller's mask on as the excluded flags. With that fixed
+  the separation finds the box and Cooper ends just outside it (x ±34.0). Checked in play by the user: no longer
+  stuck. Every body separation (`0x000744F0`, `0x000755A0`) now finds the room geometry it missed before.
+- That separation reached two states' collision replies that had no dispatch: the spin-dizzy state 0x86
+  (`0x000A24B0`) and the endure state 0x84 (`0x000A1850`) now take them.
+- Scene 2a9 then reached message 0x53 to a walk-alert body: its answer `0x00023890` (no energy: +8 is 0;
+  otherwise action 0x117, or the body's own key, through `0x00024B20`, and +8 is 1) is translated, and so is the
+  state action 0x117 starts, factory type 0x89 (`body_stunned_state`: sizes `0x000A3180`, constructor `0x000A3200`,
+  destructor `0x000A3300`, tick `0x000A3380`, message `0x000A3460`). The parent body message (`0x000253B0`) now
+  rebinds the actions' message children after the second action's message, since that message can start a new
+  first action.
+- **The camera above the level (scene 2a12 and others).** The camera body stays where the rig puts it (about
+  35 up in the hold), but the view adds the actor camera effects (`0x00049260` over DAT_004E1734), and nothing
+  ticked them: retail's frame (`0x00033B50`) calls `0x00048F90` after the scoreboard, which swings, fades and
+  ends each effect (`0x000E9210` unlinks and frees it). Without it every hit's effect stayed at its start and
+  they piled up, lifting the view by up to about 55 during the hunchback fights. `0x00048F90` is translated and
+  called there; the 2a12 view now stays at the rig's height (captures looked at: inside the hold, framing Cooper).
+  Its neighbour `0x00060D50` (the screen flash and capture) is still not called.
+- Regression (2026-10-25, after these): `--dialogue-resources`, `--pause`, scenes 3, 4, 7, 9, 12 and 2a2, 2a5,
+  2a8, 2a10, 2a11 and 2a12 pass. Scenes 5 and 2a9 fail in the driver, with no untranslated path reached: scene 5
+  loses the skeleton event and the retry doesn't restart it; scene 2a9 opens its exit (Free Play by frame 2423)
+  but the driver keeps fighting the class 0x17 ghoulies instead of leaving. Both changed with the collision fix.
+
+### 2026-10-25: the wind and rain bed, camera shakes and pad rumble
+
+- Boot now acquires aid_misc_ghoulies_audio_generalsettings (0x44 bytes) into DAT_004DF358 as `0x00033030` does
+  after the audio boot, and the ambience reads it through `audio_general_settings` fields. The hardcoded copy of
+  its delays is gone; +0x3C / +0x40 (11.1 .. 16.1 s) are the thunder's next-flash delay.
+- Boot's `0x0011C480` part `0x00118470` (the bed's initial state) was never called, so the bed's wait stayed 0 and
+  it never armed. It now runs after the light defaults. Its random draws shift every later DAT_0054DD7C path.
+- The wind and rain bed `0x00117A50` is translated with `0x001188C0` (the nearest ambient emitter),
+  `0x001175E0` / `0x001176C0` / `0x001177A0` (the wind, thunder and rain curves over the wait), `0x00117880` (a
+  bed voice started at the point, moved, or stopped), `0x00117900` (thunder), `0x00117930` (a flash) and
+  `0x0012B2A0`, and the flash light curve over the eight keys at 0x0030F6C8. DAT_0050E924 is the last of the 21
+  emitter slots, as in retail. A reset (`0x00117980`) and the extra wind's redraw (`0x00118290`) now stop a live
+  voice through `0x00039690` instead of only dropping the word. DAT_0050E7A0 is `g_50e7a0` (the copy in
+  ambient.cpp is gone) and DAT_0050EA98 is `g_flag_ea98` (scene.cpp's `g_50ea98` copy is gone; the teardown
+  clears the one the readers use). Seen in the logs (not listened to): scene 5 arms the bed, starts
+  GENVIRONMENT_WINDEXTRA and flashes thunder ten times; scene 7 and 9 arm it.
+- Camera shakes: boot's pool and enables (`0x000FADE0`), the scene load's fresh pool with the unlock bit 4
+  vibration switch (`0x000FAEE0`) and the frame's shake tick (`0x000FAF70` with `0x000FB220` .. `0x000FB650`) are
+  translated. The shake rows are typed (`ActorCameraShakeAxis`), the four port records at DAT_00507D84 are
+  `g_pad_shakes`, and the DAT_00507D40 rumble commands are shared from clock.cpp
+  (`runtime_pad_rumble_commands`), where 0x000FAD80 already submitted them but nothing set their +0x0C enable.
+  Seen in the log: scene 5's skeleton fight drives the motors over the 5.0 threshold on 2878 frames. Not felt: no
+  pad was attached to the test runs.
+- The teardown runs the dialogue's release (`0x00057DC0`: the speaker resource, icon, input device and widget),
+  and the ambience steps the game's shared random word (DAT_0054DD7C) instead of its own copy.
+- Teardown `0x00117330` now also releases the event steps (`0x000D0490`), clears DAT_0050EA9C bit 0x800000 and
+  the score captions (`0x0012DF90`).
+- The haunted door's hit callout (`0x000AFAC0`'s inlined `0x0003C040`) resolved only players; it now goes
+  through the scene's actor callouts like the hunchback's (scene 12 reached it with a non-player).
+- Scene 5's driver retakes the cue when the skeleton event is lost (Cooper faints, or stage 2 times out) instead
+  of walking to a locked exit; the shifted random draws made it lose.
+- Regression (2026-10-25): `--dialogue-resources`, `--pause`, scenes 3, 4, 7, 9, 12 and 2a2, 2a5, 2a8, 2a9,
+  2a10, 2a11 pass. Scenes 5 and 2a12 fail in the driver's fights, with no untranslated path reached: scene 5 loses
+  the skeleton event on its time limit and, retrying, Cooper walks into scenery on the way to the cue; scene
+  2a12's Cooper swings at hunchbacks he cannot reach until the run ends. The shifted random draws (the bed's
+  boot init) changed both fights. In those runs, the bed armed in scenes 5, 7, 9, 2a5 and 2a12, and the shakes
+  drove the motors past the threshold in every scene with a fight.
+
+Still open:
+
+- The fight driver in scenes 5 and 2a12 (and 2a13 / 2a14, excluded before).
+
+- `0x00117330`'s `0x000F2BE0` (the profile times), `0x00049FF0`, `0x001289A0`, `0x00116790` and its DAT_0050E760
+  release; `0x001163D0`; the rest of `0x0011C480` (including its DAT_0050E7A0 increment).
+
 ### 2026-10-25: challenge actions and the scene teardown
 
 - Challenge setup actions 0x7A .. 0x86 (`0x001251E0`) occur only in the challenge mode's 20 scripts
@@ -422,14 +497,11 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
   (XACT_SOUNDBANK_GRANDOMAMBIENCE_LAUGH, _TABLEMOVE, _WOLF). The wind and rain bed (`0x00117A50`'s armed body) still
   raises when reached.
 
-Still open:
+Still open (the camera shakes, `0x00057DC0` and the shared random word were done in the next round):
 
-- Camera shakes and the pad rumble they drive: the per-scene pool (`0x000FAEE0`) and the frame's shake tick
-  (`0x000FAF70`, with `0x000FB480` / `0x000FB650`) are not translated, so no shake is ever queued.
-- Teardown callees still not run: `0x00057DC0` (the dialogue's speaker resource, input device and widget),
-  `0x00117330`'s calls other than its DAT_0050E560 clear, `0x001163D0` (a render target list nothing native fills),
-  `0x00049EF0` (the challenge's state) and `0x0012A9B0` (the post models, which nothing native loads).
-- ambient.cpp draws from its own copy of the random word (DAT_0054DD7C) rather than the scene's.
+- Teardown callees still not run: `0x00117330`'s calls other than its DAT_0050E560 clear, `0x001163D0` (a render
+  target list nothing native fills), `0x00049EF0` (the challenge's state) and `0x0012A9B0` (the post models, which
+  nothing native loads).
 
 ### 2026-10-25: the hunchback's two states; scene 4's exit walk
 

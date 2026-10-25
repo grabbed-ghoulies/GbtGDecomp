@@ -6,6 +6,7 @@
 #include "gbtg/movie.h"
 #include "gbtg/resource.h"
 #include "../scene/factory_scene_runtime.h"
+#include "../scene/lighting.h"
 #include "../scene/scene_loading.h"
 #include "../scene/actor_loading.h"
 #include "../runtime/name_lookup.h"
@@ -1134,16 +1135,6 @@ float g_509b2c = 0.f;
 
 float g_509b4c = 0.f;
  // DAT_00509b4c
-float g_509b50 = 0.f;
- // DAT_00509b50. Pool float DAT_0032b160.
-float g_509b54 = 0.f;
- // DAT_00509b54. Pool float DAT_0032b15c.
-i32 g_509b58 = 0;
-     // DAT_00509b58
-i32 g_509b70 = 0;
-     // DAT_00509b70
-i32 g_509b74 = 0;
-     // DAT_00509b74
 i32 g_5462fc = 0;
      // DAT_005462FC
 i32 g_545d1c = 0;
@@ -1157,7 +1148,7 @@ std::array<u16, 0x28> g_545ccc{}; // DAT_00545CCC: ten-id groups 0x001400D0 appe
 // DAT_00509b24, DAT_00509b28, and DAT_00509b4c. DAT_00509b50 becomes
 // 0x3eb2b8c3. DAT_005462FC becomes 1. DAT_00509b54 becomes 0x3f32b8c3.
 // DAT_00509b58 becomes 1. DAT_00509b70 becomes 0. DAT_00509b74 becomes 1.
-// 0x000FAEE0 and 0x00124420 are not translated, so those calls are not made.
+// 0x000FAEE0 and 0x00124420 are not translated, so those calls are not made. The light words are lighting.cpp's.
 // Of 0x00116E00 only its music release is made. DAT_00545D1C and DAT_00545CC8
 // are cleared after the 0x000FAEE0 call.
 // Xbox 0x0011CAC0
@@ -1169,13 +1160,14 @@ void scene_reset_runtime_parameters()
     g_509b24 = 1.f;
     g_509b28 = 1.f;
     g_509b4c = 1.f;
-    g_509b50 = std::bit_cast<float>(0x3eb2b8c3u);
+    g_scene_light_direction.pitch = std::bit_cast<float>(0x3eb2b8c3u); // DAT_00509B50
     g_5462fc = 1;
-    g_509b54 = std::bit_cast<float>(0x3f32b8c3u);
-    g_509b58 = 1;
-    g_509b70 = 0;
-    g_509b74 = 1;
-    // 0x000FAEE0 is not translated.
+    g_scene_light_direction.yaw = std::bit_cast<float>(0x3f32b8c3u); // DAT_00509B54
+    g_scene_light_direction.camera_relative = 1; // DAT_00509B58
+    g_light_paused = 0; // DAT_00509B70
+    g_light_running = 1; // DAT_00509B74
+    // 0x000FAEE0 (the camera shake pool and the pads' shake enables, which only the untranslated shake tick
+    // 0x000FAF70 reads) is not translated.
     g_545d1c = 0;
     g_545cc8 = 0;
     reset_runtime_camera_view_tunables(); // 0x0013CBD0

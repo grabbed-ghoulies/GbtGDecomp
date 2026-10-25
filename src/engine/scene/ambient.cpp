@@ -6,6 +6,9 @@
 #include "background_geometry.h"
 #include "background_ambient.h"
 #include "ambient.h"
+#include "executable_resources.h"
+#include "scene.h"
+#include "../transitions/scene_transitions.h"
 #include "../audio/core_source.h"
 
 #include <bit>
@@ -311,6 +314,25 @@ void initialize_background_volume(const Vec3& low, const Vec3& high)
     g_amb_palette[7] = high;
 }
 
+// Xbox 0x00118560
+void reset_ambient_scene()
+{
+    g_amb_vary_scale = 0.f; // DAT_0050E948
+    g_amb_phase = 0.f; // DAT_0050E968
+    g_amb_phase_a = 0.f; // DAT_0050E964
+    g_amb_count = 0; // DAT_0050E930
+    g_amb_vary = 0; // DAT_0050E944
+    g_amb_phase_on = 0; // DAT_0050E950
+    g_amb_phase_gate = 0; // DAT_0050E954
+    g_amb_phase_len = 1.f; // DAT_0032B0F8
+    g_amb_phase_jitter = std::bit_cast<float>(0x3E99999Au); // DAT_0032B268
+    g_amb_phase_rate = 1.f;
+    g_amb_phase_name[0] = 0; // DAT_0050E97C
+    amb_sample_step(); // 0x00117F20
+    amb_sample_extra(); // 0x00118290
+    g_amb_extra_wait = 1.5f; // DAT_0032B210, DAT_0050E7E4
+}
+
 // Xbox 0x00118CB0, ECX low, EAX high
 u8 read_background_volume(Vec3& low, Vec3& high)
 {
@@ -450,14 +472,43 @@ void tick_ambient_bed(float step)
     ambient_unbound("0x00117A50's armed bed (the view's wind and rain voices)");
 }
 
-// Xbox 0x00118120: the random ambient steps.
-void tick_ambient_steps(float step)
+// Xbox 0x00118800: an ambient sound may start: the scene runs (state 1 or 2), nothing overlays it (DAT_0050E7A0) and
+// the environment bank (id 2) is loaded.
+bool ambient_voice_allowed(AudioBankStreams& banks)
+{
+    const i32 state = i32(read_u32({g_510e58, 0x108}, 0x104)); // DAT_00510F5C
+    if (0 < state && state < 3 && g_50e7a0 == 0)
+    {
+        if (const AudioTrackedBank* bank = find_tracked_audio_bank_by_id(2, banks); bank != nullptr) // 0x000384F0
+        {
+            return bank->pending == 0; // +0x94
+        }
+    }
+    return false;
+}
+
+// Xbox 0x00118120: the random ambient steps, walked from one corner of the background volume to another.
+void tick_ambient_steps(float step, AudioBankStreams& banks)
 {
     if (g_amb_step_wait <= 0.f)
     {
         if (0.f < g_amb_step_timer && (g_amb_step_timer = g_amb_step_timer - step, g_amb_step_timer <= 0.f))
         {
-            ambient_unbound("0x00118120's step (0x00118800 and XACT_SOUNDBANK_GRANDOMAMBIENCE_AMBSTEP)");
+            --g_amb_step_left;
+            g_amb_step_timer = g_amb_step_span;
+            const float along = 1.f - float(g_amb_step_left) / float(g_amb_step_count - 1); // DAT_0032B0F8
+            if (ambient_voice_allowed(banks)) // 0x00118800
+            {
+                g_amb_step_now = Vec3{(g_amb_step_to.x - g_amb_step_from.x) * along + g_amb_step_from.x,
+                    (g_amb_step_to.y - g_amb_step_from.y) * along + g_amb_step_from.y,
+                    (g_amb_step_to.z - g_amb_step_from.z) * along + g_amb_step_from.z};
+                request_positioned_audio_event_voice("XACT_SOUNDBANK_GRANDOMAMBIENCE_AMBSTEP", 1, g_amb_step_now,
+                    banks.voices); // 0x00039580, the name at 0x0030F708
+            }
+            if (g_amb_step_left == 0)
+            {
+                amb_sample_step(); // 0x00117F20
+            }
         }
         return;
     }
@@ -468,27 +519,51 @@ void tick_ambient_steps(float step)
     }
 }
 
-// Xbox 0x00118380: the extra wind voice.
-void tick_ambient_extra(float step)
+// Xbox 0x00118380: the extra wind voice, at a point on the background volume (DAT_0050E7F0); once it has ended the
+// next one is drawn (0x00118290).
+void tick_ambient_extra(float step, AudioBankStreams& banks, const SceneExecutableResources& image)
 {
+    auto& voices = banks.voices;
     if (g_amb_extra == 0xFFFF)
     {
-        if (0.f < g_amb_extra_wait && (g_amb_extra_wait = g_amb_extra_wait - step, g_amb_extra_wait <= 0.f))
+        if (0.f < g_amb_extra_wait && (g_amb_extra_wait = g_amb_extra_wait - step, !(0.f < g_amb_extra_wait)))
         {
-            ambient_unbound("0x00118380's extra wind voice (0x00118800, 0x00039B10)");
+            g_amb_extra_wait = 0.f;
+            if (!ambient_voice_allowed(banks)) // 0x00118800
+            {
+                amb_sample_extra(); // 0x00118290
+                return;
+            }
+            const i16 voice = allocate_audio_event_voice(1, voices); // 0x00039830, EBX 1
+            g_amb_extra = u16(voice);
+            if (voice != -1)
+            {
+                if (AudioCoreSource* source = voices.voices[size_t(voice)].source; source != nullptr) // 0x00039B10
+                {
+                    set_audio_core_source_position(*source, g_amb_extra_color, voices.core.sources); // 0x0015C800
+                }
+                prepare_audio_event_voice(voice, image.string(0x0030F148 + u32(g_amb_extra_index) * 0x80),
+                    voices); // 0x00039A20, WINDEXTRA and its variants
+            }
         }
         return;
     }
-    ambient_unbound("0x00118380's playing extra wind voice (0x00118290)");
+    const AudioEventVoice& playing = voices.voices[size_t(i16(g_amb_extra))];
+    if (playing.cue == nullptr || (playing.state != 2 && playing.state != 3 && playing.state != 5
+        && playing.state != 6 && playing.state != 7))
+    {
+        amb_sample_extra(); // 0x00118290
+    }
 }
 }
 
 // Xbox 0x001185E0
-void tick_ambient(float step, u32& random, AudioEventVoices& voices)
+void tick_ambient(float step, u32& random, AudioBankStreams& banks, const SceneExecutableResources& image)
 {
+    AudioEventVoices& voices = banks.voices;
     tick_ambient_bed(step); // 0x00117A50
-    tick_ambient_steps(step); // 0x00118120
-    tick_ambient_extra(step); // 0x00118380
+    tick_ambient_steps(step, banks); // 0x00118120
+    tick_ambient_extra(step, banks, image); // 0x00118380
     if (g_amb_vary != 0 && (g_amb_vary_wait = g_amb_vary_wait - 1, g_amb_vary_wait < 1))
     {
         random = random * 0x19660Du + 0x3C6EF35Fu;

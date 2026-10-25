@@ -582,4 +582,12 @@ u8 controller_packet_rejected(i32 port, const void* packet)
 }
 
 
+// Xbox 0x00155930
+void stop_pad_rumble(u8 port)
+{
+    g_rumble[port].active = 0; // DAT_00434912 + port * 0x14
+    g_rumble[port].left = 0.f; // DAT_00434918
+    g_rumble[port].right = 0.f; // DAT_0043491C
+}
+
 } // namespace gbtg

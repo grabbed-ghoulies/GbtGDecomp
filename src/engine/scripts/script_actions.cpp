@@ -647,20 +647,6 @@ int script_handle_pair_updates(Game& g, const ScriptNode& node, int param_2)
 }
 
 
-// Names at 0x004232AC. 0x000FBFB0 is called with count 9.
-const char* const kChallengeId[9] = {
-    "challengeId_Attacks",
-    "challengeId_Buttons",
-    "challengeId_Challenge21",
-    "challengeId_Damage",
-    "challengeId_Health",
-    "challengeId_Kills",
-    "challengeId_KillsBOB",
-    "challengeId_Survive",
-    "challengeId_Time",
-};
-
-
 // Xbox 0x001251E0. Handler 5. The dword at node+4 is the type. Type 0x7A
 // calls 0x000FBFB0 with the cstring at node+8 and passes that index to
 // 0x0004A100. Type 0x7B calls 0x0004A240. The other listed types build the
@@ -673,94 +659,40 @@ const char* const kChallengeId[9] = {
 // 0x81 stores opcode 0x12. Type 0x83 stores opcode 0xB and the dword at
 // node+8. Type 0x84 stores opcode 0xC. Type 0x85 stores opcode 0. Type 0x86
 // stores opcode 3. 0x0004A100, 0x0004A240, and 0x0004ADD0 are not translated,
-// so those calls are not made. Any other type returns 3. A handled type
-// returns 2.
+// so each listed type raises where it is reached. Any other type returns 3.
 // Xbox 0x001251E0
 int script_handle_condition_setup(Game& g, const ScriptNode& node)
 {
-    struct Arg
-    {
-        u32 opcode = 0;
-        u32 at_8 = 0;
-        u32 at_c = 0;
-    };
-    Arg arg{};
+    // Types 0x7A .. 0x86 occur only in the challenge mode's scripts (aid_script_ghoulies_challenges_*). Their
+    // callees, the challenge's start (0x0004A100), rules (0x0004A240) and condition records (0x0004ADD0) with the
+    // DAT_004E17C8 states behind them, are not translated.
     switch (node.type)
     {
     case 0x7a:
-    {
-        const std::string key = node_cstr(g.scene_script, node, 8);
-        const i32 found = binary_search_names(9, kChallengeId, key.c_str());
-        (void)found;
-        return 2;
-    }
+        throw Error("untranslated Xbox 0x0004A100: script type 0x7A starts challenge "
+            + node_cstr(g.scene_script, node, 8));
     case 0x7b:
-        return 2;
+        throw Error("untranslated Xbox 0x0004A240: script type 0x7B's challenge rules");
     case 0x7c:
-        arg.opcode = 0x10;
-        arg.at_8 = 0;
-        (void)arg;
-        return 2;
     case 0x7d:
-        arg.opcode = 0x11;
-        arg.at_8 = node_u32(g.scene_script, node, 8);
-        (void)arg;
-        return 2;
     case 0x7e:
-        arg.opcode = 5;
-        break;
     case 0x7f:
-    {
-        const std::string key = node_cstr(g.scene_script, node, 8);
-        if (static_cast<u16>(script_find_actor_tag(key.c_str())) == 0)
-        {
-            return 2;
-        }
-        arg.opcode = 9;
-        arg.at_8 = u32(static_cast<u16>(script_find_actor_tag(key.c_str())));
-        (void)arg;
-        return 2;
-    }
     case 0x80:
-    {
-        const std::string key = node_cstr(g.scene_script, node, 8);
-        arg.opcode = 0xA;
-        arg.at_8 = u32(static_cast<u16>(script_find_actor_tag(key.c_str())));
-        arg.at_c = node_u32(g.scene_script, node, 0x48);
-        (void)arg;
-        return 2;
-    }
     case 0x81:
-        arg.opcode = 0x12;
-        (void)arg;
-        return 2;
     case 0x82:
-        arg.opcode = 4;
-        break;
     case 0x83:
-        arg.opcode = 0xB;
-        arg.at_8 = node_u32(g.scene_script, node, 8);
-        (void)arg;
-        return 2;
     case 0x84:
-        arg.opcode = 0xC;
-        (void)arg;
-        return 2;
     case 0x85:
-        arg.opcode = 0;
-        (void)arg;
-        return 2;
     case 0x86:
-        arg.opcode = 3;
-        (void)arg;
-        return 2;
+        throw Error("untranslated Xbox 0x0004ADD0: script type 0x" + [&node]()
+        {
+            char text[8];
+            std::snprintf(text, sizeof(text), "%X", node.type);
+            return std::string(text);
+        }() + "'s challenge condition record");
     default:
         return 3;
     }
-    const std::string key = node_cstr(g.scene_script, node, 8);
-    arg.at_8 = u32(static_cast<u16>(script_find_actor_tag(key.c_str())));
-    (void)arg;
-    return 2;
 }
 
 
@@ -1003,6 +935,30 @@ std::vector<u32> g_mark_2448;
 std::vector<u32> g_mark_245c;
 
 i32 g_mark_2444 = 0;
+
+// Xbox 0x001272B0, EAX restore: the scene teardown's. With `restore` (DAT_00430D0C 1, the scene starting again) each
+// bit type 0x9E changed goes back to its value before; either way the list empties.
+void restore_script_story_bits(bool restore)
+{
+    if (!restore)
+    {
+        g_mark_2444 = 0;
+        return;
+    }
+    for (i32 index = 0; index < g_mark_2444; ++index)
+    {
+        const u32 bit = g_mark_2448[size_t(index)];
+        if (g_mark_245c[size_t(index)] == 0)
+        {
+            clear_runtime_story_bit(g_runtime_profile.progress.bytes, bit);
+        }
+        else
+        {
+            set_runtime_story_bit(g_runtime_profile.progress.bytes, bit);
+        }
+    }
+    g_mark_2444 = 0;
+}
 
 
 

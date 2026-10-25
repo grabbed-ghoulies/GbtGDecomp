@@ -515,6 +515,22 @@ void grow_segment_pool(SegmentPool& pool)
 }
 
 
+// Xbox 0x001222A0. The scene teardown's release of the contact slots: each slot's object goes and its pool's block
+// is freed (DAT_00511A1C .. DAT_00511AA0, stride 8).
+void release_segment_slots()
+{
+    for (SegmentSlot& slot : g_segment_slots)
+    {
+        slot.object = nullptr;
+        if (slot.pool.live)
+        {
+            engine_heap_free(slot.pool.block); // HeapFree on the block's thread heap
+            slot.pool = SegmentPool{};
+        }
+    }
+}
+
+
 // Xbox 0x00122C10. The index is DAT_00511A18. A missing pool is one 0x358-byte
 // block: stride 0x54 and ten records. An existing pool rewinds its cursor.
 SegmentPool* prepare_segment_pool()

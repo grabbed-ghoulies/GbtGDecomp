@@ -44,6 +44,29 @@ void release_actor_camera_effects()
     }
 }
 
+// Xbox 0x000FAE40
+void release_actor_camera_shakes(AnimationResourceRegistry& registry)
+{
+    if (GhoulySpawnPool* pool = g_actor_camera_shakes; pool != nullptr)
+    {
+        for (u8* row = pool->begin; row < pool->cursor; row += pool->stride)
+        {
+            auto& shake = *reinterpret_cast<ActorCameraShake*>(row);
+            if (shake.resource != nullptr)
+            {
+                release_animation_resource(registry, {shake.resource, 1}); // 0x00035C00, EBX +0x40
+                shake.resource = nullptr;
+            }
+        }
+        engine_heap_free(pool); // HeapFree on the pool's thread heap
+        g_actor_camera_shakes = nullptr;
+    }
+    for (u8 port = 0; port < 4; ++port)
+    {
+        stop_pad_rumble(port); // 0x00155930
+    }
+}
+
 // Xbox 0x000494B0
 ActorCameraEffect* allocate_actor_camera_effect(u8 type)
 {

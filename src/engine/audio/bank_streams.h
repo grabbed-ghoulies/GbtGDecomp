@@ -40,6 +40,7 @@ void initialize_tracked_audio_channels(AudioBankStreams& context); // Xbox 0x000
 AudioTrackedBank* next_tracked_audio_bank(AudioTrackedBank* bank,
     AudioBankStreams& context); // Xbox 0x00038400
 AudioTrackedBank* find_tracked_audio_bank(const char* name, AudioBankStreams& context); // Xbox 0x00038460
+AudioTrackedBank* find_tracked_audio_bank_by_id(i32 id, AudioBankStreams& context); // Xbox 0x000384F0, ESI id
 AudioTrackedBank* select_resume_audio_bank(AudioTrackedBank& removed,
     AudioBankStreams& context); // Xbox 0x00038590
 AudioTrackedChannel* find_tracked_audio_channel(const char* name, i32& found,

@@ -547,6 +547,7 @@ struct PadFeedback
 // DAT_00203A98 (65535), chopped by 0x001673D8, land in the words at +0x42
 // and +0x44.
 void controller_tick_feedback(PadFeedback* feedback, float dt); // Xbox 0x001557B0 // 0x001557B0
+void stop_pad_rumble(u8 port); // Xbox 0x00155930: the port's rumble slot goes quiet.
 
 // Port is EDI. packet is ESI, the 0x16-byte gamepad cam_155624 walks from
 // DAT_004348B4. A non-zero byte sends that port through 0x00155260.

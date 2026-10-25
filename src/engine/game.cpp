@@ -182,7 +182,9 @@ void frame_tick(Game& g, float dt, const InputState& in)
     tick_save_games(g_sim_dt, saves);
     // The Bink decoder's clock (BinkWait's timer).
     movie_advance_time(g.clock.dt);
-    // 0x00033A90 flushes the deferred resource unloads (0x00036180) before it presents.
+    // 0x00033A90 collects the deferred model releases (0x000F9780) and flushes the deferred resource unloads
+    // (0x00036180) before it presents.
+    g.factory_scene->actor_services->collect_model_releases();
     flush_animation_resource_unloads(g.native_resources->registry);
     // Present 0x00033A90: the movie list, the movie frames into their hooked textures (0x00106CD0), each active
     // camera slot's view (0x00033A20), then the movie list again. The views run every frame, with or without a

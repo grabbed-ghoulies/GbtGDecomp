@@ -25,6 +25,9 @@ extern ActorCameraEffect g_actor_camera_effects; // DAT_004E1734
 extern GhoulySpawnPool* g_actor_camera_shakes; // DAT_00507D80
 
 void release_actor_camera_effects(); // Xbox 0x00048F10
+// The scene teardown's: each camera shake's resource (+0x40) lets go, the DAT_00507D80 pool is freed and the four pads'
+// rumble stops (0x00155930).
+void release_actor_camera_shakes(AnimationResourceRegistry& registry); // Xbox 0x000FAE40
 ActorCameraEffect* allocate_actor_camera_effect(u8 type); // Xbox 0x000494B0
 ActorCameraEffect* create_positioned_camera_effect(u8 type, float size,
     float value, const Vec3& position); // Xbox 0x00049520

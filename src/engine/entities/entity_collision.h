@@ -15,6 +15,7 @@ extern Vec3 g_contact_points[64];
 
 extern SegmentSlot g_segment_slots[kSegmentSlots];
 extern i32 g_segment_count; // DAT_00511A18.
+void release_segment_slots(); // Xbox 0x001222A0, the scene teardown's
 
 extern // DAT_004274B8
 

@@ -1,4 +1,5 @@
 #include "blob_shadows.h"
+#include "scene_point_light_pass.h"
 
 namespace gbtg
 {
@@ -35,6 +36,31 @@ void advance_runtime_blob_shadow_free(RuntimeBlobShadows& shadows)
             return;
         }
         ++shadows.next_free;
+    }
+}
+
+// Xbox 0x001199F0
+void reset_runtime_blob_shadows(std::array<RuntimeBlobShadow, 0x20>& entries, i32& count, i32& next_free,
+    u32& enabled, RuntimeScenePointLightTargets& targets, const std::function<void(std::uintptr_t)>& release)
+{
+    for (auto& entry : entries)
+    {
+        entry.active = 0; // DAT_0050EC24, stride 0x18
+    }
+    count = 0; // DAT_0050EF10
+    next_free = 0; // DAT_0050EF14
+    enabled = 0; // DAT_0050EF18
+    targets.light_texture = 0;
+    targets.light_surface = 0;
+    if (targets.depth_texture != 0)
+    {
+        release(targets.depth_texture); // D3DResource_Release
+        targets.depth_texture = 0;
+    }
+    if (targets.depth_surface != 0)
+    {
+        release(targets.depth_surface);
+        targets.depth_surface = 0;
     }
 }
 }

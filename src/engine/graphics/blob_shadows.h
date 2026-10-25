@@ -1,9 +1,12 @@
 #pragma once
 #include "gbtg/types.h"
 #include <array>
+#include <cstdint>
+#include <functional>
 
 namespace gbtg
 {
+struct RuntimeScenePointLightTargets;
 // One of the scene's 0x20 blob shadows (DAT_0050EC10, 0x18 bytes each): a soft shadow the draw 0x00119AD0 puts under
 // a point.
 struct RuntimeBlobShadow
@@ -25,4 +28,9 @@ struct RuntimeBlobShadows
 i32 register_runtime_blob_shadow(const Vec3& position, float radius, float strength,
     RuntimeBlobShadows& shadows); // Xbox 0x00119A60
 void advance_runtime_blob_shadow_free(RuntimeBlobShadows& shadows); // Xbox 0x00119950
+// The scene teardown's reset: every shadow off, the count, free slot and enable cleared, and the point-light pass's
+// light and depth targets (DAT_00504850 .. DAT_0050485C) let go.
+void reset_runtime_blob_shadows(std::array<RuntimeBlobShadow, 0x20>& entries, i32& count, i32& next_free,
+    u32& enabled, RuntimeScenePointLightTargets& targets,
+    const std::function<void(std::uintptr_t)>& release); // Xbox 0x001199F0
 }

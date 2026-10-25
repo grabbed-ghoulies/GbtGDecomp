@@ -88,6 +88,7 @@ extern "C"
 #include "../audio/native_audio.h"
 #include "../runtime/random_state.h"
 #include "scene_pause.h"
+#include "../camera/actor_camera_effects.h"
 #include "../audio/listener_settings.h"
 #include "../frontend/dialogue_activation.h"
 #include "../transitions/scene_transition.h"
@@ -284,33 +285,24 @@ void scene_set_audio_level(float level)
 // is added to DAT_004312E4. The truncated integer lands at DAT_004312E0 and
 // the fraction stays at DAT_004312E4.
 //
-// 0x0004EBD0 ticks the native scene's cutscenes; 0x0005AA90 ticks the
-// doors; 0x00057E60 ticks the scene dialogue. DAT_00545B38
-// equal to 3 would call 0x0013FFD0. That call is not translated. 0x00117140
-// runs, then 0x000D0300 ticks the event sequence and 0x00049DE0 would
-// run; that one is not translated. 0x00117140 runs again. DAT_00506E28 equal to 1 calls
-// 0x000F4A00 (the ghoul intro) before DAT_0050E438 is loaded.
-// The list walk saves the next link, then calls vtable +0x10.
+// 0x0004EBD0 ticks the native scene's cutscenes; 0x0005AA90 ticks the doors; 0x00057E60 ticks the scene dialogue.
+// DAT_00545B38 3 raises at 0x0013FFD0. 0x00117140 runs, then 0x000D0300 ticks the event sequence and 0x00049DE0 the
+// front end's state (its states 2 .. 6 raise); 0x00117140 runs again. DAT_00506E28 equal to 1 calls 0x000F4A00 (the
+// ghoul intro) before DAT_0050E438 is loaded. The list walk saves the next link, then calls vtable +0x10.
 //
-// 0x00123020 takes DAT_00511B18 on the stack, then 0x00122FE0 runs. 0x001128A0
-// and 0x0011B670 are not translated. 0x00117100 then runs, including its
-// tail into 0x00117140. 0x000F4560 ticks the ghoul intro; 0x0013FD60 is not translated.
+// 0x00123020 takes DAT_00511B18 on the stack, then 0x00122FE0, 0x001128A0 (the attacker queues) and 0x0011B670
+// run. 0x00117100 then runs, including its tail into 0x00117140. 0x000F4560 ticks the ghoul intro; 0x0013FD60
+// raises when its gate opens.
 //
-// DAT_004312DC above 0 leaves the step at 0. Otherwise the step is
-// DAT_005096C0 * DAT_004312C4, capped at DAT_0032B150 when that product is
-// greater. The stack float for 0x00115BB0 is the step times DAT_0032B6E0.
-// 0x001162F0 is not translated.
+// DAT_004312DC above 0 leaves the step at 0. Otherwise the step is DAT_005096C0 * DAT_004312C4, capped at
+// DAT_0032B150. 0x00115BB0 takes the step times DAT_0032B6E0, then 0x001162F0 ages the actor snapshots.
 //
-// DAT_00510580 nonzero and DAT_00510650 clear adds DAT_0032B314 to
-// DAT_00510648 and DAT_0051064C, then would call 0x0011B7F0. That call is
-// not translated. 0x0012AA70, 0x001185E0 and 0x000FDDA0 are not translated;
-// 0x000FD5C0 applies the scene fog record.
+// DAT_00510580 nonzero and DAT_00510650 clear adds DAT_0032B314 to DAT_00510648 and DAT_0051064C, then raises at
+// 0x0011B7F0. 0x0012AA70 (the post models, raising with one loaded), 0x001185E0 (the ambience), 0x000FDDA0 (the light
+// records) and 0x000FD5C0 (the scene fog) run.
 //
-// A nonzero record count in DAT_0050E0E8, and a nonzero dword at
-// (DAT_0050E0EC - 1) * stride + begin, would call 0x001083F0 with that
-// dword in EAX and 0x10 on the stack. 0x001083F0 is not translated, so its
-// return is not taken. A nonzero return with DAT_00510CEC clear would store
-// 6 at DAT_00510F60, or 1 when DAT_00510CE8 is nonzero.
+// With records on the input stack (DAT_0050E0E8) and the top one's device nonzero, Start newly pressed (0x001083F0,
+// 0x10) with DAT_00510CEC clear stores 6 at DAT_00510F60, or 1 when DAT_00510CE8 is nonzero.
 // Xbox 0x0011E7F0
 void scene_tick_pause_counter(Game& g, u8* scene)
 {
@@ -429,7 +421,7 @@ void scene_tick_pause_counter(Game& g, u8* scene)
         g.factory_scene->start_actors(g).tick_post_models(); // 0x0012AA70
     }
     tick_ambient(g_sim_freeze <= 0.f ? g_sim_dt * g_sim_scale : 0.f, g_shared_random,
-        native_audio_runtime().voices); // 0x001185E0
+        native_audio_runtime().streams, *g.executable_resources); // 0x001185E0
     if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1)
     {
         g.factory_scene->start_actors(g).animate_light_records(); // 0x000FDDA0
@@ -721,39 +713,11 @@ i32 g_50ec00 = 0;
 
 
 // Xbox 0x0011C5A0
-// ESI is the scene record. The dword at +0x118 is cleared. DAT_0051065C is
-// 1 for the body and 0 on the way out.
-//
-// DAT_004EE1EC nonzero would call 0x000584D0 with a stack 0. That call is
-// not translated. 0x0004ECE0, 0x00049EF0, and 0x0005B1E0 are not translated.
-// 0x00115F00 is not translated. 0x00122C70 is not translated: EDI points at
-// a stack dword holding 0x80. 0x001232D0, 0x001222A0, 0x00110AB0, 0x001143A0,
-// 0x00123640, 0x001199F0, and 0x0011F610 are not translated.
-//
-// A nonzero DAT_00510584 is the argument of 0x001759F0, the D3D resource
-// release. No D3D8 object is bound to that pointer, so the call is not made
-// and the pointer is cleared. DAT_00510580 is cleared. 0x001133B0 is not
-// translated. 0x000FD710 runs in the actor services' end of scene.
-//
-// Bit 8 of DAT_0050EA9C is written back as 0x100 after the dword is cleared.
-// DAT_0050EA98 is cleared. 0x000ED450 is not translated. 0x00129F70 and 0x0003A1F0 (ESI 0xD) run.
-// 0x00118560 is not translated.
-//
-// A nonzero DAT_00512344 is released through 0x000663E0. DAT_00512348 is
-// cleared. DAT_00545D20 becomes 1. 0x000F44B0 is not translated. 0x0012A9B0
-// is not translated. 0x00123B30 runs. 0x001163D0 and 0x00132100 are not
-// translated. 0x000FAE40 is not translated. 0x0011B630 runs. A nonzero
-// DAT_0051108C is released through 0x000663E0. 0x00117330 is not translated.
-// 0x001272B0 is not translated: EAX is 1 when DAT_00430D0C is 1, and 0
-// otherwise.
-//
-// DAT_004312C4 becomes 1, the dword at DAT_0032B0F8. 0x00048F10, 0x00057DC0,
-// and 0x0011CD90 are not translated; 0x00106E30 releases the movie event slots. 0x0011AEA0 is not
-// translated.
-// 0x00173F30 is D3D_KickOffAndWaitForIdle. 0x001593D0 and 0x000F97F0 are not
-// translated. 0x00035D30 is not translated, so its return is not taken and
-// the two 0x00036180 calls in that loop are not made. 0x00034880 is not
-// translated.
+// ESI is the scene record. The dword at +0x118 is cleared. DAT_0051065C is 1 for the body and 0 on the way out. The
+// host splits the teardown: the globals below run here as the scene state enters 4, and the scene's actors, controls,
+// cutscenes, doors, effects and passes go in SceneFactoryRuntime::end_scene and load_scene_contents as the next scene
+// loads; each step's note below names where it runs. Still not translated: 0x00117330's other calls, 0x00057DC0 and
+// 0x001163D0; 0x001593D0 only clears D3D device state (the presenter's).
 // Xbox 0x0011C5A0
 void scene_teardown(Game& g, u8* scene)
 {
@@ -763,23 +727,25 @@ void scene_teardown(Game& g, u8* scene)
     {
         set_runtime_dialogue_mode(0, dialogue); // DAT_004EE1EC, 0x000584D0
     }
-    // 0x0004ECE0, 0x00049EF0, and 0x0005B1E0 are not translated.
+    // 0x0004ECE0 (the scene cutscenes) and 0x0005B1E0 (the doors) run in SceneFactoryRuntime::end_scene (at the next
+    // load). 0x00049EF0 releases the challenge's records, widget and input (DAT_004E17D8 .. DAT_004E19B0), which
+    // nothing native creates (the challenge setup actions raise), so it is not called.
     g_50d780 = 0;
     g_50d770 = nullptr;
     g_50d774 = nullptr;
     g_50d778 = nullptr;
     g_50d77c = nullptr;
-    // 0x00115F00 is not translated.
-    // 0x00122C70 is not translated. EDI points at a stack dword holding 0x80.
-    // 0x001232D0, 0x001222A0, 0x00110AB0, 0x001143A0, 0x00123640, 0x001199F0,
-    // and 0x0011F610 are not translated.
+    // The scene controls (0x00115F00), message 0x80 to the active actors (0x00122C70) and the retired ones' removal
+    // (0x001232D0), the contact slots (0x001222A0), the cloths (0x001143A0), the point-light pass (0x00123640) and
+    // the blob shadows (0x001199F0) run in SceneFactoryRuntime::end_scene. The navigation grids (0x00110AB0) go with
+    // the scene's NavigationSceneStorage and the mirrors (0x0011F610) with RuntimeSceneMirrors at the next start.
     if (g_510584 != nullptr)
     {
         // 0x001759F0 D3DResource_Release. The argument is DAT_00510584.
         g_510584 = nullptr;
     }
     g_510580 = 0;
-    // 0x001133B0 is not translated.
+    // 0x001133B0 (the light grid) runs in SceneFactoryRuntime::end_scene.
     g_amb_volume_enabled = 0; // DAT_0050EA00, the background volume (ambient.cpp).
     g_50ea01 = 0;
     g_amb_color_lo[2] = 0.f;
@@ -804,14 +770,14 @@ void scene_teardown(Game& g, u8* scene)
         g_flags_ea9c = 0x100u;
     }
     *reinterpret_cast<i32*>(scene + 0x118) = 0;
-    // 0x000ED450 is not translated.
+    // 0x000ED450 (the global effect nodes) runs in SceneFactoryRuntime::end_scene.
     g_504330 = 0;
     if (g.factory_scene != nullptr && g.factory_scene->actor_services != nullptr)
     {
         g.factory_scene->actor_services->reset_sound_queues(); // 0x00129F70
     }
     g.factory_scene->actor_services->set_reverb_preset(0xD); // 0x0003A1F0, ESI 0xD
-    // 0x00118560 is not translated.
+    reset_ambient_scene(); // 0x00118560
     if (g_512344 != nullptr)
     {
         engine_heap_free(g_512344);
@@ -823,16 +789,17 @@ void scene_teardown(Game& g, u8* scene)
     g.factory_scene->actor_services->clear_script_tag_tables(); // DAT_0050E148, DAT_0050E16C, DAT_0050E1B0
     g_50e1c4 = 0;
     g_50e228 = 0;
-    // 0x000F44B0 is not translated.
+    // 0x000F44B0 (the ghoul intro) runs in SceneFactoryRuntime::end_scene.
     g_545b38 = 0;
     g_545b3c = 0;
     g_545b44 = 0;
     g_545bc4 = 0;
-    // 0x0012A9B0 is not translated.
+    // 0x0012A9B0 (the post models, DAT_00512AF0) is not called: nothing native loads one (script type 0x52 raises).
     effects_clear_voice_slots();
-    // 0x001163D0 and 0x00132100 are not translated.
+    // 0x00132100 (the scoreboard) runs in SceneFactoryRuntime::end_scene. 0x001163D0 (the DAT_005462F8 render
+    // targets) is not translated; nothing native fills that list.
     g_4dea5c = 0;
-    // 0x000FAE40 is not translated.
+    release_actor_camera_shakes(g.native_resources->registry); // 0x000FAE40
     entity_release_aid_records();
     if (g_51108c != nullptr)
     {
@@ -845,15 +812,14 @@ void scene_teardown(Game& g, u8* scene)
     {
         g_flag_e560 = 0;
     }
-    // 0x001272B0 is not translated. EAX is 1 when DAT_00430D0C is 1, else 0.
-    const i32 arg_1272b0 = g_script_30d0c == 1 ? 1 : 0;
-    (void)arg_1272b0;
+    restore_script_story_bits(g_script_30d0c == 1); // 0x001272B0, EAX 1 when DAT_00430D0C is 1
     g_4312cc = 0.f;
     g_4312d0 = 0.f;
     g_4312d8 = 0;
     g_4312d4 = 0;
     g_sim_scale = 1.f;
-    // 0x00048F10 and 0x00057DC0 are not translated.
+    release_actor_camera_effects(); // 0x00048F10
+    // 0x00057DC0 is not translated.
     reset_scene_pause(scene_pause_services(g)); // 0x0011CD90
     release_movie_events(native_movie_runtime()); // 0x00106E30
     g_511a10 = 0;
@@ -868,9 +834,10 @@ void scene_teardown(Game& g, u8* scene)
     g_50ebd4 = nullptr;
     g_50ec00 = 0;
     // 0x00173F30 D3D_KickOffAndWaitForIdle.
-    // 0x001593D0 and 0x000F97F0 are not translated.
-    // 0x00035D30 is not translated, so its return is not taken.
-    // 0x00036180 is not translated. 0x00034880 is not translated.
+    // 0x001593D0 only clears D3D device state, the presenter's.
+    g.factory_scene->actor_services->flush_model_releases(); // 0x000F97F0
+    // 0x00035D30 / 0x00036180 (unload what nothing references) run in load_scene_contents; 0x00034880 frees the
+    // bundle pools, which the host AidStore keeps.
     g_51065c = 0;
 }
 

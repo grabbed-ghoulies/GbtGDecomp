@@ -5363,8 +5363,8 @@ void SceneActorServices::State::end_scene()
     // 0x0011C5A0 later tears the scoreboard down.
     tear_down_runtime_scoreboard(*scoreboard_hud); // 0x00132100
     release_runtime_background_cloths(background_cloth_scene()); // 0x0011C5A0's 0x001143A0
-    // 0x0011C5A0's 0x00123640 (0x001199F0, which also clears DAT_0050EC24..DAT_0050EF18, is not translated) and
-    // 0x001133B0.
+    entity_detail::release_segment_slots(); // 0x0011C5A0's 0x001222A0: the contact slots and their pools.
+    // 0x0011C5A0's 0x00123640, 0x001199F0 and 0x001133B0.
     reset_runtime_scene_point_light_pass(*point_light_pass, g_flag_2104, g_color_2134, [this](std::uintptr_t resource)
     {
         if (d3d_device.surface_textures.contains(resource))
@@ -5375,6 +5375,17 @@ void SceneActorServices::State::end_scene()
         resources.d3d.resources.erase(u32(resource));
         created_textures.erase(u32(resource));
     });
+    reset_runtime_blob_shadows(blob_shadow_entries, blob_shadow_count, blob_shadow_free, blob_shadow_enable,
+        point_light_pass->targets, [this](std::uintptr_t resource)
+    {
+        if (d3d_device.surface_textures.contains(resource))
+        {
+            d3d_device.outer().release(DialogueSurfaceHandle(resource));
+            return;
+        }
+        resources.d3d.resources.erase(u32(resource));
+        created_textures.erase(u32(resource));
+    }); // 0x001199F0
     release_runtime_scene_light_grid(light_grid, light_grid_d3d); // 0x001133B0
     // The scene's cutscenes released their track actors (0x0004D720). Track actors a live cutscene still holds (one
     // that outlives the scene, as a transition's book does) stay; any other goes with the scene.
@@ -11114,6 +11125,20 @@ void SceneActorServices::release_script_title_pool()
         release_dialogue_text_pool(pool, *state.text_registry); // 0x0005F460
         state.script_title_pool = nullptr;
     }
+}
+
+void SceneActorServices::collect_model_releases()
+{
+    auto& state = *state_;
+    collect_runtime_model_releases(state.deferred, state.fence, state.resources.registry, state.resources.blendshapes,
+        state.resources.model_heap, state.resources.d3d_boundaries); // 0x000F9780
+}
+
+void SceneActorServices::flush_model_releases()
+{
+    auto& state = *state_;
+    flush_runtime_model_releases(state.deferred, state.fence, state.resources.registry, state.resources.blendshapes,
+        state.resources.model_heap, state.resources.d3d_boundaries); // 0x000F97F0
 }
 
 void SceneActorServices::refresh_master_pad()

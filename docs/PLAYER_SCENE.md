@@ -399,6 +399,38 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 
 ## Checkpoints
 
+### 2026-10-25: challenge actions and the scene teardown
+
+- Challenge setup actions 0x7A .. 0x86 (`0x001251E0`) occur only in the challenge mode's 20 scripts
+  (aid_script_ghoulies_challenges_*; a scan of all 157 script bundles found none in a story scene). Their callees
+  (`0x0004A100`, `0x0004A240`, `0x0004ADD0` and the DAT_004E17C8 challenge states behind them) are a subsystem nothing
+  native reaches yet, so each type now raises where reached instead of building a record nothing read. The same scan
+  found script type 0x52 nowhere and 0x89 / 0x9A only in chapter 5.
+- The teardown (`0x0011C5A0`) is split on the host: its globals run in `scene_teardown` as the state enters 4, and
+  the actors, controls, cutscenes, doors and passes in `SceneFactoryRuntime::end_scene` as the next scene loads. Its
+  notes now say where each step runs. Newly run: the contact slots' release (`0x001222A0`), the blob shadows'
+  reset (`0x001199F0`; they were never cleared between scenes), the ambience reset (`0x00118560`), the camera
+  effects' release (`0x00048F10`), the camera shakes' release and the pads' rumble stop (`0x000FAE40`, `0x00155930`),
+  the story bits type 0x9E changed put back on a restart (`0x001272B0`) and the deferred models flushed
+  (`0x000F97F0`). The present now collects released models every frame (`0x000F9780`), which nothing called, so
+  they had piled up for the run.
+- `0x0011CAC0`'s light reset wrote dead copies of DAT_00509B50 .. DAT_00509B58 and DAT_00509B70 / DAT_00509B74; it
+  now writes lighting's (`g_scene_light_direction`, `g_light_paused`, `g_light_running`).
+- The ambience reset arms the extra-wind timer, which reached the untranslated voice in `0x00118380`; it and the steps
+  (`0x00118120`) are translated with their gate `0x00118800` (scene state 1 or 2, no overlay, the environment bank,
+  id 2 through `0x000384F0`, loaded). Heard in the log (not listened to): scene 3 now plays the random ambience
+  (XACT_SOUNDBANK_GRANDOMAMBIENCE_LAUGH, _TABLEMOVE, _WOLF). The wind and rain bed (`0x00117A50`'s armed body) still
+  raises when reached.
+
+Still open:
+
+- Camera shakes and the pad rumble they drive: the per-scene pool (`0x000FAEE0`) and the frame's shake tick
+  (`0x000FAF70`, with `0x000FB480` / `0x000FB650`) are not translated, so no shake is ever queued.
+- Teardown callees still not run: `0x00057DC0` (the dialogue's speaker resource, input device and widget),
+  `0x00117330`'s calls other than its DAT_0050E560 clear, `0x001163D0` (a render target list nothing native fills),
+  `0x00049EF0` (the challenge's state) and `0x0012A9B0` (the post models, which nothing native loads).
+- ambient.cpp draws from its own copy of the random word (DAT_0054DD7C) rather than the scene's.
+
 ### 2026-10-25: the hunchback's two states; scene 4's exit walk
 
 - Factory type 0x84 (getter `0x000A1450`, vtable 0x00505B60, parent 9; `body_endure_state.cpp`) is translated:

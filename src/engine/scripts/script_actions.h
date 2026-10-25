@@ -397,6 +397,8 @@ extern i32 g_flag_30d08;
 extern char g_byte_30d14[0x8C];
 // DAT_00430D08 takes `value` and DAT_00430D14 the name (empty for none): the weapon the player spawns holding.
 void remember_script_player_weapon(const char* name, i32 value); // Xbox 0x00123AD0, EAX name, ECX value
+// The teardown's: the story bits script type 0x9E changed go back when `restore` (DAT_00430D0C 1); the list empties.
+void restore_script_story_bits(bool restore); // Xbox 0x001272B0, EAX restore
 
 // Xbox 0x00127BC0. Handler 14. The dword at node+4 is the type. The byte map
 // at 0x00127F6C covers types 0x2C through 0xA6. Slot 14 of the table at

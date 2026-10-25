@@ -268,6 +268,30 @@ AudioTrackedBank* next_tracked_audio_bank(AudioTrackedBank* bank, AudioBankStrea
     return bank;
 }
 
+// Xbox 0x000384F0, ESI id
+AudioTrackedBank* find_tracked_audio_bank_by_id(i32 id, AudioBankStreams& context)
+{
+    i32 index = 0;
+    while (context.banks[size_t(index)].id == 0)
+    {
+        ++index;
+        if (index >= 20)
+        {
+            return nullptr;
+        }
+    }
+    AudioTrackedBank* bank = &context.banks[size_t(index)];
+    while (bank != nullptr)
+    {
+        if (bank->id == id)
+        {
+            return bank;
+        }
+        bank = next_tracked_audio_bank(bank, context); // 0x00038400
+    }
+    return nullptr;
+}
+
 // Xbox 0x00038460
 AudioTrackedBank* find_tracked_audio_bank(const char* name, AudioBankStreams& context)
 {

@@ -53,47 +53,4 @@ void present_runtime_scene_view(RuntimeSceneViewPresent& c)
     }
     c.transition();
 }
-// Xbox 0x0011DB50
-void draw_runtime_phase_overlay(i32 phase, const void* widget, const void* overlay, const void* capture)
-{
-    switch (phase)
-    {
-    case 1:
-    case 2:
-    case 3:
-    case 6:
-    case 7:
-    case 8:
-    case 9:
-        if (widget != nullptr)
-        {
-            throw Error("phase widget draw 0x00142720 (DAT_00510E30) is not bound");
-        }
-        break;
-    default:
-        break;
-    }
-    if (overlay != nullptr)
-    {
-        switch (phase)
-        {
-        case 2:
-        case 3:
-        case 6:
-        case 7:
-        case 9:
-            throw Error("phase sprite draw 0x0005CE30 (DAT_00510E40) is not bound");
-        default:
-            break;
-        }
-    }
-    if (capture != nullptr)
-    {
-        throw Error("phase camera capture 0x00048550 (DAT_00510E24) is not translated");
-    }
-    if (phase == 8 && widget != nullptr)
-    {
-        throw Error("phase widget draw 0x00142720 (DAT_00510E30) is not bound");
-    }
-}
 }

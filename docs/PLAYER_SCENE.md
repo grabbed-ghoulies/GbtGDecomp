@@ -399,6 +399,62 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 
 ## Checkpoints
 
+### 2026-10-25: the pause screen and the silent script actions
+
+- The pause screen is native (`scene_pause.cpp`): Start in a running scene (`0x0011E7F0`, now on the live input stack
+  DAT_0050E0E8 / DAT_0050E0EC, which always holds the boot "Scene Master Pad") asks for scene state 6; entering it
+  (`0x0011CE10`) runs `0x0011D490` phase 2: the pause input entry, the "Paused" and "Chapter n, Scene m: name" text
+  (`0x0005F5C0` with a panel, now drawn: `0x00060160` and `0x00061360`), the prompt widget (`0x00141DA0`, rows
+  `0x0030F948`, chosen by `0x0011DD90`), the background volume (`0x00118CB0` / `0x00118AE0`), a ghoul laugh
+  (`0x0013BA70`), the bonus book icon and the book on the scene's clip (`0x001162B0`, from the directory row
+  `0x001162D0` now stores). `0x0011CFB0` ticks it (the book's hold at 0.123 and close past 0.815, the widget and the
+  Start test `0x0011DEA0` / `0x0011DEE0`), `0x0011DB50` draws it and `0x0011CE40` / `0x0011CD90` release it. The
+  prompt rows' buttons are bound: Return (`0x0011DEE0`), Quit (`0x0011DFA0`, the confirmation), No (`0x0011E1A0`),
+  Stats (`0x0011E110`), Map and its return (`0x0011E140`, `0x0011E3E0`), Event Rules (`0x0011E150`) and Restart
+  Challenge (`0x0011E410`). `--pause` pauses scene 3 twice: Start / Start, then X / B (No) / B (Return).
+- Shown (looked at): the open pause (`pause1_open.bmp`: the book page, "Chapter 1, Scene 3: Billiard Room",
+  "PAUSED", X Quit and B Return to Game) and the quit confirmation (`pause2_confirm_quit.bmp`). The scene runs on
+  after each (`pause2_resumed.bmp`).
+- Script world actions (`0x00128050`) that dropped their callees now run them: 0xA (the scene's name from
+  aid_loctext_ghoulies_script_scenenames, shown over the title pool DAT_00512484 and kept for the pause through
+  `0x0011DCF0`; `0x001288C0` releases the pool once empty), 0xB (`0x00123AD0`), 8 and 9 (the mind class rows
+  `0x0010F690` and animation classes `0x0010F660`, with 9's {0x4E} message through `0x00122D40`), 0x6D (the scale
+  exclusions), 0x4B (`0x000FD780`, the ambient tint, light and fog), 0x4C (`0x0003A1F0`), 0x79 (`0x00114050`), 0x8A
+  (lighting's DAT_00509B70 / DAT_00509B74 rather than a dead copy), 0x8F (`0x001047E0` and `0x000FE160`) and 0xA1
+  (`0x000FEA90`). 0x52, 0x89 and 0x9A raise where reached (`0x0012AA50`, `0x000F27C0`, `0x000F2740`).
+- The tables actions 8, 9 and 0x6D fill (DAT_0050E148, DAT_0050E16C, DAT_0050E1B0) were bound into the player
+  factory as empty copies; they are now the scene services' own, read live.
+- Shown (looked at): scene 3's title card, "Billiard Room" centred over the room (`scene3_300.bmp`).
+- The script pump's pad refresh (`0x00109470` on the scene record's +0x230) runs natively on the boot "Scene Master
+  Pad"; the host copy of `0x00109470` over a stand-in span (`script_refresh_object_record`, `g_span_50e0e8`,
+  `g_refresh_kind`) is deleted.
+- The scene audio level (`0x00038110`) reaches the XACT category volumes (`0x0015C1C0`), and the teardown resets the
+  reverb preset (`0x0003A1F0`, 0xD).
+- The 0x7C notice goes to every weapon, as retail's DAT_00511AA4 walk does; the scene 9 freeze that led to holding it
+  back no longer happens (scenes 3, 5, 7, 9, 12, 2a2, 2a9 and 2a12 pass with it).
+- The background volume (DAT_0050EA00 ..) had three copies; the camera's clip extension (`0x0013C490`) now reads the
+  one `0x00118AE0` writes, and the teardown clears that one.
+
+- The title display steps the shared random (DAT_0054DD7C) for its pool and records, as retail does, so every scene
+  with a shown name now draws a different random sequence. That sent three scenes down paths not taken before. Scene 7
+  reached a knock-down sphere's own contact message (0x17, the sphere as sender, type 0x19), which the body's source
+  view now resolves (`attached_actor_at` also covers type 0x19 and actors released since); scene 7 passes again.
+- World actions run while the script loads, before the scene's actors start, so they use the boot scene services
+  rather than beginning a scene early; the three tag tables clear in the teardown (`0x0011C5A0`), as retail clears
+  them, not when the next scene begins.
+
+Still open:
+
+- `--scene2a12` now reaches factory type 0x84 (getter `0x000A1450`, vtable 0x00505B60: sizes `0x000A1430`,
+  constructor `0x000A14B0`, destructor `0x000A1670`, message `0x000A1850`, tick `0x000A1710` and its phase helper
+  `0x000A1930`, which creates an object from the parameters' name and plays a sound), which is not translated.
+- `--scene4` now holds at "Exit Door Closes" with the script waiting; not yet looked into.
+- `--scene2a11` failed once with "invalid unordered_map key" and passed on three reruns.
+- Quit's Yes (`0x0011E1C0`) raises at the save of the game (`0x000F2CB0`); Restart's Yes at `0x000FAE40`; Map at
+  `0x001410F0`'s room argument; Event Rules at `0x000D0780` / `0x0004A270`.
+- The 0x1251E0 challenge setup actions (0x7A .. 0x86) still drop `0x0004A100`, `0x0004A240` and `0x0004ADD0`; the
+  scene teardown (`0x0011C5A0`) still names about twenty untranslated callees.
+
 ### 2026-10-25: known issues pass
 
 Calls that computed values and dropped them, or walked host lists that nothing fills, now run the dump's code:
@@ -425,10 +481,7 @@ Calls that computed values and dropped them, or walked host lists that nothing f
 
 Still open:
 
-- Start now asks for the pause (state 6), whose menu is not translated: the scene stops with no menu.
-- The 0x7C notice reaches only the weapons a retiring actor holds. Sending it to every weapon, as retail's
-  DAT_00511AA4 walk would, stops Cooper in scene 9 as props retire (through the held candle's marker removal,
-  `0x0013F720` / `0x0013EDD0`); not explained.
+- (Closed in the pause checkpoint above: the pause menu, and the 0x7C notice to every weapon.)
 - With the queues re-sorted, scene 2a13's pirates keep their nearest three attacking: the driver dies three times in
   each run and `--scene2a13` fails, as `--scene2a14` does. Faster or slower attack taps did not help. `--scene2a11`
   passes again once the driver side-steps after 4 s pinned in one spot.

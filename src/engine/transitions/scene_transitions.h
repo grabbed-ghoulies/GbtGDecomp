@@ -40,8 +40,6 @@ extern i32 g_507df4;
 // DAT_00510CE8. Nonzero clears bit 0x20 of DAT_0050EA9C, then stores 0.
 extern i32 g_510ce8;
 
-// DAT_00510E40. Nonzero is EBX for 0x00035C00, then stores 0.
-extern void* g_510e40;
 
 // DAT_00510E34. Nonzero decrements DAT_004DEA24, then stores 0.
 extern i32 g_510e34;

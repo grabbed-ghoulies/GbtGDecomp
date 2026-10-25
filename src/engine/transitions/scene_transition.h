@@ -105,4 +105,8 @@ void draw_scene_transition_view(); // Xbox 0x0012C490, from 0x0011C240
 void end_scene_transition(); // Xbox 0x0012C4E0
 void begin_scene_transition(const char* scene); // Xbox 0x0012C5D0, the scene record's +0x80
 void leave_scene_transition(); // Xbox 0x0012C770
+// DAT_005462E8: the scene's row of the directory at 0x0042AC80 (an image address), 0 before the first scene.
+extern u32 g_5462e8;
+void select_scene_directory_row(const char* scene); // Xbox 0x001162D0, EAX the scene record
+i32 scene_directory_book_clip(); // Xbox 0x001162B0
 }

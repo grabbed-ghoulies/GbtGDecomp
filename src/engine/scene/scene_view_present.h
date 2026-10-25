@@ -42,6 +42,4 @@ void present_runtime_scene_view(RuntimeSceneViewPresent& context); // Xbox 0x001
 // The scene phase (DAT_00510CF4) overlays: its widget (DAT_00510E30, 0x00142720), its transition sprite
 // (DAT_00510E40, 0x0005CE30) and its camera capture (DAT_00510E24, 0x00048550). None of the three is bound to a
 // native object yet, so a set pointer raises.
-void draw_runtime_phase_overlay(i32 phase, const void* widget, const void* overlay,
-    const void* capture); // Xbox 0x0011DB50
 }

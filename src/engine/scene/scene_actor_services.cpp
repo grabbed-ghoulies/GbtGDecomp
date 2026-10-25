@@ -87,6 +87,11 @@
 #include "../cutscenes/event_assets.h"
 #include "gbtg/language.h"
 #include "dialogue_scene_runtime.h"
+#include "scene_pause.h"
+#include "background_morphs.h"
+#include <bit>
+#include "../frontend/dialogue_text_metrics.h"
+#include "../frontend/gameselect_progress.h"
 #include "../frontend/hud_layout.h"
 #include "../frontend/dialogue_text_system.h"
 #include "../frontend/dialogue_activation.h"
@@ -208,9 +213,7 @@ extern i32& g_4312d8; // DAT_004312D8.
 extern u32 g_flag_0650; // DAT_00510650.
 extern i32 g_50ec00; // DAT_0050EC00.
 extern u32 g_flag_10b4; // DAT_005110B4.
-extern i32 g_510cf4; // DAT_00510CF4.
-extern u8* g_510e30; // DAT_00510E30.
-extern u8* g_510e24; // DAT_00510E24.
+void scene_set_audio_level(float level); // Xbox 0x00038110, scene.cpp.
 
 namespace
 {
@@ -551,14 +554,17 @@ struct SceneActorServices::State
     FactoryObject* attaching_object = nullptr;
     const u8* attaching_bytes = nullptr;
     std::unordered_map<RuntimeBodyAttachedActor*, RuntimePlayerAttachmentActor*> attachment_actors;
-    std::array<u16, 8> scale_exclusions{}; // DAT_0050E1B4.
-    std::array<u8, 0x40> animation_classes{}; // DAT_0050E170.
+    std::array<u16, 8> scale_exclusions{}; // DAT_0050E1B4, script world action 0x6D's tags.
+    i32 scale_exclusion_count = 0; // DAT_0050E1B0
+    std::array<u8, 0x40> animation_classes{}; // DAT_0050E170: a tag and a scale per 8 bytes (0x0010F660).
+    i32 animation_class_count = 0; // DAT_0050E16C
+    std::array<u8, 0x20> mind_class_rows{}; // DAT_0050E14C: a tag and a word per 4 bytes (0x0010F690).
     std::unordered_map<const u8*, const RuntimeScriptLookupTable*> action_tables;
     std::unordered_map<const u8*, const u8*> animation_sequences;
     std::array<RuntimeBodyResourceCacheEntry, 0x40> animation_cache{}; // DAT_004DD554.
     i32 animation_cache_count = 0; // DAT_004DD550.
     std::unordered_map<u32, const char*> action_names;
-    RuntimeMindClassSettings mind_settings{0, {}}; // DAT_0050E148.
+    RuntimeMindClassSettings mind_settings{0, mind_class_rows}; // DAT_0050E148.
     float intro_scale = 0.f; // DAT_00433BEC.
     // DAT_00433BE8 and DAT_00433BF0 are the health display's health_style and scoreboard_globals'
     // health_second_voice: 0x001307D0 sets the style the heart display (0x001301A0) reads.
@@ -827,6 +833,8 @@ struct SceneActorServices::State
     void bind_button_bat(FactoryObject& object);
     // Factory type 0x9A, game select (docs/NATIVE_FRONTEND.md).
     std::unique_ptr<GameSelectControlServices> gameselect_services;
+    std::unique_ptr<ScenePauseServices> pause_services; // 0x0011CE10 .. 0x0011DB50.
+    RuntimeDialogueTextPool* script_title_pool = nullptr; // DAT_00512484, script world action 0xA's.
     std::span<const u8> gameselect_text; // DAT_005462C4
     std::span<const u8> scene_order_held; // DAT_00511B64
     u32 scene_order_release = 0; // DAT_00511B68
@@ -842,6 +850,7 @@ struct SceneActorServices::State
     std::unique_ptr<TransitionBookServices> book_services;
     std::unique_ptr<SceneTransitionServices> transition_services; // The scene transition's (DAT_00546328).
     void bind_transition_services();
+    void bind_pause_services();
     RuntimeModelRenderContext model_renderer{}; // DAT_004370A0..
     RuntimeSceneFog fog{}; // DAT_00509AFC..
     CutsceneCameraImpulse camera_impulse{}; // DAT_0050E7BC..
@@ -906,7 +915,7 @@ struct SceneActorServices::State
     std::array<float, 16> dialogue_world{}; // DAT_00506ED8.
     std::array<float, 16> sprite_world{}; // DAT_00504378.
     std::unique_ptr<RuntimeDialogueDrawContext> dialogue_draw;
-    DisplayClipBounds clip_bounds{}; // DAT_0050EA00.
+    DisplayClipBounds clip_bounds{g_amb_volume_enabled, std::span<const Vec3, 8>(g_amb_palette)}; // DAT_0050EA00.
     std::array<float, 16> device_projection{}; // DAT_005077AC.
     std::array<float, 16> device_view{}; // DAT_00506E98.
     std::array<float, 16> device_world{}; // DAT_00506E58.
@@ -1543,7 +1552,8 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             return weapon_attachment_at(scene.find_address(object.bytes.get()));
         },
         attachment_actors,
-        {}, 0, {}, 0, data(0x00433D68, 0x10), data(0x00433CA8, 0x10), resources.loaded_sizes, image.state_tables, image.attack_sequences,
+        scale_exclusions, scale_exclusion_count, animation_classes, animation_class_count, data(0x00433D68, 0x10),
+        data(0x00433CA8, 0x10), resources.loaded_sizes, image.state_tables, image.attack_sequences,
         animation_cache, animation_cache_count, image.state_row_names, g_actor_effect_nodes,
         [this](const Actor& actor)
         {
@@ -3279,6 +3289,9 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         render_targets, d3d_device.outer(), *sprites, &resources.special_textures, *display_setup, text_draw_count, capture_enabled,
         std::bit_cast<u8>(u8(0)), g_flags_ea9c, display_address, read_u32(data(0x004271F4, 4), 0),
         read_u32(data(0x00425E0C, 4), 0), shader_constants_at(0x004271E8), line_retained});
+    dialogue_draw->panel_color = read_u32(data(0x002FF2E0, 4), 0);
+    dialogue_draw->panel_alpha = read_f32(data(0x0032B49C, 4), 0);
+    dialogue_draw->outer = dialogue_outer.get();
     dialogue_outer->panel_line_width = read_u32(data(0x00425168, 4), 0);
     bind_scene_dialogue(game, *script_dialogue, *dialogue_outer);
     // The scene cutscene stack (DAT_004E1B40..DAT_004E1C54) that script node 0x13 starts (0x0004EDA0) and the
@@ -3801,6 +3814,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         }});
     bind_gameselect_services();
     bind_transition_services();
+    bind_pause_services();
     // The scene model renderer over the relocated resources and the host D3D device.
     std::memcpy(retained_scene_color.data(), data(0x0032E4E4, 0x10).data(), 0x10);
     std::memcpy(override_base_color.data(), data(0x0042A570, 0x10).data(), 0x10);
@@ -4275,7 +4289,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         },
         [this](u32 address) -> RuntimeBodyAttachedActor&
         {
-            return players->player_at(address).self;
+            return attached_actor_at(address); // A player, or a weapon (a thrown one's knock-down sphere, 0x17).
         },
         [this](u32 address) -> std::span<const u8>
         {
@@ -5135,9 +5149,7 @@ void SceneActorServices::State::reset_scene_data()
     navigation_nodes = nullptr;
     excluded_tags = {};
     player_count = 0;
-    scale_exclusions = {};
-    animation_classes = {};
-    mind_settings = {0, {}};
+    // DAT_0050E148, DAT_0050E16C and DAT_0050E1B0 clear in the teardown (clear_script_tag_tables).
     camera_players = 0;
     std::fill(pause_references.begin(), pause_references.end(), 0u);
     pause_nodes.clear();
@@ -5487,6 +5499,58 @@ void SceneActorServices::State::bind_transition_services()
     };
     book_services->viewport_bottom = &hud.inner_bottom;
     initialize_scene_transition(); // Boot 0x0011C3F0's loop over the handlers' +0 slots.
+}
+
+void SceneActorServices::State::bind_pause_services()
+{
+    book_services->scene_paused = &g_510ce8; // DAT_00510CE8
+    book_services->pause_phase = &g_scene_pause.phase; // DAT_00510CF4
+    pause_services = std::make_unique<ScenePauseServices>(ScenePauseServices{*book_services, *dialogue, audio.streams,
+        [](float level)
+        {
+            scene_set_audio_level(level); // 0x00038110
+        },
+        [this]()
+        {
+            tick_scene_dialogue(game); // 0x00057E60
+        },
+        [this](const char* script) -> i32
+        {
+            return gameselect_script_chapter(script, *gameselect_services); // 0x0004B4D0
+        },
+        [this](const char* script) -> i32
+        {
+            return gameselect_script_scene(script, *gameselect_services); // 0x0011EBC0
+        },
+        [this](const char* script) -> i32
+        {
+            return gameselect_book_scene(script, *gameselect_services); // 0x0011EC70
+        },
+        []() -> std::span<const u8>
+        {
+            return g_runtime_profile.challenges.bytes; // *(DAT_00506C54+8)
+        },
+        difficulty, frontend_state, hud, reinterpret_cast<const char*>(g_510e58),
+        *reinterpret_cast<i32*>(g_510e58 + 0x108)});
+    // The pause prompt rows' buttons (0x0030F948 .. 0x00311AF8, row +0x84).
+    const std::array<std::pair<u32, void (*)(ScenePauseServices&)>, 10> buttons{{
+        {0x0011DEE0, close_scene_pause}, // pause_Return
+        {0x0011DFA0, confirm_scene_pause_quit}, // pause_Quit
+        {0x0011E110, show_scene_pause_stats}, // pause_Stats
+        {0x0011E140, show_scene_pause_map}, // pause_Map
+        {0x0011E150, show_scene_pause_rules}, // pause_EventRules, pause_ChallengeRules
+        {0x0011E1A0, cancel_scene_pause_confirm}, // pause_No
+        {0x0011E1C0, quit_scene_from_pause}, // pause_Yes (quit)
+        {0x0011E320, restart_scene_from_pause}, // pause_Yes (restart)
+        {0x0011E3E0, leave_scene_pause_map}, // pause_MapReturn
+        {0x0011E410, confirm_scene_pause_restart}}}; // pause_RestartChallenge
+    for (const auto& [address, button] : buttons)
+    {
+        widget_callbacks[address] = [this, button]()
+        {
+            button(*pause_services);
+        };
+    }
 }
 
 void SceneActorServices::State::bind_book_services()
@@ -7686,13 +7750,34 @@ RuntimeBodyAttachedActor& SceneActorServices::State::attached_actor_at(u32 addre
     {
         return player->self;
     }
+    if (const auto released = released_actors.find(address); released != released_actors.end())
+    {
+        // A sender released since (a knock-down sphere outlives its owner): retail reads the freed actor's memory.
+        auto& view = weapon_attachments[address];
+        if (view == nullptr)
+        {
+            view = std::make_unique<RuntimeBodyAttachedActor>();
+        }
+        view->bytes = released->second.bytes;
+        view->address = address;
+        view->message = [](std::span<const u32> message)
+        {
+            unbound("message " + std::to_string(message.empty() ? 0u : message[0])
+                + " to a released actor (retail calls the freed actor's vtable)");
+        };
+        view->actor = nullptr;
+        view->host = nullptr;
+        return *view;
+    }
     const auto bytes = scene.resolve_address(address, 0);
     FactoryObject* object = object_of(bytes.data());
-    if (object == nullptr || (object->type != 0x0B && object->type != 0xAA && object->type != 0xA9
+    // A weapon, or a knock-down sphere (type 0x19) as the sender of its contact message 0x17.
+    if (object == nullptr || (object->type != 0x0B && object->type != 0x19 && object->type != 0xAA && object->type != 0xA9
         && object->type != 0xA7 && object->type != 0xA0 && object->type != 0xA1 && object->type != 0xA2
         && object->type != 0xA3 && object->type != 0xA6))
     {
-        unbound("attached actor at an address that is neither a player nor a weapon");
+        unbound("attached actor at an address that is neither a player nor a weapon (factory type "
+            + (object == nullptr ? std::string("none") : std::to_string(object->type)) + ")");
     }
     auto& view = weapon_attachments[address];
     if (view == nullptr)
@@ -9270,9 +9355,9 @@ void SceneActorServices::State::present_view(i32 view)
             draw_runtime_scoreboard_hud(*scoreboard_hud); // 0x00132290
         },
         g_flags_ea9c,
-        []()
+        [this]()
         {
-            draw_runtime_phase_overlay(g_510cf4, g_510e30, g_510e40, g_510e24);
+            draw_scene_pause(*pause_services); // 0x0011DB50
         },
         g_capture_book,
         [this](RuntimeTransitionBook& book)
@@ -10404,13 +10489,12 @@ void SceneActorServices::State::remove_retired_actors()
                 recipient = recipient->next;
                 current->handle_message(*current, message);
             }
-            // A weapon a player made or threw (0x0013A720 into the object list) has no DAT_00511AA4 node here, so the
-            // weapons whose +0xD8C names the actor going get the notice by their own message and clear their holder
-            // (0x001462B0). Retail's list reaches every weapon; sending it to the others too (scene 9's held candle,
-            // as smashed props go) stops Cooper through the notice's marker removal (0x0013F720), not yet explained.
+            // A weapon a player made or threw (0x0013A720 into the object list) is on retail's DAT_00511AA4 but has no
+            // node here, so each weapon off the host latch list gets the notice by its own message (0x001462B0 clears
+            // the holder and the marker rows naming the actor).
             const u32 gone = address(actor);
             std::vector<FactoryObject*> weapons;
-            for (const u8* bytes : classes->weapons_held_by(actor))
+            for (const u8* bytes : classes->weapons())
             {
                 FactoryObject* weapon = object_of(bytes);
                 if (weapon != nullptr && !active_nodes.contains(scene.address_of(bytes)))
@@ -10881,26 +10965,151 @@ void SceneActorServices::tick_frontend_state()
     }
 }
 
+void SceneActorServices::show_script_scene_name(const char* key, u32 show, i32 repeated, float delay, float lifetime)
+{
+    auto& state = *state_;
+    char16_t* name = state.wide_scratch.data(); // DAT_00507E78
+    name[0] = 0;
+    if (request_namespaced_localtext(state.image.string(0x0032A5AC), state.image.string(0x00324A9C), key, name,
+        state.resources.text) == 0) // 0x000FF0A0, "scenenames"
+    {
+        return;
+    }
+    if (name[0] == 0) // 0x000FBE10
+    {
+        return;
+    }
+    if (show != 0 && repeated == 0)
+    {
+        if (state.script_title_pool == nullptr)
+        {
+            allocate_dialogue_text_pool(state.script_title_pool, 0, 0, 0x5E4, state.text_registry); // 0x0005F390
+            state.random = state.random * 0x19660Du + 0x3C6EF35Fu; // DAT_0054DD7C
+            state.script_title_pool->origin = {read_f32(state.data(0x0032B20C, 4), 0),
+                read_f32(state.data(0x0032B0F4, 4), 0), std::bit_cast<float>(state.random)};
+        }
+        RuntimeDialogueTextPool& pool = *state.script_title_pool;
+        create_dialogue_text_record(pool, u"spam", -100.f, -100.f, 0.1f, 0.1f, delay, 0, 0, 0, state.resources.metrics,
+            state.widget_context.viewport_width, state.next_widget_id, state.random); // 0x0005F550, EAX 0
+        const float line = runtime_text_line_height(state.resources.metrics, 0,
+            read_f32(state.data(0x0032B110, 4), 0)); // 0x000606D0, ECX 0
+        const float half = read_f32(state.data(0x0032B0F4, 4), 0);
+        create_dialogue_text_record(pool, name, float(state.render_width) * half,
+            (float(state.render_height) - line) * half, 1.5f, 1.5f, lifetime, 1, 0, 0, state.resources.metrics,
+            state.widget_context.viewport_width, state.next_widget_id, state.random); // 0x0005F580 into 0x0005F5C0
+    }
+    name_scene(name); // 0x0011DCF0, EAX DAT_00507E78
+}
+
+AudioListenerSettings& SceneActorServices::audio_listener()
+{
+    return state_->listener;
+}
+
+void SceneActorServices::set_reverb_preset(i32 preset)
+{
+    auto& state = *state_;
+    set_audio_reverb_preset(state.listener, preset, state.resources.registry, state.resources.error); // 0x0003A1F0
+}
+
+void SceneActorServices::apply_scene_lighting(std::span<const u8> record)
+{
+    auto& state = *state_;
+    apply_runtime_scene_lighting(record, state.fog, [&state]()
+    {
+        configure_runtime_scene_fog(state.model_renderer, state.fog); // 0x000FD5C0
+    }); // 0x000FD780
+}
+
+void SceneActorServices::set_background_morphs_playing(u8 playing)
+{
+    set_runtime_background_morphs_playing(state_->background_morphs, playing); // 0x00114050
+}
+
+void SceneActorServices::clear_script_tag_tables()
+{
+    auto& state = *state_;
+    state.scale_exclusions = {};
+    state.scale_exclusion_count = 0; // DAT_0050E1B0
+    state.animation_classes = {};
+    state.animation_class_count = 0; // DAT_0050E16C
+    state.mind_class_rows = {};
+    state.mind_settings.count = 0; // DAT_0050E148
+}
+
+void SceneActorServices::add_scale_exclusion(u16 tag)
+{
+    auto& state = *state_;
+    state.scale_exclusions.at(size_t(state.scale_exclusion_count)) = tag; // DAT_0050E1B4 + DAT_0050E1B0 * 2
+    ++state.scale_exclusion_count;
+}
+
+void SceneActorServices::add_animation_class(u16 tag, float scale)
+{
+    auto& state = *state_;
+    const size_t row = size_t(state.animation_class_count) * 8;
+    if (state.animation_classes.size() < row + 8)
+    {
+        throw Error("0x0010F660 writes past DAT_0050E170's eight rows");
+    }
+    std::memcpy(state.animation_classes.data() + row, &tag, 2);
+    std::memcpy(state.animation_classes.data() + row + 4, &scale, 4);
+    ++state.animation_class_count; // DAT_0050E16C
+}
+
+void SceneActorServices::add_mind_class_setting(u16 tag, float value)
+{
+    auto& state = *state_;
+    const size_t row = size_t(state.mind_settings.count) * 4;
+    if (state.mind_class_rows.size() < row + 4)
+    {
+        throw Error("0x0010F690 writes past DAT_0050E14C's eight rows");
+    }
+    const u16 word = u16(truncate_runtime_float(value)); // 0x001673D8
+    std::memcpy(state.mind_class_rows.data() + row, &tag, 2);
+    std::memcpy(state.mind_class_rows.data() + row + 2, &word, 2);
+    ++state.mind_settings.count; // DAT_0050E148
+}
+
+void SceneActorServices::release_script_title_pool()
+{
+    auto& state = *state_;
+    RuntimeDialogueTextPool* pool = state.script_title_pool;
+    if (pool != nullptr && pool->allocation->cursor <= pool->allocation->begin)
+    {
+        release_dialogue_text_pool(pool, *state.text_registry); // 0x0005F460
+        state.script_title_pool = nullptr;
+    }
+}
+
+void SceneActorServices::refresh_master_pad()
+{
+    auto& state = *state_;
+    refresh_runtime_input_device(state.game.native_input->master_address, state.game.frame, state.input_activation,
+        state.input_release); // 0x00109470
+}
+
+ScenePauseServices& SceneActorServices::pause_services()
+{
+    return *state_->pause_services;
+}
+
 bool SceneActorServices::start_pressed()
 {
     auto& state = *state_;
-    const GhoulySpawnPool* devices = state.input_state.devices; // DAT_0050E0E8
-    if (devices == nullptr || (devices->cursor - devices->begin) / devices->stride == 0)
+    const GhoulySpawnPool* devices = state.input_activation.entries; // DAT_0050E0E8, the live input stack.
+    if ((devices->cursor - devices->begin) / devices->stride == 0)
     {
         return false;
     }
-    if (state.input_state.selected < 1)
-    {
-        // Retail selects a controller at game select before any scene runs (DAT_0050E0EC from 1); a scene booted
-        // straight from a test has none, and the dump's row (DAT_0050E0EC - 1) would lie before the table.
-        return false;
-    }
-    const u8* row = devices->begin + (state.input_state.selected - 1) * devices->stride; // DAT_0050E0EC
+    const u8* row = devices->begin + (state.input_selected - 1) * devices->stride; // DAT_0050E0EC
     const u32 device = read_u32({row, devices->stride}, 0);
     if (device == 0)
     {
         return false;
     }
+    state.input_state.devices = devices;
+    state.input_state.selected = state.input_selected;
     if (const auto view = state.input_views.find(device); view != state.input_views.end())
     {
         return runtime_input_button_edge(view->second, 0x10, state.input_state) != 0; // 0x001083F0

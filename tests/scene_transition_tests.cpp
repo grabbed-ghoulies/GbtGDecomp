@@ -39,6 +39,10 @@
 #include "../src/engine/graphics/effect_tick.h"
 #include "../src/engine/scene/scene_actor_update.h"
 #include "../src/engine/scene/scene_control_update.h"
+#include "../src/engine/scene/scene_pause.h"
+#include "../src/engine/frontend/input_stack.h"
+#include "../src/engine/frontend/dialogue_widget_state.h"
+#include "../src/engine/scene/scene.h"
 #include "../src/engine/scene/scene_object_disposal.h"
 #include "../src/engine/audio/actor_sound_tick.h"
 #include "../src/engine/frontend/dialogue_page_setup.h"
@@ -9893,6 +9897,222 @@ void play_scene4(gbtg::Game& game, const std::string& label, bool drive = false)
 
 // A stop inside the scene is reported before the game is torn down: the teardown of a scene stopped mid-frame can
 // raise again (its actors' release messages reach views that are not translated yet), which would terminate the run.
+// --pause: scene 3 from its chapter title. Once Cooper is in play, Start asks for scene state 6 (0x0011E7F0); the
+// pause screen (0x0011CE10) opens its book with "Paused", the chapter line and the prompts, and holds open (phase 3).
+// Start again closes it (0x0011DEE0); once the book has finished, the scene state returns to 1 and the scene runs on.
+// A second pause takes the prompt buttons: X (pause_Quit, 0x0011DFA0) shows the quit confirmation, B (pause_No,
+// 0x0011E1A0) brings the game's prompts back and B (pause_Return, 0x0011DEE0) closes the book.
+void play_pause_run(gbtg::Game& game)
+{
+    auto& actors = game.factory_scene->start_actors(game);
+    const auto scene_state = []()
+    {
+        return gbtg::read_u32({gbtg::g_510e58, 0x108}, 0x104); // DAT_00510F5C
+    };
+    int cooper_frame = -1;
+    int free_frame = -1;
+    // Per pause: when Start asked for it, when the book held open, when it began closing and when the scene ran on.
+    struct Pause
+    {
+        int paused = -1;
+        int open = -1;
+        int closing = -1;
+        int resumed = -1;
+        gbtg::i32 entries = -1; // The input stack's depth (DAT_0050E0EC) before the pause pushed its entry.
+    };
+    std::array<Pause, 2> pauses{};
+    size_t current = 0;
+    int confirm_frame = -1;
+    int cancel_frame = -1;
+    gbtg::u32 last_state = scene_state();
+    gbtg::i32 last_phase = gbtg::g_scene_pause.phase;
+    gbtg::i32 last_prompt = gbtg::g_scene_pause.prompt;
+    for (int frame = 0; frame < 9000 && (pauses[1].resumed < 0 || frame < pauses[1].resumed + 120); ++frame)
+    {
+        gbtg::InputState input;
+        const bool page = game.script_dialogue != nullptr && game.script_dialogue->dialogue.state.mode != 0;
+        input.accept = page && frame % 30 < 5 && pauses[0].paused < 0;
+        if (cooper_frame < 0)
+        {
+            for (const auto& mark : actors.marked_actors())
+            {
+                if (mark.actor != nullptr && mark.actor->class_key == 4)
+                {
+                    cooper_frame = frame;
+                    std::cout << "pause frame " << frame << ": Cooper is in play\n";
+                }
+            }
+        }
+        // The walk-in holds DAT_00510CEC until Free Play, and the scene tick ignores Start while it is held.
+        if (cooper_frame >= 0 && free_frame < 0 && gbtg::g_510cec == 0)
+        {
+            free_frame = frame;
+            std::cout << "pause frame " << frame << ": nothing holds the scene (DAT_00510CEC 0)\n";
+        }
+        // Each press lasts 3 frames.
+        const auto pressed = [frame](int at)
+        {
+            return at >= 0 && frame >= at && frame < at + 3;
+        };
+        Pause& now = pauses[current];
+        // The first pause: Start, then Start again 120 frames into the open book.
+        // The second pause, 120 frames after the first resumes: X (pause_Quit) 60 frames in, B (pause_No) 120 frames
+        // after the confirmation, then B (pause_Return) 120 frames after the game's prompts are back (the prompt
+        // widget's swap, out and in again, takes about 66 frames).
+        const int start_at = current == 0 ? (free_frame >= 0 ? free_frame + 60 : -1)
+            : (pauses[0].resumed >= 0 ? pauses[0].resumed + 120 : -1);
+        if (now.paused < 0 && !page && pressed(start_at))
+        {
+            input.start = true;
+        }
+        if (current == 0 && now.open >= 0 && now.closing < 0 && pressed(now.open + 120))
+        {
+            input.start = true;
+        }
+        if (current == 1 && now.open >= 0 && confirm_frame < 0 && pressed(now.open + 60))
+        {
+            input.page = true;
+        }
+        if (current == 1 && confirm_frame >= 0 && cancel_frame < 0 && pressed(confirm_frame + 120))
+        {
+            input.back = true;
+        }
+        if (current == 1 && cancel_frame >= 0 && now.closing < 0 && pressed(cancel_frame + 120))
+        {
+            input.back = true;
+        }
+        gbtg::gfx_begin_frame();
+        game.tick(1.f / 60.f, input);
+        const gbtg::u32 state = scene_state();
+        const gbtg::i32 phase = gbtg::g_scene_pause.phase;
+        const gbtg::i32 prompt = gbtg::g_scene_pause.prompt;
+        if (state != last_state)
+        {
+            std::cout << "pause frame " << frame << ": scene state " << state << "\n";
+            if (state == 6 && now.paused < 0)
+            {
+                now.paused = frame;
+                now.entries = game.native_input->selected - 1;
+            }
+            if (state == 1 && now.closing >= 0 && now.resumed < 0)
+            {
+                now.resumed = frame;
+                if (game.native_input->selected != now.entries)
+                {
+                    throw gbtg::Error("the pause left " + std::to_string(game.native_input->selected)
+                        + " input entries, not " + std::to_string(now.entries));
+                }
+            }
+            last_state = state;
+        }
+        if (phase != last_phase)
+        {
+            std::cout << "pause frame " << frame << ": pause phase " << phase << "\n";
+            if (phase == 3 && now.open < 0)
+            {
+                now.open = frame;
+            }
+            if (phase == 6 && now.closing < 0)
+            {
+                now.closing = frame;
+            }
+            last_phase = phase;
+        }
+        if (prompt != last_prompt)
+        {
+            std::cout << "pause frame " << frame << ": prompt row " << prompt << "\n";
+            if (prompt == 9 && confirm_frame < 0)
+            {
+                confirm_frame = frame;
+            }
+            if (confirm_frame >= 0 && prompt != 9 && cancel_frame < 0)
+            {
+                cancel_frame = frame;
+            }
+            last_prompt = prompt;
+        }
+        const std::string label = "cache/pause" + std::to_string(current + 1) + "_";
+        if (now.paused >= 0 && frame == now.paused + 10)
+        {
+            capture_readback(label + "opening.bmp");
+        }
+        if (now.open >= 0 && frame == now.open + 40)
+        {
+            capture_readback(label + "open.bmp");
+        }
+        if (current == 1 && confirm_frame >= 0 && frame == confirm_frame + 40)
+        {
+            capture_readback(label + "confirm_quit.bmp");
+        }
+        if (current == 1 && cancel_frame >= 0 && frame == cancel_frame + 40)
+        {
+            capture_readback(label + "cancelled.bmp");
+        }
+        if (now.closing >= 0 && frame == now.closing + 10)
+        {
+            capture_readback(label + "closing.bmp");
+        }
+        if (now.resumed >= 0 && frame == now.resumed + 60)
+        {
+            capture_readback(label + "resumed.bmp");
+        }
+        if (current == 0 && now.resumed >= 0)
+        {
+            current = 1;
+        }
+        gbtg::gfx_end_frame();
+    }
+    if (cooper_frame < 0)
+    {
+        throw gbtg::Error("Cooper never came into play");
+    }
+    for (size_t index = 0; index < pauses.size(); ++index)
+    {
+        const Pause& pause = pauses[index];
+        const std::string which = index == 0 ? "the first pause" : "the second pause";
+        if (pause.paused < 0)
+        {
+            throw gbtg::Error("Start did not pause the scene (scene state 6) for " + which);
+        }
+        if (pause.open < 0)
+        {
+            throw gbtg::Error("the book never held open (phase 3) in " + which);
+        }
+        if (index == 1 && confirm_frame < 0)
+        {
+            throw gbtg::Error("X (pause_Quit) did not show the quit confirmation (prompt row 9)");
+        }
+        if (index == 1 && cancel_frame < 0)
+        {
+            throw gbtg::Error("B (pause_No) did not return to the game's prompts");
+        }
+        if (pause.closing < 0)
+        {
+            throw gbtg::Error(std::string(index == 0 ? "Start" : "B (pause_Return)") + " did not close " + which);
+        }
+        if (pause.resumed < 0)
+        {
+            throw gbtg::Error("the scene did not run on after " + which + " (scene state 1)");
+        }
+    }
+    std::cout << "PASS: Start pauses scene 3 and closes the pause (frames " << pauses[0].paused << " .. "
+              << pauses[0].resumed << "); a second pause shows the quit confirmation on X, returns on B and closes on B "
+              << "(frames " << pauses[1].paused << " .. " << pauses[1].resumed << ")\n";
+}
+
+void play_pause(gbtg::Game& game)
+{
+    try
+    {
+        play_pause_run(game);
+    }
+    catch (const std::exception& error)
+    {
+        std::cout << "FAIL: " << error.what() << std::endl;
+        std::_Exit(1);
+    }
+}
+
 void play_scene3(gbtg::Game& game, bool drive, int book = -1)
 {
     try
@@ -10103,6 +10323,8 @@ int main(int argc, char** argv)
     const bool scene6_test = scene6_save_test || (argc == 3 && std::string_view(argv[2]) == "--scene6");
     // --scene3 boots straight into scene 3 (chapter1_scene3_1playcam), presses A on the chapter title and plays on.
     const bool scene3_test = argc == 3 && std::string_view(argv[2]) == "--scene3";
+    // --pause boots scene 3 like --scene3, then pauses and resumes it with Start.
+    const bool pause_test = argc == 3 && std::string_view(argv[2]) == "--pause";
     // --scene4 boots scene 4 (chapter1_scene4_1book), closes its pages with A and plays until the script moves on.
     const bool scene4_test = argc == 3 && std::string_view(argv[2]) == "--scene4";
     // --scene5 boots scene 5 (chapter1_scene5_1playcam), closes its pages with A and plays until the script moves on.
@@ -10158,9 +10380,9 @@ int main(int argc, char** argv)
         std::cout << std::unitbuf;
     }
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
-        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene2a14_test && !scene3_test)
+        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene2a14_test && !scene3_test && !pause_test)
     {
-        std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene6-save | --scene6-save-reload | --scene3 | --scene4 | --scene5 | --scene6-1 | --scene7]\n";
+        std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene6-save | --scene6-save-reload | --scene3 | --pause | --scene4 | --scene5 | --scene6-1 | --scene7]\n";
         return 2;
     }
     try
@@ -10260,7 +10482,7 @@ int main(int argc, char** argv)
             std::cout << "copied the retail saves from " << source.generic_string() << "\n";
         }
         gbtg::set_save_root("cache/test_saves");
-        game.init(argv[1], scene6_save_test || scene6_reload_test ? "" : scene6_test ? "6" : scene3_test ? "7"
+        game.init(argv[1], scene6_save_test || scene6_reload_test ? "" : scene6_test ? "6" : scene3_test || pause_test ? "7"
             : scene4_test ? "chapter1_scene4_1book" : scene5_test ? "chapter1_scene5_1playcam"
             : scene6_1_test ? "chapter1_scene6_1playcam"
             : scene7_test ? "chapter1_scene7_1playcam"
@@ -10491,6 +10713,13 @@ int main(int argc, char** argv)
             pass_chapter_title(game, "scene3_reload", "aid_script_ghoulies_chapter1_scene3_1playcam", false);
             play_scene3(game, false, 0);
             std::cout << "PASS: the reloaded game's scene 3 starts without the rare book\n";
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (pause_test)
+        {
+            pass_chapter_title(game, "pause", "aid_script_ghoulies_chapter1_scene3_1playcam", false);
+            play_pause(game);
             gbtg::gfx_shutdown();
             return 0;
         }

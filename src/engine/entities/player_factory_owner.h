@@ -67,9 +67,9 @@ struct NativePlayerSceneBindings
     const std::unordered_map<RuntimeBodyAttachedActor*, RuntimePlayerAttachmentActor*>& attachment_actors;
     // Body construction (0x00024C50 and 0x00073450).
     std::span<const u16> scale_exclusions; // DAT_0050E1B4.
-    i32 scale_exclusion_count;
+    const i32& scale_exclusion_count; // DAT_0050E1B0, script world action 0x6D's.
     std::span<const u8> animation_classes; // DAT_0050E170.
-    i32 animation_class_count;
+    const i32& animation_class_count; // DAT_0050E16C, script world action 9's (0x0010F660).
     std::span<const u8> friction_curve; // DAT_00433D68.
     std::span<const u8> health_curve; // DAT_00433CA8.
     std::span<const RuntimeBodyLoadedResourceSize> loaded_sizes;

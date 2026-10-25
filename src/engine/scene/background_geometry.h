@@ -37,6 +37,7 @@ struct BackgroundRegion
 void actor_model_bounds_low(const Actor& actor, Vec3& output); // Xbox 0x0003DBF0
 void actor_model_bounds_high(const Actor& actor, Vec3& output); // Xbox 0x0003DCA0
 void initialize_background_volume(const Vec3& low, const Vec3& high); // Xbox 0x00118AE0
+u8 read_background_volume(Vec3& low, Vec3& high); // Xbox 0x00118CB0, ECX low, EAX high
 void append_background_region(std::span<BackgroundRegion> regions, i32& count,
     const u8* source); // Xbox 0x001198A0
 u32 collect_background_shape_event(const u8* event,

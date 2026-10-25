@@ -117,7 +117,7 @@ public:
     NativeSceneActorClassOwner& operator=(const NativeSceneActorClassOwner&) = delete;
     void install(std::span<ObjectFactoryType> types);
     // The live weapon actors' instance bytes whose +0xD8C names the actor.
-    std::vector<const u8*> weapons_held_by(const Actor& holder) const;
+    std::vector<const u8*> weapons() const; // Every weapon instance's bytes.
     bool construct_area(FactoryObject& object, std::span<const u8> parameters);
     bool construct_trigger(FactoryObject& object, std::span<const u8> parameters);
     bool construct_cutscene_setup(FactoryObject& object, std::span<const u8> parameters); // Type 0x25.

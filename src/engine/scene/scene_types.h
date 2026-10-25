@@ -57,8 +57,6 @@ struct AltLink;
 struct ScriptCond;
 struct LiveScript;
 struct SceneFlagBlock;
-struct SceneSpanRecord;
-struct SceneSpan;
 struct TransitionSlot31478;
 using namespace scene_detail;
 
@@ -539,26 +537,6 @@ struct SceneFlagBlock
     i32 kind = 0; // +0
     i32 size = 0; // +4
     u8* bytes = nullptr; // +8
-};
-
-// DAT_0050E0E8. The global holds the span. +0 is the stride word and +2 is
-// the word beside it. +4 is the first record and +8 is the end. Each record
-// is 0x50 bytes. +0 of a record is the key the walk matches.
-// +0x48 selects the refresh. +0x4C stores the frame from DAT_004DEA58.
-struct SceneSpanRecord
-{
-    void* key = nullptr;
-    u8 gap[0x48 - sizeof(void*)]{};
-    i32 selector = 0;
-    u32 frame = 0;
-};
-
-struct SceneSpan
-{
-    u16 stride = 0;
-    u16 word_2 = 0;
-    SceneSpanRecord* begin = nullptr;
-    SceneSpanRecord* end = nullptr;
 };
 
 // 'aid_' as a little-endian dword. 0x0011EB30 clears the name when it matches.

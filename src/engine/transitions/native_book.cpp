@@ -334,7 +334,14 @@ void draw_transition_book(RuntimeTransitionBook& book, TransitionBookServices& s
         s.copy_back_buffer(page.texture); // D3DDevice_CopyRects(back buffer, .., the page's level 0)
         if (s.capture_configuration != 0)
         {
-            untranslated("0x00048550's widescreen page redraw (0x0005CE80)");
+            if (s.scene_paused == nullptr || s.pause_phase == nullptr)
+            {
+                throw Error("0x00048550 reads the scene pause (DAT_00510CE8, DAT_00510CF4) through unbound views");
+            }
+            if (*s.scene_paused == 0 || *s.pause_phase == 4 || *s.pause_phase == 5)
+            {
+                untranslated("0x00048550's widescreen page redraw (0x0005CE80)");
+            }
         }
         page.capture = 0;
     }
@@ -385,5 +392,28 @@ void draw_transition_book(RuntimeTransitionBook& book, TransitionBookServices& s
     {
         s.draw.fog_disabled = 0;
     }
+}
+
+// Xbox 0x00048940, ECX the book
+void seek_transition_book(RuntimeTransitionBook& book, float position, TransitionBookServices& services)
+{
+    seek_runtime_cutscene(*book.cutscene, position, 0.f, 0, services.cutscenes); // 0x0004E4A0, ESI book +0x24
+}
+
+// Xbox 0x00048920, EAX the book
+void release_transition_book_hold(RuntimeTransitionBook& book, TransitionBookServices& services)
+{
+    book.holding = 0;
+    close_book_map(book, services); // 0x00047370, ESI the book
+}
+
+// Xbox 0x00048960, EAX the book
+void hold_transition_book_route(RuntimeTransitionBook& book)
+{
+    book.holding = 1;
+    book.route = 1;
+    book.route_argument = 0;
+    book.map_from[0] = 0;
+    book.map_to[0] = 0;
 }
 }

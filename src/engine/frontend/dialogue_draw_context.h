@@ -70,6 +70,7 @@ struct RuntimeDialogueDrawState
     std::array<float, 2> speaker_position; // DAT_004E6090
     std::array<float, 2> speaker_scale; // DAT_004E6098
 };
+struct RuntimeDialogueOuterDrawContext;
 struct RuntimeDialogueDrawContext
 {
     RuntimeDialogueActivationContext& dialogue;
@@ -106,6 +107,10 @@ struct RuntimeDialogueDrawContext
     std::function<std::int64_t()> counter; // Existing QueryPerformanceCounter boundary.
     float ordinary_line_scale; // DAT_00424908
     float tab_line_scale; // DAT_0042490C
+    // A pooled text record's panel (0x0005FC30): its colour, the alpha 0x00060160 fades it to and the draw.
+    u32 panel_color = 0; // DAT_002FF2E0
+    float panel_alpha = 0.f; // DAT_0032B49C
+    RuntimeDialogueOuterDrawContext* outer = nullptr; // 0x00061360's context.
 };
 void make_dialogue_projection(float* output, float top, float bottom, float left,
     float right, float near_plane, float far_plane); // Xbox 0x001538A0

@@ -87,37 +87,27 @@ extern "C"
 #include "../entities/actor_live_attachments.h"
 #include "../audio/native_audio.h"
 #include "../runtime/random_state.h"
+#include "scene_pause.h"
+#include "../audio/listener_settings.h"
+#include "../frontend/dialogue_activation.h"
+#include "../transitions/scene_transition.h"
 
 namespace gbtg
 {
 using namespace scene_detail;
 
-
-
-// DAT_00510CF4. Phase this tick switches on. 3 and 8 are the settled steps.
-i32 g_510cf4 = 0;
-
-// DAT_00510CFC. Nonzero is the object 0x00109470 takes in EAX.
-void* g_510cfc = nullptr;
-
-// DAT_00510E30. A zero dword at +0x94C clears the pointer after 0x00142070.
-u8* g_510e30 = nullptr;
-
-// DAT_00510CF8. Points at the object whose +4 and +8 are the unsigned counts.
-u8** g_510cf8 = nullptr;
-
-// DAT_00510E24. +0 indexes the stride-0x124 table at DAT_0042217C. +8 and
-// +0x10 are flags. +0x24 is the clock (+0x2C over +0x34). +0x94 is the slot.
-u8* g_510e24 = nullptr;
-
-// DAT_00510E28. Phase 6 selects one of cases 1 through 7.
-i32 g_510e28 = 0;
-
-// DAT_004EE1EC. entity.cpp keeps a private copy. Nonzero skips phases 4 and 5.
-i32 g_4ee1ec = 0;
-
-// DAT_00506C90. entity.cpp keeps a private copy. Zero takes 0x0011EAD0.
-u16 g_506c90 = 0;
+namespace
+{
+// The boot scene services' pause views (0x0011CE10, 0x0011CE40, 0x0011CFB0, 0x0011CD90).
+ScenePauseServices& scene_pause_services(Game& g)
+{
+    if (g.factory_scene == nullptr || g.factory_scene->actor_services == nullptr)
+    {
+        throw Error("the scene pause has no boot scene services");
+    }
+    return g.factory_scene->actor_services->pause_services();
+}
+}
 
 // DAT_00429BC0, then the wide buffer at DAT_00429BC4 (0x100 bytes, next
 // symbol DAT_00429CC4).
@@ -142,16 +132,6 @@ char (&g_510ed8)[0x80] = *reinterpret_cast<char(*)[0x80]>(g_510e58 + 0x80);
 i32& g_510f58 = *reinterpret_cast<i32*>(g_510e58 + 0x100);
 
 
-struct BindScene230
-{
-    BindScene230()
-    {
-        *reinterpret_cast<i32**>(g_510e58 + 0x230) = &g_refresh_kind;
-    }
-};
-
-BindScene230 g_bind_scene_230{};
-
 // DAT_00430D0C. Cleared with DAT_00430D08 and DAT_00430D10.
 i32 g_script_30d0c = 0;
 
@@ -165,93 +145,6 @@ i32 g_script_30d98 = 0;
 i32 g_506c8c = 0;
 
 
-// Image at DAT_0042217C. Stride 0x124. +0 and +4 are the progress gates.
-// +8 is the slot when the ratio is at or under +0. +0xC is the slot when
-// the ratio is over +4. Indices 0 through 14 are the rows in the image.
-struct ProgressRow42217c
-{
-    u32 low = 0;
-    u32 high = 0;
-    i32 low_slot = 0;
-    i32 high_slot = 0;
-    u8 pad[0x114]{};
-};
-
-static_assert(sizeof(ProgressRow42217c) == 0x124);
-
-static_assert(offsetof(ProgressRow42217c, high) == 4);
-
-static_assert(offsetof(ProgressRow42217c, low_slot) == 8);
-
-static_assert(offsetof(ProgressRow42217c, high_slot) == 0xc);
-
-
-constexpr ProgressRow42217c kProgress42217c[] = {
-    {0x3f1eb852u, 0x3f547ae1u, 1, 2},
-    {0x3ebd70a4u, 0x3ed1eb85u, 2, 1},
-    {0x3ebbc01au, 0x3f547ae1u, 0, 2},
-    {0x3efae148u, 0x00000000u, 0, 0},
-    {0x3efae148u, 0x00000000u, 0, 0},
-    {0x3efae148u, 0x00000000u, 0, 0},
-    {0x3efae148u, 0x00000000u, 0, 0},
-    {0x3efae148u, 0x00000000u, 0, 0},
-    {0x3efae148u, 0x00000000u, 0, 0},
-    {0x3efae148u, 0x00000000u, 0, 0},
-    {0x3efae148u, 0x00000000u, 0, 0},
-    {0x3efae148u, 0x00000000u, 0, 0},
-    {0x3efae148u, 0x00000000u, 0, 0},
-    {0x3efae148u, 0x00000000u, 2, 2},
-    {0x3ecccccdu, 0x00000000u, 2, 2},
-};
-
-
-// DAT_00322B8C. 10 dwords and one word: the aid plus its NUL.
-constexpr char kGameselectAid[] = "aid_script_ghoulies_gameselect_gameselect";
-
-static_assert(sizeof(kGameselectAid) == 42);
-
-
-// Clock at player+0x24. The ratio is the float at +0x2C over the float at +0x34.
-static float progress_ratio(const u8* player)
-{
-    const u8* clock = *reinterpret_cast<u8* const*>(player + 0x24);
-    const float num = *reinterpret_cast<const float*>(clock + 0x2c);
-    const float den = *reinterpret_cast<const float*>(clock + 0x34);
-    return num / den;
-}
-
-
-// Shared tail at 0x0011D020. DAT_00510CF4 becomes 3. 0x00048940 is not
-// translated: the stack dword is 0x3DFBE76D and ECX is DAT_00510E24.
-// A zero dword at +8 would call 0x0004E640 with EAX = 1 and EDI = the
-// clock at +0x24. That call is not translated. +8 is then stored as 1.
-static void enter_phase_three()
-{
-    g_510cf4 = 3;
-    i32* flag = reinterpret_cast<i32*>(g_510e24 + 8);
-    if (*flag == 0)
-    {
-        *flag = 1;
-    }
-}
-
-
-// 0x0014A961. The SEH wrapper around 0x001660E9. Each 16-bit unit is stored,
-// then both pointers advance, until the unit just stored is zero.
-// Xbox 0x0014A961
-static u16* xapi_copy_wide_string(u16* dest, const u16* src)
-{
-    u16* out = dest;
-    u16 unit = 0;
-    do
-    {
-        unit = *src;
-        *out = unit;
-        ++out;
-        ++src;
-    } while (unit != 0);
-    return dest;
-}
 
 
 // 0x0011EB30. EAX is the source aid. The stack dword is the mode. A first
@@ -291,255 +184,6 @@ void request_scene_aid(const char* src, i32 mode)
     g_script_30d94 = 0;
     g_script_30d98 = 0;
     g_510f58 = mode;
-}
-
-
-// Xbox 0x0011CFB0
-// Phase 2 through 9 calls 0x00057E60. A nonzero DAT_00510CFC calls
-// 0x00109470 with that pointer in EAX. The first switch then steps the
-// phase. Phases 2 and 9 compare the clock ratio with 0.123 (DAT_0032B6CC,
-// 0x3DFBE76D) and 0.815 (DAT_0032B634, 0x3F50A3D7). At or under the gate
-// stays. Over it, and phases 4 and 5 when DAT_004EE1EC is 0, enter phase 3.
-// Phase 6 copies aid_script_ghoulies_gameselect_gameselect into an 0x80
-// stack buffer and switches on DAT_00510E28. Phase 7 enters phase 8 and
-// ORs 0x2200 into DAT_0050EA9C. The second switch calls 0x00142460 for
-// phases 1, 2, 6, 7, and 9 when DAT_00510E30 is set (EAX is 0), for phase
-// 8 when that pointer is set (EAX is DAT_00510CFC), and for phase 3
-// (EAX is DAT_00510CFC, or 0 when that pointer is clear). 0x00142460,
-// 0x0011DEA0, 0x001083F0, and 0x0011DEE0 are not translated, so their
-// returns are not taken. Phases 2 through 7, and phase 9, then mark a
-// slot from the DAT_0042217C row and would call 0x000483E0.
-// Xbox 0x0011CFB0
-void scene_tick_load_phase()
-{
-    i32 phase = g_510cf4;
-    if (1 < phase && phase < 10)
-    {
-        tick_scene_dialogue(*g_transition_game); // Xbox 0x00057E60
-    }
-    if (g_510cfc != nullptr)
-    {
-        script_refresh_object_record(g_510cfc);
-    }
-
-    phase = g_510cf4;
-    switch (phase)
-    {
-    case 1:
-        if (g_510e30 != nullptr && *reinterpret_cast<i32*>(g_510e30 + 0x94c) == 0)
-        {
-            // 0x00142070 is not translated. EAX is DAT_00510E30.
-            g_510e30 = nullptr;
-        }
-        if (g_510cf8 != nullptr)
-        {
-            const u8* obj = *g_510cf8;
-            const u32 at_4 = *reinterpret_cast<const u32*>(obj + 4);
-            const u32 at_8 = *reinterpret_cast<const u32*>(obj + 8);
-            if (at_8 <= at_4)
-            {
-                // 0x0005F460 is not translated. EAX is the object at [DAT_00510CF8].
-                g_510cf8 = nullptr;
-            }
-        }
-        break;
-    case 2:
-        if (g_510e24 != nullptr)
-        {
-            const float ratio = progress_ratio(g_510e24);
-            const float gate = std::bit_cast<float>(0x3dfbe76du);
-            if (ratio < gate || ratio == gate)
-            {
-                break;
-            }
-        }
-        if (phase != 3)
-        {
-            enter_phase_three();
-        }
-        break;
-    case 3:
-    case 8:
-        break;
-    case 4:
-    case 5:
-        if (g_4ee1ec != 0 || phase == 3)
-        {
-            break;
-        }
-        enter_phase_three();
-        break;
-    case 6:
-        if (g_510e24 == nullptr || *reinterpret_cast<i32*>(g_510e24 + 0x10) != 0)
-        {
-            char aid[0x80];
-            std::memcpy(aid, kGameselectAid, sizeof(kGameselectAid));
-            std::memset(aid + sizeof(kGameselectAid), 0, sizeof(aid) - sizeof(kGameselectAid));
-            switch (g_510e28)
-            {
-            case 1:
-                // 0x0011D490 is not translated. EAX is 1.
-                break;
-            case 2:
-                // 0x000F2780 is not translated.
-                if (g_506c90 == 0)
-                {
-                    scene_clear_flag_block();
-                }
-                else
-                {
-                    g_429bc0 = 3;
-                    xapi_copy_wide_string(g_429bc4, g_4e19b4);
-                    request_scene_aid(aid, 1);
-                }
-                break;
-            case 3:
-                // 0x0004A310 is not translated. 0x000F2780 is not translated.
-                break;
-            case 4:
-                // 0x000F2780 is not translated.
-                g_429bc0 = 6;
-                xapi_copy_wide_string(g_429bc4, g_4e19b4);
-                request_scene_aid(aid, 1);
-                break;
-            case 5:
-                g_429bc0 = 10;
-                xapi_copy_wide_string(g_429bc4, g_4e19b4);
-                request_scene_aid(aid, 1);
-                break;
-            case 6:
-                g_429bc0 = 0xb;
-                xapi_copy_wide_string(g_429bc4, g_4e19b4);
-                request_scene_aid(aid, 1);
-                break;
-            case 7:
-                // 0x000F2780 is not translated.
-                g_429bc0 = 9;
-                xapi_copy_wide_string(g_429bc4, g_4e19b4);
-                request_scene_aid(aid, 1);
-                break;
-            }
-        }
-        break;
-    case 7:
-        if ((g_510e24 == nullptr || *reinterpret_cast<i32*>(g_510e24 + 0x10) != 0) && phase != 8)
-        {
-            g_510cf4 = 8;
-            // 0x0011DD10 is not translated. EAX is 0xB.
-            g_flags_ea9c = g_flags_ea9c | 0x2200u;
-        }
-        break;
-    case 9:
-        if (g_510e24 != nullptr)
-        {
-            const float ratio = progress_ratio(g_510e24);
-            const float gate = std::bit_cast<float>(0x3f50a3d7u);
-            if (ratio < gate || ratio == gate)
-            {
-                break;
-            }
-        }
-        if (phase != 3)
-        {
-            enter_phase_three();
-        }
-        break;
-    default:
-        break;
-    }
-
-    phase = g_510cf4;
-    if (phase >= 1 && phase <= 9)
-    {
-        switch (phase)
-        {
-        case 1:
-        case 2:
-        case 6:
-        case 7:
-        case 9:
-            if (g_510e30 != nullptr)
-            {
-                // 0x00142460 is not translated. EAX is 0.
-            }
-            break;
-        case 3:
-            if (g_510cfc != nullptr)
-            {
-                // 0x00142460 is not translated. EAX is DAT_00510CFC.
-                // A zero return would call 0x0011DEA0. A nonzero return
-                // from that would call 0x001083F0 with EAX = DAT_00510CFC
-                // and a stack 0x10. A nonzero return from that would call
-                // 0x0011DEE0. Those returns are not taken.
-            }
-            else
-            {
-                // 0x00142460 is not translated. EAX is 0. DAT_00510E30 is
-                // not tested on this path.
-            }
-            break;
-        case 8:
-            if (g_510e30 != nullptr)
-            {
-                // 0x00142460 is not translated. EAX is DAT_00510CFC.
-            }
-            break;
-        default:
-            break;
-        }
-    }
-
-    phase = g_510cf4;
-    if (phase < 2)
-    {
-        return;
-    }
-    if (7 < phase && phase != 9)
-    {
-        return;
-    }
-    if (g_510e24 == nullptr)
-    {
-        return;
-    }
-
-    u8* player = g_510e24;
-    const i32 index = *reinterpret_cast<const i32*>(player);
-    const u8* row = reinterpret_cast<const u8*>(kProgress42217c) +
-                    static_cast<std::ptrdiff_t>(index) * 0x124;
-    const u8* clock = *reinterpret_cast<u8* const*>(player + 0x24);
-    const float num = *reinterpret_cast<const float*>(clock + 0x2c);
-    const float den = *reinterpret_cast<const float*>(clock + 0x34);
-    const float ratio = num / den;
-    const float gate_low = std::bit_cast<float>(*reinterpret_cast<const u32*>(row + 0));
-    if (ratio < gate_low || ratio == gate_low)
-    {
-        const i32 slot = *reinterpret_cast<const i32*>(row + 8);
-        if (slot != -1)
-        {
-            *reinterpret_cast<i32*>(player + 0x94 + static_cast<std::ptrdiff_t>(slot) * 16) = 1;
-        }
-    }
-    else
-    {
-        const float num_again = *reinterpret_cast<const float*>(clock + 0x2c);
-        const float den_again = *reinterpret_cast<const float*>(clock + 0x34);
-        const float ratio_again = num_again / den_again;
-        const float gate_high = std::bit_cast<float>(*reinterpret_cast<const u32*>(row + 4));
-        if (ratio_again < gate_high || ratio_again == gate_high)
-        {
-            // At or under the high gate. The slot at +0xC stays clear.
-        }
-        else
-        {
-            const i32 slot = *reinterpret_cast<const i32*>(row + 0xc);
-            if (slot != -1)
-            {
-                *reinterpret_cast<i32*>(player + 0x94 + static_cast<std::ptrdiff_t>(slot) * 16) = 1;
-            }
-        }
-    }
-    // 0x000483E0 is not translated. EAX and the stack dword are DAT_00510E24.
 }
 
 
@@ -593,13 +237,18 @@ i32 g_421a1c = 2;
 // with cvttss2si. Above 127 stores 127. Below 0 stores 0. A NaN fails both
 // compares, and cvttss2si yields the indefinite integer. The five calls pass
 // DAT_004219EC, DAT_004219F4, DAT_00421A0C, DAT_00421A14, and DAT_00421A1C.
-// 0x0015C1C0 is not translated, so those calls are not made.
 // Xbox 0x00038110
 void scene_set_audio_level(float level)
 {
     // Xbox 0x00038110
+    if (g_transition_game == nullptr || g_transition_game->factory_scene == nullptr
+        || g_transition_game->factory_scene->actor_services == nullptr)
+    {
+        throw Error("0x00038110 has no boot audio listener (the scene services are not built)");
+    }
+    AudioListenerSettings& listener = g_transition_game->factory_scene->actor_services->audio_listener();
     const float scaled = level * 127.f;
-    auto take = [scaled](i32 category)
+    auto take = [scaled, &listener](i32 category)
     {
         float clamped = scaled;
         if (127.f < scaled)
@@ -615,36 +264,13 @@ void scene_set_audio_level(float level)
         {
             bits = static_cast<i32>(clamped);
         }
-        // 0x0015C1C0 is not translated. The arguments are category and bits.
-        (void)category;
-        (void)bits;
+        set_audio_category_volume(listener, u32(category), bits); // 0x0015C1C0
     };
     take(g_4219ec);
     take(g_4219f4);
     take(g_421a0c);
     take(g_421a14);
     take(g_421a1c);
-}
-
-
-// DAT_004E173C. 0x0011CE10 increments it. The image leaves it at 0.
-i32 g_4e173c = 0;
-
-
-// Xbox 0x0011CE10
-// EAX is 2 for 0x0011D490. That call is not translated.
-// 0x00038910 takes the name at 0x0030F898,
-// XACT_SOUNDBANK_GSTREAMSDITTIES_PAUSE, and a stack 0x10.
-// xact_acquire in audio.cpp is that body. It is not visible here, so
-// the call is not made. XMM0 is 0 for 0x00038110. DAT_004E173C increments.
-// Xbox 0x0011CE10
-void scene_begin_audio_pause()
-{
-    // Xbox 0x0011CE10
-    // 0x0011D490 is not translated. EAX is 2.
-    // 0x00038910. Name is XACT_SOUNDBANK_GSTREAMSDITTIES_PAUSE, id is 0x10.
-    scene_set_audio_level(0.f);
-    g_4e173c = g_4e173c + 1;
 }
 
 
@@ -823,100 +449,6 @@ void scene_tick_pause_counter(Game& g, u8* scene)
 }
 
 
-// Xbox 0x0011CE40
-// DAT_00510CF4 other than 1 copies the unsigned count at [*DAT_00510CF8]+4
-// onto +8. ESI is DAT_00510E30 for 0x00142AA0. EAX is 1 for 0x0011D490.
-// Those calls are not translated.
-// EAX is &DAT_00510E18 and ECX is &DAT_00510E0C for 0x00118AE0. That call
-// is not translated.
-// DAT_004EE1EC nonzero would call 0x000584D0 with a stack 0. That call is
-// not translated. DAT_004E173C decrements. DAT_00507DF4 becomes 0.
-// A nonzero DAT_00510E24 is EAX for 0x00048860, then the pointer becomes 0.
-// That call is not translated.
-// A nonzero DAT_00510CE8 clears bit 0x20 of DAT_0050EA9C and stores 0.
-// A nonzero dword at [DAT_00510CFC]+4 would call 0x001093C0. That call is
-// not translated. The dword at [DAT_00510CFC]+0 selects 0x00107DD0 for 1,
-// 2, and 3, 0x00107960 for 4, and 0x00107B60 for 5. EAX is DAT_00510CFC.
-// Those calls are not translated. DAT_00510CFC then becomes 0.
-// A nonzero DAT_00510E40 is EBX for 0x00035C00, then the pointer becomes 0.
-// That call is not translated.
-// A nonzero DAT_00510E34 decrements DAT_004DEA24 and stores 0.
-// 0x00038460 would take XACT_SOUNDBANK_GSTREAMSDITTIES_PAUSE. The dword at
-// bank+0x88 decrements. A result at or below 0, with a bank id other than
-// 0x12 and a nonzero return from 0x00038590, would call 0x00038360 with
-// that return in EAX. 0x00038260 then takes the bank in EAX and the id is
-// stored as 0. Those four calls are not visible here, so those stores are
-// not made. The tail jumps to 0x00038110. XMM0 is DAT_0032B0F8 (1.0).
-// Xbox 0x0011CE40
-void scene_tick_audio_pause()
-{
-    // Xbox 0x0011CE40
-    if (g_510cf4 != 1)
-    {
-        u8* obj = *g_510cf8;
-        const u32 count = *reinterpret_cast<u32*>(obj + 4);
-        *reinterpret_cast<u32*>(obj + 8) = count;
-        // 0x00142AA0 is not translated. ESI is DAT_00510E30.
-        // 0x0011D490 is not translated. EAX is 1.
-    }
-    // 0x00118AE0 is not translated. EAX is &DAT_00510E18. ECX is &DAT_00510E0C.
-    if (g_4ee1ec != 0)
-    {
-        // 0x000584D0 is not translated. The stack argument is 0.
-    }
-    g_4e173c = g_4e173c - 1;
-    g_507df4 = 0;
-    if (g_510e24 != nullptr)
-    {
-        // 0x00048860 is not translated. EAX is DAT_00510E24.
-        g_510e24 = nullptr;
-    }
-    if (g_510ce8 != 0)
-    {
-        g_flags_ea9c = g_flags_ea9c & 0xffffffdfu;
-        g_510ce8 = 0;
-    }
-    u8* rec = static_cast<u8*>(g_510cfc);
-    if (*reinterpret_cast<i32*>(rec + 4) != 0)
-    {
-        // 0x001093C0 is not translated.
-    }
-    rec = static_cast<u8*>(g_510cfc);
-    switch (*reinterpret_cast<i32*>(rec))
-    {
-    case 1:
-        // 0x00107DD0 is not translated. EAX is DAT_00510CFC.
-        break;
-    case 2:
-        // 0x00107DD0 is not translated. EAX is DAT_00510CFC.
-        break;
-    case 3:
-        // 0x00107DD0 is not translated. EAX is DAT_00510CFC.
-        break;
-    case 4:
-        // 0x00107960 is not translated. EAX is DAT_00510CFC.
-        break;
-    case 5:
-        // 0x00107B60 is not translated. EAX is DAT_00510CFC.
-        break;
-    }
-    g_510cfc = nullptr;
-    if (g_510e40 != nullptr)
-    {
-        // 0x00035C00 is not translated. EBX is DAT_00510E40.
-        g_510e40 = nullptr;
-    }
-    if (g_510e34 != 0)
-    {
-        g_4dea24 = g_4dea24 - 1;
-        g_510e34 = 0;
-    }
-    // 0x00038460, 0x00038590, 0x00038360, and 0x00038260 are not visible
-    // here. The name is XACT_SOUNDBANK_GSTREAMSDITTIES_PAUSE.
-    scene_set_audio_level(1.f);
-}
-
-
 // Xbox 0x00140E30. The DAT_00511B40 player (actor = link - 0x93C) with a live body (+0x94) and no park (+0xCD8 below
 // 1) or body +0x258 hold queues {0xB0, door} once on entering an exit volume (0x001248D0 mask 1) and sends {0xB1,
 // door} to itself once on entering a mask-8 volume, whose mask bit 0x00124970 then clears; the door word is
@@ -1090,17 +622,6 @@ void scene_disable_overlays()
 }
 
 
-// Xbox 0x001162D0
-// EAX is DAT_00510E58. 0x00116220 is not translated, so its index is not
-// scaled by 0x90 and added to the directory at 0x0042AC80. That pointer
-// is not stored at DAT_005462E8.
-// Xbox 0x001162D0
-void scene_clear_runtime_state()
-{
-    // Xbox 0x001162D0
-}
-
-
 // DAT_0051065C. 0x0011C5A0 holds 1 across the teardown, then stores 0.
 i32 g_51065c = 0;
 
@@ -1119,24 +640,9 @@ i32 g_50d780 = 0;
 // DAT_00510584. 0x001759F0 is the D3D resource release.
 void* g_510584 = nullptr;
 
-// DAT_0050EA00 and DAT_0050EA01 are bytes. The floats are DAT_0050EA04,
-// +0x08, +0x0C, +0x10, +0x14, +0x18, then DAT_0050EA7C through DAT_0050EA90.
-// DAT_0050EA94 is a dword. entity.cpp keeps the colour floats.
-u8 g_50ea00 = 0;
-
+// DAT_0050EA01 is a byte. The floats are DAT_0050EA7C through DAT_0050EA90 and DAT_0050EA94 is a dword. The
+// background volume before them (DAT_0050EA00 .. DAT_0050EA18) is ambient.cpp's.
 u8 g_50ea01 = 0;
-
-float g_50ea04 = 0.f;
-
-float g_50ea08 = 0.f;
-
-float g_50ea0c = 0.f;
-
-float g_50ea10 = 0.f;
-
-float g_50ea14 = 0.f;
-
-float g_50ea18 = 0.f;
 
 float g_50ea7c = 0.f;
 
@@ -1165,12 +671,6 @@ i32 g_545d20 = 0;
  // DAT_00545D20
 i32 g_545d28 = 0;
  // DAT_00545D28
-i32 g_50e148 = 0;
- // DAT_0050E148
-i32 g_50e16c = 0;
- // DAT_0050E16C
-i32 g_50e1b0 = 0;
- // DAT_0050E1B0
 i32 g_50e1c4 = 0;
  // DAT_0050E1C4
 std::array<u8, 8 * 0xC> g_50e1c8{}; // DAT_0050E1C8: the 0x0010F6C0 class ranges, up to DAT_0050E228.
@@ -1236,9 +736,8 @@ i32 g_50ec00 = 0;
 // translated. 0x000FD710 runs in the actor services' end of scene.
 //
 // Bit 8 of DAT_0050EA9C is written back as 0x100 after the dword is cleared.
-// DAT_0050EA98 is cleared. 0x000ED450 is not translated. 0x00129F70 runs.
-// 0x0003A1F0 is not translated: ESI is 0xD. 0x00118560 is not
-// translated.
+// DAT_0050EA98 is cleared. 0x000ED450 is not translated. 0x00129F70 and 0x0003A1F0 (ESI 0xD) run.
+// 0x00118560 is not translated.
 //
 // A nonzero DAT_00512344 is released through 0x000663E0. DAT_00512348 is
 // cleared. DAT_00545D20 becomes 1. 0x000F44B0 is not translated. 0x0012A9B0
@@ -1260,9 +759,9 @@ void scene_teardown(Game& g, u8* scene)
 {
     // Xbox 0x0011C5A0
     g_51065c = 1;
-    if (g_4ee1ec != 0)
+    if (RuntimeDialogueActivationContext& dialogue = scene_pause_services(g).dialogue; dialogue.state.mode != 0)
     {
-        // 0x000584D0 is not translated. The stack argument is 0.
+        set_runtime_dialogue_mode(0, dialogue); // DAT_004EE1EC, 0x000584D0
     }
     // 0x0004ECE0, 0x00049EF0, and 0x0005B1E0 are not translated.
     g_50d780 = 0;
@@ -1281,14 +780,14 @@ void scene_teardown(Game& g, u8* scene)
     }
     g_510580 = 0;
     // 0x001133B0 is not translated.
-    g_50ea00 = 0;
+    g_amb_volume_enabled = 0; // DAT_0050EA00, the background volume (ambient.cpp).
     g_50ea01 = 0;
-    g_50ea0c = 0.f;
-    g_50ea08 = 0.f;
-    g_50ea04 = 0.f;
-    g_50ea18 = 0.f;
-    g_50ea14 = 0.f;
-    g_50ea10 = 0.f;
+    g_amb_color_lo[2] = 0.f;
+    g_amb_color_lo[1] = 0.f;
+    g_amb_color_lo[0] = 0.f;
+    g_amb_color_hi[2] = 0.f;
+    g_amb_color_hi[1] = 0.f;
+    g_amb_color_hi[0] = 0.f;
     g_50ea84 = 0.f;
     g_50ea80 = 0.f;
     g_50ea7c = 0.f;
@@ -1311,7 +810,7 @@ void scene_teardown(Game& g, u8* scene)
     {
         g.factory_scene->actor_services->reset_sound_queues(); // 0x00129F70
     }
-    // 0x0003A1F0 is not translated. ESI is 0xD.
+    g.factory_scene->actor_services->set_reverb_preset(0xD); // 0x0003A1F0, ESI 0xD
     // 0x00118560 is not translated.
     if (g_512344 != nullptr)
     {
@@ -1321,9 +820,7 @@ void scene_teardown(Game& g, u8* scene)
     g_512348 = 0;
     g_545d20 = 1;
     g_545d28 = 0;
-    g_50e148 = 0;
-    g_50e16c = 0;
-    g_50e1b0 = 0;
+    g.factory_scene->actor_services->clear_script_tag_tables(); // DAT_0050E148, DAT_0050E16C, DAT_0050E1B0
     g_50e1c4 = 0;
     g_50e228 = 0;
     // 0x000F44B0 is not translated.
@@ -1356,7 +853,8 @@ void scene_teardown(Game& g, u8* scene)
     g_4312d8 = 0;
     g_4312d4 = 0;
     g_sim_scale = 1.f;
-    // 0x00048F10, 0x00057DC0 and 0x0011CD90 are not translated.
+    // 0x00048F10 and 0x00057DC0 are not translated.
+    reset_scene_pause(scene_pause_services(g)); // 0x0011CD90
     release_movie_events(native_movie_runtime()); // 0x00106E30
     g_511a10 = 0;
     // 0x0011AEA0 is not translated.
@@ -1414,7 +912,7 @@ void scene_set_state(Game& g, u8* scene, i32 next)
             end_scene_transition(); // 0x0012C4E0
             break;
         case 6:
-            scene_tick_audio_pause();
+            leave_scene_pause(scene_pause_services(g)); // 0x0011CE40
             break;
         }
         switch (next)
@@ -1452,14 +950,14 @@ void scene_set_state(Game& g, u8* scene, i32 next)
                 while (unit != '\0');
                 *pending = '\0';
             }
-            scene_clear_runtime_state();
+            select_scene_directory_row(reinterpret_cast<const char*>(scene)); // 0x001162D0
             *reinterpret_cast<i32*>(scene + 0x22c) = 4;
             scene_set_audio_level(0.f);
             scene_reset_runtime_parameters();
             *reinterpret_cast<i32*>(scene + 0x120) = 1;
             break;
         case 6:
-            scene_begin_audio_pause();
+            enter_scene_pause(scene_pause_services(g)); // 0x0011CE10
             *reinterpret_cast<i32*>(scene + 0x104) = next;
             return;
         }
@@ -1512,9 +1010,8 @@ void script_pump(Game& g)
     {
         scene_set_state(g, scene, queued);
     }
-    void* object = *reinterpret_cast<void**>(scene + 0x230);
-    script_refresh_object_record(object);
-    scene_tick_load_phase();
+    g.factory_scene->actor_services->refresh_master_pad(); // 0x00109470, EAX the record's +0x230 pad
+    tick_scene_pause(scene_pause_services(g)); // 0x0011CFB0
     switch (*reinterpret_cast<i32*>(scene + 0x104))
     {
     case 2:

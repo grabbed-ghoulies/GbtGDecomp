@@ -352,5 +352,57 @@ void reset_runtime_light_environment(RuntimeShaderRegistrationState& shaders, Ru
     light_color[0] = 0.f; // DAT_00509B3C
 }
 
+// Xbox 0x000FEA90, EAX the limit
+void set_light_filled_gate(i32 limit)
+{
+    if (limit < 0)
+    {
+        g_light_filled_gate = 0; // DAT_0050D720
+        return;
+    }
+    g_light_filled_gate = limit;
+    if (0x18 < limit)
+    {
+        g_light_filled_gate = 0x19;
+    }
+}
+
+// Xbox 0x000FD780, ESI the record
+void apply_runtime_scene_lighting(std::span<const u8> record, RuntimeSceneFog& fog,
+    const std::function<void()>& configure_fog)
+{
+    constexpr float unit = std::bit_cast<float>(0x3B808081u); // DAT_0032B154, 1/255
+    constexpr float degrees = std::bit_cast<float>(0x3C8EFA35u); // DAT_0032B0FC, pi/180
+    g_509b28 = float(record[2]) * unit;
+    g_509b24 = float(record[1]) * unit;
+    g_509b20 = float(record[0]) * unit;
+    g_509b2c = 1.f; // DAT_0032B0F8
+    g_509b4c = read_f32(record, 4);
+    g_scene_light_direction.pitch = read_f32(record, 0xC) * degrees; // DAT_00509B50
+    g_scene_light_direction.yaw = read_f32(record, 0x10) * degrees; // DAT_00509B54
+    g_scene_light_direction.camera_relative = read_u32(record, 8); // DAT_00509B58
+    // DAT_00509AFC .. DAT_00509B0C: the scene fog record and this file's light-volume pass are both its views.
+    fog.enabled = i32(read_u32(record, 0x14));
+    g_light_pass.active = fog.enabled;
+    if (fog.enabled != 0)
+    {
+        configure_fog(); // 0x000FD5C0
+    }
+    fog.start = read_f32(record, 0x18);
+    g_light_pass.scale = fog.start;
+    fog.end = read_f32(record, 0x1C);
+    g_light_pass.range = fog.end;
+    const u32 color = read_u32(record, 0x20);
+    std::memcpy(fog.color.data(), &color, 4);
+    g_light_pass.color = color;
+}
+
+// Xbox 0x000FE160, EAX the direction
+void set_runtime_light_offset(const Vec3* direction)
+{
+    constexpr float reach = 30.f; // DAT_0032B108
+    const Vec3 toward = direction == nullptr ? Vec3{0.f, 1.f, -1.f} : *direction; // DAT_0032B0F8, DAT_0032B120
+    g_light_offset = {toward.x * reach, toward.y * reach, toward.z * reach}; // DAT_0050D764
+}
 
 } // namespace gbtg

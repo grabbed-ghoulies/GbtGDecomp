@@ -7,6 +7,7 @@ namespace gbtg
 extern u8 g_amb_volume_enabled; // DAT_0050EA00.
 extern float g_amb_color_lo[3]; // DAT_0050EA04..DAT_0050EA0C.
 extern float g_amb_color_hi[3]; // DAT_0050EA10..DAT_0050EA18.
+extern Vec3 g_amb_palette[8]; // DAT_0050EA1C, the volume's corners.
 // Script type 0x8E's ambient phase: its gate, length, jitter, rate and colour, and the sound started ahead of the
 // view when the gate is set and the name is not empty.
 void start_ambient_phase(u32 gate, float length, float jitter, float rate, u32 color, const char* name,

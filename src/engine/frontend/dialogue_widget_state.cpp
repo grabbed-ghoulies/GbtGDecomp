@@ -166,6 +166,21 @@ void layout_dialogue_widget(RuntimeDialogueWidget& widget, RuntimeDialogueWidget
     }
 }
 
+// Xbox 0x00142AA0, ESI the widget
+void reset_dialogue_widget_prompt(RuntimeDialogueWidget& widget)
+{
+    copy_dialogue_widget_parameters(widget.old_parameters, widget.current_set); // 0x00142DF0, EDI +0x18
+    widget.current_set = nullptr;
+    widget.requested_set = nullptr;
+    widget.count = 0;
+    widget.old_set = widget.old_parameters.data();
+    widget.mode = 2;
+    widget.timer = 0.f;
+    GhoulySpawnPool* allocation = widget.pool->allocation; // +0x1020's records.
+    allocation->cursor = allocation->begin;
+    widget.pool->records = {allocation->begin, 0};
+}
+
 // Xbox 0x00142C20
 void set_dialogue_widget_mode(RuntimeDialogueWidget& widget, i32 mode,
     RuntimeDialogueWidgetContext& context)

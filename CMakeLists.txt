@@ -667,6 +667,7 @@ add_executable(gbtg
     src/engine/frontend/virtual_keyboard.cpp
     src/engine/frontend/frontend_state.cpp
     src/engine/scene/scene.cpp
+    src/engine/scene/scene_pause.cpp
     src/engine/scene/scene_loading.cpp
     src/engine/cutscenes/curve_sampling.cpp
     src/engine/cutscenes/instance_construction.cpp

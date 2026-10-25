@@ -34,34 +34,6 @@ void script_update_decay_latches(u32 mask, i32 flag); // Xbox 0x00117400
 // Xbox 0x00124CC0
 int script_handle_actor_state(Game& g, const ScriptNode& node); // Xbox 0x00124CC0
 
-extern SceneSpan* g_span_50e0e8;
-
-// First dword of the object scene+0x230 points at. Kind 0 is the default
-// key in 0x00109470.
-extern i32 g_refresh_kind;
-
-// Xbox 0x00109470. EAX is the object. The dword at +0 minus 1 selects the
-// key and the refresh. Values 0 through 3 (kinds 1 through 4) use the
-// object as the key. Value 4 (kind 5) uses the pointer at +0xB8. Every
-// other value uses a null key. The span is walked at stride 0x50 until
-// record+0 matches. A miss leaves the record null.
-//
-// Values 1, 2, and 4 keep the object for the frame test. Value 0, value 3,
-// and every other value use a null pointer there. The body runs when that
-// pointer differs from the key, or record+0x4C differs from DAT_004DEA58.
-// Both equal returns. The frame is the value read at entry.
-//
-// A zero selector calls 0x00107E20 for values 0 and 1, 0x001079D0 for
-// value 3, and 0x00107B90 for value 4. A nonzero selector calls 0x001078A0
-// for value 0, 0x00107EC0 for value 1, and 0x00107C30 for value 4. Value 4
-// passes the object in EDI. 0x00107E20, 0x001079D0, 0x00107B90, 0x001078A0,
-// 0x00107EC0, and 0x00107C30 are not translated, so those calls are not
-// made. The body stores DAT_004DEA58 at record+0x4C. Values 0, 1, and 4
-// return from the call site. Value 2, and value 3 when the selector is
-// nonzero, fall through to that store.
-// Xbox 0x00109470
-void script_refresh_object_record(void* object); // Xbox 0x00109470
-
 // Xbox 0x00124E50. Handler 2. Types 0x32 through 0x38 store the dword at
 // node+8 and return 2. Types 0x34 and 0x36 scale by 0x001077B0. That call
 // passes the cstring at node+0xC in EAX. Type 0x37 stores the float at

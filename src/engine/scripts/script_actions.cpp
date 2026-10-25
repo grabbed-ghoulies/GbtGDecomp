@@ -33,6 +33,8 @@
 #include "../entities/actor_scare_requests.h"
 #include "../entities/entity.h"
 #include "../scene/scene_actor_services.h"
+#include "../scene/lighting.h"
+#include "../graphics/light_cones.h"
 #include "../scene/scene_markers.h"
 #include "../frontend/dialogue_activation.h"
 #include "script_conditions.h"
@@ -498,139 +500,8 @@ u32 script_find_actor_tag(const char* key)
     return u32(u16(found + 1));
 }
 
-static_assert(offsetof(SceneSpanRecord, selector) == 0x48);
-
-static_assert(offsetof(SceneSpanRecord, frame) == 0x4c);
-
-static_assert(sizeof(SceneSpanRecord) == 0x50);
 
 
-// 0x00033274 allocates this pool with stride 0x50. 0x00109470 walks from
-// begin to end and reads the matched record. One zero-key record is the
-// slot that read uses when the object kind selects a null key.
-SceneSpanRecord g_refresh_record{};
-
-SceneSpan g_refresh_span{0x50, 0, &g_refresh_record, &g_refresh_record + 1};
-
-SceneSpan* g_span_50e0e8 = &g_refresh_span;
-
-
-// First dword of the object scene+0x230 points at. Kind 0 is the default
-// key in 0x00109470.
-i32 g_refresh_kind = 0;
-
-
-
-
-// Xbox 0x00109470. EAX is the object. The dword at +0 minus 1 selects the
-// key and the refresh. Values 0 through 3 (kinds 1 through 4) use the
-// object as the key. Value 4 (kind 5) uses the pointer at +0xB8. Every
-// other value uses a null key. The span is walked at stride 0x50 until
-// record+0 matches. A miss leaves the record null.
-//
-// Values 1, 2, and 4 keep the object for the frame test. Value 0, value 3,
-// and every other value use a null pointer there. The body runs when that
-// pointer differs from the key, or record+0x4C differs from DAT_004DEA58.
-// Both equal returns. The frame is the value read at entry.
-//
-// A zero selector calls 0x00107E20 for values 0 and 1, 0x001079D0 for
-// value 3, and 0x00107B90 for value 4. A nonzero selector calls 0x001078A0
-// for value 0, 0x00107EC0 for value 1, and 0x00107C30 for value 4. Value 4
-// passes the object in EDI. 0x00107E20, 0x001079D0, 0x00107B90, 0x001078A0,
-// 0x00107EC0, and 0x00107C30 are not translated, so those calls are not
-// made. The body stores DAT_004DEA58 at record+0x4C. Values 0, 1, and 4
-// return from the call site. Value 2, and value 3 when the selector is
-// nonzero, fall through to that store.
-// Xbox 0x00109470
-void script_refresh_object_record(void* object)
-{
-    const u32 frame = g_transition_game->clock.frame; // DAT_004DEA58, advanced by 0x00033C80.
-    const i32 select = *reinterpret_cast<i32*>(object) - 1;
-    void* key = nullptr;
-    switch (select)
-    {
-    case 0:
-    case 1:
-    case 2:
-    case 3:
-        key = object;
-        break;
-    case 4:
-        key = *reinterpret_cast<void**>(static_cast<u8*>(object) + 0xb8);
-        break;
-    default:
-        key = nullptr;
-        break;
-    }
-
-    SceneSpan* span = g_span_50e0e8;
-    SceneSpanRecord* record = nullptr;
-    for (SceneSpanRecord* cursor = span->begin; cursor < span->end; cursor = cursor + 1)
-    {
-        if (cursor->key == key)
-        {
-            record = cursor;
-            break;
-        }
-    }
-
-    void* kept = nullptr;
-    switch (select)
-    {
-    case 1:
-    case 2:
-    case 4:
-        kept = object;
-        break;
-    default:
-        kept = nullptr;
-        break;
-    }
-
-    if (kept != key || record->frame != frame)
-    {
-        if (record->selector == 0)
-        {
-            switch (select)
-            {
-            case 0:
-                // 0x00107E20. EAX is the object.
-                record->frame = frame;
-                return;
-            case 1:
-                // 0x00107E20. EAX is the object.
-                record->frame = frame;
-                return;
-            case 3:
-                // 0x001079D0. EAX is the object.
-                break;
-            case 4:
-                // 0x00107B90. EAX is the object.
-                record->frame = frame;
-                return;
-            }
-        }
-        else
-        {
-            switch (select)
-            {
-            case 0:
-                // 0x001078A0. EAX is the object.
-                record->frame = frame;
-                return;
-            case 1:
-                // 0x00107EC0. EAX is the object.
-                record->frame = frame;
-                return;
-            case 4:
-                // 0x00107C30. EDI is the object.
-                record->frame = frame;
-                return;
-            }
-        }
-        record->frame = frame;
-    }
-}
 
 
 // Xbox 0x00124E50. Handler 2. Types 0x32 through 0x38 store the dword at
@@ -3001,7 +2872,6 @@ u32 g_flag_27958 = 0;
 i32 g_script_30d10 = 0;
 
 // DAT_00507E78. Type 0xA clears the first word before 0x000FF0A0.
-u16 g_loc_7e78 = 0;
 
 // Image at 0x00314DE8. Type 0x61 indexes it from four bases. The aid_ string
 // at 0x00314E50 is the end of the numeric image.
@@ -3097,20 +2967,9 @@ float g_camera_light_20 = 0.f;
 float g_camera_light_24 = 0.f;
 float g_camera_light_28 = 0.f;
 
-// DAT_0050E1B4. DAT_0050E1B0 is the count, 4 bytes in front of the words.
-// The next dword is DAT_0050E1C4.
-std::vector<u16> g_tags_e1b4;
-
-i32 g_tag_e1b0 = 0;
 
 // DAT_00506C60. Type 0x89 stores node+8 * 60 + 0.99.
 float g_script_6c60 = 0.f;
-
-// DAT_00509B74 and DAT_00509B70. Type 0x8A. entity.cpp keeps private copies
-// for the light pass.
-i32 g_script_9b74 = 0;
-
-i32 g_script_9b70 = 0;
 
 // DAT_005110B4. Type 0xA2 stores 1 when node+8 is 0.
 u32 g_flag_10b4 = 0;
@@ -3203,6 +3062,20 @@ u32 g_flag_0650 = 0;
 // Type 0xA2 stores 1 at DAT_005110B4 when the dword at node+8 is 0.
 // Type 0xA4 stores 1 at DAT_0050EF1C when that dword is nonzero.
 // Type 0xA5 stores 1 at DAT_00510650 when that dword is nonzero.
+namespace
+{
+// The boot-owned scene services, without beginning a scene: the world actions below set boot state (the title, the
+// reverb, the lighting, the tag tables) and run while the script loads, before the scene's actors start.
+SceneActorServices& boot_scene_actors(Game& g)
+{
+    if (g.factory_scene == nullptr || g.factory_scene->actor_services == nullptr)
+    {
+        throw Error("script world actions have no boot scene services");
+    }
+    return *g.factory_scene->actor_services;
+}
+}
+
 // Xbox 0x00128050
 int script_handle_world_actions(Game& g, const ScriptNode& node, int param_2, int param_3)
 {
@@ -3258,6 +3131,7 @@ int script_handle_world_actions(Game& g, const ScriptNode& node, int param_2, in
         // Each DAT_00511B48 actor of the tag has its body's (node +0x18, actor +0x95C) +0x6C set to node+0x48.
         const u16 tag = static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 8).c_str()));
         const u32 stored = node_u32(g.scene_script, node, 0x48);
+        boot_scene_actors(g).add_mind_class_setting(tag, std::bit_cast<float>(stored)); // 0x0010F690
         for (const auto* link = static_cast<const entity_detail::ListHead*>(entity_detail::g_world.alt.next);
              link != nullptr; link = static_cast<const entity_detail::ListHead*>(link->next))
         {
@@ -3276,48 +3150,40 @@ int script_handle_world_actions(Game& g, const ScriptNode& node, int param_2, in
     }
     case 9:
     {
+        // The tag's animation scale (0x0010F660), then {0x4E, scale} to each marked actor of the tag (0x00122D40).
         const u16 tag = static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 8).c_str()));
-        const float value = std::bit_cast<float>(node_u32(g.scene_script, node, 0x48));
-        const u32 message_0 = 0x4e;
-        (void)tag;
-        (void)value;
-        (void)message_0;
+        const u32 value = node_u32(g.scene_script, node, 0x48);
+        SceneActorServices& actors = boot_scene_actors(g);
+        actors.add_animation_class(tag, std::bit_cast<float>(value)); // 0x0010F660, XMM0 node+0x48
+        const std::array<u32, 2> message{0x4E, value};
+        message_runtime_marked_actors(actors, tag, message); // 0x00122D40, EDI the tag, EBX the message
         return 2;
     }
     case 0xa:
     {
-        g_loc_7e78 = 0;
+        // The scene's name (0x000FF0A0 into DAT_00507E78, 0x0011DCF0), shown when node+0x48 is set and param_3 is 0.
         const std::string key = node_cstr(g.scene_script, node, 8);
-        (void)key;
-        (void)param_3;
+        boot_scene_actors(g).show_script_scene_name(key.c_str(), node_u32(g.scene_script, node, 0x48),
+            param_3, std::bit_cast<float>(node_u32(g.scene_script, node, 0x4C)),
+            std::bit_cast<float>(node_u32(g.scene_script, node, 0x50)));
         return 2;
     }
     case 0xb:
     {
-        const u8 index = node_u8(g.scene_script, node, 8);
-        const std::string key = node_cstr(g.scene_script, node, 9);
-        (void)index;
-        (void)key;
+        const std::string name = node_cstr(g.scene_script, node, 9);
+        remember_script_player_weapon(name.c_str(), node_u8(g.scene_script, node, 8)); // 0x00123AD0, EAX node+9
         return 2;
     }
     case 0x4b:
-    {
-        const std::string key = node_cstr(g.scene_script, node, 8);
-        (void)key;
+        boot_scene_actors(g).apply_scene_lighting(
+            std::span<const u8>(g.scene_script.bytes).subspan(node.offset + 8, 0x24)); // 0x000FD780, ESI node+8
         return 2;
-    }
     case 0x4c:
-    {
-        const u32 key = node_u32(g.scene_script, node, 8);
-        (void)key;
+        boot_scene_actors(g).set_reverb_preset(i32(node_u32(g.scene_script, node, 8))); // 0x0003A1F0
         return 2;
-    }
     case 0x52:
-    {
-        const std::string key = node_cstr(g.scene_script, node, 8);
-        (void)key;
-        return 2;
-    }
+        throw Error("untranslated Xbox 0x0012AA50: script world action 0x52's post model " +
+            node_cstr(g.scene_script, node, 8) + " (0x0012A9B0, 0x0012A9E0)");
     case 0x61:
     {
         const u32 at_8 = node_u32(g.scene_script, node, 8);
@@ -3360,56 +3226,47 @@ int script_handle_world_actions(Game& g, const ScriptNode& node, int param_2, in
     case 0x6d:
     {
         const u16 tag = static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 8).c_str()));
-        const size_t slot = size_t(g_tag_e1b0);
-        g_tags_e1b4.resize(slot + 1);
-        g_tags_e1b4[slot] = tag;
-        g_tag_e1b0 = g_tag_e1b0 + 1;
+        boot_scene_actors(g).add_scale_exclusion(tag); // DAT_0050E1B4 + DAT_0050E1B0 * 2
         return 2;
     }
     case 0x79:
-    {
-        const u32 at_8 = node_u32(g.scene_script, node, 8);
-        const u8 bl = at_8 == 0 ? u8{2} : u8{1};
-        (void)bl;
+        boot_scene_actors(g).set_background_morphs_playing(
+            node_u32(g.scene_script, node, 8) == 0 ? u8{2} : u8{1}); // 0x00114050, BL
         return 2;
-    }
     case 0x89:
     {
         const float value = std::bit_cast<float>(node_u32(g.scene_script, node, 8));
         g_script_6c60 = value * std::bit_cast<float>(0x42700000u) + std::bit_cast<float>(0x3f7d70a4u);
-        return 2;
+        throw Error("untranslated Xbox 0x000F27C0: script world action 0x89's challenge clock (EAX 1)");
     }
     case 0x8a:
         if (node_u32(g.scene_script, node, 8) != 0)
         {
-            g_script_9b74 = 0;
-            g_script_9b70 = 1;
+            g_light_running = 0; // DAT_00509B74
+            g_light_paused = 1; // DAT_00509B70
             return 2;
         }
-        g_script_9b74 = 1;
-        g_script_9b70 = 0;
+        g_light_running = 1;
+        g_light_paused = 0;
         return 2;
     case 0x8f:
     {
-        const float x = 0.f;
-        const float y = std::bit_cast<float>(0x3f800000u);
-        const float z = 0.f;
+        // The light offset turned about Y by node+8 degrees (DAT_0032B6C0 1/180, DAT_0032B148 pi): the turn's rows
+        // applied to (0, 1, -1) plus its translation column, then 0x000FE160.
         const float angle = std::bit_cast<float>(node_u32(g.scene_script, node, 8)) *
                             std::bit_cast<float>(0x3bb60b61u) * std::bit_cast<float>(0x40490fdbu);
-        (void)x;
-        (void)y;
-        (void)z;
-        (void)angle;
+        float turn[12];
+        build_runtime_axis_rotation(turn, Vec3{0.f, 1.f, 0.f}, angle); // 0x001047E0, ESI the turn
+        const Vec3 direction{(turn[0] * 0.f - turn[2] * 1.f) + turn[3] + turn[1],
+            (turn[4] * 0.f - turn[6] * 1.f) + turn[7] + turn[5], (turn[8] * 0.f - turn[10] * 1.f) + turn[11] + turn[9]};
+        set_runtime_light_offset(&direction); // 0x000FE160, EAX the direction
         return 2;
     }
     case 0x9a:
-        return 2;
+        throw Error("untranslated Xbox 0x000F2740: script world action 0x9A's challenge mode 4");
     case 0xa1:
-    {
-        const u32 key = node_u32(g.scene_script, node, 8);
-        (void)key;
+        set_light_filled_gate(i32(node_u32(g.scene_script, node, 8))); // 0x000FEA90, EAX node+8
         return 2;
-    }
     case 0xa2:
         g_flag_10b4 = node_u32(g.scene_script, node, 8) == 0 ? 1u : 0u;
         return 2;

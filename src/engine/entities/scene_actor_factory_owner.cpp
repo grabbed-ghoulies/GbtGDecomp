@@ -933,15 +933,12 @@ NativeSceneActorClassOwner::~NativeSceneActorClassOwner()
     }
 }
 
-std::vector<const u8*> NativeSceneActorClassOwner::weapons_held_by(const Actor& holder) const
+std::vector<const u8*> NativeSceneActorClassOwner::weapons() const
 {
     std::vector<const u8*> instances;
     for (const auto& [bytes, weapon] : weapons_)
     {
-        if (weapon->context.actor.spawn_owner == &holder) // +0xD8C
-        {
-            instances.push_back(bytes);
-        }
+        instances.push_back(bytes);
     }
     return instances;
 }

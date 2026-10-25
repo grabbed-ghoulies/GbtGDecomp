@@ -27,6 +27,7 @@ namespace gbtg
 u8 g_amb_volume_enabled = 0; // DAT_0050EA00
 float g_amb_color_lo[3]{}; // DAT_0050ea04, +0x08, +0x0c
 float g_amb_color_hi[3]{}; // DAT_0050ea10, +0x14, +0x18
+Vec3 g_amb_palette[8]{}; // DAT_0050ea1c, stride 12
 
 namespace
 {
@@ -128,8 +129,6 @@ float g_amb_phase_jitter = 0.f; // DAT_0050e970. Pool float DAT_0032b268.
 float g_amb_phase_rate = 0.f; // DAT_0050e974
 u32 g_amb_phase_color = 0;    // DAT_0050e978. Dword at DAT_00314f4c.
 char g_amb_phase_name[0x80]{}; // DAT_0050E97C, the phase sound 0x001189D0 copies in.
-
-Vec3 g_amb_palette[8]{};   // DAT_0050ea1c, stride 12
 
 // 0x00039690. A live voice in states 2..7 is moved toward stop. The voice
 // table is the XACT block, which this file does not hold. The init writes
@@ -310,6 +309,14 @@ void initialize_background_volume(const Vec3& low, const Vec3& high)
     g_amb_palette[5] = Vec3{high.x, low.y, high.z};
     g_amb_palette[6] = Vec3{low.x, high.y, high.z};
     g_amb_palette[7] = high;
+}
+
+// Xbox 0x00118CB0, ECX low, EAX high
+u8 read_background_volume(Vec3& low, Vec3& high)
+{
+    low = Vec3{g_amb_color_lo[0], g_amb_color_lo[1], g_amb_color_lo[2]}; // DAT_0050EA04
+    high = Vec3{g_amb_color_hi[0], g_amb_color_hi[1], g_amb_color_hi[2]}; // DAT_0050EA10
+    return g_amb_volume_enabled; // DAT_0050EA00
 }
 
 // Xbox 0x00118470

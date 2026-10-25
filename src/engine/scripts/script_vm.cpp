@@ -511,6 +511,11 @@ int script_execute_fired_action(Game& g, u32& offset)
 // Xbox 0x001288C0
 void script_execute_fired_actions(Game& g)
 {
+    if (g.factory_scene == nullptr || g.factory_scene->actor_services == nullptr)
+    {
+        throw Error("0x001288C0 has no boot scene services for the title pool (DAT_00512484)");
+    }
+    g.factory_scene->actor_services->release_script_title_pool(); // DAT_00512484 once empty (0x0005F460)
     for (size_t i = g_script_fired.size(); i > 0;)
     {
         --i;

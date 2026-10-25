@@ -47,7 +47,6 @@ i32& g_510f80 = *reinterpret_cast<i32*>(g_510e58 + 0x128);
 i32& g_510f7c = *reinterpret_cast<i32*>(g_510e58 + 0x124);
 i32 g_507df4 = 0;
 i32 g_510ce8 = 0;
-void* g_510e40 = nullptr;
 i32 g_510e34 = 0;
 // DAT_005493DC: .bss; the player's death (0x0008F4D0) sets it and 0x0012C2D0 tests it.
 u32 g_5493dc = 0;
@@ -971,5 +970,23 @@ void leave_scene_transition()
     t.aid = row_aid(t.row, 0x84);
     t.duration = t.time;
     call_handler(row_handler(t.row), 5);
+}
+
+u32 g_5462e8 = 0;
+
+// Xbox 0x001162D0, EAX the scene record
+void select_scene_directory_row(const char* scene)
+{
+    g_5462e8 = kDirectory + u32(find_scene_directory_row(scene)) * 0x90; // 0x00116220
+}
+
+// Xbox 0x001162B0: the directory row's book clip (+0x88), or the first row's (DAT_0042AD08).
+i32 scene_directory_book_clip()
+{
+    if (g_5462e8 != 0)
+    {
+        return i32(image_word(g_5462e8 + 0x88));
+    }
+    return i32(image_word(0x0042AD08));
 }
 }

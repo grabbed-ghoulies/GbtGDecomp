@@ -1,5 +1,6 @@
 #include "dialogue_text_pool.h"
 #include "dialogue_draw_context.h"
+#include "dialogue_draw_outer.h"
 #include "dialogue_text_metrics.h"
 #include "../entities/ghouly_spawn_record.h"
 #include "../entities/ghouly_box_decoder.h"
@@ -67,6 +68,73 @@ static u32 runtime_text_glyph_frame(i32 font, const char16_t* code, float remain
         }
     }
     return frames - 1;
+}
+
+// Xbox 0x00060160, EAX the font, EDX the text, ESI sticky, XMM1 the pool's duration, XMM2 the first glyph's time left,
+// the stack the lifetime: the panel's alpha, fading in over the duration after it starts and out as it ends.
+static u32 runtime_text_panel_alpha(i32 font, const char16_t* code, u32 sticky, float duration, float remaining,
+    float lifetime, RuntimeDialogueDrawContext& context)
+{
+    const RuntimeTextFont& table = *context.metrics.fonts[font];
+    const u8* texture = nullptr;
+    const i32 value = *code;
+    if (table.first <= value && value <= table.last)
+    {
+        // The glyph's marker word is compared zero-extended with -1, so a glyph with a texture always takes it.
+        texture = table.glyphs[size_t(value - table.first)].texture;
+    }
+    if (texture == nullptr)
+    {
+        texture = context.fallback_texture; // DAT_004E1C58
+    }
+    if (texture == nullptr)
+    {
+        return 0;
+    }
+    if (sticky == 0 && remaining < std::bit_cast<float>(0x3A83126Fu)) // DAT_0032B1A4
+    {
+        return 0;
+    }
+    if (lifetime == 0.f)
+    {
+        return 0;
+    }
+    if (!(0.f < duration))
+    {
+        duration = static_cast<float>(texture[0x11]) / static_cast<float>(texture[0x10]);
+    }
+    const float full = context.panel_alpha; // DAT_0032B49C
+    if (lifetime - duration <= remaining)
+    {
+        if (duration == 0.f)
+        {
+            return u32(i32(full));
+        }
+        const float level = (lifetime - remaining) / duration * full;
+        if (full < level)
+        {
+            return u32(i32(full));
+        }
+        if (level < 0.f)
+        {
+            return 0;
+        }
+        return u32(i32(level));
+    }
+    if (duration < remaining || sticky != 0)
+    {
+        return 0xE0;
+    }
+    float level = full;
+    if (duration != 0.f)
+    {
+        const float rising = remaining / duration * full;
+        if (!(full < rising))
+        {
+            level = rising < 0.f ? 0.f : rising;
+        }
+    }
+    return u32(i32(level));
 }
 
 // Xbox 0x0005E950
@@ -175,7 +243,15 @@ static u32 draw_runtime_dialogue_text_record(RuntimeDialogueTextPool& pool, i32 
     }
     if (read_u32(record, 0x1224) != 0)
     {
-        throw Error("untranslated Xbox 0x00060160 / 0x00061360: pooled text panel");
+        if (context.outer == nullptr)
+        {
+            throw Error("0x0005FC30 draws a pooled text panel (0x00061360) with no outer draw context");
+        }
+        const u32 alpha = runtime_text_panel_alpha(pool.font, reinterpret_cast<const char16_t*>(record.data() + 4),
+            read_u32(record, 0x121C), pool.end_time, real(0x604), real(0x1214), context); // 0x00060160
+        const u32 color = (context.panel_color & 0x00FFFFFFu) | ((alpha & 0xFFu) << 24); // DAT_002FF2E0
+        draw_runtime_dialogue_panel(float(i32(real(0x1228))), float(i32(real(0x122C))), float(i32(real(0x1230))),
+            float(i32(real(0x1234))), 0.25f, color, *context.outer); // 0x00061360, XMM2 the height
     }
     float x = real(0x1204);
     float y = real(0x1208);

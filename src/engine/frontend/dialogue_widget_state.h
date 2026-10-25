@@ -68,6 +68,7 @@ void set_dialogue_widget_mode(RuntimeDialogueWidget& widget, i32 mode,
     RuntimeDialogueWidgetContext& context); // Xbox 0x00142C20
 void set_dialogue_widget_prompt(RuntimeDialogueWidget& widget, const u8* parameters,
     RuntimeDialogueWidgetContext& context); // Xbox 0x00142180
+void reset_dialogue_widget_prompt(RuntimeDialogueWidget& widget); // Xbox 0x00142AA0, ESI the widget
 void destroy_dialogue_widget(RuntimeDialogueWidget* widget,
     AnimationResourceRegistry& resources, GhoulySpawnPool& text_pools); // Xbox 0x00142070
 }

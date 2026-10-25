@@ -152,6 +152,9 @@ struct TransitionBookServices
     std::unordered_map<u32, RuntimeDialogueInputDevice>* input_views = nullptr;
     std::function<u32()> frame{}; // DAT_004DEA58
     const float* viewport_bottom = nullptr; // DAT_0050974C
+    // The draw's widescreen page redraw test (0x00048550), bound by the scene.
+    const i32* scene_paused = nullptr; // DAT_00510CE8
+    const i32* pause_phase = nullptr; // DAT_00510CF4
 };
 extern RuntimeTransitionBook* g_capture_book; // DAT_005462A0
 extern u32 g_book_viewport_reset; // DAT_005077FC, read by the present (0x000F6F70).
@@ -160,6 +163,11 @@ RuntimeTransitionBook* create_transition_book(i32 clip, u32 flags, const char* t
 void tick_transition_book(RuntimeTransitionBook& book, TransitionBookServices& services); // Xbox 0x000483E0
 void release_transition_book(RuntimeTransitionBook* book, TransitionBookServices& services); // Xbox 0x00048860
 void draw_transition_book(RuntimeTransitionBook& book, TransitionBookServices& services); // Xbox 0x00048550
+void seek_transition_book(RuntimeTransitionBook& book, float position,
+    TransitionBookServices& services); // Xbox 0x00048940, ECX the book
+void release_transition_book_hold(RuntimeTransitionBook& book,
+    TransitionBookServices& services); // Xbox 0x00048920, EAX the book
+void hold_transition_book_route(RuntimeTransitionBook& book); // Xbox 0x00048960, EAX the book
 float transition_book_threshold(const RuntimeTransitionBook& book, size_t offset,
     const SceneExecutableResources& image); // The clip row's real at +offset (0x0042217C, 0x00422180).
 i32 transition_book_row_word(const RuntimeTransitionBook& book, size_t offset,

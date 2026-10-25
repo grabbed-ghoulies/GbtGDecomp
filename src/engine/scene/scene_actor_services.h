@@ -6,6 +6,8 @@
 
 namespace gbtg
 {
+struct AudioListenerSettings;
+struct ScenePauseServices;
 class SceneFactoryRuntime;
 struct RuntimeDirectorActor;
 struct RuntimeEffectPassScratch;
@@ -53,14 +55,31 @@ public:
         float scale); // Xbox 0x00112C50
     // Script type 0x9D's tail: DAT_00506C84 counts up and 0x0012D7E0 shows the count in slot 1.
     void count_script_challenge();
+    // Script world action 0xA (0x00128050): the scene's name from aid_loctext_ghoulies_script_scenenames. With the
+    // node's show word set and the action not repeated, it is shown centred over the scene's title pool
+    // (DAT_00512484) after a hidden "spam" record that holds it back for the node's delay; the pause keeps the name
+    // (0x0011DCF0). An empty or missing name does nothing.
+    void show_script_scene_name(const char* key, u32 show, i32 repeated, float delay, float lifetime);
+    void release_script_title_pool(); // The head of 0x001288C0: the title pool goes once it is empty.
+    AudioListenerSettings& audio_listener(); // DAT_004D9798 .., the XACT category volumes and reverb (0x0015C1C0).
+    void set_reverb_preset(i32 preset); // 0x0003A1F0, ESI the preset
+    void apply_scene_lighting(std::span<const u8> record); // 0x000FD780 over the scene fog, ESI the record
+    void set_background_morphs_playing(u8 playing); // 0x00114050 over DAT_0050E388, BL playing
+    // Script world actions 0x6D, 9 and 8: the per-tag tables bodies and minds read at construction.
+    void clear_script_tag_tables(); // The teardown's (0x0011C5A0) clear of the three counts.
+    void add_scale_exclusion(u16 tag); // DAT_0050E1B4 / DAT_0050E1B0
+    void add_animation_class(u16 tag, float scale); // 0x0010F660, CX the tag, XMM0 the scale
+    void add_mind_class_setting(u16 tag, float value); // 0x0010F690, CX the tag, the stack the value
     // The scene tick's per-frame passes over scene state.
     void age_actor_snapshots(); // Xbox 0x001162F0
     void animate_light_records(); // Xbox 0x000FDDA0
     void tick_post_models(); // Xbox 0x0012AA70
     void tick_frontend_state(); // Xbox 0x00049DE0
-    // The scene tick's tail: with a DAT_0050E0E8 device selected (DAT_0050E0EC) and its row nonzero, 0x001083F0 (EAX
-    // the device, 0x10): Start newly pressed.
+    // The scene tick's tail: with entries on the input stack (DAT_0050E0E8) and the top one's device (DAT_0050E0EC)
+    // nonzero, 0x001083F0 (EAX the device, 0x10): Start newly pressed.
     bool start_pressed();
+    ScenePauseServices& pause_services(); // The pause screen's views (0x0011CE10 ..).
+    void refresh_master_pad(); // 0x00109470 on the boot "Scene Master Pad" (the scene record's +0x230)
     void update_actor(u32 address, RuntimeEffectPassScratch& scratch); // Native vtable +0x10 adapter; caller's incoming effect stack state.
     // The scene tick 0x0011E7F0's recurring actor updates: the bind tree under DAT_00511B10 (0x00123020), then the
     // +0x934 list from DAT_00511B20 (0x00122FE0).

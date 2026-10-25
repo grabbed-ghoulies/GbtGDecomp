@@ -60,6 +60,9 @@ bool initialize_runtime_player(std::span<u8> actor, std::span<const u8> paramete
     if (read_u32(parameters, 0x3BA) == 0x5F646961)
     {
         set_runtime_player_mind(context.mind, reinterpret_cast<const char*>(parameters.data() + 0x3BA), child);
+        // 0x00028E50 stores the created mind at actor +0x958; its readers (the cheer state's target among them)
+        // take a zero word for no mind.
+        put(actor, 0x958, context.mind.bytes == nullptr ? 0u : context.address_of(context.mind.bytes.get()));
     }
     context.input = create_runtime_actor_base_input(context.input_release);
     put(actor, 0x960, context.address_of(context.input.data()));

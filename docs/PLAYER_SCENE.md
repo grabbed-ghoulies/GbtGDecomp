@@ -399,6 +399,20 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 
 ## Checkpoints
 
+### 2026-10-25: ghoulie introductions face the camera
+
+- The intro's shots (`0x000F4220`) are placed from the direction to the ghoulie's mind target, and the intro goal
+  ("ghouly_intro": Celebrate, then SetStateIfFlag) starts the cheer state 0x62 (`0x0008C240`), which turns the
+  body toward its mind's target (actor +0x958 -> +0xC). The host never stored the mind at actor +0x958
+  (`0x00028E50` does), so every reader of that word saw no mind: the cheer state never turned the ghoulie, and
+  the shots framed whichever way it already faced (the scene 1 imp faced away from Cooper, so shot 0 saw its
+  back). The player constructor now stores the created mind there. Checked in `--player-opening`'s new captures
+  (`cache/player_intro_*.bmp`, every 20 frames of the intro): the imp turns, then faces the camera in shot 0 and
+  three-quarter on in shots 1 and 2, as the shots are built.
+- Other readers of actor +0x958 now see the mind too: the anim state's target, the cinema mind's escape
+  (`cinema_mind_movement.cpp`, `mind_escape_position.cpp`), the haunted TV's target check, and script type 0x6B
+  (which raises where it reaches `0x00029C80` for an actor with a mind).
+
 ### 2026-10-25: stuck in the snooker table; the camera above the level
 
 - **Stuck in the snooker table (scene 5).** The room's collision has a box where the table stands (x ±30,

@@ -11167,6 +11167,11 @@ int main(int argc, char** argv)
                 {
                     intro_end = frame;
                 }
+                if (showing && intro_end < 0 && (frame - intro_start) % 20 == 0)
+                {
+                    // Each of the intro's four shots should show the imp facing the camera.
+                    capture_readback("cache/player_intro_" + std::to_string(frame - intro_start) + ".bmp");
+                }
                 if (intro_start >= 0 && frame == intro_start + player_ticks(90))
                 {
                     gbtg::RgbaImage intro;

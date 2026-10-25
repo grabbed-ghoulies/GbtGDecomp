@@ -650,7 +650,7 @@ struct SceneActorServices::State
     RuntimeDialogueInputState input_state{keyboard, {}, 0, 0, 0, input_pool, 0, nullptr};
     u32 brews_taken = 0; // DAT_00506C88.
     u32 brew_accepted = 0; // DAT_00430D98.
-    i32 prompt_lock = -1; // DAT_004E1C34, 0x0011C480.
+    i32 prompt_lock = -1; // DAT_004E1C34, 0x0011C480: the scene cutscene stack's top, which its runtime binds.
     u32& prompt_owner = reinterpret_cast<u32&>(dialogue_state.mode); // DAT_004EE1EC, the scene dialogue's mode.
     i32& difficulty = g_event_sequence_state; // DAT_005064D8, the event sequence state.
     std::unique_ptr<RuntimeScoreboardResources> event_board_resources;
@@ -3349,7 +3349,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     // The scene cutscene stack (DAT_004E1B40..DAT_004E1C54) that script node 0x13 starts (0x0004EDA0) and the
     // scene tick advances (0x0004EBD0), over this scene's cutscene context.
     install_scene_cutscene_runtime(game, SceneCutsceneBindings{*cutscenes, g_flags_ea9c, g_510cec, g_4dea24,
-        g_50e7a0, g_sim_freeze, g_sim_dt, g_sim_scale});
+        g_50e7a0, g_sim_freeze, g_sim_dt, g_sim_scale, prompt_lock});
     // The attract control (factory type 0x9B) over this scene's resources, text, input and cutscene stack.
     attract_services = std::make_unique<AttractControlServices>(AttractControlServices{resources.registry,
         resources.error, resources.text, text_registry, resources.metrics, widget_context.viewport_width,
@@ -5261,7 +5261,6 @@ void SceneActorServices::State::reset_scene_data()
     goal_scratch.clear();
     brews_taken = 0;
     brew_accepted = 0;
-    prompt_lock = -1;
     difficulty = 0;
     brews_owned = 0;
     brews_required = 0;

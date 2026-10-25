@@ -73,6 +73,7 @@ extern "C"
 #include "../navigation/occupancy.h"
 #include "gbtg/actor_spawn_factory.h"
 #include "../scene/scene_actor_services.h"
+#include "../scene/cutscene_scene_runtime.h"
 #include "../scene/actor_loading.h"
 
 namespace gbtg
@@ -651,10 +652,6 @@ int script_condition_consume_matching_event(const ScriptCond& rec)
 }
 
 
-// DAT_004E1C34. 0x001327A0 compares this dword with 0x80000000.
-u32 g_4e1c34 = 0;
-
-
 // Dwords 0x0012AE40 reads. The block starts at DAT_00512B78. The first
 // dword that function reads is 0x00512C6C, one 0xF4 slot later. Six fields
 // sit 0xF4 apart and the row stride is 0x5B8. Category n is 0x3A24 bytes
@@ -709,8 +706,11 @@ int script_sum_statistics(i32 category)
 // NaN. A nonzero +0x14 returns 0 while DAT_004E1C34 stays below
 // 0x80000000. Every other path returns 1.
 // Xbox 0x001327A0
-int script_condition_statistics_latch(ScriptCond& rec)
+int script_condition_statistics_latch(Game& g, ScriptCond& rec)
 {
+    // DAT_004E1C34, the scene cutscene stack's top (-1 with none playing).
+    const SceneCutsceneRuntime* cutscenes = find_scene_cutscene_runtime(g);
+    const u32 top = static_cast<u32>(cutscenes == nullptr ? -1 : cutscenes->index);
     const i32 count = script_sum_statistics(0);
     if (count < static_cast<i32>(cond_u32(rec, 8)))
     {
@@ -718,7 +718,7 @@ int script_condition_statistics_latch(ScriptCond& rec)
     }
     if (static_cast<i32>(cond_u32(rec, 0x10)) == 0)
     {
-        const u32 below = g_4e1c34 < 0x80000000u ? 1u : 0u;
+        const u32 below = top < 0x80000000u ? 1u : 0u;
         cond_put_u32(rec, 0x10, 1u);
         cond_put_u32(rec, 0x14, below);
     }
@@ -729,7 +729,7 @@ int script_condition_statistics_latch(ScriptCond& rec)
             return 0;
         }
     }
-    else if (g_4e1c34 < 0x80000000u)
+    else if (top < 0x80000000u)
     {
         return 0;
     }
@@ -1632,7 +1632,7 @@ void script_evaluate_conditions(Game& g)
         }
         else if (opcode == 4)
         {
-            fired = script_condition_statistics_latch(rec);
+            fired = script_condition_statistics_latch(g, rec);
         }
         else if (opcode == 5)
         {

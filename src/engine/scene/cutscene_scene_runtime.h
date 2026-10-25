@@ -14,6 +14,7 @@ struct SceneCutsceneBindings
     const float& freeze; // DAT_004312DC.
     const float& dt; // DAT_005096C0.
     const float& scene_scale; // DAT_004312C4.
+    i32& top; // DAT_004E1C34, which the scene's other readers share; boot (0x0011C480) stores -1.
 };
 struct SceneCutsceneRuntime
 {
@@ -25,7 +26,7 @@ struct SceneCutsceneRuntime
     float prefix_time = 0.f; // DAT_004E1C28.
     float time = 0.f; // DAT_004E1C2C.
     float previous_time = 0.f; // DAT_004E1C30.
-    i32 index = -1; // DAT_004E1C34.
+    i32& index = bindings.top; // DAT_004E1C34.
     std::array<RuntimeCutsceneInstance*, 4> instances{}; // DAT_004E1C38.
     u32 stop = 0; // DAT_004E1C48.
     u32 paused = 0; // DAT_004E1C54.

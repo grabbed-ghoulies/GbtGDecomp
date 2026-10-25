@@ -235,6 +235,8 @@ All take the game directory, e.g.
 | `--scene2a15` | Boots chapter 2a scene 15 (chapter2a_scene15_1playcam) and plays it with the scene 7 driver at any fight range: a ghoulybox request (0x0013E8D0) reaches the chair weapon's message (0x000CF0D0). Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene16_1playcam` (frame 4731 in the 2026-10-25 run) |
 | `--scene2a16` | Boots chapter 2a scene 16 (chapter2a_scene16_1playcam, the dishwashing room) and plays it with the scene 7 driver at any fight range through "EVENT - ONE TYPE/DON'T KILL". Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene17_1playcam` (frame 4002 in the 2026-10-25 run) |
 | `--scene2a17` | Boots chapter 2a scene 17 (chapter2a_scene17_1playcam, the kitchen) and plays it with the scene 7 driver at any fight range: the cook reveals the second ingredient and the ghoulybox pirate enters. Passes when the script moves on to `aid_script_ghoulies_chapter2b_scene1_1playcam` (frames 3159 and 3218 in two 2026-10-25 runs) |
+| `--scene2b1` | Boots chapter 2b scene 1 (chapter2b_scene1_1playcam, the freezer) and plays its "FREE PLAY" with the scene 7 driver. Passes when the script moves on to `aid_script_ghoulies_chapter2b_scene2_1playcam` (frame 1494 in the 2026-10-25 run) |
+| `--scene2b2` | Boots chapter 2b scene 2 (chapter2b_scene2_1playcam, the garbage yard) and plays it with the scene 7 driver at any fight range: "Event: Survive" spawns three waves of spiders behind cutscenes, each wave waiting on the kill count (condition 4). Passes when the script moves on to `aid_script_ghoulies_chapter2b_scene3_2playcam` (frame 14881 in the 2026-10-25 run; the driver spends about 6000 frames of the last "Free Play" held by the exit around (236, 84)) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -401,6 +403,18 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-25: chapter 2b scenes 1 and 2, and DAT_004E1C34
+
+- `--scene2b1` (the freezer) needed nothing new. `--scene2b2` (the garbage yard) held at "Event: Survive": its
+  waves wait on condition 4 (`0x001327A0`), which, once the kill count is reached, latches whether a scene cutscene
+  is playing (DAT_004E1C34 >= 0) and then waits for the stack to empty. The condition read a host word that nothing
+  wrote (0), so it always saw a cutscene and never fired. It now reads the scene cutscene stack's top.
+- The scene services kept a second DAT_004E1C34 (`prompt_lock`, -1 for the run) for the scoreboard, the player
+  strategy, the weapons, the area prompts and the Super Scary shock, so they never saw a cutscene playing. The
+  cutscene runtime's top is now bound to that word, so they read the stack's real top. The services' own reset of
+  it is gone; the teardown's `0x0004ECE0` empties the stack.
+- Checked in the captures: the spiders and the HUD's spider counter (30, 14, 6 through the event).
 
 ### 2026-10-25: scenes 2a16 and 2a17, the fade-out effect and the attach check's bind node
 

@@ -410,8 +410,15 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
   (`cache/player_intro_*.bmp`, every 20 frames of the intro): the imp turns, then faces the camera in shot 0 and
   three-quarter on in shots 1 and 2, as the shots are built.
 - Other readers of actor +0x958 now see the mind too: the anim state's target, the cinema mind's escape
-  (`cinema_mind_movement.cpp`, `mind_escape_position.cpp`), the haunted TV's target check, and script type 0x6B
-  (which raises where it reaches `0x00029C80` for an actor with a mind).
+  (`cinema_mind_movement.cpp`, `mind_escape_position.cpp`) and the haunted TV's target check (the cinema and the
+  haunted TV checked in play by the user), and script type 0x6B.
+- Script type 0x6B (`0x00126A10`) raised for any actor with a mind; retail only goes on for a mind with a target
+  (+0x10), through `0x00029C80` (EDX 1), and on a zero answer tells the actor {0x64, 0} and drops the target. That
+  is now run, through three new DAT_00511B48 node views (the mind, the 0x00029C80 check and the actor message).
+  Only three scripts have the node (a scan of every aid_script bundle): chapter2a_scene1_3playcam (the fire
+  imps), chapter2a_scene13_2playcam (skeletons) and chapter2c_scene5_1playcam (skeletons, no test mode yet).
+  `--scene2a1b` passes through scene1_3playcam; `--scene2a13` reaches no untranslated path and holds in the
+  excluded fight ("EVENT - NUMBER").
 
 ### 2026-10-25: stuck in the snooker table; the camera above the level
 

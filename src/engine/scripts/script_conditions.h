@@ -18,6 +18,12 @@ extern std::function<u16(const void* node)> g_alt_node_class;
 // The actor (node - 0x944) of a DAT_00511B48 node, with its bytes; bound with g_alt_node_body.
 extern std::function<Actor&(const void* node)> g_alt_node_actor;
 extern std::function<std::span<u8>(const void* node)> g_alt_node_actor_bytes;
+// The mind (node +0x14, actor +0x958) of a DAT_00511B48 node; empty for an actor without one.
+extern std::function<std::span<u8>(const void* node)> g_alt_node_mind;
+// 0x00029C80 (ECX the node's mind, EAX its +0x10 target record, EDX 1) with that player's views.
+extern std::function<bool(const void* node)> g_alt_node_target_eligible;
+// The node's actor vtable +0xC (mind +8).
+extern std::function<void(const void* node, std::span<const u32> message)> g_alt_node_message;
 // Appends a tag to DAT_0050E22C (count DAT_0050E228), the classes the player's targeting skips.
 extern std::function<void(u16 tag)> g_script_exclude_actor_tag;
 // The DAT_00511AA4 object whose +0x1FC word is the key, as its retail address (0 for none), and any scene object's

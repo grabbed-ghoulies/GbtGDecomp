@@ -1670,13 +1670,14 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
     case 0x6b:
     {
         // Each DAT_00511B48 actor of the tag (any for a tag below 2) takes the byte at node+0x48 at +0x969. One whose
-        // +0x958 target record has a +0x10 goes through 0x00029C80 (ECX the record, EDX 1), whose views are not
-        // bound here.
+        // mind (+0x958) has a target (+0x10) that 0x00029C80 no longer accepts tells its actor {0x64, 0} and drops
+        // the target.
         const u16 tag = static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 8).c_str()));
         for (const auto* link = static_cast<const entity_detail::ListHead*>(entity_detail::g_world.alt.next);
              link != nullptr; link = static_cast<const entity_detail::ListHead*>(link->next))
         {
-            if (!g_alt_node_class || !g_alt_node_actor_bytes)
+            if (!g_alt_node_class || !g_alt_node_actor_bytes || !g_alt_node_mind || !g_alt_node_target_eligible
+                || !g_alt_node_message)
             {
                 throw Error("script type 0x6B walks DAT_00511B48 without the scene's actor views");
             }
@@ -1686,10 +1687,16 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
             }
             const std::span<u8> actor = g_alt_node_actor_bytes(link);
             actor[0x969] = node_u8(g.scene_script, node, 0x48);
-            if (read_u32(actor, 0x958) != 0)
+            const std::span<u8> mind = g_alt_node_mind(link);
+            if (read_u32(actor, 0x958) != 0 && !mind.empty() && read_u32(mind, 0x10) != 0
+                && !g_alt_node_target_eligible(link)) // 0x00029C80, EDX 1
             {
-                throw Error("script type 0x6B reaches 0x00029C80 for an actor's +0x958 target record; its views "
-                    "are not bound");
+                if (read_u32(mind, 0x10) != 0)
+                {
+                    const std::array<u32, 2> message{100, 0};
+                    g_alt_node_message(link, message); // Mind +8 (the actor) vtable +0xC.
+                }
+                std::memset(mind.data() + 0x10, 0, 4);
             }
         }
         return 2;

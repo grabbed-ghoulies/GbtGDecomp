@@ -1,3 +1,4 @@
+#include "../entities/mind_target_policy.h"
 #include "scene_actor_services.h"
 #include "../entities/ghouly_spawn_trigger.h"
 #include "../entities/actor_template_creation.h"
@@ -5126,6 +5127,49 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         excluded_tags[size_t(excluded_count)] = tag;
         excluded_count = excluded_count + 1;
     };
+    g_alt_node_mind = [this](const void* node) -> std::span<u8>
+    {
+        for (auto* player : players->instances())
+        {
+            if (&player->links[2] == node)
+            {
+                return player->mind;
+            }
+        }
+        unbound("DAT_00511B48 node without a native player");
+    };
+    g_alt_node_target_eligible = [this](const void* node) -> bool
+    {
+        for (auto* player : players->instances())
+        {
+            if (&player->links[2] == node)
+            {
+                const u32 record = read_u32(player->mind, 0x10);
+                RuntimeMindTarget* target = players->bindings.scene.target_at(record);
+                if (target == nullptr)
+                {
+                    unbound("script type 0x6B: mind +0x10 " + std::to_string(record) + " is not a target record");
+                }
+                return runtime_mind_target_is_eligible(player->mind, player->actor_bytes, player->actor,
+                    address_of(player->actor_bytes.data()), *target, true); // 0x00029C80, EDX 1
+            }
+        }
+        unbound("DAT_00511B48 node without a native player");
+    };
+    g_alt_node_message = [this](const void* node, std::span<const u32> message)
+    {
+        for (auto* player : players->instances())
+        {
+            if (&player->links[2] == node)
+            {
+                std::array<u32, 0x42> words{};
+                std::copy_n(message.begin(), std::min(message.size(), words.size()), words.begin());
+                player->self.message(words);
+                return;
+            }
+        }
+        unbound("DAT_00511B48 node without a native player");
+    };
     g_alt_node_class = [this](const void* node) -> u16
     {
         for (auto* player : players->instances())
@@ -6001,6 +6045,9 @@ SceneActorServices::State::~State()
         g_alt_node_class = nullptr;
         g_alt_node_actor = nullptr;
         g_alt_node_actor_bytes = nullptr;
+        g_alt_node_mind = nullptr;
+        g_alt_node_target_eligible = nullptr;
+        g_alt_node_message = nullptr;
         g_script_exclude_actor_tag = nullptr;
         g_script_actor_bytes = nullptr;
         g_script_actor_message = nullptr;

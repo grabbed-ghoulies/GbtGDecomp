@@ -224,6 +224,7 @@ add_library(gbtg_lib STATIC
     src/engine/entities/ugly_girl_strategy.cpp
     src/engine/entities/haunted_door_strategy.cpp
     src/engine/entities/imp_flamethrower_strategy.cpp
+    src/engine/entities/imp_flying_strategy.cpp
     src/engine/entities/imp_ninja_strategy.cpp
     src/engine/entities/medusa_strategy.cpp
     src/engine/entities/pirate_strategy.cpp

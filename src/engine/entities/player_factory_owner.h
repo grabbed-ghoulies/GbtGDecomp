@@ -15,6 +15,7 @@
 #include "ugly_girl_strategy.h"
 #include "haunted_door_strategy.h"
 #include "imp_flamethrower_strategy.h"
+#include "imp_flying_strategy.h"
 #include "imp_ninja_strategy.h"
 #include "medusa_strategy.h"
 #include "pirate_strategy.h"
@@ -172,6 +173,7 @@ struct NativePlayerSceneBindings
     // Grim Reaper strategy (type 0x3F, vtable 0x00505DE0); the scene sets these once it has them.
     std::span<const u8> grim_reaper_parameters{}; // DAT_00302B7C.
     // Ninja imp strategy (type 0x49, vtable 0x00505EF8).
+    std::span<const u8> imp_flying_parameters{}; // DAT_00303124.
     std::span<const u8> imp_ninja_parameters{}; // DAT_00303198.
     // Medusa strategy (type 0x4B, vtable 0x00505F30).
     std::span<const u8> medusa_parameters{}; // DAT_004287F0.
@@ -339,6 +341,7 @@ struct NativePlayerInstance
     RuntimeUglyGirlStrategy ugly_girl; // Type 0x53.
     RuntimeHauntedDoorStrategy haunted_door; // Type 0x42.
     RuntimeImpFlamethrowerStrategy imp_flamethrower; // Type 0x47, over `spider`'s views.
+    RuntimeImpFlyingStrategy imp_flying; // Type 0x48, over `spider`'s views.
     RuntimeImpNinjaStrategy imp_ninja; // Type 0x49, over `spider`'s views.
     RuntimeMedusaStrategy medusa; // Type 0x4B, over `spider`'s views.
     RuntimePirateStrategy pirate; // Type 0x4E.
@@ -403,6 +406,8 @@ public:
     void haunted_door_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000AFDD0.
     void imp_flamethrower_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000B5860.
     void imp_flamethrower_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000B5570.
+    void imp_flying_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000B6CB0.
+    void imp_flying_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000B6BF0.
     void imp_ninja_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000B7C50.
     void imp_ninja_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000B7B40.
     void medusa_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000BB400.

@@ -237,6 +237,7 @@ All take the game directory, e.g.
 | `--scene2a17` | Boots chapter 2a scene 17 (chapter2a_scene17_1playcam, the kitchen) and plays it with the scene 7 driver at any fight range: the cook reveals the second ingredient and the ghoulybox pirate enters. Passes when the script moves on to `aid_script_ghoulies_chapter2b_scene1_1playcam` (frames 3159 and 3218 in two 2026-10-25 runs) |
 | `--scene2b1` | Boots chapter 2b scene 1 (chapter2b_scene1_1playcam, the freezer) and plays its "FREE PLAY" with the scene 7 driver. Passes when the script moves on to `aid_script_ghoulies_chapter2b_scene2_1playcam` (frame 1494 in the 2026-10-25 run) |
 | `--scene2b2` | Boots chapter 2b scene 2 (chapter2b_scene2_1playcam, the garbage yard) and plays it with the scene 7 driver at any fight range: "Event: Survive" spawns three waves of spiders behind cutscenes, each wave waiting on the kill count (condition 4). Passes when the script moves on to `aid_script_ghoulies_chapter2b_scene3_2playcam` (frame 14881 in the 2026-10-25 run; the driver spends about 6000 frames of the last "Free Play" held by the exit around (236, 84)) |
+| `--scene2b3` | Boots chapter 2b scene 3 (chapter2b_scene3_2playcam, the wood shed) and plays its "Free Play" with the scene 7 driver at any fight range; the scene ends at the exit volume (-166, 636). Does not pass yet: the flying imps (factory type 0x48) and the Medusa (class 0x1F) by the exit wear Cooper down, he dies and the scene restarts (2026-10-25) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -403,6 +404,32 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-25: scene 2b3's flying imps
+
+- `--scene2b3` (new) stopped at its scene start: factory type 0x48 (getter `0x000B6B70`) was not translated. The type
+  table names it entityStrategyImpFlying (row 0x47). It is now translated in `entities/imp_flying_strategy.cpp`, over
+  the spider views the other imps use; the parameters are DAT_00303124.
+  - Vtable 0x00505EDC: sizes `0x000B6B50` (0xF8 / 0x98), construct `0x000B6BC0`, message `0x000B6CB0`, update
+    `0x000B6BF0`, enter `0x000B6F80` (its default is `0x0002BAF0`), leave `0x000B7050`.
+  - The update, enter and leave tail-jump to `0x000B5B30` (0x401), `0x000B5D70` (0x3ED), `0x000B5F10` (0x409),
+    `0x000B5D50`, `0x000B5E90` and `0x000B5ED0`; Ghidra had no functions there, so they were exported as ranges and
+    read from their instructions.
+  - 0x401: attacks a queued target (`0x000B5CF0`, then 0x3EF or 0x3ED by `0x000196F0`), evades within 50, and
+    otherwise hovers to one of four clear points 30 out (`0x000B6630`) at a height from `0x000B6A30`, kept within 5
+    of its height over the floor cell.
+  - 0x3ED: "wingwhackprepare", then "evade" (`0x000B5E20`).
+  - 0x3EF: "arrowdive" and its effect (`0x0003DF40`), a hold, then a lunge to its model's marker 0 over parameter
+    +0x24 seconds and "arrowdiveunstuck" (`0x000B63A0`, `0x000B6060`).
+  - 0x409 (a hit that lands on the imp) sets it down until body bit 0x31, then it rises to its hover height
+    (`0x000B6950`); 0x417 does the same with a 5 s limit (`0x000B6480`, `0x000B6560`).
+  - Two retail reads use the first argument's stack slot as a float where no floor is found (`0x000B6480` without
+    body +0x19E, `0x000B6630` with no cell under the imp); the translation passes the strategy's address bits.
+- Checked in the captures: the "Flying Imp" intro card with the imp flapping toward the camera, and Cooper punching
+  imps that die (GIMP_DIE).
+- Not passing: the driver dies to the imps and the Medusa (class 0x1F, which grabs Cooper by the exit) and the scene
+  restarts. The HUD heart's number jumps between values (41, 12, 87, 27, ...) within a second early in the scene; not
+  yet compared with retail.
 
 ### 2026-10-25: chapter 2b scenes 1 and 2, and DAT_004E1C34
 

@@ -1730,6 +1730,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         data(0x00428734, 0x40)}});
     players->install(scene.types);
     players->bindings.scene.grim_reaper_parameters = data(0x00302B7C, 0x38);
+    players->bindings.scene.imp_flying_parameters = data(0x00303124, 0x28);
     players->bindings.scene.imp_ninja_parameters = data(0x00303198, 0x18);
     players->bindings.scene.refresh_pause = [this]()
     {
@@ -7576,7 +7577,7 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
     // has not attached yet.
     if (child.type == 0x4F || child.type == 0x46 || child.type == 0x3B || child.type == 0x51 || child.type == 0x52
         || child.type == 0x58 || child.type == 0x44 || child.type == 0x40 || child.type == 0x4C || child.type == 0x53
-        || child.type == 0x42 || child.type == 0x47 || child.type == 0x49 || child.type == 0x4B
+        || child.type == 0x42 || child.type == 0x47 || child.type == 0x48 || child.type == 0x49 || child.type == 0x4B
         || child.type == 0x4E || child.type == 0x45)
     {
         if (auto* player = players->find_player(child); player != nullptr && !player->body.empty())
@@ -7624,6 +7625,9 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
         return;
     case 0x47:
         players->imp_flamethrower_message(child, words);
+        return;
+    case 0x48:
+        players->imp_flying_message(child, words);
         return;
     case 0x49:
         players->imp_ninja_message(child, words);
@@ -8126,6 +8130,9 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
                 return;
             case 0x47:
                 players->imp_flamethrower_update(strategy);
+                return;
+            case 0x48:
+                players->imp_flying_update(strategy);
                 return;
             case 0x49:
                 players->imp_ninja_update(strategy);

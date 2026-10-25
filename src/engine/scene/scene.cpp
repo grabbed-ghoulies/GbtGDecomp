@@ -77,6 +77,8 @@ extern "C"
 #include "../transitions/scene_transitions.h"
 #include "../scripts/script_actions.h"
 #include "../scripts/script_vm.h"
+#include "../entities/ghouly_requests.h"
+#include "../saves/runtime_profile.h"
 #include "../scripts/script_conditions.h"
 #include "../navigation/occupancy.h"
 #include "../entities/camera_director.h"
@@ -714,7 +716,7 @@ i32 g_50ec00 = 0;
 // ESI is the scene record. The dword at +0x118 is cleared. DAT_0051065C is 1 for the body and 0 on the way out. The
 // host splits the teardown: the globals below run here as the scene state enters 4, and the scene's actors, controls,
 // cutscenes, doors, effects and passes go in SceneFactoryRuntime::end_scene and load_scene_contents as the next scene
-// loads; each step's note below names where it runs. Still not translated: 0x00117330's other calls and 0x001163D0; 0x001593D0 only clears D3D device state (the presenter's).
+// loads; each step's note below names where it runs. Still not translated: 0x001163D0; 0x001593D0 only clears D3D device state (the presenter's).
 // Xbox 0x0011C5A0
 void scene_teardown(Game& g, u8* scene)
 {
@@ -803,16 +805,27 @@ void scene_teardown(Game& g, u8* scene)
         engine_heap_free(g_51108c);
         g_51108c = nullptr;
     }
-    // 0x00117330: the event steps go and DAT_0050EA9C's bit 0x800000 clears; its 0x000F2BE0 (the profile times),
-    // 0x00049FF0, 0x001289A0, 0x00116790 and DAT_0050E760 release are not translated. Its clear of DAT_0050E560
-    // lets the next scene's node 0x45 make that scene's ambient tune again, and the score captions clear.
+    // Xbox 0x00117330
     release_script_event_steps(); // 0x000D0490
     g_flags_ea9c = g_flags_ea9c & 0xFF7FFFFFu;
+    g.factory_scene->actor_services->add_profile_scene_times(g_script_30d0c == 1, g_4312d0); // 0x000F2BE0
+    g.factory_scene->actor_services->release_challenge_frontend(); // 0x00049FF0
+    if ((g_scene_flags->bytes[0] & 8) != 0 || (g_flags_ea9c & 0x200000u) != 0)
+    {
+        g_game_progress.real_1744 = g_4312d0 + g_game_progress.real_1744; // DAT_004E1744
+    }
+    std::vector<GhoulyControllerEntry>().swap(g_ghouly_controllers); // DAT_00512B74, 0x000663E0
+    release_scene_script_title(g); // 0x001289A0
+    std::vector<ScriptCond>().swap(g_script_conds); // DAT_0051234C, 0x000663E0
+    release_script_events(); // 0x00116790
+    // Clearing DAT_0050E560 lets the next scene's node 0x45 make that scene's ambient tune again.
     if (g_flag_e560 != 0)
     {
         g_flag_e560 = 0;
     }
     g.factory_scene->actor_services->clear_score_awards(); // 0x0012DF90
+    // DAT_0050E760 is the script AID 0x00117000 acquires; the host parses the script from the AID store
+    // (load_scene_contents) and holds no registry reference for 0x00035C00 to release.
     restore_script_story_bits(g_script_30d0c == 1); // 0x001272B0, EAX 1 when DAT_00430D0C is 1
     g_4312cc = 0.f;
     g_4312d0 = 0.f;

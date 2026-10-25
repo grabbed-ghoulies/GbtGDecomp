@@ -27,6 +27,7 @@ struct DialogueOuterD3DBoundaries
     std::function<void(u32, const void*, u32, u32, float, u32)> clear;
     std::function<void(float)> line_width;
     std::function<void(u32, const float*, u32)> pixel_constants;
+    std::function<void(DialogueSurfaceHandle, DialogueSurfaceHandle)> copy_rects; // D3D 0x00174440, whole surface.
 };
 struct RuntimeDialogueQueuedSprite
 {

@@ -83,6 +83,10 @@ public:
     void collect_model_releases(); // 0x000F9780 in the present: models released two fences ago go.
     void flush_model_releases(); // 0x000F97F0, the scene teardown's: every deferred model goes.
     void release_scene_dialogue(); // 0x00057DC0, the teardown's: the speaker, icon, input device and widget go.
+    void free_script_title_pool(); // DAT_00512484 in 0x001289A0 (0x0005F460)
+    void add_profile_scene_times(bool replay, float scene_time); // Xbox 0x000F2BE0
+    void set_frontend_state(i32 next); // Xbox 0x0004A4D0
+    void release_challenge_frontend(); // Xbox 0x00049FF0
     void clear_score_awards(); // 0x0012DF90, the teardown's: the pending score captions go.
     void update_actor(u32 address, RuntimeEffectPassScratch& scratch); // Native vtable +0x10 adapter; caller's incoming effect stack state.
     // The scene tick 0x0011E7F0's recurring actor updates: the bind tree under DAT_00511B10 (0x00123020), then the
@@ -96,6 +100,7 @@ public:
     // control disposal, retired actors and the shadow volumes.
     void run_scene_pass(); // Xbox 0x0011E640
     void update_scoreboard_hud(); // Xbox 0x00132210, after the scene pass
+    void tick_screen_effects(); // Xbox 0x00060D50, after the scoreboard
     void tick_live_spawns(); // Xbox 0x0011B670, in the scene tick after the actors
     // The scene tick's fog: the renderer takes the scene fog record (DAT_00509AFC..) each frame, so a cutscene's
     // fog events (0x1A / 0x1B), which change the record after configuring the renderer, apply on the next frame.

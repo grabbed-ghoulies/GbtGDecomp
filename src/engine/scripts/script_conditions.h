@@ -79,6 +79,7 @@ void script_append_condition(const ScriptCond& src, u32 size, u32 opcode); // Xb
 // 0x0014D360 frees the node.
 // Xbox 0x000E9210
 void script_release_event(LiveScript* node); // Xbox 0x000E9210
+void release_script_events(); // Xbox 0x00116790, every DAT_0050E4DC node
 
 extern SceneFlagBlock* g_scene_flags;
 

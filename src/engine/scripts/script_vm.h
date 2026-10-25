@@ -2,8 +2,11 @@
 
 #include "../scene/scene_types.h"
 
+#include <string_view>
+
 namespace gbtg
 {
+struct Game;
 // DAT_0051251C. Types 0xF and 0x10 decrement it. Type 0x11 increments it.
 extern i32 g_gate_251c;
 // DAT_00512518. Type 0xF stores 1 while it holds the section's end.
@@ -17,6 +20,11 @@ extern i32 g_scene_entry_set;
 void store_scene_entry_pose(const Vec3& position, const Vec3& euler); // Xbox 0x00117580, ECX position, EAX euler
 
 extern bool g_scene_script_started;
+
+// The scene title and mode (DAT_00512494, DAT_0051248C, DAT_00512490) with the condition reset and decay latches.
+void script_activate_title(Game& g, std::string_view title, i32 mode, i32 id); // Xbox 0x00128AB0, EAX title, ECX mode, EDX id
+// The teardown's script globals: no title, the title pool, the skip input, the pause name and the fired pool.
+void release_scene_script_title(Game& g); // Xbox 0x001289A0
 
 // Seven counters, each followed by 60 counters and a 60-by-61 matrix (DAT_0052C274, DAT_00512B78).
 void script_initialize_statistics(std::span<u32> statistics); // Xbox 0x0012AF10, EAX statistics

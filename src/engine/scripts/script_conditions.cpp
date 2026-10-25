@@ -293,7 +293,7 @@ void script_queue_event(Game& g, std::span<const u8> message)
     const u32 type = read_u32(message, 0);
     if (script_accepts_event(message))
     {
-        auto* live = new LiveScript{};
+        auto* live = new (engine_heap_allocate(i32(sizeof(LiveScript)))) LiveScript{}; // 0x000F72D0
         LiveScript* tail = &g_live_anchor;
         while (tail->next != nullptr)
         {
@@ -511,6 +511,28 @@ int script_condition_actor_count_at_most(const ScriptCond& rec)
 // cleared. The tail matches 0x000663E0: 0x000F7100 selects the heap and
 // 0x0014D360 frees the node.
 // Xbox 0x000E9210
+// Xbox 0x00116790
+void release_script_events()
+{
+    LiveScript* node = g_live_scripts;
+    while (node != nullptr)
+    {
+        LiveScript* next = node->next;
+        if (node->prev != nullptr)
+        {
+            node->prev->next = next;
+        }
+        if (node->next != nullptr)
+        {
+            node->next->prev = node->prev;
+        }
+        node->prev = nullptr;
+        node->next = nullptr;
+        engine_heap_free(node); // 0x000663E0
+        node = next;
+    }
+}
+
 void script_release_event(LiveScript* node)
 {
     LiveScript* prev = node->prev;

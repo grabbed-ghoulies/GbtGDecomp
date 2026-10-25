@@ -77,6 +77,7 @@ extern "C"
 #include "script_actions.h"
 #include "script_conditions.h"
 #include "script_vm.h"
+#include "../scene/scene_pause.h"
 #include "../entities/entity.h"
 #include "../transitions/scene_transitions.h"
 
@@ -244,6 +245,27 @@ void script_activate_title(Game& g, std::string_view title, i32 mode, i32 id)
             script_update_decay_latches(0xffff, new_decay);
         }
     }
+}
+
+
+// Xbox 0x001289A0
+void release_scene_script_title(Game& g)
+{
+    script_activate_title(g, kNoScript, 0, 0); // 0x00128AB0, EAX 0x0032A910
+    if (g.factory_scene == nullptr || g.factory_scene->actor_services == nullptr)
+    {
+        throw Error("0x001289A0 has no scene services for the title pool (DAT_00512484)");
+    }
+    g.factory_scene->actor_services->free_script_title_pool(); // DAT_00512484, 0x0005F460
+    end_cutscene_skip_input(g); // 0x00127B50
+    const char16_t* source = u"No Name Available"; // 0x0032A558
+    size_t index = 0;
+    do
+    {
+        g_scene_pause.title[index] = source[index]; // lstrcpyW into DAT_00510D00
+    }
+    while (source[index++] != 0);
+    std::vector<u32>().swap(g_script_fired); // DAT_00512488, 0x000663E0
 }
 
 

@@ -10394,12 +10394,14 @@ int main(int argc, char** argv)
     const bool scene2a13_test = argc == 3 && std::string_view(argv[2]) == "--scene2a13";
     // --scene2a14 boots chapter2a_scene14_1playcam and plays it until the script moves on.
     const bool scene2a14_test = argc == 3 && std::string_view(argv[2]) == "--scene2a14";
+    // --scene2a15 boots chapter2a_scene15_1playcam and plays it until the script moves on.
+    const bool scene2a15_test = argc == 3 && std::string_view(argv[2]) == "--scene2a15";
     if (spawn_test)
     {
         std::cout << std::unitbuf;
     }
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
-        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene2a14_test && !scene3_test && !pause_test)
+        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene2a14_test && !scene2a15_test && !scene3_test && !pause_test)
     {
         std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene6-save | --scene6-save-reload | --scene3 | --pause | --scene4 | --scene5 | --scene6-1 | --scene7]\n";
         return 2;
@@ -10525,6 +10527,7 @@ int main(int argc, char** argv)
             : scene2a12_test ? "chapter2a_scene12_2playcam"
             : scene2a13_test ? "chapter2a_scene13_2playcam"
             : scene2a14_test ? "chapter2a_scene14_1playcam"
+            : scene2a15_test ? "chapter2a_scene15_1playcam"
             : player_test || spawn_test ? "chapter1_scene1_2playcam"
             : title_test ? "" : "scene0_1book");
         if (scene2a1b_test)
@@ -10533,6 +10536,13 @@ int main(int argc, char** argv)
             play_scene7(game, "scene2a1_2");
             pass_chapter_title(game, "scene2a1_to_3", "aid_script_ghoulies_chapter2a_scene1_3playcam", false);
             play_scene7(game, "scene2a1_3", 1000.f, "Event - Kill All", true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene2a15_test)
+        {
+            pass_chapter_title(game, "scene2a15", "aid_script_ghoulies_chapter2a_scene15_1playcam", false);
+            play_scene7(game, "scene2a15", 1000.f, {}, true, true);
             gbtg::gfx_shutdown();
             return 0;
         }
@@ -11712,6 +11722,11 @@ int main(int argc, char** argv)
                             died = frame;
                             std::cout << "death frame " << frame << ": Cooper's health is 0, title " << game.scene_name
                                       << "\n";
+                        }
+                        if (died >= 0 && frame - died <= 300 && (frame - died) % 15 == 5)
+                        {
+                            // The death's camera pulse (0x00061960) blurs the captured view (0x000615E0).
+                            capture_readback("cache/player_death_blur_" + std::to_string(frame - died) + ".bmp");
                         }
                         if (died >= 0 && transition < 0 && gbtg::g_scene_transition.phase != 0)
                         {

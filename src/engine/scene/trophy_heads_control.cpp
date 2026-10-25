@@ -176,13 +176,13 @@ bool construct_runtime_trophy_heads_control(std::span<u8> state, std::span<const
         if (std::int8_t(services.runtime_flags >> 8) >= 0)
         {
             auto& pulse = services.pulse;
-            pulse.remaining = 1.5f; // DAT_0032B210
-            pulse.duration = 1.5f;
-            pulse.first = 10.f; // DAT_0032B10C
-            pulse.second = 0.f;
-            pulse.third = 0.f;
-            pulse.mode = 0;
-            pulse.fourth = 1.f; // DAT_0032B0F8
+            pulse.total = 1.5f; // DAT_0032B210
+            pulse.remaining = 1.5f;
+            pulse.radius_from = 10.f; // DAT_0032B10C
+            pulse.radius_to = 0.f;
+            pulse.alpha_from = 0.f;
+            pulse.hold = 0;
+            pulse.alpha_to = 1.f; // DAT_0032B0F8
             pulse.active = 1;
             return true;
         }

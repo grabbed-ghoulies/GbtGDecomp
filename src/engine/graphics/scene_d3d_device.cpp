@@ -287,6 +287,15 @@ SceneD3DDevice::SceneD3DDevice()
     outer_.release = [](DialogueSurfaceHandle)
     {
     };
+    outer_.copy_rects = [this](DialogueSurfaceHandle source, DialogueSurfaceHandle target)
+    {
+        const auto texture = surface_textures.find(target);
+        if (source != kBackBuffer || texture == surface_textures.end())
+        {
+            throw Error("D3D CopyRects other than the back buffer into a texture surface");
+        }
+        commands.push_back(SceneD3DCopy{u32(texture->second)});
+    };
     outer_.clear = [this](u32 count, const void* rectangles, u32 flags, u32 color, float depth, u32)
     {
         // D3DRECT: x1, y1, x2, y2.

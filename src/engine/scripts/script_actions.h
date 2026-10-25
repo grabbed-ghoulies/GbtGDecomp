@@ -658,4 +658,5 @@ void message_runtime_tagged_list_actors(u16 tag, std::span<u32> message); // Xbo
 // The scene's player character: its 0x00430DA0 override, else 2 with the alternate flags, else 1.
 i32 scene_player_character(const Game& g); // Xbox 0x00087830
 
+void end_cutscene_skip_input(Game& g); // Xbox 0x00127B50
 } // namespace gbtg

@@ -3,10 +3,12 @@
 #include "../camera/display_view.h"
 #include "../camera/runtime_display_setup.h"
 #include "../frontend/dialogue_draw_outer.h"
+#include "../entities/bounded_channels.h"
 #include "gbtg/anim.h"
 #include "gbtg/model_render.h"
 
 #include <array>
+#include <bit>
 
 namespace gbtg
 {
@@ -15,6 +17,22 @@ namespace
 u32& deferred(RuntimeDialogueDrawContext& c, u32 address)
 {
     return c.deferred[(address - 0x181968) / 4];
+}
+
+// D3DDevice_DrawVerticesUP (D3D 0x001727B0) of four x,y vertices (stride 8): the primitive, the inline array, the end.
+void draw_runtime_vertices_up(u32 primitive, const float* positions, RuntimeDialogueDrawContext& c)
+{
+    u32* push = c.d3d.begin_push(0xD);
+    push[0] = 0x417FC;
+    push[1] = primitive;
+    push[2] = 0x40201818;
+    for (u32 i = 0; i != 8; ++i)
+    {
+        push[i + 3] = std::bit_cast<u32>(positions[i]);
+    }
+    push[11] = 0x417FC;
+    push[12] = 0;
+    c.d3d.end_push(push + 13);
 }
 }
 
@@ -288,22 +306,127 @@ void draw_world_line_quad(const Vec3& to, const Vec3& from, float width, float i
     d3d.end(); // D3D 0x00172D50
 }
 
+// Xbox 0x00061160, EAX count
+void spread_runtime_blur_offsets(std::array<float, 4>* offsets, i32 count, float radius, float period, float time)
+{
+    constexpr float kTurn = std::bit_cast<float>(0x40C90FDBu); // DAT_0032B298.
+    const float phase = float(runtime_float_remainder(time, period)); // 0x00152BE0
+    float angle = kTurn;
+    if (period != 0.f)
+    {
+        angle = phase / period * kTurn;
+        if (angle > kTurn)
+        {
+            angle = kTurn;
+        }
+        else if (0.f > angle)
+        {
+            angle = 0.f;
+        }
+    }
+    if (0 < count)
+    {
+        const float step = kTurn / float(count);
+        for (i32 index = 0; index != count; ++index)
+        {
+            const float sine = float(retail_sin(angle)); // 0x00153320
+            const long double cosine = retail_cos(angle); // 0x00153230
+            offsets[index] = {float(cosine * radius), sine * radius, 0.f, 0.f};
+            angle = step + angle;
+        }
+    }
+}
+
 // Xbox 0x000615E0
 void draw_screen_effects(const RuntimeScreenEffects& effects, RuntimeDialogueOuterDrawContext& c)
 {
     std::array<float, 8> corners;
-    dialogue_viewport_corners(corners.data(), c.draw.fitted_viewport);
-    if (effects.flash != 0)
+    dialogue_viewport_corners(corners.data(), c.draw.fitted_viewport); // 0x000F5DB0
+    auto& draw = c.draw;
+    auto& d3d = draw.d3d;
+    if (effects.tint.shown != 0)
     {
-        throw Error("screen flash draw 0x000615E0 (DAT_00504478) is not translated");
+        d3d.depth(1); // D3D 0x001722A0
+        d3d.simple_state(0x40354, 0x207); // D3D 0x00171050
+        deferred(draw, 0x181C54) = 0x207;
+        d3d.stencil_enable(0); // D3D 0x00172330
+        d3d.simple_state(0x40350, 0x8006);
+        deferred(draw, 0x181C98) = 0x8006;
+        d3d.simple_state(0x40344, 0x302);
+        deferred(draw, 0x181C68) = 0x302;
+        d3d.simple_state(0x40348, 0x303);
+        deferred(draw, 0x181C6C) = 0x303;
+        d3d.simple_state(0x40304, 1);
+        deferred(draw, 0x181C5C) = 1;
+        d3d.vertex_shader(effects.tint_vertex_shader); // D3D 0x001739F0
+        if (effects.tint_shader_constants != nullptr)
+        {
+            d3d.constants_not_inline(0x60, effects.tint_shader_constants, 0xC); // D3D 0x001735D0
+        }
+        d3d.pixel_shader(c.line_pixel_shader); // D3D 0x00175370, DAT_00425E0C
+        c.d3d.pixel_constants(0, effects.tint.color.data(), 1); // D3D 0x00175570
+        draw_runtime_vertices_up(8, corners.data(), draw); // D3D 0x001727B0
+        effects.tint.shown = 0;
     }
-    if (effects.capture != 0 && effects.transition_guard < 1)
+    if (effects.pulse.capture != 0 && effects.transition_guard < 1)
     {
-        throw Error("screen capture overlay 0x000615E0 (DAT_005044A4) is not translated");
+        const DialogueSurfaceHandle back_buffer = c.d3d.back_buffer(0); // D3D 0x001743F0
+        const DialogueSurfaceHandle surface = c.d3d.surface(effects.capture_address, 0); // D3D 0x00177900
+        c.d3d.copy_rects(back_buffer, surface); // D3D 0x00174440
+        c.d3d.release(back_buffer); // D3D 0x001759F0
+        c.d3d.release(surface);
+        d3d.simple_state(0x40354, 0x207);
+        deferred(draw, 0x181C54) = 0x207;
+        d3d.simple_state(0x4035C, 0);
+        deferred(draw, 0x181C70) = 0;
+        d3d.depth(1);
+        d3d.simple_state(0x40350, 0x8006);
+        deferred(draw, 0x181C98) = 0x8006;
+        d3d.simple_state(0x40344, 0x302);
+        deferred(draw, 0x181C68) = 0x302;
+        d3d.simple_state(0x40348, 0x303);
+        deferred(draw, 0x181C6C) = 0x303;
+        d3d.simple_state(0x40304, 1);
+        deferred(draw, 0x181C5C) = 1;
+        d3d.stencil_enable(0);
+        d3d.vertex_shader(effects.blur_vertex_shader);
+        if (effects.blur_shader_constants != nullptr)
+        {
+            d3d.constants_not_inline(0x60, effects.blur_shader_constants, 0xC);
+        }
+        // Four offsets, then the view rectangle, as vertex constants 0x61..0x65.
+        std::array<std::array<float, 4>, 5> constants;
+        spread_runtime_blur_offsets(constants.data(), 4, effects.pulse.radius, 1.5f, effects.time); // 0x00061160
+        const entity_detail::DisplayView& view = *entity_detail::g_display_view; // DAT_005077A8.
+        constants[4] = {float(view.fitted_x), float(view.fitted_y), float(view.fitted_width + view.fitted_x),
+            float(view.fitted_height + view.fitted_y)};
+        d3d.constants_not_inline(0x61, reinterpret_cast<const u32*>(constants.data()), 0x14);
+        for (u32 stage = 0; stage != 4; ++stage)
+        {
+            const u32 row = 0x1819B0 + stage * 0x80;
+            deferred(draw, row - 0x10) = 1;
+            deferred(draw, row) = 1;
+            deferred(draw, row + 0x14) = 0;
+            deferred(draw, row - 0x40) = 3;
+            deferred(draw, row - 0x3C) = 3;
+            deferred(draw, 0x181968) |= (1u << stage) | 0xC00u;
+            deferred(draw, row - 0x24) = 0;
+            d3d.texture(stage, effects.capture_texture); // D3D 0x001749E0
+        }
+        d3d.pixel_shader(effects.blur_pixel_shader); // DAT_00425E9C
+        constants[0][3] = effects.pulse.alpha;
+        c.d3d.pixel_constants(1, constants[0].data(), 1);
+        draw_runtime_vertices_up(8, corners.data(), draw);
+        d3d.texture(0, nullptr);
+        d3d.texture(1, nullptr);
+        d3d.texture(2, nullptr);
+        d3d.texture(3, nullptr);
+        effects.pulse.capture = 0;
     }
-    if (effects.lines != 0)
+    if (effects.lines.retained != 0)
     {
-        throw Error("retained line draw 0x00061250 from 0x000615E0 (DAT_005044B0) is not bound");
+        draw_runtime_dialogue_lines(corners.data(), effects.lines.width, effects.lines.color, c); // 0x00061250
+        effects.lines.retained = 0;
     }
 }
 

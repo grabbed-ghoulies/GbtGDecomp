@@ -12,6 +12,37 @@ namespace gbtg
 namespace
 {
 NativeSceneActorClassOwner* active_owner = nullptr;
+// Vtable +0xC of the weapon classes.
+void dispatch_weapon_class_message(RuntimeWeaponActor& weapon, std::span<u32> message)
+{
+    switch (weapon.type)
+    {
+    case 0xAA:
+        dispatch_runtime_chair_weapon_message(weapon, message); // 0x000CF0D0
+        break;
+    case 0xA9:
+        dispatch_runtime_large_projectile_message(weapon, message); // 0x000CDBE0
+        break;
+    case 0xA7:
+        dispatch_runtime_thrown_projectile_message(weapon, message);
+        break;
+    case 0xA0:
+        dispatch_runtime_bob_weapon_message(weapon, message);
+        break;
+    case 0xA1:
+        dispatch_runtime_candle_weapon_message(weapon, message);
+        break;
+    case 0xA2:
+        dispatch_runtime_container_weapon_message(weapon, message);
+        break;
+    case 0xA3:
+    case 0xA6:
+        dispatch_runtime_gun_weapon_message(weapon, message); // 0x000CAB40
+        break;
+    default:
+        throw Error("weapon class has no message view");
+    }
+}
 bool construct_area_view(FactoryObject& object, std::span<const u8> parameters)
 {
     return active_owner->construct_area(object, parameters);
@@ -913,9 +944,11 @@ struct NativeSceneActorClassOwner::WeaponInstance : GhoulyController
             }
             return bindings.contact_actor(bindings.actors.view(*object).segment);
         };
-        message = [](GhoulyController&, void*)
+        message = [](GhoulyController& controller, void* data)
         {
-            throw Error("untranslated Xbox 0x000CF0D0 (the chair's message) reached from a ghoulybox request");
+            // 0x0013E8D0's 0x108-byte A8 request through the weapon's vtable +0xC.
+            auto& instance = static_cast<WeaponInstance&>(controller);
+            dispatch_weapon_class_message(instance.context, {static_cast<u32*>(data), sizeof(GhoulyRequest) / 4});
         };
     }
 };
@@ -1598,33 +1631,10 @@ void NativeSceneActorClassOwner::message(FactoryObject& object, std::span<u32> m
     {
         dispatch_runtime_sss_dropper_message(sss_droppers_.at(object.bytes.get())->context, message);
     }
-    else if (object.type == 0xAA)
+    else if (object.type == 0xAA || object.type == 0xA9 || object.type == 0xA7 || object.type == 0xA0
+        || object.type == 0xA1 || object.type == 0xA2 || object.type == 0xA3 || object.type == 0xA6)
     {
-        dispatch_runtime_chair_weapon_message(weapons_.at(object.bytes.get())->context, message);
-    }
-    else if (object.type == 0xA9)
-    {
-        dispatch_runtime_large_projectile_message(weapons_.at(object.bytes.get())->context, message);
-    }
-    else if (object.type == 0xA7)
-    {
-        dispatch_runtime_thrown_projectile_message(weapons_.at(object.bytes.get())->context, message);
-    }
-    else if (object.type == 0xA0)
-    {
-        dispatch_runtime_bob_weapon_message(weapons_.at(object.bytes.get())->context, message);
-    }
-    else if (object.type == 0xA1)
-    {
-        dispatch_runtime_candle_weapon_message(weapons_.at(object.bytes.get())->context, message);
-    }
-    else if (object.type == 0xA2)
-    {
-        dispatch_runtime_container_weapon_message(weapons_.at(object.bytes.get())->context, message);
-    }
-    else if (object.type == 0xA3 || object.type == 0xA6)
-    {
-        dispatch_runtime_gun_weapon_message(weapons_.at(object.bytes.get())->context, message); // 0x000CAB40
+        dispatch_weapon_class_message(weapons_.at(object.bytes.get())->context, message);
     }
     else if (object.type == 0xD)
     {

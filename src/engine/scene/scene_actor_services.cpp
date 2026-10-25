@@ -1167,9 +1167,16 @@ struct SceneActorServices::State
     u32 caption_widget = 0; // DAT_004DE9A0 (0x00032AB0).
     i32 frontend_state = 0; // DAT_004E17C8 (0x00033030, 0x0004A4D0).
     u32 frontend_widget = 0; // DAT_004E19A0 (0x00049DE0 .. 0x0004A4D0).
+    i32 frontend_mode = 0; // DAT_004E17D0 (0x0004A4D0).
+    // The challenge frontend's records, input, hold and restart pool (DAT_004E17D8, DAT_004E19A4, DAT_004E19AC,
+    // DAT_004E19B0): their writers (the challenge setup, 0x0004A4D0 state 6) are not translated.
+    void* challenge_records = nullptr;
+    void* challenge_input = nullptr;
+    u32 challenge_hold = 0;
+    void* challenge_restart = nullptr;
     u32 hud_enabled = 0; // DAT_005493E0 (0x00132040 in 0x0011CBD0).
-    u32 screen_flash = 0; // DAT_00504478 (0x00060BC0 / 0x00060C80 / 0x00060D50).
-    u32 screen_capture = 0; // DAT_005044A4 (0x00060C20 / 0x00060C80 / 0x00060D50).
+    RuntimeScreenTint screen_tint{}; // DAT_00504450.
+    RuntimeScreenLines screen_lines{0xFFFFFFFFu, 1.f, line_retained}; // DAT_005044A8 .. DAT_005044B0.
     void view_refresh_slot(Actor& actor); // Actor vtable +0x38 by class (0x00121DC0).
     // 0x000EF2D0 on an effect node an actor owns (the bone debris' +0x934), with the scene's particle simulation.
     void tick_owned_effect(ActorEffectNode& effect, float step);
@@ -5337,11 +5344,7 @@ void SceneActorServices::State::reset_scene_data()
     }); // 0x0011AEA0
     caption_camera = 0;
     caption_widget = 0;
-    frontend_state = 0;
-    frontend_widget = 0;
     hud_enabled = 0;
-    screen_flash = 0;
-    screen_capture = 0;
     camera_start = {};
 }
 
@@ -8708,6 +8711,7 @@ void SceneActorServices::State::update_actor(u32 address)
 // (0x0011C8B0) and its activation (0x00123070), the navigation build (0x00111820) and the mirrors (0x0011F450).
 void SceneActorServices::State::start_background()
 {
+    reset_runtime_screen_effects(screen_tint, pulse, screen_lines); // 0x00060C80
     // 0x0011CBD0's 0x000EC2D0 and 0x000EBB80: the debris and trail pools, which 0x000ED450 releases at each scene's
     // end (0x0011C5A0).
     const std::function<u32(const u8*)> effect_address = [this](const u8* pointer)
@@ -9435,8 +9439,11 @@ void SceneActorServices::State::present_view(i32 view)
         },
         [this]()
         {
-            draw_screen_effects(RuntimeScreenEffects{screen_flash, screen_capture, g_50484c, line_retained},
-                *dialogue_outer);
+            draw_screen_effects(RuntimeScreenEffects{screen_tint, pulse, g_50484c, screen_lines,
+                glow_targets.page_texture, resources.memory.address_of(glow_targets.page_texture),
+                read_u32(data(0x00427224, 4), 0), shader_constants_at(0x00427218), read_u32(data(0x00427314, 4), 0),
+                shader_constants_at(0x00427308), read_u32(data(0x00425E9C, 4), 0), game.clock.time},
+                *dialogue_outer); // 0x000615E0
         },
         [this]()
         {
@@ -9769,9 +9776,15 @@ void SceneActorServices::State::copy_back_buffer(u32 texture)
     {
         throw Error("back-buffer copy readback failed");
     }
-    const auto object = resources.memory.resolve(texture, 0x30);
-    const u32 header = texture + read_u32(object, 4) + u32(object[0x12]) * 0x14;
-    const auto registered = resources.d3d.resources.find(header);
+    // The target is a texture object (the book page captures) or its D3D frame record (DAT_005047DC's surface).
+    auto registered = resources.d3d.resources.find(texture);
+    u32 header = texture;
+    if (registered == resources.d3d.resources.end())
+    {
+        const auto object = resources.memory.resolve(texture, 0x30);
+        header = texture + read_u32(object, 4) + u32(object[0x12]) * 0x14;
+        registered = resources.d3d.resources.find(header);
+    }
     if (registered == resources.d3d.resources.end())
     {
         throw Error("back-buffer copy target is not a registered texture");
@@ -10699,6 +10712,12 @@ void SceneActorServices::update_scoreboard_hud()
     update_runtime_scoreboard_hud(*state_->scoreboard_update); // 0x00132210
 }
 
+void SceneActorServices::tick_screen_effects()
+{
+    auto& state = *state_;
+    tick_runtime_screen_effects(state.screen_tint, state.pulse, state.clock, g_scene_transition.phase); // 0x00060D50
+}
+
 void SceneActorServices::run_scene_pass()
 {
     auto& state = *state_;
@@ -11187,6 +11206,98 @@ void SceneActorServices::release_script_title_pool()
     {
         release_dialogue_text_pool(pool, *state.text_registry); // 0x0005F460
         state.script_title_pool = nullptr;
+    }
+}
+
+void SceneActorServices::free_script_title_pool()
+{
+    auto& state = *state_;
+    if (state.script_title_pool != nullptr)
+    {
+        release_dialogue_text_pool(state.script_title_pool, *state.text_registry); // 0x0005F460
+        state.script_title_pool = nullptr;
+    }
+}
+
+// Xbox 0x000F2BE0
+void SceneActorServices::add_profile_scene_times(bool replay, float scene_time)
+{
+    auto& times = g_runtime_profile.times;
+    if ((g_scene_flags->bytes[0] & 2) != 0)
+    {
+        times[0] = times[0] + i32(scene_time); // DAT_00506C78, DAT_004312D0
+        if (!replay)
+        {
+            if (state_->measurement == nullptr)
+            {
+                unbound("0x000F2BE0's play counts before the dialogue measurement exists");
+            }
+            times[1] = times[1] + state_->measurement->first_additional; // DAT_00506C7C, DAT_00545970
+            times[3] = times[3] + state_->measurement->third_additional; // DAT_00506C84, DAT_00545974
+        }
+    }
+}
+
+// Xbox 0x0004A4D0
+void SceneActorServices::set_frontend_state(i32 next)
+{
+    auto& state = *state_;
+    if (state.frontend_state == 6)
+    {
+        throw Error("untranslated Xbox 0x0004A4D0 (leaving the challenge restart menu, state 6)");
+    }
+    switch (next)
+    {
+    case 1:
+        state.frontend_mode = 0;
+        state.frontend_state = next;
+        return;
+    case 3:
+        state.frontend_mode = 1;
+        state.frontend_state = next;
+        return;
+    case 2:
+    case 4:
+    case 5:
+    case 6:
+        throw Error("untranslated Xbox 0x0004A4D0 (frontend state " + std::to_string(next) + ")");
+    default:
+        break;
+    }
+    state.frontend_state = next;
+}
+
+// Xbox 0x00049FF0
+void SceneActorServices::release_challenge_frontend()
+{
+    auto& state = *state_;
+    if (state.challenge_records != nullptr)
+    {
+        engine_heap_free(state.challenge_records); // 0x000663E0
+        state.challenge_records = nullptr;
+    }
+    if (state.frontend_widget != 0)
+    {
+        throw Error("untranslated Xbox 0x00142070 (the challenge widget, DAT_004E19A0) reached from 0x00049FF0");
+    }
+    if (state.challenge_input != nullptr)
+    {
+        throw Error("untranslated Xbox 0x00049FF0 (the challenge input, DAT_004E19A4: 0x00109620, 0x001093C0)");
+    }
+    g_flags_ea9c = g_flags_ea9c & 0xFEFF3FFFu;
+    if (state.frontend_state != 1)
+    {
+        set_frontend_state(1); // 0x0004A4D0
+    }
+    if (state.challenge_hold != 0)
+    {
+        g_510cec = g_510cec + -1;
+        state.challenge_hold = 0;
+    }
+    if (state.challenge_restart != nullptr)
+    {
+        engine_heap_free(state.challenge_restart); // 0x000663E0
+        state.challenge_restart = nullptr;
     }
 }
 

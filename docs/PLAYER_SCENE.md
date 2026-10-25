@@ -232,6 +232,7 @@ All take the game directory, e.g.
 | `--scene2a12` | Boots chapter 2a scene 12 (chapter2a_scene12_2playcam, the boathouse) and plays it with the scene 7 driver: "EVENT - ONE TYPE" is the hunchback (factory type 0x45), who taunts, evades, blocks and charges his special attack until Cooper beats him. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene13_2playcam` (frame 6527 in the 2026-10-24 run) |
 | `--scene2a13` | Boots chapter 2a scene 13 (chapter2a_scene13_2playcam, the dining room) and plays it with the scene 7 driver: "EVENT - NUMBER" wants the pirate leader (tag 0x25), who holds a chest, and the pirates (tag 0x24) that keep bursting in through the windows. The driver goes for the leader first and, with no ghouly within reach, drinks soups from the smashed ghoulyboxes when Cooper is below half his health. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene14_1playcam` (frames 11420, 12005 and 18075 in three 2026-10-24 runs; the waves vary) |
 | `--scene2a14` | Boots chapter 2a scene 14 (chapter2a_scene14_1playcam, the ballroom) and plays it with the scene 7 driver. Does not pass yet: "Event - One type (Skeleton) and one type (zombie)" puts eight skeletons (tag 0x34) and eight zombies (tag 0x3C) on the dance floor against Cooper's 15 energy, and the driver dies before both kill-all steps are done; the event then restarts from "free play" |
+| `--scene2a15` | Boots chapter 2a scene 15 (chapter2a_scene15_1playcam) and plays it with the scene 7 driver at any fight range: a ghoulybox request (0x0013E8D0) reaches the chair weapon's message (0x000CF0D0). Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene16_1playcam` (frame 4731 in the 2026-10-25 run) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -398,6 +399,46 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-25: the chair's ghoulybox request, the screen fade and the scene teardown
+
+- **Scene 2a15 raised at the chair's message.** A ghoulybox request (`0x0013E8D0`, the 0x108-byte A8 message) reaches a
+  weapon through its DAT_00512B74 controller, and that is the weapon's vtable +0xC. The controller now dispatches by
+  factory type through the same per-class messages the scene uses (`0x000CF0D0` for the chair). `--scene2a15` (new)
+  passes.
+- **Screen fade (`0x00060D50`).** The frame (`0x00033B50`) calls it between the scoreboard and the camera effects.
+  Two parts:
+  - the full-view tint at DAT_00504450 (`RuntimeScreenTint`): it swings between its colours over its time and is
+    shown for one frame when its time is below zero;
+  - the back-buffer blur at DAT_0050447C (`RuntimeCameraPulse`, which now has the retail layout: total and
+    remaining were swapped and +0x48C / +0x498 / +0x4A4 were missing). Its radius and alpha run between their
+    values while 0x0012B2A0 ticks the time, and a held pulse keeps the end values.
+- Translated with it:
+  - `0x00060BC0` / `0x00060C20` (the two clears) and `0x00060C80` (the scene start's reset, first in `0x0011CBD0`);
+  - the draw `0x000615E0`: the tint quad, and the blur (the back buffer copied into book page 0, DAT_005047DC, and
+    drawn back through boot shader row 12 with four offsets from `0x00061160`);
+  - the retained border lines (`0x00061250`).
+- The recording device has a CopyRects boundary, and the back-buffer copy takes a texture object or its frame
+  record.
+- Checked in `--player-death`'s new captures (`cache/player_death_blur_*.bmp`, every 15 frames after the death): the
+  death state's pulse (4.6 s, radius 0 to 10, alpha 1 to 0) doubles and smears the view more as Cooper falls.
+- Nothing native starts the tint yet.
+- **Scene teardown `0x00117330`** now runs every step in retail order:
+  - the profile times (`0x000F2BE0`);
+  - the challenge frontend's release (`0x00049FF0`). Boot sets the frontend state DAT_004E17C8 to 0, so every
+    teardown sets it to 1 through `0x0004A4D0` (states 2, 4, 5, 6 and leaving 6 raise). The host's reset of the
+    frontend state between scenes is gone;
+  - DAT_004E1744's play time;
+  - the ghoulybox controller pool;
+  - `0x001289A0`: the title back to "There is no script for this scene!" through `0x00128AB0`, the title pool, the
+    cutscene skip input (`0x00127B50`), the pause name and the fired pool;
+  - the condition pool;
+  - the live script events (`0x00116790`). Their nodes now come from the engine heap, which their release always
+    freed them to.
+- DAT_0050E760 (the script AID `0x00117000` acquires) has no host registry reference to release, since the host
+  parses the script from the AID store.
+- Runs: `--player-death`, `--scene2a15` and `--scene2a1b` (two teardowns into played scenes) pass.
+- Still open: `0x001163D0` (nothing native fills DAT_005462F8) and the rest of boot's `0x0011C480`.
 
 ### 2026-10-25: ghoulie introductions face the camera
 

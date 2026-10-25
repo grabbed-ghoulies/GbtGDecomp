@@ -168,7 +168,7 @@ void frame_tick(Game& g, float dt, const InputState& in)
     {
         g.factory_scene->start_actors(g).run_scene_pass(); // 0x0011E640 after 0x0011E4C0.
         g.factory_scene->start_actors(g).update_scoreboard_hud(); // 0x00132210
-        // 0x00060D50 is not translated here; 0x00048F90 ticks the camera effects after it.
+        g.factory_scene->start_actors(g).tick_screen_effects(); // 0x00060D50
         tick_actor_camera_effects(g_sim_freeze <= 0.f ? g_sim_dt * g_sim_scale : 0.f); // 0x00048F90
     }
     tick_native_audio(g.clock.dt, g_4e02e8); // 0x0015B780, 0x0003A040, 0x000396F0, 0x00038640, 0x00038C20

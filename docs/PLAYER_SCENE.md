@@ -233,6 +233,8 @@ All take the game directory, e.g.
 | `--scene2a13` | Boots chapter 2a scene 13 (chapter2a_scene13_2playcam, the dining room) and plays it with the scene 7 driver: "EVENT - NUMBER" wants the pirate leader (tag 0x25), who holds a chest, and the pirates (tag 0x24) that keep bursting in through the windows. The driver goes for the leader first and, with no ghouly within reach, drinks soups from the smashed ghoulyboxes when Cooper is below half his health. Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene14_1playcam` (frames 11420, 12005 and 18075 in three 2026-10-24 runs; the waves vary) |
 | `--scene2a14` | Boots chapter 2a scene 14 (chapter2a_scene14_1playcam, the ballroom) and plays it with the scene 7 driver. Does not pass yet: "Event - One type (Skeleton) and one type (zombie)" puts eight skeletons (tag 0x34) and eight zombies (tag 0x3C) on the dance floor against Cooper's 15 energy, and the driver dies before both kill-all steps are done; the event then restarts from "free play" |
 | `--scene2a15` | Boots chapter 2a scene 15 (chapter2a_scene15_1playcam) and plays it with the scene 7 driver at any fight range: a ghoulybox request (0x0013E8D0) reaches the chair weapon's message (0x000CF0D0). Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene16_1playcam` (frame 4731 in the 2026-10-25 run) |
+| `--scene2a16` | Boots chapter 2a scene 16 (chapter2a_scene16_1playcam, the dishwashing room) and plays it with the scene 7 driver at any fight range through "EVENT - ONE TYPE/DON'T KILL". Passes when the script moves on to `aid_script_ghoulies_chapter2a_scene17_1playcam` (frame 4002 in the 2026-10-25 run) |
+| `--scene2a17` | Boots chapter 2a scene 17 (chapter2a_scene17_1playcam, the kitchen) and plays it with the scene 7 driver at any fight range: the cook reveals the second ingredient and the ghoulybox pirate enters. Passes when the script moves on to `aid_script_ghoulies_chapter2b_scene1_1playcam` (frames 3159 and 3218 in two 2026-10-25 runs) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -399,6 +401,28 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-25: scenes 2a16 and 2a17, the fade-out effect and the attach check's bind node
+
+- `--scene2a16` and `--scene2a17` (new). Scene 16 needed nothing new. Scene 17 now moves on to chapter 2b's first
+  scene.
+- **entityFxCustomFadeOut** (factory type 0x33, getter `0x00076BE0`, vtable 0x005053F8). The type table's names sit
+  one entry early, so type 0x33's name is at entry 0x32. Ghidra has no functions at the getter, construct or
+  update, so they were exported as temporary ranges. Translated:
+  - the construct `0x00076C30`;
+  - the update `0x00076CB0`: the actor's alpha (+0x19B, the top byte of +0x198) falls as the level rises to 1. At 1,
+    the actor's bind tree is activated if +0x24 is set (`0x00112CC0`), then the effect releases itself
+    (`0x0003DE30`).
+  - Its sizes are `0x00076BC0` (the same code as the death state's) and its message is the fade-to-grey's
+    `0x00076DF0`.
+  - Seen in one run of five: after the cook's "here you are", a one-second fade (1 s, flag 1) ran 255 to 0 and the
+    effect released itself. The captures don't show which actor it was: its world position reads NaN, and the
+    camera turns away from the dropped cleaver during the fade.
+- **`0x00027D40` reads the target's bind node natively.** The attach check tests the target's +0x918 word (the
+  parent's bind node: none, a root node, or a node of no actor). It took a span that nothing filled, so a bound
+  target raised. Scene 17's cook (a cinema mind) reached it as "spawn attachment actor +0x8F8 link view". It now
+  reads `Actor::link`, as the pirate's chest check and `0x00146150` do, and the span plumbing is gone from the player
+  and cinema minds.
 
 ### 2026-10-25: the chair's ghoulybox request, the screen fade and the scene teardown
 

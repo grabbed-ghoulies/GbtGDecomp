@@ -171,10 +171,7 @@ void update_runtime_player_pending_attachment(RuntimePlayerMindPendingAttachment
     std::memcpy(context.mind.data() + 0x134, &zero, 4);
     if (!(read_f32(context.mind, 0x15C) > 0.f) && pending != nullptr)
     {
-        // The target's +0x918 link view; 0x00027D40 reads it only for a live link.
-        const auto found = context.links.find(pending);
-        const std::span<const u8> link = found == context.links.end() ? std::span<const u8>() : found->second;
-        if (runtime_player_can_attach(context.eligibility, *pending, link)
+        if (runtime_player_can_attach(context.eligibility, *pending)
             && runtime_input_button_edge(context.input, 0x100, context.input_state) != 0)
         {
             context.action = pending;

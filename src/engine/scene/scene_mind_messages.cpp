@@ -151,10 +151,6 @@ SceneMindMessages::SceneMindMessages(SceneMindServices& services, NativePlayerIn
           [this](Actor& actor) -> RuntimeBodyAttachedActor&
           {
               return services_.attached_actor_at(services_.address_of(&actor));
-          },
-          [this](const RuntimeBodyAttachedActor& actor) -> std::span<const u8>
-          {
-              return services_.attachment_link(actor);
           }},
       cinema_request_{movement_, spawn_, parent_,
           [this]() -> RuntimeMindChainRequestSelection&
@@ -202,7 +198,7 @@ SceneMindMessages::SceneMindMessages(SceneMindServices& services, NativePlayerIn
           },
           services.attachment_notice},
       pending_{player.mind, pending_attachment_, player.mind_action, eligibility_, player.body,
-          player.body_selection, player.input_device, services.input_state, attachment_links_,
+          player.body_selection, player.input_device, services.input_state,
           [&player](RuntimeBodyAttachedActor& attached) -> u32
           {
               // Body vtable +0x5C: the base 0x00026C60 for types 0x27, 0x2A and 0x2D (no getter replaces it).

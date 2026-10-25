@@ -66,7 +66,7 @@ u32 update_runtime_cinema_mind_spawn_position(RuntimeCinemaMindSpawnMovement& co
         u32 failed;
         drive_runtime_player_navigation(movement.navigation, destination,
             i32(read_u32(target->bytes, 0xD00)), 0.f, 30.f, 1.f, 0, failed);
-        if (runtime_player_can_attach(movement.eligibility, *target, context.target_link(*target))
+        if (runtime_player_can_attach(movement.eligibility, *target)
             && read_u32(movement.mind, 0x90) != 0)
         {
             return 1;
@@ -147,7 +147,6 @@ u32 update_runtime_cinema_mind_timed_motion(RuntimeCinemaMindMovement& context,
 // Xbox 0x0007B840
 u32 request_runtime_cinema_mind_spawn_attachment(RuntimeCinemaMindMovement& context,
     RuntimeBodyAttachedActor* target,
-    const std::function<std::span<const u8>(const RuntimeBodyAttachedActor&)>& target_link,
     const std::function<u16(RuntimeBodyAttachedActor&)>& attach,
     std::span<u8> body, RuntimeBodyActionSelection& actions)
 {
@@ -155,7 +154,7 @@ u32 request_runtime_cinema_mind_spawn_attachment(RuntimeCinemaMindMovement& cont
     {
         if (actor_can_supply_ghoulybox(*target->actor) && target->bytes[0x93C] != 0)
         {
-            if (runtime_player_can_attach(context.eligibility, *target, target_link(*target)))
+            if (runtime_player_can_attach(context.eligibility, *target))
             {
                 const u16 action_key = attach(*target); // Actual body vtable +0x5C, AX feeds 0x00027650.
                 select_runtime_body_action(body, action_key, actions);

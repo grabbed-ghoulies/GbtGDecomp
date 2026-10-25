@@ -61,7 +61,6 @@ struct SceneMindServices
     std::span<const float> mode_scales; // DAT_00217EC0.
     std::function<RuntimeBodyAttachedActor&(u32)> attached_actor_at;
     std::function<RuntimeMindTarget&(u32)> target_at;
-    std::function<std::span<const u8>(const RuntimeBodyAttachedActor&)> attachment_link;
     std::function<u32()> active_player_link; // DAT_00511B48, alt list's next pointer.
     // Player control (0x0007D130) views.
     RuntimeMindTarget* const& first_target; // DAT_00545988.
@@ -170,7 +169,6 @@ private:
     void refresh_chain_image();
     const u8* resolve_chain_address(u32 address) const;
     RuntimePlayerTargetActionBinding& target_action(u32 target);
-    std::unordered_map<RuntimeBodyAttachedActor*, std::span<const u8>> attachment_links_;
     RuntimePlayerMindFocus focus_;
     RuntimePlayerTargetSearch search_;
     RuntimePlayerMindShapeTarget shape_target_;

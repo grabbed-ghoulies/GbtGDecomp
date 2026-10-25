@@ -80,7 +80,6 @@ struct RuntimePlayerMindPendingAttachment
     RuntimeBodyActionSelection& actions;
     const RuntimeDialogueInputDevice& input;
     const RuntimeDialogueInputState& input_state;
-    const std::unordered_map<RuntimeBodyAttachedActor*, std::span<const u8>>& links;
     std::function<u32(RuntimeBodyAttachedActor&)> attach; // Actual body vtable +0x5C.
 };
 void update_runtime_player_pending_attachment(RuntimePlayerMindPendingAttachment& context); // Xbox 0x0007D210

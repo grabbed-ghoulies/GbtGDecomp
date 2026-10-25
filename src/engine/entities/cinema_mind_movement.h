@@ -36,7 +36,6 @@ bool update_runtime_cinema_mind_target_action(RuntimeCinemaMindMovement& context
     std::span<u8> input, const RuntimeInputReleaseContext& input_context); // Xbox 0x0007B090
 u32 request_runtime_cinema_mind_spawn_attachment(RuntimeCinemaMindMovement& context,
     RuntimeBodyAttachedActor* target,
-    const std::function<std::span<const u8>(const RuntimeBodyAttachedActor&)>& target_link,
     const std::function<u16(RuntimeBodyAttachedActor&)>& attach,
     std::span<u8> body, RuntimeBodyActionSelection& actions); // Xbox 0x0007B840
 u32 update_runtime_cinema_mind_timed_motion(RuntimeCinemaMindMovement& context,
@@ -47,7 +46,6 @@ struct RuntimeCinemaMindSpawnMovement
     RuntimeCinemaMindMovement& movement;
     RuntimeBodyAttachedActor*& target; // Native mind +0x18.
     std::function<RuntimeBodyAttachedActor&(Actor&)> actor_at;
-    std::function<std::span<const u8>(const RuntimeBodyAttachedActor&)> target_link;
 };
 u32 update_runtime_cinema_mind_spawn_position(RuntimeCinemaMindSpawnMovement& context); // Xbox 0x0007BF60
 u32 update_runtime_cinema_mind_escape_motion(RuntimeCinemaMindMovement& context,

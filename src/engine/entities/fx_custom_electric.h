@@ -33,6 +33,11 @@ namespace gbtg
 // Fields: +0x18 the phase (0 in, 1 hold, 2 out, 3 wait), +0x1C its seconds left, +0x20 the level, +0x24..+0x30 the
 // four times (the parameters' +0x14..+0x20), +0x34 the colour (+0xC), +0x38 the strength (+0x10), +0x50 set by
 // message 5 to end the hold.
+//
+// entityFxCustomFadeOut (type 0x33, getter 0x00076BE0, vtable 0x005053F8) over fxCustom: the actor's alpha (+0x19B)
+// falls as the level (+0x18) rises toward +0x1C at +0x20 a second (the parameters' +0xC seconds; message 0xAC as
+// the fade-to-grey's). At full level it releases itself, first activating the actor's bind tree when +0x24 (the
+// parameters' +0x10) is set.
 struct RuntimeFxCustomContext
 {
     std::function<Actor*(u32)> actor_at; // The parameters' +8 actor.
@@ -76,6 +81,6 @@ void move_runtime_light(std::int8_t slot, const Vec3& position,
     RuntimeShaderRegistrationState& lights); // Xbox 0x000FE0F0, AL slot, ECX position
 // Every mask a shape list's records carry, ORed.
 u32 runtime_shape_list_mask(const u8* list); // Xbox 0x00056C80, EDX the list
-// Types 0xC (base 1), 0x2E, 0x30, 0x31 and 0x32 (base 0xC) with their lifecycles.
+// Types 0xC (base 1), 0x2E, 0x30, 0x31, 0x32 and 0x33 (base 0xC) with their lifecycles.
 void install_runtime_fx_custom_classes(std::span<ObjectFactoryType> types, RuntimeFxCustomContext& context);
 }

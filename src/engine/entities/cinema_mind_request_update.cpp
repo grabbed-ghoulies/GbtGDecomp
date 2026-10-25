@@ -100,7 +100,7 @@ i32 update_runtime_cinema_mind_request(RuntimeCinemaMindRequestUpdate& context, 
             context.parent.target_bytes));
     case 0x18:
         return i32(request_runtime_cinema_mind_spawn_attachment(movement, context.spawn.target,
-            context.spawn.target_link, context.attach, context.body, context.actions));
+            context.attach, context.body, context.actions));
     case 0x19:
     {
         const Vec3 destination = point(movement.actor_bytes, 0xCC0);

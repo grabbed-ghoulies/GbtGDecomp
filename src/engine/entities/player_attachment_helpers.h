@@ -17,7 +17,7 @@ float runtime_player_body_attachment_radius(
 bool runtime_player_attachment_is_in_range(const RuntimePlayerAttachmentEligibility& body,
     const Actor& target); // Xbox 0x00027E50
 bool runtime_player_can_attach(const RuntimePlayerAttachmentEligibility& body,
-    const RuntimeBodyAttachedActor& target, std::span<const u8> target_link); // Xbox 0x00027D40
+    const RuntimeBodyAttachedActor& target); // Xbox 0x00027D40
 bool runtime_player_body_target_is_near(const RuntimePlayerAttachmentEligibility& body,
     std::span<const u8> target_body, const Actor& target_actor); // Xbox 0x00134240
 bool runtime_player_body_point_is_near(const RuntimePlayerAttachmentEligibility& body,

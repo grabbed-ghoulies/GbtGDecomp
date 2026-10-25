@@ -1,7 +1,9 @@
 #include "fx_custom_electric.h"
 #include "actor_runtime_queries.h"
 #include "actor_scare_requests.h"
+#include "actor_render_registration.h"
 #include "actor_transform.h"
+#include "body_death_state.h"
 #include "shape_transform.h"
 #include "../scene/scene_shadow_casters.h"
 #include "../frontend/dialogue_draw_context.h"
@@ -510,12 +512,61 @@ void update_fx_fade_to_grey(FxCustomInstance& instance, Actor& actor)
     put_float(bytes, 0x18, 0.f > difference ? level - delta : level + delta);
 }
 
+// Xbox 0x00076CB0: the level moves toward its target as the fade-to-grey's does, the actor's alpha (+0x19B) is what
+// is left of it, and at full level the effect releases itself (0x0003DE30), first activating the actor's bind tree
+// (0x00112CC0) when +0x24 is set.
+void update_fx_fade_out(FxCustomInstance& instance, Actor& actor)
+{
+    RuntimeFxCustomContext& context = *fx_context;
+    u8* bytes = instance.bytes;
+    const std::span<const u8> view{bytes, 0x28};
+    const float step = frame_step(context);
+    const float rate = actor.animation_pause > 0.f ? 0.f : actor.animation_rate; // +0x930, +0x92C
+    const float actor_step = rate * step;
+    put_float(bytes, 0x10, read_f32(view, 0x10) + step);
+    const float target = read_f32(view, 0x1C);
+    const float difference = target - read_f32(view, 0x18);
+    const float distance = float(engine_absolute(difference)); // 0x00152BB0
+    const float speed = read_f32(view, 0x20);
+    const float delta = speed * actor_step;
+    if (speed != 0.f)
+    {
+        if (delta > distance)
+        {
+            put_float(bytes, 0x20, 0.f);
+            put_float(bytes, 0x18, target);
+        }
+        else
+        {
+            const float level = read_f32(view, 0x18);
+            put_float(bytes, 0x18, 0.f > difference ? level - delta : level + delta);
+        }
+    }
+    const u8 alpha = u8(truncate_runtime_float((1.L - read_f32(view, 0x18)) * 255.f)); // 0x001673D8, DAT_0032B158
+    RuntimeActorStartupState& state = context.startup_of(actor);
+    state.color = (state.color & 0x00FFFFFFu) | (u32(alpha) << 24); // Actor +0x19B.
+    if (read_f32(view, 0x18) != 1.f) // DAT_0032B0F8.
+    {
+        return;
+    }
+    if (read_u32(view, 0x24) != 0)
+    {
+        activate_actor_bind_tree(actor); // 0x00112CC0, ESI actor
+    }
+    context.release_frame_object(actor, context.address_of(bytes)); // 0x0003DE30, ECX actor, ESI effect
+}
+
 void update_fx_node(ActorFrameAttachment& node, Actor& actor)
 {
     FxCustomInstance& instance = *fx_nodes.at(&node);
     if (instance.type == 0x30)
     {
         update_fx_fade_to_grey(instance, actor); // 0x00076FF0
+        return;
+    }
+    if (instance.type == 0x33)
+    {
+        update_fx_fade_out(instance, actor); // 0x00076CB0
         return;
     }
     if (instance.type == 0x31)
@@ -1079,6 +1130,38 @@ const ObjectFactoryVtable* fx_solid_fade_in_lifecycle()
         construct_fx_solid_fade_in_view, destroy_fx_solid_fade_in_view};
     return &table;
 }
+
+// Xbox 0x00076C30
+bool construct_fx_fade_out_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    u8* bytes = object.bytes.get();
+    const float seconds = read_f32(parameters, 0xC);
+    if (0.f < seconds)
+    {
+        put_float(bytes, 0x1C, 1.f); // DAT_0032B0F8.
+        put_float(bytes, 0x20, float(engine_absolute((1.f - read_f32({bytes, 0x28}, 0x18)) / seconds))); // 0x00152BB0
+        put_word(bytes, 0x24, read_u32(parameters, 0x10));
+        return true;
+    }
+    put_float(bytes, 0x18, 1.f);
+    put_float(bytes, 0x20, 0.f);
+    put_word(bytes, 0x24, read_u32(parameters, 0x10));
+    return true;
+}
+
+// Xbox 0x001628B0
+void destroy_fx_fade_out_view(FactoryObject&)
+{
+}
+
+// Getter 0x00076BE0: +0 is 0x00076BC0 (the same code as the death state's sizes), +8 and +0x14 the empty 0x001628B0,
+// +0xC the fade-to-grey's message 0x00076DF0.
+const ObjectFactoryVtable* fx_fade_out_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x005053F8, death_state_object_sizes, construct_fx_fade_out_view,
+        destroy_fx_fade_out_view};
+    return &table;
+}
 }
 
 // Xbox 0x00076E60
@@ -1247,5 +1330,6 @@ void install_runtime_fx_custom_classes(std::span<ObjectFactoryType> types, Runti
     types[0x30] = ObjectFactoryType{0xC, fx_fade_to_grey_lifecycle}; // Getter 0x00076E80.
     types[0x31] = ObjectFactoryType{0xC, fx_outline_lifecycle}; // Getter 0x00077300.
     types[0x32] = ObjectFactoryType{0xC, fx_solid_fade_in_lifecycle}; // Getter 0x00077DB0.
+    types[0x33] = ObjectFactoryType{0xC, fx_fade_out_lifecycle}; // Getter 0x00076BE0.
 }
 }

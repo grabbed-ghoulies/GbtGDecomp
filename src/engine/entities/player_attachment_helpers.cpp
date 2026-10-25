@@ -77,16 +77,15 @@ bool runtime_player_attachment_is_in_range(const RuntimePlayerAttachmentEligibil
 
 // Xbox 0x00027D40
 bool runtime_player_can_attach(const RuntimePlayerAttachmentEligibility& body,
-    const RuntimeBodyAttachedActor& target, std::span<const u8> target_link)
+    const RuntimeBodyAttachedActor& target)
 {
     if (runtime_player_body_allows_attachment(body, *target.actor))
     {
-        const u32 link = read_u32(target.bytes, 0x918);
-        if (link != 0 && link != 0x918 && target_link.empty())
-        {
-            throw Error("attachment target +0x918 link has no native view");
-        }
-        if ((link == 0 || link == 0x918 || read_u32(target_link, 0) == 0)
+        // Target +0x918's word is the parent's bind node: none, the root's (its own first dword null), or a node
+        // of no actor (the node minus 0x918 is null).
+        const ActorLink* link = target.actor->link;
+        const auto* parent = link == nullptr ? nullptr : static_cast<const ActorLink*>(link->head);
+        if ((parent == nullptr || parent->head == nullptr || link->owner == nullptr)
             && target.bytes[0x93C] != 0 && read_u32(target.bytes, 0xAD0) == 0
             && read_u32(target.bytes, 0xAC4) != 0)
         {

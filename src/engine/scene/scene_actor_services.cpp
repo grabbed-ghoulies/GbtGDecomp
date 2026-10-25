@@ -4724,10 +4724,6 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             refresh_mind_targets();
             return *target_records.at(address);
         },
-        [](const RuntimeBodyAttachedActor&) -> std::span<const u8>
-        {
-            unbound("spawn attachment actor +0x8F8 link view");
-        },
         [this]() -> u32
         {
             const auto* next = entity_detail::g_world.alt.next;
@@ -6519,7 +6515,7 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
         message_fx_custom_outline({object.bytes.get(), object.size}, message); // 0x00077A80
         return;
     }
-    if (type == 0x30)
+    if (type == 0x30 || type == 0x33)
     {
         message_fx_custom_fade_to_grey({object.bytes.get(), object.size}, message); // 0x00076DF0
         return;

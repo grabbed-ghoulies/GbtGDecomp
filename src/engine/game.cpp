@@ -9,6 +9,7 @@
 #include "scripts/script_chapter.h"
 #include "frontend/frontend_sounds.h"
 #include "frontend/frontend_state.h"
+#include "transitions/scene_transitions.h"
 #include "audio/native_audio.h"
 #include "audio/pcm_backend.h"
 #include "video/native_movies.h"
@@ -65,12 +66,16 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
         return script_chapter_index(scene_script.name); // 0x0004B4D0
     };
     factory_scene->start_services(*this);
-    // Boot 0x00033030 -> 0x0011EA50 -> 0x0011C3F0 -> 0x000FD620 (the light defaults) and 0x00118470 (the ambience
-    // beds). The rest of 0x0011C3F0 is not translated.
-    lighting_initialize_volume();
+    // Boot 0x00033030 -> 0x0011EA50 -> 0x0011C3F0. Its input push and handler inits run in the boot above and the
+    // scene services' start; its zeroed globals are already zero. 0x001233C0, 0x0011B630 and 0x00123B30 clear lists
+    // that are empty at boot, 0x00057D40 and 0x00119160 fill host tables nothing native reads, and the sums it
+    // stores at DAT_0042A424 / DAT_0042A42C have no reader in the dumps.
+    scene_initialize_handle_slots(); // 0x0011C3F0 -> 0x00129F30: the named sound rows' ids become 0xFFFF.
+    lighting_initialize_volume(); // 0x0011C3F0 -> 0x000FD620
     ambient_initialize_beds(); // 0x0011C3F0 -> 0x0011C480 -> 0x00118470
     factory_scene->actor_services->hold_boot_scene_order(); // 0x0011C3F0 -> 0x0011C480 -> 0x001234B0
     save_initialize_name_scan(); // 0x0011C3F0 -> 0x0011C480 -> 0x0010D3B0: the saved games on drive U.
+    g_50e7a0 = g_50e7a0 + 1; // 0x0011C3F0's last store (DAT_0050E7A0); the first scene's state 1 takes it back.
     movie_set_root(game_dir);
     movie_boot_probe();
     std::cout << "fs_init: " << aids.game_dir.string() << " common.bnl entries " << aids.common.entries.size() << "\n";

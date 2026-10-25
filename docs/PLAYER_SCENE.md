@@ -438,7 +438,17 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 - DAT_0050E760 (the script AID `0x00117000` acquires) has no host registry reference to release, since the host
   parses the script from the AID store.
 - Runs: `--player-death`, `--scene2a15` and `--scene2a1b` (two teardowns into played scenes) pass.
-- Still open: `0x001163D0` (nothing native fills DAT_005462F8) and the rest of boot's `0x0011C480`.
+- The teardown's `0x001163D0` was listed as unfilled, but DAT_005462F4 / DAT_005462F8 is the actor snapshot list that
+  the avatar motion blur appends to (`0x00116750`). It now releases each snapshot's texture and clears the decal gate
+  (DAT_005462EC) and the count.
+- Boot `0x0011C3F0` (its middle was exported as the fragment `0x0011C480`):
+  - Now run: the named sound rows' ids become 0xFFFF (`0x00129F30`), and DAT_0050E7A0 goes up by one at the end,
+    which the first scene's state 1 takes back.
+  - Already covered: its input push and the transition handlers' inits run in boot and the services' start.
+  - Nothing to do: its zeroed globals are already zero; `0x001233C0`, `0x0011B630` and `0x00123B30` clear lists that
+    are empty at boot; `0x00057D40` and `0x00119160` fill host tables nothing native reads.
+  - No reader in the dumps: the sums at DAT_0042A424 / DAT_0042A42C.
+  - `--scene2a5` and `--scene3` pass after these.
 
 ### 2026-10-25: ghoulie introductions face the camera
 

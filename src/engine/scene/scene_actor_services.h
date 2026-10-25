@@ -72,6 +72,7 @@ public:
     void add_mind_class_setting(u16 tag, float value); // 0x0010F690, CX the tag, the stack the value
     // The scene tick's per-frame passes over scene state.
     void age_actor_snapshots(); // Xbox 0x001162F0
+    void release_actor_snapshots(); // Xbox 0x001163D0, in the teardown
     void animate_light_records(); // Xbox 0x000FDDA0
     void tick_post_models(); // Xbox 0x0012AA70
     void tick_frontend_state(); // Xbox 0x00049DE0

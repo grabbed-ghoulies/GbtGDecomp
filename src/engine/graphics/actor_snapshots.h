@@ -55,4 +55,6 @@ void append_runtime_actor_snapshot(Actor& actor, RuntimeActorSnapshots& context)
 // The scene tick's snapshot ageing: past 16 kept snapshots every keep flag (+0x30) drops; an unkept snapshot's +0x2C
 // counts down 0.01 a frame, and below 0 its texture is released and the snapshot freed.
 void age_runtime_actor_snapshots(RuntimeActorSnapshots& context); // Xbox 0x001162F0
+// Every snapshot's texture released and the snapshot freed, from the head; the decal gate and the count cleared.
+void release_runtime_actor_snapshots(RuntimeActorSnapshots& context, u32& decal_enable); // Xbox 0x001163D0
 }

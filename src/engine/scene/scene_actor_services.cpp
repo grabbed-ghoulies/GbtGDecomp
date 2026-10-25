@@ -11055,6 +11055,17 @@ void SceneActorServices::create_template_actor(const char* name, const Vec3& pos
     }
 }
 
+// Xbox 0x001163D0
+void SceneActorServices::release_actor_snapshots()
+{
+    auto& state = *state_;
+    if (state.snapshots == nullptr)
+    {
+        unbound("actor snapshot release before the scene's draw contexts");
+    }
+    release_runtime_actor_snapshots(*state.snapshots, state.decal_enable);
+}
+
 // Xbox 0x001162F0
 void SceneActorServices::age_actor_snapshots()
 {

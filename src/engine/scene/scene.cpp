@@ -716,7 +716,7 @@ i32 g_50ec00 = 0;
 // ESI is the scene record. The dword at +0x118 is cleared. DAT_0051065C is 1 for the body and 0 on the way out. The
 // host splits the teardown: the globals below run here as the scene state enters 4, and the scene's actors, controls,
 // cutscenes, doors, effects and passes go in SceneFactoryRuntime::end_scene and load_scene_contents as the next scene
-// loads; each step's note below names where it runs. Still not translated: 0x001163D0; 0x001593D0 only clears D3D device state (the presenter's).
+// loads; each step's note below names where it runs. 0x001593D0 only clears D3D device state (the presenter's).
 // Xbox 0x0011C5A0
 void scene_teardown(Game& g, u8* scene)
 {
@@ -795,8 +795,8 @@ void scene_teardown(Game& g, u8* scene)
     g_545bc4 = 0;
     // 0x0012A9B0 (the post models, DAT_00512AF0) is not called: nothing native loads one (script type 0x52 raises).
     effects_clear_voice_slots();
-    // 0x00132100 (the scoreboard) runs in SceneFactoryRuntime::end_scene. 0x001163D0 (the DAT_005462F8 render
-    // targets) is not translated; nothing native fills that list.
+    // 0x00132100 (the scoreboard) runs in SceneFactoryRuntime::end_scene.
+    g.factory_scene->actor_services->release_actor_snapshots(); // 0x001163D0
     g_4dea5c = 0;
     release_actor_camera_shakes(g.native_resources->registry); // 0x000FAE40
     entity_release_aid_records();

@@ -132,4 +132,16 @@ void age_runtime_actor_snapshots(RuntimeActorSnapshots& context)
         ++index;
     }
 }
+
+// Xbox 0x001163D0
+void release_runtime_actor_snapshots(RuntimeActorSnapshots& context, u32& decal_enable)
+{
+    while (!context.list.empty())
+    {
+        context.d3d.release(read_u32(context.list.front()->bytes, 0x20)); // D3DResource_Release
+        context.list.erase(context.list.begin()); // Unlinked, HeapFree
+    }
+    decal_enable = 0; // DAT_005462EC.
+    context.count = 0; // DAT_005462F0.
+}
 }

@@ -399,6 +399,40 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 
 ## Checkpoints
 
+### 2026-10-25: known issues pass
+
+Calls that computed values and dropped them, or walked host lists that nothing fills, now run the dump's code:
+
+- Script actions: types 0x4D (a template clone at a found actor, which is then activated), 0x4E and 0x73 (the
+  DAT_00545C48 pairs and DAT_00545CCC groups the scene markers' randomizer reads; `start_markers` no longer raises
+  for them), 0x6E (`0x001249B0`, occupancy mask bits by value), 0x8E (`0x001189D0`, the ambient phase and its sound),
+  0x9D (a story bit, DAT_00506C84 and its bonus counter), 0x5D / 0x71 (messages by tag and by id over the native
+  latch list), 0x70 (`0x0010F6C0`, the strategy class ranges, now one retail table that `0x0010F760` also reads),
+  0x78, 0x97 and 0x08 (the DAT_00511B48 actors), 0x6B (raises at `0x00029C80`, whose views are not bound) and 0x90
+  (raises when a tagged actor exists: `0x00112D10` is not bound).
+- Script conditions 12, 18, 23, 24 and 26 read the native lists; `0x00122C70`'s broadcast raises with no scene bound
+  instead of walking the empty host list (the unit checks bind an empty one).
+- The scene tick (`0x0011E7F0`) now runs `0x001128A0` (the attacker queues re-sorted each second), `0x001162F0` (actor
+  snapshots aged), `0x001185E0` (the ambience and the base light colour; its bed, step and extra-wind bodies raise
+  when reached, as `0x00118470` never starts them), `0x000FDDA0` (light records flicker and swing) and the Start
+  check (`0x001083F0` on the selected device writes DAT_00510F60; with no controller selected, as in a scene the
+  tests boot straight into, there is no row to test). `0x0011B7F0`, `0x0012AA70`, `0x0013FD60`,
+  `0x0013FFD0` and `0x00049DE0` raise when their gates open; none opens natively yet.
+- Body message 0x17 (a knock-down sphere's contact) is bound; a strategy's message to a player's body, mind or
+  strategy goes through the child dispatch.
+- A weapon's holder release (`0x001462B0`) clears the +0xD8C word as well as its native view. The stale word was
+  scene 2a13's crash in `0x00020F80`.
+
+Still open:
+
+- Start now asks for the pause (state 6), whose menu is not translated: the scene stops with no menu.
+- The 0x7C notice reaches only the weapons a retiring actor holds. Sending it to every weapon, as retail's
+  DAT_00511AA4 walk would, stops Cooper in scene 9 as props retire (through the held candle's marker removal,
+  `0x0013F720` / `0x0013EDD0`); not explained.
+- With the queues re-sorted, scene 2a13's pirates keep their nearest three attacking: the driver dies three times in
+  each run and `--scene2a13` fails, as `--scene2a14` does. Faster or slower attack taps did not help. `--scene2a11`
+  passes again once the driver side-steps after 4 s pinned in one spot.
+
 ### 2026-10-24: chapter 2a scene 14 runs natively but is not won
 
 - `0x0001AE00` (body animation command 0x19, the attachment list) walks the actor's +0x8C callout records into body

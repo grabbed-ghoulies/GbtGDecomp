@@ -951,12 +951,13 @@ int script_condition_actor_absent(const ScriptCond& rec)
     const u16 want = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
     if (want != 0)
     {
-        for (PulseNode* node = g_pulse_nodes; node != nullptr; node = node->next)
+        if (!g_script_actor_by_id)
         {
-            if (node->word_1fc == want)
-            {
-                return 0;
-            }
+            throw Error("0x00132A60 walks DAT_00511AA4 with no scene bound");
+        }
+        if (g_script_actor_by_id(want) != 0) // The DAT_00511AA4 walk (+0x1FC).
+        {
+            return 0;
         }
     }
     if (cond_f32(rec, 0xc) == 0.f)
@@ -1018,22 +1019,18 @@ int script_condition_actor_message_latch(ScriptCond& rec)
 int script_condition_actor_message(const ScriptCond& rec)
 {
     const u16 want = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
-    PulseNode* obj = nullptr;
-    if (want != 0)
+    if (!g_script_actor_by_id || !g_script_object_message)
     {
-        for (PulseNode* node = g_pulse_nodes; node != nullptr; node = node->next)
-        {
-            if (node->word_1fc == want)
-            {
-                obj = node;
-                break;
-            }
-        }
+        throw Error("0x00132B50 walks DAT_00511AA4 with no scene bound");
     }
-    i32 message[2];
-    message[0] = 0x20;
-    message[1] = 0;
-    reinterpret_cast<void (*)(PulseNode*, i32*)>(obj->on_message)(obj, message);
+    const u32 object = want == 0 ? 0u : g_script_actor_by_id(want); // The DAT_00511AA4 walk (+0x1FC).
+    if (object == 0)
+    {
+        throw Error("0x00132B50 calls vtable +0xC of a null object: no DAT_00511AA4 actor has +0x1FC "
+            + std::to_string(want));
+    }
+    std::array<u32, 2> message{0x20, 0};
+    g_script_object_message(object, message); // Vtable +0xC.
     if (message[1] == 0)
     {
         return 1;
@@ -1290,15 +1287,20 @@ int script_condition_state_event(const ScriptCond& rec)
 // Xbox 0x00132DB0
 int script_condition_actor_energy(const ScriptCond& rec)
 {
-    if (g_range_links != nullptr)
+    const u16 want = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+    for (const RuntimeLoadingActor& actor : runtime_loading_actors()) // DAT_00511B38.
     {
-        const u16 want = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
-        for (RangeLink* link = g_range_links; link != nullptr; link = link->next)
+        if (actor.tag != want)
         {
-            if (link->host->tag_6 == want && link->at_28->word_94 != 0)
-            {
-                return 0;
-            }
+            continue;
+        }
+        if (!actor.body)
+        {
+            throw Error("0x00132DB0 reads +0x94 of a DAT_00511B38 actor with no body at +0x95C");
+        }
+        if (actor.energy != 0)
+        {
+            return 0;
         }
     }
     if (cond_f32(rec, 0xc) != 0.f)
@@ -1448,18 +1450,24 @@ int script_condition_scene_flag_clear()
 // at node-0x93E (actor+6), calls 0x000412A0 with ESI = node-0x944 and EDI
 // pointing at a 12-byte stack slot. 0x00124860 then takes the dword at
 // record+0xC. A nonzero return returns 1. Next is the pointer at node+4.
-// 0x00124860 is not translated, so its nonzero return is not taken.
 // Xbox 0x00132F30
 int script_condition_actor_position(const ScriptCond& rec)
 {
-    for (AltLink* link = g_alt_links; link != nullptr; link = link->next)
+    const u16 key = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+    for (const auto* node = static_cast<const entity_detail::ListHead*>(entity_detail::g_world.alt.next);
+         node != nullptr; node = static_cast<const entity_detail::ListHead*>(node->next))
     {
-        const u16 key = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
-        if (key < 2 || link->actor->class_key == key)
+        if (!g_alt_node_class || !g_alt_node_actor)
         {
-            const Vec3 world = actor_world_position(*link->actor);
-            (void)world;
-            (void)cond_u32(rec, 0xc);
+            throw Error("0x00132F30 walks DAT_00511B48 without the scene's actor views");
+        }
+        if (key < 2 || g_alt_node_class(node) == key)
+        {
+            const Vec3 world = actor_world_position(g_alt_node_actor(node)); // 0x000412A0
+            if (occupancy_region_contains(cond_u32(rec, 0xc), world)) // 0x00124860
+            {
+                return 1;
+            }
         }
     }
     return 0;
@@ -1474,11 +1482,16 @@ int script_condition_actor_position(const ScriptCond& rec)
 // Xbox 0x00132FA0
 int script_condition_actor_word_limit(const ScriptCond& rec)
 {
-    for (AltLink* link = g_alt_links; link != nullptr; link = link->next)
+    const u16 key = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+    for (const auto* node = static_cast<const entity_detail::ListHead*>(entity_detail::g_world.alt.next);
+         node != nullptr; node = static_cast<const entity_detail::ListHead*>(node->next))
     {
-        const u16 key = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
-        if ((key < 2 || link->actor->class_key == key) &&
-            static_cast<i32>(u32(link->at_18->word_94)) <= static_cast<i32>(cond_u32(rec, 0xc)))
+        if (!g_alt_node_class || !g_alt_node_body)
+        {
+            throw Error("0x00132FA0 walks DAT_00511B48 without the scene's actor views");
+        }
+        if ((key < 2 || g_alt_node_class(node) == key)
+            && static_cast<i32>(u32(read_u16(g_alt_node_body(node), 0x94))) <= static_cast<i32>(cond_u32(rec, 0xc)))
         {
             return 1;
         }

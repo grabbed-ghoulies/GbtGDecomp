@@ -1,5 +1,8 @@
 #include "scene_actor_services.h"
 #include "../entities/ghouly_spawn_trigger.h"
+#include "../entities/actor_template_creation.h"
+#include "../frontend/dialogue_input.h"
+#include "../frontend/scoreboard_messages.h"
 #include "../entities/actor_scare_requests.h"
 #include "../entities/physical_shape_events.h"
 #include "../frontend/frontend_sounds.h"
@@ -194,6 +197,8 @@ extern u32 g_flag_ea98; // DAT_0050EA98.
 extern i32 g_5462fc; // DAT_005462FC.
 extern i32 g_545d1c; // DAT_00545D1C.
 extern i32 g_545cc8; // DAT_00545CC8.
+extern std::array<u16, 0x40> g_545c48; // DAT_00545C48.
+extern std::array<u16, 0x28> g_545ccc; // DAT_00545CCC.
 extern i32 g_script_30d0c; // DAT_00430D0C.
 extern i32 g_510580; // DAT_00510580.
 extern float& g_4312cc; // DAT_004312CC.
@@ -561,7 +566,7 @@ struct SceneActorServices::State
     i32 camera_players = 0; // DAT_00545AF0.
     RuntimePlayerCameraContext camera;
     std::vector<FactoryObject> cameras;
-    RuntimeStrategyClassRanges strategy_ranges{0, {}}; // DAT_0050E1C4.
+    RuntimeStrategyClassRanges strategy_ranges{g_50e1c4, g_50e1c8}; // DAT_0050E1C4, DAT_0050E1C8.
     std::span<u32, 2> pause_references{scene_detail::g_pause_references}; // DAT_0050E764, DAT_0050E768.
     // DAT_00511B38 as 0x00117400 walks it: the players' +0x934 nodes, rebuilt from the list before each walk.
     std::vector<RuntimePauseActor> pause_nodes;
@@ -1603,14 +1608,26 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         },
         [this](u32 address, std::span<const u32> message)
         {
-            // The object's vtable +0xC.
-            auto* object = object_of(scene.resolve_address(address, 0).data());
+            // The object's vtable +0xC; a player's body, mind or strategy goes through its own child dispatch.
+            const u8* bytes = scene.resolve_address(address, 0).data();
+            std::array<u32, 0x42> words{};
+            std::copy(message.begin(), message.end(), words.begin());
+            if (auto* owner = players->find_child_owner(bytes); owner != nullptr)
+            {
+                for (FactoryObject* child : {&owner->strategy_object, &owner->mind_object, &owner->body_object})
+                {
+                    if (child->bytes.get() == bytes)
+                    {
+                        child_message(*child, words.data());
+                        return;
+                    }
+                }
+            }
+            auto* object = object_of(bytes);
             if (object == nullptr)
             {
                 unbound("strategy message to an address that is not a scene object");
             }
-            std::array<u32, 0x42> words{};
-            std::copy(message.begin(), message.end(), words.begin());
             object_message(*object, words);
         },
         [this](u32 address) -> RuntimeStrategyBodyView
@@ -4735,7 +4752,8 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
                 goal = ring->tail == ring->capacity ? read_u16(address_zero, 0)
                     : read_u16(ring->rows, size_t(ring->head) * ring->stride);
             }
-            actors.push_back({read_u16(mark.bytes, 6), goal, read_u32(mark.bytes, 0x984), read_u32(mark.bytes, 0x98C)});
+            actors.push_back({read_u16(mark.bytes, 6), goal, read_u32(mark.bytes, 0x984), read_u32(mark.bytes, 0x98C),
+                !mark.body.empty(), mark.body.empty() ? u16(0) : read_u16(mark.body, 0x94)});
         }
         return actors;
     };
@@ -4944,6 +4962,12 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     {
         queue_runtime_ghoul_intro_caption(tag, delay, lifetime, ghoul_intro); // 0x000F4930
     };
+    g_script_drain_actor_goals = [this](Actor& actor)
+    {
+        auto& player = players->player(object_of_actor(actor));
+        player.refresh_views();
+        drain_runtime_player_goals(player.goal_cleanup); // 0x00028210
+    };
     g_script_actor_message = [this](Actor& actor, std::span<u32> message)
     {
         std::array<u32, 0x42> words{};
@@ -5115,7 +5139,6 @@ void SceneActorServices::State::reset_scene_data()
     animation_classes = {};
     mind_settings = {0, {}};
     camera_players = 0;
-    strategy_ranges = {0, {}};
     std::fill(pause_references.begin(), pause_references.end(), 0u);
     pause_nodes.clear();
     first_pause = nullptr;
@@ -5862,6 +5885,7 @@ SceneActorServices::State::~State()
         g_script_exclude_actor_tag = nullptr;
         g_script_actor_bytes = nullptr;
         g_script_actor_message = nullptr;
+        g_script_drain_actor_goals = nullptr;
         g_script_body_list_message = nullptr;
         g_script_ghoul_intro_caption = nullptr;
         g_script_actor_by_id = nullptr;
@@ -10380,23 +10404,18 @@ void SceneActorServices::State::remove_retired_actors()
                 recipient = recipient->next;
                 current->handle_message(*current, message);
             }
-            // The weapons players make (0x0013A720 into the object list) are activated actors in retail, so their
-            // +0x900 nodes are on DAT_00511AA4 too; here they have none, and get the notice by their own message.
-            // A held weapon clears +0xD8C when its holder goes (0x001462B0).
+            // A weapon a player made or threw (0x0013A720 into the object list) has no DAT_00511AA4 node here, so the
+            // weapons whose +0xD8C names the actor going get the notice by their own message and clear their holder
+            // (0x001462B0). Retail's list reaches every weapon; sending it to the others too (scene 9's held candle,
+            // as smashed props go) stops Cooper through the notice's marker removal (0x0013F720), not yet explained.
             const u32 gone = address(actor);
             std::vector<FactoryObject*> weapons;
-            for (auto* player : players->instances())
+            for (const u8* bytes : classes->weapons_held_by(actor))
             {
-                if (player->created_attachment.bytes != nullptr)
+                FactoryObject* weapon = object_of(bytes);
+                if (weapon != nullptr && !active_nodes.contains(scene.address_of(bytes)))
                 {
-                    weapons.push_back(&player->created_attachment);
-                }
-            }
-            for (auto& weapon : released_weapons)
-            {
-                if (weapon.bytes != nullptr)
-                {
-                    weapons.push_back(&weapon);
+                    weapons.push_back(weapon);
                 }
             }
             for (FactoryObject* weapon : weapons)
@@ -10650,14 +10669,8 @@ void SceneActorServices::start_markers()
     {
         throw Error("scene markers are not loaded");
     }
-    // DAT_00545C48/DAT_00545CCC (pair and group ids) are filled by script actions before startup.
-    static const std::array<u16, 0x40> swap_ids{};
-    static const std::array<u16, 0x28> group_ids{};
-    const RuntimeSceneMarkerRandomizer randomizer{state.random, g_545cc8, swap_ids, g_545d1c, group_ids};
-    if (g_545cc8 != 0 || g_545d1c != 0)
-    {
-        unbound("scene marker pair and group ids (DAT_00545C48/DAT_00545CCC)");
-    }
+    // DAT_00545C48/DAT_00545CCC (pair and group ids) are filled by script types 0x4E and 0x73 before startup.
+    const RuntimeSceneMarkerRandomizer randomizer{state.random, g_545cc8, g_545c48, g_545d1c, g_545ccc};
     // Host diagnostics: a failing handler names its marker kind and id.
     RuntimeSceneMarkerHandlers handlers = state.handlers;
 #if defined(GBTG_INSPECTOR_APP)
@@ -10789,6 +10802,124 @@ NativePlayerInstance& SceneActorServices::State::case_player(u32 address)
 void SceneActorServices::queue_aid_spawns(const char* name)
 {
     load_aid_spawn_queue(name, state_->resources.registry, state_->resources.error); // 0x000F4E50
+}
+
+// Xbox 0x00122CA0
+void SceneActorServices::message_tagged_actors(u16 tag, std::span<const u32> message)
+{
+    auto& state = *state_;
+    for (entity_detail::LatchNode* node = state.latches; node != nullptr;)
+    {
+        entity_detail::LatchNode* next = node->next;
+        if (node->tag == tag)
+        {
+            u32 address = 0;
+            for (const auto& [owner, latch] : state.active_nodes)
+            {
+                if (latch.get() == node)
+                {
+                    address = owner;
+                }
+            }
+            if (address == 0)
+            {
+                unbound("DAT_00511AA4 node with no scene actor");
+            }
+            send_actor_message(address, message);
+        }
+        node = next;
+    }
+}
+
+// Xbox 0x00112C50
+void SceneActorServices::create_template_actor(const char* name, const Vec3& position, const Vec3& euler,
+    float scale)
+{
+    auto& state = *state_;
+    FactoryObject object = create_runtime_actor_at(name, &position, &euler, scale, state.image.pools,
+        state.scene.factory, state.origin, state.default_euler);
+    if (object.bytes != nullptr)
+    {
+        state.scene.keep_object(std::move(object));
+    }
+}
+
+// Xbox 0x001162F0
+void SceneActorServices::age_actor_snapshots()
+{
+    auto& state = *state_;
+    if (state.snapshots == nullptr)
+    {
+        unbound("actor snapshots before the scene's draw contexts");
+    }
+    age_runtime_actor_snapshots(*state.snapshots);
+}
+
+// Xbox 0x000FDDA0
+void SceneActorServices::animate_light_records()
+{
+    auto& state = *state_;
+    animate_runtime_light_records(state.shaders, state.game.clock.frame, state.game.clock.time, state.random);
+}
+
+// Xbox 0x0012AA70
+void SceneActorServices::tick_post_models()
+{
+    if (state_->post_model_count != 0) // DAT_00512AF0
+    {
+        unbound("0x0012AA70's moving post models (DAT_00512AF8..DAT_00512B88, 0x001059B0)");
+    }
+}
+
+// Xbox 0x00049DE0
+void SceneActorServices::tick_frontend_state()
+{
+    const i32 frontend = state_->frontend_state; // DAT_004E17C8
+    if (frontend >= 2 && frontend <= 6)
+    {
+        unbound("0x00049DE0's frontend state " + std::to_string(frontend) + " (0x0004A4D0, 0x0004AC00)");
+    }
+}
+
+bool SceneActorServices::start_pressed()
+{
+    auto& state = *state_;
+    const GhoulySpawnPool* devices = state.input_state.devices; // DAT_0050E0E8
+    if (devices == nullptr || (devices->cursor - devices->begin) / devices->stride == 0)
+    {
+        return false;
+    }
+    if (state.input_state.selected < 1)
+    {
+        // Retail selects a controller at game select before any scene runs (DAT_0050E0EC from 1); a scene booted
+        // straight from a test has none, and the dump's row (DAT_0050E0EC - 1) would lie before the table.
+        return false;
+    }
+    const u8* row = devices->begin + (state.input_state.selected - 1) * devices->stride; // DAT_0050E0EC
+    const u32 device = read_u32({row, devices->stride}, 0);
+    if (device == 0)
+    {
+        return false;
+    }
+    if (const auto view = state.input_views.find(device); view != state.input_views.end())
+    {
+        return runtime_input_button_edge(view->second, 0x10, state.input_state) != 0; // 0x001083F0
+    }
+    const auto record = state.input_addresses.find(device); // An activation entry's own device record.
+    if (record == state.input_addresses.end())
+    {
+        unbound("0x001083F0 on a DAT_0050E0E8 device with no native view");
+    }
+    const RuntimeDialogueInputDevice view{record->second, {nullptr, nullptr, nullptr, nullptr}};
+    return runtime_input_button_edge(view, 0x10, state.input_state) != 0; // 0x001083F0
+}
+
+void SceneActorServices::count_script_challenge()
+{
+    auto& state = *state_;
+    ++state.challenge_count; // DAT_00506C84
+    show_runtime_bonus_counter(1, i32(state.challenge_count), *state.bonus_counters,
+        *state.scoreboard_resources); // 0x0012D7E0, EDI 1
 }
 
 void SceneActorServices::activate_actor(u32 address)

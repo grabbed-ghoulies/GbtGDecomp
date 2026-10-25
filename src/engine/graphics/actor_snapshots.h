@@ -52,4 +52,7 @@ void set_runtime_cull_mode(u32 mode, u32& cull_mode); // Xbox 0x001565E0
 std::unique_ptr<RuntimeActorSnapshot> snapshot_runtime_actor(Actor& actor,
     RuntimeActorSnapshots& context); // Xbox 0x00116530
 void append_runtime_actor_snapshot(Actor& actor, RuntimeActorSnapshots& context); // Xbox 0x00116750, EAX actor
+// The scene tick's snapshot ageing: past 16 kept snapshots every keep flag (+0x30) drops; an unkept snapshot's +0x2C
+// counts down 0.01 a frame, and below 0 its texture is released and the snapshot freed.
+void age_runtime_actor_snapshots(RuntimeActorSnapshots& context); // Xbox 0x001162F0
 }

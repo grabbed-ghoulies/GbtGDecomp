@@ -20,6 +20,10 @@
 #include "../scene/dialogue_scene_runtime.h"
 #include "../scene/cutscene_scene_runtime.h"
 #include "script_vm.h"
+#include "../scene/ambient.h"
+#include "../navigation/occupancy.h"
+#include "../graphics/actor_effect_stream.h"
+#include "../entities/actor_transform.h"
 #include "../saves/runtime_profile.h"
 #include "../entities/player_spawn.h"
 #include "../entities/player_state.h"
@@ -449,16 +453,14 @@ int script_handle_actor_state(Game& g, const ScriptNode& node)
         const std::string key = node_cstr(g.scene_script, node, 8);
         const i32 found = binary_search_names(0xe9, kObjTagActor, key.c_str());
         const u16 id = found == -1 ? u16{0} : static_cast<u16>(found + 1);
-        for (RangeLink* link = g_range_links; link != nullptr; link = link->next)
+        // Each DAT_00511B38 actor of the tag: 0x00112D10 on its +0x920 child, then vtable +0xC with 0x80 and
+        // 0x0003ED70 while +0x908 is still null. Those releases are not bound for the native actors.
+        for (const RuntimeLoadingActor& actor : runtime_loading_actors())
         {
-            CamFocus* obj = link->host;
-            if (obj == nullptr || obj->tag_6 != id)
+            if (actor.tag == id)
             {
-                continue;
+                throw Error("script type 0x90 releases a DAT_00511B38 actor (0x00112D10, 0x0003ED70); not bound");
             }
-            // 0x00112D10 on the child at +0x920, then vtable +0xC with 0x80
-            // and 0x0003ED70 while +0x908 is still null.
-            release_host(*obj);
         }
     }
     else
@@ -679,26 +681,6 @@ int script_handle_parameters(Game& g, const ScriptNode& node)
 }
 
 
-// Xbox 0x00122CA0. Walks DAT_00511AA4. The link is object+0x900 and the next
-// pointer is at +4, so the port follows PulseNode::next. EDI is compared with
-// the word at object+6. Each match calls vtable +0xC with EBX, the message.
-// An empty slot is skipped.
-// Xbox 0x00122CA0
-void script_broadcast_actor_message(u16 tag, const i32* message)
-{
-    PulseNode* node = g_pulse_nodes;
-    while (node != nullptr)
-    {
-        PulseNode* next = node->next;
-        if (node->tag_6 == tag && node->on_message != nullptr)
-        {
-            node->on_message(node, message);
-        }
-        node = next;
-    }
-}
-
-
 // Xbox 0x00124F30. Handler 3. Type 0x5D searches the cstring at node+8 in the
 // actor tags. A miss calls 0x00122CA0 with tag 0. A hit calls it with the
 // 1-based index, zero-extended from 16 bits. Both pass a message id of 1.
@@ -707,34 +689,33 @@ void script_broadcast_actor_message(u16 tag, const i32* message)
 // Xbox 0x00124F30
 int script_handle_actor_messages(Game& g, const ScriptNode& node)
 {
+    if (node.type != 0x5d && node.type != 0x71)
+    {
+        return 3;
+    }
+    SceneActorServices* actors = script_scene_actors(g);
+    if (actors == nullptr)
+    {
+        throw Error("script type " + std::to_string(node.type) + " without the native scene's actors");
+    }
     if (node.type == 0x5d)
     {
         const std::string key = node_cstr(g.scene_script, node, 8);
-        i32 message = 1;
+        const std::array<u32, 1> message{1};
         const i32 found = binary_search_names(0xe9, kObjTagActor, key.c_str());
         if (found == -1)
         {
-            script_broadcast_actor_message(0, &message);
+            actors->message_tagged_actors(0, message); // 0x00122CA0, EDI 0
             return 2;
         }
-        script_broadcast_actor_message(static_cast<u16>(found + 1), &message);
+        actors->message_tagged_actors(static_cast<u16>(found + 1), message); // 0x00122CA0
+        return 2;
     }
-    else
+    const u32 actor = actors->find_actor_by_id(node_u16(g.scene_script, node, 8)); // 0x00129ED0
+    if (actor != 0)
     {
-        if (node.type != 0x71)
-        {
-            return 3;
-        }
-        PulseNode* obj = find_actor_by_id(node_u16(g.scene_script, node, 8));
-        if (obj != nullptr)
-        {
-            i32 message = 0x13;
-            if (obj->on_message != nullptr)
-            {
-                obj->on_message(obj, &message);
-            }
-            return 2;
-        }
+        const std::array<u32, 1> message{0x13};
+        actors->send_actor_message(actor, message); // Vtable +0xC
     }
     return 2;
 }
@@ -1861,81 +1842,95 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
     }
     case 0x6b:
     {
+        // Each DAT_00511B48 actor of the tag (any for a tag below 2) takes the byte at node+0x48 at +0x969. One whose
+        // +0x958 target record has a +0x10 goes through 0x00029C80 (ECX the record, EDX 1), whose views are not
+        // bound here.
         const u16 tag = static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 8).c_str()));
-        const u8 stored = node_u8(g.scene_script, node, 0x48);
-        for (AltLink* link = g_alt_links; link != nullptr; link = link->next)
+        for (const auto* link = static_cast<const entity_detail::ListHead*>(entity_detail::g_world.alt.next);
+             link != nullptr; link = static_cast<const entity_detail::ListHead*>(link->next))
         {
-            if (link->actor == nullptr)
+            if (!g_alt_node_class || !g_alt_node_actor_bytes)
+            {
+                throw Error("script type 0x6B walks DAT_00511B48 without the scene's actor views");
+            }
+            if (tag >= 2 && g_alt_node_class(link) != tag)
             {
                 continue;
             }
-            if (tag < 2 || link->actor->class_key == tag)
+            const std::span<u8> actor = g_alt_node_actor_bytes(link);
+            actor[0x969] = node_u8(g.scene_script, node, 0x48);
+            if (read_u32(actor, 0x958) != 0)
             {
-                link->byte_969 = stored;
-                if (link->slot != nullptr && link->slot->flag_10 != nullptr)
-                {
-                    // 0x00029C80 is not translated. A zero return is not taken.
-                }
+                throw Error("script type 0x6B reaches 0x00029C80 for an actor's +0x958 target record; its views "
+                    "are not bound");
             }
         }
         return 2;
     }
     case 0x70:
     {
+        // 0x0010F6C0, SI the tag, XMM1 node+0x48, XMM2 node+0x4C: the tag's strategy class range.
         const u16 tag = static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 8).c_str()));
-        const float xmm1 = std::bit_cast<float>(node_u32(g.scene_script, node, 0x48));
-        const float xmm2 = std::bit_cast<float>(node_u32(g.scene_script, node, 0x4c));
-        (void)tag;
-        (void)xmm1;
-        (void)xmm2;
+        set_runtime_strategy_class_range(tag, std::bit_cast<float>(node_u32(g.scene_script, node, 0x48)),
+            std::bit_cast<float>(node_u32(g.scene_script, node, 0x4c)), g_50e1c8, g_50e1c4);
         return 2;
     }
     case 0x78:
     {
+        // 0x00019660 (EAX the actor, the dword at node+0x48 on the stack) on each DAT_00511B48 actor of the tag, or
+        // every one for a tag below 2.
         const u16 tag = static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 8).c_str()));
-        const u32 arg = node_u32(g.scene_script, node, 0x48);
-        for (AltLink* link = g_alt_links; link != nullptr; link = link->next)
+        const u8 value = node_u8(g.scene_script, node, 0x48);
+        for (const auto* link = static_cast<const entity_detail::ListHead*>(entity_detail::g_world.alt.next);
+             link != nullptr; link = static_cast<const entity_detail::ListHead*>(link->next))
         {
-            if (link->actor == nullptr)
+            if (!g_alt_node_class || !g_alt_node_actor || !g_alt_node_actor_bytes || !g_script_actor_message)
+            {
+                throw Error("script type 0x78 walks DAT_00511B48 without the scene's actor views");
+            }
+            if (tag >= 2 && g_alt_node_class(link) != tag)
             {
                 continue;
             }
-            if (tag < 2 || link->actor->class_key == tag)
+            const std::span<u8> actor = g_alt_node_actor_bytes(link);
+            actor[0x96D] = value;
+            actor[0x96F] = 0;
+            actor[0x970] = 0;
+            if (read_f32(actor, 0x974) > 0.f)
             {
-                (void)arg;
+                std::memset(actor.data() + 0x974, 0, 4);
+                std::array<u32, 0x42> message{0x55};
+                g_script_actor_message(g_alt_node_actor(link), message); // Vtable +0xC
             }
         }
         return 2;
     }
     case 0x97:
     {
+        // Each DAT_00511B48 actor of the tag (any for a tag below 2): its goals drained (0x00028210), +0x990 cleared
+        // and message 0x4D with the dword at node+0x48 and its world position and euler (0x000412A0, 0x00041820).
         const u16 tag = static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 8).c_str()));
-        for (AltLink* link = g_alt_links; link != nullptr; link = link->next)
+        for (const auto* link = static_cast<const entity_detail::ListHead*>(entity_detail::g_world.alt.next);
+             link != nullptr; link = static_cast<const entity_detail::ListHead*>(link->next))
         {
-            if (link->actor == nullptr)
+            if (!g_alt_node_class || !g_alt_node_actor || !g_alt_node_actor_bytes || !g_script_actor_message
+                || !g_script_drain_actor_goals)
+            {
+                throw Error("script type 0x97 walks DAT_00511B48 without the scene's actor views");
+            }
+            if (tag >= 2 && g_alt_node_class(link) != tag)
             {
                 continue;
             }
-            if (tag >= 2 && link->actor->class_key != tag)
-            {
-                continue;
-            }
-            link->word_990 = 0;
-            u32 msg[9]{};
-            msg[0] = 0x4d;
-            msg[1] = node_u32(g.scene_script, node, 0x48);
-            const Vec3 pos = actor_world_position(*link->actor);
-            const Vec3 euler = actor_world_euler(*link->actor);
-            msg[2] = std::bit_cast<u32>(pos.x);
-            msg[3] = std::bit_cast<u32>(pos.y);
-            msg[4] = std::bit_cast<u32>(pos.z);
-            msg[5] = std::bit_cast<u32>(euler.x);
-            msg[6] = std::bit_cast<u32>(euler.y);
-            msg[7] = std::bit_cast<u32>(euler.z);
-            if (link->on_message != nullptr)
-            {
-                link->on_message(link->actor, msg);
-            }
+            Actor& actor = g_alt_node_actor(link);
+            g_script_drain_actor_goals(actor); // 0x00028210, ESI the actor
+            std::memset(g_alt_node_actor_bytes(link).data() + 0x990, 0, 2);
+            const Vec3 position = actor_world_position(actor); // 0x000412A0
+            const Vec3 euler = actor_world_euler(actor); // 0x00041820
+            std::array<u32, 0x42> message{0x4d, node_u32(g.scene_script, node, 0x48), std::bit_cast<u32>(position.x),
+                std::bit_cast<u32>(position.y), std::bit_cast<u32>(position.z), std::bit_cast<u32>(euler.x),
+                std::bit_cast<u32>(euler.y), std::bit_cast<u32>(euler.z), 0};
+            g_script_actor_message(actor, message); // Vtable +0xC
         }
         return 2;
     }
@@ -1951,19 +1946,18 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
 // is the flag 0x00128A00 passes: nonzero when a DAT_0050E4DC node has 0x7D
 // at +8.
 //
-// Type 0x4D loads the word at node+8 into DX for 0x00129ED0. A hit would call
-// 0x00041820 and 0x000412A0 with ESI set to that object, add the float at
-// node+0x8C times 0.017453292 (0x0032B0FC) to the second euler float, then
-// call 0x00112C50 and 0x00112CC0. 0x00112C50 is not translated. The port's
-// pulse object does not carry +0x08, +0x14, +0x38, or +0x88, so the two
-// camera writes are not applied to it and 0x00112CC0 is not called.
+// Type 0x4D loads the word at node+8 into DX for 0x00129ED0. A hit takes that
+// actor's world euler (0x00041820) and position (0x000412A0), adds the float at
+// node+0x8C times 0.017453292 (0x0032B0FC) to the second euler float, and clones
+// the template named at node+0xC there (0x00112C50, its +0x38 as the scale). ESI
+// still holds the actor found, so 0x00112CC0 activates that actor, not the clone.
 //
-// Type 0x4E multiplies the float at node+0x10 by 0.01 (0x0032B124). 0x00019200
-// would take that product in XMM1 and ECX = 0x0054DD7C. That call is not
-// translated, so its nonzero return is not taken and 0x001400A0 is not called.
+// Type 0x4E draws 0x00019200 against the float at node+0x10 times 0.01
+// (0x0032B124) with ECX = 0x0054DD7C. A hit appends the words at node+8 and
+// node+0xC as a DAT_00545C48 pair (0x001400A0).
 //
-// Type 0x60 loads the word at node+8 into DX for 0x00129ED0. A hit would call
-// 0x00112CC0 with ESI set to that object. That call is not made.
+// Type 0x60 loads the word at node+8 into DX for 0x00129ED0. A hit calls
+// 0x00112CC0 with ESI set to that object.
 //
 // Type 0x62 calls 0x0011F1C0(0x13, 1) with AX 0. A nonzero AX walks the
 // records at DAT_0051108C+8, comparing the word at record+6 with AX and the
@@ -1979,23 +1973,21 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
 // player. Any other dword calls 0x0012C8A0 with 0x0012C930 and 4, then
 // 0x00122CE0 with EDI pointing at message id 0x4A.
 //
-// Type 0x6E would call 0x001249B0 with EDI = the dword at node+8 and EAX = 8.
-// That call is not translated.
+// Type 0x6E calls 0x001249B0 with EDI = the dword at node+8 and EAX = 8.
 //
-// Type 0x73 would call 0x001400D0. CX is the word at node+8. The nine stack
-// words are node+0xC through node+0x2C. That call is not translated.
+// Type 0x73 calls 0x001400D0. CX is the word at node+8. The nine stack words
+// are node+0xC through node+0x2C: one DAT_00545CCC group.
 //
 // Type 0x74 calls 0x00115F40 with EDI pointing at message id 1: each active
 // scene control (DAT_0050E438) gets it through vtable +0xC.
 //
-// Type 0x8E would call 0x001189D0. XMM0 is the float at node+0xC, ECX is the
+// Type 0x8E calls 0x001189D0. XMM0 is the float at node+0xC, ECX is the
 // dword at node+8, EAX points at node+0x1C, and the stack dwords are node+0x10,
-// node+0x14, and node+0x18. That call is not translated.
+// node+0x14, and node+0x18.
 //
-// Type 0x9D would call 0x00049D10. A zero return loads the dword at node+8
-// into ECX for 0x000F2A20. A nonzero return from that call increments
-// DAT_00506C84 and calls 0x0012D7E0 with EDI = 1 and that count on the stack.
-// 0x00049D10 and 0x000F2A20 are not translated, so the increment is not made.
+// Type 0x9D calls 0x00049D10. A zero return loads the dword at node+8 into ECX
+// for 0x000F2A20. A nonzero return from that call increments DAT_00506C84 and
+// calls 0x0012D7E0 with EDI = 1 and that count on the stack.
 //
 // Type 0x9E with a nonzero dword at node+0x10 stores the dword at node+8 at
 // DAT_00512448 + DAT_00512444*4. 0x000F29A0 would take ECX = that dword and
@@ -2010,20 +2002,47 @@ int script_handle_resource_actions(Game& g, const ScriptNode& node, int param_2)
     {
     case 0x4d:
     {
-        PulseNode* obj = find_actor_by_id(node_u16(g.scene_script, node, 8));
-        if (obj != nullptr)
+        SceneActorServices* actors = script_scene_actors(g);
+        if (actors == nullptr)
         {
-            const float extra = std::bit_cast<float>(node_u32(g.scene_script, node, 0x8c)) *
-                                std::bit_cast<float>(u32{0x3c8efa35u});
-            (void)extra;
+            throw Error("script type 0x4D without the native scene's actors (0x00129ED0)");
         }
+        const u32 address = actors->find_actor_by_id(node_u16(g.scene_script, node, 8));
+        if (address == 0)
+        {
+            return 2;
+        }
+        const auto found = actors->actor_addresses().find(address);
+        if (found == actors->actor_addresses().end() || found->second == nullptr)
+        {
+            throw Error("script type 0x4D found an actor with no native view");
+        }
+        const Actor& actor = *found->second;
+        Vec3 euler = actor_world_euler(actor); // 0x00041820
+        const Vec3 position = actor_world_position(actor); // 0x000412A0
+        euler.y = std::bit_cast<float>(node_u32(g.scene_script, node, 0x8c)) * std::bit_cast<float>(0x3c8efa35u)
+            + euler.y; // DAT_0032B0FC
+        const std::string name = node_cstr(g.scene_script, node, 0xc);
+        actors->create_template_actor(name.c_str(), position, euler, actor.radius_xz); // 0x00112C50, actor +0x38
+        actors->activate_actor(address); // 0x00112CC0, ESI the actor found
         return 2;
     }
     case 0x4e:
     {
-        const float gate = std::bit_cast<float>(node_u32(g.scene_script, node, 0x10)) *
-                           std::bit_cast<float>(u32{0x3c23d70au});
-        (void)gate;
+        const float chance = std::bit_cast<float>(node_u32(g.scene_script, node, 0x10))
+            * std::bit_cast<float>(0x3c23d70au); // DAT_0032B124
+        if (actor_event_chance(g_shared_random, chance)) // 0x00019200, ECX 0x0054DD7C
+        {
+            // 0x001400A0, CX the word at node+8 and the word at node+0xC on the stack.
+            const size_t slot = size_t(g_545cc8) * 2;
+            if (slot + 1 >= g_545c48.size())
+            {
+                throw Error("script type 0x4E overflows DAT_00545C48's pairs");
+            }
+            g_545c48[slot] = node_u16(g.scene_script, node, 8);
+            g_545c48[slot + 1] = node_u16(g.scene_script, node, 0xc);
+            g_545cc8 = g_545cc8 + 1;
+        }
         return 2;
     }
     case 0x60:
@@ -2110,33 +2129,21 @@ int script_handle_resource_actions(Game& g, const ScriptNode& node, int param_2)
         return 2;
     }
     case 0x6e:
-    {
-        const u32 key = node_u32(g.scene_script, node, 8);
-        (void)key;
+        clear_occupancy_value_mask(node_u32(g.scene_script, node, 8), 8); // 0x001249B0, EDI the dword, EAX 8
         return 2;
-    }
     case 0x73:
     {
-        const u16 at_8 = node_u16(g.scene_script, node, 8);
-        const u16 at_c = node_u16(g.scene_script, node, 0xc);
-        const u16 at_10 = node_u16(g.scene_script, node, 0x10);
-        const u16 at_14 = node_u16(g.scene_script, node, 0x14);
-        const u16 at_18 = node_u16(g.scene_script, node, 0x18);
-        const u16 at_1c = node_u16(g.scene_script, node, 0x1c);
-        const u16 at_20 = node_u16(g.scene_script, node, 0x20);
-        const u16 at_24 = node_u16(g.scene_script, node, 0x24);
-        const u16 at_28 = node_u16(g.scene_script, node, 0x28);
-        const u16 at_2c = node_u16(g.scene_script, node, 0x2c);
-        (void)at_8;
-        (void)at_c;
-        (void)at_10;
-        (void)at_14;
-        (void)at_18;
-        (void)at_1c;
-        (void)at_20;
-        (void)at_24;
-        (void)at_28;
-        (void)at_2c;
+        // 0x001400D0: CX the word at node+8, then node+0xC..node+0x2C, as one ten-word DAT_00545CCC group.
+        const size_t group = size_t(g_545d1c) * 10;
+        if (group + 10 > g_545ccc.size())
+        {
+            throw Error("script type 0x73 overflows DAT_00545CCC's groups");
+        }
+        for (size_t word = 0; word < 10; ++word)
+        {
+            g_545ccc[group + word] = node_u16(g.scene_script, node, 8 + u32(word) * 4);
+        }
+        g_545d1c = g_545d1c + 1;
         return 2;
     }
     case 0x74:
@@ -2157,20 +2164,35 @@ int script_handle_resource_actions(Game& g, const ScriptNode& node, int param_2)
     }
     case 0x8e:
     {
-        const float xmm0 = std::bit_cast<float>(node_u32(g.scene_script, node, 0xc));
-        const u32 ecx = node_u32(g.scene_script, node, 8);
-        const u32 at_10 = node_u32(g.scene_script, node, 0x10);
-        const u32 at_14 = node_u32(g.scene_script, node, 0x14);
-        const u32 at_18 = node_u32(g.scene_script, node, 0x18);
-        (void)xmm0;
-        (void)ecx;
-        (void)at_10;
-        (void)at_14;
-        (void)at_18;
+        const std::string name = node_cstr(g.scene_script, node, 0x1c);
+        start_ambient_phase(node_u32(g.scene_script, node, 8),
+            std::bit_cast<float>(node_u32(g.scene_script, node, 0xc)),
+            std::bit_cast<float>(node_u32(g.scene_script, node, 0x10)),
+            std::bit_cast<float>(node_u32(g.scene_script, node, 0x14)), node_u32(g.scene_script, node, 0x18),
+            name.c_str(), native_audio_runtime().voices); // 0x001189D0
         return 2;
     }
     case 0x9d:
+    {
+        if (scene_end_flag_set()) // 0x00049D10
+        {
+            return 2;
+        }
+        // 0x000F2A20, ECX the dword at node+8: the story bit, if it was clear, is set.
+        const u32 bit = node_u32(g.scene_script, node, 8);
+        if (test_runtime_story_bit(g_runtime_profile.progress.bytes, bit))
+        {
+            return 2;
+        }
+        set_runtime_story_bit(g_runtime_profile.progress.bytes, bit);
+        SceneActorServices* actors = script_scene_actors(g);
+        if (actors == nullptr)
+        {
+            throw Error("script type 0x9D without the native scene's counters (0x0012D7E0)");
+        }
+        actors->count_script_challenge(); // DAT_00506C84, 0x0012D7E0
         return 2;
+    }
     case 0x9e:
     {
         // ECX is the bit at +8 of the story block (*(DAT_00506C6C + 8)).
@@ -3233,19 +3255,22 @@ int script_handle_world_actions(Game& g, const ScriptNode& node, int param_2, in
         return 2;
     case 8:
     {
+        // Each DAT_00511B48 actor of the tag has its body's (node +0x18, actor +0x95C) +0x6C set to node+0x48.
         const u16 tag = static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 8).c_str()));
         const u32 stored = node_u32(g.scene_script, node, 0x48);
-        for (AltLink* link = g_alt_links; link != nullptr; link = link->next)
+        for (const auto* link = static_cast<const entity_detail::ListHead*>(entity_detail::g_world.alt.next);
+             link != nullptr; link = static_cast<const entity_detail::ListHead*>(link->next))
         {
-            if (link->actor == nullptr || link->actor->class_key != tag)
+            if (!g_alt_node_class || !g_alt_node_body)
+            {
+                throw Error("script type 8 walks DAT_00511B48 without the scene's actor views");
+            }
+            if (g_alt_node_class(link) != tag)
             {
                 continue;
             }
-            if (link->slot == nullptr)
-            {
-                continue;
-            }
-            link->slot->at_6c = stored;
+            const std::span<const u8> body = g_alt_node_body(link);
+            std::memcpy(const_cast<u8*>(body.data()) + 0x6C, &stored, 4);
         }
         return 2;
     }
@@ -3415,6 +3440,7 @@ int script_handle_world_actions(Game& g, const ScriptNode& node, int param_2, in
 // with EBX on a match. 0x00122FA0 is not translated. Both paths return 2.
 // Any other type returns 3.
 std::function<void(Actor& actor, std::span<u32> message)> g_script_actor_message;
+std::function<void(Actor& actor)> g_script_drain_actor_goals;
 std::function<void(std::span<const u32> message)> g_script_body_list_message;
 std::function<void(u16 tag, float delay, float lifetime)> g_script_ghoul_intro_caption;
 

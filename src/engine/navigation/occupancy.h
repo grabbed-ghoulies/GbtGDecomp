@@ -36,4 +36,6 @@ const OccupancyRecord* find_occupancy_record(const Vec3& point, float initial_di
     u32 mask, const OccupancyRecord* excluded, i16 group); // Xbox 0x001248D0
 // ECX record, EAX mask: clears the mask bits on the record, then rebuilds DAT_00512348 from every record's mask.
 void clear_occupancy_record_mask(OccupancyRecord& record, u32 mask); // Xbox 0x00124970
+// EDI value, EAX mask: clears the mask bits on every record whose +0 is the value, then rebuilds DAT_00512348.
+void clear_occupancy_value_mask(u32 value, u32 mask); // Xbox 0x001249B0
 }

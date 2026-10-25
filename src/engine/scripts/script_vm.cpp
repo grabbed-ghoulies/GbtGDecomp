@@ -1145,6 +1145,8 @@ i32 g_545d1c = 0;
      // DAT_00545D1C
 i32 g_545cc8 = 0;
      // DAT_00545CC8
+std::array<u16, 0x40> g_545c48{}; // DAT_00545C48: id pairs 0x001400A0 appends, DAT_00545CC8 of them.
+std::array<u16, 0x28> g_545ccc{}; // DAT_00545CCC: ten-id groups 0x001400D0 appends, DAT_00545D1C of them.
 
 // Xbox 0x0011CAC0. Writes 1.0 (0x3f800000) to DAT_00509b2c, DAT_00509b20,
 // DAT_00509b24, DAT_00509b28, and DAT_00509b4c. DAT_00509b50 becomes

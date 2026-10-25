@@ -26,9 +26,15 @@ void destroy_runtime_base_mind(RuntimePlayerMindRequests& requests, LiveScript*&
     RuntimeMindStorage*& storage, std::span<const u8>& script_table); // Xbox 0x00029FF0
 struct RuntimeStrategyClassRanges
 {
-    i32 count; // DAT_0050E1C4.
+    const i32& count; // DAT_0050E1C4.
     std::span<const u8> rows; // DAT_0050E1C8, stride 0xC.
 };
+extern i32 g_50e1c4; // DAT_0050E1C4, the class range count.
+extern std::array<u8, 8 * 0xC> g_50e1c8; // DAT_0050E1C8, the class range rows.
+// SI tag, XMM1 low, XMM2 high: a zero range drops the tag's row (the last row takes its place); anything else
+// appends a row for the tag.
+void set_runtime_strategy_class_range(u16 actor_class, float low, float high, std::span<u8> rows,
+    i32& count); // Xbox 0x0010F6C0
 bool sample_runtime_strategy_class_range(std::span<u8, 4> output, u16 actor_class,
     const RuntimeStrategyClassRanges& ranges, u32& random); // Xbox 0x0010F760
 bool initialize_runtime_base_strategy(std::span<u8> strategy, std::span<const u8> parameters,

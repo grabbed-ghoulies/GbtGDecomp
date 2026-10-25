@@ -514,7 +514,6 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
     switch (id)
     {
     case 0x16:
-    case 0x17:
     case 0x2A:
         unbound("body message views for id " + std::to_string(id));
     default:
@@ -579,6 +578,19 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
             {const_cast<u8*>(source_body.data()), source_body.size()},
             request == 0 ? std::span<const u8>() : services_.record_at(request, 0x24), bound_view, player_.ring,
             services_.address_zero, player_.self, damage_, services_.damage_at(message[2])});
+        views.source_contact = &*source_contact;
+    }
+    if (id == 0x17)
+    {
+        // {0x17, reply, sender, contacts, point} from a knock-down sphere (0x0006EC10); the contacts are a copied
+        // segment pool. 0x00023580 reads only the contacts, their address and the sender, so the source-contact
+        // fields 0x00020020 uses stay empty.
+        const auto& pool = *reinterpret_cast<const GhoulySpawnPool*>(services_.event_at(message[3]).data());
+        contact_pool.emplace(entity_detail::SegmentPool{pool.stride, pool.grow, pool.begin, pool.cursor, pool.limit});
+        auto& source = services_.source_at(message[2]);
+        source_contact.emplace(RuntimeBodySourceContact{
+            RuntimeBodyContactHitViews{*contact_pool, message[3], source, nullptr}, {}, {}, {}, player_.ring,
+            services_.address_zero, player_.self, damage_, damage_});
         views.source_contact = &*source_contact;
     }
     if (id == 0x1D || id == 0x18)

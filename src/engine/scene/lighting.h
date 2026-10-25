@@ -12,6 +12,12 @@ extern Vec3 g_light_offset; // DAT_0050D764..DAT_0050D76C, the default light off
 extern i32 g_light_filled; // DAT_0050D71C.
 extern i32 g_light_filled_gate; // DAT_0050D720.
 extern u8 g_light_order[0x19]; // DAT_0050D724.
+// Each registered light record's animation for the frame: +0x66 bit 0x40 flickers its colour (+0x78) between +0x80
+// and +0x84, bit 0x80 flickers its range (+0x70) between +0x8C and +0x90, both on frames the +0x88 / +0x94 masks
+// pass; +0x67 bits 2 and 4 swing the colour and the range on sine periods +0x88 and +0x94. Changed records get
+// +0x66 bit 1.
+void animate_runtime_light_records(RuntimeShaderRegistrationState& lights, u32 frame, float time,
+    u32& random); // Xbox 0x000FDDA0
 // The scene's registered light records (DAT_00509B7C) are dropped.
 void release_runtime_light_records(RuntimeShaderRegistrationState& shaders); // Xbox 0x000FDED0
 // The scene teardown's light and fog reset: the light records, the shadow-volume counts, the fog record

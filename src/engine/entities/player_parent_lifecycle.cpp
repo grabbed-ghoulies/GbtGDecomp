@@ -146,6 +146,33 @@ void destroy_runtime_base_mind(RuntimePlayerMindRequests& requests, LiveScript*&
     }
 }
 
+// Xbox 0x0010F6C0
+void set_runtime_strategy_class_range(u16 actor_class, float low, float high, std::span<u8> rows, i32& count)
+{
+    if (low == 0.f && high == 0.f)
+    {
+        for (i32 index = 0; index < count; ++index)
+        {
+            const size_t row = size_t(index) * 0xC;
+            if (read_u16(rows, row) == actor_class)
+            {
+                std::memcpy(rows.data() + row, rows.data() + size_t(count - 1) * 0xC, 0xC);
+                count = count - 1;
+                return;
+            }
+        }
+    }
+    const size_t row = size_t(count) * 0xC;
+    if (row + 0xC > rows.size())
+    {
+        throw Error("0x0010F6C0 overflows DAT_0050E1C8's rows");
+    }
+    std::memcpy(rows.data() + row, &actor_class, 2);
+    std::memcpy(rows.data() + row + 4, &low, 4);
+    std::memcpy(rows.data() + row + 8, &high, 4);
+    count = count + 1;
+}
+
 // Xbox 0x0010F760
 bool sample_runtime_strategy_class_range(std::span<u8, 4> output, u16 actor_class,
     const RuntimeStrategyClassRanges& ranges, u32& random)

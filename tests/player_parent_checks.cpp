@@ -2017,17 +2017,18 @@ void check_player_parent_lifecycle(gbtg::SceneExecutableResources& executable)
         put(range_rows, row * 0xC + 4, std::bit_cast<u32>(row == 2 ? 100.f : 2.f));
         put(range_rows, row * 0xC + 8, std::bit_cast<u32>(row == 2 ? 100.f : 5.f));
     }
-    RuntimeStrategyClassRanges ranges{3, range_rows};
+    i32 range_count = 3;
+    RuntimeStrategyClassRanges ranges{range_count, range_rows};
     std::array<u8, 4> result{0x01, 0x00, 0x80, 0x7F}; // Signaling NaN must stay byte-identical on miss.
     const auto original_result = result;
     for (i32 count : {3, 0, -1})
     {
-        ranges.count = count;
+        range_count = count;
         const u32 before = random;
         require(!sample_runtime_strategy_class_range(result, 99, ranges, random)
             && result == original_result && random == before, "strategy range miss must preserve output and random");
     }
-    ranges.count = 3;
+    range_count = 3;
     expected = random;
     const float expected_range = 2.f + 3.f * fraction(expected);
     require(sample_runtime_strategy_class_range(result, 42, ranges, random)

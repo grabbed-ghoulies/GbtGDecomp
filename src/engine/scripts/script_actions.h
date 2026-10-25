@@ -669,6 +669,8 @@ int script_handle_world_actions(Game& g, const ScriptNode& node, int param_2, in
 int script_handle_broadcast_actions(Game& g, const ScriptNode& node); // Xbox 0x00128770
 // An actor's vtable +0xC with the retail message words; the scene binds it while it runs.
 extern std::function<void(Actor& actor, std::span<u32> message)> g_script_actor_message;
+// 0x00028210, ESI the actor: a scene player's +0x980 goal ring drained.
+extern std::function<void(Actor& actor)> g_script_drain_actor_goals;
 // 0x00122F70, EDI the message: vtable +0xC of each DAT_00511B20 node's actor (node - 0x934), the next node read first.
 extern std::function<void(std::span<const u32> message)> g_script_body_list_message;
 // 0x000F4930: the ghoul intro's caption for a tag after a delay (XMM0), shown for its lifetime.

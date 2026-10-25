@@ -45,6 +45,22 @@ public:
     // 0x88 notice (0x001231F0) and the actor 0x7D sweep (0x001231A0).
     void start_scene(const std::function<void()>& script_event);
     void send_actor_message(u32 address, std::span<const u32> message); // Native vtable +0xC address adapter.
+    // Vtable +0xC with the message to each DAT_00511AA4 actor whose +6 tag is the tag.
+    void message_tagged_actors(u16 tag, std::span<const u32> message); // Xbox 0x00122CA0, EDI tag, EBX message
+    // An actor cloned from the named template at the position and euler with the scale (+0x20); it joins the
+    // scene's objects like any creation.
+    void create_template_actor(const char* name, const Vec3& position, const Vec3& euler,
+        float scale); // Xbox 0x00112C50
+    // Script type 0x9D's tail: DAT_00506C84 counts up and 0x0012D7E0 shows the count in slot 1.
+    void count_script_challenge();
+    // The scene tick's per-frame passes over scene state.
+    void age_actor_snapshots(); // Xbox 0x001162F0
+    void animate_light_records(); // Xbox 0x000FDDA0
+    void tick_post_models(); // Xbox 0x0012AA70
+    void tick_frontend_state(); // Xbox 0x00049DE0
+    // The scene tick's tail: with a DAT_0050E0E8 device selected (DAT_0050E0EC) and its row nonzero, 0x001083F0 (EAX
+    // the device, 0x10): Start newly pressed.
+    bool start_pressed();
     void update_actor(u32 address, RuntimeEffectPassScratch& scratch); // Native vtable +0x10 adapter; caller's incoming effect stack state.
     // The scene tick 0x0011E7F0's recurring actor updates: the bind tree under DAT_00511B10 (0x00123020), then the
     // +0x934 list from DAT_00511B20 (0x00122FE0).

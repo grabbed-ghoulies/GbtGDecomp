@@ -19,6 +19,9 @@
 #include <vector>
 
 #include "lighting.h"
+#include "../audio/listener_settings.h"
+#include "../entities/bounded_channels.h"
+#include "../graphics/color_blend.h"
 #include "../graphics/light_volume_records.h"
 #include "background_ambient.h"
 
@@ -207,6 +210,104 @@ void lighting_initialize_volume()
     g_scene_light_direction.camera_relative = 1; // DAT_00509B58
     g_light_paused = 0;
     g_light_running = 1;
+}
+
+namespace
+{
+float light_float(const u8* record, size_t offset)
+{
+    float value;
+    std::memcpy(&value, record + offset, 4);
+    return value;
+}
+
+u32 light_word(const u8* record, size_t offset)
+{
+    u32 value;
+    std::memcpy(&value, record + offset, 4);
+    return value;
+}
+
+// The next unit fraction of DAT_0054DD7C.
+float next_light_unit(u32& random)
+{
+    random = random * 0x19660Du + 0x3C6EF35Fu;
+    return std::bit_cast<float>((random & 0x7FFFFFu) | 0x3F800000u) - 1.f; // DAT_0032B0F8
+}
+
+// (sin(the clock's place in the period, as a turn) + 1) * 0.5.
+float light_swing(float time, float period)
+{
+    const long double place = runtime_float_remainder(time, period); // 0x00152BE0, DAT_004DEA60
+    const long double sine = retail_sin(float(place / period * std::bit_cast<float>(0x40C90FDBu))); // DAT_0032B298
+    return float((sine + 1.0L) * 0.5L); // DAT_0032B0F8, DAT_0032B0F4
+}
+
+// Xbox 0x000FDB20, AL slot
+void flicker_runtime_light_color(u8* record, u32 frame, u32& random)
+{
+    if ((u32(truncate_runtime_float(light_float(record, 0x88))) & frame) != 0) // 0x001673D8, DAT_004DEA58
+    {
+        return;
+    }
+    const float fraction = next_light_unit(random);
+    const u32 color = menu_color(light_word(record, 0x80), light_word(record, 0x84), fraction); // 0x00101730
+    std::memcpy(record + 0x78, &color, 4);
+    record[0x66] |= 1;
+}
+
+// Xbox 0x000FDBA0
+void swing_runtime_light_color(u8* record, float time)
+{
+    const float fraction = light_swing(time, light_float(record, 0x88));
+    const u32 color = menu_color(light_word(record, 0x80), light_word(record, 0x84), fraction); // 0x00101730
+    std::memcpy(record + 0x78, &color, 4);
+    record[0x66] |= 1;
+}
+
+// Xbox 0x000FDC20
+void swing_runtime_light_range(u8* record, float time)
+{
+    const float fraction = light_swing(time, light_float(record, 0x94));
+    const float low = light_float(record, 0x8C);
+    const float range = (light_float(record, 0x90) - low) * fraction + low;
+    std::memcpy(record + 0x70, &range, 4);
+    record[0x66] |= 1;
+}
+}
+
+// Xbox 0x000FDDA0
+void animate_runtime_light_records(RuntimeShaderRegistrationState& lights, u32 frame, float time, u32& random)
+{
+    for (size_t slot = 0; slot < lights.records.size(); ++slot) // Slots 0..0x27.
+    {
+        u8* record = lights.records[slot];
+        if (record == nullptr)
+        {
+            continue;
+        }
+        if ((record[0x66] & 0x40) != 0)
+        {
+            flicker_runtime_light_color(record, frame, random); // 0x000FDB20, AL the slot
+        }
+        if (std::int8_t(record[0x66]) < 0
+            && (u32(truncate_runtime_float(light_float(record, 0x94))) & frame) == 0) // 0x001673D8, DAT_004DEA58
+        {
+            const float fraction = next_light_unit(random);
+            const float low = light_float(record, 0x8C);
+            const float range = (light_float(record, 0x90) - low) * fraction + low;
+            std::memcpy(record + 0x70, &range, 4);
+            record[0x66] |= 1;
+        }
+        if ((record[0x67] & 2) != 0)
+        {
+            swing_runtime_light_color(record, time); // 0x000FDBA0
+        }
+        if ((lights.records[slot][0x67] & 4) != 0)
+        {
+            swing_runtime_light_range(lights.records[slot], time); // 0x000FDC20
+        }
+    }
 }
 
 // Xbox 0x000FDED0

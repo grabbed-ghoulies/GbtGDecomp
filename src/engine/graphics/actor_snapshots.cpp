@@ -100,4 +100,36 @@ void append_runtime_actor_snapshot(Actor& actor, RuntimeActorSnapshots& context)
     context.list.push_back(snapshot_runtime_actor(actor, context));
     ++context.count;
 }
+
+// Xbox 0x001162F0
+void age_runtime_actor_snapshots(RuntimeActorSnapshots& context)
+{
+    if (0x10 < context.count) // DAT_005462F0
+    {
+        for (const auto& snapshot : context.list)
+        {
+            if (read_u32(snapshot->bytes, 0x30) != 0)
+            {
+                std::memset(snapshot->bytes.data() + 0x30, 0, 4);
+                --context.count;
+            }
+        }
+    }
+    for (size_t index = 0; index < context.list.size();)
+    {
+        std::array<u8, 0x34>& bytes = context.list[index]->bytes;
+        if (read_u32(bytes, 0x30) == 0)
+        {
+            const float timer = read_f32(bytes, 0x2C) - std::bit_cast<float>(0x3C23D70Au); // DAT_0032B124
+            std::memcpy(bytes.data() + 0x2C, &timer, 4);
+            if (timer < 0.f)
+            {
+                context.d3d.release(read_u32(bytes, 0x20)); // D3DResource_Release
+                context.list.erase(context.list.begin() + std::ptrdiff_t(index)); // Unlinked, HeapFree
+                continue;
+            }
+        }
+        ++index;
+    }
+}
 }

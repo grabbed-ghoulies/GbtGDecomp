@@ -26,6 +26,8 @@ struct RuntimeLoadingActor
     u16 goal = 0;
     u32 word_984 = 0;
     u32 word_98c = 0;
+    bool body = false; // Node +0x28 (actor +0x95C) set.
+    u16 energy = 0; // Its +0x94.
 };
 // The native scene's DAT_00511B38 walk, in list order. Unset outside a native scene, where the host range links
 // stand in.

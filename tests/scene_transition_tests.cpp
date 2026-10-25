@@ -7162,6 +7162,11 @@ void check_scene_spawn(gbtg::Game& game, bool scene_start)
 
 void check_player_dialogue_resources(gbtg::AidStore& aids)
 {
+    // The unit checks run with no scene: DAT_00511AA4 is empty, so 0x00122C70's broadcast reaches no actor. The
+    // scene binds the real walk when it starts.
+    gbtg::g_actor_broadcast = [](const gbtg::i32*)
+    {
+    };
     {
         using namespace gbtg;
         u32 output = 0xABCDEF01;
@@ -9390,6 +9395,11 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
     std::set<gbtg::i32> avoided;
     gbtg::Vec3 stuck_at{};
     int stuck_since = -1;
+    // Pinned in one spot for 4 s (an actor or a crate's edge in the way, which the grid's held cells do not
+    // cover), Cooper side-steps for 40 frames, alternating sides, then walks on.
+    gbtg::Vec3 pinned_at{};
+    int pinned_since = -1;
+    int side_steps = 0;
     gbtg::u32 last_challenge = 0xFFFFFFFFu;
     bool kill_all = false; // Several kill-all steps were queued at once (see below).
     // Scene 9's walk to the mummy's room takes some 7200 frames on its own; scene 2a13's pirate waves, with Cooper's
@@ -9695,7 +9705,24 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
             const gbtg::Vec3 toward = step ? *step : *goal;
             const float dx = toward.x - cooper->x;
             const float dz = toward.z - cooper->z;
-            if (dx * dx + dz * dz > 4.f)
+            const float px = cooper->x - pinned_at.x;
+            const float pz = cooper->z - pinned_at.z;
+            if (pinned_since < 0 || px * px + pz * pz > 6.f * 6.f)
+            {
+                pinned_at = *cooper;
+                pinned_since = frame;
+            }
+            if (frame > pinned_since + 240 && frame <= pinned_since + 280)
+            {
+                const float side = side_steps % 2 == 0 ? 1.5707964f : -1.5707964f;
+                steering.walk(input, steering.angle(*cooper, toward) + side);
+                if (frame == pinned_since + 280)
+                {
+                    ++side_steps;
+                    pinned_since = frame;
+                }
+            }
+            else if (dx * dx + dz * dz > 4.f)
             {
                 steering.walk(input, steering.angle(*cooper, toward));
             }

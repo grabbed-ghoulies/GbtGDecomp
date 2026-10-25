@@ -72,18 +72,11 @@ std::function<void(const i32* message)> g_actor_broadcast;
 
 void broadcast_actor_pulse_message(const i32* message)
 {
-    if (g_actor_broadcast)
+    if (!g_actor_broadcast)
     {
-        g_actor_broadcast(message);
-        return;
+        throw Error("0x00122C70 walks DAT_00511AA4 with no scene bound");
     }
-    auto* node = scene_detail::g_pulse_nodes;
-    while (node != nullptr)
-    {
-        auto* owner = node;
-        node = node->next;
-        owner->on_message(owner, message);
-    }
+    g_actor_broadcast(message);
 }
 
 // Xbox 0x00112910

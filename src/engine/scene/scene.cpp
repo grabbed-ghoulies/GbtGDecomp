@@ -82,6 +82,11 @@ extern "C"
 #include "../entities/camera_director.h"
 #include "gbtg/actor_spawn_factory.h"
 #include "dialogue_scene_runtime.h"
+#include "ambient.h"
+#include "../entities/strategy_target_queue.h"
+#include "../entities/actor_live_attachments.h"
+#include "../audio/native_audio.h"
+#include "../runtime/random_state.h"
 
 namespace gbtg
 {
@@ -730,11 +735,14 @@ void scene_tick_pause_counter(Game& g, u8* scene)
     tick_scene_dialogue(g); // Xbox 0x00057E60
     if (g_545b38 == 3)
     {
-        // 0x0013FFD0 is not translated.
+        throw Error("0x0013FFD0 (DAT_00545B38 3) is not translated");
     }
     script_tick_fired_vm(g);
     tick_script_event_sequence(g); // 0x000D0300
-    // 0x00049DE0 is not translated.
+    if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1)
+    {
+        g.factory_scene->start_actors(g).tick_frontend_state(); // 0x00049DE0
+    }
     script_tick_fired_vm(g);
     if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1)
     {
@@ -747,7 +755,8 @@ void scene_tick_pause_counter(Game& g, u8* scene)
     {
         g.factory_scene->start_actors(g).update_scene_actors();
     }
-    // 0x001128A0 is not translated.
+    resort_runtime_strategy_target_queues(g_sim_freeze <= 0.f ? g_sim_dt * g_sim_scale : 0.f,
+        g_actor_attachment_slots); // 0x001128A0
     if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1)
     {
         g.factory_scene->start_actors(g).tick_live_spawns(); // 0x0011B670
@@ -757,7 +766,10 @@ void scene_tick_pause_counter(Game& g, u8* scene)
     {
         g.factory_scene->start_actors(g).update_ghoul_intro(); // 0x000F4560
     }
-    // 0x0013FD60 is not translated.
+    if (g_545b38 != 0)
+    {
+        throw Error("0x0013FD60 with DAT_00545B38 " + std::to_string(g_545b38) + " is not translated");
+    }
 
     float step = 0.f;
     if (g_sim_freeze <= 0.f)
@@ -774,38 +786,39 @@ void scene_tick_pause_counter(Game& g, u8* scene)
     {
         g.factory_scene->start_actors(g).tick_background_cloths(paced); // 0x00115BB0
     }
-    // 0x001162F0 is not translated.
+    if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1)
+    {
+        g.factory_scene->start_actors(g).age_actor_snapshots(); // 0x001162F0
+    }
 
     if (g_510580 != 0 && g_flag_0650 == 0)
     {
         const float drift = std::bit_cast<float>(0x3b03126fu);
         g_510648 = g_510648 + drift;
         g_51064c = g_51064c + drift;
-        // 0x0011B7F0 is not translated.
+        throw Error("0x0011B7F0 (the refraction records under DAT_00510580) is not translated");
     }
-    // 0x0012AA70, 0x001185E0 and 0x000FDDA0 are not translated.
+    if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1)
+    {
+        g.factory_scene->start_actors(g).tick_post_models(); // 0x0012AA70
+    }
+    tick_ambient(g_sim_freeze <= 0.f ? g_sim_dt * g_sim_scale : 0.f, g_shared_random,
+        native_audio_runtime().voices); // 0x001185E0
+    if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1)
+    {
+        g.factory_scene->start_actors(g).animate_light_records(); // 0x000FDDA0
+    }
     if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1)
     {
         g.factory_scene->start_actors(g).configure_scene_fog(); // 0x000FD5C0
     }
 
-    SceneSpan* span = g_span_50e0e8;
-    const i32 delta = static_cast<i32>(
-        reinterpret_cast<const u8*>(span->end) - reinterpret_cast<const u8*>(span->begin));
-    const i32 count = delta / static_cast<i32>(span->stride);
-    if (count != 0)
+    if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1
+        && g.factory_scene->start_actors(g).start_pressed() && g_510cec == 0) // 0x001083F0
     {
-        const i32 slot = g_50e0ec - 1;
-        const i32 byte_off = slot * static_cast<i32>(span->stride);
-        const u8* record = reinterpret_cast<const u8*>(span->begin) + byte_off;
-        const i32 word = *reinterpret_cast<const i32*>(record);
-        if (word != 0)
-        {
-            // 0x001083F0 is not translated. EAX is word and the stack dword
-            // is 0x10. A nonzero return is not taken, so DAT_00510F60 is
-            // not written from DAT_00510CEC and DAT_00510CE8.
-            (void)word;
-        }
+        // DAT_00510F60: 1 with DAT_00510CE8 set, else 6.
+        const i32 request = g_510ce8 != 0 ? 1 : 6;
+        std::memcpy(scene + 0x108, &request, 4);
     }
 }
 
@@ -1160,6 +1173,7 @@ i32 g_50e1b0 = 0;
  // DAT_0050E1B0
 i32 g_50e1c4 = 0;
  // DAT_0050E1C4
+std::array<u8, 8 * 0xC> g_50e1c8{}; // DAT_0050E1C8: the 0x0010F6C0 class ranges, up to DAT_0050E228.
 i32 g_50e228 = 0;
  // DAT_0050E228
 i32 g_545b3c = 0;

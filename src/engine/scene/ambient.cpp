@@ -5,6 +5,8 @@
 #include "gbtg/gfx.h"
 #include "background_geometry.h"
 #include "background_ambient.h"
+#include "ambient.h"
+#include "../audio/core_source.h"
 
 #include <bit>
 #include <cmath>
@@ -115,6 +117,7 @@ float g_amb_light_color[4]{}; // DAT_00509B3C.
 Vec3 g_amb_phase_point{}; // DAT_0050E958.
 float g_amb_model_matrix_scratch[12]{}; // DAT_004DD798.
 i32 g_amb_vary = 0;           // DAT_0050e944
+i32 g_amb_vary_wait = 0;      // DAT_0050E94C, frames to the next 0x001185E0 draw.
 float g_amb_vary_scale = 0.f; // DAT_0050e948
 i32 g_amb_phase_on = 0;       // DAT_0050e950
 i32 g_amb_phase_gate = 0;     // DAT_0050e954
@@ -124,7 +127,7 @@ float g_amb_phase_len = 0.f;  // DAT_0050e96c
 float g_amb_phase_jitter = 0.f; // DAT_0050e970. Pool float DAT_0032b268.
 float g_amb_phase_rate = 0.f; // DAT_0050e974
 u32 g_amb_phase_color = 0;    // DAT_0050e978. Dword at DAT_00314f4c.
-u8 g_amb_phase_mark = 0;      // DAT_0050e97c
+char g_amb_phase_name[0x80]{}; // DAT_0050E97C, the phase sound 0x001189D0 copies in.
 
 Vec3 g_amb_palette[8]{};   // DAT_0050ea1c, stride 12
 
@@ -335,7 +338,7 @@ void ambient_initialize_beds()
     g_amb_phase_jitter = std::bit_cast<float>(0x3e99999au);
     g_amb_phase_rate = 1.f;
     g_amb_phase_color = 0xff000000u;
-    g_amb_phase_mark = 0;
+    g_amb_phase_name[0] = 0;
     g_amb_extra = 0xFFFF;
     g_amb_extra_prev = -1;
     amb_reset_beds();
@@ -368,5 +371,168 @@ void ambient_initialize_lookup_texture()
     g_lookup_count = 0;
 }
 
+
+// Xbox 0x001189D0, ECX gate, XMM0 length, EAX the name
+void start_ambient_phase(u32 gate, float length, float jitter, float rate, u32 color, const char* name,
+    AudioEventVoices& voices)
+{
+    g_amb_phase_len = length; // DAT_0050E96C
+    g_amb_phase_jitter = jitter; // DAT_0050E970
+    g_amb_phase_rate = rate; // DAT_0050E974
+    g_amb_phase_gate = i32(gate); // DAT_0050E954
+    g_amb_phase = 0.f; // DAT_0050E968
+    g_amb_phase_color = color; // DAT_0050E978
+    std::strcpy(g_amb_phase_name, name);
+    if (gate == 0 || g_amb_phase_name[0] == 0)
+    {
+        return;
+    }
+    if (voices.listener == nullptr)
+    {
+        throw Error("0x001189D0 has no DAT_005077A8 view");
+    }
+    // The view's position (+0) plus its forward (+0x1C).
+    const Vec3 position{voices.listener[7] + voices.listener[0], voices.listener[8] + voices.listener[1],
+        voices.listener[9] + voices.listener[2]};
+    const i16 index = allocate_audio_event_voice(1, voices); // 0x00039830, EBX 1
+    if (index == -1)
+    {
+        return;
+    }
+    AudioEventVoice& voice = voices.voices[size_t(index)];
+    voice.stop = 1; // DAT_004E0CEC
+    if (voice.source != nullptr) // DAT_004E0D04
+    {
+        set_audio_core_source_position(*voice.source, position, voices.core.sources); // 0x0015C800
+    }
+    prepare_audio_event_voice(index, g_amb_phase_name, voices); // 0x00039A20, EAX the index
+}
+
+namespace
+{
+[[noreturn]] void ambient_unbound(const char* what)
+{
+    throw Error(std::string("ambient tick: ") + what + " is not translated");
+}
+
+// Xbox 0x00117A50: the wind and rain bed. Its wait arms the bed (or 0x00117980 resets it); an armed bed's body runs
+// past here.
+void tick_ambient_bed(float step)
+{
+    if (0.f < g_amb_wait && (g_amb_wait = g_amb_wait - step, g_amb_wait <= 0.f))
+    {
+        g_amb_wait = 0.f;
+        if (g_amb_armed == 0)
+        {
+            g_amb_wait = g_amb_span; // DAT_0050E7B4
+            g_amb_pitch = std::bit_cast<float>(0x3C23D70Au); // DAT_0032B124
+            g_amb_goal = -1.f; // DAT_0032B120
+            g_amb_armed = 1;
+            g_amb_level = 0.f;
+            g_amb_blend = 0.f;
+            g_amb_fade = 0.f;
+            g_amb_gate = 0;
+            ambient_unbound("0x00117A50's armed bed (the view's wind and rain voices)");
+        }
+        amb_reset_beds(); // 0x00117980
+    }
+    if (g_amb_armed == 0)
+    {
+        return;
+    }
+    ambient_unbound("0x00117A50's armed bed (the view's wind and rain voices)");
+}
+
+// Xbox 0x00118120: the random ambient steps.
+void tick_ambient_steps(float step)
+{
+    if (g_amb_step_wait <= 0.f)
+    {
+        if (0.f < g_amb_step_timer && (g_amb_step_timer = g_amb_step_timer - step, g_amb_step_timer <= 0.f))
+        {
+            ambient_unbound("0x00118120's step (0x00118800 and XACT_SOUNDBANK_GRANDOMAMBIENCE_AMBSTEP)");
+        }
+        return;
+    }
+    g_amb_step_wait = g_amb_step_wait - step;
+    if (g_amb_step_wait <= 0.f)
+    {
+        g_amb_step_wait = 0.f;
+    }
+}
+
+// Xbox 0x00118380: the extra wind voice.
+void tick_ambient_extra(float step)
+{
+    if (g_amb_extra == 0xFFFF)
+    {
+        if (0.f < g_amb_extra_wait && (g_amb_extra_wait = g_amb_extra_wait - step, g_amb_extra_wait <= 0.f))
+        {
+            ambient_unbound("0x00118380's extra wind voice (0x00118800, 0x00039B10)");
+        }
+        return;
+    }
+    ambient_unbound("0x00118380's playing extra wind voice (0x00118290)");
+}
+}
+
+// Xbox 0x001185E0
+void tick_ambient(float step, u32& random, AudioEventVoices& voices)
+{
+    tick_ambient_bed(step); // 0x00117A50
+    tick_ambient_steps(step); // 0x00118120
+    tick_ambient_extra(step); // 0x00118380
+    if (g_amb_vary != 0 && (g_amb_vary_wait = g_amb_vary_wait - 1, g_amb_vary_wait < 1))
+    {
+        random = random * 0x19660Du + 0x3C6EF35Fu;
+        g_amb_vary_scale = (std::bit_cast<float>((random & 0x7FFFFFu) | 0x3F800000u) - 1.f)
+            * std::bit_cast<float>(0x3E99999Au) + std::bit_cast<float>(0x3F333333u); // DAT_0032B268, DAT_0032B264
+        g_amb_vary_wait = 2;
+    }
+    if (g_amb_phase_on != 0 && g_amb_phase_gate != 0)
+    {
+        g_amb_phase = g_amb_phase + step; // DAT_0050E968
+        if (g_amb_phase_len < g_amb_phase)
+        {
+            g_amb_phase = g_amb_phase - g_amb_phase_len;
+            if (g_amb_phase_name[0] != 0)
+            {
+                if (voices.listener == nullptr)
+                {
+                    throw Error("0x00039480 has no DAT_005077A8 view");
+                }
+                // 0x00039480 with XMM3 1: the view's position plus its forward.
+                const Vec3 position{voices.listener[7] + voices.listener[0], voices.listener[8] + voices.listener[1],
+                    voices.listener[9] + voices.listener[2]};
+                request_positioned_audio_event_voice(g_amb_phase_name, 1, position, voices); // 0x00039580
+            }
+        }
+        const float half_turn = std::bit_cast<float>(0x40490FDBu); // DAT_0032B148
+        float angle = half_turn;
+        if (g_amb_phase_len != 0.f)
+        {
+            const float place = (g_amb_phase / g_amb_phase_len) * half_turn;
+            if (place <= half_turn)
+            {
+                angle = place < 0.f ? 0.f : place;
+            }
+        }
+        const long double sine = std::fabs(retail_sin(angle)); // 0x00153320, 0x00152BB0
+        g_amb_phase_a = float((long double)(g_amb_phase_rate - g_amb_phase_jitter) * sine + g_amb_phase_jitter);
+    }
+    float level;
+    if (g_amb_vary == 0 && g_amb_phase_on == 0)
+    {
+        level = (g_amb_hold != 0 || g_amb_counter != 0 || g_amb_count < 1) ? 0.f : g_amb_level;
+    }
+    else
+    {
+        level = g_amb_phase_a + g_amb_vary_scale;
+    }
+    g_amb_light_color[2] = level; // DAT_00509B44
+    g_amb_light_color[3] = 1.f; // DAT_00509B48
+    g_amb_light_color[1] = level; // DAT_00509B40
+    g_amb_light_color[0] = level; // DAT_00509B3C
+}
 
 } // namespace gbtg

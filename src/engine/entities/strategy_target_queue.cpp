@@ -60,6 +60,26 @@ void exchange_runtime_strategy_links(RuntimeStrategyLink& first, RuntimeStrategy
     exchange_runtime_links(first, second);
 }
 
+float g_50e280 = 0.f;
+
+// Xbox 0x001128A0
+void resort_runtime_strategy_target_queues(float step, std::span<ActorAttachmentSlot, 20> slots)
+{
+    g_50e280 = g_50e280 - step;
+    if (0.f < g_50e280)
+    {
+        return;
+    }
+    g_50e280 = g_50e280 + 1.f; // DAT_0032B0F8
+    for (ActorAttachmentSlot& slot : slots)
+    {
+        if (slot.owner != nullptr)
+        {
+            sort_runtime_strategy_target_queue(slot_anchor(slot)); // 0x00112B40, EAX the slot
+        }
+    }
+}
+
 // Xbox 0x00112B40
 void sort_runtime_strategy_target_queue(RuntimeStrategyLink& anchor)
 {

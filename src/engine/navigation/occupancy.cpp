@@ -157,6 +157,24 @@ const OccupancyRecord* find_occupancy_record(const Vec3& point, float initial_di
     while (true);
 }
 
+// Xbox 0x001249B0
+void clear_occupancy_value_mask(u32 value, u32 mask)
+{
+    auto& pool = *static_cast<OccupancyPool*>(g_512344);
+    for (OccupancyRecord* entry = pool.begin; entry < pool.cursor; ++entry)
+    {
+        if (entry->value_0 == value)
+        {
+            entry->mask &= ~mask;
+        }
+    }
+    g_512348 = 0;
+    for (const OccupancyRecord* entry = pool.begin; entry < pool.cursor; ++entry)
+    {
+        g_512348 = i32(u32(g_512348) | entry->mask);
+    }
+}
+
 // Xbox 0x00124970
 void clear_occupancy_record_mask(OccupancyRecord& record, u32 mask)
 {

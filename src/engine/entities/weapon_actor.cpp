@@ -702,7 +702,8 @@ void release_runtime_weapon_holder(RuntimeWeaponActor& weapon, u32 actor)
     }
     if (weapon.actor.spawn_owner != nullptr && weapon.services.actor_address(*weapon.actor.spawn_owner) == actor)
     {
-        weapon.actor.spawn_owner = nullptr; // +0xD8C.
+        weapon.actor.spawn_owner = nullptr; // +0xD8C's native view.
+        store32(weapon.bytes, 0xD8C, 0);
     }
     if (read_u32(weapon.bytes, 0xC08) == actor)
     {

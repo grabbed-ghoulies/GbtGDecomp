@@ -26,6 +26,10 @@ bool join_runtime_strategy_target_queue(RuntimeStrategyLink& link, ActorLiveAtta
     RuntimeStrategyTargetQueue& context); // Xbox 0x0002B910, EBX strategy, EDI record
 bool hold_runtime_strategy_target_queue(RuntimeStrategyLink& link, ActorLiveAttachment* record, Actor* actor,
     RuntimeStrategyTargetQueue& context); // Xbox 0x0002B9D0, EAX strategy, EDI record
+extern float g_50e280; // DAT_0050E280, the queues' resort timer.
+// Each second (DAT_0050E280 counts the step down), every DAT_0050E284 queue with an owner is sorted again.
+void resort_runtime_strategy_target_queues(float step,
+    std::span<ActorAttachmentSlot, 20> slots); // Xbox 0x001128A0
 bool runtime_strategy_target_attackable(float range, RuntimeStrategyLink& link, RuntimeStrategyTargetChecks& checks,
     RuntimeStrategyTargetQueue& context); // Xbox 0x0013A330
 }

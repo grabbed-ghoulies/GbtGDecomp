@@ -412,6 +412,37 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
             children_[child->bytes.get()] = dance.get();
             continue;
         }
+        if (child->type == 0x86)
+        {
+            auto& spin = spin_dizzy_children_[child->bytes.get()];
+            if (spin == nullptr)
+            {
+                spin = std::make_unique<RuntimeBodyMessageChild>();
+                spin->message = [this, child](std::span<u8> message)
+                {
+                    const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
+                    message_runtime_spin_dizzy_state({child->bytes.get(), child->size}, words,
+                        spin_dizzy_context()); // 0x000A24B0
+                };
+            }
+            children_[child->bytes.get()] = spin.get();
+            continue;
+        }
+        if (child->type == 0x84)
+        {
+            auto& endure = endure_children_[child->bytes.get()];
+            if (endure == nullptr)
+            {
+                endure = std::make_unique<RuntimeBodyMessageChild>();
+                endure->message = [this, child](std::span<u8> message)
+                {
+                    const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
+                    message_runtime_endure_state({child->bytes.get(), child->size}, words, endure_context()); // 0x000A1850
+                };
+            }
+            children_[child->bytes.get()] = endure.get();
+            continue;
+        }
         if (child->type == 0x76)
         {
             auto& stream = hit_stream_children_[child->bytes.get()];
@@ -851,6 +882,9 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
     case 0x76:
         tick_runtime_hit_stream_state({action.bytes.get(), action.size}, hit_stream_context()); // 0x00097500
         return;
+    case 0x84:
+        tick_runtime_endure_state({action.bytes.get(), action.size}, endure_context()); // 0x000A1710
+        return;
     case 0x67:
         tick_runtime_drone_dance_state({action.bytes.get(), action.size}, drone_dance_context()); // 0x0008E130
         return;
@@ -1040,6 +1074,23 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         tick_runtime_dizzy_state({action.bytes.get(), action.size}, context);
         return;
     }
+    case 0x86:
+    {
+        // The tick's second argument goes on to 0x0008CC40, as for 0x64.
+        const RuntimeDialogueInputDevice* device = nullptr;
+        if (input != 0)
+        {
+            if (player_.input.empty() || input != services_.address_of(player_.input.data()))
+            {
+                unbound("type 0x86 state input word that is not this player's input record");
+            }
+            device = &player_.input_device;
+        }
+        auto& context = spin_dizzy_context();
+        context.dizzy.input = device;
+        tick_runtime_spin_dizzy_state({action.bytes.get(), action.size}, context); // 0x000A23A0
+        return;
+    }
     case 0x7A:
         tick_runtime_knockdown_state({action.bytes.get(), action.size}, knockdown_context());
         return;
@@ -1144,6 +1195,8 @@ void SceneBodyMessages::action_step(FactoryObject& action)
     case 0x67:
     case 0x79:
     case 0x8D:
+    case 0x84:
+    case 0x86:
         // 0x001628B0 (0x000D4179 for 0x69, 0x70 and 0x88) returns at once.
         return;
     default:
@@ -1648,6 +1701,44 @@ RuntimeDroneDanceStateContext& SceneBodyMessages::drone_dance_context()
         player_.actor_instance.animation, services_.clock, player_.body_selection, services_.random, player_.room,
         services_.image_string, services_.actor_at});
     return *drone_dance_;
+}
+
+RuntimeSpinDizzyStateContext& SceneBodyMessages::spin_dizzy_context()
+{
+    auto& dizzy = dizzy_context();
+    const auto range = services_.record_at(0x004286F0, 8);
+    const auto rest = services_.record_at(0x0032B218, 0xC);
+    spin_dizzy_.reset();
+    spin_dizzy_.emplace(RuntimeSpinDizzyStateContext{dizzy, {read_f32(range, 0), read_f32(range, 4)},
+        {read_u32(rest, 8), read_u32(rest, 4), read_u32(rest, 0)},
+        [this]()
+        {
+            // 0x00026950 on the body, as the walk state reads it.
+            const RuntimeBodyActionIds ids{player_.attached, read_u16(player_.actor_bytes, 6),
+                services_.address_of(player_.body.data())};
+            const u8* mind = player_.mind.empty() ? nullptr : player_.mind.data();
+            return runtime_body_primary_parameter_id(ids, mind, *player_.body_bits, player_.action_table, 0);
+        }});
+    return *spin_dizzy_;
+}
+
+RuntimeEndureStateContext& SceneBodyMessages::endure_context()
+{
+    player_.refresh_body_views();
+    if (player_.body_bits == nullptr)
+    {
+        unbound("type 0x84 state without the body +0x15C bit block");
+    }
+    endure_.reset();
+    endure_.emplace(RuntimeEndureStateContext{player_.body, player_.actor, player_.actor_address,
+        player_.actor_instance.animation, player_.body_selection, *player_.body_bits, services_.clock,
+        services_.sounds, player_.mind, services_.target_at, services_.resources, services_.create_object,
+        [this](u32 address, std::span<u32> words)
+        {
+            services_.message(address, words);
+        },
+        services_.image_string, services_.random});
+    return *endure_;
 }
 
 RuntimeHitStreamStateContext& SceneBodyMessages::hit_stream_context()

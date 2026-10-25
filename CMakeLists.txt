@@ -265,6 +265,8 @@ add_library(gbtg_lib STATIC
     src/engine/entities/body_flamethrower_state.cpp
     src/engine/entities/body_shoot_state.cpp
     src/engine/entities/body_hit_stream_state.cpp
+    src/engine/entities/body_endure_state.cpp
+    src/engine/entities/body_spin_dizzy_state.cpp
     src/engine/entities/body_drone_dance_state.cpp
     src/engine/entities/sss_dropper.cpp
     src/engine/entities/body_look_for_weapon_state.cpp

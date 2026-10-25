@@ -8690,12 +8690,15 @@ void play_scene4_run(gbtg::Game& game, const std::string& label, bool drive)
             {
                 if ((record->mask & 1) != 0)
                 {
-                    steering.walk(input, steering.angle(*cooper, record->center));
+                    // Over the navigation grid: the straight line from the key catches on the debris by the side
+                    // doorway.
+                    const auto step = nav_waypoint(*cooper, record->center);
+                    steering.walk(input, steering.angle(*cooper, step ? *step : record->center));
                     if (frame % 120 == 0)
                     {
                         std::cout << label << " frame " << frame << ": Cooper at " << cooper->x << ", " << cooper->z
                                   << " heads for the exit at " << record->center.x << ", " << record->center.z
-                                  << "\n";
+                                  << (step ? " by the grid" : " straight") << "\n";
                     }
                     break;
                 }
@@ -8723,6 +8726,10 @@ void play_scene4_run(gbtg::Game& game, const std::string& label, bool drive)
         {
             title = game.scene_name;
             std::cout << label + " frame " << frame << ": title " << title << "\n";
+            if (title == "Event 'Find The Key'")
+            {
+                key_out = -1; // A restarted scene hides the key again.
+            }
             if (label == "scene5" && title == "Free Play")
             {
                 log_scene_objects(game, label, frame);

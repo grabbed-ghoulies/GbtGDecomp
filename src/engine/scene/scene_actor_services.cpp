@@ -2609,6 +2609,36 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         }
         return graph->drone_dance_context();
     });
+    install_runtime_spin_dizzy_state_class(scene.types, [this](u32 body_address) -> RuntimeSpinDizzyStateContext&
+    {
+        const auto bytes = scene.resolve_address(body_address, 0);
+        auto* player = players->find_child_owner(bytes.data());
+        if (player == nullptr || player->body.data() != bytes.data())
+        {
+            unbound("type 0x86 state whose body has no player owner");
+        }
+        auto& graph = body_messages[player->body.data()];
+        if (graph == nullptr)
+        {
+            graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
+        }
+        return graph->spin_dizzy_context();
+    });
+    install_runtime_endure_state_class(scene.types, [this](u32 body_address) -> RuntimeEndureStateContext&
+    {
+        const auto bytes = scene.resolve_address(body_address, 0);
+        auto* player = players->find_child_owner(bytes.data());
+        if (player == nullptr || player->body.data() != bytes.data())
+        {
+            unbound("type 0x84 state whose body has no player owner");
+        }
+        auto& graph = body_messages[player->body.data()];
+        if (graph == nullptr)
+        {
+            graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
+        }
+        return graph->endure_context();
+    });
     install_runtime_hit_stream_state_class(scene.types, [this](u32 body_address) -> RuntimeHitStreamStateContext&
     {
         const auto bytes = scene.resolve_address(body_address, 0);
@@ -8150,6 +8180,8 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
             case 0x7B: // And getter 0x0009D8C0.
             case 0x83: // And getter 0x000A0C30.
             case 0x67: // And getter 0x0008E010.
+            case 0x84: // And getter 0x000A1450.
+            case 0x86: // And getter 0x000A21F0.
                 return runtime_body_action_next_key(action);
             case 0x5A:
             case 0x5C:
@@ -8916,7 +8948,9 @@ void SceneActorServices::State::draw_player(FactoryObject& object, NativePlayerI
                 && type != 0x7E && type != 0x6B && type != 0x77 && type != 0x79 && type != 0x8D
                 && type != 0x6E && type != 0x6A && type != 0x6D && type != 0x81 && type != 0x76 && type != 0x7B
                 && type != 0x67 // Getter 0x0008E010 keeps the empty 0x001628B0 at +0x18 too.
-                && type != 0x63) // So does getter 0x0008C5A0.
+                && type != 0x63 // So does getter 0x0008C5A0.
+                && type != 0x84 // And getter 0x000A1450.
+                && type != 0x86) // And getter 0x000A21F0.
             {
                 unbound("body +0x744 object vtable +0x18 draw for factory type "
                     + std::to_string(player.second_action.type));

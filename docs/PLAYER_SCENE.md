@@ -399,6 +399,25 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 
 ## Checkpoints
 
+### 2026-10-25: the hunchback's two states; scene 4's exit walk
+
+- Factory type 0x84 (getter `0x000A1450`, vtable 0x00505B60, parent 9; `body_endure_state.cpp`) is translated:
+  sizes, constructor, destructor, tick, message and its phase entry `0x000A1430` .. `0x000A1930`. The body plays an
+  entry animation, then a held one with a sound while it counts hits (0x15, 0x19, 0x1D) to a random number; then it
+  makes an object from its template with a sound on slot 6, and after a hold sets body bit 0x2B. The retail name is
+  not tied to the type.
+- Factory type 0x86 (getter `0x000A21F0`, vtable 0x00505BA0, parent the dizzy state 0x64; `body_spin_dizzy_state.cpp`)
+  is translated: `0x000A21D0` .. `0x000A24B0`. On top of the dizzy state it pushes the body round a circle whose
+  angle and radius scale with the dizzy time left, so the spin slows as the stars run out.
+- In `--scene2a12` the hunchback (class 0x16) enters 0x84 from frame 899 and 0x86 from frame 1500; the scene passes.
+  Not confirmed by eye: the 0x86 spin and its stars (`scene2a12_1500.bmp` shows the hunchback but no clear stars).
+- `--scene4`: scene 4_2's imps now take action 8's mind setting (0 at mind +0x6C) and crowd Cooper at the debris by
+  the side doorway, where the straight walk from the key to the exit caught. The driver now routes the exit walk
+  over the navigation grid (`nav_waypoint`) and looks for the key again if the scene restarts; the scene passes.
+- Regressions on this build: the unit checks, `--pause`, scenes 3, 4, 5, 7, 9 and 12 and 2a2, 2a5, 2a8, 2a9, 2a10,
+  2a11 and 2a12 pass. 2a13 still fails on the pirate fight (title "EVENT - NUMBER"), and 2a14 now holds at "free
+  play" rather than in its event.
+
 ### 2026-10-25: the pause screen and the silent script actions
 
 - The pause screen is native (`scene_pause.cpp`): Start in a running scene (`0x0011E7F0`, now on the live input stack
@@ -445,10 +464,7 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 
 Still open:
 
-- `--scene2a12` now reaches factory type 0x84 (getter `0x000A1450`, vtable 0x00505B60: sizes `0x000A1430`,
-  constructor `0x000A14B0`, destructor `0x000A1670`, message `0x000A1850`, tick `0x000A1710` and its phase helper
-  `0x000A1930`, which creates an object from the parameters' name and plays a sound), which is not translated.
-- `--scene4` now holds at "Exit Door Closes" with the script waiting; not yet looked into.
+- (Closed in the hunchback checkpoint above: scene 2a12's type 0x84, and scene 4's exit walk.)
 - `--scene2a11` failed once with "invalid unordered_map key" and passed on three reruns.
 - Quit's Yes (`0x0011E1C0`) raises at the save of the game (`0x000F2CB0`); Restart's Yes at `0x000FAE40`; Map at
   `0x001410F0`'s room argument; Event Rules at `0x000D0780` / `0x0004A270`.

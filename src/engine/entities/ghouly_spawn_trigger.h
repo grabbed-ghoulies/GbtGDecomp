@@ -17,8 +17,10 @@ struct GhoulySpawnPlayerLink
 };
 // The native scene's DAT_00511B50 walk, in list order. Unset outside a native scene.
 extern std::function<std::vector<GhoulySpawnPlayerLink>()> g_spawn_trigger_players;
-// DAT_00512218, BSS that no retail code writes.
-inline constexpr u32 kRuntimeScareHold = 0;
+// DAT_00512218: the powerup table's Invisibility row (DAT_00512140 kind 9) +0 active, which 0x00123E70 sets.
+// The native scene binds it; unset outside one.
+extern const u32* g_runtime_invisibility;
+u32 runtime_invisibility_active(); // DAT_00512218
 i32 check_ghouly_spawn_trigger(const Vec3& query, float radius, float chance,
     u32& random_state); // Xbox 0x0013E980, EBX query, XMM0 radius
 }

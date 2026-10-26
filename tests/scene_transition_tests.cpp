@@ -8526,7 +8526,29 @@ void log_scene_objects(gbtg::Game& game, const std::string& label, int frame)
         }
         const gbtg::Vec3 at = gbtg::actor_world_position(*actor);
         std::cout << label << " frame " << frame << ": object type 0x" << std::hex << object.type << " class 0x"
-                  << actor->class_key << std::dec << " at " << at.x << ", " << at.y << ", " << at.z << "\n";
+                  << actor->class_key << std::dec << " at " << at.x << ", " << at.y << ", " << at.z;
+        if (object.type == 0xD && object.size >= 0x950)
+        {
+            // An FX anim emitter's powerup: its kind (+0x940) and start state (+0x93C).
+            const std::span<const gbtg::u8> bytes{object.bytes.get(), object.size};
+            std::cout << " powerup kind 0x" << std::hex << gbtg::read_u32(bytes, 0x940) << std::dec << " state "
+                      << gbtg::read_u32(bytes, 0x93C);
+        }
+        if (object.type == 0x24 && object.size >= 0xA7C)
+        {
+            // A bg-break setup: its ghoulybox (+0x934), whether its part is gone (+0xA50) and the part (+0xA58).
+            const std::span<const gbtg::u8> bytes{object.bytes.get(), object.size};
+            std::cout << " box " << reinterpret_cast<const char*>(bytes.data() + 0x934) << " broken "
+                      << gbtg::read_u32(bytes, 0xA50) << " part " << gbtg::i32(gbtg::read_u32(bytes, 0xA58));
+        }
+        if (object.type == 0xA2 && object.size >= 0xEE0)
+        {
+            // A container weapon: its contents (+0xE60), uses left (+0xE58) and weapon state (+0xC0C).
+            const std::span<const gbtg::u8> bytes{object.bytes.get(), object.size};
+            std::cout << " contents " << reinterpret_cast<const char*>(bytes.data() + 0xE60) << " left "
+                      << gbtg::read_u32(bytes, 0xE58) << " state " << gbtg::read_u16(bytes, 0xC0C);
+        }
+        std::cout << "\n";
     }
 }
 
@@ -9398,8 +9420,18 @@ void play_scene6_1_run(gbtg::Game& game, const std::string& label)
 // `range_title`, ghoulies are fought only while the scene title is that one, and never while it is `calm_title`.
 // `doors_first` walks to a door a live PlayerApproachesDoor names before any region.
 void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_range, const std::string& range_title,
-    bool doors_first, bool answer_challenges, const std::string& calm_title)
+    bool doors_first, bool answer_challenges, const std::string& calm_title, const std::string& powerup_box,
+    gbtg::u32 powerup_kind, const std::vector<gbtg::Vec3>& route)
 {
+    // With a `route`, Cooper walks its points in turn once the powerup is taken (or at once without one), before
+    // the scene's own goals: scene 2c2's way to the exit keeps more than 60 from every sleeping coat (0x000AF180's
+    // wake range), which the invisibility does not hide him from.
+    size_t route_point = 0;
+    // With `powerup_box`, Cooper first goes to the bg-break setup (type 0x24) whose ghoulybox (+0x934) names it and
+    // punches until its background part (+0xA50) breaks, then walks onto the powerup (type 0xD) of `powerup_kind`
+    // that comes out, before anything else: scene 2c2's invisibility, in a suitcase, gets him past the room unseen.
+    bool powerup_done = powerup_box.empty();
+    bool powerup_seen = false; // The box's powerup has come out.
     std::string title = game.scene_name;
     const std::string scene_script = game.scene_script.name;
     auto& actors = game.factory_scene->start_actors(game);
@@ -9683,6 +9715,107 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                 goal_name = "a soup";
             }
         }
+        bool punch_box = false;
+        std::optional<gbtg::Vec3> box_at;
+        if (cooper && !page && !powerup_done)
+        {
+            std::optional<gbtg::Vec3> powerup;
+            bool powerup_out = false;
+            bool box_waiting = false;
+            for (const auto& object : game.factory_scene->objects)
+            {
+                if (object.bytes == nullptr)
+                {
+                    continue;
+                }
+                const std::span<const gbtg::u8> bytes{object.bytes.get(), object.size};
+                const gbtg::Actor* actor = actor_of_object(game, object);
+                if (actor == nullptr)
+                {
+                    continue;
+                }
+                if (object.type == 0x24 && object.size >= 0xA7C
+                    && std::string_view(reinterpret_cast<const char*>(bytes.data() + 0x934)) == powerup_box
+                    && gbtg::read_u32(bytes, 0xA50) == 0)
+                {
+                    box_waiting = true;
+                    box_at = gbtg::actor_world_position(*actor);
+                }
+                if (object.type == 0xD && object.size >= 0x950 && gbtg::read_u32(bytes, 0x940) == powerup_kind
+                    && gbtg::read_u32(bytes, 0x93C) <= 1)
+                {
+                    // Still in flight (+0x93C 0) it is waited for; landed (1) it is walked onto. At 2 it has been
+                    // collected (0x0010A6D0's award).
+                    powerup_out = true;
+                    powerup_seen = true;
+                    if (gbtg::read_u32(bytes, 0x93C) == 1)
+                    {
+                        powerup = gbtg::actor_world_position(*actor);
+                    }
+                }
+            }
+            if (box_waiting)
+            {
+                ghouly.reset();
+                // The suitcase stands on furniture: Cooper walks to the nearest open floor cell beside it.
+                gbtg::Vec3 approach = *box_at;
+                using namespace gbtg::entity_detail;
+                const gbtg::i32 floor = navigation_floor_index(*box_at, -1, 0);
+                const gbtg::i32 cell = floor < 0 ? -1 : navigation_cell_index(floor, *box_at);
+                if (cell >= 0)
+                {
+                    navigation_nearest_open_cell(gbtg::u32(cell), floor, &approach);
+                }
+                goal = approach;
+                goal_name = "the " + powerup_box + " setup";
+                const float dx = box_at->x - cooper->x;
+                const float dz = box_at->z - cooper->z;
+                punch_box = dx * dx + dz * dz < 16.f * 16.f;
+            }
+            else if (powerup)
+            {
+                ghouly.reset();
+                goal = powerup;
+                goal_name = "the powerup";
+            }
+            else if (powerup_out || !powerup_seen)
+            {
+                // In flight, or the broken box has not spawned it yet.
+                ghouly.reset();
+            }
+            else
+            {
+                std::cout << label << " frame " << frame << ": the " << powerup_box << " powerup is taken\n";
+                powerup_done = true;
+            }
+        }
+        if (cooper && !page && powerup_done && route_point < route.size())
+        {
+            // Each point is walked to through the nearest open floor cell beside it.
+            gbtg::Vec3 point = route[route_point];
+            {
+                using namespace gbtg::entity_detail;
+                const gbtg::i32 floor = navigation_floor_index(point, -1, 0);
+                const gbtg::i32 cell = floor < 0 ? -1 : navigation_cell_index(floor, point);
+                if (cell >= 0)
+                {
+                    navigation_nearest_open_cell(gbtg::u32(cell), floor, &point);
+                }
+            }
+            const float dx = point.x - cooper->x;
+            const float dz = point.z - cooper->z;
+            if (dx * dx + dz * dz < 8.f * 8.f)
+            {
+                std::cout << label << " frame " << frame << ": Cooper reaches route point " << route_point << "\n";
+                ++route_point;
+            }
+            else
+            {
+                ghouly.reset();
+                goal = point;
+                goal_name = "route point " + std::to_string(route_point);
+            }
+        }
         // A ghouly within 16 is attacked with the right stick; a farther one is walked to like a goal, so the walk's
         // held-cell avoidance applies to it too.
         const bool close = ghouly
@@ -9728,6 +9861,13 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
             std::ostringstream name;
             name << "a ghouly (class 0x" << std::hex << ghouly_class << ")";
             goal_name = name.str();
+        }
+        if (punch_box && box_at && (frame / 8) % 2 == 0)
+        {
+            // The suitcase's part is punched open, the right stick tapped toward it.
+            const float stick = steering.angle(*cooper, *box_at);
+            input.pads[0].rx = gbtg::i16(std::sin(stick) * 32767.f);
+            input.pads[0].ry = gbtg::i16(-std::cos(stick) * 32767.f);
         }
         if (ghouly && close)
         {
@@ -9922,11 +10062,13 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
 
 void play_scene7(gbtg::Game& game, const std::string& label, float fight_range = 50.f,
     const std::string& range_title = {}, bool doors_first = false, bool answer_challenges = false,
-    const std::string& calm_title = {})
+    const std::string& calm_title = {}, const std::string& powerup_box = {}, gbtg::u32 powerup_kind = 0,
+    const std::vector<gbtg::Vec3>& route = {})
 {
     try
     {
-        play_scene7_run(game, label, fight_range, range_title, doors_first, answer_challenges, calm_title);
+        play_scene7_run(game, label, fight_range, range_title, doors_first, answer_challenges, calm_title, powerup_box,
+            powerup_kind, route);
     }
     catch (const std::exception& error)
     {
@@ -10653,7 +10795,11 @@ int main(int argc, char** argv)
         if (scene2c2_test)
         {
             pass_chapter_title(game, "scene2c2", "aid_script_ghoulies_chapter2c_scene2_1playcam", false);
-            play_scene7(game, "scene2c2", 1000.f, {}, true, true, "FREE PLAY");
+            // The invisibility in the suitcase by the window (bg-break setup, part 7) lets Cooper leave unseen.
+            play_scene7(game, "scene2c2", 1000.f, {}, true, true, "FREE PLAY",
+                "aid_ghoulybox_powerups_supersoups_invisibility", 9,
+                {{200.f, 0.f, -100.f}, {60.f, 0.f, -90.f}, {-10.f, 0.f, -80.f}, {-100.f, 0.f, -90.f},
+                    {-150.f, 0.f, -122.f}, {-215.f, 0.f, -122.f}});
             gbtg::gfx_shutdown();
             return 0;
         }

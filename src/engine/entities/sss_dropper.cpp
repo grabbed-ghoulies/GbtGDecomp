@@ -301,7 +301,7 @@ bool runtime_sss_dropper_triggered(RuntimeSssDropper& context)
     {
         return false;
     }
-    if ((context.runtime_flags & 8u) != 0 || kRuntimeScareHold != 0 || context.clock.block_decay != 0
+    if ((context.runtime_flags & 8u) != 0 || runtime_invisibility_active() != 0 || context.clock.block_decay != 0
         || context.clock.decay_enabled[context.clock.decay_index] == 0)
     {
         return false;

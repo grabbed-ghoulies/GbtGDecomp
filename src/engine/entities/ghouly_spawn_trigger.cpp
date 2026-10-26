@@ -8,6 +8,17 @@ namespace gbtg
 {
 std::function<std::vector<GhoulySpawnPlayerLink>()> g_spawn_trigger_players;
 
+const u32* g_runtime_invisibility = nullptr;
+
+u32 runtime_invisibility_active()
+{
+    if (g_runtime_invisibility == nullptr)
+    {
+        throw Error("DAT_00512218 (the Invisibility powerup row) is read outside a native scene");
+    }
+    return *g_runtime_invisibility;
+}
+
 // Xbox 0x0013E980, EBX query, XMM0 radius
 i32 check_ghouly_spawn_trigger(const Vec3& query, float radius, float chance, u32& random_state)
 {
@@ -22,7 +33,7 @@ i32 check_ghouly_spawn_trigger(const Vec3& query, float radius, float chance, u3
     const float radius_squared = radius * radius;
     for (const GhoulySpawnPlayerLink& link : g_spawn_trigger_players())
     {
-        if (link.disabled_ce0 != 0 && (link.mode_cdc == 2 || link.state_93c != 0) && kRuntimeScareHold != 0)
+        if (link.disabled_ce0 != 0 && (link.mode_cdc == 2 || link.state_93c != 0) && runtime_invisibility_active() != 0)
         {
             continue;
         }

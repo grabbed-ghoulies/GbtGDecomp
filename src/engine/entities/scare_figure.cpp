@@ -424,7 +424,7 @@ void set_runtime_scare_figure_state(i32 state, RuntimeScareFigure& context)
 // Xbox 0x0006FA40, EBX actor
 bool runtime_scare_figure_triggered(RuntimeScareFigure& context)
 {
-    if (kRuntimeScareHold != 0 || (context.runtime_flags & 8) != 0 || !actor_loading_complete()) // 0x001412F0
+    if (runtime_invisibility_active() != 0 || (context.runtime_flags & 8) != 0 || !actor_loading_complete()) // 0x001412F0
     {
         return false;
     }

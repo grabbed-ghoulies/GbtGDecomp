@@ -5055,6 +5055,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     };
     // 0x0013E980's walk of DAT_00511B50: each mode-2 player's +0x94C node, its +0xCE0, +0xCDC and +0x93C words and
     // its body's +0x24 position.
+    g_runtime_invisibility = &powerup_rows[9].active; // DAT_00512218.
     g_spawn_trigger_players = [this]()
     {
         std::vector<GhoulySpawnPlayerLink> links;
@@ -6257,6 +6258,7 @@ SceneActorServices::State::~State()
         g_actor_pause = nullptr;
         g_loading_actors = nullptr;
         g_spawn_trigger_players = nullptr;
+        g_runtime_invisibility = nullptr;
         g_marked_actor_message = nullptr;
         g_actor_broadcast = nullptr;
         g_alt_node_body = nullptr;

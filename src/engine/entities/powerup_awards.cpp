@@ -1,6 +1,7 @@
 #include "powerup_awards.h"
 #include "actor_live_attachments.h"
 #include "body_request_selection.h"
+#include "mind_target_policy.h"
 #include "../saves/save_summary.h"
 #include <cstring>
 
@@ -201,8 +202,71 @@ void award_runtime_powerup(i32 id, u32 player, u32 kind, float amount, u32 extra
         }
         break;
     case 0x13:
-        throw Error("0x00123E70's powerup kind 0x13 walks DAT_00511B48's actors (0x00028360, 0x00029C80); "
-            "their native views are not bound");
+    {
+        sound = 0;
+        if (context.active_actors == nullptr)
+        {
+            throw Error("0x00123E70's powerup kind 0x13 walks DAT_00511B48 without its actors bound");
+        }
+        RuntimePowerupActors& actors = *context.active_actors;
+        const std::array<u32, 1> freeze{1};
+        for (u32 address = actors.first(); address != 0; address = actors.next(address))
+        {
+            RuntimePowerupActor view = actors.actor_at(address);
+            if (read_u32(view.bytes, 0x98C) != 0) // Node +0x48.
+            {
+                const u16 mask = script_actor_current_mask(view.actor, actors.query); // 0x00028360, EAX actor
+                if (mask == 3 || mask == 0x24)
+                {
+                    continue;
+                }
+            }
+            bool frozen = true;
+            if (!view.strategy.empty() && script_actor_current_mask(view.actor, actors.query) == 0) // 0x00028360
+            {
+                if (view.strategy[0x1C] != 0)
+                {
+                    continue;
+                }
+                RuntimePowerupActor owner = actors.actor_at(read_u32(view.strategy, 8));
+                const u32 group = (read_u16(owner.bytes, 0xCDC) == 2 || read_u32(owner.bytes, 0x93C) != 0) ? 1u : 0u;
+                if (actors.blocked[group] != 0 || actors.modes[actors.mode] == 0)
+                {
+                    continue;
+                }
+                if (owner.ring != nullptr)
+                {
+                    const RuntimePlayerGoalRing& ring = *owner.ring;
+                    const std::span<const u8> top = ring.tail == ring.capacity ? actors.address_zero
+                        : ring.rows.subspan(size_t(ring.head) * ring.stride);
+                    if (read_u16(top, 0) != 0)
+                    {
+                        frozen = false;
+                    }
+                }
+            }
+            if (!frozen)
+            {
+                continue;
+            }
+            std::memcpy(view.bytes.data() + 0x978, &amount, 4);
+            std::span<u8> mind = view.mind;
+            if (!mind.empty() && read_u32(mind, 0x10) != 0
+                && !runtime_mind_target_is_eligible(mind, view.bytes, view.actor, address,
+                    actors.target_at(read_u32(mind, 0x10)), true)) // 0x00029C80, EDX 1
+            {
+                if (read_u32(mind, 0x10) != 0)
+                {
+                    const std::array<u32, 2> drop{0x64, 0};
+                    actors.message(read_u32(mind, 8), drop); // Mind +8's vtable +0xC.
+                }
+                const u32 zero = 0;
+                std::memcpy(mind.data() + 0x10, &zero, 4);
+            }
+            actors.message(address, freeze); // Actor vtable +0xC with {1}.
+        }
+        break;
+    }
     default:
         break;
     }

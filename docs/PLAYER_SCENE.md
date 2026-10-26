@@ -240,7 +240,10 @@ All take the game directory, e.g.
 | `--scene2b3` | Boots chapter 2b scene 3 (chapter2b_scene3_2playcam, the wood shed) and plays its "Free Play" with the scene 7 driver at any fight range; the scene ends at the exit volume (-166, 636). Does not pass yet: the flying imps (factory type 0x48) and the Medusa (class 0x1F) by the exit wear Cooper down, he dies and the scene restarts (2026-10-25) |
 | `--scene2b4` | Boots chapter 2b scene 4 (chapter2b_scene4_1playcam, the farmyard) and plays it with the scene 7 driver at any fight range. Does not pass yet: "event - kill all/time limit" (pirates, ninja imps, skeletons with eggs, flying imps and zombies from ghoulyboxes) runs out of time before the driver kills them all, the Grim Reaper comes and the event restarts (2026-10-25) |
 | `--scene2b4b` | Boots chapter 2b scene 4's book (chapter2b_scene4_2book): the groundskeeper's pages (Ol' Edna, the garlic gun). Passes when the script moves on to `aid_script_ghoulies_chapter2b_scene5_1playcam` (frame 1713 in the 2026-10-25 run) |
-| `--scene2b5` | Boots chapter 2b scene 5 (chapter2b_scene5_1playcam, the chicken shed) and plays it with the scene 7 driver at any fight range: the Baron's page, "EVENT - TIME LIMIT/SURVIVE" against vampire chickens with the blunderbuss, the event's completion and the exit door opening. Does not pass yet: in the last "FREE PLAY" the driver walks back into region 1 (176, -1), the egg page and the Baron's section run again, and the run ends in the second survive event (2026-10-25) |
+| `--scene2b5` | Boots chapter 2b scene 5 (chapter2b_scene5_1playcam, the chicken shed) and plays it with the scene 7 driver at any fight range: the Baron's page, "EVENT - TIME LIMIT/SURVIVE" against vampire chickens with the blunderbuss, the event's completion and the exit door opening. Does not pass yet: in the last "FREE PLAY" Cooper dies fighting by the exit, the scene restarts from its first page, and the run ends in the second survive event (2026-10-25) |
+| `--scene2b6` | Boots chapter 2b scene 6's book page (chapter2b_scene6_1book) and plays it until the script moves on to `aid_script_ghoulies_chapter2b_scene6_2playcam` (frame 2226 in the 2026-10-26 run) |
+| `--scene2b6b` | Boots chapter 2b scene 6 (chapter2b_scene6_2playcam, the farmyard) and plays it with the scene 7 driver: the driver chases the class a pending PlayerHitGhouly names (Mr Ribs, tag 0x31, by the barn door), leaves each penned vampire chicken after a minute out of reach, and walks into region 1. Passes when the script moves on to `aid_script_ghoulies_chapter2b_scene7_1playcam` (frame 18716 in the 2026-10-26 run) |
+| `--scene2b7` | Boots chapter 2b scene 7 (chapter2b_scene7_1playcam, the kiln rooms) and plays it with the scene 7 driver: the walk-in, "EXIT DOOR CLOSES", "EVENT - REQUIRED NUMBER/FIND THE KEY" with the furnace burning skeletons, then "FREE PLAY". Does not pass yet: the script waits for a cursed mummy (GhoulyExistsInScene, tag 0x23) while Cooper fights the mummy (tag 0x22), which keeps collapsing and getting up (2026-10-26) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -408,6 +411,49 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 
 ## Checkpoints
 
+### 2026-10-26: chapter 2b scene 7: the furnace
+
+- **entityAvatarMiscFurnace** (factory type 0x17, getter `0x0006E1C0`, vtable 0x00504CE8) in `entities/furnace_actor.cpp`:
+  sizes `0x0006E1A0` (0x93C / 0x334), destroy `0x0006E210` (both contact pools, +0x934 and +0x938), message
+  `0x0006E2A0` (0x7C drops the actor from both pools), update `0x0006E260`. `0x0006E4D0` tells actors in a sphere of
+  50 x +0x38 (players aside) {0x16, reply, sender, contacts, point} and gives each that answers callout 0x16 between
+  them (`0x0006E2F0`); `0x0006E6F0` tells actors in 55 x +0x38 {0x1B, 0, sender, 1, contacts, point}. Draw is the
+  actor's (`0x0006EF20`). Notice 0x16 shares 0x17's layout in the contact conversions.
+- **entityStateHitFurnace** (factory type 0x75, getter `0x00096A50`, vtable 0x00505980) in
+  `entities/body_furnace_hit_state.cpp`: construct `0x00096AB0`, destroy `0x00096E60`, tick `0x00096FC0`. The body
+  slides to the furnace (body +0x26C) over one second, turns away from it, then dies (`0x00134AE0`). Body message
+  0x16 (`0x000233A0`) now has its views. Naming note: by the factory table (a type's name is on the row before it),
+  0x73 is entityStateGroundAttack, 0x74 entityStateHit and 0x75 entityStateHitFurnace; the older code calls 0x73
+  "hit" and 0x74 "hit furnace" (`body_hit_state`, `body_state_actions`), so the new state's symbols say
+  `furnace_hit` to stay apart. Those older names were not changed.
+- **Scene marker kind 0x19** (`0x000FFA30`) is bound: when it runs it attaches to the first `DAT_00511B20` node's
+  actor (the background) and that actor's +0x8F4 list.
+- **Background hit 8** (`0x00043E50`): a non-player attacker's body +0x270 / +0x274 are read through the attacker's
+  body view (`body_of`), not through actor +0x95C in scene memory, which the host never fills. Before, a skeleton
+  knocked into a wall read the background model's bytes as an actor (0xFFFFFFFF) and failed with "scene address range
+  exceeds its native instance". `--scene2a8` still fails with that message by another path.
+- Type 0x75 and 0x8C join the empty +0x14 / +0x18 / message / collision-reply lists and the `0x0002B620` +0x1C list.
+- Checked in the captures: the kiln rooms and Cooper fighting the mummy among the pots (frame 12000). Not seen: a
+  skeleton being drawn into the furnace.
+
+### 2026-10-26: chapter 2b scene 6: Mr Ribs and powerup kind 0x13
+
+- **entityStrategyRibs** (factory type 0x50, getter `0x000BF760`, vtable 0x00505FBC) in
+  `entities/ribs_strategy.cpp`: construct `0x000BF7B0` (model node pair 0 set to 1 on the +0x204 and +0x310 models),
+  update `0x000BF7F0`, message `0x000BF8B0` and enter `0x000BF910`. State 0x401 loads "far" and moves to 0x40C once a
+  selected target is within 65; 0x40C picks the body's vtable +0x20 action when body bit 0x14 is up and queues mind
+  request 0xD (20, 25, 60, 65, then 0.4 / 0.6 / 0.8 / 1.0 as health falls past 3/4, 1/2 and 1/4). Sizes are the base
+  strategy's `0x0002B6A0`, the leave is the base `0x000BFA50`.
+- **Powerup kind 0x13** in `0x00123E70` (`entities/powerup_awards.cpp`): walks DAT_00511B48 (`g_world.alt`, the
+  players' links[2]) and, for each actor the dump does not skip (`0x00028360` masks 3 / 0x24, a paused strategy, a
+  blocked player group or decay mode, a goal on the ring), stores the amount at +0x978, drops a mind target
+  `0x00029C80` rejects (message {0x64, 0}, mind +0x10 cleared) and sends {1}. Its sound is row 0.
+- Driver: a pending PlayerHitGhouly (opcode 14) names the class to chase when no event step does, and a ghouly
+  walked to for a minute without getting within 16 is left (the penned vampire chickens, tag 0x39).
+- Checked in the captures: Cooper fighting Mr Ribs at the barn door (frame 1500) and walking out of the exit door
+  (frame 18600).
+- Scene 2b5's open item was a death, not a script loop (see the 2b5 checkpoint).
+
 ### 2026-10-25: chapter 2b scenes 4 and 5: chickens, vampire chickens and the blunderbuss
 
 - `--scene2b4` (new) runs without a native stop; the driver loses its timed event (see the table). `--scene2b4b` (new)
@@ -446,9 +492,10 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
   the actor's); it joins the type 2 lists in the scene services.
 - Checked in the captures: the Baron's page, the survive timer (0:57 .. 0:12), Cooper firing the blunderbuss (its
   green cloud) and the vampire chickens. Not seen: a chicken mid-transform.
-- Open: after the survive event's completion ("event complete" ditty, door open) the last "FREE PLAY" leaves a region
-  condition that sends the script back to the egg page and the Baron's section when the driver walks into region 1.
-  Whether retail keeps that condition, or a node before it (0xA0, 0x9E, 0x11) should clear it, is not settled.
+- After the survive event's completion ("event complete" ditty, door open) the driver fights ghoulies by the exit at
+  low health and Cooper dies (frame ~14300: the death state's FAILPITCHBEND stream, then the page turn). The scene
+  restarts natively from its first page, which is why the egg page and the Baron's section run again; there is no
+  script loop. The second attempt runs out of frames in the survive event.
 - `--scene2a8` fails with "scene address range exceeds its native instance" around frame 2280; it fails the same way
   at 6ecff3a, before this session's work.
 

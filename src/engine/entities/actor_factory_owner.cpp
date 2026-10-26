@@ -5,6 +5,7 @@
 #include "actor_shape_push.h"
 #include "entity_collision.h"
 #include "contact_prop_actor.h"
+#include "furnace_actor.h"
 #include "spider_web.h"
 #include "player_children.h"
 #include "../graphics/vector_normalize.h"
@@ -220,6 +221,20 @@ const ObjectFactoryVtable* contact_prop_lifecycle()
     return &table;
 }
 
+void destroy_furnace_view(FactoryObject& object)
+{
+    auto& view = active_owner->view(object);
+    release_runtime_furnace({object.bytes.get(), object.size}, view.prop_contacts, view.furnace_contacts); // 0x0006E210
+}
+
+// Getter 0x0006E1C0 (vtable 0x00504CE8): the shared constructor 0x000CFFD0.
+const ObjectFactoryVtable* furnace_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00504CE8, furnace_object_sizes, accept_runtime_object_construction,
+        destroy_furnace_view};
+    return &table;
+}
+
 bool construct_knockdown_sphere_view(FactoryObject& object, std::span<const u8> parameters)
 {
     return initialize_runtime_knockdown_sphere({object.bytes.get(), object.size}, parameters); // 0x0006EB80
@@ -362,6 +377,7 @@ void NativeActorFactoryOwner::install(std::span<ObjectFactoryType> types)
     types[2] = ObjectFactoryType{1, actor_lifecycle};
     types[0x15] = ObjectFactoryType{2, button_bat_lifecycle};
     types[0x16] = ObjectFactoryType{2, chicken_egg_lifecycle}; // Getter 0x0006DB50.
+    types[0x17] = ObjectFactoryType{2, furnace_lifecycle}; // Getter 0x0006E1C0.
     types[0x1A] = ObjectFactoryType{2, contact_prop_lifecycle}; // Getter 0x0006EE20.
     types[0x19] = ObjectFactoryType{2, knockdown_sphere_lifecycle}; // Getter 0x0006EB40.
     types[0x1B] = ObjectFactoryType{2, spider_web_lifecycle}; // Getter 0x000704D0.

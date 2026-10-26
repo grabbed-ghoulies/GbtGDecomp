@@ -20,6 +20,7 @@
 #include "../entities/generate_ghouly_state.h"
 #include "../entities/body_shocked_state.h"
 #include "../entities/body_transform_state.h"
+#include "../entities/body_furnace_hit_state.h"
 #include "../entities/body_death_state.h"
 #include "../entities/body_scrabble_state.h"
 #include "../entities/body_scoop_whack_state.h"
@@ -199,6 +200,7 @@ public:
     RuntimeGenerateGhoulyContext& generate_ghouly_context(); // The type 0x6F state's views of this body.
     RuntimeShockedStateContext& shocked_context(); // The type 0x80 state's views of this body.
     RuntimeTransformStateContext& transform_context(); // The type 0x8C state's views of this body.
+    RuntimeFurnaceHitStateContext& furnace_hit_context(); // The type 0x75 state's views of this body.
     RuntimeScrabbleStateContext& scrabble_context(); // The type 0x7F state's views of this body.
     RuntimeScoopWhackStateContext& scoop_whack_context(); // The type 0x7E state's views of this body.
     // The type 0x6B state's views of this body; `input` is the tick's input word (actor +0x960 or zero).
@@ -265,6 +267,8 @@ private:
     std::optional<RuntimeGenerateGhoulyContext> generate_ghouly_;
     std::optional<RuntimeShockedStateContext> shocked_;
     std::optional<RuntimeTransformStateContext> transform_;
+    std::optional<RuntimeBodyStateContext> furnace_hit_state_;
+    std::optional<RuntimeFurnaceHitStateContext> furnace_hit_;
     std::optional<RuntimeScrabbleStateContext> scrabble_;
     std::optional<RuntimeScoopWhackStateContext> scoop_whack_;
     std::optional<RuntimeFlipStateContext> flip_;

@@ -555,7 +555,7 @@ void SceneBodyMessages::bind_action_children()
             && child->type != 0x7B
             && child->type != 0x5A && child->type != 0x5B && child->type != 0x5C && child->type != 0x74
             && child->type != 0x7C && child->type != 0x87 && child->type != 0x88 && child->type != 0x69
-            && child->type != 0x70)
+            && child->type != 0x70 && child->type != 0x75)
         {
             unbound("body action message slot of factory type " + std::to_string(child->type));
         }
@@ -589,7 +589,6 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
     // Ids whose handlers read the animation, source or contact views built from message pointers.
     switch (id)
     {
-    case 0x16:
     case 0x2A:
         unbound("body message views for id " + std::to_string(id));
     default:
@@ -666,6 +665,23 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
         auto& source = services_.source_at(message[2]);
         source_contact.emplace(RuntimeBodySourceContact{
             RuntimeBodyContactHitViews{*contact_pool, message[3], source, nullptr}, {}, {}, {}, player_.ring,
+            services_.address_zero, player_.self, damage_, damage_});
+        views.source_contact = &*source_contact;
+    }
+    if (id == 0x16)
+    {
+        // {0x16, reply, sender, contacts, point} from a furnace (0x0006E4D0); the contacts are a copied segment pool.
+        // 0x000233A0 reads the contacts, their address, the sender and, with body +0x278 clear, the body +0x270 actor.
+        const auto& pool = *reinterpret_cast<const GhoulySpawnPool*>(services_.event_at(message[3]).data());
+        contact_pool.emplace(entity_detail::SegmentPool{pool.stride, pool.grow, pool.begin, pool.cursor, pool.limit});
+        auto& source = services_.source_at(message[2]);
+        RuntimeBodyAttachedActor* retained = nullptr;
+        if (read_u32(player_.body, 0x278) == 0 && read_u32(player_.body, 0x270) != 0)
+        {
+            retained = &services_.source_at(read_u32(player_.body, 0x270));
+        }
+        source_contact.emplace(RuntimeBodySourceContact{
+            RuntimeBodyContactHitViews{*contact_pool, message[3], source, retained}, {}, {}, {}, player_.ring,
             services_.address_zero, player_.self, damage_, damage_});
         views.source_contact = &*source_contact;
     }
@@ -905,6 +921,9 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         return;
     case 0x8C:
         tick_runtime_transform_state({action.bytes.get(), action.size}, transform_context()); // 0x000A46D0
+        return;
+    case 0x75:
+        tick_runtime_furnace_hit_state({action.bytes.get(), action.size}, furnace_hit_context()); // 0x00096FC0
         return;
     case 0x63:
         tick_runtime_death_state({action.bytes.get(), action.size}, death_context()); // 0x0008C7E0
@@ -1250,6 +1269,7 @@ void SceneBodyMessages::action_step(FactoryObject& action)
     case 0x86:
     case 0x89:
     case 0x8C:
+    case 0x75:
         // 0x001628B0 (0x000D4179 for 0x69, 0x70 and 0x88) returns at once.
         return;
     default:
@@ -1684,6 +1704,16 @@ RuntimeTransformStateContext& SceneBodyMessages::transform_context()
         services_.image_string, services_.node_states, knockdown.death, knockdown.scene_flags,
         knockdown.restart_requested, services_.random});
     return *transform_;
+}
+
+RuntimeFurnaceHitStateContext& SceneBodyMessages::furnace_hit_context()
+{
+    auto& knockdown = knockdown_context();
+    furnace_hit_.reset();
+    furnace_hit_state_.reset();
+    furnace_hit_state_.emplace(services_.state_context(services_.address_of(player_.body.data())));
+    furnace_hit_.emplace(RuntimeFurnaceHitStateContext{knockdown, *furnace_hit_state_, services_.latches});
+    return *furnace_hit_;
 }
 
 RuntimeScrabbleStateContext& SceneBodyMessages::scrabble_context()
@@ -2718,7 +2748,7 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
             // 0x8A (getter 0x000A34C0) and 0x63 (getter 0x0008C5A0) keep the empty 0x001628B0 at +0xC too.
             if (type != 0x87 && type != 0x88 && type != 0x69 && type != 0x70 && type != 0x5B && type != 0x5C && type != 0x74 && type != 0x7C
                 && type != 0x8A && type != 0x63 && type != 0x80 && type != 0x7F && type != 0x6B && type != 0x77
-                && type != 0x6E && type != 0x6D && type != 0x81 && type != 0x7B)
+                && type != 0x6E && type != 0x6D && type != 0x81 && type != 0x7B && type != 0x75)
             {
                 unbound("collision reply action vtable +0xC of factory type " + std::to_string(type));
             }

@@ -31,6 +31,7 @@ struct BackgroundMessageContext
     const std::function<Actor*(u32)>& actor_at; // Retail actor address to actor; raises on unknown or zero.
     const std::function<std::span<const u8>(u32, size_t)>& resolve; // Hit lists, records and actor words.
     const std::function<void(Actor&, const void*)>& message; // Actor vtable +0xC.
+    const std::function<std::span<const u8>(u32)>& body_of; // An actor's +0x95C object (players).
 };
 // One hit record (stride 0x54): position +0, part +0x18. Breaks the part when no row holds it, and awards its
 // score caption when asked.

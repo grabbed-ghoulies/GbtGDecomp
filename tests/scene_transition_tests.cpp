@@ -9418,6 +9418,11 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
     std::set<gbtg::i32> avoided;
     gbtg::Vec3 stuck_at{};
     int stuck_since = -1;
+    // A ghouly walked to for a minute without Cooper getting within 16 is left: scene 2b6's vampire chickens stay in
+    // their pen behind a fence.
+    const gbtg::Actor* chased = nullptr;
+    int chased_since = 0;
+    std::set<const gbtg::Actor*> unreachable;
     // Pinned in one spot for 4 s (an actor or a crate's edge in the way, which the grid's held cells do not
     // cover), Cooper side-steps for 40 frames, alternating sides, then walks on.
     gbtg::Vec3 pinned_at{};
@@ -9531,6 +9536,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
         // girl (tag 0x37, objTag_Actor_UglyGirl) is Cooper's partner from scene 11 on.
         std::optional<gbtg::Vec3> ghouly;
         gbtg::u16 ghouly_class = 0;
+        const gbtg::Actor* ghouly_actor = nullptr;
         if (cooper && !page)
         {
             const bool fights = (range_title.empty() || title == range_title)
@@ -9573,6 +9579,18 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
             {
                 one_type = *kill_type;
             }
+            if (one_type == 0 && kill_steps == 0)
+            {
+                // A pending PlayerHitGhouly (opcode 14, its tag at +8) names the ghouly the script waits on: scene
+                // 2b6's Mr Ribs by the exit, while the vampire chickens (tag 0x39) sit penned behind a fence.
+                for (const auto& condition : gbtg::g_script_conds)
+                {
+                    if (gbtg::cond_u32(condition, 0) == 14 && gbtg::cond_u32(condition, 8) != 0)
+                    {
+                        one_type = gbtg::u16(gbtg::cond_u32(condition, 8));
+                    }
+                }
+            }
             for (const auto& mark : actors.marked_actors())
             {
                 const bool other_type = one_type != 0 && mark.actor != nullptr && mark.actor->class_key != one_type;
@@ -9586,7 +9604,8 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                         continue;
                     }
                 }
-                if (mark.actor == nullptr || mark.actor->class_key == 4 || mark.body.empty()
+                if (mark.actor == nullptr || unreachable.contains(mark.actor) || mark.actor->class_key == 4
+                    || mark.body.empty()
                     || gbtg::read_u16(mark.body, 0x94) == 0
                     || (mark.actor->class_key >= 0x26 && mark.actor->class_key <= 0x30) || mark.actor->class_key == 0x37
                     || mark.actor->class_key == 8 || mark.actor->class_key == 6 || mark.actor->class_key == 0xB)
@@ -9601,6 +9620,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                     nearest = d;
                     ghouly = at;
                     ghouly_class = mark.actor->class_key;
+                    ghouly_actor = mark.actor;
                 }
             }
         }
@@ -9662,6 +9682,26 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
         const bool close = ghouly
             && (ghouly->x - cooper->x) * (ghouly->x - cooper->x) + (ghouly->z - cooper->z) * (ghouly->z - cooper->z)
                 < 16.f * 16.f;
+        if (ghouly && !close && ghouly_actor != nullptr)
+        {
+            if (ghouly_actor != chased)
+            {
+                chased = ghouly_actor;
+                chased_since = frame;
+            }
+            else if (frame > chased_since + 3600)
+            {
+                std::cout << label << " frame " << frame << ": Cooper leaves the ghouly (class 0x" << std::hex
+                          << ghouly_class << std::dec << ") at " << ghouly->x << ", " << ghouly->z
+                          << ", out of reach for a minute\n";
+                unreachable.insert(ghouly_actor);
+                chased = nullptr;
+            }
+        }
+        if (close)
+        {
+            chased = nullptr;
+        }
         if (ghouly && !close)
         {
             goal = ghouly;
@@ -10412,12 +10452,18 @@ int main(int argc, char** argv)
     const bool scene2b4b_test = argc == 3 && std::string_view(argv[2]) == "--scene2b4b";
     // --scene2b5 boots chapter2b_scene5_1playcam and plays it until the script moves on.
     const bool scene2b5_test = argc == 3 && std::string_view(argv[2]) == "--scene2b5";
+    // --scene2b6 boots chapter2b_scene6_1book and plays it until the script moves on.
+    const bool scene2b6_test = argc == 3 && std::string_view(argv[2]) == "--scene2b6";
+    // --scene2b6b boots chapter2b_scene6_2playcam and plays it until the script moves on.
+    const bool scene2b6b_test = argc == 3 && std::string_view(argv[2]) == "--scene2b6b";
+    // --scene2b7 boots chapter2b_scene7_1playcam and plays it until the script moves on.
+    const bool scene2b7_test = argc == 3 && std::string_view(argv[2]) == "--scene2b7";
     if (spawn_test)
     {
         std::cout << std::unitbuf;
     }
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
-        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene2a14_test && !scene2a15_test && !scene2a16_test && !scene2a17_test && !scene2b1_test && !scene2b2_test && !scene2b3_test && !scene2b4_test && !scene2b4b_test && !scene2b5_test && !scene3_test && !pause_test)
+        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene2a14_test && !scene2a15_test && !scene2a16_test && !scene2a17_test && !scene2b1_test && !scene2b2_test && !scene2b3_test && !scene2b4_test && !scene2b4b_test && !scene2b5_test && !scene2b6_test && !scene2b6b_test && !scene2b7_test && !scene3_test && !pause_test)
     {
         std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene6-save | --scene6-save-reload | --scene3 | --pause | --scene4 | --scene5 | --scene6-1 | --scene7]\n";
         return 2;
@@ -10552,6 +10598,9 @@ int main(int argc, char** argv)
             : scene2b4_test ? "chapter2b_scene4_1playcam"
             : scene2b4b_test ? "chapter2b_scene4_2book"
             : scene2b5_test ? "chapter2b_scene5_1playcam"
+            : scene2b6_test ? "chapter2b_scene6_1book"
+            : scene2b6b_test ? "chapter2b_scene6_2playcam"
+            : scene2b7_test ? "chapter2b_scene7_1playcam"
             : player_test || spawn_test ? "chapter1_scene1_2playcam"
             : title_test ? "" : "scene0_1book");
         if (scene2a1b_test)
@@ -10560,6 +10609,27 @@ int main(int argc, char** argv)
             play_scene7(game, "scene2a1_2");
             pass_chapter_title(game, "scene2a1_to_3", "aid_script_ghoulies_chapter2a_scene1_3playcam", false);
             play_scene7(game, "scene2a1_3", 1000.f, "Event - Kill All", true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene2b7_test)
+        {
+            pass_chapter_title(game, "scene2b7", "aid_script_ghoulies_chapter2b_scene7_1playcam", false);
+            play_scene7(game, "scene2b7", 1000.f, {}, true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene2b6_test)
+        {
+            pass_chapter_title(game, "scene2b6", "aid_script_ghoulies_chapter2b_scene6_1book", false);
+            play_scene7(game, "scene2b6", 1000.f, {}, true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene2b6b_test)
+        {
+            pass_chapter_title(game, "scene2b6b", "aid_script_ghoulies_chapter2b_scene6_2playcam", false);
+            play_scene7(game, "scene2b6b", 1000.f, {}, true, true);
             gbtg::gfx_shutdown();
             return 0;
         }

@@ -28,7 +28,8 @@ struct NativeActorFactoryInstance
     entity_detail::ListHead live_attachments{};
     void* allocation_8fc = nullptr;
     void* matrices = nullptr;
-    GhoulySpawnPool* prop_contacts = nullptr; // Type 0x1A actor +0x934.
+    GhoulySpawnPool* prop_contacts = nullptr; // Types 0x17, 0x19 and 0x1A actor +0x934.
+    GhoulySpawnPool* furnace_contacts = nullptr; // Type 0x17 actor +0x938.
     ModelAnimationState pose;
     std::vector<ModelResourceBlock> pose_blocks; // Model CPU records behind pose.resource_blocks.
     RuntimeModelInstance* pose_model = nullptr; // Model the view was loaded from.

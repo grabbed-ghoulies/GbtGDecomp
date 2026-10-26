@@ -208,6 +208,7 @@ add_library(gbtg_lib STATIC
     src/engine/entities/segment_records.cpp
     src/engine/entities/body_contacts.cpp
     src/engine/entities/contact_prop_actor.cpp
+    src/engine/entities/furnace_actor.cpp
     src/engine/entities/player_update.cpp
     src/engine/entities/player_strategy_goals.cpp
     src/engine/entities/player_strategy.cpp
@@ -222,9 +223,11 @@ add_library(gbtg_lib STATIC
     src/engine/entities/zombie_strategy.cpp
     src/engine/entities/spider_strategy.cpp
     src/engine/entities/ugly_girl_strategy.cpp
+    src/engine/entities/ribs_strategy.cpp
     src/engine/entities/haunted_door_strategy.cpp
     src/engine/entities/imp_flamethrower_strategy.cpp
     src/engine/entities/body_transform_state.cpp
+    src/engine/entities/body_furnace_hit_state.cpp
     src/engine/entities/chicken_strategy.cpp
     src/engine/entities/imp_flying_strategy.cpp
     src/engine/entities/imp_ninja_strategy.cpp

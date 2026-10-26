@@ -415,6 +415,22 @@ const ObjectFactoryVtable* chicken_strategy_lifecycle()
     return &table;
 }
 
+bool construct_ribs_strategy_view(FactoryObject& object, std::span<const u8>)
+{
+    auto* player = active_owner->find_player(object);
+    player->strategy_type = 0x50;
+    player->refresh_views();
+    return initialize_runtime_ribs_strategy(player->ribs); // 0x000BF7B0
+}
+
+// Getter 0x000BF760: sizes are the base strategy's 0x0002B6A0; vtable +8 is the empty 0x001628B0.
+const ObjectFactoryVtable* ribs_strategy_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505FBC, base_strategy_object_sizes, construct_ribs_strategy_view,
+        destroy_empty_player_object};
+    return &table;
+}
+
 bool construct_vampire_chicken_strategy_view(FactoryObject& object, std::span<const u8>)
 {
     auto* player = active_owner->find_player(object);
@@ -679,6 +695,12 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
                   leave_runtime_spider_state(old_state, spider);
                   return;
               }
+              if (strategy_type == 0x50)
+              {
+                  // Ribs strategy vtable +0x18, the base 0x000BFA50.
+                  leave_runtime_base_strategy_state(bytes_of(object), old_state);
+                  return;
+              }
               if (strategy_type == 0x3A)
               {
                   // Chicken strategy vtable +0x18, the base 0x000BFA50.
@@ -818,6 +840,12 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
               {
                   // Flying imp strategy vtable +0x14, 0x000B58F0.
                   enter_runtime_imp_flamethrower_state(state, previous, imp_flamethrower);
+                  return;
+              }
+              if (strategy_type == 0x50)
+              {
+                  // Ribs strategy vtable +0x14, 0x000BF910.
+                  enter_runtime_ribs_state(state, previous, ribs);
                   return;
               }
               if (strategy_type == 0x3A)
@@ -1119,7 +1147,33 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
               scene.actor_callouts(actor, id, options);
           },
           "evade", "intofar", "randomrun", "tauntnoturn", "intoblock", "specialattackprepare",
-          "specialattackprepare2", "specialattack", "specialattackfinish"}
+          "specialattackprepare2", "specialattack", "specialattackfinish"},
+      ribs{strategy_messages, target_checks, body_selection,
+          [this]()
+          {
+              if (!body_action_key && scene.attach_body_methods)
+              {
+                  scene.attach_body_methods(*this);
+              }
+              if (!body_action_key)
+              {
+                  throw Error("ribs strategy: body vtable +0x20 is not attached");
+              }
+              return body_action_key();
+          },
+          [this](u32 slot, u8 value)
+          {
+              // 0x000F96F0 on the +0x204 and +0x310 models (AL value, stack slot).
+              if (actor.model != nullptr && actor.model->runtime != nullptr)
+              {
+                  set_runtime_model_node_state(*actor.model->runtime, u8(slot), value, scene.node_cache);
+              }
+              if (auto* secondary = actor_instance.startup.models.secondary.get())
+              {
+                  set_runtime_model_node_state(*secondary, u8(slot), value, scene.node_cache);
+              }
+          },
+          "far"}
 {
 }
 
@@ -1398,6 +1452,28 @@ void NativePlayerFactoryOwner::chicken_update(FactoryObject& strategy)
     }
     player->refresh_views();
     update_runtime_chicken_strategy(player->chicken);
+}
+
+void NativePlayerFactoryOwner::ribs_message(FactoryObject& strategy, std::span<const u32> message)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x50)
+    {
+        throw Error("ribs strategy method has no owning instance");
+    }
+    player->refresh_views();
+    dispatch_runtime_ribs_message(message, player->ribs);
+}
+
+void NativePlayerFactoryOwner::ribs_update(FactoryObject& strategy)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x50)
+    {
+        throw Error("ribs strategy method has no owning instance");
+    }
+    player->refresh_views();
+    update_runtime_ribs_strategy(player->ribs);
 }
 
 void NativePlayerFactoryOwner::vampire_chicken_message(FactoryObject& strategy, std::span<const u32> message)
@@ -1707,6 +1783,7 @@ void NativePlayerFactoryOwner::install(std::span<ObjectFactoryType> types)
     types[0x3A] = ObjectFactoryType{8, chicken_strategy_lifecycle};
     types[0x48] = ObjectFactoryType{8, imp_flying_strategy_lifecycle};
     types[0x55] = ObjectFactoryType{8, vampire_chicken_strategy_lifecycle};
+    types[0x50] = ObjectFactoryType{8, ribs_strategy_lifecycle};
     types[0x49] = ObjectFactoryType{8, imp_ninja_strategy_lifecycle};
     types[0x4B] = ObjectFactoryType{8, medusa_strategy_lifecycle};
     types[0x4E] = ObjectFactoryType{8, pirate_strategy_lifecycle};

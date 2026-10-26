@@ -1,5 +1,7 @@
 #include "body_hit_state.h"
 #include "actor_transform.h"
+#include "actor_shape_bounds.h"
+#include "entity_collision.h"
 #include "body_damage_motion.h"
 #include "body_move_action_slots.h"
 #include "body_walk_alert_tick.h"
@@ -828,6 +830,39 @@ void select_runtime_body_recovery_action(std::span<u8> state, u16 key, RuntimeBo
     select_runtime_body_goal_action(state, context);
 }
 
+// Xbox 0x000965C0
+void scorch_runtime_hit_furnace_contacts(std::span<u8> state, RuntimeHitFurnaceTick& context)
+{
+    const u32 holder = read_u32(context.body, 0x274);
+    u32 player = 0;
+    if (holder != 0)
+    {
+        const auto source = context.record_at(holder, 0xCF8);
+        player = read_u16(source, 0xCDC) == 2 ? 1 : (read_u32(source, 0x93C) != 0 ? 1 : 0);
+    }
+    Vec3 position = actor_world_position(context.actor); // 0x000412A0
+    const float radius = float(static_cast<long double>(actor_model_sweep_radius(context.actor)) // 0x0003D9A0
+        * std::bit_cast<float>(0x3F2AAAABu)); // DAT_0032B204.
+    const i32 found = entity_collect_contact_probes(position, radius, 0x140); // 0x00122B00
+    if (found != 0)
+    {
+        context.probe_messages(found, player, context.actor_address); // 0x0013FC50
+    }
+    if (read_u32(state, 0x20) != 0)
+    {
+        Vec3 previous{read_f32(state, 0x24), read_f32(state, 0x28), read_f32(state, 0x2C)};
+        const i32 swept = entity_record_point_probe(position, previous, radius, 0x140); // 0x001229F0, EBX position
+        if (swept != 0)
+        {
+            context.probe_messages(swept, player, context.actor_address); // 0x0013FC50
+        }
+    }
+    put_float(state, 0x24, position.x);
+    put_float(state, 0x28, position.y);
+    put_float(state, 0x2C, position.z);
+    put_word(state, 0x20, 1);
+}
+
 // Xbox 0x00096890
 void tick_runtime_hit_furnace_state(std::span<u8> state, RuntimeHitFurnaceTick& context)
 {
@@ -836,7 +871,7 @@ void tick_runtime_hit_furnace_state(std::span<u8> state, RuntimeHitFurnaceTick& 
         runtime_actor_rate(context.actor) * runtime_frame_step(context.clock) + read_f32(state, 0x10));
     if (context.settings.data() != nullptr && read_f32(context.settings, 0x19C) > 1.f) // DAT_0032B0F8.
     {
-        context.scorch();
+        scorch_runtime_hit_furnace_contacts(state, context); // 0x000965C0
     }
     put_float(body, 0x734, 0.f);
     put_float(body, 0x72C, 0.f);

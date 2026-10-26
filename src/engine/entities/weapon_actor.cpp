@@ -666,10 +666,33 @@ void change_runtime_weapon_state(RuntimeWeaponActor& weapon, u16 state)
 // Xbox 0x00144FD0, EAX actor
 void start_runtime_weapon_scene(RuntimeWeaponActor& weapon)
 {
-    if (read_u32(weapon.bytes, 0xC18) != 0)
+    if (read_u32(weapon.bytes, 0xC18) == 0)
     {
-        untranslated(0x0013B980, "the weapon scene start 0x00144FD0 (+0xC18 set)");
+        return;
     }
+    const Vec3 position = actor_world_position(weapon.actor); // 0x000412A0
+    if (!weapon.services.backgrounds)
+    {
+        throw Error("weapon scene start 0x00144FD0: the background list for 0x0013B980 is not bound");
+    }
+    const std::vector<BackgroundListEntry> backgrounds = weapon.services.backgrounds();
+    u32 background = read_u32(weapon.bytes, 0xC1C);
+    i32 part = i32(read_u32(weapon.bytes, 0xC20));
+    const bool found = find_background_part_near(position, backgrounds, background, part); // 0x0013B980, EBX position
+    store32(weapon.bytes, 0xC1C, background);
+    store32(weapon.bytes, 0xC20, u32(part));
+    if (!found)
+    {
+        store32(weapon.bytes, 0xC18, 0);
+        return;
+    }
+    // Vtable +0xC with {2}; words 1..3 are the position's stack slots.
+    std::array<u32, 0x42> message{};
+    message[0] = 2;
+    message[1] = std::bit_cast<u32>(position.x);
+    message[2] = std::bit_cast<u32>(position.y);
+    message[3] = std::bit_cast<u32>(position.z);
+    weapon.message(message);
 }
 
 // Xbox 0x00148600, ESI actor

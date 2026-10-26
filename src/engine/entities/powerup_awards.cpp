@@ -159,7 +159,12 @@ void award_runtime_powerup(i32 id, u32 player, u32 kind, float amount, u32 extra
         break;
     case 5:
         cleared = true;
-        throw Error("untranslated 0x000D0870 from 0x00123E70 (powerup kind 5)");
+        if (!context.complete_event)
+        {
+            throw Error("0x00123E70's powerup kind 5 completes the event sequence (0x000D0870) without it bound");
+        }
+        context.complete_event(); // 0x000D0870
+        break;
     case 6:
         throw Error("0x00123E70's powerup kind 6 reads the DAT_005064E0 challenges and DAT_004E17D8 timers; "
             "their native views are not bound");

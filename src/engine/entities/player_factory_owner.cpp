@@ -447,6 +447,22 @@ const ObjectFactoryVtable* giant_hand_strategy_lifecycle()
     return &table;
 }
 
+bool construct_haunted_coat_strategy_view(FactoryObject& object, std::span<const u8>)
+{
+    auto* player = active_owner->find_player(object);
+    player->strategy_type = 0x41;
+    player->refresh_views();
+    return initialize_runtime_haunted_coat_strategy(player->haunted_coat); // 0x000AF0A0
+}
+
+// Getter 0x000AF050; vtable +8 is the empty 0x001628B0.
+const ObjectFactoryVtable* haunted_coat_strategy_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505E18, haunted_coat_strategy_object_sizes,
+        construct_haunted_coat_strategy_view, destroy_empty_player_object};
+    return &table;
+}
+
 bool construct_vampire_chicken_strategy_view(FactoryObject& object, std::span<const u8>)
 {
     auto* player = active_owner->find_player(object);
@@ -718,6 +734,13 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
                   leave_runtime_giant_hand_state(old_state, giant_hand);
                   return;
               }
+              if (strategy_type == 0x41)
+              {
+                  // Haunted coat strategy vtable +0x18, 0x000AF6E0.
+                  refresh_views();
+                  leave_runtime_haunted_coat_state(old_state, haunted_coat);
+                  return;
+              }
               if (strategy_type == 0x50)
               {
                   // Ribs strategy vtable +0x18, the base 0x000BFA50.
@@ -869,6 +892,12 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
               {
                   // Giant hand strategy vtable +0x14, 0x000ACBB0.
                   enter_runtime_giant_hand_state(state, previous, giant_hand);
+                  return;
+              }
+              if (strategy_type == 0x41)
+              {
+                  // Haunted coat strategy vtable +0x14, 0x000AF5A0.
+                  enter_runtime_haunted_coat_state(state, previous, haunted_coat);
                   return;
               }
               if (strategy_type == 0x50)
@@ -1236,7 +1265,35 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
               }
               scene.create_object(parameters);
           },
-          scene_bindings.runtime_flags, scene_bindings.chapter_mode, "grab"}
+          scene_bindings.runtime_flags, scene_bindings.chapter_mode, "grab"},
+      haunted_coat{strategy_messages, target_checks, target_queue, strategy_views, body_selection,
+          actor_instance.live_attachments, self, scene_bindings.overrides, scene_bindings.occupancy_initial,
+          [this]() -> const EntityBitBlock&
+          {
+              if (body_bits == nullptr)
+              {
+                  throw Error("haunted coat strategy: 0x000AF750 without the body +0x15C bit block");
+              }
+              return *body_bits;
+          },
+          [this](std::span<const u8> target)
+          {
+              if (body_bits == nullptr)
+              {
+                  throw Error("haunted coat strategy: 0x00134350 without the body +0x15C bit block");
+              }
+              const RuntimePlayerAttachmentEligibility eligibility{body, *body_bits, actor, attached};
+              return runtime_player_body_point_is_near(eligibility, target);
+          },
+          [this](std::span<const u32> message)
+          {
+              if (!scene.object_message || body.empty())
+              {
+                  throw Error("haunted coat strategy: the body's vtable +0xC is not bound");
+              }
+              scene.object_message(scene.address_of(body.data()), message);
+          },
+          "attack", "sleep", "sleep_wall", "wakeup", "wakeup_wall"}
 {
 }
 
@@ -1537,6 +1594,28 @@ void NativePlayerFactoryOwner::giant_hand_message(FactoryObject& strategy, std::
     }
     player->refresh_views();
     dispatch_runtime_giant_hand_message(message, player->giant_hand);
+}
+
+void NativePlayerFactoryOwner::haunted_coat_message(FactoryObject& strategy, std::span<const u32> message)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x41)
+    {
+        throw Error("haunted coat strategy method has no owning instance");
+    }
+    player->refresh_views();
+    dispatch_runtime_haunted_coat_message(message, player->haunted_coat);
+}
+
+void NativePlayerFactoryOwner::haunted_coat_update(FactoryObject& strategy)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x41)
+    {
+        throw Error("haunted coat strategy method has no owning instance");
+    }
+    player->refresh_views();
+    update_runtime_haunted_coat_strategy(player->haunted_coat);
 }
 
 void NativePlayerFactoryOwner::giant_hand_update(FactoryObject& strategy)
@@ -1870,6 +1949,7 @@ void NativePlayerFactoryOwner::install(std::span<ObjectFactoryType> types)
     types[0x55] = ObjectFactoryType{8, vampire_chicken_strategy_lifecycle};
     types[0x50] = ObjectFactoryType{8, ribs_strategy_lifecycle};
     types[0x3E] = ObjectFactoryType{8, giant_hand_strategy_lifecycle};
+    types[0x41] = ObjectFactoryType{8, haunted_coat_strategy_lifecycle};
     types[0x49] = ObjectFactoryType{8, imp_ninja_strategy_lifecycle};
     types[0x4B] = ObjectFactoryType{8, medusa_strategy_lifecycle};
     types[0x4E] = ObjectFactoryType{8, pirate_strategy_lifecycle};

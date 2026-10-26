@@ -555,7 +555,8 @@ void SceneBodyMessages::bind_action_children()
             && child->type != 0x7B
             && child->type != 0x5A && child->type != 0x5B && child->type != 0x5C && child->type != 0x74
             && child->type != 0x7C && child->type != 0x87 && child->type != 0x88 && child->type != 0x69
-            && child->type != 0x70 && child->type != 0x75)
+            && child->type != 0x70 && child->type != 0x75
+            && child->type != 0x85) // Getter 0x000A1A10 stores it at 0x00505B8C.
         {
             unbound("body action message slot of factory type " + std::to_string(child->type));
         }
@@ -922,6 +923,9 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
     case 0x8C:
         tick_runtime_transform_state({action.bytes.get(), action.size}, transform_context()); // 0x000A46D0
         return;
+    case 0x85:
+        tick_runtime_spawn_ghouly_state({action.bytes.get(), action.size}, spawn_ghouly_context()); // 0x000A1BE0
+        return;
     case 0x75:
         tick_runtime_furnace_hit_state({action.bytes.get(), action.size}, furnace_hit_context()); // 0x00096FC0
         return;
@@ -1098,12 +1102,8 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         }
         RuntimeHitFurnaceTick tick{player_.body, player_.actor, player_.actor_bytes,
             player_.actor_instance.animation, services_.clock, player_.body_attributes, device,
-            player_.scene.input_state, services_.address_zero,
-            []()
-            {
-                unbound("furnace hit scorch 0x000965C0");
-            },
-            recovery_action()};
+            player_.scene.input_state, services_.address_zero, player_.actor_address, services_.probe_messages,
+            services_.record_at, recovery_action()};
         tick_runtime_hit_furnace_state({action.bytes.get(), action.size}, tick);
         return;
     }
@@ -1270,6 +1270,7 @@ void SceneBodyMessages::action_step(FactoryObject& action)
     case 0x89:
     case 0x8C:
     case 0x75:
+    case 0x85:
         // 0x001628B0 (0x000D4179 for 0x69, 0x70 and 0x88) returns at once.
         return;
     default:
@@ -1652,6 +1653,37 @@ RuntimeGenerateGhoulyContext& SceneBodyMessages::generate_ghouly_context()
             return body_slot_key(slot);
         }});
     return *generate_ghouly_;
+}
+
+RuntimeSpawnGhoulyStateContext& SceneBodyMessages::spawn_ghouly_context()
+{
+    player_.refresh_body_views();
+    if (!services_.generate_ghouly)
+    {
+        unbound("spawn ghouly state without the scene's spawn queues and kept objects");
+    }
+    if (player_.body_bits == nullptr)
+    {
+        unbound("spawn ghouly state without the body +0x15C bit block");
+    }
+    auto& knockdown = knockdown_context();
+    const u32 body_address = services_.address_of(player_.body.data());
+    spawn_ghouly_.reset();
+    spawn_ghouly_.emplace(RuntimeSpawnGhoulyStateContext{services_.generate_ghouly(), player_.body, player_.actor,
+        player_.actor_bytes, *player_.body_bits, player_.actor_instance.animation, player_.body_selection,
+        services_.clock, player_.actor_instance.live_attachments, services_.latches,
+        [this, body_address]()
+        {
+            return services_.state_context(body_address);
+        },
+        player_.spawn.record, services_.resources, services_.factory, services_.default_position,
+        services_.default_euler, services_.random, services_.occupancy_initial, services_.image_string,
+        [this](u32 actor, std::span<const u32> words)
+        {
+            services_.message(actor, words);
+        },
+        knockdown.death, knockdown.scene_flags, knockdown.restart_requested});
+    return *spawn_ghouly_;
 }
 
 RuntimeShockedStateContext& SceneBodyMessages::shocked_context()
@@ -2748,7 +2780,8 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
             // 0x8A (getter 0x000A34C0) and 0x63 (getter 0x0008C5A0) keep the empty 0x001628B0 at +0xC too.
             if (type != 0x87 && type != 0x88 && type != 0x69 && type != 0x70 && type != 0x5B && type != 0x5C && type != 0x74 && type != 0x7C
                 && type != 0x8A && type != 0x63 && type != 0x80 && type != 0x7F && type != 0x6B && type != 0x77
-                && type != 0x6E && type != 0x6D && type != 0x81 && type != 0x7B && type != 0x75)
+                && type != 0x6E && type != 0x6D && type != 0x81 && type != 0x7B && type != 0x75
+                && type != 0x85) // And getter 0x000A1A10.
             {
                 unbound("collision reply action vtable +0xC of factory type " + std::to_string(type));
             }

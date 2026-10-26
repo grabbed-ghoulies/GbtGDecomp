@@ -78,6 +78,7 @@ struct RuntimePowerupAwardContext
     std::span<const u8> sounds; // 0x003121D0: rows of 0x80 from index -1 (0x00312250 is row 0).
     std::function<std::vector<Actor*>()> marked_actors{}; // DAT_00511B38's actors (node - 0x934) in list order.
     RuntimePowerupActors* active_actors = nullptr; // DAT_00511B48, for kind 0x13.
+    std::function<bool()> complete_event{}; // 0x000D0870, the scripted event sequence's completion.
 };
 // Awards powerup `kind` (a row of DAT_00512140): its amount, extra word, player and id, the caption and its
 // scoreboard message, the kind's own effect, its sound (stream 0x12) and, for a player, broadcast 0x86.

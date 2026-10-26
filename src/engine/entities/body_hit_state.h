@@ -149,8 +149,14 @@ struct RuntimeHitFurnaceTick
     const RuntimeDialogueInputDevice* input; // The tick's input word, or null.
     const RuntimeDialogueInputState& input_state;
     std::span<const u8> address_zero; // What a null input word reads.
-    std::function<void()> scorch; // 0x000965C0 with the state.
+    u32 actor_address; // Body +8 as a retail word, for 0x0013FC50.
+    // 0x0013FC50: each collected probe hears message 8 with the attacker-is-a-player flag and the actor.
+    std::function<i32(i32 count, u32 player, u32 actor)> probe_messages;
+    std::function<std::span<const u8>(u32 address, size_t size)> record_at; // A scene record's bytes.
     RuntimeBodyRecoveryAction& recovery;
 };
+// The burning body's contacts (mask 0x140) within its sweep radius, and along its path from the last point
+// (state +0x24, kept while +0x20 is set), hear the scorch through 0x0013FC50.
+void scorch_runtime_hit_furnace_contacts(std::span<u8> state, RuntimeHitFurnaceTick& context); // Xbox 0x000965C0
 void tick_runtime_hit_furnace_state(std::span<u8> state, RuntimeHitFurnaceTick& context); // Xbox 0x00096890
 }

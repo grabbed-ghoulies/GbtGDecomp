@@ -83,6 +83,9 @@ extern ScriptEventSequenceContext* g_event_sequence_context;
 
 void release_script_event_steps(); // Xbox 0x000D0490
 void reset_script_event_sequence(); // Xbox 0x000D0530
+// Powerup kind 5: the running event completes. Its steps go, the completion stream plays, the event door opens
+// (state 4 keeps the decay latches) or, with no door, the sequence clears; DAT_0050EA9C gains 0x800000.
+bool complete_script_event_sequence(Game& g); // Xbox 0x000D0870
 // AX door, the stack hold word, ESI name.
 void begin_script_event_sequence(u16 door, u32 hold, const char* name); // Xbox 0x000D0550
 // EDI step: copies the step type's size into the next pool record.

@@ -21,6 +21,7 @@
 #include "vampire_chicken_strategy.h"
 #include "ribs_strategy.h"
 #include "giant_hand_strategy.h"
+#include "haunted_coat_strategy.h"
 #include "medusa_strategy.h"
 #include "pirate_strategy.h"
 #include "hunchback_strategy.h"
@@ -360,6 +361,7 @@ struct NativePlayerInstance
     RuntimeHunchbackStrategy hunchback; // Type 0x45.
     RuntimeRibsStrategy ribs; // Type 0x50.
     RuntimeGiantHandStrategy giant_hand; // Type 0x3E.
+    RuntimeHauntedCoatStrategy haunted_coat; // Type 0x41.
     void refresh_input_views(); // After the player constructor allocates actor +0x960.
     void refresh_views(); // Body, input, mind and strategy value views before a method runs.
 };
@@ -428,6 +430,8 @@ public:
     void ribs_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000BF7F0.
     void giant_hand_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000ACAF0.
     void giant_hand_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000ACA30.
+    void haunted_coat_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000AF340.
+    void haunted_coat_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000AF180.
     void imp_flying_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000B6CB0.
     void imp_flying_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000B6BF0.
     void imp_ninja_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000B7C50.

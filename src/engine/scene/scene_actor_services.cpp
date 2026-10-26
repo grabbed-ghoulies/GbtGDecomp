@@ -1131,6 +1131,7 @@ struct SceneActorServices::State
     void with_background_context(NativeBackgroundInstance& background,
         const std::function<void(Actor&, BackgroundMessageContext&)>& use);
     NativeBackgroundInstance& background_at(u32 address); // A background by retail address; raises otherwise.
+    std::vector<BackgroundListEntry> background_list(); // DAT_00511B20 in list order, for 0x0013B980.
     void background_update(NativeBackgroundInstance& background);
     void update_actor(u32 address);
     // ndMtxArray bindings (+0x20, count +0x24) of an actor's model, for 0x000400D0; built once per model.
@@ -2160,6 +2161,10 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     {
         return *display_setup;
     };
+    weapon_services->backgrounds = [this]()
+    {
+        return background_list();
+    };
     // Xbox 0x0001B680, ECX body
     weapon_services->empty_hand = [this](const Actor& holder)
     {
@@ -2331,19 +2336,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         },
         [this]()
         {
-            // DAT_00511B20 and each node's +4.
-            std::vector<BackgroundListEntry> entries;
-            for (const void* node = backgrounds->bindings.backgrounds.next; node != nullptr;
-                node = static_cast<const entity_detail::ListHead*>(node)->next)
-            {
-                auto* background = backgrounds->owner_of(*static_cast<const entity_detail::ListHead*>(node));
-                if (background == nullptr)
-                {
-                    throw Error("+0x934 list node is not a native background");
-                }
-                entries.push_back({scene.address_of(background->bytes.data()), &background->state.actor});
-            }
-            return entries;
+            return background_list();
         },
         [this](u32 address, i32 part, const Vec3& source, u32 value)
         {
@@ -2597,6 +2590,21 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
         }
         return graph->generate_ghouly_context();
+    });
+    install_runtime_spawn_ghouly_state_class(scene.types, [this](u32 body_address) -> RuntimeSpawnGhoulyStateContext&
+    {
+        const auto bytes = scene.resolve_address(body_address, 0);
+        auto* player = players->find_child_owner(bytes.data());
+        if (player == nullptr || player->body.data() != bytes.data())
+        {
+            unbound("spawn ghouly state whose body has no player owner");
+        }
+        auto& graph = body_messages[player->body.data()];
+        if (graph == nullptr)
+        {
+            graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
+        }
+        return graph->spawn_ghouly_context();
     });
     install_runtime_slide_state_class(scene.types, [this](u32 body_address) -> RuntimeSlideStateContext&
     {
@@ -3477,6 +3485,10 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         intro_notices, *bonus_counters, *scoreboard_resources, *challenge_saves});
     powerup_awards = std::make_unique<RuntimePowerupAwardContext>(RuntimePowerupAwardContext{*powerup_table,
         *powerup_caption, *scoreboard_resources, *challenge_award, audio.streams, data(0x003121D0, 6 * 0x80)});
+    powerup_awards->complete_event = [this]()
+    {
+        return complete_script_event_sequence(game); // 0x000D0870
+    };
     powerup_awards->marked_actors = [this]()
     {
         std::vector<Actor*> actors;
@@ -7829,7 +7841,7 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
     // has not attached yet.
     if (child.type == 0x4F || child.type == 0x46 || child.type == 0x3B || child.type == 0x51 || child.type == 0x52
         || child.type == 0x58 || child.type == 0x44 || child.type == 0x40 || child.type == 0x4C || child.type == 0x53
-        || child.type == 0x42 || child.type == 0x3A || child.type == 0x47 || child.type == 0x48 || child.type == 0x49 || child.type == 0x55 || child.type == 0x50 || child.type == 0x3E || child.type == 0x4B
+        || child.type == 0x42 || child.type == 0x3A || child.type == 0x47 || child.type == 0x48 || child.type == 0x49 || child.type == 0x55 || child.type == 0x50 || child.type == 0x3E || child.type == 0x41 || child.type == 0x4B
         || child.type == 0x4E || child.type == 0x45)
     {
         if (auto* player = players->find_player(child); player != nullptr && !player->body.empty())
@@ -7877,6 +7889,9 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
         return;
     case 0x3E:
         players->giant_hand_message(child, words);
+        return;
+    case 0x41:
+        players->haunted_coat_message(child, words);
         return;
     case 0x42:
         players->haunted_door_message(child, words);
@@ -8397,6 +8412,9 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
             case 0x3E:
                 players->giant_hand_update(strategy);
                 return;
+            case 0x41:
+                players->haunted_coat_update(strategy);
+                return;
             case 0x42:
                 players->haunted_door_update(strategy);
                 return;
@@ -8540,6 +8558,7 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
             case 0x89: // And getter 0x000A31A0.
             case 0x75: // And getter 0x00096A50.
             case 0x8C: // And getter 0x000A43A0.
+            case 0x85: // And getter 0x000A1A10.
                 return runtime_body_action_next_key(action);
             case 0x5A:
             case 0x5C:
@@ -8671,6 +8690,23 @@ std::unique_ptr<RuntimeBackgroundConstructionServices> SceneActorServices::State
         view.anchors, origin, first_animation, views->source, background_allocation, background_address, *doors,
         background_ambient, random, resources.registry, resources.error, disable_framebuffer_clear, views->nodes,
         matrix_boundaries});
+}
+
+std::vector<BackgroundListEntry> SceneActorServices::State::background_list()
+{
+    // DAT_00511B20 and each node's +4.
+    std::vector<BackgroundListEntry> entries;
+    for (const void* node = backgrounds->bindings.backgrounds.next; node != nullptr;
+        node = static_cast<const entity_detail::ListHead*>(node)->next)
+    {
+        auto* background = backgrounds->owner_of(*static_cast<const entity_detail::ListHead*>(node));
+        if (background == nullptr)
+        {
+            throw Error("+0x934 list node is not a native background");
+        }
+        entries.push_back({scene.address_of(background->bytes.data()), &background->state.actor});
+    }
+    return entries;
 }
 
 NativeBackgroundInstance& SceneActorServices::State::background_at(u32 address)
@@ -9349,7 +9385,8 @@ void SceneActorServices::State::draw_player(FactoryObject& object, NativePlayerI
                 && type != 0x86 // And getter 0x000A21F0.
                 && type != 0x89 // And getter 0x000A31A0.
                 && type != 0x75 // And getter 0x00096A50.
-                && type != 0x8C) // And getter 0x000A43A0.
+                && type != 0x8C // And getter 0x000A43A0.
+                && type != 0x85) // And getter 0x000A1A10.
             {
                 unbound("body +0x744 object vtable +0x18 draw for factory type "
                     + std::to_string(player.second_action.type));

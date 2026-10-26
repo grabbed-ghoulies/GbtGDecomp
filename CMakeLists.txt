@@ -225,6 +225,8 @@ add_library(gbtg_lib STATIC
     src/engine/entities/ugly_girl_strategy.cpp
     src/engine/entities/ribs_strategy.cpp
     src/engine/entities/giant_hand_strategy.cpp
+    src/engine/entities/haunted_coat_strategy.cpp
+    src/engine/entities/body_spawn_ghouly_state.cpp
     src/engine/entities/haunted_door_strategy.cpp
     src/engine/entities/imp_flamethrower_strategy.cpp
     src/engine/entities/body_transform_state.cpp

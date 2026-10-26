@@ -113,6 +113,9 @@ bool runtime_message_source_targets_mind_target(std::span<const u32> message, u3
     RuntimeStrategyActorViews& views); // Xbox 0x00140A00, EAX message, ECX actor
 // The squared distance from the actor to the target record's point (+0x20).
 float runtime_squared_target_distance(const Actor& actor, std::span<const u8> target); // Xbox 0x000415A0, ESI actor, EBX target
+// The point lies within `half_angle` either side of the actor's world heading (euler y).
+bool runtime_actor_faces_point(const Actor& actor, const Vec3& point,
+    float half_angle); // Xbox 0x00137F50, ECX actor, EAX point
 // The distance from the actor to the target record's point (+0x20).
 long double runtime_target_distance(const Actor& actor, std::span<const u8> target); // Xbox 0x00041560, ESI actor, EBX target
 // A running timer (above zero) counts down by the actor's step; true once it reaches zero, where it stops.

@@ -166,6 +166,48 @@ void release_script_event_steps()
     g_event_sequence.steps = nullptr;
 }
 
+// Xbox 0x000D0870
+bool complete_script_event_sequence(Game& g)
+{
+    ScriptEventSequence& sequence = g_event_sequence;
+    if (sequence.steps == nullptr)
+    {
+        return false;
+    }
+    release_script_event_steps(); // 0x000D0490
+    request_audio_stream("XACT_SOUNDBANK_GSTREAMSDITTIES_EVENTCOMPLETE", 10, scene_music_streams(g)); // 0x00038720
+    sequence.waiting = 0;
+    if (door_exists(sequence.door)) // The inlined walk of 0x0005B510.
+    {
+        if (g_event_sequence_state == 4)
+        {
+            notify_event_end(g); // {0x83, 1}: 0x00116810 and 0x00122C70.
+        }
+        if (door_exists(sequence.door)) // 0x0005B510, SI door
+        {
+            set_runtime_door_state(sequence.door, 0, 0, 0, context().doors); // 0x0005B540
+        }
+        g_event_sequence_state = 4;
+        script_update_decay_latches(0xFFFF, 0); // 0x00117400
+    }
+    else
+    {
+        const bool was_complete = g_event_sequence_state == 4;
+        if (was_complete)
+        {
+            notify_event_end(g); // {0x83, 1}: 0x00116810 and 0x00122C70.
+        }
+        sequence.door = 0;
+        g_event_sequence_state = 0;
+        if (was_complete)
+        {
+            script_update_decay_latches(0xFFFF, 1); // 0x00117400
+        }
+    }
+    g_flags_ea9c |= 0x800000;
+    return true;
+}
+
 // Xbox 0x000D0530
 void reset_script_event_sequence()
 {

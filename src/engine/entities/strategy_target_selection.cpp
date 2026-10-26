@@ -6,6 +6,8 @@
 #include "player_children.h"
 #include "player_mind_targets.h"
 #include "body_request_selection.h"
+#include "bounded_channels.h"
+#include "player_mind_events.h"
 #include "../navigation/player_avoidance.h"
 #include "../scripts/script_conditions.h"
 #include <bit>
@@ -970,6 +972,28 @@ float runtime_squared_target_distance(const Actor& actor, std::span<const u8> ta
     const float dx = position.x - read_f32(target, 0x20);
     const float dy = position.y - read_f32(target, 0x24);
     return (dz * dz + dx * dx) + dy * dy;
+}
+
+// Xbox 0x00137F50, ECX actor, EAX point
+bool runtime_actor_faces_point(const Actor& actor, const Vec3& point, float half_angle)
+{
+    const Vec3 position = actor_world_position(actor); // 0x000412A0
+    const Vec3 euler = actor_world_euler(actor); // 0x00041820
+    const Vec3 direction{point.x - position.x, point.y - position.y, point.z - position.z};
+    float angle = 0.f; // Retail leaves the stack slot as it was for a zero direction.
+    runtime_direction_angle(direction, angle); // 0x00105F90
+    const float tau = std::bit_cast<float>(0x40C90FDBu); // DAT_0032B298.
+    const long double remainder = runtime_float_remainder(angle - euler.y, tau); // 0x00152BE0
+    float difference = float(remainder);
+    if (remainder < static_cast<long double>(std::bit_cast<float>(0xC0490FDBu))) // DAT_0032B29C.
+    {
+        difference += tau;
+    }
+    if (difference >= std::bit_cast<float>(0x40490FDBu)) // DAT_0032B148.
+    {
+        difference -= tau;
+    }
+    return !(0.f - half_angle > difference) && !(difference > half_angle);
 }
 
 bool runtime_strategy_reactions_enabled(RuntimePlayerStrategyGoals& context)

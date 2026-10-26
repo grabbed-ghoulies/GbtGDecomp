@@ -18,6 +18,7 @@
 #include "../entities/body_arc_state.h"
 #include "../entities/body_arc_attack_state.h"
 #include "../entities/generate_ghouly_state.h"
+#include "../entities/body_spawn_ghouly_state.h"
 #include "../entities/body_shocked_state.h"
 #include "../entities/body_transform_state.h"
 #include "../entities/body_furnace_hit_state.h"
@@ -198,6 +199,7 @@ public:
     RuntimeWalkStateContext& walk_context(); // The type 0x8D state's views of this body.
     RuntimeArcAttackStateContext& arc_attack_context(); // The type 0x5F state's views of this body.
     RuntimeGenerateGhoulyContext& generate_ghouly_context(); // The type 0x6F state's views of this body.
+    RuntimeSpawnGhoulyStateContext& spawn_ghouly_context(); // The type 0x85 state's views of this body.
     RuntimeShockedStateContext& shocked_context(); // The type 0x80 state's views of this body.
     RuntimeTransformStateContext& transform_context(); // The type 0x8C state's views of this body.
     RuntimeFurnaceHitStateContext& furnace_hit_context(); // The type 0x75 state's views of this body.
@@ -265,6 +267,7 @@ private:
     std::optional<RuntimeArcAttackStateContext> arc_attack_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> generate_ghouly_children_; // 0x6F.
     std::optional<RuntimeGenerateGhoulyContext> generate_ghouly_;
+    std::optional<RuntimeSpawnGhoulyStateContext> spawn_ghouly_;
     std::optional<RuntimeShockedStateContext> shocked_;
     std::optional<RuntimeTransformStateContext> transform_;
     std::optional<RuntimeBodyStateContext> furnace_hit_state_;

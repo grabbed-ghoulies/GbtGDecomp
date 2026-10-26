@@ -17,6 +17,7 @@
 #include "ghouly_requests.h"
 #include "../navigation/cell_registration.h"
 #include "../navigation/floor_tracking.h"
+#include "../scene/background_parts.h"
 #include "gbtg/resource_error.h"
 #include "actor_lifecycle.h"
 #include "ghouly_spawn_record.h"
@@ -97,6 +98,7 @@ struct RuntimeWeaponServices
     std::function<RuntimeCandleServices&()> candle{}; // Type 0xA1's lights, billboards and burst callout.
     ActorEffectStreamContext* effects = nullptr; // 0x00053170's context (type 0xA6's droplet effects).
     std::function<RuntimeDisplaySetupContext&()> display{}; // Type 0xA6's strip draw (0x000659F0).
+    std::function<std::vector<BackgroundListEntry>()> backgrounds{}; // DAT_00511B20 order, for 0x0013B980.
 };
 // Message 0x1D from a weapon's contact test (0x00141890) to the actor it hit.
 struct RuntimeWeaponHitNotice

@@ -431,6 +431,22 @@ const ObjectFactoryVtable* ribs_strategy_lifecycle()
     return &table;
 }
 
+bool construct_giant_hand_strategy_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto* player = active_owner->find_player(object);
+    player->strategy_type = 0x3E;
+    player->refresh_views();
+    return initialize_runtime_giant_hand_strategy(bytes_of(object), parameters, player->giant_hand); // 0x000AC930
+}
+
+// Getter 0x000AC8E0; vtable +8 is the empty 0x001628B0.
+const ObjectFactoryVtable* giant_hand_strategy_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505DC4, giant_hand_strategy_object_sizes,
+        construct_giant_hand_strategy_view, destroy_empty_player_object};
+    return &table;
+}
+
 bool construct_vampire_chicken_strategy_view(FactoryObject& object, std::span<const u8>)
 {
     auto* player = active_owner->find_player(object);
@@ -695,6 +711,13 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
                   leave_runtime_spider_state(old_state, spider);
                   return;
               }
+              if (strategy_type == 0x3E)
+              {
+                  // Giant hand strategy vtable +0x18, 0x000ACBF0.
+                  refresh_views();
+                  leave_runtime_giant_hand_state(old_state, giant_hand);
+                  return;
+              }
               if (strategy_type == 0x50)
               {
                   // Ribs strategy vtable +0x18, the base 0x000BFA50.
@@ -840,6 +863,12 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
               {
                   // Flying imp strategy vtable +0x14, 0x000B58F0.
                   enter_runtime_imp_flamethrower_state(state, previous, imp_flamethrower);
+                  return;
+              }
+              if (strategy_type == 0x3E)
+              {
+                  // Giant hand strategy vtable +0x14, 0x000ACBB0.
+                  enter_runtime_giant_hand_state(state, previous, giant_hand);
                   return;
               }
               if (strategy_type == 0x50)
@@ -1173,7 +1202,41 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
                   set_runtime_model_node_state(*secondary, u8(slot), value, scene.node_cache);
               }
           },
-          "far"}
+          "far"},
+      giant_hand{strategy_messages, actor_instance, attribute_resource,
+          [this]()
+          {
+              if (!scene.body_state)
+              {
+                  throw Error("giant hand strategy: 0x0001FEB0's body views are not bound");
+              }
+              return scene.body_state(*this);
+          },
+          [this](std::span<const u32> message)
+          {
+              if (!scene.tell_players)
+              {
+                  throw Error("giant hand strategy: 0x00122D10 is not bound");
+              }
+              scene.tell_players(message);
+          },
+          [this](std::span<const u8> message)
+          {
+              if (!scene.queue_event)
+              {
+                  throw Error("giant hand strategy: 0x00116810 is not bound");
+              }
+              scene.queue_event(message);
+          },
+          [this](std::span<const u8> parameters)
+          {
+              if (!scene.create_object)
+              {
+                  throw Error("giant hand strategy: 0x00107520 is not bound");
+              }
+              scene.create_object(parameters);
+          },
+          scene_bindings.runtime_flags, scene_bindings.chapter_mode, "grab"}
 {
 }
 
@@ -1463,6 +1526,28 @@ void NativePlayerFactoryOwner::ribs_message(FactoryObject& strategy, std::span<c
     }
     player->refresh_views();
     dispatch_runtime_ribs_message(message, player->ribs);
+}
+
+void NativePlayerFactoryOwner::giant_hand_message(FactoryObject& strategy, std::span<const u32> message)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x3E)
+    {
+        throw Error("giant hand strategy method has no owning instance");
+    }
+    player->refresh_views();
+    dispatch_runtime_giant_hand_message(message, player->giant_hand);
+}
+
+void NativePlayerFactoryOwner::giant_hand_update(FactoryObject& strategy)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x3E)
+    {
+        throw Error("giant hand strategy method has no owning instance");
+    }
+    player->refresh_views();
+    update_runtime_giant_hand_strategy(player->giant_hand);
 }
 
 void NativePlayerFactoryOwner::ribs_update(FactoryObject& strategy)
@@ -1784,6 +1869,7 @@ void NativePlayerFactoryOwner::install(std::span<ObjectFactoryType> types)
     types[0x48] = ObjectFactoryType{8, imp_flying_strategy_lifecycle};
     types[0x55] = ObjectFactoryType{8, vampire_chicken_strategy_lifecycle};
     types[0x50] = ObjectFactoryType{8, ribs_strategy_lifecycle};
+    types[0x3E] = ObjectFactoryType{8, giant_hand_strategy_lifecycle};
     types[0x49] = ObjectFactoryType{8, imp_ninja_strategy_lifecycle};
     types[0x4B] = ObjectFactoryType{8, medusa_strategy_lifecycle};
     types[0x4E] = ObjectFactoryType{8, pirate_strategy_lifecycle};

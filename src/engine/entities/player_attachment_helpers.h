@@ -38,6 +38,10 @@ bool bind_runtime_actor_parent_now(Actor& actor, Actor* parent, u8 flags, const 
 // 0x0003B840 for `actor` (EDI) on `parent`'s (EDX) joint `joint_key` (ECX), then the same apply.
 bool bind_runtime_actor_joint_now(Actor& actor, Actor* parent, i32 joint_key, u8 flags, const Vec3& origin,
     const Vec3& euler); // Xbox 0x0003B4C0
+// Binds `actor` (ECX) under `parent` (EAX, may be null) at one of the parent model's binding records (mode 3) with
+// `flags`, then applies the bind at once as 0x0003B460 does.
+bool bind_runtime_actor_marker_now(Actor& actor, Actor* parent, const u8* binding, u8 flags, const Vec3& origin,
+    const Vec3& euler); // Xbox 0x0003B500
 void notify_runtime_attachment_host(RuntimeBodyAttachedActor& host,
     RuntimeBodyAttachedActor& attached); // Xbox 0x0001B770
 void notify_runtime_secondary_attachment_host(RuntimeBodyAttachedActor& host,

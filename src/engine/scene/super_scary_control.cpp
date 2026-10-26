@@ -336,12 +336,9 @@ bool construct_runtime_super_scary_control(std::span<u8> state, std::span<const 
         else
         {
             const auto head = services.actor_view(control.head);
-            const u8* binding = find_actor_model_binding(head.actor, 2); // 0x000408D0, EDI 2
-            if (binding != nullptr)
-            {
-                throw Error("Super Scary mode 2/3 keeps a model binding at +0x288; its native view is not bound");
-            }
-            set(state, field::head_binding, 0);
+            control.head_binding = find_actor_model_binding(head.actor, 2); // 0x000408D0, EDI 2
+            set(state, field::head_binding,
+                control.head_binding == nullptr ? 0u : services.binding_address(control.head, control.head_binding));
         }
     }
     copy_string(field_data(state, field::first_clip), field_data(parameters, parameter::first_clip));
@@ -865,10 +862,7 @@ void set_runtime_super_scary_state(std::span<u8> state, i32 next, SuperScaryCont
         {
             const auto view = services.actor_view(control.player);
             set(state, field::bound_position, actor_world_position(view.actor)); // 0x000412A0, EDI +0x27C
-            if (get(state, field::head_binding) != 0)
-            {
-                throw Error("Super Scary binds the player to +0x288 (0x0003B500); its native view is not bound");
-            }
+            services.bind_to_head(control.player, control.head, control.head_binding); // 0x0003B500, ECX player
             set_body_word_728(services.player_body(control.player), 0);
             if (view.secondary_model)
             {

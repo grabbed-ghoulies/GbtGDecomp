@@ -20,6 +20,7 @@
 #include "imp_ninja_strategy.h"
 #include "vampire_chicken_strategy.h"
 #include "ribs_strategy.h"
+#include "giant_hand_strategy.h"
 #include "medusa_strategy.h"
 #include "pirate_strategy.h"
 #include "hunchback_strategy.h"
@@ -199,6 +200,11 @@ struct NativePlayerSceneBindings
     // Attaches a player's body methods (vtable +0x20 among them) when a weapon is attached before the scene first
     // messages its body, as the player 0x00134920 spawns holding the relics store's candle does.
     std::function<void(NativePlayerInstance&)> attach_body_methods{};
+    // Giant hand strategy (type 0x3E, vtable 0x00505DC4): 0x0001FEB0's views of a player's body, 0x00122D10 over
+    // DAT_00511B40 (EDI the message) and 0x00116810.
+    std::function<RuntimeBodyStateContext(NativePlayerInstance&)> body_state{};
+    std::function<void(std::span<const u32>)> tell_players{};
+    std::function<void(std::span<const u8>)> queue_event{};
     // Attaches the player's message slot (0x00028F60) when it is messaged while still being constructed (its weapon's
     // 0x0001B2B0 notifies it), before the scene first routes a message to it.
     std::function<void(FactoryObject&, NativePlayerInstance&)> attach_actor_messages{};
@@ -353,6 +359,7 @@ struct NativePlayerInstance
     RuntimePirateStrategy pirate; // Type 0x4E.
     RuntimeHunchbackStrategy hunchback; // Type 0x45.
     RuntimeRibsStrategy ribs; // Type 0x50.
+    RuntimeGiantHandStrategy giant_hand; // Type 0x3E.
     void refresh_input_views(); // After the player constructor allocates actor +0x960.
     void refresh_views(); // Body, input, mind and strategy value views before a method runs.
 };
@@ -419,6 +426,8 @@ public:
     void vampire_chicken_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000C2950.
     void ribs_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000BF8B0.
     void ribs_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000BF7F0.
+    void giant_hand_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000ACAF0.
+    void giant_hand_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000ACA30.
     void imp_flying_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000B6CB0.
     void imp_flying_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000B6BF0.
     void imp_ninja_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000B7C50.

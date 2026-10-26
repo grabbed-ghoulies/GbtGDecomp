@@ -290,6 +290,21 @@ bool bind_runtime_actor_joint_now(Actor& actor, Actor* parent, i32 joint_key, u8
     return true;
 }
 
+// Xbox 0x0003B500
+bool bind_runtime_actor_marker_now(Actor& actor, Actor* parent, const u8* binding, u8 flags, const Vec3& origin,
+    const Vec3& euler)
+{
+    if (parent != nullptr && ensure_runtime_actor_bind(actor) != nullptr) // 0x0003B9D0
+    {
+        actor.bind->mode_parent = 3;
+        actor.bind->parent = parent;
+        actor.bind->flags = flags;
+        actor.bind->bone = const_cast<u8*>(binding);
+    }
+    apply_runtime_actor_bind(actor, origin, euler);
+    return true;
+}
+
 // Xbox 0x0001B7C0
 void notify_runtime_secondary_attachment_host(RuntimeBodyAttachedActor& host, RuntimeBodyAttachedActor& attached)
 {

@@ -244,6 +244,7 @@ All take the game directory, e.g.
 | `--scene2b6` | Boots chapter 2b scene 6's book page (chapter2b_scene6_1book) and plays it until the script moves on to `aid_script_ghoulies_chapter2b_scene6_2playcam` (frame 2226 in the 2026-10-26 run) |
 | `--scene2b6b` | Boots chapter 2b scene 6 (chapter2b_scene6_2playcam, the farmyard) and plays it with the scene 7 driver: the driver chases the class a pending PlayerHitGhouly names (Mr Ribs, tag 0x31, by the barn door), leaves each penned vampire chicken after a minute out of reach, and walks into region 1. Passes when the script moves on to `aid_script_ghoulies_chapter2b_scene7_1playcam` (frame 18716 in the 2026-10-26 run) |
 | `--scene2b7` | Boots chapter 2b scene 7 (chapter2b_scene7_1playcam, the kiln rooms) and plays it with the scene 7 driver: the walk-in, "EXIT DOOR CLOSES", "EVENT - REQUIRED NUMBER/FIND THE KEY" with the furnace burning skeletons, then "FREE PLAY", where the driver leaves the workshop spawn's mummies and walks out of the exit. Passes when the script moves on to `aid_script_ghoulies_chapter2b_scene8_1playcam` (frame 12242 in the 2026-10-26 run) |
+| `--scene2b8` | Boots chapter 2b scene 8 (chapter2b_scene8_1playcam, the lower corridors) and plays it with the scene 7 driver: the giant hand grabs Cooper (its Super Scary challenge, mode 2), the driver leaves Mr Ribs, who takes no hits, and hits a haunted chair (PlayerHitGhouly, tag 0x10). Passes when the script moves on to `aid_script_ghoulies_chapter2b_scene9_1playcam` (frame 4791 in the 2026-10-26 run) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -410,6 +411,27 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-26: chapter 2b scene 8: the giant hand
+
+- **entityStrategyGiantHand** (factory type 0x3E, getter `0x000AC8E0`, vtable 0x00505DC4; the factory table's row 0x3D
+  carries the name) in `entities/giant_hand_strategy.cpp`: sizes `0x000AC8C0` (0x164 / 0x118), construct `0x000AC930`,
+  message `0x000ACAF0`, update `0x000ACA30`, enter `0x000ACBB0`, leave `0x000ACBF0`. Waiting (0x401, `0x000AC4C0`) the
+  hand is hidden (`0x001364B0`) and out of the world's collision (`0x00136540`); while its target can be grabbed
+  (`0x000AC590`) it tells the players {0x40, hand, distance} (`0x00122D10`) how far the target is outside its room
+  (`0x000AC610`, `0x00124760`, `0x00124B90`) and grabs (0x3EF) once the target is in it (`0x000AC690`). The grab
+  (`0x000AC740`, "grab") shows the hand and puts its collision back (`0x000ACCA0`, `0x001365C0`) and announces 0x6C;
+  on body bit 0x2D it starts its scene challenge (`0x000AC820`, 0x000873A0 with scare mode 2). Its end announces 0x6D,
+  and 0x3F0 goes back to waiting when no challenge started (`0x000AC870`).
+- **Super Scary mode 2/3**: the head's model binding 2 (`0x000408D0`) is kept at +0x288 (its address in the head
+  model's source) and the player is bound to it (`0x0003B500`, now `bind_runtime_actor_marker_now`, which the jump-on
+  ride also uses). The release's floor height (`0x000874F0`) reads the floor cell's +2 through `0x00110BF0` /
+  `0x00110EF0`; with no cell it keeps the floor index's bits, as retail does.
+- Broadcasts 0x6C and 0x6D are one word.
+- Driver: a ghouly fought up close for 20 s without its energy falling is left (Mr Ribs, tag 0x31, carrying the egg
+  by the exit). Not rerun on the earlier scenes.
+- Checked in the captures: the hand rising out of the floor with Cooper in its grip (frame 2400) and Cooper beside
+  Mr Ribs at the doorway (frame 3300). Not checked: the button prompts of the challenge on screen.
 
 ### 2026-10-26: chapter 2b scene 7: the furnace
 

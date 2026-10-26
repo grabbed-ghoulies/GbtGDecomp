@@ -97,6 +97,9 @@ struct SuperScaryControlServices
     void* const& scene_name_text; // DAT_00512484
     std::function<bool()> scene_end_flag; // 0x00049D10
     std::function<i32()> player_character; // 0x00087830
+    std::function<u32(u32, const u8*)> binding_address; // A binding record's retail address in the head's model.
+    // 0x0003B500 (ECX the player, EAX the head, the binding record, flags 0) with DAT_0050DD80 / DAT_0050DD74.
+    std::function<void(u32, u32, const u8*)> bind_to_head;
 };
 // The Super Scary challenge's construction parameters (0x1D8 bytes, 0x000842D0), as 0x00084340 reads them.
 namespace super_scary_parameter
@@ -204,6 +207,7 @@ struct SuperScaryControlState
     std::span<const u8> clips; // +0x294, the aidlist: rows of 0x80-byte names.
     std::array<std::span<const u8>, 5> buttons{}; // +0x298, the aidlist's rows +0x1880.. (button textures).
     EntityCamNode camera{}; // +0x40
+    const u8* head_binding = nullptr; // +0x288 in modes 2 and 3: the head's model binding 2 (0x000408D0).
 };
 void super_scary_control_object_sizes(ObjectSizes& output); // Xbox 0x000842D0
 bool construct_runtime_super_scary_control(std::span<u8> state, std::span<const u8> parameters,

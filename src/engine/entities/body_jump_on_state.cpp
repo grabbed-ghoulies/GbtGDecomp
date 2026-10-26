@@ -1088,25 +1088,8 @@ void attach_runtime_ride(RuntimeJumpOnStateContext& context)
     {
         throw Error("0x00099DF0 binds the rider to a head marker its target does not have");
     }
-    // 0x0003B500, ECX actor, EAX target: a marker bind (mode 3) under the target, flags 0.
-    if (ensure_runtime_actor_bind(context.actor) != nullptr) // 0x0003B9D0
-    {
-        context.actor.bind->mode_parent = 3;
-        context.actor.bind->parent = target.actor;
-        context.actor.bind->flags = 0;
-        context.actor.bind->bone = const_cast<u8*>(row);
-    }
-    if (ActorBind* bind = context.actor.bind; bind != nullptr)
-    {
-        bind->mode_local = bind->mode_parent;
-        if (bind->parent == nullptr)
-        {
-            throw Error("0x0003B500 binds an actor under no parent");
-        }
-        bind_actor_under_parent(context.actor, *bind->parent, context.default_position,
-            context.default_euler); // 0x0003BB20
-        bind->parent = nullptr;
-    }
+    bind_runtime_actor_marker_now(context.actor, target.actor, row, 0, context.default_position,
+        context.default_euler); // 0x0003B500, ECX actor, EAX target
     put_word(context.body, 0x728, 0);
     if (target.mind.empty())
     {

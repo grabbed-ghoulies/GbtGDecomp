@@ -1776,6 +1776,43 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     {
         scene.keep_object(create_factory_object(scene.factory, parameters)); // 0x00107520
     };
+    players->bindings.scene.body_state = [this](NativePlayerInstance& player)
+    {
+        if (player.body.empty())
+        {
+            unbound("0x0001FEB0 on a player with no body");
+        }
+        return body_state_context(scene.address_of(player.body.data()));
+    };
+    players->bindings.scene.tell_players = [this](std::span<const u32> message)
+    {
+        // 0x00122D10: DAT_00511B40 holds the players' actor +0x93C nodes (links[1]).
+        for (auto* node = static_cast<entity_detail::ListHead*>(entity_detail::g_world.case_head.next);
+             node != nullptr;)
+        {
+            auto* current = node;
+            node = static_cast<entity_detail::ListHead*>(node->next);
+            NativePlayerInstance* owner = nullptr;
+            for (auto* player : players->instances())
+            {
+                if (static_cast<void*>(&player->links[1]) == static_cast<void*>(current))
+                {
+                    owner = player;
+                }
+            }
+            if (owner == nullptr)
+            {
+                unbound("DAT_00511B40 node with no native player");
+            }
+            std::array<u32, 0x42> words{};
+            std::copy_n(message.begin(), std::min<size_t>(message.size(), words.size()), words.begin());
+            object_message(*object_of(owner->actor_bytes.data()), words);
+        }
+    };
+    players->bindings.scene.queue_event = [this](std::span<const u8> message)
+    {
+        script_queue_event(game, message); // 0x00116810
+    };
     players->bindings.scene.audio_banks = &audio.streams;
     players->bindings.scene.blob_shadows = &blob_shadows;
     players->bindings.scene.attach_actor_messages = [this](FactoryObject& object, NativePlayerInstance& player)
@@ -3815,9 +3852,20 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             load_actor_camera_shake(name, position, scale, resources.registry, resources.error); // 0x000FB120
         },
-        [](const Vec3&) -> float
+        [](const Vec3& point) -> float
         {
-            throw Error("untranslated 0x00110BF0/0x00110EF0 floor height from the Super Scary challenge (mode 2/3)");
+            // 0x000874F0: the floor's cell +2 under the point; with no cell the float is the floor index's bits.
+            const i32 floor = entity_detail::navigation_floor_index(point, -1, 0); // 0x00110BF0
+            const i32 cell = entity_detail::navigation_cell_index(floor, point); // 0x00110EF0, EBX point
+            if (cell == -1)
+            {
+                return std::bit_cast<float>(floor);
+            }
+            if (floor < 0 || floor >= entity_detail::kNavSlots || entity_detail::g_nav_grids[floor] == nullptr)
+            {
+                throw Error("0x000874F0 reads a cell of a floor DAT_0050E240 does not hold");
+            }
+            return float(entity_detail::g_nav_grids[floor]->cells.at(size_t(cell)).bottom); // Cell +2.
         },
         [this](u32 address)
         {
@@ -3835,6 +3883,48 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         [this]() -> i32
         {
             return scene_player_character(game); // 0x00087830
+        },
+        [this](u32 head, const u8* record) -> u32
+        {
+            // The record lies in the head's model view (actor +0x204); its retail address is in the model source.
+            for (const auto& [bytes, actor] : actors->actors)
+            {
+                if (scene.address_of(bytes) != head || actor == nullptr || actor->model == nullptr)
+                {
+                    continue;
+                }
+                const auto cpu = actor->model->cpu;
+                if (actor->model->runtime == nullptr || actor->model->runtime->source == nullptr
+                    || record < cpu.data() || record >= cpu.data() + cpu.size())
+                {
+                    break;
+                }
+                return resources.memory.address_of(actor->model->runtime->source->cpu.data())
+                    + u32(record - cpu.data());
+            }
+            throw Error("Super Scary keeps a head binding outside the head's model");
+        },
+        [this](u32 player, u32 head, const u8* binding)
+        {
+            Actor* rider = nullptr;
+            Actor* parent = nullptr;
+            for (const auto& [bytes, actor] : actors->actors)
+            {
+                const u32 address = scene.address_of(bytes);
+                if (address == player)
+                {
+                    rider = actor;
+                }
+                if (address == head)
+                {
+                    parent = actor;
+                }
+            }
+            if (rider == nullptr)
+            {
+                throw Error("Super Scary binds a player that is not a scene actor (0x0003B500)");
+            }
+            bind_runtime_actor_marker_now(*rider, parent, binding, 0, origin, default_euler); // 0x0003B500
         }});
     scene.controls->context.super_scary = super_scary_services.get();
     bind_book_services();
@@ -5019,7 +5109,8 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             static const std::unordered_map<u32, u32> lengths{{0x31, 3}, {0x6E, 8}, {0x6F, 5}, {0x70, 5}, {0x71, 2},
                 {0x72, 5}, {0x73, 3}, {0x74, 3}, {0x75, 2}, {0x76, 2}, {0x77, 2}, {0x78, 2}, {0x79, 2}, {0x87, 3},
-                {0xAB, 4}, {0x82, 1}, {0x83, 2}, {0x84, 1}, {0x86, 5}, {0x8E, 2}, {0x8F, 2}};
+                {0xAB, 4}, {0x82, 1}, {0x83, 2}, {0x84, 1}, {0x86, 5}, {0x8E, 2}, {0x8F, 2},
+                {0x6C, 1}, {0x6D, 1}}; // 0x6C / 0x6D: the giant hand's grab and its end (0x000AC740, 0x000ACBF0).
             const auto found = lengths.find(id);
             if (found == lengths.end())
             {
@@ -7738,7 +7829,7 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
     // has not attached yet.
     if (child.type == 0x4F || child.type == 0x46 || child.type == 0x3B || child.type == 0x51 || child.type == 0x52
         || child.type == 0x58 || child.type == 0x44 || child.type == 0x40 || child.type == 0x4C || child.type == 0x53
-        || child.type == 0x42 || child.type == 0x3A || child.type == 0x47 || child.type == 0x48 || child.type == 0x49 || child.type == 0x55 || child.type == 0x50 || child.type == 0x4B
+        || child.type == 0x42 || child.type == 0x3A || child.type == 0x47 || child.type == 0x48 || child.type == 0x49 || child.type == 0x55 || child.type == 0x50 || child.type == 0x3E || child.type == 0x4B
         || child.type == 0x4E || child.type == 0x45)
     {
         if (auto* player = players->find_player(child); player != nullptr && !player->body.empty())
@@ -7783,6 +7874,9 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
         return;
     case 0x50:
         players->ribs_message(child, words);
+        return;
+    case 0x3E:
+        players->giant_hand_message(child, words);
         return;
     case 0x42:
         players->haunted_door_message(child, words);
@@ -8299,6 +8393,9 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
                 return;
             case 0x50:
                 players->ribs_update(strategy);
+                return;
+            case 0x3E:
+                players->giant_hand_update(strategy);
                 return;
             case 0x42:
                 players->haunted_door_update(strategy);

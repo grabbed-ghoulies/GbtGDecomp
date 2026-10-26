@@ -6,11 +6,13 @@
 #include "body_damage_notices.h"
 #include "candle_weapon.h"
 #include "extinguisher_weapon.h"
+#include "single_shot_weapon.h"
 #include "water_pistol_weapon.h"
 #include "weapon_motion.h"
 #include "../frontend/scoreboard_update.h"
 #include "gbtg/entity.h"
 #include "gbtg/sound_runtime.h"
+#include <bit>
 #include <cstring>
 #include <unordered_map>
 
@@ -63,8 +65,14 @@ void stop_weapon_sound(RuntimeWeaponActor& weapon)
 }
 
 // Vtable +0x4C: firing starts (message 0xA2, with the message's +8 words).
-void fire_start_hook(RuntimeWeaponActor& weapon, const Vec3& point, const Vec3& direction, std::span<const u32>)
+void fire_start_hook(RuntimeWeaponActor& weapon, const Vec3& point, const Vec3& direction, std::span<const u32> aim)
 {
+    if (weapon.type == 0xA5)
+    {
+        const Vec3 at{std::bit_cast<float>(aim[0]), std::bit_cast<float>(aim[1]), std::bit_cast<float>(aim[2])};
+        fire_runtime_single_shot(weapon, point, direction, at); // 0x000C8EE0
+        return;
+    }
     if (weapon.type == 0xA3)
     {
         start_runtime_extinguisher_spray(weapon); // 0x000C7D10
@@ -81,6 +89,10 @@ void fire_start_hook(RuntimeWeaponActor& weapon, const Vec3& point, const Vec3& 
 // Vtable +0x50: firing ends.
 void fire_end_hook(RuntimeWeaponActor& weapon, const Vec3& point, const Vec3&)
 {
+    if (weapon.type == 0xA5)
+    {
+        return; // The empty 0x001628B0.
+    }
     if (weapon.type == 0xA3)
     {
         end_runtime_extinguisher_spray(weapon); // 0x000C7D50
@@ -97,6 +109,10 @@ void fire_end_hook(RuntimeWeaponActor& weapon, const Vec3& point, const Vec3&)
 // Vtable +0x54 with the actor's frame step.
 void update_hook(RuntimeWeaponActor& weapon, float step)
 {
+    if (weapon.type == 0xA5)
+    {
+        return; // Unset: 0x000CAA80 skips the call.
+    }
     if (weapon.type == 0xA3)
     {
         update_runtime_extinguisher_spray(weapon, step); // 0x000C7D60
@@ -113,6 +129,10 @@ void update_hook(RuntimeWeaponActor& weapon, float step)
 // Vtable +0x5C: the fire tick while held.
 void fire_tick_hook(RuntimeWeaponActor& weapon, u32 firing, const Vec3& point, const Vec3& direction)
 {
+    if (weapon.type == 0xA5)
+    {
+        return; // The empty 0x001628B0.
+    }
     if (weapon.type == 0xA3)
     {
         emit_runtime_extinguisher_spray(weapon, firing, point, direction); // 0x000C8030
@@ -265,6 +285,10 @@ void draw_runtime_gun_weapon_effects(RuntimeWeaponActor& weapon, u32 pass)
     if ((pass & 2) == 0)
     {
         return;
+    }
+    if (weapon.type == 0xA5)
+    {
+        return; // Vtable +0x58 is unset for the single shot.
     }
     if (weapon.type != 0xA3 && weapon.type != 0xA6) // Vtable +0x58 is set for the extinguisher and water pistol.
     {
@@ -476,6 +500,10 @@ void exhaust_runtime_gun_weapon(RuntimeWeaponActor& weapon, const Vec3& point, c
 void report_runtime_gun_weapon_hits(RuntimeWeaponActor& weapon, Actor& holder, const Vec3& point,
     const Vec3& direction)
 {
+    if (weapon.type == 0xA5)
+    {
+        return; // Vtable +0x60 is unset: the query and the filter change are skipped.
+    }
     auto bytes = weapon.bytes;
     // The holder's own shapes are out of the query.
     const u32 filter = holder.model_flags;

@@ -39,6 +39,9 @@ void dispatch_weapon_class_message(RuntimeWeaponActor& weapon, std::span<u32> me
     case 0xA6:
         dispatch_runtime_gun_weapon_message(weapon, message); // 0x000CAB40
         break;
+    case 0xA5:
+        dispatch_runtime_single_shot_message(weapon, message); // 0x000C8EC0
+        break;
     default:
         throw Error("weapon class has no message view");
     }
@@ -195,6 +198,14 @@ void release_extinguisher_weapon_view(FactoryObject& object)
 {
     active_owner->release_extinguisher_weapon(object);
 }
+bool construct_single_shot_weapon_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    return active_owner->construct_single_shot_weapon(object, parameters);
+}
+// Xbox 0x001628B0
+void destroy_empty_single_shot_view(FactoryObject&)
+{
+}
 bool construct_water_pistol_weapon_view(FactoryObject& object, std::span<const u8> parameters)
 {
     return active_owner->construct_water_pistol_weapon(object, parameters);
@@ -261,6 +272,13 @@ const ObjectFactoryVtable* gun_weapon_lifecycle()
 {
     static const ObjectFactoryVtable table{0x005062E0, gun_weapon_object_sizes, construct_gun_weapon_view,
         release_gun_weapon_view};
+    return &table;
+}
+// Getter 0x000C8E00 (vtable 0x00506210) over the gun's 0x000CA990; +8 is the empty 0x001628B0.
+const ObjectFactoryVtable* single_shot_weapon_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00506210, single_shot_weapon_object_sizes,
+        construct_single_shot_weapon_view, destroy_empty_single_shot_view};
     return &table;
 }
 // Getter 0x000C9210 (vtable 0x00506278) over the gun's 0x000CA990.
@@ -1006,6 +1024,7 @@ void NativeSceneActorClassOwner::install(std::span<ObjectFactoryType> types)
     types[0xA2] = {0xB, container_weapon_lifecycle}; // Getter 0x000C75D0.
     types[0xA4] = {0xB, gun_weapon_lifecycle}; // Getter 0x000CA980.
     types[0xA3] = {0xA4, extinguisher_weapon_lifecycle}; // Getter 0x000C7B70.
+    types[0xA5] = {0xA4, single_shot_weapon_lifecycle}; // Getter 0x000C8E00.
     types[0xA6] = {0xA4, water_pistol_weapon_lifecycle}; // Getter 0x000C9210.
     active_owner = this;
 }
@@ -1274,6 +1293,11 @@ bool NativeSceneActorClassOwner::construct_extinguisher_weapon(FactoryObject& ob
 void NativeSceneActorClassOwner::release_extinguisher_weapon(FactoryObject& object)
 {
     destroy_runtime_extinguisher_weapon(weapons_.at(object.bytes.get())->context);
+}
+
+bool NativeSceneActorClassOwner::construct_single_shot_weapon(FactoryObject& object, std::span<const u8> parameters)
+{
+    return initialize_runtime_single_shot_weapon(weapons_.at(object.bytes.get())->context, parameters);
 }
 
 bool NativeSceneActorClassOwner::construct_water_pistol_weapon(FactoryObject& object, std::span<const u8> parameters)
@@ -1632,7 +1656,7 @@ void NativeSceneActorClassOwner::message(FactoryObject& object, std::span<u32> m
         dispatch_runtime_sss_dropper_message(sss_droppers_.at(object.bytes.get())->context, message);
     }
     else if (object.type == 0xAA || object.type == 0xA9 || object.type == 0xA7 || object.type == 0xA0
-        || object.type == 0xA1 || object.type == 0xA2 || object.type == 0xA3 || object.type == 0xA6)
+        || object.type == 0xA1 || object.type == 0xA2 || object.type == 0xA3 || object.type == 0xA5 || object.type == 0xA6)
     {
         dispatch_weapon_class_message(weapons_.at(object.bytes.get())->context, message);
     }

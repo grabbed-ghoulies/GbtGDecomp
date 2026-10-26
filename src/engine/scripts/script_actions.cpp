@@ -818,9 +818,22 @@ int script_handle_condition_node(Game& g, const ScriptNode& node, u32& cursor)
         opcode = 14; // 0x0012573E, scriptConditionId_PlayerHitGhouly: the tag and the float at node+0x48.
         word_then_far = true;
         break;
+    case 0x8B:
+    {
+        // 0x00125661: 0x00125420 clears the 0x20-byte record as opcode 0x13 with the link, then the dword at
+        // node+8, 0x001077B0's tag for the name at node+0xC as a word at +0xC and the float at node+0x4C at +0x10.
+        ScriptCond rec{};
+        cond_put_u32(rec, 0, 0x13);
+        cond_put_u32(rec, 4, node.link);
+        cond_put_u32(rec, 8, node_u32(g.scene_script, node, 8));
+        cond_put_u32(rec, 0xC, static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 0xC).c_str())));
+        cond_put_u32(rec, 0x10, node_u32(g.scene_script, node, 0x4C));
+        script_append_condition(rec, kScriptCondSize[0x13], 0x13); // 0x00124C80, EDI the record
+        script_seek_node_type(g.scene_script, cursor, 0x3C); // 0x000532B0
+        return 2;
+    }
     case 0x65:
     case 0x75:
-    case 0x8B:
     case 0x8C:
     case 0xA3:
         throw Error("script condition node type " + std::to_string(node.type) + " (0x00125450) is not translated");

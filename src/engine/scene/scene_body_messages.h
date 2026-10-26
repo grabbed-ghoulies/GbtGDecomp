@@ -19,6 +19,7 @@
 #include "../entities/body_arc_attack_state.h"
 #include "../entities/generate_ghouly_state.h"
 #include "../entities/body_shocked_state.h"
+#include "../entities/body_transform_state.h"
 #include "../entities/body_death_state.h"
 #include "../entities/body_scrabble_state.h"
 #include "../entities/body_scoop_whack_state.h"
@@ -197,6 +198,7 @@ public:
     RuntimeArcAttackStateContext& arc_attack_context(); // The type 0x5F state's views of this body.
     RuntimeGenerateGhoulyContext& generate_ghouly_context(); // The type 0x6F state's views of this body.
     RuntimeShockedStateContext& shocked_context(); // The type 0x80 state's views of this body.
+    RuntimeTransformStateContext& transform_context(); // The type 0x8C state's views of this body.
     RuntimeScrabbleStateContext& scrabble_context(); // The type 0x7F state's views of this body.
     RuntimeScoopWhackStateContext& scoop_whack_context(); // The type 0x7E state's views of this body.
     // The type 0x6B state's views of this body; `input` is the tick's input word (actor +0x960 or zero).
@@ -247,6 +249,7 @@ private:
     std::optional<RuntimeDizzyStateContext> dizzy_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> dizzy_children_; // 0x64, 0x0008CEA0.
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> lift_children_; // 0x7D, 0x0009E9F0.
+    std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> transform_children_; // 0x8C, 0x000A49D0.
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> throw_children_; // 0x8B, 0x000A3D20.
     std::optional<RuntimeThrowStateContext> throw_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> arc_children_; // 0x66, 0x0008DD30.
@@ -261,6 +264,7 @@ private:
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> generate_ghouly_children_; // 0x6F.
     std::optional<RuntimeGenerateGhoulyContext> generate_ghouly_;
     std::optional<RuntimeShockedStateContext> shocked_;
+    std::optional<RuntimeTransformStateContext> transform_;
     std::optional<RuntimeScrabbleStateContext> scrabble_;
     std::optional<RuntimeScoopWhackStateContext> scoop_whack_;
     std::optional<RuntimeFlipStateContext> flip_;

@@ -15,6 +15,9 @@
 #include "../transitions/scene_transitions.h"
 #include "../saves/runtime_profile.h"
 #include "scene.h"
+#include "../scripts/script_actions.h"
+#include "scene_actor_services.h"
+#include "gbtg/actor_spawn_factory.h"
 #include <bit>
 #include <cstring>
 #include <optional>
@@ -511,6 +514,22 @@ void SceneBodyMessages::bind_action_children()
             children_[child->bytes.get()] = slide.get();
             continue;
         }
+        if (child->type == 0x8C)
+        {
+            auto& transform = transform_children_[child->bytes.get()];
+            if (transform == nullptr)
+            {
+                transform = std::make_unique<RuntimeBodyMessageChild>();
+                transform->message = [this, child](std::span<u8> message)
+                {
+                    const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
+                    message_runtime_transform_state({child->bytes.get(), child->size}, words,
+                        transform_context()); // 0x000A49D0
+                };
+            }
+            children_[child->bytes.get()] = transform.get();
+            continue;
+        }
         if (child->type == 0x7D)
         {
             auto& lift = lift_children_[child->bytes.get()];
@@ -884,6 +903,9 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
     case 0x80:
         tick_runtime_shocked_state({action.bytes.get(), action.size}, shocked_context()); // 0x0009F5F0
         return;
+    case 0x8C:
+        tick_runtime_transform_state({action.bytes.get(), action.size}, transform_context()); // 0x000A46D0
+        return;
     case 0x63:
         tick_runtime_death_state({action.bytes.get(), action.size}, death_context()); // 0x0008C7E0
         return;
@@ -1227,6 +1249,7 @@ void SceneBodyMessages::action_step(FactoryObject& action)
     case 0x84:
     case 0x86:
     case 0x89:
+    case 0x8C:
         // 0x001628B0 (0x000D4179 for 0x69, 0x70 and 0x88) returns at once.
         return;
     default:
@@ -1628,6 +1651,39 @@ RuntimeShockedStateContext& SceneBodyMessages::shocked_context()
         player_.actor_instance.animation, services_.resources, services_.create_object,
         services_.release_frame_object, recovery_action()});
     return *shocked_;
+}
+
+RuntimeTransformStateContext& SceneBodyMessages::transform_context()
+{
+    player_.refresh_body_views();
+    if (player_.body_bits == nullptr)
+    {
+        unbound("transform state without the body +0x15C bit block");
+    }
+    auto& knockdown = knockdown_context();
+    const u32 body_address = services_.address_of(player_.body.data());
+    transform_.reset();
+    transform_.emplace(RuntimeTransformStateContext{player_.body, player_.actor, player_.actor_address,
+        player_.actor_bytes, *player_.body_bits, player_.actor_instance.animation, player_.actor_instance.render,
+        player_.body_selection,
+        [this, body_address]()
+        {
+            return services_.state_context(body_address);
+        },
+        services_.clock, services_.sounds, services_.resources, services_.create_object, services_.actor_view,
+        services_.message,
+        [this](i16 key) -> u16
+        {
+            SceneActorServices* actors = script_scene_actors(services_.game);
+            if (actors == nullptr)
+            {
+                unbound("transform state's 0x0011F2E0 without the scene's marker records");
+            }
+            return find_scene_spawn_type(actors->marker_records(), key); // 0x0011F2E0
+        },
+        services_.image_string, services_.node_states, knockdown.death, knockdown.scene_flags,
+        knockdown.restart_requested, services_.random});
+    return *transform_;
 }
 
 RuntimeScrabbleStateContext& SceneBodyMessages::scrabble_context()
@@ -2636,6 +2692,18 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 {
                     unbound("collision reply id 0x18 to the hit-stream state 0x00097890");
                 }
+                return;
+            }
+            if (type == 0x8C)
+            {
+                // 0x000A49D0 reads past the id only for 0x7C (its +4 actor).
+                if (reply.id == 0x7C)
+                {
+                    unbound("collision reply id 0x7C to the transform state 0x000A49D0");
+                }
+                auto& second = player_.body_selection.second;
+                const std::array<u32, 1> words{reply.id};
+                message_runtime_transform_state({second.bytes.get(), second.size}, words, transform_context());
                 return;
             }
             if (type == 0x6A)

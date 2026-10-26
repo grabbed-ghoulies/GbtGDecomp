@@ -651,6 +651,51 @@ void script_tick_condition_timer(ScriptCond& rec)
 }
 
 
+// Xbox 0x00133900. Opcode 19 in the update table at 0x00314334: the count (0x0012AE40 with ECX 0 for a zero word at
+// +0xC, else the DAT_00512B78 dword it indexes) is tallied as 0x00132E00 tallies it, each +8 more arming +0x1C (the
+// first copying +0x10 onto +0x14); while +0x1C is armed, DAT_0050E768 is clear and the byte at
+// [DAT_0051248C]+0x30F144 is set, the float at +0x14 counts down by the frame step, stopping at 0.
+void script_tick_statistics_target_condition(ScriptCond& rec)
+{
+    const u16 category = u16(rec.raw[0xc]) | (u16(rec.raw[0xd]) << 8);
+    const i32 count = category == 0 ? script_sum_statistics(0)
+                                    : script_statistic_at_address(0x00512B78u + u32(category) * 4u);
+    while (static_cast<i32>(cond_u32(rec, 0x18)) < count)
+    {
+        const i32 next = static_cast<i32>(cond_u32(rec, 0x18)) + 1;
+        cond_put_u32(rec, 0x18, static_cast<u32>(next));
+        if (next % static_cast<i32>(cond_u32(rec, 8)) == 0)
+        {
+            const i32 pending = static_cast<i32>(cond_u32(rec, 0x1c));
+            if (pending == 0)
+            {
+                cond_put_u32(rec, 0x14, cond_u32(rec, 0x10));
+            }
+            cond_put_u32(rec, 0x1c, static_cast<u32>(pending + 1));
+        }
+    }
+    if (cond_u32(rec, 0x1c) == 0 || g_block_decay != 0 || g_decay_arm == 0)
+    {
+        return;
+    }
+    float step = 0.f;
+    if (g_sim_freeze <= 0.f)
+    {
+        step = g_sim_dt * g_sim_scale;
+    }
+    const float left = cond_f32(rec, 0x14);
+    if (0.f < left)
+    {
+        const float next = left - step;
+        cond_put_f32(rec, 0x14, next);
+        if (!(0.f < next)) // COMISS; JB keeps a positive time.
+        {
+            cond_put_f32(rec, 0x14, 0.f);
+        }
+    }
+}
+
+
 // Xbox 0x00133230. Opcode 4 in the update table at 0x00314334: once the statistics sum (0x0012AE40, ECX 0) reaches
 // the int at +8 and +0x14 is clear, while DAT_0050E768 is clear and the byte at [DAT_0051248C]+0x30F144 is set, the
 // float at +0xC counts down by the frame step, stopping at 0.
@@ -1247,7 +1292,7 @@ void script_queue_scene_start(Game& g)
 // Xbox 0x00117100: 0x00140E30, then the condition updates and the eval at 0x00117140. The update walk calls the
 // table at 0x00314334: opcode 0 is 0x00133070, opcode 1 is 0x001330E0, opcode 3 is 0x00133170, opcode 15 is
 // 0x00133770, opcode 16 is 0x001336A0, opcode 4 is 0x00133230, opcode 5 is 0x001332B0, opcode 10 is 0x001333A0, opcode 11 is 0x00133330, opcode 13 is
-// 0x00133570, opcode 14 is 0x001335E0 and opcode 17 is 0x001334B0.
+// 0x00133570, opcode 14 is 0x001335E0, opcode 17 is 0x001334B0 and opcode 19 is 0x00133900.
 // Opcodes 2, 6..9 and 20..26 have the empty 0x001628B0; the others' updates
 // are not translated and raise when a record reaches them.
 void script_vm_tick(Game& g, float dt)
@@ -1312,6 +1357,10 @@ void script_vm_tick(Game& g, float dt)
         else if (opcode == 17)
         {
             script_tick_marker_broken_condition(rec);
+        }
+        else if (opcode == 19)
+        {
+            script_tick_statistics_target_condition(rec);
         }
         else if (kUpdates[opcode] != 0x001628B0)
         {

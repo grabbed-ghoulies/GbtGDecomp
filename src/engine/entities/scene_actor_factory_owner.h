@@ -11,6 +11,7 @@
 #include "candle_weapon.h"
 #include "container_weapon.h"
 #include "extinguisher_weapon.h"
+#include "single_shot_weapon.h"
 #include "water_pistol_weapon.h"
 #include "ghouly_cutscene_setup.h"
 #include "ghouly_bg_break_setup.h"
@@ -168,6 +169,7 @@ public:
     bool construct_extinguisher_weapon(FactoryObject& object,
         std::span<const u8> parameters); // Type 0xA3, Xbox 0x000C7BE0.
     void release_extinguisher_weapon(FactoryObject& object); // Type 0xA3, Xbox 0x000C7C60.
+    bool construct_single_shot_weapon(FactoryObject& object, std::span<const u8> parameters); // Xbox 0x000C8E70
     bool construct_water_pistol_weapon(FactoryObject& object,
         std::span<const u8> parameters); // Type 0xA6, Xbox 0x000C9280.
     void release_water_pistol_weapon(FactoryObject& object); // Type 0xA6, Xbox 0x000C9330.

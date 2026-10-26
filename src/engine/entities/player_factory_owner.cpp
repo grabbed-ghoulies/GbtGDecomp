@@ -399,6 +399,39 @@ const ObjectFactoryVtable* imp_flamethrower_strategy_lifecycle()
     return &table;
 }
 
+bool construct_chicken_strategy_view(FactoryObject& object, std::span<const u8>)
+{
+    auto* player = active_owner->find_player(object);
+    player->strategy_type = 0x3A;
+    player->refresh_views();
+    return initialize_runtime_chicken_strategy(bytes_of(object)); // 0x000AA030
+}
+
+// Getter 0x000A9FE0: sizes are the skeleton's 0x000A9FC0; vtable +8 is the empty 0x001628B0.
+const ObjectFactoryVtable* chicken_strategy_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505D38, skeleton_strategy_object_sizes,
+        construct_chicken_strategy_view, destroy_empty_player_object};
+    return &table;
+}
+
+bool construct_vampire_chicken_strategy_view(FactoryObject& object, std::span<const u8>)
+{
+    auto* player = active_owner->find_player(object);
+    player->strategy_type = 0x55;
+    player->vampire_chicken.held_actor = nullptr;
+    player->refresh_views();
+    return initialize_runtime_vampire_chicken_strategy(bytes_of(object)); // 0x000C2930
+}
+
+// Getter 0x000C28E0: sizes are the director's 0x000AAE40; vtable +8 is the empty 0x001628B0.
+const ObjectFactoryVtable* vampire_chicken_strategy_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00506048, director_strategy_object_sizes,
+        construct_vampire_chicken_strategy_view, destroy_empty_player_object};
+    return &table;
+}
+
 bool construct_imp_flying_strategy_view(FactoryObject& object, std::span<const u8> parameters)
 {
     auto* player = active_owner->find_player(object);
@@ -646,6 +679,19 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
                   leave_runtime_spider_state(old_state, spider);
                   return;
               }
+              if (strategy_type == 0x3A)
+              {
+                  // Chicken strategy vtable +0x18, the base 0x000BFA50.
+                  leave_runtime_base_strategy_state(bytes_of(object), old_state);
+                  return;
+              }
+              if (strategy_type == 0x55)
+              {
+                  // Vampire chicken strategy vtable +0x18, 0x000C2D10.
+                  refresh_views();
+                  leave_runtime_vampire_chicken_state(old_state, vampire_chicken);
+                  return;
+              }
               if (strategy_type == 0x48)
               {
                   // Flying imp strategy vtable +0x18, 0x000B7050.
@@ -772,6 +818,18 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
               {
                   // Flying imp strategy vtable +0x14, 0x000B58F0.
                   enter_runtime_imp_flamethrower_state(state, previous, imp_flamethrower);
+                  return;
+              }
+              if (strategy_type == 0x3A)
+              {
+                  // Chicken strategy vtable +0x14, 0x000AA1D0.
+                  enter_runtime_chicken_state(state, chicken);
+                  return;
+              }
+              if (strategy_type == 0x55)
+              {
+                  // Vampire chicken strategy vtable +0x14, 0x000C2C70.
+                  enter_runtime_vampire_chicken_state(state, previous, vampire_chicken);
                   return;
               }
               if (strategy_type == 0x48)
@@ -990,6 +1048,8 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
           "knobattack_overlay", "knockdown", "attack_special", "knocked_down", "knocked_down_wait", "sleep",
           "wakeup", "celebrate_knockdown"},
       imp_flamethrower{spider, "fireball", "flamethrower", "wait"},
+      chicken{spider, scene_bindings.chicken_parameters, "far", "transform"},
+      vampire_chicken{spider, "emerge", "randomwander", "knockbackprepare", "knockdown"},
       imp_flying{spider, scene_bindings.imp_flying_parameters, scene_bindings.create_effect,
           scene_bindings.object_message, "evade", "wingwhackprepare", "arrowdive", "arrowdiveunstuck"},
       imp_ninja{spider, scene_bindings.imp_ninja_parameters, scene_bindings.damage_tables,
@@ -1318,6 +1378,50 @@ void NativePlayerFactoryOwner::imp_flamethrower_update(FactoryObject& strategy)
     update_runtime_imp_flamethrower_strategy(player->imp_flamethrower);
 }
 
+void NativePlayerFactoryOwner::chicken_message(FactoryObject& strategy, std::span<const u32> message)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x3A)
+    {
+        throw Error("Chicken strategy method has no owning instance");
+    }
+    player->refresh_views();
+    dispatch_runtime_chicken_message(message, player->chicken);
+}
+
+void NativePlayerFactoryOwner::chicken_update(FactoryObject& strategy)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x3A)
+    {
+        throw Error("Chicken strategy method has no owning instance");
+    }
+    player->refresh_views();
+    update_runtime_chicken_strategy(player->chicken);
+}
+
+void NativePlayerFactoryOwner::vampire_chicken_message(FactoryObject& strategy, std::span<const u32> message)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x55)
+    {
+        throw Error("Vampire chicken strategy method has no owning instance");
+    }
+    player->refresh_views();
+    dispatch_runtime_vampire_chicken_message(message, player->vampire_chicken);
+}
+
+void NativePlayerFactoryOwner::vampire_chicken_update(FactoryObject& strategy)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x55)
+    {
+        throw Error("Vampire chicken strategy method has no owning instance");
+    }
+    player->refresh_views();
+    update_runtime_vampire_chicken_strategy(player->vampire_chicken);
+}
+
 void NativePlayerFactoryOwner::imp_flying_message(FactoryObject& strategy, std::span<const u32> message)
 {
     auto* player = find_player(strategy);
@@ -1600,7 +1704,9 @@ void NativePlayerFactoryOwner::install(std::span<ObjectFactoryType> types)
     types[0x53] = ObjectFactoryType{8, ugly_girl_strategy_lifecycle};
     types[0x42] = ObjectFactoryType{8, haunted_door_strategy_lifecycle};
     types[0x47] = ObjectFactoryType{8, imp_flamethrower_strategy_lifecycle};
+    types[0x3A] = ObjectFactoryType{8, chicken_strategy_lifecycle};
     types[0x48] = ObjectFactoryType{8, imp_flying_strategy_lifecycle};
+    types[0x55] = ObjectFactoryType{8, vampire_chicken_strategy_lifecycle};
     types[0x49] = ObjectFactoryType{8, imp_ninja_strategy_lifecycle};
     types[0x4B] = ObjectFactoryType{8, medusa_strategy_lifecycle};
     types[0x4E] = ObjectFactoryType{8, pirate_strategy_lifecycle};

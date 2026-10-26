@@ -238,6 +238,9 @@ All take the game directory, e.g.
 | `--scene2b1` | Boots chapter 2b scene 1 (chapter2b_scene1_1playcam, the freezer) and plays its "FREE PLAY" with the scene 7 driver. Passes when the script moves on to `aid_script_ghoulies_chapter2b_scene2_1playcam` (frame 1494 in the 2026-10-25 run) |
 | `--scene2b2` | Boots chapter 2b scene 2 (chapter2b_scene2_1playcam, the garbage yard) and plays it with the scene 7 driver at any fight range: "Event: Survive" spawns three waves of spiders behind cutscenes, each wave waiting on the kill count (condition 4). Passes when the script moves on to `aid_script_ghoulies_chapter2b_scene3_2playcam` (frame 14881 in the 2026-10-25 run; the driver spends about 6000 frames of the last "Free Play" held by the exit around (236, 84)) |
 | `--scene2b3` | Boots chapter 2b scene 3 (chapter2b_scene3_2playcam, the wood shed) and plays its "Free Play" with the scene 7 driver at any fight range; the scene ends at the exit volume (-166, 636). Does not pass yet: the flying imps (factory type 0x48) and the Medusa (class 0x1F) by the exit wear Cooper down, he dies and the scene restarts (2026-10-25) |
+| `--scene2b4` | Boots chapter 2b scene 4 (chapter2b_scene4_1playcam, the farmyard) and plays it with the scene 7 driver at any fight range. Does not pass yet: "event - kill all/time limit" (pirates, ninja imps, skeletons with eggs, flying imps and zombies from ghoulyboxes) runs out of time before the driver kills them all, the Grim Reaper comes and the event restarts (2026-10-25) |
+| `--scene2b4b` | Boots chapter 2b scene 4's book (chapter2b_scene4_2book): the groundskeeper's pages (Ol' Edna, the garlic gun). Passes when the script moves on to `aid_script_ghoulies_chapter2b_scene5_1playcam` (frame 1713 in the 2026-10-25 run) |
+| `--scene2b5` | Boots chapter 2b scene 5 (chapter2b_scene5_1playcam, the chicken shed) and plays it with the scene 7 driver at any fight range: the Baron's page, "EVENT - TIME LIMIT/SURVIVE" against vampire chickens with the blunderbuss, the event's completion and the exit door opening. Does not pass yet: in the last "FREE PLAY" the driver walks back into region 1 (176, -1), the egg page and the Baron's section run again, and the run ends in the second survive event (2026-10-25) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -404,6 +407,50 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-25: chapter 2b scenes 4 and 5: chickens, vampire chickens and the blunderbuss
+
+- `--scene2b4` (new) runs without a native stop; the driver loses its timed event (see the table). `--scene2b4b` (new)
+  plays the book into scene 5.
+- Scene 5's scene start needed three classes, now translated:
+  - **entityStrategyChicken** (factory type 0x3A, getter `0x000A9FE0`, vtable 0x00505D38, `entities/chicken_strategy.cpp`):
+    construct `0x000AA030`, update `0x000AA050`, message `0x000AA0F0`, enter `0x000AA1D0`; the skeleton's sizes and the
+    base leave `0x000BFA50`. A hit from itself or from a class 7 actor within parameter +0 (DAT_00302B5C) arms it; with
+    body bit 0x29 up it enters 0x3EF, "transform". Otherwise it wanders ("far").
+  - **entityStrategyVampireChicken** (factory type 0x55, getter `0x000C28E0`, vtable 0x00506048,
+    `entities/vampire_chicken_strategy.cpp`): construct `0x000C2930`, update `0x000C2950` (with `0x000C2530`,
+    `0x000C2580`, `0x000C25E0`, `0x000C2740`, `0x000C2820`), message `0x000C2A40` (`0x000C2D90` releases the held body),
+    enter `0x000C2C70`, leave `0x000C2D10`; the director's sizes. It emerges ("emerge"), wanders ("randomwander") and,
+    queued on a standing target, grabs it (0x3ED, "knockbackprepare", claiming the target body's +0x50 through
+    `0x0001B0D0`) or knocks it down (0x3EE, "knockdown").
+  - **entityWeaponSingleShot** (factory type 0xA5, getter `0x000C8E00`, vtable 0x00506210,
+    `entities/single_shot_weapon.cpp`): the blunderbuss over the gun. Sizes `0x000C8DE0`, construct `0x000C8E70`,
+    message `0x000C8EC0` (0x9A answers 1), fire `0x000C8EF0` (+0x4C): the projectile template at +0xEFC is made at the
+    muzzle (swept back from the holder, `0x00122480`), owned by the holder (+0xD8C), sent 0xA5 toward the aim point,
+    callout 0x2B shown there, 0.15 of the charge spent and message 0x3E sent to the holder.
+  - The gun base null-tests its class slots +0x54, +0x58, +0x5C and +0x60 (`0x000CAA80`, `0x000CAD90`, `0x000CAF10`,
+    `0x000CB0B0`); the single shot leaves +0x54, +0x58 and +0x60 unset, so those calls are skipped, and its +0x50 and +0x5C
+    are the empty 0x001628B0. Type 0xA5 joins the weapon class lists in the scene services and factory owners.
+- Script condition node 0x8B (`0x00125661`, through `0x00125420`) builds condition opcode 0x13 (`0x00132E00`): the
+  link, the dword at +8, the tag of the name at +0xC and the float at +0x4C.
+- **entityStateTransform** (factory type 0x8C, getter `0x000A43A0`, vtable 0x00505C60,
+  `entities/body_transform_state.cpp`), the body state a chicken transforms in: sizes `0x000A4380`, construct
+  `0x000A4400`, destroy `0x000A4690`, update `0x000A46D0`, message `0x000A49D0`, with `0x000A4B00` (the morph actor,
+  made at the body's pose with its 32 nodes hidden), `0x000A4BB0` (the final actor, with the body's scale and +0x1FC
+  marker key through `0x0011F2E0`), `0x000A4CA0` (message {0x65, 0x3FD}) and `0x0013B1F0` (bits through `0x00068770`).
+  The morph's nodes are shown as the body's animation plays; two 1.25 s holds follow; a hit instead brings the body
+  back and finishes it (`0x00134AE0`).
+- **Condition opcode 0x13's update** `0x00133900` (the tally, then +0x14 counting down) now runs in the VM tick.
+- **entityAvatarMiscChickenEgg** (factory type 0x16, getter `0x0006DB50`, vtable 0x00504C70): a plain actor under
+  its own type (the actor's sizes, the shared constructor `0x000CFFD0`, and message / update / draw slots that jump to
+  the actor's); it joins the type 2 lists in the scene services.
+- Checked in the captures: the Baron's page, the survive timer (0:57 .. 0:12), Cooper firing the blunderbuss (its
+  green cloud) and the vampire chickens. Not seen: a chicken mid-transform.
+- Open: after the survive event's completion ("event complete" ditty, door open) the last "FREE PLAY" leaves a region
+  condition that sends the script back to the egg page and the Baron's section when the driver walks into region 1.
+  Whether retail keeps that condition, or a node before it (0xA0, 0x9E, 0x11) should clear it, is not settled.
+- `--scene2a8` fails with "scene address range exceeds its native instance" around frame 2280; it fails the same way
+  at 6ecff3a, before this session's work.
 
 ### 2026-10-25: scene 2b3's flying imps
 

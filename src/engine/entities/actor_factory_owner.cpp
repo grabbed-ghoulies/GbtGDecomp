@@ -6,6 +6,7 @@
 #include "entity_collision.h"
 #include "contact_prop_actor.h"
 #include "spider_web.h"
+#include "player_children.h"
 #include "../graphics/vector_normalize.h"
 #include <cstring>
 #include "gbtg/model_runtime.h"
@@ -263,6 +264,16 @@ const ObjectFactoryVtable* actor_lifecycle()
     return &table;
 }
 
+// entityAvatarMiscChickenEgg, getter 0x0006DB50 (vtable 0x00504C70) over the actor's (0x0003C080): the actor's sizes
+// 0x0006DB30, the shared constructor 0x000CFFD0 and the empty 0x001628B0; +0xC 0x0006C9B0, +0x10 0x0006DBA0 and +0x14
+// 0x0006EF20 jump to the actor's message, update and draw.
+const ObjectFactoryVtable* chicken_egg_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00504C70, actor_object_sizes, accept_runtime_object_construction,
+        destroy_empty_factory_object};
+    return &table;
+}
+
 const ObjectFactoryVtable* button_bat_lifecycle()
 {
     static const ObjectFactoryVtable table{0x00504C34, button_bat_object_sizes,
@@ -350,6 +361,7 @@ void NativeActorFactoryOwner::install(std::span<ObjectFactoryType> types)
     install_runtime_base_object_class(types);
     types[2] = ObjectFactoryType{1, actor_lifecycle};
     types[0x15] = ObjectFactoryType{2, button_bat_lifecycle};
+    types[0x16] = ObjectFactoryType{2, chicken_egg_lifecycle}; // Getter 0x0006DB50.
     types[0x1A] = ObjectFactoryType{2, contact_prop_lifecycle}; // Getter 0x0006EE20.
     types[0x19] = ObjectFactoryType{2, knockdown_sphere_lifecycle}; // Getter 0x0006EB40.
     types[0x1B] = ObjectFactoryType{2, spider_web_lifecycle}; // Getter 0x000704D0.

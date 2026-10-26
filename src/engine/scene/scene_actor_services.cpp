@@ -1730,6 +1730,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         data(0x00428734, 0x40)}});
     players->install(scene.types);
     players->bindings.scene.grim_reaper_parameters = data(0x00302B7C, 0x38);
+    players->bindings.scene.chicken_parameters = data(0x00302B5C, 0x18);
     players->bindings.scene.imp_flying_parameters = data(0x00303124, 0x28);
     players->bindings.scene.imp_ninja_parameters = data(0x00303198, 0x18);
     players->bindings.scene.refresh_pause = [this]()
@@ -2766,6 +2767,21 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
         }
         return graph->shocked_context();
+    });
+    install_runtime_transform_state_class(scene.types, [this](u32 body_address) -> RuntimeTransformStateContext&
+    {
+        const auto bytes = scene.resolve_address(body_address, 0);
+        auto* player = players->find_child_owner(bytes.data());
+        if (player == nullptr || player->body.data() != bytes.data())
+        {
+            unbound("transform state whose body has no player owner");
+        }
+        auto& graph = body_messages[player->body.data()];
+        if (graph == nullptr)
+        {
+            graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
+        }
+        return graph->transform_context();
     });
     install_runtime_death_state_class(scene.types, [this](u32 body_address) -> RuntimeDeathStateContext&
     {
@@ -6624,7 +6640,7 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
         return;
     }
     if (type == 0xAA || type == 0xA9 || type == 0xA7 || type == 0xA0 || type == 0xA1 || type == 0xA2
-        || type == 0xA3 || type == 0xA6)
+        || type == 0xA3 || type == 0xA5 || type == 0xA6)
     {
         // Getters 0x000CEF70, 0x000CD640 and 0x000CB570: +0x10 is the weapon update 0x0014A2E0; +0xC is the chair message
         // 0x000CF0D0 or the large projectile's 0x000CDBE0.
@@ -6969,11 +6985,12 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
         classes->message_afterimage(object, message[0]);
         return;
     }
-    if (type == 2 || type == 0x15)
+    if (type == 2 || type == 0x15 || type == 0x16)
     {
-        if (type == 2)
+        if (type == 2 || type == 0x16)
         {
-            // Getter 0x0003C080 keeps the base update 0x000420D0 at +0x10.
+            // Getter 0x0003C080 keeps the base update 0x000420D0 at +0x10; type 0x16's 0x0006DBA0 jumps to it, and its
+            // +0xC 0x0006C9B0 to the actor message 0x0003EF70.
             auto& view = actors->view(object);
             const u8* bytes = object.bytes.get();
             actor_updates[&view.bat.actor] = [this, bytes](Actor&)
@@ -7577,7 +7594,7 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
     // has not attached yet.
     if (child.type == 0x4F || child.type == 0x46 || child.type == 0x3B || child.type == 0x51 || child.type == 0x52
         || child.type == 0x58 || child.type == 0x44 || child.type == 0x40 || child.type == 0x4C || child.type == 0x53
-        || child.type == 0x42 || child.type == 0x47 || child.type == 0x48 || child.type == 0x49 || child.type == 0x4B
+        || child.type == 0x42 || child.type == 0x3A || child.type == 0x47 || child.type == 0x48 || child.type == 0x49 || child.type == 0x55 || child.type == 0x4B
         || child.type == 0x4E || child.type == 0x45)
     {
         if (auto* player = players->find_player(child); player != nullptr && !player->body.empty())
@@ -7626,8 +7643,14 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
     case 0x47:
         players->imp_flamethrower_message(child, words);
         return;
+    case 0x3A:
+        players->chicken_message(child, words);
+        return;
     case 0x48:
         players->imp_flying_message(child, words);
+        return;
+    case 0x55:
+        players->vampire_chicken_message(child, words);
         return;
     case 0x49:
         players->imp_ninja_message(child, words);
@@ -7878,7 +7901,7 @@ RuntimeBodyAttachedActor& SceneActorServices::State::attached_actor_at(u32 addre
     // A weapon, or a knock-down sphere (type 0x19) as the sender of its contact message 0x17.
     if (object == nullptr || (object->type != 0x0B && object->type != 0x19 && object->type != 0xAA && object->type != 0xA9
         && object->type != 0xA7 && object->type != 0xA0 && object->type != 0xA1 && object->type != 0xA2
-        && object->type != 0xA3 && object->type != 0xA6))
+        && object->type != 0xA3 && object->type != 0xA5 && object->type != 0xA6))
     {
         unbound("attached actor at an address that is neither a player nor a weapon (factory type "
             + (object == nullptr ? std::string("none") : std::to_string(object->type)) + ")");
@@ -8131,8 +8154,14 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
             case 0x47:
                 players->imp_flamethrower_update(strategy);
                 return;
+            case 0x3A:
+                players->chicken_update(strategy);
+                return;
             case 0x48:
                 players->imp_flying_update(strategy);
+                return;
+            case 0x55:
+                players->vampire_chicken_update(strategy);
                 return;
             case 0x49:
                 players->imp_ninja_update(strategy);
@@ -8692,7 +8721,7 @@ void SceneActorServices::State::update_actor(u32 address)
     auto* object = object_of(bytes);
     auto& view = actors->view(*object);
     auto found = actor_updates.find(&view.bat.actor);
-    if (found == actor_updates.end() && object->type == 2)
+    if (found == actor_updates.end() && (object->type == 2 || object->type == 0x16))
     {
         // Vtable +0x10 is the class's slot (getter 0x0003C080 keeps 0x000420D0), so a base actor updates even
         // before its first message, as a star bound under its owner does (0x0008CEF0).
@@ -8935,14 +8964,14 @@ void SceneActorServices::State::actor_draw(Actor& actor, i32 view, i32 pass)
             }
             // Types 0xAA and 0xA9 +0x14 is the weapon draw 0x001459C0: the actor draw 0x0003C9E0, then the hand prompt.
             if (type == 0xAA || type == 0xA9 || type == 0xA7 || type == 0xA0 || type == 0xA1 || type == 0xA2
-                || type == 0xA3 || type == 0xA6)
+                || type == 0xA3 || type == 0xA5 || type == 0xA6)
             {
                 if (!classes->weapon_draw_hidden(*object))
                 {
                     draw_scene_actor(*object, actor, pass);
                     classes->draw_weapon_prompt(*object, pass); // 0x00147560
                 }
-                if (type == 0xA3 || type == 0xA6)
+                if (type == 0xA3 || type == 0xA5 || type == 0xA6)
                 {
                     classes->draw_gun_effects(*object, u32(pass)); // 0x000CAD90 after 0x001459C0
                 }
@@ -8956,7 +8985,8 @@ void SceneActorServices::State::actor_draw(Actor& actor, i32 view, i32 pass)
             // and 0x23 keep the base slot 0x0003C9E0 (getters 0x0003C080, 0x0006DBD0 and 0x00069620), as do the
             // ghouly setups 0x24, 0x25 and 0x26, the bg-break key 0x1E, the ghouly key 0x18 and the spider web 0x1B
             // (getters 0x0006A4F0, 0x0006B110, 0x0006BB30, 0x0006CC70, 0x0006E950 and 0x000704D0).
-            if (type != 0x1A && type != 2 && type != 0xF && type != 0x1F && type != 0x23 && type != 0x25
+            // Type 0x16's +0x14 is 0x0006EF20 as well.
+            if (type != 0x1A && type != 2 && type != 0x16 && type != 0xF && type != 0x1F && type != 0x23 && type != 0x25
                 && type != 0x24 && type != 0x26 && type != 0x1E && type != 0x18 && type != 0x19 && type != 0x1B)
             {
                 char vtable[16];
@@ -9051,13 +9081,13 @@ u32 SceneActorServices::State::actor_visible(Actor& actor, i32 pass, i32 view)
         return classes->emitter_visible(object, u32(pass), u32(view)) ? 1u : 0u;
     }
     if (object.type != 2 && object.type != 5 && object.type != 0xF && object.type != 0x10 && object.type != 0x12
-        && object.type != 0x13 && object.type != 0x15
+        && object.type != 0x13 && object.type != 0x15 && object.type != 0x16
         && object.type != 0x1A && object.type != 0x1F && object.type != 0x23 && object.type != 0x25
         && object.type != 0x24 && object.type != 0x26 && object.type != 0x1E && object.type != 0x1D
         && object.type != 0x18 && object.type != 0x19 && object.type != 0x1B && object.type != 0x21
         && object.type != 0xAA
         && object.type != 0xA9 && object.type != 0xA7 && object.type != 0xA0 && object.type != 0xA1
-        && object.type != 0xA2 && object.type != 0xA3 && object.type != 0xA6)
+        && object.type != 0xA2 && object.type != 0xA3 && object.type != 0xA5 && object.type != 0xA6)
     {
         unbound("actor vtable +0x18 visibility for factory type " + std::to_string(object.type));
     }
@@ -9508,11 +9538,11 @@ void SceneActorServices::State::view_refresh_slot(Actor& actor)
             const FactoryObject* object = object_of(bytes);
             const u16 type = object == nullptr ? 0 : object->type;
             if (type == 2 || type == 4 || type == 5 || type == 0xD || type == 0xF || type == 0x10 || type == 0x12
-                || type == 0x13 || type == 0x15
+                || type == 0x13 || type == 0x15 || type == 0x16
                 || type == 0x1A || type == 0x1F || type == 0x23 || type == 0x25 || type == 0x24 || type == 0x26
                 || type == 0x1E || type == 0x1D || type == 0x18 || type == 0x19 || type == 0x1B || type == 0x21
                 || type == 0xAA || type == 0xA9 || type == 0xA7
-                || type == 0xA0 || type == 0xA1 || type == 0xA2 || type == 0xA3 || type == 0xA6)
+                || type == 0xA0 || type == 0xA1 || type == 0xA2 || type == 0xA3 || type == 0xA5 || type == 0xA6)
             {
                 return;
             }

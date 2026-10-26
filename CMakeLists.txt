@@ -224,8 +224,12 @@ add_library(gbtg_lib STATIC
     src/engine/entities/ugly_girl_strategy.cpp
     src/engine/entities/haunted_door_strategy.cpp
     src/engine/entities/imp_flamethrower_strategy.cpp
+    src/engine/entities/body_transform_state.cpp
+    src/engine/entities/chicken_strategy.cpp
     src/engine/entities/imp_flying_strategy.cpp
     src/engine/entities/imp_ninja_strategy.cpp
+    src/engine/entities/single_shot_weapon.cpp
+    src/engine/entities/vampire_chicken_strategy.cpp
     src/engine/entities/medusa_strategy.cpp
     src/engine/entities/pirate_strategy.cpp
     src/engine/entities/hunchback_strategy.cpp

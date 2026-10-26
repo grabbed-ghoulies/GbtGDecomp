@@ -347,7 +347,7 @@ void update_state(RuntimeWeaponActor& weapon, u16 state)
         update_runtime_container_weapon_state(weapon, state); // 0x000C76A0
         return;
     }
-    if (weapon.type == 0xA3 || weapon.type == 0xA6)
+    if (weapon.type == 0xA3 || weapon.type == 0xA5 || weapon.type == 0xA6)
     {
         update_runtime_gun_weapon_state(weapon, state); // The gun's 0x000CAA80
         return;
@@ -363,7 +363,7 @@ void late_update_state(RuntimeWeaponActor& weapon, u16 state)
     {
         return;
     }
-    if (weapon.type == 0xA3 || weapon.type == 0xA6)
+    if (weapon.type == 0xA3 || weapon.type == 0xA5 || weapon.type == 0xA6)
     {
         late_update_runtime_gun_weapon_state(weapon, state); // The gun's 0x000CAF10
         return;
@@ -404,7 +404,7 @@ void leave_state(RuntimeWeaponActor& weapon, u16 state, u16 next)
         leave_runtime_container_weapon_state(weapon, state, next); // 0x000C7990
         return;
     }
-    if (weapon.type == 0xA3 || weapon.type == 0xA6)
+    if (weapon.type == 0xA3 || weapon.type == 0xA5 || weapon.type == 0xA6)
     {
         leave_runtime_gun_weapon_state(weapon, state); // The gun's 0x000CAEB0
         return;
@@ -445,7 +445,7 @@ void enter_state(RuntimeWeaponActor& weapon, u16 state, u16 previous)
         enter_runtime_container_weapon_state(weapon, state, previous); // 0x000C7870
         return;
     }
-    if (weapon.type == 0xA3 || weapon.type == 0xA6)
+    if (weapon.type == 0xA3 || weapon.type == 0xA5 || weapon.type == 0xA6)
     {
         enter_runtime_gun_weapon_state(weapon, state); // The gun's 0x000CAE90
         return;

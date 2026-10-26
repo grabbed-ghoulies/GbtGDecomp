@@ -10406,12 +10406,18 @@ int main(int argc, char** argv)
     const bool scene2b2_test = argc == 3 && std::string_view(argv[2]) == "--scene2b2";
     // --scene2b3 boots chapter2b_scene3_2playcam and plays it until the script moves on.
     const bool scene2b3_test = argc == 3 && std::string_view(argv[2]) == "--scene2b3";
+    // --scene2b4 boots chapter2b_scene4_1playcam and plays it until the script moves on.
+    const bool scene2b4_test = argc == 3 && std::string_view(argv[2]) == "--scene2b4";
+    // --scene2b4b boots chapter2b_scene4_2book and plays it until the script moves on.
+    const bool scene2b4b_test = argc == 3 && std::string_view(argv[2]) == "--scene2b4b";
+    // --scene2b5 boots chapter2b_scene5_1playcam and plays it until the script moves on.
+    const bool scene2b5_test = argc == 3 && std::string_view(argv[2]) == "--scene2b5";
     if (spawn_test)
     {
         std::cout << std::unitbuf;
     }
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
-        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene2a14_test && !scene2a15_test && !scene2a16_test && !scene2a17_test && !scene2b1_test && !scene2b2_test && !scene2b3_test && !scene3_test && !pause_test)
+        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene2a14_test && !scene2a15_test && !scene2a16_test && !scene2a17_test && !scene2b1_test && !scene2b2_test && !scene2b3_test && !scene2b4_test && !scene2b4b_test && !scene2b5_test && !scene3_test && !pause_test)
     {
         std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene6-save | --scene6-save-reload | --scene3 | --pause | --scene4 | --scene5 | --scene6-1 | --scene7]\n";
         return 2;
@@ -10543,6 +10549,9 @@ int main(int argc, char** argv)
             : scene2b1_test ? "chapter2b_scene1_1playcam"
             : scene2b2_test ? "chapter2b_scene2_1playcam"
             : scene2b3_test ? "chapter2b_scene3_2playcam"
+            : scene2b4_test ? "chapter2b_scene4_1playcam"
+            : scene2b4b_test ? "chapter2b_scene4_2book"
+            : scene2b5_test ? "chapter2b_scene5_1playcam"
             : player_test || spawn_test ? "chapter1_scene1_2playcam"
             : title_test ? "" : "scene0_1book");
         if (scene2a1b_test)
@@ -10551,6 +10560,27 @@ int main(int argc, char** argv)
             play_scene7(game, "scene2a1_2");
             pass_chapter_title(game, "scene2a1_to_3", "aid_script_ghoulies_chapter2a_scene1_3playcam", false);
             play_scene7(game, "scene2a1_3", 1000.f, "Event - Kill All", true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene2b5_test)
+        {
+            pass_chapter_title(game, "scene2b5", "aid_script_ghoulies_chapter2b_scene5_1playcam", false);
+            play_scene7(game, "scene2b5", 1000.f, {}, true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene2b4b_test)
+        {
+            pass_chapter_title(game, "scene2b4b", "aid_script_ghoulies_chapter2b_scene4_2book", false);
+            play_scene7(game, "scene2b4b", 1000.f, {}, true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene2b4_test)
+        {
+            pass_chapter_title(game, "scene2b4", "aid_script_ghoulies_chapter2b_scene4_1playcam", false);
+            play_scene7(game, "scene2b4", 1000.f, {}, true, true);
             gbtg::gfx_shutdown();
             return 0;
         }

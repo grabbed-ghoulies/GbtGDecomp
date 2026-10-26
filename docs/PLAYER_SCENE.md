@@ -245,7 +245,8 @@ All take the game directory, e.g.
 | `--scene2b6b` | Boots chapter 2b scene 6 (chapter2b_scene6_2playcam, the farmyard) and plays it with the scene 7 driver: the driver chases the class a pending PlayerHitGhouly names (Mr Ribs, tag 0x31, by the barn door), leaves each penned vampire chicken after a minute out of reach, and walks into region 1. Passes when the script moves on to `aid_script_ghoulies_chapter2b_scene7_1playcam` (frame 18716 in the 2026-10-26 run) |
 | `--scene2b7` | Boots chapter 2b scene 7 (chapter2b_scene7_1playcam, the kiln rooms) and plays it with the scene 7 driver: the walk-in, "EXIT DOOR CLOSES", "EVENT - REQUIRED NUMBER/FIND THE KEY" with the furnace burning skeletons, then "FREE PLAY", where the driver leaves the workshop spawn's mummies and walks out of the exit. Passes when the script moves on to `aid_script_ghoulies_chapter2b_scene8_1playcam` (frame 12242 in the 2026-10-26 run) |
 | `--scene2b8` | Boots chapter 2b scene 8 (chapter2b_scene8_1playcam, the lower corridors) and plays it with the scene 7 driver: the giant hand grabs Cooper (its Super Scary challenge, mode 2), the driver leaves Mr Ribs, who takes no hits, and hits a haunted chair (PlayerHitGhouly, tag 0x10). Passes when the script moves on to `aid_script_ghoulies_chapter2b_scene9_1playcam` (frame 4791 in the 2026-10-26 run) |
-| `--scene2b9` | Boots chapter 2b scene 9 (chapter2b_scene9_1playcam, the west wing pantry) and plays it with the scene 7 driver, calm in FREE PLAY: the haunted coats' event (EVENT: ONE TYPE - HOODED FIGURE) and the haunted doors' (ONE TYPE (HAUNTED DOOR) / DON'T KILL (IMP)). Cooper faints once in the first door event in the 2026-10-26 run and the room restarts. Passes when the script moves on to `aid_script_ghoulies_chapter2b_scene10_1playcam` (frame 9537 in the 2026-10-26 run) |
+| `--scene2b9` | Boots chapter 2b scene 9 (chapter2b_scene9_1playcam, the west wing pantry) and plays it with the scene 7 driver, calm in FREE PLAY: the haunted coats' event (EVENT: ONE TYPE - HOODED FIGURE) and the haunted doors' (ONE TYPE (HAUNTED DOOR) / DON'T KILL (IMP)). Cooper faints once in the first door event in the 2026-10-26 run and the room restarts. Passes when the script moves on to `aid_script_ghoulies_chapter2b_scene10_1playcam` (frame 7373 in the 2026-10-26 rerun) |
+| `--scene2b10` | Boots chapter 2b scene 10 (chapter2b_scene10_1playcam, the kitchen) and plays it with the scene 7 driver, calm in FREE PLAY: Cooper fights Mr Ribs until his energy is gone (scriptConditionId_ActorHasNoEnergy). Passes when the script moves on to `aid_script_ghoulies_chapter2b_scene10_2book` (frame 4551 in the 2026-10-26 run) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -413,6 +414,15 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 
 ## Checkpoints
 
+### 2026-10-26: chapter 2b scene 10: Mr Ribs
+
+- Script condition node type 0x75 (`0x001257A6` in `0x00125450`) builds opcode 0x12,
+  scriptConditionId_ActorHasNoEnergy (the tag of the name at node+8 and the float at node+0x48); its update
+  `0x00133870` (`script_tick_actor_energy_condition`) holds while an actor of that tag has energy, else counts the
+  float down. The evaluation `0x00132DB0` was already translated.
+- Checked in the captures: Cooper fighting Mr Ribs in the kitchen, Ribs flashing red with 13 energy left
+  (frame 3000).
+
 ### 2026-10-26: chapter 2b scene 9: the pantry's haunted coats and doors
 
 - **entityStrategyHauntedCoat** (factory type 0x41, getter `0x000AF050`, vtable 0x00505E18; row 0x40 carries the
@@ -433,7 +443,7 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
   `entities/body_spawn_ghouly_state.cpp`: init `0x000A1A70`, destroy `0x000A1B60`, tick `0x000A1BE0` with the
   placement `0x000A1FD0`; the haunted doors' imp spawns.
 - Driver: free play is calm (as in 2b7); the doors still stand after their event and otherwise wear Cooper down
-  until he faints and the room restarts. Mr Ribs (tag 0x31) is no longer fought anywhere (he takes no hits).
+  until he faints and the room restarts. The "takes no hits" rule now counts its 20 s per ghouly, so turning between Mr Ribs and a door no longer resets it.
 - Passes at frame 9537 after one faint and restart. Checked in the captures: the coats on the pantry wall
   (frame 900), the Haunted Coat introduction (1200), a coat attacking Cooper (1500), Cooper fighting the haunted
   doors under the event's door icon (4200, 8700). Not checked: that a door's imp spawn (state 0x85) actually made

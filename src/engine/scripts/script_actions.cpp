@@ -832,8 +832,11 @@ int script_handle_condition_node(Game& g, const ScriptNode& node, u32& cursor)
         script_seek_node_type(g.scene_script, cursor, 0x3C); // 0x000532B0
         return 2;
     }
-    case 0x65:
     case 0x75:
+        opcode = 18; // 0x001257A6, scriptConditionId_ActorHasNoEnergy: the tag and the float at node+0x48.
+        word_then_far = true;
+        break;
+    case 0x65:
     case 0x8C:
     case 0xA3:
         throw Error("script condition node type " + std::to_string(node.type) + " (0x00125450) is not translated");

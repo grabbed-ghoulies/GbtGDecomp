@@ -889,6 +889,50 @@ void script_tick_ghouly_exists_condition(ScriptCond& rec)
     }
 }
 
+// Xbox 0x00133870. Opcode 18 (scriptConditionId_ActorHasNoEnergy) in the update table at 0x00314334: while any
+// DAT_00511B38 actor whose +6 tag is the word at +8 still has energy (body +0x94) nothing moves; otherwise, while
+// DAT_0050E768 is clear and the byte at [DAT_0051248C]+0x30F144 is set, the float at +0xC counts down by the frame
+// step, stopping at 0.
+// Xbox 0x00133870
+void script_tick_actor_energy_condition(ScriptCond& rec)
+{
+    const u16 want = u16(cond_u32(rec, 8));
+    for (const RuntimeLoadingActor& actor : runtime_loading_actors()) // DAT_00511B38.
+    {
+        if (actor.tag != want)
+        {
+            continue;
+        }
+        if (!actor.body)
+        {
+            throw Error("0x00133870 reads +0x94 of a DAT_00511B38 actor with no body at +0x95C");
+        }
+        if (actor.energy != 0)
+        {
+            return;
+        }
+    }
+    if (g_block_decay != 0 || g_decay_arm == 0)
+    {
+        return;
+    }
+    float step = 0.f;
+    if (g_sim_freeze <= 0.f)
+    {
+        step = g_sim_dt * g_sim_scale;
+    }
+    const float left = cond_f32(rec, 0xc);
+    if (0.f < left)
+    {
+        const float next = left - step;
+        cond_put_f32(rec, 0xc, next);
+        if (next <= 0.f)
+        {
+            cond_put_f32(rec, 0xc, 0.f);
+        }
+    }
+}
+
 
 // Xbox 0x00133570. Opcode 13 in the update table at 0x00314334: once 0x001168F0 finds the tagged 0xB6 event for the
 // word at +8, while DAT_0050E768 is clear and the byte at [DAT_0051248C]+0x30F144 is set, the float at +0xC counts
@@ -1292,7 +1336,7 @@ void script_queue_scene_start(Game& g)
 // Xbox 0x00117100: 0x00140E30, then the condition updates and the eval at 0x00117140. The update walk calls the
 // table at 0x00314334: opcode 0 is 0x00133070, opcode 1 is 0x001330E0, opcode 3 is 0x00133170, opcode 15 is
 // 0x00133770, opcode 16 is 0x001336A0, opcode 4 is 0x00133230, opcode 5 is 0x001332B0, opcode 10 is 0x001333A0, opcode 11 is 0x00133330, opcode 13 is
-// 0x00133570, opcode 14 is 0x001335E0, opcode 17 is 0x001334B0 and opcode 19 is 0x00133900.
+// 0x00133570, opcode 14 is 0x001335E0, opcode 17 is 0x001334B0, opcode 18 is 0x00133870 and opcode 19 is 0x00133900.
 // Opcodes 2, 6..9 and 20..26 have the empty 0x001628B0; the others' updates
 // are not translated and raise when a record reaches them.
 void script_vm_tick(Game& g, float dt)
@@ -1357,6 +1401,10 @@ void script_vm_tick(Game& g, float dt)
         else if (opcode == 17)
         {
             script_tick_marker_broken_condition(rec);
+        }
+        else if (opcode == 18)
+        {
+            script_tick_actor_energy_condition(rec);
         }
         else if (opcode == 19)
         {

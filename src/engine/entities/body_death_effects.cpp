@@ -6,11 +6,32 @@
 #include "../scene/scene.h"
 #include "actor_bind_tree.h"
 #include "actor_render_registration.h"
+#include <array>
 #include <bit>
 #include <cstring>
 
 namespace gbtg
 {
+// Xbox 0x0013B1F0, ESI name
+void burst_runtime_actor_into_bits(const Actor& actor, u32 actor_address, float lifetime, const char* name,
+    const char* default_name, const std::function<void(std::span<const u8>)>& create)
+{
+    std::array<u8, 0x55C> parameters{};
+    initialize_runtime_body_death_effect(parameters, actor, actor_address, std::bit_cast<float>(0xBF800000u),
+        lifetime, default_name); // 0x00068770, EBX the parameters
+    if (name != nullptr)
+    {
+        char* output = reinterpret_cast<char*>(parameters.data() + 0x3B8);
+        char character;
+        do
+        {
+            character = *name++;
+            *output++ = character;
+        } while (character != 0);
+    }
+    create(parameters); // 0x00107520
+}
+
 namespace
 {
 void copy_death_effect_name(char* destination, const char* source)

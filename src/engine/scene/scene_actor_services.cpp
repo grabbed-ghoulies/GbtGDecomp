@@ -1,6 +1,7 @@
 #include "../entities/mind_target_policy.h"
 #include "scene_actor_services.h"
 #include "../entities/ghouly_spawn_trigger.h"
+#include "../entities/body_death_effects.h"
 #include "../entities/actor_template_creation.h"
 #include "../frontend/dialogue_input.h"
 #include "../frontend/scoreboard_messages.h"
@@ -828,6 +829,8 @@ struct SceneActorServices::State
     std::unique_ptr<SaveGameContext> challenge_saves; // 0x000F24C0's save of the current game.
     std::unique_ptr<RuntimeChallengeAward> challenge_award;
     std::unique_ptr<RuntimePowerupAwardContext> powerup_awards;
+    std::unique_ptr<RuntimeActorPlacementSpawn> placement_spawn; // 0x001349E0's views.
+    std::unique_ptr<RuntimeMiniCooperSpawn> minicooper_spawn; // Powerup kind 0xC.
     std::unique_ptr<RuntimePowerupActors> powerup_actors;
     u32 super_scary_auto = 0; // DAT_005122F0 (BSS; its writer is not native).
     void* super_scary_text = nullptr; // DAT_00512484 (BSS; its writer is not native).
@@ -3050,6 +3053,16 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     {
         object_message(object_of_actor(actor), message);
     };
+    // 0x0013B1F0 on a door track actor (door state 7, 0x0005A9B0).
+    doors->burst = [this](Actor& actor, float lifetime, const char* name)
+    {
+        FactoryObject& object = object_of_actor(actor);
+        burst_runtime_actor_into_bits(actor, address_of(object.bytes.get()), lifetime, name, empty_name,
+            [this](std::span<const u8> parameters)
+            {
+                scene.keep_object(create_factory_object(scene.factory, parameters)); // 0x00107520
+            });
+    };
     g_runtime_doors = doors.get();
     event_board_resources = std::make_unique<RuntimeScoreboardResources>(RuntimeScoreboardResources{
         resources.registry, resources.error, data(0x00314170, 0x10)});
@@ -3501,6 +3514,55 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         intro_notices, *bonus_counters, *scoreboard_resources, *challenge_saves});
     powerup_awards = std::make_unique<RuntimePowerupAwardContext>(RuntimePowerupAwardContext{*powerup_table,
         *powerup_caption, *scoreboard_resources, *challenge_award, audio.streams, data(0x003121D0, 6 * 0x80)});
+    placement_spawn = std::make_unique<RuntimeActorPlacementSpawn>(RuntimeActorPlacementSpawn{scene.factory,
+        image.pools, script_records,
+        [this](FactoryObject made) -> u32
+        {
+            FactoryObject* kept = scene.keep_object(std::move(made));
+            return kept == nullptr || kept->bytes == nullptr ? 0u : address_of(kept->bytes.get());
+        },
+        [this](u32 address, std::span<const u32> words)
+        {
+            FactoryObject* object = object_of(scene.resolve_address(address, 0).data());
+            if (object == nullptr)
+            {
+                unbound("0x001349E0 messages an address that is not a scene object");
+            }
+            std::array<u32, 0x42> buffer{};
+            std::copy_n(words.begin(), std::min<size_t>(words.size(), buffer.size()), buffer.begin());
+            object_message(*object, buffer);
+        },
+        [this](u32 address) -> std::span<u8>
+        {
+            FactoryObject* object = object_of(scene.resolve_address(address, 0).data());
+            if (object == nullptr)
+            {
+                unbound("0x001349E0 writes an address that is not a scene object");
+            }
+            return {object->bytes.get(), object->size};
+        }});
+    minicooper_spawn = std::make_unique<RuntimeMiniCooperSpawn>(RuntimeMiniCooperSpawn{*placement_spawn,
+        [this](u32 address) -> const Actor&
+        {
+            return *actors->actors.at(scene.resolve_address(address, 0).data());
+        },
+        [this](u32 address) -> EntityBitBlock&
+        {
+            FactoryObject* object = object_of(scene.resolve_address(address, 0).data());
+            if (object == nullptr || object->type != 5)
+            {
+                unbound("powerup kind 0xC's Mini Cooper is not a player actor");
+            }
+            auto& player = players->player(*object);
+            player.refresh_views();
+            if (player.body_bits == nullptr)
+            {
+                unbound("powerup kind 0xC's Mini Cooper has no body +0x15C bit block");
+            }
+            return *player.body_bits;
+        },
+        scared_count, scared_actors, scared_times});
+    powerup_awards->minicooper = minicooper_spawn.get();
     powerup_awards->complete_event = [this]()
     {
         return complete_script_event_sequence(game); // 0x000D0870
@@ -6920,6 +6982,32 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
         store_actor_model_animation_view(view);
         return;
     }
+    if (type == 0x20)
+    {
+        // Getter 0x000711A0: +0x10 is 0x00071380, which ends each phase with the actor update 0x000420D0.
+        auto& view = actors->view(object);
+        const u8* bytes = object.bytes.get();
+        actor_updates[&view.bat.actor] = [this, bytes](Actor&)
+        {
+            auto& updated = *object_of(bytes);
+            auto& updated_view = actors->view(updated);
+            refresh_actor_model_animation_view(updated_view);
+            frame->freeze = pause;
+            frame->dt = frame_delta;
+            frame->scene_scale = time_scale;
+            frame->block_decay = pause_references[1];
+            frame->decay_enabled = decay_enabled[decay_index];
+            classes->update_sss_door(updated, [this, &updated_view]()
+                {
+                    update_actor_frame(updated_view.frame, *frame); // 0x000420D0
+                });
+            store_actor_model_animation_view(updated_view);
+        };
+        refresh_actor_model_animation_view(view);
+        classes->message(object, message);
+        store_actor_model_animation_view(view);
+        return;
+    }
     if (type == 0x21)
     {
         // Getter 0x00071820: +0x10 is 0x00071960, which ends each phase with the actor update 0x000420D0.
@@ -9335,7 +9423,7 @@ void SceneActorServices::State::actor_draw(Actor& actor, i32 view, i32 pass)
             // Type 0x16's and 0x17's +0x14 are 0x0006EF20 as well.
             if (type != 0x1A && type != 2 && type != 0x16 && type != 0x17 && type != 0xF && type != 0x1F && type != 0x23
                 && type != 0x25 && type != 0x24 && type != 0x26 && type != 0x1E && type != 0x18 && type != 0x19
-                && type != 0x1B)
+                && type != 0x1B && type != 0x20) // 0x20: the SSS door, getter 0x000711A0.
             {
                 char vtable[16];
                 std::snprintf(vtable, sizeof(vtable), "0x%08X",
@@ -9436,7 +9524,7 @@ u32 SceneActorServices::State::actor_visible(Actor& actor, i32 pass, i32 view)
         && object.type != 0x13 && object.type != 0x15 && object.type != 0x16 && object.type != 0x17
         && object.type != 0x1A && object.type != 0x1F && object.type != 0x23 && object.type != 0x25
         && object.type != 0x24 && object.type != 0x26 && object.type != 0x1E && object.type != 0x1D
-        && object.type != 0x18 && object.type != 0x19 && object.type != 0x1B && object.type != 0x21
+        && object.type != 0x18 && object.type != 0x19 && object.type != 0x1B && object.type != 0x21 && object.type != 0x20
         && object.type != 0xAA
         && object.type != 0xA9 && object.type != 0xA7 && object.type != 0xA0 && object.type != 0xA1
         && object.type != 0xA2 && object.type != 0xA3 && object.type != 0xA5 && object.type != 0xA6)
@@ -9880,7 +9968,7 @@ void SceneActorServices::State::present_view(i32 view)
 
 // Actor vtable +0x38, which 0x00121DC0 calls when set. Getters 0x0003C080 (type 2, the base every class below
 // starts from, clears it), 0x00042BC0 (4), 0x00027F60 (5), 0x00109DD0 (0xD), 0x0006D4A0 (0x15), 0x0006EE20 (0x1A),
-// 0x0006DBD0 (0x1F), 0x00069620 (0x23), 0x000704D0 (0x1B) and 0x000CEF70 (0xAA) leave it 0.
+// 0x0006DBD0 (0x1F), 0x00069620 (0x23), 0x000704D0 (0x1B), 0x000711A0 (0x20) and 0x000CEF70 (0xAA) leave it 0.
 void SceneActorServices::State::view_refresh_slot(Actor& actor)
 {
     for (const auto& [bytes, native] : actors->actors)
@@ -9892,7 +9980,7 @@ void SceneActorServices::State::view_refresh_slot(Actor& actor)
             if (type == 2 || type == 4 || type == 5 || type == 0xD || type == 0xF || type == 0x10 || type == 0x12
                 || type == 0x13 || type == 0x15 || type == 0x16 || type == 0x17
                 || type == 0x1A || type == 0x1F || type == 0x23 || type == 0x25 || type == 0x24 || type == 0x26
-                || type == 0x1E || type == 0x1D || type == 0x18 || type == 0x19 || type == 0x1B || type == 0x21
+                || type == 0x1E || type == 0x1D || type == 0x18 || type == 0x19 || type == 0x1B || type == 0x21 || type == 0x20
                 || type == 0xAA || type == 0xA9 || type == 0xA7
                 || type == 0xA0 || type == 0xA1 || type == 0xA2 || type == 0xA3 || type == 0xA5 || type == 0xA6)
             {

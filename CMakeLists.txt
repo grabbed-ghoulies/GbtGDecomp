@@ -283,6 +283,7 @@ add_library(gbtg_lib STATIC
     src/engine/entities/body_spin_dizzy_state.cpp
     src/engine/entities/body_drone_dance_state.cpp
     src/engine/entities/sss_dropper.cpp
+    src/engine/entities/sss_door.cpp
     src/engine/entities/body_look_for_weapon_state.cpp
     src/engine/entities/body_slide_state.cpp
     src/engine/entities/animated_light.cpp

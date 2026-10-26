@@ -8,6 +8,9 @@
 #include "event_pause.h"
 #include "../scene/actor_loading.h"
 #include "../runtime/name_lookup.h"
+#include "../entities/actor_transform.h"
+#include "../camera/camera_body_slots.h"
+#include "gbtg/entity.h"
 
 #include <bit>
 #include <cstring>
@@ -394,6 +397,56 @@ void put_half(std::span<u8> row, size_t offset, u16 value)
 }
 }
 
+// Xbox 0x0005C0A0, EDI point
+RuntimeDoorClips* find_runtime_door_nearest(const Vec3& point, RuntimeDoorContext& context)
+{
+    if (context.pool == nullptr)
+    {
+        return nullptr;
+    }
+    float best = std::bit_cast<float>(0x497423FEu); // DAT_0032B3BC, 999999.875.
+    RuntimeDoorClips* found = nullptr;
+    size_t index = 0;
+    for (u8* row = context.pool->begin; row < context.pool->end; row += context.pool->stride, ++index)
+    {
+        const std::span<const u8> fields{row, context.pool->stride};
+        const long double dx = static_cast<long double>(point.x) - read_f32(fields, 0xC);
+        const long double dy = static_cast<long double>(point.y) - read_f32(fields, 0x10);
+        const long double dz = static_cast<long double>(point.z) - read_f32(fields, 0x14);
+        const float distance = float(std::sqrt((dx * dx + dy * dy) + dz * dz));
+        if (best > distance)
+        {
+            found = &context.rows.at(index);
+            best = distance;
+        }
+    }
+    return found;
+}
+
+// Xbox 0x0005C130, EDI point
+void close_runtime_door_nearest(const Vec3& point, RuntimeDoorContext& context)
+{
+    const RuntimeDoorClips* door = find_runtime_door_nearest(point, context); // 0x0005C0A0
+    if (door == nullptr)
+    {
+        return;
+    }
+    set_runtime_door_state(read_u16(door->fields, 4), 7, 0, 0, context); // 0x0005B540, AX the ordinal
+}
+
+// Xbox 0x0005C150, EAX point
+bool runtime_door_nearest_idle(const Vec3& point, RuntimeDoorContext& context)
+{
+    const RuntimeDoorClips* door = find_runtime_door_nearest(point, context); // 0x0005C0A0, EDI point
+    if (door == nullptr)
+    {
+        return false;
+    }
+    u16 state = 0;
+    runtime_door_state(read_u16(door->fields, 4), state, context); // 0x0005B780, SI the ordinal
+    return state == 0 && read_u32(door->fields, 0x14C) == 0 && read_u32(door->fields, 0xB8) == 0;
+}
+
 // Xbox 0x00146CE0, EAX from, ECX to
 long double runtime_point_distance(const Vec3& from, const Vec3& to)
 {
@@ -532,7 +585,28 @@ void set_runtime_door_state(u16 ordinal, u16 state, u32 hold, u32 last, RuntimeD
     }
     if (state == 7)
     {
-        throw Error("untranslated Xbox 0x0005A9B0 (door state 7)");
+        break_runtime_door_actor(*door, context); // 0x0005A9B0, the row
+        if (door->primary != nullptr || door->camera != nullptr)
+        {
+            if (context.cutscenes == nullptr)
+            {
+                throw Error("door clips need the scene cutscene runtime, which is not bound");
+            }
+        }
+        if (door->primary != nullptr)
+        {
+            release_runtime_cutscene(door->primary, *context.cutscenes); // 0x0004D720
+            door->primary = nullptr;
+            store(door->fields, 0x140, 0);
+        }
+        if (door->camera != nullptr)
+        {
+            release_runtime_cutscene(door->camera, *context.cutscenes); // 0x0004D720
+            door->camera = nullptr;
+            store(door->fields, 0x144, 0);
+        }
+        store(door->fields, 0x148, 1);
+        return;
     }
     if (state != read_u16(door->fields, 6))
     {
@@ -599,6 +673,69 @@ void set_runtime_door_state(u16 ordinal, u16 state, u32 hold, u32 last, RuntimeD
         store(door->fields, 0x150, last);
     }
     store(door->fields, 0x148, 1);
+}
+
+// Xbox 0x0005A9B0
+void break_runtime_door_actor(RuntimeDoorClips& door, RuntimeDoorContext& context)
+{
+    if (door.primary == nullptr)
+    {
+        throw Error("0x0005A9B0 reads the track actors of a door with no clip at +0x140");
+    }
+    if (context.cutscenes == nullptr)
+    {
+        throw Error("0x0005A9B0 reads a door clip's track rows with no scene cutscene runtime");
+    }
+    const auto& rows = context.cutscenes->instances.at(door.primary).actors; // Clip +0x44.
+    Actor* actor = rows.empty() ? nullptr : rows.front().actor;
+    if (actor == nullptr)
+    {
+        throw Error("0x0005A9B0 breaks a door clip with no first track actor");
+    }
+    if (context.added_position == nullptr)
+    {
+        throw Error("0x0005A9B0 needs DAT_0050DD80 for 0x0003AEB0");
+    }
+    Vec3 position{};
+    Vec3 euler{};
+    bool placed = false;
+    bool turned = false;
+    if (actor->model != nullptr && actor->model->cpu.data() != nullptr) // Actor +0x204 and its first word.
+    {
+        const u32 joint = actor_lookup_joint_index(actor->model->cpu, 0) & 0xFFu; // 0x00052FC0
+        if (joint != 0xFFu && joint != 0xFFFFFFFFu)
+        {
+            actor_transform_joint_point(*actor, u16(joint), *context.added_position, position); // 0x0003AEB0
+            placed = true;
+        }
+    }
+    if (actor->model != nullptr && actor->model->cpu.data() != nullptr)
+    {
+        const u32 joint = actor_lookup_joint_index(actor->model->cpu, 0) & 0xFFu; // 0x00052FC0
+        if (joint != 0xFFu && joint != 0xFFFFFFFFu)
+        {
+            actor_joint_world_euler(*actor, u16(joint), euler); // 0x0003B050
+            turned = true;
+        }
+    }
+    if (!placed || !turned)
+    {
+        throw Error("0x0005A9B0 places a door actor whose model has no joint 0 (retail reads stack scratch)");
+    }
+    actor_set_world_position(*actor, position); // 0x00041730, ESI position, EDI actor
+    wrap_runtime_euler(euler, actor->euler); // 0x00105AA0, ESI euler, EDI actor +0x14
+    actor->xform_valid = 0; // Actor +0x2A8.
+    const i32 shape = std::bit_cast<i32>(read_u32(door.fields, 0));
+    const size_t offset = size_t(shape) * 0x94 + 0x10;
+    if (shape < 0 || offset >= context.names.dimensions.size())
+    {
+        throw Error("0x0005A9B0 reads a door shape outside DAT_004249A4");
+    }
+    if (!context.burst)
+    {
+        throw Error("0x0005A9B0 bursts the door actor (0x0013B1F0) without the scene's effect views");
+    }
+    context.burst(*actor, 1.f, reinterpret_cast<const char*>(context.names.dimensions.data() + offset)); // 0x0013B1F0
 }
 
 // Xbox 0x0005AA90

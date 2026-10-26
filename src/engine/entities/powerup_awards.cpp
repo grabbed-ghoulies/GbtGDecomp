@@ -3,6 +3,12 @@
 #include "body_request_selection.h"
 #include "mind_target_policy.h"
 #include "../saves/save_summary.h"
+#include "actor_transform.h"
+#include "body_message_helpers.h"
+#include "trigger_actor.h"
+#include "gbtg/actor_spawn_factory.h"
+#include <array>
+#include <bit>
 #include <cstring>
 
 namespace gbtg
@@ -105,6 +111,33 @@ i32 award_runtime_challenge(u32 index, RuntimeChallengeAward& context)
     return won;
 }
 
+// Xbox 0x001349E0, ECX fifth, EDX fourth
+u32 spawn_runtime_placed_actor(const char* name, const Vec3& position, const Vec3& euler, float scale,
+    const char* second_override, const char* fourth_override, const char* fifth_override, u32 tag, u16 word,
+    const Vec3& message_position, const Vec3& message_euler, const u8* attributes, u32 last, i16 scene_key,
+    RuntimeActorPlacementSpawn& context)
+{
+    const u32 created = context.keep(create_spawn_actor(context.factory, context.resources, static_cast<const u8*>(context.scene_records),
+        name, position, euler, scale, nullptr, nullptr, second_override, fourth_override, fifth_override,
+        scene_key)); // 0x001347C0, EAX name, ECX position, EBX euler
+    if (created == 0 || tag == 0)
+    {
+        return created;
+    }
+    const std::span<u8> bytes = context.bytes_at(created);
+    std::memcpy(bytes.data() + 0x990, &word, 2);
+    if (attributes != nullptr)
+    {
+        copy_runtime_trigger_attributes(bytes.data() + 0x998, attributes); // 0x000280D0, EAX +0x998
+    }
+    const std::array<u32, 9> message{0x4D, tag, std::bit_cast<u32>(message_position.x),
+        std::bit_cast<u32>(message_position.y), std::bit_cast<u32>(message_position.z),
+        std::bit_cast<u32>(message_euler.x), std::bit_cast<u32>(message_euler.y), std::bit_cast<u32>(message_euler.z),
+        last};
+    context.message(created, message); // Vtable +0xC.
+    return created;
+}
+
 // Xbox 0x00123E70
 void award_runtime_powerup(i32 id, u32 player, u32 kind, float amount, u32 extra,
     RuntimePowerupAwardContext& context)
@@ -159,6 +192,7 @@ void award_runtime_powerup(i32 id, u32 player, u32 kind, float amount, u32 extra
         break;
     case 5:
         cleared = true;
+        sound = 0;
         if (!context.complete_event)
         {
             throw Error("0x00123E70's powerup kind 5 completes the event sequence (0x000D0870) without it bound");
@@ -191,7 +225,32 @@ void award_runtime_powerup(i32 id, u32 player, u32 kind, float amount, u32 extra
         sound = 0;
         break;
     case 0xC:
-        throw Error("untranslated 0x001349E0 (the minicooper spawn) from 0x00123E70 (powerup kind 0xC)");
+    {
+        sound = 0;
+        if (context.minicooper == nullptr)
+        {
+            throw Error("0x00123E70's powerup kind 0xC spawns the Mini Cooper (0x001349E0) without the scene's views");
+        }
+        RuntimeMiniCooperSpawn& minicooper = *context.minicooper;
+        const Actor& awarded = minicooper.actor_at(player);
+        const Vec3 position = actor_world_position(awarded); // 0x000412A0
+        const Vec3 euler = actor_world_euler(awarded); // 0x00041820
+        const u32 created = spawn_runtime_placed_actor("aid_objparams_ghoulies_actor_minicooper", position, euler, 1.f,
+            nullptr, nullptr, nullptr, 0x1A, 0, position, euler, nullptr, 0, 0, minicooper.spawn); // 0x001349E0
+        if (created != 0)
+        {
+            set_runtime_body_bit(minicooper.body_bits(created), 7); // 0x0001EFD0, EAX its body, ECX 7
+            if (minicooper.count < 0 || minicooper.count >= i32(minicooper.actors.size()))
+            {
+                throw Error("0x00123E70's Mini Cooper list (DAT_00512324) is full");
+            }
+            minicooper.actors[size_t(minicooper.count)] = created;
+            minicooper.times[size_t(minicooper.count)] = amount;
+            ++minicooper.count;
+            cleared = true;
+        }
+        break;
+    }
     case 0xE:
         sound = 1;
         if (context.table.rows[0xF].active != 0) // DAT_005122A8

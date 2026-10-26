@@ -146,6 +146,7 @@ std::int8_t find_runtime_cutscene_track(const SceneCutsceneRuntime& cutscenes, s
 void set_runtime_cutscene_actor_animation(RuntimeCutsceneInstance& instance, std::int8_t id, const char* animation,
     const char* events, const Vec3& default_euler, CutsceneRuntimeContext& context); // Xbox 0x0004E7D0
 void hold_runtime_actor_animation_slot(ActorAnimationState& animation, i32 slot); // Xbox 0x0003B310, EAX actor, ECX slot
+void release_runtime_actor_animation_slot(ActorAnimationState& animation, i32 slot); // Xbox 0x0003B340, EAX actor, ECX slot
 // The actor's 0x000426F0 bound in its own scale: +0x1C4 width, +0x1C8 top, +0x1CC bottom, +0x1D0 their reach.
 void measure_runtime_actor_bound_size(Actor& actor, u32 mask, GhoulySpawnPool*& shapes); // Xbox 0x0003D670, EAX actor
 }

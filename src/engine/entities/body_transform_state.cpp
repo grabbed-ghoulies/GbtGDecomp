@@ -159,17 +159,14 @@ u32 create_result(std::span<u8> state, RuntimeTransformStateContext& context)
     return created;
 }
 
-// Xbox 0x0013B1F0, ESI the name: the actor bursts into bits for `lifetime` seconds.
+// 0x0013B1F0 on an actor of the scene, by its address.
 void burst_into_bits(u32 address, float lifetime, const char* name, RuntimeTransformStateContext& context)
 {
-    std::array<u8, 0x55C> parameters{};
-    initialize_runtime_body_death_effect(parameters, actor_of(address, context), address,
-        std::bit_cast<float>(0xBF800000u), lifetime, context.death.default_name); // 0x00068770
-    if (name != nullptr)
-    {
-        copy_name(reinterpret_cast<char*>(parameters.data() + 0x3B8), name);
-    }
-    context.create_object(parameters); // 0x00107520
+    burst_runtime_actor_into_bits(actor_of(address, context), address, lifetime, name, context.death.default_name,
+        [&context](std::span<const u8> parameters)
+        {
+            context.create_object(parameters); // 0x00107520
+        }); // 0x0013B1F0
 }
 
 // The morph actor bursts and its bind tree goes (message 0x7C's release without the burst).

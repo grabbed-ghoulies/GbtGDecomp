@@ -21,6 +21,7 @@
 #include "scare_figure.h"
 #include "super_scary_shock.h"
 #include "sss_dropper.h"
+#include "sss_door.h"
 #include "bone_debris_actor.h"
 #include "animated_light.h"
 #include "../graphics/effect_collision_response.h"
@@ -137,6 +138,9 @@ public:
     void release_super_scary_shock(FactoryObject& object); // Type 0x22, Xbox 0x00072420.
     void update_super_scary_shock(FactoryObject& object,
         const std::function<void()>& update_actor); // Type 0x22, Xbox 0x00072480.
+    bool construct_sss_door(FactoryObject& object, std::span<const u8> parameters); // Type 0x20.
+    void update_sss_door(FactoryObject& object,
+        const std::function<void()>& update_actor); // Type 0x20, Xbox 0x00071380.
     bool construct_sss_dropper(FactoryObject& object, std::span<const u8> parameters); // Type 0x21.
     void update_sss_dropper(FactoryObject& object,
         const std::function<void()>& update_actor); // Type 0x21, Xbox 0x00071960.
@@ -223,6 +227,7 @@ private:
     struct ScareFigureInstance;
     struct SuperScaryShockInstance;
     struct SssDropperInstance;
+    struct SssDoorInstance;
     struct EmitterInstance;
     struct WeaponInstance;
     NativeSceneActorClassBindings bindings_;
@@ -236,6 +241,7 @@ private:
     std::unordered_map<const u8*, std::unique_ptr<ScareFigureInstance>> scare_figures_;
     std::unordered_map<const u8*, std::unique_ptr<SuperScaryShockInstance>> super_scary_shocks_;
     std::unordered_map<const u8*, std::unique_ptr<SssDropperInstance>> sss_droppers_;
+    std::unordered_map<const u8*, std::unique_ptr<SssDoorInstance>> sss_doors_;
     std::unordered_map<const u8*, std::unique_ptr<EmitterInstance>> emitters_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeAvatarMotionBlur>> motion_blurs_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeAvatarAfterimage>> afterimages_;

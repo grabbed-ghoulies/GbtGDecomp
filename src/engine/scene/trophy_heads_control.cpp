@@ -836,6 +836,20 @@ void hold_runtime_actor_animation_slot(ActorAnimationState& animation, i32 slot)
     }
 }
 
+// Xbox 0x0003B340
+void release_runtime_actor_animation_slot(ActorAnimationState& animation, i32 slot)
+{
+    if (animation.controller != nullptr)
+    {
+        auto& controller = *animation.controller;
+        if (controller.slots[size_t(slot)].player != nullptr)
+        {
+            --controller.slots[size_t(slot)].player->paused;
+        }
+        controller.dirty = true;
+    }
+}
+
 // Xbox 0x0003D670
 void measure_runtime_actor_bound_size(Actor& actor, u32 mask, GhoulySpawnPool*& shapes)
 {

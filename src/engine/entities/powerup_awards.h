@@ -8,6 +8,7 @@
 #include "player_mind_events.h"
 #include "player_mind_targets.h"
 #include "../scripts/script_actor_query.h"
+#include "gbtg/object_factory.h"
 
 namespace gbtg
 {
@@ -67,6 +68,32 @@ struct RuntimePowerupActors
     const u32& mode; // DAT_0051248C.
     std::span<const u8> address_zero;
 };
+// 0x001349E0's scene views: the spawn's templates and factory, the kept object's address and its vtable +0xC.
+struct RuntimeActorPlacementSpawn
+{
+    ObjectFactoryRegistry& factory;
+    std::span<ExecutableResourcePool> resources; // 0x00107720's templates.
+    const void* const& scene_records; // DAT_0051108C, 0x0011F2E0's spawn types.
+    std::function<u32(FactoryObject)> keep; // The scene keeps the object; its retail address, 0 for none.
+    std::function<void(u32, std::span<const u32>)> message; // Vtable +0xC of the object at an address.
+    std::function<std::span<u8>(u32)> bytes_at; // The kept object's bytes, for +0x990 and +0x998.
+};
+// 0x001347C0 makes the named actor; when it is made and `tag` is set it keeps `word` at +0x990, copies `attributes`
+// to +0x998 (0x000280D0) and hears {0x4D, tag, position, euler, last}. Its address, or 0.
+u32 spawn_runtime_placed_actor(const char* name, const Vec3& position, const Vec3& euler, float scale,
+    const char* second_override, const char* fourth_override, const char* fifth_override, u32 tag, u16 word,
+    const Vec3& message_position, const Vec3& message_euler, const u8* attributes, u32 last, i16 scene_key,
+    RuntimeActorPlacementSpawn& context); // Xbox 0x001349E0, ECX fifth, EDX fourth
+// Powerup kind 0xC's views: the spawn, the actors' positions, the new player's body bits and DAT_00512320's list.
+struct RuntimeMiniCooperSpawn
+{
+    RuntimeActorPlacementSpawn& spawn;
+    std::function<const Actor&(u32)> actor_at; // The awarded player, by retail address.
+    std::function<EntityBitBlock&(u32)> body_bits; // A player's body (+0x95C) +0x15C bits, by actor address.
+    i32& count; // DAT_00512320.
+    std::span<u32, 4> actors; // DAT_00512324.
+    std::span<float, 4> times; // DAT_00512334.
+};
 // What 0x00123E70 reaches.
 struct RuntimePowerupAwardContext
 {
@@ -79,6 +106,7 @@ struct RuntimePowerupAwardContext
     std::function<std::vector<Actor*>()> marked_actors{}; // DAT_00511B38's actors (node - 0x934) in list order.
     RuntimePowerupActors* active_actors = nullptr; // DAT_00511B48, for kind 0x13.
     std::function<bool()> complete_event{}; // 0x000D0870, the scripted event sequence's completion.
+    RuntimeMiniCooperSpawn* minicooper = nullptr; // Kind 0xC.
 };
 // Awards powerup `kind` (a row of DAT_00512140): its amount, extra word, player and id, the caption and its
 // scoreboard message, the kind's own effect, its sound (stream 0x12) and, for a player, broadcast 0x86.

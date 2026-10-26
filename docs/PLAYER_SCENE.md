@@ -252,6 +252,7 @@ All take the game directory, e.g.
 | `--scene2c2` | Boots chapter 2c scene 2 (chapter2c_scene2_1playcam, the cloakroom). In FREE PLAY the driver walks to the bg-break setup holding `aid_ghoulybox_powerups_supersoups_invisibility` (the suitcase, part 7 at 219, -77), breaks it, drinks the invisibility soup (powerup kind 9) and walks out unseen: no coat or picture wakes, so the exit stays open. Passes when the script moves on to `aid_script_ghoulies_chapter2c_scene3_1playcam` (frame 2092 in the 2026-10-26 run) |
 | `--scene2c3` | Boots chapter 2c scene 3 (chapter2c_scene3_1playcam) and plays it with the scene 7 driver, calm in FREE PLAY: the event page ("Keep your eye on the cross"), then "EVENT - KILL ALL/NEXT ONE DIFFERENT" against zombies (tag 0x3C) and skeletons (0x34) with no faints. Passes when the script moves on to `aid_script_ghoulies_chapter2c_scene4_1book` (frame 4388 in the 2026-10-26 run); it needed no new translation. Checked in the captures: the event page (frame 1200) and Cooper fighting a zombie (2400) |
 | `--scene2c4` | Boots chapter 2c scene 4's book (chapter2c_scene4_1book) and plays its four pages. Passes when the script moves on to `aid_script_ghoulies_chapter2c_scene4_2playcam` (frame 2421 in the 2026-10-26 run); it needed no new translation. Checked in the captures: the comic panels with Cooper holding a new weapon (frame 1800) |
+| `--scene2c4b` | Boots chapter 2c scene 4_2 (chapter2c_scene4_2playcam, the music room) and plays it with the scene 7 driver: the untitled fight against mummies, skeletons and zombies with the popcan gun, and an SSS door (type 0x20) that springs a Super Scary challenge (the dragon scare) near the end. Passes when the script moves on to `aid_script_ghoulies_chapter2c_scene5_1playcam` (frame 9621 in the 2026-10-26 run) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -418,6 +419,23 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-26: chapter 2c scene 4_2: the SSS door
+
+- **entityAvatarMiscSSSDoor** (factory type 0x20, getter `0x000711A0`, vtable 0x00504EC8) in `entities/sss_door.cpp`:
+  sizes `0x00071180` (0xA54 / 0x450), init `0x000711E0`, update `0x00071380`, message `0x000715B0`, trigger
+  `0x00071640` (the fourth reader of the invisibility row) and the challenge start `0x00071750`. Its other slots are
+  the actor base's. New door helpers `0x0005C0A0` (the nearest door), `0x0005C130` (close it, state 7) and `0x0005C150`
+  (at rest), and `0x0003B340` (`release_runtime_actor_animation_slot`).
+- Door state 7 (`0x0005B540`): `0x0005A9B0` snaps the clip's first track actor to its joint 0 pose and bursts it into
+  the shape's break model (DAT_004249A4 + shape * 0x94), then the clips are released. `0x0013B1F0` is now the shared
+  `burst_runtime_actor_into_bits` (the transform state uses it too).
+- Powerup kind 0xC (the Mini Cooper): `0x001349E0` (`spawn_runtime_placed_actor`) makes
+  `aid_objparams_ghoulies_actor_minicooper` at the player, sets its body bit 7 and lists it in DAT_00512320 with its
+  time. Kind 5 (event complete) now plays sound 0, as the dump has it. The Mini Cooper was picked up in one run
+  (where it raised before this) but not in the passing run, so its spawn is not checked on screen.
+- Checked in the captures: Cooper at the SSS door's doorway with the fright gauge up (frame 9000) and recovering after
+  the scare (9300).
 
 ### 2026-10-26: chapter 2c scene 2: the cloakroom's invisibility
 

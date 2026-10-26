@@ -57,6 +57,8 @@ struct RuntimeDoorContext
     const Vec3* added_position = nullptr; // DAT_0050DD80.
     const Vec3* added_euler = nullptr; // DAT_0050DD74.
     const Vec3* added_scale = nullptr; // DAT_0042A840.
+    // 0x0013B1F0 on a door track actor: it bursts into bits for the lifetime, the named model at +0x3B8.
+    std::function<void(Actor&, float lifetime, const char* name)> burst{};
 };
 struct RuntimeDoorRelease
 {
@@ -98,6 +100,17 @@ void hold_runtime_door(RuntimeDoorClips& door, u32 active, RuntimeDoorContext& c
 // releases the hold and settles the door at its +8 target, and the door camera is unbound when a camera clip
 // ends outside the script's last action.
 void update_runtime_doors(RuntimeDoorContext& context, float step); // Xbox 0x0005AA90
+
+// The door row whose position (+0xC) is nearest `point`, or null with no doors (DAT_004EE2B8 unset).
+RuntimeDoorClips* find_runtime_door_nearest(const Vec3& point, RuntimeDoorContext& context); // Xbox 0x0005C0A0, EDI point
+// The door nearest `point` closes its clips (state 7).
+void close_runtime_door_nearest(const Vec3& point, RuntimeDoorContext& context); // Xbox 0x0005C130, EDI point
+// The door nearest `point` stands at rest: state 0, no hold (+0x14C) and no clip running (+0xB8).
+bool runtime_door_nearest_idle(const Vec3& point, RuntimeDoorContext& context); // Xbox 0x0005C150, EAX point
+
+// Door state 7: the clip's (+0x140) first track actor takes its model's joint 0 position and euler and bursts into
+// the shape's break model (DAT_004249A4 + shape * 0x94) for 1 s.
+void break_runtime_door_actor(RuntimeDoorClips& door, RuntimeDoorContext& context); // Xbox 0x0005A9B0
 
 // Each door's navigation regions blocked unless its +6 state is 0.
 void apply_runtime_door_regions(RuntimeDoorContext& context); // Xbox 0x0005C020

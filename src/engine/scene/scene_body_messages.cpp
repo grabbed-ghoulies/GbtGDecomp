@@ -421,6 +421,22 @@ void SceneBodyMessages::bind_action_children()
             children_[child->bytes.get()] = dance.get();
             continue;
         }
+        if (child->type == 0x90)
+        {
+            auto& yoyo = yoyo_spin_children_[child->bytes.get()];
+            if (yoyo == nullptr)
+            {
+                yoyo = std::make_unique<RuntimeBodyMessageChild>();
+                yoyo->message = [this, child](std::span<u8> message)
+                {
+                    const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
+                    message_runtime_yoyo_spin_state({child->bytes.get(), child->size}, words,
+                        yoyo_spin_context()); // 0x000A7030
+                };
+            }
+            children_[child->bytes.get()] = yoyo.get();
+            continue;
+        }
         if (child->type == 0x86)
         {
             auto& spin = spin_dizzy_children_[child->bytes.get()];
@@ -926,6 +942,9 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
     case 0x85:
         tick_runtime_spawn_ghouly_state({action.bytes.get(), action.size}, spawn_ghouly_context()); // 0x000A1BE0
         return;
+    case 0x90:
+        tick_runtime_yoyo_spin_state({action.bytes.get(), action.size}, yoyo_spin_context()); // 0x000A6CC0
+        return;
     case 0x75:
         tick_runtime_furnace_hit_state({action.bytes.get(), action.size}, furnace_hit_context()); // 0x00096FC0
         return;
@@ -1271,6 +1290,7 @@ void SceneBodyMessages::action_step(FactoryObject& action)
     case 0x8C:
     case 0x75:
     case 0x85:
+    case 0x90:
         // 0x001628B0 (0x000D4179 for 0x69, 0x70 and 0x88) returns at once.
         return;
     default:
@@ -1684,6 +1704,33 @@ RuntimeSpawnGhoulyStateContext& SceneBodyMessages::spawn_ghouly_context()
         },
         knockdown.death, knockdown.scene_flags, knockdown.restart_requested});
     return *spawn_ghouly_;
+}
+
+RuntimeYoYoSpinStateContext& SceneBodyMessages::yoyo_spin_context()
+{
+    player_.refresh_body_views();
+    if (player_.body_bits == nullptr)
+    {
+        unbound("yo-yo spin state without the body +0x15C bit block");
+    }
+    const u32 body_address = services_.address_of(player_.body.data());
+    yoyo_spin_.reset();
+    yoyo_spin_.emplace(RuntimeYoYoSpinStateContext{player_.body, player_.actor, player_.actor_address,
+        *player_.body_bits, player_.mind, player_.actor_instance.animation, player_.body_selection, services_.clock,
+        [this, body_address]()
+        {
+            return services_.state_context(body_address);
+        },
+        player_.collision, services_.sounds, services_.image_string, services_.target_at,
+        [this](u32 actor, u32 id, const RuntimeActorCreationOptions* options)
+        {
+            services_.actor_callouts_with(actor, id, options);
+        },
+        [this](u32 slot)
+        {
+            return body_slot_key(slot);
+        }});
+    return *yoyo_spin_;
 }
 
 RuntimeShockedStateContext& SceneBodyMessages::shocked_context()
@@ -2650,6 +2697,18 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 auto& second = player_.body_selection.second;
                 const std::array<u32, 2> words{reply.id, read_u32({reinterpret_cast<const u8*>(&reply.id), 8}, 4)};
                 message_runtime_endure_state({second.bytes.get(), second.size}, words, endure_context());
+                return;
+            }
+            if (type == 0x90)
+            {
+                // 0x000A7030 reads past the id only for 0x41 (+0x14 .. +0x24) and 0x70 (+4, +8).
+                if (reply.id == 0x41 || reply.id == 0x70)
+                {
+                    unbound("collision reply id " + std::to_string(reply.id) + " to the yo-yo spin state 0x000A7030");
+                }
+                auto& second = player_.body_selection.second;
+                const std::array<u32, 1> words{reply.id};
+                message_runtime_yoyo_spin_state({second.bytes.get(), second.size}, words, yoyo_spin_context());
                 return;
             }
             if (type == 0x86)

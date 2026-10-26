@@ -225,7 +225,7 @@ void message_runtime_scoop_whack_state(std::span<const u8> state, std::span<cons
     {
         const Vec3 point{std::bit_cast<float>(message[7]), std::bit_cast<float>(message[8]),
             std::bit_cast<float>(message[9])};
-        call_out_runtime_hit_point(point, message[5], get(state, field::callout), context); // 0x0013AD60
+        call_out_runtime_hit_point(point, message[5], get(state, field::callout), context.actor_callout); // 0x0013AD60
         return;
     }
     if (message[0] == 0x70 && message[2] == context.actor_address && message[1] + 0x8Cu != 0)
@@ -235,7 +235,7 @@ void message_runtime_scoop_whack_state(std::span<const u8> state, std::span<cons
 }
 
 // Xbox 0x0013AD60, EAX point, ECX actor
-void call_out_runtime_hit_point(const Vec3& point, u32 actor, u32 id, RuntimeScoopWhackStateContext& context)
+void call_out_runtime_hit_point(const Vec3& point, u32 actor, u32 id, const RuntimeActorCallout& callout)
 {
     RuntimeActorCreationOptions& options = g_actor_creation_options; // DAT_004E1C5C.
     options.flags = 0;
@@ -245,7 +245,7 @@ void call_out_runtime_hit_point(const Vec3& point, u32 actor, u32 id, RuntimeSco
     {
         return;
     }
-    context.actor_callout(actor, id, &options); // 0x0003BE20
+    callout(actor, id, &options); // 0x0003BE20
 }
 
 // Xbox 0x0009EF30, EDX the target record

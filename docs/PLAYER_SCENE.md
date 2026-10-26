@@ -248,6 +248,7 @@ All take the game directory, e.g.
 | `--scene2b9` | Boots chapter 2b scene 9 (chapter2b_scene9_1playcam, the west wing pantry) and plays it with the scene 7 driver, calm in FREE PLAY: the haunted coats' event (EVENT: ONE TYPE - HOODED FIGURE) and the haunted doors' (ONE TYPE (HAUNTED DOOR) / DON'T KILL (IMP)). Cooper faints once in the first door event in the 2026-10-26 run and the room restarts. Passes when the script moves on to `aid_script_ghoulies_chapter2b_scene10_1playcam` (frame 7373 in the 2026-10-26 rerun) |
 | `--scene2b10` | Boots chapter 2b scene 10 (chapter2b_scene10_1playcam, the kitchen) and plays it with the scene 7 driver, calm in FREE PLAY: Cooper fights Mr Ribs until his energy is gone (scriptConditionId_ActorHasNoEnergy). Passes when the script moves on to `aid_script_ghoulies_chapter2b_scene10_2book` (frame 4551 in the 2026-10-26 run) |
 | `--scene2b10b` | Boots chapter 2b scene 10's book (chapter2b_scene10_2book, "Fire extinguisher weapon Intro") and plays its four pages (A closes each). Passes when the script moves on to `aid_script_ghoulies_chapter2c_scene1_1playcam` (frame 2716 in the 2026-10-26 run); it needed no new translation. Checked in the captures: the "Phew! Mr. Ribs okay" page (frame 1500) and the goop transition over the last page (2400) |
+| `--scene2c1` | Boots chapter 2c scene 1 (chapter2c_scene1_1playcam) and plays it with the scene 7 driver, calm in FREE PLAY: the haunted paintings' introduction, then Cooper walks to the exit. Passes when the script moves on to `aid_script_ghoulies_chapter2c_scene2_1playcam` (frame 1480 in the 2026-10-26 run) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -414,6 +415,22 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-26: chapter 2c scene 1: the haunted paintings
+
+- **entityStrategyHauntedPicture** (factory type 0x43, getter `0x000B0BB0`, vtable 0x00505E50) in
+  `entities/haunted_picture_strategy.cpp`: sizes `0x000B0B90` (0x50 / 0x18), the shared constructor `0x000CFFD0`,
+  message `0x000B0EA0`, update `0x000B0C00`, enter `0x000B1150`, leave `0x000B12D0`, wake `0x000B1420`; it wanders
+  (`0x000B0720`, "getrandomdest") and circles its target on the table at 0x00302E80 (`0x000B0680`, `0x000B0890`,
+  `0x000B09C0`, `0x000B0AC0`, with the new `request_runtime_strategy_sway` for `0x0013A000`), attacking between
+  0.45 and 0.55 s waits (`0x000B1320`, `0x000B1350`).
+- **entityStateYoYoSpinAttack** (factory type 0x90, getter `0x000A6A00`, vtable 0x00505CE0) in
+  `entities/body_yoyo_spin_state.cpp`: sizes `0x000A69E0` (0x1DC / 0x1A4), init `0x000A6A60`, destroy `0x000A6C40`,
+  tick `0x000A6CC0`, message `0x000A7030`, with `0x000A70C0`, `0x000A7240`, `0x000A72E0` and the sound request
+  `0x00041D40` (`request_actor_sound_at`). `call_out_runtime_hit_point` (`0x0013AD60`) now takes the callout
+  directly, so the scoop-whack and yo-yo states share it.
+- Checked in the captures: the Haunted Painting introduction (frame 900) and Cooper leaving by the exit (1200).
+  Not checked: the paintings' circling and attacks, or the yo-yo throw (free play is calm, so Cooper does not fight).
 
 ### 2026-10-26: chapter 2b scene 10: Mr Ribs
 

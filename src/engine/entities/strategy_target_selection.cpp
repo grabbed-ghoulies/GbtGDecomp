@@ -755,6 +755,33 @@ RuntimePlayerMindRequest* request_runtime_strategy_position(const Vec3& position
     return request;
 }
 
+// Xbox 0x0013A000, EAX actor, EDI position, ESI settings
+RuntimePlayerMindRequest* request_runtime_strategy_sway(const Vec3& position, std::span<const u8> settings, float sway,
+    float amplitude, RuntimePlayerStrategyGoals& context)
+{
+    RuntimeMindGoalContext& goals = context.entry.goals;
+    RuntimePlayerMindRequest* request = allocate_runtime_mind_request(goals.anchor, 0x10, goals.sizes); // EBX 0x10
+    std::span<u8> bytes = request->bytes;
+    put_float(bytes, 0x1C, 1.f); // DAT_0032B0F8.
+    put_float(bytes, 0x20, 1.f);
+    put_float(bytes, 0x28, 1.f);
+    put_float(bytes, 0x24, 10.f); // DAT_0032B10C.
+    put_float(bytes, 0x30, 30.f); // DAT_0032B108.
+    put_float(bytes, 0x34, .25f); // DAT_0032B104.
+    put_float(bytes, 0x10, position.x);
+    put_float(bytes, 0x14, position.y);
+    put_float(bytes, 0x18, position.z);
+    put_float(bytes, 0x30, 30.f);
+    put(bytes, 0x2C, read_u32(settings, 8));
+    put(bytes, 0x30, read_u32(settings, 0xC));
+    put(bytes, 0x1C, read_u32(settings, 0x10));
+    put(bytes, 0x20, read_u32(settings, 0x14));
+    put_float(bytes, 0x24, sway);
+    put_float(bytes, 0x28, amplitude);
+    put_float(bytes, 0x34, .25f);
+    return request;
+}
+
 // Xbox 0x00138310
 bool select_runtime_strategy_roam_position(Vec3& output, float heading, float range, float width,
     RuntimeStrategyTargetChecks& context)

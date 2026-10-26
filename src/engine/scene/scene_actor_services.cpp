@@ -1736,6 +1736,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     players->install(scene.types);
     players->bindings.scene.grim_reaper_parameters = data(0x00302B7C, 0x38);
     players->bindings.scene.chicken_parameters = data(0x00302B5C, 0x18);
+    players->bindings.scene.haunted_picture_movement = data(0x00302E80, 0x34);
     players->bindings.scene.imp_flying_parameters = data(0x00303124, 0x28);
     players->bindings.scene.imp_ninja_parameters = data(0x00303198, 0x18);
     players->bindings.scene.refresh_pause = [this]()
@@ -2590,6 +2591,21 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
         }
         return graph->generate_ghouly_context();
+    });
+    install_runtime_yoyo_spin_state_class(scene.types, [this](u32 body_address) -> RuntimeYoYoSpinStateContext&
+    {
+        const auto bytes = scene.resolve_address(body_address, 0);
+        auto* player = players->find_child_owner(bytes.data());
+        if (player == nullptr || player->body.data() != bytes.data())
+        {
+            unbound("yo-yo spin state whose body has no player owner");
+        }
+        auto& graph = body_messages[player->body.data()];
+        if (graph == nullptr)
+        {
+            graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
+        }
+        return graph->yoyo_spin_context();
     });
     install_runtime_spawn_ghouly_state_class(scene.types, [this](u32 body_address) -> RuntimeSpawnGhoulyStateContext&
     {
@@ -7841,7 +7857,7 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
     // has not attached yet.
     if (child.type == 0x4F || child.type == 0x46 || child.type == 0x3B || child.type == 0x51 || child.type == 0x52
         || child.type == 0x58 || child.type == 0x44 || child.type == 0x40 || child.type == 0x4C || child.type == 0x53
-        || child.type == 0x42 || child.type == 0x3A || child.type == 0x47 || child.type == 0x48 || child.type == 0x49 || child.type == 0x55 || child.type == 0x50 || child.type == 0x3E || child.type == 0x41 || child.type == 0x4B
+        || child.type == 0x42 || child.type == 0x3A || child.type == 0x47 || child.type == 0x48 || child.type == 0x49 || child.type == 0x55 || child.type == 0x50 || child.type == 0x3E || child.type == 0x41 || child.type == 0x43 || child.type == 0x4B
         || child.type == 0x4E || child.type == 0x45)
     {
         if (auto* player = players->find_player(child); player != nullptr && !player->body.empty())
@@ -7892,6 +7908,9 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
         return;
     case 0x41:
         players->haunted_coat_message(child, words);
+        return;
+    case 0x43:
+        players->haunted_picture_message(child, words);
         return;
     case 0x42:
         players->haunted_door_message(child, words);
@@ -8415,6 +8434,9 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
             case 0x41:
                 players->haunted_coat_update(strategy);
                 return;
+            case 0x43:
+                players->haunted_picture_update(strategy);
+                return;
             case 0x42:
                 players->haunted_door_update(strategy);
                 return;
@@ -8559,6 +8581,7 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
             case 0x75: // And getter 0x00096A50.
             case 0x8C: // And getter 0x000A43A0.
             case 0x85: // And getter 0x000A1A10.
+            case 0x90: // And getter 0x000A6A00.
                 return runtime_body_action_next_key(action);
             case 0x5A:
             case 0x5C:
@@ -9386,7 +9409,8 @@ void SceneActorServices::State::draw_player(FactoryObject& object, NativePlayerI
                 && type != 0x89 // And getter 0x000A31A0.
                 && type != 0x75 // And getter 0x00096A50.
                 && type != 0x8C // And getter 0x000A43A0.
-                && type != 0x85) // And getter 0x000A1A10.
+                && type != 0x85 // And getter 0x000A1A10.
+                && type != 0x90) // And getter 0x000A6A00.
             {
                 unbound("body +0x744 object vtable +0x18 draw for factory type "
                     + std::to_string(player.second_action.type));

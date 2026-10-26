@@ -35,6 +35,7 @@
 #include "../entities/body_endure_state.h"
 #include "../entities/body_stunned_state.h"
 #include "../entities/body_spin_dizzy_state.h"
+#include "../entities/body_yoyo_spin_state.h"
 #include "../entities/body_drone_dance_state.h"
 #include "../entities/body_look_for_weapon_state.h"
 #include "../entities/body_slide_state.h"
@@ -220,6 +221,7 @@ public:
     // since the second's handler can start a new first action.
     void bind_action_children();
     RuntimeSpinDizzyStateContext& spin_dizzy_context(); // The type 0x86 state's views of this body.
+    RuntimeYoYoSpinStateContext& yoyo_spin_context(); // The type 0x90 state's views of this body.
     RuntimeDroneDanceStateContext& drone_dance_context(); // The type 0x67 state's views of this body.
     RuntimeLookForWeaponStateContext& look_for_weapon_context(); // The type 0x7B state's views of this body.
     RuntimeSwingStateContext& swing_context(); // The type 0x78 state's views of this body.
@@ -283,12 +285,14 @@ private:
     std::optional<RuntimeBodyStateContext> stunned_shape_;
     std::optional<RuntimeStunnedStateContext> stunned_;
     std::optional<RuntimeSpinDizzyStateContext> spin_dizzy_;
+    std::optional<RuntimeYoYoSpinStateContext> yoyo_spin_;
     std::optional<RuntimeDroneDanceStateContext> drone_dance_;
     std::optional<RuntimeLookForWeaponStateContext> look_for_weapon_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> hit_stream_children_; // 0x76, 0x00097890.
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> endure_children_; // 0x84, 0x000A1850.
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> stunned_children_; // 0x89, 0x000A3460.
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> spin_dizzy_children_; // 0x86, 0x000A24B0.
+    std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> yoyo_spin_children_; // 0x90, 0x000A7030.
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> drone_dance_children_; // 0x67, 0x0008E480.
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> flamethrower_children_; // 0x6A, 0x0008FBF0.
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> scoop_whack_children_; // 0x7E, 0x0009EED0.

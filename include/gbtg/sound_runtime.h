@@ -93,6 +93,9 @@ bool actor_sound_is_playing(const Actor& actor, i32 slot,
     const RuntimeActorSoundQueues& queues); // Xbox 0x00041C80
 bool request_actor_sound(Actor& actor, i32 slot, const char* name,
     RuntimeActorSoundQueues& queues); // Xbox 0x00041D00
+// 0x00041D00 with the position, direction and volume passed through (ECX slot, EDX actor, EAX name).
+bool request_actor_sound_at(Actor& actor, i32 slot, const char* name, const Vec3* position, const Vec3* direction,
+    float volume, RuntimeActorSoundQueues& queues); // Xbox 0x00041D40
 u32 sound_runtime_error(const RuntimeSoundBoundaries& boundaries); // Xbox 0x0015B8E0
 void pause_runtime_sound_cue(RuntimeSoundCue& cue, u32 paused,
     const RuntimeSoundBoundaries& boundaries); // Xbox 0x0015CDD0

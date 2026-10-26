@@ -145,6 +145,9 @@ u32 react_runtime_strategy_watched_actor(std::span<const u32> message, RuntimeSt
     RuntimeStrategyActorViews& views); // Xbox 0x001397B0, EAX strategy
 RuntimePlayerMindRequest* request_runtime_strategy_position(const Vec3& position, std::span<const u8> settings,
     RuntimePlayerStrategyGoals& context); // Xbox 0x00139FA0, EAX actor, EDI position, ESI settings
+// Request 0x10 to `position` with the row's speeds (+8..+0x14) and a sideways sway of `sway` with `amplitude`.
+RuntimePlayerMindRequest* request_runtime_strategy_sway(const Vec3& position, std::span<const u8> settings, float sway,
+    float amplitude, RuntimePlayerStrategyGoals& context); // Xbox 0x0013A000, EAX actor, EDI position, ESI settings
 bool select_runtime_strategy_roam_position(Vec3& output, float heading, float range, float width,
     RuntimeStrategyTargetChecks& context); // Xbox 0x00138310, EAX actor, XMM0 width
 RuntimePlayerMindRequest* request_runtime_strategy_roam(std::span<const u8> settings,

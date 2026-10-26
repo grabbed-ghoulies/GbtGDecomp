@@ -57,8 +57,9 @@ void message_runtime_scoop_whack_state(std::span<const u8> state, std::span<cons
 bool find_runtime_scoop_whack_contact(const Actor& actor, const Actor& target,
     Vec3& point); // Xbox 0x0009EF30, EDX the target record
 // Message 0x41's callout: the creation options at `point` (DAT_004E1C5C) and the actor's records for `id`.
+using RuntimeActorCallout = std::function<void(u32 actor, u32 id, const RuntimeActorCreationOptions* options)>;
 void call_out_runtime_hit_point(const Vec3& point, u32 actor, u32 id,
-    RuntimeScoopWhackStateContext& context); // Xbox 0x0013AD60, EAX point, ECX actor
+    const RuntimeActorCallout& callout); // Xbox 0x0013AD60, EAX point, ECX actor
 // Type 0x7E (base 9) with its lifecycle; `context_of` gives a state's views by its body address (state +8).
 void install_runtime_scoop_whack_state_class(std::span<ObjectFactoryType> types,
     std::function<RuntimeScoopWhackStateContext&(u32 body_address)> context_of);

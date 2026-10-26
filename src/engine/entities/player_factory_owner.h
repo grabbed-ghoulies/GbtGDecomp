@@ -22,6 +22,7 @@
 #include "ribs_strategy.h"
 #include "giant_hand_strategy.h"
 #include "haunted_coat_strategy.h"
+#include "haunted_picture_strategy.h"
 #include "medusa_strategy.h"
 #include "pirate_strategy.h"
 #include "hunchback_strategy.h"
@@ -179,6 +180,7 @@ struct NativePlayerSceneBindings
     std::span<const u8> grim_reaper_parameters{}; // DAT_00302B7C.
     // Ninja imp strategy (type 0x49, vtable 0x00505EF8).
     std::span<const u8> chicken_parameters{}; // DAT_00302B5C.
+    std::span<const u8> haunted_picture_movement{}; // 0x00302E80, the haunted picture's movement table.
     std::span<const u8> imp_flying_parameters{}; // DAT_00303124.
     std::span<const u8> imp_ninja_parameters{}; // DAT_00303198.
     // Medusa strategy (type 0x4B, vtable 0x00505F30).
@@ -362,6 +364,7 @@ struct NativePlayerInstance
     RuntimeRibsStrategy ribs; // Type 0x50.
     RuntimeGiantHandStrategy giant_hand; // Type 0x3E.
     RuntimeHauntedCoatStrategy haunted_coat; // Type 0x41.
+    RuntimeHauntedPictureStrategy haunted_picture; // Type 0x43.
     void refresh_input_views(); // After the player constructor allocates actor +0x960.
     void refresh_views(); // Body, input, mind and strategy value views before a method runs.
 };
@@ -432,6 +435,8 @@ public:
     void giant_hand_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000ACA30.
     void haunted_coat_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000AF340.
     void haunted_coat_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000AF180.
+    void haunted_picture_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000B0EA0.
+    void haunted_picture_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000B0C00.
     void imp_flying_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000B6CB0.
     void imp_flying_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000B6BF0.
     void imp_ninja_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000B7C50.

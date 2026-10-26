@@ -235,6 +235,19 @@ bool request_actor_sound(Actor& actor, i32 slot, const char* name, RuntimeActorS
     return false;
 }
 
+// Xbox 0x00041D40
+bool request_actor_sound_at(Actor& actor, i32 slot, const char* name, const Vec3* position, const Vec3* direction,
+    float volume, RuntimeActorSoundQueues& queues)
+{
+    if (*name != '\0')
+    {
+        queue_actor_sound(actor.sound_slots[slot], actor_sound_groups[slot], &actor, static_cast<u16>(slot), position,
+            direction, volume, name, queues);
+        return true;
+    }
+    return false;
+}
+
 // Xbox 0x000426B0
 void clear_actor_shader_bits(Actor& actor, i16 slot, u32 mask)
 {

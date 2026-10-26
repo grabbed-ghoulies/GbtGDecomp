@@ -249,7 +249,7 @@ All take the game directory, e.g.
 | `--scene2b10` | Boots chapter 2b scene 10 (chapter2b_scene10_1playcam, the kitchen) and plays it with the scene 7 driver, calm in FREE PLAY: Cooper fights Mr Ribs until his energy is gone (scriptConditionId_ActorHasNoEnergy). Passes when the script moves on to `aid_script_ghoulies_chapter2b_scene10_2book` (frame 4551 in the 2026-10-26 run) |
 | `--scene2b10b` | Boots chapter 2b scene 10's book (chapter2b_scene10_2book, "Fire extinguisher weapon Intro") and plays its four pages (A closes each). Passes when the script moves on to `aid_script_ghoulies_chapter2c_scene1_1playcam` (frame 2716 in the 2026-10-26 run); it needed no new translation. Checked in the captures: the "Phew! Mr. Ribs okay" page (frame 1500) and the goop transition over the last page (2400) |
 | `--scene2c1` | Boots chapter 2c scene 1 (chapter2c_scene1_1playcam) and plays it with the scene 7 driver, calm in FREE PLAY: the haunted paintings' introduction, then Cooper walks to the exit. Passes when the script moves on to `aid_script_ghoulies_chapter2c_scene2_1playcam` (frame 1480 in the 2026-10-26 run) |
-| `--scene2c2` | Boots chapter 2c scene 2 (chapter2c_scene2_1playcam, the cloakroom). In FREE PLAY the driver walks to the bg-break setup holding `aid_ghoulybox_powerups_supersoups_invisibility` (the suitcase, part 7 at 219, -77), breaks it, drinks the invisibility soup (powerup kind 9) and follows a route clear of the coats' and the picture's scripted volumes to the exit. Does not pass yet (2026-10-26): at frame ~1300 the coat by (-14, -178) finishes its volume goal on Cooper's target record, which sits at (31, -130) while Cooper is far away, so the exit closes and the one-type event (it draws flying imps, which never come) fails and restarts. Why the record stays there is open |
+| `--scene2c2` | Boots chapter 2c scene 2 (chapter2c_scene2_1playcam, the cloakroom). In FREE PLAY the driver walks to the bg-break setup holding `aid_ghoulybox_powerups_supersoups_invisibility` (the suitcase, part 7 at 219, -77), breaks it, drinks the invisibility soup (powerup kind 9) and walks out unseen: no coat or picture wakes, so the exit stays open. Passes when the script moves on to `aid_script_ghoulies_chapter2c_scene3_1playcam` (frame 2092 in the 2026-10-26 run) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -416,6 +416,22 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-26: chapter 2c scene 2: the cloakroom's invisibility
+
+- DAT_00512218 is the powerup table's Invisibility row (kind 9) +0 active, not a constant: the ghouly spawn trigger
+  (`0x0013E980`), the scare figure trigger (`0x0006FA40`) and the SSS dropper now read it (`runtime_invisibility_active`,
+  bound by the scene). `0x00071640` reads it too and is not translated.
+- The player body's powerup start (`0x00075C60`, kind 9) hides Cooper and suspends his target record (actor +0x8F8,
+  `0x0012B1A0`), so the coats' and the picture's volume goals (`0x00138A30`, `0x00129640` and `0x00129920`'s +0x18 test) no
+  longer see him. The body message graph never bound that record (`live_attachment_` stayed null), so the suspend
+  never happened; it is now the actor's first live record on every dispatch. The same record feeds the hit bounds
+  (`0x00022A40`), so hits now read Cooper's real bound: 2b9 still passes, after three faints (frame 19019) where it had
+  one.
+- Driver: `powerup_box` / `powerup_kind` send Cooper to a bg-break setup's ghoulybox and onto the powerup it drops
+  (state 1; state 2 is collected). The object dumps print powerup kinds, container contents and setup boxes.
+- Checked in the captures: the invisibility icon with Cooper unseen in the cloakroom corridor (frame 1500) and by the
+  exit door (1800).
 
 ### 2026-10-26: chapter 2c scene 1: the haunted paintings
 

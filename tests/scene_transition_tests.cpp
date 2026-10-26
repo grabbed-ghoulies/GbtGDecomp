@@ -9421,12 +9421,8 @@ void play_scene6_1_run(gbtg::Game& game, const std::string& label)
 // `doors_first` walks to a door a live PlayerApproachesDoor names before any region.
 void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_range, const std::string& range_title,
     bool doors_first, bool answer_challenges, const std::string& calm_title, const std::string& powerup_box,
-    gbtg::u32 powerup_kind, const std::vector<gbtg::Vec3>& route)
+    gbtg::u32 powerup_kind)
 {
-    // With a `route`, Cooper walks its points in turn once the powerup is taken (or at once without one), before
-    // the scene's own goals: scene 2c2's way to the exit keeps more than 60 from every sleeping coat (0x000AF180's
-    // wake range), which the invisibility does not hide him from.
-    size_t route_point = 0;
     // With `powerup_box`, Cooper first goes to the bg-break setup (type 0x24) whose ghoulybox (+0x934) names it and
     // punches until its background part (+0xA50) breaks, then walks onto the powerup (type 0xD) of `powerup_kind`
     // that comes out, before anything else: scene 2c2's invisibility, in a suitcase, gets him past the room unseen.
@@ -9789,33 +9785,6 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                 powerup_done = true;
             }
         }
-        if (cooper && !page && powerup_done && route_point < route.size())
-        {
-            // Each point is walked to through the nearest open floor cell beside it.
-            gbtg::Vec3 point = route[route_point];
-            {
-                using namespace gbtg::entity_detail;
-                const gbtg::i32 floor = navigation_floor_index(point, -1, 0);
-                const gbtg::i32 cell = floor < 0 ? -1 : navigation_cell_index(floor, point);
-                if (cell >= 0)
-                {
-                    navigation_nearest_open_cell(gbtg::u32(cell), floor, &point);
-                }
-            }
-            const float dx = point.x - cooper->x;
-            const float dz = point.z - cooper->z;
-            if (dx * dx + dz * dz < 8.f * 8.f)
-            {
-                std::cout << label << " frame " << frame << ": Cooper reaches route point " << route_point << "\n";
-                ++route_point;
-            }
-            else
-            {
-                ghouly.reset();
-                goal = point;
-                goal_name = "route point " + std::to_string(route_point);
-            }
-        }
         // A ghouly within 16 is attacked with the right stick; a farther one is walked to like a goal, so the walk's
         // held-cell avoidance applies to it too.
         const bool close = ghouly
@@ -10062,13 +10031,12 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
 
 void play_scene7(gbtg::Game& game, const std::string& label, float fight_range = 50.f,
     const std::string& range_title = {}, bool doors_first = false, bool answer_challenges = false,
-    const std::string& calm_title = {}, const std::string& powerup_box = {}, gbtg::u32 powerup_kind = 0,
-    const std::vector<gbtg::Vec3>& route = {})
+    const std::string& calm_title = {}, const std::string& powerup_box = {}, gbtg::u32 powerup_kind = 0)
 {
     try
     {
         play_scene7_run(game, label, fight_range, range_title, doors_first, answer_challenges, calm_title, powerup_box,
-            powerup_kind, route);
+            powerup_kind);
     }
     catch (const std::exception& error)
     {
@@ -10797,9 +10765,7 @@ int main(int argc, char** argv)
             pass_chapter_title(game, "scene2c2", "aid_script_ghoulies_chapter2c_scene2_1playcam", false);
             // The invisibility in the suitcase by the window (bg-break setup, part 7) lets Cooper leave unseen.
             play_scene7(game, "scene2c2", 1000.f, {}, true, true, "FREE PLAY",
-                "aid_ghoulybox_powerups_supersoups_invisibility", 9,
-                {{200.f, 0.f, -100.f}, {60.f, 0.f, -90.f}, {-10.f, 0.f, -80.f}, {-100.f, 0.f, -90.f},
-                    {-150.f, 0.f, -122.f}, {-215.f, 0.f, -122.f}});
+                "aid_ghoulybox_powerups_supersoups_invisibility", 9);
             gbtg::gfx_shutdown();
             return 0;
         }

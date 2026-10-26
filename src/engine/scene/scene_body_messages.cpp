@@ -584,6 +584,8 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
 {
     bind_action_children();
     body_view_ = player_.body;
+    // Actor +0x8F8: the first of the actor's live attachment records (owner link at +0), or none.
+    live_attachment_ = static_cast<ActorLiveAttachment*>(player_.actor_instance.live_attachments.next);
     mask_ = EntityMaskHost{player_.actor.mask_flag, player_.actor.mask_span, player_.actor.mask_mode};
     processor_.attributes = player_.body_attributes; // Body +0x268.
     refresh_damage_rows();

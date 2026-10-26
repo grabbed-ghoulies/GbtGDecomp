@@ -10615,7 +10615,9 @@ int main(int argc, char** argv)
         if (scene2b7_test)
         {
             pass_chapter_title(game, "scene2b7", "aid_script_ghoulies_chapter2b_scene7_1playcam", false);
-            play_scene7(game, "scene2b7", 1000.f, {}, true, true);
+            // Free play's mummies keep coming from the workshop spawn; the driver walks to the exit rather than fight
+            // them.
+            play_scene7(game, "scene2b7", 1000.f, {}, true, true, "FREE PLAY");
             gbtg::gfx_shutdown();
             return 0;
         }

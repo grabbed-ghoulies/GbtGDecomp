@@ -54,9 +54,14 @@ int main(int argc, char** argv)
 {
     try
     {
+        gbtg::log::set_verbose(has_flag(argc, argv, "--verbose"));
         // Renewed every boot, beside the executable like gbtg.ini.
         const auto log_file = gbtg::host_exe_dir(argc > 0 ? argv[0] : "") / "gbtg.log";
-        if (!gbtg::log::open(log_file))
+        if (gbtg::log::open(log_file))
+        {
+            gbtg::log::verbose("log %s", log_file.string().c_str());
+        }
+        else
         {
             gbtg::log::warn("log: could not open %s", log_file.string().c_str());
         }
@@ -125,7 +130,7 @@ int main(int argc, char** argv)
     catch (const std::exception& ex)
     {
         gbtg::log::error("error: %s", ex.what());
-        gbtg::log::error("usage: gbtg --game-dir <dir> [--headless] [--frames N] [--screenshot file.bmp] [--scene name-or-index] [--width W --height H --vsync N] [--render-profile file.csv] [--render-reference] [--cpu-vertex] [--validate-gpu-vertices] [--validate-render-boundary]");
+        gbtg::log::error("usage: gbtg --game-dir <dir> [--headless] [--frames N] [--screenshot file.bmp] [--scene name-or-index] [--width W --height H --vsync N] [--render-profile file.csv] [--render-reference] [--cpu-vertex] [--validate-gpu-vertices] [--validate-render-boundary] [--verbose]");
         return 1;
     }
 }

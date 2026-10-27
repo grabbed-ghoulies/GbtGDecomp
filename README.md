@@ -166,6 +166,7 @@ Italian; a missing localized text directory falls back to English.
 Console output is also written to `gbtg.log` beside the executable
 (`gbtg-inspector.log` for the inspector). The file is replaced at every boot, and
 each line starts with `[INFO]`, `[WARN]` or `[ERROR]` and the time since boot.
+`--verbose` also shows `[VERBOSE]` lines, which are dropped otherwise.
 
 D3D11 game builds include ImGui diagnostics in every configuration: **F8** opens
 the menu and **F12** toggles the timing overlay (shown at start in Debug, hidden

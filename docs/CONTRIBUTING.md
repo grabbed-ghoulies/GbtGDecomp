@@ -5,4 +5,4 @@
 - Game behavior comes from the native, translated path. Do not add host re-implementations, and do not extend those listed in `docs/LEGACY_HOST_CODE.md`; move their callers to native code instead. Host code covers only boundaries and the D3D11 presentation of recorded native draws.
 - Accept visible or audible work only after checking it with `--screenshot` captures, not just a headless run that exits 0.
 - When you rename a Ghidra function, add a line to `docs/XBE.md` rather than committing the database.
-- Engine code logs through `gbtg::log` (`include/gbtg/log.h`): printf-style `log::info`, `log::warn` and `log::error`, not `std::cout` / `std::cerr`. Lines go unprefixed to the console and tagged to `gbtg.log`. Tools and tests keep printing to stdout.
+- Engine code logs through `gbtg::log` (`include/gbtg/log.h`): printf-style `log::verbose`, `log::info`, `log::warn` and `log::error`, not `std::cout` / `std::cerr`. Lines go unprefixed to the console and tagged to `gbtg.log`. `log::verbose` prints only under `gbtg --verbose`. Tools and tests keep printing to stdout.

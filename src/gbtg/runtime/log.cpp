@@ -1,5 +1,6 @@
 #include "gbtg/log.h"
 
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <mutex>
@@ -9,6 +10,7 @@ namespace gbtg::log
 namespace
 {
 
+std::atomic<bool> g_verbose = false;
 std::mutex g_mutex;
 std::FILE* g_file = nullptr;
 std::filesystem::path g_path;
@@ -18,6 +20,8 @@ const char* level_tag(Level level)
 {
     switch (level)
     {
+    case Level::Verbose:
+        return "[VERBOSE]";
     case Level::Warn:
         return "[WARN]";
     case Level::Error:
@@ -32,7 +36,7 @@ void emit(Level level, const std::string& text)
 {
     const bool newline = text.empty() || text.back() != '\n';
     std::lock_guard<std::mutex> lock(g_mutex);
-    std::FILE* console = level == Level::Info ? stdout : stderr;
+    std::FILE* console = level == Level::Info || level == Level::Verbose ? stdout : stderr;
     std::fwrite(text.data(), 1, text.size(), console);
     if (newline)
     {
@@ -125,8 +129,22 @@ std::string format(const char* fmt, ...)
     return text;
 }
 
+void set_verbose(bool enabled)
+{
+    g_verbose = enabled;
+}
+
+bool verbose_enabled()
+{
+    return g_verbose;
+}
+
 void vwrite(Level level, const char* fmt, std::va_list args)
 {
+    if (level == Level::Verbose && !g_verbose)
+    {
+        return;
+    }
     emit(level, vformat(fmt, args));
 }
 
@@ -135,6 +153,14 @@ void write(Level level, const char* fmt, ...)
     std::va_list args;
     va_start(args, fmt);
     vwrite(level, fmt, args);
+    va_end(args);
+}
+
+void verbose(const char* fmt, ...)
+{
+    std::va_list args;
+    va_start(args, fmt);
+    vwrite(Level::Verbose, fmt, args);
     va_end(args);
 }
 

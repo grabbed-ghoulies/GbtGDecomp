@@ -3,6 +3,7 @@
 #include "gbtg/entity.h"
 #include "gbtg/gfx.h"
 #include "gbtg/model.h"
+#include "gbtg/log.h"
 #include "gbtg/movie.h"
 #include "gbtg/resource.h"
 #include "../scene/factory_scene_runtime.h"
@@ -14,7 +15,6 @@
 #include "../saves/runtime_profile.h"
 #include "script_event_sequence.h"
 #include "script_event_tallies.h"
-#include <iostream>
 
 #include <algorithm>
 #include <bit>
@@ -31,7 +31,6 @@
 #include <exception>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -1309,7 +1308,7 @@ void script_queue_scene_start(Game& g)
                 queued = true;
             });
             g.factory_scene->actor_start = 1;
-            std::cout << "native scene start complete: " << g.scene_name << "\n";
+            log::info("native scene start complete: %s", g.scene_name.c_str());
         }
         catch (const std::exception& error)
         {
@@ -1321,7 +1320,7 @@ void script_queue_scene_start(Game& g)
 #endif
             // Host diagnostic: the native actor graph stops where an untranslated service is reached.
             g.factory_scene->actor_start = -1;
-            std::cout << "native scene start stopped: " << error.what() << "\n";
+            log::info("native scene start stopped: %s", error.what());
         }
     }
     if (!queued)

@@ -1,5 +1,6 @@
 #include "gbtg/gfx.h"
 #include "gbtg/font.h"
+#include "gbtg/log.h"
 #include "../graphics/render_profile.h"
 #include "gbtg/platform.h"
 #include "gbtg/texture.h"
@@ -8,7 +9,6 @@
 
 #include <algorithm>
 #include <chrono>
-#include <iostream>
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -146,7 +146,7 @@ int run_platform(Game& game, const PlatformConfig& cfg)
     const bool gfx_ok = gfx_init(gfx_cfg);
     if (render_profile::enabled)
     {
-        std::cout << "profile gfx_init_ms=" << std::chrono::duration<double, std::milli>(render_profile::Clock::now() - gfx_start).count() << "\n";
+        log::info("profile gfx_init_ms=%g", std::chrono::duration<double, std::milli>(render_profile::Clock::now() - gfx_start).count());
     }
 #if defined(GBTG_DEBUG_UI)
     if (cfg.debug_ui && !debug_ui_menu_open())
@@ -154,8 +154,7 @@ int run_platform(Game& game, const PlatformConfig& cfg)
         debug_ui_toggle_menu();
     }
 #endif
-    std::cout << "gfx: " << (gfx_ok ? gfx_backend_name() : "unavailable") << (gfx_has_window() ? " window" : " offscreen")
-              << "\n";
+    log::info("gfx: %s%s", gfx_ok ? gfx_backend_name() : "unavailable", gfx_has_window() ? " window" : " offscreen");
 
     if (gfx_ok && gfx_has_window())
     {
@@ -197,7 +196,7 @@ int run_platform(Game& game, const PlatformConfig& cfg)
     {
         if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS))
         {
-            std::cerr << "SDL_Init: " << SDL_GetError() << "\n";
+            log::error("SDL_Init: %s", SDL_GetError());
             gfx_shutdown();
             return 1;
         }
@@ -522,28 +521,27 @@ int run_platform(Game& game, const PlatformConfig& cfg)
                 }
             }
             write_bmp(cfg.screenshot, image);
-            std::cout << "screenshot " << cfg.screenshot.string() << " " << image.width << "x" << image.height
-                      << " drawn_px=" << changed << "\n";
+            log::info("screenshot %s %dx%d drawn_px=%d", cfg.screenshot.string().c_str(), image.width, image.height,
+                      changed);
         }
         else
         {
-            std::cerr << "screenshot failed\n";
+            log::error("screenshot failed");
         }
         if (render_profile::enabled)
         {
-            std::cout << "profile readback_ms=" << readback_ms << " capture_total_ms=" << std::chrono::duration<double, std::milli>(render_profile::Clock::now() - capture_start).count() << "\n";
+            log::info("profile readback_ms=%g capture_total_ms=%g", readback_ms, std::chrono::duration<double, std::milli>(render_profile::Clock::now() - capture_start).count());
         }
     }
 
-    std::cout << "frames " << game.frame << " t=" << game.time << "s scene " << game.scene_name;
+    std::string summary = log::format("frames %u t=%gs scene %s", game.frame, game.time, game.scene_name.c_str());
     if (game.camera && game.camera->actor)
     {
         const Vec3& p = game.camera->actor->position;
         const Quat& q = game.camera->actor->quat;
-        std::cout << " cam=" << p.x << "," << p.y << "," << p.z << " quat=" << q.x << "," << q.y << "," << q.z << ","
-                  << q.w;
+        summary += log::format(" cam=%g,%g,%g quat=%g,%g,%g,%g", p.x, p.y, p.z, q.x, q.y, q.z, q.w);
     }
-    std::cout << "\n";
+    log::info("%s", summary.c_str());
 
     gfx_capture_shader_permutations(shader_permutations);
 

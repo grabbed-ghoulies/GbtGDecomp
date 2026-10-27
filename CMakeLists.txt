@@ -69,6 +69,7 @@ endif()
 
 add_library(gbtg_lib STATIC
     src/gbtg/resources/io.cpp
+    src/gbtg/runtime/log.cpp
     src/gbtg/resources/resource.cpp
     src/gbtg/resources/bundle.cpp
     src/gbtg/graphics/texture.cpp

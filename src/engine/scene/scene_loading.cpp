@@ -3,6 +3,7 @@
 #include "gbtg/engine_internal.h"
 #include "gbtg/entity.h"
 #include "gbtg/gfx.h"
+#include "gbtg/log.h"
 #include "gbtg/model.h"
 #include "gbtg/movie.h"
 #include "gbtg/resource.h"
@@ -28,7 +29,6 @@
 #include <exception>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -119,28 +119,28 @@ void log_script_refs(Game& g, const SceneScript& script)
             {
                 auto names = parse_aidlist(e->cpu);
                 g.script_aidlists.push_back(aid);
-                std::cout << "  aidlist " << aid << " (" << names.size() << ")\n";
+                log::info("  aidlist %s (%zu)", aid.c_str(), names.size());
                 for (size_t i = 0; i < names.size() && i < 12; ++i)
                 {
-                    std::cout << "    [" << i << "] " << names[i] << "\n";
+                    log::info("    [%zu] %s", i, names[i].c_str());
                 }
                 if (names.size() > 12)
                 {
-                    std::cout << "    ...\n";
+                    log::info("    ...");
                 }
                 continue;
             }
-            std::cout << "  " << resource_type_name(e->type) << " " << aid << "\n";
+            log::info("  %s %s", resource_type_name(e->type), aid.c_str());
             continue;
         }
         const u32 hash = aid_hash(aid);
         if (g.aids.demand_exists(hash))
         {
-            std::cout << "  demand " << aid_hash_hex(hash) << " " << aid << "\n";
+            log::info("  demand %s %s", aid_hash_hex(hash).c_str(), aid.c_str());
         }
         else
         {
-            std::cout << "  ref " << aid << "\n";
+            log::info("  ref %s", aid.c_str());
         }
     }
 }
@@ -181,7 +181,7 @@ void load_scene_player_bundle(Game& g)
     if (const auto rel = aid_to_bundle_rel(name))
     {
         const auto& bundle = g.aids.load_bundle_rel(*rel);
-        std::cout << "loaded player bundle " << *rel << " entries " << bundle.entries.size() << "\n";
+        log::info("loaded player bundle %s entries %zu", rel->c_str(), bundle.entries.size());
     }
 }
 
@@ -225,18 +225,17 @@ void load_scene_contents(Game& g, std::string_view name)
         if (std::filesystem::exists(path))
         {
             g.scene_bundle = &g.aids.load_bundle_rel(*rel);
-            std::cout << "loaded " << *rel << " entries " << g.scene_bundle->entries.size() << "\n";
+            log::info("loaded %s entries %zu", rel->c_str(), g.scene_bundle->entries.size());
             auto scripts = entries_of_type(*g.scene_bundle, ResourceType::Script);
             if (scripts.empty())
             {
-                std::cout << kNoScript << "\n";
+                log::info("%s", kNoScript);
             }
             for (const auto* e : scripts)
             {
                 g.scene_script = parse_scene_script(e->cpu, e->name);
-                std::cout << "  script " << e->name << " bytes " << e->cpu.size()
-                          << " root=" << g.scene_script.root_offset << " aids " << g.scene_script.aids.size()
-                          << " nodes " << g.scene_script.nodes.size() << "\n";
+                log::info("  script %s bytes %zu root=%u aids %zu nodes %zu", e->name.c_str(), e->cpu.size(),
+                          g.scene_script.root_offset, g.scene_script.aids.size(), g.scene_script.nodes.size());
                 log_script_nodes(g.scene_script);
                 log_script_refs(g, g.scene_script);
                 script_vm_bind(g);
@@ -258,14 +257,14 @@ void load_scene_contents(Game& g, std::string_view name)
                 }
                 auto names = parse_aidlist(e->cpu);
                 g.script_aidlists.push_back(e->name);
-                std::cout << "  aidlist " << e->name << " (" << names.size() << ")\n";
+                log::info("  aidlist %s (%zu)", e->name.c_str(), names.size());
                 for (size_t i = 0; i < names.size() && i < 12; ++i)
                 {
-                    std::cout << "    [" << i << "] " << names[i] << "\n";
+                    log::info("    [%zu] %s", i, names[i].c_str());
                 }
                 if (names.size() > 12)
                 {
-                    std::cout << "    ...\n";
+                    log::info("    ...");
                 }
             }
             if (g.executable_resources != nullptr)
@@ -275,7 +274,7 @@ void load_scene_contents(Game& g, std::string_view name)
         }
         else
         {
-            std::cout << "scene bundle missing: " << path.string() << "\n";
+            log::warn("scene bundle missing: %s", path.string().c_str());
         }
     }
 }
@@ -321,7 +320,7 @@ void scene_order_go(Game& g, size_t index)
         return;
     }
     g.scene_index = index;
-    std::cout << "scene order [" << index << "] " << g.scene_order[index] << "\n";
+    log::info("scene order [%zu] %s", index, g.scene_order[index].c_str());
     load_scene_contents(g, g.scene_order[index]);
 }
 
@@ -343,7 +342,7 @@ void script_load(Game& g, std::string_view name)
             return;
         }
     }
-    std::cout << "script " << std::string(name) << "\n";
+    log::info("script %.*s", static_cast<int>(name.size()), name.data());
     load_scene_contents(g, name);
 }
 

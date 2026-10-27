@@ -1,9 +1,9 @@
 #include "gbtg/host_config.h"
 #include "gbtg/language.h"
+#include "gbtg/log.h"
 
 #include <charconv>
 #include <fstream>
-#include <iostream>
 #include <string>
 #include <string_view>
 
@@ -114,8 +114,8 @@ void apply_key(HostConfig& cfg, const std::filesystem::path& path, const std::st
         }
         else
         {
-            std::cerr << "config: unknown Language '" << value << "' in " << path.string()
-                      << " (English, French, German, Spanish, Italian)\n";
+            log::warn("config: unknown Language '%.*s' in %s (English, French, German, Spanish, Italian)",
+                      static_cast<int>(value.size()), value.data(), path.string().c_str());
         }
         return;
     }
@@ -130,7 +130,7 @@ void apply_key(HostConfig& cfg, const std::filesystem::path& path, const std::st
     int number = 0;
     if (!parse_int(value, number))
     {
-        std::cerr << "config: bad " << key << " in " << path.string() << "\n";
+        log::warn("config: bad %s in %s", key.c_str(), path.string().c_str());
         return;
     }
     if (width)
@@ -138,7 +138,7 @@ void apply_key(HostConfig& cfg, const std::filesystem::path& path, const std::st
         const int clamped = clamp_dim(number);
         if (clamped != number)
         {
-            std::cerr << "config: Width clamped to " << clamped << "\n";
+            log::warn("config: Width clamped to %d", clamped);
         }
         cfg.width = clamped;
     }
@@ -147,7 +147,7 @@ void apply_key(HostConfig& cfg, const std::filesystem::path& path, const std::st
         const int clamped = clamp_dim(number);
         if (clamped != number)
         {
-            std::cerr << "config: Height clamped to " << clamped << "\n";
+            log::warn("config: Height clamped to %d", clamped);
         }
         cfg.height = clamped;
     }
@@ -156,7 +156,7 @@ void apply_key(HostConfig& cfg, const std::filesystem::path& path, const std::st
         const int clamped = clamp_vsync(number);
         if (clamped != number)
         {
-            std::cerr << "config: Vsync clamped to " << clamped << "\n";
+            log::warn("config: Vsync clamped to %d", clamped);
         }
         cfg.vsync = clamped;
     }
@@ -165,7 +165,7 @@ void apply_key(HostConfig& cfg, const std::filesystem::path& path, const std::st
         const int clamped = clamp_volume(number);
         if (clamped != number)
         {
-            std::cerr << "config: MasterVolume clamped to " << clamped << "\n";
+            log::warn("config: MasterVolume clamped to %d", clamped);
         }
         cfg.master_volume = clamped;
     }
@@ -176,7 +176,7 @@ void parse_file(const std::filesystem::path& path, HostConfig& cfg)
     std::ifstream in(path);
     if (!in)
     {
-        std::cerr << "config: could not read " << path.string() << "\n";
+        log::warn("config: could not read %s", path.string().c_str());
         return;
     }
     std::string section;
@@ -214,7 +214,7 @@ bool write_default(const std::filesystem::path& path)
     std::ofstream out(path);
     if (!out)
     {
-        std::cerr << "config: could not write " << path.string() << "\n";
+        log::warn("config: could not write %s", path.string().c_str());
         return false;
     }
     out << "; GbtGDecomp PC settings. Edit, then restart.\n"
@@ -233,11 +233,13 @@ bool write_default(const std::filesystem::path& path)
            "Language=English\n";
     if (!out)
     {
-        std::cerr << "config: could not write " << path.string() << "\n";
+        log::warn("config: could not write %s", path.string().c_str());
         return false;
     }
     return true;
 }
+
+} // namespace
 
 std::filesystem::path executable_path(const std::filesystem::path& argv0)
 {
@@ -261,21 +263,28 @@ std::filesystem::path executable_path(const std::filesystem::path& argv0)
     return {};
 }
 
-} // namespace
+std::filesystem::path host_exe_dir(const std::filesystem::path& argv0)
+{
+    const auto exe = executable_path(argv0);
+    if (!exe.empty())
+    {
+        return exe.parent_path();
+    }
+    std::error_code ec;
+    return std::filesystem::current_path(ec);
+}
 
 HostConfig load_host_config(const std::filesystem::path& argv0)
 {
     HostConfig cfg;
-    const auto exe = executable_path(argv0);
     std::error_code ec;
     const auto cwd = std::filesystem::current_path(ec);
-    const auto exe_dir = exe.empty() ? cwd : exe.parent_path();
-    const auto beside = exe_dir / "gbtg.ini";
+    const auto beside = host_exe_dir(argv0) / "gbtg.ini";
     ec.clear();
     if (std::filesystem::is_regular_file(beside, ec))
     {
         parse_file(beside, cfg);
-        std::cout << "config " << beside.string() << "\n";
+        log::info("config %s", beside.string().c_str());
         return cfg;
     }
     if (!cwd.empty())
@@ -285,13 +294,13 @@ HostConfig load_host_config(const std::filesystem::path& argv0)
         if (cwd_ini != beside && std::filesystem::is_regular_file(cwd_ini, ec))
         {
             parse_file(cwd_ini, cfg);
-            std::cout << "config " << cwd_ini.string() << "\n";
+            log::info("config %s", cwd_ini.string().c_str());
             return cfg;
         }
     }
     if (write_default(beside))
     {
-        std::cout << "config " << beside.string() << " (created)\n";
+        log::info("config %s (created)", beside.string().c_str());
     }
     return cfg;
 }

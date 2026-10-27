@@ -4,9 +4,10 @@
 #include "inspector_graphics.h"
 #include "gbtg/gfx.h"
 #include "gbtg/engine_internal.h"
+#include "gbtg/host_config.h"
 #include "gbtg/language.h"
+#include "gbtg/log.h"
 #include <chrono>
-#include <iostream>
 #include <thread>
 #include <cstdio>
 
@@ -42,6 +43,12 @@ int main(int argc, char** argv)
     bool graphics = false;
     try
     {
+        // Renewed every boot, beside the executable; gbtg.log belongs to the game.
+        const auto log_file = host_exe_dir(argc > 0 ? argv[0] : "") / "gbtg-inspector.log";
+        if (!log::open(log_file))
+        {
+            log::warn("log: could not open %s", log_file.string().c_str());
+        }
         GfxConfig config;
         config.width = std::stoi(argument(argc, argv, "--width", "1440"));
         config.height = std::stoi(argument(argc, argv, "--height", "900"));
@@ -185,18 +192,18 @@ int main(int argc, char** argv)
                         throw Error("inspector screenshot readback failed");
                     }
                     write_bmp(path, image);
-                    std::cout << "screenshot " << path << "\n";
+                    log::info("screenshot %s", path.c_str());
                 }
             };
             save(screenshot, false);
             save(viewport_capture, true);
-            std::cout << "inspector state=" << int(session.state) << " scene=" << session.requested
-                << " native_frame=" << session.frozen_frame << " objects_and_markers=" << session.items.size()
-                << " commands=" << session.frame.draws.size() << " omitted_markers=" << session.inspection.omitted.size()
-                << " log=" << session.log_path.string() << "\n";
+            log::info("inspector state=%d scene=%s native_frame=%u objects_and_markers=%zu commands=%zu "
+                      "omitted_markers=%zu log=%s", int(session.state), session.requested.c_str(), session.frozen_frame,
+                      session.items.size(), session.frame.draws.size(), session.inspection.omitted.size(),
+                      session.log_path.string().c_str());
             if (session.state != InspectionState::Ready)
             {
-                std::cerr << (session.error.empty() ? "scene did not reach Ready" : session.error) << "\n";
+                log::error("%s", session.error.empty() ? "scene did not reach Ready" : session.error.c_str());
                 result = 1;
             }
         }
@@ -206,16 +213,16 @@ int main(int argc, char** argv)
     }
     catch (const std::exception& error)
     {
-        std::cerr << "inspector: " << error.what() << "\n";
+        log::error("inspector: %s", error.what());
         if (graphics)
         {
             inspector_release_graphics();
             gfx_shutdown();
         }
-        std::cerr << "usage: gbtg-inspector --game-dir DIR [--scene name-or-index] [--frames N] "
+        log::error("usage: gbtg-inspector --game-dir DIR [--scene name-or-index] [--frames N] "
             "[--screenshot workspace.bmp] [--viewport-screenshot scene.bmp] [--headless] "
             "[--width W --height H --vsync N] [--depth-overlays] "
-            "[--camera-offset X,Y,Z --camera-angles yaw,pitch] [--log errors.log]\n";
+            "[--camera-offset X,Y,Z --camera-angles yaw,pitch] [--log errors.log]");
         return 1;
     }
 }

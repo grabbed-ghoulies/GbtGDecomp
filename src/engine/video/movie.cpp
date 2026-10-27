@@ -11,6 +11,7 @@
 #include "gbtg/bundle.h"
 #include "gbtg/engine_internal.h"
 #include "gbtg/hash.h"
+#include "gbtg/log.h"
 #include "gbtg/gfx.h"
 #include "gbtg/resource.h"
 
@@ -19,7 +20,6 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
-#include <iostream>
 #include <span>
 #include <string>
 #include <vector>
@@ -1590,7 +1590,7 @@ MovieClip* clip_open(const void* src, unsigned flags, bool loop, const std::stri
         }
     }
     clip->loop = loop;
-    std::cout << "movie " << cue << " " << clip->width << "x" << clip->height << " frames " << clip->frames << "\n";
+    log::info("movie %s %ux%u frames %u", cue.c_str(), clip->width, clip->height, clip->frames);
     return clip;
 }
 
@@ -1823,7 +1823,7 @@ void movie_boot_probe()
     std::error_code ec;
     if (!std::filesystem::is_regular_file(path, ec))
     {
-        std::cout << "movie probe " << path.string() << "\n";
+        log::info("movie probe %s", path.string().c_str());
     }
 }
 

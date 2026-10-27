@@ -19,4 +19,10 @@ struct HostConfig
 // the executable when neither file exists.
 HostConfig load_host_config(const std::filesystem::path& argv0);
 
+// Absolute path of the running executable; empty when it cannot be resolved.
+std::filesystem::path executable_path(const std::filesystem::path& argv0);
+// The executable's directory, else the working directory. gbtg.ini and gbtg.log
+// live here.
+std::filesystem::path host_exe_dir(const std::filesystem::path& argv0);
+
 } // namespace gbtg

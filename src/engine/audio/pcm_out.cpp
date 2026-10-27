@@ -1,6 +1,7 @@
 #include "gbtg/engine_internal.h"
 
 #include "gbtg/bundle.h"
+#include "gbtg/log.h"
 #include "pcm_backend.h"
 #include "../camera/display_view.h"
 #include "../scene/executable_resources.h"
@@ -13,7 +14,6 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <map>
 #include <unordered_map>
 #include <string>
@@ -453,7 +453,7 @@ void build_catalog(const Game& g)
     const BundleEntry* list = find_entry(g.aids.common, "aid_xcuelist_ghoulies_default");
     if (!list)
     {
-        std::cout << "audio missing cue list\n";
+        log::warn("audio missing cue list");
         return;
     }
     std::string text(reinterpret_cast<const char*>(list->cpu.data()), list->cpu.size());
@@ -532,7 +532,7 @@ void build_catalog(const Game& g)
         }
         banks_by_length.push_back(bank);
     }
-    std::cout << "audio cues " << g_cues.size() << " wavebanks " << g_wavefiles.size() << "\n";
+    log::info("audio cues %zu wavebanks %zu", g_cues.size(), g_wavefiles.size());
     (void)banks_by_length;
 }
 
@@ -597,7 +597,7 @@ bool ensure_device()
     {
         g_device_result = co;
         g_device_failed = true;
-        std::cout << "audio CoInitializeEx failed\n";
+        log::error("audio CoInitializeEx failed");
         return false;
     }
     g_device_result = XAudio2Create(&g_xa, 0, XAUDIO2_DEFAULT_PROCESSOR);
@@ -608,7 +608,7 @@ bool ensure_device()
     if (FAILED(g_device_result))
     {
         g_device_failed = true;
-        std::cout << "audio XAudio2Create failed\n";
+        log::error("audio XAudio2Create failed");
         return false;
     }
     g_master->SetVolume(g_master_volume);
@@ -854,7 +854,7 @@ u64 play_choice(const std::string& cue, const WaveChoice& choice, bool loop = fa
     u32 loop_length = 0;
     if (!load_wave(choice, slot.pcm, fmt, loop_begin, loop_length))
     {
-        std::cout << "audio skip " << cue << " " << choice.bank << "[" << choice.index << "]\n";
+        log::warn("audio skip %s %s[%d]", cue.c_str(), choice.bank.c_str(), choice.index);
         const DWORD error = GetLastError();
         return fail(HRESULT_FROM_WIN32(error == ERROR_SUCCESS ? ERROR_INVALID_DATA : error));
     }
@@ -864,7 +864,7 @@ u64 play_choice(const std::string& cue, const WaveChoice& choice, bool loop = fa
     HRESULT status = g_xa->CreateSourceVoice(&slot.voice, &fmt);
     if (FAILED(status))
     {
-        std::cout << "audio voice failed " << cue << "\n";
+        log::warn("audio voice failed %s", cue.c_str());
         return fail(status);
     }
     route_dry_and_reverb(slot.voice);
@@ -920,7 +920,7 @@ u64 play_choice(const std::string& cue, const WaveChoice& choice, bool loop = fa
     slot.handle = handle;
     slot.cue = cue;
     slot.native = prepared_voice != nullptr;
-    std::cout << "audio cue " << cue << " " << choice.bank << "[" << choice.index << "]\n";
+    //std::cout << "audio cue " << cue << " " << choice.bank << "[" << choice.index << "]\n";
     // Cutscene sync stops g_voices whenever no clip is playing. A cue the
     // frontend acquired has to live on the bed or that stop deletes it.
     if (bed || loop)
@@ -973,7 +973,7 @@ void pcm_play_cue(const Game& g, const char* cue, bool loop)
     const auto found = g_cues.find(cue);
     if (found == g_cues.end())
     {
-        std::cout << "audio unmapped " << cue << "\n";
+        log::warn("audio unmapped %s", cue);
         return;
     }
     if (const WaveChoice* choice = pick_choice(found->second, g.frame))
@@ -1036,7 +1036,7 @@ u64 pcm_play_owned_cue(const Game& g, const char* cue)
     const auto found = g_cues.find(cue);
     if (found == g_cues.end())
     {
-        std::cout << "audio unmapped " << cue << "\n";
+        log::warn("audio unmapped %s", cue);
         return 0;
     }
     if (const WaveChoice* choice = pick_choice(found->second, g.frame))
@@ -1081,7 +1081,7 @@ void pcm_stop_owned_cue(u64 handle)
     {
         if (g_bed[i].handle == handle)
         {
-            std::cout << "audio cue stop " << g_bed[i].cue << "\n";
+            log::info("audio cue stop %s", g_bed[i].cue.c_str());
             release_voice(g_bed[i]);
             g_bed.erase(g_bed.begin() + static_cast<std::ptrdiff_t>(i));
             return;
@@ -1648,8 +1648,8 @@ std::shared_ptr<NativeAudioRuntime> boot_native_audio(const Game& game)
     };
     bind_native_audio_listener(banks.listener);
     initialize_native_audio(banks, boundaries);
-    std::cout << "native audio banks " << banks.bank_count << " names " << banks.bank_names.size()
-              << " cues " << banks.cue_names.size() << "\n";
+    log::info("native audio banks %d names %zu cues %zu", banks.bank_count, banks.bank_names.size(),
+              banks.cue_names.size());
 
     // The audio core over the XACT boundaries: heap, sound sources and cue preparation.
     auto owned = std::make_shared<NativeAudioRuntime>();

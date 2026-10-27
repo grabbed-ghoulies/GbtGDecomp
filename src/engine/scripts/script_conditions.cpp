@@ -2,6 +2,7 @@
 #include "gbtg/engine_internal.h"
 #include "gbtg/entity.h"
 #include "gbtg/gfx.h"
+#include "gbtg/log.h"
 #include "gbtg/model.h"
 #include "gbtg/movie.h"
 #include "gbtg/resource.h"
@@ -21,7 +22,6 @@
 #include <exception>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -405,17 +405,11 @@ const char* script_condition_name(u32 opcode)
 
 void log_script_nodes(const SceneScript& script)
 {
-    const std::ios_base::fmtflags saved = std::cout.flags();
     for (const ScriptNode& node : script.nodes)
     {
-        std::cout << "  node +0x" << std::hex << node.offset << " size 0x" << node.size << " type 0x" << node.type;
-        if (!node.text.empty())
-        {
-            std::cout << " " << node.text;
-        }
-        std::cout << "\n";
+        log::info("  node +0x%x size 0x%x type 0x%x%s%s", node.offset, node.size, node.type,
+                  node.text.empty() ? "" : " ", node.text.c_str());
     }
-    std::cout.flags(saved);
 }
 
 
@@ -438,10 +432,8 @@ void script_append_condition(const ScriptCond& src, u32 size, u32 opcode)
     {
         std::memcpy(rec.raw, src.raw, size);
     }
-    const std::ios_base::fmtflags saved = std::cout.flags();
-    std::cout << "script condition opcode " << opcode << " " << script_condition_name(opcode) << " size 0x" << std::hex
-              << size << " link +0x" << cond_u32(rec, 4) << "\n";
-    std::cout.flags(saved);
+    log::info("script condition opcode %u %s size 0x%x link +0x%x", opcode, script_condition_name(opcode), size,
+              cond_u32(rec, 4));
     g_script_conds.push_back(rec);
 }
 

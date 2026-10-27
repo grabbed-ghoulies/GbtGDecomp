@@ -2,6 +2,7 @@
 #include "inspector_session.h"
 #include "gbtg/engine_internal.h"
 #include "gbtg/gfx.h"
+#include "gbtg/log.h"
 #include "gbtg/model_runtime.h"
 #include "../scene/factory_scene_runtime.h"
 #include "../scene/scene_actor_services.h"
@@ -18,7 +19,6 @@
 #include <cstring>
 #include <algorithm>
 #include <fstream>
-#include <iostream>
 
 namespace gbtg
 {
@@ -437,7 +437,7 @@ void InspectorSession::record_issue(const std::string& message)
         return;
     }
     issues.push_back(message);
-    std::cerr << "inspector: " << message << "\n";
+    log::error("inspector: %s", message.c_str());
     if (!log_path.empty())
     {
         std::ofstream log(log_path, std::ios::app);

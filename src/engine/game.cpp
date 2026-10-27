@@ -18,10 +18,10 @@
 #include "camera/camera.h"
 #include "camera/actor_camera_effects.h"
 #include "gbtg/gfx.h"
+#include "gbtg/log.h"
 #include "gbtg/movie.h"
 
 #include <algorithm>
-#include <iostream>
 #include <string>
 
 namespace gbtg
@@ -78,22 +78,22 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
     g_50e7a0 = g_50e7a0 + 1; // 0x0011C3F0's last store (DAT_0050E7A0); the first scene's state 1 takes it back.
     movie_set_root(game_dir);
     movie_boot_probe();
-    std::cout << "fs_init: " << aids.game_dir.string() << " common.bnl entries " << aids.common.entries.size() << "\n";
-    std::cout << "clock " << clock_fps(clock) << " Hz dt=" << clock.dt << "\n";
-    std::cout << "entity types " << all_entity_types().size() << "\n";
+    log::info("fs_init: %s common.bnl entries %zu", aids.game_dir.string().c_str(), aids.common.entries.size());
+    log::info("clock %d Hz dt=%g", clock_fps(clock), clock.dt);
+    log::info("entity types %zu", all_entity_types().size());
 
     script_set_default_name(*this);
     if (const BundleEntry* list = find_entry(aids.common, kSceneOrder))
     {
         scene_order = parse_aidlist(list->cpu);
-        std::cout << kSceneOrder << " (" << scene_order.size() << ")\n";
+        log::info("%s (%zu)", kSceneOrder, scene_order.size());
         for (size_t i = 0; i < scene_order.size() && i < 12; ++i)
         {
-            std::cout << "  [" << i << "] " << scene_order[i] << "\n";
+            log::info("  [%zu] %s", i, scene_order[i].c_str());
         }
         if (scene_order.size() > 12)
         {
-            std::cout << "  ...\n";
+            log::info("  ...");
         }
         if (!scene_order.empty())
         {
@@ -124,7 +124,7 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
                         }
                     }
                 }
-                std::cout << "scene select [" << index << "] " << scene_order[index] << "\n";
+                log::info("scene select [%zu] %s", index, scene_order[index].c_str());
             }
             scene_index = index;
             // 0x0011EB30 queues the aid. 0x0011E4C0 loads it once the stream enters state 4.
@@ -138,7 +138,7 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
     camera = spawn(*this, "entityBodyCamera", actors.back());
 
     game_init_pump();
-    std::cout << "game_init: io idle\n";
+    log::info("game_init: io idle");
     // 0x0011E4C0. The first pass accepts the queued aid into state 3.
     // The next pass enters state 4 and loads that script.
     // No simulation frame has elapsed during initialization. In particular,

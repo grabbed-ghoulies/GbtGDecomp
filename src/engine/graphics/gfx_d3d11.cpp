@@ -7,6 +7,7 @@
 #endif
 
 #include "gbtg/gfx.h"
+#include "gbtg/log.h"
 #include "gbtg/movie.h"
 #include "gbtg/entity.h"
 #include "../gbtg_resource.h"
@@ -33,7 +34,6 @@
 #include <cmath>
 #include <cstring>
 #include <fstream>
-#include <iostream>
 #include <map>
 #include <sstream>
 #include <unordered_map>
@@ -623,7 +623,7 @@ bool compile_shader(const char* src, const char* entry, const char* profile, Com
     {
         if (err)
         {
-            std::cerr << "hlsl: " << static_cast<const char*>(err->GetBufferPointer()) << "\n";
+            log::error("hlsl: %s", static_cast<const char*>(err->GetBufferPointer()));
         }
         return false;
     }
@@ -1376,7 +1376,7 @@ bool gfx_init(const GfxConfig& cfg)
                                rect.right - rect.left, rect.bottom - rect.top, nullptr, nullptr, wc.hInstance, nullptr);
         if (!g.hwnd)
         {
-            std::cerr << "d3d11: CreateWindow failed\n";
+            log::error("d3d11: CreateWindow failed");
             return false;
         }
     }
@@ -1407,7 +1407,7 @@ bool gfx_init(const GfxConfig& cfg)
     }
     if (FAILED(hr))
     {
-        std::cerr << "d3d11: device create failed\n";
+        log::error("d3d11: device create failed");
         gfx_shutdown();
         return false;
     }
@@ -1418,12 +1418,12 @@ bool gfx_init(const GfxConfig& cfg)
         DXGI_ADAPTER_DESC desc{};
         if (SUCCEEDED(g.device.As(&dxgi)) && SUCCEEDED(dxgi->GetAdapter(adapter.GetAddressOf())) && SUCCEEDED(adapter->GetDesc(&desc)))
         {
-            std::wcout << L"profile adapter=" << desc.Description << L" vendor=" << desc.VendorId << L" device=" << desc.DeviceId << L"\n";
+            log::info("profile adapter=%ls vendor=%u device=%u", desc.Description, desc.VendorId, desc.DeviceId);
         }
     }
     if (!create_targets(width, height))
     {
-        std::cerr << "d3d11: render target failed\n";
+        log::error("d3d11: render target failed");
         gfx_shutdown();
         return false;
     }
@@ -2109,7 +2109,7 @@ float4 clear_vertex(uint id : SV_VertexID) : SV_Position
            g.clear_vs && g.clear_cb && g.clear_depth;
     if (!g.ok)
     {
-        std::cerr << "d3d11: pipeline incomplete\n";
+        log::error("d3d11: pipeline incomplete");
         gfx_shutdown();
         return false;
     }
@@ -2863,7 +2863,7 @@ void gfx_draw_mesh(const Mesh& mesh, Vec3 origin, Vec3 scale)
     }
     if (!g.logged_draw)
     {
-        std::cout << "d3d11 draw " << mesh.name << " tris " << tris << " lit " << lit << "\n";
+        log::info("d3d11 draw %s tris %u lit %u", mesh.name.c_str(), tris, lit);
         g.logged_draw = true;
     }
 }
@@ -3152,12 +3152,13 @@ bool gfx_native_vertex_program_supported(std::span<const u32> program)
     const auto body = xbox_vertex_hlsl(program);
     if (render_profile::enabled && body.empty())
     {
-        std::cout << "profile vertex_fallback instructions=" << (program.empty() ? 0 : program[0] >> 16) << " mac/ilu/relative:";
+        std::string line = log::format("profile vertex_fallback instructions=%u mac/ilu/relative:",
+                                       program.empty() ? 0u : program[0] >> 16);
         for (size_t n = 1; n + 3 < program.size(); n += 4)
         {
-            std::cout << ' ' << ((program[n + 1] >> 21) & 15) << '/' << ((program[n + 1] >> 25) & 7) << '/' << ((program[n + 3] >> 1) & 1);
+            line += log::format(" %u/%u/%u", (program[n + 1] >> 21) & 15, (program[n + 1] >> 25) & 7, (program[n + 3] >> 1) & 1);
         }
-        std::cout << "\n";
+        log::info("%s", line.c_str());
     }
     if (!body.empty())
     {
@@ -3229,13 +3230,13 @@ void gfx_warmup_shader_permutations(const std::filesystem::path& path, const std
         }
     }
     const double elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
-    std::cout << "shader warm-up: " << vertex_count << " vertex, " << manifest.pixel_definitions.size()
-              << " pixel permutations in " << elapsed << " ms";
+    std::string line = log::format("shader warm-up: %zu vertex, %zu pixel permutations in %g ms", vertex_count,
+                                   manifest.pixel_definitions.size(), elapsed);
     if (pixel_fallbacks != 0)
     {
-        std::cout << " (" << pixel_fallbacks << " generic pixel fallbacks)";
+        line += log::format(" (%zu generic pixel fallbacks)", pixel_fallbacks);
     }
-    std::cout << "\n";
+    log::info("%s", line.c_str());
 }
 
 void gfx_capture_shader_permutations(const std::filesystem::path& path)
@@ -3266,8 +3267,8 @@ void gfx_capture_shader_permutations(const std::filesystem::path& path)
         }
     }
     write_shader_permutation_manifest(path, manifest);
-    std::cout << "shader capture: " << manifest.vertex_programs.size() << " vertex, "
-              << manifest.pixel_definitions.size() << " pixel permutations -> " << path.string() << "\n";
+    log::info("shader capture: %zu vertex, %zu pixel permutations -> %s", manifest.vertex_programs.size(),
+              manifest.pixel_definitions.size(), path.string().c_str());
 }
 
 namespace
@@ -3379,7 +3380,7 @@ void validate_gs(point VSOut input[1], inout PointStream<VSOut> stream)
         }
     }
     program.validated = true;
-    std::cout << "GPU vertex reference PASS vertices=" << count << " instructions=" << (draw.vertex_program[0] >> 16) << " max_abs_error=" << maximum << " tolerance=5e-5+5e-5*abs(reference)\n";
+    log::info("GPU vertex reference PASS vertices=%u instructions=%u max_abs_error=%g tolerance=5e-5+5e-5*abs(reference)", count, draw.vertex_program[0] >> 16, maximum);
 }
 }
 
@@ -3516,7 +3517,7 @@ void gfx_validate_native_boundary()
     draw.indices = indices;
     expect(255, 255, 255);
     gfx_shutdown();
-    std::cout << "Native boundary PASS: vertex/index mutation, texture serial/release/address reuse, constants, device unload/reload\n";
+    log::info("Native boundary PASS: vertex/index mutation, texture serial/release/address reuse, constants, device unload/reload");
 }
 
 void gfx_draw_native(const GfxNativeDraw& draw)

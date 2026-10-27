@@ -2,6 +2,7 @@
 #include "../entities/entity_heap.h"
 #include "../entities/actor_factory_owner.h"
 #include "../../gbtg/runtime/object_lifecycle.h"
+#include "gbtg/log.h"
 #include <limits>
 #include <utility>
 #include <cstdio>
@@ -117,7 +118,7 @@ SceneFactoryRuntime::~SceneFactoryRuntime()
     catch (const std::exception& error)
     {
         // A scene stopped mid-update can leave a view its retail destructor expects; a destructor must not throw.
-        std::fprintf(stderr, "scene release after a failure: %s\n", error.what());
+        log::error("scene release after a failure: %s", error.what());
     }
     // Actor services release their separately owned factory roots through the same
     // address map and base lifecycle; both must still exist during that release.

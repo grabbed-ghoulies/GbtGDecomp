@@ -3,10 +3,10 @@
 #include "gbtg/gfx.h"
 #include "gbtg/host_config.h"
 #include "gbtg/language.h"
+#include "gbtg/log.h"
 #include "gbtg/platform.h"
 
 #include "graphics/render_profile.h"
-#include <iostream>
 #include <string>
 
 namespace
@@ -54,6 +54,12 @@ int main(int argc, char** argv)
 {
     try
     {
+        // Renewed every boot, beside the executable like gbtg.ini.
+        const auto log_file = gbtg::host_exe_dir(argc > 0 ? argv[0] : "") / "gbtg.log";
+        if (!gbtg::log::open(log_file))
+        {
+            gbtg::log::warn("log: could not open %s", log_file.string().c_str());
+        }
         const gbtg::HostConfig host = gbtg::load_host_config(argc > 0 ? argv[0] : "");
 
         gbtg::PlatformConfig cfg;
@@ -73,11 +79,11 @@ int main(int argc, char** argv)
         {
             gbtg::render_profile::start(profile.string());
 #if defined(_DEBUG)
-            std::cout << "profile build=Debug\n";
+            gbtg::log::info("profile build=Debug");
 #else
-            std::cout << "profile build=Release\n";
+            gbtg::log::info("profile build=Release");
 #endif
-            std::cout << "profile optimize=" << (GBTG_OPTIMIZE ? "on" : "off") << "\n";
+            gbtg::log::info("profile optimize=%s", GBTG_OPTIMIZE ? "on" : "off");
         }
         if (cfg.replay_after > 0 && !gbtg::render_profile::enabled)
         {
@@ -92,13 +98,12 @@ int main(int argc, char** argv)
             const auto loctext = cfg.game_dir / "loctext" / gbtg::language_folder(gbtg::g_language);
             if (gbtg::g_language != 0 && !std::filesystem::is_directory(loctext, ec))
             {
-                std::cerr << "config: " << loctext.string() << " missing, using English\n";
+                gbtg::log::warn("config: %s missing, using English", loctext.string().c_str());
                 gbtg::g_language = 0;
             }
         }
-        std::cout << "GbtGDecomp  game-dir=" << cfg.game_dir.string() << "  " << cfg.width << "x" << cfg.height
-                  << "  volume=" << master_volume << "  language=" << gbtg::language_folder(gbtg::g_language)
-                  << "\n";
+        gbtg::log::info("GbtGDecomp  game-dir=%s  %dx%d  volume=%d  language=%s", cfg.game_dir.string().c_str(),
+                        cfg.width, cfg.height, master_volume, gbtg::language_folder(gbtg::g_language));
         gbtg::render_profile::reference = has_flag(argc, argv, "--render-reference");
         gbtg::render_profile::cpu_vertex = has_flag(argc, argv, "--cpu-vertex");
         gbtg::render_profile::validate_vertex = has_flag(argc, argv, "--validate-gpu-vertices");
@@ -113,14 +118,14 @@ int main(int argc, char** argv)
         game.init(cfg.game_dir, cfg.scene);
         if (gbtg::render_profile::enabled)
         {
-            std::cout << "profile game_init_ms=" << std::chrono::duration<double, std::milli>(gbtg::render_profile::Clock::now() - startup).count() << " actor_update_hold=unchanged\n";
+            gbtg::log::info("profile game_init_ms=%g actor_update_hold=unchanged", std::chrono::duration<double, std::milli>(gbtg::render_profile::Clock::now() - startup).count());
         }
         return gbtg::run_platform(game, cfg);
     }
     catch (const std::exception& ex)
     {
-        std::cerr << "error: " << ex.what() << "\n";
-        std::cerr << "usage: gbtg --game-dir <dir> [--headless] [--frames N] [--screenshot file.bmp] [--scene name-or-index] [--width W --height H --vsync N] [--render-profile file.csv] [--render-reference] [--cpu-vertex] [--validate-gpu-vertices] [--validate-render-boundary]\n";
+        gbtg::log::error("error: %s", ex.what());
+        gbtg::log::error("usage: gbtg --game-dir <dir> [--headless] [--frames N] [--screenshot file.bmp] [--scene name-or-index] [--width W --height H --vsync N] [--render-profile file.csv] [--render-reference] [--cpu-vertex] [--validate-gpu-vertices] [--validate-render-boundary]");
         return 1;
     }
 }

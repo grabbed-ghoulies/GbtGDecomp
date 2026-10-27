@@ -1,4 +1,5 @@
 #include "player_factory_owner.h"
+#include "../camera/display_view.h"
 #include "player_state.h"
 #include "actor_attachment_events.h"
 #include "body_request_selection.h"
@@ -519,6 +520,29 @@ const ObjectFactoryVtable* haunted_picture_strategy_lifecycle()
     return &table;
 }
 
+bool construct_warlock_strategy_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto* player = active_owner->find_player(object);
+    player->strategy_type = 0x56;
+    player->refresh_views();
+    return initialize_runtime_warlock_strategy(bytes_of(object), parameters, player->warlock); // 0x000C3D10
+}
+
+void destroy_warlock_strategy_view(FactoryObject& object)
+{
+    auto* player = active_owner->find_player(object);
+    player->refresh_views();
+    destroy_runtime_warlock_strategy(player->warlock); // 0x000C3E90
+}
+
+// Getter 0x000C3CC0.
+const ObjectFactoryVtable* warlock_strategy_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00506064, warlock_strategy_object_sizes,
+        construct_warlock_strategy_view, destroy_warlock_strategy_view};
+    return &table;
+}
+
 bool construct_vampire_chicken_strategy_view(FactoryObject& object, std::span<const u8>)
 {
     auto* player = active_owner->find_player(object);
@@ -857,6 +881,13 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
                   leave_runtime_haunted_picture_state(old_state, haunted_picture);
                   return;
               }
+              if (strategy_type == 0x56)
+              {
+                  // Warlock strategy vtable +0x18, 0x000C40F0.
+                  refresh_views();
+                  leave_runtime_warlock_state(old_state, warlock);
+                  return;
+              }
               if (strategy_type == 0x41)
               {
                   // Haunted coat strategy vtable +0x18, 0x000AF6E0.
@@ -1047,6 +1078,12 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
               {
                   // Haunted picture strategy vtable +0x14, 0x000B1150.
                   enter_runtime_haunted_picture_state(state, previous, haunted_picture);
+                  return;
+              }
+              if (strategy_type == 0x56)
+              {
+                  // Warlock strategy vtable +0x14, 0x000C40B0.
+                  enter_runtime_warlock_state(state, previous, warlock);
                   return;
               }
               if (strategy_type == 0x41)
@@ -1606,7 +1643,44 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
           "attack", "sleep", "sleep_wall", "wakeup", "wakeup_wall"},
       haunted_picture{strategy_messages, target_checks, target_queue, strategy_views, actor_instance.live_attachments,
           self, scene_bindings.overrides, scene_bindings.haunted_picture_movement, scene_bindings.occupancy_initial,
-          "attack", "attack_special", "getrandomdest", "sleep", "wakeup"}
+          "attack", "attack_special", "getrandomdest", "sleep", "wakeup"},
+      warlock{strategy_messages, target_checks, strategy_views, actor_instance, body_lists,
+          [this]()
+          {
+              if (!scene.body_state)
+              {
+                  throw Error("warlock strategy: 0x0001FEB0's body views are not bound");
+              }
+              return scene.body_state(*this);
+          },
+          scene_bindings.object_message, scene_bindings.create_effect,
+          [this](u32 actor, u32 id, const RuntimeActorCreationOptions* options)
+          {
+              if (!scene.actor_callouts)
+              {
+                  throw Error("warlock strategy: 0x0003BE20 over an actor's callouts is not bound");
+              }
+              scene.actor_callouts(actor, id, options);
+          },
+          [this](const Actor& source, float radius)
+          {
+              if (!scene.scare_near)
+              {
+                  throw Error("warlock strategy: 0x0013B660 is not bound");
+              }
+              scene.scare_near(source, radius);
+          },
+          scene_bindings.story_bits,
+          [this]() -> RuntimeActorPauseGroups&
+          {
+              if (scene.refresh_pause)
+              {
+                  scene.refresh_pause();
+              }
+              return scene.pause;
+          },
+          scene_bindings.latches, entity_detail::g_display_view, "reappear", "attackprepare", "attack",
+          "attackfinish"}
 {
 }
 
@@ -1973,6 +2047,28 @@ void NativePlayerFactoryOwner::haunted_picture_message(FactoryObject& strategy, 
     }
     player->refresh_views();
     dispatch_runtime_haunted_picture_message(message, player->haunted_picture);
+}
+
+void NativePlayerFactoryOwner::warlock_message(FactoryObject& strategy, std::span<const u32> message)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x56)
+    {
+        throw Error("warlock strategy method has no owning instance");
+    }
+    player->refresh_views();
+    dispatch_runtime_warlock_message(message, player->warlock);
+}
+
+void NativePlayerFactoryOwner::warlock_update(FactoryObject& strategy)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x56)
+    {
+        throw Error("warlock strategy method has no owning instance");
+    }
+    player->refresh_views();
+    update_runtime_warlock_strategy(player->warlock);
 }
 
 void NativePlayerFactoryOwner::haunted_picture_update(FactoryObject& strategy)
@@ -2381,6 +2477,7 @@ void NativePlayerFactoryOwner::install(std::span<ObjectFactoryType> types)
     types[0x3E] = ObjectFactoryType{8, giant_hand_strategy_lifecycle};
     types[0x41] = ObjectFactoryType{8, haunted_coat_strategy_lifecycle};
     types[0x43] = ObjectFactoryType{8, haunted_picture_strategy_lifecycle};
+    types[0x56] = ObjectFactoryType{8, warlock_strategy_lifecycle}; // Getter 0x000C3CC0.
     types[0x49] = ObjectFactoryType{8, imp_ninja_strategy_lifecycle};
     types[0x4A] = ObjectFactoryType{8, jessie_clyde_strategy_lifecycle};
     types[0x4D] = ObjectFactoryType{8, mummy_cursed_strategy_lifecycle};

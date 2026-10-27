@@ -2,8 +2,10 @@
 #include "gbtg/anim.h"
 #include "../entities/entity.h"
 
+#include <bit>
 #include <cmath>
 #include <cstddef>
+#include <vector>
 
 namespace gbtg
 {
@@ -185,5 +187,40 @@ void clear_occupancy_record_mask(OccupancyRecord& record, u32 mask)
     {
         g_512348 = i32(u32(g_512348) | entry->mask);
     }
+}
+
+// Xbox 0x00124A10
+const OccupancyRecord* random_occupancy_record(u32 mask, u32& random)
+{
+    if (g_512344 == nullptr)
+    {
+        return nullptr;
+    }
+    const auto& pool = *static_cast<const OccupancyPool*>(g_512344);
+    std::vector<const OccupancyRecord*> matches; // 0x000F72D0's four-byte vector, grown by 0x000662A0.
+    for (const OccupancyRecord* record = pool.begin; record < pool.cursor; ++record)
+    {
+        if ((record->mask & mask) != 0)
+        {
+            matches.push_back(record);
+        }
+    }
+    const i32 last = i32(matches.size()) - 1;
+    if (last < 0)
+    {
+        return nullptr; // Retail keeps the empty vector here.
+    }
+    random = random * 0x19660Du + 0x3C6EF35Fu; // DAT_0054DD7C.
+    const float roll = std::bit_cast<float>((random & 0x7FFFFFu) | 0x3F800000u) - 1.f; // DAT_0032B0F8.
+    i32 index = 0;
+    for (const OccupancyRecord* record : matches)
+    {
+        if (index == i32(roll * float(last)))
+        {
+            return record;
+        }
+        ++index;
+    }
+    return nullptr;
 }
 }

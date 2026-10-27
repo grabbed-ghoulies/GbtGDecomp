@@ -38,4 +38,6 @@ const OccupancyRecord* find_occupancy_record(const Vec3& point, float initial_di
 void clear_occupancy_record_mask(OccupancyRecord& record, u32 mask); // Xbox 0x00124970
 // EDI value, EAX mask: clears the mask bits on every record whose +0 is the value, then rebuilds DAT_00512348.
 void clear_occupancy_value_mask(u32 value, u32 mask); // Xbox 0x001249B0
+// A random DAT_00512344 record whose mask has a bit of `mask`, or null when none has.
+const OccupancyRecord* random_occupancy_record(u32 mask, u32& random); // Xbox 0x00124A10
 }

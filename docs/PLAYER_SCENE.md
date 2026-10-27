@@ -268,6 +268,10 @@ All take the game directory, e.g.
 | `--scene3a1` | Boots chapter 3a scene 1's book (chapter3a_scene1_2book) and plays its page (A closes it). Passes when the script moves on to `aid_script_ghoulies_chapter3a_scene1_3playcam` (frame 1212 in the 2026-10-27 run). Checked in the captures: Mr. Ribs' page, his portrait and text and the A prompt (page1) |
 | `--scene3a1b` | Boots chapter 3a scene 1_3 (chapter3a_scene1_3playcam): the chapter 3a title (A moves it on), then FREE PLAY, where Cooper walks out through the exit (region 1). Passes when the script moves on to `aid_script_ghoulies_chapter3a_scene2_1playcam` (frame 358 of play in the 2026-10-27 run). Cooper's energy reads 1 throughout (not checked against the script). Checked in the captures: the chapter title's sketch (title) and Cooper running for the open door (300) |
 | `--scene3a2` | Boots chapter 3a scene 2 (chapter3a_scene2_1playcam, the haunted television) and plays it with the scene 7 driver, calm in FREE PLAY: the "EVENT" breaks the bg-break key loose, then Cooper walks past the television to the exit. Passes when the script moves on to `aid_script_ghoulies_chapter3a_scene3_1playcam` (frame 1652 in the 2026-10-27 run, no faint). Fighting in FREE PLAY instead lets the class 0x15 ghoulie hit Cooper for 3 about every 100 frames; that run fainted eleven times, and a class 0x17 ghoulie threw the homing projectile (type 0xA8) on the sixth pass. Checked in the captures: the "Haunted Television" introduction (900) and Cooper running past the glowing set to the door (1500) |
+| `--scene3a3` | Boots chapter 3a scene 3 (chapter3a_scene3_1playcam) and plays it with the scene 7 driver: "Event - Kill All/Weapons only", then "Exit door opens". Passes when the script moves on to `aid_script_ghoulies_chapter3a_scene3_2book` (frame 11284 in the 2026-10-27 run; Cooper faints once and the scene replays). Checked in the captures: Cooper among the ghoulies with a hit flash (2400) and the cleared room, debris on the floor and the far door lit (11100) |
+| `--scene3a3b` | Boots chapter 3a scene 3's book (chapter3a_scene3_2book, "Butler explains about the scrolls") and plays its six pages (A closes each). Passes when the script moves on to `aid_script_ghoulies_chapter3a_scene3_3playcam` (2026-10-27). Checked in the captures: the butler's first page, his portrait and text and the A prompt (page1) |
+| `--scene3a3c` | Boots chapter 3a scene 3_3 (chapter3a_scene3_3playcam) and plays it with the scene 7 driver: FREE PLAY to the exit. Passes when the script moves on to `aid_script_ghoulies_chapter3a_scene4_1playcam` (frame 1817 in the 2026-10-27 run). Checked in the captures: the butler jostling Cooper in the room (900) |
+| `--scene3a4` | Boots chapter 3a scene 4 (chapter3a_scene4_1playcam, the storeroom with the brambled door) and plays it with the scene 7 driver, which first breaks `aid_ghoulybox_ghoulies_chapter3a_warlockscene4` (a box of ghoulies) and then fights the warlock it holds. Breaking the box clears the brambles ("Exit door revealed"); the door opens once the warlock is beaten (the section waits on GhoulyExistsInScene for tag 0x3A). Passes when the script moves on to `aid_script_ghoulies_chapter3a_scene5_1playcam` (frames 5797 and 4009 in two 2026-10-27 runs). Not reliable: a third run took the freeze soup mid-fight, the warlock stayed gone, the driver gave up on him, and Cooper fainted at the locked door. The restarted scene has no warlock (the box stays broken), so it never ends. Checked in the captures: the warlock beside Cooper as the door is revealed (900), Cooper knocking him back with his meter at 37 (1500), and the plain door after he is beaten (4800) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -434,6 +438,37 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-27: chapter 3a scene 4: the warlock
+
+- **entityStrategyWarlock** (factory type 0x56, getter `0x000C3CC0`, vtable 0x00506064; the factory table's row 0x55
+  carries the name) in `entities/warlock_strategy.cpp`. It has seven slots: `0x000C3CA0`, `0x000C3D10`, `0x000C3E90`
+  (the entrance camera's end), `0x000C3EF0` (its jump table at 0x000C4020 / 0x000C4044), `0x000C3EA0`, `0x000C40B0`
+  and `0x000C40F0`. The project had none of its privates as functions, so they were exported with
+  `range-function-force`:
+  - `0x000C2DB0` and `0x000C2ED0` (the hold, table 0x000C3140);
+  - `0x000C3160` (the mode change, table 0x000C3358);
+  - `0x000C3370` (the move to a random point of a random mask 0x20 record);
+  - show / hide / solid: `0x000C33E0`, `0x000C3410`, `0x000C3440`, `0x000C3490`;
+  - `0x000C34E0` (the fade) and `0x000C3570` (the squash and stretch);
+  - attacks: `0x000C3AC0`, `0x000C3B20`, `0x000C3BE0`;
+  - `0x000C4130` (whether it may react);
+  - the "warlock entrance" camera: `0x000C4170`, `0x000C42F0`, `0x000C4440`.
+- Its record at 0x003034F8 holds the attacks allowed by energy (1 to 4), the modes' times (hold 3.5, vanish 0.5, gone
+  2), the stretch (share 0.6, squash 2 x 0.5, stretch 5 high, rise 25), the entrance (1.5 s) and the 250 scare radius
+  (the inlined `0x0013B660`).
+- Hold modes (strategy +0x3C):
+  1. shown and waiting;
+  2. vanishing: it fades out, squashes, then stretches and rises, and its effect object is made;
+  3. gone: moved away;
+  4. reappearing;
+  5. waiting to attack (0x3EE).
+- A hit while it holds (message 0x6E) restarts the hold with the short times, so it vanishes at once.
+- New beside it: `0x0002B410` (inlined, the actor's height) and `0x00124A10` (`random_occupancy_record` in
+  `navigation/occupancy.cpp`).
+- Driver: scene 3a4 breaks the warlock's box first (`powerup_box`, kind 0).
+- Not settled: the entrance camera runs only with story byte 3 bit 0x20, which was clear in these runs, so it was not
+  seen. After a faint the scene restarts without its warlock.
 
 ### 2026-10-27: chapter 3a scenes 1 and 2: the haunted television and the homing projectile
 

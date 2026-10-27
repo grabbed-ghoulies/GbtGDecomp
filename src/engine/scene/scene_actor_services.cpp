@@ -8147,6 +8147,9 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
     case 0x43:
         players->haunted_picture_message(child, words);
         return;
+    case 0x56:
+        players->warlock_message(child, words);
+        return;
     case 0x42:
         players->haunted_door_message(child, words);
         return;
@@ -8684,6 +8687,9 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
                 return;
             case 0x43:
                 players->haunted_picture_update(strategy);
+                return;
+            case 0x56:
+                players->warlock_update(strategy);
                 return;
             case 0x42:
                 players->haunted_door_update(strategy);

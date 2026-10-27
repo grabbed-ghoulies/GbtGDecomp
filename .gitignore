@@ -27,6 +27,7 @@ tools/ghidra
 /build/
 /build-inspector/
 /build-opt/
+/build-asan/
 cmake-build-*/
 out/
 .vs/

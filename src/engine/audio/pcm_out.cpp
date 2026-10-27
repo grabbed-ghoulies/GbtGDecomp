@@ -532,7 +532,7 @@ void build_catalog(const Game& g)
         }
         banks_by_length.push_back(bank);
     }
-    log::info("audio cues %zu wavebanks %zu", g_cues.size(), g_wavefiles.size());
+    log::verbose("audio cues %zu wavebanks %zu", g_cues.size(), g_wavefiles.size());
     (void)banks_by_length;
 }
 
@@ -920,7 +920,7 @@ u64 play_choice(const std::string& cue, const WaveChoice& choice, bool loop = fa
     slot.handle = handle;
     slot.cue = cue;
     slot.native = prepared_voice != nullptr;
-    //std::cout << "audio cue " << cue << " " << choice.bank << "[" << choice.index << "]\n";
+    log::verbose("audio cue %s %s [%u]", cue.c_str(), choice.bank.c_str(), choice.index);
     // Cutscene sync stops g_voices whenever no clip is playing. A cue the
     // frontend acquired has to live on the bed or that stop deletes it.
     if (bed || loop)
@@ -1081,7 +1081,7 @@ void pcm_stop_owned_cue(u64 handle)
     {
         if (g_bed[i].handle == handle)
         {
-            log::info("audio cue stop %s", g_bed[i].cue.c_str());
+            log::verbose("audio cue stop %s", g_bed[i].cue.c_str());
             release_voice(g_bed[i]);
             g_bed.erase(g_bed.begin() + static_cast<std::ptrdiff_t>(i));
             return;
@@ -1648,7 +1648,7 @@ std::shared_ptr<NativeAudioRuntime> boot_native_audio(const Game& game)
     };
     bind_native_audio_listener(banks.listener);
     initialize_native_audio(banks, boundaries);
-    log::info("native audio banks %d names %zu cues %zu", banks.bank_count, banks.bank_names.size(),
+    log::verbose("native audio banks %d names %zu cues %zu", banks.bank_count, banks.bank_names.size(),
               banks.cue_names.size());
 
     // The audio core over the XACT boundaries: heap, sound sources and cue preparation.

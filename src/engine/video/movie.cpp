@@ -1590,7 +1590,7 @@ MovieClip* clip_open(const void* src, unsigned flags, bool loop, const std::stri
         }
     }
     clip->loop = loop;
-    log::info("movie %s %ux%u frames %u", cue.c_str(), clip->width, clip->height, clip->frames);
+    log::verbose("movie %s %ux%u frames %u", cue.c_str(), clip->width, clip->height, clip->frames);
     return clip;
 }
 
@@ -1823,7 +1823,7 @@ void movie_boot_probe()
     std::error_code ec;
     if (!std::filesystem::is_regular_file(path, ec))
     {
-        log::info("movie probe %s", path.string().c_str());
+        log::verbose("movie probe %s", path.string().c_str());
     }
 }
 

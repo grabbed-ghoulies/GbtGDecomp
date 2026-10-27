@@ -407,7 +407,7 @@ void log_script_nodes(const SceneScript& script)
 {
     for (const ScriptNode& node : script.nodes)
     {
-        log::info("  node +0x%x size 0x%x type 0x%x%s%s", node.offset, node.size, node.type,
+        log::verbose("  node +0x%x size 0x%x type 0x%x%s%s", node.offset, node.size, node.type,
                   node.text.empty() ? "" : " ", node.text.c_str());
     }
 }
@@ -432,7 +432,7 @@ void script_append_condition(const ScriptCond& src, u32 size, u32 opcode)
     {
         std::memcpy(rec.raw, src.raw, size);
     }
-    log::info("script condition opcode %u %s size 0x%x link +0x%x", opcode, script_condition_name(opcode), size,
+    log::verbose("script condition opcode %u %s size 0x%x link +0x%x", opcode, script_condition_name(opcode), size,
               cond_u32(rec, 4));
     g_script_conds.push_back(rec);
 }

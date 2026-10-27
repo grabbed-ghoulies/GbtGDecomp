@@ -2863,7 +2863,7 @@ void gfx_draw_mesh(const Mesh& mesh, Vec3 origin, Vec3 scale)
     }
     if (!g.logged_draw)
     {
-        log::info("d3d11 draw %s tris %u lit %u", mesh.name.c_str(), tris, lit);
+        log::verbose("d3d11 draw %s tris %u lit %u", mesh.name.c_str(), tris, lit);
         g.logged_draw = true;
     }
 }

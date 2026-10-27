@@ -105,4 +105,10 @@ void load_runtime_meter_textures(RuntimeScoreboardGlobals& globals, AnimationRes
 // from above sets DAT_00433BD0.
 void show_runtime_meter_level(float level, RuntimeScoreboardGlobals& globals, AnimationResourceRegistry& registry,
     ResourceErrorState& error); // Xbox 0x0012EC70
+// The baddie meter shows `actor` (DAT_00545A20) against `target` (DAT_00545A24) from `value` (DAT_00545A28), with
+// the low-energy texture (DAT_00545A7C); the caption tint (DAT_00545A1C) goes back to `white`.
+void start_runtime_baddie_meter(u32 actor, u32 target, float value, u32 white, RuntimeScoreboardGlobals& globals,
+    AnimationResourceRegistry& registry, ResourceErrorState& error); // Xbox 0x0012E5E0, EAX actor, ECX target
+void stop_runtime_baddie_meter(u32 white, RuntimeScoreboardGlobals& globals,
+    AnimationResourceRegistry& registry); // Xbox 0x0012E6C0
 }

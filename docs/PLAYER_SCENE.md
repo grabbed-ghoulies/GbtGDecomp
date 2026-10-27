@@ -255,6 +255,7 @@ All take the game directory, e.g.
 | `--scene2c4b` | Boots chapter 2c scene 4_2 (chapter2c_scene4_2playcam, the music room) and plays it with the scene 7 driver: the untitled fight against mummies, skeletons and zombies with the popcan gun, and an SSS door (type 0x20) that springs a Super Scary challenge (the dragon scare) near the end. Passes when the script moves on to `aid_script_ghoulies_chapter2c_scene5_1playcam` (frame 9621 in the 2026-10-26 run) |
 | `--scene2c5` | Boots chapter 2c scene 5 (chapter2c_scene5_1playcam, the walled garden) and plays it with the scene 7 driver. While a PlayerHitGhouly watches (the pirate's skeletons dig for the dungweed), Cooper fights nothing and walks to the nearest record of the dungweed's region 1; the angry baron's fight follows. **Fails**: Cooper finds the dungweed every time (page 3, frame 2478) but faints in the fight, where the pirate's shovel takes all five hearts in one hit and the flying imp's dive three, and the scene restarts until frame 24000 |
 | `--scene2c6` | Boots chapter 2c scene 6 (chapter2c_scene6_1playcam, the study) and plays it with the scene 7 driver: "EVENT - FIND THE KEY" arms one of three bg-break keys and the driver punches its part open; "EXIT DOOR OPENS" lets the ninja imps in and FREE PLAY is fought, Jessie Clyde (types 0x29 and 0x4A) transforming as Cooper comes near. Passes when the script moves on to `aid_script_ghoulies_chapter2c_scene7_1playcam` (frame 6040 in the 2026-10-27 run). Checked in the captures: the sleeping Jessie Clyde (frame 2400), her transformation (3600) and her fight with Cooper (4800) |
+| `--scene2c7` | Boots chapter 2c scene 7 (chapter2c_scene7_1playcam) and plays it with the scene 7 driver: "EVENT - NUMBER" (generic ghoulies, type 0x3C), a cursed mummy section (type 0x4D) and "EVENT - ONE TYPE". Does not pass yet: the cursed mummy's slab whacks make Cooper faint once, and the replayed scene reaches its last FREE PLAY at frame 35772 of the 36000 the driver allows (2026-10-27). Checked in the captures: the curse's glyphs around Cooper (frames 9600, 10200) and the mummy's raised slab (11100) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -421,6 +422,30 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-27: chapter 2c scene 7: generic ghoulies and the cursed mummy
+
+- **entityStrategyGeneric** (factory type 0x3C, getter `0x000ABB80`, vtable 0x00505D8C) in
+  `entities/generic_strategy.cpp`: constructor, message (`0x000ABC50` / `0x000AB420`), update, enter, leave and the
+  privates `0x000AB900` (the once-a-second reselection), `0x000ABA40` and `0x000ABA80` (the attack goal by the held
+  weapon). The sizes are the haunted chair's `0x000ABB60`. A held gun's choice (`0x000ABB10`) raises.
+- **entityStrategyMummyCursed** (factory type 0x4D, getter `0x000BDA20`, vtable 0x00505F68) in
+  `entities/mummy_cursed_strategy.cpp`: all seven slots and the privates `0x000BC6D0` to `0x000BE070`, plus
+  `0x0013B840`. It curses a watched player (0x3EF, "deathcurse", callout 0x42, the object named at +0xBC) or grabs a
+  target it claims as a rider (0x3EE, eight phases at +0x144 through the slab whack). A landed curse shows the
+  baddie meter: `0x0012E5E0` / `0x0012E6C0` are in `frontend/scoreboard_update.cpp` over new DAT_00545A28..A60 words.
+  The scene binds its patched spawn, `0x00112CC0`, `0x0013B1F0`, `0x0013B660` and the meter. Callout tokens go to the
+  strategy's blocks by pointing `command_attachments` at them around each dispatch; Jessie Clyde's and the arc
+  state's dispatches pass the block address but leave the span on body +0x2D8, so their tokens likely land there.
+- **entityStateDroneAppear** (factory type 0x65, getter `0x0008D350`, vtable 0x00505780) in
+  `entities/body_drone_appear_state.cpp`: a ghoulie appearing or vanishing over half a second, its alpha
+  (`0x0008D5F0`) and scale (`0x0008D690`, translated from the instructions) easing with the time left.
+- Script: type 0x90 retires the tagged DAT_00511B38 actors through the inlined `0x00112CC0`
+  (`SceneActorServices::retire_tagged_actors`); condition nodes 0x65, 0x8C and 0xA3 record opcodes 12, 20 and 26.
+- The strategy goals' body-slot read attaches the body methods on first use, as the attachment's does.
+- Driver: 36000 frames (was 24000).
+- Not settled: the baddie meter's draw (`0x0012E710` / `0x0005C1A0`) still raises once the meter shows; the runs so
+  far never landed a curse long enough to reach it. Cooper does not beat the mummy before its whacks knock him out.
 
 ### 2026-10-27: chapter 2c scene 6: Jessie Clyde
 

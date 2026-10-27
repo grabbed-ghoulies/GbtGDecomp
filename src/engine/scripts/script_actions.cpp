@@ -456,13 +456,10 @@ int script_handle_actor_state(Game& g, const ScriptNode& node)
         const i32 found = binary_search_names(0xe9, kObjTagActor, key.c_str());
         const u16 id = found == -1 ? u16{0} : static_cast<u16>(found + 1);
         // Each DAT_00511B38 actor of the tag: 0x00112D10 on its +0x920 child, then vtable +0xC with 0x80 and
-        // 0x0003ED70 while +0x908 is still null. Those releases are not bound for the native actors.
-        for (const RuntimeLoadingActor& actor : runtime_loading_actors())
+        // 0x0003ED70 while +0x908 is still null. With no native scene the list is empty.
+        if (SceneActorServices* actors = script_scene_actors(g); actors != nullptr)
         {
-            if (actor.tag == id)
-            {
-                throw Error("script type 0x90 releases a DAT_00511B38 actor (0x00112D10, 0x0003ED70); not bound");
-            }
+            actors->retire_tagged_actors(id);
         }
     }
     else
@@ -837,9 +834,16 @@ int script_handle_condition_node(Game& g, const ScriptNode& node, u32& cursor)
         word_then_far = true;
         break;
     case 0x65:
+        opcode = 12; // 0x0012569A, scriptConditionId_ObjectByMarkerRemoved: the dword at node+8 and the float at +0xC.
+        payload_at_8 = true;
+        break;
     case 0x8C:
+        opcode = 20; // 0x001257DD, scriptConditionId_NoGhoulySpawnsActive: the link alone.
+        break;
     case 0xA3:
-        throw Error("script condition node type " + std::to_string(node.type) + " (0x00125450) is not translated");
+        opcode = 26; // 0x001256FE, scriptConditionId_ObjectByMarkerNotBroken: the dword at node+8.
+        payload_at_8 = true;
+        break;
     default:
         return 3;
     }

@@ -1,0 +1,416 @@
+#include "generic_strategy.h"
+#include "actor_clock.h"
+#include "player_children.h"
+#include "player_messages.h"
+#include "player_mind_events.h"
+#include "player_mind_goals.h"
+#include "player_parent_lifecycle.h"
+#include "player_strategy.h"
+#include "player_strategy_entry.h"
+#include <cstring>
+
+namespace gbtg
+{
+namespace
+{
+namespace field = generic_strategy_field;
+
+constexpr float kOne = 1.f; // DAT_0032B0F8.
+constexpr float kChaseRange = 40.f; // DAT_0032B1B8.
+constexpr float kChaseSlack = 30.f; // DAT_0032B108.
+constexpr float kArmedReach = 30.f; // DAT_0032B108: a class target this near keeps a hit ghoulie from arming.
+constexpr float kCloseInSquared = 6400.f; // DAT_0032B6C8, 80 squared.
+
+RuntimePlayerStrategyGoals& goals_of(RuntimeGenericStrategy& context)
+{
+    return context.base.goals;
+}
+
+std::span<u8> strategy_of(RuntimeGenericStrategy& context)
+{
+    return goals_of(context).entry.strategy;
+}
+
+// Actor +0x958.
+std::span<u8> mind_of(RuntimeGenericStrategy& context)
+{
+    return goals_of(context).entry.events.mind;
+}
+
+// Actor +0x95C.
+std::span<u8> body_of(RuntimeGenericStrategy& context)
+{
+    return goals_of(context).entry.body;
+}
+
+Actor& actor_of(RuntimeGenericStrategy& context)
+{
+    return goals_of(context).entry.actor;
+}
+
+// Body +0x48, the held weapon.
+RuntimeBodyAttachedActor* weapon_of(RuntimeGenericStrategy& context)
+{
+    return goals_of(context).actions.attached;
+}
+
+// Mind +0x58: the first pending mind request.
+bool requests_pending(RuntimeGenericStrategy& context)
+{
+    return goals_of(context).setup.mind->first != nullptr;
+}
+
+// The inlined 0x0002B8D0.
+void change_state(u16 state, RuntimeGenericStrategy& context)
+{
+    change_runtime_player_strategy_state(goals_of(context).strategy, state, goals_of(context).setup);
+}
+
+void load_goal(const char* goal, RuntimeGenericStrategy& context)
+{
+    load_runtime_mind_goal(goal, goals_of(context).entry.goals); // 0x0002A8E0
+}
+
+RuntimePlayerMindRequest& allocate_request(u16 kind, RuntimeGenericStrategy& context)
+{
+    RuntimeMindGoalContext& mind = goals_of(context).entry.goals;
+    return *allocate_runtime_mind_request(mind.anchor, kind, mind.sizes); // 0x00029D90, EBX kind
+}
+
+void put_float(std::span<u8> bytes, size_t offset, float value)
+{
+    if (offset + 4 > bytes.size())
+    {
+        throw Error("generic strategy mind request field lies outside the request");
+    }
+    std::memcpy(bytes.data() + offset, &value, 4);
+}
+
+bool join_queue(RuntimeMindTarget* target, RuntimeGenericStrategy& context)
+{
+    return join_runtime_strategy_target_queue(context.base.link, target == nullptr ? nullptr : target->record,
+        &actor_of(context), context.queue); // 0x0002B910, EBX strategy, EDI target
+}
+
+const RuntimeMindTarget& require_target(const RuntimeMindTarget* target, const char* reader)
+{
+    if (target == nullptr)
+    {
+        throw Error(std::string(reader) + " reads the generic strategy's target record through address zero");
+    }
+    return *target;
+}
+
+// Xbox 0x000ABA40, ESI strategy: the inlined 0x0002B8D0 into 0x3EE.
+void start_attack(RuntimeGenericStrategy& context)
+{
+    change_state(0x3EE, context);
+}
+
+// Xbox 0x000AB900, EDI strategy: once a second (+0x44) a ghoulie whose body is flagged (+0x6E bit 1) and has a target
+// forces a reselection, keeping its old target when none is found; otherwise the target is reselected, forced while
+// +0x3C is set. A new target starts an attack while +0x40 is set. With no target and `reset` the ghoulie holds (0x401).
+bool select_target(RuntimeMindTarget*& output, bool reset, RuntimeGenericStrategy& context)
+{
+    RuntimePlayerStrategyGoals& goals = goals_of(context);
+    const std::span<u8> strategy = strategy_of(context);
+    const std::span<const u8> mind = mind_of(context);
+    const u32 prior = read_u32(mind, 0x10);
+    float timer = get(strategy, field::reselect_timer) - runtime_frame_step(goals.clock);
+    set(strategy, field::reselect_timer, timer);
+    bool elapsed = false;
+    if (!(0.f < timer)) // COMISS; JC keeps a positive time.
+    {
+        set(strategy, field::reselect_timer, timer + kOne);
+        elapsed = true;
+    }
+    bool changed = false;
+    bool settled = false;
+    if ((body_of(context)[0x6E] & 1) != 0 && prior != 0 && elapsed)
+    {
+        select_runtime_strategy_target(output, 1, goals); // 0x00139AA0
+        if (output != nullptr)
+        {
+            changed = output->address != prior;
+            settled = true;
+        }
+        else
+        {
+            set_runtime_mind_target(goals.entry.events, prior); // 0x0002A030, ESI mind, EAX prior
+            set_runtime_mind_alert_event(goals.entry.events, prior); // 0x0002A080, EAX mind, ESI prior
+        }
+    }
+    if (!settled)
+    {
+        const u32 current = read_u32(mind, 0x10);
+        select_runtime_strategy_target(output, get(strategy, field::reselect) != 0 ? 1u : 0u, goals); // 0x00139AA0
+        changed = current == 0 && output != nullptr;
+    }
+    if (changed && get(strategy, field::attack_new) != 0)
+    {
+        start_attack(context); // 0x000ABA40
+    }
+    set(strategy, field::attack_new, 0u);
+    set(strategy, field::reselect, 0u);
+    if (output != nullptr)
+    {
+        return true;
+    }
+    if (reset)
+    {
+        change_state(0x401, context); // The inlined 0x0002B8D0.
+    }
+    return false;
+}
+
+// Xbox 0x000ABA80, EAX strategy: the attack goal for the held weapon (body +0x48, its kind at +0x93D).
+void load_attack_goal(RuntimeGenericStrategy& context)
+{
+    const RuntimeBodyAttachedActor* weapon = weapon_of(context);
+    if (weapon != nullptr)
+    {
+        const u8 kind = weapon->bytes[0x93D];
+        if (kind >= 2 && kind <= 3)
+        {
+            load_goal(context.goal_attack_projectile, context);
+            return;
+        }
+        if (kind == 4)
+        {
+            // 0x000ABB10 picks "attackgun" or "attackgun_secondary" by the gun's ammunition (0x00133C10) and the
+            // target's range (0x0013A630).
+            throw Error("generic strategy: 0x000ABB10 (the gun's range check) is not translated");
+        }
+    }
+    load_goal(context.goal_attack, context);
+}
+}
+
+// Xbox 0x000ABBD0
+bool initialize_runtime_generic_strategy(RuntimeGenericStrategy& context)
+{
+    RuntimeMindGoalContext& goals = goals_of(context).entry.goals;
+    const std::span<u8> strategy = strategy_of(context);
+    const RuntimeMindGoalRow* row = nullptr;
+    if (goals.table != nullptr) // Mind +0x60.
+    {
+        const char* wildcard = std::strchr(context.goal_get_weapon, '?');
+        if (wildcard != nullptr)
+        {
+            row = choose_runtime_mind_goal(*goals.table, context.goal_get_weapon, wildcard, goals.scratch,
+                goals.random); // 0x0002A810
+        }
+        else
+        {
+            row = find_runtime_mind_goal(*goals.table, context.goal_get_weapon); // 0x0002A770
+        }
+    }
+    set(strategy, field::can_arm, row != nullptr && row->bytes.data() + 4 != nullptr ? 1u : 0u);
+    return true;
+}
+
+// Xbox 0x000ABC50 and 0x000AB420, EAX message
+void dispatch_runtime_generic_message(std::span<const u32> message, RuntimeGenericStrategy& context)
+{
+    RuntimePlayerStrategyGoals& goals = goals_of(context);
+    const std::span<u8> strategy = strategy_of(context);
+    const u32 actor = read_u32(strategy, 8);
+    dispatch_runtime_base_strategy_message(message, context.base); // 0x0002BC10
+    if (react_runtime_strategy_message(message, context.checks) != 0) // 0x001384F0, EAX strategy, ECX message
+    {
+        return;
+    }
+    if (message[0] == 0x31)
+    {
+        float distance = 0.f; // The strategy argument's slot.
+        if (find_runtime_strategy_hostile_target(true, &distance, goals) == nullptr) // 0x00029BA0, EAX 1
+        {
+            react_runtime_strategy_watched_actor(message, context.checks, context.views); // 0x001397B0
+        }
+        return;
+    }
+    if (message[0] != 0x6E)
+    {
+        return;
+    }
+    if (check_runtime_player_knockout(goals) != 0) // 0x0013A490, EBX strategy
+    {
+        return;
+    }
+    retaliate_runtime_strategy_contact(message, -1, context.checks, context.views); // 0x00139390
+    if (actor != message[2] && actor != message[1])
+    {
+        return;
+    }
+    bool arming = false;
+    if (message[4] != 0 && get(strategy, field::can_arm) != 0 && weapon_of(context) == nullptr)
+    {
+        bool near = false;
+        if (actor != message[1])
+        {
+            const RuntimeMindTarget* target = find_runtime_strategy_class_target(true, nullptr, goals); // 0x00029AC0
+            near = target != nullptr && runtime_target_distance(actor_of(context), target->bytes) <= kArmedReach;
+        }
+        if (!near)
+        {
+            change_state(0x405, context); // 0x0002B8D0, EDI 0x405
+            arming = true;
+        }
+    }
+    set(strategy, field::reselect, 1u);
+    set(strategy, field::attack_new, arming ? 0u : 1u);
+}
+
+// Xbox 0x000AB540
+void update_runtime_generic_strategy(RuntimeGenericStrategy& context)
+{
+    RuntimePlayerStrategyGoals& goals = goals_of(context);
+    const std::span<u8> strategy = strategy_of(context);
+    const u16 state = read_u16(strategy, 0xE);
+    update_runtime_base_strategy(goals); // 0x0002C130
+    RuntimeMindTarget* target = nullptr;
+    switch (state)
+    {
+    case 0x3EC:
+        if (!select_target(target, true, context)) // 0x000AB900
+        {
+            return;
+        }
+        if (join_queue(target, context)) // 0x0002B910
+        {
+            change_state(0x3EE, context);
+        }
+        if (!requests_pending(context))
+        {
+            change_state(0x40D, context);
+        }
+        return;
+    case 0x3EE:
+        if (!select_target(target, true, context)) // 0x000AB900
+        {
+            return;
+        }
+        if (!requests_pending(context))
+        {
+            load_attack_goal(context); // 0x000ABA80
+        }
+        if (!join_queue(target, context)) // 0x0002B910
+        {
+            change_state(0x40D, context);
+        }
+        return;
+    case 0x401:
+        if (select_target(target, false, context)) // 0x000AB900
+        {
+            if (runtime_strategy_abandons_target(require_target(target, "0x000AB63E"), context.checks)
+                == 0) // 0x00138410, EDX target
+            {
+                goals.room = nullptr; // Actor +0xCA0.
+                start_attack(context); // 0x000ABA40
+                return;
+            }
+            if (retreat_runtime_strategy_from_reached_target(context.checks) != 0) // 0x001383A0
+            {
+                return;
+            }
+        }
+        if (!requests_pending(context))
+        {
+            load_goal(context.goal_far, context);
+        }
+        return;
+    case 0x405:
+        if (weapon_of(context) != nullptr)
+        {
+            select_target(target, false, context); // 0x000AB900
+        }
+        else
+        {
+            const u32 none = 0;
+            std::memcpy(mind_of(context).data() + 0xC, &none, 4); // Mind +0xC.
+        }
+        if (!requests_pending(context))
+        {
+            change_state(target != nullptr ? 0x3EC : 0x401, context);
+        }
+        return;
+    case 0x40D:
+        if (!select_target(target, true, context)) // 0x000AB900
+        {
+            return;
+        }
+        if (runtime_squared_target_distance(actor_of(context), require_target(target, "0x000AB6F6").bytes)
+            > kCloseInSquared) // 0x000415A0, ESI actor, EBX target
+        {
+            change_state(0x3EC, context);
+        }
+        if (join_queue(target, context)) // 0x0002B910
+        {
+            change_state(0x3EC, context);
+        }
+        return;
+    default:
+        return;
+    }
+}
+
+// Xbox 0x000AB770
+void enter_runtime_generic_state(u16 state, RuntimeGenericStrategy& context)
+{
+    RuntimePlayerStrategyGoals& goals = goals_of(context);
+    const std::span<u8> strategy = strategy_of(context);
+    const std::span<u8> body = body_of(context);
+    body[0x328] = 2;
+    strategy[0x1A] = 0;
+    switch (state)
+    {
+    case 0x3EC:
+    {
+        body[0x328] = 3;
+        RuntimePlayerMindRequest& chase = allocate_request(0x2F, context); // 0x00029D90, EBX 0x2F
+        put_float(chase.bytes, 0x10, kOne);
+        put_float(chase.bytes, 0x14, kOne);
+        put_float(chase.bytes, 0x1C, kChaseSlack);
+        put_float(chase.bytes, 0x18, kChaseRange);
+        return;
+    }
+    case 0x3EE:
+        body[0x328] = 5;
+        strategy[0x1A] = read_u32(body, 0x5C) != 0 ? 1 : 0;
+        load_attack_goal(context); // The tail jump to 0x000ABA80.
+        return;
+    case 0x401:
+        load_goal(context.goal_far, context);
+        return;
+    case 0x405:
+        body[0x328] = 3;
+        load_goal(context.goal_get_weapon, context);
+        return;
+    case 0x40D:
+        allocate_request(0x17, context); // 0x00029D90, EBX 0x17
+        return;
+    default:
+        enter_runtime_base_strategy_state(goals.entry, state); // 0x0002BAF0
+        return;
+    }
+}
+
+// Xbox 0x000AB8C0
+void leave_runtime_generic_state(u16 state, RuntimeGenericStrategy& context)
+{
+    const std::span<u8> strategy = strategy_of(context);
+    switch (state)
+    {
+    case 0x3EE:
+        detach_runtime_strategy_link(context.base.link); // The tail jump to 0x00112A20, EAX strategy +0x20.
+        return;
+    case 0x3FC:
+    case 0x3FF:
+    case 0x415:
+        strategy[0x1C] = u8(strategy[0x1C] - 1);
+        return;
+    default:
+        return;
+    }
+}
+}

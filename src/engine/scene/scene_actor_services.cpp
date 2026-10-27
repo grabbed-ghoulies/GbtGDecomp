@@ -2,6 +2,7 @@
 #include "scene_actor_services.h"
 #include "../entities/ghouly_spawn_trigger.h"
 #include "../entities/body_death_effects.h"
+#include "../entities/weapon_breakage.h"
 #include "../entities/actor_template_creation.h"
 #include "../frontend/dialogue_input.h"
 #include "../frontend/scoreboard_messages.h"
@@ -1766,6 +1767,69 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     {
         request_actor_scare_at(point, actor, intensity, scale, broadcast, value, scares); // 0x0013B270
     };
+    players->bindings.scene.mummy_cursed_parameters = data(0x00428848, 0x40);
+    players->bindings.scene.create_patched = [this](const char* name,
+                                                 const std::function<void(std::span<u8>)>& patch) -> u32
+    {
+        // 0x00107720 clones the named template, the caller patches the clone, 0x00107520 makes it, 0x000663E0.
+        auto clone = clone_executable_resource(image.pools, name);
+        if (clone.bytes == nullptr)
+        {
+            unbound(std::string("cursed mummy spawn template ") + name + " that does not clone");
+        }
+        patch({clone.bytes.get(), clone.size});
+        FactoryObject* made = scene.keep_object(create_factory_object(scene.factory,
+            {clone.bytes.get(), clone.size}));
+        clone.bytes.reset();
+        return made == nullptr || made->bytes == nullptr ? 0u : address_of(made->bytes.get());
+    };
+    players->bindings.scene.activate = [this](u32 address)
+    {
+        activate_actor_bind_tree(*actors->actors.at(scene.resolve_address(address, 0).data())); // 0x00112CC0
+    };
+    players->bindings.scene.burst = [this](u32 address, float lifetime, const char* name)
+    {
+        Actor& actor = *actors->actors.at(scene.resolve_address(address, 0).data());
+        burst_runtime_actor_into_bits(actor, address, lifetime, name, empty_name,
+            [this](std::span<const u8> parameters)
+            {
+                scene.keep_object(create_factory_object(scene.factory, parameters)); // 0x00107520
+            }); // 0x0013B1F0
+    };
+    players->bindings.scene.scare_near = [this](const Actor& actor, float radius)
+    {
+        if (director_targets == nullptr)
+        {
+            unbound("0x0013B660's DAT_00511B38 walk before the director targets");
+        }
+        scare_near_runtime_actor(actor, radius, director_targets->marks(),
+            [this](u32 address, std::span<u32> words)
+            {
+                auto* object = object_of(scene.resolve_address(address, 0).data());
+                if (object == nullptr)
+                {
+                    unbound("0x0013B660 message to an address that is not a scene object");
+                }
+                object_message(*object, words);
+            }); // 0x0013B660
+    };
+    players->bindings.scene.start_meter = [this](u32 actor, u32 target, float value)
+    {
+        start_runtime_baddie_meter(actor, target, value, scoreboard_hud->white, scoreboard_globals,
+            resources.registry, resources.error); // 0x0012E5E0
+    };
+    players->bindings.scene.stop_meter = [this]()
+    {
+        stop_runtime_baddie_meter(scoreboard_hud->white, scoreboard_globals, resources.registry); // 0x0012E6C0
+    };
+    players->bindings.scene.meter_shown = [this]()
+    {
+        return scoreboard_globals.word_a18 != 0; // DAT_00545A18
+    };
+    players->bindings.scene.meter_actor = [this]()
+    {
+        return scoreboard_globals.word_a20; // DAT_00545A20
+    };
     players->bindings.scene.refresh_pause = [this]()
     {
         refresh_pause_groups();
@@ -2544,6 +2608,22 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         }
         return graph->throw_context();
     });
+    install_runtime_drone_appear_state_class(scene.types,
+        [this](u32 body_address) -> RuntimeDroneAppearStateContext&
+        {
+            const auto bytes = scene.resolve_address(body_address, 0);
+            auto* player = players->find_child_owner(bytes.data());
+            if (player == nullptr || player->body.data() != bytes.data())
+            {
+                unbound("drone appear state whose body has no player owner");
+            }
+            auto& graph = body_messages[player->body.data()];
+            if (graph == nullptr)
+            {
+                graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
+            }
+            return graph->drone_appear_context();
+        });
     install_runtime_arc_state_class(scene.types, [this](u32 body_address) -> RuntimeArcStateContext&
     {
         const auto bytes = scene.resolve_address(body_address, 0);
@@ -8005,6 +8085,9 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
     case 0x40:
         players->haunted_chair_message(child, words);
         return;
+    case 0x3C:
+        players->generic_message(child, words);
+        return;
     case 0x3F:
         players->grim_reaper_message(child, words);
         return;
@@ -8046,6 +8129,9 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
         return;
     case 0x4A:
         players->jessie_clyde_message(child, words);
+        return;
+    case 0x4D:
+        players->mummy_cursed_message(child, words);
         return;
     case 0x4B:
         players->medusa_message(child, words);
@@ -8534,6 +8620,9 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
             case 0x40:
                 players->haunted_chair_update(strategy);
                 return;
+            case 0x3C:
+                players->generic_update(strategy);
+                return;
             case 0x3F:
                 players->grim_reaper_update(strategy);
                 return;
@@ -8575,6 +8664,9 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
                 return;
             case 0x4A:
                 players->jessie_clyde_update(strategy);
+                return;
+            case 0x4D:
+                players->mummy_cursed_update(strategy);
                 return;
             case 0x4B:
                 players->medusa_update(strategy);
@@ -8703,6 +8795,7 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
             case 0x8C: // And getter 0x000A43A0.
             case 0x85: // And getter 0x000A1A10.
             case 0x90: // And getter 0x000A6A00.
+            case 0x65: // And getter 0x0008D350.
                 return runtime_body_action_next_key(action);
             case 0x5A:
             case 0x5C:
@@ -9531,7 +9624,8 @@ void SceneActorServices::State::draw_player(FactoryObject& object, NativePlayerI
                 && type != 0x75 // And getter 0x00096A50.
                 && type != 0x8C // And getter 0x000A43A0.
                 && type != 0x85 // And getter 0x000A1A10.
-                && type != 0x90) // And getter 0x000A6A00.
+                && type != 0x90 // And getter 0x000A6A00.
+                && type != 0x65) // And getter 0x0008D350.
             {
                 unbound("body +0x744 object vtable +0x18 draw for factory type "
                     + std::to_string(player.second_action.type));
@@ -12001,6 +12095,18 @@ void SceneActorServices::set_tagged_actor_model_nodes(u16 tag, u8 slot, u8 value
         if (auto* secondary = state.actors->view(state.object_of_actor(actor)).startup.models.secondary.get())
         {
             set_runtime_model_node_state(*secondary, slot, value, state.node_cache); // 0x000F96F0
+        }
+    }
+}
+
+void SceneActorServices::retire_tagged_actors(u16 tag)
+{
+    auto& state = *state_;
+    for (const auto& mark : state.marked_actors())
+    {
+        if (read_u16(mark.bytes, 6) == tag)
+        {
+            activate_actor_bind_tree(*mark.actor); // The inlined 0x00112CC0.
         }
     }
 }

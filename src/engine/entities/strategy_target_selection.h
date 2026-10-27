@@ -31,7 +31,7 @@ struct RuntimeStrategyBodyView
 {
     u32 address;
     std::span<u8> bytes; // +0x50 holder actor address, +0x58, +0x15C bit block.
-    const EntityBitBlock* bits; // +0x15C.
+    EntityBitBlock* bits; // +0x15C.
 };
 // Other actors as the 0x00139xxx reactions read them by retail address.
 struct RuntimeStrategyActorViews

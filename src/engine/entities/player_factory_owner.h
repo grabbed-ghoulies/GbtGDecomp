@@ -19,6 +19,7 @@
 #include "imp_flying_strategy.h"
 #include "imp_ninja_strategy.h"
 #include "jessie_clyde_strategy.h"
+#include "mummy_cursed_strategy.h"
 #include "vampire_chicken_strategy.h"
 #include "ribs_strategy.h"
 #include "giant_hand_strategy.h"
@@ -29,6 +30,7 @@
 #include "hunchback_strategy.h"
 #include "haunted_tv_strategy.h"
 #include "haunted_chair_strategy.h"
+#include "generic_strategy.h"
 #include "grim_reaper_strategy.h"
 #include "mummy_strategy.h"
 #include "butler_strategy.h"
@@ -215,6 +217,18 @@ struct NativePlayerSceneBindings
     // Jessie Clyde strategy (type 0x4A, vtable 0x00505F14): DAT_003031B8, and 0x0013B270's scare at a point.
     std::span<const u8> jessie_clyde_parameters{};
     std::function<void(const Vec3&, u32, float, float, i32, u32)> scare_at{};
+    // Cursed mummy strategy (type 0x4D, vtable 0x00505F68): DAT_00428848, its patched spawn (0x00107720 / 0x00107520),
+    // 0x00112CC0 and 0x0013B1F0 on the spawn, 0x0013B660 around an actor and the baddie meter (0x0012E5E0 /
+    // 0x0012E6C0, DAT_00545A18 and DAT_00545A20).
+    std::span<const u8> mummy_cursed_parameters{};
+    std::function<u32(const char*, const std::function<void(std::span<u8>)>&)> create_patched{};
+    std::function<void(u32)> activate{};
+    std::function<void(u32, float, const char*)> burst{};
+    std::function<void(const Actor&, float)> scare_near{};
+    std::function<void(u32, u32, float)> start_meter{};
+    std::function<void()> stop_meter{};
+    std::function<bool()> meter_shown{};
+    std::function<u32()> meter_actor{};
 };
 
 // Native state and contexts of one player (type 5) and its body, mind and strategy children.
@@ -353,6 +367,7 @@ struct NativePlayerInstance
     RuntimeSpiderStrategy spider; // Type 0x52.
     RuntimeHauntedTvStrategy haunted_tv; // Type 0x44.
     RuntimeHauntedChairStrategy haunted_chair; // Type 0x40.
+    RuntimeGenericStrategy generic; // Type 0x3C.
     RuntimeGrimReaperStrategy grim_reaper; // Type 0x3F.
     RuntimeMummyStrategy mummy; // Type 0x4C.
     RuntimeUglyGirlStrategy ugly_girl; // Type 0x53.
@@ -363,6 +378,7 @@ struct NativePlayerInstance
     RuntimeVampireChickenStrategy vampire_chicken; // Type 0x55, over `spider`'s views.
     RuntimeImpNinjaStrategy imp_ninja; // Type 0x49, over `spider`'s views.
     RuntimeJessieClydeStrategy jessie_clyde; // Type 0x4A, over `spider`'s views.
+    RuntimeMummyCursedStrategy mummy_cursed; // Type 0x4D, over `spider`'s views.
     RuntimeMedusaStrategy medusa; // Type 0x4B, over `spider`'s views.
     RuntimePirateStrategy pirate; // Type 0x4E.
     RuntimeHunchbackStrategy hunchback; // Type 0x45.
@@ -418,6 +434,8 @@ public:
     void spider_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000C0BB0.
     void haunted_tv_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000B23F0.
     void haunted_tv_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000B1F60.
+    void generic_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000ABC50.
+    void generic_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000AB540.
     void haunted_chair_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000AE8B0.
     void haunted_chair_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000AE790.
     void grim_reaper_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000AD7D0.
@@ -448,6 +466,8 @@ public:
     void imp_ninja_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000B7B40.
     void jessie_clyde_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000B9750.
     void jessie_clyde_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000B9630.
+    void mummy_cursed_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000BDBE0.
+    void mummy_cursed_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000BDB80.
     void medusa_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000BB400.
     void medusa_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000BB340.
     void pirate_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000BE520.

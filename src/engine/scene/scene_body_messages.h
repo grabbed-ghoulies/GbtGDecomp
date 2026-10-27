@@ -16,6 +16,7 @@
 #include "../entities/body_pickup_state.h"
 #include "../entities/body_throw_state.h"
 #include "../entities/body_arc_state.h"
+#include "../entities/body_drone_appear_state.h"
 #include "../entities/body_arc_attack_state.h"
 #include "../entities/generate_ghouly_state.h"
 #include "../entities/body_spawn_ghouly_state.h"
@@ -196,6 +197,7 @@ public:
     RuntimeGrabbedStateContext& grabbed_context(); // The type 0x70 state's views of this body.
     RuntimeThrowStateContext& throw_context(); // The type 0x8B state's views of this body.
     RuntimeArcStateContext& arc_context(); // The type 0x66 state's views of this body.
+    RuntimeDroneAppearStateContext& drone_appear_context(); // The type 0x65 state's views of this body.
     RuntimeJumpOnStateContext& jump_on_context(); // The type 0x79 state's views of this body.
     RuntimeWalkStateContext& walk_context(); // The type 0x8D state's views of this body.
     RuntimeArcAttackStateContext& arc_attack_context(); // The type 0x5F state's views of this body.
@@ -260,6 +262,7 @@ private:
     std::optional<RuntimeThrowStateContext> throw_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> arc_children_; // 0x66, 0x0008DD30.
     std::optional<RuntimeArcStateContext> arc_;
+    std::optional<RuntimeDroneAppearStateContext> drone_appear_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> jump_on_children_; // 0x79, 0x0009AE60.
     std::optional<RuntimeJumpOnStateContext> jump_on_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> walk_children_; // 0x8D, 0x000A5270.

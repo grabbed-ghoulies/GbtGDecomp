@@ -891,6 +891,50 @@ void load_runtime_meter_textures(RuntimeScoreboardGlobals& globals, AnimationRes
     }
 }
 
+// Xbox 0x0012E5E0, EAX actor, ECX target
+void start_runtime_baddie_meter(u32 actor, u32 target, float value, u32 white, RuntimeScoreboardGlobals& globals,
+    AnimationResourceRegistry& registry, ResourceErrorState& error)
+{
+    globals.baddie_a5c = 0.4f; // DAT_00433B6C.
+    globals.baddie_a60 = 0.f;
+    globals.baddie_a28 = value;
+    globals.baddie_a30.fill(0);
+    globals.word_a20 = actor;
+    globals.word_a24 = target;
+    globals.word_a18 = 1;
+    globals.baddie_a2c = value - 10.f; // DAT_00433B68.
+    const auto texture = acquire_animation_resource(registry,
+        "aid_texture_ghoulies_scoreboard_energy_baddielowenergy"); // 0x00035E90, 0x003130D8
+    if (texture.data() == nullptr)
+    {
+        resource_error(error, 2); // 0x00032700
+    }
+    globals.texture_a7c = texture;
+    if (globals.caption_tinted != 0)
+    {
+        globals.caption_tinted = 0;
+        globals.caption_color = white; // DAT_00433B7C = DAT_00314F48.
+    }
+}
+
+// Xbox 0x0012E6C0
+void stop_runtime_baddie_meter(u32 white, RuntimeScoreboardGlobals& globals, AnimationResourceRegistry& registry)
+{
+    globals.word_a20 = 0;
+    globals.word_a18 = 0;
+    globals.word_a24 = 0;
+    if (globals.caption_tinted != 0)
+    {
+        globals.caption_tinted = 0;
+        globals.caption_color = white; // DAT_00433B7C = DAT_00314F48.
+    }
+    if (globals.texture_a7c.data() != nullptr)
+    {
+        release_animation_resource(registry, globals.texture_a7c); // 0x00035C00, EBX the texture
+        globals.texture_a7c = {};
+    }
+}
+
 // Xbox 0x0012EC70
 void show_runtime_meter_level(float level, RuntimeScoreboardGlobals& globals, AnimationResourceRegistry& registry,
     ResourceErrorState& error)

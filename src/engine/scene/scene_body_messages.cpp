@@ -572,7 +572,8 @@ void SceneBodyMessages::bind_action_children()
             && child->type != 0x5A && child->type != 0x5B && child->type != 0x5C && child->type != 0x74
             && child->type != 0x7C && child->type != 0x87 && child->type != 0x88 && child->type != 0x69
             && child->type != 0x70 && child->type != 0x75
-            && child->type != 0x85) // Getter 0x000A1A10 stores it at 0x00505B8C.
+            && child->type != 0x85 // Getter 0x000A1A10 stores it at 0x00505B8C.
+            && child->type != 0x65) // Getter 0x0008D350 stores it at 0x0050578C.
         {
             unbound("body action message slot of factory type " + std::to_string(child->type));
         }
@@ -923,6 +924,9 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         return;
     case 0x66:
         tick_runtime_arc_state({action.bytes.get(), action.size}, arc_context()); // 0x0008DC70
+        return;
+    case 0x65:
+        tick_runtime_drone_appear_state({action.bytes.get(), action.size}, drone_appear_context()); // 0x0008D4D0
         return;
     case 0x79:
         tick_runtime_jump_on_state({action.bytes.get(), action.size}, jump_on_context()); // 0x0009AB00
@@ -1294,6 +1298,7 @@ void SceneBodyMessages::action_step(FactoryObject& action)
     case 0x75:
     case 0x85:
     case 0x90:
+    case 0x65:
         // 0x001628B0 (0x000D4179 for 0x69, 0x70 and 0x88) returns at once.
         return;
     default:
@@ -1537,6 +1542,28 @@ RuntimeArcStateContext& SceneBodyMessages::arc_context()
         },
         services_.address_of});
     return *arc_;
+}
+
+RuntimeDroneAppearStateContext& SceneBodyMessages::drone_appear_context()
+{
+    player_.refresh_body_views();
+    if (player_.body_bits == nullptr)
+    {
+        unbound("drone appear state without the body +0x15C bit block");
+    }
+    drone_appear_.reset();
+    drone_appear_.emplace(RuntimeDroneAppearStateContext{player_.body, player_.actor,
+        player_.actor_instance.startup.color, *player_.body_bits, services_.clock, player_.actor_instance.startup.resource,
+        player_.callout, player_.actor_instance.render, services_.latches,
+        [this](std::span<const u32> words)
+        {
+            services_.message(player_.actor_address, words);
+        },
+        [this](u32 slot)
+        {
+            return body_slot_key(slot);
+        }});
+    return *drone_appear_;
 }
 
 RuntimeWalkStateContext& SceneBodyMessages::walk_context()
@@ -2854,7 +2881,7 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
             if (type != 0x87 && type != 0x88 && type != 0x69 && type != 0x70 && type != 0x5B && type != 0x5C && type != 0x74 && type != 0x7C
                 && type != 0x8A && type != 0x63 && type != 0x80 && type != 0x7F && type != 0x6B && type != 0x77
                 && type != 0x6E && type != 0x6D && type != 0x81 && type != 0x7B && type != 0x75
-                && type != 0x85) // And getter 0x000A1A10.
+                && type != 0x85 && type != 0x65) // And getters 0x000A1A10 and 0x0008D350.
             {
                 unbound("collision reply action vtable +0xC of factory type " + std::to_string(type));
             }

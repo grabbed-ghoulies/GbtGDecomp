@@ -66,10 +66,15 @@ struct RuntimeScoreboardGlobals
     std::array<u32, 2> bonus_ids{}; // DAT_005459FC.
     std::array<u32, 2> bonus_active{}; // DAT_00545A04.
     std::array<i32, 2> bonus_counts{}; // DAT_00545A0C.
-    u32 word_a18 = 0; // DAT_00545A18.
+    u32 word_a18 = 0; // DAT_00545A18, the baddie meter shown (0x0012E5E0).
     u32 caption_tinted = 0; // DAT_00545A1C.
-    u32 word_a20 = 0; // DAT_00545A20.
-    u32 word_a24 = 0; // DAT_00545A24.
+    u32 word_a20 = 0; // DAT_00545A20, the baddie meter's actor.
+    u32 word_a24 = 0; // DAT_00545A24, the actor it is set against.
+    float baddie_a28 = 0.f; // DAT_00545A28, 0x0012E5E0's value.
+    float baddie_a2c = 0.f; // DAT_00545A2C, the value less DAT_00433B68.
+    std::array<u32, 11> baddie_a30{}; // DAT_00545A30..DAT_00545A58, cleared by 0x0012E5E0.
+    float baddie_a5c = 0.f; // DAT_00545A5C, DAT_00433B6C at the start.
+    float baddie_a60 = 0.f; // DAT_00545A60.
     std::span<const u8> texture_a7c; // DAT_00545A7C.
     std::array<const u8*, 2> dollars{}; // DAT_00545AA8.
     RuntimeScoreboard* score_board = nullptr; // DAT_00545AB0.

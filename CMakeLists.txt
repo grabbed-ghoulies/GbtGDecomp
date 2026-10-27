@@ -237,6 +237,7 @@ add_library(gbtg_lib STATIC
     src/engine/entities/imp_flying_strategy.cpp
     src/engine/entities/imp_ninja_strategy.cpp
     src/engine/entities/jessie_clyde_strategy.cpp
+    src/engine/entities/mummy_cursed_strategy.cpp
     src/engine/entities/single_shot_weapon.cpp
     src/engine/entities/vampire_chicken_strategy.cpp
     src/engine/entities/medusa_strategy.cpp
@@ -258,10 +259,12 @@ add_library(gbtg_lib STATIC
     src/engine/entities/ghouly_swap_setup.cpp
     src/engine/entities/bg_break_key.cpp
     src/engine/entities/body_arc_state.cpp
+    src/engine/entities/body_drone_appear_state.cpp
     src/engine/entities/body_arc_attack_state.cpp
     src/engine/graphics/shader_parameters.cpp
     src/engine/entities/haunted_tv_strategy.cpp
     src/engine/entities/haunted_chair_strategy.cpp
+    src/engine/entities/generic_strategy.cpp
     src/engine/entities/mummy_strategy.cpp
     src/engine/entities/candle_weapon.cpp
     src/engine/entities/container_weapon.cpp

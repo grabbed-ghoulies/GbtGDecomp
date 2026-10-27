@@ -890,6 +890,10 @@ struct NativeSceneActorClassOwner::BgBreakKeyInstance
             },
             bindings.backgrounds, bindings.pause_groups, bindings.queue_event}
     {
+        context.object_at = [&bindings](u32 address)
+        {
+            return bindings.object_at(address);
+        };
     }
 };
 

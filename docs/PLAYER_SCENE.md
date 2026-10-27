@@ -254,6 +254,7 @@ All take the game directory, e.g.
 | `--scene2c4` | Boots chapter 2c scene 4's book (chapter2c_scene4_1book) and plays its four pages. Passes when the script moves on to `aid_script_ghoulies_chapter2c_scene4_2playcam` (frame 2421 in the 2026-10-26 run); it needed no new translation. Checked in the captures: the comic panels with Cooper holding a new weapon (frame 1800) |
 | `--scene2c4b` | Boots chapter 2c scene 4_2 (chapter2c_scene4_2playcam, the music room) and plays it with the scene 7 driver: the untitled fight against mummies, skeletons and zombies with the popcan gun, and an SSS door (type 0x20) that springs a Super Scary challenge (the dragon scare) near the end. Passes when the script moves on to `aid_script_ghoulies_chapter2c_scene5_1playcam` (frame 9621 in the 2026-10-26 run) |
 | `--scene2c5` | Boots chapter 2c scene 5 (chapter2c_scene5_1playcam, the walled garden) and plays it with the scene 7 driver. While a PlayerHitGhouly watches (the pirate's skeletons dig for the dungweed), Cooper fights nothing and walks to the nearest record of the dungweed's region 1; the angry baron's fight follows. **Fails**: Cooper finds the dungweed every time (page 3, frame 2478) but faints in the fight, where the pirate's shovel takes all five hearts in one hit and the flying imp's dive three, and the scene restarts until frame 24000 |
+| `--scene2c6` | Boots chapter 2c scene 6 (chapter2c_scene6_1playcam, the study) and plays it with the scene 7 driver: "EVENT - FIND THE KEY" arms one of three bg-break keys and the driver punches its part open; "EXIT DOOR OPENS" lets the ninja imps in and FREE PLAY is fought, Jessie Clyde (types 0x29 and 0x4A) transforming as Cooper comes near. Passes when the script moves on to `aid_script_ghoulies_chapter2c_scene7_1playcam` (frame 6040 in the 2026-10-27 run). Checked in the captures: the sleeping Jessie Clyde (frame 2400), her transformation (3600) and her fight with Cooper (4800) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -420,6 +421,32 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-27: chapter 2c scene 6: Jessie Clyde
+
+- **entityBodyJessieClyde** (factory type 0x29, getter `0x000759F0`, vtable 0x005051E8; the type names sit one row
+  early in DAT_0030D41C) over the human body (0x27): the zombie body's slots but for +0x20 and +0x2C, `0x00075A70` /
+  `0x00075AA0` in `entities/body_action_ids.cpp`, which pick actions 2 and 3 while the body's bit block byte 1 bit 7 is
+  set, else the parent's. The scene's body checks and the child message route accept the type.
+- **entityStrategyJessieClyde** (factory type 0x4A, getter `0x000B9440`, vtable 0x00505F14) in
+  `entities/jessie_clyde_strategy.cpp`: sizes, constructor (`0x000B9490`: calm, the effect name, callout 0x11's tokens
+  at +0xF4, the model's node 0x10 when the record sets bit 16), destructor, update, message, enter and leave, and
+  their private callees `0x000B8080` to `0x000B9B50`. Calm, she walks about until struck, provoked or seeing her target
+  within 70 inside a quarter turn of her facing (`0x000B8270`), then transforms (`0x000B83A0`: "transform", her effect
+  and every latch up, then "noflower" at body +0x288 and the body bit that changes her actions). Angry, a 2 s cue,
+  then the shout (whose animation event scares the room through `0x0013B270`, bound as `scare_at`), the knockdown or
+  the special. `0x000416C0` (a record's point within a radius of the actor) is in `entities/actor_transform.cpp`.
+  The switch bodies are behind jump tables the temporary export does not follow; they were exported with
+  `range-function-force:` seeds read from the tables (separated by `+`, since cmd splits on commas).
+- Stale pointer fixed: the bg-break key held its key's `FactoryObject*` from `keep_object`, which points into the
+  scene's object vector, and later objects (Jessie's effect) moved it, so the key's show read freed storage (an
+  `unordered_map` key error). The key's update now finds it again from its +0x9F8 address. Other `keep` callers use
+  the pointer at once; a pointer-stable object list would cover them all, but it reaches a dozen contexts.
+- Driver: while an event has armed a bg-break key (+0x9BC) and none is out (+0x9C0), Cooper walks beside it and
+  punches, as for the powerup box; FREE PLAY is fought.
+- Not settled: after a faint (with FREE PLAY calm, the imps knocked Cooper out), the restarted scene skips "FIND THE
+  KEY" and plays "EXIT DOOR OPENS" without opening the door, so it cannot be left; some state of the found key
+  outlives the restart. The passing run has no faint.
 
 ### 2026-10-27: chapter 2c scene 5: the walled garden's water
 

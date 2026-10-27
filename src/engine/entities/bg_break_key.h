@@ -69,6 +69,9 @@ struct RuntimeBgBreakKey
     std::function<std::vector<BackgroundListEntry>()> backgrounds; // DAT_00511B20 order, for 0x0013B980.
     std::function<RuntimeActorPauseGroups&()> pause; // 0x00117400.
     std::function<void(std::span<const u8>)> queue_event; // 0x00116810.
+    // A scene object by retail address: the update finds the key again from +0x9F8, since the scene's object list
+    // may have moved it since 0x00107520 made it.
+    std::function<FactoryObject*(u32)> object_at{};
 };
 void bg_break_key_object_sizes(ObjectSizes& sizes); // Xbox 0x0006CC50
 bool initialize_runtime_bg_break_key(RuntimeBgBreakKey& context, std::span<const u8> parameters); // Xbox 0x0006CCB0

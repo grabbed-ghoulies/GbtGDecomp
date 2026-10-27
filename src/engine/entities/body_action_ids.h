@@ -59,6 +59,13 @@ u16 runtime_zombie_body_primary_parameter_id(std::span<const u8> body, const Run
 u16 runtime_zombie_body_secondary_parameter_id(std::span<const u8> body, const RuntimeBodyActionIds& context,
     const u8* parameters, const EntityBitBlock& bits,
     const RuntimeScriptLookupTable* table, u16 retained_key); // Xbox 0x00076250
+// entityBodyJessieClyde (type 0x29): 2 (or 3) while the body's bit block byte 1 has its top bit, else the parent's.
+u16 runtime_jessie_clyde_body_primary_parameter_id(const RuntimeBodyActionIds& context,
+    const u8* parameters, const EntityBitBlock& bits,
+    const RuntimeScriptLookupTable* table, u16 retained_key); // Xbox 0x00075A70
+u16 runtime_jessie_clyde_body_secondary_parameter_id(const RuntimeBodyActionIds& context,
+    const u8* parameters, const EntityBitBlock& bits,
+    const RuntimeScriptLookupTable* table, u16 retained_key); // Xbox 0x00075AA0
 u16 runtime_body_death_action_key(); // Xbox 0x00027500
 u16 runtime_body_near_action_id(std::span<const u8> body, Actor& owner,
     RuntimeBodyAttachedActor& attached, const RuntimeScriptLookupTable* table); // Xbox 0x00026C60

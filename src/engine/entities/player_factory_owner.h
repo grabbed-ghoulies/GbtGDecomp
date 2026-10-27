@@ -18,6 +18,7 @@
 #include "chicken_strategy.h"
 #include "imp_flying_strategy.h"
 #include "imp_ninja_strategy.h"
+#include "jessie_clyde_strategy.h"
 #include "vampire_chicken_strategy.h"
 #include "ribs_strategy.h"
 #include "giant_hand_strategy.h"
@@ -211,6 +212,9 @@ struct NativePlayerSceneBindings
     // Attaches the player's message slot (0x00028F60) when it is messaged while still being constructed (its weapon's
     // 0x0001B2B0 notifies it), before the scene first routes a message to it.
     std::function<void(FactoryObject&, NativePlayerInstance&)> attach_actor_messages{};
+    // Jessie Clyde strategy (type 0x4A, vtable 0x00505F14): DAT_003031B8, and 0x0013B270's scare at a point.
+    std::span<const u8> jessie_clyde_parameters{};
+    std::function<void(const Vec3&, u32, float, float, i32, u32)> scare_at{};
 };
 
 // Native state and contexts of one player (type 5) and its body, mind and strategy children.
@@ -358,6 +362,7 @@ struct NativePlayerInstance
     RuntimeImpFlyingStrategy imp_flying; // Type 0x48, over `spider`'s views.
     RuntimeVampireChickenStrategy vampire_chicken; // Type 0x55, over `spider`'s views.
     RuntimeImpNinjaStrategy imp_ninja; // Type 0x49, over `spider`'s views.
+    RuntimeJessieClydeStrategy jessie_clyde; // Type 0x4A, over `spider`'s views.
     RuntimeMedusaStrategy medusa; // Type 0x4B, over `spider`'s views.
     RuntimePirateStrategy pirate; // Type 0x4E.
     RuntimeHunchbackStrategy hunchback; // Type 0x45.
@@ -441,6 +446,8 @@ public:
     void imp_flying_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000B6BF0.
     void imp_ninja_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000B7C50.
     void imp_ninja_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000B7B40.
+    void jessie_clyde_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000B9750.
+    void jessie_clyde_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000B9630.
     void medusa_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000BB400.
     void medusa_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000BB340.
     void pirate_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000BE520.

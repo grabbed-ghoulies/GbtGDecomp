@@ -9428,6 +9428,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
     // that comes out, before anything else: scene 2c2's invisibility, in a suitcase, gets him past the room unseen.
     bool powerup_done = powerup_box.empty();
     bool powerup_seen = false; // The box's powerup has come out.
+    bool key_found = false; // An armed bg-break key has come out.
     std::string title = game.scene_name;
     const std::string scene_script = game.scene_script.name;
     auto& actors = game.factory_scene->start_actors(game);
@@ -9808,6 +9809,50 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
             {
                 std::cout << label << " frame " << frame << ": the " << powerup_box << " powerup is taken\n";
                 powerup_done = true;
+            }
+        }
+        // An event's start arms the bg-break key (type 0x1E, +0x9BC) it asks for: until one is out (+0x9C0), Cooper
+        // walks beside the background part that hides it and punches, as for the powerup box.
+        if (cooper && !page && !box_at && !key_found)
+        {
+            std::optional<gbtg::Vec3> key_at;
+            for (const auto& object : game.factory_scene->objects)
+            {
+                if (object.type != 0x1E || object.bytes == nullptr)
+                {
+                    continue;
+                }
+                const std::span<const gbtg::u8> bytes{object.bytes.get(), object.size};
+                if (gbtg::get(bytes, gbtg::bg_break_key_field::active) != 0)
+                {
+                    std::cout << label << " frame " << frame << ": the key comes out\n";
+                    key_found = true;
+                    key_at.reset();
+                    break;
+                }
+                const gbtg::Actor* actor = actor_of_object(game, object);
+                if (actor != nullptr && gbtg::get(bytes, gbtg::bg_break_key_field::armed) != 0)
+                {
+                    key_at = gbtg::actor_world_position(*actor);
+                }
+            }
+            if (key_at)
+            {
+                ghouly.reset();
+                gbtg::Vec3 approach = *key_at;
+                using namespace gbtg::entity_detail;
+                const gbtg::i32 floor = navigation_floor_index(*key_at, -1, 0);
+                const gbtg::i32 cell = floor < 0 ? -1 : navigation_cell_index(floor, *key_at);
+                if (cell >= 0)
+                {
+                    navigation_nearest_open_cell(gbtg::u32(cell), floor, &approach);
+                }
+                goal = approach;
+                goal_name = "the key's part";
+                box_at = key_at;
+                const float dx = key_at->x - cooper->x;
+                const float dz = key_at->z - cooper->z;
+                punch_box = dx * dx + dz * dz < 16.f * 16.f;
             }
         }
         // A ghouly within 16 is attacked with the right stick; a farther one is walked to like a goal, so the walk's
@@ -10646,12 +10691,14 @@ int main(int argc, char** argv)
     const bool scene2c4b_test = argc == 3 && std::string_view(argv[2]) == "--scene2c4b";
     // --scene2c5 boots chapter2c_scene5_1playcam and plays it until the script moves on.
     const bool scene2c5_test = argc == 3 && std::string_view(argv[2]) == "--scene2c5";
+    // --scene2c6 boots chapter2c_scene6_1playcam and plays it until the script moves on.
+    const bool scene2c6_test = argc == 3 && std::string_view(argv[2]) == "--scene2c6";
     if (spawn_test)
     {
         std::cout << std::unitbuf;
     }
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
-        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene2a14_test && !scene2a15_test && !scene2a16_test && !scene2a17_test && !scene2b1_test && !scene2b2_test && !scene2b3_test && !scene2b4_test && !scene2b4b_test && !scene2b5_test && !scene2b6_test && !scene2b6b_test && !scene2b7_test && !scene2b8_test && !scene2b9_test && !scene2b10_test && !scene2b10b_test && !scene2c1_test && !scene2c2_test && !scene2c3_test && !scene2c4_test && !scene2c4b_test && !scene2c5_test && !scene3_test && !pause_test)
+        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene2a14_test && !scene2a15_test && !scene2a16_test && !scene2a17_test && !scene2b1_test && !scene2b2_test && !scene2b3_test && !scene2b4_test && !scene2b4b_test && !scene2b5_test && !scene2b6_test && !scene2b6b_test && !scene2b7_test && !scene2b8_test && !scene2b9_test && !scene2b10_test && !scene2b10b_test && !scene2c1_test && !scene2c2_test && !scene2c3_test && !scene2c4_test && !scene2c4b_test && !scene2c5_test && !scene2c6_test && !scene3_test && !pause_test)
     {
         std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene6-save | --scene6-save-reload | --scene3 | --pause | --scene4 | --scene5 | --scene6-1 | --scene7]\n";
         return 2;
@@ -10799,6 +10846,7 @@ int main(int argc, char** argv)
             : scene2c4_test ? "chapter2c_scene4_1book"
             : scene2c4b_test ? "chapter2c_scene4_2playcam"
             : scene2c5_test ? "chapter2c_scene5_1playcam"
+            : scene2c6_test ? "chapter2c_scene6_1playcam"
             : player_test || spawn_test ? "chapter1_scene1_2playcam"
             : title_test ? "" : "scene0_1book");
         if (scene2a1b_test)
@@ -10807,6 +10855,15 @@ int main(int argc, char** argv)
             play_scene7(game, "scene2a1_2");
             pass_chapter_title(game, "scene2a1_to_3", "aid_script_ghoulies_chapter2a_scene1_3playcam", false);
             play_scene7(game, "scene2a1_3", 1000.f, "Event - Kill All", true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene2c6_test)
+        {
+            pass_chapter_title(game, "scene2c6", "aid_script_ghoulies_chapter2c_scene6_1playcam", false);
+            // The study: the event arms one of the three bg-break keys and the driver punches its part open; the exit
+            // door's opening lets the ninja imps in, so FREE PLAY is fought before Cooper walks out.
+            play_scene7(game, "scene2c6", 1000.f, {}, true, true);
             gbtg::gfx_shutdown();
             return 0;
         }

@@ -236,6 +236,7 @@ add_library(gbtg_lib STATIC
     src/engine/entities/chicken_strategy.cpp
     src/engine/entities/imp_flying_strategy.cpp
     src/engine/entities/imp_ninja_strategy.cpp
+    src/engine/entities/jessie_clyde_strategy.cpp
     src/engine/entities/single_shot_weapon.cpp
     src/engine/entities/vampire_chicken_strategy.cpp
     src/engine/entities/medusa_strategy.cpp

@@ -234,6 +234,14 @@ const ObjectFactoryVtable* zombie_body_lifecycle()
     return &table;
 }
 
+// Getter 0x000759F0: entityBodyJessieClyde has the zombie's slots but for +0x20 and +0x2C (0x00075A70 / 0x00075AA0).
+const ObjectFactoryVtable* jessie_clyde_body_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x005051E8, parent_player_body_object_sizes,
+        accept_runtime_object_construction, destroy_empty_player_object};
+    return &table;
+}
+
 const ObjectFactoryVtable* base_strategy_lifecycle()
 {
     static const ObjectFactoryVtable table{0x004DD74C, base_strategy_object_sizes, construct_base_strategy_view,
@@ -528,6 +536,29 @@ const ObjectFactoryVtable* imp_ninja_strategy_lifecycle()
     return &table;
 }
 
+bool construct_jessie_clyde_strategy_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto* player = active_owner->find_player(object);
+    player->strategy_type = 0x4A;
+    player->refresh_views();
+    return initialize_runtime_jessie_clyde_strategy(parameters, player->jessie_clyde); // 0x000B9490
+}
+
+void destroy_jessie_clyde_strategy_view(FactoryObject& object)
+{
+    auto* player = active_owner->find_player(object);
+    player->refresh_views();
+    destroy_runtime_jessie_clyde_strategy(player->jessie_clyde); // 0x000B95A0
+}
+
+// Getter 0x000B9440.
+const ObjectFactoryVtable* jessie_clyde_strategy_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505F14, jessie_clyde_strategy_object_sizes,
+        construct_jessie_clyde_strategy_view, destroy_jessie_clyde_strategy_view};
+    return &table;
+}
+
 bool construct_medusa_strategy_view(FactoryObject& object, std::span<const u8> parameters)
 {
     auto* player = active_owner->find_player(object);
@@ -797,6 +828,13 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
                   leave_runtime_imp_ninja_state(old_state, imp_ninja);
                   return;
               }
+              if (strategy_type == 0x4A)
+              {
+                  // Jessie Clyde strategy vtable +0x18, 0x000B9AC0.
+                  refresh_views();
+                  leave_runtime_jessie_clyde_state(old_state, jessie_clyde);
+                  return;
+              }
               if (strategy_type == 0x4B)
               {
                   // Medusa strategy vtable +0x18, 0x000BB7D0.
@@ -957,6 +995,12 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
               {
                   // Ninja imp strategy vtable +0x14, 0x000B7E60.
                   enter_runtime_imp_ninja_state(state, previous, imp_ninja);
+                  return;
+              }
+              if (strategy_type == 0x4A)
+              {
+                  // Jessie Clyde strategy vtable +0x14, 0x000B9A20.
+                  enter_runtime_jessie_clyde_state(state, previous, jessie_clyde);
                   return;
               }
               if (strategy_type == 0x4B)
@@ -1180,6 +1224,30 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
           },
           "psycheup", "psycheuptraitor", "spinkick", "jumpkickbig", "jumpkick", "innerforce", "innerforceoutof",
           "randommove", "randomwalk", "meditate", "meditateoutof"},
+      jessie_clyde{spider, scene_bindings.jessie_clyde_parameters, 0x003031B8u, scene_bindings.create_effect,
+          scene_bindings.object_message, scene_bindings.latches, actor_instance.startup.resource, callout, body_lists,
+          [this](u32 slot, u8 value)
+          {
+              // 0x000F96F0 on the +0x204 and +0x310 models (AL value, stack slot).
+              if (actor.model != nullptr && actor.model->runtime != nullptr)
+              {
+                  set_runtime_model_node_state(*actor.model->runtime, u8(slot), value, scene.node_cache);
+              }
+              if (auto* secondary = actor_instance.startup.models.secondary.get())
+              {
+                  set_runtime_model_node_state(*secondary, u8(slot), value, scene.node_cache);
+              }
+          },
+          [&bindings = scene_bindings](const Vec3& point, u32 actor, float intensity, float scale, i32 broadcast,
+              u32 value)
+          {
+              if (!bindings.scare_at)
+              {
+                  throw Error("Jessie Clyde strategy: 0x0013B270's scare is not bound");
+              }
+              bindings.scare_at(point, actor, intensity, scale, broadcast, value);
+          },
+          "randomwalk", "angryrandomwalk", "transform", "shout", "knockdown", "specialprepare", "special"},
       medusa{spider, scene_bindings.medusa_parameters, scene_bindings.light_cones, animation_resource,
           scene_bindings.attack_tables, scene_bindings.address_of, scene_bindings.sounds, body_selection,
           scene_bindings.latches,
@@ -1764,6 +1832,28 @@ void NativePlayerFactoryOwner::imp_ninja_update(FactoryObject& strategy)
     update_runtime_imp_ninja_strategy(player->imp_ninja);
 }
 
+void NativePlayerFactoryOwner::jessie_clyde_message(FactoryObject& strategy, std::span<const u32> message)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x4A)
+    {
+        throw Error("Jessie Clyde strategy method has no owning instance");
+    }
+    player->refresh_views();
+    dispatch_runtime_jessie_clyde_message(message, player->jessie_clyde);
+}
+
+void NativePlayerFactoryOwner::jessie_clyde_update(FactoryObject& strategy)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x4A)
+    {
+        throw Error("Jessie Clyde strategy method has no owning instance");
+    }
+    player->refresh_views();
+    update_runtime_jessie_clyde_strategy(player->jessie_clyde);
+}
+
 void NativePlayerFactoryOwner::medusa_message(FactoryObject& strategy, std::span<const u32> message)
 {
     auto* player = find_player(strategy);
@@ -1988,6 +2078,7 @@ void NativePlayerFactoryOwner::install(std::span<ObjectFactoryType> types)
     types[0x27] = ObjectFactoryType{6, player_body_parent_lifecycle};
     types[0x2A] = ObjectFactoryType{0x27, player_body_lifecycle};
     types[0x2D] = ObjectFactoryType{0x27, zombie_body_lifecycle};
+    types[0x29] = ObjectFactoryType{0x27, jessie_clyde_body_lifecycle};
     types[8] = ObjectFactoryType{1, base_strategy_lifecycle};
     types[0x4F] = ObjectFactoryType{8, player_strategy_lifecycle};
     types[0x46] = ObjectFactoryType{8, imp_fire_strategy_lifecycle};
@@ -2010,6 +2101,7 @@ void NativePlayerFactoryOwner::install(std::span<ObjectFactoryType> types)
     types[0x41] = ObjectFactoryType{8, haunted_coat_strategy_lifecycle};
     types[0x43] = ObjectFactoryType{8, haunted_picture_strategy_lifecycle};
     types[0x49] = ObjectFactoryType{8, imp_ninja_strategy_lifecycle};
+    types[0x4A] = ObjectFactoryType{8, jessie_clyde_strategy_lifecycle};
     types[0x4B] = ObjectFactoryType{8, medusa_strategy_lifecycle};
     types[0x4E] = ObjectFactoryType{8, pirate_strategy_lifecycle};
     types[0x45] = ObjectFactoryType{8, hunchback_strategy_lifecycle};

@@ -49,6 +49,16 @@ float runtime_actor_squared_distance(const Actor& first, const Actor& second)
     return (dz * dz + dx * dx) + dy * dy;
 }
 
+// Xbox 0x000416C0
+bool runtime_actor_point_within(const Actor& actor, std::span<const u8> record, float radius)
+{
+    const Vec3 position = actor_world_position(actor); // 0x000412A0
+    const float dz = position.z - read_f32(record, 0x28);
+    const float dx = position.x - read_f32(record, 0x20);
+    const float dy = position.y - read_f32(record, 0x24);
+    return radius * radius > (dz * dz + dx * dx) + dy * dy;
+}
+
 Vec3 actor_world_position(const Actor& actor)
 {
     // Xbox 0x000412A0

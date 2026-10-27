@@ -1760,6 +1760,12 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     players->bindings.scene.haunted_picture_movement = data(0x00302E80, 0x34);
     players->bindings.scene.imp_flying_parameters = data(0x00303124, 0x28);
     players->bindings.scene.imp_ninja_parameters = data(0x00303198, 0x18);
+    players->bindings.scene.jessie_clyde_parameters = data(0x003031B8, 0x2C);
+    players->bindings.scene.scare_at = [this](const Vec3& point, u32 actor, float intensity, float scale, i32 broadcast,
+                                           u32 value)
+    {
+        request_actor_scare_at(point, actor, intensity, scale, broadcast, value, scares); // 0x0013B270
+    };
     players->bindings.scene.refresh_pause = [this]()
     {
         refresh_pause_groups();
@@ -8038,6 +8044,9 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
     case 0x49:
         players->imp_ninja_message(child, words);
         return;
+    case 0x4A:
+        players->jessie_clyde_message(child, words);
+        return;
     case 0x4B:
         players->medusa_message(child, words);
         return;
@@ -8100,6 +8109,7 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
     }
     case 0x27:
     case 0x28:
+    case 0x29:
     case 0x2A:
     case 0x2D:
     {
@@ -8562,6 +8572,9 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
                 return;
             case 0x49:
                 players->imp_ninja_update(strategy);
+                return;
+            case 0x4A:
+                players->jessie_clyde_update(strategy);
                 return;
             case 0x4B:
                 players->medusa_update(strategy);

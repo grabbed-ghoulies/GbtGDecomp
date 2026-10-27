@@ -141,6 +141,8 @@ void update_runtime_bg_break_key(RuntimeBgBreakKey& context)
     {
         return;
     }
+    const u32 key_address = get(bytes, field::key);
+    context.key = key_address == 0 ? nullptr : context.object_at(key_address);
     if (!(get(bytes, field::timer) > 0.f))
     {
         activate_actor_bind_tree(context.actor); // 0x00112CC0, ESI this

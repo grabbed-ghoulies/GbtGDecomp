@@ -466,6 +466,30 @@ u16 runtime_zombie_body_secondary_parameter_id(std::span<const u8> body, const R
     return runtime_body_secondary_parameter_id(context, parameters, bits, table, retained_key);
 }
 
+// Xbox 0x00075A70
+u16 runtime_jessie_clyde_body_primary_parameter_id(const RuntimeBodyActionIds& context,
+    const u8* parameters, const EntityBitBlock& bits,
+    const RuntimeScriptLookupTable* table, u16 retained_key)
+{
+    if ((bits.bytes[1] & 0x80) != 0)
+    {
+        return 2;
+    }
+    return runtime_body_primary_parameter_id(context, parameters, bits, table, retained_key);
+}
+
+// Xbox 0x00075AA0
+u16 runtime_jessie_clyde_body_secondary_parameter_id(const RuntimeBodyActionIds& context,
+    const u8* parameters, const EntityBitBlock& bits,
+    const RuntimeScriptLookupTable* table, u16 retained_key)
+{
+    if ((bits.bytes[1] & 0x80) != 0)
+    {
+        return 3;
+    }
+    return runtime_body_secondary_parameter_id(context, parameters, bits, table, retained_key);
+}
+
 // Xbox 0x00027500
 u16 runtime_body_death_action_key()
 {

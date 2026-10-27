@@ -11,10 +11,7 @@
 #define NOMINMAX
 #include <windows.h>
 
-#include <d3d11.h>
-
 #include "imgui.h"
-#include "imgui_impl_dx11.h"
 #include "imgui_impl_win32.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
@@ -25,6 +22,7 @@ namespace
 {
 
 bool g_ready = false;
+DebugUiRenderer g_renderer;
 bool g_menu = false;
 // The F12 timing overlay starts shown in Debug and hidden in Release.
 #if defined(_DEBUG)
@@ -315,9 +313,9 @@ void draw_frame_overlay(const Game& game)
 
 } // namespace
 
-void debug_ui_init(void* hwnd, void* device, void* context)
+void debug_ui_attach(void* hwnd, const DebugUiRenderer& renderer)
 {
-    if (g_ready || hwnd == nullptr || device == nullptr || context == nullptr)
+    if (g_ready || hwnd == nullptr || renderer.init == nullptr)
     {
         return;
     }
@@ -332,12 +330,13 @@ void debug_ui_init(void* hwnd, void* device, void* context)
         ImGui::DestroyContext();
         return;
     }
-    if (!ImGui_ImplDX11_Init(static_cast<ID3D11Device*>(device), static_cast<ID3D11DeviceContext*>(context)))
+    if (!renderer.init(renderer.user))
     {
         ImGui_ImplWin32_Shutdown();
         ImGui::DestroyContext();
         return;
     }
+    g_renderer = renderer;
     g_ready = true;
 }
 
@@ -347,10 +346,16 @@ void debug_ui_shutdown()
     {
         return;
     }
-    ImGui_ImplDX11_Shutdown();
+    g_renderer.shutdown();
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();
+    g_renderer = {};
     g_ready = false;
+}
+
+ImDrawData* debug_ui_draw_data()
+{
+    return g_ready ? ImGui::GetDrawData() : nullptr;
 }
 
 bool debug_ui_menu_open()
@@ -401,7 +406,7 @@ void debug_ui_build(Game& game, float host_dt)
     {
         io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
     }
-    ImGui_ImplDX11_NewFrame();
+    g_renderer.new_frame();
     ImGui_ImplWin32_NewFrame();
     if (!g_menu)
     {
@@ -458,20 +463,6 @@ void debug_ui_build(Game& game, float host_dt)
         draw_frame_overlay(game);
     }
     ImGui::Render();
-}
-
-void debug_ui_draw()
-{
-    if (!g_ready)
-    {
-        return;
-    }
-    ImDrawData* data = ImGui::GetDrawData();
-    if (data == nullptr)
-    {
-        return;
-    }
-    ImGui_ImplDX11_RenderDrawData(data);
 }
 
 } // namespace gbtg

@@ -101,8 +101,10 @@ configuration requires network access unless dependencies are already cached.
 
 Useful build options:
 
-- `-DGBTG_GFX=null` selects the non-rendering backend. D3D11 is the default on
-  Windows; the null backend is the default elsewhere.
+- `-DGBTG_GFX="d3d11;vulkan"` lists the graphics backends compiled into `gbtg`;
+  the first is the default. D3D11 is the default list on Windows and nothing
+  elsewhere. The non-rendering null backend is always built. Choose one at run
+  time with `--gfx` or `Backend=` in `gbtg.ini`. Vulkan needs the LunarG SDK; see `docs/VULKAN.md`.
 - `-DGBTG_WITH_SDL=ON` adds an optional SDL3 window loop for the null backend.
 - `-DGBTG_BUILD_INSPECTOR=OFF` omits the separate inspector targets.
 - `-DGBTG_OPTIMIZE=ON` compiles the host presenter optimizations (see
@@ -137,6 +139,7 @@ For a bounded run and a capture through the D3D11 backend:
 - `--screenshot file.bmp` saves the final presented frame and hides the window.
   Supply `--frames N` to capture beyond the default single tick.
 - `--width W`, `--height H` and `--vsync N` override video settings.
+- `--gfx d3d11|vulkan|null` picks a compiled-in graphics backend.
 
 A successful headless run is a crash check, not proof that rendering, audio or
 reconstructed behavior is correct.
@@ -152,6 +155,7 @@ the executable. Edit it and restart:
 Width=960
 Height=540
 VSync=1
+Backend=
 
 [Audio]
 MasterVolume=100

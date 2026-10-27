@@ -9,8 +9,9 @@ namespace gbtg
 {
 
 // Calls the reconstructed game makes at present time (frame_tick → 0x00033480 / 0x00032AB0 / 0x00033A90).
-// Xbox D3D8 would implement these directly. PC backends are selected at build time
-// (GBTG_GFX_D3D11 / GBTG_GFX_NULL) and must not leak backend types through this header.
+// Xbox D3D8 would implement these directly. PC backends are compiled in at build time
+// (GBTG_GFX_D3D11 / GBTG_GFX_VULKAN, plus null) and chosen with gfx_select_backend; they must
+// not leak backend types through this header.
 
 struct GfxConfig
 {
@@ -21,6 +22,9 @@ struct GfxConfig
     const char* title = "Grabbed by the Ghoulies";
 };
 
+// "d3d11", "vulkan" or "null". Every later gfx_* call goes to that backend. Without a call, or for a name not
+// compiled in (false, logged), the first compiled backend is used. Call before gfx_init.
+bool gfx_select_backend(const char* name);
 bool gfx_init(const GfxConfig& cfg);
 void gfx_shutdown();
 const char* gfx_backend_name();

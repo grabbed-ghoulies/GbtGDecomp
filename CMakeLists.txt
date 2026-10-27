@@ -754,16 +754,49 @@ if(WIN32)
 else()
     set(_gbtg_gfx_default null)
 endif()
-set(GBTG_GFX "${_gbtg_gfx_default}" CACHE STRING "Graphics backend: null or d3d11")
-if(GBTG_GFX STREQUAL "d3d11")
+set(GBTG_GFX "${_gbtg_gfx_default}" CACHE STRING
+    "Graphics backends compiled into gbtg, first is the default: any of d3d11;vulkan (null is always built)")
+# gfx_dispatch.cpp owns the gfx.h names and forwards to the backend gfx_init picks (--gfx / gbtg.ini Backend).
+target_sources(gbtg PRIVATE src/engine/graphics/gfx_dispatch.cpp src/engine/graphics/gfx_null.cpp
+    src/engine/graphics/gfx_present_logic.cpp src/engine/graphics/gfx_shader_permutations.cpp
+    src/engine/graphics/gfx_shader_sources.cpp)
+if(WIN32)
+    # XACT audio uses XAudio2 with any graphics backend.
+    target_link_libraries(gbtg PRIVATE xaudio2 ole32)
+endif()
+list(FIND GBTG_GFX vulkan _gbtg_gfx_vulkan)
+if(NOT _gbtg_gfx_vulkan EQUAL -1)
+    # The LunarG SDK supplies the loader library, headers, VMA (Include/vma) and the SPIR-V capable DXC, which
+    # vk_shader_compiler.cpp loads at run time; the DLL is copied beside gbtg.exe.
+    find_package(Vulkan REQUIRED)
+    target_sources(gbtg PRIVATE
+        src/engine/graphics/vulkan/gfx_vulkan.cpp
+        src/engine/graphics/vulkan/vk_context.cpp
+        src/engine/graphics/vulkan/vk_shader_compiler.cpp
+        src/engine/graphics/vulkan/vk_swapchain.cpp
+    )
+    target_compile_definitions(gbtg PRIVATE GBTG_GFX_VULKAN)
+    target_link_libraries(gbtg PRIVATE Vulkan::Vulkan)
+    get_filename_component(_gbtg_vulkan_sdk "${Vulkan_INCLUDE_DIRS}" DIRECTORY)
+    set(GBTG_DXCOMPILER_DLL "${_gbtg_vulkan_sdk}/Bin/dxcompiler.dll")
+    if(EXISTS "${GBTG_DXCOMPILER_DLL}")
+        add_custom_command(TARGET gbtg POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GBTG_DXCOMPILER_DLL}" "$<TARGET_FILE_DIR:gbtg>")
+    else()
+        message(WARNING "Vulkan SDK dxcompiler.dll not found at ${GBTG_DXCOMPILER_DLL}; set VULKAN_SDK at run time")
+    endif()
+endif()
+list(FIND GBTG_GFX d3d11 _gbtg_gfx_d3d11)
+if(NOT _gbtg_gfx_d3d11 EQUAL -1)
     target_sources(gbtg PRIVATE src/engine/graphics/gfx_d3d11.cpp)
     target_compile_definitions(gbtg PRIVATE GBTG_GFX_D3D11)
-    target_link_libraries(gbtg PRIVATE d3d11 dxgi d3dcompiler user32 xaudio2 ole32)
-
-    # Dear ImGui is compiled into every D3D11 gbtg configuration, which defines
-    # GBTG_DEBUG_UI_AVAILABLE. GBTG_DEBUG_UI_ENABLED in include/gbtg/debug_ui.h turns the
+    target_link_libraries(gbtg PRIVATE d3d11 dxgi d3dcompiler user32)
+endif()
+if(NOT _gbtg_gfx_d3d11 EQUAL -1 OR NOT _gbtg_gfx_vulkan EQUAL -1)
+    # Dear ImGui is compiled into every gbtg configuration with a D3D11 or Vulkan backend, which
+    # defines GBTG_DEBUG_UI_AVAILABLE. GBTG_DEBUG_UI_ENABLED in include/gbtg/debug_ui.h turns the
     # debug UI on or off. The null backend never sees it. Populate skips add_subdirectory:
-    # upstream has no library target that includes the Win32 and D3D11 backends.
+    # upstream has no library target that includes the Win32, D3D11 and Vulkan backends.
     FetchContent_Declare(
         imgui
         GIT_REPOSITORY https://github.com/ocornut/imgui.git
@@ -783,22 +816,27 @@ if(GBTG_GFX STREQUAL "d3d11")
     if(POLICY CMP0169)
         cmake_policy(POP)
     endif()
+    # GBTG_IMGUI_SOURCES is ImGui with its Win32 and D3D11 backends, which the inspector reuses with its own
+    # debug_ui_* definitions.
     set(GBTG_IMGUI_SOURCES
         "${imgui_SOURCE_DIR}/imgui.cpp"
         "${imgui_SOURCE_DIR}/imgui_draw.cpp"
         "${imgui_SOURCE_DIR}/imgui_tables.cpp"
         "${imgui_SOURCE_DIR}/imgui_widgets.cpp"
         "${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp"
-        "${imgui_SOURCE_DIR}/backends/imgui_impl_dx11.cpp"
-        "${CMAKE_SOURCE_DIR}/src/engine/graphics/debug_ui.cpp"
     )
-    target_sources(gbtg PRIVATE ${GBTG_IMGUI_SOURCES})
+    if(NOT _gbtg_gfx_d3d11 EQUAL -1)
+        list(APPEND GBTG_IMGUI_SOURCES "${imgui_SOURCE_DIR}/backends/imgui_impl_dx11.cpp")
+        target_sources(gbtg PRIVATE src/engine/graphics/debug_ui_d3d11.cpp)
+    endif()
+    if(NOT _gbtg_gfx_vulkan EQUAL -1)
+        target_sources(gbtg PRIVATE "${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp"
+            src/engine/graphics/vulkan/vk_debug_ui.cpp)
+    endif()
+    target_sources(gbtg PRIVATE ${GBTG_IMGUI_SOURCES} src/engine/graphics/debug_ui.cpp)
     target_compile_definitions(gbtg PRIVATE GBTG_DEBUG_UI_AVAILABLE IMGUI_IMPL_WIN32_DISABLE_GAMEPAD)
     target_include_directories(gbtg PRIVATE "${imgui_SOURCE_DIR}" "${imgui_SOURCE_DIR}/backends")
     target_link_libraries(gbtg PRIVATE imm32)
-else()
-    target_sources(gbtg PRIVATE src/engine/graphics/gfx_null.cpp)
-    target_compile_definitions(gbtg PRIVATE GBTG_GFX_NULL)
 endif()
 if(GBTG_WITH_SDL)
     target_compile_definitions(gbtg PRIVATE GBTG_WITH_SDL)
@@ -934,12 +972,17 @@ file(GLOB_RECURSE GBTG_ENGINE_INCLUDES CONFIGURE_DEPENDS
 set_source_files_properties(${GBTG_LIBRARY_INCLUDES} ${GBTG_ENGINE_INCLUDES} PROPERTIES HEADER_FILE_ONLY TRUE)
 target_sources(gbtg_lib PRIVATE ${GBTG_PUBLIC_HEADERS} ${GBTG_LIBRARY_INCLUDES})
 target_sources(gbtg PRIVATE ${GBTG_ENGINE_PUBLIC_HEADERS} ${GBTG_ENGINE_INCLUDES})
-if(GBTG_GFX STREQUAL "d3d11")
-    set(GBTG_INACTIVE_BACKEND src/engine/graphics/gfx_null.cpp)
-else()
-    set(GBTG_INACTIVE_BACKEND src/engine/graphics/gfx_d3d11.cpp)
-    set_source_files_properties(src/engine/graphics/debug_ui.cpp PROPERTIES HEADER_FILE_ONLY TRUE)
-    target_sources(gbtg PRIVATE src/engine/graphics/debug_ui.cpp)
+# Backend sources this configuration does not compile stay visible in the IDE.
+set(GBTG_INACTIVE_BACKEND)
+if(_gbtg_gfx_d3d11 EQUAL -1)
+    list(APPEND GBTG_INACTIVE_BACKEND src/engine/graphics/gfx_d3d11.cpp src/engine/graphics/debug_ui_d3d11.cpp)
+endif()
+if(_gbtg_gfx_vulkan EQUAL -1)
+    file(GLOB GBTG_VULKAN_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/graphics/vulkan/*.cpp")
+    list(APPEND GBTG_INACTIVE_BACKEND ${GBTG_VULKAN_SOURCES})
+endif()
+if(_gbtg_gfx_d3d11 EQUAL -1 AND _gbtg_gfx_vulkan EQUAL -1)
+    list(APPEND GBTG_INACTIVE_BACKEND src/engine/graphics/debug_ui.cpp)
 endif()
 set_source_files_properties(${GBTG_INACTIVE_BACKEND} PROPERTIES HEADER_FILE_ONLY TRUE)
 
@@ -983,13 +1026,14 @@ set_target_properties(gbtg-catalog gbtg-dump gbtg-model-check gbtg-xemu-patch
 # Compile normal game code without tooling hooks. Inspector variants compile the
 # same reconstructed sources with GBTG_INSPECTOR_APP, consistently across the ABI.
 option(GBTG_BUILD_INSPECTOR "Build the native scene inspector and its tests" ON)
-if(WIN32 AND GBTG_GFX STREQUAL "d3d11")
+if(WIN32 AND NOT _gbtg_gfx_d3d11 EQUAL -1)
     get_target_property(GBTG_ALL_GAME_SOURCES gbtg SOURCES)
     set(GBTG_SHARED_RUNTIME_SOURCES)
     set(GBTG_GAME_SHELL_SOURCES ${GBTG_ALL_GAME_SOURCES})
     foreach(source IN LISTS GBTG_ALL_GAME_SOURCES)
         if(source MATCHES "^src/engine/.*\\.cpp$" AND
-            NOT source MATCHES "(main|platform|gfx_d3d11|gfx_null|debug_ui)\\.cpp$")
+            NOT source MATCHES "(main|platform|gfx_d3d11|gfx_null|gfx_dispatch|gfx_vulkan|debug_ui[a-z0-9_]*)\\.cpp$" AND
+            NOT source MATCHES "^src/engine/graphics/vulkan/")
             list(APPEND GBTG_SHARED_RUNTIME_SOURCES "${source}")
             list(REMOVE_ITEM GBTG_GAME_SHELL_SOURCES "${source}")
         endif()
@@ -1047,6 +1091,8 @@ if(WIN32 AND GBTG_GFX STREQUAL "d3d11")
             src/engine/inspector/inspector_audio.cpp
             src/engine/inspector/inspector_session.cpp
             src/engine/inspector/inspector_ui.cpp
+            src/engine/graphics/gfx_dispatch.cpp
+            src/engine/graphics/gfx_null.cpp
             src/engine/graphics/gfx_d3d11.cpp
         )
         set(GBTG_INSPECTOR_IMGUI_SOURCES ${GBTG_IMGUI_SOURCES})

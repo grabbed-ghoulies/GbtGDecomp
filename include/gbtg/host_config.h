@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <string>
 
 namespace gbtg
 {
@@ -11,6 +12,7 @@ struct HostConfig
     int width = 960;
     int height = 540;
     int vsync = 1;
+    std::string gfx_backend; // [Video] Backend: d3d11, vulkan or null. Empty uses the build's default.
     int master_volume = 100; // 0..100
     unsigned language = 0; // DAT_0042A710 index, see gbtg/language.h
 };

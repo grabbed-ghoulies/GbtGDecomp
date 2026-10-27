@@ -78,6 +78,7 @@ int main(int argc, char** argv)
         cfg.width = int_arg(argc, argv, "--width", host.width);
         cfg.height = int_arg(argc, argv, "--height", host.height);
         cfg.vsync = int_arg(argc, argv, "--vsync", host.vsync);
+        gbtg::gfx_select_backend(arg(argc, argv, "--gfx", host.gfx_backend).string().c_str());
 
         const auto profile = arg(argc, argv, "--render-profile");
         if (!profile.empty())
@@ -130,7 +131,7 @@ int main(int argc, char** argv)
     catch (const std::exception& ex)
     {
         gbtg::log::error("error: %s", ex.what());
-        gbtg::log::error("usage: gbtg --game-dir <dir> [--headless] [--frames N] [--screenshot file.bmp] [--scene name-or-index] [--width W --height H --vsync N] [--render-profile file.csv] [--render-reference] [--cpu-vertex] [--validate-gpu-vertices] [--validate-render-boundary] [--verbose]");
+        gbtg::log::error("usage: gbtg --game-dir <dir> [--headless] [--frames N] [--screenshot file.bmp] [--scene name-or-index] [--width W --height H --vsync N] [--gfx d3d11|vulkan|null] [--render-profile file.csv] [--render-reference] [--cpu-vertex] [--validate-gpu-vertices] [--validate-render-boundary] [--verbose]");
         return 1;
     }
 }

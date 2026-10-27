@@ -119,6 +119,11 @@ void apply_key(HostConfig& cfg, const std::filesystem::path& path, const std::st
         }
         return;
     }
+    if (section == "video" && key == "backend")
+    {
+        cfg.gfx_backend = lower_copy(value);
+        return;
+    }
     const bool width = section == "video" && key == "width";
     const bool height = section == "video" && key == "height";
     const bool vsync = section == "video" && key == "vsync";
@@ -223,6 +228,8 @@ bool write_default(const std::filesystem::path& path)
            "Width=960\n"
            "Height=540\n"
            "VSync=1\n"
+           "; d3d11 or vulkan. Empty uses the build's default.\n"
+           "Backend=\n"
            "\n"
            "[Audio]\n"
            "; 0 to 100\n"

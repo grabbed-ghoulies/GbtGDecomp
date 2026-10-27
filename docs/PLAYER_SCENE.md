@@ -256,6 +256,15 @@ All take the game directory, e.g.
 | `--scene2c5` | Boots chapter 2c scene 5 (chapter2c_scene5_1playcam, the walled garden) and plays it with the scene 7 driver. While a PlayerHitGhouly watches (the pirate's skeletons dig for the dungweed), Cooper fights nothing and walks to the nearest record of the dungweed's region 1; the angry baron's fight follows. **Fails**: Cooper finds the dungweed every time (page 3, frame 2478) but faints in the fight, where the pirate's shovel takes all five hearts in one hit and the flying imp's dive three, and the scene restarts until frame 24000 |
 | `--scene2c6` | Boots chapter 2c scene 6 (chapter2c_scene6_1playcam, the study) and plays it with the scene 7 driver: "EVENT - FIND THE KEY" arms one of three bg-break keys and the driver punches its part open; "EXIT DOOR OPENS" lets the ninja imps in and FREE PLAY is fought, Jessie Clyde (types 0x29 and 0x4A) transforming as Cooper comes near. Passes when the script moves on to `aid_script_ghoulies_chapter2c_scene7_1playcam` (frame 6040 in the 2026-10-27 run). Checked in the captures: the sleeping Jessie Clyde (frame 2400), her transformation (3600) and her fight with Cooper (4800) |
 | `--scene2c7` | Boots chapter 2c scene 7 (chapter2c_scene7_1playcam) and plays it with the scene 7 driver: "EVENT - NUMBER" (generic ghoulies, type 0x3C), a cursed mummy section (type 0x4D) and "EVENT - ONE TYPE". Does not pass yet: the cursed mummy's slab whacks make Cooper faint once, and the replayed scene reaches its last FREE PLAY at frame 35772 of the 36000 the driver allows (2026-10-27). Checked in the captures: the curse's glyphs around Cooper (frames 9600, 10200) and the mummy's raised slab (11100) |
+| `--scene2c8` | Boots chapter 2c scene 8 (chapter2c_scene8_1playcam, the haunted paintings) and plays it with the scene 7 driver: "kill all/limited attacks" against the paintings, then FREE PLAY to the exit. Passes when the script moves on to `aid_script_ghoulies_chapter2c_scene9_1playcam` (frame 5467 in the 2026-10-27 run; the paintings make Cooper faint once and the scene replays). Checked in the captures: Cooper punching among the paintings (900), a painting knocked off the wall (3900), and Cooper at the exit door (5400) |
+| `--scene2c9` | Boots chapter 2c scene 9 (chapter2c_scene9_1playcam, the cloakroom) and plays it with the scene 7 driver, calm in FREE PLAY: the event (script type 0x28, step type 12) fails once any points are scored, so Cooper walks to the exit without fighting. Passes when the script moves on to `aid_script_ghoulies_chapter2c_scene10_1playcam` (frame 1097 in the 2026-10-27 run). Checked in the captures: Cooper running through the cloakroom at full energy with the event icon up (600, 900) |
+| `--scene2c10` | Boots chapter 2c scene 10 (chapter2c_scene10_1playcam, the central hallway) and plays it with the scene 7 driver: FREE PLAY until the haunted door (type 0x2A ghoulybox) wakes (event 0xB4, condition opcode 7), "EXIT DOOR CLOSES", "EVENT - ONE TYPE/WEAPONS ONLY" against skeletons, then FREE PLAY to the exit. Passes when the script moves on to `aid_script_ghoulies_chapter2c_scene11_1playcam` (frames 13217 and 24524 in two 2026-10-27 runs; Cooper faints and the scene restarts several times). Not reliable: one earlier run stopped with `invalid unordered_map<K, T> key` on its second pass (not reproduced, no stack), and one left the door unspawned on its sixth pass, after a pass that beat the door and fainted (not reproduced). Checked in the captures: Cooper fighting the haunted door (2700, 6900) and the skeletons breaking (23400) |
+| `--scene2c11` | Boots chapter 2c scene 11 (chapter2c_scene11_1playcam, the kitchen) and plays it with the scene 7 driver: FREE PLAY, "EXIT DOOR CLOSES", "EVENT - KILL ALL/TIMELIMIT" against the imps, then an untitled closing section. Passes when the script moves on to `aid_script_ghoulies_chapter2c_scene11_2book` (frame 7401 in the 2026-10-27 run, no faint). Checked in the captures: Cooper among the imps with the 1:17 timer and the gauge up (1500), and the closing view of the corridor and its clock pickups (7200) |
+| `--scene2c11b` | Boots chapter 2c scene 11's book (chapter2c_scene11_2book, "cook mixes cure") and plays its three pages (A closes each). Passes when the script moves on to `aid_script_ghoulies_chapter2c_scene12_1playcam` (frame 1911 in the 2026-10-27 run). Checked in the captures: the cook's first page, her portrait and text and the A prompt (page1) |
+| `--scene2c12` | Boots chapter 2c scene 12 (chapter2c_scene12_1playcam, the wine cellar) and plays it with the scene 7 driver: "EVENT - GHOULY FIND THE KEY". The driver first breaks the barrel whose ghoulybox is `aid_ghoulybox_ghoulies_chapter2_winercellarkeyholder` (a `powerup_kind` of 0: it holds ghoulies, not a powerup; on its rack it is some 21 from open floor, so from within 24 Cooper stands and punches), then fights what comes out; the key carrier step (type 0xF) ends the event, then FREE PLAY to the exit. Passes when the script moves on to `aid_script_ghoulies_chapter2c_scene13_1book` (frame 4292 in the 2026-10-27 run; the barrel broke at 1216). Checked in the captures: Cooper in the cellar with the key-holder event icon up (1800) and the key camera down the corridor to the door (2400) |
+| `--scene2c13` | Boots chapter 2c scene 13's first book (chapter2c_scene13_1book) and plays its page (A closes it). Passes when the script moves on to `aid_script_ghoulies_chapter2c_scene13_2playcam` (2026-10-27). Checked in the captures: Cooper's page to Amber about the cook's potion, with its portrait and the A prompt (page1) |
+| `--scene2c13b` | Boots chapter 2c scene 13_2 (chapter2c_scene13_2playcam, the basement archives) and plays it with the scene 7 driver: Cooper against Amber as a ghoulie (entityStrategyGhoulieGirl, type 0x3D, class 0xC). Passes when the script moves on to `aid_script_ghoulies_chapter2c_scene13_3book` (frame 6623 in the 2026-10-27 run; her knockdowns make Cooper faint once and the scene replays). Checked in the captures: Cooper knocked down by her (300) and her beside Cooper in the archives (6300) |
+| `--scene2c13c` | Boots chapter 2c scene 13's closing book (chapter2c_scene13_3book, "Cook's assistant reveals prisoner's plight") and plays its two pages (A closes each). Passes when the script moves on to `aid_script_ghoulies_chapter3a_scene1_2book`, the end of chapter 2c (frame 3341 in the 2026-10-27 run). Checked in the captures: the cook's first page (page1) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -422,6 +431,40 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-27: chapter 2c scenes 10 to 13: the hallway, kitchen, wine cellar and Amber
+
+- Scenes 10 and 11 (and 11's and 13's first books) needed nothing new.
+- **entityStrategyGhoulieGirl** (factory type 0x3D, getter `0x000AC160`, vtable 0x00505DA8; the factory table's row
+  0x3C carries the name) in `entities/ghoulie_girl_strategy.cpp`: its six slots (`0x000AC140` .. `0x000AC460`, the
+  message's jump table at 0x000AC35C / 0x000AC378) and the privates `0x000ABC60`, `0x000ABD00`, `0x000ABD60`,
+  `0x000ABE10`, `0x000ABE80`, `0x000ABF60`, `0x000ABFA0`, `0x000AC020` and `0x000AC090`, none of which the project
+  had as functions (exported with `range-function-force`). Its record at 0x00302B68 is 0.25, 4, 3, 1.
+- Driver: a `powerup_kind` of 0 breaks a box that holds ghoulies, then fights; a box more than 16 from open floor
+  (scene 2c12's racked barrels) is punched standing from within 24.
+- Not reliable: scene 2c10 (see its row).
+
+### 2026-10-27: chapter 2c scenes 8 and 9: the paintings, the cloakroom and scene restarts
+
+- Scene 8 (the haunted paintings) needed nothing new.
+- Script type 0x28 builds step type 0xC (`0x00125F80`, XMM0 1.5) and queues it (`0x000D05D0`); it was a silent
+  no-op. Step type 12 (`0x000D0140`, from the step table at 0x003039CC, two words per type) fails the event once the
+  running score is nonzero while the steps do not wait: the cloakroom's event is to score nothing.
+- DAT_00545978 (broken parts) and DAT_00545980 (running score) each had two host copies: the script VM cleared one,
+  the scene's services counted into the other. Both are now `g_545978` / `g_545980` in `scripts/script_vm.h`.
+- A restarted scene (after a faint) broke twice in the host-only `SceneActorServices::State::reset_scene_data`, which
+  runs after the loading scene's script has started:
+  - It cleared DAT_0051248C, the script's title mode. The restarted cloakroom's FREE PLAY (mode 0, id 1) then
+    matched the cleared state, never activated, left DAT_00512514 clear, and its section end let the script run
+    out: the scene moved on at once.
+  - It zeroed the pause counts DAT_0050E764 / DAT_0050E768 after the loading scene's first pause (`0x00117400`), so
+    FREE PLAY's two releases left them at 0xFFFFFFFF and every actor paused for good.
+  Neither is cleared by the retail functions that reset stands for. `0x001287F0` clears the title mode (already
+  translated), and `0x00116E00` clears the pause counts before the scene loads: that part, with its DAT_00545978 and
+  DAT_00545980 clears, is now in `release_scene_music_at_start`.
+- Driver: scene 2c9 runs calm in FREE PLAY, so Cooper scores nothing and walks to the exit.
+- Not checked: the restart fixes reach every scene that restarts after a faint; only scenes 2c8 and 2c9 ran after
+  them (2c8 before the restart fixes).
 
 ### 2026-10-27: chapter 2c scene 7: generic ghoulies and the cursed mummy
 

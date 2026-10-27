@@ -265,6 +265,7 @@ add_library(gbtg_lib STATIC
     src/engine/entities/haunted_tv_strategy.cpp
     src/engine/entities/haunted_chair_strategy.cpp
     src/engine/entities/generic_strategy.cpp
+    src/engine/entities/ghoulie_girl_strategy.cpp
     src/engine/entities/mummy_strategy.cpp
     src/engine/entities/candle_weapon.cpp
     src/engine/entities/container_weapon.cpp

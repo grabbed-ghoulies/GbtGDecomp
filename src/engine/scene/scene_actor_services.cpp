@@ -762,12 +762,12 @@ struct SceneActorServices::State
     std::span<const u8> part_text; // DAT_0054629C.
     BackgroundPartTables part_tables{part_settings, part_setting_count, part_text};
     i32 part_sound_slot = 0; // DAT_00546290.
-    u32 broken_parts = 0; // DAT_00545978.
+    u32& broken_parts = g_545978; // DAT_00545978.
     std::array<float, 24> sampling_scratch{}; // DAT_0050D7A0: matrix, then the dialogue's scratch matrix.
     float* sampling_active = nullptr; // DAT_0050DD70.
     std::array<char16_t, 0x400> wide_scratch{}; // DAT_00507E78.
     u32 score_total = 0; // DAT_0054597C.
-    u32 score_running_total = 0; // DAT_00545980.
+    u32& score_running_total = g_545980; // DAT_00545980.
     std::array<char16_t, 0xA00> score_texts{}; // DAT_00432724.
     std::array<u32, 10> score_categories{}; // DAT_004326FC.
     std::array<u32, 10> score_points{}; // DAT_00433B24.
@@ -3301,8 +3301,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             [this](u32 address)
             {
                 activate_actor_bind_tree(*actors->actors.at(scene.resolve_address(address, 0).data())); // 0x00112CC0
-            }});
-    }
+            }});    }
     g_event_sequence_context = event_sequence.get();
     ghouly_spawns = std::make_unique<GhoulySpawnContext>(GhoulySpawnContext{random, g_flags_ea9c,
         *reinterpret_cast<i32*>(&scene_word(0x0050E568u)), *reinterpret_cast<i32*>(&scene_word(0x0050E56Cu)),
@@ -5629,7 +5628,8 @@ void SceneActorServices::State::reset_scene_data()
     player_count = 0;
     // DAT_0050E148, DAT_0050E16C and DAT_0050E1B0 clear in the teardown (clear_script_tag_tables).
     camera_players = 0;
-    std::fill(pause_references.begin(), pause_references.end(), 0u);
+    // The pause counts (DAT_0050E764, DAT_0050E768) are 0x00116E00's to clear, before the scene loads
+    // (release_scene_music_at_start). A clear here ran after the loading scene's first pause and lost it.
     pause_nodes.clear();
     first_pause = nullptr;
     for (const auto& [address, view] : weapon_pickups)
@@ -5642,7 +5642,8 @@ void SceneActorServices::State::reset_scene_data()
     weapon_pickups.clear();
     weapon_attachments.clear();
     override_words = {};
-    decay_index = 0;
+    // decay_index is DAT_0051248C, the script's title mode: only 0x001287F0 clears it (script_set_default_name).
+    // A clear here ran after a restarted scene's first title, so its next title with the same id looked active.
     targets = nullptr;
     attachment_notice = 0;
     goal_scratch.clear();
@@ -8088,6 +8089,9 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
     case 0x3C:
         players->generic_message(child, words);
         return;
+    case 0x3D:
+        players->ghoulie_girl_message(child, words);
+        return;
     case 0x3F:
         players->grim_reaper_message(child, words);
         return;
@@ -8622,6 +8626,9 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
                 return;
             case 0x3C:
                 players->generic_update(strategy);
+                return;
+            case 0x3D:
+                players->ghoulie_girl_update(strategy);
                 return;
             case 0x3F:
                 players->grim_reaper_update(strategy);

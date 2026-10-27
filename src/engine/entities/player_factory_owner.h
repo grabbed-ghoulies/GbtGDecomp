@@ -31,6 +31,7 @@
 #include "haunted_tv_strategy.h"
 #include "haunted_chair_strategy.h"
 #include "generic_strategy.h"
+#include "ghoulie_girl_strategy.h"
 #include "grim_reaper_strategy.h"
 #include "mummy_strategy.h"
 #include "butler_strategy.h"
@@ -368,6 +369,7 @@ struct NativePlayerInstance
     RuntimeHauntedTvStrategy haunted_tv; // Type 0x44.
     RuntimeHauntedChairStrategy haunted_chair; // Type 0x40.
     RuntimeGenericStrategy generic; // Type 0x3C.
+    RuntimeGhoulieGirlStrategy ghoulie_girl; // Type 0x3D.
     RuntimeGrimReaperStrategy grim_reaper; // Type 0x3F.
     RuntimeMummyStrategy mummy; // Type 0x4C.
     RuntimeUglyGirlStrategy ugly_girl; // Type 0x53.
@@ -436,6 +438,8 @@ public:
     void haunted_tv_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000B1F60.
     void generic_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000ABC50.
     void generic_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000AB540.
+    void ghoulie_girl_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000AC250.
+    void ghoulie_girl_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000AC200.
     void haunted_chair_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000AE8B0.
     void haunted_chair_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000AE790.
     void grim_reaper_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000AD7D0.

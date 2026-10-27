@@ -991,6 +991,10 @@ bool run_script_event_steps(Game& g)
             {
                 result = run_script_event_key_carrier_step(step); // 0x000CFAE0
             }
+            else if (type == 0xC)
+            {
+                result = run_script_event_no_points_step(); // 0x000D0140
+            }
             else
             {
                 throw Error("script event step type " + std::to_string(type)
@@ -1197,6 +1201,17 @@ i32 run_script_event_time_limit_step(std::span<u8> step)
         return 3;
     }
     return 2;
+}
+
+// Xbox 0x000D0140: the no-points step fails once the running score (DAT_00545980) is nonzero while the steps do not
+// wait (DAT_0050653C); it never succeeds on its own.
+i32 run_script_event_no_points_step()
+{
+    if (g_545980 == 0 || g_event_sequence.waiting != 0)
+    {
+        return 2;
+    }
+    return 3;
 }
 
 // Xbox 0x000CFEE0: the survive step counts its +0x18 seconds down and succeeds once they run out.

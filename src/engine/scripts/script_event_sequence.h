@@ -68,8 +68,7 @@ struct ScriptEventSequenceContext
     // Step type 0xF (0x000CFAE0): the actor a DAT_00511B48 node sits in (node - 0x944), by retail address, and
     // 0x00112CC0 on the object at an address.
     std::function<u32(const void*)> active_actor_of;
-    std::function<void(u32)> activate_object;
-};
+    std::function<void(u32)> activate_object;};
 // Message 0x81 from 0x000D09A0: {id, door word, step count, steps}; the steps travel by address.
 struct ScriptEventStartMessage
 {
@@ -116,6 +115,8 @@ i32 run_script_event_tag_step(std::span<u8> step); // Xbox 0x000CFDA0, step type
 i32 run_script_event_kill_count_step(std::span<u8> step); // Xbox 0x000CFE20, step type 3
 i32 run_script_event_time_limit_step(std::span<u8> step); // Xbox 0x000CFE50, step type 4
 i32 run_script_event_survive_step(std::span<u8> step); // Xbox 0x000CFEE0, step type 5
+// Fails once points are scored (DAT_00545980) while the steps do not wait (DAT_0050653C).
+i32 run_script_event_no_points_step(); // Xbox 0x000D0140, step type 12
 // The key carrier: the first DAT_00511B48 actor whose +0x96D is set carries the key (+0xCE4) and its effect; once its
 // death queues event 0xB5, the key object appears at the event's point and "ghoulykeycam" looks at it until the +4
 // delay runs out.

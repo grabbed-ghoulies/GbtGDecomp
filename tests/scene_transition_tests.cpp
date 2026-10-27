@@ -9426,6 +9426,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
     // With `powerup_box`, Cooper first goes to the bg-break setup (type 0x24) whose ghoulybox (+0x934) names it and
     // punches until its background part (+0xA50) breaks, then walks onto the powerup (type 0xD) of `powerup_kind`
     // that comes out, before anything else: scene 2c2's invisibility, in a suitcase, gets him past the room unseen.
+    // A `powerup_kind` of 0 expects no powerup: the box holds ghoulies (scene 2c12's key holder), fought as usual.
     bool powerup_done = powerup_box.empty();
     bool powerup_seen = false; // The box's powerup has come out.
     bool key_found = false; // An armed bg-break key has come out.
@@ -9793,7 +9794,20 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                 goal_name = "the " + powerup_box + " setup";
                 const float dx = box_at->x - cooper->x;
                 const float dz = box_at->z - cooper->z;
+                // A box on a rack (scene 2c12's barrels) is some 21 from the nearest open cell: from within 24 of it
+                // Cooper stands where he is and punches, as walking on toward the cell spoils the punches.
                 punch_box = dx * dx + dz * dz < 16.f * 16.f;
+                if (!punch_box && dx * dx + dz * dz < 24.f * 24.f)
+                {
+                    punch_box = true;
+                    goal.reset();
+                }
+            }
+            else if (powerup_kind == 0)
+            {
+                // A box that holds ghoulies (scene 2c12's key holder): once it breaks, Cooper fights what comes out.
+                std::cout << label << " frame " << frame << ": the " << powerup_box << " setup is broken\n";
+                powerup_done = true;
             }
             else if (powerup)
             {
@@ -10696,12 +10710,30 @@ int main(int argc, char** argv)
     const bool scene2c6_test = argc == 3 && std::string_view(argv[2]) == "--scene2c6";
     // --scene2c7 boots chapter2c_scene7_1playcam and plays it until the script moves on.
     const bool scene2c7_test = argc == 3 && std::string_view(argv[2]) == "--scene2c7";
+    // --scene2c8 boots chapter2c_scene8_1playcam and plays it until the script moves on.
+    const bool scene2c8_test = argc == 3 && std::string_view(argv[2]) == "--scene2c8";
+    // --scene2c9 boots chapter2c_scene9_1playcam and plays it until the script moves on.
+    const bool scene2c9_test = argc == 3 && std::string_view(argv[2]) == "--scene2c9";
+    // --scene2c10 boots chapter2c_scene10_1playcam and plays it until the script moves on.
+    const bool scene2c10_test = argc == 3 && std::string_view(argv[2]) == "--scene2c10";
+    // --scene2c11 boots chapter2c_scene11_1playcam and plays it until the script moves on.
+    const bool scene2c11_test = argc == 3 && std::string_view(argv[2]) == "--scene2c11";
+    // --scene2c11b boots chapter2c_scene11_2book and plays it until the script moves on.
+    const bool scene2c11b_test = argc == 3 && std::string_view(argv[2]) == "--scene2c11b";
+    // --scene2c12 boots chapter2c_scene12_1playcam and plays it until the script moves on.
+    const bool scene2c12_test = argc == 3 && std::string_view(argv[2]) == "--scene2c12";
+    // --scene2c13 boots chapter2c_scene13_1book and plays it until the script moves on.
+    const bool scene2c13_test = argc == 3 && std::string_view(argv[2]) == "--scene2c13";
+    // --scene2c13b boots chapter2c_scene13_2playcam and plays it until the script moves on.
+    const bool scene2c13b_test = argc == 3 && std::string_view(argv[2]) == "--scene2c13b";
+    // --scene2c13c boots chapter2c_scene13_3book and plays it until the script moves on.
+    const bool scene2c13c_test = argc == 3 && std::string_view(argv[2]) == "--scene2c13c";
     if (spawn_test)
     {
         std::cout << std::unitbuf;
     }
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
-        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene2a14_test && !scene2a15_test && !scene2a16_test && !scene2a17_test && !scene2b1_test && !scene2b2_test && !scene2b3_test && !scene2b4_test && !scene2b4b_test && !scene2b5_test && !scene2b6_test && !scene2b6b_test && !scene2b7_test && !scene2b8_test && !scene2b9_test && !scene2b10_test && !scene2b10b_test && !scene2c1_test && !scene2c2_test && !scene2c3_test && !scene2c4_test && !scene2c4b_test && !scene2c5_test && !scene2c6_test && !scene2c7_test && !scene3_test && !pause_test)
+        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene2a14_test && !scene2a15_test && !scene2a16_test && !scene2a17_test && !scene2b1_test && !scene2b2_test && !scene2b3_test && !scene2b4_test && !scene2b4b_test && !scene2b5_test && !scene2b6_test && !scene2b6b_test && !scene2b7_test && !scene2b8_test && !scene2b9_test && !scene2b10_test && !scene2b10b_test && !scene2c1_test && !scene2c2_test && !scene2c3_test && !scene2c4_test && !scene2c4b_test && !scene2c5_test && !scene2c6_test && !scene2c7_test && !scene2c8_test && !scene2c9_test && !scene2c10_test && !scene2c11_test && !scene2c11b_test && !scene2c12_test && !scene2c13_test && !scene2c13b_test && !scene2c13c_test && !scene3_test && !pause_test)
     {
         std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene6-save | --scene6-save-reload | --scene3 | --pause | --scene4 | --scene5 | --scene6-1 | --scene7]\n";
         return 2;
@@ -10851,6 +10883,15 @@ int main(int argc, char** argv)
             : scene2c5_test ? "chapter2c_scene5_1playcam"
             : scene2c6_test ? "chapter2c_scene6_1playcam"
             : scene2c7_test ? "chapter2c_scene7_1playcam"
+            : scene2c8_test ? "chapter2c_scene8_1playcam"
+            : scene2c9_test ? "chapter2c_scene9_1playcam"
+            : scene2c10_test ? "chapter2c_scene10_1playcam"
+            : scene2c11_test ? "chapter2c_scene11_1playcam"
+            : scene2c11b_test ? "chapter2c_scene11_2book"
+            : scene2c12_test ? "chapter2c_scene12_1playcam"
+            : scene2c13_test ? "chapter2c_scene13_1book"
+            : scene2c13b_test ? "chapter2c_scene13_2playcam"
+            : scene2c13c_test ? "chapter2c_scene13_3book"
             : player_test || spawn_test ? "chapter1_scene1_2playcam"
             : title_test ? "" : "scene0_1book");
         if (scene2a1b_test)
@@ -10859,6 +10900,70 @@ int main(int argc, char** argv)
             play_scene7(game, "scene2a1_2");
             pass_chapter_title(game, "scene2a1_to_3", "aid_script_ghoulies_chapter2a_scene1_3playcam", false);
             play_scene7(game, "scene2a1_3", 1000.f, "Event - Kill All", true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene2c13c_test)
+        {
+            pass_chapter_title(game, "scene2c13c", "aid_script_ghoulies_chapter2c_scene13_3book", false);
+            play_scene7(game, "scene2c13c", 1000.f, {}, true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene2c13b_test)
+        {
+            pass_chapter_title(game, "scene2c13b", "aid_script_ghoulies_chapter2c_scene13_2playcam", false);
+            play_scene7(game, "scene2c13b", 1000.f, {}, true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene2c13_test)
+        {
+            pass_chapter_title(game, "scene2c13", "aid_script_ghoulies_chapter2c_scene13_1book", false);
+            play_scene7(game, "scene2c13", 1000.f, {}, true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene2c12_test)
+        {
+            pass_chapter_title(game, "scene2c12", "aid_script_ghoulies_chapter2c_scene12_1playcam", false);
+            play_scene7(game, "scene2c12", 1000.f, {}, true, true, {},
+                "aid_ghoulybox_ghoulies_chapter2_winercellarkeyholder", 0);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene2c11b_test)
+        {
+            pass_chapter_title(game, "scene2c11b", "aid_script_ghoulies_chapter2c_scene11_2book", false);
+            play_scene7(game, "scene2c11b", 1000.f, {}, true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene2c11_test)
+        {
+            pass_chapter_title(game, "scene2c11", "aid_script_ghoulies_chapter2c_scene11_1playcam", false);
+            play_scene7(game, "scene2c11", 1000.f, {}, true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene2c10_test)
+        {
+            pass_chapter_title(game, "scene2c10", "aid_script_ghoulies_chapter2c_scene10_1playcam", false);
+            play_scene7(game, "scene2c10", 1000.f, {}, true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene2c9_test)
+        {
+            pass_chapter_title(game, "scene2c9", "aid_script_ghoulies_chapter2c_scene9_1playcam", false);
+            play_scene7(game, "scene2c9", 1000.f, {}, true, true, "FREE PLAY");
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene2c8_test)
+        {
+            pass_chapter_title(game, "scene2c8", "aid_script_ghoulies_chapter2c_scene8_1playcam", false);
+            play_scene7(game, "scene2c8", 1000.f, {}, true, true);
             gbtg::gfx_shutdown();
             return 0;
         }

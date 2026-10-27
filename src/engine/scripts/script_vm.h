@@ -13,6 +13,10 @@ extern i32 g_gate_251c;
 extern i32 g_gate_2518;
 extern i32 g_script_e794; // DAT_0050E794.
 extern i32 g_script_e788; // DAT_0050E788: the scene is done; 0x00117140 requests the next one.
+// DAT_00545978, the broken background parts, and DAT_00545980, the running score: 0x0012AF10 and a section title
+// clear them.
+extern u32 g_545978;
+extern u32 g_545980;
 // DAT_0050E76C..DAT_0050E780: the next scene's entry position and euler; DAT_0050E784 is 1 once they are set.
 extern Vec3 g_scene_entry_position;
 extern Vec3 g_scene_entry_euler;

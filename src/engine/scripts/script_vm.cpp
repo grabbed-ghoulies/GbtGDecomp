@@ -183,9 +183,9 @@ bool script_end_gate_set()
 }
 
 
-i32 g_545978 = 0;
+u32 g_545978 = 0; // DAT_00545978.
 
-i32 g_545980 = 0;
+u32 g_545980 = 0; // DAT_00545980.
 
 // Xbox 0x0012AF10. Seven counters, each followed by 60 counters and a 60-by-61 matrix: the statistics block passed
 // in EAX.
@@ -1262,7 +1262,7 @@ std::array<u16, 0x28> g_545ccc{}; // DAT_00545CCC: ten-id groups 0x001400D0 appe
 // 0x3eb2b8c3. DAT_005462FC becomes 1. DAT_00509b54 becomes 0x3f32b8c3.
 // DAT_00509b58 becomes 1. DAT_00509b70 becomes 0. DAT_00509b74 becomes 1.
 // 0x00124420 is not translated, so that call is not made. The light words are lighting.cpp's.
-// Of 0x00116E00 only its music release is made. DAT_00545D1C and DAT_00545CC8
+// Of 0x00116E00 only part is made (release_scene_music_at_start). DAT_00545D1C and DAT_00545CC8
 // are cleared after the 0x000FAEE0 call.
 // Xbox 0x0011CAC0
 void scene_reset_runtime_parameters()
@@ -1282,7 +1282,7 @@ void scene_reset_runtime_parameters()
     g_545d1c = 0;
     g_545cc8 = 0;
     reset_runtime_camera_view_tunables(); // 0x0013CBD0
-    release_scene_music_at_start(); // 0x00116E00's music release; the rest of it is not translated.
+    release_scene_music_at_start(); // Part of 0x00116E00.
     // 0x00124420 is not translated.
 }
 

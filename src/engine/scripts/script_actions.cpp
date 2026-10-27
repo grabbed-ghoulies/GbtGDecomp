@@ -1416,8 +1416,16 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
         return 2;
     }
     case 0x28:
-        // 0x00125F80, XMM0 = 1.5. 0x000D05D0 is not translated.
+    {
+        // 0x00125F80 builds step type 0xC with XMM0 = 1.5 (0x0032B210) at +4, then 0x000D05D0 queues it.
+        std::array<u8, 0x88> step{};
+        const u32 type = 0xC;
+        const float delay = 1.5f;
+        std::memcpy(step.data(), &type, 4);
+        std::memcpy(step.data() + 4, &delay, 4);
+        queue_script_event_step(step);
         return 2;
+    }
     case 0x50:
     {
         // 0x00125FC0 builds step type 0xD (one type) with XMM0 = 1.5 (0x0032B210) at +4; +0x18 is one of the named
@@ -2282,12 +2290,16 @@ void create_scene_ambient_tune(Game& g)
 // Xbox 0x00116E00 (part)
 // 0x00116E00 releases the stream the last scene's script left in DAT_0050E4E0, inline, as 0x00116D20's first
 // half does, and clears the name. DAT_004DF370 is the boot-owned table, so the release does not need the new
-// scene. It then clears the event sequence (DAT_005064D8.., so a scene restarted mid-event runs its event again)
-// and the DAT_0052C274 statistics (0x0012AF10). The rest of 0x00116E00 (DAT_0050E764..DAT_0050E79C, 0x00116DA0,
-// the DAT_00512B74 and DAT_0051234C pools, DAT_00545970..DAT_00545980, DAT_004E17C8..DAT_004E1A34 and 0x001287F0)
-// is not made here.
+// scene. It opens by clearing the two pause counts (DAT_0050E764, DAT_0050E768): the last scene's teardown can
+// release a pause it no longer holds, and a restarted scene would start with the counts below zero and every
+// actor paused. It then clears the event sequence (DAT_005064D8.., so a scene restarted mid-event runs its event
+// again), the DAT_0052C274 statistics (0x0012AF10), the broken parts (DAT_00545978) and the running score
+// (DAT_00545980). The rest of 0x00116E00 (DAT_0050E784..DAT_0050E79C, which the script reset clears, 0x00116DA0,
+// the DAT_00512B74 and DAT_0051234C pools, DAT_00545970, DAT_00545974, DAT_0054597C, DAT_004E17C8..DAT_004E1A34
+// and 0x001287F0) is not made here.
 void release_scene_music_at_start()
 {
+    scene_detail::g_pause_references = {}; // DAT_0050E764, DAT_0050E768
     if (g_name_e4e0[0] != 0)
     {
         play_scene_music_stream(nullptr, 0, g_name_e4e0, native_audio_runtime().streams);
@@ -2298,6 +2310,8 @@ void release_scene_music_at_start()
     g_event_sequence.icon_delay = 0.f; // DAT_00506538
     g_event_sequence.waiting = 0; // DAT_0050653C
     script_initialize_statistics(g_script_tallies.first); // 0x0012AF10, EAX DAT_0052C274
+    g_545978 = 0; // DAT_00545978
+    g_545980 = 0; // DAT_00545980
 }
 
 // The native scene's bank streams (DAT_004DF370..), bound once its actor services start.

@@ -352,6 +352,22 @@ const ObjectFactoryVtable* generic_strategy_lifecycle()
     return &table;
 }
 
+bool construct_ghoulie_girl_strategy_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto* player = active_owner->find_player(object);
+    player->strategy_type = 0x3D;
+    player->refresh_views();
+    return initialize_runtime_ghoulie_girl_strategy(bytes_of(object), parameters, player->ghoulie_girl); // 0x000AC1B0
+}
+
+// Getter 0x000AC160; vtable +8 is the empty 0x001628B0.
+const ObjectFactoryVtable* ghoulie_girl_strategy_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505DA8, ghoulie_girl_strategy_object_sizes,
+        construct_ghoulie_girl_strategy_view, destroy_empty_player_object};
+    return &table;
+}
+
 bool construct_haunted_chair_strategy_view(FactoryObject& object, std::span<const u8>)
 {
     auto* player = active_owner->find_player(object);
@@ -792,6 +808,13 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
                   leave_runtime_generic_state(old_state, generic);
                   return;
               }
+              if (strategy_type == 0x3D)
+              {
+                  // Ghoulie girl strategy vtable +0x18, 0x000AC460.
+                  refresh_views();
+                  leave_runtime_ghoulie_girl_state(old_state, ghoulie_girl);
+                  return;
+              }
               if (strategy_type == 0x40)
               {
                   // Haunted chair strategy vtable +0x18, 0x000AEB30.
@@ -982,6 +1005,12 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
               {
                   // Generic strategy vtable +0x14, 0x000AB770.
                   enter_runtime_generic_state(state, generic);
+                  return;
+              }
+              if (strategy_type == 0x3D)
+              {
+                  // Ghoulie girl strategy vtable +0x14, 0x000AC3E0.
+                  enter_runtime_ghoulie_girl_state(state, ghoulie_girl);
                   return;
               }
               if (strategy_type == 0x40)
@@ -1242,6 +1271,8 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
           "slideattarget", "mimic"},
       generic{strategy_messages, target_checks, target_queue, strategy_views, "far", "getweapon", "attack",
           "attackprojectile", "attackgun", "attackgun_secondary"},
+      ghoulie_girl{strategy_messages, target_checks, target_queue, strategy_views, scene_bindings.create_effect,
+          scene_bindings.object_message, scene_bindings.latches, "wake", "randomwander", "knockdown"},
       mummy{strategy_messages, target_checks, target_queue, strategy_views,
           [&tables = scene_bindings.action_tables](std::span<const u8> body) -> const RuntimeScriptLookupTable*
           {
@@ -1755,6 +1786,28 @@ void NativePlayerFactoryOwner::generic_message(FactoryObject& strategy, std::spa
     }
     player->refresh_views();
     dispatch_runtime_generic_message(message, player->generic);
+}
+
+void NativePlayerFactoryOwner::ghoulie_girl_message(FactoryObject& strategy, std::span<const u32> message)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x3D)
+    {
+        throw Error("ghoulie girl strategy method has no owning instance");
+    }
+    player->refresh_views();
+    dispatch_runtime_ghoulie_girl_message(message, player->ghoulie_girl);
+}
+
+void NativePlayerFactoryOwner::ghoulie_girl_update(FactoryObject& strategy)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x3D)
+    {
+        throw Error("ghoulie girl strategy method has no owning instance");
+    }
+    player->refresh_views();
+    update_runtime_ghoulie_girl_strategy(player->ghoulie_girl);
 }
 
 void NativePlayerFactoryOwner::generic_update(FactoryObject& strategy)
@@ -2315,6 +2368,7 @@ void NativePlayerFactoryOwner::install(std::span<ObjectFactoryType> types)
     types[0x44] = ObjectFactoryType{8, haunted_tv_strategy_lifecycle};
     types[0x40] = ObjectFactoryType{8, haunted_chair_strategy_lifecycle};
     types[0x3C] = ObjectFactoryType{8, generic_strategy_lifecycle};
+    types[0x3D] = ObjectFactoryType{8, ghoulie_girl_strategy_lifecycle}; // Getter 0x000AC160.
     types[0x3F] = ObjectFactoryType{8, grim_reaper_strategy_lifecycle};
     types[0x4C] = ObjectFactoryType{8, mummy_strategy_lifecycle};
     types[0x53] = ObjectFactoryType{8, ugly_girl_strategy_lifecycle};

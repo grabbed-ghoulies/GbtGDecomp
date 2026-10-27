@@ -272,6 +272,7 @@ All take the game directory, e.g.
 | `--scene3a3b` | Boots chapter 3a scene 3's book (chapter3a_scene3_2book, "Butler explains about the scrolls") and plays its six pages (A closes each). Passes when the script moves on to `aid_script_ghoulies_chapter3a_scene3_3playcam` (2026-10-27). Checked in the captures: the butler's first page, his portrait and text and the A prompt (page1) |
 | `--scene3a3c` | Boots chapter 3a scene 3_3 (chapter3a_scene3_3playcam) and plays it with the scene 7 driver: FREE PLAY to the exit. Passes when the script moves on to `aid_script_ghoulies_chapter3a_scene4_1playcam` (frame 1817 in the 2026-10-27 run). Checked in the captures: the butler jostling Cooper in the room (900) |
 | `--scene3a4` | Boots chapter 3a scene 4 (chapter3a_scene4_1playcam, the storeroom with the brambled door) and plays it with the scene 7 driver, which first breaks `aid_ghoulybox_ghoulies_chapter3a_warlockscene4` (a box of ghoulies) and then fights the warlock it holds. Breaking the box clears the brambles ("Exit door revealed"); the door opens once the warlock is beaten (the section waits on GhoulyExistsInScene for tag 0x3A). Passes when the script moves on to `aid_script_ghoulies_chapter3a_scene5_1playcam` (frames 5797 and 4009 in two 2026-10-27 runs). Not reliable: a third run took the freeze soup mid-fight, the warlock stayed gone, the driver gave up on him, and Cooper fainted at the locked door. The restarted scene has no warlock (the box stays broken), so it never ends. Checked in the captures: the warlock beside Cooper as the door is revealed (900), Cooper knocking him back with his meter at 37 (1500), and the plain door after he is beaten (4800) |
+| `--scene3a5` | Boots chapter 3a scene 5 (chapter3a_scene5_1playcam, the two-floor hall) and plays it with the scene 7 driver, calm in "free play", toward the exit on the upper floor at (160, 85, -239). Does not pass: Cooper starts with 5 energy, and the two pirates by the top of the stairs (around (141, -146) and (142, -113)) knock him out with one 6-energy hit as he passes, so the scene restarts until the frame limit. With fighting allowed the pirates and skeletons win too. Not settled: whether the 6-energy pirate hit and the 5-energy start are retail's. Checked in the captures: Cooper knocked down by the skeletons by the brambled door (1200), and the two pirates raising their chests at Cooper (14400) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -438,6 +439,27 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-27: chapter 3a scene 5: the slam smash attack
+
+- **entityStateSlamSmashAttack** (factory type 0x82, getter `0x000A03D0`, vtable 0x00505B20; the factory table's row
+  0x81 carries the name) in `entities/body_slam_smash_state.cpp`. It is a leap that lands as a slam.
+- Its slots and helpers:
+  - sizes `0x000A03B0` (0xD8 / 0xA0), init `0x000A0430`, destroy `0x000A05A0` and update `0x000A0630` (table
+    0x000A0994);
+  - the phase change `0x000A09B0` (table 0x000A0B40) and the landing point `0x000A0B50`, both exported with
+    `range-function-force`;
+  - the message, +0x14 and +0x18 slots are the empty `0x001628B0`, and +0x1C is `0x0002B620`.
+- The phases:
+  1. take-off, until slot 0's animation ends;
+  2. crouch for 0.5 s, with the landing point picked (the mind's target, else 40 ahead) on its cell bottom;
+  3. a 0.7 s leap rising 200 over the point (callout 0x3F where it left);
+  4. a 0.5 s drop at scale 2 with the contact shapes live;
+  5. landed: the parameters' "aid_" effect, callout 0x4C, and the body's death effect.
+- Wired in `SceneBodyMessages::slam_smash_context`. The scene's type lists for the empty +0xC, +0x14, +0x18 and the
+  +0x1C next key now include 0x82, and its 0x4A to its own body goes through `dispatch` (body type 0x27 has no scene
+  object view).
+- Not settled: which actor in scene 3a5 uses the state was not picked out on screen.
 
 ### 2026-10-27: chapter 3a scene 4: the warlock
 

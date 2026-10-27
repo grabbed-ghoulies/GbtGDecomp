@@ -21,6 +21,7 @@
 #include "../entities/generate_ghouly_state.h"
 #include "../entities/body_spawn_ghouly_state.h"
 #include "../entities/body_shocked_state.h"
+#include "../entities/body_slam_smash_state.h"
 #include "../entities/body_transform_state.h"
 #include "../entities/body_furnace_hit_state.h"
 #include "../entities/body_death_state.h"
@@ -204,6 +205,7 @@ public:
     RuntimeGenerateGhoulyContext& generate_ghouly_context(); // The type 0x6F state's views of this body.
     RuntimeSpawnGhoulyStateContext& spawn_ghouly_context(); // The type 0x85 state's views of this body.
     RuntimeShockedStateContext& shocked_context(); // The type 0x80 state's views of this body.
+    RuntimeSlamSmashStateContext& slam_smash_context(); // The type 0x82 state's views of this body.
     RuntimeTransformStateContext& transform_context(); // The type 0x8C state's views of this body.
     RuntimeFurnaceHitStateContext& furnace_hit_context(); // The type 0x75 state's views of this body.
     RuntimeScrabbleStateContext& scrabble_context(); // The type 0x7F state's views of this body.
@@ -274,6 +276,8 @@ private:
     std::optional<RuntimeGenerateGhoulyContext> generate_ghouly_;
     std::optional<RuntimeSpawnGhoulyStateContext> spawn_ghouly_;
     std::optional<RuntimeShockedStateContext> shocked_;
+    std::optional<RuntimeBodyStateContext> slam_smash_shape_;
+    std::optional<RuntimeSlamSmashStateContext> slam_smash_;
     std::optional<RuntimeTransformStateContext> transform_;
     std::optional<RuntimeBodyStateContext> furnace_hit_state_;
     std::optional<RuntimeFurnaceHitStateContext> furnace_hit_;

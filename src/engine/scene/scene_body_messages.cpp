@@ -577,7 +577,8 @@ void SceneBodyMessages::bind_action_children()
             && child->type != 0x7C && child->type != 0x87 && child->type != 0x88 && child->type != 0x69
             && child->type != 0x70 && child->type != 0x75
             && child->type != 0x85 // Getter 0x000A1A10 stores it at 0x00505B8C.
-            && child->type != 0x65) // Getter 0x0008D350 stores it at 0x0050578C.
+            && child->type != 0x65 // Getter 0x0008D350 stores it at 0x0050578C.
+            && child->type != 0x82) // Getter 0x000A03D0 stores it at 0x00505B2C.
         {
             unbound("body action message slot of factory type " + std::to_string(child->type));
         }
@@ -945,6 +946,9 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
     case 0x80:
         tick_runtime_shocked_state({action.bytes.get(), action.size}, shocked_context()); // 0x0009F5F0
         return;
+    case 0x82:
+        tick_runtime_slam_smash_state({action.bytes.get(), action.size}, slam_smash_context()); // 0x000A0630
+        return;
     case 0x8C:
         tick_runtime_transform_state({action.bytes.get(), action.size}, transform_context()); // 0x000A46D0
         return;
@@ -1301,6 +1305,7 @@ void SceneBodyMessages::action_step(FactoryObject& action)
     case 0x85:
     case 0x90:
     case 0x65:
+    case 0x82:
         // 0x001628B0 (0x000D4179 for 0x69, 0x70 and 0x88) returns at once.
         return;
     default:
@@ -1763,6 +1768,29 @@ RuntimeYoYoSpinStateContext& SceneBodyMessages::yoyo_spin_context()
             return body_slot_key(slot);
         }});
     return *yoyo_spin_;
+}
+
+RuntimeSlamSmashStateContext& SceneBodyMessages::slam_smash_context()
+{
+    player_.refresh_body_views();
+    slam_smash_shape_.reset();
+    slam_smash_shape_.emplace(services_.state_context(services_.address_of(player_.body.data())));
+    slam_smash_.reset();
+    slam_smash_.emplace(RuntimeSlamSmashStateContext{player_.body, player_.actor, player_.actor_bytes,
+        player_.actor_address, player_.actor_instance.animation, player_.body_selection, services_.clock,
+        *slam_smash_shape_, player_.collision, player_.actor_instance, player_.mind, services_.target_at,
+        services_.image_string, player_.callout.effects, death_,
+        [this](u32 actor, u32 id, const RuntimeActorCreationOptions* options)
+        {
+            services_.actor_callouts_with(actor, id, options);
+        },
+        [this](std::span<const u32> words)
+        {
+            std::array<u32, 0x42> buffer{};
+            std::copy_n(words.begin(), std::min<size_t>(words.size(), buffer.size()), buffer.begin());
+            dispatch(player_.body_object, buffer); // Body vtable +0xC.
+        }});
+    return *slam_smash_;
 }
 
 RuntimeShockedStateContext& SceneBodyMessages::shocked_context()
@@ -2883,7 +2911,7 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
             if (type != 0x87 && type != 0x88 && type != 0x69 && type != 0x70 && type != 0x5B && type != 0x5C && type != 0x74 && type != 0x7C
                 && type != 0x8A && type != 0x63 && type != 0x80 && type != 0x7F && type != 0x6B && type != 0x77
                 && type != 0x6E && type != 0x6D && type != 0x81 && type != 0x7B && type != 0x75
-                && type != 0x85 && type != 0x65) // And getters 0x000A1A10 and 0x0008D350.
+                && type != 0x85 && type != 0x65 && type != 0x82) // And getters 0x000A1A10, 0x0008D350, 0x000A03D0.
             {
                 unbound("collision reply action vtable +0xC of factory type " + std::to_string(type));
             }

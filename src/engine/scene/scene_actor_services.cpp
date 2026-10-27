@@ -2958,6 +2958,21 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         }
         return graph->scoop_whack_context();
     });
+    install_runtime_slam_smash_state_class(scene.types, [this](u32 body_address) -> RuntimeSlamSmashStateContext&
+    {
+        const auto bytes = scene.resolve_address(body_address, 0);
+        auto* player = players->find_child_owner(bytes.data());
+        if (player == nullptr || player->body.data() != bytes.data())
+        {
+            unbound("slam smash state whose body has no player owner");
+        }
+        auto& graph = body_messages[player->body.data()];
+        if (graph == nullptr)
+        {
+            graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
+        }
+        return graph->slam_smash_context();
+    });
     install_runtime_shocked_state_class(scene.types, [this](u32 body_address) -> RuntimeShockedStateContext&
     {
         const auto bytes = scene.resolve_address(body_address, 0);
@@ -8843,6 +8858,7 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
             case 0x85: // And getter 0x000A1A10.
             case 0x90: // And getter 0x000A6A00.
             case 0x65: // And getter 0x0008D350.
+            case 0x82: // And getter 0x000A03D0.
                 return runtime_body_action_next_key(action);
             case 0x5A:
             case 0x5C:
@@ -9681,7 +9697,8 @@ void SceneActorServices::State::draw_player(FactoryObject& object, NativePlayerI
                 && type != 0x8C // And getter 0x000A43A0.
                 && type != 0x85 // And getter 0x000A1A10.
                 && type != 0x90 // And getter 0x000A6A00.
-                && type != 0x65) // And getter 0x0008D350.
+                && type != 0x65 // And getter 0x0008D350.
+                && type != 0x82) // And getter 0x000A03D0.
             {
                 unbound("body +0x744 object vtable +0x18 draw for factory type "
                     + std::to_string(player.second_action.type));

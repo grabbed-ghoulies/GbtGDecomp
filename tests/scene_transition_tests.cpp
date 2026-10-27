@@ -9421,7 +9421,7 @@ void play_scene6_1_run(gbtg::Game& game, const std::string& label)
 // `doors_first` walks to a door a live PlayerApproachesDoor names before any region.
 void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_range, const std::string& range_title,
     bool doors_first, bool answer_challenges, const std::string& calm_title, const std::string& powerup_box,
-    gbtg::u32 powerup_kind)
+    gbtg::u32 powerup_kind, bool spare_watched)
 {
     // With `powerup_box`, Cooper first goes to the bg-break setup (type 0x24) whose ghoulybox (+0x934) names it and
     // punches until its background part (+0xA50) breaks, then walks onto the powerup (type 0xD) of `powerup_kind`
@@ -9461,6 +9461,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
     int pinned_since = -1;
     int side_steps = 0;
     gbtg::u32 last_challenge = 0xFFFFFFFFu;
+    gbtg::u16 last_energy = 0; // Cooper's body +0x94, logged as it changes.
     bool kill_all = false; // Several kill-all steps were queued at once (see below).
     // Scene 9's walk to the mummy's room takes some 7200 frames on its own; scene 2a13's pirate waves, with Cooper's
     // walks to the soups between them, up to some 17500.
@@ -9472,13 +9473,20 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
         input.accept = page && page_shown >= 0 && frame > page_shown + 60 && frame % 30 < 5;
         std::optional<gbtg::Vec3> cooper;
         bool holding = false;
+        gbtg::u16 energy = 0;
         for (const auto& mark : actors.marked_actors())
         {
             if (mark.actor != nullptr && mark.actor->class_key == 4)
             {
                 cooper = gbtg::actor_world_position(*mark.actor);
                 holding = !mark.body.empty() && gbtg::read_u32(mark.body, 0x48) != 0; // Body +0x48, the held weapon.
+                energy = mark.body.empty() ? 0 : gbtg::read_u16(mark.body, 0x94); // Body +0x94.
             }
+        }
+        if (cooper && energy != last_energy)
+        {
+            std::cout << label << " frame " << frame << ": Cooper's energy " << last_energy << " -> " << energy << "\n";
+            last_energy = energy;
         }
         // Walk Cooper into the region a live PlayerEntersRegion (condition 8, its +8 word) names; with none, into the
         // exit volume (mask 1) while a section holds at its end (type 0xF, DAT_00512518).
@@ -9511,11 +9519,21 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                 {
                     continue;
                 }
+                // A region may be several records (scene 2c5's dungweed region 1 is five spheres, four of them behind
+                // the garden wall): Cooper heads for the nearest.
                 const gbtg::u32 region = gbtg::cond_u32(condition, 8);
-                for (const auto* record = pool.begin; record < pool.cursor && !goal; ++record)
+                float nearest = 0.f;
+                for (const auto* record = pool.begin; record < pool.cursor; ++record)
                 {
-                    if ((record->mask & 1) == 0 && gbtg::u32(record->value_0) == region)
+                    if ((record->mask & 1) != 0 || gbtg::u32(record->value_0) != region)
                     {
+                        continue;
+                    }
+                    const float dx = record->center.x - cooper->x;
+                    const float dz = record->center.z - cooper->z;
+                    if (!goal || dx * dx + dz * dz < nearest)
+                    {
+                        nearest = dx * dx + dz * dz;
                         goal = record->center;
                         goal_name = "region " + std::to_string(region);
                     }
@@ -9572,8 +9590,15 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
         gbtg::u16 ghouly_energy = 0;
         if (cooper && !page)
         {
+            // With `spare_watched`, nothing is fought while a live PlayerHitGhouly (condition 14) watches for a hit:
+            // scene 2c5's pirate turns the garden on Cooper when he hits one of the digging skeletons.
+            bool watched = false;
+            for (const auto& condition : gbtg::g_script_conds)
+            {
+                watched = watched || (spare_watched && gbtg::cond_u32(condition, 0) == 14);
+            }
             const bool fights = (range_title.empty() || title == range_title)
-                && (calm_title.empty() || title != calm_title);
+                && (calm_title.empty() || title != calm_title) && !watched;
             const float range = fights ? fight_range : 0.f;
             float nearest = range * range;
             // A queued one-type step (type 0xD, its tag at +0x18) or kill-count step (type 3, its tag at +0x1C) sends
@@ -9988,11 +10013,23 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
             if (frame == 0)
             {
                 log_scene_objects(game, label, frame);
+                if (gbtg::g_512344 != nullptr)
+                {
+                    // The occupancy records (DAT_00512344): the regions PlayerEntersRegion names and the exit volume.
+                    const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+                    for (const auto* record = pool.begin; record < pool.cursor; ++record)
+                    {
+                        std::cout << label << " frame 0: region " << record->value_0 << " mask " << record->mask
+                                  << " kind " << record->kind << " at " << record->center.x << ", "
+                                  << record->center.y << ", " << record->center.z << " extent " << record->extent_x
+                                  << " x " << record->extent_z << " yaw " << record->yaw << "\n";
+                    }
+                }
             }
             if (cooper)
             {
                 std::cout << label << " frame " << frame << ": Cooper at " << cooper->x << ", " << cooper->y << ", "
-                          << cooper->z << "\n";
+                          << cooper->z << " energy " << energy << "\n";
             }
             std::cout << label << " frame " << frame << ": section end gate " << gbtg::g_gate_2518 << "\n";
         }
@@ -10031,12 +10068,13 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
 
 void play_scene7(gbtg::Game& game, const std::string& label, float fight_range = 50.f,
     const std::string& range_title = {}, bool doors_first = false, bool answer_challenges = false,
-    const std::string& calm_title = {}, const std::string& powerup_box = {}, gbtg::u32 powerup_kind = 0)
+    const std::string& calm_title = {}, const std::string& powerup_box = {}, gbtg::u32 powerup_kind = 0,
+    bool spare_watched = false)
 {
     try
     {
         play_scene7_run(game, label, fight_range, range_title, doors_first, answer_challenges, calm_title, powerup_box,
-            powerup_kind);
+            powerup_kind, spare_watched);
     }
     catch (const std::exception& error)
     {
@@ -10606,12 +10644,14 @@ int main(int argc, char** argv)
     const bool scene2c4_test = argc == 3 && std::string_view(argv[2]) == "--scene2c4";
     // --scene2c4b boots chapter2c_scene4_2playcam and plays it until the script moves on.
     const bool scene2c4b_test = argc == 3 && std::string_view(argv[2]) == "--scene2c4b";
+    // --scene2c5 boots chapter2c_scene5_1playcam and plays it until the script moves on.
+    const bool scene2c5_test = argc == 3 && std::string_view(argv[2]) == "--scene2c5";
     if (spawn_test)
     {
         std::cout << std::unitbuf;
     }
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
-        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene2a14_test && !scene2a15_test && !scene2a16_test && !scene2a17_test && !scene2b1_test && !scene2b2_test && !scene2b3_test && !scene2b4_test && !scene2b4b_test && !scene2b5_test && !scene2b6_test && !scene2b6b_test && !scene2b7_test && !scene2b8_test && !scene2b9_test && !scene2b10_test && !scene2b10b_test && !scene2c1_test && !scene2c2_test && !scene2c3_test && !scene2c4_test && !scene2c4b_test && !scene3_test && !pause_test)
+        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene2a14_test && !scene2a15_test && !scene2a16_test && !scene2a17_test && !scene2b1_test && !scene2b2_test && !scene2b3_test && !scene2b4_test && !scene2b4b_test && !scene2b5_test && !scene2b6_test && !scene2b6b_test && !scene2b7_test && !scene2b8_test && !scene2b9_test && !scene2b10_test && !scene2b10b_test && !scene2c1_test && !scene2c2_test && !scene2c3_test && !scene2c4_test && !scene2c4b_test && !scene2c5_test && !scene3_test && !pause_test)
     {
         std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene6-save | --scene6-save-reload | --scene3 | --pause | --scene4 | --scene5 | --scene6-1 | --scene7]\n";
         return 2;
@@ -10758,6 +10798,7 @@ int main(int argc, char** argv)
             : scene2c3_test ? "chapter2c_scene3_1playcam"
             : scene2c4_test ? "chapter2c_scene4_1book"
             : scene2c4b_test ? "chapter2c_scene4_2playcam"
+            : scene2c5_test ? "chapter2c_scene5_1playcam"
             : player_test || spawn_test ? "chapter1_scene1_2playcam"
             : title_test ? "" : "scene0_1book");
         if (scene2a1b_test)
@@ -10766,6 +10807,16 @@ int main(int argc, char** argv)
             play_scene7(game, "scene2a1_2");
             pass_chapter_title(game, "scene2a1_to_3", "aid_script_ghoulies_chapter2a_scene1_3playcam", false);
             play_scene7(game, "scene2a1_3", 1000.f, "Event - Kill All", true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene2c5_test)
+        {
+            pass_chapter_title(game, "scene2c5", "aid_script_ghoulies_chapter2c_scene5_1playcam", false);
+            // The pirate has his skeletons dig for the dungweed: a skeleton hit (PlayerHitGhouly) turns him and the
+            // garden's ghoulies on Cooper, so while that is watched Cooper fights nothing (no section is titled) and
+            // walks into the dungweed's region (PlayerEntersRegion); the ghoulies that come after are fought.
+            play_scene7(game, "scene2c5", 1000.f, {}, true, true, "FREE PLAY", {}, 0, true);
             gbtg::gfx_shutdown();
             return 0;
         }

@@ -29,6 +29,7 @@ struct RuntimeBackgroundClothDraw
     RuntimeDisplaySetupContext& display; // 0x000F6170, 0x000F6430.
     RuntimeShadowProjector& projector;
     const u32& ramp; // DAT_005043B8.
+    float& water_phase; // DAT_005462B0, BSS: 0x0005D710's texture wobble, 0.01 more each draw.
     std::function<u8*(u32 address)> texture_record; // A texture record by retail address (0x00053550's ESI).
     std::function<u32()> background_model; // **(DAT_00511B20 - 0x730), or 0.
 };
@@ -41,6 +42,10 @@ void begin_runtime_background_cloth_pass(RuntimeBackgroundClothDraw& context); /
 // The cloth as strips of {position, colour, row, column}, textured with +0xA8 (nothing without it).
 void draw_runtime_background_cloth(RuntimeBackgroundCloth& cloth,
     RuntimeBackgroundClothDraw& context); // Xbox 0x0005D470, EDI cloth
+// The water's draw: 0x0005D470's strips with the texture rows and columns waved 0.02 by sin and cos of 20 times their
+// share plus the phase, which advances 0.01 first.
+void draw_runtime_background_water(RuntimeBackgroundCloth& cloth,
+    RuntimeBackgroundClothDraw& context); // Xbox 0x0005D710, EDI cloth
 // The cloth's silhouette, white on the page target, seen from 30 above its bounds' centre along -30 x its light.
 void capture_runtime_background_cloth_shadow(RuntimeBackgroundCloth& cloth,
     RuntimeBackgroundClothDraw& context); // Xbox 0x0005DA50, EAX cloth

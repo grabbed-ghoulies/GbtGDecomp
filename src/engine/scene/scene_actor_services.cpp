@@ -816,6 +816,7 @@ struct SceneActorServices::State
     RuntimeBackgroundMorphs* background_morphs = nullptr; // DAT_0050E388 while the scene's cloths exist.
     RuntimeBackgroundCloths background_cloths; // DAT_0050E390, DAT_0050E394, DAT_0050E388 and DAT_0050E418.
     u32 cloth_ramp_texture = 0; // DAT_005043B8.
+    float cloth_water_phase = 0.f; // DAT_005462B0, BSS.
     RuntimeShadowProjector shadow_projector; // DAT_00504880..DAT_00504950.
     std::unique_ptr<RuntimeBackgroundClothContext> cloth_context;
     std::unique_ptr<RuntimeBackgroundClothScene> cloth_scene;
@@ -1537,6 +1538,23 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     actors->released = [this](Actor& actor)
     {
         actor_updates.erase(&actor);
+        // A live cutscene's row may still name the actor: scene 2c5's script (type 0x60, 0x00112CC0) retires the
+        // brambles a door clip holds, and 0x001232D0 frees them while the clip plays on. Retail's row keeps the
+        // freed block, whose bytes the engine heap leaves alone; the host frees it, so the row lets go and the clip's
+        // release (0x0004E9E0) skips it.
+        if (cutscenes != nullptr)
+        {
+            for (auto& [instance, rows] : cutscenes->instances)
+            {
+                for (auto& row : rows.actors)
+                {
+                    if (row.actor == &actor)
+                    {
+                        row.actor = nullptr;
+                    }
+                }
+            }
+        }
         for (const auto& [record, row] : mind_target_rows)
         {
             if (row->target != nullptr && &row->target->actor == &actor)
@@ -9745,7 +9763,7 @@ void SceneActorServices::State::present_view(i32 view)
             if (first_background_model().data() != nullptr && background_cloths.created)
             {
                 RuntimeBackgroundClothDraw draw{*point_light_pass, *display_setup, shadow_projector,
-                    cloth_ramp_texture,
+                    cloth_ramp_texture, cloth_water_phase,
                     [this](u32 address)
                     {
                         return resources.memory.pointer(address);
@@ -9876,7 +9894,7 @@ void SceneActorServices::State::present_view(i32 view)
             if (light_cones.count != 0 && backgrounds->first_background() != nullptr)
             {
                 RuntimeBackgroundClothDraw projector{*point_light_pass, *display_setup, shadow_projector,
-                    cloth_ramp_texture,
+                    cloth_ramp_texture, cloth_water_phase,
                     [this](u32 address)
                     {
                         return resources.memory.pointer(address);
@@ -12098,6 +12116,15 @@ RuntimeBackgroundClothScene& SceneActorServices::State::background_cloth_scene()
                 return;
             }
             unbound("0x000426F0 bound of an actor outside the scene");
+        },
+        origin, g_4312cc,
+        [this]() -> Vec3
+        {
+            if (display_view == nullptr)
+            {
+                throw Error("background cloth specular shading has no DAT_005077A8 display view");
+            }
+            return display_view->position; // DAT_005077A8 +0.
         }});
     cloth_scene = std::make_unique<RuntimeBackgroundClothScene>(RuntimeBackgroundClothScene{background_cloths,
         background_morphs, cloth_ramp_texture, *cloth_context,

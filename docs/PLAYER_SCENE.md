@@ -253,6 +253,7 @@ All take the game directory, e.g.
 | `--scene2c3` | Boots chapter 2c scene 3 (chapter2c_scene3_1playcam) and plays it with the scene 7 driver, calm in FREE PLAY: the event page ("Keep your eye on the cross"), then "EVENT - KILL ALL/NEXT ONE DIFFERENT" against zombies (tag 0x3C) and skeletons (0x34) with no faints. Passes when the script moves on to `aid_script_ghoulies_chapter2c_scene4_1book` (frame 4388 in the 2026-10-26 run); it needed no new translation. Checked in the captures: the event page (frame 1200) and Cooper fighting a zombie (2400) |
 | `--scene2c4` | Boots chapter 2c scene 4's book (chapter2c_scene4_1book) and plays its four pages. Passes when the script moves on to `aid_script_ghoulies_chapter2c_scene4_2playcam` (frame 2421 in the 2026-10-26 run); it needed no new translation. Checked in the captures: the comic panels with Cooper holding a new weapon (frame 1800) |
 | `--scene2c4b` | Boots chapter 2c scene 4_2 (chapter2c_scene4_2playcam, the music room) and plays it with the scene 7 driver: the untitled fight against mummies, skeletons and zombies with the popcan gun, and an SSS door (type 0x20) that springs a Super Scary challenge (the dragon scare) near the end. Passes when the script moves on to `aid_script_ghoulies_chapter2c_scene5_1playcam` (frame 9621 in the 2026-10-26 run) |
+| `--scene2c5` | Boots chapter 2c scene 5 (chapter2c_scene5_1playcam, the walled garden) and plays it with the scene 7 driver. While a PlayerHitGhouly watches (the pirate's skeletons dig for the dungweed), Cooper fights nothing and walks to the nearest record of the dungweed's region 1; the angry baron's fight follows. **Fails**: Cooper finds the dungweed every time (page 3, frame 2478) but faints in the fight, where the pirate's shovel takes all five hearts in one hit and the flying imp's dive three, and the scene restarts until frame 24000 |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -419,6 +420,28 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-27: chapter 2c scene 5: the walled garden's water
+
+- Background part kind 7 is a water surface: `0x00050940` builds a flat 28 x 28 sheet (`0x00050220`, every border
+  point pinned, each point starting with DAT_0050DD80's force) that rustles with the water footstep. `0x001153A0` gives
+  it the level hook `0x00114580` (each point pulled back toward the first point's height, 0.2 of the squared offset),
+  the ripple hook `0x001145F0` (an actor inside its bounds whose body spans the middle height pushes the inner points
+  out of a 4.4 + 0.4 sin(5 DAT_004312CC) ring 3.4 above it), damping 0.01, layer 1, no shadow and specular shading.
+- `0x0004BA90` (the specular shading) is translated, and `0x0004C000` now calls it instead of `0x0004B800` for
+  +0x1EE. `0x0005D710` draws the water: `0x0005D470`'s strips with the texture rows and columns waved 0.02 by the sin
+  and cos of 20 times their share plus DAT_005462B0, which advances 0.01 a draw.
+- Use-after-free fixed: the script's type 0x60 (`0x00112CC0`) retires the brambles one of the doors' clips holds,
+  and `0x001232D0` frees them while the clip plays on, so the clip's release (`0x0004E9E0`, at teardown or a
+  restart) read a freed actor (an `unordered_map` key error or an access violation, depending on the heap). Retail's
+  row keeps the freed block; the host now clears any live cutscene row naming an actor as it is destroyed.
+- Driver: a region's nearest record is the goal (region 1 here is five spheres, four behind the garden wall);
+  `spare_watched` holds Cooper back while a PlayerHitGhouly condition is live; every frame on which Cooper's energy
+  (body +0x94) changes is logged, and the occupancy records are listed at frame 0.
+- Not settled: whether the five-heart shovel hit is retail's (it comes from the statsheet's per-class damage for the
+  pirate under the 100% special attack attributes); the scene does not pass.
+- Checked in the captures: the garden with the skeletons digging, the pirate and the flying imp by the dungweed
+  (frame 2400). The water surface was not picked out on screen.
 
 ### 2026-10-26: chapter 2c scene 4_2: the SSS door
 

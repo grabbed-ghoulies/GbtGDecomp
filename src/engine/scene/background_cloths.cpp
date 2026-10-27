@@ -196,7 +196,22 @@ void build_runtime_background_cloths(RuntimeBackgroundClothScene& scene)
         }
         else if (kind == 7)
         {
-            kind_not_translated(kind, 0x00050940);
+            RuntimeBackgroundCloth* cloth = build_runtime_background_water(part, part_table_of(model, scene),
+                scene.cloth); // 0x00050940
+            if (cloth != nullptr)
+            {
+                auto bytes = cloth->bytes;
+                set(bytes, field::casts_shadow, u8(0));
+                set(bytes, field::constrain_hook, 0x001145F0u);
+                set(bytes, field::constrain_enabled, 1u);
+                set(bytes, field::before_hook, 0x00114580u);
+                set(bytes, field::own_shaders, u8(0));
+                set(bytes, field::second_draw, u8(1));
+                set(bytes, field::damping, 0.01f); // DAT_0032B124
+                set(bytes, field::layer, u8(1));
+                set(bytes, field::specular, u8(1));
+                register_runtime_background_cloth(*cloth, scene); // 0x00115A40
+            }
         }
         else if (kind == 6)
         {

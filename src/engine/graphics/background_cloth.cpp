@@ -233,11 +233,14 @@ void step_runtime_background_cloth(RuntimeBackgroundCloth& cloth, float step, Ru
                 call_runtime_background_cloth_hook(get(cloth.bytes, field::constrain_hook), cloth, context);
             }
         }
-        if (get(cloth.bytes, field::specular) != 0)
+        if (get(cloth.bytes, field::specular) == 0)
         {
-            throw Error("background cloth's specular shading 0x0004BA90 is not translated");
+            shade_runtime_background_cloth(cloth); // 0x0004B800, EBX cloth
         }
-        shade_runtime_background_cloth(cloth); // 0x0004B800, EBX cloth
+        else
+        {
+            shade_runtime_background_cloth_specular(cloth, context.camera()); // 0x0004BA90, ESI cloth
+        }
         hook = get(cloth.bytes, field::awake_hook);
     }
     if (hook != 0)
@@ -315,6 +318,108 @@ void shade_runtime_background_cloth(RuntimeBackgroundCloth& cloth)
             normal[2] = scale * normal[2];
             const float level = (light.x * normal[0] + normal[2] * light.z + normal[1] * light.y) * sign + 0.5f;
             *color++ = grey(truncate_to_int((long double)level * 255.0L)); // DAT_0032B158, 0x001673D8
+            normal += 3;
+            ++index;
+        }
+        *color = color[-1];
+        ++color;
+        normal += 3;
+        ++index;
+    }
+    for (u32 column = 0; column < columns; ++column)
+    {
+        *color = color[-i32(columns)];
+        ++color;
+    }
+}
+
+// Xbox 0x0004BA90, ESI cloth
+void shade_runtime_background_cloth_specular(RuntimeBackgroundCloth& cloth, const Vec3& camera)
+{
+    auto bytes = cloth.bytes;
+    const float area = get(bytes, field::column_step) * get(bytes, field::row_step);
+    const float twice = area * 2.f; // DAT_0032B110
+    const float squared = area * area;
+    const float sign = get(bytes, field::faces_room) != 0 ? -0.5f : 0.5f; // DAT_0032B1C4, DAT_0032B0F4
+    const u32 rows = get(bytes, field::rows);
+    const u32 columns = get(bytes, field::columns);
+    auto* normals = reinterpret_cast<float*>(cloth.normals.data());
+    float* normal = normals;
+    u32 index = 0;
+    for (u32 row = 0; i32(row) < i32(rows) - 1; ++row)
+    {
+        for (u32 column = 0; i32(column) < i32(columns) - 1; ++column)
+        {
+            const Vec3 origin = point_position(cloth, index);
+            const Vec3 across = point_position(cloth, index + 1);
+            const Vec3 down = point_position(cloth, index + columns);
+            const float ax = across.x - origin.x;
+            const float ay = across.y - origin.y;
+            const float az = across.z - origin.z;
+            const float bx = down.x - origin.x;
+            const float by = down.y - origin.y;
+            const float bz = down.z - origin.z;
+            normal[0] = bz * ay - by * az;
+            normal[1] = bx * az - bz * ax;
+            normal[2] = by * ax - bx * ay;
+            const float scale = twice / (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]
+                + squared);
+            normal[0] = normal[0] * scale;
+            normal[1] = normal[1] * scale;
+            normal[2] = normal[2] * scale;
+            normal += 3;
+            ++index;
+        }
+        normal += 3;
+        ++index;
+    }
+    const Vec3 light = get(bytes, field::light);
+    auto* color = reinterpret_cast<u32*>(cloth.colors.data());
+    normal = normals;
+    index = 0;
+    for (u32 row = 0; i32(row) < i32(rows) - 1; ++row)
+    {
+        for (u32 column = 0; i32(column) < i32(columns) - 1; ++column)
+        {
+            const Vec3 point = point_position(cloth, index);
+            Vec3 view{camera.x - point.x, camera.y - point.y, camera.z - point.z};
+            const float length = (view.z * view.z + view.y * view.y) + view.x * view.x;
+            if (length != 0.f) // DAT_0032B100
+            {
+                const long double scale = retail_reciprocal_sqrt(length); // 0x001534C0
+                view = {float(view.x * scale), float(view.y * scale), float(view.z * scale)};
+            }
+            const float level = ((normal[2] * light.z + normal[1] * light.y) + light.x * normal[0]) * sign + 0.5f;
+            if (row > 2 && i32(row) < i32(rows) - 3 && column > 2 && i32(column) < i32(columns) - 3)
+            {
+                const float* previous = normal - 3;
+                const float* next = normal + 3;
+                const float* above = normal - size_t(columns) * 3;
+                const float* below = normal + size_t(columns) * 3;
+                const float nx = ((((previous[0] + normal[0]) + next[0]) + above[0]) + below[0]) * 0.2f; // DAT_0032B1AC
+                const float ny = ((((previous[1] + normal[1]) + next[1]) + above[1]) + below[1]) * 0.2f;
+                const float nz = ((((previous[2] + normal[2]) + next[2]) + above[2]) + below[2]) * 0.2f;
+                const long double toward = ((long double)nz * view.z + (long double)ny * view.y)
+                    + (long double)nx * view.x;
+                const long double lit = ((long double)nx * light.x + (long double)nz * light.z)
+                    + (long double)ny * light.y;
+                const long double facing = ((long double)view.x * light.x + (long double)view.z * light.z)
+                    + (long double)view.y * light.y;
+                const long double reflection = toward * lit * 2.0L - facing;
+                float shine = float(std::pow(reflection, 32.0L) * 2.0L + level); // DAT_0032B3C8, 0x00167CB8
+                if (shine > 1.f) // DAT_0032B0F8
+                {
+                    shine = 1.f;
+                }
+                const u32 bright = u32(truncate_to_int((long double)shine * 255.0L)) & 0xFFu; // DAT_0032B158
+                const u32 grey_level = u32(truncate_to_int((long double)level * 255.0L)); // 0x001673D8
+                *color = ((((grey_level | 0xFFFFFF00u) << 8) | bright) << 8) | bright;
+            }
+            else
+            {
+                *color = grey(truncate_to_int((long double)level * 255.0L)); // DAT_0032B158, 0x001673D8
+            }
+            ++color;
             normal += 3;
             ++index;
         }
@@ -545,6 +650,216 @@ RuntimeBackgroundCloth* build_runtime_background_flag(std::span<const u8> part, 
         context); // 0x0004FB30
 }
 
+// Xbox 0x00050220, ECX size, EAX part table, EDI quad
+RuntimeBackgroundCloth* build_runtime_background_water_sheet(u16 size, u16 edges, std::span<const u8> part,
+    std::span<const u8> part_table, RuntimeBackgroundClothContext& context)
+{
+    const float* quad = reinterpret_cast<const float*>(part.data());
+    const float az = quad[5] - quad[2];
+    const float bz = quad[11] - quad[2];
+    const float ax = quad[3] - quad[0];
+    const float bx = quad[9] - quad[0];
+    Vec3 normal{bz * 0.f - az * 0.f, az * bx - bz * ax, ax * 0.f - bx * 0.f};
+    normalize_runtime_graphics_vector(normal, normal); // 0x00184F99
+    RuntimeBackgroundCloth* cloth = create_runtime_background_cloth(size, size, edges, context); // 0x0004B5F0
+    auto bytes = cloth->bytes;
+    set(bytes, field::unk_1e5, u8(3));
+    set(bytes, field::texture, 0u);
+    const u16 texture = read_u16(part, 0x32);
+    if (u32(texture) < read_u32(part_table, 8))
+    {
+        set(bytes, field::texture, read_u32(context.resolve(read_u32(part_table, 0xC) + u32(texture) * 4, 4), 0));
+    }
+    const u32 rows = get(bytes, field::rows);
+    const u32 columns = get(bytes, field::columns);
+    for (u32 row = 0; row < rows; ++row)
+    {
+        for (u32 column = 0; column < columns; ++column)
+        {
+            const float across = float(i32(row)) / float(i32(rows - 1));
+            const float down = float(i32(column)) / float(i32(columns - 1));
+            float* point = cloth->point(row * columns + column);
+            point[0] = (quad[0] + ax * across) + bx * down;
+            point[1] = (quad[1] + across * 0.f) + down * 0.f;
+            point[2] = (quad[2] + az * across) + bz * down;
+            const bool edge = row == 0 || i32(rows - 1) <= i32(row) || column == 0 || i32(columns - 1) <= i32(column);
+            reinterpret_cast<u8*>(point)[0x28] = edge ? 1 : 0;
+            point[6] = context.origin.x; // DAT_0050DD80
+            point[7] = context.origin.y;
+            point[8] = context.origin.z;
+            point[9] = 1.f; // DAT_0032B0F8
+        }
+    }
+    const float per_row = 1.f / float(rows);
+    const float per_column = 1.f / float(columns);
+    const float row_x = ax * per_row;
+    const float row_y = per_row * 0.f;
+    const float row_z = az * per_row;
+    const float column_x = per_column * bx;
+    const float column_y = per_column * 0.f;
+    const float column_z = bz * per_column;
+    set(bytes, field::row_step, float(std::sqrt(((long double)row_z * row_z + (long double)row_y * row_y)
+        + (long double)row_x * row_x)));
+    set(bytes, field::column_step, float(std::sqrt(((long double)column_z * column_z
+        + (long double)column_y * column_y) + (long double)column_x * column_x)));
+    for (u32 index = 0; index < get(bytes, field::points); ++index)
+    {
+        float* point = cloth->point(index);
+        point[3] = point[0];
+        point[4] = point[1];
+        point[5] = point[2];
+    }
+    // `vertical` sums the squares z, y, x (the edge to the next row), else x, z, y.
+    const auto add_edge = [&](u32 first, u32 second, bool vertical)
+    {
+        const float* a = cloth->point(first);
+        const float* b = cloth->point(second);
+        const long double dx = (long double)a[0] - b[0];
+        const long double dy = (long double)a[1] - b[1];
+        const long double dz = (long double)a[2] - b[2];
+        const float length = float(std::sqrt(vertical ? (dz * dz + dy * dy) + dx * dx : (dx * dx + dz * dz) + dy * dy));
+        if (get(bytes, field::sorted) == 0)
+        {
+            const u32 edge = get(bytes, field::edges);
+            u8* row = cloth->graph.edges.data() + size_t(edge) * 0x1C;
+            std::memcpy(row, &first, 4);
+            std::memcpy(row + 4, &second, 4);
+            const float squared = length * length;
+            const float inverse = 1.f / squared; // DAT_0032B0F8
+            std::memcpy(row + 0x10, &length, 4);
+            std::memcpy(row + 0x14, &inverse, 4);
+            std::memcpy(row + 0x18, &squared, 4);
+            set(bytes, field::edges, edge + 1);
+        }
+    };
+    for (u32 row = 0; row < rows; ++row)
+    {
+        for (u32 column = 0; column < columns; ++column)
+        {
+            const u32 index = row * columns + column;
+            if (i32(row) < i32(rows) - 1)
+            {
+                add_edge(index, index + columns, true);
+            }
+            if (i32(column) < i32(columns) - 1)
+            {
+                add_edge(index, index + 1, false);
+            }
+        }
+    }
+    prepare_runtime_point_graph_edges(cloth->graph); // 0x001024A0
+    Vec3 center{quad[3] + quad[0], quad[4] + quad[1], quad[5] + quad[2]};
+    center = {center.x + quad[6], center.y + quad[7], center.z + quad[8]};
+    center = {center.x + quad[9], center.y + quad[10], center.z + quad[11]};
+    center = {center.x * 0.25f, center.y * 0.25f, center.z * 0.25f}; // DAT_0032B104
+    set(bytes, field::center, center);
+    set(bytes, field::radius, float(std::sqrt((long double)(center.y - quad[1]) * (center.y - quad[1])
+        + (long double)(center.z - quad[2]) * (center.z - quad[2])
+        + (long double)(center.x - quad[0]) * (center.x - quad[0]))));
+    set(bytes, field::normal, normal);
+    set(bytes, field::always_stepped, 1u);
+    return cloth;
+}
+
+// Xbox 0x00050940, EAX model, ECX part
+RuntimeBackgroundCloth* build_runtime_background_water(std::span<const u8> part, std::span<const u8> part_table,
+    RuntimeBackgroundClothContext& context)
+{
+    RuntimeBackgroundCloth* cloth = build_runtime_background_water_sheet(0x1C, 0x5E8, part, part_table,
+        context); // 0x00050220
+    if (cloth != nullptr)
+    {
+        set(cloth->bytes, field::rustles, u8(1));
+        const char* sound = "XACT_SOUNDBANK_GFOOTSTEPWATER_DEFAULT"; // 0x002FE740
+        char* output = reinterpret_cast<char*>(field_data(cloth->bytes, field::sound));
+        char character;
+        do
+        {
+            character = *sound++;
+            *output++ = character;
+        } while (character != 0);
+    }
+    return cloth;
+}
+
+// Xbox 0x00114580
+void level_runtime_background_water(RuntimeBackgroundCloth& cloth)
+{
+    const float level = cloth.point(0)[1];
+    for (u32 index = 0; index < get(cloth.bytes, field::points); index = (index + 1) & 0xFFFF)
+    {
+        float* point = cloth.point(index);
+        const float offset = level - point[1];
+        const float pull = offset * offset * 0.2f; // DAT_0032B1AC
+        point[7] = pull;
+        if (point[1] > level)
+        {
+            point[7] = 0.f - pull;
+        }
+    }
+}
+
+// Xbox 0x001145F0
+void ripple_runtime_background_water(RuntimeBackgroundCloth& cloth, RuntimeBackgroundClothContext& context)
+{
+    auto bytes = cloth.bytes;
+    const Vec3 bounds_low = get(bytes, field::low);
+    const Vec3 bounds_high = get(bytes, field::high);
+    const float middle = (bounds_high.y + bounds_low.y) * 0.5f; // DAT_0032B0F4
+    const Vec3 low{bounds_low.x, bounds_low.y - 30.f, bounds_low.z}; // DAT_0032B108
+    const Vec3 high{bounds_high.x, bounds_high.y + 30.f, bounds_high.z};
+    for (const void* node = context.wide_first; node != nullptr;
+         node = static_cast<const entity_detail::ListHead*>(node)->next)
+    {
+        const Actor& actor = *context.wide_actor(node); // The node less 0x1E8.
+        const Vec3 position = actor_world_position(actor); // 0x000412A0
+        if (low.x > position.x || position.x > high.x || low.y > position.y || position.y > high.y
+            || low.z > position.z || position.z > high.z)
+        {
+            continue;
+        }
+        Vec3 foot = actor_world_position(actor); // 0x000412A0
+        const float depth = engine_absolute(float(((long double)actor.model_size_y - actor.model_size_z)
+            * actor.radius_y)); // 0x00152BB0
+        foot.y = actor.radius_y * actor.model_size_z + foot.y;
+        (void)engine_absolute(actor.model_size_x * actor.radius_xz); // 0x00152BB0; the result is dropped.
+        if (!(middle > foot.y) || !(foot.y + depth > middle))
+        {
+            continue;
+        }
+        const float surface = middle + 3.4f; // DAT_0032B4DC
+        const u32 rows = get(bytes, field::rows);
+        for (u32 row = 1; i32(row) < i32(rows) - 1; row = (row + 1) & 0xFFFF)
+        {
+            for (u32 column = 1; i32(column) < i32(get(bytes, field::columns)) - 1; column = (column + 1) & 0xFFFF)
+            {
+                const float radius = float(std::sin((long double)context.scene_time * 5.0L) * (long double)0.4f
+                    + (long double)4.4f); // DAT_004312CC, DAT_0032B184, DAT_0032B11C, DAT_0032B4D8
+                float* point = cloth.point(get(bytes, field::columns) * row + column);
+                const float dx = point[0] - position.x;
+                const float dy = point[1] - surface;
+                const float dz = point[2] - position.z;
+                if (!(radius * radius > (dy * dy + dx * dx) + dz * dz))
+                {
+                    continue;
+                }
+                point[0] = dx;
+                point[1] = dy;
+                point[2] = dz;
+                if (dx == 0.f && dy == 0.f && dz == 0.f)
+                {
+                    continue;
+                }
+                Vec3 away{dx, dy, dz};
+                normalize_runtime_graphics_vector(away, away); // 0x00184F99, in place
+                point[0] = away.x * radius + position.x;
+                point[1] = away.y * radius + surface;
+                point[2] = away.z * radius + position.z;
+            }
+        }
+    }
+}
+
 // Xbox 0x001025E0
 bool push_runtime_point_from_capsule(float* point, const Vec3& start, const Vec3& end, float radius)
 {
@@ -733,6 +1048,12 @@ void call_runtime_background_cloth_hook(u32 hook, RuntimeBackgroundCloth& cloth,
         return;
     case 0x00114910:
         constrain_runtime_background_cloth(cloth, context);
+        return;
+    case 0x00114580:
+        level_runtime_background_water(cloth);
+        return;
+    case 0x001145F0:
+        ripple_runtime_background_water(cloth, context);
         return;
     default:
     {

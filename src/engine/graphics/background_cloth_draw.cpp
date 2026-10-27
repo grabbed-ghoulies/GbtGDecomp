@@ -233,9 +233,12 @@ void draw_runtime_background_cloths(u32 layer, std::vector<RuntimeBackgroundClot
         }
         if (get(bytes, field::second_draw) != 0)
         {
-            throw Error("background cloth draw 0x0005D710 is not translated");
+            draw_runtime_background_water(*cloth, context); // 0x0005D710
         }
-        draw_runtime_background_cloth(*cloth, context); // 0x0005D470
+        else
+        {
+            draw_runtime_background_cloth(*cloth, context); // 0x0005D470
+        }
     }
     d3d(context).simple_state(SceneD3DDevice::kTwoSidedLighting, 0); // 0x001717F0
 }
@@ -334,6 +337,88 @@ void draw_runtime_background_cloth(RuntimeBackgroundCloth& cloth, RuntimeBackgro
         push[1] = 0;
         d3d(context).end_push(push + 2); // D3DDevice_EndPush
         base += columns;
+        row_coordinate = next_row;
+    }
+    if (get(bytes, field::own_shaders) == 0)
+    {
+        bind_shaders(context, 0x00425ECC, 0x00427344, 0x00427338);
+    }
+}
+
+// Xbox 0x0005D710, EDI cloth
+void draw_runtime_background_water(RuntimeBackgroundCloth& cloth, RuntimeBackgroundClothDraw& context)
+{
+    auto bytes = cloth.bytes;
+    const float row_step = 1.f / float(i32(get(bytes, field::rows)));
+    const float column_step = 1.f / float(i32(get(bytes, field::columns)));
+    if (get(bytes, field::unk_1e4) == 1)
+    {
+        simple(context, 0x40344, 1, 0x00181C68);
+        simple(context, 0x40348, 1, 0x00181C6C);
+        simple(context, 0x4035C, 0, 0x00181C70);
+    }
+    if (get(bytes, field::own_shaders) == 0)
+    {
+        bind_shaders(context, 0x00425EBC, 0x0042732C, 0x00427320);
+    }
+    const u32 texture = get(bytes, field::texture);
+    if (texture == 0)
+    {
+        return;
+    }
+    u8* record = context.texture_record(texture);
+    if (record[0x11] != 0)
+    {
+        record[0x13] = 0;
+    }
+    bind_dialogue_texture(record, 0, context.pass.outer.draw); // 0x00053550, ESI texture
+    context.water_phase = context.water_phase + 0.01f; // DAT_005462B0, DAT_0032B124
+    const long double phase = context.water_phase;
+    const auto* colors = reinterpret_cast<const u32*>(cloth.colors.data());
+    float row_coordinate = 0.f;
+    u32 base = 0;
+    u32 rows = get(bytes, field::rows);
+    for (u32 row = 0; i32(row) < i32(rows) - 1; row = (row + 1) & 0xFFFF)
+    {
+        const float top = float(std::sin((long double)i32(row) / (long double)i32(rows) * (long double)20.f + phase)
+            * (long double)0.02f + row_coordinate); // DAT_0032B234, DAT_0032B3E4
+        const float next_row = float((long double)row_coordinate + row_step);
+        const float bottom = float(std::sin((long double)i32(row + 1) / (long double)i32(rows) * (long double)20.f
+            + phase) * (long double)0.02f + next_row);
+        const u32 columns = get(bytes, field::columns);
+        float column_coordinate = 0.f;
+        u32* push = d3d(context).begin_push(columns * 0xC + 5); // D3DDevice_BeginPush (0x00171E20)
+        push[0] = 0x417FC; // NV097_SET_BEGIN_END
+        push[1] = 6; // A triangle strip.
+        push[2] = columns * 0x300000 + 0x40001818; // NV097_INLINE_ARRAY, twelve words a column.
+        push += 3;
+        for (u32 column = 0; column < get(bytes, field::columns); column = (column + 1) & 0xFFFF)
+        {
+            const u32 count = get(bytes, field::columns);
+            const float* upper = cloth.point(base + column);
+            push[0] = std::bit_cast<u32>(upper[0]);
+            push[1] = std::bit_cast<u32>(upper[1]);
+            push[2] = std::bit_cast<u32>(upper[2]);
+            push[3] = colors[base + column];
+            push[4] = std::bit_cast<u32>(top);
+            const float across = float(std::cos((long double)i32(column) / (long double)i32(count)
+                * (long double)20.f + phase) * (long double)0.02f + column_coordinate);
+            column_coordinate = column_coordinate + column_step;
+            push[5] = std::bit_cast<u32>(across);
+            const float* lower = cloth.point(get(bytes, field::columns) + base + column);
+            push[6] = std::bit_cast<u32>(lower[0]);
+            push[7] = std::bit_cast<u32>(lower[1]);
+            push[8] = std::bit_cast<u32>(lower[2]);
+            push[9] = colors[get(bytes, field::columns) + base + column];
+            push[10] = std::bit_cast<u32>(bottom);
+            push[11] = std::bit_cast<u32>(across);
+            push += 12;
+        }
+        push[0] = 0x417FC;
+        push[1] = 0;
+        d3d(context).end_push(push + 2); // D3DDevice_EndPush
+        rows = get(bytes, field::rows);
+        base += get(bytes, field::columns);
         row_coordinate = next_row;
     }
     if (get(bytes, field::own_shaders) == 0)

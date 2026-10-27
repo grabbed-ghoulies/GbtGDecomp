@@ -101,6 +101,9 @@ struct RuntimeBackgroundClothContext
     std::function<std::span<const u8>(u32, size_t)> resolve; // Model memory by retail address.
     // 0x000426F0 with mask -1, not averaged, over the actor's +0x8FC shape pool: start +4, axis +0x10, radius +0x1C.
     std::function<void(const Actor&, u8* output)> actor_bound;
+    const Vec3& origin; // DAT_0050DD80, each water point's starting force.
+    const float& scene_time; // DAT_004312CC, the time 0x0012B1F0 advances; the water ripple's phase.
+    std::function<Vec3()> camera; // DAT_005077A8 +0: the display view's position, for 0x0004BA90.
     // DAT_0050E398 (the player's) and DAT_0050E3D8 (the nearest actor's): the bound, then its start (+0x20), end
     // (+0x2C) and 0.6 of its radius (+0x38), as 0x00114910 leaves them.
     std::array<u8, 0x40> player_capsule{};
@@ -121,6 +124,11 @@ void settle_runtime_background_cloth(RuntimeBackgroundCloth& cloth,
 float runtime_background_cloth_motion(RuntimeBackgroundCloth& cloth); // Xbox 0x0004C1B0, EBX cloth
 // Each quad's normal (scaled by 2s / (|n|^2 + s^2), s the cell area) and its grey from the light.
 void shade_runtime_background_cloth(RuntimeBackgroundCloth& cloth); // Xbox 0x0004B800, EBX cloth
+// 0x0004B800's normals, then each point's light from them toward the camera (DAT_005077A8): red the grey, and, three
+// points in from every edge, green and blue the grey plus twice the 32nd power of the camera's reflection off the
+// five-point average normal (at most 1).
+void shade_runtime_background_cloth_specular(RuntimeBackgroundCloth& cloth,
+    const Vec3& camera); // Xbox 0x0004BA90, ESI cloth
 // Copies the quad (four points) and orders it: highest two first, the corner nearer the first third.
 void order_runtime_cloth_quad(const float* quad, float* output); // Xbox 0x0004FA40, EAX quad, ESI output
 int compare_runtime_cloth_corners(const void* left, const void* right); // Xbox 0x0004FA10
@@ -133,6 +141,21 @@ RuntimeBackgroundCloth* build_runtime_background_cloth(u16 rows, u16 columns, u1
 // 19 rows (kind 1) or 5 rows (kinds 2 and 8).
 RuntimeBackgroundCloth* build_runtime_background_flag(std::span<const u8> part, std::span<const u8> part_table,
     RuntimeBackgroundClothContext& context); // Xbox 0x00050880, EAX part, EBX model
+// A flat `size` x `size` sheet over the quad (EDI) at its first corner's height, every border point pinned, each point
+// starting with DAT_0050DD80's force.
+RuntimeBackgroundCloth* build_runtime_background_water_sheet(u16 size, u16 edges, std::span<const u8> part,
+    std::span<const u8> part_table,
+    RuntimeBackgroundClothContext& context); // Xbox 0x00050220, ECX size, EAX part table, EDI quad
+// A water surface (kind 7): a 28 x 28 sheet over the part's quad that splashes with the water footstep.
+RuntimeBackgroundCloth* build_runtime_background_water(std::span<const u8> part, std::span<const u8> part_table,
+    RuntimeBackgroundClothContext& context); // Xbox 0x00050940, EAX model, ECX part
+// The water's before hook: each point's vertical force pulls it back toward the first point's height, 0.2 of the
+// squared offset.
+void level_runtime_background_water(RuntimeBackgroundCloth& cloth); // Xbox 0x00114580
+// The water's hook: each actor on DAT_00511AFC inside its bounds (30 deeper and higher) whose body spans the middle
+// height pushes the inner points out of a ripple ring (4.4 + 0.4 sin(5 DAT_004312CC)) 3.4 above that height.
+void ripple_runtime_background_water(RuntimeBackgroundCloth& cloth,
+    RuntimeBackgroundClothContext& context); // Xbox 0x001145F0
 // The point (ESI) pushed out of the capsule from `start` (ECX) to `end` (EDI); true when it was inside.
 bool push_runtime_point_from_capsule(float* point, const Vec3& start, const Vec3& end,
     float radius); // Xbox 0x001025E0
@@ -150,7 +173,8 @@ void build_runtime_background_curtains(std::span<const u8> part, std::span<const
 // The view box (the bounds' centre +-60) against the frustum.
 bool runtime_background_cloth_in_view(RuntimeBackgroundCloth& cloth, std::span<const float, 42> frustum,
     u8& hint); // Xbox 0x00114090, ECX cloth
-// Hooks 0x001151F0 (asleep once still) and 0x001152C0 (woken by a near actor); the others raise.
+// Hooks 0x001151F0 (asleep once still), 0x001152C0 (woken by a near actor), 0x00114910 (the flag's pushes),
+// 0x00114580 and 0x001145F0 (the water's level and ripple); the others raise.
 void call_runtime_background_cloth_hook(u32 hook, RuntimeBackgroundCloth& cloth,
     RuntimeBackgroundClothContext& context);
 // The actor on DAT_00511AFC nearest the point (the player left out when `skip_player`); true within 2500 squared.

@@ -230,6 +230,7 @@ struct NativePlayerSceneBindings
     std::function<void()> stop_meter{};
     std::function<bool()> meter_shown{};
     std::function<u32()> meter_actor{};
+    std::function<std::span<const u8>(u32)> mind_bytes_at{}; // A mind (actor +0x958) by retail address, through +0x10.
 };
 
 // Native state and contexts of one player (type 5) and its body, mind and strategy children.

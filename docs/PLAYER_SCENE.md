@@ -265,6 +265,9 @@ All take the game directory, e.g.
 | `--scene2c13` | Boots chapter 2c scene 13's first book (chapter2c_scene13_1book) and plays its page (A closes it). Passes when the script moves on to `aid_script_ghoulies_chapter2c_scene13_2playcam` (2026-10-27). Checked in the captures: Cooper's page to Amber about the cook's potion, with its portrait and the A prompt (page1) |
 | `--scene2c13b` | Boots chapter 2c scene 13_2 (chapter2c_scene13_2playcam, the basement archives) and plays it with the scene 7 driver: Cooper against Amber as a ghoulie (entityStrategyGhoulieGirl, type 0x3D, class 0xC). Passes when the script moves on to `aid_script_ghoulies_chapter2c_scene13_3book` (frame 6623 in the 2026-10-27 run; her knockdowns make Cooper faint once and the scene replays). Checked in the captures: Cooper knocked down by her (300) and her beside Cooper in the archives (6300) |
 | `--scene2c13c` | Boots chapter 2c scene 13's closing book (chapter2c_scene13_3book, "Cook's assistant reveals prisoner's plight") and plays its two pages (A closes each). Passes when the script moves on to `aid_script_ghoulies_chapter3a_scene1_2book`, the end of chapter 2c (frame 3341 in the 2026-10-27 run). Checked in the captures: the cook's first page (page1) |
+| `--scene3a1` | Boots chapter 3a scene 1's book (chapter3a_scene1_2book) and plays its page (A closes it). Passes when the script moves on to `aid_script_ghoulies_chapter3a_scene1_3playcam` (frame 1212 in the 2026-10-27 run). Checked in the captures: Mr. Ribs' page, his portrait and text and the A prompt (page1) |
+| `--scene3a1b` | Boots chapter 3a scene 1_3 (chapter3a_scene1_3playcam): the chapter 3a title (A moves it on), then FREE PLAY, where Cooper walks out through the exit (region 1). Passes when the script moves on to `aid_script_ghoulies_chapter3a_scene2_1playcam` (frame 358 of play in the 2026-10-27 run). Cooper's energy reads 1 throughout (not checked against the script). Checked in the captures: the chapter title's sketch (title) and Cooper running for the open door (300) |
+| `--scene3a2` | Boots chapter 3a scene 2 (chapter3a_scene2_1playcam, the haunted television) and plays it with the scene 7 driver, calm in FREE PLAY: the "EVENT" breaks the bg-break key loose, then Cooper walks past the television to the exit. Passes when the script moves on to `aid_script_ghoulies_chapter3a_scene3_1playcam` (frame 1652 in the 2026-10-27 run, no faint). Fighting in FREE PLAY instead lets the class 0x15 ghoulie hit Cooper for 3 about every 100 frames; that run fainted eleven times, and a class 0x17 ghoulie threw the homing projectile (type 0xA8) on the sixth pass. Checked in the captures: the "Haunted Television" introduction (900) and Cooper running past the glowing set to the door (1500) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -431,6 +434,25 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-27: chapter 3a scenes 1 and 2: the haunted television and the homing projectile
+
+- Scene 1's book and playcam needed nothing new.
+- The haunted TV's target check (0x00141530) read the target's mind (actor +0x958) through the actor-sized
+  `actor_bytes_at`, past the mind's object; the strategy views gained `mind_bytes_at` (0x14 bytes, through +0x10).
+- **entityWeaponProjectileHome** (factory type 0xA8, getter `0x000CC790`, vtable 0x00506398; the factory table's row
+  0xA7 carries the name) in `entities/homing_projectile.cpp`: its slots `0x000CC770` .. `0x000CD090` (four jump
+  tables decoded) and privates `0x000CD120` .. `0x000CD3A0`. It flies in weapon state 10, so the weapon's follow
+  update is translated too (`entities/weapon_motion.cpp`): `0x00149750`, the steering `0x00149D20`, `0x00149C50`,
+  `0x00149C30`, `0x00103330` and `0x00105B90`. The root record `0x000CC010` now takes its outputs (the thrown
+  projectile passes +0xF24 / +0xF30, the homing one +0xE70 / +0xE7C). The weapon services gained `target_at` (a
+  mind target record by address) and `player_cells` (a player's +0xCE8 cells).
+- The body projectile command (`0x0001A3C0`) looked its new object up in a map nothing filled; the scene now holds
+  the projectile from its creation, it is found by address, and its native `spawn_owner` follows the +0xD8C word.
+- Message 0x2A (a direct hit, `0x000205B0`) now binds its sender as the source view.
+- Found with AddressSanitizer (`build-asan`, `/fsanitize=address`): the follow entry `0x001495C0` allocated retail's
+  0x34 bytes for a host path search of 72 (64-bit pointers), and scene teardown read a player's position after its
+  native view was freed (`released_binding`); the position is now kept by the `released` hook.
 
 ### 2026-10-27: chapter 2c scenes 10 to 13: the hallway, kitchen, wine cellar and Amber
 

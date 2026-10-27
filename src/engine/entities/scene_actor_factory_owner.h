@@ -7,6 +7,7 @@
 #include "weapon_actor.h"
 #include "projectile_weapon.h"
 #include "thrown_projectile.h"
+#include "homing_projectile.h"
 #include "bob_weapon.h"
 #include "candle_weapon.h"
 #include "container_weapon.h"
@@ -165,6 +166,12 @@ public:
     bool construct_thrown_projectile(FactoryObject& object,
         std::span<const u8> parameters); // Type 0xA7, Xbox 0x000CB5E0.
     void release_thrown_projectile(FactoryObject& object); // Type 0xA7, Xbox 0x000CB6A0.
+    bool construct_homing_projectile(FactoryObject& object,
+        std::span<const u8> parameters); // Type 0xA8, Xbox 0x000CC800.
+    void release_homing_projectile(FactoryObject& object); // Type 0xA8, Xbox 0x000CC8E0.
+    u32 draw_homing_projectile(FactoryObject& object, ActorDrawState& state, i32 pass,
+        const ActorFrameDrawContext& attachments, SceneModelDrawContext& draw,
+        RuntimeGlowPass& glow); // Type 0xA8 vtable +0x14, Xbox 0x000CD090.
     bool construct_bob_weapon(FactoryObject& object, std::span<const u8> parameters); // Type 0xA0, Xbox 0x000C5C20.
     void release_bob_weapon(FactoryObject& object); // Type 0xA0, Xbox 0x000C5D30.
     bool construct_candle_weapon(FactoryObject& object); // Type 0xA1, Xbox 0x000C6560.

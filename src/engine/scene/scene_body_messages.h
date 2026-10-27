@@ -322,7 +322,6 @@ private:
     std::array<char, 128> command_name_{};
     u32 effect_flags_ = 0;
     RuntimeActorProximityNode* proximity_ = nullptr;
-    std::unordered_map<const u8*, RuntimeBodyAttachedActor*> created_;
     // The objects the body's timers made (0x00027B60, 0x00027BE0), kept by the scene; their messages go through it.
     struct KeptTimer
     {

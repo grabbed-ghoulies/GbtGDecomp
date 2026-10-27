@@ -27,6 +27,9 @@ void dispatch_weapon_class_message(RuntimeWeaponActor& weapon, std::span<u32> me
     case 0xA7:
         dispatch_runtime_thrown_projectile_message(weapon, message);
         break;
+    case 0xA8:
+        dispatch_runtime_homing_projectile_message(weapon, message); // 0x000CCB70
+        break;
     case 0xA0:
         dispatch_runtime_bob_weapon_message(weapon, message);
         break;
@@ -263,6 +266,21 @@ const ObjectFactoryVtable* thrown_projectile_lifecycle()
 {
     static const ObjectFactoryVtable table{0x00506348, thrown_projectile_object_sizes,
         construct_thrown_projectile_view, release_thrown_projectile_view};
+    return &table;
+}
+bool construct_homing_projectile_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    return active_owner->construct_homing_projectile(object, parameters);
+}
+void release_homing_projectile_view(FactoryObject& object)
+{
+    active_owner->release_homing_projectile(object);
+}
+// Getter 0x000CC790 (vtable 0x00506398) over the weapon's 0x0003C080 slots.
+const ObjectFactoryVtable* homing_projectile_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00506398, homing_projectile_object_sizes,
+        construct_homing_projectile_view, release_homing_projectile_view};
     return &table;
 }
 const ObjectFactoryVtable* large_projectile_lifecycle()
@@ -1088,6 +1106,7 @@ void NativeSceneActorClassOwner::install(std::span<ObjectFactoryType> types)
     types[0xB] = {2, weapon_lifecycle}; // Getter 0x00145900.
     types[0xAA] = {0xB, chair_weapon_lifecycle}; // Getter 0x000CEF70.
     types[0xA7] = {0xB, thrown_projectile_lifecycle}; // Getter 0x000CB570.
+    types[0xA8] = {0xB, homing_projectile_lifecycle}; // Getter 0x000CC790.
     types[0xA9] = {0xB, large_projectile_lifecycle}; // Getter 0x000CD640.
     types[0xA0] = {0xB, bob_weapon_lifecycle}; // Getter 0x000C5BB0.
     types[0xA1] = {0xB, candle_weapon_lifecycle}; // Getter 0x000C64F0.
@@ -1338,6 +1357,23 @@ bool NativeSceneActorClassOwner::construct_thrown_projectile(FactoryObject& obje
 void NativeSceneActorClassOwner::release_thrown_projectile(FactoryObject& object)
 {
     destroy_runtime_thrown_projectile(weapons_.at(object.bytes.get())->context);
+}
+
+bool NativeSceneActorClassOwner::construct_homing_projectile(FactoryObject& object, std::span<const u8> parameters)
+{
+    return initialize_runtime_homing_projectile(weapons_.at(object.bytes.get())->context, parameters);
+}
+
+void NativeSceneActorClassOwner::release_homing_projectile(FactoryObject& object)
+{
+    destroy_runtime_homing_projectile(weapons_.at(object.bytes.get())->context);
+}
+
+u32 NativeSceneActorClassOwner::draw_homing_projectile(FactoryObject& object, ActorDrawState& state, i32 pass,
+    const ActorFrameDrawContext& attachments, SceneModelDrawContext& draw, RuntimeGlowPass& glow)
+{
+    return draw_runtime_homing_projectile(weapons_.at(object.bytes.get())->context, state, pass, attachments, draw,
+        glow); // 0x000CD090
 }
 
 bool NativeSceneActorClassOwner::construct_bob_weapon(FactoryObject& object, std::span<const u8> parameters)
@@ -1743,7 +1779,8 @@ void NativeSceneActorClassOwner::message(FactoryObject& object, std::span<u32> m
     {
         dispatch_runtime_sss_door_message(sss_doors_.at(object.bytes.get())->context, message);
     }
-    else if (object.type == 0xAA || object.type == 0xA9 || object.type == 0xA7 || object.type == 0xA0
+    else if (object.type == 0xAA || object.type == 0xA9 || object.type == 0xA8 || object.type == 0xA7
+        || object.type == 0xA0
         || object.type == 0xA1 || object.type == 0xA2 || object.type == 0xA3 || object.type == 0xA5 || object.type == 0xA6)
     {
         dispatch_weapon_class_message(weapons_.at(object.bytes.get())->context, message);

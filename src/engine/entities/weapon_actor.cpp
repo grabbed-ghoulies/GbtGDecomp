@@ -1,5 +1,6 @@
 #include "weapon_actor.h"
 #include "thrown_projectile.h"
+#include "homing_projectile.h"
 #include "weapon_actor_detail.h"
 #include "projectile_weapon.h"
 #include "bob_weapon.h"
@@ -332,6 +333,11 @@ void update_state(RuntimeWeaponActor& weapon, u16 state)
         update_runtime_thrown_projectile_state(weapon, state);
         return;
     }
+    if (weapon.type == 0xA8)
+    {
+        update_runtime_homing_projectile_state(weapon, state); // 0x000CC970
+        return;
+    }
     if (weapon.type == 0xA0)
     {
         update_runtime_bob_weapon_state(weapon, state);
@@ -358,8 +364,8 @@ void update_state(RuntimeWeaponActor& weapon, u16 state)
 // Vtable +0x48 of the weapon's class: the chair and both projectiles keep the empty base slot.
 void late_update_state(RuntimeWeaponActor& weapon, u16 state)
 {
-    if (weapon.type == 0xAA || weapon.type == 0xA9 || weapon.type == 0xA7 || weapon.type == 0xA0 || weapon.type == 0xA1
-        || weapon.type == 0xA2)
+    if (weapon.type == 0xAA || weapon.type == 0xA9 || weapon.type == 0xA8 || weapon.type == 0xA7 || weapon.type == 0xA0
+        || weapon.type == 0xA1 || weapon.type == 0xA2)
     {
         return;
     }
@@ -387,6 +393,11 @@ void leave_state(RuntimeWeaponActor& weapon, u16 state, u16 next)
     if (weapon.type == 0xA7)
     {
         leave_runtime_thrown_projectile_state(weapon, state, next);
+        return;
+    }
+    if (weapon.type == 0xA8)
+    {
+        leave_runtime_homing_projectile_state(weapon, state, next); // 0x000CCF60
         return;
     }
     if (weapon.type == 0xA0)
@@ -428,6 +439,11 @@ void enter_state(RuntimeWeaponActor& weapon, u16 state, u16 previous)
     if (weapon.type == 0xA7)
     {
         enter_runtime_thrown_projectile_state(weapon, state, previous);
+        return;
+    }
+    if (weapon.type == 0xA8)
+    {
+        enter_runtime_homing_projectile_state(weapon, state, previous); // 0x000CCE00
         return;
     }
     if (weapon.type == 0xA0)
@@ -493,6 +509,14 @@ RuntimeBodyContactCallback contact_test(RuntimeWeaponActor& weapon)
             const RuntimeSegmentContactRecord&, const Vec3& velocity, u16 word) -> u32
         {
             return test_runtime_projectile_contact(weapon, object, point, contacts, velocity, word); // 0x000CE5D0
+        };
+    }
+    if (read_u32(weapon.bytes, 0x99C) == 0x000CD1B0)
+    {
+        return [&weapon](Actor&, RuntimeSegmentContactActor& object, const Vec3& point, GhoulySpawnPool* contacts,
+            const RuntimeSegmentContactRecord&, const Vec3& velocity, u16 word) -> u32
+        {
+            return test_runtime_homing_projectile_contact(weapon, object, point, contacts, velocity, word); // 0x000CD1B0
         };
     }
     if (read_u32(weapon.bytes, 0x99C) == 0x000CBF80)
@@ -2177,8 +2201,8 @@ void update_runtime_weapon_state(RuntimeWeaponActor& weapon, u16 state)
         update_runtime_weapon_drop(weapon); // 0x00149270
         return;
     case 10:
-        // 0x00149750 follows the owner through the path search 0x001495C0 builds, which needs DAT_0050E24C.
-        untranslated(0x00149750, "the weapon state update 0x0014A220 (state 10)");
+        update_runtime_weapon_follow(weapon); // 0x00149750
+        return;
     default:
         return;
     }

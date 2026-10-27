@@ -61,8 +61,12 @@ void launch_runtime_thrown_projectile(RuntimeWeaponActor& weapon, Actor* holder)
 // The class's contact test (+0x99C): report the hit, count it, and while it shatters keep the actor out.
 u32 test_runtime_thrown_projectile_contact(RuntimeWeaponActor& weapon, RuntimeSegmentContactActor& object,
     const Vec3& point, GhoulySpawnPool* contacts, const Vec3& velocity, u16 word); // Xbox 0x000CBF80
-// Message 0x9D: the root joint's world euler (+0xF24) and the actor's position less that joint's turned point (+0xF30).
-void record_runtime_thrown_projectile_root(RuntimeWeaponActor& weapon); // Xbox 0x000CC010, ECX actor
+// The root joint's world euler and the actor's position less that joint's turned point (the matrix euler and the
+// position for a model with no joints).
+void record_runtime_weapon_root(const Actor& actor, Vec3& euler,
+    Vec3& rest); // Xbox 0x000CC010, ECX actor, EAX euler, the stack rest
+// Message 0x9D: 0x000CC010 into +0xF24 and +0xF30.
+void record_runtime_thrown_projectile_root(RuntimeWeaponActor& weapon);
 // State 7: back to the pose message 0x9D recorded.
 void restore_runtime_thrown_projectile_root(RuntimeWeaponActor& weapon); // Xbox 0x000CC1E0, EBX actor
 // State 2's spin: +0xF00 per second into +0xF0C, applied on the flight's euler.

@@ -650,6 +650,7 @@ struct SceneActorServices::State
     // Weapons a released player made (0x0013A720 into the object list): they outlive their holder. A deque, as they
     // arrive while the factory walks and releases other objects by reference.
     std::deque<FactoryObject> released_weapons;
+    std::unordered_map<const Actor*, Vec3> released_positions; // An actor's position as its view is released.
     RuntimeDialogueInputState input_state{keyboard, {}, 0, 0, 0, input_pool, 0, nullptr};
     u32 brews_taken = 0; // DAT_00506C88.
     u32 brew_accepted = 0; // DAT_00430D98.
@@ -1539,6 +1540,9 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     actors->released = [this](Actor& actor)
     {
         actor_updates.erase(&actor);
+        // A player's view goes before its object's base destroy reports the release (released_binding), which keeps
+        // the position: it is taken here, while the actor still lives.
+        released_positions[&actor] = actor_world_position(actor);
         // A live cutscene's row may still name the actor: scene 2c5's script (type 0x60, 0x00112CC0) retires the
         // brambles a door clip holds, and 0x001232D0 frees them while the clip plays on. Retail's row keeps the
         // freed block, whose bytes the engine heap leaves alone; the host frees it, so the row lets go and the clip's
@@ -1834,6 +1838,10 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     {
         refresh_pause_groups();
     };
+    players->bindings.scene.mind_bytes_at = [this](u32 address) -> std::span<const u8>
+    {
+        return scene.resolve_address(address, 0x14); // The mind's words through its target (+0x10).
+    };
     players->bindings.scene.medusa_parameters = data(0x004287F0, 0x58);
     players->bindings.scene.hunchback_parameters = data(0x00428770, 0x50);
     players->bindings.scene.keep_object = [this](FactoryObject object)
@@ -1982,9 +1990,15 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             if (player->actor_bytes.data() == bytes)
             {
+                const auto kept = released_positions.find(&player->actor);
+                const Vec3 position = kept != released_positions.end() ? kept->second
+                                                                       : actor_world_position(player->actor);
+                if (kept != released_positions.end())
+                {
+                    released_positions.erase(kept);
+                }
                 released_actors[address] = ReleasedActor{
-                    std::vector<u8>(player->actor_bytes.begin(), player->actor_bytes.end()),
-                    actor_world_position(player->actor)};
+                    std::vector<u8>(player->actor_bytes.begin(), player->actor_bytes.end()), position};
             }
         }
         if (const auto found = active_nodes.find(address); found != active_nodes.end())
@@ -2235,6 +2249,25 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     weapon_services->startup = [this]() -> RuntimeActorStartupContext&
     {
         return startup;
+    };
+    weapon_services->target_at = [this](u32 address) -> RuntimeMindTarget*
+    {
+        refresh_mind_targets();
+        const auto found = target_records.find(address);
+        if (found == target_records.end())
+        {
+            unbound("weapon reads a mind target record that has no view");
+        }
+        return found->second;
+    };
+    weapon_services->player_cells = [this](u32 address) -> entity_detail::NavigationCellRegistration**
+    {
+        NativePlayerInstance* player = players->find_player_at(address);
+        if (player == nullptr)
+        {
+            unbound("weapon reads the +0xCE8 cells of an actor that is no player");
+        }
+        return &player->navigation;
     };
     weapon_services->pal = &pal;
     candle_services = std::make_unique<RuntimeCandleServices>(RuntimeCandleServices{shaders, point_lights, g_flag_2138,
@@ -5640,6 +5673,7 @@ void SceneActorServices::State::reset_scene_data()
         }
     }
     weapon_pickups.clear();
+    released_positions.clear();
     weapon_attachments.clear();
     override_words = {};
     // decay_index is DAT_0051248C, the script's title mode: only 0x001287F0 clears it (script_set_default_name).
@@ -7039,7 +7073,7 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
             message, actor_at, base_of(object).base, bindings);
         return;
     }
-    if (type == 0xAA || type == 0xA9 || type == 0xA7 || type == 0xA0 || type == 0xA1 || type == 0xA2
+    if (type == 0xAA || type == 0xA9 || type == 0xA8 || type == 0xA7 || type == 0xA0 || type == 0xA1 || type == 0xA2
         || type == 0xA3 || type == 0xA5 || type == 0xA6)
     {
         // Getters 0x000CEF70, 0x000CD640 and 0x000CB570: +0x10 is the weapon update 0x0014A2E0; +0xC is the chair message
@@ -8384,7 +8418,7 @@ RuntimeBodyAttachedActor& SceneActorServices::State::attached_actor_at(u32 addre
     // A weapon, a knock-down sphere (type 0x19) as the sender of its contact message 0x17, or a furnace (type 0x17)
     // as the sender of 0x16.
     if (object == nullptr || (object->type != 0x0B && object->type != 0x19 && object->type != 0x17 && object->type != 0xAA
-        && object->type != 0xA9
+        && object->type != 0xA9 && object->type != 0xA8
         && object->type != 0xA7 && object->type != 0xA0 && object->type != 0xA1 && object->type != 0xA2
         && object->type != 0xA3 && object->type != 0xA5 && object->type != 0xA6))
     {
@@ -9528,6 +9562,15 @@ void SceneActorServices::State::actor_draw(Actor& actor, i32 view, i32 pass)
                 draw_runtime_avatar_afterimage(pass, draw);
                 return;
             }
+            // Type 0xA8 +0x14 is the homing projectile's draw 0x000CD090 (getter 0x000CC790): no weapon prompt.
+            if (type == 0xA8)
+            {
+                std::unique_ptr<ActorDrawModelView> model;
+                ActorDrawState state = actor_draw_state(*object, actor, model);
+                ActorFrameDrawContext attachments{attachment_draws};
+                classes->draw_homing_projectile(*object, state, pass, attachments, *model_draw, *glow_pass);
+                return;
+            }
             // Types 0xAA and 0xA9 +0x14 is the weapon draw 0x001459C0: the actor draw 0x0003C9E0, then the hand prompt.
             if (type == 0xAA || type == 0xA9 || type == 0xA7 || type == 0xA0 || type == 0xA1 || type == 0xA2
                 || type == 0xA3 || type == 0xA5 || type == 0xA6)
@@ -9658,7 +9701,8 @@ u32 SceneActorServices::State::actor_visible(Actor& actor, i32 pass, i32 view)
         && object.type != 0x24 && object.type != 0x26 && object.type != 0x1E && object.type != 0x1D
         && object.type != 0x18 && object.type != 0x19 && object.type != 0x1B && object.type != 0x21 && object.type != 0x20
         && object.type != 0xAA
-        && object.type != 0xA9 && object.type != 0xA7 && object.type != 0xA0 && object.type != 0xA1
+        && object.type != 0xA9 && object.type != 0xA8 && object.type != 0xA7 && object.type != 0xA0
+        && object.type != 0xA1
         && object.type != 0xA2 && object.type != 0xA3 && object.type != 0xA5 && object.type != 0xA6)
     {
         unbound("actor vtable +0x18 visibility for factory type " + std::to_string(object.type));
@@ -10113,7 +10157,7 @@ void SceneActorServices::State::view_refresh_slot(Actor& actor)
                 || type == 0x13 || type == 0x15 || type == 0x16 || type == 0x17
                 || type == 0x1A || type == 0x1F || type == 0x23 || type == 0x25 || type == 0x24 || type == 0x26
                 || type == 0x1E || type == 0x1D || type == 0x18 || type == 0x19 || type == 0x1B || type == 0x21 || type == 0x20
-                || type == 0xAA || type == 0xA9 || type == 0xA7
+                || type == 0xAA || type == 0xA9 || type == 0xA8 || type == 0xA7
                 || type == 0xA0 || type == 0xA1 || type == 0xA2 || type == 0xA3 || type == 0xA5 || type == 0xA6)
             {
                 return;

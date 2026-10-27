@@ -17,4 +17,16 @@ void update_runtime_weapon_drop(RuntimeWeaponActor& weapon); // Xbox 0x00149270,
 // Weapon state 10: led by the owner at +0xD8C over the floor grid, with a path search at +0xD04.
 void enter_runtime_weapon_follow(RuntimeWeaponActor& weapon); // Xbox 0x001495C0
 void leave_runtime_weapon_follow(RuntimeWeaponActor& weapon); // Xbox 0x001496D0, ESI actor
+// Each step toward the follow target (+0xE50's actor) at the steered velocity; the first (+0xCDC) leaves anything
+// the weapon starts inside, and unless +0xCF8 is set the step slides along what it meets. Out of the world bounds it
+// is retired; with no holder or no way on it breaks (state 9).
+void update_runtime_weapon_follow(RuntimeWeaponActor& weapon); // Xbox 0x00149750
+// The steered velocity: the path search's route toward the follow height, scaled by +0xCF0, +0xCF4 up or down.
+bool steer_runtime_weapon_follow(RuntimeWeaponActor& weapon, Vec3& velocity); // Xbox 0x00149D20
+// Joint 4 of the follow target above its feet, over the floor cell under the weapon (0 with no +0xE50 record).
+float runtime_weapon_follow_height(RuntimeWeaponActor& weapon); // Xbox 0x00149C50
+// The holder's mind target (holder +0x958 -> +0x10), or null.
+RuntimeMindTarget* runtime_weapon_holder_target(RuntimeWeaponActor& weapon); // Xbox 0x00149C30, EAX actor
+// The inlined head of 0x00149750's and 0x000CD2A0's state change: +0x93C clears and the held sound stops.
+void stop_runtime_weapon_hold_sound(RuntimeWeaponActor& weapon);
 }

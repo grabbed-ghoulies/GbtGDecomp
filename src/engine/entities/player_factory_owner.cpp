@@ -1231,7 +1231,7 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
       butler{strategy_messages, scene_bindings.actor_address, scene_bindings.actor_bytes, scene_bindings.actor_bytes_at,
           "scared", "far"},
       strategy_views{scene_bindings.actor_at, scene_bindings.actor_bytes_at, scene_bindings.body_of,
-          scene_bindings.query, scene_bindings.story_flags},
+          scene_bindings.query, scene_bindings.story_flags, scene_bindings.mind_bytes_at},
       skeleton{strategy_messages, target_checks, target_queue, strategy_views, scene_bindings.skeleton_fetch_delay,
           "attack", "knockdown", "attackwithprojectile", "attackwithweapon", "duckndodge?", "far", "getweapon"},
       zombie{strategy_messages, target_checks, target_queue, strategy_views, scene_bindings.zombie_parameters,

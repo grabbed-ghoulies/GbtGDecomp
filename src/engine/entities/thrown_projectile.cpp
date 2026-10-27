@@ -416,23 +416,21 @@ u32 test_runtime_thrown_projectile_contact(RuntimeWeaponActor& weapon, RuntimeSe
     return bytes[0x93C] == 0 ? 1u : 0u;
 }
 
-// Xbox 0x000CC010, ECX actor, EAX +0xF24, stack +0xF30
-void record_runtime_thrown_projectile_root(RuntimeWeaponActor& weapon)
+// Xbox 0x000CC010, ECX actor, EAX the euler out, the stack the position out
+void record_runtime_weapon_root(const Actor& actor, Vec3& euler, Vec3& rest)
 {
-    auto bytes = weapon.bytes;
-    const Actor& actor = weapon.actor;
     // Model +0x1BC with a joint count (0x00156A20 reads its +0x20).
     const RuntimeModelInstance* model = actor.model != nullptr ? actor.model->runtime : nullptr;
     if (model == nullptr || model->skeleton_node == nullptr || model->skeleton_node->joints.empty())
     {
-        set(bytes, field::rest_position, actor_world_position(actor)); // 0x000412A0, EDI +0xF30
-        set(bytes, field::rest_euler, actor_matrix_euler(actor.xform)); // 0x00104040, ESI actor +0x2AC
+        rest = actor_world_position(actor); // 0x000412A0, EDI the position out
+        euler = actor_matrix_euler(actor.xform); // 0x00104040, ESI actor +0x2AC
         return;
     }
     Vec3 root{};
     actor_joint_world_euler(actor, 0, root); // 0x0003B050, EDX actor
     const Vec3 position = actor_world_position(actor); // 0x000412A0, ESI actor
-    set(bytes, field::rest_euler, root);
+    euler = root;
     const ModelPoseBuffer* pose = model->alternate; // Model +0x168, else +0x164.
     if (pose == nullptr)
     {
@@ -449,7 +447,17 @@ void record_runtime_thrown_projectile_root(RuntimeWeaponActor& weapon)
         ((m[9] * o.y + m[10] * o.z) + m[8] * o.x) + m[11]};
     Vec3 turned = joint;
     rotate_euler_vector(root, joint, turned); // 0x00106770, EAX euler, ESI output
-    set(bytes, field::rest_position, Vec3{position.x - turned.x, position.y - turned.y, position.z - turned.z});
+    rest = Vec3{position.x - turned.x, position.y - turned.y, position.z - turned.z};
+}
+
+// 0x000CC010 with EAX +0xF24 and the stack +0xF30.
+void record_runtime_thrown_projectile_root(RuntimeWeaponActor& weapon)
+{
+    Vec3 euler{};
+    Vec3 rest{};
+    record_runtime_weapon_root(weapon.actor, euler, rest);
+    set(weapon.bytes, field::rest_euler, euler);
+    set(weapon.bytes, field::rest_position, rest);
 }
 
 // Xbox 0x000CC1E0, EBX actor

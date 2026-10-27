@@ -37,9 +37,11 @@ struct RuntimeBodyProjectileCreation
     ObjectFactoryRegistry& factory;
     const Vec3& default_position;
     const Vec3& default_euler;
-    const std::unordered_map<const u8*, RuntimeBodyAttachedActor*>& created;
+    std::vector<FactoryObject>& objects; // The scene's objects, which hold the projectile from its creation.
+    std::function<RuntimeBodyAttachedActor&(const u8* bytes)> attached; // A scene object's attached view.
 };
-FactoryObject command_runtime_body_projectile(std::span<const u8> body,
-    std::span<const u8> command,
+// The projectile is live as soon as it is made: the scene holds it before it is aimed (message 0xA5) and the host
+// hears of it (message 0x5F).
+void command_runtime_body_projectile(std::span<const u8> body, std::span<const u8> command,
     RuntimeBodyProjectileCreation& context); // Xbox 0x0001A3C0
 }

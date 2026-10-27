@@ -78,7 +78,7 @@ u32 dispatch_runtime_body_animation(std::span<u8> body, std::span<const u8> mess
         command_runtime_body_secondary_callout(context.secondary_callout, reinterpret_cast<const char*>(command.data() + 0x10), context.attachment_names);
         return 0;
     case 0x2D:
-        context.created_objects.push_back(command_runtime_body_projectile(body, command, context.projectiles));
+        command_runtime_body_projectile(body, command, context.projectiles); // The scene holds what it makes.
         return 0;
     case 0x2E:
         command_runtime_body_random_timer(body, read_f32(command, 0x10), read_f32(command, 0x14), context.effects.effects.random_state);

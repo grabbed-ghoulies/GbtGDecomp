@@ -30,6 +30,7 @@
 
 namespace gbtg
 {
+struct RuntimeMindTarget;
 struct RuntimeCutsceneInstance;
 struct CutsceneRuntimeContext;
 // Weapon base, factory type 0x0B (getter 0x00145900) over the actor (type 2), and its subclass the cook's chair,
@@ -99,6 +100,10 @@ struct RuntimeWeaponServices
     ActorEffectStreamContext* effects = nullptr; // 0x00053170's context (type 0xA6's droplet effects).
     std::function<RuntimeDisplaySetupContext&()> display{}; // Type 0xA6's strip draw (0x000659F0).
     std::function<std::vector<BackgroundListEntry>()> backgrounds{}; // DAT_00511B20 order, for 0x0013B980.
+    // A mind target record (a mind's +0x10, a weapon's +0xE50) by its retail address; its +0x10 is the actor.
+    std::function<RuntimeMindTarget*(u32)> target_at{};
+    // A player actor's cell registration (actor +0xCE8, grid +0xCEC) by the actor's retail address.
+    std::function<entity_detail::NavigationCellRegistration**(u32)> player_cells{};
 };
 // Message 0x1D from a weapon's contact test (0x00141890) to the actor it hit.
 struct RuntimeWeaponHitNotice
@@ -183,8 +188,8 @@ struct RuntimeWeaponActor
     entity_detail::NavigationCellRegistration* cells = nullptr; // +0xCFC, grid +0xD00.
     entity_detail::NavigationPathSearch* path_search = nullptr; // +0xD04.
     GhoulySpawnRecord* spawn_record = nullptr; // +0xC04, 0x00148430's ghoulybox.
-    GhoulySpawnPool* collision_overrides = nullptr; // +0xE7C of type 0xA9, +0xF40 of type 0xA7: 0x0013EBE0's pool.
-    const AnimationRecord* flight_animation = nullptr; // +0xE64 of type 0xA7, 0x0003AAA0's record.
+    GhoulySpawnPool* collision_overrides = nullptr; // +0xE7C of 0xA9, +0xE8C of 0xA8, +0xF40 of 0xA7: 0x0013EBE0's pool.
+    const AnimationRecord* flight_animation = nullptr; // +0xE64 of types 0xA7 and 0xA8, 0x0003AAA0's record.
     RuntimeBodyAttachmentLists* attachment_lists = nullptr; // Actor +0x1B8 / +0x1B0 and DAT_00506930 for 0x0013B810.
     RuntimeCutsceneInstance* cutscene = nullptr; // +0xFE0 of type 0xA0, 0x0004D680's instance.
     const u8* candle_binding = nullptr; // +0xE60 of type 0xA1, 0x000408D0's binding 0.

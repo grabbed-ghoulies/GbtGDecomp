@@ -41,6 +41,7 @@ struct RuntimeStrategyActorViews
     std::function<RuntimeStrategyBodyView(const Actor&)> body_of; // Actor +0x95C.
     const RuntimeScriptActorQueryContext& query; // 0x00128DF0.
     const u32& story_flags; // DAT_0050EA98.
+    std::function<std::span<const u8>(u32)> mind_bytes_at; // A mind (actor +0x958) by retail address, through +0x10.
 };
 struct RuntimeStrategyTargetChecks
 {

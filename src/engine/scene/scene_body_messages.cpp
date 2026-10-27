@@ -47,7 +47,11 @@ SceneBodyMessages::SceneBodyMessages(SceneBodyServices& services, NativePlayerIn
       sound_commands_{player.actor, player.actor, player.body, services.damage_tables, services.effect_tags,
           services.footsteps, player.actor.sound_slots[5], services.sounds},
       projectiles_{player.actor, player.self, services.resources, services.factory, services.default_position,
-          services.default_euler, created_},
+          services.default_euler, services.objects,
+          [&services](const u8* bytes) -> RuntimeBodyAttachedActor&
+          {
+              return services.source_at(services.address_of(bytes));
+          }},
       effect_commands_{player.actor, i32(read_u32(player.actor_bytes, 0xCEC)), services.effect_scene,
           services.surfaces, services.effect_tags, services.effect_suffixes[0], services.effect_suffixes[1],
           services.effect_suffixes[2], services.effect_suffixes[3], services.effects},
@@ -606,14 +610,6 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
         animation_.attached_shapes = &*attached_shapes_;
     }
     const u32 id = message[0];
-    // Ids whose handlers read the animation, source or contact views built from message pointers.
-    switch (id)
-    {
-    case 0x2A:
-        unbound("body message views for id " + std::to_string(id));
-    default:
-        break;
-    }
     std::span<u8> bytes{reinterpret_cast<u8*>(message.data()), message.size() * 4};
     RuntimePlayerBodyMessageViews views{{{}, nullptr, nullptr, nullptr}, nullptr, nullptr, {}, {}};
     std::optional<entity_detail::SegmentPool> contact_pool;
@@ -783,6 +779,12 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
     {
         // {0x60, pushing actor, push} from 0x00022400.
         views.source = &services_.source_at(message[1]);
+    }
+    if (id == 0x2A)
+    {
+        // {0x2A, hitting actor, point} from 0x00099F60: a direct hit (0x000205B0) by the sender.
+        views.source = &services_.source_at(message[1]);
+        views.source_body = services_.source_body_at(message[1]);
     }
     if (id == 0x47 || id == 0x7C)
     {

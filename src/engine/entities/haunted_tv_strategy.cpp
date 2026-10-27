@@ -479,7 +479,7 @@ bool runtime_haunted_tv_target_free(const RuntimeMindTarget& target, RuntimeHaun
     {
         return true;
     }
-    const u32 aim = read_u32(context.views.actor_bytes_at(mind), 0x10);
+    const u32 aim = read_u32(context.views.mind_bytes_at(mind), 0x10); // The target's mind +0x10.
     if (aim == 0)
     {
         return true;

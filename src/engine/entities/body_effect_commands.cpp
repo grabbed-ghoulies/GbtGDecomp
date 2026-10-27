@@ -9,8 +9,8 @@
 namespace gbtg
 {
 // Xbox 0x0001A3C0
-FactoryObject command_runtime_body_projectile(std::span<const u8> body,
-    std::span<const u8> command, RuntimeBodyProjectileCreation& context)
+void command_runtime_body_projectile(std::span<const u8> body, std::span<const u8> command,
+    RuntimeBodyProjectileCreation& context)
 {
     const u8* record = find_actor_model_binding(context.actor, i16(read_u16(command, 0x90)));
     const ModelPoseBuffer* pose;
@@ -51,19 +51,24 @@ FactoryObject command_runtime_body_projectile(std::span<const u8> body,
         &position, &euler, 1.f, context.resources, context.factory, context.default_position, context.default_euler);
     if (object.bytes != nullptr)
     {
+        const u8* bytes = object.bytes.get();
+        context.objects.push_back(std::move(object));
         Vec3 direction = position;
         // The retail operands are degrees per radian and pi / 180, read from the image.
         add_sound_direction(direction, (euler.x * std::bit_cast<float>(u32(0x42652EE0))) * std::bit_cast<float>(u32(0x3C8EFA35)),
             (euler.y * std::bit_cast<float>(u32(0x42652EE0))) * std::bit_cast<float>(u32(0x3C8EFA35)), 30.f);
-        auto& actor = *context.created.at(object.bytes.get());
+        auto& actor = context.attached(bytes);
         actor.host = &context.host;
         std::memcpy(actor.bytes.data() + 0xD8C, &context.host.address, 4);
+        if (actor.actor != nullptr)
+        {
+            actor.actor->spawn_owner = context.host.actor; // Native alias of the +0xD8C word.
+        }
         const u32 message[]{0xA5, std::bit_cast<u32>(direction.x), std::bit_cast<u32>(direction.y), std::bit_cast<u32>(direction.z)};
         actor.message(message);
         const u32 notice[]{0x5F, actor.address};
         context.host.message(notice);
     }
-    return object;
 }
 
 // Xbox 0x0013DEF0

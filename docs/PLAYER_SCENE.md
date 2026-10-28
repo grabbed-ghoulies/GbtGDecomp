@@ -285,6 +285,7 @@ All take the game directory, e.g.
 | `--scene3b3` | Boots chapter 3b scene 3 (chapter3b_scene3_1playcam, Dunfiddlin Cottage) and plays it with the scene 7 driver, breaking `aid_ghoulybox_single_warlock` first (powerup kind 0). Reaches no untranslated code but does not pass: after "free play (find warlock)" (frame 1409) the warlock reappears downstairs, and the driver's 15-unit height rule keeps Cooper upstairs by the shut exit. Checked in the captures: the warlock fought in the hallway (1200) and his intro card (1500) |
 | `--scene3b4` | Boots chapter 3b scene 4 (chapter3b_scene4_2playcam, the workshop) and plays it with the scene 7 driver: an energy boost soup first (powerup kind 3, fetched again after a faint), fighting only during "event - survive/no weapons". Passes: Cooper faints in the first event, survives the second (90 s, ending at frame 15093), and the script moves on to chapter3b_scene5_2playcam at frame 15585. Checked in the captures: the 0:57 clock and the skeletons (11400) and Cooper leaving (15300) |
 | `--scene3b5` | Boots chapter 3b scene 5 (chapter3b_scene5_2playcam, the ogres' lane) and plays it with the scene 7 driver, fighting nothing (the class 0x1E ogres sleep) and taking an energy boost soup first. Passes once the grab and throw state (type 0x72) is installed: Cooper is thrown three times and the script moves on to chapter3b_scene6_1playcam at frame 4933. Checked in the captures: the ogres asleep and over Cooper (1800, 2100) |
+| `--scene3b6` | Boots chapter 3b scene 6 (chapter3b_scene6_1playcam, the foundry) and plays it with the scene 7 driver. Passes: the bg-break key behind the barrel comes out at frame 1457 (the driver punches from 24 once on the key's approach cell), Cooper fights the class 0x12 haunted doors in the time-limit event, and the script moves on to chapter3b_scene7_1playcam at frame 5947. Checked in the captures: the key coming out (1500) and a haunted door fight (3600) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -451,6 +452,18 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-28: chapter 3b scene 6: the foundry key
+
+- `--scene3b6` (chapter3b_scene6_1playcam, the foundry) passes with no new translation. The script moves on to
+  chapter3b_scene7_1playcam at frame 5947.
+- "event - find the key/don't kill" arms the bg-break key at (-136.9, 24.4, -60.5), up behind a barrel. The nearest
+  open cell is 19 from it, so the driver, which punches within 16, stood there for the rest of the run. Change to the
+  driver: once Cooper stands on the key's approach cell (within 6), he punches at a key within 24. The key comes out
+  at frame 1457.
+- Then "event - one type/time limit" against the class 0x12 haunted doors. Cooper goes from 25 to 13 energy.
+- Checked in the captures: the key floating out with its sparkles (1500), and Cooper fighting a haunted door at 0:38
+  (3600).
 
 ### 2026-10-28: chapter 3b scene 5: the sleeping ogres
 

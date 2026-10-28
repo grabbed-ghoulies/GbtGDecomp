@@ -343,7 +343,7 @@ FactoryObject command_runtime_body_create_secondary(std::span<const u8> command,
             auto clone = clone_executable_resource(context.child.resources, name_scratch.data());
             if (clone.bytes != nullptr)
             {
-                const float scale = read_f32(context.attachment.host.bytes, 0x38) * read_f32({clone.bytes.get(), clone.size}, 0x20);
+                const float scale = context.attachment.host.actor->radius_xz * read_f32({clone.bytes.get(), clone.size}, 0x20); // Body +8 -> actor +0x38.
                 std::memcpy(clone.bytes.get() + 0x20, &scale, 4);
                 auto object = create_factory_object(context.child.factory, {clone.bytes.get(), clone.size});
                 clone.bytes.reset();

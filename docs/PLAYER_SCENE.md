@@ -288,6 +288,11 @@ All take the game directory, e.g.
 | `--scene3b6` | Boots chapter 3b scene 6 (chapter3b_scene6_1playcam, the foundry) and plays it with the scene 7 driver. Passes: the bg-break key behind the barrel comes out at frame 1457 (the driver punches from 24 once on the key's approach cell), Cooper fights the class 0x12 haunted doors in the time-limit event, and the script moves on to chapter3b_scene7_1playcam at frame 5947. Checked in the captures: the key coming out (1500) and a haunted door fight (3600) |
 | `--scene3b7` | Boots chapter 3b scene 7 (chapter3b_scene7_1playcam, the barn) and plays it with the scene 7 driver. Reaches no untranslated code once bundle lookups ignore case (the skeleton's ..._noegganims_turnStep is listed as ..._turnstep), but does not pass: Cooper is held at a pen wall at about (150, 175) and never reaches region 10 at (942, 73). Checked in the captures: Cooper with an extinguisher at the wall (3000) |
 | `--scene3c1` | Boots chapter 3c scene 1 (chapter3c_scene1_1playcam, the foundry) and plays it with the scene 7 driver. Reaches no untranslated code once the script's event steps 0x25 (type 8) and 0x5F (type 0xE) are queued and run, but does not pass: the RIP count stays at 6 (no mummy dies to punches) and the cursed mummy wears Cooper down until he faints. Checked in the captures: the challenge HUD and the furnace (4500, 6000) |
+| `--scene3c2` | Boots chapter 3c scene 2 (chapter3c_scene2_1playcam, the farmyard) and plays it with the scene 7 driver. Passes: the script moves on to chapter3c_scene3_2playcam at frame 10748, Cooper keeping all 5 energy. Checked in the captures: the farmyard (3000, 9000) |
+| `--scene3c3` | Boots chapter 3c scene 3 (chapter3c_scene3_2playcam) and plays it with the scene 7 driver at a fight range of 50. Reaches no untranslated code but does not pass: region 1 is entered, but Cooper never gets within 50 of door 24 (closest 136) and is twice returned to the start, seemingly caught by the groundskeeper. Checked in the captures: a gassing ghouly (4500) and Cooper caught (12000) |
+| `--scene3c4` | Boots chapter 3c scene 4 (chapter3c_scene4_1playcam) and plays it with the scene 7 driver. Passes: "event - ghouly find the key" and the script moves on to chapter3c_scene5_1playcam at frame 7184. Checked in the captures: Cooper and the groundskeeper (1200) |
+| `--scene3c5` | Boots chapter 3c scene 5 (chapter3c_scene5_1playcam) and plays it with the scene 7 driver. Passes: "event - kill all/limited attacks" is won and the script moves on to chapter3c_scene6_1playcam at frame 6513. Checked in the captures: the fight with the event HUD (2400) |
+| `--scene3c6` | Boots chapter 3c scene 6 (chapter3c_scene6_1playcam, the kitchen) and plays it with the scene 7 driver: an energy boost soup first (powerup kind 3), then the exit without fighting (fight range 0). Passes: the script moves on to chapter3c_scene7_1playcam at frame 4812. Free play spawns `aid_ghoulyspawn_ghoulies_chapter3_kitchenfireimps` once Cooper enters region 1 and waits on nothing else, so fighting the imps only costs energy (10 to 12 faints in 35700 frames). The crash it hit came from `0x0001A2D0`'s fireball scale (see the 2026-10-28 checkpoint) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -454,6 +459,61 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-28: chapter 3c scene 6: the fire imps' fireball scale
+
+- `--scene3c6` (chapter3c_scene6_1playcam) crashed (exit 127) around frame 7000 while Cooper fought the fire imps
+  (class 0x19, objTag_Actor_ImpFire). Under cdb: an access violation in `prepare_segment_pool`, from a weapon's
+  `walk_runtime_body_contacts`, with `g_segment_count` (DAT_00511A18) overwritten by a collect that stored more than
+  the 27 slots (DAT_00511A1C..DAT_00511AF4).
+- The weapon was the imp's fireball (factory type 0xA7, class 0x9D). Its contact radius was NaN, so every probe
+  counted as a hit. The NaN came from its scale: the release (`tick_runtime_throw_state` ->
+  `teleport_runtime_body_secondary` -> `detach_runtime_body_secondary` -> thrown projectile state 7 ->
+  `restore_runtime_thrown_projectile_root`, 0x000CC1E0) restores a root that `record_runtime_weapon_root`
+  (0x000CC010) took from a zero-scale matrix.
+- The cause: `command_runtime_body_create_secondary` (0x0001A2D0) scales the clone's objparams +0x20 by
+  `*(float *)(*(int *)(body + 8) + 0x38)`, the host actor's +0x38. We read it from the host's raw `bytes`, which stay
+  0 there; the value lives in the typed `Actor::radius_xz`. It now reads `host.actor->radius_xz`, and the fireball
+  gets the imp's scale (it had been 0 x 1.0).
+- With the crash gone the scene still did not pass while the driver fought: free play only spawns the kitchen fire
+  imps when Cooper enters region 1 (condition opcode 8, then node type 0x3C), so the mode takes the energy soup and
+  heads for the exit. It passes at frame 4812.
+- Checked in the captures: a hit spark by an imp at the kitchen table (1500) and Cooper among the stoves with 20
+  energy (2400).
+
+### 2026-10-28: chapter 3c scene 5: the cold store
+
+- `--scene3c5` (chapter3c_scene5_1playcam) passes with no new translation. "event - kill all/limited attacks" runs
+  from frame 1542 to 5625 (class 0x3C ghoulies, 15 to 9 energy), and the script moves on to
+  chapter3c_scene6_1playcam at frame 6513.
+- Checked in the captures: the fight among the zombies and skeletons, with the event HUD's RIP count (6), a green heart
+  with 44 (the attacks left, it seems) and a yellow heart with 26 (2400).
+
+### 2026-10-28: chapter 3c scene 4: the groundskeeper's key
+
+- `--scene3c4` (chapter3c_scene4_1playcam) passes with no new translation. "event - ghouly find the key" runs from
+  frame 367; Cooper fights class 0x10 ghoulies (20 to 17 energy), and the script moves on to
+  chapter3c_scene5_1playcam at frame 7184.
+- Checked in the captures: Cooper beside the red-bearded groundskeeper in the yard (1200).
+
+### 2026-10-28: chapter 3c scene 3: the groundskeeper
+
+- `--scene3c3` (chapter3c_scene3_2playcam) reaches no untranslated code but does not pass.
+- With the 1000 fight range, Cooper fought his way across the yard and fainted twice (a worm exploding beside him,
+  then class 0x1F ghoulies). The mode now fights within 50. That way he reaches region 1 (the groundskeeper's spot, at
+  112.6, 69.7, radius 50), and that condition is met.
+- Still failing: PlayerApproachesDoor (condition 6) for door 24 (0x18) within 50, at (-106, -41). Cooper comes no
+  closer than 136 (frame 11100). Twice he is back at the start (-117, 634) without a faint, at frames 12089 and
+  30000. The scene's title is "groundkeepers warning", and capture 12000 shows him on the floor, blurred, as if
+  caught. Getting past the groundskeeper is not something the driver does.
+- Checked in the captures: Cooper with a weapon facing a gassing ghouly (4500), and Cooper caught (12000).
+
+### 2026-10-28: chapter 3c scene 2: the farmyard
+
+- `--scene3c2` (chapter3c_scene2_1playcam, the farmyard) passes with no new translation. Free play from frame 329;
+  the script moves on to chapter3c_scene3_2playcam at frame 10748. Cooper fights class 0xD ghoulies and keeps all 5
+  of his energy.
+- Checked in the captures: Cooper crossing the farmyard (3000) and by the fenced shed (9000).
 
 ### 2026-10-28: chapter 3c scene 1: the mummies
 

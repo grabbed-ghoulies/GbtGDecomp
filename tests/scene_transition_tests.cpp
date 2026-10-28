@@ -9654,7 +9654,10 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                 // 2b6's Mr Ribs by the exit, while the vampire chickens (tag 0x39) sit penned behind a fence.
                 for (const auto& condition : gbtg::g_script_conds)
                 {
-                    if (gbtg::cond_u32(condition, 0) == 14 && gbtg::cond_u32(condition, 8) != 0)
+                    // A pending tagged-event wait (opcode 7) names the same way the haunted ghouly to wake: scene 3c8's
+                    // haunted door, with the Jessie Clydes forced angry between it and Cooper.
+                    if ((gbtg::cond_u32(condition, 0) == 14 || gbtg::cond_u32(condition, 0) == 7)
+                        && gbtg::cond_u32(condition, 8) != 0)
                     {
                         one_type = gbtg::u16(gbtg::cond_u32(condition, 8));
                     }
@@ -9949,6 +9952,28 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
             std::ostringstream name;
             name << "a ghouly (class 0x" << std::hex << ghouly_class << ")";
             goal_name = name.str();
+        }
+        if (!ghouly && cooper && !page && powerup_done)
+        {
+            // A pending tagged-event wait (opcode 7, its tag at +8) names the haunted ghouly whose wake (event 0xB4)
+            // the script needs: scene 3c8's haunted door, asleep across the dormitory, wakes as Cooper comes near.
+            for (const auto& condition : gbtg::g_script_conds)
+            {
+                if (gbtg::cond_u32(condition, 0) != 7 || gbtg::cond_u32(condition, 8) == 0)
+                {
+                    continue;
+                }
+                for (const auto& mark : actors.marked_actors())
+                {
+                    if (mark.actor != nullptr && mark.actor->class_key == gbtg::cond_u32(condition, 8))
+                    {
+                        goal = gbtg::actor_world_position(*mark.actor);
+                        std::ostringstream name;
+                        name << "the sleeping ghouly (class 0x" << std::hex << mark.actor->class_key << ")";
+                        goal_name = name.str();
+                    }
+                }
+            }
         }
         if (punch_box && box_at && (frame / 8) % 2 == 0)
         {
@@ -10840,12 +10865,16 @@ int main(int argc, char** argv)
     const bool scene3c5_test = argc == 3 && std::string_view(argv[2]) == "--scene3c5";
     // --scene3c6 boots chapter3c_scene6_1playcam and plays it until the script moves on.
     const bool scene3c6_test = argc == 3 && std::string_view(argv[2]) == "--scene3c6";
+    // --scene3c7 boots chapter3c_scene7_1playcam and plays it until the script moves on.
+    const bool scene3c7_test = argc == 3 && std::string_view(argv[2]) == "--scene3c7";
+    // --scene3c8 boots chapter3c_scene8_1playcam and plays it until the script moves on.
+    const bool scene3c8_test = argc == 3 && std::string_view(argv[2]) == "--scene3c8";
     if (spawn_test)
     {
         std::cout << std::unitbuf;
     }
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
-        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene2a14_test && !scene2a15_test && !scene2a16_test && !scene2a17_test && !scene2b1_test && !scene2b2_test && !scene2b3_test && !scene2b4_test && !scene2b4b_test && !scene2b5_test && !scene2b6_test && !scene2b6b_test && !scene2b7_test && !scene2b8_test && !scene2b9_test && !scene2b10_test && !scene2b10b_test && !scene2c1_test && !scene2c2_test && !scene2c3_test && !scene2c4_test && !scene2c4b_test && !scene2c5_test && !scene2c6_test && !scene2c7_test && !scene2c8_test && !scene2c9_test && !scene2c10_test && !scene2c11_test && !scene2c11b_test && !scene2c12_test && !scene2c13_test && !scene2c13b_test && !scene2c13c_test && !scene3a1_test && !scene3a1b_test && !scene3a2_test && !scene3a3_test && !scene3a3b_test && !scene3a3c_test && !scene3a4_test && !scene3a5_test && !scene3a6_test && !scene3a7_test && !scene3a8_test && !scene3a9_test && !scene3a10_test && !scene3a11_test && !scene3a12_test && !scene3b1_test && !scene3b2_test && !scene3b3_test && !scene3b4_test && !scene3b5_test && !scene3b6_test && !scene3b7_test && !scene3c1_test && !scene3c2_test && !scene3c3_test && !scene3c4_test && !scene3c5_test && !scene3c6_test && !scene3_test && !pause_test)
+        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene2a14_test && !scene2a15_test && !scene2a16_test && !scene2a17_test && !scene2b1_test && !scene2b2_test && !scene2b3_test && !scene2b4_test && !scene2b4b_test && !scene2b5_test && !scene2b6_test && !scene2b6b_test && !scene2b7_test && !scene2b8_test && !scene2b9_test && !scene2b10_test && !scene2b10b_test && !scene2c1_test && !scene2c2_test && !scene2c3_test && !scene2c4_test && !scene2c4b_test && !scene2c5_test && !scene2c6_test && !scene2c7_test && !scene2c8_test && !scene2c9_test && !scene2c10_test && !scene2c11_test && !scene2c11b_test && !scene2c12_test && !scene2c13_test && !scene2c13b_test && !scene2c13c_test && !scene3a1_test && !scene3a1b_test && !scene3a2_test && !scene3a3_test && !scene3a3b_test && !scene3a3c_test && !scene3a4_test && !scene3a5_test && !scene3a6_test && !scene3a7_test && !scene3a8_test && !scene3a9_test && !scene3a10_test && !scene3a11_test && !scene3a12_test && !scene3b1_test && !scene3b2_test && !scene3b3_test && !scene3b4_test && !scene3b5_test && !scene3b6_test && !scene3b7_test && !scene3c1_test && !scene3c2_test && !scene3c3_test && !scene3c4_test && !scene3c5_test && !scene3c6_test && !scene3c7_test && !scene3c8_test && !scene3_test && !pause_test)
     {
         std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene6-save | --scene6-save-reload | --scene3 | --pause | --scene4 | --scene5 | --scene6-1 | --scene7]\n";
         return 2;
@@ -11032,6 +11061,8 @@ int main(int argc, char** argv)
             : scene3c4_test ? "chapter3c_scene4_1playcam"
             : scene3c5_test ? "chapter3c_scene5_1playcam"
             : scene3c6_test ? "chapter3c_scene6_1playcam"
+            : scene3c7_test ? "chapter3c_scene7_1playcam"
+            : scene3c8_test ? "chapter3c_scene8_1playcam"
             : player_test || spawn_test ? "chapter1_scene1_2playcam"
             : title_test ? "" : "scene0_1book");
         if (scene2a1b_test)
@@ -11040,6 +11071,20 @@ int main(int argc, char** argv)
             play_scene7(game, "scene2a1_2");
             pass_chapter_title(game, "scene2a1_to_3", "aid_script_ghoulies_chapter2a_scene1_3playcam", false);
             play_scene7(game, "scene2a1_3", 1000.f, "Event - Kill All", true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene3c8_test)
+        {
+            pass_chapter_title(game, "scene3c8", "aid_script_ghoulies_chapter3c_scene8_1playcam", false);
+            play_scene7(game, "scene3c8", 1000.f, {}, true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene3c7_test)
+        {
+            pass_chapter_title(game, "scene3c7", "aid_script_ghoulies_chapter3c_scene7_1playcam", false);
+            play_scene7(game, "scene3c7", 1000.f, {}, true, true, {}, "aid_ghoulybox_single_warlock", 0);
             gbtg::gfx_shutdown();
             return 0;
         }

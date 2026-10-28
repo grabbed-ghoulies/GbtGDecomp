@@ -213,6 +213,7 @@ add_library(gbtg_lib STATIC
     src/engine/entities/player_update.cpp
     src/engine/entities/player_strategy_goals.cpp
     src/engine/entities/player_strategy.cpp
+    src/engine/entities/strategy_names.cpp
     src/engine/entities/strategy_target_queue.cpp
     src/engine/entities/strategy_target_selection.cpp
     src/engine/entities/butler_strategy.cpp

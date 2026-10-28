@@ -16,6 +16,7 @@
 #include "../scene/executable_resources.h"
 #include "../scene/scene_object_requests.h"
 #include "../runtime/name_lookup.h"
+#include "../entities/strategy_names.h"
 #include "script_dialogue_actions.h"
 #include "../scene/dialogue_scene_runtime.h"
 #include "../scene/cutscene_scene_runtime.h"
@@ -1580,11 +1581,10 @@ int script_handle_flag_bits(Game& g, const ScriptNode& node)
 // equal to the word at object+0x1FC, calls vtable +0xC with message id 1.
 // An empty list returns 2. A finished walk returns 2.
 //
-// Type 0x58 builds a message whose first dword is 0x65. 0x0002B710 would
-// fill the low word of the second dword. That call is not translated, so
-// the word stays 0. 0x001077B0 runs with EAX = node+8. 0x00122D40 would
-// take that tag in EDI and the message in EBX. That call is not translated.
-// The case returns 2.
+// Type 0x58 builds the message {0x65, word}, the word from 0x0002B710 (the
+// actorStrategyId named at node+0x48), calls 0x001077B0 with EAX = node+8,
+// and passes that tag in EDI with the message in EBX to 0x00122D40, which
+// sends it to each DAT_00511B38 actor with that tag. The case returns 2.
 //
 // Type 0x5C stores message id 0x36, calls 0x001077B0 with EAX = node+8, and
 // passes that tag in EDI with the message in EBX to 0x00122D40, which sends
@@ -1680,12 +1680,12 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
     }
     case 0x58:
     {
-        const u32 message_0 = 0x65;
-        const u32 message_1 = 0;
+        std::array<u32, 0x42> message{0x65, find_actor_strategy_id(node_cstr(g.scene_script, node, 0x48).c_str())}; // 0x0002B710
         const u16 tag = static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 8).c_str()));
-        (void)message_0;
-        (void)message_1;
-        (void)tag;
+        if (SceneActorServices* actors = script_scene_actors(g); actors != nullptr)
+        {
+            message_runtime_marked_actors(*actors, tag, message); // 0x00122D40
+        }
         return 2;
     }
     case 0x5c:

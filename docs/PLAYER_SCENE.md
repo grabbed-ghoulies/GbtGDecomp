@@ -293,6 +293,8 @@ All take the game directory, e.g.
 | `--scene3c4` | Boots chapter 3c scene 4 (chapter3c_scene4_1playcam) and plays it with the scene 7 driver. Passes: "event - ghouly find the key" and the script moves on to chapter3c_scene5_1playcam at frame 7184. Checked in the captures: Cooper and the groundskeeper (1200) |
 | `--scene3c5` | Boots chapter 3c scene 5 (chapter3c_scene5_1playcam) and plays it with the scene 7 driver. Passes: "event - kill all/limited attacks" is won and the script moves on to chapter3c_scene6_1playcam at frame 6513. Checked in the captures: the fight with the event HUD (2400) |
 | `--scene3c6` | Boots chapter 3c scene 6 (chapter3c_scene6_1playcam, the kitchen) and plays it with the scene 7 driver: an energy boost soup first (powerup kind 3), then the exit without fighting (fight range 0). Passes: the script moves on to chapter3c_scene7_1playcam at frame 4812. Free play spawns `aid_ghoulyspawn_ghoulies_chapter3_kitchenfireimps` once Cooper enters region 1 and waits on nothing else, so fighting the imps only costs energy (10 to 12 faints in 35700 frames). The crash it hit came from `0x0001A2D0`'s fireball scale (see the 2026-10-28 checkpoint) |
+| `--scene3c7` | Boots chapter 3c scene 7 (chapter3c_scene7_1playcam, the laundry) and plays it with the scene 7 driver, breaking `aid_ghoulybox_single_warlock` first (powerup kind 0). Passes with no new translation: the unnamed section waits until no objTag_Actor_Warlock exists (condition opcode 16, then node type 0x11); "exit door revealed" follows at frame 31736 and the script moves on to chapter3c_scene8_1playcam at frame 32348. Most of the run is the warlock fight (class 0x3A, no faints). Without the box the driver walks to the shut exit and holds |
+| `--scene3c8` | Boots chapter 3c scene 8 (chapter3c_scene8_1playcam, the servants' dormitory) and plays it with the scene 7 driver. Does not pass. "event - no weapons/don't get hit" queues no event step: it breaks `aid_ghoulybox_ghoulies_chapter3c_haunteddoordormitory`, sends the Jessie Clydes (class 0x1E) actorStrategyId_ForceAngry (script node 0x58, now translated), and waits for the haunted door (class 0x12, at -510, 20.7, 338) to wake (condition opcode 7, event 0xB4 tagged 0x12), which it does with a target within 60 (state 0x413). The driver now walks to the ghouly a pending opcode-7 wait names, fighting off others within 10, but the angry Jessie Clydes stop Cooper at about (300, -50) and he lands back near (200, -270); he faints and the event restarts about every 3500 frames |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -459,6 +461,34 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-28: chapter 3c scene 8: the dormitory's haunted door
+
+- Script node 0x58 (in `script_handle_actor_actions`, 0x00126A10) was a placeholder that built its message and
+  dropped it. It now matches the dump: the message {0x65, `find_actor_strategy_id(node+0x48)`} goes to each marked
+  actor of the tag at node+8 through 0x00122D40, as node 0x5C does. `find_actor_strategy_id` (0x0002B710, new
+  `src/engine/entities/strategy_names.cpp`) searches the 0x30 actorStrategyId names at 0x00339924 with 0x000FBFB0 and
+  returns the index plus 1001, or 1000. In scene 3c8 it sends the Jessie Clydes actorStrategyId_ForceAngry (1027,
+  state 0x403, which `jessie_clyde_strategy.cpp` takes as struck and moves to 0x401).
+- Class keys are the script's actor tags (object +6): HauntedDoor is 0x12 and JessieClyde 0x1E here.
+- `--scene3c8` does not pass. The event section waits for the haunted door's wake (condition opcode 7, a live 0xB4
+  event tagged 0x12); the door wakes once a target is within 60 (state 0x413 -> 0x417 posts {0xB4, tag}).
+  Driver changes: a pending opcode-7 wait names the ghouly to go for, like PlayerHitGhouly (opcode 14), and with no
+  other target Cooper walks to it. He never gets past the angry Jessie Clydes: at about (300, -50) he is sent back
+  near (200, -270) within 120 frames, and after four or five hits he faints and the event restarts.
+- Checked in the captures: a Jessie Clyde beside Cooper among the bunks (1200) and Cooper knocked flying with 10
+  energy (2100).
+
+### 2026-10-28: chapter 3c scene 7: the laundry's warlock
+
+- `--scene3c7` (chapter3c_scene7_1playcam) passes with no new translation once the driver breaks
+  `aid_ghoulybox_single_warlock` first. The script's unnamed section holds on objTag_Actor_Warlock existing in the scene
+  (condition opcode 16 at the end of the section); until the box is broken the driver walks straight to the shut exit
+  and the run holds for 36000 frames.
+- With the box, Cooper fights the warlock (class 0x3A) and other ghoulies (classes 0x1B, 0x36) until about frame
+  31736 ("exit door revealed"), with no faints, and the script moves on to chapter3c_scene8_1playcam at frame 32348.
+- Checked in the captures: Cooper among the washing machines and baskets (15000) and by the mangle with broken boxes
+  and 9 energy, near the exit (31800).
 
 ### 2026-10-28: chapter 3c scene 6: the fire imps' fireball scale
 

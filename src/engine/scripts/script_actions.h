@@ -181,11 +181,10 @@ int script_handle_flag_bits(Game& g, const ScriptNode& node); // Xbox 0x001269D0
 // equal to the word at object+0x1FC, calls vtable +0xC with message id 1.
 // An empty list returns 2. A finished walk returns 2.
 //
-// Type 0x58 builds a message whose first dword is 0x65. 0x0002B710 would
-// fill the low word of the second dword. That call is not translated, so
-// the word stays 0. 0x001077B0 runs with EAX = node+8. 0x00122D40 would
-// take that tag in EDI and the message in EBX. That call is not translated.
-// The case returns 2.
+// Type 0x58 builds the message {0x65, word}, the word from 0x0002B710 (the
+// actorStrategyId named at node+0x48), calls 0x001077B0 with EAX = node+8,
+// and passes that tag in EDI with the message in EBX to 0x00122D40, which
+// sends it to each DAT_00511B38 actor with that tag. The case returns 2.
 //
 // Type 0x5C stores message id 0x36, calls 0x001077B0 with EAX = node+8, and
 // passes that tag in EDI with the message in EBX to 0x00122D40, which sends

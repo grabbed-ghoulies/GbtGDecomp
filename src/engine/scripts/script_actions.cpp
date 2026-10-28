@@ -1393,17 +1393,23 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
         return 2;
     case 0x25:
     {
+        // 0x00125E80 builds step type 8 with XMM0 = 1.5 (0x0032B210) at +4; +0x18 is 0, the named tags follow at
+        // +0x1A with their count in the byte at +0x4C. 0x000D05D0 queues it.
         u16 words[5]{};
         u32 count = 0;
-        const u16 header = 0;
         push_named(0x48, 8, words, count);
         push_named(0x8c, 0x4c, words, count);
         push_named(0xd0, 0x90, words, count);
         push_named(0x114, 0xd4, words, count);
         push_named(0x158, 0x118, words, count);
-        (void)header;
-        (void)words;
-        (void)count;
+        std::array<u8, 0x88> step{};
+        const u32 type = 8;
+        const float delay = 1.5f;
+        std::memcpy(step.data(), &type, 4);
+        std::memcpy(step.data() + 4, &delay, 4);
+        std::memcpy(step.data() + 0x1A, words, size_t(count) * 2);
+        step[0x4C] = u8(count);
+        queue_script_event_step(step);
         return 2;
     }
     case 0x26:
@@ -1464,10 +1470,18 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
         return 2;
     case 0x5f:
     {
+        // 0x00126000 builds step type 0xE with XMM0 = 1.5 (0x0032B210) at +4; +0x18 is a count drawn from node+8 up
+        // to node+0xC (0x0001BB60, ECX node+0xC + 1, EDX node+8, ESI DAT_0054DD7C). 0x000D05D0 queues it.
         const u32 lo = node_u32(g.scene_script, node, 8);
         const u32 hi = node_u32(g.scene_script, node, 0xC) + 1u;
-        (void)lo;
-        (void)hi;
+        std::array<u8, 0x88> step{};
+        const u32 type = 0xE;
+        const float delay = 1.5f;
+        std::memcpy(step.data(), &type, 4);
+        std::memcpy(step.data() + 4, &delay, 4);
+        const i32 drawn = draw_runtime_random_count(i32(hi), i32(lo), g_shared_random); // 0x0001BB60
+        std::memcpy(step.data() + 0x18, &drawn, 4);
+        queue_script_event_step(step);
         return 2;
     }
     case 0x87:

@@ -51,6 +51,7 @@ u32 cond_u32(const ScriptCond& rec, u32 at);
 i32& script_statistic_at_address(u32 addr);
 // The ten statistics rows' kill counts of a category, summed.
 int script_sum_statistics(i32 category); // Xbox 0x0012AE40, ECX category
+int script_sum_paired_statistics(i32 category); // Xbox 0x0012AE90, ECX category
 // The DAT_00511B48 actors with body +0x94 energy, of class `key` (any class for 0).
 int script_count_actors_by_class(u16 key); // Xbox 0x00129240, DX key
 // A live 0xB6 event on DAT_0050E4DC whose word at +0x14 is `key` (any for a key at or below 1).

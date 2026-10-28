@@ -287,6 +287,7 @@ All take the game directory, e.g.
 | `--scene3b5` | Boots chapter 3b scene 5 (chapter3b_scene5_2playcam, the ogres' lane) and plays it with the scene 7 driver, fighting nothing (the class 0x1E ogres sleep) and taking an energy boost soup first. Passes once the grab and throw state (type 0x72) is installed: Cooper is thrown three times and the script moves on to chapter3b_scene6_1playcam at frame 4933. Checked in the captures: the ogres asleep and over Cooper (1800, 2100) |
 | `--scene3b6` | Boots chapter 3b scene 6 (chapter3b_scene6_1playcam, the foundry) and plays it with the scene 7 driver. Passes: the bg-break key behind the barrel comes out at frame 1457 (the driver punches from 24 once on the key's approach cell), Cooper fights the class 0x12 haunted doors in the time-limit event, and the script moves on to chapter3b_scene7_1playcam at frame 5947. Checked in the captures: the key coming out (1500) and a haunted door fight (3600) |
 | `--scene3b7` | Boots chapter 3b scene 7 (chapter3b_scene7_1playcam, the barn) and plays it with the scene 7 driver. Reaches no untranslated code once bundle lookups ignore case (the skeleton's ..._noegganims_turnStep is listed as ..._turnstep), but does not pass: Cooper is held at a pen wall at about (150, 175) and never reaches region 10 at (942, 73). Checked in the captures: Cooper with an extinguisher at the wall (3000) |
+| `--scene3c1` | Boots chapter 3c scene 1 (chapter3c_scene1_1playcam, the foundry) and plays it with the scene 7 driver. Reaches no untranslated code once the script's event steps 0x25 (type 8) and 0x5F (type 0xE) are queued and run, but does not pass: the RIP count stays at 6 (no mummy dies to punches) and the cursed mummy wears Cooper down until he faints. Checked in the captures: the challenge HUD and the furnace (4500, 6000) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -453,6 +454,32 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-28: chapter 3c scene 1: the mummies
+
+- `--scene3c1` (chapter3c_scene1_1playcam, the foundry) reaches no untranslated code but does not pass.
+- The script runs in this order:
+  1. Free play, then region 1, which shows the hint chapter3c_scene1_ribstakeextinguisher.
+  2. An untitled section with three waits: a 60 s timer (node 0x658), PlayerApproachesDoor 0x34 within 75 (node
+     0x678), and a SpecificGhouliesAlive count of 3 mummies (node 0x698).
+  3. "exit door closes", then the event "number (mummy)", set up by node 0x95C (type 0x25) and node 0xAB8 (type 0x5F,
+     6..6).
+  4. "exit door opens", and the final free play.
+- The challenge never started: the script cases for node types 0x25 and 0x5F (in 0x00126140) were stubs that built
+  their tags and counts and dropped them. Now translated:
+  - Type 0x25: step type 8 (0x00125E80, delay 1.5), +0x18 0, the named tags at +0x1A, their count in the byte at
+    +0x4C, queued through 0x000D05D0.
+  - Type 0x5F: step type 0xE (0x00126000), +0x18 the count 0x0001BB60 draws from node+8 to node+0xC, queued.
+  - The icon count (0x000D0F20) gains types 8 (the tag at +0x18 once set) and 0xE (0x000D01A0: the target less
+    0x0012AE40 plus the new 0x0012AE90, `script_sum_paired_statistics`).
+  - The runners from the 0x003039CC table: `0x000CFFE0`, "next one different" (a new kill of the current tag fails
+    the step, a kill of another tag becomes the current one), and `0x000D0160`, the number step.
+  - The script switch's other stubs, types 0x22, 0x23, 0x26, 0x27 and 0x87, are still stubs; none is reached here.
+- Checked in the captures: the challenge HUD shows the RIP stone with 6 and the red X (4500, 6000), with the furnace
+  open and burning behind the mummies (6000).
+- Still failing: the count stays at 6. Cooper's punches knock the six class 0x22 mummies down but none dies. The
+  cursed mummy (class 0x23) then takes 10 energy about every 600 frames until he faints (frames 6305..8259), and the
+  scene restarts. How the mummies are meant to die (the furnace, or the extinguisher the hint names) is not settled.
 
 ### 2026-10-28: chapter 3b scene 7: the barn
 

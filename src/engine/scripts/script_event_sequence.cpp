@@ -836,6 +836,21 @@ void show_script_event_icons()
         case 6:
             count = 0;
             break;
+        case 8:
+            // The step's tag once one is set; no count.
+            if (read_u16(step, 0x18) != 0)
+            {
+                kind = read_u16(step, 0x18);
+            }
+            break;
+        case 0xE:
+        {
+            // Xbox 0x000D01A0: the target (+0x18) less 0x0012AE40 plus 0x0012AE90 (both ECX 0), never below zero.
+            const i32 left = std::bit_cast<i32>(read_u32(step, 0x18)) - script_sum_statistics(0)
+                + script_sum_paired_statistics(0);
+            count = left < 0 ? 0u : u32(left);
+            break;
+        }
         case 0:
         case 1:
         case 9:
@@ -994,6 +1009,14 @@ bool run_script_event_steps(Game& g)
             else if (type == 0xC)
             {
                 result = run_script_event_no_points_step(); // 0x000D0140
+            }
+            else if (type == 8)
+            {
+                result = run_script_event_next_different_step(step); // 0x000CFFE0
+            }
+            else if (type == 0xE)
+            {
+                result = run_script_event_number_step(step); // 0x000D0160
             }
             else
             {
@@ -1165,6 +1188,54 @@ i32 run_script_event_kill_count_step(std::span<u8> step)
     const i32 required = std::bit_cast<i32>(read_u32(step, 0x18));
     const i32 killed = script_statistic_at_address(0x00512B78u + u32(read_u16(step, 0x1C)) * 4u);
     const i32 left = required - killed;
+    if (left > 0) // JS / JG
+    {
+        return 0;
+    }
+    return script_event_step_delay_done(step.subspan(4)) ? 1 : 5; // 0x000D0700, ECX step+4
+}
+
+// Xbox 0x000CFFE0: "next one different". Each named tag (+0x1A, count in the byte at +0x4C) keeps its last kill total
+// (DAT_005138D0 + DAT_00512F48 by tag) at +0x2C; a new kill of the current tag (+0x18) fails the step (3) unless the
+// steps wait (DAT_0050653C); a new kill of another tag makes it the current one.
+i32 run_script_event_next_different_step(std::span<u8> step)
+{
+    u16 latest = 0;
+    const u8 count = step[0x4C];
+    for (u8 index = 0; index < count; index = u8(index + 1))
+    {
+        const u16 current = read_u16(step, 0x18);
+        const u16 tag = read_u16(step, 0x1A + size_t(index) * 2);
+        const size_t seen_at = 0x2C + size_t(index) * 4;
+        const i32 seen = std::bit_cast<i32>(read_u32(step, seen_at));
+        const i32 total = script_statistic_at_address(0x005138D0u + u32(tag) * 4u)
+            + script_statistic_at_address(0x00512F48u + u32(tag) * 4u);
+        if (tag == current)
+        {
+            if (seen < total && g_event_sequence.waiting == 0) // JLE skips; DAT_0050653C
+            {
+                return 3;
+            }
+        }
+        else if (seen < total)
+        {
+            latest = tag;
+            put_word(step, seen_at, u32(total));
+        }
+    }
+    if (latest != 0)
+    {
+        const u16 value = latest;
+        std::memcpy(step.data() + 0x18, &value, 2);
+    }
+    return 2;
+}
+
+// Xbox 0x000D0160: the number step: its target (+0x18) less 0x0012AE40 plus 0x0012AE90 (both ECX 0) still to go.
+i32 run_script_event_number_step(std::span<u8> step)
+{
+    const i32 left = std::bit_cast<i32>(read_u32(step, 0x18)) - script_sum_statistics(0)
+        + script_sum_paired_statistics(0);
     if (left > 0) // JS / JG
     {
         return 0;

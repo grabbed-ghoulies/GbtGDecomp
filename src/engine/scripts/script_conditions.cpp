@@ -689,6 +689,27 @@ int script_sum_statistics(i32 category)
     return sum;
 }
 
+// Xbox 0x0012AE90. ECX is the category, multiplied by 0x3A24 with 0x00513168 added. Ten rows each add twelve dwords
+// (-0x4EC, -0x4C4, -0x3F8, -0x3D0, -0x304, -0x2DC, -0x210, -0x1E8, -0x11C, -0xF4, -0x28 and +0), then the cursor
+// advances by 0x5B8.
+int script_sum_paired_statistics(i32 category)
+{
+    constexpr std::array<u32, 12> offsets{0x4EC, 0x4C4, 0x3F8, 0x3D0, 0x304, 0x2DC, 0x210, 0x1E8, 0x11C, 0xF4, 0x28, 0};
+    i32 sum = 0;
+    u32 cursor = 0x00513168u + static_cast<u32>(category) * 0x3A24u;
+    i32 rows = 10;
+    do
+    {
+        for (const u32 back : offsets)
+        {
+            sum += script_statistic_at_address(cursor - back);
+        }
+        cursor += 0x5b8u;
+        rows -= 1;
+    } while (rows != 0);
+    return sum;
+}
+
 
 // Xbox 0x001327A0. Opcode 4 in the table at 0x00314330. 0x0012AE40 is
 // compared with the int at record+8. A smaller count returns 0. A zero

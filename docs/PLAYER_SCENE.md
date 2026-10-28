@@ -283,6 +283,7 @@ All take the game directory, e.g.
 | `--scene3b1` | Boots chapter 3b scene 1 (chapter3b_scene1_1playcam) and plays it with the scene 7 driver. Passes: free play from frame 358, the script moves on to chapter3b_scene2_1playcam at frame 7924, and Cooper's energy stays at 10. Checked in the captures: Cooper fighting class 0x1B ghoulies among the plants (1200, 4800) and walking to the exit door (7800) |
 | `--scene3b2` | Boots chapter 3b scene 2 (chapter3b_scene2_1playcam, the garden) and plays it with the scene 7 driver at a fight range of 50. Reaches no untranslated code once the worm's body (type 0x2B), its strategy (type 0x57) and the explode state (type 0x68) are installed, but does not pass. Cooper enters region 3, but from frame 8760 he is held at the garden gate (about -257, 75) and never reaches region 1. The driver logs a body that enters type 0x68 and captures every 10 frames after (`scene3b2_explode_<frame>.bmp`). Checked in the captures: the worm up and hitting Cooper (7200 in an earlier run), its explosion at frame 7991 (the blast at 8040, Cooper thrown back, 16 to 9 energy), the worm gone (8400) and Cooper at the gate (20100) |
 | `--scene3b3` | Boots chapter 3b scene 3 (chapter3b_scene3_1playcam, Dunfiddlin Cottage) and plays it with the scene 7 driver, breaking `aid_ghoulybox_single_warlock` first (powerup kind 0). Reaches no untranslated code but does not pass: after "free play (find warlock)" (frame 1409) the warlock reappears downstairs, and the driver's 15-unit height rule keeps Cooper upstairs by the shut exit. Checked in the captures: the warlock fought in the hallway (1200) and his intro card (1500) |
+| `--scene3b4` | Boots chapter 3b scene 4 (chapter3b_scene4_2playcam, the workshop) and plays it with the scene 7 driver: an energy boost soup first (powerup kind 3, fetched again after a faint), fighting only during "event - survive/no weapons". Passes: Cooper faints in the first event, survives the second (90 s, ending at frame 15093), and the script moves on to chapter3b_scene5_2playcam at frame 15585. Checked in the captures: the 0:57 clock and the skeletons (11400) and Cooper leaving (15300) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -449,6 +450,23 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-28: chapter 3b scene 4: survive the workshop
+
+- `--scene3b4` (chapter3b_scene4_2playcam, the workshop) passes with no new translation. The script moves on to
+  chapter3b_scene5_2playcam at frame 15585.
+- The event, "event - survive/no weapons", lasts 90 seconds: node 0x448, type 0x1E, 0x42B40000. Its TimeOut
+  conditions are waves, not the end: skeletons at 10 s (node 0x5D4), and a cursed mummy box at 30 s and at 60 s
+  (nodes 0x684 and 0x7AC).
+- With 15 energy and the class 0x34 skeletons, Cooper fainted before the 90 seconds ran out. Changes to the mode:
+  - It passes `aid_ghoulybox_powerups_supersoups_energyboost5` as its powerup box (kind 3). The soup adds 5 energy.
+  - It fights only while the title is the event's, so after the event Cooper walks to the exit
+    (-194.7, 299.5) instead of chasing the skeletons that are left.
+  - The driver now fetches the powerup box again after a faint, since the restart brings the boxes back.
+- Run: Cooper faints once in the first event (frame 7206). He survives the second, which ends at frame 15093, and
+  leaves.
+- Checked in the captures: the event clock at 0:57 with the skeletons round Cooper by the furnace, energy 21 (11400),
+  and Cooper leaving among the skeletons (15300).
 
 ### 2026-10-28: chapter 3b scene 3: the warlock
 

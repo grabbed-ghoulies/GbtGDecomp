@@ -9491,6 +9491,12 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
         if (cooper && energy != last_energy)
         {
             std::cout << label << " frame " << frame << ": Cooper's energy " << last_energy << " -> " << energy << "\n";
+            if (last_energy == 0 && energy != 0 && frame != 0 && !powerup_box.empty())
+            {
+                // A faint restarts the scene and its boxes: scene 3b4's energy soup is fetched again.
+                powerup_done = false;
+                powerup_seen = false;
+            }
             last_energy = energy;
         }
         // Walk Cooper into the region a live PlayerEntersRegion (condition 8, its +8 word) names; with none, into the
@@ -10809,12 +10815,14 @@ int main(int argc, char** argv)
     const bool scene3b2_test = argc == 3 && std::string_view(argv[2]) == "--scene3b2";
     // --scene3b3 boots chapter3b_scene3_1playcam and plays it until the script moves on.
     const bool scene3b3_test = argc == 3 && std::string_view(argv[2]) == "--scene3b3";
+    // --scene3b4 boots chapter3b_scene4_2playcam and plays it until the script moves on.
+    const bool scene3b4_test = argc == 3 && std::string_view(argv[2]) == "--scene3b4";
     if (spawn_test)
     {
         std::cout << std::unitbuf;
     }
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
-        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene2a14_test && !scene2a15_test && !scene2a16_test && !scene2a17_test && !scene2b1_test && !scene2b2_test && !scene2b3_test && !scene2b4_test && !scene2b4b_test && !scene2b5_test && !scene2b6_test && !scene2b6b_test && !scene2b7_test && !scene2b8_test && !scene2b9_test && !scene2b10_test && !scene2b10b_test && !scene2c1_test && !scene2c2_test && !scene2c3_test && !scene2c4_test && !scene2c4b_test && !scene2c5_test && !scene2c6_test && !scene2c7_test && !scene2c8_test && !scene2c9_test && !scene2c10_test && !scene2c11_test && !scene2c11b_test && !scene2c12_test && !scene2c13_test && !scene2c13b_test && !scene2c13c_test && !scene3a1_test && !scene3a1b_test && !scene3a2_test && !scene3a3_test && !scene3a3b_test && !scene3a3c_test && !scene3a4_test && !scene3a5_test && !scene3a6_test && !scene3a7_test && !scene3a8_test && !scene3a9_test && !scene3a10_test && !scene3a11_test && !scene3a12_test && !scene3b1_test && !scene3b2_test && !scene3b3_test && !scene3_test && !pause_test)
+        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene2a14_test && !scene2a15_test && !scene2a16_test && !scene2a17_test && !scene2b1_test && !scene2b2_test && !scene2b3_test && !scene2b4_test && !scene2b4b_test && !scene2b5_test && !scene2b6_test && !scene2b6b_test && !scene2b7_test && !scene2b8_test && !scene2b9_test && !scene2b10_test && !scene2b10b_test && !scene2c1_test && !scene2c2_test && !scene2c3_test && !scene2c4_test && !scene2c4b_test && !scene2c5_test && !scene2c6_test && !scene2c7_test && !scene2c8_test && !scene2c9_test && !scene2c10_test && !scene2c11_test && !scene2c11b_test && !scene2c12_test && !scene2c13_test && !scene2c13b_test && !scene2c13c_test && !scene3a1_test && !scene3a1b_test && !scene3a2_test && !scene3a3_test && !scene3a3b_test && !scene3a3c_test && !scene3a4_test && !scene3a5_test && !scene3a6_test && !scene3a7_test && !scene3a8_test && !scene3a9_test && !scene3a10_test && !scene3a11_test && !scene3a12_test && !scene3b1_test && !scene3b2_test && !scene3b3_test && !scene3b4_test && !scene3_test && !pause_test)
     {
         std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene6-save | --scene6-save-reload | --scene3 | --pause | --scene4 | --scene5 | --scene6-1 | --scene7]\n";
         return 2;
@@ -10991,6 +10999,7 @@ int main(int argc, char** argv)
             : scene3b1_test ? "chapter3b_scene1_1playcam"
             : scene3b2_test ? "chapter3b_scene2_1playcam"
             : scene3b3_test ? "chapter3b_scene3_1playcam"
+            : scene3b4_test ? "chapter3b_scene4_2playcam"
             : player_test || spawn_test ? "chapter1_scene1_2playcam"
             : title_test ? "" : "scene0_1book");
         if (scene2a1b_test)
@@ -10999,6 +11008,14 @@ int main(int argc, char** argv)
             play_scene7(game, "scene2a1_2");
             pass_chapter_title(game, "scene2a1_to_3", "aid_script_ghoulies_chapter2a_scene1_3playcam", false);
             play_scene7(game, "scene2a1_3", 1000.f, "Event - Kill All", true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene3b4_test)
+        {
+            pass_chapter_title(game, "scene3b4", "aid_script_ghoulies_chapter3b_scene4_2playcam", false);
+            play_scene7(game, "scene3b4", 1000.f, "event - survive/no weapons", true, true, {},
+                "aid_ghoulybox_powerups_supersoups_energyboost5", 3);
             gbtg::gfx_shutdown();
             return 0;
         }

@@ -282,6 +282,7 @@ All take the game directory, e.g.
 | `--scene3a12` | Boots chapter 3a scene 12 (chapter3a_scene12_1playcam, the greenhouse) and plays it with the scene 7 driver. Reaches no untranslated code once the vampire's bite (type 0x61) and the grabbed body's state (type 0x71) are installed, but does not pass. "EVENT - KILL ALL/TIME LIMIT" starts about 1550 frames in. The vampire's bites take one energy a hold, and the class 0x34 ghoulies wear Cooper down until he faints. He faints 3 times in 36000 frames, and the event restarts each time. Checked in the captures: the rhyme paper (1500), Cooper among the skeletons (4500), and the vampire holding Cooper up out of his coffin (19500) |
 | `--scene3b1` | Boots chapter 3b scene 1 (chapter3b_scene1_1playcam) and plays it with the scene 7 driver. Passes: free play from frame 358, the script moves on to chapter3b_scene2_1playcam at frame 7924, and Cooper's energy stays at 10. Checked in the captures: Cooper fighting class 0x1B ghoulies among the plants (1200, 4800) and walking to the exit door (7800) |
 | `--scene3b2` | Boots chapter 3b scene 2 (chapter3b_scene2_1playcam, the garden) and plays it with the scene 7 driver at a fight range of 50. Reaches no untranslated code once the worm's body (type 0x2B), its strategy (type 0x57) and the explode state (type 0x68) are installed, but does not pass. Cooper enters region 3, but from frame 8760 he is held at the garden gate (about -257, 75) and never reaches region 1. The driver logs a body that enters type 0x68 and captures every 10 frames after (`scene3b2_explode_<frame>.bmp`). Checked in the captures: the worm up and hitting Cooper (7200 in an earlier run), its explosion at frame 7991 (the blast at 8040, Cooper thrown back, 16 to 9 energy), the worm gone (8400) and Cooper at the gate (20100) |
+| `--scene3b3` | Boots chapter 3b scene 3 (chapter3b_scene3_1playcam, Dunfiddlin Cottage) and plays it with the scene 7 driver, breaking `aid_ghoulybox_single_warlock` first (powerup kind 0). Reaches no untranslated code but does not pass: after "free play (find warlock)" (frame 1409) the warlock reappears downstairs, and the driver's 15-unit height rule keeps Cooper upstairs by the shut exit. Checked in the captures: the warlock fought in the hallway (1200) and his intro card (1500) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -448,6 +449,23 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-28: chapter 3b scene 3: the warlock
+
+- `--scene3b3` (chapter3b_scene3_1playcam, Dunfiddlin Cottage) reaches no untranslated code but does not pass.
+- The scene script's first free play waits on GhoulyExistsInScene (condition 16, link 0x3CC) for tag 0x3A, the
+  warlock. He is in the `aid_ghoulybox_single_warlock` bg-break box at (159.7, 36.3, -297.7), so the mode passes
+  that box as its powerup box with kind 0: Cooper breaks it first, then fights what comes out.
+- Checked in the captures:
+  - The box breaks at frame 1047.
+  - Cooper fights the warlock (class 0x3A) in the hallway (1200).
+  - The warlock's intro card plays (1500), and the title becomes "free play (find warlock)" at frame 1409.
+- Still failing: no condition is pending after that, and the script holds there. The warlock reappears downstairs
+  (about y 1, for example at 280, 119) while Cooper is upstairs (y 23). The driver skips ghoulies more than 15 away in
+  height (the rule kept for scene 2a2's plate-climbing zombie), so it walks Cooper to the shut exit (192.9, -340.8)
+  instead. What the script's next node (0x618, type 0x78, objTag_Actor_ImpFlying) waits on is not settled.
+- In the first run, before the box was passed, Cooper lost one energy point about every 300 frames while he waited
+  by the exit. The cause is not settled, and the drain did not show once the box was broken.
 
 ### 2026-10-28: chapter 3b scene 2: the worm
 

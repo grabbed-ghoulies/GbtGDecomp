@@ -142,6 +142,10 @@ u32 retaliate_runtime_strategy_contact(std::span<const u32> message, i32 minimum
     RuntimeStrategyActorViews& views); // Xbox 0x00139390
 u32 runtime_strategy_target_hit_lands(std::span<const u32> message, RuntimeStrategyTargetChecks& context,
     RuntimeStrategyActorViews& views); // Xbox 0x00139740, EAX strategy, EDI message
+// A hit on this actor (message +4) from an actor (+8) whose live attachment record (+0x8F8) is free and not to be
+// abandoned: the mind's requests are dropped and the sender becomes the mind's target (+0x10) and actor (+0xC).
+u32 take_runtime_strategy_hit_sender(std::span<const u32> message, RuntimeStrategyTargetChecks& context,
+    RuntimeStrategyActorViews& views); // Xbox 0x001394D0, EAX strategy, ECX message
 u32 react_runtime_strategy_watched_actor(std::span<const u32> message, RuntimeStrategyTargetChecks& context,
     RuntimeStrategyActorViews& views); // Xbox 0x001397B0, EAX strategy
 RuntimePlayerMindRequest* request_runtime_strategy_position(const Vec3& position, std::span<const u8> settings,

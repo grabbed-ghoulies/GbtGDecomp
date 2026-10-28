@@ -1149,6 +1149,41 @@ u32 react_runtime_strategy_watched_actor(std::span<const u32> message, RuntimeSt
     return 1;
 }
 
+// Xbox 0x001394D0
+u32 take_runtime_strategy_hit_sender(std::span<const u32> message, RuntimeStrategyTargetChecks& context,
+    RuntimeStrategyActorViews& views)
+{
+    RuntimePlayerStrategyGoals& goals = context.goals;
+    RuntimeMindEvents& events = goals.entry.events;
+    if ((views.story_flags & 0x100) != 0 || message[1] != read_u32(goals.entry.strategy, 8))
+    {
+        return 0;
+    }
+    const u32 sender = message[2];
+    if (sender == 0)
+    {
+        return 0;
+    }
+    clear_runtime_player_mind_requests(*goals.setup.mind); // 0x00029E80, EBX mind
+    const u32 record = read_u32(views.actor_bytes_at(sender), 0x8F8);
+    if (record == 0)
+    {
+        return 0;
+    }
+    const RuntimeMindTarget* target = goals.target_at(record);
+    if (target == nullptr)
+    {
+        throw Error("0x001394D0 reads a live attachment record with no target view");
+    }
+    if (target->bytes[0x18] != 0 || runtime_strategy_abandons_target(*target, context) != 0) // 0x00138410, EDX record
+    {
+        return 0;
+    }
+    set_runtime_mind_target(events, record); // 0x0002A030, ESI mind, EAX record
+    std::memcpy(events.mind.data() + 0xC, &sender, 4);
+    return 1;
+}
+
 // Xbox 0x001414F0, EAX target
 bool runtime_strategy_target_watching_player(const RuntimeMindTarget& target)
 {

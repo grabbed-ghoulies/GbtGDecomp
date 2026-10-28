@@ -1,5 +1,6 @@
 #pragma once
 #include "body_action_ids.h"
+#include "actor_live_attachments.h"
 
 namespace gbtg
 {
@@ -46,6 +47,9 @@ bool accept_runtime_attachment_request(RuntimeBodyAttachmentRequests& context,
     const u8* row, u32 timer); // Xbox 0x0001D2E0
 bool select_runtime_attachment_request(RuntimeBodyAttachmentRequests& context,
     u16 key); // Xbox 0x0001D210
+// Body +0x6E and the actor's first live attachment record's +0x16 (actor +0x8F8, when there is one) gain `bits`.
+void raise_runtime_body_request_tag(std::span<u8> body, entity_detail::ListHead& live_attachments,
+    u16 bits); // Xbox 0x0001D830, EAX body, CX bits
 bool runtime_body_accepts_target_request(std::span<const u8> body,
     const EntityBitBlock& flags, u16 owner_class); // Xbox 0x0001D180
 u32 runtime_body_target_height(std::span<const u8> body, const Actor& actor,

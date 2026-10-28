@@ -109,9 +109,17 @@ SceneBodyMessages::SceneBodyMessages(SceneBodyServices& services, NativePlayerIn
               unbound("body defensive action (vtable +0x44)");
           },
           services.death_actions, damage_rows_, std::span<char>(), death_, services.random, parameter_scratch_,
-          []() -> u16
+          [this]() -> u16
           {
-              // Body vtable +0x4C is the parent's 0x00027500 for types 0x27, 0x2A and 0x2D (no getter overrides it).
+              // Body vtable +0x4C is the parent's 0x00027500 but in type 0x2B (0x00076160).
+              if (player_.body_object.type == 0x2B)
+              {
+                  if (player_.body_bits == nullptr)
+                  {
+                      unbound("worm body death action without the body +0x15C bit block");
+                  }
+                  return runtime_worm_body_death_action_key(*player_.body_bits);
+              }
               return runtime_body_death_action_key();
           },
           first_timer_},
@@ -588,6 +596,7 @@ void SceneBodyMessages::bind_action_children()
         if (child->type != 0x59 && child->type != 0x8A && child->type != 0x80 && child->type != 0x63
             && child->type != 0x7F && child->type != 0x6B
             && child->type != 0x71 // Getter 0x00095550 stores it at 0x0050592C.
+            && child->type != 0x68 // Getter 0x0008E760 stores it at 0x005057EC.
             && child->type != 0x77 && child->type != 0x6E && child->type != 0x6D && child->type != 0x81
             && child->type != 0x7B
             && child->type != 0x5A && child->type != 0x5B && child->type != 0x5C && child->type != 0x74
@@ -814,6 +823,7 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
     case 0x27:
     case 0x29: // Vtable 0x005051E8 +0xC, the same 0x00075A60.
     case 0x2D: // Vtable 0x00505368 +0xC, 0x00075A60, jumps to the parent's 0x00074080.
+    case 0x2B: // Vtable 0x00505308 +0xC, the same 0x00075A60.
         dispatch_runtime_player_body_message(body_bytes, bytes, views, messages_); // Vtable 0x00504FE0 +0xC.
         break;
     case 0x2C:
@@ -979,6 +989,9 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         return;
     case 0x71:
         tick_runtime_grabbed_hold_state({action.bytes.get(), action.size}, grabbed_hold_context()); // 0x000956C0
+        return;
+    case 0x68:
+        tick_runtime_explode_state({action.bytes.get(), action.size}, explode_context()); // 0x0008EA90
         return;
     case 0x8C:
         tick_runtime_transform_state({action.bytes.get(), action.size}, transform_context()); // 0x000A46D0
@@ -1341,6 +1354,7 @@ void SceneBodyMessages::action_step(FactoryObject& action)
     case 0x65:
     case 0x82:
     case 0x71:
+    case 0x68:
         // 0x001628B0 (0x000D4179 for 0x69, 0x70 and 0x88) returns at once.
         return;
     default:
@@ -1940,6 +1954,46 @@ RuntimeFurnaceHitStateContext& SceneBodyMessages::furnace_hit_context()
     return *furnace_hit_;
 }
 
+RuntimeExplodeStateContext& SceneBodyMessages::explode_context()
+{
+    auto& knockdown = knockdown_context();
+    if (!services_.contact_actor || !services_.contact_words)
+    {
+        unbound("explode state without the scene's segment probe actors");
+    }
+    explode_.reset();
+    explode_state_.reset();
+    explode_state_.emplace(services_.state_context(services_.address_of(player_.body.data())));
+    explode_.emplace(RuntimeExplodeStateContext{knockdown, *explode_state_, player_.actor_instance,
+        player_.actor_instance.render, services_.latches, services_.sounds, services_.contact_actor,
+        services_.contact_players,
+        [this](Actor& actor, RuntimeSegmentContactActor& object, const Vec3& point, GhoulySpawnPool* contacts,
+            const Vec3& velocity, u16 word) -> u32
+        {
+            RuntimePlayerContactReport report{player_.body, player_.actor_bytes, services_.contact_totals,
+                services_.contact_session,
+                [this](void* payload)
+                {
+                    auto& report = *static_cast<RuntimeContactReport*>(payload);
+                    // {0x41, word, velocity, object, contacts, point, reply}.
+                    std::array<u32, 0x42> words{};
+                    words[0] = report.id;
+                    words[1] = u32(report.word);
+                    words[2] = std::bit_cast<u32>(report.velocity.x);
+                    words[3] = std::bit_cast<u32>(report.velocity.y);
+                    words[4] = std::bit_cast<u32>(report.velocity.z);
+                    words[5] = services_.address_of(&report.object->actor);
+                    words[7] = std::bit_cast<u32>(report.point.x);
+                    words[8] = std::bit_cast<u32>(report.point.y);
+                    words[9] = std::bit_cast<u32>(report.point.z);
+                    words[10] = report.reply;
+                    services_.contact_words(player_, words, report.contacts, 6);
+                }};
+            return report_runtime_player_contact(actor, object, point, contacts, velocity, word, report); // 0x0001F8C0
+        }});
+    return *explode_;
+}
+
 RuntimeScrabbleStateContext& SceneBodyMessages::scrabble_context()
 {
     player_.refresh_body_views();
@@ -2463,12 +2517,13 @@ std::span<const u8> SceneBodyMessages::mind_target()
 // Body vtable +0x20 and +0x2C: 0x00075B90 / 0x00075C30 for type 0x2A (getter 0x00075AF0), the parent
 // 0x00026950 / 0x00026A90 for type 0x27 (getter 0x000733F0 keeps the parent's slots from +0x20), and 0x00076210 /
 // 0x00076250 for type 0x2D (getter 0x000761A0) and 0x00075A70 / 0x00075AA0 for type 0x29 (getter 0x000759F0), which
-// fall through to the 0x27 parent's, and 0x00075F30 with the base 0x00026A90 for type 0x2C (getter 0x00075EC0).
+// fall through to the 0x27 parent's, and 0x00075F30 with the base 0x00026A90 for type 0x2C (getter 0x00075EC0), and
+// 0x00076100 / 0x00076130 for type 0x2B (getter 0x00076090), which also fall through to the parent's.
 // +0x30 and +0x34 are the parent's 0x00026B00 / 0x00026BB0 (parent table 0x0001DA60) in all but type 0x2C.
 u16 SceneBodyMessages::body_slot_key(u32 slot)
 {
     const u32 type = player_.body_object.type;
-    if (type != 0x27 && type != 0x2A && type != 0x29 && type != 0x2D && type != 0x2C)
+    if (type != 0x27 && type != 0x2A && type != 0x29 && type != 0x2D && type != 0x2C && type != 0x2B)
     {
         unbound("body next-action slot " + std::to_string(slot) + " of factory type " + std::to_string(type));
     }
@@ -2508,6 +2563,11 @@ u16 SceneBodyMessages::body_slot_key(u32 slot)
             return runtime_vampire_body_primary_parameter_id(ids, mind, *player_.body_bits, player_.action_table,
                 retained);
         }
+        if (type == 0x2B)
+        {
+            return runtime_worm_body_primary_parameter_id(ids, mind, *player_.body_bits, player_.action_table,
+                retained);
+        }
         return runtime_body_primary_parameter_id(ids, mind, *player_.body_bits, player_.action_table, retained);
     }
     // Slots +0x30 and +0x34 are the parent's 0x00026B00 / 0x00026BB0 but in type 0x2C (0x00075F90 / 0x00075F60).
@@ -2543,6 +2603,11 @@ u16 SceneBodyMessages::body_slot_key(u32 slot)
         {
             return runtime_jessie_clyde_body_secondary_parameter_id(ids, mind, *player_.body_bits,
                 player_.action_table, retained);
+        }
+        if (type == 0x2B)
+        {
+            return runtime_worm_body_secondary_parameter_id(ids, mind, *player_.body_bits, player_.action_table,
+                retained);
         }
         return runtime_body_secondary_parameter_id(ids, mind, *player_.body_bits, player_.action_table, retained);
     }
@@ -2590,6 +2655,10 @@ u16 SceneBodyMessages::body_slot_key(u32 slot)
     }
     if (slot == 0x4C)
     {
+        if (type == 0x2B)
+        {
+            return runtime_worm_body_death_action_key(*player_.body_bits); // 0x00076160
+        }
         return runtime_body_death_action_key(); // 0x00027500
     }
     unbound("body next-action slot " + std::to_string(slot));
@@ -2665,7 +2734,7 @@ RuntimeBodyChannelContext SceneBodyMessages::channel_context()
 void SceneBodyMessages::tick(FactoryObject& body, u32 input)
 {
     if (body.type != 0x28 && body.type != 0x27 && body.type != 0x2A && body.type != 0x29 && body.type != 0x2D
-        && body.type != 0x2C)
+        && body.type != 0x2C && body.type != 0x2B)
     {
         unbound("body vtable +0x10 of factory type " + std::to_string(body.type));
     }
@@ -2710,7 +2779,7 @@ void SceneBodyMessages::tick(FactoryObject& body, u32 input)
 void SceneBodyMessages::animate(FactoryObject& body)
 {
     if (body.type != 0x28 && body.type != 0x27 && body.type != 0x2A && body.type != 0x29 && body.type != 0x2D
-        && body.type != 0x2C)
+        && body.type != 0x2C && body.type != 0x2B)
     {
         unbound("body vtable +0x14 of factory type " + std::to_string(body.type));
     }
@@ -2728,7 +2797,7 @@ void SceneBodyMessages::animate(FactoryObject& body)
 void SceneBodyMessages::settle(FactoryObject& body)
 {
     if (body.type != 0x28 && body.type != 0x27 && body.type != 0x2A && body.type != 0x29 && body.type != 0x2D
-        && body.type != 0x2C)
+        && body.type != 0x2C && body.type != 0x2B)
     {
         unbound("body vtable +0x18 of factory type " + std::to_string(body.type));
     }
@@ -2796,7 +2865,8 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
 {
     if (body.type != 0x28)
     {
-        if (body.type != 0x27 && body.type != 0x2A && body.type != 0x29 && body.type != 0x2D && body.type != 0x2C)
+        if (body.type != 0x27 && body.type != 0x2A && body.type != 0x29 && body.type != 0x2D && body.type != 0x2C
+            && body.type != 0x2B)
         {
             unbound("body vtable +0x1C of factory type " + std::to_string(body.type));
         }
@@ -3025,7 +3095,8 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 && type != 0x8A && type != 0x63 && type != 0x80 && type != 0x7F && type != 0x6B && type != 0x77
                 && type != 0x6E && type != 0x6D && type != 0x81 && type != 0x7B && type != 0x75
                 && type != 0x85 && type != 0x65 && type != 0x82 // And getters 0x000A1A10, 0x0008D350, 0x000A03D0.
-                && type != 0x71) // And getter 0x00095550.
+                && type != 0x71 // And getter 0x00095550.
+                && type != 0x68) // And getter 0x0008E760.
             {
                 unbound("collision reply action vtable +0xC of factory type " + std::to_string(type));
             }

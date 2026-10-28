@@ -97,6 +97,8 @@ public:
     void refresh(); // Native snapshots of body fields read by the handlers.
     // Views for the mind's vtable +0x10 tick: refresh(), then the gaze target (mind +0xC) and anchor (mind +0x30).
     void prepare_tick();
+    // 0x0001D210 on the body's attachment requests after refresh() (the worm strategy's rest, key 0x67).
+    bool select_attachment_request(u16 key);
 
 private:
     SceneMindServices& services_;

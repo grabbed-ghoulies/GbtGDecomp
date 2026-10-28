@@ -26,6 +26,7 @@
 #include "../entities/body_grabbed_hold_state.h"
 #include "../entities/body_transform_state.h"
 #include "../entities/body_furnace_hit_state.h"
+#include "../entities/body_explode_state.h"
 #include "../entities/body_death_state.h"
 #include "../entities/body_scrabble_state.h"
 #include "../entities/body_scoop_whack_state.h"
@@ -169,6 +170,9 @@ struct SceneBodyServices
     std::function<RuntimeSegmentContactActor&(entity_detail::SegmentProbe&)> contact_actor{};
     std::function<void(NativePlayerInstance&, std::span<u32> words, GhoulySpawnPool* contacts,
         size_t contacts_word)> contact_words{};
+    // The explode state (type 0x68): 0x0001F8C0's contact tallies (DAT_0053E528, DAT_00524E2C).
+    std::span<u32> contact_totals{};
+    std::span<u32> contact_session{};
     // The jump on/off state (type 0x79): its globals (DAT_00428680, 0x60 bytes, +0x30 written), any actor's
     // vtable +0xC with the reply left in the words, the intro notices and the story byte, and another actor's views.
     std::span<u8> jump_globals{};
@@ -215,6 +219,7 @@ public:
     RuntimeGrabbedHoldStateContext& grabbed_hold_context(); // The type 0x71 state's views of this body.
     RuntimeTransformStateContext& transform_context(); // The type 0x8C state's views of this body.
     RuntimeFurnaceHitStateContext& furnace_hit_context(); // The type 0x75 state's views of this body.
+    RuntimeExplodeStateContext& explode_context(); // The type 0x68 state's views of this body.
     RuntimeScrabbleStateContext& scrabble_context(); // The type 0x7F state's views of this body.
     RuntimeScoopWhackStateContext& scoop_whack_context(); // The type 0x7E state's views of this body.
     // The type 0x6B state's views of this body; `input` is the tick's input word (actor +0x960 or zero).
@@ -291,6 +296,8 @@ private:
     std::optional<RuntimeTransformStateContext> transform_;
     std::optional<RuntimeBodyStateContext> furnace_hit_state_;
     std::optional<RuntimeFurnaceHitStateContext> furnace_hit_;
+    std::optional<RuntimeBodyStateContext> explode_state_;
+    std::optional<RuntimeExplodeStateContext> explode_;
     std::optional<RuntimeScrabbleStateContext> scrabble_;
     std::optional<RuntimeScoopWhackStateContext> scoop_whack_;
     std::optional<RuntimeFlipStateContext> flip_;

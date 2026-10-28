@@ -66,6 +66,15 @@ u16 runtime_jessie_clyde_body_primary_parameter_id(const RuntimeBodyActionIds& c
 u16 runtime_jessie_clyde_body_secondary_parameter_id(const RuntimeBodyActionIds& context,
     const u8* parameters, const EntityBitBlock& bits,
     const RuntimeScriptLookupTable* table, u16 retained_key); // Xbox 0x00075AA0
+// entityBodyWorm (type 0x2B): 0x10C / 0x165 / death key 0xAB while the body's bit block byte 2 has bit 3, else the
+// parent's (0xA9 for the death key).
+u16 runtime_worm_body_primary_parameter_id(const RuntimeBodyActionIds& context,
+    const u8* parameters, const EntityBitBlock& bits,
+    const RuntimeScriptLookupTable* table, u16 retained_key); // Xbox 0x00076100
+u16 runtime_worm_body_secondary_parameter_id(const RuntimeBodyActionIds& context,
+    const u8* parameters, const EntityBitBlock& bits,
+    const RuntimeScriptLookupTable* table, u16 retained_key); // Xbox 0x00076130
+u16 runtime_worm_body_death_action_key(const EntityBitBlock& bits); // Xbox 0x00076160
 // entityBodyVampire (type 0x2C): fixed ids while the body's bit block byte 8 has bit 0, else the parent's.
 u16 runtime_vampire_body_primary_parameter_id(const RuntimeBodyActionIds& context,
     const u8* parameters, const EntityBitBlock& bits,

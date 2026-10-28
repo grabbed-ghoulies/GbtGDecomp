@@ -1833,6 +1833,20 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             : &attached_actor_at(address_of(first->bytes.data()));
         receive_runtime_body_knock_back(player.body, player.actor, player.actor_bytes, background, entry); // 0x00020690
     };
+    players->bindings.scene.event_at = [this](u32 address) -> std::span<const u8>
+    {
+        // The animation event 0x0003B3C0 bound to a scene address for message 7; kind +0xC, name +0x10.
+        return scene.resolve_tail(address);
+    };
+    players->bindings.scene.select_request = [this](NativePlayerInstance& player, u16 key)
+    {
+        auto& graph = mind_messages[player.mind.data()];
+        if (graph == nullptr)
+        {
+            unbound("0x0001D210 on a body whose mind has no message graph");
+        }
+        return graph->select_attachment_request(key);
+    };
     players->bindings.scene.start_meter = [this](u32 actor, u32 target, float value)
     {
         start_runtime_baddie_meter(actor, target, value, scoreboard_hud->white, scoreboard_globals,
@@ -1856,7 +1870,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     };
     players->bindings.scene.mind_bytes_at = [this](u32 address) -> std::span<const u8>
     {
-        return scene.resolve_address(address, 0x14); // The mind's words through its target (+0x10).
+        return scene.resolve_tail(address); // The mind's words through its target (+0x10).
     };
     players->bindings.scene.medusa_parameters = data(0x004287F0, 0x58);
     players->bindings.scene.hunchback_parameters = data(0x00428770, 0x50);
@@ -3064,6 +3078,21 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         }
         return graph->furnace_hit_context();
     });
+    install_runtime_explode_state_class(scene.types, [this](u32 body_address) -> RuntimeExplodeStateContext&
+    {
+        const auto bytes = scene.resolve_address(body_address, 0);
+        auto* player = players->find_child_owner(bytes.data());
+        if (player == nullptr || player->body.data() != bytes.data())
+        {
+            unbound("explode state whose body has no player owner");
+        }
+        auto& graph = body_messages[player->body.data()];
+        if (graph == nullptr)
+        {
+            graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
+        }
+        return graph->explode_context();
+    });
     install_runtime_death_state_class(scene.types, [this](u32 body_address) -> RuntimeDeathStateContext&
     {
         const auto bytes = scene.resolve_address(body_address, 0);
@@ -3142,6 +3171,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     };
     callout_names = strings(0x00421C9C, 0x55);
     flag_names = strings(0x00338FB0, 0x41);
+    players->bindings.scene.flag_names = std::span<const char* const>(flag_names.data(), flag_names.size());
     surface_names = strings(0x004340A0, 0x12);
     shock_pass = {image.string(0x003168A4), image.string(0x00316890), image.string(0x0031687C),
         image.string(0x00316860)};
@@ -4970,6 +5000,8 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     {
         return segment_contact_actor(probe);
     };
+    body_services->contact_totals = contact_totals;
+    body_services->contact_session = contact_session;
     body_services->contact_words = [this](NativePlayerInstance& player, std::span<u32> words, GhoulySpawnPool* contacts,
         size_t contacts_word)
     {
@@ -7670,6 +7702,21 @@ RuntimeSegmentContactActor& SceneActorServices::State::prop_contact_actor(entity
                     sweep.reply = words[1];
                     return;
                 }
+                if (id == 0x21)
+                {
+                    // {0x21, reply, sender, point} from an exploding body's blast (0x0008EBD0).
+                    auto& notice = *static_cast<RuntimeBlastNotice*>(payload);
+                    std::array<u32, 0x42> words{};
+                    words[0] = notice.id;
+                    words[1] = notice.reply;
+                    words[2] = address_of(notice.sender);
+                    words[3] = std::bit_cast<u32>(notice.point.x);
+                    words[4] = std::bit_cast<u32>(notice.point.y);
+                    words[5] = std::bit_cast<u32>(notice.point.z);
+                    send(words, 0);
+                    notice.reply = words[1];
+                    return;
+                }
                 if (id == 0x15)
                 {
                     // {0x15, reply, sender, velocity, contacts, point} from a player's contact (0x0001F8C0).
@@ -7890,6 +7937,21 @@ RuntimeSegmentContactActor& SceneActorServices::State::segment_contact_actor(ent
                         std::memcpy(words.data() + 0xA, &notice.point, 12);
                         dispatch_contact_words(*player, words, notice.contacts, 9);
                         notice.reply = words[4];
+                        return;
+                    }
+                    if (*static_cast<const u32*>(payload) == 0x21)
+                    {
+                        // {0x21, reply, sender, point} from an exploding body's blast (0x0008EBD0).
+                        auto& notice = *static_cast<RuntimeBlastNotice*>(payload);
+                        std::array<u32, 0x42> words{};
+                        words[0] = notice.id;
+                        words[1] = notice.reply;
+                        words[2] = address_of(notice.sender);
+                        words[3] = std::bit_cast<u32>(notice.point.x);
+                        words[4] = std::bit_cast<u32>(notice.point.y);
+                        words[5] = std::bit_cast<u32>(notice.point.z);
+                        dispatch_contact_words(*player, words, nullptr, 0);
+                        notice.reply = words[1];
                         return;
                     }
                     if (*static_cast<const u32*>(payload) != 0x15)
@@ -8186,7 +8248,7 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
     if (child.type == 0x4F || child.type == 0x46 || child.type == 0x3B || child.type == 0x51 || child.type == 0x52
         || child.type == 0x58 || child.type == 0x44 || child.type == 0x40 || child.type == 0x4C || child.type == 0x53
         || child.type == 0x42 || child.type == 0x3A || child.type == 0x47 || child.type == 0x48 || child.type == 0x49 || child.type == 0x55 || child.type == 0x50 || child.type == 0x3E || child.type == 0x41 || child.type == 0x43 || child.type == 0x4B
-        || child.type == 0x4E || child.type == 0x45 || child.type == 0x54)
+        || child.type == 0x4E || child.type == 0x45 || child.type == 0x54 || child.type == 0x57)
     {
         if (auto* player = players->find_player(child); player != nullptr && !player->body.empty())
         {
@@ -8233,6 +8295,9 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
         return;
     case 0x54:
         players->vampire_message(child, words);
+        return;
+    case 0x57:
+        players->worm_message(child, words);
         return;
     case 0x53:
         players->ugly_girl_message(child, words);
@@ -8340,6 +8405,7 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
     case 0x28:
     case 0x29:
     case 0x2A:
+    case 0x2B:
     case 0x2C:
     case 0x2D:
     {
@@ -8779,6 +8845,9 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
             case 0x54:
                 players->vampire_update(strategy);
                 return;
+            case 0x57:
+                players->worm_update(strategy);
+                return;
             case 0x53:
                 players->ugly_girl_update(strategy);
                 return;
@@ -8952,6 +9021,7 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
             case 0x82: // And getter 0x000A03D0.
             case 0x61: // And getter 0x0008B200.
             case 0x71: // And getter 0x00095550.
+            case 0x68: // And getter 0x0008E760.
                 return runtime_body_action_next_key(action);
             case 0x5A:
             case 0x5C:
@@ -9793,7 +9863,8 @@ void SceneActorServices::State::draw_player(FactoryObject& object, NativePlayerI
                 && type != 0x65 // And getter 0x0008D350.
                 && type != 0x82 // And getter 0x000A03D0.
                 && type != 0x61 // And getter 0x0008B200.
-                && type != 0x71) // And getter 0x00095550.
+                && type != 0x71 // And getter 0x00095550.
+                && type != 0x68) // And getter 0x0008E760.
             {
                 unbound("body +0x744 object vtable +0x18 draw for factory type "
                     + std::to_string(player.second_action.type));

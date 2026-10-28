@@ -89,6 +89,14 @@ struct RuntimeContactNotice
     GhoulySpawnPool* contacts;
     Vec3 point;
 };
+// Message 0x21 from an exploding body's blast (0x0008EBD0) to each actor in reach; the receiver may set the reply.
+struct RuntimeBlastNotice
+{
+    u32 id; // 0x21.
+    u32 reply;
+    Actor* sender;
+    Vec3 point; // +0xC, the hit actor's middle.
+};
 // Message 0x41 to the player.
 struct RuntimeContactReport
 {

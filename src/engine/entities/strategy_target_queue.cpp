@@ -229,6 +229,40 @@ bool join_runtime_strategy_target_queue(RuntimeStrategyLink& link, ActorLiveAtta
     return runtime_strategy_link_target(link, context) != nullptr;
 }
 
+// Xbox 0x0002B970
+bool claim_runtime_strategy_target_queue(RuntimeStrategyLink& link, ActorLiveAttachment* record, Actor* actor,
+    RuntimeStrategyTargetQueue& context)
+{
+    void* queued = nullptr;
+    if (link.previous != nullptr)
+    {
+        RuntimeStrategyLink* anchor = link.previous;
+        while (anchor->previous != nullptr)
+        {
+            anchor = anchor->previous;
+        }
+        queued = anchor->owner;
+    }
+    if (record != queued)
+    {
+        detach_runtime_strategy_link(link);
+    }
+    if (record == nullptr)
+    {
+        return false;
+    }
+    if (link.previous == nullptr)
+    {
+        queue_runtime_strategy_link(link, record, actor, context);
+    }
+    if (runtime_strategy_link_target(link, context) == nullptr)
+    {
+        return false;
+    }
+    link.active = 1; // Strategy +0x30.
+    return true;
+}
+
 // Xbox 0x0002B9D0
 bool hold_runtime_strategy_target_queue(RuntimeStrategyLink& link, ActorLiveAttachment* record, Actor* actor,
     RuntimeStrategyTargetQueue& context)

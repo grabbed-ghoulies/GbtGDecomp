@@ -256,4 +256,16 @@ bool select_runtime_attachment_request(RuntimeBodyAttachmentRequests& context, u
     accept_runtime_attachment_request(context, row, 0);
     return true;
 }
+
+// Xbox 0x0001D830
+void raise_runtime_body_request_tag(std::span<u8> body, entity_detail::ListHead& live_attachments, u16 bits)
+{
+    const u16 tag = u16(read_u16(body, 0x6E) | bits);
+    std::memcpy(body.data() + 0x6E, &tag, 2);
+    auto* first = static_cast<ActorLiveAttachment*>(live_attachments.next); // Body +8 actor +0x8F8.
+    if (first != nullptr)
+    {
+        first->tag = u16(first->tag | bits);
+    }
+}
 }

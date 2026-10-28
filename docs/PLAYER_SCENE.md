@@ -280,6 +280,8 @@ All take the game directory, e.g.
 | `--scene3a10` | Boots chapter 3a scene 10 (chapter3a_scene10_2playcam, the village; no `_1` script exists) and plays it with the scene 7 driver. Reaches no untranslated code once the vampire body (type 0x2C) and strategy (type 0x54) are installed, but does not pass. The club-wielding class 0x24 ghoulies hit for 5 and knock Cooper down, so he faints four times in 36000 frames. The end conditions wait on two PlayerEntersRegion steps (words 0x3EC and 0x494). Checked in the captures: the village path, the cottages, and a class 0x24 ghouly over a knocked-down Cooper (5100, 12600) |
 | `--scene3a11` | Boots chapter 3a scene 11 (chapter3a_scene11_1playcam, the vegetable garden) and plays it with the scene 7 driver. Reaches no untranslated code once the vampire's knock-back hit (`0x00020690`) and front hit (`0x00022FB0`) are translated, but does not pass. "EXIT DOOR OPENS" comes about 400 frames in, and the class 0x38 ghoulies then wear Cooper down 4 energy a hit. He faints 18 times in 36000 frames, and the scene restarts each time. Checked in the captures: the garden and a ghouly at the plants (1200), and the vampire out of his open coffin at Cooper, with bats (3000) |
 | `--scene3a12` | Boots chapter 3a scene 12 (chapter3a_scene12_1playcam, the greenhouse) and plays it with the scene 7 driver. Reaches no untranslated code once the vampire's bite (type 0x61) and the grabbed body's state (type 0x71) are installed, but does not pass. "EVENT - KILL ALL/TIME LIMIT" starts about 1550 frames in. The vampire's bites take one energy a hold, and the class 0x34 ghoulies wear Cooper down until he faints. He faints 3 times in 36000 frames, and the event restarts each time. Checked in the captures: the rhyme paper (1500), Cooper among the skeletons (4500), and the vampire holding Cooper up out of his coffin (19500) |
+| `--scene3b1` | Boots chapter 3b scene 1 (chapter3b_scene1_1playcam) and plays it with the scene 7 driver. Passes: free play from frame 358, the script moves on to chapter3b_scene2_1playcam at frame 7924, and Cooper's energy stays at 10. Checked in the captures: Cooper fighting class 0x1B ghoulies among the plants (1200, 4800) and walking to the exit door (7800) |
+| `--scene3b2` | Boots chapter 3b scene 2 (chapter3b_scene2_1playcam, the garden) and plays it with the scene 7 driver at a fight range of 50. Reaches no untranslated code once the worm's body (type 0x2B), its strategy (type 0x57) and the explode state (type 0x68) are installed, but does not pass. Cooper enters region 3, but from frame 8760 he is held at the garden gate (about -257, 75) and never reaches region 1. The driver logs a body that enters type 0x68 and captures every 10 frames after (`scene3b2_explode_<frame>.bmp`). Checked in the captures: the worm up and hitting Cooper (7200 in an earlier run), its explosion at frame 7991 (the blast at 8040, Cooper thrown back, 16 to 9 energy), the worm gone (8400) and Cooper at the gate (20100) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -446,6 +448,82 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-28: chapter 3b scene 2: the worm
+
+- Type 0x2B, entityBodyWorm (getter `0x00076090`, body `0x000760A0`, vtable 0x00505308), in
+  `entities/player_factory_owner.cpp`. It has the zombie's slots except +0x20, +0x2C and +0x4C, which are in
+  `entities/body_action_ids.cpp`:
+  - `0x00076100`: 0x10C while bit block byte 2 bit 3 (bit 0x13) is set, otherwise the parent's.
+  - `0x00076130`: 0x165 while bit 0x13 is set, otherwise the parent's.
+  - `0x00076160`: the death key, 0xAB while bit 0x13 is set, otherwise 0xA9.
+
+  Type 0x2B joins 0x2D in every body list in `scene_body_messages.cpp` and `scene_actor_services.cpp`.
+- Type 0x57, entityStrategyWorm (getter `0x000C4580`, vtable 0x00506080), in `entities/worm_strategy.cpp`. It has
+  the sizes, construct, destroy, message, update, enter and leave slots, the effect mode `0x000C4C70` and the timer
+  `0x000C4D60`. While holding, it wanders ("far") until it claims a target queue, then attacks:
+  - It loads "attackprepare" while bit 0x13 is clear, then "attack".
+  - Once bit 0x13 is set, the timer at +0x138 (5 seconds) runs down, and at zero the worm rests (0x400, request key
+    0x67).
+  - Its animation event kind 0x3A naming flag 0x13 makes it emerge: scale 1.25, effect mode 1 (the +0x38 object),
+    tag bit 8 and actor message 0x4A.
+  - Being hit gives effect mode 2 (the +0xB8 object, latches raised).
+- New shared helpers:
+  - `0x0002B970`: the target queue join that marks the link active (strategy +0x30), in
+    `strategy_target_queue.cpp`.
+  - `0x001394D0`: the hit sender becomes the mind's target, in `strategy_target_selection.cpp`.
+  - `0x0001D830`: body +0x6E and the first live attachment's +0x16 tag, in `body_attachment_requests.cpp`.
+- Scene bindings for the worm strategy:
+  - `event_at`: message 7's animation event record, by its bound address.
+  - `flag_names`: 0x00338FB0.
+  - `select_request`: 0x0001D210 on the mind graph's attachment requests, through
+    `SceneMindMessages::select_attachment_request`.
+- Type 0x68, entityStateExplode (getter `0x0008E760`, vtable 0x005057E0), in `entities/body_explode_state.cpp`.
+  1. Once its animation slot 0 is done, the actor is hidden and taken out of collision, with callout 0x17.
+  2. For 0.3 seconds a blast that shrinks from 25 to 8 sends each actor in reach message 0x21. An unanswered 0x21
+     gets a 0x0001F8C0 contact.
+  3. Once its sounds end, the body dies (0x00134AE0).
+
+  The 0x21 notice (`RuntimeBlastNotice`) is passed on as words to players and props. Nothing on the native path
+  answers 0x21 yet. The 0x0001F8C0 velocity is DAT_0050DD80 (zero) and its word is 0. The stack block the dump
+  passes as its fifth argument is never read.
+- `--scene3b2` (chapter3b_scene2_1playcam, the garden) reaches no untranslated code, but does not pass. Its end
+  conditions are three PlayerEntersRegion conditions (condition 8: regions 3, 1 and 2, words 0x3B8, 0x414 and 0x4E0).
+  Region 2's volume sits on the worm. The mode's fight range is 50, so Cooper walks the regions and fights only what
+  is near. With 1000 he chased every ghouly in the garden and entered none.
+- Checked in the captures of the final run:
+  - Cooper enters region 3. At frame 7200 in an earlier run, and from frame 7560 in the final one, the worm comes up
+    out of the ground (red, with its effect particles) and hits him.
+  - The driver now logs a body that enters type 0x68, and captures every 10 frames for a second after. The worm
+    enters it at frame 7991. At 8000 it stands beside Cooper. At 8040 there is an orange blast with sparks, and Cooper
+    is thrown back, losing 7 energy (16 to 9) at frame 8030.
+  - At 8400 the worm is gone. The driver goes on hitting it until frame 8640, while the state waits for the worm's
+    sounds to end before it dies (0x00134AE0). After that, nothing targets it.
+- Still failing: Cooper never reaches region 1 (-259.7, 139.8). From frame 8760 to the end he is held at the garden
+  gate in front of the cottage (about -257, 75; capture 20100), although the gate leaf looks open. Class 0x36
+  ghoulies take him from 15 to 1 in one hit (frames 2391 and 5459), and he faints once.
+- What holds him at the gate, found with temporary prints that were then removed:
+  - His movement probe (0x001226C0, kind 4, mask 0xC0000) hits the garden background's static physical mesh (shape
+    type 1, 0x00053AA0), not a jointed part. The triangle's +0xC flags are 0x4 and its category (+0x10) is 0.
+  - The mesh walk collides when the probe's first word, 4, shares a bit with the flags. The second word, 0xC0000, is
+    the excluded set. So bit 4 blocks the player.
+  - Region 1's box (half extents 45 and 55, yaw 0) starts at z 84.8, behind that wall at z 79.
+- The scene script (68 nodes) does nothing to category 0:
+  - At the start, node 0x2CC runs type 0x67 on category 255 with a nonzero word (0x0012C930 ORs bit 4). That shuts
+    60 event triangles to the player.
+  - Node 0x4E0, reached on region 2, clears it again (0x0012C950).
+  - Node 0x414, reached on region 1, plays aid_cutscene_ghoulies_chapter3b_scene2_gate and sets category 0xFB.
+  - Part removal (0x00044EF0) only clears categories numbered row + 1.
+
+  So the gate triangle stays a wall, and in the retail game the way to region 1 is probably not through this gate.
+  The test's navigation grid walk still routes Cooper through its cells, and the driver has no other route. This is
+  not checked against xemu. In another run Cooper was held inside region 3 (about -157, -37) from frame 10800 instead.
+
+### 2026-10-28: chapter 3b scene 1
+
+- `--scene3b1` (chapter3b_scene1_1playcam) passes with no new translation: free play from frame 358, and the script
+  moves on to chapter3b_scene2_1playcam at frame 7924. Seen in the captures: Cooper fighting class 0x1B ghoulies
+  among the greenhouse plants (1200, 4800) and walking to the exit door (7800). Cooper's energy stays at 10.
 
 ### 2026-10-28: chapter 3a scene 12: the vampire's bite
 

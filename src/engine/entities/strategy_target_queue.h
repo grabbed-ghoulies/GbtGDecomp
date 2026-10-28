@@ -24,6 +24,9 @@ ActorLiveAttachment* runtime_strategy_link_target(RuntimeStrategyLink& link,
     const RuntimeStrategyTargetQueue& context); // Xbox 0x00112A70
 bool join_runtime_strategy_target_queue(RuntimeStrategyLink& link, ActorLiveAttachment* record, Actor* actor,
     RuntimeStrategyTargetQueue& context); // Xbox 0x0002B910, EBX strategy, EDI record
+// 0x0002B910's join, and the link marked active (strategy +0x30) once it holds a target.
+bool claim_runtime_strategy_target_queue(RuntimeStrategyLink& link, ActorLiveAttachment* record, Actor* actor,
+    RuntimeStrategyTargetQueue& context); // Xbox 0x0002B970, EDI strategy, EBX record
 bool hold_runtime_strategy_target_queue(RuntimeStrategyLink& link, ActorLiveAttachment* record, Actor* actor,
     RuntimeStrategyTargetQueue& context); // Xbox 0x0002B9D0, EAX strategy, EDI record
 extern float g_50e280; // DAT_0050E280, the queues' resort timer.

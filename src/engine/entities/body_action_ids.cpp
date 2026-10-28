@@ -490,6 +490,36 @@ u16 runtime_jessie_clyde_body_secondary_parameter_id(const RuntimeBodyActionIds&
     return runtime_body_secondary_parameter_id(context, parameters, bits, table, retained_key);
 }
 
+// Xbox 0x00076100
+u16 runtime_worm_body_primary_parameter_id(const RuntimeBodyActionIds& context,
+    const u8* parameters, const EntityBitBlock& bits,
+    const RuntimeScriptLookupTable* table, u16 retained_key)
+{
+    if ((bits.bytes[2] & 8) != 0)
+    {
+        return 0x10C;
+    }
+    return runtime_body_primary_parameter_id(context, parameters, bits, table, retained_key);
+}
+
+// Xbox 0x00076130
+u16 runtime_worm_body_secondary_parameter_id(const RuntimeBodyActionIds& context,
+    const u8* parameters, const EntityBitBlock& bits,
+    const RuntimeScriptLookupTable* table, u16 retained_key)
+{
+    if ((bits.bytes[2] & 8) != 0)
+    {
+        return 0x165;
+    }
+    return runtime_body_secondary_parameter_id(context, parameters, bits, table, retained_key);
+}
+
+// Xbox 0x00076160
+u16 runtime_worm_body_death_action_key(const EntityBitBlock& bits)
+{
+    return u16(u16(u16(bits.bytes[2] & 8) | 0x2A4) >> 2);
+}
+
 // Xbox 0x00075F30
 u16 runtime_vampire_body_primary_parameter_id(const RuntimeBodyActionIds& context,
     const u8* parameters, const EntityBitBlock& bits,

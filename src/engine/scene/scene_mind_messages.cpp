@@ -461,6 +461,12 @@ void SceneMindMessages::refresh()
     feedback_.input_address = player_.input.empty() ? 0 : services_.address_of(player_.input.data());
 }
 
+bool SceneMindMessages::select_attachment_request(u16 key)
+{
+    refresh();
+    return select_runtime_attachment_request(attachment_, key); // 0x0001D210
+}
+
 void SceneMindMessages::prepare_tick()
 {
     refresh();

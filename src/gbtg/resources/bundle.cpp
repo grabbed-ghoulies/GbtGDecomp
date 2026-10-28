@@ -2,6 +2,7 @@
 #include "gbtg/hash.h"
 #include "gbtg/types.h"
 
+#include <cctype>
 #include <algorithm>
 #include <cstring>
 
@@ -128,9 +129,33 @@ Bundle load_bundle(const std::filesystem::path& path)
 
 const BundleEntry* find_entry(const Bundle& b, std::string_view name)
 {
+    // An AID's identity is its hash, which folds case (aid_hash): scene 3b7's skeleton table asks for
+    // ..._noegganims_turnStep, which its bundle lists as ..._noegganims_turnstep.
+    const auto same = [name](std::string_view entry)
+    {
+        if (entry.size() != name.size())
+        {
+            return false;
+        }
+        for (size_t i = 0; i < name.size(); ++i)
+        {
+            if (std::tolower(static_cast<unsigned char>(entry[i])) != std::tolower(static_cast<unsigned char>(name[i])))
+            {
+                return false;
+            }
+        }
+        return true;
+    };
     for (const auto& e : b.entries)
     {
         if (e.name == name)
+        {
+            return &e;
+        }
+    }
+    for (const auto& e : b.entries)
+    {
+        if (same(e.name))
         {
             return &e;
         }

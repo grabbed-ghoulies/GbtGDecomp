@@ -286,6 +286,7 @@ All take the game directory, e.g.
 | `--scene3b4` | Boots chapter 3b scene 4 (chapter3b_scene4_2playcam, the workshop) and plays it with the scene 7 driver: an energy boost soup first (powerup kind 3, fetched again after a faint), fighting only during "event - survive/no weapons". Passes: Cooper faints in the first event, survives the second (90 s, ending at frame 15093), and the script moves on to chapter3b_scene5_2playcam at frame 15585. Checked in the captures: the 0:57 clock and the skeletons (11400) and Cooper leaving (15300) |
 | `--scene3b5` | Boots chapter 3b scene 5 (chapter3b_scene5_2playcam, the ogres' lane) and plays it with the scene 7 driver, fighting nothing (the class 0x1E ogres sleep) and taking an energy boost soup first. Passes once the grab and throw state (type 0x72) is installed: Cooper is thrown three times and the script moves on to chapter3b_scene6_1playcam at frame 4933. Checked in the captures: the ogres asleep and over Cooper (1800, 2100) |
 | `--scene3b6` | Boots chapter 3b scene 6 (chapter3b_scene6_1playcam, the foundry) and plays it with the scene 7 driver. Passes: the bg-break key behind the barrel comes out at frame 1457 (the driver punches from 24 once on the key's approach cell), Cooper fights the class 0x12 haunted doors in the time-limit event, and the script moves on to chapter3b_scene7_1playcam at frame 5947. Checked in the captures: the key coming out (1500) and a haunted door fight (3600) |
+| `--scene3b7` | Boots chapter 3b scene 7 (chapter3b_scene7_1playcam, the barn) and plays it with the scene 7 driver. Reaches no untranslated code once bundle lookups ignore case (the skeleton's ..._noegganims_turnStep is listed as ..._turnstep), but does not pass: Cooper is held at a pen wall at about (150, 175) and never reaches region 10 at (942, 73). Checked in the captures: Cooper with an extinguisher at the wall (3000) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -452,6 +453,21 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-28: chapter 3b scene 7: the barn
+
+- `--scene3b7` (chapter3b_scene7_1playcam, the barn) first stopped on the retail resource error screen at frame 680,
+  with the last missing resource aid_anim_ghoulies_actor_skeleton_noegganims_turnStep.
+  - Under cdb the screen (0x00032700) came from the struggle state (`update_runtime_struggle_animation`, 0x000A3070)
+    starting its in-band record.
+  - The scene's own bundle (aid_script/ghoulies_chapter3b_scene7_1playcam.bnl) lists the animation as
+    ..._noegganims_turnstep. The skeleton's table names it with a capital S.
+  - The host bundle lookup `find_entry` compared names exactly. An AID is its hash, and `aid_hash` folds case, so
+    `find_entry` now falls back to an ASCII case-insensitive match. The run then reaches no untranslated code.
+- Still failing: the script waits on PlayerEntersRegion (condition 8) for region 10, at (942, 73), radius 35.
+  Cooper, carrying an extinguisher, is held against a low pen wall in the barn at about (150, 175) for the rest of
+  the run. The class 0x19 ghoulies and the way east are beyond it. What opens the way is not settled.
+- Checked in the captures: Cooper with the extinguisher at the pen wall (3000).
 
 ### 2026-10-28: chapter 3b scene 6: the foundry key
 

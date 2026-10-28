@@ -2633,7 +2633,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         auto* player = players->find_child_owner(bytes.data());
         if (player == nullptr || player->body.data() != bytes.data())
         {
-            unbound("grabbed state whose body has no player owner");
+            unbound("grabbed hold state whose body has no player owner");
         }
         auto& graph = body_messages[player->body.data()];
         if (graph == nullptr)
@@ -2988,6 +2988,36 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
         }
         return graph->slam_smash_context();
+    });
+    install_runtime_grabbed_hold_state_class(scene.types, [this](u32 body_address) -> RuntimeGrabbedHoldStateContext&
+    {
+        const auto bytes = scene.resolve_address(body_address, 0);
+        auto* player = players->find_child_owner(bytes.data());
+        if (player == nullptr || player->body.data() != bytes.data())
+        {
+            unbound("grabbed state whose body has no player owner");
+        }
+        auto& graph = body_messages[player->body.data()];
+        if (graph == nullptr)
+        {
+            graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
+        }
+        return graph->grabbed_hold_context();
+    });
+    install_runtime_blood_suck_state_class(scene.types, [this](u32 body_address) -> RuntimeBloodSuckStateContext&
+    {
+        const auto bytes = scene.resolve_address(body_address, 0);
+        auto* player = players->find_child_owner(bytes.data());
+        if (player == nullptr || player->body.data() != bytes.data())
+        {
+            unbound("blood suck state whose body has no player owner");
+        }
+        auto& graph = body_messages[player->body.data()];
+        if (graph == nullptr)
+        {
+            graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
+        }
+        return graph->blood_suck_context();
     });
     install_runtime_shocked_state_class(scene.types, [this](u32 body_address) -> RuntimeShockedStateContext&
     {
@@ -4946,6 +4976,44 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         dispatch_contact_words(player, words, contacts, contacts_word);
     };
     body_services->jump_globals = jump_globals;
+    body_services->struggle_preset = data(0x00302728, 0x10);
+    body_services->blood_suck_target = [this](u32 address) -> RuntimeBloodSuckTarget
+    {
+        RuntimeBloodSuckTarget target;
+        target.peer = body_services->jump_peer(address);
+        auto* object = object_of(scene.resolve_address(address, 0).data());
+        target.view = &actors->view(*object);
+        auto* player = players->find_player_at(address);
+        if (player == nullptr)
+        {
+            return target;
+        }
+        auto& graph = body_messages[player->body.data()];
+        if (graph == nullptr)
+        {
+            graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
+        }
+        target.damage = &graph->damage_entry();
+        target.body_message = [this, player](std::span<const u32> words)
+        {
+            std::array<u32, 0x42> buffer{};
+            std::copy_n(words.begin(), std::min<size_t>(words.size(), buffer.size()), buffer.begin());
+            auto& owner = body_messages[player->body.data()];
+            owner->dispatch(player->body_object, buffer); // Body vtable +0xC.
+        };
+        const u32 held = read_u32(player->body, 0x48);
+        if (held != 0)
+        {
+            auto* held_object = object_of(scene.resolve_address(held, 0).data());
+            if (held_object == nullptr || !actors->actors.contains(held_object->bytes.get()))
+            {
+                unbound("blood suck target's held actor (body +0x48) is not a scene actor");
+            }
+            target.held = actors->actors.at(held_object->bytes.get());
+            target.held_view = &actors->view(*held_object);
+        }
+        return target;
+    };
     body_services->released_position = [this](u32 address) -> const Vec3*
     {
         const auto found = released_actors.find(address);
@@ -8882,6 +8950,8 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
             case 0x90: // And getter 0x000A6A00.
             case 0x65: // And getter 0x0008D350.
             case 0x82: // And getter 0x000A03D0.
+            case 0x61: // And getter 0x0008B200.
+            case 0x71: // And getter 0x00095550.
                 return runtime_body_action_next_key(action);
             case 0x5A:
             case 0x5C:
@@ -9721,7 +9791,9 @@ void SceneActorServices::State::draw_player(FactoryObject& object, NativePlayerI
                 && type != 0x85 // And getter 0x000A1A10.
                 && type != 0x90 // And getter 0x000A6A00.
                 && type != 0x65 // And getter 0x0008D350.
-                && type != 0x82) // And getter 0x000A03D0.
+                && type != 0x82 // And getter 0x000A03D0.
+                && type != 0x61 // And getter 0x0008B200.
+                && type != 0x71) // And getter 0x00095550.
             {
                 unbound("body +0x744 object vtable +0x18 draw for factory type "
                     + std::to_string(player.second_action.type));

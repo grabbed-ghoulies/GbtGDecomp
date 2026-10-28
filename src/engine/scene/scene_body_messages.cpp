@@ -326,6 +326,22 @@ void SceneBodyMessages::bind_action_children()
             children_[child->bytes.get()] = walk.get();
             continue;
         }
+        if (child->type == 0x61)
+        {
+            auto& blood_suck = blood_suck_children_[child->bytes.get()];
+            if (blood_suck == nullptr)
+            {
+                blood_suck = std::make_unique<RuntimeBodyMessageChild>();
+                blood_suck->message = [this, child](std::span<u8> message)
+                {
+                    const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
+                    message_runtime_blood_suck_state({child->bytes.get(), child->size}, words,
+                        blood_suck_context()); // 0x0008BB90
+                };
+            }
+            children_[child->bytes.get()] = blood_suck.get();
+            continue;
+        }
         if (child->type == 0x79)
         {
             auto& jump_on = jump_on_children_[child->bytes.get()];
@@ -571,6 +587,7 @@ void SceneBodyMessages::bind_action_children()
         // 0x80's getter 0x0009F420 stores it at 0x00505AEC, 0x63's getter 0x0008C5A0 at 0x0050574C.
         if (child->type != 0x59 && child->type != 0x8A && child->type != 0x80 && child->type != 0x63
             && child->type != 0x7F && child->type != 0x6B
+            && child->type != 0x71 // Getter 0x00095550 stores it at 0x0050592C.
             && child->type != 0x77 && child->type != 0x6E && child->type != 0x6D && child->type != 0x81
             && child->type != 0x7B
             && child->type != 0x5A && child->type != 0x5B && child->type != 0x5C && child->type != 0x74
@@ -957,6 +974,12 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
     case 0x82:
         tick_runtime_slam_smash_state({action.bytes.get(), action.size}, slam_smash_context()); // 0x000A0630
         return;
+    case 0x61:
+        tick_runtime_blood_suck_state({action.bytes.get(), action.size}, blood_suck_context()); // 0x0008B6C0
+        return;
+    case 0x71:
+        tick_runtime_grabbed_hold_state({action.bytes.get(), action.size}, grabbed_hold_context()); // 0x000956C0
+        return;
     case 0x8C:
         tick_runtime_transform_state({action.bytes.get(), action.size}, transform_context()); // 0x000A46D0
         return;
@@ -1243,6 +1266,9 @@ void SceneBodyMessages::action_step(FactoryObject& action)
 {
     switch (action.type)
     {
+    case 0x61:
+        step_runtime_blood_suck_state({action.bytes.get(), action.size}, blood_suck_context()); // 0x0008B9C0
+        return;
     case 0x5A:
         // Type 0x5A's +0x14 is 0x0002AD30 itself.
     case 0x5C:
@@ -1314,6 +1340,7 @@ void SceneBodyMessages::action_step(FactoryObject& action)
     case 0x90:
     case 0x65:
     case 0x82:
+    case 0x71:
         // 0x001628B0 (0x000D4179 for 0x69, 0x70 and 0x88) returns at once.
         return;
     default:
@@ -1799,6 +1826,56 @@ RuntimeSlamSmashStateContext& SceneBodyMessages::slam_smash_context()
             dispatch(player_.body_object, buffer); // Body vtable +0xC.
         }});
     return *slam_smash_;
+}
+
+RuntimeBloodSuckStateContext& SceneBodyMessages::blood_suck_context()
+{
+    player_.refresh_body_views();
+    if (player_.body_bits == nullptr)
+    {
+        unbound("blood suck state of a body with no +0x15C bit block");
+    }
+    if (!services_.blood_suck_target || !services_.reply_message || services_.struggle_preset.empty())
+    {
+        unbound("blood suck state services");
+    }
+    blood_suck_.reset();
+    blood_suck_.emplace(RuntimeBloodSuckStateContext{services_.game, player_.body, player_.actor,
+        player_.actor_address, player_.actor_bytes, *player_.body_bits, player_.body_selection, services_.clock,
+        player_.actor_instance.animation, player_.mind, player_.actor_instance.live_attachments, services_.latches,
+        services_.sounds, services_.random, player_.scene.input_state, services_.struggle_preset,
+        services_.image_string,
+        [this](u32 slot)
+        {
+            return body_slot_key(slot);
+        },
+        services_.reply_message,
+        [this](u32 actor, u32 id, const RuntimeActorCreationOptions* options)
+        {
+            services_.actor_callouts_with(actor, id, options);
+        },
+        services_.target_at, services_.blood_suck_target});
+    return *blood_suck_;
+}
+
+RuntimeGrabbedHoldStateContext& SceneBodyMessages::grabbed_hold_context()
+{
+    player_.refresh_body_views();
+    if (player_.body_bits == nullptr)
+    {
+        unbound("grabbed hold state of a body with no +0x15C bit block");
+    }
+    grabbed_hold_.reset();
+    grabbed_hold_.emplace(RuntimeGrabbedHoldStateContext{player_.body, player_.actor, *player_.body_bits,
+        player_.attachment,
+        services_.latches, services_.clock,
+        [this](std::span<const u32> words)
+        {
+            std::array<u32, 0x42> buffer{};
+            std::copy_n(words.begin(), std::min<size_t>(words.size(), buffer.size()), buffer.begin());
+            dispatch(player_.body_object, buffer); // Body vtable +0xC.
+        }});
+    return *grabbed_hold_;
 }
 
 RuntimeShockedStateContext& SceneBodyMessages::shocked_context()
@@ -2880,6 +2957,18 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 message_runtime_arc_state({second.bytes.get(), second.size}, words, arc_context());
                 return;
             }
+            if (type == 0x61)
+            {
+                // 0x0008BB90 reads past the id only for 0x7C (+4).
+                if (reply.id == 0x7C)
+                {
+                    unbound("collision reply id 0x7C to the blood suck state 0x0008BB90");
+                }
+                auto& second = player_.body_selection.second;
+                const std::array<u32, 1> words{reply.id};
+                message_runtime_blood_suck_state({second.bytes.get(), second.size}, words, blood_suck_context());
+                return;
+            }
             if (type == 0x79)
             {
                 // 0x0009AE60 reads past the id only for 0x7C (+4), 0x86 (+8) and 0x6E (+4, +0x10).
@@ -2935,7 +3024,8 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
             if (type != 0x87 && type != 0x88 && type != 0x69 && type != 0x70 && type != 0x5B && type != 0x5C && type != 0x74 && type != 0x7C
                 && type != 0x8A && type != 0x63 && type != 0x80 && type != 0x7F && type != 0x6B && type != 0x77
                 && type != 0x6E && type != 0x6D && type != 0x81 && type != 0x7B && type != 0x75
-                && type != 0x85 && type != 0x65 && type != 0x82) // And getters 0x000A1A10, 0x0008D350, 0x000A03D0.
+                && type != 0x85 && type != 0x65 && type != 0x82 // And getters 0x000A1A10, 0x0008D350, 0x000A03D0.
+                && type != 0x71) // And getter 0x00095550.
             {
                 unbound("collision reply action vtable +0xC of factory type " + std::to_string(type));
             }

@@ -279,6 +279,7 @@ All take the game directory, e.g.
 | `--scene3a9` | Boots chapter 3a scene 9 (chapter3a_scene9_1playcam, the infirmary) and plays it with the scene 7 driver. Reaches no untranslated code but does not pass. In FREE PLAY the patients take 4 energy a hit. "EXIT DOOR CLOSES" puts Cooper at 183.7, -35.6, and "EVENT - SURVIVE/FIND THE KEY" starts a timer (0:57 at frame 3300) with the Medusa and the imps; Cooper faints after about 1000 frames of it every time and the scene restarts in FREE PLAY. The driver also stalls on soups and boxes it cannot reach: the soup near 280, 67, the free kind 4 powerup at -60, -150 and the `energyboost10` box at 242, 148. A run with that box as `powerup_box` (kind 4) still fainted eight times. Checked in the captures: the infirmary beds and patients (600), the exit door (1200), and the Medusa and the imps under the event timer (1800, 3300) |
 | `--scene3a10` | Boots chapter 3a scene 10 (chapter3a_scene10_2playcam, the village; no `_1` script exists) and plays it with the scene 7 driver. Reaches no untranslated code once the vampire body (type 0x2C) and strategy (type 0x54) are installed, but does not pass. The club-wielding class 0x24 ghoulies hit for 5 and knock Cooper down, so he faints four times in 36000 frames. The end conditions wait on two PlayerEntersRegion steps (words 0x3EC and 0x494). Checked in the captures: the village path, the cottages, and a class 0x24 ghouly over a knocked-down Cooper (5100, 12600) |
 | `--scene3a11` | Boots chapter 3a scene 11 (chapter3a_scene11_1playcam, the vegetable garden) and plays it with the scene 7 driver. Reaches no untranslated code once the vampire's knock-back hit (`0x00020690`) and front hit (`0x00022FB0`) are translated, but does not pass. "EXIT DOOR OPENS" comes about 400 frames in, and the class 0x38 ghoulies then wear Cooper down 4 energy a hit. He faints 18 times in 36000 frames, and the scene restarts each time. Checked in the captures: the garden and a ghouly at the plants (1200), and the vampire out of his open coffin at Cooper, with bats (3000) |
+| `--scene3a12` | Boots chapter 3a scene 12 (chapter3a_scene12_1playcam, the greenhouse) and plays it with the scene 7 driver. Reaches no untranslated code once the vampire's bite (type 0x61) and the grabbed body's state (type 0x71) are installed, but does not pass. "EVENT - KILL ALL/TIME LIMIT" starts about 1550 frames in. The vampire's bites take one energy a hold, and the class 0x34 ghoulies wear Cooper down until he faints. He faints 3 times in 36000 frames, and the event restarts each time. Checked in the captures: the rhyme paper (1500), Cooper among the skeletons (4500), and the vampire holding Cooper up out of his coffin (19500) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -445,6 +446,33 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-28: chapter 3a scene 12: the vampire's bite
+
+- **entityStateBloodSuck** (factory type 0x61, getter `0x0008B200`, vtable 0x00505700; the factory table's row 0x60
+  carries the name) in `entities/body_blood_suck_state.cpp`:
+  - sizes `0x0008B1E0` (0x180 / 0x124), init `0x0008B260`, destroy `0x0008B530`, tick `0x0008B6C0`, +0x14
+    `0x0008B9C0` and message `0x0008BB90`. +0x18 is the empty `0x001628B0` and +0x1C `0x0002B620`. The tick's and
+    the phase change's switches were re-exported with their jump-table seeds.
+  - Phase 1 reaches for the mind's target. Once the parameters' grab shape (mask 0x20002) meets the target's model
+    bound (`0x0008BD80`), the target is sent message 0x3C. If it accepts, it is sent 0x3C again, gets the grab
+    callout, and is pulled in over the grab animation. The body's latches, the target's holds, live holds and bit
+    0x3A go up.
+  - Phases 2 (bite) and 3 (struggle) hide the target's render bins and hold it in front of the vampire (+0x14). It
+    loses one energy a second (`0x0008BE60`, unless it is down or may not be hurt), and its pad's shaking
+    (`0x00109810` over 0x00302728) moves it between the two. A full struggle (30) is phase 4.
+  - Phase 4 throws it off: `0x0008BF90` deals hit 0x47 (else the actor's 0x28), sets its death motion and sends
+    0x6E. Phase 5 releases the rider and ends in body slot +0x38 (+0x20 when nothing was grabbed).
+  - New helpers: `0x00021190` (the body is down or may not be hurt) and `0x0003B1B0` (slot 0's animation position).
+- Type 0x71 (getter `0x00095550`, vtable 0x00505920) in `entities/body_grabbed_hold_state.cpp`: the state message
+  0x3C puts the grabbed body in. It drops what it holds and raises its latches, holds, +0x30, +0x309..+0x30C and bit
+  block byte 4 bit 1 until it is destroyed. Its sizes are actorMove's `0x00095530`. The factory table's row 0x70
+  names it entityStateGrabbed, the name `body_grabbed_state.h` gives type 0x70 (row 0x6F there is entityStateGetUp).
+  The existing file is not renamed.
+- `--scene3a12` (chapter3a_scene12_1playcam, the greenhouse) reaches no untranslated code but does not pass. See the
+  test table. Seen in the captures: the vampire standing in his coffin holding Cooper up off the floor (19500).
+- Not settled: one earlier run went black from frame 1800 to the end (HUD included). Two later runs did not repeat
+  it.
 
 ### 2026-10-28: chapter 3a scene 11: the vampire's hits
 

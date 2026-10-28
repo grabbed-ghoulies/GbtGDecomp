@@ -284,6 +284,7 @@ All take the game directory, e.g.
 | `--scene3b2` | Boots chapter 3b scene 2 (chapter3b_scene2_1playcam, the garden) and plays it with the scene 7 driver at a fight range of 50. Reaches no untranslated code once the worm's body (type 0x2B), its strategy (type 0x57) and the explode state (type 0x68) are installed, but does not pass. Cooper enters region 3, but from frame 8760 he is held at the garden gate (about -257, 75) and never reaches region 1. The driver logs a body that enters type 0x68 and captures every 10 frames after (`scene3b2_explode_<frame>.bmp`). Checked in the captures: the worm up and hitting Cooper (7200 in an earlier run), its explosion at frame 7991 (the blast at 8040, Cooper thrown back, 16 to 9 energy), the worm gone (8400) and Cooper at the gate (20100) |
 | `--scene3b3` | Boots chapter 3b scene 3 (chapter3b_scene3_1playcam, Dunfiddlin Cottage) and plays it with the scene 7 driver, breaking `aid_ghoulybox_single_warlock` first (powerup kind 0). Reaches no untranslated code but does not pass: after "free play (find warlock)" (frame 1409) the warlock reappears downstairs, and the driver's 15-unit height rule keeps Cooper upstairs by the shut exit. Checked in the captures: the warlock fought in the hallway (1200) and his intro card (1500) |
 | `--scene3b4` | Boots chapter 3b scene 4 (chapter3b_scene4_2playcam, the workshop) and plays it with the scene 7 driver: an energy boost soup first (powerup kind 3, fetched again after a faint), fighting only during "event - survive/no weapons". Passes: Cooper faints in the first event, survives the second (90 s, ending at frame 15093), and the script moves on to chapter3b_scene5_2playcam at frame 15585. Checked in the captures: the 0:57 clock and the skeletons (11400) and Cooper leaving (15300) |
+| `--scene3b5` | Boots chapter 3b scene 5 (chapter3b_scene5_2playcam, the ogres' lane) and plays it with the scene 7 driver, fighting nothing (the class 0x1E ogres sleep) and taking an energy boost soup first. Passes once the grab and throw state (type 0x72) is installed: Cooper is thrown three times and the script moves on to chapter3b_scene6_1playcam at frame 4933. Checked in the captures: the ogres asleep and over Cooper (1800, 2100) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -450,6 +451,30 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-28: chapter 3b scene 5: the sleeping ogres
+
+- Type 0x72, entityStateGrabAndThrow (getter `0x000947A0`, vtable 0x00505900), in
+  `entities/body_grab_throw_state.cpp`. It has the sizes, construct, destroy, tick, step and message slots, the hand
+  test `0x00095000`, and the throw `0x000951B0`.
+  - Construction: the mind's target becomes the victim, held through victim body +0x718. The marker is the kind 0x1A
+    one whose +8 word is the actor's +0x1FC key, otherwise the farthest.
+  - The grab: between 0.15 and 0.25 of the animation, the hand shape (parameters +0x10) is swept against the victim's
+    bound. Message 0x3C, then 0x3D on the reply. The victim is held at the hand's model binding (parameters +0x12)
+    and turned toward the marker.
+  - The throw: past 0.55 of the animation. It follows the vampire's throw (`0x0008BF90`) but with damage keys
+    0x34 / 0x15, parameters 0x68 and +0x27C 3. It first places the victim level with the actor and clear of
+    contacts (0x001227E0, 0x000FC3F0, 0x00122480), then sends the actor message 0x57.
+- The body services gain `markers` (DAT_0051108C). Type 0x72 joins the tick, step, message child, collision reply,
+  update and draw lists. The collision reply raises for id 0x7C, the one id 0x00094FA0 reads past.
+- `--scene3b5` (chapter3b_scene5_2playcam, the ogres' lane) passes. The script moves on to chapter3b_scene6_1playcam at
+  frame 4933.
+  - The three class 0x1E ogres sleep, and each throw costs 5 energy. With the driver fighting, Cooper woke them and
+    fainted after every second or third throw. So the mode fights nothing (range 0) and takes an
+    `aid_ghoulybox_powerups_supersoups_energyboost5` soup first (kind 3).
+  - He is still thrown three times on the way (frames 1859, 2546 and 3245) and reaches the exit with 5.
+- Checked in the captures: a sleeping ogre beside Cooper (2100, in a fighting run), an ogre over Cooper with another
+  asleep behind (1800), and Cooper running on along the lane (2400).
 
 ### 2026-10-28: chapter 3b scene 4: survive the workshop
 

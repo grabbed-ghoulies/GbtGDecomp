@@ -273,6 +273,7 @@ add_library(gbtg_lib STATIC
     src/engine/entities/body_blood_suck_state.cpp
     src/engine/entities/body_grabbed_hold_state.cpp
     src/engine/entities/body_explode_state.cpp
+    src/engine/entities/body_grab_throw_state.cpp
     src/engine/entities/mummy_strategy.cpp
     src/engine/entities/vampire_strategy.cpp
     src/engine/entities/worm_strategy.cpp

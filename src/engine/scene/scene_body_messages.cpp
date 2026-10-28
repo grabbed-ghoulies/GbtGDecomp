@@ -334,6 +334,22 @@ void SceneBodyMessages::bind_action_children()
             children_[child->bytes.get()] = walk.get();
             continue;
         }
+        if (child->type == 0x72)
+        {
+            auto& grab_throw = grab_throw_children_[child->bytes.get()];
+            if (grab_throw == nullptr)
+            {
+                grab_throw = std::make_unique<RuntimeBodyMessageChild>();
+                grab_throw->message = [this, child](std::span<u8> message)
+                {
+                    const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
+                    message_runtime_grab_throw_state({child->bytes.get(), child->size}, words,
+                        grab_throw_context()); // 0x00094FA0
+                };
+            }
+            children_[child->bytes.get()] = grab_throw.get();
+            continue;
+        }
         if (child->type == 0x61)
         {
             auto& blood_suck = blood_suck_children_[child->bytes.get()];
@@ -987,6 +1003,9 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
     case 0x61:
         tick_runtime_blood_suck_state({action.bytes.get(), action.size}, blood_suck_context()); // 0x0008B6C0
         return;
+    case 0x72:
+        tick_runtime_grab_throw_state({action.bytes.get(), action.size}, grab_throw_context()); // 0x00094B00
+        return;
     case 0x71:
         tick_runtime_grabbed_hold_state({action.bytes.get(), action.size}, grabbed_hold_context()); // 0x000956C0
         return;
@@ -1281,6 +1300,9 @@ void SceneBodyMessages::action_step(FactoryObject& action)
     {
     case 0x61:
         step_runtime_blood_suck_state({action.bytes.get(), action.size}, blood_suck_context()); // 0x0008B9C0
+        return;
+    case 0x72:
+        step_runtime_grab_throw_state({action.bytes.get(), action.size}, grab_throw_context()); // 0x00094F10
         return;
     case 0x5A:
         // Type 0x5A's +0x14 is 0x0002AD30 itself.
@@ -1870,6 +1892,30 @@ RuntimeBloodSuckStateContext& SceneBodyMessages::blood_suck_context()
         },
         services_.target_at, services_.blood_suck_target});
     return *blood_suck_;
+}
+
+RuntimeGrabThrowStateContext& SceneBodyMessages::grab_throw_context()
+{
+    player_.refresh_body_views();
+    if (!services_.blood_suck_target || !services_.reply_message || services_.markers == nullptr)
+    {
+        unbound("grab and throw state services");
+    }
+    grab_throw_.reset();
+    grab_throw_.emplace(RuntimeGrabThrowStateContext{services_.game, player_.body, player_.actor,
+        player_.actor_address, player_.actor_bytes, services_.clock, player_.actor_instance.animation, player_.mind,
+        player_.actor_instance.live_attachments, services_.latches, services_.random, *services_.markers,
+        [this](u32 slot)
+        {
+            return body_slot_key(slot);
+        },
+        services_.reply_message,
+        [this](u32 actor, u32 id, const RuntimeActorCreationOptions* options)
+        {
+            services_.actor_callouts_with(actor, id, options);
+        },
+        services_.target_at, services_.blood_suck_target});
+    return *grab_throw_;
 }
 
 RuntimeGrabbedHoldStateContext& SceneBodyMessages::grabbed_hold_context()
@@ -3025,6 +3071,18 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 auto& second = player_.body_selection.second;
                 const std::array<u32, 1> words{reply.id};
                 message_runtime_arc_state({second.bytes.get(), second.size}, words, arc_context());
+                return;
+            }
+            if (type == 0x72)
+            {
+                // 0x00094FA0 reads past the id only for 0x7C (+4).
+                if (reply.id == 0x7C)
+                {
+                    unbound("collision reply id 0x7C to the grab and throw state 0x00094FA0");
+                }
+                auto& second = player_.body_selection.second;
+                const std::array<u32, 1> words{reply.id};
+                message_runtime_grab_throw_state({second.bytes.get(), second.size}, words, grab_throw_context());
                 return;
             }
             if (type == 0x61)

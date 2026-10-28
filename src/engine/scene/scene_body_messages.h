@@ -23,6 +23,7 @@
 #include "../entities/body_shocked_state.h"
 #include "../entities/body_slam_smash_state.h"
 #include "../entities/body_blood_suck_state.h"
+#include "../entities/body_grab_throw_state.h"
 #include "../entities/body_grabbed_hold_state.h"
 #include "../entities/body_transform_state.h"
 #include "../entities/body_furnace_hit_state.h"
@@ -182,6 +183,8 @@ struct SceneBodyServices
     std::function<RuntimeJumpOnPeer(u32 actor_address)> jump_peer{};
     // The blood suck state (type 0x61): its target's views and the struggle preset (0x00302728, 0x10 bytes).
     std::function<RuntimeBloodSuckTarget(u32 actor_address)> blood_suck_target{};
+    // The grab and throw state (type 0x72): the scene's markers (DAT_0051108C).
+    const u8* const* markers{};
     std::span<const u8> struggle_preset{};
     // A retail word for a host block a message names (as a weapon's 0x99 name buffer), and its release.
     std::function<u32(void* block, size_t size)> bind_block{};
@@ -216,6 +219,7 @@ public:
     RuntimeShockedStateContext& shocked_context(); // The type 0x80 state's views of this body.
     RuntimeSlamSmashStateContext& slam_smash_context(); // The type 0x82 state's views of this body.
     RuntimeBloodSuckStateContext& blood_suck_context(); // The type 0x61 state's views of this body.
+    RuntimeGrabThrowStateContext& grab_throw_context(); // The type 0x72 state's views of this body.
     RuntimeGrabbedHoldStateContext& grabbed_hold_context(); // The type 0x71 state's views of this body.
     RuntimeTransformStateContext& transform_context(); // The type 0x8C state's views of this body.
     RuntimeFurnaceHitStateContext& furnace_hit_context(); // The type 0x75 state's views of this body.
@@ -279,6 +283,7 @@ private:
     std::optional<RuntimeDroneAppearStateContext> drone_appear_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> jump_on_children_; // 0x79, 0x0009AE60.
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> blood_suck_children_; // 0x61, 0x0008BB90.
+    std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> grab_throw_children_; // 0x72, 0x00094FA0.
     std::optional<RuntimeJumpOnStateContext> jump_on_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> walk_children_; // 0x8D, 0x000A5270.
     std::optional<RuntimeWalkStateContext> walk_;
@@ -292,6 +297,7 @@ private:
     std::optional<RuntimeBodyStateContext> slam_smash_shape_;
     std::optional<RuntimeSlamSmashStateContext> slam_smash_;
     std::optional<RuntimeBloodSuckStateContext> blood_suck_;
+    std::optional<RuntimeGrabThrowStateContext> grab_throw_;
     std::optional<RuntimeGrabbedHoldStateContext> grabbed_hold_;
     std::optional<RuntimeTransformStateContext> transform_;
     std::optional<RuntimeBodyStateContext> furnace_hit_state_;

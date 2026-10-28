@@ -1,5 +1,7 @@
 #include "player_body_messages.h"
 #include "actor_transform.h"
+#include "player_mind_events.h"
+#include <bit>
 #include <cstring>
 
 namespace gbtg
@@ -145,6 +147,49 @@ void dispatch_runtime_player_body(std::span<u8>& body, std::span<u8> message,
         return;
     }
     dispatch_runtime_player_body_message(body, message, views, context);
+}
+
+// Xbox 0x00075FC0
+void dispatch_runtime_vampire_body_message(std::span<u8>& body, std::span<u8> message,
+    const RuntimePlayerBodyMessageViews& views, RuntimePlayerBodyMessages& context, const EntityBitBlock& bits,
+    std::span<const u8> actor, u32 body_address)
+{
+    if (read_u32(message, 0) == 0x19 && views.impact == nullptr)
+    {
+        throw Error("vampire body message 0x19 has no contact views");
+    }
+    if (read_u32(message, 0) != 0x19 || views.impact->source.bytes[0xDAC] != 0xC) // Message +0x1C's +0xDAC.
+    {
+        dispatch_runtime_player_body_message(body, message, views, context);
+        return;
+    }
+    if ((bits.bytes[1] & 1) == 0)
+    {
+        // 0x00105F90 writes the stack slot that held the body argument, and leaves it for a zero direction.
+        float angle = std::bit_cast<float>(body_address);
+        Vec3 direction;
+        std::memcpy(&direction, message.data() + 0x20, 12);
+        runtime_direction_angle(direction, angle);
+        constexpr float pi = std::bit_cast<float>(0x40490FDBu); // DAT_0032B148
+        constexpr float minus_pi = std::bit_cast<float>(0xC0490FDBu); // DAT_0032B29C
+        constexpr float two_pi = std::bit_cast<float>(0x40C90FDBu); // DAT_0032B298
+        float offset = angle - pi - read_f32(actor, 0x18);
+        while (offset < minus_pi)
+        {
+            offset = offset + two_pi;
+        }
+        if (offset < std::bit_cast<float>(0x3FA78D36u) && offset > std::bit_cast<float>(0xBEB2B8C3u))
+        {
+            // DAT_0032B6E8 (75 degrees) and DAT_0032B6E4 (-20 degrees).
+            dispatch_runtime_parent_body_message(body, message, views.parent, context.parent);
+            throw Error("vampire body message 0x19 reaches the untranslated front hit 0x00022FB0");
+        }
+    }
+    const u32 one = 1;
+    const u32 zero = 0;
+    std::memcpy(message.data() + 0x10, &one, 4);
+    std::memcpy(message.data() + 0x14, &zero, 4);
+    std::memcpy(message.data() + 0x18, &one, 4);
 }
 
 // Xbox 0x00074080

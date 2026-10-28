@@ -66,6 +66,14 @@ u16 runtime_jessie_clyde_body_primary_parameter_id(const RuntimeBodyActionIds& c
 u16 runtime_jessie_clyde_body_secondary_parameter_id(const RuntimeBodyActionIds& context,
     const u8* parameters, const EntityBitBlock& bits,
     const RuntimeScriptLookupTable* table, u16 retained_key); // Xbox 0x00075AA0
+// entityBodyVampire (type 0x2C): fixed ids while the body's bit block byte 8 has bit 0, else the parent's.
+u16 runtime_vampire_body_primary_parameter_id(const RuntimeBodyActionIds& context,
+    const u8* parameters, const EntityBitBlock& bits,
+    const RuntimeScriptLookupTable* table, u16 retained_key); // Xbox 0x00075F30
+u32 runtime_vampire_body_primary_action_id(const RuntimeBodyActionIds& context,
+    const EntityBitBlock& bits); // Xbox 0x00075F90
+u32 runtime_vampire_body_secondary_action_id(const RuntimeBodyActionIds& context,
+    const EntityBitBlock& bits); // Xbox 0x00075F60
 u16 runtime_body_death_action_key(); // Xbox 0x00027500
 u16 runtime_body_near_action_id(std::span<const u8> body, Actor& owner,
     RuntimeBodyAttachedActor& attached, const RuntimeScriptLookupTable* table); // Xbox 0x00026C60

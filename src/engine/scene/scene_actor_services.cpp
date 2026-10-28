@@ -8102,7 +8102,7 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
     if (child.type == 0x4F || child.type == 0x46 || child.type == 0x3B || child.type == 0x51 || child.type == 0x52
         || child.type == 0x58 || child.type == 0x44 || child.type == 0x40 || child.type == 0x4C || child.type == 0x53
         || child.type == 0x42 || child.type == 0x3A || child.type == 0x47 || child.type == 0x48 || child.type == 0x49 || child.type == 0x55 || child.type == 0x50 || child.type == 0x3E || child.type == 0x41 || child.type == 0x43 || child.type == 0x4B
-        || child.type == 0x4E || child.type == 0x45)
+        || child.type == 0x4E || child.type == 0x45 || child.type == 0x54)
     {
         if (auto* player = players->find_player(child); player != nullptr && !player->body.empty())
         {
@@ -8146,6 +8146,9 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
         return;
     case 0x4C:
         players->mummy_message(child, words);
+        return;
+    case 0x54:
+        players->vampire_message(child, words);
         return;
     case 0x53:
         players->ugly_girl_message(child, words);
@@ -8253,6 +8256,7 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
     case 0x28:
     case 0x29:
     case 0x2A:
+    case 0x2C:
     case 0x2D:
     {
         auto* player = players->find_player(child);
@@ -8687,6 +8691,9 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
                 return;
             case 0x4C:
                 players->mummy_update(strategy);
+                return;
+            case 0x54:
+                players->vampire_update(strategy);
                 return;
             case 0x53:
                 players->ugly_girl_update(strategy);

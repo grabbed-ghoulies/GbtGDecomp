@@ -56,6 +56,12 @@ struct RuntimePlayerBodyMessages
 void dispatch_runtime_player_body_message(std::span<u8>& body, std::span<u8> message,
     const RuntimePlayerBodyMessageViews& views,
     RuntimePlayerBodyMessages& context); // Xbox 0x00074080
+// entityBodyVampire (type 0x2C): a moving contact (0x19) from an attacker whose +0xDAC is 0xC lands only from
+// in front (-20..75 degrees off the actor's yaw, actor +0x18) while the bit block's byte 1 bit 0 is clear; any
+// other such contact is answered {1, 0, 1} at +0x10. Every other message goes to the 0x27 parent's 0x00074080.
+void dispatch_runtime_vampire_body_message(std::span<u8>& body, std::span<u8> message,
+    const RuntimePlayerBodyMessageViews& views, RuntimePlayerBodyMessages& context, const EntityBitBlock& bits,
+    std::span<const u8> actor, u32 body_address); // Xbox 0x00075FC0
 void dispatch_runtime_player_body(std::span<u8>& body, std::span<u8> message,
     const RuntimePlayerBodyMessageViews& views, RuntimePlayerBodyMessages& context,
     RuntimePlayerBodyControlMessages& controls); // Xbox 0x00075B60

@@ -271,6 +271,7 @@ add_library(gbtg_lib STATIC
     src/engine/entities/warlock_strategy.cpp
     src/engine/entities/body_slam_smash_state.cpp
     src/engine/entities/mummy_strategy.cpp
+    src/engine/entities/vampire_strategy.cpp
     src/engine/entities/candle_weapon.cpp
     src/engine/entities/container_weapon.cpp
     src/engine/entities/gun_weapon.cpp

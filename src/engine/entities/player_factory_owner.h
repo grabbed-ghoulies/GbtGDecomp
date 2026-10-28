@@ -35,6 +35,7 @@
 #include "ghoulie_girl_strategy.h"
 #include "grim_reaper_strategy.h"
 #include "mummy_strategy.h"
+#include "vampire_strategy.h"
 #include "butler_strategy.h"
 #include "camera_actor_classes.h"
 
@@ -374,6 +375,7 @@ struct NativePlayerInstance
     RuntimeGhoulieGirlStrategy ghoulie_girl; // Type 0x3D.
     RuntimeGrimReaperStrategy grim_reaper; // Type 0x3F.
     RuntimeMummyStrategy mummy; // Type 0x4C.
+    RuntimeVampireStrategy vampire; // Type 0x54.
     RuntimeUglyGirlStrategy ugly_girl; // Type 0x53.
     RuntimeHauntedDoorStrategy haunted_door; // Type 0x42.
     RuntimeImpFlamethrowerStrategy imp_flamethrower; // Type 0x47, over `spider`'s views.
@@ -401,7 +403,7 @@ struct NativePlayerFactoryBindings
     NativePlayerSceneBindings scene;
 };
 
-// Installs the player (type 5), body (6, 0x27, 0x28, 0x2A, 0x2D), mind (7, 0x34, 0x36) and strategy (8, 0x4F,
+// Installs the player (type 5), body (6, 0x27, 0x28, 0x2A, 0x2C, 0x2D), mind (7, 0x34, 0x36) and strategy (8, 0x4F,
 // 0x46, 0x39, 0x3B, 0x51, 0x52, 0x58) classes
 // over the actor owner's types 1 and 2, and keeps one NativePlayerInstance per player actor.
 class NativePlayerFactoryOwner
@@ -449,6 +451,8 @@ public:
     void grim_reaper_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000AD600.
     void mummy_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000BBFA0.
     void mummy_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000BBCB0.
+    void vampire_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000C2140.
+    void vampire_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000C2070.
     void ugly_girl_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000C1420.
     void ugly_girl_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000C1390.
     void haunted_door_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000B0140.

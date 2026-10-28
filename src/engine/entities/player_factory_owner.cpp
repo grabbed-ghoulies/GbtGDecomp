@@ -235,6 +235,15 @@ const ObjectFactoryVtable* zombie_body_lifecycle()
     return &table;
 }
 
+// Getter 0x00075EC0 (body 0x00075ED0): entityBodyVampire has the zombie's slots but for +0xC (0x00075FC0), +0x20
+// (0x00075F30), +0x30 (0x00075F90) and +0x34 (0x00075F60); its +0x2C stays the base 0x00026A90.
+const ObjectFactoryVtable* vampire_body_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x005052A8, parent_player_body_object_sizes,
+        accept_runtime_object_construction, destroy_empty_player_object};
+    return &table;
+}
+
 // Getter 0x000759F0: entityBodyJessieClyde has the zombie's slots but for +0x20 and +0x2C (0x00075A70 / 0x00075AA0).
 const ObjectFactoryVtable* jessie_clyde_body_lifecycle()
 {
@@ -420,6 +429,22 @@ bool construct_mummy_strategy_view(FactoryObject& object, std::span<const u8>)
 const ObjectFactoryVtable* mummy_strategy_lifecycle()
 {
     static const ObjectFactoryVtable table{0x00505F4C, mummy_strategy_object_sizes, construct_mummy_strategy_view,
+        destroy_empty_player_object};
+    return &table;
+}
+
+bool construct_vampire_strategy_view(FactoryObject& object, std::span<const u8>)
+{
+    auto* player = active_owner->find_player(object);
+    player->strategy_type = 0x54;
+    player->refresh_views();
+    return initialize_runtime_vampire_strategy(bytes_of(object)); // 0x000C2050
+}
+
+// Getter 0x000C2000; vtable +8 is the empty 0x001628B0.
+const ObjectFactoryVtable* vampire_strategy_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x0050602C, vampire_strategy_object_sizes, construct_vampire_strategy_view,
         destroy_empty_player_object};
     return &table;
 }
@@ -853,6 +878,13 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
                   leave_runtime_mummy_state(old_state, mummy);
                   return;
               }
+              if (strategy_type == 0x54)
+              {
+                  // Vampire strategy vtable +0x18, 0x000C2420.
+                  refresh_views();
+                  leave_runtime_vampire_state(old_state, vampire);
+                  return;
+              }
               if (strategy_type == 0x53)
               {
                   // Ugly girl strategy vtable +0x18, 0x000C14E0.
@@ -1054,6 +1086,12 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
               {
                   // Mummy strategy vtable +0x14, 0x000BC350.
                   enter_runtime_mummy_state(state, previous, mummy);
+                  return;
+              }
+              if (strategy_type == 0x54)
+              {
+                  // Vampire strategy vtable +0x14, 0x000C2350.
+                  enter_runtime_vampire_state(state, previous, vampire);
                   return;
               }
               if (strategy_type == 0x53)
@@ -1321,6 +1359,9 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
               return found->second;
           },
           "attack", "ankh_getout", "ankh_whack", "bondage_bandage", "far", "scared"},
+      vampire{strategy_messages, target_checks, target_queue, strategy_views, "knockback", "knockbackfollowup",
+          "coffincloseknockback", "knockdown", "coffinopencheer", "coffinclose", "special", "coffinlook",
+          "randomwander", "waitingforfollowup"},
       ugly_girl{strategy_messages, owner_instance.startup.attachments, body_lists, "attack", "far"},
       haunted_door{strategy_messages, target_checks, target_queue, strategy_views, body_selection,
           scene_bindings.registry, scene_bindings.error, scene_bindings.loaded_sizes, animation_resource,
@@ -1961,6 +2002,28 @@ void NativePlayerFactoryOwner::mummy_update(FactoryObject& strategy)
     update_runtime_mummy_strategy(player->mummy);
 }
 
+void NativePlayerFactoryOwner::vampire_message(FactoryObject& strategy, std::span<const u32> message)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x54)
+    {
+        throw Error("vampire strategy method has no owning instance");
+    }
+    player->refresh_views();
+    dispatch_runtime_vampire_message(message, player->vampire);
+}
+
+void NativePlayerFactoryOwner::vampire_update(FactoryObject& strategy)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x54)
+    {
+        throw Error("vampire strategy method has no owning instance");
+    }
+    player->refresh_views();
+    update_runtime_vampire_strategy(player->vampire);
+}
+
 void NativePlayerFactoryOwner::imp_flamethrower_message(FactoryObject& strategy, std::span<const u32> message)
 {
     auto* player = find_player(strategy);
@@ -2453,6 +2516,7 @@ void NativePlayerFactoryOwner::install(std::span<ObjectFactoryType> types)
     types[0x27] = ObjectFactoryType{6, player_body_parent_lifecycle};
     types[0x2A] = ObjectFactoryType{0x27, player_body_lifecycle};
     types[0x2D] = ObjectFactoryType{0x27, zombie_body_lifecycle};
+    types[0x2C] = ObjectFactoryType{0x27, vampire_body_lifecycle};
     types[0x29] = ObjectFactoryType{0x27, jessie_clyde_body_lifecycle};
     types[8] = ObjectFactoryType{1, base_strategy_lifecycle};
     types[0x4F] = ObjectFactoryType{8, player_strategy_lifecycle};
@@ -2467,6 +2531,7 @@ void NativePlayerFactoryOwner::install(std::span<ObjectFactoryType> types)
     types[0x3D] = ObjectFactoryType{8, ghoulie_girl_strategy_lifecycle}; // Getter 0x000AC160.
     types[0x3F] = ObjectFactoryType{8, grim_reaper_strategy_lifecycle};
     types[0x4C] = ObjectFactoryType{8, mummy_strategy_lifecycle};
+    types[0x54] = ObjectFactoryType{8, vampire_strategy_lifecycle}; // Getter 0x000C2000.
     types[0x53] = ObjectFactoryType{8, ugly_girl_strategy_lifecycle};
     types[0x42] = ObjectFactoryType{8, haunted_door_strategy_lifecycle};
     types[0x47] = ObjectFactoryType{8, imp_flamethrower_strategy_lifecycle};

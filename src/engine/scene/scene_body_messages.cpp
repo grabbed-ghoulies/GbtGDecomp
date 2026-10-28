@@ -799,6 +799,14 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
     case 0x2D: // Vtable 0x00505368 +0xC, 0x00075A60, jumps to the parent's 0x00074080.
         dispatch_runtime_player_body_message(body_bytes, bytes, views, messages_); // Vtable 0x00504FE0 +0xC.
         break;
+    case 0x2C:
+        if (player_.body_bits == nullptr)
+        {
+            unbound("vampire body message without the body +0x15C bit block");
+        }
+        dispatch_runtime_vampire_body_message(body_bytes, bytes, views, messages_, *player_.body_bits,
+            player_.actor_bytes, services_.address_of(player_.body.data())); // Vtable 0x005052A8 +0xC.
+        break;
     case 0x2A:
         dispatch_runtime_player_body(body_bytes, bytes, views, messages_, controls_); // Vtable 0x00505248 +0xC.
         break;
@@ -2378,12 +2386,12 @@ std::span<const u8> SceneBodyMessages::mind_target()
 // Body vtable +0x20 and +0x2C: 0x00075B90 / 0x00075C30 for type 0x2A (getter 0x00075AF0), the parent
 // 0x00026950 / 0x00026A90 for type 0x27 (getter 0x000733F0 keeps the parent's slots from +0x20), and 0x00076210 /
 // 0x00076250 for type 0x2D (getter 0x000761A0) and 0x00075A70 / 0x00075AA0 for type 0x29 (getter 0x000759F0), which
-// fall through to the 0x27 parent's. +0x30 and +0x34 are the parent's 0x00026B00 / 0x00026BB0 (parent table
-// 0x0001DA60) in all four.
+// fall through to the 0x27 parent's, and 0x00075F30 with the base 0x00026A90 for type 0x2C (getter 0x00075EC0).
+// +0x30 and +0x34 are the parent's 0x00026B00 / 0x00026BB0 (parent table 0x0001DA60) in all but type 0x2C.
 u16 SceneBodyMessages::body_slot_key(u32 slot)
 {
     const u32 type = player_.body_object.type;
-    if (type != 0x27 && type != 0x2A && type != 0x29 && type != 0x2D)
+    if (type != 0x27 && type != 0x2A && type != 0x29 && type != 0x2D && type != 0x2C)
     {
         unbound("body next-action slot " + std::to_string(slot) + " of factory type " + std::to_string(type));
     }
@@ -2418,15 +2426,28 @@ u16 SceneBodyMessages::body_slot_key(u32 slot)
             return runtime_jessie_clyde_body_primary_parameter_id(ids, mind, *player_.body_bits,
                 player_.action_table, retained);
         }
+        if (type == 0x2C)
+        {
+            return runtime_vampire_body_primary_parameter_id(ids, mind, *player_.body_bits, player_.action_table,
+                retained);
+        }
         return runtime_body_primary_parameter_id(ids, mind, *player_.body_bits, player_.action_table, retained);
     }
-    // Slots +0x30 and +0x34 are the parent's 0x00026B00 / 0x00026BB0 in both classes.
+    // Slots +0x30 and +0x34 are the parent's 0x00026B00 / 0x00026BB0 but in type 0x2C (0x00075F90 / 0x00075F60).
     if (slot == 0x30)
     {
+        if (type == 0x2C)
+        {
+            return u16(runtime_vampire_body_primary_action_id(ids, *player_.body_bits));
+        }
         return u16(runtime_body_primary_action_id(ids));
     }
     if (slot == 0x34)
     {
+        if (type == 0x2C)
+        {
+            return u16(runtime_vampire_body_secondary_action_id(ids, *player_.body_bits));
+        }
         return u16(runtime_body_secondary_action_id(ids));
     }
     if (slot == 0x2C)
@@ -2566,7 +2587,8 @@ RuntimeBodyChannelContext SceneBodyMessages::channel_context()
 // Xbox 0x00025EC0 for the camera body (type 0x28).
 void SceneBodyMessages::tick(FactoryObject& body, u32 input)
 {
-    if (body.type != 0x28 && body.type != 0x27 && body.type != 0x2A && body.type != 0x29 && body.type != 0x2D)
+    if (body.type != 0x28 && body.type != 0x27 && body.type != 0x2A && body.type != 0x29 && body.type != 0x2D
+        && body.type != 0x2C)
     {
         unbound("body vtable +0x10 of factory type " + std::to_string(body.type));
     }
@@ -2610,7 +2632,8 @@ void SceneBodyMessages::tick(FactoryObject& body, u32 input)
 // Xbox 0x00072AC0 for the camera body.
 void SceneBodyMessages::animate(FactoryObject& body)
 {
-    if (body.type != 0x28 && body.type != 0x27 && body.type != 0x2A && body.type != 0x29 && body.type != 0x2D)
+    if (body.type != 0x28 && body.type != 0x27 && body.type != 0x2A && body.type != 0x29 && body.type != 0x2D
+        && body.type != 0x2C)
     {
         unbound("body vtable +0x14 of factory type " + std::to_string(body.type));
     }
@@ -2627,7 +2650,8 @@ void SceneBodyMessages::animate(FactoryObject& body)
 // Xbox 0x00072B10 for the camera body.
 void SceneBodyMessages::settle(FactoryObject& body)
 {
-    if (body.type != 0x28 && body.type != 0x27 && body.type != 0x2A && body.type != 0x29 && body.type != 0x2D)
+    if (body.type != 0x28 && body.type != 0x27 && body.type != 0x2A && body.type != 0x29 && body.type != 0x2D
+        && body.type != 0x2C)
     {
         unbound("body vtable +0x18 of factory type " + std::to_string(body.type));
     }
@@ -2695,7 +2719,7 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
 {
     if (body.type != 0x28)
     {
-        if (body.type != 0x27 && body.type != 0x2A && body.type != 0x29 && body.type != 0x2D)
+        if (body.type != 0x27 && body.type != 0x2A && body.type != 0x29 && body.type != 0x2D && body.type != 0x2C)
         {
             unbound("body vtable +0x1C of factory type " + std::to_string(body.type));
         }

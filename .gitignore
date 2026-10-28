@@ -53,3 +53,4 @@ dump/
 *.obj
 *.png
 
+/.claude/worktrees

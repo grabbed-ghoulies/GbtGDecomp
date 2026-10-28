@@ -1361,7 +1361,15 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
           "attack", "ankh_getout", "ankh_whack", "bondage_bandage", "far", "scared"},
       vampire{strategy_messages, target_checks, target_queue, strategy_views, "knockback", "knockbackfollowup",
           "coffincloseknockback", "knockdown", "coffinopencheer", "coffinclose", "special", "coffinlook",
-          "randomwander", "waitingforfollowup"},
+          "randomwander", "waitingforfollowup",
+          [this]()
+          {
+              if (!scene.knock_back)
+              {
+                  throw Error("vampire strategy: 0x00020690 is not bound");
+              }
+              scene.knock_back(*this);
+          }},
       ugly_girl{strategy_messages, owner_instance.startup.attachments, body_lists, "attack", "far"},
       haunted_door{strategy_messages, target_checks, target_queue, strategy_views, body_selection,
           scene_bindings.registry, scene_bindings.error, scene_bindings.loaded_sizes, animation_resource,

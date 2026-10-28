@@ -177,7 +177,8 @@ void set_knocked_stage(u32 stage, RuntimeVampireStrategy& context)
     set(strategy, field::knocked_stage, stage);
     if (stage == 1)
     {
-        throw Error("vampire strategy: the knock-back hit 0x00020690 on the body is not translated");
+        context.knock_back(); // 0x00020690, actor +0x95C
+        return;
     }
     if (stage == 3)
     {

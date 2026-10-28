@@ -2,6 +2,7 @@
 #include "strategy_target_queue.h"
 #include "strategy_target_selection.h"
 #include "strategy_fields.h"
+#include <functional>
 
 namespace gbtg
 {
@@ -42,6 +43,7 @@ struct RuntimeVampireStrategy
     const char* goal_look; // "coffinlook", 0x00321310.
     const char* goal_wander; // "randomwander", 0x003217B0.
     const char* goal_waiting; // "waitingforfollowup", 0x003212C0.
+    std::function<void()> knock_back; // 0x00020690 on his body (actor +0x95C).
 };
 void vampire_strategy_object_sizes(ObjectSizes& output); // Xbox 0x000C1FE0
 bool initialize_runtime_vampire_strategy(std::span<u8> strategy); // Xbox 0x000C2050

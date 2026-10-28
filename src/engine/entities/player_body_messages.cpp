@@ -182,7 +182,8 @@ void dispatch_runtime_vampire_body_message(std::span<u8>& body, std::span<u8> me
         {
             // DAT_0032B6E8 (75 degrees) and DAT_0032B6E4 (-20 degrees).
             dispatch_runtime_parent_body_message(body, message, views.parent, context.parent);
-            throw Error("vampire body message 0x19 reaches the untranslated front hit 0x00022FB0");
+            receive_runtime_body_front_hit(body, message, *views.impact, context.damage); // 0x00022FB0
+            return;
         }
     }
     const u32 one = 1;

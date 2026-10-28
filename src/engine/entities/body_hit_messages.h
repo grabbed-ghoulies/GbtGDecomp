@@ -39,6 +39,10 @@ void request_runtime_body_timer_contact(std::span<u8> body,
     std::span<const u8> message, RuntimeBodyAttachedActor& source,
     std::span<const u8> source_body, std::span<const u8> bound,
     RuntimeBodyDamageEntry& context); // Xbox 0x000229F0
+// A vampire's (type 0x2C) moving contact from in front: a reaction hit (0xC) the sender's class and the
+// actor's tables size, which as a lighter hit (0xD) also sends the actor message 0x1A while bit block byte 8 bit 0 is clear.
+void receive_runtime_body_front_hit(std::span<u8> body, std::span<u8> message,
+    const RuntimeBodyContactHitViews& views, RuntimeBodyDamageEntry& context); // Xbox 0x00022FB0
 void receive_runtime_body_contact_health_hit(std::span<u8> body,
     std::span<u8> message, const RuntimeBodyContactHitViews& views,
     RuntimeBodyDamageEntry& context); // Xbox 0x000233A0
@@ -63,6 +67,9 @@ void notify_runtime_body_hit_position(const Actor* source, const Vec3& position,
 void receive_runtime_body_direct_hit(std::span<u8> body,
     RuntimeBodyAttachedActor& source, const Vec3& notice_position,
     RuntimeBodyDamageEntry& context); // Xbox 0x000205B0
+void receive_runtime_body_knock_back(std::span<u8> body, const Actor& actor,
+    std::span<const u8> actor_bytes, RuntimeBodyAttachedActor* background,
+    RuntimeBodyDamageEntry& context); // Xbox 0x00020690
 void receive_runtime_body_health_notice(std::span<u8> body, std::span<u8> message,
     std::span<const char* const, 4> first_names,
     std::span<const char* const, 4> second_names,

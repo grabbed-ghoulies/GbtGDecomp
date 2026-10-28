@@ -47,6 +47,7 @@
 #include "../entities/player_messages.h"
 #include "scene_actor_activation.h"
 #include "scene_body_messages.h"
+#include "../entities/body_hit_messages.h"
 #include "../entities/aid_spawn_resources.h"
 #include "scene_mind_messages.h"
 #include "scene_object_requests.h"
@@ -1816,6 +1817,21 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
                 }
                 object_message(*object, words);
             }); // 0x0013B660
+    };
+    players->bindings.scene.knock_back = [this](NativePlayerInstance& player)
+    {
+        player.refresh_views();
+        auto& graph = body_messages[player.body.data()];
+        if (graph == nullptr)
+        {
+            graph = std::make_unique<SceneBodyMessages>(*body_services, player);
+        }
+        auto& entry = graph->damage_entry();
+        // DAT_00511B20 - 0x934: the first background, or 0.
+        auto* first = backgrounds->first_background();
+        RuntimeBodyAttachedActor* background = first == nullptr ? nullptr
+            : &attached_actor_at(address_of(first->bytes.data()));
+        receive_runtime_body_knock_back(player.body, player.actor, player.actor_bytes, background, entry); // 0x00020690
     };
     players->bindings.scene.start_meter = [this](u32 actor, u32 target, float value)
     {
@@ -8438,8 +8454,8 @@ RuntimeBodyAttachedActor& SceneActorServices::State::attached_actor_at(u32 addre
     const auto bytes = scene.resolve_address(address, 0);
     FactoryObject* object = object_of(bytes.data());
     // A weapon, a knock-down sphere (type 0x19) as the sender of its contact message 0x17, or a furnace (type 0x17)
-    // as the sender of 0x16.
-    if (object == nullptr || (object->type != 0x0B && object->type != 0x19 && object->type != 0x17 && object->type != 0xAA
+    // as the sender of 0x16, or a background (type 4) as the source of the knock-back hit 0x00020690.
+    if (object == nullptr || (object->type != 0x0B && object->type != 4 && object->type != 0x19 && object->type != 0x17 && object->type != 0xAA
         && object->type != 0xA9 && object->type != 0xA8
         && object->type != 0xA7 && object->type != 0xA0 && object->type != 0xA1 && object->type != 0xA2
         && object->type != 0xA3 && object->type != 0xA5 && object->type != 0xA6))

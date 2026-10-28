@@ -385,6 +385,89 @@ void receive_runtime_body_moving_contact(std::span<u8> body, std::span<u8> messa
     }
 }
 
+// Xbox 0x00022FB0
+void receive_runtime_body_front_hit(std::span<u8> body, std::span<u8> message,
+    const RuntimeBodyContactHitViews& views, RuntimeBodyDamageEntry& context)
+{
+    auto& processor = context.processor;
+    if ((processor.flags.bytes[7] & 0x40) != 0)
+    {
+        return;
+    }
+    auto* host = views.source.host; // Message +0x1C's +0xD8C.
+    if (host == nullptr)
+    {
+        throw Error("body front hit 0x00022FB0: the sender has no +0xD8C holder (retail reads its +0xCF4)");
+    }
+    std::array<u8, 0x68> damage{};
+    const u32 health = read_u16(body, 0x94);
+    const u16 actor_class = read_u16(host->bytes, 0xCF4);
+    // Retail leaves this slot (the 0x1A message's +8) unwritten on the class path.
+    u32 actor_amount = 0;
+    i32 amount;
+    if ((processor.actor.mask_mode == 2 || processor.actor.mask_flag != 0) && actor_class != 0)
+    {
+        amount = i32(runtime_class_damage_value(0x41, actor_class, processor.tables)); // 0x00133BD0; CVTTSS2SI
+    }
+    else
+    {
+        actor_amount = u32(runtime_actor_damage_value(0x22, processor.actor.damage_class, processor.tables)); // 0x00028DA0
+        const bool live = runtime_actor_is_live_player(*host->actor, read_u32(host->bytes, 0xCE0)) // 0x00028D20
+            && processor.player_damage != 0;
+        amount = i32(actor_amount);
+        if (actor_amount != 0 && live)
+        {
+            amount = i32(health);
+        }
+    }
+    if ((processor.flags.bytes[8] & 1) == 0 && i32(health) > amount)
+    {
+        damage[0] = 0xD;
+        damage[1] = 0x42;
+        damage[2] = 0x67;
+        // The stack words from +0x10: 0x1A, the health, the 0x00028DA0 amount, then this damage packet.
+        std::array<u32, 3 + 0x1A> words{};
+        words[0] = 0x1A;
+        words[1] = health;
+        words[2] = actor_amount;
+        std::memcpy(words.data() + 3, damage.data(), damage.size());
+        processor.actions.actor_message(words); // Actor vtable +0xC
+    }
+    else
+    {
+        damage[0] = 0xC;
+        damage[1] = 0x42;
+        damage[2] = 0x68;
+    }
+    damage[3] = views.contacts.begin[0x24];
+    const u32 mask = 8;
+    std::memcpy(damage.data() + 4, &mask, 4);
+    std::memcpy(damage.data() + 0x18, message.data() + 0x30, 12);
+    std::memcpy(damage.data() + 0x30, &views.contacts_address, 4);
+    Vec3 normal;
+    normalized_segment_contact_direction(views.contacts, normal); // 0x000FCA60
+    std::memcpy(damage.data() + 0x24, &normal, 12);
+    std::memcpy(damage.data() + 0x40, message.data() + 0x20, 12);
+    std::memcpy(damage.data() + 0x34, message.data() + 0x1C, 4);
+    std::memcpy(damage.data() + 0x38, views.source.bytes.data() + 0xD8C, 4);
+    std::memcpy(damage.data() + 0x3C, views.source.bytes.data() + 0xD8C, 4);
+    std::memcpy(damage.data() + 0x4C, views.source.bytes.data() + 0x3C, 12);
+    std::memcpy(damage.data() + 0x64, &actor_class, 2);
+    const u32 one = 1;
+    std::memcpy(damage.data() + 0x5C, &one, 4);
+    context.contacts = &views.contacts;
+    processor.first_source = &views.source;
+    processor.second_source = host;
+    processor.second_source_live = read_u32(host->bytes, 0xCE0);
+    std::array<u32, 4> result;
+    receive_runtime_body_damage(body, damage, result, context); // 0x00020DC0
+    dispatch_runtime_body_damage_reply(damage, result, context); // 0x00020F80
+    std::memcpy(message.data() + 0x10, &one, 4);
+    std::memcpy(message.data() + 0x14, &result[2], 4);
+    const u32 standing = result[2] == 0;
+    std::memcpy(message.data() + 0x18, &standing, 4);
+}
+
 // Xbox 0x000233A0
 void receive_runtime_body_contact_health_hit(std::span<u8> body, std::span<u8> message,
     const RuntimeBodyContactHitViews& views, RuntimeBodyDamageEntry& context)
@@ -669,6 +752,65 @@ void receive_runtime_body_direct_hit(std::span<u8> body, RuntimeBodyAttachedActo
     receive_runtime_body_damage(body, damage, result, context);
     notify_runtime_body_hit_position(source.actor, notice_position, result[0] == 0,
         context.processor.attributes, context.processor.actions);
+}
+
+// The knock-back hit 0x000C1920 sends a body's own actor: a reaction hit (1, 0x32, 0x65) at its position, facing
+// along its horizontal movement (actor +0x3C), pushed along the body's horizontal +0x1D8 heading, its source the first
+// background (DAT_00511B20 - 0x934). Either direction falls back to straight up when it has no horizontal part.
+// Xbox 0x00020690
+void receive_runtime_body_knock_back(std::span<u8> body, const Actor& actor,
+    std::span<const u8> actor_bytes, RuntimeBodyAttachedActor* background,
+    RuntimeBodyDamageEntry& context)
+{
+    const Vec3 movement{read_f32(actor_bytes, 0x3C), read_f32(actor_bytes, 0x40), read_f32(actor_bytes, 0x44)};
+    constexpr float kUp = 1.f; // DAT_0032B0F8.
+    Vec3 facing{movement.x, 0.f, movement.z};
+    if (facing.x == 0.f && facing.z == 0.f)
+    {
+        facing = Vec3{0.f, kUp, 0.f};
+    }
+    float length = facing.z * facing.z + facing.y * facing.y + facing.x * facing.x;
+    if (length != 0.f)
+    {
+        const float inverse = engine_reciprocal_sqrt(length); // 0x001534C0
+        facing.x = facing.x * inverse;
+        facing.y = facing.y * inverse;
+        facing.z = facing.z * inverse;
+    }
+    Vec3 push{read_f32(body, 0x1D8), 0.f, read_f32(body, 0x1E0)};
+    if (push.x == 0.f && push.z == 0.f)
+    {
+        push = Vec3{0.f, kUp, 0.f};
+    }
+    length = push.z * push.z + push.y * push.y + push.x * push.x;
+    if (length != 0.f)
+    {
+        const float inverse = engine_reciprocal_sqrt(length); // 0x001534C0
+        push.x = push.x * inverse;
+        push.y = push.y * inverse;
+        push.z = push.z * inverse;
+    }
+    std::array<u8, 0x68> damage{};
+    damage[0] = 1;
+    damage[1] = 0x32;
+    damage[2] = 0x65;
+    damage[3] = 0;
+    const u32 one = 1;
+    std::memcpy(damage.data() + 4, &one, 4);
+    const Vec3 position = actor_world_position(actor); // 0x000412A0
+    std::memcpy(damage.data() + 0x18, &position, 12);
+    const u32 source = background == nullptr ? 0 : background->address;
+    std::memcpy(damage.data() + 0x24, &facing, 12);
+    std::memcpy(damage.data() + 0x34, &source, 4);
+    std::memcpy(damage.data() + 0x40, &movement, 12);
+    std::memcpy(damage.data() + 0x4C, &push, 12);
+    // Native views of the damage's +0x30 contacts and its +0x34 / +0x38 sources.
+    context.contacts = nullptr;
+    context.processor.first_source = background;
+    context.processor.second_source = nullptr;
+    context.processor.second_source_live = 0;
+    std::array<u32, 4> result;
+    receive_runtime_body_damage(body, damage, result, context); // 0x00020DC0
 }
 
 // Xbox 0x00023740

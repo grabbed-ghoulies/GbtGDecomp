@@ -278,6 +278,7 @@ All take the game directory, e.g.
 | `--scene3a8` | Boots chapter 3a scene 8 (chapter3a_scene8_1playcam, the schoolroom) and plays it with the scene 7 driver. Does not pass: "EVENT - NO DAMAGE" means no damage to the room. Its step type 12 (`0x000D0140`) fails once DAT_00545980, the points from broken background parts, is nonzero. Any box Cooper punches open (message 0x15, category 1, the invisibility soups included) or furniture a ghouly he hits smashes into (category 2, the hitter at body +0x270) fails the event, and the Grim Reaper then takes Cooper's life on touch (10 -> 0). The driver fights next to the furniture, so every attempt fails. Driver changes: with several boxes of one name it goes to the nearest, and a broken box's powerup comes before the next box. Checked in the captures: the Medusa's gaze and the imps by the desks (2100), and the Grim Reaper striking Cooper among the bookshelves (2400) |
 | `--scene3a9` | Boots chapter 3a scene 9 (chapter3a_scene9_1playcam, the infirmary) and plays it with the scene 7 driver. Reaches no untranslated code but does not pass. In FREE PLAY the patients take 4 energy a hit. "EXIT DOOR CLOSES" puts Cooper at 183.7, -35.6, and "EVENT - SURVIVE/FIND THE KEY" starts a timer (0:57 at frame 3300) with the Medusa and the imps; Cooper faints after about 1000 frames of it every time and the scene restarts in FREE PLAY. The driver also stalls on soups and boxes it cannot reach: the soup near 280, 67, the free kind 4 powerup at -60, -150 and the `energyboost10` box at 242, 148. A run with that box as `powerup_box` (kind 4) still fainted eight times. Checked in the captures: the infirmary beds and patients (600), the exit door (1200), and the Medusa and the imps under the event timer (1800, 3300) |
 | `--scene3a10` | Boots chapter 3a scene 10 (chapter3a_scene10_2playcam, the village; no `_1` script exists) and plays it with the scene 7 driver. Reaches no untranslated code once the vampire body (type 0x2C) and strategy (type 0x54) are installed, but does not pass. The club-wielding class 0x24 ghoulies hit for 5 and knock Cooper down, so he faints four times in 36000 frames. The end conditions wait on two PlayerEntersRegion steps (words 0x3EC and 0x494). Checked in the captures: the village path, the cottages, and a class 0x24 ghouly over a knocked-down Cooper (5100, 12600) |
+| `--scene3a11` | Boots chapter 3a scene 11 (chapter3a_scene11_1playcam, the vegetable garden) and plays it with the scene 7 driver. Reaches no untranslated code once the vampire's knock-back hit (`0x00020690`) and front hit (`0x00022FB0`) are translated, but does not pass. "EXIT DOOR OPENS" comes about 400 frames in, and the class 0x38 ghoulies then wear Cooper down 4 energy a hit. He faints 18 times in 36000 frames, and the scene restarts each time. Checked in the captures: the garden and a ghouly at the plants (1200), and the vampire out of his open coffin at Cooper, with bats (3000) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -445,13 +446,31 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 
 ## Checkpoints
 
+### 2026-10-28: chapter 3a scene 11: the vampire's hits
+
+- `0x00020690` (`receive_runtime_body_knock_back`, in `entities/body_hit_messages.cpp`): the knock-back hit the
+  vampire's 0x406 first stage (`0x000C1920`) sends his own body (actor +0x95C). It is a reaction hit (1, 0x32, 0x65)
+  at his position. It faces along his horizontal movement (actor +0x3C), pushes along the body's horizontal +0x1D8
+  heading, and names the first background (DAT_00511B20 - 0x934) as its source. Either direction falls back to
+  straight up when it has no horizontal part. It goes to `0x00020DC0` with no reply. The scene binds it as
+  `NativePlayerSceneBindings::knock_back`, and `attached_actor_at` now gives a background (type 4) a source view.
+- `0x00022FB0` (`receive_runtime_body_front_hit`): the vampire body's moving contact from in front.
+  - The amount is the sender holder's (+0xD8C) class value 0x41 (`0x00133BD0`) when the vampire is player-masked.
+    Otherwise it is his own value 0x22 (`0x00028DA0`), raised to the body's +0x94 for a live player sender.
+  - Below +0x94, while the bit block's byte 8 bit 0 is clear, the hit is the lighter (0xD, 0x42, 0x67), and he is
+    first sent actor message 0x1A (it shuts him in). Otherwise it is (0xC, 0x42, 0x68).
+  - The packet is otherwise the moving contact's (`0x00022E40`), and the reply (`0x00020F80`) always follows.
+- `--scene3a11` (chapter3a_scene11_1playcam, the vegetable garden) reaches no untranslated code but does not pass.
+  See the test table. Seen in the captures: the vampire springing out of his open coffin at Cooper, with bats
+  (3000).
+
 ### 2026-10-28: chapter 3a scene 10: the vampire
 
 - **entityBodyVampire** (factory type 0x2C, getter `0x00075EC0`, body `0x00075ED0`, vtable 0x005052A8; the factory
   table's row 0x2B carries the name). It has the zombie body's slots except for:
   - +0xC `0x00075FC0` (`dispatch_runtime_vampire_body_message`): a moving contact (0x19) from an attacker whose
     +0xDAC is 0xC lands only from -20..75 degrees off the vampire's yaw while the bit block's byte 1 bit 0 is clear.
-    Such a contact then goes on to `0x00022FB0`, which is not translated and raises. Any other contact from that
+    Such a contact then goes on to `0x00022FB0` (translated for scene 11). Any other contact from that
     attacker is answered {1, 0, 1}. Every other message goes to the parent's `0x00074080`.
   - +0x20 `0x00075F30`, +0x30 `0x00075F90` and +0x34 `0x00075F60`: 0x29, 0x2A and 0x25 while the bit block's byte 8
     bit 0 (the shut coffin) is set, else the parent's. +0x2C stays the base `0x00026A90`.
@@ -466,14 +485,14 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
     "coffinclose"), and the rest go to 0x3ED ("knockback", then "knockbackfollowup" half the time after a hit, then
     "coffincloseknockback").
   - A hit from behind while he waits (`0x000C1640`, the record's 0.4 dot) is 0x406. Its first stage calls
-    `0x00020690`, the knock-back hit on the body, which is not translated and raises. It then walks 100 off and
+    `0x00020690`, the knock-back hit on the body (translated for scene 11). It then walks 100 off and
     looks round ("coffinlook").
   - Message 0x1A shuts him in (0x416, "waitingforfollowup"): the body's byte 8 bit 0 is set and body +0x288 is
     "opencoffin".
 - `--scene3a10` (chapter3a_scene10_2playcam, the village) reaches no untranslated code but does not pass. See the
   test table.
-- Not settled: no vampire was picked out on screen. The captures show the village path and the club-wielding
-  class 0x24 ghoulies that knock Cooper down (5100, 12600).
+- No vampire was picked out on screen in scene 10. The captures show the village path and the club-wielding
+  class 0x24 ghoulies that knock Cooper down (5100, 12600). Scene 11's captures show him.
 
 ### 2026-10-27: chapter 3a scene 5: the slam smash attack
 

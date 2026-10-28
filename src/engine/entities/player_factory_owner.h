@@ -233,6 +233,8 @@ struct NativePlayerSceneBindings
     std::function<bool()> meter_shown{};
     std::function<u32()> meter_actor{};
     std::function<std::span<const u8>(u32)> mind_bytes_at{}; // A mind (actor +0x958) by retail address, through +0x10.
+    // Vampire strategy (type 0x54, vtable 0x0050602C): the knock-back hit 0x00020690 on a player's own body.
+    std::function<void(NativePlayerInstance&)> knock_back{};
 };
 
 // Native state and contexts of one player (type 5) and its body, mind and strategy children.

@@ -312,6 +312,10 @@ All take the game directory, e.g.
 | `--scene5_2` | Boots chapter5_scene2_1playcam (the bathroom) and plays it with the scene 7 driver. Passes: the dronein cutscene, Mr Ribs' first prisoner page, the Hunchback's event, and the script moves on to chapter5_scene3_1playcam at frame 10734 |
 | `--scene5_3` | Boots chapter5_scene3_1playcam (the conservatory) and plays it with the scene 7 driver. Passes: the prisoner cutscene and Mr Ribs' page, the worm and spider waves, the fiddler box, the groundskeeper's water pistol page, and the script moves on to chapter5_scene4_1playcam at frame 16691 |
 | `--scene5_4` | Boots chapter5_scene4_1playcam (Dunfiddlin Cottage) and plays it with the scene 7 driver. Passes: Mr Ribs' page, the haunted TV's event, the prisoner cutscene, and the script moves on to chapter5_scene5_1playcam at frame 12808 (Cooper ends on 5 of 50 energy) |
+| `--scene5_5` | Boots chapter5_scene5_1playcam (the dining room) and plays it with the scene 7 driver. Does not pass: the pirates' event (from `aid_ghoulybox_ghoulies_chapter5_diningpirates`) includes a no-hits step (node 0x23, step type 9), so each hit fails it and summons the Grim Reaper; the driver retries it until the 36000-frame limit |
+| `--scene5_6` | Boots chapter5_scene6_1playcam (the pantry) and plays it with the scene 7 driver. Passes: the prisoner cutscene, two pages, Mr Ribs at the door, and the script moves on to chapter5_scene7_1playcam at frame 3904 |
+| `--scene5_7` | Boots chapter5_scene7_1playcam (the relics store) and plays it with the scene 7 driver. Passes: the prisoner cutscene, the mummy and zombie event (a cursed mummy box), two pages, and the script moves on to chapter5_scene8_1playcam at frame 8470 |
+| `--scene5_8` | Boots chapter5_scene8_1playcam (the laundry) and plays it with the scene 7 driver, breaking every `aid_ghoulybox_single_skeleton` washing machine in turn once the event runs. Does not pass: the event (a next-different step and node 0x88's kill-three-skeletons step) needs skeletons from the washing machines, and Cooper's kicks do not reach them from the nearest open floor |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -478,6 +482,43 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-29: chapter 5 scene 8: script type 0x88
+
+- Script type 0x88 read its five tag / count pairs and queued nothing. It now translates the dump (0x00126140's
+  case): 0x00126100 builds step type 0x12 with the 1.5 s delay, each set pair (node+0x4C, +0x94, +0xDC, +0x124,
+  +0x16C) is a choice, one is drawn (0x0001BB60) for +0x18 (the tag, 0x001077B0) and +0x1C (its kills), node+0x170
+  marks the tag's actors (0x00126940), then the step is queued (0x000D05D0) and the tag's fight music plays
+  (0x00116C50).
+- Step type 0x12's runner (0x000CFDF0, table 0x003039CC) is translated: it holds while DAT_00512B78[tag] kills fall
+  short of +0x1C, then waits out its delay. Its scoreboard count (0x000D0F20) is the kills still owed.
+- The driver gains an every-box errand (`powerup_kind` 0xFFFFFFFF): once an event's steps run, each box of the
+  name is broken in turn, with what comes out fought first; Mr Ribs (class 0x33), who takes no hits, does not hold
+  it up.
+- `--scene5_8` does not pass: the skeletons come only from four washing machines on a raised floor among zombie
+  ones, and from the nearest open cell (some 20 away) Cooper's kicks never break one.
+- Checked in the captures: the event's skull icon with 3 (the type 0x12 step) and the red cross of its
+  next-different step (2400), and Mr Ribs with his key beside Cooper.
+
+### 2026-10-29: chapter 5 scene 7: the relics store
+
+- `--scene5_7` passes on the existing native path. Checked in the captures: Cooper with a torch among the mummies
+  and zombies, the event's icons up (3000).
+
+### 2026-10-29: chapter 5 scene 6: the pantry
+
+- `--scene5_6` passes on the existing native path. Checked in the captures: Mr Ribs and Cooper at the pantry door
+  (3600).
+
+### 2026-10-29: chapter 5 scene 5: the dining room
+
+- `--scene5_5` reaches the pirates' event and runs without new untranslated code; it does not pass. The event's
+  no-hits step (type 9) fails on Cooper's first hit, the Grim Reaper comes (his touch takes Cooper's energy to 0),
+  and the event starts again: some 22 to 25 tries in 36000 frames.
+- One Release run failed at frame 34848 with "invalid unordered_map<K, T> key" (an `at()` miss) just after a page.
+  It did not happen again in a second Release run, nor under cdb in RelWithDebInfo with /Ob1 or /Ob2 (the runs'
+  timing differs from the first); its source is not found.
+- Checked in the captures: the pirates and the Grim Reaper in the dining room, with the RIP stone (33300).
 
 ### 2026-10-29: chapter 5 scene 4: a player's spawn controller
 

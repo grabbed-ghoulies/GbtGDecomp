@@ -113,6 +113,8 @@ i32 run_script_event_key_step(std::span<u8> step); // Xbox 0x000CFA90, step type
 // +0x18 the tag, +0x1C set once an actor of it has been seen (or none needs to be).
 i32 run_script_event_tag_step(std::span<u8> step); // Xbox 0x000CFDA0, step type 2
 i32 run_script_event_kill_count_step(std::span<u8> step); // Xbox 0x000CFE20, step type 3
+// As type 3 with the tag at +0x18 and the kills wanted at +0x1C (script type 0x88's random choice).
+i32 run_script_event_tag_kill_count_step(std::span<u8> step); // Xbox 0x000CFDF0, step type 0x12
 i32 run_script_event_next_different_step(std::span<u8> step); // Xbox 0x000CFFE0, step type 8
 i32 run_script_event_number_step(std::span<u8> step); // Xbox 0x000D0160, step type 0xE
 i32 run_script_event_time_limit_step(std::span<u8> step); // Xbox 0x000CFE50, step type 4

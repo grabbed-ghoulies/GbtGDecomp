@@ -851,6 +851,15 @@ void show_script_event_icons()
             count = left < 0 ? 0u : u32(left);
             break;
         }
+        case 0x12:
+        {
+            // The tag's (+0x18) kills still owed against +0x1C, never below zero.
+            kind = read_u16(step, 0x18);
+            const i32 left = std::bit_cast<i32>(read_u32(step, 0x1C))
+                - script_statistic_at_address(0x00512B78u + u32(kind) * 4u);
+            count = left < 0 ? 0u : u32(left);
+            break;
+        }
         case 0:
         case 1:
         case 9:
@@ -1034,6 +1043,10 @@ bool run_script_event_steps(Game& g)
             {
                 result = run_script_event_unhit_since_step(step); // 0x000D00C0
             }
+            else if (type == 0x12)
+            {
+                result = run_script_event_tag_kill_count_step(step); // 0x000CFDF0
+            }
             else
             {
                 throw Error("script event step type " + std::to_string(type)
@@ -1205,6 +1218,17 @@ i32 run_script_event_kill_count_step(std::span<u8> step)
     const i32 killed = script_statistic_at_address(0x00512B78u + u32(read_u16(step, 0x1C)) * 4u);
     const i32 left = required - killed;
     if (left > 0) // JS / JG
+    {
+        return 0;
+    }
+    return script_event_step_delay_done(step.subspan(4)) ? 1 : 5; // 0x000D0700, ECX step+4
+}
+
+// Xbox 0x000CFDF0
+i32 run_script_event_tag_kill_count_step(std::span<u8> step)
+{
+    const i32 killed = script_statistic_at_address(0x00512B78u + u32(read_u16(step, 0x18)) * 4u);
+    if (killed < std::bit_cast<i32>(read_u32(step, 0x1C))) // JL
     {
         return 0;
     }

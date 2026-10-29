@@ -1522,51 +1522,45 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
         return 2;
     case 0x88:
     {
+        // 0x00126100 builds step type 0x12 with XMM0 = 1.5 (0x0032B210) at +4. Each named tag with its kill count
+        // (node+0x4C, +0x94, +0xDC, +0x124, +0x16C set) is a choice; one is drawn at random (0x0001BB60, ECX the
+        // count) for +0x18 (the tag) and +0x1C (its count). With node+0x170 the tag's actors are marked
+        // (0x00126940), then 0x000D05D0 queues the step and 0x00116C50 plays the tag's fight music.
         u16 words[5]{};
-        u32 payloads[5]{};
+        u32 counts[5]{};
         u32 count = 0;
-        if (node_u32(g.scene_script, node, 0x4c) != 0)
+        const auto choice = [&](u32 enabled, u32 name, u32 kills)
         {
-            const std::string key = node_cstr(g.scene_script, node, 8);
-            words[count] = static_cast<u16>(script_find_actor_tag(key.c_str()));
-            payloads[count] = node_u32(g.scene_script, node, 0x48);
-            count = count + 1;
-        }
-        if (node_u32(g.scene_script, node, 0x94) != 0)
-        {
-            const std::string key = node_cstr(g.scene_script, node, 0x50);
-            words[count] = static_cast<u16>(script_find_actor_tag(key.c_str()));
-            payloads[count] = node_u32(g.scene_script, node, 0x90);
-            count = count + 1;
-        }
-        if (node_u32(g.scene_script, node, 0xdc) != 0)
-        {
-            const std::string key = node_cstr(g.scene_script, node, 0x98);
-            words[count] = static_cast<u16>(script_find_actor_tag(key.c_str()));
-            payloads[count] = node_u32(g.scene_script, node, 0xd8);
-            count = count + 1;
-        }
-        if (node_u32(g.scene_script, node, 0x124) != 0)
-        {
-            const std::string key = node_cstr(g.scene_script, node, 0xe0);
-            words[count] = static_cast<u16>(script_find_actor_tag(key.c_str()));
-            payloads[count] = node_u32(g.scene_script, node, 0x120);
-            count = count + 1;
-        }
-        if (node_u32(g.scene_script, node, 0x16c) != 0)
-        {
-            const std::string key = node_cstr(g.scene_script, node, 0x128);
-            words[count] = static_cast<u16>(script_find_actor_tag(key.c_str()));
-            payloads[count] = node_u32(g.scene_script, node, 0x168);
-            count = count + 1;
-        }
+            if (node_u32(g.scene_script, node, enabled) == 0)
+            {
+                return;
+            }
+            const std::string key = node_cstr(g.scene_script, node, name);
+            words[count] = static_cast<u16>(script_find_actor_tag(key.c_str())); // 0x001077B0
+            counts[count] = node_u32(g.scene_script, node, kills);
+            ++count;
+        };
+        choice(0x4c, 8, 0x48);
+        choice(0x94, 0x50, 0x90);
+        choice(0xdc, 0x98, 0xd8);
+        choice(0x124, 0xe0, 0x120);
+        choice(0x16c, 0x128, 0x168);
+        std::array<u8, 0x88> step{};
+        const u32 type = 0x12;
+        const float delay = 1.5f;
+        std::memcpy(step.data(), &type, 4);
+        std::memcpy(step.data() + 4, &delay, 4);
+        const i32 index = draw_runtime_random_count(i32(u16(count)), 0, g_shared_random); // 0x0001BB60, ECX count
+        const u16 tag = words[size_t(index)];
+        std::memcpy(step.data() + 0x18, &tag, 2);
+        std::memcpy(step.data() + 0x1C, &counts[size_t(index)], 4);
         if (node_u32(g.scene_script, node, 0x170) != 0)
         {
-            // 0x00126940(0) is not translated. EDI would be the chosen word.
+            mark_runtime_one_type_actors(tag, 0); // 0x00126940, DI the tag
         }
-        (void)words;
-        (void)payloads;
-        (void)count;
+        queue_script_event_step(step);
+        play_scene_fight_music(i16(tag), g.executable_resources->memory(0x0030E490, 0xCB2), g_name_e4e0,
+            scene_music_streams(g)); // 0x00116C50, CX the tag
         return 2;
     }
     default:

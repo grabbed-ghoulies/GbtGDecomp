@@ -309,6 +309,7 @@ All take the game directory, e.g.
 | `--scene4_1b` | Boots chapter4_scene1_1playcam (the Baron's quarters) and plays it with the scene 7 driver, invincible (a driver cheat) and taking dropped weapons. Does not pass: the driver brings the Baron down to the phase-1 threshold with his own cane and the plane through all four landings and its spin, then cannot reach the plane for its last 40 energy within 108000 frames. Played by hand, the scene plays through |
 | `--scene4_1c` | Boots chapter4_scene1_2book and turns its four pages. Passes: the script moves on to chapter5_scene1_1playcam at frame 2183 |
 | `--scene5_1` | Boots chapter5_scene1_1playcam (the Grand Hallway, the countdown's start) and plays it with the scene 7 driver. Passes: chapter 5's title, "PLAYER ENTERS", free play with the 13-minute countdown on the scoreboard, Mr Ribs' page, and the script moves on to chapter5_scene2_1playcam |
+| `--scene5_2` | Boots chapter5_scene2_1playcam (the bathroom) and plays it with the scene 7 driver. Passes: the dronein cutscene, Mr Ribs' first prisoner page, the Hunchback's event, and the script moves on to chapter5_scene3_1playcam at frame 10734 |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -475,6 +476,17 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-29: chapter 5 scene 2: the exit at the start
+
+- chapter5_scene2_1playcam moved on at frame 3: Cooper starts inside the scene's exit volume (mask 1), and 0x00140E30
+  queued {0xB0, door} on his first frame. The scene start (0x0011C72F) sets DAT_00545D20, the "already in an exit"
+  latch, to 1 so a player who starts in one must leave it first, but the port kept two globals for that address:
+  the reset set `g_545d20` while 0x00140E30 read `g_flag_5d20`. DAT_00545D28 had the same split. The reset now sets
+  `g_flag_5d20` and `g_flag_5d28`, and the duplicates are gone.
+- `--scene5_2` then passes: two pages, the Hunchback's event, and the move on at frame 10734.
+- Checked in the captures: the Hunchback fight in the bathroom with its event icon (4500, 9000). The countdown clock
+  is not shown: booted directly, the scene never runs chapter 5 scene 1's type 0x89.
 
 ### 2026-10-29: chapter 5 scene 1: the countdown
 

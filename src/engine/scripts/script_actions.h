@@ -505,7 +505,8 @@ extern u32& g_tune_3402c;
 extern u32& g_tune_34030;
 
 // DAT_00545D20 and DAT_00545D24. 0x00140E30 clears both when the word at
-// node+0x20 + 0x94 is 0. A live 0x001248D0(1, 0, 0) would set the first to 1.
+// node+0x20 + 0x94 is 0. A live 0x001248D0(1, 0, 0) would set the first to 1, as the scene start
+// (0x0011C72F) does.
 // A live 0x001248D0(8, 0, 0) would set the second to 1.
 extern i32 g_flag_5d20;
 

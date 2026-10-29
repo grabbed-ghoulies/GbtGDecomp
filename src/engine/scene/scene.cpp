@@ -659,10 +659,6 @@ void* g_512344 = nullptr;
 
 i32 g_512348 = 0;
 
-i32 g_545d20 = 0;
- // DAT_00545D20
-i32 g_545d28 = 0;
- // DAT_00545D28
 i32 g_50e1c4 = 0;
  // DAT_0050E1C4
 std::array<u8, 8 * 0xC> g_50e1c8{}; // DAT_0050E1C8: the 0x0010F6C0 class ranges, up to DAT_0050E228.
@@ -783,8 +779,8 @@ void scene_teardown(Game& g, u8* scene)
         g_512344 = nullptr;
     }
     g_512348 = 0;
-    g_545d20 = 1;
-    g_545d28 = 0;
+    g_flag_5d20 = 1; // DAT_00545D20: a player who starts in an exit volume must leave it first.
+    g_flag_5d28 = 0; // DAT_00545D28.
     g.factory_scene->actor_services->clear_script_tag_tables(); // DAT_0050E148, DAT_0050E16C, DAT_0050E1B0
     g_50e1c4 = 0;
     g_50e228 = 0;

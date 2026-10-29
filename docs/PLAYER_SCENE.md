@@ -321,6 +321,10 @@ All take the game directory, e.g.
 | `--scene5_11` | Boots chapter5_scene11_1playcam (the lower corridors) and plays it with the scene 7 driver. Passes: a page, the haunted pictures, and the script moves on to chapter5_scene12_1playcam at frame 3937 |
 | `--scene5_12` | Boots chapter5_scene12_1playcam (the Grand Hallway, the countdown's end) and plays it with the scene 7 driver. Passes: two pages, script type 0x9A's gold finish of the countdown, and the script moves on to chapter5_scene13_1playcam at frame 4551 |
 | `--scene5_13` | Boots chapter5_scene13_1playcam (the front gate, chapter 5's last play scene) and plays it with the scene 7 driver. Passes: Cooper walks straight ahead into the exit (the mask-1 volume at 223, -84) and the script moves on to chapter5_scene13_1book at frame 1679 |
+| `--scene5_13b` | Boots chapter5_scene13_1book. Passes: two pages, and the script moves on to chapter5_scene13_2playcam |
+| `--scene5_13c` | Boots chapter5_scene13_2playcam (the front gate, played as the cook against the imps) and plays it with the scene 7 driver. Passes: the script moves on to chapter5_scene13_3book at frame 29482 |
+| `--scene5_13d` | Boots chapter5_scene13_3book. Passes: seven pages, and the script moves on to finalscore_finalscore |
+| `--scenefinal` | Boots finalscore_finalscore. Does not pass: the scene stops at its start on factory type 0x99 (entitySceneControlFinalScore, getter 0x00082D70), whose score pages (0x000D1540..0x000D4C00, the page table at 0x00304EC0) are not translated |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -487,6 +491,20 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-29: chapter 5 scene 13's end and the final score
+
+- `--scene5_13b` (two pages) and `--scene5_13d` (seven pages, the cook's farewell) pass.
+- chapter5_scene13_2playcam is played as the cook (DAT_00511B40's actor is not class 4). The scene 7 driver now takes
+  the player's class from DAT_00511B40 (link - 0x93C) instead of assuming Cooper's 4; it logs the cook's energy under
+  "Cooper's energy". `--scene5_13c` then passes, after some 29000 frames among the imps.
+- finalscore_finalscore stops at its start: factory type 0x99 is entitySceneControlFinalScore (the type table's name
+  one row off; vtable 0x005055F0: sizes 0x00082D50, construct 0x00082DC0, destroy 0x00082E20, the scene control's
+  message 0x00115EE0, update 0x00082E50 and draw 0x00082F70). Its update steps pages 1..4 through the handlers at
+  0x00304ED4.. (0x000D41E0, 0x000D4230, ...), then requests aid_script_ghoulies_credits_final (0x0011EB30, mode 1).
+  None of 0x000D3D80..0x000D4500 or 0x000F2D70 is translated yet.
+- Checked in the captures: the cook with his ladle among the imps by the doghouse (600, 2400), and the cook's
+  farewell page (5_13d page 3).
 
 ### 2026-10-29: chapter 5 scene 13: the front gate
 

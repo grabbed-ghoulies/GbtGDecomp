@@ -9489,13 +9489,25 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
         const bool page = game.script_dialogue != nullptr && game.script_dialogue->dialogue.state.mode != 0;
         // A closes a page once it has been up a second.
         input.accept = page && page_shown >= 0 && frame > page_shown + 60 && frame % 30 < 5;
+        // The player is DAT_00511B40's actor (link - 0x93C): Cooper (class 4), or chapter 5 scene 13's cook.
+        gbtg::u16 player_class = 4;
+        if (const gbtg::u32 link = actors.player_link(); link != 0 && link != 0x93C)
+        {
+            for (const auto& mark : actors.marked_actors())
+            {
+                if (mark.actor != nullptr && mark.address == link - 0x93C)
+                {
+                    player_class = mark.actor->class_key;
+                }
+            }
+        }
         std::optional<gbtg::Vec3> cooper;
         bool holding = false;
         gbtg::u32 held_weapon = 0;
         gbtg::u16 energy = 0;
         for (const auto& mark : actors.marked_actors())
         {
-            if (mark.actor != nullptr && mark.actor->class_key == 4)
+            if (mark.actor != nullptr && mark.actor->class_key == player_class)
             {
                 cooper = gbtg::actor_world_position(*mark.actor);
                 holding = !mark.body.empty() && gbtg::read_u32(mark.body, 0x48) != 0; // Body +0x48, the held weapon.
@@ -9712,7 +9724,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                         continue;
                     }
                 }
-                if (mark.actor == nullptr || unreachable.contains(mark.actor) || mark.actor->class_key == 4
+                if (mark.actor == nullptr || unreachable.contains(mark.actor) || mark.actor->class_key == player_class
                     || mark.body.empty()
                     || gbtg::read_u16(mark.body, 0x94) == 0
                     || (mark.actor->class_key >= 0x26 && mark.actor->class_key <= 0x30) || mark.actor->class_key == 0x37
@@ -9748,7 +9760,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
             const auto marks = actors.marked_actors();
             for (const auto& mark : marks)
             {
-                if (mark.actor == nullptr || mark.actor->class_key == 4 || mark.strategy.size() < 0x3C
+                if (mark.actor == nullptr || mark.actor->class_key == player_class || mark.strategy.size() < 0x3C
                     || mark.body.size() < 0x4C)
                 {
                     continue;
@@ -9784,7 +9796,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
             int full = 0;
             for (const auto& mark : actors.marked_actors())
             {
-                if (mark.actor != nullptr && mark.actor->class_key == 4 && !mark.body.empty())
+                if (mark.actor != nullptr && mark.actor->class_key == player_class && !mark.body.empty())
                 {
                     health = gbtg::read_u16(mark.body, 0x94);
                     full = gbtg::read_u16(mark.body, 0x96);
@@ -10319,7 +10331,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
         // stick from side to side; its 0x00109810 tracking reads the stick's change each frame.
         for (const auto& mark : actors.marked_actors())
         {
-            if (mark.actor != nullptr && mark.actor->class_key == 4 && !mark.body.empty()
+            if (mark.actor != nullptr && mark.actor->class_key == player_class && !mark.body.empty()
                 && gbtg::read_u32(mark.body, 0x718) != 0)
             {
                 input.pads[0].lx = frame % 2 == 0 ? gbtg::i16(32767) : gbtg::i16(-32767);
@@ -11152,12 +11164,20 @@ int main(int argc, char** argv)
     const bool scene5_12_test = argc == 3 && std::string_view(argv[2]) == "--scene5_12";
     // --scene5_13 boots chapter5_scene13_1playcam and plays it until the script moves on.
     const bool scene5_13_test = argc == 3 && std::string_view(argv[2]) == "--scene5_13";
+    // --scene5_13b boots chapter5_scene13_1book and plays it until the script moves on.
+    const bool scene5_13b_test = argc == 3 && std::string_view(argv[2]) == "--scene5_13b";
+    // --scene5_13c boots chapter5_scene13_2playcam and plays it until the script moves on.
+    const bool scene5_13c_test = argc == 3 && std::string_view(argv[2]) == "--scene5_13c";
+    // --scene5_13d boots chapter5_scene13_3book and plays it until the script moves on.
+    const bool scene5_13d_test = argc == 3 && std::string_view(argv[2]) == "--scene5_13d";
+    // --scenefinal boots finalscore_finalscore and plays it until the script moves on.
+    const bool scenefinal_test = argc == 3 && std::string_view(argv[2]) == "--scenefinal";
     if (spawn_test)
     {
         std::cout << std::unitbuf;
     }
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
-        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene2a14_test && !scene2a15_test && !scene2a16_test && !scene2a17_test && !scene2b1_test && !scene2b2_test && !scene2b3_test && !scene2b4_test && !scene2b4b_test && !scene2b5_test && !scene2b6_test && !scene2b6b_test && !scene2b7_test && !scene2b8_test && !scene2b9_test && !scene2b10_test && !scene2b10b_test && !scene2c1_test && !scene2c2_test && !scene2c3_test && !scene2c4_test && !scene2c4b_test && !scene2c5_test && !scene2c6_test && !scene2c7_test && !scene2c8_test && !scene2c9_test && !scene2c10_test && !scene2c11_test && !scene2c11b_test && !scene2c12_test && !scene2c13_test && !scene2c13b_test && !scene2c13c_test && !scene3a1_test && !scene3a1b_test && !scene3a2_test && !scene3a3_test && !scene3a3b_test && !scene3a3c_test && !scene3a4_test && !scene3a5_test && !scene3a6_test && !scene3a7_test && !scene3a8_test && !scene3a9_test && !scene3a10_test && !scene3a11_test && !scene3a12_test && !scene3b1_test && !scene3b2_test && !scene3b3_test && !scene3b4_test && !scene3b5_test && !scene3b6_test && !scene3b7_test && !scene3c1_test && !scene3c2_test && !scene3c3_test && !scene3c4_test && !scene3c5_test && !scene3c6_test && !scene3c7_test && !scene3c8_test && !scene3c9_test && !scene3c10_test && !scene3c11_test && !scene3c12_test && !scene3c13_test && !scene3c13b_test && !scene3c14_test && !scene3c15_test && !scene3c15b_test && !scene3c15c_test && !scene4_1_test && !scene4_1b_test && !scene4_1c_test && !scene5_1_test && !scene5_2_test && !scene5_3_test && !scene5_4_test && !scene5_5_test && !scene5_6_test && !scene5_7_test && !scene5_8_test && !scene5_9_test && !scene5_10_test && !scene5_11_test && !scene5_12_test && !scene5_13_test && !scene3_test && !pause_test)
+        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene2a14_test && !scene2a15_test && !scene2a16_test && !scene2a17_test && !scene2b1_test && !scene2b2_test && !scene2b3_test && !scene2b4_test && !scene2b4b_test && !scene2b5_test && !scene2b6_test && !scene2b6b_test && !scene2b7_test && !scene2b8_test && !scene2b9_test && !scene2b10_test && !scene2b10b_test && !scene2c1_test && !scene2c2_test && !scene2c3_test && !scene2c4_test && !scene2c4b_test && !scene2c5_test && !scene2c6_test && !scene2c7_test && !scene2c8_test && !scene2c9_test && !scene2c10_test && !scene2c11_test && !scene2c11b_test && !scene2c12_test && !scene2c13_test && !scene2c13b_test && !scene2c13c_test && !scene3a1_test && !scene3a1b_test && !scene3a2_test && !scene3a3_test && !scene3a3b_test && !scene3a3c_test && !scene3a4_test && !scene3a5_test && !scene3a6_test && !scene3a7_test && !scene3a8_test && !scene3a9_test && !scene3a10_test && !scene3a11_test && !scene3a12_test && !scene3b1_test && !scene3b2_test && !scene3b3_test && !scene3b4_test && !scene3b5_test && !scene3b6_test && !scene3b7_test && !scene3c1_test && !scene3c2_test && !scene3c3_test && !scene3c4_test && !scene3c5_test && !scene3c6_test && !scene3c7_test && !scene3c8_test && !scene3c9_test && !scene3c10_test && !scene3c11_test && !scene3c12_test && !scene3c13_test && !scene3c13b_test && !scene3c14_test && !scene3c15_test && !scene3c15b_test && !scene3c15c_test && !scene4_1_test && !scene4_1b_test && !scene4_1c_test && !scene5_1_test && !scene5_2_test && !scene5_3_test && !scene5_4_test && !scene5_5_test && !scene5_6_test && !scene5_7_test && !scene5_8_test && !scene5_9_test && !scene5_10_test && !scene5_11_test && !scene5_12_test && !scene5_13_test && !scene5_13b_test && !scene5_13c_test && !scene5_13d_test && !scenefinal_test && !scene3_test && !pause_test)
     {
         std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene6-save | --scene6-save-reload | --scene3 | --pause | --scene4 | --scene5 | --scene6-1 | --scene7]\n";
         return 2;
@@ -11372,6 +11392,10 @@ int main(int argc, char** argv)
             : scene5_11_test ? "chapter5_scene11_1playcam"
             : scene5_12_test ? "chapter5_scene12_1playcam"
             : scene5_13_test ? "chapter5_scene13_1playcam"
+            : scene5_13b_test ? "chapter5_scene13_1book"
+            : scene5_13c_test ? "chapter5_scene13_2playcam"
+            : scene5_13d_test ? "chapter5_scene13_3book"
+            : scenefinal_test ? "finalscore_finalscore"
             : player_test || spawn_test ? "chapter1_scene1_2playcam"
             : title_test ? "" : "scene0_1book");
         if (scene2a1b_test)
@@ -11380,6 +11404,34 @@ int main(int argc, char** argv)
             play_scene7(game, "scene2a1_2");
             pass_chapter_title(game, "scene2a1_to_3", "aid_script_ghoulies_chapter2a_scene1_3playcam", false);
             play_scene7(game, "scene2a1_3", 1000.f, "Event - Kill All", true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scenefinal_test)
+        {
+            pass_chapter_title(game, "scenefinal", "aid_script_ghoulies_finalscore_finalscore", false);
+            play_scene7(game, "scenefinal", 1000.f, {}, true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene5_13d_test)
+        {
+            pass_chapter_title(game, "scene5_13d", "aid_script_ghoulies_chapter5_scene13_3book", false);
+            play_scene7(game, "scene5_13d", 1000.f, {}, true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene5_13c_test)
+        {
+            pass_chapter_title(game, "scene5_13c", "aid_script_ghoulies_chapter5_scene13_2playcam", false);
+            play_scene7(game, "scene5_13c", 1000.f, {}, true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene5_13b_test)
+        {
+            pass_chapter_title(game, "scene5_13b", "aid_script_ghoulies_chapter5_scene13_1book", false);
+            play_scene7(game, "scene5_13b", 1000.f, {}, true, true);
             gbtg::gfx_shutdown();
             return 0;
         }

@@ -1,4 +1,5 @@
 #include "scene_controls.h"
+#include "chapter5_countdown.h"
 
 #include <bit>
 #include <cstring>
@@ -165,6 +166,19 @@ bool construct_chapter2_scene4_view(FactoryObject& object, std::span<const u8> p
         installing->context.chapter2_scene4_services());
 }
 
+bool construct_chapter5_countdown_view(FactoryObject& object, std::span<const u8>)
+{
+    auto& control = installing->instance(object);
+    control.state = state_of(object);
+    control.type = object.type;
+    return construct_runtime_chapter5_countdown_control(chapter5_countdown("0x00082D00")); // 0x00082D00
+}
+
+void destroy_chapter5_countdown_view(FactoryObject&)
+{
+    // 0x001628B0 returns at once.
+}
+
 void destroy_chapter2_scene4_view(FactoryObject&)
 {
     destroy_runtime_chapter2_scene4_control(installing->context.chapter2_scene4_services()); // 0x00082BB0
@@ -278,6 +292,14 @@ const ObjectFactoryVtable* chapter2_scene4_control_lifecycle()
 {
     static const ObjectFactoryVtable table{0x005055C0, chapter2_scene4_control_object_sizes,
         construct_chapter2_scene4_view, destroy_chapter2_scene4_view};
+    return &table;
+}
+
+// Getter 0x00082CB0; +0 is the scene control's 0x00115D30.
+const ObjectFactoryVtable* chapter5_countdown_control_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x005055D8, scene_control_object_sizes,
+        construct_chapter5_countdown_view, destroy_chapter5_countdown_view};
     return &table;
 }
 
@@ -461,6 +483,7 @@ void NativeSceneControlOwner::install(std::span<ObjectFactoryType> types)
     types[0x93] = ObjectFactoryType{3, haunted_chairs_control_lifecycle}; // Getter 0x000824F0.
     types[0x94] = ObjectFactoryType{3, relics_store_control_lifecycle}; // Getter 0x00081010.
     types[0x95] = ObjectFactoryType{3, chapter2_scene4_control_lifecycle}; // Getter 0x000829A0.
+    types[0x9D] = ObjectFactoryType{3, chapter5_countdown_control_lifecycle}; // Getter 0x00082CB0.
     types[0x97] = ObjectFactoryType{3, scene_fx_control_lifecycle}; // Getter 0x00082FA0.
     types[0x98] = ObjectFactoryType{3, super_scary_control_lifecycle};
     types[0x9E] = ObjectFactoryType{3, map_view_control_lifecycle}; // Getter 0x00083EA0.
@@ -560,7 +583,7 @@ void NativeSceneControlOwner::message(SceneControlInstance& control, std::span<c
         message_runtime_super_scary_control(control.state, words, *control.super_scary, control, context.lists);
         return;
     }
-    // Types 3, 0x91, 0x95, 0x9A, 0x9B and 0x9E share 0x00115EE0.
+    // Types 3, 0x91, 0x95, 0x9A, 0x9B, 0x9D and 0x9E share 0x00115EE0.
     message_runtime_scene_control(control, words, context.lists);
 }
 
@@ -598,6 +621,9 @@ void NativeSceneControlOwner::tick(SceneControlInstance& control)
     case 0x97:
         tick_runtime_scene_fx_control(control.state, context.fx_services()); // 0x00083570
         return;
+    case 0x9D:
+        tick_runtime_chapter5_countdown_control(control.state, chapter5_countdown("0x00082D10")); // 0x00082D10
+        return;
     case 0x98:
         tick_runtime_super_scary_control(control.state, *control.super_scary, control, context.lists,
             context.super_scary_services());
@@ -622,6 +648,7 @@ void NativeSceneControlOwner::draw(SceneControlInstance& control)
     case 0x95:
     case 0x97:
     case 0x9B:
+    case 0x9D:
     case 0x9E:
         // Type 0x95 (getter 0x000829A0) too. Types 3 (getter 0x00115D50), 0x91 (getter 0x00080520), 0x92 (getter 0x000816C0), 0x93 (getter 0x000824F0),
         // 0x97 (getter 0x00082FA0), 0x9B (getter 0x00080970) and 0x9E (getter 0x00083EA0) have the empty

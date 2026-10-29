@@ -231,6 +231,24 @@ u32 runtime_scoreboard_tag_icon(u16 tag)
     }
 }
 
+// Xbox 0x0012FB40
+bool set_runtime_scoreboard_message_word_74(u32 id, u32 value, RuntimeScoreboard& board)
+{
+    if (id == 0)
+    {
+        return false;
+    }
+    for (auto& message : board.messages)
+    {
+        if (message.id == id)
+        {
+            message.word_74 = value;
+            return true;
+        }
+    }
+    return false;
+}
+
 // Xbox 0x001318A0
 u32 set_runtime_scoreboard_count(u32 id, i32 count, RuntimeScoreboard& board, std::span<const u8> preset)
 {

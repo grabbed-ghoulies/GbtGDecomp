@@ -1,4 +1,5 @@
 #include "../camera/entity_camera.h"
+#include "../scene/chapter5_countdown.h"
 #include "../camera/camera_mind_rig.h"
 #include "gbtg/anim.h"
 #include "gbtg/engine_internal.h"
@@ -3279,7 +3280,8 @@ int script_handle_world_actions(Game& g, const ScriptNode& node, int param_2, in
     {
         const float value = std::bit_cast<float>(node_u32(g.scene_script, node, 8));
         g_script_6c60 = value * std::bit_cast<float>(0x42700000u) + std::bit_cast<float>(0x3f7d70a4u);
-        throw Error("untranslated Xbox 0x000F27C0: script world action 0x89's challenge clock (EAX 1)");
+        set_runtime_chapter5_countdown_mode(1, chapter5_countdown("script type 0x89")); // 0x000F27C0, EAX 1
+        return 2;
     }
     case 0x8a:
         if (node_u32(g.scene_script, node, 8) != 0)

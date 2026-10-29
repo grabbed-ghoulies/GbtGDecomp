@@ -247,6 +247,7 @@ add_library(gbtg_lib STATIC
     src/engine/entities/baron_strategy.cpp
     src/engine/entities/baron_plane_strategy.cpp
     src/engine/entities/powerup_flags.cpp
+    src/engine/scene/chapter5_countdown.cpp
     src/engine/entities/hunchback_strategy.cpp
     src/engine/entities/ghouly_key_actor.cpp
     src/engine/entities/water_pistol_weapon.cpp

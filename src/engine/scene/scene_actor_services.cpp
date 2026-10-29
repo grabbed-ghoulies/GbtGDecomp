@@ -1,4 +1,5 @@
 #include "../entities/mind_target_policy.h"
+#include "chapter5_countdown.h"
 #include "../entities/powerup_flags.h"
 #include "scene_actor_services.h"
 #include "../entities/ghouly_spawn_trigger.h"
@@ -722,7 +723,7 @@ struct SceneActorServices::State
     std::unique_ptr<RuntimeScoreboardResources> scoreboard_resources;
     std::unique_ptr<RuntimeScoreboardUpdate> scoreboard_update; // 0x00132210.
     std::unique_ptr<RuntimeScoreboardDraw> scoreboard_draw; // 0x00132290's sprite queue and clocks.
-    i32 challenge_mode = 0; // DAT_00506C58 (written by game-mode code not yet translated).
+    i32& challenge_mode = g_chapter5_mode; // DAT_00506C58, the chapter 5 countdown's mode.
     u32 challenge_count = 0; // DAT_00506C84.
     std::unique_ptr<NativeActorFactoryOwner> actors;
     std::unique_ptr<NativePlayerFactoryOwner> players;
@@ -817,6 +818,7 @@ struct SceneActorServices::State
     std::unique_ptr<RelicsStoreControlServices> relics_store_services; // Factory type 0x94.
     std::unique_ptr<SceneFxControlServices> fx_services; // Factory type 0x97.
     std::unique_ptr<Chapter2Scene4ControlServices> chapter2_scene4_services; // Factory type 0x95.
+    std::unique_ptr<Chapter5CountdownServices> chapter5_countdown_services; // Factory type 0x9D and script type 0x89.
     RuntimeBackgroundMorphs* background_morphs = nullptr; // DAT_0050E388 while the scene's cloths exist.
     RuntimeBackgroundCloths background_cloths; // DAT_0050E390, DAT_0050E394, DAT_0050E388 and DAT_0050E418.
     u32 cloth_ramp_texture = 0; // DAT_005043B8.
@@ -4040,6 +4042,20 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         scene_cutscene_runtime(game), clock, random, g_script_30d0c, g_scene_flags->bytes[0], g_flags_ea9c,
         voices.reverb_index, g_gate_251c, background_morphs});
     scene.controls->context.chapter2_scene4 = chapter2_scene4_services.get();
+    // Chapter 5's countdown (factory type 0x9D, script type 0x89).
+    chapter5_countdown_services = std::make_unique<Chapter5CountdownServices>(Chapter5CountdownServices{
+        g_scene_flags->bytes[0], g_chapter5_mode, g_script_6c60, g_chapter5_fail_wait, g_chapter5_message,
+        g_chapter5_gold, story_bits, g_flags_ea9c, g_script_e794, clock, *scoreboard_hud, *scoreboard_resources,
+        data(0x00314170, 0x10), *dialogue, audio.streams,
+        [](u8 mask, i32 release)
+        {
+            g_actor_pause(mask, release); // 0x00117400
+        },
+        []()
+        {
+            return scene_end_flag_set(); // 0x00049D10
+        }});
+    g_chapter5_countdown = chapter5_countdown_services.get();
     // The Super Scary challenge (factory type 0x98) a trophy head's attack creates.
     super_scary_services = std::make_unique<SuperScaryControlServices>(SuperScaryControlServices{
         resources.registry, resources.error, scene_cutscene_runtime(game), voices, audio.streams, random, g_510cec,
@@ -6613,6 +6629,7 @@ SceneActorServices::State::~State()
         g_loading_actors = nullptr;
         g_spawn_trigger_players = nullptr;
         g_runtime_invisibility = nullptr;
+        g_chapter5_countdown = nullptr;
         g_runtime_weapon_boost = nullptr;
         g_marked_actor_message = nullptr;
         g_actor_broadcast = nullptr;

@@ -69,6 +69,9 @@ void set_runtime_scoreboard_message_warning(u32 id, u32 warning,
 // its +0xC pulse restarts at 2; false when the board has no such message.
 u32 set_runtime_scoreboard_count(u32 id, i32 count, RuntimeScoreboard& board,
     std::span<const u8> preset); // Xbox 0x001318A0, ECX id, EDX count, ESI 0x00314170
+// Message `id`'s +0x74 word becomes `value`; false for id 0 or no such message.
+bool set_runtime_scoreboard_message_word_74(u32 id, u32 value,
+    RuntimeScoreboard& board); // Xbox 0x0012FB40, EDX id, the board DAT_00545AB0
 // Message `id`'s picture becomes scoreboard icon `index` (0x00131BD0), its width scaled by the board's +0x48; its
 // +0xC pulse restarts at 2. False when the board has no such message or it already shows that icon.
 bool set_runtime_scoreboard_icon(u32 id, u32 index, RuntimeScoreboard& board,

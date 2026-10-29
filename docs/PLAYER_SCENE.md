@@ -308,6 +308,7 @@ All take the game directory, e.g.
 | `--scene4_1` | Boots chapter4_scene1_1book (chapter 4's title and four pages). Passes: the script moves on to chapter4_scene1_1playcam |
 | `--scene4_1b` | Boots chapter4_scene1_1playcam (the Baron's quarters) and plays it with the scene 7 driver, invincible (a driver cheat) and taking dropped weapons. Does not pass: the driver brings the Baron down to the phase-1 threshold with his own cane and the plane through all four landings and its spin, then cannot reach the plane for its last 40 energy within 108000 frames. Played by hand, the scene plays through |
 | `--scene4_1c` | Boots chapter4_scene1_2book and turns its four pages. Passes: the script moves on to chapter5_scene1_1playcam at frame 2183 |
+| `--scene5_1` | Boots chapter5_scene1_1playcam (the Grand Hallway, the countdown's start) and plays it with the scene 7 driver. Passes: chapter 5's title, "PLAYER ENTERS", free play with the 13-minute countdown on the scoreboard, Mr Ribs' page, and the script moves on to chapter5_scene2_1playcam |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -474,6 +475,24 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-29: chapter 5 scene 1: the countdown
+
+- chapter5_scene1_1playcam stopped at its start on factory type 157 (getter 0x00082CB0). With the type table's
+  names one row off, type 0x9D is entitySceneControlChapter5Countdown (parent 3, vtable 0x005055D8): the scene
+  control's sizes (0x00115D30) and message (0x00115EE0), construct 0x00082D00 and update 0x00082D10.
+- `chapter5_countdown.cpp` translates the countdown: 0x000F2580 (the scoreboard clock, message kind 5, icon 0x4C),
+  0x000F25E0 (mode 1 runs it; under 11 seconds mode 2 sets the message's +0x74 warning, 0x0012FB40, newly in
+  `scoreboard_messages.cpp`; at none mode 3 queues "chapter5_failchapter", pauses the scene and a second later
+  requests chapter5_scene13_1bookfail, or sets DAT_0050EA9C bit 0x200000 with the scene ending), 0x000F2920 (the
+  seconds, DAT_00506C60, and the clock digits) and 0x000F27C0 (the mode changes; mode 1 clears story bits 0x33 to
+  0x3C, mode 4 plays the gold challenge ditty).
+- Script type 0x89 threw on 0x000F27C0; it now starts the countdown (mode 1) after storing its minutes * 60 + 0.99.
+  This scene sets 13 minutes.
+- The countdown's words (DAT_00506C58 the mode, DAT_00506C5C, DAT_00506C64, DAT_00506C68) are now game globals,
+  not scene state, so the countdown runs on through chapter 5's scenes; the scoreboard's challenge mode reads the
+  same DAT_00506C58.
+- Checked in the captures: the padlock clock at 12:54 (1200) and 12:29 (2700), with Mr Ribs and his key.
 
 ### 2026-10-29: chapter 4 scene 1: the Baron
 

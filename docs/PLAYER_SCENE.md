@@ -301,6 +301,10 @@ All take the game directory, e.g.
 | `--scene3c12` | Boots chapter 3c scene 12 (chapter3c_scene12_1playcam, the experiments chamber) and plays it with the scene 7 driver, breaking `aid_ghoulybox_single_warlock` first (powerup kind 0) and not fighting during "free play". Does not pass, though no untranslated code is reached: the warlock event ("event - minimum damage") and free play run, region 1 (behind a glass partition) plays chapter3c_scene12_hkeepertakegun, and region 2 starts an untitled kill-8 event with the exit webbed over; Cooper faints with one kill left (RIP 1 and 4 energy at frame 7800, 0 at 7935), and the second attempt faints too |
 | `--scene3c13` | Boots chapter 3c scene 13's book (chapter3c_scene13_2book; the scene order has no chapter3c_scene13_1playcam) and plays it with the scene 7 driver. Passes: four pages with the professor ("C'mon, take it then!", "What the..?!") and the script moves on to chapter3c_scene13_3playcam at frame 2815 |
 | `--scene3c13b` | Boots chapter 3c scene 13 (chapter3c_scene13_3playcam, the laboratory) and plays it with the scene 7 driver, taking the one-hit-kill soup first (`aid_ghoulybox_powerups_supersoups_onehitkill`, powerup kind 8). Does not pass. Cooper has 30 energy; the event spares the skeletons (step type 7, node 0x21), finds the key behind a background part (step type 1) and then wants the key carrier among the bursting Jessie Clydes (step type 0xF); a Jessie (with 84 energy on the HUD) takes 20 a hit, and Cooper faints before the carrier falls |
+| `--scene3c14` | Boots chapter 3c scene 14 (chapter3c_scene14_1playcam, the experiments chamber) and plays it with the scene 7 driver, taking the energy boost soup first (`aid_ghoulybox_powerups_supersoups_energyboost5`, kind 3) with a weapon reach of 60. Does not pass. A free-play section with twelve skeletons; Cooper has 10 energy, a skeleton takes 5 or 6 a hit, and he faints over and over before the script moves on |
+| `--scene3c15` | Boots chapter 3c scene 15 (chapter3c_scene15_1playcam, the Grand Hallway) and plays it with the scene 7 driver. Passes: "PLAYER ENTERS", the theresthedoor cutscene, then free play, and the script moves on to chapter3c_scene15_2book at frame 1715 |
+| `--scene3c15b` | Boots chapter3c_scene15_2book and turns its three pages. Passes: the script moves on to chapter3c_scene15_3playcam at frame 1902 |
+| `--scene3c15c` | Boots chapter3c_scene15_3playcam (the hallway imps) and plays it with the scene 7 driver. Passes: the round haunted door's event (the impsenter cutscene, the hallway imps box, five imps against the clock) ends, and the script moves on to chapter4_scene1_1book |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -467,6 +471,31 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-29: chapter 3c scene 15: the end of chapter 3c
+
+- The order runs chapter3c_scene15_1playcam, chapter3c_scene15_2book, chapter3c_scene15_3playcam, then
+  chapter4_scene1_1book. All three pass with the existing native path; nothing new is reached.
+- `--scene3c15`: the Grand Hallway with "PLAYER ENTERS", the chapter3c_scene15_theresthedoor cutscene and free play;
+  it moves on at frame 1715.
+- `--scene3c15b`: three pages; it moves on at frame 1902.
+- `--scene3c15c`: an event on the round haunted door (objTag_Actor_HauntedDoorRound), the impsenter cutscene and
+  `aid_ghoulybox_ghoulies_chapter3c_hallwayimps`, then node 0x5A for five imps against the clock. Cooper ends at 5 of
+  20 energy, and the script moves on to chapter 4.
+- Checked in the captures: the hallway cutscene view (3c15 300), Cooper on the stairs and the landing (900, 1500),
+  the book's first page, and the 3c15c HUD with the event icon, the RIP stone, the 0:18 clock and "Energy Boost!" (3900).
+
+### 2026-10-29: chapter 3c scene 14: the experiments chamber
+
+- chapter3c_scene14_1playcam is a free-play section: the script places the experiments chamber, its twelve skeletons
+  (tag 0x34) and soup boxes, shows "free play" at frame 235 and holds until it ends. Nothing untranslated is reached.
+- `--scene3c14` does not pass. Cooper starts with 10 energy and a skeleton (a punk skeleton in the 33600 capture)
+  takes 5 or 6 a hit. Fighting at once, he faints at frame 768. Aiming for the invisibility soup (kind 9, across the
+  chamber at -27, -80), he faints 26 times on the way. With the energy boost soup beside the start (kind 3, 10 to 15)
+  and a weapon reach of 60, he faints 18 times in 36000 frames. The `aid_ghoulybox_triples_ninjaimps` box also
+  lets out ninja imps (tag 0x1B) near the start.
+- Checked in the captures: the HUD heart and energy, and skeletons coming out of the chamber at the entrance (600,
+  33600).
 
 ### 2026-10-29: chapter 3c scene 13: the event steps 6, 7, 9 and 10
 

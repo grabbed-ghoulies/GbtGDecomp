@@ -119,6 +119,12 @@ i32 run_script_event_time_limit_step(std::span<u8> step); // Xbox 0x000CFE50, st
 i32 run_script_event_survive_step(std::span<u8> step); // Xbox 0x000CFEE0, step type 5
 // Fails once points are scored (DAT_00545980) while the steps do not wait (DAT_0050653C).
 i32 run_script_event_no_points_step(); // Xbox 0x000D0140, step type 12
+i32 run_script_event_done_step(); // Xbox 0x000CFFD0, step type 6
+// Fails once the player's kills of the +0x18 tag grow past the total kept at +0x1C.
+i32 run_script_event_spare_tag_step(std::span<u8> step); // Xbox 0x000CFF60, step type 7
+// Fail once the player takes a kind-4 hit (type 9), or a kind-3 hit past the total kept at +0x18 (type 10).
+i32 run_script_event_unhit_step(); // Xbox 0x000D0090, step type 9
+i32 run_script_event_unhit_since_step(std::span<u8> step); // Xbox 0x000D00C0, step type 10
 // The key carrier: the first DAT_00511B48 actor whose +0x96D is set carries the key (+0xCE4) and its effect; once its
 // death queues event 0xB5, the key object appears at the event's point and "ghoulykeycam" looks at it until the +4
 // delay runs out.

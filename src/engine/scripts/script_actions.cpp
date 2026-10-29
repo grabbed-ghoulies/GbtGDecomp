@@ -1370,28 +1370,59 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
     }
     case 0x20:
     {
+        // 0x00125E00 builds step type 6 with XMM0 = 1.5 (0x0032B210) at +4; +0x18 is the word at node+8.
+        // 0x000D05D0 queues it.
+        std::array<u8, 0x88> step{};
+        const u32 type = 6;
+        const float delay = 1.5f;
+        std::memcpy(step.data(), &type, 4);
+        std::memcpy(step.data() + 4, &delay, 4);
         const u32 word = u32(node_u16(g.scene_script, node, 8));
-        (void)word;
+        std::memcpy(step.data() + 0x18, &word, 4);
+        queue_script_event_step(step);
         return 2;
     }
     case 0x21:
     {
-        const std::string key = node_cstr(g.scene_script, node, 8);
-        const u16 word = static_cast<u16>(script_find_actor_tag(key.c_str()));
-        const u32 slot = 0xffffffffu;
-        (void)word;
-        (void)slot;
+        // 0x00125E40 builds step type 7 with XMM0 = 1.5 (0x0032B210) at +4; +0x18 is the tag of the name at node+8
+        // and +0x1C is -1 (the total, kept on its first run). 0x000D05D0 queues it.
+        std::array<u8, 0x88> step{};
+        const u32 type = 7;
+        const float delay = 1.5f;
+        std::memcpy(step.data(), &type, 4);
+        std::memcpy(step.data() + 4, &delay, 4);
+        const u16 tag = static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 8).c_str()));
+        std::memcpy(step.data() + 0x18, &tag, 2);
+        const u32 unset = 0xffffffffu;
+        std::memcpy(step.data() + 0x1C, &unset, 4);
+        queue_script_event_step(step);
         return 2;
     }
     case 0x22:
     {
-        const u32 slot = 0xffffffffu;
-        (void)slot;
+        // 0x00125F00 builds step type 10 with XMM0 = 1.5 (0x0032B210) at +4; +0x18 is -1 (the total, kept on its
+        // first run). 0x000D05D0 queues it.
+        std::array<u8, 0x88> step{};
+        const u32 type = 10;
+        const float delay = 1.5f;
+        std::memcpy(step.data(), &type, 4);
+        std::memcpy(step.data() + 4, &delay, 4);
+        const u32 unset = 0xffffffffu;
+        std::memcpy(step.data() + 0x18, &unset, 4);
+        queue_script_event_step(step);
         return 2;
     }
     case 0x23:
-        // 0x00125EC0, XMM0 = 1.5. 0x000D05D0 is not translated.
+    {
+        // 0x00125EC0 builds step type 9 with XMM0 = 1.5 (0x0032B210) at +4, then 0x000D05D0 queues it.
+        std::array<u8, 0x88> step{};
+        const u32 type = 9;
+        const float delay = 1.5f;
+        std::memcpy(step.data(), &type, 4);
+        std::memcpy(step.data() + 4, &delay, 4);
+        queue_script_event_step(step);
         return 2;
+    }
     case 0x25:
     {
         // 0x00125E80 builds step type 8 with XMM0 = 1.5 (0x0032B210) at +4; +0x18 is 0, the named tags follow at

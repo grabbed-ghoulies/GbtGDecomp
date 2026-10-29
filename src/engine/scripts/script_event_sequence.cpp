@@ -1018,6 +1018,22 @@ bool run_script_event_steps(Game& g)
             {
                 result = run_script_event_number_step(step); // 0x000D0160
             }
+            else if (type == 6)
+            {
+                result = run_script_event_done_step(); // 0x000CFFD0
+            }
+            else if (type == 7)
+            {
+                result = run_script_event_spare_tag_step(step); // 0x000CFF60
+            }
+            else if (type == 9)
+            {
+                result = run_script_event_unhit_step(); // 0x000D0090
+            }
+            else if (type == 10)
+            {
+                result = run_script_event_unhit_since_step(step); // 0x000D00C0
+            }
             else
             {
                 throw Error("script event step type " + std::to_string(type)
@@ -1279,6 +1295,60 @@ i32 run_script_event_time_limit_step(std::span<u8> step)
 i32 run_script_event_no_points_step()
 {
     if (g_545980 == 0 || g_event_sequence.waiting != 0)
+    {
+        return 2;
+    }
+    return 3;
+}
+
+// Xbox 0x000CFFD0: step type 6 is done at once.
+i32 run_script_event_done_step()
+{
+    return 1;
+}
+
+// Xbox 0x000CFF60: the spare step keeps the player's kills of its tag (+0x18; DAT_005138D0 + DAT_00512F48 by tag)
+// from its first run at +0x1C, and fails (3) once that total has grown.
+i32 run_script_event_spare_tag_step(std::span<u8> step)
+{
+    const u16 tag = read_u16(step, 0x18);
+    const auto total = [tag]()
+    {
+        return script_statistic_at_address(0x005138D0u + u32(tag) * 4u)
+            + script_statistic_at_address(0x00512F48u + u32(tag) * 4u);
+    };
+    if (std::bit_cast<i32>(read_u32(step, 0x1C)) < 0)
+    {
+        put_word(step, 0x1C, std::bit_cast<u32>(total()));
+    }
+    return total() - std::bit_cast<i32>(read_u32(step, 0x1C)) > 0 ? 3 : 2;
+}
+
+// Xbox 0x000D0090: the unhit step fails (3) once the player has taken a kind-4 hit (DAT_00522160 + DAT_005217D8)
+// while the steps do not wait (DAT_0050653C).
+i32 run_script_event_unhit_step()
+{
+    if (script_statistic_at_address(0x00522160u) + script_statistic_at_address(0x005217D8u) == 0
+        || g_event_sequence.waiting != 0)
+    {
+        return 2;
+    }
+    return 3;
+}
+
+// Xbox 0x000D00C0: as step type 9 for the player's kind-3 hits (DAT_0051E73C + DAT_0051DDB4), counted from the total
+// the step keeps at +0x18 on its first run.
+i32 run_script_event_unhit_since_step(std::span<u8> step)
+{
+    if (std::bit_cast<i32>(read_u32(step, 0x18)) < 0)
+    {
+        put_word(step, 0x18,
+            std::bit_cast<u32>(script_statistic_at_address(0x0051E73Cu) + script_statistic_at_address(0x0051DDB4u)));
+    }
+    if (script_statistic_at_address(0x0051E73Cu) - std::bit_cast<i32>(read_u32(step, 0x18))
+                + script_statistic_at_address(0x0051DDB4u)
+            < 1
+        || g_event_sequence.waiting != 0)
     {
         return 2;
     }

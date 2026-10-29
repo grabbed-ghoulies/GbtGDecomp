@@ -297,6 +297,10 @@ All take the game directory, e.g.
 | `--scene3c8` | Boots chapter 3c scene 8 (chapter3c_scene8_1playcam, the servants' dormitory) and plays it with the scene 7 driver. Does not pass. "event - no weapons/don't get hit" queues no event step: it breaks `aid_ghoulybox_ghoulies_chapter3c_haunteddoordormitory`, sends the Jessie Clydes (class 0x1E) actorStrategyId_ForceAngry (script node 0x58, now translated), and waits for the haunted door (class 0x12, at -510, 20.7, 338) to wake (condition opcode 7, event 0xB4 tagged 0x12), which it does with a target within 60 (state 0x413). The driver now walks to the ghouly a pending opcode-7 wait names, fighting off others within 10, but the angry Jessie Clydes stop Cooper at about (300, -50) and he lands back near (200, -270); he faints and the event restarts about every 3500 frames |
 | `--scene3c9` | Boots chapter 3c scene 9 (chapter3c_scene9_1playcam, the servants' bathroom) and plays it with the scene 7 driver, keeping away from the Grim Reaper (class 0xF) without fighting during "event - one type(random)/time limit". Does not pass. The event runs a 20 s step (type 4), after which the Reaper hunts Cooper, and an 80 s step (type 5) until "exit door opens, cursed mummy activated"; the idea is to kite the Reaper until the door opens and then escape. The driver's kiting lasts some 2400 to 5000 frames of the 4800 needed (once about 100 short), and the event restarts after each faint |
 | `--scene3c10` | Boots chapter 3c scene 10 (chapter3c_scene10_1playcam, the attic furniture store) and plays it with the scene 7 driver, without fighting, after breaking the `aid_ghoulybox_powerups_supersoups_energyboost1` crate that blocks the way at (64.5, 108.7) (powerup kind 0: the errand ends at the first broken box). Does not pass: Cooper starts with 5 energy under the Grim Reaper's clock (some 75 s), and the walk to region 1, the exit volume at (-652, -282), shuttles between chests the grid takes for open floor near (-35, 20) and (50, 85) until the clock takes him (5 -> 0 at frame 5004) |
+| `--scene3c11` | Boots chapter 3c scene 11 (chapter3c_scene11_1playcam, the Grand Hallway) and plays it with the scene 7 driver, shooting from 60 with a held weapon. Passes with no new translation: Cooper has 1 energy and the housekeeper's popcan gun (node 0x31); after `aid_ghoulybox_ghoulies_chapter3c_hallwayskeletons` and the skeleton drone cutscene he shoots the skeleton (class 0x34) from range, and the script moves on to chapter3c_scene12_1playcam at frame 2172. Punching from 16, the skeletons' one hit fainted him every 1300 frames |
+| `--scene3c12` | Boots chapter 3c scene 12 (chapter3c_scene12_1playcam, the experiments chamber) and plays it with the scene 7 driver, breaking `aid_ghoulybox_single_warlock` first (powerup kind 0) and not fighting during "free play". Does not pass, though no untranslated code is reached: the warlock event ("event - minimum damage") and free play run, region 1 (behind a glass partition) plays chapter3c_scene12_hkeepertakegun, and region 2 starts an untitled kill-8 event with the exit webbed over; Cooper faints with one kill left (RIP 1 and 4 energy at frame 7800, 0 at 7935), and the second attempt faints too |
+| `--scene3c13` | Boots chapter 3c scene 13's book (chapter3c_scene13_2book; the scene order has no chapter3c_scene13_1playcam) and plays it with the scene 7 driver. Passes: four pages with the professor ("C'mon, take it then!", "What the..?!") and the script moves on to chapter3c_scene13_3playcam at frame 2815 |
+| `--scene3c13b` | Boots chapter 3c scene 13 (chapter3c_scene13_3playcam, the laboratory) and plays it with the scene 7 driver, taking the one-hit-kill soup first (`aid_ghoulybox_powerups_supersoups_onehitkill`, powerup kind 8). Does not pass. Cooper has 30 energy; the event spares the skeletons (step type 7, node 0x21), finds the key behind a background part (step type 1) and then wants the key carrier among the bursting Jessie Clydes (step type 0xF); a Jessie (with 84 energy on the HUD) takes 20 a hit, and Cooper faints before the carrier falls |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -463,6 +467,56 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-29: chapter 3c scene 13: the event steps 6, 7, 9 and 10
+
+- The scene order goes from chapter3c_scene12_1playcam to chapter3c_scene13_2book, then chapter3c_scene13_3playcam:
+  `--scene3c13` boots the book (four pages, passes at frame 2815) and `--scene3c13b` the laboratory.
+- Script nodes 0x20 to 0x23 (in `script_handle_scene_actions`, 0x00126140) were placeholders that built nothing. They
+  now queue their steps as the dump does, each with XMM0 = 1.5 (0x0032B210) at +4: 0x20 step type 6 (0x00125E00) with
+  the word at node+8 at +0x18; 0x21 step type 7 (0x00125E40) with the tag of the name at node+8 at +0x18 and -1 at
+  +0x1C; 0x22 step type 10 (0x00125F00) with -1 at +0x18; 0x23 step type 9 (0x00125EC0).
+- Their runners (table 0x003039CC) are translated in `script_event_sequence.cpp`: type 6 (0x000CFFD0) is done at
+  once; type 7 (0x000CFF60) keeps the player's kills of its tag (DAT_005138D0 + DAT_00512F48 by tag) on its first run
+  and fails once they grow; type 9 (0x000D0090) fails once the player has taken a kind-4 hit (DAT_00522160 +
+  DAT_005217D8, the kind-4 tallies with tag 0xE and tag 4 as the second actor) while the steps do not wait
+  (DAT_0050653C); type 10 (0x000D00C0) is the same for kind-3 hits counted from the total it keeps at +0x18.
+- Scene 3c12's kill-8 section queues node 0x23, so its event now also fails on a hit.
+- Powerup kind 8 (InstantDeath by the alphabetical powerupId_ order) is what the onehitkill soup box drops.
+- `--scene3c13b` does not pass. "event" here: spare the skeletons (type 7), the key from a background part (type 1,
+  out at about frame 910), then the key carrier (type 0xF) among the Jessie Clydes from
+  `aid_ghoulybox_triples_jessies`. A Jessie shows 84 energy on the HUD and takes 20 of Cooper's 30 a hit. With the
+  one-hit-kill soup taken first (frame 2852) a Jessie still lands the first hit, and Cooper spends the soup walking to
+  far soups (he stands on a free invulnerability soup, kind 0xA, without collecting it).
+- Checked in the captures: the book's pages (page 2 and 4), and the laboratory HUD with the crossed-out skull, the key
+  carrier icon and 84 beside a Jessie Clyde (2400).
+
+### 2026-10-29: chapter 3c scene 12: one kill short
+
+- `--scene3c12` (chapter3c_scene12_1playcam, the experiments chamber) reaches no untranslated code but does not pass.
+  The first unnamed section waits for objTag_Actor_Warlock (as in scene 3c7), so the mode breaks
+  `aid_ghoulybox_single_warlock` first. "event - minimum damage" (the warlock) and free play follow; region 1, behind
+  a glass partition the walk takes some time to get round, plays chapter3c_scene12_hkeepertakegun (the housekeeper
+  takes the popcan gun back); region 2 starts an untitled kill-8 event (node 0x5F's count, 8 to 8, with
+  `aid_ghoulyspawn_ghoulies_chapter3_expchambermix`) with the exit door webbed over.
+- Fighting through free play sent Cooper away from region 2 after the ghoulies; fighting only in the warlock event
+  left the kill-8 event unfought. With "free play" as the calm title he fights the event but faints with one kill
+  left (RIP 1, 4 energy at frame 7800). The big hits (7 and 5) come from several classes (0x3B, which explodes, 0x3C,
+  0x1F, 0x20, 0x24). The room also has an EventComplete soup box (powerup kind 5) at (-1, 4.4, 163) and an
+  energyboost5 box at (-35, 12, 79), which the driver's one powerup errand (spent on the warlock box) cannot reach.
+- Checked in the captures: Cooper behind the housekeeper's glass partition (4200), the webbed exit door with RIP 8
+  (18000), and RIP 1 with 4 energy in the chamber (7800).
+
+### 2026-10-29: chapter 3c scene 11: the popcan gun
+
+- `--scene3c11` (chapter3c_scene11_1playcam, the Grand Hallway) passes with no new translation. Cooper comes in with 1
+  energy and the popcan gun (script node 0x31); the hallway skeletons (class 0x34) faint him with one hit once he walks
+  into punching range.
+- Driver change: `weapon_reach` (default 16) is how near a ghouly counts as in reach while Cooper holds a weapon
+  (body +0x48); the mode uses 60, so he shoots before the skeleton gets to him. The script moves on to
+  chapter3c_scene12_1playcam at frame 2172 with no faint.
+- Checked in the captures: the shot skeleton's bones across the landing, Cooper with the gun on 1 energy (1500), and
+  Cooper at the archway exit (2100).
 
 ### 2026-10-29: chapter 3c scene 10: the attic's clutter
 

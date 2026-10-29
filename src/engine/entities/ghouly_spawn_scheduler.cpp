@@ -4,10 +4,25 @@
 
 #include <bit>
 #include <cstring>
+#include <string>
 #include <xmmintrin.h>
 
 namespace gbtg
 {
+namespace
+{
+// The record's DAT_00512B74 controller object, whose vtable +0xC takes the request.
+GhoulyController& controller_of(GhoulySpawnRecord& record, const char* name)
+{
+    auto* controller = static_cast<GhoulyController*>(record.controller_24);
+    if (controller == nullptr || controller->message == nullptr)
+    {
+        throw Error(std::string("ghouly spawn \"") + name + "\" goes to a controller whose vtable +0xC is not bound");
+    }
+    return *controller;
+}
+}
+
 // Xbox 0x000F3E90
 i32 request_spawn_actor(GhoulySpawnRecord& record, const GhoulySpawnDefinition& definition,
     i32 force, GhoulySpawnContext& context)
@@ -32,7 +47,7 @@ i32 request_spawn_actor(GhoulySpawnRecord& record, const GhoulySpawnDefinition& 
     message.result = 0;
     if (force != 0 || spawn_resource_under_class_limit(context.resources, context.class_limits, message.name))
     {
-        auto& controller = *static_cast<GhoulyController*>(record.controller_24);
+        auto& controller = controller_of(record, definition.name);
         controller.message(controller, &message);
     }
     return message.result;
@@ -44,7 +59,7 @@ i32 request_spawn_variant(GhoulySpawnRecord& record, const GhoulySpawnDefinition
     GhoulyVariantMessage message;
     std::strcpy(message.name, definition.variant);
     message.result = 0;
-    auto& controller = *static_cast<GhoulyController*>(record.controller_24);
+    auto& controller = controller_of(record, definition.name);
     controller.message(controller, &message);
     return message.result;
 }
@@ -56,7 +71,7 @@ i32 request_spawn_alternate(GhoulySpawnRecord& record, const GhoulySpawnDefiniti
     message.id = 0xAA;
     std::strcpy(message.name, definition.alternate);
     message.result = 0;
-    auto& controller = *static_cast<GhoulyController*>(record.controller_24);
+    auto& controller = controller_of(record, definition.name);
     controller.message(controller, &message);
     return message.result;
 }

@@ -1953,6 +1953,10 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     };
     players->bindings.scene.audio_banks = &audio.streams;
     players->bindings.scene.blob_shadows = &blob_shadows;
+    players->bindings.scene.controller_message = [this](GhoulyController& controller, void* data)
+    {
+        player_controller_message(controller, data);
+    };
     players->bindings.scene.attach_actor_messages = [this](FactoryObject& object, NativePlayerInstance& player)
     {
         attach_player_messages(object, player);

@@ -2801,6 +2801,14 @@ NativePlayerInstance& NativePlayerFactoryOwner::construct_player(FactoryObject& 
     auto& actor_instance = bindings.actors.view(object);
     auto instance = std::make_unique<NativePlayerInstance>(bindings.scene, actor_instance, object);
     auto* result = instance.get();
+    result->controller.message = [](GhoulyController& controller, void* message)
+    {
+        if (!active_owner->bindings.scene.controller_message)
+        {
+            throw Error("a player's ghouly spawn controller (actor vtable +0xC) is not bound");
+        }
+        active_owner->bindings.scene.controller_message(controller, message);
+    };
     addresses_[result->actor_address] = result;
     players_[object.bytes.get()] = std::move(instance);
     return *result;

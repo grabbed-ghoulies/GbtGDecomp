@@ -221,6 +221,9 @@ struct NativePlayerSceneBindings
     // Attaches the player's message slot (0x00028F60) when it is messaged while still being constructed (its weapon's
     // 0x0001B2B0 notifies it), before the scene first routes a message to it.
     std::function<void(FactoryObject&, NativePlayerInstance&)> attach_actor_messages{};
+    // A player's DAT_00512B74 spawn controller (its actor vtable +0xC): bound from the player's construction, since
+    // its ghoulybox (0x00028640) can request a spawn before anything messages the actor.
+    std::function<void(GhoulyController&, void*)> controller_message{};
     // Jessie Clyde strategy (type 0x4A, vtable 0x00505F14): DAT_003031B8, and 0x0013B270's scare at a point.
     std::span<const u8> jessie_clyde_parameters{};
     std::function<void(const Vec3&, u32, float, float, i32, u32)> scare_at{};

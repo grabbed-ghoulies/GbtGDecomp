@@ -310,6 +310,8 @@ All take the game directory, e.g.
 | `--scene4_1c` | Boots chapter4_scene1_2book and turns its four pages. Passes: the script moves on to chapter5_scene1_1playcam at frame 2183 |
 | `--scene5_1` | Boots chapter5_scene1_1playcam (the Grand Hallway, the countdown's start) and plays it with the scene 7 driver. Passes: chapter 5's title, "PLAYER ENTERS", free play with the 13-minute countdown on the scoreboard, Mr Ribs' page, and the script moves on to chapter5_scene2_1playcam |
 | `--scene5_2` | Boots chapter5_scene2_1playcam (the bathroom) and plays it with the scene 7 driver. Passes: the dronein cutscene, Mr Ribs' first prisoner page, the Hunchback's event, and the script moves on to chapter5_scene3_1playcam at frame 10734 |
+| `--scene5_3` | Boots chapter5_scene3_1playcam (the conservatory) and plays it with the scene 7 driver. Passes: the prisoner cutscene and Mr Ribs' page, the worm and spider waves, the fiddler box, the groundskeeper's water pistol page, and the script moves on to chapter5_scene4_1playcam at frame 16691 |
+| `--scene5_4` | Boots chapter5_scene4_1playcam (Dunfiddlin Cottage) and plays it with the scene 7 driver. Passes: Mr Ribs' page, the haunted TV's event, the prisoner cutscene, and the script moves on to chapter5_scene5_1playcam at frame 12808 (Cooper ends on 5 of 50 energy) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -476,6 +478,24 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-29: chapter 5 scene 4: a player's spawn controller
+
+- chapter5_scene4_1playcam crashed at frame 360 calling address zero: 0x000F3E90 (`request_spawn_actor`) sent an
+  imp's spawn request to the record's DAT_00512B74 controller, a player's (0x00028640 attaches the player's
+  ghoulybox record to it), whose message (actor vtable +0xC) was only bound once something first messaged the
+  actor. The player factory now binds each player's controller as it constructs the player, through the scene's
+  `controller_message` hook (0x00028640 can request a spawn before the actor is ever messaged).
+- 0x000F3E90, 0x000F3FC0 and 0x000F4030 now raise, naming the spawn, if a record's controller has no message.
+- `--scene5_4` then passes.
+- Checked in the captures: Cooper in Dunfiddlin Cottage with the water pistol (600), and the haunted TV's event icon
+  with an imp on Cooper's head (6000).
+
+### 2026-10-29: chapter 5 scene 3: the conservatory
+
+- `--scene5_3` passes on the existing native path; nothing new is reached. Cooper ends at 29 of 50 energy.
+- Checked in the captures: a worm grabbing Cooper among the spiders (6000) and the groundskeeper with the water
+  pistol at the exit (16500).
 
 ### 2026-10-29: chapter 5 scene 2: the exit at the start
 

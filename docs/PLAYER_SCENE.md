@@ -296,6 +296,7 @@ All take the game directory, e.g.
 | `--scene3c7` | Boots chapter 3c scene 7 (chapter3c_scene7_1playcam, the laundry) and plays it with the scene 7 driver, breaking `aid_ghoulybox_single_warlock` first (powerup kind 0). Passes with no new translation: the unnamed section waits until no objTag_Actor_Warlock exists (condition opcode 16, then node type 0x11); "exit door revealed" follows at frame 31736 and the script moves on to chapter3c_scene8_1playcam at frame 32348. Most of the run is the warlock fight (class 0x3A, no faints). Without the box the driver walks to the shut exit and holds |
 | `--scene3c8` | Boots chapter 3c scene 8 (chapter3c_scene8_1playcam, the servants' dormitory) and plays it with the scene 7 driver. Does not pass. "event - no weapons/don't get hit" queues no event step: it breaks `aid_ghoulybox_ghoulies_chapter3c_haunteddoordormitory`, sends the Jessie Clydes (class 0x1E) actorStrategyId_ForceAngry (script node 0x58, now translated), and waits for the haunted door (class 0x12, at -510, 20.7, 338) to wake (condition opcode 7, event 0xB4 tagged 0x12), which it does with a target within 60 (state 0x413). The driver now walks to the ghouly a pending opcode-7 wait names, fighting off others within 10, but the angry Jessie Clydes stop Cooper at about (300, -50) and he lands back near (200, -270); he faints and the event restarts about every 3500 frames |
 | `--scene3c9` | Boots chapter 3c scene 9 (chapter3c_scene9_1playcam, the servants' bathroom) and plays it with the scene 7 driver, keeping away from the Grim Reaper (class 0xF) without fighting during "event - one type(random)/time limit". Does not pass. The event runs a 20 s step (type 4), after which the Reaper hunts Cooper, and an 80 s step (type 5) until "exit door opens, cursed mummy activated"; the idea is to kite the Reaper until the door opens and then escape. The driver's kiting lasts some 2400 to 5000 frames of the 4800 needed (once about 100 short), and the event restarts after each faint |
+| `--scene3c10` | Boots chapter 3c scene 10 (chapter3c_scene10_1playcam, the attic furniture store) and plays it with the scene 7 driver, without fighting, after breaking the `aid_ghoulybox_powerups_supersoups_energyboost1` crate that blocks the way at (64.5, 108.7) (powerup kind 0: the errand ends at the first broken box). Does not pass: Cooper starts with 5 energy under the Grim Reaper's clock (some 75 s), and the walk to region 1, the exit volume at (-652, -282), shuttles between chests the grid takes for open floor near (-35, 20) and (50, 85) until the clock takes him (5 -> 0 at frame 5004) |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -462,6 +463,23 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-29: chapter 3c scene 10: the attic's clutter
+
+- `--scene3c10` (chapter3c_scene10_1playcam) reaches no untranslated code but does not pass. Free play waits for region 1
+  (condition opcode 8), the exit volume at (-652, -282); on the way, the volume at (64, 192) plays
+  chapter3c_scene11_hkeepergivegun, the housekeeper handing back the popcan gun (node 0x31). Cooper has 5 energy and
+  the Grim Reaper's clock (0:17 left at frame 3000) takes them all at about frame 5000.
+- Driver changes: a powerup-kind-0 errand ends once the first box of its name breaks, and a soup errand once its
+  soup has come out, instead of visiting every box of that name (the attic has three energyboost1 crates). The
+  crate at (64.5, 108.7) blocks the gap the grid routes through, so the mode breaks it first.
+- Past it, the walk shuttles between chests and crates that the grid takes for open floor, near (-35, 20) and
+  (50, 85): each held cell is avoided, the walk reroutes through the other, and the avoided cells are forgotten when no
+  path is left.
+- One run held a dialogue page (the housekeeper's first) with the screen black from frame 883 to the end; the next run
+  of the same build paged through it, so that hang is intermittent and not yet explained.
+- Checked in the captures: the housekeeper's "give yer this thing back" page (page 1), and Cooper against the chests
+  with the Reaper's 0:17 (3000).
 
 ### 2026-10-29: chapter 3c scene 9: kiting the Grim Reaper
 

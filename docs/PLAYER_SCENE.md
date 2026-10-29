@@ -295,6 +295,7 @@ All take the game directory, e.g.
 | `--scene3c6` | Boots chapter 3c scene 6 (chapter3c_scene6_1playcam, the kitchen) and plays it with the scene 7 driver: an energy boost soup first (powerup kind 3), then the exit without fighting (fight range 0). Passes: the script moves on to chapter3c_scene7_1playcam at frame 4812. Free play spawns `aid_ghoulyspawn_ghoulies_chapter3_kitchenfireimps` once Cooper enters region 1 and waits on nothing else, so fighting the imps only costs energy (10 to 12 faints in 35700 frames). The crash it hit came from `0x0001A2D0`'s fireball scale (see the 2026-10-28 checkpoint) |
 | `--scene3c7` | Boots chapter 3c scene 7 (chapter3c_scene7_1playcam, the laundry) and plays it with the scene 7 driver, breaking `aid_ghoulybox_single_warlock` first (powerup kind 0). Passes with no new translation: the unnamed section waits until no objTag_Actor_Warlock exists (condition opcode 16, then node type 0x11); "exit door revealed" follows at frame 31736 and the script moves on to chapter3c_scene8_1playcam at frame 32348. Most of the run is the warlock fight (class 0x3A, no faints). Without the box the driver walks to the shut exit and holds |
 | `--scene3c8` | Boots chapter 3c scene 8 (chapter3c_scene8_1playcam, the servants' dormitory) and plays it with the scene 7 driver. Does not pass. "event - no weapons/don't get hit" queues no event step: it breaks `aid_ghoulybox_ghoulies_chapter3c_haunteddoordormitory`, sends the Jessie Clydes (class 0x1E) actorStrategyId_ForceAngry (script node 0x58, now translated), and waits for the haunted door (class 0x12, at -510, 20.7, 338) to wake (condition opcode 7, event 0xB4 tagged 0x12), which it does with a target within 60 (state 0x413). The driver now walks to the ghouly a pending opcode-7 wait names, fighting off others within 10, but the angry Jessie Clydes stop Cooper at about (300, -50) and he lands back near (200, -270); he faints and the event restarts about every 3500 frames |
+| `--scene3c9` | Boots chapter 3c scene 9 (chapter3c_scene9_1playcam, the servants' bathroom) and plays it with the scene 7 driver, keeping away from the Grim Reaper (class 0xF) without fighting during "event - one type(random)/time limit". Does not pass. The event runs a 20 s step (type 4), after which the Reaper hunts Cooper, and an 80 s step (type 5) until "exit door opens, cursed mummy activated"; the idea is to kite the Reaper until the door opens and then escape. The driver's kiting lasts some 2400 to 5000 frames of the 4800 needed (once about 100 short), and the event restarts after each faint |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -461,6 +462,25 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-29: chapter 3c scene 9: kiting the Grim Reaper
+
+- `--scene3c9` (chapter3c_scene9_1playcam) reaches no untranslated code but does not pass. "event - one type(random)/
+  time limit" queues a 20 s step (type 4) and an 80 s step (type 5): when the first runs out the Grim Reaper (tag and
+  class 0xF) hunts Cooper, and when the second does the exit opens ("exit door opens, cursed mummy activated", then
+  `aid_ghoulybox_ghoulies_chapter3c_cursedmummybook` and free play). The Reaper's touch drains 2 at a time or takes
+  all 15 at once, and a faint restarts the event.
+- Powerup kinds follow the alphabetical powerupId_ names with Null 0 (EnergyBoost 3, EventComplete 5, Invisibility 9,
+  MiniCooper 0xC all agree). The bathroom has EnergyBoost (3), KnockDownMania (0xB), PlayerSlowDown (0xE),
+  PlayerSpeedUp (0xF) and DizzyReaper (2, on a ledge at -289, 38, -154).
+- Driver changes: `flee_class` (with the calm title) sends Cooper every half second to the walkable spot 80 out, of
+  eight around him, farthest from the nearest ghouly of that class, skipping for two seconds a direction he gained
+  under 10 in; a chase of one class gives up on a ghouly after ten seconds instead of a minute; a landed powerup more
+  than 30 away is approached through the nearest open cell. The kite lasts some 2400 to 5000 frames of the 4800
+  needed (one attempt fainted about 100 frames short). Taking the speed-up soup first failed: from the start Cooper
+  pushes on the laundry cart at z 84.7 and never reaches it. Sixteen directions at 60 and 120 did worse.
+- Checked in the captures: the HUD's two clocks, 0:06 and 1:06, with the laundry cart ahead of Cooper (1500), and the
+  Grim Reaper on Cooper at the bathroom's corner door (5400).
 
 ### 2026-10-28: chapter 3c scene 8: the dormitory's haunted door
 

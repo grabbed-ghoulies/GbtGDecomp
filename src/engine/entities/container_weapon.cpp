@@ -1,4 +1,5 @@
 #include "container_weapon.h"
+#include "powerup_flags.h"
 #include "weapon_actor_detail.h"
 #include "actor_live_attachments.h"
 #include "actor_model_anchors.h"
@@ -20,7 +21,6 @@ namespace
 {
 namespace field = container_weapon_field;
 namespace parameter = container_weapon_parameter;
-constexpr u32 kScriptHold = 0; // DAT_00512278, BSS that no retail code writes.
 
 // 0x00145FD0, EAX actor: the holder whose link actor +0x918 names, while that link is set.
 Actor* holder_of(const RuntimeWeaponActor& weapon)
@@ -146,7 +146,7 @@ void dispatch_runtime_container_weapon_message(RuntimeWeaponActor& weapon, std::
         }
         std::strcpy(output, field_data(bytes, field::contents));
         const Actor* holder = holder_of(weapon); // 0x00145FD0
-        if (holder != nullptr && runtime_actor_is_player(*holder) && kScriptHold != 0) // 0x00028D00, DAT_00512278
+        if (holder != nullptr && runtime_actor_is_player(*holder) && runtime_weapon_boost_active() != 0) // 0x00028D00, DAT_00512278
         {
             break;
         }

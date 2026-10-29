@@ -305,6 +305,9 @@ All take the game directory, e.g.
 | `--scene3c15` | Boots chapter 3c scene 15 (chapter3c_scene15_1playcam, the Grand Hallway) and plays it with the scene 7 driver. Passes: "PLAYER ENTERS", the theresthedoor cutscene, then free play, and the script moves on to chapter3c_scene15_2book at frame 1715 |
 | `--scene3c15b` | Boots chapter3c_scene15_2book and turns its three pages. Passes: the script moves on to chapter3c_scene15_3playcam at frame 1902 |
 | `--scene3c15c` | Boots chapter3c_scene15_3playcam (the hallway imps) and plays it with the scene 7 driver. Passes: the round haunted door's event (the impsenter cutscene, the hallway imps box, five imps against the clock) ends, and the script moves on to chapter4_scene1_1book |
+| `--scene4_1` | Boots chapter4_scene1_1book (chapter 4's title and four pages). Passes: the script moves on to chapter4_scene1_1playcam |
+| `--scene4_1b` | Boots chapter4_scene1_1playcam (the Baron's quarters) and plays it with the scene 7 driver, invincible (a driver cheat) and taking dropped weapons. Does not pass: the driver brings the Baron down to the phase-1 threshold with his own cane and the plane through all four landings and its spin, then cannot reach the plane for its last 40 energy within 108000 frames. Played by hand, the scene plays through |
+| `--scene4_1c` | Boots chapter4_scene1_2book and turns its four pages. Passes: the script moves on to chapter5_scene1_1playcam at frame 2183 |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -471,6 +474,46 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-29: chapter 4 scene 1: the Baron
+
+- Chapter 4 is chapter4_scene1_1book, chapter4_scene1_1playcam and chapter4_scene1_2book, then chapter 5.
+  `--scene4_1` and `--scene4_1c` (the books) pass.
+- chapter4_scene1_1playcam stopped at its start: factory type 55 (getter 0x000A7800) was untranslated. The retail
+  type table's name column is one row off (row 0x36 names it), so type 0x37 is entityStrategyBaron, parent 8; the
+  plane, entityStrategyBaronPlane, is type 0x38 (getter 0x000A8C10).
+- `baron_strategy.cpp` translates its vtable 0x00505D00: sizes 0x000A77E0 (0x108 / 0x218), the constructor 0x000A7850
+  over 0x000A73A0 (the effect template at parameters +0x18 and three timelines by energy tier), the destructor
+  0x000A7870 over 0x000A7440, update 0x000A7880, messages 0x000A7D30, enter 0x000A80B0 and leave 0x000A8590, with
+  the helpers 0x000A7470 (the effect's timeline), 0x000A75B0 / 0x000A76C0 (the effect off / on, the inlined
+  0x0003DF40, 0x0001FC40 and 0x0001FD20), 0x000A8700, 0x000A8750 / 0x000A87E0, 0x000A8870 / 0x000A88A0 (the tiers:
+  body +0x94 above 180, 161 to 180, or less) and 0x00134430 (a target within a radius and angle of the facing). The
+  pirate's 0x000BEB80 is shared as `runtime_strategy_weapon_free` over strategy +0x38. The update, messages, enter and
+  leave switches were exported again with their jump-table targets as seeds.
+- `baron_plane_strategy.cpp` translates the plane, vtable 0x00505D1C: sizes 0x000A8BF0 (0x204 / 0x198), the
+  constructor 0x000A8C60 (the effect, the engine loop and the cutscene names; four landings at +0x4C), update
+  0x000A8CD0, messages 0x000A91A0, enter 0x000A9430 and leave 0x000A9980, and the helpers 0x000A88C0 / 0x000A8960 /
+  0x000A89C0 / 0x000A8AD0 (the effect and its modes, mode 2 by body bit 0x35), 0x000A9AA0 (the energy rows at
+  0x00302AA0 with other ghoulies out, 0x00302AF0 alone), 0x000A9B20, 0x000A9B50 / 0x000A9BA0 (body bits 36, 53, 31),
+  0x000A9BE0 / 0x000A9C90 (flight: contact shapes 0x13 and attack row 4), 0x000A9CF0 (the engine loop on sound slot
+  4), 0x000A9D40 (the walk to the nearest kind-0x1B marker, with 0x0011F260), 0x000A9DB0 (the inlined 0x0004EF20 and
+  0x0004EF80 on the playing cutscene), 0x000A9EA0 and 0x000A9F90. The scene binds the markers (DAT_0051108C) for it.
+- The fight, as the driver plays it: phase 1 ends on condition 24 (GhoulyHasEnergyLEQ, the Baron at 140). Only his
+  cane hurts him: knocked down (0x409) he drops it, Cooper takes it with A (0x0007D210's button 0x100 edge) and the
+  Baron, worried (0x411), loses about 15 a hit. Phase 2 waits on condition 10 (SpecificGhouliesKilled, the plane):
+  each knock-down with message 0x6E +0xC set lands the plane (0x404, the scene paused, {0xB9, tag} to the script,
+  20 energy off) and a wave of burst-picture ghoulies follows; after the fourth, at 60, it spins (0x414).
+- Driver additions (`invincible`, `take_dropped`): Cooper's energy is put back to his most each frame (a cheat, not
+  game behaviour), an empty-handed Cooper taps A beside a weapon a ghouly dropped (strategy +0x38 not in its body
+  +0x48), a weapon he took is swung from 16, and invincible runs get 108000 frames. The driver then fails only on
+  the plane's last 40 energy: knocked back onto the raised floor, it never reaches the plane again.
+- The "Super Weapons" soup did nothing: every reader of DAT_00512278 (the bob, candle, container, gun, projectile
+  and chair weapons and three scoreboard meters) took it for BSS no code writes and used 0. It is the powerup
+  table's kind 0xD row (0x00512140 + 0xD * 0x18) +0 active, which 0x00123E70 writes through its indexed row store.
+  `powerup_flags.cpp` binds it to the scene's powerup rows, as DAT_00512218 (invisibility) already was.
+- Checked in the captures: the red, cane-swinging Baron (1500), the plane diving at Cooper with the wave icons on
+  the HUD (15300), a burst-picture skeleton (16200) and the Baron's spin (26100). The superweapon fix is not checked
+  on screen: the driver's soup errand took a reverse-controls soup instead.
 
 ### 2026-10-29: chapter 3c scene 15: the end of chapter 3c
 

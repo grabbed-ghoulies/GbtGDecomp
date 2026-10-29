@@ -121,20 +121,26 @@ bool runtime_pirate_holds_sword(RuntimePirateStrategy& context)
 }
 
 // Xbox 0x000BEB80
-bool runtime_pirate_chest_free(RuntimePirateStrategy& context)
+bool runtime_strategy_weapon_free(std::span<const u8> strategy, RuntimeStrategyActorViews& views)
 {
-    const u32 chest = get(strategy_of(context), field::chest);
+    const u32 chest = read_u32(strategy, 0x38);
     if (chest == 0)
     {
         return false;
     }
-    const Actor& held = *context.views.actor_at(chest);
-    const std::span<const u8> bytes = context.views.actor_bytes_at(chest);
+    const Actor& held = *views.actor_at(chest);
+    const std::span<const u8> bytes = views.actor_bytes_at(chest);
     // Chest +0x918's first dword is the parent node: none, the root's (its own first dword null), or a node of no
     // actor (the node minus 0x918 is null).
     const auto* parent = held.link == nullptr ? nullptr : static_cast<const ActorLink*>(held.link->head);
     return (parent == nullptr || parent->head == nullptr || held.link->owner == nullptr) && bytes[0x93C] != 0
         && read_u32(bytes, 0xAD0) == 0 && read_u32(bytes, 0xAC4) != 0;
+}
+
+// 0x000BEB80 over the pirate's chest (+0x38).
+bool runtime_pirate_chest_free(RuntimePirateStrategy& context)
+{
+    return runtime_strategy_weapon_free(strategy_of(context), context.views);
 }
 
 // Xbox 0x000BEBD0

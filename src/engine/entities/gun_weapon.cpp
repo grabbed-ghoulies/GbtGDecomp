@@ -1,4 +1,5 @@
 #include "gun_weapon.h"
+#include "powerup_flags.h"
 #include "weapon_actor_detail.h"
 #include "actor_live_attachments.h"
 #include "actor_model_anchors.h"
@@ -24,7 +25,6 @@ namespace
 {
 namespace field = gun_weapon_field;
 namespace parameter = gun_weapon_parameter;
-constexpr u32 kScriptHold = 0; // DAT_00512278, BSS that no retail code writes.
 
 // The two locator records (+0xEEC muzzle, +0xEF0 aim) of each gun, by the weapon's bytes.
 struct GunLocators
@@ -391,7 +391,7 @@ void late_update_runtime_gun_weapon_state(RuntimeWeaponActor& weapon, u16 state)
     {
         throw Error("0x000CAF10 reads +0xCDC of a held gun's holder through address zero");
     }
-    if ((holder->mask_mode == 2 || holder->mask_flag != 0) && kScriptHold != 0) // DAT_00512278
+    if ((holder->mask_mode == 2 || holder->mask_flag != 0) && runtime_weapon_boost_active() != 0) // DAT_00512278
     {
         set(bytes, field::charge, 1.f); // DAT_0032B0F8.
     }

@@ -1,4 +1,5 @@
 #include "bob_weapon.h"
+#include "powerup_flags.h"
 #include "weapon_actor_detail.h"
 #include "actor_model_anchors.h"
 #include "actor_transform.h"
@@ -19,7 +20,6 @@ using namespace weapon_detail;
 namespace
 {
 namespace field = bob_weapon_field;
-constexpr u32 kBobScriptHold = 0; // DAT_00512278, BSS that no retail code writes.
 namespace parameter = bob_weapon_parameter;
 
 // The inline strcpy of a parameter name into the instance.
@@ -221,7 +221,7 @@ void release_runtime_bob_weapon_holder(RuntimeWeaponActor& weapon)
         set_runtime_weapon_mask(weapon, 0); // The inlined 0x00146230: +0x93C cleared, the +0xD88 voice stopped.
         return;
     }
-    if (kBobScriptHold != 0) // DAT_00512278.
+    if (runtime_weapon_boost_active() != 0) // DAT_00512278.
     {
         set(bytes, field::unk_FE4, 1);
     }

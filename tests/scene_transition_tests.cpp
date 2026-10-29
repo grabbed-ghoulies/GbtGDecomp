@@ -9421,7 +9421,8 @@ void play_scene6_1_run(gbtg::Game& game, const std::string& label)
 // `doors_first` walks to a door a live PlayerApproachesDoor names before any region.
 void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_range, const std::string& range_title,
     bool doors_first, bool answer_challenges, const std::string& calm_title, const std::string& powerup_box,
-    gbtg::u32 powerup_kind, bool spare_watched, gbtg::u16 flee_class, float weapon_reach)
+    gbtg::u32 powerup_kind, bool spare_watched, gbtg::u16 flee_class, float weapon_reach, bool invincible,
+    bool take_dropped)
 {
     // With `powerup_box`, Cooper first goes to the bg-break setup (type 0x24) whose ghoulybox (+0x934) names it and
     // punches until its background part (+0xA50) breaks, then walks onto the powerup (type 0xD) of `powerup_kind`
@@ -9466,6 +9467,8 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
     int side_steps = 0;
     gbtg::u32 last_challenge = 0xFFFFFFFFu;
     gbtg::u16 last_energy = 0; // Cooper's body +0x94, logged as it changes.
+    gbtg::u16 invincible_energy = 0; // The most energy Cooper has had, kept with `invincible`.
+    gbtg::u32 taken_weapon = 0; // The last dropped weapon Cooper went for with `take_dropped`.
     bool kill_all = false; // Several kill-all steps were queued at once (see below).
     bool one_type_chase = false; // This frame's target class comes from a step or a condition (see below).
     std::optional<gbtg::Vec3> flee_goal; // With `flee_class`, the spot Cooper runs for (see below).
@@ -9475,8 +9478,10 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
     std::array<int, 8> flee_blocked{}; // The frame each direction may be tried again.
     // Scene 9's walk to the mummy's room takes some 7200 frames on its own; scene 2a13's pirate waves, with Cooper's
     // walks to the soups between them, up to some 17500. Scene 2c7 runs twice when the cursed mummy's slab whacks
-    // make Cooper faint (about 22000 frames to its last event, which takes some 5500 more).
-    for (int frame = 0; frame < 36000 && moved_on < 0; ++frame)
+    // make Cooper faint (about 22000 frames to its last event, which takes some 5500 more). An invincible run (scene
+    // 4_1b's Baron, his cane and then his plane's four waves) gets three times as long.
+    const int frame_limit = invincible ? 108000 : 36000;
+    for (int frame = 0; frame < frame_limit && moved_on < 0; ++frame)
     {
         gbtg::InputState input;
         const bool page = game.script_dialogue != nullptr && game.script_dialogue->dialogue.state.mode != 0;
@@ -9484,6 +9489,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
         input.accept = page && page_shown >= 0 && frame > page_shown + 60 && frame % 30 < 5;
         std::optional<gbtg::Vec3> cooper;
         bool holding = false;
+        gbtg::u32 held_weapon = 0;
         gbtg::u16 energy = 0;
         for (const auto& mark : actors.marked_actors())
         {
@@ -9491,7 +9497,19 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
             {
                 cooper = gbtg::actor_world_position(*mark.actor);
                 holding = !mark.body.empty() && gbtg::read_u32(mark.body, 0x48) != 0; // Body +0x48, the held weapon.
+                held_weapon = mark.body.empty() ? 0u : gbtg::read_u32(mark.body, 0x48);
                 energy = mark.body.empty() ? 0 : gbtg::read_u16(mark.body, 0x94); // Body +0x94.
+                // A driver cheat, not game behaviour: with `invincible`, Cooper's energy goes back to the most he has
+                // had each frame, so a fight the driver cannot win safely still reaches its later phases.
+                if (invincible && !mark.body.empty())
+                {
+                    invincible_energy = std::max(invincible_energy, energy);
+                    if (energy != 0 && energy < invincible_energy)
+                    {
+                        std::memcpy(const_cast<gbtg::u8*>(mark.body.data()) + 0x94, &invincible_energy, 2);
+                        energy = invincible_energy;
+                    }
+                }
             }
         }
         if (cooper && energy != last_energy)
@@ -9701,6 +9719,37 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                     ghouly_class = mark.actor->class_key;
                     ghouly_actor = mark.actor;
                     ghouly_energy = gbtg::read_u16(mark.body, 0x94);
+                }
+            }
+        }
+        // With `take_dropped`, empty-handed Cooper goes for a weapon a ghouly has dropped (its strategy +0x38, no
+        // longer in its body +0x48) and taps A beside it to pick it up (0x0007D210's button 0x100 edge): scene 4_1b's
+        // Baron drops his cane when knocked down, and only the cane hurts him.
+        bool taking_weapon = false;
+        if (take_dropped && cooper && !holding && !page)
+        {
+            const auto marks = actors.marked_actors();
+            for (const auto& mark : marks)
+            {
+                if (mark.actor == nullptr || mark.actor->class_key == 4 || mark.strategy.size() < 0x3C
+                    || mark.body.size() < 0x4C)
+                {
+                    continue;
+                }
+                const gbtg::u32 dropped = gbtg::read_u32(mark.strategy, 0x38);
+                if (dropped == 0 || gbtg::read_u32(mark.body, 0x48) == dropped)
+                {
+                    continue;
+                }
+                const auto& addresses = game.factory_scene->start_actors(game).actor_addresses();
+                if (const auto weapon = addresses.find(dropped); weapon != addresses.end() && weapon->second != nullptr)
+                {
+                    ghouly = gbtg::actor_world_position(*weapon->second);
+                    ghouly_class = weapon->second->class_key;
+                    ghouly_actor = weapon->second;
+                    ghouly_energy = 0;
+                    taking_weapon = true;
+                    taken_weapon = dropped;
                 }
             }
         }
@@ -9951,7 +10000,9 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
         // A ghouly within 16 is attacked with the right stick; a farther one is walked to like a goal, so the walk's
         // held-cell avoidance applies to it too. Holding a weapon, `weapon_reach` replaces the 16: scene 3c11's popcan
         // gun, with Cooper on one energy among the hallway's skeletons.
-        const float reach = holding ? weapon_reach : 16.f;
+        // A weapon Cooper took from a ghouly (scene 4_1b's cane) is swung from close by; the reach is for weapons the
+        // scene hands him (4_1b's popcan gun against the plane).
+        const float reach = holding && held_weapon != taken_weapon ? weapon_reach : 16.f;
         const bool close = ghouly
             && (ghouly->x - cooper->x) * (ghouly->x - cooper->x) + (ghouly->z - cooper->z) * (ghouly->z - cooper->z)
                 < reach * reach;
@@ -10105,7 +10156,14 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
             // Bare-handed, the right stick is tapped for punches; a held weapon (the extinguisher's spray) is aimed
             // with the stick held.
             const float stick = steering.angle(*cooper, *ghouly);
-            if (holding || (frame / 8) % 2 == 0)
+            if (taking_weapon)
+            {
+                if (frame % 10 < 3)
+                {
+                    input.pads[0].buttons = gbtg::u16(input.pads[0].buttons | 0x100);
+                }
+            }
+            else if (holding || (frame / 8) % 2 == 0)
             {
                 input.pads[0].rx = gbtg::i16(std::sin(stick) * 32767.f);
                 input.pads[0].ry = gbtg::i16(-std::cos(stick) * 32767.f);
@@ -10328,12 +10386,13 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
 void play_scene7(gbtg::Game& game, const std::string& label, float fight_range = 50.f,
     const std::string& range_title = {}, bool doors_first = false, bool answer_challenges = false,
     const std::string& calm_title = {}, const std::string& powerup_box = {}, gbtg::u32 powerup_kind = 0,
-    bool spare_watched = false, gbtg::u16 flee_class = 0, float weapon_reach = 16.f)
+    bool spare_watched = false, gbtg::u16 flee_class = 0, float weapon_reach = 16.f, bool invincible = false,
+    bool take_dropped = false)
 {
     try
     {
         play_scene7_run(game, label, fight_range, range_title, doors_first, answer_challenges, calm_title, powerup_box,
-            powerup_kind, spare_watched, flee_class, weapon_reach);
+            powerup_kind, spare_watched, flee_class, weapon_reach, invincible, take_dropped);
     }
     catch (const std::exception& error)
     {
@@ -11007,12 +11066,18 @@ int main(int argc, char** argv)
     const bool scene3c15b_test = argc == 3 && std::string_view(argv[2]) == "--scene3c15b";
     // --scene3c15c boots chapter3c_scene15_3playcam and plays it until the script moves on.
     const bool scene3c15c_test = argc == 3 && std::string_view(argv[2]) == "--scene3c15c";
+    // --scene4_1 boots chapter4_scene1_1book and plays it until the script moves on.
+    const bool scene4_1_test = argc == 3 && std::string_view(argv[2]) == "--scene4_1";
+    // --scene4_1b boots chapter4_scene1_1playcam and plays it until the script moves on.
+    const bool scene4_1b_test = argc == 3 && std::string_view(argv[2]) == "--scene4_1b";
+    // --scene4_1c boots chapter4_scene1_2book and plays it until the script moves on.
+    const bool scene4_1c_test = argc == 3 && std::string_view(argv[2]) == "--scene4_1c";
     if (spawn_test)
     {
         std::cout << std::unitbuf;
     }
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
-        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene2a14_test && !scene2a15_test && !scene2a16_test && !scene2a17_test && !scene2b1_test && !scene2b2_test && !scene2b3_test && !scene2b4_test && !scene2b4b_test && !scene2b5_test && !scene2b6_test && !scene2b6b_test && !scene2b7_test && !scene2b8_test && !scene2b9_test && !scene2b10_test && !scene2b10b_test && !scene2c1_test && !scene2c2_test && !scene2c3_test && !scene2c4_test && !scene2c4b_test && !scene2c5_test && !scene2c6_test && !scene2c7_test && !scene2c8_test && !scene2c9_test && !scene2c10_test && !scene2c11_test && !scene2c11b_test && !scene2c12_test && !scene2c13_test && !scene2c13b_test && !scene2c13c_test && !scene3a1_test && !scene3a1b_test && !scene3a2_test && !scene3a3_test && !scene3a3b_test && !scene3a3c_test && !scene3a4_test && !scene3a5_test && !scene3a6_test && !scene3a7_test && !scene3a8_test && !scene3a9_test && !scene3a10_test && !scene3a11_test && !scene3a12_test && !scene3b1_test && !scene3b2_test && !scene3b3_test && !scene3b4_test && !scene3b5_test && !scene3b6_test && !scene3b7_test && !scene3c1_test && !scene3c2_test && !scene3c3_test && !scene3c4_test && !scene3c5_test && !scene3c6_test && !scene3c7_test && !scene3c8_test && !scene3c9_test && !scene3c10_test && !scene3c11_test && !scene3c12_test && !scene3c13_test && !scene3c13b_test && !scene3c14_test && !scene3c15_test && !scene3c15b_test && !scene3c15c_test && !scene3_test && !pause_test)
+        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene2a14_test && !scene2a15_test && !scene2a16_test && !scene2a17_test && !scene2b1_test && !scene2b2_test && !scene2b3_test && !scene2b4_test && !scene2b4b_test && !scene2b5_test && !scene2b6_test && !scene2b6b_test && !scene2b7_test && !scene2b8_test && !scene2b9_test && !scene2b10_test && !scene2b10b_test && !scene2c1_test && !scene2c2_test && !scene2c3_test && !scene2c4_test && !scene2c4b_test && !scene2c5_test && !scene2c6_test && !scene2c7_test && !scene2c8_test && !scene2c9_test && !scene2c10_test && !scene2c11_test && !scene2c11b_test && !scene2c12_test && !scene2c13_test && !scene2c13b_test && !scene2c13c_test && !scene3a1_test && !scene3a1b_test && !scene3a2_test && !scene3a3_test && !scene3a3b_test && !scene3a3c_test && !scene3a4_test && !scene3a5_test && !scene3a6_test && !scene3a7_test && !scene3a8_test && !scene3a9_test && !scene3a10_test && !scene3a11_test && !scene3a12_test && !scene3b1_test && !scene3b2_test && !scene3b3_test && !scene3b4_test && !scene3b5_test && !scene3b6_test && !scene3b7_test && !scene3c1_test && !scene3c2_test && !scene3c3_test && !scene3c4_test && !scene3c5_test && !scene3c6_test && !scene3c7_test && !scene3c8_test && !scene3c9_test && !scene3c10_test && !scene3c11_test && !scene3c12_test && !scene3c13_test && !scene3c13b_test && !scene3c14_test && !scene3c15_test && !scene3c15b_test && !scene3c15c_test && !scene4_1_test && !scene4_1b_test && !scene4_1c_test && !scene3_test && !pause_test)
     {
         std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene6-save | --scene6-save-reload | --scene3 | --pause | --scene4 | --scene5 | --scene6-1 | --scene7]\n";
         return 2;
@@ -11211,6 +11276,9 @@ int main(int argc, char** argv)
             : scene3c15_test ? "chapter3c_scene15_1playcam"
             : scene3c15b_test ? "chapter3c_scene15_2book"
             : scene3c15c_test ? "chapter3c_scene15_3playcam"
+            : scene4_1_test ? "chapter4_scene1_1book"
+            : scene4_1b_test ? "chapter4_scene1_1playcam"
+            : scene4_1c_test ? "chapter4_scene1_2book"
             : player_test || spawn_test ? "chapter1_scene1_2playcam"
             : title_test ? "" : "scene0_1book");
         if (scene2a1b_test)
@@ -11219,6 +11287,27 @@ int main(int argc, char** argv)
             play_scene7(game, "scene2a1_2");
             pass_chapter_title(game, "scene2a1_to_3", "aid_script_ghoulies_chapter2a_scene1_3playcam", false);
             play_scene7(game, "scene2a1_3", 1000.f, "Event - Kill All", true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene4_1c_test)
+        {
+            pass_chapter_title(game, "scene4_1c", "aid_script_ghoulies_chapter4_scene1_2book", false);
+            play_scene7(game, "scene4_1c", 1000.f, {}, true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene4_1b_test)
+        {
+            pass_chapter_title(game, "scene4_1b", "aid_script_ghoulies_chapter4_scene1_1playcam", false);
+            play_scene7(game, "scene4_1b", 1000.f, {}, true, true, {}, {}, 0, false, 0, 16.f, true, true);
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (scene4_1_test)
+        {
+            pass_chapter_title(game, "scene4_1", "aid_script_ghoulies_chapter4_scene1_1book", false);
+            play_scene7(game, "scene4_1", 1000.f, {}, true, true);
             gbtg::gfx_shutdown();
             return 0;
         }

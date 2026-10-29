@@ -1,4 +1,5 @@
 #include "scoreboard_update.h"
+#include "../entities/powerup_flags.h"
 #include "../camera/camera.h"
 #include "../entities/bounded_channels.h"
 #include "gbtg/anim.h"
@@ -16,8 +17,6 @@ using scene_detail::g_sim_scale; // DAT_004312C4.
 
 namespace
 {
-// DAT_00512278 is BSS no retail code writes; the meters read it as 0 and approach 0, not 1.0.
-constexpr float kMeterLevelTarget = 0.f;
 
 float frame_step()
 {
@@ -676,7 +675,8 @@ void update_runtime_damage_counter(RuntimeScoreboardUpdate& context)
     {
         return;
     }
-    globals.damage_6e4 = approach_runtime_scalar(globals.damage_6e4, kMeterLevelTarget,
+    const float boosted = runtime_weapon_boost_active() != 0 ? 1.f : 0.f; // DAT_00512278.
+    globals.damage_6e4 = approach_runtime_scalar(globals.damage_6e4, boosted,
         frame_step()); // 0x00101B90
     swell_runtime_hud_counter(globals.damage_counter, context.damage_preset); // 0x0012EF60, ESI DAT_004326A0
 }
@@ -743,8 +743,8 @@ void update_runtime_meter(RuntimeScoreboardUpdate& context)
         return;
     }
     const RuntimeActorClock& clock = context.clock;
-    constexpr u32 kScriptHold = 0; // DAT_00512278, BSS that no retail code writes.
-    globals.meter_bd8 = approach_runtime_scalar(globals.meter_bd8, kScriptHold != 0 ? 1.f : 0.f,
+    const float boosted = runtime_weapon_boost_active() != 0 ? 1.f : 0.f; // DAT_00512278.
+    globals.meter_bd8 = approach_runtime_scalar(globals.meter_bd8, boosted,
         runtime_frame_step(clock)); // 0x00101B90
     if (context.paused == 0)
     {

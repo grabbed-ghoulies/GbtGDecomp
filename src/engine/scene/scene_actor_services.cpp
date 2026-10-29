@@ -1,4 +1,5 @@
 #include "../entities/mind_target_policy.h"
+#include "../entities/powerup_flags.h"
 #include "scene_actor_services.h"
 #include "../entities/ghouly_spawn_trigger.h"
 #include "../entities/body_death_effects.h"
@@ -1902,6 +1903,10 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         words[9] = std::bit_cast<u32>(report.point.z);
         words[10] = report.reply;
         dispatch_contact_words(player, words, report.contacts, 6);
+    };
+    players->bindings.scene.markers = [this]()
+    {
+        return static_cast<const u8*>(script_records); // DAT_0051108C.
     };
     players->bindings.scene.create_object = [this](std::span<const u8> parameters)
     {
@@ -5401,6 +5406,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     // 0x0013E980's walk of DAT_00511B50: each mode-2 player's +0x94C node, its +0xCE0, +0xCDC and +0x93C words and
     // its body's +0x24 position.
     g_runtime_invisibility = &powerup_rows[9].active; // DAT_00512218.
+    g_runtime_weapon_boost = &powerup_rows[0xD].active; // DAT_00512278.
     g_spawn_trigger_players = [this]()
     {
         std::vector<GhoulySpawnPlayerLink> links;
@@ -6607,6 +6613,7 @@ SceneActorServices::State::~State()
         g_loading_actors = nullptr;
         g_spawn_trigger_players = nullptr;
         g_runtime_invisibility = nullptr;
+        g_runtime_weapon_boost = nullptr;
         g_marked_actor_message = nullptr;
         g_actor_broadcast = nullptr;
         g_alt_node_body = nullptr;
@@ -8264,7 +8271,7 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
     if (child.type == 0x4F || child.type == 0x46 || child.type == 0x3B || child.type == 0x51 || child.type == 0x52
         || child.type == 0x58 || child.type == 0x44 || child.type == 0x40 || child.type == 0x4C || child.type == 0x53
         || child.type == 0x42 || child.type == 0x3A || child.type == 0x47 || child.type == 0x48 || child.type == 0x49 || child.type == 0x55 || child.type == 0x50 || child.type == 0x3E || child.type == 0x41 || child.type == 0x43 || child.type == 0x4B
-        || child.type == 0x4E || child.type == 0x45 || child.type == 0x54 || child.type == 0x57)
+        || child.type == 0x4E || child.type == 0x37 || child.type == 0x38 || child.type == 0x45 || child.type == 0x54 || child.type == 0x57)
     {
         if (auto* player = players->find_player(child); player != nullptr && !player->body.empty())
         {
@@ -8362,6 +8369,12 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
         return;
     case 0x4E:
         players->pirate_message(child, words);
+        return;
+    case 0x37:
+        players->baron_message(child, words);
+        return;
+    case 0x38:
+        players->baron_plane_message(child, words);
         return;
     case 0x45:
         players->hunchback_message(child, words);
@@ -8911,6 +8924,12 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
                 return;
             case 0x4E:
                 players->pirate_update(strategy);
+                return;
+            case 0x37:
+                players->baron_update(strategy);
+                return;
+            case 0x38:
+                players->baron_plane_update(strategy);
                 return;
             case 0x45:
                 players->hunchback_update(strategy);

@@ -1,4 +1,5 @@
 #include "weapon_actor.h"
+#include "powerup_flags.h"
 #include "thrown_projectile.h"
 #include "homing_projectile.h"
 #include "weapon_actor_detail.h"
@@ -54,7 +55,6 @@ namespace gbtg
 {
 using namespace weapon_detail;
 
-constexpr u32 kChairScriptHold = 0; // DAT_00512278, BSS that no retail code writes.
 
 namespace
 {
@@ -1727,7 +1727,7 @@ void dispatch_runtime_chair_weapon_message(RuntimeWeaponActor& weapon, std::span
             break;
         }
         const Actor* holder = weapon_holder(weapon.actor); // 0x00145FD0
-        if (holder != nullptr && runtime_actor_is_player(*holder) && kChairScriptHold != 0) // 0x00028D00; DAT_00512278
+        if (holder != nullptr && runtime_actor_is_player(*holder) && runtime_weapon_boost_active() != 0) // 0x00028D00; DAT_00512278
         {
             break;
         }

@@ -28,6 +28,8 @@
 #include "haunted_picture_strategy.h"
 #include "medusa_strategy.h"
 #include "pirate_strategy.h"
+#include "baron_strategy.h"
+#include "baron_plane_strategy.h"
 #include "hunchback_strategy.h"
 #include "haunted_tv_strategy.h"
 #include "haunted_chair_strategy.h"
@@ -197,6 +199,7 @@ struct NativePlayerSceneBindings
     // A contact report (message 0x41) through the player's actor vtable +0xC.
     std::function<void(NativePlayerInstance&, RuntimeContactReport&)> contact_report{};
     std::function<void(std::span<const u8>)> create_object{}; // 0x00107520 into the scene's objects.
+    std::function<const u8*()> markers{}; // DAT_0051108C.
     // Rebuilds `pause` over the current DAT_00511B38 list (players destroyed since leave it) before 0x000BF410 walks it.
     std::function<void()> refresh_pause{};
     // Hunchback strategy (type 0x45, vtable 0x00505E88): DAT_00428770, and an actor's callout records (0x0003BE20).
@@ -396,6 +399,8 @@ struct NativePlayerInstance
     RuntimeMummyCursedStrategy mummy_cursed; // Type 0x4D, over `spider`'s views.
     RuntimeMedusaStrategy medusa; // Type 0x4B, over `spider`'s views.
     RuntimePirateStrategy pirate; // Type 0x4E.
+    RuntimeBaronStrategy baron; // Type 0x37.
+    RuntimeBaronPlaneStrategy baron_plane; // Type 0x38.
     RuntimeHunchbackStrategy hunchback; // Type 0x45.
     RuntimeRibsStrategy ribs; // Type 0x50.
     RuntimeGiantHandStrategy giant_hand; // Type 0x3E.
@@ -496,6 +501,10 @@ public:
     void medusa_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000BB340.
     void pirate_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000BE520.
     void pirate_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000BE160.
+    void baron_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000A7D30.
+    void baron_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000A7880.
+    void baron_plane_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000A91A0.
+    void baron_plane_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000A8CD0.
     void hunchback_message(FactoryObject& strategy, std::span<const u32> message); // Vtable +0xC, Xbox 0x000B3BF0.
     void hunchback_update(FactoryObject& strategy); // Vtable +0x10, Xbox 0x000B3B40.
     NativePlayerFactoryBindings bindings;

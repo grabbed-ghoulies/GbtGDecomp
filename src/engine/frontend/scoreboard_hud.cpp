@@ -1,4 +1,5 @@
 #include "scoreboard_hud.h"
+#include "../entities/powerup_flags.h"
 #include "scoreboard_draw.h"
 #include "../camera/camera.h"
 #include "../entities/body_hit_state.h"
@@ -739,9 +740,8 @@ void draw_runtime_damage_counter(RuntimeScoreboardHud& context)
     {
         return;
     }
-    constexpr u32 kScriptHold = 0; // DAT_00512278, BSS that no retail code writes.
     u32 color = 0x00FFFFFFu;
-    if (kScriptHold != 0)
+    if (runtime_weapon_boost_active() != 0) // DAT_00512278.
     {
         const float scale[2]{1.5f, 1.5f}; // DAT_0032B210
         const u32 alpha = u32(truncate_runtime_float(static_cast<long double>(globals.damage_6e4) * 192.f)); // DAT_0032B454
@@ -822,9 +822,8 @@ void draw_runtime_meter(RuntimeScoreboardHud& context)
     {
         return;
     }
-    constexpr u32 kScriptHold = 0; // DAT_00512278, BSS that no retail code writes.
     u32 color = 0x00FFFFFFu;
-    if (kScriptHold != 0)
+    if (runtime_weapon_boost_active() != 0) // DAT_00512278.
     {
         const float scale[2]{1.8f, 1.8f}; // DAT_0032B4BC
         const u32 alpha = u32(truncate_runtime_float(static_cast<long double>(globals.meter_bd8) * 192.f)); // DAT_0032B454

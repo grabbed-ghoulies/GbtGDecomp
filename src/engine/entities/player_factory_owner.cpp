@@ -1,4 +1,5 @@
 #include "player_factory_owner.h"
+#include "../scene/cutscene_scene_runtime.h"
 #include "../camera/display_view.h"
 #include "player_state.h"
 #include "actor_attachment_events.h"
@@ -727,6 +728,48 @@ const ObjectFactoryVtable* pirate_strategy_lifecycle()
     return &table;
 }
 
+// 0x000A7850: 0x000A73A0 with EAX the parameters, then 1.
+bool construct_baron_strategy_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto* player = active_owner->find_player(object);
+    player->strategy_type = 0x37;
+    player->refresh_views();
+    initialize_runtime_baron_strategy(parameters, player->baron); // 0x000A73A0
+    return true;
+}
+
+// 0x000A7870: the tail jump to 0x000A7440.
+void destroy_baron_strategy_view(FactoryObject& object)
+{
+    auto* player = active_owner->find_player(object);
+    player->refresh_views();
+    destroy_runtime_baron_strategy(player->baron); // 0x000A7440
+}
+
+// Getter 0x000A7800.
+const ObjectFactoryVtable* baron_strategy_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505D00, baron_strategy_object_sizes, construct_baron_strategy_view,
+        destroy_baron_strategy_view};
+    return &table;
+}
+
+bool construct_baron_plane_strategy_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto* player = active_owner->find_player(object);
+    player->strategy_type = 0x38;
+    player->refresh_views();
+    return initialize_runtime_baron_plane_strategy(bytes_of(object), parameters); // 0x000A8C60
+}
+
+// Getter 0x000A8C10; vtable +8 is the empty 0x001628B0.
+const ObjectFactoryVtable* baron_plane_strategy_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505D1C, baron_plane_strategy_object_sizes,
+        construct_baron_plane_strategy_view, destroy_empty_player_object};
+    return &table;
+}
+
 bool construct_hunchback_strategy_view(FactoryObject& object, std::span<const u8> parameters)
 {
     auto* player = active_owner->find_player(object);
@@ -1027,6 +1070,20 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
                   leave_runtime_pirate_state(old_state, pirate);
                   return;
               }
+              if (strategy_type == 0x37)
+              {
+                  // Baron strategy vtable +0x18, 0x000A8590.
+                  refresh_views();
+                  leave_runtime_baron_state(old_state, baron);
+                  return;
+              }
+              if (strategy_type == 0x38)
+              {
+                  // Baron plane strategy vtable +0x18, 0x000A9980.
+                  refresh_views();
+                  leave_runtime_baron_plane_state(old_state, baron_plane);
+                  return;
+              }
               if (strategy_type == 0x45)
               {
                   // Hunchback strategy vtable +0x18, 0x000B3E70.
@@ -1227,6 +1284,18 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
               {
                   // Pirate strategy vtable +0x14, 0x000BE820.
                   enter_runtime_pirate_state(state, previous, pirate);
+                  return;
+              }
+              if (strategy_type == 0x37)
+              {
+                  // Baron strategy vtable +0x14, 0x000A80B0.
+                  enter_runtime_baron_state(state, previous, baron);
+                  return;
+              }
+              if (strategy_type == 0x38)
+              {
+                  // Baron plane strategy vtable +0x14, 0x000A9430.
+                  enter_runtime_baron_plane_state(state, previous, baron_plane);
                   return;
               }
               if (strategy_type == 0x45)
@@ -1654,6 +1723,32 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
           scene_bindings.create_effect, scene_bindings.object_message, scene_bindings.actor_address, "attack",
           "attack_knockdown", "attack_knockdown_confused", "angry", "attack_special", "attack_specialnosword",
           "throw_multiplechests", "throw_singlechest", "drink", "far", "getweapon", "getweapon_confused"},
+      baron{strategy_messages, target_checks, strategy_views, attachment, scene_bindings.registry, scene_bindings.error,
+          scene_bindings.loaded_sizes, scene_bindings.latches, scene_bindings.address_of, scene_bindings.create_effect,
+          scene_bindings.object_message,
+          [&bindings = scene_bindings]()
+          {
+              return RuntimeIntroNotices{bindings.runtime_flags, bindings.scene_flags, bindings.intro_pending,
+                  bindings.intro_name, bindings.cases, bindings.case_body_bits};
+          },
+          "fetch_cane", "aloof_prepare", "aloof", "attack", "dizzy", "far", "get_weapon", "knocked_down", "celebrate",
+          "worried"},
+      baron_plane{strategy_messages, target_checks, strategy_views, collision, animation_resource,
+          scene_bindings.attack_tables, scene_bindings.sounds, scene_bindings.pause, scene_bindings.latches,
+          scene_bindings.address_of, scene_bindings.create_effect, scene_bindings.object_message,
+          [&game = scene_bindings.game]() -> SceneCutsceneRuntime&
+          {
+              return scene_cutscene_runtime(game);
+          },
+          [this]()
+          {
+              if (!scene.markers)
+              {
+                  throw Error("Baron plane strategy: the scene markers (DAT_0051108C) are not bound");
+              }
+              return scene.markers();
+          },
+          "attack", "waitforstand", "far", "gethelp", "celebrate", "spin"},
       hunchback{strategy_messages, target_checks, strategy_views, scene_bindings.hunchback_parameters, collision,
           animation_resource, scene_bindings.attack_tables, actor_instance.live_attachments, scene_bindings.latches,
           axis_device, scene_bindings.keyboard, scene_bindings.create_effect, scene_bindings.object_message,
@@ -2431,6 +2526,52 @@ void NativePlayerFactoryOwner::pirate_update(FactoryObject& strategy)
     update_runtime_pirate_strategy(player->pirate);
 }
 
+void NativePlayerFactoryOwner::baron_message(FactoryObject& strategy, std::span<const u32> message)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x37)
+    {
+        throw Error("Baron strategy method has no owning instance");
+    }
+    player->refresh_views();
+    // 0x000A7D30 answers message 0x59 in place.
+    dispatch_runtime_baron_message({const_cast<u32*>(message.data()), message.size()}, player->baron);
+}
+
+void NativePlayerFactoryOwner::baron_update(FactoryObject& strategy)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x37)
+    {
+        throw Error("Baron strategy method has no owning instance");
+    }
+    player->refresh_views();
+    update_runtime_baron_strategy(player->baron);
+}
+
+void NativePlayerFactoryOwner::baron_plane_message(FactoryObject& strategy, std::span<const u32> message)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x38)
+    {
+        throw Error("Baron plane strategy method has no owning instance");
+    }
+    player->refresh_views();
+    // 0x000A91A0 answers message 0x58 in place.
+    dispatch_runtime_baron_plane_message({const_cast<u32*>(message.data()), message.size()}, player->baron_plane);
+}
+
+void NativePlayerFactoryOwner::baron_plane_update(FactoryObject& strategy)
+{
+    auto* player = find_player(strategy);
+    if (player == nullptr || player->strategy.data() != strategy.bytes.get() || player->strategy_type != 0x38)
+    {
+        throw Error("Baron plane strategy method has no owning instance");
+    }
+    player->refresh_views();
+    update_runtime_baron_plane_strategy(player->baron_plane);
+}
+
 void NativePlayerFactoryOwner::hunchback_message(FactoryObject& strategy, std::span<const u32> message)
 {
     auto* player = find_player(strategy);
@@ -2645,6 +2786,8 @@ void NativePlayerFactoryOwner::install(std::span<ObjectFactoryType> types)
     types[0x4D] = ObjectFactoryType{8, mummy_cursed_strategy_lifecycle};
     types[0x4B] = ObjectFactoryType{8, medusa_strategy_lifecycle};
     types[0x4E] = ObjectFactoryType{8, pirate_strategy_lifecycle};
+    types[0x37] = ObjectFactoryType{8, baron_strategy_lifecycle};
+    types[0x38] = ObjectFactoryType{8, baron_plane_strategy_lifecycle};
     types[0x45] = ObjectFactoryType{8, hunchback_strategy_lifecycle};
     types[0x28] = ObjectFactoryType{6, camera_body_lifecycle};
     types[0x39] = ObjectFactoryType{8, director_strategy_lifecycle};

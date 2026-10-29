@@ -1,4 +1,5 @@
 #include "candle_weapon.h"
+#include "powerup_flags.h"
 #include "weapon_actor_detail.h"
 #include "actor_attachment_events.h"
 #include "actor_model_anchors.h"
@@ -21,7 +22,6 @@ namespace
 {
 namespace field = candle_weapon_field;
 namespace flame_field = candle_flame_field;
-constexpr u32 kScriptHold = 0; // DAT_00512278, BSS that no retail code writes.
 constexpr u32 kColor = 0xC8CE93FFu; // DAT_00303588.
 constexpr u32 kSecondColor = 0xC800BFBFu; // DAT_0030358C.
 constexpr float kNear = 78.f; // DAT_0032B394.
@@ -449,7 +449,7 @@ void dispatch_runtime_candle_weapon_message(RuntimeWeaponActor& weapon, std::spa
         {
             throw Error("candle message 0x5A burns fuel without a holder for 0x00028D00");
         }
-        if (runtime_actor_is_player(*holder) && kScriptHold != 0) // 0x00028D00, DAT_00512278
+        if (runtime_actor_is_player(*holder) && runtime_weapon_boost_active() != 0) // 0x00028D00, DAT_00512278
         {
             return;
         }
@@ -502,7 +502,7 @@ void update_runtime_candle_weapon_state(RuntimeWeaponActor& weapon, u16 state)
         {
             tick = false;
         }
-        else if ((holder->mask_mode == 2 || holder->mask_flag != 0) && kScriptHold != 0) // DAT_00512278
+        else if ((holder->mask_mode == 2 || holder->mask_flag != 0) && runtime_weapon_boost_active() != 0) // DAT_00512278
         {
             set(bytes, field::relight, 0.f);
             set(bytes, field::fuel, 1.f);

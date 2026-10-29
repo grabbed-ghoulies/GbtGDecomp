@@ -55,7 +55,10 @@ struct RuntimePirateStrategy
 void pirate_strategy_object_sizes(ObjectSizes& output); // Xbox 0x000BE0C0
 bool initialize_runtime_pirate_strategy(std::span<u8> strategy, std::span<const u8> parameters); // Xbox 0x000BE130
 bool runtime_pirate_holds_sword(RuntimePirateStrategy& context); // Xbox 0x000BEB50, EAX strategy
-bool runtime_pirate_chest_free(RuntimePirateStrategy& context); // Xbox 0x000BEB80, EAX strategy
+// The weapon at strategy +0x38 is free to take: unparented, live (+0x93C), not held (+0xAD0) and settled (+0xAC4).
+bool runtime_strategy_weapon_free(std::span<const u8> strategy,
+    RuntimeStrategyActorViews& views); // Xbox 0x000BEB80, EAX strategy
+bool runtime_pirate_chest_free(RuntimePirateStrategy& context); // 0x000BEB80 over the chest
 void choose_runtime_pirate_attack(RuntimePirateStrategy& context); // Xbox 0x000BEBD0, EAX strategy
 bool runtime_pirate_reacts(RuntimePirateStrategy& context); // Xbox 0x000BECF0, EAX strategy
 void count_runtime_pirate_hit(std::span<const u32> message, RuntimePirateStrategy& context); // Xbox 0x000BED10

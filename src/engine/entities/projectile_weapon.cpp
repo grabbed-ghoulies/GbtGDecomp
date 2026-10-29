@@ -1,4 +1,5 @@
 #include "projectile_weapon.h"
+#include "powerup_flags.h"
 #include "weapon_actor_detail.h"
 #include "weapon_breakage.h"
 #include "actor_attachment_events.h"
@@ -84,7 +85,6 @@ void raise_model_mode(RuntimeWeaponActor& weapon, i32 bits)
     register_actor_shape_probe(weapon.actor, weapon.view.shape); // 0x0003C770
 }
 
-constexpr u32 kScriptHold = 0; // DAT_00512278, BSS that no retail code writes.
 
 void set_spawn_blocked(RuntimeWeaponActor& weapon, i32 value)
 {
@@ -627,7 +627,7 @@ void start_runtime_large_projectile_shatter(RuntimeWeaponActor& weapon)
             weapon.players); // 0x0013EBE0, +0xE7C
         const auto holder_bytes = weapon.bytes_at(address);
         if (read_u32(holder_bytes, 0xCE0) != 0
-            && (read_u16(holder_bytes, 0xCDC) == 2 || read_u32(holder_bytes, 0x93C) != 0) && kScriptHold != 0)
+            && (read_u16(holder_bytes, 0xCDC) == 2 || read_u32(holder_bytes, 0x93C) != 0) && runtime_weapon_boost_active() != 0) // DAT_00512278
         {
             scale = 2.f; // DAT_0032B110.
         }

@@ -3082,8 +3082,7 @@ u32 g_flag_0650 = 0;
 // Type 0x79 would call 0x00114050. ECX is the dword at node+8. BL is 2 when
 // that dword is 0 and 1 otherwise. That call is not translated.
 //
-// Type 0x89 stores the float at node+8 times 60 plus 0.99 into DAT_00506C60.
-// 0x000F27C0 would then run with EAX = 1. That call is not translated.
+// Type 0x89 stores the float at node+8 times 60 plus 0.99 into DAT_00506C60, then runs 0x000F27C0 with EAX = 1.
 //
 // Type 0x8A with a nonzero dword at node+8 stores 0 at DAT_00509B74 and 1 at
 // DAT_00509B70. Zero stores 1 and 0.
@@ -3094,8 +3093,8 @@ u32 g_flag_0650 = 0;
 // 0x000FE160 would take the result. Neither call is translated, so the
 // product is not formed.
 //
-// Type 0x9A would call 0x000F2740. Type 0xA1 would call 0x000FEA90 with EAX =
-// the dword at node+8. Those calls are not translated.
+// Type 0x9A calls 0x000F2740, the countdown's gold finish. Type 0xA1 would call 0x000FEA90 with EAX = the dword at
+// node+8, which is not translated.
 //
 // Type 0xA2 stores 1 at DAT_005110B4 when the dword at node+8 is 0.
 // Type 0xA4 stores 1 at DAT_0050EF1C when that dword is nonzero.
@@ -3302,7 +3301,8 @@ int script_handle_world_actions(Game& g, const ScriptNode& node, int param_2, in
         return 2;
     }
     case 0x9a:
-        throw Error("untranslated Xbox 0x000F2740: script world action 0x9A's challenge mode 4");
+        finish_runtime_chapter5_countdown(chapter5_countdown("script type 0x9A")); // 0x000F2740
+        return 2;
     case 0xa1:
         set_light_filled_gate(i32(node_u32(g.scene_script, node, 8))); // 0x000FEA90, EAX node+8
         return 2;

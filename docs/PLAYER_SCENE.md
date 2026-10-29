@@ -316,6 +316,11 @@ All take the game directory, e.g.
 | `--scene5_6` | Boots chapter5_scene6_1playcam (the pantry) and plays it with the scene 7 driver. Passes: the prisoner cutscene, two pages, Mr Ribs at the door, and the script moves on to chapter5_scene7_1playcam at frame 3904 |
 | `--scene5_7` | Boots chapter5_scene7_1playcam (the relics store) and plays it with the scene 7 driver. Passes: the prisoner cutscene, the mummy and zombie event (a cursed mummy box), two pages, and the script moves on to chapter5_scene8_1playcam at frame 8470 |
 | `--scene5_8` | Boots chapter5_scene8_1playcam (the laundry) and plays it with the scene 7 driver, breaking every `aid_ghoulybox_single_skeleton` washing machine in turn once the event runs. Does not pass: the event (a next-different step and node 0x88's kill-three-skeletons step) needs skeletons from the washing machines, and Cooper's kicks do not reach them from the nearest open floor |
+| `--scene5_9` | Boots chapter5_scene9_1playcam (the walled garden) and plays it with the scene 7 driver. Does not pass: the event (no points, type 0xC; next-different Jessie Clydes, type 8; spare the skeletons, type 7; four kills, type 0xE) fails on Cooper's fights, the Grim Reaper takes his energy, and the scene restarts until the 36000-frame limit |
+| `--scene5_10` | Boots chapter5_scene10_1playcam (the TV room) and plays it with the scene 7 driver. Passes: the haunted-object event (after two faints), four pages, Mr Ribs leaving, and the script moves on to chapter5_scene11_1playcam at frame 19888 |
+| `--scene5_11` | Boots chapter5_scene11_1playcam (the lower corridors) and plays it with the scene 7 driver. Passes: a page, the haunted pictures, and the script moves on to chapter5_scene12_1playcam at frame 3937 |
+| `--scene5_12` | Boots chapter5_scene12_1playcam (the Grand Hallway, the countdown's end) and plays it with the scene 7 driver. Passes: two pages, script type 0x9A's gold finish of the countdown, and the script moves on to chapter5_scene13_1playcam at frame 4551 |
+| `--scene5_13` | Boots chapter5_scene13_1playcam (the front gate, chapter 5's last play scene) and plays it with the scene 7 driver. Passes: Cooper walks straight ahead into the exit (the mask-1 volume at 223, -84) and the script moves on to chapter5_scene13_1book at frame 1679 |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -482,6 +487,44 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-29: chapter 5 scene 13: the front gate
+
+- chapter5_scene13_1playcam waits only on PlayerEntersRegion 1 (a mask-0 volume at 338, -56, beyond the garden's
+  fence). It reaches nothing untranslated.
+- The driver no longer chases Mr Ribs (class 0x33, who takes no hits) when a region or exit is its goal.
+- The region's volume is off the navigation grid (no floor cell), so a straight walk at it runs along the fence
+  (6600). The exit lies straight ahead of Cooper's start; with a live region off the grid the driver now takes the
+  exit instead, and `--scene5_13` passes, moving on at frame 1679.
+
+### 2026-10-29: chapter 5 scene 12: the countdown's gold finish
+
+- Script type 0x9A threw on 0x000F2740. It is now translated in `chapter5_countdown.cpp`: unless the countdown is
+  already in mode 4, mode 4 sets DAT_00506C5C and plays the gold challenge ditty, then 0x000F27C0 runs with mode 0
+  (the clock's message fades and the seconds go to -1).
+- `--scene5_12` then passes. Checked in the captures: the hallway's great doors open, the green fire on the floor
+  (4500).
+
+### 2026-10-29: chapter 5 scene 11: the lower corridors
+
+- `--scene5_11` passes on the existing native path. Checked in the captures: Cooper kicking a haunted picture, with
+  Mr Ribs down the corridor (1500).
+
+### 2026-10-29: chapter 5 scene 10: the TV room
+
+- `--scene5_10` passes on the existing native path; Cooper faints twice in its event first. Checked in the captures:
+  the event's door and plant icons (9000) and the smashed furniture in the TV room (16200).
+
+### 2026-10-29: chapter 5 scene 9: the walled garden
+
+- `--scene5_9` reaches its event on the existing native path; it does not pass. The event's steps (node 0x28 no
+  points, 0x25 the next different of the Jessie Clydes, 0x21 the skeletons spared, 0x5F four kills) fail on the
+  driver's fights, the Grim Reaper comes, and Cooper faints and restarts every 3000 to 4000 frames.
+- One run went to a black screen after the second restart (frame 8100 on): the scene had started again, but nothing
+  more was drawn or logged until the limit. A second run with the same build did not hang (Cooper stayed among the
+  marked actors through seven restarts). Like 5_5's one `at()` miss and 3c10's one black page, it does not
+  reproduce.
+- Checked in the captures: the event's RIP stone with 3 and a skeleton in the garden (4200).
 
 ### 2026-10-29: chapter 5 scene 8: script type 0x88
 

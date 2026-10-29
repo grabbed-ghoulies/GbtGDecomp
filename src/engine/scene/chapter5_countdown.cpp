@@ -176,6 +176,19 @@ void set_runtime_chapter5_countdown_mode(i32 mode, Chapter5CountdownServices& co
     }
 }
 
+// Xbox 0x000F2740
+void finish_runtime_chapter5_countdown(Chapter5CountdownServices& context)
+{
+    if (context.mode == 4)
+    {
+        return;
+    }
+    context.mode = 4;
+    context.gold = 1; // DAT_00506C5C.
+    request_audio_stream("XACT_SOUNDBANK_GSTREAMSDITTIES_CHALLENGE_GOLD", 10, context.streams); // 0x00038720
+    set_runtime_chapter5_countdown_mode(0, context); // The tail jump into 0x000F27C0 with EAX 0.
+}
+
 // Xbox 0x00082D00
 bool construct_runtime_chapter5_countdown_control(Chapter5CountdownServices& context)
 {

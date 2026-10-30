@@ -71,6 +71,7 @@ struct AudioEventVoices;
 struct TransitionBookServices;
 struct RuntimeDialogueInputDevice;
 struct RuntimeScoreboardHud;
+struct FinalScoreServices;
 // A front-end widget instance (a mode row's create). Each row's state derives from this.
 struct GameSelectWidget
 {
@@ -174,6 +175,7 @@ struct GameSelectControlServices
     char* replacement_source; // DAT_004E1AC0, the cutscene actor model a replacement swaps out.
     char* replacement_target; // DAT_004E1A40
     RuntimeScoreboardHud* scoreboard = nullptr; // The scene's HUD digits (DAT_00545A80) 0x0012F000 draws with.
+    FinalScoreServices* final_score = nullptr; // Row 19's final score pages (0x000D3E30 ..).
 };
 // One row of the mode table at 0x0030A000: create, destroy, open(owner, widget), close, tick, draw. A null entry
 // is a row function that is not translated yet; reaching it raises with its address.

@@ -56,6 +56,10 @@ void release_held_scene_order(GameSelectControlServices& services);
 void hold_runtime_scene_order(const char* name, GameSelectControlServices& services); // Xbox 0x001234B0, EAX name
 void queue_runtime_gameselect_script(GameSelectControlState& control, const char* script, u32 mode,
     GameSelectControlServices& services); // Xbox 0x00083B90, ECX the control, EAX the script
+// The control's next row with its book turn (1 none, 2 forward, 3 back); with `check_stream`, held back for the
+// stream wait (row 18, DAT_005065BC / DAT_005065C0) while music stream 2 plays. Nothing for row 0.
+void request_runtime_gameselect_row(u32 row, u32 turn, i32 check_stream,
+    GameSelectControlServices& services); // Xbox 0x00083A50, EDI row, EBX turn
 void select_runtime_gameselect_row(const GameSelectWidgetRow*& row,
     GameSelectControlServices& services); // Xbox 0x000E5AE0, ESI the control's +0x88
 }

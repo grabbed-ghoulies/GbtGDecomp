@@ -416,6 +416,48 @@ first; View Staff Credits starts `credits_final`. `--gameselect-challenges`
 with `GBTG_CHALLENGE_BLACK` opens row 11 (100 scenes, 76 with the icon) and B
 returns to the challenges.
 
+Row 17, Game Options (`gameselect_options.cpp`): create `0x000E0B60` (0xAC8
+bytes), open `0x000E0B70`, close `0x000E0F50`, tick `0x000E1000`, draw
+`0x000E1130`, the state changes `0x000E1A80` (its floats at `0x00429958`, laid
+out as the replay pages' blocks; the column as wide as the wider of
+"OptionsMenuStandard" `0x00308C20` and "OptionsMenuButlersBrew" `0x00308F30`)
+and the items `0x000E18D0`: Camera Rotation, Controller Vibration and Butler's
+Brew, each with its setting's text beside it (show `0x000E1320` /
+`0x000E1430` / `0x000E1620`, hide `0x000E1400` / `0x000E1510` / `0x000E1700`).
+A toggles its bit of the unlock block `DAT_00506C70` (`0x000E1220` bit 4, rumble
+off, with the gunshot rumble when it comes back on; `0x000E1540` bit 2, the
+camera inverted; `0x000E1730` bit 8, the brew on) and saves it (`0x000E1A10`:
+the new `0x0010E610` and the queued write). Selecting Butler's Brew swaps in
+its prompts (`0x000E1810` / `0x000E1850`), whose Y explains it (`0x000E1890`,
+"brewexplain"); B (`0x000E11D0`) goes back to the features. The options menu
+keeps its own items (0x00143550's +0x5C 0), released in its close
+(`release_runtime_button_bat_menu_item`). `--gameselect-feature` with
+"Game Options" shows NORMAL / ON / OFF, and A sets the camera bit in the profile
+and the save.
+
+Row 19 (`final_score.cpp`, `0x000D79A0`..`0x000D7A00`, draw `0x00082F70`):
+Info on a finished game's Play shows the final score's Super Scary page
+(`0x000D3E30`, `0x000D4230` with the game's name), and once it is accepted
+(`0x000D4BC0`) the contents come back. `--gameselect-feature` with `@info`
+shows "Super Scary Score 91 / 100" for the retail save and returns to row 3.
+
+Row 18, the stream wait (`gameselect_stream_wait.cpp`, `0x000E0650`..
+`0x000E0A30`, `0x000E0AD0`), with `0x00083A50` (the row request held back while
+stream 2 plays): the loading picture and a blinking "loading" line until stream
+2 is idle (then the start, +0x128) or the wait runs out (then the row in
+`DAT_00429BC0`). No test reaches it: game select has not yet opened with stream
+2 busy.
+
+The secret button sequence's save (`0x000DB380`) now writes the progress bit
+into the game's save (`0x000F2A50`, `0x0010E4F0`, `0x0010DA80`).
+
+Rows 5 ("GameSlotInfoMenu"), 7 ("BonusBookCollectionMenu") and 12..15 (the
+cross-sell demo kiosk: "xselldemo", "XSellDemoMoviesMainMenu",
+"XSellDemoMoviesPlayingMenu", "xselldemoquit") are requested by nothing the
+retail game runs: no store of 5 or 7 to the control's +0x94 or to
+`DAT_00429BC0` exists, and 12..15 only request each other. They stay
+untranslated and raise if reached.
+
 Row 6, challenges (`gameselect_challenges.cpp`): create `0x000D5850` (0x1E0
 bytes), open `0x000D5880`, close `0x000D62A0`, tick `0x000D6410`, draw
 `0x000D67F0`, the state changes `0x000D70E0`, the selection `0x000D7640` and
@@ -547,15 +589,13 @@ Engine fixes the front end needed:
 
 Not translated yet (each raises when reached):
 
-- **The other rows**: 19 (final score, from
-  contents Info when Play is unavailable), 7 (bonus book collection), 5,
-  12..15, 17 (options, from the features menu) and 18 (the stream wait). Row 19 was missing from
+- **The other rows**: 5, 7 and 12..15, which nothing in the retail game
+  requests (see above). Row 19 was missing from
   the host table, so Info raised "past the table"; it is now listed and raises
   as untranslated. The features menu's Demos (`0x000D8400`, the `cdx.xbe`
   launch). A read-only walk from
   these rows and callbacks reaches about 226 untranslated functions (61 KB).
-- **The secret sequence's save** (`0x000DB380`'s `0x000F2A50`, `0x0010E4F0`,
-  `0x0010DA80`) and the book's map routes (`0x00046F40`, `0x00047770`) and
+- The book's map routes (`0x00046F40`, `0x00047770`) and
   page texture (the third `0x00048260` argument).
 - **The app error screen** (`0x00032990` / `0x00032BA0`, ticked by
   `0x00032AB0` and drawn from `0x0011C240`; its flag `0x40000` holds the

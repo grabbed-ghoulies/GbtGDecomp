@@ -682,6 +682,8 @@ add_executable(gbtg
     src/engine/frontend/gameselect_challenges.cpp
     src/engine/scene/challenge_runtime.cpp
     src/engine/frontend/gameselect_features.cpp
+    src/engine/frontend/gameselect_options.cpp
+    src/engine/frontend/gameselect_stream_wait.cpp
     src/engine/frontend/gameselect_scene_replay.cpp
     src/engine/frontend/gameselect_progress.cpp
     src/engine/frontend/button_bat_menu.cpp

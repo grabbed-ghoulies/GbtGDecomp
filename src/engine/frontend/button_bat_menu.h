@@ -89,6 +89,9 @@ void destroy_runtime_button_bat_menu(GameSelectControlServices& services); // Xb
 std::unique_ptr<ButtonBatMenuItem> make_runtime_button_bat_menu_item(const char16_t* text,
     std::function<void(u32)> on_show, std::function<void(u32)> on_hide, std::function<void(u32)> on_select,
     std::function<void(u32)> on_deselect, std::function<void(u32)> on_activate, u32 context); // Xbox 0x00143320
+// 0x001434E0 on an item the menu holds but does not own (its creator keeps the item, 0x00143550's +0x5C 0).
+void release_runtime_button_bat_menu_item(ButtonBatMenuItem* item,
+    GameSelectControlServices& services); // Xbox 0x001434E0, EAX the item
 void add_runtime_button_bat_menu_item(std::unique_ptr<ButtonBatMenuItem> item,
     GameSelectControlServices& services); // Xbox 0x001439C0, EDI the item
 void open_runtime_button_bat_menu(GameSelectControlServices& services); // Xbox 0x00143B10

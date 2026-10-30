@@ -1,4 +1,8 @@
 #include "final_score.h"
+#include "frontend_state.h"
+#include "../scene/gameselect_control.h"
+#include "../scene/scene_controls.h"
+#include "../transitions/native_book.h"
 #include "dialogue_activation.h"
 #include "dialogue_draw_outer.h"
 #include "dialogue_draw_context.h"
@@ -1431,5 +1435,80 @@ void tick_runtime_final_score_control(std::span<u8> control, FinalScoreServices&
         stop_runtime_final_score_ditty(services); // 0x000D4500
         s.request_script(script, 1); // 0x0011EB30(1)
     }
+}
+
+namespace
+{
+FinalScoreServices& final_score_of(GameSelectControlServices& s)
+{
+    if (s.final_score == nullptr)
+    {
+        throw Error("game select's final score (row 19): the final score services are not bound");
+    }
+    return *s.final_score;
+}
+}
+
+// Xbox 0x000D79A0
+GameSelectWidgetHandle create_runtime_game_final_score(GameSelectControlServices& services)
+{
+    (void)services;
+    return std::make_unique<GameFinalScoreWidget>(); // 0x000F72D0(8)
+}
+
+// Xbox 0x000D79B0
+void open_runtime_game_final_score(std::span<u8> owner, GameSelectControlState& control, GameSelectWidget& widget,
+    GameSelectControlServices& services)
+{
+    auto& s = services;
+    auto& w = static_cast<GameFinalScoreWidget&>(widget);
+    (void)owner;
+    s.frontend.final_score_widget = &w; // DAT_00506584
+    w.state = 0;
+    w.owner = &control;
+    auto& final_score = final_score_of(s);
+    create_runtime_final_score(final_score); // 0x000D3E30
+    w.state = 1;
+    open_runtime_final_score_super_scary(s.frontend.selected_name.data(), final_score); // 0x000D4230, EAX DAT_00429CC4
+}
+
+// Xbox 0x000D79F0
+void close_runtime_game_final_score(GameSelectWidget& widget, GameSelectControlServices& services)
+{
+    (void)widget;
+    destroy_runtime_final_score(final_score_of(services)); // 0x000D3FB0
+    services.frontend.final_score_widget = nullptr; // DAT_00506584
+}
+
+// Xbox 0x000D7A00
+void tick_runtime_game_final_score(GameSelectWidget& widget, GameSelectControlServices& services)
+{
+    auto& s = services;
+    auto& w = static_cast<GameFinalScoreWidget&>(widget);
+    if (w.state != 1)
+    {
+        return;
+    }
+    auto& final_score = final_score_of(s);
+    tick_runtime_final_score(final_score); // 0x000D4070
+    if (runtime_final_score_super_scary_done(final_score)) // (*0x00304EFC)(), 0x000D4BC0
+    {
+        auto& control = *find_runtime_scene_control(0x9A)->gameselect; // 0x00116170
+        control.requested_row = 3;
+        control.book_turn = 1;
+        if (control.book != nullptr)
+        {
+            release_transition_book(control.book, s.books); // 0x00048860
+            control.book = nullptr;
+        }
+        s.frontend.final_score_widget->state = 2; // *DAT_00506584
+    }
+}
+
+// Xbox 0x00082F70: the final score's draw (a jump to 0x000D4120).
+void draw_runtime_game_final_score(GameSelectWidget& widget, GameSelectControlServices& services)
+{
+    (void)widget;
+    draw_runtime_final_score(final_score_of(services));
 }
 }

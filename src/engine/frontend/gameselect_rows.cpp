@@ -4,6 +4,9 @@
 #include "gameselect_delete.h"
 #include "gameselect_features.h"
 #include "gameselect_naming.h"
+#include "gameselect_options.h"
+#include "gameselect_stream_wait.h"
+#include "final_score.h"
 #include "gameselect_scene_replay.h"
 #include "gameselect_slots.h"
 
@@ -81,12 +84,14 @@ const std::array<GameSelectWidgetRow, 20> kRows{{
     {{0x000E1E00, kHeapFreeWidget, 0x000E48A0, 0x000E4BF0, 0x000E4C80, 0x000E4DB0},
         create_runtime_game_scene_replay, open_runtime_game_story_books, close_runtime_game_story_books,
         tick_runtime_game_story_books, draw_runtime_game_scene_replay},
-    {{0x000E0B60, kHeapFreeWidget, 0x000E0B70, 0x000E0F50, 0x000E1000, 0x000E1130}, nullptr, nullptr, nullptr,
-        nullptr, nullptr},
-    {{0x000E0650, kHeapFreeWidget, 0x000E0660, 0x000E0830, 0x000E08C0, 0x000E0A30}, nullptr, nullptr, nullptr,
-        nullptr, nullptr},
-    {{0x000D79A0, kHeapFreeWidget, 0x000D79B0, 0x000D79F0, 0x000D7A00, 0x00082F70}, nullptr, nullptr, nullptr,
-        nullptr, nullptr},
+    {{0x000E0B60, kHeapFreeWidget, 0x000E0B70, 0x000E0F50, 0x000E1000, 0x000E1130}, create_runtime_game_options,
+        open_runtime_game_options, close_runtime_game_options, tick_runtime_game_options, draw_runtime_game_options},
+    {{0x000E0650, kHeapFreeWidget, 0x000E0660, 0x000E0830, 0x000E08C0, 0x000E0A30},
+        create_runtime_game_stream_wait, open_runtime_game_stream_wait, close_runtime_game_stream_wait,
+        tick_runtime_game_stream_wait, draw_runtime_game_stream_wait},
+    {{0x000D79A0, kHeapFreeWidget, 0x000D79B0, 0x000D79F0, 0x000D7A00, 0x00082F70}, create_runtime_game_final_score,
+        open_runtime_game_final_score, close_runtime_game_final_score, tick_runtime_game_final_score,
+        draw_runtime_game_final_score},
 }};
 }
 

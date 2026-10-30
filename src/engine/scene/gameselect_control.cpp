@@ -368,6 +368,46 @@ bool runtime_gameselect_book_busy(const GameSelectControlState& control,
     return false;
 }
 
+// Xbox 0x00083A50, EDI row, EBX turn
+void request_runtime_gameselect_row(u32 row, u32 turn, i32 check_stream, GameSelectControlServices& services)
+{
+    auto& control = *find_runtime_scene_control(0x9A)->gameselect; // 0x00116170
+    if (row == 0)
+    {
+        return;
+    }
+    if (check_stream == 0 || services.stream_busy(2) == 0) // 0x00039D50(2, 0, 0)
+    {
+        control.requested_row = row;
+        control.book_turn = turn;
+    }
+    else
+    {
+        control.requested_row = 0x12;
+        control.book_turn = 1;
+        services.frontend.word_005065bc = i32(row); // DAT_005065BC
+        services.frontend.word_005065c0 = i32(turn); // DAT_005065C0
+    }
+    switch (control.book_turn)
+    {
+    case 1:
+        if (control.book != nullptr)
+        {
+            release_transition_book(control.book, services.books); // 0x00048860
+            control.book = nullptr;
+        }
+        break;
+    case 2:
+        control.book = create_transition_book(0, 1, nullptr, services.books); // 0x00048260(0, 1, 0)
+        break;
+    case 3:
+        control.book = create_transition_book(1, 1, nullptr, services.books); // 0x00048260(1, 1, 0)
+        break;
+    default:
+        break;
+    }
+}
+
 // Xbox 0x000E5AE0
 void select_runtime_gameselect_row(const GameSelectWidgetRow*& row, GameSelectControlServices& services)
 {

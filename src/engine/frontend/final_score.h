@@ -2,6 +2,7 @@
 #include "gbtg/entity.h"
 #include "gbtg/object_factory.h"
 #include "gbtg/retail_field.h"
+#include "gameselect_rows.h"
 
 #include <array>
 #include <functional>
@@ -182,6 +183,22 @@ void set_runtime_final_score_super_scary_state(i32 state, FinalScoreServices& se
 // The prompt's "totalscore_accept" row (0x003051AC): state 6, the prompt's request cleared and the prompt closed.
 void accept_runtime_final_score_super_scary(FinalScoreServices& services); // Xbox 0x000D4E70
 void tick_runtime_final_score(FinalScoreServices& services); // Xbox 0x000D4070
+// Row 19 of the game-select mode table (8 bytes in retail, 0x000D79A0): a finished game's Info on Play shows the
+// final score's Super Scary page (3), and the contents (row 3) come back when it is accepted.
+struct GameFinalScoreWidget : GameSelectWidget
+{
+    i32 state = 0; // +0: 1 the page open, 2 done
+    GameSelectControlState* owner = nullptr; // +4
+};
+GameSelectWidgetHandle create_runtime_game_final_score(GameSelectControlServices& services); // Xbox 0x000D79A0
+void open_runtime_game_final_score(std::span<u8> owner, GameSelectControlState& control, GameSelectWidget& widget,
+    GameSelectControlServices& services); // Xbox 0x000D79B0
+void close_runtime_game_final_score(GameSelectWidget& widget,
+    GameSelectControlServices& services); // Xbox 0x000D79F0
+void tick_runtime_game_final_score(GameSelectWidget& widget,
+    GameSelectControlServices& services); // Xbox 0x000D7A00
+void draw_runtime_game_final_score(GameSelectWidget& widget,
+    GameSelectControlServices& services); // Xbox 0x00082F70, the jump to 0x000D4120
 void draw_runtime_final_score(FinalScoreServices& services); // Xbox 0x000D4120
 // The control's vtable: construct 0x00082DC0, destroy 0x00082E20, update 0x00082E50 and draw 0x00082F70 (a jump
 // to 0x000D4120).

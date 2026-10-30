@@ -973,6 +973,18 @@ void store_save_game_challenges(const char16_t* name, const RuntimeProfileBlock&
     }
 }
 
+// Xbox 0x0010E610
+void store_save_game_unlocks(const char16_t* name, const RuntimeProfileBlock& block)
+{
+    SaveSlot* slot = find_save_slot(name);
+    if (slot != nullptr)
+    {
+        auto& unlocks = slot->save->unlocks->block;
+        std::fill_n(unlocks.bytes.data(), size_t(unlocks.size), u8(0)); // rep stos over +4 bytes
+        engine_copy_bytes(unlocks.bytes.data(), block.bytes.data(), u32(block.size)); // 0x000F71F0
+    }
+}
+
 // Xbox 0x0010E2C0
 void clear_save_game_word_184(const char16_t* name)
 {

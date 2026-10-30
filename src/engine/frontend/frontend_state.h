@@ -15,6 +15,9 @@ struct GameDeletionWidget;
 struct GameFeaturesWidget;
 struct GameSceneReplayWidget;
 struct GameChallengesWidget;
+struct GameOptionsWidget;
+struct GameFinalScoreWidget;
+struct GameStreamWaitWidget;
 struct ButtonBatMenu;
 // The front end's boot-reset globals (0x000E5A80). DAT_00429BC0 (the next widget row) and DAT_00429BC4 (a wide
 // name) are scene.cpp's g_429bc0 and g_429bc4.
@@ -38,13 +41,16 @@ struct RuntimeFrontendState
     GameSceneReplayWidget* bonus_book_replay_widget = nullptr; // DAT_005065D8, the open bonus-book scenes widget.
     GameSceneReplayWidget* story_book_widget = nullptr; // DAT_005065DC, the open story-books widget.
     GameChallengesWidget* challenges_widget = nullptr; // DAT_00506574, the open challenges widget.
+    GameOptionsWidget* options_widget = nullptr; // DAT_005065CC, the open options widget.
+    GameFinalScoreWidget* final_score_widget = nullptr; // DAT_00506584, the open final score row.
+    GameStreamWaitWidget* stream_wait_widget = nullptr; // DAT_005065C8, the open stream wait.
     // The heap block a replay's scene order is built in (0x000E3130); DAT_00511B64 points at it until its release
     // (0x000358F0) frees it. Host storage: the held span is a view.
     std::vector<u8> scene_order_heap;
     ButtonBatMenu* bat_menu = nullptr; // DAT_005461A4, the button-bat menu (0x00143550 .. 0x00143680).
     i32 contents_chapter = 0; // DAT_005462C8, the chapter contents last showed.
-    i32 word_005065bc = 0; // DAT_005065BC, cleared by 0x00083B90 while stream 2 is busy; no translated code reads it
-    i32 word_005065c0 = 0; // DAT_005065C0, set by 0x00083B90 then; no translated code reads it
+    i32 word_005065bc = 0; // DAT_005065BC, the row a request held back for the stream wait (0x00083A50, row 18)
+    i32 word_005065c0 = 0; // DAT_005065C0, that request's book turn
 };
 extern RuntimeFrontendState g_frontend;
 void reset_runtime_frontend(RuntimeFrontendState& state, FrontendPauseDitty& ditty); // Xbox 0x000E5A80

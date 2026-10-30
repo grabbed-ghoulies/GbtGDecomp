@@ -19,6 +19,7 @@
 #include "../audio/event_voices.h"
 #include "../entities/actor_render_registration.h"
 #include "../saves/save_games.h"
+#include "../saves/save_summary.h"
 #include "../scene/attract_control.h"
 #include "../scene/executable_resources.h"
 #include "../scene/gameselect_control.h"
@@ -834,7 +835,15 @@ void unlock_secret(GameSelectControlServices& s)
         prepare_audio_event_voice(voice, "XACT_SOUNDBANK_GPICKUPDITTIES_KEYAPPEAR", s.voices); // 0x00039A20
     }
     s.profile.progress.bytes[7] |= 0x20;
-    untranslated("0x000DB380's save of the unlock (0x000F2A50, 0x0010E4F0, 0x0010DA80)");
+    // 0x000F72D0(0x14): a progress block of kind 0x3E and 8 bytes, the progress bits copied in, given to the
+    // contents' game's save and freed, and the save's write queued with no failure callback.
+    std::array<u8, 8> bits{};
+    RuntimeProfileBlock block{0x3E, 8, bits};
+    copy_runtime_progress_bits(block, s.profile); // 0x000F2A50, EBX the block
+    const char16_t* name = s.frontend.contents_widget->name; // DAT_005462CC +0xF20
+    store_save_game_progress(name, block); // 0x0010E4F0, EAX the name
+    SaveGameContext saves{s.files, s.profile, s.scene_order_held};
+    queue_save_game(name, nullptr, saves); // 0x0010DA80(0), EAX the name
 }
 
 // Xbox 0x0004A470: the challenges not yet played (DAT_004E194C words of zero), plus the bonus one.

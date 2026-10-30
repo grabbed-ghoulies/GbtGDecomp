@@ -581,6 +581,19 @@ std::unique_ptr<ButtonBatMenuItem> make_runtime_button_bat_menu_item(const char1
     return entry;
 }
 
+void release_runtime_button_bat_menu_item(ButtonBatMenuItem* item, GameSelectControlServices& services)
+{
+    auto& menu = menu_of(services);
+    for (auto& entry : menu.items)
+    {
+        if (entry.get() == item)
+        {
+            release_menu_item(entry, services); // 0x001434E0
+            return;
+        }
+    }
+}
+
 // Xbox 0x001439C0
 void add_runtime_button_bat_menu_item(std::unique_ptr<ButtonBatMenuItem> entry, GameSelectControlServices& services)
 {

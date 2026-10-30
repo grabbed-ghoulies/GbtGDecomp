@@ -13752,8 +13752,15 @@ int main(int argc, char** argv)
                     ready = frame;
                 }
                 const int at = ready < 0 ? -1 : frame - ready;
-                input.accept = at == 180 || at == 900;
-                input.right = at == 700;
+                const bool info = wanted == "@info";
+                // "@info": Y (Info) on a finished game's Play panel instead of the features.
+                input.accept = at == 180 || (!info && at == 900);
+                input.right = !info && at == 700;
+                if (info && at == 700)
+                {
+                    input.pads[0].buttons |= 0x0800; // Y
+                    chosen_at = frame;
+                }
                 const auto* control = gbtg::find_runtime_scene_control(0x9A);
                 if (features_at < 0 && gbtg::g_frontend.features_widget != nullptr
                     && gbtg::g_frontend.features_widget->state == 2)
@@ -13782,7 +13789,8 @@ int main(int argc, char** argv)
                     }
                 }
                 if (chosen_at >= 0 && page_at < 0 && frame - chosen_at > 30 && control != nullptr
-                    && control->gameselect->current_row != 8 && control->gameselect->requested_row == 0)
+                    && control->gameselect->current_row != 8 && control->gameselect->current_row != 3
+                    && control->gameselect->requested_row == 0)
                 {
                     page_at = frame;
                     page_row = control->gameselect->current_row;
@@ -13809,6 +13817,16 @@ int main(int argc, char** argv)
                         input.accept = true;
                     }
                     acted_at = frame;
+                }
+                if (info && page_at >= 0 && frame - page_at > 300)
+                {
+                    // The Super Scary page's OK waits until its count is shown: A every 100 frames until row 3.
+                    input.accept = (frame - page_at) % 100 == 0;
+                    if (control != nullptr && control->gameselect->current_row == 3)
+                    {
+                        std::cout << "row 3 back at +" << frame - page_at << "\n";
+                        break;
+                    }
                 }
                 gbtg::gfx_begin_frame();
                 game.tick(1.f / 59.f, input);
@@ -13841,6 +13859,8 @@ int main(int argc, char** argv)
                               : control->gameselect->current_row)
                                           : "script " + started)
                       << "\n";
+            std::cout << "unlock bits " << int(gbtg::g_runtime_profile.unlocks.bytes[0]) << ", saved "
+                      << int(gbtg::save_game_unlocks(gbtg::g_frontend.slot_names[0].data())->bytes[0]) << "\n";
             std::cout << "PASS: \"" << wanted << "\" opened row " << page_row << "\n";
             gbtg::gfx_shutdown();
             return 0;

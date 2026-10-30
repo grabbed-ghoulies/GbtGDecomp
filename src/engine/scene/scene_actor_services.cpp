@@ -162,6 +162,7 @@
 #include "../frontend/gameselect_contents.h"
 #include "../frontend/gameselect_delete.h"
 #include "../frontend/gameselect_challenges.h"
+#include "../frontend/gameselect_options.h"
 #include "challenge_runtime.h"
 #include "super_scary_control.h"
 #include "../frontend/gameselect_features.h"
@@ -4421,6 +4422,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             return i32(read_u32({g_510e58, 0x108}, 0x104)); // DAT_00510F5C, scene record +0x104.
         }});
     scene.controls->context.final_score = final_score_services.get();
+    gameselect_services->final_score = final_score_services.get();
     bind_transition_services();
     bind_pause_services();
     // The scene model renderer over the relocated resources and the host D3D device.
@@ -6698,6 +6700,15 @@ void SceneActorServices::State::bind_gameselect_services()
     widget_callbacks[0x000E3F40] = [this]()
     {
         leave_runtime_game_bonus_book_replay(*gameselect_services);
+    };
+    // The options prompts' B and Y (0x00308C20, 0x00308F30).
+    widget_callbacks[0x000E11D0] = [this]()
+    {
+        leave_runtime_game_options(*gameselect_services);
+    };
+    widget_callbacks[0x000E1890] = [this]()
+    {
+        explain_runtime_butlers_brew(*gameselect_services);
     };
     widget_callbacks[0x000E4E70] = [this]()
     {

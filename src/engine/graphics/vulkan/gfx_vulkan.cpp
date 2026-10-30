@@ -2049,15 +2049,17 @@ void gfx_clear_native(std::span<const std::array<i32, 4>> rectangles, u32 flags,
     }
     if ((flags & 0xF0) != 0)
     {
-        // A texture target is in Xbox pixels (see present_hud_viewport); the back buffer's fitted area is not.
-        if ((flags & 0xF0) != 0xF0 || !g.target_rendering)
+        // A texture target is in Xbox pixels (see present_hud_viewport); on the back buffer each rectangle maps
+        // through the HUD viewport onto the window (a widescreen view's fitted 4:3 area, for one).
+        if ((flags & 0xF0) != 0xF0)
         {
-            throw Error("native clear of a colour rectangle supports a whole colour on a texture target only");
+            throw Error("native clear of a colour rectangle supports a whole colour only");
         }
         for (const auto& rectangle : rectangles)
         {
-            clear_attachments(clamp_rect(rectangle[0], rectangle[1], rectangle[2], rectangle[3]), true, argb_color(color), 0,
-                              depth);
+            const VkRect2D area = g.target_rendering ? clamp_rect(rectangle[0], rectangle[1], rectangle[2], rectangle[3])
+                                                     : native_rectangle(rectangle);
+            clear_attachments(area, true, argb_color(color), 0, depth);
         }
     }
     if ((flags & 3) == 0)

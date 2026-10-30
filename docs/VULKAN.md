@@ -7,10 +7,12 @@ retail translation differs between them.
 ## Building and choosing a backend
 
 - Install the LunarG Vulkan SDK (1.3 or newer). CMake finds it through `VULKAN_SDK`.
-- Configure with `-DGBTG_GFX="d3d11;vulkan"`. The first entry is the default backend; null is always built.
+- Configure with `-DGBTG_GFX="d3d11;vulkan"` (null is always built). D3D11 is the default whenever it is
+  compiled in, whatever the list order; `--gfx` or `Backend=` picks another.
 - Run with `--gfx vulkan` (or `Backend=vulkan` under `[Video]` in `gbtg.ini`).
 - `dxcompiler.dll` from the SDK is copied beside `gbtg.exe`. At run time it is loaded from there, else from
   `%VULKAN_SDK%\Bin`. The Windows SDK's `dxcompiler.dll` has no SPIR-V code generation and is never used.
+- The transition tests take `GBTG_GFX=vulkan` (and `GBTG_WIDESCREEN=1` for the 16:9 setting).
 - `GBTG_VULKAN_VALIDATION=1` enables `VK_LAYER_KHRONOS_validation`; errors go to `gbtg.log` and the count is
   logged at shutdown.
 

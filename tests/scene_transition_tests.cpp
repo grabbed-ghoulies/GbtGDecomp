@@ -11298,10 +11298,16 @@ int main(int argc, char** argv)
             gbtg::entity_detail::g_video_widescreen = 1;
             std::cout << "widescreen\n";
         }
+        // GBTG_GFX picks a compiled backend (d3d11, vulkan or null), as gbtg's --gfx does.
+        if (const char* backend = std::getenv("GBTG_GFX"); backend != nullptr)
+        {
+            gbtg::gfx_select_backend(backend);
+        }
         if (!gbtg::gfx_init(config))
         {
             throw gbtg::Error("test graphics initialization failed");
         }
+        std::cout << "gfx " << gbtg::gfx_backend_name() << "\n";
         if (player_test)
         {
             // Its unit checks build their own factory owners, so they run before the game's boot-owned services exist.

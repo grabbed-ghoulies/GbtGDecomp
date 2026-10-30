@@ -288,7 +288,7 @@ them last-added first. Replay Scene, Replay Chapter and Story Books show an
 error page from `aid_loctext_ghoulies_dialog_dialogs` when their test fails.
 Artwork queues `aid_script_ghoulies_gameselect_unlockableart` through
 `0x00083B90` with its scene order held by `0x001234B0`. Demos (the `cdx.xbe`
-launch, `0x00032570`) and Credits (its scene order, `0x000F71F0`) raise.
+launch, `0x00032570`) raises; Credits holds its scene order (see "Credits").
 
 The button-bat menu (`button_bat_menu.cpp`, `DAT_005461A4`): create
 `0x00143550`, destroy `0x00143680`, items `0x00143320` / `0x001434E0`, add
@@ -590,9 +590,7 @@ Engine fixes the front end needed:
 Not translated yet (each raises when reached):
 
 - **The other rows**: 5, 7 and 12..15, which nothing in the retail game
-  requests (see above). Row 19 was missing from
-  the host table, so Info raised "past the table"; it is now listed and raises
-  as untranslated. The features menu's Demos (`0x000D8400`, the `cdx.xbe`
+  requests (see above). The features menu's Demos (`0x000D8400`, the `cdx.xbe`
   launch). A read-only walk from
   these rows and callbacks reaches about 226 untranslated functions (61 KB).
 - The book's map routes (`0x00046F40`, `0x00047770`) and

@@ -697,16 +697,6 @@ i32 copy_save_directory(const SaveContainer& container, char* output, i32 size)
     return 0;
 }
 
-// Xbox 0x0010E1A0, EBX the name: the slot shows the no-write disc (+0xC).
-void mark_save_game_loading(const char16_t* name)
-{
-    SaveSlot* slot = find_save_slot(name);
-    if (slot != nullptr)
-    {
-        slot->loading = 1;
-    }
-}
-
 // DAT_0042AC58: .data 0, and nothing writes it (its one reference is 0x0010F100's read).
 constexpr u32 kSaveDeleteLocked = 0;
 
@@ -1098,5 +1088,41 @@ bool save_game_name_exists(const char16_t* name)
         }
     }
     return false;
+}
+
+// Xbox 0x0010E1E0, EBX the name: the slot shows the damaged game (+0x10).
+void mark_save_game_damaged(const char16_t* name)
+{
+    SaveSlot* slot = find_save_slot(name);
+    if (slot != nullptr)
+    {
+        slot->writing = 1;
+    }
+}
+
+// Xbox 0x0010E1A0, EBX the name: the slot shows the no-write disc (+0xC).
+void mark_save_game_loading(const char16_t* name)
+{
+    SaveSlot* slot = find_save_slot(name);
+    if (slot != nullptr)
+    {
+        slot->loading = 1;
+    }
+}
+
+// Xbox 0x0010D580, EAX the name: a save record with no container, so the game plays on without saving.
+i32 add_unsaved_save_game(const char16_t* name, u8 slot, SaveGameContext& context)
+{
+    SaveGameRecord* save = create_save_record(name, context); // 0x0010E9D0
+    g_save_scan->slots.push_back({nullptr, save, 0, 0, 0, nullptr}); // 0x000662A0 grows a full pool.
+    set_save_game_slot(name, slot); // 0x0010E270, EBX the name
+    mark_save_game_loading(name); // 0x0010E1A0
+    return 1;
+}
+
+// Xbox 0x000EB220 on a root, for callers outside the save code.
+i32 query_save_volume_blocks(const char* root, u32* free, u32* total, SaveGameContext& context)
+{
+    return query_save_blocks(root, free, total, context);
 }
 }

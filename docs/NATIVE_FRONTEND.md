@@ -367,8 +367,8 @@ the way `0x0011C3F0` -> `0x0011C480` -> `0x001234B0` does
 (`SceneActorServices::hold_boot_scene_order`), so the attract reel, the title
 and game select run on that order; game select (`0x00083660`) holds it again.
 After a replay the held order is the replay's, so the replayed scene returns
-to game select. The artwork's script now follows its own held order
-(`aid_sceneorder_gameselect_unlockableart`; no test runs it on).
+to game select. The artwork's script follows its own held order
+(`aid_sceneorder_gameselect_unlockableart`) into the Gallery (below).
 `--gameselect-replay-scene` runs the replay on: the books advance through the
 VM (game select -> `chapter1_scene0_1book` -> `chapter1_scene1_1book` ->
 `chapter1_scene1_2playcam`). With no player driver for the opening's fight,
@@ -448,8 +448,65 @@ stream 2 plays): the loading picture and a blinking "loading" line until stream
 `DAT_00429BC0`). No test reaches it: game select has not yet opened with stream
 2 busy.
 
-The secret button sequence's save (`0x000DB380`) now writes the progress bit
-into the game's save (`0x000F2A50`, `0x0010E4F0`, `0x0010DA80`).
+The secret button sequence (`0x000DB1A0`, ticked by `0x00142F00` on a game's
+contents while the progress bit 0x3D is clear and fewer than 20 challenges
+are finished) is, in the pad word (`0x00154A70`'s bits): both triggers held
+(0x4000, 0x8000), then left stick, right stick, White, Black, White, right
+stick, left stick (0x40, 0x80, 0x2000, 0x1000, 0x2000, 0x80, 0x40), each
+pressed and released. Its unlock (`0x000DB380`) plays the key-appear ditty,
+sets the bit and writes it into the game's save (`0x000F2A50`, `0x0010E4F0`,
+`0x0010DA80`); the features menu then lists Gallery (`features_artwork`).
+
+The Gallery (factory type 0x9F, `scene/gallery_control.cpp`, getter
+`0x00087880`: sizes `0x00087860`, construct `0x000878D0`, destroy
+`0x00087900`, tick `0x000879D0`, draw `0x00087D20`, states `0x00087D40`,
+pages `0x000881C0` / `0x00088280` / `0x000884B0`, the book's page shaders
+`0x00087FE0` / `0x00088170`, captions `0x000883A0` / `0x000883F0`, prompts
+`0x000882C0`, the stick `0x00087F20` / `0x00087F80`, leaving `0x00088480`):
+the artbook cutscenes with one page of art for each finished challenge
+(`aid_texture_ghoulies_unlockableart_*`, 0x00427B60), or all 20 with the bit
+0x3D. The stick turns the pages, Y hides the "lockableArtMenu_basic"
+prompts, and A or B turns back through the pages (faster each page) and
+returns to game select through `aid_script_ghoulies_gameselect_unlockableart_return`.
+`--gameselect-secret` enters the sequence on a new game, opens Gallery
+("Where It Began..."), turns to "Amber Evolution" and leaves with B.
+
+The app error screen (`app_error_screen.cpp`): `0x00032990` takes the caller's
+0x1098-byte block (the game's name, the apperror message, the A and B keys,
+callbacks and arguments), sets `DAT_0050EA9C` 0x40000 (which stops the scene
+pass) and opens phase 1 (`0x00032BA0`): a keyboard device (`0x00107EF0`), the
+"AppMainErrorDialog" view, the dialogpage1 cutscene, the "apperror" prompts
+from "AppMainErrorDialogMenu_2" (B, A) or "_1" (A only) with the keys written
+into the rows, and the name and message text. `0x00032AB0` runs every frame
+from `frame_tick` after the scene pass (it replaced the host
+`gfx_present_tick_fade`, whose state nothing set): it loops the page, updates
+the prompts, moves to phase 2 when the text has settled and to phase 4 when
+the closing text and prompts are gone. A and B (`0x00032F10`, `0x00032FA0`)
+close it (phase 3) and record the choice; phase 4 clears 0x40000 and calls
+the chosen callback. `0x0011C240` draws the page and the prompts. The callers:
+
+| Caller | Message | A | B |
+|---|---|---|---|
+| `0x000DF6B0` (a save that will not load) | slotselection_corruptgame | `0x000DF760`: the slot shows Damaged Game | none |
+| `0x000DBCD0` (delete failed) | faildelete | `0x000DC0A0` → `0x000DBD50`, back to slot select | `0x000DC070`, dashboard |
+| `0x000DD2F0` (no room) | failnaming_createspace, with the blocks wanted | `0x000DD5D0`: play without saving (`0x0010D580`) | `0x000DD510`, dashboard (12 blocks) |
+| `0x000DD3A0` (could not save) | failnaming_runagain | `0x000DD670`, name again | `0x000DD550`, give up |
+| `0x000DD420` (corrupt) | failnaming_corruptgame | `0x000DC070`, dashboard | `0x000DD670`, name again |
+| `0x000DD4A0` (too many saves) | failnaming_toomanysaves | `0x000DD550`, give up | none |
+| `0x000E1D50` (options save failed) | frontendoptions_corruptgame | `0x000F33F0`: play on unsaved | `0x000F33A0`, dashboard |
+| `0x000F32F0` (a game save failed) | gamesystem_corruptgame | `0x000F33F0` | `0x000F33A0` |
+
+The dashboard launches (`0x00032570`, XLaunchNewImage) have no host boundary
+and raise. `--gameselect-corrupt-save` damages the retail save's progress.xsv:
+the scan shows "Paul" / "Unable to load saved game. Press A to continue" with
+A Continue over the dialog page, and A brings slot select back with the slot
+reading "Damaged Game". The other callers are wired but no test makes a save
+fail.
+
+The keyboard's name errors (`0x000152F0`'s check results 2..5:
+notuniquegamename, namenotset, nameallwhitespace, nameisreserved) queue the
+dialogs page through `0x000582A0` and keep the keyboard open.
+`--gameselect-duplicate-name` names a second game with the default name.
 
 Rows 5 ("GameSlotInfoMenu"), 7 ("BonusBookCollectionMenu") and 12..15 (the
 cross-sell demo kiosk: "xselldemo", "XSellDemoMoviesMainMenu",
@@ -525,8 +582,8 @@ The challenge runtime (`scene/challenge_runtime.cpp`, `g_challenge_run` for
 - The damage challenge's captions are native: the caption pool (`0x0012DCD0`),
   the refresh `0x0012DDB0` with its "caption: $points" lines (`0x0012DF30`,
   `0x0012DFD0`) and "Total Damage: $" (coreterms), and the grouped number
-  `0x000FBD30`. Still untranslated (raising when reached): the save error
-  screen (`0x000F32F0`).
+  `0x000FBD30`. A failed save shows the app error screen (`0x000F32F0`, see
+  below).
 
 Every challenge has been played from the menu. `GBTG_CHALLENGE=n` makes
 `--gameselect-challenges` turn the carousel to challenge n and play it without
@@ -593,13 +650,6 @@ Not translated yet (each raises when reached):
   requests (see above). The features menu's Demos (`0x000D8400`, the `cdx.xbe`
   launch). A read-only walk from
   these rows and callbacks reaches about 226 untranslated functions (61 KB).
-- The book's map routes (`0x00046F40`, `0x00047770`) and
-  page texture (the third `0x00048260` argument).
-- **The app error screen** (`0x00032990` / `0x00032BA0`, ticked by
-  `0x00032AB0` and drawn from `0x0011C240`; its flag `0x40000` holds the
-  scene): the save errors (`0x000DD2F0`, `0x000DD3A0`, `0x000DD420`,
-  `0x000DD4A0`, `0x000DF6B0`) and the delete failure (`0x000DBCD0`). Only
-  host approximations of `0x00032AB0` / `0x00033480` exist, in
-  `gfx_d3d11.cpp` (step 6).
-- The name errors (`0x000582A0`'s keyboard messages) and the Japanese keyboard
-  (`0x00012920`).
+- The book's widescreen page redraw (`0x00048550`'s `0x0005CE80`), reached only
+  on a widescreen display.
+- The Japanese keyboard (`0x00012920`), reached only in Japanese.

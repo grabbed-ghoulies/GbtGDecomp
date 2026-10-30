@@ -254,6 +254,21 @@ bool construct_map_view_view(FactoryObject& object, std::span<const u8>)
     return construct_runtime_map_view_control(*control.map_view, installing->context.map_view_services());
 }
 
+bool construct_gallery_view(FactoryObject& object, std::span<const u8>)
+{
+    auto& control = installing->instance(object);
+    control.state = state_of(object);
+    control.type = object.type;
+    control.gallery = std::make_unique<GalleryControlState>();
+    return construct_runtime_gallery_control(*control.gallery, installing->context.gameselect_services());
+}
+
+void destroy_gallery_view(FactoryObject& object)
+{
+    auto& control = installing->instance(object);
+    destroy_runtime_gallery_control(*control.gallery, installing->context.gameselect_services());
+}
+
 void destroy_map_view_view(FactoryObject& object)
 {
     auto& control = installing->instance(object);
@@ -363,6 +378,14 @@ const ObjectFactoryVtable* movie_volume_control_lifecycle()
 {
     static const ObjectFactoryVtable table{0x00505650, movie_volume_control_object_sizes,
         construct_movie_volume_control_view, destroy_movie_volume_control_view};
+    return &table;
+}
+
+// Getter 0x00087880; message 0x00115EE0.
+const ObjectFactoryVtable* gallery_control_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505688, gallery_control_object_sizes, construct_gallery_view,
+        destroy_gallery_view};
     return &table;
 }
 
@@ -518,6 +541,7 @@ void NativeSceneControlOwner::install(std::span<ObjectFactoryType> types)
     types[0x97] = ObjectFactoryType{3, scene_fx_control_lifecycle}; // Getter 0x00082FA0.
     types[0x98] = ObjectFactoryType{3, super_scary_control_lifecycle};
     types[0x9E] = ObjectFactoryType{3, map_view_control_lifecycle}; // Getter 0x00083EA0.
+    types[0x9F] = ObjectFactoryType{3, gallery_control_lifecycle}; // Getter 0x00087880.
     types[0x96] = ObjectFactoryType{3, movie_volume_control_lifecycle};
     types[0x99] = ObjectFactoryType{3, final_score_control_lifecycle};
 }
@@ -615,7 +639,7 @@ void NativeSceneControlOwner::message(SceneControlInstance& control, std::span<c
         message_runtime_super_scary_control(control.state, words, *control.super_scary, control, context.lists);
         return;
     }
-    // Types 3, 0x91, 0x95, 0x99, 0x9A, 0x9B, 0x9D and 0x9E share 0x00115EE0.
+    // Types 3, 0x91, 0x95, 0x99, 0x9A, 0x9B, 0x9D, 0x9E and 0x9F share 0x00115EE0.
     message_runtime_scene_control(control, words, context.lists);
 }
 
@@ -667,6 +691,9 @@ void NativeSceneControlOwner::tick(SceneControlInstance& control)
         tick_runtime_map_view_control(*control.map_view, control, context.lists,
             context.map_view_services()); // 0x00083FE0
         return;
+    case 0x9F:
+        tick_runtime_gallery_control(*control.gallery, context.gameselect_services()); // 0x000879D0
+        return;
     default:
         throw Error("scene control tick for factory type " + std::to_string(control.type));
     }
@@ -691,6 +718,9 @@ void NativeSceneControlOwner::draw(SceneControlInstance& control)
         return;
     case 0x99:
         draw_runtime_final_score(context.final_score_services()); // 0x00082F70, a jump to 0x000D4120
+        return;
+    case 0x9F:
+        draw_runtime_gallery_control(*control.gallery, context.gameselect_services()); // 0x00087D20
         return;
     case 0x9A:
         draw_runtime_gameselect_control(control.state, *control.gameselect, context.gameselect_services());

@@ -683,6 +683,8 @@ add_executable(gbtg
     src/engine/scene/challenge_runtime.cpp
     src/engine/frontend/gameselect_features.cpp
     src/engine/frontend/gameselect_options.cpp
+    src/engine/frontend/app_error_screen.cpp
+    src/engine/scene/gallery_control.cpp
     src/engine/frontend/gameselect_stream_wait.cpp
     src/engine/frontend/gameselect_scene_replay.cpp
     src/engine/frontend/gameselect_progress.cpp

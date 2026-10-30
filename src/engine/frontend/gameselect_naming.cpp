@@ -1,10 +1,13 @@
 #include "gameselect_naming.h"
+#include "app_error_screen.h"
 #include "dialogue_draw_outer.h"
 #include "frontend_state.h"
 #include "virtual_keyboard.h"
 #include "../camera/runtime_display_setup.h"
 #include "../camera/view_initialization.h"
 #include "../cutscenes/event_runtime.h"
+#include "../runtime/crt_format.h"
+#include "../saves/save_games.h"
 #include "../scene/attract_control.h"
 #include "../scene/executable_resources.h"
 #include "../scene/gameselect_control.h"
@@ -44,24 +47,149 @@ void copy_wide(char16_t* output, const char16_t* input)
 
 namespace
 {
-// 0x000DD2F0, 0x000DD3A0, 0x000DD420 and 0x000DD4A0: the save errors, each an apperror message for the name
-// shown by the app error screen (0x00032990).
-SaveCallback naming_error(const char* key)
+// The naming page's request for `row` on the next book threshold, the book released, and the page closed (0x000DD6C0
+// state 4).
+void leave_naming_for(u32 row, GameSelectControlServices& s)
 {
-    return [key](const void*)
+    SceneControlInstance* control = find_runtime_scene_control(0x9A); // 0x00116170, EDX 0x9A
+    control->gameselect->requested_row = row;
+    control->gameselect->book_turn = 1;
+    if (control->gameselect->book != nullptr)
     {
-        throw Error(std::string("0x00032990 (the app error screen, apperror ") + key + ") is not translated");
+        release_transition_book(control->gameselect->book, s.books); // 0x00048860
+        control->gameselect->book = nullptr;
+    }
+    set_runtime_game_naming_state(*s.frontend.naming_widget, 4, s); // 0x000DD6C0, DAT_00506594
+}
+
+// Xbox 0x000DD5D0: "create space"'s A plays the new game without saving it (0x0010D580) and slot select comes back.
+void play_new_game_unsaved(GameSelectControlServices& s)
+{
+    const u8 slot = s.frontend.word_0042a0c8 != 0 ? u8(s.frontend.word_0042a0c4) : u8(0);
+    auto& w = *s.frontend.naming_widget; // DAT_00506594
+    SaveGameContext saves{s.files, s.profile, s.scene_order_held};
+    add_unsaved_save_game(w.name.data(), slot, saves); // 0x0010D580, EAX +0x74
+    copy_wide(s.frontend.selected_name.data(), w.name.data()); // lstrcpyW(DAT_00429CC4, +0x74)
+    copy_wide(s.frontend.slot_names[slot].data(), w.name.data()); // DAT_00429DC4 + slot * 0x100
+    leave_naming_for(1, s);
+}
+
+// Xbox 0x000DD670: back to the naming page (row 4).
+void name_game_again(GameSelectControlServices& s)
+{
+    leave_naming_for(4, s);
+}
+
+// Xbox 0x000DD510: "create space"'s B, the dashboard's memory area for the 12 blocks a save takes.
+[[noreturn]] void make_space_on_dashboard(void*)
+{
+    launch_memory_dashboard(0xC);
+}
+
+// Xbox 0x000DC070: the dashboard's memory area.
+[[noreturn]] void leave_for_dashboard(void*)
+{
+    launch_memory_dashboard(0);
+}
+
+// The naming page's apperror page for the name (DAT_00506594 +0x74).
+AppErrorRequest naming_error(const char* message, GameSelectControlServices& s)
+{
+    AppErrorRequest request{};
+    copy_wide(request.title.data(), s.frontend.naming_widget->name.data()); // lstrcpyW(+0x74)
+    request_app_error_message(request, message); // 0x000FF0A0
+    return request;
+}
+
+// Xbox 0x000DD2F0: no room for a save. The message's %d is the blocks still wanted (12 less the free ones).
+void show_naming_space_error(GameSelectControlServices& s)
+{
+    AppErrorRequest request = naming_error("failnaming_createspacemessage", s); // 0x00324F00
+    i32 wanted = 0xC;
+    u32 free = 0;
+    SaveGameContext saves{s.files, s.profile, s.scene_order_held};
+    if (query_save_volume_blocks("U:\\", &free, nullptr, saves) == 0) // 0x000EB220, 0x0032A3C8
+    {
+        wanted = wanted - i32(free);
+    }
+    std::array<char16_t, 0x800> format = request.message;
+    xapi_format_wide_string(request.message.data(), format.data(), wanted); // 0x0014BC7D over itself
+    request.a_key = "failnaming_createspaceabutton"; // 0x00324EE0
+    request.a = [&s](void*)
+    {
+        play_new_game_unsaved(s); // 0x000DD5D0
     };
+    request.b_key = "failnaming_createspacebbutton"; // 0x00324EC0
+    request.b = make_space_on_dashboard; // 0x000DD510
+    open_app_error_screen(request); // 0x00032990
+}
+
+// Xbox 0x000DD3A0: the save could not be made; A names it again, B gives up.
+void show_naming_run_again_error(GameSelectControlServices& s)
+{
+    AppErrorRequest request = naming_error("failnaming_runagainmessage", s); // 0x00324EA4
+    request.a_key = "failnaming_runagainabutton"; // 0x00324E88
+    request.a = [&s](void*)
+    {
+        name_game_again(s); // 0x000DD670
+    };
+    request.b_key = "failnaming_runagainbbutton"; // 0x00324E6C
+    request.b = [&s](void*)
+    {
+        leave_runtime_game_naming(s); // 0x000DD550
+    };
+    open_app_error_screen(request);
+}
+
+// Xbox 0x000DD420: a corrupt save; A the dashboard, B names it again.
+void show_naming_corrupt_error(GameSelectControlServices& s)
+{
+    AppErrorRequest request = naming_error("failnaming_corruptgamemessage", s); // 0x00324E4C
+    request.a_key = "failnaming_corruptgameabutton"; // 0x00324E2C
+    request.a = leave_for_dashboard; // 0x000DC070
+    request.b_key = "failnaming_corrptgamebbutton"; // 0x00324E0C
+    request.b = [&s](void*)
+    {
+        name_game_again(s); // 0x000DD670
+    };
+    open_app_error_screen(request);
+}
+
+// Xbox 0x000DD4A0: too many saves; A only, which gives up.
+void show_naming_too_many_error(GameSelectControlServices& s)
+{
+    AppErrorRequest request = naming_error("failnaming_toomanysavesmessage", s); // 0x00324DEC
+    request.a_key = "failnaming_toomanysavesabutton"; // 0x00324DCC
+    request.a = [&s](void*)
+    {
+        leave_runtime_game_naming(s); // 0x000DD550
+    };
+    request.b_key = nullptr;
+    request.b = nullptr;
+    open_app_error_screen(request);
 }
 
 // The DD210 / DD6C0 save of the widget's name in slot DAT_0042A0C4 (0 when DAT_0042A0C8 is clear).
 i32 save_new_game(GameNamingWidget& w, GameSelectControlServices& s)
 {
     const u8 slot = s.frontend.word_0042a0c8 != 0 ? u8(s.frontend.word_0042a0c4) : u8(0);
-    const SaveCreateCallbacks callbacks{naming_error("failnaming_toomanysavesmessage"), // 0x000DD4A0 in EAX
-        naming_error("failnaming_createspacemessage"), // 0x000DD2F0
-        naming_error("failnaming_runagainmessage"), // 0x000DD3A0
-        naming_error("failnaming_corruptgamemessage")}; // 0x000DD420
+    const SaveCreateCallbacks callbacks{
+        [&s](const void*)
+        {
+            show_naming_too_many_error(s); // 0x000DD4A0 in EAX
+        },
+        [&s](const void*)
+        {
+            show_naming_space_error(s); // 0x000DD2F0
+        },
+        [&s](const void*)
+        {
+            show_naming_run_again_error(s); // 0x000DD3A0
+        },
+        [&s](const void*)
+        {
+            show_naming_corrupt_error(s); // 0x000DD420
+        }};
     SaveGameContext saves{s.files, s.profile, s.scene_order_held};
     return create_save_game(w.name.data(), slot, callbacks, s.save_image, saves); // 0x0010D430, ECX +0x74
 }

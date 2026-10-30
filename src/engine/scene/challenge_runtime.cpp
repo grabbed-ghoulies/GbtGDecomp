@@ -1,4 +1,5 @@
 #include "challenge_runtime.h"
+#include "../frontend/app_error_screen.h"
 #include "../audio/bank_streams.h"
 #include "../frontend/dialogue_activation.h"
 #include "../frontend/dialogue_measurement.h"
@@ -547,9 +548,9 @@ void save_run(ChallengeRuntimeServices& context)
     {
         clear_save_game_word_184(name); // 0x0010E2C0
     }
-    queue_save_game(name, [](const void*)
+    queue_save_game(name, [](const void* argument)
     {
-        throw Error("0x000F32F0 (the app error screen, apperror gamesystem_corruptgamemessage) is not translated");
+        show_runtime_corrupt_game(static_cast<const char16_t*>(argument)); // 0x000F32F0
     }, context.saves); // 0x0010DA80, EAX DAT_00506C90
 }
 

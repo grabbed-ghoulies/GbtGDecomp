@@ -4,6 +4,9 @@
 #include "../src/engine/scene/gameselect_control.h"
 #include "../src/engine/scene/scene_controls.h"
 #include "../src/engine/frontend/gameselect_slots.h"
+#include "../src/engine/frontend/app_error_screen.h"
+#include "../src/engine/frontend/gameselect_stream_wait.h"
+#include "../src/engine/scene/gallery_control.h"
 #include "../src/engine/frontend/button_bat_menu.h"
 #include "../src/engine/frontend/gameselect_challenges.h"
 #include "../src/engine/scene/challenge_runtime.h"
@@ -10904,6 +10907,20 @@ int main(int argc, char** argv)
     // opens is logged and captured (cache/gameselect_feature_N.bmp); then A on its first item (or B with
     // GBTG_FEATURE_BACK), and the row or script that follows is reported.
     const bool feature_test = argc == 3 && std::string_view(argv[2]) == "--gameselect-feature";
+    // --gameselect-corrupt-save: the retail save with its progress.xsv damaged. Slot select's scan must show the app
+    // error screen (apperror slotselection_corruptgamemessage, 0x000DF6B0); A closes it (0x000DF760) and slot select
+    // runs on (cache/gameselect_corrupt_N.bmp).
+    const bool corrupt_save_test = argc == 3 && std::string_view(argv[2]) == "--gameselect-corrupt-save";
+    // --gameselect-duplicate-name: a new game with the default name in slot 1, B back to slot select, then slot 2 and
+    // Done with the same default name. The keyboard's check (0x001411C0, 2) must show the dialogs page
+    // errormessages_notuniquegamename (0x000582A0) and keep the naming page open without a second save
+    // (cache/gameselect_duplicate_N.bmp).
+    const bool duplicate_name_test = argc == 3 && std::string_view(argv[2]) == "--gameselect-duplicate-name";
+    // --gameselect-secret: a new game's contents take the secret sequence (0x000DB1A0): both triggers held, then
+    // left stick, right stick, White, Black, White, right stick, left stick. The progress bit 0x3D must be set and
+    // saved (0x000DB380); then Right and A open the features, whose Artwork item (now listed) A starts
+    // (aid_script_ghoulies_gameselect_unlockableart).
+    const bool secret_test = argc == 3 && std::string_view(argv[2]) == "--gameselect-secret";
     const bool challenges_test = challenge_restart_test
         || (argc == 3 && std::string_view(argv[2]) == "--gameselect-challenges");
     const bool replay_scene_test = replay_paging_test
@@ -10913,7 +10930,8 @@ int main(int argc, char** argv)
         std::cout << std::unitbuf; // its output survives a crash in teardown
     }
     const bool gameselect_native_test = new_game_test || delete_test || stats_test || features_test || replay_scene_test
-        || retail_save_test || challenges_test || feature_test
+        || retail_save_test || challenges_test || feature_test || corrupt_save_test || duplicate_name_test
+        || secret_test
         || (argc == 3 && std::string_view(argv[2]) == "--gameselect-native");
     const bool gameselect_test = gameselect_native_test || (argc == 3 && std::string_view(argv[2]) == "--gameselect");
     const bool title_test = title_a_test || attract_test || gameselect_test
@@ -11294,7 +11312,7 @@ int main(int argc, char** argv)
             // Each run starts with an empty U: (the save folder), so earlier runs' saves never change the screens.
             std::filesystem::remove_all("cache/test_saves");
         }
-        if (retail_save_test || challenges_test || feature_test)
+        if (retail_save_test || challenges_test || feature_test || corrupt_save_test)
         {
             const char* from = std::getenv("GBTG_RETAIL_SAVES");
             const std::filesystem::path source = from != nullptr ? from : "../Saves/Xbox/4d530053";
@@ -11305,6 +11323,28 @@ int main(int argc, char** argv)
             std::filesystem::create_directories("cache/test_saves");
             std::filesystem::copy(source, "cache/test_saves", std::filesystem::copy_options::recursive);
             std::cout << "copied the retail saves from " << source.generic_string() << "\n";
+            if (corrupt_save_test)
+            {
+                // Flip bytes past the signature so the verify (0x000E9B60) fails.
+                for (const auto& entry : std::filesystem::recursive_directory_iterator("cache/test_saves"))
+                {
+                    if (entry.path().filename() != "progress.xsv")
+                    {
+                        continue;
+                    }
+                    std::fstream file(entry.path(), std::ios::in | std::ios::out | std::ios::binary);
+                    file.seekg(0x40);
+                    char bytes[16]{};
+                    file.read(bytes, sizeof(bytes));
+                    for (char& b : bytes)
+                    {
+                        b = char(~b);
+                    }
+                    file.seekp(0x40);
+                    file.write(bytes, sizeof(bytes));
+                    std::cout << "damaged " << entry.path().generic_string() << "\n";
+                }
+            }
         }
         gbtg::set_save_root("cache/test_saves");
         game.init(argv[1], scene6_save_test || scene6_reload_test ? "" : scene6_test ? "6" : scene3_test || pause_test ? "7"
@@ -14205,6 +14245,375 @@ int main(int argc, char** argv)
             }
             std::cout << "PASS: the challenges opened, moved, showed the intro, played " << started
                       << ", showed its results and restart menu, and B went back to the challenges\n";
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (secret_test)
+        {
+            const auto text_of = [](const gbtg::ButtonBatMenuItem& entry)
+            {
+                std::string text;
+                for (const char16_t* c = entry.text.data(); *c != 0; ++c)
+                {
+                    text += char(*c < 0x80 ? *c : '?');
+                }
+                return text;
+            };
+            const std::array<gbtg::u16, 7> presses{0x40, 0x80, 0x2000, 0x1000, 0x2000, 0x80, 0x40};
+            int ready = -1;
+            int contents_at = -1;
+            int unlocked_at = -1;
+            int features_at = -1;
+            int chosen_at = -1;
+            std::string artwork_script;
+            int gallery_open_at = -1;
+            int& gallery_open_at_input = gallery_open_at;
+            int gallery_state = -1;
+            int gallery_page = -1;
+            int turned_page = -1;
+            int left_at = -1;
+            int returned_at = -1;
+            int wait_seen = -1;
+            int wait_closed = -1;
+            for (int frame = 0; frame < 7000; ++frame)
+            {
+                gbtg::InputState input;
+                input.start = frame == 120;
+                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_54632c == 0)
+                {
+                    ready = frame;
+                }
+                const int at = ready < 0 ? -1 : frame - ready;
+                auto& frontend = gbtg::g_frontend;
+                if (contents_at < 0 && frontend.contents_widget != nullptr && frontend.contents_widget->state == 2)
+                {
+                    contents_at = frame;
+                    std::cout << "contents open at frame " << frame << ", sequence "
+                              << (frontend.contents_widget->sequence != nullptr ? "armed" : "missing") << "\n";
+                }
+                input.accept = at == 180 || at == 420 || at == 900;
+                if (contents_at >= 0 && unlocked_at < 0)
+                {
+                    const int since = frame - contents_at;
+                    if (since >= 100)
+                    {
+                        input.pads[0].buttons |= 0xC000; // Both triggers.
+                    }
+                    const int step = (since - 140) / 24;
+                    if (since >= 140 && step < int(presses.size()) && (since - 140) % 24 < 6)
+                    {
+                        input.pads[0].buttons |= presses[size_t(step)];
+                    }
+                }
+                if (unlocked_at < 0 && (gbtg::g_runtime_profile.progress.bytes[7] & 0x20) != 0)
+                {
+                    unlocked_at = frame;
+                    std::cout << "progress bit 0x3D set at frame " << frame << "\n";
+                }
+                input.right = unlocked_at >= 0 && frame - unlocked_at == 200;
+                input.accept = input.accept || (unlocked_at >= 0 && frame - unlocked_at == 400);
+                if (features_at < 0 && frontend.features_widget != nullptr && frontend.features_widget->state == 2)
+                {
+                    features_at = frame;
+                    std::cout << "features:";
+                    for (const auto& item : frontend.bat_menu->items)
+                    {
+                        std::cout << " \"" << text_of(*item) << "\"";
+                    }
+                    std::cout << "\n";
+                }
+                if (gallery_open_at_input >= 0)
+                {
+                    const int since = frame - gallery_open_at_input;
+                    if (since >= 200 && since < 212)
+                    {
+                        input.pads[0].lx = 30000; // The stick right.
+                    }
+                    if (since >= 900 && since < 912)
+                    {
+                        input.back = true;
+                    }
+                }
+                if (features_at >= 0 && chosen_at < 0)
+                {
+                    const int since = frame - features_at;
+                    if (since % 100 == 50)
+                    {
+                        const auto* menu = frontend.bat_menu;
+                        const bool on_artwork = menu != nullptr && menu->selected >= 0
+                            && text_of(*menu->items[size_t(menu->selected)]) == "Gallery";
+                        if (on_artwork)
+                        {
+                            input.accept = true;
+                            chosen_at = frame;
+                        }
+                        else if (since < 2000)
+                        {
+                            input.down = true;
+                        }
+                    }
+                }
+                gbtg::gfx_begin_frame();
+                game.tick(1.f / 59.f, input);
+                gbtg::gfx_end_frame();
+                if (unlocked_at >= 0 && frame - unlocked_at == 30)
+                {
+                    gbtg::RgbaImage image;
+                    if (gbtg::gfx_readback(image))
+                    {
+                        gbtg::write_bmp("cache/gameselect_secret_unlocked.bmp", image);
+                    }
+                }
+                if (chosen_at >= 0 && artwork_script.empty()
+                    && game.scene_script.name.find("unlockableart") != std::string::npos)
+                {
+                    artwork_script = game.scene_script.name;
+                    std::cout << "artwork started " << artwork_script << " at frame " << frame << "\n";
+                }
+                // The Gallery (type 0x9F): open, the stick turns a page, then B turns back and leaves.
+                const auto* gallery_control = gbtg::find_runtime_scene_control(0x9F);
+                const gbtg::GalleryControlState* gallery = gallery_control != nullptr
+                    ? gallery_control->gallery.get() : nullptr;
+                if (gallery != nullptr && gallery_open_at < 0 && (gallery->state == 2 || gallery->state == 3))
+                {
+                    gallery_open_at = frame;
+                    std::cout << "gallery open at frame " << frame << ", " << gbtg::count_runtime_gallery_pages(
+                        *gbtg::g_app_error_services) << " pages\n";
+                }
+                if (gallery != nullptr)
+                {
+                    gallery_state = gallery->state;
+                    gallery_page = gallery->page;
+                }
+                const auto capture_as = [](const std::string& name)
+                {
+                    gbtg::RgbaImage image;
+                    if (gbtg::gfx_readback(image))
+                    {
+                        gbtg::write_bmp("cache/gameselect_secret_" + name + ".bmp", image);
+                    }
+                };
+                if (gallery_open_at >= 0)
+                {
+                    const int since = frame - gallery_open_at;
+                    if (since == 60)
+                    {
+                        capture_as("gallery_open");
+                    }
+                    if (since == 400)
+                    {
+                        std::cout << "after the stick: page " << gallery_page << ", state " << gallery_state << "\n";
+                        turned_page = gallery_page;
+                        capture_as("gallery_turned");
+                    }
+                    if (since == 900 && left_at < 0)
+                    {
+                        left_at = frame;
+                    }
+                }
+                if (gbtg::g_frontend.stream_wait_widget != nullptr && wait_seen < 0)
+                {
+                    wait_seen = frame;
+                    std::cout << "stream wait (row 18) open at frame " << frame << ", wait "
+                              << gbtg::g_frontend.stream_wait_widget->wait << "\n";
+                }
+                if (wait_seen >= 0 && wait_closed < 0 && gbtg::g_frontend.stream_wait_widget == nullptr)
+                {
+                    wait_closed = frame;
+                    std::cout << "stream wait closed at frame " << frame << "\n";
+                }
+                if (wait_seen >= 0 && frame - wait_seen == 30)
+                {
+                    capture_as("stream_wait");
+                }
+                if (left_at >= 0 && returned_at < 0 && game.scene_script.name == "aid_script_ghoulies_gameselect_gameselect"
+                    && gbtg::g_54632c == 0)
+                {
+                    returned_at = frame;
+                    std::cout << "back in game select at frame " << frame << "\n";
+                }
+                if (returned_at >= 0 && frame - returned_at == 200)
+                {
+                    capture_as("gallery_returned");
+                }
+                if (returned_at >= 0 && frame - returned_at > 200 && (wait_seen < 0 || wait_closed >= 0))
+                {
+                    break;
+                }
+            }
+            if (unlocked_at < 0)
+            {
+                throw gbtg::Error("the secret sequence did not set the progress bit");
+            }
+            if (chosen_at < 0)
+            {
+                throw gbtg::Error("the features menu did not list Artwork after the secret sequence");
+            }
+            if (artwork_script.empty())
+            {
+                throw gbtg::Error("A on Artwork did not start aid_script_ghoulies_gameselect_unlockableart");
+            }
+            if (gallery_open_at < 0)
+            {
+                throw gbtg::Error("the Gallery (type 0x9F) did not open");
+            }
+            if (turned_page != 1)
+            {
+                throw gbtg::Error("the stick did not turn the Gallery to its second page");
+            }
+            if (returned_at < 0)
+            {
+                throw gbtg::Error("B in the Gallery did not return to game select");
+            }
+            std::cout << "PASS: the secret sequence unlocked the Gallery, its page turned and B went back to game "
+                         "select\n";
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (duplicate_name_test)
+        {
+            int ready = -1;
+            int contents_at = -1;
+            int slots_at = -1;
+            int naming_at = -1;
+            int done_at = -1;
+            for (int frame = 0; frame < 4200; ++frame)
+            {
+                gbtg::InputState input;
+                input.start = frame == 120;
+                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_54632c == 0)
+                {
+                    ready = frame;
+                }
+                const int at = ready < 0 ? -1 : frame - ready;
+                auto& frontend = gbtg::g_frontend;
+                // contents_at: the first naming page has closed (Done saved the game).
+                if (contents_at < 0 && at > 420 && frontend.naming_widget == nullptr)
+                {
+                    contents_at = frame;
+                    std::cout << "first game named at frame " << frame << "\n";
+                }
+                if (contents_at >= 0 && slots_at < 0 && frontend.slot_widget != nullptr)
+                {
+                    slots_at = frame;
+                    std::cout << "slot select again at frame " << frame << "\n";
+                }
+                if (slots_at >= 0 && naming_at < 0 && frontend.naming_widget != nullptr)
+                {
+                    naming_at = frame;
+                    std::cout << "naming again at frame " << frame << "\n";
+                }
+                input.accept = at == 180 || at == 420 || (slots_at >= 0 && frame - slots_at == 500)
+                    || (naming_at >= 0 && frame - naming_at == 300);
+                input.right = slots_at >= 0 && frame - slots_at == 300;
+                if (naming_at >= 0 && done_at < 0 && frame - naming_at == 300)
+                {
+                    done_at = frame;
+                }
+                gbtg::gfx_begin_frame();
+                game.tick(1.f / 59.f, input);
+                gbtg::gfx_end_frame();
+                if (done_at >= 0 && (frame - done_at == 60 || frame - done_at == 120 || frame - done_at == 240))
+                {
+                    gbtg::RgbaImage image;
+                    if (gbtg::gfx_readback(image))
+                    {
+                        gbtg::write_bmp("cache/gameselect_duplicate_" + std::to_string(frame - done_at) + ".bmp", image);
+                    }
+                }
+                if (done_at >= 0 && frame - done_at > 300)
+                {
+                    break;
+                }
+            }
+            if (done_at < 0)
+            {
+                throw gbtg::Error("the duplicate name test did not reach the second naming page");
+            }
+            int saves = 0;
+            for (const auto& entry : std::filesystem::directory_iterator("cache/test_saves"))
+            {
+                saves += entry.is_directory() ? 1 : 0;
+            }
+            std::cout << "save folders " << saves << ", naming open " << (gbtg::g_frontend.naming_widget != nullptr)
+                      << "\n";
+            if (gbtg::g_frontend.naming_widget == nullptr || saves != 1)
+            {
+                throw gbtg::Error("Done on a duplicate name left the naming page or saved a second game");
+            }
+            std::cout << "PASS: Done on a duplicate name kept the naming page open without a second save\n";
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (corrupt_save_test)
+        {
+            const auto ascii = [](const char16_t* text)
+            {
+                std::string out;
+                for (; *text != 0; ++text)
+                {
+                    out += char(*text < 0x80 ? *text : '?');
+                }
+                return out;
+            };
+            int ready = -1;
+            int shown_at = -1;
+            int closed_at = -1;
+            for (int frame = 0; frame < 2400; ++frame)
+            {
+                gbtg::InputState input;
+                input.start = frame == 120;
+                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_54632c == 0)
+                {
+                    ready = frame;
+                }
+                auto& error = gbtg::g_app_error;
+                if (shown_at < 0 && error.phase == 2)
+                {
+                    shown_at = frame;
+                    std::cout << "app error shown at frame " << frame << ": \"" << ascii(error.message.data())
+                              << "\" (title \"" << ascii(error.title.data()) << "\", A " << error.a_key << ")\n";
+                }
+                input.accept = shown_at >= 0 && frame - shown_at == 150;
+                if (shown_at >= 0 && closed_at < 0 && error.phase == 4)
+                {
+                    closed_at = frame;
+                    std::cout << "app error closed at frame " << frame << ", choice " << error.choice << ", flags "
+                              << std::hex << gbtg::g_flags_ea9c << std::dec << "\n";
+                }
+                gbtg::gfx_begin_frame();
+                game.tick(1.f / 59.f, input);
+                gbtg::gfx_end_frame();
+                const bool capture = (shown_at >= 0 && closed_at < 0
+                    && (frame - shown_at == 60 || frame - shown_at == 140))
+                    || (closed_at >= 0 && frame - closed_at == 200);
+                if (capture)
+                {
+                    gbtg::RgbaImage image;
+                    if (gbtg::gfx_readback(image))
+                    {
+                        const int offset = closed_at >= 0 ? 1000 + frame - closed_at : frame - shown_at;
+                        gbtg::write_bmp("cache/gameselect_corrupt_" + std::to_string(offset) + ".bmp", image);
+                    }
+                }
+                if (closed_at >= 0 && frame - closed_at > 240)
+                {
+                    break;
+                }
+            }
+            if (shown_at < 0)
+            {
+                throw gbtg::Error("the damaged save did not show the app error screen");
+            }
+            if (closed_at < 0 || (gbtg::g_flags_ea9c & 0x40000u) != 0)
+            {
+                throw gbtg::Error("A did not close the app error screen");
+            }
+            if (gbtg::g_frontend.slot_widget == nullptr)
+            {
+                throw gbtg::Error("slot select did not run on after the app error screen");
+            }
+            std::cout << "PASS: the damaged save showed the app error screen, A closed it and slot select ran on\n";
             gbtg::gfx_shutdown();
             return 0;
         }

@@ -2203,9 +2203,8 @@ void gfx_sprite_submit(const RgbaImage& image, float x, float y, float w, float 
 
 void gfx_end_frame()
 {
-    // Present 0x00033480, then 0x00032AB0, then 0x00033A90 (clear and swap).
+    // Present 0x00033480, then 0x00033A90 (clear and swap). frame_tick runs 0x00032AB0, the app error screen.
     gfx_present_tick_insert();
-    gfx_present_tick_fade();
     present_draw_frame();
 }
 

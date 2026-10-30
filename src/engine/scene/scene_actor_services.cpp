@@ -6,6 +6,7 @@
 #include "../entities/body_death_effects.h"
 #include "../entities/weapon_breakage.h"
 #include "../entities/actor_template_creation.h"
+#include "../frontend/app_error_screen.h"
 #include "../frontend/dialogue_input.h"
 #include "../frontend/scoreboard_messages.h"
 #include "../entities/actor_scare_requests.h"
@@ -1183,8 +1184,6 @@ struct SceneActorServices::State
     // Gates of 0x0011C240's passes whose writers are not translated; they hold their BSS value.
     u32 post_model_count = 0; // DAT_00512AF0 (0x0012A9B0 / 0x0012A9E0 / 0x0012AA70).
     RuntimeLightCones light_cones{}; // DAT_0050EF20 / DAT_00510560 (0x0011AEA0 / 0x0011AEE0 / 0x000BA840).
-    u32 caption_camera = 0; // DAT_004DE9AC (0x00032AB0).
-    u32 caption_widget = 0; // DAT_004DE9A0 (0x00032AB0).
     i32& frontend_state = g_challenge_run.state; // DAT_004E17C8, the running challenge's state.
     std::unique_ptr<ChallengeRuntimeServices> challenge_services; // 0x0004A100 .. 0x0004B360.
     std::unique_ptr<RuntimeScoreCaptions> score_captions; // 0x0012DCD0 / 0x0012DDB0's text.
@@ -4423,6 +4422,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         }});
     scene.controls->context.final_score = final_score_services.get();
     gameselect_services->final_score = final_score_services.get();
+    g_app_error_services = gameselect_services.get();
     bind_transition_services();
     bind_pause_services();
     // The scene model renderer over the relocated resources and the host D3D device.
@@ -5942,8 +5942,6 @@ void SceneActorServices::State::reset_scene_data()
     {
         release_animation_resource(resources.registry, texture); // 0x00035C00
     }); // 0x0011AEA0
-    caption_camera = 0;
-    caption_widget = 0;
     hud_enabled = 0;
     camera_start = {};
 }
@@ -6677,6 +6675,15 @@ void SceneActorServices::State::bind_gameselect_services()
     {
         open_runtime_challenge_bonus_books(*gameselect_services);
     };
+    // The app error screen's rows (0x00339F98 / 0x0033A2A8, "AppMainErrorDialogMenu_1" / "_2").
+    widget_callbacks[0x00032F10] = []()
+    {
+        choose_app_error_a();
+    };
+    widget_callbacks[0x00032FA0] = []()
+    {
+        choose_app_error_b();
+    };
     // The challenge restart prompts' rows (0x002FE2E0, "challengeMenu_restart").
     widget_callbacks[0x0004B350] = []()
     {
@@ -6830,6 +6837,10 @@ SceneActorServices::State::~State()
         g_runtime_invisibility = nullptr;
         g_chapter5_countdown = nullptr;
         g_challenge_runtime = nullptr;
+        if (g_app_error_services == gameselect_services.get())
+        {
+            g_app_error_services = nullptr;
+        }
         g_runtime_weapon_boost = nullptr;
         g_marked_actor_message = nullptr;
         g_actor_broadcast = nullptr;
@@ -10540,17 +10551,17 @@ void SceneActorServices::State::present_view(i32 view)
         {
             draw_scene_dialogue_page(game);
         },
-        caption_camera,
+        g_app_error.page,
+        [this]()
+        {
+            draw_app_error_page(i32(dialogue_outer->current_display_address - 0x507018u) / 0x1E4); // DAT_005077A8
+        },
+        g_app_error.widget,
         []()
         {
-            unbound("caption camera 0x00048BC0 / 0x0004DBD0 (DAT_004DE9AC)");
+            draw_app_error_prompts();
         },
-        caption_widget,
         frontend_state,
-        [](u32)
-        {
-            unbound("caption widget draw 0x00142720 (DAT_004DE9A0)");
-        },
         g_challenge_run.widget,
         [this](RuntimeDialogueWidget& widget)
         {

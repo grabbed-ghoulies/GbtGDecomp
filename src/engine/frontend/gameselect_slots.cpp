@@ -1,5 +1,6 @@
 #include "gameselect_slots.h"
 #include "gameselect_progress.h"
+#include "app_error_screen.h"
 #include "dialogue_draw_context.h"
 #include "dialogue_draw_outer.h"
 #include "dialogue_text_pool.h"
@@ -692,6 +693,50 @@ void load_slot_names(GameSelectControlServices& s)
     }
 }
 
+// Xbox 0x000DF760: the corrupt page's A. The slot shows the damaged game, its load is counted done and the name
+// copy freed.
+void release_corrupt_slot(void* argument, GameSelectControlServices& s)
+{
+    auto* name = static_cast<char16_t*>(argument);
+    mark_save_game_damaged(name); // 0x0010E1E0, EBX the copy
+    auto& w = *s.frontend.slot_widget; // DAT_005065B8
+    w.loads_pending = w.loads_pending - 1; // +0xE9C
+    if (name != nullptr)
+    {
+        delete[] name; // The tail jump to 0x000663E0.
+    }
+}
+
+// Xbox 0x000DF6B0: a save that does not load shows apperror slotselection_corruptgamemessage, its A only.
+void show_corrupt_slot(const char16_t* name, GameSelectControlServices& s)
+{
+    AppErrorRequest request{};
+    if (name != nullptr)
+    {
+        copy_wide(request.title.data(), name); // lstrcpyW
+    }
+    else
+    {
+        request.title[0] = 0;
+    }
+    request_app_error_message(request, "slotselection_corruptgamemessage"); // 0x000FF0A0, 0x00324FA4
+    request.a_key = "slotselection_corruptgameabutton"; // 0x00324F80
+    request.a = [&s](void* argument)
+    {
+        release_corrupt_slot(argument, s); // 0x000DF760
+    };
+    auto* copy = new char16_t[0x80]{}; // 0x000F72D0(0x100)
+    if (name != nullptr)
+    {
+        copy_wide(copy, name); // lstrcpyW (a null source copies nothing)
+    }
+    request.a_argument = copy;
+    request.b_key = ""; // 0x0030C9D2
+    request.b = nullptr;
+    request.b_argument = nullptr;
+    open_app_error_screen(request); // 0x00032990
+}
+
 // 0x0010D910, EBX the name, with the callbacks 0x000E0640 and 0x000DF6B0: load a save that is not loaded yet.
 void load_save_slot(const char16_t* name, GameSelectControlServices& s)
 {
@@ -703,11 +748,9 @@ void load_save_slot(const char16_t* name, GameSelectControlServices& s)
             auto& w = *s.frontend.slot_widget;
             w.loads_pending = w.loads_pending - 1;
         },
-        [](const void*)
+        [&s](const void* argument)
         {
-            // Xbox 0x000DF6B0: apperror slotselection_corruptgamemessage on the app error screen.
-            throw Error("0x00032990 (the app error screen, apperror slotselection_corruptgamemessage) is not "
-                        "translated");
+            show_corrupt_slot(static_cast<const char16_t*>(argument), s); // 0x000DF6B0
         },
         saves); // 0x0010D910, EBX the name
 }

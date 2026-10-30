@@ -20,13 +20,13 @@ void present_runtime_scene_view(RuntimeSceneViewPresent& c)
     c.refraction();
     c.screen_effects();
     c.dialogue();
-    if (c.caption_camera != 0)
+    if (c.error_page != nullptr)
     {
-        c.caption();
+        c.error_page_draw();
     }
-    if (c.caption_widget != 0)
+    if (c.error_widget != nullptr)
     {
-        c.widget(c.caption_widget);
+        c.error_widget_draw();
     }
     if (c.frontend_state == 6)
     {

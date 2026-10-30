@@ -1,4 +1,5 @@
 #include "save_summary.h"
+#include "../frontend/app_error_screen.h"
 #include "save_games.h"
 #include "../frontend/gameselect_rows.h"
 #include "../scene/scene_types.h"
@@ -131,9 +132,9 @@ void finish_runtime_game_save(RuntimeProfile& profile, SaveGameContext& saves)
         clear_save_game_word_184(name); // 0x0010E2C0
     }
     // 0x000F32F0 on a failed write: apperror gamesystem_corruptgamemessage for the name.
-    queue_save_game(name, [](const void*)
+    queue_save_game(name, [](const void* argument)
     {
-        throw Error("0x000F32F0 (the app error screen, apperror gamesystem_corruptgamemessage) is not translated");
+        show_runtime_corrupt_game(static_cast<const char16_t*>(argument)); // 0x000F32F0
     }, saves); // 0x0010DA80, EAX the name
 }
 

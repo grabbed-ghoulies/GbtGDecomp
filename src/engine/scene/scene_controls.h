@@ -13,6 +13,7 @@
 #include "scene_fx_control.h"
 #include "chapter2_scene4_control.h"
 #include "map_view_control.h"
+#include "gallery_control.h"
 #include "../frontend/final_score.h"
 #include <unordered_map>
 #include <vector>
@@ -43,6 +44,7 @@ struct SceneControlInstance
     std::unique_ptr<RelicsStoreControlState> relics_store; // Type 0x94's pointer words.
     std::unique_ptr<SuperScaryControlState> super_scary; // Type 0x98's pointer words.
     std::unique_ptr<MapViewControlState> map_view; // Type 0x9E's pointer words.
+    std::unique_ptr<GalleryControlState> gallery; // Type 0x9F's pointer words.
 };
 struct SceneControlContext
 {

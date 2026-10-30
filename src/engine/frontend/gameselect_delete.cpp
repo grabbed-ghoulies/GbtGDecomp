@@ -1,4 +1,5 @@
 #include "gameselect_delete.h"
+#include "app_error_screen.h"
 #include "dialogue_draw_outer.h"
 #include "dialogue_text_pool.h"
 #include "dialogue_widget_construction.h"
@@ -95,12 +96,32 @@ void close_prompts(GameDeletionWidget& w, GameSelectControlServices& s)
     set_dialogue_widget_mode(*w.prompts, 3, s.widgets); // 0x00142C20, EAX 3
 }
 
-// Xbox 0x000DBCD0: the app error screen with apperror "faildeletemessage" and its A and B buttons
-// (faildeleteabutton 0x000DC0A0, faildeletebbutton 0x000DC070).
-[[noreturn]] void show_delete_failure(const char16_t* name)
+}
+
+namespace
 {
-    (void)name;
-    throw Error("0x00032990 (the app error screen, apperror faildeletemessage) is not translated");
+// Xbox 0x000DC070: the delete failure's B, the dashboard's memory area.
+[[noreturn]] void leave_failed_deletion_for_dashboard(void*)
+{
+    launch_memory_dashboard(0);
+}
+
+// Xbox 0x000DBCD0: the app error screen with apperror "faildeletemessage", A back to slot select (0x000DC0A0, a
+// jump to 0x000DBD50) and B the dashboard (0x000DC070).
+void show_delete_failure(const char16_t* name, GameSelectControlServices& s)
+{
+    AppErrorRequest request{};
+    std::u16string_view text(name);
+    std::copy(text.begin(), text.end(), request.title.begin()); // lstrcpyW
+    request_app_error_message(request, "faildeletemessage"); // 0x000FF0A0, 0x00324D60
+    request.a_key = "faildeleteabutton"; // 0x00324D4C
+    request.b_key = "faildeletebbutton"; // 0x00324D38
+    request.a = [&s](void*)
+    {
+        leave_runtime_game_deletion(s); // 0x000DC0A0
+    };
+    request.b = leave_failed_deletion_for_dashboard; // 0x000DC070
+    open_app_error_screen(request); // 0x00032990
 }
 }
 
@@ -340,6 +361,6 @@ void confirm_runtime_game_deletion(GameSelectControlServices& services)
             return;
         }
     }
-    show_delete_failure(name); // 0x000DBCD0
+    show_delete_failure(name, s); // 0x000DBCD0
 }
 }

@@ -5,6 +5,7 @@
 namespace gbtg
 {
 struct RuntimeTransitionBook;
+struct RuntimeCutsceneInstance;
 struct RuntimeDialogueWidget;
 // The per-view present 0x0011C240, in retail order. Each callee is the native owner of its pass; a pass whose
 // body is not translated raises once its gate opens.
@@ -24,11 +25,11 @@ struct RuntimeSceneViewPresent
     std::function<void()> refraction; // 0x0011BA50.
     std::function<void()> screen_effects; // 0x000615E0.
     std::function<void()> dialogue; // 0x00058150.
-    const u32& caption_camera; // DAT_004DE9AC.
-    std::function<void()> caption; // 0x00048BC0 (ESI DAT_004DE9B0, EAX 0), then 0x0004DBD0 (EBX DAT_004DE9AC).
-    const u32& caption_widget; // DAT_004DE9A0.
+    RuntimeCutsceneInstance* const& error_page; // DAT_004DE9AC, the app error screen's page.
+    std::function<void()> error_page_draw; // 0x00048BC0 (ESI DAT_004DE9B0, EAX 0), then 0x0004DBD0 (EBX DAT_004DE9AC).
+    RuntimeDialogueWidget* const& error_widget; // DAT_004DE9A0, its prompts.
+    std::function<void()> error_widget_draw; // 0x00142720(0), EAX DAT_004DE9A0.
     const i32& frontend_state; // DAT_004E17C8.
-    std::function<void(u32)> widget; // 0x00142720 with EAX the widget and stack 0.
     RuntimeDialogueWidget* const& frontend_widget; // DAT_004E19A0, the challenge's restart menu.
     std::function<void(RuntimeDialogueWidget&)> frontend_draw; // 0x00142720(0), EAX DAT_004E19A0.
     std::function<void()> sprites; // 0x00122230.

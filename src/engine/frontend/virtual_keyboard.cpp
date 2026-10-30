@@ -5,11 +5,13 @@
 #include "dialogue_text_metrics.h"
 #include "dialogue_text_pool.h"
 #include "dialogue_widget_construction.h"
+#include "dialogue_activation.h"
 #include "dialogue_widget_state.h"
 #include "gameselect_naming.h"
 #include "game_names.h"
 #include "hud_layout.h"
 #include "../audio/event_voices.h"
+#include "../cutscenes/event_runtime.h"
 #include "../entities/actor_render_registration.h"
 #include "../scene/attract_control.h"
 #include "../scene/executable_resources.h"
@@ -1145,7 +1147,7 @@ u32 read_keyboard_input(VirtualKeyboard& k, GameSelectControlServices& s)
 
 void press_key(VirtualKeyboard& k, u32 code, GameSelectControlServices& s);
 void release_keyboard_bats(VirtualKeyboard& k);
-[[noreturn]] void show_name_error(const char* key);
+void show_name_error(const char* key, GameSelectControlServices& s);
 
 // Xbox 0x00015260, ECX the keyboard: the selected key, then the button sound.
 void press_selected_key(VirtualKeyboard& k, GameSelectControlServices& s)
@@ -1497,13 +1499,17 @@ void press_key(VirtualKeyboard& k, u32 code, GameSelectControlServices& s)
             return;
         }
         case 2:
-            show_name_error("errormessages_notuniquegamename"); // 0x000582A0(0), ECX 0x0020A554
+            show_name_error("errormessages_notuniquegamename", s); // 0x000582A0(0), ECX 0x0020A554
+            return;
         case 3:
-            show_name_error("errormessages_namenotset"); // ECX 0x0020A538
+            show_name_error("errormessages_namenotset", s); // ECX 0x0020A538
+            return;
         case 4:
-            show_name_error("errormessages_nameallwhitespace"); // ECX 0x0020A518
+            show_name_error("errormessages_nameallwhitespace", s); // ECX 0x0020A518
+            return;
         case 5:
-            show_name_error("errormessages_nameisreserved"); // ECX 0x0020A4F8
+            show_name_error("errormessages_nameisreserved", s); // ECX 0x0020A4F8
+            return;
         default:
             return;
         }
@@ -1537,10 +1543,14 @@ void release_keyboard_bats(VirtualKeyboard& k)
     }
 }
 
-// 0x000582A0(0): the dialogs page with a key from aid_loctext_ghoulies_dialog_dialogs.
-[[noreturn]] void show_name_error(const char* key)
+// 0x000582A0(0), PUSH EBP 0: the dialogs page with a key from aid_loctext_ghoulies_dialog_dialogs.
+void show_name_error(const char* key, GameSelectControlServices& s)
 {
-    throw Error(std::string("0x000582A0 (the dialog message ") + key + ") is not translated");
+    if (s.cutscenes.dialogue == nullptr)
+    {
+        throw Error(std::string("the keyboard's name error ") + key + ": the scene dialogue (0x000582A0) is not bound");
+    }
+    enqueue_runtime_dialogue_key(key, 0, *s.cutscenes.dialogue); // 0x000582A0
 }
 
 // Xbox 0x00016FC0: a key's panel, unless its color is the hidden one (bytes 00 00 FF FF).

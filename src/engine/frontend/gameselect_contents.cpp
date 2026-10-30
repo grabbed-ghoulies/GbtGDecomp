@@ -687,7 +687,9 @@ void reset_button_sequence(ButtonSequence& sequence)
     b.state = 1;
 }
 
-// Xbox 0x000DB1A0: the contents' secret sequence (held: black and white; pressed: B, Y, X, A, X, Y, B).
+// Xbox 0x000DB1A0: the contents' secret sequence in the pad word (0x00154A70's bits): held, both triggers (0x4000,
+// 0x8000); pressed, left stick, right stick, White, Black, White, right stick, left stick (0x40, 0x80, 0x2000,
+// 0x1000, 0x2000, 0x80, 0x40).
 void build_button_sequence(GameContentsWidget& w)
 {
     auto& b = *w.sequence;

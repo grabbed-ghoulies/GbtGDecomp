@@ -1,4 +1,5 @@
 #include "gameselect_options.h"
+#include "app_error_screen.h"
 #include "button_bat_menu.h"
 #include "dialogue_activation.h"
 #include "dialogue_draw_outer.h"
@@ -142,10 +143,11 @@ void save_settings(GameSelectControlServices& s)
     std::memcpy(copy.bytes.data(), s.profile.unlocks.bytes.data(), size_t(s.profile.unlocks.size));
     store_save_game_unlocks(w.name, copy); // 0x0010E610, EBX +0x48C
     SaveGameContext saves{s.files, s.profile, s.scene_order_held};
-    queue_save_game(w.name, [](const void*)
+    queue_save_game(w.name, [](const void* argument)
     {
-        throw Error("0x000E1D50 (the app error screen 0x00032990, apperror frontendoptions_corruptgamemessage) is not "
-            "translated");
+        // Xbox 0x000E1D50
+        show_corrupt_game(static_cast<const char16_t*>(argument), "frontendoptions_corruptgamemessage",
+            "frontendoptions_corruptgameabutton", "frontendoptions_corruptgamebbutton"); // 0x0032508C ..
     }, saves); // 0x0010DA80, EAX +0x48C
 }
 

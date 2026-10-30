@@ -62,6 +62,11 @@ void mark_save_game_dirty(const char16_t* name); // Xbox 0x0010F2D0, EBX the nam
 void store_save_game_challenges(const char16_t* name, const RuntimeProfileBlock& block); // Xbox 0x0010E5B0, EBX
 void clear_save_game_word_184(const char16_t* name); // Xbox 0x0010E2C0, EBX the name
 // The save's unlock block (record +0x1B0) is cleared, then takes `block`'s bytes.
+void mark_save_game_damaged(const char16_t* name); // Xbox 0x0010E1E0, EBX the name
+void mark_save_game_loading(const char16_t* name); // Xbox 0x0010E1A0, EBX the name
+i32 add_unsaved_save_game(const char16_t* name, u8 slot, SaveGameContext& context); // Xbox 0x0010D580, EAX
+// The free and total 0x4000-byte blocks on `root`, at most 50001.
+i32 query_save_volume_blocks(const char* root, u32* free, u32* total, SaveGameContext& context); // Xbox 0x000EB220
 void store_save_game_unlocks(const char16_t* name, const RuntimeProfileBlock& block); // Xbox 0x0010E610, EBX
 // The final score's stats into the save (EBX the name, the value on the stack): +0x18C, +0x190, +0x198, +0x194 and
 // +0x19C; 0x0010E310 sets the finished flag at +0x188.

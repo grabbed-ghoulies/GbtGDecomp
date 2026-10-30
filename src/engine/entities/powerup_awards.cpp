@@ -1,4 +1,5 @@
 #include "powerup_awards.h"
+#include "../scripts/script_event_sequence.h"
 #include "../frontend/app_error_screen.h"
 #include "actor_live_attachments.h"
 #include "body_request_selection.h"
@@ -34,40 +35,33 @@ void cancel_runtime_powerup(u32 kind, RuntimePowerupTable& table)
 }
 
 // Xbox 0x0004A370
-void extend_runtime_scene_timers(float amount, GhoulySpawnPool* timers)
+void extend_runtime_challenge_timers(float amount, std::vector<RuntimeChallengeRecord>* records)
 {
-    if (timers == nullptr)
+    if (records == nullptr)
     {
         return;
     }
-    for (u8* entry = timers->begin; entry < timers->cursor; entry += 0x14)
+    for (RuntimeChallengeRecord& record : *records)
     {
-        u32 kind;
-        std::memcpy(&kind, entry, 4);
-        if (kind == 0x10 || kind == 0x11)
+        if (record.op == 0x10 || record.op == 0x11)
         {
-            float time;
-            std::memcpy(&time, entry + 8, 4);
-            time = amount + time;
-            std::memcpy(entry + 8, &time, 4);
+            record.value = std::bit_cast<u32>(amount + std::bit_cast<float>(record.value));
         }
     }
 }
 
 // Xbox 0x000D0650
-u8* find_runtime_challenge_record(u32 kind, GhoulySpawnPool* challenges)
+u8* find_runtime_event_step(u32 type, const entity_detail::NavigationCellRegistration* steps)
 {
-    if (challenges == nullptr)
+    if (steps == nullptr)
     {
         return nullptr;
     }
-    for (u8* record = challenges->begin; record < challenges->cursor; record += 0x88)
+    for (u8* step = steps->begin; step < steps->end; step += 0x88)
     {
-        u32 value;
-        std::memcpy(&value, record, 4);
-        if (value == kind)
+        if (read_u32(std::span<const u8>(step, 4), 0) == type)
         {
-            return record;
+            return step;
         }
     }
     return nullptr;
@@ -200,8 +194,23 @@ void award_runtime_powerup(i32 id, u32 player, u32 kind, float amount, u32 extra
         context.complete_event(); // 0x000D0870
         break;
     case 6:
-        throw Error("0x00123E70's powerup kind 6 reads the DAT_005064E0 challenges and DAT_004E17D8 timers; "
-            "their native views are not bound");
+    {
+        cleared = true;
+        sound = 0;
+        // Event step type 4's +0x18 seconds, while some remain, and the challenge's timers gain the amount.
+        if (u8* step = find_runtime_event_step(4, g_event_sequence.steps); step != nullptr) // 0x000D0650, EDX 4
+        {
+            float left;
+            std::memcpy(&left, step + 0x18, 4);
+            if (left > 0.f) // DAT_0032B100.
+            {
+                left = amount + left;
+                std::memcpy(step + 0x18, &left, 4);
+            }
+        }
+        extend_runtime_challenge_timers(amount, g_challenge_run.records.get()); // 0x0004A370, XMM0 amount
+        break;
+    }
     case 7:
         if (!context.marked_actors)
         {

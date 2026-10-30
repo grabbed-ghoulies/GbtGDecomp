@@ -1,41 +1,17 @@
 #include "actor_loading.h"
-#include "../camera/camera.h"
 #include "../entities/entity.h"
 
 namespace gbtg
 {
 std::function<std::vector<RuntimeLoadingActor>()> g_loading_actors;
 
-namespace
-{
-// The host range links' view of DAT_00511B38, for runs without a native scene.
-std::vector<RuntimeLoadingActor> host_loading_actors()
-{
-    std::vector<RuntimeLoadingActor> actors;
-    for (const scene_detail::RangeLink* link = scene_detail::g_range_links; link != nullptr; link = link->next)
-    {
-        const scene_detail::CamFocus& actor = *link->host;
-        const EntityMaskSpan* span = actor.span_980;
-        u16 state = 0;
-        if (span != nullptr)
-        {
-            const u16* element = nullptr;
-            if (span->end != span->mark)
-            {
-                element = reinterpret_cast<const u16*>(span->data + size_t(span->index) * span->stride);
-            }
-            // Retail also dereferences a null element when end == mark.
-            state = *element;
-        }
-        actors.push_back({actor.tag_6, state, u32(actor.at_984), u32(actor.at_98c)});
-    }
-    return actors;
-}
-}
-
 std::vector<RuntimeLoadingActor> runtime_loading_actors()
 {
-    return g_loading_actors ? g_loading_actors() : host_loading_actors();
+    if (!g_loading_actors)
+    {
+        throw Error("DAT_00511B38 is walked with no scene bound");
+    }
+    return g_loading_actors();
 }
 
 // Xbox 0x001412F0

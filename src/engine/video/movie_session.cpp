@@ -1,4 +1,5 @@
 #include "movie_session.h"
+#include "../saves/save_root.h"
 #include <utility>
 #include <cstring>
 
@@ -17,7 +18,7 @@ RuntimeMovieSession::RuntimeMovieSession(const std::filesystem::path& disc_root,
     initialize_performance_counter(counter_);
     bind_native_movie_file_io(file_io_, worker_io_);
     bind_native_file_worker_synchronization(worker_io_);
-    const std::filesystem::path utility = std::filesystem::absolute("cache/xbox_utility").lexically_normal();
+    const std::filesystem::path utility = utility_root();
     auto map_utility = [utility](const char* path)
     {
         if (std::strncmp(path, "Z:\\", 3) == 0)
@@ -64,7 +65,8 @@ RuntimeMovieSession::RuntimeMovieSession(const std::filesystem::path& disc_root,
         const auto cache = std::filesystem::weakly_canonical(
             std::filesystem::current_path() / "cache");
         const auto target = std::filesystem::weakly_canonical(utility);
-        if (target.parent_path() != cache || target.filename() != "xbox_utility")
+        const auto inside = target.lexically_relative(cache);
+        if (inside.empty() || inside.native()[0] == '.')
         {
             throw Error("Xbox utility volume resolves outside its owned cache directory");
         }

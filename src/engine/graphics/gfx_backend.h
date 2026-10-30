@@ -18,17 +18,7 @@ namespace gbtg
     X(gfx_capture_shader_permutations)       \
     X(gfx_pump)                              \
     X(gfx_begin_frame)                       \
-    X(gfx_set_camera)                        \
-    X(gfx_set_dialog_camera)                 \
-    X(gfx_clear_dialog_background)           \
-    X(gfx_begin_dialog_texture)              \
-    X(gfx_end_dialog_texture)                \
-    X(gfx_release_dialog_texture)            \
-    X(gfx_draw_screen_mesh)                  \
     X(gfx_clear_ui_depth)                    \
-    X(gfx_set_bones)                         \
-    X(gfx_draw_mesh)                         \
-    X(gfx_release_mesh)                      \
     X(gfx_draw_sprite)                       \
     X(gfx_release_sprite)                    \
     X(gfx_sprite_clear)                      \

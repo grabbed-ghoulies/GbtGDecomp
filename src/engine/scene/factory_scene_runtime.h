@@ -54,8 +54,7 @@ public:
 #if defined(GBTG_INSPECTOR_APP)
     u64 inspection_generation = 0; // Tooling observes scene replacement within the boot-owned factory.
 #endif
-    // Native scene start through the actor services: 0 not run, 1 complete, -1 stopped where a service
-    // is not bound yet (the scene then keeps the legacy script path).
+    // Native scene start through the actor services: 0 not run, 1 complete.
     i32 actor_start = 0;
     std::unique_ptr<SceneActorServices> actor_services; // Declared last: objects are released before it.
 

@@ -262,14 +262,25 @@ u32 matches_runtime_script_actor_query(RuntimeScriptActorQueryView& candidate,
     }
     return 0;
 }
+namespace
+{
+std::vector<RuntimeScriptActorQueryView> listed_runtime_script_actors(const RuntimeScriptActorQueryContext& context)
+{
+    if (!context.actors)
+    {
+        throw Error("DAT_00511B38 is walked with no scene bound");
+    }
+    return context.actors();
+}
+}
+
 // Xbox 0x001291A0
 i32 count_runtime_script_actor_tags(u32 flags, i16 tag, RuntimeScriptActorPredicate predicate,
     RuntimeScriptActorQueryContext& context)
 {
     i32 count = 0;
-    for (scene_detail::RangeLink* link = context.first; link != nullptr; link = link->next)
+    for (auto& candidate : listed_runtime_script_actors(context)) // DAT_00511B38, next at +4.
     {
-        auto& candidate = context.views.at(link->host);
         if (matches_runtime_script_actor_query(candidate, nullptr, flags, context) != 0
             && candidate.tag == static_cast<u16>(tag)
             && (predicate == nullptr || predicate(nullptr, &candidate.actor) != 0))
@@ -316,9 +327,8 @@ Actor* find_nearest_runtime_script_actor(const Vec3* point, Actor& requester, i1
     {
         best = std::bit_cast<float>(0x7F7FFFFFu); // DAT_0032B310.
     }
-    for (scene_detail::RangeLink* link = context.first; link != nullptr; link = link->next)
+    for (auto& candidate : listed_runtime_script_actors(context)) // DAT_00511B38, next at +4.
     {
-        auto& candidate = context.views.at(link->host);
         if ((tag == 0 || i16(candidate.tag) == tag)
             && matches_runtime_script_actor_query(candidate, &requester, flags, context) != 0)
         {
@@ -357,9 +367,8 @@ Actor* find_nearest_runtime_script_actor_in_angle(Actor& requester, float headin
     const float pi = std::bit_cast<float>(0x40490FDBu);
     const float turn = std::bit_cast<float>(0x40C90FDBu);
     float picked_angle = heading + pi;
-    for (scene_detail::RangeLink* link = context.first; link != nullptr; link = link->next)
+    for (auto& candidate : listed_runtime_script_actors(context)) // DAT_00511B38, next at +4.
     {
-        auto& candidate = context.views.at(link->host);
         if (matches_runtime_script_actor_query(candidate, &requester, flags, context) != 0)
         {
             const Vec3 position = actor_world_position(candidate.actor);

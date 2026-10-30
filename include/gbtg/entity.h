@@ -9,17 +9,6 @@
 namespace gbtg
 {
 
-// Rare entity split recovered from XBE type names: Body / Mind / Strategy.
-// Types are C vtables filled by static ctors that call entity_initialize_body_methods (0x0001DA60)
-// then overwrite slots. entityBodyCamera_ctor (0x00073190) is the first reconstructed example.
-
-enum class EntityKind
-{
-    Body,
-    Mind,
-    Strategy,
-};
-
 struct Actor;
 struct ActorRenderRegistration;
 struct ModelBoneBinding;
@@ -205,7 +194,6 @@ struct ButtonBatScreen
     const MinaPlayback* animation = nullptr; // controller +0x58, slot 0
 };
 
-bool button_bat_draw(ButtonBatScreen& bat, const Mesh& mesh); // Xbox 0x0006D6C0
 void button_bat_initialize(ButtonBatScreen& bat, ButtonBatPoint initial, float duration,
     ActorAnimationState& animation, AnimationResourceRegistry& registry,
     ResourceErrorState& error, u32& random_state); // Xbox 0x0006D4F0
@@ -218,7 +206,6 @@ void button_bat_tick(ButtonBatScreen& bat, ButtonBatPoint target, float scale,
 bool actor_tick_timer(const Actor& actor, float& timer, float freeze, float dt,
     float scene_scale); // Xbox 0x00042360
 
-struct Entity;
 struct Message
 {
     i32 id = 0;
@@ -250,68 +237,10 @@ struct EntityCaseLink
     std::vector<EntityClassSlot> classes;
 };
 
-// Default Body method table. Xbox writes 24 dwords (0x60 bytes) through EAX.
-// Offsets are the descriptor slots. A type ctor overwrites the ones it owns.
-struct EntityMethods
-{
-    void (*query_size)(u32 out[2]) = nullptr; // +0x00
-    void (*tick)(Entity& body) = nullptr; // +0x04
-    void (*shutdown)(Entity& body) = nullptr; // +0x08
-    bool (*handle_message)(Entity& body, const Message& msg) = nullptr; // +0x0C
-    void (*relay_message)(Entity& body, const Message& msg) = nullptr; // +0x10
-    void (*step_channels)(Entity& body) = nullptr; // +0x14
-    void (*apply)(Entity& body) = nullptr; // +0x18
-    bool (*gate)(Entity& body) = nullptr; // +0x1C. Default returns 1. Camera stores 0x00072CB0.
-    i32 (*pick_actor)(const Entity& body, i32 fallback) = nullptr; // +0x20
-    i32 (*pick_gated)(const Entity& body) = nullptr; // +0x24
-    i32 (*link_idle)(const Entity& body) = nullptr; // +0x28
-    i32 (*pick_actor_b)(const Entity& body, i32 fallback) = nullptr; // +0x2C
-    i32 (*pick_direct)(const Entity& body) = nullptr; // +0x30
-    i32 (*pick_direct_b)(const Entity& body) = nullptr; // +0x34
-    i32 (*pick_gated_b)(const Entity& body) = nullptr; // +0x38
-    i32 (*pick_gated_c)(const Entity& body) = nullptr; // +0x3C
-    i32 (*pick_gated_d)(const Entity& body) = nullptr; // +0x40
-    i32 (*pick_direct_c)(const Entity& body) = nullptr; // +0x44
-    i32 (*pick_range)(const Entity& body) = nullptr; // +0x48
-    i32 (*fixed_id)() = nullptr; // +0x4C
-    i32 (*pick_direct_d)(const Entity& body) = nullptr; // +0x50
-    i32 (*pick_direct_e)(const Entity& body) = nullptr; // +0x54
-    i32 (*pick_direct_f)(const Entity& body) = nullptr; // +0x58
-    i32 (*pick_near)(const Entity& body) = nullptr; // +0x5C
-};
-
-struct EntityType
-{
-    const char* name = "";
-    EntityKind kind = EntityKind::Body;
-    u32 xbox_desc_va = 0;
-    u32 xbox_size = 0;
-    u32 xbox_extra = 0;
-    void (*tick)(Entity& e) = nullptr;
-    void (*shutdown)(Entity& e) = nullptr;
-    bool (*handle_message)(Entity& e, const Message& msg) = nullptr;
-    EntityMethods methods{};
-};
-
-// Object at body+0x744 and body+0x314. 0x000253B0 calls vtable +0xC with the message.
-struct EntityChild
-{
-    void (*handle_message)(EntityChild& self, const Message& msg) = nullptr;
-};
-
 // Bit bytes at [body+0x15c]+8. 0x0001F030 clears one bit by index.
 struct EntityBitBlock
 {
     u8* bytes = nullptr; // +8
-};
-
-// Object at body+0x2c8. Message 0x47 inserts arg when live and gate are both set.
-struct EntityWatch
-{
-    void* live = nullptr; // +8
-    void* link = nullptr; // +0x10, required by message 6
-    void* gate = nullptr; // +0x14
-    std::vector<void*> tokens; // +0x18, unique dword list
 };
 
 // Node at body+0x894. +0 / +4 are the doubly linked view list. The name
@@ -332,71 +261,6 @@ struct EntityCamNode
     float focal_pixels = 0.f;     // +0x5C
 };
 
-struct Entity
-{
-    const EntityType* type = nullptr;
-    Actor* actor = nullptr;
-    Vec3 position{};     // Xbox body+0x18 (camera translate msg)
-    Vec3 pose_position{}; // Xbox body+0x89C — world pos copied each tick
-    Vec3 pose_euler{};    // Xbox body+0x8A8
-    Vec3 aim{};           // Xbox body+0x2FC. 0x00072BA0 subtracts the world position from this point.
-    u8 look_enabled = 0;  // Xbox body+0x308. 0x00072BA0 reads this byte.
-    float roll = 0.f;     // Xbox body+0x8F4. 0x00072BA0 copies it into actor euler Z.
-    Quat pose_quat{0.f, 0.f, 0.f, 1.f};
-    float pose_fov = 0.9f;
-    EntityCamNode cam{}; // Xbox body+0x894
-    bool listed = false;
-    EntityCaseLink* case_link = nullptr; // Xbox body+0x48
-    // Message targets. A null child skips the vtable +0xC forward in 0x000253B0.
-    EntityChild* child_744 = nullptr; // +0x744
-    EntityChild* child_314 = nullptr; // +0x314
-    void* link_10 = nullptr;  // +0x10
-    void* link_14 = nullptr;  // +0x14
-    void* link_4c = nullptr;  // +0x4c
-    void* link_50 = nullptr;  // +0x50
-    void* link_54 = nullptr;  // +0x54
-    void* link_270 = nullptr; // +0x270
-    void* link_274 = nullptr; // +0x274
-    void* link_718 = nullptr; // +0x718
-    void* note_760 = nullptr; // +0x760
-    void* note_7f0 = nullptr; // +0x7f0
-    void* record_73c = nullptr; // +0x73c, gate for 0x00027510
-    EntityWatch* watch = nullptr; // +0x2c8
-    EntityBitBlock* bits = nullptr; // +0x15c, bytes at +8
-    // +0x1cc. 0x00072CB0 copies each accepted 0x54-byte slide record here.
-    u8 record_1cc[0x54]{};
-    u8 motion_6a = 0; // +0x6a
-    u8 motion_6b = 0; // +0x6b
-    u8 mark_288 = 0;  // +0x288
-    u8 mark_87e = 0;  // +0x87e
-    u16 anim_94 = 0;  // +0x94
-    u16 anim_96 = 0;  // +0x96
-    u16 mark_748 = 0; // +0x748
-    u16 mark_74a = 0; // +0x74a
-    u16 mark_880 = 0; // +0x880
-    i32 slot_70 = 0;  // +0x70
-    i32 slot_740 = 0; // +0x740
-    float timer_758 = 0.f; // +0x758
-    float timer_7e8 = 0.f; // +0x7e8
-    float scale_884 = 0.f; // +0x884
-    float scale_888 = 0.f; // +0x888
-    Vec3 anchor{};      // +0x318
-    Vec3 world_euler{}; // +0x72c
-    u8 latch[6]{};      // +0x260 .. +0x265
-    // +0x8ac, +0x8c0, +0x8d4, +0x8e8, +0x8fc, +0x910. 0x00073A90 plants
-    // 0x30-byte slices of one heap block. Index 0 is the base when it is live.
-    void* block_8ac[6]{};
-    // +0x910 as a float. 0x00072CB0 compares the previous separation, then stores the new dot.
-    float separation_910 = 0.f;
-};
-
-const EntityType* find_entity_type(std::string_view name);
-std::vector<const EntityType*> all_entity_types();
-void register_entity_types();
-
-// EAX is the type descriptor. Writes the 24 default Body methods.
-void entity_initialize_body_methods(EntityMethods& methods); // Xbox 0x0001DA60
-
 Vec3 actor_world_position(const Actor& actor); // 0x000412A0
 extern Vec3 actor_transform_origin; // DAT_0050DD80
 Vec3 actor_world_euler(const Actor& actor);    // 0x00041820
@@ -412,7 +276,6 @@ void actor_build_world_matrix(Actor& actor, float out[12], const Vec3* position)
 void actor_refresh_transform(Actor& actor); // Xbox 0x00040DE0
 void* engine_heap_allocate(i32 size); // Xbox 0x000F72D0                      // 0x000F72D0 stack size, EAX = block
 void engine_heap_free(void* block); // Xbox 0x000663E0                    // 0x000663E0 EAX = block
-void entity_release_channel_slots(Entity& body); // Xbox 0x00073760                   // 0x00073760 EAX = body
 void entity_copy_match_block(void* dest, const void* src); // Xbox 0x000FCD70    // 0x000FCD70 EAX dest, ECX source, 0x54 bytes
 
 // 0x28 bytes at +0x28 inside the 0x54-byte record 0x000FCD70 copies.
@@ -429,8 +292,6 @@ struct EntityMatchBlock
 i32 entity_match_blocks_equal(const EntityMatchBlock& left, const EntityMatchBlock& right); // Xbox 0x0010AE90 // 0x0010AE90
 
 void entity_body_camera_sizeof(u32 out_sizes[2]); // 0x00073170
-void entity_body_camera_tick(Entity& body);       // 0x000731F0
-void entity_body_camera_shutdown(Entity& body);   // 0x00073300
 
 // Slot is the stack argument. name is EBX: the saved name, or the first
 // record's name at +0x34. Returns 1 when a list record matches.
@@ -440,7 +301,6 @@ i32 camera_bind_named_view(i32 slot, const char* name); // Xbox 0x00048CF0 // 0x
 void camera_unlink_view(EntityCamNode* node); // Xbox 0x00048C70 // 0x00048C70
 // EAX is the camera record. Rebinds the slot it is bound in, as 0x00048C70 does after its unlink.
 void camera_rebind_view(EntityCamNode* node); // Xbox 0x00048EB0
-bool entity_body_camera_message(Entity& body, const Message& msg); // 0x00073320, id 99
 
 // BanjoCam body passed to 0x00072BA0. Aim point is +0x2fc. +0x308 enables the look.
 // Roll is the float at +0x8f4, copied into the actor euler's Z.
@@ -559,12 +419,6 @@ i32 direction_to_yaw_pitch(float x, float y, float z, float& yaw, float& pitch);
 
 void camera_aim_actor(EntityLookAt& cam); // Xbox 0x00072BA0 // 0x00072BA0
 
-// entityBodyCamera method +0x18. Looks, copies the actor world pose to +0x89c, then applies.
-void camera_capture_actor_pose(Entity& body); // Xbox 0x00072B10 // 0x00072B10
-
-// entityBodyCamera method +0x1C.
-bool camera_probe_actor_movement(Entity& body); // Xbox 0x00072CB0 // 0x00072CB0
-
 // Channel keys on the camera (ESI for 0x0001D850, EAX for 0x0001EDE0).
 // Two slots at +0xe4, stride 0x0c.
 // value is the fade duration 0x0001D850 writes at +0. blend is the float at +4.
@@ -652,7 +506,6 @@ void camera_fit_display_view(float focal, i32 aspect_slot, i32& fit_w, i32& fit_
 void fit_display_viewport(i32 width, i32 height, i32 aspect_slot,
     i32& fit_w, i32& fit_x, i32& fit_h, i32& fit_y);
 
-constexpr i32 kMsgCameraTranslate = 99;
 
 // Shape node passed to 0x00055AA0 and 0x00056720. The bone id is the u16 at +8.
 // Kind 1 (cylinder) adds +0x10 and +0x14 to the local point at +0x18.

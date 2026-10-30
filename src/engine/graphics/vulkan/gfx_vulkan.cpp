@@ -1601,54 +1601,6 @@ void gfx_begin_frame()
     g.viewport = full_viewport();
 }
 
-void gfx_set_bones(const float*, int)
-{
-    unsupported("gfx_set_bones");
-}
-
-void gfx_set_camera(const Vec3&, const Quat&, float)
-{
-    unsupported("gfx_set_camera");
-}
-
-void gfx_release_mesh(const Mesh&)
-{
-}
-
-void gfx_set_dialog_camera(const Vec3&, const Quat&, float)
-{
-    unsupported("gfx_set_dialog_camera");
-}
-
-void gfx_clear_dialog_background()
-{
-    unsupported("gfx_clear_dialog_background");
-}
-
-void gfx_begin_dialog_texture(u8, int, int)
-{
-    unsupported("gfx_begin_dialog_texture");
-}
-
-void gfx_end_dialog_texture()
-{
-    unsupported("gfx_end_dialog_texture");
-}
-
-void gfx_release_dialog_texture()
-{
-}
-
-void gfx_draw_screen_mesh(const Mesh&, float, float, float, bool)
-{
-    unsupported("gfx_draw_screen_mesh");
-}
-
-void gfx_draw_mesh(const Mesh&, Vec3, Vec3)
-{
-    unsupported("gfx_draw_mesh");
-}
-
 // Host boundary for Xbox D3DDevice_Clear(1, rect, 3, ..., 1.f, 0): depth 1 and stencil 0 over a 640x480 UI
 // rectangle in the HUD viewport. The rectangle covers the pixels whose centres D3D11's clear quad covers.
 void gfx_clear_ui_depth(int left, int top, int right, int bottom)

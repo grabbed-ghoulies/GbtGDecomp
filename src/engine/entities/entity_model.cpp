@@ -2,7 +2,6 @@
 #include "gbtg/anim.h"
 #include "gbtg/model_runtime.h"
 #include "gbtg/actor_runtime.h"
-#include "gbtg/gfx.h"
 
 #include <bit>
 #include <cmath>
@@ -536,67 +535,6 @@ void actor_collect_model_flags(Actor& actor)
         }
         actor.model_flags |= flags;
     }
-}
-
-namespace
-{
-
-// Coordinate branches within Xbox 0x0006D6C0.
-float button_bat_coordinate(float from, float target, float fraction)
-{
-    const float value = (target - from) * fraction + from;
-    if (target <= from)
-    {
-        if (target <= value)
-        {
-            target = value;
-            if (!(value < from) && from != value)
-            {
-                target = from;
-            }
-        }
-    }
-    else if (value <= target)
-    {
-        target = value;
-        if (!(from < value) && from != value)
-        {
-            target = from;
-        }
-    }
-    return target;
-}
-
-} // namespace
-
-// Xbox 0x0006D6C0.
-bool button_bat_draw(ButtonBatScreen& bat, const Mesh& mesh)
-{
-    const float extent = actor_model_radius(bat.actor);
-    if (bat.state == 2)
-    {
-        if (bat.animation == nullptr || bat.animation->position < 0.2f)
-        {
-            bat.current = bat.from;
-        }
-        else if (std::bit_cast<float>(0x3f6b851fu) <= bat.animation->position)
-        {
-            bat.current = bat.target;
-        }
-        else
-        {
-            const float fraction = (bat.animation->position - 0.2f) * std::bit_cast<float>(0x3fb1c71cu);
-            bat.current.y = button_bat_coordinate(bat.from.y, bat.target.y, fraction);
-            bat.current.x = button_bat_coordinate(bat.from.x, bat.target.x, fraction);
-        }
-    }
-    const int left = int(bat.current.x - extent);
-    const int top = int(bat.current.y - extent);
-    const int right = int(bat.current.x + extent);
-    const int bottom = int(bat.current.y + extent);
-    gfx_clear_ui_depth(left, top, right, bottom);
-    gfx_draw_screen_mesh(mesh, bat.current.x, bat.current.y, bat.actor.scale_200 * bat.actor.radius_xz, false);
-    return true;
 }
 
 // Xbox 0x00105AA0.

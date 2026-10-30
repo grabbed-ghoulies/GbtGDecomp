@@ -536,12 +536,6 @@ int run_platform(Game& game, const PlatformConfig& cfg)
     }
 
     std::string summary = log::format("frames %u t=%gs scene %s", game.frame, game.time, game.scene_name.c_str());
-    if (game.camera && game.camera->actor)
-    {
-        const Vec3& p = game.camera->actor->position;
-        const Quat& q = game.camera->actor->quat;
-        summary += log::format(" cam=%g,%g,%g quat=%g,%g,%g,%g", p.x, p.y, p.z, q.x, q.y, q.z, q.w);
-    }
     log::info("%s", summary.c_str());
 
     gfx_capture_shader_permutations(shader_permutations);

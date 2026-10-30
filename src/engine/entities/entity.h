@@ -6,16 +6,7 @@ namespace gbtg
 {
 namespace entity_detail
 {
-void body_apply(Entity&);
-
 extern WorldLists g_world;
-
-// Xbox 0x000253B0
-// Message 99. The input delta is zero. 0x00120760 keeps the body when its Y
-// sits in the slab and its XZ is inside the combined radius, then 0x00120250
-// scales the horizontal separation out to that radius. A hit adds the
-// correction to body+0x18 and stores the midpoint at DAT_005111AC.
-bool push_out(Entity& body, const Message& msg); // Xbox 0x000253B0
 
 } // namespace entity_detail
 // Xbox 0x000FCD70

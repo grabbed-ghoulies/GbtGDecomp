@@ -477,7 +477,6 @@ add_executable(gbtg
     src/engine/entities/actor_runtime.cpp
     src/engine/entities/actor_event_messages.cpp
     src/engine/entities/actor_base_messages.cpp
-    src/engine/entities/ghouly_box_messages.cpp
     src/engine/entities/ghouly_requests.cpp
     src/engine/navigation/navigation.cpp
     src/engine/navigation/occupancy.cpp
@@ -661,7 +660,6 @@ add_executable(gbtg
     src/engine/entities/actor_spawn_eligibility.cpp
     src/engine/entities/shape_transform.cpp
     src/engine/entities/actor_spawn_query.cpp
-    src/engine/entities/ghouly_box_controller.cpp
     src/engine/entities/ghouly_spawn_record.cpp
     src/engine/entities/ghouly_spawn_scheduler.cpp
     src/engine/entities/ghouly_spawn_trigger.cpp

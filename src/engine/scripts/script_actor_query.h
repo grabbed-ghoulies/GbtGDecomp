@@ -3,6 +3,7 @@
 #include "../scene/scene_types.h"
 #include <functional>
 #include <unordered_map>
+#include <vector>
 
 namespace gbtg
 {
@@ -37,7 +38,7 @@ struct RuntimeScriptActorQueryReference
 struct RuntimeScriptActorQueryView
 {
     Actor& actor;
-    u16& tag; // object+6, native identity shared with RangeLink.host->tag_6
+    u16& tag; // Actor +6, the node's -0x92E.
     RuntimeScriptMindQuery* mind; // actor+0x95C
     RuntimeScriptActorQueryReference* reference; // actor+0x958
     void* marker; // actor+0xCE0
@@ -52,8 +53,8 @@ struct RuntimeScriptActorGoals
 };
 struct RuntimeScriptActorQueryContext
 {
-    scene_detail::RangeLink* first; // DAT_00511B38
-    std::unordered_map<scene_detail::CamFocus*, RuntimeScriptActorQueryView>& views;
+    // DAT_00511B38: each node (actor +0x934) as its actor's view, in list order. Unset raises when walked.
+    std::function<std::vector<RuntimeScriptActorQueryView>()> actors;
     const u8* address_zero; // Native memory view for the dump's literal address-zero u16 read.
     std::function<RuntimeScriptActorGoals(const Actor&)> goals{}; // A scene player's +0x980 / +0x984 words.
 };

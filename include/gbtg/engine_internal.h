@@ -21,9 +21,6 @@ void script_vm_reset();                             // Clears the condition list
 void script_vm_bind(Game& g);                       // 0x0004B440: walk the loaded script from its first node.
 void script_vm_tick(Game& g, float dt);             // 0x00117100: update, eval, then drain fired ids.
 void pad_tick(Game& g, const InputState& in); // Xbox 0x000FA3C0 / 0x000FAD80
-// Cue-list name, the same key build_catalog stores. loop keeps the voice up.
-void pcm_play_cue(const Game& g, const char* cue, bool loop);
-u64 pcm_play_owned_cue(const Game& g, const char* cue);
 // PrepareEx host boundary: submits the buffer without starting the source voice.
 // On success, voice is a live IXAudio2SourceVoice and handle owns its PCM buffer.
 i32 pcm_prepare_owned_cue(const Game& g, const char* cue, u64& handle, void*& voice);

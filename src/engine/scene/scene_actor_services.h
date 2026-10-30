@@ -126,6 +126,9 @@ public:
     // Script type 0x9F's walk of DAT_00511B38: 0x000F96F0 (AL value, stack slot) on the +0x204 and +0x310 models
     // of every actor whose +6 tag matches.
     void set_tagged_actor_model_nodes(u16 tag, u8 slot, u8 value);
+    // Script type 0x98's walk of DAT_00511B20 (0x00124FC0 with a live 0x7D): 0x000F96F0 on each node's +0x204 and
+    // +0x310 models.
+    void set_body_list_model_nodes(u8 slot, u8 value);
     // Script type 0x90's walk of DAT_00511B38: each actor whose +6 tag matches is released through the inlined
     // 0x00112CC0 (0x00112D10 on its +0x920 child, then message 0x80 and 0x0003ED70 while +0x908 is still null).
     void retire_tagged_actors(u16 tag);

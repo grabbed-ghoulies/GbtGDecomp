@@ -235,7 +235,6 @@ void InspectorSession::load(const std::filesystem::path& directory, const std::s
         {
             release();
             game = std::make_unique<Game>();
-            game->strict_native_start = true;
             game->inspection = &inspection;
             game->init(directory, scene);
             audio = std::make_unique<InspectorAudio>(*game, *g_native_audio);

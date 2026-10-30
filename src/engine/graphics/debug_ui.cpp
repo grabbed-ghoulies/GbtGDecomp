@@ -142,7 +142,7 @@ void draw_runtime(const Game& game)
         {
             const auto& scene = *game.factory_scene;
             ImGui::SeparatorText("Native scene");
-            ImGui::Text("Actor start: %d (0 idle, 1 complete, -1 blocked)", scene.actor_start);
+            ImGui::Text("Actor start: %d (0 idle, 1 complete)", scene.actor_start);
             ImGui::Text("Owned objects %zu / registered count %u", scene.objects.size(), scene.factory.count);
             ImGui::Text("Address bindings %zu / loading %u", scene.address_count(), scene.resources.loading);
             ImGui::TextWrapped("Last missing resource: %s", scene.resources.last_missing.empty()

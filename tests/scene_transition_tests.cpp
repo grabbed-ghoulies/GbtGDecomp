@@ -68,8 +68,7 @@
 #include "../src/engine/camera/cutscene_impulse.h"
 #include "../src/engine/runtime/interpolation.h"
 #include "../src/engine/entities/ghouly_requests.h"
-#include "../src/engine/entities/ghouly_box_controller.h"
-#include "../src/engine/entities/ghouly_box_messages.h"
+#include "../src/engine/entities/ghouly_swap_setup.h"
 #include "../src/engine/entities/actor_spawn_eligibility.h"
 #include "../src/engine/entities/actor_lookup.h"
 #include "../src/engine/entities/actor_spawn_query.h"
@@ -109,6 +108,7 @@
 #include "../src/engine/entities/camera_director.h"
 #include "../src/engine/navigation/occupancy.h"
 #include <cstdlib>
+#include <process.h>
 #include <fstream>
 #include <map>
 #include <optional>
@@ -201,7 +201,7 @@ gbtg::SlotSelectWidget* native_slot_select()
     return static_cast<gbtg::SlotSelectWidget*>(control->gameselect->widget.get());
 }
 
-struct RequestProbe : gbtg::GhoulyBoxController
+struct RequestProbe : gbtg::GhoulyController
 {
     int calls = 0;
     gbtg::GhoulyRequest received;
@@ -404,28 +404,6 @@ void check_ghoulybox_decoder(const char* game_directory)
 void check_actor_spawn_eligibility()
 {
     using namespace gbtg;
-    scene_detail::PulseNode first;
-    scene_detail::PulseNode second;
-    scene_detail::PulseNode third;
-    first.next = &second;
-    second.next = &third;
-    first.word_1fc = 7;
-    first.word_1fe = 0;
-    second.word_1fe = 7;
-    third.word_1fe = 7;
-    auto* saved_head = scene_detail::g_pulse_nodes;
-    scene_detail::g_pulse_nodes = &first;
-    if (find_actor_by_group(7) != &second || find_actor_by_group(0) != &first ||
-        find_actor_by_group(8) != nullptr)
-    {
-        throw Error("actor group lookup changed its key offset or first-match behavior");
-    }
-    scene_detail::g_pulse_nodes = nullptr;
-    if (find_actor_by_group(0) != nullptr)
-    {
-        throw Error("empty actor group list returned an actor");
-    }
-    scene_detail::g_pulse_nodes = saved_head;
     Actor actor;
     Actor parent_actor;
     ActorLink link;
@@ -1224,8 +1202,8 @@ void check_spawn_live_attachment_release()
     using namespace gbtg;
     static i32 calls;
     calls = 0;
-    scene_detail::PulseNode probe;
-    probe.on_message = [](scene_detail::PulseNode*, const i32* raw)
+    const auto saved_broadcast = g_actor_broadcast;
+    g_actor_broadcast = [](const i32* raw) // 0x00122C70 over DAT_00511AA4.
     {
         const auto& message = *reinterpret_cast<const ActorAttachmentReleaseMessage*>(raw);
         if (message.id != 0x8D || message.record == nullptr || message.value != 0)
@@ -1234,8 +1212,6 @@ void check_spawn_live_attachment_release()
         }
         ++calls;
     };
-    auto* saved_pulse = scene_detail::g_pulse_nodes;
-    scene_detail::g_pulse_nodes = &probe;
     const auto saved_slots = g_actor_attachment_slots;
     g_actor_attachment_slots = {};
     entity_detail::ListHead owner;
@@ -1258,7 +1234,7 @@ void check_spawn_live_attachment_release()
         throw Error("attachment release retained a live link or a leased slot");
     }
     g_actor_attachment_slots = saved_slots;
-    scene_detail::g_pulse_nodes = saved_pulse;
+    g_actor_broadcast = saved_broadcast;
 }
 
 void check_spawn_render_registration()
@@ -1387,6 +1363,9 @@ void check_spawn_trigger_and_lifecycle()
         throw Error("spawn trigger fired again for a player already inside");
     }
     // A disabled mode-2 player is skipped only while DAT_00512218 is set, which no retail code does.
+    const u32 invisibility = 0;
+    const u32* const saved_invisibility = g_runtime_invisibility;
+    g_runtime_invisibility = &invisibility;
     link.previous_position = Vec3{3.f, 0.f, 0.f};
     link.disabled_ce0 = 1;
     link.mode_cdc = 2;
@@ -1394,52 +1373,79 @@ void check_spawn_trigger_and_lifecycle()
     {
         throw Error("spawn trigger skipped a disabled player with DAT_00512218 clear");
     }
+    g_runtime_invisibility = saved_invisibility;
     link.disabled_ce0 = 0;
     if (check_ghouly_spawn_trigger(Vec3{}, 2.f, -1.f, random) != -1)
     {
         throw Error("spawn trigger fabricated a successful probability test");
     }
+    // The swap setup (type 0x26) over its own +0x934..+0xA54 words: 0x0006BCA0, 0x0006C0A0 and 0x0006BC70.
     RequestProbe controller;
+    std::vector<u8> setup_bytes(ghouly_swap_field::kSize);
+    Actor setup_actor;
     Actor source;
     source.position = Vec3{5.f, 6.f, 7.f};
-    controller.source_93c = &source;
+    GhoulySpawnRecord* load = nullptr;
+    std::vector<std::vector<u32>> requests;
+    RuntimeGhoulySwapSetup setup{setup_bytes, setup_actor, controller, random, load,
+        [](const void*) -> u32
+        {
+            return 0;
+        },
+        [](u32, std::span<u32>)
+        {
+            throw Error("swap setup without an anchor messaged one");
+        },
+        [&](std::span<u32> message)
+        {
+            requests.emplace_back(message.begin(), message.end());
+        },
+        [&](u32 address) -> Actor*
+        {
+            return address == 0x5000 ? &source : nullptr;
+        }};
+    set(setup_bytes, ghouly_swap_field::source, 0x5000u);
     Vec3 source_position;
     Vec3 source_euler;
     Vec3 position;
     Vec3 euler;
-    if (!query_ghouly_spawn_pose(controller, source_position, source_euler, position, euler) ||
+    if (!query_runtime_ghouly_swap_pose(setup, source_position, source_euler, position, euler) ||
         position.z != 7.f)
     {
-        throw Error("controller pose query lost its actual spawn source");
+        throw Error("swap setup pose query lost its actual spawn source");
     }
-    controller.value_a48 = std::bit_cast<u32>(2.f);
-    controller.value_a4c = std::bit_cast<u32>(1.f);
-    std::strcpy(controller.box_944, "aid_ghoulybox_trigger_test");
-    std::strcpy(controller.attributes_9c4, "attributes");
-    tick_ghouly_box_controller(controller, random);
-    if (controller.calls != 1 || std::strcmp(controller.received.box, controller.box_944) != 0)
+    set(setup_bytes, ghouly_swap_field::radius, 2.f);
+    set(setup_bytes, ghouly_swap_field::chance, 1.f);
+    std::strcpy(field_data(setup_bytes, ghouly_swap_field::box), "aid_ghoulybox_trigger_test");
+    std::strcpy(field_data(setup_bytes, ghouly_swap_field::attributes), "attributes");
+    update_runtime_ghouly_swap_setup(setup);
+    if (requests.size() != 1 || requests[0][0] != 0xA8 ||
+        std::strcmp(reinterpret_cast<const char*>(requests[0].data() + 1), "aid_ghoulybox_trigger_test") != 0 ||
+        std::strcmp(reinterpret_cast<const char*>(requests[0].data() + 0x21), "attributes") != 0)
     {
-        throw Error("controller tick did not send its actual queued request");
+        throw Error("swap setup update did not send its actual queued request");
     }
-    controller.spawned_940 = 1;
-    tick_ghouly_box_controller(controller, random);
-    if (controller.calls != 1)
+    set(setup_bytes, ghouly_swap_field::swapped, 1u);
+    update_runtime_ghouly_swap_setup(setup);
+    if (requests.size() != 1)
     {
-        throw Error("controller tick retriggered after successful live spawning");
+        throw Error("swap setup update retriggered after its ghouly was made");
     }
-    controller.load_938 = allocate_ghouly_spawn_record();
-    tick_ghouly_box_controller(controller, random);
-    if (controller.load_938 != nullptr)
+    load = allocate_ghouly_spawn_record();
+    set(setup_bytes, ghouly_swap_field::load, 1u);
+    update_runtime_ghouly_swap_setup(setup);
+    if (load != nullptr || get(setup_bytes, ghouly_swap_field::load) != 0)
     {
-        throw Error("controller tick retained a completed spawn record");
+        throw Error("swap setup update retained a completed spawn record");
     }
     const size_t count = g_ghouly_controllers.size();
     g_ghouly_controllers.push_back({123, &controller});
-    controller.load_938 = allocate_ghouly_spawn_record();
-    destroy_ghouly_box_controller(controller);
-    if (controller.load_938 != nullptr || g_ghouly_controllers.size() != count)
+    load = allocate_ghouly_spawn_record();
+    set(setup_bytes, ghouly_swap_field::load, 1u);
+    destroy_runtime_ghouly_swap_setup(setup);
+    if (load != nullptr || get(setup_bytes, ghouly_swap_field::load) != 0 || g_ghouly_controllers.size() != count)
     {
-        throw Error("controller shutdown retained its record or registration");
+        throw Error("swap setup shutdown retained its record or registration");
     }
     g_spawn_trigger_players = saved;
 }
@@ -2480,19 +2486,6 @@ void check_native_audio_preparation(const char* directory)
     using namespace gbtg;
     Game game;
     game.aids.open(directory);
-    // The owned-cue boundary plays and releases a retail one-shot.
-    const char* intro_cue = "XACT_SOUNDBANK_GBARON_STARTBUTTONLAUGH";
-    const u64 intro_handle = pcm_play_owned_cue(game, intro_cue);
-    if (intro_handle == 0 || !pcm_owned_cue_playing(intro_handle))
-    {
-        throw Error("intro confirmation could not start the retail Baron laugh");
-    }
-    pcm_stop_owned_cue(intro_handle);
-    if (pcm_owned_cue_playing(intro_handle))
-    {
-        throw Error("intro confirmation retained its voice after release");
-    }
-    std::cout << "PASS: intro Baron laugh starts and survives outgoing cutscene cleanup\n";
     u64 handle = 123;
     void* voice = &game;
     if (pcm_prepare_owned_cue(game, "XACT_SOUNDBANK_MISSING_MISSING", handle, voice) >= 0 ||
@@ -2592,18 +2585,15 @@ void check_native_audio_preparation(const char* directory)
 void check_spawn_receiver_dependencies()
 {
     using namespace gbtg;
-    GhoulyBoxController controller;
+    Actor actor;
     Actor source;
-    source.position = Vec3{3.f, 4.f, 5.f};
-    source.mask_flag = 1;
-    source.spawn_point_count = 1;
     ActorAnimationState animation;
-    RuntimeActorStartupState state{controller.actor, animation};
+    RuntimeActorStartupState state{actor, animation};
     ActorAttachmentNode pending{};
     state.attachments.pending = &pending; // Actor +0x1B4.
     ActorLink link;
-    link.actor = &controller.actor;
-    controller.actor.link = &link;
+    link.actor = &actor;
+    actor.link = &link;
     AnimationResourceRegistry registry;
     const std::array<u32, 2> terminator{8, 0};
     AnimationBundleRecord resource;
@@ -2658,9 +2648,9 @@ void check_spawn_receiver_dependencies()
     ActorEventContext events{state, effects, trails, scares, voices, {}, timer, scale, scale};
     entity_detail::ShapeProbe shape;
     entity_detail::SegmentProbe segment;
-    ActorRenderRegistration render{controller.actor, shape, segment, state.live};
+    ActorRenderRegistration render{actor, shape, segment, state.live};
     const std::unordered_map<const u8*, const u8*> relocated;
-    ActorAttachmentEventContext callouts{controller.actor, state.attachments, effects, factory, {}, objects, 0x10000, relocated};
+    ActorAttachmentEventContext callouts{actor, state.attachments, effects, factory, {}, objects, 0x10000, relocated};
     entity_detail::ListHead anchors;
     entity_detail::ListHead live_attachments;
     ActorLink world_bind;
@@ -2669,57 +2659,6 @@ void check_spawn_receiver_dependencies()
     ModelNodeFlagCache cache{};
     AnimationMatrix reset{};
     ActorBaseContext base{events, render, callouts, anchors, live_attachments, world_bind, watched, pose, nullptr, cache, reset};
-    scene_detail::PulseNode source_node;
-    source_node.word_1fe = 7;
-    scene_detail::PulseNode anchor_node;
-    anchor_node.word_1fc = 2;
-    source_node.next = &anchor_node;
-    GhoulyController anchor;
-    const std::unordered_map<scene_detail::PulseNode*, Actor*> actors{{&source_node, &source}};
-    const std::unordered_map<scene_detail::PulseNode*, GhoulyController*> controllers{{&anchor_node, &anchor}};
-    GhoulyBoxMessageContext context{base, actors, controllers, nullptr};
-    auto* saved_pulses = scene_detail::g_pulse_nodes;
-    scene_detail::g_pulse_nodes = &source_node;
-    state.setting_1fc = 7;
-    state.setting_1fe = 2;
-    u32 initialize = 0x7D;
-    dispatch_ghouly_box_message(controller, &initialize, context);
-    if (controller.source_93c != &source || controller.anchor_934 != &anchor)
-    {
-        throw Error("ghoulybox receiver confused its source group and anchor id");
-    }
-    controller.anchor_934 = nullptr;
-    GhoulyPoseMessage pose_message;
-    dispatch_ghouly_box_message(controller, &pose_message, context);
-    if (pose_message.result != 1 || pose_message.output_position.x != 3.f || pose_message.output_position.z != 5.f)
-    {
-        throw Error("ghoulybox receiver did not return its source actor pose");
-    }
-    GhoulySpawnMessage spawn;
-    source.spawn_blocked = 1;
-    dispatch_ghouly_box_message(controller, &spawn, context);
-    if (spawn.result != -2 || controller.spawned_940 != 0)
-    {
-        throw Error("ghoulybox receiver ignored source eligibility");
-    }
-    source.spawn_blocked = 0;
-    GhoulyRequest request;
-    std::strcpy(request.box, resource.name.c_str());
-    std::strcpy(request.attributes, "aid_actorattribs_receiver_test");
-    dispatch_ghouly_box_message(controller, &request, context);
-    auto* load = static_cast<GhoulySpawnRecord*>(controller.load_938);
-    if (request.result != 1 || load == nullptr || load->controller_24 != &controller ||
-        load->flags_2c != 0 || load->prev != &g_side_list || std::strcmp(load->attributes_30, request.attributes) != 0)
-    {
-        throw Error("ghoulybox receiver failed to enqueue the decoded request");
-    }
-    GhoulyRequest duplicate;
-    std::strcpy(duplicate.box, resource.name.c_str());
-    dispatch_ghouly_box_message(controller, &duplicate, context);
-    if (duplicate.result != 0 || controller.load_938 != load)
-    {
-        throw Error("ghoulybox receiver replaced its pending request");
-    }
     std::array<u8, 0x18> event{};
     u16 kind = 0x25;
     std::memcpy(event.data() + 0xC, &kind, 2);
@@ -2731,15 +2670,15 @@ void check_spawn_receiver_dependencies()
     }
     ActorVectorMessage position{0xC, Vec3{7.f, 8.f, 9.f}};
     dispatch_base_actor_message(&position, base);
-    if (controller.actor.position.x != 7.f || controller.actor.xform_valid != 0)
+    if (actor.position.x != 7.f || actor.xform_valid != 0)
     {
         throw Error("base actor receiver did not invalidate its moved actor transform");
     }
     ActorReferenceMessage released{0x7C, &source};
-    dispatch_ghouly_box_message(controller, &released, context);
-    if (controller.source_93c != nullptr || watched != nullptr)
+    dispatch_base_actor_message(&released, base);
+    if (watched != nullptr)
     {
-        throw Error("ghoulybox receiver did not propagate source release to the base actor");
+        throw Error("base actor receiver did not release its watched actor");
     }
     {
         // Player dispatch 0x00028F60/0x00028FC0 through the same base receiver; ids 0xA9, 0xF,
@@ -2786,8 +2725,8 @@ void check_spawn_receiver_dependencies()
             [](FactoryObject&, u16, u16)
             {
             }};
-        std::unordered_map<scene_detail::CamFocus*, RuntimeScriptActorQueryView> views;
-        RuntimeScriptActorQueryContext query{nullptr, views, zero.data()};
+        RuntimeScriptActorQueryContext query{[] { return std::vector<RuntimeScriptActorQueryView>{}; },
+            zero.data()}; // An empty DAT_00511B38.
         std::vector<u8> body_storage(0x900);
         std::span<u8> body_view = body_storage;
         entity_detail::LatchNode* latch = nullptr;
@@ -2837,8 +2776,6 @@ void check_spawn_receiver_dependencies()
             throw Error("player contact acknowledgement must notify self then sender");
         }
     }
-    destroy_ghouly_box_controller(controller);
-    scene_detail::g_pulse_nodes = saved_pulses;
 }
 
 void check_actor_loading()
@@ -6400,20 +6337,29 @@ void check_actor_loading()
     parameter_word(0x440, 34);
     parameter_word(0x444, 56);
     u32 random_state = 0;
-    int pending_token = 0;
-    probe.load_938 = &pending_token;
-    probe.anchor_934 = &pending_token;
-    probe.source_93c = &pending_token;
+    std::vector<u8> probe_bytes(ghouly_swap_field::kSize);
+    Actor probe_actor;
+    GhoulySpawnRecord* probe_load = nullptr;
+    RuntimeGhoulySwapSetup probe_setup{probe_bytes, probe_actor, probe, random_state, probe_load, {}, {}, {}, {}};
+    auto setup_word = [&](auto descriptor)
+    {
+        return std::bit_cast<u32>(get(probe_bytes, descriptor));
+    };
+    set(probe_bytes, ghouly_swap_field::load, 0x1234u);
+    set(probe_bytes, ghouly_swap_field::anchor, 0x1234u);
+    set(probe_bytes, ghouly_swap_field::source, 0x1234u);
     g_ghouly_controllers.clear();
-    if (!initialize_ghouly_box_controller(probe, parameters, random_state) ||
+    if (!initialize_runtime_ghouly_swap_setup(probe_setup, parameters) ||
         g_ghouly_controllers.size() != 1 || g_ghouly_controllers[0].key != 7 ||
         g_ghouly_controllers[0].controller != &probe || random_state != 0x3C6EF35Fu ||
-        probe.anchor_934 != nullptr || probe.source_93c != nullptr || probe.load_938 != &pending_token ||
-        std::strcmp(probe.box_944, initial_box) != 0 ||
-        std::strcmp(probe.attributes_9c4, initial_attributes) != 0 ||
-        probe.value_a48 != 12 || probe.value_a4c != 34 || probe.value_a50 != 56)
+        get(probe_bytes, ghouly_swap_field::anchor) != 0 || get(probe_bytes, ghouly_swap_field::source) != 0 ||
+        get(probe_bytes, ghouly_swap_field::load) != 0x1234u ||
+        std::strcmp(field_data(probe_bytes, ghouly_swap_field::box), initial_box) != 0 ||
+        std::strcmp(field_data(probe_bytes, ghouly_swap_field::attributes), initial_attributes) != 0 ||
+        setup_word(ghouly_swap_field::radius) != 12 || setup_word(ghouly_swap_field::chance) != 34 ||
+        setup_word(ghouly_swap_field::unk_A50) != 56)
     {
-        throw Error("controller initialization lost registry, random, or parameter fields");
+        throw Error("swap setup initialization lost registry, random, or parameter fields");
     }
     // An unkeyed initialization still draws random and updates +0xA50.
     // A rejected chance must preserve the earlier names and selection fields.
@@ -6422,33 +6368,34 @@ void check_actor_loading()
     parameter_word(0x43C, 99);
     parameter_word(0x444, 78);
     random_state = 0;
-    initialize_ghouly_box_controller(probe, parameters, random_state);
+    initialize_runtime_ghouly_swap_setup(probe_setup, parameters);
     if (g_ghouly_controllers.size() != 1 || random_state != 0x3C6EF35Fu ||
-        probe.value_a48 != 12 || probe.value_a50 != 78 || std::strcmp(probe.box_944, initial_box) != 0)
+        setup_word(ghouly_swap_field::radius) != 12 || setup_word(ghouly_swap_field::unk_A50) != 78 ||
+        std::strcmp(field_data(probe_bytes, ghouly_swap_field::box), initial_box) != 0)
     {
         throw Error("unkeyed or rejected-chance initialization changed the wrong fields");
     }
     const float boundary = std::bit_cast<float>((0x3C6EF35Fu & 0x7FFFFFu) | 0x3F800000u) - 1.f;
     parameter_word(0x438, std::bit_cast<u32>(boundary));
     random_state = 0;
-    initialize_ghouly_box_controller(probe, parameters, random_state);
-    if (probe.value_a48 != 99)
+    initialize_runtime_ghouly_swap_setup(probe_setup, parameters);
+    if (setup_word(ghouly_swap_field::radius) != 99)
     {
-        throw Error("controller chance equality was rejected");
+        throw Error("swap setup chance equality was rejected");
     }
     parameter_word(0x438, std::bit_cast<u32>(std::numeric_limits<float>::quiet_NaN()));
     parameter_word(0x43C, 100);
     random_state = 0;
-    initialize_ghouly_box_controller(probe, parameters, random_state);
-    if (probe.value_a48 != 99)
+    initialize_runtime_ghouly_swap_setup(probe_setup, parameters);
+    if (setup_word(ghouly_swap_field::radius) != 99)
     {
-        throw Error("NaN controller chance selected a ghoulybox");
+        throw Error("NaN swap setup chance selected a ghoulybox");
     }
     parameter_word(0x438, std::bit_cast<u32>(1.f));
     parameter_word(0x338, 0);
     random_state = 0;
-    initialize_ghouly_box_controller(probe, parameters, random_state);
-    if (probe.value_a48 != 99 || random_state != 0x3C6EF35Fu)
+    initialize_runtime_ghouly_swap_setup(probe_setup, parameters);
+    if (setup_word(ghouly_swap_field::radius) != 99 || random_state != 0x3C6EF35Fu)
     {
         throw Error("non-AID box selected parameters or skipped its random draw");
     }
@@ -6517,13 +6464,21 @@ void check_actor_loading()
         throw Error("pending world-view registration did not hold loading");
     }
     entity_detail::g_world.view.next = nullptr;
+    // One DAT_00511B38 actor: its goal-ring front kind and its +0x984 / +0x98C words.
     u16 actor_state = 2;
-    EntityMaskSpan span{2, 0, 0, 1, reinterpret_cast<const u8*>(&actor_state)};
-    scene_detail::CamFocus actor;
-    actor.span_980 = &span;
-    scene_detail::RangeLink link;
-    link.host = &actor;
-    scene_detail::g_range_links = &link;
+    u32 word_984 = 0;
+    u32 word_98c = 0;
+    bool actor_listed = true;
+    const auto saved_loading = g_loading_actors;
+    g_loading_actors = [&]()
+    {
+        std::vector<RuntimeLoadingActor> actors;
+        if (actor_listed)
+        {
+            actors.push_back({0, actor_state, word_984, word_98c});
+        }
+        return actors;
+    };
     if (script_handle_actor_actions(game, node) != 0)
     {
         throw Error("unready live actor did not hold loading");
@@ -6540,18 +6495,18 @@ void check_actor_loading()
     }
     script_handle_actor_actions(game, node);
     actor_state = 2;
-    actor.at_984 = 1;
+    word_984 = 1;
     if (!actor_loading_complete())
     {
         throw Error("retail actor state override was ignored");
     }
-    actor.at_984 = 0;
-    actor.at_98c = 1;
+    word_984 = 0;
+    word_98c = 1;
     if (!actor_loading_complete())
     {
         throw Error("retail secondary actor state override was ignored");
     }
-    scene_detail::g_range_links = nullptr;
+    actor_listed = false;
     GhoulySpawnRecord* second = allocate_ghouly_spawn_record();
     second->flags_2c = 0;
     link_actor_load_record(&g_side_list, *second);
@@ -6578,6 +6533,7 @@ void check_actor_loading()
     {
         throw Error("releasing the final spawn record left a stale load-list entry");
     }
+    g_loading_actors = saved_loading;
     g_side_list = {};
     g_ghouly_controllers.clear();
 }
@@ -10756,15 +10712,54 @@ void play_scene3(gbtg::Game& game, bool drive, int book = -1)
     }
 }
 
+// Each run keeps its U: (saves) and Z: (utility) folders under cache/test_runs/<mode>-<pid>, so modes can run in
+// parallel. A child run (std::system) inherits its parent's folder through GBTG_TEST_RUN, and the folder that made
+// it removes it at a normal exit; a runner removes cache/test_runs/<mode>-* after a failed one.
+std::filesystem::path g_test_run;
+
+std::filesystem::path test_save_folder()
+{
+    return g_test_run / "test_saves";
+}
+
+void open_test_run(int argc, char** argv)
+{
+    if (const char* inherited = std::getenv("GBTG_TEST_RUN"); inherited != nullptr && inherited[0] != '\0')
+    {
+        g_test_run = inherited;
+    }
+    else
+    {
+        const std::string mode = argc >= 3 ? std::string(argv[2]).substr(argv[2][0] == '-' && argv[2][1] == '-' ? 2 : 0)
+                                           : "plain";
+        g_test_run = std::filesystem::path("cache") / "test_runs" / (mode + "-" + std::to_string(_getpid()));
+        std::filesystem::remove_all(g_test_run);
+        std::filesystem::create_directories(g_test_run);
+        // Z: starts as the shared utility cache's copy, as a lone run would find it.
+        if (std::filesystem::is_directory("cache/xbox_utility"))
+        {
+            std::filesystem::copy("cache/xbox_utility", g_test_run / "xbox_utility",
+                std::filesystem::copy_options::recursive);
+        }
+        _putenv_s("GBTG_TEST_RUN", g_test_run.string().c_str());
+        std::atexit([]
+        {
+            std::error_code ec;
+            std::filesystem::remove_all(g_test_run, ec);
+        });
+    }
+    gbtg::set_utility_root(g_test_run / "xbox_utility");
+}
+
 // Byte 0 of the challenge block in the test save's progress.xsv: the record (0x268 bytes), then the progress
 // block (8 bytes), then the challenges (0x0010EB60's layout). 0xFF when there is no save.
 gbtg::u32 saved_challenge_byte()
 {
-    if (!std::filesystem::exists("cache/test_saves"))
+    if (!std::filesystem::exists(test_save_folder()))
     {
         return 0xFF;
     }
-    for (const auto& entry : std::filesystem::recursive_directory_iterator("cache/test_saves"))
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(test_save_folder()))
     {
         if (entry.is_regular_file() && entry.path().filename() == "progress.xsv")
         {
@@ -10795,7 +10790,7 @@ void write_replay_save(const char* exe, const char* original, const std::string&
 void set_saved_script(const std::string& script)
 {
     std::filesystem::path file;
-    for (const auto& entry : std::filesystem::recursive_directory_iterator("cache/test_saves"))
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(test_save_folder()))
     {
         if (entry.is_regular_file() && entry.path().filename() == "progress.xsv")
         {
@@ -10869,6 +10864,7 @@ void start_saved_game(gbtg::Game& game, const std::string& label)
 
 int main(int argc, char** argv)
 {
+    open_test_run(argc, argv);
     // Tests play at 10% master volume (AGENTS.md); the master voice takes it when it is created.
     gbtg::pcm_set_master_volume(0.1f);
     const bool audio_test = argc == 3 && std::string_view(argv[2]) == "--audio-preparation";
@@ -11266,6 +11262,10 @@ int main(int argc, char** argv)
         }
         if (actor_test)
         {
+            // No scene: DAT_00511AA4 is empty, so 0x00122C70's broadcast reaches no actor.
+            gbtg::g_actor_broadcast = [](const gbtg::i32*)
+            {
+            };
             check_actor_spawn_eligibility();
             check_actor_spawn_filters();
             check_actor_navigation();
@@ -11282,7 +11282,7 @@ int main(int argc, char** argv)
             check_spawn_effect_allocation();
             check_spawn_effect_stream();
             check_actor_loading();
-            std::cout << "PASS: actor spawn eligibility, group lookup, controller dispatch and asynchronous script gate\n";
+            std::cout << "PASS: actor spawn eligibility, swap setup dispatch and asynchronous script gate\n";
             return 0;
         }
         gbtg::GfxConfig config;
@@ -11332,7 +11332,7 @@ int main(int argc, char** argv)
         else
         {
             // Each run starts with an empty U: (the save folder), so earlier runs' saves never change the screens.
-            std::filesystem::remove_all("cache/test_saves");
+            std::filesystem::remove_all(test_save_folder());
         }
         if (retail_save_test || challenges_test || feature_test || corrupt_save_test)
         {
@@ -11342,13 +11342,13 @@ int main(int argc, char** argv)
             {
                 throw gbtg::Error("no retail save folder at " + source.generic_string() + " (set GBTG_RETAIL_SAVES)");
             }
-            std::filesystem::create_directories("cache/test_saves");
-            std::filesystem::copy(source, "cache/test_saves", std::filesystem::copy_options::recursive);
+            std::filesystem::create_directories(test_save_folder());
+            std::filesystem::copy(source, test_save_folder(), std::filesystem::copy_options::recursive);
             std::cout << "copied the retail saves from " << source.generic_string() << "\n";
             if (corrupt_save_test)
             {
                 // Flip bytes past the signature so the verify (0x000E9B60) fails.
-                for (const auto& entry : std::filesystem::recursive_directory_iterator("cache/test_saves"))
+                for (const auto& entry : std::filesystem::recursive_directory_iterator(test_save_folder()))
                 {
                     if (entry.path().filename() != "progress.xsv")
                     {
@@ -11370,7 +11370,7 @@ int main(int argc, char** argv)
         }
         if (loading_test)
         {
-            for (const auto& entry : std::filesystem::recursive_directory_iterator("cache/xbox_utility"))
+            for (const auto& entry : std::filesystem::recursive_directory_iterator(gbtg::utility_root()))
             {
                 const auto name = entry.path().filename().string();
                 if (entry.is_regular_file() && (name == "02110fd0" || name == "02110fd1"))
@@ -11380,7 +11380,7 @@ int main(int argc, char** argv)
                 }
             }
         }
-        gbtg::set_save_root("cache/test_saves");
+        gbtg::set_save_root(test_save_folder());
         game.init(argv[1], scene6_save_test || scene6_reload_test ? "" : scene6_test ? "6" : scene3_test || pause_test ? "7"
             : scene4_test ? "chapter1_scene4_1book" : scene5_test ? "chapter1_scene5_1playcam"
             : scene6_1_test ? "chapter1_scene6_1playcam"
@@ -12576,7 +12576,7 @@ int main(int argc, char** argv)
                 }
                 // The file is signed as 0x0010EB60 signs it (0x000E9AF0, flags 0: the last 0x14 bytes), so the next
                 // load (0x0010EF10) verifies it.
-                for (const auto& entry : std::filesystem::recursive_directory_iterator("cache/test_saves"))
+                for (const auto& entry : std::filesystem::recursive_directory_iterator(test_save_folder()))
                 {
                     if (!entry.is_regular_file() || entry.path().filename() != "progress.xsv")
                     {
@@ -12678,9 +12678,7 @@ int main(int argc, char** argv)
             {
                 throw gbtg::Error("player test loaded the wrong scene");
             }
-            std::cout << "player opening: dialogue=" << saw_dialogue
-                      << " actors=" << game.actors.size()
-                      << " entities=" << game.entities.size() << "\n";
+            std::cout << "player opening: dialogue=" << saw_dialogue << "\n";
             for (const gbtg::u32 cursor : gbtg::g_script_fired)
             {
                 const auto* node = gbtg::script_node_at(game.scene_script, cursor);
@@ -14252,7 +14250,7 @@ int main(int argc, char** argv)
             std::cout << "challenge " << moved + 1 << " best " << best << ", trophy word " << trophy << "\n";
             // 0x0004B070's save (0x000F2E20) wrote the words into the save's record (progress.xsv +0x1B4, +0x208).
             bool saved = false;
-            for (const auto& entry : std::filesystem::recursive_directory_iterator("cache/test_saves"))
+            for (const auto& entry : std::filesystem::recursive_directory_iterator(test_save_folder()))
             {
                 if (entry.is_regular_file() && entry.path().filename() == "progress.xsv")
                 {
@@ -14636,7 +14634,7 @@ int main(int argc, char** argv)
                 throw gbtg::Error("the duplicate name test did not reach the second naming page");
             }
             int saves = 0;
-            for (const auto& entry : std::filesystem::directory_iterator("cache/test_saves"))
+            for (const auto& entry : std::filesystem::directory_iterator(test_save_folder()))
             {
                 saves += entry.is_directory() ? 1 : 0;
             }
@@ -15150,7 +15148,7 @@ int main(int argc, char** argv)
             if (delete_test)
             {
                 size_t files = 0;
-                for (const auto& entry : std::filesystem::recursive_directory_iterator("cache/test_saves"))
+                for (const auto& entry : std::filesystem::recursive_directory_iterator(test_save_folder()))
                 {
                     std::cout << "save file " << entry.path().generic_string() << "\n";
                     ++files;
@@ -15169,11 +15167,11 @@ int main(int argc, char** argv)
             }
             if (new_game_test)
             {
-                if (!std::filesystem::exists("cache/test_saves"))
+                if (!std::filesystem::exists(test_save_folder()))
                 {
                     throw gbtg::Error("the new game left no save folder");
                 }
-                for (const auto& entry : std::filesystem::recursive_directory_iterator("cache/test_saves"))
+                for (const auto& entry : std::filesystem::recursive_directory_iterator(test_save_folder()))
                 {
                     std::cout << "save file " << entry.path().generic_string() << " "
                               << (entry.is_regular_file() ? entry.file_size() : 0) << "\n";

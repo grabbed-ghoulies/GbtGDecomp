@@ -8,7 +8,6 @@ template<class T>
 concept HasInspectionPolicy = requires(T& value)
 {
     value.inspection;
-    value.strict_native_start;
 };
 
 template<class T>

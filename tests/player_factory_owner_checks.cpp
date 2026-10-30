@@ -172,8 +172,8 @@ void check_player_factory_owner()
     std::array<u32, 2> resume_references{};
     std::array<u8, 4> resume_table{};
     const RuntimePlayerStrategyResume resume{resume_references, resume_table, decay_index};
-    std::unordered_map<scene_detail::CamFocus*, RuntimeScriptActorQueryView> query_views;
-    const RuntimeScriptActorQueryContext query{nullptr, query_views, address_zero.data()};
+    const RuntimeScriptActorQueryContext query{[] { return std::vector<RuntimeScriptActorQueryView>{}; },
+        address_zero.data()}; // An empty DAT_00511B38.
     RuntimeMindTarget* targets = nullptr;
     const void* script_records = nullptr;
     std::array<u8, 0x200> descriptors{};

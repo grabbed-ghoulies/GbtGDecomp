@@ -16,9 +16,6 @@ void message_runtime_marked_actors(SceneActorServices& actors, u16 tag, std::spa
 // Xbox 0x000F96F0. AL is the value. The stack byte selects the pair at +0x294.
 void entity_store_pair(std::span<u8> pairs, u8 index, u8 value); // Xbox 0x000F96F0
 
-// Xbox 0x000F96F0
-void entity_store_pair(CamPairObject* obj, u8 index, u8 value); // Xbox 0x000F96F0
-
 // Xbox 0x00117400. Bit 0 of the mask drives DAT_0050E764. Bit 1 drives
 // DAT_0050E768. A rising edge (counter becomes 1) and a falling edge
 // (counter becomes 0) walk DAT_00511B38. Note 0x26 when the flag is set,

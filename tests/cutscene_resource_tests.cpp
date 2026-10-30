@@ -85,13 +85,15 @@ void test_resource_provider()
 void test_clip_limits()
 {
     const std::array<float, 12> identity{1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f};
-    DisplayClipBounds bounds{};
+    u8 active = 0;
+    std::array<Vec3, 8> corners{};
+    const DisplayClipBounds bounds{active, corners};
     float far_clip = 100.f;
     float near_clip = 19.f;
     extend_display_clip_limits(identity, bounds, far_clip, near_clip);
     require(std::fabs(far_clip - 1650.f) < 0.001f && near_clip == 0.5f, "default clip extension failed");
-    bounds.active = 1;
-    bounds.corners[7].z = -2000.f;
+    active = 1;
+    corners[7].z = -2000.f;
     far_clip = 100.f;
     extend_display_clip_limits(identity, bounds, far_clip, near_clip);
     require(std::fabs(far_clip - 2310.f) < 0.001f, "eighth scene corner was not considered");

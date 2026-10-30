@@ -50,34 +50,6 @@ void gfx_begin_frame()
 {
 }
 
-void gfx_set_camera(const Vec3&, const Quat&, float)
-{
-}
-
-void gfx_set_dialog_camera(const Vec3&, const Quat&, float)
-{
-}
-
-void gfx_clear_dialog_background()
-{
-}
-
-void gfx_begin_dialog_texture(u8, int, int)
-{
-}
-
-void gfx_end_dialog_texture()
-{
-}
-
-void gfx_release_dialog_texture()
-{
-}
-
-void gfx_draw_screen_mesh(const Mesh&, float, float, float, bool)
-{
-}
-
 void gfx_clear_ui_depth(int, int, int, int)
 {
 }
@@ -112,18 +84,6 @@ void gfx_begin_native_target(int, int)
 }
 
 void gfx_end_native_target(RgbaImage&)
-{
-}
-
-void gfx_set_bones(const float*, int)
-{
-}
-
-void gfx_release_mesh(const Mesh&)
-{
-}
-
-void gfx_draw_mesh(const Mesh&, Vec3, Vec3)
 {
 }
 

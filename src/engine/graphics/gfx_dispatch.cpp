@@ -102,59 +102,9 @@ void gfx_begin_frame()
     backend().gfx_begin_frame();
 }
 
-void gfx_set_camera(const Vec3& position, const Quat& orientation, float fov_y)
-{
-    backend().gfx_set_camera(position, orientation, fov_y);
-}
-
-void gfx_set_dialog_camera(const Vec3& position, const Quat& orientation, float fov_y)
-{
-    backend().gfx_set_dialog_camera(position, orientation, fov_y);
-}
-
-void gfx_clear_dialog_background()
-{
-    backend().gfx_clear_dialog_background();
-}
-
-void gfx_begin_dialog_texture(u8 slot, int width, int height)
-{
-    backend().gfx_begin_dialog_texture(slot, width, height);
-}
-
-void gfx_end_dialog_texture()
-{
-    backend().gfx_end_dialog_texture();
-}
-
-void gfx_release_dialog_texture()
-{
-    backend().gfx_release_dialog_texture();
-}
-
-void gfx_draw_screen_mesh(const Mesh& mesh, float x, float y, float scale, bool clear_depth)
-{
-    backend().gfx_draw_screen_mesh(mesh, x, y, scale, clear_depth);
-}
-
 void gfx_clear_ui_depth(int left, int top, int right, int bottom)
 {
     backend().gfx_clear_ui_depth(left, top, right, bottom);
-}
-
-void gfx_set_bones(const float* column_major, int count)
-{
-    backend().gfx_set_bones(column_major, count);
-}
-
-void gfx_draw_mesh(const Mesh& mesh, Vec3 origin, Vec3 scale)
-{
-    backend().gfx_draw_mesh(mesh, origin, scale);
-}
-
-void gfx_release_mesh(const Mesh& mesh)
-{
-    backend().gfx_release_mesh(mesh);
 }
 
 void gfx_draw_sprite(const RgbaImage& image, const GfxRect& rect)

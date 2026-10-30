@@ -65,9 +65,6 @@ struct Game
     const Bundle* scene_bundle = nullptr;
     SceneScript scene_script;
     std::vector<std::string> script_aidlists;
-    std::vector<Actor> actors;
-    std::vector<Entity> entities;
-    Entity* camera = nullptr;
     // Borrowed binding supplied by the scene's native dialogue owner. The
     // owner and all referenced resources must outlive script execution.
     RuntimeScriptDialogueContext* script_dialogue = nullptr;
@@ -85,7 +82,6 @@ struct Game
     std::shared_ptr<SceneFactoryRuntime> factory_scene;
     bool running = true;
 #if defined(GBTG_INSPECTOR_APP)
-    bool strict_native_start = false; // Host tooling: propagate native scene-start failures.
     SceneInspectionPolicy* inspection = nullptr; // Borrowed host diagnostics.
 #endif
     float time = 0.f;

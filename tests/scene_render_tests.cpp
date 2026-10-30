@@ -382,7 +382,8 @@ void check_ambient_sampling()
         "environment grids must combine with packed saturation before float conversion");
     override_count = 1;
     context.points_enabled = 1;
-    points[31] = {Vec3{10.f, 0.f, 0.f}, 1};
+    points[31].position = Vec3{10.f, 0.f, 0.f};
+    points[31].active = 1;
     sample_runtime_scene_ambient(Vec3{}, color.data(), context);
     require(color == context.override_color, "ambient override bypasses grids, scaling and point contributions");
     override_count = 0;

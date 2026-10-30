@@ -413,11 +413,6 @@ void entity_store_pair(std::span<u8> pairs, u8 index, u8 value)
 }
 
 
-// Xbox 0x000F96F0
-void entity_store_pair(CamPairObject* obj, u8 index, u8 value)
-{
-    entity_store_pair(obj->pairs, index, value);
-}
 
 
 // Xbox 0x00117400. Bit 0 of the mask drives DAT_0050E764. Bit 1 drives
@@ -625,17 +620,12 @@ int script_handle_pair_updates(Game& g, const ScriptNode& node, int param_2)
     {
         const u8 index = node_u8(g.scene_script, node, 8);
         const u8 value = node_u8(g.scene_script, node, 0xC);
-        for (BodyLink* link = g_body_links; link != nullptr; link = link->next)
+        SceneActorServices* actors = script_scene_actors(g);
+        if (actors == nullptr)
         {
-            if (link->pair_204 != nullptr)
-            {
-                entity_store_pair(link->pair_204, index, value);
-            }
-            if (link->pair_310 != nullptr)
-            {
-                entity_store_pair(link->pair_310, index, value);
-            }
+            throw Error("script type 0x98 walks DAT_00511B20 outside a native scene");
         }
+        actors->set_body_list_model_nodes(index, value);
         return 2;
     }
     const size_t slot = size_t(g_pair_slot_count);

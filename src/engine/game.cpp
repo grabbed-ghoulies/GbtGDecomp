@@ -29,28 +29,9 @@
 
 namespace gbtg
 {
-namespace
-{
-
-Entity* spawn(Game& g, const char* type_name, Actor& actor)
-{
-    const EntityType* type = find_entity_type(type_name);
-    g.entities.push_back(Entity{type, &actor, actor.position, actor.position, actor.euler, false});
-    Entity& e = g.entities.back();
-    if (e.type && e.type->tick)
-    {
-        e.type->tick(e);
-    }
-    return &e;
-}
-
-} // namespace
-
 void Game::init(const std::filesystem::path& game_dir, std::string_view scene_select)
 {
-    // Xbox: _cinit runs entity type static ctors, then WinMain 0x00032390:
-    //   gfx_init_32470, fs_init_33980, game_init_32630.
-    register_entity_types();
+    // Xbox WinMain 0x00032390: gfx_init_32470, fs_init_33980, game_init_32630.
     clock_init(clock);
     aids.open(game_dir);
     executable_resources = std::make_shared<SceneExecutableResources>(game_dir);
@@ -85,7 +66,6 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
     movie_boot_probe();
     log::verbose("fs_init: %s common.bnl entries %zu", aids.game_dir.string().c_str(), aids.common.entries.size());
     log::verbose("clock %d Hz dt=%g", clock_fps(clock), clock.dt);
-    log::verbose("entity types %zu", all_entity_types().size());
 
     script_set_default_name(*this);
     if (const BundleEntry* list = find_entry(aids.common, kSceneOrder))
@@ -137,11 +117,6 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
         }
     }
 
-    actors.reserve(16);
-    entities.reserve(16);
-    actors.emplace_back();
-    camera = spawn(*this, "entityBodyCamera", actors.back());
-
     game_init_pump();
     log::verbose("game_init: io idle");
     // 0x0011E4C0. The first pass accepts the queued aid into state 3.
@@ -186,13 +161,6 @@ void frame_tick(Game& g, float dt, const InputState& in)
         tick_app_error_screen(); // 0x00032AB0
     }
     tick_native_audio(g.clock.dt, g_4e02e8); // 0x0015B780, 0x0003A040, 0x000396F0, 0x00038640, 0x00038C20
-    for (auto& e : g.entities)
-    {
-        if (e.type && e.type->tick)
-        {
-            e.type->tick(e);
-        }
-    }
     // 0x00033B50: the file rows (0x000E9E60), the movie list (0x00107420 over DAT_0050E0B8) and the finished
     // movie event slots (0x00106C70).
     auto& movies = *g.native_movies;

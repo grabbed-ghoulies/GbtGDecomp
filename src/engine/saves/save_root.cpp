@@ -11,6 +11,7 @@ namespace gbtg
 namespace
 {
 std::filesystem::path g_save_root;
+std::filesystem::path g_utility_root = "cache/xbox_utility";
 
 std::filesystem::path executable_directory()
 {
@@ -41,6 +42,16 @@ const std::filesystem::path& save_root()
 void set_save_root(const std::filesystem::path& root)
 {
     g_save_root = root;
+}
+
+std::filesystem::path utility_root()
+{
+    return std::filesystem::absolute(g_utility_root).lexically_normal();
+}
+
+void set_utility_root(const std::filesystem::path& root)
+{
+    g_utility_root = root;
 }
 
 std::string xbox_host_path(const char* path)

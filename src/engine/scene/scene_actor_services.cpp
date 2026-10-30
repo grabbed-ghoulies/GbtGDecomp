@@ -599,8 +599,7 @@ struct SceneActorServices::State
     std::span<const u8> decay_enabled; // DAT_0030F144.
     RuntimeActorClock clock;
     RuntimePlayerStrategyResume resume;
-    std::unordered_map<scene_detail::CamFocus*, RuntimeScriptActorQueryView> query_views;
-    RuntimeScriptActorQueryContext query{nullptr, query_views, address_zero.data()};
+    RuntimeScriptActorQueryContext query{{}, address_zero.data()};
     RuntimeMindTarget* targets = nullptr; // DAT_00545988.
     // DAT_00545988 walks the +8 links of the live attachments on DAT_00545984 (linked by 0x0012AFE0). Each
     // record gets a retail-layout image (+0x10 actor, +0x14.. the record fields) and a target view, kept per
@@ -1162,6 +1161,19 @@ struct SceneActorServices::State
     };
     std::vector<std::unique_ptr<SceneCaseActor>> case_actor_views;
     std::vector<RuntimeScriptActorQueryView> case_actors();
+    // DAT_00511B38 players as 0x00129420 reads them. Each player keeps its view, refreshed on every walk, so a
+    // walk nested inside another's predicate leaves the outer views valid.
+    struct SceneMarkedActor
+    {
+        RuntimeScriptMindQuery mind{};
+        RuntimeScriptMindQueryNode node{};
+        RuntimeScriptActorQueryBinding binding{};
+        RuntimeScriptActorQueryReference reference{};
+        u16 tag = 0;
+    };
+    std::unordered_map<const NativePlayerInstance*, std::unique_ptr<SceneMarkedActor>> marked_actor_query_views;
+    std::vector<RuntimeScriptActorQueryView> marked_actor_views();
+    Actor* actor_at_address(u32 address); // Null for address zero.
     FactoryObject& object_of_actor(Actor& actor);
     void start_background();
     void notify_body_list(u32 id); // Message {id} to each DAT_00511B20 (+0x934 list) node's actor.
@@ -5379,6 +5391,10 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         forget_texture_images(begin, size);
     };
     active_services = this;
+    query.actors = [this]()
+    {
+        return marked_actor_views();
+    };
     // 0x00028360 and the type-0x6F wait read a player's +0x980 goal ring and +0x984 word.
     query.goals = [this](const Actor& actor) -> RuntimeScriptActorGoals
     {
@@ -9697,6 +9713,102 @@ std::vector<RuntimeScriptActorQueryView> SceneActorServices::State::case_actors(
     return views;
 }
 
+Actor* SceneActorServices::State::actor_at_address(u32 address)
+{
+    return address == 0 ? nullptr : actors->actors.at(scene.resolve_address(address, 0).data());
+}
+
+std::vector<RuntimeScriptActorQueryView> SceneActorServices::State::marked_actor_views()
+{
+    std::vector<RuntimeScriptActorQueryView> views;
+    for (auto* node = static_cast<entity_detail::ListHead*>(entity_detail::g_world.mark.next); node != nullptr;
+        node = static_cast<entity_detail::ListHead*>(node->next))
+    {
+        NativePlayerInstance* owner = nullptr;
+        for (auto* player : players->instances())
+        {
+            if (&player->links[0] == node)
+            {
+                owner = player;
+            }
+        }
+        if (owner == nullptr)
+        {
+            unbound("DAT_00511B38 node without a native player");
+        }
+        owner->refresh_views();
+        if (owner->body.empty() || owner->body_bits == nullptr)
+        {
+            unbound("DAT_00511B38 player without a body (actor +0x95C)");
+        }
+        auto& view = marked_actor_query_views[owner];
+        if (view == nullptr)
+        {
+            view = std::make_unique<SceneMarkedActor>();
+        }
+        const auto body = std::span<const u8>(owner->body);
+        auto& mind = view->mind;
+        mind.state = i16(read_u16(body, 0x30));
+        mind.state_time = read_f32(body, 0x34);
+        mind.case_actor = actor_at_address(read_u32(body, 0x48));
+        // Body +0x5C (the attachment request tables) and its +0x2C, read for flag 0x100000.
+        mind.node = nullptr;
+        if (read_u32(body, 0x5C) != 0)
+        {
+            if (owner->animation_resource.size() < 0x30)
+            {
+                unbound("DAT_00511B38 player body +0x5C without its +0x2C word");
+            }
+            view->node.active = read_u32(owner->animation_resource, 0x2C) == 0 ? nullptr
+                : const_cast<u8*>(owner->animation_resource.data() + 0x2C);
+            mind.node = &view->node;
+        }
+        mind.blocked = body[0x69];
+        mind.active = body[0x6A];
+        mind.suspended = body[0x6B];
+        mind.permitted = body[0x6C];
+        mind.timer = read_f32(body, 0x70);
+        mind.energy = i16(read_u16(body, 0x94));
+        mind.maximum_energy = i16(read_u16(body, 0x96));
+        mind.bits = owner->body_bits;
+        view->tag = read_u16(owner->actor_bytes, 6);
+        // Actor +0x958 (the mind): +0xC the reference source (0x00028C10), +0x10 the target record whose +0x10
+        // is its actor (flag 0x400).
+        RuntimeScriptActorQueryReference* reference = nullptr;
+        if (read_u32(owner->actor_bytes, 0x958) != 0)
+        {
+            if (owner->mind.size() < 0x14)
+            {
+                unbound("DAT_00511B38 player mind (actor +0x958) without its +0x10 word");
+            }
+            view->reference.source = actor_at_address(read_u32(owner->mind, 0xC));
+            view->reference.binding = nullptr;
+            if (const u32 record = read_u32(owner->mind, 0x10); record != 0)
+            {
+                refresh_mind_targets();
+                if (const auto found = target_records.find(record); found != target_records.end())
+                {
+                    view->binding.owner = &found->second->actor;
+                }
+                else if (const auto retired = retired_targets.find(record); retired != retired_targets.end())
+                {
+                    view->binding.owner = &retired->second->actor; // A freed record's +0x10, never a live requester.
+                }
+                else
+                {
+                    unbound("DAT_00511B38 player mind +0x10 " + std::to_string(record) + " is not a target record");
+                }
+                view->reference.binding = &view->binding;
+            }
+            reference = &view->reference;
+        }
+        void* marker = read_u32(owner->actor_bytes, 0xCE0) != 0 ? static_cast<void*>(owner->actor_bytes.data() + 0xCE0)
+            : nullptr;
+        views.push_back(RuntimeScriptActorQueryView{owner->actor, view->tag, &view->mind, reference, marker});
+    }
+    return views;
+}
+
 const ActorMatrixBindings& SceneActorServices::State::actor_matrix_bindings(const Actor& actor)
 {
     if (actor.model == nullptr || actor.model->cpu.data() == nullptr)
@@ -12547,6 +12659,40 @@ void SceneActorServices::set_tagged_actor_model_nodes(u16 tag, u8 slot, u8 value
             set_runtime_model_node_state(*actor.model->runtime, slot, value, state.node_cache); // 0x000F96F0
         }
         if (auto* secondary = state.actors->view(state.object_of_actor(actor)).startup.models.secondary.get())
+        {
+            set_runtime_model_node_state(*secondary, slot, value, state.node_cache); // 0x000F96F0
+        }
+    }
+}
+
+void SceneActorServices::set_body_list_model_nodes(u8 slot, u8 value)
+{
+    auto& state = *state_;
+    for (auto* node = static_cast<entity_detail::ListHead*>(entity_detail::g_world.body_a.next); node != nullptr;
+         node = static_cast<entity_detail::ListHead*>(node->next)) // DAT_00511B20, each node's +4.
+    {
+        Actor* actor = nullptr;
+        if (auto* background = state.backgrounds->owner_of(*node); background != nullptr)
+        {
+            actor = &background->state.actor;
+        }
+        for (auto* player : state.players->instances())
+        {
+            if (static_cast<void*>(&player->links[0]) == static_cast<void*>(node))
+            {
+                actor = &player->actor;
+            }
+        }
+        if (actor == nullptr)
+        {
+            unbound("DAT_00511B20 node with no native background or player");
+        }
+        // Node -0x730 (+0x204) and node -0x624 (+0x310); a null object skips its call.
+        if (actor->model != nullptr && actor->model->runtime != nullptr)
+        {
+            set_runtime_model_node_state(*actor->model->runtime, slot, value, state.node_cache); // 0x000F96F0
+        }
+        if (auto* secondary = state.actors->view(state.object_of_actor(*actor)).startup.models.secondary.get())
         {
             set_runtime_model_node_state(*secondary, slot, value, state.node_cache); // 0x000F96F0
         }

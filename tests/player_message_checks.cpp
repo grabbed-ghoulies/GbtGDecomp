@@ -188,11 +188,9 @@ void check_pause_and_strategy()
     u32 disabled = 0, value = 0, argument = 0, name = 0;
     RuntimePlayerScriptOverrides overrides{disabled, value, argument, name, disabled, value, argument, name};
     RuntimePlayerGoalCleanup goals{self, ring, body_view, actor, latch, zero, overrides};
-    std::unordered_map<scene_detail::CamFocus*, RuntimeScriptActorQueryView> views;
-    RuntimeScriptActorQueryContext query{nullptr, views, zero.data()};
+    RuntimeScriptActorQueryContext query{[] { return std::vector<RuntimeScriptActorQueryView>{}; },
+        zero.data()}; // An empty DAT_00511B38.
     RuntimePlayerPause pause{actor, strategy, setup, query, goals, resume};
-    auto* saved_pulses = scene_detail::g_pulse_nodes;
-    scene_detail::g_pulse_nodes = nullptr;
     require(handle_runtime_player_pause_message(bytes, 9, pause) == 1 && read_u32(bytes, 0xCD8) == 1 && actor.parked_gate == 1
             && read_u16(strategy_bytes, 0xE) == 0x3E8 && transitions.size() == 2, "first pause enters strategy state 1000");
     // Second pause only counts; the mask span now reports a goal so a first pause would drain.
@@ -218,7 +216,6 @@ void check_pause_and_strategy()
     require(read_u16(strategy_bytes, 0xE) == 0x21 && transitions.size() == 6, "the last resume restores the strategy's +0xC state");
     require(handle_runtime_player_pause_message(bytes, 0xC, pause) == 1 && handle_runtime_player_pause_message(bytes, 0x40, pause) == 0,
         "messages 0xB..0xD are accepted, others are not");
-    scene_detail::g_pulse_nodes = saved_pulses;
 }
 
 void check_activation_and_navigation()

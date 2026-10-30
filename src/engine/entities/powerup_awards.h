@@ -8,6 +8,8 @@
 #include "player_mind_events.h"
 #include "player_mind_targets.h"
 #include "../scripts/script_actor_query.h"
+#include "../scene/challenge_runtime.h"
+#include "../navigation/cell_registration.h"
 #include "gbtg/object_factory.h"
 
 namespace gbtg
@@ -29,10 +31,12 @@ struct RuntimePowerupTable
     AnimationResourceRegistry& registry;
 };
 void cancel_runtime_powerup(u32 kind, RuntimePowerupTable& table); // Xbox 0x00124320, EAX kind
-// Adds time to the kind 0x10 and 0x11 entries (stride 0x14, time at +8) of the DAT_004E17D8 pool.
-void extend_runtime_scene_timers(float amount, GhoulySpawnPool* timers); // Xbox 0x0004A370, XMM0 amount
-// The challenge record (stride 0x88) whose kind word at +0 matches, from the DAT_005064E0 pool.
-u8* find_runtime_challenge_record(u32 kind, GhoulySpawnPool* challenges); // Xbox 0x000D0650, EDX kind
+// Adds time to the running challenge's op 0x10 and 0x11 requirements (DAT_004E17D8, their +8 seconds).
+void extend_runtime_challenge_timers(float amount,
+    std::vector<RuntimeChallengeRecord>* records); // Xbox 0x0004A370, XMM0 amount
+// The scripted event step (DAT_005064E0, stride 0x88) whose type word at +0 matches, or null.
+u8* find_runtime_event_step(u32 type,
+    const entity_detail::NavigationCellRegistration* steps); // Xbox 0x000D0650, EDX type
 // What 0x000F24C0 reaches when a challenge is won.
 struct RuntimeChallengeAward
 {

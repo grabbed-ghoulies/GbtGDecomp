@@ -24,16 +24,15 @@ u32 accept_selected(Actor* requester, Actor* candidate)
 void test_query_flags()
 {
     Actor actor, requester, case_actor;
-    scene_detail::CamFocus host;
+    int host = 0;
     u16 tag = 42;
     std::array<u8, 8> bytes{};
     EntityBitBlock bits{bytes.data()};
     RuntimeScriptMindQuery mind{};
     mind.bits = &bits;
     RuntimeScriptActorQueryView view{actor, tag, &mind, nullptr, nullptr};
-    std::unordered_map<scene_detail::CamFocus*, RuntimeScriptActorQueryView> views;
     std::array<u8, 2> zero{0x34, 0x12};
-    RuntimeScriptActorQueryContext context{nullptr, views, zero.data()};
+    RuntimeScriptActorQueryContext context{{}, zero.data()};
     auto query = [&](u32 flags)
     {
         return matches_runtime_script_actor_query(view, &requester, flags, context) != 0;
@@ -136,9 +135,8 @@ void test_player_wait()
 {
     Actor actor;
     const std::unordered_map<u32, Actor*> addresses{{0, nullptr}, {0x1000, &actor}};
-    std::unordered_map<scene_detail::CamFocus*, RuntimeScriptActorQueryView> views;
     const std::array<u8, 2> address_zero{2, 0};
-    RuntimeScriptActorQueryContext context{nullptr, views, address_zero.data()};
+    RuntimeScriptActorQueryContext context{{}, address_zero.data()};
     require(find_runtime_script_player(0, addresses) == nullptr, "null player link");
     require(find_runtime_script_player(0x93C, addresses) == nullptr, "player sentinel subtracts to null");
     require(find_runtime_script_player(0x193C, addresses) == &actor, "player link maps actor minus 0x93C");
@@ -208,22 +206,26 @@ void test_idle_and_ancestry()
 void test_tag_count()
 {
     Actor first_actor, second_actor, other_actor;
-    scene_detail::CamFocus first_host, second_host, other_host;
-    first_host.tag_6 = second_host.tag_6 = 77;
-    other_host.tag_6 = 78;
-    scene_detail::RangeLink third{nullptr, &other_host};
-    scene_detail::RangeLink second{&third, &second_host};
-    scene_detail::RangeLink first{&second, &first_host};
+    u16 first_tag = 77, second_tag = 77, other_tag = 78;
     std::array<u8, 8> bytes{};
     EntityBitBlock bits{bytes.data()};
     RuntimeScriptMindQuery mind{};
     mind.bits = &bits;
-    std::unordered_map<scene_detail::CamFocus*, RuntimeScriptActorQueryView> views;
-    views.emplace(&first_host, RuntimeScriptActorQueryView{first_actor, first_host.tag_6, &mind, nullptr, nullptr});
-    views.emplace(&second_host, RuntimeScriptActorQueryView{second_actor, second_host.tag_6, &mind, nullptr, nullptr});
-    views.emplace(&other_host, RuntimeScriptActorQueryView{other_actor, other_host.tag_6, &mind, nullptr, nullptr});
+    // DAT_00511B38 in list order.
+    bool listed = true;
     const std::array<u8, 2> zero{};
-    RuntimeScriptActorQueryContext context{&first, views, zero.data()};
+    RuntimeScriptActorQueryContext context{[&]()
+        {
+            std::vector<RuntimeScriptActorQueryView> views;
+            if (listed)
+            {
+                views.push_back({first_actor, first_tag, &mind, nullptr, nullptr});
+                views.push_back({second_actor, second_tag, &mind, nullptr, nullptr});
+                views.push_back({other_actor, other_tag, &mind, nullptr, nullptr});
+            }
+            return views;
+        },
+        zero.data()};
     require(count_runtime_script_actor_tags(0, 77, nullptr, context) == 2, "matching tag count");
     require(count_runtime_script_actor_tags(0, 78, nullptr, context) == 1, "other tag count");
     require(count_runtime_script_actor_tags(0, 79, nullptr, context) == 0, "missing tag count");
@@ -233,8 +235,19 @@ void test_tag_count()
     predicate_calls = 0;
     require(count_runtime_script_actor_tags(0, 77, accept_selected, context) == 1, "genuine callback controls acceptance");
     require(predicate_calls == 2, "predicate only invoked for matching tag and filter");
-    context.first = nullptr;
+    listed = false;
     require(count_runtime_script_actor_tags(0, 77, nullptr, context) == 0, "empty actor list count");
+    context.actors = nullptr;
+    bool raised = false;
+    try
+    {
+        count_runtime_script_actor_tags(0, 77, nullptr, context);
+    }
+    catch (const std::exception&)
+    {
+        raised = true;
+    }
+    require(raised, "an unbound DAT_00511B38 walk raises");
 }
 }
 void check_script_actor_query()

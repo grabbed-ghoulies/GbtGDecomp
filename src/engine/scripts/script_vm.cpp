@@ -1293,40 +1293,16 @@ void script_queue_scene_start(Game& g)
     // 0x0011CBD0 sends the scene-start message directly to 0x00116810,
     // before its entity broadcasts. This wakes the title action.
     const std::array<u8, 4> start{0x7d, 0, 0, 0};
-    const auto script_event = [&g, &start]()
+    if (g.factory_scene == nullptr || g.factory_scene->actor_start != 0)
+    {
+        throw Error("0x0011CBD0 starts a scene that is not loaded natively or has already started");
+    }
+    g.factory_scene->start_actors(g).start_scene([&g, &start]()
     {
         script_queue_event(g, start);
-    };
-    bool queued = false;
-    if (g.factory_scene != nullptr && g.factory_scene->actor_start == 0)
-    {
-        try
-        {
-            g.factory_scene->start_actors(g).start_scene([&]()
-            {
-                script_event();
-                queued = true;
-            });
-            g.factory_scene->actor_start = 1;
-            log::info("native scene start complete: %s", g.scene_name.c_str());
-        }
-        catch (const std::exception& error)
-        {
-#if defined(GBTG_INSPECTOR_APP)
-            if (g.strict_native_start)
-            {
-                throw;
-            }
-#endif
-            // Host diagnostic: the native actor graph stops where an untranslated service is reached.
-            g.factory_scene->actor_start = -1;
-            log::info("native scene start stopped: %s", error.what());
-        }
-    }
-    if (!queued)
-    {
-        script_event();
-    }
+    });
+    g.factory_scene->actor_start = 1;
+    log::info("native scene start complete: %s", g.scene_name.c_str());
     g_scene_script_started = true;
     script_tick_fired_vm(g);
 }

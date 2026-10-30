@@ -959,38 +959,6 @@ const WaveChoice* pick_choice(const std::vector<WaveChoice>& waves, u32 frame)
 
 } // namespace
 
-void pcm_play_cue(const Game& g, const char* cue, bool loop)
-{
-#if defined(_WIN32)
-    if (cue == nullptr || cue[0] == 0)
-    {
-        return;
-    }
-    for (const PcmVoice& bed : g_bed)
-    {
-        if (bed.cue == cue)
-        {
-            return;
-        }
-    }
-    build_catalog(g);
-    const auto found = g_cues.find(cue);
-    if (found == g_cues.end())
-    {
-        log::warn("audio unmapped %s", cue);
-        return;
-    }
-    if (const WaveChoice* choice = pick_choice(found->second, g.frame))
-    {
-        play_choice(cue, *choice, loop, true);
-    }
-#else
-    (void)g;
-    (void)cue;
-    (void)loop;
-#endif
-}
-
 // Native audio boundary at the retail cue play calls. A failed host voice returns 0.
 // The book owns its handles independently of the scene cutscene's voice list.
 i32 pcm_prepare_owned_cue(const Game& g, const char* cue, u64& handle, void*& voice)
@@ -1017,41 +985,6 @@ i32 pcm_prepare_owned_cue(const Game& g, const char* cue, u64& handle, void*& vo
     (void)cue;
     return static_cast<i32>(0x80004001u);
 #endif
-}
-
-u64 pcm_play_owned_cue(const Game& g, const char* cue)
-{
-#if defined(_WIN32)
-    for (size_t i = 0; i < g_bed.size();)
-    {
-        XAUDIO2_VOICE_STATE state{};
-        g_bed[i].voice->GetState(&state);
-        if (!g_bed[i].native && g_bed[i].handle != 0 && state.BuffersQueued == 0)
-        {
-            release_voice(g_bed[i]);
-            g_bed.erase(g_bed.begin() + static_cast<std::ptrdiff_t>(i));
-        }
-        else
-        {
-            ++i;
-        }
-    }
-    build_catalog(g);
-    const auto found = g_cues.find(cue);
-    if (found == g_cues.end())
-    {
-        log::warn("audio unmapped %s", cue);
-        return 0;
-    }
-    if (const WaveChoice* choice = pick_choice(found->second, g.frame))
-    {
-        return play_choice(cue, *choice, false, true);
-    }
-#else
-    (void)g;
-    (void)cue;
-#endif
-    return 0;
 }
 
 // Host voice-state query for the retail active-voice tests at 0x0012A510.

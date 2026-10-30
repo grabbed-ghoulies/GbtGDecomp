@@ -1,27 +1,9 @@
 #include "actor_lookup.h"
 #include <cstring>
-#include "../camera/camera.h"
 #include "entity.h"
 
 namespace gbtg
 {
-// Xbox 0x00129ED0
-scene_detail::PulseNode* find_actor_by_id(u16 key)
-{
-    if (key == 0)
-    {
-        return nullptr;
-    }
-    for (auto* node = scene_detail::g_pulse_nodes; node != nullptr; node = node->next)
-    {
-        if (node->word_1fc == key)
-        {
-            return node;
-        }
-    }
-    return nullptr;
-}
-
 // Xbox 0x00129ED0, DX key
 u32 find_runtime_actor_by_id(u16 key, const std::function<u32(const entity_detail::LatchNode&)>& owner,
     const std::function<std::span<u8>(u32)>& bytes_at)
@@ -56,25 +38,6 @@ u32 find_runtime_actor_by_class(u16 key, const std::function<u32(const entity_de
     return 0;
 }
 
-// Xbox 0x00129F00
-scene_detail::PulseNode* find_actor_by_group(u16 caller_key)
-{
-    scene_detail::PulseNode* node = scene_detail::g_pulse_nodes;
-    while (true)
-    {
-        if (node == nullptr)
-        {
-            return nullptr;
-        }
-        if (node->word_1fe == caller_key)
-        {
-            break;
-        }
-        node = node->next;
-    }
-    return node;
-}
-
 // Xbox 0x0013E860
 bool spawn_resource_under_class_limit(std::span<ExecutableResourcePool> resources,
     const u32* class_limits, const char* name)
@@ -92,9 +55,9 @@ bool spawn_resource_under_class_limit(std::span<ExecutableResourcePool> resource
     if (class_limits[key] != 0)
     {
         u32 count = 0;
-        for (auto* node = scene_detail::g_pulse_nodes; node != nullptr; node = node->next)
+        for (const auto* node = entity_detail::g_world.latch; node != nullptr; node = node->next) // DAT_00511AA4.
         {
-            if (node->tag_6 == key)
+            if (node->tag == key) // The owner's +6 (node -0x8FA).
             {
                 ++count;
             }

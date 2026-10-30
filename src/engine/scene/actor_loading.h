@@ -29,9 +29,8 @@ struct RuntimeLoadingActor
     bool body = false; // Node +0x28 (actor +0x95C) set.
     u16 energy = 0; // Its +0x94.
 };
-// The native scene's DAT_00511B38 walk, in list order. Unset outside a native scene, where the host range links
-// stand in.
+// The native scene's DAT_00511B38 walk, in list order. Unset outside a native scene.
 extern std::function<std::vector<RuntimeLoadingActor>()> g_loading_actors;
-std::vector<RuntimeLoadingActor> runtime_loading_actors(); // The native walk, else the host range links.
+std::vector<RuntimeLoadingActor> runtime_loading_actors(); // The native walk; raises with no scene bound.
 bool actor_loading_complete(); // Xbox 0x001412F0
 }

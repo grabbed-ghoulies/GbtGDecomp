@@ -6,6 +6,7 @@
 #include "../src/engine/frontend/gameselect_slots.h"
 #include "../src/engine/frontend/button_bat_menu.h"
 #include "../src/engine/frontend/gameselect_challenges.h"
+#include "../src/engine/scene/challenge_runtime.h"
 #include "../src/engine/frontend/gameselect_features.h"
 #include "../src/engine/frontend/gameselect_contents.h"
 #include "../src/engine/frontend/gameselect_scene_replay.h"
@@ -10893,7 +10894,11 @@ int main(int argc, char** argv)
     // --gameselect-challenges: the same retail save; A opens it, Right twice and A the challenges (row 6). Right
     // turns the carousel, Y shows the challenge's intro page and A closes it, then A plays the selected challenge,
     // whose script game select must start.
-    const bool challenges_test = argc == 3 && std::string_view(argv[2]) == "--gameselect-challenges";
+    // --gameselect-challenge-restart: the same run, but A (Restart Challenge) on the restart menu, which must start
+    // the challenge again; the second run's restart menu then quits with B.
+    const bool challenge_restart_test = argc == 3 && std::string_view(argv[2]) == "--gameselect-challenge-restart";
+    const bool challenges_test = challenge_restart_test
+        || (argc == 3 && std::string_view(argv[2]) == "--gameselect-challenges");
     const bool replay_scene_test = replay_paging_test
         || (argc == 3 && std::string_view(argv[2]) == "--gameselect-replay-scene");
     if (replay_scene_test || retail_save_test || challenges_test)
@@ -13712,7 +13717,10 @@ int main(int argc, char** argv)
             gbtg::i32 first = -1;
             gbtg::i32 moved = -1;
             std::string started;
-            for (int frame = 0; frame < 6000 && (started_at < 0 || frame < started_at + 1200); ++frame)
+            int menu_shown_at = -1;
+            int back_at = -1;
+            int restarted_at = -1;
+            for (int frame = 0; frame < 12000 && back_at < 0; ++frame)
             {
                 gbtg::InputState input;
                 input.start = frame == 120;
@@ -13782,13 +13790,79 @@ int main(int argc, char** argv)
                         }
                     }
                 }
+                if (started_at >= 0)
+                {
+                    // The results page closes with A; on the restart menu (state 6) B quits to game select.
+                    const int run_state = gbtg::g_challenge_run.state;
+                    if (run_state == 5 && (frame - started_at) % 100 == 0)
+                    {
+                        input.accept = true;
+                    }
+                    if (run_state == 6 && menu_shown_at < 0)
+                    {
+                        menu_shown_at = frame;
+                    }
+                    if (challenge_restart_test && restarted_at < 0 && menu_shown_at >= 0)
+                    {
+                        // A restarts; the next run's start (state 3) re-arms the menu wait for its B.
+                        input.accept = frame - menu_shown_at == 150;
+                        if (frame - menu_shown_at > 150 && run_state == 3)
+                        {
+                            restarted_at = frame;
+                            menu_shown_at = -1;
+                            std::cout << "the challenge restarted at +" << frame - started_at << "\n";
+                        }
+                    }
+                    else
+                    {
+                        input.back = menu_shown_at >= 0 && frame - menu_shown_at == 150;
+                    }
+                    if (menu_shown_at >= 0 && gbtg::g_frontend.challenges_widget != nullptr
+                        && gbtg::g_frontend.challenges_widget->state == 2 && back_at < 0)
+                    {
+                        back_at = frame;
+                    }
+                }
                 gbtg::gfx_begin_frame();
                 game.tick(1.f / 59.f, input);
                 gbtg::gfx_end_frame();
+                if (menu_shown_at >= 0 && frame - menu_shown_at == 100)
+                {
+                    gbtg::RgbaImage image;
+                    if (gbtg::gfx_readback(image))
+                    {
+                        gbtg::write_bmp("cache/challenge_run_restart_menu.bmp", image);
+                    }
+                }
                 if (played_at >= 0 && started_at < 0 && game.scene_script.name.find("challenges_") != std::string::npos)
                 {
                     started_at = frame;
                     started = game.scene_script.name;
+                }
+                if (started_at >= 0)
+                {
+                    static int last_state = -100;
+                    const int run_state = gbtg::g_challenge_run.state;
+                    if (run_state != last_state)
+                    {
+                        std::cout << "challenge state " << run_state << " (mode " << gbtg::g_challenge_run.mode
+                                  << ", score " << gbtg::g_challenge_run.score << ", tier " << gbtg::g_challenge_run.tier
+                                  << ") at +" << frame - started_at << " in " << game.scene_script.name << "\n";
+                        last_state = run_state;
+                        gbtg::RgbaImage image;
+                        if (gbtg::gfx_readback(image))
+                        {
+                            gbtg::write_bmp("cache/challenge_run_state" + std::to_string(run_state) + ".bmp", image);
+                        }
+                    }
+                    if ((frame - started_at) % 600 == 300)
+                    {
+                        gbtg::RgbaImage image;
+                        if (gbtg::gfx_readback(image))
+                        {
+                            gbtg::write_bmp("cache/challenge_run_" + std::to_string(frame - started_at) + ".bmp", image);
+                        }
+                    }
                 }
                 const bool capture = (menu_at >= 0 && (frame - menu_at == 1 || frame - menu_at == 60))
                     || (moved_at >= 0 && frame - moved_at == 30) || (intro_at >= 0 && frame - intro_at == 120)
@@ -13819,7 +13893,52 @@ int main(int argc, char** argv)
             {
                 throw gbtg::Error("A on the challenge did not start its script");
             }
-            std::cout << "PASS: the challenges opened, moved, showed the intro and started " << started << "\n";
+            if (menu_shown_at < 0)
+            {
+                throw gbtg::Error("the challenge never reached its restart menu (DAT_004E17C8 6)");
+            }
+            if (back_at < 0)
+            {
+                throw gbtg::Error("B on the restart menu did not return to the challenges (row 6)");
+            }
+            if (challenge_restart_test && restarted_at < 0)
+            {
+                throw gbtg::Error("A on the restart menu did not run the challenge again");
+            }
+            gbtg::i32 best = 0;
+            std::memcpy(&best, gbtg::g_game_progress.words_18f8.data() + size_t(moved) * 4, 4);
+            gbtg::i32 trophy = 0;
+            std::memcpy(&trophy, gbtg::g_game_progress.words_194c.data() + size_t(moved) * 4, 4);
+            std::cout << "challenge " << moved + 1 << " best " << best << ", trophy word " << trophy << "\n";
+            // 0x0004B070's save (0x000F2E20) wrote the words into the save's record (progress.xsv +0x1B4, +0x208).
+            bool saved = false;
+            for (const auto& entry : std::filesystem::recursive_directory_iterator("cache/test_saves"))
+            {
+                if (entry.is_regular_file() && entry.path().filename() == "progress.xsv")
+                {
+                    std::ifstream in(entry.path(), std::ios::binary);
+                    std::vector<char> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                    gbtg::i32 file_best = 0;
+                    gbtg::i32 file_trophy = 0;
+                    std::memcpy(&file_best, bytes.data() + 0x1B4 + size_t(moved) * 4, 4);
+                    std::memcpy(&file_trophy, bytes.data() + 0x208 + size_t(moved) * 4, 4);
+                    std::cout << "saved best " << file_best << ", trophy word " << file_trophy << "\n";
+                    saved = file_best == best && file_trophy == trophy;
+                }
+            }
+            if (!saved)
+            {
+                throw gbtg::Error("the challenge's best score and trophy were not written to progress.xsv");
+            }
+            {
+                gbtg::RgbaImage image;
+                if (gbtg::gfx_readback(image))
+                {
+                    gbtg::write_bmp("cache/challenge_run_back.bmp", image);
+                }
+            }
+            std::cout << "PASS: the challenges opened, moved, showed the intro, played " << started
+                      << ", showed its results and restart menu, and B went back to the challenges\n";
             gbtg::gfx_shutdown();
             return 0;
         }

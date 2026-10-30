@@ -932,6 +932,26 @@ void load_save_game_words_208(const char16_t* name, std::span<u8> output)
     }
 }
 
+// Xbox 0x0010E680: DAT_004E18F8's 0x54 bytes (EBX) into the save's +0x1B4.
+void store_save_game_words_1b4(const char16_t* name, std::span<const u8> words)
+{
+    SaveSlot* slot = find_save_slot(name);
+    if (slot != nullptr)
+    {
+        std::memcpy(slot->save->bytes.data() + 0x1B4, words.data(), 0x54);
+    }
+}
+
+// Xbox 0x0010E740: DAT_004E194C's 0x54 bytes (EBX) into the save's +0x208.
+void store_save_game_words_208(const char16_t* name, std::span<const u8> words)
+{
+    SaveSlot* slot = find_save_slot(name);
+    if (slot != nullptr)
+    {
+        std::memcpy(slot->save->bytes.data() + 0x208, words.data(), 0x54);
+    }
+}
+
 // Xbox 0x0010E270
 void set_save_game_slot(const char16_t* name, u8 slot)
 {

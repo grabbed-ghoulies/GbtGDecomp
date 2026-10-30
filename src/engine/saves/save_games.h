@@ -55,6 +55,8 @@ RuntimeProfileBlock* save_game_unlocks(const char16_t* name); // Xbox 0x0010DE80
 void load_save_game_words_1b4(const char16_t* name, std::span<u8> output); // Xbox 0x0010DED0, 0x54 bytes
 void load_save_game_words_208(const char16_t* name, std::span<u8> output); // Xbox 0x0010DF90, 0x54 bytes
 void set_save_game_slot(const char16_t* name, u8 slot); // Xbox 0x0010E270, EBX the name
+void store_save_game_words_1b4(const char16_t* name, std::span<const u8> words); // Xbox 0x0010E680, 0x54 bytes
+void store_save_game_words_208(const char16_t* name, std::span<const u8> words); // Xbox 0x0010E740, 0x54 bytes
 void mark_save_game_dirty(const char16_t* name); // Xbox 0x0010F2D0, EBX the name
 // The save's challenge block (record +0x1AC) takes `block`'s bytes (0x000F71F0 over the block's size).
 void store_save_game_challenges(const char16_t* name, const RuntimeProfileBlock& block); // Xbox 0x0010E5B0, EBX

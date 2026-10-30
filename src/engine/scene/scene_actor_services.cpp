@@ -163,6 +163,7 @@
 #include "../frontend/gameselect_delete.h"
 #include "../frontend/gameselect_challenges.h"
 #include "challenge_runtime.h"
+#include "super_scary_control.h"
 #include "../frontend/gameselect_features.h"
 #include "../frontend/gameselect_scene_replay.h"
 #include "../frontend/button_bat_menu.h"
@@ -208,6 +209,7 @@ extern float g_50ea88; // DAT_0050EA88.
 extern float g_50ea8c; // DAT_0050EA8C.
 extern float g_50ea90; // DAT_0050EA90.
 extern i32 g_5462fc; // DAT_005462FC.
+extern u16 g_4e19b4[0x40]; // DAT_004E19B4, scene.cpp.
 extern i32 g_545d1c; // DAT_00545D1C.
 extern i32 g_545cc8; // DAT_00545CC8.
 extern std::array<u16, 0x40> g_545c48; // DAT_00545C48.
@@ -1182,15 +1184,8 @@ struct SceneActorServices::State
     RuntimeLightCones light_cones{}; // DAT_0050EF20 / DAT_00510560 (0x0011AEA0 / 0x0011AEE0 / 0x000BA840).
     u32 caption_camera = 0; // DAT_004DE9AC (0x00032AB0).
     u32 caption_widget = 0; // DAT_004DE9A0 (0x00032AB0).
-    i32 frontend_state = 0; // DAT_004E17C8 (0x00033030, 0x0004A4D0).
-    u32 frontend_widget = 0; // DAT_004E19A0 (0x00049DE0 .. 0x0004A4D0).
-    i32 frontend_mode = 0; // DAT_004E17D0 (0x0004A4D0).
-    // The challenge frontend's records, input, hold and restart pool (DAT_004E17D8, DAT_004E19A4, DAT_004E19AC,
-    // DAT_004E19B0): their writers (the challenge setup, 0x0004A4D0 state 6) are not translated.
-    void* challenge_records = nullptr;
-    void* challenge_input = nullptr;
-    u32 challenge_hold = 0;
-    void* challenge_restart = nullptr;
+    i32& frontend_state = g_challenge_run.state; // DAT_004E17C8, the running challenge's state.
+    std::unique_ptr<ChallengeRuntimeServices> challenge_services; // 0x0004A100 .. 0x0004B360.
     u32 hud_enabled = 0; // DAT_005493E0 (0x00132040 in 0x0011CBD0).
     RuntimeScreenTint screen_tint{}; // DAT_00504450.
     RuntimeScreenLines screen_lines{0xFFFFFFFFu, 1.f, line_retained}; // DAT_005044A8 .. DAT_005044B0.
@@ -6472,6 +6467,125 @@ void SceneActorServices::State::bind_gameselect_services()
         replacement_source.data(), replacement_target.data()});
     gameselect_services->scoreboard = scoreboard_hud.get();
     scene.controls->context.gameselect = gameselect_services.get();
+    // The running challenge (DAT_004E17C8 .., script types 0x7A..0x86).
+    const auto case_player = [this]() -> NativePlayerInstance*
+    {
+        // DAT_00511B40: the first case-list node (player actor +0x93C, links[1]); null or the 0x93C sentinel is none.
+        const auto* node = entity_detail::g_world.case_head.next;
+        if (node == nullptr)
+        {
+            return nullptr;
+        }
+        for (auto* player : players->instances())
+        {
+            if (static_cast<const void*>(&player->links[1]) == static_cast<const void*>(node))
+            {
+                player->refresh_body_views();
+                return player;
+            }
+        }
+        unbound("DAT_00511B40 node with no native player");
+    };
+    challenge_services = std::make_unique<ChallengeRuntimeServices>(ChallengeRuntimeServices{g_flags_ea9c,
+        g_runtime_profile, g_scene_flags->bytes[0], clock, g_4312d0, g_super_scary_presses, g_super_scary_reshuffle,
+        score_total, active_actors,
+        [case_player]() -> i32
+        {
+            NativePlayerInstance* player = case_player();
+            return player == nullptr || player->body.empty() ? -1 : i32(read_u16(player->body, 0x94)); // Body +0x94
+        },
+        [case_player]()
+        {
+            NativePlayerInstance* player = case_player();
+            if (player == nullptr)
+            {
+                return false;
+            }
+            if (player->body_flags == nullptr)
+            {
+                unbound("DAT_00511B40 player without the body +0x15C bit block");
+            }
+            return (player->body_flags->bytes[3] & 0x10) != 0;
+        },
+        [](u16 tag)
+        {
+            return script_count_actors_by_class(tag); // 0x00129240, DX the tag
+        },
+        [case_player]()
+        {
+            NativePlayerInstance* player = case_player(); // 0x001292D0
+            return player != nullptr && !player->body.empty() && read_u16(player->body, 0x94) == 0;
+        },
+        *scoreboard_hud, *scoreboard_resources, data(0x00314170, 0x10), *dialogue, audio.streams,
+        [](u8 mask, i32 release)
+        {
+            g_actor_pause(mask, release); // 0x00117400
+        },
+        [this](const char* name, i32)
+        {
+            script_request(game, name); // 0x0011EB30 with mode 1.
+        },
+        [this](const char* name)
+        {
+            hold_runtime_scene_order(name, *gameselect_services); // 0x001234B0
+        },
+        [this]()
+        {
+            return reinterpret_cast<const char*>(scene_order_held.data()); // DAT_00511B64
+        },
+        reinterpret_cast<const char*>(g_510e58), g_429bc0, g_429bc4, g_4e19b4,
+        [this]()
+        {
+            // 0x0004A4D0 state 6's walk of DAT_00511B38: players whose +0xCDC word is 1, with energy and without
+            // the body bit 0x1B.
+            std::vector<u32> chosen;
+            for (const auto& mark : marked_actors())
+            {
+                auto& player = players->player_at(mark.address);
+                player.refresh_body_views();
+                if (read_u16(player.actor_bytes, 0xCDC) != 1 || player.body.empty()
+                    || read_u16(player.body, 0x94) == 0)
+                {
+                    continue;
+                }
+                if (player.body_flags == nullptr)
+                {
+                    unbound("a DAT_00511B38 player without the body +0x15C bit block");
+                }
+                if ((player.body_flags->bytes[3] & 8) == 0)
+                {
+                    chosen.push_back(mark.address);
+                }
+            }
+            return chosen;
+        },
+        [this](u32 address)
+        {
+            auto& player = players->player_at(address);
+            const RuntimePlayerGoalRing* ring = player.ring; // Actor +0x980
+            if (ring == nullptr)
+            {
+                return false;
+            }
+            if (ring->tail == ring->capacity)
+            {
+                throw Error("0x0004A990 reads the goal at an empty ring's head (a null read in retail)");
+            }
+            const u16 goal = read_u16(ring->rows, size_t(ring->head) * ring->stride);
+            return goal != 0 && read_u32(player.actor_bytes, 0x984) == 0;
+        },
+        [this](u32 address)
+        {
+            auto& player = players->player_at(address);
+            player.refresh_views();
+            drain_runtime_player_goals(player.goal_cleanup); // 0x00028240 until +0x980 is empty
+        },
+        [this](u32 address, std::span<const u32> message)
+        {
+            players->player_at(address).actor_message(message); // Vtable +0xC
+        },
+        *challenge_saves, resources.registry, text_registry, data(0x002FE2E0, 0x310).data(), hud});
+    g_challenge_runtime = challenge_services.get();
     // The slot prompts' row callbacks (+0x84).
     widget_callbacks[0x000E0210] = [this]()
     {
@@ -6555,6 +6669,15 @@ void SceneActorServices::State::bind_gameselect_services()
     widget_callbacks[0x000D78F0] = [this]()
     {
         open_runtime_challenge_bonus_books(*gameselect_services);
+    };
+    // The challenge restart prompts' rows (0x002FE2E0, "challengeMenu_restart").
+    widget_callbacks[0x0004B350] = []()
+    {
+        choose_runtime_challenge_restart();
+    };
+    widget_callbacks[0x0004B360] = []()
+    {
+        choose_runtime_challenge_quit();
     };
     // The scene-replay prompts' rows (0x003095D0, "ReplayChapterMenu"): A and the stick are 0x000E4E40 and
     // 0x000D8080 above.
@@ -6677,6 +6800,7 @@ SceneActorServices::State::~State()
         g_spawn_trigger_players = nullptr;
         g_runtime_invisibility = nullptr;
         g_chapter5_countdown = nullptr;
+        g_challenge_runtime = nullptr;
         g_runtime_weapon_boost = nullptr;
         g_marked_actor_message = nullptr;
         g_actor_broadcast = nullptr;
@@ -10394,10 +10518,14 @@ void SceneActorServices::State::present_view(i32 view)
         },
         caption_widget,
         frontend_state,
-        frontend_widget,
         [](u32)
         {
-            unbound("front-end widget draw 0x00142720");
+            unbound("caption widget draw 0x00142720 (DAT_004DE9A0)");
+        },
+        g_challenge_run.widget,
+        [this](RuntimeDialogueWidget& widget)
+        {
+            draw_runtime_dialogue_widget(widget, 0, *dialogue_outer); // 0x00142720(0), EAX DAT_004E19A0
         },
         [this]()
         {
@@ -11192,7 +11320,8 @@ void SceneActorServices::start_scene(const std::function<void()>& script_event)
     clear_runtime_scene_start_list(activation); // 0x00123240
     // 0x0011CBD0 then runs 0x0012A1E0 and the scoreboard set-up.
     set_up_runtime_scoreboard(*state.scoreboard_hud); // 0x00132040
-    // 0x00049BA0 follows (not translated, like 0x0012A1E0). The player start latch DAT_005462FC, set by 0x0011CAC0,
+    start_runtime_scene_challenge(*state.challenge_services); // 0x00049BA0, challenge 21's run
+    // The player start latch DAT_005462FC, set by 0x0011CAC0,
     // ends here: a later kind 2 marker (0x00127FF0 after a walk-in) spawns its player.
     g_5462fc = 0;
 }
@@ -12034,11 +12163,7 @@ void SceneActorServices::tick_post_models()
 // Xbox 0x00049DE0
 void SceneActorServices::tick_frontend_state()
 {
-    const i32 frontend = state_->frontend_state; // DAT_004E17C8
-    if (frontend >= 2 && frontend <= 6)
-    {
-        unbound("0x00049DE0's frontend state " + std::to_string(frontend) + " (0x0004A4D0, 0x0004AC00)");
-    }
+    tick_runtime_challenge(*state_->challenge_services);
 }
 
 void SceneActorServices::show_script_scene_name(const char* key, u32 show, i32 repeated, float delay, float lifetime)
@@ -12190,64 +12315,13 @@ void SceneActorServices::add_profile_scene_times(bool replay, float scene_time)
 // Xbox 0x0004A4D0
 void SceneActorServices::set_frontend_state(i32 next)
 {
-    auto& state = *state_;
-    if (state.frontend_state == 6)
-    {
-        throw Error("untranslated Xbox 0x0004A4D0 (leaving the challenge restart menu, state 6)");
-    }
-    switch (next)
-    {
-    case 1:
-        state.frontend_mode = 0;
-        state.frontend_state = next;
-        return;
-    case 3:
-        state.frontend_mode = 1;
-        state.frontend_state = next;
-        return;
-    case 2:
-    case 4:
-    case 5:
-    case 6:
-        throw Error("untranslated Xbox 0x0004A4D0 (frontend state " + std::to_string(next) + ")");
-    default:
-        break;
-    }
-    state.frontend_state = next;
+    set_runtime_challenge_state(next, *state_->challenge_services);
 }
 
 // Xbox 0x00049FF0
 void SceneActorServices::release_challenge_frontend()
 {
-    auto& state = *state_;
-    if (state.challenge_records != nullptr)
-    {
-        engine_heap_free(state.challenge_records); // 0x000663E0
-        state.challenge_records = nullptr;
-    }
-    if (state.frontend_widget != 0)
-    {
-        throw Error("untranslated Xbox 0x00142070 (the challenge widget, DAT_004E19A0) reached from 0x00049FF0");
-    }
-    if (state.challenge_input != nullptr)
-    {
-        throw Error("untranslated Xbox 0x00049FF0 (the challenge input, DAT_004E19A4: 0x00109620, 0x001093C0)");
-    }
-    g_flags_ea9c = g_flags_ea9c & 0xFEFF3FFFu;
-    if (state.frontend_state != 1)
-    {
-        set_frontend_state(1); // 0x0004A4D0
-    }
-    if (state.challenge_hold != 0)
-    {
-        g_510cec = g_510cec + -1;
-        state.challenge_hold = 0;
-    }
-    if (state.challenge_restart != nullptr)
-    {
-        engine_heap_free(state.challenge_restart); // 0x000663E0
-        state.challenge_restart = nullptr;
-    }
+    end_runtime_challenge(*state_->challenge_services);
 }
 
 void SceneActorServices::clear_score_awards()

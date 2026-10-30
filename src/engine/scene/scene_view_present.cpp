@@ -30,7 +30,7 @@ void present_runtime_scene_view(RuntimeSceneViewPresent& c)
     }
     if (c.frontend_state == 6)
     {
-        c.widget(c.frontend_widget);
+        c.frontend_draw(*c.frontend_widget);
     }
     c.sprites();
     c.hud();

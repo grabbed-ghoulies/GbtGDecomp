@@ -30,14 +30,12 @@
 
 namespace gbtg
 {
+i32 g_super_scary_presses = 0;
+u32 g_super_scary_reshuffle = 0;
+
 namespace
 {
 constexpr u32 kAid = 0x5F646961u; // "aid_"
-
-// DAT_00505680: the presses made, shown elsewhere unless DAT_0050EA9C bit 0x1000000 is set.
-i32 g_super_scary_presses = 0;
-// DAT_00505684: set, the next tick draws a new button row from 0x00302198.
-u32 g_super_scary_reshuffle = 0;
 
 namespace field = super_scary_field;
 namespace parameter = super_scary_parameter;

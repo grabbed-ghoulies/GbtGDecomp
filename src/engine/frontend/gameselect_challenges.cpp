@@ -22,6 +22,7 @@
 #include "../saves/save_games.h"
 #include "../saves/save_summary.h"
 #include "../scene/executable_resources.h"
+#include "../scene/challenge_runtime.h"
 #include "../scene/gameselect_control.h"
 #include "../scene/scene_controls.h"
 #include "../transitions/native_book.h"
@@ -498,20 +499,6 @@ bool set_challenge_selection(i32 index)
     selection.selected = index;
     selection.previous = old;
     return true;
-}
-
-// Xbox 0x00049B60, EAX the order: challenge 21's scene order held once per game (scene flag 8), unless
-// DAT_0050EA9C bit 0x200000 holds it off.
-void hold_challenge_order(const char* order, GameSelectControlServices& s)
-{
-    u8& flags = s.profile.scene_flags->bytes[0];
-    if ((flags & 8) != 0 || (s.flags & 0x200000u) != 0)
-    {
-        return;
-    }
-    flags |= 8;
-    copy_string(g_challenge_selection.order.data(), order);
-    hold_runtime_scene_order(g_challenge_selection.order.data(), s); // 0x001234B0, EAX 0x004E1748
 }
 
 SceneControlInstance& gameselect_control()
@@ -1000,7 +987,11 @@ void set_runtime_game_challenges_state(GameChallengesWidget& w, i32 state, GameS
             set_challenge_selection(selection.selected); // 0x000D5860
             if (selection.selected == kLast)
             {
-                hold_challenge_order(s.image.string(0x003064F0), s); // 0x00049B60
+                hold_runtime_challenge_order(s.image.string(0x003064F0), s.profile.scene_flags->bytes[0], s.flags,
+                    [&s](const char* order)
+                    {
+                        hold_runtime_scene_order(order, s); // 0x001234B0
+                    }); // 0x00049B60
             }
             size_t at = 0;
             for (; at < 0x3F && w.name[at] != 0; ++at)

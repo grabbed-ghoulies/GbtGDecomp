@@ -410,11 +410,45 @@ live (`0x00057330`, `0x000573A0`).
 A on its slot, Right twice and A on Challenges: the menu opens on challenge 1
 of 20 ("Billiard Room Bust-up!", 76 bonus books), Right turns to challenge 2,
 Y shows its Rules page and A closes it, and A plays it: game select starts
-`aid_script_ghoulies_challenges_bringouttheimps`, which runs natively until
-its first challenge op (0x7A, `0x0004A100`, "challengeId_Survive"). The
-challenge runtime (`DAT_004E17C8`'s states, `0x0004A100`, `0x0004A240`,
-`0x0004ADD0`, `0x00049DE0`, `0x0004A4D0`, `0x00049FF0`, `0x00049BA0`, about
-4 KB, dumps in `cache/ghidra_frontier`) is the next step.
+`aid_script_ghoulies_challenges_bringouttheimps` (challengeId_Survive). Cooper
+is left idle, so the imps hit him after 3 seconds and the run fails: the
+results page reads "Sir failed to win a medal!", the restart menu ("Back to
+Menu" / "Restart Challenge") shows over the scene, and B returns to the
+challenges on challenge 2, whose best score (3) and trophy word (2, none) are
+in memory and in the save's `progress.xsv` (+0x1B4, +0x208). It passes.
+`--gameselect-challenge-restart` presses A on the restart menu instead: the
+challenge runs again in the same scene, and B on its second menu quits. It
+passes.
+
+The challenge runtime (`scene/challenge_runtime.cpp`, `g_challenge_run` for
+`DAT_004E17C8`..`DAT_004E1A34`, bound per scene as `ChallengeRuntimeServices`):
+
+- **Set-up** (script handler `0x001251E0`): type 0x7A names the challenge
+  (`0x000FBFB0` over the nine challengeId_* names) and makes its requirement
+  pool (`0x0004A100`: Attacks, Buttons, Challenge21, Damage, Health, Kills,
+  KillsBOB, Survive, Time, each with its default requirements and the
+  player-alive rule `0x0004A0E0`); 0x7B starts it (`0x0004A240`); 0x7C..0x86
+  add requirements (`0x0004ADD0`, the 19 challengeReqId_* ops of
+  `0x004231C8`, each with its scoreboard message `0x0012FCA0`). Challenge 21
+  starts from the scene start instead (`0x00049BA0`).
+- **States** (`0x0004A4D0`, ticked by `0x00049DE0`): 2 starting, 3 running
+  (the messages' counts `0x0004AC00`, the tests `0x00049790`..`0x00049B50`
+  through `0x0004AB40`: a passed requirement goes, a failed one ends the run),
+  4 finished (the pause, the score and trophy `0x0004AE80` with
+  `0x0004A400`, the trophy's ditty, a 2.5 or 6.5 second wait), 5 the awards
+  page (`0x0004B070`: the best score and trophy kept, the save written
+  `0x000F2E20` with the new `0x0010E680` / `0x0010E740`, "challengeawards_" +
+  key + trophy, and the challenge-21, first-platinum and platinum-21 pages),
+  6 the restart menu ("challengeMenu_restart" `0x002FE2E0`, its own input
+  device on the input stack, the players' message 0x4D reactions
+  `0x0004A990`; A `0x0004B350` restarts `0x0004A310` / `0x00049C80`, B
+  `0x0004B360` quits to game select row 6, `0x00049C00`). The view present
+  draws its menu (`0x0011C240`'s `0x00142720(0)`). The scene teardown ends a
+  run (`0x00049FF0`), and the scene start's reset (`0x00116E00`) clears it.
+- Still untranslated (raising when reached): the damage challenge's score
+  caption (`0x0012DCD0`, and `0x0012DDB0` behind it) and the save error
+  screen (`0x000F32F0`). Only challenge 2 is driven by a test; the other
+  challenges' scenes may reach gameplay the story never used.
 
 Row 2, delete (`gameselect_delete.cpp`): `0x000DB720`..`0x000DBB90`, the
 state switch `0x000DBDC0` and the "GameSlotDeletionMenu" callbacks `0x000DBD50`

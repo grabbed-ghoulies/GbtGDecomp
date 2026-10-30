@@ -1,5 +1,6 @@
 #include "../camera/entity_camera.h"
 #include "../scene/chapter5_countdown.h"
+#include "../scene/challenge_runtime.h"
 #include "../camera/camera_mind_rig.h"
 #include "gbtg/anim.h"
 #include "gbtg/engine_internal.h"
@@ -646,52 +647,83 @@ int script_handle_pair_updates(Game& g, const ScriptNode& node, int param_2)
 }
 
 
-// Xbox 0x001251E0. Handler 5. The dword at node+4 is the type. Type 0x7A
-// calls 0x000FBFB0 with the cstring at node+8 and passes that index to
-// 0x0004A100. Type 0x7B calls 0x0004A240. The other listed types build the
-// record 0x0004ADD0 reads through EAX: opcode at +0, a word or dword at +8,
-// and for type 0x80 the dword at node+0x48 at +0xC. Type 0x7C stores opcode
-// 0x10 and float 0. Type 0x7D stores opcode 0x11 and the float at node+8.
-// Type 0x7F returns 2 when 0x001077B0 of the cstring at node+8 is 0; otherwise
-// opcode 9 and a second call, and the word is AX. Types 0x7E (opcode 5) and
-// 0x82 (opcode 4) share that word store. Type 0x80 stores opcode 0xA. Type
-// 0x81 stores opcode 0x12. Type 0x83 stores opcode 0xB and the dword at
-// node+8. Type 0x84 stores opcode 0xC. Type 0x85 stores opcode 0. Type 0x86
-// stores opcode 3. 0x0004A100, 0x0004A240, and 0x0004ADD0 are not translated,
-// so each listed type raises where it is reached. Any other type returns 3.
-// Xbox 0x001251E0
+// Xbox 0x001251E0. Handler 5: the challenge's set-up. The dword at node+4 is the type; 0x7A names the challenge
+// (0x000FBFB0 over the nine challengeId_* names at 0x004232AC), 0x7B starts it, and the others add a requirement
+// (0x0004ADD0) built on the stack: its op at +0, then a word or dword at +8 (+0xC for 0x80). Any other type returns
+// 3.
 int script_handle_condition_setup(Game& g, const ScriptNode& node)
 {
-    // Types 0x7A .. 0x86 occur only in the challenge mode's scripts (aid_script_ghoulies_challenges_*). Their
-    // callees, the challenge's start (0x0004A100), rules (0x0004A240) and condition records (0x0004ADD0) with the
-    // DAT_004E17C8 states behind them, are not translated.
+    RuntimeChallengeRecord record{};
+    const auto tag = [&g, &node]()
+    {
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        return u16(script_find_actor_tag(key.c_str())); // 0x001077B0, EAX node+8
+    };
     switch (node.type)
     {
     case 0x7a:
-        throw Error("untranslated Xbox 0x0004A100: script type 0x7A starts challenge "
-            + node_cstr(g.scene_script, node, 8));
+    {
+        static constexpr std::array<const char*, 9> kChallenges{"challengeId_Attacks", "challengeId_Buttons",
+            "challengeId_Challenge21", "challengeId_Damage", "challengeId_Health", "challengeId_Kills",
+            "challengeId_KillsBOB", "challengeId_Survive", "challengeId_Time"}; // 0x004232AC
+        const std::string key = node_cstr(g.scene_script, node, 8);
+        const int kind = binary_search_names(9, kChallenges.data(), key.c_str()); // 0x000FBFB0
+        create_runtime_challenge(u16(kind), challenge_runtime("script type 0x7A")); // 0x0004A100
+        return 2;
+    }
     case 0x7b:
-        throw Error("untranslated Xbox 0x0004A240: script type 0x7B's challenge rules");
+        start_runtime_challenge(challenge_runtime("script type 0x7B")); // 0x0004A240
+        return 2;
     case 0x7c:
+        record.op = 0x10; // challengeReqId_TimeCounter, from 0 seconds
+        record.value = std::bit_cast<u32>(0.f);
+        break;
     case 0x7d:
+        record.op = 0x11; // challengeReqId_TimeLimit
+        record.value = node_u32(g.scene_script, node, 8);
+        break;
     case 0x7e:
+        record.op = 5; // challengeReqId_DontLetActorGetHit
+        record.value = tag();
+        break;
     case 0x7f:
-    case 0x80:
-    case 0x81:
-    case 0x82:
-    case 0x83:
-    case 0x84:
-    case 0x85:
-    case 0x86:
-        throw Error("untranslated Xbox 0x0004ADD0: script type 0x" + [&node]()
+        if (tag() == 0)
         {
-            char text[8];
-            std::snprintf(text, sizeof(text), "%X", node.type);
-            return std::string(text);
-        }() + "'s challenge condition record");
+            return 2;
+        }
+        record.op = 9; // challengeReqId_KillAllType
+        record.value = tag();
+        break;
+    case 0x80:
+        record.op = 0xA; // challengeReqId_KillTotalType
+        record.value = tag();
+        record.word_c = node_u32(g.scene_script, node, 0x48);
+        break;
+    case 0x81:
+        record.op = 0x12; // challengeReqId_WeaponsOnly
+        break;
+    case 0x82:
+        record.op = 4; // challengeReqId_DontKill
+        record.value = tag();
+        break;
+    case 0x83:
+        record.op = 0xB; // challengeReqId_LimitedAttacks
+        record.value = node_u32(g.scene_script, node, 8);
+        break;
+    case 0x84:
+        record.op = 0xC; // challengeReqId_NoDamage
+        break;
+    case 0x85:
+        record.op = 0; // challengeReqId_AttackCounter
+        break;
+    case 0x86:
+        record.op = 3; // challengeReqId_DamageCounter
+        break;
     default:
         return 3;
     }
+    add_runtime_challenge_record(record, challenge_runtime("a challenge requirement script type")); // 0x0004ADD0
+    return 2;
 }
 
 
@@ -2334,9 +2366,9 @@ void create_scene_ambient_tune(Game& g)
 // release a pause it no longer holds, and a restarted scene would start with the counts below zero and every
 // actor paused. It then clears the event sequence (DAT_005064D8.., so a scene restarted mid-event runs its event
 // again), the DAT_0052C274 statistics (0x0012AF10), the broken parts (DAT_00545978) and the running score
-// (DAT_00545980). The rest of 0x00116E00 (DAT_0050E784..DAT_0050E79C, which the script reset clears, 0x00116DA0,
-// the DAT_00512B74 and DAT_0051234C pools, DAT_00545970, DAT_00545974, DAT_0054597C, DAT_004E17C8..DAT_004E1A34
-// and 0x001287F0) is not made here.
+// (DAT_00545980), and the challenge's words (DAT_004E17C8 1, DAT_004E17CC -1, DAT_004E17D0, DAT_004E19A8,
+// DAT_004E19A0, DAT_004E19A4, DAT_004E1A34). The rest of 0x00116E00 (DAT_0050E784..DAT_0050E79C, which the script reset clears, 0x00116DA0,
+// the DAT_00512B74 and DAT_0051234C pools, DAT_00545970, DAT_00545974, DAT_0054597C and 0x001287F0) is not made here.
 void release_scene_music_at_start()
 {
     scene_detail::g_pause_references = {}; // DAT_0050E764, DAT_0050E768
@@ -2352,6 +2384,15 @@ void release_scene_music_at_start()
     script_initialize_statistics(g_script_tallies.first); // 0x0012AF10, EAX DAT_0052C274
     g_545978 = 0; // DAT_00545978
     g_545980 = 0; // DAT_00545980
+    auto& challenge = g_challenge_run;
+    challenge.state = 1; // DAT_004E17C8
+    challenge.kind = 0xFFFFFFFFu; // DAT_004E17CC
+    challenge.mode = 0; // DAT_004E17D0
+    challenge.choice = 0; // DAT_004E19A8
+    challenge.widget = nullptr; // DAT_004E19A0
+    challenge.input = {}; // DAT_004E19A4
+    challenge.input_address = 0;
+    challenge.reset_notice = 0; // DAT_004E1A34
 }
 
 // The native scene's bank streams (DAT_004DF370..), bound once its actor services start.

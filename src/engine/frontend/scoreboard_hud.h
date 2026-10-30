@@ -9,6 +9,27 @@
 namespace gbtg
 {
 struct RuntimeScoreboardDraw;
+struct RuntimeTextMetrics;
+struct RuntimeTextFont;
+struct LocalTextResourceContext;
+struct GhoulySpawnPool;
+// What the score captions (0x0012DCD0, 0x0012DDB0, 0x0012DFD0) reach beyond the board: the text pools, metrics
+// and fonts, the localized terms and the caption texts.
+struct RuntimeScoreCaptions
+{
+    GhoulySpawnPool*& text_pools; // DAT_005043CC, 0x0005F390
+    const RuntimeTextMetrics& metrics; // 0x00060710, 0x0005F5C0
+    std::span<const RuntimeTextFont* const> fonts; // DAT_00504444
+    const float& wrap_width; // DAT_0050973C
+    float viewport_width;
+    i32& next_text_id;
+    u32& random; // DAT_0054DD7C
+    LocalTextResourceContext& localtext; // 0x000FF0A0
+    std::span<char16_t, 0xA00> texts; // DAT_00432724, ten captions of 0x100 wide characters
+    char16_t* scratch; // DAT_00507E78
+    const u32& score_total; // DAT_0054597C
+    std::span<const u8> pool_setup; // DAT_004326EC..DAT_004326F8: origin x, y, seed, a random seed when set
+};
 // The scoreboard's scene state that 0x00132040 sets up, 0x00132100 tears down and 0x00132290 draws from, apart
 // from the meters the strategy already drives (brew, health), the powerup board and the score captions.
 struct RuntimeScoreboardGlobals
@@ -28,6 +49,7 @@ struct RuntimeScoreboardGlobals
     std::span<const u8> damage_flash_texture; // DAT_004326DC.
     // DAT_00433B4C..DAT_00433BD0: the meter that 0x0012EA50 draws.
     RuntimeDialogueTextPool* caption_pool = nullptr; // DAT_00433B4C.
+    float caption_line = 0.f; // DAT_00433B50, the caption font's line drop at 0.97.
     u32 caption_color = 0xC0FFFFFFu; // DAT_00433B7C.
     float meter_level = 1.f; // DAT_00433B80.
     u16 meter_voice = 0xFFFF; // DAT_00433B84.
@@ -109,6 +131,7 @@ struct RuntimeScoreboardHud
     std::function<void(u16 voice)> stop_voice; // 0x00039690 with stack 0.
     std::function<bool()> area_dialogue_active; // 0x0005B830.
     RuntimeScoreboardDraw* draw = nullptr; // The HUD sprite queue and the draw clocks.
+    RuntimeScoreCaptions* captions = nullptr; // The damage challenge's captions.
     std::array<std::span<const u8>, 2> counter_presets{}; // DAT_00314170, DAT_00314184.
     std::span<const u8> damage_preset{}; // DAT_00312F8C, the total-damage counter's digits.
     std::span<const u8> counter_preset(bool alternate) const
@@ -140,6 +163,9 @@ void draw_runtime_health_display(RuntimeScoreboardHud& context); // Xbox 0x00130
 void draw_runtime_scoreboard(RuntimeScoreboard* board, RuntimeScoreboardHud& context); // Xbox 0x00130F20
 void draw_runtime_damage_counter(RuntimeScoreboardHud& context); // Xbox 0x0012DAF0
 void update_runtime_score_captions(RuntimeScoreboardHud& context); // Xbox 0x0012DDB0
+void create_runtime_score_captions(RuntimeScoreboardHud& context); // Xbox 0x0012DCD0
+// The number appended to `output` in groups of three (wsprintfW "%u", "%u,%03u", "%u,%03u,%03u").
+void append_runtime_grouped_number(char16_t* output, u32 value); // Xbox 0x000FBD30, EAX value, EDI output
 void draw_runtime_meter(RuntimeScoreboardHud& context); // Xbox 0x0012EA50
 void draw_runtime_brew_meter(RuntimeScoreboardHud& context); // Xbox 0x0012D300
 void draw_runtime_scoreboard_hud(RuntimeScoreboardHud& context); // Xbox 0x00132290

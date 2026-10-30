@@ -445,10 +445,34 @@ The challenge runtime (`scene/challenge_runtime.cpp`, `g_challenge_run` for
   `0x0004B360` quits to game select row 6, `0x00049C00`). The view present
   draws its menu (`0x0011C240`'s `0x00142720(0)`). The scene teardown ends a
   run (`0x00049FF0`), and the scene start's reset (`0x00116E00`) clears it.
-- Still untranslated (raising when reached): the damage challenge's score
-  caption (`0x0012DCD0`, and `0x0012DDB0` behind it) and the save error
-  screen (`0x000F32F0`). Only challenge 2 is driven by a test; the other
-  challenges' scenes may reach gameplay the story never used.
+- The damage challenge's captions are native: the caption pool (`0x0012DCD0`),
+  the refresh `0x0012DDB0` with its "caption: $points" lines (`0x0012DF30`,
+  `0x0012DFD0`) and "Total Damage: $" (coreterms), and the grouped number
+  `0x000FBD30`. Still untranslated (raising when reached): the save error
+  screen (`0x000F32F0`).
+
+Every challenge has been played from the menu. `GBTG_CHALLENGE=n` makes
+`--gameselect-challenges` turn the carousel to challenge n and play it without
+its Rules page; `GBTG_CHALLENGE_FIGHT` hands the run to the scene driver
+(`play_scene7_run`, fighting at any range, which now presses B on a restart
+menu); `GBTG_CHALLENGE_BOOKS` marks every bonus book and the challenge-21 bit
+in the copied save's blocks in memory (a driver cheat: the retail save's 76
+books unlock challenges 1..15). Results (2026-10-30):
+
+- 1, 2, 3, 5..13 and 15 end by themselves with Cooper idle (a time limit, a
+  hit, or a requirement passed) and pass: results page, restart menu, B back
+  to the challenges, the best score and trophy in `progress.xsv`.
+- 9 (Smash the Study Buddy, challengeId_Damage) passes since the captions
+  above.
+- 4 (Disco Divas) and 14 (Kick 'em Quick) have no time limit; they pass with
+  the driver, which fights until Cooper faints and the run fails.
+- 16..20 pass with the driver and the books cheat.
+- 21 (scene order `aid_aidlist_ghoulies_sceneorder_challenge21`, started by the
+  scene start `0x00049BA0`) plays its first scene,
+  `chapter1_scene1_2playcam`, and moves on to `chapter1_scene2_1viewcam`. The
+  story scenes it chains need their own story drivers (the trophy heads'
+  Super Scary answers here), so no test plays it to its end, and the
+  `DAT_004E1740` step count it resumes from is not checked.
 
 Row 2, delete (`gameselect_delete.cpp`): `0x000DB720`..`0x000DBB90`, the
 state switch `0x000DBDC0` and the "GameSlotDeletionMenu" callbacks `0x000DBD50`

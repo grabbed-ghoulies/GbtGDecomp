@@ -796,7 +796,8 @@ void create_runtime_challenge(u16 kind, ChallengeRuntimeServices& context)
         return;
     case 3:
         rules();
-        throw Error("untranslated Xbox 0x0012DCD0 (the damage challenge's score caption, DAT_00433B4C)");
+        create_runtime_score_captions(context.hud); // 0x0012DCD0
+        return;
     case 5:
         record.op = 6;
         add_runtime_challenge_record(record, context);

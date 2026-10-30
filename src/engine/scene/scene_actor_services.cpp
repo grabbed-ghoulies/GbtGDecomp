@@ -1186,6 +1186,7 @@ struct SceneActorServices::State
     u32 caption_widget = 0; // DAT_004DE9A0 (0x00032AB0).
     i32& frontend_state = g_challenge_run.state; // DAT_004E17C8, the running challenge's state.
     std::unique_ptr<ChallengeRuntimeServices> challenge_services; // 0x0004A100 .. 0x0004B360.
+    std::unique_ptr<RuntimeScoreCaptions> score_captions; // 0x0012DCD0 / 0x0012DDB0's text.
     u32 hud_enabled = 0; // DAT_005493E0 (0x00132040 in 0x0011CBD0).
     RuntimeScreenTint screen_tint{}; // DAT_00504450.
     RuntimeScreenLines screen_lines{0xFFFFFFFFu, 1.f, line_retained}; // DAT_005044A8 .. DAT_005044B0.
@@ -6586,6 +6587,10 @@ void SceneActorServices::State::bind_gameselect_services()
         },
         *challenge_saves, resources.registry, text_registry, data(0x002FE2E0, 0x310).data(), hud});
     g_challenge_runtime = challenge_services.get();
+    score_captions = std::make_unique<RuntimeScoreCaptions>(RuntimeScoreCaptions{text_registry, resources.metrics,
+        resources.font_views, dialogue->wrap_width, widget_context.viewport_width, next_widget_id, random,
+        resources.text, score_texts, wide_scratch.data(), score_total, data(0x004326EC, 0x10)});
+    scoreboard_hud->captions = score_captions.get();
     // The slot prompts' row callbacks (+0x84).
     widget_callbacks[0x000E0210] = [this]()
     {

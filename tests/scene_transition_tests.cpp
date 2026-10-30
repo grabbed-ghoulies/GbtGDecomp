@@ -7,6 +7,7 @@
 #include "../src/engine/frontend/button_bat_menu.h"
 #include "../src/engine/frontend/gameselect_challenges.h"
 #include "../src/engine/scene/challenge_runtime.h"
+#include "../src/engine/saves/save_games.h"
 #include "../src/engine/frontend/gameselect_features.h"
 #include "../src/engine/frontend/gameselect_contents.h"
 #include "../src/engine/frontend/gameselect_scene_replay.h"
@@ -9492,6 +9493,8 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
         const bool page = game.script_dialogue != nullptr && game.script_dialogue->dialogue.state.mode != 0;
         // A closes a page once it has been up a second.
         input.accept = page && page_shown >= 0 && frame > page_shown + 60 && frame % 30 < 5;
+        // A challenge's restart menu (DAT_004E17C8 6): B goes back to game select.
+        input.back = gbtg::g_challenge_run.state == 6 && frame % 60 == 30;
         // The final score's Super Scary Score page (state 5) waits on A at its OK prompt.
         const gbtg::FinalScoreServices* final_score = gbtg::g_scene_control_owner != nullptr
             ? gbtg::g_scene_control_owner->context.final_score : nullptr;
@@ -13720,7 +13723,18 @@ int main(int argc, char** argv)
             int menu_shown_at = -1;
             int back_at = -1;
             int restarted_at = -1;
-            for (int frame = 0; frame < 12000 && back_at < 0; ++frame)
+            // GBTG_CHALLENGE (1..20) turns the carousel right to that challenge and plays it without its Rules page.
+            const char* target_text = std::getenv("GBTG_CHALLENGE");
+            const int target = target_text != nullptr ? std::atoi(target_text) - 1 : -1;
+            // GBTG_CHALLENGE_FIGHT hands the running challenge to the scene driver (fights at any range), which
+            // closes its pages and quits from its restart menu.
+            const bool fight = std::getenv("GBTG_CHALLENGE_FIGHT") != nullptr;
+            // GBTG_CHALLENGE_BOOKS marks every bonus book found in the copied save's challenge block and its
+            // challenge-21 progress bit (in memory, before its slot opens), a driver cheat that unlocks challenges
+            // 16..21.
+            const bool all_books = std::getenv("GBTG_CHALLENGE_BOOKS") != nullptr;
+            bool fought = false;
+            for (int frame = 0; frame < (target < 0 ? 12000 : 15000) && back_at < 0; ++frame)
             {
                 gbtg::InputState input;
                 input.start = frame == 120;
@@ -13732,6 +13746,21 @@ int main(int argc, char** argv)
                 const auto* contents = gbtg::g_frontend.contents_widget;
                 const auto* menu = gbtg::g_frontend.challenges_widget;
                 input.accept = at == 180;
+                if (all_books && at == 170)
+                {
+                    gbtg::RuntimeProfileBlock* books = gbtg::save_game_challenges(gbtg::g_frontend.slot_names[0].data());
+                    if (books == nullptr)
+                    {
+                        throw gbtg::Error("the copied save has no challenge block to mark");
+                    }
+                    std::fill(books->bytes.begin(), books->bytes.end(), gbtg::u8(0xFF));
+                    // The progress bit 0x25 (byte 4, 0x20) shows challenge 21 (0x000D5880's count of 21).
+                    gbtg::RuntimeProfileBlock* progress = gbtg::save_game_progress(gbtg::g_frontend.slot_names[0].data());
+                    if (progress != nullptr)
+                    {
+                        progress->bytes[4] |= 0x20;
+                    }
+                }
                 if (contents != nullptr && menu == nullptr && 700 <= at && at % 100 == 0)
                 {
                     // Right until the Challenges panel (2) is selected, then A.
@@ -13751,7 +13780,31 @@ int main(int argc, char** argv)
                     std::cout << "challenges open at +" << at << ", challenge " << first + 1 << " of " << menu->count
                               << "\n";
                 }
-                if (menu_at >= 0)
+                if (menu_at >= 0 && target >= 0)
+                {
+                    const int since = frame - menu_at;
+                    if (moved_at < 0 && menu != nullptr && menu->state == 2)
+                    {
+                        if (gbtg::g_challenge_selection.selected == target)
+                        {
+                            moved_at = frame;
+                            moved = target;
+                            intro_at = frame - 150; // No Rules page: A follows once the menu is still.
+                            std::cout << "at challenge " << moved + 1 << "\n";
+                        }
+                        else
+                        {
+                            input.right = since % 120 == 100;
+                        }
+                    }
+                    if (intro_at >= 0 && played_at < 0 && (frame - intro_at) % 100 == 0 && 200 <= frame - intro_at
+                        && menu != nullptr && menu->state == 2)
+                    {
+                        input.accept = true;
+                        played_at = frame;
+                    }
+                }
+                else if (menu_at >= 0)
                 {
                     const int since = frame - menu_at;
                     input.right = since == 100;
@@ -13789,6 +13842,18 @@ int main(int argc, char** argv)
                             }
                         }
                     }
+                }
+                if (fight && started_at >= 0 && !fought && gbtg::g_challenge_run.state == 3)
+                {
+                    fought = true;
+                    for (int scene = 0; scene < 40 && game.scene_script.name.find("gameselect") == std::string::npos;
+                         ++scene)
+                    {
+                        std::cout << "challenge " << target + 1 << " scene " << scene << ": " << game.scene_script.name
+                                  << " (state " << gbtg::g_challenge_run.state << ")\n";
+                        play_scene7(game, "challenge " + std::to_string(target + 1), 1000.f);
+                    }
+                    menu_shown_at = frame - 1000; // Past the B the plain run presses.
                 }
                 if (started_at >= 0)
                 {
@@ -13834,7 +13899,7 @@ int main(int argc, char** argv)
                         gbtg::write_bmp("cache/challenge_run_restart_menu.bmp", image);
                     }
                 }
-                if (played_at >= 0 && started_at < 0 && game.scene_script.name.find("challenges_") != std::string::npos)
+                if (played_at >= 0 && started_at < 0 && game.scene_script.name.find("gameselect") == std::string::npos)
                 {
                     started_at = frame;
                     started = game.scene_script.name;
@@ -13881,11 +13946,11 @@ int main(int argc, char** argv)
             {
                 throw gbtg::Error("A on the Challenges panel did not open the challenges (row 6)");
             }
-            if (moved_at < 0 || moved == first)
+            if (moved_at < 0 || (target < 0 && moved == first))
             {
                 throw gbtg::Error("Right in the challenges did not move to another challenge");
             }
-            if (intro_at < 0)
+            if (intro_at < 0 && target < 0)
             {
                 throw gbtg::Error("Y in the challenges did not show the intro page");
             }

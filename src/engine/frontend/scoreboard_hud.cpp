@@ -6,6 +6,11 @@
 #include "../entities/bounded_channels.h"
 #include "../graphics/color_blend.h"
 #include "dialogue_widget_state.h"
+#include "dialogue_text_metrics.h"
+#include "dialogue_text_pool.h"
+#include "../entities/ghouly_spawn_record.h"
+#include "../../gbtg/text/localtext_resources.h"
+#include <cstdio>
 #include "../audio/listener_settings.h"
 #include <algorithm>
 #include <bit>
@@ -758,17 +763,144 @@ void draw_runtime_damage_counter(RuntimeScoreboardHud& context)
     draw_runtime_hud_counter(globals.damage_counter, at, context.damage_preset, 0, context, draw); // 0x0012F000
 }
 
+namespace
+{
+RuntimeScoreCaptions& captions_of(RuntimeScoreboardHud& context)
+{
+    if (context.captions == nullptr)
+    {
+        throw Error("the score captions (DAT_00433B4C) are not bound");
+    }
+    return *context.captions;
+}
+
+void append_wide(char16_t* output, const char16_t* text)
+{
+    while (*output != 0)
+    {
+        ++output;
+    }
+    while ((*output++ = *text++) != 0) // lstrcatW
+    {
+    }
+}
+
+void format_wide(char16_t* output, const char* format, std::initializer_list<u32> values)
+{
+    char narrow[64];
+    const auto it = values.begin();
+    if (values.size() == 1)
+    {
+        std::snprintf(narrow, sizeof(narrow), format, it[0]);
+    }
+    else if (values.size() == 2)
+    {
+        std::snprintf(narrow, sizeof(narrow), format, it[0], it[1]);
+    }
+    else
+    {
+        std::snprintf(narrow, sizeof(narrow), format, it[0], it[1], it[2]);
+    }
+    size_t at = 0;
+    for (; narrow[at] != 0; ++at)
+    {
+        output[at] = char16_t(u8(narrow[at]));
+    }
+    output[at] = 0;
+}
+
+// Xbox 0x0012DFD0, ESI the text: one caption centred under the HUD, a line higher when it wraps.
+void add_score_caption(const char16_t* text, RuntimeScoreboardHud& context)
+{
+    auto& captions = captions_of(context);
+    auto& globals = context.globals;
+    const float scale = 0.97f; // DAT_0032B4C4
+    const float x = context.layout.center_x; // DAT_00509730
+    float y = context.layout.inner_bottom - globals.caption_line - 30.f; // DAT_0050974C, DAT_0032B108
+    if (captions.wrap_width < runtime_text_line_width(captions.metrics, 0, text, scale)) // 0x00060710, EAX 0
+    {
+        y -= float(captions.fonts[0]->drop) * scale; // DAT_00504444 +0x10
+    }
+    create_dialogue_text_record(*globals.caption_pool, text, x, y, scale, scale, 1.5f, 1, 0, 0, captions.metrics,
+        captions.viewport_width, captions.next_text_id, captions.random); // 0x0005F5C0, EAX 0
+}
+
+// Xbox 0x0012DF30, ECX the output, EAX the caption: "caption: $" and the points.
+void format_score_caption(char16_t* output, const char16_t* caption, u32 points)
+{
+    size_t at = 0;
+    for (; caption[at] != 0; ++at)
+    {
+        output[at] = caption[at]; // wsprintfW(output, L"%s: $", caption)
+    }
+    for (const char16_t c : {u':', u' ', u'$'})
+    {
+        output[at++] = c;
+    }
+    output[at] = 0;
+    append_runtime_grouped_number(output, points); // 0x000FBD30
+}
+}
+
+// Xbox 0x000FBD30, EAX value, EDI output
+void append_runtime_grouped_number(char16_t* output, u32 value)
+{
+    char16_t text[0x20];
+    const u32 thousands = (value / 1000u) % 1000u;
+    const u32 millions = (value / 1000u / 1000u) % 1000u;
+    if (millions != 0)
+    {
+        format_wide(text, "%u,%03u,%03u", {millions, thousands, value % 1000u}); // 0x0032613C
+        append_wide(output, text);
+        return;
+    }
+    if (thousands != 0)
+    {
+        format_wide(text, "%u,%03u", {thousands, value % 1000u}); // 0x0032612C
+        append_wide(output, text);
+        return;
+    }
+    format_wide(text, "%u", {value % 1000u}); // 0x00326124
+    append_wide(output, text);
+}
+
+// Xbox 0x0012DCD0
+void create_runtime_score_captions(RuntimeScoreboardHud& context)
+{
+    auto& captions = captions_of(context);
+    auto& globals = context.globals;
+    u32 seed = read_u32(captions.pool_setup, 8); // DAT_004326F4
+    if (read_u32(captions.pool_setup, 0xC) != 0) // DAT_004326F8
+    {
+        captions.random = captions.random * 0x19660Du + 0x3C6EF35Fu; // DAT_0054DD7C
+        seed = captions.random;
+    }
+    allocate_dialogue_text_pool(globals.caption_pool, 0, 0, 0x4E4, captions.text_pools); // 0x0005F390, ESI DAT_00433B4C
+    globals.caption_pool->origin = {read_f32(captions.pool_setup, 0), read_f32(captions.pool_setup, 4),
+        std::bit_cast<float>(seed)};
+    if (context.score_refresh != 2)
+    {
+        context.score_refresh = 2; // DAT_004326E8
+    }
+    globals.caption_line = float(captions.fonts[0]->drop) * 0.97f; // DAT_00504444 +0x10, DAT_0032B4C4
+    context.flags |= 0x10000u; // DAT_0050EA9C
+}
+
 // Xbox 0x0012DDB0
 void update_runtime_score_captions(RuntimeScoreboardHud& context)
 {
     u32 next;
     if (context.score_refresh == 0)
     {
-        for (const u32 points : context.score_points)
+        for (size_t index = 0; index < context.score_points.size(); ++index)
         {
+            u32& points = context.score_points[index];
             if (points != 0)
             {
-                untranslated("0x0012DF30", "the score caption refresh 0x0012DDB0");
+                auto& captions = captions_of(context);
+                format_score_caption(captions.scratch, captions.texts.data() + index * 0x100, points); // 0x0012DF30
+                add_score_caption(captions.scratch, context); // 0x0012DFD0, ESI DAT_00507E78
+                points = 0;
             }
         }
         next = 1;
@@ -784,8 +916,18 @@ void update_runtime_score_captions(RuntimeScoreboardHud& context)
             context.score_refresh = 2;
             return;
         }
-        // The pool's row count test, then the "Total Damage: $" caption (0x000FF0A0).
-        untranslated("0x000FF0A0", "the score caption refresh 0x0012DDB0 over a live DAT_00433B4C pool");
+        const auto& pool = *context.globals.caption_pool->allocation; // The pool's rows, *DAT_00433B4C +4 / +8.
+        if (pool.begin < pool.cursor) // A caption still shows.
+        {
+            return;
+        }
+        auto& captions = captions_of(context);
+        captions.scratch[0] = 0;
+        request_namespaced_localtext("aid_loctext_ghoulies_scoreboard_coreterms", "coreterms", "Total Damage: $",
+            captions.scratch, captions.localtext); // 0x000FF0A0 into DAT_00507E78
+        append_runtime_grouped_number(captions.scratch, captions.score_total); // 0x000FBD30, EAX DAT_0054597C
+        add_score_caption(captions.scratch, context); // 0x0012DFD0
+        next = 2;
     }
     if (context.score_refresh != next)
     {

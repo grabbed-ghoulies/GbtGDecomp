@@ -946,7 +946,6 @@ struct SceneActorServices::State
     i32 sprite_count = 0; // DAT_00511A10.
     std::unique_ptr<RuntimeDialogueSpriteQueue> sprites;
     u32 text_draw_count = 0; // DAT_004E61C8.
-    u32 capture_enabled = 0; // DAT_005077F8.
     u32 line_retained = 0; // DAT_005044B0.
     std::unique_ptr<RuntimeDialogueOuterDrawContext> dialogue_outer;
     // Scene model renderer (0x000F9080) and the retail globals it reads.
@@ -3722,8 +3721,8 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     scoreboard_hud->counter_presets = {data(0x00314170, 0x14), data(0x00314184, 0x14)};
     scoreboard_hud->damage_preset = data(0x00312F8C, 0x14);
     dialogue_outer = std::make_unique<RuntimeDialogueOuterDrawContext>(RuntimeDialogueOuterDrawContext{*dialogue_draw,
-        render_targets, d3d_device.outer(), *sprites, &resources.special_textures, *display_setup, text_draw_count, capture_enabled,
-        std::bit_cast<u8>(u8(0)), g_flags_ea9c, display_address, read_u32(data(0x004271F4, 4), 0),
+        render_targets, d3d_device.outer(), *sprites, &resources.special_textures, *display_setup, text_draw_count,
+        entity_detail::g_aspect_preset, entity_detail::g_video_widescreen, g_flags_ea9c, display_address, read_u32(data(0x004271F4, 4), 0),
         read_u32(data(0x00425E0C, 4), 0), shader_constants_at(0x004271E8), line_retained});
     dialogue_draw->panel_color = read_u32(data(0x002FF2E0, 4), 0);
     dialogue_draw->panel_alpha = read_f32(data(0x0032B49C, 4), 0);

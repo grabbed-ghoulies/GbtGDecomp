@@ -4,6 +4,7 @@
 #include "gbtg/host_config.h"
 #include "gbtg/language.h"
 #include "gbtg/log.h"
+#include "camera/display_view.h"
 #include "gbtg/platform.h"
 
 #include "graphics/render_profile.h"
@@ -78,6 +79,9 @@ int main(int argc, char** argv)
         cfg.width = int_arg(argc, argv, "--width", host.width);
         cfg.height = int_arg(argc, argv, "--height", host.height);
         cfg.vsync = int_arg(argc, argv, "--vsync", host.vsync);
+        cfg.widescreen = host.widescreen || has_flag(argc, argv, "--widescreen");
+        // 0x000FC310's XGetVideoFlags: the widescreen bit sets DAT_00509703.
+        gbtg::entity_detail::g_video_widescreen = cfg.widescreen ? 1 : 0;
         gbtg::gfx_select_backend(arg(argc, argv, "--gfx", host.gfx_backend).string().c_str());
 
         const auto profile = arg(argc, argv, "--render-profile");
@@ -108,8 +112,9 @@ int main(int argc, char** argv)
                 gbtg::g_language = 0;
             }
         }
-        gbtg::log::info("GbtGDecomp  game-dir=%s  %dx%d  volume=%d  language=%s", cfg.game_dir.string().c_str(),
-                        cfg.width, cfg.height, master_volume, gbtg::language_folder(gbtg::g_language));
+        gbtg::log::info("GbtGDecomp  game-dir=%s  %dx%d%s  volume=%d  language=%s", cfg.game_dir.string().c_str(),
+                        cfg.width, cfg.height, cfg.widescreen ? " widescreen" : "", master_volume,
+                        gbtg::language_folder(gbtg::g_language));
         gbtg::render_profile::reference = has_flag(argc, argv, "--render-reference");
         gbtg::render_profile::cpu_vertex = has_flag(argc, argv, "--cpu-vertex");
         gbtg::render_profile::validate_vertex = has_flag(argc, argv, "--validate-gpu-vertices");

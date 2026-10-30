@@ -21,6 +21,7 @@
 #include "camera/actor_camera_effects.h"
 #include "gbtg/gfx.h"
 #include "gbtg/log.h"
+#include "camera/display_view.h"
 #include "gbtg/movie.h"
 
 #include <algorithm>
@@ -59,6 +60,8 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
     native_audio = boot_native_audio(*this); // Boot 0x00033030 -> 0x0003A280.
     load_audio_general_settings(native_resources->registry, native_resources->error); // Boot 0x00033030
     boot_actor_camera_shakes(runtime_pad_rumble_commands()); // Boot 0x00033030 -> 0x000FADE0
+    // Boot 0x00033030 after 0x000F8740: the aspect row is 16:9 on a widescreen display.
+    entity_detail::g_aspect_preset = entity_detail::g_video_widescreen != 0 ? 1 : 0; // DAT_005077F8 = DAT_00509703 != 0
     native_input = boot_native_input_stack(); // Boot 0x00033030 -> 0x00033248, 0x00033274; 0x0011C3F0's push.
     reset_runtime_frontend(g_frontend, g_pause_ditty); // Boot 0x00033030 -> 0x000E5A80.
     // The object factory, actor lists and scene services, boot-owned like retail's globals.

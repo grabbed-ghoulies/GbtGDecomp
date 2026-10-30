@@ -855,7 +855,8 @@ Viewport hud_viewport()
         vp.height = 480.f;
         return vp;
     }
-    const float frame = 640.f / 480.f;
+    // The 640x480 frame fills a 16:9 area in widescreen (the Xbox's anamorphic output), else 4:3.
+    const float frame = g.cfg.widescreen ? 16.f / 9.f : 640.f / 480.f;
     const float window = float(g.cfg.width) / float(g.cfg.height);
     if (window > frame)
     {

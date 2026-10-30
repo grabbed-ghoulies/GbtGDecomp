@@ -52,8 +52,8 @@ struct RuntimeDialogueOuterDrawContext
     const RuntimeSpecialTextures* hooks; // DAT_00545DC0, the texture hooks 0x000527C0 registers
     RuntimeDisplaySetupContext& display;
     u32& text_draw_count; // DAT_004E61C8
-    u32& capture_enabled; // DAT_005077F8
-    u8 capture_configuration; // DAT_00509703
+    i32& capture_enabled; // DAT_005077F8, the aspect row (entity_detail::g_aspect_preset)
+    u8 capture_configuration; // DAT_00509703, the widescreen video flag
     u32 visibility_mask; // DAT_0050EA9C
     u32& current_display_address; // DAT_005077A8, retail address for view index
     u32 line_vertex_shader; // DAT_004271F4

@@ -663,8 +663,15 @@ Not translated yet (each raises when reached):
 - **The other rows**: 5, 7 and 12..15, which nothing in the retail game
   requests (see above). A read-only walk from
   these rows and callbacks reaches about 226 untranslated functions (61 KB).
-- The book's widescreen page redraw (`0x00048550`'s `0x0005CE80`) is translated,
-  but runs only with `DAT_00509703`, which `0x000FC310` sets from
-  XGetVideoFlags' widescreen bit; the PC boot has no video-flags boundary, so it
-  stays 0.
+- The book's widescreen page redraw (`0x00048550`'s `0x0005CE80`) runs with
+  `DAT_00509703`, which `0x000FC310` sets from XGetVideoFlags' widescreen bit:
+  on the PC, `gbtg.ini` `[Video] Widescreen=1` (or `--widescreen`;
+  `GBTG_WIDESCREEN=1` for the transition tests). Boot `0x00033030` then sets
+  the aspect row `DAT_005077F8` to 16:9, and `0x00058150` drops it to 4:3
+  around the dialogue page and restores it. The redraw stretches the captured
+  page by 4/3 about the screen's centre and captures it again; with the 1.1
+  pixel-aspect pad the 4:3 front end's 528-pixel view overshoots, so the page
+  loses about 6% at each side, as retail's math gives. The D3D11 presenter
+  clears colour rectangles on the back buffer through the HUD viewport for the
+  fitted 4:3 view.
 - The Japanese keyboard (`0x00012920`), reached only in Japanese.

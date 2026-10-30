@@ -19,6 +19,7 @@ struct PlatformConfig
     int width = 960;                  // client width from gbtg.ini
     int height = 540;
     int vsync = 1;
+    bool widescreen = false; // gbtg.ini [Video] Widescreen, or --widescreen
     // When the boot frame (Game::init, which loads the first script) began. Paced runs count fields from it.
     std::chrono::steady_clock::time_point boot_started = std::chrono::steady_clock::now();
 };

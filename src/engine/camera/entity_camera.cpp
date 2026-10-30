@@ -740,6 +740,7 @@ i32 g_aspect_preset = 0;
 
 // DAT_00509704. Zero scales the chosen aspect by 1.1 (0x0032B1A0). Any other byte leaves it.
 u8 g_aspect_exact = 0;
+u8 g_video_widescreen = 0;
 
 
 // DAT_005077A8. 0x000F5900 points this at the display record and copies the viewport

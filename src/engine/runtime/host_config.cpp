@@ -124,6 +124,17 @@ void apply_key(HostConfig& cfg, const std::filesystem::path& path, const std::st
         cfg.gfx_backend = lower_copy(value);
         return;
     }
+    if (section == "video" && key == "widescreen")
+    {
+        int number = 0;
+        if (!parse_int(value, number) || (number != 0 && number != 1))
+        {
+            log::warn("config: Widescreen must be 0 or 1 in %s", path.string().c_str());
+            return;
+        }
+        cfg.widescreen = number != 0;
+        return;
+    }
     const bool width = section == "video" && key == "width";
     const bool height = section == "video" && key == "height";
     const bool vsync = section == "video" && key == "vsync";
@@ -228,6 +239,8 @@ bool write_default(const std::filesystem::path& path)
            "Width=960\n"
            "Height=540\n"
            "VSync=1\n"
+           "; 1 plays in 16:9, as the Xbox's widescreen video setting does.\n"
+           "Widescreen=0\n"
            "; d3d11 or vulkan. Empty uses the build's default.\n"
            "Backend=\n"
            "\n"

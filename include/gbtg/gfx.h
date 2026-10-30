@@ -19,6 +19,7 @@ struct GfxConfig
     int height = 540;
     int vsync = 1;
     bool visible = true; // false: offscreen target (headless / screenshot)
+    bool widescreen = false; // The Xbox frame is shown at 16:9 (anamorphic widescreen), else 4:3.
     const char* title = "Grabbed by the Ghoulies";
 };
 

@@ -11289,6 +11289,15 @@ int main(int argc, char** argv)
         config.visible = false;
         config.width = argc == 4 && !player_test ? std::stoi(argv[2]) : 640;
         config.height = argc == 4 && !player_test ? std::stoi(argv[3]) : 480;
+        // GBTG_WIDESCREEN=1: the [Video] Widescreen setting (DAT_00509703, the presenter's 16:9 frame) in an 854x480
+        // target.
+        if (const char* widescreen = std::getenv("GBTG_WIDESCREEN"); widescreen != nullptr && widescreen[0] == '1')
+        {
+            config.widescreen = true;
+            config.width = 854;
+            gbtg::entity_detail::g_video_widescreen = 1;
+            std::cout << "widescreen\n";
+        }
         if (!gbtg::gfx_init(config))
         {
             throw gbtg::Error("test graphics initialization failed");

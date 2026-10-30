@@ -3517,18 +3517,21 @@ void gfx_clear_native(std::span<const std::array<i32, 4>> rectangles, u32 flags,
     }
     if ((flags & 0xF0) != 0)
     {
-        // A texture target is in Xbox pixels (see present_hud_viewport); the back buffer's fitted area is not.
+        // A texture target is in Xbox pixels (see present_hud_viewport); on the back buffer each rectangle maps
+        // through the HUD viewport onto the window (a widescreen view's fitted 4:3 area, for one).
         ComPtr<ID3D11DeviceContext1> context1;
-        if ((flags & 0xF0) != 0xF0 || !native_target.rendering || FAILED(g.context.As(&context1)))
+        if ((flags & 0xF0) != 0xF0 || dialog_target.rendering || FAILED(g.context.As(&context1)))
         {
-            throw Error("native clear of a colour rectangle supports a whole colour on a texture target only");
+            throw Error("native clear of a colour rectangle supports a whole colour on the back buffer or a texture "
+                        "target only");
         }
         const float rgba[4]{float((color >> 16) & 0xFF) / 255.f, float((color >> 8) & 0xFF) / 255.f,
             float(color & 0xFF) / 255.f, float(color >> 24) / 255.f};
         std::vector<D3D11_RECT> rects;
         for (const auto& rectangle : rectangles)
         {
-            rects.push_back(D3D11_RECT{rectangle[0], rectangle[1], rectangle[2], rectangle[3]});
+            rects.push_back(native_target.rendering ? D3D11_RECT{rectangle[0], rectangle[1], rectangle[2], rectangle[3]}
+                                                    : native_rectangle(rectangle));
         }
         context1->ClearView(target, rgba, rects.data(), UINT(rects.size()));
     }
@@ -3768,7 +3771,8 @@ void present_hud_viewport()
     {
         return;
     }
-    const float frame = 640.f / 480.f;
+    // The 640x480 frame fills a 16:9 area in widescreen (the Xbox's anamorphic output), else 4:3.
+    const float frame = g.cfg.widescreen ? 16.f / 9.f : 640.f / 480.f;
     const float window = float(g.cfg.width) / float(g.cfg.height);
     D3D11_VIEWPORT vp{};
     vp.MaxDepth = 1.f;

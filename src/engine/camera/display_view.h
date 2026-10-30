@@ -33,6 +33,8 @@ struct DisplayView
 extern DisplayView g_display_records[4]; // DAT_00507018, retail stride 0x1E4
 extern DisplayView* g_display_view; // DAT_005077A8
 extern i32 g_aspect_preset; // DAT_005077F8
+// DAT_00509703: 0x000FC310 sets it from XGetVideoFlags' widescreen bit (the host's [Video] Widescreen).
+extern u8 g_video_widescreen;
 extern u8 g_aspect_exact; // DAT_00509704.
 extern EntityCamNode g_cam_anchor[4]; // DAT_004E1680
 extern EntityCamNode* g_cam_active[4]; // DAT_004E16A0

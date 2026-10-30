@@ -155,6 +155,7 @@ the executable. Edit it and restart:
 Width=960
 Height=540
 VSync=1
+Widescreen=0
 Backend=
 
 [Audio]
@@ -164,7 +165,10 @@ MasterVolume=100
 Language=English
 ```
 
-`MasterVolume` accepts 0–100. Languages are English, French, German, Spanish and
+`Widescreen=1` (or `--widescreen`) plays in 16:9, as the Xbox's widescreen video
+setting does: the game's views take its 16:9 aspect row and the presenter shows
+the 640x480 frame at 16:9 (anamorphic). Views the game fits as 4:3, such as the
+front end's book, stay pillarboxed, as on the Xbox. `MasterVolume` accepts 0–100. Languages are English, French, German, Spanish and
 Italian; a missing localized text directory falls back to English.
 
 Console output is also written to `gbtg.log` beside the executable

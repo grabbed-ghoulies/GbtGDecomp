@@ -24,6 +24,13 @@ struct ButtonBatMenuSprite
     float timer = 0.f; // +0x28, counts down from duration
 };
 
+void initialize_menu_sprite(ButtonBatMenuSprite& sprite, const char* name, const std::array<float, 2>& position,
+    const std::array<float, 2>& full_scale, float duration,
+    GameSelectControlServices& s); // Xbox 0x00144780, EAX the name, ESI the sprite, EBX the full scale
+void release_menu_sprite(std::unique_ptr<ButtonBatMenuSprite>& sprite,
+    GameSelectControlServices& s); // Xbox 0x00144820, EAX the sprite
+void tick_menu_sprite(ButtonBatMenuSprite& sprite, const GameSelectControlServices& s); // Xbox 0x00144880, ECX
+
 // One entry of the button-bat menu (0x23C bytes in retail, 0x00143320). The callbacks get `context` (+0x21C).
 struct ButtonBatMenuItem
 {

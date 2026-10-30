@@ -179,6 +179,20 @@ void destroy_chapter5_countdown_view(FactoryObject&)
     // 0x001628B0 returns at once.
 }
 
+bool construct_final_score_view(FactoryObject& object, std::span<const u8>)
+{
+    auto& control = installing->instance(object);
+    control.state = state_of(object);
+    control.type = object.type;
+    return construct_runtime_final_score_control(state_of(object),
+        installing->context.final_score_services()); // 0x00082DC0
+}
+
+void destroy_final_score_view(FactoryObject&)
+{
+    destroy_runtime_final_score_control(installing->context.final_score_services()); // 0x00082E20
+}
+
 void destroy_chapter2_scene4_view(FactoryObject&)
 {
     destroy_runtime_chapter2_scene4_control(installing->context.chapter2_scene4_services()); // 0x00082BB0
@@ -300,6 +314,14 @@ const ObjectFactoryVtable* chapter5_countdown_control_lifecycle()
 {
     static const ObjectFactoryVtable table{0x005055D8, scene_control_object_sizes,
         construct_chapter5_countdown_view, destroy_chapter5_countdown_view};
+    return &table;
+}
+
+// Getter 0x00082D70 (factory row 0x99); message 0x00115EE0.
+const ObjectFactoryVtable* final_score_control_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x005055F0, final_score_control_object_sizes,
+        construct_final_score_view, destroy_final_score_view};
     return &table;
 }
 
@@ -454,6 +476,15 @@ MapViewControlServices& SceneControlContext::map_view_services() const
     return *map_view;
 }
 
+FinalScoreServices& SceneControlContext::final_score_services() const
+{
+    if (final_score == nullptr)
+    {
+        throw Error("final score control before the scene's actor services bind its services");
+    }
+    return *final_score;
+}
+
 SuperScaryControlServices& SceneControlContext::super_scary_services() const
 {
     if (super_scary == nullptr)
@@ -488,6 +519,7 @@ void NativeSceneControlOwner::install(std::span<ObjectFactoryType> types)
     types[0x98] = ObjectFactoryType{3, super_scary_control_lifecycle};
     types[0x9E] = ObjectFactoryType{3, map_view_control_lifecycle}; // Getter 0x00083EA0.
     types[0x96] = ObjectFactoryType{3, movie_volume_control_lifecycle};
+    types[0x99] = ObjectFactoryType{3, final_score_control_lifecycle};
 }
 
 SceneControlInstance& NativeSceneControlOwner::instance(const FactoryObject& object)
@@ -583,7 +615,7 @@ void NativeSceneControlOwner::message(SceneControlInstance& control, std::span<c
         message_runtime_super_scary_control(control.state, words, *control.super_scary, control, context.lists);
         return;
     }
-    // Types 3, 0x91, 0x95, 0x9A, 0x9B, 0x9D and 0x9E share 0x00115EE0.
+    // Types 3, 0x91, 0x95, 0x99, 0x9A, 0x9B, 0x9D and 0x9E share 0x00115EE0.
     message_runtime_scene_control(control, words, context.lists);
 }
 
@@ -621,6 +653,9 @@ void NativeSceneControlOwner::tick(SceneControlInstance& control)
     case 0x97:
         tick_runtime_scene_fx_control(control.state, context.fx_services()); // 0x00083570
         return;
+    case 0x99:
+        tick_runtime_final_score_control(control.state, context.final_score_services()); // 0x00082E50
+        return;
     case 0x9D:
         tick_runtime_chapter5_countdown_control(control.state, chapter5_countdown("0x00082D10")); // 0x00082D10
         return;
@@ -653,6 +688,9 @@ void NativeSceneControlOwner::draw(SceneControlInstance& control)
         // Type 0x95 (getter 0x000829A0) too. Types 3 (getter 0x00115D50), 0x91 (getter 0x00080520), 0x92 (getter 0x000816C0), 0x93 (getter 0x000824F0),
         // 0x97 (getter 0x00082FA0), 0x9B (getter 0x00080970) and 0x9E (getter 0x00083EA0) have the empty
         // 0x001628B0 at +0x14.
+        return;
+    case 0x99:
+        draw_runtime_final_score(context.final_score_services()); // 0x00082F70, a jump to 0x000D4120
         return;
     case 0x9A:
         draw_runtime_gameselect_control(control.state, *control.gameselect, context.gameselect_services());

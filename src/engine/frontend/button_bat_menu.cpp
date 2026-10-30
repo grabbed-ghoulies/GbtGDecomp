@@ -65,6 +65,8 @@ void turn_sprite(ButtonBatMenuSprite& sprite, i32 state)
     sprite.timer = sprite.duration - sprite.timer;
 }
 
+}
+
 // Xbox 0x00144780, EAX the texture name, ESI the sprite, EBX its full scale
 void initialize_menu_sprite(ButtonBatMenuSprite& sprite, const char* name, const std::array<float, 2>& position,
     const std::array<float, 2>& full_scale, float duration, GameSelectControlServices& s)
@@ -99,6 +101,8 @@ void release_menu_sprite(std::unique_ptr<ButtonBatMenuSprite>& sprite, GameSelec
     sprite.reset(); // HeapFree on the thread's heap (0x000F7100).
 }
 
+namespace
+{
 // One axis of a showing sprite: the fraction of the time gone toward the full scale, clamped between 0 and it.
 float showing_scale(float timer, float duration, float full)
 {
@@ -162,6 +166,8 @@ float hiding_scale(float timer, float duration, float full)
     return value;
 }
 
+}
+
 // Xbox 0x00144880, ECX the sprite: a showing sprite grows to its full scale, a hiding one shrinks to nothing.
 void tick_menu_sprite(ButtonBatMenuSprite& sprite, const GameSelectControlServices& s)
 {
@@ -200,6 +206,9 @@ void tick_menu_sprite(ButtonBatMenuSprite& sprite, const GameSelectControlServic
     sprite.scale[0] = hiding_scale(sprite.timer, sprite.duration, sprite.full_scale[0]);
     sprite.scale[1] = hiding_scale(sprite.timer, sprite.duration, sprite.full_scale[1]);
 }
+
+namespace
+{
 
 // Xbox 0x001434E0, EAX the item
 void release_menu_item(std::unique_ptr<ButtonBatMenuItem>& entry, GameSelectControlServices& s)

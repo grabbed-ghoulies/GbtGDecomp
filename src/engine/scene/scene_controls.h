@@ -13,6 +13,7 @@
 #include "scene_fx_control.h"
 #include "chapter2_scene4_control.h"
 #include "map_view_control.h"
+#include "../frontend/final_score.h"
 #include <unordered_map>
 #include <vector>
 
@@ -62,6 +63,7 @@ struct SceneControlContext
     Chapter2Scene4ControlServices* chapter2_scene4 = nullptr;
     SuperScaryControlServices* super_scary = nullptr;
     MapViewControlServices* map_view = nullptr;
+    FinalScoreServices* final_score = nullptr;
     const RuntimeActorClock& frame_clock() const;
     AudioBankStreams& streams() const;
     AttractControlServices& attract_services() const;
@@ -73,6 +75,7 @@ struct SceneControlContext
     Chapter2Scene4ControlServices& chapter2_scene4_services() const;
     SuperScaryControlServices& super_scary_services() const;
     MapViewControlServices& map_view_services() const;
+    FinalScoreServices& final_score_services() const;
 };
 class NativeSceneControlOwner
 {

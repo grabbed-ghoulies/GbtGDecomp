@@ -59,5 +59,15 @@ void mark_save_game_dirty(const char16_t* name); // Xbox 0x0010F2D0, EBX the nam
 // The save's challenge block (record +0x1AC) takes `block`'s bytes (0x000F71F0 over the block's size).
 void store_save_game_challenges(const char16_t* name, const RuntimeProfileBlock& block); // Xbox 0x0010E5B0, EBX
 void clear_save_game_word_184(const char16_t* name); // Xbox 0x0010E2C0, EBX the name
+// The final score's stats into the save (EBX the name, the value on the stack): +0x18C, +0x190, +0x198, +0x194 and
+// +0x19C; 0x0010E310 sets the finished flag at +0x188.
+void set_save_game_word_18c(const char16_t* name, u32 value); // Xbox 0x0010E360
+void set_save_game_word_190(const char16_t* name, u32 value); // Xbox 0x0010E3B0
+void set_save_game_word_194(const char16_t* name, u32 value); // Xbox 0x0010E400
+void set_save_game_word_198(const char16_t* name, u32 value); // Xbox 0x0010E450
+void set_save_game_word_19c(const char16_t* name, u32 value); // Xbox 0x0010E4A0
+void set_save_game_finished(const char16_t* name); // Xbox 0x0010E310, EBX the name
+// The save's progress block (record +0x1A8) is cleared, then takes `block`'s bits 0..0x3D.
+void store_save_game_progress(const char16_t* name, const RuntimeProfileBlock& block); // Xbox 0x0010E4F0, EAX
 bool save_game_name_exists(const char16_t* name); // Xbox 0x0010F530
 }

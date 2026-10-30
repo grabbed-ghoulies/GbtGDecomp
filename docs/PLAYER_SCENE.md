@@ -324,7 +324,7 @@ All take the game directory, e.g.
 | `--scene5_13b` | Boots chapter5_scene13_1book. Passes: two pages, and the script moves on to chapter5_scene13_2playcam |
 | `--scene5_13c` | Boots chapter5_scene13_2playcam (the front gate, played as the cook against the imps) and plays it with the scene 7 driver. Passes: the script moves on to chapter5_scene13_3book at frame 29482 |
 | `--scene5_13d` | Boots chapter5_scene13_3book. Passes: seven pages, and the script moves on to finalscore_finalscore |
-| `--scenefinal` | Boots finalscore_finalscore. Does not pass: the scene stops at its start on factory type 0x99 (entitySceneControlFinalScore, getter 0x00082D70), whose score pages (0x000D1540..0x000D4C00, the page table at 0x00304EC0) are not translated |
+| `--scenefinal` | Boots finalscore_finalscore and plays the final score (factory type 0x99) to its end: the cook's intro line, the four scores, the Super Scary Score and its OK prompt. The script then moves on to aid_script_ghoulies_credits_final |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -491,6 +491,63 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-30: the final score, stages 2 and 3: the scores and the Super Scary Score
+
+- Page 2 (0x000D41E0, then 0x000D1540..0x000D1DA0) works through the four tally rows. For each row, the dialogue bat flies to its icon
+  (0x000D2730) and the row's sound loops (0x000D27D0). The page then shows these in turn on timers:
+  - the label, with the snare roll;
+  - the value, with the fanfare;
+  - the rank over 25;
+  - the Baron's line for the rank (0x000D4570, XACT_SOUNDBANK_GBOY_0TO6 .. _21TO25);
+  - the running "Score".
+- The rows' text and icons are laid out by 0x000D24B0 and 0x000D1DC0. They draw as a panel, the four icons and the bat.
+- Page 3 (0x000D4230, then 0x000D4610..0x000D4BE0) runs in order:
+  - It shows "Super Scary Score" and "total / 100", and picks the reallysad, reallyaverage or reallyhappy dialogue cutscene
+    (below 33, below 66, else).
+  - It plays the total's challenge ditty (winnowt, bronze, silver, gold or platinum), then the Baron's line for it.
+  - When the save's +0x19C word is set, it shows the butler's brew icon with that count.
+  - It opens the OK prompt. Its "totalscore_accept" row (0x000D4E70) moves the page to state 6, and the prompt's close
+    ends the page.
+- The update then goes from page 3 straight to the credits (mode 5, 0x000D4500, aid_script_ghoulies_credits_final).
+  Pages 4 and 5 (0x000D2FE0.., 0x000D35A0..) are not reached from here, so they still raise.
+- The butler's brew sprite reuses the button-bat menu's translations of 0x00144780, 0x00144820 and 0x00144880, now
+  public in `button_bat_menu.h`. The final score's keyboard device (+0x170) is mapped in the scene's input registry
+  for the prompt's 0x00142460.
+- Driver: on the Super Scary Score page (state 5), the scene 7 driver presses A for the OK prompt.
+- `--scenefinal` passes; the script moves on at frame 2960.
+- Checked in the captures: the four rows counting up to Score 52 (Time Taken 1 sec 25/25, Ghoulies Defeated 1 1/25,
+  Times Fainted 0 25/25, Prisoners Rescued 0 1/25), the bat at each icon, and "Super Scary Score 52 / 100" with the OK
+  prompt. The test has no current game, so the values are the empty game's defaults.
+- Not checked: the butler's brew icon (the save word is 0) and the sounds.
+
+### 2026-10-30: the final score, stage 1: the save and page 1
+
+- Factory type 0x99 (entitySceneControlFinalScore) is now native, in `src/engine/frontend/final_score.cpp`. The
+  scene's actor services bind its services over the game-select services and the challenge save context.
+- Its construct (0x00082DC0) holds the pause count (DAT_00510CEC) and sets flag 0x100000. It then runs these in order:
+  - It stores the finished game in its save (0x000F2D70). With scene flag 2 set, that covers the five times (0x0010E360..0x0010E4A0) and
+    the finished flag (0x0010E310). It also covers the challenges, the progress bits (0x000F3290, 0x000F2A50, 0x0010E4F0) and the
+    +0x184 word, and it queues the write.
+  - It builds the final score's state (0x000D3E30): the "finalscore" view, the final score text, a keyboard device and the
+    tally.
+  - It starts the pause ditty (0x000D44D0).
+  - It opens page 1 (0x000D4190).
+- The tally (0x000D2880) ranks the four rows of the 0x00303F60 table from 1 to 25 (0x000D2950, 0x000D2B00, 0x000D2CB0
+  and 0x000D2E10):
+  - the time taken against 180 minutes plus 25-minute steps;
+  - the ghoulies killed against 700 minus 20 per step;
+  - the faints against 20 plus 10 per step;
+  - the prisoners against the literal table.
+- The pages run through the table at 0x00304EC4, five entries each: start, free, tick, draw and done.
+  - Page 1 (0x000D3450..0x000D34F0) queues one of finalscore_intro1..6 and finishes once the dialogue closes.
+  - Pages 2 to 5 raise. Page 2 is 0x000D41E0, the four scores counted up.
+- The page's dialogue cutscene setter (0x000D4280) is translated with its jump-table cases (0x000D44C0). The default case
+  swaps in the gold bat twice.
+- `--scenefinal` reaches 0x000D41E0 and raises there.
+- Checked in the captures: the cook's portrait with "Well done, young 'un! ... Let's 'ave a look at yer final score"
+  and the A prompt (`scenefinal_page1`). The save itself is not checked: the test runs with no current game, so
+  0x000F2D70 returns at the empty name.
 
 ### 2026-10-29: chapter 5 scene 13's end and the final score
 

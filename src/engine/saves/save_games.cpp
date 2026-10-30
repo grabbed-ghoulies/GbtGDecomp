@@ -963,6 +963,74 @@ void clear_save_game_word_184(const char16_t* name)
     }
 }
 
+namespace
+{
+void set_save_game_word(const char16_t* name, size_t offset, u32 value)
+{
+    SaveSlot* slot = find_save_slot(name);
+    if (slot != nullptr)
+    {
+        std::memcpy(slot->save->bytes.data() + offset, &value, 4);
+    }
+}
+}
+
+// Xbox 0x0010E360
+void set_save_game_word_18c(const char16_t* name, u32 value)
+{
+    set_save_game_word(name, 0x18C, value);
+}
+
+// Xbox 0x0010E3B0
+void set_save_game_word_190(const char16_t* name, u32 value)
+{
+    set_save_game_word(name, 0x190, value);
+}
+
+// Xbox 0x0010E400
+void set_save_game_word_194(const char16_t* name, u32 value)
+{
+    set_save_game_word(name, 0x194, value);
+}
+
+// Xbox 0x0010E450
+void set_save_game_word_198(const char16_t* name, u32 value)
+{
+    set_save_game_word(name, 0x198, value);
+}
+
+// Xbox 0x0010E4A0
+void set_save_game_word_19c(const char16_t* name, u32 value)
+{
+    set_save_game_word(name, 0x19C, value);
+}
+
+// Xbox 0x0010E310
+void set_save_game_finished(const char16_t* name)
+{
+    set_save_game_word(name, 0x188, 1);
+}
+
+// Xbox 0x0010E4F0
+void store_save_game_progress(const char16_t* name, const RuntimeProfileBlock& block)
+{
+    SaveSlot* slot = find_save_slot(name);
+    if (slot == nullptr)
+    {
+        return;
+    }
+    RuntimeProfileBlock& progress = slot->save->progress->block;
+    std::fill(progress.bytes.begin(), progress.bytes.end(), u8(0));
+    for (u32 bit = 0; bit < 0x3E; ++bit)
+    {
+        const u8 mask = u8(1u << (bit & 7));
+        if ((block.bytes[bit >> 3] & mask) != 0)
+        {
+            progress.bytes[bit >> 3] = u8(progress.bytes[bit >> 3] | mask);
+        }
+    }
+}
+
 // Xbox 0x0010F2D0
 void mark_save_game_dirty(const char16_t* name)
 {

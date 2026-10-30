@@ -78,6 +78,65 @@ void store_runtime_save_challenges(RuntimeProfile& profile)
     // 0x000663E0 frees the copy.
 }
 
+// Xbox 0x000F2A50
+void copy_runtime_progress_bits(RuntimeProfileBlock& block, const RuntimeProfile& profile)
+{
+    std::fill(block.bytes.begin(), block.bytes.end(), u8(0));
+    for (u32 bit = 0; bit < 0x3E; ++bit)
+    {
+        const u8 mask = u8(1u << (bit & 7));
+        if ((profile.progress.bytes[bit >> 3] & mask) != 0)
+        {
+            block.bytes[bit >> 3] = u8(block.bytes[bit >> 3] | mask);
+        }
+    }
+}
+
+// Xbox 0x000F3290
+void store_runtime_save_progress(RuntimeProfile& profile)
+{
+    // 0x000F72D0(0x14): kind 0x3E, size 8 and the bytes inline after the header, zeroed.
+    std::array<u8, 8> bytes{};
+    RuntimeProfileBlock block{0x3E, 8, bytes};
+    copy_runtime_progress_bits(block, profile); // 0x000F2A50, EBX the block
+    store_save_game_progress(profile.name.data(), block); // 0x0010E4F0, EAX DAT_00506C90
+    // 0x000663E0 frees the block.
+}
+
+// Xbox 0x000F2D70
+void finish_runtime_game_save(RuntimeProfile& profile, SaveGameContext& saves)
+{
+    const char16_t* name = profile.name.data(); // DAT_00506C90
+    if (name[0] == 0)
+    {
+        return;
+    }
+    if (profile.scene_flags == nullptr)
+    {
+        throw Error("0x000F2D70 reads the scene flags (DAT_00506C74) before they exist");
+    }
+    if ((profile.scene_flags->bytes[0] & 2) != 0)
+    {
+        set_save_game_word_18c(name, u32(profile.times[0])); // 0x0010E360, DAT_00506C78
+        set_save_game_word_190(name, u32(profile.times[1])); // 0x0010E3B0, DAT_00506C7C
+        set_save_game_word_198(name, u32(profile.times[3])); // 0x0010E450, DAT_00506C84
+        set_save_game_word_194(name, u32(profile.times[2])); // 0x0010E400, DAT_00506C80
+        set_save_game_word_19c(name, u32(profile.times[4])); // 0x0010E4A0, DAT_00506C88
+        set_save_game_finished(name); // 0x0010E310
+    }
+    store_runtime_save_challenges(profile); // 0x000F3230
+    store_runtime_save_progress(profile); // 0x000F3290
+    if (save_game_word(name, save_record_field::unk_184.offset) != 0) // 0x0010DC20, EBX the name
+    {
+        clear_save_game_word_184(name); // 0x0010E2C0
+    }
+    // 0x000F32F0 on a failed write: apperror gamesystem_corruptgamemessage for the name.
+    queue_save_game(name, [](const void*)
+    {
+        throw Error("0x000F32F0 (the app error screen, apperror gamesystem_corruptgamemessage) is not translated");
+    }, saves); // 0x0010DA80, EAX the name
+}
+
 // Xbox 0x000F3020, EAX the name: the save's challenges and progress words become the current game's.
 void load_runtime_save_progress(const char16_t* name, GameSelectControlServices& services)
 {

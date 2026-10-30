@@ -9489,6 +9489,14 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
         const bool page = game.script_dialogue != nullptr && game.script_dialogue->dialogue.state.mode != 0;
         // A closes a page once it has been up a second.
         input.accept = page && page_shown >= 0 && frame > page_shown + 60 && frame % 30 < 5;
+        // The final score's Super Scary Score page (state 5) waits on A at its OK prompt.
+        const gbtg::FinalScoreServices* final_score = gbtg::g_scene_control_owner != nullptr
+            ? gbtg::g_scene_control_owner->context.final_score : nullptr;
+        if (!page && final_score != nullptr && final_score->super_scary != nullptr
+            && final_score->super_scary->state == 5 && frame % 30 < 5)
+        {
+            input.accept = true;
+        }
         // The player is DAT_00511B40's actor (link - 0x93C): Cooper (class 4), or chapter 5 scene 13's cook.
         gbtg::u16 player_class = 4;
         if (const gbtg::u32 link = actors.player_link(); link != 0 && link != 0x93C)

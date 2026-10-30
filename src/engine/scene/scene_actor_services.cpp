@@ -845,6 +845,7 @@ struct SceneActorServices::State
     void bind_button_bat(FactoryObject& object);
     // Factory type 0x9A, game select (docs/NATIVE_FRONTEND.md).
     std::unique_ptr<GameSelectControlServices> gameselect_services;
+    std::unique_ptr<FinalScoreServices> final_score_services; // Over gameselect_services.
     std::unique_ptr<ScenePauseServices> pause_services; // 0x0011CE10 .. 0x0011DB50.
     RuntimeDialogueTextPool* script_title_pool = nullptr; // DAT_00512484, script world action 0xA's.
     std::span<const u8> gameselect_text; // DAT_005462C4
@@ -4413,6 +4414,13 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             return resources.memory.address_of(record);
         }});
     bind_gameselect_services();
+    final_score_services = std::make_unique<FinalScoreServices>(FinalScoreServices{*gameselect_services,
+        *challenge_saves, {}, {}, {},
+        []() -> i32
+        {
+            return i32(read_u32({g_510e58, 0x108}, 0x104)); // DAT_00510F5C, scene record +0x104.
+        }});
+    scene.controls->context.final_score = final_score_services.get();
     bind_transition_services();
     bind_pause_services();
     // The scene model renderer over the relocated resources and the host D3D device.
@@ -6489,6 +6497,10 @@ void SceneActorServices::State::bind_gameselect_services()
     {
         play_runtime_game(*gameselect_services);
     };
+    widget_callbacks[0x000D4E70] = [this]()
+    {
+        accept_runtime_final_score_super_scary(*final_score_services);
+    };
     widget_callbacks[0x000DB5E0] = [this]()
     {
         show_runtime_game_stats(*gameselect_services);
@@ -6569,6 +6581,11 @@ SceneActorServices::State::~State()
         && scene.controls->context.map_view == map_view_services.get())
     {
         scene.controls->context.map_view = nullptr;
+    }
+    if (scene.controls != nullptr && final_score_services != nullptr
+        && scene.controls->context.final_score == final_score_services.get())
+    {
+        scene.controls->context.final_score = nullptr;
     }
     if (scene.controls != nullptr && gameselect_services != nullptr
         && scene.controls->context.gameselect == gameselect_services.get())

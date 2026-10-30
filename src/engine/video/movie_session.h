@@ -1,5 +1,6 @@
 #pragma once
 #include "movie_startup.h"
+#include "file_copy.h"
 #include "../runtime/file_worker.h"
 #include <filesystem>
 #include <string>
@@ -19,6 +20,7 @@ public:
     RuntimeMovieSession& operator=(const RuntimeMovieSession&) = delete;
     RuntimeMovieStartupContext& startup();
     MovieFileContext& files();
+    RuntimeFileCopyContext& copies(); // DAT_005065F0's copies over the file rows.
     void pump();
     void reset();
     std::array<RuntimeMovieEventSlot, 4> slots{};
@@ -39,6 +41,7 @@ private:
     u32 file_count_ = 0;
     i32 sectors_[26]{};
     MovieFileContext file_context_;
+    RuntimeFileCopyContext copies_{file_context_, boot_};
     MoviePathContext paths_;
     RuntimeMovieState movie_head_{};
     i32 initialized_ = 0;

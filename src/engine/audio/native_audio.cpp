@@ -1,4 +1,5 @@
 #include "native_audio.h"
+#include "../video/file_copy.h"
 #include "gbtg/anim.h"
 
 #include <cstdio>
@@ -278,7 +279,11 @@ u8 runtime_stream_bank_busy(i32 id, i32* remaining, i32* total, const AudioWaveb
     {
         if (streams.ids[row] == id && streams.jobs[row] != nullptr)
         {
-            throw Error("0x000E9040 (a wavebank stream's file progress) is not translated");
+            u32 row_left = 0;
+            u32 row_size = 0;
+            runtime_file_copy_progress(streams.jobs[row], row_left, row_size, *g_runtime_file_copies); // 0x000E9040
+            left = left + i32(row_left);
+            size = size + i32(row_size);
         }
     }
     if (remaining != nullptr)

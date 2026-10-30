@@ -204,6 +204,28 @@ void draw_runtime_dialogue_sprite(const u8* texture, const float* position, cons
         c.fog_disabled = 0;
     }
 }
+// Xbox 0x0005CE80: a texture drawn opaque over the screen (the blend op add, source one, destination zero, no alpha
+// test) at `position` and `scale`, in the default colour (DAT_00314F48).
+void draw_runtime_opaque_dialogue_sprite(const u8* texture, const float* position, const float* scale, u32 color,
+    RuntimeDialogueDrawContext& c)
+{
+    begin_dialogue_sprite_draw(c); // 0x0005CDC0
+    c.d3d.simple_state(0x40350, 0x8006);
+    c.deferred[(0x181C98 - 0x181968) / 4] = 0x8006; // DAT_00181C98
+    c.d3d.simple_state(0x40344, 1);
+    c.deferred[(0x181C68 - 0x181968) / 4] = 1; // DAT_00181C68
+    c.d3d.simple_state(0x40348, 0);
+    c.deferred[(0x181C6C - 0x181968) / 4] = 0; // DAT_00181C6C
+    c.d3d.simple_state(0x40300, 0);
+    c.deferred[(0x181C60 - 0x181968) / 4] = 0; // DAT_00181C60
+    draw_dialogue_texture(0, nullptr, const_cast<u8*>(texture), scale, nullptr, 0.f, color, position,
+        c); // 0x0005CA60, ECX 0, EDX 0
+    --c.override_count; // DAT_00509B5C
+    if (c.override_count == 0)
+    {
+        c.fog_disabled = 0; // DAT_00509B00
+    }
+}
 // Xbox 0x001221B0
 void queue_runtime_dialogue_sprite(const float* scale, const float* position,
     const u8* texture, u32 color, u8 frame, float angle,

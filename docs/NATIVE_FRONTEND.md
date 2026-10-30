@@ -282,13 +282,15 @@ down) and `0x000D8030` (B: back to the contents). It shows the book page, the
 game's name, the "Features" banner and a button-bat menu of the features:
 Artwork (when a challenge is finished or the progress bit 0x3D is set),
 Options (row 17), Replay Scene (row 10, past scene one), Replay Chapter (row 9,
-past chapter one), Story Books (row 16, not a new game), Demos (when
-`D:\cdxmedia\cdx.inx` exists) and Credits (a finished game). The menu lists
+past chapter one), Story Books (row 16, not a new game) and Credits (a
+finished game). Retail also lists Demos when `D:\cdxmedia\cdx.inx` exists;
+its `0x000D8400` launches `D:\cdx.xbe` (XLaunchNewImage, `0x00032570`), which
+has no PC equivalent, so the PC build leaves it out (a port decision). The menu lists
 them last-added first. Replay Scene, Replay Chapter and Story Books show an
 error page from `aid_loctext_ghoulies_dialog_dialogs` when their test fails.
 Artwork queues `aid_script_ghoulies_gameselect_unlockableart` through
-`0x00083B90` with its scene order held by `0x001234B0`. Demos (the `cdx.xbe`
-launch, `0x00032570`) raises; Credits holds its scene order (see "Credits").
+`0x00083B90` with its scene order held by `0x001234B0`; Credits holds its
+scene order (see "Credits").
 
 The button-bat menu (`button_bat_menu.cpp`, `DAT_005461A4`): create
 `0x00143550`, destroy `0x00143680`, items `0x00143320` / `0x001434E0`, add
@@ -445,8 +447,20 @@ Row 18, the stream wait (`gameselect_stream_wait.cpp`, `0x000E0650`..
 `0x000E0A30`, `0x000E0AD0`), with `0x00083A50` (the row request held back while
 stream 2 plays): the loading picture and a blinking "loading" line until stream
 2 is idle (then the start, +0x128) or the wait runs out (then the row in
-`DAT_00429BC0`). No test reaches it: game select has not yet opened with stream
-2 busy.
+`DAT_00429BC0`). Game select opens on it (`0x000E5AE0`, a 5 second wait) while
+wavebank stream 2 is busy: on a fresh utility drive, boot copies the in-memory
+"harddisk" wavebanks from the disc to Z: (`0x00039DD0` -> `0x00039C50`, which
+skips a current copy by `0x000E9530` / `0x000E95D0`; `0x000E9090` /
+`0x000E9190` queue the copy, `0x000E9280` reads one 0x20000 buffer while it
+writes the other each idle frame (`0x000E9450`, `0x000E94D0`, `0x000E9510`),
+`0x000E9310` / `0x000E9380` / `0x000E9210` end it, and `0x00039D00` clears the
+row's job). `0x00039D50` sums the row's progress (`0x000E9040`). Stream 2 is
+`harddisk0` (`xwavebank\02110fd0`, 116 MB), so the first boot shows the
+loading screen. `--gameselect-loading` deletes the cached copies first: game
+select opens with 89 MB still to copy, shows the sepia loading picture with
+the blinking "Loading" line for its five seconds, then slot select. The file
+system boots before the audio, as fs_init `0x00033980` runs `0x000E9CE0`
+before `0x00033030`.
 
 The secret button sequence (`0x000DB1A0`, ticked by `0x00142F00` on a game's
 contents while the progress bit 0x3D is clear and fewer than 20 challenges
@@ -647,9 +661,10 @@ Engine fixes the front end needed:
 Not translated yet (each raises when reached):
 
 - **The other rows**: 5, 7 and 12..15, which nothing in the retail game
-  requests (see above). The features menu's Demos (`0x000D8400`, the `cdx.xbe`
-  launch). A read-only walk from
+  requests (see above). A read-only walk from
   these rows and callbacks reaches about 226 untranslated functions (61 KB).
-- The book's widescreen page redraw (`0x00048550`'s `0x0005CE80`), reached only
-  on a widescreen display.
+- The book's widescreen page redraw (`0x00048550`'s `0x0005CE80`) is translated,
+  but runs only with `DAT_00509703`, which `0x000FC310` sets from
+  XGetVideoFlags' widescreen bit; the PC boot has no video-flags boundary, so it
+  stays 0.
 - The Japanese keyboard (`0x00012920`), reached only in Japanese.

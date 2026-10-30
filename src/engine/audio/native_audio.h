@@ -44,13 +44,14 @@ extern NativeAudioBanks* g_native_audio; // Set by 0x0003A280.
 // The audio core's globals, live from boot for the whole game as in retail: the XACT sound sources and cues, the
 // 48 event voices (DAT_004E0CE8), the tracked banks, channels and stream slots (DAT_004DF370, DAT_004E030C,
 // DAT_004DFFA0). Scenes, the front end and the transitions all request sounds through these.
+struct RuntimeFileCopy;
 // DAT_004E14F8: the twelve wavebank stream rows 0x00039DD0 opens (stride 0xC), with the stream ids of its table
-// (0x00421A80, stride 0x14, +0xC). The host wavebank boundary (register_wavebanks) loads the banks itself and
-// keeps no retail file job in a row's +0.
+// (0x00421A80, stride 0x14, +0xC). A row's +0 is the copy of its in-memory bank to the utility drive while it
+// runs (0x00039C50); the XACT banks themselves are the host catalog's.
 struct AudioWavebankStreams
 {
     std::array<i32, 12> ids{}; // 0x00421A8C
-    std::array<void*, 12> jobs{}; // DAT_004E14F8 +0
+    std::array<RuntimeFileCopy*, 12> jobs{}; // DAT_004E14F8 +0
 };
 // 0xEA while a stream of this id still has bytes to read, else 0; the bytes left and the total are summed over
 // its rows.

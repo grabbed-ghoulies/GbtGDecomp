@@ -166,13 +166,6 @@ void open_story_books(GameSelectControlServices& s)
     show_error("errormessages_savedgameisnewgame", s);
 }
 
-// Xbox 0x000D8400: the demos disc's launcher.
-[[noreturn]] void open_demos(GameSelectControlServices&)
-{
-    // 0x000325C0 / 0x00032570 launch D:\cdx.xbe with launch data (XLaunchNewImage); there is no host image to start.
-    throw Error("0x000D8400 launches D:\\cdx.xbe (0x00032570), which is not translated");
-}
-
 // Xbox 0x000D8420: the staff credits. The held order becomes game select, aid_script_ghoulies_credits_final and
 // game select again, and the credits start (0x00083B90, mode 3).
 void open_credits(GameSelectControlServices& s)
@@ -243,20 +236,9 @@ void add_features(GameSelectControlServices& s)
     add_feature("features_replayscene", open_scene_replay, s); // EDI 0x00324B20, LAB_000d81d0
     add_feature("features_replaychapter", open_chapter_replay, s); // EDI 0x00324B08, LAB_000d8290
     add_feature("features_storybooks", open_story_books, s); // EDI 0x00324AF4, LAB_000d8360
-    // GetFileAttributesA("D:\\cdxmedia\\cdx.inx"): 0xFFFFFFFF is GetLastError, a directory is 0x10B, else 0.
-    u32 status = xbox_file_attributes("D:\\cdxmedia\\cdx.inx"); // 0x0014B280
-    if (status == 0xFFFFFFFFu)
-    {
-        status = xbox_last_error(); // GetLastError (0x0014AFE4)
-    }
-    else
-    {
-        status = (status & 0x10) != 0 ? 0x10Bu : 0u;
-    }
-    if (status == 0)
-    {
-        add_feature("features_demos", open_demos, s); // EDI 0x00324AD0, LAB_000d8400
-    }
+    // Port decision: retail adds "features_demos" (0x00324AD0, LAB_000d8400) here when
+    // GetFileAttributesA("D:\\cdxmedia\\cdx.inx") finds the demo disc's index; its 0x000D8400 launches D:\cdx.xbe
+    // through XLaunchNewImage (0x000325C0 / 0x00032570), which has no PC equivalent. The PC build never lists it.
     if (save_game_word(open_widget(s).name, 0x188) != 0) // 0x0010DC60, a finished game
     {
         add_feature("features_credits", open_credits, s); // EDI 0x00324ABC, LAB_000d8420

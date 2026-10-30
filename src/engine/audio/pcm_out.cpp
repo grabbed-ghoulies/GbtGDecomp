@@ -5,6 +5,9 @@
 #include "pcm_backend.h"
 #include "../camera/display_view.h"
 #include "../scene/executable_resources.h"
+#include "../video/native_movies.h"
+#include "../video/movie_session.h"
+#include "wavebank_files.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -1684,6 +1687,40 @@ std::shared_ptr<NativeAudioRuntime> boot_native_audio(const Game& game)
     {
         std::memcpy(&runtime.wavebank_streams.ids[row], image.memory(0x00421A8C + u32(row) * 0x14, 4).data(), 4);
     }
+    // 0x00039DD0's file side over the rows above: the in-memory banks are copied to the utility drive (Z:) unless
+    // their cached copies are current, the frame loop pumping the copies (0x000E9280). The file system is up first,
+    // as fs_init 0x00033980 runs 0x000E9CE0 before 0x00033030.
+    if (g_native_movie_runtime == nullptr)
+    {
+        throw Error("native audio boot (0x00039DD0) needs the file system (0x000E9CE0) booted first");
+    }
+    auto& copies = g_native_movie_runtime->session->copies();
+    static std::unique_ptr<WavebankFileContext> wavebank_files;
+    wavebank_files = std::make_unique<WavebankFileContext>(WavebankFileContext{image.memory(0x00421A80, 12 * 0x14),
+        [&image](u32 address)
+        {
+            return image.string(address);
+        },
+        copies.state.root,
+        [&copies](const char* path)
+        {
+            return copies.files.worker->io.attributes(path); // GetFileAttributesA, Z: mapped
+        },
+        [&copies]()
+        {
+            return copies.files.worker->io.last_error();
+        },
+        [](const char*, i32, u32)
+        {
+            // IXACTEngine_CreateInMemoryWaveBank / CreateStreamingWaveBank: the host catalog
+            // (register_wavebanks) already plays every bank from the disc.
+        },
+        [](u32 code)
+        {
+            throw Error("audio wavebank file error " + std::to_string(code)); // 0x00032700
+        },
+        copies});
+    register_runtime_wavebank_files(runtime.wavebank_streams, *wavebank_files); // 0x00039DD0
     initialize_tracked_audio_channels(runtime.streams); // Boot 0x00033030 runs 0x00038BF0 over DAT_004E030C.
     g_native_audio_runtime = &runtime;
     return owned;

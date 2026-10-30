@@ -39,6 +39,12 @@ RuntimeMovieSession::RuntimeMovieSession(const std::filesystem::path& disc_root,
         const std::string mapped = map_utility(path);
         return attributes(mapped.c_str());
     };
+    auto delete_file = file_io_.delete_file;
+    file_io_.delete_file = [delete_file, map_utility](const char* path)
+    {
+        const std::string mapped = map_utility(path);
+        return delete_file(mapped.c_str());
+    };
     auto create_directory = worker_io_.create_directory;
     worker_io_.create_directory = [create_directory, map_utility](const char* path)
     {
@@ -68,6 +74,7 @@ RuntimeMovieSession::RuntimeMovieSession(const std::filesystem::path& disc_root,
     boot_.disc_root = root_.c_str();
     boot_.root = boot_root_;
     initialize_runtime_movie_files(file_context_, boot_);
+    g_runtime_file_copies = &copies_;
     pump_runtime_movie_files(file_context_);
     paths_.root = boot_root_;
     paths_.file_attributes = worker_io_.attributes;
@@ -79,6 +86,10 @@ RuntimeMovieSession::RuntimeMovieSession(const std::filesystem::path& disc_root,
 
 RuntimeMovieSession::~RuntimeMovieSession()
 {
+    if (g_runtime_file_copies == &copies_)
+    {
+        g_runtime_file_copies = nullptr;
+    }
     reset();
     if (preloaded_ != nullptr)
     {
@@ -96,6 +107,11 @@ RuntimeMovieStartupContext& RuntimeMovieSession::startup()
 MovieFileContext& RuntimeMovieSession::files()
 {
     return file_context_;
+}
+
+RuntimeFileCopyContext& RuntimeMovieSession::copies()
+{
+    return copies_;
 }
 
 void RuntimeMovieSession::pump()

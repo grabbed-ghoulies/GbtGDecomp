@@ -5,6 +5,8 @@
 #include "../src/engine/scene/scene_controls.h"
 #include "../src/engine/frontend/gameselect_slots.h"
 #include "../src/engine/frontend/app_error_screen.h"
+#include "../src/engine/audio/native_audio.h"
+#include "../src/engine/video/file_copy.h"
 #include "../src/engine/frontend/gameselect_stream_wait.h"
 #include "../src/engine/scene/gallery_control.h"
 #include "../src/engine/frontend/button_bat_menu.h"
@@ -10921,6 +10923,11 @@ int main(int argc, char** argv)
     // saved (0x000DB380); then Right and A open the features, whose Artwork item (now listed) A starts
     // (aid_script_ghoulies_gameselect_unlockableart).
     const bool secret_test = argc == 3 && std::string_view(argv[2]) == "--gameselect-secret";
+    // --gameselect-loading: the utility drive's cached harddisk wavebanks are deleted first, so boot copies them
+    // again (0x00039C50, 0x000E9090, a buffer a frame through 0x000E9280). Game select opening while stream 2's
+    // copy runs (0x000E5AE0) must show the loading screen (row 18, cache/gameselect_loading_N.bmp) and then slot
+    // select.
+    const bool loading_test = argc == 3 && std::string_view(argv[2]) == "--gameselect-loading";
     const bool challenges_test = challenge_restart_test
         || (argc == 3 && std::string_view(argv[2]) == "--gameselect-challenges");
     const bool replay_scene_test = replay_paging_test
@@ -10931,7 +10938,7 @@ int main(int argc, char** argv)
     }
     const bool gameselect_native_test = new_game_test || delete_test || stats_test || features_test || replay_scene_test
         || retail_save_test || challenges_test || feature_test || corrupt_save_test || duplicate_name_test
-        || secret_test
+        || secret_test || loading_test
         || (argc == 3 && std::string_view(argv[2]) == "--gameselect-native");
     const bool gameselect_test = gameselect_native_test || (argc == 3 && std::string_view(argv[2]) == "--gameselect");
     const bool title_test = title_a_test || attract_test || gameselect_test
@@ -11343,6 +11350,18 @@ int main(int argc, char** argv)
                     file.seekp(0x40);
                     file.write(bytes, sizeof(bytes));
                     std::cout << "damaged " << entry.path().generic_string() << "\n";
+                }
+            }
+        }
+        if (loading_test)
+        {
+            for (const auto& entry : std::filesystem::recursive_directory_iterator("cache/xbox_utility"))
+            {
+                const auto name = entry.path().filename().string();
+                if (entry.is_regular_file() && (name == "02110fd0" || name == "02110fd1"))
+                {
+                    std::filesystem::remove(entry.path());
+                    std::cout << "removed the cached wavebank " << entry.path().generic_string() << "\n";
                 }
             }
         }
@@ -14245,6 +14264,77 @@ int main(int argc, char** argv)
             }
             std::cout << "PASS: the challenges opened, moved, showed the intro, played " << started
                       << ", showed its results and restart menu, and B went back to the challenges\n";
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (loading_test)
+        {
+            int wait_at = -1;
+            int closed_at = -1;
+            int slots_at = -1;
+            for (int frame = 0; frame < 6000; ++frame)
+            {
+                gbtg::InputState input;
+                input.start = frame == 120;
+                const auto* wait = gbtg::g_frontend.stream_wait_widget;
+                if (wait_at < 0 && wait != nullptr)
+                {
+                    wait_at = frame;
+                    gbtg::u32 left = 0;
+                    gbtg::u32 total = 0;
+                    const auto& rows = gbtg::native_audio_runtime().wavebank_streams;
+                    for (size_t row = 0; row < rows.ids.size(); ++row)
+                    {
+                        if (rows.ids[row] == 2 && rows.jobs[row] != nullptr)
+                        {
+                            gbtg::runtime_file_copy_progress(rows.jobs[row], left, total, *gbtg::g_runtime_file_copies);
+                        }
+                    }
+                    std::cout << "loading screen open at frame " << frame << ", wait " << wait->wait << ", stream 2 "
+                              << left << " of " << total << " bytes left\n";
+                }
+                if (wait_at >= 0 && closed_at < 0 && wait == nullptr)
+                {
+                    closed_at = frame;
+                    std::cout << "loading screen closed at frame " << frame << "\n";
+                }
+                if (closed_at >= 0 && slots_at < 0 && gbtg::g_frontend.slot_widget != nullptr)
+                {
+                    slots_at = frame;
+                    std::cout << "slot select at frame " << frame << "\n";
+                }
+                gbtg::gfx_begin_frame();
+                game.tick(1.f / 59.f, input);
+                gbtg::gfx_end_frame();
+                if (wait_at >= 0 && closed_at < 0 && (frame - wait_at == 20 || frame - wait_at == 80 || frame - wait_at == 140 || frame - wait_at == 200))
+                {
+                    gbtg::RgbaImage image;
+                    if (gbtg::gfx_readback(image))
+                    {
+                        gbtg::write_bmp("cache/gameselect_loading_" + std::to_string(frame - wait_at) + ".bmp", image);
+                    }
+                }
+                // The copy runs on after slot select; the run ends once it is done, so the utility drive keeps a
+                // current copy (an interrupted one is copied again at the next boot).
+                if (slots_at >= 0 && frame - slots_at > 120 && gbtg::g_runtime_file_copies->state.copy_head.next == nullptr)
+                {
+                    std::cout << "the wavebank copies finished by frame " << frame << "\n";
+                    break;
+                }
+            }
+            if (wait_at < 0)
+            {
+                throw gbtg::Error("game select did not open on the loading screen while stream 2 copied");
+            }
+            if (gbtg::g_runtime_file_copies->state.copy_head.next != nullptr)
+            {
+                throw gbtg::Error("the wavebank copies did not finish");
+            }
+            if (slots_at < 0)
+            {
+                throw gbtg::Error("the loading screen did not give way to slot select");
+            }
+            std::cout << "PASS: game select showed the loading screen while stream 2 copied, then slot select\n";
             gbtg::gfx_shutdown();
             return 0;
         }

@@ -155,6 +155,29 @@ void bind_native_movie_file_io(MovieFileBoundaries& files, FileWorkerBoundaries&
     {
         g_movie_io_cache = capacity;
     };
+    files.file_time = [](std::uintptr_t handle, u64& output)
+    {
+        FILETIME written;
+        const BOOL result = GetFileTime(reinterpret_cast<HANDLE>(handle), nullptr, nullptr, &written);
+        if (result != FALSE)
+        {
+            output = (u64(written.dwHighDateTime) << 32) | written.dwLowDateTime;
+        }
+        return result != FALSE;
+    };
+    files.set_file_time = [](std::uintptr_t handle, u64 time)
+    {
+        FILETIME written{DWORD(time), DWORD(time >> 32)};
+        return SetFileTime(reinterpret_cast<HANDLE>(handle), nullptr, nullptr, &written) != FALSE;
+    };
+    files.cancel = [](std::uintptr_t handle)
+    {
+        return CancelIo(reinterpret_cast<HANDLE>(handle)) != FALSE;
+    };
+    files.delete_file = [](const char* path)
+    {
+        return DeleteFileA(xbox_host_path(path).c_str()) != FALSE;
+    };
     worker.create_file = [](const char* path, u32 access, u32 share, void* security,
         u32 creation, u32 attributes, std::uintptr_t template_file)
     {
@@ -350,8 +373,8 @@ void initialize_runtime_movie_files(MovieFileContext& context, RuntimeMovieFileB
     context.pending = 0;
     state.first_buffer = new (std::nothrow) u8[0x20000];
     state.second_buffer = new (std::nothrow) u8[0x20000];
-    state.first_head.previous = nullptr;
-    state.first_head.next = nullptr;
+    state.copy_head.previous = nullptr;
+    state.copy_head.next = nullptr;
     state.second_head.previous = nullptr;
     state.second_head.next = nullptr;
     state.buffer_size = 0x20000;

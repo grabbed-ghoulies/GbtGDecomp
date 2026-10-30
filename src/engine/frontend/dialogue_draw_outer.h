@@ -77,6 +77,8 @@ void draw_runtime_dialogue_border(float width, u32 color,
     RuntimeDialogueOuterDrawContext& context); // Xbox 0x000619D0
 void draw_runtime_dialogue_sprite(const u8* texture, const float* position, const float* scale,
     float angle, u32 color, i32 frame, RuntimeDialogueDrawContext& context); // Xbox 0x0005CE30
+void draw_runtime_opaque_dialogue_sprite(const u8* texture, const float* position, const float* scale, u32 color,
+    RuntimeDialogueDrawContext& context); // Xbox 0x0005CE80
 void queue_runtime_dialogue_sprite(const float* scale, const float* position,
     const u8* texture, u32 color, u8 frame, float angle,
     RuntimeDialogueSpriteQueue& queue); // Xbox 0x001221B0

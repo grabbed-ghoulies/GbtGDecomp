@@ -8,6 +8,7 @@
 #include "../cutscenes/event_runtime.h"
 #include "../cutscenes/instance_construction.h"
 #include "../frontend/dialogue_draw_context.h"
+#include "../frontend/dialogue_draw_outer.h"
 #include "../scene/executable_resources.h"
 #include "gbtg/model_runtime.h"
 #if defined(GBTG_INSPECTOR_APP)
@@ -43,11 +44,6 @@ float frame_step(const TransitionBookServices& s)
         return s.dt * s.scene_scale;
     }
     return 0.f;
-}
-
-[[noreturn]] void untranslated(const char* what)
-{
-    throw Error(std::string(what) + " is not translated");
 }
 
 // Xbox 0x00048110: each page shader's colour0 gets a page texture (pages 2 and 3 DAT_005047E4, 1 and 4
@@ -340,7 +336,14 @@ void draw_transition_book(RuntimeTransitionBook& book, TransitionBookServices& s
             }
             if (*s.scene_paused == 0 || *s.pause_phase == 4 || *s.pause_phase == 5)
             {
-                untranslated("0x00048550's widescreen page redraw (0x0005CE80)");
+                // The captured page redrawn over the 4:3 view and captured again.
+                entity_detail::g_display_view->aspect_mode = 3; // DAT_005077A8 +0x3C
+                bind_display_projection(s.display); // 0x000F6170
+                draw_runtime_opaque_dialogue_sprite(s.texture_bytes(page.texture),
+                    reinterpret_cast<const float*>(s.image.memory(0x004231B4, 8).data()),
+                    reinterpret_cast<const float*>(s.image.memory(0x004231BC, 8).data()),
+                    read_u32(s.image.memory(0x00314F48, 4), 0), s.draw); // 0x0005CE80
+                s.copy_back_buffer(page.texture);
             }
         }
         page.capture = 0;

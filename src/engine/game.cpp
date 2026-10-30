@@ -14,6 +14,7 @@
 #include "audio/native_audio.h"
 #include "audio/pcm_backend.h"
 #include "video/native_movies.h"
+#include "video/movie_session.h"
 #include "saves/save_games.h"
 #include "frontend/input_stack.h"
 #include "camera/camera.h"
@@ -54,10 +55,10 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
     executable_resources = std::make_shared<SceneExecutableResources>(game_dir);
     // Boot 0x00033030 -> 0x00035A90 and the provider and hook registrations.
     native_resources = std::make_shared<SceneDialogueResourceOwner>(aids, executable_resources->pools);
+    native_movies = boot_native_movies(*this); // fs_init 0x00033980 -> 0x000E9CE0, before 0x00033030.
     native_audio = boot_native_audio(*this); // Boot 0x00033030 -> 0x0003A280.
     load_audio_general_settings(native_resources->registry, native_resources->error); // Boot 0x00033030
     boot_actor_camera_shakes(runtime_pad_rumble_commands()); // Boot 0x00033030 -> 0x000FADE0
-    native_movies = boot_native_movies(*this); // Boot 0x00033030 -> 0x000E9CE0, 0x000E9E60.
     native_input = boot_native_input_stack(); // Boot 0x00033030 -> 0x00033248, 0x00033274; 0x0011C3F0's push.
     reset_runtime_frontend(g_frontend, g_pause_ditty); // Boot 0x00033030 -> 0x000E5A80.
     // The object factory, actor lists and scene services, boot-owned like retail's globals.
@@ -193,6 +194,12 @@ void frame_tick(Game& g, float dt, const InputState& in)
     // movie event slots (0x00106C70).
     auto& movies = *g.native_movies;
     pump_runtime_movie_files(movies.session->files());
+    // 0x00033B50: the first queued file copy steps while no file transfer or utility format is pending.
+    auto& copies = movies.session->copies();
+    if (copies.files.pending == 0 && copies.state.utility_pending == 0 && copies.state.copy_head.next != nullptr)
+    {
+        pump_runtime_file_copy(*copies.state.copy_head.next, copies); // 0x000E9280
+    }
     // 0x000FAF70: the camera shakes into the pads' rumble commands, measured from the frame's view.
     tick_actor_camera_shakes(g_sim_freeze <= 0.f ? g_sim_dt * g_sim_scale : 0.f,
         native_audio_runtime().streams.voices.listener, g.native_input->port_masks[1], // DAT_005077A8, DAT_0050E0F8

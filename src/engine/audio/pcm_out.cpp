@@ -770,7 +770,8 @@ bool load_wave(const WaveChoice& choice, std::vector<u8>& pcm, WAVEFORMATEX& fmt
     }
     const u32 play_off = ru32(rec, 8);
     const u32 play_len = ru32(rec, 12);
-    if (play_len == 0 || play_len > 48 * 1024 * 1024)
+    // The longest wave, the credits music (Gdvd0[24]), is some 56 MiB of 16-bit stereo PCM.
+    if (play_len == 0 || play_len > 128 * 1024 * 1024)
     {
         return false;
     }

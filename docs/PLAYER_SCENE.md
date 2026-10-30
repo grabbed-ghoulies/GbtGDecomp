@@ -325,6 +325,7 @@ All take the game directory, e.g.
 | `--scene5_13c` | Boots chapter5_scene13_2playcam (the front gate, played as the cook against the imps) and plays it with the scene 7 driver. Passes: the script moves on to chapter5_scene13_3book at frame 29482 |
 | `--scene5_13d` | Boots chapter5_scene13_3book. Passes: seven pages, and the script moves on to finalscore_finalscore |
 | `--scenefinal` | Boots finalscore_finalscore and plays the final score (factory type 0x99) to its end: the cook's intro line, the four scores, the Super Scary Score and its OK prompt. The script then moves on to aid_script_ghoulies_credits_final |
+| `--scenecredits` | Boots credits_final and plays its 18 pages; the script moves on to aid_script_ghoulies_attractsequence_final1 at frame 17051 |
 | `--scene7` | Boots scene 7 (chapter1_scene7_1playcam, the east wing's cinema): its transition ends (no chapter title), A closes each page once it has been up a second, and Cooper fights any live ghouly within 50 units (not the prisoners, tags 0x26..0x30). Otherwise he walks into the region a live PlayerEntersRegion (condition 8) names or, while a section holds at its end, into the exit volume, steered along the navigation grid (`nav_waypoint`, a test-side search over `g_nav_grids`). Titles, objects, Cooper and the section gate are logged; the volumes and pending conditions on a failure. The same driver then plays scene 7's book (`scene7_2`, its pages) and scene 7_3 (`scene7_3`) to their ends; scene 7_3 restarts each time Cooper loses to the TV (three times in the 2026-10-21 run) and moves on to scene 8 at frame 7786 |
 | `--scene3` | Boots scene 3 (chapter1_scene3_1playcam, "Player Enters Room"): the transition (row 1, no title) ends, the walk-in cutscene (script type 0x53) and the door cutscene play, A closes Crivens' two pages, Cooper spawns at the player marker, "Free Play" holds on its conditions with the player camera; then Cooper walks to the skeletons, which wake, fall apart into bones, and he lifts and throws the trophy, collects the rare book and walks out through the open door; the script moves on to scene 4 |
 
@@ -491,6 +492,16 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 "scene factory type 115 is not translated/installed".
 
 ## Checkpoints
+
+### 2026-10-30: the credits
+
+- `--scenecredits` boots credits_final. It passes on the existing native path: 18 pages, then the script moves on to
+  aid_script_ghoulies_attractsequence_final1 (frame 17051).
+- The credits music (XACT_SOUNDBANK_GSTREAMSCUTSCEN_CREDITS, Gdvd0 wave 24) was skipped. It is 58 MB of 16-bit
+  stereo 44.1 kHz PCM, above the host wave loader's 48 MiB guard in `pcm_out.cpp`. The guard is now 128 MiB, and the
+  skip warning is gone. I have not listened to the track.
+- Checked in the captures: the scrapbook pages of scene photos and the name cards, for example "Phil Baker, Michael
+  Boulton, Ed Bryan, Will Bryan" and "Korea Loc Team & Taiwan Loc Team".
 
 ### 2026-10-30: the final score, stages 2 and 3: the scores and the Super Scary Score
 

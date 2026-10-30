@@ -23,9 +23,9 @@ struct DialogueTagContext
     DialogueSoundTagState& sound;
     const DialogueTokenTable& tokens;
     const DialogueSoundSwapNames& sound_names;
-    std::span<const i32> final_scores;
-    i32 selected_score;
-    i32 high_score;
+    std::span<const i32> final_scores; // DAT_004E18F8, each challenge's best score
+    const i32& selected_score; // DAT_00506578, the challenge the menu selected
+    const i32& high_score; // DAT_004E18F0, the running challenge's score
     u8 mode_flags;
     u32 scene_flags;
 };

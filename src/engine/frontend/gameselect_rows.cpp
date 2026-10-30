@@ -1,4 +1,5 @@
 #include "gameselect_rows.h"
+#include "gameselect_challenges.h"
 #include "gameselect_contents.h"
 #include "gameselect_delete.h"
 #include "gameselect_features.h"
@@ -52,8 +53,9 @@ const std::array<GameSelectWidgetRow, 20> kRows{{
         open_runtime_game_naming, close_runtime_game_naming, tick_runtime_game_naming, draw_runtime_game_naming},
     {{0x000DC0B0, kHeapFreeWidget, 0x000DC0C0, 0x000DC640, 0x000DC6F0, 0x000DC9A0}, nullptr, nullptr, nullptr,
         nullptr, nullptr},
-    {{0x000D5850, kHeapFreeWidget, 0x000D5880, 0x000D62A0, 0x000D6410, 0x000D67F0}, nullptr, nullptr, nullptr,
-        nullptr, nullptr},
+    {{0x000D5850, kHeapFreeWidget, 0x000D5880, 0x000D62A0, 0x000D6410, 0x000D67F0}, create_runtime_game_challenges,
+        open_runtime_game_challenges_menu, close_runtime_game_challenges, tick_runtime_game_challenges,
+        draw_runtime_game_challenges},
     {{0x000D4EA0, kHeapFreeWidget, 0x000D4EB0, 0x000D5160, 0x000D51E0, 0x000D5300}, nullptr, nullptr, nullptr,
         nullptr, nullptr},
     {{0x000D4EA0, kHeapFreeWidget, 0x000D7A60, 0x000D7DB0, 0x000D7E40, 0x000D7F80}, create_runtime_game_features,

@@ -5,7 +5,9 @@
 #include "../src/engine/scene/scene_controls.h"
 #include "../src/engine/frontend/gameselect_slots.h"
 #include "../src/engine/frontend/button_bat_menu.h"
+#include "../src/engine/frontend/gameselect_challenges.h"
 #include "../src/engine/frontend/gameselect_features.h"
+#include "../src/engine/frontend/gameselect_contents.h"
 #include "../src/engine/frontend/gameselect_scene_replay.h"
 #include "../src/engine/frontend/frontend_state.h"
 #include "gbtg/texture.h"
@@ -10888,14 +10890,18 @@ int main(int argc, char** argv)
     // repository. The native scan must verify its signature; A opens it, Right and A the features, Down to Replay
     // Scene and A, whose list must hold all 100 scenes; X pages down twice and Y once, then B goes back.
     const bool retail_save_test = argc == 3 && std::string_view(argv[2]) == "--gameselect-retail-save";
+    // --gameselect-challenges: the same retail save; A opens it, Right twice and A the challenges (row 6). Right
+    // turns the carousel, Y shows the challenge's intro page and A closes it, then A plays the selected challenge,
+    // whose script game select must start.
+    const bool challenges_test = argc == 3 && std::string_view(argv[2]) == "--gameselect-challenges";
     const bool replay_scene_test = replay_paging_test
         || (argc == 3 && std::string_view(argv[2]) == "--gameselect-replay-scene");
-    if (replay_scene_test || retail_save_test)
+    if (replay_scene_test || retail_save_test || challenges_test)
     {
         std::cout << std::unitbuf; // its output survives a crash in teardown
     }
     const bool gameselect_native_test = new_game_test || delete_test || stats_test || features_test || replay_scene_test
-        || retail_save_test
+        || retail_save_test || challenges_test
         || (argc == 3 && std::string_view(argv[2]) == "--gameselect-native");
     const bool gameselect_test = gameselect_native_test || (argc == 3 && std::string_view(argv[2]) == "--gameselect");
     const bool title_test = title_a_test || attract_test || gameselect_test
@@ -11276,7 +11282,7 @@ int main(int argc, char** argv)
             // Each run starts with an empty U: (the save folder), so earlier runs' saves never change the screens.
             std::filesystem::remove_all("cache/test_saves");
         }
-        if (retail_save_test)
+        if (retail_save_test || challenges_test)
         {
             const char* from = std::getenv("GBTG_RETAIL_SAVES");
             const std::filesystem::path source = from != nullptr ? from : "../Saves/Xbox/4d530053";
@@ -13692,6 +13698,128 @@ int main(int argc, char** argv)
                 throw gbtg::Error("UI reload retained the previous button's GPU texture");
             }
             std::cout << "PASS: story A glyph restored after UI texture storage reuse\n";
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (challenges_test)
+        {
+            int ready = -1;
+            int menu_at = -1;
+            int moved_at = -1;
+            int intro_at = -1;
+            int played_at = -1;
+            int started_at = -1;
+            gbtg::i32 first = -1;
+            gbtg::i32 moved = -1;
+            std::string started;
+            for (int frame = 0; frame < 6000 && (started_at < 0 || frame < started_at + 1200); ++frame)
+            {
+                gbtg::InputState input;
+                input.start = frame == 120;
+                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_54632c == 0)
+                {
+                    ready = frame;
+                }
+                const int at = ready < 0 ? -1 : frame - ready;
+                const auto* contents = gbtg::g_frontend.contents_widget;
+                const auto* menu = gbtg::g_frontend.challenges_widget;
+                input.accept = at == 180;
+                if (contents != nullptr && menu == nullptr && 700 <= at && at % 100 == 0)
+                {
+                    // Right until the Challenges panel (2) is selected, then A.
+                    if (contents->chapter_index == 2)
+                    {
+                        input.accept = true;
+                    }
+                    else
+                    {
+                        input.right = true;
+                    }
+                }
+                if (menu_at < 0 && menu != nullptr && menu->state == 2)
+                {
+                    menu_at = frame;
+                    first = gbtg::g_challenge_selection.selected;
+                    std::cout << "challenges open at +" << at << ", challenge " << first + 1 << " of " << menu->count
+                              << "\n";
+                }
+                if (menu_at >= 0)
+                {
+                    const int since = frame - menu_at;
+                    input.right = since == 100;
+                    if (moved_at < 0 && since > 100 && menu != nullptr && menu->state == 2)
+                    {
+                        moved_at = frame;
+                        moved = gbtg::g_challenge_selection.selected;
+                        std::cout << "Right moved to challenge " << moved + 1 << " at +" << since << "\n";
+                    }
+                    if (moved_at >= 0)
+                    {
+                        const int after = frame - moved_at;
+                        if (after == 100)
+                        {
+                            input.pads[0].buttons |= 0x0800; // Y, the intro page
+                        }
+                        if (intro_at < 0 && after > 100 && menu != nullptr && menu->state == 4)
+                        {
+                            intro_at = frame;
+                            std::cout << "intro page at +" << after << "\n";
+                        }
+                        if (intro_at >= 0 && (frame - intro_at) % 50 == 0 && played_at < 0)
+                        {
+                            std::cout << "intro +" << frame - intro_at << ": menu state "
+                                      << (menu == nullptr ? -1 : menu->state) << "\n";
+                        }
+                        // A closes the page; once the menu is back (state 2), A plays the challenge.
+                        if (intro_at >= 0 && played_at < 0 && (frame - intro_at) % 100 == 0 && 200 <= frame - intro_at)
+                        {
+                            input.accept = true;
+                            if (menu != nullptr && menu->state == 2)
+                            {
+                                played_at = frame;
+                                std::cout << "A on the challenge at intro +" << frame - intro_at << "\n";
+                            }
+                        }
+                    }
+                }
+                gbtg::gfx_begin_frame();
+                game.tick(1.f / 59.f, input);
+                gbtg::gfx_end_frame();
+                if (played_at >= 0 && started_at < 0 && game.scene_script.name.find("challenges_") != std::string::npos)
+                {
+                    started_at = frame;
+                    started = game.scene_script.name;
+                }
+                const bool capture = (menu_at >= 0 && (frame - menu_at == 1 || frame - menu_at == 60))
+                    || (moved_at >= 0 && frame - moved_at == 30) || (intro_at >= 0 && frame - intro_at == 120)
+                    || (played_at >= 0 && (frame - played_at == 20 || frame - played_at == 60));
+                if (capture)
+                {
+                    gbtg::RgbaImage image;
+                    if (gbtg::gfx_readback(image))
+                    {
+                        gbtg::write_bmp("cache/gameselect_challenges_" + std::to_string(at) + ".bmp", image);
+                    }
+                    std::cout << "capture +" << at << " (frame " << frame << ")\n";
+                }
+            }
+            if (menu_at < 0)
+            {
+                throw gbtg::Error("A on the Challenges panel did not open the challenges (row 6)");
+            }
+            if (moved_at < 0 || moved == first)
+            {
+                throw gbtg::Error("Right in the challenges did not move to another challenge");
+            }
+            if (intro_at < 0)
+            {
+                throw gbtg::Error("Y in the challenges did not show the intro page");
+            }
+            if (started_at < 0)
+            {
+                throw gbtg::Error("A on the challenge did not start its script");
+            }
+            std::cout << "PASS: the challenges opened, moved, showed the intro and started " << started << "\n";
             gbtg::gfx_shutdown();
             return 0;
         }

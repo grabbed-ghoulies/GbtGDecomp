@@ -11,6 +11,8 @@ struct RuntimeScoreboardDraw
     RuntimeDialogueSpriteQueue& sprites; // DAT_00511210 / DAT_00511A10.
     const float& hold_time; // DAT_004312CC, the blink clock.
     const u32& brew_accepted; // DAT_00430D98.
+    // The draw state 0x0012F8F0 draws a glyph with at once (0x0005CDC0 / 0x0005CA60) when its EAX is set.
+    RuntimeDialogueDrawContext* immediate = nullptr;
 };
 
 // ECX scale, EDX position, XMM0 angle: one record on the HUD sprite queue.

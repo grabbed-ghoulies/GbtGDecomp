@@ -70,6 +70,7 @@ struct AttractControlServices;
 struct AudioEventVoices;
 struct TransitionBookServices;
 struct RuntimeDialogueInputDevice;
+struct RuntimeScoreboardHud;
 // A front-end widget instance (a mode row's create). Each row's state derives from this.
 struct GameSelectWidget
 {
@@ -172,6 +173,7 @@ struct GameSelectControlServices
     std::function<void(Actor& actor)> update_actor; // The actor's vtable +0x10.
     char* replacement_source; // DAT_004E1AC0, the cutscene actor model a replacement swaps out.
     char* replacement_target; // DAT_004E1A40
+    RuntimeScoreboardHud* scoreboard = nullptr; // The scene's HUD digits (DAT_00545A80) 0x0012F000 draws with.
 };
 // One row of the mode table at 0x0030A000: create, destroy, open(owner, widget), close, tick, draw. A null entry
 // is a row function that is not translated yet; reaching it raises with its address.

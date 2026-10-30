@@ -1,5 +1,6 @@
 #include "scoreboard_draw.h"
 #include "player_health_display.h"
+#include "dialogue_draw_context.h"
 #include "gbtg/anim.h"
 
 #include <bit>
@@ -77,9 +78,24 @@ void draw_glyph(u32 now, const u8* texture, const float* scale, float* position,
     }
     if (now != 0)
     {
-        throw Error("untranslated Xbox 0x0005CDC0 / 0x0005CA60 (a HUD glyph drawn at once)");
+        if (draw.immediate == nullptr)
+        {
+            throw Error("a HUD glyph drawn at once (0x0012F8F0): the dialogue draw state is not bound");
+        }
+        auto& context = *draw.immediate;
+        begin_dialogue_sprite_draw(context); // 0x0005CDC0
+        draw_dialogue_texture(0, nullptr, const_cast<u8*>(texture), scale, nullptr, 0.f, read_u32(preset, 0x10),
+            position, context); // 0x0005CA60, EAX the position, ECX frame 0, EDX no top coordinates
+        --context.override_count; // DAT_00509B5C
+        if (context.override_count == 0)
+        {
+            context.fog_disabled = 0; // DAT_00509B00
+        }
     }
-    queue_runtime_hud_sprite(texture, position, scale, 0.f, read_u32(preset, 0x10), 0, draw); // 0x001221B0
+    else
+    {
+        queue_runtime_hud_sprite(texture, position, scale, 0.f, read_u32(preset, 0x10), 0, draw); // 0x001221B0
+    }
     const i32 width = i32(u32(read_u16({texture, 0xA}, 8)) >> 1) + std::bit_cast<i32>(read_u32(preset, 0xC));
     position[0] = float(width) * read_f32(preset, 0) + position[0];
 }

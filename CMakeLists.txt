@@ -679,6 +679,8 @@ add_executable(gbtg
     src/engine/transitions/native_book.cpp
     src/engine/frontend/gameselect_contents.cpp
     src/engine/frontend/gameselect_delete.cpp
+    src/engine/frontend/gameselect_challenges.cpp
+    src/engine/scene/challenge_runtime.cpp
     src/engine/frontend/gameselect_features.cpp
     src/engine/frontend/gameselect_scene_replay.cpp
     src/engine/frontend/gameselect_progress.cpp

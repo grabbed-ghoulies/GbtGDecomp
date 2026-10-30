@@ -161,6 +161,8 @@
 #include "../transitions/native_book.h"
 #include "../frontend/gameselect_contents.h"
 #include "../frontend/gameselect_delete.h"
+#include "../frontend/gameselect_challenges.h"
+#include "challenge_runtime.h"
 #include "../frontend/gameselect_features.h"
 #include "../frontend/gameselect_scene_replay.h"
 #include "../frontend/button_bat_menu.h"
@@ -894,7 +896,6 @@ struct SceneActorServices::State
     u32 frontend_pause = 0; // DAT_004E173C.
     std::array<char, 0x800> narrow_scratch{}; // DAT_00508EB8, the dialogue's view of the shared scratch.
     DialogueOwnedResources dialogue_owned{};
-    std::array<i32, 4> trophy_thresholds{}; // DAT_004E17DC.
     u32 trophy_flags = 0; // DAT_00424958.
     std::array<char, 256> trophy_names{};
     DialogueTagState tag_state{};
@@ -3567,10 +3568,12 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     }
     widget_context.icon_names = widget_icon_names;
     widget_context.fallback_texture = fallback_texture.data();
-    trophies = std::make_unique<DialogueTrophyContext>(DialogueTrophyContext{trophy_thresholds, dialogue_owned,
+    trophies = std::make_unique<DialogueTrophyContext>(DialogueTrophyContext{g_challenge_selection.thresholds, dialogue_owned,
         trophy_flags, trophy_names.data(), g_retail_dialogue_token_names, resources.registry, resources.error});
     tags = std::make_unique<DialogueTagContext>(DialogueTagContext{tag_state, *trophies, sound_tags,
-        g_retail_dialogue_tokens, g_retail_dialogue_sound_swaps, {}, 0, 0, story_byte, g_flags_ea9c});
+        g_retail_dialogue_tokens, g_retail_dialogue_sound_swaps,
+        {reinterpret_cast<const i32*>(g_game_progress.words_18f8.data()), g_game_progress.words_18f8.size() / 4},
+        g_challenge_selection.selected, g_challenge_run.score, story_byte, g_flags_ea9c});
     measurement = std::make_unique<DialogueMeasurementContext>(DialogueMeasurementContext{*tags, resources.metrics,
         resources.text, {g_runtime_profile.challenges.size, g_runtime_profile.challenges.bytes.data()}, 0, 0, 0, 0,
         0, 0, 0.f,
@@ -3718,6 +3721,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     sprites = std::make_unique<RuntimeDialogueSpriteQueue>(RuntimeDialogueSpriteQueue{sprite_records, sprite_count});
     scoreboard_draw = std::make_unique<RuntimeScoreboardDraw>(RuntimeScoreboardDraw{*sprites, g_4312cc,
         brew_accepted});
+    scoreboard_draw->immediate = dialogue_draw.get();
     scoreboard_hud->draw = scoreboard_draw.get();
     scoreboard_hud->counter_presets = {data(0x00314170, 0x14), data(0x00314184, 0x14)};
     scoreboard_hud->damage_preset = data(0x00312F8C, 0x14);
@@ -6466,6 +6470,7 @@ void SceneActorServices::State::bind_gameselect_services()
             actor_updates.at(&actor)(actor); // Actor vtable +0x10.
         },
         replacement_source.data(), replacement_target.data()});
+    gameselect_services->scoreboard = scoreboard_hud.get();
     scene.controls->context.gameselect = gameselect_services.get();
     // The slot prompts' row callbacks (+0x84).
     widget_callbacks[0x000E0210] = [this]()
@@ -6529,6 +6534,27 @@ void SceneActorServices::State::bind_gameselect_services()
     widget_callbacks[0x000D8030] = [this]()
     {
         leave_runtime_game_features(*gameselect_services);
+    };
+    // The challenges prompts' rows (0x00305CD8, "challengeMenu_basic").
+    widget_callbacks[0x000D7770] = [this]()
+    {
+        play_runtime_challenge(*gameselect_services);
+    };
+    widget_callbacks[0x000D77C0] = [this]()
+    {
+        move_runtime_challenge_cursor(*gameselect_services);
+    };
+    widget_callbacks[0x000D7890] = [this]()
+    {
+        leave_runtime_game_challenges(*gameselect_services);
+    };
+    widget_callbacks[0x000D78E0] = [this]()
+    {
+        show_runtime_challenge_intro(*gameselect_services);
+    };
+    widget_callbacks[0x000D78F0] = [this]()
+    {
+        open_runtime_challenge_bonus_books(*gameselect_services);
     };
     // The scene-replay prompts' rows (0x003095D0, "ReplayChapterMenu"): A and the stick are 0x000E4E40 and
     // 0x000D8080 above.

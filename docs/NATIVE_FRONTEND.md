@@ -381,6 +381,41 @@ read `Game::scene_order`, which game.cpp parses from the same list. The VM's
 `DAT_0050E784` branch and its timer's second `0x00035960` / `0x0011EB30` are not
 translated.
 
+Row 6, challenges (`gameselect_challenges.cpp`): create `0x000D5850` (0x1E0
+bytes), open `0x000D5880`, close `0x000D62A0`, tick `0x000D6410`, draw
+`0x000D67F0`, the state changes `0x000D70E0`, the selection `0x000D7640` and
+its helpers (`0x000D5860`, `0x000D6A30`, `0x000D6EF0`, `0x000D6F40`,
+`0x000D6F90`, `0x000D6FE0`, `0x0004A3B0`, `0x0004A3D0`, `0x00049B60`). The open
+reads `aid_aidlist_ghoulies_challenges_challengeorder`: 21 params resources
+(+0 the scenenames key, +0x40 the script, +0xC0 the picture, +0x140 the four
+trophy scores). Challenge n (from 1) unlocks with 5n bonus books (the bits of
+`DAT_00506C54`); challenge 21 is always unlocked, shown once the progress bit
+0x25 is set, and plays the `DAT_004E1740`-th script of
+`aid_aidlist_ghoulies_sceneorder_challenge21`. The menu is a carousel of five
+(`0x00305C48`) over the selected one's picture, each with its number (the
+scoreboard counter `0x0012F000`, drawn at once: `0x0012F8F0`'s EAX branch is
+now translated) and its trophy (`DAT_004E194C`: 0 unplayed, 3..6 bronze to
+platinum), the bonus-book count and the "challengeMenu_basic" prompts
+(`0x00305CD8`): A `0x000D7770` (play), the stick `0x000D77C0`, B `0x000D7890`
+(back to row 3), Y `0x000D78E0` (the "challengeintros_" page) and Black
+`0x000D78F0` (row 11, untranslated). Playing sets the trophy scores
+(`DAT_004E17DC`), the key (`DAT_004E17EC`) and the game's name
+(`DAT_004E19B4`), and queues the challenge's script (`0x00083B90`, mode 3).
+The selection globals `DAT_00506578` / `DAT_0050657C` / `DAT_00506580` and
+`DAT_004E17DC` are BSS that game select never resets
+(`g_challenge_selection`); the dialogue's trophy and score tags read them
+live (`0x00057330`, `0x000573A0`).
+
+`--gameselect-challenges` loads the retail save (as `--gameselect-retail-save`),
+A on its slot, Right twice and A on Challenges: the menu opens on challenge 1
+of 20 ("Billiard Room Bust-up!", 76 bonus books), Right turns to challenge 2,
+Y shows its Rules page and A closes it, and A plays it: game select starts
+`aid_script_ghoulies_challenges_bringouttheimps`, which runs natively until
+its first challenge op (0x7A, `0x0004A100`, "challengeId_Survive"). The
+challenge runtime (`DAT_004E17C8`'s states, `0x0004A100`, `0x0004A240`,
+`0x0004ADD0`, `0x00049DE0`, `0x0004A4D0`, `0x00049FF0`, `0x00049BA0`, about
+4 KB, dumps in `cache/ghidra_frontier`) is the next step.
+
 Row 2, delete (`gameselect_delete.cpp`): `0x000DB720`..`0x000DBB90`, the
 state switch `0x000DBDC0` and the "GameSlotDeletionMenu" callbacks `0x000DBD50`
 (B, back) and `0x000DBC20` (A, delete). The save manager's delete is
@@ -419,7 +454,7 @@ Engine fixes the front end needed:
 
 Not translated yet (each raises when reached):
 
-- **The other rows**: 6 (challenges, from contents), 19 (final score, from
+- **The other rows**: 19 (final score, from
   contents Info when Play is unavailable), 7 (bonus book collection) and 5,
   9..17 (9, 10, 16 and 17 from the features menu; also requested on the way
   back from gameplay, `0x0011CFB0` and `0x0004A470`). Row 19 was missing from

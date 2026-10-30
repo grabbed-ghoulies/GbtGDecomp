@@ -14,6 +14,7 @@ struct GameContentsWidget;
 struct GameDeletionWidget;
 struct GameFeaturesWidget;
 struct GameSceneReplayWidget;
+struct GameChallengesWidget;
 struct ButtonBatMenu;
 // The front end's boot-reset globals (0x000E5A80). DAT_00429BC0 (the next widget row) and DAT_00429BC4 (a wide
 // name) are scene.cpp's g_429bc0 and g_429bc4.
@@ -33,6 +34,7 @@ struct RuntimeFrontendState
     GameDeletionWidget* deletion_widget = nullptr; // DAT_0050658C, the open deletion widget.
     GameFeaturesWidget* features_widget = nullptr; // DAT_00506588, the open features widget.
     GameSceneReplayWidget* scene_replay_widget = nullptr; // DAT_005065D4, the open scene-replay widget.
+    GameChallengesWidget* challenges_widget = nullptr; // DAT_00506574, the open challenges widget.
     // The heap block a replay's scene order is built in (0x000E3130); DAT_00511B64 points at it until its release
     // (0x000358F0) frees it. Host storage: the held span is a view.
     std::vector<u8> scene_order_heap;

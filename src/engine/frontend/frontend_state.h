@@ -34,6 +34,9 @@ struct RuntimeFrontendState
     GameDeletionWidget* deletion_widget = nullptr; // DAT_0050658C, the open deletion widget.
     GameFeaturesWidget* features_widget = nullptr; // DAT_00506588, the open features widget.
     GameSceneReplayWidget* scene_replay_widget = nullptr; // DAT_005065D4, the open scene-replay widget.
+    GameSceneReplayWidget* chapter_replay_widget = nullptr; // DAT_005065D0, the open chapter-replay widget.
+    GameSceneReplayWidget* bonus_book_replay_widget = nullptr; // DAT_005065D8, the open bonus-book scenes widget.
+    GameSceneReplayWidget* story_book_widget = nullptr; // DAT_005065DC, the open story-books widget.
     GameChallengesWidget* challenges_widget = nullptr; // DAT_00506574, the open challenges widget.
     // The heap block a replay's scene order is built in (0x000E3130); DAT_00511B64 points at it until its release
     // (0x000358F0) frees it. Host storage: the held span is a view.

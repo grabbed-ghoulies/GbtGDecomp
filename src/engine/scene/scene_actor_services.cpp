@@ -6690,6 +6690,19 @@ void SceneActorServices::State::bind_gameselect_services()
     {
         leave_runtime_game_scene_replay(*gameselect_services);
     };
+    // The chapter-replay and bonus-book-scene prompts' B (0x00309240, 0x003098E0).
+    widget_callbacks[0x000E2360] = [this]()
+    {
+        leave_runtime_game_chapter_replay(*gameselect_services);
+    };
+    widget_callbacks[0x000E3F40] = [this]()
+    {
+        leave_runtime_game_bonus_book_replay(*gameselect_services);
+    };
+    widget_callbacks[0x000E4E70] = [this]()
+    {
+        leave_runtime_game_story_books(*gameselect_services); // The story books' B (0x00309C70)
+    };
     widget_callbacks[0x000E4ED0] = [this]()
     {
         page_runtime_button_bat_menu_down(*gameselect_services); // 0x000E4ED0: JMP 0x00143F30

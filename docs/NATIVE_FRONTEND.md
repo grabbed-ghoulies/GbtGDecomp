@@ -381,6 +381,41 @@ read `Game::scene_order`, which game.cpp parses from the same list. The VM's
 `DAT_0050E784` branch and its timer's second `0x00035960` / `0x0011EB30` are not
 translated.
 
+Rows 9, 11 and 16 (`gameselect_scene_replay.cpp`) are row 10's code over their
+own page (`ReplayPage`): a layout block of floats in .data (`0x004299B8`,
+`0x00429A10`, `0x00429A78`, `0x00429AE0`), a camera, a banner key, the prompt
+rows, the item builder and the open-widget global (`DAT_005065D0`..
+`DAT_005065DC`). The opens, closes, ticks and state changes of the four rows
+are the same bodies (`0x000E1E10` / `0x000E2B90` / `0x000E39F0` / `0x000E48A0`,
+`0x000E2900` / `0x000E3760` / `0x000E4650` / `0x000E57F0`), and all draw with
+`0x000E4DB0`.
+
+- Row 9, Replay Chapter: one item per chapter before the save's (five for a
+  finished game, `0x000E27A0`, chapterheadings), and A (`0x000E23B0`) holds
+  game select, the chapter's scripts (chapter 5 with game select and
+  `chapter5_scene13_1bookfail` after) and game select, sets scene flag 0x80 and
+  starts the chapter's first script. B `0x000E2360` goes back to row 8.
+- Row 11, Bonus Books Collected (Black on the challenges): row 10's scene list
+  (`0x000E43C0`), each scene whose bonus book is found (its `DAT_00506C54`
+  bit) with the bonus-book icon (`0x001433C0`'s sprite at `0x00309BF0`, placed
+  by the text's width); A (`0x000E3F90`) replays the scene like row 10 (next row
+  11, scene flag 0x40); B `0x000E3F40` goes back to the challenges.
+- Row 16, Replay Storybook: the books passed (`0x000E5120` counts the "book"
+  scripts after game select, up to chapter 5 scene 1 and the save's scene;
+  `0x000E5360` / `0x0011EE30` name them), chapter 5's ending books, and with
+  challenge 21 platinum the two bonus books; A (`0x000E4EE0`, `0x000E4FC0`,
+  `0x000E5000`, `0x000E5040`, `0x000E5080`, `0x000E50D0`) holds game select, the
+  book and game select (`0x000E5680`) and starts it. B `0x000E4E70` goes back.
+- The features menu's View Staff Credits (`0x000D8420`) holds game select,
+  `credits_final` and game select and starts the credits.
+
+`--gameselect-feature` (the retail save; `GBTG_FEATURE` names the features
+item) checks them: Replay Chapter lists the five chapters and A starts
+`chapter1_scene0_1book`; Replay Storybook lists 22 books and A starts the
+first; View Staff Credits starts `credits_final`. `--gameselect-challenges`
+with `GBTG_CHALLENGE_BLACK` opens row 11 (100 scenes, 76 with the icon) and B
+returns to the challenges.
+
 Row 6, challenges (`gameselect_challenges.cpp`): create `0x000D5850` (0x1E0
 bytes), open `0x000D5880`, close `0x000D62A0`, tick `0x000D6410`, draw
 `0x000D67F0`, the state changes `0x000D70E0`, the selection `0x000D7640` and
@@ -513,12 +548,11 @@ Engine fixes the front end needed:
 Not translated yet (each raises when reached):
 
 - **The other rows**: 19 (final score, from
-  contents Info when Play is unavailable), 7 (bonus book collection) and 5,
-  9..17 (9, 10, 16 and 17 from the features menu; also requested on the way
-  back from gameplay, `0x0011CFB0` and `0x0004A470`). Row 19 was missing from
+  contents Info when Play is unavailable), 7 (bonus book collection), 5,
+  12..15, 17 (options, from the features menu) and 18 (the stream wait). Row 19 was missing from
   the host table, so Info raised "past the table"; it is now listed and raises
   as untranslated. The features menu's Demos (`0x000D8400`, the `cdx.xbe`
-  launch) and Credits (`0x000D8420`). A read-only walk from
+  launch). A read-only walk from
   these rows and callbacks reaches about 226 untranslated functions (61 KB).
 - **The secret sequence's save** (`0x000DB380`'s `0x000F2A50`, `0x0010E4F0`,
   `0x0010DA80`) and the book's map routes (`0x00046F40`, `0x00047770`) and

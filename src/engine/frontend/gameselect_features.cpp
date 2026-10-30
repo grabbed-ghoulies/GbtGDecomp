@@ -27,6 +27,7 @@
 
 #include <bit>
 #include <cstring>
+#include <vector>
 
 namespace gbtg
 {
@@ -172,10 +173,34 @@ void open_story_books(GameSelectControlServices& s)
     throw Error("0x000D8400 launches D:\\cdx.xbe (0x00032570), which is not translated");
 }
 
-// Xbox 0x000D8420: the final credits.
-[[noreturn]] void open_credits(GameSelectControlServices&)
+// Xbox 0x000D8420: the staff credits. The held order becomes game select, aid_script_ghoulies_credits_final and
+// game select again, and the credits start (0x00083B90, mode 3).
+void open_credits(GameSelectControlServices& s)
 {
-    throw Error("0x000D8420 builds the credits scene order (0x000F71F0, release 0x000358F0), which is not translated");
+    char script[0x80]{};
+    std::strcpy(script, "aid_script_ghoulies_credits_final");
+    const char* gameselect = "aid_script_ghoulies_gameselect_gameselect"; // 0x00322B8C
+    std::vector<u8> heap(0x200, 0); // 0x000F72D0(0x180) copied into 0x000F72D0(0x200), byte 0x180 cleared
+    std::strcpy(reinterpret_cast<char*>(heap.data()), gameselect);
+    std::strcpy(reinterpret_cast<char*>(heap.data() + 0x80), script);
+    std::strcpy(reinterpret_cast<char*>(heap.data() + 0x100), gameselect);
+    if (s.scene_order_release != 0 && s.scene_order_held.data() != nullptr)
+    {
+        release_held_scene_order(s); // (*DAT_00511B68)(&DAT_00511B64)
+    }
+    s.frontend.scene_order_heap = std::move(heap);
+    s.scene_order_held = s.frontend.scene_order_heap; // DAT_00511B64
+    s.scene_order_release = 0x000358F0; // DAT_00511B68
+    s.next_row = 8; // DAT_00429BC0
+    auto& w = open_widget(s);
+    copy_wide(s.selected_game, w.name); // lstrcpyW(DAT_00429BC4, DAT_00506588 +0x48C)
+    if (read_u32(s.frontend.input, 0) == 3) // *DAT_00429BBC
+    {
+        const i32 port = runtime_input_new_edge_port(0xFFFF, s.input); // 0x00107F50, AX 0xFFFF
+        set_runtime_player_port(port, 0x10, s.port_masks); // 0x00109780(0x10), EAX the port
+    }
+    queue_runtime_gameselect_script(*w.owner, script, 3, s); // 0x00083B90, ECX +0x490, EAX the script
+    set_runtime_game_features_state(w, 3, s); // 0x000D8840(DAT_00506588, 3)
 }
 
 // Item text from the gameselect localtext group, or an empty string without the resource.

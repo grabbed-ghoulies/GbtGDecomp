@@ -10900,6 +10900,10 @@ int main(int argc, char** argv)
     // --gameselect-challenge-restart: the same run, but A (Restart Challenge) on the restart menu, which must start
     // the challenge again; the second run's restart menu then quits with B.
     const bool challenge_restart_test = argc == 3 && std::string_view(argv[2]) == "--gameselect-challenge-restart";
+    // --gameselect-feature: the retail save's features menu; Down to the item GBTG_FEATURE names and A. The page it
+    // opens is logged and captured (cache/gameselect_feature_N.bmp); then A on its first item (or B with
+    // GBTG_FEATURE_BACK), and the row or script that follows is reported.
+    const bool feature_test = argc == 3 && std::string_view(argv[2]) == "--gameselect-feature";
     const bool challenges_test = challenge_restart_test
         || (argc == 3 && std::string_view(argv[2]) == "--gameselect-challenges");
     const bool replay_scene_test = replay_paging_test
@@ -10909,7 +10913,7 @@ int main(int argc, char** argv)
         std::cout << std::unitbuf; // its output survives a crash in teardown
     }
     const bool gameselect_native_test = new_game_test || delete_test || stats_test || features_test || replay_scene_test
-        || retail_save_test || challenges_test
+        || retail_save_test || challenges_test || feature_test
         || (argc == 3 && std::string_view(argv[2]) == "--gameselect-native");
     const bool gameselect_test = gameselect_native_test || (argc == 3 && std::string_view(argv[2]) == "--gameselect");
     const bool title_test = title_a_test || attract_test || gameselect_test
@@ -11290,7 +11294,7 @@ int main(int argc, char** argv)
             // Each run starts with an empty U: (the save folder), so earlier runs' saves never change the screens.
             std::filesystem::remove_all("cache/test_saves");
         }
-        if (retail_save_test || challenges_test)
+        if (retail_save_test || challenges_test || feature_test)
         {
             const char* from = std::getenv("GBTG_RETAIL_SAVES");
             const std::filesystem::path source = from != nullptr ? from : "../Saves/Xbox/4d530053";
@@ -13709,6 +13713,138 @@ int main(int argc, char** argv)
             gbtg::gfx_shutdown();
             return 0;
         }
+        if (feature_test)
+        {
+            const char* wanted_text = std::getenv("GBTG_FEATURE");
+            const std::string wanted = wanted_text != nullptr ? wanted_text : "Replay Chapter";
+            const bool back = std::getenv("GBTG_FEATURE_BACK") != nullptr;
+            const auto text_of = [](const gbtg::ButtonBatMenuItem& entry)
+            {
+                std::string text;
+                for (const char16_t* c = entry.text.data(); *c != 0; ++c)
+                {
+                    text += char(*c < 0x80 ? *c : '?');
+                }
+                return text;
+            };
+            const auto selected_text = [&text_of]() -> std::string
+            {
+                const auto* menu = gbtg::g_frontend.bat_menu;
+                if (menu == nullptr || menu->selected < 0 || size_t(menu->selected) >= menu->items.size())
+                {
+                    return {};
+                }
+                return text_of(*menu->items[size_t(menu->selected)]);
+            };
+            int ready = -1;
+            int features_at = -1;
+            int chosen_at = -1;
+            int page_at = -1;
+            int acted_at = -1;
+            gbtg::u32 page_row = 0;
+            std::string started;
+            for (int frame = 0; frame < 6000; ++frame)
+            {
+                gbtg::InputState input;
+                input.start = frame == 120;
+                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_54632c == 0)
+                {
+                    ready = frame;
+                }
+                const int at = ready < 0 ? -1 : frame - ready;
+                input.accept = at == 180 || at == 900;
+                input.right = at == 700;
+                const auto* control = gbtg::find_runtime_scene_control(0x9A);
+                if (features_at < 0 && gbtg::g_frontend.features_widget != nullptr
+                    && gbtg::g_frontend.features_widget->state == 2)
+                {
+                    features_at = frame;
+                    for (const auto& item : gbtg::g_frontend.bat_menu->items)
+                    {
+                        std::cout << "feature \"" << text_of(*item) << "\"" << std::endl;
+                    }
+                }
+                if (features_at >= 0 && chosen_at < 0 && (frame - features_at) % 100 == 50)
+                {
+                    if (selected_text() == wanted)
+                    {
+                        input.accept = true;
+                        chosen_at = frame;
+                        std::cout << "A on \"" << wanted << "\"\n";
+                    }
+                    else if (frame - features_at > 1500)
+                    {
+                        throw gbtg::Error("the features menu has no \"" + wanted + "\"");
+                    }
+                    else
+                    {
+                        input.down = true;
+                    }
+                }
+                if (chosen_at >= 0 && page_at < 0 && frame - chosen_at > 30 && control != nullptr
+                    && control->gameselect->current_row != 8 && control->gameselect->requested_row == 0)
+                {
+                    page_at = frame;
+                    page_row = control->gameselect->current_row;
+                    std::cout << "row " << page_row << " open at +" << at << "\n";
+                }
+                if (page_at >= 0 && frame - page_at == 300)
+                {
+                    const auto* menu = gbtg::g_frontend.bat_menu;
+                    if (menu != nullptr)
+                    {
+                        std::cout << "page items " << menu->items.size() << "\n";
+                        for (const auto& item : menu->items)
+                        {
+                            std::cout << "  \"" << text_of(*item) << "\"" << (item->icon != nullptr ? " (icon)" : "")
+                                      << "\n";
+                        }
+                    }
+                    if (back)
+                    {
+                        input.back = true;
+                    }
+                    else
+                    {
+                        input.accept = true;
+                    }
+                    acted_at = frame;
+                }
+                gbtg::gfx_begin_frame();
+                game.tick(1.f / 59.f, input);
+                gbtg::gfx_end_frame();
+                if (page_at >= 0 && (frame - page_at == 60 || frame - page_at == 250))
+                {
+                    gbtg::RgbaImage image;
+                    if (gbtg::gfx_readback(image))
+                    {
+                        gbtg::write_bmp("cache/gameselect_feature_" + std::to_string(frame - page_at) + ".bmp", image);
+                    }
+                }
+                if (chosen_at >= 0 && game.scene_script.name.find("gameselect") == std::string::npos)
+                {
+                    started = game.scene_script.name; // A feature may start a script rather than a page.
+                    break;
+                }
+                if (acted_at >= 0 && frame - acted_at == 600)
+                {
+                    break;
+                }
+            }
+            if (page_at < 0 && started.empty())
+            {
+                throw gbtg::Error("A on \"" + wanted + "\" opened no page");
+            }
+            const auto* control = gbtg::find_runtime_scene_control(0x9A);
+            std::cout << "after " << (back ? "B" : "A") << ": "
+                      << (started.empty() ? "row " + std::to_string(control == nullptr ? 0u
+                              : control->gameselect->current_row)
+                                          : "script " + started)
+                      << "\n";
+            std::cout << "PASS: \"" << wanted << "\" opened row " << page_row << "\n";
+            gbtg::gfx_shutdown();
+            return 0;
+        }
         if (challenges_test)
         {
             int ready = -1;
@@ -13729,6 +13865,9 @@ int main(int argc, char** argv)
             // GBTG_CHALLENGE_FIGHT hands the running challenge to the scene driver (fights at any range), which
             // closes its pages and quits from its restart menu.
             const bool fight = std::getenv("GBTG_CHALLENGE_FIGHT") != nullptr;
+            // GBTG_CHALLENGE_BLACK presses Black on the challenges and checks the bonus-book scenes (row 11).
+            const bool black = std::getenv("GBTG_CHALLENGE_BLACK") != nullptr;
+            int black_at = -1;
             // GBTG_CHALLENGE_BOOKS marks every bonus book found in the copied save's challenge block and its
             // challenge-21 progress bit (in memory, before its slot opens), a driver cheat that unlocks challenges
             // 16..21.
@@ -13772,6 +13911,48 @@ int main(int argc, char** argv)
                     {
                         input.right = true;
                     }
+                }
+                if (black && menu_at >= 0)
+                {
+                    // Black on the challenges opens the bonus-book scenes (row 11); B there goes back.
+                    const int since = frame - menu_at;
+                    if (since == 100)
+                    {
+                        input.pads[0].buttons |= 0x1000; // Black
+                    }
+                    const auto* control = gbtg::find_runtime_scene_control(0x9A);
+                    if (black_at < 0 && control != nullptr && control->gameselect->current_row == 11
+                        && gbtg::g_frontend.bat_menu != nullptr)
+                    {
+                        black_at = frame;
+                    }
+                    if (black_at >= 0 && frame - black_at == 300)
+                    {
+                        const auto& items = gbtg::g_frontend.bat_menu->items;
+                        size_t icons = 0;
+                        for (const auto& item : items)
+                        {
+                            icons += item->icon != nullptr ? 1 : 0;
+                        }
+                        std::cout << "row 11: " << items.size() << " scenes, " << icons << " with the bonus-book icon\n";
+                        input.back = true;
+                        gbtg::RgbaImage image;
+                        if (gbtg::gfx_readback(image))
+                        {
+                            gbtg::write_bmp("cache/gameselect_bonus_books.bmp", image);
+                        }
+                    }
+                    if (black_at >= 0 && frame - black_at > 300 && control != nullptr
+                        && control->gameselect->current_row == 6 && menu != nullptr && menu->state == 2)
+                    {
+                        std::cout << "PASS: Black opened the bonus-book scenes (row 11) and B went back to the challenges\n";
+                        gbtg::gfx_shutdown();
+                        return 0;
+                    }
+                    gbtg::gfx_begin_frame();
+                    game.tick(1.f / 59.f, input);
+                    gbtg::gfx_end_frame();
+                    continue;
                 }
                 if (menu_at < 0 && menu != nullptr && menu->state == 2)
                 {

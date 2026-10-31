@@ -758,7 +758,17 @@ void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentConte
             const size_t offset = size_t(index) * stream.stride + input.offset;
             if (offset + type_size(input.type) > stream.size)
             {
-                throw Error("vertex index reads past its stream");
+                // NV2A fetches the declared type whatever the stream's stride: the shader cache (0x00159430) keys
+                // on the program, not the declaration, so a FLOAT4 input can sit on a stride-8 stream and its last
+                // vertex reads past the buffer into whatever follows it. The bytes past the registered block are
+                // unknown to the host and read as zero.
+                std::array<u8, 16> padded{};
+                if (offset < stream.size)
+                {
+                    std::memcpy(padded.data(), stream.data + offset, stream.size - offset);
+                }
+                program.inputs[input.reg] = fetch(input.type, padded.data());
+                continue;
             }
             program.inputs[input.reg] = fetch(input.type, stream.data + offset);
         }
@@ -853,7 +863,9 @@ void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentConte
             {
                 const auto& stream = streams[input.stream];
                 const size_t begin = size_t(lowest) * stream.stride + input.offset;
-                const size_t end = size_t(highest) * stream.stride + input.offset + type_size(input.type);
+                // Clamped to the stream: an over-reading input (see the fetch above) keeps only the bytes that exist.
+                const size_t end = std::max(begin, std::min(size_t(highest) * stream.stride + input.offset
+                    + type_size(input.type), stream.size));
                 auto existing = std::find_if(entry.streams.begin(), entry.streams.end(),
                     [&](const RetainedStream& retained_stream) { return retained_stream.stream == input.stream; });
                 if (existing == entry.streams.end())

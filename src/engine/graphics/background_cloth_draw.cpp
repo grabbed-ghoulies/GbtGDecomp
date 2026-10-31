@@ -752,10 +752,64 @@ i32 project_runtime_texture_on_grid(u32 grid, const Vec3& at, const Vec3& eye, u
             }
         }
     }
-    if (drawn != 0 && parts)
+    auto& grid_view = context.pass.grid;
+    if (drawn == 0 || !parts || grid_view.part_count == 0)
     {
-        throw Error("0x00064820's background part pass is not translated");
+        return drawn;
     }
+    // The cells' bounds, the last row included.
+    const Vec3 low{float(x_low) * cells.size + cells.origin.x, float(y_low) * cells.size + cells.origin.y,
+        float(z_low) * cells.size + cells.origin.z};
+    const Vec3 high{float(x_high + 1) * cells.size + cells.origin.x, float(y_high + 1) * cells.size + cells.origin.y,
+        float(z_high + 1) * cells.size + cells.origin.z};
+    if (grid_view.parts.empty()) // DAT_0050E374 +0x950.
+    {
+        return drawn;
+    }
+    const Matrix frame_world = get_transform(context, 6); // D3DDevice_GetTransform (0x00173EC0)
+    const Matrix frame_view = get_transform(context, 0);
+    const Matrix frame_projection = get_transform(context, 1);
+    const Matrix view_projection = multiply(context, frame_view.data(), frame_projection.data());
+    for (u32 part = 0; part < grid_view.part_count; ++part)
+    {
+        const size_t offset = size_t(part) * 0x1E0;
+        if (offset + 0x1E0 > grid_view.parts.size())
+        {
+            throw Error("0x00064820 reads a background part row outside DAT_0050E374 +0x950");
+        }
+        const u8* row = grid_view.parts.data() + offset;
+        const Vec3 point{read_f32(std::span<const u8>(row, 0x1E0), 0x1B0),
+            read_f32(std::span<const u8>(row, 0x1E0), 0x1B4), read_f32(std::span<const u8>(row, 0x1E0), 0x1B8)};
+        if (low.x > point.x || point.x > high.x || low.y > point.y || point.y > high.y || low.z > point.z
+            || point.z > high.z) // COMISS; JA
+        {
+            continue;
+        }
+        const auto matrix_at = [row](u32 at)
+        {
+            return reinterpret_cast<const float*>(row + at);
+        };
+        const Matrix local = multiply(context, matrix_at(0x130), matrix_at(0xB0)); // 0x00151E64
+        Matrix placed = multiply(context, frame_world.data(), local.data());
+        placed = multiply(context, placed.data(), view_projection.data());
+        Matrix transposed{};
+        d3d(context).transpose(transposed.data(), placed.data()); // 0x00151F62
+        d3d(context).constants(0x60, transposed.data(), 4); // 0x00173440
+        // The projector's direction into the part's space (0x00151DD9: the upper 3 x 3 only).
+        const Matrix inverse = multiply(context, matrix_at(0x170), matrix_at(0x30));
+        const Vec3 turned{(direction.x * inverse[0] + direction.y * inverse[4]) + direction.z * inverse[8],
+            (direction.x * inverse[1] + direction.y * inverse[5]) + direction.z * inverse[9],
+            (direction.x * inverse[2] + direction.y * inverse[6]) + direction.z * inverse[10]};
+        constant(context, 0x65, {turned.x, turned.y, turned.z, 1.f}); // 0x001733E0
+        const Matrix projected = multiply(context, local.data(), product.data());
+        d3d(context).transpose(transposed.data(), projected.data());
+        d3d(context).constants(0x66, transposed.data(), 4);
+        const u32 buffer = grid_view.part_buffers.empty() ? 0u : grid_view.part_buffers.at(part); // DAT_0050E37C
+        context.pass.stream(0, buffer, 0x10); // 0x00173610
+        const u32 vertices = grid_view.part_buffers.empty() ? 0u : grid_view.part_vertices.at(part); // DAT_0050E380
+        context.pass.draw_vertices(5, 0, vertices); // 0x00172920
+    }
+    load_frame_transform(context); // c0x60 back to world x view x projection.
     return drawn;
 }
 

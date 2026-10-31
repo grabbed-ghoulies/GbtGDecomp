@@ -1,5 +1,4 @@
 #include "gbtg/model.h"
-#include "gbtg/cutscene.h"
 
 #include <cstring>
 #include <iostream>
@@ -85,19 +84,6 @@ int main()
 {
     try
     {
-        gbtg::u32 event_phase = 99;
-        require(!gbtg::cutscene_event_phase(0.03f, 0.f, 0.03f, 0.f, event_phase),
-                "cutscene cue fired at equality instead of after its authored time");
-        require(gbtg::cutscene_event_phase(0.03f, 0.f, 0.04f, 0.02f, event_phase) && event_phase == 0,
-                "cutscene cue missed a frame crossing its authored time");
-        require(!gbtg::cutscene_event_phase(0.03f, 0.f, 0.05f, 0.04f, event_phase),
-                "one-shot cutscene cue retriggered after its time crossing");
-        require(gbtg::cutscene_event_phase(0.f, 4.f, 2.f, 1.f, event_phase) && event_phase == 2,
-                "active sound window was mistaken for a start or stop");
-        require(!gbtg::cutscene_event_phase(0.f, 4.f, 4.f, 3.f, event_phase),
-                "sound window stopped at equality instead of after its end");
-        require(gbtg::cutscene_event_phase(0.f, 4.f, 4.1f, 3.9f, event_phase) && event_phase == 1,
-                "sound window did not stop when its end was crossed");
         for (gbtg::u32 mode = 0; mode != 4; ++mode)
         {
             const auto mesh = Fixture(mode).parse();

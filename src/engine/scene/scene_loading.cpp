@@ -85,70 +85,6 @@ using namespace scene_detail;
 
 
 
-namespace scene_detail
-{
-
-
-
-
-const BundleEntry* find_aid(const Game& g, std::string_view name)
-{
-    if (g.scene_bundle)
-    {
-        if (const BundleEntry* e = find_entry(*g.scene_bundle, name))
-        {
-            return e;
-        }
-    }
-    if (const BundleEntry* entry = find_entry(g.aids.common, name))
-    {
-        return entry;
-    }
-    const auto found = g.aids.demand_entries.find(std::string(name));
-    return found == g.aids.demand_entries.end() ? nullptr : &found->second;
-}
-
-
-void log_script_refs(Game& g, const SceneScript& script)
-{
-    for (const auto& aid : script.aids)
-    {
-        if (const BundleEntry* e = find_aid(g, aid))
-        {
-            if (e->type == ResourceType::AidList)
-            {
-                auto names = parse_aidlist(e->cpu);
-                g.script_aidlists.push_back(aid);
-                log::verbose("  aidlist %s (%zu)", aid.c_str(), names.size());
-                for (size_t i = 0; i < names.size() && i < 12; ++i)
-                {
-                    log::verbose("    [%zu] %s", i, names[i].c_str());
-                }
-                if (names.size() > 12)
-                {
-                    log::verbose("    ...");
-                }
-                continue;
-            }
-            log::verbose("  %s %s", resource_type_name(e->type), aid.c_str());
-            continue;
-        }
-        const u32 hash = aid_hash(aid);
-        if (g.aids.demand_exists(hash))
-        {
-            log::verbose("  demand %s %s", aid_hash_hex(hash).c_str(), aid.c_str());
-        }
-        else
-        {
-            log::verbose("  ref %s", aid.c_str());
-        }
-    }
-}
-
-
-} // namespace scene_detail
-
-
 // Xbox 0x00124490. EBX is the scene record; the six rows at 0x00430FB0 are the scenes without a player.
 bool scene_has_player(const char* scene, std::span<const u8> rows)
 {
@@ -233,30 +169,14 @@ void load_scene_contents(Game& g, std::string_view name)
             }
             for (const auto* e : scripts)
             {
-                g.scene_script = parse_scene_script(e->cpu, e->name);
-                log::verbose("  script %s bytes %zu root=%u aids %zu nodes %zu", e->name.c_str(), e->cpu.size(),
-                          g.scene_script.root_offset, g.scene_script.aids.size(), g.scene_script.nodes.size());
+                g.scene_script = SceneScript{e->name, e->cpu};
+                log::verbose("  script %s bytes %zu", e->name.c_str(), e->cpu.size());
                 log_script_nodes(g.scene_script);
-                log_script_refs(g, g.scene_script);
                 script_vm_bind(g);
             }
             for (const auto* e : entries_of_type(*g.scene_bundle, ResourceType::AidList))
             {
-                bool already = false;
-                for (const auto& n : g.script_aidlists)
-                {
-                    if (n == e->name)
-                    {
-                        already = true;
-                        break;
-                    }
-                }
-                if (already)
-                {
-                    continue;
-                }
                 auto names = parse_aidlist(e->cpu);
-                g.script_aidlists.push_back(e->name);
                 log::verbose("  aidlist %s (%zu)", e->name.c_str(), names.size());
                 for (size_t i = 0; i < names.size() && i < 12; ++i)
                 {
@@ -297,7 +217,6 @@ void script_set_default_name(Game& g)
     g_flag_2418 = 0; // DAT_00512418
     g.scene_name = kNoScript;
     g.scene_script = {};
-    g.script_aidlists.clear();
 }
 
 

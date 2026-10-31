@@ -407,8 +407,6 @@ add_library(gbtg_lib STATIC
     src/gbtg/audio/wavebank.cpp
     src/gbtg/resources/xbe.cpp
     src/gbtg/resources/catalog.cpp
-    src/gbtg/scripts/script.cpp
-    src/gbtg/scripts/cutscene.cpp
     src/gbtg/animation/anim.cpp
     src/engine/entities/actor_animation_messages.cpp
     src/gbtg/runtime/performance.cpp

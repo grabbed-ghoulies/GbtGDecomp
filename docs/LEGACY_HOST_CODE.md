@@ -53,6 +53,8 @@ dedicated agent; the prompt is at the end.
 | Ghouly box controller | Deleted (2026-10-30, `ghouly_box_controller.*`, `ghouly_box_messages.*`) | — | The native ghouly swap setup (type 0x26, `ghouly_swap_setup.cpp`, `0x0006BB10`..`0x0006C0A0`); the `--actor-loading` checks of 0x0006BB70, 0x0006BC70, 0x0006BCA0 and 0x0006C0A0 now drive it |
 | Script VM fallback | Deleted (2026-10-30): `script_queue_scene_start` no longer catches a failed native start (`actor_start = -1`) or queues the scene-start event itself, and `Game::strict_native_start` is gone. A full regression run (about 140 modes) logged no stopped native start | — | `SceneActorServices::start_scene` (0x0011CBD0) queues the 0x7D event; a failure raises |
 | Script pair updates | Done (2026-10-30): script type 0x98 with a live 0x7D (`0x00124FC0`) walked a host `g_body_links` (DAT_00511B20) that nothing filled; `BodyLink` and `CamPairObject` are deleted | — | `SceneActorServices::set_body_list_model_nodes` walks the native DAT_00511B20 (backgrounds and players) and runs 0x000F96F0 on each node's +0x204 and +0x310 models, as type 0x9F does |
+| Host cutscene parser | Deleted (2026-10-31): `include/gbtg/cutscene.h` and `src/gbtg/scripts/cutscene.cpp` (`parse_cutscene`, `sample_curve`, `sample_cutscene_camera`, `cutscene_event_phase`) and `game.h`'s undefined `cutscene_queue_start` / `cutscene_queue_tick` had no caller left after steps 4 and 5 | — | The native cutscene stack (`src/engine/cutscenes/`, `select_cutscene_event_phase`) |
+| Host scene-script parse | Deleted (2026-10-31): `parse_scene_script` copied the script resource, precomputed its nodes, strings and AID names, and its node readers returned 0 past a node's size; the loader's `log_script_refs` / `script_aidlists` / `find_aid` scanned those strings for logging | — | `SceneScript` is a view of the AID resource the loader holds (0x00117000's DAT_0050E760). The VM walks nodes in place (`script_node_at`, `node + *(u32*)node`, starting at offset 0) and `node_u8` / `node_u16` / `node_u32` / `node_cstr` read at the node's retail offsets, raising past the resource |
 
 **Format parsers that stay:** `src/gbtg/` (models, graphics, text, resources and
 so on) holds format parsers that `gbtg-dump` and `gbtg-catalog` also use. They
@@ -125,7 +127,8 @@ Status (2026-10-16):
   scene2a16 / scene2c7 / scene2b10 / scene3a12 pass or fail from run to run on both. The
   script VM fallback is deleted, and the script actor queries walk native DAT_00511B38
   views. The goal-ring alias is the native ring, and the Bink clip's sound is a library
-  boundary. Step 6 has no open rows.
+  boundary. Step 6 has no open rows. On 2026-10-31 the dead host cutscene parser and the host
+  scene-script parse were removed too; the script VM reads its resource in place.
 - Presenter performance is tracked separately in
   `docs/RENDERING_PERFORMANCE_PLAN.md`.
 

@@ -116,20 +116,18 @@ namespace gbtg
 using namespace scene_detail;
 
 
+// The C string at node + rel, read in place; one with no terminator before the resource ends raises.
 std::string node_cstr(const SceneScript& script, const ScriptNode& node, u32 rel)
 {
-    if (rel >= node.size || node.offset + rel >= script.bytes.size())
+    const size_t begin = size_t(node.offset) + rel;
+    for (size_t at = begin; at < script.bytes.size(); ++at)
     {
-        return {};
+        if (script.bytes[at] == 0)
+        {
+            return std::string(reinterpret_cast<const char*>(script.bytes.data() + begin), at - begin);
+        }
     }
-    const size_t begin = node.offset + rel;
-    const size_t end = std::min(script.bytes.size(), static_cast<size_t>(node.offset + node.size));
-    size_t at = begin;
-    while (at < end && script.bytes[at] != 0)
-    {
-        ++at;
-    }
-    return std::string(reinterpret_cast<const char*>(script.bytes.data() + begin), at - begin);
+    throw Error("script node string runs past its resource");
 }
 
 
@@ -1074,8 +1072,8 @@ bool script_node_is_last_action(const SceneScript& script, const ScriptNode& nod
     {
         return true;
     }
-    const ScriptNode* next = script_node_at(script, node.link);
-    if (next == nullptr)
+    auto next = script_node_at(script, node.link);
+    if (!next)
     {
         throw Error("script node " + std::to_string(node.offset) + " links outside the script");
     }
@@ -1087,8 +1085,8 @@ bool script_node_is_last_action(const SceneScript& script, const ScriptNode& nod
     {
         return false;
     }
-    const ScriptNode* after = script_node_at(script, next->link);
-    if (after == nullptr)
+    auto after = script_node_at(script, next->link);
+    if (!after)
     {
         throw Error("script node " + std::to_string(next->offset) + " links outside the script");
     }
@@ -2284,8 +2282,8 @@ bool cutscene_retained_for_transition(const SceneScript& script, const ScriptNod
 {
     if (current.type != 0)
     {
-        const ScriptNode* next = script_node_at(script, current.link);
-        if (next == nullptr)
+        auto next = script_node_at(script, current.link);
+        if (!next)
         {
             throw Error("script end test outside resource");
         }
@@ -2295,8 +2293,8 @@ bool cutscene_retained_for_transition(const SceneScript& script, const ScriptNod
             {
                 return false;
             }
-            const ScriptNode* end = script_node_at(script, next->link);
-            if (end == nullptr)
+            auto end = script_node_at(script, next->link);
+            if (!end)
             {
                 throw Error("script end gate outside resource");
             }

@@ -311,8 +311,8 @@ bool script_seek_node_type(const SceneScript& script, u32& cursor, u32 type)
 {
     for (;;)
     {
-        const ScriptNode* node = script_node_at(script, cursor);
-        if (node == nullptr)
+        auto node = script_node_at(script, cursor);
+        if (!node)
         {
             throw Error("script search cursor outside resource");
         }
@@ -442,8 +442,8 @@ int script_execute_fired_action(Game& g, u32& offset)
     const int param_3 = param_2 == 0 && script_end_gate_set() ? 1 : 0;
     while (true)
     {
-        const ScriptNode* node = script_node_at(g.scene_script, offset);
-        if (node == nullptr || node->size == 0)
+        auto node = script_node_at(g.scene_script, offset);
+        if (!node || node->size == 0)
         {
             return 0;
         }
@@ -520,8 +520,8 @@ int script_execute_fired_action(Game& g, u32& offset)
         {
             return 0;
         }
-        const ScriptNode* current = script_node_at(g.scene_script, offset);
-        if (current == nullptr)
+        auto current = script_node_at(g.scene_script, offset);
+        if (!current)
         {
             throw Error("script handler cursor outside resource");
         }
@@ -584,8 +584,8 @@ void script_run_chapter_setup(Game& g, std::string_view name)
         throw Error("chapter setup resource missing: " + setup);
     }
     SceneScript scene = std::move(g.scene_script);
-    g.scene_script = parse_scene_script(entry->cpu, setup);
-    g_script_fired.push_back(g.scene_script.nodes.front().offset);
+    g.scene_script = SceneScript{setup, entry->cpu};
+    g_script_fired.push_back(0); // The resource's first node.
     script_execute_fired_actions(g);
     if (!g_script_fired.empty())
     {
@@ -611,12 +611,12 @@ void script_vm_bind(Game& g)
     {
         script_release_event(g_live_scripts);
     }
-    if (g.scene_script.nodes.empty())
+    if (g.scene_script.bytes.empty())
     {
         return;
     }
     script_run_chapter_setup(g, g.scene_script.name);
-    g_script_fired.push_back(g.scene_script.nodes.front().offset);
+    g_script_fired.push_back(0); // The resource's first node, as 0x00117000 pushes the resource pointer.
     script_execute_fired_actions(g);
 }
 
@@ -1164,9 +1164,9 @@ void script_tick_ghouly_signal_condition(ScriptCond& rec)
 // Xbox 0x00128D90. Resume the scene's fired cursor at the matching title.
 void script_resume_title(Game& g, i32 mode, i32 id)
 {
-    u32 offset = g.scene_script.nodes.front().offset;
-    const ScriptNode* node = script_node_at(g.scene_script, offset);
-    while (node != nullptr && node->type != 0)
+    u32 offset = 0; // DAT_0050E760, the resource's first node.
+    auto node = script_node_at(g.scene_script, offset);
+    while (node.has_value() && node->type != 0)
     {
         if (node->type == 0xe && i32(node_u32(g.scene_script, *node, 8)) == mode &&
             i32(node_u32(g.scene_script, *node, 0xc)) == id)

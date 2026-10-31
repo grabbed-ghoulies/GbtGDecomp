@@ -1,4 +1,5 @@
 #pragma once
+#include <optional>
 
 #include "../scene/scene_types.h"
 #include <functional>
@@ -65,7 +66,8 @@ void cond_put_f32(ScriptCond& rec, u32 at, float v);
 
 u32 node_u32(const SceneScript& script, const ScriptNode& node, u32 rel);
 
-const ScriptNode* script_node_at(const SceneScript& script, u32 offset);
+// The node at `offset` (`node + *(u32*)node` walks), or none when its header lies outside the resource.
+std::optional<ScriptNode> script_node_at(const SceneScript& script, u32 offset);
 
 void log_script_nodes(const SceneScript& script);
 

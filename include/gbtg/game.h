@@ -3,7 +3,6 @@
 
 #include "gbtg/aid.h"
 #include "gbtg/clock.h"
-#include "gbtg/cutscene.h"
 #include "gbtg/entity.h"
 #include "gbtg/model.h"
 #include "gbtg/script.h"
@@ -64,7 +63,6 @@ struct Game
     std::string scene_name; // DAT_00512494; 0x001287F0 defaults to "There is no script for this scene!"
     const Bundle* scene_bundle = nullptr;
     SceneScript scene_script;
-    std::vector<std::string> script_aidlists;
     // Borrowed binding supplied by the scene's native dialogue owner. The
     // owner and all referenced resources must outlive script execution.
     RuntimeScriptDialogueContext* script_dialogue = nullptr;
@@ -98,8 +96,6 @@ struct Game
 
 void script_set_default_name(Game& g);                 // 0x001287F0
 void script_set_name(Game& g, std::string_view name);  // 0x00128AB0
-void cutscene_queue_start(Game& g);
-void cutscene_queue_tick(Game& g, float dt);
 void frame_tick(Game& g, float dt, const InputState& in); // 0x00033B50
 
 } // namespace gbtg

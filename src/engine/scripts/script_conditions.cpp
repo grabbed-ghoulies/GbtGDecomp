@@ -370,26 +370,21 @@ void cond_put_f32(ScriptCond& rec, u32 at, float v)
 }
 
 
+// The node's payload words, read in place like the dump's `node + rel` loads; past the resource raises.
 u32 node_u32(const SceneScript& script, const ScriptNode& node, u32 rel)
 {
-    if (rel + 4 > node.size || node.offset + rel + 4 > script.bytes.size())
-    {
-        return 0;
-    }
-    return read_u32(script.bytes, node.offset + rel);
+    return read_u32(script.bytes, size_t(node.offset) + rel);
 }
 
 
-const ScriptNode* script_node_at(const SceneScript& script, u32 offset)
+std::optional<ScriptNode> script_node_at(const SceneScript& script, u32 offset)
 {
-    for (const ScriptNode& node : script.nodes)
+    if (size_t(offset) + 8 > script.bytes.size())
     {
-        if (node.offset == offset)
-        {
-            return &node;
-        }
+        return std::nullopt;
     }
-    return nullptr;
+    const u32 size = read_u32(script.bytes, offset);
+    return ScriptNode{offset, size, read_u32(script.bytes, size_t(offset) + 4), offset + size};
 }
 
 
@@ -405,10 +400,13 @@ const char* script_condition_name(u32 opcode)
 
 void log_script_nodes(const SceneScript& script)
 {
-    for (const ScriptNode& node : script.nodes)
+    for (auto node = script_node_at(script, 0); node && node->size != 0; node = script_node_at(script, node->link))
     {
-        log::verbose("  node +0x%x size 0x%x type 0x%x%s%s", node.offset, node.size, node.type,
-                  node.text.empty() ? "" : " ", node.text.c_str());
+        log::verbose("  node +0x%x size 0x%x type 0x%x", node->offset, node->size, node->type);
+        if (node->type == 0)
+        {
+            break;
+        }
     }
 }
 
@@ -1754,21 +1752,17 @@ void script_evaluate_conditions(Game& g)
 
 u8 node_u8(const SceneScript& script, const ScriptNode& node, u32 rel)
 {
-    if (rel >= node.size || node.offset + rel >= script.bytes.size())
+    if (size_t(node.offset) + rel >= script.bytes.size())
     {
-        return 0;
+        throw Error("script node read past its resource");
     }
-    return script.bytes[node.offset + rel];
+    return script.bytes[size_t(node.offset) + rel];
 }
 
 
 u16 node_u16(const SceneScript& script, const ScriptNode& node, u32 rel)
 {
-    if (rel + 2 > node.size || node.offset + rel + 2 > script.bytes.size())
-    {
-        return 0;
-    }
-    return read_u16(script.bytes, node.offset + rel);
+    return read_u16(script.bytes, size_t(node.offset) + rel);
 }
 
 } // namespace gbtg

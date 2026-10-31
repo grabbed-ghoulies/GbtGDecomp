@@ -6076,7 +6076,7 @@ void check_actor_loading()
             std::memcpy(bytes.data() + index * 8, &stride, 4);
             std::memcpy(bytes.data() + index * 8 + 4, &type, 4);
         }
-        game.scene_script = parse_scene_script(bytes, "vm-traversal-regression");
+        game.scene_script = SceneScript{"vm-traversal-regression", bytes};
         u8 flags = 0;
         SceneFlagBlock scene_flags{0, 1, &flags};
         auto* saved_scene_flags = g_scene_flags;
@@ -6431,8 +6431,8 @@ void check_actor_loading()
     constexpr char attributes_name[] = "aid_actorattribs_test";
     std::memcpy(bytes.data() + 8, box_name, sizeof(box_name));
     std::memcpy(bytes.data() + 0x8C, attributes_name, sizeof(attributes_name));
-    game.scene_script = parse_scene_script(bytes, "loading_test");
-    const ScriptNode& node = game.scene_script.nodes.front();
+    game.scene_script = SceneScript{"loading_test", bytes};
+    const ScriptNode node = *script_node_at(game.scene_script, 0);
     GhoulySpawnRecord* pending = allocate_ghouly_spawn_record();
     if (pending->prev != nullptr || pending->next != nullptr || pending->remaining_c != 0 ||
         pending->value_10 != 0 || pending->value_14 != 0 || pending->value_18 != 0 ||
@@ -7627,7 +7627,8 @@ void check_player_dialogue_resources(gbtg::AidStore& aids)
         {
             throw gbtg::Error("gated dialogue action required scene ownership");
         }
-        unbound.scene_script.bytes.resize(0x98);
+        std::vector<gbtg::u8> dialogue_script(0x98);
+        unbound.scene_script.bytes = dialogue_script;
         bool missing_owner = false;
         try
         {
@@ -12681,9 +12682,9 @@ int main(int argc, char** argv)
             std::cout << "player opening: dialogue=" << saw_dialogue << "\n";
             for (const gbtg::u32 cursor : gbtg::g_script_fired)
             {
-                const auto* node = gbtg::script_node_at(game.scene_script, cursor);
+                auto node = gbtg::script_node_at(game.scene_script, cursor);
                 std::cout << "player script waiting: offset=0x" << std::hex << cursor
-                          << " type=0x" << (node == nullptr ? 0 : node->type) << std::dec << "\n";
+                          << " type=0x" << (!node ? 0 : node->type) << std::dec << "\n";
             }
             gbtg::RgbaImage image;
             if (!gbtg::gfx_readback(image))
@@ -12843,8 +12844,8 @@ int main(int argc, char** argv)
             {
                 throw gbtg::Error("opening script left the scene after its tutorial: scene=" + game.scene_script.name);
             }
-            const auto* waiting = gbtg::script_node_at(game.scene_script, gbtg::g_script_fired.front());
-            if (waiting == nullptr || waiting->type != 0xF || game.scene_name != "(next bit)")
+            auto waiting = gbtg::script_node_at(game.scene_script, gbtg::g_script_fired.front());
+            if (!waiting || waiting->type != 0xF || game.scene_name != "(next bit)")
             {
                 throw gbtg::Error("opening script is not waiting at the (next bit) gate after its tutorial: title="
                     + game.scene_name);
@@ -13672,16 +13673,17 @@ int main(int argc, char** argv)
                 return 0;
             }
             // The script's later fight node (type 0x55, objTag_Actor_Imp) switches to the imps' fight music.
-            const gbtg::ScriptNode* fight = nullptr;
-            for (const auto& node : game.scene_script.nodes)
+            std::optional<gbtg::ScriptNode> fight;
+            for (auto node = gbtg::script_node_at(game.scene_script, 0); node && node->type != 0;
+                 node = gbtg::script_node_at(game.scene_script, node->link))
             {
-                if (node.type == 0x55 && node.text == "objTag_Actor_Imp")
+                if (node->type == 0x55 && gbtg::node_cstr(game.scene_script, *node, 8) == "objTag_Actor_Imp")
                 {
-                    fight = &node;
+                    fight = node;
                     break;
                 }
             }
-            if (fight == nullptr)
+            if (!fight)
             {
                 throw gbtg::Error("opening script has no imp fight music node");
             }

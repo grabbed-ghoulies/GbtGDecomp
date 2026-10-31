@@ -6,7 +6,6 @@ namespace gbtg
 {
 namespace scene_detail
 {
-const BundleEntry* find_aid(const Game& g, std::string_view name);
 
 } // namespace scene_detail
 

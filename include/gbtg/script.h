@@ -1,6 +1,8 @@
 #pragma once
 
 #include "gbtg/types.h"
+#include <span>
+#include <string>
 
 namespace gbtg
 {
@@ -10,26 +12,21 @@ namespace gbtg
 // and is the byte count the binder adds to the node (`node + *(u32*)node`),
 // which is the next node. A type of 0 ends the blob. Chapter `*_setup`
 // scripts are a type-6 header plus that terminator.
+// A node read in place: its offset in the resource, its size and type words, and its link (offset + size).
 struct ScriptNode
 {
     u32 offset = 0;
     u32 size = 0;
     u32 type = 0;
     u32 link = 0; // offset + size. The condition record stores this.
-    std::string text;
 };
 
+// The running script resource as 0x00117000 binds it (DAT_0050E760): the AID's bytes, held by the resource
+// loader for the session, and its name. The VM walks and reads its nodes in place.
 struct SceneScript
 {
     std::string name;
-    u32 root_offset = 0;
-    std::vector<u8> bytes;
-    std::vector<u32> words;
-    std::vector<ScriptNode> nodes;
-    std::vector<std::string> strings;
-    std::vector<std::string> aids;
+    std::span<const u8> bytes;
 };
-
-SceneScript parse_scene_script(std::span<const u8> cpu, std::string_view name = {});
 
 } // namespace gbtg

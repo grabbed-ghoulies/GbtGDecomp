@@ -1033,6 +1033,50 @@ void set_save_game_finished(const char16_t* name)
     set_save_game_word(name, 0x188, 1);
 }
 
+// Xbox 0x0010E220
+void set_save_game_script(const char16_t* name, const char* script)
+{
+    SaveSlot* slot = find_save_slot(name);
+    if (slot != nullptr)
+    {
+        std::strcpy(reinterpret_cast<char*>(slot->save->bytes.data() + 0x102), script);
+    }
+}
+
+// Xbox 0x0010E800
+void set_save_game_word_1a0(const char16_t* name, u32 value)
+{
+    set_save_game_word(name, 0x1A0, value);
+}
+
+// Xbox 0x0010E850
+void set_save_game_real_1a4(const char16_t* name, float value)
+{
+    set_save_game_word(name, 0x1A4, std::bit_cast<u32>(value));
+}
+
+// Xbox 0x0010E8A0
+void set_save_game_byte_25d(const char16_t* name, u8 value)
+{
+    SaveSlot* slot = find_save_slot(name);
+    if (slot != nullptr)
+    {
+        slot->save->bytes[0x25D] = value;
+    }
+}
+
+// Xbox 0x0010E8F0
+void set_save_game_word_260(const char16_t* name)
+{
+    set_save_game_word(name, 0x260, 1);
+}
+
+// Xbox 0x0010E940
+void set_save_game_word_264(const char16_t* name)
+{
+    set_save_game_word(name, 0x264, 1);
+}
+
 // Xbox 0x0010E4F0
 void store_save_game_progress(const char16_t* name, const RuntimeProfileBlock& block)
 {

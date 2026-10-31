@@ -51,6 +51,7 @@ void run_runtime_chapter5_clock(Chapter5CountdownServices& context); // Xbox 0x0
 void set_runtime_chapter5_countdown_mode(i32 mode, Chapter5CountdownServices& context); // Xbox 0x000F27C0, EAX mode
 // Script type 0x9A: the countdown beaten. Mode 4 (DAT_00506C5C set, the gold challenge ditty), then mode 0.
 void finish_runtime_chapter5_countdown(Chapter5CountdownServices& context); // Xbox 0x000F2740
+void stop_runtime_chapter5_countdown(Chapter5CountdownServices& context); // Xbox 0x000F2780
 // The control's construct (0x000F2580, then 1) and update (0x000F25E0, then the base 0x00115E30's +0x20 time).
 bool construct_runtime_chapter5_countdown_control(Chapter5CountdownServices& context); // Xbox 0x00082D00
 void tick_runtime_chapter5_countdown_control(std::span<u8> state,

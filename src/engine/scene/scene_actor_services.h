@@ -182,6 +182,8 @@ public:
     void present_views();
     // Boot 0x0011C3F0 -> 0x0011C480: 0x001234B0 over *DAT_00430CF8 holds the game's scene order (DAT_00511B64).
     void hold_boot_scene_order();
+    // 0x00117000's save as the scene starts (0x000F2C40, 0x000F2D10 or 0x000F2E80).
+    void save_scene_start();
     std::span<const u8> held_scene_order() const; // DAT_00511B64, which 0x00117140 picks the next scene from.
 #if defined(GBTG_INSPECTOR_APP)
     // Host inspector: native geometry without simulation.

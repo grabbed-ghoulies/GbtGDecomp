@@ -667,6 +667,8 @@ void restart_challenge_order(ChallengeRuntimeServices& context)
     context.request_script(context.held_order(), 1); // 0x0011EB30(1), EAX DAT_00511B64
 }
 
+}
+
 // Xbox 0x0004A310: the challenge again.
 void restart_run(ChallengeRuntimeServices& context)
 {
@@ -684,6 +686,9 @@ void restart_run(ChallengeRuntimeServices& context)
     }
     context.request_script(context.scene_script, 1); // 0x0011EB30(1), EAX DAT_00510E58
 }
+
+namespace
+{
 
 // The reaction 0x0004A4D0 state 6 and 0x0004A990 send: message 0x4D, 0x1D for a passed run, else 0x1C.
 void react(u32 actor, ChallengeRuntimeServices& context)

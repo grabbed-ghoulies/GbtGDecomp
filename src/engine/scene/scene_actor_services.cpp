@@ -1,6 +1,8 @@
 #include "../entities/mind_target_policy.h"
 #include "gbtg/clock.h"
 #include "chapter5_countdown.h"
+#include "../saves/save_summary.h"
+#include "../camera/actor_camera_effects.h"
 #include "../entities/powerup_flags.h"
 #include "scene_actor_services.h"
 #include "../entities/ghouly_spawn_trigger.h"
@@ -888,6 +890,7 @@ struct SceneActorServices::State
     std::array<char16_t, 0x200> gameselect_lookup{}; // DAT_00507E78, the 0x000FF0A0 text buffer.
     void create_scene_objects(); // Xbox 0x0011C980
     void bind_gameselect_services();
+    void with_scene_save(const std::function<void(RuntimeSceneSave&)>& run);
     void bind_book_services();
     RuntimeScreenTextureBoundaries screen_texture_boundaries();
     std::array<std::span<u8>, 2> book_pages{}; // DAT_005047D8, DAT_005047E4
@@ -6281,7 +6284,45 @@ void SceneActorServices::State::bind_pause_services()
             return g_runtime_profile.challenges.bytes; // *(DAT_00506C54+8)
         },
         difficulty, frontend_state, hud, reinterpret_cast<const char*>(g_510e58),
-        *reinterpret_cast<i32*>(g_510e58 + 0x108)});
+        *reinterpret_cast<i32*>(g_510e58 + 0x108), g_4312d0,
+        [this]() -> std::array<i32, 2>
+        {
+            if (measurement == nullptr)
+            {
+                unbound("0x0011E1C0's play counts before the dialogue measurement exists");
+            }
+            return {measurement->first_additional, measurement->third_additional}; // DAT_00545970, DAT_00545974
+        },
+        [this]()
+        {
+            with_scene_save([](RuntimeSceneSave& save)
+            {
+                save_runtime_quit_scene(save); // 0x000F2CB0
+            });
+        },
+        [this]()
+        {
+            release_actor_camera_shakes(resources.registry); // 0x000FAE40
+        },
+        [this]()
+        {
+            with_scene_save([](RuntimeSceneSave& save)
+            {
+                end_runtime_challenge_game(save); // 0x00049C30
+            });
+        },
+        []()
+        {
+            stop_runtime_chapter5_countdown(chapter5_countdown("0x000F2780")); // 0x000F2780
+        },
+        []()
+        {
+            restart_run(challenge_runtime("0x0004A310")); // 0x0004A310
+        },
+        [this]() -> const char*
+        {
+            return reinterpret_cast<const char*>(scene_order_held.data()); // DAT_00511B64
+        }});
     // The pause prompt rows' buttons (0x0030F948 .. 0x00311AF8, row +0x84).
     const std::array<std::pair<u32, void (*)(ScenePauseServices&)>, 10> buttons{{
         {0x0011DEE0, close_scene_pause}, // pause_Return
@@ -11545,6 +11586,23 @@ void SceneActorServices::hold_boot_scene_order()
 {
     auto& services = *state_->gameselect_services;
     hold_runtime_scene_order(services.scene_order, services); // 0x0011C480: 0x001234B0, EAX *DAT_00430CF8
+}
+
+// The scene saves' context over the current scene's globals.
+void SceneActorServices::State::with_scene_save(const std::function<void(RuntimeSceneSave&)>& run)
+{
+    SaveGameContext saves{game.native_movies->session->files(), g_runtime_profile, scene_order_held};
+    RuntimeSceneSave save{g_runtime_profile, saves, *gameselect_services, reinterpret_cast<const char*>(g_510e58),
+        g_chapter5_gold, g_flags_ea9c, g_4312d0};
+    run(save);
+}
+
+void SceneActorServices::save_scene_start()
+{
+    state_->with_scene_save([](RuntimeSceneSave& save)
+    {
+        save_runtime_scene(save, g_script_30d0c); // DAT_00430D0C
+    });
 }
 
 std::span<const u8> SceneActorServices::held_scene_order() const

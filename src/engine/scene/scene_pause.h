@@ -61,8 +61,18 @@ struct ScenePauseServices
     const RuntimeHudLayout& hud; // DAT_00509730 .. DAT_0050974C
     const char* scene; // DAT_00510E58, the scene record (its name at +0).
     i32& queued_state; // DAT_00510F60, scene record +0x108.
+    const float& scene_time; // DAT_004312D0
+    std::function<std::array<i32, 2>()> play_counts; // DAT_00545970, DAT_00545974
+    std::function<void()> save_quit; // 0x000F2CB0
+    std::function<void()> release_shakes; // 0x000FAE40
+    std::function<void()> end_challenge_game; // 0x00049C30
+    std::function<void()> stop_countdown; // 0x000F2780
+    std::function<void()> restart_challenge; // 0x0004A310
+    std::function<const char*()> held_order; // DAT_00511B64's first name
 };
 void request_scene_resume(ScenePauseServices& services); // Xbox 0x0011EBA0
+// The current game ends: its scene flags, name and times cleared, then the held order's first script requested.
+void clear_runtime_game(ScenePauseServices& services); // Xbox 0x0011EAD0
 void set_scene_pause_phase(i32 phase, ScenePauseServices& services); // Xbox 0x0011D490, EAX the phase
 void select_scene_pause_prompt(i32 prompt, ScenePauseServices& services); // Xbox 0x0011DD10, EAX the row
 void choose_scene_pause_prompt(ScenePauseServices& services); // Xbox 0x0011DD90

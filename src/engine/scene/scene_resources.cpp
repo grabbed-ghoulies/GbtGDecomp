@@ -63,13 +63,7 @@ struct SceneFlagBlock
 
 SceneFlagBlock* g_scene_flags = nullptr; // DAT_00506c74
 
-i32 g_scene_time = 0;   // DAT_00506c78. Sum of the truncated float at DAT_004312d0.
-i32 g_scene_acc_7c = 0; // DAT_00506c7c
-i32 g_scene_acc_80 = 0; // DAT_00506c80
-i32 g_scene_acc_84 = 0; // DAT_00506c84
-i32 g_scene_acc_88 = 0; // DAT_00506c88
 i32 g_scene_acc_8c = 0; // DAT_00506c8c
-u16 g_scene_gate = 0;   // DAT_00506c90. Nonzero runs the update at 0x000F2C40.
 
 // DAT_00511b64. 0x000E270F stores a heap scene name here. 0x001234B0 stores
 // the C string 0x00035E90 writes from the loaded aid (record +8).
@@ -202,26 +196,6 @@ void scene_store_aid_name(const char* name)
     g_scene_name_release = &scene_release_aid;
 }
 
-// Xbox 0x0011EAD0
-void scene_clear_flag_block()
-{
-    // Xbox 0x0011EAD0
-    // rep stos of the byte count at flag+4 into the pointer at flag+8.
-    // 0x000F2B60 publishes that block; a missing one is left alone.
-    SceneFlagBlock* block = g_scene_flags;
-    if (block != nullptr && block->bytes != nullptr && block->size > 0)
-    {
-        std::memset(block->bytes, 0, static_cast<size_t>(block->size));
-    }
-    g_scene_gate = 0;
-    g_scene_time = 0;
-    g_scene_acc_7c = 0;
-    g_scene_acc_80 = 0;
-    g_scene_acc_84 = 0;
-    g_scene_acc_88 = 0;
-    g_scene_acc_8c = 0;
-    scene_copy_name(g_scene_name_src, 1);
-}
 
 namespace
 {

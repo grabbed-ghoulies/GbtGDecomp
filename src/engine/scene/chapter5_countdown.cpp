@@ -176,6 +176,16 @@ void set_runtime_chapter5_countdown_mode(i32 mode, Chapter5CountdownServices& co
     }
 }
 
+// Xbox 0x000F2780: the countdown stops when it runs (0x0011CFB0's leaves).
+void stop_runtime_chapter5_countdown(Chapter5CountdownServices& context)
+{
+    if (context.mode != 0) // DAT_00506C58
+    {
+        context.mode = 0;
+        clear_countdown(context);
+    }
+}
+
 // Xbox 0x000F2740
 void finish_runtime_chapter5_countdown(Chapter5CountdownServices& context)
 {

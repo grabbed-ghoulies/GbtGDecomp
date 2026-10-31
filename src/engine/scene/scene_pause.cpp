@@ -19,6 +19,7 @@
 #include "../frontend/input_activation.h"
 #include "../entities/ghouly_spawn_record.h"
 #include "../runtime/crt_format.h"
+#include "../saves/runtime_profile.h"
 #include "../transitions/native_book.h"
 #include "../transitions/scene_transitions.h"
 #include "../../gbtg/text/localtext_resources.h"
@@ -33,7 +34,6 @@ namespace gbtg
 extern i32 g_429bc0; // DAT_00429BC0, scene.cpp.
 extern u16 g_429bc4[0x80]; // DAT_00429BC4, scene.cpp.
 extern u16 g_4e19b4[0x40]; // DAT_004E19B4, scene.cpp.
-void scene_clear_flag_block(); // Xbox 0x0011EAD0, scene_resources.cpp.
 
 ScenePause g_scene_pause = []()
 {
@@ -603,16 +603,33 @@ void tick_scene_pause(ScenePauseServices& s)
                 set_scene_pause_phase(1, s); // 0x0011D490, EAX 1
                 break;
             case 2:
-            case 4:
-            case 7:
-                untranslated("0x0011CFB0's leave " + std::to_string(p.choice) + " through 0x000F2780");
+                s.stop_countdown(); // 0x000F2780
+                if (g_runtime_profile.name[0] == 0) // DAT_00506C90
+                {
+                    clear_runtime_game(s); // 0x0011EAD0
+                }
+                else
+                {
+                    leave_to_gameselect(3);
+                }
+                break;
             case 3:
-                untranslated("0x0011CFB0's leave 3 through 0x0004A310");
+                s.restart_challenge(); // 0x0004A310
+                s.stop_countdown(); // 0x000F2780
+                break;
+            case 4:
+                s.stop_countdown(); // 0x000F2780
+                leave_to_gameselect(6);
+                break;
             case 5:
                 leave_to_gameselect(10);
                 break;
             case 6:
                 leave_to_gameselect(0xB);
+                break;
+            case 7:
+                s.stop_countdown(); // 0x000F2780
+                leave_to_gameselect(9);
                 break;
             default:
                 break;
@@ -935,21 +952,74 @@ void cancel_scene_pause_confirm(ScenePauseServices& s)
     choose_scene_pause_prompt(s); // The tail jump to 0x0011DD90.
 }
 
+// The quit and restart's close (0x0011E1C0 and 0x0011E320 inline it): phase 6, the book closing.
+void close_pause_book_for_choice(ScenePauseServices& s)
+{
+    auto& p = g_scene_pause;
+    if (p.phase != 6) // DAT_00510CF4
+    {
+        p.phase = 6;
+        close_pause_book(s);
+    }
+}
+
 // Xbox 0x0011E1C0, pause_Yes on the quit warning.
 void quit_scene_from_pause(ScenePauseServices& s)
 {
+    auto& times = g_runtime_profile.times;
     if ((s.books.scene_flags & 2) != 0)
     {
-        untranslated("0x0011E1C0's replay totals (DAT_00506C78, DAT_00506C7C, DAT_00506C84 from DAT_00545970)");
+        const std::array<i32, 2> counts = s.play_counts(); // DAT_00545970, DAT_00545974
+        times[1] = times[1] + counts[0]; // DAT_00506C7C
+        times[0] = times[0] + i32(s.scene_time); // DAT_00506C78, DAT_004312D0
+        times[3] = times[3] + counts[1]; // DAT_00506C84
     }
-    untranslated("0x0011E1C0's save of the game 0x000F2CB0");
+    s.save_quit(); // 0x000F2CB0
+    s.release_shakes(); // 0x000FAE40
+    const u8 flags = s.books.scene_flags;
+    if ((flags & 0x20) != 0)
+    {
+        g_scene_pause.choice = 5; // DAT_00510E28
+    }
+    else if ((flags & 0x40) != 0)
+    {
+        g_scene_pause.choice = 6;
+    }
+    else if ((flags & 0x80) != 0)
+    {
+        g_scene_pause.choice = 7;
+    }
+    else
+    {
+        g_scene_pause.choice = (s.frontend_state == 3 ? 1 : 0) * 2 + 2; // DAT_004E17C8
+    }
+    s.end_challenge_game(); // 0x00049C30
+    close_pause_book_for_choice(s);
 }
 
 // Xbox 0x0011E320, pause_Yes on the restart warning.
 void restart_scene_from_pause(ScenePauseServices& s)
 {
-    (void)s;
-    untranslated("0x0011E320's keyboard release 0x000FAE40");
+    s.release_shakes(); // 0x000FAE40
+    g_scene_pause.choice = 3; // DAT_00510E28
+    close_pause_book_for_choice(s);
+}
+
+// Xbox 0x0011EAD0: the current game ends (its scene flags, name and times cleared) and the held order's first
+// script is requested.
+void clear_runtime_game(ScenePauseServices& s)
+{
+    auto& profile = g_runtime_profile;
+    std::memset(profile.scene_flags->bytes, 0, size_t(profile.scene_flags->size)); // rep stos over +4 bytes
+    profile.name[0] = 0; // DAT_00506C90, a dword store: the name's first two characters.
+    profile.name[1] = 0;
+    profile.times[0] = 0; // DAT_00506C78
+    profile.times[1] = 0;
+    profile.times[2] = 0;
+    profile.times[3] = 0;
+    profile.times[4] = 0;
+    profile.times[5] = 0; // DAT_00506C8C
+    request_scene_aid(s.held_order(), 1); // 0x0011EB30, EAX DAT_00511B64
 }
 
 // Xbox 0x0011E3E0, pause_MapReturn: the book leaves the map (phase 9) and the game's prompt row returns.

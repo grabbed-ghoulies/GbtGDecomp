@@ -76,6 +76,14 @@ void set_save_game_word_194(const char16_t* name, u32 value); // Xbox 0x0010E400
 void set_save_game_word_198(const char16_t* name, u32 value); // Xbox 0x0010E450
 void set_save_game_word_19c(const char16_t* name, u32 value); // Xbox 0x0010E4A0
 void set_save_game_finished(const char16_t* name); // Xbox 0x0010E310, EBX the name
+// The save's script (+0x102), the scene a load resumes at; the script on the stack.
+void set_save_game_script(const char16_t* name, const char* script); // Xbox 0x0010E220, EBX the name
+void set_save_game_word_1a0(const char16_t* name, u32 value); // Xbox 0x0010E800, EBX the name
+void set_save_game_real_1a4(const char16_t* name, float value); // Xbox 0x0010E850, EBX the name
+// The furthest scene of chapter 5's book the game reached (+0x25D, 0x0010E0E0 reads it).
+void set_save_game_byte_25d(const char16_t* name, u8 value); // Xbox 0x0010E8A0, EBX the name
+void set_save_game_word_260(const char16_t* name); // Xbox 0x0010E8F0, EBX the name: +0x260 becomes 1.
+void set_save_game_word_264(const char16_t* name); // Xbox 0x0010E940, EBX the name: +0x264 becomes 1.
 // The save's progress block (record +0x1A8) is cleared, then takes `block`'s bits 0..0x3D.
 void store_save_game_progress(const char16_t* name, const RuntimeProfileBlock& block); // Xbox 0x0010E4F0, EAX
 bool save_game_name_exists(const char16_t* name); // Xbox 0x0010F530

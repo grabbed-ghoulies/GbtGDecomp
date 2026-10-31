@@ -493,6 +493,28 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 
 ## Checkpoints
 
+### 2026-10-31: scene saves
+
+A story game now saves as each scene starts and when the pause quits, as retail does:
+
+- Scene start (`0x0011CB60` → `0x00117000`'s tail): a challenge game (scene flag 8) runs `0x000F2E80`, a restarted
+  scene (`DAT_00430D0C` 1) `0x000F2D10`, otherwise `0x000F2C40`. With scene flag 2, `0x000F3080` writes the scene's
+  script into the save (+0x102, the scene a load resumes at) outside chapter 5's countdown scenes (`0x000F3410`)
+  and the five times outside chapter 5's scenes (`0x000F3590`). Then the challenges (`0x000F3230`), chapter 5's
+  book scene (`0x000F34C0`: +0x25D, +0x260, +0x264), the progress bits (`0x000F3290`, the scenes completed), the
+  +0x184 clear and the queued write (`0x0010DA80`).
+- Quit's Yes (`0x0011E1C0`): the scene's time and play counts join the profile's, `0x000F2CB0` saves (`0x000F3130`
+  writes three of the times), `0x000FAE40`, the closed book's choice (5, 6, 7 from scene flags 0x20/0x40/0x80,
+  otherwise 2 or 4 in a challenge), `0x00049C30` ends a challenge game, and the book closes. Restart's Yes
+  (`0x0011E320`) is choice 3. `0x0011CFB0` now runs choices 2, 3, 4 and 7 (`0x000F2780` stops chapter 5's
+  countdown; choice 2 with no named game runs `0x0011EAD0`, which replaced the unused host
+  `scene_clear_flag_block` and its duplicate profile globals).
+- New save setters: `0x0010E220` (script), `0x0010E800`, `0x0010E850`, `0x0010E8A0`, `0x0010E8F0`, `0x0010E940`.
+- `--pause-quit-save` loads a scene 3 save, quits from the pause and checks the save's script and time (+0x18C).
+  The time is the free-play seconds (`0x0012B1F0` stops the clock under `DAT_0050EA9C` 0x027001E0), 1 in the test.
+- `--scene6-save`'s scene 3 driven fight failed 2 of 5 runs with the skeletons still alive (no trophy); the saves
+  it checks passed each time the fight finished.
+
 ### 2026-10-30: the credits
 
 - `--scenecredits` boots credits_final. It passes on the existing native path: 18 pages, then the script moves on to
@@ -1872,8 +1894,8 @@ Still open:
 
 - (Closed in the hunchback checkpoint above: scene 2a12's type 0x84, and scene 4's exit walk.)
 - `--scene2a11` failed once with "invalid unordered_map key" and passed on three reruns.
-- Quit's Yes (`0x0011E1C0`) raises at the save of the game (`0x000F2CB0`); Restart's Yes at `0x000FAE40`; Map at
-  `0x001410F0`'s room argument; Event Rules at `0x000D0780` / `0x0004A270`.
+- Map at `0x001410F0`'s room argument; Event Rules at `0x000D0780` / `0x0004A270`. (Quit's Yes `0x0011E1C0` and
+  Restart's Yes `0x0011E320` are translated: see the 2026-10-31 scene saves note.)
 - The 0x1251E0 challenge setup actions (0x7A .. 0x86) still drop `0x0004A100`, `0x0004A240` and `0x0004ADD0`; the
   scene teardown (`0x0011C5A0`) still names about twenty untranslated callees.
 

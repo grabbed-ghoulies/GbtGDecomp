@@ -114,6 +114,8 @@ void start_runtime_scene_challenge(ChallengeRuntimeServices& context); // Xbox 0
 void set_runtime_challenge_state(i32 state, ChallengeRuntimeServices& context); // Xbox 0x0004A4D0
 void tick_runtime_challenge(ChallengeRuntimeServices& context); // Xbox 0x00049DE0
 void end_runtime_challenge(ChallengeRuntimeServices& context); // Xbox 0x00049FF0
+// The challenge again (the restart menu and the pause's restart, 0x0011CFB0 choice 3).
+void restart_run(ChallengeRuntimeServices& context); // Xbox 0x0004A310
 // The restart menu's draw in the view present (0x0011C240): 0x00142720(0) while the state is 6.
 // "challengeMenu_restart" A and B (0x002FE2E0).
 void choose_runtime_challenge_restart(); // Xbox 0x0004B350

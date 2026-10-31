@@ -10687,6 +10687,129 @@ void play_pause_run(gbtg::Game& game)
               << "(frames " << pauses[1].paused << " .. " << pauses[1].resumed << ")\n";
 }
 
+std::filesystem::path test_save_folder();
+std::vector<char> saved_progress_file();
+
+// --pause-quit-save: a saved game's scene 3. Once nothing holds the scene, Start pauses it, X (pause_Quit) asks to
+// quit and A (pause_Yes, 0x0011E1C0) quits: the scene's time joins the profile's (DAT_00506C78), 0x000F2CB0 writes
+// it into the save (+0x18C) with the scene's script (+0x102), and the closed book leads to game select
+// (0x0011CFB0 choice 2, a named game).
+void play_pause_quit_run(gbtg::Game& game)
+{
+    auto& actors = game.factory_scene->start_actors(game);
+    int cooper_frame = -1;
+    int free_frame = -1;
+    int open_frame = -1;
+    int confirm_frame = -1;
+    int quit_frame = -1;
+    int gameselect_frame = -1;
+    for (int frame = 0; frame < 9000; ++frame)
+    {
+        gbtg::InputState input;
+        const bool page = game.script_dialogue != nullptr && game.script_dialogue->dialogue.state.mode != 0;
+        input.accept = page && frame % 30 < 5 && open_frame < 0;
+        if (cooper_frame < 0)
+        {
+            for (const auto& mark : actors.marked_actors())
+            {
+                if (mark.actor != nullptr && mark.actor->class_key == 4)
+                {
+                    cooper_frame = frame;
+                }
+            }
+        }
+        if (cooper_frame >= 0 && free_frame < 0 && gbtg::g_510cec == 0)
+        {
+            free_frame = frame;
+            std::cout << "pause-quit frame " << frame << ": nothing holds the scene\n";
+        }
+        const auto pressed = [frame](int at)
+        {
+            return at >= 0 && frame >= at && frame < at + 3;
+        };
+        if (open_frame < 0 && !page && pressed(free_frame >= 0 ? free_frame + 60 : -1))
+        {
+            input.start = true;
+        }
+        if (open_frame >= 0 && confirm_frame < 0 && pressed(open_frame + 60))
+        {
+            input.page = true;
+        }
+        if (confirm_frame >= 0 && quit_frame < 0 && pressed(confirm_frame + 120))
+        {
+            input.accept = true;
+        }
+        gbtg::gfx_begin_frame();
+        game.tick(1.f / 60.f, input);
+        if (open_frame < 0 && gbtg::g_scene_pause.phase == 3)
+        {
+            open_frame = frame;
+            std::cout << "pause-quit frame " << frame << ": the pause book is open\n";
+        }
+        if (confirm_frame < 0 && gbtg::g_scene_pause.prompt == 9)
+        {
+            confirm_frame = frame;
+            std::cout << "pause-quit frame " << frame << ": the quit warning shows\n";
+        }
+        if (confirm_frame >= 0 && quit_frame < 0 && gbtg::g_scene_pause.choice == 2)
+        {
+            quit_frame = frame;
+            std::cout << "pause-quit frame " << frame << ": pause_Yes quits (choice 2), profile time "
+                      << gbtg::g_runtime_profile.times[0] << "\n";
+        }
+        if (quit_frame >= 0 && gameselect_frame < 0 && game.scene_name == "aid_script_ghoulies_gameselect_gameselect")
+        {
+            gameselect_frame = frame;
+            std::cout << "pause-quit frame " << frame << ": game select\n";
+        }
+        if (gameselect_frame >= 0 && gbtg::g_save_scan != nullptr && gbtg::g_save_scan->pending == 0
+            && frame > gameselect_frame + 120)
+        {
+            break;
+        }
+    }
+    if (quit_frame < 0)
+    {
+        throw gbtg::Error("pause_Yes did not quit the scene (open " + std::to_string(open_frame) + ", warning "
+            + std::to_string(confirm_frame) + ")");
+    }
+    if (gameselect_frame < 0)
+    {
+        throw gbtg::Error("quitting from the pause did not lead to game select (scene " + game.scene_name + ")");
+    }
+    const std::vector<char> bytes = saved_progress_file();
+    if (bytes.size() < 0x268)
+    {
+        throw gbtg::Error("no saved progress.xsv after the quit");
+    }
+    const std::string script(bytes.data() + 0x102);
+    gbtg::u32 time = 0;
+    std::memcpy(&time, bytes.data() + 0x18C, 4);
+    std::cout << "pause-quit save: script " << script << ", time " << time << "\n";
+    if (script != "aid_script_ghoulies_chapter1_scene3_1playcam" || time == 0)
+    {
+        throw gbtg::Error("the quit's save holds script " + script + " and time " + std::to_string(time));
+    }
+    std::cout << "PASS: pause_Yes quits scene 3 to game select and saves its script and time ("
+              << time << ")\n";
+}
+
+std::vector<char> saved_progress_file()
+{
+    if (std::filesystem::exists(test_save_folder()))
+    {
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(test_save_folder()))
+        {
+            if (entry.is_regular_file() && entry.path().filename() == "progress.xsv")
+            {
+                std::ifstream in(entry.path(), std::ios::binary);
+                return std::vector<char>((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            }
+        }
+    }
+    return {};
+}
+
 void play_pause(gbtg::Game& game)
 {
     try
@@ -10984,6 +11107,9 @@ int main(int argc, char** argv)
     const bool scene3_test = argc == 3 && std::string_view(argv[2]) == "--scene3";
     // --pause boots scene 3 like --scene3, then pauses and resumes it with Start.
     const bool pause_test = argc == 3 && std::string_view(argv[2]) == "--pause";
+    // --pause-quit-save loads a scene 3 save (a child --gameselect-new-game run, its script set to scene 3), then
+    // quits the scene from the pause (Start, X, A) and checks the save holds the scene's script and time.
+    const bool pause_quit_test = argc == 3 && std::string_view(argv[2]) == "--pause-quit-save";
     // --scene4 boots scene 4 (chapter1_scene4_1book), closes its pages with A and plays until the script moves on.
     const bool scene4_test = argc == 3 && std::string_view(argv[2]) == "--scene4";
     // --scene5 boots scene 5 (chapter1_scene5_1playcam), closes its pages with A and plays until the script moves on.
@@ -11227,7 +11353,7 @@ int main(int argc, char** argv)
         std::cout << std::unitbuf;
     }
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
-        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene2a14_test && !scene2a15_test && !scene2a16_test && !scene2a17_test && !scene2b1_test && !scene2b2_test && !scene2b3_test && !scene2b4_test && !scene2b4b_test && !scene2b5_test && !scene2b6_test && !scene2b6b_test && !scene2b7_test && !scene2b8_test && !scene2b9_test && !scene2b10_test && !scene2b10b_test && !scene2c1_test && !scene2c2_test && !scene2c3_test && !scene2c4_test && !scene2c4b_test && !scene2c5_test && !scene2c6_test && !scene2c7_test && !scene2c8_test && !scene2c9_test && !scene2c10_test && !scene2c11_test && !scene2c11b_test && !scene2c12_test && !scene2c13_test && !scene2c13b_test && !scene2c13c_test && !scene3a1_test && !scene3a1b_test && !scene3a2_test && !scene3a3_test && !scene3a3b_test && !scene3a3c_test && !scene3a4_test && !scene3a5_test && !scene3a6_test && !scene3a7_test && !scene3a8_test && !scene3a9_test && !scene3a10_test && !scene3a11_test && !scene3a12_test && !scene3b1_test && !scene3b2_test && !scene3b3_test && !scene3b4_test && !scene3b5_test && !scene3b6_test && !scene3b7_test && !scene3c1_test && !scene3c2_test && !scene3c3_test && !scene3c4_test && !scene3c5_test && !scene3c6_test && !scene3c7_test && !scene3c8_test && !scene3c9_test && !scene3c10_test && !scene3c11_test && !scene3c12_test && !scene3c13_test && !scene3c13b_test && !scene3c14_test && !scene3c15_test && !scene3c15b_test && !scene3c15c_test && !scene4_1_test && !scene4_1b_test && !scene4_1c_test && !scene5_1_test && !scene5_2_test && !scene5_3_test && !scene5_4_test && !scene5_5_test && !scene5_6_test && !scene5_7_test && !scene5_8_test && !scene5_9_test && !scene5_10_test && !scene5_11_test && !scene5_12_test && !scene5_13_test && !scene5_13b_test && !scene5_13c_test && !scene5_13d_test && !scenefinal_test && !scenecredits_test && !scene3_test && !pause_test)
+        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene2a14_test && !scene2a15_test && !scene2a16_test && !scene2a17_test && !scene2b1_test && !scene2b2_test && !scene2b3_test && !scene2b4_test && !scene2b4b_test && !scene2b5_test && !scene2b6_test && !scene2b6b_test && !scene2b7_test && !scene2b8_test && !scene2b9_test && !scene2b10_test && !scene2b10b_test && !scene2c1_test && !scene2c2_test && !scene2c3_test && !scene2c4_test && !scene2c4b_test && !scene2c5_test && !scene2c6_test && !scene2c7_test && !scene2c8_test && !scene2c9_test && !scene2c10_test && !scene2c11_test && !scene2c11b_test && !scene2c12_test && !scene2c13_test && !scene2c13b_test && !scene2c13c_test && !scene3a1_test && !scene3a1b_test && !scene3a2_test && !scene3a3_test && !scene3a3b_test && !scene3a3c_test && !scene3a4_test && !scene3a5_test && !scene3a6_test && !scene3a7_test && !scene3a8_test && !scene3a9_test && !scene3a10_test && !scene3a11_test && !scene3a12_test && !scene3b1_test && !scene3b2_test && !scene3b3_test && !scene3b4_test && !scene3b5_test && !scene3b6_test && !scene3b7_test && !scene3c1_test && !scene3c2_test && !scene3c3_test && !scene3c4_test && !scene3c5_test && !scene3c6_test && !scene3c7_test && !scene3c8_test && !scene3c9_test && !scene3c10_test && !scene3c11_test && !scene3c12_test && !scene3c13_test && !scene3c13b_test && !scene3c14_test && !scene3c15_test && !scene3c15b_test && !scene3c15c_test && !scene4_1_test && !scene4_1b_test && !scene4_1c_test && !scene5_1_test && !scene5_2_test && !scene5_3_test && !scene5_4_test && !scene5_5_test && !scene5_6_test && !scene5_7_test && !scene5_8_test && !scene5_9_test && !scene5_10_test && !scene5_11_test && !scene5_12_test && !scene5_13_test && !scene5_13b_test && !scene5_13c_test && !scene5_13d_test && !scenefinal_test && !scenecredits_test && !scene3_test && !pause_test && !pause_quit_test)
     {
         std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene6-save | --scene6-save-reload | --scene3 | --pause | --scene4 | --scene5 | --scene6-1 | --scene7]\n";
         return 2;
@@ -11322,6 +11448,10 @@ int main(int argc, char** argv)
             write_replay_save(argv[0], argv[1], replay_paging_test ? "aid_script_ghoulies_chapter1_scene10_1playcam"
                 : "aid_script_ghoulies_chapter1_scene2_1viewcam");
         }
+        else if (pause_quit_test)
+        {
+            write_replay_save(argv[0], argv[1], "aid_script_ghoulies_chapter1_scene3_1playcam");
+        }
         else if (scene6_reload_test)
         {
             if (saved_challenge_byte() == 0xFF || (saved_challenge_byte() & 6) != 6)
@@ -11382,7 +11512,7 @@ int main(int argc, char** argv)
             }
         }
         gbtg::set_save_root(test_save_folder());
-        game.init(argv[1], scene6_save_test || scene6_reload_test ? "" : scene6_test ? "6" : scene3_test || pause_test ? "7"
+        game.init(argv[1], scene6_save_test || scene6_reload_test || pause_quit_test ? "" : scene6_test ? "6" : scene3_test || pause_test ? "7"
             : scene4_test ? "chapter1_scene4_1book" : scene5_test ? "chapter1_scene5_1playcam"
             : scene6_1_test ? "chapter1_scene6_1playcam"
             : scene7_test ? "chapter1_scene7_1playcam"
@@ -12379,6 +12509,22 @@ int main(int argc, char** argv)
             pass_chapter_title(game, "scene3_reload", "aid_script_ghoulies_chapter1_scene3_1playcam", false);
             play_scene3(game, false, 0);
             std::cout << "PASS: the reloaded game's scene 3 starts without the rare book\n";
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (pause_quit_test)
+        {
+            start_saved_game(game, "pause-quit-save");
+            pass_chapter_title(game, "pause_quit", "aid_script_ghoulies_chapter1_scene3_1playcam", false);
+            try
+            {
+                play_pause_quit_run(game);
+            }
+            catch (const std::exception& error)
+            {
+                std::cout << "FAIL: " << error.what() << std::endl;
+                std::_Exit(1);
+            }
             gbtg::gfx_shutdown();
             return 0;
         }

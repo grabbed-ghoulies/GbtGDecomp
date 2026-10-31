@@ -1336,6 +1336,8 @@ void script_queue_scene_start(Game& g)
     {
         throw Error("0x0011CBD0 starts a scene that is not loaded natively or has already started");
     }
+    // 0x00117000 ends with the scene's save; the script it acquires is the host load's.
+    g.factory_scene->actor_services->save_scene_start();
     g.factory_scene->start_actors(g).start_scene([&g, &start]()
     {
         script_queue_event(g, start);

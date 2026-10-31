@@ -512,6 +512,14 @@ A story game now saves as each scene starts and when the pause quits, as retail 
 - New save setters: `0x0010E220` (script), `0x0010E800`, `0x0010E850`, `0x0010E8A0`, `0x0010E8F0`, `0x0010E940`.
 - `--pause-quit-save` loads a scene 3 save, quits from the pause and checks the save's script and time (+0x18C).
   The time is the free-play seconds (`0x0012B1F0` stops the clock under `DAT_0050EA9C` 0x027001E0), 1 in the test.
+- `--chapter5-save` loads a chapter 5 scene 1 save and plays scene 1 to its end: scene 1's start writes book scene 1
+  and its script; scene 2's start writes book scene 2 (+0x25D) and keeps scene 1's script (`0x000F3410`: a load
+  restarts the countdown at scene 1) and the times (`0x000F3590`). `--chapter5-finale-save` loads a save at
+  chapter5_scene13_1book, whose start sets +0x264 and leaves +0x25D. The countdown's gold (+0x260, `DAT_00506C5C`)
+  needs the whole chapter beaten and is not checked.
+- `--scene5_2` (documented as passing on 2026-10-29) now fails: two pages show but no Hunchback event, the exit door
+  (green glow) stays shut, and Cooper runs against it at z 180.9 until the frame limit. It fails the same way
+  from boot and from a save, so it is not the saves; it came in with one of the commits since 2026-10-29.
 - `--scene6-save`'s scene 3 driven fight failed 2 of 5 runs with the skeletons still alive (no trophy); the saves
   it checks passed each time the fight finished.
 

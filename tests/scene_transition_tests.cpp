@@ -11110,6 +11110,13 @@ int main(int argc, char** argv)
     // --pause-quit-save loads a scene 3 save (a child --gameselect-new-game run, its script set to scene 3), then
     // quits the scene from the pause (Start, X, A) and checks the save holds the scene's script and time.
     const bool pause_quit_test = argc == 3 && std::string_view(argv[2]) == "--pause-quit-save";
+    // --chapter5-save loads a chapter 5 scene 1 save and plays scene 1 to its end. Scene 2's start (0x000F2C40)
+    // must record the furthest book scene (+0x25D, 0x000F34C0) and, inside the countdown's scenes, leave the save's
+    // script at scene 1 (0x000F3410) and its times alone (0x000F3590).
+    const bool chapter5_save_test = argc == 3 && std::string_view(argv[2]) == "--chapter5-save";
+    // --chapter5-finale-save loads a save at chapter5_scene13_1book: its start (0x000F34C0, book scene 13) sets the
+    // save's +0x264 and leaves the book scene byte (+0x25D) alone.
+    const bool chapter5_finale_test = argc == 3 && std::string_view(argv[2]) == "--chapter5-finale-save";
     // --scene4 boots scene 4 (chapter1_scene4_1book), closes its pages with A and plays until the script moves on.
     const bool scene4_test = argc == 3 && std::string_view(argv[2]) == "--scene4";
     // --scene5 boots scene 5 (chapter1_scene5_1playcam), closes its pages with A and plays until the script moves on.
@@ -11353,7 +11360,7 @@ int main(int argc, char** argv)
         std::cout << std::unitbuf;
     }
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
-        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene2a14_test && !scene2a15_test && !scene2a16_test && !scene2a17_test && !scene2b1_test && !scene2b2_test && !scene2b3_test && !scene2b4_test && !scene2b4b_test && !scene2b5_test && !scene2b6_test && !scene2b6b_test && !scene2b7_test && !scene2b8_test && !scene2b9_test && !scene2b10_test && !scene2b10b_test && !scene2c1_test && !scene2c2_test && !scene2c3_test && !scene2c4_test && !scene2c4b_test && !scene2c5_test && !scene2c6_test && !scene2c7_test && !scene2c8_test && !scene2c9_test && !scene2c10_test && !scene2c11_test && !scene2c11b_test && !scene2c12_test && !scene2c13_test && !scene2c13b_test && !scene2c13c_test && !scene3a1_test && !scene3a1b_test && !scene3a2_test && !scene3a3_test && !scene3a3b_test && !scene3a3c_test && !scene3a4_test && !scene3a5_test && !scene3a6_test && !scene3a7_test && !scene3a8_test && !scene3a9_test && !scene3a10_test && !scene3a11_test && !scene3a12_test && !scene3b1_test && !scene3b2_test && !scene3b3_test && !scene3b4_test && !scene3b5_test && !scene3b6_test && !scene3b7_test && !scene3c1_test && !scene3c2_test && !scene3c3_test && !scene3c4_test && !scene3c5_test && !scene3c6_test && !scene3c7_test && !scene3c8_test && !scene3c9_test && !scene3c10_test && !scene3c11_test && !scene3c12_test && !scene3c13_test && !scene3c13b_test && !scene3c14_test && !scene3c15_test && !scene3c15b_test && !scene3c15c_test && !scene4_1_test && !scene4_1b_test && !scene4_1c_test && !scene5_1_test && !scene5_2_test && !scene5_3_test && !scene5_4_test && !scene5_5_test && !scene5_6_test && !scene5_7_test && !scene5_8_test && !scene5_9_test && !scene5_10_test && !scene5_11_test && !scene5_12_test && !scene5_13_test && !scene5_13b_test && !scene5_13c_test && !scene5_13d_test && !scenefinal_test && !scenecredits_test && !scene3_test && !pause_test && !pause_quit_test)
+        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene2a14_test && !scene2a15_test && !scene2a16_test && !scene2a17_test && !scene2b1_test && !scene2b2_test && !scene2b3_test && !scene2b4_test && !scene2b4b_test && !scene2b5_test && !scene2b6_test && !scene2b6b_test && !scene2b7_test && !scene2b8_test && !scene2b9_test && !scene2b10_test && !scene2b10b_test && !scene2c1_test && !scene2c2_test && !scene2c3_test && !scene2c4_test && !scene2c4b_test && !scene2c5_test && !scene2c6_test && !scene2c7_test && !scene2c8_test && !scene2c9_test && !scene2c10_test && !scene2c11_test && !scene2c11b_test && !scene2c12_test && !scene2c13_test && !scene2c13b_test && !scene2c13c_test && !scene3a1_test && !scene3a1b_test && !scene3a2_test && !scene3a3_test && !scene3a3b_test && !scene3a3c_test && !scene3a4_test && !scene3a5_test && !scene3a6_test && !scene3a7_test && !scene3a8_test && !scene3a9_test && !scene3a10_test && !scene3a11_test && !scene3a12_test && !scene3b1_test && !scene3b2_test && !scene3b3_test && !scene3b4_test && !scene3b5_test && !scene3b6_test && !scene3b7_test && !scene3c1_test && !scene3c2_test && !scene3c3_test && !scene3c4_test && !scene3c5_test && !scene3c6_test && !scene3c7_test && !scene3c8_test && !scene3c9_test && !scene3c10_test && !scene3c11_test && !scene3c12_test && !scene3c13_test && !scene3c13b_test && !scene3c14_test && !scene3c15_test && !scene3c15b_test && !scene3c15c_test && !scene4_1_test && !scene4_1b_test && !scene4_1c_test && !scene5_1_test && !scene5_2_test && !scene5_3_test && !scene5_4_test && !scene5_5_test && !scene5_6_test && !scene5_7_test && !scene5_8_test && !scene5_9_test && !scene5_10_test && !scene5_11_test && !scene5_12_test && !scene5_13_test && !scene5_13b_test && !scene5_13c_test && !scene5_13d_test && !scenefinal_test && !scenecredits_test && !scene3_test && !pause_test && !pause_quit_test && !chapter5_save_test && !chapter5_finale_test)
     {
         std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene6-save | --scene6-save-reload | --scene3 | --pause | --scene4 | --scene5 | --scene6-1 | --scene7]\n";
         return 2;
@@ -11452,6 +11459,14 @@ int main(int argc, char** argv)
         {
             write_replay_save(argv[0], argv[1], "aid_script_ghoulies_chapter1_scene3_1playcam");
         }
+        else if (chapter5_finale_test)
+        {
+            write_replay_save(argv[0], argv[1], "aid_script_ghoulies_chapter5_scene13_1book");
+        }
+        else if (chapter5_save_test)
+        {
+            write_replay_save(argv[0], argv[1], "aid_script_ghoulies_chapter5_scene1_1playcam");
+        }
         else if (scene6_reload_test)
         {
             if (saved_challenge_byte() == 0xFF || (saved_challenge_byte() & 6) != 6)
@@ -11512,7 +11527,7 @@ int main(int argc, char** argv)
             }
         }
         gbtg::set_save_root(test_save_folder());
-        game.init(argv[1], scene6_save_test || scene6_reload_test || pause_quit_test ? "" : scene6_test ? "6" : scene3_test || pause_test ? "7"
+        game.init(argv[1], scene6_save_test || scene6_reload_test || pause_quit_test || chapter5_save_test || chapter5_finale_test ? "" : scene6_test ? "6" : scene3_test || pause_test ? "7"
             : scene4_test ? "chapter1_scene4_1book" : scene5_test ? "chapter1_scene5_1playcam"
             : scene6_1_test ? "chapter1_scene6_1playcam"
             : scene7_test ? "chapter1_scene7_1playcam"
@@ -12509,6 +12524,78 @@ int main(int argc, char** argv)
             pass_chapter_title(game, "scene3_reload", "aid_script_ghoulies_chapter1_scene3_1playcam", false);
             play_scene3(game, false, 0);
             std::cout << "PASS: the reloaded game's scene 3 starts without the rare book\n";
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (chapter5_finale_test)
+        {
+            start_saved_game(game, "chapter5-finale-save");
+            int written = -1;
+            for (int frame = 0; frame < 3000 && written < 0; ++frame)
+            {
+                gbtg::gfx_begin_frame();
+                game.tick(1.f / 60.f, {});
+                const std::vector<char> bytes = saved_progress_file();
+                gbtg::u32 finale = 0;
+                if (bytes.size() >= 0x268)
+                {
+                    std::memcpy(&finale, bytes.data() + 0x264, 4);
+                }
+                if (finale != 0 && gbtg::g_save_scan->pending == 0)
+                {
+                    written = frame;
+                }
+            }
+            const std::vector<char> bytes = saved_progress_file();
+            if (written < 0)
+            {
+                std::cout << "FAIL: chapter5_scene13_1book's start set no +0x264 (scene " << game.scene_name << ")"
+                          << std::endl;
+                return 1;
+            }
+            gbtg::u32 gold = 0;
+            std::memcpy(&gold, bytes.data() + 0x260, 4);
+            std::cout << "PASS: chapter5_scene13_1book's start sets the save's +0x264 at frame " << written
+                      << " (book scene " << int(gbtg::u8(bytes[0x25D])) << ", gold " << gold << ")" << std::endl;
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (chapter5_save_test)
+        {
+            start_saved_game(game, "chapter5-save");
+            pass_chapter_title(game, "chapter5_save", "aid_script_ghoulies_chapter5_scene1_1playcam", false);
+            const std::vector<char> before = saved_progress_file();
+            play_scene7(game, "chapter5_save", 1000.f, {}, true, true);
+            int written = -1;
+            for (int frame = 0; frame < 3000 && written < 0; ++frame)
+            {
+                gbtg::gfx_begin_frame();
+                game.tick(1.f / 60.f, {});
+                const std::vector<char> bytes = saved_progress_file();
+                if (bytes.size() >= 0x268 && gbtg::u8(bytes[0x25D]) >= 2 && gbtg::g_save_scan->pending == 0)
+                {
+                    written = frame;
+                }
+            }
+            const std::vector<char> bytes = saved_progress_file();
+            if (written < 0 || before.size() < 0x268)
+            {
+                std::cout << "FAIL: scene 2's start wrote no chapter 5 book scene (scene " << game.scene_name
+                          << ")" << std::endl;
+                return 1;
+            }
+            const std::string script(bytes.data() + 0x102);
+            const int reached = gbtg::u8(bytes[0x25D]);
+            const bool times_kept = std::memcmp(before.data() + 0x18C, bytes.data() + 0x18C, 0x14) == 0;
+            std::cout << "chapter5-save: scene " << game.scene_name << ", book scene " << reached << ", script "
+                      << script << ", times " << (times_kept ? "kept" : "changed") << "\n";
+            if (reached != 2 || script != "aid_script_ghoulies_chapter5_scene1_1playcam" || !times_kept)
+            {
+                std::cout << "FAIL: chapter 5's scene 2 save holds book scene " << reached << " and script " << script
+                          << std::endl;
+                return 1;
+            }
+            std::cout << "PASS: chapter 5's scene 2 start saves book scene 2 and keeps scene 1's script and the times\n";
             gbtg::gfx_shutdown();
             return 0;
         }

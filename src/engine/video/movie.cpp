@@ -36,6 +36,13 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#else
+#include "gbtg/host_heap.h"
+#include <cerrno>
+#include <chrono>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #endif
 
 #if defined(GBTG_HAS_FFMPEG)
@@ -214,6 +221,307 @@ u8* allocate_movie_decoder_memory(u32 size)
 void free_movie_decoder_memory(u8* buffer)
 {
     _aligned_free(buffer);
+}
+
+void bind_native_movie_heap(RuntimeMovieStartupContext& context)
+{
+    context.allocate_buffer = allocate_movie_decoder_memory;
+    context.free_buffer = free_movie_decoder_memory;
+}
+#else
+namespace
+{
+// GetLastError for the POSIX file boundaries. Like Win32, a call sets it only on failure (and CreateFile on
+// an existing file it opens or replaces).
+thread_local u32 g_movie_last_error = 0;
+constexpr std::uintptr_t kInvalidHandle = ~std::uintptr_t(0);
+
+u32 win32_error_from_errno(int error)
+{
+    switch (error)
+    {
+    case ENOENT:
+        return 2; // ERROR_FILE_NOT_FOUND
+    case ENOTDIR:
+        return 3; // ERROR_PATH_NOT_FOUND
+    case EACCES:
+    case EPERM:
+    case EROFS:
+        return 5; // ERROR_ACCESS_DENIED
+    case EBADF:
+        return 6; // ERROR_INVALID_HANDLE
+    case EEXIST:
+        return 80; // ERROR_FILE_EXISTS
+    case ENOSPC:
+        return 112; // ERROR_DISK_FULL
+    case EINVAL:
+        return 87; // ERROR_INVALID_PARAMETER
+    default:
+        return 31; // ERROR_GEN_FAILURE
+    }
+}
+
+bool fail_with_errno()
+{
+    g_movie_last_error = win32_error_from_errno(errno);
+    return false;
+}
+
+int movie_fd(std::uintptr_t handle)
+{
+    return static_cast<int>(handle);
+}
+
+// FILETIME: 100 ns intervals since 1601-01-01.
+u64 filetime_from_timespec(const timespec& time)
+{
+    constexpr u64 kUnixEpochSeconds = 11644473600ull;
+    return (u64(time.tv_sec) + kUnixEpochSeconds) * 10000000ull + u64(time.tv_nsec) / 100ull;
+}
+
+timespec timespec_from_filetime(u64 time)
+{
+    constexpr u64 kUnixEpochSeconds = 11644473600ull;
+    timespec result{};
+    result.tv_sec = static_cast<time_t>(time / 10000000ull - kUnixEpochSeconds);
+    result.tv_nsec = static_cast<long>((time % 10000000ull) * 100ull);
+    return result;
+}
+
+struct PosixMovieRequest
+{
+    u32 transferred = 0;
+    bool done = false;
+};
+}
+
+void bind_native_movie_file_io(MovieFileBoundaries& files, FileWorkerBoundaries& worker)
+{
+    // Overlapped requests complete inside ReadFile/WriteFile here; GetOverlappedResult reports the bytes.
+    auto requests = std::make_shared<std::unordered_map<RuntimeMovieFile*, PosixMovieRequest>>();
+    files.allocate = []()
+    {
+        return new (std::nothrow) RuntimeMovieFile;
+    };
+    files.free = [requests](RuntimeMovieFile* file)
+    {
+        requests->erase(file);
+        delete file;
+    };
+    files.close = [](std::uintptr_t handle)
+    {
+        return ::close(movie_fd(handle)) == 0 ? true : fail_with_errno();
+    };
+    files.size = [](std::uintptr_t handle, u64& size)
+    {
+        struct stat info;
+        if (fstat(movie_fd(handle), &info) != 0)
+        {
+            return fail_with_errno();
+        }
+        size = static_cast<u64>(info.st_size);
+        return true;
+    };
+    files.read = [requests](RuntimeMovieFile& file, void* output, u32 size)
+    {
+        PosixMovieRequest& request = (*requests)[&file];
+        request = {};
+        const ssize_t count = pread(movie_fd(file.handle), output, size, static_cast<off_t>(file.offset));
+        if (count < 0)
+        {
+            return fail_with_errno();
+        }
+        request.transferred = static_cast<u32>(count);
+        request.done = true;
+        if (count == 0 && size != 0)
+        {
+            g_movie_last_error = 38; // ERROR_HANDLE_EOF
+            return false;
+        }
+        return true;
+    };
+    files.write = [requests](RuntimeMovieFile& file, const void* data, u32 size)
+    {
+        PosixMovieRequest& request = (*requests)[&file];
+        request = {};
+        const ssize_t count = pwrite(movie_fd(file.handle), data, size, static_cast<off_t>(file.offset));
+        if (count < 0)
+        {
+            return fail_with_errno();
+        }
+        request.transferred = static_cast<u32>(count);
+        request.done = true;
+        return true;
+    };
+    files.completed = [requests](RuntimeMovieFile& file, u32& transferred)
+    {
+        const auto found = requests->find(&file);
+        if (found == requests->end() || !found->second.done)
+        {
+            g_movie_last_error = 87; // ERROR_INVALID_PARAMETER: no request was issued.
+            return false;
+        }
+        transferred = found->second.transferred;
+        return true;
+    };
+    files.last_error = []()
+    {
+        return g_movie_last_error;
+    };
+    files.ticks = []()
+    {
+        const auto now = std::chrono::steady_clock::now().time_since_epoch();
+        return static_cast<u32>(std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
+    };
+    files.sector_size = [](const char* drive)
+    {
+        // GetDiskFreeSpaceA bytes per sector; host block devices report 512.
+        struct stat info;
+        if (stat(xbox_host_path(drive).c_str(), &info) != 0)
+        {
+            g_movie_last_error = win32_error_from_errno(errno);
+            return 0u;
+        }
+        return 512u;
+    };
+    files.seek = [](std::uintptr_t handle, std::int64_t distance, u64* output, u32 method)
+    {
+        // FILE_BEGIN / FILE_CURRENT / FILE_END match SEEK_SET / SEEK_CUR / SEEK_END.
+        const off_t position = lseek(movie_fd(handle), static_cast<off_t>(distance), static_cast<int>(method));
+        if (position < 0)
+        {
+            return fail_with_errno();
+        }
+        if (output != nullptr)
+        {
+            *output = static_cast<u64>(position);
+        }
+        return true;
+    };
+    files.end_file = [](std::uintptr_t handle)
+    {
+        const off_t position = lseek(movie_fd(handle), 0, SEEK_CUR);
+        if (position < 0 || ftruncate(movie_fd(handle), position) != 0)
+        {
+            return fail_with_errno();
+        }
+        return true;
+    };
+    files.cache_size = [](u32 capacity)
+    {
+        g_movie_io_cache = capacity;
+    };
+    files.file_time = [](std::uintptr_t handle, u64& output)
+    {
+        struct stat info;
+        if (fstat(movie_fd(handle), &info) != 0)
+        {
+            return fail_with_errno();
+        }
+        output = filetime_from_timespec(info.st_mtim);
+        return true;
+    };
+    files.set_file_time = [](std::uintptr_t handle, u64 time)
+    {
+        // Only the last write time; UTIME_OMIT keeps the access time.
+        timespec times[2];
+        times[0].tv_sec = 0;
+        times[0].tv_nsec = UTIME_OMIT;
+        times[1] = timespec_from_filetime(time);
+        return futimens(movie_fd(handle), times) == 0 ? true : fail_with_errno();
+    };
+    files.cancel = [](std::uintptr_t)
+    {
+        // Every request has already completed.
+        return true;
+    };
+    files.delete_file = [](const char* path)
+    {
+        return unlink(xbox_host_path(path).c_str()) == 0 ? true : fail_with_errno();
+    };
+    worker.create_file = [](const char* path, u32 access, u32, void*, u32 creation, u32, std::uintptr_t)
+    {
+        constexpr u32 kGenericRead = 0x80000000u;
+        constexpr u32 kGenericWrite = 0x40000000u;
+        int flags = O_CLOEXEC;
+        const bool reads = (access & kGenericRead) != 0;
+        const bool writes = (access & kGenericWrite) != 0;
+        flags |= writes ? (reads ? O_RDWR : O_WRONLY) : O_RDONLY;
+        const std::string host = xbox_host_path(path);
+        struct stat existing;
+        const bool existed = stat(host.c_str(), &existing) == 0;
+        switch (creation)
+        {
+        case 1: // CREATE_NEW
+            flags |= O_CREAT | O_EXCL;
+            break;
+        case 2: // CREATE_ALWAYS
+            flags |= O_CREAT | O_TRUNC;
+            break;
+        case 3: // OPEN_EXISTING
+            break;
+        case 4: // OPEN_ALWAYS
+            flags |= O_CREAT;
+            break;
+        case 5: // TRUNCATE_EXISTING
+            flags |= O_TRUNC;
+            break;
+        default:
+            g_movie_last_error = 87;
+            return kInvalidHandle;
+        }
+        const int fd = ::open(host.c_str(), flags, 0644);
+        if (fd < 0)
+        {
+            g_movie_last_error = win32_error_from_errno(errno);
+            return kInvalidHandle;
+        }
+        if (existed && (creation == 2 || creation == 4))
+        {
+            g_movie_last_error = 183; // ERROR_ALREADY_EXISTS
+        }
+        return static_cast<std::uintptr_t>(fd);
+    };
+    worker.last_error = files.last_error;
+    worker.set_last_error = [](u32 status)
+    {
+        g_movie_last_error = status;
+    };
+    worker.attributes = [](const char* path)
+    {
+        struct stat info;
+        if (stat(xbox_host_path(path).c_str(), &info) != 0)
+        {
+            g_movie_last_error = win32_error_from_errno(errno);
+            return 0xFFFFFFFFu; // INVALID_FILE_ATTRIBUTES
+        }
+        return S_ISDIR(info.st_mode) ? 0x10u /* FILE_ATTRIBUTE_DIRECTORY */ : 0x80u /* FILE_ATTRIBUTE_NORMAL */;
+    };
+    worker.create_directory = [](const char* path)
+    {
+        if (mkdir(xbox_host_path(path).c_str(), 0755) != 0)
+        {
+            g_movie_last_error = errno == EEXIST ? 183u : win32_error_from_errno(errno);
+            return false;
+        }
+        return true;
+    };
+    worker.debug_output = [](const char* text)
+    {
+        std::fputs(text, stderr);
+    };
+}
+
+// Xbox 0x001073E0
+u8* allocate_movie_decoder_memory(u32 size)
+{
+    return static_cast<u8*>(host_aligned_allocate(size, 4096));
+}
+
+// Xbox 0x00107400
+void free_movie_decoder_memory(u8* buffer)
+{
+    host_aligned_free(buffer);
 }
 
 void bind_native_movie_heap(RuntimeMovieStartupContext& context)

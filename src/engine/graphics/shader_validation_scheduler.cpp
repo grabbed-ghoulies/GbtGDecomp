@@ -1,6 +1,6 @@
 #include "shader_validation_scheduler.h"
+#include "gbtg/host_seh.h"
 #include "shader_validation_cleanup.h"
-#include <excpt.h>
 
 namespace gbtg
 {
@@ -353,13 +353,13 @@ bool schedule_shader_validation_program(ShaderValidationScheduleContext& context
     ScheduleLocals locals;
     i32 state = -1;
     bool result;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         result = schedule_body(context, pass, locals, state);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination())
+        if (GBTG_SEH_ABNORMAL())
         {
             if (state == 5)
             {
@@ -390,6 +390,7 @@ bool schedule_shader_validation_program(ShaderValidationScheduleContext& context
             }
         }
     }
+    GBTG_SEH_FINALLY_END
     return result;
 }
 

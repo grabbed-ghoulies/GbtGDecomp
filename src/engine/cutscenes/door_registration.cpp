@@ -1,4 +1,5 @@
 #include "door_registration.h"
+#include <cmath>
 #include "../frontend/dialogue_resources.h"
 #include "../graphics/pose_matrix.h"
 #include "../entities/entity_heap.h"

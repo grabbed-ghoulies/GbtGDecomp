@@ -50,7 +50,13 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(zlib)
 
-option(GBTG_WITH_SDL "Fetch SDL3 for a windowed tick loop (optional)" OFF)
+# Linux has no Win32 window or XInput: SDL3 owns the window, events and gamepads there.
+if(WIN32)
+    set(_gbtg_with_sdl_default OFF)
+else()
+    set(_gbtg_with_sdl_default ON)
+endif()
+option(GBTG_WITH_SDL "Fetch SDL3 for the window, events and gamepads (required off Windows)" ${_gbtg_with_sdl_default})
 
 if(GBTG_WITH_SDL)
     set(SDL_SHARED OFF CACHE BOOL "" FORCE)
@@ -798,12 +804,47 @@ if(NOT _gbtg_gfx_vulkan EQUAL -1)
     target_compile_definitions(gbtg PRIVATE GBTG_GFX_VULKAN)
     target_link_libraries(gbtg PRIVATE Vulkan::Vulkan)
     get_filename_component(_gbtg_vulkan_sdk "${Vulkan_INCLUDE_DIRS}" DIRECTORY)
-    set(GBTG_DXCOMPILER_DLL "${_gbtg_vulkan_sdk}/Bin/dxcompiler.dll")
+    if(WIN32)
+        set(GBTG_DXCOMPILER_DLL "${_gbtg_vulkan_sdk}/Bin/dxcompiler.dll")
+    else()
+        # Off Windows the system supplies the Vulkan loader and headers but neither VMA nor a DXC with SPIR-V
+        # output, which the LunarG SDK bundles on Windows. Fetch the same VMA and DXC's Linux release.
+        FetchContent_Declare(
+            vma
+            GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+            GIT_TAG v3.4.0
+            GIT_SHALLOW TRUE
+        )
+        FetchContent_Declare(
+            dxc_linux
+            URL https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2609/linux_dxc_2026_09_28.x86_x64.tar.gz
+            DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+        )
+        if(POLICY CMP0169)
+            cmake_policy(PUSH)
+            cmake_policy(SET CMP0169 OLD)
+        endif()
+        foreach(_gbtg_dep vma dxc_linux)
+            FetchContent_GetProperties(${_gbtg_dep})
+            if(NOT ${_gbtg_dep}_POPULATED)
+                FetchContent_Populate(${_gbtg_dep})
+            endif()
+        endforeach()
+        if(POLICY CMP0169)
+            cmake_policy(POP)
+        endif()
+        # vk_context.h includes "vma/vk_mem_alloc.h", the SDK's layout.
+        configure_file("${vma_SOURCE_DIR}/include/vk_mem_alloc.h"
+            "${CMAKE_CURRENT_BINARY_DIR}/vma_include/vma/vk_mem_alloc.h" COPYONLY)
+        target_include_directories(gbtg PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/vma_include" "${dxc_linux_SOURCE_DIR}/include")
+        target_link_libraries(gbtg PRIVATE ${CMAKE_DL_LIBS})
+        set(GBTG_DXCOMPILER_DLL "${dxc_linux_SOURCE_DIR}/lib/libdxcompiler.so")
+    endif()
     if(EXISTS "${GBTG_DXCOMPILER_DLL}")
         add_custom_command(TARGET gbtg POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GBTG_DXCOMPILER_DLL}" "$<TARGET_FILE_DIR:gbtg>")
     else()
-        message(WARNING "Vulkan SDK dxcompiler.dll not found at ${GBTG_DXCOMPILER_DLL}; set VULKAN_SDK at run time")
+        message(WARNING "Vulkan SDK DXC not found at ${GBTG_DXCOMPILER_DLL}; set VULKAN_SDK at run time")
     endif()
 endif()
 list(FIND GBTG_GFX d3d11 _gbtg_gfx_d3d11)
@@ -843,8 +884,12 @@ if(NOT _gbtg_gfx_d3d11 EQUAL -1 OR NOT _gbtg_gfx_vulkan EQUAL -1)
         "${imgui_SOURCE_DIR}/imgui_draw.cpp"
         "${imgui_SOURCE_DIR}/imgui_tables.cpp"
         "${imgui_SOURCE_DIR}/imgui_widgets.cpp"
-        "${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp"
     )
+    if(WIN32)
+        list(APPEND GBTG_IMGUI_SOURCES "${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp")
+    else()
+        list(APPEND GBTG_IMGUI_SOURCES "${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp")
+    endif()
     if(NOT _gbtg_gfx_d3d11 EQUAL -1)
         list(APPEND GBTG_IMGUI_SOURCES "${imgui_SOURCE_DIR}/backends/imgui_impl_dx11.cpp")
         target_sources(gbtg PRIVATE src/engine/graphics/debug_ui_d3d11.cpp)
@@ -856,11 +901,39 @@ if(NOT _gbtg_gfx_d3d11 EQUAL -1 OR NOT _gbtg_gfx_vulkan EQUAL -1)
     target_sources(gbtg PRIVATE ${GBTG_IMGUI_SOURCES} src/engine/graphics/debug_ui.cpp)
     target_compile_definitions(gbtg PRIVATE GBTG_DEBUG_UI_AVAILABLE IMGUI_IMPL_WIN32_DISABLE_GAMEPAD)
     target_include_directories(gbtg PRIVATE "${imgui_SOURCE_DIR}" "${imgui_SOURCE_DIR}/backends")
-    target_link_libraries(gbtg PRIVATE imm32)
+    if(WIN32)
+        target_link_libraries(gbtg PRIVATE imm32)
+    endif()
 endif()
 if(GBTG_WITH_SDL)
     target_compile_definitions(gbtg PRIVATE GBTG_WITH_SDL)
     target_link_libraries(gbtg PRIVATE SDL3::SDL3)
+    if(NOT WIN32)
+        # Keyboard and gamepads, which XInput and GetAsyncKeyState read on Windows.
+        target_sources(gbtg PRIVATE src/engine/runtime/sdl_input.cpp)
+        # FAudio implements the XAudio2 and X3DAudio API (src/engine/audio/xaudio2_host.h) over SDL3 audio.
+        set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
+        set(BUILD_SHARED_LIBS OFF)
+        set(BUILD_SDL3 ON CACHE BOOL "" FORCE)
+        set(FAUDIO_INSTALL OFF CACHE BOOL "" FORCE)
+        FetchContent_Declare(
+            FAudio
+            GIT_REPOSITORY https://github.com/FNA-XNA/FAudio.git
+            GIT_TAG 26.10
+            GIT_SHALLOW TRUE
+        )
+        FetchContent_MakeAvailable(FAudio)
+        unset(BUILD_SHARED_LIBS)
+        target_compile_definitions(gbtg PRIVATE GBTG_AUDIO_FAUDIO)
+        target_link_libraries(gbtg PRIVATE FAudio-static)
+    endif()
+elseif(NOT WIN32)
+    message(FATAL_ERROR "GBTG_WITH_SDL must be ON off Windows: SDL3 owns the window and input there")
+endif()
+if(UNIX)
+    # Shared libraries (DXC, FFmpeg, FAudio) ship beside the executable, as the DLLs do on Windows.
+    # Only $ORIGIN: the build copies every shared library beside gbtg, and packages carry no build paths.
+    set_target_properties(gbtg PROPERTIES INSTALL_RPATH "$ORIGIN" BUILD_WITH_INSTALL_RPATH ON)
 endif()
 
 option(GBTG_RETAIL_GAME_ONLY "Only compile retail game. No modifications." ON)
@@ -922,6 +995,38 @@ if(WIN32)
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "${dll}" "$<TARGET_FILE_DIR:gbtg>"
         )
     endforeach()
+elseif(UNIX)
+    # The same LGPL FFmpeg release, built from source with only what Bink playback needs: the Bink demuxer, its
+    # video and audio decoders, swscale and swresample. Shared libraries ship beside gbtg, as on Windows.
+    include(ExternalProject)
+    set(GBTG_FFMPEG_PREFIX "${CMAKE_CURRENT_BINARY_DIR}/ffmpeg-lgpl")
+    set(GBTG_FFMPEG_LIBNAMES avformat avcodec swscale swresample avutil)
+    set(GBTG_FFMPEG_SHARED_LIBS "")
+    foreach(lib ${GBTG_FFMPEG_LIBNAMES})
+        list(APPEND GBTG_FFMPEG_SHARED_LIBS "${GBTG_FFMPEG_PREFIX}/lib/lib${lib}.so")
+    endforeach()
+    ExternalProject_Add(ffmpeg_lgpl_build
+        URL https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n8.1.tar.gz
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+        CONFIGURE_COMMAND <SOURCE_DIR>/configure --prefix=${GBTG_FFMPEG_PREFIX} --cc=${CMAKE_C_COMPILER}
+            --enable-shared --disable-static --disable-programs --disable-doc --disable-autodetect
+            --disable-network --disable-avdevice --disable-avfilter --disable-x86asm --disable-everything
+            --enable-demuxer=bink --enable-decoder=bink,binkaudio_dct,binkaudio_rdft --enable-protocol=file
+        BUILD_COMMAND make -j8
+        INSTALL_COMMAND make install
+        BUILD_BYPRODUCTS ${GBTG_FFMPEG_SHARED_LIBS}
+    )
+    add_dependencies(gbtg ffmpeg_lgpl_build)
+    file(MAKE_DIRECTORY "${GBTG_FFMPEG_PREFIX}/include")
+    target_include_directories(gbtg PRIVATE "${GBTG_FFMPEG_PREFIX}/include")
+    target_compile_definitions(gbtg PRIVATE GBTG_HAS_FFMPEG)
+    target_link_libraries(gbtg PRIVATE ${GBTG_FFMPEG_SHARED_LIBS})
+    # The FFmpeg libraries load each other from beside gbtg too. DT_RPATH, unlike DT_RUNPATH, also applies to
+    # their dependencies.
+    target_link_options(gbtg PRIVATE "LINKER:--disable-new-dtags")
+    add_custom_command(TARGET gbtg POST_BUILD
+        COMMAND sh -c "cp -P '${GBTG_FFMPEG_PREFIX}'/lib/lib*.so* '$<TARGET_FILE_DIR:gbtg>'/"
+    )
 endif()
 
 if(MSVC)

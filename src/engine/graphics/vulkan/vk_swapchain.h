@@ -21,6 +21,8 @@ struct Swapchain
     VkSemaphore acquired = VK_NULL_HANDLE;
     int vsync = 1;
     bool stale = false; // Rebuild before the next acquire (resize, out of date).
+    // The window's size in pixels, for surfaces whose size the swapchain decides (Wayland reports no current extent).
+    VkExtent2D window_extent{};
 };
 
 // D3D11's SyncInterval: 0 presents immediately (mailbox, else immediate); 1 and 2 use FIFO, which has no

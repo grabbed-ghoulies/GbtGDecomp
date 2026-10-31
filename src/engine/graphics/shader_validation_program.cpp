@@ -1,6 +1,6 @@
 #include "shader_validation_program.h"
+#include "gbtg/host_seh.h"
 #include "shader_validation_setup.h"
-#include <excpt.h>
 
 namespace gbtg
 {
@@ -112,26 +112,28 @@ bool validate_shader_validation_program(ShaderValidationProgramContext& context,
     bool result = true;
     i32 state = 0;
     void* allocation;
-    __try
+    GBTG_SEH_TRY_EXCEPT
     {
-        __try
+        GBTG_SEH_TRY_FINALLY
         {
             validate_program_body(context, packed_program, state, allocation);
         }
-        __finally
+        GBTG_SEH_FINALLY
         {
-            if (AbnormalTermination() && state >= 1 && state <= 4)
+            if (GBTG_SEH_ABNORMAL() && state >= 1 && state <= 4)
             {
                 release_shader_validation_allocation(allocation, context.schedule.programs.dependencies.constructors.release);
             }
         }
+        GBTG_SEH_FINALLY_END
     }
-    __except (GetExceptionCode() == 0xE06D7363 ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH)
+    GBTG_SEH_EXCEPT_CODE(0xE06D7363)
     {
         // FuncInfo 0x0032BE70 catches every C++ exception in states 0..4;
         // the handler at 0x001973C2 clears the result byte and resumes cleanup.
         result = false;
     }
+    GBTG_SEH_EXCEPT_END
     state = -1;
     release_shader_validation_storage(context);
     context.schedule.programs.dependencies.constructors.active_owner = nullptr;

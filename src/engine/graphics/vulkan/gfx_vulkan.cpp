@@ -1,6 +1,10 @@
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#else
+#include <SDL3/SDL.h>
+#endif
 
 #include "vk_context.h"
 #include "vk_debug_ui.h"
@@ -179,7 +183,11 @@ struct GfxVulkan
 {
     GfxConfig cfg;
     bool ok = false;
-    HWND hwnd = nullptr;
+#if defined(_WIN32)
+    HWND window = nullptr;
+#else
+    SDL_Window* window = nullptr;
+#endif
     bool quit = false;
 
     vk::Context context;
@@ -227,8 +235,44 @@ struct GfxVulkan
     struct ProgramGpu
     {
         Shader shader;
+#if GBTG_OPTIMIZE
+        // GBTG_OPTIMIZE step 10 (Vulkan): the constant registers the program can read, [first, first + count).
+        u32 constants_first = 0;
+        u32 constants_count = 192;
+#endif
     };
     std::map<std::vector<u32>, ProgramGpu, ProgramKeyLess> native_programs;
+#if GBTG_OPTIMIZE
+    // GBTG_OPTIMIZE step 3 (Vulkan): native_programs lookups by the address of the program's words, verified
+    // against a copy of them, so a reused address with other words looks up again.
+    struct ProgramMemo
+    {
+        std::vector<u32> words;
+        ProgramGpu* program = nullptr;
+    };
+    std::unordered_map<const u32*, ProgramMemo> program_memo;
+    // GBTG_OPTIMIZE step 2 (Vulkan): what the current command buffer last set, so a draw sets only what differs.
+    // Push descriptors stay in effect until overwritten or until the set is disturbed, and dynamic state until set
+    // again; both are undefined when a command buffer begins, so `valid` starts false there and after any pass that
+    // binds another pipeline layout (the debug UI).
+    struct CommandState
+    {
+        bool valid = false;
+        std::array<VkDescriptorBufferInfo, 4> buffers{};
+        std::array<VkImageView, 4> views{};
+        std::array<VkSampler, 4> samplers{};
+        bool viewport_valid = false;
+        VkViewport viewport{};
+        VkRect2D scissor{};
+        bool stencil_valid = false;
+        u32 stencil_reference = 0;
+    } command_state;
+    // One-entry memos in front of the pipeline and specialized pixel shader maps.
+    std::array<u64, 10> last_pipeline_key{};
+    VkPipeline last_pipeline = VK_NULL_HANDLE;
+    std::array<u32, 60> last_pixel_words{};
+    const Shader* last_pixel = nullptr;
+#endif
     std::map<std::array<u32, 60>, std::unique_ptr<Shader>> specialized_pixels;
     std::map<std::array<u64, 10>, VkPipeline> pipelines;
     std::unordered_map<u32, VkSampler> samplers;
@@ -236,10 +280,26 @@ struct GfxVulkan
     // Images a recorded command may still read; destroyed once the next submission completes.
     std::vector<vk::Image> retired;
     bool native_batch = false;
+#if GBTG_OPTIMIZE
+    // GBTG_OPTIMIZE step 7: uploads of the presenter's retained geometry, by GfxNativeDraw::retained_geometry:
+    // program inputs, then the u32 indices at index_offset. An id's contents never change.
+    struct RetainedUpload
+    {
+        vk::Buffer buffer;
+        VkDeviceSize index_offset = 0;
+        u64 last_used = 0;
+    };
+    std::unordered_map<u64, RetainedUpload> retained_uploads;
+    VkDeviceSize retained_bytes = 0;
+    u64 frame_number = 0;
+    // Buffers a recorded command may still read, like `retired`.
+    std::vector<vk::Buffer> retired_buffers;
+#endif
 };
 
 GfxVulkan g;
 
+#if defined(_WIN32)
 LRESULT CALLBACK gfx_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
 #if defined(GBTG_DEBUG_UI)
@@ -264,6 +324,33 @@ LRESULT CALLBACK gfx_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
+#else
+// The SDL counterpart of gfx_wndproc.
+void handle_window_event(const SDL_Event& event)
+{
+#if defined(GBTG_DEBUG_UI)
+    if (debug_ui_sdl_event(&event))
+    {
+        return;
+    }
+    // Escape quits the process. While the menu bar is open it stays with ImGui.
+    if (debug_ui_menu_open() && event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE)
+    {
+        return;
+    }
+#endif
+    if (event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED)
+    {
+        g.swapchain.window_extent = {u32(std::max(event.window.data1, 0)), u32(std::max(event.window.data2, 0))};
+        g.swapchain.stale = true;
+    }
+    if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED
+        || (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE))
+    {
+        g.quit = true;
+    }
+}
+#endif
 
 Shader make_shader(std::string_view source, const char* entry, const char* profile, bool strict = false)
 {
@@ -303,6 +390,9 @@ void ensure_recording()
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vk::check(vkBeginCommandBuffer(g.command, &begin), "vkBeginCommandBuffer");
     g.recording = true;
+#if GBTG_OPTIMIZE
+    g.command_state = {};
+#endif
 }
 
 void end_rendering()
@@ -388,7 +478,85 @@ void submit(VkSemaphore wait = VK_NULL_HANDLE, VkSemaphore signal = VK_NULL_HAND
         vk::image_destroy(g.context, image);
     }
     g.retired.clear();
+#if GBTG_OPTIMIZE
+    for (vk::Buffer& buffer : g.retired_buffers)
+    {
+        vk::buffer_destroy(g.context, buffer);
+    }
+    g.retired_buffers.clear();
+#endif
 }
+
+#if GBTG_OPTIMIZE
+constexpr VkDeviceSize kRetainedUploadBytes = VkDeviceSize(256) << 20;
+constexpr u64 kRetainedUploadIdleFrames = 600;
+
+void retire_retained_upload(GfxVulkan::RetainedUpload& upload)
+{
+    g.retained_bytes -= upload.buffer.size;
+    g.retired_buffers.push_back(upload.buffer);
+    upload.buffer = {};
+}
+
+// GBTG_OPTIMIZE step 7: the buffer holding a retained geometry id, filled on its first draw.
+GfxVulkan::RetainedUpload& retained_upload(const GfxNativeDraw& draw)
+{
+    auto found = g.retained_uploads.find(draw.retained_geometry);
+    if (found != g.retained_uploads.end())
+    {
+        if (render_profile::enabled)
+        {
+            // Counted as uploaded at the top of gfx_draw_native; this draw uploads nothing.
+            render_profile::frame.uploaded_bytes -= draw.program_inputs.size_bytes() + draw.indices.size_bytes();
+        }
+        found->second.last_used = g.frame_number;
+        return found->second;
+    }
+    const VkDeviceSize vertex_bytes = draw.program_inputs.size_bytes();
+    const VkDeviceSize total = vertex_bytes + draw.indices.size_bytes();
+    if (g.retained_bytes + total > kRetainedUploadBytes)
+    {
+        for (auto& [id, upload] : g.retained_uploads)
+        {
+            (void)id;
+            retire_retained_upload(upload);
+        }
+        g.retained_uploads.clear();
+    }
+    GfxVulkan::RetainedUpload upload;
+    upload.buffer = vk::buffer_create(g.context, total, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+    std::memcpy(upload.buffer.mapped, draw.program_inputs.data(), size_t(vertex_bytes));
+    std::memcpy(upload.buffer.mapped + vertex_bytes, draw.indices.data(), draw.indices.size_bytes());
+    upload.index_offset = vertex_bytes;
+    upload.last_used = g.frame_number;
+    g.retained_bytes += upload.buffer.size;
+    if (render_profile::enabled)
+    {
+        ++render_profile::frame.buffer_allocations;
+    }
+    return g.retained_uploads.emplace(draw.retained_geometry, upload).first->second;
+}
+
+void age_retained_uploads()
+{
+    if (++g.frame_number % 128 != 0)
+    {
+        return;
+    }
+    for (auto upload = g.retained_uploads.begin(); upload != g.retained_uploads.end();)
+    {
+        if (upload->second.last_used + kRetainedUploadIdleFrames < g.frame_number)
+        {
+            retire_retained_upload(upload->second);
+            upload = g.retained_uploads.erase(upload);
+        }
+        else
+        {
+            ++upload;
+        }
+    }
+}
+#endif
 
 // Makes `bytes` (with alignment slack) available in the ring without another submission, so the offsets a draw
 // takes from ring_take stay valid until it is recorded.
@@ -424,6 +592,55 @@ VkDeviceSize ring_take(const void* data, VkDeviceSize bytes, VkDeviceSize alignm
     g.ring_cursor = offset + bytes;
     return offset;
 }
+
+#if GBTG_OPTIMIZE
+// GBTG_OPTIMIZE step 10 (Vulkan): ring_take of a `bytes` slot, copying only [copy_begin, copy_begin + copy_bytes)
+// of `data`. The rest of the slot keeps earlier ring contents, which the shader never reads.
+VkDeviceSize ring_take_range(const void* data, VkDeviceSize bytes, VkDeviceSize alignment, VkDeviceSize copy_begin,
+                             VkDeviceSize copy_bytes)
+{
+    const VkDeviceSize offset = (g.ring_cursor + alignment - 1) / alignment * alignment;
+    if (offset + bytes > g.ring.size || copy_begin + copy_bytes > bytes)
+    {
+        throw Error("vulkan: upload ring overflow");
+    }
+    std::memcpy(g.ring.mapped + offset + copy_begin, static_cast<const u8*>(data) + copy_begin, size_t(copy_bytes));
+    g.ring_cursor = offset + bytes;
+    return offset;
+}
+
+// The registers of `vc` a translated program reads (xbox_vertex_hlsl: an operand of kind 3 reads the instruction's
+// constant index, plus the address register when the relative bit is set). Every constant-kind operand counts,
+// whether or not its MAC/ILU operation uses it, and any relative read takes the whole file.
+void program_constant_range(std::span<const u32> program, u32& first, u32& count)
+{
+    u32 lowest = 192;
+    u32 highest = 0;
+    for (size_t n = 1; n + 3 < program.size(); n += 4)
+    {
+        const u32* w = program.data() + n;
+        const bool constant = ((w[2] >> 26) & 3) == 3 || ((w[2] >> 11) & 3) == 3 || ((w[3] >> 28) & 3) == 3;
+        if (constant)
+        {
+            const u32 index = (w[1] >> 13) & 255;
+            if ((w[3] & 2) != 0 || index >= 192)
+            {
+                first = 0;
+                count = 192;
+                return;
+            }
+            lowest = std::min(lowest, index);
+            highest = std::max(highest, index);
+        }
+        if ((w[3] & 1) != 0)
+        {
+            break;
+        }
+    }
+    first = lowest > highest ? 0 : lowest;
+    count = lowest > highest ? 0 : highest - lowest + 1;
+}
+#endif
 
 VkDeviceSize uniform_alignment()
 {
@@ -746,9 +963,19 @@ void vertex_input(VertexLayout layout, std::vector<VkVertexInputAttributeDescrip
 VkPipeline pipeline(const PipelineState& state)
 {
     const auto key = state.key();
+#if GBTG_OPTIMIZE
+    if (g.last_pipeline != VK_NULL_HANDLE && g.last_pipeline_key == key)
+    {
+        return g.last_pipeline;
+    }
+#endif
     auto found = g.pipelines.find(key);
     if (found != g.pipelines.end())
     {
+#if GBTG_OPTIMIZE
+        g.last_pipeline_key = key;
+        g.last_pipeline = found->second;
+#endif
         return found->second;
     }
     render_profile::Scope compilation(render_profile::Compilation);
@@ -924,6 +1151,17 @@ void set_viewport_and_scissor(const VkRect2D& scissor)
 {
     const VkViewport viewport{g.viewport.x, g.viewport.y + g.viewport.height, g.viewport.width, -g.viewport.height,
                               0.f, 1.f};
+#if GBTG_OPTIMIZE
+    auto& state = g.command_state;
+    if (state.viewport_valid && std::memcmp(&state.viewport, &viewport, sizeof(viewport)) == 0
+        && std::memcmp(&state.scissor, &scissor, sizeof(scissor)) == 0)
+    {
+        return;
+    }
+    state.viewport_valid = true;
+    state.viewport = viewport;
+    state.scissor = scissor;
+#endif
     vkCmdSetViewport(g.command, 0, 1, &viewport);
     vkCmdSetScissor(g.command, 0, 1, &scissor);
 }
@@ -999,6 +1237,51 @@ void push_descriptors(const DrawBindings& bindings)
         images[stage].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         samplers[stage].sampler = bindings.samplers[stage] != VK_NULL_HANDLE ? bindings.samplers[stage] : g.wrap_sampler;
     }
+#if GBTG_OPTIMIZE
+    auto& state = g.command_state;
+    VkWriteDescriptorSet changed[12]{};
+    u32 count = 0;
+    for (u32 n = 0; n < 4; ++n)
+    {
+        const bool buffer_same = state.valid && state.buffers[n].buffer == buffers[n].buffer
+            && state.buffers[n].offset == buffers[n].offset && state.buffers[n].range == buffers[n].range;
+        if (!buffer_same)
+        {
+            changed[count] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+            changed[count].dstBinding = vk::kConstantBinding + n;
+            changed[count].descriptorCount = 1;
+            changed[count].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            changed[count].pBufferInfo = &buffers[n];
+            ++count;
+            state.buffers[n] = buffers[n];
+        }
+        if (!state.valid || state.views[n] != images[n].imageView)
+        {
+            changed[count] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+            changed[count].dstBinding = vk::kTextureBinding + n;
+            changed[count].descriptorCount = 1;
+            changed[count].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+            changed[count].pImageInfo = &images[n];
+            ++count;
+            state.views[n] = images[n].imageView;
+        }
+        if (!state.valid || state.samplers[n] != samplers[n].sampler)
+        {
+            changed[count] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+            changed[count].dstBinding = vk::kSamplerBinding + n;
+            changed[count].descriptorCount = 1;
+            changed[count].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+            changed[count].pImageInfo = &samplers[n];
+            ++count;
+            state.samplers[n] = samplers[n].sampler;
+        }
+    }
+    state.valid = true;
+    if (count != 0)
+    {
+        g.context.push_descriptor_set(g.command, VK_PIPELINE_BIND_POINT_GRAPHICS, g.pipeline_layout, 0, count, changed);
+    }
+#else
     VkWriteDescriptorSet writes[12]{};
     for (u32 n = 0; n < 4; ++n)
     {
@@ -1019,6 +1302,7 @@ void push_descriptors(const DrawBindings& bindings)
         writes[8 + n].pImageInfo = &samplers[n];
     }
     g.context.push_descriptor_set(g.command, VK_PIPELINE_BIND_POINT_GRAPHICS, g.pipeline_layout, 0, 12, writes);
+#endif
 }
 
 void bind_pipeline(VkPipeline pipeline)
@@ -1034,6 +1318,13 @@ void bind_pipeline(VkPipeline pipeline)
 // Same HLSL equations, register dependencies, alpha test and outputs as the generic reference.
 const Shader* native_pixel_shader(const u32* definition)
 {
+#if GBTG_OPTIMIZE
+    if (g.last_pixel != nullptr && !render_profile::reference
+        && std::memcmp(g.last_pixel_words.data(), definition, sizeof(g.last_pixel_words)) == 0)
+    {
+        return g.last_pixel;
+    }
+#endif
     gfx_check_native_pixel_definition(definition);
     if (render_profile::reference)
     {
@@ -1044,7 +1335,14 @@ const Shader* native_pixel_shader(const u32* definition)
     auto found = g.specialized_pixels.find(key);
     if (found != g.specialized_pixels.end())
     {
+#if GBTG_OPTIMIZE
+        std::memcpy(g.last_pixel_words.data(), definition, sizeof(g.last_pixel_words));
+        // A null entry (compilation fell back) is returned as stored and is never memoised.
+        g.last_pixel = found->second.get();
         return found->second.get();
+#else
+        return found->second.get();
+#endif
     }
     render_profile::Scope compilation(render_profile::Compilation);
     const std::string source = gfx_specialize_native_pixel_source(g.model_source, key);
@@ -1119,7 +1417,7 @@ void draw_sprite_quad(VkImageView view, const GfxRect& rect)
 // Copies the back buffer onto the window and presents it. Without a window this only submits.
 void present_frame_image()
 {
-    if (g.hwnd == nullptr || !vk::swapchain_ready(g.context, g.swapchain))
+    if (g.window == nullptr || !vk::swapchain_ready(g.context, g.swapchain))
     {
         submit();
         return;
@@ -1168,6 +1466,9 @@ void present_frame_image()
         rendering.pColorAttachments = &attachment;
         vkCmdBeginRendering(g.command, &rendering);
         vk::debug_ui_render(g.command);
+#if GBTG_OPTIMIZE
+        g.command_state = {};
+#endif
         vkCmdEndRendering(g.command);
     }
     vk::image_barrier(g.command, image, VK_IMAGE_ASPECT_COLOR_BIT, layout, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
@@ -1352,6 +1653,20 @@ void release_all()
         vk::image_destroy(g.context, image);
     }
     g.retired.clear();
+#if GBTG_OPTIMIZE
+    for (auto& [id, upload] : g.retained_uploads)
+    {
+        (void)id;
+        vk::buffer_destroy(g.context, upload.buffer);
+    }
+    g.retained_uploads.clear();
+    g.retained_bytes = 0;
+    for (vk::Buffer& buffer : g.retired_buffers)
+    {
+        vk::buffer_destroy(g.context, buffer);
+    }
+    g.retired_buffers.clear();
+#endif
     for (auto& [image, texture] : g.textures)
     {
         (void)image;
@@ -1364,6 +1679,10 @@ void release_all()
         vkDestroyPipeline(g.context.device, created, nullptr);
     }
     g.pipelines.clear();
+#if GBTG_OPTIMIZE
+    g.last_pipeline = VK_NULL_HANDLE;
+    g.last_pixel = nullptr;
+#endif
     for (auto& [key, sampler] : g.samplers)
     {
         (void)key;
@@ -1376,6 +1695,9 @@ void release_all()
         destroy_shader(gpu.shader);
     }
     g.native_programs.clear();
+#if GBTG_OPTIMIZE
+    g.program_memo.clear();
+#endif
     for (auto& [key, shader] : g.specialized_pixels)
     {
         (void)key;
@@ -1456,6 +1778,7 @@ bool initialize(const GfxConfig& cfg)
 
     if (cfg.visible)
     {
+#if defined(_WIN32)
         WNDCLASSEXW wc{};
         wc.cbSize = sizeof(wc);
         wc.lpfnWndProc = gfx_wndproc;
@@ -1467,17 +1790,37 @@ bool initialize(const GfxConfig& cfg)
         RegisterClassExW(&wc);
         RECT rect{0, 0, width, height};
         AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, FALSE);
-        g.hwnd = CreateWindowW(wc.lpszClassName, L"Grabbed by the Ghoulies", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+        g.window = CreateWindowW(wc.lpszClassName, L"Grabbed by the Ghoulies", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
                                rect.right - rect.left, rect.bottom - rect.top, nullptr, nullptr, wc.hInstance, nullptr);
-        if (!g.hwnd)
+        if (!g.window)
         {
             log::error("vulkan: CreateWindow failed");
             return false;
         }
+#else
+        if (!SDL_InitSubSystem(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
+        {
+            log::error("vulkan: SDL_InitSubSystem: %s", SDL_GetError());
+            return false;
+        }
+        // SDL3 fullscreen is borderless at the desktop mode, which is what Gamescope expects on the Steam Deck.
+        g.window = SDL_CreateWindow("Grabbed by the Ghoulies", width, height,
+                                    SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN
+                                        | (cfg.fullscreen ? SDL_WINDOW_FULLSCREEN : 0));
+        if (!g.window)
+        {
+            log::error("vulkan: SDL_CreateWindow: %s", SDL_GetError());
+            return false;
+        }
+        int pixel_width = width;
+        int pixel_height = height;
+        SDL_GetWindowSizeInPixels(g.window, &pixel_width, &pixel_height);
+        g.swapchain.window_extent = {u32(pixel_width), u32(pixel_height)};
+#endif
     }
 
-    vk::context_create(g.context, g.hwnd);
-    if (g.hwnd != nullptr)
+    vk::context_create(g.context, g.window);
+    if (g.window != nullptr)
     {
         vk::swapchain_create(g.context, g.swapchain, cfg.vsync);
     }
@@ -1520,10 +1863,14 @@ bool initialize(const GfxConfig& cfg)
         return false;
     }
     g.viewport = full_viewport();
-    if (g.hwnd)
+    if (g.window)
     {
-        ShowWindow(g.hwnd, SW_SHOW);
-        vk::debug_ui_init(g.context, g.hwnd, VK_FORMAT_B8G8R8A8_UNORM, u32(std::max<size_t>(2, g.swapchain.images.size())));
+#if defined(_WIN32)
+        ShowWindow(g.window, SW_SHOW);
+#else
+        SDL_ShowWindow(g.window);
+#endif
+        vk::debug_ui_init(g.context, g.window, VK_FORMAT_B8G8R8A8_UNORM, u32(std::max<size_t>(2, g.swapchain.images.size())));
     }
     g.ok = true;
     return true;
@@ -1553,9 +1900,14 @@ bool gfx_init(const GfxConfig& cfg)
 void gfx_shutdown()
 {
     release_all();
-    if (g.hwnd)
+    if (g.window)
     {
-        DestroyWindow(g.hwnd);
+#if defined(_WIN32)
+        DestroyWindow(g.window);
+#else
+        SDL_DestroyWindow(g.window);
+        SDL_QuitSubSystem(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD);
+#endif
     }
     g = GfxVulkan{};
 }
@@ -1567,22 +1919,30 @@ const char* gfx_backend_name()
 
 bool gfx_has_window()
 {
-    return g.hwnd != nullptr;
+    return g.window != nullptr;
 }
 
 void gfx_pump(bool& quit)
 {
     quit = false;
-    if (!g.hwnd)
+    if (!g.window)
     {
         return;
     }
+#if defined(_WIN32)
     MSG msg;
     while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE))
     {
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
+#else
+    SDL_Event event;
+    while (SDL_PollEvent(&event))
+    {
+        handle_window_event(event);
+    }
+#endif
     quit = g.quit;
 }
 
@@ -1602,6 +1962,9 @@ void gfx_begin_frame()
         }
     }
     g.frame_finished = false;
+#if GBTG_OPTIMIZE
+    age_retained_uploads();
+#endif
     begin_rendering();
     clear_attachments(whole_target(), true, {0.f, 0.f, 0.f, 1.f}, VK_IMAGE_ASPECT_DEPTH_BIT, 1.f);
     g.viewport = full_viewport();
@@ -1626,19 +1989,53 @@ void gfx_clear_ui_depth(int left, int top, int right, int bottom)
     clear_attachments(rect, false, {}, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, 1.f);
 }
 
+#if GBTG_OPTIMIZE
+// GBTG_OPTIMIZE step 3 (Vulkan): native_programs.find through program_memo.
+GfxVulkan::ProgramGpu* find_native_program(std::span<const u32> program)
+{
+    const auto memo = g.program_memo.find(program.data());
+    if (memo != g.program_memo.end() && memo->second.words.size() == program.size()
+        && std::memcmp(memo->second.words.data(), program.data(), program.size_bytes()) == 0)
+    {
+        return memo->second.program;
+    }
+    const auto found = g.native_programs.find(program);
+    if (found == g.native_programs.end())
+    {
+        return nullptr;
+    }
+    if (g.program_memo.size() >= 4096)
+    {
+        g.program_memo.clear();
+    }
+    g.program_memo[program.data()] = {std::vector<u32>(program.begin(), program.end()), &found->second};
+    return &found->second;
+}
+#endif
+
 bool gfx_native_vertex_program_supported(std::span<const u32> program)
 {
     if (!g.ok || render_profile::reference || render_profile::cpu_vertex)
     {
         return false;
     }
+#if GBTG_OPTIMIZE
+    if (const GfxVulkan::ProgramGpu* known = find_native_program(program))
+    {
+        return known->shader.module != VK_NULL_HANDLE;
+    }
+#else
     auto found = g.native_programs.find(program);
     if (found != g.native_programs.end())
     {
         return found->second.shader.module != VK_NULL_HANDLE;
     }
+#endif
     render_profile::Scope compilation(render_profile::Compilation);
     GfxVulkan::ProgramGpu gpu;
+#if GBTG_OPTIMIZE
+    program_constant_range(program, gpu.constants_first, gpu.constants_count);
+#endif
     const auto body = xbox_vertex_hlsl(program);
     if (render_profile::enabled && body.empty())
     {
@@ -1823,17 +2220,33 @@ void gfx_draw_native(const GfxNativeDraw& draw)
         pixel = native_pixel_shader(draw.pixel_shader);
     }
     const Shader* vertex = &g.native_vs;
+#if GBTG_OPTIMIZE
+    const GfxVulkan::ProgramGpu* program_gpu = nullptr;
+#endif
     if (program_draw)
     {
         if (draw.vertex_constants == nullptr)
         {
             throw Error("native vertex constants map failed");
         }
+#if GBTG_OPTIMIZE
+        program_gpu = find_native_program(draw.vertex_program);
+        vertex = &program_gpu->shader;
+#else
         vertex = &g.native_programs.find(draw.vertex_program)->second.shader;
+#endif
     }
 
     const VkDeviceSize vertex_bytes = program_draw ? draw.program_inputs.size_bytes() : draw.vertices.size_bytes();
+#if GBTG_OPTIMIZE
+    // GBTG_OPTIMIZE step 7: retained geometry draws from its own buffer; the ring keeps the rest.
+    GfxVulkan::RetainedUpload* retained = program_draw && draw.retained_geometry != 0 && !draw.indices.empty()
+        ? &retained_upload(draw) : nullptr;
+    ring_reserve((retained != nullptr ? 0 : vertex_bytes + draw.indices.size_bytes()) + sizeof(cb) + sizeof(words)
+                 + kConstantsBytes);
+#else
     ring_reserve(vertex_bytes + draw.indices.size_bytes() + sizeof(cb) + sizeof(words) + kConstantsBytes);
+#endif
     const VkDeviceSize alignment = uniform_alignment();
     bindings.camera = ring_take(&cb, sizeof(cb), alignment);
     if (draw.pixel_shader != nullptr)
@@ -1842,12 +2255,36 @@ void gfx_draw_native(const GfxNativeDraw& draw)
     }
     if (program_draw)
     {
+#if GBTG_OPTIMIZE
+        bindings.constants = ring_take_range(draw.vertex_constants->data(), kConstantsBytes, alignment,
+                                             VkDeviceSize(program_gpu->constants_first) * 16,
+                                             VkDeviceSize(program_gpu->constants_count) * 16);
+#else
         bindings.constants = ring_take(draw.vertex_constants->data(), kConstantsBytes, alignment);
+#endif
     }
+#if GBTG_OPTIMIZE
+    VkBuffer vertex_buffer = g.ring.buffer;
+    VkDeviceSize vertex_offset = 0;
+    VkDeviceSize index_offset = 0;
+    if (retained != nullptr)
+    {
+        vertex_buffer = retained->buffer.buffer;
+        index_offset = retained->index_offset;
+    }
+    else
+    {
+        vertex_offset = ring_take(program_draw ? static_cast<const void*>(draw.program_inputs.data())
+                                               : static_cast<const void*>(draw.vertices.data()),
+                                  vertex_bytes, 16);
+        index_offset = draw.indices.empty() ? 0 : ring_take(draw.indices.data(), draw.indices.size_bytes(), 4);
+    }
+#else
     const VkDeviceSize vertex_offset = ring_take(program_draw ? static_cast<const void*>(draw.program_inputs.data())
                                                               : static_cast<const void*>(draw.vertices.data()),
                                                  vertex_bytes, 16);
     const VkDeviceSize index_offset = draw.indices.empty() ? 0 : ring_take(draw.indices.data(), draw.indices.size_bytes(), 4);
+#endif
 
     PipelineState state;
     state.vertex = vertex;
@@ -1885,16 +2322,33 @@ void gfx_draw_native(const GfxNativeDraw& draw)
     begin_rendering();
     bind_pipeline(draw_pipeline);
     set_viewport_and_scissor(native_rectangle(draw.scissor));
+#if GBTG_OPTIMIZE
+    if (!g.command_state.stencil_valid || g.command_state.stencil_reference != (draw.stencil_reference & 0xFF))
+    {
+        vkCmdSetStencilReference(g.command, VK_STENCIL_FACE_FRONT_AND_BACK, draw.stencil_reference & 0xFF);
+        g.command_state.stencil_valid = true;
+        g.command_state.stencil_reference = draw.stencil_reference & 0xFF;
+    }
+#else
     vkCmdSetStencilReference(g.command, VK_STENCIL_FACE_FRONT_AND_BACK, draw.stencil_reference & 0xFF);
+#endif
     push_descriptors(bindings);
+#if GBTG_OPTIMIZE
+    vkCmdBindVertexBuffers(g.command, 0, 1, &vertex_buffer, &vertex_offset);
+#else
     vkCmdBindVertexBuffers(g.command, 0, 1, &g.ring.buffer, &vertex_offset);
+#endif
     if (draw.indices.empty())
     {
         vkCmdDraw(g.command, u32(draw.vertices.size()), 1, 0, 0);
     }
     else
     {
+#if GBTG_OPTIMIZE
+        vkCmdBindIndexBuffer(g.command, vertex_buffer, index_offset, VK_INDEX_TYPE_UINT32);
+#else
         vkCmdBindIndexBuffer(g.command, g.ring.buffer, index_offset, VK_INDEX_TYPE_UINT32);
+#endif
         vkCmdDrawIndexed(g.command, u32(draw.indices.size()), 1, 0, 0, 0);
     }
 }
@@ -2072,7 +2526,7 @@ void gfx_draw_sprite(const RgbaImage& image, const GfxRect& rect)
 
 void gfx_show_startup_loading_screen(const RgbaImage& text, float progress)
 {
-    if (!g.ok || g.hwnd == nullptr || g.cfg.width <= 0 || g.cfg.height <= 0 || text.width <= 0 || text.height <= 0)
+    if (!g.ok || g.window == nullptr || g.cfg.width <= 0 || g.cfg.height <= 0 || text.width <= 0 || text.height <= 0)
     {
         return;
     }
@@ -2176,7 +2630,7 @@ void gfx_end_frame()
 
 void gfx_present_again()
 {
-    if (!g.ok || g.hwnd == nullptr || !g.frame_finished)
+    if (!g.ok || g.window == nullptr || !g.frame_finished)
     {
         return;
     }

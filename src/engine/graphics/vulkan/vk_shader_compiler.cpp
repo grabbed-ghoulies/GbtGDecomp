@@ -1,13 +1,19 @@
+#if defined(_WIN32)
 // dxcapi.h needs the COM declarations WIN32_LEAN_AND_MEAN leaves out.
 #define NOMINMAX
 #include <windows.h>
+#endif
 
 #include "vk_shader_compiler.h"
 
 #include "gbtg/log.h"
 
 #include <dxc/dxcapi.h>
+#if defined(_WIN32)
 #include <wrl/client.h>
+#else
+#include <dlfcn.h>
+#endif
 
 #include <cstdio>
 #include <cstdlib>
@@ -17,12 +23,52 @@
 #include <iterator>
 #include <string>
 
+#if defined(_WIN32)
 using Microsoft::WRL::ComPtr;
+#endif
 
 namespace gbtg::vk
 {
 namespace
 {
+
+#if !defined(_WIN32)
+// WRL is Windows-only. DXC's Linux release declares IUnknown in WinAdapter.h; this owns one reference the same way.
+template <class T>
+class ComPtr
+{
+  public:
+    ComPtr() = default;
+    ComPtr(const ComPtr&) = delete;
+    ComPtr& operator=(const ComPtr&) = delete;
+    ComPtr(ComPtr&& other) noexcept : pointer_(other.pointer_)
+    {
+        other.pointer_ = nullptr;
+    }
+    ~ComPtr()
+    {
+        if (pointer_ != nullptr)
+        {
+            pointer_->Release();
+        }
+    }
+    T* operator->() const
+    {
+        return pointer_;
+    }
+    explicit operator bool() const
+    {
+        return pointer_ != nullptr;
+    }
+    T** GetAddressOf()
+    {
+        return &pointer_;
+    }
+
+  private:
+    T* pointer_ = nullptr;
+};
+#endif
 
 struct Dxc
 {
@@ -30,6 +76,7 @@ struct Dxc
     ComPtr<IDxcCompiler3> compiler;
 };
 
+#if defined(_WIN32)
 // The SPIR-V capable dxcompiler.dll: beside the executable, else the Vulkan SDK's. The Windows SDK ships a
 // dxcompiler.dll without SPIR-V code generation, so the loader's search path is not used.
 HMODULE load_dxcompiler()
@@ -53,11 +100,44 @@ HMODULE load_dxcompiler()
     throw Error("vulkan: dxcompiler.dll (Vulkan SDK) was not found beside the executable or in %VULKAN_SDK%\\Bin");
 }
 
+DxcCreateInstanceProc dxc_create_instance()
+{
+    return reinterpret_cast<DxcCreateInstanceProc>(GetProcAddress(load_dxcompiler(), "DxcCreateInstance"));
+}
+#else
+// DXC's Linux libdxcompiler.so: beside the executable (packaged builds), else the Vulkan SDK's.
+void* load_dxcompiler()
+{
+    std::error_code error;
+    const std::filesystem::path executable = std::filesystem::read_symlink("/proc/self/exe", error);
+    if (!error)
+    {
+        if (void* module = dlopen((executable.parent_path() / "libdxcompiler.so").c_str(), RTLD_NOW | RTLD_LOCAL))
+        {
+            return module;
+        }
+    }
+    if (const char* sdk = std::getenv("VULKAN_SDK"))
+    {
+        if (void* module = dlopen((std::filesystem::path(sdk) / "lib" / "libdxcompiler.so").c_str(), RTLD_NOW | RTLD_LOCAL))
+        {
+            return module;
+        }
+    }
+    throw Error("vulkan: libdxcompiler.so was not found beside the executable or in $VULKAN_SDK/lib");
+}
+
+DxcCreateInstanceProc dxc_create_instance()
+{
+    return reinterpret_cast<DxcCreateInstanceProc>(dlsym(load_dxcompiler(), "DxcCreateInstance"));
+}
+#endif
+
 Dxc& dxc()
 {
     static Dxc instance = []
     {
-        const auto create = reinterpret_cast<DxcCreateInstanceProc>(GetProcAddress(load_dxcompiler(), "DxcCreateInstance"));
+        const auto create = dxc_create_instance();
         Dxc created;
         if (create == nullptr || FAILED(create(CLSID_DxcUtils, IID_PPV_ARGS(created.utils.GetAddressOf())))
             || FAILED(create(CLSID_DxcCompiler, IID_PPV_ARGS(created.compiler.GetAddressOf()))))

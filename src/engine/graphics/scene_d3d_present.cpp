@@ -9,6 +9,7 @@
 #include <bit>
 #include <cmath>
 #include <cstring>
+#include <optional>
 #include <string>
 #include <unordered_map>
 
@@ -471,6 +472,91 @@ std::array<float, 4> clip_position(const XboxVector& screen)
         screen[2] / SceneD3DDevice::kDepthScale * w, w};
 }
 
+#if GBTG_OPTIMIZE
+// GBTG_OPTIMIZE step 7: GPU program inputs decoded from the same raw bytes are kept across frames. An entry is
+// reused only when its declaration, stream bindings, index bytes and every stream byte it decoded are unchanged,
+// so resource writes, unloads and address reuse decode again. Constants are not inputs; address validation still
+// runs against each draw's constants.
+struct RetainedStream
+{
+    u32 stream = 0;
+    const u8* data = nullptr;
+    u32 stride = 0;
+    size_t begin = 0;
+    std::vector<u8> bytes;
+};
+
+struct RetainedGeometry
+{
+    std::array<i32, 32> declaration{};
+    u32 primitive = 0;
+    u32 count = 0;
+    bool sequential = false;
+    u32 first = 0;
+    const u8* index_data = nullptr;
+    std::vector<u8> index_bytes;
+    std::vector<RetainedStream> streams;
+    std::vector<GfxNativeInputs> inputs;
+    std::vector<u32> indices;
+    u64 id = 0; // GfxNativeDraw::retained_geometry: new for every rebuilt entry.
+    u64 last_used = 0;
+    size_t bytes = 0;
+};
+
+struct RetainedGeometryCache
+{
+    std::unordered_map<u64, RetainedGeometry> entries;
+    u64 next_id = 1;
+    u64 pass = 0; // present_scene_d3d_commands calls.
+    size_t bytes = 0;
+};
+
+RetainedGeometryCache g_retained_geometry;
+constexpr size_t kRetainedGeometryBytes = size_t(192) << 20;
+constexpr u64 kRetainedGeometryIdlePasses = 600;
+
+// A lookup key only: entries are verified field by field, so collisions cost a decode, not correctness.
+u64 mix_retained_key(u64 hash, const void* data, size_t size)
+{
+    const auto* bytes = static_cast<const u8*>(data);
+    size_t index = 0;
+    for (; index + 8 <= size; index += 8)
+    {
+        u64 word;
+        std::memcpy(&word, bytes + index, 8);
+        hash = (hash ^ word) * 0x100000001b3ull;
+        hash ^= hash >> 29;
+    }
+    for (; index < size; ++index)
+    {
+        hash = (hash ^ bytes[index]) * 0x100000001b3ull;
+    }
+    return hash;
+}
+
+// Drops entries no draw has used for a while; called once per presented command list.
+void age_retained_geometry()
+{
+    auto& cache = g_retained_geometry;
+    if (++cache.pass % 128 != 0)
+    {
+        return;
+    }
+    for (auto entry = cache.entries.begin(); entry != cache.entries.end();)
+    {
+        if (entry->second.last_used + kRetainedGeometryIdlePasses < cache.pass)
+        {
+            cache.bytes -= entry->second.bytes;
+            entry = cache.entries.erase(entry);
+        }
+        else
+        {
+            ++entry;
+        }
+    }
+}
+#endif
+
 void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentContext& context)
 {
     const auto shader = context.vertex_shaders.find(state(draw.states, SceneD3DDevice::kVertexShader, 0));
@@ -529,16 +615,33 @@ void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentConte
                                          : context.memory.resolve(draw.indices, size_t(draw.count) * 2);
     const bool gpu_vertex = gfx_native_vertex_program_supported(shader->second.program);
 #if GBTG_OPTIMIZE
-    // GBTG_OPTIMIZE step 3: the address checks depend only on the program's words.
-    thread_local std::vector<u32> validated_program;
-    thread_local std::vector<XboxVertexAddressValidation> program_validation;
-    thread_local const std::vector<XboxVertexAddressValidation> no_validation;
-    if (gpu_vertex && validated_program != shader->second.program)
+    // GBTG_OPTIMIZE step 3: the address checks depend only on the program's words. They are kept per program,
+    // keyed by the address of its words and verified against a copy of them, so draws that alternate programs
+    // do not rebuild them.
+    struct ProgramValidation
     {
-        program_validation = xbox_vertex_address_validation(shader->second.program);
-        validated_program = shader->second.program;
+        std::vector<u32> words;
+        std::vector<XboxVertexAddressValidation> checks;
+    };
+    thread_local std::unordered_map<const u32*, ProgramValidation> program_validations;
+    thread_local const std::vector<XboxVertexAddressValidation> no_validation;
+    const std::vector<XboxVertexAddressValidation>* validation_checks = &no_validation;
+    if (gpu_vertex)
+    {
+        const auto& words = shader->second.program;
+        auto known = program_validations.find(words.data());
+        if (known == program_validations.end() || known->second.words != words)
+        {
+            if (program_validations.size() >= 4096)
+            {
+                program_validations.clear();
+            }
+            known = program_validations.insert_or_assign(words.data(),
+                ProgramValidation{words, xbox_vertex_address_validation(words)}).first;
+        }
+        validation_checks = &known->second.checks;
     }
-    const auto& address_validation = gpu_vertex ? program_validation : no_validation;
+    const auto& address_validation = *validation_checks;
 #else
     const auto address_validation = gpu_vertex ? xbox_vertex_address_validation(shader->second.program) : std::vector<XboxVertexAddressValidation>{};
 #endif
@@ -553,10 +656,83 @@ void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentConte
             ++render_profile::frame.cpu_vertex_draws;
         }
     }
+#if GBTG_OPTIMIZE
+    // GBTG_OPTIMIZE step 7: reuse the inputs this draw decoded before, when nothing they came from has changed.
+    const bool retain = gpu_vertex && !render_profile::reference;
+    u64 retained_key = 0xcbf29ce484222325ull;
+    RetainedGeometry* retained = nullptr;
+    if (retain)
+    {
+        const auto& declaration = shader->second.declaration;
+        retained_key = mix_retained_key(retained_key, declaration.data(), sizeof(declaration));
+        const u32 shape[4]{draw.primitive, draw.count, draw.sequential ? 1u : 0u, draw.first};
+        retained_key = mix_retained_key(retained_key, shape, sizeof(shape));
+        const u8* index_data = indices.data();
+        retained_key = mix_retained_key(retained_key, &index_data, sizeof(index_data));
+        for (u32 slot = 0; slot < streams.size(); ++slot)
+        {
+            if (streams[slot].data != nullptr)
+            {
+                retained_key = mix_retained_key(retained_key, &slot, sizeof(slot));
+                retained_key = mix_retained_key(retained_key, &streams[slot].data, sizeof(streams[slot].data));
+                retained_key = mix_retained_key(retained_key, &streams[slot].stride, sizeof(streams[slot].stride));
+            }
+        }
+        const auto found = g_retained_geometry.entries.find(retained_key);
+        if (found != g_retained_geometry.entries.end())
+        {
+            const RetainedGeometry& entry = found->second;
+            bool same = entry.declaration == declaration && entry.primitive == draw.primitive && entry.count == draw.count
+                && entry.sequential == draw.sequential && entry.first == draw.first && entry.index_data == index_data
+                && entry.index_bytes.size() == indices.size()
+                && (indices.empty() || std::memcmp(entry.index_bytes.data(), indices.data(), indices.size()) == 0);
+            for (const RetainedStream& stream : entry.streams)
+            {
+                if (!same)
+                {
+                    break;
+                }
+                const auto& current = streams[stream.stream];
+                same = current.data == stream.data && current.stride == stream.stride
+                    && stream.begin + stream.bytes.size() <= current.size
+                    && std::memcmp(current.data + stream.begin, stream.bytes.data(), stream.bytes.size()) == 0;
+            }
+            if (same)
+            {
+                retained = &found->second;
+                retained->last_used = g_retained_geometry.pass;
+                // Input-relative addresses passed for these exact inputs when the entry was built; constant-relative
+                // ones are the same for every vertex. One vertex therefore checks what the whole draw would.
+                if (!address_validation.empty())
+                {
+                    validate_xbox_vertex_address(address_validation, retained->inputs.front(), draw.constants);
+                }
+                if (render_profile::enabled)
+                {
+                    render_profile::frame.vertices += retained->inputs.size();
+                    render_profile::frame.shader_instructions += u64(shader->second.program[0] >> 16) * retained->inputs.size();
+                }
+            }
+        }
+    }
+#endif
     thread_local std::vector<GfxNativeInputs> gpu_inputs;
     gpu_inputs.clear();
+#if GBTG_OPTIMIZE
+    // GBTG_OPTIMIZE step 7: GPU-program draws use only `inputs`, which the decode rewrites for every vertex, so
+    // they share scratch state instead of zeroing and copying 6 KB per draw. CPU interpreter draws start from a
+    // zeroed state holding the draw's constants, as before.
+    thread_local XboxVertexProgramState gpu_program_state;
+    std::optional<XboxVertexProgramState> cpu_program_state;
+    XboxVertexProgramState& program = gpu_vertex ? gpu_program_state : cpu_program_state.emplace();
+    if (!gpu_vertex)
+    {
+        program.constants = draw.constants;
+    }
+#else
     XboxVertexProgramState program{};
     program.constants = draw.constants;
+#endif
     // Indices are u16. Scratch is bounded and reset per draw; constants and resource bytes
     // are always reread, so mutation, scene unload and address reuse cannot leave stale vertices.
     thread_local std::array<i32, 65536> slots;
@@ -632,6 +808,94 @@ void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentConte
     };
     thread_local std::vector<GfxNativeVertex> vertices;
     thread_local std::vector<u32> retained_indices;
+#if GBTG_OPTIMIZE
+    if (retained == nullptr)
+    {
+        vertices.clear();
+        retained_indices.clear();
+        u32 lowest = 0xFFFF;
+        u32 highest = 0;
+        for (const u32 position : triangle_order(draw.primitive, draw.count))
+        {
+            u16 index;
+            if (draw.sequential)
+            {
+                index = u16(draw.first + position);
+            }
+            else
+            {
+                std::memcpy(&index, indices.data() + position * 2, 2);
+            }
+            const auto& value = vertex(index);
+            lowest = std::min<u32>(lowest, index);
+            highest = std::max<u32>(highest, index);
+            if (render_profile::reference)
+            {
+                vertices.push_back(value);
+            }
+            else
+            {
+                retained_indices.push_back(u32(slots[index]));
+            }
+        }
+        if (retain && !gpu_inputs.empty())
+        {
+            // The bytes the decode read: per stream, from the lowest index's first input to the highest's last.
+            RetainedGeometry entry;
+            entry.declaration = shader->second.declaration;
+            entry.primitive = draw.primitive;
+            entry.count = draw.count;
+            entry.sequential = draw.sequential;
+            entry.first = draw.first;
+            entry.index_data = indices.data();
+            entry.index_bytes.assign(indices.begin(), indices.end());
+            for (const auto& input : inputs)
+            {
+                const auto& stream = streams[input.stream];
+                const size_t begin = size_t(lowest) * stream.stride + input.offset;
+                const size_t end = size_t(highest) * stream.stride + input.offset + type_size(input.type);
+                auto existing = std::find_if(entry.streams.begin(), entry.streams.end(),
+                    [&](const RetainedStream& retained_stream) { return retained_stream.stream == input.stream; });
+                if (existing == entry.streams.end())
+                {
+                    entry.streams.push_back({input.stream, stream.data, stream.stride, begin, {}});
+                    existing = entry.streams.end() - 1;
+                    existing->bytes.resize(end - begin);
+                }
+                else if (begin < existing->begin || end > existing->begin + existing->bytes.size())
+                {
+                    const size_t merged_end = std::max(end, existing->begin + existing->bytes.size());
+                    existing->begin = std::min(begin, existing->begin);
+                    existing->bytes.resize(merged_end - existing->begin);
+                }
+            }
+            for (RetainedStream& stream : entry.streams)
+            {
+                std::memcpy(stream.bytes.data(), stream.data + stream.begin, stream.bytes.size());
+                entry.bytes += stream.bytes.size();
+            }
+            entry.inputs = gpu_inputs;
+            entry.indices = retained_indices;
+            entry.bytes += entry.index_bytes.size() + entry.inputs.size() * sizeof(GfxNativeInputs)
+                + entry.indices.size() * sizeof(u32);
+            entry.id = g_retained_geometry.next_id++;
+            entry.last_used = g_retained_geometry.pass;
+            auto& cache = g_retained_geometry;
+            if (const auto previous = cache.entries.find(retained_key); previous != cache.entries.end())
+            {
+                cache.bytes -= previous->second.bytes;
+                cache.entries.erase(previous);
+            }
+            if (cache.bytes + entry.bytes > kRetainedGeometryBytes)
+            {
+                cache.entries.clear();
+                cache.bytes = 0;
+            }
+            cache.bytes += entry.bytes;
+            retained = &cache.entries.emplace(retained_key, std::move(entry)).first->second;
+        }
+    }
+#else
     vertices.clear();
     retained_indices.clear();
     for (const u32 position : triangle_order(draw.primitive, draw.count))
@@ -655,6 +919,7 @@ void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentConte
             retained_indices.push_back(u32(slots[index]));
         }
     }
+#endif
     GfxNativeDraw output;
     output.lines = line_primitive(draw.primitive);
     output.vertices = render_profile::reference ? std::span<const GfxNativeVertex>(vertices) : std::span<const GfxNativeVertex>(shaded);
@@ -666,6 +931,14 @@ void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentConte
         output.vertex_program = shader->second.program;
         output.vertex_constants = &draw.constants;
     }
+#if GBTG_OPTIMIZE
+    if (retained != nullptr)
+    {
+        output.program_inputs = retained->inputs;
+        output.indices = retained->indices;
+        output.retained_geometry = retained->id;
+    }
+#endif
     for (u32 stage = 0; stage < 4; ++stage)
     {
         if (draw.textures[stage] != nullptr)
@@ -1140,6 +1413,9 @@ void present_scene_d3d_commands(std::span<const SceneD3DCommand> commands, const
         };
     }
     render_profile::Scope measurement(render_profile::Presenter);
+#if GBTG_OPTIMIZE
+    age_retained_geometry();
+#endif
     struct Batch
     {
         Batch()

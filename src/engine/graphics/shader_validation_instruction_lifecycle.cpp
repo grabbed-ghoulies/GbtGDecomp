@@ -1,6 +1,6 @@
 #include "shader_validation_instruction_lifecycle.h"
+#include "gbtg/host_seh.h"
 #include "shader_validation_destinations.h"
-#include <excpt.h>
 
 namespace gbtg
 {
@@ -9,7 +9,7 @@ void destroy_shader_validation_operand(ShaderValidationConstructorContext& conte
 {
     operand.base.vtable_address = 0x0020380C;
     i32 state = 1;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         if (operand.parent != nullptr)
         {
@@ -27,14 +27,15 @@ void destroy_shader_validation_operand(ShaderValidationConstructorContext& conte
         destroy_shader_validation_channel_order(operand.channel_order);
         destroy_shader_validation_registered_object(context.object_erase, operand.base, context.retail_address(&operand));
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination() && state == 1)
+        if (GBTG_SEH_ABNORMAL() && state == 1)
         {
             destroy_shader_validation_channel_order(operand.channel_order);
             destroy_shader_validation_registered_object(context.object_erase, operand.base, context.retail_address(&operand));
         }
     }
+    GBTG_SEH_FINALLY_END
 }
 
 // Xbox 0x00193FC0
@@ -172,13 +173,13 @@ void destroy_instruction_body(ShaderValidationInstructionDestroyContext& context
 void destroy_shader_validation_owner(ShaderValidationOwnerDestroyContext& context, ShaderValidationOwner& owner)
 {
     i32 state = -1;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         destroy_owner_body(context, owner, state);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination())
+        if (GBTG_SEH_ABNORMAL())
         {
             auto& dependencies = context.instructions.dependencies;
             if (state == 1)
@@ -192,6 +193,7 @@ void destroy_shader_validation_owner(ShaderValidationOwnerDestroyContext& contex
             }
         }
     }
+    GBTG_SEH_FINALLY_END
 }
 
 // Xbox 0x00194088
@@ -209,13 +211,13 @@ ShaderValidationOwner* delete_shader_validation_owner(ShaderValidationOwnerDestr
 void destroy_shader_validation_instruction(ShaderValidationInstructionDestroyContext& context, ShaderValidationInstruction& instruction)
 {
     i32 state = -1;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         destroy_instruction_body(context, instruction, state);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination() && state == 3)
+        if (GBTG_SEH_ABNORMAL() && state == 3)
         {
             destroy_shader_validation_channel_mask(instruction.scalar_mask);
             destroy_shader_validation_channel_mask(instruction.vector_mask);
@@ -224,6 +226,7 @@ void destroy_shader_validation_instruction(ShaderValidationInstructionDestroyCon
             destroy_shader_validation_registered_object(constructors.object_erase, instruction.base, constructors.retail_address(&instruction));
         }
     }
+    GBTG_SEH_FINALLY_END
 }
 
 // Xbox 0x001937D8

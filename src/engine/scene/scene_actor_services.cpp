@@ -1,4 +1,5 @@
 #include "../entities/mind_target_policy.h"
+#include "gbtg/clock.h"
 #include "chapter5_countdown.h"
 #include "../entities/powerup_flags.h"
 #include "scene_actor_services.h"
@@ -197,10 +198,6 @@
 #include <map>
 #include <unordered_set>
 
-extern "C"
-{
-    __declspec(dllimport) int __stdcall QueryPerformanceCounter(void* counter);
-}
 
 namespace gbtg
 {
@@ -3757,9 +3754,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {read_f32(data(0x00425154, 8), 0), read_f32(data(0x00425154, 8), 4)}, fallback_texture.data(), 0.f, 0,
         []() -> std::int64_t
         {
-            std::int64_t counter = 0;
-            QueryPerformanceCounter(&counter);
-            return counter;
+            return host_performance_counter();
         }, read_f32(data(0x00424908, 4), 0), read_f32(data(0x0042490C, 4), 0)});
     display_setup = std::make_unique<RuntimeDisplaySetupContext>(RuntimeDisplaySetupContext{*dialogue_draw,
         clip_bounds, device_projection, device_view, device_world, projection_transpose, default_world, frontend_pause,

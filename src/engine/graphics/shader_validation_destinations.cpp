@@ -1,12 +1,8 @@
 #include "shader_validation_destinations.h"
+#include "gbtg/host_seh.h"
 #include "shader_validation_channel_ops.h"
 #include "shader_validation_cleanup.h"
 #include "shader_validation_instruction_ops.h"
-#if defined(_WIN32)
-#include <excpt.h>
-#else
-#error Shader validator destination unwind requires the approved Windows SEH backend.
-#endif
 
 namespace gbtg
 {
@@ -185,14 +181,14 @@ ShaderValidationOwner* replace_shader_validation_output_destination(ShaderValida
 {
     i32 state = -1;
     ShaderValidationChannelMask temporary;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         replace_destination_body(instruction, owner, mask, instruction.output_register,
             instruction.output_mask, temporary, state);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination())
+        if (GBTG_SEH_ABNORMAL())
         {
             // FuncInfo 0x0032B7CC: states 1/2 destroy EBP-0x18, then state 0 destroys EBP+0x0c.
             if (state == 1 || state == 2)
@@ -205,6 +201,7 @@ ShaderValidationOwner* replace_shader_validation_output_destination(ShaderValida
             }
         }
     }
+    GBTG_SEH_FINALLY_END
     return owner;
 }
 
@@ -220,14 +217,14 @@ ShaderValidationOwner* replace_shader_validation_vector_destination(ShaderValida
 {
     i32 state = -1;
     ShaderValidationChannelMask temporary;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         replace_destination_body(instruction, owner, mask, instruction.vector_destination,
             instruction.vector_mask, temporary, state);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination())
+        if (GBTG_SEH_ABNORMAL())
         {
             // FuncInfo 0x0032B7CC: states 1/2 destroy EBP-0x18, then state 0 destroys EBP+0x0c.
             if (state == 1 || state == 2)
@@ -240,6 +237,7 @@ ShaderValidationOwner* replace_shader_validation_vector_destination(ShaderValida
             }
         }
     }
+    GBTG_SEH_FINALLY_END
     return owner;
 }
 
@@ -255,14 +253,14 @@ ShaderValidationOwner* replace_shader_validation_scalar_destination(ShaderValida
 {
     i32 state = -1;
     ShaderValidationChannelMask temporary;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         replace_destination_body(instruction, owner, mask, instruction.scalar_destination,
             instruction.scalar_mask, temporary, state);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination())
+        if (GBTG_SEH_ABNORMAL())
         {
             // FuncInfo 0x0032B7CC: states 1/2 destroy EBP-0x18, then state 0 destroys EBP+0x0c.
             if (state == 1 || state == 2)
@@ -275,6 +273,7 @@ ShaderValidationOwner* replace_shader_validation_scalar_destination(ShaderValida
             }
         }
     }
+    GBTG_SEH_FINALLY_END
     return owner;
 }
 
@@ -288,7 +287,7 @@ void set_shader_validation_scalar_destination(ShaderValidationInstruction& instr
 void set_shader_validation_masked_writers(ShaderValidationOwner& owner, ShaderValidationChannelMask mask,
     ShaderValidationChannelWriter writer)
 {
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         for (u32 channel = 0; channel < 4; ++channel)
         {
@@ -298,13 +297,14 @@ void set_shader_validation_masked_writers(ShaderValidationOwner& owner, ShaderVa
             }
         }
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination())
+        if (GBTG_SEH_ABNORMAL())
         {
             // FuncInfo 0x0032B848, state 0: 0x00170823 destroys EBP+8.
             destroy_shader_validation_channel_mask(mask);
         }
     }
+    GBTG_SEH_FINALLY_END
 }
 }

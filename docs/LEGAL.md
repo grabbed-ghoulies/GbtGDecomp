@@ -19,7 +19,7 @@ End users must supply their own retail files. Tools accept `--game-dir` (an extr
 
 ## Bink movies
 
-In-game clips in `movie/` are Bink (`BIKi`). `gbtg.exe` decodes them with FFmpeg's LGPL Bink decoder, fetched at build time and copied beside the executable. The RAD SDK stays out of the tree, and the XBE `BINK*` sections are not translated. FFmpeg's license is LGPL; the shared libraries next to `gbtg.exe` are that build.
+In-game clips in `movie/` are Bink (`BIKi`). `gbtg.exe` decodes them with FFmpeg's LGPL Bink decoder, fetched at build time and copied beside the executable. The RAD SDK stays out of the tree, and the XBE `BINK*` sections are not translated. FFmpeg's license is LGPL; the shared libraries next to `gbtg.exe` are that build. Linux builds compile the same FFmpeg release from unmodified source with only the Bink demuxer and decoders enabled, and ship it as shared libraries beside `gbtg`; the Linux package carries the LGPL text and the other libraries' licences in `licenses/`.
 
 ## Third-party research
 

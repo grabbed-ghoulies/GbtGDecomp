@@ -1,13 +1,9 @@
 #include "shader_validation_pass_lifecycle.h"
+#include "gbtg/host_seh.h"
 #include "shader_validation_cleanup.h"
 #include "shader_validation_destinations.h"
 #include "shader_validation_instruction_lifecycle.h"
 #include <bit>
-#if defined(_WIN32)
-#include <excpt.h>
-#else
-#error Shader validator constructor unwind requires the approved Windows SEH backend.
-#endif
 
 namespace gbtg
 {
@@ -318,18 +314,19 @@ ShaderValidationOwner* create_shader_validation_constant_owner(ShaderValidationC
     i32 state = -1;
     void* allocation = nullptr;
     ShaderValidationOwner* owner = nullptr;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         owner = create_constant_owner_body(context, pass, source, use_pass_owner, state, allocation);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination() && state == 0)
+        if (GBTG_SEH_ABNORMAL() && state == 0)
         {
             // Xbox 0x001709B7: FuncInfo 0x0032B8CC frees the owner allocation.
             release_shader_validation_allocation(allocation, context.release);
         }
     }
+    GBTG_SEH_FINALLY_END
     return owner;
 }
 
@@ -345,7 +342,7 @@ ShaderValidationOwner* get_shader_validation_input_owner(ShaderValidationConstru
     void* allocation = nullptr;
     ShaderValidationOwner* owner = nullptr;
     i32 state = -1;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         allocation = context.allocate(sizeof(ShaderValidationOwner), 0x24870000);
         state = 0;
@@ -360,14 +357,15 @@ ShaderValidationOwner* get_shader_validation_input_owner(ShaderValidationConstru
         ShaderValidationPassNode* inserted;
         set_shader_validation_pass_value(pass.values.tree.nodes, context.allocate, &inserted, source, owner);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination() && state == 0)
+        if (GBTG_SEH_ABNORMAL() && state == 0)
         {
             // Xbox 0x001709B7: shares FuncInfo 0x0032B8CC with 0x001935E6.
             release_shader_validation_allocation(allocation, context.release);
         }
     }
+    GBTG_SEH_FINALLY_END
     return owner;
 }
 
@@ -377,7 +375,7 @@ ShaderValidationOwner* select_shader_validation_owner(ShaderValidationConstructo
     ShaderValidationChannelMask mask)
 {
     ShaderValidationOwner* result = nullptr;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         if (kind == 1)
         {
@@ -399,14 +397,15 @@ ShaderValidationOwner* select_shader_validation_owner(ShaderValidationConstructo
             result = nullptr;
         }
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination())
+        if (GBTG_SEH_ABNORMAL())
         {
             // Xbox 0x00170A4D: FuncInfo 0x0032BB74 destroys the by-value mask.
             destroy_shader_validation_channel_mask(mask);
         }
     }
+    GBTG_SEH_FINALLY_END
     return result;
 }
 
@@ -450,7 +449,7 @@ void destroy_shader_validation_program_pass(ShaderValidationPassDestroyContext& 
     const std::function<void(ShaderValidationBalancedNode&, u32)>& deleting_destructor)
 {
     i32 state = -1;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         pass.base.base.vtable_address = 0x00203820;
         state = 0;
@@ -459,14 +458,15 @@ void destroy_shader_validation_program_pass(ShaderValidationPassDestroyContext& 
         state = -1;
         destroy_shader_validation_pass(context, pass.base);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination() && state == 0)
+        if (GBTG_SEH_ABNORMAL() && state == 0)
         {
             // Xbox 0x001709CB: FuncInfo 0x0032BA58 destroys the base pass.
             destroy_shader_validation_pass(context, pass.base);
         }
     }
+    GBTG_SEH_FINALLY_END
 }
 
 // Xbox 0x00193EBE
@@ -488,13 +488,13 @@ ShaderValidationProgramPass* delete_shader_validation_program_pass(ShaderValidat
 void destroy_shader_validation_pass(ShaderValidationPassDestroyContext& context, ShaderValidationPass& pass)
 {
     i32 state = -1;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         destroy_pass_body(context, pass, state);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination())
+        if (GBTG_SEH_ABNORMAL())
         {
             // FuncInfo 0x0032BA34 unwinds 4 -> 3 -> 2 -> 1 -> 0 -> -1.
             switch (state)
@@ -523,5 +523,6 @@ void destroy_shader_validation_pass(ShaderValidationPassDestroyContext& context,
             }
         }
     }
+    GBTG_SEH_FINALLY_END
 }
 }

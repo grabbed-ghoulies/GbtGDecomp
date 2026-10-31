@@ -5,6 +5,7 @@
 #define NOMINMAX
 #include <windows.h>
 #endif
+#include <utility>
 
 namespace gbtg
 {
@@ -12,6 +13,21 @@ namespace
 {
 std::filesystem::path g_save_root;
 std::filesystem::path g_utility_root = "cache/xbox_utility";
+
+// Xbox paths use backslashes; POSIX hosts need forward slashes. This is the one translation point.
+std::string host_separators(std::string path)
+{
+#ifndef _WIN32
+    for (char& character : path)
+    {
+        if (character == '\\')
+        {
+            character = '/';
+        }
+    }
+#endif
+    return path;
+}
 
 std::filesystem::path executable_directory()
 {
@@ -21,6 +37,13 @@ std::filesystem::path executable_directory()
     if (length != 0)
     {
         return std::filesystem::path(buffer.substr(0, length)).parent_path();
+    }
+#else
+    std::error_code link_error;
+    const std::filesystem::path executable = std::filesystem::read_symlink("/proc/self/exe", link_error);
+    if (!link_error)
+    {
+        return executable.parent_path();
     }
 #endif
     std::error_code ec;
@@ -66,8 +89,8 @@ std::string xbox_host_path(const char* path)
         const char* rest = path[2] == '\0' ? path + 2 : path + 3;
         host += '\\';
         host += rest;
-        return host;
+        return host_separators(std::move(host));
     }
-    return path;
+    return host_separators(path);
 }
 }

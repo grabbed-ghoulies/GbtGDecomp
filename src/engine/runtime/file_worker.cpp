@@ -6,6 +6,10 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#else
+#include <cstdio>
+#include <mutex>
+#include <thread>
 #endif
 
 namespace gbtg
@@ -71,7 +75,33 @@ void bind_native_file_worker_synchronization(FileWorkerBoundaries& boundaries)
         OutputDebugStringA(message);
     };
 #else
-    throw Error("native retail file-worker synchronization requires Windows");
+    // The host never creates the worker thread (RuntimeFileWorker::thread stays 0), so dispatch runs
+    // operations inline. A section here is a std::recursive_mutex, which has RtlEnterCriticalSection's
+    // reentrancy. POSIX cannot suspend another thread, so resume and suspend raise if a worker ever exists.
+    boundaries.enter = [](void* section)
+    {
+        static_cast<std::recursive_mutex*>(section)->lock();
+    };
+    boundaries.leave = [](void* section)
+    {
+        static_cast<std::recursive_mutex*>(section)->unlock();
+    };
+    boundaries.resume = [](std::uintptr_t)
+    {
+        throw Error("file worker ResumeThread has no POSIX host boundary");
+    };
+    boundaries.suspend = [](std::uintptr_t)
+    {
+        throw Error("file worker SuspendThread has no POSIX host boundary");
+    };
+    boundaries.yield = []()
+    {
+        std::this_thread::yield();
+    };
+    boundaries.debug_output = [](const char* message)
+    {
+        std::fputs(message, stderr);
+    };
 #endif
 }
 

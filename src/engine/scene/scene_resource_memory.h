@@ -1,6 +1,7 @@
 #pragma once
 #include "gbtg/model_relocation.h"
 #include "gbtg/model_runtime.h"
+#include <array>
 #include <functional>
 #include <map>
 #include <vector>
@@ -32,6 +33,16 @@ public:
 private:
     std::map<u32, std::vector<u8>> blocks_;
     u32 next_ = 0x40000000; // Native address arena, not an emulated heap implementation.
+    // GBTG_OPTIMIZE step 8: the blocks recent lookups found, tried first (a draw alternates between its stream and
+    // index blocks). Blocks never move, resize or overlap after allocate, so they answer exactly as the map would
+    // for an address or pointer strictly inside them; free clears them. Declared in every build so the class
+    // layout does not depend on the option.
+    using Block = std::pair<const u32, std::vector<u8>>;
+    const Block* recent_for_address(u32 address) const;
+    const Block* recent_for_pointer(const u8* pointer) const;
+    void remember(const Block* block) const;
+    mutable std::array<const Block*, 4> recent_blocks_{};
+    mutable u32 recent_next_ = 0;
 };
 
 // Host D3D state behind the model relocation boundaries. The PC renderer keeps no Xbox D3D headers,

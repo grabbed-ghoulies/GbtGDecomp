@@ -40,17 +40,71 @@ void SceneResourceMemory::free(u32 address)
     {
         on_free(block->second.data(), block->second.size());
     }
+#if GBTG_OPTIMIZE
+    recent_blocks_ = {};
+#endif
     blocks_.erase(block);
+}
+
+const SceneResourceMemory::Block* SceneResourceMemory::recent_for_address(u32 address) const
+{
+    for (const Block* block : recent_blocks_)
+    {
+        if (block != nullptr && address >= block->first && address - block->first < block->second.size())
+        {
+            return block;
+        }
+    }
+    return nullptr;
+}
+
+const SceneResourceMemory::Block* SceneResourceMemory::recent_for_pointer(const u8* pointer) const
+{
+    for (const Block* block : recent_blocks_)
+    {
+        if (block != nullptr && pointer >= block->second.data() && pointer < block->second.data() + block->second.size())
+        {
+            return block;
+        }
+    }
+    return nullptr;
+}
+
+void SceneResourceMemory::remember(const Block* block) const
+{
+    for (const Block* recent : recent_blocks_)
+    {
+        if (recent == block)
+        {
+            return;
+        }
+    }
+    recent_blocks_[recent_next_++ % recent_blocks_.size()] = block;
 }
 
 std::span<u8> SceneResourceMemory::resolve(u32 address, size_t size) const
 {
+#if GBTG_OPTIMIZE
+    if (const Block* recent = recent_for_address(address))
+    {
+        const size_t offset = address - recent->first;
+        auto& bytes = const_cast<std::vector<u8>&>(recent->second);
+        if (size > bytes.size() - offset)
+        {
+            throw Error("scene resource range exceeds its block");
+        }
+        return std::span<u8>{bytes}.subspan(offset, size);
+    }
+#endif
     auto block = blocks_.upper_bound(address);
     if (block == blocks_.begin())
     {
         throw Error("scene resource address is not mapped");
     }
     --block;
+#if GBTG_OPTIMIZE
+    remember(&*block);
+#endif
     const size_t offset = address - block->first;
     auto& bytes = const_cast<std::vector<u8>&>(block->second);
     if (offset > bytes.size() || size > bytes.size() - offset)
@@ -62,6 +116,13 @@ std::span<u8> SceneResourceMemory::resolve(u32 address, size_t size) const
 
 std::span<u8> SceneResourceMemory::tail(u32 address) const
 {
+#if GBTG_OPTIMIZE
+    if (const Block* recent = recent_for_address(address))
+    {
+        auto& bytes = const_cast<std::vector<u8>&>(recent->second);
+        return std::span<u8>{bytes}.subspan(address - recent->first);
+    }
+#endif
     auto block = blocks_.upper_bound(address);
     if (block == blocks_.begin())
     {
@@ -106,6 +167,25 @@ u32 SceneResourceMemory::address_of(const u8* pointer) const
 
 u32 SceneResourceMemory::find_address(const u8* pointer) const
 {
+#if GBTG_OPTIMIZE
+    if (pointer != nullptr)
+    {
+        if (const Block* recent = recent_for_pointer(pointer))
+        {
+            return recent->first + u32(pointer - recent->second.data());
+        }
+    }
+    for (const auto& block : blocks_)
+    {
+        const auto& [address, bytes] = block;
+        if (pointer != nullptr && pointer >= bytes.data() && pointer <= bytes.data() + bytes.size())
+        {
+            remember(&block);
+            return address + u32(pointer - bytes.data());
+        }
+    }
+    return 0;
+#else
     for (const auto& [address, bytes] : blocks_)
     {
         if (pointer != nullptr && pointer >= bytes.data() && pointer <= bytes.data() + bytes.size())
@@ -114,6 +194,7 @@ u32 SceneResourceMemory::find_address(const u8* pointer) const
         }
     }
     return 0;
+#endif
 }
 
 size_t SceneResourceMemory::block_count() const

@@ -3,6 +3,7 @@
 #include "gbtg/log.h"
 
 #include <charconv>
+#include <cstdlib>
 #include <fstream>
 #include <string>
 #include <string_view>
@@ -124,6 +125,22 @@ void apply_key(HostConfig& cfg, const std::filesystem::path& path, const std::st
         cfg.gfx_backend = lower_copy(value);
         return;
     }
+    if (section == "game" && key == "gamedir")
+    {
+        cfg.game_dir = std::filesystem::path(std::string(value));
+        return;
+    }
+    if (section == "video" && key == "fullscreen")
+    {
+        int number = 0;
+        if (!parse_int(value, number) || (number != 0 && number != 1))
+        {
+            log::warn("config: Fullscreen must be 0 or 1 in %s", path.string().c_str());
+            return;
+        }
+        cfg.fullscreen = number != 0;
+        return;
+    }
     if (section == "video" && key == "widescreen")
     {
         int number = 0;
@@ -233,6 +250,7 @@ bool write_default(const std::filesystem::path& path)
         log::warn("config: could not write %s", path.string().c_str());
         return false;
     }
+#if defined(_WIN32)
     out << "; GbtGDecomp PC settings. Edit, then restart.\n"
            "\n"
            "[Video]\n"
@@ -250,7 +268,34 @@ bool write_default(const std::filesystem::path& path)
            "\n"
            "[Game]\n"
            "; English, French, German, Spanish or Italian\n"
-           "Language=English\n";
+           "Language=English\n"
+           "; The disc dump folder. Empty uses --game-dir, else OriginalFiles.\n"
+           "GameDir=\n";
+#else
+    out << "; GbtGDecomp settings. Edit, then restart.\n"
+           "\n"
+           "[Video]\n"
+           "; The Steam Deck's panel. Fullscreen covers the display whatever its size.\n"
+           "Width=1280\n"
+           "Height=800\n"
+           "Fullscreen=1\n"
+           "VSync=1\n"
+           "; 1 plays in 16:9, as the Xbox's widescreen video setting does.\n"
+           "Widescreen=1\n"
+           "; vulkan. Empty uses the build's default.\n"
+           "Backend=\n"
+           "\n"
+           "[Audio]\n"
+           "; 0 to 100\n"
+           "MasterVolume=100\n"
+           "\n"
+           "[Game]\n"
+           "; English, French, German, Spanish or Italian\n"
+           "Language=English\n"
+           "; The disc dump folder, for example /home/deck/Games/Ghoulies. Empty uses --game-dir, else\n"
+           "; OriginalFiles beside the launcher.\n"
+           "GameDir=\n";
+#endif
     if (!out)
     {
         log::warn("config: could not write %s", path.string().c_str());
@@ -294,12 +339,40 @@ std::filesystem::path host_exe_dir(const std::filesystem::path& argv0)
     return std::filesystem::current_path(ec);
 }
 
+std::filesystem::path host_data_dir(const std::filesystem::path& argv0)
+{
+#if defined(_WIN32)
+    return host_exe_dir(argv0);
+#else
+    std::filesystem::path directory;
+    if (const char* chosen = std::getenv("GBTG_DATA_DIR"); chosen != nullptr && *chosen != '\0')
+    {
+        directory = chosen;
+    }
+    else if (const char* data = std::getenv("XDG_DATA_HOME"); data != nullptr && *data == '/')
+    {
+        directory = std::filesystem::path(data) / "gbtg";
+    }
+    else if (const char* home = std::getenv("HOME"); home != nullptr && *home != '\0')
+    {
+        directory = std::filesystem::path(home) / ".local" / "share" / "gbtg";
+    }
+    else
+    {
+        return host_exe_dir(argv0);
+    }
+    std::error_code ec;
+    std::filesystem::create_directories(directory, ec);
+    return directory;
+#endif
+}
+
 HostConfig load_host_config(const std::filesystem::path& argv0)
 {
     HostConfig cfg;
     std::error_code ec;
     const auto cwd = std::filesystem::current_path(ec);
-    const auto beside = host_exe_dir(argv0) / "gbtg.ini";
+    const auto beside = host_data_dir(argv0) / "gbtg.ini";
     ec.clear();
     if (std::filesystem::is_regular_file(beside, ec))
     {

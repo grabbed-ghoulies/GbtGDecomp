@@ -30,7 +30,15 @@ bool build(Context& context, Swapchain& swapchain)
     VkSurfaceCapabilitiesKHR capabilities{};
     check(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(context.physical, context.surface, &capabilities),
           "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
-    if (capabilities.currentExtent.width == 0 || capabilities.currentExtent.height == 0)
+    VkExtent2D extent = capabilities.currentExtent;
+    if (extent.width == 0xFFFFFFFFu && extent.height == 0xFFFFFFFFu)
+    {
+        extent.width = std::clamp(swapchain.window_extent.width, capabilities.minImageExtent.width,
+                                  capabilities.maxImageExtent.width);
+        extent.height = std::clamp(swapchain.window_extent.height, capabilities.minImageExtent.height,
+                                   capabilities.maxImageExtent.height);
+    }
+    if (extent.width == 0 || extent.height == 0)
     {
         return false;
     }
@@ -73,7 +81,7 @@ bool build(Context& context, Swapchain& swapchain)
     }
     info.imageFormat = chosen.format;
     info.imageColorSpace = chosen.colorSpace;
-    info.imageExtent = capabilities.currentExtent;
+    info.imageExtent = extent;
     info.imageArrayLayers = 1;
     info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -88,7 +96,7 @@ bool build(Context& context, Swapchain& swapchain)
         vkDestroySwapchainKHR(context.device, previous, nullptr);
     }
     swapchain.format = chosen.format;
-    swapchain.extent = capabilities.currentExtent;
+    swapchain.extent = extent;
 
     u32 count = 0;
     vkGetSwapchainImagesKHR(context.device, swapchain.swapchain, &count, nullptr);

@@ -21,7 +21,7 @@ namespace gbtg
 {
 
 // The ImGui renderer half, which the gfx backend owning the window supplies. debug_ui_attach creates the ImGui
-// context and the Win32 platform half, then calls init; a false return leaves the debug UI off.
+// context and the platform half (Win32, or SDL3 elsewhere), then calls init; a false return leaves the debug UI off.
 struct DebugUiRenderer
 {
     bool (*init)(void* user) = nullptr;
@@ -40,8 +40,13 @@ void debug_ui_shutdown();
 bool debug_ui_menu_open();
 void debug_ui_toggle_menu();
 void debug_ui_toggle_overlay();
+#if defined(_WIN32)
 // Forwards to the ImGui Win32 backend only while the menu bar is open.
 bool debug_ui_wndproc(void* hwnd, unsigned msg, std::uintptr_t wparam, std::intptr_t lparam);
+#else
+// Forwards an SDL_Event to the ImGui SDL3 backend only while the menu bar is open.
+bool debug_ui_sdl_event(const void* event);
+#endif
 // Builds widgets after game.tick. debug_ui_draw (D3D11) submits them just before Present; the Vulkan backend
 // renders debug_ui_draw_data itself.
 void debug_ui_build(Game& game, float host_dt);

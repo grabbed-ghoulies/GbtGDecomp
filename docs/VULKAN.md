@@ -12,6 +12,9 @@ retail translation differs between them.
 - Run with `--gfx vulkan` (or `Backend=vulkan` under `[Video]` in `gbtg.ini`).
 - `dxcompiler.dll` from the SDK is copied beside `gbtg.exe`. At run time it is loaded from there, else from
   `%VULKAN_SDK%\Bin`. The Windows SDK's `dxcompiler.dll` has no SPIR-V code generation and is never used.
+- Linux needs no SDK: the system supplies the Vulkan loader and headers, and CMake fetches VMA and DXC's Linux
+  release, whose `libdxcompiler.so` is copied beside `gbtg`. The window and surface come from SDL3 (`SDL_Vulkan_*`);
+  on Wayland the swapchain takes its size from the window. See `docs/LINUX.md`.
 - The transition tests take `GBTG_GFX=vulkan` (and `GBTG_WIDESCREEN=1` for the 16:9 setting).
 - `GBTG_VULKAN_VALIDATION=1` enables `VK_LAYER_KHRONOS_validation`; errors go to `gbtg.log` and the count is
   logged at shutdown.

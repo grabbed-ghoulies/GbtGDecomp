@@ -20,6 +20,7 @@ struct GfxConfig
     int vsync = 1;
     bool visible = true; // false: offscreen target (headless / screenshot)
     bool widescreen = false; // The Xbox frame is shown at 16:9 (anamorphic widescreen), else 4:3.
+    bool fullscreen = false; // The window covers its display. Only the SDL window (Linux) honours it.
     const char* title = "Grabbed by the Ghoulies";
 };
 
@@ -89,6 +90,9 @@ struct GfxNativeDraw
     std::span<const u32> vertex_program;
     const std::array<std::array<float, 4>, 192>* vertex_constants = nullptr;
     std::span<const u32> indices; // Optional triangle-list indices, in original draw order.
+    // Non-zero: program_inputs and indices are the presenter's retained geometry with this id, unchanged for as
+    // long as the id is, so a backend may keep their upload. Each rebuild gets a new id (GBTG_OPTIMIZE step 7).
+    u64 retained_geometry = 0;
     std::array<const RgbaImage*, 4> textures{};
     std::array<u32, 4> address_u{1, 1, 1, 1}; // D3DTADDRESS: 1 wrap, 2 mirror, 3 clamp, 4 border, 5 clamp to edge.
     std::array<u32, 4> address_v{1, 1, 1, 1};

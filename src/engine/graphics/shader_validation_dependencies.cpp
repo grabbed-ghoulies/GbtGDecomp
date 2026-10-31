@@ -1,13 +1,9 @@
 #include "shader_validation_dependencies.h"
+#include "gbtg/host_seh.h"
 #include "shader_validation_cleanup.h"
 #include "shader_validation_pass_lifecycle.h"
 #include "shader_validation_destinations.h"
 #include <bit>
-#if defined(_WIN32)
-#include <excpt.h>
-#else
-#error Shader validator constructor unwind requires the approved Windows SEH backend.
-#endif
 
 namespace gbtg
 {
@@ -896,17 +892,18 @@ bool shader_validation_instruction_registers_available(ShaderValidationDependenc
     i32 state = -1;
     ShaderValidationChannelMask selected;
     bool result = false;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         result = instruction_registers_available_body(context, pass, instruction, readers, available, state, selected);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination() && state == 0)
+        if (GBTG_SEH_ABNORMAL() && state == 0)
         {
             destroy_shader_validation_channel_mask(selected);
         }
     }
+    GBTG_SEH_FINALLY_END
     return result;
 }
 
@@ -918,13 +915,13 @@ bool assign_shader_validation_owner_register(ShaderValidationDependencyContext& 
     i32 state = 0;
     ShaderValidationChannelMask unregistered;
     bool result = false;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         result = assign_owner_register_body(context, pass, kind, owner, readers, instruction, mask, query_only, state, unregistered);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination())
+        if (GBTG_SEH_ABNORMAL())
         {
             if (state == 1)
             {
@@ -933,6 +930,7 @@ bool assign_shader_validation_owner_register(ShaderValidationDependencyContext& 
             destroy_shader_validation_channel_mask(mask);
         }
     }
+    GBTG_SEH_FINALLY_END
     return result;
 }
 
@@ -942,7 +940,7 @@ bool assign_shader_validation_owner_scalar_register(ShaderValidationDependencyCo
     const ShaderValidationInstruction* instruction, ShaderValidationChannelMask mask, u8 query_only)
 {
     bool result = false;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         while (rotate_shader_validation_kind_six_owner(context, owner))
         {
@@ -950,13 +948,14 @@ bool assign_shader_validation_owner_scalar_register(ShaderValidationDependencyCo
         result = assign_shader_validation_owner_register(context, pass, 1, owner, readers, instruction,
             ShaderValidationChannelMask{0x00203790, mask.channels}, query_only);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination())
+        if (GBTG_SEH_ABNORMAL())
         {
             destroy_shader_validation_channel_mask(mask);
         }
     }
+    GBTG_SEH_FINALLY_END
     return result;
 }
 
@@ -966,7 +965,7 @@ i32 choose_shader_validation_owner_register(ShaderValidationDependencyContext& c
     const ShaderValidationInstruction& instruction, ShaderValidationChannelMask mask, u8 query_only)
 {
     i32 result = -1;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         while (rotate_shader_validation_kind_six_owner(context, owner))
         {
@@ -1006,13 +1005,14 @@ i32 choose_shader_validation_owner_register(ShaderValidationDependencyContext& c
             }
         }
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination())
+        if (GBTG_SEH_ABNORMAL())
         {
             destroy_shader_validation_channel_mask(mask);
         }
     }
+    GBTG_SEH_FINALLY_END
     return result;
 }
 
@@ -1073,13 +1073,13 @@ bool rewrite_shader_validation_move(ShaderValidationDependencyContext& context,
     ShaderValidationChannelOrder order;
     ShaderValidationChannelMask occupied;
     ShaderValidationChannelMask selected;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         result = rewrite_move_body(context, instruction, frame, state, order, occupied, selected);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination())
+        if (GBTG_SEH_ABNORMAL())
         {
             if (state == 2)
             {
@@ -1098,6 +1098,7 @@ bool rewrite_shader_validation_move(ShaderValidationDependencyContext& context,
             }
         }
     }
+    GBTG_SEH_FINALLY_END
     return result;
 }
 
@@ -1211,7 +1212,7 @@ bool merge_or_link_shader_validation_owners(ShaderValidationDependencyContext& c
     ShaderValidationChannelMask other_mask)
 {
     bool result = false;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         ShaderValidationChannelMask first{0x00203790, owner_mask.channels};
         ShaderValidationChannelMask second{0x00203790, other_mask.channels};
@@ -1223,14 +1224,15 @@ bool merge_or_link_shader_validation_owners(ShaderValidationDependencyContext& c
             result = link_shader_validation_owners(&owner, other, query_only, first, second, context.sets);
         }
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination())
+        if (GBTG_SEH_ABNORMAL())
         {
             destroy_shader_validation_channel_mask(owner_mask);
             destroy_shader_validation_channel_mask(other_mask);
         }
     }
+    GBTG_SEH_FINALLY_END
     return result;
 }
 
@@ -1243,13 +1245,13 @@ bool merge_shader_validation_owners(ShaderValidationDependencyContext& context, 
     bool result = false;
     ShaderValidationBalancedChildTree dependencies;
     ShaderValidationChannelOrder order;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         result = merge_owners_body(context, owner, other, query_only, owner_mask, other_mask, state, dependencies, order);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination())
+        if (GBTG_SEH_ABNORMAL())
         {
             if (state == 3)
             {
@@ -1264,6 +1266,7 @@ bool merge_shader_validation_owners(ShaderValidationDependencyContext& context, 
             destroy_shader_validation_channel_mask(other_mask);
         }
     }
+    GBTG_SEH_FINALLY_END
     return result;
 }
 
@@ -1272,17 +1275,18 @@ bool shader_validation_operand_accepts_parent(ShaderValidationDependencyContext&
     ShaderValidationOperand& operand, ShaderValidationOwner& parent, ShaderValidationChannelMask mask)
 {
     bool result = false;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         result = operand_accepts_parent_body(context, operand, parent, mask);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination())
+        if (GBTG_SEH_ABNORMAL())
         {
             destroy_shader_validation_channel_mask(mask);
         }
     }
+    GBTG_SEH_FINALLY_END
     return result;
 }
 
@@ -1292,17 +1296,18 @@ void move_shader_validation_readers_to_derived(ShaderValidationDependencyContext
 {
     i32 state = -1;
     ShaderValidationChannelOrder order;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         move_readers_body(context, owner, climb, state, order);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination() && state == 0)
+        if (GBTG_SEH_ABNORMAL() && state == 0)
         {
             destroy_shader_validation_channel_order(order);
         }
     }
+    GBTG_SEH_FINALLY_END
 }
 
 // Xbox 0x00195BE1
@@ -1425,17 +1430,18 @@ static ShaderValidationBalancedChildTree& collect_owner_dependencies_body(Shader
 ShaderValidationBalancedChildTree& collect_shader_validation_owner_dependencies(ShaderValidationDependencyContext& context,
     ShaderValidationOwner& owner, ShaderValidationBalancedChildTree& dependencies, ShaderValidationChannelMask mask)
 {
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         collect_owner_dependencies_body(context, owner, dependencies, mask);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination())
+        if (GBTG_SEH_ABNORMAL())
         {
             destroy_shader_validation_channel_mask(mask);
         }
     }
+    GBTG_SEH_FINALLY_END
     return dependencies;
 }
 
@@ -1462,17 +1468,18 @@ void build_shader_validation_instruction_dependencies(ShaderValidationDependency
     i32 state = -1;
     ShaderValidationChannelOrder order;
     ShaderValidationChannelMask used;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         build_dependencies_body(context, instruction, state, order, used);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination() && state == 0)
+        if (GBTG_SEH_ABNORMAL() && state == 0)
         {
             destroy_shader_validation_channel_mask(used);
         }
     }
+    GBTG_SEH_FINALLY_END
 }
 
 // Xbox 0x00193FE4

@@ -7,6 +7,7 @@
 
 #include <algorithm>
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
@@ -15,6 +16,12 @@
 #include "imgui_impl_win32.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
+#else
+#include <SDL3/SDL.h>
+
+#include "imgui.h"
+#include "imgui_impl_sdl3.h"
+#endif
 
 namespace gbtg
 {
@@ -325,14 +332,22 @@ void debug_ui_attach(void* hwnd, const DebugUiRenderer& renderer)
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.IniFilename = nullptr;
     ImGui::StyleColorsDark();
+#if defined(_WIN32)
     if (!ImGui_ImplWin32_Init(hwnd))
+#else
+    if (!ImGui_ImplSDL3_InitForVulkan(static_cast<SDL_Window*>(hwnd)))
+#endif
     {
         ImGui::DestroyContext();
         return;
     }
     if (!renderer.init(renderer.user))
     {
+#if defined(_WIN32)
         ImGui_ImplWin32_Shutdown();
+#else
+        ImGui_ImplSDL3_Shutdown();
+#endif
         ImGui::DestroyContext();
         return;
     }
@@ -347,7 +362,11 @@ void debug_ui_shutdown()
         return;
     }
     g_renderer.shutdown();
+#if defined(_WIN32)
     ImGui_ImplWin32_Shutdown();
+#else
+    ImGui_ImplSDL3_Shutdown();
+#endif
     ImGui::DestroyContext();
     g_renderer = {};
     g_ready = false;
@@ -373,6 +392,7 @@ void debug_ui_toggle_overlay()
     g_overlay = !g_overlay;
 }
 
+#if defined(_WIN32)
 bool debug_ui_wndproc(void* hwnd, unsigned msg, std::uintptr_t wparam, std::intptr_t lparam)
 {
     if (!g_ready || !g_menu)
@@ -383,6 +403,16 @@ bool debug_ui_wndproc(void* hwnd, unsigned msg, std::uintptr_t wparam, std::intp
                                                            static_cast<LPARAM>(lparam));
     return handled != 0;
 }
+#else
+bool debug_ui_sdl_event(const void* event)
+{
+    if (!g_ready || !g_menu)
+    {
+        return false;
+    }
+    return ImGui_ImplSDL3_ProcessEvent(static_cast<const SDL_Event*>(event));
+}
+#endif
 
 void debug_ui_build(Game& game, float host_dt)
 {
@@ -407,10 +437,14 @@ void debug_ui_build(Game& game, float host_dt)
         io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
     }
     g_renderer.new_frame();
+#if defined(_WIN32)
     ImGui_ImplWin32_NewFrame();
+#else
+    ImGui_ImplSDL3_NewFrame();
+#endif
     if (!g_menu)
     {
-        // The Win32 backend queues mouse and key events during NewFrame. Drop them
+        // The platform backend queues mouse and key events during NewFrame. Drop them
         // so visible diagnostics cannot take a click or a key while F8 is inactive.
         io.ClearEventsQueue();
         io.ClearInputKeys();

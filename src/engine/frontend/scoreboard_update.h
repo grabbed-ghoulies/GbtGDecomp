@@ -2,9 +2,11 @@
 #include "scoreboard_hud.h"
 #include "../audio/event_voices.h"
 #include "../entities/actor_clock.h"
+#include "../entities/intro_notices.h"
 
 namespace gbtg
 {
+struct NativePlayerInstance;
 // A HUD element's fade block, five retail words: the state (0 off, 1 appearing, 2 shown, 3 held, 4/6 fading, 5
 // leaving), timer A, timer B, the end mode and the hold flag. The scoreboard rows keep it at +8; the meters
 // keep it in their globals.
@@ -54,6 +56,12 @@ struct RuntimeScoreboardUpdate
     u8& story_byte; // **(DAT_00506C6C+8): bit 0x40 once the randomizer has been shown.
     u32& random; // DAT_0054DD7C.
     const RuntimeActorClock& clock; // The frame step and the decay gate the meter (0x0012E900, 0x0012ED30) reads.
+    // The baddie meter's view (0x0012E070): the player it is set against (DAT_00545A24) by its actor address, the
+    // scene's state (DAT_00510F5C), the death curse intro (0x0013FEB0) and DAT_00433B54..DAT_00433B77.
+    std::function<NativePlayerInstance*(u32 actor)> player_at;
+    const i32& scene_state;
+    RuntimeIntroNotices& intro_notices;
+    std::span<const u8> baddie_tunables;
 };
 
 void set_runtime_hud_fade(RuntimeHudFade fade, u32 state, const RuntimeScoreboardUpdate& context); // Xbox 0x00131FC0

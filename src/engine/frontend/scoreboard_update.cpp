@@ -1,10 +1,17 @@
 #include "scoreboard_update.h"
 #include "../entities/powerup_flags.h"
 #include "../camera/camera.h"
+#include "../camera/display_view.h"
+#include "../audio/listener_settings.h"
+#include "../entities/actor_live_attachments.h"
+#include "../entities/entity.h"
+#include "../entities/player_factory_owner.h"
+#include "../graphics/billboard_queue.h"
 #include "../entities/bounded_channels.h"
 #include "gbtg/anim.h"
 
 #include <bit>
+#include <cstdio>
 #include <cstring>
 
 namespace gbtg
@@ -631,9 +638,33 @@ void update_runtime_bonus_board(RuntimeScoreboardUpdate& context)
             }
         }
     }
-    if (challenge)
+    if (!challenge)
     {
-        throw Error("the challenge bonus row (0x0012D690 with DAT_00506C58 == 2) is not translated");
+        return;
+    }
+    // Chapter 5's countdown running (DAT_00506C58 2): the second bonus row (DAT_00545A00) shows its count
+    // (DAT_00506C84), made once, and pulses every frame.
+    if (globals.bonus_board == nullptr)
+    {
+        throw Error("0x0012D690's challenge row reaches the bonus board (DAT_005459F8, EBX) before it exists");
+    }
+    auto& board = *globals.bonus_board;
+    if (globals.bonus_ids[1] == 0)
+    {
+        globals.bonus_ids[1] = add_runtime_scoreboard_message(4, 0x4B, 2, i32(context.challenge_count), 0, 0, 0,
+            board, context.board_resources); // 0x001316F0, EBX DAT_005459F8
+        if (globals.bonus_ids[1] == 0)
+        {
+            return;
+        }
+    }
+    for (auto& row : board.messages)
+    {
+        if (row.id == globals.bonus_ids[1])
+        {
+            row.float_c = context.pulse; // +0xC = DAT_0032B110
+            return;
+        }
     }
 }
 
@@ -681,15 +712,169 @@ void update_runtime_damage_counter(RuntimeScoreboardUpdate& context)
     swell_runtime_hud_counter(globals.damage_counter, context.damage_preset); // 0x0012EF60, ESI DAT_004326A0
 }
 
+namespace
+{
+NativePlayerInstance& baddie_meter_target(RuntimeScoreboardUpdate& context)
+{
+    NativePlayerInstance* player = context.player_at(context.hud.globals.word_a24);
+    if (player == nullptr || player->body.empty() || player->body_bits == nullptr)
+    {
+        throw Error("the baddie meter's target (DAT_00545A24) is not a player with a body");
+    }
+    return *player;
+}
+
+// 0x00117560, EAX the pause reference: that reference clear and the decay byte DAT_0030F144[DAT_0051248C] set.
+bool runtime_decay_running(u32 reference, const RuntimeActorClock& clock)
+{
+    if (scene_detail::g_pause_references[reference] != 0) // DAT_0050E764 + EAX * 4
+    {
+        return false;
+    }
+    return clock.decay_enabled[clock.decay_index] != 0;
+}
+}
+
+// Xbox 0x0012E710
+bool runtime_baddie_meter_running(RuntimeScoreboardUpdate& context)
+{
+    const auto& globals = context.hud.globals;
+    if (globals.word_a18 == 0 || globals.word_a24 == 0) // DAT_00545A18, DAT_00545A24
+    {
+        return false;
+    }
+    NativePlayerInstance& target = baddie_meter_target(context);
+    if ((target.body_bits->bytes[3] & 8) != 0 || read_u16(target.body, 0x94) == 0) // Body +0x15C, +0x94
+    {
+        return false;
+    }
+    if (context.scene_state <= 0 || 2 < context.scene_state) // DAT_00510F5C
+    {
+        return false;
+    }
+    if (!runtime_decay_running(1, context.clock)) // 0x00117560, EAX 1
+    {
+        return false;
+    }
+    return runtime_decay_running(0, context.clock); // 0x00117560, EAX 0
+}
+
 // Xbox 0x0012E070
 void update_runtime_meter_view(RuntimeScoreboardUpdate& context)
 {
-    // 0x0012E710 returns false while DAT_00545A18 is clear.
-    if (context.hud.globals.word_a18 == 0)
+    auto& globals = context.hud.globals;
+    const auto tunable = [&context](u32 address)
+    {
+        return std::bit_cast<float>(read_u32(context.baddie_tunables, address - 0x00433B54u));
+    };
+    if (runtime_baddie_meter_running(context)) // 0x0012E710
+    {
+        NativePlayerInstance& target = baddie_meter_target(context);
+        Actor& actor = target.actor;
+        if (actor.model != nullptr && actor.model->cpu.data() != nullptr) // Actor +0x204 and its first word
+        {
+            const u32 joint = actor_lookup_joint_index(actor.model->cpu, 4) & 0xFF; // 0x00052FC0(4)
+            if (joint != 0xFF && joint != 0xFFFFFFFF)
+            {
+                actor_transform_joint_point(actor, u16(joint), actor_transform_origin,
+                    globals.baddie_position); // 0x0003AEB0, EBX DAT_0050DD80, EDX the actor
+            }
+        }
+        globals.baddie_position.y = actor.radius_xz * tunable(0x00433B5C) + globals.baddie_position.y; // +0x38
+        const float step = runtime_frame_step(context.clock);
+        if (0.f < globals.baddie_a28)
+        {
+            globals.baddie_a28 = globals.baddie_a28 - step;
+            if (!(0.f < globals.baddie_a28))
+            {
+                globals.baddie_a28 = 0.f;
+                const std::array<i32, 2> message{0x2E, i32(globals.word_a20)}; // The curse's actor (DAT_00545A20).
+                broadcast_actor_pulse_message(message.data()); // 0x00122C70, EDI the message
+            }
+        }
+        if (globals.baddie_a28 < globals.baddie_a2c)
+        {
+            queue_runtime_death_curse_intro(context.story_byte, context.intro_notices); // 0x0013FEB0
+        }
+        i32 seconds = i32(truncate_runtime_float(globals.baddie_a28)); // CVTTSS2SI
+        if (seconds < 0)
+        {
+            seconds = 0;
+        }
+        globals.baddie_counter.target = seconds; // DAT_00545A34
+        globals.baddie_counter.value = seconds; // DAT_00545A30
+        update_runtime_hud_counter_digits(globals.baddie_counter,
+            context.baddie_tunables.subspan(0x18, 12)); // 0x0012F990, ECX DAT_00545A30, ESI DAT_00433B6C
+        // The view's forward (DAT_005077A8 +0x1C) crossed with up, normalised and scaled by DAT_00433B58.
+        const auto& view = *entity_detail::g_display_view;
+        const float zero = 0.f;
+        const float lifted = view.forward.y * zero;
+        Vec3 offset{lifted - view.forward.z, view.forward.z * zero - view.forward.x * zero, view.forward.x - lifted};
+        const float length = offset.z * offset.z + offset.y * offset.y + offset.x * offset.x;
+        if (length != zero)
+        {
+            const long double scale = engine_reciprocal_sqrt(length); // 0x001534C0, x87
+            offset.x = float(static_cast<long double>(offset.x) * scale);
+            offset.y = float(static_cast<long double>(offset.y) * scale);
+            offset.z = float(static_cast<long double>(offset.z) * scale);
+        }
+        const float spread = tunable(0x00433B58);
+        globals.baddie_offset = {offset.x * spread, offset.y * spread, offset.z * spread};
+    }
+    if (globals.word_a18 == 0) // DAT_00545A18
     {
         return;
     }
-    throw Error("untranslated Xbox 0x0012E710 / 0x0005C1A0 (the meter view with DAT_00545A18 set, 0x0012E070)");
+    const Vec3 center = globals.baddie_position; // DAT_00545A64
+    const Vec3 offset = globals.baddie_offset; // DAT_00545A70
+    const float size[2]{tunable(0x00433B54), tunable(0x00433B54)};
+    const auto& counter = globals.baddie_counter;
+    if (counter.digits[6] != 0) // DAT_00545A50, the tens
+    {
+        // The curse's icon, then the two digits, each a step further along the view's side.
+        Vec3 at{center.x - offset.x, center.y - offset.y, center.z - offset.z};
+        queue_billboard(g_billboard_queue, globals.texture_a7c.data(), globals.caption_color, 0, at, size,
+            0.f); // 0x0005C1A0, ECX the position, EDX the size, XMM0 0
+        at = {at.x + offset.x, offset.y + at.y, offset.z + at.z};
+        queue_billboard(g_billboard_queue, context.hud.digits[size_t(counter.digits[6])], globals.caption_color, 0, at,
+            size, 0.f); // 0x0005C1A0, DAT_00545A80[DAT_00545A50]
+        at = {at.x + offset.x, offset.y + at.y, offset.z + at.z};
+        queue_billboard(g_billboard_queue, context.hud.digits[size_t(counter.digits[7])], globals.caption_color, 0, at,
+            size, 0.f); // 0x0005C1A0, DAT_00545A80[DAT_00545A54]
+        return;
+    }
+    // One digit left: at DAT_00433B64 seconds or fewer the caption turns red (once); once red the pair blinks, shown
+    // for the first half of each DAT_00433B60 period.
+    bool blinks;
+    if (tunable(0x00433B64) < float(counter.digits[7])) // COMISS, JC
+    {
+        blinks = globals.caption_tinted != 0;
+    }
+    else
+    {
+        if (globals.caption_tinted == 0)
+        {
+            globals.caption_tinted = 1; // DAT_00545A1C
+            globals.caption_color = 0xFF0000C8u; // DAT_00433B7C
+        }
+        blinks = true;
+    }
+    if (blinks)
+    {
+        const float phase = float(runtime_float_remainder(globals.baddie_a28, tunable(0x00433B60))); // 0x00152BE0
+        runtime_float_remainder(phase, 2.f); // 0x00152BE0, its result dropped (FSTP ST0)
+        if (tunable(0x00433B60) * 0.5f < phase) // DAT_0032B0F4
+        {
+            return;
+        }
+    }
+    const Vec3 half{offset.x * 0.5f, offset.y * 0.5f, offset.z * 0.5f}; // DAT_0032B0F4
+    Vec3 at{center.x - half.x, center.y - half.y, center.z - half.z};
+    queue_billboard(g_billboard_queue, globals.texture_a7c.data(), globals.caption_color, 0, at, size,
+        0.f); // 0x0005C1A0
+    at = {at.x + offset.x, offset.y + at.y, offset.z + at.z};
+    queue_billboard(g_billboard_queue, context.hud.digits[size_t(counter.digits[7])], globals.caption_color, 0, at,
+        size, 0.f); // 0x0005C1A0, DAT_00545A80[DAT_00545A54]
 }
 
 // Xbox 0x0012ECC0
@@ -895,10 +1080,14 @@ void load_runtime_meter_textures(RuntimeScoreboardGlobals& globals, AnimationRes
 void start_runtime_baddie_meter(u32 actor, u32 target, float value, u32 white, RuntimeScoreboardGlobals& globals,
     AnimationResourceRegistry& registry, ResourceErrorState& error)
 {
-    globals.baddie_a5c = 0.4f; // DAT_00433B6C.
-    globals.baddie_a60 = 0.f;
+    globals.baddie_counter.word_2c = std::bit_cast<u32>(0.4f); // DAT_00545A5C = DAT_00433B6C.
+    globals.baddie_counter.timer = 0; // DAT_00545A60
     globals.baddie_a28 = value;
-    globals.baddie_a30.fill(0);
+    // DAT_00545A30..DAT_00545A58: the counter's value, target, digits and +0x28.
+    globals.baddie_counter.value = 0;
+    globals.baddie_counter.target = 0;
+    globals.baddie_counter.digits.fill(0);
+    globals.baddie_counter.word_28 = 0;
     globals.word_a20 = actor;
     globals.word_a24 = target;
     globals.word_a18 = 1;

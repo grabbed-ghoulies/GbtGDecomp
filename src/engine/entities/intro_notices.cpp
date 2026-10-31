@@ -25,6 +25,30 @@ u32 runtime_intro_notice_ready(const RuntimeIntroNotices& context)
     return (bits->bytes[3] & 8) != 0 ? 0 : 1;
 }
 
+// Xbox 0x0013FEB0
+u32 queue_runtime_death_curse_intro(u8& story_byte, RuntimeIntroNotices& context)
+{
+    if (runtime_intro_notice_ready(context) == 0) // 0x0013FF70
+    {
+        return 0;
+    }
+    if ((story_byte & 0x10) == 0) // **(DAT_00506C6C+8)
+    {
+        story_byte = u8(story_byte | 0x10);
+        const char* name = "intros_deathcurse"; // 0x00315060
+        size_t index = 0;
+        char value;
+        do
+        {
+            value = name[index];
+            context.intro_name[index] = value;
+            ++index;
+        } while (value != '\0');
+        context.intro_pending = 1; // DAT_00545B38
+    }
+    return 1;
+}
+
 // Xbox 0x0013FF00
 u32 queue_runtime_intro_notice(const char* name, RuntimeIntroNotices& context)
 {

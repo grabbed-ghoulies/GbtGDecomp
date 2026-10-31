@@ -20,6 +20,8 @@ struct RuntimeIntroNotices
 };
 u32 runtime_intro_notice_ready(const RuntimeIntroNotices& context); // Xbox 0x0013FF70
 u32 queue_runtime_intro_notice(const char* name, RuntimeIntroNotices& context); // Xbox 0x0013FF00, ESI name
+// The death curse's intro, once (story bit 0x10): "intros_deathcurse" queued when a notice may show.
+u32 queue_runtime_death_curse_intro(u8& story_byte, RuntimeIntroNotices& context); // Xbox 0x0013FEB0
 // The queued intro notice's state: 1 queued, 2 the scene paused and waiting a second, 3 the notice showing.
 extern u32 g_545b38; // DAT_00545B38
 extern u32 g_545b3c; // DAT_00545B3C, the notice holds the scene paused.

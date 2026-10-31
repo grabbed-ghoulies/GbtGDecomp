@@ -1515,7 +1515,19 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
                     object_message(*object_of(owner->actor_bytes.data()), message);
                 }
             },
-            intro_scale, story_byte, random, clock});
+            intro_scale, story_byte, random, clock,
+            [this](u32 actor) -> NativePlayerInstance*
+            {
+                for (auto* player : players->instances())
+                {
+                    if (player->actor_address == actor)
+                    {
+                        return player;
+                    }
+                }
+                return nullptr;
+            },
+            *reinterpret_cast<const i32*>(g_510e58 + 0x104), intro_notices, data(0x00433B54, 0x24)});
     }
     // Boot registers the callout hook (0x0004F610) with the other resource hooks.
     callout_resources = std::make_unique<RuntimeCalloutResources>(RuntimeCalloutResources{resources.registry,

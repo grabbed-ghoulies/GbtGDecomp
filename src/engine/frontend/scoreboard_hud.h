@@ -92,11 +92,13 @@ struct RuntimeScoreboardGlobals
     u32 caption_tinted = 0; // DAT_00545A1C.
     u32 word_a20 = 0; // DAT_00545A20, the baddie meter's actor.
     u32 word_a24 = 0; // DAT_00545A24, the actor it is set against.
-    float baddie_a28 = 0.f; // DAT_00545A28, 0x0012E5E0's value.
-    float baddie_a2c = 0.f; // DAT_00545A2C, the value less DAT_00433B68.
-    std::array<u32, 11> baddie_a30{}; // DAT_00545A30..DAT_00545A58, cleared by 0x0012E5E0.
-    float baddie_a5c = 0.f; // DAT_00545A5C, DAT_00433B6C at the start.
-    float baddie_a60 = 0.f; // DAT_00545A60.
+    float baddie_a28 = 0.f; // DAT_00545A28, the curse's countdown in seconds (0x0012E5E0's value).
+    float baddie_a2c = 0.f; // DAT_00545A2C, the countdown below which the death curse intro shows.
+    // DAT_00545A30..DAT_00545A60: the countdown's whole seconds and their digits (0x0012F990); +0x2C (DAT_00545A5C)
+    // takes DAT_00433B6C at the start.
+    RuntimeHudCounter baddie_counter{};
+    Vec3 baddie_position{}; // DAT_00545A64, over the target's joint 4, raised by its +0x38.
+    Vec3 baddie_offset{}; // DAT_00545A70, the view's sideways step between the meter's sprites.
     std::span<const u8> texture_a7c; // DAT_00545A7C.
     std::array<const u8*, 2> dollars{}; // DAT_00545AA8.
     RuntimeScoreboard* score_board = nullptr; // DAT_00545AB0.

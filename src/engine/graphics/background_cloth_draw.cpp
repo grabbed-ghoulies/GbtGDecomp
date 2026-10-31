@@ -6,6 +6,7 @@
 #include "../camera/view_frustum.h"
 #include "actor_snapshots.h"
 #include "light_volume_records.h"
+#include "refraction_pass.h"
 #include "gbtg/model_render.h"
 #include "../audio/listener_settings.h"
 #include "gbtg/anim.h"
@@ -1053,5 +1054,97 @@ void project_runtime_light_volume(i32 index, u8 volume, u32 grid, u32 color, Run
     context.pass.multisample_antialias(0); // 0x00172600
     d3d(context).multisample_mode(0); // 0x001725A0
     context.pass.multisample_target_mode(0); // 0x001725D0
+}
+
+// Xbox 0x0005E340
+void begin_runtime_untextured_draw(RuntimeBackgroundClothDraw& context)
+{
+    deferred(context, 0x001819A0) = 2;
+    deferred(context, 0x001819B0) = 2;
+    deferred(context, 0x001819A8) = 0;
+    deferred(context, 0x00181968) |= 0x800;
+    deferred(context, 0x001819B8) = 0;
+    d3d(context).vertex_shader(0x42); // D3DFVF_XYZ | D3DFVF_DIFFUSE
+}
+
+// Xbox 0x0011BA50
+void draw_runtime_refraction(RuntimeSceneRefraction& refraction, u32 disabled, RuntimeBackgroundClothDraw& context)
+{
+    if (refraction.mesh == nullptr || disabled != 0) // DAT_00510580, DAT_00510650.
+    {
+        return;
+    }
+    auto& outer = context.pass.outer.d3d;
+    // The back buffer so far into book page 0's texture (DAT_005047DC), which the quad samples in stage 2.
+    const u32 back_texture = context.pass.address_of(context.pass.pages.page_texture);
+    const DialogueSurfaceHandle back = outer.back_buffer(0); // D3DDevice_GetBackBuffer2, DAT_00545B2C
+    const DialogueSurfaceHandle level = outer.surface(DialogueSurfaceHandle(back_texture),
+        0); // D3DTexture_GetSurfaceLevel2, DAT_00545B28
+    outer.copy_rects(back, level); // D3DDevice_CopyRects
+    outer.release(back); // D3DResource_Release
+    outer.release(level);
+    bind_display_projection(context.display); // 0x000F6170
+    reset_dialogue_sprite_state(context.pass.outer.draw); // 0x0005E110
+    begin_runtime_untextured_draw(context); // 0x0005E340
+    // The mesh's triangles mark the stencil: always passing, incremented where they land.
+    simple(context, 0x4035C, 1, 0x00181C70);
+    d3d(context).stencil_enable(1); // D3DDevice_SetRenderState_StencilEnable
+    outer.clear(0, nullptr, 2, 0, 0.f, 0); // D3DDevice_Clear, the stencil to 0
+    simple(context, 0x40368, 0, 0x00181C8C);
+    simple(context, 0x40364, 0x207, 0x00181C88);
+    simple(context, 0x40378, 0x8507, 0x00181C84);
+    d3d(context).simple_state(0x40370, 0x1E00); // D3DDevice_SetRenderState_StencilFail (0x001723C0)
+    simple(context, 0x40374, 0x1E00, 0x00181C80);
+    d3d(context).vertex_shader(2); // D3DFVF_XYZ
+    d3d(context).vertex_data_color(3, 0xFF000000); // D3DDevice_SetVertexDataColor
+    d3d(context).cull(0); // D3DDevice_SetRenderState_CullMode
+    const std::span<const u8> model = refraction.model;
+    const size_t mesh_offset = size_t(refraction.mesh - model.data());
+    const u32 vertices = read_u32(model, u32(mesh_offset));
+    const u32 indices = read_u32(model, u32(mesh_offset + 4));
+    const u32 triangles = read_u16(model, u32(mesh_offset + 8));
+    u32* push = d3d(context).begin_push(triangles * 9 + 5); // D3DDevice_BeginPush_4
+    push[0] = 0x417FC; // NV097_SET_BEGIN_END
+    push[1] = 6;
+    push[2] = (triangles * 9 << 18) + 0x40001818; // NV097_INLINE_ARRAY, non-incrementing
+    u32* cursor = push + 3;
+    for (u32 triangle = 0; triangle < triangles; ++triangle)
+    {
+        for (u32 corner = 0; corner < 3; ++corner)
+        {
+            const u32 index = read_u16(model, indices + triangle * 6 + corner * 2);
+            for (u32 axis = 0; axis < 3; ++axis)
+            {
+                *cursor++ = read_u32(model, vertices + index * 0xC + axis * 4);
+            }
+        }
+    }
+    cursor[0] = 0x417FC;
+    cursor[1] = 0;
+    d3d(context).end_push(cursor + 2); // D3DDevice_EndPush
+    // The quad over the screen, where the stencil is marked: the back buffer through the noise.
+    initialize_dialogue_orthographic(context.pass.outer.draw); // 0x000F6260
+    set_dialogue_texture_state(context.pass.outer.draw); // 0x0005E2A0
+    simple(context, 0x40300, 0, 0x00181C60);
+    simple(context, 0x40304, 0, 0x00181C5C);
+    simple(context, 0x40364, 0x201, 0x00181C88);
+    simple(context, 0x4035C, 0, 0x00181C70);
+    d3d(context).vertex_data_color(3, 0xFFFFFFFF);
+    deferred(context, 0x00181970) = 1;
+    deferred(context, 0x00181968) |= 1;
+    deferred(context, 0x00181974) = 1;
+    context.pass.texture(0, refraction.noise); // D3DDevice_SetTexture, DAT_00510584
+    deferred(context, 0x00181A70) = 3;
+    deferred(context, 0x00181A74) = 3;
+    deferred(context, 0x00181968) |= 4;
+    deferred(context, 0x00181A78) = 3;
+    context.pass.texture(2, back_texture);
+    d3d(context).pixel_shader(context.pass.word(0x00425EAC)); // D3DDevice_SetPixelShader
+    d3d(context).vertex_shader(0x140304); // D3DFVF_XYZRHW | D3DFVF_TEX3, sets 1 and 2 three-dimensional
+    d3d(context).draw_vertices_up(8, 4, refraction.quad.data(), 0x30); // D3DDevice_DrawVerticesUP, a quad
+    d3d(context).stencil_enable(0);
+    simple(context, 0x4035C, 1, 0x00181C70);
+    simple(context, 0x40304, 1, 0x00181C5C);
+    bind_display_projection(context.display); // JMP 0x000F6170
 }
 }

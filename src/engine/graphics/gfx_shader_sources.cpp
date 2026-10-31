@@ -214,11 +214,15 @@ float2 stage_coord(VSOut i, uint stage)
     float2 scale = (stage & 1) != 0 ? pair.zw : pair.xy;
     return any(scale != 0) ? coord * scale : coord;
 }
-// PSDotMapping (word 55, stage n at bits (n - 1) * 4): 0 ZERO_TO_ONE, 4 HILO_1 (the 16-bit A:R and G:B halves
-// of the texel's 32 bits, and 1).
+// PSDotMapping (word 55, stage n at bits (n - 1) * 4): 0 ZERO_TO_ONE, 1 MINUS_ONE_TO_ONE_D3D (each byte less 128,
+// over 127), 4 HILO_1 (the 16-bit A:R and G:B halves of the texel's 32 bits, and 1).
 float3 ps_dotmap(uint stage, float4 c)
 {
     uint mapping = (ps_word(55) >> ((stage - 1) * 4)) & 7;
+    if (mapping == 1)
+    {
+        return (round(saturate(c.rgb) * 255) - 128) / 127;
+    }
     if (mapping == 4)
     {
         uint4 b = uint4(round(saturate(c) * 255));
@@ -289,6 +293,17 @@ float4 ps_model_core(VSOut i, inout float depth)
     if (((ps_word(54) >> 15) & 31) == 1)
     {
         regs[11] = stage_tex[3].Sample(stage_samp[3], stage_coord(i, 3));
+    }
+    // DOTPRODUCT (17) on stage 1 with DOT_ST (9) on stage 2 (texm3x2pad, texm3x2tex): stage 1 dots its whole
+    // coordinates with t0, stage 2 its own with its PSInputTexture (word 56, bits 16), and stage 2's texture is
+    // sampled at the two dot products (scaled as stage 2's coordinates are for a linear texture).
+    if (((ps_word(54) >> 5) & 31) == 17 && ((ps_word(54) >> 10) & 31) == 9)
+    {
+        float2 st = float2(dot(i.tq1.xyz, ps_dotmap(1, regs[8])),
+            dot(i.tq2.xyz, ps_dotmap(2, regs[8 + ((ps_word(56) >> 16) & 3)])));
+        float2 st_scale = ps_uv_scale[1].xy;
+        regs[9] = 0;
+        regs[10] = stage_tex[2].Sample(stage_samp[2], any(st_scale != 0) ? st * st_scale : st);
     }
     // PASSTHRU (4): the stage's texture register is its texture coordinates, clamped to [0, 1].
     if ((ps_word(54) & 31) == 4)
@@ -531,7 +546,10 @@ void gfx_check_native_pixel_definition(const u32* definition)
     for (u32 stage = 0; stage < 4; ++stage)
     {
         const u32 mode = (definition[54] >> (stage * 5)) & 31;
-        const bool dot = (stage == 2 && mode == 17) || (stage == 3 && mode == 10 && ((definition[54] >> 10) & 31) == 17);
+        const u32 stage2 = (definition[54] >> 10) & 31;
+        const bool dot = (stage == 2 && mode == 17) || (stage == 3 && mode == 10 && stage2 == 17)
+            || (stage == 1 && mode == 17 && stage2 == 9) || (stage == 2 && mode == 9
+                && ((definition[54] >> 5) & 31) == 17);
         if (mode > 1 && mode != 4 && mode != 5 && !dot)
         {
             throw Error("native pixel shader uses unsupported texture mode " + std::to_string(mode));
@@ -539,7 +557,7 @@ void gfx_check_native_pixel_definition(const u32* definition)
         if (dot)
         {
             const u32 mapping = (definition[55] >> ((stage - 1) * 4)) & 7;
-            if (mapping != 0 && mapping != 4)
+            if (mapping != 0 && mapping != 1 && mapping != 4)
             {
                 throw Error("native pixel shader uses unsupported dot mapping " + std::to_string(mapping));
             }

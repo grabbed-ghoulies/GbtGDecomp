@@ -96,6 +96,7 @@ public:
     void release_actor_snapshots(); // Xbox 0x001163D0, in the teardown
     void animate_light_records(); // Xbox 0x000FDDA0
     void tick_post_models(); // Xbox 0x0012AA70
+    void rebuild_refraction_quad(); // Xbox 0x0011B7F0
     void tick_intro_notice(); // Xbox 0x0013FD60
     void finish_intro_notice(); // Xbox 0x0013FFD0
     void clear_post_models(); // Xbox 0x0012A9B0, in the teardown

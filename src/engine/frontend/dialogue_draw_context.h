@@ -24,6 +24,8 @@ struct DialogueD3DBoundaries
     std::function<void(float*, const float*)> transpose;
     std::function<u32*(u32)> begin_push;
     std::function<void(u32*)> end_push;
+    // D3DDevice_DrawVerticesUP (D3D 0x001727B0): primitive, vertex count, the vertices and their stride in bytes.
+    std::function<void(u32, u32, const void*, u32)> draw_vertices_up;
     std::function<void(u32)> multisample_mode; // D3D 0x001725A0.
     std::function<void(u32)> stencil_enable; // D3D 0x00172330.
     std::function<void(u32, u32)> vertex_data_color; // D3D 0x00172CC0 (register, D3DCOLOR).

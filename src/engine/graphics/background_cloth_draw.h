@@ -78,6 +78,13 @@ void capture_runtime_light_volume(u8 volume, RuntimeBackgroundClothDraw& context
 // grid (with the parts when record `index`'s +0x1D8 byte is set), then the projector's states cleared.
 void project_runtime_light_volume(i32 index, u8 volume, u32 grid, u32 color, RuntimeBackgroundClothDraw& context,
     RuntimeLightVolumeCasters& casters); // Xbox 0x000FE9B0..0x000FEA65
+struct RuntimeSceneRefraction;
+// The stage states for an untextured XYZ | DIFFUSE draw.
+void begin_runtime_untextured_draw(RuntimeBackgroundClothDraw& context); // Xbox 0x0005E340
+// With a refraction mesh and `disabled` (DAT_00510650) clear: the back buffer is copied to book page 0's texture,
+// the mesh's triangles mark the stencil, and the quad draws the copy through the noise where it is marked.
+void draw_runtime_refraction(RuntimeSceneRefraction& refraction, u32 disabled,
+    RuntimeBackgroundClothDraw& context); // Xbox 0x0011BA50
 // The projector pass's shaders, states and constants (c0x60 the frame's transform, c0x6A one, c0x73 zero), and the
 // screen and bias matrices.
 void begin_runtime_shadow_projector(RuntimeBackgroundClothDraw& context); // Xbox 0x000644F0

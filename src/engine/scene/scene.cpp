@@ -2,6 +2,7 @@
 #include "../scripts/script_event_sequence.h"
 #include "../scripts/script_actions.h"
 #include "gbtg/anim.h"
+#include "../graphics/refraction_pass.h"
 #include "cutscene_scene_runtime.h"
 #include "../video/native_movies.h"
 #include "gbtg/engine_internal.h"
@@ -209,13 +210,6 @@ i32 g_4312e0 = 0;
 // and the next pointer on the node the global names.
 SceneTickNode* g_50e438 = nullptr;
 
-// DAT_00510580. Nonzero, with DAT_00510650 clear, drifts the two floats.
-i32 g_510580 = 0;
-
-// DAT_00510648 and DAT_0051064C.
-float g_510648 = 0.f;
-
-float g_51064c = 0.f;
 
 // DAT_0050E0EC. One-based index into the span at DAT_0050E0E8.
 i32 g_50e0ec = 0;
@@ -422,12 +416,12 @@ void scene_tick_pause_counter(Game& g, u8* scene)
         g.factory_scene->start_actors(g).age_actor_snapshots(); // 0x001162F0
     }
 
-    if (g_510580 != 0 && g_flag_0650 == 0)
+    if (g_scene_refraction.mesh != nullptr && g_flag_0650 == 0) // DAT_00510580, DAT_00510650
     {
         const float drift = std::bit_cast<float>(0x3b03126fu);
-        g_510648 = g_510648 + drift;
-        g_51064c = g_51064c + drift;
-        throw Error("0x0011B7F0 (the refraction records under DAT_00510580) is not translated");
+        g_scene_refraction.drift_u = g_scene_refraction.drift_u + drift; // DAT_00510648
+        g_scene_refraction.drift_v = g_scene_refraction.drift_v + drift; // DAT_0051064C
+        notice_scene_actors(g).rebuild_refraction_quad(); // 0x0011B7F0
     }
     if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1)
     {
@@ -643,7 +637,6 @@ void* g_50d77c = nullptr;
 i32 g_50d780 = 0;
 
 // DAT_00510584. 0x001759F0 is the D3D resource release.
-void* g_510584 = nullptr;
 
 // DAT_0050EA01 is a byte. The floats are DAT_0050EA7C through DAT_0050EA90 and DAT_0050EA94 is a dword. The
 // background volume before them (DAT_0050EA00 .. DAT_0050EA18) is ambient.cpp's.
@@ -739,12 +732,13 @@ void scene_teardown(Game& g, u8* scene)
     // (0x001232D0), the contact slots (0x001222A0), the cloths (0x001143A0), the point-light pass (0x00123640) and
     // the blob shadows (0x001199F0) run in SceneFactoryRuntime::end_scene. The navigation grids (0x00110AB0) go with
     // the scene's NavigationSceneStorage and the mirrors (0x0011F610) with RuntimeSceneMirrors at the next start.
-    if (g_510584 != nullptr)
+    if (g_scene_refraction.noise != 0)
     {
-        // 0x001759F0 D3DResource_Release. The argument is DAT_00510584.
-        g_510584 = nullptr;
+        // 0x001759F0 D3DResource_Release of DAT_00510584; the texture goes with the scene's resource memory.
+        g_scene_refraction.noise = 0;
     }
-    g_510580 = 0;
+    g_scene_refraction.mesh = nullptr; // DAT_00510580
+    g_scene_refraction.model = {};
     // 0x001133B0 (the light grid) runs in SceneFactoryRuntime::end_scene.
     g_amb_volume_enabled = 0; // DAT_0050EA00, the background volume (ambient.cpp).
     g_50ea01 = 0;

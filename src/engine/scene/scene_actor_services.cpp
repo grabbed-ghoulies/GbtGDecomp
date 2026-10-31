@@ -21,6 +21,7 @@
 #include "scene_point_lights.h"
 #include "scene_light_grid.h"
 #include "../graphics/scene_point_light_pass.h"
+#include "../graphics/refraction_pass.h"
 #include "../video/movie_startup.h"
 #include "attract_control.h"
 #include "gameselect_control.h"
@@ -218,7 +219,6 @@ extern i32 g_545cc8; // DAT_00545CC8.
 extern std::array<u16, 0x40> g_545c48; // DAT_00545C48.
 extern std::array<u16, 0x28> g_545ccc; // DAT_00545CCC.
 extern i32 g_script_30d0c; // DAT_00430D0C.
-extern i32 g_510580; // DAT_00510580.
 extern float& g_4312cc; // DAT_004312CC.
 extern float& g_4312d0; // DAT_004312D0.
 extern i32& g_4312d4; // DAT_004312D4.
@@ -10059,6 +10059,28 @@ void SceneActorServices::State::start_background()
     // 0x0011CBD0 after 0x0011F450: the actor snapshots' decal gate is the same model word, and none is counted.
     decal_enable = first_model_word(); // DAT_005462EC
     actor_snapshot_count = 0; // DAT_005462F0
+    // 0x0011CBD0 then: the background's refraction mesh (0x0011B7A0) with its noise (0x0011B8F0) and quad
+    // (0x0011B7F0) from no drift, and DAT_00510650 cleared.
+    g_scene_refraction.model = background != nullptr && background->model != nullptr ? background->model->cpu
+        : std::span<const u8>{};
+    g_scene_refraction.mesh = find_runtime_refraction_mesh(g_scene_refraction.model); // DAT_00510580
+    if (g_scene_refraction.mesh != nullptr)
+    {
+        create_runtime_refraction_noise(g_scene_refraction,
+            [this](u32 width, u32 height, u32 levels, u32 usage, u32 format, u32 pool)
+            {
+                return snapshot_d3d.create_texture(width, height, levels, usage, format, pool); // D3D 0x00177840
+            },
+            [this](u32 texture)
+            {
+                return resources.memory.tail(resources.d3d.resources.at(texture).data); // D3DTexture_LockRect
+            },
+            g_crt_random_seed);
+        g_scene_refraction.drift_u = 0.f; // DAT_00510648
+        g_scene_refraction.drift_v = 0.f; // DAT_0051064C
+        build_runtime_refraction_quad(g_scene_refraction, hud_size[0], hud_size[1]); // DAT_005096E8, DAT_005096EA
+    }
+    g_flag_0650 = 0; // DAT_00510650
     // 0x00112D70 (after 0x0011F450 and the queue builds): the first background's light grid and parts.
     light_grid = {};
     if (auto* first = backgrounds->first_background(); first != nullptr && first->state.actor.model != nullptr)
@@ -10758,13 +10780,19 @@ void SceneActorServices::State::present_view(i32 view)
                 unbound("shadow volume draw 0x00119230 body");
             }
         },
-        []()
+        [this]()
         {
-            // 0x0011BA50. DAT_00510580 comes from 0x0011B7A0 in 0x0011CBD0, which the native start does not run.
-            if (g_510580 != 0 && g_flag_0650 == 0)
-            {
-                unbound("refraction draw 0x0011BA50 body");
-            }
+            RuntimeBackgroundClothDraw draw{*point_light_pass, *display_setup, shadow_projector, cloth_ramp_texture,
+                cloth_water_phase,
+                [this](u32 address)
+                {
+                    return resources.memory.pointer(address);
+                },
+                [this]()
+                {
+                    return background_cloth_scene().background_model();
+                }};
+            draw_runtime_refraction(g_scene_refraction, g_flag_0650, draw); // 0x0011BA50
         },
         [this]()
         {
@@ -12420,6 +12448,12 @@ void SceneActorServices::animate_light_records()
 }
 
 // Xbox 0x0012AA70
+// Xbox 0x0011B7F0, from the frame tick after the drift moves on.
+void SceneActorServices::rebuild_refraction_quad()
+{
+    build_runtime_refraction_quad(g_scene_refraction, state_->hud_size[0], state_->hud_size[1]);
+}
+
 void SceneActorServices::tick_post_models()
 {
     RuntimePostModelContext context = state_->post_model_context();

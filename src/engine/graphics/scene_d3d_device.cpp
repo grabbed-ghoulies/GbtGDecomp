@@ -162,6 +162,20 @@ SceneD3DDevice::SceneD3DDevice()
         }
         decode_push(push_.data(), end);
     };
+    // The NV2A words D3D writes for it: the begin, the vertices as one inline array, the end.
+    dialogue_.draw_vertices_up = [this](u32 primitive, u32 count, const void* vertices, u32 stride)
+    {
+        const u32 words = count * stride / 4;
+        if ((count * stride) % 4 != 0 || words > 0x7FF)
+        {
+            throw Error("D3D DrawVerticesUP of a size one inline array cannot carry");
+        }
+        std::vector<u32> push{0x417FCu, primitive, 0x40001818u | (words << 18)};
+        const auto* source = static_cast<const u32*>(vertices);
+        push.insert(push.end(), source, source + words);
+        push.insert(push.end(), {0x417FCu, 0u});
+        decode_push(push.data(), push.data() + push.size());
+    };
     dialogue_.multisample_mode = [this](u32 mode)
     {
         put_state(kMultiSampleMode, mode);

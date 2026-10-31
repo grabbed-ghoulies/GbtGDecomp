@@ -834,6 +834,7 @@ void present_fixed(const SceneD3DFixedDraw& draw, const SceneD3DPresentContext& 
     bool pretransformed = false;
     bool textured = false;
     bool second_set = false;
+    bool volume_sets = false;
     switch (draw.format)
     {
     case 0x002: // D3DFVF_XYZ.
@@ -856,6 +857,12 @@ void present_fixed(const SceneD3DFixedDraw& draw, const SceneD3DPresentContext& 
         stride = 28;
         textured = true;
         second_set = true;
+        break;
+    case 0x140304: // D3DFVF_XYZRHW | D3DFVF_TEX3, sets 1 and 2 three-dimensional (0x0011BA50's quad).
+        stride = 48;
+        pretransformed = true;
+        textured = true;
+        volume_sets = true;
         break;
     default:
         throw Error("fixed-function draw uses vertex format " + std::to_string(draw.format));
@@ -936,6 +943,18 @@ void present_fixed(const SceneD3DFixedDraw& draw, const SceneD3DPresentContext& 
         if (second_set)
         {
             std::memcpy(vertex.uv[1].data(), data + offset + 20, 8);
+        }
+        if (volume_sets)
+        {
+            // Set 0 at +0x10, sets 1 and 2 (three coordinates each) at +0x18 and +0x24.
+            std::memcpy(vertex.uv[0].data(), data + offset + 16, 8);
+            for (u32 set = 1; set < 3; ++set)
+            {
+                float coordinate[3];
+                std::memcpy(coordinate, data + offset + 24 + (set - 1) * 12, 12);
+                vertex.uv[set] = {coordinate[0], coordinate[1]};
+                vertex.uv_zw[set] = {coordinate[2], 1.f};
+            }
         }
         shaded.push_back(vertex);
         screens.push_back(screen);

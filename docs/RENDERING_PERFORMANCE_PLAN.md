@@ -342,10 +342,17 @@ optimized exe; otherwise the menu case starts from different save data.
 | 4 | `scene_d3d_present` | Adjacent quads with the same snapshot, texture and address modes go out as one triangle list. Inline and fixed draws reuse scratch vectors. |
 | 5 | `native_texture` | A refreshed image of unchanged size goes to its existing texture through `UpdateSubresource`, not a new Texture2D/SRV. |
 | 6 | `gfx_readback` | Persistent staging texture. |
+| 7 | `scene_d3d_present`, `gfx_d3d11`, `gfx_vulkan` | Retained native geometry. A GPU-program indexed draw keeps its decoded inputs and index list across frames. An entry is reused only when its declaration, stream bindings, index bytes and every stream byte it decoded compare equal (`memcmp` against a copy), so writes, unloads and address reuse decode again; no mutation tracking is assumed. Address validation runs once per reused draw against its current constants (input-relative checks already passed for those exact inputs). `GfxNativeDraw::retained_geometry` names the entry; both backends keep its upload in an immutable buffer instead of the per-draw ring. Idle entries age out after 600 presents; caps 192 MB (presenter) and 256 MB (each backend). GPU-program draws share one scratch `XboxVertexProgramState` (they read only its inputs) instead of zeroing it and copying the 3 KB constants per draw; CPU-interpreter draws still start from a zeroed state with their constants. |
+| 2 (Vulkan) | `gfx_vulkan` | Within a command buffer, a native draw pushes only the descriptors that differ from the last push (none when all match), and sets viewport/scissor and the stencil reference only when they change. Push descriptors stay in effect until overwritten or until the set is disturbed, and both they and dynamic state are undefined when a command buffer begins, so tracking resets there and after the debug UI pass (another pipeline layout). One-entry memos sit in front of the pipeline map and the specialized pixel shader map (the latter keyed by the 60 raw definition words, so the definition check's outcome is unchanged; a fallback entry is never memoised). Validation layer: 0 errors and the same warnings as the retail path. |
+| 3 (Vulkan) | `gfx_vulkan` | `native_programs` (a `std::map` keyed by whole programs) is looked up through a memo keyed by the address of the program words and verified with `memcmp` against a copy of them. |
+| 10 (Vulkan) | `gfx_vulkan` | A GPU-program draw copies into its 3 KB constant ring slot only the registers its program can read: every operand of constant kind reads the instruction's index, and any relative read takes the whole file. The descriptor range is unchanged; the rest of the slot keeps earlier ring contents, which the shader never reads. |
+| 3 (presenter) | `scene_d3d_present` | Address-validation checks are kept per program (keyed by the address of its words, verified against a copy) instead of in one entry, so draws alternating programs do not rebuild them. |
+| 8 | `scene_resource_memory` | `resolve`, `tail` and `find_address` try the four blocks recent lookups found before searching the map (`find_address` scanned every block; a draw alternates between its stream and index blocks). Blocks never move, resize or overlap, and the cache answers only for addresses and pointers strictly inside its block, so results are those of the map; `free` clears it. The member exists in every build so the class layout does not depend on the option. |
 
 Not done: removing the synchronous render-target round trip (copy → Map → swizzle →
 re-decode). That needs proof that native code never reads the target's memory in the same
-frame. Also not done: R16 index uploads, and GPU decoding of packed streams.
+frame. Also not done: R16 index uploads, GPU decoding of packed streams, and uploading only the
+declared input registers (every GPU-program vertex is a full 16-register, 256-byte `GfxNativeInputs`).
 
 Results: Release, 1280x720, the six benchmark cases, labels `optflag2_retail` / `optflag2_opt`.
 Every screenshot matches with maximum channel delta 0. Median / p99 frame ms, retail →
@@ -360,3 +367,56 @@ optimized:
 
 The transition p99 is unchanged; it is dominated by loading and render-target readback. Main-thread
 allocations per hall frame fell from 34373 to 29505.
+
+### Step 7: retained geometry (2026-10-31)
+
+Prompted by the Steam Deck port (`docs/LINUX.md`): on the Deck the hall's heavy frames (about 3,500 draws, frames
+60–95 of `--scene chapter1_scene1_2playcam`) took 78 ms, with the presenter at 50 ms and 29 MB of program inputs
+re-decoded and uploaded every frame. The same frames take about 17 ms on the desktop with either presenter.
+
+Six benchmark cases, Release, 1280x720, labels `steamdeck_retail` / `steamdeck_opt` (D3D11, the opt build has
+steps 1–7). Every screenshot matches with maximum channel delta 0. Median / p99 frame ms, retail → optimized:
+
+- hall: 4.613 / 5.363 → 3.430 / 3.945
+- tutorial: 4.629 / 6.460 → 3.737 / 4.415
+- attract: 1.960 / 4.110 → 1.141 / 3.989
+- menu: 0.205 / 35.118 → 0.221 / 5.635
+- cutscene: 1.218 / 3.537 → 0.690 / 2.105
+- transition: 20.306 / 89.612 → 10.377 / 77.331
+
+Hall heavy frames 60–95 at 1280x800 (medians, retail → optimized): D3D11 17.6 → 9.0 ms (presenter 13.0 → 5.0 ms),
+Vulkan 17.9 → 10.9 ms (presenter 13.1 → 6.5 ms); uploaded geometry 25.4 MB → 34 KB per frame. Frame 300 matches the
+retail path on both presenters. `--validate-render-boundary` passes on the optimized build.
+
+Reusing the Vulkan backend's per-draw uniform copies (camera, material, the 3 KB vertex constants) when unchanged was
+tried and measured no gain: consecutive native draws almost always carry different constants. It was not kept.
+
+### Profiling round after step 7 (2026-10-31)
+
+The Steam Deck still took 52 ms on the heavy hall frames with step 7 (presenter 25.8 ms, of it Vulkan submission
+12.1 ms; game tick and recording 20.4 ms). A CPU sampling profile on Windows (VS Standard Collector,
+`VSDiagnostics.exe`, which needs no elevation; the `.diagsession` holds an ETL that `xperf -a profile -symbols`
+reads with a RelWithDebInfo `GBTG_OPTIMIZE=ON` build) of the replayed heavy frame
+(`--render-replay-after 70`) and of runs to frame 42 and 100 (subtracted, to isolate the heavy stretch) found:
+
+- `present_indexed` and `vcruntime` copies: every GPU-program draw zeroed an `XboxVertexProgramState` and copied the
+  3 KB constants into it, used only for decoding. Fixed under step 7.
+- `std::map<std::vector<u32>, ...>` lookups of whole vertex programs in the Vulkan backend, twice per draw: 9% of
+  samples. Fixed by the Vulkan step 3 memo.
+- `SceneResourceMemory` lookups (`resolve`, `tail`, `find_address`'s linear scan): about 13% of the heavy stretch
+  including the game tick. Fixed by step 8.
+
+Per-draw stage timing of the replayed frame afterwards (temporary probes, removed): setup 0.57 µs, program check
+0.08 µs (D3D11 0.55 µs), retained-geometry check 0.52 µs, output assembly 0.30 µs, backend 0.94 µs (D3D11 1.42 µs).
+
+Measured against the retail build run back to back (the machine's absolute timings drifted by up to 25% between
+runs), hall heavy frames 60–95 at 1280x800: Vulkan 0.61 → 0.53 of retail, D3D11 0.51 → 0.48; replayed heavy frame,
+Vulkan 0.48 → 0.42. The six benchmark cases still match the retail path with maximum channel delta 0, and
+`--validate-render-boundary` passes.
+
+Tried and not kept, for no measurable change: reserving the next frame's command vector to the previous frame's size
+in `SceneD3DDevice::take_commands`, and the Vulkan uniform reuse above.
+
+Remaining, by the heavy-stretch profile: heap allocation and the kernel time that goes with it (about 47,000
+main-thread allocations per heavy frame, roughly 13 per draw, from recording and game code), Vulkan per-draw
+submission (descriptor pushes, pipeline lookup, the 3 KB constant ring copy) and the driver.

@@ -22,14 +22,7 @@
 #include <string>
 #include <vector>
 
-#if defined(_WIN32)
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#include <objbase.h>
-#include <xaudio2.h>
-#include <xaudio2fx.h>
-#include <x3daudio.h>
-#endif
+#include "xaudio2_host.h"
 
 namespace gbtg
 {
@@ -83,7 +76,7 @@ struct WaveChoice
     u16 loop_count = 0;
 };
 
-#if defined(_WIN32)
+#if GBTG_HAS_XAUDIO2
 
 struct WaveFile
 {
@@ -595,6 +588,7 @@ bool ensure_device()
     {
         return false;
     }
+#if defined(_WIN32)
     const HRESULT co = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (FAILED(co) && co != RPC_E_CHANGED_MODE)
     {
@@ -603,6 +597,7 @@ bool ensure_device()
         log::error("audio CoInitializeEx failed");
         return false;
     }
+#endif
     g_device_result = XAudio2Create(&g_xa, 0, XAUDIO2_DEFAULT_PROCESSOR);
     if (SUCCEEDED(g_device_result))
     {
@@ -965,7 +960,7 @@ i32 pcm_prepare_owned_cue(const Game& g, const char* cue, u64& handle, void*& vo
 {
     handle = 0;
     voice = nullptr;
-#if defined(_WIN32)
+#if GBTG_HAS_XAUDIO2
     build_catalog(g);
     const auto found = g_cues.find(cue);
     if (found == g_cues.end())
@@ -994,7 +989,7 @@ bool pcm_owned_cue_playing(u64 handle)
     {
         return false;
     }
-#if defined(_WIN32)
+#if GBTG_HAS_XAUDIO2
     for (const PcmVoice& voice : g_bed)
     {
         if (voice.handle == handle)
@@ -1013,7 +1008,7 @@ bool pcm_owned_cue_playing(u64 handle)
 // Native audio boundary at 0x00039690. Stop the voice acquired by this event.
 void pcm_stop_owned_cue(u64 handle)
 {
-#if defined(_WIN32)
+#if GBTG_HAS_XAUDIO2
     for (size_t i = 0; i < g_bed.size(); ++i)
     {
         if (g_bed[i].handle == handle)
@@ -1031,7 +1026,7 @@ void pcm_stop_owned_cue(u64 handle)
 
 void pcm_play_pcm(const char* cue, const std::vector<u8>& pcm, int rate, int channels, bool loop, float volume)
 {
-#if defined(_WIN32)
+#if GBTG_HAS_XAUDIO2
     if (cue == nullptr || pcm.empty() || rate < 8000 || channels < 1 || channels > 2)
     {
         return;
@@ -1081,7 +1076,7 @@ void pcm_play_pcm(const char* cue, const std::vector<u8>& pcm, int rate, int cha
 
 void pcm_set_master_volume(float volume)
 {
-#if defined(_WIN32)
+#if GBTG_HAS_XAUDIO2
     if (volume < 0.f)
     {
         volume = 0.f;
@@ -1105,7 +1100,7 @@ AudioListenerSettings native_audio_listener_settings()
     AudioListenerSettings settings;
     settings.master_volume = [](u32 category, i32 attenuation) -> i32
     {
-#if defined(_WIN32)
+#if GBTG_HAS_XAUDIO2
         if (!ensure_device())
         {
             return static_cast<i32>(g_device_result);
@@ -1147,7 +1142,7 @@ AudioListenerSettings native_audio_listener_settings()
     };
     settings.listener = [](const std::array<u32, 12>& words, u32 apply) -> i32
     {
-#if defined(_WIN32)
+#if GBTG_HAS_XAUDIO2
         if (!ensure_device())
         {
             return static_cast<i32>(g_device_result);
@@ -1186,7 +1181,7 @@ void bind_native_audio_listener(AudioCoreListener& listener)
 {
     listener.set_position = [](const Vec3& position, u32)
     {
-#if defined(_WIN32)
+#if GBTG_HAS_XAUDIO2
         g_x3d_listener.Position = {position.x, position.y, position.z};
         apply_all_spatial_sources();
 #else
@@ -1195,7 +1190,7 @@ void bind_native_audio_listener(AudioCoreListener& listener)
     };
     listener.set_velocity = [](const Vec3& velocity, u32)
     {
-#if defined(_WIN32)
+#if GBTG_HAS_XAUDIO2
         g_x3d_listener.Velocity = {velocity.x, velocity.y, velocity.z};
 #else
         (void)velocity;
@@ -1203,7 +1198,7 @@ void bind_native_audio_listener(AudioCoreListener& listener)
     };
     listener.set_orientation = [](const Vec3& front, const Vec3& top, u32)
     {
-#if defined(_WIN32)
+#if GBTG_HAS_XAUDIO2
         // X3DAudio needs an orthonormal pair; XACT took the game's vectors as they are.
         const X3DAUDIO_VECTOR unit_front = unit_vector(front);
         const float along = top.x * unit_front.x + top.y * unit_front.y + top.z * unit_front.z;
@@ -1232,7 +1227,7 @@ RuntimeSoundBoundaries native_sound_boundaries()
     RuntimeSoundBoundaries boundaries;
     boundaries.pause_cue = [](void*, void* cue, bool paused) -> i32
     {
-#if defined(_WIN32)
+#if GBTG_HAS_XAUDIO2
         auto* voice = static_cast<IXAudio2SourceVoice*>(cue);
         return static_cast<i32>(paused ? voice->Stop(0) : voice->Start(0));
 #else
@@ -1241,7 +1236,7 @@ RuntimeSoundBoundaries native_sound_boundaries()
     };
     boundaries.stop_cue = [](void*, u32, u32 flags, void* cue)
     {
-#if defined(_WIN32)
+#if GBTG_HAS_XAUDIO2
         auto* voice = static_cast<IXAudio2SourceVoice*>(cue);
         if (const auto notes = g_cue_notes.find(voice); notes != g_cue_notes.end())
         {
@@ -1255,7 +1250,7 @@ RuntimeSoundBoundaries native_sound_boundaries()
     };
     boundaries.last_error = []() -> u32
     {
-#if defined(_WIN32)
+#if GBTG_HAS_XAUDIO2
         return GetLastError();
 #else
         return static_cast<u32>(errno);
@@ -1275,7 +1270,7 @@ AudioCoreCueBoundaries native_audio_core_cue_boundaries(const Game& game,
     };
     boundaries.play = [](void*, void* source, void*& cue) -> i32
     {
-#if defined(_WIN32)
+#if GBTG_HAS_XAUDIO2
         auto* voice = static_cast<IXAudio2SourceVoice*>(cue);
         if (source != nullptr)
         {
@@ -1301,7 +1296,7 @@ AudioCoreCueBoundaries native_audio_core_cue_boundaries(const Game& game,
 
 void dispatch_native_audio_notifications(std::span<AudioCoreBank* const> banks)
 {
-#if defined(_WIN32)
+#if GBTG_HAS_XAUDIO2
     for (AudioCoreBank* bank : banks)
     {
         if (bank == nullptr)
@@ -1353,7 +1348,7 @@ void dispatch_native_audio_notifications(std::span<AudioCoreBank* const> banks)
 #if defined(GBTG_INSPECTOR_APP)
 void suspend_pcm_audio()
 {
-#if defined(_WIN32)
+#if GBTG_HAS_XAUDIO2
     if (g_xa != nullptr)
     {
         g_xa->StopEngine();
@@ -1373,7 +1368,7 @@ void pcm_set_inspection_output_volume(float volume)
 
 void begin_pcm_inspection_preview(void* cue, float volume)
 {
-#if defined(_WIN32)
+#if GBTG_HAS_XAUDIO2
     if (g_xa == nullptr || cue == nullptr)
     {
         throw Error("sound preview has no prepared audio device/voice");
@@ -1413,7 +1408,7 @@ void begin_pcm_inspection_preview(void* cue, float volume)
 
 void volume_pcm_inspection_preview(void* cue, float volume)
 {
-#if defined(_WIN32)
+#if GBTG_HAS_XAUDIO2
     if (cue != nullptr)
     {
         const HRESULT result = static_cast<IXAudio2SourceVoice*>(cue)->SetVolume(std::clamp(volume, 0.f, 1.f));
@@ -1427,7 +1422,7 @@ void volume_pcm_inspection_preview(void* cue, float volume)
 
 bool pcm_inspection_preview_pending(void* cue, float& seconds)
 {
-#if defined(_WIN32)
+#if GBTG_HAS_XAUDIO2
     XAUDIO2_VOICE_STATE state{};
     auto* voice = static_cast<IXAudio2SourceVoice*>(cue);
     voice->GetState(&state);
@@ -1453,7 +1448,7 @@ bool pcm_inspection_preview_pending(void* cue, float& seconds)
 
 void release_pcm_inspection_preview(void* cue)
 {
-#if defined(_WIN32)
+#if GBTG_HAS_XAUDIO2
     g_cue_notes.erase(cue);
     release_native_cue_voice(static_cast<IXAudio2SourceVoice*>(cue));
     if (g_master != nullptr)
@@ -1465,7 +1460,7 @@ void release_pcm_inspection_preview(void* cue)
 
 float pcm_inspection_output_volume()
 {
-#if defined(_WIN32)
+#if GBTG_HAS_XAUDIO2
     float volume = 0.f;
     if (g_master != nullptr)
     {
@@ -1479,7 +1474,7 @@ float pcm_inspection_output_volume()
 
 void shutdown_pcm_audio()
 {
-#if defined(_WIN32)
+#if GBTG_HAS_XAUDIO2
     suspend_pcm_audio();
     for (auto* voices : {&g_voices, &g_bed})
     {
@@ -1561,7 +1556,7 @@ std::shared_ptr<NativeAudioRuntime> boot_native_audio(const Game& game)
     };
     boundaries.create_engine = []()
     {
-#if defined(_WIN32)
+#if GBTG_HAS_XAUDIO2
         ensure_device();
 #endif
     };
@@ -1571,7 +1566,11 @@ std::shared_ptr<NativeAudioRuntime> boot_native_audio(const Game& game)
     };
     boundaries.register_wavebanks = [&game]()
     {
+#if GBTG_HAS_XAUDIO2
         build_catalog(game);
+#else
+        (void)game;
+#endif
     };
     boundaries.create_sound_bank = [](std::span<const u8> image, void*& handle) -> i32
     {
@@ -1722,7 +1721,7 @@ AudioCoreSourceBoundaries native_audio_core_source_boundaries()
     boundaries.create = [](u32 flags, void*& handle) -> i32
     {
         handle = nullptr;
-#if defined(_WIN32)
+#if GBTG_HAS_XAUDIO2
         if (!ensure_device())
         {
             return static_cast<i32>(g_device_result);
@@ -1757,7 +1756,7 @@ AudioCoreSourceBoundaries native_audio_core_source_boundaries()
     };
     boundaries.position = [](void* handle, const Vec3& position, u32)
     {
-#if defined(_WIN32)
+#if GBTG_HAS_XAUDIO2
         auto* voice = static_cast<IXAudio2Voice*>(handle);
         const auto found = g_spatial_sources.find(voice);
         if (found != g_spatial_sources.end())
@@ -1787,7 +1786,7 @@ AudioCoreSourceBoundaries native_audio_core_source_boundaries()
     {
         // XACT reports 1 (in use) while a routed cue is still playing.
         status = 0;
-#if defined(_WIN32)
+#if GBTG_HAS_XAUDIO2
         for (const PcmVoice& slot : g_bed)
         {
             const auto route = g_source_routes.find(slot.voice);
@@ -1808,7 +1807,7 @@ AudioCoreSourceBoundaries native_audio_core_source_boundaries()
     };
     boundaries.release = [](void* handle)
     {
-#if defined(_WIN32)
+#if GBTG_HAS_XAUDIO2
         for (auto route = g_source_routes.begin(); route != g_source_routes.end();)
         {
             if (route->second != handle)
@@ -1834,7 +1833,7 @@ AudioCoreSourceBoundaries native_audio_core_source_boundaries()
     };
     boundaries.debug_string = [](const char* text)
     {
-#if defined(_WIN32)
+#if GBTG_HAS_XAUDIO2
         OutputDebugStringA(text);
 #else
         (void)text;
@@ -1845,7 +1844,7 @@ AudioCoreSourceBoundaries native_audio_core_source_boundaries()
 
 void pcm_stop_cue(const char* cue)
 {
-#if defined(_WIN32)
+#if GBTG_HAS_XAUDIO2
     if (cue == nullptr)
     {
         return;

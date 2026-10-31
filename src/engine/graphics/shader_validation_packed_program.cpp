@@ -1,8 +1,8 @@
 #include "shader_validation_packed_program.h"
+#include "gbtg/host_seh.h"
 #include "shader_validation_destinations.h"
 #include "shader_validation_operand_tree.h"
 #include <bit>
-#include <excpt.h>
 
 namespace gbtg
 {
@@ -237,13 +237,13 @@ ShaderValidationInstruction* construct_shader_validation_packed_instruction(Shad
 {
     i32 state = -1;
     void* allocation = nullptr;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         construct_packed_body(context, instruction, word0, word1, word2, sequence, pass, state, allocation);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination() && state >= 0)
+        if (GBTG_SEH_ABNORMAL() && state >= 0)
         {
             auto& constructors = context.dependencies.constructors;
             if (state >= 4)
@@ -265,6 +265,7 @@ ShaderValidationInstruction* construct_shader_validation_packed_instruction(Shad
             destroy_shader_validation_registered_object(constructors.object_erase, instruction.base, constructors.retail_address(&instruction));
         }
     }
+    GBTG_SEH_FINALLY_END
     return &instruction;
 }
 
@@ -274,13 +275,13 @@ ShaderValidationPass* construct_shader_validation_pass(ShaderValidationProgramCo
 {
     i32 state = -1;
     void* allocation = nullptr;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         construct_pass_body(context, pass, packed_program, state, allocation);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination() && state >= 0)
+        if (GBTG_SEH_ABNORMAL() && state >= 0)
         {
             auto& constructors = context.dependencies.constructors;
             if (state >= 5)
@@ -306,6 +307,7 @@ ShaderValidationPass* construct_shader_validation_pass(ShaderValidationProgramCo
             destroy_shader_validation_registered_object(constructors.object_erase, pass.base, constructors.retail_address(&pass));
         }
     }
+    GBTG_SEH_FINALLY_END
     return &pass;
 }
 
@@ -374,13 +376,13 @@ ShaderValidationProgramPass* construct_shader_validation_program_pass(ShaderVali
 {
     auto& dependencies = context.dependencies;
     i32 state = -1;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         construct_program_body(context, pass, packed_program, state);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination())
+        if (GBTG_SEH_ABNORMAL())
         {
             if (state == 1)
             {
@@ -393,6 +395,7 @@ ShaderValidationProgramPass* construct_shader_validation_program_pass(ShaderVali
             }
         }
     }
+    GBTG_SEH_FINALLY_END
     return &pass;
 }
 }

@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <thread>
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -16,6 +17,8 @@
 #endif
 #include <windows.h>
 #include <xinput.h>
+#elif defined(GBTG_WITH_SDL)
+#include "sdl_input.h"
 #endif
 
 #if defined(GBTG_WITH_SDL)
@@ -118,6 +121,9 @@ void wait_until(std::chrono::steady_clock::time_point deadline)
                 }
             }
             Sleep(0);
+#else
+            // nanosleep on CLOCK_MONOTONIC, stopping a millisecond short.
+            std::this_thread::sleep_for(left - std::chrono::milliseconds(1));
 #endif
             continue;
         }
@@ -142,6 +148,7 @@ int run_platform(Game& game, const PlatformConfig& cfg)
     gfx_cfg.height = cfg.height;
     gfx_cfg.vsync = cfg.vsync;
     gfx_cfg.widescreen = cfg.widescreen;
+    gfx_cfg.fullscreen = cfg.fullscreen;
     gfx_cfg.visible = !cfg.headless && cfg.screenshot.empty();
     const auto gfx_start = render_profile::Clock::now();
     const bool gfx_ok = gfx_init(gfx_cfg);
@@ -192,8 +199,9 @@ int run_platform(Game& game, const PlatformConfig& cfg)
 #endif
 
 #if defined(GBTG_WITH_SDL)
+    // A visible run whose gfx backend has no window (null) gets a plain SDL window; screenshot runs stay offscreen.
     SDL_Window* win = nullptr;
-    if (!gfx_has_window() && !cfg.headless)
+    if (!gfx_has_window() && gfx_cfg.visible)
     {
         if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS))
         {
@@ -413,47 +421,10 @@ int run_platform(Game& game, const PlatformConfig& cfg)
             {
                 in.quit = true;
             }
-            if (keys[SDL_SCANCODE_UP])
-            {
-                in.up = true;
-            }
-            if (keys[SDL_SCANCODE_DOWN])
-            {
-                in.down = true;
-            }
-            if (keys[SDL_SCANCODE_LEFT])
-            {
-                in.left = true;
-            }
-            if (keys[SDL_SCANCODE_RIGHT])
-            {
-                in.right = true;
-            }
-            if (keys[SDL_SCANCODE_RETURN])
-            {
-                in.accept = true;
-            }
-            if (keys[SDL_SCANCODE_BACKSPACE] || keys[SDL_SCANCODE_B])
-            {
-                in.back = true;
-            }
-            if (keys[SDL_SCANCODE_SPACE])
-            {
-                in.start = true;
-            }
-            if (keys[SDL_SCANCODE_X])
-            {
-                in.page = true;
-            }
-            if (keys[SDL_SCANCODE_LEFTBRACKET])
-            {
-                in.caret_left = true;
-            }
-            if (keys[SDL_SCANCODE_RIGHTBRACKET])
-            {
-                in.caret_right = true;
-            }
         }
+#endif
+#if !defined(_WIN32) && defined(GBTG_WITH_SDL)
+        poll_sdl_input(in);
 #endif
         if (cfg.headless && render_profile::enabled)
         {

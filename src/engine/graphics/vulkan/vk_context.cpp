@@ -1,13 +1,19 @@
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#endif
 
 #define VMA_IMPLEMENTATION
 #define VMA_STATIC_VULKAN_FUNCTIONS 1
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 0
 #include "vk_context.h"
 
+#if defined(_WIN32)
 #include <vulkan/vulkan_win32.h>
+#else
+#include <SDL3/SDL_vulkan.h>
+#endif
 
 #include "gbtg/log.h"
 
@@ -101,8 +107,19 @@ void context_create(Context& context, void* hwnd)
     std::vector<const char*> extensions;
     if (hwnd != nullptr)
     {
+#if defined(_WIN32)
         extensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
         extensions.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
+#else
+        // SDL names the surface extensions of its video driver (Wayland or X11).
+        Uint32 sdl_count = 0;
+        const char* const* sdl_extensions = SDL_Vulkan_GetInstanceExtensions(&sdl_count);
+        if (sdl_extensions == nullptr)
+        {
+            throw Error(std::string("vulkan: SDL_Vulkan_GetInstanceExtensions: ") + SDL_GetError());
+        }
+        extensions.assign(sdl_extensions, sdl_extensions + sdl_count);
+#endif
     }
     std::vector<const char*> layers;
     if (context.validation)
@@ -135,10 +152,17 @@ void context_create(Context& context, void* hwnd)
 
     if (hwnd != nullptr)
     {
+#if defined(_WIN32)
         VkWin32SurfaceCreateInfoKHR surface{VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR};
         surface.hinstance = GetModuleHandleW(nullptr);
         surface.hwnd = static_cast<HWND>(hwnd);
         check(vkCreateWin32SurfaceKHR(context.instance, &surface, nullptr, &context.surface), "vkCreateWin32SurfaceKHR");
+#else
+        if (!SDL_Vulkan_CreateSurface(static_cast<SDL_Window*>(hwnd), context.instance, nullptr, &context.surface))
+        {
+            throw Error(std::string("vulkan: SDL_Vulkan_CreateSurface: ") + SDL_GetError());
+        }
+#endif
     }
 
     // A Vulkan 1.3 device with push descriptors and a graphics queue (that presents, with a window).

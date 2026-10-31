@@ -34,7 +34,8 @@ struct Context
     PFN_vkCmdPushDescriptorSetKHR push_descriptor_set = nullptr;
 };
 
-// A non-null `hwnd` creates a VK_KHR_win32_surface for it and requires present support on the chosen queue.
+// A non-null `hwnd` (an HWND on Windows, an SDL_Window created with SDL_WINDOW_VULKAN elsewhere) creates a
+// window surface for it and requires present support on the chosen queue.
 void context_create(Context& context, void* hwnd);
 void context_destroy(Context& context);
 // Validation errors reported since context_create.

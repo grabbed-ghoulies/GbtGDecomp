@@ -1,6 +1,6 @@
 #include "shader_validation_operand_tree.h"
 #ifdef _MSC_VER
-#include <intrin.h>
+#include "gbtg/host_intrin.h"
 #endif
 
 namespace gbtg

@@ -5385,6 +5385,21 @@ int xapi_format_utility_volume(const XapiAnsiString* name, u32 bytes_per_cluster
     constexpr long kStatusInsufficient = static_cast<long>(0xC000009Au);
     constexpr long kStatusNotSupported = static_cast<long>(0xC00000BBu);
 
+    if (name == nullptr || (name->length > 0 && name->buffer == nullptr))
+    {
+        g_xapi_last_error = 0x57;
+        return 0;
+    }
+
+#if !defined(_WIN32)
+    (void)bytes_per_cluster;
+    (void)kStatusInvalidParameter;
+    (void)kStatusAccessDenied;
+    (void)kStatusInsufficient;
+    (void)kStatusNotSupported;
+    g_xapi_last_error = 50;
+    return 0;
+#else
     auto set_last_nt = [](void* ntdll, long status)
     {
         using RtlFn = unsigned long(__stdcall*)(long);
@@ -5401,21 +5416,6 @@ int xapi_format_utility_volume(const XapiAnsiString* name, u32 bytes_per_cluster
         }
     };
 
-    if (name == nullptr || (name->length > 0 && name->buffer == nullptr))
-    {
-        g_xapi_last_error = 0x57;
-        return 0;
-    }
-
-#if !defined(_WIN32)
-    (void)bytes_per_cluster;
-    (void)kStatusInvalidParameter;
-    (void)kStatusAccessDenied;
-    (void)kStatusInsufficient;
-    (void)kStatusNotSupported;
-    g_xapi_last_error = 50;
-    return 0;
-#else
     struct UnicodeString
     {
         u16 length;

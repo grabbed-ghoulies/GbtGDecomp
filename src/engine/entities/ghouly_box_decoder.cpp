@@ -1,4 +1,5 @@
 #include "ghouly_box_decoder.h"
+#include "gbtg/host_heap.h"
 #include "gbtg/anim.h"
 #include "gbtg/resource_error.h"
 
@@ -23,11 +24,11 @@ namespace
 // Xbox 0x000F73A0
 void* reallocate_spawn_pool(void* allocation, size_t bytes)
 {
-    const u8 heap_id = *(static_cast<const u8*>(allocation) + _msize(allocation) - 2);
+    const u8 heap_id = *(static_cast<const u8*>(allocation) + host_heap_block_size(allocation) - 2);
     void* grown = std::realloc(allocation, bytes + 4);
     if (grown != nullptr)
     {
-        auto* footer = static_cast<u8*>(grown) + _msize(grown) - 4;
+        auto* footer = static_cast<u8*>(grown) + host_heap_block_size(grown) - 4;
         footer[0] = 0x34;
         footer[1] = 0x12;
         footer[2] = heap_id;

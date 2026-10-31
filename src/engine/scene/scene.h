@@ -9,7 +9,7 @@ namespace gbtg
 // The Xbox dword at +0x230 is the object 0x00109470 takes in EAX.
 // DAT_0051108C (g_51108c) is the next symbol, kept separate. The host
 // pointer at +0x230 is wider than that Xbox dword.
-extern alignas(void*) u8 g_510e58[0x230 + sizeof(void*)];
+extern u8 g_510e58[0x230 + sizeof(void*)];
 
 // DAT_00510ED8. 0x80-byte aid. entity.cpp keeps a private copy of 0x0011EB30.
 extern char (&g_510ed8)[0x80];

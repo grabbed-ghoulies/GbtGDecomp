@@ -1,12 +1,8 @@
 #include "shader_validation_instruction_constructor.h"
+#include "gbtg/host_seh.h"
 #include "shader_validation_cleanup.h"
 #include "shader_validation_instruction_ops.h"
 #include "shader_validation_destinations.h"
-#if defined(_WIN32)
-#include <excpt.h>
-#else
-#error Shader validator constructor unwind requires the approved Windows SEH backend.
-#endif
 
 namespace gbtg
 {
@@ -251,13 +247,13 @@ ShaderValidationInstruction* split_shader_validation_scalar_instruction(ShaderVa
     void* third = nullptr;
     void* fourth = nullptr;
     ShaderValidationInstruction* result = nullptr;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         result = split_scalar_body(context, source, state, first, second, third, fourth);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination())
+        if (GBTG_SEH_ABNORMAL())
         {
             // FuncInfo 0x0032B9BC: states 2->1 and 4->3; all others unwind to -1.
             switch (state)
@@ -284,6 +280,7 @@ ShaderValidationInstruction* split_shader_validation_scalar_instruction(ShaderVa
             }
         }
     }
+    GBTG_SEH_FINALLY_END
     return result;
 }
 
@@ -293,13 +290,13 @@ ShaderValidationInstruction* create_shader_validation_instruction(ShaderValidati
     i32 state = -1;
     void* allocation = nullptr;
     ShaderValidationInstruction* instruction = nullptr;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         instruction = create_instruction_body(context, state, allocation);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination())
+        if (GBTG_SEH_ABNORMAL())
         {
             // Every state in FuncInfo 0x0032B968 unwinds directly to -1.
             if (state >= 0 && state <= 3)
@@ -308,6 +305,7 @@ ShaderValidationInstruction* create_shader_validation_instruction(ShaderValidati
             }
         }
     }
+    GBTG_SEH_FINALLY_END
     return instruction;
 }
 }

@@ -1,4 +1,5 @@
 #include "gameselect_slots.h"
+#include <algorithm>
 #include "gameselect_progress.h"
 #include "app_error_screen.h"
 #include "dialogue_draw_context.h"
@@ -284,8 +285,8 @@ void fade_in_plates(SlotSelectWidget& w, GameSelectControlServices& s)
             fraction = 0.f;
         }
     }
-    const u32 plate = with_alpha(white, truncate_byte(long double(fraction) * exe_real(s, 0x0032B158)));
-    const u32 box = with_alpha(rest, truncate_byte(long double(fraction) * exe_real(s, 0x0032B368)));
+    const u32 plate = with_alpha(white, truncate_byte(static_cast<long double>(fraction) * exe_real(s, 0x0032B158)));
+    const u32 box = with_alpha(rest, truncate_byte(static_cast<long double>(fraction) * exe_real(s, 0x0032B368)));
     for (size_t index = 0; index < 3; ++index)
     {
         w.plates[index].plate_sprite.color = plate;
@@ -294,7 +295,7 @@ void fade_in_plates(SlotSelectWidget& w, GameSelectControlServices& s)
     const u32 selected = exe_word(s, 0x00308B18);
     auto& chosen = chosen_plate(w);
     chosen.box_color = selected;
-    set_color_alpha(chosen.box_color, truncate_byte(long double(fraction) * exe_real(s, 0x0032B378)));
+    set_color_alpha(chosen.box_color, truncate_byte(static_cast<long double>(fraction) * exe_real(s, 0x0032B378)));
     double limit;
     std::memcpy(&limit, s.image.memory(0x0032B370, 8).data(), 8);
     if (!(double(fraction) < limit))
@@ -440,7 +441,7 @@ void raise_selected_plate(SlotSelectWidget& w, GameSelectControlServices& s)
     advance_background_fade(w, s); // 0x000DF330, ECX the widget
     if (w.old_background.texture.data() != w.background.texture.data())
     {
-        const u8 alpha = truncate_byte(long double(w.background_fade) * exe_real(s, 0x0032B158));
+        const u8 alpha = truncate_byte(static_cast<long double>(w.background_fade) * exe_real(s, 0x0032B158));
         set_color_alpha(w.background.color, alpha);
         set_color_alpha(w.old_background.color, u8(0xFF - alpha));
     }

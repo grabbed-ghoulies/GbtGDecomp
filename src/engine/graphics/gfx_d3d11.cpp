@@ -210,6 +210,18 @@ struct GfxD3D11
     // The program gfx_native_vertex_program_supported just found, for the draw that follows it.
     std::span<const u32> supported_words;
     ProgramGpu* supported_program = nullptr;
+    // GBTG_OPTIMIZE step 7: immutable uploads of the presenter's retained geometry, by
+    // GfxNativeDraw::retained_geometry. An id's contents never change, so an upload is made once.
+    struct RetainedUpload
+    {
+        ComPtr<ID3D11Buffer> vertices;
+        ComPtr<ID3D11Buffer> indices;
+        size_t bytes = 0;
+        u64 last_used = 0;
+    };
+    std::unordered_map<u64, RetainedUpload> retained_uploads;
+    size_t retained_bytes = 0;
+    u64 frame_number = 0;
     // GBTG_OPTIMIZE step 3: the last specialized pixel shader and its key (owned by specialized_pixels).
     std::array<u32, 60> last_pixel_key{};
     ID3D11PixelShader* last_pixel = nullptr;
@@ -808,6 +820,8 @@ void gfx_shutdown()
     g.native_pipeline = false;
     g.last_pixel = nullptr;
     g.readback_staging.Reset();
+    g.retained_uploads.clear();
+    g.retained_bytes = 0;
 #endif
     g.native_constants.Reset();
     g.native_vs.Reset();
@@ -1030,11 +1044,18 @@ void profile_gpu_end()
 }
 }
 
+#if GBTG_OPTIMIZE
+void age_retained_uploads();
+#endif
+
 void gfx_begin_frame()
 {
     profile_gpu_begin();
     g.native_vb_cursor = 0;
     g.native_ib_cursor = 0;
+#if GBTG_OPTIMIZE
+    age_retained_uploads();
+#endif
     if (!g.ok)
     {
         return;
@@ -1738,6 +1759,116 @@ void gfx_validate_native_boundary()
     log::info("Native boundary PASS: vertex/index mutation, texture serial/release/address reuse, constants, device unload/reload");
 }
 
+#if GBTG_OPTIMIZE
+constexpr size_t kRetainedUploadBytes = size_t(256) << 20;
+constexpr u64 kRetainedUploadIdleFrames = 600;
+
+// GBTG_OPTIMIZE step 7: the immutable buffers for a retained geometry id, created on its first draw.
+GfxD3D11::RetainedUpload& retained_upload(const GfxNativeDraw& draw)
+{
+    auto& uploads = g.retained_uploads;
+    auto found = uploads.find(draw.retained_geometry);
+    if (found != uploads.end())
+    {
+        if (render_profile::enabled)
+        {
+            // Counted as uploaded at the top of gfx_draw_native; this draw uploads nothing.
+            render_profile::frame.uploaded_bytes -= draw.program_inputs.size_bytes() + draw.indices.size_bytes();
+        }
+        found->second.last_used = g.frame_number;
+        return found->second;
+    }
+    GfxD3D11::RetainedUpload upload;
+    const auto create = [](const void* data, size_t bytes, UINT bind, ComPtr<ID3D11Buffer>& buffer)
+    {
+        D3D11_BUFFER_DESC desc{};
+        desc.ByteWidth = UINT(bytes);
+        desc.Usage = D3D11_USAGE_IMMUTABLE;
+        desc.BindFlags = bind;
+        D3D11_SUBRESOURCE_DATA initial{};
+        initial.pSysMem = data;
+        if (FAILED(g.device->CreateBuffer(&desc, &initial, buffer.GetAddressOf())))
+        {
+            throw Error("D3D11 retained native geometry buffer creation failed");
+        }
+        if (render_profile::enabled)
+        {
+            ++render_profile::frame.buffer_allocations;
+        }
+    };
+    create(draw.program_inputs.data(), draw.program_inputs.size_bytes(), D3D11_BIND_VERTEX_BUFFER, upload.vertices);
+    create(draw.indices.data(), draw.indices.size_bytes(), D3D11_BIND_INDEX_BUFFER, upload.indices);
+    upload.bytes = draw.program_inputs.size_bytes() + draw.indices.size_bytes();
+    upload.last_used = g.frame_number;
+    if (g.retained_bytes + upload.bytes > kRetainedUploadBytes)
+    {
+        uploads.clear();
+        g.retained_bytes = 0;
+    }
+    g.retained_bytes += upload.bytes;
+    return uploads.emplace(draw.retained_geometry, std::move(upload)).first->second;
+}
+
+// gfx_draw_native's dynamic vertex upload (the #else branch there): returns the offset in native_vb.
+UINT upload_native_vertices(const void* data, UINT bytes)
+{
+    if (!g.native_vb || g.native_vb_size < bytes)
+    {
+        D3D11_BUFFER_DESC desc{};
+        desc.ByteWidth = std::max<UINT>(bytes, 0x400000);
+        desc.Usage = D3D11_USAGE_DYNAMIC;
+        desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+        desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        g.native_vb.Reset();
+        if (FAILED(g.device->CreateBuffer(&desc, nullptr, g.native_vb.GetAddressOf())))
+        {
+            throw Error("D3D11 native vertex buffer creation failed");
+        }
+        g.native_vb_size = desc.ByteWidth;
+        g.native_vb_cursor = 0;
+        if (render_profile::enabled)
+        {
+            ++render_profile::frame.buffer_allocations;
+        }
+    }
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    if (render_profile::reference || bytes > g.native_vb_size - g.native_vb_cursor)
+    {
+        g.native_vb_cursor = 0;
+    }
+    const UINT vertex_offset = g.native_vb_cursor;
+    if (FAILED(g.context->Map(g.native_vb.Get(), 0,
+        vertex_offset == 0 ? D3D11_MAP_WRITE_DISCARD : D3D11_MAP_WRITE_NO_OVERWRITE, 0, &mapped)))
+    {
+        throw Error("D3D11 native vertex buffer map failed");
+    }
+    std::memcpy(static_cast<u8*>(mapped.pData) + vertex_offset, data, bytes);
+    g.native_vb_cursor += bytes;
+    g.context->Unmap(g.native_vb.Get(), 0);
+    return vertex_offset;
+}
+
+void age_retained_uploads()
+{
+    if (++g.frame_number % 128 != 0)
+    {
+        return;
+    }
+    for (auto upload = g.retained_uploads.begin(); upload != g.retained_uploads.end();)
+    {
+        if (upload->second.last_used + kRetainedUploadIdleFrames < g.frame_number)
+        {
+            g.retained_bytes -= upload->second.bytes;
+            upload = g.retained_uploads.erase(upload);
+        }
+        else
+        {
+            ++upload;
+        }
+    }
+}
+#endif
+
 void gfx_draw_native(const GfxNativeDraw& draw)
 {
     render_profile::Scope measurement(render_profile::Submission);
@@ -1768,6 +1899,18 @@ void gfx_draw_native(const GfxNativeDraw& draw)
 #endif
     const bool program_draw = !draw.program_inputs.empty();
     const UINT bytes = UINT(program_draw ? draw.program_inputs.size_bytes() : draw.vertices.size_bytes());
+#if GBTG_OPTIMIZE
+    // GBTG_OPTIMIZE step 7: retained geometry draws from its own buffers; the ring keeps the rest.
+    GfxD3D11::RetainedUpload* retained = program_draw && draw.retained_geometry != 0 && !draw.indices.empty()
+        ? &retained_upload(draw) : nullptr;
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    UINT vertex_offset = 0;
+    if (retained == nullptr)
+    {
+        vertex_offset = upload_native_vertices(program_draw ? static_cast<const void*>(draw.program_inputs.data())
+                                                            : static_cast<const void*>(draw.vertices.data()), bytes);
+    }
+#else
     if (!g.native_vb || g.native_vb_size < bytes)
     {
         D3D11_BUFFER_DESC desc{};
@@ -1801,6 +1944,7 @@ void gfx_draw_native(const GfxNativeDraw& draw)
     std::memcpy(static_cast<u8*>(mapped.pData) + vertex_offset, program_draw ? static_cast<const void*>(draw.program_inputs.data()) : static_cast<const void*>(draw.vertices.data()), bytes);
     g.native_vb_cursor += bytes;
     g.context->Unmap(g.native_vb.Get(), 0);
+#endif
 #if GBTG_OPTIMIZE
     // GBTG_OPTIMIZE step 2: the shared constant buffer is rewritten only when it changes.
     GpuCB cb;
@@ -2072,7 +2216,8 @@ void gfx_draw_native(const GfxNativeDraw& draw)
         g.context->IASetPrimitiveTopology(topology);
         bound.topology = topology;
     }
-    g.context->IASetVertexBuffers(0, 1, g.native_vb.GetAddressOf(), &stride, &offset);
+    ID3D11Buffer* vertex_buffer = retained != nullptr ? retained->vertices.Get() : g.native_vb.Get();
+    g.context->IASetVertexBuffers(0, 1, &vertex_buffer, &stride, &offset);
     ID3D11InputLayout* layout = g.native_layout.Get();
     ID3D11VertexShader* vertex_shader = g.native_vs.Get();
     GfxD3D11::ProgramGpu* found = nullptr;
@@ -2202,6 +2347,15 @@ void gfx_draw_native(const GfxNativeDraw& draw)
         g.context->Draw(UINT(draw.vertices.size()), 0);
         profile_gpu_draw_end();
     }
+#if GBTG_OPTIMIZE
+    else if (retained != nullptr)
+    {
+        g.context->IASetIndexBuffer(retained->indices.Get(), DXGI_FORMAT_R32_UINT, 0);
+        profile_gpu_draw_begin();
+        g.context->DrawIndexed(UINT(draw.indices.size()), 0, 0);
+        profile_gpu_draw_end();
+    }
+#endif
     else
     {
         const UINT index_bytes = UINT(draw.indices.size_bytes());

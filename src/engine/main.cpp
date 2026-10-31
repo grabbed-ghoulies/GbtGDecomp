@@ -8,6 +8,7 @@
 #include "gbtg/platform.h"
 
 #include "graphics/render_profile.h"
+#include "saves/save_root.h"
 #include <string>
 
 namespace
@@ -56,8 +57,9 @@ int main(int argc, char** argv)
     try
     {
         gbtg::log::set_verbose(has_flag(argc, argv, "--verbose"));
-        // Renewed every boot, beside the executable like gbtg.ini.
-        const auto log_file = gbtg::host_exe_dir(argc > 0 ? argv[0] : "") / "gbtg.log";
+        // Renewed every boot, in the host data directory like gbtg.ini (beside the executable on Windows).
+        const auto data_dir = gbtg::host_data_dir(argc > 0 ? argv[0] : "");
+        const auto log_file = data_dir / "gbtg.log";
         if (gbtg::log::open(log_file))
         {
             gbtg::log::verbose("log %s", log_file.string().c_str());
@@ -69,7 +71,7 @@ int main(int argc, char** argv)
         const gbtg::HostConfig host = gbtg::load_host_config(argc > 0 ? argv[0] : "");
 
         gbtg::PlatformConfig cfg;
-        cfg.game_dir = arg(argc, argv, "--game-dir", "OriginalFiles");
+        cfg.game_dir = arg(argc, argv, "--game-dir", host.game_dir.empty() ? "OriginalFiles" : host.game_dir.string());
         cfg.headless = has_flag(argc, argv, "--headless");
         cfg.debug_ui = has_flag(argc, argv, "--debug-ui");
         cfg.frames = int_arg(argc, argv, "--frames", 0);
@@ -80,6 +82,21 @@ int main(int argc, char** argv)
         cfg.height = int_arg(argc, argv, "--height", host.height);
         cfg.vsync = int_arg(argc, argv, "--vsync", host.vsync);
         cfg.widescreen = host.widescreen || has_flag(argc, argv, "--widescreen");
+        cfg.fullscreen = (host.fullscreen || has_flag(argc, argv, "--fullscreen")) && !has_flag(argc, argv, "--windowed");
+#if !defined(_WIN32)
+        // The data directory holds saves/ and, as the working directory, cache/; the game folder stays where the
+        // launch named it.
+        {
+            std::error_code ec;
+            cfg.game_dir = std::filesystem::absolute(cfg.game_dir, ec);
+            gbtg::set_save_root(data_dir / "saves");
+            std::filesystem::current_path(data_dir, ec);
+            if (ec)
+            {
+                gbtg::log::warn("data directory %s: %s", data_dir.string().c_str(), ec.message().c_str());
+            }
+        }
+#endif
         // 0x000FC310's XGetVideoFlags: the widescreen bit sets DAT_00509703.
         gbtg::entity_detail::g_video_widescreen = cfg.widescreen ? 1 : 0;
         gbtg::gfx_select_backend(arg(argc, argv, "--gfx", host.gfx_backend).string().c_str());
@@ -136,7 +153,7 @@ int main(int argc, char** argv)
     catch (const std::exception& ex)
     {
         gbtg::log::error("error: %s", ex.what());
-        gbtg::log::error("usage: gbtg --game-dir <dir> [--headless] [--frames N] [--screenshot file.bmp] [--scene name-or-index] [--width W --height H --vsync N] [--gfx d3d11|vulkan|null] [--render-profile file.csv] [--render-reference] [--cpu-vertex] [--validate-gpu-vertices] [--validate-render-boundary] [--verbose]");
+        gbtg::log::error("usage: gbtg --game-dir <dir> [--headless] [--frames N] [--screenshot file.bmp] [--scene name-or-index] [--width W --height H --vsync N] [--fullscreen|--windowed] [--gfx d3d11|vulkan|null] [--render-profile file.csv] [--render-reference] [--cpu-vertex] [--validate-gpu-vertices] [--validate-render-boundary] [--verbose]");
         return 1;
     }
 }

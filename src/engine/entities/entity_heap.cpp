@@ -1,4 +1,5 @@
 #include "gbtg/entity.h"
+#include "gbtg/host_heap.h"
 #include "gbtg/anim.h"
 #include "gbtg/model_runtime.h"
 #include "gbtg/actor_runtime.h"
@@ -11,7 +12,6 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <malloc.h>
 #include <span>
 #include <vector>
 
@@ -56,9 +56,9 @@ size_t native_heap_size(void* block)
     const auto found = aligned_blocks.find(block);
     if (found != aligned_blocks.end())
     {
-        return _aligned_msize(block, found->second, 0);
+        return host_aligned_block_size(block, found->second);
     }
-    return _msize(block);
+    return host_heap_block_size(block);
 }
 
 void native_heap_free(void* block)
@@ -67,7 +67,7 @@ void native_heap_free(void* block)
     if (found != aligned_blocks.end())
     {
         aligned_blocks.erase(found);
-        _aligned_free(block);
+        host_aligned_free(block);
         return;
     }
     std::free(block);
@@ -117,7 +117,7 @@ void* engine_heap_allocate(i32 size)
     {
         return nullptr;
     }
-    const size_t span = _msize(block);
+    const size_t span = host_heap_block_size(block);
     u8* tag = static_cast<u8*>(block) + span - 4;
     tag[0] = 0x34;
     tag[1] = 0x12;
@@ -134,7 +134,7 @@ void* engine_heap_allocate_aligned(i32 size, u32 alignment)
     slot.alignment = alignment;
     // HeapAlloc consumes the temporary alignment field in the retail heap.
     const size_t requested = size_t(u32(size) + 4u);
-    void* block = alignment == 0 ? std::malloc(requested) : _aligned_malloc(requested, alignment);
+    void* block = alignment == 0 ? std::malloc(requested) : host_aligned_allocate(requested, alignment);
     if (block != nullptr)
     {
         if (alignment != 0)
@@ -154,11 +154,11 @@ void* engine_heap_allocate_aligned(i32 size, u32 alignment)
 // Xbox 0x000F73A0
 void* engine_heap_reallocate(void* block, i32 size)
 {
-    const u8 heap_id = *(static_cast<const u8*>(block) + _msize(block) - 2);
+    const u8 heap_id = *(static_cast<const u8*>(block) + host_heap_block_size(block) - 2);
     void* grown = std::realloc(block, static_cast<size_t>(u32(size) + 4u));
     if (grown != nullptr)
     {
-        auto* footer = static_cast<u8*>(grown) + _msize(grown) - 4;
+        auto* footer = static_cast<u8*>(grown) + host_heap_block_size(grown) - 4;
         footer[0] = 0x34;
         footer[1] = 0x12;
         footer[2] = heap_id;

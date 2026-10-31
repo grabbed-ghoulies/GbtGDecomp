@@ -1,8 +1,8 @@
 #include "shader_validation_optimizer.h"
+#include "gbtg/host_seh.h"
 #include "shader_validation_destinations.h"
 #include "shader_validation_cleanup.h"
 #include "shader_validation_operand_tree.h"
-#include <excpt.h>
 
 namespace gbtg
 {
@@ -429,13 +429,13 @@ void normalize_shader_validation_instruction(ShaderValidationOptimizationContext
 {
     OptimizationLocals locals;
     i32 state = -1;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         normalize_instruction_body(context, pass, instruction, owners, instructions, locals, state);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination())
+        if (GBTG_SEH_ABNORMAL())
         {
             if (state == 5 || state == 8)
             {
@@ -464,6 +464,7 @@ void normalize_shader_validation_instruction(ShaderValidationOptimizationContext
             }
         }
     }
+    GBTG_SEH_FINALLY_END
 }
 
 // Xbox 0x00195B89
@@ -648,13 +649,13 @@ void optimize_shader_validation_program_worklists(ShaderValidationOptimizationCo
     ShaderValidationBalancedChildTree instructions;
     ShaderValidationBalancedChildTree owners;
     i32 state = -1;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         optimize_worklists_body(context, pass, instructions, owners, state);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination())
+        if (GBTG_SEH_ABNORMAL())
         {
             if (state == 1)
             {
@@ -668,6 +669,7 @@ void optimize_shader_validation_program_worklists(ShaderValidationOptimizationCo
             }
         }
     }
+    GBTG_SEH_FINALLY_END
 }
 
 // Xbox 0x00197223

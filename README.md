@@ -105,7 +105,8 @@ Useful build options:
   the first is the default. D3D11 is the default list on Windows and nothing
   elsewhere. The non-rendering null backend is always built. Choose one at run
   time with `--gfx` or `Backend=` in `gbtg.ini`. Vulkan needs the LunarG SDK; see `docs/VULKAN.md`.
-- `-DGBTG_WITH_SDL=ON` adds an optional SDL3 window loop for the null backend.
+- `-DGBTG_WITH_SDL=ON` adds an optional SDL3 window loop for the null backend. It is on, and required, off
+  Windows, where SDL3 owns the window and input. Linux and Steam Deck builds are described in `docs/LINUX.md`.
 - `-DGBTG_BUILD_INSPECTOR=OFF` omits the separate inspector targets.
 - `-DGBTG_OPTIMIZE=ON` compiles the host presenter optimizations (see
   `docs/RENDERING_PERFORMANCE_PLAN.md`). The default, OFF, builds the retail

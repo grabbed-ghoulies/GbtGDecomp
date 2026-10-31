@@ -1,12 +1,8 @@
 #include "shader_validation_constructors.h"
+#include "gbtg/host_seh.h"
 #include "shader_validation_serializer.h"
 #include "shader_validation_tree_instances.h"
 #include "shader_validation_instruction_ops.h"
-#if defined(_WIN32)
-#include <excpt.h>
-#else
-#error Shader validator constructor unwind requires the approved Windows SEH backend.
-#endif
 
 namespace gbtg
 {
@@ -91,18 +87,19 @@ void move_shader_validation_unwritten_readers_to_derived(ShaderValidationConstru
 {
     ShaderValidationChannelMask accumulated;
     i32 state = -1;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         move_unwritten_readers_body(context, owner, operand_at, accumulated, state);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination() && state == 0)
+        if (GBTG_SEH_ABNORMAL() && state == 0)
         {
             // FuncInfo 0x0032BACC: 0x001709FA destroys EBP-0x30.
             destroy_shader_validation_channel_mask(accumulated);
         }
     }
+    GBTG_SEH_FINALLY_END
 }
 
 // Xbox 0x00192C9E
@@ -148,7 +145,7 @@ void reparent_shader_validation_owner_operand(ShaderValidationConstructorContext
 {
     void* allocation = nullptr;
     i32 state = -1;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         if (owner.operand == nullptr)
         {
@@ -169,14 +166,15 @@ void reparent_shader_validation_owner_operand(ShaderValidationConstructorContext
         }
         reparent_shader_validation_operand(context, *owner.operand, parent);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination() && state == 0)
+        if (GBTG_SEH_ABNORMAL() && state == 0)
         {
             // FuncInfo 0x0032B8CC, state 0: 0x001709B7 releases EBP-0x10.
             release_shader_validation_allocation(allocation, context.release);
         }
     }
+    GBTG_SEH_FINALLY_END
 }
 
 // Xbox 0x0018F281
@@ -324,13 +322,13 @@ ShaderValidationOperand* construct_shader_validation_operand(ShaderValidationCon
     u8 marker)
 {
     i32 state = -1;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         construct_operand_body(context, operand, object_address, instruction, owner, kind, parent, marker, state);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination())
+        if (GBTG_SEH_ABNORMAL())
         {
             switch (state)
             {
@@ -343,6 +341,7 @@ ShaderValidationOperand* construct_shader_validation_operand(ShaderValidationCon
             }
         }
     }
+    GBTG_SEH_FINALLY_END
     return &operand;
 }
 
@@ -353,13 +352,13 @@ ShaderValidationOwner* construct_shader_validation_owner(ShaderValidationConstru
 {
     i32 state = -1;
     void* allocation = nullptr;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         construct_owner_body(context, owner, object_address, kind, source, parent, channel_value, mask, state, allocation);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination())
+        if (GBTG_SEH_ABNORMAL())
         {
             switch (state)
             {
@@ -378,6 +377,7 @@ ShaderValidationOwner* construct_shader_validation_owner(ShaderValidationConstru
             }
         }
     }
+    GBTG_SEH_FINALLY_END
     return &owner;
 }
 }

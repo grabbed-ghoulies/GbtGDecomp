@@ -1,10 +1,6 @@
 #include "shader_validation_owner_sets.h"
+#include "gbtg/host_seh.h"
 #include "shader_validation_cleanup.h"
-#if defined(_WIN32)
-#include <excpt.h>
-#else
-#error Shader validator constructor unwind requires the approved Windows SEH backend.
-#endif
 
 namespace gbtg
 {
@@ -145,18 +141,19 @@ bool shader_validation_owner_readers_registered(const ShaderValidationOwner& own
 {
     // registry is a balanced tree of retail operand addresses; owner registries map through context.operand_at.
     bool result = false;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         result = readers_registered_body(owner, registry, mask, instruction, climb_derived, climb_channel_owner, context);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination())
+        if (GBTG_SEH_ABNORMAL())
         {
             // Xbox 0x00170A5F: FuncInfo 0x0032BAA8 destroys the by-value mask argument.
             destroy_shader_validation_channel_mask(mask);
         }
     }
+    GBTG_SEH_FINALLY_END
     return result;
 }
 
@@ -167,7 +164,7 @@ ShaderValidationChannelMask* shader_validation_unregistered_reader_channels(cons
 {
     ShaderValidationChannelMask mask;
     construct_shader_validation_channel_mask(mask, 0);
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         for (u32 channel = 0; channel < 4; ++channel)
         {
@@ -178,14 +175,15 @@ ShaderValidationChannelMask* shader_validation_unregistered_reader_channels(cons
         output.vtable_address = 0x00203790;
         output.channels = mask.channels;
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination())
+        if (GBTG_SEH_ABNORMAL())
         {
             // Xbox 0x001707EF: FuncInfo 0x0032B7F0 destroys the local mask.
             destroy_shader_validation_channel_mask(mask);
         }
     }
+    GBTG_SEH_FINALLY_END
     return &output;
 }
 
@@ -194,7 +192,7 @@ bool move_shader_validation_masked_channels(ShaderValidationOwner& owner, Shader
     u8 climb, u8 propagate, const ShaderValidationSetContext& context)
 {
     bool result = true;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         for (u32 channel = 0; channel < 4; ++channel)
         {
@@ -216,14 +214,15 @@ bool move_shader_validation_masked_channels(ShaderValidationOwner& owner, Shader
             }
         }
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination())
+        if (GBTG_SEH_ABNORMAL())
         {
             // Xbox 0x00170823: FuncInfo 0x0032B848 destroys the by-value mask.
             destroy_shader_validation_channel_mask(mask);
         }
     }
+    GBTG_SEH_FINALLY_END
     return result;
 }
 
@@ -436,13 +435,13 @@ bool link_shader_validation_owners(ShaderValidationOwner* owner, ShaderValidatio
     const ShaderValidationSetContext& context)
 {
     bool result = false;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         result = link_owners_body(owner, other, query_only, owner_mask, other_mask, context);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination())
+        if (GBTG_SEH_ABNORMAL())
         {
             // FuncInfo 0x0032BC64: state 1 (+0x10 mask) -> state 0 (+0x18 mask).
             // Xbox 0x0017084F
@@ -451,6 +450,7 @@ bool link_shader_validation_owners(ShaderValidationOwner* owner, ShaderValidatio
             destroy_shader_validation_channel_mask(other_mask);
         }
     }
+    GBTG_SEH_FINALLY_END
     return result;
 }
 
@@ -462,13 +462,13 @@ bool reorder_shader_validation_owner_channels(ShaderValidationOwner& owner, Shad
     ShaderValidationChannelOrder remaining;
     i32 state = 0;
     bool result = false;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         result = reorder_owner_channels_body(owner, order, retained_inverse, remaining, state, context);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination())
+        if (GBTG_SEH_ABNORMAL())
         {
             // FuncInfo 0x0032B824: states 2 -> 1 -> 0 -> -1.
             switch (state)
@@ -488,6 +488,7 @@ bool reorder_shader_validation_owner_channels(ShaderValidationOwner& owner, Shad
             }
         }
     }
+    GBTG_SEH_FINALLY_END
     return result;
 }
 
@@ -498,18 +499,19 @@ bool shader_validation_owner_dependencies_registered(const ShaderValidationOwner
     const ShaderValidationSetContext& context)
 {
     bool result = false;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         result = owner_dependencies_registered_body(owner, pass, writers, readers, instruction, mask, context);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination())
+        if (GBTG_SEH_ABNORMAL())
         {
             // Xbox 0x00170835: FuncInfo 0x0032B86C destroys the by-value mask.
             destroy_shader_validation_channel_mask(mask);
         }
     }
+    GBTG_SEH_FINALLY_END
     return result;
 }
 
@@ -523,22 +525,23 @@ bool negate_shader_validation_owner_writers(ShaderValidationOwner& owner, const 
     ShaderValidationBalancedChildTree writers{};
     i32 state = -1;
     bool result = false;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         result = negate_writers_body(owner, writers, context, state);
         state = -1;
         writers.vtable_address = 0x002037d0;
         destroy_shader_validation_balanced_nodes_18f2aa(writers.nodes.root, context.deleting_destructor);
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination() && state == 0)
+        if (GBTG_SEH_ABNORMAL() && state == 0)
         {
             // Xbox 0x00170890 -> 0x001909CE: the local set's destructor.
             writers.vtable_address = 0x002037d0;
             clear_shader_validation_balanced_tree_190322(writers, context.deleting_destructor);
         }
     }
+    GBTG_SEH_FINALLY_END
     return result;
 }
 
@@ -549,18 +552,19 @@ bool shader_validation_instruction_accepts_order(const ShaderValidationInstructi
     (void)instruction;
     (void)slot;
     bool result = false;
-    __try
+    GBTG_SEH_TRY_FINALLY
     {
         result = false;
     }
-    __finally
+    GBTG_SEH_FINALLY
     {
-        if (AbnormalTermination())
+        if (GBTG_SEH_ABNORMAL())
         {
             // Xbox 0x00170A29: FuncInfo 0x0032BB2C destroys the by-value order.
             destroy_shader_validation_channel_order(order);
         }
     }
+    GBTG_SEH_FINALLY_END
     return result;
 }
 

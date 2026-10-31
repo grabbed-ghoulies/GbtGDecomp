@@ -668,10 +668,12 @@ Not translated yet (each raises when reached):
   on the PC, `gbtg.ini` `[Video] Widescreen=1` (or `--widescreen`;
   `GBTG_WIDESCREEN=1` for the transition tests). Boot `0x00033030` then sets
   the aspect row `DAT_005077F8` to 16:9, and `0x00058150` drops it to 4:3
-  around the dialogue page and restores it. The redraw stretches the captured
-  page by 4/3 about the screen's centre and captures it again; with the 1.1
-  pixel-aspect pad the 4:3 front end's 528-pixel view overshoots, so the page
-  loses about 6% at each side, as retail's math gives. The D3D11 presenter
-  clears colour rectangles on the back buffer through the HUD viewport for the
-  fitted 4:3 view.
+  around the dialogue page and restores it. Retail's back buffer is anamorphic
+  (the whole 16:9 picture in 640x480), so a page capture holds the squeezed
+  picture and the redraw stretches it by 4/3 about the screen's centre and
+  captures it again. The host capture (`gfx_readback_ui`) therefore takes the
+  whole presented 16:9 area in widescreen, not its centre 4:3, or the redraw
+  would stretch an already-correct picture. Both presenters clear colour
+  rectangles on the back buffer through the HUD viewport for the fitted 4:3
+  view.
 - The Japanese keyboard (`0x00012920`), reached only in Japanese.

@@ -3172,8 +3172,12 @@ bool gfx_readback_ui(RgbaImage& out)
     {
         return false;
     }
-    const int width = std::min(frame.width, frame.height * 4 / 3);
-    const int height = std::min(frame.height, frame.width * 3 / 4);
+    // The presented frame's area: the 640x480 back buffer's picture, 16:9 in widescreen (the Xbox's anamorphic
+    // buffer holds the whole 16:9 view, which the book's widescreen redraw 0x0005CE80 then corrects), else 4:3.
+    const int across = g.cfg.widescreen ? 16 : 4;
+    const int down = g.cfg.widescreen ? 9 : 3;
+    const int width = std::min(frame.width, frame.height * across / down);
+    const int height = std::min(frame.height, frame.width * down / across);
     const int left = (frame.width - width) / 2;
     const int top = (frame.height - height) / 2;
     out.width = width;
